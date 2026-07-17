@@ -140,19 +140,67 @@ describe("ReferenceVideoCanvas", () => {
     expect(ta.value).toContain("first");
   });
 
-  // v3 重构：preproc 入口从二级页面跳转改为主 tab 切换；不再有"返回编辑"按钮。
-  // 切到拆分预处理 tab 后，UnitList 被隐藏，PreprocessingView inline 渲染。
-  it("inline-renders preprocessing view via the main tab", async () => {
+  // preproc 入口从二级页面跳转改为主 tab 切换；切到拆分预处理 tab 后 UnitList 被隐藏，
+  // step1 审核 gate（ScriptReviewGate，contentMode=reference_video）inline 渲染。
+  it("inline-renders the step1 review gate via the main tab", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1"), mkUnit("E1U2")],
+    });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      episode: 1,
+      content_mode: "narration",
+      status: "pending_review",
+      fingerprint: "fp",
+      confirmed_at: null,
+      content: { units: [{ unit_id: "E1U1", shots: [{ duration: 3, text: "shot text" }], references: [] }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
     const preprocTab = screen.getByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
     fireEvent.click(preprocTab);
-    // tab 切换后 UnitList 被隐藏；PreprocessingView 由调用方控制 toolbar 已不再显示返回按钮（直接 inline）
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
+    // UnitList 被隐藏，改由 gate 渲染 step1 结构化中间态（shot 文本进入可编辑 textarea）
     expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByDisplayValue("shot text")).toBeInTheDocument());
+  });
+
+  // step2 剧本未生成时（仅 segmented）units 端点无脚本可拆、会 404：默认落 preproc tab
+  // 且不发起 units 请求，避免用户先看到一个报错的 Unit 面板（回归 Codex P2）。
+  it("defaults to preproc tab and skips loadUnits when hasScript is false", async () => {
+    const listSpy = vi.spyOn(API, "listReferenceVideoUnits");
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      episode: 1,
+      content_mode: "narration",
+      status: "pending_review",
+      fingerprint: "fp",
+      confirmed_at: null,
+      content: { units: [{ unit_id: "E1U1", shots: [{ duration: 3, text: "shot text" }], references: [] }] },
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
+    const preprocTab = await screen.findByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
+    expect(preprocTab).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(screen.getByDisplayValue("shot text")).toBeInTheDocument());
+    expect(listSpy).not.toHaveBeenCalled();
+  });
+
+  it("switches to units tab and fetches once hasScript flips true", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      episode: 1,
+      content_mode: "narration",
+      status: "pending_review",
+      fingerprint: "fp",
+      confirmed_at: null,
+      content: { units: [] },
+    });
+    const { rerender } = render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
+    const preprocTab = await screen.findByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
+    expect(preprocTab).toHaveAttribute("aria-selected", "true");
+    rerender(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={true} />);
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /Video units|视频单元/ })).toHaveAttribute("aria-selected", "true"),
+    );
+    await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
   });
 
   // optimistic：任务队列 3s 轮询间隙内按钮也要立刻反馈 busy，否则用户

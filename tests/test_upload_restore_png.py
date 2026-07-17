@@ -40,7 +40,7 @@ class TestUploadRestorePng:
         pm.save_project(project_name, project)
 
         # Patch router project manager to the temp projects root.
-        monkeypatch.setattr(versions_router, "pm", pm)
+        monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
 
         # Switch back to v1 without creating a synthetic new version.
         result = await versions_router.restore_version(

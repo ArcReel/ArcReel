@@ -283,7 +283,7 @@ def _cred_to_response(cred: ProviderCredential) -> CredentialResponse:
 
 
 async def _invalidate_caches(request: Request) -> None:
-    from server.services.generation_tasks import invalidate_backend_cache
+    from server.services.generation_context import invalidate_backend_cache
 
     invalidate_backend_cache()
     worker = getattr(request.app.state, "generation_worker", None)

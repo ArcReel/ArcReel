@@ -6,14 +6,16 @@ import logging
 import math
 from typing import Any
 
-from lib.config.resolver import ConfigResolver
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from lib.config.resolver import ConfigResolver, get_provider_fallback
 from lib.cost_calculator import cost_calculator
+from lib.db.repositories.usage_repo import UsageRepository
 from lib.grid.layout import calculate_grid_layout
+from lib.pricing.strategies import PricingParams
 from lib.project_manager import effective_mode
 from lib.script_editor import ScriptEditError
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
-from lib.usage_tracker import UsageTracker
-from server.services.resolution_resolver import get_provider_fallback, resolve_resolution
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +36,9 @@ def _merge_breakdowns(a: CostBreakdown, b: CostBreakdown) -> CostBreakdown:
 
 
 class CostEstimationService:
-    def __init__(self, resolver: ConfigResolver, tracker: UsageTracker) -> None:
+    def __init__(self, resolver: ConfigResolver, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._resolver = resolver
-        self._tracker = tracker
+        self._session_factory = session_factory
 
     async def compute(
         self,
@@ -49,14 +51,18 @@ class CostEstimationService:
 
         # Resolve current model config（共享单一 session）。估价以 T2I 为准（T2I/I2I 是正交能力槽，
         # T2I 缺失不应回落 I2I —— 那会拿错误能力的价目算费用）。
+        # image/video 的项目覆盖优先级由 ConfigResolver 统一解析，与执行路径共用同一套
+        # payload>project>全局默认 链路，此处 payload 传 None（预估无历史任务 payload 可排空）。
         async with self._resolver.session() as r:
             try:
-                image_provider, image_model = await r.default_image_backend_t2i()
+                resolved_image = await r.resolve_image_backend(project_data, None, capability="t2i")
+                image_provider, image_model = resolved_image.provider_id, resolved_image.model_id
             except Exception:
                 image_provider, image_model = "unknown", "unknown"
 
             try:
-                video_provider, video_model = await r.default_video_backend()
+                resolved_video = await r.resolve_video_backend(project_data, None)
+                video_provider, video_model = resolved_video.provider_id, resolved_video.model_id
             except Exception:
                 video_provider, video_model = "unknown", "unknown"
 
@@ -73,37 +79,15 @@ class CostEstimationService:
             except Exception:
                 audio_provider, audio_model = "unknown", "unknown"
 
-        # 项目级视频配置覆盖
-        # 优先读新格式 video_backend（"provider_id/model_id"），兼容旧 video_provider 字段
-        project_video_backend = project_data.get("video_backend") or ""
-        registry_video_provider_id: str | None = None
-        if project_video_backend and "/" in project_video_backend:
-            _vb_provider, _vb_model = project_video_backend.split("/", 1)
-            registry_video_provider_id = _vb_provider
-            video_provider = _vb_provider
-            video_model = _vb_model
-        else:
-            project_video_provider = project_data.get("video_provider")
-            if project_video_provider:
-                video_provider = project_video_provider
-                registry_video_provider_id = project_video_provider
-                # 项目级可能有自己的模型设置
-                project_video_settings = project_data.get("video_provider_settings", {}).get(project_video_provider, {})
-                if project_video_settings.get("model"):
-                    video_model = project_video_settings["model"]
-
-        # 项目级图片配置覆盖：按 T2I 槽估算（ProjectManager.load_project 已将旧 image_backend
-        # 字段 lazy 升级到 image_provider_t2i/i2i，所以这里只读新 T2I 槽）
-        project_image_pair = project_data.get("image_provider_t2i")
-        if isinstance(project_image_pair, str) and "/" in project_image_pair:
-            image_provider, image_model = project_image_pair.split("/", 1)
-
-        _resolve_pid = registry_video_provider_id or video_provider
-        _resolved_resolution = await resolve_resolution(project_data, _resolve_pid, video_model or "")
+            try:
+                _resolved_resolution = await r.resolve_resolution(project_data, video_provider, video_model or "")
+            except Exception:
+                _resolved_resolution = None
         video_resolution = _resolved_resolution or get_provider_fallback(video_provider)
 
         # Get actual costs
-        actual_by_segment = await self._tracker.get_actual_costs_by_segment(project_name)
+        async with self._session_factory() as session:
+            actual_by_segment = await UsageRepository(session).get_actual_costs_by_segment(project_name)
 
         generation_mode = project_data.get("generation_mode", "single")
         # 规范化 aspect_ratio：可能是 str 或 dict，复用生成任务的解析逻辑
@@ -121,10 +105,8 @@ class CostEstimationService:
         grid_image_unit_cost: tuple[float, str] | None = None
         try:
             image_unit_cost = cost_calculator.calculate_cost(
-                provider=image_provider,
-                call_type="image",
-                model=image_model,
-                resolution="1K",
+                image_provider,
+                PricingParams(call_type="image", model=image_model, resolution="1K"),
             )
         except Exception:
             logger.debug("无法计算 image 预估单价", exc_info=True)
@@ -132,10 +114,8 @@ class CostEstimationService:
         if generation_mode == "grid":
             try:
                 grid_image_unit_cost = cost_calculator.calculate_cost(
-                    provider=image_provider,
-                    call_type="image",
-                    model=image_model,
-                    resolution="2K",
+                    image_provider,
+                    PricingParams(call_type="image", model=image_model, resolution="2K"),
                 )
             except Exception:
                 grid_image_unit_cost = image_unit_cost
@@ -224,12 +204,14 @@ class CostEstimationService:
 
                 try:
                     vid_amount, vid_currency = cost_calculator.calculate_cost(
-                        provider=video_provider,
-                        call_type="video",
-                        model=video_model,
-                        resolution=video_resolution,
-                        duration_seconds=duration,
-                        generate_audio=generate_audio,
+                        video_provider,
+                        PricingParams(
+                            call_type="video",
+                            model=video_model,
+                            resolution=video_resolution,
+                            duration_seconds=duration,
+                            generate_audio=generate_audio,
+                        ),
                     )
                     _add_cost(est_video, vid_amount, vid_currency)
                 except Exception:
@@ -241,10 +223,8 @@ class CostEstimationService:
                 if narration_chars:
                     try:
                         audio_amount, audio_currency = cost_calculator.calculate_cost(
-                            provider=audio_provider,
-                            call_type="audio",
-                            model=audio_model,
-                            usage_tokens=narration_chars,
+                            audio_provider,
+                            PricingParams(call_type="audio", model=audio_model, usage_tokens=narration_chars),
                         )
                         _add_cost(est_audio, audio_amount, audio_currency)
                     except Exception:
@@ -298,7 +278,8 @@ class CostEstimationService:
                 )
 
         # Project-level actual costs (characters/scenes/props/products 资产图 —— segment_id is null)
-        project_image_by_type = await self._tracker.get_project_image_costs_by_asset_type(project_name)
+        async with self._session_factory() as session:
+            project_image_by_type = await UsageRepository(session).get_project_image_costs_by_asset_type(project_name)
         for asset_type in ("characters", "scenes", "props", "products"):
             bucket = project_image_by_type.get(asset_type)
             if bucket:

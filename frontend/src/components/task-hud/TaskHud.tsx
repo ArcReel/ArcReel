@@ -16,7 +16,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useAppStore } from "@/stores/app-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { isTerminalStatus, useTasksStore } from "@/stores/tasks-store";
 import { API } from "@/api";
 import type { TaskItem } from "@/types";
 import { GlassPopover } from "@/components/ui/GlassPopover";
@@ -371,12 +371,7 @@ function ChannelSection({
   );
   const queued = tasks.filter((task) => task.status === "queued");
   const recent = tasks
-    .filter(
-      (task) =>
-        task.status === "succeeded" ||
-        task.status === "failed" ||
-        task.status === "cancelled",
-    )
+    .filter((task) => isTerminalStatus(task.status))
     .filter((task) => !hiddenIds.has(task.task_id))
     .slice(0, 5);
 

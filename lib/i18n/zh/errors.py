@@ -1,5 +1,6 @@
 MESSAGES = {
     "project_not_found": "项目 '{name}' 不存在或未初始化",
+    "resource_not_found": "请求的资源不存在",
     "overview_ai_response_invalid": "AI 返回内容无法解析为项目概述，请重试或更换模型/供应商",
     "video_capabilities_unresolved": "无法解析项目 '{name}' 的视频模型能力：{reason}",
     "scope_invalid": "scope 必须为 full 或 current",
@@ -72,13 +73,14 @@ MESSAGES = {
     "unsupported_video_type": "不支持的视频类型 {ext}，允许的类型: {allowed}",
     "upload_too_large": "上传文件超过大小上限（{max_mb} MB）",
     "invalid_image_file": "无效的图片文件，无法解析",
+    "vision_model_required": "文本模型 {provider}/{model} 不支持图像输入（vision），无法执行 {task} 任务；请在设置中为简单档或默认模型选择支持 vision 的文本模型",
     "internal_server_error": "服务器内部错误，请稍后重试",
     "invalid_asset_type": "资产类型必须为 character / scene / prop",
     "invalid_asset_filename": "文件名不能包含路径分隔符或 ..",
     "invalid_step_num": "无效的步骤编号: {step_num}",
     "draft_file_not_found": "草稿文件不存在",
     "draft_invalid_json": "step1 草稿必须是包含非空 scenes 数组的合法 JSON 对象，且每个场景都是带非空 scene_id 的对象",
-    "script_review_not_applicable": "该集不适用 step1 审核确认（仅图生 / 宫格视频的剧集动画与说书模式）",
+    "script_review_not_applicable": "该集不适用 step1 审核确认（该模式无结构化 step1 中间态）",
     "script_review_no_step1": "尚无 step1 结构化中间态可确认，请先完成预处理",
     "script_review_invalid_content": "step1 中间态结构校验失败：{details}",
     "draft_event_label": "第 {episode} 集{label_prefix}",
@@ -159,6 +161,7 @@ MESSAGES = {
     "cost_estimation_failed": "费用估算失败，请稍后重试",
     # Validators
     "invalid_backend_format": "{field_name} 格式应为 provider/model",
+    "backend_media_type_mismatch": "{field_name} 期望 {expected} 类型模型，但 {provider}/{model} 是 {actual} 类型",
     "deprecated_image_backend": "image_backend 字段已废弃，请改用 image_provider_t2i 与 image_provider_i2i",
     # Versions
     "unsupported_resource_type": "不支持的资源类型: {resource_type}",
@@ -196,6 +199,13 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} 不支持文生图；请配置一个支持文生图的默认模型",
     "image_dashscope_4k_t2i_only": "模型 {model} 的 4K 输出仅 wan2.7-image-pro 文生图支持；请改用 2K 或更低分辨率",
     "image_reference_images_unreadable": "模型 {model} 有参考图缺失或无法读取，已中止生成：{names}；请检查参考图路径",
+    # Image Edit
+    "image_edit_resource_type_invalid": "资源类型「{resource_type}」不支持图片编辑",
+    "image_edit_instruction_required": "编辑指令不能为空",
+    "image_edit_script_file_required": "编辑分镜图需要提供 script_file",
+    "image_edit_no_current_image": "「{id}」还没有可编辑的当前图，请先生成或上传",
+    "image_edit_i2i_unavailable": "当前未配置支持图生图（i2i）的图片供应商，请先在设置中配置",
+    "image_edit_task_submitted": "「{id}」图片编辑任务已提交",
     # Video Capability
     "video_duration_invalid": "视频时长 {duration} 不是合法的整数秒数",
     "video_duration_not_supported": "视频时长 {duration}s 不在该模型支持的时长（{supported}）内",

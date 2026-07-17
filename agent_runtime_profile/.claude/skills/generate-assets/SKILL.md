@@ -89,8 +89,20 @@ description: "统一资产生成 skill：接受 `--type=character|scene|prop`，
 
 1. **加载项目元数据** — 从 project.json 找出缺少对应 `*_sheet` 的资产
 2. **入队生成任务** — description 直接作为 prompt 提交；server 端 `lib.prompt_builders` 注入布局 / 防崩 / 反向
-3. **审核检查点** — 展示每张设计图，用户可批准或要求重新生成
+3. **审核检查点** — 展示每张设计图，用户可批准、要求重新生成，或要求编辑
 4. **更新 project.json** — 更新 `character_sheet` / `scene_sheet` / `prop_sheet` 路径
+
+## 审核检查点：编辑 vs 重新生成
+
+用户对设计图提意见时先判断诉求类型，选错路径会推翻已满意的部分或丢掉预期外的改动：
+
+- **只想改局部**（换发色、去掉杂物、调整光线氛围等），且构图和整体设计满意 → 用
+  `mcp__arcreel__edit_images({"resource_type": "character", "edits": [{"id": "张三", "instruction": "把头发改成红色"}]})`
+  保底图微调，一次可对同类型多个资产批量下发
+- **想推翻构图/整体设计重来**，或本来就要改 description（进而改变后续按 description
+  重新生成的结果）→ 用 `generate_assets` 按更新后的 description 重新生成整图
+- 编辑不会更新 `description` / prompt——编辑后再触发 `generate_assets` 仍按原 description
+  重画，编辑效果只能从版本历史找回
 
 ## 质量检查
 

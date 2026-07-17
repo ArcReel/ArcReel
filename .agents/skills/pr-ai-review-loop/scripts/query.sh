@@ -67,7 +67,7 @@ fi
 jq -r '"QUERY_SNAPSHOT: repo=\(.repo) pr=\(.pr) head=\(.head) generated_at=\(.generated_at)"' "$SNAPSHOT_FILE" >&2
 
 # Bots that appear in inline_comments_by_user. Keep in sync with poll.sh's bot-login regex.
-KNOWN_BOTS=("coderabbitai[bot]" "gemini-code-assist[bot]" "github-code-quality[bot]" "github-advanced-security[bot]")
+KNOWN_BOTS=("coderabbitai[bot]" "gemini-code-assist[bot]" "chatgpt-codex-connector[bot]" "github-code-quality[bot]" "github-advanced-security[bot]")
 
 case "$CMD" in
 
@@ -85,6 +85,12 @@ case "$CMD" in
            | {source: "gemini_review", id, created_at: .submittedAt, state, has_pass_marker, body}),
         (.gemini.comments[]?
            | {source: "gemini_comment", id, created_at: .createdAt, body}),
+        (.codex.reviews[]?
+           | {source: "codex_review", id, created_at: .submittedAt, state,
+              reviewed_commit, reviewed_current_head, body}),
+        (.codex.comments[]?
+           | {source: "codex_comment", id, created_at: .createdAt,
+              reviewed_commit, reviewed_current_head, has_pass_marker, body}),
         ((.inline_comments_by_user // {}) | to_entries[] | .key as $bot | .value[]
            | {source: ("inline " + $bot), id, path, created_at,
               severity_alt, cr_markers, is_ack, body})
@@ -138,6 +144,12 @@ case "$CMD" in
               created_at: .submittedAt, head: (.body | clean_head)}),
         (.gemini.comments[]?
            | {source: "gemini_comment", author: "gemini-code-assist[bot]", id,
+              created_at: .createdAt, head: (.body | clean_head)}),
+        (.codex.reviews[]?
+           | {source: "codex_review", author: "chatgpt-codex-connector[bot]", id,
+              created_at: .submittedAt, head: (.body | clean_head)}),
+        (.codex.comments[]?
+           | {source: "codex_comment", author: "chatgpt-codex-connector[bot]", id,
               created_at: .createdAt, head: (.body | clean_head)}),
         ((.inline_comments_by_user // {}) | to_entries[] | .key as $bot | .value[]
            | {source: "inline", author: $bot, id, path,

@@ -79,12 +79,23 @@ def video_task() -> dict[str, Any]:
     }
 
 
+def _fake_video_context(fake_generator: _FakeGenerator):
+    """把 fake generator 包成 GenerationContext——resume 只取 ctx.generator，不读 video lane。"""
+    from server.services.generation_context import GenerationContext
+
+    return GenerationContext(generator=fake_generator)  # type: ignore[arg-type]
+
+
 def _patch_resume_executor_deps(monkeypatch, fake_pm: _FakeProjectManager, fake_generator: _FakeGenerator) -> None:
     """同时 patch resume_executor 的 pm/generator 来源——它从 generation_tasks 顶层 re-import。"""
     from server.services import resume_executor
 
     monkeypatch.setattr(resume_executor, "get_project_manager", lambda: fake_pm)
-    monkeypatch.setattr(resume_executor, "get_media_generator", AsyncMock(return_value=fake_generator))
+    monkeypatch.setattr(
+        resume_executor,
+        "resolve_generation_context",
+        AsyncMock(return_value=_fake_video_context(fake_generator)),
+    )
     # finalize helpers 内部也通过 generation_tasks/reference_video_tasks 的 get_project_manager
     monkeypatch.setattr("server.services.generation_tasks.get_project_manager", lambda: fake_pm)
     monkeypatch.setattr("server.services.reference_video_tasks.get_project_manager", lambda: fake_pm)
@@ -165,9 +176,11 @@ async def test_execute_resume_expired_propagates(monkeypatch, fake_pm, video_tas
 
 
 @pytest.mark.asyncio
-async def test_execute_resume_passes_require_image_backend_false(monkeypatch, fake_pm, video_task):
-    """resume_executor 应显式 require_image_backend=False —— image 配置坏不影响接续。"""
+async def test_execute_resume_declares_video_lane_only(monkeypatch, fake_pm, video_task):
+    """resume_executor 只声明 video lane、不声明 image lane —— 不构造 image backend，
+    image 配置坏不影响接续（等价于旧 require_image_backend=False 的意图）。"""
     from server.services import resume_executor
+    from server.services.generation_context import VideoLaneRequest
     from server.services.resume_executor import execute_resume_video_task
 
     fake_gen = _FakeGenerator()
@@ -183,15 +196,18 @@ async def test_execute_resume_passes_require_image_backend_false(monkeypatch, fa
 
     captured: dict[str, Any] = {}
 
-    async def _capturing_get_media_generator(*args: Any, **kwargs: Any) -> Any:
+    async def _capturing_resolve_context(*args: Any, **kwargs: Any) -> Any:
         captured["kwargs"] = kwargs
-        return fake_gen
+        return _fake_video_context(fake_gen)
 
-    monkeypatch.setattr(resume_executor, "get_media_generator", _capturing_get_media_generator)
+    monkeypatch.setattr(resume_executor, "resolve_generation_context", _capturing_resolve_context)
 
     await execute_resume_video_task(video_task, job_id="openai-job-1")
 
-    assert captured["kwargs"].get("require_image_backend") is False
+    # 只声明 video lane（VideoLaneRequest），image/audio lane 未声明 → 不构造对应 backend
+    assert isinstance(captured["kwargs"].get("video"), VideoLaneRequest)
+    assert captured["kwargs"].get("image") is None
+    assert captured["kwargs"].get("audio") is None
 
 
 @pytest.mark.asyncio

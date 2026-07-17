@@ -319,10 +319,10 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     """Extract a provider_id from a claimed task, used **only** for rate-limit slot routing.
 
     这是解析链的薄投影：按 media lane（``media_type``）派发到 ``resolve_video_backend`` /
-    ``resolve_image_backend``，取 ``.provider_id``。image 任务一律按 ``capability="t2i"`` 取一个
+    ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``capability="t2i"`` 取一个
     **代表性** provider——worker 认领时拿不到真实 capability（见 ``docs/adr/0001``），这点近似不影响
-    生成正确性（执行层会独立精确再解析一次）。解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER
-    仅供限流，不阻断认领。
+    生成正确性（执行层会独立精确再解析一次）；``image_edit`` 是唯一例外（必然 i2i、入队即知），
+    按 i2i 槽精确解析。解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
     payload = task.get("payload") or {}
@@ -348,7 +348,8 @@ async def _extract_provider(task: dict[str, Any]) -> str:
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload)
         else:
-            resolved = await resolver.resolve_image_backend(project, payload, capability="t2i")
+            capability = "i2i" if task.get("task_type") == "image_edit" else "t2i"
+            resolved = await resolver.resolve_image_backend(project, payload, capability=capability)
     except Exception:
         logger.debug("provider 解析失败，回退 DEFAULT_PROVIDER 仅供限流路由", exc_info=True)
         return DEFAULT_PROVIDER

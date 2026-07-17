@@ -13,9 +13,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver, ProviderModel
 
-from lib.app_data_dir import app_data_dir
 from lib.asset_types import ASSET_SPECS
-from lib.backend_assembly import assemble_backend
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import get_shared_rate_limiter
@@ -25,7 +23,7 @@ from lib.image_backends.base import ImageCapabilityError
 from lib.media_generator import MediaGenerator
 from lib.path_safety import safe_exists
 from lib.project_change_hints import emit_project_change_batch, project_change_source
-from lib.project_manager import ProjectManager
+from lib.project_manager import get_project_manager
 from lib.prompt_builders import (
     append_product_fidelity_tail,
     build_character_prompt,
@@ -52,23 +50,18 @@ from lib.storyboard_sequence import (
 )
 from lib.thumbnail import extract_video_thumbnail
 from lib.video_backends.base import VideoCapabilityError
-from server.services.resolution_resolver import resolve_resolution
+from server.services.generation_context import (
+    AudioLaneRequest,
+    ImageLaneRequest,
+    VideoLaneRequest,
+    _get_or_create_audio_backend,
+    _get_or_create_image_backend,
+    _get_or_create_video_backend,
+    resolve_generation_context,
+)
 
-pm = ProjectManager(app_data_dir())
 rate_limiter = get_shared_rate_limiter()
 logger = logging.getLogger(__name__)
-
-# 按 (channel, provider_name, model) 缓存 Backend 实例，避免每次任务重建 API 客户端
-_backend_cache: dict[tuple[str, str, str | None], Any] = {}
-
-
-def get_project_manager() -> ProjectManager:
-    return pm
-
-
-def invalidate_backend_cache() -> None:
-    """清空 VideoBackend 实例缓存。在配置变更后调用。"""
-    _backend_cache.clear()
 
 
 async def _resolve_effective_image_backend(
@@ -91,89 +84,24 @@ async def _resolve_effective_image_backend(
     return await resolver.resolve_image_backend(project, payload, capability=capability)
 
 
-async def _get_or_create_video_backend(
-    provider_name: str,
-    provider_settings: dict,
-    resolver: ConfigResolver,
-    *,
-    default_video_model: str | None = None,
-):
-    """获取或创建 VideoBackend 实例（带缓存）。
+async def _resolve_resolution(project: dict, provider_id: str, model_id: str) -> str | None:
+    """resolution 解析的薄投影：委托 ``ConfigResolver.resolve_resolution``。
 
-    provider_name 可以是旧格式（gemini/seedance/grok）或新格式（gemini-aistudio/gemini-vertex）。
-    通过 resolver 按需加载供应商配置。
-    default_video_model: 全局默认视频模型，当 provider_settings 中无 model 时作为 fallback。
+    project.model_settings > legacy > 自定义供应商默认 > None（None＝不传 SDK 参数，见
+    ``docs/adr/0019``）。
     """
-    effective_model = provider_settings.get("model") or default_video_model or None
-    cache_key = ("video", provider_name, effective_model)
-    if cache_key in _backend_cache:
-        return _backend_cache[cache_key]
+    from lib.config.resolver import ConfigResolver
+    from lib.db import async_session_factory
 
-    backend = await assemble_backend(
-        provider_id=provider_name,
-        media_type="video",
-        model_id=effective_model,
-        resolver=resolver,
-        rate_limiter=rate_limiter,
-    )
-    _backend_cache[cache_key] = backend
-    return backend
-
-
-async def _get_or_create_image_backend(
-    provider_name: str,
-    provider_settings: dict,
-    resolver: ConfigResolver,
-    *,
-    default_image_model: str | None = None,
-):
-    """获取或创建 ImageBackend 实例（带缓存）。"""
-    effective_model = provider_settings.get("model") or default_image_model or None
-    cache_key = ("image", provider_name, effective_model)
-    if cache_key in _backend_cache:
-        return _backend_cache[cache_key]
-
-    backend = await assemble_backend(
-        provider_id=provider_name,
-        media_type="image",
-        model_id=effective_model,
-        resolver=resolver,
-        rate_limiter=rate_limiter,
-    )
-    _backend_cache[cache_key] = backend
-    return backend
-
-
-async def _get_or_create_audio_backend(
-    provider_name: str,
-    provider_settings: dict,
-    resolver: ConfigResolver,
-    *,
-    default_audio_model: str | None = None,
-):
-    """获取或创建 AudioBackend 实例（带缓存）。"""
-    effective_model = provider_settings.get("model") or default_audio_model or None
-    cache_key = ("audio", provider_name, effective_model)
-    if cache_key in _backend_cache:
-        return _backend_cache[cache_key]
-
-    # audio 无 gemini/kling 媒体特例：自定义 + 简单族统一经构造缝
-    backend = await assemble_backend(
-        provider_id=provider_name,
-        media_type="audio",
-        model_id=effective_model,
-        resolver=resolver,
-        rate_limiter=rate_limiter,
-    )
-    _backend_cache[cache_key] = backend
-    return backend
+    resolver = ConfigResolver(async_session_factory)
+    return await resolver.resolve_resolution(project, provider_id, model_id)
 
 
 async def _resolve_video_backend(
     project_name: str,
     resolver: ConfigResolver,
     payload: dict | None,
-) -> tuple[Any | None, str]:
+) -> tuple[Any | None, str | None]:
     """解析并构造视频后端，返回 (video_backend, provider_id)。
 
     provider/model 的**解析**是 ``resolver.resolve_video_backend`` 的薄投影；backend **构造**
@@ -193,7 +121,9 @@ async def _resolve_video_backend(
             default_video_model=resolved.model_id or None,
         )
 
-    return video_backend, resolved.provider_id
+    # provider_id 与 backend 成对返回：无 payload 时不构造 video_backend，此时 provider_id 无
+    # 消费者（压缩上限与记账都只在视频真实调用时用），返回 None 以满足 MediaGenerator 的成对不变量。
+    return video_backend, (resolved.provider_id if video_backend is not None else None)
 
 
 async def get_media_generator(
@@ -221,6 +151,7 @@ async def get_media_generator(
     # image provider，纯图任务也要拿到 video provider，两个分支各自赋值后传给 MediaGenerator。
     image_provider_id: str | None = None
     video_provider_id: str | None = None
+    audio_provider_id: str | None = None
     async with resolver.session() as r:
         image_backend = None
         video_backend = None
@@ -229,6 +160,7 @@ async def get_media_generator(
         if needs_audio:
             project = await asyncio.to_thread(get_project_manager().load_project, project_name)
             resolved_audio = await r.resolve_audio_backend(project, payload)
+            audio_provider_id = resolved_audio.provider_id
             audio_backend = await _get_or_create_audio_backend(
                 resolved_audio.provider_id,
                 {},
@@ -265,6 +197,7 @@ async def get_media_generator(
         user_id=user_id,
         image_provider_id=image_provider_id,
         video_provider_id=video_provider_id,
+        audio_provider_id=audio_provider_id,
     )
 
 
@@ -779,6 +712,12 @@ def emit_generation_success_batch(
 
     事件 source 由 project_change_source contextvar 决定（worker / webui 调用方各自包裹）。
     """
+    if task_type == "image_edit":
+        # 编辑完成事件与「同一资源的生成完成事件」同形状：按 payload.resource_type 派发到
+        # 既有 spec 表（storyboard 走骨架驱动、四类资产走 ASSET_SPECS 派生表），entity/action/
+        # 指纹与生成路径一致，前端既有的 SSE fingerprint 刷新零改动即可覆盖编辑完成。
+        task_type = str(payload.get("resource_type") or "")
+
     script_file = str(payload.get("script_file") or "") or None
     # 单次加载剧本，骨架种类与 episode 共用，避免同一 script_file 双解析。
     script = _load_event_script(project_name, script_file)
@@ -880,16 +819,16 @@ async def execute_storyboard_task(
     project, project_path, prompt_text, reference_images = await asyncio.to_thread(_prepare)
     _needs_i2i = bool(reference_images)
 
-    generator = await get_media_generator(
+    ctx = await resolve_generation_context(
         project_name,
-        payload=payload,
+        payload,
+        project=project,
         user_id=user_id,
-        needs_i2i=_needs_i2i,
+        image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
     )
+    generator = ctx.generator
     aspect_ratio = get_aspect_ratio(project, "storyboards")
-
-    resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=_needs_i2i)
-    image_size = await resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
+    image_size = ctx.image.resolution
 
     _, version = await generator.generate_image_async(
         prompt=prompt_text,
@@ -955,20 +894,16 @@ async def execute_tts_task(
 
     project, text = await asyncio.to_thread(_prepare)
 
-    generator = await get_media_generator(
+    ctx = await resolve_generation_context(
         project_name,
-        payload=payload,
+        payload,
+        project=project,
         user_id=user_id,
-        require_image_backend=False,
-        needs_audio=True,
+        audio=AudioLaneRequest(),
     )
-
-    from lib.config.resolver import ConfigResolver
-    from lib.db import async_session_factory
-
-    resolver = ConfigResolver(async_session_factory)
-    voice = await resolver.resolve_narration_voice(project)
-    speed = await resolver.resolve_narration_speed(project)
+    generator = ctx.generator
+    voice = ctx.audio.narration_voice
+    speed = ctx.audio.narration_speed
 
     _, version = await generator.generate_audio_async(
         text=text,
@@ -1028,7 +963,14 @@ async def execute_video_task(
         return _project, _project_path, _item
 
     project, project_path, item = await asyncio.to_thread(_load)
-    generator = await get_media_generator(project_name, payload=payload, user_id=user_id)
+    ctx = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        video=VideoLaneRequest(),
+    )
+    generator = ctx.generator
 
     # 优先读取 generated_assets.storyboard_image，回退默认路径。
     # 旧宫格项目 storyboard_image 指向 scene_{id}_first.png，仍可正常解析。
@@ -1060,36 +1002,16 @@ async def execute_video_task(
     if product_reference_images:
         prompt_text = append_product_fidelity_tail(prompt_text, _product_names_in_references(_gated_product_refs))
 
-    # 解析 provider / model（薄投影），供 duration fallback 和分辨率查找共用。
-    # 与执行层 backend 构造同走 resolve_video_backend，确保限流/分辨率与实际调用对齐。
-    from lib.config.resolver import ConfigResolver
-    from lib.db import async_session_factory
-
-    _resolver = ConfigResolver(async_session_factory)
-    try:
-        resolved_video = await _resolver.resolve_video_backend(project, payload)
-        registry_provider_id = resolved_video.provider_id
-        model_name = resolved_video.model_id or None
-    except Exception:
-        registry_provider_id, model_name = "gemini-aistudio", "veo-3.1-lite-generate-preview"
-
-    # supported_durations 按上面已解析出的 provider/model 取（而非按 project 二次解析），
-    # 确保 duration 守卫所依据的能力与实际要调用的 model 一致——历史任务 payload 携带
-    # provider 覆盖时，二者不一致会用「项目默认 model 的能力」误判「payload 解析出的 model」。
-    # caps 失败不得丢弃已解析出的 provider/model，否则 resolve_resolution 与默认 duration
-    # 会错配。能力不可解析时留空，守卫遇空列表放行（不更坏，见 ADR-0002）。
-    supported_durations: list[int] = []
-    try:
-        caps = await _resolver.video_capabilities_for_model(registry_provider_id, model_name or "", project)
-        supported_durations = [int(d) for d in caps.get("supported_durations") or []]
-    except Exception:
-        supported_durations = []
-
-    resolution = await resolve_resolution(
-        project,
-        registry_provider_id,
-        model_name or "",
-    )
+    # provider / model / 能力 / 分辨率均取自单次解析的 video lane：能力按 backend 实际身份
+    # （registry provider_id + backend.model）查询，与实际要调用的 model 对齐——历史任务 payload
+    # 携带 provider 覆盖、或自定义供应商目标 model 被禁用回退时，二者一致避免 duration 守卫误判
+    # （用「项目默认 model 的能力」误判「实际调用的 model」）。能力不可解析时 supported_durations
+    # 留空，守卫遇空列表放行（不更坏，见 ADR-0002）。解析/构造失败已在 resolve_generation_context
+    # 内原样上抛整次任务失败，不再有硬编码 provider/model 静默兜底。
+    registry_provider_id = ctx.video.provider_model.provider_id
+    model_name = ctx.video.backend_model
+    supported_durations: list[int] = list(ctx.video.supported_durations)
+    resolution = ctx.video.resolution
 
     # duration 解析收口于执行层：payload > project.default_duration > caps 默认。
     # 用 ``is not None`` 而非 ``or`` 取 payload 值，避免显式 falsy 值被当作未设置。
@@ -1225,11 +1147,16 @@ async def execute_character_task(
     project, full_prompt, reference_images = await asyncio.to_thread(_prepare_char)
     _needs_i2i = bool(reference_images)
 
-    generator = await get_media_generator(project_name, payload=payload, user_id=user_id, needs_i2i=_needs_i2i)
+    ctx = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
+    )
+    generator = ctx.generator
     aspect_ratio = get_aspect_ratio(project, "characters")
-
-    resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=_needs_i2i)
-    image_size = await resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
+    image_size = ctx.image.resolution
 
     _, version = await generator.generate_image_async(
         prompt=full_prompt,
@@ -1324,11 +1251,16 @@ async def execute_design_task(
     project, full_prompt, reference_images = await asyncio.to_thread(_prepare)
     needs_i2i = bool(reference_images)
 
-    generator = await get_media_generator(project_name, payload=payload, user_id=user_id, needs_i2i=needs_i2i)
+    ctx = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        image=ImageLaneRequest(capability="i2i" if needs_i2i else "t2i"),
+    )
+    generator = ctx.generator
     aspect_ratio = get_aspect_ratio(project, bucket_key)
-
-    resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=needs_i2i)
-    image_size = await resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
+    image_size = ctx.image.resolution
 
     _, version = await generator.generate_image_async(
         prompt=full_prompt,
@@ -1537,24 +1469,24 @@ async def execute_grid_task(
             raise ValueError("prompt is required for grid task")
 
         _needs_i2i = bool(reference_images)
-        generator = await get_media_generator(
-            project_name,
-            payload=payload,
-            user_id=user_id,
-            needs_i2i=_needs_i2i,
-        )
-
         project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+        ctx = await resolve_generation_context(
+            project_name,
+            payload,
+            project=project,
+            user_id=user_id,
+            image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
+        )
+        generator = ctx.generator
         aspect_ratio = payload.get("grid_aspect_ratio") or get_aspect_ratio(project, "storyboards")
 
-        resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=_needs_i2i)
-        # 回填 grid metadata：route 层创建/重建时无法预知 needs_i2i，由此处补齐
-        grid.provider = resolved_image.provider_id
-        grid.model = resolved_image.model_id
+        # 回填 grid metadata：route 层创建/重建时无法预知 needs_i2i，由此处补齐。
+        # provider 记 registry 身份（供后续重解析定位供应商），model 记 backend 实际身份
+        # （自定义供应商目标 model 被禁用回退时，实际调用的 model 与解析出的 model_id 不同）。
+        grid.provider = ctx.image.provider_model.provider_id
+        grid.model = ctx.image.backend_model
         grid_manager.save(grid)
-        image_size = (
-            await resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id) or "2K"
-        )  # 宫格图保底高分辨率
+        image_size = ctx.image.resolution or "2K"  # 宫格图保底高分辨率
 
         image_path, version = await generator.generate_image_async(
             prompt=prompt_text,
@@ -1683,6 +1615,20 @@ async def _execute_reference_video_task_proxy(
     return await execute_reference_video_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
 
 
+async def _execute_image_edit_task_proxy(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """Lazy proxy to avoid circular import: image_edit_tasks imports from this module."""
+    from server.services.image_edit_tasks import execute_image_edit_task
+
+    return await execute_image_edit_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
+
+
 _TASK_EXECUTORS = {
     "storyboard": execute_storyboard_task,
     "video": execute_video_task,
@@ -1693,6 +1639,7 @@ _TASK_EXECUTORS = {
     "product": execute_product_task,
     "grid": execute_grid_task,
     "reference_video": _execute_reference_video_task_proxy,
+    "image_edit": _execute_image_edit_task_proxy,
 }
 
 

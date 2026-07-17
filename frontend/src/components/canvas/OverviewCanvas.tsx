@@ -78,15 +78,10 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     wasWelcomeRef.current = isWelcome;
   }, [projectData]);
 
+  // 在途合并 + 失败留旧收敛于 projects-store；此处仅表达刷新意图，忽略返回值。
   const refreshProject = useCallback(
     async () => {
-      const res = await API.getProject(projectName);
-      useProjectsStore.getState().setCurrentProject(
-        projectName,
-        res.project,
-        res.scripts ?? {},
-        res.asset_fingerprints,
-      );
+      await useProjectsStore.getState().refreshProject(projectName);
     },
     [projectName],
   );

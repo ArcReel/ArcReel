@@ -56,7 +56,6 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from server.routers import reference_videos as router_mod
 
     custom_pm = ProjectManager(projects_root)
-    monkeypatch.setattr(router_mod, "pm", custom_pm)
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
 
     app = FastAPI()

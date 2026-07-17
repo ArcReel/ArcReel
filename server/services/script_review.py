@@ -20,14 +20,17 @@ from lib import script_review
 from lib.episode_ledger import backfill_episode_ledger, discover_episode_files
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
-from lib.script_models import DramaNormalizedScript, NarrationStep1Draft
+from lib.reference_video import rederive_unit_references
+from lib.script_models import DramaNormalizedScript, NarrationStep1Draft, ReferenceStep1Draft
 
-#: 结构化 step1 中间态的校验模型（按 content_mode）。编辑保存按此做结构校验：
+#: 结构化 step1 中间态的校验模型（按 step1 变体 ``script_review.step1_kind``）。编辑保存按此做结构校验：
 #: drama 为内容层 DramaNormalizedScript（utterances / source_text / scene_description），
-#: narration 为 NarrationStep1Draft（结构化 novel_text 片段）。
-_CONTENT_MODEL: dict[str, type[BaseModel]] = {
+#: narration 为 NarrationStep1Draft（结构化 novel_text 片段），reference_video 为 ReferenceStep1Draft
+#: （units → shots + 派生 references）。
+_STEP1_CONTENT_MODEL: dict[str, type[BaseModel]] = {
     "drama": DramaNormalizedScript,
     "narration": NarrationStep1Draft,
+    "reference_video": ReferenceStep1Draft,
 }
 
 
@@ -45,6 +48,17 @@ class ScriptReviewService:
 
     def __init__(self, pm: ProjectManager):
         self.pm = pm
+
+    def _resolve_step1_model(self, project: dict[str, Any], episode: int) -> tuple[str, type[BaseModel]]:
+        """该集 step1 变体 + 结构校验模型；不适用 gate（无结构化 step1）时抛 not_applicable。
+
+        变体判定单一真相源在 ``script_review.step1_kind``（reference_video 按 effective_mode 优先，
+        跨 content_mode）；本层据此选 Pydantic 模型。返回变体名供 rv 保存时的 references 重派生分支。
+        """
+        kind = script_review.step1_kind(project, episode)
+        if kind is None:
+            raise ScriptReviewError("not_applicable")
+        return kind, _STEP1_CONTENT_MODEL[kind]
 
     def _require_episode(self, project_name: str, project: dict[str, Any], episode: int) -> dict[str, Any]:
         """gate 适用时校验该集已在 project.json ``episodes[]`` 登记，返回（必要时已自愈的）project。
@@ -88,8 +102,8 @@ class ScriptReviewService:
     def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
         """返回该集审核状态 + 结构化中间态内容（供 web 渲染）。
 
-        ``content`` 为解析后的结构化 step1（drama: {title, scenes[]}；narration: {segments[]}）；
-        不适用 gate 或 step1 缺失 / 损坏时为 None。
+        ``content`` 为解析后的结构化 step1（drama: {title, scenes[]}；narration: {segments[]}；
+        reference_video: {units[]}）；不适用 gate 或 step1 缺失 / 损坏时为 None。
         """
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
@@ -119,11 +133,15 @@ class ScriptReviewService:
         if path is None:
             raise ScriptReviewError("not_applicable")
         project = self._require_episode(project_name, project, episode)
-        model = _CONTENT_MODEL[project["content_mode"]]
+        kind, model = self._resolve_step1_model(project, episode)
         try:
             validated = model.model_validate(content).model_dump()
         except ValidationError as exc:
             raise ScriptReviewError("invalid_content", str(exc)) from exc
+        if kind == "reference_video":
+            # references 是从 shot 文本机械派生的字段：编辑正文后随之重派生，避免正文与 references
+            # 漂移（step2 会用陈旧 [图N] 映射生成）。机械变换、不校验能力上限（同 drama / narration 只结构校验）。
+            rederive_unit_references(validated["units"], project)
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(path, validated)
         return self.get_state(project_name, episode)
@@ -142,13 +160,25 @@ class ScriptReviewService:
         fingerprint = script_review.content_fingerprint(path)
         if fingerprint is None:
             raise ScriptReviewError("no_step1")
-        # 确认前按 content_mode 模型校验 step1 结构：content_fingerprint 对非法 JSON / 任意字节
+        # 确认前按 step1 变体模型校验 step1 结构：content_fingerprint 对非法 JSON / 任意字节
         # 也会产出哈希，仅凭 fingerprint 非空会把损坏草稿确认放行、拖到 step2 才暴露；此处拒绝。
-        model = _CONTENT_MODEL[project["content_mode"]]
+        kind, model = self._resolve_step1_model(project, episode)
         try:
-            model.model_validate(_read_json(path))
+            validated = model.model_validate(_read_json(path))
         except ValidationError as exc:
             raise ScriptReviewError("invalid_content", str(exc)) from exc
+
+        if kind == "reference_video":
+            # references 是从 shot 正文机械派生的字段（同 save_content）。agent / 人工可能绕过
+            # save_content 直改 step1 文件正文后直接调用本方法确认：若不在此重派生，references
+            # 会带着与新正文不符的陈旧引用被确认放行，step2 仍用旧 [图N] 映射生成。重派生后落盘，
+            # 指纹改按落盘后的内容算，确认记录与实际 step1 内容一致。
+            dumped = validated.model_dump()
+            rederive_unit_references(dumped["units"], project)
+            atomic_write_json(path, dumped)
+            fingerprint = script_review.content_fingerprint(path)
+            if fingerprint is None:
+                raise ScriptReviewError("no_step1")
 
         confirmed_at = datetime.now(UTC).isoformat()
 

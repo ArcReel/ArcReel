@@ -848,12 +848,13 @@ class TestScriptGeneratorSkeletonExhaustiveness:
 
         assert set(_METADATA_COUNT_KEY) == set(SKELETONS)
 
-    def test_metadata_fallback_duration_covers_non_shots_kinds(self):
-        # shots（ad）走 ad_script_total_duration、不进兜底时长表；其余骨架均须登记。
-        from lib.script_generator import _METADATA_FALLBACK_DURATION
+    def test_item_fallback_duration_covers_every_skeleton_kind(self):
+        # 时长兜底表单点化到 script_models，四骨架全登记（含 shots/video_units→0）；
+        # 第五种骨架加入 SKELETONS 而未登记即在 item_duration 查表 KeyError 报红。
+        from lib.script_models import _ITEM_FALLBACK_DURATIONS
         from lib.script_skeleton import SKELETONS
 
-        assert set(_METADATA_FALLBACK_DURATION) == set(SKELETONS) - {"shots"}
+        assert set(_ITEM_FALLBACK_DURATIONS) == set(SKELETONS)
 
     @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
     def test_add_metadata_handles_every_skeleton_kind(self, kind: str, tmp_path: Path):
@@ -1136,6 +1137,59 @@ class TestLoadNarrationStep1:
         assert segments[0]["characters_in_segment"] == []
 
 
+class TestLoadReferenceStep1:
+    """step1 结构化中间文件 step1_reference_units.json 的读取与校验。"""
+
+    @staticmethod
+    def _step1_path(sg: ScriptGenerator, episode: int) -> Path:
+        return sg.project_path / "drafts" / f"episode_{episode}" / "step1_reference_units.json"
+
+    def _write(self, sg: ScriptGenerator, episode: int, payload: dict) -> None:
+        path = self._step1_path(sg, episode)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    @staticmethod
+    def _unit(unit_id: str, *, duration: int = 6) -> dict:
+        return {"unit_id": unit_id, "shots": [{"text": "甲走进屋子", "duration": duration}]}
+
+    def test_loads_structured_units_verbatim(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U02", duration=8)]})
+        units = sg._load_reference_step1(1, [4, 6, 8])
+        assert [u["unit_id"] for u in units] == ["E1U01", "E1U02"]
+
+    def test_duplicate_unit_id_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U01")]})
+        with pytest.raises(ValueError, match="重复|E1U01"):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+    def test_post_rewrite_collision_raises(self, tmp_path):
+        """原始 unit_id 互异但改写 episode 前缀后相撞（E1U01 与 E2U01 在 ep2 都成 E2U01）→ fail-loud。
+
+        对应 lib/script_generator.py::_add_metadata 落盘前无条件改写 E\\d+ 前缀的既有行为：
+        LLM 若在 step1 混用集号前缀，需在 step1 读取侧提前拦截，不能拖到最终脚本静默落盘
+        （与 _load_narration_step1 / _load_drama_step1_content 同口径）。
+        """
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 2, {"units": [self._unit("E1U01"), self._unit("E2U01")]})
+        with pytest.raises(ValueError, match="改写|E2U01"):
+            sg._load_reference_step1(2, [4, 6, 8])
+
+    def test_duration_outside_supported_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"units": [self._unit("E1U01", duration=5)]})  # 5 ∉ [4,6,8]
+        with pytest.raises(ValueError, match="duration"):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+    def test_empty_units_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"units": []})
+        with pytest.raises(ValueError):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+
 def _write_ad_project(project_path: Path, *, generation_mode: str = "storyboard", products: dict | None = None):
     payload = {
         "title": "速干杯",
@@ -1208,6 +1262,25 @@ class TestAdScriptGeneration:
         assert "1 到 15 秒间整数任选" in prompt
         # 不得落入参考视频 video_units prompt
         assert "video_units" not in prompt
+
+    async def test_build_prompt_uses_project_source_language(self, tmp_path):
+        """ad prompt 的口播语速折算与输出语言须取项目 source_language（与 drama/narration 同口径），非中文项目不得回落中文/zh 语速。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        project_json_path = project_path / "project.json"
+        payload = json.loads(project_json_path.read_text(encoding="utf-8"))
+        payload["source_language"] = "en"
+        _write_json(project_json_path, payload)
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        # 口播语速折算按 en 口径（约 2.5 词/秒），不得回落默认 zh 口径（约 5 字/秒）
+        assert "约 2.5 词/秒" in prompt
+        assert "约 5 字/秒" not in prompt
+        # 输出语言规则锁定为项目 source_language，不回落默认中文
+        assert "所有字符串值必须使用 en" in prompt
+        assert "所有字符串值必须使用 中文" not in prompt
 
     async def test_build_prompt_tolerates_null_project_fields(self, tmp_path):
         """project.json 手工编辑后字段显式为 null：prompt 构建按空值归一化，不抛 AttributeError。"""

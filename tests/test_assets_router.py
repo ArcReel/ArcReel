@@ -26,7 +26,7 @@ async def _assets_env(tmp_path, monkeypatch):
 
     # 3) monkeypatch symbols used inside assets router
     monkeypatch.setattr(assets, "async_session_factory", factory)
-    monkeypatch.setattr(assets, "pm", pm)
+    monkeypatch.setattr(assets, "get_project_manager", lambda: pm)
 
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")

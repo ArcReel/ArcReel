@@ -144,3 +144,32 @@ async def migrate_json_to_db(session: AsyncSession, json_path: Path) -> None:
     bak_path = json_path.with_suffix(".json.bak")
     json_path.rename(bak_path)
     logger.info("Migration complete. Renamed to %s", bak_path)
+
+
+# 旧任务级文本 backend 键（按用途逐键配置），已由任务档位键取代（docs/adr/0049）
+_LEGACY_TEXT_TASK_KEYS = ("text_backend_script", "text_backend_overview", "text_backend_style")
+
+
+async def migrate_text_tier_settings(session: AsyncSession) -> None:
+    """全局 system_settings 旧任务级文本键 → 档位键的一次性启动迁移。
+
+    映射：script → complex；overview / style → simple，两者都有值时取 style 的值
+    （style 任务需要 vision，反向会让风格分析换到可能不支持图像输入的模型）。
+    迁移后删除旧键即幂等标记；档位键已有值时不覆盖（用户后配的新值优先）。
+    """
+    repo = SystemSettingRepository(session)
+    script = await repo.get("text_backend_script")
+    overview = await repo.get("text_backend_overview")
+    style = await repo.get("text_backend_style")
+    if not (script or overview or style):
+        return
+
+    logger.info("Migrating legacy text task setting keys to tier keys...")
+    if script and not await repo.get("text_backend_complex"):
+        await repo.set("text_backend_complex", script)
+    simple = style or overview
+    if simple and not await repo.get("text_backend_simple"):
+        await repo.set("text_backend_simple", simple)
+    for key in _LEGACY_TEXT_TASK_KEYS:
+        await repo.delete(key)
+    await session.commit()

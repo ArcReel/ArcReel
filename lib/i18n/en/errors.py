@@ -1,5 +1,6 @@
 MESSAGES = {
     "project_not_found": "Project '{name}' does not exist or is not initialized",
+    "resource_not_found": "The requested resource does not exist",
     "overview_ai_response_invalid": "The AI response could not be parsed into a project overview. Please retry or switch to a different model/provider",
     "video_capabilities_unresolved": "Cannot resolve video model capabilities for project '{name}': {reason}",
     "scope_invalid": "scope must be full or current",
@@ -72,13 +73,14 @@ MESSAGES = {
     "unsupported_video_type": "Unsupported video type {ext}. Allowed types: {allowed}",
     "upload_too_large": "Uploaded file exceeds the size limit ({max_mb} MB)",
     "invalid_image_file": "Invalid image file, could not be parsed",
+    "vision_model_required": "Text model {provider}/{model} does not support image input (vision) and cannot perform the {task} task; please select a vision-capable text model for the simple tier or default model in settings",
     "internal_server_error": "Internal server error, please try again later",
     "invalid_asset_type": "asset type must be character / scene / prop",
     "invalid_asset_filename": "filename must not contain path separators or ..",
     "invalid_step_num": "Invalid step number: {step_num}",
     "draft_file_not_found": "Draft file does not exist",
     "draft_invalid_json": "Step 1 draft must be a valid JSON object with a non-empty scenes array, where each scene is an object with a non-empty scene_id",
-    "script_review_not_applicable": "Step 1 review does not apply to this episode (only drama and narration modes with storyboard / grid video)",
+    "script_review_not_applicable": "Step 1 review does not apply to this episode (this mode has no structured Step 1 intermediate)",
     "script_review_no_step1": "No Step 1 structured draft to confirm yet; please finish preprocessing first",
     "script_review_invalid_content": "Step 1 draft structure validation failed: {details}",
     "draft_event_label": "Episode {episode} {label_prefix}",
@@ -162,6 +164,7 @@ MESSAGES = {
     "cost_estimation_failed": "Cost estimation failed, please try again later",
     # Validators
     "invalid_backend_format": "{field_name} format should be provider/model",
+    "backend_media_type_mismatch": "{field_name} expects a {expected} model, but {provider}/{model} is a {actual} model",
     "deprecated_image_backend": "The image_backend field is deprecated; use image_provider_t2i and image_provider_i2i instead",
     # Versions
     "unsupported_resource_type": "Unsupported resource type: {resource_type}",
@@ -199,6 +202,13 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} does not support text-to-image; configure a default model that supports text-to-image",
     "image_dashscope_4k_t2i_only": "Model {model}: 4K output is only supported by wan2.7-image-pro for text-to-image; use 2K or lower",
     "image_reference_images_unreadable": "Model {model} has reference images that are missing or unreadable; generation aborted: {names}; check the reference image paths",
+    # Image Edit
+    "image_edit_resource_type_invalid": "Resource type '{resource_type}' does not support image editing",
+    "image_edit_instruction_required": "Edit instruction must not be empty",
+    "image_edit_script_file_required": "script_file is required when editing a storyboard image",
+    "image_edit_no_current_image": "'{id}' has no current image to edit; generate or upload one first",
+    "image_edit_i2i_unavailable": "No image provider with image-to-image (i2i) support is configured; configure one in Settings first",
+    "image_edit_task_submitted": "Image edit task for '{id}' submitted",
     # Video Capability
     "video_duration_invalid": "Video duration {duration} is not a valid integer number of seconds",
     "video_duration_not_supported": "Video duration {duration}s is not within the durations supported by this model ({supported})",

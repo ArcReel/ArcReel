@@ -7,11 +7,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from lib.custom_provider import is_custom_provider
 from lib.pricing.lookup import lookup_pricing
 from lib.pricing.strategies import PricingParams, calculate_pricing
 from lib.pricing.types import CHARACTERS_PER_PRICING_UNIT, PerSecondMatrix, PerSecondTiered, PerTokenVideo
-from lib.providers import CallType
 
 
 class CostCalculator:
@@ -27,70 +28,38 @@ class CostCalculator:
     def calculate_cost(
         self,
         provider: str,
-        call_type: CallType,
+        params: PricingParams,
         *,
-        model: str | None = None,
-        resolution: str | None = None,
-        aspect_ratio: str | None = None,
-        duration_seconds: int | None = None,
-        generate_audio: bool = True,
-        usage_tokens: int | None = None,
-        service_tier: str = "default",
-        input_tokens: int | None = None,
-        output_tokens: int | None = None,
-        quality: str | None = None,
-        size: str | None = None,
-        image_input_tokens: int | None = None,
-        image_output_tokens: int | None = None,
-        text_input_tokens: int | None = None,
-        text_output_tokens: int | None = None,
         custom_price_input: float | None = None,
         custom_price_output: float | None = None,
         custom_currency: str | None = None,
     ) -> tuple[float, str]:
-        """统一费用计算入口。返回 ``(amount, currency)``。
+        """统一费用计算入口。调用方直接构造 ``PricingParams`` 传入，返回 ``(amount, currency)``。
 
-        自定义供应商的价格信息通过 ``custom_price_*`` 参数传入（调用方需预先查询 DB）。
+        自定义供应商的价格信息通过 ``custom_price_*`` 参数传入（调用方需预先查询 DB）；
+        它们是 DB 侧的价格来源、非定价形状维度，故不并入 ``PricingParams``。
         """
         if is_custom_provider(provider):
             return self._calculate_custom_cost(
-                call_type,
+                params.call_type,
                 price_input=custom_price_input,
                 price_output=custom_price_output,
                 currency=custom_currency,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                duration_seconds=duration_seconds,
-                usage_tokens=usage_tokens,
+                input_tokens=params.input_tokens,
+                output_tokens=params.output_tokens,
+                duration_seconds=params.duration_seconds,
+                usage_tokens=params.usage_tokens,
             )
 
         # 文本无 token 数据时无从计费，保留早返回。
-        if call_type == "text" and input_tokens is None:
+        if params.call_type == "text" and params.input_tokens is None:
             return 0.0, "USD"
 
-        pricing = lookup_pricing(provider, model, call_type)
+        pricing = lookup_pricing(provider, params.model, params.call_type)
         # 按秒计费的视频：单次实时调用无/0 时长时按默认 8 秒计（历史行为）。参考模式聚合走
         # estimate_reference_video_cost，传真实累计时长（可为 0），不经此默认。
-        if isinstance(pricing, (PerSecondMatrix, PerSecondTiered)):
-            duration_seconds = duration_seconds or 8
-        params = PricingParams(
-            call_type=call_type,
-            model=model,
-            resolution=resolution,
-            aspect_ratio=aspect_ratio,
-            duration_seconds=duration_seconds,
-            generate_audio=generate_audio,
-            usage_tokens=usage_tokens,
-            service_tier=service_tier,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            quality=quality,
-            size=size,
-            image_input_tokens=image_input_tokens,
-            image_output_tokens=image_output_tokens,
-            text_input_tokens=text_input_tokens,
-            text_output_tokens=text_output_tokens,
-        )
+        if isinstance(pricing, (PerSecondMatrix, PerSecondTiered)) and not params.duration_seconds:
+            params = replace(params, duration_seconds=8)
         return calculate_pricing(pricing, params)
 
     def estimate_reference_video_cost(

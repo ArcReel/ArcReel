@@ -22,6 +22,7 @@ from server.agent_runtime.sdk_tools.enqueue_assets import (
     list_pending_assets_tool,
 )
 from server.agent_runtime.sdk_tools.enqueue_grid import generate_grid_tool
+from server.agent_runtime.sdk_tools.enqueue_image_edits import edit_images_tool
 from server.agent_runtime.sdk_tools.enqueue_narration_audio import generate_narration_audio_tool
 from server.agent_runtime.sdk_tools.enqueue_storyboards import generate_storyboards_tool
 from server.agent_runtime.sdk_tools.enqueue_videos import (
@@ -47,6 +48,8 @@ from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     get_video_capabilities_tool,
     normalize_drama_script_tool,
+    split_narration_segments_tool,
+    split_reference_video_units_tool,
 )
 
 __all__ = ["build_arcreel_mcp_server", "ToolContext", "ARCREEL_MCP_TOOL_IDS"]
@@ -62,6 +65,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "list_pending_assets",
     "generate_assets",
     "generate_storyboards",
+    "edit_images",
     "generate_grid",
     "generate_video_episode",
     "generate_video_scene",
@@ -71,6 +75,8 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "generate_episode_script",
     "confirm_script_review",
     "normalize_drama_script",
+    "split_reference_video_units",
+    "split_narration_segments",
     "get_video_capabilities",
     "plan_episodes",
     "replan_episodes",
@@ -93,6 +99,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
             list_pending_assets_tool(ctx),
             generate_assets_tool(ctx),
             generate_storyboards_tool(ctx),
+            edit_images_tool(ctx),
             generate_grid_tool(ctx),
             generate_video_episode_tool(ctx),
             generate_video_scene_tool(ctx),
@@ -102,6 +109,8 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
             generate_episode_script_tool(ctx),
             confirm_script_review_tool(ctx),
             normalize_drama_script_tool(ctx),
+            split_reference_video_units_tool(ctx),
+            split_narration_segments_tool(ctx),
             get_video_capabilities_tool(ctx),
             plan_episodes_tool(ctx),
             replan_episodes_tool(ctx),

@@ -13,10 +13,9 @@ from fastapi import APIRouter, HTTPException
 
 logger = logging.getLogger(__name__)
 
-from lib.app_data_dir import app_data_dir
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
-from lib.project_manager import ProjectManager
+from lib.project_manager import get_project_manager
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
@@ -25,18 +24,11 @@ from server.services.reference_video_tasks import apply_unit_video_assets
 
 router = APIRouter()
 
-# 初始化项目管理器
-pm = ProjectManager(app_data_dir())
-
 # 经此路由可还原的资源类型（API 面策略）。路径形状委托 lib.resource_paths，但本路由
 # 仅放行有还原后元数据同步分支的这几类；grids 的还原是独立议题。
 _RESTORABLE_RESOURCE_TYPES = frozenset(
     {"storyboards", "videos", "characters", "scenes", "props", "products", "reference_videos"}
 )
-
-
-def get_project_manager() -> ProjectManager:
-    return pm
 
 
 def get_version_manager(project_name: str) -> VersionManager:

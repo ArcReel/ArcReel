@@ -60,9 +60,9 @@ const EMPTY_VALUE = {
   videoBackend: "",
   imageBackendT2I: "",
   imageBackendI2I: "",
-  textBackendScript: "",
-  textBackendOverview: "",
-  textBackendStyle: "",
+  textBackendDefault: "",
+  textBackendSimple: "",
+  textBackendComplex: "",
   defaultDuration: null,
   videoResolution: null,
   imageResolution: null,
@@ -81,9 +81,9 @@ describe("ModelConfigSection", () => {
           video: "gemini/veo-3",
           imageT2I: "gemini/nano-banana",
           imageI2I: "gemini/nano-banana",
-          textScript: "gemini/g25",
-          textOverview: "gemini/g25",
-          textStyle: "gemini/g25",
+          textDefault: "gemini/g25",
+          textSimple: "gemini/g25",
+          textComplex: "gemini/g25",
         }}
       />,
     );
@@ -106,7 +106,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     expect(screen.getByRole("radio", { name: "4 秒" })).toBeInTheDocument();
@@ -120,7 +120,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     expect(screen.getByRole("radio", { name: "5 秒" })).toBeInTheDocument();
@@ -138,7 +138,7 @@ describe("ModelConfigSection", () => {
         onChange={onChange}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     // Open the video backend dropdown
@@ -165,7 +165,7 @@ describe("ModelConfigSection", () => {
         onChange={onChange}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     const videoTrigger = screen.getByRole("combobox", { name: /视频模型/ });
@@ -188,7 +188,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
         enable={{ video: false }}
       />,
     );
@@ -209,9 +209,9 @@ describe("ModelConfigSection", () => {
           video: "ark/seedance",
           imageT2I: "",
           imageI2I: "",
-          textScript: "",
-          textOverview: "",
-          textStyle: "",
+          textDefault: "",
+          textSimple: "",
+          textComplex: "",
         }}
       />,
     );
@@ -231,7 +231,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     // 不再 fallback 到 [4,6,8] —— 整个时长卡片不渲染
@@ -270,7 +270,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={continuousProviders}
         options={{ ...OPTIONS, videoBackends: ["ark/seedance"] }}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     // 连续区间 → slider，不再有按钮组（除 auto + slider 自身的 radio）
@@ -285,7 +285,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={{ ...OPTIONS, videoBackends: ["unknown/no-such"] }}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     expect(screen.queryByRole("slider")).not.toBeInTheDocument();
@@ -299,7 +299,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     expect(screen.getByRole("radio", { name: "auto" })).toHaveAttribute("aria-checked", "true");
@@ -312,7 +312,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     expect(screen.getByRole("radio", { name: "6 秒" })).toHaveAttribute("aria-checked", "true");
@@ -328,7 +328,7 @@ describe("ModelConfigSection", () => {
         onChange={onChange}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     await user.click(screen.getByRole("radio", { name: "6 秒" }));
@@ -342,7 +342,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     // 越界提示含失效秒数（10 不在 gemini/veo-3 的 [4,6,8] 内）
@@ -366,7 +366,7 @@ describe("ModelConfigSection", () => {
         onChange={onChange}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     await user.click(screen.getByRole("button", { name: "回退到 auto" }));
@@ -380,7 +380,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     expect(screen.queryByText(/不再受当前模型支持/)).not.toBeInTheDocument();
@@ -419,7 +419,7 @@ describe("ModelConfigSection", () => {
         onChange={onChange}
         providers={continuousProviders}
         options={{ ...OPTIONS, videoBackends: ["ark/seedance"] }}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "" }}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
     // slider 分支：20 不在 [3..15] 内

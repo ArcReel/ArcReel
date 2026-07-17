@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.audio_backends.base import AudioCapability, AudioSynthesisResult
 from lib.data_validator import DataValidator
 from lib.db.base import Base
-from lib.db.repositories.usage_repo import UsageRepository
+from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.generation_worker import CapacityTable, GenerationWorker, SlotTable
 from lib.media_generator import MediaGenerator
 from lib.resource_paths import RESOURCE_TYPES, resource_extension, resource_relative_path
@@ -97,17 +98,41 @@ class _FakeVersions:
         return len(self.add_calls)
 
 
-class _FakeUsage:
+class _FakeLedgerCall:
+    def __init__(self, call_id):
+        self.call_id = call_id
+        self.declared = False
+        self.result = None
+
+    def success(self, result):
+        self.declared = True
+        self.result = result
+
+
+class _FakeLedger:
+    """记账账本假实现：捕获记账括号入参与递交的 backend 结果对象（新主缝）。"""
+
     def __init__(self):
         self.started = []
-        self.finished = []
+        self.outcomes = []
+        self._n = 0
 
-    async def start_call(self, **kwargs):
+    @asynccontextmanager
+    async def record(self, **kwargs):
+        self._n += 1
         self.started.append(kwargs)
-        return len(self.started)
-
-    async def finish_call(self, **kwargs):
-        self.finished.append(kwargs)
+        call = _FakeLedgerCall(self._n)
+        try:
+            yield call
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.outcomes.append({"status": "failed", "error": exc})
+            raise
+        else:
+            if not call.declared:
+                raise RuntimeError("ledger.record exited without success()")
+            self.outcomes.append({"status": "success", "result": call.result})
 
 
 def _build_generator(tmp_path: Path) -> MediaGenerator:
@@ -119,10 +144,11 @@ def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen._image_backend = None
     gen._video_backend = None
     gen._audio_backend = _FakeAudioBackend()
+    gen._audio_provider_id = "fake-audio"
     gen._user_id = "default"
     gen._config = None
     gen.versions = _FakeVersions()
-    gen.usage_tracker = _FakeUsage()
+    gen.ledger = _FakeLedger()
     return gen
 
 
@@ -133,11 +159,11 @@ class TestGenerateAudioAsync:
         assert output_path.name == "segment_E1S01.wav"
         assert output_path.read_bytes() == b"RIFFfakewav"
         assert version == 1
-        # start_call 用 call_type=audio + 字符数承载在 finish_call.usage_tokens
-        assert gen.usage_tracker.started[0]["call_type"] == "audio"
-        assert gen.usage_tracker.started[0]["model"] == "tts-model"
-        assert gen.usage_tracker.finished[0]["status"] == "success"
-        assert gen.usage_tracker.finished[0]["usage_tokens"] == len("你好世界")
+        # 记账括号用 call_type=audio；合成字符数由真 Ledger union 分发从 result.characters 转写
+        assert gen.ledger.started[0]["call_type"] == "audio"
+        assert gen.ledger.started[0]["model"] == "tts-model"
+        assert gen.ledger.outcomes[0]["status"] == "success"
+        assert gen.ledger.outcomes[0]["result"].characters == len("你好世界")
         assert gen.versions.add_calls[0]["resource_type"] == "audio"
 
     async def test_backend_failure_marks_failed(self, tmp_path: Path):
@@ -149,7 +175,7 @@ class TestGenerateAudioAsync:
         gen._audio_backend.synthesize = _raise
         with pytest.raises(RuntimeError):
             await gen.generate_audio_async(text="x", resource_id="E1S02", voice="Cherry")
-        assert gen.usage_tracker.finished[-1]["status"] == "failed"
+        assert gen.ledger.outcomes[-1]["status"] == "failed"
 
     async def test_no_backend_raises(self, tmp_path: Path):
         gen = _build_generator(tmp_path)
@@ -184,7 +210,7 @@ class TestUsageStatsAudioCount:
                 call_id = await repo.start_call(
                     project_name="demo", call_type="audio", model="qwen3-tts-flash", provider="dashscope"
                 )
-                await repo.finish_call(call_id, status="success", usage_tokens=1500)
+                await repo.finish_call(call_id, status="success", settlement=SettlementInput(usage_tokens=1500))
                 stats = await repo.get_stats(project_name="demo")
                 assert stats["audio_count"] == 1
                 # audio 按字符冻结成本快照（非 0）

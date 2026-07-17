@@ -96,6 +96,23 @@ export interface AdReferenceUnit {
   generated_assets?: Partial<UnitGeneratedAssets> & { video_thumbnail?: string | null };
 }
 
+/**
+ * reference_video step1 结构化中间态（审核 gate 的可审 / 可改对象）。映射后端
+ * lib/script_models.py 的 ReferenceStep1Unit / ReferenceStep1Draft：step1 定内容层
+ * （unit 边界 + 各 shot 叙事文本与时长 + 派生 references），step2 视觉编排由用户确认后才触发。
+ * references 为服务端从 shot 文本 @ 引用机械派生（首现顺序决定 [图N] 编号），编辑正文保存时重派生，
+ * 故审阅界面只读展示。
+ */
+export interface ReferenceStep1Unit {
+  unit_id: string;
+  shots: Shot[];
+  references: ReferenceResource[];
+}
+
+export interface ReferenceStep1Draft {
+  units: ReferenceStep1Unit[];
+}
+
 export interface ReferenceVideoScript {
   episode: number;
   title: string;

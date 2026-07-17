@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -82,6 +82,47 @@ def _write_project(tmp_path: Path) -> Path:
     return proj_dir
 
 
+def _wire_context(
+    monkeypatch: pytest.MonkeyPatch,
+    rvt,
+    fake_generator,
+    *,
+    backend_name: str,
+    backend_model: str,
+    resolution_or_fallback: str = "1080p",
+    resolution: str | None = None,
+    max_refs: int | None = None,
+    max_duration: int | None = None,
+    supported_durations: tuple[int, ...] = (),
+) -> None:
+    """把 fake generator + video lane 值包成 GenerationContext，替换 resolve_generation_context 单点。
+
+    executor 迁移后不再触碰 MediaGenerator 私有属性、不再手工重建 provider 身份——所有
+    provider/backend 身份、能力上限、resolution 均由 GenerationContext 的 video lane 提供。
+    能力上限与 resolution 的解析逻辑本身在 tests/server/test_generation_context.py 覆盖，此处
+    只需喂入 lane 值验证 executor 的下游 clamp / 守卫 / 透传行为。
+    """
+    from lib.config.resolver import ProviderModel
+    from server.services.generation_context import GenerationContext, VideoLaneResult
+
+    lane = VideoLaneResult(
+        provider_model=ProviderModel(provider_id=backend_name, model_id=backend_model),
+        backend_name=backend_name,
+        backend_model=backend_model,
+        resolution=resolution,
+        resolution_or_fallback=resolution_or_fallback,
+        supported_durations=supported_durations,
+        max_duration=max_duration,
+        max_reference_images=max_refs,
+    )
+    ctx = GenerationContext(generator=fake_generator, video_lane=lane)
+
+    async def _fake_resolve(*_args, **_kwargs):
+        return ctx
+
+    monkeypatch.setattr(rvt, "resolve_generation_context", _fake_resolve)
+
+
 def _wire_locked_script(fake_pm: MagicMock) -> None:
     """让 fake_pm.locked_script 产出磁盘上的真实剧本 dict。
 
@@ -159,7 +200,7 @@ def test_render_unit_prompt_replaces_mentions_in_order():
 
 
 def test_apply_provider_constraints_veo_clamps_duration_and_refs():
-    # caps 由调用方从 ConfigResolver.video_capabilities_for_project 取得；
+    # caps 由调用方从 GenerationContext 的 video lane 取得；
     # 这里直接提供 model 级上限模拟已 resolve 的结果。
     refs = [Path(f"/tmp/ref{i}.png") for i in range(5)]
     new_refs, new_duration, warnings = _apply_provider_constraints(
@@ -270,15 +311,7 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
-    fake_video_backend = MagicMock()
-    fake_video_backend.name = "ark"
-    fake_video_backend.model = "doubao-seedance-2-0-260128"
-    fake_generator._video_backend = fake_video_backend
-
-    async def _fake_get_media_generator(*_args, **_kwargs):
-        return fake_generator
-
-    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+    _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
 
     # Patch thumbnail extractor → success
     async def _fake_extract(*_a, **_k):
@@ -340,15 +373,7 @@ async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
-    fake_video_backend = MagicMock()
-    fake_video_backend.name = "ark"
-    fake_video_backend.model = "doubao-seedance-2-0-260128"
-    fake_generator._video_backend = fake_video_backend
-
-    async def _fake_get_media_generator(*_a, **_kw):
-        return fake_generator
-
-    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+    _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
 
     # 缩略图提取失败 → thumb_rel=None
     async def _fake_extract(*_a, **_k):
@@ -378,7 +403,9 @@ async def test_execute_reference_video_task_grok_uses_provider_default_resolutio
 ):
     """Regression: Grok 视频生成必须用 720p（xai_sdk 的 VideoResolutionMap 只接受 480p/720p；
     参考视频 executor 若回退到 MediaGenerator 默认 1080p，会在 SDK 抛 `Invalid video resolution 1080p`）。
-    Executor 必须与生产分镜视频流一致，按 `DEFAULT_VIDEO_RESOLUTION[grok]=720p` 解析。
+    executor 必须把 video lane 的 `resolution_or_fallback` 原样传给 generate_video_async——
+    档位的解析/兜底逻辑（provider fallback、model_settings 优先级）在
+    tests/server/test_generation_context.py 覆盖。
     """
     proj_dir = _write_project(tmp_path)
 
@@ -405,15 +432,14 @@ async def test_execute_reference_video_task_grok_uses_provider_default_resolutio
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-21T22:00:00"}]}
-    fake_video_backend = MagicMock()
-    fake_video_backend.name = "grok"
-    fake_video_backend.model = "grok-imagine-video"
-    fake_generator._video_backend = fake_video_backend
-
-    async def _fake_get_media_generator(*_a, **_kw):
-        return fake_generator
-
-    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="grok",
+        backend_model="grok-imagine-video",
+        resolution_or_fallback="720p",
+    )
 
     async def _fake_extract(*_a, **_k):
         return True
@@ -431,67 +457,6 @@ async def test_execute_reference_video_task_grok_uses_provider_default_resolutio
         f"Grok executor 必须显式传 720p，否则 MediaGenerator 默认 1080p 会被 xai_sdk 拒绝。"
         f"实际收到: {captured.get('resolution')!r}"
     )
-
-
-@pytest.mark.asyncio
-async def test_execute_reference_video_task_respects_project_model_settings_resolution(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """project.video_model_settings[model].resolution 必须覆盖 provider 默认值，
-    与 generation_tasks.py 的分镜视频流保持一致的优先级。"""
-    proj_dir = _write_project(tmp_path)
-    project_path = proj_dir / "project.json"
-    project = json.loads(project_path.read_text(encoding="utf-8"))
-    project["video_model_settings"] = {"doubao-seedance-2-0-260128": {"resolution": "1080p"}}
-    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-
-    from server.services import reference_video_tasks as rvt
-
-    fake_pm = MagicMock()
-    fake_pm.load_project.return_value = json.loads(project_path.read_text(encoding="utf-8"))
-    fake_pm.get_project_path.return_value = proj_dir
-    fake_pm.load_script.side_effect = lambda *_a: json.loads(
-        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
-    )
-    _wire_locked_script(fake_pm)
-    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
-
-    captured: dict = {}
-
-    async def _fake_generate_video_async(**kwargs):
-        captured.update(kwargs)
-        out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
-        return out, 1, None, None
-
-    fake_generator = MagicMock()
-    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
-    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-21T22:00:00"}]}
-    fake_video_backend = MagicMock()
-    fake_video_backend.name = "ark"
-    fake_video_backend.model = "doubao-seedance-2-0-260128"
-    fake_generator._video_backend = fake_video_backend
-
-    async def _fake_get_media_generator(*_a, **_kw):
-        return fake_generator
-
-    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
-
-    async def _fake_extract(*_a, **_k):
-        return True
-
-    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
-
-    await rvt.execute_reference_video_task(
-        "demo",
-        "E1U1",
-        {"script_file": "scripts/episode_1.json"},
-        user_id="u1",
-    )
-
-    assert captured.get("resolution") == "1080p"
 
 
 @pytest.mark.asyncio
@@ -542,7 +507,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
-    # 只 mock 最外层：VideoBackend（唯一的真外部依赖）+ UsageTracker/ConfigResolver
+    # 只 mock 最外层：VideoBackend（唯一的真外部依赖）+ Ledger/ConfigResolver
     # （这俩摸 DB，测试无 DB）。VersionManager 用真实实现 —— 这样 VersionManager
     # 自己的白名单（RESOURCE_TYPES / EXTENSIONS）也被这条路径守住，
     # 任何一处三张注册表漏登记都会在此爆 ValueError。
@@ -571,12 +536,16 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
                 generate_audio=False,
             )
 
-    class _FakeUsage:
-        async def start_call(self, **_kwargs):
-            return 1
+    class _FakeLedger:
+        @asynccontextmanager
+        async def record(self, **_kwargs):
+            class _Call:
+                call_id = 1
 
-        async def finish_call(self, **_kwargs):
-            pass
+                def success(self, _result):
+                    pass
+
+            yield _Call()
 
     class _FakeConfigResolver:
         async def video_generate_audio(self, _project_name=None):
@@ -590,7 +559,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 
             return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
 
-    # object.__new__ 绕过 MediaGenerator.__init__（避开 __init__ 里的 UsageTracker 对 DB 的初始化）
+    # object.__new__ 绕过 MediaGenerator.__init__（避开 __init__ 里的 Ledger 对 DB 的初始化）
     real_gen = object.__new__(MediaGenerator)
     real_gen.project_path = proj_dir
     real_gen.project_name = "demo"
@@ -602,12 +571,9 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     real_gen._image_provider_id = None
     real_gen._video_provider_id = None
     real_gen.versions = VersionManager(proj_dir)
-    real_gen.usage_tracker = _FakeUsage()
+    real_gen.ledger = _FakeLedger()
 
-    async def _fake_get_media_generator(*_a, **_kw):
-        return real_gen
-
-    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+    _wire_context(monkeypatch, rvt, real_gen, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
 
     async def _fake_extract(*_a, **_k):
         return True
@@ -667,15 +633,7 @@ async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, m
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
-    fake_video_backend = MagicMock()
-    fake_video_backend.name = "grok"
-    fake_video_backend.model = "grok-imagine-video"
-    fake_generator._video_backend = fake_video_backend
-
-    async def _fake_get_media_generator(*_a, **_kw):
-        return fake_generator
-
-    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+    _wire_context(monkeypatch, rvt, fake_generator, backend_name="grok", backend_model="grok-imagine-video")
 
     async def _fake_extract(*_a, **_k):
         return True
@@ -701,16 +659,16 @@ async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, m
 
 
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_clamps_via_resolver(
+async def test_execute_reference_video_task_clamps_via_lane_caps(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """回归守门：executor 的 duration/refs clamp 必须走 ConfigResolver 的 model 粒度 caps，
+    """回归守门：executor 的 duration/refs clamp 必须走 video lane 的 model 粒度 caps，
     不再走老的 PROVIDER_MAX_DURATION provider 级常量。
 
-    Monkeypatch `ConfigResolver.video_capabilities_for_project` 返自定义 caps
-    (max_duration=6, max_reference_images=1)，传入 duration_seconds=15 / 2 张 refs，
-    期望 generate_video_async 实际收到 duration=6 且 reference_images 只有 1 张。
+    lane 喂入自定义 caps (max_duration=6, max_reference_images=1)，传入
+    duration_seconds=15 / 2 张 refs，期望 generate_video_async 实际收到
+    duration=6 且 reference_images 只有 1 张。
     """
     proj_dir = _write_project(tmp_path)
 
@@ -742,39 +700,22 @@ async def test_execute_reference_video_task_clamps_via_resolver(
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
-    fake_video_backend = MagicMock()
-    fake_video_backend.name = "custom-openai"
-    fake_video_backend.model = "my-custom-video"
-    fake_generator._video_backend = fake_video_backend
-
-    async def _fake_get_media_generator(*_a, **_kw):
-        return fake_generator
-
-    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+    # lane 喂入假 caps —— 模拟 "supported_durations=[2,4,6]", max_reference_images=1 的 custom model
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="custom-openai",
+        backend_model="my-custom-video",
+        max_refs=1,
+        max_duration=6,
+        supported_durations=(2, 4, 6),
+    )
 
     async def _fake_extract(*_a, **_k):
         return True
 
     monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
-
-    # 注入假 caps —— 模拟 "supported_durations=[2,4,6]", max_reference_images=1
-    # 的 custom model。用 AsyncMock 直接替换实例方法。
-    from lib.config.resolver import ConfigResolver
-
-    async def _fake_caps(self, project):
-        return {
-            "provider_id": "custom-openai",
-            "model": "my-custom-video",
-            "supported_durations": [2, 4, 6],
-            "max_duration": 6,
-            "max_reference_images": 1,
-            "source": "custom",
-            "default_duration": None,
-            "content_mode": "narration",
-            "generation_mode": "reference_video",
-        }
-
-    monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _fake_caps)
 
     await rvt.execute_reference_video_task(
         "demo",
@@ -844,38 +785,22 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
-    fake_video_backend = MagicMock()
-    fake_video_backend.name = "openai"
-    fake_video_backend.model = "sora-2"
-    fake_generator._video_backend = fake_video_backend
-
-    async def _fake_get_media_generator(*_a, **_kw):
-        return fake_generator
-
-    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+    # Sora 上限 1 张（provider_id=openai, model=sora-2）
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="openai",
+        backend_model="sora-2",
+        max_refs=1,
+        max_duration=12,
+        supported_durations=(4, 8, 12),
+    )
 
     async def _fake_extract(*_a, **_k):
         return True
 
     monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
-
-    # Sora 上限 1 张（provider_id=openai, model=sora-2）
-    from lib.config.resolver import ConfigResolver
-
-    async def _fake_caps(self, project):
-        return {
-            "provider_id": "openai",
-            "model": "sora-2",
-            "supported_durations": [4, 8, 12],
-            "max_duration": 12,
-            "max_reference_images": 1,
-            "source": "registry",
-            "default_duration": None,
-            "content_mode": "narration",
-            "generation_mode": "reference_video",
-        }
-
-    monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _fake_caps)
 
     await rvt.execute_reference_video_task(
         "demo",
@@ -892,168 +817,6 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     assert "[图3]" not in prompt
     # 被裁掉的 @酒馆 / @瓶子 按 render_prompt_for_backend 的 "未注册保留原样" fallback 保留
     assert "@酒馆" in prompt or "@瓶子" in prompt
-
-
-@pytest.mark.asyncio
-async def test_gemini_model_settings_read_via_composite_key(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """C1 回归：当 project.video_backend = "gemini-aistudio/veo-3.1-generate-preview" 且
-    project.model_settings["gemini-aistudio/veo-3.1-generate-preview"].resolution = "720p" 时，
-    executor 必须用 "gemini-aistudio" 作为 resolver 的 provider_id（而非 backend.name="gemini"），
-    才能命中正确 composite key，实际传出 resolution="720p"。
-    """
-    proj_dir = _write_project(tmp_path)
-
-    # 在 project.json 写入 video_backend 和 model_settings（composite key 格式）
-    project_path = proj_dir / "project.json"
-    project = json.loads(project_path.read_text(encoding="utf-8"))
-    project["video_backend"] = "gemini-aistudio/veo-3.1-generate-preview"
-    project["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}
-    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-
-    # video_backend 显式指向 veo（caps 命中 → duration 守卫生效）：unit 时长取 veo 支持成员，
-    # 避免触发能力守卫（本测试聚焦 resolution composite key）。
-    script_path = proj_dir / "scripts" / "episode_1.json"
-    script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["duration_seconds"] = 8
-    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
-
-    from server.services import reference_video_tasks as rvt
-
-    fake_pm = MagicMock()
-    fake_pm.load_project.return_value = json.loads(project_path.read_text(encoding="utf-8"))
-    fake_pm.get_project_path.return_value = proj_dir
-    fake_pm.load_script.side_effect = lambda *_a: json.loads(
-        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
-    )
-    _wire_locked_script(fake_pm)
-    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
-
-    captured: dict = {}
-
-    async def _fake_generate_video_async(**kwargs):
-        captured.update(kwargs)
-        out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
-        return out, 1, None, None
-
-    fake_generator = MagicMock()
-    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
-    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-23T10:00:00"}]}
-    fake_video_backend = MagicMock()
-    # backend.name 是短名 "gemini"，与 registry provider_id "gemini-aistudio" 不同
-    fake_video_backend.name = "gemini"
-    fake_video_backend.model = "veo-3.1-generate-preview"
-    fake_generator._video_backend = fake_video_backend
-
-    async def _fake_get_media_generator(*_a, **_kw):
-        return fake_generator
-
-    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
-
-    async def _fake_extract(*_a, **_k):
-        return True
-
-    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
-
-    await rvt.execute_reference_video_task(
-        "demo",
-        "E1U1",
-        {"script_file": "scripts/episode_1.json"},
-        user_id="u1",
-    )
-
-    assert captured.get("resolution") == "720p", (
-        f"C1: executor 必须用 registry provider_id 'gemini-aistudio' 作为 resolver key，"
-        f"而非 backend.name 'gemini'，才能命中 model_settings composite key。"
-        f"实际收到: {captured.get('resolution')!r}"
-    )
-
-
-@pytest.mark.asyncio
-async def test_execute_reference_video_task_skips_clamp_when_backend_model_diverges(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """回归守门：caps 解析出的 model 与真实 backend.model 不一致时（自定义 provider
-    model 禁用回退的典型场景）必须 skip clamp，避免按错误模型的上限裁剪。
-    """
-    proj_dir = _write_project(tmp_path)
-
-    script_path = proj_dir / "scripts" / "episode_1.json"
-    script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["duration_seconds"] = 20
-    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
-
-    from server.services import reference_video_tasks as rvt
-
-    fake_pm = MagicMock()
-    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
-    fake_pm.get_project_path.return_value = proj_dir
-    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
-    _wire_locked_script(fake_pm)
-    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
-
-    captured: dict = {}
-
-    async def _fake_generate_video_async(**kwargs):
-        captured.update(kwargs)
-        out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00")
-        return out, 1, None, None
-
-    fake_generator = MagicMock()
-    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
-    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
-    fake_video_backend = MagicMock()
-    # 模拟 fallback：project.json 记录的是 "禁用模型"，backend 实际回退到 "默认模型"
-    fake_video_backend.name = "custom-openai"
-    fake_video_backend.model = "active-default-video"
-    fake_generator._video_backend = fake_video_backend
-
-    async def _fake_get_media_generator(*_a, **_kw):
-        return fake_generator
-
-    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
-
-    async def _fake_extract(*_a, **_k):
-        return True
-
-    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
-
-    # caps 解析出来的 model 是 project.json 里那个（已禁用）的：与 backend.model 不一致
-    from lib.config.resolver import ConfigResolver
-
-    async def _fake_caps(self, project):
-        return {
-            "provider_id": "custom-openai",
-            "model": "disabled-old-video",  # ← 与 backend.model 不一致
-            "supported_durations": [2, 4],
-            "max_duration": 4,
-            "max_reference_images": 1,
-            "source": "custom",
-            "default_duration": None,
-            "content_mode": "narration",
-            "generation_mode": "reference_video",
-        }
-
-    monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _fake_caps)
-
-    await rvt.execute_reference_video_task(
-        "demo",
-        "E1U1",
-        {"script_file": "scripts/episode_1.json"},
-        user_id="u1",
-    )
-
-    # skip clamp：duration 保持 20（未被 caps.max_duration=4 裁到 4）
-    assert captured["duration_seconds"] == 20
-    # refs 也保留原数（2 张，未被 caps.max_reference_images=1 裁到 1）
-    assert len(captured["reference_images"]) == 2
 
 
 @pytest.mark.asyncio
@@ -1091,32 +854,16 @@ async def test_execute_reference_video_task_rejects_unsupported_duration(
 
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
-    fake_video_backend = MagicMock()
-    fake_video_backend.name = "openai"
-    fake_video_backend.model = "sora-2"
-    fake_generator._video_backend = fake_video_backend
-
-    async def _fake_get_media_generator(*_a, **_kw):
-        return fake_generator
-
-    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
-
-    from lib.config.resolver import ConfigResolver
-
-    async def _fake_caps(self, project):
-        return {
-            "provider_id": "openai",
-            "model": "sora-2",
-            "supported_durations": [4, 8, 12],
-            "max_duration": 12,
-            "max_reference_images": 9,
-            "source": "registry",
-            "default_duration": None,
-            "content_mode": "narration",
-            "generation_mode": "reference_video",
-        }
-
-    monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _fake_caps)
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="openai",
+        backend_model="sora-2",
+        max_refs=9,
+        max_duration=12,
+        supported_durations=(4, 8, 12),
+    )
 
     with pytest.raises(VideoCapabilityError):
         await rvt.execute_reference_video_task(

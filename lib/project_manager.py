@@ -24,6 +24,7 @@ import portalocker
 from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
+from lib.app_data_dir import app_data_dir
 from lib.asset_types import ASSET_SPECS, validate_asset_name
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode_paths import episode_script_relpath
@@ -41,6 +42,7 @@ from lib.profile_manifest import (
 )
 from lib.project_change_hints import emit_project_change_hint
 from lib.script_editor import ScriptEditError, resolve_items
+from lib.script_models import script_duration_total
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 
 logger = logging.getLogger(__name__)
@@ -631,25 +633,10 @@ class ProjectManager:
             # estimated_duration_seconds 会被垃圾元素按 default 时长撑大，与各路径不一致。
             scene_items = [item for item in items if isinstance(item, dict)]
             metadata["total_scenes"] = len(scene_items)
-            # 计算总时长：按当前选中的数据结构决定回退值，避免 content_mode 缺失时误判。
-            # ``.get(k, default)`` 仅在键缺失时返回 default，键存在但值为 None（脏数据）会
-            # 返回 None 让 sum() 抛 TypeError——显式判 None 视为缺失，与同函数前面对 metadata
-            # 缺字段时按 setdefault 兜底的语义一致：脏值不阻塞 metadata 重算，但若 default 也
-            # 失真（如 reference 模式未填 duration_seconds），下游 estimated 字段仍是近似值。
-            # shots（ad）无单镜头默认时长偏好，缺失按 0 计（与 StatusCalculator 口径一致）；
-            # 未知 kind 沿用历史兜底 8。
-            default_duration = {"segments": 4, "scenes": 8, "shots": 0}.get(kind, 8)
-
-            def _duration(item: dict) -> int:
-                value = item.get("duration_seconds")
-                # bool 是 int 子类,排除避免 duration_seconds=True 被算成 1 秒、=False 算成 0 秒
-                if isinstance(value, bool):
-                    return default_duration
-                if isinstance(value, (int, float)):
-                    return int(value)
-                return default_duration
-
-            metadata["estimated_duration_seconds"] = sum(_duration(item) for item in scene_items)
+            # 总时长走 script_duration_total 单一真相源：脏值（None/bool/负数/字符串）按骨架
+            # 兜底时长归一、不抛（见 lib/script_models.py）。与 StatusCalculator 读时计算、
+            # ScriptGenerator 落盘估算共用同一兜底表与守卫，避免三处口径漂移。
+            metadata["estimated_duration_seconds"] = script_duration_total(kind, scene_items)
 
         # 原子写（含路径遍历防护，output_path 已在守卫前解析），避免并发 PATCH 导致 JSON 损坏
         atomic_write_json(output_path, script)
@@ -2290,3 +2277,20 @@ class ProjectManager:
 
         logger.info("项目概述已生成并保存")
         return overview_dict
+
+
+_project_manager: ProjectManager | None = None
+
+
+def get_project_manager() -> ProjectManager:
+    """返回懒加载的全局 ProjectManager 单例（标准项目根目录）。"""
+    global _project_manager
+    if _project_manager is None:
+        _project_manager = ProjectManager(app_data_dir())
+    return _project_manager
+
+
+def _reset_project_manager_for_tests() -> None:
+    """清空缓存的单例，供测试在不同 app_data_dir 场景间重置。"""
+    global _project_manager
+    _project_manager = None

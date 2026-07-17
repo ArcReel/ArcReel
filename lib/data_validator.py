@@ -1069,7 +1069,14 @@ class DataValidator:
         # 路径更换（见 docs/adr/0033），resolve_declared_kind 已内置该恒定映射。四个 validator
         # 函数及各自签名（products / reference_mode / language）保留，校验行为不变。
         gen_mode = effective_mode(project=project, episode=episode)
-        kind = resolve_declared_kind(content_mode, gen_mode)
+        try:
+            kind = resolve_declared_kind(content_mode, gen_mode)
+        except ValueError:
+            # content_mode 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud
+            # 抛错，但 validator 的契约是把脏数据报告成结构化错误而非让异常传播出去。跳过依赖
+            # 骨架种类的后续检查——没有合法 kind 就无从判断该读 segments/scenes/shots 中哪个。
+            errors.append(f"content_mode 值无效: '{content_mode}'，必须是 {self.VALID_CONTENT_MODES}")
+            return
         if kind == "video_units":
             self._validate_reference_video_script(
                 episode.get("video_units", []),

@@ -1,5 +1,6 @@
 MESSAGES = {
     "project_not_found": "Dự án '{name}' không tồn tại hoặc chưa được khởi tạo",
+    "resource_not_found": "Tài nguyên được yêu cầu không tồn tại",
     "overview_ai_response_invalid": "Không thể phân tích phản hồi của AI thành tổng quan dự án, vui lòng thử lại hoặc đổi mô hình/nhà cung cấp",
     "video_capabilities_unresolved": "Không xác định được khả năng mô hình video cho dự án '{name}': {reason}",
     "scope_invalid": "scope phải là full hoặc current",
@@ -72,13 +73,14 @@ MESSAGES = {
     "unsupported_video_type": "Định dạng video không hỗ trợ {ext}. Các loại cho phép: {allowed}",
     "upload_too_large": "Tệp tải lên vượt quá giới hạn dung lượng ({max_mb} MB)",
     "invalid_image_file": "Tệp ảnh không hợp lệ, không thể phân tích",
+    "vision_model_required": "Mô hình văn bản {provider}/{model} không hỗ trợ đầu vào hình ảnh (vision) nên không thể thực hiện tác vụ {task}; vui lòng chọn mô hình văn bản hỗ trợ vision cho cấp đơn giản hoặc mô hình mặc định trong cài đặt",
     "internal_server_error": "Lỗi máy chủ nội bộ, vui lòng thử lại sau",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",
     "invalid_step_num": "Số bước không hợp lệ: {step_num}",
     "draft_file_not_found": "Tệp bản nháp không tồn tại",
     "draft_invalid_json": "Bản nháp Step 1 phải là một đối tượng JSON hợp lệ với mảng scenes không rỗng, trong đó mỗi scene là một đối tượng có scene_id không rỗng",
-    "script_review_not_applicable": "Tập này không áp dụng xác nhận Step 1 (chỉ chế độ phim hoạt hình và thuyết minh với video storyboard / lưới)",
+    "script_review_not_applicable": "Tập này không áp dụng xác nhận Step 1 (chế độ này không có bản trung gian Step 1 có cấu trúc)",
     "script_review_no_step1": "Chưa có bản nháp có cấu trúc Step 1 để xác nhận; vui lòng hoàn tất tiền xử lý trước",
     "script_review_invalid_content": "Xác thực cấu trúc bản nháp Step 1 thất bại: {details}",
     "draft_event_label": "Tập {episode} {label_prefix}",
@@ -162,6 +164,7 @@ MESSAGES = {
     "cost_estimation_failed": "Ước tính chi phí thất bại, vui lòng thử lại sau",
     # Validators
     "invalid_backend_format": "Định dạng {field_name} phải là provider/model",
+    "backend_media_type_mismatch": "{field_name} yêu cầu mô hình loại {expected}, nhưng {provider}/{model} là mô hình loại {actual}",
     "deprecated_image_backend": "Trường image_backend đã ngừng dùng; hãy dùng image_provider_t2i và image_provider_i2i",
     # Versions
     "unsupported_resource_type": "Loại tài nguyên không hỗ trợ: {resource_type}",
@@ -199,6 +202,13 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image",
     "image_dashscope_4k_t2i_only": "Mô hình {model}: đầu ra 4K chỉ được wan2.7-image-pro hỗ trợ cho text-to-image; hãy dùng 2K hoặc thấp hơn",
     "image_reference_images_unreadable": "Mô hình {model} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn ảnh tham chiếu",
+    # Image Edit
+    "image_edit_resource_type_invalid": "Loại tài nguyên '{resource_type}' không hỗ trợ chỉnh sửa ảnh",
+    "image_edit_instruction_required": "Chỉ dẫn chỉnh sửa không được để trống",
+    "image_edit_script_file_required": "Cần cung cấp script_file khi chỉnh sửa ảnh phân cảnh",
+    "image_edit_no_current_image": "'{id}' chưa có ảnh hiện tại để chỉnh sửa; hãy tạo hoặc tải lên trước",
+    "image_edit_i2i_unavailable": "Chưa cấu hình nhà cung cấp ảnh hỗ trợ image-to-image (i2i); hãy cấu hình trong Cài đặt trước",
+    "image_edit_task_submitted": "Đã gửi tác vụ chỉnh sửa ảnh cho '{id}'",
     # Video Capability
     "video_duration_invalid": "Thời lượng video {duration} không phải là số giây nguyên hợp lệ",
     "video_duration_not_supported": "Thời lượng video {duration}s không nằm trong các thời lượng mà mô hình này hỗ trợ ({supported})",

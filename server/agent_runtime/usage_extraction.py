@@ -2,7 +2,7 @@
 
 These operate purely on the result-message dict (no session state), so they
 can be unit-tested by feeding message data directly. The usage-accounting
-action (writing the extracted numbers to UsageTracker) stays in SessionManager.
+action (writing the extracted numbers to Ledger) stays in SessionManager.
 """
 
 import math

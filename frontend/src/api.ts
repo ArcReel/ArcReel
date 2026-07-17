@@ -52,6 +52,7 @@ import type {
   ScriptReviewState,
   DramaNormalizedScript,
   NarrationStep1Draft,
+  ReferenceStep1Draft,
 } from "@/types";
 import type { GenerationMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
@@ -125,26 +126,6 @@ export interface ShotUploadResult {
   path: string;
   version: number;
   asset_fingerprints: Record<string, number>;
-}
-
-/** Options for {@link API.openTaskStream}. */
-export interface TaskStreamOptions {
-  projectName?: string;
-  lastEventId?: number | string;
-  onSnapshot?: (payload: TaskStreamSnapshotPayload, event: MessageEvent) => void;
-  onTask?: (payload: TaskStreamTaskPayload, event: MessageEvent) => void;
-  onError?: (event: Event) => void;
-}
-
-export interface TaskStreamSnapshotPayload {
-  tasks: TaskItem[];
-  stats: TaskStats;
-}
-
-export interface TaskStreamTaskPayload {
-  action: "created" | "updated";
-  task: TaskItem;
-  stats: TaskStats;
 }
 
 export interface ProjectEventStreamOptions {
@@ -222,9 +203,9 @@ export interface CreateProjectPayload {
   image_backend?: string | null;
   image_provider_t2i?: string | null;
   image_provider_i2i?: string | null;
-  text_backend_script?: string | null;
-  text_backend_overview?: string | null;
-  text_backend_style?: string | null;
+  text_backend_simple?: string | null;
+  text_backend_complex?: string | null;
+  default_text_backend?: string | null;
   model_settings?: Record<string, { resolution?: string | null }>;
 }
 
@@ -778,7 +759,7 @@ class API {
   static async saveScriptReviewContent(
     projectName: string,
     episode: number,
-    content: DramaNormalizedScript | NarrationStep1Draft
+    content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft
   ): Promise<ScriptReviewState> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/content`,
@@ -1406,57 +1387,6 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/tasks/cancel-all`,
       { method: "POST" }
     );
-  }
-
-  static openTaskStream(options: TaskStreamOptions = {}): EventSource {
-    const params = new URLSearchParams();
-    if (options.projectName)
-      params.append("project_name", options.projectName);
-    const parsedLastEventId = Number(options.lastEventId);
-    if (Number.isFinite(parsedLastEventId) && parsedLastEventId > 0) {
-      params.append("last_event_id", String(parsedLastEventId));
-    }
-
-    const query = params.toString();
-    const url = withAuthQuery(`${API_BASE}/tasks/stream${query ? "?" + query : ""}`);
-    const source = new EventSource(url);
-
-    const parsePayload = (event: MessageEvent): unknown => {
-      try {
-        return JSON.parse((event.data as string) || "{}");
-      } catch (err) {
-        console.error("解析 SSE 数据失败:", err, event.data);
-        return null;
-      }
-    };
-
-    source.addEventListener("snapshot", (event) => {
-      const payload = parsePayload(event);
-      if (payload && typeof options.onSnapshot === "function") {
-        options.onSnapshot(
-          payload as TaskStreamSnapshotPayload,
-          event
-        );
-      }
-    });
-
-    source.addEventListener("task", (event) => {
-      const payload = parsePayload(event);
-      if (payload && typeof options.onTask === "function") {
-        options.onTask(
-          payload as TaskStreamTaskPayload,
-          event
-        );
-      }
-    });
-
-    source.onerror = (event: Event) => {
-      if (typeof options.onError === "function") {
-        options.onError(event);
-      }
-    };
-
-    return source;
   }
 
   static openProjectEventStream(options: ProjectEventStreamOptions): EventSource {

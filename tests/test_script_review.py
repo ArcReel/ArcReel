@@ -56,6 +56,28 @@ def _narration_step1() -> dict:
     }
 
 
+def _rv_step1() -> dict:
+    """reference_video step1 结构化中间态（``step1_reference_units.json`` 形状）。
+
+    references 由 shot 文本 ``@[名称]`` 机械派生（此处预填与文本一致的期望值）。
+    """
+    return {
+        "units": [
+            {
+                "unit_id": "E1U01",
+                "shots": [
+                    {"duration": 4, "text": "@[阿离] 立于屋檐下，望向雨幕。"},
+                    {"duration": 6, "text": "@[裴与] 策马自远方而来。"},
+                ],
+                "references": [
+                    {"type": "character", "name": "阿离"},
+                    {"type": "character", "name": "裴与"},
+                ],
+            }
+        ],
+    }
+
+
 def _make_project(tmp_path: Path, content_mode: str, *, generation_mode: str | None = None) -> ProjectManager:
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
@@ -77,6 +99,15 @@ def _write_step1(pm: ProjectManager, content_mode: str, content: dict) -> Path:
     drafts = pm.get_project_path("demo") / "drafts" / "episode_1"
     drafts.mkdir(parents=True, exist_ok=True)
     path = drafts / filename
+    atomic_write_json(path, content)
+    return path
+
+
+def _write_rv_step1(pm: ProjectManager, content: dict) -> Path:
+    """写出 reference_video 的结构化 step1（``step1_reference_units.json``）。"""
+    drafts = pm.get_project_path("demo") / "drafts" / "episode_1"
+    drafts.mkdir(parents=True, exist_ok=True)
+    path = drafts / "step1_reference_units.json"
     atomic_write_json(path, content)
     return path
 
@@ -194,23 +225,133 @@ class TestNarrationGateFlow:
 
 
 # ---------------------------------------------------------------------------
-# 适用范围：ad / reference_video 不纳入 gate
+# 状态流转（reference_video，跨 content_mode 共用同一 gate）
+# ---------------------------------------------------------------------------
+
+
+class TestReferenceVideoGateFlow:
+    def test_no_step1_then_pending_then_confirmed(self, tmp_path):
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        project_path = pm.get_project_path("demo")
+
+        # step1 未产出
+        assert svc.get_state("demo", 1)["status"] == "no_step1"
+
+        # step1 产出 → 可审中间态、阻塞 step2
+        _write_rv_step1(pm, _rv_step1())
+        state = svc.get_state("demo", 1)
+        assert state["status"] == "pending_review"
+        assert state["content"]["units"][0]["unit_id"] == "E1U01"
+        assert state["content"]["units"][0]["shots"][0]["text"].startswith("@[阿离]")
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+
+        # 确认 → 放行
+        confirmed = svc.confirm("demo", 1)
+        assert confirmed["status"] == "confirmed"
+        assert confirmed["confirmed_at"]
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+
+    def test_editing_shot_text_repends_and_rederives_references(self, tmp_path):
+        """编辑 shot 文本 → 重新待审；references 随正文 @ 引用机械重派生（不采用入参陈旧值）。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        pm.add_scenes_batch("demo", {"屋檐": {"description": "雨夜屋檐"}})
+        svc = ScriptReviewService(pm)
+        _write_rv_step1(pm, _rv_step1())
+        svc.confirm("demo", 1)
+        assert svc.get_state("demo", 1)["status"] == "confirmed"
+
+        # 正文引用从 @[裴与] 改为 @[屋檐]，同时故意保留陈旧 references（应被重派生覆盖）。
+        edited = _rv_step1()
+        edited["units"][0]["shots"][1]["text"] = "镜头扫过 @[屋檐]。"
+        svc.save_content("demo", 1, edited)
+
+        state = svc.get_state("demo", 1)
+        assert state["status"] == "pending_review"
+        refs = state["content"]["units"][0]["references"]
+        assert [(r["type"], r["name"]) for r in refs] == [("character", "阿离"), ("scene", "屋檐")]
+
+    def test_confirm_rejects_shot_duration_out_of_range(self, tmp_path):
+        """损坏的 step1（shot 时长越界）→ 确认被结构校验拒绝，不放行 step2。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        bad = _rv_step1()
+        bad["units"][0]["shots"][0]["duration"] = 99  # 超出 Shot.duration [1, 15]
+        _write_rv_step1(pm, bad)
+        with pytest.raises(ScriptReviewError) as exc:
+            svc.confirm("demo", 1)
+        assert exc.value.code == "invalid_content"
+
+    def test_confirm_rederives_references_when_step1_edited_outside_save_content(self, tmp_path):
+        """confirm 前直改 step1 文件（绕过 save_content，如 agent Write/Edit 直改 drafts/）→
+        确认时按当前正文重派生 references 并落盘，不放行陈旧引用（回归 Codex P2）。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        pm.add_scenes_batch("demo", {"屋檐": {"description": "雨夜屋檐"}})
+        svc = ScriptReviewService(pm)
+
+        # 直改正文引用为 @[屋檐]，但故意保留旧 references（模拟绕过 save_content 的直写）。
+        stale = _rv_step1()
+        stale["units"][0]["shots"][1]["text"] = "镜头扫过 @[屋檐]。"
+        path = _write_rv_step1(pm, stale)
+
+        confirmed = svc.confirm("demo", 1)
+        assert confirmed["status"] == "confirmed"
+        refs = confirmed["content"]["units"][0]["references"]
+        assert [(r["type"], r["name"]) for r in refs] == [("character", "阿离"), ("scene", "屋檐")]
+
+        # 落盘内容也已更新（confirm 记录的指纹对应重派生后的内容，非编辑前的陈旧版本）。
+        on_disk = json.loads(path.read_text(encoding="utf-8"))
+        assert [(r["type"], r["name"]) for r in on_disk["units"][0]["references"]] == [
+            ("character", "阿离"),
+            ("scene", "屋檐"),
+        ]
+
+
+class TestReferenceVideoStep2Enforcement:
+    async def test_generate_blocked_then_confirm_tool_unblocks(self, tmp_path):
+        """agent 路径：rv 的 step1 未确认时 step2 阻塞，confirm_script_review 工具确认后放行。"""
+        from server.agent_runtime.sdk_tools._context import ToolContext
+        from server.agent_runtime.sdk_tools.text_generation import (
+            confirm_script_review_tool,
+            generate_episode_script_tool,
+        )
+
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        _write_rv_step1(pm, _rv_step1())
+        project_path = pm.get_project_path("demo")
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+
+        ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+        blocked = await generate_episode_script_tool(ctx).handler({"episode": 1})
+        assert blocked.get("is_error") is True
+        assert "阻塞" in blocked["content"][0]["text"]
+
+        result = await confirm_script_review_tool(ctx).handler({"episode": 1})
+        assert result.get("is_error") is not True
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+
+
+# ---------------------------------------------------------------------------
+# 适用范围：drama / narration / reference_video 纳入 gate；ad 不纳入
 # ---------------------------------------------------------------------------
 
 
 class TestApplicability:
-    def test_reference_video_not_applicable(self, tmp_path):
+    def test_reference_video_applicable(self, tmp_path):
+        """reference_video（跨 content_mode）纳入 gate，step1 变体判为 reference_video。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
-        svc = ScriptReviewService(pm)
-        assert svc.get_state("demo", 1)["status"] == "not_applicable"
-        project_path = pm.get_project_path("demo")
-        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+        project = pm.load_project("demo")
+        assert script_review.step1_kind(project, 1) == "reference_video"
+        assert script_review.is_applicable(project, 1) is True
+        # 未产 step1 → no_step1（区别于 ad 的 not_applicable）。
+        assert ScriptReviewService(pm).get_state("demo", 1)["status"] == "no_step1"
 
     def test_ad_not_applicable(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("addemo")
         pm.create_project_metadata("addemo", "Ad", "Anime", "ad")
         svc = ScriptReviewService(pm)
+        assert script_review.step1_kind(svc.pm.load_project("addemo"), 1) is None
         assert svc.get_state("addemo", 1)["status"] == "not_applicable"
 
 
@@ -240,7 +381,7 @@ class TestErrors:
         assert exc.value.code == "no_step1"
 
     def test_save_not_applicable_rejected(self, tmp_path):
-        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        pm = _make_project(tmp_path, "ad")  # ad 无结构化 step1，gate 不适用
         svc = ScriptReviewService(pm)
         with pytest.raises(ScriptReviewError) as exc:
             svc.save_content("demo", 1, _drama_step1())

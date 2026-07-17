@@ -8,10 +8,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useShallow } from "zustand/react/shallow";
 import { Layers, RefreshCw, Sparkles } from "lucide-react";
 import { API } from "@/api";
-import { useTasksStore } from "@/stores/tasks-store";
+import {
+  selectActiveResourceIds,
+  useActiveResourceIds,
+  useTasksStore,
+} from "@/stores/tasks-store";
 import type { AdReferenceUnit, AdShot } from "@/types";
 
 interface AdReferenceUnitsPanelProps {
@@ -51,20 +54,8 @@ export function AdReferenceUnitsPanel({ projectName, episode, shots }: AdReferen
 
   const shotById = useMemo(() => new Map(shots.map((s) => [s.shot_id, s])), [shots]);
 
-  const relevantTasks = useTasksStore(
-    useShallow((s) =>
-      s.tasks.filter((tk) => tk.project_name === projectName && tk.task_type === "reference_video"),
-    ),
-  );
-  const busyUnitIds = useMemo(
-    () =>
-      new Set(
-        relevantTasks
-          .filter((tk) => tk.status === "queued" || tk.status === "running")
-          .map((tk) => tk.resource_id),
-      ),
-    [relevantTasks],
-  );
+  // 活跃 + 最新行胜出下沉到 store selector：重试的新行不被同 unit 的旧失败行盖住。
+  const busyUnitIds = useActiveResourceIds("reference_video", projectName);
 
   const derive = async (): Promise<AdReferenceUnit[]> => {
     setDeriving(true);
@@ -94,17 +85,7 @@ export function AdReferenceUnitsPanel({ projectName, episode, shots }: AdReferen
   // 实时读 store 而非渲染期快照：串行 await 期间其他入口（如单 unit 按钮）
   // 可能已入队同一 unit
   const liveBusyUnitIds = () =>
-    new Set(
-      useTasksStore
-        .getState()
-        .tasks.filter(
-          (tk) =>
-            tk.project_name === projectName &&
-            tk.task_type === "reference_video" &&
-            (tk.status === "queued" || tk.status === "running"),
-        )
-        .map((tk) => tk.resource_id),
-    );
+    selectActiveResourceIds(useTasksStore.getState().tasks, "reference_video", projectName);
 
   const generateAll = async () => {
     // 先重新派生（保证索引与 shots 一致），再为未完成且空闲的 unit 入队

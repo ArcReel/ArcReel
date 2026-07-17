@@ -31,7 +31,7 @@ skills:
 - characters、scenes、props 已有数据
 
 使用 Glob 工具确认中间文件存在，按 `effective_mode` × `content_mode` 三分支检查：
-- effective_mode == reference_video（任一 content_mode）：`drafts/episode_{N}/step1_reference_units.md`（缺失时需先运行 `split-reference-video-units`）
+- effective_mode == reference_video（任一 content_mode）：`drafts/episode_{N}/step1_reference_units.json`（缺失时需先运行 `split-reference-video-units`）
 - effective_mode ∈ {storyboard, grid} 且 content_mode == narration：`drafts/episode_{N}/step1_segments.json`（缺失时需先运行 `split-narration-segments`）
 - effective_mode ∈ {storyboard, grid} 且 content_mode == drama：`drafts/episode_{N}/step1_normalized_script.json`（结构化内容；缺失时需先运行 `normalize-drama-script`。旧项目残留的 `step1_normalized_script.md` 是结构化前的自由文本稿，不算有效 step1，须重跑 normalize 产出 `.json`）
 

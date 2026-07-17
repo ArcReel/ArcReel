@@ -116,14 +116,19 @@ def parse_prompt(text: str) -> tuple[list[Shot], list[str], bool]:
 
     if not segments:
         # 无 header → 单镜头
-        return [Shot(duration=1, text=text.strip())], _extract_mentions(text), True
+        return [Shot(duration=1, text=text.strip())], extract_mentions(text), True
 
     shots = [Shot(duration=d, text=t) for d, t in segments]
-    mentions = _extract_mentions(text)
+    mentions = extract_mentions(text)
     return shots, mentions, False
 
 
-def _extract_mentions(text: str) -> list[str]:
+def extract_mentions(text: str) -> list[str]:
+    """提取文本中的 @ 引用名（保持首次出现顺序、去重）。
+
+    与 ``parse_prompt`` 的 mention 口径同源；参考生视频 step1 拆分工具据此从
+    shot 文本机械派生 unit 的 references 列表（顺序即 [图N] 编号）。
+    """
     seen: set[str] = set()
     result: list[str] = []
     for _start, _end, name in _iter_mentions(text):
@@ -131,6 +136,25 @@ def _extract_mentions(text: str) -> list[str]:
             seen.add(name)
             result.append(name)
     return result
+
+
+def rederive_unit_references(units: list[Any], project: dict) -> None:
+    """就地按各 unit 的 shot 文本 ``@[名称]`` 引用机械重派生 references（并集、首现顺序，
+    顺序即 [图N] 编号）。
+
+    web 审阅编辑 shot 文本后回写时调用：references 是从正文机械派生的字段（拆分工具产出时即如此），
+    若不随编辑重派生，正文改了引用而 references 停留旧值，step2 会以陈旧 [图N] 映射生成——正是
+    结构化 step1 要从工程上消除的不一致类。只做机械派生，不校验能力上限 / 引用完整性（未登记的
+    名称静默落入 missing、不进 references，正文 @mention 渲染时原样保留）——与 web 审阅对 drama /
+    narration 只做结构校验、把越限留待 step2 读回 / 供应商侧同口径。
+    """
+    for unit in units:
+        if not isinstance(unit, dict):
+            continue
+        shots = unit.get("shots") or []
+        text = "\n".join(str(s.get("text") or "") for s in shots if isinstance(s, dict))
+        refs, _missing = resolve_references(extract_mentions(text), project)
+        unit["references"] = [r.model_dump() for r in refs]
 
 
 def render_prompt_for_backend(text: str, references: list[ReferenceResource]) -> str:

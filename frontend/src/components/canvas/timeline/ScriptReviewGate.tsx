@@ -7,7 +7,11 @@ import type {
   DramaSceneContent,
   NarrationStep1Draft,
   NarrationStep1Segment,
+  ReferenceResource,
+  ReferenceStep1Draft,
+  ReferenceStep1Unit,
   ScriptReviewState,
+  Shot,
   Utterance,
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
@@ -20,12 +24,13 @@ import {
   GHOST_BTN_CLS,
   GHOST_BTN_LG_CLS,
 } from "@/components/ui/darkroom-tokens";
+import { assetColor } from "@/components/canvas/reference/asset-colors";
 import { UtteranceListEditor } from "./UtteranceListEditor";
 
 interface ScriptReviewGateProps {
   projectName: string;
   episode: number;
-  contentMode: "narration" | "drama";
+  contentMode: "narration" | "drama" | "reference_video";
 }
 
 const SECTION_LABEL_STYLE: React.CSSProperties = {
@@ -33,6 +38,9 @@ const SECTION_LABEL_STYLE: React.CSSProperties = {
   letterSpacing: "0.08em",
   fontFamily: "var(--font-mono)",
 };
+
+/** 三条 step1 变体（drama / narration / reference_video）的可编辑草稿联合。 */
+type ReviewDraft = DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft;
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "";
@@ -154,6 +162,105 @@ function NarrationSegmentCard({
   );
 }
 
+/**
+ * 有序参考资产 pills（reference_video 专用）：位置即 [图N] 编号，故显式带序号前缀；
+ * 按资产类型着色，与 rv 单元编辑器同视觉。references 由 shot 文本机械派生、gate 只读。
+ */
+function ReferenceChips({ references }: { references: ReferenceResource[] }) {
+  const { t } = useTranslation("dashboard");
+  if (!references.length) return null;
+  return (
+    <div className="flex flex-wrap justify-end gap-1">
+      {references.map((ref, i) => {
+        const palette = assetColor(ref.type);
+        return (
+          <span
+            key={`${ref.type}:${ref.name}`}
+            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] ${palette.textClass} ${palette.bgClass}`}
+            translate="no"
+          >
+            <span aria-hidden="true" className="text-[9px] text-text-4">
+              [{t("reference_strip_image_token", { n: i + 1 })}]
+            </span>
+            <span aria-hidden="true" className={`h-[3px] w-[3px] rounded-full ${palette.dotClass}`} />
+            {ref.name}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+/** unit 内单个 shot 的编辑行：叙事文本可改，时长为 step1 派生只读。 */
+function ShotEditor({
+  shot,
+  index,
+  disabled,
+  onChange,
+}: {
+  shot: Shot;
+  index: number;
+  disabled: boolean;
+  onChange: (patch: Partial<Shot>) => void;
+}) {
+  const { t } = useTranslation("dashboard");
+  return (
+    <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/30 p-2.5">
+      <div className="mb-1.5 flex items-center gap-2">
+        <span className="font-mono text-[11px] text-text-3">{t("review_shot_label", { index: index + 1 })}</span>
+        <span className="text-[11px] text-text-4">{shot.duration}s</span>
+      </div>
+      <AutoTextarea
+        value={shot.text}
+        disabled={disabled}
+        onChange={(text) => onChange({ text })}
+        placeholder={t("review_shot_text_placeholder")}
+        aria-label={t("review_shot_label", { index: index + 1 })}
+        className="text-text-3"
+      />
+    </div>
+  );
+}
+
+function ReferenceUnitCard({
+  unit,
+  disabled,
+  onShotChange,
+}: {
+  unit: ReferenceStep1Unit;
+  disabled: boolean;
+  onShotChange: (shotIndex: number, patch: Partial<Shot>) => void;
+}) {
+  const { t } = useTranslation("dashboard");
+  const totalSeconds = unit.shots.reduce((sum, s) => sum + s.duration, 0);
+  return (
+    <article className="rounded-[10px] border border-hairline p-3.5" style={CARD_STYLE}>
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{unit.unit_id}</span>
+          <span className="text-[11px] text-text-4">{totalSeconds}s</span>
+        </div>
+        <ReferenceChips references={unit.references} />
+      </div>
+
+      <label className="mb-1.5 block text-[10.5px]" style={SECTION_LABEL_STYLE}>
+        {t("review_shots_label")}
+      </label>
+      <div className="flex flex-col gap-2">
+        {unit.shots.map((shot, i) => (
+          <ShotEditor
+            key={i}
+            shot={shot}
+            index={i}
+            disabled={disabled}
+            onChange={(patch) => onShotChange(i, patch)}
+          />
+        ))}
+      </div>
+    </article>
+  );
+}
+
 /** 内容是否有未保存编辑：以序列化比对，draft 由 server content 克隆而来，键序稳定。 */
 function isDirty(draft: unknown, serverContent: unknown): boolean {
   if (draft == null) return false;
@@ -162,8 +269,8 @@ function isDirty(draft: unknown, serverContent: unknown): boolean {
 
 /**
  * step1→step2 web 审核 gate 面板：把 step1 结构化中间态在网页结构化呈现、可手动 / agent 编辑，
- * 用户显式确认后才放行 step2 视觉生成。drama（utterances + source_text）与 narration
- * （novel_text）共用本面板。
+ * 用户显式确认后才放行 step2 视觉生成。drama（utterances + source_text）、narration
+ * （novel_text）与 reference_video（units → shots）共用本面板。
  */
 export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptReviewGateProps) {
   const { t } = useTranslation("dashboard");
@@ -171,7 +278,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   const draftRevision = useAppStore((s) => s.getEntityRevision(`draft:episode_${episode}_step1`));
 
   const [state, setState] = useState<ScriptReviewState | null>(null);
-  const [draft, setDraft] = useState<DramaNormalizedScript | NarrationStep1Draft | null>(null);
+  const [draft, setDraft] = useState<ReviewDraft | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<{ message: string } | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -193,7 +300,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
   const adopt = useCallback((next: ScriptReviewState) => {
     setState(next);
     setDraft(
-      next.content ? (JSON.parse(JSON.stringify(next.content)) as DramaNormalizedScript | NarrationStep1Draft) : null,
+      next.content ? (JSON.parse(JSON.stringify(next.content)) as ReviewDraft) : null,
     );
   }, []);
 
@@ -221,7 +328,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
         if (!dirtyRef.current) {
           setDraft(
             next.content
-              ? (JSON.parse(JSON.stringify(next.content)) as DramaNormalizedScript | NarrationStep1Draft)
+              ? (JSON.parse(JSON.stringify(next.content)) as ReviewDraft)
               : null,
           );
         }
@@ -280,6 +387,20 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     setDraft((prev) => {
       if (!prev || !("segments" in prev)) return prev;
       return { ...prev, segments: prev.segments.map((s, i) => (i === index ? { ...s, ...patch } : s)) };
+    });
+  };
+
+  const updateReferenceShot = (unitIndex: number, shotIndex: number, patch: Partial<Shot>) => {
+    setDraft((prev) => {
+      if (!prev || !("units" in prev)) return prev;
+      return {
+        ...prev,
+        units: prev.units.map((u, i) =>
+          i === unitIndex
+            ? { ...u, shots: u.shots.map((s, j) => (j === shotIndex ? { ...s, ...patch } : s)) }
+            : u,
+        ),
+      };
     });
   };
 
@@ -381,6 +502,16 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
                 segment={segment}
                 disabled={busy}
                 onChange={(patch) => updateNarrationSegment(i, patch)}
+              />
+            ))
+          : null}
+        {contentMode === "reference_video" && "units" in draft
+          ? draft.units.map((unit, i) => (
+              <ReferenceUnitCard
+                key={unit.unit_id || i}
+                unit={unit}
+                disabled={busy}
+                onShotChange={(shotIndex, patch) => updateReferenceShot(i, shotIndex, patch)}
               />
             ))
           : null}

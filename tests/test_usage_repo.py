@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from lib.db.models.api_call import ApiCall
-from lib.db.repositories.usage_repo import UsageRepository
+from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 
 
 @pytest.fixture
@@ -40,8 +40,8 @@ class TestUsageRepository:
         await repo.finish_call(
             call_id,
             status="success",
+            settlement=SettlementInput(),
             output_path="storyboards/test.png",
-            retry_count=0,
         )
 
         calls = await repo.get_calls(project_name="demo")
@@ -55,7 +55,7 @@ class TestUsageRepository:
             call_type="image",
             model="test-model",
         )
-        await repo.finish_call(call1, status="success")
+        await repo.finish_call(call1, status="success", settlement=SettlementInput())
 
         call2 = await repo.start_call(
             project_name="demo",
@@ -63,7 +63,7 @@ class TestUsageRepository:
             model="test-model",
             duration_seconds=8,
         )
-        await repo.finish_call(call2, status="failed", error_message="timeout")
+        await repo.finish_call(call2, status="failed", settlement=SettlementInput(), error_message="timeout")
 
         stats = await repo.get_stats(project_name="demo")
         assert stats["image_count"] == 1
@@ -111,7 +111,7 @@ class TestFinalizePendingByCallId:
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
 
         # 显式 cost_amount=0.0 维持单元测试的确定性，绕过 auto-calc 路径
-        affected = await repo.finalize_pending_by_call_id(call_id=call_id, cost_amount=0.0)
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(cost_amount=0.0))
         assert affected == 1
 
         calls = await repo.get_calls(project_name="demo")
@@ -132,7 +132,7 @@ class TestFinalizePendingByCallId:
             provider="gemini",
         )
 
-        affected = await repo.finalize_pending_by_call_id(call_id=call_id)
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput())
         assert affected == 1
 
         calls = await repo.get_calls(project_name="demo")
@@ -146,8 +146,8 @@ class TestFinalizePendingByCallId:
 
         captured: dict[str, str] = {}
 
-        def _spy_calculate_cost(**kwargs):
-            captured["service_tier"] = kwargs.get("service_tier", "MISSING")
+        def _spy_calculate_cost(provider, params, **kwargs):
+            captured["service_tier"] = params.service_tier
             return (1.5, "USD")
 
         monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
@@ -161,7 +161,9 @@ class TestFinalizePendingByCallId:
             provider="openai",
         )
 
-        affected = await repo.finalize_pending_by_call_id(call_id=call_id, service_tier="priority")
+        affected = await repo.finalize_pending_by_call_id(
+            call_id=call_id, settlement=SettlementInput(service_tier="priority")
+        )
         assert affected == 1
         assert captured["service_tier"] == "priority", "service_tier 必须从 caller 透传到 cost_calculator"
 
@@ -172,8 +174,8 @@ class TestFinalizePendingByCallId:
 
         captured: dict[str, object] = {}
 
-        def _spy_calculate_cost(**kwargs):
-            captured["usage_tokens"] = kwargs.get("usage_tokens", "MISSING")
+        def _spy_calculate_cost(provider, params, **kwargs):
+            captured["usage_tokens"] = params.usage_tokens
             return (3.2, "CNY")
 
         monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
@@ -187,7 +189,9 @@ class TestFinalizePendingByCallId:
             provider="ark",
         )
 
-        affected = await repo.finalize_pending_by_call_id(call_id=call_id, usage_tokens=12345)
+        affected = await repo.finalize_pending_by_call_id(
+            call_id=call_id, settlement=SettlementInput(usage_tokens=12345)
+        )
         assert affected == 1
         assert captured["usage_tokens"] == 12345, "usage_tokens 必须从 caller 透传到 cost_calculator"
 
@@ -203,8 +207,8 @@ class TestFinalizePendingByCallId:
 
         captured: dict[str, object] = {}
 
-        def _spy_calculate_cost(**kwargs):
-            captured["duration_seconds"] = kwargs.get("duration_seconds", "MISSING")
+        def _spy_calculate_cost(provider, params, **kwargs):
+            captured["duration_seconds"] = params.duration_seconds
             return (6.0, "CNY")
 
         monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
@@ -218,7 +222,9 @@ class TestFinalizePendingByCallId:
             provider="dashscope",
         )
 
-        affected = await repo.finalize_pending_by_call_id(call_id=call_id, billed_duration_seconds=15)
+        affected = await repo.finalize_pending_by_call_id(
+            call_id=call_id, settlement=SettlementInput(billed_duration_seconds=15)
+        )
         assert affected == 1
         assert captured["duration_seconds"] == 15, "实际计费时长必须从 caller 透传到 cost_calculator"
 
@@ -231,38 +237,8 @@ class TestFinalizePendingByCallId:
 
         captured: dict[str, object] = {}
 
-        def _spy_calculate_cost(**kwargs):
-            captured["duration_seconds"] = kwargs.get("duration_seconds", "MISSING")
-            return (2.4, "CNY")
-
-        monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
-
-        repo = UsageRepository(db_session)
-        call_id = await repo.start_call(
-            project_name="demo",
-            call_type="video",
-            model="wan2.7-r2v",
-            duration_seconds=6,
-            provider="dashscope",
-        )
-
-        affected = await repo.finalize_pending_by_call_id(call_id=call_id, billed_duration_seconds=0)
-        assert affected == 1
-        assert captured["duration_seconds"] == 6, "非正计费时长不得传给 cost_calculator，应回落请求时长"
-
-        calls = await repo.get_calls(project_name="demo")
-        assert calls["items"][0]["duration_seconds"] == 6, "非正计费时长不得写回账本，应保留请求时长"
-
-    async def test_billed_duration_over_limit_falls_back_to_request_duration(self, db_session, monkeypatch):
-        """超出合理上限（24h）的计费时长视同未提供：repo 写入层是全部 backend 的最后防线，
-        防超大数值写入 DB Integer 列溢出。"""
-        from lib import cost_calculator as cc_module
-        from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
-
-        captured: dict[str, object] = {}
-
-        def _spy_calculate_cost(**kwargs):
-            captured["duration_seconds"] = kwargs.get("duration_seconds", "MISSING")
+        def _spy_calculate_cost(provider, params, **kwargs):
+            captured["duration_seconds"] = params.duration_seconds
             return (2.4, "CNY")
 
         monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
@@ -277,7 +253,39 @@ class TestFinalizePendingByCallId:
         )
 
         affected = await repo.finalize_pending_by_call_id(
-            call_id=call_id, billed_duration_seconds=MAX_BILLED_DURATION_SECONDS + 1
+            call_id=call_id, settlement=SettlementInput(billed_duration_seconds=0)
+        )
+        assert affected == 1
+        assert captured["duration_seconds"] == 6, "非正计费时长不得传给 cost_calculator，应回落请求时长"
+
+        calls = await repo.get_calls(project_name="demo")
+        assert calls["items"][0]["duration_seconds"] == 6, "非正计费时长不得写回账本，应保留请求时长"
+
+    async def test_billed_duration_over_limit_falls_back_to_request_duration(self, db_session, monkeypatch):
+        """超出合理上限（24h）的计费时长视同未提供：repo 写入层是全部 backend 的最后防线，
+        防超大数值写入 DB Integer 列溢出。"""
+        from lib import cost_calculator as cc_module
+        from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
+
+        captured: dict[str, object] = {}
+
+        def _spy_calculate_cost(provider, params, **kwargs):
+            captured["duration_seconds"] = params.duration_seconds
+            return (2.4, "CNY")
+
+        monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
+
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(
+            project_name="demo",
+            call_type="video",
+            model="wan2.7-r2v",
+            duration_seconds=6,
+            provider="dashscope",
+        )
+
+        affected = await repo.finalize_pending_by_call_id(
+            call_id=call_id, settlement=SettlementInput(billed_duration_seconds=MAX_BILLED_DURATION_SECONDS + 1)
         )
         assert affected == 1
         assert captured["duration_seconds"] == 6, "超限计费时长不得传给 cost_calculator，应回落请求时长"
@@ -290,7 +298,7 @@ class TestFinalizePendingByCallId:
         cid_a = await repo.start_call(project_name="demo", call_type="video", model="m", segment_id="E1S01")
         cid_b = await repo.start_call(project_name="demo", call_type="video", model="m", segment_id="E1S01")
 
-        affected = await repo.finalize_pending_by_call_id(call_id=cid_a, cost_amount=0.0)
+        affected = await repo.finalize_pending_by_call_id(call_id=cid_a, settlement=SettlementInput(cost_amount=0.0))
         assert affected == 1
 
         # 全量查询
@@ -302,9 +310,11 @@ class TestFinalizePendingByCallId:
     async def test_idempotent_when_already_success(self, db_session):
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
-        await repo.finish_call(call_id, status="success", cost_amount=5.0, currency="USD")
+        await repo.finish_call(call_id, status="success", settlement=SettlementInput(cost_amount=5.0, currency="USD"))
 
-        affected = await repo.finalize_pending_by_call_id(call_id=call_id, cost_amount=999.0)
+        affected = await repo.finalize_pending_by_call_id(
+            call_id=call_id, settlement=SettlementInput(cost_amount=999.0)
+        )
         assert affected == 0, "已 success 行应保持不变"
 
         calls = await repo.get_calls(project_name="demo")
@@ -314,7 +324,9 @@ class TestFinalizePendingByCallId:
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
 
-        affected = await repo.finalize_pending_by_call_id(call_id=call_id, status="failed")
+        affected = await repo.finalize_pending_by_call_id(
+            call_id=call_id, settlement=SettlementInput(), status="failed"
+        )
         assert affected == 1
 
         calls = await repo.get_calls(project_name="demo")
@@ -323,7 +335,7 @@ class TestFinalizePendingByCallId:
 
     async def test_unknown_call_id_returns_zero(self, db_session):
         repo = UsageRepository(db_session)
-        affected = await repo.finalize_pending_by_call_id(call_id=99999)
+        affected = await repo.finalize_pending_by_call_id(call_id=99999, settlement=SettlementInput())
         assert affected == 0
 
     async def test_writes_duration_ms(self, db_session):
@@ -332,7 +344,7 @@ class TestFinalizePendingByCallId:
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
 
-        affected = await repo.finalize_pending_by_call_id(call_id=call_id, cost_amount=0.0)
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(cost_amount=0.0))
         assert affected == 1
 
         calls = await repo.get_calls(project_name="demo")
@@ -349,8 +361,8 @@ class TestFinalizePendingByCallId:
 
         captured: dict[str, object] = {}
 
-        def _spy_calculate_cost(**kwargs):
-            captured["generate_audio"] = kwargs.get("generate_audio", "MISSING")
+        def _spy_calculate_cost(provider, params, **kwargs):
+            captured["generate_audio"] = params.generate_audio
             return (1.5, "USD")
 
         monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
@@ -367,7 +379,9 @@ class TestFinalizePendingByCallId:
         )
 
         # provider 实际降级到关闭音频
-        affected = await repo.finalize_pending_by_call_id(call_id=call_id, generate_audio=False)
+        affected = await repo.finalize_pending_by_call_id(
+            call_id=call_id, settlement=SettlementInput(generate_audio=False)
+        )
         assert affected == 1
         assert captured["generate_audio"] is False, "generate_audio 透传必须覆盖到 cost_calculator"
 
@@ -393,8 +407,7 @@ class TestMultiProviderUsage:
         await repo.finish_call(
             call_id,
             status="success",
-            usage_tokens=246840,
-            service_tier="default",
+            settlement=SettlementInput(usage_tokens=246840, service_tier="default"),
         )
 
         calls = await repo.get_calls(project_name="demo")
@@ -414,7 +427,7 @@ class TestMultiProviderUsage:
             duration_seconds=8,
             generate_audio=True,
         )
-        await repo.finish_call(call_id, status="success")
+        await repo.finish_call(call_id, status="success", settlement=SettlementInput())
 
         calls = await repo.get_calls(project_name="demo")
         item = calls["items"][0]
@@ -434,7 +447,7 @@ class TestMultiProviderUsage:
             resolution="1080p",
             generate_audio=True,
         )
-        await repo.finish_call(c1, status="success")
+        await repo.finish_call(c1, status="success", settlement=SettlementInput())
 
         # Ark call
         c2 = await repo.start_call(
@@ -446,7 +459,9 @@ class TestMultiProviderUsage:
             generate_audio=True,
             provider="ark",
         )
-        await repo.finish_call(c2, status="success", usage_tokens=246840, service_tier="default")
+        await repo.finish_call(
+            c2, status="success", settlement=SettlementInput(usage_tokens=246840, service_tier="default")
+        )
 
         stats = await repo.get_stats(project_name="demo")
         assert stats["total_count"] == 2
@@ -466,7 +481,7 @@ class TestMultiProviderUsage:
             resolution="1080p",
             provider="vidu",
         )
-        await repo.finish_call(ok, status="success", usage_tokens=8)
+        await repo.finish_call(ok, status="success", settlement=SettlementInput(usage_tokens=8))
 
         failed = await repo.start_call(
             project_name="demo",
@@ -474,7 +489,7 @@ class TestMultiProviderUsage:
             model="claude-sonnet-4",
             provider="anthropic",
         )
-        await repo.finish_call(failed, status="failed", error_message="boom")
+        await repo.finish_call(failed, status="failed", settlement=SettlementInput(), error_message="boom")
         await db_session.execute(
             update(ApiCall)
             .where(ApiCall.id == failed)
@@ -489,7 +504,7 @@ class TestMultiProviderUsage:
             resolution="1080p",
             provider="vidu",
         )
-        await repo.finish_call(failed_unbilled, status="failed", error_message="boom")
+        await repo.finish_call(failed_unbilled, status="failed", settlement=SettlementInput(), error_message="boom")
 
         zero_cost = await repo.start_call(
             project_name="demo",
@@ -497,7 +512,7 @@ class TestMultiProviderUsage:
             model="gemini-3-flash-preview",
             provider="gemini",
         )
-        await repo.finish_call(zero_cost, status="success", input_tokens=0, output_tokens=0)
+        await repo.finish_call(zero_cost, status="success", settlement=SettlementInput(input_tokens=0, output_tokens=0))
 
         stats = await repo.get_stats(project_name="demo")
         # failed 即使有实付记录也不计入金额；零费用/未扣费记录也不计入金额。
@@ -518,7 +533,7 @@ class TestMultiProviderUsage:
             resolution="1K",
             provider="gemini",
         )
-        await repo.finish_call(gemini_id, status="success")
+        await repo.finish_call(gemini_id, status="success", settlement=SettlementInput())
 
         vidu_id = await repo.start_call(
             project_name="demo",
@@ -527,7 +542,7 @@ class TestMultiProviderUsage:
             resolution="1080p",
             provider="vidu",
         )
-        await repo.finish_call(vidu_id, status="success", usage_tokens=8)
+        await repo.finish_call(vidu_id, status="success", settlement=SettlementInput(usage_tokens=8))
 
         failed_vidu_id = await repo.start_call(
             project_name="demo",
@@ -536,7 +551,7 @@ class TestMultiProviderUsage:
             resolution="1080p",
             provider="vidu",
         )
-        await repo.finish_call(failed_vidu_id, status="failed", error_message="boom")
+        await repo.finish_call(failed_vidu_id, status="failed", settlement=SettlementInput(), error_message="boom")
 
         failed_anthropic_id = await repo.start_call(
             project_name="demo",
@@ -544,7 +559,7 @@ class TestMultiProviderUsage:
             model="claude-sonnet-4",
             provider="anthropic",
         )
-        await repo.finish_call(failed_anthropic_id, status="failed", error_message="boom")
+        await repo.finish_call(failed_anthropic_id, status="failed", settlement=SettlementInput(), error_message="boom")
         await db_session.execute(
             update(ApiCall)
             .where(ApiCall.id == failed_anthropic_id)
@@ -585,8 +600,7 @@ class TestMultiProviderUsage:
         await repo.finish_call(
             call_id,
             status="success",
-            input_tokens=1000,
-            output_tokens=500,
+            settlement=SettlementInput(input_tokens=1000, output_tokens=500),
         )
 
         calls = await repo.get_calls(project_name="demo")
@@ -611,8 +625,7 @@ class TestMultiProviderUsage:
         await repo.finish_call(
             call_id,
             status="success",
-            input_tokens=2000,
-            output_tokens=1000,
+            settlement=SettlementInput(input_tokens=2000, output_tokens=1000),
         )
 
         calls = await repo.get_calls(project_name="demo")
@@ -633,6 +646,7 @@ class TestMultiProviderUsage:
         await repo.finish_call(
             call_id,
             status="failed",
+            settlement=SettlementInput(),
             error_message="API error",
         )
 
@@ -643,13 +657,13 @@ class TestMultiProviderUsage:
     async def test_get_stats_includes_text_count(self, db_session):
         repo = UsageRepository(db_session)
         c1 = await repo.start_call(project_name="demo", call_type="image", model="m")
-        await repo.finish_call(c1, status="success")
+        await repo.finish_call(c1, status="success", settlement=SettlementInput())
 
         c2 = await repo.start_call(project_name="demo", call_type="video", model="m", duration_seconds=8)
-        await repo.finish_call(c2, status="failed", error_message="timeout")
+        await repo.finish_call(c2, status="failed", settlement=SettlementInput(), error_message="timeout")
 
         c3 = await repo.start_call(project_name="demo", call_type="text", model="m", provider="gemini")
-        await repo.finish_call(c3, status="success", input_tokens=100, output_tokens=50)
+        await repo.finish_call(c3, status="success", settlement=SettlementInput(input_tokens=100, output_tokens=50))
 
         stats = await repo.get_stats(project_name="demo")
         assert stats["image_count"] == 1

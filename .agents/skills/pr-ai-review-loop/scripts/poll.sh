@@ -55,6 +55,14 @@
 #     "comments_new":     [{id, createdAt, preview}],
 #     "comments_history": {total, last_created_at}
 #   },
+#   "codex": {
+#     "has_started":      <bool>,                       # Codex has acknowledged with eyes or a clean-pass comment
+#     "reviews":          [{id, submittedAt, state, reviewed_commit, reviewed_current_head, is_new}],
+#     "comments_new":     [{id, createdAt, reviewed_commit, reviewed_current_head,
+#                            has_pass_marker, preview}], # top-level clean-pass compatibility path
+#     "comments_history": {total, last_created_at},
+#     "reactions":        [{content, created_at, is_new}] # eyes = reviewing current HEAD; +1 = silent pass
+#   },
 #   "inline_new_by_user":     {"<bot[bot]>": [{id, path, created_at, severity_alt, cr_markers,
 #                                              is_ack, preview}]},   # id = REST PR review comment id; severity_alt
 #                                                       # omitted when null, cr_markers omitted when empty
@@ -71,7 +79,7 @@
 #                                                       # the failing set: failure/timed_out/cancelled/action_required/
 #                                                       # startup_failure (single source of truth for "failed check");
 #                                                       # red CI can block reviewers, so fix it before waiting on them
-#   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 5
+#   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 6
 #     "available": <bool>,                              # false = alerts API unreachable; gate must degrade.
 #     "unavailable_hint": "<str>" | null,               # first lines of the gh errors when available=false (GitHub
 #                                                       # returns 404 for missing permissions too — hint, not proof);
@@ -80,7 +88,7 @@
 #     "open_introduced": [{number, rule, severity, security_severity, tool, path, url}]
 #   },
 #   "quota_alerts": [...],                              # PR-level issue comments matching quota-error phrases
-#   "own_trigger_comments": [{author, createdAt, command}]  # human-authored trigger commands — see PITFALL 4
+#   "own_trigger_comments": [{author, createdAt, command, has_codex_eyes}] # human-authored trigger commands — see PITFALL 4
 # }
 #
 # FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name)
@@ -93,10 +101,11 @@
 #                            refactor        "_🛠️ Refactor suggestion" minor     "_🟡 Minor"
 #                            verification    "_💡 Verification agent"  trivial   "_🔵 Trivial"
 #                            nitpick         "_🧹 Nitpick"             low_value "_💤 Low value"
-#   severity_alt           Gemini inline severity from its ![severity](...) badge image alt text
+#   severity_alt           Gemini severity or Codex "Pn Badge" from the inline badge image alt text
 #   has_pass_marker        Gemini review summary carries an explicit pass marker: "LGTM" / "no issues found" /
 #                          "no feedback to provide" (any case) / word "approved" (any case), or body is empty
 #                          aside from the "## Code Review" heading (any case)
+#   has_started            Codex has posted eyes on the PR or an @codex review trigger comment
 #   preview                first 120 chars of body after stripping HTML comments and markdown images, whitespace
 #                          collapsed — the eyeball safety net for flag misparses (flag vs preview conflict => fetch
 #                          full body via query.sh details and trust the body)
@@ -132,7 +141,15 @@
 #    command sitting on the second line after a blank first line — keep the matcher aligned
 #    with the documented contract (command at the very start of the comment).
 #
-# 5. security_alerts.open_introduced subtracts default-branch open alerts by alert number.
+# 5. Codex completion has four observed GitHub shapes: a review tied to the current commit,
+#    an empty-body COMMENTED review tied to that commit, a top-level clean-pass comment with
+#    `Reviewed commit`, or a +1 PR reaction after the last push. Keep all four: automatic
+#    review follows fix pushes and may use
+#    different shapes depending on whether it found another P0/P1 issue.
+#    The PR reaction is mutable: a new review replaces the previous +1 with eyes, naturally
+#    invalidating the previous pass while the current HEAD is under review.
+#
+# 6. security_alerts.open_introduced subtracts default-branch open alerts by alert number.
 #    The merge-ref analysis covers the whole codebase, so pre-existing alerts (e.g. scheduled
 #    Trivy scans on main) would otherwise block the exit gate forever. Alert numbers are
 #    repo-global and identical across refs, so a set difference on number is exact.
@@ -205,11 +222,8 @@ gh pr view "$PR" --json number,createdAt,headRefOid,reviews,comments,commits > "
   exit 5
 }
 
-# REST endpoints. --paginate output shape differs by mode (verified empirically):
-#   - WITHOUT --jq/-q: gh merges all pages of an array endpoint into ONE JSON array,
-#     so --slurpfile sees a single value — unwrap with [0].
-#   - WITH -q: the projection runs per page, emitting one JSON value PER PAGE
-#     (concatenated stream) — unwrap with `add` (see sub-query D).
+# REST endpoints. `gh api --paginate` emits one JSON value per page; --slurpfile therefore
+# sees one array per page for array endpoints. Flatten paginated arrays with `add`.
 # user.login here is WITH [bot] suffix.
 
 # Sub-query A — REST issue comments. Used to get CodeRabbit walkthrough's updated_at
@@ -220,11 +234,48 @@ gh api "repos/${OWNER_REPO}/issues/${PR}/comments" --paginate > "$WORKDIR/sub_a.
   exit 5
 }
 
+# Sub-query B — PR-level reactions (Codex silent +1 pass path).
+gh api "repos/${OWNER_REPO}/issues/${PR}/reactions" --paginate > "$WORKDIR/sub_b.json" 2>"$WORKDIR/gh_reactions.err" || {
+  echo "POLL_ERROR: REST reactions fetch failed" >&2
+  cat "$WORKDIR/gh_reactions.err" >&2
+  exit 5
+}
+
+# Sub-query B2 — exact reactors on human-authored @codex review comments. The
+# reactionGroups count returned by `gh pr view` cannot identify who added eyes, so
+# using it would let an unrelated human reaction suppress the cold-start fallback.
+printf '[]\n' > "$WORKDIR/sub_b2.json"
+while IFS= read -r comment_id; do
+  gh api "repos/${OWNER_REPO}/issues/comments/${comment_id}/reactions" --paginate > "$WORKDIR/comment_reactions.json" 2>"$WORKDIR/gh_comment_reactions.err" || {
+    echo "POLL_ERROR: REST comment reactions fetch failed for comment ${comment_id}" >&2
+    cat "$WORKDIR/gh_comment_reactions.err" >&2
+    exit 5
+  }
+  jq --argjson comment_id "$comment_id" \
+    '[.[] | select(.user.login == "chatgpt-codex-connector[bot]") | {comment_id: $comment_id, content}]' \
+    "$WORKDIR/comment_reactions.json" > "$WORKDIR/comment_codex_reactions.json"
+  jq -s 'add' "$WORKDIR/sub_b2.json" "$WORKDIR/comment_codex_reactions.json" > "$WORKDIR/sub_b2.next.json"
+  mv "$WORKDIR/sub_b2.next.json" "$WORKDIR/sub_b2.json"
+done < <(
+  jq -r '.[]
+    | select(.user.login != "chatgpt-codex-connector[bot]")
+    | select((.body // "") | test("^[ \\t]*@codex review(\\s|$)"; "i"))
+    | select((.reactions == null) or ((.reactions.eyes // 0) > 0))
+    | .id' "$WORKDIR/sub_a.json"
+)
+
 # Sub-query C — REST inline review comments on the PR diff (severity tags live here).
-# (Sub-query B removed — was Codex reactions.)
 gh api "repos/${OWNER_REPO}/pulls/${PR}/comments" --paginate > "$WORKDIR/sub_c.json" 2>"$WORKDIR/gh_pr_comments.err" || {
   echo "POLL_ERROR: REST PR review comments fetch failed" >&2
   cat "$WORKDIR/gh_pr_comments.err" >&2
+  exit 5
+}
+
+# Sub-query C2 — REST reviews. `gh pr view --json reviews` omits the review commit;
+# REST `node_id` matches GraphQL review `id` and supplies the exact `commit_id`.
+gh api "repos/${OWNER_REPO}/pulls/${PR}/reviews" --paginate > "$WORKDIR/sub_c2.json" 2>"$WORKDIR/gh_pr_reviews.err" || {
+  echo "POLL_ERROR: REST PR reviews fetch failed" >&2
+  cat "$WORKDIR/gh_pr_reviews.err" >&2
   exit 5
 }
 
@@ -260,14 +311,16 @@ GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # ---- Pass 1: build the FULL SNAPSHOT (full bodies + every flag) ----
 # Flags are computed once, here, so the index and every query.sh consumer see identical
 # judgments. Bot login normalization happens here so consumers see consistent keys.
-# --slurpfile wraps each file in [...]. Unwrap rule: files written WITHOUT -q hold one
-# merged array (gh merges pages) — [0] suffices; sub-query D is written WITH -q, so it
-# holds one array PER PAGE — only `add` flattens that correctly ([0] would drop pages 2+).
-# `add` also equals [0] on single-value files, so D/E both use it.
+# --slurpfile wraps each file in [...]. Paginated REST array responses hold one array per
+# page, so `add` flattens them; non-paginated files and the locally assembled sub_b2 hold
+# one JSON value and use [0].
 jq -n \
   --slurpfile main_w "$WORKDIR/main.json" \
   --slurpfile sub_a_w "$WORKDIR/sub_a.json" \
+  --slurpfile sub_b_w "$WORKDIR/sub_b.json" \
+  --slurpfile sub_b2_w "$WORKDIR/sub_b2.json" \
   --slurpfile sub_c_w "$WORKDIR/sub_c.json" \
+  --slurpfile sub_c2_w "$WORKDIR/sub_c2.json" \
   --slurpfile sub_d_w "$WORKDIR/sub_d.json" \
   --slurpfile sub_e_pr_w "$WORKDIR/sub_e_pr.json" \
   --slurpfile sub_e_base_w "$WORKDIR/sub_e_base.json" \
@@ -277,8 +330,13 @@ jq -n \
   --arg generated_at "$GENERATED_AT" \
   '
   ($main_w[0]) as $main
-  | ($sub_a_w[0]) as $sub_a
-  | ($sub_c_w[0]) as $sub_c
+  | (($sub_a_w | add) // []) as $sub_a
+  | (($sub_b_w | add) // []) as $sub_b
+  | ($sub_b2_w[0]) as $sub_b2
+  | (($sub_c_w | add) // []) as $sub_c
+  | (($sub_c2_w | add) // []) as $sub_c2
+  | ($sub_c2 | map(select(.node_id != null))
+     | map({key: .node_id, value: .commit_id}) | from_entries) as $review_commit_by_id
   | ($main.commits | last | .committedDate) as $last_push
   # Check-suite reruns leave same-name duplicates; keep only the latest run per name so a
   # superseded failure cannot pin codeql_checks / checks_failing red forever.
@@ -325,6 +383,19 @@ jq -n \
        or (test("\\bapproved\\b"; "i"))
        or ((gsub("\\s+"; "") | ascii_downcase) as $bare | ($bare == "" or $bare == "##codereview")));
 
+  def codex_reviewed_commit_from_body:
+    (. // "")
+    | ([capture("Reviewed commit:[* `]*(?<sha>[0-9a-fA-F]{7,40})"; "i")] | .[0].sha // null);
+
+  def codex_commit_is_current_head:
+    . as $sha
+    | ($sha != null
+       and (($main.headRefOid | startswith($sha))
+            or ($sha | startswith($main.headRefOid))));
+
+  def codex_comment_has_pass_marker:
+    (. // "") | test("^\\s*Codex Review:\\s*Didn(\\x27|\\x{2019})t find any major issues\\."; "i");
+
   def cr_walkthrough_rest:
     [$sub_a[] | select(.user.login == "coderabbitai[bot]")]
     | sort_by(.created_at)
@@ -347,8 +418,34 @@ jq -n \
         }
       end;
 
+  def codex_review_row:
+    (.body // "") as $rb
+    | .id as $review_id
+    | (($review_commit_by_id[$review_id] // null)
+       // ($rb | codex_reviewed_commit_from_body)) as $reviewed_commit
+    | (if $reviewed_commit == null
+       then (.submittedAt > $last_push)
+       else ($reviewed_commit | codex_commit_is_current_head)
+       end) as $reviewed_current_head
+    | {id, submittedAt, state, reviewed_commit: $reviewed_commit,
+       reviewed_current_head: $reviewed_current_head,
+       is_new: (.submittedAt > $last_push), body};
+
+  def codex_comment_row:
+    (.body // "") as $cb
+    | ($cb | codex_reviewed_commit_from_body) as $reviewed_commit
+    | {id, createdAt, is_new: (.createdAt > $last_push),
+       reviewed_commit: $reviewed_commit,
+       reviewed_current_head:
+         (if $reviewed_commit == null
+          then (.createdAt > $last_push)
+          else ($reviewed_commit | codex_commit_is_current_head)
+          end),
+       has_pass_marker: ($cb | codex_comment_has_pass_marker),
+       preview: ($cb | mk_preview), body};
+
   def inline_by_bot:
-    [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|github-code-quality|github-advanced-security)\\[bot\\]$"))]
+    [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-code-quality|github-advanced-security)\\[bot\\]$"))]
     | group_by(.user.login)
     | map({
         key:   .[0].user.login,
@@ -379,7 +476,7 @@ jq -n \
     # the body head — a preceding change-stack link banner can otherwise push
     # the phrase itself past the 500-char window and cause a silent miss.
     [$sub_a[]
-     | select(.user.login | test("(gemini-code-assist|coderabbitai)\\[bot\\]$"))
+     | select(.user.login | test("(chatgpt-codex-connector|gemini-code-assist|coderabbitai)\\[bot\\]$"))
      | (.body // "") as $qb
      | select(
          ($qb | test("<!--\\s*This is an auto-generated comment:\\s*rate limited by coderabbit\\.ai\\s*-->"))
@@ -427,6 +524,18 @@ jq -n \
          | {id, createdAt, is_new: (.createdAt > $last_push), preview: (.body | mk_preview), body}]
     },
 
+    codex: {
+      reviews:
+        [$main.reviews[] | select(.author.login == "chatgpt-codex-connector")
+         | codex_review_row],
+      comments:
+        [$main.comments[] | select(.author.login == "chatgpt-codex-connector")
+         | codex_comment_row],
+      reactions:
+        [$sub_b[] | select(.user.login == "chatgpt-codex-connector[bot]")
+         | {content, created_at, is_new: (.created_at > $last_push)}]
+    },
+
     inline_comments_by_user: inline_by_bot,
 
     codeql_checks:
@@ -459,16 +568,19 @@ jq -n \
 
     quota_alerts: quota_alerts,
 
-    own_trigger_comments:
-      [$main.comments[]
+      own_trigger_comments:
+      [$sub_a[]
        | (.body // "") as $tb
        | select(
-           (.author.login != "coderabbitai"
-            and .author.login != "gemini-code-assist")
-           and ($tb | test("^[ \\t]*(/gemini review|@coderabbitai (resume|full review|review))(\\s|$)"; "i"))
+           (.user.login != "coderabbitai[bot]"
+            and .user.login != "gemini-code-assist[bot]"
+            and .user.login != "chatgpt-codex-connector[bot]")
+           and ($tb | test("^[ \\t]*(/gemini review|@codex review|@coderabbitai (resume|full review|review))(\\s|$)"; "i"))
          )
-       | {author: .author.login, createdAt,
-          command: ($tb | capture("^[ \\t]*(?<c>/gemini review|@coderabbitai (resume|full review|review))"; "i") | .c | ascii_downcase),
+       | .id as $comment_id
+       | {author: .user.login, createdAt: .created_at,
+          command: ($tb | capture("^[ \\t]*(?<c>/gemini review|@codex review|@coderabbitai (resume|full review|review))"; "i") | .c | ascii_downcase),
+          has_codex_eyes: (any($sub_b2[]; .comment_id == $comment_id and .content == "eyes")),
           body: ($tb | gsub("^\\s+|\\s+$"; ""))}]
   }
   ' > "$WORKDIR/snapshot.json"
@@ -514,6 +626,25 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
            | prune_hist)
       },
 
+      codex: {
+        has_started:
+          ((any($s.codex.reactions[]; .content == "eyes"))
+           or (any($s.codex.comments[]; .has_pass_marker))
+           or (any($s.own_trigger_comments[];
+                   .command == "@codex review" and .has_codex_eyes))),
+        reviews:
+          [$s.codex.reviews[]
+           | {id, submittedAt, state, reviewed_commit, reviewed_current_head, is_new}],
+        comments_new:
+          [$s.codex.comments[] | select(.is_new)
+           | {id, createdAt, reviewed_commit, reviewed_current_head, has_pass_marker, preview}],
+        comments_history:
+          ([$s.codex.comments[] | select(.is_new | not)]
+           | {total: length, last_created_at: (map(.createdAt) | max // null)}
+           | prune_hist),
+        reactions: [$s.codex.reactions[] | {content, created_at, is_new}]
+      },
+
       inline_new_by_user:
         ($s.inline_comments_by_user
          | map_values([.[] | select(.is_new)
@@ -540,7 +671,7 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" '
         ($s.security_alerts
          | if .available then {available, open_introduced} else del(.pr_ref) end),
       quota_alerts:    $s.quota_alerts,
-      own_trigger_comments: [$s.own_trigger_comments[] | {author, createdAt, command}]
+      own_trigger_comments: [$s.own_trigger_comments[] | {author, createdAt, command, has_codex_eyes}]
     }
   ' "$SNAPSHOT_FILE" > "$WORKDIR/index.json"
 

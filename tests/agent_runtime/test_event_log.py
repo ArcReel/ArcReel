@@ -295,6 +295,37 @@ class TestNormalizeTaskNotificationXml:
         assert entries[0]["uuid"] != entries[1]["uuid"]
         assert all(e["uuid"] for e in entries)
 
+    def test_subagent_notification_carries_parent_tool_use_id(self):
+        """subagent 内产生的后台任务通知需带 parent_tool_use_id，前端时间线才能
+        把它路由进对应 subagent 卡片，而不是退化到顶层时间线。"""
+        entries = normalize_sdk_message_to_entries(
+            {"type": "user", "content": self.XML, "uuid": "n-sub", "parent_tool_use_id": "tu-parent"}
+        )
+        assert len(entries) == 1
+        assert entries[0]["parent_tool_use_id"] == "tu-parent"
+
+    def test_subagent_notification_parent_key_case_variants_normalized(self):
+        """归属键的大小写变体走既有归一化 helper，与其它分支同口径。"""
+        for key in ("parent_tool_use_id", "parentToolUseID", "parentToolUseId"):
+            entries = normalize_sdk_message_to_entries({"type": "user", "content": self.XML, key: "tu-p"})
+            assert entries[0]["parent_tool_use_id"] == "tu-p", key
+
+    def test_batched_notifications_all_carry_same_parent(self):
+        """同一消息批多条通知时，每条都带同一 parent。"""
+        xml2 = self.XML.replace("t9", "t10").replace("tu-9", "tu-10").replace("子任务完成", "另一子任务完成")
+        entries = normalize_sdk_message_to_entries(
+            {"type": "user", "content": self.XML + "\n" + xml2, "uuid": "n-multi", "parent_tool_use_id": "tu-parent"}
+        )
+        assert len(entries) == 2
+        assert all(e["parent_tool_use_id"] == "tu-parent" for e in entries)
+
+    def test_top_level_notification_has_no_parent_key(self):
+        """不带 parent 的消息归一化产出的 task_notification 条目不含该字段
+        （既有行为不回归）。"""
+        entries = normalize_sdk_message_to_entries({"type": "user", "content": self.XML, "uuid": "n-top"})
+        assert len(entries) == 1
+        assert "parent_tool_use_id" not in entries[0]
+
 
 class TestNormalizeQuestionAnswer:
     def _ask_assistant(self, normalizer: SdkMessageNormalizer) -> None:

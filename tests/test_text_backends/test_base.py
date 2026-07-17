@@ -5,11 +5,14 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from lib.text_backends.base import (
+    TEXT_TASK_TIERS,
+    VISION_REQUIRED_TASKS,
     ImageInput,
     TextBackend,
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
+    TextTaskTier,
     TextTaskType,
     resolve_schema,
 )
@@ -30,6 +33,21 @@ class TestTextTaskType:
         assert TextTaskType.SCRIPT == "script"
         assert TextTaskType.OVERVIEW == "overview"
         assert TextTaskType.STYLE_ANALYSIS == "style"
+
+
+class TestTextTaskTiers:
+    def test_every_task_type_is_mapped(self):
+        """穷举校验：TextTaskType 新增成员必须显式归档到 TEXT_TASK_TIERS。"""
+        assert set(TEXT_TASK_TIERS) == set(TextTaskType)
+
+    def test_tier_assignments(self):
+        assert TEXT_TASK_TIERS[TextTaskType.SCRIPT] is TextTaskTier.COMPLEX
+        assert TEXT_TASK_TIERS[TextTaskType.OVERVIEW] is TextTaskTier.SIMPLE
+        assert TEXT_TASK_TIERS[TextTaskType.STYLE_ANALYSIS] is TextTaskTier.SIMPLE
+
+    def test_vision_required_tasks_are_valid_members(self):
+        assert VISION_REQUIRED_TASKS <= set(TextTaskType)
+        assert TextTaskType.STYLE_ANALYSIS in VISION_REQUIRED_TASKS
 
 
 class TestImageInput:
