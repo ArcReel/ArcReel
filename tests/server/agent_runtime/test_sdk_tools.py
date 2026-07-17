@@ -641,6 +641,168 @@ async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext, mo
     assert "没有可编辑的当前图" in text
 
 
+async def test_edit_images_rejects_empty_edits(fake_ctx: ToolContext) -> None:
+    tool_obj = edit_images_tool(fake_ctx)
+    out = await _call(tool_obj, {"resource_type": "character", "edits": []})
+    assert out.get("is_error") is True
+    assert "edits 不能为空" in out["content"][0]["text"]
+
+
+async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext, monkeypatch) -> None:
+    """_build_specs 的告警分支（非法条目/缺 id/重复 id/缺指令/资源不存在）逐一命中，合法条目仍正常入队。"""
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    project_path = fake_ctx.project_path
+    (project_path / "characters").mkdir()
+    (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
+
+    async def fake_i2i(_project):
+        return True
+
+    async def fake_batch(*, project_name, specs):
+        from lib.generation_queue_client import BatchTaskResult
+
+        succ = [
+            BatchTaskResult(
+                resource_id=s.resource_id,
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": f"characters/{s.resource_id}.png", "version": 2},
+            )
+            for s in specs
+        ]
+        return succ, []
+
+    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    tool_obj = edit_images_tool(fake_ctx)
+    out = await _call(
+        tool_obj,
+        {
+            "resource_type": "character",
+            "edits": [
+                "not-a-dict",  # 非 dict 条目
+                {"id": "", "instruction": "x"},  # 缺 id
+                {"id": "张三", "instruction": "改发型"},  # 合法，唯一入队的一条
+                {"id": "张三", "instruction": "again"},  # 重复 id
+                {"id": "李四", "instruction": ""},  # 缺指令
+                {"id": "王五", "instruction": "改"},  # 资源不存在
+            ],
+        },
+    )
+    text = out["content"][0]["text"]
+    assert "非法条目" in text
+    assert "缺少 id 的条目" in text
+    assert "重复出现" in text
+    assert "缺少编辑指令" in text
+    assert "王五" in text and "不存在，跳过" in text
+    assert "1 succeeded" in text
+
+
+async def test_edit_images_storyboard_happy(fake_ctx: ToolContext, monkeypatch) -> None:
+    """storyboard 分支带合法 script_file 时应正常解析剧本并入队（覆盖 validate_script_filename + load_script 调用）。"""
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    async def fake_i2i(_project):
+        return True
+
+    async def fake_batch(*, project_name, specs):
+        from lib.generation_queue_client import BatchTaskResult
+
+        succ = [
+            BatchTaskResult(
+                resource_id=s.resource_id,
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": f"storyboards/scene_{s.resource_id}.png", "version": 2},
+            )
+            for s in specs
+        ]
+        return succ, []
+
+    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    tool_obj = edit_images_tool(fake_ctx)
+    out = await _call(
+        tool_obj,
+        {
+            "resource_type": "storyboard",
+            "script_file": "episode_1.json",
+            "edits": [{"id": "E1S01", "instruction": "去掉背景杂物"}],
+        },
+    )
+    assert out.get("is_error") is not True, out
+    assert "1 succeeded" in out["content"][0]["text"]
+
+
+async def test_edit_images_reports_failures(fake_ctx: ToolContext, monkeypatch) -> None:
+    """批量入队返回失败项时，摘要与明细都要带上失败原因。"""
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    project_path = fake_ctx.project_path
+    (project_path / "characters").mkdir()
+    (project_path / "characters" / "zhangsan.png").write_bytes(b"png")
+    fake_ctx.pm.project_payload["characters"]["张三"]["character_sheet"] = "characters/zhangsan.png"  # type: ignore[attr-defined]
+
+    async def fake_i2i(_project):
+        return True
+
+    async def fake_batch(*, project_name, specs):
+        from lib.generation_queue_client import BatchTaskResult
+
+        fail = [
+            BatchTaskResult(resource_id=s.resource_id, task_id="t1", status="failed", error="provider timeout")
+            for s in specs
+        ]
+        return [], fail
+
+    monkeypatch.setattr(mod, "_i2i_provider_available", fake_i2i)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    tool_obj = edit_images_tool(fake_ctx)
+    out = await _call(tool_obj, {"resource_type": "character", "edits": [{"id": "张三", "instruction": "改发型"}]})
+    assert out.get("is_error") is True
+    text = out["content"][0]["text"]
+    assert "0 succeeded, 1 failed" in text
+    assert "provider timeout" in text
+
+
+async def test_edit_images_unexpected_exception(fake_ctx: ToolContext) -> None:
+    """未预期的异常（如 pm 读取项目失败）要落到统一的 tool_error 兜底，而非向上抛出。"""
+
+    def boom(_name: str) -> dict[str, Any]:
+        raise RuntimeError("db down")
+
+    fake_ctx.pm.load_project = boom  # type: ignore[method-assign]
+    tool_obj = edit_images_tool(fake_ctx)
+    out = await _call(tool_obj, {"resource_type": "character", "edits": [{"id": "张三", "instruction": "x"}]})
+    assert out.get("is_error") is True
+    assert "edit_images 失败" in out["content"][0]["text"]
+
+
+async def test_i2i_provider_available_true(monkeypatch) -> None:
+    from lib.config.resolver import ConfigResolver
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    async def fake_resolve(self, project, payload, *, capability):
+        assert capability == "i2i"
+        return object()
+
+    monkeypatch.setattr(ConfigResolver, "resolve_image_backend", fake_resolve)
+    assert await mod._i2i_provider_available({}) is True
+
+
+async def test_i2i_provider_available_false_on_value_error(monkeypatch) -> None:
+    from lib.config.resolver import ConfigResolver
+    from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
+
+    async def fake_resolve(self, project, payload, *, capability):
+        raise ValueError("未找到可用的 image 供应商")
+
+    monkeypatch.setattr(ConfigResolver, "resolve_image_backend", fake_resolve)
+    assert await mod._i2i_provider_available({}) is False
+
+
 # ---------------------------------------------------------------------------
 # enqueue_grid
 # ---------------------------------------------------------------------------
