@@ -29,8 +29,9 @@ function resetStores() {
 }
 
 describe("TaskHud task_type label", () => {
-  afterEach(() => {
+  afterEach(async () => {
     cleanup();
+    await i18n.changeLanguage("zh");
     useAppStore.setState({ taskHudOpen: false });
     useTasksStore.setState({
       tasks: [],
@@ -61,7 +62,6 @@ describe("TaskHud task_type label", () => {
 
     render(<HostedTaskHud />);
     expect(await screen.findByText("Storyboard")).toBeInTheDocument();
-    await i18n.changeLanguage("zh");
   });
 
   it("falls back to the raw string for an unknown task_type", async () => {
