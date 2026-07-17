@@ -274,6 +274,46 @@ describe("useTasksStore.markOptimisticActive", () => {
   });
 });
 
+describe("useTasksStore.setTasks prunes stale optimistic markers", () => {
+  it("removes a marker superseded by a real row even without a new markOptimisticActive call", () => {
+    // store 只保留最近 200 条任务：真实行落地后若被更晚的大量新任务挤出该窗口，
+    // 仅靠 markOptimisticActive 内的顺带清理不会再触发——轮询写回本身也要清理，
+    // 否则这条已完结的旧标记会永久残留，把资源误判为占用中直到页面刷新。
+    useTasksStore.setState({
+      tasks: [],
+      optimisticActive: new Set([`proj\0character\0A\0image_edit\0${"2025-01-01T00:00:00Z"}`]),
+    });
+
+    useTasksStore.getState().setTasks([
+      task({
+        task_id: "edit-A",
+        task_type: "image_edit",
+        resource_type: "character",
+        resource_id: "A",
+        status: "succeeded",
+        updated_at: "2026-07-16T00:00:00Z",
+      }),
+    ]);
+
+    expect([...useTasksStore.getState().optimisticActive]).toEqual([]);
+  });
+
+  it("keeps a marker whose real row has not landed yet", () => {
+    useTasksStore.setState({
+      tasks: [],
+      optimisticActive: new Set([`proj\0character\0A\0image_edit\0`]),
+    });
+
+    useTasksStore.getState().setTasks([
+      task({ task_id: "unrelated", resource_id: "B", task_type: "character" }),
+    ]);
+
+    expect([...useTasksStore.getState().optimisticActive]).toEqual([
+      `proj\0character\0A\0image_edit\0`,
+    ]);
+  });
+});
+
 describe("selectHasActiveTaskForScriptFile", () => {
   it("returns true when a grid task for the scriptFile is queued or running", () => {
     const tasks = [
@@ -358,6 +398,131 @@ describe("selectHasActiveTaskForScriptFile", () => {
       }),
     ];
     expect(selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "proj")).toBe(false);
+  });
+
+  describe("optimistic occupancy", () => {
+    it("counts the scriptFile active via an optimistic marker when no real grid row exists yet", () => {
+      // 宫格入队成功到轮询写回新 grid 任务行之间的空窗：仅凭乐观标记也应判定本集占用中
+      const key = "proj\0grid\0episode_1.json\0";
+      expect(
+        selectHasActiveTaskForScriptFile([], "grid", "episode_1.json", "proj", new Set([key])),
+      ).toBe(true);
+    });
+
+    it("lets a real grid row newer than the baseline supersede the marker regardless of its status", () => {
+      const key = "proj\0grid\0episode_1.json\0";
+      const tasks = [
+        task({
+          task_id: "grid-1",
+          task_type: "grid",
+          resource_id: "grid-abc",
+          script_file: "episode_1.json",
+          status: "succeeded",
+        }),
+      ];
+      expect(
+        selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "proj", new Set([key])),
+      ).toBe(false);
+    });
+
+    it("does not let a stale row predating the baseline supersede a marker for a repeat submission", () => {
+      const key = `proj\0grid\0episode_1.json\0${"2026-07-16T00:00:00Z"}`;
+      const tasks = [
+        task({
+          task_id: "grid-old",
+          task_type: "grid",
+          resource_id: "grid-abc",
+          script_file: "episode_1.json",
+          status: "succeeded",
+          updated_at: "2026-07-16T00:00:00Z",
+        }),
+      ];
+      expect(
+        selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "proj", new Set([key])),
+      ).toBe(true);
+    });
+
+    it("ignores a marker scoped to a different project, task type, or scriptFile", () => {
+      const key = "proj\0grid\0episode_1.json\0";
+      expect(
+        selectHasActiveTaskForScriptFile([], "storyboard", "episode_1.json", "proj", new Set([key])),
+      ).toBe(false);
+      expect(
+        selectHasActiveTaskForScriptFile([], "grid", "episode_1.json", "other-proj", new Set([key])),
+      ).toBe(false);
+      expect(
+        selectHasActiveTaskForScriptFile([], "grid", "episode_2.json", "proj", new Set([key])),
+      ).toBe(false);
+    });
+  });
+});
+
+describe("useTasksStore.markOptimisticActiveForScriptFile", () => {
+  it("marks a scriptFile optimistically active for the given taskType", () => {
+    useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
+
+    useTasksStore.getState().markOptimisticActiveForScriptFile("proj", "grid", "episode_1.json");
+
+    const keys = [...useTasksStore.getState().optimisticActiveScriptFile];
+    expect(keys).toEqual(["proj\0grid\0episode_1.json\0"]);
+
+    const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+    expect(
+      selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "proj", optimisticActiveScriptFile),
+    ).toBe(true);
+  });
+
+  it("normalizes a scripts/ prefix in the scriptFile before storing the key", () => {
+    useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
+
+    useTasksStore.getState().markOptimisticActiveForScriptFile("proj", "grid", "scripts/episode_1.json");
+
+    expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([
+      "proj\0grid\0episode_1.json\0",
+    ]);
+  });
+
+  it("prunes markers already superseded by a real row when marking a different scriptFile", () => {
+    useTasksStore.setState({
+      tasks: [
+        task({
+          task_id: "grid-1",
+          task_type: "grid",
+          resource_id: "grid-abc",
+          script_file: "episode_1.json",
+          status: "succeeded",
+          updated_at: "2026-07-16T00:00:00Z",
+        }),
+      ],
+      optimisticActiveScriptFile: new Set([`proj\0grid\0episode_1.json\0${"2025-01-01T00:00:00Z"}`]),
+    });
+
+    useTasksStore.getState().markOptimisticActiveForScriptFile("proj", "grid", "episode_2.json");
+
+    const keys = [...useTasksStore.getState().optimisticActiveScriptFile];
+    expect(keys).toEqual(["proj\0grid\0episode_2.json\0"]);
+  });
+});
+
+describe("useTasksStore.setTasks prunes stale optimisticActiveScriptFile markers", () => {
+  it("removes a scriptFile marker superseded by a real row without a new mark call", () => {
+    useTasksStore.setState({
+      tasks: [],
+      optimisticActiveScriptFile: new Set([`proj\0grid\0episode_1.json\0${"2025-01-01T00:00:00Z"}`]),
+    });
+
+    useTasksStore.getState().setTasks([
+      task({
+        task_id: "grid-1",
+        task_type: "grid",
+        resource_id: "grid-abc",
+        script_file: "episode_1.json",
+        status: "succeeded",
+        updated_at: "2026-07-16T00:00:00Z",
+      }),
+    ]);
+
+    expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([]);
   });
 });
 

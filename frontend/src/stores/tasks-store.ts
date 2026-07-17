@@ -8,6 +8,8 @@ interface TasksState {
   connected: boolean;
   /** 乐观占用标记，见下方 {@link selectActiveResourceIds} 的乐观占用小节。 */
   optimisticActive: Set<string>;
+  /** 乐观占用标记（scriptFile 粒度），见下方 {@link selectHasActiveTaskForScriptFile} 的乐观占用小节。 */
+  optimisticActiveScriptFile: Set<string>;
 
   // Actions
   setTasks: (tasks: TaskItem[]) => void;
@@ -18,6 +20,11 @@ interface TasksState {
     resourceKind: string,
     resourceId: string,
     pendingTaskType: string,
+  ) => void;
+  markOptimisticActiveForScriptFile: (
+    projectName: string,
+    taskType: string,
+    scriptFile: string,
   ) => void;
 }
 
@@ -39,13 +46,73 @@ function optimisticKey(
   return `${projectName}\0${resourceKind}\0${resourceId}\0${pendingTaskType}\0${baselineUpdatedAt}`;
 }
 
+// 按当前 tasks 修剪已被真实行取代的乐观占用标记（不新增标记，仅清理）。除标记时机的顺带
+// 清理外，也要在每次 setTasks（轮询写回）时执行——store 只保留最近 200 条任务，若真实行
+// 落地后被更晚的大量新任务挤出该窗口，仅在“下次再有新标记”时才清理会让这条已完结的旧
+// 标记永久残留、误判资源占用中，必须让轮询本身也承担清理职责。
+function pruneSupersededOptimisticActive(
+  tasks: TaskItem[],
+  optimisticActive: ReadonlySet<string>,
+): Set<string> {
+  const next = new Set<string>();
+  for (const key of optimisticActive) {
+    const [kProject, kResourceKind, kResourceId, kPendingTaskType, kBaseline = ""] = key.split("\0");
+    const superseded = tasks.some(
+      (t) =>
+        t.project_name === kProject &&
+        t.task_type === kPendingTaskType &&
+        t.resource_id === kResourceId &&
+        taskResourceKind(t) === kResourceKind &&
+        t.updated_at > kBaseline,
+    );
+    if (!superseded) next.add(key);
+  }
+  return next;
+}
+
+function optimisticScriptFileKey(
+  projectName: string,
+  taskType: string,
+  scriptFile: string,
+  baselineUpdatedAt: string,
+): string {
+  return `${projectName}\0${taskType}\0${stripScriptsPrefix(scriptFile)}\0${baselineUpdatedAt}`;
+}
+
+// scriptFile 粒度乐观标记的同类修剪，见 {@link pruneSupersededOptimisticActive}。
+function pruneSupersededOptimisticActiveScriptFile(
+  tasks: TaskItem[],
+  optimisticActiveScriptFile: ReadonlySet<string>,
+): Set<string> {
+  const next = new Set<string>();
+  for (const key of optimisticActiveScriptFile) {
+    const [kProject, kTaskType, kScriptFile, kBaseline = ""] = key.split("\0");
+    const superseded = tasks.some(
+      (t) =>
+        t.project_name === kProject &&
+        t.task_type === kTaskType &&
+        t.script_file != null &&
+        stripScriptsPrefix(t.script_file) === kScriptFile &&
+        t.updated_at > kBaseline,
+    );
+    if (!superseded) next.add(key);
+  }
+  return next;
+}
+
 export const useTasksStore = create<TasksState>((set) => ({
   tasks: [],
   stats: defaultStats,
   connected: false,
   optimisticActive: new Set(),
+  optimisticActiveScriptFile: new Set(),
 
-  setTasks: (tasks) => set({ tasks }),
+  setTasks: (tasks) =>
+    set((s) => ({
+      tasks,
+      optimisticActive: pruneSupersededOptimisticActive(tasks, s.optimisticActive),
+      optimisticActiveScriptFile: pruneSupersededOptimisticActiveScriptFile(tasks, s.optimisticActiveScriptFile),
+    })),
   setStats: (stats) => set({ stats }),
   setConnected: (connected) => set({ connected }),
   markOptimisticActive: (projectName, resourceKind, resourceId, pendingTaskType) =>
@@ -64,21 +131,29 @@ export const useTasksStore = create<TasksState>((set) => ({
       }
 
       // 顺带清理已被真实任务行取代的旧标记，避免 Set 在会话周期内无界增长。
-      const next = new Set<string>();
-      for (const key of s.optimisticActive) {
-        const [kProject, kResourceKind, kResourceId, kPendingTaskType, kBaseline = ""] = key.split("\0");
-        const superseded = s.tasks.some(
-          (t) =>
-            t.project_name === kProject &&
-            t.task_type === kPendingTaskType &&
-            t.resource_id === kResourceId &&
-            taskResourceKind(t) === kResourceKind &&
-            t.updated_at > kBaseline,
-        );
-        if (!superseded) next.add(key);
-      }
+      const next = pruneSupersededOptimisticActive(s.tasks, s.optimisticActive);
       next.add(optimisticKey(projectName, resourceKind, resourceId, pendingTaskType, baseline));
       return { optimisticActive: next };
+    }),
+  markOptimisticActiveForScriptFile: (projectName, taskType, scriptFile) =>
+    set((s) => {
+      const normalized = stripScriptsPrefix(scriptFile);
+      let baseline = "";
+      for (const t of s.tasks) {
+        if (
+          t.project_name === projectName &&
+          t.task_type === taskType &&
+          t.script_file != null &&
+          stripScriptsPrefix(t.script_file) === normalized &&
+          t.updated_at > baseline
+        ) {
+          baseline = t.updated_at;
+        }
+      }
+
+      const next = pruneSupersededOptimisticActiveScriptFile(s.tasks, s.optimisticActiveScriptFile);
+      next.add(optimisticScriptFileKey(projectName, taskType, scriptFile, baseline));
+      return { optimisticActiveScriptFile: next };
     }),
 }));
 
@@ -205,15 +280,21 @@ function stripScriptsPrefix(path: string): string {
  * 分镜 segment_id，无法归入 selectActiveResourceIds 的按资源判定；但 grid 切割阶段
  * 会覆写本集内多个分镜的 storyboard 文件，故按 scriptFile 判定「本集是否有宫格任务
  * 在跑」，用于禁用宫格模式下的分镜编辑入口，避免编辑与切割并发写同一文件。
+ *
+ * 乐观占用：宫格入队请求成功返回到下一次轮询把新 grid 任务行写进 store 之间有 ~3s 空窗，
+ * 期间本集在 store 里尚无对应 grid 任务行，分镜编辑入口会误判为空闲、与随后的切割阶段
+ * 并发写同一张 storyboard current 图。语义与 {@link selectActiveResourceIds} 的乐观占用
+ * 小节一致，但归组键换成 scriptFile（grid 任务无法按 resource_id 归组，见上）。
  */
 export function selectHasActiveTaskForScriptFile(
   tasks: TaskItem[],
   taskType: string,
   scriptFile: string,
   projectName: string,
+  optimisticActiveScriptFile: ReadonlySet<string> = EMPTY_OPTIMISTIC,
 ): boolean {
   const normalized = stripScriptsPrefix(scriptFile);
-  return tasks.some(
+  const hasRealActive = tasks.some(
     (task) =>
       task.project_name === projectName &&
       task.task_type === taskType &&
@@ -221,6 +302,22 @@ export function selectHasActiveTaskForScriptFile(
       stripScriptsPrefix(task.script_file) === normalized &&
       isActiveStatus(task.status),
   );
+  if (hasRealActive) return true;
+
+  for (const key of optimisticActiveScriptFile) {
+    const [kProject, kTaskType, kScriptFile, kBaseline = ""] = key.split("\0");
+    if (kProject !== projectName || kTaskType !== taskType || kScriptFile !== normalized) continue;
+    const hasPendingRow = tasks.some(
+      (t) =>
+        t.project_name === kProject &&
+        t.task_type === kTaskType &&
+        t.script_file != null &&
+        stripScriptsPrefix(t.script_file) === kScriptFile &&
+        t.updated_at > kBaseline,
+    );
+    if (!hasPendingRow) return true;
+  }
+  return false;
 }
 
 /** hook 版 {@link selectHasActiveTaskForScriptFile}；scriptFile/projectName 缺失时返回 false。 */
@@ -231,7 +328,13 @@ export function useHasActiveTaskForScriptFile(
 ): boolean {
   return useTasksStore((s) =>
     scriptFile && projectName
-      ? selectHasActiveTaskForScriptFile(s.tasks, taskType, scriptFile, projectName)
+      ? selectHasActiveTaskForScriptFile(
+          s.tasks,
+          taskType,
+          scriptFile,
+          projectName,
+          s.optimisticActiveScriptFile,
+        )
       : false,
   );
 }

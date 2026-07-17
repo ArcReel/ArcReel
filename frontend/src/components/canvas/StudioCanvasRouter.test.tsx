@@ -6,7 +6,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { selectActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
+import { selectActiveResourceIds, selectHasActiveTaskForScriptFile, useTasksStore } from "@/stores/tasks-store";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import type { AdEpisodeScript, EpisodeScript, ProjectData } from "@/types";
 
@@ -1147,6 +1147,36 @@ describe("StudioCanvasRouter", () => {
       expect(API.generateGrid).toHaveBeenCalledWith("demo", 1, "episode_1.json", undefined);
       expect(useAppStore.getState().toast?.text).toContain("宫格生成失败");
       expect(useAppStore.getState().toast?.tone).toBe("error");
+    });
+  });
+
+  it("marks the scriptFile as optimistically active on grid generation submit success", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ generation_mode: "grid" }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData({ generation_mode: "grid" }),
+      scripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "generateGrid").mockResolvedValue({
+      success: true,
+      grid_ids: ["grid-1"],
+      task_ids: ["t-1"],
+      message: "已提交",
+    });
+
+    renderAt("/episodes/1");
+
+    fireEvent.click(await screen.findByText("generate-grid"));
+    await waitFor(() => {
+      expect(API.generateGrid).toHaveBeenCalledWith("demo", 1, "episode_1.json", undefined);
+      const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+      expect(
+        selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "demo", optimisticActiveScriptFile),
+      ).toBe(true);
     });
   });
 });

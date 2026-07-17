@@ -482,6 +482,10 @@ export function StudioCanvasRouter() {
     if (!currentProjectName) return;
     try {
       const result = await API.generateGrid(currentProjectName, episode, scriptFile, sceneIds);
+      // 乐观占用：入队成功到下一次轮询把新 grid 任务行写进 store 之间有 ~3s 空窗，期间本集
+      // 分镜编辑入口会误判为空闲，与随后的切割阶段并发写同一张 storyboard current 图，
+      // 见 tasks-store.ts::selectHasActiveTaskForScriptFile 的乐观占用小节。
+      useTasksStore.getState().markOptimisticActiveForScriptFile(currentProjectName, "grid", scriptFile);
       useAppStore.getState().pushToast(result.message, "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("grid_generation_failed", { message: errMsg(err) }), "error");
