@@ -167,8 +167,9 @@ class UsageRepository(BaseRepository):
         """两条快照路径共享的结算函数：输入 ApiCall 行与申报值，输出生效计费时长、
         生效有声标志、duration_ms、费用与币种（含 OpenAI 图片 token 聚合列归一）。
 
-        - duration_ms 按 ``finished_at - started_at`` 回写；SQLite 跨 session 的 aware−naive
-          相减抛 TypeError 时兜底为 0（既有行为）。
+        - duration_ms 按 ``finished_at - started_at`` 回写；SQLite 跨 session 回读的
+          ``started_at`` 为 naive datetime，相减前按 UTC 补齐 tzinfo 与 aware 的
+          ``finished_at`` 对齐口径；计算异常仍兜底为 0（最终防线）。
         - 计费时长/有声标志覆盖：backend 回报值覆盖 start_call 时的请求值，非正或超出
           ``MAX_BILLED_DURATION_SECONDS`` 的计费时长视同未提供、回落请求时长。
         - 费用：显式 ``cost_amount`` 视作 provider 直报计费数据、优先于自动计算；否则在
@@ -180,7 +181,11 @@ class UsageRepository(BaseRepository):
         防重复计费的 pending 守卫由各 public 方法的 UPDATE WHERE 子句显式承担，不在此。
         """
         try:
-            duration_ms = int((finished_at - row.started_at).total_seconds() * 1000)
+            started_at = row.started_at
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=UTC)
+            settled_finished_at = finished_at if finished_at.tzinfo is not None else finished_at.replace(tzinfo=UTC)
+            duration_ms = int((settled_finished_at - started_at).total_seconds() * 1000)
         except (ValueError, TypeError):
             duration_ms = 0
 
