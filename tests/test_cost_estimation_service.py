@@ -706,3 +706,21 @@ class TestCostEstimationService:
         # 缺价 → calculate_cost 返回 0，_add_cost 过滤，image 估值为空且未抛错
         seg = result["episodes"][0]["segments"][0]
         assert seg["estimate"]["image"] == {}
+
+    async def test_custom_provider_malformed_id_degrades_to_zero(self, db_factory):
+        """畸形 custom- provider id（非数字后缀）：parse_provider_id 的 ValueError 需降级为 0，不抛错。"""
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "image_provider_t2i": "custom-abc/ghost",  # 写入侧校验只查前缀，后缀非数字仍可能入库
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, ["E1S001"], [6])}
+
+        result = await service.compute(project_data, scripts, project_name="test-malformed-id")
+
+        seg = result["episodes"][0]["segments"][0]
+        assert seg["estimate"]["image"] == {}

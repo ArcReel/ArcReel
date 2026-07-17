@@ -61,7 +61,11 @@ class CostEstimationService:
         """
         if not is_custom_provider(provider):
             return _NO_CUSTOM_PRICE
-        price_model = await CustomProviderRepository(session).get_model_by_ids(parse_provider_id(provider), model or "")
+        try:
+            db_id = parse_provider_id(provider)
+        except ValueError:
+            return _NO_CUSTOM_PRICE
+        price_model = await CustomProviderRepository(session).get_model_by_ids(db_id, model or "")
         if price_model is None:
             return _NO_CUSTOM_PRICE
         return _CustomPrice(price_model.price_input, price_model.price_output, price_model.currency)
