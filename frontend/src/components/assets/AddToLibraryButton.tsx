@@ -51,6 +51,12 @@ export function AddToLibraryButton({
   };
 
   const handleSubmit = async (payload: { name: string; description: string; voice_style: string; overwrite?: boolean }) => {
+    // 弹窗打开后资源可能通过 SSE / 其他标签页 / Agent 进入生成或 image_edit 占用态，
+    // 提交时须复核最新 busy 值，避免把占用期间的旧图复制进全局资产库
+    if (busy) {
+      useAppStore.getState().pushToast(t("add_to_library_busy_hint"), "error");
+      return;
+    }
     try {
       await API.addAssetFromProject({
         project_name: projectName,
