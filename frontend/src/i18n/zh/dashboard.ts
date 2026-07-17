@@ -387,6 +387,18 @@ export default {
   'cancelling': '取消中...',
   'confirm_cancel': '确认取消',
   'go_back': '返回',
+  // task_type display names（后端 task_type 无集中枚举，散落在各入队调用点字面量 +
+  // lib/asset_types.ASSET_SPECS 的 key；词表外未知值前端兜底显示原始串）
+  'task_type_image_edit': '图片编辑',
+  'task_type_storyboard': '分镜图',
+  'task_type_video': '视频',
+  'task_type_reference_video': '参考视频',
+  'task_type_tts': '配音',
+  'task_type_grid': '宫格图',
+  'task_type_character': '角色',
+  'task_type_scene': '场景',
+  'task_type_prop': '道具',
+  'task_type_product': '产品',
 
   // AgentCopilot
   'new_session': '新会话',

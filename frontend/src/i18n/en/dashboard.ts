@@ -386,6 +386,19 @@ export default {
   'cancelling': 'Cancelling...',
   'confirm_cancel': 'Confirm Cancel',
   'go_back': 'Back',
+  // task_type display names (backend task_type has no central enum — scattered
+  // literals at enqueue call sites + lib/asset_types.ASSET_SPECS keys; unknown
+  // values outside this table fall back to the raw string on the frontend)
+  'task_type_image_edit': 'Image Edit',
+  'task_type_storyboard': 'Storyboard',
+  'task_type_video': 'Video',
+  'task_type_reference_video': 'Reference Video',
+  'task_type_tts': 'Voiceover',
+  'task_type_grid': 'Grid',
+  'task_type_character': 'Character',
+  'task_type_scene': 'Scene',
+  'task_type_prop': 'Prop',
+  'task_type_product': 'Product',
 
   // AgentCopilot
   'new_session': 'New Session',
