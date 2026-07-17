@@ -575,3 +575,156 @@ class TestCostEstimationService:
 
         # compute() 不因 resolve_resolution 异常而中断，其余字段照常返回
         assert result["models"]["video"]["provider"] == "unknown"
+
+    async def test_custom_provider_estimates_use_db_prices(self, db_factory):
+        """自定义供应商预估：image/video/audio 单价来自 DB（与实际记账同源），估值按配置价格非零。"""
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        async with db_factory() as session:
+            await CustomProviderRepository(session).create_provider(
+                display_name="Custom",
+                discovery_format="openai",
+                base_url="https://api.example.com",
+                api_key="k",
+                models=[
+                    {
+                        "model_id": "img",
+                        "display_name": "Img",
+                        "endpoint": "openai-images",
+                        "price_unit": "image",
+                        "price_input": 0.05,
+                        "currency": "USD",
+                    },
+                    {
+                        "model_id": "vid",
+                        "display_name": "Vid",
+                        "endpoint": "openai-video",
+                        "price_unit": "second",
+                        "price_input": 0.10,
+                        "currency": "USD",
+                    },
+                    {
+                        "model_id": "aud",
+                        "display_name": "Aud",
+                        "endpoint": "openai-tts",
+                        "price_unit": "character",
+                        "price_input": 2.0,
+                        "currency": "CNY",
+                    },
+                ],
+            )
+            await session.commit()
+
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "image_provider_t2i": "custom-1/img",
+            "video_backend": "custom-1/vid",
+            "audio_backend": "custom-1/aud",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        script = _make_script(1, ["E1S001"], [6])
+        script["segments"][0]["novel_text"] = "字" * 10000  # 1 万字符
+        scripts = {"ep1.json": script}
+
+        result = await service.compute(project_data, scripts, project_name="test-custom")
+
+        assert result["models"]["image"] == {"provider": "custom-1", "model": "img"}
+        seg = result["episodes"][0]["segments"][0]
+        # image：自定义供应商按张计费，flat 0.05 USD（不随 1K/2K 变化）
+        assert seg["estimate"]["image"]["USD"] == pytest.approx(0.05)
+        # video：时长 6s × 0.10 = 0.60 USD
+        assert seg["estimate"]["video"]["USD"] == pytest.approx(0.60)
+        # audio：10000 字符 / 10000 × 2.0 = 2.0 CNY
+        assert seg["estimate"]["audio"]["CNY"] == pytest.approx(2.0)
+        # 集/项目两级合计同步纳入
+        assert result["project_totals"]["estimate"]["video"]["USD"] == pytest.approx(0.60)
+
+    async def test_custom_provider_grid_estimate_uses_db_price(self, db_factory):
+        """grid 模式下自定义供应商图片单价同样贯通（2K grid 单价 = DB flat 价）。"""
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        async with db_factory() as session:
+            await CustomProviderRepository(session).create_provider(
+                display_name="Custom",
+                discovery_format="openai",
+                base_url="https://api.example.com",
+                api_key="k",
+                models=[
+                    {
+                        "model_id": "img",
+                        "display_name": "Img",
+                        "endpoint": "openai-images",
+                        "price_unit": "image",
+                        "price_input": 0.09,
+                        "currency": "USD",
+                    },
+                ],
+            )
+            await session.commit()
+
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 10)]  # 9 scenes → 1 张 grid_9
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "grid",
+            "image_provider_t2i": "custom-1/img",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 9)}
+
+        result = await service.compute(project_data, scripts, project_name="test-grid-custom")
+
+        # 9 格拼成 1 张 grid，flat 0.09 USD 摊到 9 格 → 每格 0.01 USD
+        segments = result["episodes"][0]["segments"]
+        for seg in segments:
+            assert seg["estimate"]["image"]["USD"] == pytest.approx(round(0.09 / 9, 6))
+        # 集合计 = 满张单价 0.09 USD
+        assert result["episodes"][0]["totals"]["estimate"]["image"]["USD"] == pytest.approx(0.09, abs=1e-4)
+
+    async def test_custom_provider_without_price_degrades_to_zero(self, db_factory):
+        """自定义供应商查无价格模型：预估降级为 0（记 debug 日志、不抛错），与现状降级口径一致。"""
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "image_provider_t2i": "custom-99/ghost",  # DB 无此供应商/模型
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, ["E1S001"], [6])}
+
+        result = await service.compute(project_data, scripts, project_name="test-noprice")
+
+        # 断言解析到的仍是该自定义 provider/model，排除 resolver 回落 unknown 导致的同结果假阳性
+        assert result["models"]["image"] == {"provider": "custom-99", "model": "ghost"}
+        # 缺价 → calculate_cost 返回 0，_add_cost 过滤，image 估值为空且未抛错
+        seg = result["episodes"][0]["segments"][0]
+        assert seg["estimate"]["image"] == {}
+
+    async def test_custom_provider_malformed_id_degrades_to_zero(self, db_factory):
+        """畸形 custom- provider id（非数字后缀）：parse_provider_id 的 ValueError 需降级为 0，不抛错。"""
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "image_provider_t2i": "custom-abc/ghost",  # 写入侧校验只查前缀，后缀非数字仍可能入库
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, ["E1S001"], [6])}
+
+        result = await service.compute(project_data, scripts, project_name="test-malformed-id")
+
+        # 断言解析到的仍是该畸形 provider/model，排除 resolver 回落 unknown 导致的同结果假阳性
+        assert result["models"]["image"] == {"provider": "custom-abc", "model": "ghost"}
+        seg = result["episodes"][0]["segments"][0]
+        assert seg["estimate"]["image"] == {}
