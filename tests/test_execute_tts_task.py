@@ -154,7 +154,7 @@ class TestGetOrCreateAudioBackend:
             return sentinel
 
         monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
-        monkeypatch.setattr(generation_context, "_backend_cache", {})
+        monkeypatch.setattr(generation_context, "_backend_cache", generation_context._BackendCache())
 
         resolver = cast(ConfigResolver, None)
         b1 = await generation_context._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
@@ -172,7 +172,7 @@ class TestGetOrCreateAudioBackend:
             return sentinel
 
         monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
-        monkeypatch.setattr(generation_context, "_backend_cache", {})
+        monkeypatch.setattr(generation_context, "_backend_cache", generation_context._BackendCache())
 
         resolver = cast(ConfigResolver, None)
         b1 = await generation_context._get_or_create_audio_backend(
@@ -192,7 +192,7 @@ class TestGetOrCreateAudioBackend:
             return object()
 
         monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
-        monkeypatch.setattr(generation_context, "_backend_cache", {})
+        monkeypatch.setattr(generation_context, "_backend_cache", generation_context._BackendCache())
 
         await generation_context._get_or_create_audio_backend(
             "dashscope",

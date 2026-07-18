@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -36,13 +37,72 @@ logger = logging.getLogger(__name__)
 
 rate_limiter = get_shared_rate_limiter()
 
-# 按 (channel, provider_name, model) 缓存 Backend 实例，避免每次任务重建 API 客户端
-_backend_cache: dict[tuple[str, str, str | None], Any] = {}
+_CacheKey = tuple[str, str, str | None]
+
+
+class _BackendCache:
+    """Backend 实例缓存：按 (media_type, provider_name, model) 复用实例，避免每次任务重建 API 客户端。
+
+    缓存查询/构造/写回/失效在此单点实现，两条并发纪律藏在实现内、不扩大接口：
+
+    - **代际 invariant**：``invalidate()`` 时代数 +1；构造前记录代数，构造完成后代数未变才写回。
+      代数已变（构造期间发生配置变更）则该实例用完即弃——该笔任务按入队时配置快照跑完，
+      不把旧配置实例写回缓存遮蔽新配置。
+    - **per-key single-flight**：同 key 并发 miss 经 per-key 锁串行化，只构造一次、各调用方
+      拿到同一实例，避免并发构造出无人持有的多余 SDK client（全库无 backend 关闭协议）。
+    """
+
+    def __init__(self) -> None:
+        self._entries: dict[_CacheKey, Any] = {}
+        self._locks: dict[_CacheKey, asyncio.Lock] = {}
+        self._generation = 0
+
+    async def get_or_create(self, key: _CacheKey, factory: Callable[[], Awaitable[Any]]) -> Any:
+        if key in self._entries:
+            return self._entries[key]
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            if key in self._entries:
+                return self._entries[key]
+            generation = self._generation
+            backend = await factory()
+            if self._generation == generation:
+                self._entries[key] = backend
+            return backend
+
+    def invalidate(self) -> None:
+        self._generation += 1
+        self._entries.clear()
+
+
+_backend_cache = _BackendCache()
 
 
 def invalidate_backend_cache() -> None:
     """清空 Backend 实例缓存。在供应商配置变更后调用。"""
-    _backend_cache.clear()
+    _backend_cache.invalidate()
+
+
+async def _get_or_create_backend(
+    media_type: str,
+    provider_name: str,
+    provider_settings: dict,
+    resolver: ConfigResolver,
+    default_model: str | None,
+) -> Any:
+    """组 key + 提供 factory closure，缓存纪律统一委托 :class:`_BackendCache`。"""
+    effective_model = provider_settings.get("model") or default_model or None
+
+    async def _factory() -> Any:
+        return await assemble_backend(
+            provider_id=provider_name,
+            media_type=media_type,
+            model_id=effective_model,
+            resolver=resolver,
+            rate_limiter=rate_limiter,
+        )
+
+    return await _backend_cache.get_or_create((media_type, provider_name, effective_model), _factory)
 
 
 async def _get_or_create_video_backend(
@@ -58,20 +118,7 @@ async def _get_or_create_video_backend(
     通过 resolver 按需加载供应商配置。
     default_video_model: 全局默认视频模型，当 provider_settings 中无 model 时作为 fallback。
     """
-    effective_model = provider_settings.get("model") or default_video_model or None
-    cache_key = ("video", provider_name, effective_model)
-    if cache_key in _backend_cache:
-        return _backend_cache[cache_key]
-
-    backend = await assemble_backend(
-        provider_id=provider_name,
-        media_type="video",
-        model_id=effective_model,
-        resolver=resolver,
-        rate_limiter=rate_limiter,
-    )
-    _backend_cache[cache_key] = backend
-    return backend
+    return await _get_or_create_backend("video", provider_name, provider_settings, resolver, default_video_model)
 
 
 async def _get_or_create_image_backend(
@@ -82,20 +129,7 @@ async def _get_or_create_image_backend(
     default_image_model: str | None = None,
 ):
     """获取或创建 ImageBackend 实例（带缓存）。"""
-    effective_model = provider_settings.get("model") or default_image_model or None
-    cache_key = ("image", provider_name, effective_model)
-    if cache_key in _backend_cache:
-        return _backend_cache[cache_key]
-
-    backend = await assemble_backend(
-        provider_id=provider_name,
-        media_type="image",
-        model_id=effective_model,
-        resolver=resolver,
-        rate_limiter=rate_limiter,
-    )
-    _backend_cache[cache_key] = backend
-    return backend
+    return await _get_or_create_backend("image", provider_name, provider_settings, resolver, default_image_model)
 
 
 async def _get_or_create_audio_backend(
@@ -105,22 +139,8 @@ async def _get_or_create_audio_backend(
     *,
     default_audio_model: str | None = None,
 ):
-    """获取或创建 AudioBackend 实例（带缓存）。"""
-    effective_model = provider_settings.get("model") or default_audio_model or None
-    cache_key = ("audio", provider_name, effective_model)
-    if cache_key in _backend_cache:
-        return _backend_cache[cache_key]
-
-    # audio 无 gemini/kling 媒体特例：自定义 + 简单族统一经构造缝
-    backend = await assemble_backend(
-        provider_id=provider_name,
-        media_type="audio",
-        model_id=effective_model,
-        resolver=resolver,
-        rate_limiter=rate_limiter,
-    )
-    _backend_cache[cache_key] = backend
-    return backend
+    """获取或创建 AudioBackend 实例（带缓存）。audio 无媒体特例：自定义 + 简单族统一经构造缝。"""
+    return await _get_or_create_backend("audio", provider_name, provider_settings, resolver, default_audio_model)
 
 
 @dataclass(frozen=True)

@@ -7,15 +7,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import ProviderModel, get_provider_fallback
+from lib.config.resolver import ConfigResolver, ProviderModel, get_provider_fallback
 from lib.custom_provider import make_provider_id
 from lib.db.base import Base
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -306,6 +308,62 @@ class TestBackendCache:
         generation_context.invalidate_backend_cache()
         await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
         assert len(fake_assemble) == 2, "失效后须重建 backend"
+
+    async def test_invalidate_during_construction_discards_instance(self, monkeypatch):
+        """构造中途（assemble_backend await 挂起期间）触发 invalidate：完成的实例不写回缓存。"""
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        built: list[_FakeBackend] = []
+
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+            backend = _FakeBackend(name=provider_id, model=model_id or "default-model")
+            built.append(backend)
+            if len(built) == 1:
+                entered.set()
+                await release.wait()
+            return backend
+
+        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        resolver = cast(ConfigResolver, None)
+
+        task = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
+        await entered.wait()
+        generation_context.invalidate_backend_cache()
+        release.set()
+        stale = await task
+
+        fresh = await generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver)
+        assert len(built) == 2, "缓存中不得残留失效期间构造的实例，后续访问须重新构造"
+        assert stale is built[0] and fresh is built[1]
+        assert fresh is not stale
+
+    async def test_concurrent_same_key_constructs_once(self, monkeypatch):
+        """同 key 并发两次 get_or_create：只构造一次，两调用方拿到同一实例。"""
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        construct_count = 0
+
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+            nonlocal construct_count
+            construct_count += 1
+            entered.set()
+            await release.wait()
+            return _FakeBackend(name=provider_id, model=model_id or "default-model")
+
+        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        resolver = cast(ConfigResolver, None)
+
+        t1 = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
+        t2 = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
+        await entered.wait()
+        # 让 t2 在 t1 构造挂起期间也进入 get_or_create（并发 miss 而非先后命中）
+        for _ in range(3):
+            await asyncio.sleep(0)
+        release.set()
+        b1, b2 = await asyncio.gather(t1, t2)
+
+        assert construct_count == 1, "同 key 并发 miss 须 single-flight，只构造一次"
+        assert b1 is b2
 
 
 class TestValueObjectAssembly:
