@@ -95,4 +95,24 @@ export default tseslint.config(
       "react-hooks/incompatible-library": "error",
     },
   },
+
+  // 入队类 API 方法只能经 src/actions/ 的入队动作层调用——乐观占用打标、
+  // 去重提示与返回值归一化由动作层统一封装，组件直调会绕过这些副作用。
+  // 新增入队类 API 方法时同步把方法名登记进下方 selector 的清单。
+  // src/api.test.ts 豁免：它测试的是 API 层本体的端点路径与请求体。
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/actions/**", "src/api.test.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.object.name='API'][callee.property.name=/^(generateStoryboard|generateVideo|generateNarrationAudio|generateEpisodeNarrationAudio|generateCharacter|generateProjectScene|generateProjectProp|generateProjectProduct|editImage|generateGrid|regenerateGrid|generateReferenceVideoUnit)$/]",
+          message:
+            "入队类 API 方法只能经 src/actions/ 的入队动作层调用（统一封装乐观占用打标与去重提示）。",
+        },
+      ],
+    },
+  },
 );

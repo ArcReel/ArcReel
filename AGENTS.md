@@ -131,6 +131,7 @@ ConfigService（`service.py`）→ Repository（持久化 + 密钥脱敏）→ R
 - Vite 代理：`/api` → `http://127.0.0.1:1241`
 - i18n：`i18next` + `react-i18next`，翻译文件在 `frontend/src/i18n/{zh,en,vi}/`，命名空间 `common`/`dashboard`/`auth`/`errors`/`assets`/`templates`
 - **占用感知型控件接线** — 编辑/重生成/上传/入库/版本恢复等随资源占用态禁用的控件，新增或改动时通过三项检查：弹窗/面板打开时校验当前占用态；提交时刻复核最新占用态（打开后状态可能已变化，仅查打开时刻会留竞态窗口）；同一资源卡片上的兄弟控件同步接线禁用
+- **入队走动作层** — 生成类入队操作一律经 `frontend/src/actions/` 的动作函数（内部统一封装 API 调用、乐观占用打标与去重提示），组件不直调入队类 API 方法；新增入队类 API 方法时同步登记 `frontend/eslint.config.js` 中 no-restricted-syntax 的方法名清单
 
 ## 关键设计模式
 
