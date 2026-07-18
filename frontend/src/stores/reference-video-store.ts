@@ -38,7 +38,6 @@ interface ReferenceVideoStore {
   patchUnit: (projectName: string, episode: number, unitId: string, patch: PatchUnitPayload) => Promise<ReferenceVideoUnit>;
   deleteUnit: (projectName: string, episode: number, unitId: string) => Promise<void>;
   reorderUnits: (projectName: string, episode: number, unitIds: string[]) => Promise<void>;
-  generate: (projectName: string, episode: number, unitId: string) => Promise<{ task_id: string; deduped: boolean }>;
   select: (unitId: string | null) => void;
 }
 
@@ -106,10 +105,6 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
     set((s) => ({
       unitsByEpisode: { ...s.unitsByEpisode, [referenceVideoCacheKey(projectName, episode)]: units },
     }));
-  },
-
-  generate: async (projectName, episode, unitId) => {
-    return API.generateReferenceVideoUnit(projectName, episode, unitId);
   },
 
   select: (unitId) => set({ selectedUnitId: unitId }),

@@ -33,6 +33,7 @@ describe("AdInitCanvas", () => {
     vi.spyOn(API, "generateProjectProduct").mockResolvedValue({
       success: true,
       task_id: "t1",
+      deduped: false,
       message: "ok",
     });
 

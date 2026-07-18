@@ -2,6 +2,7 @@ import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ImagePlus, ShoppingBag, Sparkles, X } from "lucide-react";
 import { API } from "@/api";
+import { enqueueProduct } from "@/actions/generation";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 
@@ -73,7 +74,7 @@ export function AdInitCanvas({ projectName, onDone }: AdInitCanvasProps) {
         await API.updateProject(projectName, { brief: brief.trim() });
       }
       if (generateSheet && hasProduct) {
-        await API.generateProjectProduct(projectName, name, desc);
+        await enqueueProduct(projectName, name, desc);
       }
       useAppStore.getState().pushToast(t("dashboard:ad_init_success_toast"), "success");
       await onDone();

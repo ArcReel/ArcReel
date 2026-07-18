@@ -50,7 +50,12 @@ function renderPanel() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useTasksStore.setState({ tasks: [] });
+  // 乐观标记由入队动作层写入且跨测试共享同一 store 实例，须一并重置
+  useTasksStore.setState({
+    tasks: [],
+    optimisticActive: new Set(),
+    optimisticActiveScriptFile: new Set(),
+  });
 });
 
 describe("AdReferenceUnitsPanel", () => {

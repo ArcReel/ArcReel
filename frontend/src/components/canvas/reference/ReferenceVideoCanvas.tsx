@@ -17,11 +17,12 @@ import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ScriptReviewGate } from "@/components/canvas/timeline/ScriptReviewGate";
 import { API } from "@/api";
+import { enqueueReferenceVideoUnit } from "@/actions/generation";
 import {
   useReferenceVideoStore,
   referenceVideoCacheKey,
 } from "@/stores/reference-video-store";
-import { isActiveStatus, useLatestTasksByResource } from "@/stores/tasks-store";
+import { isActiveStatus, useActiveResourceIds, useLatestTasksByResource } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
@@ -78,7 +79,6 @@ export function ReferenceVideoCanvas({
   const loadUnits = useReferenceVideoStore((s) => s.loadUnits);
   const addUnit = useReferenceVideoStore((s) => s.addUnit);
   const patchUnit = useReferenceVideoStore((s) => s.patchUnit);
-  const generate = useReferenceVideoStore((s) => s.generate);
   const select = useReferenceVideoStore((s) => s.select);
 
   const units =
@@ -116,8 +116,8 @@ export function ReferenceVideoCanvas({
     }
   }, [units, selected, select]);
 
-  // Optimistic UI: POST 前置位 → 队列接力 → 队列窗口换出后失效。
-  const [optimisticUnitIds, setOptimisticUnitIds] = useState<Set<string>>(() => new Set());
+  // 乐观占用来自 tasks-store：入队动作层在 API 成功后打标，真实任务行落库后让位。
+  const busyUnitIds = useActiveResourceIds("reference_video", projectName);
 
   const [uploadingUnitIds, setUploadingUnitIds] = useState<Set<string>>(() => new Set());
 
@@ -133,11 +133,13 @@ export function ReferenceVideoCanvas({
       // 失败任务行 DB 持久化、不会过期：手动上传成片后单元已有可播放资产，
       // 不再让历史失败覆盖 ready（与 timeline/grid 画布用 toast 提示失败的语义对齐）
       else if (queueRow?.status === "failed" && !u.generated_assets.video_clip) st = "failed";
-      else if (optimisticUnitIds.has(u.unit_id) && !queueRow) st = "running";
+      // 乐观窗口：真实任务行尚未落库时按占用集显示 running。已有任务行时不走
+      // 这个分支——显示语义仍由 isActiveStatus 决定（cancelling 不显示为 running）。
+      else if (!queueRow && busyUnitIds.has(u.unit_id)) st = "running";
       map[u.unit_id] = st;
     }
     return map;
-  }, [units, tasksByUnit, optimisticUnitIds, uploadingUnitIds]);
+  }, [units, tasksByUnit, busyUnitIds, uploadingUnitIds]);
 
   const generating = !!(selected && statusMap[selected.unit_id] === "running");
 
@@ -168,32 +170,15 @@ export function ReferenceVideoCanvas({
 
   const handleGenerate = useCallback(
     async (unitId: string) => {
-      setOptimisticUnitIds((s) => {
-        if (s.has(unitId)) return s;
-        const next = new Set(s);
-        next.add(unitId);
-        return next;
-      });
       setStackTab("preview");
       try {
-        const { deduped } = await generate(projectName, episode, unitId);
-        useAppStore
-          .getState()
-          .pushToast(
-            t(deduped ? "reference_generate_deduped" : "reference_generate_queued"),
-            "info",
-          );
+        // 入队成功的乐观打标与 queued/deduped 提示都在动作层内完成
+        await enqueueReferenceVideoUnit(projectName, episode, unitId);
       } catch (e) {
-        setOptimisticUnitIds((s) => {
-          if (!s.has(unitId)) return s;
-          const next = new Set(s);
-          next.delete(unitId);
-          return next;
-        });
         toastError(e, (msg) => t("reference_generate_request_failed", { error: msg }));
       }
     },
-    [generate, projectName, episode, t],
+    [projectName, episode, t],
   );
 
   const handleUploadVideo = useCallback(

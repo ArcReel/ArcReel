@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Layers, RefreshCw, Sparkles } from "lucide-react";
 import { API } from "@/api";
+import { enqueueReferenceVideoUnit } from "@/actions/generation";
 import {
   selectActiveResourceIds,
   useActiveResourceIds,
@@ -76,16 +77,18 @@ export function AdReferenceUnitsPanel({ projectName, episode, shots }: AdReferen
   // 后一个 unit 的调用抹掉前一个 unit 的失败信息
   const generateUnit = async (unitId: string) => {
     try {
-      await API.generateReferenceVideoUnit(projectName, episode, unitId);
+      await enqueueReferenceVideoUnit(projectName, episode, unitId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
 
   // 实时读 store 而非渲染期快照：串行 await 期间其他入口（如单 unit 按钮）
-  // 可能已入队同一 unit
-  const liveBusyUnitIds = () =>
-    selectActiveResourceIds(useTasksStore.getState().tasks, "reference_video", projectName);
+  // 可能已入队同一 unit；乐观标记集也要带上，动作层刚打的标记才能被循环看到
+  const liveBusyUnitIds = () => {
+    const { tasks, optimisticActive } = useTasksStore.getState();
+    return selectActiveResourceIds(tasks, "reference_video", projectName, optimisticActive);
+  };
 
   const generateAll = async () => {
     // 先重新派生（保证索引与 shots 一致），再为未完成且空闲的 unit 入队

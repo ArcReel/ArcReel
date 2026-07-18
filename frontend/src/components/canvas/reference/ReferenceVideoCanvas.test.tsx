@@ -44,7 +44,13 @@ describe("ReferenceVideoCanvas", () => {
   beforeEach(() => {
     useReferenceVideoStore.setState({ unitsByEpisode: {}, selectedUnitId: null, loading: false, error: null });
     useProjectsStore.setState({ currentProjectName: "proj", currentProjectData: STUB_PROJECT });
-    useTasksStore.setState({ tasks: [], connected: false });
+    // 乐观标记由入队动作层写入且跨测试共享同一 store 实例，须一并重置
+    useTasksStore.setState({
+      tasks: [],
+      connected: false,
+      optimisticActive: new Set(),
+      optimisticActiveScriptFile: new Set(),
+    });
     useAppStore.setState({ toast: null });
   });
   afterEach(() => vi.restoreAllMocks());
@@ -219,11 +225,11 @@ describe("ReferenceVideoCanvas", () => {
     // 点击前 tasks store 为空，按钮启用
     expect(btn).not.toBeDisabled();
     fireEvent.click(btn);
-    // 立刻：按钮 disabled，显示 "Generating…/生成中"
-    await waitFor(() => expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled());
-    // 收尾：让 generate promise 完成 + info toast 冒出
-    resolveGen({ task_id: "t1", deduped: false });
     await waitFor(() => expect(genSpy).toHaveBeenCalled());
+    // 入队成功（202 返回）后、任务轮询写回前：动作层打乐观标记，按钮立即
+    // busy 并显示 "Generating…/生成中"；请求飞行中的双击由后端去重索引兜底
+    resolveGen({ task_id: "t1", deduped: false });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled());
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toMatch(/Queued for generation|已加入生成队列/);
     });

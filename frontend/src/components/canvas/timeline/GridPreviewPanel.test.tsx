@@ -31,7 +31,7 @@ describe("GridPreviewPanel regenerate", () => {
   it("marks the grid's scriptFile as optimistically active after a successful regenerate submit", async () => {
     useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
     vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid());
-    vi.spyOn(API, "regenerateGrid").mockResolvedValue({ success: true, task_id: "t-1" });
+    vi.spyOn(API, "regenerateGrid").mockResolvedValue({ success: true, task_id: "t-1", deduped: false });
 
     render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
 

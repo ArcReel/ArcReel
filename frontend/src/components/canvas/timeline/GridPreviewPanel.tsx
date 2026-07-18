@@ -15,10 +15,10 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import { enqueueGridRegenerate } from "@/actions/generation";
 import { errMsg } from "@/utils/async";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import type { GridGeneration, ReferenceImage } from "@/types/grid";
 
 // ---------------------------------------------------------------------------
@@ -342,17 +342,9 @@ export function GridPreviewPanel({
                       onClick={() => {
                         if (!selectedGridId || regenerating || isInProgress) return;
                         setRegenerating(true);
-                        API.regenerateGrid(projectName, selectedGridId)
+                        enqueueGridRegenerate(projectName, selectedGridId, grid?.script_file ?? null)
                           .then(() => {
                             setGrid((prev) => prev ? { ...prev, status: "pending" } : prev);
-                            // 乐观占用：重生成入队成功到轮询把刷新后的 grid 任务行写进 store 之间
-                            // 有空窗，期间同集的分镜编辑入口会误判为空闲，见
-                            // tasks-store.ts::selectHasActiveTaskForScriptFile 的乐观占用小节。
-                            if (grid?.script_file) {
-                              useTasksStore
-                                .getState()
-                                .markOptimisticActiveForScriptFile(projectName, "grid", grid.script_file);
-                            }
                             onRegenerated?.();
                           })
                           .catch((err: unknown) => {

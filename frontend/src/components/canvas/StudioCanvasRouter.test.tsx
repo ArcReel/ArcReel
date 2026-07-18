@@ -410,7 +410,7 @@ describe("StudioCanvasRouter", () => {
     });
     vi.spyOn(API, "updateCharacter").mockResolvedValue({ success: true });
     vi.spyOn(API, "uploadFile").mockResolvedValue({ success: true, path: "x", url: "y" });
-    vi.spyOn(API, "generateCharacter").mockResolvedValue({ success: true, task_id: "t-1", message: "已提交" });
+    vi.spyOn(API, "generateCharacter").mockResolvedValue({ success: true, task_id: "t-1", deduped: false, message: "已提交" });
     vi.spyOn(API, "addCharacter").mockResolvedValue({ success: true });
 
     renderAt("/characters");
@@ -526,7 +526,7 @@ describe("StudioCanvasRouter", () => {
       project: makeProjectData(),
       scripts: { "episode_1.json": makeScript() },
     });
-    vi.spyOn(API, "generateProjectScene").mockResolvedValue({ success: true, task_id: "t-1", message: "已提交" });
+    vi.spyOn(API, "generateProjectScene").mockResolvedValue({ success: true, task_id: "t-1", deduped: false, message: "已提交" });
 
     renderAt("/scenes");
     fireEvent.click(screen.getByText("generate-scene"));
@@ -548,7 +548,7 @@ describe("StudioCanvasRouter", () => {
       project: makeProjectData(),
       scripts: { "episode_1.json": makeScript() },
     });
-    vi.spyOn(API, "generateProjectProp").mockResolvedValue({ success: true, task_id: "t-1", message: "已提交" });
+    vi.spyOn(API, "generateProjectProp").mockResolvedValue({ success: true, task_id: "t-1", deduped: false, message: "已提交" });
 
     renderAt("/props");
     fireEvent.click(screen.getByText("generate-prop"));
@@ -576,7 +576,7 @@ describe("StudioCanvasRouter", () => {
     const updateSpy = vi.spyOn(API, "updateProjectProduct").mockResolvedValue({ success: true });
     const generateSpy = vi
       .spyOn(API, "generateProjectProduct")
-      .mockResolvedValue({ success: true, task_id: "t-1", message: "已提交" });
+      .mockResolvedValue({ success: true, task_id: "t-1", deduped: false, message: "已提交" });
     const addSpy = vi.spyOn(API, "addProjectProduct").mockResolvedValue({ success: true });
 
     renderAt("/products");
@@ -712,11 +712,13 @@ describe("StudioCanvasRouter", () => {
     vi.spyOn(API, "generateStoryboard").mockResolvedValue({
       success: true,
       task_id: "t-sb",
+      deduped: false,
       message: "已提交",
     });
     vi.spyOn(API, "generateVideo").mockResolvedValue({
       success: true,
       task_id: "t-v",
+      deduped: false,
       message: "已提交",
     });
 
@@ -907,6 +909,7 @@ describe("StudioCanvasRouter", () => {
     vi.spyOn(API, "generateStoryboard").mockResolvedValue({
       success: true,
       task_id: "t-sb",
+      deduped: false,
       message: "已提交",
     });
 
@@ -1012,6 +1015,7 @@ describe("StudioCanvasRouter", () => {
     vi.spyOn(API, "generateNarrationAudio").mockResolvedValue({
       success: true,
       task_id: "t-1",
+      deduped: false,
       message: "已提交",
     });
 
@@ -1061,6 +1065,7 @@ describe("StudioCanvasRouter", () => {
     vi.spyOn(API, "generateEpisodeNarrationAudio").mockResolvedValue({
       success: true,
       task_ids: ["t-1", "t-2"],
+      deduped: false,
       message: "已提交",
     });
 
@@ -1088,6 +1093,7 @@ describe("StudioCanvasRouter", () => {
     vi.spyOn(API, "generateEpisodeNarrationAudio").mockResolvedValue({
       success: true,
       task_ids: [],
+      deduped: false,
       message: "无需补缺",
     });
 
@@ -1165,6 +1171,7 @@ describe("StudioCanvasRouter", () => {
       success: true,
       grid_ids: ["grid-1"],
       task_ids: ["t-1"],
+      deduped: false,
       message: "已提交",
     });
 
@@ -1195,6 +1202,7 @@ describe("StudioCanvasRouter", () => {
       success: true,
       grid_ids: [],
       task_ids: [],
+      deduped: false,
       message: "已提交 0 个宫格生成任务",
     });
 

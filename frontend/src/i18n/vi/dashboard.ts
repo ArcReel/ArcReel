@@ -620,7 +620,7 @@ export default {
   'reference_status_ready': 'Sẵn sàng',
   'reference_status_failed': 'Thất bại',
   'reference_generate_queued': 'Đã đưa vào hàng đợi tạo',
-  'reference_generate_deduped': 'Đã có trong hàng đợi',
+  'enqueue_deduped_toast': 'Đã có tác vụ cho tài nguyên này đang xử lý; không tạo tác vụ mới.',
   'reference_generate_request_failed': 'Yêu cầu tạo thất bại: {{error}}; vui lòng thử lại.',
   'reference_generation_task_failed': 'Tạo đơn vị {{unitId}} thất bại: {{reason}}; vui lòng thử lại.',
   'storyboard_task_failed': 'Tạo phân cảnh "{{id}}" thất bại: {{reason}}',

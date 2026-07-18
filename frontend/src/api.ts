@@ -1113,7 +1113,7 @@ class API {
     segmentId: string,
     prompt: string | Record<string, unknown>,
     scriptFile: string
-  ): Promise<{ success: boolean; task_id: string; message: string }> {
+  ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/storyboard/${encodeURIComponent(segmentId)}`,
       {
@@ -1137,7 +1137,7 @@ class API {
     prompt: string | Record<string, unknown>,
     scriptFile: string,
     durationSeconds: number = 4
-  ): Promise<{ success: boolean; task_id: string; message: string }> {
+  ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/video/${encodeURIComponent(segmentId)}`,
       {
@@ -1161,7 +1161,7 @@ class API {
     projectName: string,
     segmentId: string,
     scriptFile: string
-  ): Promise<{ success: boolean; task_id: string; message: string }> {
+  ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/tts/${encodeURIComponent(segmentId)}`,
       {
@@ -1179,7 +1179,7 @@ class API {
   static async generateEpisodeNarrationAudio(
     projectName: string,
     scriptFile: string
-  ): Promise<{ success: boolean; task_ids: string[]; message: string }> {
+  ): Promise<{ success: boolean; task_ids: string[]; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/tts`,
       {
@@ -1202,6 +1202,7 @@ class API {
   ): Promise<{
     success: boolean;
     task_id: string;
+    deduped: boolean;
     message: string;
   }> {
     return this.request(
@@ -1226,6 +1227,7 @@ class API {
   ): Promise<{
     success: boolean;
     task_id: string;
+    deduped: boolean;
     message: string;
   }> {
     return this.request(
@@ -1250,6 +1252,7 @@ class API {
   ): Promise<{
     success: boolean;
     task_id: string;
+    deduped: boolean;
     message: string;
   }> {
     return this.request(
@@ -1274,6 +1277,7 @@ class API {
   ): Promise<{
     success: boolean;
     task_id: string;
+    deduped: boolean;
     message: string;
   }> {
     return this.request(
@@ -1300,6 +1304,7 @@ class API {
   ): Promise<{
     success: boolean;
     task_id: string;
+    deduped: boolean;
     message: string;
   }> {
     return this.request(
@@ -1938,7 +1943,7 @@ class API {
     episode: number,
     scriptFile: string,
     sceneIds?: string[]
-  ): Promise<{ success: boolean; grid_ids: string[]; task_ids: string[]; message: string }> {
+  ): Promise<{ success: boolean; grid_ids: string[]; task_ids: string[]; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/grid/${episode}`,
       { method: "POST", body: JSON.stringify({ script_file: scriptFile, scene_ids: sceneIds }) }
@@ -1970,7 +1975,7 @@ class API {
   static async regenerateGrid(
     projectName: string,
     gridId: string
-  ): Promise<{ success: boolean; task_id: string }> {
+  ): Promise<{ success: boolean; task_id: string; deduped: boolean }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/grids/${encodeURIComponent(gridId)}/regenerate`,
       { method: "POST" }

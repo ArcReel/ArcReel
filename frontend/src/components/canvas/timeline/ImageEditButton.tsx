@@ -1,10 +1,9 @@
 import { useId, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Wand2 } from "lucide-react";
-import { API } from "@/api";
+import { enqueueImageEdit } from "@/actions/generation";
 import { GlassModal } from "@/components/ui/GlassModal";
 import { useAppStore } from "@/stores/app-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
 
 export type ImageEditResourceType =
@@ -71,18 +70,12 @@ export function ImageEditButton({
     if (!trimmed || submitting || disabled) return;
     setSubmitting(true);
     try {
-      const res = await API.editImage(projectName, {
+      await enqueueImageEdit(projectName, {
         resourceType,
         resourceId,
         instruction: trimmed,
         scriptFile: resourceType === "storyboard" ? scriptFile ?? null : null,
       });
-      // 乐观占用：入队成功到 SSE 下一次轮询把新 image_edit 任务行写进 store 之间有
-      // ~3s 空窗；期间该资源在 store 里尚无任务行，同资源的常规生成/上传按钮会误判为
-      // 空闲——两者的 task_type 不同，后端 dedupe 索引不拦这种跨 task_type 并发，会
-      // 并发写同一 current 图。此处立即标记占用，直到真实任务行出现再让位。
-      useTasksStore.getState().markOptimisticActive(projectName, resourceType, resourceId, "image_edit");
-      useAppStore.getState().pushToast(res.message, "success");
       setInstruction("");
       setOpen(false);
     } catch (err) {

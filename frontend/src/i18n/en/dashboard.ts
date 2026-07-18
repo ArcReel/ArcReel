@@ -643,7 +643,7 @@ export default {
   'reference_status_ready': 'Ready',
   'reference_status_failed': 'Failed',
   'reference_generate_queued': 'Queued for generation',
-  'reference_generate_deduped': 'Already in the queue',
+  'enqueue_deduped_toast': 'A task for this resource is already in progress; no new task was created.',
   'reference_generate_request_failed': 'Generation request failed: {{error}}; please try again.',
   'reference_generation_task_failed': 'Unit {{unitId}} generation failed: {{reason}}; please try again.',
   'storyboard_task_failed': 'Storyboard "{{id}}" generation failed: {{reason}}',

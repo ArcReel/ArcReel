@@ -643,7 +643,7 @@ export default {
   'reference_status_ready': '已就绪',
   'reference_status_failed': '失败',
   'reference_generate_queued': '已加入生成队列',
-  'reference_generate_deduped': '该 Unit 已在队列中',
+  'enqueue_deduped_toast': '已有同资源任务在处理中，本次未新建任务',
   'reference_generate_request_failed': '生成请求失败：{{error}}，请稍后重试',
   'reference_generation_task_failed': 'Unit {{unitId}} 生成失败：{{reason}}，请稍后重试',
   'storyboard_task_failed': '分镜 "{{id}}" 生成失败：{{reason}}',

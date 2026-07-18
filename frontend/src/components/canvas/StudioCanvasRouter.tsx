@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import { useActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
+import { useActiveResourceIds } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { SourceFileViewer } from "./SourceFileViewer";
@@ -18,6 +18,17 @@ import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import { API } from "@/api";
+import {
+  enqueueCharacter,
+  enqueueEpisodeNarration,
+  enqueueGrid,
+  enqueueNarration,
+  enqueueProduct,
+  enqueueProp,
+  enqueueScene,
+  enqueueStoryboard,
+  enqueueVideo,
+} from "@/actions/generation";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
 import { getProviderModels, getCustomProviderModels, lookupSupportedDurations } from "@/utils/provider-models";
 import { effectiveMode } from "@/utils/generation-mode";
@@ -215,17 +226,12 @@ export function StudioCanvasRouter() {
     const resolved = resolveSegmentPrompt(currentScripts, segmentId, "image_prompt", scriptFile);
     if (!resolved) return;
     try {
-      await API.generateStoryboard(
+      await enqueueStoryboard(
         currentProjectName,
         segmentId,
         resolved.prompt as string | Record<string, unknown>,
         resolved.resolvedFile,
       );
-      // 乐观占用：入队成功到 SSE 下一次轮询把新任务行写进 store 之间有 ~3s 空窗，
-      // 期间同资源的 ImageEditButton 会误判为空闲，可并发提交 image_edit 与本次
-      // 重新生成竞争同一张 current 图（两者 task_type 不同，后端 dedupe 索引不拦）。
-      useTasksStore.getState().markOptimisticActive(currentProjectName, "storyboard", segmentId, "storyboard");
-      useAppStore.getState().pushToast(tRef.current("storyboard_task_submitted_toast", { id: segmentId }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("generate_storyboard_failed", { message: errMsg(err) }), "error");
     }
@@ -236,14 +242,13 @@ export function StudioCanvasRouter() {
     const resolved = resolveSegmentPrompt(currentScripts, segmentId, "video_prompt", scriptFile);
     if (!resolved) return;
     try {
-      await API.generateVideo(
+      await enqueueVideo(
         currentProjectName,
         segmentId,
         resolved.prompt as string | Record<string, unknown>,
         resolved.resolvedFile,
         resolved.duration,
       );
-      useAppStore.getState().pushToast(tRef.current("video_task_submitted_toast", { id: segmentId }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("generate_video_failed", { message: errMsg(err) }), "error");
     }
@@ -265,8 +270,7 @@ export function StudioCanvasRouter() {
     const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
     if (!resolvedFile) return;
     try {
-      await API.generateNarrationAudio(currentProjectName, segmentId, resolvedFile);
-      useAppStore.getState().pushToast(tRef.current("narration_task_submitted_toast", { id: segmentId }), "success");
+      await enqueueNarration(currentProjectName, segmentId, resolvedFile);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("generate_narration_failed", { message: errMsg(err) }), "error");
     }
@@ -278,12 +282,7 @@ export function StudioCanvasRouter() {
     const resolvedFile = scriptFile ?? Object.keys(currentScripts)[0];
     if (!resolvedFile) return;
     try {
-      const res = await API.generateEpisodeNarrationAudio(currentProjectName, resolvedFile);
-      const message =
-        res.task_ids.length > 0
-          ? tRef.current("narration_batch_submitted_toast", { count: res.task_ids.length })
-          : tRef.current("narration_batch_none_missing_toast");
-      useAppStore.getState().pushToast(message, "success");
+      await enqueueEpisodeNarration(currentProjectName, resolvedFile);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("generate_narration_failed", { message: errMsg(err) }), "error");
     }
@@ -328,16 +327,11 @@ export function StudioCanvasRouter() {
   const handleGenerateCharacter = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
-      await API.generateCharacter(
+      await enqueueCharacter(
         currentProjectName,
         name,
         currentProjectData?.characters?.[name]?.description ?? "",
       );
-      // 乐观占用：见 handleGenerateStoryboard 同类注释。
-      useTasksStore.getState().markOptimisticActive(currentProjectName, "character", name, "character");
-      useAppStore
-        .getState()
-        .pushToast(tRef.current("character_task_submitted_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
@@ -383,10 +377,7 @@ export function StudioCanvasRouter() {
   const handleGenerateScene = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
-      await API.generateProjectScene(currentProjectName, name, currentProjectData?.scenes?.[name]?.description ?? "");
-      // 乐观占用：见 handleGenerateStoryboard 同类注释。
-      useTasksStore.getState().markOptimisticActive(currentProjectName, "scene", name, "scene");
-      useAppStore.getState().pushToast(tRef.current("scene_task_submitted_toast", { name }), "success");
+      await enqueueScene(currentProjectName, name, currentProjectData?.scenes?.[name]?.description ?? "");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
@@ -418,10 +409,7 @@ export function StudioCanvasRouter() {
   const handleGenerateProp = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
-      await API.generateProjectProp(currentProjectName, name, currentProjectData?.props?.[name]?.description ?? "");
-      // 乐观占用：见 handleGenerateStoryboard 同类注释。
-      useTasksStore.getState().markOptimisticActive(currentProjectName, "prop", name, "prop");
-      useAppStore.getState().pushToast(tRef.current("prop_task_submitted_toast", { name }), "success");
+      await enqueueProp(currentProjectName, name, currentProjectData?.props?.[name]?.description ?? "");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
@@ -453,14 +441,11 @@ export function StudioCanvasRouter() {
   const handleGenerateProduct = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
-      await API.generateProjectProduct(
+      await enqueueProduct(
         currentProjectName,
         name,
         currentProjectData?.products?.[name]?.description ?? "",
       );
-      // 乐观占用：见 handleGenerateStoryboard 同类注释。
-      useTasksStore.getState().markOptimisticActive(currentProjectName, "product", name, "product");
-      useAppStore.getState().pushToast(tRef.current("product_task_submitted_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
@@ -481,16 +466,7 @@ export function StudioCanvasRouter() {
   const handleGenerateGrid = useCallback(async (episode: number, scriptFile: string, sceneIds?: string[]) => {
     if (!currentProjectName) return;
     try {
-      const result = await API.generateGrid(currentProjectName, episode, scriptFile, sceneIds);
-      // 乐观占用：入队成功到下一次轮询把新 grid 任务行写进 store 之间有 ~3s 空窗，期间本集
-      // 分镜编辑入口会误判为空闲，与随后的切割阶段并发写同一张 storyboard current 图，
-      // 见 tasks-store.ts::selectHasActiveTaskForScriptFile 的乐观占用小节。
-      // task_ids 可能为空数组（如 scene_ids 过滤后无匹配分组）：此时后端不会产生任何任务行，
-      // 乐观标记将永远等不到真实任务落库来解除，需在打标前排除这种空提交。
-      if (result.task_ids.length > 0) {
-        useTasksStore.getState().markOptimisticActiveForScriptFile(currentProjectName, "grid", scriptFile);
-      }
-      useAppStore.getState().pushToast(result.message, "success");
+      await enqueueGrid(currentProjectName, episode, scriptFile, sceneIds);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("grid_generation_failed", { message: errMsg(err) }), "error");
     }
