@@ -20,11 +20,9 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists
 from lib.resource_paths import resource_relative_path
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
+from server.services.generation_context import ImageLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
-    _resolve_effective_image_backend,
-    _resolve_resolution,
     get_aspect_ratio,
-    get_media_generator,
     get_project_manager,
 )
 
@@ -86,8 +84,8 @@ async def execute_image_edit_task(
 ) -> dict[str, Any]:
     """执行图片编辑任务：读 current 图 → i2i → 新版本覆盖 current → 按资源类型写回。
 
-    编辑必然 i2i（唯一入队即知 capability 的图片任务，见 ``docs/adr/0001``），故
-    ``needs_i2i=True`` 恒定走 i2i 槽；backend 调用失败时 current 图指针与资源写回
+    编辑必然 i2i（唯一入队即知 capability 的图片任务，见 ``docs/adr/0001``），故声明
+    ``ImageLaneRequest(capability="i2i")`` 恒定走 i2i 槽；backend 调用失败时 current 图指针与资源写回
     不被触碰（MediaGenerator 仅在成功后覆盖 output 并登记新版本，写回也不会发生）。
     旧图基线登记（见下方 ``ensure_current_tracked`` 调用）先于 backend 调用发生，与
     backend 成败无关、失败时不回滚——保证编辑前的旧图始终可回滚，不属于本次生成
@@ -120,7 +118,15 @@ async def execute_image_edit_task(
 
     project, current_image = await asyncio.to_thread(_prepare)
 
-    generator = await get_media_generator(project_name, payload=payload, user_id=user_id, needs_i2i=True)
+    # 编辑必然 i2i：单次解析拿到 generator 与 image lane 产物（provider / backend / resolution）。
+    ctx = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        image=ImageLaneRequest(capability="i2i"),
+    )
+    generator = ctx.generator
 
     # 旧图若尚无版本记录（如旧宫格项目 current 指向非 canonical 路径），先以中性元数据补登，
     # 保证编辑前的旧图可回滚；也避免 generate_image_async 内部的 ensure_current_tracked
@@ -134,8 +140,7 @@ async def execute_image_edit_task(
     )
 
     aspect_ratio = get_aspect_ratio(project, version_resource_type)
-    resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=True)
-    image_size = await _resolve_resolution(project, resolved_image.provider_id, resolved_image.model_id)
+    image_size = ctx.image.resolution
 
     # 参考图仅当前图一张、prompt 仅编辑指令（不拼原 image_prompt / 不追加生成路径的
     # 自动参考图收集）；新版本 prompt 字段即编辑指令，source 标记编辑版本。
