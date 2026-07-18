@@ -733,3 +733,59 @@ class TestNoServerPathLeak:
             assert resp.status_code == 500, resp.text
             assert "boom" not in resp.text
             self._assert_no_path(resp)
+
+
+class _FakeDedupeHitQueue(_FakeQueue):
+    """模拟 dedupe 索引命中：返回既有任务行而非新建。"""
+
+    async def enqueue_task(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"task_id": "task-existing", "deduped": True, "existing_task_id": "task-existing"}
+
+
+class TestDedupedPassthrough:
+    """入队响应透出队列层的 deduped 事实，供前端识别「本次未新建任务」。"""
+
+    def test_fresh_enqueue_reports_deduped_false(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        client = _client(monkeypatch, _FakePM(project_path), _FakeQueue())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "prompt": {"scene": "雨夜", "composition": {"shot_type": "Medium Shot"}},
+                },
+            )
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["deduped"] is False
+
+    def test_dedupe_hit_reports_deduped_true_with_existing_task_id(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        client = _client(monkeypatch, _FakePM(project_path), _FakeDedupeHitQueue())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "prompt": {"scene": "雨夜", "composition": {"shot_type": "Medium Shot"}},
+                },
+            )
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["deduped"] is True
+            assert body["task_id"] == "task-existing"
+
+    def test_asset_generation_exposes_deduped(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+        client = _client(monkeypatch, _FakePM(project_path), _FakeDedupeHitQueue())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice",
+                json={"prompt": "hero"},
+            )
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["deduped"] is True

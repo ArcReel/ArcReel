@@ -126,6 +126,7 @@ async def generate_storyboard(
     return {
         "success": True,
         "task_id": result["task_id"],
+        "deduped": result.get("deduped", False),
         "message": _t("storyboard_task_submitted", segment_id=segment_id),
     }
 
@@ -205,6 +206,7 @@ async def generate_video(
     return {
         "success": True,
         "task_id": result["task_id"],
+        "deduped": result.get("deduped", False),
         "message": _t("video_task_submitted", segment_id=segment_id),
     }
 
@@ -303,6 +305,7 @@ async def generate_tts(
     return {
         "success": True,
         "task_id": result["task_id"],
+        "deduped": result.get("deduped", False),
         "message": _t("tts_task_submitted", segment_id=segment_id),
     }
 
@@ -336,11 +339,12 @@ async def generate_tts_batch(
     project, missing_ids = await asyncio.to_thread(_sync)
 
     if not missing_ids:
-        return {"success": True, "task_ids": [], "message": _t("tts_batch_none_missing")}
+        return {"success": True, "task_ids": [], "deduped": False, "message": _t("tts_batch_none_missing")}
 
     provider_id = await _require_audio_provider_configured(project)
 
     task_ids: list[str] = []
+    deduped_flags: list[bool] = []
     for seg_id in missing_ids:
         result = await _enqueue_tts_segment(
             project_name=project_name,
@@ -350,9 +354,16 @@ async def generate_tts_batch(
             provider_id=provider_id,
         )
         task_ids.append(result["task_id"])
+        deduped_flags.append(bool(result.get("deduped", False)))
 
     message = _t("tts_batch_submitted", count=len(task_ids)) if task_ids else _t("tts_batch_none_missing")
-    return {"success": True, "task_ids": task_ids, "message": message}
+    # 批量语义：全部入队都命中既有任务（本次一个新任务都没建）才算 deduped
+    return {
+        "success": True,
+        "task_ids": task_ids,
+        "deduped": bool(task_ids) and all(deduped_flags),
+        "message": message,
+    }
 
 
 # ==================== 资产设计图生成（character / scene / prop / product 共用） ====================
@@ -408,6 +419,7 @@ async def _enqueue_asset_generation(
     return {
         "success": True,
         "task_id": result["task_id"],
+        "deduped": result.get("deduped", False),
         "message": _t(keys["submitted"], name=resource_name),
     }
 
@@ -577,5 +589,6 @@ async def edit_image(
     return {
         "success": True,
         "task_id": result["task_id"],
+        "deduped": result.get("deduped", False),
         "message": _t("image_edit_task_submitted", id=req.resource_id),
     }

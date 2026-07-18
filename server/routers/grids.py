@@ -68,6 +68,8 @@ class GenerateGridResponse(BaseModel):
     success: bool
     grid_ids: list[str]
     task_ids: list[str]
+    # 批量语义：全部入队都命中既有任务（本次一个新任务都没建）才为 True
+    deduped: bool
     message: str
 
 
@@ -109,6 +111,7 @@ async def generate_grid(
 
         grid_ids: list[str] = []
         task_ids: list[str] = []
+        deduped_flags: list[bool] = []
         queue = get_generation_queue()
         gm = GridManager(project_path)
 
@@ -197,11 +200,13 @@ async def generate_grid(
                 )
                 grid_ids.append(grid.id)
                 task_ids.append(task["task_id"])
+                deduped_flags.append(bool(task.get("deduped", False)))
 
         return GenerateGridResponse(
             success=True,
             grid_ids=grid_ids,
             task_ids=task_ids,
+            deduped=bool(task_ids) and all(deduped_flags),
             message=f"已提交 {len(grid_ids)} 个宫格生成任务",
         )
 
@@ -306,7 +311,7 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser, _
             user_id=_user.id,
         )
 
-        return {"success": True, "task_id": task["task_id"]}
+        return {"success": True, "task_id": task["task_id"], "deduped": task.get("deduped", False)}
 
     except HTTPException:
         raise

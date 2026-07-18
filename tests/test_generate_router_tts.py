@@ -235,3 +235,78 @@ class TestGenerateTtsBatch:
             assert body["success"] is True
             assert body["task_ids"] == []
             assert fake_queue.calls == []
+
+
+class _FakeDedupeHitQueue(_FakeQueue):
+    """模拟 dedupe 索引全部命中。"""
+
+    async def enqueue_task(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"task_id": f"task-{len(self.calls)}", "deduped": True, "existing_task_id": f"task-{len(self.calls)}"}
+
+
+class _FakeFirstHitQueue(_FakeQueue):
+    """模拟部分命中：第一次入队命中既有任务，其余新建。"""
+
+    async def enqueue_task(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"task_id": f"task-{len(self.calls)}", "deduped": len(self.calls) == 1}
+
+
+class TestTtsDedupedPassthrough:
+    def test_single_exposes_deduped(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        client = _client(monkeypatch, fake_pm, _FakeDedupeHitQueue())
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/generate/tts/E1S01",
+                json={"script_file": "episode_1.json"},
+            )
+            assert res.status_code == 200, res.text
+            assert res.json()["deduped"] is True
+
+    def test_batch_all_hits_reports_deduped_true(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        client = _client(monkeypatch, fake_pm, _FakeDedupeHitQueue())
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+            assert res.status_code == 200, res.text
+            body = res.json()
+            assert body["task_ids"] == ["task-1"]
+            assert body["deduped"] is True
+
+    def test_batch_partial_hit_reports_deduped_false(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        # 让 E1S02 也缺旁白：两段入队，其中一段命中既有任务 → 仍新建了任务，不算 deduped
+        fake_pm.script["segments"][1]["generated_assets"] = {}
+        client = _client(monkeypatch, fake_pm, _FakeFirstHitQueue())
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+            assert res.status_code == 200, res.text
+            body = res.json()
+            assert len(body["task_ids"]) == 2
+            assert body["deduped"] is False
+
+    def test_batch_none_missing_reports_deduped_false(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_pm.script["segments"][0]["generated_assets"] = {"narration_audio": "audio/segment_E1S01.wav"}
+        client = _client(monkeypatch, fake_pm, _FakeQueue())
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/generate/tts",
+                json={"script_file": "episode_1.json"},
+            )
+            assert res.status_code == 200, res.text
+            body = res.json()
+            assert body["task_ids"] == []
+            assert body["deduped"] is False
