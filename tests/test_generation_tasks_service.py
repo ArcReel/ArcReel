@@ -1072,51 +1072,6 @@ class TestGenerationTasks:
             await generation_tasks.execute_prop_task("demo", "玉佩", {"prompt": ""})
 
 
-from server.services.generation_tasks import _resolve_effective_image_backend
-
-
-@pytest.mark.asyncio
-async def test_resolve_picks_t2i_from_payload_when_no_refs():
-    payload = {
-        "image_provider_t2i": "openai/gen-1",
-        "image_provider_i2i": "openai/edit-1",
-    }
-    resolved = await _resolve_effective_image_backend({}, payload, needs_i2i=False)
-    assert (resolved.provider_id, resolved.model_id) == ("openai", "gen-1")
-
-
-@pytest.mark.asyncio
-async def test_resolve_picks_i2i_from_payload_when_refs():
-    payload = {
-        "image_provider_t2i": "openai/gen-1",
-        "image_provider_i2i": "openai/edit-1",
-    }
-    resolved = await _resolve_effective_image_backend({}, payload, needs_i2i=True)
-    assert (resolved.provider_id, resolved.model_id) == ("openai", "edit-1")
-
-
-@pytest.mark.asyncio
-async def test_resolve_falls_back_to_legacy_payload_image_provider():
-    """payload 仅有旧 image_provider/image_model（历史任务）时两槽都用此值。"""
-    payload = {"image_provider": "openai", "image_model": "legacy"}
-    t2i = await _resolve_effective_image_backend({}, payload, needs_i2i=False)
-    i2i = await _resolve_effective_image_backend({}, payload, needs_i2i=True)
-    assert (t2i.provider_id, t2i.model_id) == ("openai", "legacy")
-    assert (i2i.provider_id, i2i.model_id) == ("openai", "legacy")
-
-
-@pytest.mark.asyncio
-async def test_resolve_reads_project_split_fields():
-    project = {
-        "image_provider_t2i": "openai/proj-gen",
-        "image_provider_i2i": "openai/proj-edit",
-    }
-    t2i = await _resolve_effective_image_backend(project, {}, needs_i2i=False)
-    i2i = await _resolve_effective_image_backend(project, {}, needs_i2i=True)
-    assert (t2i.provider_id, t2i.model_id) == ("openai", "proj-gen")
-    assert (i2i.provider_id, i2i.model_id) == ("openai", "proj-edit")
-
-
 class TestGetAspectRatio:
     def test_reads_top_level_aspect_ratio(self):
         project = {"aspect_ratio": "16:9", "content_mode": "narration"}

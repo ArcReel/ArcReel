@@ -8,19 +8,14 @@ import asyncio
 import logging
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from lib.config.resolver import ConfigResolver, ProviderModel
+from typing import Any
 
 from lib.asset_types import ASSET_SPECS
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.db.base import DEFAULT_USER_ID
-from lib.gemini_shared import get_shared_rate_limiter
 from lib.i18n import DEFAULT_LOCALE
 from lib.i18n import _ as i18n_translate
 from lib.image_backends.base import ImageCapabilityError
-from lib.media_generator import MediaGenerator
 from lib.path_safety import safe_exists
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import get_project_manager
@@ -54,151 +49,10 @@ from server.services.generation_context import (
     AudioLaneRequest,
     ImageLaneRequest,
     VideoLaneRequest,
-    _get_or_create_audio_backend,
-    _get_or_create_image_backend,
-    _get_or_create_video_backend,
     resolve_generation_context,
 )
 
-rate_limiter = get_shared_rate_limiter()
 logger = logging.getLogger(__name__)
-
-
-async def _resolve_effective_image_backend(
-    project: dict,
-    payload: dict | None,
-    *,
-    needs_i2i: bool = False,
-) -> ProviderModel:
-    """图片 provider 解析的薄投影：委托 ``ConfigResolver.resolve_image_backend``。
-
-    capability 仅在执行层确定（见 ``docs/adr/0001``）：``needs_i2i`` → i2i 槽，否则 t2i 槽。
-    与 ``_resolve_video_backend`` 一致不吞解析异常——未配置供应商时让 ``ConfigResolver`` 抛出的
-    清晰 ``ValueError``（"未找到可用的 image 供应商..."）直接透传，而非掩盖成空 backend 的通用错误。
-    """
-    from lib.config.resolver import ConfigResolver
-    from lib.db import async_session_factory
-
-    resolver = ConfigResolver(async_session_factory)
-    capability = "i2i" if needs_i2i else "t2i"
-    return await resolver.resolve_image_backend(project, payload, capability=capability)
-
-
-async def _resolve_resolution(project: dict, provider_id: str, model_id: str) -> str | None:
-    """resolution 解析的薄投影：委托 ``ConfigResolver.resolve_resolution``。
-
-    project.model_settings > legacy > 自定义供应商默认 > None（None＝不传 SDK 参数，见
-    ``docs/adr/0019``）。
-    """
-    from lib.config.resolver import ConfigResolver
-    from lib.db import async_session_factory
-
-    resolver = ConfigResolver(async_session_factory)
-    return await resolver.resolve_resolution(project, provider_id, model_id)
-
-
-async def _resolve_video_backend(
-    project_name: str,
-    resolver: ConfigResolver,
-    payload: dict | None,
-) -> tuple[Any | None, str | None]:
-    """解析并构造视频后端，返回 (video_backend, provider_id)。
-
-    provider/model 的**解析**是 ``resolver.resolve_video_backend`` 的薄投影；backend **构造**
-    （``_get_or_create_video_backend``）留在原地。仅在 payload 存在时创建 VideoBackend，避免
-    图片任务因视频配置缺失而报错。provider_id 是 registry id（参考图压缩按它查 per-provider 上限）。
-    """
-    project = await asyncio.to_thread(get_project_manager().load_project, project_name) if payload else None
-    resolved = await resolver.resolve_video_backend(project, payload)
-
-    video_backend = None
-    if payload:
-        provider_settings: dict = {"model": resolved.model_id} if resolved.model_id else {}
-        video_backend = await _get_or_create_video_backend(
-            resolved.provider_id,
-            provider_settings,
-            resolver,
-            default_video_model=resolved.model_id or None,
-        )
-
-    # provider_id 与 backend 成对返回：无 payload 时不构造 video_backend，此时 provider_id 无
-    # 消费者（压缩上限与记账都只在视频真实调用时用），返回 None 以满足 MediaGenerator 的成对不变量。
-    return video_backend, (resolved.provider_id if video_backend is not None else None)
-
-
-async def get_media_generator(
-    project_name: str,
-    payload: dict | None = None,
-    *,
-    user_id: str = DEFAULT_USER_ID,
-    require_image_backend: bool = True,
-    needs_i2i: bool = False,
-    needs_audio: bool = False,
-) -> MediaGenerator:
-    """创建 MediaGenerator。仅按调用场景初始化所需的 backend。
-
-    needs_i2i: 若调用方知晓本次任务带参考图，传 True 以选 I2I 默认 backend；否则用 T2I。
-    needs_audio: TTS 任务传 True，只构造 audio backend，跳过 image/video（语音任务不需要二者，
-        且强行构造视频 backend 会因视频供应商缺配置而误失败）。
-    """
-    from lib.config.resolver import ConfigResolver
-    from lib.db import async_session_factory
-
-    project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
-    resolver = ConfigResolver(async_session_factory)
-
-    # provider_id 须在 async with 之前初始化：纯视频任务（require_image_backend=False）取不到
-    # image provider，纯图任务也要拿到 video provider，两个分支各自赋值后传给 MediaGenerator。
-    image_provider_id: str | None = None
-    video_provider_id: str | None = None
-    audio_provider_id: str | None = None
-    async with resolver.session() as r:
-        image_backend = None
-        video_backend = None
-        audio_backend = None
-
-        if needs_audio:
-            project = await asyncio.to_thread(get_project_manager().load_project, project_name)
-            resolved_audio = await r.resolve_audio_backend(project, payload)
-            audio_provider_id = resolved_audio.provider_id
-            audio_backend = await _get_or_create_audio_backend(
-                resolved_audio.provider_id,
-                {},
-                r,
-                default_audio_model=resolved_audio.model_id or None,
-            )
-        else:
-            if require_image_backend:
-                project = await asyncio.to_thread(get_project_manager().load_project, project_name)
-                resolved_image = await _resolve_effective_image_backend(project, payload, needs_i2i=needs_i2i)
-                # 解析失败 → provider_id 为空，让 _get_or_create_image_backend 抛出清晰错误
-                image_provider_id = resolved_image.provider_id
-                image_backend = await _get_or_create_image_backend(
-                    resolved_image.provider_id,
-                    {},
-                    r,
-                    default_image_model=resolved_image.model_id or None,
-                )
-
-            # 解析 video backend（保持现有逻辑）
-            video_backend, video_provider_id = await _resolve_video_backend(
-                project_name,
-                r,
-                payload,
-            )
-
-    return MediaGenerator(
-        project_path,
-        rate_limiter=rate_limiter,
-        image_backend=image_backend,
-        video_backend=video_backend,
-        audio_backend=audio_backend,
-        config_resolver=resolver,
-        user_id=user_id,
-        image_provider_id=image_provider_id,
-        video_provider_id=video_provider_id,
-        audio_provider_id=audio_provider_id,
-    )
 
 
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
