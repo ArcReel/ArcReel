@@ -1086,7 +1086,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="text",
                 capabilities=["text_generation", "structured_output"],
                 default=True,
-                pricing=_minimax_text_pricing("MiniMax-M3", 2.1, 8.4),
+                pricing=_minimax_text_pricing("MiniMax-M3", 4.2, 16.8),
             ),
             "MiniMax-M2.7": ModelInfo(
                 display_name="MiniMax M2.7",
