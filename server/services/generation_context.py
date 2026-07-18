@@ -45,9 +45,10 @@ class _BackendCache:
 
     缓存查询/构造/写回/失效在此单点实现，两条并发纪律藏在实现内、不扩大接口：
 
-    - **代际 invariant**：``invalidate()`` 时代数 +1；构造前记录代数，构造完成后代数未变才写回。
-      代数已变（构造期间发生配置变更）则该实例用完即弃——该笔任务按入队时配置快照跑完，
-      不把旧配置实例写回缓存遮蔽新配置。
+    - **代际 invariant**：``invalidate()`` 时代数 +1；代数须在等锁前（而非取得锁后）捕获，
+      构造完成后代数未变才写回。代数已变——无论是本请求持锁构造期间发生失效，还是本请求在
+      失效边界前排队等锁、失效后才拿到锁——该实例用完即弃，不写回缓存遮蔽新配置；该笔任务
+      仍按入队时配置快照跑完。
     - **per-key single-flight**：同 key 并发 miss 经 per-key 锁串行化，只构造一次、各调用方
       拿到同一实例，避免并发构造出无人持有的多余 SDK client（全库无 backend 关闭协议）。
     """
@@ -60,11 +61,13 @@ class _BackendCache:
     async def get_or_create(self, key: _CacheKey, factory: Callable[[], Awaitable[Any]]) -> Any:
         if key in self._entries:
             return self._entries[key]
+        # 代数须在等锁前捕获：若在失效边界前排队等锁，即使失效后才拿到锁，也要按排队时的
+        # 旧代数与失效后的当前代数不符处理，避免用旧 resolver 构造的实例污染新代际缓存。
+        generation = self._generation
         lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
             if key in self._entries:
                 return self._entries[key]
-            generation = self._generation
             backend = await factory()
             if self._generation == generation:
                 self._entries[key] = backend
