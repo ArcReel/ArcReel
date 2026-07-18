@@ -207,7 +207,10 @@ class CustomProviderRepository(BaseRepository):
         if not is_custom_provider(provider):
             return _NO_PRICE
         try:
-            price_model = await self.get_model_by_ids(parse_provider_id(provider), model or "")
+            # SAVEPOINT 隔离：查询异常只回滚到此处，不污染调用方（如 usage_repo._settle）
+            # 随后在同一 session 上执行的结算 UPDATE/commit。
+            async with self.session.begin_nested():
+                price_model = await self.get_model_by_ids(parse_provider_id(provider), model or "")
         except Exception:
             logger.debug("自定义供应商价格查询失败 provider=%s model=%s", provider, model, exc_info=True)
             return _NO_PRICE
