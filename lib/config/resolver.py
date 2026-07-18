@@ -169,17 +169,37 @@ def get_provider_fallback(provider_id: str | None, default: str = "1080p") -> st
     return PROVIDER_FALLBACK_RESOLUTION.get(short, default)
 
 
+def _safe_dict(value: object, *, field: str) -> dict:
+    """确保 value 可当作 dict 继续链式解析；非 dict（含 None）一律降级为空 dict。
+
+    project.json 是明文文件，用户手编或外部脚本写坏后，嵌套字段可能变成 string / list，
+    直接 ``.get()`` 会抛 ``AttributeError``。None 是显式「未配置」，静默降级；其余非 dict
+    类型记录 warning（字段名 + 实际类型）便于定位脏数据来源。
+    """
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    logger.warning(
+        "project.json field %r has non-dict type %s, falling back to empty dict",
+        field,
+        type(value).__name__,
+    )
+    return {}
+
+
 def _resolution_from_project(project: dict, provider_id: str, model_id: str) -> str | None:
     """project.model_settings（``provider/model`` 复合 key）> legacy video_model_settings > None。
 
-    内层也用 ``or {}`` 是因为 ``dict.get("k", {})`` 在 value 显式为 None 时会返回 None，
-    导致后续链调 AttributeError；project.json 手编可能出现这种脏值。
+    逐层用 ``_safe_dict`` 防御非 dict 中间层（见 ``_safe_dict`` docstring）。
     """
     key = f"{provider_id}/{model_id}"
-    override = ((project.get("model_settings") or {}).get(key) or {}).get("resolution")
+    model_settings = _safe_dict(project.get("model_settings"), field="model_settings")
+    override = _safe_dict(model_settings.get(key), field=f"model_settings.{key}").get("resolution")
     if override:
         return override
-    legacy = ((project.get("video_model_settings") or {}).get(model_id) or {}).get("resolution")
+    video_model_settings = _safe_dict(project.get("video_model_settings"), field="video_model_settings")
+    legacy = _safe_dict(video_model_settings.get(model_id), field=f"video_model_settings.{model_id}").get("resolution")
     if legacy:
         return legacy
     return None
