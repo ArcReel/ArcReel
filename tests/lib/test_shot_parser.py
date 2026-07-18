@@ -89,15 +89,15 @@ def test_render_prompt_replaces_wrapped_mentions_without_spacing():
 
 
 def test_extract_mentions_rejects_non_ascii_legacy_letters():
-    from lib.reference_video.shot_parser import _extract_mentions
+    from lib.reference_video.shot_parser import extract_mentions
 
-    assert _extract_mentions("@éclair @한글 @张三 @abc_123") == ["张三", "abc_123"]
+    assert extract_mentions("@éclair @한글 @张三 @abc_123") == ["张三", "abc_123"]
 
 
 def test_extract_mentions_rejects_curly_wrapped_form():
-    from lib.reference_video.shot_parser import _extract_mentions
+    from lib.reference_video.shot_parser import extract_mentions
 
-    assert _extract_mentions("@[角色甲（成年）] 与 @{道具甲}") == ["角色甲（成年）"]
+    assert extract_mentions("@[角色甲（成年）] 与 @{道具甲}") == ["角色甲（成年）"]
 
 
 def test_render_prompt_unknown_mention_kept():
@@ -193,35 +193,35 @@ def test_parse_multi_shot_preserves_pre_header_text():
 
 def test_mention_ignores_email_like_prefix():
     """email 左侧是 \\w，不应被当成 mention。"""
-    from lib.reference_video.shot_parser import _extract_mentions
+    from lib.reference_video.shot_parser import extract_mentions
 
-    assert _extract_mentions("contact a@张三 for help") == []
-    assert _extract_mentions("email: test@domain.com") == []
-    assert _extract_mentions("alice@example.com 和 bob@foo.io") == []
-    assert _extract_mentions("room9@张三") == []
-    assert _extract_mentions("user123@李四") == []
+    assert extract_mentions("contact a@张三 for help") == []
+    assert extract_mentions("email: test@domain.com") == []
+    assert extract_mentions("alice@example.com 和 bob@foo.io") == []
+    assert extract_mentions("room9@张三") == []
+    assert extract_mentions("user123@李四") == []
 
 
 def test_mention_accepts_chinese_prefix():
     """中文左侧字符（\\u4e00-\\u9fff）不是 \\w，合法 mention 用法。"""
-    from lib.reference_video.shot_parser import _extract_mentions
+    from lib.reference_video.shot_parser import extract_mentions
 
-    assert _extract_mentions("你好@张三") == ["张三"]
-    assert _extract_mentions("（对面）@李四 抬眼") == ["李四"]
+    assert extract_mentions("你好@张三") == ["张三"]
+    assert extract_mentions("（对面）@李四 抬眼") == ["李四"]
 
 
 def test_mention_accepts_whitespace_and_line_start():
     """空白字符 / 行首 / 标点前缀都应识别。"""
-    from lib.reference_video.shot_parser import _extract_mentions
+    from lib.reference_video.shot_parser import extract_mentions
 
-    assert _extract_mentions("@张三") == ["张三"]
-    assert _extract_mentions("之后 @张三 回头") == ["张三"]
-    assert _extract_mentions("Shot 1 (3s):\n@张三 开门") == ["张三"]
-    assert _extract_mentions("台词：@张三 起身") == ["张三"]
+    assert extract_mentions("@张三") == ["张三"]
+    assert extract_mentions("之后 @张三 回头") == ["张三"]
+    assert extract_mentions("Shot 1 (3s):\n@张三 开门") == ["张三"]
+    assert extract_mentions("台词：@张三 起身") == ["张三"]
 
 
 def test_mention_underscore_prefix_is_rejected():
     """underscore 属 \\w，`foo_@张三` 类打字错误不应触发 mention。"""
-    from lib.reference_video.shot_parser import _extract_mentions
+    from lib.reference_video.shot_parser import extract_mentions
 
-    assert _extract_mentions("prefix_@张三") == []
+    assert extract_mentions("prefix_@张三") == []

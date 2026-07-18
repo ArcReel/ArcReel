@@ -10,6 +10,7 @@ _MEDIA_SUBDIRS = (
     "characters",
     "scenes",
     "props",
+    "products",
     "grids",
     "reference_videos",
 )

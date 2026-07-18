@@ -16,7 +16,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { useEscapeClose } from "@/hooks/useEscapeClose";
 import { useAppStore } from "@/stores/app-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { isTerminalStatus, useTasksStore } from "@/stores/tasks-store";
 import { API } from "@/api";
 import type { TaskItem } from "@/types";
 import { GlassPopover } from "@/components/ui/GlassPopover";
@@ -181,7 +181,7 @@ function TaskRow({
           className="flex-1 truncate"
           style={{ color: "var(--color-text-2)" }}
         >
-          {task.task_type}
+          {t(`task_type_${task.task_type}`, { defaultValue: task.task_type })}
         </span>
         <span
           className="text-[10.5px]"
@@ -371,12 +371,7 @@ function ChannelSection({
   );
   const queued = tasks.filter((task) => task.status === "queued");
   const recent = tasks
-    .filter(
-      (task) =>
-        task.status === "succeeded" ||
-        task.status === "failed" ||
-        task.status === "cancelled",
-    )
+    .filter((task) => isTerminalStatus(task.status))
     .filter((task) => !hiddenIds.has(task.task_id))
     .slice(0, 5);
 
@@ -684,7 +679,10 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
                 >
                   {cancelConfirm.preview.cascaded.map((task) => (
                     <li key={task.task_id}>
-                      {task.task_type} / {task.resource_id}
+                      {t(`task_type_${task.task_type}`, {
+                        defaultValue: task.task_type,
+                      })}{" "}
+                      / {task.resource_id}
                     </li>
                   ))}
                 </ul>

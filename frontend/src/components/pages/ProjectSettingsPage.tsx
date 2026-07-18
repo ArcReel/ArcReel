@@ -103,11 +103,11 @@ export function ProjectSettingsPage() {
     video: string;
     imageT2I: string;
     imageI2I: string;
-    textScript: string;
-    textOverview: string;
-    textStyle: string;
+    textDefault: string;
+    textSimple: string;
+    textComplex: string;
     audio: string;
-  }>({ video: "", imageT2I: "", imageI2I: "", textScript: "", textOverview: "", textStyle: "", audio: "" });
+  }>({ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "", audio: "" });
 
   const allProviderNames = useMemo(
     () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
@@ -124,9 +124,9 @@ export function ProjectSettingsPage() {
   const [audioBackend, setAudioBackend] = useState<string>("");
   const [narrationVoice, setNarrationVoice] = useState<string>("");
   const [narrationSpeed, setNarrationSpeed] = useState<number | null>(null);
-  const [textScript, setTextScript] = useState<string>("");
-  const [textOverview, setTextOverview] = useState<string>("");
-  const [textStyle, setTextStyle] = useState<string>("");
+  const [textDefault, setTextDefault] = useState<string>("");
+  const [textSimple, setTextSimple] = useState<string>("");
+  const [textComplex, setTextComplex] = useState<string>("");
   const [aspectRatio, setAspectRatio] = useState<string>("");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("storyboard");
   const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
@@ -145,7 +145,7 @@ export function ProjectSettingsPage() {
   const initialRef = useRef({
     videoBackend: "", imageBackendT2I: "", imageBackendI2I: "", audioOverride: null as boolean | null,
     audioBackend: "", narrationVoice: "", narrationSpeed: null as number | null,
-    textScript: "", textOverview: "", textStyle: "",
+    textDefault: "", textSimple: "", textComplex: "",
     aspectRatio: "", generationMode: "storyboard",
     defaultDuration: null as number | null,
     videoResolution: null as string | null,
@@ -182,9 +182,9 @@ export function ProjectSettingsPage() {
           configRes.settings?.default_image_backend_i2i ??
           configRes.settings?.default_image_backend ??
           "",
-        textScript: configRes.settings?.text_backend_script ?? "",
-        textOverview: configRes.settings?.text_backend_overview ?? "",
-        textStyle: configRes.settings?.text_backend_style ?? "",
+        textDefault: configRes.settings?.default_text_backend ?? "",
+        textSimple: configRes.settings?.text_backend_simple ?? "",
+        textComplex: configRes.settings?.text_backend_complex ?? "",
         audio: configRes.settings?.default_audio_backend ?? "",
       });
       setProviders(providerList);
@@ -201,9 +201,9 @@ export function ProjectSettingsPage() {
       const nv = (project.narration_voice as string | undefined) ?? "";
       const rawSpeed = project.narration_speed;
       const ns = typeof rawSpeed === "number" && Number.isFinite(rawSpeed) ? rawSpeed : null;
-      const ts = (project.text_backend_script as string | undefined) ?? "";
-      const to = (project.text_backend_overview as string | undefined) ?? "";
-      const tst = (project.text_backend_style as string | undefined) ?? "";
+      const td = (project.default_text_backend as string | undefined) ?? "";
+      const tsi = (project.text_backend_simple as string | undefined) ?? "";
+      const tcx = (project.text_backend_complex as string | undefined) ?? "";
 
       const rawAr = typeof project.aspect_ratio === "string" ? project.aspect_ratio : "";
       // Backend's get_aspect_ratio() falls back to "9:16" when unset (generation_tasks.py).
@@ -219,9 +219,9 @@ export function ProjectSettingsPage() {
       setAudioBackend(ab);
       setNarrationVoice(nv);
       setNarrationSpeed(ns);
-      setTextScript(ts);
-      setTextOverview(to);
-      setTextStyle(tst);
+      setTextDefault(td);
+      setTextSimple(tsi);
+      setTextComplex(tcx);
       setAspectRatio(ar);
       setGenerationMode(gm);
       setDefaultDuration(dd);
@@ -255,7 +255,7 @@ export function ProjectSettingsPage() {
       initialRef.current = {
         videoBackend: vb, imageBackendT2I: ibt2i, imageBackendI2I: ibi2i, audioOverride: ao,
         audioBackend: ab, narrationVoice: nv, narrationSpeed: ns,
-        textScript: ts, textOverview: to, textStyle: tst,
+        textDefault: td, textSimple: tsi, textComplex: tcx,
         aspectRatio: ar, generationMode: gm, defaultDuration: dd,
         videoResolution: vRes, imageResolution: iRes,
       };
@@ -303,9 +303,9 @@ export function ProjectSettingsPage() {
     audioBackend !== initialRef.current.audioBackend ||
     narrationVoice !== initialRef.current.narrationVoice ||
     narrationSpeed !== initialRef.current.narrationSpeed ||
-    textScript !== initialRef.current.textScript ||
-    textOverview !== initialRef.current.textOverview ||
-    textStyle !== initialRef.current.textStyle ||
+    textDefault !== initialRef.current.textDefault ||
+    textSimple !== initialRef.current.textSimple ||
+    textComplex !== initialRef.current.textComplex ||
     aspectRatio !== initialRef.current.aspectRatio ||
     generationMode !== initialRef.current.generationMode ||
     defaultDuration !== initialRef.current.defaultDuration ||
@@ -407,9 +407,9 @@ export function ProjectSettingsPage() {
         audio_backend: audioBackend || null,
         narration_voice: trimmedVoice || null,
         narration_speed: narrationSpeed,
-        text_backend_script: textScript || null,
-        text_backend_overview: textOverview || null,
-        text_backend_style: textStyle || null,
+        default_text_backend: textDefault || null,
+        text_backend_simple: textSimple || null,
+        text_backend_complex: textComplex || null,
         aspect_ratio: aspectRatio || undefined,
         generation_mode: generationMode,
         // ad 项目禁写 default_duration（后端对字段出现本身返回 400），省略该键
@@ -421,7 +421,7 @@ export function ProjectSettingsPage() {
       initialRef.current = {
         videoBackend, imageBackendT2I, imageBackendI2I, audioOverride,
         audioBackend, narrationVoice: trimmedVoice, narrationSpeed,
-        textScript, textOverview, textStyle,
+        textDefault, textSimple, textComplex,
         aspectRatio, generationMode, defaultDuration,
         videoResolution, imageResolution,
       };
@@ -431,7 +431,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textScript, textOverview, textStyle, aspectRatio, generationMode, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults.video, globalDefaults.imageT2I]);
+  }, [modelSettings, videoBackend, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textDefault, textSimple, textComplex, aspectRatio, generationMode, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults.video, globalDefaults.imageT2I]);
 
   return (
     <div
@@ -551,9 +551,9 @@ export function ProjectSettingsPage() {
                     videoBackend,
                     imageBackendT2I,
                     imageBackendI2I,
-                    textBackendScript: textScript,
-                    textBackendOverview: textOverview,
-                    textBackendStyle: textStyle,
+                    textBackendDefault: textDefault,
+                    textBackendSimple: textSimple,
+                    textBackendComplex: textComplex,
                     defaultDuration,
                     videoResolution,
                     imageResolution,
@@ -562,9 +562,9 @@ export function ProjectSettingsPage() {
                     setVideoBackend(next.videoBackend);
                     setImageBackendT2I(next.imageBackendT2I);
                     setImageBackendI2I(next.imageBackendI2I);
-                    setTextScript(next.textBackendScript);
-                    setTextOverview(next.textBackendOverview);
-                    setTextStyle(next.textBackendStyle);
+                    setTextDefault(next.textBackendDefault);
+                    setTextSimple(next.textBackendSimple);
+                    setTextComplex(next.textBackendComplex);
                     setDefaultDuration(next.defaultDuration);
                     setVideoResolution(next.videoResolution);
                     setImageResolution(next.imageResolution);
@@ -581,9 +581,9 @@ export function ProjectSettingsPage() {
                     video: globalDefaults.video,
                     imageT2I: globalDefaults.imageT2I ?? "",
                     imageI2I: globalDefaults.imageI2I ?? "",
-                    textScript: globalDefaults.textScript ?? "",
-                    textOverview: globalDefaults.textOverview ?? "",
-                    textStyle: globalDefaults.textStyle ?? "",
+                    textDefault: globalDefaults.textDefault ?? "",
+                    textSimple: globalDefaults.textSimple ?? "",
+                    textComplex: globalDefaults.textComplex ?? "",
                   }}
                   videoGenerateAudio={audioOverride}
                   onVideoGenerateAudioChange={setAudioOverride}

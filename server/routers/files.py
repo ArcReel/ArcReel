@@ -17,10 +17,11 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from lib.app_data_dir import app_data_dir
 from lib.asset_types import GLOBAL_LIBRARY_ASSET_TYPES
+from lib.config.resolver import VisionCapabilityError
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
+    REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
     STEP1_FILENAMES,
     episode_drafts_dir,
     step1_read_candidates,
@@ -28,7 +29,7 @@ from lib.episode_paths import (
 from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
 from lib.project_change_hints import emit_project_change_batch, project_change_source
-from lib.project_manager import ProjectManager, effective_mode
+from lib.project_manager import effective_mode, get_project_manager
 from lib.source_loader import (
     ConflictError,
     CorruptFileError,
@@ -42,13 +43,6 @@ from lib.source_loader import (
 from server.auth import CurrentUser
 
 router = APIRouter()
-
-# 初始化项目管理器
-pm = ProjectManager(app_data_dir())
-
-
-def get_project_manager() -> ProjectManager:
-    return pm
 
 
 def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:
@@ -670,7 +664,7 @@ def _get_step_files(content_mode: str, generation_mode: str | None = None) -> di
     ad 不走结构化 step1（与 _resolve_step1_path / status_calculator._draft_candidates 同口径显式
     排除），即便带 reference_video generation_mode 也无 step1，故先于 generation_mode 判断返回空
     映射，调用方据此给出「无此步骤」而非误落 drama / reference 文件名。reference_video 走
-    split-reference-video-units subagent → step1_reference_units.md；其他模式回落到 content_mode
+    split_reference_video_units 工具 → step1_reference_units.json；其他模式回落到 content_mode
     的结构化 step1 文件名（未知 content_mode 兜底 drama）。结构化文件名取自单一真相源
     STEP1_FILENAMES，新增 content_mode 自动覆盖。
     """
@@ -682,12 +676,12 @@ def _get_step_files(content_mode: str, generation_mode: str | None = None) -> di
 
 
 # 按 primary 文件名分组的优先候选（mode 感知）：先在本模式自家候选里回落，再兜底其他模式遗留文件。
-# 每模式的结构化 .json + 旧版 .md 取自单一真相源；reference_video 只认自家 md。
-# narration 优先结构化 .json、再旧版 .md，杜绝跨模式切换遗留把 narration 误选到 reference_units.md。
+# 每模式的结构化 .json + 旧版 .md 取自单一真相源；reference_video 优先结构化 .json、再旧版 .md
+# （读取 / 浏览层兼认存量在制品，写盘与生成侧不认——与 narration / drama 的 legacy 语义同口径）。
 _STEP1_FAMILY: dict[str, list[str]] = {
     STEP1_FILENAMES[mode]: list(step1_read_candidates(mode)) for mode in STEP1_FILENAMES
 }
-_STEP1_FAMILY[REFERENCE_VIDEO_STEP1_FILENAME] = [REFERENCE_VIDEO_STEP1_FILENAME]
+_STEP1_FAMILY[REFERENCE_VIDEO_STEP1_FILENAME] = [REFERENCE_VIDEO_STEP1_FILENAME, REFERENCE_VIDEO_STEP1_LEGACY_FILENAME]
 
 # step1 实际文件候选 —— 主文件不存在时用于 fallback 探测，兼容 episode 级 generation_mode 覆盖。
 # 结构化 .json 与旧 .md 候选均由单一真相源派生；各自保留旧 .md 以便存量在制品仍可浏览。
@@ -707,6 +701,7 @@ def _get_step_title(filename: str, _t: Callable[..., str]) -> str:
     for name in step1_read_candidates("narration"):
         titles[name] = _t("segment_splitting")
     titles[REFERENCE_VIDEO_STEP1_FILENAME] = _t("segment_splitting")
+    titles[REFERENCE_VIDEO_STEP1_LEGACY_FILENAME] = _t("segment_splitting")
     return titles.get(filename, filename)
 
 
@@ -960,6 +955,11 @@ async def upload_style_image(project_name: str, _user: CurrentUser, _t: Translat
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
     except HTTPException:
         raise
+    except VisionCapabilityError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=_t("vision_model_required", provider=e.provider_id, model=e.model_id, task=e.task_type.value),
+        )
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from lib.cost_calculator import CostCalculator
+from lib.pricing.strategies import PricingParams
 
 
 class TestCustomTextCost:
@@ -12,10 +13,7 @@ class TestCustomTextCost:
         calc = CostCalculator()
         amount, currency = calc.calculate_cost(
             "custom-3",
-            "text",
-            model="deepseek-v3",
-            input_tokens=1000,
-            output_tokens=500,
+            PricingParams(call_type="text", model="deepseek-v3", input_tokens=1000, output_tokens=500),
             custom_price_input=1.0,
             custom_price_output=2.0,
             custom_currency="USD",
@@ -28,10 +26,7 @@ class TestCustomTextCost:
         calc = CostCalculator()
         amount, currency = calc.calculate_cost(
             "custom-7",
-            "text",
-            model="qwen-turbo",
-            input_tokens=2000,
-            output_tokens=1000,
+            PricingParams(call_type="text", model="qwen-turbo", input_tokens=2000, output_tokens=1000),
             custom_price_input=0.5,
             custom_price_output=1.0,
             custom_currency="CNY",
@@ -48,8 +43,7 @@ class TestCustomImageCost:
         calc = CostCalculator()
         amount, currency = calc.calculate_cost(
             "custom-5",
-            "image",
-            model="dall-e-3",
+            PricingParams(call_type="image", model="dall-e-3"),
             custom_price_input=0.05,
             custom_currency="USD",
         )
@@ -60,8 +54,7 @@ class TestCustomImageCost:
         calc = CostCalculator()
         amount, currency = calc.calculate_cost(
             "custom-1",
-            "image",
-            model="seedream",
+            PricingParams(call_type="image", model="seedream"),
             custom_price_input=0.22,
             custom_currency="CNY",
         )
@@ -76,9 +69,7 @@ class TestCustomVideoCost:
         calc = CostCalculator()
         amount, currency = calc.calculate_cost(
             "custom-2",
-            "video",
-            model="sora-2",
-            duration_seconds=10,
+            PricingParams(call_type="video", model="sora-2", duration_seconds=10),
             custom_price_input=0.10,
             custom_currency="USD",
         )
@@ -90,8 +81,7 @@ class TestCustomVideoCost:
         calc = CostCalculator()
         amount, currency = calc.calculate_cost(
             "custom-4",
-            "video",
-            model="some-video-model",
+            PricingParams(call_type="video", model="some-video-model"),
             custom_price_input=0.05,
             custom_currency="USD",
         )
@@ -108,9 +98,7 @@ class TestCustomAudioCost:
         calc = CostCalculator()
         amount, currency = calc.calculate_cost(
             "custom-6",
-            "audio",
-            model="tts-1",
-            usage_tokens=5_000,
+            PricingParams(call_type="audio", model="tts-1", usage_tokens=5_000),
             custom_price_input=0.8,
             custom_currency="CNY",
         )
@@ -122,8 +110,7 @@ class TestCustomAudioCost:
         calc = CostCalculator()
         amount, currency = calc.calculate_cost(
             "custom-6",
-            "audio",
-            model="tts-1",
+            PricingParams(call_type="audio", model="tts-1"),
             custom_price_input=0.8,
             custom_currency="USD",
         )
@@ -134,9 +121,7 @@ class TestCustomAudioCost:
         calc = CostCalculator()
         amount, currency = calc.calculate_cost(
             "custom-6",
-            "audio",
-            model="tts-1",
-            usage_tokens=5_000,
+            PricingParams(call_type="audio", model="tts-1", usage_tokens=5_000),
         )
         assert amount == 0.0
         assert currency == "USD"
@@ -149,10 +134,7 @@ class TestCustomCostNullPrice:
         calc = CostCalculator()
         amount, currency = calc.calculate_cost(
             "custom-1",
-            "text",
-            model="some-model",
-            input_tokens=1000,
-            output_tokens=500,
+            PricingParams(call_type="text", model="some-model", input_tokens=1000, output_tokens=500),
             custom_price_input=None,
             custom_price_output=None,
             custom_currency=None,
@@ -164,10 +146,7 @@ class TestCustomCostNullPrice:
         calc = CostCalculator()
         amount, currency = calc.calculate_cost(
             "custom-99",
-            "text",
-            model="nonexistent",
-            input_tokens=1000,
-            output_tokens=500,
+            PricingParams(call_type="text", model="nonexistent", input_tokens=1000, output_tokens=500),
         )
         assert amount == 0.0
         assert currency == "USD"
@@ -176,10 +155,7 @@ class TestCustomCostNullPrice:
         calc = CostCalculator()
         amount, currency = calc.calculate_cost(
             "custom-1",
-            "text",
-            model="model",
-            input_tokens=1000,
-            output_tokens=500,
+            PricingParams(call_type="text", model="model", input_tokens=1000, output_tokens=500),
             custom_price_input=1.0,
             custom_price_output=2.0,
             custom_currency=None,

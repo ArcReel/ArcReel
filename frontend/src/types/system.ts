@@ -7,9 +7,8 @@ export interface SystemConfigSettings {
   default_audio_backend?: string;
   narration_voice?: string;
   narration_speed?: number | null;
-  text_backend_script: string;
-  text_backend_overview: string;
-  text_backend_style: string;
+  text_backend_simple: string;
+  text_backend_complex: string;
   video_generate_audio: boolean;
   anthropic_api_key: { is_set: boolean; masked: string | null };
   anthropic_base_url: string;
@@ -61,9 +60,8 @@ export interface SystemConfigPatch {
   default_audio_backend?: string;
   narration_voice?: string;
   narration_speed?: number | null;
-  text_backend_script?: string;
-  text_backend_overview?: string;
-  text_backend_style?: string;
+  text_backend_simple?: string;
+  text_backend_complex?: string;
   video_generate_audio?: boolean;
   anthropic_api_key?: string;
   anthropic_base_url?: string;

@@ -155,9 +155,9 @@ export interface ProjectData {
   audio_backend?: string | null;
   narration_voice?: string | null;
   narration_speed?: number | null;
-  text_backend_script?: string | null;
-  text_backend_overview?: string | null;
-  text_backend_style?: string | null;
+  text_backend_simple?: string | null;
+  text_backend_complex?: string | null;
+  default_text_backend?: string | null;
   model_settings?: Record<string, ModelSettingEntry>;
   /** Legacy field: keyed by model_id only (before composite key refactor). Read-only at UI layer. */
   video_model_settings?: Record<string, { resolution?: string | null }>;

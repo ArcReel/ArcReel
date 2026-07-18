@@ -84,7 +84,8 @@ class TestGenerate:
         call_kwargs = backend._test_client.aio.models.generate_content.call_args
         config = call_kwargs.kwargs.get("config")
         assert config["response_mime_type"] == "application/json"
-        assert config["response_json_schema"] == schema
+        assert config["response_schema"] == schema
+        assert "response_json_schema" not in config
 
     async def test_structured_truncation_raises(self, backend):
         """结构化输出被 MAX_TOKENS 截断时抛 TextOutputTruncatedError（见 docs/adr/0044）。"""
@@ -120,12 +121,12 @@ class TestGenerate:
         assert result.text == "partial"
         assert any("被截断" in r.message for r in caplog.records)
 
-    async def test_structured_output_pydantic_class_resolved_to_json_schema(self, backend):
-        """传入 Pydantic 类时解析为 JSON Schema dict 走 response_json_schema。
+    async def test_structured_output_pydantic_class_resolved_to_response_schema(self, backend):
+        """传入 Pydantic 类时解析为 dict 走 response_schema（wire 字段 responseSchema）。
 
-        google-genai 的 response_schema(types.Schema) 是 OpenAPI 子集，enum 仅支持字符串，
-        整数/数字 enum 会在 SDK schema 转换时抛 "Input should be a valid string"。统一走
-        response_json_schema（标准 JSON Schema，官方支持数字 enum），与 dict 入参同口径。
+        responseSchema 上线已久、代理网关普遍能透传给真实上游执行约束解码；较新的
+        responseJsonSchema 多数代理网关的请求解析结构体不认识、会静默丢弃，导致上游
+        按无 schema 的纯 JSON 模式自由生成。故统一走 responseSchema，与 dict 入参同口径。
         """
         from pydantic import BaseModel
 
@@ -143,36 +144,38 @@ class TestGenerate:
         call_kwargs = backend._test_client.aio.models.generate_content.call_args
         config = call_kwargs.kwargs.get("config")
         assert config["response_mime_type"] == "application/json"
-        assert "response_schema" not in config
-        js = config["response_json_schema"]
+        assert "response_json_schema" not in config
+        js = config["response_schema"]
         assert js["type"] == "object"
         assert js["properties"]["name"]["type"] == "string"
         assert js["required"] == ["name"]
 
-    def test_episode_script_integer_enum_routes_to_json_schema(self, backend):
-        """回归：duration_seconds 整数 enum 的剧本 schema 必须走 response_json_schema。
+    def test_episode_script_integer_enum_stringified(self, backend):
+        """回归：duration_seconds 整数 enum 在 responseSchema 通道转为字符串枚举。
 
-        build_episode_script_model 把 duration_seconds 收紧为 Literal[*supported_durations]
-        （整数 enum）。若退回 response_schema(types.Schema, enum: list[str]) 会在真实 SDK
-        转换时抛 "Input should be a valid string"，整集生成直接失败。
+        types.Schema 的 enum 仅支持字符串，整数枚举原样发出会在真实 SDK 转换时抛
+        "Input should be a valid string"。转为字符串枚举后精确集合的约束解码依然成立，
+        解析侧 _duration_literal 的机械强转恢复 int。
         """
         from lib.script_models import build_episode_script_model
 
         config = backend._build_config(build_episode_script_model("narration", [4, 6, 8]), None)
 
-        assert "response_schema" not in config
-        seg_props = config["response_json_schema"]["properties"]["segments"]["items"]["properties"]
-        assert seg_props["duration_seconds"]["enum"] == [4, 6, 8]
+        assert "response_json_schema" not in config
+        seg_props = config["response_schema"]["properties"]["segments"]["items"]["properties"]
+        assert seg_props["duration_seconds"]["enum"] == ["4", "6", "8"]
+        assert seg_props["duration_seconds"]["type"] == "string"
 
     def test_single_value_duration_const_normalized_to_enum(self, backend):
-        """单值 supported_durations 渲染为 const（不在 response_json_schema 支持特性内），
-        归一为单元素 enum 以保留生成层硬约束。"""
+        """单值 supported_durations 渲染为 const（types.Schema 无此字段），
+        归一为单元素字符串 enum 以保留生成层硬约束。"""
         from lib.script_models import build_episode_script_model
 
         config = backend._build_config(build_episode_script_model("narration", [8]), None)
-        ds = config["response_json_schema"]["properties"]["segments"]["items"]["properties"]["duration_seconds"]
+        ds = config["response_schema"]["properties"]["segments"]["items"]["properties"]["duration_seconds"]
         assert "const" not in ds
-        assert ds["enum"] == [8]
+        assert ds["enum"] == ["8"]
+        assert ds["type"] == "string"
 
     def test_const_to_enum_distinguishes_keyword_field_name_and_data(self, backend):
         """区分 const 出现的三种位置：schema 关键字（归一）、字段名（值仍是子 schema）、实例数据（不动）。
@@ -190,28 +193,44 @@ class TestGenerate:
                 "obj_const": {"const": {"const": 5}},  # 非标量 const → 不动
             },
         }
-        props = backend._build_config(schema, None)["response_json_schema"]["properties"]
-        assert props["duration_seconds"] == {"type": "integer", "enum": [8]}
+        props = backend._build_config(schema, None)["response_schema"]["properties"]
+        assert props["duration_seconds"] == {"type": "string", "enum": ["8"]}
         assert props["const"] == {"type": "string"}
-        assert props["default"] == {"type": "integer", "enum": [6]}
+        assert props["default"] == {"type": "string", "enum": ["6"]}
         assert props["with_default"]["default"] == {"const": 42}
         assert props["obj_const"] == {"const": {"const": 5}}
 
-    def test_episode_script_schema_accepted_by_google_genai_jsonschema(self, backend):
-        """集成回归：剧本 schema 经 _build_config 产出后必须被 google-genai 真实 JSONSchema 接受。
+    def test_all_script_schemas_accepted_by_google_genai_schema(self, backend):
+        """集成回归：全部剧本 schema 工厂经 _build_config 产出后必须被真实 types.Schema 接受。
 
-        mock 掉 generate_content 会让 SDK 的 schema 转换不执行，掩盖整数 enum 与 Gemini
-        response_schema 的不兼容。这里直接过真实 SDK 类型校验，堵住该盲区。
+        mock 掉 generate_content 会让 SDK 的 schema 转换不执行，掩盖整数 enum / const 与
+        types.Schema 的不兼容（"Input should be a valid string" 在请求发出前即抛，整集生成
+        直接失败）。这里直接过真实 SDK 类型校验，堵住该盲区。
         """
         from google.genai import types as gtypes
 
-        from lib.script_models import build_episode_script_model
+        from lib.script_models import (
+            build_ad_reference_episode_script_model,
+            build_drama_normalized_script_model,
+            build_episode_script_model,
+            build_reference_video_script_model,
+        )
 
-        for content_mode in ("narration", "drama", "ad"):
-            for durations in ([4, 6, 8], [8]):
-                config = backend._build_config(build_episode_script_model(content_mode, durations), None)
-                # 不抛 = 整数 enum / 归一后单值被 google-genai 的 JSONSchema(enum: list[Any]) 接受
-                gtypes.JSONSchema.model_validate(config["response_json_schema"])
+        schemas = [
+            build_episode_script_model(mode, durations)
+            for mode in ("narration", "drama", "ad")
+            for durations in ([4, 6, 8], [8])
+        ]
+        schemas += [
+            build_ad_reference_episode_script_model(),
+            build_drama_normalized_script_model([4, 6, 8]),
+            build_drama_normalized_script_model([8]),
+            build_reference_video_script_model([4, 6, 8]),
+        ]
+        for schema in schemas:
+            config = backend._build_config(schema, None)
+            # 不抛 = 转换后的 dict（字符串枚举、无 const）被 google-genai types.Schema 接受
+            gtypes.Schema.model_validate(config["response_schema"])
 
     async def test_system_prompt(self, backend):
         mock_resp = SimpleNamespace(
@@ -278,7 +297,7 @@ _VALID_JSON = '{"genre": "都市", "theme": "逆袭"}'
 
 
 class TestStructuredFallback:
-    """中转 HTTP 200 但不强制 response_json_schema（返回散文/违例 JSON）时的降级路径。"""
+    """代理网关 HTTP 200 但不强制 response_schema（返回散文/违例 JSON）时的降级路径。"""
 
     @pytest.fixture
     def backend(self, mock_genai):
@@ -297,7 +316,11 @@ class TestStructuredFallback:
 
         assert gc.call_count == 2
         fb_config = gc.call_args_list[1].kwargs.get("config")
-        assert fb_config is None or ("response_json_schema" not in fb_config and "response_mime_type" not in fb_config)
+        assert fb_config is None or (
+            "response_schema" not in fb_config
+            and "response_json_schema" not in fb_config
+            and "response_mime_type" not in fb_config
+        )
         fb_prompt = gc.call_args_list[1].kwargs["contents"][-1]
         assert "分析剧本" in fb_prompt
         assert "JSON Schema" in fb_prompt

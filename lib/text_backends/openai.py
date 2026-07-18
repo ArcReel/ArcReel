@@ -103,7 +103,7 @@ class OpenAITextBackend:
                     token_param=self._max_tokens_param,
                 )
                 # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果，否则
-                # UsageTracker 会系统性漏记。仅在至少一侧有计量时相加；两侧皆 None
+                # 记账层会系统性漏记。仅在至少一侧有计量时相加；两侧皆 None
                 # （未追踪）保持 None，不塌成字面 0 token。
                 if result.input_tokens is not None or native.input_tokens is not None:
                     result.input_tokens = (result.input_tokens or 0) + (native.input_tokens or 0)

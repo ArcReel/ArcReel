@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { useActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { SourceFileViewer } from "./SourceFileViewer";
@@ -126,81 +126,21 @@ export function StudioCanvasRouter() {
 
   const durationOptions = localDurationOptions ?? resolvedDurationOptions;
 
-  // 从任务队列派生 loading 状态（替代本地 state）
-  const tasks = useTasksStore((s) => s.tasks);
-  const generatingCharacterNames = useMemo(() => {
-    const names = new Set<string>();
-    for (const t of tasks) {
-      if (
-        t.task_type === "character" &&
-        t.project_name === currentProjectName &&
-        (t.status === "queued" || t.status === "running")
-      ) {
-        names.add(t.resource_id);
-      }
-    }
-    return names;
-  }, [tasks, currentProjectName]);
-  const generatingSceneNames = useMemo(() => {
-    const names = new Set<string>();
-    for (const t of tasks) {
-      if (
-        t.task_type === "scene" &&
-        t.project_name === currentProjectName &&
-        (t.status === "queued" || t.status === "running")
-      ) {
-        names.add(t.resource_id);
-      }
-    }
-    return names;
-  }, [tasks, currentProjectName]);
-  const generatingPropNames = useMemo(() => {
-    const names = new Set<string>();
-    for (const t of tasks) {
-      if (
-        t.task_type === "prop" &&
-        t.project_name === currentProjectName &&
-        (t.status === "queued" || t.status === "running")
-      ) {
-        names.add(t.resource_id);
-      }
-    }
-    return names;
-  }, [tasks, currentProjectName]);
-  const generatingProductNames = useMemo(() => {
-    const names = new Set<string>();
-    for (const t of tasks) {
-      if (
-        t.task_type === "product" &&
-        t.project_name === currentProjectName &&
-        (t.status === "queued" || t.status === "running")
-      ) {
-        names.add(t.resource_id);
-      }
-    }
-    return names;
-  }, [tasks, currentProjectName]);
+  // 从任务队列派生 loading 状态（替代本地 state）：活跃 + 最新行胜出两条不变量下沉到 store selector
+  const generatingCharacterNames = useActiveResourceIds("character", currentProjectName);
+  const generatingSceneNames = useActiveResourceIds("scene", currentProjectName);
+  const generatingPropNames = useActiveResourceIds("prop", currentProjectName);
+  const generatingProductNames = useActiveResourceIds("product", currentProjectName);
 
-  // 刷新项目数据；返回本地 store 是否已同步成功，供调用方决定是否推进依赖新顺序的 UI 状态
-  const refreshProject = useCallback(async (invalidateKeys: string[] = []): Promise<boolean> => {
-    if (!currentProjectName) return false;
-    try {
-      const res = await API.getProject(currentProjectName);
-      useProjectsStore.getState().setCurrentProject(
-        currentProjectName,
-        res.project,
-        res.scripts ?? {},
-        res.asset_fingerprints,
-      );
-      if (invalidateKeys.length > 0) {
-        useAppStore.getState().invalidateEntities(invalidateKeys);
-      }
-      return true;
-    } catch {
-      // 静默失败：多数调用方只做尽力刷新，由返回值交调用方自行判断
-      return false;
-    }
-  }, [currentProjectName]);
+  // 刷新项目数据；返回本地 store 是否已同步成功，供调用方决定是否推进依赖新顺序的 UI 状态。
+  // 在途合并 + 失败留旧收敛于 projects-store 的 refreshProject，此处仅表达意图。
+  const refreshProject = useCallback(
+    (invalidateKeys: string[] = []): Promise<boolean> =>
+      currentProjectName
+        ? useProjectsStore.getState().refreshProject(currentProjectName, { invalidateKeys })
+        : Promise.resolve(false),
+    [currentProjectName],
+  );
 
   // ---- Timeline action callbacks ----
   // These receive scriptFile from TimelineCanvas so they always use the active episode's script.
@@ -281,6 +221,10 @@ export function StudioCanvasRouter() {
         resolved.prompt as string | Record<string, unknown>,
         resolved.resolvedFile,
       );
+      // 乐观占用：入队成功到 SSE 下一次轮询把新任务行写进 store 之间有 ~3s 空窗，
+      // 期间同资源的 ImageEditButton 会误判为空闲，可并发提交 image_edit 与本次
+      // 重新生成竞争同一张 current 图（两者 task_type 不同，后端 dedupe 索引不拦）。
+      useTasksStore.getState().markOptimisticActive(currentProjectName, "storyboard", segmentId, "storyboard");
       useAppStore.getState().pushToast(tRef.current("storyboard_task_submitted_toast", { id: segmentId }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("generate_storyboard_failed", { message: errMsg(err) }), "error");
@@ -389,6 +333,8 @@ export function StudioCanvasRouter() {
         name,
         currentProjectData?.characters?.[name]?.description ?? "",
       );
+      // 乐观占用：见 handleGenerateStoryboard 同类注释。
+      useTasksStore.getState().markOptimisticActive(currentProjectName, "character", name, "character");
       useAppStore
         .getState()
         .pushToast(tRef.current("character_task_submitted_toast", { name }), "success");
@@ -438,6 +384,8 @@ export function StudioCanvasRouter() {
     if (!currentProjectName) return;
     try {
       await API.generateProjectScene(currentProjectName, name, currentProjectData?.scenes?.[name]?.description ?? "");
+      // 乐观占用：见 handleGenerateStoryboard 同类注释。
+      useTasksStore.getState().markOptimisticActive(currentProjectName, "scene", name, "scene");
       useAppStore.getState().pushToast(tRef.current("scene_task_submitted_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
@@ -471,6 +419,8 @@ export function StudioCanvasRouter() {
     if (!currentProjectName) return;
     try {
       await API.generateProjectProp(currentProjectName, name, currentProjectData?.props?.[name]?.description ?? "");
+      // 乐观占用：见 handleGenerateStoryboard 同类注释。
+      useTasksStore.getState().markOptimisticActive(currentProjectName, "prop", name, "prop");
       useAppStore.getState().pushToast(tRef.current("prop_task_submitted_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
@@ -508,6 +458,8 @@ export function StudioCanvasRouter() {
         name,
         currentProjectData?.products?.[name]?.description ?? "",
       );
+      // 乐观占用：见 handleGenerateStoryboard 同类注释。
+      useTasksStore.getState().markOptimisticActive(currentProjectName, "product", name, "product");
       useAppStore.getState().pushToast(tRef.current("product_task_submitted_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
@@ -530,6 +482,14 @@ export function StudioCanvasRouter() {
     if (!currentProjectName) return;
     try {
       const result = await API.generateGrid(currentProjectName, episode, scriptFile, sceneIds);
+      // 乐观占用：入队成功到下一次轮询把新 grid 任务行写进 store 之间有 ~3s 空窗，期间本集
+      // 分镜编辑入口会误判为空闲，与随后的切割阶段并发写同一张 storyboard current 图，
+      // 见 tasks-store.ts::selectHasActiveTaskForScriptFile 的乐观占用小节。
+      // task_ids 可能为空数组（如 scene_ids 过滤后无匹配分组）：此时后端不会产生任何任务行，
+      // 乐观标记将永远等不到真实任务落库来解除，需在打标前排除这种空提交。
+      if (result.task_ids.length > 0) {
+        useTasksStore.getState().markOptimisticActiveForScriptFile(currentProjectName, "grid", scriptFile);
+      }
       useAppStore.getState().pushToast(result.message, "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("grid_generation_failed", { message: errMsg(err) }), "error");
@@ -698,6 +658,7 @@ export function StudioCanvasRouter() {
                     episodeTitle={episode?.title}
                     onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
                     canEditTitle={Boolean(episode?.script_file)}
+                    hasScript={Boolean(script)}
                   />
                 ) : mode === "grid" ? (
                   <GridImageToVideoCanvas

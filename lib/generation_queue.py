@@ -48,7 +48,10 @@ async def _derive_provider_id_for_enqueue(
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload or {})
         else:
-            resolved = await resolver.resolve_image_backend(project, payload or {}, capability="t2i")
+            # image_edit 必然 i2i 且入队即知（唯一例外，见 docs/adr/0001），按 i2i 槽解析；
+            # 其余 image 任务 capability 执行时才定，取 t2i 作代表性 provider。
+            capability = "i2i" if task_type == "image_edit" else "t2i"
+            resolved = await resolver.resolve_image_backend(project, payload or {}, capability=capability)
     except Exception:
         logger.debug("入队时派生 provider_id 失败，留 NULL 由 worker 兜底", exc_info=True)
         return None
@@ -95,6 +98,7 @@ class GenerationQueue:
         resource_id: str,
         payload: dict[str, Any] | None = None,
         script_file: str | None = None,
+        resource_type: str | None = None,
         source: str = "webui",
         dependency_task_id: str | None = None,
         dependency_group: str | None = None,
@@ -121,6 +125,7 @@ class GenerationQueue:
                 resource_id=resource_id,
                 payload=payload,
                 script_file=script_file,
+                resource_type=resource_type,
                 source=source,
                 dependency_task_id=dependency_task_id,
                 dependency_group=dependency_group,

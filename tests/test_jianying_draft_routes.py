@@ -57,7 +57,7 @@ def _client(monkeypatch, pm: ProjectManager) -> TestClient:
     """创建绑定到指定 ProjectManager 的 TestClient"""
     from server.routers import projects as proj_mod
 
-    monkeypatch.setattr(proj_mod, "pm", pm)
+    monkeypatch.setattr(proj_mod, "get_project_manager", lambda: pm)
 
     from server.app import app
 

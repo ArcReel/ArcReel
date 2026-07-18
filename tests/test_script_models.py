@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from lib.script_models import (
+    _ITEM_FALLBACK_DURATIONS,
     AdEpisodeScript,
     AdShot,
     Composition,
@@ -14,6 +15,8 @@ from lib.script_models import (
     NarrationSegment,
     Utterance,
     VideoPrompt,
+    item_duration,
+    script_duration_total,
 )
 
 
@@ -355,6 +358,185 @@ class TestAdScriptModels:
                     "hallucinated_field": "x",
                 }
             )
+
+
+class TestItemDurationCoercion:
+    """剧本条目时长的脏数据归一——单一真相源，读时计算/写盘重算/落盘估算三处共用。
+
+    校验失败降级保存的原始 dict 会把 None/bool/负数/字符串/缺失等脏值带到读路径，
+    历史上三份兜底表 + 三套守卫互异（StatusCalculator 缺 None 守卫致 sum() TypeError、
+    项目列表 API 5xx）。此处穷举脏值矩阵 × 四骨架，钉住单点化后的统一口径。
+    """
+
+    def test_fallback_table_covers_four_skeletons(self):
+        assert _ITEM_FALLBACK_DURATIONS == {"segments": 4, "scenes": 8, "shots": 0, "video_units": 0}
+
+    @pytest.mark.parametrize("kind", ["segments", "scenes", "shots", "video_units"])
+    def test_valid_positive_int_passes_through(self, kind: str):
+        assert item_duration(kind, {"duration_seconds": 7}) == 7
+
+    @pytest.mark.parametrize("kind", ["segments", "scenes", "shots", "video_units"])
+    @pytest.mark.parametrize(
+        "dirty",
+        [
+            {},  # 缺失
+            {"duration_seconds": None},  # None
+            {"duration_seconds": True},  # bool（int 子类，须排除）
+            {"duration_seconds": False},
+            {"duration_seconds": 0},  # 非正数
+            {"duration_seconds": -5},  # 负数
+            {"duration_seconds": "6"},  # 数字字符串
+            {"duration_seconds": "six"},  # 非数字字符串
+            {"duration_seconds": 4.5},  # 浮点
+        ],
+    )
+    def test_dirty_values_fall_back_by_kind(self, kind: str, dirty: dict):
+        # 缺失与所有脏值一律回退到骨架兜底时长（shots/video_units 兜底为 0）。
+        assert item_duration(kind, dirty) == _ITEM_FALLBACK_DURATIONS[kind]
+
+    @pytest.mark.parametrize("kind", ["segments", "scenes", "shots", "video_units"])
+    def test_non_dict_item_counts_zero(self, kind: str):
+        # 非 dict 条目无时长语义，恒按 0 计，不挪用骨架兜底。
+        for junk in ("junk", 5, None, ["x"]):
+            assert item_duration(kind, junk) == 0
+
+    def test_script_total_sums_mixed_dirty_items(self):
+        # 混合脏条目求和不抛：5(有效) + 0(非 dict) + 4(缺失) + 4(None) + 4(负数) = 17。
+        items = [
+            {"duration_seconds": 5},
+            "junk_not_a_dict",
+            {},
+            {"duration_seconds": None},
+            {"duration_seconds": -5},
+        ]
+        assert script_duration_total("segments", items) == 17
+
+    def test_script_total_video_units_missing_is_zero(self):
+        # 口径拍板：video_units 缺时长统一按 0 计（不再沿历史 8 秒 else 兜底）。
+        assert script_duration_total("video_units", [{}, {"duration_seconds": None}]) == 0
+        assert script_duration_total("video_units", [{"duration_seconds": 6}, {}]) == 6
+
+    @pytest.mark.parametrize("kind", ["segments", "scenes", "shots", "video_units"])
+    def test_script_total_non_list_is_zero(self, kind: str):
+        # items 为 null / 真值标量（降级保存脏值）按空处理返回 0、不抛。
+        for junk in (None, "segments", 5, {"a": 1}):
+            assert script_duration_total(kind, junk) == 0
+
+
+class TestEnumDriftNormalization:
+    """非约束解码通道（代理网关等）下的枚举风格漂移归一。
+
+    schema 的 enum 只有在供应商执行约束解码时才是硬约束；代理网关/兼容通道放任模型
+    自由发挥时，枚举值会漂移成大写/小写蛇形（MEDIUM_SHOT / medium_shot）甚至
+    词表外近义词（wide_shot / dolly_in / orbit）。校验层做机械归一 + 别名映射 +
+    未知值降级默认，避免可挽救的风格漂移让整集剧本生成失败。
+    """
+
+    @staticmethod
+    def _composition(shot_type: str) -> dict:
+        return {"shot_type": shot_type, "lighting": "夕阳侧光", "ambiance": "广场人群环绕"}
+
+    @staticmethod
+    def _video_prompt(camera_motion: str, **extra: object) -> dict:
+        return {"action": "旋转舞动", "camera_motion": camera_motion, "ambiance_audio": "广场音乐", **extra}
+
+    @pytest.mark.parametrize(
+        ("drifted", "expected"),
+        [
+            ("MEDIUM_SHOT", "Medium Shot"),
+            ("medium_shot", "Medium Shot"),
+            ("CLOSE_UP", "Close-up"),
+            ("MEDIUM_CLOSE_UP", "Medium Close-up"),
+            ("medium_long_shot", "Medium Long Shot"),
+            ("extreme  close-up", "Extreme Close-up"),
+        ],
+    )
+    def test_shot_type_normalizes_case_and_separators(self, drifted: str, expected: str):
+        comp = Composition.model_validate(self._composition(drifted))
+        assert comp.shot_type == expected
+
+    @pytest.mark.parametrize(
+        ("drifted", "expected"),
+        [
+            ("ZOOM_OUT", "Zoom Out"),
+            ("static", "Static"),
+            ("TILT_UP", "Tilt Up"),
+            ("pan_right", "Pan Right"),
+            ("tracking shot", "Tracking Shot"),
+            ("PUSH_IN", "Push In"),
+            ("truck-left", "Truck Left"),
+            ("pedestal_down", "Pedestal Down"),
+            ("orbit", "Orbit"),
+        ],
+    )
+    def test_camera_motion_normalizes_case_and_separators(self, drifted: str, expected: str):
+        vp = VideoPrompt.model_validate(self._video_prompt(drifted))
+        assert vp.camera_motion == expected
+
+    @pytest.mark.parametrize("drifted", ["WIDE_SHOT", "第一视角特写"])
+    def test_out_of_vocab_shot_type_falls_back_to_default_with_warning(self, caplog, drifted: str):
+        """词表外值不做语义近义映射（穷举不全），一律降级默认并 warn 保留原值。"""
+        with caplog.at_level("WARNING", logger="lib.script_models"):
+            comp = Composition.model_validate(self._composition(drifted))
+        assert comp.shot_type == "Medium Shot"
+        assert drifted in caplog.text
+
+    @pytest.mark.parametrize("drifted", ["dolly_in", "crane_up_spiral"])
+    def test_out_of_vocab_camera_motion_falls_back_to_default_with_warning(self, caplog, drifted: str):
+        with caplog.at_level("WARNING", logger="lib.script_models"):
+            vp = VideoPrompt.model_validate(self._video_prompt(drifted))
+        assert vp.camera_motion == "Static"
+        assert drifted in caplog.text
+
+    def test_canonical_values_pass_through_unchanged(self):
+        comp = Composition.model_validate(self._composition("Over-the-shoulder"))
+        assert comp.shot_type == "Over-the-shoulder"
+        vp = VideoPrompt.model_validate(self._video_prompt("Pan Left"))
+        assert vp.camera_motion == "Pan Left"
+
+    def test_non_string_enum_still_rejected(self):
+        with pytest.raises(ValidationError):
+            Composition.model_validate(self._composition(123))  # type: ignore[arg-type]
+        with pytest.raises(ValidationError):
+            VideoPrompt.model_validate(self._video_prompt(None))  # type: ignore[arg-type]
+
+    def test_dialogue_null_coerces_to_empty_list(self):
+        vp = VideoPrompt.model_validate(self._video_prompt("Static", dialogue=None))
+        assert vp.dialogue == []
+
+    def test_llm_schema_still_declares_enum(self):
+        """BeforeValidator 不得改变 LLM 侧 schema：enum 仍是约束解码通道的硬约束。"""
+        comp_schema = Composition.model_json_schema()
+        assert comp_schema["properties"]["shot_type"]["enum"] == [
+            "Extreme Close-up",
+            "Close-up",
+            "Medium Close-up",
+            "Medium Shot",
+            "Medium Long Shot",
+            "Long Shot",
+            "Extreme Long Shot",
+            "Over-the-shoulder",
+            "Point-of-view",
+        ]
+        vp_schema = VideoPrompt.model_json_schema()
+        assert vp_schema["properties"]["camera_motion"]["enum"] == [
+            "Static",
+            "Pan Left",
+            "Pan Right",
+            "Tilt Up",
+            "Tilt Down",
+            "Zoom In",
+            "Zoom Out",
+            "Push In",
+            "Pull Out",
+            "Truck Left",
+            "Truck Right",
+            "Pedestal Up",
+            "Pedestal Down",
+            "Orbit",
+            "Tracking Shot",
+            "Shake",
+        ]
 
 
 class TestLLMSchemaExclusion:

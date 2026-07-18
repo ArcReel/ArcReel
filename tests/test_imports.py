@@ -43,7 +43,6 @@ MODULES = [
     "lib.system_config",
     "lib.text_generator",
     "lib.thumbnail",
-    "lib.usage_tracker",
     "lib.version_manager",
     # lib 子包
     "lib.config",

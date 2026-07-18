@@ -60,8 +60,8 @@ from claude_agent_sdk.types import (
 
 from lib.config.service import ConfigService
 from lib.db import async_session_factory
+from lib.ledger import Ledger
 from lib.providers import PROVIDER_ANTHROPIC
-from lib.usage_tracker import UsageTracker
 
 SDK_AVAILABLE = True
 
@@ -272,7 +272,6 @@ class SessionManager:
     def __init__(
         self,
         project_root: Path,
-        data_dir: Path,
         meta_store: SessionMetaStore,
         projects_root: Path | None = None,
         in_docker: bool = False,
@@ -281,7 +280,6 @@ class SessionManager:
     ):
         self.event_log_store = event_log_store or EventLogStore()
         self.project_root = Path(project_root)
-        self.data_dir = Path(data_dir)
         # Tests construct SessionManager directly without going through
         # AssistantService, so we fall back to the legacy ``project_root/projects``
         # convention. Production passes the configured app_data_dir() explicitly.
@@ -320,7 +318,7 @@ class SessionManager:
             in_docker=in_docker,
         )
         self._load_config()
-        self.usage_tracker = UsageTracker(session_factory=getattr(meta_store, "_session_factory", None))
+        self.ledger = Ledger(session_factory=getattr(meta_store, "_session_factory", None))
         # Options 装配器：持依赖、允许 I/O，异步 build 产出 SDK options。access_policy /
         # max_turns / session_factory / user_id 一律用 provider 回调现取——前两者
         # configure_sandbox_runtime / refresh_config 换新后对后续会话立即生效；后两者
@@ -328,7 +326,6 @@ class SessionManager:
         # 同源，避免 store 与用量落到不同 per-user 命名空间。_resolve_project_cwd
         # （项目名校验/作用域）留在会话管理侧，作为依赖注入。
         self._options_assembler = OptionsAssembler(
-            data_dir=self.data_dir,
             projects_root=self.projects_root,
             allowed_tools=self.DEFAULT_ALLOWED_TOOLS,
             setting_sources=self.DEFAULT_SETTING_SOURCES,
@@ -1019,16 +1016,14 @@ class SessionManager:
         if input_tokens is None and output_tokens is None and total_cost_usd is None:
             return
 
-        call_id = await self.usage_tracker.start_call(
+        # 事后补录：一次调用写入终态行（省掉调用方管理的 pending 中间态）。
+        await self.ledger.backfill(
             project_name=managed.project_name,
             call_type="text",
             model=resolve_assistant_model(result_msg, managed.assistant_model),
             prompt=managed.last_user_prompt[:500] if managed.last_user_prompt else None,
             provider=PROVIDER_ANTHROPIC,
             user_id=getattr(self, "_user_id", DEFAULT_USER_ID),
-        )
-        await self.usage_tracker.finish_call(
-            call_id,
             status="success" if final_status == "completed" else "failed",
             input_tokens=input_tokens,
             output_tokens=output_tokens,

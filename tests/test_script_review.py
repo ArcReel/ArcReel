@@ -56,6 +56,28 @@ def _narration_step1() -> dict:
     }
 
 
+def _rv_step1() -> dict:
+    """reference_video step1 结构化中间态（``step1_reference_units.json`` 形状）。
+
+    references 由 shot 文本 ``@[名称]`` 机械派生（此处预填与文本一致的期望值）。
+    """
+    return {
+        "units": [
+            {
+                "unit_id": "E1U01",
+                "shots": [
+                    {"duration": 4, "text": "@[阿离] 立于屋檐下，望向雨幕。"},
+                    {"duration": 6, "text": "@[裴与] 策马自远方而来。"},
+                ],
+                "references": [
+                    {"type": "character", "name": "阿离"},
+                    {"type": "character", "name": "裴与"},
+                ],
+            }
+        ],
+    }
+
+
 def _make_project(tmp_path: Path, content_mode: str, *, generation_mode: str | None = None) -> ProjectManager:
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
@@ -81,12 +103,37 @@ def _write_step1(pm: ProjectManager, content_mode: str, content: dict) -> Path:
     return path
 
 
+def _write_rv_step1(pm: ProjectManager, content: dict) -> Path:
+    """写出 reference_video 的结构化 step1（``step1_reference_units.json``）。"""
+    drafts = pm.get_project_path("demo") / "drafts" / "episode_1"
+    drafts.mkdir(parents=True, exist_ok=True)
+    path = drafts / "step1_reference_units.json"
+    atomic_write_json(path, content)
+    return path
+
+
 def _write_step2(pm: ProjectManager) -> Path:
     """写出 step2 产物（生成的剧本 JSON），模拟「已产 step2」。"""
     scripts = pm.get_project_path("demo") / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
     path = scripts / "episode_1.json"
     atomic_write_json(path, {"title": "第一集", "scenes": []})
+    return path
+
+
+def _make_manual_split_project(tmp_path: Path, content_mode: str) -> ProjectManager:
+    """手动预拆分场景：绕过分集规划器，``episodes[]`` 账本为空，仅有派生 source/episode_N.txt。"""
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
+    return pm
+
+
+def _write_source_text(pm: ProjectManager, filename: str, text: str) -> Path:
+    source_dir = pm.get_project_path("demo") / "source"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    path = source_dir / filename
+    path.write_text(text, encoding="utf-8")
     return path
 
 
@@ -178,23 +225,133 @@ class TestNarrationGateFlow:
 
 
 # ---------------------------------------------------------------------------
-# 适用范围：ad / reference_video 不纳入 gate
+# 状态流转（reference_video，跨 content_mode 共用同一 gate）
+# ---------------------------------------------------------------------------
+
+
+class TestReferenceVideoGateFlow:
+    def test_no_step1_then_pending_then_confirmed(self, tmp_path):
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        project_path = pm.get_project_path("demo")
+
+        # step1 未产出
+        assert svc.get_state("demo", 1)["status"] == "no_step1"
+
+        # step1 产出 → 可审中间态、阻塞 step2
+        _write_rv_step1(pm, _rv_step1())
+        state = svc.get_state("demo", 1)
+        assert state["status"] == "pending_review"
+        assert state["content"]["units"][0]["unit_id"] == "E1U01"
+        assert state["content"]["units"][0]["shots"][0]["text"].startswith("@[阿离]")
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+
+        # 确认 → 放行
+        confirmed = svc.confirm("demo", 1)
+        assert confirmed["status"] == "confirmed"
+        assert confirmed["confirmed_at"]
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+
+    def test_editing_shot_text_repends_and_rederives_references(self, tmp_path):
+        """编辑 shot 文本 → 重新待审；references 随正文 @ 引用机械重派生（不采用入参陈旧值）。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        pm.add_scenes_batch("demo", {"屋檐": {"description": "雨夜屋檐"}})
+        svc = ScriptReviewService(pm)
+        _write_rv_step1(pm, _rv_step1())
+        svc.confirm("demo", 1)
+        assert svc.get_state("demo", 1)["status"] == "confirmed"
+
+        # 正文引用从 @[裴与] 改为 @[屋檐]，同时故意保留陈旧 references（应被重派生覆盖）。
+        edited = _rv_step1()
+        edited["units"][0]["shots"][1]["text"] = "镜头扫过 @[屋檐]。"
+        svc.save_content("demo", 1, edited)
+
+        state = svc.get_state("demo", 1)
+        assert state["status"] == "pending_review"
+        refs = state["content"]["units"][0]["references"]
+        assert [(r["type"], r["name"]) for r in refs] == [("character", "阿离"), ("scene", "屋檐")]
+
+    def test_confirm_rejects_shot_duration_out_of_range(self, tmp_path):
+        """损坏的 step1（shot 时长越界）→ 确认被结构校验拒绝，不放行 step2。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        bad = _rv_step1()
+        bad["units"][0]["shots"][0]["duration"] = 99  # 超出 Shot.duration [1, 15]
+        _write_rv_step1(pm, bad)
+        with pytest.raises(ScriptReviewError) as exc:
+            svc.confirm("demo", 1)
+        assert exc.value.code == "invalid_content"
+
+    def test_confirm_rederives_references_when_step1_edited_outside_save_content(self, tmp_path):
+        """confirm 前直改 step1 文件（绕过 save_content，如 agent Write/Edit 直改 drafts/）→
+        确认时按当前正文重派生 references 并落盘，不放行陈旧引用（回归 Codex P2）。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        pm.add_scenes_batch("demo", {"屋檐": {"description": "雨夜屋檐"}})
+        svc = ScriptReviewService(pm)
+
+        # 直改正文引用为 @[屋檐]，但故意保留旧 references（模拟绕过 save_content 的直写）。
+        stale = _rv_step1()
+        stale["units"][0]["shots"][1]["text"] = "镜头扫过 @[屋檐]。"
+        path = _write_rv_step1(pm, stale)
+
+        confirmed = svc.confirm("demo", 1)
+        assert confirmed["status"] == "confirmed"
+        refs = confirmed["content"]["units"][0]["references"]
+        assert [(r["type"], r["name"]) for r in refs] == [("character", "阿离"), ("scene", "屋檐")]
+
+        # 落盘内容也已更新（confirm 记录的指纹对应重派生后的内容，非编辑前的陈旧版本）。
+        on_disk = json.loads(path.read_text(encoding="utf-8"))
+        assert [(r["type"], r["name"]) for r in on_disk["units"][0]["references"]] == [
+            ("character", "阿离"),
+            ("scene", "屋檐"),
+        ]
+
+
+class TestReferenceVideoStep2Enforcement:
+    async def test_generate_blocked_then_confirm_tool_unblocks(self, tmp_path):
+        """agent 路径：rv 的 step1 未确认时 step2 阻塞，confirm_script_review 工具确认后放行。"""
+        from server.agent_runtime.sdk_tools._context import ToolContext
+        from server.agent_runtime.sdk_tools.text_generation import (
+            confirm_script_review_tool,
+            generate_episode_script_tool,
+        )
+
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        _write_rv_step1(pm, _rv_step1())
+        project_path = pm.get_project_path("demo")
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+
+        ctx = ToolContext(project_name="demo", projects_root=tmp_path / "projects", pm=pm)
+        blocked = await generate_episode_script_tool(ctx).handler({"episode": 1})
+        assert blocked.get("is_error") is True
+        assert "阻塞" in blocked["content"][0]["text"]
+
+        result = await confirm_script_review_tool(ctx).handler({"episode": 1})
+        assert result.get("is_error") is not True
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+
+
+# ---------------------------------------------------------------------------
+# 适用范围：drama / narration / reference_video 纳入 gate；ad 不纳入
 # ---------------------------------------------------------------------------
 
 
 class TestApplicability:
-    def test_reference_video_not_applicable(self, tmp_path):
+    def test_reference_video_applicable(self, tmp_path):
+        """reference_video（跨 content_mode）纳入 gate，step1 变体判为 reference_video。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
-        svc = ScriptReviewService(pm)
-        assert svc.get_state("demo", 1)["status"] == "not_applicable"
-        project_path = pm.get_project_path("demo")
-        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+        project = pm.load_project("demo")
+        assert script_review.step1_kind(project, 1) == "reference_video"
+        assert script_review.is_applicable(project, 1) is True
+        # 未产 step1 → no_step1（区别于 ad 的 not_applicable）。
+        assert ScriptReviewService(pm).get_state("demo", 1)["status"] == "no_step1"
 
     def test_ad_not_applicable(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("addemo")
         pm.create_project_metadata("addemo", "Ad", "Anime", "ad")
         svc = ScriptReviewService(pm)
+        assert script_review.step1_kind(svc.pm.load_project("addemo"), 1) is None
         assert svc.get_state("addemo", 1)["status"] == "not_applicable"
 
 
@@ -224,7 +381,7 @@ class TestErrors:
         assert exc.value.code == "no_step1"
 
     def test_save_not_applicable_rejected(self, tmp_path):
-        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        pm = _make_project(tmp_path, "ad")  # ad 无结构化 step1，gate 不适用
         svc = ScriptReviewService(pm)
         with pytest.raises(ScriptReviewError) as exc:
             svc.save_content("demo", 1, _drama_step1())
@@ -339,3 +496,111 @@ class TestLegacyEnumeration:
         edited["scenes"][0]["source_text"] = "改写后的原文锚"
         ScriptReviewService(pm).save_content("demo", 1, edited)
         assert ScriptReviewService(pm).get_state("demo", 1)["status"] == "pending_review"
+
+
+# ---------------------------------------------------------------------------
+# 手动预拆分自愈：episodes[] 账本为空但 source/episode_N.txt 派生文件已存在时，
+# _require_episode 自愈补建条目而非直接判死锁。
+# ---------------------------------------------------------------------------
+
+
+class TestManualSplitSelfHeal:
+    def test_get_state_self_heals_unanchored_orphan(self, tmp_path):
+        """无可匹配原文 → 自愈为 unanchored 条目（source_range 为 null），get_state 不再 episode_not_found。"""
+        pm = _make_manual_split_project(tmp_path, "narration")
+        _write_source_text(pm, "episode_1.txt", "裴与出征后的第二年。")
+        _write_step1(pm, "narration", _narration_step1())
+
+        state = ScriptReviewService(pm).get_state("demo", 1)
+        assert state["status"] == "pending_review"
+
+        ep = script_review.find_episode(pm.load_project("demo"), 1)
+        assert ep is not None
+        assert ep["ledger_status"] == "unanchored"
+        assert ep["source_range"] is None
+
+    def test_confirm_self_heals_and_unblocks_step2(self, tmp_path):
+        """confirm（web 与 agent 工具共用同一 service）在空账本下不再 episode_not_found，且放行 step2。"""
+        pm = _make_manual_split_project(tmp_path, "drama")
+        _write_source_text(pm, "episode_1.txt", "任意派生内容")
+        _write_step1(pm, "drama", _drama_step1())
+
+        confirmed = ScriptReviewService(pm).confirm("demo", 1)
+        assert confirmed["status"] == "confirmed"
+
+        project_path = pm.get_project_path("demo")
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
+
+    def test_self_heal_anchors_when_source_text_matches(self, tmp_path):
+        """派生文件内容能在原文中精确子串匹配 → 回填 source_range（而非 unanchored）。"""
+        pm = _make_manual_split_project(tmp_path, "narration")
+        original = "裴与出征后的第二年，送回一个襁褓中的婴儿。后续内容在此。"
+        _write_source_text(pm, "novel.txt", original)
+        _write_source_text(pm, "episode_1.txt", "裴与出征后的第二年，送回一个襁褓中的婴儿。")
+
+        ScriptReviewService(pm).get_state("demo", 1)
+
+        ep = script_review.find_episode(pm.load_project("demo"), 1)
+        assert ep is not None
+        assert ep["ledger_status"] in ("planned", "consumed")
+        assert ep["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": 21}
+
+    def test_self_heal_backfills_all_orphans_not_just_requested(self, tmp_path):
+        """自愈一次回填账本中所有孤儿集号的派生文件，不只是当前请求的那一集。"""
+        pm = _make_manual_split_project(tmp_path, "narration")
+        _write_source_text(pm, "episode_1.txt", "第一集内容")
+        _write_source_text(pm, "episode_2.txt", "第二集内容")
+
+        ScriptReviewService(pm).get_state("demo", 1)
+
+        project = pm.load_project("demo")
+        assert script_review.find_episode(project, 1) is not None
+        assert script_review.find_episode(project, 2) is not None
+
+    def test_self_heal_preserves_existing_ledger_status_entries(self, tmp_path):
+        """已带 ledger_status 的条目（规划工具写入）不因其他集号的自愈触发被改写。"""
+        pm = _make_manual_split_project(tmp_path, "narration")
+        pm.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
+
+        def _mark_planned(p: dict) -> None:
+            ep = next(e for e in p["episodes"] if e["episode"] == 1)
+            ep["ledger_status"] = "planned"
+            ep["source_range"] = {"source_file": "source/novel.txt", "start": 0, "end": 5}
+
+        pm.update_project("demo", _mark_planned)
+        _write_source_text(pm, "episode_2.txt", "第二集派生内容")
+
+        # 触发对孤儿集（episode 2）的自愈请求，不涉及 episode 1。
+        ScriptReviewService(pm).get_state("demo", 2)
+
+        project = pm.load_project("demo")
+        ep1 = script_review.find_episode(project, 1)
+        assert ep1 is not None
+        assert ep1["ledger_status"] == "planned"
+        assert ep1["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": 5}
+        assert script_review.find_episode(project, 2) is not None
+
+    def test_self_heal_does_not_apply_when_derivative_file_missing(self, tmp_path):
+        """账本为空且该集派生文件也不存在（真正缺失的集号）→ 仍抛 episode_not_found，不自愈。"""
+        pm = _make_manual_split_project(tmp_path, "narration")
+        with pytest.raises(ScriptReviewError) as exc:
+            ScriptReviewService(pm).get_state("demo", 1)
+        assert exc.value.code == "episode_not_found"
+        assert pm.load_project("demo")["episodes"] == []
+
+    def test_self_heal_idempotent_no_duplicate_entries(self, tmp_path):
+        """重复触发自愈（同集反复读状态）不产生重复集号条目，也不重复改写已回填条目。"""
+        pm = _make_manual_split_project(tmp_path, "narration")
+        _write_source_text(pm, "episode_1.txt", "第一集派生内容")
+
+        svc = ScriptReviewService(pm)
+        svc.get_state("demo", 1)
+        first = script_review.find_episode(pm.load_project("demo"), 1)
+
+        svc.get_state("demo", 1)
+        svc.get_state("demo", 1)
+
+        project = pm.load_project("demo")
+        matches = [e for e in project["episodes"] if e.get("episode") == 1]
+        assert len(matches) == 1
+        assert matches[0] == first

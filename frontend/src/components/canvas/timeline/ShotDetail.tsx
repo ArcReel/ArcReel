@@ -841,6 +841,7 @@ export function ShotDetail({
         onUpload={scriptFile ? (file) => handleUpload("storyboard", file) : undefined}
         uploading={uploadingKind === "storyboard"}
         uploadDisabled={uploadingKind !== null}
+        editScriptFile={scriptFile}
         generateDisabled={dirty || saving}
         generateDisabledHint={dirty ? dirtyHint : undefined}
       />

@@ -29,14 +29,13 @@ from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
-from lib.app_data_dir import app_data_dir
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.i18n import Translator
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
-from lib.project_manager import EpisodeScriptReboundError, ProjectManager, SourceKind
+from lib.project_manager import EpisodeScriptReboundError, SourceKind, get_project_manager
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from server.auth import CurrentUser, create_download_token, verify_download_token
@@ -50,10 +49,6 @@ from server.services.project_cover import resolve_project_cover
 
 router = APIRouter()
 
-# 初始化项目管理器和状态计算器
-pm = ProjectManager(app_data_dir())
-calc = StatusCalculator(pm)
-
 # episode 字段白名单：只允许持久化合法的 on-disk 字段。
 # StatusCalculator 注入的统计字段（scenes_count / status / storyboards / videos 等）
 # 是读时计算值，禁止写回 project.json。title 不在白名单：它以剧本顶层 title 为唯一真相源，
@@ -61,12 +56,8 @@ calc = StatusCalculator(pm)
 EPISODE_PERSIST_FIELDS = {"script_file", "generation_mode"}
 
 
-def get_project_manager() -> ProjectManager:
-    return pm
-
-
 def get_status_calculator() -> StatusCalculator:
-    return calc
+    return StatusCalculator(get_project_manager())
 
 
 def get_archive_service() -> ProjectArchiveService:
@@ -94,9 +85,10 @@ class CreateProjectRequest(BaseModel):
     image_backend: str | None = None
     image_provider_t2i: str | None = None
     image_provider_i2i: str | None = None
-    text_backend_script: str | None = None
-    text_backend_overview: str | None = None
-    text_backend_style: str | None = None
+    # 文本任务档位（docs/adr/0051）项目级覆盖 + 项目默认模型；空值 = 继承全局
+    text_backend_simple: str | None = None
+    text_backend_complex: str | None = None
+    default_text_backend: str | None = None
     model_settings: dict[str, dict[str, str | None]] | None = None
 
 
@@ -135,9 +127,10 @@ class UpdateProjectRequest(BaseModel):
     audio_backend: str | None = None
     narration_voice: str | None = None
     narration_speed: float | None = None
-    text_backend_script: str | None = None
-    text_backend_overview: str | None = None
-    text_backend_style: str | None = None
+    # 文本任务档位（docs/adr/0051）项目级覆盖 + 项目默认模型；空值 = 清除、继承全局
+    text_backend_simple: str | None = None
+    text_backend_complex: str | None = None
+    default_text_backend: str | None = None
     style_template_id: str | None = None
     clear_style_image: bool | None = None
     episodes: list[EpisodePatch] | None = None
@@ -501,9 +494,9 @@ async def create_project(
                 "video_backend",
                 "image_provider_t2i",
                 "image_provider_i2i",
-                "text_backend_script",
-                "text_backend_overview",
-                "text_backend_style",
+                "text_backend_simple",
+                "text_backend_complex",
+                "default_text_backend",
             ):
                 value = getattr(req, field_name)
                 if value:
@@ -519,9 +512,9 @@ async def create_project(
                     "video_backend",
                     "image_provider_t2i",
                     "image_provider_i2i",
-                    "text_backend_script",
-                    "text_backend_overview",
-                    "text_backend_style",
+                    "text_backend_simple",
+                    "text_backend_complex",
+                    "default_text_backend",
                 )
                 if (value := getattr(req, field))
             }
@@ -672,9 +665,9 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     "image_provider_t2i",
                     "image_provider_i2i",
                     "audio_backend",
-                    "text_backend_script",
-                    "text_backend_overview",
-                    "text_backend_style",
+                    "text_backend_simple",
+                    "text_backend_complex",
+                    "default_text_backend",
                 ):
                     if field in req.model_fields_set:
                         value = getattr(req, field)

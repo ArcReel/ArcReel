@@ -23,6 +23,7 @@ function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
     task_type: "storyboard",
     media_type: "image",
     resource_id: "segment-1",
+    resource_type: null,
     script_file: null,
     payload: {},
     status: "queued",
@@ -138,21 +139,20 @@ describe("stores", () => {
     expect(app.getEntityRevision("clue:missing")).toBe(1);
   });
 
-  it("upserts tasks by task_id and updates task stats", () => {
+  it("replaces tasks via setTasks and updates task stats", () => {
     const tasks = useTasksStore.getState();
     const first = makeTask();
-    const updated = makeTask({ status: "running", updated_at: "2026-02-01T00:01:00Z" });
-    const second = makeTask({ task_id: "task-2" });
+    const second = makeTask({
+      task_id: "task-2",
+      status: "running",
+      updated_at: "2026-02-01T00:01:00Z",
+    });
 
-    tasks.upsertTask(first);
+    tasks.setTasks([first]);
     expect(useTasksStore.getState().tasks).toHaveLength(1);
     expect(useTasksStore.getState().tasks[0].status).toBe("queued");
 
-    tasks.upsertTask(updated);
-    expect(useTasksStore.getState().tasks).toHaveLength(1);
-    expect(useTasksStore.getState().tasks[0].status).toBe("running");
-
-    tasks.upsertTask(second);
+    tasks.setTasks([second, first]);
     expect(useTasksStore.getState().tasks).toHaveLength(2);
     expect(useTasksStore.getState().tasks[0].task_id).toBe("task-2");
 

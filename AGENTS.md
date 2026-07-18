@@ -63,6 +63,7 @@ pnpm build       # 生产构建，含 typecheck
 ### server/services/ — 业务服务层
 
 - `generation_tasks.py` — 分镜/视频/角色/场景/道具生成任务编排
+- `image_edit_tasks.py` — 图片指令式编辑任务执行（当前图为唯一参考图的 i2i 微调，见 `docs/adr/0050`）
 - `reference_video_tasks.py` — 参考视频→视频生成任务编排
 - `project_archive.py` — 项目导出（ZIP 打包）
 - `project_cover.py` — 项目封面生成
@@ -129,6 +130,7 @@ ConfigService（`service.py`）→ Repository（持久化 + 密钥脱敏）→ R
 - 路径别名：`@/` → `frontend/src/`
 - Vite 代理：`/api` → `http://127.0.0.1:1241`
 - i18n：`i18next` + `react-i18next`，翻译文件在 `frontend/src/i18n/{zh,en,vi}/`，命名空间 `common`/`dashboard`/`auth`/`errors`/`assets`/`templates`
+- **占用感知型控件接线** — 编辑/重生成/上传/入库/版本恢复等随资源占用态禁用的控件，新增或改动时通过三项检查：弹窗/面板打开时校验当前占用态；提交时刻复核最新占用态（打开后状态可能已变化，仅查打开时刻会留竞态窗口）；同一资源卡片上的兄弟控件同步接线禁用
 
 ## 关键设计模式
 

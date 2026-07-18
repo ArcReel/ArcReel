@@ -39,7 +39,7 @@ async def test_creates_gemini_aistudio_backend():
         mock_backend = MagicMock()
         mock_create.return_value = mock_backend
 
-        result = await create_text_backend_for_task(TextTaskType.SCRIPT)
+        backend, provider_id = await create_text_backend_for_task(TextTaskType.SCRIPT)
 
         # aistudio：base_url 无条件透传用户值（含空串），由 backend 内部处理
         mock_create.assert_called_once_with(
@@ -48,7 +48,9 @@ async def test_creates_gemini_aistudio_backend():
             api_key="test-key",
             base_url="",
         )
-        assert result is mock_backend
+        assert backend is mock_backend
+        # 工厂随 backend 返回解析层 provider_id（记账单一真相源）
+        assert provider_id == "gemini-aistudio"
 
 
 async def test_creates_ark_backend():
@@ -64,7 +66,7 @@ async def test_creates_ark_backend():
         mock_backend = MagicMock()
         mock_create.return_value = mock_backend
 
-        result = await create_text_backend_for_task(TextTaskType.OVERVIEW, "my-project")
+        backend, provider_id = await create_text_backend_for_task(TextTaskType.OVERVIEW, "my-project")
 
         # ark：用户未配 base_url → 回落 registry default
         mock_create.assert_called_once_with(
@@ -73,7 +75,8 @@ async def test_creates_ark_backend():
             api_key="ark-key",
             base_url="https://ark.cn-beijing.volces.com/api/v3",
         )
-        assert result is mock_backend
+        assert backend is mock_backend
+        assert provider_id == "ark"
 
 
 async def test_creates_ark_agent_plan_backend_uses_plan_endpoint():
@@ -91,7 +94,7 @@ async def test_creates_ark_agent_plan_backend_uses_plan_endpoint():
         mock_backend = MagicMock()
         mock_create.return_value = mock_backend
 
-        await create_text_backend_for_task(TextTaskType.OVERVIEW, "my-project")
+        backend, provider_id = await create_text_backend_for_task(TextTaskType.OVERVIEW, "my-project")
 
         mock_create.assert_called_once_with(
             "ark-agent-plan",
@@ -99,6 +102,9 @@ async def test_creates_ark_agent_plan_backend_uses_plan_endpoint():
             api_key="ark-plan-key",
             base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
         )
+        assert backend is mock_backend
+        # ark-agent-plan 复用 ArkTextBackend（name 报 "ark"），记账须取解析层 id "ark-agent-plan"
+        assert provider_id == "ark-agent-plan"
 
 
 async def test_user_base_url_overrides_default_for_ark_agent_plan():
@@ -128,7 +134,7 @@ async def test_creates_vertex_backend():
         mock_backend = MagicMock()
         mock_create.return_value = mock_backend
 
-        result = await create_text_backend_for_task(TextTaskType.STYLE_ANALYSIS)
+        backend, provider_id = await create_text_backend_for_task(TextTaskType.STYLE_ANALYSIS)
 
         mock_create.assert_called_once_with(
             "gemini",
@@ -136,7 +142,8 @@ async def test_creates_vertex_backend():
             backend="vertex",
             gcs_bucket="my-bucket",
         )
-        assert result is mock_backend
+        assert backend is mock_backend
+        assert provider_id == "gemini-vertex"
 
 
 async def test_creates_grok_backend_omits_base_url_when_unset():

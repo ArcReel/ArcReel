@@ -47,6 +47,7 @@ export default {
   "add_to_library": "Thêm vào thư viện",
   "add_to_library_short": "Thư viện",
   "add_to_library_success": "Đã thêm \"{{name}}\" vào thư viện",
+  "add_to_library_busy_hint": "Đang tạo hoặc chỉnh sửa, chưa thể thêm vào thư viện",
   "upload_sheet_short": "Tải lên",
   "edit": "Chỉnh sửa",
   "delete": "Xóa",

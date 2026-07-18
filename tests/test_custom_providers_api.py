@@ -778,7 +778,7 @@ class TestDeleteProviderCleansProjectRefs:
         # 模拟 ProjectManager
         mock_pm = MagicMock()
         mock_pm.list_projects.return_value = ["project-a"]
-        project_data = {"text_backend_script": f"{prefix}gpt-4o", "title": "Test"}
+        project_data = {"text_backend_complex": f"{prefix}gpt-4o", "title": "Test"}
         mock_pm.load_project.return_value = project_data
 
         with (
@@ -795,14 +795,16 @@ class TestDeleteProviderCleansProjectRefs:
         # 执行 mutate_fn 验证清理逻辑：覆盖项目级媒体覆盖键（与全局设置键名不同）
         mutate_fn = call_args[0][1]
         test_proj = {
-            "text_backend_script": f"{prefix}gpt-4o",
+            "text_backend_complex": f"{prefix}gpt-4o",
+            "default_text_backend": f"{prefix}gpt-4o-mini",
             "video_backend": f"{prefix}sora-2",
             "audio_backend": f"{prefix}tts-1",
             "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image-preview",  # 非本 provider，保留
             "title": "Test",
         }
         mutate_fn(test_proj)
-        assert "text_backend_script" not in test_proj
+        assert "text_backend_complex" not in test_proj
+        assert "default_text_backend" not in test_proj
         assert "video_backend" not in test_proj
         assert "audio_backend" not in test_proj
         assert test_proj["image_provider_t2i"].startswith("gemini-aistudio/")  # 其他供应商引用保留

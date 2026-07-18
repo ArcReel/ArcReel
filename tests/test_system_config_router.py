@@ -153,9 +153,8 @@ class TestGetSystemConfig:
             "claude_code_subagent_model",
             "agent_session_cleanup_delay_seconds",
             "agent_max_concurrent_sessions",
-            "text_backend_script",
-            "text_backend_overview",
-            "text_backend_style",
+            "text_backend_simple",
+            "text_backend_complex",
             "default_audio_backend",
             "narration_voice",
             "narration_speed",
@@ -445,3 +444,60 @@ class TestPatchSystemConfig:
         body = res.json()
         assert "settings" in body
         assert "options" in body
+
+    def test_patch_sets_text_tier_backends(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={
+                    "text_backend_simple": "gemini-aistudio/gemini-3-flash-preview",
+                    "text_backend_complex": "gemini-aistudio/gemini-3.1-pro-preview",
+                },
+            )
+        assert res.status_code == 200
+        settings = res.json()["settings"]
+        assert settings["text_backend_simple"] == "gemini-aistudio/gemini-3-flash-preview"
+        assert settings["text_backend_complex"] == "gemini-aistudio/gemini-3.1-pro-preview"
+
+    def test_patch_clears_text_tier_backend_with_empty_string(self):
+        mock_svc = _make_mock_svc(settings={"text_backend_simple": "gemini-aistudio/gemini-3-flash-preview"})
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch("/api/v1/system/config", json={"text_backend_simple": ""})
+        assert res.status_code == 200
+        assert res.json()["settings"]["text_backend_simple"] == ""
+
+    def test_patch_rejects_invalid_text_tier_backend(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"text_backend_simple": "invalid-no-slash"},
+            )
+        assert res.status_code == 400
+
+    def test_patch_rejects_text_tier_backend_with_video_model(self):
+        """text_backend_simple 引用一个真实存在但是 video 类型的模型，应被 media_type 校验拒绝。"""
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"text_backend_simple": "gemini-aistudio/veo-3.1-generate-preview"},
+            )
+        assert res.status_code == 400
+
+    def test_patch_ignores_legacy_text_task_keys(self):
+        """旧任务级键已从请求模型移除，提交后既不落库也不出现在响应里。"""
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"text_backend_script": "gemini-aistudio/gemini-3-flash-preview"},
+            )
+        assert res.status_code == 200
+        written_keys = {call.args[0] for call in mock_svc.set_setting.call_args_list}
+        assert "text_backend_script" not in written_keys
+        settings = res.json()["settings"]
+        assert "text_backend_script" not in settings
+        assert "text_backend_overview" not in settings
+        assert "text_backend_style" not in settings

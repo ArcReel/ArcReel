@@ -24,6 +24,7 @@ async def test_t2i_call_with_i2i_only_backend_raises(tmp_path):
     g = MediaGenerator(
         project_path=tmp_path,
         image_backend=backend,
+        image_provider_id="fake",
     )
     with pytest.raises(ImageCapabilityError) as excinfo:
         await g.generate_image_async(
@@ -45,6 +46,7 @@ async def test_i2i_call_with_t2i_only_backend_raises(tmp_path):
     g = MediaGenerator(
         project_path=tmp_path,
         image_backend=backend,
+        image_provider_id="fake",
     )
     ref = tmp_path / "ref.png"
     ref.write_bytes(b"\x89PNG")

@@ -14,6 +14,7 @@ from lib.reference_video.shot_parser import (
     assemble_shots_text,
     compute_duration_from_shots,
     parse_prompt,
+    rederive_unit_references,
     render_prompt_for_backend,
     resolve_references,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "derive_ad_reference_units",
     "merge_ad_reference_units",
     "parse_prompt",
+    "rederive_unit_references",
     "render_ad_unit_prompt",
     "render_prompt_for_backend",
     "resolve_ad_unit_shots",

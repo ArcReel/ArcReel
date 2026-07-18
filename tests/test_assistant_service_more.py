@@ -1,4 +1,5 @@
 import asyncio
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +20,18 @@ class _FakePM:
         if project_name != self.valid_project:
             raise FileNotFoundError(project_name)
         return Path("/tmp") / project_name
+
+
+class _MultiProjectPM:
+    """接受多个合法项目名的 PM，用于跨项目会话隔离测试。"""
+
+    def __init__(self, valid_projects):
+        self.valid_projects = set(valid_projects)
+
+    def get_project_path(self, project_name):
+        if project_name not in self.valid_projects:
+            raise FileNotFoundError(project_name)
+        return Path(tempfile.gettempdir()) / project_name
 
 
 class _FakeMetaStore:
@@ -359,6 +372,119 @@ class TestAssistantServiceMore:
 
         await engine.dispose()
 
+    @staticmethod
+    def _make_project_scoped_service(tmp_path, store, sm, meta_store):
+        """装配一个跨项目 send_new_session 会落地 meta + 事件日志的 service。"""
+        service = AssistantService(project_root=tmp_path)
+        service.pm = _MultiProjectPM({"proj_a", "proj_b"})
+        service.session_manager = sm
+        service.meta_store = meta_store
+        service.event_log = _FakeEventLogService()
+        service.event_log_store = store
+
+        async def send_new_session(project_name, prompt, *, user_entry=None, client_key=None, **kwargs):
+            sid = f"sdk-{len(sm.new_sessions)}"
+            sm.new_sessions.append((project_name, prompt))
+            meta_store.metas[sid] = make_session_meta(id=sid, project_name=project_name)
+            if user_entry is not None:
+                await store.append_user_entry(sid, user_entry, client_key=client_key)
+            return sid
+
+        sm.send_new_session = send_new_session
+        return service
+
+    @pytest.mark.asyncio
+    async def test_new_session_client_key_project_scoped_via_map_hit(self, tmp_path):
+        """项目 A 已受理的新会话 client_key，用相同 client_key 对项目 B 调
+        send_or_create（无 session_id）→ 返回项目 B 下新建的会话，而非静默接回 A
+        的会话。覆盖进程内映射命中的快路径。"""
+        from server.agent_runtime.event_log import EventLogStore
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        store = EventLogStore(session_factory=factory)
+
+        sm = _FakeSessionManager()
+        meta_store = _FakeMetaStore([])
+        service = self._make_project_scoped_service(tmp_path, store, sm, meta_store)
+
+        first = await service.send_or_create("proj_a", "hello", client_key="ck-shared")
+        assert first["session_id"] == "sdk-0"
+        # 映射已就绪：项目 B 的调用会先走进程内映射命中的快路径
+        assert service._new_session_client_keys["ck-shared"] == "sdk-0"
+
+        second = await service.send_or_create("proj_b", "hello", client_key="ck-shared")
+
+        assert second["session_id"] == "sdk-1"  # 项目 B 新建，非接回 A
+        assert meta_store.metas["sdk-1"].project_name == "proj_b"
+        assert sm.new_sessions == [("proj_a", "hello"), ("proj_b", "hello")]
+        # 映射被本项目会话覆盖，后续同项目重试命中 B
+        assert service._new_session_client_keys["ck-shared"] == "sdk-1"
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_new_session_client_key_project_scoped_via_db_fallback(self, tmp_path):
+        """清空进程内映射（模拟重启）后，DB 兜底恢复路径同样按项目隔离：
+        项目 A 的 client_key 对项目 B 恢复时视为未命中，在 B 下新建会话。"""
+        from server.agent_runtime.event_log import EventLogStore
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        store = EventLogStore(session_factory=factory)
+
+        sm = _FakeSessionManager()
+        meta_store = _FakeMetaStore([])
+        service = self._make_project_scoped_service(tmp_path, store, sm, meta_store)
+
+        first = await service.send_or_create("proj_a", "hello", client_key="ck-shared")
+        assert first["session_id"] == "sdk-0"
+        service._new_session_client_keys.clear()  # 模拟重启：进程内映射丢失
+
+        second = await service.send_or_create("proj_b", "hello", client_key="ck-shared")
+
+        assert second["session_id"] == "sdk-1"  # DB 兜底命中 A 会话但项目不符 → 新建 B
+        assert meta_store.metas["sdk-1"].project_name == "proj_b"
+        assert sm.new_sessions == [("proj_a", "hello"), ("proj_b", "hello")]
+
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_new_session_client_key_same_project_retry_still_idempotent(self, tmp_path):
+        """同项目内幂等语义不回归：相同 client_key 在同一项目重发，仍命中原会话、
+        不重复建会话（分别经映射快路径与 DB 兜底路径）。"""
+        from server.agent_runtime.event_log import EventLogStore
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        store = EventLogStore(session_factory=factory)
+
+        sm = _FakeSessionManager()
+        meta_store = _FakeMetaStore([])
+        service = self._make_project_scoped_service(tmp_path, store, sm, meta_store)
+
+        first = await service.send_or_create("proj_a", "hello", client_key="ck-same")
+        assert first["session_id"] == "sdk-0"
+
+        # 映射快路径命中
+        hit = await service.send_or_create("proj_a", "hello", client_key="ck-same")
+        assert hit["session_id"] == "sdk-0"
+        assert len(sm.new_sessions) == 1
+
+        # 清空映射后 DB 兜底路径同样命中原会话
+        service._new_session_client_keys.clear()
+        recovered = await service.send_or_create("proj_a", "hello", client_key="ck-same")
+        assert recovered["session_id"] == "sdk-0"
+        assert len(sm.new_sessions) == 1  # 全程未重复建会话
+
+        await engine.dispose()
+
     @pytest.mark.asyncio
     async def test_send_or_create_hit_refreshes_lru_position(self, tmp_path):
         """命中进程内映射时刷新 LRU 位置：被频繁重试命中的 key 不因插入顺序
@@ -516,7 +642,7 @@ class TestAssistantServiceMore:
         )
         service._new_session_client_keys["ck-a"] = "sdk-deleted"
 
-        result = await service._find_accepted_new_session("ck-a")  # pyright: ignore[reportPrivateUsage]
+        result = await service._find_accepted_new_session("ck-a", "demo")  # pyright: ignore[reportPrivateUsage]
 
         assert result is None  # 本测试的兜底查询返回 None，不影响本次断言重点
         assert service._new_session_client_keys["ck-a"] == "sdk-fresh"  # 未被误删
@@ -545,7 +671,7 @@ class TestAssistantServiceMore:
             find_new_session_by_client_key=find_new_session_by_client_key,
         )
 
-        result = await service._find_accepted_new_session("ck-b")  # pyright: ignore[reportPrivateUsage]
+        result = await service._find_accepted_new_session("ck-b", "demo")  # pyright: ignore[reportPrivateUsage]
 
         assert result is not None
         assert result["session_id"] == "sdk-old"  # 本次调用仍返回自己查到的权威条目

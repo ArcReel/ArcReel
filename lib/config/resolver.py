@@ -20,7 +20,6 @@ if TYPE_CHECKING:
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.app_data_dir import app_data_dir
 from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
 from lib.config.service import (
     _DEFAULT_AUDIO_BACKEND,
@@ -35,19 +34,8 @@ from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.custom_provider.endpoints import get_endpoint_spec
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.project_manager import ProjectManager
-from lib.text_backends.base import TextTaskType
-
-_project_manager: ProjectManager | None = None
-
-
-def get_project_manager() -> ProjectManager:
-    """返回共享的 ProjectManager 单例（使用标准项目根目录）。"""
-    global _project_manager
-    if _project_manager is None:
-        _project_manager = ProjectManager(app_data_dir())
-    return _project_manager
-
+from lib.project_manager import get_project_manager
+from lib.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
 
 logger = logging.getLogger(__name__)
 
@@ -152,11 +140,75 @@ def _payload_model_or_default(raw_model: object, provider_id: str, media_type: s
     return default_model_for_provider(provider_id, media_type)
 
 
-_TEXT_TASK_SETTING_KEYS: dict[TextTaskType, str] = {
-    TextTaskType.SCRIPT: "text_backend_script",
-    TextTaskType.OVERVIEW: "text_backend_overview",
-    TextTaskType.STYLE_ANALYSIS: "text_backend_style",
+# 档位 → 设置键。全局（system_settings）与项目级（project.json）同名同构。
+_TEXT_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
+    TextTaskTier.SIMPLE: "text_backend_simple",
+    TextTaskTier.COMPLEX: "text_backend_complex",
 }
+
+
+# 当 resolve_resolution 返回 None 时下游的保底分辨率。Grok 即便 registry 声明 1080p
+# 也可能被 xai_sdk 拒收，故按 provider 区分。
+PROVIDER_FALLBACK_RESOLUTION: dict[str, str] = {
+    "gemini": "1080p",
+    "ark": "720p",
+    "grok": "720p",
+    "openai": "720p",
+    # MiniMax 海螺缺省 768P：1080P 仅 6s，默认落 768P 避免与 10s 档冲突。
+    "minimax": "768p",
+}
+
+
+def get_provider_fallback(provider_id: str | None, default: str = "1080p") -> str:
+    """纯查表：对 registry ID（如 ``gemini-aistudio``）归一化到短前缀后查 fallback。不触 DB。"""
+    if not provider_id:
+        return default
+    if provider_id in PROVIDER_FALLBACK_RESOLUTION:
+        return PROVIDER_FALLBACK_RESOLUTION[provider_id]
+    short = provider_id.split("-", 1)[0]
+    return PROVIDER_FALLBACK_RESOLUTION.get(short, default)
+
+
+def _resolution_from_project(project: dict, provider_id: str, model_id: str) -> str | None:
+    """project.model_settings（``provider/model`` 复合 key）> legacy video_model_settings > None。
+
+    内层也用 ``or {}`` 是因为 ``dict.get("k", {})`` 在 value 显式为 None 时会返回 None，
+    导致后续链调 AttributeError；project.json 手编可能出现这种脏值。
+    """
+    key = f"{provider_id}/{model_id}"
+    override = ((project.get("model_settings") or {}).get(key) or {}).get("resolution")
+    if override:
+        return override
+    legacy = ((project.get("video_model_settings") or {}).get(model_id) or {}).get("resolution")
+    if legacy:
+        return legacy
+    return None
+
+
+class VisionCapabilityError(ValueError):
+    """解析出的文本模型不支持图像输入（vision），无法执行需要 vision 的任务。
+
+    携带结构化字段供调用方（如面向用户的 router）按需本地化；``str(exc)`` 是英文技术
+    消息，供 log / 非用户可见路径直接使用。"""
+
+    def __init__(self, *, task_type: TextTaskType, provider_id: str, model_id: str):
+        self.task_type = task_type
+        self.provider_id = provider_id
+        self.model_id = model_id
+        super().__init__(
+            f"text model {provider_id}/{model_id} does not support vision, cannot perform task {task_type.value}"
+        )
+
+
+def _ensure_text_model_vision_capable(task_type: TextTaskType, provider_id: str, model_id: str) -> None:
+    """校验解析出的模型支持图像输入；不满足直接报错，不静默换模型。
+
+    仅对 PROVIDER_REGISTRY 中登记的模型判定；registry 之外（自定义供应商等）无逐模型
+    能力事实，放行交由供应商 API 把关，不做猜测。"""
+    meta = PROVIDER_REGISTRY.get(provider_id)
+    model_info = meta.models.get(model_id) if meta else None
+    if model_info is not None and "vision" not in model_info.capabilities:
+        raise VisionCapabilityError(task_type=task_type, provider_id=provider_id, model_id=model_id)
 
 
 class ConfigResolver:
@@ -253,6 +305,40 @@ class ConfigResolver:
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_provider_model(svc, session, project, payload)
+
+    async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str | None:
+        """按 project.model_settings → legacy video_model_settings → 自定义供应商默认 → None。
+
+        None 代表"调用时不传 SDK resolution 参数"（见 ``docs/adr/0019``）。前两级纯读 project
+        dict、无副作用；自定义供应商默认（``CustomProviderModel.resolution``）需 DB，故本方法
+        整体为 async 并在同一 session 内完成。
+        """
+        from_project = _resolution_from_project(project, provider_id, model_id)
+        if from_project:
+            return from_project
+        # 仅自定义供应商才有 DB 侧默认；预置供应商在此直接 None，避免为热路径上的
+        # 每次生成任务白开一个 session（原独立模块正是先判 is_custom_provider 再触 DB）。
+        if not provider_id or not model_id or not is_custom_provider(provider_id):
+            return None
+        async with self._open_session() as (session, _svc):
+            return await self._resolve_custom_resolution_default(session, provider_id, model_id)
+
+    async def _resolve_custom_resolution_default(
+        self,
+        session: AsyncSession,
+        provider_id: str,
+        model_id: str,
+    ) -> str | None:
+        """自定义供应商的模型默认 resolution（``CustomProviderModel.resolution``），其他一律 None。"""
+        if not provider_id or not model_id or not is_custom_provider(provider_id):
+            return None
+        try:
+            db_id = parse_provider_id(provider_id)
+        except ValueError:
+            return None
+        repo = CustomProviderRepository(session)
+        model = await repo.get_model_by_ids(db_id, model_id)
+        return model.resolution if (model and model.resolution) else None
 
     async def default_audio_backend(self) -> tuple[str, str]:
         """返回系统级默认音频 (provider_id, model_id)（不含项目级覆盖）。"""
@@ -719,7 +805,11 @@ class ConfigResolver:
         task_type: TextTaskType,
         project_name: str | None = None,
     ) -> tuple[str, str]:
-        """解析文本 backend。优先级：项目级任务配置 → 全局任务配置 → 全局默认 → 自动推断"""
+        """按任务档位解析文本 backend。
+
+        优先级（项目优先）：项目档位 > 项目默认模型 > 全局档位 > 全局默认模型 > 自动推断。
+        任务需要 vision 时校验解析结果的能力，不满足直接报错、不静默换模型（docs/adr/0051）。
+        """
         async with self._open_session() as (session, svc):
             return await self._resolve_text_backend(svc, session, task_type, project_name)
 
@@ -730,27 +820,33 @@ class ConfigResolver:
         task_type: TextTaskType,
         project_name: str | None,
     ) -> tuple[str, str]:
-        setting_key = _TEXT_TASK_SETTING_KEYS[task_type]
+        tier_key = _TEXT_TIER_SETTING_KEYS[TEXT_TASK_TIERS[task_type]]
+        resolved: tuple[str, str] | None = None
 
-        # 1. Project-level task override
+        # 1/2. 项目档位 > 项目默认模型（「项目默认」读作「本项目整体用它」，遮蔽全局配置）
         if project_name:
             project = get_project_manager().load_project(project_name)
-            project_val = project.get(setting_key)
-            if project_val and "/" in str(project_val):
-                return ConfigService._parse_backend(str(project_val), _DEFAULT_TEXT_BACKEND)
+            for key in (tier_key, "default_text_backend"):
+                project_val = project.get(key)
+                if project_val and "/" in str(project_val):
+                    resolved = ConfigService._parse_backend(str(project_val), _DEFAULT_TEXT_BACKEND)
+                    break
 
-        # 2. Global task-type setting
-        task_val = await svc.get_setting(setting_key, "")
-        if task_val and "/" in task_val:
-            return ConfigService._parse_backend(task_val, _DEFAULT_TEXT_BACKEND)
+        # 3/4. 全局档位 > 全局默认模型
+        if resolved is None:
+            for key in (tier_key, "default_text_backend"):
+                global_val = await svc.get_setting(key, "")
+                if global_val and "/" in global_val:
+                    resolved = ConfigService._parse_backend(global_val, _DEFAULT_TEXT_BACKEND)
+                    break
 
-        # 3. Global default text backend
-        default_val = await svc.get_setting("default_text_backend", "")
-        if default_val and "/" in default_val:
-            return ConfigService._parse_backend(default_val, _DEFAULT_TEXT_BACKEND)
+        # 5. 自动推断
+        if resolved is None:
+            resolved = await self._auto_resolve_backend(svc, session, "text")
 
-        # 4. Auto-resolve
-        return await self._auto_resolve_backend(svc, session, "text")
+        if task_type in VISION_REQUIRED_TASKS:
+            _ensure_text_model_vision_capable(task_type, *resolved)
+        return resolved
 
     async def _auto_resolve_backend(
         self,

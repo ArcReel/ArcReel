@@ -14,26 +14,18 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from lib.app_data_dir import app_data_dir
 from lib.generation_queue import get_generation_queue
 from lib.grid.layout import calculate_grid_layout
 from lib.grid.models import GridGeneration
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.i18n import Translator
-from lib.project_manager import ProjectManager
+from lib.project_manager import get_project_manager
 from lib.script_editor import ScriptEditError
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.auth import CurrentUser
 
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
-
-# 初始化管理器
-pm = ProjectManager(app_data_dir())
-
-
-def get_project_manager() -> ProjectManager:
-    return pm
 
 
 def _build_grid_task_payload(
@@ -158,8 +150,8 @@ async def generate_grid(
                 if chunk_layout is None:
                     continue
 
-                # provider/model 由 execute_grid_task 在 _resolve_effective_image_backend
-                # 之后回填，因为只有 task 层能根据 reference_images 判断走 T2I 还是 I2I 槽
+                # provider/model 由 execute_grid_task 在 image lane 解析之后回填，
+                # 因为只有 task 层能根据 reference_images 判断走 T2I 还是 I2I 槽
                 grid = GridGeneration.create(
                     episode=episode,
                     script_file=req.script_file,

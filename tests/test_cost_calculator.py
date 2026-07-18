@@ -8,23 +8,28 @@ gemini-aistudio）。仅在底层暴露的形态（如按张 n、纯策略 fallb
 import pytest
 
 from lib.cost_calculator import CostCalculator, cost_calculator
+from lib.pricing.strategies import PricingParams
 from lib.providers import PROVIDER_ANTHROPIC
+
+
+def _cost(provider, call_type, **params):
+    """构造 ``PricingParams`` 并调统一入口——费用对拍只在意金额/币种，用薄封装免逐行铺展。"""
+    return cost_calculator.calculate_cost(provider, PricingParams(call_type=call_type, **params))
 
 
 class TestImageCost:
     def test_calculate_image_cost_known_and_default(self):
-        calc = CostCalculator()
         # 默认模型 (gemini-3.1-flash-image-preview)
-        assert calc.calculate_cost("gemini-aistudio", "image", resolution="1k") == (0.067, "USD")
-        assert calc.calculate_cost("gemini-aistudio", "image", resolution="2K") == (0.101, "USD")
-        assert calc.calculate_cost("gemini-aistudio", "image", resolution="4K") == (0.151, "USD")
-        assert calc.calculate_cost("gemini-aistudio", "image", resolution="unknown") == (0.067, "USD")
+        assert _cost("gemini-aistudio", "image", resolution="1k") == (0.067, "USD")
+        assert _cost("gemini-aistudio", "image", resolution="2K") == (0.101, "USD")
+        assert _cost("gemini-aistudio", "image", resolution="4K") == (0.151, "USD")
+        assert _cost("gemini-aistudio", "image", resolution="unknown") == (0.067, "USD")
         # 指定旧模型 (gemini-3-pro-image-preview)
-        assert calc.calculate_cost("gemini-aistudio", "image", resolution="1k", model="gemini-3-pro-image-preview") == (
+        assert _cost("gemini-aistudio", "image", resolution="1k", model="gemini-3-pro-image-preview") == (
             0.134,
             "USD",
         )
-        assert calc.calculate_cost("gemini-aistudio", "image", resolution="2K", model="gemini-3-pro-image-preview") == (
+        assert _cost("gemini-aistudio", "image", resolution="2K", model="gemini-3-pro-image-preview") == (
             0.134,
             "USD",
         )
@@ -32,10 +37,9 @@ class TestImageCost:
 
 class TestVideoCost:
     def test_calculate_video_cost_known_and_default(self):
-        calc = CostCalculator()
 
         def video(duration, resolution, audio, provider="gemini-aistudio", model=None):
-            amount, _ = calc.calculate_cost(
+            amount, _ = _cost(
                 provider,
                 "video",
                 duration_seconds=duration,
@@ -73,7 +77,7 @@ class TestVideoCost:
 
 class TestAnthropicTextCost:
     def test_calculate_anthropic_text_cost(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             PROVIDER_ANTHROPIC,
             "text",
             input_tokens=100_000,
@@ -84,7 +88,7 @@ class TestAnthropicTextCost:
         assert amount == pytest.approx(1.05)
 
     def test_unknown_anthropic_model_uses_default(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             PROVIDER_ANTHROPIC,
             "text",
             input_tokens=100_000,
@@ -95,7 +99,7 @@ class TestAnthropicTextCost:
         assert amount == pytest.approx(1.05)
 
     def test_calculate_anthropic_haiku_text_cost(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             PROVIDER_ANTHROPIC,
             "text",
             input_tokens=100_000,
@@ -110,14 +114,14 @@ class TestKlingVideoCost:
     """可灵 per_second_tiered 经统一入口 calculate_cost 的金额对拍（CNY）。"""
 
     def test_turbo_std_silent(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "kling", "video", model="kling-v2-5-turbo", service_tier="std", generate_audio=False, duration_seconds=5
         )
         assert currency == "CNY"
         assert amount == pytest.approx(0.6 * 5)
 
     def test_turbo_pro_with_audio(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "kling", "video", model="kling-v2-5-turbo", service_tier="pro", generate_audio=True, duration_seconds=5
         )
         assert currency == "CNY"
@@ -125,14 +129,12 @@ class TestKlingVideoCost:
 
     def test_turbo_default_tier_maps_to_std(self):
         # service_tier 缺省 "default" → std 无声
-        amount, _ = cost_calculator.calculate_cost(
-            "kling", "video", model="kling-v2-5-turbo", generate_audio=False, duration_seconds=10
-        )
+        amount, _ = _cost("kling", "video", model="kling-v2-5-turbo", generate_audio=False, duration_seconds=10)
         assert amount == pytest.approx(0.6 * 10)
 
     def test_unknown_kling_model_falls_back_to_turbo(self):
         # 未知 model 回落到 kling 默认视频模型（turbo）费率，不串到 Gemini 表
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "kling", "video", model="kling-mystery", service_tier="pro", generate_audio=False, duration_seconds=5
         )
         assert currency == "CNY"
@@ -141,7 +143,7 @@ class TestKlingVideoCost:
 
 class TestArkVideoCost:
     def test_online_with_audio(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "ark",
             "video",
             usage_tokens=246840,
@@ -153,7 +155,7 @@ class TestArkVideoCost:
         assert amount == pytest.approx(3.9494, rel=1e-3)
 
     def test_online_no_audio(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "ark",
             "video",
             usage_tokens=246840,
@@ -165,7 +167,7 @@ class TestArkVideoCost:
         assert amount == pytest.approx(1.9747, rel=1e-3)
 
     def test_flex_with_audio(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "ark",
             "video",
             usage_tokens=246840,
@@ -177,7 +179,7 @@ class TestArkVideoCost:
         assert amount == pytest.approx(1.9747, rel=1e-3)
 
     def test_flex_no_audio(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "ark",
             "video",
             usage_tokens=246840,
@@ -189,22 +191,20 @@ class TestArkVideoCost:
         assert amount == pytest.approx(0.9874, rel=1e-3)
 
     def test_zero_tokens(self):
-        amount, currency = cost_calculator.calculate_cost(
-            "ark", "video", usage_tokens=0, service_tier="default", generate_audio=True
-        )
+        amount, currency = _cost("ark", "video", usage_tokens=0, service_tier="default", generate_audio=True)
         assert amount == pytest.approx(0.0)
         assert currency == "CNY"
 
     def test_unknown_model_uses_default(self):
         # 未知模型回落到 ark 默认视频模型（mini）的费率
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "ark", "video", usage_tokens=1_000_000, service_tier="default", generate_audio=True, model="unknown-model"
         )
         assert currency == "CNY"
         assert amount == pytest.approx(23.0)
 
     def test_seedance_2_cost(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "ark",
             "video",
             usage_tokens=1_000_000,
@@ -216,7 +216,7 @@ class TestArkVideoCost:
         assert amount == pytest.approx(46.00)
 
     def test_seedance_2_cost_no_audio_same_price(self):
-        amount, _ = cost_calculator.calculate_cost(
+        amount, _ = _cost(
             "ark",
             "video",
             usage_tokens=1_000_000,
@@ -227,7 +227,7 @@ class TestArkVideoCost:
         assert amount == pytest.approx(46.00)
 
     def test_seedance_2_fast_cost(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "ark",
             "video",
             usage_tokens=1_000_000,
@@ -239,7 +239,7 @@ class TestArkVideoCost:
         assert amount == pytest.approx(37.00)
 
     def test_seedance_2_mini_cost(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "ark",
             "video",
             usage_tokens=1_000_000,
@@ -251,7 +251,7 @@ class TestArkVideoCost:
         assert amount == pytest.approx(23.00)
 
     def test_seedance_2_mini_cost_no_audio_same_price(self):
-        amount, _ = cost_calculator.calculate_cost(
+        amount, _ = _cost(
             "ark",
             "video",
             usage_tokens=1_000_000,
@@ -264,136 +264,124 @@ class TestArkVideoCost:
 
 class TestGrokVideoCost:
     def test_default_model_per_second(self):
-        cost, currency = cost_calculator.calculate_cost(
-            "grok", "video", duration_seconds=10, model="grok-imagine-video"
-        )
+        cost, currency = _cost("grok", "video", duration_seconds=10, model="grok-imagine-video")
         assert cost == pytest.approx(0.50)
         assert currency == "USD"
 
     def test_short_video(self):
-        cost, currency = cost_calculator.calculate_cost("grok", "video", duration_seconds=1, model="grok-imagine-video")
+        cost, currency = _cost("grok", "video", duration_seconds=1, model="grok-imagine-video")
         assert cost == pytest.approx(0.050)
         assert currency == "USD"
 
     def test_max_duration(self):
-        cost, _ = cost_calculator.calculate_cost("grok", "video", duration_seconds=15, model="grok-imagine-video")
+        cost, _ = _cost("grok", "video", duration_seconds=15, model="grok-imagine-video")
         assert cost == pytest.approx(0.75)
 
     def test_zero_duration_defaults_to_8s(self):
         # 统一入口把 0/缺省时长视为默认 8 秒（与历史 calculate_cost 行为一致）：8 × 0.050 = 0.40
-        cost, _ = cost_calculator.calculate_cost("grok", "video", duration_seconds=0, model="grok-imagine-video")
+        cost, _ = _cost("grok", "video", duration_seconds=0, model="grok-imagine-video")
         assert cost == pytest.approx(0.40)
 
     def test_unknown_model_uses_default(self):
-        cost, _ = cost_calculator.calculate_cost("grok", "video", duration_seconds=10, model="unknown-grok-model")
+        cost, _ = _cost("grok", "video", duration_seconds=10, model="unknown-grok-model")
         assert cost == pytest.approx(0.50)
 
 
 class TestArkImageCost:
     def test_ark_image_cost_default(self):
-        cost, currency = cost_calculator.calculate_cost("ark", "image")
+        cost, currency = _cost("ark", "image")
         assert currency == "CNY"
         assert cost == pytest.approx(0.22)
 
     def test_ark_image_cost_by_model(self):
-        cost, _ = cost_calculator.calculate_cost("ark", "image", model="doubao-seedream-4-5-251128")
+        cost, _ = _cost("ark", "image", model="doubao-seedream-4-5-251128")
         assert cost == pytest.approx(0.25)
 
     def test_ark_image_cost_unknown_model(self):
-        cost, currency = cost_calculator.calculate_cost("ark", "image", model="unknown-model")
+        cost, currency = _cost("ark", "image", model="unknown-model")
         assert currency == "CNY"
         assert cost == pytest.approx(0.22)
 
 
 class TestGrokImageCost:
     def test_grok_image_cost_default(self):
-        cost, currency = cost_calculator.calculate_cost("grok", "image")
+        cost, currency = _cost("grok", "image")
         assert cost == pytest.approx(0.02)
         assert currency == "USD"
 
     def test_grok_image_cost_pro(self):
-        cost, currency = cost_calculator.calculate_cost("grok", "image", model="grok-imagine-image-pro")
+        cost, currency = _cost("grok", "image", model="grok-imagine-image-pro")
         assert cost == pytest.approx(0.07)
         assert currency == "USD"
 
     def test_grok_image_cost_unknown_model(self):
-        cost, currency = cost_calculator.calculate_cost("grok", "image", model="unknown-model")
+        cost, currency = _cost("grok", "image", model="unknown-model")
         assert cost == pytest.approx(0.02)
         assert currency == "USD"
 
 
 class TestOpenAICost:
     def test_openai_text_cost(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "openai", "text", input_tokens=1_000_000, output_tokens=1_000_000, model="gpt-5.4-mini"
         )
         assert currency == "USD"
         assert amount == pytest.approx(0.75 + 4.50)
 
     def test_openai_text_cost_default_model(self):
-        amount, currency = cost_calculator.calculate_cost("openai", "text", input_tokens=1_000_000, output_tokens=0)
+        amount, currency = _cost("openai", "text", input_tokens=1_000_000, output_tokens=0)
         assert currency == "USD"
         assert amount == pytest.approx(0.75)
 
     def test_openai_image_cost_low(self):
-        amount, currency = cost_calculator.calculate_cost("openai", "image", model="gpt-image-2", quality="low")
+        amount, currency = _cost("openai", "image", model="gpt-image-2", quality="low")
         assert currency == "USD"
         assert amount == pytest.approx(0.006)  # 默认 1024x1024
 
     def test_openai_image_cost_landscape(self):
-        amount, currency = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-2", quality="high", size="1792x1024"
-        )
+        amount, currency = _cost("openai", "image", model="gpt-image-2", quality="high", size="1792x1024")
         assert currency == "USD"
         assert amount == pytest.approx(0.317)
 
     def test_openai_video_cost(self):
-        amount, currency = cost_calculator.calculate_cost("openai", "video", duration_seconds=8, model="sora-2")
+        amount, currency = _cost("openai", "video", duration_seconds=8, model="sora-2")
         assert currency == "USD"
         assert amount == pytest.approx(0.80)
 
     def test_openai_video_cost_pro(self):
-        amount, currency = cost_calculator.calculate_cost(
-            "openai", "video", duration_seconds=4, model="sora-2-pro", resolution="1080p"
-        )
+        amount, currency = _cost("openai", "video", duration_seconds=4, model="sora-2-pro", resolution="1080p")
         assert currency == "USD"
         assert amount == pytest.approx(2.80)
 
     def test_openai_text_cost_5_5(self):
-        amount, currency = cost_calculator.calculate_cost(
-            "openai", "text", input_tokens=1_000_000, output_tokens=1_000_000, model="gpt-5.5"
-        )
+        amount, currency = _cost("openai", "text", input_tokens=1_000_000, output_tokens=1_000_000, model="gpt-5.5")
         assert currency == "USD"
         assert amount == pytest.approx(5.00 + 30.00)
 
     def test_openai_image_cost_gpt_image_2_high_square(self):
-        amount, currency = cost_calculator.calculate_cost("openai", "image", model="gpt-image-2", quality="high")
+        amount, currency = _cost("openai", "image", model="gpt-image-2", quality="high")
         assert currency == "USD"
         assert amount == pytest.approx(0.211)
 
     def test_openai_image_cost_gpt_image_2_high_portrait(self):
-        amount, currency = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-2", quality="high", size="1024x1792"
-        )
+        amount, currency = _cost("openai", "image", model="gpt-image-2", quality="high", size="1024x1792")
         assert currency == "USD"
         assert amount == pytest.approx(0.317)
 
     def test_openai_image_cost_default_uses_gpt_image_2(self):
         # 不传 model → 回落 OpenAI 图片默认模型 gpt-image-2，medium 1024x1024 = 0.053
-        amount, currency = cost_calculator.calculate_cost("openai", "image", quality="medium")
+        amount, currency = _cost("openai", "image", quality="medium")
         assert currency == "USD"
         assert amount == pytest.approx(0.053)
 
     def test_unified_entry_openai(self):
-        amount, _ = cost_calculator.calculate_cost("openai", "text", input_tokens=500_000, output_tokens=100_000)
+        amount, _ = _cost("openai", "text", input_tokens=500_000, output_tokens=100_000)
         assert amount == pytest.approx(0.375 + 0.45)
-        amount, _ = cost_calculator.calculate_cost("openai", "image", model="gpt-image-2", quality="high")
+        amount, _ = _cost("openai", "image", model="gpt-image-2", quality="high")
         assert amount == pytest.approx(0.211)  # 默认 1024x1024
-        amount, _ = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-2", quality="high", size="1024x1792"
-        )
+        amount, _ = _cost("openai", "image", model="gpt-image-2", quality="high", size="1024x1792")
         assert amount == pytest.approx(0.317)
-        amount, _ = cost_calculator.calculate_cost("openai", "video", duration_seconds=12, model="sora-2")
+        amount, _ = _cost("openai", "video", duration_seconds=12, model="sora-2")
         assert amount == pytest.approx(1.20)
 
 
@@ -403,7 +391,7 @@ class TestOpenAIImageTokenCost:
 
     def test_token_cost_gpt_image_2(self):
         # image_in × 8 + image_out × 30 + text_in × 5 + text_out × 0
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "openai",
             "image",
             model="gpt-image-2",
@@ -417,7 +405,7 @@ class TestOpenAIImageTokenCost:
 
     def test_zero_tokens_still_uses_token_path(self):
         # 所有 token 至少有一个非 None 时走 token 主路径，即使全为 0。
-        amount, _ = cost_calculator.calculate_cost(
+        amount, _ = _cost(
             "openai",
             "image",
             model="gpt-image-2",
@@ -430,18 +418,16 @@ class TestOpenAIImageTokenCost:
 
     def test_fallback_no_size_uses_default_square(self):
         # 所有 token 入参 None 时走 fallback；无显式 size → 默认 1024x1024（不再反查 resolution+aspect）。
-        amount, _ = cost_calculator.calculate_cost(
-            "openai", "image", model="gpt-image-2", quality="high", resolution="1K", aspect_ratio="9:16"
-        )
+        amount, _ = _cost("openai", "image", model="gpt-image-2", quality="high", resolution="1K", aspect_ratio="9:16")
         # high + 1024x1024 → 0.211（旧反查会得 0.317，已废弃）
         assert amount == pytest.approx(0.211)
 
     def test_fallback_aspect_independent(self):
         # 计费与尺寸解耦：相同 quality 下不同 aspect_ratio 的兜底金额一致（均落默认 1024x1024）。
         common = {"model": "gpt-image-2", "quality": "high", "resolution": "1K"}
-        amount_1_1, _ = cost_calculator.calculate_cost("openai", "image", aspect_ratio="1:1", **common)
-        amount_9_16, _ = cost_calculator.calculate_cost("openai", "image", aspect_ratio="9:16", **common)
-        amount_16_9, _ = cost_calculator.calculate_cost("openai", "image", aspect_ratio="16:9", **common)
+        amount_1_1, _ = _cost("openai", "image", aspect_ratio="1:1", **common)
+        amount_9_16, _ = _cost("openai", "image", aspect_ratio="9:16", **common)
+        amount_16_9, _ = _cost("openai", "image", aspect_ratio="16:9", **common)
         assert amount_1_1 == pytest.approx(0.211)
         assert amount_9_16 == pytest.approx(0.211)
         assert amount_16_9 == pytest.approx(0.211)
@@ -449,7 +435,7 @@ class TestOpenAIImageTokenCost:
 
     def test_fallback_explicit_size_used(self):
         # 显式 size kwarg 仍被兜底计费采用（resolution/aspect_ratio 不参与）。
-        amount, _ = cost_calculator.calculate_cost(
+        amount, _ = _cost(
             "openai",
             "image",
             model="gpt-image-2",
@@ -461,7 +447,7 @@ class TestOpenAIImageTokenCost:
         assert amount == pytest.approx(0.106)  # gpt-image-2 medium 1024x1792
 
     def test_unified_entry_token_path(self):
-        amount, currency = cost_calculator.calculate_cost(
+        amount, currency = _cost(
             "openai",
             "image",
             model="gpt-image-2",
@@ -473,10 +459,10 @@ class TestOpenAIImageTokenCost:
 
     def test_unified_entry_fallback_aspect_independent(self):
         # 统一入口的兜底同样与 aspect 解耦：均落默认 1024x1024 档
-        amount_1_1, _ = cost_calculator.calculate_cost(
+        amount_1_1, _ = _cost(
             "openai", "image", model="gpt-image-2", quality="high", resolution="1K", aspect_ratio="1:1"
         )
-        amount_9_16, _ = cost_calculator.calculate_cost(
+        amount_9_16, _ = _cost(
             "openai", "image", model="gpt-image-2", quality="high", resolution="1K", aspect_ratio="9:16"
         )
         assert amount_1_1 == pytest.approx(0.211)

@@ -25,7 +25,13 @@ from lib.project_change_hints import (
     register_project_change_listener,
 )
 from lib.project_manager import ProjectManager, effective_mode
-from lib.script_skeleton import SKELETONS, resolve_script_kind
+from lib.script_skeleton import (
+    SKELETON_ANCHOR_TYPES,
+    SKELETON_ENTITY_TYPES,
+    SKELETON_ITEM_NOUNS,
+    SKELETONS,
+    resolve_script_kind,
+)
 from server.sse_channel import IDLE, DropSubscriber, SseChannel
 
 logger = logging.getLogger(__name__)
@@ -34,36 +40,6 @@ PROJECT_EVENTS_POLL_SECONDS = 0.5
 
 # 项目目录被删除后向订阅者广播的终止事件名——流在其后正常结束（见 stream_events._iter）。
 PROJECT_DELETED_EVENT = "project_deleted"
-
-
-# 条目名词按骨架种类硬编码——用于分镜级事件标签（如「镜头「E1S01」」）。名词 i18n 化是
-# 独立议题（与 ``_diff_named_entities`` 的「角色」/「线索」同为既有硬编码形态），不在此处收敛。
-_SKELETON_ITEM_NOUNS: dict[str, str] = {
-    "segments": "分镜",
-    "scenes": "场景",
-    "shots": "镜头",
-    "video_units": "视频单元",
-}
-
-# 分镜级事件的实体类型按骨架种类推导，与 ``_SKELETON_ITEM_NOUNS`` 同源。驱动前端分组标签映射
-# （``ENTITY_LABELS``），使四种骨架各显分镜/场景/镜头/视频单元，而非恒为「分镜」。取值与既有
-# ``entity_type`` 枚举不冲突（drama 用 ``drama_scene`` 避免与命名实体 ``scene`` 撞组）。
-_SKELETON_ENTITY_TYPES: dict[str, str] = {
-    "segments": "segment",
-    "scenes": "drama_scene",
-    "shots": "shot",
-    "video_units": "reference_unit",
-}
-
-# 分镜级事件的锚点类型按骨架种类推导，取值与前端各画布的滚动目标类型守卫对齐：video_units 归
-# ``reference_unit``（参考生视频画布按此选中并高亮对应视频单元），其余归 ``segment``
-# （narration/drama/ad 共用时间线镜头拆分视图，按 id 选中条目）。
-_SKELETON_ANCHOR_TYPES: dict[str, str] = {
-    "segments": "segment",
-    "scenes": "segment",
-    "shots": "segment",
-    "video_units": "reference_unit",
-}
 
 
 def _utc_now_iso() -> str:
@@ -1087,11 +1063,11 @@ class ProjectEventService:
 
     @staticmethod
     def _script_item_entity_type(script_meta: dict[str, Any]) -> str:
-        return _SKELETON_ENTITY_TYPES.get(ProjectEventService._script_kind(script_meta), "segment")
+        return SKELETON_ENTITY_TYPES.get(ProjectEventService._script_kind(script_meta), "segment")
 
     @staticmethod
     def _script_item_anchor_type(script_meta: dict[str, Any]) -> str:
-        return _SKELETON_ANCHOR_TYPES.get(ProjectEventService._script_kind(script_meta), "segment")
+        return SKELETON_ANCHOR_TYPES.get(ProjectEventService._script_kind(script_meta), "segment")
 
     @staticmethod
     def _build_script_item_focus(
@@ -1107,7 +1083,7 @@ class ProjectEventService:
 
     @staticmethod
     def _build_script_item_label(item_id: str, script_meta: dict[str, Any]) -> str:
-        noun = _SKELETON_ITEM_NOUNS.get(ProjectEventService._script_kind(script_meta), "分镜")
+        noun = SKELETON_ITEM_NOUNS.get(ProjectEventService._script_kind(script_meta), "分镜")
         return f"{noun}「{item_id}」"
 
     def _build_script_item_change(

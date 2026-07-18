@@ -947,7 +947,9 @@ class TestProjectsRouter:
                     "name": "m-1",
                     "video_backend": "gemini-aistudio/veo-3",
                     "image_provider_t2i": "gemini-aistudio/nano-banana",
-                    "text_backend_script": "gemini-aistudio/gemini-2.5",
+                    "text_backend_simple": "gemini-aistudio/gemini-2.5",
+                    "text_backend_complex": "gemini-aistudio/gemini-2.5-pro",
+                    "default_text_backend": "gemini-aistudio/gemini-2.5",
                     "default_duration": 8,
                 },
             )
@@ -955,8 +957,46 @@ class TestProjectsRouter:
             data = fake_pm.project_data["m-1"]
             assert data["video_backend"] == "gemini-aistudio/veo-3"
             assert data["image_provider_t2i"] == "gemini-aistudio/nano-banana"
-            assert data["text_backend_script"] == "gemini-aistudio/gemini-2.5"
+            assert data["text_backend_simple"] == "gemini-aistudio/gemini-2.5"
+            assert data["text_backend_complex"] == "gemini-aistudio/gemini-2.5-pro"
+            assert data["default_text_backend"] == "gemini-aistudio/gemini-2.5"
             assert data["default_duration"] == 8
+
+    def test_patch_text_tier_fields_set_and_clear(self, tmp_path, monkeypatch):
+        """项目级档位 / 默认模型三字段可设置；空值 = 清除、继承全局。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            updated = client.patch(
+                "/api/v1/projects/ready",
+                json={
+                    "text_backend_simple": "gemini-aistudio/gemini-3-flash-preview",
+                    "text_backend_complex": "gemini-aistudio/gemini-3.1-pro-preview",
+                    "default_text_backend": "gemini-aistudio/gemini-3-flash-preview",
+                },
+            )
+            assert updated.status_code == 200
+            data = fake_pm.project_data["ready"]
+            assert data["text_backend_simple"] == "gemini-aistudio/gemini-3-flash-preview"
+            assert data["text_backend_complex"] == "gemini-aistudio/gemini-3.1-pro-preview"
+            assert data["default_text_backend"] == "gemini-aistudio/gemini-3-flash-preview"
+
+            cleared = client.patch(
+                "/api/v1/projects/ready",
+                json={"text_backend_simple": "", "text_backend_complex": "", "default_text_backend": ""},
+            )
+            assert cleared.status_code == 200
+            data = fake_pm.project_data["ready"]
+            assert "text_backend_simple" not in data
+            assert "text_backend_complex" not in data
+            assert "default_text_backend" not in data
+
+            # 非法 backend 值被 400 拒绝
+            rejected = client.patch(
+                "/api/v1/projects/ready",
+                json={"text_backend_complex": "no-slash"},
+            )
+            assert rejected.status_code == 400
 
     def test_create_project_rejects_legacy_image_backend(self, tmp_path, monkeypatch):
         """退役的 image_backend 字段在写路径被直接 400 拒绝，避免静默错配（应改用 image_provider_t2i/i2i）。"""

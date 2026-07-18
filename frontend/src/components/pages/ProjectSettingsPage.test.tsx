@@ -13,9 +13,9 @@ const FAKE_CONFIG = {
   settings: {
     default_video_backend: "",
     default_image_backend: "",
-    text_backend_script: "",
-    text_backend_overview: "",
-    text_backend_style: "",
+    default_text_backend: "",
+    text_backend_simple: "",
+    text_backend_complex: "",
   },
 };
 
@@ -31,9 +31,9 @@ const FAKE_CONFIG_WITH_DEFAULTS = {
     default_image_backend: "gemini/nano-banana",
     default_image_backend_t2i: "gemini/nano-banana",
     default_image_backend_i2i: "gemini/nano-banana",
-    text_backend_script: "gemini/g25",
-    text_backend_overview: "gemini/g25",
-    text_backend_style: "gemini/g25",
+    default_text_backend: "gemini/g25",
+    text_backend_simple: "gemini/g25",
+    text_backend_complex: "gemini/g25",
   },
 };
 

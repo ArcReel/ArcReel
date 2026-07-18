@@ -125,6 +125,32 @@ class TextTaskType(StrEnum):
     STYLE_ANALYSIS = "style"
 
 
+class TextTaskTier(StrEnum):
+    """文本任务档位。
+
+    调用点在代码里固定归档（见 TEXT_TASK_TIERS），用户只配置「每档用哪个文本 backend」，
+    不配置映射本身（docs/adr/0051）。
+    """
+
+    SIMPLE = "simple"
+    COMPLEX = "complex"
+
+
+# TextTaskType → 档位的唯一映射。新增任务类型必须在此显式归档，
+# 缺档在模块导入时即失败（另有穷举测试兜底）。
+TEXT_TASK_TIERS: dict[TextTaskType, TextTaskTier] = {
+    TextTaskType.SCRIPT: TextTaskTier.COMPLEX,
+    TextTaskType.OVERVIEW: TextTaskTier.SIMPLE,
+    TextTaskType.STYLE_ANALYSIS: TextTaskTier.SIMPLE,
+}
+
+if _missing := set(TextTaskType) - set(TEXT_TASK_TIERS):
+    raise RuntimeError(f"TextTaskType 成员未归档到 TEXT_TASK_TIERS: {sorted(m.value for m in _missing)}")
+
+# 需要图像输入（vision）能力的任务。解析出的模型不支持 vision 时直接报错，不静默换模型。
+VISION_REQUIRED_TASKS: frozenset[TextTaskType] = frozenset({TextTaskType.STYLE_ANALYSIS})
+
+
 @dataclass
 class ImageInput:
     """图片输入（用于 vision）。"""
@@ -227,7 +253,7 @@ def structured_fallback_reason(text: str, response_schema: dict | type | None, *
     （用于日志）；None 表示原生输出可直接采用。两类触发场景：
 
     1. 返回非 JSON：供应商静默忽略结构化输出参数，吐出纯文本/markdown。
-    2. 返回违反 schema 的合法 JSON：供应商接受结构化输出参数却不真正强制 schema（国内中转 /
+    2. 返回违反 schema 的合法 JSON：供应商接受结构化输出参数却不真正强制 schema（代理网关 /
        非原厂模型常见），枚举值非法或缺必填字段。此类违例 JSON 若直接放行，会一路漏到下游
        Pydantic 校验或渲染处才抛裸 ValidationError。
 

@@ -99,8 +99,20 @@ def _write_ad_project(tmp_path: Path) -> Path:
     return proj_dir
 
 
-def _wire_executor(proj_dir: Path, monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """挂上 fake pm + fake generator，locked_script 写回磁盘以便断言 finalize 结果。"""
+def _wire_executor(
+    proj_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    max_refs: int | None = None,
+    max_duration: int | None = None,
+    supported_durations: tuple[int, ...] = (),
+) -> MagicMock:
+    """挂上 fake pm + fake generator，locked_script 写回磁盘以便断言 finalize 结果。
+
+    generator 与 video lane 值（backend 身份、能力上限、resolution）统一包成
+    GenerationContext，替换 `resolve_generation_context` 单点——executor 不再触碰
+    MediaGenerator 私有属性、不再自行解析 caps。
+    """
     from server.services import reference_video_tasks as rvt
 
     fake_pm = MagicMock()
@@ -137,15 +149,26 @@ def _wire_executor(proj_dir: Path, monkeypatch: pytest.MonkeyPatch) -> MagicMock
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-06-12T10:00:00"}]}
-    fake_backend = MagicMock()
-    fake_backend.name = "ark"
-    fake_backend.model = "seedance"
-    fake_generator._video_backend = fake_backend
 
-    async def _fake_get_media_generator(*_a, **_kw):
-        return fake_generator
+    from lib.config.resolver import ProviderModel
+    from server.services.generation_context import GenerationContext, VideoLaneResult
 
-    monkeypatch.setattr(rvt, "get_media_generator", _fake_get_media_generator)
+    lane = VideoLaneResult(
+        provider_model=ProviderModel(provider_id="ark", model_id="seedance"),
+        backend_name="ark",
+        backend_model="seedance",
+        resolution=None,
+        resolution_or_fallback="1080p",
+        supported_durations=supported_durations,
+        max_duration=max_duration,
+        max_reference_images=max_refs,
+    )
+    ctx = GenerationContext(generator=fake_generator, video_lane=lane)
+
+    async def _fake_resolve(*_a, **_kw):
+        return ctx
+
+    monkeypatch.setattr(rvt, "resolve_generation_context", _fake_resolve)
 
     async def _fake_extract(*_a, **_k):
         return True
@@ -262,16 +285,7 @@ async def test_ad_reference_clamp_keeps_product_sheets_alive(tmp_path: Path, mon
     ]
     (proj_dir / "scripts" / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-    fake_generator = _wire_executor(proj_dir, monkeypatch)
-
-    from server.services import reference_video_tasks as rvt_mod
-
-    async def _fake_caps(_project):
-        return {"model": "seedance", "max_reference_images": 3, "max_duration": None, "supported_durations": []}
-
-    fake_resolver = MagicMock()
-    fake_resolver.video_capabilities_for_project = AsyncMock(side_effect=_fake_caps)
-    monkeypatch.setattr(rvt_mod, "ConfigResolver", lambda *_a, **_kw: fake_resolver)
+    fake_generator = _wire_executor(proj_dir, monkeypatch, max_refs=3)
 
     result = await rvt.execute_reference_video_task(
         "ad-demo",

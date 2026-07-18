@@ -102,6 +102,11 @@ class SystemSettingRepository:
             self.session.add(SystemSetting(key=key, value=value))
         await self.session.flush()
 
+    async def delete(self, key: str) -> None:
+        stmt = delete(SystemSetting).where(SystemSetting.key == key)
+        await self.session.execute(stmt)
+        await self.session.flush()
+
     async def get(self, key: str, default: str = "") -> str:
         stmt = select(SystemSetting.value).where(SystemSetting.key == key)
         result = await self.session.execute(stmt)

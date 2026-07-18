@@ -35,12 +35,26 @@ def _drama_step1() -> dict:
     }
 
 
-def _client(monkeypatch, tmp_path: Path) -> tuple[TestClient, ProjectManager]:
+def _rv_step1() -> dict:
+    return {
+        "units": [
+            {
+                "unit_id": "E1U01",
+                "shots": [{"duration": 4, "text": "@[阿离] 立于屋檐下。"}],
+                "references": [{"type": "character", "name": "阿离"}],
+            }
+        ],
+    }
+
+
+def _client(monkeypatch, tmp_path: Path, *, generation_mode: str | None = None) -> tuple[TestClient, ProjectManager]:
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "drama")
     pm.add_character("demo", "阿离", "少女")
     pm.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
+    if generation_mode is not None:
+        pm.update_project("demo", lambda p: p.__setitem__("generation_mode", generation_mode))
 
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: pm)
 
@@ -54,6 +68,12 @@ def _write_step1(pm: ProjectManager, content: dict) -> None:
     drafts = pm.get_project_path("demo") / "drafts" / "episode_1"
     drafts.mkdir(parents=True, exist_ok=True)
     atomic_write_json(drafts / "step1_normalized_script.json", content)
+
+
+def _write_rv_step1(pm: ProjectManager, content: dict) -> None:
+    drafts = pm.get_project_path("demo") / "drafts" / "episode_1"
+    drafts.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(drafts / "step1_reference_units.json", content)
 
 
 class TestScriptReviewRouter:
@@ -124,3 +144,33 @@ class TestScriptReviewRouter:
         with client:
             got = client.get("/api/v1/projects/demo/episodes/99/script-review")
             assert got.status_code == 404
+
+
+class TestReferenceVideoRouter:
+    def test_full_gate_flow(self, tmp_path, monkeypatch):
+        """rv 走同一 HTTP gate：结构化 units 可读、可编辑、web 确认放行 step2（与 web 确认等价）。"""
+        from lib import script_review
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+
+            assert client.get(base).json()["status"] == "no_step1"
+
+            _write_rv_step1(pm, _rv_step1())
+            body = client.get(base).json()
+            assert body["status"] == "pending_review"
+            assert body["content"]["units"][0]["unit_id"] == "E1U01"
+            assert script_review.gate_blocks_step2(pm.get_project_path("demo"), pm.load_project("demo"), 1) is True
+
+            # 编辑 shot 文本 → 重新待审
+            edited = _rv_step1()
+            edited["units"][0]["shots"][0]["text"] = "@[阿离] 转身离去。"
+            put = client.put(f"{base}/content", json=edited)
+            assert put.status_code == 200
+            assert put.json()["status"] == "pending_review"
+
+            confirmed = client.post(f"{base}/confirm")
+            assert confirmed.status_code == 200
+            assert confirmed.json()["status"] == "confirmed"
+            assert script_review.gate_blocks_step2(pm.get_project_path("demo"), pm.load_project("demo"), 1) is False

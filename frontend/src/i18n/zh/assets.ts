@@ -47,6 +47,7 @@ export default {
   "add_to_library": "加入资产库",
   "add_to_library_short": "入库",
   "add_to_library_success": "「{{name}}」已加入资产库",
+  "add_to_library_busy_hint": "生成或编辑进行中，暂无法加入资产库",
   "upload_sheet_short": "上传",
   "edit": "编辑",
   "delete": "删除",

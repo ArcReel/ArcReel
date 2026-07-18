@@ -21,6 +21,12 @@ export interface TaskItem {
   task_type: string;
   media_type: TaskMediaType;
   resource_id: string;
+  /**
+   * 资源种类。仅 image_edit 任务写入（character/scene/prop/product/storyboard）——
+   * 其余任务类型 task_type 本身已按资源种类区分，故为 null。占用匹配据此把编辑任务
+   * 归入对应资源槽（见 tasks-store 的 taskResourceKind）。
+   */
+  resource_type: string | null;
   script_file: string | null;
   /** Parsed from payload_json in the SQLite row */
   payload: Record<string, unknown>;

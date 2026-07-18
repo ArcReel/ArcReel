@@ -17,7 +17,7 @@ ArcReel 整条 pipeline 中最值得重点优化的一环。
 2. 已完成 Step 1 预处理（按 `effective_mode` 选择一种中间文件）：
    - narration（图生视频 / 宫格生视频 + 说书）：`drafts/episode_N/step1_segments.json`（结构化片段：逐字 novel_text + 时长 + segment_break + 出场角色 / 场景 / 道具）
    - drama（图生视频 / 宫格生视频 + 剧集动画）：`drafts/episode_N/step1_normalized_script.json`（结构化内容；step1 已定稿口播 utterances / 原文锚 source_text / 视觉改编描述，step2 透传 + 补视觉，见 ADR 0041）
-   - reference_video（参考生视频）：`drafts/episode_N/step1_reference_units.md`
+   - reference_video（参考生视频）：`drafts/episode_N/step1_reference_units.json`
    - **ad（广告/短片）例外**：不需要任何 step1 中间文件——创作输入是 `project.json` 的
      `brief` + `products`（含 selling_points）+ `target_duration`，prompt 由后端按审定的
      带货八段框架配比表构建（`products` 为空自动分流通用短片 prompt）

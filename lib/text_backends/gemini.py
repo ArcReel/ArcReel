@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "gemini-3-flash-preview"
 
 # prompt 注入降级的最大调用次数：首次注入 schema + 一次带校验错误反馈的重试。
-# 每次都是计费调用；schema 注入后仍两连败的模型/中转，再多重试收益趋零。
+# 每次都是计费调用；schema 注入后仍两连败的模型/代理网关，再多重试收益趋零。
 _FALLBACK_MAX_ATTEMPTS = 2
 
 
@@ -43,11 +43,14 @@ _INSTANCE_KEYWORDS = frozenset({"const", "enum", "default", "examples"})
 
 
 def _const_to_enum(node: object, *, in_subschema_map: bool = False) -> object:
-    """把 schema 里「值为标量」的 ``const: X`` 归一为 ``enum: [X]``（语义等价）。
+    """归一 schema 的枚举形约束为 ``responseSchema`` 通道可表达的形态。
 
-    单值 ``Literal`` 在 ``model_json_schema()`` 里渲染为 ``const``，而 ``const`` 不在 Gemini
-    ``response_json_schema`` 的受支持特性内（``enum`` 在）。归一后单值约束落到受支持的 ``enum``，
-    保留生成层硬约束。
+    两步归一（同一次位置感知遍历完成）：
+    1. 「值为标量」的 ``const: X`` → ``enum: [X]``（语义等价）。单值 ``Literal`` 在
+       ``model_json_schema()`` 里渲染为 ``const``，而 ``types.Schema`` 无 ``const`` 字段。
+    2. 含非字符串成员的 ``enum`` → 字符串枚举 + ``type: string``。``types.Schema`` 的
+       ``enum`` 仅支持字符串（proto 定义如此），整数时长枚举 ``[4,6,8]`` 转为 ``["4","6","8"]``
+       后精确集合的约束解码依然成立；解析侧 ``_duration_literal`` 的机械强转恢复 int。
 
     ``const`` 出现的位置有三种，须区分对待（这是正确性的不可约最小状态机）：
     - **schema 关键字**：归一（仅标量，对齐本仓库唯一的 const 形态——单值时长 Literal）；
@@ -70,17 +73,21 @@ def _const_to_enum(node: object, *, in_subschema_map: bool = False) -> object:
             out[k] = _const_to_enum(v, in_subschema_map=k in _SUBSCHEMA_MAP_KEYS)
     if "const" in out and (out["const"] is None or isinstance(out["const"], (str, int, float, bool))):
         out["enum"] = [out.pop("const")]
+    if "enum" in out and isinstance(out["enum"], list) and any(not isinstance(x, str) for x in out["enum"]):
+        out["enum"] = [str(x) for x in out["enum"]]
+        out["type"] = "string"
     return out
 
 
-def _to_response_json_schema(schema: dict | type) -> dict:
-    """把 response_schema 统一转成 Gemini ``response_json_schema`` 可消费的 JSON Schema dict。
+def _to_response_schema(schema: dict | type) -> dict:
+    """把 response_schema 统一转成 Gemini ``response_schema``（``types.Schema``）可消费的 dict。
 
-    Gemini 有两条结构化输出通道：``response_schema``（``types.Schema``，OpenAPI 子集，``enum``
-    仅支持字符串）与 ``response_json_schema``（标准 JSON Schema，``enum`` 支持字符串与数字）。
-    ``build_episode_script_model`` 把 ``duration_seconds`` 收紧为 ``Literal[*supported_durations]``
-    的整数 enum，走前者会在 SDK schema 转换时抛 "Input should be a valid string"，故统一走后者：
-    先 ``resolve_schema`` 内联 ``$ref``，再把单值 ``const`` 归一为 ``enum``。
+    Gemini 有两条结构化输出通道：``response_schema``（wire 字段 ``responseSchema``，OpenAPI 子集，
+    上线已久，代理网关普遍能透传给真实上游执行约束解码）与 ``response_json_schema``（wire 字段
+    ``responseJsonSchema``，较新，多数代理网关的请求解析结构体不认识、会静默丢弃——丢弃后上游按
+    无 schema 的纯 JSON 模式自由生成，枚举/必填约束全部失效，线上大面积复现）。统一走前者：
+    先 ``resolve_schema`` 内联 ``$ref``，再经 ``_const_to_enum`` 把 ``const`` 与非字符串 ``enum``
+    归一为 ``types.Schema`` 可表达的字符串枚举。
     """
     normalized = _const_to_enum(resolve_schema(schema))
     assert isinstance(normalized, dict)  # resolve_schema 必返回 dict
@@ -169,7 +176,7 @@ class GeminiTextBackend:
         config: dict = {}
         if response_schema:
             config["response_mime_type"] = "application/json"
-            config["response_json_schema"] = _to_response_json_schema(response_schema)
+            config["response_schema"] = _to_response_schema(response_schema)
         if system_prompt:
             config["system_instruction"] = system_prompt
         if max_output_tokens is not None:
@@ -202,13 +209,13 @@ class GeminiTextBackend:
         native = await self._generate_native(request, structured=bool(request.response_schema))
 
         if request.response_schema:
-            # 成功路径复验：HTTP 200 后校验返回是否真满足 schema。中转/代理可能静默忽略
-            # response_json_schema 返回散文或违例 JSON，直接放行会一路漏到下游 Pydantic
+            # 成功路径复验：HTTP 200 后校验返回是否真满足 schema。代理网关可能静默忽略
+            # response_schema 返回散文或违例 JSON，直接放行会一路漏到下游 Pydantic
             # 校验才抛裸 ValidationError。Gemini 原生请求无 strict 声明，复验用 strict=False，
             # 容忍可强转值，避免对供应商已接受的合法响应触发多余的计费降级调用。
             fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
             if fallback_reason:
-                logger.warning("原生 response_json_schema %s，降级到 prompt 注入路径", fallback_reason)
+                logger.warning("原生 response_schema %s，降级到 prompt 注入路径", fallback_reason)
                 result = await self._prompt_json_fallback(request)
                 # 这次原生 200 调用已被计费，把它的 token 并入降级结果，否则会系统性漏记。
                 # 仅在至少一侧有计量时相加；两侧皆 None（未追踪）保持 None，不塌成字面 0 token。
@@ -277,9 +284,9 @@ class GeminiTextBackend:
     async def _prompt_json_fallback(self, request: TextGenerationRequest) -> TextGenerationResult:
         """Prompt 注入降级：schema 写进 prompt 重发纯文本调用，剥栅栏后校验，失败带反馈重试。
 
-        触发场景是中转/代理静默忽略 wire 级结构化参数（response_json_schema），此时任何
+        触发场景是代理网关静默忽略 wire 级结构化参数（responseSchema），此时任何
         wire 级通道（含 instructor genai 集成的 JSON/TOOLS 模式，同样落在 response_schema /
-        function calling 参数上）都会被同一中转忽略，把 schema 约束写进 prompt 是唯一不依赖
+        function calling 参数上）都会被同一代理网关忽略，把 schema 约束写进 prompt 是唯一不依赖
         wire 参数的手段。校验通过后返回规范化 JSON（model_dump_json），下游解析必定成功。
         """
         assert request.response_schema is not None  # 调用方（generate 复验分支）保证

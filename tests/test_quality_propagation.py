@@ -4,8 +4,7 @@
 1. ImageGenerationResult 接受并存储 quality 字段
 2. ImageGenerationResult quality 默认为 None
 3. OpenAIImageBackend._save_and_return 在结果中填充 quality
-4. UsageTracker.finish_call 透传 quality 到 UsageRepository
-5. UsageRepository.finish_call 透传 quality 到 CostCalculator
+4. UsageRepository.finish_call 透传 quality 到 CostCalculator
 """
 
 from __future__ import annotations
@@ -141,62 +140,7 @@ class TestOpenAIImageBackendQuality:
 
 
 # ---------------------------------------------------------------------------
-# 4: UsageTracker.finish_call 透传 quality
-# ---------------------------------------------------------------------------
-
-
-class TestUsageTrackerQualityPropagation:
-    async def test_finish_call_passes_quality_to_repo(self):
-        """UsageTracker.finish_call 应将 quality 传递给 UsageRepository.finish_call。"""
-        mock_repo = AsyncMock()
-        mock_session = AsyncMock()
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=False)
-
-        with (
-            patch("lib.usage_tracker.UsageRepository") as MockRepo,
-            patch("lib.usage_tracker.safe_session_factory", return_value=mock_session),
-        ):
-            MockRepo.return_value = mock_repo
-
-            from lib.usage_tracker import UsageTracker
-
-            tracker = UsageTracker()
-            await tracker.finish_call(
-                call_id=42,
-                status="success",
-                output_path="/tmp/img.png",
-                quality="high",
-            )
-
-        mock_repo.finish_call.assert_awaited_once()
-        call_kwargs = mock_repo.finish_call.call_args[1]
-        assert call_kwargs.get("quality") == "high"
-
-    async def test_finish_call_quality_defaults_none(self):
-        """未传 quality 时，UsageTracker 应传 quality=None 给 repo。"""
-        mock_repo = AsyncMock()
-        mock_session = AsyncMock()
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=False)
-
-        with (
-            patch("lib.usage_tracker.UsageRepository") as MockRepo,
-            patch("lib.usage_tracker.safe_session_factory", return_value=mock_session),
-        ):
-            MockRepo.return_value = mock_repo
-
-            from lib.usage_tracker import UsageTracker
-
-            tracker = UsageTracker()
-            await tracker.finish_call(call_id=1, status="success")
-
-        call_kwargs = mock_repo.finish_call.call_args[1]
-        assert call_kwargs.get("quality") is None
-
-
-# ---------------------------------------------------------------------------
-# 5: UsageRepository.finish_call 透传 quality 到 CostCalculator
+# 4: UsageRepository.finish_call 透传 quality 到 CostCalculator
 # ---------------------------------------------------------------------------
 
 
@@ -228,18 +172,19 @@ class TestUsageRepositoryQualityToCostCalculator:
         with patch("lib.db.repositories.usage_repo.cost_calculator") as mock_calc:
             mock_calc.calculate_cost.return_value = (0.02, "USD")
 
-            from lib.db.repositories.usage_repo import UsageRepository
+            from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 
             repo = UsageRepository(mock_session)
             await repo.finish_call(
                 1,
                 status="success",
-                quality="high",
+                settlement=SettlementInput(quality="high"),
             )
 
         mock_calc.calculate_cost.assert_called_once()
-        call_kwargs = mock_calc.calculate_cost.call_args[1]
-        assert call_kwargs.get("quality") == "high"
+        # calculate_cost(provider, params) —— quality 落在位置参数 params 上
+        params = mock_calc.calculate_cost.call_args[0][1]
+        assert params.quality == "high"
 
     async def test_quality_none_when_not_provided(self):
         """未传 quality 时，CostCalculator 应收到 quality=None。"""
@@ -268,10 +213,10 @@ class TestUsageRepositoryQualityToCostCalculator:
         with patch("lib.db.repositories.usage_repo.cost_calculator") as mock_calc:
             mock_calc.calculate_cost.return_value = (0.02, "USD")
 
-            from lib.db.repositories.usage_repo import UsageRepository
+            from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 
             repo = UsageRepository(mock_session)
-            await repo.finish_call(1, status="success")
+            await repo.finish_call(1, status="success", settlement=SettlementInput())
 
-        call_kwargs = mock_calc.calculate_cost.call_args[1]
-        assert call_kwargs.get("quality") is None
+        params = mock_calc.calculate_cost.call_args[0][1]
+        assert params.quality is None

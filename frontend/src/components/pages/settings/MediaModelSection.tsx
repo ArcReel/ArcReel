@@ -8,6 +8,7 @@ import type { SystemConfigSettings, SystemConfigOptions, SystemConfigPatch } fro
 import type { CustomProviderInfo } from "@/types/custom-provider";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { ImageModelDualSelect } from "@/components/shared/ImageModelDualSelect";
+import { TextTierFields } from "@/components/shared/TextTierFields";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
@@ -46,16 +47,6 @@ function SectionCard({ kicker, title, description, children }: CardProps) {
 
 export function MediaModelSection() {
   const { t } = useTranslation("dashboard");
-
-  const TEXT_MODEL_FIELDS = useMemo(
-    () =>
-      [
-        ["text_backend_script", t("script_generation")],
-        ["text_backend_overview", t("overview_generation")],
-        ["text_backend_style", t("style_analysis")],
-      ] as const,
-    [t],
-  );
 
   const [settings, setSettings] = useState<SystemConfigSettings | null>(null);
   const [options, setOptions] = useState<SystemConfigOptions | null>(null);
@@ -135,6 +126,13 @@ export function MediaModelSection() {
   const currentNarrationVoice = draft.narration_voice ?? settings.narration_voice ?? "";
   const currentNarrationSpeed =
     "narration_speed" in draft ? draft.narration_speed : settings.narration_speed;
+
+  // 全局文本档位（docs/adr/0051）：全局是解析链基准，各档留空即自动推断（无继承来源）。
+  const textTierValue = {
+    default: draft.default_text_backend ?? settings.default_text_backend ?? "",
+    simple: draft.text_backend_simple ?? settings.text_backend_simple ?? "",
+    complex: draft.text_backend_complex ?? settings.text_backend_complex ?? "",
+  };
 
   const emptyHint = (msg: string) => (
     <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-3 py-2.5 text-[12px] text-text-3">
@@ -230,24 +228,21 @@ export function MediaModelSection() {
       {/* Text */}
       <SectionCard kicker="Text Channel" title={t("text_models")} description={t("text_models_desc")}>
         {textBackends.length > 0 ? (
-          <div className="space-y-3.5">
-            {TEXT_MODEL_FIELDS.map(([key, label]) => (
-              <div key={key}>
-                <div className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
-                  {label}
-                </div>
-                <ProviderModelSelect
-                  value={draft[key] ?? settings[key] ?? ""}
-                  options={textBackends}
-                  providerNames={allProviderNames}
-                  onChange={(v) => setDraft((prev) => ({ ...prev, [key]: v }))}
-                  allowDefault
-                  defaultHint={t("auto")}
-                  aria-label={label}
-                />
-              </div>
-            ))}
-          </div>
+          <TextTierFields
+            value={textTierValue}
+            onChange={(next) =>
+              setDraft((prev) => ({
+                ...prev,
+                default_text_backend: next.default,
+                text_backend_simple: next.simple,
+                text_backend_complex: next.complex,
+              }))
+            }
+            options={textBackends}
+            providerNames={allProviderNames}
+            defaultLabel={t("auto_select")}
+            hints={{ default: t("auto"), simple: t("auto"), complex: t("auto") }}
+          />
         ) : (
           emptyHint(t("no_text_providers_hint"))
         )}

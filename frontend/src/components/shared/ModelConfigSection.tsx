@@ -5,6 +5,7 @@ import { lookupSupportedDurations, lookupResolutions } from "@/utils/provider-mo
 import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
 import { ImageModelDualSelect } from "./ImageModelDualSelect";
+import { TextTierFields } from "./TextTierFields";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { ProviderInfo } from "@/types/provider";
@@ -16,9 +17,9 @@ export interface ModelConfigValue {
   videoBackend: string;
   imageBackendT2I: string;
   imageBackendI2I: string;
-  textBackendScript: string;
-  textBackendOverview: string;
-  textBackendStyle: string;
+  textBackendDefault: string;
+  textBackendSimple: string;
+  textBackendComplex: string;
   defaultDuration: number | null;
   videoResolution: string | null;
   imageResolution: string | null;
@@ -39,9 +40,9 @@ export interface ModelConfigSectionProps {
     video: string;
     imageT2I: string;
     imageI2I: string;
-    textScript: string;
-    textOverview: string;
-    textStyle: string;
+    textDefault: string;
+    textSimple: string;
+    textComplex: string;
   };
   /**
    * 项目级「视频生成音频」覆盖（null=跟随全局，true/false=显式覆盖）。
@@ -296,74 +297,33 @@ export function ModelConfigSection({
       )}
 
       {showText && (
-        <ChannelCard kicker="Text Channel" title={t("model_text_script")}>
-          <div className="space-y-3.5">
-            {/* Script */}
-            <div>
-              <div className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
-                {t("model_text_script")}
-              </div>
-              <ProviderModelSelect
-                value={value.textBackendScript}
-                options={options.textBackends}
-                providerNames={options.providerNames}
-                onChange={(next) => onChange({ ...value, textBackendScript: next })}
-                allowDefault
-                defaultLabel={t("use_global_default")}
-                defaultHint={
-                  globalDefaults.textScript
-                    ? t("current_global_default", { value: globalDefaults.textScript })
-                    : undefined
-                }
-                fallbackValue={globalDefaults.textScript || undefined}
-                aria-label={t("model_text_script")}
-              />
-            </div>
-
-            {/* Overview */}
-            <div>
-              <div className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
-                {t("model_text_overview")}
-              </div>
-              <ProviderModelSelect
-                value={value.textBackendOverview}
-                options={options.textBackends}
-                providerNames={options.providerNames}
-                onChange={(next) => onChange({ ...value, textBackendOverview: next })}
-                allowDefault
-                defaultLabel={t("use_global_default")}
-                defaultHint={
-                  globalDefaults.textOverview
-                    ? t("current_global_default", { value: globalDefaults.textOverview })
-                    : undefined
-                }
-                fallbackValue={globalDefaults.textOverview || undefined}
-                aria-label={t("model_text_overview")}
-              />
-            </div>
-
-            {/* Style */}
-            <div>
-              <div className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4">
-                {t("model_text_style")}
-              </div>
-              <ProviderModelSelect
-                value={value.textBackendStyle}
-                options={options.textBackends}
-                providerNames={options.providerNames}
-                onChange={(next) => onChange({ ...value, textBackendStyle: next })}
-                allowDefault
-                defaultLabel={t("use_global_default")}
-                defaultHint={
-                  globalDefaults.textStyle
-                    ? t("current_global_default", { value: globalDefaults.textStyle })
-                    : undefined
-                }
-                fallbackValue={globalDefaults.textStyle || undefined}
-                aria-label={t("model_text_style")}
-              />
-            </div>
-          </div>
+        <ChannelCard kicker="Text Channel" title={t("model_text")}>
+          <TextTierFields
+            value={{
+              default: value.textBackendDefault,
+              simple: value.textBackendSimple,
+              complex: value.textBackendComplex,
+            }}
+            onChange={(next) =>
+              onChange({
+                ...value,
+                textBackendDefault: next.default,
+                textBackendSimple: next.simple,
+                textBackendComplex: next.complex,
+              })
+            }
+            options={options.textBackends}
+            providerNames={options.providerNames}
+            defaultLabel={t("use_global_default")}
+            fallbacks={{
+              // 项目优先解析链（docs/adr/0051）：档位留空时的实际生效值。
+              // default 档回退全局默认模型；simple/complex 先看本表单的项目默认模型，
+              // 再全局对应档，最后全局默认模型。
+              default: globalDefaults.textDefault,
+              simple: value.textBackendDefault || globalDefaults.textSimple || globalDefaults.textDefault,
+              complex: value.textBackendDefault || globalDefaults.textComplex || globalDefaults.textDefault,
+            }}
+          />
         </ChannelCard>
       )}
     </div>

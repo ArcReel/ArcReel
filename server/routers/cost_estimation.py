@@ -7,18 +7,15 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from lib.app_data_dir import app_data_dir
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.i18n import Translator
-from lib.project_manager import ProjectManager
-from lib.usage_tracker import UsageTracker
+from lib.project_manager import get_project_manager
 from server.auth import CurrentUser
 from server.services.cost_estimation import CostEstimationService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-pm = ProjectManager(app_data_dir())
 
 
 @router.get("/projects/{project_name}/cost-estimate")
@@ -26,6 +23,7 @@ async def get_cost_estimate(project_name: str, _user: CurrentUser, _t: Translato
     """获取项目费用估算（预估 + 实际）。"""
 
     def _sync():
+        pm = get_project_manager()
         if not pm.project_exists(project_name):
             raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
 
@@ -49,8 +47,7 @@ async def get_cost_estimate(project_name: str, _user: CurrentUser, _t: Translato
     project_data, scripts = await asyncio.to_thread(_sync)
 
     resolver = ConfigResolver(async_session_factory)
-    tracker = UsageTracker(session_factory=async_session_factory)
-    service = CostEstimationService(resolver, tracker)
+    service = CostEstimationService(resolver, async_session_factory)
 
     try:
         return await service.compute(project_data, scripts, project_name=project_name)

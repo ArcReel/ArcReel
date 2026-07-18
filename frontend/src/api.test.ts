@@ -1,6 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { API, ConflictError } from "@/api";
-import type { TaskItem } from "@/types";
 
 type JsonResponseOptions = {
   ok?: boolean;
@@ -36,52 +35,6 @@ function mockResponse(options: JsonResponseOptions = {}): Response {
     text: vi.fn().mockResolvedValue(textData),
     blob: vi.fn().mockResolvedValue(blobData),
   } as unknown as Response;
-}
-
-function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
-  return {
-    task_id: "task-1",
-    project_name: "demo",
-    task_type: "storyboard",
-    media_type: "image",
-    resource_id: "segment-1",
-    script_file: null,
-    payload: {},
-    status: "queued",
-    result: null,
-    error_message: null,
-    cancelled_by: null,
-    provider_id: null,
-    provider_job_id: null,
-    source: "webui",
-    queued_at: "2026-02-01T00:00:00Z",
-    started_at: null,
-    finished_at: null,
-    updated_at: "2026-02-01T00:00:00Z",
-    ...overrides,
-  };
-}
-
-class MockEventSource {
-  onerror: ((event: Event) => void) | null = null;
-  close = vi.fn();
-  private readonly listeners = new Map<string, Array<(event: Event) => void>>();
-
-  constructor(public readonly url: string) {}
-
-  addEventListener(type: string, cb: (event: Event) => void): void {
-    const list = this.listeners.get(type) ?? [];
-    list.push(cb);
-    this.listeners.set(type, list);
-  }
-
-  emit(type: string, data: string): void {
-    const event = { data } as MessageEvent;
-    const listeners = this.listeners.get(type) ?? [];
-    for (const listener of listeners) {
-      listener(event as unknown as Event);
-    }
-  }
 }
 
 describe("API", () => {
@@ -316,6 +269,51 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/generate/tts", {
         method: "POST",
         body: JSON.stringify({ script_file: "episode_1.json" }),
+      });
+    });
+
+    it("editImage posts instruction with singular resource_type; script_file null for non-storyboard", async () => {
+      const requestSpy = vi
+        .spyOn(API, "request")
+        .mockResolvedValue({ success: true, task_id: "t1", message: "ok" } as never);
+
+      await API.editImage("demo", {
+        resourceType: "character",
+        resourceId: "Hero",
+        instruction: "把头发改成红色",
+      });
+
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/edit/image", {
+        method: "POST",
+        body: JSON.stringify({
+          resource_type: "character",
+          resource_id: "Hero",
+          instruction: "把头发改成红色",
+          script_file: null,
+        }),
+      });
+    });
+
+    it("editImage forwards script_file for storyboard edits and encodes the project name", async () => {
+      const requestSpy = vi
+        .spyOn(API, "request")
+        .mockResolvedValue({ success: true, task_id: "t2", message: "ok" } as never);
+
+      await API.editImage("a b", {
+        resourceType: "storyboard",
+        resourceId: "E1S01",
+        instruction: "去掉背景路人",
+        scriptFile: "episode_1.json",
+      });
+
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/edit/image", {
+        method: "POST",
+        body: JSON.stringify({
+          resource_type: "storyboard",
+          resource_id: "E1S01",
+          instruction: "去掉背景路人",
+          script_file: "episode_1.json",
+        }),
       });
     });
 
@@ -850,77 +848,6 @@ describe("API", () => {
 
         await expect(API.downloadDiagnostics()).rejects.toThrow();
       });
-    });
-  });
-
-  describe("openTaskStream", () => {
-    it("builds stream URL, dispatches events and forwards onError", () => {
-      const instances: MockEventSource[] = [];
-      class EventSourceMock extends MockEventSource {
-        constructor(url: string) {
-          super(url);
-          instances.push(this);
-        }
-      }
-      vi.stubGlobal("EventSource", EventSourceMock as unknown as typeof EventSource);
-
-      const onSnapshot = vi.fn();
-      const onTask = vi.fn();
-      const onError = vi.fn();
-      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-
-      const source = API.openTaskStream({
-        projectName: "demo",
-        lastEventId: "42",
-        onSnapshot,
-        onTask,
-        onError,
-      });
-
-      expect(instances[0].url).toBe(
-        "/api/v1/tasks/stream?project_name=demo&last_event_id=42",
-      );
-
-      const es = instances[0];
-      es.emit(
-        "snapshot",
-        JSON.stringify({
-          tasks: [makeTask()],
-          stats: { queued: 1, running: 0, succeeded: 0, failed: 0, total: 1 },
-        }),
-      );
-      es.emit(
-        "task",
-        JSON.stringify({
-          action: "updated",
-          task: makeTask({ status: "running" }),
-          stats: { queued: 0, running: 1, succeeded: 0, failed: 0, total: 1 },
-        }),
-      );
-      es.emit("snapshot", "{invalid json");
-
-      expect(onSnapshot).toHaveBeenCalledTimes(1);
-      expect(onTask).toHaveBeenCalledTimes(1);
-      expect(consoleError).toHaveBeenCalled();
-
-      const errEvent = new Event("error");
-      es.onerror?.(errEvent);
-      expect(onError).toHaveBeenCalledWith(errEvent);
-      expect(source).toBe(es as unknown as EventSource);
-    });
-
-    it("ignores invalid lastEventId", () => {
-      const instances: MockEventSource[] = [];
-      class EventSourceMock extends MockEventSource {
-        constructor(url: string) {
-          super(url);
-          instances.push(this);
-        }
-      }
-      vi.stubGlobal("EventSource", EventSourceMock as unknown as typeof EventSource);
-
-      API.openTaskStream({ projectName: "demo", lastEventId: "0" });
-      expect(instances[0].url).toBe("/api/v1/tasks/stream?project_name=demo");
     });
   });
 

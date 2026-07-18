@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import generate
 
 
@@ -117,9 +118,12 @@ def _client(monkeypatch, fake_pm, fake_queue):
     monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
 
     app = FastAPI()
+    register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(generate.router, prefix="/api/v1")
-    return TestClient(app)
+    # raise_server_exceptions=False：500 由 app 级 Exception handler 生成响应后
+    # Starlette 会 re-raise，默认配置会把它抛进测试而非返回响应
+    return TestClient(app, raise_server_exceptions=False)
 
 
 class TestGenerateRouter:
@@ -244,6 +248,64 @@ class TestGenerateRouter:
                 or "kịch bản" in video.json()["detail"]
                 or "损坏" in video.json()["detail"]
             )
+            # 任务未入队
+            assert fake_queue.calls == []
+
+    def test_video_missing_script_fail_fast_404(self, tmp_path, monkeypatch):
+        """剧本文件缺失（FileNotFoundError）时,/generate/video 应 404 fail-fast,
+        而不是 silently 走 default storyboard 路径继续 enqueue —— 后者会让用户
+        先收到「提交成功」,worker 解析脚本时再确定失败,撕裂提交-执行预期。
+
+        本测试保 default `storyboards/scene_E1S01.png` 存在（旧宫格项目遗留场景），
+        验证即使 default 文件恰好存在，脚本缺失也不能被悄悄放过。
+        """
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        missing_script_path = project_path / "scripts" / "episode_1.json"
+
+        def _raise_missing(*args, **kwargs):
+            raise FileNotFoundError(f"剧本文件不存在: {missing_script_path}")
+
+        fake_pm.load_script = _raise_missing  # type: ignore[method-assign]
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            video = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={
+                    "script_file": "episode_1.json",
+                    "duration_seconds": 5,
+                    "prompt": "fail fast",
+                },
+            )
+            assert video.status_code == 404, video.text
+            assert str(missing_script_path) not in video.text
+            # 任务未入队
+            assert fake_queue.calls == []
+
+    def test_video_missing_segment_404(self, tmp_path, monkeypatch):
+        """segment_id 在脚本中根本不存在时,/generate/video 应 404,而不是
+        悄悄走 default storyboard 路径——即使 default 文件恰好存在(如与旧
+        数据撞名),也不能把不存在的 segment 当成校验通过而入队。
+        """
+        project_path = _prepare_files(tmp_path)
+        # default 路径恰好存在的场景：撞上一个不存在 segment 的默认文件名
+        (project_path / "storyboards" / "scene_E1S99.png").write_bytes(b"png")
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            video = client.post(
+                "/api/v1/projects/demo/generate/video/E1S99",
+                json={
+                    "script_file": "episode_1.json",
+                    "duration_seconds": 5,
+                    "prompt": "fail fast",
+                },
+            )
+            assert video.status_code == 404, video.text
             # 任务未入队
             assert fake_queue.calls == []
 
@@ -424,10 +486,10 @@ class TestGenerateRouter:
 class TestUnexpectedErrorMapsTo500:
     """未预期异常 → 通用 500 且不泄露内部异常细节。
 
-    每个端点 try 块内最早调用 get_project_manager()（storyboard/video/tts 在 _sync 内，
+    每个端点最早调用 get_project_manager()（storyboard/video/tts 在 _sync 内，
     character/scene/prop/product 经 _enqueue_asset_generation 的 _sync 内），将其 monkeypatch
-    成抛 RuntimeError。RuntimeError 绕过前置的 FileNotFoundError/HTTPException/ScriptEditError
-    处理器，落到 except Exception，断言 500 且哨兵串不出现在响应体。
+    成抛 RuntimeError。RuntimeError 绕过 FileNotFoundError/ScriptEditError 等专属处理器，
+    落到 app 级 Exception handler，断言 500 且哨兵串不出现在响应体。
     """
 
     def _client_with_leak(self, monkeypatch, sentinel: str) -> TestClient:
@@ -436,9 +498,10 @@ class TestUnexpectedErrorMapsTo500:
 
         monkeypatch.setattr(generate, "get_project_manager", _boom)
         app = FastAPI()
+        register_error_handlers(app)
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(generate.router, prefix="/api/v1")
-        return TestClient(app)
+        return TestClient(app, raise_server_exceptions=False)
 
     def test_storyboard_unexpected_error_maps_to_500(self, monkeypatch):
         client = self._client_with_leak(monkeypatch, "LEAK_storyboard")
@@ -574,3 +637,99 @@ class TestAdStoryboardRegeneration:
                 json={"script_file": "episode_1.json", "prompt": "产品特写"},
             )
             assert resp.status_code == 404
+
+
+class TestNoServerPathLeak:
+    """404/400/500 响应形状回归：detail 不得含服务器绝对路径片段。
+
+    lib 层 FileNotFoundError 的消息携带绝对路径（如 load_script 的
+    「剧本文件不存在: /abs/path」），app 级 handler 必须脱敏为通用 404 文案。
+    """
+
+    _PATH_SENTINELS = ("/Users", "/var", "/private", "\\Users")
+
+    def _assert_no_path(self, resp) -> None:
+        detail = resp.json()["detail"]
+        assert isinstance(detail, str) and detail
+        for sentinel in self._PATH_SENTINELS:
+            assert sentinel not in detail, f"detail 泄露路径片段 {sentinel!r}: {detail}"
+
+    def _client_project_missing(self, tmp_path, monkeypatch) -> TestClient:
+        """load_project 抛携带服务器绝对路径的 FileNotFoundError（各端点第一步都会触发）。"""
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+
+        def _raise(*args, **kwargs):
+            raise FileNotFoundError(f"项目元数据文件不存在: {tmp_path / 'projects' / 'demo' / 'project.json'}")
+
+        fake_pm.load_project = _raise  # type: ignore[method-assign]
+        return _client(monkeypatch, fake_pm, _FakeQueue())
+
+    def test_file_not_found_404_hides_path_for_all_endpoints(self, tmp_path, monkeypatch):
+        client = self._client_project_missing(tmp_path, monkeypatch)
+        requests = [
+            ("/api/v1/projects/demo/generate/storyboard/E1S01", {"script_file": "episode_1.json", "prompt": "x"}),
+            ("/api/v1/projects/demo/generate/video/E1S01", {"script_file": "episode_1.json", "prompt": "x"}),
+            ("/api/v1/projects/demo/generate/tts/E1S01", {"script_file": "episode_1.json"}),
+            ("/api/v1/projects/demo/generate/tts", {"script_file": "episode_1.json"}),
+            ("/api/v1/projects/demo/generate/character/Alice", {"prompt": "x"}),
+            ("/api/v1/projects/demo/generate/scene/祠堂", {"prompt": "x"}),
+            ("/api/v1/projects/demo/generate/prop/玉佩", {"prompt": "x"}),
+            ("/api/v1/projects/demo/generate/product/保温杯", {"prompt": "x"}),
+        ]
+        with client:
+            for url, payload in requests:
+                resp = client.post(url, json=payload)
+                assert resp.status_code == 404, f"{url}: {resp.status_code} {resp.text}"
+                assert "/Users" not in resp.text, f"{url} 泄露路径: {resp.text}"
+                self._assert_no_path(resp)
+
+    def test_script_file_not_found_404_hides_path(self, tmp_path, monkeypatch):
+        """load_script 的 FileNotFoundError 是原始泄漏源（消息含绝对路径）。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+
+        def _raise(*args, **kwargs):
+            raise FileNotFoundError(f"剧本文件不存在: {project_path / 'scripts' / 'episode_1.json'}")
+
+        fake_pm.load_script = _raise  # type: ignore[method-assign]
+        client = _client(monkeypatch, fake_pm, _FakeQueue())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+            assert resp.status_code == 404, resp.text
+            self._assert_no_path(resp)
+
+    def test_bad_prompt_400_shape(self, tmp_path, monkeypatch):
+        """TaskSpecValidationError → app 级 handler 翻译为 400，无路径片段。"""
+        project_path = _prepare_files(tmp_path)
+        client = _client(monkeypatch, _FakePM(project_path), _FakeQueue())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S02",
+                json={"script_file": "episode_1.json", "prompt": ""},
+            )
+            assert resp.status_code == 400, resp.text
+            self._assert_no_path(resp)
+
+    def test_unexpected_error_500_hides_path(self, tmp_path, monkeypatch):
+        """未预期异常消息含路径时，500 响应仍为通用文案。"""
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+
+        def _raise(*args, **kwargs):
+            raise RuntimeError(f"boom at {tmp_path / 'projects' / 'demo' / 'project.json'}")
+
+        fake_pm.load_project = _raise  # type: ignore[method-assign]
+        client = _client(monkeypatch, fake_pm, _FakeQueue())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+            assert resp.status_code == 500, resp.text
+            assert "boom" not in resp.text
+            self._assert_no_path(resp)

@@ -45,7 +45,6 @@ def _make_assembler(
     (projects_root / "demo").mkdir(exist_ok=True)
     resolved_policy = policy or _make_policy(tmp_path)
     return OptionsAssembler(
-        data_dir=tmp_path / "data",
         projects_root=projects_root,
         allowed_tools=_ALLOWED_TOOLS,
         setting_sources=_SETTING_SOURCES,

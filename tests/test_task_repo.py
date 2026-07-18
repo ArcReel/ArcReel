@@ -59,6 +59,43 @@ class TestTaskRepository:
         done = await repo.get(first["task_id"])
         assert done["status"] == "succeeded"
 
+    async def test_enqueue_dedupe_respects_resource_type(self, db_session):
+        """同名不同资产类型（如角色和道具都叫「玉佩」）不应互相去重。"""
+        repo = TaskRepository(db_session)
+
+        character_edit = await repo.enqueue(
+            project_name="demo",
+            task_type="image_edit",
+            media_type="image",
+            resource_id="玉佩",
+            resource_type="character",
+            payload={"prompt": "edit character"},
+        )
+        assert not character_edit["deduped"]
+
+        prop_edit = await repo.enqueue(
+            project_name="demo",
+            task_type="image_edit",
+            media_type="image",
+            resource_id="玉佩",
+            resource_type="prop",
+            payload={"prompt": "edit prop"},
+        )
+        assert not prop_edit["deduped"]
+        assert prop_edit["task_id"] != character_edit["task_id"]
+
+        # 同一 resource_type 再次入队仍应正常去重（回归防护）。
+        character_edit_again = await repo.enqueue(
+            project_name="demo",
+            task_type="image_edit",
+            media_type="image",
+            resource_id="玉佩",
+            resource_type="character",
+            payload={"prompt": "edit character again"},
+        )
+        assert character_edit_again["deduped"]
+        assert character_edit_again["task_id"] == character_edit["task_id"]
+
     async def test_event_sequence(self, db_session):
         repo = TaskRepository(db_session)
 

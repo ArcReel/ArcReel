@@ -1,7 +1,7 @@
 """
 script_generator.py - 剧本生成器
 
-读取 Step 1/2 的 Markdown 中间文件，调用文本生成 Backend 生成最终 JSON 剧本
+读取 Step 1 结构化中间文件，调用文本生成 Backend 生成最终 JSON 剧本
 """
 
 import json
@@ -20,6 +20,7 @@ from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
+    REFERENCE_VIDEO_STEP1_LEGACY_FILENAME,
     STEP1_FILENAMES,
     STEP1_LEGACY_FILENAMES,
     episode_drafts_dir,
@@ -41,12 +42,14 @@ from lib.script_models import (
     NarrationEpisodeScript,
     NarrationStep1Draft,
     NarrationVisualEpisodeScript,
+    ReferenceStep1Draft,
     ReferenceVideoScript,
     ad_script_total_duration,
     build_ad_reference_episode_script_model,
     build_episode_script_model,
     build_reference_video_script_model,
     merge_drama_visual_into_scenes,
+    script_duration_total,
 )
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
@@ -82,15 +85,6 @@ _METADATA_COUNT_KEY: dict[str, str] = {
     "video_units": "total_units",
 }
 
-# 骨架种类 → 缺 duration_seconds 时的兜底时长（秒）。业务附着值：segments/scenes 沿用
-# 历史默认，video_units 缺失按 0 计。shots（ad）无单镜头默认时长、改走 ad_script_total_duration
-# 稳健求和，故不在此表——第五种非 ad 骨架未登记即在 _add_metadata 处 KeyError 报红。
-_METADATA_FALLBACK_DURATION: dict[str, int] = {
-    "segments": 4,
-    "scenes": 8,
-    "video_units": 0,
-}
-
 
 def _rewrite_episode_prefix(rid: object, ep: int) -> object:
     """把 ID 中的 `E\\d+` 前缀强制改写为 `E{ep}`；非字符串或无 E 前缀的原样返回。
@@ -103,25 +97,6 @@ def _rewrite_episode_prefix(rid: object, ep: int) -> object:
     if n and new_rid != rid:
         logger.warning("episode prefix rewritten: %s → %s", rid, new_rid)
     return new_rid
-
-
-def _coerce_duration(item: object, fallback: int) -> int:
-    """降级保存路径按稳健口径取单条时长:校验失败时保存的原始 dict 里数组可能含脏条目，
-    直接 ``int(item.get(...))`` 会在非 dict 或 duration_seconds 非数字时崩溃。
-
-    非 dict 条目无时长语义、记 0；dict 内 duration_seconds 缺失、非数字（None / 布尔 /
-    非数字字符串）或非正数（校验器亦按 ``duration <= 0`` 判无效）回退 ``fallback``。
-    """
-    if not isinstance(item, dict):
-        return 0
-    value = item.get("duration_seconds", fallback)
-    if isinstance(value, bool):
-        return fallback
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return fallback
-    return parsed if parsed > 0 else fallback
 
 
 class ScriptGenerator:
@@ -223,9 +198,12 @@ class ScriptGenerator:
 
         caps = await self._fetch_video_capabilities()
 
-        characters = self.project_json.get("characters", {})
-        scenes = self.project_json.get("scenes", {})
-        props = self.project_json.get("props", {})
+        characters = self.project_json.get("characters")
+        characters = characters if isinstance(characters, dict) else {}
+        scenes = self.project_json.get("scenes")
+        scenes = scenes if isinstance(scenes, dict) else {}
+        props = self.project_json.get("props")
+        props = props if isinstance(props, dict) else {}
 
         # 解析一次时长能力：reference 据此构造 duration 枚举硬约束 schema；
         # narration 两段式用于校验 step1 各片段时长成员合法（step2 不再产出时长）。
@@ -236,7 +214,7 @@ class ScriptGenerator:
         narration_step1: list[dict] | None = None
 
         if gen_mode == "reference_video":
-            step1_md = self._load_step1(episode)
+            step1_units = self._load_reference_step1(episode, supported_durations)
             prompt = build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -244,7 +222,7 @@ class ScriptGenerator:
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                units_md=step1_md,
+                step1_units=step1_units,
                 supported_durations=supported_durations,
                 max_refs=self._resolve_max_refs(caps),
                 max_duration=self._resolve_max_duration(caps),
@@ -315,6 +293,12 @@ class ScriptGenerator:
 
     def _build_drama_step2_prompt(self, content_scenes: list, episode: int) -> str:
         """构建 drama step2（视觉层）prompt：把 step1 内容渲染为输入，仅求 image_prompt / video_prompt。"""
+        characters = self.project_json.get("characters")
+        characters = characters if isinstance(characters, dict) else {}
+        scenes = self.project_json.get("scenes")
+        scenes = scenes if isinstance(scenes, dict) else {}
+        props = self.project_json.get("props")
+        props = props if isinstance(props, dict) else {}
         return build_drama_prompt(
             project_overview=self.project_json.get("overview", {}),
             style=self.project_json.get("style", ""),
@@ -324,6 +308,9 @@ class ScriptGenerator:
             aspect_ratio=self._resolve_aspect_ratio(),
             # 输出语言与 step1（normalize）同取项目 source_language，避免非中文项目 step1 内容与 step2 视觉割裂
             target_language=self.project_json.get("source_language") or "中文",
+            characters=characters,
+            scenes=scenes,
+            props=props,
         )
 
     def _parse_drama_visual(self, response_text: str) -> list[dict]:
@@ -418,22 +405,36 @@ class ScriptGenerator:
         target_duration = self.project_json.get("target_duration")
         if not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
             raise ValueError(f"广告/短片项目缺少合法的 target_duration（正整数秒），当前为 {target_duration!r}")
-        # 统一 `or` 兜底：project.json 手工编辑时字段可能显式为 null，
-        # `.get(key, default)` 拿到 None 会让 prompt 构建在 `.keys()`/`.get()` 上崩溃。
+        # `or` 兜底：project.json 手工编辑时字段可能显式为 null，`.get(key, default)`
+        # 拿到 None 会让 prompt 构建在 `.keys()`/`.get()` 上崩溃。characters/scenes/props/
+        # products/overview 额外校验 isinstance：`or` 无法拦截显式写成非 dict（如 list）的脏数据。
+        characters = self.project_json.get("characters")
+        characters = characters if isinstance(characters, dict) else {}
+        scenes = self.project_json.get("scenes")
+        scenes = scenes if isinstance(scenes, dict) else {}
+        props = self.project_json.get("props")
+        props = props if isinstance(props, dict) else {}
+        products = self.project_json.get("products")
+        products = products if isinstance(products, dict) else {}
+        overview = self.project_json.get("overview")
+        overview = overview if isinstance(overview, dict) else {}
         return build_ad_prompt(
-            project_overview=self.project_json.get("overview") or {},
+            project_overview=overview,
             style=self.project_json.get("style") or "",
             style_description=self.project_json.get("style_description") or "",
-            characters=self.project_json.get("characters") or {},
-            scenes=self.project_json.get("scenes") or {},
-            props=self.project_json.get("props") or {},
-            products=self.project_json.get("products") or {},
+            characters=characters,
+            scenes=scenes,
+            props=props,
+            products=products,
             brief=self.project_json.get("brief") or "",
             target_duration=target_duration,
             generation_mode=gen_mode,
             supported_durations=supported,
             episode=episode,
             aspect_ratio=self._resolve_aspect_ratio(),
+            # 输出语言与口播语速折算同取项目 source_language，与 drama/narration 同口径
+            # （见 build_ad_prompt 内 speech_rate_units_per_second/reading_unit_noun 调用）。
+            target_language=self.project_json.get("source_language") or "中文",
         )
 
     async def build_prompt(self, episode: int) -> str:
@@ -460,11 +461,15 @@ class ScriptGenerator:
             return self._build_drama_step2_prompt(content_scenes, episode)
 
         caps = await self._fetch_video_capabilities()
-        characters = self.project_json.get("characters", {})
-        scenes = self.project_json.get("scenes", {})
-        props = self.project_json.get("props", {})
+        characters = self.project_json.get("characters")
+        characters = characters if isinstance(characters, dict) else {}
+        scenes = self.project_json.get("scenes")
+        scenes = scenes if isinstance(scenes, dict) else {}
+        props = self.project_json.get("props")
+        props = props if isinstance(props, dict) else {}
 
         if gen_mode == "reference_video":
+            supported_durations = self._resolve_supported_durations(caps)
             return build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -472,8 +477,8 @@ class ScriptGenerator:
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                units_md=self._load_step1(episode),
-                supported_durations=self._resolve_supported_durations(caps),
+                step1_units=self._load_reference_step1(episode, supported_durations),
+                supported_durations=supported_durations,
                 max_refs=self._resolve_max_refs(caps),
                 max_duration=self._resolve_max_duration(caps),
                 aspect_ratio=self._resolve_aspect_ratio(),
@@ -579,31 +584,82 @@ class ScriptGenerator:
             return json.load(f)
 
     def _load_step1(self, episode: int) -> str:
-        """加载 Step 1 中间文件的原始文本（reference_video 的 .md 与 drama 的结构化 .json）。
+        """加载 drama 形状两段式的 Step 1 结构化中间文件原始文本。
 
         每种模式只对应一个期望文件，缺失时显式报错并指明期望路径——不降级改读
         其他模式的中间文件（静默 fallback 会让剧本基于错误模式的中间产物生成）。
-        drama 的 step1 是结构化 JSON（内容抽取前移，见 ADR 0041），reference_video 仍为 Markdown。
-        narration（storyboard/grid）走结构化两段式，单独经 ``_load_narration_step1`` 读
-        ``step1_segments.json``，不进本方法。
+        本方法只服务 drama 及未来其它走 drama 形状两段式的结构化模式；narration 另经
+        ``_load_narration_step1``、reference_video 另经 ``_load_reference_step1``。
         """
         drafts_path = episode_drafts_dir(self.project_path, episode)
-        gen_mode = self._effective_generation_mode(episode)
-        if gen_mode == "reference_video":
-            step1_path = drafts_path / REFERENCE_VIDEO_STEP1_FILENAME
-        else:
-            # 本方法只服务 drama 及未来其它走 drama 形状两段式的结构化模式（narration 另经
-            # _load_narration_step1）；按 content_mode 取登记的结构化文件名，脏值兜底 drama。
-            step1_path = drafts_path / STEP1_FILENAMES.get(self.content_mode, STEP1_FILENAMES["drama"])
+        # 按 content_mode 取登记的结构化文件名，脏值兜底 drama。
+        step1_path = drafts_path / STEP1_FILENAMES.get(self.content_mode, STEP1_FILENAMES["drama"])
 
         if not step1_path.exists():
             raise FileNotFoundError(
-                f"未找到 Step 1 中间文件: {step1_path}；"
-                f"content_mode={self.content_mode}, generation_mode={gen_mode} 期望该文件，"
-                "请先完成本集预处理"
+                f"未找到 Step 1 中间文件: {step1_path}；content_mode={self.content_mode} 期望该文件，请先完成本集预处理"
             )
 
         return step1_path.read_text(encoding="utf-8")
+
+    def _load_reference_step1(self, episode: int, supported_durations: list[int]) -> list[dict]:
+        """加载并校验 reference_video step1 结构化中间文件 ``step1_reference_units.json``。
+
+        返回 unit dict 列表（unit_id / shots / references），供 step2 prompt 渲染
+        （``render_reference_units_for_step2``）作唯一基底——step2 不解析自由文本。
+        校验：结构合法（``ReferenceStep1Draft``）、units 非空、unit_id 唯一、
+        shot ``duration`` ∈ ``supported_durations``（与拆分工具的 response_schema 同口径，
+        防手工编辑漂移出非法时长）。仅存在结构化前的旧 ``step1_reference_units.md`` 时给
+        明确的「重跑拆分」报错——不写 md→json 迁移器（旧 md 产于结构化中间态引入前，
+        与 narration 同决策）。
+        """
+        drafts_path = episode_drafts_dir(self.project_path, episode)
+        step1_json = drafts_path / REFERENCE_VIDEO_STEP1_FILENAME
+        if not step1_json.exists():
+            legacy_md = drafts_path / REFERENCE_VIDEO_STEP1_LEGACY_FILENAME
+            if legacy_md.exists():
+                raise FileNotFoundError(
+                    f"仅找到结构化前的旧拆分表 {legacy_md}，未找到 {step1_json}；"
+                    f"请重跑 split-reference-video-units 产出结构化 {REFERENCE_VIDEO_STEP1_FILENAME}"
+                )
+            raise FileNotFoundError(
+                f"未找到 Step 1 中间文件: {step1_json}；generation_mode=reference_video 期望该文件，"
+                "请先完成 video_unit 拆分"
+            )
+
+        try:
+            raw = json.loads(step1_json.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise ValueError(f"step1_reference_units.json 解析失败: {e}")
+
+        try:
+            draft = ReferenceStep1Draft.model_validate(raw)
+        except ValidationError as e:
+            raise ValueError(f"step1_reference_units.json 结构校验失败: {e}")
+
+        units = [u.model_dump() for u in draft.units]
+        if not units:
+            raise ValueError("step1_reference_units.json units 为空")
+
+        ids = [u["unit_id"] for u in units]
+        dupes = sorted(uid for uid, count in Counter(ids).items() if count > 1)
+        if dupes:
+            raise ValueError(f"step1_reference_units.json unit_id 重复: {dupes}")
+
+        # _add_metadata 落盘前会把 E\d+ 前缀改写成当前 episode：原始 id 互异但改写后可能相撞
+        # （E1U01 与 E2U01 在 episode=2 都成 E2U01）。提前 fail-loud，杜绝重复 id 静默落盘。
+        # 与 _load_narration_step1 / _load_drama_step1_content 同口径。
+        rewritten_ids = [str(_rewrite_episode_prefix(uid, episode)) for uid in ids]
+        rewritten_dupes = sorted(uid for uid, count in Counter(rewritten_ids).items() if count > 1)
+        if rewritten_dupes:
+            raise ValueError(f"step1_reference_units.json unit_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
+
+        allowed = {int(d) for d in supported_durations}
+        bad = sorted({s["duration"] for u in units for s in u["shots"] if s["duration"] not in allowed})
+        if bad:
+            raise ValueError(f"step1_reference_units.json shot duration 非法（不在 {sorted(allowed)} 内）: {bad}")
+
+        return units
 
     def _load_narration_step1(self, episode: int, supported_durations: list[int]) -> list[dict]:
         """加载并校验 narration step1 结构化中间文件 ``step1_segments.json``。
@@ -718,6 +774,13 @@ class ScriptGenerator:
             data = json.loads(text)
         except json.JSONDecodeError as e:
             raise ValueError(f"JSON 解析失败: {e}")
+
+        # title 缺失/空白兜底：非约束解码通道下模型可能整字段漏写。title 仅展示用、
+        # 用户可改，不值得让整集生成失败；与 _merge_narration_visual 的兜底同口径。
+        if isinstance(data, dict):
+            title = data.get("title")
+            if not (isinstance(title, str) and title.strip()):
+                data["title"] = f"第{episode}集"
 
         # 校验模型经规范解析定骨架种类（ad→shots 骨架唯一，reference→video_units），
         # kind→模型映射留本地（模型属上层依赖，不进 SKELETONS 窄表）。
@@ -860,17 +923,13 @@ class ScriptGenerator:
         script_data["metadata"]["generator"] = self.generator.model if self.generator else "unknown"
 
         # 计算统计信息（episode 级角色/场景/道具聚合由 StatusCalculator 读时计算）。
-        # 数组键经上方规范解析所得 kind 查表；计数键名与兜底时长为业务附着、随 kind 显式保留。
-        # 校验失败降级保存的原始 dict 里数组可能为 null / 含脏条目，isinstance 守卫走稳健口径。
+        # 数组键经上方规范解析所得 kind 查表；计数键名为业务附着、随 kind 显式保留。
+        # 校验失败降级保存的原始 dict 里数组可能为 null / 含脏条目：len(items) 计入全部条目
+        # （既有口径），时长走 script_duration_total 单一真相源逐条兜底（脏值归一、不抛）。
         raw_items = script_data.get(kind)
         items = raw_items if isinstance(raw_items, list) else []
         script_data["metadata"][_METADATA_COUNT_KEY[kind]] = len(items)
-        if kind == "shots":
-            # ad 逐镜头按 target_duration 预算规划、无单镜头默认时长，走 ad_script_total_duration。
-            script_data["duration_seconds"] = ad_script_total_duration(items)
-        else:
-            fallback = _METADATA_FALLBACK_DURATION[kind]
-            script_data["duration_seconds"] = sum(_coerce_duration(i, fallback) for i in items)
+        script_data["duration_seconds"] = script_duration_total(kind, items)
 
         # 剥离废弃的 episode 级聚合字段（改为读时计算）
         script_data.pop("characters_in_episode", None)

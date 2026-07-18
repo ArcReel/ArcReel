@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useShallow } from "zustand/shallow";
 import { useTranslation } from "react-i18next";
 import {
   ChevronLeft,
@@ -16,13 +15,13 @@ import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import { ReferenceVideoCard, unitPromptText } from "./ReferenceVideoCard";
 import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
-import { PreprocessingView } from "@/components/canvas/timeline/PreprocessingView";
+import { ScriptReviewGate } from "@/components/canvas/timeline/ScriptReviewGate";
 import { API } from "@/api";
 import {
   useReferenceVideoStore,
   referenceVideoCacheKey,
 } from "@/stores/reference-video-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { isActiveStatus, useLatestTasksByResource } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
@@ -40,6 +39,8 @@ export interface ReferenceVideoCanvasProps {
   episodeTitle?: string;
   onSaveTitle?: (next: string) => Promise<void>;
   canEditTitle?: boolean;
+  /** step2 剧本（scripts/episode_N.json）是否已生成——决定默认 tab（镜像 GridImageToVideoCanvas 的 hasScript 判定）。 */
+  hasScript?: boolean;
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
@@ -70,6 +71,7 @@ export function ReferenceVideoCanvas({
   episodeTitle,
   onSaveTitle,
   canEditTitle,
+  hasScript = true,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
 
@@ -91,17 +93,16 @@ export function ReferenceVideoCanvas({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
-  const relevantTasks = useTasksStore(
-    useShallow((s) =>
-      s.tasks.filter(
-        (tk) => tk.project_name === projectName && tk.task_type === "reference_video",
-      ),
-    ),
-  );
+  // resource（=unit）→ 最新任务行。「最新行胜出」下沉到 store selector：
+  // store 不保证 tasks 顺序（SSE 原位 upsert），重试的新行不被旧失败行盖住。
+  const tasksByUnit = useLatestTasksByResource(projectName, "reference_video");
 
   useEffect(() => {
+    // step2 剧本未生成时 /episodes/{episode}/units 后端会 404（无脚本可拆单元）；
+    // hasScript 转 true 后本 effect 随依赖变化重跑，补上首次拉取。
+    if (!hasScript) return;
     void loadUnits(projectName, episode);
-  }, [loadUnits, projectName, episode]);
+  }, [loadUnits, projectName, episode, hasScript]);
 
   const selected = useMemo(
     () => units.find((u) => u.unit_id === selectedUnitId) ?? null,
@@ -120,17 +121,6 @@ export function ReferenceVideoCanvas({
 
   const [uploadingUnitIds, setUploadingUnitIds] = useState<Set<string>>(() => new Set());
 
-  const tasksByUnit = useMemo(() => {
-    const map = new Map<string, (typeof relevantTasks)[number]>();
-    // store 不保证顺序（SSE upsert 原位更新、初始列表排序属后端实现细节）：
-    // 显式取 updated_at 最新的任务行，重试时不被旧失败行盖住
-    for (const tk of relevantTasks) {
-      const prev = map.get(tk.resource_id);
-      if (!prev || tk.updated_at > prev.updated_at) map.set(tk.resource_id, tk);
-    }
-    return map;
-  }, [relevantTasks]);
-
   const statusMap = useMemo<Record<string, UnitStatus>>(() => {
     const map: Record<string, UnitStatus> = {};
     for (const u of units) {
@@ -139,7 +129,7 @@ export function ReferenceVideoCanvas({
       // 上传中的 unit 视为 running：批量生成按 statusMap 选 pending，
       // 否则上传期间会被再次入队，与生成回写同一个成片文件
       if (uploadingUnitIds.has(u.unit_id)) st = "running";
-      else if (queueRow?.status === "queued" || queueRow?.status === "running") st = "running";
+      else if (queueRow && isActiveStatus(queueRow.status)) st = "running";
       // 失败任务行 DB 持久化、不会过期：手动上传成片后单元已有可播放资产，
       // 不再让历史失败覆盖 ready（与 timeline/grid 画布用 toast 提示失败的语义对齐）
       else if (queueRow?.status === "failed" && !u.generated_assets.video_clip) st = "failed";
@@ -371,14 +361,22 @@ export function ReferenceVideoCanvas({
   );
 
   // Reset tab to units on project/episode change (render-time derived-state pattern).
-  const [tab, setTab] = useState<"units" | "preproc">("units");
+  // 初始值按 hasScript 走 GridImageToVideoCanvas 同款判定：step2 剧本未生成时（仅 segmented）
+  // units 面板无脚本可读、请求会 404，应先落到 preproc 审阅 gate。
+  const [tab, setTab] = useState<"units" | "preproc">(hasScript ? "units" : "preproc");
   const [lastEpisode, setLastEpisode] = useState(episode);
   const [lastProject, setLastProject] = useState(projectName);
   if (lastEpisode !== episode || lastProject !== projectName) {
     setLastEpisode(episode);
     setLastProject(projectName);
-    setTab("units");
+    setTab(hasScript ? "units" : "preproc");
   }
+
+  useEffect(() => {
+    // 剧本生成完成后（hasScript 由 false 变 true）自动切到 units，同一 episode 内组件不 remount。
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 镜像 GridImageToVideoCanvas 同款效果
+    if (hasScript) setTab("units");
+  }, [hasScript]);
 
   // 通知回跳：收到 reference_unit scroll target 时切到 units tab 并选中对应 unit
   // （镜像 ShotSplitView 的选择式回跳）。units 异步加载，靠依赖变化重试到命中或过期。
@@ -559,11 +557,11 @@ export function ReferenceVideoCanvas({
       {tab === "preproc" ? (
         <div className="min-h-0 flex-1 overflow-auto bg-[oklch(0.18_0.011_250_/_0.25)]">
           <div className="mx-auto w-full max-w-3xl px-6 py-5">
-            <PreprocessingView
+            <ScriptReviewGate
+              key={`${projectName}:${episode}`}
               projectName={projectName}
               episode={episode}
               contentMode="reference_video"
-              compact
             />
           </div>
         </div>

@@ -1,15 +1,15 @@
-# Veo 3.1 Video Generation Prompt Guide
+# Veo 3.1 视频生成提示词指南
 
-Best practices for creating effective prompts for Veo 3.1 video generation.
+面向 Veo 3.1 视频生成的提示词写作最佳实践。
 
-## Prompt Structure
+## 提示词结构
 
 按照 Veo 最佳实践，prompt 应包含以下元素（自然融合，不使用标签）：
 
 1. **Composition** 构图：镜头类型（wide shot, close-up, medium shot）
 2. **Subject** 主体：场景描述，包含角色、环境、物体
 3. **Action** 动作：角色在做什么
-4. **Dialogue** 对话：Speaker（manner）说道："text"
+4. **Dialogue** 对话：说话人（语气）说道："台词文本"
 5. **Sound Effects** 音效：自然融入场景描述
 6. **Camera** 镜头：运动方式的自然描述
 7. **Ambiance** 氛围：光线和情绪
@@ -18,7 +18,7 @@ Best practices for creating effective prompts for Veo 3.1 video generation.
 - 视频时长（如 "8 秒"）
 - 宽高比（如 "16:9"、"9:16"）
 
-## Dialogue and Audio
+## 对话与音频
 
 ### 对话格式
 ```
@@ -45,10 +45,10 @@ Best practices for creating effective prompts for Veo 3.1 video generation.
 
 ### 关于 BGM
 - **不要在 prompt 中描述背景音乐**
-- BGM 通过 `negative_prompt` 参数自动禁止
+- 生成端已在 prompt 末尾自动追加 BGM / 字幕 / 水印禁止项，无需手动处理
 - 后期配乐使用 `/compose-video` 处理
 
-## Camera Movement
+## 镜头运动
 
 | 英文术语 | 中文描述 |
 |---------|---------|
@@ -60,7 +60,7 @@ Best practices for creating effective prompts for Veo 3.1 video generation.
 | crane up/down | 镜头升起/降落 |
 | handheld | 手持镜头轻微晃动 |
 
-## Shot Types
+## 景别
 
 | 英文术语 | 中文术语 | 适用场景 |
 |---------|---------|---------|
@@ -71,18 +71,15 @@ Best practices for creating effective prompts for Veo 3.1 video generation.
 | wide shot | 远景 | 环境、建立镜头 |
 | aerial | 俯瞰 | 鸟瞰视角 |
 
-## Negative Prompts
+## 反向提示词
 
-使用 `negative_prompt` API 参数排除不想要的元素：
-- ❌ 不要使用否定语言："no walls"
-- ✅ 直接描述不想要的内容："walls, frames, borders"
+排除不想要的元素时，不要用否定句式，直接列出要排除的内容：
+- ❌ 否定语言："no walls"
+- ✅ 直接列出："walls, frames, borders"
 
-默认 negative prompt（自动应用）：
-```
-background music, BGM, soundtrack, musical accompaniment
-```
+BGM / 字幕 / 水印的禁止项由生成端在 prompt 末尾自动追加，无需手动处理。
 
-## Examples
+## 示例
 
 ### 对话与氛围场景
 ```

@@ -10,7 +10,7 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 | `storyboard` | `drama` | `scenes[]` | normalize-drama-script | `step1_normalized_script.json` | DramaNormalizedScript（step1）→ DramaVisualScript（step2）→ DramaEpisodeScript（合并） | 每场景一张分镜图作起始帧 |
 | `grid` | `narration` | `segments[]` + 宫格分组 | split-narration-segments | `step1_segments.json` | NarrationEpisodeScript | 宫格图切块 |
 | `grid` | `drama` | `scenes[]` + 宫格分组 | normalize-drama-script | `step1_normalized_script.json` | DramaNormalizedScript（step1）→ DramaVisualScript（step2）→ DramaEpisodeScript（合并） | 宫格图切块 |
-| `reference_video` | `narration` / `drama` | `video_units[]` | split-reference-video-units | `step1_reference_units.md` | ReferenceVideoScript | 角色 / 场景 / 道具 sheet 图直接作为 `reference_images` |
+| `reference_video` | `narration` / `drama` | `video_units[]` | split-reference-video-units | `step1_reference_units.json` | ReferenceVideoScript | 角色 / 场景 / 道具 sheet 图直接作为 `reference_images` |
 
 > `effective_mode(project, episode) = episode.generation_mode or project.generation_mode or "storyboard"`。缺省回退到图生视频（storyboard）。
 >
@@ -22,7 +22,7 @@ ArcReel 把"做什么内容"和"怎么生成视频"拆成两条独立维度。`c
 
 ```
 Step 3 预处理（按 effective_mode(project, episode) 分派；中间文件统一位于 drafts/episode_{N}/）
-  effective_mode = reference_video        → dispatch split-reference-video-units → step1_reference_units.md
+  effective_mode = reference_video        → dispatch split-reference-video-units → step1_reference_units.json
   effective_mode ∈ {storyboard, grid}：
     content_mode = narration               → dispatch split-narration-segments   → step1_segments.json
     content_mode = drama                   → dispatch normalize-drama-script     → step1_normalized_script.json（结构化内容）
@@ -56,7 +56,7 @@ Step 8 旁白配音（仅 narration 内容模式）
 - **单片段时长**（storyboard / grid）：取值必须在模型 `supported_durations` 内；项目 `default_duration` 非 null 时作默认值（项目创建时按 content_mode 写入 project.json），为 null 时由预处理按内容节奏自行取值
 - **单 unit 时长**（reference_video）：所有 shot 总和 ≤ `max_duration` 且**目标贴近该值**，单 shot 取值必须在模型 `supported_durations` 列表中；放不下时重拆 unit，不违约时长。具体数值由 subagent 在执行时通过 `mcp__arcreel__get_video_capabilities` 工具查得，**不在本文档固化**
 - **拼接**：全部模式用 ffmpeg concat；Veo extend 仅用于**单片段延长**，不串联不同镜头
-- **BGM**：视频 prompt 末尾统一追加"禁止出现：BGM、文字字幕、水印"
+- **BGM**：生成端已在视频 prompt 末尾自动追加"禁止出现：BGM、文字字幕、水印"，无需手动追加，prompt 里也不要描述 BGM / 配乐
 
 ## Prompt 语言
 

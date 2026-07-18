@@ -1,7 +1,7 @@
-"""TextGenerator — 文本生成 + 用量追踪包装层。
+"""TextGenerator — 文本生成 + 记账包装层。
 
-类似 MediaGenerator，组合 TextBackend + UsageTracker，
-调用方无需关心 usage tracking 细节。
+类似 MediaGenerator，组合 TextBackend + Ledger，
+调用方无需关心记账细节。
 """
 
 from __future__ import annotations
@@ -9,13 +9,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from lib.ledger import Ledger
+from lib.providers import require_provider_pair
 from lib.text_backends.base import (
     TextGenerationRequest,
     TextGenerationResult,
     TextTaskType,
 )
 from lib.text_backends.factory import create_text_backend_for_task
-from lib.usage_tracker import UsageTracker
 
 if TYPE_CHECKING:
     from lib.text_backends.base import TextBackend
@@ -24,11 +25,13 @@ logger = logging.getLogger(__name__)
 
 
 class TextGenerator:
-    """组合 TextBackend + UsageTracker，统一封装文本生成 + 用量追踪。"""
+    """组合 TextBackend + Ledger，统一封装文本生成 + 记账。"""
 
-    def __init__(self, backend: TextBackend, usage_tracker: UsageTracker):
+    def __init__(self, backend: TextBackend, ledger: Ledger, provider_id: str):
+        require_provider_pair("text", backend, provider_id)
         self.backend = backend
-        self.usage_tracker = usage_tracker
+        self.ledger = ledger
+        self._provider_id = provider_id
 
     @property
     def model(self) -> str:
@@ -41,10 +44,9 @@ class TextGenerator:
         task_type: TextTaskType,
         project_name: str | None = None,
     ) -> TextGenerator:
-        """工厂方法：根据任务类型创建对应的 backend + usage_tracker。"""
-        backend = await create_text_backend_for_task(task_type, project_name)
-        usage_tracker = UsageTracker()
-        return cls(backend, usage_tracker)
+        """工厂方法：根据任务类型创建对应的 backend + ledger。"""
+        backend, provider_id = await create_text_backend_for_task(task_type, project_name)
+        return cls(backend, Ledger(), provider_id)
 
     async def generate(
         self,
@@ -52,26 +54,13 @@ class TextGenerator:
         project_name: str | None = None,
     ) -> TextGenerationResult:
         """生成文本并自动记录用量。"""
-        call_id = await self.usage_tracker.start_call(
+        async with self.ledger.record(
             project_name=project_name or "",
             call_type="text",
             model=self.backend.model,
             prompt=request.prompt[:500],
-            provider=self.backend.name,
-        )
-        try:
+            provider=self._provider_id,
+        ) as call:
             result = await self.backend.generate(request)
-            await self.usage_tracker.finish_call(
-                call_id,
-                status="success",
-                input_tokens=result.input_tokens,
-                output_tokens=result.output_tokens,
-            )
+            call.success(result)
             return result
-        except Exception as e:
-            await self.usage_tracker.finish_call(
-                call_id,
-                status="failed",
-                error_message=str(e)[:500],
-            )
-            raise

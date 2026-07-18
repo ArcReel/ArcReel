@@ -15,13 +15,12 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
-from lib.app_data_dir import app_data_dir
 from lib.asset_types import BUCKET_KEY
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
-from lib.project_manager import EpisodeScriptReboundError, ProjectManager, effective_mode
+from lib.project_manager import EpisodeScriptReboundError, effective_mode, get_project_manager
 from lib.reference_video import assemble_shots_text, parse_prompt
 from lib.reference_video.ad_units import (
     render_ad_unit_prompt,
@@ -48,13 +47,6 @@ router = APIRouter(
     prefix="/projects/{project_name}/reference-videos",
     tags=["reference-videos"],
 )
-
-pm = ProjectManager(app_data_dir())
-
-
-def get_project_manager() -> ProjectManager:
-    return pm
-
 
 # ============ 请求模型 ============
 

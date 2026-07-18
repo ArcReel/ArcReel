@@ -17,6 +17,8 @@ interface Props {
   sheetPath?: string | null;
   className?: string;
   showLabel?: boolean;
+  /** 资源被生成/编辑任务占用：禁用入库，避免把编辑前的旧图复制进全局资产库 */
+  busy?: boolean;
 }
 
 export function AddToLibraryButton({
@@ -28,6 +30,7 @@ export function AddToLibraryButton({
   sheetPath = null,
   className,
   showLabel = false,
+  busy = false,
 }: Props) {
   const { t } = useTranslation("assets");
   const [modal, setModal] = useState<{ conflictWith?: Asset } | null>(null);
@@ -37,6 +40,7 @@ export function AddToLibraryButton({
   const previewUrl = sheetPath ? API.getFileUrl(projectName, sheetPath, sheetFp) : undefined;
 
   const openPreview = async () => {
+    if (busy) return;
     try {
       const res = await API.listAssets({ type: resourceType, q: resourceId });
       const exact = res.items.find((a) => a.name === resourceId);
@@ -47,6 +51,12 @@ export function AddToLibraryButton({
   };
 
   const handleSubmit = async (payload: { name: string; description: string; voice_style: string; overwrite?: boolean }) => {
+    // 弹窗打开后资源可能通过 SSE / 其他标签页 / Agent 进入生成或 image_edit 占用态，
+    // 提交时须复核最新 busy 值，避免把占用期间的旧图复制进全局资产库
+    if (busy) {
+      useAppStore.getState().pushToast(t("add_to_library_busy_hint"), "error");
+      return;
+    }
     try {
       await API.addAssetFromProject({
         project_name: projectName,
@@ -69,8 +79,9 @@ export function AddToLibraryButton({
   return (
     <>
       <button type="button" onClick={() => void openPreview()}
+        disabled={busy}
         aria-label={t("add_to_library")}
-        title={t("add_to_library")}
+        title={busy ? t("add_to_library_busy_hint") : t("add_to_library")}
         className={className ?? defaultClass}
         style={className ? undefined : { color: "var(--color-text-3)" }}>
         <Package className="h-3 w-3" />

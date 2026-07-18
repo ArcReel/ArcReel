@@ -61,21 +61,20 @@ _BACKEND_SETTING_KEYS = (
     "default_image_backend_i2i",
     "default_text_backend",
     "default_audio_backend",
-    "text_backend_script",
-    "text_backend_overview",
-    "text_backend_style",
+    "text_backend_simple",
+    "text_backend_complex",
 )
 
 # project.json 中的项目级覆盖键（与全局键名不同：resolver 按媒体读 video_backend /
-# audio_backend / image_provider_*，文本任务键与全局同名），清理项目悬空引用时用此集合
+# audio_backend / image_provider_*，文本档位键与项目默认模型键与全局同名），清理项目悬空引用时用此集合
 _PROJECT_BACKEND_KEYS = (
     "video_backend",
     "audio_backend",
     "image_provider_t2i",
     "image_provider_i2i",
-    "text_backend_script",
-    "text_backend_overview",
-    "text_backend_style",
+    "text_backend_simple",
+    "text_backend_complex",
+    "default_text_backend",
 )
 
 # ---------------------------------------------------------------------------
@@ -345,7 +344,7 @@ def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> 
 
 async def _invalidate_caches(request: Request) -> None:
     """清空 backend 实例缓存 + 刷新 worker 限流配置。"""
-    from server.services.generation_tasks import invalidate_backend_cache
+    from server.services.generation_context import invalidate_backend_cache
 
     invalidate_backend_cache()
     worker = getattr(request.app.state, "generation_worker", None)

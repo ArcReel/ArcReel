@@ -81,10 +81,16 @@ export function UsageStatsSection() {
     void fetchStats();
   }, [fetchStats]);
 
-  const providers = useMemo(
-    () => Array.from(new Set(stats.map((s) => s.provider))).sort(),
-    [stats],
-  );
+  const providers = useMemo(() => {
+    const locale = i18n.language;
+    const byProvider = new Map<string, string | undefined>();
+    for (const s of stats) {
+      if (!byProvider.has(s.provider)) byProvider.set(s.provider, s.display_name);
+    }
+    return Array.from(byProvider.entries())
+      .map(([provider, displayName]) => ({ provider, displayName }))
+      .sort((a, b) => (a.displayName || a.provider).localeCompare(b.displayName || b.provider, locale));
+  }, [stats, i18n.language]);
 
   // Aggregate totals — used for the editorial header summary card.
   // 这里只是求和：用 Object.entries 直接遍历，避免 costEntries 的排序/过滤开销
@@ -180,9 +186,9 @@ export function UsageStatsSection() {
             className="rounded-[7px] border border-hairline-soft bg-bg-grad-a/45 px-3 py-1.5 text-[12px] text-text-2 transition-colors hover:border-hairline focus:border-accent/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <option value="">{t("all_providers")}</option>
-            {providers.map((p) => (
-              <option key={p} value={p}>
-                {p}
+            {providers.map(({ provider, displayName }) => (
+              <option key={provider} value={provider}>
+                {displayName || provider}
               </option>
             ))}
           </select>

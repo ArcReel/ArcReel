@@ -281,7 +281,7 @@ class SdkMessageNormalizer:
                 # 单条通知（绝大多数场景）保留原 uuid 不变；同一消息批了多条时才
                 # 加序号后缀区分，避免同 uuid 的多条系统条目在前端归并/查找时互相覆盖。
                 multiple = len(task_infos) > 1
-                return [
+                notification_entries = [
                     {
                         "type": ENTRY_TYPE_SYSTEM,
                         "subtype": ENTRY_SUBTYPE_TASK_NOTIFICATION,
@@ -297,6 +297,10 @@ class SdkMessageNormalizer:
                     }
                     for i, task_info in enumerate(task_infos)
                 ]
+                if parent:
+                    for notification_entry in notification_entries:
+                        notification_entry["parent_tool_use_id"] = parent
+                return notification_entries
 
         # tool_use_result 是消息级字段（CLI 单条 toolUseResult，非按 tool_use_id
         # 分片）：仅当本消息只批了一个待答复的 tool_result 时，才能确定该结构化

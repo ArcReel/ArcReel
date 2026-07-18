@@ -72,13 +72,11 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
     from server.routers import reference_videos as router_mod
 
     custom_pm = ProjectManager(projects_root)
-    monkeypatch.setattr(router_mod, "pm", custom_pm)
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
 
     from server.services import generation_tasks as gt_mod
     from server.services import reference_video_tasks as rvt_mod
 
-    monkeypatch.setattr(gt_mod, "pm", custom_pm, raising=False)
     monkeypatch.setattr(gt_mod, "get_project_manager", lambda: custom_pm)
     monkeypatch.setattr(rvt_mod, "get_project_manager", lambda: custom_pm)
 
@@ -126,8 +124,10 @@ async def test_end_to_end_generate_unit_to_executor(
     assert captured_payload["task_type"] == "reference_video"
     assert captured_payload["resource_id"] == uid
 
-    # 3) Mock get_media_generator → 直接执行 executor
+    # 3) Mock resolve_generation_context → 直接执行 executor
+    from lib.config.resolver import ProviderModel
     from server.services import reference_video_tasks as rvt_mod
+    from server.services.generation_context import GenerationContext, VideoLaneResult
 
     async def _fake_generate_video_async(**kwargs):
         out = proj_dir / "reference_videos" / f"{uid}.mp4"
@@ -138,15 +138,25 @@ async def test_end_to_end_generate_unit_to_executor(
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T12:00:00"}]}
-    fake_video_backend = MagicMock()
-    fake_video_backend.name = "ark"
-    fake_video_backend.model = "doubao-seedance-2-0-260128"
-    fake_generator._video_backend = fake_video_backend
 
-    async def _fake_get_media_generator(*_a, **_k):
-        return fake_generator
+    ctx = GenerationContext(
+        generator=fake_generator,
+        video_lane=VideoLaneResult(
+            provider_model=ProviderModel(provider_id="ark", model_id="doubao-seedance-2-0-260128"),
+            backend_name="ark",
+            backend_model="doubao-seedance-2-0-260128",
+            resolution=None,
+            resolution_or_fallback="1080p",
+            supported_durations=(),
+            max_duration=None,
+            max_reference_images=None,
+        ),
+    )
 
-    monkeypatch.setattr(rvt_mod, "get_media_generator", _fake_get_media_generator)
+    async def _fake_resolve(*_a, **_k):
+        return ctx
+
+    monkeypatch.setattr(rvt_mod, "resolve_generation_context", _fake_resolve)
 
     async def _fake_extract(*_a, **_k):
         return True

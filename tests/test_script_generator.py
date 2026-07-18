@@ -380,7 +380,8 @@ class TestScriptGenerator:
 
         generator = ScriptGenerator(project_path)
         parsed = generator._parse_response('{"foo": "bar"}', 1)
-        assert parsed == {"foo": "bar"}
+        # 校验失败降级返回原始数据；title 兜底在校验前注入，故降级结果也携带
+        assert parsed == {"foo": "bar", "title": "第1集"}
 
     async def test_generate_writes_script_and_metadata(self, tmp_path):
         project_path = tmp_path / "demo"
@@ -847,12 +848,13 @@ class TestScriptGeneratorSkeletonExhaustiveness:
 
         assert set(_METADATA_COUNT_KEY) == set(SKELETONS)
 
-    def test_metadata_fallback_duration_covers_non_shots_kinds(self):
-        # shots（ad）走 ad_script_total_duration、不进兜底时长表；其余骨架均须登记。
-        from lib.script_generator import _METADATA_FALLBACK_DURATION
+    def test_item_fallback_duration_covers_every_skeleton_kind(self):
+        # 时长兜底表单点化到 script_models，四骨架全登记（含 shots/video_units→0）；
+        # 第五种骨架加入 SKELETONS 而未登记即在 item_duration 查表 KeyError 报红。
+        from lib.script_models import _ITEM_FALLBACK_DURATIONS
         from lib.script_skeleton import SKELETONS
 
-        assert set(_METADATA_FALLBACK_DURATION) == set(SKELETONS) - {"shots"}
+        assert set(_ITEM_FALLBACK_DURATIONS) == set(SKELETONS)
 
     @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
     def test_add_metadata_handles_every_skeleton_kind(self, kind: str, tmp_path: Path):
@@ -1135,6 +1137,59 @@ class TestLoadNarrationStep1:
         assert segments[0]["characters_in_segment"] == []
 
 
+class TestLoadReferenceStep1:
+    """step1 结构化中间文件 step1_reference_units.json 的读取与校验。"""
+
+    @staticmethod
+    def _step1_path(sg: ScriptGenerator, episode: int) -> Path:
+        return sg.project_path / "drafts" / f"episode_{episode}" / "step1_reference_units.json"
+
+    def _write(self, sg: ScriptGenerator, episode: int, payload: dict) -> None:
+        path = self._step1_path(sg, episode)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    @staticmethod
+    def _unit(unit_id: str, *, duration: int = 6) -> dict:
+        return {"unit_id": unit_id, "shots": [{"text": "甲走进屋子", "duration": duration}]}
+
+    def test_loads_structured_units_verbatim(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U02", duration=8)]})
+        units = sg._load_reference_step1(1, [4, 6, 8])
+        assert [u["unit_id"] for u in units] == ["E1U01", "E1U02"]
+
+    def test_duplicate_unit_id_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U01")]})
+        with pytest.raises(ValueError, match="重复|E1U01"):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+    def test_post_rewrite_collision_raises(self, tmp_path):
+        """原始 unit_id 互异但改写 episode 前缀后相撞（E1U01 与 E2U01 在 ep2 都成 E2U01）→ fail-loud。
+
+        对应 lib/script_generator.py::_add_metadata 落盘前无条件改写 E\\d+ 前缀的既有行为：
+        LLM 若在 step1 混用集号前缀，需在 step1 读取侧提前拦截，不能拖到最终脚本静默落盘
+        （与 _load_narration_step1 / _load_drama_step1_content 同口径）。
+        """
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 2, {"units": [self._unit("E1U01"), self._unit("E2U01")]})
+        with pytest.raises(ValueError, match="改写|E2U01"):
+            sg._load_reference_step1(2, [4, 6, 8])
+
+    def test_duration_outside_supported_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"units": [self._unit("E1U01", duration=5)]})  # 5 ∉ [4,6,8]
+        with pytest.raises(ValueError, match="duration"):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+    def test_empty_units_raises(self, tmp_path):
+        sg = _bare_generator(tmp_path)
+        self._write(sg, 1, {"units": []})
+        with pytest.raises(ValueError):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+
 def _write_ad_project(project_path: Path, *, generation_mode: str = "storyboard", products: dict | None = None):
     payload = {
         "title": "速干杯",
@@ -1207,6 +1262,25 @@ class TestAdScriptGeneration:
         assert "1 到 15 秒间整数任选" in prompt
         # 不得落入参考视频 video_units prompt
         assert "video_units" not in prompt
+
+    async def test_build_prompt_uses_project_source_language(self, tmp_path):
+        """ad prompt 的口播语速折算与输出语言须取项目 source_language（与 drama/narration 同口径），非中文项目不得回落中文/zh 语速。"""
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        project_json_path = project_path / "project.json"
+        payload = json.loads(project_json_path.read_text(encoding="utf-8"))
+        payload["source_language"] = "en"
+        _write_json(project_json_path, payload)
+
+        generator = ScriptGenerator(project_path)
+        prompt = await generator.build_prompt(1)
+
+        # 口播语速折算按 en 口径（约 2.5 词/秒），不得回落默认 zh 口径（约 5 字/秒）
+        assert "约 2.5 词/秒" in prompt
+        assert "约 5 字/秒" not in prompt
+        # 输出语言规则锁定为项目 source_language，不回落默认中文
+        assert "所有字符串值必须使用 en" in prompt
+        assert "所有字符串值必须使用 中文" not in prompt
 
     async def test_build_prompt_tolerates_null_project_fields(self, tmp_path):
         """project.json 手工编辑后字段显式为 null：prompt 构建按空值归一化，不抛 AttributeError。"""
@@ -1335,6 +1409,71 @@ class TestAdScriptGeneration:
         output_path = await generator.generate(1)
         saved = json.loads(output_path.read_text(encoding="utf-8"))
         assert saved["shots"][0]["shot_id"] == "E1S01"
+
+
+class TestAdParseResponseDriftRecovery:
+    """代理网关不执行约束解码时的输出容错：枚举风格漂移归一 + title 缺失兜底。
+
+    复刻 2026-07-13 诊断日志捕获的失败形态：gemini 代理网关输出大写/小写蛇形枚举
+    （MEDIUM_SHOT / dolly_in）、dialogue 为 null、顶层 title 缺失，三次生成全部
+    折在 save_script 结构校验上。_parse_response 须把这类可挽救漂移归一后放行。
+    """
+
+    @staticmethod
+    def _drifted_shot(shot_id: str, shot_type: str, camera_motion: str) -> dict:
+        return {
+            "shot_id": shot_id,
+            "section": "hook",
+            "duration_seconds": 3,
+            "voiceover_text": "开场口播",
+            "image_prompt": {
+                "scene": "老伴在广场中央起舞",
+                "composition": {"shot_type": shot_type, "lighting": "夕阳侧光", "ambiance": "人群环绕"},
+            },
+            "video_prompt": {
+                "action": "旋转舞动",
+                "camera_motion": camera_motion,
+                "ambiance_audio": "广场音乐",
+                "dialogue": None,
+            },
+        }
+
+    def test_parse_response_recovers_drifted_payload_without_title(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        generator = ScriptGenerator(project_path)
+
+        llm_response = json.dumps(
+            {
+                "shots": [
+                    self._drifted_shot("E1S01", "MEDIUM_SHOT", "ZOOM_OUT"),
+                    self._drifted_shot("E1S02", "wide_shot", "dolly_in"),
+                ]
+            },
+            ensure_ascii=False,
+        )
+        parsed = generator._parse_response(llm_response, 1)
+
+        assert parsed["title"] == "第1集"
+        first, second = parsed["shots"]
+        assert first["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
+        assert first["video_prompt"]["camera_motion"] == "Zoom Out"
+        assert first["video_prompt"]["dialogue"] == []
+        # 词表外值（wide_shot / dolly_in）不做语义映射，降级为中性默认值
+        assert second["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
+        assert second["video_prompt"]["camera_motion"] == "Static"
+
+    def test_parse_response_keeps_model_title_when_present(self, tmp_path):
+        project_path = tmp_path / "demo"
+        _write_ad_project(project_path)
+        generator = ScriptGenerator(project_path)
+
+        llm_response = json.dumps(
+            {"title": "速干杯广场舞", "shots": [self._drifted_shot("E1S01", "Medium Shot", "Static")]},
+            ensure_ascii=False,
+        )
+        parsed = generator._parse_response(llm_response, 1)
+        assert parsed["title"] == "速干杯广场舞"
 
 
 class TestAdQualityProbe:

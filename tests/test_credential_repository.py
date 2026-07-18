@@ -162,6 +162,35 @@ class TestCredentialRepository:
         assert config["secret_key"] == "SK-1"
         assert "api_key" not in config
 
+    async def test_update_can_explicitly_clear_secret_fields(self, session: AsyncSession):
+        """显式传 None 清空 api_key/access_key/secret_key/base_url；省略参数（默认）不动它们。"""
+        repo = CredentialRepository(session)
+        c = await repo.create(
+            provider="kling",
+            name="可灵账号",
+            api_key="AK-legacy",
+            base_url="https://proxy.example.com/v1",
+        )
+        await session.flush()
+
+        # 省略 access_key/secret_key：保持未设置，不受影响
+        await repo.update(c.id, name="改名")
+        await session.flush()
+        untouched = await repo.get_by_id(c.id)
+        assert untouched is not None
+        assert untouched.api_key == "AK-legacy"
+        assert untouched.name == "改名"
+
+        # 显式传 None：清空该字段
+        await repo.update(c.id, api_key=None, base_url=None, access_key="AK-new", secret_key="SK-new")
+        await session.flush()
+        switched = await repo.get_by_id(c.id)
+        assert switched is not None
+        assert switched.api_key is None
+        assert switched.base_url is None
+        assert switched.access_key == "AK-new"
+        assert switched.secret_key == "SK-new"
+
     async def test_base_url_normalized_on_create(self, session: AsyncSession):
         repo = CredentialRepository(session)
         c = await repo.create(

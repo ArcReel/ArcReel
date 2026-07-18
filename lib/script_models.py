@@ -6,9 +6,10 @@ script_models.py - 剧本数据模型
 2. 输出验证
 """
 
-from typing import Annotated, ClassVar, Literal
+import logging
+from typing import Annotated, ClassVar, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, create_model, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from lib.script_skeleton import resolve_declared_kind
@@ -37,6 +38,8 @@ ShotType = Literal[
     "Point-of-view",
 ]
 
+# 取值须为供应商官方运镜词表承认的写法（对齐 MiniMax Hailuo [command] 指令表与阿里万相
+# 基础/高级运镜表的运动类条目），下游按原文插值进视频 prompt，不做二次翻译。
 CameraMotion = Literal[
     "Static",
     "Pan Left",
@@ -45,7 +48,15 @@ CameraMotion = Literal[
     "Tilt Down",
     "Zoom In",
     "Zoom Out",
+    "Push In",
+    "Pull Out",
+    "Truck Left",
+    "Truck Right",
+    "Pedestal Up",
+    "Pedestal Down",
+    "Orbit",
     "Tracking Shot",
+    "Shake",
 ]
 
 TransitionType = Literal[
@@ -53,6 +64,51 @@ TransitionType = Literal[
     "fade",
     "dissolve",
 ]
+
+logger = logging.getLogger(__name__)
+
+
+def _canon_enum_key(value: str) -> str:
+    """枚举漂移归一键：下划线/连字符折叠为空格、多空格合一、casefold。"""
+    return " ".join(value.replace("_", " ").replace("-", " ").split()).casefold()
+
+
+# schema 的 enum 只有在供应商执行约束解码时才是硬约束；代理网关/OpenAI 兼容通道丢弃
+# wire 级结构化参数时，模型会把枚举写成大写/小写蛇形（MEDIUM_SHOT / medium_shot）
+# 甚至词表外值（wide_shot / dolly_in，均为线上实测值）。机械归一（大小写/
+# 分隔符）把风格漂移拉回词表；词表外值不做语义近义映射（语义映射永远穷举不全），
+# 一律降级为中性默认值并 warn——这两个字段下游只作生成 prompt 的文本插值，
+# 单镜头词汇漂移不值得让整集剧本生成失败。
+_DEFAULT_SHOT_TYPE: ShotType = "Medium Shot"
+_DEFAULT_CAMERA_MOTION: CameraMotion = "Static"
+
+_SHOT_TYPE_BY_KEY: dict[str, str] = {_canon_enum_key(v): v for v in get_args(ShotType)}
+_CAMERA_MOTION_BY_KEY: dict[str, str] = {_canon_enum_key(v): v for v in get_args(CameraMotion)}
+
+
+def _normalize_shot_type(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    hit = _SHOT_TYPE_BY_KEY.get(_canon_enum_key(value))
+    if hit is not None:
+        return hit
+    logger.warning("shot_type 枚举漂移无法归一，降级为 %s: %r", _DEFAULT_SHOT_TYPE, value)
+    return _DEFAULT_SHOT_TYPE
+
+
+def _normalize_camera_motion(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    hit = _CAMERA_MOTION_BY_KEY.get(_canon_enum_key(value))
+    if hit is not None:
+        return hit
+    logger.warning("camera_motion 枚举漂移无法归一，降级为 %s: %r", _DEFAULT_CAMERA_MOTION, value)
+    return _DEFAULT_CAMERA_MOTION
+
+
+def _none_to_empty_list(value: object) -> object:
+    """漂移容错：非约束解码通道可能把可选列表字段写成 null 而非省略。"""
+    return [] if value is None else value
 
 
 class Dialogue(BaseModel):
@@ -69,9 +125,9 @@ class Composition(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    shot_type: ShotType = Field(description="镜头类型")
-    lighting: str = Field(description="光线描述：光源、方向、色温；避免抽象词")
-    ambiance: str = Field(description="整体氛围：可观察的环境效果；避免抽象情绪词")
+    shot_type: Annotated[ShotType, BeforeValidator(_normalize_shot_type)] = Field(description="镜头类型")
+    lighting: str = Field(description="光线描述")
+    ambiance: str = Field(description="整体氛围")
 
 
 class ImagePrompt(BaseModel):
@@ -79,7 +135,7 @@ class ImagePrompt(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    scene: str = Field(description="画面静态描述：角色姿态、环境元素、光影氛围（动作请写到 video_prompt.action）")
+    scene: str = Field(description="画面静态描述；动态内容由 video_prompt.action 承载")
     composition: Composition = Field(description="构图信息")
 
 
@@ -88,9 +144,9 @@ class _VideoPromptCore(BaseModel):
 
     model_config = _STRICT_CONFIG
 
-    action: str = Field(description="动作描述：仅描述物理可观察动作，避免内心动词（如 陷入/回忆/意识到）")
-    camera_motion: CameraMotion = Field(description="镜头运动")
-    ambiance_audio: str = Field(description="环境音效：仅描述场景内的声音，禁止 BGM")
+    action: str = Field(description="该镜头时长内的动作描述；镜头运动由 camera_motion 承载")
+    camera_motion: Annotated[CameraMotion, BeforeValidator(_normalize_camera_motion)] = Field(description="镜头运动")
+    ambiance_audio: str = Field(description="环境音效（画内音）")
 
 
 class VideoPrompt(_VideoPromptCore):
@@ -100,7 +156,9 @@ class VideoPrompt(_VideoPromptCore):
     ``DramaVideoPrompt`` 变体（见 ADR 0040）。
     """
 
-    dialogue: list[Dialogue] = Field(default_factory=list, description="对话列表，仅当原文有引号对话时填写")
+    dialogue: Annotated[list[Dialogue], BeforeValidator(_none_to_empty_list)] = Field(
+        default_factory=list, description="对话列表，仅当原文有引号对话时填写"
+    )
 
 
 class DramaVideoPrompt(_VideoPromptCore):
@@ -713,6 +771,40 @@ def ad_script_total_duration(shots: object) -> int:
     return sum(ad_shot_duration_seconds(shot) for shot in shots)
 
 
+#: 缺 duration_seconds 时按骨架种类取的兜底时长（秒）——剧本条目时长的单一真相源。
+#: segments/scenes 沿用历史默认；shots（ad）与 video_units（参考直出）无单镜头默认时长
+#: 偏好（按 target/预算逐条规划），缺失按 0 计，避免杜撰值污染与目标总时长的对照。
+#: 三个消费方（StatusCalculator 读时计算、ProjectManager 写盘重算、ScriptGenerator
+#: 落盘估算）共用此表，四种骨架全登记；第五种骨架加入即在 ``item_duration`` 查表 KeyError。
+_ITEM_FALLBACK_DURATIONS: dict[str, int] = {"segments": 4, "scenes": 8, "shots": 0, "video_units": 0}
+
+
+def item_duration(kind: str, item: object) -> int:
+    """单条剧本条目时长（秒）的脏数据归一口径——沿 ``ad_shot_duration_seconds`` 先例推广到四骨架。
+
+    非 dict 条目无时长语义按 0 计；dict 内 ``duration_seconds`` 缺失，或为脏值
+    （None / 布尔 / 非正整数 / 浮点 / 字符串）一律回退按 ``kind`` 查 ``_ITEM_FALLBACK_DURATIONS``
+    的兜底时长。只认真正的正整数（bool 按 int 子类排除），与校验器「``duration <= 0`` 判无效」一致。
+    """
+    if not isinstance(item, dict):
+        return 0
+    value = item.get("duration_seconds")
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return _ITEM_FALLBACK_DURATIONS[kind]
+
+
+def script_duration_total(kind: str, items: object) -> int:
+    """按骨架种类求剧本条目总时长（秒）——脏数据稳健、不抛（见 ``item_duration``）。
+
+    ``items`` 非 list（含 null 这类降级保存的脏值）按空处理返回 0。读时计算与写盘重算
+    共用此单一真相源，避免三处各自维护同一兜底表与守卫。
+    """
+    if not isinstance(items, list):
+        return 0
+    return sum(item_duration(kind, item) for item in items)
+
+
 class Shot(BaseModel):
     """参考视频单元内的一个镜头。"""
 
@@ -796,11 +888,60 @@ class ReferenceVideoScript(BaseModel):
     video_units: list[ReferenceVideoUnit] = Field(description="视频单元列表")
 
 
+# ============ 参考生视频 step1 结构化中间态 ============
+#
+# 两段式职责切分（与 narration / drama 同机制，见 ADR 0041）：step1（video_unit 拆分）产出
+# 内容层（unit 边界 + 各 shot 叙事文本与时长 + references 列表），step2（generate-script）
+# 以此为唯一基底生成 ReferenceVideoScript 的视觉编排（景别 / 构图 / 运镜扩写）。
+
+
+class ReferenceStep1Unit(BaseModel):
+    """参考生视频 step1（video_unit 拆分）产出的结构化单元：内容层。
+
+    ``references`` 由拆分工具从各 shot 文本的 ``@[名称]`` 引用机械派生（并集、首现顺序，
+    顺序决定 [图N] 编号），不经 LLM 输出——对 LLM 隐藏（SkipJsonSchema），从工程上杜绝
+    references 与正文引用不一致；读取校验照常生效。unit 总时长上限与 references 上限
+    依赖运行时视频能力值，由拆分工具后校验，不进本模型。
+    """
+
+    model_config = _STRICT_CONFIG
+
+    unit_id: str = Field(min_length=1, description="格式 E{集}U{序号}")
+    shots: list[Shot] = Field(min_length=1, max_length=4, description="1-4 个 shot，text 用 @[名称] 引用已注册资产")
+    references: SkipJsonSchema[list[ReferenceResource]] = Field(
+        default_factory=list,
+        description="参考图引用，从 shots 文本的 @ 引用派生（首现顺序，决定 [图N] 编号）",
+    )
+
+
+class ReferenceStep1Draft(BaseModel):
+    """参考生视频 step1 结构化中间态（``drafts/episode_N/step1_reference_units.json`` 的 schema）。
+
+    顶层容忍附加字段（与 NarrationStep1Draft 同口径），读时按本模型校验。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    units: list[ReferenceStep1Unit] = Field(description="video_unit 列表")
+
+
 # ============ duration 枚举硬约束（按视频模型能力动态构造剧本 schema） ============
 
 
+def _coerce_digit_string(value: object) -> object:
+    """机械强转：纯数字字符串 → int，其余原样透传交给 ``Literal`` 校验。
+
+    Gemini ``responseSchema`` 通道的 ``enum`` 仅支持字符串，整数时长枚举在 wire 层转为
+    字符串枚举（``["4","6","8"]``，见 ``lib/text_backends/gemini.py``），约束解码下模型
+    输出 ``"4"``；此处恢复 int，使复验与解析两侧的 ``Literal[4,6,8]`` 照常命中。
+    """
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return value
+
+
 def _duration_literal(supported_durations: list[int]) -> object:
-    """把 supported_durations 去重排序后构造成 ``Literal[...]``。
+    """把 supported_durations 去重排序后构造成数字字符串可强转的 ``Literal[...]``。
 
     多值在 ``model_json_schema()`` 里渲染为 JSON-schema ``enum``、单值渲染为 ``const``，两者都是硬约束。
     与 ``ConfigResolver`` 同口径用 ``int(d)`` 归一（见 ``lib/config/resolver.py`` custom 分支）。空集抛 ValueError。
@@ -808,7 +949,7 @@ def _duration_literal(supported_durations: list[int]) -> object:
     values = tuple(sorted({int(d) for d in supported_durations}))
     if not values:
         raise ValueError("supported_durations 为空，无法构造 duration 枚举约束")
-    return Literal[values]
+    return Annotated[Literal[values], BeforeValidator(_coerce_digit_string)]
 
 
 def _constrained_duration_item(item_base: type[BaseModel], duration_type: object, description: str) -> type[BaseModel]:
@@ -901,6 +1042,38 @@ def build_ad_reference_episode_script_model() -> type[BaseModel]:
     return _ad_episode_model(
         Annotated[int, Field(ge=low, le=high)],
         f"镜头时长（秒），{low}-{high} 间整数任选",
+    )
+
+
+def build_reference_units_step1_model(supported_durations: list[int]) -> type[BaseModel]:
+    """构造单 shot 时长被 ``supported_durations`` 枚举硬约束的参考生视频 step1 模型。
+
+    拆分阶段单 shot 时长即取自 ``supported_durations``（response_schema 渲染为 enum / const，
+    LLM 生成层被卡死），与 step2 「unit 总时长 ∈ supported_durations」的约束衔接：step2 在
+    成员时长的 shot 上重编排即可凑出合法 unit 总时长。unit 总时长上限（≤ max_duration）与
+    references 上限依赖运行时能力值、不进 schema，由拆分工具后校验。静态 ``Shot.duration``
+    的 1-15 区间仍作读取侧兜底。
+    """
+    shot = create_model(
+        "Shot",
+        __base__=Shot,
+        duration=(
+            _duration_literal(supported_durations),
+            Field(description="镜头时长（秒），必须取 supported_durations 中的值"),
+        ),
+    )
+    unit = create_model(
+        "ReferenceStep1Unit",
+        __base__=ReferenceStep1Unit,
+        shots=(
+            list[shot],
+            Field(min_length=1, max_length=4, description="1-4 个 shot，text 用 @[名称] 引用已注册资产"),
+        ),
+    )
+    return create_model(
+        "ReferenceStep1Draft",
+        __base__=ReferenceStep1Draft,
+        units=(list[unit], Field(description="video_unit 列表")),
     )
 
 

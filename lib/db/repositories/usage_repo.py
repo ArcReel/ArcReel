@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -12,12 +13,56 @@ from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.base import BaseRepository, rowcount
+from lib.pricing.strategies import PricingParams
 from lib.providers import PROVIDER_GEMINI, CallType
 
 # 计费时长合理上限（24 小时），语义单点定义：repo 写入层是全部 backend 落账的最后防线，
 # 超出上限的计费时长视同未提供、回落请求时长，防超大数值写入 DB Integer 列溢出；
 # 解析侧（grok / dashscope extractor）的 clamp 引用同一常量，保持口径一致。
 MAX_BILLED_DURATION_SECONDS = 86400
+
+# 存量裸 provider 值的报表显示兜底：身份反转前，文本 gemini 调用以 backend.name 落账为裸
+# "gemini"（图像/视频侧已是 "gemini-aistudio"）。这些历史行不迁移，仅在分组报表按此表补一个
+# 友好显示名；registry 只登记新格式 key（gemini-aistudio / gemini-vertex），故裸值查不到 meta。
+_LEGACY_PROVIDER_DISPLAY_NAMES = {PROVIDER_GEMINI: "Gemini"}
+
+
+@dataclass(frozen=True)
+class SettlementInput:
+    """仓储写侧的申报值对象：承载 caller 在快照时刻提交的原始计费维度。
+
+    这些是"申报时刻"的原始值——``billed_duration_seconds`` 可能非法/超限、显式
+    ``cost_amount`` 绕过自动计算——由 ``_settle`` 归一为生效定价（``PricingParams``）。
+    与 ``PricingParams``（结算后的生效定价输入）刻意分成两个对象，避免原始值与生效值
+    在同一结构里语义混淆。新增计费字段自此只扩本对象，不再穿仓储写侧散参。
+    """
+
+    cost_amount: float | None = None
+    currency: str | None = None
+    service_tier: str = "default"
+    generate_audio: bool | None = None
+    billed_duration_seconds: int | None = None
+    usage_tokens: int | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    quality: str | None = None
+    image_input_tokens: int | None = None
+    image_output_tokens: int | None = None
+    text_input_tokens: int | None = None
+    text_output_tokens: int | None = None
+
+
+@dataclass(frozen=True)
+class _SettledCall:
+    """``_settle`` 输出：两条快照路径共用的生效结算值，各自 UPDATE 直接取用。"""
+
+    duration_ms: int
+    effective_duration_seconds: int | None
+    effective_generate_audio: bool | None
+    input_tokens: int | None
+    output_tokens: int | None
+    cost_amount: float
+    currency: str
 
 
 def _classify_asset_output_path(output_path: str | None) -> str:
@@ -110,78 +155,76 @@ class UsageRepository(BaseRepository):
         await self.session.refresh(row)
         return row.id
 
-    async def finalize_pending_by_call_id(
+    async def _settle(
         self,
         *,
-        call_id: int,
-        cost_amount: float | None = None,
-        currency: str | None = None,
-        status: str = "success",
-        service_tier: str = "default",
-        usage_tokens: int | None = None,
-        generate_audio: bool | None = None,
-        billed_duration_seconds: int | None = None,
-    ) -> int:
-        """Resume 路径专用：按 call_id 精准翻 pending → success/failed。
+        row: ApiCall,
+        finished_at: datetime,
+        settlement: SettlementInput,
+        auto_calc: bool,
+        base_currency: str,
+    ) -> _SettledCall:
+        """两条快照路径共享的结算函数：输入 ApiCall 行与申报值，输出生效计费时长、
+        生效有声标志、duration_ms、费用与币种（含 OpenAI 图片 token 聚合列归一）。
 
-        Repo WHERE 子句包含 ``status='pending'`` —— 已 success 行不 touch
-        （防止 generate 已 finish_call 后崩、resume 反向把 success 行覆写）。
-        cost_amount/currency 行为对齐 finish_call：
-        - cost_amount=None + status='success' → 按 ApiCall 行字段调 cost_calculator
-          算实际 cost（与 generate 路径等价记账，避免视频已生成但 cost=0 永久漏记）
-        - cost_amount=None + status='failed' → 走 0.0/USD（失败不计费）
-        - 显式传 cost_amount → 直接用
-        service_tier 由 caller 从原 generate 上下文透传（ApiCall 模型无此列，
-        与 finish_call 同 caller-passed 模式），非 default 档位才能按真实档计费。
-        usage_tokens 同样由 caller 从 resume_video 返回的 VideoGenerationResult.usage_tokens
-        透传：Ark video 按 usage_tokens 计费，未传则 cost 永远为 0；其它 provider 不依赖该字段。
-        generate_audio 由 caller 从 backend 返回值透传：provider 在 submit 后可能降级/关闭音频，
-        与 finish_call 的 ``generate_audio is not None`` 覆盖语义对齐，避免按请求值误计费。
-        billed_duration_seconds 同样由 caller 从 backend 返回值透传：provider 回报的实际计费
-        时长覆盖请求时长（与 finish_call 同覆盖语义，非正值视同未提供），保证同一笔调用
-        无论经 generate 还是 resume 完成，账本时长与自动 cost 口径一致。
-        duration_ms 按 (finished_at - started_at) 回写，让 get_stats_grouped_by_provider
-        的时长汇总不会因 resume 完成的调用 duration_ms=NULL 而系统性压低。
-        provider 端已扣费的事实通过 status='pending' WHERE 保护——绝不触发再次扣费。
-        返回受影响行数（0=幂等无操作；1=正常翻一行）。
+        - duration_ms 按 ``finished_at - started_at`` 回写；SQLite 跨 session 回读的
+          ``started_at`` 为 naive datetime，相减前按 UTC 补齐 tzinfo 与 aware 的
+          ``finished_at`` 对齐口径；计算异常仍兜底为 0（最终防线）。
+        - 计费时长/有声标志覆盖：backend 回报值覆盖 start_call 时的请求值，非正或超出
+          ``MAX_BILLED_DURATION_SECONDS`` 的计费时长视同未提供、回落请求时长。
+        - 费用：显式 ``cost_amount`` 视作 provider 直报计费数据、优先于自动计算；否则在
+          ``auto_calc`` 为真时按行字段 + 申报值调 ``cost_calculator``（自定义供应商价格预查
+          避免 CostCalculator 内 sync-over-async）。
+        - ``base_currency`` 由 caller 传入承载各自的币种兜底口径（finish_call 兜底
+          ``row.currency``，resume 兜底 ``settlement.currency``），保持行为不分叉。
+
+        防重复计费的 pending 守卫由各 public 方法的 UPDATE WHERE 子句显式承担，不在此。
         """
-        finished_at = utc_now()
-
-        # 无条件 fetch row：既用于 auto-calc cost 路径，也用于 duration_ms 回写
-        # （即便 caller 显式传 cost_amount，duration_ms 计算仍需要 started_at）。
-        # row.status='pending' 守卫继续由下面的 UPDATE WHERE 子句保证幂等性。
-        select_result = await self.session.execute(select(ApiCall).where(ApiCall.id == call_id))
-        row = select_result.scalar_one_or_none()
-        if row is None:
-            return 0
-
-        duration_ms = 0
         try:
-            duration_ms = int((finished_at - row.started_at).total_seconds() * 1000)
+            started_at = row.started_at
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=UTC)
+            settled_finished_at = finished_at if finished_at.tzinfo is not None else finished_at.replace(tzinfo=UTC)
+            duration_ms = int((settled_finished_at - started_at).total_seconds() * 1000)
         except (ValueError, TypeError):
             duration_ms = 0
 
-        # backend 回写的实际 generate_audio 覆盖 start_call 时的请求值
-        # （与 finish_call 同语义；用于 cost_calculator 输入及 UPDATE 回写）
-        effective_generate_audio = generate_audio if generate_audio is not None else row.generate_audio
-
-        # provider 回报的实际计费时长覆盖请求时长（与 finish_call 同覆盖语义，非正或超出
-        # 合理上限视同未提供）。走局部变量 + UPDATE 列回写而非 ORM 属性赋值，让覆盖继续受
-        # WHERE status='pending' 幂等守卫保护，不被 autoflush 绕过。
-        effective_duration_seconds = (
-            billed_duration_seconds
-            if billed_duration_seconds is not None and 0 < billed_duration_seconds <= MAX_BILLED_DURATION_SECONDS
-            else row.duration_seconds
+        effective_generate_audio = (
+            settlement.generate_audio if settlement.generate_audio is not None else row.generate_audio
         )
 
-        final_cost_amount = 0.0
-        final_currency = currency or "USD"
+        billed = settlement.billed_duration_seconds
+        effective_duration_seconds = (
+            billed if billed is not None and 0 < billed <= MAX_BILLED_DURATION_SECONDS else row.duration_seconds
+        )
 
-        if cost_amount is not None:
-            final_cost_amount = cost_amount
-            final_currency = currency or "USD"
-        elif status == "success" and row.status == "pending":
+        # OpenAI 图片调用：input_tokens/output_tokens 列的"总和"语义
+        # = image_*_tokens + text_*_tokens（用于跨 call_type 聚合查询保持兼容）。
+        # resume 路径无图片 token，has_image_tokens 恒 False → 保持申报值原样。
+        input_tokens = settlement.input_tokens
+        output_tokens = settlement.output_tokens
+        has_image_tokens = any(
+            t is not None
+            for t in (
+                settlement.image_input_tokens,
+                settlement.image_output_tokens,
+                settlement.text_input_tokens,
+                settlement.text_output_tokens,
+            )
+        )
+        if has_image_tokens:
+            input_tokens = (settlement.image_input_tokens or 0) + (settlement.text_input_tokens or 0)
+            output_tokens = (settlement.image_output_tokens or 0) + (settlement.text_output_tokens or 0)
+
+        cost_amount = 0.0
+        currency = base_currency
+        if settlement.cost_amount is not None:
+            cost_amount = settlement.cost_amount
+            currency = settlement.currency or base_currency
+        elif auto_calc:
             effective_provider = row.provider or PROVIDER_GEMINI
+
+            # Pre-query custom provider pricing (avoids sync-over-async in CostCalculator)
             custom_price_input: float | None = None
             custom_price_output: float | None = None
             custom_currency: str | None = None
@@ -195,20 +238,73 @@ class UsageRepository(BaseRepository):
                     custom_price_output = price_model.price_output
                     custom_currency = price_model.currency
 
-            final_cost_amount, final_currency = cost_calculator.calculate_cost(
-                provider=effective_provider,
-                call_type=row.call_type,  # type: ignore[arg-type]
+            params = PricingParams(
+                call_type=row.call_type,  # pyright: ignore[reportArgumentType]
                 model=row.model,
                 resolution=row.resolution,
                 aspect_ratio=row.aspect_ratio,
                 duration_seconds=effective_duration_seconds,
                 generate_audio=bool(effective_generate_audio),
-                service_tier=service_tier,
-                usage_tokens=usage_tokens,
+                usage_tokens=settlement.usage_tokens,
+                service_tier=settlement.service_tier,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                quality=settlement.quality,
+                image_input_tokens=settlement.image_input_tokens,
+                image_output_tokens=settlement.image_output_tokens,
+                text_input_tokens=settlement.text_input_tokens,
+                text_output_tokens=settlement.text_output_tokens,
+            )
+            cost_amount, currency = cost_calculator.calculate_cost(
+                effective_provider,
+                params,
                 custom_price_input=custom_price_input,
                 custom_price_output=custom_price_output,
                 custom_currency=custom_currency,
             )
+
+        return _SettledCall(
+            duration_ms=duration_ms,
+            effective_duration_seconds=effective_duration_seconds,
+            effective_generate_audio=effective_generate_audio,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_amount=cost_amount,
+            currency=currency,
+        )
+
+    async def finalize_pending_by_call_id(
+        self,
+        *,
+        call_id: int,
+        settlement: SettlementInput,
+        status: str = "success",
+    ) -> int:
+        """Resume 路径专用：按 call_id 精准翻 pending → success/failed。
+
+        Repo WHERE 子句包含 ``status='pending'`` —— 已 success 行不 touch
+        （防止 generate 已 finish_call 后崩、resume 反向把 success 行覆写）；provider 端
+        已扣费的事实由此守卫，绝不触发再次扣费。结算逻辑（计费时长/有声覆盖、自动 cost、
+        duration_ms 回写）与 finish_call 共享 ``_settle``，唯币种兜底口径按 resume 语义
+        取 ``settlement.currency``。返回受影响行数（0=幂等无操作；1=正常翻一行）。
+        """
+        finished_at = utc_now()
+
+        # 无条件 fetch row：既用于 auto-calc cost 路径，也用于 duration_ms 回写
+        # （即便 caller 显式传 cost_amount，duration_ms 计算仍需要 started_at）。
+        # row.status='pending' 守卫继续由下面的 UPDATE WHERE 子句保证幂等性。
+        select_result = await self.session.execute(select(ApiCall).where(ApiCall.id == call_id))
+        row = select_result.scalar_one_or_none()
+        if row is None:
+            return 0
+
+        settled = await self._settle(
+            row=row,
+            finished_at=finished_at,
+            settlement=settlement,
+            auto_calc=status == "success" and row.status == "pending",
+            base_currency=settlement.currency or "USD",
+        )
 
         result = await self.session.execute(
             update(ApiCall)
@@ -216,12 +312,12 @@ class UsageRepository(BaseRepository):
             .values(
                 status=status,
                 finished_at=finished_at,
-                duration_ms=duration_ms,
-                duration_seconds=effective_duration_seconds,
-                cost_amount=final_cost_amount,
-                currency=final_currency,
-                usage_tokens=usage_tokens,
-                generate_audio=effective_generate_audio,
+                duration_ms=settled.duration_ms,
+                duration_seconds=settled.effective_duration_seconds,
+                cost_amount=settled.cost_amount,
+                currency=settled.currency,
+                usage_tokens=settlement.usage_tokens,
+                generate_audio=settled.effective_generate_audio,
             )
         )
         affected = rowcount(result)
@@ -234,22 +330,9 @@ class UsageRepository(BaseRepository):
         call_id: int,
         *,
         status: str,
+        settlement: SettlementInput,
         output_path: str | None = None,
         error_message: str | None = None,
-        retry_count: int = 0,
-        usage_tokens: int | None = None,
-        service_tier: str = "default",
-        generate_audio: bool | None = None,
-        input_tokens: int | None = None,
-        output_tokens: int | None = None,
-        quality: str | None = None,
-        image_input_tokens: int | None = None,
-        image_output_tokens: int | None = None,
-        text_input_tokens: int | None = None,
-        text_output_tokens: int | None = None,
-        cost_amount: float | None = None,
-        currency: str | None = None,
-        billed_duration_seconds: int | None = None,
     ) -> None:
         finished_at = utc_now()
 
@@ -258,78 +341,13 @@ class UsageRepository(BaseRepository):
         if not row:
             return
 
-        # provider 回报的实际计费时长覆盖 start_call 时的请求时长（如 DashScope usage.duration
-        # 含输入参考视频时长）；非正或超出合理上限的值视同未提供，回落请求时长，不记 0 秒账。
-        # 显式 cost_amount 仍优先于按时长的自动计算，但实际计费时长照常回写账本。
-        # 走局部变量 + UPDATE 列回写而非 ORM 属性赋值，避免 autoflush 对同一行额外多发一条 UPDATE。
-        effective_duration_seconds = (
-            billed_duration_seconds
-            if billed_duration_seconds is not None and 0 < billed_duration_seconds <= MAX_BILLED_DURATION_SECONDS
-            else row.duration_seconds
+        settled = await self._settle(
+            row=row,
+            finished_at=finished_at,
+            settlement=settlement,
+            auto_calc=status == "success",
+            base_currency=row.currency or "USD",
         )
-
-        # 后端回写的实际 generate_audio 覆盖 start_call 时的请求值
-        effective_generate_audio = generate_audio if generate_audio is not None else row.generate_audio
-
-        # Calculate duration
-        try:
-            duration_ms = int((finished_at - row.started_at).total_seconds() * 1000)
-        except (ValueError, TypeError):
-            duration_ms = 0
-
-        # Calculate cost. Explicit cost input is treated as provider-reported billing data.
-        final_cost_amount = 0.0
-        final_currency = row.currency or "USD"
-        effective_provider = row.provider or PROVIDER_GEMINI
-
-        # Pre-query custom provider pricing (avoids sync-over-async in CostCalculator)
-        custom_price_input: float | None = None
-        custom_price_output: float | None = None
-        custom_currency: str | None = None
-        if status == "success" and is_custom_provider(effective_provider):
-            from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-
-            repo = CustomProviderRepository(self.session)
-            price_model = await repo.get_model_by_ids(parse_provider_id(effective_provider), row.model or "")
-            if price_model:
-                custom_price_input = price_model.price_input
-                custom_price_output = price_model.price_output
-                custom_currency = price_model.currency
-
-        # OpenAI 图片调用：input_tokens/output_tokens 列的"总和"语义
-        # = image_*_tokens + text_*_tokens（用于跨 call_type 聚合查询保持兼容）
-        has_image_tokens = any(
-            t is not None for t in (image_input_tokens, image_output_tokens, text_input_tokens, text_output_tokens)
-        )
-        if has_image_tokens:
-            input_tokens = (image_input_tokens or 0) + (text_input_tokens or 0)
-            output_tokens = (image_output_tokens or 0) + (text_output_tokens or 0)
-
-        if cost_amount is not None:
-            final_cost_amount = cost_amount
-            final_currency = currency or row.currency or "USD"
-        elif status == "success":
-            final_cost_amount, final_currency = cost_calculator.calculate_cost(
-                provider=effective_provider,
-                call_type=row.call_type,  # type: ignore[arg-type]
-                model=row.model,
-                resolution=row.resolution,
-                aspect_ratio=row.aspect_ratio,
-                duration_seconds=effective_duration_seconds,
-                generate_audio=bool(effective_generate_audio),
-                usage_tokens=usage_tokens,
-                service_tier=service_tier,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                quality=quality,
-                image_input_tokens=image_input_tokens,
-                image_output_tokens=image_output_tokens,
-                text_input_tokens=text_input_tokens,
-                text_output_tokens=text_output_tokens,
-                custom_price_input=custom_price_input,
-                custom_price_output=custom_price_output,
-                custom_currency=custom_currency,
-            )
 
         error_truncated = error_message[:500] if error_message else None
 
@@ -339,19 +357,18 @@ class UsageRepository(BaseRepository):
             .values(
                 status=status,
                 finished_at=finished_at,
-                duration_ms=duration_ms,
-                duration_seconds=effective_duration_seconds,
-                generate_audio=effective_generate_audio,
-                retry_count=retry_count,
-                cost_amount=final_cost_amount,
-                currency=final_currency,
-                usage_tokens=usage_tokens,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                image_input_tokens=image_input_tokens,
-                image_output_tokens=image_output_tokens,
-                text_input_tokens=text_input_tokens,
-                text_output_tokens=text_output_tokens,
+                duration_ms=settled.duration_ms,
+                duration_seconds=settled.effective_duration_seconds,
+                generate_audio=settled.effective_generate_audio,
+                cost_amount=settled.cost_amount,
+                currency=settled.currency,
+                usage_tokens=settlement.usage_tokens,
+                input_tokens=settled.input_tokens,
+                output_tokens=settled.output_tokens,
+                image_input_tokens=settlement.image_input_tokens,
+                image_output_tokens=settlement.image_output_tokens,
+                text_input_tokens=settlement.text_input_tokens,
+                text_output_tokens=settlement.text_output_tokens,
                 output_path=output_path,
                 error_message=error_truncated,
             )
@@ -566,7 +583,10 @@ class UsageRepository(BaseRepository):
                     stat["display_name"] = provider_str
             else:
                 meta = PROVIDER_REGISTRY.get(provider_str or "")
-                stat["display_name"] = meta.display_name if meta else provider_str
+                if meta:
+                    stat["display_name"] = meta.display_name
+                else:
+                    stat["display_name"] = _LEGACY_PROVIDER_DISPLAY_NAMES.get(provider_str or "", provider_str)
 
         period_start: str | None = None
         period_end: str | None = None

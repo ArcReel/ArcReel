@@ -944,3 +944,139 @@ class TestReferencePayloadLimits:
             assert single == _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
         finally:
             await engine.dispose()
+
+
+class TestTextBackendTierResolution:
+    """文本档位五级解析链：项目档位 > 项目默认 > 全局档位 > 全局默认 > 自动推断。"""
+
+    _AUTO = ("gemini-aistudio", "gemini-3-flash-preview")  # ready gemini 的 registry 默认 text model
+
+    @pytest.mark.parametrize("p_tier", [False, True])
+    @pytest.mark.parametrize("p_def", [False, True])
+    @pytest.mark.parametrize("g_tier", [False, True])
+    @pytest.mark.parametrize("g_def", [False, True])
+    async def test_five_level_priority_all_combinations(self, p_tier, p_def, g_tier, g_def):
+        from unittest.mock import MagicMock
+
+        from lib.text_backends.base import TextTaskType
+
+        settings = {}
+        if g_tier:
+            settings["text_backend_complex"] = "g-tier/m"
+        if g_def:
+            settings["default_text_backend"] = "g-def/m"
+        project = {}
+        if p_tier:
+            project["text_backend_complex"] = "p-tier/m"
+        if p_def:
+            project["default_text_backend"] = "p-def/m"
+
+        if p_tier:
+            expected = ("p-tier", "m")
+        elif p_def:
+            expected = ("p-def", "m")
+        elif g_tier:
+            expected = ("g-tier", "m")
+        elif g_def:
+            expected = ("g-def", "m")
+        else:
+            expected = self._AUTO
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings=settings)
+        with patch("lib.config.resolver.get_project_manager") as mock_pm:
+            mock_pm.return_value.load_project.return_value = project
+            result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.SCRIPT, "demo")
+        assert result == expected
+
+    async def test_no_project_name_skips_project_levels(self):
+        from unittest.mock import MagicMock
+
+        from lib.text_backends.base import TextTaskType
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"text_backend_complex": "g-tier/m", "default_text_backend": "g-def/m"})
+        result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.SCRIPT, None)
+        assert result == ("g-tier", "m")
+
+    async def test_simple_tier_tasks_read_simple_key(self):
+        """OVERVIEW / STYLE_ANALYSIS 归简单档，读 text_backend_simple 而非复杂档键。"""
+        from unittest.mock import MagicMock
+
+        from lib.text_backends.base import TextTaskType
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"text_backend_simple": "simple/m", "text_backend_complex": "complex/m"})
+        for task in (TextTaskType.OVERVIEW, TextTaskType.STYLE_ANALYSIS):
+            result = await resolver._resolve_text_backend(fake_svc, MagicMock(), task, None)
+            assert result == ("simple", "m")
+
+    async def test_script_task_reads_complex_key(self):
+        from unittest.mock import MagicMock
+
+        from lib.text_backends.base import TextTaskType
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"text_backend_simple": "simple/m", "text_backend_complex": "complex/m"})
+        result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.SCRIPT, None)
+        assert result == ("complex", "m")
+
+    async def test_malformed_value_without_slash_falls_through(self):
+        """无 "/" 的脏值视为未设置，落到下一级。"""
+        from unittest.mock import MagicMock
+
+        from lib.text_backends.base import TextTaskType
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"text_backend_complex": "no-slash", "default_text_backend": "g-def/m"})
+        result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.SCRIPT, None)
+        assert result == ("g-def", "m")
+
+
+class TestStyleAnalysisVisionGuard:
+    """简单档模型不支持图像输入时，风格分析解析直接报错，不静默换模型。"""
+
+    async def test_rejects_registry_model_without_vision(self):
+        from unittest.mock import MagicMock
+
+        from lib.text_backends.base import TextTaskType
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        # gemini-3.1-flash-lite-preview 在 registry 中未声明 vision
+        fake_svc = _FakeConfigService(settings={"text_backend_simple": "gemini-aistudio/gemini-3.1-flash-lite-preview"})
+        with pytest.raises(ValueError, match="vision"):
+            await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.STYLE_ANALYSIS, None)
+
+    async def test_accepts_registry_model_with_vision(self):
+        from unittest.mock import MagicMock
+
+        from lib.text_backends.base import TextTaskType
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"text_backend_simple": "gemini-aistudio/gemini-3-flash-preview"})
+        result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.STYLE_ANALYSIS, None)
+        assert result == ("gemini-aistudio", "gemini-3-flash-preview")
+
+    async def test_unknown_model_passes_without_guess(self):
+        """registry 之外（自定义供应商等）无逐模型能力事实，放行不猜测。"""
+        from unittest.mock import MagicMock
+
+        from lib.text_backends.base import TextTaskType
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"text_backend_simple": "custom-abc/some-model"})
+        result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.STYLE_ANALYSIS, None)
+        assert result == ("custom-abc", "some-model")
+
+    async def test_complex_tier_task_not_vision_checked(self):
+        """vision 校验只针对需要图像输入的任务，SCRIPT 不受限。"""
+        from unittest.mock import MagicMock
+
+        from lib.text_backends.base import TextTaskType
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={"text_backend_complex": "gemini-aistudio/gemini-3.1-flash-lite-preview"}
+        )
+        result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.SCRIPT, None)
+        assert result == ("gemini-aistudio", "gemini-3.1-flash-lite-preview")

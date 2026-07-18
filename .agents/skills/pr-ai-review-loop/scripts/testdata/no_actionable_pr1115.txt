@@ -1,0 +1,140 @@
+<!-- This is an auto-generated comment: summarize by coderabbit.ai -->
+<!-- review_stack_entry_start -->
+
+[![Review Change Stack](https://storage.googleapis.com/coderabbit_public_assets/review-stack-in-coderabbit-ui.svg)](https://app.coderabbit.ai/change-stack/ArcReel/ArcReel/pull/1115?utm_source=github_walkthrough&utm_medium=github&utm_campaign=change_stack)
+
+<!-- review_stack_entry_end -->
+No actionable comments were generated in the recent review. 🎉
+
+<details>
+<summary>ℹ️ Recent review info</summary>
+
+<details>
+<summary>⚙️ Run configuration</summary>
+
+**Configuration used**: Organization UI
+
+**Review profile**: ASSERTIVE
+
+**Plan**: Pro Plus
+
+**Run ID**: `e82c03d5-8695-42b4-864a-6470071ae5f4`
+
+</details>
+
+<details>
+<summary>📥 Commits</summary>
+
+Reviewing files that changed from the base of the PR and between 0310cbb50228987e370eb76982dcf5c8d00c625c and f879673332d10feae5817f1c188f1e3fccd6c352.
+
+</details>
+
+<details>
+<summary>📒 Files selected for processing (1)</summary>
+
+* `frontend/src/components/pages/settings/AboutSection.tsx`
+
+</details>
+
+</details>
+
+---
+<!-- walkthrough_start -->
+
+<details>
+<summary>📝 Walkthrough</summary>
+
+## Walkthrough
+
+设置页诊断日志下载改为点击后延迟回收 Blob URL，并新增测试验证回收时序、ObjectURL 创建次数及下载文件名。
+
+### Changes
+
+**诊断日志下载**
+
+|Layer / File(s)|Summary|
+|---|---|
+|**延迟回收 Blob URL 与下载验证** <br> `frontend/src/components/pages/settings/AboutSection.tsx`, `frontend/src/components/pages/settings/AboutSection.test.tsx`|`URL.revokeObjectURL` 延迟至下一个宏任务执行；测试覆盖非同步回收、ObjectURL 创建次数及返回文件名对应的下载属性。|
+
+**Estimated code review effort:** 2 (Simple) | ~10 minutes
+
+**Poem**
+
+> 小兔轻点下载键，  
+> Blob 月亮暂不眠。  
+> 定时器响再归还，  
+> 文件名稳稳落地面。  
+> 测试胡萝卜，咔嚓甜！
+
+</details>
+
+<!-- walkthrough_end -->
+<!-- pre_merge_checks_walkthrough_start -->
+
+<details>
+<summary>🚥 Pre-merge checks | ✅ 4 | ❌ 1</summary>
+
+### ❌ Failed checks (1 warning)
+
+|     Check name     | Status     | Explanation                                                                          | Resolution                                                                         |
+| :----------------: | :--------- | :----------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------- |
+| Docstring Coverage | ⚠️ Warning | Docstring coverage is 0.00% which is insufficient. The required threshold is 80.00%. | Write docstrings for the functions missing them to satisfy the coverage threshold. |
+
+<details>
+<summary>✅ Passed checks (4 passed)</summary>
+
+|         Check name         | Status   | Explanation                                              |
+| :------------------------: | :------- | :------------------------------------------------------- |
+|         Title check        | ✅ Passed | 标题简洁且准确概括了诊断日志下载因过早回收 Blob 而失败的修复。                       |
+|      Description check     | ✅ Passed | 包含问题背景、主要改动、验证结果和已知限制，但未按模板提供“范围”、“验收清单”与“已知 defer”分节。   |
+|     Linked Issues check    | ✅ Passed | 代码修改与 `#1040` 目标一致：延迟 revokeObjectURL 并补充测试，解决部分浏览器下载静默失败。 |
+| Out of Scope Changes check | ✅ Passed | 未见明显超出 `#1040` 范围的改动，新增测试和异常回收逻辑都与诊断日志下载修复直接相关。            |
+
+</details>
+
+</details>
+
+<!-- pre_merge_checks_walkthrough_end -->
+<!-- finishing_touch_checkbox_start -->
+
+<details>
+<summary>✨ Finishing Touches</summary>
+
+<details>
+<summary>📝 Generate docstrings</summary>
+
+- [ ] <!-- {"checkboxId": "7962f53c-55bc-4827-bfbf-6a18da830691"} --> Create stacked PR
+- [ ] <!-- {"checkboxId": "3e1879ae-f29b-4d0d-8e06-d12b7ba33d98"} --> Commit on current branch
+
+</details>
+<details>
+<summary>🧪 Generate unit tests (beta)</summary>
+
+- [ ] <!-- {"checkboxId": "f47ac10b-58cc-4372-a567-0e02b2c3d479", "radioGroupId": "utg-output-choice-group-4955791502"} -->   Create PR with unit tests
+- [ ] <!-- {"checkboxId": "6ba7b810-9dad-11d1-80b4-00c04fd430c8", "radioGroupId": "utg-output-choice-group-4955791502"} -->   Commit unit tests in branch `issue/1040`
+
+</details>
+
+</details>
+
+<!-- finishing_touch_checkbox_end -->
+<!-- tips_start -->
+
+---
+
+Thanks for using [CodeRabbit](https://coderabbit.ai?utm_source=oss&utm_medium=github&utm_campaign=ArcReel/ArcReel&utm_content=1115)! It's free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out.
+
+<details>
+<summary>❤️ Share</summary>
+
+- [X](https://twitter.com/intent/tweet?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A&url=https%3A//coderabbit.ai)
+- [Mastodon](https://mastodon.social/share?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A%20https%3A%2F%2Fcoderabbit.ai)
+- [Reddit](https://www.reddit.com/submit?title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&text=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code.%20Check%20it%20out%3A%20https%3A//coderabbit.ai)
+- [LinkedIn](https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fcoderabbit.ai&mini=true&title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&summary=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code)
+
+</details>
+
+
+<sub>Comment `@coderabbitai help` to get the list of available commands.</sub>
+
+<!-- tips_end -->
