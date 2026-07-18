@@ -161,7 +161,9 @@ export const useTasksStore = create<TasksState>((set) => ({
 // 派生 selector —— 任务队列两条不变量的单一真相源
 //
 // 消费点（画布 loading 派生、参考视频单元状态等）此前各自重写两条隐性契约：
-//   1.「什么算活跃」——排队或运行中的任务占用其 resource（isActiveStatus）。
+//   1.「什么算活跃」——占用与显示是两个谓词：占用判定（isOccupyingStatus）计入
+//      cancelling，与后端 dedupe 索引的 ACTIVE_TASK_STATUSES 对齐；显示判定
+//      （isActiveStatus）不计 cancelling——取消中的任务不显示为进行中。
 //   2.「最新行胜出」——同一 resource 可能有多条任务行：失败后重试是新的 task_id，
 //      tasks 由服务端列表整体写入、顺序不保证，故判定时须取 updated_at 最新的一行，
 //      重试的新行不被旧失败行遮挡（selectLatestTaskByResource）。
@@ -170,9 +172,19 @@ export const useTasksStore = create<TasksState>((set) => ({
 // Set/Map 内容，保证内容不变时引用稳定，避免每次渲染返回新集合触发重渲染。
 // ---------------------------------------------------------------------------
 
-/** 不变量 1：排队或运行中的任务视为占用其 resource。 */
+/** 显示谓词：排队或运行中的任务显示为进行中；cancelling 是收尾中间态，不显示为进行中。 */
 export function isActiveStatus(status: TaskStatus): boolean {
   return status === "queued" || status === "running";
+}
+
+/**
+ * 占用谓词：该状态的任务仍占用其 resource（按钮禁用、占用集判定）。与后端 dedupe
+ * 索引的 ACTIVE_TASK_STATUSES 对齐——cancelling 期间 worker 仍可能在写资源文件，
+ * 且后端会把同资源的重复提交去重到既有任务上；若前端此时判定空闲，会出现「按钮
+ * 可点、提交后没有新任务」的谎报。
+ */
+export function isOccupyingStatus(status: TaskStatus): boolean {
+  return status === "queued" || status === "running" || status === "cancelling";
 }
 
 /** 终态：任务生命周期末端，不再占用 resource。 */
@@ -246,7 +258,7 @@ export function selectActiveResourceIds(
   }
   const ids = new Set<string>();
   for (const task of latestByResourceAndTaskType.values()) {
-    if (isActiveStatus(task.status)) ids.add(task.resource_id);
+    if (isOccupyingStatus(task.status)) ids.add(task.resource_id);
   }
   for (const key of optimisticActive) {
     const [kProject, kResourceKind, kResourceId, kPendingTaskType, kBaseline = ""] = key.split("\0");
@@ -300,7 +312,7 @@ export function selectHasActiveTaskForScriptFile(
       task.task_type === taskType &&
       task.script_file != null &&
       stripScriptsPrefix(task.script_file) === normalized &&
-      isActiveStatus(task.status),
+      isOccupyingStatus(task.status),
   );
   if (hasRealActive) return true;
 
