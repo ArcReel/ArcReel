@@ -616,48 +616,6 @@ async def delete_source_file(project_name: str, filename: str, _user: CurrentUse
 # ==================== 草稿文件管理 ====================
 
 
-@router.get("/projects/{project_name}/drafts")
-async def list_drafts(project_name: str, _user: CurrentUser, _t: Translator):
-    """列出项目的所有草稿目录和文件"""
-    try:
-
-        def _sync():
-            project_dir = get_project_manager().get_project_path(project_name)
-            drafts_dir = project_dir / "drafts"
-
-            result = {}
-            if drafts_dir.exists():
-                for episode_dir in sorted(drafts_dir.iterdir()):
-                    if episode_dir.is_dir() and episode_dir.name.startswith("episode_"):
-                        episode_num = episode_dir.name.replace("episode_", "")
-                        files = []
-                        for f in sorted(episode_dir.glob("*.md")):
-                            files.append(
-                                {
-                                    "name": f.name,
-                                    "step": _extract_step_number(f.name),
-                                    "title": _get_step_title(f.name, _t),
-                                    "size": f.stat().st_size,
-                                    "modified": f.stat().st_mtime,
-                                }
-                            )
-                        result[episode_num] = files
-
-            return {"drafts": result}
-
-        return await asyncio.to_thread(_sync)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
-
-
-def _extract_step_number(filename: str) -> int:
-    """从文件名提取步骤编号"""
-    import re
-
-    match = re.search(r"step(\d+)", filename)
-    return int(match.group(1)) if match else 0
-
-
 def _get_step_files(content_mode: str, generation_mode: str | None = None) -> dict:
     """根据 generation_mode / content_mode 获取步骤文件名映射
 
@@ -691,18 +649,6 @@ _STEP1_PROBE_ORDER = [REFERENCE_VIDEO_STEP1_FILENAME, STEP1_FILENAMES["narration
 _STEP1_CANDIDATES = list(
     dict.fromkeys(name for key in [*_STEP1_PROBE_ORDER, *_STEP1_FAMILY] for name in _STEP1_FAMILY[key])
 )
-
-
-def _get_step_title(filename: str, _t: Callable[..., str]) -> str:
-    """获取步骤标题：每种 step1（含旧 .md 别名）映射到其展示名 i18n key。"""
-    titles: dict[str, str] = {}
-    for name in step1_read_candidates("drama"):
-        titles[name] = _t("normalized_script")
-    for name in step1_read_candidates("narration"):
-        titles[name] = _t("segment_splitting")
-    titles[REFERENCE_VIDEO_STEP1_FILENAME] = _t("segment_splitting")
-    titles[REFERENCE_VIDEO_STEP1_LEGACY_FILENAME] = _t("segment_splitting")
-    return titles.get(filename, filename)
 
 
 def _load_project_modes(project_name: str, episode: int) -> tuple[str, str | None]:

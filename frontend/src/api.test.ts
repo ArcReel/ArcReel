@@ -159,7 +159,6 @@ describe("API", () => {
       await API.getSystemVersion();
       await API.updateSystemConfig({ default_image_backend: "vertex" });
       await API.listFiles("demo");
-      await API.listDrafts("demo");
       await API.deleteDraft("demo", 1, 2);
       await API.generateOverview("demo");
       await API.updateOverview("demo", { synopsis: "new" });

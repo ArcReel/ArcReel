@@ -209,14 +209,6 @@ export interface CreateProjectPayload {
   model_settings?: Record<string, { resolution?: string | null }>;
 }
 
-/** Draft metadata returned by listDrafts. */
-export interface DraftInfo {
-  episode: number;
-  step: number;
-  filename: string;
-  modified_at: string;
-}
-
 function normalizeDiagnosticsBucket(value: unknown): { code: string; message: string; location?: string }[] {
   if (!Array.isArray(value)) {
     return [];
@@ -1023,17 +1015,6 @@ class API {
   }
 
   // ==================== 草稿文件管理 ====================
-
-  /**
-   * 获取项目的所有草稿
-   */
-  static async listDrafts(
-    projectName: string
-  ): Promise<{ drafts: DraftInfo[] }> {
-    return this.request(
-      `/projects/${encodeURIComponent(projectName)}/drafts`
-    );
-  }
 
   /**
    * 获取草稿内容

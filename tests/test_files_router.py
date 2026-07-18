@@ -154,10 +154,6 @@ class TestFilesRouter:
             )
             assert update_draft.status_code == 200
 
-            list_drafts = client.get("/api/v1/projects/demo/drafts")
-            assert list_drafts.status_code == 200
-            assert "1" in list_drafts.json()["drafts"]
-
             get_draft = client.get("/api/v1/projects/demo/drafts/1/step1")
             assert get_draft.status_code == 200
             assert "draft content" in get_draft.text
@@ -476,11 +472,6 @@ class TestFilesRouter:
             assert "immutable" not in resp.headers.get("cache-control", "")
 
     def test_files_helper_functions(self, tmp_path):
-        from tests.conftest import make_translator
-
-        _t = make_translator()
-        assert files._extract_step_number("step12_x.md") == 12
-        assert files._extract_step_number("not-match.md") == 0
         assert files._get_step_files("narration") == {1: "step1_segments.json"}
         assert files._get_step_files("drama") == {1: "step1_normalized_script.json"}
         # reference_video 走独立的结构化 step1 文件
@@ -488,15 +479,6 @@ class TestFilesRouter:
         assert files._get_step_files("narration", "reference_video") == {1: "step1_reference_units.json"}
         # 其他 generation_mode 回落到 content_mode
         assert files._get_step_files("narration", "storyboard") == {1: "step1_segments.json"}
-        assert files._get_step_title("step1_segments.json", _t) == "片段拆分"
-        # 旧 step1_segments.md 仍保留标题映射，便于存量在制品浏览
-        assert files._get_step_title("step1_segments.md", _t) == "片段拆分"
-        assert files._get_step_title("step1_normalized_script.json", _t) == "规范化剧本"
-        assert files._get_step_title("step1_normalized_script.md", _t) == "规范化剧本"
-        assert files._get_step_title("step1_reference_units.json", _t) == "片段拆分"
-        # 旧 step1_reference_units.md 仍保留标题映射，便于存量在制品浏览
-        assert files._get_step_title("step1_reference_units.md", _t) == "片段拆分"
-        assert files._get_step_title("unknown.md", _t) == "unknown.md"
 
     def test_resolve_step1_path_narration_prefers_own_legacy_md(self, tmp_path):
         """narration step1 缺 .json 时优先回落自家旧 .md，不被跨模式遗留 reference_units.md 抢占。"""
