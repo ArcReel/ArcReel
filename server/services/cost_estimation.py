@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, NamedTuple
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.config.resolver import ConfigResolver, get_provider_fallback
 from lib.cost_calculator import cost_calculator
-from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import UsageRepository
 from lib.grid.layout import calculate_grid_layout
@@ -22,17 +21,6 @@ from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segmen
 logger = logging.getLogger(__name__)
 
 CostBreakdown = dict[str, float]
-
-
-class _CustomPrice(NamedTuple):
-    """自定义供应商价格三元组，作为 ``calculate_cost`` 的 ``custom_price_*`` 入参来源。"""
-
-    price_input: float | None
-    price_output: float | None
-    currency: str | None
-
-
-_NO_CUSTOM_PRICE = _CustomPrice(None, None, None)
 
 
 def _add_cost(target: CostBreakdown, amount: float, currency: str) -> None:
@@ -52,25 +40,6 @@ class CostEstimationService:
     def __init__(self, resolver: ConfigResolver, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._resolver = resolver
         self._session_factory = session_factory
-
-    @staticmethod
-    async def _resolve_custom_price(session: AsyncSession, provider: str, model: str) -> _CustomPrice:
-        """自定义供应商价格取数（与实际记账链路 usage_repo 同源）。
-
-        预置供应商或查无价格模型时返回空价格；calculate_cost 对自定义供应商缺价时计为 0。
-        """
-        if not is_custom_provider(provider):
-            return _NO_CUSTOM_PRICE
-        try:
-            price_model = await CustomProviderRepository(session).get_model_by_ids(
-                parse_provider_id(provider), model or ""
-            )
-        except Exception:
-            logger.debug("自定义供应商价格查询失败 provider=%s model=%s", provider, model, exc_info=True)
-            return _NO_CUSTOM_PRICE
-        if price_model is None:
-            return _NO_CUSTOM_PRICE
-        return _CustomPrice(price_model.price_input, price_model.price_output, price_model.currency)
 
     async def compute(
         self,
@@ -120,9 +89,10 @@ class CostEstimationService:
         # Get actual costs + 自定义供应商价格（缺则预估恒为零，需与实际记账同源预查 DB 单价）
         async with self._session_factory() as session:
             actual_by_segment = await UsageRepository(session).get_actual_costs_by_segment(project_name)
-            image_price = await self._resolve_custom_price(session, image_provider, image_model)
-            video_price = await self._resolve_custom_price(session, video_provider, video_model)
-            audio_price = await self._resolve_custom_price(session, audio_provider, audio_model)
+            custom_repo = CustomProviderRepository(session)
+            image_price = await custom_repo.resolve_price(image_provider, image_model)
+            video_price = await custom_repo.resolve_price(video_provider, video_model)
+            audio_price = await custom_repo.resolve_price(audio_provider, audio_model)
 
         generation_mode = project_data.get("generation_mode", "single")
         # 规范化 aspect_ratio：可能是 str 或 dict，复用生成任务的解析逻辑

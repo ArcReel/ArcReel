@@ -2,10 +2,31 @@
 
 from __future__ import annotations
 
+import logging
+from typing import NamedTuple
+
 from sqlalchemy import delete, select
 
+from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.repositories.base import BaseRepository
+
+logger = logging.getLogger(__name__)
+
+
+class CustomProviderPrice(NamedTuple):
+    """自定义供应商价格三元组，作为 ``calculate_cost`` 的 ``custom_price_*`` 入参来源。
+
+    三字段全 ``None`` 表示无自定义价格：预置供应商 / 畸形 provider id / 查询异常 / 查无模型
+    均归为此语义，``calculate_cost`` 据此对自定义供应商缺价时计为 0。
+    """
+
+    price_input: float | None = None
+    price_output: float | None = None
+    currency: str | None = None
+
+
+_NO_PRICE = CustomProviderPrice()
 
 
 class CustomProviderRepository(BaseRepository):
@@ -170,6 +191,29 @@ class CustomProviderRepository(BaseRepository):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def resolve_price(self, provider: str, model: str) -> CustomProviderPrice:
+        """解析自定义供应商的声明价格，供记账与预估两侧共用，杜绝同源复刻的口径漂移。
+
+        非自定义供应商 / 畸形 provider id / 查询异常 / 查无模型均降级为无价（三字段 ``None``），
+        绝不抛错——调用方以此驱动 ``calculate_cost`` 的 ``custom_price_*``，缺价时费用计为 0。
+
+        刻意不做 enabled / media_type 校验（区别于 ``lib/custom_provider/loader.load_custom_backend``
+        的模型解析回退）：记账须按实际调用的那个模型的声明价计费，与该模型当前是否启用无关——
+        在此过滤 ``is_enabled`` 会让对"事后被停用模型"的历史调用丢价、错计为 0；预估侧同理，
+        停用模型应回落到执行期实际使用的默认模型价，而非 0。enabled / media_type 回退属模型解析层
+        （loader）职责、在价格取数上游发生，两侧共用同一"按声明取价、不过滤"口径以保持一致。
+        """
+        if not is_custom_provider(provider):
+            return _NO_PRICE
+        try:
+            price_model = await self.get_model_by_ids(parse_provider_id(provider), model or "")
+        except Exception:
+            logger.debug("自定义供应商价格查询失败 provider=%s model=%s", provider, model, exc_info=True)
+            return _NO_PRICE
+        if price_model is None:
+            return _NO_PRICE
+        return CustomProviderPrice(price_model.price_input, price_model.price_output, price_model.currency)
 
     async def get_default_model(self, provider_id: int, media_type: str) -> CustomProviderModel | None:
         """获取指定供应商 + 媒体类型的默认已启用模型。

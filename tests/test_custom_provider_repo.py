@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
-from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.db.repositories.custom_provider_repo import CustomProviderPrice, CustomProviderRepository
 
 
 @pytest.fixture
@@ -494,6 +494,68 @@ class TestModelManagement:
     async def test_get_default_model_nonexistent_provider(self, session: AsyncSession):
         repo = CustomProviderRepository(session)
         assert await repo.get_default_model(999, "text") is None
+
+
+class TestResolvePrice:
+    """resolve_price：记账与预估共用的价格取数，全部降级路径归为无价、绝不抛错。"""
+
+    async def _provider_with_model(self, repo: CustomProviderRepository, session: AsyncSession, **model_over) -> str:
+        model = {
+            "model_id": "m1",
+            "display_name": "M1",
+            "endpoint": "openai-chat",
+            "is_enabled": True,
+            "price_unit": "token",
+            "price_input": 2.0,
+            "price_output": 4.0,
+            "currency": "CNY",
+        }
+        model.update(model_over)
+        p = await repo.create_provider(
+            display_name="P",
+            discovery_format="openai",
+            base_url="https://x",
+            api_key="k",
+            models=[model],
+        )
+        await session.flush()
+        return f"custom-{p.id}"
+
+    async def test_non_custom_provider_returns_no_price(self, session: AsyncSession):
+        repo = CustomProviderRepository(session)
+        assert await repo.resolve_price("gemini-aistudio", "gemini-3-flash-preview") == CustomProviderPrice()
+
+    async def test_valid_custom_provider_returns_declared_price(self, session: AsyncSession):
+        repo = CustomProviderRepository(session)
+        provider = await self._provider_with_model(repo, session)
+        assert await repo.resolve_price(provider, "m1") == CustomProviderPrice(2.0, 4.0, "CNY")
+
+    async def test_missing_model_returns_no_price(self, session: AsyncSession):
+        repo = CustomProviderRepository(session)
+        provider = await self._provider_with_model(repo, session)
+        assert await repo.resolve_price(provider, "ghost") == CustomProviderPrice()
+
+    async def test_malformed_id_degrades_to_no_price(self, session: AsyncSession):
+        """畸形 custom- id（parse_provider_id 抛 ValueError）降级为无价，不抛错。"""
+        repo = CustomProviderRepository(session)
+        assert await repo.resolve_price("custom-abc/ghost", "m1") == CustomProviderPrice()
+
+    async def test_query_exception_degrades_to_no_price(self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch):
+        """底层查询异常（如 DB 瞬时不可用）降级为无价，不冒泡。"""
+        repo = CustomProviderRepository(session)
+        provider = await self._provider_with_model(repo, session)
+
+        async def _boom(*_args, **_kwargs):
+            raise RuntimeError("db down")
+
+        monkeypatch.setattr(repo, "get_model_by_ids", _boom)
+        assert await repo.resolve_price(provider, "m1") == CustomProviderPrice()
+
+    async def test_disabled_model_still_priced(self, session: AsyncSession):
+        """刻意豁免 enabled 校验：停用模型仍按其声明价取价（记账按实际调用的模型计费）。"""
+        repo = CustomProviderRepository(session)
+        provider = await self._provider_with_model(repo, session, is_enabled=False)
+        assert await repo.resolve_price(provider, "m1") == CustomProviderPrice(2.0, 4.0, "CNY")
 
 
 @pytest.mark.asyncio

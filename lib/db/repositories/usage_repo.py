@@ -13,6 +13,7 @@ from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.base import BaseRepository, rowcount
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.pricing.strategies import PricingParams
 from lib.providers import PROVIDER_GEMINI, CallType
 
@@ -224,19 +225,11 @@ class UsageRepository(BaseRepository):
         elif auto_calc:
             effective_provider = row.provider or PROVIDER_GEMINI
 
-            # Pre-query custom provider pricing (avoids sync-over-async in CostCalculator)
-            custom_price_input: float | None = None
-            custom_price_output: float | None = None
-            custom_currency: str | None = None
-            if is_custom_provider(effective_provider):
-                from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-
-                repo = CustomProviderRepository(self.session)
-                price_model = await repo.get_model_by_ids(parse_provider_id(effective_provider), row.model or "")
-                if price_model:
-                    custom_price_input = price_model.price_input
-                    custom_price_output = price_model.price_output
-                    custom_currency = price_model.currency
+            # 自定义供应商价格预查（避免 CostCalculator 内 sync-over-async）；与费用预估链路共用
+            # CustomProviderRepository.resolve_price，非自定义 / 畸形 id / 查询异常 / 缺价统一降级为无价。
+            custom_price = await CustomProviderRepository(self.session).resolve_price(
+                effective_provider, row.model or ""
+            )
 
             params = PricingParams(
                 call_type=row.call_type,  # pyright: ignore[reportArgumentType]
@@ -258,9 +251,9 @@ class UsageRepository(BaseRepository):
             cost_amount, currency = cost_calculator.calculate_cost(
                 effective_provider,
                 params,
-                custom_price_input=custom_price_input,
-                custom_price_output=custom_price_output,
-                custom_currency=custom_currency,
+                custom_price_input=custom_price.price_input,
+                custom_price_output=custom_price.price_output,
+                custom_currency=custom_price.currency,
             )
 
         return _SettledCall(
