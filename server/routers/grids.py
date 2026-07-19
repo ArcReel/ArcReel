@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -85,6 +87,10 @@ async def generate_grid(
     """
     try:
         project = get_project_manager().load_project(project_name)
+    except json.JSONDecodeError:
+        # JSONDecodeError 是 ValueError 子类，须先于下面的 except ValueError 拦截：
+        # project.json 损坏时不能误判为「非法项目名」，交由 app 级 catch-all 收口为通用 500
+        raise
     except ValueError as exc:
         # 非法项目名（路径穿越等）是坏请求，不是「不存在」
         raise BadRequestError("invalid_project_name", name=project_name) from exc
@@ -247,6 +253,10 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
     """重置宫格图状态并重新入队生成任务。"""
     try:
         project = get_project_manager().load_project(project_name)
+    except json.JSONDecodeError:
+        # JSONDecodeError 是 ValueError 子类，须先于下面的 except ValueError 拦截：
+        # project.json 损坏时不能误判为「非法项目名」，交由 app 级 catch-all 收口为通用 500
+        raise
     except ValueError as exc:
         raise BadRequestError("invalid_project_name", name=project_name) from exc
     # 广告/短片项目不开放宫格生视频：首次提交端点已封禁，重生成端点同样设防,

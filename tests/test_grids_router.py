@@ -225,6 +225,40 @@ def test_regenerate_grid_invalid_project_name(monkeypatch):
         assert resp.status_code == 400
 
 
+class _FakePMCorrupted:
+    """ProjectManager 替身：load_project 模拟 project.json 损坏（JSONDecodeError）。"""
+
+    def load_project(self, name):
+        raise json.JSONDecodeError("Expecting value", "", 0)
+
+
+def test_generate_grid_corrupted_project_maps_to_500_not_invalid_name(monkeypatch):
+    # JSONDecodeError 是 ValueError 子类：损坏的 project.json 不能被 except ValueError
+    # 误判为「非法项目名」，须先于其拦截并映射为通用 500
+    client = _client(
+        monkeypatch,
+        get_project_manager=_FakePMCorrupted,
+    )
+    with client:
+        resp = client.post(
+            "/api/v1/projects/demo/generate/grid/1",
+            json={"script_file": "episode_1.json"},
+        )
+        assert resp.status_code == 500
+        assert "非法项目名称" not in resp.text
+
+
+def test_regenerate_grid_corrupted_project_maps_to_500_not_invalid_name(monkeypatch):
+    client = _client(
+        monkeypatch,
+        get_project_manager=_FakePMCorrupted,
+    )
+    with client:
+        resp = client.post("/api/v1/projects/demo/grids/grid-123/regenerate")
+        assert resp.status_code == 500
+        assert "非法项目名称" not in resp.text
+
+
 class _FakePMGenerate:
     """ProjectManager 替身：驱动 generate_grid 成功路径，script/project_path 落 tmp_path。"""
 
