@@ -50,7 +50,7 @@ issue 的启动条件：全部 blocker 已合入 main。worktree 一律从最新
 实现阶段有两条路线，在第二步批次计划中按任务逐一定好、随计划获用户确认：
 
 - **Claude teammate**：spawn 时按任务情况显式指定 model（fable / opus / sonnet）
-- **codex 后台任务**：由你直接执行三步：①`git fetch origin` 后用 EnterWorktree 创建 `issue/<N>`、随即 ExitWorktree（keep），worktree 留给后续 Claude 阶段接管；②按 spawn-prompts.md 的 codex 模板写 task 文本，用 node 运行 codex 插件的 `codex-companion.mjs`（插件缓存最新版本的 `scripts/` 下，下称 companion）启动：`task "<task 文本>" --background --write --model <计划定的模型> --cwd <worktree 绝对路径>`；③交付以 `result` 的最终输出为准，把其中的「实现」段代写入 handoff，接手前机械核验：工作区有改动、HEAD 无 `origin/main` 之外的 commit 且未 push 未建 PR、分支名 `issue/<N>`；核验通过后按改动概要代为 commit
+- **codex 后台任务**：由你直接执行三步：①`git fetch origin` 后用 EnterWorktree 创建 `issue/<N>`、随即 ExitWorktree（keep），worktree 留给后续 Claude 阶段接管；②按 spawn-prompts.md 的 codex 模板写 task 文本，用 node 运行 codex 插件的 `codex-companion.mjs`（插件缓存最新版本的 `scripts/` 下，下称 companion）启动：`task "<task 文本>" --background --write --model <计划定的模型> --cwd <worktree 绝对路径>`；③交付以 `result` 的最终输出为准，接手前机械核验：工作区有改动、HEAD 无 `origin/main` 之外的 commit 且未 push 未建 PR、分支名 `issue/<N>`；核验通过后把 `result` 中的「实现」段代写入 handoff，并按改动概要代为 commit
 
 spawn 时按 [references/spawn-prompts.md](references/spawn-prompts.md) 的模板填变量。三个阶段不要合并、不要让同一 teammate 连任：本地审查必须由未参与实现的上下文执行（实现者自查存在盲区），审查循环是长周期轮询、不应背负实现阶段的上下文。
 
