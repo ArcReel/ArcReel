@@ -278,6 +278,15 @@ export function useAssistantSession(projectName: string | null) {
     // （layout effect 先于 passive effect 运行），此处读到的即当前项目代次。
     const gen = projectGenRef.current;
 
+    // 取消判定统一叠加两道信号：cancelled 由本 effect cleanup 同步置位，
+    // 但 cleanup 本身也是 passive effect、经宏任务调度；projectGenRef 由
+    // layout effect 同步递增，弥补 cleanup 尚未运行时的迟到响应（fetch 续行
+    // 是微任务，可能抢在 cleanup 的宏任务之前执行）。凡是本 effect 内任何异步
+    // 续行要写 store，都须先过这道判定——单独判 loadSession 的迟到响应不够，
+    // listAssistantSessions/listAssistantSkills 的迟到响应同样可能在项目已
+    // 切走后把旧项目数据写进当前 store。
+    const isStale = () => cancelled || projectGenRef.current !== gen;
+
     async function init() {
       store.getState().setMessagesLoading(true);
       // 切项目先重置时间线（与新建/切换/删除三条会话路径同口径），使有会话/
@@ -285,10 +294,14 @@ export function useAssistantSession(projectName: string | null) {
       // 的空 entries 推导（等效从头订阅），不被上一个项目的残留条目污染，也不会
       // 把旧项目条目混排进新会话时间线。
       store.getState().resetTimeline();
+      // 目标会话 id 提升到 try 外部：finally 里据此复核 currentSessionId 是否
+      // 仍等于本次请求的目标，防止本次切项目未过期、但用户在同一项目内并发
+      // 切换到另一会话时，被本次 init 的 finally 误关新会话的 loading 态。
+      let targetSessionId: string | null = null;
       try {
         // 获取会话列表
         const res = await API.listAssistantSessions(projectName!);
-        if (cancelled) return;
+        if (isStale()) return;
         const sessions = res.sessions ?? [];
         store.getState().setSessions(sessions);
 
@@ -296,32 +309,30 @@ export function useAssistantSession(projectName: string | null) {
         const lastId = getLastSessionId(projectName!);
         const sessionId = (lastId && sessions.some((s: SessionMeta) => s.id === lastId))
           ? lastId
-          : sessions[0]?.id;
+          : (sessions[0]?.id ?? null);
+        targetSessionId = sessionId;
         if (!sessionId) {
           store.getState().setCurrentSessionId(null);
           clearPendingQuestion();
-          store.getState().setMessagesLoading(false);
           return;
         }
-        if (cancelled) return;
+        if (isStale()) return;
 
         store.getState().setCurrentSessionId(sessionId);
-        // 取消判定叠加两道信号：cancelled 由本 effect cleanup 同步置位，
-        // 但 cleanup 本身也是 passive effect、经宏任务调度；projectGenRef
-        // 由 layout effect 同步递增，弥补 cleanup 尚未运行时的迟到响应
-        // （fetch 续行是微任务，可能抢在 cleanup 的宏任务之前执行）。
-        await loadSession(sessionId, () => cancelled || projectGenRef.current !== gen);
+        await loadSession(sessionId, isStale);
       } catch {
         // 静默失败
       } finally {
-        if (!cancelled) store.getState().setMessagesLoading(false);
+        if (!isStale() && store.getState().currentSessionId === targetSessionId) {
+          store.getState().setMessagesLoading(false);
+        }
       }
     }
 
     // 加载技能列表
     API.listAssistantSkills(projectName)
       .then((res) => {
-        if (!cancelled) store.getState().setSkills(res.skills ?? []);
+        if (!isStale()) store.getState().setSkills(res.skills ?? []);
       })
       .catch(() => {});
 
@@ -509,7 +520,11 @@ export function useAssistantSession(projectName: string | null) {
     } catch {
       // 静默失败
     } finally {
-      store.getState().setMessagesLoading(false);
+      // 与 init effect 同一套代次 + 目标身份复核：避免本次调用挂起期间用户
+      // 已再次切换会话/项目，迟到的 finally 误关新会话的 loading 态。
+      if (projectGenRef.current === gen && store.getState().currentSessionId === sessionId) {
+        store.getState().setMessagesLoading(false);
+      }
     }
   }, [projectName, clearPendingQuestion, closeStream, invalidatePendingSend, loadSession, store]);
 
