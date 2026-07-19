@@ -83,6 +83,16 @@ export function useAssistantSession(projectName: string | null) {
   // 失败重试复用同一幂等键（同内容签名），成功后清除
   const failedSendRef = useRef<{ clientKey: string; signature: string } | null>(null);
 
+  // 项目代次：projectName 变化后递增，供 switchSession 等 imperatively 发起
+  // 的异步调用感知“项目已切换”，弥补它不像 init effect 那样天然拥有按
+  // projectName 重建的 cancelled closure flag。effect 在 commit 后运行，
+  // switchSession 只能由用户交互触发（不会与本次渲染同步执行），故此处的
+  // 一帧延迟不构成竞态窗口。
+  const projectGenRef = useRef(0);
+  useEffect(() => {
+    projectGenRef.current += 1;
+  }, [projectName]);
+
   const syncPendingQuestion = useCallback((question: PendingQuestion | null) => {
     store.getState().setPendingQuestion(question);
     store.getState().setAnsweringQuestion(false);
@@ -472,6 +482,10 @@ export function useAssistantSession(projectName: string | null) {
     if (!projectName) return;
     if (store.getState().currentSessionId === sessionId) return;
 
+    // 捕获当前项目代次：调用期间项目被切走（即便 currentSessionId 未变，
+    // 见 loadSession 的第二道防线注释）时据此短路，不为已离开的项目建流。
+    const gen = projectGenRef.current;
+
     invalidatePendingSend();
     closeStream();
     store.getState().setCurrentSessionId(sessionId);
@@ -484,7 +498,7 @@ export function useAssistantSession(projectName: string | null) {
     if (projectName) saveLastSessionId(projectName, sessionId);
 
     try {
-      await loadSession(sessionId);
+      await loadSession(sessionId, () => projectGenRef.current !== gen);
     } catch {
       // 静默失败
     } finally {

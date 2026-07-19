@@ -843,4 +843,47 @@ describe("useAssistantSession", () => {
     expect(listSessionsSpy).not.toHaveBeenCalled();
     expect(useAssistantStore.getState().currentSessionId).toBeNull();
   });
+
+  it("ignores a delayed switchSession response after leaving the project (currentSessionId unchanged, no SSE leak)", async () => {
+    // switchSession 同步把 currentSessionId 设为目标 sessionId，若随后用户离开
+    // 项目（projectName -> null，不会重置 currentSessionId），loadSession 的
+    // currentSessionId 比对无法识破——两者仍相等。必须靠项目代次判定短路，
+    // 否则会用旧闭包的 projectName 为已离开的项目建 SSE 连接（连接泄漏）。
+    const deferredSwitch = createDeferred<{ session: SessionMeta }>();
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "idle")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => {
+      if (sessionId === "session-2") return deferredSwitch.promise;
+      return { session: makeSession(sessionId, "idle") };
+    });
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [] }));
+
+    const { result, rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+      initialProps: { projectName: "project-a" as string | null },
+    });
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    await act(async () => {
+      void result.current.switchSession("session-2");
+    });
+    expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
+    expect(useAssistantStore.getState().sessionStatus).toBe("idle");
+
+    // 离开项目：projectName 置空，currentSessionId 不受影响，仍是 "session-2"
+    rerender({ projectName: null });
+
+    // 迟到：switchSession 发起的 getAssistantSession 此刻才返回 running
+    await act(async () => {
+      deferredSwitch.resolve({ session: makeSession("session-2", "running") });
+      await deferredSwitch.promise;
+    });
+
+    expect(MockEventSource.instances).toHaveLength(0);
+    expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
+    expect(useAssistantStore.getState().sessionStatus).toBe("idle");
+  });
 });
