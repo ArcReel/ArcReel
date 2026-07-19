@@ -12,6 +12,12 @@
 
 > spawn 时显式指定批次计划定下的 model——不显式传不会继承会话模型，默认落 sonnet。
 
+足迹大、读码量大的 issue，附加：
+
+```text
+开工先派 Explore 子代理勘察。
+```
+
 ## 实现（codex 后台任务路线）
 
 task 文本模板（启动命令与前置的 worktree 建法见 SKILL.md「实现路线与模型」；文本较长或含引号时用 `--prompt-file` 传入）：
