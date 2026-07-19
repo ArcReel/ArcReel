@@ -243,7 +243,14 @@ export function useAssistantSession(projectName: string | null) {
       store.getState().loadSessionSnapshot(status as SessionStatus);
       const data = await API.listAssistantEntries(projectName!, sessionId);
       if (isStaleLoad()) return;
-      store.getState().loadSessionSnapshot(status as SessionStatus, {
+      if (store.getState().sessionStatus !== status) {
+        // 冷读期间 sessionStatus 已被并发操作（如同会话内 sendMessage）改写，
+        // 说明会话已进入新状态：不再用冷读前捕获的旧 status/draft 覆盖回去，
+        // 仅按 seq 并入历史 entries，状态与 draft 交由并发写入方与后续 SSE 流接管。
+        store.getState().setEntries(data.entries ?? []);
+        return;
+      }
+      store.getState().loadSessionSnapshot(status, {
         entries: data.entries ?? [],
         draft: data.draft ?? null,
         rev: data.draft_rev ?? 0,

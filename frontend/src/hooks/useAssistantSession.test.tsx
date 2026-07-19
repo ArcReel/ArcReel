@@ -779,4 +779,44 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().turns).toHaveLength(1);
     expect(useAssistantStore.getState().turns[0].content[0].text).toBe("B-0");
   });
+
+  it("does not let a delayed idle cold-read overwrite sessionStatus set by a concurrent sendMessage", async () => {
+    // 冷读 listAssistantEntries 挂起期间，用户在同一会话内发送消息：sendMessage
+    // 把 sessionStatus 改写为 running 并建流。冷读迟到完成后携带的仍是发消息前
+    // 捕获的 idle 状态，不得据此覆盖回去（否则 UI 误判会话已空闲、隐藏停止按钮）。
+    const deferredEntries = createDeferred<EntriesResponse>();
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "idle")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "idle") });
+    vi.spyOn(API, "listAssistantEntries").mockReturnValue(deferredEntries.promise);
+    vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({
+      session_id: "session-1",
+      status: "accepted",
+      entry: userEntry(0, "hello"),
+    });
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    let accepted = false;
+    await act(async () => {
+      accepted = await result.current.sendMessage("hello");
+    });
+    expect(accepted).toBe(true);
+    expect(useAssistantStore.getState().sessionStatus).toBe("running");
+    expect(MockEventSource.instances).toHaveLength(1);
+
+    await act(async () => {
+      deferredEntries.resolve(makeEntriesResponse({ entries: [] }));
+      await deferredEntries.promise;
+    });
+
+    // running 状态与已发送的条目保留，不被冷读前捕获的旧 idle 状态回退
+    expect(useAssistantStore.getState().sessionStatus).toBe("running");
+    expect(useAssistantStore.getState().entries.map((e) => e.seq)).toEqual([0]);
+  });
 });
