@@ -7,21 +7,16 @@
 
 from __future__ import annotations
 
-import logging
-
-logger = logging.getLogger(__name__)
-
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 
+from lib.api_errors import BadRequestError, NotFoundError
 from lib.generation_queue import get_generation_queue
 from lib.grid.layout import calculate_grid_layout
 from lib.grid.models import GridGeneration
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
-from lib.i18n import Translator
 from lib.project_manager import get_project_manager
-from lib.script_editor import ScriptEditError
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.auth import CurrentUser
 
@@ -82,241 +77,205 @@ async def generate_grid(
     episode: int,
     req: GenerateGridRequest,
     _user: CurrentUser,
-    _t: Translator,
 ):
     """
     提交宫格图生成任务到队列，按分段分组，每组 N>=4 个场景生成一个宫格图。
 
     立即返回 grid_ids 和 task_ids。生成由 GenerationWorker 异步执行。
     """
-    try:
-        project = get_project_manager().load_project(project_name)
-        # 广告/短片项目不开放宫格生视频（宫格单格分辨率与产品高保真目标冲突），
-        # 写入边界（create/PATCH 拒 generation_mode=grid）之外在动作端点再设一道防线
-        if project.get("content_mode") == "ad":
-            raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
-        script = get_project_manager().load_script(project_name, req.script_file)
-        project_path = get_project_manager().get_project_path(project_name)
+    project = get_project_manager().load_project(project_name)
+    # 广告/短片项目不开放宫格生视频（宫格单格分辨率与产品高保真目标冲突），
+    # 写入边界（create/PATCH 拒 generation_mode=grid）之外在动作端点再设一道防线
+    if project.get("content_mode") == "ad":
+        raise BadRequestError("ad_grid_not_supported")
+    script = get_project_manager().load_script(project_name, req.script_file)
+    project_path = get_project_manager().get_project_path(project_name)
 
-        items, id_field, _, _, _ = get_storyboard_items(script)
-        aspect_ratio = project.get("aspect_ratio", "9:16")
-        style = project.get("style", "")
+    items, id_field, _, _, _ = get_storyboard_items(script)
+    aspect_ratio = project.get("aspect_ratio", "9:16")
+    style = project.get("style", "")
 
-        groups = group_scenes_by_segment_break(items, id_field)
+    groups = group_scenes_by_segment_break(items, id_field)
 
-        # 若指定了 scene_ids，只保留包含这些 scene 的分组
-        if req.scene_ids:
-            sid_set = set(req.scene_ids)
-            groups = [g for g in groups if any(item[id_field] in sid_set for item in g)]
+    # 若指定了 scene_ids，只保留包含这些 scene 的分组
+    if req.scene_ids:
+        sid_set = set(req.scene_ids)
+        groups = [g for g in groups if any(item[id_field] in sid_set for item in g)]
 
-        grid_ids: list[str] = []
-        task_ids: list[str] = []
-        deduped_flags: list[bool] = []
-        queue = get_generation_queue()
-        gm = GridManager(project_path)
+    grid_ids: list[str] = []
+    task_ids: list[str] = []
+    deduped_flags: list[bool] = []
+    queue = get_generation_queue()
+    gm = GridManager(project_path)
 
-        # Pre-load existing grids for cleanup
-        existing_grids = gm.list_all()
+    # Pre-load existing grids for cleanup
+    existing_grids = gm.list_all()
 
-        for group in groups:
-            all_scene_ids = [item[id_field] for item in group]
-            n = len(all_scene_ids)
-            layout = calculate_grid_layout(n, aspect_ratio)
-            if layout is None:
+    for group in groups:
+        all_scene_ids = [item[id_field] for item in group]
+        n = len(all_scene_ids)
+        layout = calculate_grid_layout(n, aspect_ratio)
+        if layout is None:
+            continue
+
+        # 清理该组旧的 grid 记录（限定同脚本同集，scene_ids 是当前组子集的旧 grid）
+        # 跳过 pending/generating 状态的记录，避免 worker 执行时找不到资源
+        group_id_set = set(all_scene_ids)
+        for old_grid in existing_grids:
+            if (
+                old_grid.script_file == req.script_file
+                and old_grid.episode == episode
+                and old_grid.status not in ("pending", "generating")
+                and old_grid.scene_ids
+                and set(old_grid.scene_ids) <= group_id_set
+            ):
+                gm.delete(old_grid.id)
+
+        # 将大分组拆分为多个宫格批次（余下不足4个的场景也用 grid_4 + 占位符）
+        chunks: list[list] = []
+        if n > layout.cell_count:
+            for i in range(0, n, layout.cell_count):
+                chunk = group[i : i + layout.cell_count]
+                chunks.append(chunk)
+        else:
+            chunks.append(group)
+
+        for chunk in chunks:
+            chunk_ids = [item[id_field] for item in chunk]
+            chunk_layout = calculate_grid_layout(len(chunk_ids), aspect_ratio)
+            if chunk_layout is None:
                 continue
 
-            # 清理该组旧的 grid 记录（限定同脚本同集，scene_ids 是当前组子集的旧 grid）
-            # 跳过 pending/generating 状态的记录，避免 worker 执行时找不到资源
-            group_id_set = set(all_scene_ids)
-            for old_grid in existing_grids:
-                if (
-                    old_grid.script_file == req.script_file
-                    and old_grid.episode == episode
-                    and old_grid.status not in ("pending", "generating")
-                    and old_grid.scene_ids
-                    and set(old_grid.scene_ids) <= group_id_set
-                ):
-                    gm.delete(old_grid.id)
+            # provider/model 由 execute_grid_task 在 image lane 解析之后回填，
+            # 因为只有 task 层能根据 reference_images 判断走 T2I 还是 I2I 槽
+            grid = GridGeneration.create(
+                episode=episode,
+                script_file=req.script_file,
+                scene_ids=chunk_ids,
+                rows=chunk_layout.rows,
+                cols=chunk_layout.cols,
+                grid_size=chunk_layout.grid_size,
+                provider="",
+                model="",
+            )
 
-            # 将大分组拆分为多个宫格批次（余下不足4个的场景也用 grid_4 + 占位符）
-            chunks: list[list] = []
-            if n > layout.cell_count:
-                for i in range(0, n, layout.cell_count):
-                    chunk = group[i : i + layout.cell_count]
-                    chunks.append(chunk)
-            else:
-                chunks.append(group)
+            prompt = build_grid_prompt(
+                scenes=chunk,
+                id_field=id_field,
+                rows=chunk_layout.rows,
+                cols=chunk_layout.cols,
+                style=style,
+                aspect_ratio=aspect_ratio,
+                grid_aspect_ratio=chunk_layout.grid_aspect_ratio,
+            )
 
-            for chunk in chunks:
-                chunk_ids = [item[id_field] for item in chunk]
-                chunk_layout = calculate_grid_layout(len(chunk_ids), aspect_ratio)
-                if chunk_layout is None:
-                    continue
+            grid.prompt = prompt
+            gm.save(grid)
 
-                # provider/model 由 execute_grid_task 在 image lane 解析之后回填，
-                # 因为只有 task 层能根据 reference_images 判断走 T2I 还是 I2I 槽
-                grid = GridGeneration.create(
-                    episode=episode,
+            task = await queue.enqueue_task(
+                project_name=project_name,
+                task_type="grid",
+                media_type="image",
+                resource_id=grid.id,
+                payload=_build_grid_task_payload(
+                    prompt=prompt,
                     script_file=req.script_file,
                     scene_ids=chunk_ids,
-                    rows=chunk_layout.rows,
-                    cols=chunk_layout.cols,
                     grid_size=chunk_layout.grid_size,
-                    provider="",
-                    model="",
-                )
-
-                prompt = build_grid_prompt(
-                    scenes=chunk,
-                    id_field=id_field,
                     rows=chunk_layout.rows,
                     cols=chunk_layout.cols,
-                    style=style,
-                    aspect_ratio=aspect_ratio,
                     grid_aspect_ratio=chunk_layout.grid_aspect_ratio,
-                )
+                    video_aspect_ratio=aspect_ratio,
+                ),
+                script_file=req.script_file,
+                source="webui",
+                user_id=_user.id,
+            )
+            grid_ids.append(grid.id)
+            task_ids.append(task["task_id"])
+            deduped_flags.append(bool(task.get("deduped", False)))
 
-                grid.prompt = prompt
-                gm.save(grid)
-
-                task = await queue.enqueue_task(
-                    project_name=project_name,
-                    task_type="grid",
-                    media_type="image",
-                    resource_id=grid.id,
-                    payload=_build_grid_task_payload(
-                        prompt=prompt,
-                        script_file=req.script_file,
-                        scene_ids=chunk_ids,
-                        grid_size=chunk_layout.grid_size,
-                        rows=chunk_layout.rows,
-                        cols=chunk_layout.cols,
-                        grid_aspect_ratio=chunk_layout.grid_aspect_ratio,
-                        video_aspect_ratio=aspect_ratio,
-                    ),
-                    script_file=req.script_file,
-                    source="webui",
-                    user_id=_user.id,
-                )
-                grid_ids.append(grid.id)
-                task_ids.append(task["task_id"])
-                deduped_flags.append(bool(task.get("deduped", False)))
-
-        return GenerateGridResponse(
-            success=True,
-            grid_ids=grid_ids,
-            task_ids=task_ids,
-            deduped=bool(task_ids) and all(deduped_flags),
-            message=f"已提交 {len(grid_ids)} 个宫格生成任务",
-        )
-
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except HTTPException:
-        raise
-    except ScriptEditError as e:
-        # 脏脚本(分镜数组键损坏)→ 4xx 客户端错误而非 5xx,走 i18n 不直接暴露 str(e)
-        raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=str(e)))
-    except Exception:
-        logger.exception("宫格生成请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+    return GenerateGridResponse(
+        success=True,
+        grid_ids=grid_ids,
+        task_ids=task_ids,
+        deduped=bool(task_ids) and all(deduped_flags),
+        message=f"已提交 {len(grid_ids)} 个宫格生成任务",
+    )
 
 
 # ==================== 宫格图列表 ====================
 
 
 @router.get("/grids")
-async def list_grids(project_name: str, _user: CurrentUser, _t: Translator):
+async def list_grids(project_name: str, _user: CurrentUser):
     """列出项目下所有宫格图记录。"""
-    try:
-        project_path = get_project_manager().get_project_path(project_name)
-        gm = GridManager(project_path)
-        return [g.to_dict() for g in gm.list_all()]
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception:
-        logger.exception("列出宫格图失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+    project_path = get_project_manager().get_project_path(project_name)
+    gm = GridManager(project_path)
+    return [g.to_dict() for g in gm.list_all()]
 
 
 # ==================== 宫格图详情 ====================
 
 
 @router.get("/grids/{grid_id}")
-async def get_grid(project_name: str, grid_id: str, _user: CurrentUser, _t: Translator):
+async def get_grid(project_name: str, grid_id: str, _user: CurrentUser):
     """获取单个宫格图记录。"""
-    try:
-        project_path = get_project_manager().get_project_path(project_name)
-        gm = GridManager(project_path)
-        grid = gm.get(grid_id)
-        if grid is None:
-            raise HTTPException(status_code=404, detail=f"Grid {grid_id} 不存在")
-        return grid.to_dict()
-    except HTTPException:
-        raise
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception:
-        logger.exception("获取宫格图失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+    project_path = get_project_manager().get_project_path(project_name)
+    gm = GridManager(project_path)
+    grid = gm.get(grid_id)
+    if grid is None:
+        raise NotFoundError("grid_not_found", grid_id=grid_id)
+    return grid.to_dict()
 
 
 # ==================== 重新生成宫格图 ====================
 
 
 @router.post("/grids/{grid_id}/regenerate")
-async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser, _t: Translator):
+async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
     """重置宫格图状态并重新入队生成任务。"""
-    try:
-        project = get_project_manager().load_project(project_name)
-        # 广告/短片项目不开放宫格生视频：首次提交端点已封禁，重生成端点同样设防,
-        # 否则残留的历史 grid 记录仍可被重新入队
-        if project.get("content_mode") == "ad":
-            raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
-        project_path = get_project_manager().get_project_path(project_name)
-        gm = GridManager(project_path)
-        grid = gm.get(grid_id)
-        if grid is None:
-            raise HTTPException(status_code=404, detail=f"Grid {grid_id} 不存在")
+    project = get_project_manager().load_project(project_name)
+    # 广告/短片项目不开放宫格生视频：首次提交端点已封禁，重生成端点同样设防,
+    # 否则残留的历史 grid 记录仍可被重新入队
+    if project.get("content_mode") == "ad":
+        raise BadRequestError("ad_grid_not_supported")
+    project_path = get_project_manager().get_project_path(project_name)
+    gm = GridManager(project_path)
+    grid = gm.get(grid_id)
+    if grid is None:
+        raise NotFoundError("grid_not_found", grid_id=grid_id)
 
-        grid.status = "pending"
-        grid.error_message = None
-        # 清空旧 metadata，由 execute_grid_task 按 needs_i2i 重新回填
-        grid.provider = ""
-        grid.model = ""
-        gm.save(grid)
+    grid.status = "pending"
+    grid.error_message = None
+    # 清空旧 metadata，由 execute_grid_task 按 needs_i2i 重新回填
+    grid.provider = ""
+    grid.model = ""
+    gm.save(grid)
 
-        aspect_ratio = project.get("aspect_ratio", "9:16")
-        layout = calculate_grid_layout(len(grid.scene_ids), aspect_ratio)
-        grid_aspect_ratio = layout.grid_aspect_ratio if layout else aspect_ratio
+    aspect_ratio = project.get("aspect_ratio", "9:16")
+    layout = calculate_grid_layout(len(grid.scene_ids), aspect_ratio)
+    grid_aspect_ratio = layout.grid_aspect_ratio if layout else aspect_ratio
 
-        queue = get_generation_queue()
-        task = await queue.enqueue_task(
-            project_name=project_name,
-            task_type="grid",
-            media_type="image",
-            resource_id=grid.id,
-            payload=_build_grid_task_payload(
-                prompt=grid.prompt,
-                script_file=grid.script_file,
-                scene_ids=grid.scene_ids,
-                grid_size=grid.grid_size,
-                rows=grid.rows,
-                cols=grid.cols,
-                grid_aspect_ratio=grid_aspect_ratio,
-                video_aspect_ratio=aspect_ratio,
-            ),
+    queue = get_generation_queue()
+    task = await queue.enqueue_task(
+        project_name=project_name,
+        task_type="grid",
+        media_type="image",
+        resource_id=grid.id,
+        payload=_build_grid_task_payload(
+            prompt=grid.prompt,
             script_file=grid.script_file,
-            source="webui",
-            user_id=_user.id,
-        )
+            scene_ids=grid.scene_ids,
+            grid_size=grid.grid_size,
+            rows=grid.rows,
+            cols=grid.cols,
+            grid_aspect_ratio=grid_aspect_ratio,
+            video_aspect_ratio=aspect_ratio,
+        ),
+        script_file=grid.script_file,
+        source="webui",
+        user_id=_user.id,
+    )
 
-        return {"success": True, "task_id": task["task_id"], "deduped": task.get("deduped", False)}
-
-    except HTTPException:
-        raise
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception:
-        logger.exception("重新生成宫格图失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+    return {"success": True, "task_id": task["task_id"], "deduped": task.get("deduped", False)}

@@ -29,6 +29,7 @@ from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
+from lib.api_errors import ApiError, BadRequestError
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
@@ -346,10 +347,14 @@ def export_jianying_draft(
             draft_path=draft_path,
             use_draft_info_name=(jianying_version != "5"),
         )
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except FileNotFoundError:
+        # 项目/剧集/模板不存在：交给 app 级 FileNotFoundError handler 统一 404，
+        # str(e) 可能含服务器路径，不在此回传
+        raise
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        # 常见为「本集无已完成片段」；路径越界守卫的 str(e) 含真实路径，一律只进日志
+        logger.warning("剪映草稿导出参数错误: project=%s episode=%d (%s)", name, episode, e)
+        raise ApiError("jianying_no_completed_segments", status_code=422, episode=episode) from e
     except Exception:
         logger.exception("剪映草稿导出失败: project=%s episode=%d", name, episode)
         raise HTTPException(status_code=500, detail=_t("jianying_export_failed"))
@@ -541,7 +546,9 @@ async def create_project(
 
         return await asyncio.to_thread(_sync)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # 项目名 / source_kind / duration / brief 等配置校验失败，str(e) 只进日志
+        logger.warning("创建项目参数错误: name=%s (%s)", req.name or req.title, e)
+        raise BadRequestError("project_config_invalid") from e
     except HTTPException:
         raise
     except Exception:
@@ -1297,7 +1304,9 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
         logger.exception("概述生成响应解析失败")
         raise HTTPException(status_code=400, detail=_t("overview_ai_response_invalid"))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # 常见为「source 目录为空」；str(e) 只进日志
+        logger.warning("生成概述参数错误: name=%s (%s)", name, e)
+        raise BadRequestError("overview_source_empty") from e
     except HTTPException:
         raise
     except Exception:

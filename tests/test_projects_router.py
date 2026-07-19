@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import projects
 
 
@@ -223,6 +224,7 @@ def _client(monkeypatch, fake_pm, fake_calc):
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(projects.router, prefix="/api/v1")
+    register_error_handlers(app)
     return TestClient(app)
 
 

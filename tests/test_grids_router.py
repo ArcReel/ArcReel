@@ -1,15 +1,15 @@
 """宫格图路由的「未预期异常 → 通用 500 且不泄露内部细节」回归测试。
 
-每个端点的 try 块内最早调用 get_project_manager()，把它 monkeypatch 成抛 RuntimeError
-（带唯一哨兵串），即可绕过前面的 FileNotFoundError/HTTPException/ScriptEditError 分支，
-落到末端的 except Exception。断言响应 500 且哨兵串不出现在响应体里——验证内部异常细节
-仅落服务端日志、不泄露给客户端。
+每个端点内最早调用 get_project_manager()，把它 monkeypatch 成抛 RuntimeError
+（带唯一哨兵串），异常沿 app 级 exception handler 统一收口为通用 500。断言响应 500
+且哨兵串不出现在响应体里——验证内部异常细节仅落服务端日志、不泄露给客户端。
 """
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import grids
 
 
@@ -19,7 +19,10 @@ def _client(monkeypatch, **patches):
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(grids.router, prefix="/api/v1")
-    return TestClient(app)
+    register_error_handlers(app)
+    # app 级 Exception handler 已把未预期异常收口为 500；关闭 TestClient 的默认重抛，
+    # 以便断言收口后的响应体（而非让异常穿透到测试栈）。
+    return TestClient(app, raise_server_exceptions=False)
 
 
 def test_generate_grid_unexpected_error_no_leak(monkeypatch):

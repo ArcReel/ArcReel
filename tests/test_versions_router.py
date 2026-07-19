@@ -2,11 +2,13 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.api_errors import BadRequestError
 from lib.script_editor import ScriptEditError
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import versions
 
 
@@ -76,6 +78,7 @@ def _client(monkeypatch):
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(versions.router, prefix="/api/v1")
+    register_error_handlers(app)
     return TestClient(app), fake_pm
 
 
@@ -185,6 +188,7 @@ class TestVersionsRouter:
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(versions.router, prefix="/api/v1")
+        register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/versions/reference_videos/E1U1/restore/1")
             assert resp.status_code == 200
@@ -243,6 +247,7 @@ class TestVersionsRouter:
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(versions.router, prefix="/api/v1")
+        register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/versions/videos/E1S01/restore/1")
             assert resp.status_code == 200
@@ -262,12 +267,11 @@ class TestVersionsRouter:
         """
         project_path = Path(tempfile.gettempdir()) / "demo"
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(BadRequestError) as exc:
             versions._resolve_resource_path(
                 "characters",
                 "../../../../etc/passwd",
                 project_path,
-                lambda key, **kw: key,
             )
         assert exc.value.status_code == 400
 
@@ -278,7 +282,6 @@ class TestVersionsRouter:
             "characters",
             "Alice",
             project_path,
-            lambda key, **kw: key,
         )
         assert relative == "characters/Alice.png"
         # helper 返回未 resolve 的 project_path/relative，故用同一入参 base 拼接断言。
@@ -298,6 +301,7 @@ class TestVersionsRouter:
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(versions.router, prefix="/api/v1")
+        register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
             assert resp.status_code == 200
@@ -329,7 +333,8 @@ class TestVersionsRouter:
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(versions.router, prefix="/api/v1")
-        with TestClient(app) as client:
+        register_error_handlers(app)
+        with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
             assert resp.status_code == 500
 
@@ -365,6 +370,7 @@ class TestVersionsRouter:
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(versions.router, prefix="/api/v1")
+        register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
             # transient IO 降级 + warning,主集 restore 仍 200
@@ -387,6 +393,7 @@ class TestVersionsRouter:
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(versions.router, prefix="/api/v1")
+        register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
             assert resp.status_code == 200
@@ -407,7 +414,8 @@ class TestVersionsRouter:
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(versions.router, prefix="/api/v1")
-        with TestClient(app) as client:
+        register_error_handlers(app)
+        with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.get("/api/v1/projects/demo/versions/characters/Alice")
             assert resp.status_code == 500
             # 内部异常细节不得泄露给客户端，仅落服务端日志
@@ -425,7 +433,8 @@ class TestVersionsRouter:
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(versions.router, prefix="/api/v1")
-        with TestClient(app) as client:
+        register_error_handlers(app)
+        with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
             assert resp.status_code == 500
             # 内部异常细节不得泄露给客户端，仅落服务端日志

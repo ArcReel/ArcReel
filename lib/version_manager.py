@@ -11,6 +11,7 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
+from lib.api_errors import BadRequestError, NotFoundError
 from lib.resource_paths import RESOURCE_TYPES as _RESOURCE_TYPES
 from lib.resource_paths import resource_extension
 
@@ -89,7 +90,7 @@ class VersionManager:
             版本信息字典，包含 current_version 和 versions 列表
         """
         if resource_type not in self.RESOURCE_TYPES:
-            raise ValueError(f"不支持的资源类型: {resource_type}")
+            raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
 
         with self._lock:
             data = self._load_versions()
@@ -265,7 +266,7 @@ class VersionManager:
             切换信息，包含 restored_version, current_version, prompt
         """
         if resource_type not in self.RESOURCE_TYPES:
-            raise ValueError(f"不支持的资源类型: {resource_type}")
+            raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
 
         current_file = Path(current_file)
 
@@ -274,7 +275,7 @@ class VersionManager:
             resource_data = data.get(resource_type, {}).get(resource_id)
 
             if not resource_data:
-                raise ValueError(f"资源不存在: {resource_type}/{resource_id}")
+                raise NotFoundError("version_resource_not_found", resource_type=resource_type, resource_id=resource_id)
 
             target_version = None
             for v in resource_data["versions"]:
@@ -283,7 +284,7 @@ class VersionManager:
                     break
 
             if not target_version:
-                raise ValueError(f"版本不存在: {version}")
+                raise NotFoundError("version_not_found", version=version)
 
             target_file = self.project_path / target_version["file"]
             if not target_file.exists():

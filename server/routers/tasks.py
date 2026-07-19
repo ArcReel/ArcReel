@@ -9,9 +9,10 @@ from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Header, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
+from lib.api_errors import BadRequestError, NotFoundError
 from lib.generation_queue import (
     get_generation_queue,
     read_queue_poll_interval,
@@ -184,7 +185,7 @@ async def cancel_preview(task_id: str, _user: CurrentUser):
     try:
         preview = await queue.get_cancel_preview(task_id)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise BadRequestError("task_not_found", id=task_id) from e
     return preview
 
 
@@ -194,7 +195,7 @@ async def cancel_task(task_id: str, _user: CurrentUser):
     try:
         result = await queue.cancel_task(task_id)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise BadRequestError("task_not_found", id=task_id) from e
     return result
 
 
@@ -221,5 +222,5 @@ async def get_task(
     queue = get_task_queue()
     task = await queue.get_task(task_id)
     if not task:
-        raise HTTPException(status_code=404, detail=_t("task_not_found", id=task_id))
+        raise NotFoundError("task_not_found", id=task_id)
     return {"task": _localize_task(task, _t)}
