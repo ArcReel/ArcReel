@@ -11,7 +11,6 @@
 3. 修复后重新运行项目质量门（口径同实现契约）
 4. main 已前进时，rebase 到最新 main 并重新验证
 5. push 分支并建 PR：正文含 `Closes #<N>` 与验证说明，标题遵循项目 PR 规范
-6. PR 保持正常状态，不用 draft——draft 下 CodeRabbit 不自动审查，会阻塞下一阶段
 
 ## 交付与退役
 
