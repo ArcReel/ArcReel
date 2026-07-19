@@ -95,6 +95,17 @@ export function useAssistantSession(projectName: string | null) {
     projectGenRef.current += 1;
   }, [projectName]);
 
+  // 会话操作代次：switchSession/createNewSession/删除当前会话到无会话时
+  // 同步递增，供 init effect 内挂起的 listAssistantSessions 请求感知“同
+  // 项目内会话已被用户操作变更”。与 projectGenRef 正交——项目代次感知
+  // “项目已切换”，此代次感知“同项目内会话已被操作”：init 的
+  // listAssistantSessions 挂起期间若用户新建/切换/删除会话，cancelled 和
+  // projectGenRef 均不变（effect 未 cleanup、projectName 未变），迟到响应
+  // 会把 currentSessionId 覆盖回旧会话并重新 loadSession，覆盖用户刚完成
+  // 的操作。三处操作均由用户交互同步调用（非渲染期、无微任务竞速窗口），
+  // 直接写 ref 即可，无需 layout effect 的时序保证。
+  const sessionOpGenRef = useRef(0);
+
   const syncPendingQuestion = useCallback((question: PendingQuestion | null) => {
     store.getState().setPendingQuestion(question);
     store.getState().setAnsweringQuestion(false);
@@ -277,15 +288,20 @@ export function useAssistantSession(projectName: string | null) {
     // 本次 commit 时 projectGenRef 已由同一轮的 layout effect 同步递增完毕
     // （layout effect 先于 passive effect 运行），此处读到的即当前项目代次。
     const gen = projectGenRef.current;
+    // 会话操作代次同一时刻捕获：挂起期间 switchSession/createNewSession/
+    // 删除当前会话到无会话会同步递增它，感知“同项目内会话已被操作”。
+    const sessionOpGen = sessionOpGenRef.current;
 
-    // 取消判定统一叠加两道信号：cancelled 由本 effect cleanup 同步置位，
+    // 取消判定统一叠加三道信号：cancelled 由本 effect cleanup 同步置位，
     // 但 cleanup 本身也是 passive effect、经宏任务调度；projectGenRef 由
     // layout effect 同步递增，弥补 cleanup 尚未运行时的迟到响应（fetch 续行
-    // 是微任务，可能抢在 cleanup 的宏任务之前执行）。凡是本 effect 内任何异步
-    // 续行要写 store，都须先过这道判定——单独判 loadSession 的迟到响应不够，
-    // listAssistantSessions/listAssistantSkills 的迟到响应同样可能在项目已
-    // 切走后把旧项目数据写进当前 store。
-    const isStale = () => cancelled || projectGenRef.current !== gen;
+    // 是微任务，可能抢在 cleanup 的宏任务之前执行）；sessionOpGenRef 弥补
+    // 项目未切换、但同项目内会话已被操作的场景——前两道信号均无法拦截。
+    // 凡是本 effect 内任何异步续行要写 store，都须先过这道判定——单独判
+    // loadSession 的迟到响应不够，listAssistantSessions/listAssistantSkills
+    // 的迟到响应同样可能覆盖用户已完成的项目切换或会话操作。
+    const isStale = () =>
+      cancelled || projectGenRef.current !== gen || sessionOpGenRef.current !== sessionOpGen;
 
     async function init() {
       store.getState().setMessagesLoading(true);
@@ -485,6 +501,9 @@ export function useAssistantSession(projectName: string | null) {
   const createNewSession = useCallback(() => {
     if (!projectName) return;
 
+    // 使同项目内挂起的 init listAssistantSessions 迟到响应失效，防止其
+    // 覆盖本次新建会话（见 sessionOpGenRef 定义处的竞态说明）。
+    sessionOpGenRef.current += 1;
     invalidatePendingSend();
     closeStream();
     store.getState().resetTimeline();
@@ -507,6 +526,9 @@ export function useAssistantSession(projectName: string | null) {
     // 捕获当前项目代次：调用期间项目被切走（即便 currentSessionId 未变，
     // 见 loadSession 的第二道防线注释）时据此短路，不为已离开的项目建流。
     const gen = projectGenRef.current;
+    // 使同项目内挂起的 init listAssistantSessions 迟到响应失效，防止其
+    // 覆盖本次切换（见 sessionOpGenRef 定义处的竞态说明）。
+    sessionOpGenRef.current += 1;
 
     invalidatePendingSend();
     closeStream();
@@ -545,6 +567,9 @@ export function useAssistantSession(projectName: string | null) {
         if (sessions.length > 0) {
           await switchSession(sessions[0].id);
         } else {
+          // 使同项目内挂起的 init listAssistantSessions 迟到响应失效，防止
+          // 其覆盖本次删除（见 sessionOpGenRef 定义处的竞态说明）。
+          sessionOpGenRef.current += 1;
           invalidatePendingSend();
           closeStream();
           store.getState().setCurrentSessionId(null);

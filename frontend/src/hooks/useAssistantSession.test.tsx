@@ -886,4 +886,92 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
     expect(useAssistantStore.getState().sessionStatus).toBe("idle");
   });
+
+  it("ignores a delayed init session-list response after createNewSession (session-op generation)", async () => {
+    // init effect 的 listAssistantSessions 挂起期间用户新建会话：迟到响应若不
+    // 感知这一操作，会把 currentSessionId 覆盖回旧会话并重新 loadSession，为
+    // 已被放弃的会话重建 SSE 连接，覆盖用户刚完成的新建会话操作。
+    const deferredSessions = createDeferred<{ sessions: SessionMeta[] }>();
+    vi.spyOn(API, "listAssistantSessions").mockReturnValue(deferredSessions.promise);
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [] }));
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    await act(async () => {
+      result.current.createNewSession();
+    });
+    expect(useAssistantStore.getState().currentSessionId).toBeNull();
+    expect(useAssistantStore.getState().isDraftSession).toBe(true);
+
+    // 迟到：init 的会话列表此刻才返回，携带一个 running 会话
+    await act(async () => {
+      deferredSessions.resolve({ sessions: [makeSession("session-1", "running")] });
+      await deferredSessions.promise;
+    });
+
+    // 不覆盖用户的新建会话操作，不为已放弃的会话重建 SSE 连接
+    expect(useAssistantStore.getState().currentSessionId).toBeNull();
+    expect(useAssistantStore.getState().isDraftSession).toBe(true);
+    expect(MockEventSource.instances).toHaveLength(0);
+  });
+
+  it("ignores a delayed init session-list response after switchSession (session-op generation)", async () => {
+    // 同上，换成挂起期间用户直接切到另一会话（如通过历史记录/深链接跳转）。
+    const deferredSessions = createDeferred<{ sessions: SessionMeta[] }>();
+    vi.spyOn(API, "listAssistantSessions").mockReturnValue(deferredSessions.promise);
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [] }));
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    await act(async () => {
+      await result.current.switchSession("session-2");
+    });
+    expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
+
+    // 迟到：init 的会话列表此刻才返回，携带一个 running 会话
+    await act(async () => {
+      deferredSessions.resolve({ sessions: [makeSession("session-1", "running")] });
+      await deferredSessions.promise;
+    });
+
+    // 不覆盖用户已切到的会话，不为已放弃的会话重建 SSE 连接
+    expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
+    expect(MockEventSource.instances).toHaveLength(0);
+  });
+
+  it("ignores a delayed init session-list response after deleteSession clears the current session (session-op generation)", async () => {
+    // 同上，换成挂起期间用户删除当前会话且无其它会话可切（清空到无会话）。
+    const deferredSessions = createDeferred<{ sessions: SessionMeta[] }>();
+    vi.spyOn(API, "listAssistantSessions").mockReturnValue(deferredSessions.promise);
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [] }));
+    vi.spyOn(API, "deleteAssistantSession").mockResolvedValue({ success: true });
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+
+    // 模拟用户此前已选中会话（挂起期间 store 中已有当前会话可删）
+    act(() => {
+      useAssistantStore.getState().setCurrentSessionId("session-1");
+      useAssistantStore.getState().setSessions([makeSession("session-1", "idle")]);
+    });
+
+    await act(async () => {
+      await result.current.deleteSession("session-1");
+    });
+    expect(useAssistantStore.getState().currentSessionId).toBeNull();
+
+    // 迟到：init 的会话列表此刻才返回，携带一个 running 会话
+    await act(async () => {
+      deferredSessions.resolve({ sessions: [makeSession("session-1", "running")] });
+      await deferredSessions.promise;
+    });
+
+    // 不覆盖用户的删除操作，不为已放弃的会话重建 SSE 连接
+    expect(useAssistantStore.getState().currentSessionId).toBeNull();
+    expect(MockEventSource.instances).toHaveLength(0);
+  });
 });
