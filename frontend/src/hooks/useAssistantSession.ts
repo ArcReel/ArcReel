@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { errMsg, voidCall } from "@/utils/async";
 import { API } from "@/api";
 import { uid } from "@/utils/id";
@@ -83,13 +83,15 @@ export function useAssistantSession(projectName: string | null) {
   // 失败重试复用同一幂等键（同内容签名），成功后清除
   const failedSendRef = useRef<{ clientKey: string; signature: string } | null>(null);
 
-  // 项目代次：projectName 变化后递增，供 switchSession 等 imperatively 发起
-  // 的异步调用感知“项目已切换”，弥补它不像 init effect 那样天然拥有按
-  // projectName 重建的 cancelled closure flag。effect 在 commit 后运行，
-  // switchSession 只能由用户交互触发（不会与本次渲染同步执行），故此处的
-  // 一帧延迟不构成竞态窗口。
+  // 项目代次：projectName 变化后递增，供 switchSession/init 等异步调用感知
+  // “项目已切换”。必须用 useLayoutEffect 而非 useEffect：passive effect 由
+  // 浏览器宏任务（MessageChannel）调度，而被守护的 fetch 续行是微任务——若
+  // 用 useEffect，微任务可能抢在宏任务化的递增之前执行，造成迟到响应把
+  // isStale 误判为 false 的竞态窗口。layout effect 在 commit 阶段同步运行，
+  // 保证在任何后续微任务/宏任务执行前完成递增，彻底关闭该窗口。写 ref 仍
+  // 发生在 effect 回调内（非渲染期），不违反 react-hooks/refs 规则。
   const projectGenRef = useRef(0);
-  useEffect(() => {
+  useLayoutEffect(() => {
     projectGenRef.current += 1;
   }, [projectName]);
 
@@ -272,6 +274,9 @@ export function useAssistantSession(projectName: string | null) {
   useEffect(() => {
     if (!projectName) return;
     let cancelled = false;
+    // 本次 commit 时 projectGenRef 已由同一轮的 layout effect 同步递增完毕
+    // （layout effect 先于 passive effect 运行），此处读到的即当前项目代次。
+    const gen = projectGenRef.current;
 
     async function init() {
       store.getState().setMessagesLoading(true);
@@ -301,9 +306,11 @@ export function useAssistantSession(projectName: string | null) {
         if (cancelled) return;
 
         store.getState().setCurrentSessionId(sessionId);
-        // 传入取消判定：项目切换后 cleanup 置 cancelled，loadSession 的迟到
-        // 响应据此短路，不为已离开的项目建 SSE 连接、不写入陈旧状态。
-        await loadSession(sessionId, () => cancelled);
+        // 取消判定叠加两道信号：cancelled 由本 effect cleanup 同步置位，
+        // 但 cleanup 本身也是 passive effect、经宏任务调度；projectGenRef
+        // 由 layout effect 同步递增，弥补 cleanup 尚未运行时的迟到响应
+        // （fetch 续行是微任务，可能抢在 cleanup 的宏任务之前执行）。
+        await loadSession(sessionId, () => cancelled || projectGenRef.current !== gen);
       } catch {
         // 静默失败
       } finally {
