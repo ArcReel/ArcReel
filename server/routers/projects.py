@@ -1296,6 +1296,17 @@ async def set_project_source(
 async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
     """使用 AI 生成项目概述"""
     try:
+        get_project_manager().get_project_path(name)
+    except ValueError as e:
+        # 非法项目名（路径穿越等）先于生成流程拦截，避免落入下面 generate_overview()
+        # 内部供应商解析链路的 except ValueError，被误判为「未配置供应商」
+        raise BadRequestError("invalid_project_name", name=name) from e
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+    except Exception:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+    try:
         with project_change_source("webui"):
             overview = await get_project_manager().generate_overview(name)
         return {"success": True, "overview": overview}
@@ -1315,7 +1326,7 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
         logger.exception("生成概述失败：项目数据损坏 name=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
     except ValueError as e:
-        # 其余 ValueError 均来自供应商解析链路（未配置/无可用供应商）；str(e) 只进日志
+        # 非法项目名已由上方预校验拦截，此处均来自供应商解析链路（未配置/无可用供应商）；str(e) 只进日志
         logger.warning("生成概述配置错误: name=%s (%s)", name, e)
         raise BadRequestError("text_provider_not_configured") from e
     except HTTPException:

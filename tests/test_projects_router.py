@@ -54,6 +54,10 @@ class _FakePM:
         (self.base / "ready" / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
         (self.base / "empty").mkdir(parents=True, exist_ok=True)
         (self.base / "remove-me").mkdir(parents=True, exist_ok=True)
+        # generate_overview 的名义分支目标：存在但内容有问题的项目（源目录空/供应商未配置/json 损坏）
+        (self.base / "bad").mkdir(parents=True, exist_ok=True)
+        (self.base / "no-provider").mkdir(parents=True, exist_ok=True)
+        (self.base / "corrupted").mkdir(parents=True, exist_ok=True)
 
     def list_projects(self):
         return ["ready", "empty", "broken"]
@@ -69,6 +73,8 @@ class _FakePM:
         return self.project_data[name]
 
     def get_project_path(self, name):
+        if name == "illegal-name":
+            raise ValueError(f"非法项目名称: '{name}'")
         path = self.base / name
         if not path.exists():
             raise FileNotFoundError(name)
@@ -1656,6 +1662,16 @@ class TestUnexpectedErrorsDoNotLeak:
             resp = client.post("/api/v1/projects/corrupted/generate-overview")
             assert resp.status_code == 500
             assert "配置文本供应商" not in self._body(resp)
+
+    def test_generate_overview_invalid_project_name_maps_to_400_not_provider_error(self, tmp_path, monkeypatch):
+        # get_project_path 抛出的非法项目名 ValueError（路径穿越等）不能被 generate_overview()
+        # 内部供应商解析链路的 except ValueError 误判为「未配置文本供应商」
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.post("/api/v1/projects/illegal-name/generate-overview")
+            assert resp.status_code == 400
+            assert "配置文本供应商" not in self._body(resp)
+            assert "illegal-name" in self._body(resp)
 
     def test_update_overview_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_overview"
