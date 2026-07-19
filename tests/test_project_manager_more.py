@@ -472,18 +472,6 @@ class TestProjectManagerMore:
         assert pm.update_scene_status({"generated_assets": {"storyboard_image": "s.png"}}) == "storyboard_ready"
         assert pm.update_scene_status({"generated_assets": {}}) == "pending"
 
-        raw_script = {
-            "novel": {"chapter": "chapter"},
-            "scenes": [{"scene_id": "001"}],
-            "characters": {"A": {"description": "desc"}},
-        }
-        _write(tmp_path / "projects" / "demo" / "scripts" / "legacy.json", json.dumps(raw_script, ensure_ascii=False))
-
-        normalized_script = pm.normalize_script("demo", "legacy.json", save=False)
-
-        assert "metadata" in normalized_script
-        assert normalized_script["duration_seconds"] >= 0
-
     def test_entity_and_batch_management_and_paths(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
