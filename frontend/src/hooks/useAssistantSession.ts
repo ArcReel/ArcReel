@@ -492,6 +492,10 @@ export function useAssistantSession(projectName: string | null) {
     clearPendingQuestion();
     store.getState().setCurrentSessionId(null);
     store.getState().setIsDraftSession(true);
+    // 放弃当前加载：若此时有 switchSession 的 loadSession 正在挂起，其
+    // finally 会因 currentSessionId 已变为 null 而判定过期、跳过收尾，
+    // 此处需替其显式清理，否则 messagesLoading 永久卡 true。
+    store.getState().setMessagesLoading(false);
     statusRef.current = "idle";
   }, [projectName, clearPendingQuestion, closeStream, invalidatePendingSend, store]);
 
@@ -547,6 +551,9 @@ export function useAssistantSession(projectName: string | null) {
           store.getState().resetTimeline();
           store.getState().setSessionStatus(null);
           clearPendingQuestion();
+          // 同 createNewSession：放弃当前加载时若有旧 switchSession 的
+          // loadSession 挂起中，需替其显式清理 messagesLoading。
+          store.getState().setMessagesLoading(false);
           statusRef.current = "idle";
         }
       }
