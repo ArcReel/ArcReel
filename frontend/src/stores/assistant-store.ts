@@ -70,6 +70,15 @@ interface AssistantState {
   setDraftSnapshot: (draft: DraftState | null, rev: number) => void;
   /** 应用一条流式 delta；rev 未超过门槛时忽略。 */
   applyDelta: (payload: DraftDeltaPayload) => void;
+  /**
+   * 载入会话首帧：会话状态 + 清残留问题合并为单次原子更新；冷读非 running
+   * 会话时一并落时间线（entries + draft），把状态、问题、时间线的多次写归并
+   * 到一次 set，消除加载过程中的中间态闪现。
+   */
+  loadSessionSnapshot: (
+    status: SessionStatus | null,
+    timeline?: { entries: TimelineEntry[]; draft: DraftState | null; rev: number },
+  ) => void;
   clearDraft: () => void;
   /** 清空时间线（项目切换 / 新会话）。 */
   resetTimeline: () => void;
@@ -212,6 +221,36 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
         draft: next,
         draftRev: payload.rev,
         draftTurn: buildDraftTurn(next, isDraftReplaced(next, committedFor(get().entries))),
+      });
+    },
+    loadSessionSnapshot: (status, timeline) => {
+      // running 分支：时间线交给 entry 流回放，仅落状态 + 清残留问题
+      if (!timeline) {
+        set({ sessionStatus: status, pendingQuestion: null, answeringQuestion: false });
+        return;
+      }
+      // 非 running 冷读：与 setEntries / setDraftSnapshot 同口径构造投影，
+      // 但状态、问题、entries、draft 一次 set 落地，避免中间态多帧渲染。
+      const prevEntries = get().entries;
+      const merged = mergeEntriesBySeq(prevEntries, timeline.entries);
+      const mirror: DraftMirror | null = timeline.draft
+        ? {
+            ...timeline.draft,
+            content: [...(timeline.draft.content ?? [])],
+            toolJson: { ...(timeline.draft.tool_json ?? {}) },
+          }
+        : null;
+      committedIds = collectCommittedMessageIds(merged);
+      committedSource = merged;
+      set({
+        sessionStatus: status,
+        pendingQuestion: null,
+        answeringQuestion: false,
+        entries: merged,
+        turns: projectEntries(prevEntries, merged),
+        draft: mirror,
+        draftRev: timeline.rev,
+        draftTurn: buildDraftTurn(mirror, isDraftReplaced(mirror, committedIds)),
       });
     },
     clearDraft: () => set({ draft: null, draftTurn: null }),

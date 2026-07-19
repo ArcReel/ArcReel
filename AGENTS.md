@@ -132,6 +132,7 @@ ConfigService（`service.py`）→ Repository（持久化 + 密钥脱敏）→ R
 - i18n：`i18next` + `react-i18next`，翻译文件在 `frontend/src/i18n/{zh,en,vi}/`，命名空间 `common`/`dashboard`/`auth`/`errors`/`assets`/`templates`
 - **占用感知型控件接线** — 编辑/重生成/上传/入库/版本恢复等随资源占用态禁用的控件，新增或改动时通过三项检查：弹窗/面板打开时校验当前占用态；提交时刻复核最新占用态（打开后状态可能已变化，仅查打开时刻会留竞态窗口）；同一资源卡片上的兄弟控件同步接线禁用
 - **入队走动作层** — 生成类入队操作一律经 `frontend/src/actions/` 的动作函数（内部统一封装 API 调用、乐观占用打标与去重提示），组件不直调入队类 API 方法；新增入队类 API 方法时同步登记 `frontend/eslint.config.js` 中 no-restricted-syntax 的方法名清单
+- **异步竞态防护** — 异步操作完成后写共享 state（store / 建流）前须复核过期，迟到响应不得写入或建立连接。effect 内的一次性请求用 `cancelled` closure flag，并把它传入被 effect 调用的异步函数（这类函数须自身感知取消，effect 的 flag 不会自动拦截其内部 await 断点）；跨入口复用的刷新收敛为 store action 做在途合并（先例 `projects-store.refreshProject`）
 
 ## 关键设计模式
 

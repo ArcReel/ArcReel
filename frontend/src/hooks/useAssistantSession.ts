@@ -8,6 +8,7 @@ import type {
   DraftState,
   PendingQuestion,
   SessionMeta,
+  SessionStatus,
   TimelineEntry,
 } from "@/types";
 
@@ -216,27 +217,36 @@ export function useAssistantSession(projectName: string | null) {
     [clearPendingQuestion, projectName, closeStream, store, syncPendingQuestion],
   );
 
-  // 加载指定会话时间线：非 running 冷读日志；running 交给 entry 流回放
-  const loadSession = useCallback(async (sessionId: string) => {
+  // 加载指定会话时间线：非 running 冷读日志；running 交给 entry 流回放。
+  // 内部异步请求感知取消：每个 await 断点后、connectStream 建流前与写 store 前
+  // 均复核过期，旧项目/旧会话的迟到响应不建 SSE 连接、不写入任何状态。
+  const loadSession = useCallback(async (sessionId: string, isStale?: () => boolean) => {
+    // 过期判定：外层 effect 的 cancelled closure flag（拦截项目切换后的迟到响应）
+    // 叠加 currentSessionId 身份比对（switchSession 等同步改写路径的第二道防线）。
+    const isStaleLoad = () => (isStale?.() ?? false) || store.getState().currentSessionId !== sessionId;
+
     const res = await API.getAssistantSession(projectName!, sessionId);
+    if (isStaleLoad()) return;
     const raw = res as Record<string, unknown>;
     const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
     const status = (sessionObj.status as string) ?? "idle";
     statusRef.current = status;
-    store.getState().setSessionStatus(status as "idle");
     // 清掉跨挂载残留的过期问题（zustand 全局 store 在组件卸载后仍保留）；
     // running 会话的未决问题由 entry 流的 question 事件重新投递。
-    clearPendingQuestion();
 
     if (status === "running") {
+      store.getState().loadSessionSnapshot(status);
       connectStream(sessionId);
     } else {
       const data = await API.listAssistantEntries(projectName!, sessionId);
-      if (store.getState().currentSessionId !== sessionId) return;
-      store.getState().setEntries(data.entries ?? []);
-      store.getState().setDraftSnapshot(data.draft ?? null, data.draft_rev ?? 0);
+      if (isStaleLoad()) return;
+      store.getState().loadSessionSnapshot(status as SessionStatus, {
+        entries: data.entries ?? [],
+        draft: data.draft ?? null,
+        rev: data.draft_rev ?? 0,
+      });
     }
-  }, [projectName, clearPendingQuestion, connectStream, store]);
+  }, [projectName, connectStream, store]);
 
   // 加载会话
   useEffect(() => {
@@ -271,7 +281,9 @@ export function useAssistantSession(projectName: string | null) {
         if (cancelled) return;
 
         store.getState().setCurrentSessionId(sessionId);
-        await loadSession(sessionId);
+        // 传入取消判定：项目切换后 cleanup 置 cancelled，loadSession 的迟到
+        // 响应据此短路，不为已离开的项目建 SSE 连接、不写入陈旧状态。
+        await loadSession(sessionId, () => cancelled);
       } catch {
         // 静默失败
       } finally {

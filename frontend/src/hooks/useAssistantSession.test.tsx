@@ -728,4 +728,55 @@ describe("useAssistantSession", () => {
     expect(MockEventSource.instances).toHaveLength(2);
     expect(MockEventSource.instances[1].url).toContain("after=1");
   });
+
+  it("ignores a delayed loadSession response after switching projects (no SSE leak, no state write)", async () => {
+    // 项目 A 的 running 会话：loadSession 卡在 getAssistantSession；切到 B 后 A 的
+    // 迟到响应不得建 SSE 连接、不得回写任何 store 状态（否则为已离开的项目建立
+    // 无人消费的 SSE 订阅，服务端订阅者堆积泄漏）。
+    const deferredA = createDeferred<{ session: SessionMeta }>();
+    vi.spyOn(API, "listAssistantSessions").mockImplementation(async (projectName) => ({
+      sessions: [
+        makeSession(
+          projectName === "project-a" ? "session-a" : "session-b",
+          projectName === "project-a" ? "running" : "idle",
+        ),
+      ],
+    }));
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (projectName, sessionId) => {
+      if (projectName === "project-a") return deferredA.promise;
+      return { session: makeSession(sessionId, "idle") };
+    });
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(
+      makeEntriesResponse({ session_id: "session-b", entries: [userEntry(0, "B-0")] }),
+    );
+
+    const { rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+      initialProps: { projectName: "project-a" as string | null },
+    });
+
+    // 项目 A：loadSession 卡在 getAssistantSession（deferredA 未 resolve）
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-a");
+    });
+
+    // 切到项目 B（其 idle 会话冷读一条条目）
+    rerender({ projectName: "project-b" });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-b");
+      expect(useAssistantStore.getState().turns).toHaveLength(1);
+    });
+
+    // 迟到：A 的 getAssistantSession 此刻才返回 running；loadSession 据 cancelled 短路
+    await act(async () => {
+      deferredA.resolve({ session: makeSession("session-a", "running") });
+      await deferredA.promise;
+    });
+
+    // 不为已离开的项目 A 建 SSE 连接；状态与时间线保持项目 B
+    expect(MockEventSource.instances).toHaveLength(0);
+    expect(useAssistantStore.getState().currentSessionId).toBe("session-b");
+    expect(useAssistantStore.getState().sessionStatus).toBe("idle");
+    expect(useAssistantStore.getState().turns).toHaveLength(1);
+    expect(useAssistantStore.getState().turns[0].content[0].text).toBe("B-0");
+  });
 });
