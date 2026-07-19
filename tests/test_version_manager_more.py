@@ -1,5 +1,6 @@
 import pytest
 
+from lib.api_errors import BadRequestError, NotFoundError
 from lib.version_manager import VersionManager, _get_versions_file_lock
 
 
@@ -15,7 +16,7 @@ class TestVersionManagerMore:
         project = tmp_path / "demo"
         vm = VersionManager(project)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(BadRequestError):
             vm.get_versions("bad", "x")
 
         assert vm.get_current_version("characters", "Alice") == 0
@@ -69,7 +70,10 @@ class TestVersionManagerMore:
         with pytest.raises(ValueError):
             vm.ensure_current_tracked("bad", "Alice", current, "p")
 
-        with pytest.raises(ValueError):
+        with pytest.raises(BadRequestError):
+            vm.restore_version("bad", "Alice", 1, current)
+
+        with pytest.raises(NotFoundError):
             vm.restore_version("characters", "missing", 1, current)
 
         # create record and delete version file to hit FileNotFoundError branch
@@ -80,5 +84,5 @@ class TestVersionManagerMore:
         with pytest.raises(FileNotFoundError):
             vm.restore_version("characters", "Alice", 1, current)
 
-        with pytest.raises(ValueError):
+        with pytest.raises(NotFoundError):
             vm.restore_version("characters", "Alice", 99, current)

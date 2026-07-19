@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import tasks as tasks_router
 
 # ---------------------------------------------------------------------------
@@ -68,6 +69,7 @@ def _make_app() -> FastAPI:
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(tasks_router.router, prefix="/api/v1")
+    register_error_handlers(app)
     return app
 
 

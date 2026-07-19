@@ -32,3 +32,17 @@ class NotFoundError(ApiError):
 
     def __init__(self, key: str, **params: object) -> None:
         super().__init__(key, status_code=404, **params)
+
+
+class ConflictError(ApiError):
+    """与资源当前状态冲突（HTTP 409）。"""
+
+    def __init__(self, key: str, **params: object) -> None:
+        super().__init__(key, status_code=409, **params)
+
+
+class ServiceUnavailableError(ApiError):
+    """服务暂时不可用（HTTP 503）。"""
+
+    def __init__(self, key: str, **params: object) -> None:
+        super().__init__(key, status_code=503, **params)

@@ -8,9 +8,10 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 
+from lib.api_errors import BadRequestError, NotFoundError
 from server.auth import CurrentUserFlexible
 from server.services.project_events import ProjectEventService
 
@@ -37,11 +38,11 @@ async def _project_events_service(
     service = get_project_event_service(request)
     try:
         await asyncio.to_thread(service.pm.get_project_path, project_name)
-    except (FileNotFoundError, KeyError) as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except ValueError as exc:
         # 非法项目名(路径穿越等)是坏请求,不是「不存在」。
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise BadRequestError("invalid_project_name", name=project_name) from exc
     return service
 
 

@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AfterValidator, BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.api_errors import BadRequestError
 from lib.config.repository import mask_secret
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.endpoints import (
@@ -677,7 +678,7 @@ async def _run_discover(
     discovery_format: str, base_url: str | None, api_key: str, _t: Callable[..., str]
 ) -> DiscoverResponse:
     """共用的模型发现逻辑（明文凭证 / 已存储凭证两条入口共用）。"""
-    from lib.custom_provider.discovery import discover_models
+    from lib.custom_provider.discovery import UnsupportedDiscoveryFormatError, discover_models
 
     try:
         models = await discover_models(
@@ -686,8 +687,8 @@ async def _run_discover(
             api_key=api_key,
         )
         return DiscoverResponse(models=models)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except UnsupportedDiscoveryFormatError as exc:
+        raise BadRequestError("invalid_discovery_format", discovery_format=discovery_format) from exc
     except Exception as exc:
         err_msg = str(exc)
         if len(err_msg) > 200:

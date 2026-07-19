@@ -12,7 +12,7 @@ from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.message_utils import extract_plain_user_content
 from server.agent_runtime.models import Heartbeat, LiveMessage, SubscriptionReady
 from server.agent_runtime.session_actor import SessionActor
-from server.agent_runtime.session_manager import ManagedSession
+from server.agent_runtime.session_manager import ManagedSession, SessionBusyError
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import FakeSDKClient
 
@@ -235,7 +235,7 @@ class TestSessionManagerMore:
         )
         session_manager.sessions[meta.id] = managed_running
         try:
-            with pytest.raises(ValueError):
+            with pytest.raises(SessionBusyError):
                 await session_manager.send_message(meta.id, "blocked")
         finally:
             await session_manager.close_session(meta.id)

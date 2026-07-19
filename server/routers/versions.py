@@ -9,11 +9,11 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 logger = logging.getLogger(__name__)
 
-from lib.i18n import Translator
+from lib.api_errors import BadRequestError
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager
 from lib.resource_paths import resource_relative_path
@@ -41,18 +41,17 @@ def _resolve_resource_path(
     resource_type: str,
     resource_id: str,
     project_path: Path,
-    _t: Callable[..., str],
 ) -> tuple[Path, str]:
-    """返回 (current_file_absolute, relative_file_path)；资源类型不可还原或 ID 越界时抛出 HTTPException。"""
+    """返回 (current_file_absolute, relative_file_path)；资源类型不可还原或 ID 越界时抛出领域异常。"""
     if resource_type not in _RESTORABLE_RESOURCE_TYPES:
-        raise HTTPException(status_code=400, detail=_t("unsupported_resource_type", resource_type=resource_type))
+        raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
     relative = resource_relative_path(resource_type, resource_id)
     current_file = project_path / relative
     # 路径遍历防护：resource_id 拼出的绝对路径不得逃出项目目录（与 MediaGenerator._get_output_path 对齐）。
     try:
         current_file.resolve().relative_to(project_path.resolve())
-    except ValueError:
-        raise HTTPException(status_code=400, detail=_t("invalid_resource_id", resource_id=resource_id))
+    except ValueError as exc:
+        raise BadRequestError("invalid_resource_id", resource_id=resource_id) from exc
     return current_file, relative
 
 
@@ -188,7 +187,6 @@ async def get_versions(
     resource_type: str,
     resource_id: str,
     _user: CurrentUser,
-    _t: Translator,
 ):
     """
     获取资源的所有版本列表
@@ -208,12 +206,9 @@ async def get_versions(
         return await asyncio.to_thread(_sync)
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception:
-        logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        # 非法项目名 / 损坏的 versions.json 等坏请求，str(e) 可能含路径只进日志
+        logger.warning("版本查询请求非法: %s", e)
+        raise BadRequestError("request_invalid") from e
 
 
 # ==================== 版本还原 ====================
@@ -226,7 +221,6 @@ async def restore_version(
     resource_id: str,
     version: int,
     _user: CurrentUser,
-    _t: Translator,
 ):
     """
     切换到指定版本
@@ -244,7 +238,7 @@ async def restore_version(
         def _sync():
             vm = get_version_manager(project_name)
             project_path = get_project_manager().get_project_path(project_name)
-            current_file, file_path = _resolve_resource_path(resource_type, resource_id, project_path, _t)
+            current_file, file_path = _resolve_resource_path(resource_type, resource_id, project_path)
 
             result = vm.restore_version(
                 resource_type=resource_type,
@@ -282,11 +276,6 @@ async def restore_version(
         return await asyncio.to_thread(_sync)
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+        # 非法项目名 / 越界 resource_id 等坏请求，str(e) 可能含路径只进日志
+        logger.warning("版本还原请求非法: %s", e)
+        raise BadRequestError("request_invalid") from e

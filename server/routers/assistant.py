@@ -13,10 +13,11 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
 
 from lib import PROJECT_ROOT
+from lib.api_errors import BadRequestError, ConflictError, ServiceUnavailableError
 from lib.i18n import Translator, get_locale
 from server.agent_runtime.models import SessionMeta
 from server.agent_runtime.service import AssistantService
-from server.agent_runtime.session_manager import AgentStartupError, SessionCapacityError
+from server.agent_runtime.session_manager import AgentStartupError, SessionBusyError, SessionCapacityError
 from server.auth import CurrentUser, CurrentUserFlexible
 
 router = APIRouter()
@@ -87,13 +88,18 @@ async def send_message(
         )
         return result
     except SessionCapacityError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        raise ServiceUnavailableError("session_capacity_exceeded") from exc
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=_t("session_or_project_not_found"))
     except TimeoutError:
         raise HTTPException(status_code=504, detail=_t("sdk_session_timeout"))
+    except SessionBusyError as exc:
+        logger.warning("会话发送请求冲突: %s", exc)
+        raise ConflictError("session_busy") from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        # 空消息内容 / 非法项目名等坏请求，str(exc) 只进日志
+        logger.warning("会话发送请求非法: %s", exc)
+        raise BadRequestError("request_invalid") from exc
     except AgentStartupError as exc:
         raise HTTPException(
             status_code=502,
@@ -237,7 +243,8 @@ async def interrupt_session(project_name: str, session_id: str, _user: CurrentUs
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=session_id))
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        logger.warning("会话中断请求非法: %s", exc)
+        raise BadRequestError("request_invalid") from exc
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
@@ -269,7 +276,9 @@ async def answer_question(
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=session_id))
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        # 会话未运行或无待回答问题
+        logger.warning("会话回答请求非法: %s", exc)
+        raise BadRequestError("session_question_unavailable") from exc
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))

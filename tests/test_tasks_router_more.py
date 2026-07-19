@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
+from server.error_handlers import register_error_handlers
 from server.routers import tasks as tasks_router
 
 
@@ -123,6 +124,7 @@ class TestTasksRouterMore:
             id="default", sub="testuser", role="admin"
         )
         app.include_router(tasks_router.router, prefix="/api/v1")
+        register_error_handlers(app)
 
         with TestClient(app) as client:
             resp = client.get("/api/v1/tasks/missing-task")

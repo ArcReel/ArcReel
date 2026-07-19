@@ -18,6 +18,7 @@ from lib.config.service import ConfigService
 from lib.db import get_async_session
 from lib.db.base import Base
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import custom_providers
 
 # ---------------------------------------------------------------------------
@@ -52,6 +53,7 @@ def app(session_factory) -> FastAPI:
     _app.dependency_overrides[get_async_session] = _override_session
     _app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
     _app.include_router(custom_providers.router, prefix="/api/v1")
+    register_error_handlers(_app)
     return _app
 
 
@@ -523,11 +525,13 @@ class TestDiscoverModels:
         assert mock_discover.call_args.kwargs["discovery_format"] == "google"
 
     def test_discover_invalid_format(self, client: TestClient):
-        """discover_models 抛 ValueError 时返回 400。"""
+        """discover_models 抛 UnsupportedDiscoveryFormatError 时返回 400。"""
+        from lib.custom_provider.discovery import UnsupportedDiscoveryFormatError
+
         with patch(
             "lib.custom_provider.discovery.discover_models",
             new_callable=AsyncMock,
-            side_effect=ValueError("不支持的 discovery_format: 'unknown'"),
+            side_effect=UnsupportedDiscoveryFormatError("不支持的 discovery_format: 'unknown'"),
         ):
             resp = client.post(
                 "/api/v1/custom-providers/discover",
@@ -538,6 +542,23 @@ class TestDiscoverModels:
                 },
             )
         assert resp.status_code == 400
+
+    def test_discover_sdk_value_error_returns_502_not_400(self, client: TestClient):
+        """SDK 内部校验（如 Google 凭证被拒绝）抛的普通 ValueError 不应被误判为格式错误 -> 502。"""
+        with patch(
+            "lib.custom_provider.discovery.discover_models",
+            new_callable=AsyncMock,
+            side_effect=ValueError("Invalid API key provided"),
+        ):
+            resp = client.post(
+                "/api/v1/custom-providers/discover",
+                json={
+                    "discovery_format": "google",
+                    "base_url": "https://generativelanguage.googleapis.com",
+                    "api_key": "bad-key",
+                },
+            )
+        assert resp.status_code == 502
 
     def test_discover_api_failure(self, client: TestClient):
         with patch(

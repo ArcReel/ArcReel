@@ -393,7 +393,9 @@ async def _enqueue_asset_generation(
 
     def _sync():
         project = get_project_manager().load_project(project_name)
-        if resource_name not in project.get(spec.bucket_key, {}):
+        # load_project 读时不校验 bucket 结构：project.json 存在显式 null 时
+        # get(key, {}) 仍返回 None，`not in None` 会抛 TypeError → 500，故用 `or {}` 兜底
+        if resource_name not in (project.get(spec.bucket_key) or {}):
             raise NotFoundError(keys["not_found"], name=resource_name)
 
     await asyncio.to_thread(_sync)

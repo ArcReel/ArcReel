@@ -10,10 +10,11 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from lib.api_errors import BadRequestError, ConflictError, ServiceUnavailableError
 from lib.i18n import Translator, get_locale
 from server.agent_runtime.models import Heartbeat, LiveMessage
 from server.agent_runtime.service import AssistantService
-from server.agent_runtime.session_manager import SessionCapacityError
+from server.agent_runtime.session_manager import SessionBusyError, SessionCapacityError
 from server.auth import CurrentUser
 from server.routers.assistant import get_assistant_service
 
@@ -197,11 +198,17 @@ async def agent_chat(
         )
         session_id = result["session_id"]
     except SessionCapacityError as exc:
-        raise HTTPException(status_code=503, detail=str(exc))
+        raise ServiceUnavailableError("session_capacity_exceeded") from exc
     except TimeoutError:
         raise HTTPException(status_code=504, detail=_t("sdk_session_timeout"))
+    except SessionBusyError as exc:
+        # 会话正在处理中（并发冲突）
+        logger.warning("会话对话请求冲突: %s", exc)
+        raise ConflictError("session_busy") from exc
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        # 空消息内容等坏请求，str(exc) 只进日志
+        logger.warning("会话对话请求非法: %s", exc)
+        raise BadRequestError("request_invalid") from exc
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))

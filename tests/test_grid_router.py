@@ -33,6 +33,7 @@ class TestAdProjectRejected:
         from fastapi.testclient import TestClient
 
         from server.auth import CurrentUserInfo, get_current_user
+        from server.error_handlers import register_error_handlers
         from server.routers import grids
 
         class _AdPM:
@@ -44,6 +45,7 @@ class TestAdProjectRejected:
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(grids.router, prefix="/api/v1")
+        register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/grid/1",
@@ -57,6 +59,7 @@ class TestAdProjectRejected:
         from fastapi.testclient import TestClient
 
         from server.auth import CurrentUserInfo, get_current_user
+        from server.error_handlers import register_error_handlers
         from server.routers import grids
 
         class _AdPM:
@@ -68,6 +71,7 @@ class TestAdProjectRejected:
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(grids.router, prefix="/api/v1")
+        register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/grids/g-1/regenerate")
         assert resp.status_code == 400

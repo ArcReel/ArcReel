@@ -29,13 +29,14 @@ from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
+from lib.api_errors import ApiError, BadRequestError
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.i18n import Translator
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
-from lib.project_manager import EpisodeScriptReboundError, SourceKind, get_project_manager
+from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from server.auth import CurrentUser, create_download_token, verify_download_token
@@ -338,6 +339,8 @@ def export_jianying_draft(
     draft_path = _validate_draft_path(draft_path, _t)
 
     # 3. 调用服务
+    from server.services.jianying_draft_service import NoCompletedSegmentsError
+
     svc = get_jianying_draft_service()
     try:
         zip_path = svc.export_episode_draft(
@@ -346,11 +349,16 @@ def export_jianying_draft(
             draft_path=draft_path,
             use_draft_info_name=(jianying_version != "5"),
         )
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    except FileNotFoundError:
+        # 项目/剧集/模板不存在：交给 app 级 FileNotFoundError handler 统一 404，
+        # str(e) 可能含服务器路径，不在此回传
+        raise
+    except NoCompletedSegmentsError as e:
+        logger.warning("剪映草稿导出参数错误: project=%s episode=%d (%s)", name, episode, e)
+        raise ApiError("jianying_no_completed_segments", status_code=422, episode=episode) from e
     except Exception:
+        # 含暂存/写入阶段的路径越界守卫（ValueError，str(e) 带真实路径）：属安全告警而非
+        # 常规空态，不应误报为「本集无已完成片段」，一律降级为通用 500，细节只进日志
         logger.exception("剪映草稿导出失败: project=%s episode=%d", name, episode)
         raise HTTPException(status_code=500, detail=_t("jianying_export_failed"))
 
@@ -541,7 +549,9 @@ async def create_project(
 
         return await asyncio.to_thread(_sync)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # 项目名 / source_kind / duration / brief 等配置校验失败，str(e) 只进日志
+        logger.warning("创建项目参数错误: name=%s (%s)", req.name or req.title, e)
+        raise BadRequestError("project_config_invalid") from e
     except HTTPException:
         raise
     except Exception:
@@ -1286,6 +1296,19 @@ async def set_project_source(
 async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
     """使用 AI 生成项目概述"""
     try:
+        get_project_manager().get_project_path(name)
+    except ValueError as e:
+        # 非法项目名（路径穿越等）先于生成流程拦截，避免落入下面 generate_overview()
+        # 内部供应商解析链路的 except ValueError，被误判为「未配置供应商」
+        raise BadRequestError("invalid_project_name", name=name) from e
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+    except (HTTPException, ApiError):
+        raise
+    except Exception:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+    try:
         with project_change_source("webui"):
             overview = await get_project_manager().generate_overview(name)
         return {"success": True, "overview": overview}
@@ -1296,9 +1319,19 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
         # 裸 pydantic 错误串含模型原始输出片段，不透传给用户
         logger.exception("概述生成响应解析失败")
         raise HTTPException(status_code=400, detail=_t("overview_ai_response_invalid"))
+    except EmptySourceError as e:
+        logger.warning("生成概述参数错误: name=%s (%s)", name, e)
+        raise BadRequestError("overview_source_empty") from e
+    except json.JSONDecodeError:
+        # JSONDecodeError 是 ValueError 子类，须先于下面的 except ValueError 拦截：
+        # 供应商解析链路内部会重新 load_project，project.json 损坏时不能误判为「未配置供应商」
+        logger.exception("生成概述失败：项目数据损坏 name=%s", name)
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except HTTPException:
+        # 非法项目名已由上方预校验拦截，此处均来自供应商解析链路（未配置/无可用供应商）；str(e) 只进日志
+        logger.warning("生成概述配置错误: name=%s (%s)", name, e)
+        raise BadRequestError("text_provider_not_configured") from e
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")

@@ -116,6 +116,10 @@ class EpisodeScriptReboundError(RuntimeError):
     """加锁前后 episode→script_file 绑定发生变化（并发 PATCH 改绑），调用方应重试。"""
 
 
+class EmptySourceError(ValueError):
+    """source 目录为空，无法生成概述；与「无可用文本供应商」等配置错误区分，避免路由层误判用户操作。"""
+
+
 # ==================== 数据模型 ====================
 
 
@@ -1023,84 +1027,6 @@ class ProjectManager:
 
         assets["status"] = status
         return status
-
-    def normalize_script(self, project_name: str, script_filename: str, save: bool = True) -> dict:
-        """
-        补全现有 script.json 中缺失的字段
-
-        Args:
-            project_name: 项目名称
-            script_filename: 剧本文件名
-            save: 是否保存修改后的剧本
-
-        Returns:
-            补全后的剧本字典
-        """
-        import re
-
-        script = self.load_script(project_name, script_filename)
-
-        # 从文件名或现有数据推断 episode
-        episode = script.get("episode", 1)
-        if not episode:
-            match = re.search(r"episode[-_\s]*(\d+)", script_filename, re.IGNORECASE)
-            if match:
-                episode = int(match.group(1))
-            else:
-                episode = 1
-
-        # 补全顶层字段
-        script_defaults = {
-            "episode": episode,
-            "title": script.get("novel", {}).get("chapter", ""),
-            "duration_seconds": 0,
-        }
-
-        for key, default_value in script_defaults.items():
-            if key not in script:
-                script[key] = default_value
-
-        # 确保必要的顶层结构存在
-        if "novel" not in script:
-            script["novel"] = {"title": "", "chapter": ""}
-        # 剥离已废弃的 source_file 字段
-        if isinstance(script.get("novel"), dict):
-            script["novel"].pop("source_file", None)
-
-        # 旧格式 script 仍可能携带 characters dict；project.json 已是单一真相源，
-        # 此处仅记日志提醒，剧本 dict 保留不再做迁移（迁移实现历史上从未存在过）。
-        if "characters" in script and isinstance(script["characters"], dict) and script["characters"]:
-            logger.warning("检测到旧格式 characters 对象（仅记录提醒，不做迁移）")
-
-        # 注意：characters_in_episode 已改为读时计算
-        # 不再在 normalize_script 中创建这些字段
-
-        if "scenes" not in script:
-            script["scenes"] = []
-
-        if "metadata" not in script:
-            script["metadata"] = {
-                "created_at": datetime.now(UTC).isoformat(),
-                "updated_at": datetime.now(UTC).isoformat(),
-                "total_scenes": 0,
-                "estimated_duration_seconds": 0,
-                "status": "draft",
-            }
-
-        # 规范化每个场景
-        for scene in script["scenes"]:
-            self.normalize_scene(scene)
-
-        # 更新统计信息
-        script["metadata"]["total_scenes"] = len(script["scenes"])
-        script["metadata"]["estimated_duration_seconds"] = sum(s.get("duration_seconds", 8) for s in script["scenes"])
-        script["duration_seconds"] = script["metadata"]["estimated_duration_seconds"]
-
-        if save:
-            self.save_script(project_name, script, script_filename)
-            logger.info("剧本已规范化并保存: %s", script_filename)
-
-        return script
 
     # ==================== 场景管理 ====================
 
@@ -2238,7 +2164,7 @@ class ProjectManager:
         # 读取源文件内容
         source_content = self._read_source_files(project_name)
         if not source_content:
-            raise ValueError("source 目录为空，无法生成概述")
+            raise EmptySourceError("source 目录为空，无法生成概述")
 
         # 创建 TextGenerator（自动追踪用量）
         generator = await TextGenerator.create(TextTaskType.OVERVIEW, project_name)
