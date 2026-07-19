@@ -819,4 +819,28 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().sessionStatus).toBe("running");
     expect(useAssistantStore.getState().entries.map((e) => e.seq)).toEqual([0]);
   });
+
+  it("no-ops switchSession when projectName is null (stale session list with no project selected)", async () => {
+    // 面板为长生命周期单例，切项目为 null 后 sessions 列表不清空（见初始化
+    // effect 的前置 guard）；SessionSelector 据此仍可能渲染出旧项目的会话项。
+    // 点击它们不得以 null projectName 发起请求。
+    const getSessionSpy = vi.spyOn(API, "getAssistantSession");
+    const listEntriesSpy = vi.spyOn(API, "listAssistantEntries");
+    const listSessionsSpy = vi.spyOn(API, "listAssistantSessions");
+
+    act(() => {
+      useAssistantStore.getState().setSessions([makeSession("stale-session", "idle")]);
+    });
+
+    const { result } = renderHook(() => useAssistantSession(null));
+
+    await act(async () => {
+      await result.current.switchSession("stale-session");
+    });
+
+    expect(getSessionSpy).not.toHaveBeenCalled();
+    expect(listEntriesSpy).not.toHaveBeenCalled();
+    expect(listSessionsSpy).not.toHaveBeenCalled();
+    expect(useAssistantStore.getState().currentSessionId).toBeNull();
+  });
 });

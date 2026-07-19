@@ -469,6 +469,7 @@ export function useAssistantSession(projectName: string | null) {
 
   // 切换到指定会话
   const switchSession = useCallback(async (sessionId: string) => {
+    if (!projectName) return;
     if (store.getState().currentSessionId === sessionId) return;
 
     invalidatePendingSend();
