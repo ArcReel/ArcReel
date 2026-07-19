@@ -110,8 +110,12 @@ async def generate_grid(
     project_path = get_project_manager().get_project_path(project_name)
 
     items, id_field, _, _, _ = get_storyboard_items(script)
-    aspect_ratio = project.get("aspect_ratio", "9:16")
-    style = project.get("style", "")
+    # project.json 中 aspect_ratio/style 允许显式写入 null（Pydantic 模型为 str | None），
+    # dict.get(key, default) 遇到值为 None 的既有 key 不会回退默认值，须显式判空
+    raw_aspect_ratio = project.get("aspect_ratio")
+    aspect_ratio = raw_aspect_ratio if raw_aspect_ratio is not None else "9:16"
+    raw_style = project.get("style")
+    style = raw_style if raw_style is not None else ""
 
     groups = group_scenes_by_segment_break(items, id_field)
 
@@ -284,7 +288,8 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
     grid.model = ""
     gm.save(grid)
 
-    aspect_ratio = project.get("aspect_ratio", "9:16")
+    raw_aspect_ratio = project.get("aspect_ratio")
+    aspect_ratio = raw_aspect_ratio if raw_aspect_ratio is not None else "9:16"
     layout = calculate_grid_layout(len(grid.scene_ids), aspect_ratio)
     grid_aspect_ratio = layout.grid_aspect_ratio if layout else aspect_ratio
 

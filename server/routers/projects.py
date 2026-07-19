@@ -1303,6 +1303,8 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
         raise BadRequestError("invalid_project_name", name=name) from e
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+    except (HTTPException, ApiError):
+        raise
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
@@ -1329,7 +1331,7 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
         # 非法项目名已由上方预校验拦截，此处均来自供应商解析链路（未配置/无可用供应商）；str(e) 只进日志
         logger.warning("生成概述配置错误: name=%s (%s)", name, e)
         raise BadRequestError("text_provider_not_configured") from e
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception:
         logger.exception("请求处理失败")
