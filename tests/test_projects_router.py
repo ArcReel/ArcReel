@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.i18n.zh import errors as zh_errors
 from lib.project_manager import EmptySourceError
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -58,12 +59,14 @@ class _FakePM:
         (self.base / "bad").mkdir(parents=True, exist_ok=True)
         (self.base / "no-provider").mkdir(parents=True, exist_ok=True)
         (self.base / "corrupted").mkdir(parents=True, exist_ok=True)
+        # 上传后概览生成失败的软降级路径：项目存在，但 generate_overview 抛带路径异常
+        (self.base / "leaky").mkdir(parents=True, exist_ok=True)
 
     def list_projects(self):
         return ["ready", "empty", "broken"]
 
     def project_exists(self, name):
-        return name in {"ready", "broken"}
+        return name in {"ready", "broken", "leaky"}
 
     def load_project(self, name):
         if name == "broken":
@@ -195,6 +198,10 @@ class _FakePM:
     async def generate_overview(self, name):
         if name == "ready":
             return {"synopsis": "generated"}
+        if name == "leaky":
+            # 模拟底层异常文本携带服务器绝对路径（如文件读写失败），
+            # 上传端点的软降级分支不得把裸 str(e) 透传给客户端。
+            raise RuntimeError("open failed: /Users/secret/projects/leaky/source/novel.txt")
         if name == "no-provider":
             raise ValueError("未找到可用的 text 供应商")
         if name == "corrupted":
@@ -1644,6 +1651,27 @@ class TestUnexpectedErrorsDoNotLeak:
             )
             assert resp.status_code == 500
             assert sentinel not in self._body(resp)
+
+    def test_set_project_source_overview_error_does_not_leak_path(self, tmp_path, monkeypatch):
+        # 概览生成是上传的可选后续：失败时上传仍成功（200），错误只降级回传 overview_error。
+        # 底层异常文本可能携带服务器绝对路径，该分支不得把裸 str(e) 透传给客户端。
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.post(
+                "/api/v1/projects/leaky/source",
+                data={"content": "正文", "generate_overview": "true"},
+            )
+            assert resp.status_code == 200
+            payload = resp.json()
+            assert payload["success"] is True
+            assert payload["overview"] is None
+            # 上传成功后合法回传的 filename 是 novel.txt，不在泄漏范畴；
+            # 泄漏关注的是异常文本携带的服务器绝对路径片段。
+            assert "/Users" not in resp.text
+            assert "/var" not in resp.text
+            assert "/secret/" not in resp.text
+            # 回传的是翻译后的通用文案，而非裸异常串
+            assert payload["overview_error"] == zh_errors.MESSAGES["overview_generation_failed"]
 
     def test_generate_overview_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_generate_overview"

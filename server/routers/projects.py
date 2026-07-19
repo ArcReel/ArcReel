@@ -1273,9 +1273,14 @@ async def set_project_source(
                     overview = await manager.generate_overview(name)
                 result["overview"] = overview
             except Exception as ov_err:
+                # 概览生成是上传的可选后续步骤，失败仅降级回传提示、不影响上传成功。
+                # 裸 str(ov_err) 可能携带服务器路径等内部细节，回传翻译后的通用文案。
+                logger.exception("上传后概览生成失败")
                 result["overview"] = None
                 result["overview_error"] = (
-                    _t("overview_ai_response_invalid") if isinstance(ov_err, PydanticValidationError) else str(ov_err)
+                    _t("overview_ai_response_invalid")
+                    if isinstance(ov_err, PydanticValidationError)
+                    else _t("overview_generation_failed")
                 )
 
         return result

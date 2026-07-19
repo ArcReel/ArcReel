@@ -2,6 +2,7 @@ MESSAGES = {
     "project_not_found": "项目 '{name}' 不存在或未初始化",
     "resource_not_found": "请求的资源不存在",
     "overview_ai_response_invalid": "AI 返回内容无法解析为项目概述，请重试或更换模型/供应商",
+    "overview_generation_failed": "概述生成失败，请稍后重试或更换模型/供应商",
     "video_capabilities_unresolved": "无法解析项目 '{name}' 的视频模型能力：{reason}",
     "scope_invalid": "scope 必须为 full 或 current",
     "download_expired": "下载链接已过期，请重新导出",
