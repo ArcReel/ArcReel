@@ -1,3 +1,4 @@
+import json
 import re
 import shutil
 from contextlib import contextmanager
@@ -190,6 +191,10 @@ class _FakePM:
             return {"synopsis": "generated"}
         if name == "no-provider":
             raise ValueError("未找到可用的 text 供应商")
+        if name == "corrupted":
+            # 模拟供应商解析链路内部重新 load_project 时命中损坏的 project.json：
+            # JSONDecodeError 是 ValueError 子类，不该被误判为「未配置供应商」
+            json.loads("{not valid json")
         raise EmptySourceError("source missing")
 
 
@@ -1642,6 +1647,15 @@ class TestUnexpectedErrorsDoNotLeak:
             resp = client.post("/api/v1/projects/ready/generate-overview")
             assert resp.status_code == 500
             assert sentinel not in self._body(resp)
+
+    def test_generate_overview_corrupted_project_maps_to_500_not_provider_error(self, tmp_path, monkeypatch):
+        # JSONDecodeError 是 ValueError 子类：损坏的 project.json 不能被 except ValueError
+        # 误判为「未配置文本供应商」，须先于其拦截并映射为通用 500
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.post("/api/v1/projects/corrupted/generate-overview")
+            assert resp.status_code == 500
+            assert "配置文本供应商" not in self._body(resp)
 
     def test_update_overview_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_overview"

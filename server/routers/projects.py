@@ -1309,6 +1309,11 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
     except EmptySourceError as e:
         logger.warning("生成概述参数错误: name=%s (%s)", name, e)
         raise BadRequestError("overview_source_empty") from e
+    except json.JSONDecodeError:
+        # JSONDecodeError 是 ValueError 子类，须先于下面的 except ValueError 拦截：
+        # 供应商解析链路内部会重新 load_project，project.json 损坏时不能误判为「未配置供应商」
+        logger.exception("生成概述失败：项目数据损坏 name=%s", name)
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
     except ValueError as e:
         # 其余 ValueError 均来自供应商解析链路（未配置/无可用供应商）；str(e) 只进日志
         logger.warning("生成概述配置错误: name=%s (%s)", name, e)
