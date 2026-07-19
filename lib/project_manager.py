@@ -116,6 +116,10 @@ class EpisodeScriptReboundError(RuntimeError):
     """加锁前后 episode→script_file 绑定发生变化（并发 PATCH 改绑），调用方应重试。"""
 
 
+class EmptySourceError(ValueError):
+    """source 目录为空，无法生成概述；与「无可用文本供应商」等配置错误区分，避免路由层误判用户操作。"""
+
+
 # ==================== 数据模型 ====================
 
 
@@ -2160,7 +2164,7 @@ class ProjectManager:
         # 读取源文件内容
         source_content = self._read_source_files(project_name)
         if not source_content:
-            raise ValueError("source 目录为空，无法生成概述")
+            raise EmptySourceError("source 目录为空，无法生成概述")
 
         # 创建 TextGenerator（自动追踪用量）
         generator = await TextGenerator.create(TextTaskType.OVERVIEW, project_name)

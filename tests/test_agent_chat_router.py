@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.agent_runtime.models import Heartbeat, LiveMessage, SubscriptionReady
-from server.agent_runtime.session_manager import SessionCapacityError
+from server.agent_runtime.session_manager import SessionBusyError, SessionCapacityError
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import agent_chat
@@ -133,15 +133,26 @@ class TestAgentChatEndpoint:
         assert resp.status_code == 503
 
     def test_session_busy_conflict_returns_409(self, monkeypatch):
-        """send_or_create 抛 ValueError：会话正在处理中的并发冲突 -> 409。"""
+        """send_or_create 抛 SessionBusyError：会话正在处理中的并发冲突 -> 409。"""
         mock_service = self._patch_service(monkeypatch)
-        mock_service.send_or_create = AsyncMock(side_effect=ValueError("会话正在处理中"))
+        mock_service.send_or_create = AsyncMock(side_effect=SessionBusyError("会话正在处理中"))
         with _make_client() as client:
             resp = client.post(
                 "/api/v1/agent/chat",
                 json={"project_name": "demo", "message": "帮我写剧本"},
             )
         assert resp.status_code == 409
+
+    def test_blank_message_value_error_returns_400(self, monkeypatch):
+        """send_or_create 抛普通 ValueError（如空消息内容）-> 400，不与会话忙冲突。"""
+        mock_service = self._patch_service(monkeypatch)
+        mock_service.send_or_create = AsyncMock(side_effect=ValueError("消息内容不能为空"))
+        with _make_client() as client:
+            resp = client.post(
+                "/api/v1/agent/chat",
+                json={"project_name": "demo", "message": "帮我写剧本"},
+            )
+        assert resp.status_code == 400
 
     def test_timeout_status_propagated(self, monkeypatch):
         self._patch_service(monkeypatch, reply_text="部分响应", status="timeout")

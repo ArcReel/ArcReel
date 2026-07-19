@@ -234,6 +234,7 @@ MESSAGES = {
     "session_capacity_exceeded": "并发会话数已达上限，请稍后再试",
     "session_question_unavailable": "会话未运行或没有待回答的问题",
     "overview_source_empty": "源目录为空，无法生成概述",
+    "text_provider_not_configured": "请先配置文本供应商：在「全局设置 → 供应商」页面配置至少一个供应商",
     "jianying_no_completed_segments": "第 {episode} 集没有已完成的视频片段，请先生成视频",
     "project_config_invalid": "项目配置无效，请检查参数后重试",
     "invalid_discovery_format": "不支持的模型发现格式：{discovery_format}",

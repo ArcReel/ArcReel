@@ -83,7 +83,11 @@ async def generate_grid(
 
     立即返回 grid_ids 和 task_ids。生成由 GenerationWorker 异步执行。
     """
-    project = get_project_manager().load_project(project_name)
+    try:
+        project = get_project_manager().load_project(project_name)
+    except ValueError as exc:
+        # 非法项目名（路径穿越等）是坏请求，不是「不存在」
+        raise BadRequestError("invalid_project_name", name=project_name) from exc
     # 广告/短片项目不开放宫格生视频（宫格单格分辨率与产品高保真目标冲突），
     # 写入边界（create/PATCH 拒 generation_mode=grid）之外在动作端点再设一道防线
     if project.get("content_mode") == "ad":
@@ -210,7 +214,10 @@ async def generate_grid(
 @router.get("/grids")
 async def list_grids(project_name: str, _user: CurrentUser):
     """列出项目下所有宫格图记录。"""
-    project_path = get_project_manager().get_project_path(project_name)
+    try:
+        project_path = get_project_manager().get_project_path(project_name)
+    except ValueError as exc:
+        raise BadRequestError("invalid_project_name", name=project_name) from exc
     gm = GridManager(project_path)
     return [g.to_dict() for g in gm.list_all()]
 
@@ -221,7 +228,10 @@ async def list_grids(project_name: str, _user: CurrentUser):
 @router.get("/grids/{grid_id}")
 async def get_grid(project_name: str, grid_id: str, _user: CurrentUser):
     """获取单个宫格图记录。"""
-    project_path = get_project_manager().get_project_path(project_name)
+    try:
+        project_path = get_project_manager().get_project_path(project_name)
+    except ValueError as exc:
+        raise BadRequestError("invalid_project_name", name=project_name) from exc
     gm = GridManager(project_path)
     grid = gm.get(grid_id)
     if grid is None:
@@ -235,7 +245,10 @@ async def get_grid(project_name: str, grid_id: str, _user: CurrentUser):
 @router.post("/grids/{grid_id}/regenerate")
 async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
     """重置宫格图状态并重新入队生成任务。"""
-    project = get_project_manager().load_project(project_name)
+    try:
+        project = get_project_manager().load_project(project_name)
+    except ValueError as exc:
+        raise BadRequestError("invalid_project_name", name=project_name) from exc
     # 广告/短片项目不开放宫格生视频：首次提交端点已封禁，重生成端点同样设防,
     # 否则残留的历史 grid 记录仍可被重新入队
     if project.get("content_mode") == "ad":

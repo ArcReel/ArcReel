@@ -36,7 +36,7 @@ from lib.db import async_session_factory
 from lib.i18n import Translator
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
-from lib.project_manager import EpisodeScriptReboundError, SourceKind, get_project_manager
+from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
 from lib.status_calculator import StatusCalculator
 from lib.style_templates import is_known_template, resolve_template_prompt
 from server.auth import CurrentUser, create_download_token, verify_download_token
@@ -339,6 +339,8 @@ def export_jianying_draft(
     draft_path = _validate_draft_path(draft_path, _t)
 
     # 3. 调用服务
+    from server.services.jianying_draft_service import NoCompletedSegmentsError
+
     svc = get_jianying_draft_service()
     try:
         zip_path = svc.export_episode_draft(
@@ -351,11 +353,12 @@ def export_jianying_draft(
         # 项目/剧集/模板不存在：交给 app 级 FileNotFoundError handler 统一 404，
         # str(e) 可能含服务器路径，不在此回传
         raise
-    except ValueError as e:
-        # 常见为「本集无已完成片段」；路径越界守卫的 str(e) 含真实路径，一律只进日志
+    except NoCompletedSegmentsError as e:
         logger.warning("剪映草稿导出参数错误: project=%s episode=%d (%s)", name, episode, e)
         raise ApiError("jianying_no_completed_segments", status_code=422, episode=episode) from e
     except Exception:
+        # 含暂存/写入阶段的路径越界守卫（ValueError，str(e) 带真实路径）：属安全告警而非
+        # 常规空态，不应误报为「本集无已完成片段」，一律降级为通用 500，细节只进日志
         logger.exception("剪映草稿导出失败: project=%s episode=%d", name, episode)
         raise HTTPException(status_code=500, detail=_t("jianying_export_failed"))
 
@@ -1303,10 +1306,13 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
         # 裸 pydantic 错误串含模型原始输出片段，不透传给用户
         logger.exception("概述生成响应解析失败")
         raise HTTPException(status_code=400, detail=_t("overview_ai_response_invalid"))
-    except ValueError as e:
-        # 常见为「source 目录为空」；str(e) 只进日志
+    except EmptySourceError as e:
         logger.warning("生成概述参数错误: name=%s (%s)", name, e)
         raise BadRequestError("overview_source_empty") from e
+    except ValueError as e:
+        # 其余 ValueError 均来自供应商解析链路（未配置/无可用供应商）；str(e) 只进日志
+        logger.warning("生成概述配置错误: name=%s (%s)", name, e)
+        raise BadRequestError("text_provider_not_configured") from e
     except HTTPException:
         raise
     except Exception:

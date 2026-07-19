@@ -102,6 +102,11 @@ def _script_content_mode(script: dict) -> str:
     return value if isinstance(value, str) else ""
 
 
+class NoCompletedSegmentsError(ValueError):
+    """本集没有已完成视频片段，与暂存/写入阶段的路径越界守卫错误区分——后者属于安全告警，
+    不应被路由层误报成「请先生成视频」的常规空态。"""
+
+
 class JianyingDraftService:
     """剪映草稿导出服务"""
 
@@ -461,7 +466,8 @@ class JianyingDraftService:
 
         Raises:
             FileNotFoundError: 项目或剧本不存在
-            ValueError: 无可导出的视频片段
+            NoCompletedSegmentsError: 无可导出的视频片段
+            ValueError: 暂存/写入阶段检测到路径越界（安全告警，不代表可预期的空态）
         """
         project = self.pm.load_project(project_name)
         project_dir = self.pm.get_project_path(project_name)
@@ -481,7 +487,7 @@ class JianyingDraftService:
             language=source_language if isinstance(source_language, str) else None,
         )
         if not clips:
-            raise ValueError(f"第 {episode} 集没有已完成的视频片段，请先生成视频")
+            raise NoCompletedSegmentsError(f"第 {episode} 集没有已完成的视频片段，请先生成视频")
 
         # 3. 画布尺寸（项目未设 aspect_ratio 时从首个视频自动检测）
         width, height = self._resolve_canvas_size(project, clips[0]["abs_path"])

@@ -237,6 +237,7 @@ MESSAGES = {
     "session_capacity_exceeded": "Đã đạt giới hạn phiên đồng thời, vui lòng thử lại sau",
     "session_question_unavailable": "Phiên chưa chạy hoặc không có câu hỏi đang chờ",
     "overview_source_empty": "Thư mục nguồn trống; không thể tạo tổng quan",
+    "text_provider_not_configured": "Vui lòng cấu hình nhà cung cấp văn bản trước: thêm ít nhất một nhà cung cấp trong Cài đặt → Nhà cung cấp",
     "jianying_no_completed_segments": "Tập {episode} chưa có đoạn video hoàn thành; hãy tạo video trước",
     "project_config_invalid": "Cấu hình dự án không hợp lệ; hãy kiểm tra tham số và thử lại",
     "invalid_discovery_format": "Định dạng khám phá mô hình không được hỗ trợ: {discovery_format}",

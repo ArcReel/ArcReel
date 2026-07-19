@@ -237,6 +237,7 @@ MESSAGES = {
     "session_capacity_exceeded": "Concurrent session limit reached, please try again later",
     "session_question_unavailable": "The session is not running or has no pending question",
     "overview_source_empty": "Source directory is empty; cannot generate overview",
+    "text_provider_not_configured": "Please configure a text provider first: add at least one provider in Settings → Providers",
     "jianying_no_completed_segments": "Episode {episode} has no completed video clips; generate videos first",
     "project_config_invalid": "Invalid project configuration; check the parameters and retry",
     "invalid_discovery_format": "Unsupported model discovery format: {discovery_format}",

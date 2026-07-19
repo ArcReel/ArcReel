@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.project_manager import EmptySourceError
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import projects
@@ -187,7 +188,9 @@ class _FakePM:
     async def generate_overview(self, name):
         if name == "ready":
             return {"synopsis": "generated"}
-        raise ValueError("source missing")
+        if name == "no-provider":
+            raise ValueError("未找到可用的 text 供应商")
+        raise EmptySourceError("source missing")
 
 
 class _FakeCalc:
@@ -646,6 +649,12 @@ class TestProjectsRouter:
 
             gen_overview_bad = client.post("/api/v1/projects/bad/generate-overview")
             assert gen_overview_bad.status_code == 400
+            assert "源目录为空" in gen_overview_bad.json()["detail"]
+
+            # 供应商未配置属另一类原因，与「源目录为空」区分（各自映射独立 i18n key）
+            gen_overview_no_provider = client.post("/api/v1/projects/no-provider/generate-overview")
+            assert gen_overview_no_provider.status_code == 400
+            assert "配置文本供应商" in gen_overview_no_provider.json()["detail"]
 
             update_overview = client.patch(
                 "/api/v1/projects/ready/overview",

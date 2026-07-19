@@ -83,6 +83,12 @@ class SessionCapacityError(Exception):
     pass
 
 
+class SessionBusyError(Exception):
+    """目标会话正处于 running 状态，暂不接受新消息（与内容校验错误区分，各自映射不同状态码）。"""
+
+    pass
+
+
 class AgentStartupError(RuntimeError):
     """ClaudeSDKClient 启动失败时携带 SDK stderr 的异常。
 
@@ -876,7 +882,7 @@ class SessionManager:
             managed._cleanup_task = None
 
         if managed.status == "running":
-            raise ValueError("会话正在处理中，请等待当前回复完成后再发送新消息")
+            raise SessionBusyError("会话正在处理中，请等待当前回复完成后再发送新消息")
 
         log_entry: dict[str, Any] | None = None
         if user_entry is not None:

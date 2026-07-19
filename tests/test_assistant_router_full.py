@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.i18n import get_translator
-from server.agent_runtime.session_manager import SessionCapacityError
+from server.agent_runtime.session_manager import SessionBusyError, SessionCapacityError
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.error_handlers import register_error_handlers
 from server.routers import assistant
@@ -25,6 +25,8 @@ class _FakeService:
             raise FileNotFoundError(project_name)
         if project_name == "at-capacity":
             raise SessionCapacityError()
+        if project_name == "busy":
+            raise SessionBusyError("会话正在处理中")
         if not content.strip() and not images:
             raise ValueError("空消息")
         returned_id = session_id or "sdk-new-session"
@@ -109,6 +111,13 @@ class TestAssistantRouterFull:
                 json={"content": "hello"},
             )
             assert send_at_capacity.status_code == 503
+
+            # POST /sessions/send — 目标会话正在处理中 → 409（与空消息的 400 区分）
+            send_busy = client.post(
+                "/api/v1/projects/busy/assistant/sessions/send",
+                json={"content": "hello"},
+            )
+            assert send_busy.status_code == 409
 
             listed = client.get(f"{PREFIX}/sessions")
             assert listed.status_code == 200
