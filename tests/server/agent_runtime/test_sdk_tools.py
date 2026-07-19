@@ -1253,6 +1253,21 @@ def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:
         _parse_normalized_content(json.dumps({"title": "t", "scenes": [bad]}), model)
 
 
+async def test_fetch_caps_with_fallback_uses_write_layer_default(monkeypatch) -> None:
+    """resolver 失败时软回退须与自定义供应商写入层的保守默认（duration_presets.DEFAULT_FALLBACK）
+    同一真相源——独立维护第二套回退集会让 LLM 拿到供应商未必支持的时长。"""
+    from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def raising_caps(_p):
+        raise ValueError("no provider configured")
+
+    monkeypatch.setattr(mod, "fetch_video_caps", raising_caps)
+    default, durations = await mod._fetch_caps_with_fallback({})
+    assert default is None
+    assert durations == DEFAULT_FALLBACK
+
+
 async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -2097,6 +2112,26 @@ async def test_fetch_reference_caps_with_fallback_clips_shot_durations_to_static
     assert durations == [1, 8]
     assert max_duration == 18  # 单 unit 总时长上限沿用 resolver 原始声明，不受单 shot 过滤影响
     assert default is None  # 16 已被过滤掉，非法 default 归 None
+    assert max_refs is None
+
+
+async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monkeypatch) -> None:
+    """rv 路径的软回退与 _fetch_caps_with_fallback 同口径，取 duration_presets.DEFAULT_FALLBACK。"""
+    from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    class _RaisingResolver:
+        def __init__(self, _factory):
+            pass
+
+        async def video_capabilities_for_project(self, _project):
+            raise ValueError("no provider configured")
+
+    monkeypatch.setattr(mod, "ConfigResolver", _RaisingResolver)
+    default, durations, max_duration, max_refs = await mod._fetch_reference_caps_with_fallback({})
+    assert default is None
+    assert durations == DEFAULT_FALLBACK
+    assert max_duration == max(DEFAULT_FALLBACK)
     assert max_refs is None
 
 

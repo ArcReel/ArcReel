@@ -19,6 +19,7 @@ from pydantic import BaseModel, ValidationError
 
 from lib import script_review
 from lib.config.resolver import ConfigResolver
+from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
 from lib.db import async_session_factory
 from lib.episode_ledger import episode_outline_context
 from lib.episode_paths import (
@@ -46,8 +47,6 @@ from lib.text_utils import strip_json_code_fences
 from server.agent_runtime.sdk_tools._context import ToolContext, fetch_video_caps, tool_error
 
 logger = logging.getLogger(__name__)
-
-_FALLBACK_SUPPORTED_DURATIONS: list[int] = [4, 6, 8]
 
 
 def _parse_step1_json(response_text: str, model: type[BaseModel], *, label: str, top_shape: str) -> dict:
@@ -312,19 +311,20 @@ def confirm_script_review_tool(ctx: ToolContext):
 async def _fetch_caps_with_fallback(project: dict[str, Any]) -> tuple[int | None, list[int]]:
     """Script normalization is best-effort: prompt生成 不该被能力查询失败堵住。
 
-    Soft-fallbacks to ``_FALLBACK_SUPPORTED_DURATIONS`` so the LLM still
-    receives a usable duration constraint set if the resolver hiccups.
+    Soft-fallbacks to ``duration_presets.DEFAULT_FALLBACK`` so the LLM still
+    receives a usable duration constraint set if the resolver hiccups —— 与
+    自定义供应商写入层的保守默认同一真相源，避免软回退口径含供应商未必支持的时长。
     """
     try:
         default_int, durations = await fetch_video_caps(project)
     except (FileNotFoundError, ValueError) as exc:
-        logger.info("video_capabilities 不可解析，使用 fallback [4,6,8]：%s", exc)
-        return None, list(_FALLBACK_SUPPORTED_DURATIONS)
+        logger.info("video_capabilities 不可解析，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
+        return None, list(DEFAULT_FALLBACK)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("video_capabilities 查询异常，使用 fallback [4,6,8]：%s", exc)
-        return None, list(_FALLBACK_SUPPORTED_DURATIONS)
+        logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
+        return None, list(DEFAULT_FALLBACK)
     if not durations:
-        return default_int, list(_FALLBACK_SUPPORTED_DURATIONS)
+        return default_int, list(DEFAULT_FALLBACK)
     return default_int, durations
 
 
@@ -448,7 +448,7 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> tuple[
     """解析 rv 拆分所需的视频能力：``(default_duration, supported_durations, max_duration, max_refs)``。
 
     与 ``_fetch_caps_with_fallback`` 同口径 best-effort：resolver 故障时回退
-    ``_FALLBACK_SUPPORTED_DURATIONS``、``max_duration`` 取集合最大值（用原始集合，不受下方单
+    ``duration_presets.DEFAULT_FALLBACK``、``max_duration`` 取集合最大值（用原始集合，不受下方单
     shot 过滤影响）、``max_refs`` 视为未声明。返回的 ``supported_durations`` 已与
     ``REFERENCE_SHOT_DURATION_RANGE`` 求交集——部分供应商（如 vidu/agnes）的单 shot 时长上限
     超过该静态区间，未过滤会让 step1 产出的 shot 时长在 step2 读回校验（复用同一静态区间）时
@@ -459,11 +459,11 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> tuple[
         resolver = ConfigResolver(async_session_factory)
         caps = await resolver.video_capabilities_for_project(project)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("video_capabilities 查询异常，使用 fallback [4,6,8]：%s", exc)
+        logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         caps = {}
     durations = [int(d) for d in caps.get("supported_durations") or []]
     if not durations:
-        durations = list(_FALLBACK_SUPPORTED_DURATIONS)
+        durations = list(DEFAULT_FALLBACK)
     raw_max = caps.get("max_duration")
     max_duration = int(raw_max) if isinstance(raw_max, int | float) else max(durations)
     raw_refs = caps.get("max_reference_images")
