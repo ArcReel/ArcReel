@@ -230,7 +230,6 @@ MESSAGES = {
     "grid_not_found": "宫格图 '{grid_id}' 不存在",
     "version_not_found": "版本 {version} 不存在",
     "version_resource_not_found": "资源 '{resource_type}/{resource_id}' 不存在",
-    "message_content_required": "消息内容不能为空",
     "session_busy": "会话正在处理中，请等待当前回复完成后再发送",
     "session_capacity_exceeded": "并发会话数已达上限，请稍后再试",
     "session_question_unavailable": "会话未运行或没有待回答的问题",
