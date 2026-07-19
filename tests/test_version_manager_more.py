@@ -70,6 +70,9 @@ class TestVersionManagerMore:
         with pytest.raises(ValueError):
             vm.ensure_current_tracked("bad", "Alice", current, "p")
 
+        with pytest.raises(BadRequestError):
+            vm.restore_version("bad", "Alice", 1, current)
+
         with pytest.raises(NotFoundError):
             vm.restore_version("characters", "missing", 1, current)
 

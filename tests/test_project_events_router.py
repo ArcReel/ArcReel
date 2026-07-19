@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from lib.api_errors import BadRequestError, NotFoundError
 from server.routers import project_events as project_events_router
 
 
@@ -64,6 +65,38 @@ class _FakeService:
             yield _iter()
         finally:
             self.unsubscribed = True
+
+
+@pytest.mark.asyncio
+async def test_project_events_service_raises_not_found_when_project_missing():
+    """项目不存在(FileNotFoundError)-> NotFoundError,须在流开始前抛出。"""
+
+    class _MissingPM:
+        def get_project_path(self, project_name: str):
+            raise FileNotFoundError(project_name)
+
+    service = SimpleNamespace(pm=_MissingPM())
+    app = SimpleNamespace(state=SimpleNamespace(project_event_service=service))
+    request = _FakeRequest(app)
+
+    with pytest.raises(NotFoundError):
+        await project_events_router._project_events_service("missing", request)
+
+
+@pytest.mark.asyncio
+async def test_project_events_service_raises_bad_request_for_invalid_project_name():
+    """非法项目名(路径穿越等,ValueError)-> BadRequestError,而非「不存在」。"""
+
+    class _InvalidNamePM:
+        def get_project_path(self, project_name: str):
+            raise ValueError(project_name)
+
+    service = SimpleNamespace(pm=_InvalidNamePM())
+    app = SimpleNamespace(state=SimpleNamespace(project_event_service=service))
+    request = _FakeRequest(app)
+
+    with pytest.raises(BadRequestError):
+        await project_events_router._project_events_service("../etc", request)
 
 
 @pytest.mark.asyncio

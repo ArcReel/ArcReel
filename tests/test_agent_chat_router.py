@@ -13,7 +13,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.agent_runtime.models import Heartbeat, LiveMessage, SubscriptionReady
+from server.agent_runtime.session_manager import SessionCapacityError
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import agent_chat
 
 
@@ -21,6 +23,7 @@ def _make_client() -> TestClient:
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(agent_chat.router, prefix="/api/v1")
+    register_error_handlers(app)
     return TestClient(app)
 
 
@@ -117,6 +120,28 @@ class TestAgentChatEndpoint:
                 },
             )
         assert resp.status_code == 500
+
+    def test_session_capacity_exceeded_returns_503(self, monkeypatch):
+        """send_or_create 抛 SessionCapacityError：并发槽位占满 -> 503。"""
+        mock_service = self._patch_service(monkeypatch)
+        mock_service.send_or_create = AsyncMock(side_effect=SessionCapacityError())
+        with _make_client() as client:
+            resp = client.post(
+                "/api/v1/agent/chat",
+                json={"project_name": "demo", "message": "帮我写剧本"},
+            )
+        assert resp.status_code == 503
+
+    def test_session_busy_conflict_returns_409(self, monkeypatch):
+        """send_or_create 抛 ValueError：会话正在处理中的并发冲突 -> 409。"""
+        mock_service = self._patch_service(monkeypatch)
+        mock_service.send_or_create = AsyncMock(side_effect=ValueError("会话正在处理中"))
+        with _make_client() as client:
+            resp = client.post(
+                "/api/v1/agent/chat",
+                json={"project_name": "demo", "message": "帮我写剧本"},
+            )
+        assert resp.status_code == 409
 
     def test_timeout_status_propagated(self, monkeypatch):
         self._patch_service(monkeypatch, reply_text="部分响应", status="timeout")

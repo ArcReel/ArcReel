@@ -74,3 +74,44 @@ def test_regenerate_grid_unexpected_error_no_leak(monkeypatch):
         resp = client.post("/api/v1/projects/demo/grids/grid-123/regenerate")
         assert resp.status_code == 500
         assert "LEAK_regen" not in resp.text
+
+
+class _FakeGMNotFound:
+    """GridManager 替身：get() 恒返回 None，模拟 grid_id 不存在。"""
+
+    def __init__(self, project_path):
+        pass
+
+    def get(self, grid_id):
+        return None
+
+
+def test_get_grid_not_found(monkeypatch):
+    # gm.get() 返回 None 时：raise NotFoundError("grid_not_found", ...) -> 404
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: type("_PM", (), {"get_project_path": lambda self, name: "/fake/path"})(),
+        GridManager=_FakeGMNotFound,
+    )
+    with client:
+        resp = client.get("/api/v1/projects/demo/grids/grid-missing")
+        assert resp.status_code == 404
+
+
+def test_regenerate_grid_not_found(monkeypatch):
+    # ad 项目校验通过后 gm.get() 返回 None：raise NotFoundError("grid_not_found", ...) -> 404
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: type(
+            "_PM",
+            (),
+            {
+                "load_project": lambda self, name: {"content_mode": "narration"},
+                "get_project_path": lambda self, name: "/fake/path",
+            },
+        )(),
+        GridManager=_FakeGMNotFound,
+    )
+    with client:
+        resp = client.post("/api/v1/projects/demo/grids/grid-missing/regenerate")
+        assert resp.status_code == 404
