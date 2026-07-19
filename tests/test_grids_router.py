@@ -1,16 +1,63 @@
-"""宫格图路由的「未预期异常 → 通用 500 且不泄露内部细节」回归测试。
+"""宫格图路由测试：成功路径 + 「未预期异常 → 通用 500 且不泄露内部细节」回归测试。
 
-每个端点内最早调用 get_project_manager()，把它 monkeypatch 成抛 RuntimeError
-（带唯一哨兵串），异常沿 app 级 exception handler 统一收口为通用 500。断言响应 500
-且哨兵串不出现在响应体里——验证内部异常细节仅落服务端日志、不泄露给客户端。
+未预期异常场景：每个端点内最早调用 get_project_manager()，把它 monkeypatch 成抛
+RuntimeError（带唯一哨兵串），异常沿 app 级 exception handler 统一收口为通用 500。
+断言响应 500 且哨兵串不出现在响应体里——验证内部异常细节仅落服务端日志、不泄露给客户端。
 """
+
+import json
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.grid.models import GridGeneration
+from lib.grid_manager import GridManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import grids
+
+
+def _narration_script():
+    """四个无 segment_break 的分段，凑成单组 grid_4（cell_count=4）。"""
+    return {
+        "content_mode": "narration",
+        "segments": [
+            {
+                "segment_id": f"E1S0{i}",
+                "episode": 1,
+                "segment_break": False,
+                "duration_seconds": 4,
+                "novel_text": "text",
+                "characters_in_segment": [],
+                "scenes": [],
+                "props": [],
+                "image_prompt": {
+                    "scene": f"scene{i}",
+                    "composition": {"shot_type": "medium", "lighting": "natural", "ambiance": "calm"},
+                },
+                "video_prompt": {
+                    "action": f"action{i}",
+                    "camera_motion": "static",
+                    "ambiance_audio": "quiet",
+                    "dialogue": [],
+                },
+                "transition_to_next": "cut",
+                "generated_assets": {"storyboard_image": None, "video_clip": None, "status": "pending"},
+            }
+            for i in range(1, 5)
+        ],
+    }
+
+
+class _FakeQueue:
+    """记录入队调用的假队列。"""
+
+    def __init__(self):
+        self.calls = []
+
+    async def enqueue_task(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"task_id": f"task-{len(self.calls)}", "deduped": False}
 
 
 def _client(monkeypatch, **patches):
@@ -176,3 +223,135 @@ def test_regenerate_grid_invalid_project_name(monkeypatch):
     with client:
         resp = client.post("/api/v1/projects/demo/grids/grid-123/regenerate")
         assert resp.status_code == 400
+
+
+class _FakePMGenerate:
+    """ProjectManager 替身：驱动 generate_grid 成功路径，script/project_path 落 tmp_path。"""
+
+    def __init__(self, project_path):
+        self._project_path = project_path
+
+    def load_project(self, name):
+        return {"content_mode": "narration", "aspect_ratio": "9:16", "style": "anime"}
+
+    def load_script(self, name, script_file):
+        return _narration_script()
+
+    def get_project_path(self, name):
+        return self._project_path
+
+
+def test_generate_grid_success(monkeypatch, tmp_path):
+    # 完整走一遍分组 -> 布局 -> prompt -> 入队，断言 200 且每组产出一个 grid_id/task_id
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMGenerate(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        resp = client.post(
+            "/api/v1/projects/demo/generate/grid/1",
+            json={"script_file": "episode_1.json"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert len(body["grid_ids"]) == 1
+        assert len(body["task_ids"]) == 1
+        assert body["deduped"] is False
+    assert len(fake_queue.calls) == 1
+    saved = json.loads((tmp_path / "grids" / f"{body['grid_ids'][0]}.json").read_text(encoding="utf-8"))
+    assert saved["scene_ids"] == ["E1S01", "E1S02", "E1S03", "E1S04"]
+
+
+class _FakePMPath:
+    """ProjectManager 替身：仅提供 get_project_path，指向 tmp_path。"""
+
+    def __init__(self, project_path):
+        self._project_path = project_path
+
+    def get_project_path(self, name):
+        return self._project_path
+
+
+def test_list_grids_success(monkeypatch, tmp_path):
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["a", "b"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="",
+        model="",
+    )
+    GridManager(tmp_path).save(grid)
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMPath(tmp_path))
+    with client:
+        resp = client.get("/api/v1/projects/demo/grids")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["id"] == grid.id
+
+
+def test_get_grid_success(monkeypatch, tmp_path):
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["a", "b"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="",
+        model="",
+    )
+    GridManager(tmp_path).save(grid)
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMPath(tmp_path))
+    with client:
+        resp = client.get(f"/api/v1/projects/demo/grids/{grid.id}")
+        assert resp.status_code == 200
+        assert resp.json()["id"] == grid.id
+
+
+class _FakePMRegenerate(_FakePMPath):
+    """ProjectManager 替身：驱动 regenerate_grid 成功路径。"""
+
+    def load_project(self, name):
+        return {"content_mode": "narration", "aspect_ratio": "9:16"}
+
+
+def test_regenerate_grid_success(monkeypatch, tmp_path):
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["a", "b", "c", "d"],
+        rows=2,
+        cols=2,
+        grid_size="grid_4",
+        provider="stale-provider",
+        model="stale-model",
+    )
+    grid.status = "failed"
+    grid.error_message = "boom"
+    GridManager(tmp_path).save(grid)
+
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMRegenerate(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        resp = client.post(f"/api/v1/projects/demo/grids/{grid.id}/regenerate")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["success"] is True
+        assert body["task_id"] == "task-1"
+    assert len(fake_queue.calls) == 1
+    saved = GridManager(tmp_path).get(grid.id)
+    assert saved is not None
+    assert saved.status == "pending"
+    assert saved.error_message is None
+    assert saved.provider == ""
