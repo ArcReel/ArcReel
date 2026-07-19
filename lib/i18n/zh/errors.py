@@ -227,6 +227,7 @@ MESSAGES = {
     "agent_cannot_delete_active": "无法删除当前活跃凭证，请先切换到其他凭证",
     "agent_test_validation_error": "测试连接失败：{error}",
     "invalid_project_name": "项目名称 '{name}' 非法",
+    "invalid_script_file": "剧本文件名 '{name}' 非法",
     "grid_not_found": "宫格图 '{grid_id}' 不存在",
     "version_not_found": "版本 {version} 不存在",
     "version_resource_not_found": "资源 '{resource_type}/{resource_id}' 不存在",

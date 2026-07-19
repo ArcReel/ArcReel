@@ -230,6 +230,7 @@ MESSAGES = {
     "agent_cannot_delete_active": "Cannot delete the active credential; activate another first",
     "agent_test_validation_error": "Test connection failed: {error}",
     "invalid_project_name": "Invalid project name '{name}'",
+    "invalid_script_file": "Invalid script file '{name}'",
     "grid_not_found": "Grid '{grid_id}' does not exist",
     "version_not_found": "Version {version} does not exist",
     "version_resource_not_found": "Resource '{resource_type}/{resource_id}' does not exist",

@@ -230,6 +230,7 @@ MESSAGES = {
     "agent_cannot_delete_active": "Không thể xóa xác thực đang hoạt động; hãy kích hoạt xác thực khác trước",
     "agent_test_validation_error": "Kiểm tra kết nối thất bại: {error}",
     "invalid_project_name": "Tên dự án '{name}' không hợp lệ",
+    "invalid_script_file": "Tên tệp kịch bản '{name}' không hợp lệ",
     "grid_not_found": "Lưới '{grid_id}' không tồn tại",
     "version_not_found": "Phiên bản {version} không tồn tại",
     "version_resource_not_found": "Tài nguyên '{resource_type}/{resource_id}' không tồn tại",

@@ -12,7 +12,7 @@ import json
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from lib.api_errors import BadRequestError, NotFoundError
+from lib.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.generation_queue import get_generation_queue
 from lib.grid.layout import calculate_grid_layout
 from lib.grid.models import GridGeneration
@@ -98,7 +98,15 @@ async def generate_grid(
     # 写入边界（create/PATCH 拒 generation_mode=grid）之外在动作端点再设一道防线
     if project.get("content_mode") == "ad":
         raise BadRequestError("ad_grid_not_supported")
-    script = get_project_manager().load_script(project_name, req.script_file)
+    try:
+        script = get_project_manager().load_script(project_name, req.script_file)
+    except json.JSONDecodeError:
+        # JSONDecodeError 是 ValueError 子类，须先于下面的 except ValueError 拦截：
+        # 剧本文件损坏不能误判为「非法 script_file」，交由 app 级 catch-all 收口为通用 500
+        raise
+    except ValueError as exc:
+        # 路径穿越等非法 script_file 是坏请求，422 而非落入下方 500 兜底
+        raise ApiError("invalid_script_file", status_code=422, name=req.script_file) from exc
     project_path = get_project_manager().get_project_path(project_name)
 
     items, id_field, _, _, _ = get_storyboard_items(script)

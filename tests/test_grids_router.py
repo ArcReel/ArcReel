@@ -259,6 +259,30 @@ def test_regenerate_grid_corrupted_project_maps_to_500_not_invalid_name(monkeypa
         assert "非法项目名称" not in resp.text
 
 
+class _FakePMInvalidScriptFile:
+    """ProjectManager 替身：load_script 模拟非法 script_file（路径穿越）。"""
+
+    def load_project(self, name):
+        return {"content_mode": "narration", "aspect_ratio": "9:16", "style": "anime"}
+
+    def load_script(self, name, script_file):
+        raise ValueError(f"非法文件名: '{script_file}'")
+
+
+def test_generate_grid_invalid_script_file(monkeypatch):
+    # 非法 script_file（路径穿越等）是坏请求，422 而非落入下方 500 兜底
+    client = _client(
+        monkeypatch,
+        get_project_manager=_FakePMInvalidScriptFile,
+    )
+    with client:
+        resp = client.post(
+            "/api/v1/projects/demo/generate/grid/1",
+            json={"script_file": "../../etc/passwd"},
+        )
+        assert resp.status_code == 422
+
+
 class _FakePMGenerate:
     """ProjectManager 替身：驱动 generate_grid 成功路径，script/project_path 落 tmp_path。"""
 
