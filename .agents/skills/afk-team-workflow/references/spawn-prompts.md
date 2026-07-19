@@ -12,7 +12,7 @@
 
 > spawn 时显式指定批次计划定下的 model——不显式传不会继承会话模型，默认落 sonnet。
 
-足迹大、读码量大的 issue，附加：
+改动面大的 issue，附加：
 
 ```text
 开工先派 Explore 子代理勘察。
