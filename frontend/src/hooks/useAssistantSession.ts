@@ -238,6 +238,9 @@ export function useAssistantSession(projectName: string | null) {
       store.getState().loadSessionSnapshot(status);
       connectStream(sessionId);
     } else {
+      // 先落状态 + 清残留问题，再冷读时间线：entries 较慢或失败时，旧会话的
+      // running/pendingQuestion 状态不会滞留——新会话已正确落为 idle/completed。
+      store.getState().loadSessionSnapshot(status as SessionStatus);
       const data = await API.listAssistantEntries(projectName!, sessionId);
       if (isStaleLoad()) return;
       store.getState().loadSessionSnapshot(status as SessionStatus, {
