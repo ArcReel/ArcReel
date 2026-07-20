@@ -10,7 +10,7 @@
 交付或遇到契约规定的请示场景时，SendMessage 给 lead（to 一律填 <lead 名>，不要用 main）。
 ```
 
-> spawn 时显式指定批次计划定下的 model——不显式传不会继承会话模型，默认落 sonnet。
+> spawn 时显式指定批次计划定下的 model。
 
 改动面大的 issue，附加：
 
