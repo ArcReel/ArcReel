@@ -2124,16 +2124,16 @@ wheels = [
 
 [[package]]
 name = "pyjianyingdraft"
-version = "0.2.7"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "imageio" },
     { name = "pymediainfo" },
     { name = "uiautomation", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4d/1b/9a18384d6afca9f24e38db75afc4a2648d9c3af0460fbd1bff0e367d71f4/pyjianyingdraft-0.2.7.tar.gz", hash = "sha256:f54571e634fad53b98fd1b6e52a2fd8e124b27c8a3f8f8f8e6c5baf495fbb5db", size = 319897, upload-time = "2026-06-25T15:41:20.486Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2f/37/b353ce55daafe5dd1882370c48dd2cb8017ea8fff8dc2eca14d4e81f0b12/pyjianyingdraft-0.3.0.tar.gz", hash = "sha256:e0b2b70d98f12d09a61ffcbacff3fa72286712727eee80219d8a4c36be576377", size = 324171, upload-time = "2026-07-08T12:39:59.851Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/57/03/3bc8655095451e5110af3975263203727de25bbea6f1027c499afae80d9a/pyjianyingdraft-0.2.7-py3-none-any.whl", hash = "sha256:756810bc2a55b601fe421854ba7d4fbd32e283889cdfc5799816b084bb3e649c", size = 328030, upload-time = "2026-06-25T15:41:18.976Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/9e/b486e6e7670df7e1defa9d798d5c4015e7e4992b1bc18bd8e05b00d065b6/pyjianyingdraft-0.3.0-py3-none-any.whl", hash = "sha256:09863de4b0cfbb23fff54b4122ef49eff3527685f7978c6230f0651942954bdc", size = 334935, upload-time = "2026-07-08T12:39:58.12Z" },
 ]
 
 [[package]]
