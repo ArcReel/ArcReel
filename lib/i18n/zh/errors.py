@@ -53,6 +53,7 @@ MESSAGES = {
     "video_prompt_action_empty": "prompt.action 不能为空",
     "video_prompt_dialogue_array": "prompt.dialogue 必须是数组",
     "video_task_submitted": "视频「{segment_id}」生成任务已提交",
+    "grid_task_submitted": "已提交 {count} 个宫格生成任务",
     "tts_prompt_must_be_string_or_null": "tts 任务的 prompt 必须是非空字符串或留空",
     "tts_task_submitted": "旁白「{segment_id}」生成任务已提交",
     "tts_batch_submitted": "已提交 {count} 个旁白生成任务",

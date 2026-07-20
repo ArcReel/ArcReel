@@ -318,9 +318,30 @@ def test_generate_grid_success(monkeypatch, tmp_path):
         assert len(body["grid_ids"]) == 1
         assert len(body["task_ids"]) == 1
         assert body["deduped"] is False
+        # message 走 i18n（默认中文），不再硬编码
+        assert body["message"] == "已提交 1 个宫格生成任务"
     assert len(fake_queue.calls) == 1
     saved = json.loads((tmp_path / "grids" / f"{body['grid_ids'][0]}.json").read_text(encoding="utf-8"))
     assert saved["scene_ids"] == ["E1S01", "E1S02", "E1S03", "E1S04"]
+
+
+def test_generate_grid_success_message_localized_en(monkeypatch, tmp_path):
+    # Accept-Language=en 时 message 按英文渲染，验证成功文案已接入 Translator
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMGenerate(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        resp = client.post(
+            "/api/v1/projects/demo/generate/grid/1",
+            json={"script_file": "episode_1.json"},
+            headers={"Accept-Language": "en"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["message"] == "Submitted 1 grid generation tasks"
 
 
 class _FakePMPath:
