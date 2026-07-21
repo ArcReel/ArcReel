@@ -18,6 +18,7 @@ from lib.grid.layout import calculate_grid_layout
 from lib.grid.models import GridGeneration
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
+from lib.i18n import Translator
 from lib.project_manager import get_project_manager
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.auth import CurrentUser
@@ -79,6 +80,7 @@ async def generate_grid(
     episode: int,
     req: GenerateGridRequest,
     _user: CurrentUser,
+    _t: Translator,
 ):
     """
     提交宫格图生成任务到队列，按分段分组，每组 N>=4 个场景生成一个宫格图。
@@ -222,7 +224,7 @@ async def generate_grid(
         grid_ids=grid_ids,
         task_ids=task_ids,
         deduped=bool(task_ids) and all(deduped_flags),
-        message=f"已提交 {len(grid_ids)} 个宫格生成任务",
+        message=_t("grid_task_submitted", count=len(grid_ids)),
     )
 
 
