@@ -22,16 +22,18 @@ _LIST_TAIL = 2
 
 _SEPARATED_SENSITIVE_KEY_PATTERN = (
     r"(?:[A-Za-z][A-Za-z0-9]*[_-])*"
-    r"(?:api[_-]?key|authorization|cookie|password|passwd|pwd|secrets?|access[_-]?tokens?|auth[_-]?tokens?|"
+    r"(?:api[_-]?key|authorization|cookie|password|passwd|pwd|secret[_-]?access[_-]?keys?|secrets?|"
+    r"access[_-]?tokens?|auth[_-]?tokens?|"
     r"bearer[_-]?tokens?|private[_-]?keys?|signing[_-]?keys?|tokens?)"
 )
-_CAMEL_SENSITIVE_KEY_PATTERN = (
-    r"(?:apiKey|privateKey|signingKey|[A-Za-z][A-Za-z0-9]*(?:ApiKey|PrivateKey|SigningKey|Secret|Token))"
-)
+_CAMEL_SENSITIVE_KEY_PATTERN = r"(?:apiKey|privateKey|signingKey|[A-Za-z][A-Za-z0-9]*(?:ApiKey|PrivateKey|SigningKey|SecretAccessKey|Secret|Token))"
 _SENSITIVE_KEY_RE = re.compile(_SEPARATED_SENSITIVE_KEY_PATTERN, re.IGNORECASE)
 _CAMEL_SENSITIVE_KEY_RE = re.compile(_CAMEL_SENSITIVE_KEY_PATTERN)
 _COOKIE_LINE_RE = re.compile(r"(?im)^(\s*(?:set-)?cookie\s*:\s*).*$")
 _AUTH_LINE_RE = re.compile(r"(?im)^(\s*(?:proxy-)?authorization\s*:\s*).*$")
+_INLINE_AUTH_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9])((?:proxy-)?authorization\s*[=:]\s*)(?:(?:basic|bearer)\s+)?[^\s,;&]+"
+)
 _BEARER_RE = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+")
 _SENSITIVE_TEXT_KEY_PATTERN = rf"(?:(?i:{_SEPARATED_SENSITIVE_KEY_PATTERN})|{_CAMEL_SENSITIVE_KEY_PATTERN})"
 _DOUBLE_QUOTED_SECRET_RE = re.compile(
@@ -46,7 +48,7 @@ _INLINE_SECRET_RE = re.compile(rf"((?<![A-Za-z0-9]){_SENSITIVE_TEXT_KEY_PATTERN}
 _SIGNED_QUERY_RE = re.compile(
     r"(?i)([?&](?:x-amz-signature|x-goog-signature|signature|sig|access_token|auth_token|token|api_key|key|password)=)([^&#\s]*)"
 )
-_URL_PASSWORD_RE = re.compile(r"(?i)(https?://[^/@\s:]+:)([^@/\s]+)(@)")
+_URL_PASSWORD_RE = re.compile(r"(?i)([a-z][a-z0-9+.-]*://[^/@\s:]*:)([^@/\s]+)(@)")
 _API_KEY_VALUE_RE = re.compile(r"(?<![A-Za-z0-9])sk-(?:ant-|proj-)?[A-Za-z0-9_-]{8,}")
 _PEM_PRIVATE_KEY_RE = re.compile(
     r"-----BEGIN (?P<label>(?:[A-Z0-9]+ )*PRIVATE KEY)-----.*?-----END (?P=label)-----",
@@ -68,6 +70,7 @@ def redact_diagnostic_text(value: object) -> str:
     rendered = _PEM_PRIVATE_KEY_RE.sub(_MASKED, rendered)
     rendered = _COOKIE_LINE_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
     rendered = _AUTH_LINE_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
+    rendered = _INLINE_AUTH_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
     rendered = _BEARER_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
     rendered = _DOUBLE_QUOTED_SECRET_RE.sub(lambda match: f"{match.group(1)}{_MASKED}{match.group(3)}", rendered)
     rendered = _SINGLE_QUOTED_SECRET_RE.sub(lambda match: f"{match.group(1)}{_MASKED}{match.group(3)}", rendered)

@@ -24,9 +24,16 @@ def test_diagnostic_payload_preserves_unknown_fields_without_truncation():
 
 def test_diagnostic_payload_redacts_credentials_embedded_in_text():
     sanitized = sanitize_diagnostic_payload(
-        {"stderr": "Authorization: Bearer abc123\nhttps://x.test?a=1&signature=signed"}
+        {
+            "stderr": (
+                "prefix Authorization: Basic dXNlcjpwYXNz; "
+                "Proxy-Authorization=Bearer abc123\nhttps://x.test?a=1&signature=signed"
+            )
+        }
     )
-    assert sanitized == {"stderr": "Authorization: ••••\nhttps://x.test?a=1&signature=••••"}
+    assert sanitized == {
+        "stderr": ("prefix Authorization: ••••; Proxy-Authorization=••••\nhttps://x.test?a=1&signature=••••")
+    }
 
 
 def test_diagnostic_payload_redacts_camel_case_credentials():
@@ -81,6 +88,23 @@ def test_diagnostic_payload_redacts_private_keys_and_pem_blocks():
         "servicePrivateKey": "••••",
         "signingKey": "••••",
         "stderr": "privateKey=••••",
+    }
+
+
+def test_diagnostic_payload_redacts_cloud_credentials_and_url_userinfo():
+    assert sanitize_diagnostic_payload(
+        {
+            "aws_secret_access_key": "aws-secret",
+            "providerSecretAccessKey": "provider-secret",
+            "stderr": (
+                "AWS_SECRET_ACCESS_KEY=embedded-aws "
+                "postgresql://user:db-password@db/app redis://:cache-password@cache:6379/0"
+            ),
+        }
+    ) == {
+        "aws_secret_access_key": "••••",
+        "providerSecretAccessKey": "••••",
+        "stderr": "AWS_SECRET_ACCESS_KEY=•••• postgresql://user:••••@db/app redis://:••••@cache:6379/0",
     }
 
 

@@ -702,7 +702,13 @@ class SessionManager:
         if not managed.sdk_id_event.is_set():
             startup_exception = None
             if processor_task.done() and not processor_task.cancelled():
-                startup_exception = processor_task.result()
+                try:
+                    startup_exception = processor_task.result()
+                except Exception as exc:
+                    # _process_inbox 正常完成时以返回值传递 actor 启动异常；它自身
+                    # 意外崩溃时 Task.result() 会重新抛出。两者都属于启动失败证据，
+                    # 必须先走下方统一清理，再包装为结构化 AgentStartupError。
+                    startup_exception = exc
             if actor_task is not None and actor_task.done():
                 logger.error("session actor 提前退出，未获得 sdk_session_id temp_id=%s", temp_id)
             else:

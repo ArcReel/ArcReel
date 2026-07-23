@@ -204,6 +204,25 @@ class TestNewSessionEventLogFlow:
         assert exc_info.value.failure_observation["phase"] == "startup"
         assert exc_info.value.failure_observation["summary"]["message"] == "query rejected before session init"
 
+    async def test_inbox_processor_failure_before_init_is_cleaned_up_and_reported(self, manager: SessionManager):
+        client = FakeSDKClient()
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env=None))),
+            patch.object(
+                manager,
+                "_process_inbox",
+                new=AsyncMock(side_effect=RuntimeError("inbox processor crashed before init")),
+            ),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+        ):
+            with pytest.raises(AgentStartupError) as exc_info:
+                await manager.send_new_session("demo", "hello")
+
+        assert manager.sessions == {}
+        assert exc_info.value.failure_observation is not None
+        assert exc_info.value.failure_observation["summary"]["message"] == "inbox processor crashed before init"
+
     async def test_full_round_produces_typed_monotonic_entries(self, manager: SessionManager):
         client = FakeSDKClient(messages=_new_session_messages())
         fake_options = SimpleNamespace(env=None)
