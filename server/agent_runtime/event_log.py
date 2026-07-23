@@ -211,8 +211,8 @@ def _build_turn_failure_entry(
     return entry
 
 
-def build_turn_failure_entry_from_observation(observation: dict[str, Any]) -> dict[str, Any]:
-    """把已脱敏的本地运行时故障观测定型为同一种系统事件。"""
+def build_failure_entry(observation: dict[str, Any]) -> dict[str, Any]:
+    """把已脱敏的故障观测定型为系统事件。"""
     timestamp = observation.get("timestamp")
     return {
         "type": ENTRY_TYPE_SYSTEM,
@@ -260,9 +260,6 @@ class SdkMessageNormalizer:
         # 主线与多个 subagent 的消息会交错到达；按 parent 上下文分别等待
         # 各自的 result，禁止把两个执行上下文的故障对象拼成虚假观测。
         self._pending_turn_failures: dict[str | None, dict[str, Any]] = {}
-        # transcript 没有 live 路径的 interrupt_requested 标志；用已观测到的
-        # interrupt 回显按上下文记账，让随后 error_* result 仍按中断而非故障处理。
-        self._interrupted_contexts: set[str | None] = set()
 
     def normalize(
         self,
@@ -278,13 +275,8 @@ class SdkMessageNormalizer:
         if msg_type == "assistant":
             if self._capture_failures and message.get("error") is not None:
                 parent = _extract_parent(message)
-                entries = self._flush_pending_failure_for(
-                    parent,
-                    project_name=project_name,
-                    session_id=session_id,
-                )
                 self._pending_turn_failures[parent] = dict(message)
-                return entries
+                return []
             content = normalize_content(message.get("content", []))
             for block in content:
                 if (
@@ -309,9 +301,9 @@ class SdkMessageNormalizer:
                 return []
             parent = _extract_parent(message)
             assistant = self._pending_turn_failures.pop(parent, None)
-            was_interrupted = parent in self._interrupted_contexts
-            self._interrupted_contexts.discard(parent)
-            if assistant is not None or (result_indicates_error(message) and not was_interrupted):
+            if str(message.get("session_status") or "") == "interrupted":
+                return []
+            if assistant is not None or result_indicates_error(message):
                 return [
                     _build_turn_failure_entry(
                         assistant_message=assistant,
@@ -323,15 +315,7 @@ class SdkMessageNormalizer:
             return []
 
         if msg_type == "user":
-            prefix: list[dict[str, Any]] = []
-            parent = _extract_parent(message)
-            if parent in self._pending_turn_failures and not message.get(REPLAYED_USER_ECHO_KEY):
-                prefix = self._flush_pending_failure_for(
-                    parent,
-                    project_name=project_name,
-                    session_id=session_id,
-                )
-            return [*prefix, *self._normalize_user(message)]
+            return self._normalize_user(message)
 
         if msg_type == "system" and message.get("subtype") in _TASK_SUBTYPES:
             sys_entry: dict[str, Any] = {
@@ -351,44 +335,6 @@ class SdkMessageNormalizer:
 
         return []
 
-    def flush_pending_failure(
-        self,
-        *,
-        project_name: str | None = None,
-        session_id: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """SDK result 缺席时仍保留所有上下文已观测到的 assistant(error)。"""
-        entries: list[dict[str, Any]] = []
-        for parent in list(self._pending_turn_failures):
-            entries.extend(
-                self._flush_pending_failure_for(
-                    parent,
-                    project_name=project_name,
-                    session_id=session_id,
-                )
-            )
-        self._interrupted_contexts.clear()
-        return entries
-
-    def _flush_pending_failure_for(
-        self,
-        parent: str | None,
-        *,
-        project_name: str | None,
-        session_id: str | None,
-    ) -> list[dict[str, Any]]:
-        assistant = self._pending_turn_failures.pop(parent, None)
-        if assistant is None:
-            return []
-        return [
-            _build_turn_failure_entry(
-                assistant_message=assistant,
-                result_message=None,
-                project_name=project_name,
-                session_id=session_id,
-            )
-        ]
-
     def _normalize_user(self, message: dict[str, Any]) -> list[dict[str, Any]]:
         if message.get(REPLAYED_USER_ECHO_KEY):
             return []
@@ -400,7 +346,6 @@ class SdkMessageNormalizer:
 
         if not tool_results:
             if _is_interrupt_echo(blocks):
-                self._interrupted_contexts.add(parent)
                 return [
                     build_interrupt_entry(
                         uuid=base_uuid,
@@ -540,9 +485,7 @@ class SdkMessageNormalizer:
 def normalize_sdk_message_to_entries(message: Any) -> list[dict[str, Any]]:
     """一次性定型单条消息（skill 注入/AskUserQuestion 的跨消息关联需持有
     SdkMessageNormalizer 实例）。"""
-    normalizer = SdkMessageNormalizer()
-    entries = normalizer.normalize(message)
-    return [*entries, *normalizer.flush_pending_failure()]
+    return SdkMessageNormalizer().normalize(message)
 
 
 def _assistant_tool_use_ids(message: Any) -> list[str]:
@@ -893,12 +836,6 @@ class EventLogService:
             for tool_use_id, group in subagent_groups.items():
                 for sub_message in group:
                     _consume(sub_message, tool_use_id)
-            entries.extend(
-                normalizer.flush_pending_failure(
-                    project_name=project_name,
-                    session_id=session_id,
-                )
-            )
             if entries:
                 await self._store.append(session_id, entries)
                 # 仅在写入成功后清锁引用：此后 has_entries 恒真，旧锁等待者与

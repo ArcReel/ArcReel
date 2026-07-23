@@ -44,7 +44,6 @@ class SessionCommand:
 
 
 OnMessage = Callable[[dict[str, Any]], None]
-OnResponseComplete = Callable[[], None]
 ClientFactory = Callable[[], AbstractAsyncContextManager[Any]]
 
 
@@ -55,11 +54,9 @@ class SessionActor:
         self,
         client_factory: ClientFactory,
         on_message: OnMessage,
-        on_response_complete: OnResponseComplete | None = None,
     ):
         self._client_factory = client_factory
         self._on_message = on_message
-        self._on_response_complete = on_response_complete
         self._cmd_queue: asyncio.Queue[SessionCommand] = asyncio.Queue()
         self._task: asyncio.Task | None = None
         self._started: asyncio.Event = asyncio.Event()
@@ -135,8 +132,6 @@ class SessionActor:
                         self._on_message(msg_task.result())
                         msg_task = asyncio.create_task(msg_iter.__anext__())
                     except StopAsyncIteration:
-                        if self._on_response_complete is not None:
-                            self._on_response_complete()
                         query_cmd.done.set()
                         if pending_query is not None:
                             # 若 cmd_task 又 race 到下一条命令，回塞到队列避免丢失

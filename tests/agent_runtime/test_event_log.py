@@ -106,20 +106,6 @@ class TestNormalize:
         )
         assert entries[0]["content"][0]["type"] == "tool_use"
 
-    def test_one_shot_assistant_error_becomes_a_failure_event(self):
-        entries = normalize_sdk_message_to_entries(
-            {
-                "type": "assistant",
-                "error": "invalid_request",
-                "content": [{"type": "text", "text": "raw upstream message"}],
-            }
-        )
-
-        assert len(entries) == 1
-        assert entries[0]["type"] == "system"
-        assert entries[0]["subtype"] == "agent_turn_failure"
-        assert entries[0]["failure"]["summary"]["message"] == "raw upstream message"
-
     def test_tool_result_blocks_become_independent_entries(self):
         entries = normalize_sdk_message_to_entries(
             {
@@ -608,57 +594,6 @@ class TestSkillInvocationTyping:
         assert sub_entries[0]["parent_tool_use_id"] == "tu-agent"
         assert main_entries[0]["skill_name"] == "main-skill"
         assert main_entries[0]["tool_use_id"] == "tu-main"
-
-    def test_failure_state_is_keyed_by_parent_context(self):
-        """交错的主线与 subagent 故障对象不能被拼成一份虚假的观测。"""
-        normalizer = SdkMessageNormalizer()
-        assert (
-            normalizer.normalize(
-                {
-                    "type": "assistant",
-                    "parent_tool_use_id": "tu-agent-a",
-                    "error": "assistant-error-a",
-                    "content": [{"type": "text", "text": "assistant A"}],
-                }
-            )
-            == []
-        )
-
-        result_entries = normalizer.normalize(
-            {
-                "type": "result",
-                "parent_tool_use_id": "tu-agent-b",
-                "is_error": True,
-                "errors": ["result B"],
-            }
-        )
-        pending_entries = normalizer.flush_pending_failure()
-
-        assert result_entries[0]["parent_tool_use_id"] == "tu-agent-b"
-        assert set(result_entries[0]["failure"]["raw"]) == {"result_message"}
-        assert pending_entries[0]["parent_tool_use_id"] == "tu-agent-a"
-        assert set(pending_entries[0]["failure"]["raw"]) == {"assistant_message"}
-
-    def test_response_end_clears_interrupt_context_before_next_turn(self):
-        normalizer = SdkMessageNormalizer()
-        interrupt_entries = normalizer.normalize(
-            {"type": "user", "content": "[Request interrupted by user]", "uuid": "i1"}
-        )
-        assert interrupt_entries[0]["subtype"] == "interrupt"
-
-        # 第一轮没有 result；response-complete seam 仍必须清掉其中断状态。
-        assert normalizer.flush_pending_failure() == []
-
-        failure_entries = normalizer.normalize(
-            {
-                "type": "result",
-                "subtype": "error_during_execution",
-                "errors": ["next turn failed"],
-                "uuid": "r2",
-            }
-        )
-        assert failure_entries[0]["subtype"] == "agent_turn_failure"
-        assert failure_entries[0]["failure"]["summary"]["message"] == "next turn failed"
 
     def test_mixed_user_message_splits_tool_result_skill_and_text(self):
         normalizer = SdkMessageNormalizer()

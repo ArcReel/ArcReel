@@ -302,18 +302,12 @@ function handleUnauthorized(response: Response): void {
 function isAgentFailureDetail(value: unknown): value is AgentFailureDetail {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const detail = value as Record<string, unknown>;
-  if (detail.code !== "agent_startup_failed" || typeof detail.message !== "string") return false;
-  const failure = detail.failure;
-  if (!failure || typeof failure !== "object" || Array.isArray(failure)) return false;
-  const observation = failure as Record<string, unknown>;
   return (
-    observation.phase === "startup"
-    && typeof observation.version === "number"
-    && typeof observation.timestamp === "string"
-    && Boolean(observation.summary)
-    && typeof observation.summary === "object"
-    && Boolean(observation.raw)
-    && typeof observation.raw === "object"
+    detail.code === "agent_startup_failed"
+    && typeof detail.message === "string"
+    && Boolean(detail.failure)
+    && typeof detail.failure === "object"
+    && !Array.isArray(detail.failure)
   );
 }
 

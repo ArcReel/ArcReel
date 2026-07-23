@@ -22,7 +22,6 @@ from server.agent_runtime.event_log import (
     EventLogStore,
     SdkMessageNormalizer,
     build_interrupt_entry,
-    build_turn_failure_entry_from_observation,
     is_interrupt_entry,
 )
 from server.agent_runtime.failure_observation import failure_observation_json
@@ -302,28 +301,6 @@ class SessionEntryPipeline:
         if not entries:
             return
         await self._append_normalized(session_id, entries)
-
-    async def flush_pending_failures(self) -> bool:
-        """actor/result 提前消失时，把已收到的 assistant(error) 作为观测落库。"""
-        session_id = self._session_id_provider()
-        if not session_id:
-            return False
-        entries = self._normalizer.flush_pending_failure(
-            project_name=self._project_name_provider(),
-            session_id=session_id,
-        )
-        await self._append_normalized(session_id, entries)
-        return bool(entries)
-
-    async def append_failure_observation(self, observation: dict[str, Any]) -> None:
-        """持久化 actor 等本地运行时已构造、已脱敏的轮次故障观测。"""
-        session_id = self._session_id_provider()
-        if not session_id:
-            return
-        await self._append_normalized(
-            session_id,
-            [build_turn_failure_entry_from_observation(observation)],
-        )
 
     async def _append_normalized(self, session_id: str, entries: list[dict[str, Any]]) -> None:
         if not entries:

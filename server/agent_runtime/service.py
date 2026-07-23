@@ -38,7 +38,7 @@ from lib.project_manager import ProjectManager
 from server.agent_runtime.event_log import (
     EventLogService,
     EventLogStore,
-    build_turn_failure_entry_from_observation,
+    build_failure_entry,
     build_user_entry,
 )
 from server.agent_runtime.keyed_locks import KeyedLocks
@@ -599,7 +599,7 @@ class AssistantService:
         failure: dict[str, Any],
     ) -> AsyncIterator[ServerSentEvent]:
         """即时发送冷恢复启动失败；只落终态，不把故障详情写入历史。"""
-        entry = build_turn_failure_entry_from_observation(failure)
+        entry = build_failure_entry(failure)
         await self.meta_store.update_status(session_id, "error")
         yield self._sse_event("entry", entry)
         yield self._sse_event(

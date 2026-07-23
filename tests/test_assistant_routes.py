@@ -236,8 +236,8 @@ class TestAssistantRoutes:
             "message": stderr_text,
         }
         assert failure["raw"]["sdk_stderr"] == stderr_text
-        assert failure["raw"]["exception_chain"][0]["type"] == "NotImplementedError"
-        assert failure["raw"]["exception_chain"][0]["message"] == ""
+        assert failure["raw"]["exception"]["type"] == "NotImplementedError"
+        assert failure["raw"]["exception"]["message"] is None
 
     def test_agent_startup_observation_redacts_only_secrets_without_truncating(self):
         from server.agent_runtime.session_manager import AgentStartupError
@@ -248,15 +248,13 @@ class TestAssistantRoutes:
         cookie = "session-cookie-must-not-leak"
         signature = "signed-url-secret-must-not-leak"
         original = RuntimeError(f"{long_detail} at /opt/arcreel/runtime.py?line=42")
-        original.api_key = api_key  # type: ignore[attr-defined]
-        original.context = {  # type: ignore[attr-defined]
-            "unknown_future_field": long_detail,
-            "authorization": f"Bearer {bearer}",
-            "download_url": f"https://example.test/file?part=1&X-Amz-Signature={signature}",
-            "path": "/Users/example/ArcReel/project.json",
-            "opaque": object(),
-        }
-        startup_err = AgentStartupError("wrapper", sdk_stderr=f"Cookie: sid={cookie}\n{long_detail}")
+        startup_err = AgentStartupError(
+            "wrapper",
+            sdk_stderr=(
+                f"OPENAI_API_KEY={api_key}\nCookie: sid={cookie}\nAuthorization: Bearer {bearer}\n"
+                f"https://example.test/file?part=1&X-Amz-Signature={signature}\n{long_detail}"
+            ),
+        )
         startup_err.__cause__ = original
 
         with patch.object(
@@ -274,10 +272,11 @@ class TestAssistantRoutes:
         assert cookie not in body
         assert signature not in body
         assert long_detail in body
-        assert "/Users/example/ArcReel/project.json" in body
+        assert "/opt/arcreel/runtime.py?line=42" in body
 
         failure = response.json()["detail"]["failure"]
-        context = failure["raw"]["exception_chain"][0]["attributes"]["context"]
-        assert context["unknown_future_field"] == long_detail
-        assert context["path"] == "/Users/example/ArcReel/project.json"
-        assert context["download_url"].endswith("part=1&X-Amz-Signature=••••")
+        raw_exception = failure["raw"]["exception"]
+        assert set(raw_exception) == {"type", "module", "message", "traceback"}
+        assert long_detail in raw_exception["message"]
+        assert "/opt/arcreel/runtime.py?line=42" in raw_exception["message"]
+        assert failure["raw"]["sdk_stderr"].splitlines()[3].endswith("part=1&X-Amz-Signature=••••")

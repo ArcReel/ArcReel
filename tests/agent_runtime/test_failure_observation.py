@@ -1,6 +1,4 @@
-import base64
 import json
-import math
 
 from server.agent_runtime.failure_observation import (
     build_startup_failure_observation,
@@ -8,105 +6,65 @@ from server.agent_runtime.failure_observation import (
 )
 
 
-def test_startup_observation_remains_json_safe_for_unprintable_unknown_values() -> None:
-    class UnprintableError(RuntimeError):
-        def __str__(self) -> str:
-            raise RuntimeError("broken __str__")
+def test_startup_observation_uses_standard_exception_chain_without_serializing_attributes() -> None:
+    root = LookupError("credential lookup failed")
+    try:
+        raise RuntimeError("provider failed") from root
+    except RuntimeError as exc:
+        exc.response = {"future_payload": object()}  # type: ignore[attr-defined]
+        observation = build_startup_failure_observation(exc, project_name="demo", session_id=None, sdk_stderr="")
 
-    exc = UnprintableError()
-    exc.future_payload = {"non_finite_metric": math.nan, "opaque": object()}  # type: ignore[attr-defined]
-
-    observation = build_startup_failure_observation(
-        exc,
-        project_name="demo",
-        session_id=None,
-        sdk_stderr="",
-    )
-
-    assert observation["summary"]["type"] == "UnprintableError"
-    assert "UnprintableError" in observation["summary"]["message"]
-    assert observation["raw"]["exception_chain"][0]["attributes"]["future_payload"]["non_finite_metric"] == "nan"
-    # FastAPI / DB 边界使用严格 JSON 时也不能再次把原始启动异常遮蔽掉。
+    raw_exception = observation["raw"]["exception"]
+    assert raw_exception["type"] == "RuntimeError"
+    assert "LookupError: credential lookup failed" in raw_exception["traceback"]
+    assert "RuntimeError: provider failed" in raw_exception["traceback"]
+    assert "response" not in raw_exception
     json.dumps(observation, allow_nan=False)
 
 
-def test_startup_observation_redacts_structured_bare_token_field() -> None:
-    secret = "ghp_structured-secret"
-    exc = RuntimeError("provider failed")
-    exc.response = {"token": secret, "token_count": 42}  # type: ignore[attr-defined]
-
-    observation = build_startup_failure_observation(exc, project_name="demo", session_id=None, sdk_stderr="")
-
-    attributes = observation["raw"]["exception_chain"][0]["attributes"]["response"]
-    assert attributes["token"] == "••••"
-    assert attributes["token_count"] == 42
-    assert secret not in json.dumps(observation)
-
-
-def test_startup_observation_preserves_unknown_fields_containing_sensitive_words() -> None:
-    exc = RuntimeError("provider failed")
-    exc.response = {  # type: ignore[attr-defined]
-        "secret_reason": "credential rejected by upstream",
-        "cookie_policy": "same-site",
-        "authorization_status": "denied",
-    }
-
-    observation = build_startup_failure_observation(exc, project_name="demo", session_id=None, sdk_stderr="")
-
-    attributes = observation["raw"]["exception_chain"][0]["attributes"]["response"]
-    assert attributes == {
-        "secret_reason": "credential rejected by upstream",
-        "cookie_policy": "same-site",
-        "authorization_status": "denied",
-    }
-
-
-def test_binary_payload_redacts_embedded_text_credentials_without_discarding_other_bytes() -> None:
-    secret = b"bytes-secret-must-not-leak"
-    exc = RuntimeError("binary response")
-    exc.response_body = b"prefix\xff\nAuthorization: Bearer " + secret + b"\nsuffix"  # type: ignore[attr-defined]
-
-    observation = build_startup_failure_observation(
-        exc,
+def test_turn_observation_preserves_unknown_fields_and_redacts_secrets() -> None:
+    observation = build_turn_failure_observation(
+        assistant_message=None,
+        result_message={
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": True,
+            "token": "ghp_structured-secret",
+            "token_count": 42,
+            "secret_reason": "credential rejected by upstream",
+            "cookie_policy": "same-site",
+            "authorization_status": "denied",
+            "stderr": "Authorization: Bearer embedded-secret",
+        },
         project_name="demo",
-        session_id=None,
-        sdk_stderr="",
+        session_id="session-1",
     )
 
-    encoded = observation["raw"]["exception_chain"][0]["attributes"]["response_body"]["data"]
-    sanitized = base64.b64decode(encoded)
-    assert secret not in sanitized
-    assert b"Authorization: " + "••••".encode() in sanitized
-    assert sanitized.startswith(b"prefix\xff")
-    assert sanitized.endswith(b"suffix")
+    result = observation["raw"]["result_message"]
+    assert result["token"] == "••••"
+    assert result["token_count"] == 42
+    assert result["secret_reason"] == "credential rejected by upstream"
+    assert result["cookie_policy"] == "same-site"
+    assert result["authorization_status"] == "denied"
+    assert result["stderr"] == "Authorization: ••••"
 
 
-def test_startup_observation_redacts_prefixed_environment_secret_names() -> None:
-    secrets = [
-        "openai-secret",
-        "dashscope-secret",
-        "custom-secret",
-        "json-openai-secret",
-        "json-auth-secret",
-        "correct horse battery staple",
-        'prefix\\"quoted-suffix',
-    ]
+def test_startup_observation_redacts_text_credentials_without_truncation() -> None:
+    secrets = ["openai-secret", "custom-secret", "correct horse battery staple"]
+    long_detail = "observed-upstream-detail-" * 200
     observation = build_startup_failure_observation(
         RuntimeError("provider failed"),
         project_name="demo",
         session_id=None,
         sdk_stderr=(
-            f"OPENAI_API_KEY={secrets[0]}\nDASHSCOPE_API_KEY: {secrets[1]}\nMY_AUTH_TOKEN={secrets[2]}\n"
-            f'{{"OPENAI_API_KEY":"{secrets[3]}","MY_AUTH_TOKEN": "{secrets[4]}",'
-            f'"PASSWORD":"{secrets[5]}","ACCESS_TOKEN":"{secrets[6]}"}}'
+            f"OPENAI_API_KEY={secrets[0]}\nMY_AUTH_TOKEN={secrets[1]}\n"
+            f'{{"PASSWORD":"{secrets[2]}"}}\n{long_detail}'
         ),
     )
 
     rendered = json.dumps(observation, ensure_ascii=False)
     assert all(secret not in rendered for secret in secrets)
-    assert "horse battery staple" not in rendered
-    assert "quoted-suffix" not in rendered
-    assert rendered.count("••••") == 7
+    assert long_detail in observation["raw"]["sdk_stderr"]
 
 
 def test_turn_observation_falls_back_to_result_message_when_assistant_has_no_text() -> None:
@@ -124,19 +82,3 @@ def test_turn_observation_falls_back_to_result_message_when_assistant_has_no_tex
 
     assert observation["summary"]["source"] == "sdk_assistant"
     assert observation["summary"]["message"] == "upstream rejected the selected model"
-
-
-def test_startup_observation_redacts_cookie_and_basic_auth_in_json_text() -> None:
-    cookie = "sid=cookie-secret"
-    basic = "Basic dXNlcjpwYXNzd29yZA=="
-    observation = build_startup_failure_observation(
-        RuntimeError("headers failed"),
-        project_name="demo",
-        session_id=None,
-        sdk_stderr=f'{{"Cookie":"{cookie}","Authorization":"{basic}"}}',
-    )
-
-    rendered = json.dumps(observation, ensure_ascii=False)
-    assert cookie not in rendered
-    assert basic not in rendered
-    assert observation["raw"]["sdk_stderr"] == '{"Cookie":"••••","Authorization":"••••"}'

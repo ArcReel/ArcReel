@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
@@ -19,7 +20,74 @@ _LIST_TRUNCATE_AT = 10
 _LIST_HEAD = 5
 _LIST_TAIL = 2
 
-_SENSITIVE_KEY_RE = re.compile(r"(api[_-]?key|secret|token|password|authorization)", re.IGNORECASE)
+_SENSITIVE_KEY_RE = re.compile(
+    r"(?:[A-Za-z][A-Za-z0-9]*[_-])*"
+    r"(?:api[_-]?key|authorization|cookie|password|passwd|pwd|secrets?|access[_-]?tokens?|auth[_-]?tokens?|"
+    r"bearer[_-]?tokens?|tokens?)",
+    re.IGNORECASE,
+)
+_COOKIE_LINE_RE = re.compile(r"(?im)^(\s*(?:set-)?cookie\s*:\s*).*$")
+_AUTH_LINE_RE = re.compile(r"(?im)^(\s*(?:proxy-)?authorization\s*:\s*).*$")
+_BEARER_RE = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+")
+_SENSITIVE_TEXT_KEY_PATTERN = (
+    r"(?:[A-Za-z][A-Za-z0-9]*[_-])*"
+    r"(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd|pwd|cookie|authorization)"
+)
+_DOUBLE_QUOTED_SECRET_RE = re.compile(
+    rf"(?i)((?<![A-Za-z0-9]){_SENSITIVE_TEXT_KEY_PATTERN}\s*[\'\"]?\s*[=:]\s*\")"
+    r'((?:\\.|[^"\\])*)(\")'
+)
+_SINGLE_QUOTED_SECRET_RE = re.compile(
+    rf"(?i)((?<![A-Za-z0-9]){_SENSITIVE_TEXT_KEY_PATTERN}\s*['\"]?\s*[=:]\s*')"
+    r"((?:\\.|[^'\\])*)(')"
+)
+_INLINE_SECRET_RE = re.compile(
+    rf"(?i)((?<![A-Za-z0-9]){_SENSITIVE_TEXT_KEY_PATTERN}\s*[=:]\s*)" r"(?!['\"])([^\s,;&]+)"
+)
+_SIGNED_QUERY_RE = re.compile(
+    r"(?i)([?&](?:x-amz-signature|x-goog-signature|signature|sig|access_token|auth_token|token|api_key|key|password)=)([^&#\s]*)"
+)
+_URL_PASSWORD_RE = re.compile(r"(?i)(https?://[^/@\s:]+:)([^@/\s]+)(@)")
+_API_KEY_VALUE_RE = re.compile(r"(?<![A-Za-z0-9])sk-(?:ant-|proj-)?[A-Za-z0-9_-]{8,}")
+_MASKED = "••••"
+
+
+def redact_diagnostic_text(value: object) -> str:
+    """完整保留诊断文本，只遮蔽可直接用于认证或签名的值。"""
+    try:
+        rendered = str(value)
+    except Exception:
+        rendered = f"<unprintable {type(value).__module__}.{type(value).__name__}>"
+    rendered = _COOKIE_LINE_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
+    rendered = _AUTH_LINE_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
+    rendered = _BEARER_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
+    rendered = _DOUBLE_QUOTED_SECRET_RE.sub(
+        lambda match: f"{match.group(1)}{_MASKED}{match.group(3)}", rendered
+    )
+    rendered = _SINGLE_QUOTED_SECRET_RE.sub(
+        lambda match: f"{match.group(1)}{_MASKED}{match.group(3)}", rendered
+    )
+    rendered = _INLINE_SECRET_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
+    rendered = _SIGNED_QUERY_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
+    rendered = _URL_PASSWORD_RE.sub(lambda match: f"{match.group(1)}{_MASKED}{match.group(3)}", rendered)
+    return _API_KEY_VALUE_RE.sub(_MASKED, rendered)
+
+
+def sanitize_diagnostic_payload(value: Any, *, _key: str | None = None) -> Any:
+    """清洗 JSON 兼容诊断载荷：不截断未知字段，只完整遮蔽秘密值。"""
+    if _key and _SENSITIVE_KEY_RE.fullmatch(_key):
+        return None if value is None else _MASKED
+    if value is None or isinstance(value, bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else repr(value)
+    if isinstance(value, str):
+        return redact_diagnostic_text(value)
+    if isinstance(value, Mapping):
+        return {str(key): sanitize_diagnostic_payload(item, _key=str(key)) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        return [sanitize_diagnostic_payload(item) for item in value]
+    return redact_diagnostic_text(value)
 
 
 def _redact_value(value: str) -> str:
@@ -56,7 +124,7 @@ def _summarize_image_like(obj: Any) -> str | None:
 def _to_safe(obj: Any, key_hint: str | None = None) -> Any:
     # 敏感 key 命中时整体脱敏：避免 {"api_key": {"value": "secret"}} 这类嵌套结构
     # 在递归到 "value" 子键时，因为 key_hint 不再敏感而泄漏 secret。
-    if key_hint and _SENSITIVE_KEY_RE.search(key_hint):
+    if key_hint and _SENSITIVE_KEY_RE.fullmatch(key_hint):
         # None 透传以便区分"未配置"和"已配置但脱敏"；其他任何类型（含 int/bool/float）
         # 都整体替换为 ••••，避免 {"password": 123456} 这类用数字当 secret 的场景泄漏。
         if obj is None:

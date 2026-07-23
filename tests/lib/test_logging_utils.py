@@ -2,7 +2,31 @@ import json
 
 from pydantic import BaseModel
 
-from lib.logging_utils import format_kwargs_for_log
+from lib.logging_utils import format_kwargs_for_log, sanitize_diagnostic_payload
+
+
+def test_diagnostic_payload_preserves_unknown_fields_without_truncation():
+    long_detail = "observed-" * 200
+    assert sanitize_diagnostic_payload(
+        {
+            "api_key": "sk-secret",
+            "token_count": 42,
+            "secret_reason": long_detail,
+            "cookie_policy": "same-site",
+        }
+    ) == {
+        "api_key": "••••",
+        "token_count": 42,
+        "secret_reason": long_detail,
+        "cookie_policy": "same-site",
+    }
+
+
+def test_diagnostic_payload_redacts_credentials_embedded_in_text():
+    sanitized = sanitize_diagnostic_payload(
+        {"stderr": "Authorization: Bearer abc123\nhttps://x.test?a=1&signature=signed"}
+    )
+    assert sanitized == {"stderr": "Authorization: ••••\nhttps://x.test?a=1&signature=••••"}
 
 
 def test_short_string_passthrough():
