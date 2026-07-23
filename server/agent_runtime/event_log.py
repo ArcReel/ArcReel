@@ -371,6 +371,7 @@ class SdkMessageNormalizer:
                     session_id=session_id,
                 )
             )
+        self._interrupted_contexts.clear()
         return entries
 
     def _flush_pending_failure_for(

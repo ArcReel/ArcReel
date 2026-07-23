@@ -639,6 +639,27 @@ class TestSkillInvocationTyping:
         assert pending_entries[0]["parent_tool_use_id"] == "tu-agent-a"
         assert set(pending_entries[0]["failure"]["raw"]) == {"assistant_message"}
 
+    def test_response_end_clears_interrupt_context_before_next_turn(self):
+        normalizer = SdkMessageNormalizer()
+        interrupt_entries = normalizer.normalize(
+            {"type": "user", "content": "[Request interrupted by user]", "uuid": "i1"}
+        )
+        assert interrupt_entries[0]["subtype"] == "interrupt"
+
+        # 第一轮没有 result；response-complete seam 仍必须清掉其中断状态。
+        assert normalizer.flush_pending_failure() == []
+
+        failure_entries = normalizer.normalize(
+            {
+                "type": "result",
+                "subtype": "error_during_execution",
+                "errors": ["next turn failed"],
+                "uuid": "r2",
+            }
+        )
+        assert failure_entries[0]["subtype"] == "agent_turn_failure"
+        assert failure_entries[0]["failure"]["summary"]["message"] == "next turn failed"
+
     def test_mixed_user_message_splits_tool_result_skill_and_text(self):
         normalizer = SdkMessageNormalizer()
         entries = normalizer.normalize(
