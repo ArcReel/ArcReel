@@ -51,6 +51,22 @@ def test_diagnostic_payload_redacts_camel_case_credentials():
     }
 
 
+def test_log_formatter_redacts_prefixed_camel_case_credentials():
+    assert json.loads(
+        format_kwargs_for_log(
+            {
+                "providerApiKey": "provider-secret",
+                "githubAccessToken": "github-secret",
+                "tokenCount": 42,
+            }
+        )
+    ) == {
+        "providerApiKey": "prov…cret",
+        "githubAccessToken": "gith…cret",
+        "tokenCount": 42,
+    }
+
+
 def test_short_string_passthrough():
     out = format_kwargs_for_log({"prompt": "hello"})
     assert json.loads(out) == {"prompt": "hello"}

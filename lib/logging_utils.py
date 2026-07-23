@@ -49,6 +49,10 @@ _API_KEY_VALUE_RE = re.compile(r"(?<![A-Za-z0-9])sk-(?:ant-|proj-)?[A-Za-z0-9_-]
 _MASKED = "••••"
 
 
+def _is_sensitive_key(key: str | None) -> bool:
+    return bool(key and (_SENSITIVE_KEY_RE.fullmatch(key) or _CAMEL_SENSITIVE_KEY_RE.fullmatch(key)))
+
+
 def redact_diagnostic_text(value: object) -> str:
     """完整保留诊断文本，只遮蔽可直接用于认证或签名的值。"""
     try:
@@ -68,7 +72,7 @@ def redact_diagnostic_text(value: object) -> str:
 
 def sanitize_diagnostic_payload(value: Any, *, _key: str | None = None) -> Any:
     """清洗 JSON 兼容诊断载荷：不截断未知字段，只完整遮蔽秘密值。"""
-    if _key and (_SENSITIVE_KEY_RE.fullmatch(_key) or _CAMEL_SENSITIVE_KEY_RE.fullmatch(_key)):
+    if _is_sensitive_key(_key):
         return None if value is None else _MASKED
     if value is None or isinstance(value, bool | int):
         return value
@@ -117,7 +121,7 @@ def _summarize_image_like(obj: Any) -> str | None:
 def _to_safe(obj: Any, key_hint: str | None = None) -> Any:
     # 敏感 key 命中时整体脱敏：避免 {"api_key": {"value": "secret"}} 这类嵌套结构
     # 在递归到 "value" 子键时，因为 key_hint 不再敏感而泄漏 secret。
-    if key_hint and _SENSITIVE_KEY_RE.fullmatch(key_hint):
+    if _is_sensitive_key(key_hint):
         # None 透传以便区分"未配置"和"已配置但脱敏"；其他任何类型（含 int/bool/float）
         # 都整体替换为 ••••，避免 {"password": 123456} 这类用数字当 secret 的场景泄漏。
         if obj is None:
