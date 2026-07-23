@@ -523,11 +523,19 @@ class SessionManager:
                 exc = task.exception()
                 if exc is not None:
                     managed.actor_exit_failed = True
-                    failure = build_turn_exception_failure_observation(
-                        exc,
-                        project_name=managed.project_name,
-                        session_id=managed.resolved_sdk_id,
-                    )
+                    if managed.resolved_sdk_id is None:
+                        failure = build_startup_failure_observation(
+                            exc,
+                            project_name=managed.project_name,
+                            session_id=None,
+                            sdk_stderr="",
+                        )
+                    else:
+                        failure = build_turn_exception_failure_observation(
+                            exc,
+                            project_name=managed.project_name,
+                            session_id=managed.resolved_sdk_id,
+                        )
                     active_query = managed._active_query_command
                     if active_query is not None and active_query.accepted:
                         managed.actor_failure_observation = failure
@@ -695,12 +703,20 @@ class SessionManager:
                 event_task.cancel()
 
         if not managed.sdk_id_event.is_set():
+            failure = managed.actor_failure_observation
             if actor_task is not None and actor_task.done():
                 logger.error("session actor 提前退出，未获得 sdk_session_id temp_id=%s", temp_id)
             else:
                 logger.error("等待 sdk_session_id 超时 temp_id=%s", temp_id)
             managed.cancel_pending_questions("session creation timed out")
             await _cleanup_on_error()
+            if failure is not None:
+                summary = failure.get("summary")
+                message = summary.get("message") if isinstance(summary, dict) else None
+                raise AgentStartupError(
+                    message if isinstance(message, str) and message else "session actor failed before initialization",
+                    failure_observation=failure,
+                )
             raise TimeoutError("SDK 会话创建超时")
 
         sdk_id = managed.resolved_sdk_id

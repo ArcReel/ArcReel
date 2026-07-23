@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.agent_runtime.models import Heartbeat, LiveMessage, SubscriptionReady
-from server.agent_runtime.session_manager import SessionBusyError, SessionCapacityError
+from server.agent_runtime.session_manager import AgentStartupError, SessionBusyError, SessionCapacityError
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import agent_chat
@@ -131,6 +131,28 @@ class TestAgentChatEndpoint:
                 json={"project_name": "demo", "message": "帮我写剧本"},
             )
         assert resp.status_code == 503
+
+    def test_agent_startup_failure_returns_structured_observation(self, monkeypatch):
+        mock_service = self._patch_service(monkeypatch)
+        failure = {
+            "version": 1,
+            "phase": "startup",
+            "summary": {"source": "sdk_stderr", "type": "RuntimeError", "message": "provider failed"},
+            "raw": {"exception_chain": [], "sdk_stderr": "provider failed"},
+        }
+        mock_service.send_or_create = AsyncMock(
+            side_effect=AgentStartupError("provider failed", failure_observation=failure)
+        )
+
+        with _make_client() as client:
+            resp = client.post(
+                "/api/v1/agent/chat",
+                json={"project_name": "demo", "message": "帮我写剧本"},
+            )
+
+        assert resp.status_code == 502
+        assert resp.json()["detail"]["code"] == "agent_startup_failed"
+        assert resp.json()["detail"]["failure"] == failure
 
     def test_session_busy_conflict_returns_409(self, monkeypatch):
         """send_or_create 抛 SessionBusyError：会话正在处理中的并发冲突 -> 409。"""

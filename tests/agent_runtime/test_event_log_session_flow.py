@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.db.base import Base
 from server.agent_runtime.event_log import EventLogStore, build_user_entry
 from server.agent_runtime.models import LiveMessage, SubscriptionReady
-from server.agent_runtime.session_manager import SessionManager
+from server.agent_runtime.session_manager import AgentStartupError, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import FakeSDKClient
 
@@ -147,7 +147,30 @@ class _InterruptingClient(FakeSDKClient):
         await self._pending_messages.put(None)
 
 
+class _CrashBeforeInitClient(FakeSDKClient):
+    async def receive_response(self):
+        self._record("receive_response")
+        if False:
+            yield {}
+        raise RuntimeError("receive_response crashed before init")
+
+
 class TestNewSessionEventLogFlow:
+    async def test_receive_crash_before_init_is_reported_as_structured_startup_failure(self, manager: SessionManager):
+        client = _CrashBeforeInitClient()
+        fake_options = SimpleNamespace(env=None)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+        ):
+            with pytest.raises(AgentStartupError) as exc_info:
+                await manager.send_new_session("demo", "hello")
+
+        assert exc_info.value.failure_observation is not None
+        assert exc_info.value.failure_observation["phase"] == "startup"
+        assert exc_info.value.failure_observation["summary"]["message"] == "receive_response crashed before init"
+
     async def test_full_round_produces_typed_monotonic_entries(self, manager: SessionManager):
         client = FakeSDKClient(messages=_new_session_messages())
         fake_options = SimpleNamespace(env=None)

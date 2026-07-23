@@ -12,9 +12,10 @@ from pydantic import BaseModel, Field
 
 from lib.api_errors import BadRequestError, ConflictError, ServiceUnavailableError
 from lib.i18n import Translator, get_locale
+from server.agent_runtime.failure_observation import build_startup_failure_observation
 from server.agent_runtime.models import Heartbeat, LiveMessage
 from server.agent_runtime.service import AssistantService
-from server.agent_runtime.session_manager import SessionBusyError, SessionCapacityError
+from server.agent_runtime.session_manager import AgentStartupError, SessionBusyError, SessionCapacityError
 from server.auth import CurrentUser
 from server.routers.assistant import get_assistant_service
 
@@ -209,6 +210,22 @@ async def agent_chat(
         # 空消息内容等坏请求，str(exc) 只进日志
         logger.warning("会话对话请求非法: %s", exc)
         raise BadRequestError("request_invalid") from exc
+    except AgentStartupError as exc:
+        original = exc.__cause__ or exc
+        failure = exc.failure_observation or build_startup_failure_observation(
+            original,
+            project_name=body.project_name,
+            session_id=body.session_id,
+            sdk_stderr=exc.sdk_stderr,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "agent_startup_failed",
+                "message": _t("agent_startup_failed_title"),
+                "failure": failure,
+            },
+        )
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))

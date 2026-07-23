@@ -23,7 +23,9 @@ _COOKIE_LINE_RE = re.compile(r"(?im)^(\s*(?:set-)?cookie\s*:\s*).*$")
 _AUTH_LINE_RE = re.compile(r"(?im)^(\s*(?:proxy-)?authorization\s*:\s*).*$")
 _BEARER_RE = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+")
 _INLINE_SECRET_RE = re.compile(
-    r"(?i)(\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd|pwd)\s*[=:]\s*)([^\s,;&]+)"
+    r"(?i)((?<![A-Za-z0-9])(?:[A-Za-z][A-Za-z0-9]*[_-])*"
+    r"(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd|pwd)\s*[=:]\s*)"
+    r"([^\s,;&]+)"
 )
 _SIGNED_QUERY_RE = re.compile(
     r"(?i)([?&](?:x-amz-signature|x-goog-signature|signature|sig|access_token|auth_token|token|api_key|key|password)=)([^&#\s]*)"
@@ -249,7 +251,6 @@ def build_turn_failure_observation(
     session_id: str | None,
 ) -> dict[str, Any]:
     """从 SDK 已实际发出的 assistant / result 故障对象构造轮次观测。"""
-    source_message = assistant_message if assistant_message is not None else result_message
     source = "sdk_assistant" if assistant_message is not None else "sdk_result"
 
     observed_type: Any = None
@@ -273,6 +274,10 @@ def build_turn_failure_observation(
     if result_message is not None:
         raw["result_message"] = dict(result_message)
 
+    message = _message_text(assistant_message)
+    if message is None:
+        message = _message_text(result_message)
+
     observation = {
         "version": 1,
         "phase": "turn",
@@ -283,7 +288,7 @@ def build_turn_failure_observation(
             "source": source,
             "type": observed_type,
             "status": status,
-            "message": _message_text(source_message),
+            "message": message,
         },
         "raw": raw,
     }
