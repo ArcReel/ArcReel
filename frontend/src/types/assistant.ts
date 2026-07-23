@@ -29,6 +29,7 @@ export interface ContentBlock {
     | "task_progress"
     | "interrupt_notice"
     | "question_answer"
+    | "agent_failure"
     | "image";
   text?: string;
   thinking?: string;
@@ -57,6 +58,24 @@ export interface ContentBlock {
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number };
   // question_answer fields（AskUserQuestion 答复：问题 → 所选选项）
   answers?: Record<string, string>;
+  // agent_failure block（写入点定型的 Agent 故障观测）
+  failure?: FailureObservation;
+}
+
+export interface FailureObservation {
+  version: number;
+  phase: "startup" | "turn";
+  timestamp: string;
+  project_name: string | null;
+  session_id: string | null;
+  summary: {
+    source: string;
+    /** SDK / 上游可新增任意 JSON 形态；前端只呈现，不做枚举推断。 */
+    type: unknown;
+    status?: unknown;
+    message: string | null;
+  };
+  raw: Record<string, unknown>;
 }
 
 export interface Turn {
@@ -104,6 +123,8 @@ export interface TimelineEntry {
   skill_args?: string | null;
   // question_answer 条目字段（AskUserQuestion 答复的结构化答案）
   answers?: Record<string, string> | null;
+  // agent_turn_failure 系统条目
+  failure?: FailureObservation;
 }
 
 /** 服务端流式预览态快照（身份为 message_id，不入日志）。 */

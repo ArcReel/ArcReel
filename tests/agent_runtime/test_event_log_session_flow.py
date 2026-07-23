@@ -196,6 +196,145 @@ class TestNewSessionEventLogFlow:
         finally:
             await manager.close_session(SDK_ID)
 
+    async def test_sdk_error_becomes_one_turn_failure_event_with_raw_assistant_and_result(
+        self,
+        manager: SessionManager,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        upstream_message = (
+            "There's an issue with the selected model (gpt-5.6-sol). It may not exist or you may not have access to it."
+        )
+        assistant_error = {
+            "type": "assistant",
+            "message_id": "msg-error",
+            "uuid": "a-error",
+            "timestamp": "2026-07-23T01:02:03Z",
+            "session_id": SDK_ID,
+            "model": "<synthetic>",
+            "error": "invalid_request",
+            "stop_reason": "stop_sequence",
+            "content": [{"type": "text", "text": upstream_message}],
+            "future_sdk_field": {"kept": "verbatim", "api_key": "sk-ant-api03-secret-value"},
+        }
+        result_error = {
+            "type": "result",
+            "subtype": "success",
+            "is_error": True,
+            "api_error_status": 404,
+            "errors": ["upstream request failed"],
+            "session_id": SDK_ID,
+            "uuid": "r-error",
+            "future_result_field": {"request_id": "req-visible"},
+        }
+        client = FakeSDKClient(
+            messages=[
+                {"type": "system", "subtype": "init", "session_id": SDK_ID, "uuid": "init-error"},
+                {"type": "user", "content": "你好", "uuid": "sdk-u-error", "session_id": SDK_ID},
+                assistant_error,
+                result_error,
+            ]
+        )
+        fake_options = SimpleNamespace(env=None)
+        caplog.set_level("WARNING", logger="server.agent_runtime.entry_pipeline")
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            await manager.send_new_session(
+                "demo",
+                "你好",
+                user_entry=build_user_entry([{"type": "text", "text": "你好"}]),
+                client_key="ck-error",
+            )
+
+        try:
+            entries = await _wait_for_entries(manager.event_log_store, SDK_ID, 2)
+            await _wait_for_status(manager, SDK_ID, "error")
+            assert [entry["type"] for entry in entries] == ["user", "system"]
+
+            failure_entry = entries[1]
+            assert failure_entry["subtype"] == "agent_turn_failure"
+            failure = failure_entry["failure"]
+            assert failure["phase"] == "turn"
+            assert failure["project_name"] == "demo"
+            assert failure["session_id"] == SDK_ID
+            assert failure["summary"] == {
+                "source": "sdk_assistant",
+                "type": "invalid_request",
+                "status": 404,
+                "message": upstream_message,
+            }
+            assert failure["raw"]["assistant_message"]["model"] == "<synthetic>"
+            assert failure["raw"]["assistant_message"]["future_sdk_field"] == {
+                "kept": "verbatim",
+                "api_key": "••••",
+            }
+            assert failure["raw"]["result_message"]["future_result_field"] == {"request_id": "req-visible"}
+            assert all(entry["type"] != "assistant" for entry in entries)
+
+            rendered_logs = "\n".join(record.getMessage() for record in caplog.records)
+            assert "failure_observation=" in rendered_logs
+            assert "invalid_request" in rendered_logs
+            assert upstream_message in rendered_logs
+            assert "sk-ant-api03-secret-value" not in rendered_logs
+        finally:
+            await manager.close_session(SDK_ID)
+
+    async def test_actor_crash_becomes_a_redacted_turn_failure_event(
+        self,
+        manager: SessionManager,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        secret = "actor-crash-secret-must-not-leak"
+        caplog.set_level("WARNING", logger="server.agent_runtime.session_manager")
+
+        class CrashingSDKClient(FakeSDKClient):
+            async def receive_response(self):
+                self._record("receive_response")
+                yield {"type": "system", "subtype": "init", "session_id": SDK_ID, "uuid": "init-crash"}
+                yield {"type": "user", "content": "你好", "session_id": SDK_ID, "uuid": "sdk-u-crash"}
+                raise RuntimeError(f"receive loop crashed; api_key={secret}")
+
+        client = CrashingSDKClient()
+        fake_options = SimpleNamespace(env=None)
+        original_create = manager.meta_store.create
+
+        async def delayed_create(project_name: str, sdk_session_id: str):
+            # init 已经到达，但持久化可能晚于 actor 退出；send_new_session
+            # 必须等待 inbox 排空，而不是把 actor task 完成误判为未收到 init。
+            await asyncio.sleep(0.05)
+            return await original_create(project_name, sdk_session_id)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch.object(manager.meta_store, "create", new=delayed_create),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            await manager.send_new_session(
+                "demo",
+                "你好",
+                user_entry=build_user_entry([{"type": "text", "text": "你好"}]),
+                client_key="ck-crash",
+            )
+
+        try:
+            entries = await _wait_for_entries(manager.event_log_store, SDK_ID, 2)
+            await _wait_for_status(manager, SDK_ID, "error")
+
+            assert [entry["type"] for entry in entries] == ["user", "system"]
+            failure_entry = entries[1]
+            assert failure_entry["subtype"] == "agent_turn_failure"
+            assert failure_entry["failure"]["summary"]["source"] == "local_exception"
+            assert failure_entry["failure"]["summary"]["type"] == "RuntimeError"
+            assert secret not in str(failure_entry)
+            assert failure_entry["failure"]["raw"]["exception_chain"][0]["message"].endswith("api_key=••••")
+            assert secret not in "\n".join(record.getMessage() for record in caplog.records)
+        finally:
+            await manager.close_session(SDK_ID)
+
     async def test_interrupt_flow_produces_single_typed_entry(self, manager: SessionManager):
         """中断动作与结果是时间线事件：SDK 回显 + result 兜底（竞态双写）只产出一条 typed 条目。"""
         meta = await manager.meta_store.create("demo", SDK_ID)

@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { API } from "@/api";
+import { AgentFailureError, API } from "@/api";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type { EntriesResponse, PendingQuestion, SessionMeta, TimelineEntry } from "@/types";
 import { useAssistantSession } from "./useAssistantSession";
@@ -413,6 +413,42 @@ describe("useAssistantSession", () => {
     // 同内容重试复用同一幂等键：服务端按键去重，不产生重复
     expect(sendSpy).toHaveBeenCalledTimes(2);
     expect(sendSpy.mock.calls[1][4]).toBe(sendSpy.mock.calls[0][4]);
+  });
+
+  it("stores a startup failure observation separately from generic send errors", async () => {
+    mockIdleSession();
+    const failure = {
+      version: 1,
+      phase: "startup" as const,
+      timestamp: "2026-07-23T01:02:03Z",
+      project_name: "demo",
+      session_id: "session-1",
+      summary: {
+        source: "local_exception",
+        type: "ProcessError",
+        message: "Claude Code exited before initialization",
+      },
+      raw: {
+        exception_chain: [{ type: "ProcessError", vendor_field: "keep-me" }],
+        sdk_stderr: "observed stderr",
+      },
+    };
+    vi.spyOn(API, "sendAssistantMessage").mockRejectedValue(
+      new AgentFailureError("Agent 启动失败", failure),
+    );
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    await act(async () => {
+      expect(await result.current.sendMessage("hello")).toBe(false);
+    });
+
+    expect(useAssistantStore.getState().startupFailure).toEqual(failure);
+    expect(useAssistantStore.getState().error).toBeNull();
+    expect(useAssistantStore.getState().turns).toEqual([]);
   });
 
   it("uses a fresh idempotency key for different content", async () => {

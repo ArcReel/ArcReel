@@ -164,4 +164,33 @@ describe("AgentCopilot", () => {
       expect(useAssistantStore.getState().input).toBe("");
     });
   });
+
+  it("renders the transient startup observation in the timeline and retries the preserved input", () => {
+    useAssistantStore.setState({
+      startupFailure: {
+        version: 1,
+        phase: "startup",
+        timestamp: "2026-07-23T01:02:03Z",
+        project_name: "demo",
+        session_id: null,
+        summary: {
+          source: "local_exception",
+          type: "ProcessError",
+          message: "failed before initialization",
+        },
+        raw: { sdk_stderr: "observed stderr" },
+      },
+    });
+
+    render(<AgentCopilot />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Agent 启动失败");
+    expect(screen.queryByText("在下方输入消息开始对话")).not.toBeInTheDocument();
+    expect(screen.queryByText(/下载.*日志/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("助手输入"), { target: { value: "保留并重试" } });
+    fireEvent.click(screen.getByRole("button", { name: "重试启动" }));
+
+    expect(sendMessage).toHaveBeenCalledWith("保留并重试", undefined);
+  });
 });

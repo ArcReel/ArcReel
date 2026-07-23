@@ -113,6 +113,7 @@ MESSAGES = {
     "session_or_project_not_found": "会话或项目不存在",
     "sdk_session_timeout": "SDK 会话创建超时",
     "agent_startup_failed": "Agent 启动失败：\n{details}",
+    "agent_startup_failed_title": "Agent 启动失败",
     "interface_offline": "该接口已下线，请使用推荐的接口",
     "answers_required": "answers 不能为空",
     # Custom Providers

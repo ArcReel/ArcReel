@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { errMsg, voidCall } from "@/utils/async";
-import { API } from "@/api";
+import { AgentFailureError, API } from "@/api";
 import { uid } from "@/utils/id";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type {
@@ -314,6 +314,7 @@ export function useAssistantSession(projectName: string | null) {
       let sessionId = store.getState().currentSessionId;
       store.getState().setSending(true);
       store.getState().setError(null);
+      store.getState().setStartupFailure(null);
 
       // 提取 base64 数据
       const imagePayload = images?.map((img) => ({
@@ -389,7 +390,11 @@ export function useAssistantSession(projectName: string | null) {
         if (pendingSendVersionRef.current !== sendVersion) return false;
         // 失败：无本地合成消息可回滚，仅记录幂等键供重试复用
         failedSendRef.current = { clientKey, signature };
-        store.getState().setError(errMsg(err, "发送失败"));
+        if (err instanceof AgentFailureError) {
+          store.getState().setStartupFailure(err.failure);
+        } else {
+          store.getState().setError(errMsg(err, "发送失败"));
+        }
         store.getState().setSending(false);
         return false;
       }

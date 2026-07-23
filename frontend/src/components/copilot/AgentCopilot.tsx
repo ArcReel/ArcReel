@@ -16,6 +16,7 @@ import { SlashCommandMenu } from "./SlashCommandMenu";
 import type { SlashCommandMenuHandle } from "./SlashCommandMenu";
 import { TodoListPanel } from "./TodoListPanel";
 import { ChatMessage } from "./chat/ChatMessage";
+import { AgentFailureCard } from "./chat/AgentFailureCard";
 import { composeAllTurns } from "./chat/utils";
 import { uid } from "@/utils/id";
 import { formatShortDateTime } from "@/utils/date-format";
@@ -172,7 +173,7 @@ export function AgentCopilot() {
   const { t } = useTranslation(["dashboard", "common"]);
   const {
     turns, draftTurn, messagesLoading,
-    sending, sessionStatus, pendingQuestion, answeringQuestion, error,
+    sending, sessionStatus, pendingQuestion, answeringQuestion, error, startupFailure,
   } = useAssistantStore();
 
   const { currentProjectName } = useProjectsStore();
@@ -471,7 +472,7 @@ export function AgentCopilot() {
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 min-w-0 space-y-3 overflow-y-auto overflow-x-hidden px-3 py-3">
-        {allTurns.length === 0 && !messagesLoading && (
+        {allTurns.length === 0 && !messagesLoading && !startupFailure && (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <div
               className="mb-3 grid h-12 w-12 place-items-center rounded-2xl"
@@ -504,6 +505,9 @@ export function AgentCopilot() {
         {allTurns.map((turn, i) => (
           <ChatMessage key={turn.uuid || `turn-${i}`} message={turn} streaming={turn === draftTurn} />
         ))}
+        {startupFailure && (
+          <AgentFailureCard failure={startupFailure} onRetry={handleSend} />
+        )}
       </div>
 
       {pendingQuestion && (

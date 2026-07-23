@@ -215,6 +215,15 @@ describe("stores", () => {
     assistant.setSending(true);
     assistant.setInterrupting(true);
     assistant.setError("err");
+    assistant.setStartupFailure({
+      version: 1,
+      phase: "startup",
+      timestamp: "2026-07-23T01:02:03Z",
+      project_name: "demo",
+      session_id: null,
+      summary: { source: "local_exception", type: "ProcessError", message: "failed" },
+      raw: { sdk_stderr: "stderr" },
+    });
     assistant.setSessionStatus("running");
     assistant.setSessionStatusDetail("busy");
     assistant.setPendingQuestion({
@@ -234,6 +243,9 @@ describe("stores", () => {
     expect(state.sessionStatus).toBe("running");
     expect(state.skills).toHaveLength(1);
     expect(state.isDraftSession).toBe(true);
+
+    assistant.resetTimeline();
+    expect(useAssistantStore.getState().startupFailure).toBeNull();
   });
 
   it("setEntries merges by seq instead of overwriting newer local entries", () => {

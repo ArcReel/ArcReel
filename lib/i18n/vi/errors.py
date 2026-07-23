@@ -116,6 +116,7 @@ MESSAGES = {
     "session_or_project_not_found": "Phiên hoặc dự án không tồn tại",
     "sdk_session_timeout": "Tạo phiên SDK quá thời gian",
     "agent_startup_failed": "Khởi động agent thất bại:\n{details}",
+    "agent_startup_failed_title": "Khởi động agent thất bại",
     "interface_offline": "Giao diện này đã ngừng hoạt động, vui lòng dùng giao diện được khuyến nghị",
     "answers_required": "answers không được để trống",
     # Custom Providers

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from lib import PROJECT_ROOT
 from lib.api_errors import BadRequestError, ConflictError, ServiceUnavailableError
 from lib.i18n import Translator, get_locale
+from server.agent_runtime.failure_observation import build_startup_failure_observation
 from server.agent_runtime.models import SessionMeta
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_manager import AgentStartupError, SessionBusyError, SessionCapacityError
@@ -101,9 +102,20 @@ async def send_message(
         logger.warning("会话发送请求非法: %s", exc)
         raise BadRequestError("request_invalid") from exc
     except AgentStartupError as exc:
+        original = exc.__cause__ or exc
+        failure = exc.failure_observation or build_startup_failure_observation(
+            original,
+            project_name=project_name,
+            session_id=req.session_id,
+            sdk_stderr=exc.sdk_stderr,
+        )
         raise HTTPException(
             status_code=502,
-            detail=_t("agent_startup_failed", details=str(exc)),
+            detail={
+                "code": "agent_startup_failed",
+                "message": _t("agent_startup_failed_title"),
+                "failure": failure,
+            },
         )
     except Exception:
         logger.exception("请求处理失败")

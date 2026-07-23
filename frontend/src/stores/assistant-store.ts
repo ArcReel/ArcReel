@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   DraftDeltaPayload,
   DraftState,
+  FailureObservation,
   PendingQuestion,
   SessionMeta,
   SessionStatus,
@@ -39,6 +40,8 @@ interface AssistantState {
   sending: boolean;
   interrupting: boolean;
   error: string | null;
+  /** 当前面板生命周期内最近一次 Agent 启动失败观测；不做跨刷新持久化。 */
+  startupFailure: FailureObservation | null;
 
   // Session status
   sessionStatus: SessionStatus | null;
@@ -78,6 +81,7 @@ interface AssistantState {
   setSending: (sending: boolean) => void;
   setInterrupting: (interrupting: boolean) => void;
   setError: (error: string | null) => void;
+  setStartupFailure: (failure: FailureObservation | null) => void;
   setSessionStatus: (status: SessionStatus | null) => void;
   setSessionStatusDetail: (detail: string | null) => void;
   setPendingQuestion: (question: PendingQuestion | null) => void;
@@ -143,6 +147,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     sending: false,
     interrupting: false,
     error: null,
+    startupFailure: null,
     sessionStatus: null,
     sessionStatusDetail: null,
     pendingQuestion: null,
@@ -220,7 +225,14 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
       projectorSource = null;
       committedIds = new Set<string>();
       committedSource = null;
-      set({ entries: [], draft: null, draftRev: 0, turns: [], draftTurn: null });
+      set({
+        entries: [],
+        draft: null,
+        draftRev: 0,
+        turns: [],
+        draftTurn: null,
+        startupFailure: null,
+      });
     },
 
     setMessagesLoading: (loading) => set({ messagesLoading: loading }),
@@ -228,6 +240,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     setSending: (sending) => set({ sending }),
     setInterrupting: (interrupting) => set({ interrupting }),
     setError: (error) => set({ error }),
+    setStartupFailure: (failure) => set({ startupFailure: failure }),
     setSessionStatus: (status) => set({ sessionStatus: status }),
     setSessionStatusDetail: (detail) => set({ sessionStatusDetail: detail }),
     setPendingQuestion: (question) => set({ pendingQuestion: question }),

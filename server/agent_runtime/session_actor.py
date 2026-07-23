@@ -27,6 +27,9 @@ class SessionCommand:
     # query 整轮 receive_response drain 完成；非 query 命令也用它标记处理完毕
     done: asyncio.Event = field(default_factory=asyncio.Event)
     error: BaseException | None = None
+    # 仅在 client.query() 正常返回后置真；与 sent 分开，因为失败 complete()
+    # 也会唤醒 sent，但那不代表请求已被 SDK 受理。
+    accepted: bool = False
 
     def complete(self, error: BaseException | None = None) -> None:
         """唤醒所有等待者（sent + done）并可选携带 error。
@@ -102,6 +105,7 @@ class SessionActor:
                 try:
                     await client.query(cmd.prompt, session_id=cmd.session_id)
                     # prompt 已送入 SDK：释放 HTTP 路径，actor 继续在后台 drain 消息流
+                    cmd.accepted = True
                     cmd.sent.set()
                     deferred_cmd = await self._drive_query(client, cmd)
                 except BaseException as exc:

@@ -2,6 +2,7 @@ import type { ContentBlock, Turn } from "@/types";
 import { cn } from "./utils";
 import { getRoleLabel } from "./utils";
 import { ContentBlockRenderer } from "./ContentBlockRenderer";
+import { AgentFailureCard } from "./AgentFailureCard";
 
 // ---------------------------------------------------------------------------
 // ChatMessage – renders a full conversation turn (user, assistant, or system).
@@ -31,6 +32,12 @@ export function ChatMessage({ message, streaming }: ChatMessageProps) {
   // Skip empty messages
   if (blocks.length === 0) {
     return null;
+  }
+
+  // Agent 故障是写入点定型的系统事件，不套用普通消息气泡或“系统”角色标签。
+  const soleBlock = blocks.length === 1 ? blocks[0] : undefined;
+  if (messageType === "system" && soleBlock?.type === "agent_failure" && soleBlock.failure) {
+    return <AgentFailureCard failure={soleBlock.failure} />;
   }
 
   // Determine styling based on message type

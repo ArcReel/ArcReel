@@ -298,6 +298,26 @@ class SdkTranscriptAdapter:
             "timestamp": timestamp,
         }
 
+        # SDK SessionMessage 重建类型不暴露 assistant.error，而原始 payload
+        # 保留该结构化标记。仅在确认为错误消息时回填完整故障对象，避免普通
+        # transcript 条目无谓复制一份原始 payload。
+        error = getattr(msg, "error", None)
+        if error is None and payload is not None:
+            error = payload.get("error")
+        if error is not None and result["type"] == "assistant":
+            result["error"] = error
+            if isinstance(message_data, dict):
+                for source_key, target_key in (
+                    ("model", "model"),
+                    ("id", "message_id"),
+                    ("stop_reason", "stop_reason"),
+                    ("usage", "usage"),
+                ):
+                    if source_key in message_data:
+                        result[target_key] = message_data[source_key]
+            if payload is not None:
+                result["raw_transcript_payload"] = payload
+
         tool_use_result = getattr(msg, "tool_use_result", None)
         if tool_use_result is None and payload is not None:
             tool_use_result = payload.get("toolUseResult")

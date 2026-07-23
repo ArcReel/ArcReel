@@ -179,6 +179,55 @@ class TestSdkTranscriptAdapterStorePath:
         fake_store.load.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_read_via_store_preserves_structured_assistant_error_payload(self):
+        """重建事件日志时不能再次把 SDK error 标记和原始故障字段丢掉。"""
+        mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
+        mock_msg.type = "assistant"
+        mock_msg.message = {
+            "id": "msg-error",
+            "model": "<synthetic>",
+            "content": [{"type": "text", "text": "upstream raw message"}],
+            "stop_reason": "stop_sequence",
+            "usage": {"input_tokens": 0},
+        }
+        mock_msg.uuid = "uuid-error"
+        mock_msg.parent_tool_use_id = None
+
+        raw_payload = {
+            "type": "assistant",
+            "uuid": "uuid-error",
+            "timestamp": "2026-07-23T01:02:03Z",
+            "error": "invalid_request",
+            "isApiErrorMessage": True,
+            "future_transcript_field": {"kept": "verbatim"},
+            "message": mock_msg.message,
+        }
+        fake_store = MagicMock()
+        fake_store.load = AsyncMock(return_value=[raw_payload])
+
+        with patch(
+            "server.agent_runtime.sdk_transcript_adapter.get_session_messages_from_store",
+            new=AsyncMock(return_value=[mock_msg]),
+        ):
+            adapter = SdkTranscriptAdapter(store=fake_store)
+            result = await adapter.read_raw_messages("sdk-session", project_cwd="/tmp/proj")
+
+        assert result == [
+            {
+                "type": "assistant",
+                "content": [{"type": "text", "text": "upstream raw message"}],
+                "uuid": "uuid-error",
+                "timestamp": "2026-07-23T01:02:03Z",
+                "error": "invalid_request",
+                "model": "<synthetic>",
+                "message_id": "msg-error",
+                "stop_reason": "stop_sequence",
+                "usage": {"input_tokens": 0},
+                "raw_transcript_payload": raw_payload,
+            }
+        ]
+
+    @pytest.mark.asyncio
     async def test_read_via_store_backfills_tool_use_result_from_store_payload(self):
         """AskUserQuestion 等工具的结构化结果（toolUseResult）从 store payload 回填，
         懒生成重放据此产出与 live 相同的 typed 答复条目。"""

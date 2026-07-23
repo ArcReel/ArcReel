@@ -106,6 +106,20 @@ class TestNormalize:
         )
         assert entries[0]["content"][0]["type"] == "tool_use"
 
+    def test_one_shot_assistant_error_becomes_a_failure_event(self):
+        entries = normalize_sdk_message_to_entries(
+            {
+                "type": "assistant",
+                "error": "invalid_request",
+                "content": [{"type": "text", "text": "raw upstream message"}],
+            }
+        )
+
+        assert len(entries) == 1
+        assert entries[0]["type"] == "system"
+        assert entries[0]["subtype"] == "agent_turn_failure"
+        assert entries[0]["failure"]["summary"]["message"] == "raw upstream message"
+
     def test_tool_result_blocks_become_independent_entries(self):
         entries = normalize_sdk_message_to_entries(
             {
@@ -595,6 +609,36 @@ class TestSkillInvocationTyping:
         assert main_entries[0]["skill_name"] == "main-skill"
         assert main_entries[0]["tool_use_id"] == "tu-main"
 
+    def test_failure_state_is_keyed_by_parent_context(self):
+        """交错的主线与 subagent 故障对象不能被拼成一份虚假的观测。"""
+        normalizer = SdkMessageNormalizer()
+        assert (
+            normalizer.normalize(
+                {
+                    "type": "assistant",
+                    "parent_tool_use_id": "tu-agent-a",
+                    "error": "assistant-error-a",
+                    "content": [{"type": "text", "text": "assistant A"}],
+                }
+            )
+            == []
+        )
+
+        result_entries = normalizer.normalize(
+            {
+                "type": "result",
+                "parent_tool_use_id": "tu-agent-b",
+                "is_error": True,
+                "errors": ["result B"],
+            }
+        )
+        pending_entries = normalizer.flush_pending_failure()
+
+        assert result_entries[0]["parent_tool_use_id"] == "tu-agent-b"
+        assert set(result_entries[0]["failure"]["raw"]) == {"result_message"}
+        assert pending_entries[0]["parent_tool_use_id"] == "tu-agent-a"
+        assert set(pending_entries[0]["failure"]["raw"]) == {"assistant_message"}
+
     def test_mixed_user_message_splits_tool_result_skill_and_text(self):
         normalizer = SdkMessageNormalizer()
         entries = normalizer.normalize(
@@ -991,6 +1035,36 @@ class TestLazyBackfill:
         assert len(again) == 2
         assert adapter.read_count == 1
 
+    async def test_backfill_preserves_assistant_error_as_turn_failure_without_result(
+        self,
+        log_store: EventLogStore,
+    ):
+        adapter = _FakeAdapter(
+            [
+                {
+                    "type": "assistant",
+                    "error": "invalid_request",
+                    "model": "<synthetic>",
+                    "content": [{"type": "text", "text": "raw upstream error"}],
+                    "uuid": "a-error",
+                    "timestamp": "2026-07-23T01:02:03Z",
+                    "raw_transcript_payload": {"future_field": "preserved"},
+                }
+            ]
+        )
+        service = EventLogService(log_store, adapter)
+
+        entries = await service.list_entries("old-session", "/data/projects/demo")
+
+        assert len(entries) == 1
+        assert entries[0]["type"] == "system"
+        assert entries[0]["subtype"] == "agent_turn_failure"
+        assert entries[0]["failure"]["project_name"] == "demo"
+        assert entries[0]["failure"]["session_id"] == "old-session"
+        assert entries[0]["failure"]["raw"]["assistant_message"]["raw_transcript_payload"] == {
+            "future_field": "preserved"
+        }
+
     async def test_concurrent_first_access_backfills_once(self, log_store: EventLogStore):
         adapter = _FakeAdapter([{"type": "user", "content": "hi", "uuid": "u1"}])
         service = EventLogService(log_store, adapter)
@@ -1047,10 +1121,10 @@ class TestLazyBackfill:
 
         original_normalize = SdkMessageNormalizer.normalize
 
-        def _boom_on_poison(self, message):
+        def _boom_on_poison(self, message, **kwargs):
             if message.get("uuid") == "poison":
                 raise ValueError("boom")
-            return original_normalize(self, message)
+            return original_normalize(self, message, **kwargs)
 
         monkeypatch.setattr(SdkMessageNormalizer, "normalize", _boom_on_poison)
 

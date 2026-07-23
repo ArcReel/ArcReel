@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { API, ConflictError } from "@/api";
+import { AgentFailureError, API, ConflictError } from "@/api";
 
 type JsonResponseOptions = {
   ok?: boolean;
@@ -84,6 +84,49 @@ describe("API", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       await expect(API.request("/projects")).rejects.toThrow("Service Unavailable");
+    });
+
+    it("preserves a structured Agent startup failure observation", async () => {
+      const failure = {
+        version: 1,
+        phase: "startup" as const,
+        timestamp: "2026-07-23T01:02:03Z",
+        project_name: "demo",
+        session_id: null,
+        summary: {
+          source: "local_exception",
+          type: "NotImplementedError",
+          message: null,
+        },
+        raw: {
+          exception_chain: [{ type: "NotImplementedError", message: "", vendor_field: "keep-me" }],
+          sdk_stderr: "stderr evidence",
+        },
+      };
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+        mockResponse({
+          ok: false,
+          status: 502,
+          statusText: "Bad Gateway",
+          jsonData: {
+            detail: {
+              code: "agent_startup_failed",
+              message: "Agent 启动失败",
+              failure,
+            },
+          },
+        }),
+      ));
+
+      try {
+        await API.sendAssistantMessage("demo", "hello");
+        expect.fail("request should fail");
+      } catch (error) {
+        expect(error).toBeInstanceOf(AgentFailureError);
+        expect((error as AgentFailureError).message).toBe("Agent 启动失败");
+        expect((error as AgentFailureError).code).toBe("agent_startup_failed");
+        expect((error as AgentFailureError).failure).toEqual(failure);
+      }
     });
 
     it("clears auth and redirects on unauthorized responses", async () => {

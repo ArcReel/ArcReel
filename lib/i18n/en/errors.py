@@ -116,6 +116,7 @@ MESSAGES = {
     "session_or_project_not_found": "Session or project does not exist",
     "sdk_session_timeout": "SDK session creation timed out",
     "agent_startup_failed": "Failed to start agent:\n{details}",
+    "agent_startup_failed_title": "Failed to start agent",
     "interface_offline": "This interface is offline, please use the recommended interface",
     "answers_required": "answers cannot be empty",
     # Custom Providers
