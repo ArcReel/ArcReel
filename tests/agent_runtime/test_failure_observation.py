@@ -51,17 +51,20 @@ def test_binary_payload_redacts_embedded_text_credentials_without_discarding_oth
 
 
 def test_startup_observation_redacts_prefixed_environment_secret_names() -> None:
-    secrets = ["openai-secret", "dashscope-secret", "custom-secret"]
+    secrets = ["openai-secret", "dashscope-secret", "custom-secret", "json-openai-secret", "json-auth-secret"]
     observation = build_startup_failure_observation(
         RuntimeError("provider failed"),
         project_name="demo",
         session_id=None,
-        sdk_stderr=(f"OPENAI_API_KEY={secrets[0]}\nDASHSCOPE_API_KEY: {secrets[1]}\nMY_AUTH_TOKEN={secrets[2]}"),
+        sdk_stderr=(
+            f"OPENAI_API_KEY={secrets[0]}\nDASHSCOPE_API_KEY: {secrets[1]}\nMY_AUTH_TOKEN={secrets[2]}\n"
+            f'{{"OPENAI_API_KEY":"{secrets[3]}","MY_AUTH_TOKEN": "{secrets[4]}"}}'
+        ),
     )
 
     rendered = json.dumps(observation, ensure_ascii=False)
     assert all(secret not in rendered for secret in secrets)
-    assert rendered.count("••••") == 3
+    assert rendered.count("••••") == 5
 
 
 def test_turn_observation_falls_back_to_result_message_when_assistant_has_no_text() -> None:

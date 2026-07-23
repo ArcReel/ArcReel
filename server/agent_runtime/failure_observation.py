@@ -24,8 +24,9 @@ _AUTH_LINE_RE = re.compile(r"(?im)^(\s*(?:proxy-)?authorization\s*:\s*).*$")
 _BEARER_RE = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+")
 _INLINE_SECRET_RE = re.compile(
     r"(?i)((?<![A-Za-z0-9])(?:[A-Za-z][A-Za-z0-9]*[_-])*"
-    r"(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd|pwd)\s*[=:]\s*)"
-    r"([^\s,;&]+)"
+    r"(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd|pwd)"
+    r"(?:\s*[=:]\s*|\s*['\"]\s*:\s*['\"]?))"
+    r"([^\s,;&'\"}]+)"
 )
 _SIGNED_QUERY_RE = re.compile(
     r"(?i)([?&](?:x-amz-signature|x-goog-signature|signature|sig|access_token|auth_token|token|api_key|key|password)=)([^&#\s]*)"
