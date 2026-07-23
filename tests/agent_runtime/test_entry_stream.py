@@ -99,7 +99,7 @@ def _collect(event: ServerSentEvent) -> tuple[str, dict, str | None]:
 
 
 class TestStreamEntryEvents:
-    async def test_startup_failure_events_persist_entry_before_error_status(self, entry_service):
+    async def test_startup_failure_events_are_ephemeral_and_end_with_error_status(self, entry_service):
         service, store = entry_service
         failure = {
             "version": 1,
@@ -112,8 +112,9 @@ class TestStreamEntryEvents:
 
         assert [name for name, _, _ in events] == ["entry", "status"]
         assert events[0][1]["subtype"] == "agent_turn_failure"
+        assert events[0][1]["failure"] == failure
         assert events[1][1]["status"] == "error"
-        assert (await store.list_after(SESSION_ID))[0]["failure"] == failure
+        assert await store.list_after(SESSION_ID) == []
 
     async def test_non_running_emits_entries_then_terminal_status(self, entry_service):
         service, store = entry_service

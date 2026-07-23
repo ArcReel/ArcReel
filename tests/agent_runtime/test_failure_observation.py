@@ -43,6 +43,24 @@ def test_startup_observation_redacts_structured_bare_token_field() -> None:
     assert secret not in json.dumps(observation)
 
 
+def test_startup_observation_preserves_unknown_fields_containing_sensitive_words() -> None:
+    exc = RuntimeError("provider failed")
+    exc.response = {  # type: ignore[attr-defined]
+        "secret_reason": "credential rejected by upstream",
+        "cookie_policy": "same-site",
+        "authorization_status": "denied",
+    }
+
+    observation = build_startup_failure_observation(exc, project_name="demo", session_id=None, sdk_stderr="")
+
+    attributes = observation["raw"]["exception_chain"][0]["attributes"]["response"]
+    assert attributes == {
+        "secret_reason": "credential rejected by upstream",
+        "cookie_policy": "same-site",
+        "authorization_status": "denied",
+    }
+
+
 def test_binary_payload_redacts_embedded_text_credentials_without_discarding_other_bytes() -> None:
     secret = b"bytes-secret-must-not-leak"
     exc = RuntimeError("binary response")

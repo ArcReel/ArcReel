@@ -86,7 +86,7 @@ class TestSdkTranscriptAdapterLegacyPath:
         assert result[0]["type"] == "assistant"
         assert result[0]["content"] == [{"type": "text", "text": "Hello"}]
 
-    async def test_legacy_result_preserves_public_failure_fields(self):
+    async def test_legacy_result_does_not_backfill_failure_fields(self):
         mock_msg = MagicMock(
             spec=[
                 "type",
@@ -115,11 +115,12 @@ class TestSdkTranscriptAdapterLegacyPath:
         with patch("server.agent_runtime.sdk_transcript_adapter.get_session_messages", return_value=[mock_msg]):
             result = await SdkTranscriptAdapter().read_raw_messages("sdk-session")
 
-        assert result[0]["subtype"] == "error_during_execution"
-        assert result[0]["is_error"] is True
-        assert result[0]["api_error_status"] == 429
-        assert result[0]["errors"] == ["rate limited"]
-        assert result[0]["result"] == "failed"
+        assert result[0] == {
+            "type": "result",
+            "content": "",
+            "uuid": "legacy-result",
+            "timestamp": None,
+        }
 
 
 class TestSdkTranscriptAdapterStorePath:
@@ -216,121 +217,6 @@ class TestSdkTranscriptAdapterStorePath:
 
         assert result[0]["timestamp"] == "2026-05-01T01:00:00Z"
         fake_store.load.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_read_via_store_preserves_structured_assistant_error_payload(self):
-        """重建事件日志时不能再次把 SDK error 标记和原始故障字段丢掉。"""
-        mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
-        mock_msg.type = "assistant"
-        mock_msg.message = {
-            "id": "msg-error",
-            "model": "<synthetic>",
-            "content": [{"type": "text", "text": "upstream raw message"}],
-            "stop_reason": "stop_sequence",
-            "usage": {"input_tokens": 0},
-        }
-        mock_msg.uuid = "uuid-error"
-        mock_msg.parent_tool_use_id = None
-
-        raw_payload = {
-            "type": "assistant",
-            "uuid": "uuid-error",
-            "timestamp": "2026-07-23T01:02:03Z",
-            "error": "invalid_request",
-            "isApiErrorMessage": True,
-            "future_transcript_field": {"kept": "verbatim"},
-            "message": mock_msg.message,
-        }
-        fake_store = MagicMock()
-        fake_store.load = AsyncMock(return_value=[raw_payload])
-
-        with patch(
-            "server.agent_runtime.sdk_transcript_adapter.get_session_messages_from_store",
-            new=AsyncMock(return_value=[mock_msg]),
-        ):
-            adapter = SdkTranscriptAdapter(store=fake_store)
-            result = await adapter.read_raw_messages("sdk-session", project_cwd="/tmp/proj")
-
-        assert result == [
-            {
-                "type": "assistant",
-                "content": [{"type": "text", "text": "upstream raw message"}],
-                "uuid": "uuid-error",
-                "timestamp": "2026-07-23T01:02:03Z",
-                "error": "invalid_request",
-                "model": "<synthetic>",
-                "message_id": "msg-error",
-                "stop_reason": "stop_sequence",
-                "usage": {"input_tokens": 0},
-                "raw_transcript_payload": raw_payload,
-            }
-        ]
-
-    @pytest.mark.asyncio
-    async def test_read_via_store_preserves_result_only_failure_payload(self):
-        """没有 assistant(error) 的失败 result 也必须足以重建故障事件。"""
-        mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
-        mock_msg.type = "result"
-        mock_msg.message = {}
-        mock_msg.uuid = "uuid-result-error"
-        mock_msg.parent_tool_use_id = None
-
-        raw_payload = {
-            "type": "result",
-            "uuid": "uuid-result-error",
-            "timestamp": "2026-07-23T01:02:04Z",
-            "subtype": "success",
-            "is_error": True,
-            "api_error_status": 429,
-            "errors": ["rate limited"],
-            "future_result_field": {"request_id": "req-visible"},
-        }
-        fake_store = MagicMock()
-        fake_store.load = AsyncMock(return_value=[raw_payload])
-
-        with patch(
-            "server.agent_runtime.sdk_transcript_adapter.get_session_messages_from_store",
-            new=AsyncMock(return_value=[mock_msg]),
-        ):
-            adapter = SdkTranscriptAdapter(store=fake_store)
-            result = await adapter.read_raw_messages("sdk-session", project_cwd="/tmp/proj")
-
-        assert result[0]["subtype"] == "success"
-        assert result[0]["is_error"] is True
-        assert result[0]["api_error_status"] == 429
-        assert result[0]["errors"] == ["rate limited"]
-        assert result[0]["future_result_field"] == {"request_id": "req-visible"}
-        assert result[0]["raw_transcript_payload"] == raw_payload
-
-    @pytest.mark.asyncio
-    async def test_read_via_store_merges_error_subtype_payload_without_is_error(self):
-        mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
-        mock_msg.type = "result"
-        mock_msg.message = {}
-        mock_msg.uuid = "uuid-result-subtype"
-        mock_msg.parent_tool_use_id = None
-        raw_payload = {
-            "type": "result",
-            "uuid": "uuid-result-subtype",
-            "subtype": "error_during_execution",
-            "errors": ["upstream failed"],
-            "future_result_field": {"request_id": "req-visible"},
-        }
-        fake_store = MagicMock()
-        fake_store.load = AsyncMock(return_value=[raw_payload])
-
-        with patch(
-            "server.agent_runtime.sdk_transcript_adapter.get_session_messages_from_store",
-            new=AsyncMock(return_value=[mock_msg]),
-        ):
-            result = await SdkTranscriptAdapter(store=fake_store).read_raw_messages(
-                "sdk-session", project_cwd=os.path.join(tempfile.gettempdir(), "proj")
-            )
-
-        assert result[0]["subtype"] == "error_during_execution"
-        assert result[0]["errors"] == ["upstream failed"]
-        assert result[0]["future_result_field"] == {"request_id": "req-visible"}
-        assert result[0]["raw_transcript_payload"] == raw_payload
 
     @pytest.mark.asyncio
     async def test_read_via_store_backfills_tool_use_result_from_store_payload(self):

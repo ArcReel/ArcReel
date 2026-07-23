@@ -298,43 +298,6 @@ class SdkTranscriptAdapter:
             "timestamp": timestamp,
         }
 
-        # SDK SessionMessage 重建类型不暴露 assistant.error，而原始 payload
-        # 保留该结构化标记。仅在确认为错误消息时回填完整故障对象，避免普通
-        # transcript 条目无谓复制一份原始 payload。
-        error = getattr(msg, "error", None)
-        if error is None and payload is not None:
-            error = payload.get("error")
-        if error is not None and result["type"] == "assistant":
-            result["error"] = error
-            if isinstance(message_data, dict):
-                for source_key, target_key in (
-                    ("model", "model"),
-                    ("id", "message_id"),
-                    ("stop_reason", "stop_reason"),
-                    ("usage", "usage"),
-                ):
-                    if source_key in message_data:
-                        result[target_key] = message_data[source_key]
-            if payload is not None:
-                result["raw_transcript_payload"] = payload
-
-        # ResultMessage 公开对象与 store raw payload 都可能各自只携带部分失败字段。
-        # 先无条件保留公开属性（legacy/off 路径没有 payload），再按 is_error 或
-        # error_* subtype 决定是否合并完整 raw payload。
-        if result["type"] == "result":
-            for key in ("subtype", "is_error", "api_error_status", "errors", "result"):
-                value = getattr(msg, key, None)
-                if value is not None:
-                    result[key] = value
-
-            payload_is_error = payload.get("is_error") if payload is not None else None
-            payload_subtype = payload.get("subtype") if payload is not None else None
-            result_is_error = result.get("is_error") is True or payload_is_error is True
-            result_subtype = str(result.get("subtype") or payload_subtype or "").strip().lower()
-            if payload is not None and (result_is_error or result_subtype.startswith("error")):
-                result.update(payload)
-                result["raw_transcript_payload"] = payload
-
         tool_use_result = getattr(msg, "tool_use_result", None)
         if tool_use_result is None and payload is not None:
             tool_use_result = payload.get("toolUseResult")

@@ -186,6 +186,24 @@ async def test_send_new_session_no_stderr_still_wraps(
 
 
 @pytest.mark.asyncio
+async def test_send_new_session_wraps_option_assembly_failure(
+    session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(SessionManager, "_ensure_capacity", AsyncMock(return_value=None))
+    monkeypatch.setattr(SessionManager, "_build_options", AsyncMock(side_effect=LookupError("credential missing")))
+
+    with pytest.raises(AgentStartupError) as exc_info:
+        await session_manager.send_new_session("demo", "你好")
+
+    failure = exc_info.value.failure_observation
+    assert failure is not None
+    assert failure["phase"] == "startup"
+    assert failure["summary"]["type"] == "LookupError"
+    assert failure["summary"]["message"] == "credential missing"
+    assert session_manager.sessions == {}
+
+
+@pytest.mark.asyncio
 async def test_get_or_connect_wraps_actor_failure_with_stderr(
     session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:

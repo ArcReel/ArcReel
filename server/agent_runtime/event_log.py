@@ -26,6 +26,7 @@ from lib.db.models.session_event import AgentSessionEventLogEntry
 from server.agent_runtime.failure_observation import build_turn_failure_observation
 from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.message_serialization import utc_now_iso
+from server.agent_runtime.result_status import result_indicates_error
 from server.agent_runtime.turn_schema import _stringify_content, normalize_content
 
 logger = logging.getLogger(__name__)
@@ -183,14 +184,6 @@ def build_user_entry(
     }
 
 
-def _is_failure_result(message: dict[str, Any]) -> bool:
-    session_status = str(message.get("session_status") or "").strip().lower()
-    if session_status == "interrupted":
-        return False
-    subtype = str(message.get("subtype") or "").strip().lower()
-    return session_status == "error" or message.get("is_error") is True or subtype.startswith("error")
-
-
 def _build_turn_failure_entry(
     *,
     assistant_message: dict[str, Any] | None,
@@ -256,7 +249,8 @@ class SdkMessageNormalizer:
     保证两条路径产出相同的 typed 条目。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, capture_failures: bool = True) -> None:
+        self._capture_failures = capture_failures
         # 上下文 → 未被注入消息消费的 Skill tool_use 元数据队列（FIFO）。
         # 同一上下文可能并发发起多个 Skill 调用（同一 assistant 消息内多个
         # tool_use 块），按调用顺序逐一消费，避免后一个覆盖前一个。
@@ -282,7 +276,7 @@ class SdkMessageNormalizer:
         msg_type = message.get("type")
 
         if msg_type == "assistant":
-            if message.get("error") is not None:
+            if self._capture_failures and message.get("error") is not None:
                 parent = _extract_parent(message)
                 entries = self._flush_pending_failure_for(
                     parent,
@@ -311,11 +305,13 @@ class SdkMessageNormalizer:
             return [entry]
 
         if msg_type == "result":
+            if not self._capture_failures:
+                return []
             parent = _extract_parent(message)
             assistant = self._pending_turn_failures.pop(parent, None)
             was_interrupted = parent in self._interrupted_contexts
             self._interrupted_contexts.discard(parent)
-            if assistant is not None or (_is_failure_result(message) and not was_interrupted):
+            if assistant is not None or (result_indicates_error(message) and not was_interrupted):
                 return [
                     _build_turn_failure_entry(
                         assistant_message=assistant,
@@ -862,7 +858,9 @@ class EventLogService:
             except Exception:
                 logger.exception("subagent 子时间线读取失败，跳过合并 session_id=%s", session_id)
                 subagent_groups = {}
-            normalizer = SdkMessageNormalizer()
+            # 历史 transcript 只重建既有时间线；ADR 0052 明确禁止据此
+            # 反推并新增故障事件。故障定型只发生在 live 写入点。
+            normalizer = SdkMessageNormalizer(capture_failures=False)
             entries: list[dict[str, Any]] = []
             project_name = Path(project_cwd).name if project_cwd is not None else None
 

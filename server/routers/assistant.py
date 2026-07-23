@@ -30,6 +30,24 @@ def get_assistant_service() -> AssistantService:
     return assistant_service
 
 
+def agent_startup_failure_detail(
+    exc: AgentStartupError,
+    *,
+    project_name: str,
+    session_id: str | None,
+    title: str,
+) -> dict:
+    """把 runtime 启动异常映射为两个 Agent API 共用的结构化错误。"""
+    original = exc.__cause__ or exc
+    failure = exc.failure_observation or build_startup_failure_observation(
+        original,
+        project_name=project_name,
+        session_id=session_id,
+        sdk_stderr=exc.sdk_stderr,
+    )
+    return {"code": "agent_startup_failed", "message": title, "failure": failure}
+
+
 async def _validate_session_ownership(
     service: AssistantService, session_id: str, project_name: str, _t: Callable[..., str]
 ) -> "SessionMeta":
@@ -102,20 +120,14 @@ async def send_message(
         logger.warning("会话发送请求非法: %s", exc)
         raise BadRequestError("request_invalid") from exc
     except AgentStartupError as exc:
-        original = exc.__cause__ or exc
-        failure = exc.failure_observation or build_startup_failure_observation(
-            original,
-            project_name=project_name,
-            session_id=req.session_id,
-            sdk_stderr=exc.sdk_stderr,
-        )
         raise HTTPException(
             status_code=502,
-            detail={
-                "code": "agent_startup_failed",
-                "message": _t("agent_startup_failed_title"),
-                "failure": failure,
-            },
+            detail=agent_startup_failure_detail(
+                exc,
+                project_name=project_name,
+                session_id=req.session_id,
+                title=_t("agent_startup_failed_title"),
+            ),
         )
     except Exception:
         logger.exception("请求处理失败")
@@ -239,14 +251,13 @@ async def stream_entries(
     except HTTPException:
         raise
     except AgentStartupError as exc:
-        original = exc.__cause__ or exc
-        failure = exc.failure_observation or build_startup_failure_observation(
-            original,
+        detail = agent_startup_failure_detail(
+            exc,
             project_name=project_name,
             session_id=session_id,
-            sdk_stderr=exc.sdk_stderr,
+            title=_t("agent_startup_failed_title"),
         )
-        async for event in service.stream_startup_failure_events(session_id, failure):
+        async for event in service.stream_startup_failure_events(session_id, detail["failure"]):
             yield event
     except Exception:
         logger.exception("请求处理失败")

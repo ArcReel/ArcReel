@@ -16,8 +16,9 @@ from typing import Any
 
 _REDACTED = "••••"
 _SENSITIVE_KEY_RE = re.compile(
+    r"(?:[A-Za-z][A-Za-z0-9]*[_-])*"
     r"(?:api[_-]?key|authorization|cookie|password|passwd|pwd|secret|access[_-]?token|auth[_-]?token|"
-    r"bearer[_-]?token|(?:^|[_-])token$)",
+    r"bearer[_-]?token|token)",
     re.IGNORECASE,
 )
 _COOKIE_LINE_RE = re.compile(r"(?im)^(\s*(?:set-)?cookie\s*:\s*).*$")
@@ -77,7 +78,7 @@ def redact_failure_text(value: Any) -> str:
 
 def _json_safe(value: Any, *, key_hint: str | None = None, stack: set[int] | None = None) -> Any:
     """无截断地转成 JSON 安全值，并按字段名与文本形态做最小脱敏。"""
-    if key_hint and _SENSITIVE_KEY_RE.search(key_hint):
+    if key_hint and _SENSITIVE_KEY_RE.fullmatch(key_hint):
         return None if value is None else _REDACTED
 
     if value is None or isinstance(value, bool | int):

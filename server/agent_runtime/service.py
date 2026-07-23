@@ -43,6 +43,7 @@ from server.agent_runtime.event_log import (
 )
 from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.models import Heartbeat, LiveMessage, SessionMeta, SessionStatus, SubscriptionReady
+from server.agent_runtime.result_status import resolve_result_status
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
@@ -597,11 +598,10 @@ class AssistantService:
         session_id: str,
         failure: dict[str, Any],
     ) -> AsyncIterator[ServerSentEvent]:
-        """冷恢复启动失败时持久化故障条目，并以 entry → status 顺序结束 SSE。"""
+        """即时发送冷恢复启动失败；只落终态，不把故障详情写入历史。"""
         entry = build_turn_failure_entry_from_observation(failure)
-        appended = await self.event_log_store.append(session_id, [entry])
         await self.meta_store.update_status(session_id, "error")
-        yield self._entry_sse_event(appended[0])
+        yield self._sse_event("entry", entry)
         yield self._sse_event(
             "status",
             self._build_status_event_payload(status="error", session_id=session_id),
@@ -664,14 +664,7 @@ class AssistantService:
     @staticmethod
     def _resolve_result_status(result_message: dict[str, Any]) -> SessionStatus:
         """Map SDK result subtype/is_error to runtime session status."""
-        explicit_status = str(result_message.get("session_status") or "").strip()
-        if explicit_status in {"idle", "running", "completed", "error", "interrupted"}:
-            return explicit_status  # type: ignore[return-value]
-        subtype = str(result_message.get("subtype") or "").strip().lower()
-        is_error = bool(result_message.get("is_error"))
-        if is_error or subtype.startswith("error"):
-            return "error"
-        return "completed"
+        return resolve_result_status(result_message)
 
     @staticmethod
     def _build_status_event_payload(

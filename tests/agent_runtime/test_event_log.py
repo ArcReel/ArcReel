@@ -1056,7 +1056,7 @@ class TestLazyBackfill:
         assert len(again) == 2
         assert adapter.read_count == 1
 
-    async def test_backfill_preserves_assistant_error_as_turn_failure_without_result(
+    async def test_backfill_preserves_historical_assistant_error_as_assistant_message(
         self,
         log_store: EventLogStore,
     ):
@@ -1078,13 +1078,8 @@ class TestLazyBackfill:
         entries = await service.list_entries("old-session", "/data/projects/demo")
 
         assert len(entries) == 1
-        assert entries[0]["type"] == "system"
-        assert entries[0]["subtype"] == "agent_turn_failure"
-        assert entries[0]["failure"]["project_name"] == "demo"
-        assert entries[0]["failure"]["session_id"] == "old-session"
-        assert entries[0]["failure"]["raw"]["assistant_message"]["raw_transcript_payload"] == {
-            "future_field": "preserved"
-        }
+        assert entries[0]["type"] == "assistant"
+        assert entries[0]["content"] == [{"type": "text", "text": "raw upstream error"}]
 
     async def test_concurrent_first_access_backfills_once(self, log_store: EventLogStore):
         adapter = _FakeAdapter([{"type": "user", "content": "hi", "uuid": "u1"}])
@@ -1194,7 +1189,7 @@ class TestLazyBackfill:
         assert entries[3]["task_id"] == "t1"
         assert entries[4]["subtype"] == "interrupt"
 
-    async def test_backfill_treats_error_subtype_as_failure_without_is_error(self, log_store: EventLogStore):
+    async def test_backfill_does_not_reclassify_historical_result_as_failure(self, log_store: EventLogStore):
         adapter = _FakeAdapter(
             [
                 {"type": "user", "content": "开始", "uuid": "u1"},
@@ -1210,9 +1205,7 @@ class TestLazyBackfill:
 
         entries = await service.list_entries("old-session", None)
 
-        assert [entry["type"] for entry in entries] == ["user", "system"]
-        assert entries[1]["subtype"] == "agent_turn_failure"
-        assert entries[1]["failure"]["summary"]["message"] == "upstream failed"
+        assert [entry["type"] for entry in entries] == ["user"]
 
     async def test_backfill_collapses_adjacent_interrupt_echoes(self, log_store: EventLogStore):
         """相邻 interrupt echo（SDK 回显 + 竞态副本）在写入点去重，只产出一条。"""
