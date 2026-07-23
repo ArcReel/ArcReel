@@ -71,10 +71,15 @@ def _json_safe(value: Any, *, key_hint: str | None = None, stack: set[int] | Non
     if isinstance(value, str):
         return _redact_text(value)
     if isinstance(value, bytes | bytearray):
+        raw = bytes(value)
+        # 凭据通常以 ASCII 文本嵌在响应体中；surrogateescape 让无法解码的
+        # 二进制字节可逆往返，同时仍能对可识别文本应用同一脱敏规则。
+        decoded = raw.decode("utf-8", errors="surrogateescape")
+        sanitized = _redact_text(decoded).encode("utf-8", errors="surrogateescape")
         return {
             "type": type(value).__name__,
             "encoding": "base64",
-            "data": base64.b64encode(bytes(value)).decode("ascii"),
+            "data": base64.b64encode(sanitized).decode("ascii"),
         }
     if isinstance(value, Path):
         return str(value)

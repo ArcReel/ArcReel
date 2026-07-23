@@ -303,16 +303,17 @@ class SessionEntryPipeline:
             return
         await self._append_normalized(session_id, entries)
 
-    async def flush_pending_failures(self) -> None:
+    async def flush_pending_failures(self) -> bool:
         """actor/result 提前消失时，把已收到的 assistant(error) 作为观测落库。"""
         session_id = self._session_id_provider()
         if not session_id:
-            return
+            return False
         entries = self._normalizer.flush_pending_failure(
             project_name=self._project_name_provider(),
             session_id=session_id,
         )
         await self._append_normalized(session_id, entries)
+        return bool(entries)
 
     async def append_failure_observation(self, observation: dict[str, Any]) -> None:
         """持久化 actor 等本地运行时已构造、已脱敏的轮次故障观测。"""

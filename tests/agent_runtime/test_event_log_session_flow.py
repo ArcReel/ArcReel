@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from server.agent_runtime.event_log import EventLogStore, build_user_entry
+from server.agent_runtime.models import LiveMessage, SubscriptionReady
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import FakeSDKClient
@@ -282,6 +283,49 @@ class TestNewSessionEventLogFlow:
         finally:
             await manager.close_session(SDK_ID)
 
+    async def test_assistant_error_without_result_flushes_failure_and_ends_turn(self, manager: SessionManager):
+        messages = [
+            {"type": "system", "subtype": "init", "session_id": SDK_ID, "uuid": "init-no-result"},
+            {"type": "user", "content": "你好", "uuid": "sdk-u-no-result", "session_id": SDK_ID},
+            {
+                "type": "assistant",
+                "error": "server_error",
+                "content": [{"type": "text", "text": "upstream stream ended"}],
+                "uuid": "a-no-result",
+                "session_id": SDK_ID,
+            },
+        ]
+
+        class MissingResultSDKClient(FakeSDKClient):
+            async def receive_response(self):
+                self._record("receive_response")
+                for message in messages:
+                    yield message
+
+        client = MissingResultSDKClient()
+        fake_options = SimpleNamespace(env=None)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            await manager.send_new_session(
+                "demo",
+                "你好",
+                user_entry=build_user_entry([{"type": "text", "text": "你好"}]),
+                client_key="ck-no-result",
+            )
+
+        try:
+            entries = await _wait_for_entries(manager.event_log_store, SDK_ID, 2, timeout=1.0)
+            await _wait_for_status(manager, SDK_ID, "error", timeout=1.0)
+            assert [entry["type"] for entry in entries] == ["user", "system"]
+            assert entries[1]["subtype"] == "agent_turn_failure"
+            assert entries[1]["failure"]["raw"]["assistant_message"]["uuid"] == "a-no-result"
+        finally:
+            await manager.close_session(SDK_ID)
+
     async def test_actor_crash_becomes_a_redacted_turn_failure_event(
         self,
         manager: SessionManager,
@@ -332,6 +376,51 @@ class TestNewSessionEventLogFlow:
             assert secret not in str(failure_entry)
             assert failure_entry["failure"]["raw"]["exception_chain"][0]["message"].endswith("api_key=••••")
             assert secret not in "\n".join(record.getMessage() for record in caplog.records)
+        finally:
+            await manager.close_session(SDK_ID)
+
+    async def test_actor_crash_streams_failure_entry_before_terminal_status(self, manager: SessionManager):
+        crash = asyncio.Event()
+
+        class CrashingSDKClient(FakeSDKClient):
+            async def receive_response(self):
+                self._record("receive_response")
+                yield {"type": "system", "subtype": "init", "session_id": SDK_ID, "uuid": "init-live-crash"}
+                yield {"type": "user", "content": "你好", "session_id": SDK_ID, "uuid": "sdk-u-live-crash"}
+                await crash.wait()
+                raise RuntimeError("receive loop crashed")
+
+        client = CrashingSDKClient()
+        fake_options = SimpleNamespace(env=None)
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            await manager.send_new_session(
+                "demo",
+                "你好",
+                user_entry=build_user_entry([{"type": "text", "text": "你好"}]),
+                client_key="ck-live-crash",
+            )
+
+        try:
+            observed: list[dict] = []
+            async with manager.stream_messages(SDK_ID, idle_timeout=0.1) as stream:
+                assert isinstance(await anext(stream), SubscriptionReady)
+                crash.set()
+                async with asyncio.timeout(2):
+                    async for event in stream:
+                        if not isinstance(event, LiveMessage):
+                            continue
+                        observed.append(event.message)
+                        if event.message.get("type") == "runtime_status":
+                            break
+
+            assert [message["type"] for message in observed] == ["log_entry", "runtime_status"]
+            assert observed[0]["entry"]["subtype"] == "agent_turn_failure"
+            assert observed[1]["status"] == "error"
         finally:
             await manager.close_session(SDK_ID)
 
