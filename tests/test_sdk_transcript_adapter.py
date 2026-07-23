@@ -86,6 +86,41 @@ class TestSdkTranscriptAdapterLegacyPath:
         assert result[0]["type"] == "assistant"
         assert result[0]["content"] == [{"type": "text", "text": "Hello"}]
 
+    async def test_legacy_result_preserves_public_failure_fields(self):
+        mock_msg = MagicMock(
+            spec=[
+                "type",
+                "message",
+                "uuid",
+                "parent_tool_use_id",
+                "timestamp",
+                "subtype",
+                "is_error",
+                "api_error_status",
+                "errors",
+                "result",
+            ]
+        )
+        mock_msg.type = "result"
+        mock_msg.message = {}
+        mock_msg.uuid = "legacy-result"
+        mock_msg.parent_tool_use_id = None
+        mock_msg.timestamp = None
+        mock_msg.subtype = "error_during_execution"
+        mock_msg.is_error = True
+        mock_msg.api_error_status = 429
+        mock_msg.errors = ["rate limited"]
+        mock_msg.result = "failed"
+
+        with patch("server.agent_runtime.sdk_transcript_adapter.get_session_messages", return_value=[mock_msg]):
+            result = await SdkTranscriptAdapter().read_raw_messages("sdk-session")
+
+        assert result[0]["subtype"] == "error_during_execution"
+        assert result[0]["is_error"] is True
+        assert result[0]["api_error_status"] == 429
+        assert result[0]["errors"] == ["rate limited"]
+        assert result[0]["result"] == "failed"
+
 
 class TestSdkTranscriptAdapterStorePath:
     """Tests for the SessionStore-backed read path."""
@@ -264,6 +299,36 @@ class TestSdkTranscriptAdapterStorePath:
         assert result[0]["is_error"] is True
         assert result[0]["api_error_status"] == 429
         assert result[0]["errors"] == ["rate limited"]
+        assert result[0]["future_result_field"] == {"request_id": "req-visible"}
+        assert result[0]["raw_transcript_payload"] == raw_payload
+
+    @pytest.mark.asyncio
+    async def test_read_via_store_merges_error_subtype_payload_without_is_error(self):
+        mock_msg = MagicMock(spec=["type", "message", "uuid", "parent_tool_use_id"])
+        mock_msg.type = "result"
+        mock_msg.message = {}
+        mock_msg.uuid = "uuid-result-subtype"
+        mock_msg.parent_tool_use_id = None
+        raw_payload = {
+            "type": "result",
+            "uuid": "uuid-result-subtype",
+            "subtype": "error_during_execution",
+            "errors": ["upstream failed"],
+            "future_result_field": {"request_id": "req-visible"},
+        }
+        fake_store = MagicMock()
+        fake_store.load = AsyncMock(return_value=[raw_payload])
+
+        with patch(
+            "server.agent_runtime.sdk_transcript_adapter.get_session_messages_from_store",
+            new=AsyncMock(return_value=[mock_msg]),
+        ):
+            result = await SdkTranscriptAdapter(store=fake_store).read_raw_messages(
+                "sdk-session", project_cwd=os.path.join(tempfile.gettempdir(), "proj")
+            )
+
+        assert result[0]["subtype"] == "error_during_execution"
+        assert result[0]["errors"] == ["upstream failed"]
         assert result[0]["future_result_field"] == {"request_id": "req-visible"}
         assert result[0]["raw_transcript_payload"] == raw_payload
 

@@ -106,3 +106,19 @@ def test_turn_observation_falls_back_to_result_message_when_assistant_has_no_tex
 
     assert observation["summary"]["source"] == "sdk_assistant"
     assert observation["summary"]["message"] == "upstream rejected the selected model"
+
+
+def test_startup_observation_redacts_cookie_and_basic_auth_in_json_text() -> None:
+    cookie = "sid=cookie-secret"
+    basic = "Basic dXNlcjpwYXNzd29yZA=="
+    observation = build_startup_failure_observation(
+        RuntimeError("headers failed"),
+        project_name="demo",
+        session_id=None,
+        sdk_stderr=f'{{"Cookie":"{cookie}","Authorization":"{basic}"}}',
+    )
+
+    rendered = json.dumps(observation, ensure_ascii=False)
+    assert cookie not in rendered
+    assert basic not in rendered
+    assert observation["raw"]["sdk_stderr"] == '{"Cookie":"••••","Authorization":"••••"}'

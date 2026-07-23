@@ -238,6 +238,16 @@ async def stream_entries(
             yield event
     except HTTPException:
         raise
+    except AgentStartupError as exc:
+        original = exc.__cause__ or exc
+        failure = exc.failure_observation or build_startup_failure_observation(
+            original,
+            project_name=project_name,
+            session_id=session_id,
+            sdk_stderr=exc.sdk_stderr,
+        )
+        async for event in service.stream_startup_failure_events(session_id, failure):
+            yield event
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))

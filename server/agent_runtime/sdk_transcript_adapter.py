@@ -318,15 +318,22 @@ class SdkTranscriptAdapter:
             if payload is not None:
                 result["raw_transcript_payload"] = payload
 
-        # ResultMessage 的 transcript 重建对象同样可能不暴露失败字段。
-        # 只对明确 is_error 的 result 合并原始载荷，既恢复 result-only 故障，
-        # 又避免普通成功消息无谓复制完整 payload。
-        result_is_error = getattr(msg, "is_error", None)
-        if result_is_error is None and payload is not None:
-            result_is_error = payload.get("is_error")
-        if result["type"] == "result" and result_is_error is True and payload is not None:
-            result.update(payload)
-            result["raw_transcript_payload"] = payload
+        # ResultMessage 公开对象与 store raw payload 都可能各自只携带部分失败字段。
+        # 先无条件保留公开属性（legacy/off 路径没有 payload），再按 is_error 或
+        # error_* subtype 决定是否合并完整 raw payload。
+        if result["type"] == "result":
+            for key in ("subtype", "is_error", "api_error_status", "errors", "result"):
+                value = getattr(msg, key, None)
+                if value is not None:
+                    result[key] = value
+
+            payload_is_error = payload.get("is_error") if payload is not None else None
+            payload_subtype = payload.get("subtype") if payload is not None else None
+            result_is_error = result.get("is_error") is True or payload_is_error is True
+            result_subtype = str(result.get("subtype") or payload_subtype or "").strip().lower()
+            if payload is not None and (result_is_error or result_subtype.startswith("error")):
+                result.update(payload)
+                result["raw_transcript_payload"] = payload
 
         tool_use_result = getattr(msg, "tool_use_result", None)
         if tool_use_result is None and payload is not None:

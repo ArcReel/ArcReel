@@ -35,7 +35,12 @@ from lib.app_data_dir import app_data_dir
 from lib.i18n import DEFAULT_LOCALE, get_locale
 from lib.profile_manifest import VALID_CONTENT_MODES
 from lib.project_manager import ProjectManager
-from server.agent_runtime.event_log import EventLogService, EventLogStore, build_user_entry
+from server.agent_runtime.event_log import (
+    EventLogService,
+    EventLogStore,
+    build_turn_failure_entry_from_observation,
+    build_user_entry,
+)
 from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.models import Heartbeat, LiveMessage, SessionMeta, SessionStatus, SubscriptionReady
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
@@ -533,6 +538,7 @@ class AssistantService:
                         if drain_beats >= 2:
                             yield self._result_status_event(pending_result, session_id)
                             break
+
                         continue
                     live_status = await self.session_manager.get_status(session_id) or status
                     if live_status != "running":
@@ -585,6 +591,21 @@ class AssistantService:
                 if msg_type == "result":
                     pending_result = message
                     continue
+
+    async def stream_startup_failure_events(
+        self,
+        session_id: str,
+        failure: dict[str, Any],
+    ) -> AsyncIterator[ServerSentEvent]:
+        """冷恢复启动失败时持久化故障条目，并以 entry → status 顺序结束 SSE。"""
+        entry = build_turn_failure_entry_from_observation(failure)
+        appended = await self.event_log_store.append(session_id, [entry])
+        await self.meta_store.update_status(session_id, "error")
+        yield self._entry_sse_event(appended[0])
+        yield self._sse_event(
+            "status",
+            self._build_status_event_payload(status="error", session_id=session_id),
+        )
 
     def _result_status_event(self, result_message: dict[str, Any], session_id: str) -> ServerSentEvent:
         return self._sse_event(
