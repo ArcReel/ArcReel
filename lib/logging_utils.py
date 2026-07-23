@@ -20,28 +20,27 @@ _LIST_TRUNCATE_AT = 10
 _LIST_HEAD = 5
 _LIST_TAIL = 2
 
-_SENSITIVE_KEY_PATTERN = (
-    r"(?:(?:[A-Za-z][A-Za-z0-9]*[_-])*"
+_SEPARATED_SENSITIVE_KEY_PATTERN = (
+    r"(?:[A-Za-z][A-Za-z0-9]*[_-])*"
     r"(?:api[_-]?key|authorization|cookie|password|passwd|pwd|secrets?|access[_-]?tokens?|auth[_-]?tokens?|"
-    r"bearer[_-]?tokens?|tokens?)|"
-    r"(?:apiKey|clientSecret|accessToken|authToken|bearerToken|refreshToken|idToken))"
+    r"bearer[_-]?tokens?|tokens?)"
 )
-_SENSITIVE_KEY_RE = re.compile(_SENSITIVE_KEY_PATTERN, re.IGNORECASE)
+_CAMEL_SENSITIVE_KEY_PATTERN = r"(?:apiKey|[A-Za-z][A-Za-z0-9]*(?:ApiKey|Secret|Token))"
+_SENSITIVE_KEY_RE = re.compile(_SEPARATED_SENSITIVE_KEY_PATTERN, re.IGNORECASE)
+_CAMEL_SENSITIVE_KEY_RE = re.compile(_CAMEL_SENSITIVE_KEY_PATTERN)
 _COOKIE_LINE_RE = re.compile(r"(?im)^(\s*(?:set-)?cookie\s*:\s*).*$")
 _AUTH_LINE_RE = re.compile(r"(?im)^(\s*(?:proxy-)?authorization\s*:\s*).*$")
 _BEARER_RE = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+")
-_SENSITIVE_TEXT_KEY_PATTERN = _SENSITIVE_KEY_PATTERN
+_SENSITIVE_TEXT_KEY_PATTERN = rf"(?:(?i:{_SEPARATED_SENSITIVE_KEY_PATTERN})|{_CAMEL_SENSITIVE_KEY_PATTERN})"
 _DOUBLE_QUOTED_SECRET_RE = re.compile(
-    rf"(?i)((?<![A-Za-z0-9]){_SENSITIVE_TEXT_KEY_PATTERN}\s*[\'\"]?\s*[=:]\s*\")"
+    rf"((?<![A-Za-z0-9]){_SENSITIVE_TEXT_KEY_PATTERN}\s*[\'\"]?\s*[=:]\s*\")"
     r'((?:\\.|[^"\\])*)(\")'
 )
 _SINGLE_QUOTED_SECRET_RE = re.compile(
-    rf"(?i)((?<![A-Za-z0-9]){_SENSITIVE_TEXT_KEY_PATTERN}\s*['\"]?\s*[=:]\s*')"
+    rf"((?<![A-Za-z0-9]){_SENSITIVE_TEXT_KEY_PATTERN}\s*['\"]?\s*[=:]\s*')"
     r"((?:\\.|[^'\\])*)(')"
 )
-_INLINE_SECRET_RE = re.compile(
-    rf"(?i)((?<![A-Za-z0-9]){_SENSITIVE_TEXT_KEY_PATTERN}\s*[=:]\s*)" r"(?!['\"])([^\s,;&]+)"
-)
+_INLINE_SECRET_RE = re.compile(rf"((?<![A-Za-z0-9]){_SENSITIVE_TEXT_KEY_PATTERN}\s*[=:]\s*)" r"(?!['\"])([^\s,;&]+)")
 _SIGNED_QUERY_RE = re.compile(
     r"(?i)([?&](?:x-amz-signature|x-goog-signature|signature|sig|access_token|auth_token|token|api_key|key|password)=)([^&#\s]*)"
 )
@@ -69,7 +68,7 @@ def redact_diagnostic_text(value: object) -> str:
 
 def sanitize_diagnostic_payload(value: Any, *, _key: str | None = None) -> Any:
     """清洗 JSON 兼容诊断载荷：不截断未知字段，只完整遮蔽秘密值。"""
-    if _key and _SENSITIVE_KEY_RE.fullmatch(_key):
+    if _key and (_SENSITIVE_KEY_RE.fullmatch(_key) or _CAMEL_SENSITIVE_KEY_RE.fullmatch(_key)):
         return None if value is None else _MASKED
     if value is None or isinstance(value, bool | int):
         return value

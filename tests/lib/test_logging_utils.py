@@ -33,14 +33,21 @@ def test_diagnostic_payload_redacts_camel_case_credentials():
     sanitized = sanitize_diagnostic_payload(
         {
             "clientSecret": "structured-secret",
+            "providerApiKey": "provider-secret",
+            "githubAccessToken": "github-secret",
             "tokenCount": 42,
-            "stderr": 'refreshToken=refresh-secret idToken="identity-secret"',
+            "stderr": (
+                'refreshToken=refresh-secret idToken="identity-secret" '
+                "providerApiKey=embedded-provider githubAccessToken=embedded-github"
+            ),
         }
     )
     assert sanitized == {
         "clientSecret": "••••",
+        "providerApiKey": "••••",
+        "githubAccessToken": "••••",
         "tokenCount": 42,
-        "stderr": 'refreshToken=•••• idToken="••••"',
+        "stderr": 'refreshToken=•••• idToken="••••" providerApiKey=•••• githubAccessToken=••••',
     }
 
 
