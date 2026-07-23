@@ -22,11 +22,21 @@ _SENSITIVE_KEY_RE = re.compile(
 _COOKIE_LINE_RE = re.compile(r"(?im)^(\s*(?:set-)?cookie\s*:\s*).*$")
 _AUTH_LINE_RE = re.compile(r"(?im)^(\s*(?:proxy-)?authorization\s*:\s*).*$")
 _BEARER_RE = re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+")
-_INLINE_SECRET_RE = re.compile(
-    r"(?i)((?<![A-Za-z0-9])(?:[A-Za-z][A-Za-z0-9]*[_-])*"
+_SENSITIVE_TEXT_KEY_PATTERN = (
+    r"(?:[A-Za-z][A-Za-z0-9]*[_-])*"
     r"(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|secret|password|passwd|pwd)"
-    r"(?:\s*[=:]\s*|\s*['\"]\s*:\s*['\"]?))"
-    r"([^\s,;&'\"}]+)"
+)
+_DOUBLE_QUOTED_SECRET_RE = re.compile(
+    rf"(?i)((?<![A-Za-z0-9]){_SENSITIVE_TEXT_KEY_PATTERN}\s*[\'\"]?\s*[=:]\s*\")"
+    r'((?:\\.|[^"\\])*)(\")'
+)
+_SINGLE_QUOTED_SECRET_RE = re.compile(
+    rf"(?i)((?<![A-Za-z0-9]){_SENSITIVE_TEXT_KEY_PATTERN}\s*['\"]?\s*[=:]\s*')"
+    r"((?:\\.|[^'\\])*)(')"
+)
+_INLINE_SECRET_RE = re.compile(
+    rf"(?i)((?<![A-Za-z0-9]){_SENSITIVE_TEXT_KEY_PATTERN}\s*[=:]\s*)"
+    r"(?!['\"])([^\s,;&]+)"
 )
 _SIGNED_QUERY_RE = re.compile(
     r"(?i)([?&](?:x-amz-signature|x-goog-signature|signature|sig|access_token|auth_token|token|api_key|key|password)=)([^&#\s]*)"
@@ -44,6 +54,8 @@ def _redact_text(value: str) -> str:
     value = _COOKIE_LINE_RE.sub(lambda match: f"{match.group(1)}{_REDACTED}", value)
     value = _AUTH_LINE_RE.sub(lambda match: f"{match.group(1)}{_REDACTED}", value)
     value = _BEARER_RE.sub(lambda match: f"{match.group(1)}{_REDACTED}", value)
+    value = _DOUBLE_QUOTED_SECRET_RE.sub(lambda match: f"{match.group(1)}{_REDACTED}{match.group(3)}", value)
+    value = _SINGLE_QUOTED_SECRET_RE.sub(lambda match: f"{match.group(1)}{_REDACTED}{match.group(3)}", value)
     value = _INLINE_SECRET_RE.sub(lambda match: f"{match.group(1)}{_REDACTED}", value)
     value = _SIGNED_QUERY_RE.sub(lambda match: f"{match.group(1)}{_REDACTED}", value)
     value = _URL_PASSWORD_RE.sub(lambda match: f"{match.group(1)}{_REDACTED}{match.group(3)}", value)
