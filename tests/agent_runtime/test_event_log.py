@@ -1173,6 +1173,26 @@ class TestLazyBackfill:
         assert entries[3]["task_id"] == "t1"
         assert entries[4]["subtype"] == "interrupt"
 
+    async def test_backfill_treats_error_subtype_as_failure_without_is_error(self, log_store: EventLogStore):
+        adapter = _FakeAdapter(
+            [
+                {"type": "user", "content": "开始", "uuid": "u1"},
+                {
+                    "type": "result",
+                    "subtype": "error_during_execution",
+                    "errors": ["upstream failed"],
+                    "uuid": "r1",
+                },
+            ]
+        )
+        service = EventLogService(log_store, adapter)
+
+        entries = await service.list_entries("old-session", None)
+
+        assert [entry["type"] for entry in entries] == ["user", "system"]
+        assert entries[1]["subtype"] == "agent_turn_failure"
+        assert entries[1]["failure"]["summary"]["message"] == "upstream failed"
+
     async def test_backfill_collapses_adjacent_interrupt_echoes(self, log_store: EventLogStore):
         """相邻 interrupt echo（SDK 回显 + 竞态副本）在写入点去重，只产出一条。"""
         adapter = _FakeAdapter(

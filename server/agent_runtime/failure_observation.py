@@ -16,7 +16,8 @@ from typing import Any
 
 _REDACTED = "••••"
 _SENSITIVE_KEY_RE = re.compile(
-    r"(?:api[_-]?key|authorization|cookie|password|passwd|pwd|secret|access[_-]?token|auth[_-]?token|bearer[_-]?token)",
+    r"(?:api[_-]?key|authorization|cookie|password|passwd|pwd|secret|access[_-]?token|auth[_-]?token|"
+    r"bearer[_-]?token|(?:^|[_-])token$)",
     re.IGNORECASE,
 )
 _COOKIE_LINE_RE = re.compile(r"(?im)^(\s*(?:set-)?cookie\s*:\s*).*$")

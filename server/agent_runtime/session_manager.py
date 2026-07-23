@@ -78,7 +78,7 @@ _RESPONSE_COMPLETE_MESSAGE_TYPE = "response_complete"
 
 
 class _StartupStderrCollector:
-    """只在 ``actor.start()`` 期间无损收集 stderr，成功后停止并释放。"""
+    """在 sdk_session_id 就绪前无损收集 stderr，随后停止并释放。"""
 
     def __init__(self) -> None:
         self._active = True
@@ -509,6 +509,7 @@ class SessionManager:
     def _make_actor_done_callback(
         self,
         managed: "ManagedSession",
+        startup_stderr: _StartupStderrCollector | None = None,
     ) -> Callable[[asyncio.Task], None]:
         """Actor task done_callback: push inbox sentinel + persist error state.
 
@@ -528,7 +529,7 @@ class SessionManager:
                             exc,
                             project_name=managed.project_name,
                             session_id=None,
-                            sdk_stderr="",
+                            sdk_stderr=startup_stderr.render() if startup_stderr is not None else "",
                         )
                     else:
                         failure = build_turn_exception_failure_observation(
@@ -626,18 +627,16 @@ class SessionManager:
                 failure_observation_json(failure),
             )
             self.sessions.pop(temp_id, None)
+            startup_stderr.stop()
             raise AgentStartupError(
                 redact_failure_text(exc),
                 sdk_stderr=redact_failure_text(sdk_stderr),
                 failure_observation=failure,
             ) from exc
-        finally:
-            startup_stderr.stop()
-
         # Register done callback BEFORE spawning processor to avoid a race
         # where the actor task completes before add_done_callback is attached,
         # leaving the None sentinel un-pushed and _process_inbox hanging.
-        actor.add_done_callback(self._make_actor_done_callback(managed))
+        actor.add_done_callback(self._make_actor_done_callback(managed, startup_stderr))
 
         # Spawn inbox processor BEFORE sending query so we don't miss messages.
         managed._process_task = asyncio.create_task(
@@ -666,6 +665,7 @@ class SessionManager:
             if managed._process_task is not None and not managed._process_task.done():
                 managed._process_task.cancel()
                 await asyncio.gather(managed._process_task, return_exceptions=True)
+            startup_stderr.stop()
 
         # 登记待回放的用户消息标识：SDK 会回放刚发送消息的副本，写入点凭此
         # 打标跳过（POST 受理时已写日志分配身份，回放副本不得二次落库）。
@@ -678,9 +678,24 @@ class SessionManager:
         try:
             await managed.send_query(prompt)
         except Exception as exc:
-            logger.error("新会话消息发送失败: %s", redact_failure_text(exc))
+            sdk_stderr = startup_stderr.render()
+            failure = build_startup_failure_observation(
+                exc,
+                project_name=project_name,
+                session_id=None,
+                sdk_stderr=sdk_stderr,
+            )
+            logger.error(
+                "新会话消息发送失败 temp_id=%s failure_observation=%s",
+                temp_id,
+                failure_observation_json(failure),
+            )
             await _cleanup_on_error()
-            raise
+            raise AgentStartupError(
+                redact_failure_text(exc),
+                sdk_stderr=redact_failure_text(sdk_stderr),
+                failure_observation=failure,
+            ) from exc
 
         # Wait for sdk_session_id with timeout. Monitor the inbox processor rather
         # than the actor task: actor may exit immediately after enqueueing init,
@@ -718,6 +733,8 @@ class SessionManager:
                     failure_observation=failure,
                 )
             raise TimeoutError("SDK 会话创建超时")
+
+        startup_stderr.stop()
 
         sdk_id = managed.resolved_sdk_id
         assert sdk_id is not None

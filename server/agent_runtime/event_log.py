@@ -187,7 +187,8 @@ def _is_failure_result(message: dict[str, Any]) -> bool:
     session_status = str(message.get("session_status") or "").strip().lower()
     if session_status == "interrupted":
         return False
-    return session_status == "error" or message.get("is_error") is True
+    subtype = str(message.get("subtype") or "").strip().lower()
+    return session_status == "error" or message.get("is_error") is True or subtype.startswith("error")
 
 
 def _build_turn_failure_entry(
@@ -265,6 +266,9 @@ class SdkMessageNormalizer:
         # 主线与多个 subagent 的消息会交错到达；按 parent 上下文分别等待
         # 各自的 result，禁止把两个执行上下文的故障对象拼成虚假观测。
         self._pending_turn_failures: dict[str | None, dict[str, Any]] = {}
+        # transcript 没有 live 路径的 interrupt_requested 标志；用已观测到的
+        # interrupt 回显按上下文记账，让随后 error_* result 仍按中断而非故障处理。
+        self._interrupted_contexts: set[str | None] = set()
 
     def normalize(
         self,
@@ -309,7 +313,9 @@ class SdkMessageNormalizer:
         if msg_type == "result":
             parent = _extract_parent(message)
             assistant = self._pending_turn_failures.pop(parent, None)
-            if assistant is not None or _is_failure_result(message):
+            was_interrupted = parent in self._interrupted_contexts
+            self._interrupted_contexts.discard(parent)
+            if assistant is not None or (_is_failure_result(message) and not was_interrupted):
                 return [
                     _build_turn_failure_entry(
                         assistant_message=assistant,
@@ -397,6 +403,7 @@ class SdkMessageNormalizer:
 
         if not tool_results:
             if _is_interrupt_echo(blocks):
+                self._interrupted_contexts.add(parent)
                 return [
                     build_interrupt_entry(
                         uuid=base_uuid,

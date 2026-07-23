@@ -148,20 +148,37 @@ class _InterruptingClient(FakeSDKClient):
 
 
 class _CrashBeforeInitClient(FakeSDKClient):
+    def __init__(self, stderr_callback=None):
+        super().__init__()
+        self._stderr_callback = stderr_callback
+
     async def receive_response(self):
         self._record("receive_response")
+        if self._stderr_callback is not None:
+            self._stderr_callback("OPENAI_API_KEY=pre-init-secret\nprovider stderr detail")
         if False:
             yield {}
         raise RuntimeError("receive_response crashed before init")
 
 
+class _QueryFailureClient(FakeSDKClient):
+    async def query(self, prompt, session_id: str = "default") -> None:
+        self._record("query")
+        raise RuntimeError("query rejected before session init")
+
+
 class TestNewSessionEventLogFlow:
     async def test_receive_crash_before_init_is_reported_as_structured_startup_failure(self, manager: SessionManager):
-        client = _CrashBeforeInitClient()
-        fake_options = SimpleNamespace(env=None)
+        captured_stderr: list = []
+
+        async def build_options(*_args, **kwargs):
+            captured_stderr.append(kwargs["stderr"])
+            return SimpleNamespace(env=None)
+
+        client = _CrashBeforeInitClient(lambda line: captured_stderr[0](line))
 
         with (
-            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch.object(manager, "_build_options", new=build_options),
             patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
         ):
             with pytest.raises(AgentStartupError) as exc_info:
@@ -170,6 +187,23 @@ class TestNewSessionEventLogFlow:
         assert exc_info.value.failure_observation is not None
         assert exc_info.value.failure_observation["phase"] == "startup"
         assert exc_info.value.failure_observation["summary"]["message"] == "receive_response crashed before init"
+        assert exc_info.value.failure_observation["raw"]["sdk_stderr"] == (
+            "OPENAI_API_KEY=••••\nprovider stderr detail"
+        )
+
+    async def test_query_failure_before_init_is_reported_as_structured_startup_failure(self, manager: SessionManager):
+        client = _QueryFailureClient()
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env=None))),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+        ):
+            with pytest.raises(AgentStartupError) as exc_info:
+                await manager.send_new_session("demo", "hello")
+
+        assert exc_info.value.failure_observation is not None
+        assert exc_info.value.failure_observation["phase"] == "startup"
+        assert exc_info.value.failure_observation["summary"]["message"] == "query rejected before session init"
 
     async def test_full_round_produces_typed_monotonic_entries(self, manager: SessionManager):
         client = FakeSDKClient(messages=_new_session_messages())

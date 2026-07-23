@@ -30,6 +30,19 @@ def test_startup_observation_remains_json_safe_for_unprintable_unknown_values() 
     json.dumps(observation, allow_nan=False)
 
 
+def test_startup_observation_redacts_structured_bare_token_field() -> None:
+    secret = "ghp_structured-secret"
+    exc = RuntimeError("provider failed")
+    exc.response = {"token": secret, "token_count": 42}  # type: ignore[attr-defined]
+
+    observation = build_startup_failure_observation(exc, project_name="demo", session_id=None, sdk_stderr="")
+
+    attributes = observation["raw"]["exception_chain"][0]["attributes"]["response"]
+    assert attributes["token"] == "••••"
+    assert attributes["token_count"] == 42
+    assert secret not in json.dumps(observation)
+
+
 def test_binary_payload_redacts_embedded_text_credentials_without_discarding_other_bytes() -> None:
     secret = b"bytes-secret-must-not-leak"
     exc = RuntimeError("binary response")
