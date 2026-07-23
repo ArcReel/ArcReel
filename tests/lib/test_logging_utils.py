@@ -67,6 +67,23 @@ def test_log_formatter_redacts_prefixed_camel_case_credentials():
     }
 
 
+def test_diagnostic_payload_redacts_private_keys_and_pem_blocks():
+    pem = "-----BEGIN PRIVATE KEY-----\nprivate-material\n-----END PRIVATE KEY-----"
+    assert sanitize_diagnostic_payload(
+        {
+            "private_key": pem,
+            "servicePrivateKey": pem,
+            "signingKey": "signing-material",
+            "stderr": f"privateKey={pem}",
+        }
+    ) == {
+        "private_key": "••••",
+        "servicePrivateKey": "••••",
+        "signingKey": "••••",
+        "stderr": "privateKey=••••",
+    }
+
+
 def test_short_string_passthrough():
     out = format_kwargs_for_log({"prompt": "hello"})
     assert json.loads(out) == {"prompt": "hello"}

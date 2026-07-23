@@ -134,4 +134,33 @@ describe("SubagentCard", () => {
     render(<ContentBlockRenderer block={makeCardBlock()} index={0} />);
     expect(screen.getByText("探索费用计算逻辑")).toBeInTheDocument();
   });
+
+  it("renders a failure card in the expanded sub-timeline", () => {
+    const failure = {
+      version: 1,
+      phase: "turn" as const,
+      timestamp: "2026-07-23T00:00:00Z",
+      project_name: "demo",
+      session_id: "session-1",
+      summary: {
+        source: "sdk_result",
+        type: "error_during_execution",
+        message: "subagent failed",
+      },
+      raw: { result_message: { type: "result", is_error: true } },
+    };
+    render(
+      <SubagentCard
+        block={makeCardBlock({
+          result: "failed",
+          sub_turns: [{ type: "system", content: [{ type: "agent_failure", failure }] }],
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button"));
+
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText("subagent failed")).toBeInTheDocument();
+  });
 });

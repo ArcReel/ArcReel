@@ -8,6 +8,7 @@ import { ThinkingBlock } from "./ThinkingBlock";
 import { SkillChip } from "./SkillChip";
 import { SubagentCard } from "./SubagentCard";
 import { TaskProgressBlock } from "./TaskProgressBlock";
+import { AgentFailureCard } from "./AgentFailureCard";
 
 // ---------------------------------------------------------------------------
 // ContentBlockRenderer – dispatches a single ContentBlock to the appropriate
@@ -103,6 +104,9 @@ export function ContentBlockRenderer({ block, index, streaming }: ContentBlockRe
 
     case "question_answer":
       return <QuestionAnswerBlock key={block.id ?? `block-${index}`} block={block} />;
+
+    case "agent_failure":
+      return block.failure ? <AgentFailureCard failure={block.failure} /> : null;
 
     case "image":
       if (block.source?.data && block.source?.media_type) {

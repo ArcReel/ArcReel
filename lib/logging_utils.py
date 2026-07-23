@@ -23,9 +23,11 @@ _LIST_TAIL = 2
 _SEPARATED_SENSITIVE_KEY_PATTERN = (
     r"(?:[A-Za-z][A-Za-z0-9]*[_-])*"
     r"(?:api[_-]?key|authorization|cookie|password|passwd|pwd|secrets?|access[_-]?tokens?|auth[_-]?tokens?|"
-    r"bearer[_-]?tokens?|tokens?)"
+    r"bearer[_-]?tokens?|private[_-]?keys?|signing[_-]?keys?|tokens?)"
 )
-_CAMEL_SENSITIVE_KEY_PATTERN = r"(?:apiKey|[A-Za-z][A-Za-z0-9]*(?:ApiKey|Secret|Token))"
+_CAMEL_SENSITIVE_KEY_PATTERN = (
+    r"(?:apiKey|privateKey|signingKey|[A-Za-z][A-Za-z0-9]*(?:ApiKey|PrivateKey|SigningKey|Secret|Token))"
+)
 _SENSITIVE_KEY_RE = re.compile(_SEPARATED_SENSITIVE_KEY_PATTERN, re.IGNORECASE)
 _CAMEL_SENSITIVE_KEY_RE = re.compile(_CAMEL_SENSITIVE_KEY_PATTERN)
 _COOKIE_LINE_RE = re.compile(r"(?im)^(\s*(?:set-)?cookie\s*:\s*).*$")
@@ -46,6 +48,10 @@ _SIGNED_QUERY_RE = re.compile(
 )
 _URL_PASSWORD_RE = re.compile(r"(?i)(https?://[^/@\s:]+:)([^@/\s]+)(@)")
 _API_KEY_VALUE_RE = re.compile(r"(?<![A-Za-z0-9])sk-(?:ant-|proj-)?[A-Za-z0-9_-]{8,}")
+_PEM_PRIVATE_KEY_RE = re.compile(
+    r"-----BEGIN (?P<label>(?:[A-Z0-9]+ )*PRIVATE KEY)-----.*?-----END (?P=label)-----",
+    re.DOTALL,
+)
 _MASKED = "••••"
 
 
@@ -59,6 +65,7 @@ def redact_diagnostic_text(value: object) -> str:
         rendered = str(value)
     except Exception:
         rendered = f"<unprintable {type(value).__module__}.{type(value).__name__}>"
+    rendered = _PEM_PRIVATE_KEY_RE.sub(_MASKED, rendered)
     rendered = _COOKIE_LINE_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
     rendered = _AUTH_LINE_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
     rendered = _BEARER_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
