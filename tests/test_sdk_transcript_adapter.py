@@ -1,5 +1,7 @@
 """Unit tests for SdkTranscriptAdapter."""
 
+import os
+import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -173,7 +175,9 @@ class TestSdkTranscriptAdapterStorePath:
             new=AsyncMock(return_value=[mock_msg]),
         ):
             adapter = SdkTranscriptAdapter(store=fake_store)
-            result = await adapter.read_raw_messages("sdk-session", project_cwd="/tmp/proj")
+            result = await adapter.read_raw_messages(
+                "sdk-session", project_cwd=os.path.join(tempfile.gettempdir(), "proj")
+            )
 
         assert result[0]["timestamp"] == "2026-05-01T01:00:00Z"
         fake_store.load.assert_awaited_once()
