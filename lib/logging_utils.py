@@ -61,12 +61,8 @@ def redact_diagnostic_text(value: object) -> str:
     rendered = _COOKIE_LINE_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
     rendered = _AUTH_LINE_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
     rendered = _BEARER_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
-    rendered = _DOUBLE_QUOTED_SECRET_RE.sub(
-        lambda match: f"{match.group(1)}{_MASKED}{match.group(3)}", rendered
-    )
-    rendered = _SINGLE_QUOTED_SECRET_RE.sub(
-        lambda match: f"{match.group(1)}{_MASKED}{match.group(3)}", rendered
-    )
+    rendered = _DOUBLE_QUOTED_SECRET_RE.sub(lambda match: f"{match.group(1)}{_MASKED}{match.group(3)}", rendered)
+    rendered = _SINGLE_QUOTED_SECRET_RE.sub(lambda match: f"{match.group(1)}{_MASKED}{match.group(3)}", rendered)
     rendered = _INLINE_SECRET_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
     rendered = _SIGNED_QUERY_RE.sub(lambda match: f"{match.group(1)}{_MASKED}", rendered)
     rendered = _URL_PASSWORD_RE.sub(lambda match: f"{match.group(1)}{_MASKED}{match.group(3)}", rendered)

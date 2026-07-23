@@ -57,8 +57,7 @@ def test_startup_observation_redacts_text_credentials_without_truncation() -> No
         project_name="demo",
         session_id=None,
         sdk_stderr=(
-            f"OPENAI_API_KEY={secrets[0]}\nMY_AUTH_TOKEN={secrets[1]}\n"
-            f'{{"PASSWORD":"{secrets[2]}"}}\n{long_detail}'
+            f'OPENAI_API_KEY={secrets[0]}\nMY_AUTH_TOKEN={secrets[1]}\n{{"PASSWORD":"{secrets[2]}"}}\n{long_detail}'
         ),
     )
 
