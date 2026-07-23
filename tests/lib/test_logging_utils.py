@@ -29,6 +29,21 @@ def test_diagnostic_payload_redacts_credentials_embedded_in_text():
     assert sanitized == {"stderr": "Authorization: ••••\nhttps://x.test?a=1&signature=••••"}
 
 
+def test_diagnostic_payload_redacts_camel_case_credentials():
+    sanitized = sanitize_diagnostic_payload(
+        {
+            "clientSecret": "structured-secret",
+            "tokenCount": 42,
+            "stderr": 'refreshToken=refresh-secret idToken="identity-secret"',
+        }
+    )
+    assert sanitized == {
+        "clientSecret": "••••",
+        "tokenCount": 42,
+        "stderr": 'refreshToken=•••• idToken="••••"',
+    }
+
+
 def test_short_string_passthrough():
     out = format_kwargs_for_log({"prompt": "hello"})
     assert json.loads(out) == {"prompt": "hello"}
