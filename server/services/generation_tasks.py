@@ -16,7 +16,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.i18n import DEFAULT_LOCALE
 from lib.i18n import _ as i18n_translate
 from lib.image_backends.base import ImageCapabilityError
-from lib.path_safety import safe_exists
+from lib.path_safety import safe_exists, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import get_project_manager
 from lib.prompt_builders import (
@@ -480,14 +480,13 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
             for frame in grid.frame_chain:
                 if not frame.image_path:
                     continue
-                candidate = (project_path / frame.image_path).resolve()
-                try:
-                    # 指纹 key 用归一化后的项目相对路径：原始字符串若是项目内的
-                    # 绝对路径，会把服务器路径泄漏给前端且匹配不上前端的资源 key
-                    rel = candidate.relative_to(project_root).as_posix()
-                except ValueError:
+                candidate = try_safe_join(project_root, frame.image_path)
+                if candidate is None:
                     logger.warning("跳过越出项目目录的宫格 cell 路径: %s", frame.image_path)
                     continue
+                # 指纹 key 用归一化后的项目相对路径：原始字符串若是项目内的
+                # 绝对路径，会把服务器路径泄漏给前端且匹配不上前端的资源 key
+                rel = candidate.relative_to(project_root).as_posix()
                 paths.append((rel, candidate))
     elif task_type == "reference_video":
         paths.append(

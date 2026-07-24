@@ -991,18 +991,18 @@ class TestGenerationTasks:
         project_path = tmp_path / "demo"
         (project_path / "storyboards").mkdir(parents=True)
         (project_path / "grids").mkdir()
-        (project_path / "grids" / "grid_1.png").write_bytes(b"grid")
+        (project_path / "grids" / "grid_0123456789ab.png").write_bytes(b"grid")
         (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"img")
         (project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"img2")
         outside = tmp_path / "outside.png"
         outside.write_bytes(b"secret")
 
         grid = GridGeneration(
-            id="grid_1",
+            id="grid_0123456789ab",
             episode=1,
             script_file="ep01.json",
             scene_ids=["E1S01"],
-            grid_image_path="grids/grid_1.png",
+            grid_image_path="grids/grid_0123456789ab.png",
             rows=2,
             cols=2,
             cell_count=4,
@@ -1038,9 +1038,9 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
 
-        fps = generation_tasks.compute_affected_fingerprints("demo", "grid", "grid_1")
+        fps = generation_tasks.compute_affected_fingerprints("demo", "grid", "grid_0123456789ab")
 
-        assert "grids/grid_1.png" in fps
+        assert "grids/grid_0123456789ab.png" in fps
         assert "storyboards/scene_E1S01.png" in fps
         assert "storyboards/scene_E1S02.png" in fps
         assert all("outside" not in key for key in fps)

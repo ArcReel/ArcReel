@@ -15,6 +15,7 @@ from typing import Any
 
 from lib.data_validator import DataValidator, ValidationResult
 from lib.json_io import load_json
+from lib.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_hint
 from lib.project_manager import ProjectManager, effective_mode
 from lib.project_migrations.runner import migrate_project_dir
@@ -1336,7 +1337,6 @@ class ProjectArchiveService:
         if default_dir and len(candidates[0].parts) == 1:
             candidates.append(Path(default_dir) / candidates[0])
 
-        project_root = project_dir.resolve()
         seen: set[str] = set()
         for candidate in candidates:
             key = candidate.as_posix()
@@ -1344,10 +1344,8 @@ class ProjectArchiveService:
                 continue
             seen.add(key)
 
-            try:
-                resolved = (project_dir / candidate).resolve(strict=False)
-                resolved.relative_to(project_root)
-            except ValueError:
+            resolved = try_safe_join(project_dir, candidate)
+            if resolved is None:
                 continue
 
             if resolved.exists():
@@ -1355,33 +1353,31 @@ class ProjectArchiveService:
 
         return None
 
+    def _resolve_json_path(self, path: Path) -> Path | None:
+        """归档读写只允许落在 projects_root 或系统临时目录内；越界返回 None。"""
+        for base in (self.project_manager.projects_root, tempfile.gettempdir()):
+            resolved = try_safe_join(base, path)
+            if resolved is not None:
+                return resolved
+        return None
+
     def _load_json_file(self, path: Path) -> dict[str, Any] | None:
-        real = os.path.realpath(path)
-        base = os.path.realpath(self.project_manager.projects_root) + os.sep
-        tmp = os.path.realpath(tempfile.gettempdir()) + os.sep
-        if not (real.startswith(base) or real.startswith(tmp)):
-            logger.warning("路径越界，拒绝读取: %s", real)
+        real = self._resolve_json_path(path)
+        if real is None:
+            logger.warning("路径越界，拒绝读取: %s", path)
             return None
         try:
-            return load_json(Path(real))
+            return load_json(real)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return None
 
     def _write_json_file(self, path: Path, payload: dict[str, Any]) -> None:
-        real = os.path.realpath(path)
-        base = os.path.realpath(self.project_manager.projects_root) + os.sep
-        tmp = os.path.realpath(tempfile.gettempdir()) + os.sep
-        if real.startswith(base):
-            os.makedirs(os.path.dirname(real), exist_ok=True)
-            with open(real, "w", encoding="utf-8") as handle:  # noqa: PTH123
-                json.dump(payload, handle, ensure_ascii=False, indent=2)
-            return
-        if real.startswith(tmp):
-            os.makedirs(os.path.dirname(real), exist_ok=True)
-            with open(real, "w", encoding="utf-8") as handle:  # noqa: PTH123
-                json.dump(payload, handle, ensure_ascii=False, indent=2)
-            return
-        raise ValueError(f"路径越界，拒绝写入: {real}")
+        real = self._resolve_json_path(path)
+        if real is None:
+            raise ValueError(f"路径越界，拒绝写入: {path}")
+        real.parent.mkdir(parents=True, exist_ok=True)
+        with open(real, "w", encoding="utf-8") as handle:  # noqa: PTH123
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
 
     @staticmethod
     def _validate_scope(scope: str) -> None:
@@ -1510,7 +1506,6 @@ class ProjectArchiveService:
         root_parts: tuple[str, ...],
         staging_dir: Path,
     ) -> None:
-        staging_root = staging_dir.resolve()
         root_length = len(root_parts)
 
         for member in members:
@@ -1525,10 +1520,9 @@ class ProjectArchiveService:
             if self._is_hidden_member(relative_parts):
                 continue
 
-            target_path = staging_dir.joinpath(*relative_parts)
             try:
-                target_path.resolve(strict=False).relative_to(staging_root)
-            except ValueError as exc:
+                target_path = safe_join(staging_dir, *relative_parts)
+            except PathTraversalError as exc:
                 raise ProjectArchiveValidationError(
                     "导入包校验失败",
                     errors=[f"解压路径越界: {'/'.join(member.parts)}"],

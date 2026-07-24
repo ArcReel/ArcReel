@@ -14,6 +14,7 @@ from fastapi import APIRouter
 logger = logging.getLogger(__name__)
 
 from lib.api_errors import BadRequestError
+from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager
 from lib.resource_paths import resource_relative_path
@@ -46,11 +47,10 @@ def _resolve_resource_path(
     if resource_type not in _RESTORABLE_RESOURCE_TYPES:
         raise BadRequestError("unsupported_resource_type", resource_type=resource_type)
     relative = resource_relative_path(resource_type, resource_id)
-    current_file = project_path / relative
     # 路径遍历防护：resource_id 拼出的绝对路径不得逃出项目目录（与 MediaGenerator._get_output_path 对齐）。
     try:
-        current_file.resolve().relative_to(project_path.resolve())
-    except ValueError as exc:
+        current_file = safe_join(project_path, relative)
+    except PathTraversalError as exc:
         raise BadRequestError("invalid_resource_id", resource_id=resource_id) from exc
     return current_file, relative
 

@@ -18,6 +18,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.i18n import DEFAULT_LOCALE
 from lib.logging_config import resolve_log_dir
 from lib.logging_utils import redact_diagnostic_text
+from lib.path_safety import PathTraversalError, safe_join
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.entry_pipeline import SessionEntryPipeline
 from server.agent_runtime.event_log import (
@@ -465,11 +466,9 @@ class SessionManager:
 
     def _resolve_project_cwd(self, project_name: str) -> Path:
         """Resolve and validate per-session project working directory."""
-        projects_root = self.projects_root
-        project_cwd = (projects_root / project_name).resolve()
         try:
-            project_cwd.relative_to(projects_root)
-        except ValueError as exc:
+            project_cwd = safe_join(self.projects_root, project_name)
+        except PathTraversalError as exc:
             raise ValueError("invalid project name") from exc
         if not project_cwd.exists() or not project_cwd.is_dir():
             raise FileNotFoundError(f"project not found: {project_name}")

@@ -397,7 +397,7 @@ class TestExecuteGridTask:
             with pytest.raises(ValueError, match="grid not found"):
                 await execute_grid_task(
                     "test-project",
-                    "grid_nonexistent",
+                    "grid_ffffffffffff",
                     {"prompt": "test"},
                     user_id="test-user",
                 )

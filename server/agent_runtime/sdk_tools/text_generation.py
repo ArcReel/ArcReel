@@ -30,6 +30,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
 )
 from lib.json_io import atomic_write_json
+from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import DEFAULT_SOURCE_KIND, effective_mode
 from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
@@ -84,9 +85,10 @@ def _load_novel_source(project_path: Path, source: str | None) -> str:
     调用方把消息包装为工具错误信封。
     """
     if source:
-        source_path = (project_path / source).resolve()
-        if not source_path.is_relative_to(project_path.resolve()):
-            raise ValueError(f"路径超出项目目录: {source_path}")
+        try:
+            source_path = safe_join(project_path, source)
+        except PathTraversalError as exc:
+            raise ValueError(f"路径超出项目目录: {source}") from exc
         if not source_path.exists():
             raise ValueError(f"未找到源文件: {source_path}")
         novel_text = source_path.read_text(encoding="utf-8")

@@ -19,6 +19,7 @@ from lib.asset_types import BUCKET_KEY
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
+from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import EpisodeScriptReboundError, effective_mode, get_project_manager
 from lib.reference_video import assemble_shots_text, parse_prompt
@@ -474,10 +475,9 @@ async def upload_unit_video(
             _find_unit_for_project(project, script, unit_id, _t)  # raises 404 if missing
             project_path = get_project_manager().get_project_path(project_name)
             # 路径遍历防护：unit_id 拼出的绝对路径不得逃出项目目录（与 versions.py 对齐）
-            target = project_path / relative_path
             try:
-                target.resolve().relative_to(project_path.resolve())
-            except ValueError:
+                safe_join(project_path, relative_path)
+            except PathTraversalError:
                 raise HTTPException(status_code=400, detail=_t("invalid_resource_id", resource_id=unit_id))
             return project_path, VersionManager(project_path), script_file
 

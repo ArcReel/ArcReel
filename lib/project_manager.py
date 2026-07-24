@@ -29,6 +29,7 @@ from lib.asset_types import ASSET_SPECS, validate_asset_name
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode_paths import episode_script_relpath
 from lib.json_io import atomic_write_json, load_json, load_json_or_none
+from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import (
     VALID_CONTENT_MODES,
     ContentMode,
@@ -426,23 +427,21 @@ class ProjectManager:
     def get_project_path(self, name: str) -> Path:
         """获取项目路径（含路径遍历防护）"""
         name = self.normalize_project_name(name)
-        real = os.path.realpath(self.projects_root / name)
-        base = os.path.realpath(self.projects_root) + os.sep
-        if not real.startswith(base):
-            raise ValueError(f"非法项目名称: '{name}'")
-        project_dir = Path(real)
+        try:
+            project_dir = safe_join(self.projects_root, name)
+        except PathTraversalError as exc:
+            raise ValueError(f"非法项目名称: '{name}'") from exc
         if not project_dir.exists():
             raise FileNotFoundError(f"项目 '{name}' 不存在")
         return project_dir
 
     @staticmethod
     def _safe_subpath(base_dir: Path, filename: str) -> str:
-        """校验 filename 拼接后不逃出 base_dir，返回 realpath 字符串。"""
-        real = os.path.realpath(base_dir / filename)
-        bound = os.path.realpath(base_dir) + os.sep
-        if not real.startswith(bound):
-            raise ValueError(f"非法文件名: '{filename}'")
-        return real
+        """校验 filename 拼接后不逃出 base_dir，返回规范化的绝对路径字符串。"""
+        try:
+            return str(safe_join(base_dir, filename))
+        except PathTraversalError as exc:
+            raise ValueError(f"非法文件名: '{filename}'") from exc
 
     def get_project_status(self, name: str) -> dict[str, Any]:
         """

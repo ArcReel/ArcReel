@@ -29,6 +29,8 @@ from typing import Literal, cast
 
 import portalocker
 
+from lib.path_safety import PathTraversalError, safe_join
+
 logger = logging.getLogger(__name__)
 
 MANIFEST_FILENAME = ".arcreel_profile_manifest.json"
@@ -223,12 +225,11 @@ def _ensure_dest_within(project_dir: Path, rel: str) -> Path:
     rel 本身已经过 ``_normalize_profile_rel_path``（force_resync）或 enumerate
     走文件系统真实路径（主入口），形态可信；这层只防 dest 端 symlink 跳板。
     """
-    base = project_dir.resolve()
-    # rel 路径段可能还未存在 → resolve() 走到第一个不存在段就停，仍正确反映前缀。
-    candidate = (project_dir / rel).resolve()
-    if candidate != base and not candidate.is_relative_to(base):
-        raise ValueError(f"dest path escapes project_dir: {rel!r} → {candidate}")
-    return candidate
+    # rel 路径段可能还未存在 → realpath 走到第一个不存在段就停，仍正确反映前缀。
+    try:
+        return safe_join(project_dir, rel, allow_base=True)
+    except PathTraversalError as exc:
+        raise ValueError(f"dest path escapes project_dir: {rel!r}") from exc
 
 
 def _normalize_profile_rel_path(rel: str) -> str:

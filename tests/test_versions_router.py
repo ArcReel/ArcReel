@@ -1,3 +1,4 @@
+import os
 import tempfile
 from pathlib import Path
 
@@ -284,8 +285,10 @@ class TestVersionsRouter:
             project_path,
         )
         assert relative == "characters/Alice.png"
-        # helper 返回未 resolve 的 project_path/relative，故用同一入参 base 拼接断言。
-        assert current_file == project_path / "characters" / "Alice.png"
+        # helper 经 safe_join 返回 realpath 规范化后的绝对路径（symlink 已展开），
+        # 故拿同一入参 base 的 realpath 拼接断言。
+        expected = Path(os.path.realpath(project_path)) / "characters" / "Alice.png"
+        assert current_file == expected
 
     def test_storyboard_restore_syncs_scripts_with_error_tolerance(self, tmp_path, monkeypatch):
         project_path = tmp_path / "demo"

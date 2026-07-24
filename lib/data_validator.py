@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from lib.asset_types import ASSET_SPECS, ASSET_TYPES
 from lib.episode_ledger import LEDGER_STATUSES, EpisodeOutline, PlanningCursor, SourceRange
 from lib.json_io import load_json_or_none
+from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
 from lib.project_manager import VALID_SOURCE_KINDS as _VALID_SOURCE_KINDS
 from lib.project_manager import effective_mode
@@ -135,7 +136,6 @@ class DataValidator:
         if default_dir and len(candidate_paths[0].parts) == 1:
             candidate_paths.append(Path(default_dir) / candidate_paths[0])
 
-        project_root = project_dir.resolve()
         seen: set[str] = set()
         for candidate in candidate_paths:
             candidate_key = candidate.as_posix()
@@ -144,9 +144,8 @@ class DataValidator:
             seen.add(candidate_key)
 
             try:
-                resolved = (project_dir / candidate).resolve(strict=False)
-                resolved.relative_to(project_root)
-            except ValueError:
+                resolved = safe_join(project_dir, candidate)
+            except PathTraversalError:
                 return None, f"引用路径越界: {normalized}"
 
             if resolved.exists():
