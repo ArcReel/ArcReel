@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
-from lib.api_errors import NotFoundError
+from lib.api_errors import ApiError, NotFoundError
 from lib.asset_types import BUCKET_KEY
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
@@ -542,7 +542,9 @@ async def upload_unit_video(
         raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=unit_id)) from exc
     except ScriptEditError as exc:
         raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=str(exc))) from exc
-    except HTTPException:
+    except (HTTPException, ApiError):
+        # ApiError 与 HTTPException 并列：_load_episode_script 抛出的 NotFoundError
+        # 不是 HTTPException 子类，不并入这里会被下面的 except Exception 吞成 500
         raise
     except Exception as exc:
         # 不回传 str(exc)：未预期异常的消息可能含服务器路径等内部细节，堆栈进日志即可

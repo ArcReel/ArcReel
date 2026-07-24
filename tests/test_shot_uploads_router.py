@@ -417,6 +417,30 @@ class TestReferenceUnitVideoUpload:
             resp = _upload_unit(client, filename="clip.avi")
             assert resp.status_code == 400
 
+    def test_missing_project_404(self, tmp_path, monkeypatch):
+        """项目不存在 → 404，不退化成 500。
+
+        _load_episode_script 抛出的 NotFoundError 不是 HTTPException 子类，
+        端点的 except 阶梯必须同时放行 ApiError，否则被兜底分支吞成 500。
+        """
+        client, _ = _ref_client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/nope/reference-videos/episodes/1/units/E1U1/upload-video",
+                files={"file": ("clip.mp4", BytesIO(b"\x00" * 256), "application/octet-stream")},
+            )
+            assert resp.status_code == 404
+
+    def test_stale_script_binding_404(self, tmp_path, monkeypatch):
+        """project.json 指向的剧本文件已丢失（stale 绑定）→ 404 而非 500。"""
+        client, pm = _ref_client(monkeypatch, tmp_path)
+        project = pm.load_project("demo")
+        project["episodes"][0]["script_file"] = "scripts/gone.json"
+        pm.save_project("demo", project)
+        with client:
+            resp = _upload_unit(client)
+            assert resp.status_code == 404
+
     def test_emit_uses_webui_source(self, tmp_path, monkeypatch):
         """emit 在 project_change_source("webui") 上下文内被调用（SSE source 由 contextvar 决定）。"""
         client, _ = _ref_client(monkeypatch, tmp_path)

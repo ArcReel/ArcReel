@@ -1183,7 +1183,9 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _us
             return {"success": True, "episode": {"episode": episode, "title": title}}
 
         return await asyncio.to_thread(_sync)
-    except HTTPException:
+    except (HTTPException, ApiError):
+        # ApiError 与 HTTPException 并列：_sync 内部抛出的 NotFoundError 不是
+        # HTTPException 子类，不并入这里会被下面的 except Exception 吞成 500
         raise
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
