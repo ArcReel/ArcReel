@@ -19,6 +19,12 @@
       "skillPath": "skills/engineering/code-review/SKILL.md",
       "computedHash": "31d149a480eaa68c11e32f5ee77f0fd0b98a906834d531d881d502352edd0b8e"
     },
+    "code-review": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/code-review/SKILL.md",
+      "computedHash": "31d149a480eaa68c11e32f5ee77f0fd0b98a906834d531d881d502352edd0b8e"
+    },
     "codebase-design": {
       "source": "mattpocock/skills",
       "sourceType": "github",
