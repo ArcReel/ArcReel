@@ -4,7 +4,7 @@ import { Wand2 } from "lucide-react";
 import { enqueueImageEdit } from "@/actions/generation";
 import { GlassModal } from "@/components/ui/GlassModal";
 import { useAppStore } from "@/stores/app-store";
-import { selectActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
+import { selectActiveResourceIds, selectHasActiveTaskForScriptFile, useTasksStore } from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
 
 export type ImageEditResourceType =
@@ -74,8 +74,20 @@ export function ImageEditButton({
     // 再用 getState() 新鲜读复核：弹窗停留期间响应式 busy prop 的更新依赖父组件
     // 重渲染，存在感知延迟；这里直接读 store 当前值，与 resourceType/resourceId
     // 命中同一占用槽（taskResourceKind 对 image_edit 按 resource_type 归槽）。
-    const { tasks, optimisticActive } = useTasksStore.getState();
+    const { tasks, optimisticActive, optimisticActiveScriptFile } = useTasksStore.getState();
     if (selectActiveResourceIds(tasks, resourceType, projectName, optimisticActive).has(resourceId)) {
+      useAppStore.getState().pushToast(t("image_edit_resource_busy"), "error");
+      return;
+    }
+    // storyboard 资源占用集查不到 grid 任务（其 resource_id 是 grid_id）；宫格模式下
+    // 本集有切割任务在跑时需按 scriptFile 复核，否则新鲜读会漏过 busy prop 尚未追上
+    // 的这一维度，见 selectHasActiveTaskForScriptFile 与 GridImageToVideoCanvas 的
+    // gridActiveForEpisode。
+    if (
+      resourceType === "storyboard" &&
+      scriptFile &&
+      selectHasActiveTaskForScriptFile(tasks, "grid", scriptFile, projectName, optimisticActiveScriptFile)
+    ) {
       useAppStore.getState().pushToast(t("image_edit_resource_busy"), "error");
       return;
     }

@@ -107,6 +107,47 @@ describe("ImageEditButton", () => {
     });
   });
 
+  it("提交时被 getState() 新鲜读拦截：busy prop 未追上时，宫格模式下本集 grid 任务占用靠 scriptFile 新鲜读兜底", async () => {
+    const editSpy = vi.spyOn(API, "editImage");
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+
+    // busy 全程为 false（父组件的响应式信号未追上）；grid 任务只写进了 tasks store，
+    // 其 resource_id 是 grid_id，不落进 storyboard 占用集，只能靠 scriptFile 维度的
+    // 新鲜读拦住——验证 handleSubmit 里补的这层复核。
+    render(
+      <ImageEditButton
+        projectName="demo"
+        resourceType="storyboard"
+        resourceId="E1S1"
+        scriptFile="episode_1.json"
+        hasImage
+        busy={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑图片" }));
+    const instructionField = await screen.findByLabelText("编辑指令");
+    fireEvent.change(instructionField, { target: { value: "把背景改成夜晚" } });
+
+    useTasksStore.setState({
+      tasks: [
+        makeTask({
+          task_id: "t-grid-1",
+          task_type: "grid",
+          resource_id: "grid-1",
+          script_file: "episode_1.json",
+        }),
+      ],
+    });
+
+    fireEvent.keyDown(instructionField, { key: "Enter", metaKey: true });
+
+    await waitFor(() => {
+      expect(pushToast).toHaveBeenCalledWith("该资源刚被其他任务占用，请稍后再试", "error");
+    });
+    expect(editSpy).not.toHaveBeenCalled();
+  });
+
   it("busy 维度仍拦截键盘提交：本资源占用集之外的占用（宫格模式下本集 grid 任务在跑）只反映在 busy prop 上", async () => {
     const editSpy = vi.spyOn(API, "editImage");
 
