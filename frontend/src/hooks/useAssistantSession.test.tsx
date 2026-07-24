@@ -1245,4 +1245,95 @@ describe("useAssistantSession", () => {
 
     expect(useAssistantStore.getState().skills.map((s) => s.name)).toEqual(["b-skill"]);
   });
+
+  it("does not let a delayed turn-end session-list refresh overwrite the new project's list after project switch", async () => {
+    // 项目 A 的 running 会话终态触发 listAssistantSessions 刷新（获取 SDK summary
+    // 标题）；响应挂起期间切到项目 B，A 的迟到响应不得覆盖 B 的会话列表——终态
+    // 刷新纳入项目级取消域，与 init/switchSession 的写入同口径。
+    const deferredRefresh = createDeferred<{ sessions: SessionMeta[] }>();
+    let projectACalls = 0;
+    vi.spyOn(API, "listAssistantSessions").mockImplementation((projectName) => {
+      if (projectName === "project-a") {
+        projectACalls += 1;
+        if (projectACalls === 1) {
+          return Promise.resolve({ sessions: [makeSession("session-a", "running")] });
+        }
+        return deferredRefresh.promise;
+      }
+      return Promise.resolve({ sessions: [makeSession("session-b1", "idle")] });
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (projectName, sessionId) => ({
+      session: makeSession(sessionId, projectName === "project-a" ? "running" : "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [] }));
+
+    const { rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+      initialProps: { projectName: "project-a" as string | null },
+    });
+
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1);
+    });
+
+    // running 会话终态：触发刷新，挂起在 deferredRefresh
+    act(() => {
+      MockEventSource.instances[0].emit("status", { status: "completed" });
+    });
+
+    // 切到项目 B：其会话列表正常落地
+    rerender({ projectName: "project-b" });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-b1"]);
+    });
+
+    // 迟到：A 的终态刷新此刻才返回，signal 已 abort，不得覆盖 B 的列表
+    await act(async () => {
+      deferredRefresh.resolve({ sessions: [makeSession("session-a-refreshed", "idle")] });
+      await deferredRefresh.promise;
+    });
+
+    expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-b1"]);
+  });
+
+  it("resets stuck loading when leaving the project while a load is in flight (no successor to take over)", async () => {
+    // switchSession 的 loadSession 挂起期间离开项目（projectName 变为 null）：
+    // cleanup abort 了 loadSignal，但没有新项目的 init 接管收尾——effect 需在
+    // 离开分支显式复位 messagesLoading，否则永久卡在 true。
+    const deferredEntry = createDeferred<{ session: SessionMeta }>();
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "idle"), makeSession("session-2", "idle")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => {
+      if (sessionId === "session-2") return deferredEntry.promise;
+      return { session: makeSession(sessionId, "idle") };
+    });
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [] }));
+
+    const { result, rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+      initialProps: { projectName: "demo" as string | null },
+    });
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    act(() => {
+      void result.current.switchSession("session-2");
+    });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().messagesLoading).toBe(true);
+    });
+
+    // 离开项目：switchSession 的加载链被 abort，但没有后续加载链接管
+    rerender({ projectName: null });
+
+    expect(useAssistantStore.getState().messagesLoading).toBe(false);
+
+    // 迟到的 getAssistantSession 不再产生任何写入（signal 已 abort）
+    await act(async () => {
+      deferredEntry.resolve({ session: makeSession("session-2", "idle") });
+      await deferredEntry.promise;
+    });
+    expect(useAssistantStore.getState().messagesLoading).toBe(false);
+  });
 });

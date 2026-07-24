@@ -100,6 +100,9 @@ export function useAssistantSession(projectName: string | null) {
   // controller。任何接管会话选择权的入口（切会话/新建/删除/发送建会话/项目切换）
   // 先作废在途链，迟到响应经 signal 短路，不写 store、不建 SSE 连接。
   const loadAbortRef = useRef<AbortController | null>(null);
+  // 项目级取消域的当前 controller：跨 useCallback 边界（connectStream 的终态刷新）
+  // 复用同一 signal，随项目切换/卸载 abort。
+  const projectAbortRef = useRef<AbortController | null>(null);
 
   const abortSessionLoad = useCallback(() => {
     loadAbortRef.current?.abort();
@@ -193,12 +196,17 @@ export function useAssistantSession(projectName: string | null) {
           }
           closeStream();
 
-          // Turn 结束后刷新会话列表，获取 SDK summary 标题
+          // Turn 结束后刷新会话列表，获取 SDK summary 标题；纳入项目级取消域，
+          // 挂起期间切换项目时迟到响应不得覆盖已切到的新项目会话列表
           if (projectName) {
-            API.listAssistantSessions(projectName).then((res) => {
-              const fresh = res.sessions ?? [];
-              if (fresh.length > 0) store.getState().setSessions(fresh);
-            }).catch(() => {/* 静默失败 */});
+            const signal = projectAbortRef.current?.signal;
+            if (signal) {
+              API.listAssistantSessions(projectName, null, { signal }).then((res) => {
+                if (signal.aborted) return;
+                const fresh = res.sessions ?? [];
+                if (fresh.length > 0) store.getState().setSessions(fresh);
+              }).catch(() => {/* 静默失败 */});
+            }
           }
         }
       });
@@ -261,11 +269,17 @@ export function useAssistantSession(projectName: string | null) {
 
   // 加载会话
   useEffect(() => {
-    if (!projectName) return;
+    if (!projectName) {
+      // 离开项目：上一个 projectName 的 cleanup 已 abort 在途加载链，但没有
+      // 后续加载链接管收尾——显式清掉可能遗留的 loading，避免卡死为 true
+      store.getState().setMessagesLoading(false);
+      return;
+    }
     // 项目级取消域：只随项目切换/卸载 abort。会话列表与技能列表是项目级数据，
     // 挂起期间的会话操作（新建/切换/删除）不应作废它们——否则慢响应下技能列表
     // 会被误判过期丢弃、新项目的会话列表被陈旧会话点击作废且无重试。
     const projectAbort = new AbortController();
+    projectAbortRef.current = projectAbort;
 
     async function init() {
       // 会话自动选择占据加载链：后续任何用户会话操作接管选择权时作废
@@ -320,6 +334,7 @@ export function useAssistantSession(projectName: string | null) {
 
     return () => {
       projectAbort.abort();
+      if (projectAbortRef.current === projectAbort) projectAbortRef.current = null;
       abortSessionLoad();
       invalidatePendingSend();
       closeStream();
