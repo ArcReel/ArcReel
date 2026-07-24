@@ -72,10 +72,13 @@ def safe_join(
     # 按 CFG 支配关系识别「该调用求值为 True 的分支」，`not (A or B)` 这类复合布尔表达式
     # 会让 barrier 的分支归属判断失败（见 python/ql/lib/semmle/python/security/dataflow/
     # PathInjectionQuery.qll 的双状态 taint-tracking：SafeAccessCheck 只在能精确匹配到
-    # 单一 GuardNode 分支时才转入已校验态）。allow_base 分支必须拆成独立 if，
-    # 让越界判断退化成纯 “if not candidate_real.startswith(...): raise” 这一 canonical 形状。
+    # 单一 GuardNode 分支时才转入已校验态）。allow_base 分支必须拆成独立 if。
     if allow_base and candidate_real == base_real:
-        pass
+        # 该分支下二者已确认相等：显式重新绑定为 base_real（来自受信任的 base 参数，
+        # 未经 parts 污染），让下方共用的 isfile/exists 检查在这条路径上追踪的是
+        # base_real 的流而非 candidate_real 的拼接结果——否则这条路径不经过下面 elif
+        # 的 startswith() 分支，CodeQL 会把它当成完全未经校验就直达 sink 的旁路。
+        candidate_real = base_real
     elif not candidate_real.startswith(base_prefix):
         raise PathTraversalError(f"路径越界：{candidate_real!r} 不在 {base_real!r} 内")
 
