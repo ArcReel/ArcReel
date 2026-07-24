@@ -37,6 +37,8 @@ import {
   INPUT_CLS,
 } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
+// PROTOTYPE #1276 — 能力覆盖三态控件原型（DEV only；变体拍板后移除本挂载）
+import { useCapabilityOverridePrototype } from "@/components/prototype/endframe-ui/CapabilityOverrideVariants";
 
 // ---------------------------------------------------------------------------
 // Style constants
@@ -262,6 +264,8 @@ interface CustomProviderFormProps {
 export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProviderFormProps) {
   const { t } = useTranslation("dashboard");
   const isEdit = !!existing;
+  // PROTOTYPE #1276 — 能力覆盖三态控件原型挂载
+  const capProto = useCapabilityOverridePrototype();
 
   // Endpoint catalog（后端单一真相源）：mediaType 推断、price/default 互斥分组都从这里读。
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
@@ -775,6 +779,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         onChange={(v) => updateModel(m.key, { supported_durations_text: v })}
                       />
                     )}
+
+                    {/* PROTOTYPE #1276 — 能力覆盖行（仅 video endpoint） */}
+                    {media === "video" && capProto.renderRow(m.key)}
                   </div>
                 );
               })}
@@ -920,6 +927,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           </button>
         </div>
       </div>
+      {capProto.chrome}
     </div>
   );
 }

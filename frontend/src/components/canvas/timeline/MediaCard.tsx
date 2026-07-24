@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Sparkles, ImageIcon, Film } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
@@ -49,6 +50,10 @@ interface MediaCardProps {
   uploadDisabled?: boolean;
   /** 分镜编辑所需的剧集文件；提供时（且 kind=storyboard、已有图）显示编辑入口 */
   editScriptFile?: string | null;
+  /** 卡头附加控件，插在上传按钮之前 */
+  headerExtra?: ReactNode;
+  /** 叠加在媒体预览区之上的节点（绝对定位由调用方负责） */
+  mediaOverlay?: ReactNode;
 }
 
 const UPLOAD_ACCEPT: Record<MediaKind, string> = {
@@ -74,6 +79,8 @@ export function MediaCard({
   uploading,
   uploadDisabled,
   editScriptFile,
+  headerExtra,
+  mediaOverlay,
 }: MediaCardProps) {
   const { t } = useTranslation("dashboard");
 
@@ -114,6 +121,7 @@ export function MediaCard({
           {title}
         </span>
         <span className="flex-1" />
+        {headerExtra}
         {onUpload && (
           <UploadIconButton
             accept={UPLOAD_ACCEPT[kind]}
@@ -147,6 +155,7 @@ export function MediaCard({
       </div>
 
       {/* Media */}
+      <div className="relative">
       {assetUrl ? (
         kind === "storyboard" ? (
           <PreviewableImageFrame src={assetUrl} alt={`${segmentId} ${title}`}>
@@ -198,6 +207,8 @@ export function MediaCard({
           </div>
         </AspectFrame>
       )}
+      {mediaOverlay}
+      </div>
 
       {/* Generate CTA */}
       {!hideGenerateButton && onGenerate && (

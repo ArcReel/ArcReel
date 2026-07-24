@@ -42,6 +42,8 @@ import {
   isStructuredVideoPrompt,
 } from "@/utils/prompt-shape";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
+// PROTOTYPE #1276 — 尾帧设置 UI 原型（DEV only；变体拍板后移除本挂载）
+import { useEndFramePrototype } from "@/components/prototype/endframe-ui/EndFrameVariants";
 
 type Segment = NarrationSegment | DramaScene | AdShot;
 type DetailContentMode = "narration" | "drama" | "ad";
@@ -825,6 +827,13 @@ export function ShotDetail({
     </div>
   );
 
+  // PROTOTYPE #1276 — 尾帧设置 UI 原型挂载
+  const efProto = useEndFramePrototype(
+    assets?.storyboard_image
+      ? API.getFileUrl(projectName, assets.storyboard_image)
+      : null,
+  );
+
   const rightColumn = (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto px-[18px] pb-7 pt-3.5">
       <MediaCard
@@ -845,10 +854,13 @@ export function ShotDetail({
         generateDisabled={dirty || saving}
         generateDisabledHint={dirty ? dirtyHint : undefined}
       />
+      {efProto.aboveVideo}
       <MediaCard
         kind="video"
         projectName={projectName}
         segmentId={segmentId}
+        headerExtra={efProto.headerExtra}
+        mediaOverlay={efProto.mediaOverlay}
         assetPath={assets?.video_clip ?? null}
         posterPath={assets?.video_thumbnail ?? null}
         aspectRatio={aspectRatio}
@@ -1052,6 +1064,7 @@ export function ShotDetail({
         mid={midColumn}
         right={rightColumn}
       />
+      {efProto.chrome}
     </div>
   );
 }
