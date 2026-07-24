@@ -96,6 +96,23 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setSending(false);
   }, [store]);
 
+  // 会话加载链取消域：init 的会话自动选择与 loadSession（冷读/建流）共用一个
+  // controller。任何接管会话选择权的入口（切会话/新建/删除/发送建会话/项目切换）
+  // 先作废在途链，迟到响应经 signal 短路，不写 store、不建 SSE 连接。
+  const loadAbortRef = useRef<AbortController | null>(null);
+
+  const abortSessionLoad = useCallback(() => {
+    loadAbortRef.current?.abort();
+    loadAbortRef.current = null;
+  }, []);
+
+  const beginSessionLoad = useCallback(() => {
+    abortSessionLoad();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
+    return controller.signal;
+  }, [abortSessionLoad]);
+
   // 关闭流
   const closeStream = useCallback(() => {
     if (reconnectRef.current) {
@@ -216,9 +233,13 @@ export function useAssistantSession(projectName: string | null) {
     [clearPendingQuestion, projectName, closeStream, store, syncPendingQuestion],
   );
 
-  // 加载指定会话时间线：非 running 冷读日志；running 交给 entry 流回放
-  const loadSession = useCallback(async (sessionId: string) => {
-    const res = await API.getAssistantSession(projectName!, sessionId);
+  // 加载指定会话时间线：非 running 冷读日志；running 交给 entry 流回放。
+  // signal 被 abort 时网络 await 断点由 fetch 自动 reject；写 store 与建流前
+  // 复核 aborted，拦截「abort 发生在响应已 resolve 之后」的窗口。
+  const loadSession = useCallback(async (sessionId: string, options: { signal: AbortSignal }) => {
+    const { signal } = options;
+    const res = await API.getAssistantSession(projectName!, sessionId, { signal });
+    if (signal.aborted) return;
     const raw = res as Record<string, unknown>;
     const sessionObj = (raw.session ?? raw) as Record<string, unknown>;
     const status = (sessionObj.status as string) ?? "idle";
@@ -231,8 +252,8 @@ export function useAssistantSession(projectName: string | null) {
     if (status === "running") {
       connectStream(sessionId);
     } else {
-      const data = await API.listAssistantEntries(projectName!, sessionId);
-      if (store.getState().currentSessionId !== sessionId) return;
+      const data = await API.listAssistantEntries(projectName!, sessionId, -1, { signal });
+      if (signal.aborted) return;
       store.getState().setEntries(data.entries ?? []);
       store.getState().setDraftSnapshot(data.draft ?? null, data.draft_rev ?? 0);
     }
@@ -241,9 +262,14 @@ export function useAssistantSession(projectName: string | null) {
   // 加载会话
   useEffect(() => {
     if (!projectName) return;
-    let cancelled = false;
+    // 项目级取消域：只随项目切换/卸载 abort。会话列表与技能列表是项目级数据，
+    // 挂起期间的会话操作（新建/切换/删除）不应作废它们——否则慢响应下技能列表
+    // 会被误判过期丢弃、新项目的会话列表被陈旧会话点击作废且无重试。
+    const projectAbort = new AbortController();
 
     async function init() {
+      // 会话自动选择占据加载链：后续任何用户会话操作接管选择权时作废
+      const loadSignal = beginSessionLoad();
       store.getState().setMessagesLoading(true);
       // 切项目先重置时间线（与新建/切换/删除三条会话路径同口径），使有会话/
       // 无会话两个分支都从干净状态出发：running 会话的 SSE 冷订阅游标由重置后
@@ -251,11 +277,11 @@ export function useAssistantSession(projectName: string | null) {
       // 把旧项目条目混排进新会话时间线。
       store.getState().resetTimeline();
       try {
-        // 获取会话列表
-        const res = await API.listAssistantSessions(projectName!);
-        if (cancelled) return;
+        // 获取会话列表（项目级数据：即便自动选择已被用户操作作废，列表照常落地）
+        const res = await API.listAssistantSessions(projectName!, null, { signal: projectAbort.signal });
         const sessions = res.sessions ?? [];
         store.getState().setSessions(sessions);
+        if (loadSignal.aborted) return;
 
         // 优先使用上次选择的会话（如果仍存在于列表中）
         const lastId = getLastSessionId(projectName!);
@@ -268,33 +294,38 @@ export function useAssistantSession(projectName: string | null) {
           store.getState().setMessagesLoading(false);
           return;
         }
-        if (cancelled) return;
 
         store.getState().setCurrentSessionId(sessionId);
-        await loadSession(sessionId);
+        await loadSession(sessionId, { signal: loadSignal });
       } catch {
-        // 静默失败
+        // 静默失败（含被 abort 中止的请求）
       } finally {
-        if (!cancelled) store.getState().setMessagesLoading(false);
+        // 被作废时 loading 归接管方管理（switchSession 自开自收、
+        // createNewSession / deleteSession / sendMessage 显式复位），
+        // 此处复位会踩到接管方正在进行的加载
+        if (!loadSignal.aborted) store.getState().setMessagesLoading(false);
       }
     }
 
     // 加载技能列表
-    API.listAssistantSkills(projectName)
+    API.listAssistantSkills(projectName, { signal: projectAbort.signal })
       .then((res) => {
-        if (!cancelled) store.getState().setSkills(res.skills ?? []);
+        store.getState().setSkills(res.skills ?? []);
       })
       .catch(() => {});
 
     voidCall(init());
 
     return () => {
-      cancelled = true;
+      projectAbort.abort();
+      abortSessionLoad();
       invalidatePendingSend();
       closeStream();
     };
   }, [
     projectName,
+    abortSessionLoad,
+    beginSessionLoad,
     clearPendingQuestion,
     closeStream,
     invalidatePendingSend,
@@ -343,6 +374,11 @@ export function useAssistantSession(projectName: string | null) {
 
         if (pendingSendVersionRef.current !== sendVersion) return false;
         failedSendRef.current = null;
+        // 发送已受理：用户以发送行为接管会话选择权与时间线，作废在途加载链
+        // （init 自动选择不再覆盖 currentSessionId，挂起的冷读不再覆写时间线），
+        // 并复位其遗留的 loading
+        abortSessionLoad();
+        store.getState().setMessagesLoading(false);
 
         const returnedSessionId = result.session_id;
 
@@ -388,7 +424,8 @@ export function useAssistantSession(projectName: string | null) {
         return true;
       } catch (err) {
         if (pendingSendVersionRef.current !== sendVersion) return false;
-        // 失败：无本地合成消息可回滚，仅记录幂等键供重试复用
+        // 失败：无本地合成消息可回滚，仅记录幂等键供重试复用；
+        // 在途加载链未被作废，挂起的冷读继续正常落地
         failedSendRef.current = { clientKey, signature };
         if (err instanceof AgentFailureError) {
           store.getState().setStartupFailure(err.failure);
@@ -399,7 +436,7 @@ export function useAssistantSession(projectName: string | null) {
         return false;
       }
     },
-    [projectName, connectStream, store],
+    [projectName, abortSessionLoad, connectStream, store],
   );
 
   const answerQuestion = useCallback(
@@ -440,6 +477,7 @@ export function useAssistantSession(projectName: string | null) {
   const createNewSession = useCallback(() => {
     if (!projectName) return;
 
+    abortSessionLoad();
     invalidatePendingSend();
     closeStream();
     store.getState().resetTimeline();
@@ -447,13 +485,19 @@ export function useAssistantSession(projectName: string | null) {
     clearPendingQuestion();
     store.getState().setCurrentSessionId(null);
     store.getState().setIsDraftSession(true);
+    // 草稿会话无加载过程，复位被作废加载链遗留的 loading
+    store.getState().setMessagesLoading(false);
     statusRef.current = "idle";
-  }, [projectName, clearPendingQuestion, closeStream, invalidatePendingSend, store]);
+  }, [projectName, abortSessionLoad, clearPendingQuestion, closeStream, invalidatePendingSend, store]);
 
   // 切换到指定会话
   const switchSession = useCallback(async (sessionId: string) => {
+    // 面板为长生命周期单例：切项目为 null 后 sessions 列表不清空，仍可能渲染出
+    // 旧项目的会话项，点击不得以 null projectName 发起请求
+    if (!projectName) return;
     if (store.getState().currentSessionId === sessionId) return;
 
+    const signal = beginSessionLoad();
     invalidatePendingSend();
     closeStream();
     store.getState().setCurrentSessionId(sessionId);
@@ -463,16 +507,17 @@ export function useAssistantSession(projectName: string | null) {
     store.getState().setMessagesLoading(true);
 
     // 记住选择
-    if (projectName) saveLastSessionId(projectName, sessionId);
+    saveLastSessionId(projectName, sessionId);
 
     try {
-      await loadSession(sessionId);
+      await loadSession(sessionId, { signal });
     } catch {
-      // 静默失败
+      // 静默失败（含被后续切换 abort）
     } finally {
-      store.getState().setMessagesLoading(false);
+      // 被作废时 loading 归接管方管理，此处复位会踩到其正在进行的加载
+      if (!signal.aborted) store.getState().setMessagesLoading(false);
     }
-  }, [projectName, clearPendingQuestion, closeStream, invalidatePendingSend, loadSession, store]);
+  }, [projectName, beginSessionLoad, clearPendingQuestion, closeStream, invalidatePendingSend, loadSession, store]);
 
   // 删除会话
   const deleteSession = useCallback(async (sessionId: string) => {
@@ -487,19 +532,22 @@ export function useAssistantSession(projectName: string | null) {
         if (sessions.length > 0) {
           await switchSession(sessions[0].id);
         } else {
+          abortSessionLoad();
           invalidatePendingSend();
           closeStream();
           store.getState().setCurrentSessionId(null);
           store.getState().resetTimeline();
           store.getState().setSessionStatus(null);
           clearPendingQuestion();
+          // 清空到无会话后无加载过程，复位被作废加载链遗留的 loading
+          store.getState().setMessagesLoading(false);
           statusRef.current = "idle";
         }
       }
     } catch {
       // 静默失败
     }
-  }, [projectName, clearPendingQuestion, closeStream, invalidatePendingSend, switchSession, store]);
+  }, [projectName, abortSessionLoad, clearPendingQuestion, closeStream, invalidatePendingSend, switchSession, store]);
 
   return { sendMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession };
 }

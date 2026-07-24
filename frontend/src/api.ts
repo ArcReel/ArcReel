@@ -1568,22 +1568,26 @@ class API {
 
   static async listAssistantSessions(
     projectName: string,
-    status: string | null = null
+    status: string | null = null,
+    options: { signal?: AbortSignal } = {}
   ): Promise<{ sessions: SessionMeta[] }> {
     const params = new URLSearchParams();
     if (status) params.append("status", status);
     const query = params.toString();
     return this.request(
-      `${this.assistantBase(projectName)}/sessions${query ? "?" + query : ""}`
+      `${this.assistantBase(projectName)}/sessions${query ? "?" + query : ""}`,
+      { signal: options.signal }
     );
   }
 
   static async getAssistantSession(
     projectName: string,
-    sessionId: string
+    sessionId: string,
+    options: { signal?: AbortSignal } = {}
   ): Promise<{ session: SessionMeta }> {
     return this.request(
-      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}`
+      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}`,
+      { signal: options.signal }
     );
   }
 
@@ -1591,11 +1595,13 @@ class API {
   static async listAssistantEntries(
     projectName: string,
     sessionId: string,
-    after: number = -1
+    after: number = -1,
+    options: { signal?: AbortSignal } = {}
   ): Promise<EntriesResponse> {
     const query = after >= 0 ? `?after=${after}` : "";
     return this.request(
-      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/entries${query}`
+      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/entries${query}`,
+      { signal: options.signal }
     );
   }
 
@@ -1656,10 +1662,12 @@ class API {
   }
 
   static async listAssistantSkills(
-    projectName: string
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
   ): Promise<{ skills: SkillInfo[] }> {
     return this.request(
-      `${this.assistantBase(projectName)}/skills`
+      `${this.assistantBase(projectName)}/skills`,
+      { signal: options.signal }
     );
   }
 
