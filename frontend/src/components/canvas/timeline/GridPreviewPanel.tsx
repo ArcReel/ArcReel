@@ -348,7 +348,10 @@ export function GridPreviewPanel({
                         // 已变化，渲染期捕获的 isInProgress 未必反映最新状态。
                         const { tasks, optimisticActive } = useTasksStore.getState();
                         if (selectActiveResourceIds(tasks, "grid", projectName, optimisticActive).has(selectedGridId)) {
-                          setError(t("grid_regenerate_busy"));
+                          // 用 toast 而非 setError：error 是面板的整体错误态，会把宫格图、
+                          // 批次切换与本按钮一并替换掉，直到下次 refetch 才恢复；占用拒绝是
+                          // 瞬态提示，不该毁掉当前视图。
+                          useAppStore.getState().pushToast(t("grid_regenerate_busy"), "error");
                           return;
                         }
                         setRegenerating(true);

@@ -106,4 +106,33 @@ describe("ImageEditButton", () => {
       });
     });
   });
+
+  it("busy 维度仍拦截键盘提交：本资源占用集之外的占用（宫格模式下本集 grid 任务在跑）只反映在 busy prop 上", async () => {
+    const editSpy = vi.spyOn(API, "editImage");
+
+    const props = {
+      projectName: "demo",
+      resourceType: "storyboard" as const,
+      resourceId: "E1S1",
+      scriptFile: "episode_1.json",
+      hasImage: true,
+    };
+    const { rerender } = render(<ImageEditButton {...props} busy={false} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑图片" }));
+    const instructionField = await screen.findByLabelText("编辑指令");
+    fireEvent.change(instructionField, { target: { value: "把背景改成夜晚" } });
+
+    // tasks store 里没有这张分镜的任务行——grid 任务的 resource_id 是 grid_id，
+    // 归不进 storyboard 占用集，只能靠 busy 这层判定拦住。
+    rerender(<ImageEditButton {...props} busy />);
+
+    // 键盘快捷键提交绕过按钮的 disabled 属性，直接进 handleSubmit
+    fireEvent.keyDown(instructionField, { key: "Enter", metaKey: true });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "提交编辑" })).toBeDisabled();
+    });
+    expect(editSpy).not.toHaveBeenCalled();
+  });
 });

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import {
   useTasksStore,
   useActiveResourceIds,
@@ -24,6 +25,7 @@ vi.mock("@/stores/tasks-store", async () => {
 beforeEach(() => {
   vi.mocked(useActiveResourceIds).mockImplementation(mockHolder.real);
   useTasksStore.setState({ tasks: [], optimisticActive: new Set(), optimisticActiveScriptFile: new Set() });
+  useAppStore.setState(useAppStore.getInitialState(), true);
 });
 
 function makeGrid(overrides: Partial<GridGeneration> = {}): GridGeneration {
@@ -130,6 +132,7 @@ describe("GridPreviewPanel occupancy", () => {
   it("响应式信号尚未追上真实 store 时，提交仍被 getState() 新鲜读拦截", async () => {
     vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid());
     const regenerateSpy = vi.spyOn(API, "regenerateGrid");
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
     vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
 
     render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} defaultExpanded />);
@@ -141,7 +144,11 @@ describe("GridPreviewPanel occupancy", () => {
 
     fireEvent.click(regenBtn);
 
-    await screen.findByText("该宫格正在生成中，请稍后再试");
+    await waitFor(() => {
+      expect(pushToast).toHaveBeenCalledWith("该宫格正在生成中，请稍后再试", "error");
+    });
     expect(regenerateSpy).not.toHaveBeenCalled();
+    // 拒绝提示不得替换面板内容：宫格图与重新生成按钮仍在
+    expect(screen.getByText("重新生成")).toBeInTheDocument();
   });
 });

@@ -66,8 +66,12 @@ export function ImageEditButton({
 
   const handleSubmit = async () => {
     const trimmed = instruction.trim();
-    if (!trimmed || submitting || !hasImage) return;
-    // 占用判定改用 getState() 新鲜读：弹窗停留期间响应式 busy prop 的更新依赖父组件
+    // disabled（busy||!hasImage）仍要拦：busy 还带着 store 按资源占用之外的维度——宫格模式下
+    // 本集有 grid 任务在跑（切割阶段覆写多张 storyboard，见 selectHasActiveTaskForScriptFile）、
+    // 卡片内正在上传底图，二者都不会出现在本资源的占用集里；且键盘快捷键提交绕过按钮的
+    // disabled 属性，此处是这层判定唯一的落点。
+    if (!trimmed || submitting || disabled) return;
+    // 再用 getState() 新鲜读复核：弹窗停留期间响应式 busy prop 的更新依赖父组件
     // 重渲染，存在感知延迟；这里直接读 store 当前值，与 resourceType/resourceId
     // 命中同一占用槽（taskResourceKind 对 image_edit 按 resource_type 归槽）。
     const { tasks, optimisticActive } = useTasksStore.getState();
