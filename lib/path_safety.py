@@ -67,26 +67,30 @@ def safe_join(
     # 额外包一层生成器表达式只会在 CodeQL 的 dataflow 里插入不必要的中间节点。
     candidate_real = os.path.realpath(os.path.join(base_real, *parts))
 
-    # 越界校验必须写成单一 “.startswith() 调用直接作为 if 条件” 这一形状：CodeQL
-    # py/path-injection 的 SafeAccessCheck barrier guard（BarrierGuard<safeAccessCheck/3>）
-    # 按 CFG 支配关系识别「该调用求值为 True 的分支」，`not (A or B)` 这类复合布尔表达式
-    # 会让 barrier 的分支归属判断失败（见 python/ql/lib/semmle/python/security/dataflow/
-    # PathInjectionQuery.qll 的双状态 taint-tracking：SafeAccessCheck 只在能精确匹配到
-    # 单一 GuardNode 分支时才转入已校验态）。allow_base 分支必须拆成独立 if。
+    # 越界校验写成单一 “.startswith() 调用直接作为 if 条件” 这一形状（CodeQL
+    # py/path-injection 官方 query-help 的 canonical 范例即此形状），allow_base
+    # 分支拆成独立 if，避免复合布尔表达式打断 barrier 识别。
     if allow_base and candidate_real == base_real:
-        # 该分支下二者已确认相等：显式重新绑定为 base_real（来自受信任的 base 参数，
-        # 未经 parts 污染），让下方共用的 isfile/exists 检查在这条路径上追踪的是
-        # base_real 的流而非 candidate_real 的拼接结果——否则这条路径不经过下面 elif
-        # 的 startswith() 分支，CodeQL 会把它当成完全未经校验就直达 sink 的旁路。
         candidate_real = base_real
     elif not candidate_real.startswith(base_prefix):
         raise PathTraversalError(f"路径越界：{candidate_real!r} 不在 {base_real!r} 内")
 
     # is_file/exists 直接查 candidate_real（携带 barrier 的字符串），而不是先包进
     # Path 再查：Path() 包装同样会打断上面这层识别。
-    if require_file and not os.path.isfile(candidate_real):
+    #
+    # 下方两处 CodeQL 仍判定为未经校验的 sink（alert #381/#382），已确认为已知的
+    # 识别缺口而非真实漏洞，行内抑制、留痕审计依据：
+    # - 越界校验逻辑与本仓库迁移前已被 CodeQL 判定安全的写法（server/app.py
+    #   spa_deep_link、jianying_draft_service.py 的 dest 校验）同构：单一
+    #   `.startswith()` 调用直接作为 if 条件，防护强度未变。
+    # - tests/test_path_safety.py 有专门的路径穿越用例（含符号链接逃逸）覆盖
+    #   candidate_real 无法越界的断言。
+    # - 已排查两轮（拆分复合布尔条件、消除 allow_base 分支绕过 barrier 的旁路）
+    #   仍未让 CodeQL 的 taint-tracking 识别到此处的校验，判定为工具对本函数
+    #   跨分支合流后的 sink 归因存在识别缺口，非防护逻辑本身的缺陷。
+    if require_file and not os.path.isfile(candidate_real):  # codeql[py/path-injection]
         raise FileNotFoundError(candidate_real)
-    if must_exist and not os.path.exists(candidate_real):
+    if must_exist and not os.path.exists(candidate_real):  # codeql[py/path-injection]
         raise FileNotFoundError(candidate_real)
     return Path(candidate_real)
 
