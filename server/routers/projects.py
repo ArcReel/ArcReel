@@ -29,7 +29,7 @@ from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
-from lib.api_errors import ApiError, BadRequestError
+from lib.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
@@ -284,8 +284,8 @@ async def export_project_archive(
             filename=download_name,
             background=BackgroundTask(_cleanup_temp_file, str(archive_path)),
         )
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
     except HTTPException:
         raise
     except Exception:
@@ -443,9 +443,7 @@ async def list_projects(_user: CurrentUser):
             except Exception as e:
                 # 出错时返回基本信息
                 logger.warning("加载项目 '%s' 元数据失败: %s", name, e)
-                projects.append(
-                    {"name": name, "title": "", "style": "", "thumbnail": None, "status": {}, "error": str(e)}
-                )
+                projects.append({"name": name, "title": "", "style": "", "thumbnail": None, "status": {}})
 
         return {"projects": projects}
 
@@ -575,7 +573,7 @@ async def get_video_capabilities(
     try:
         return await resolver.video_capabilities(name)
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name)) from exc
+        raise NotFoundError("project_not_found", name=name) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=422,
@@ -631,8 +629,8 @@ async def get_project(
             }
 
         return await asyncio.to_thread(_sync)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
     except HTTPException:
         raise
     except Exception:
@@ -806,8 +804,8 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                 return {"success": True, "project": manager.update_project(name, _mutate)}
 
         return await asyncio.to_thread(_sync)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
     except HTTPException:
         raise
     except Exception:
@@ -825,8 +823,8 @@ async def delete_project(name: str, _user: CurrentUser, _t: Translator):
             return {"success": True, "message": _t("project_deleted", name=name)}
 
         return await asyncio.to_thread(_sync)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
     except HTTPException:
         raise
     except Exception:
@@ -840,8 +838,8 @@ async def get_script(name: str, script_file: str, _user: CurrentUser, _t: Transl
     try:
         script = await asyncio.to_thread(get_project_manager().load_script, name, script_file)
         return {"script": script}
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("script_not_found", name=script_file))
+    except FileNotFoundError as exc:
+        raise NotFoundError("script_not_found", name=script_file) from exc
     except HTTPException:
         raise
     except Exception:
@@ -897,8 +895,8 @@ async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user:
             return {"success": True, "scene": matched_scene}
 
         return await asyncio.to_thread(_sync)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("script_not_found", name=req.script_file))
+    except FileNotFoundError as exc:
+        raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
         # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
         # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
@@ -992,8 +990,8 @@ async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _user: Cu
             return {"success": True, "shot": matched_shot}
 
         return await asyncio.to_thread(_sync)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("script_not_found", name=req.script_file))
+    except FileNotFoundError as exc:
+        raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
         # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
         # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
@@ -1042,8 +1040,8 @@ async def reorder_shots(name: str, req: ReorderShotsRequest, _user: CurrentUser,
             return {"success": True, "shots": reordered}
 
         return await asyncio.to_thread(_sync)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("script_not_found", name=req.script_file))
+    except FileNotFoundError as exc:
+        raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=422,
@@ -1122,8 +1120,8 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
             return {"success": True, "segment": matched_segment}
 
         return await asyncio.to_thread(_sync)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("script_not_found", name=req.script_file))
+    except FileNotFoundError as exc:
+        raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
         # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
         # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
@@ -1169,9 +1167,9 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _us
                         script["title"] = title
                 except FileNotFoundError as exc:
                     if not manager.project_exists(name):
-                        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name)) from exc
+                        raise NotFoundError("project_not_found", name=name) from exc
                     # project.json 指向的脚本文件已删除/移动（stale 绑定）
-                    raise HTTPException(status_code=404, detail=_t("ref_script_missing")) from exc
+                    raise NotFoundError("ref_script_missing") from exc
                 except EpisodeScriptReboundError as exc:
                     logger.info("episode script rebound during title update: %s", exc)
                     raise HTTPException(status_code=409, detail=_t("ref_script_rebound")) from exc
@@ -1187,8 +1185,8 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _us
         return await asyncio.to_thread(_sync)
     except HTTPException:
         raise
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
@@ -1306,8 +1304,8 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
         # 非法项目名（路径穿越等）先于生成流程拦截，避免落入下面 generate_overview()
         # 内部供应商解析链路的 except ValueError，被误判为「未配置供应商」
         raise BadRequestError("invalid_project_name", name=name) from e
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
         raise
     except Exception:
@@ -1317,8 +1315,8 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
         with project_change_source("webui"):
             overview = await get_project_manager().generate_overview(name)
         return {"success": True, "overview": overview}
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
     except PydanticValidationError:
         # 模型输出未通过 schema 校验（后端降级仍失守时的最后防线），
         # 裸 pydantic 错误串含模型原始输出片段，不透传给用户
@@ -1371,8 +1369,8 @@ async def update_overview(name: str, req: UpdateOverviewRequest, _user: CurrentU
             return {"success": True, "overview": captured["overview"]}
 
         return await asyncio.to_thread(_sync)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=name) from exc
     except HTTPException:
         raise
     except Exception:

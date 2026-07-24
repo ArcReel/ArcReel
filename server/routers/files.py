@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
+from lib.api_errors import NotFoundError
 from lib.asset_types import GLOBAL_LIBRARY_ASSET_TYPES
 from lib.config.resolver import VisionCapabilityError
 from lib.episode_paths import (
@@ -92,8 +93,8 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
             headers["Cache-Control"] = "public, max-age=31536000, immutable"
 
         return FileResponse(file_path, headers=headers)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
 
 
 @router.get("/global-assets/{asset_type}/{filename}")
@@ -342,8 +343,8 @@ async def upload_file(
 
         return await asyncio.to_thread(_sync)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
     except Exception:
@@ -363,8 +364,8 @@ async def _handle_source_upload(
 
     try:
         project_dir = get_project_manager().get_project_path(project_name)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
 
     source_dir = project_dir / "source"
     source_dir.mkdir(parents=True, exist_ok=True)
@@ -494,8 +495,8 @@ async def list_project_files(project_name: str, _user: CurrentUser, _t: Translat
 
         return await asyncio.to_thread(_sync)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
     except Exception:
@@ -525,8 +526,8 @@ async def get_source_file(project_name: str, filename: str, _user: CurrentUser, 
         content = await asyncio.to_thread(_sync)
         return PlainTextResponse(content)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail=_t("invalid_encoding"))
     except HTTPException:
@@ -563,8 +564,8 @@ async def update_source_file(
 
         return await asyncio.to_thread(_sync)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
     except Exception:
@@ -601,8 +602,8 @@ async def delete_source_file(project_name: str, filename: str, _user: CurrentUse
 
         return await asyncio.to_thread(_sync)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
     except Exception:
@@ -706,8 +707,8 @@ async def get_draft_content(project_name: str, episode: int, step_num: int, _use
         content = await asyncio.to_thread(_sync)
         return PlainTextResponse(content)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
 
 
 @router.put("/projects/{project_name}/drafts/{episode}/step{step_num}")
@@ -786,8 +787,8 @@ async def update_draft_content(
 
         return await asyncio.to_thread(_sync)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
 
 
 @router.delete("/projects/{project_name}/drafts/{episode}/step{step_num}")
@@ -814,8 +815,8 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _user: Cu
 
         return await asyncio.to_thread(_sync)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
 
 
 # ==================== 风格参考图管理 ====================
@@ -894,8 +895,8 @@ async def upload_style_image(project_name: str, _user: CurrentUser, _t: Translat
             "url": f"/api/v1/files/{project_name}/{style_filename}",
         }
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
     except VisionCapabilityError as e:

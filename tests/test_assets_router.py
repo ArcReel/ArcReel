@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.db.base import Base
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import assets
 
 
@@ -29,6 +30,7 @@ async def _assets_env(tmp_path, monkeypatch):
     monkeypatch.setattr(assets, "get_project_manager", lambda: pm)
 
     app = FastAPI()
+    register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(assets.router, prefix="/api/v1")
 

@@ -259,7 +259,7 @@ class TestProjectsRouter:
             assert names == ["ready", "empty", "broken"]
             broken = [p for p in listed.json()["projects"] if p["name"] == "broken"][0]
             assert broken["status"] == {}
-            assert "error" in broken
+            assert "error" not in broken
 
             create_ok = client.post(
                 "/api/v1/projects",

@@ -13,6 +13,7 @@ from lib.project_change_hints import get_project_change_source
 from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import reference_videos, shot_uploads
 from server.services import generation_tasks, reference_video_tasks, upload_finalize
 
@@ -64,6 +65,7 @@ def _client(monkeypatch, tmp_path):
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
 
     app = FastAPI()
+    register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(shot_uploads.router, prefix="/api/v1")
     return TestClient(app), pm
@@ -358,6 +360,7 @@ def _ref_client(monkeypatch, tmp_path):
     monkeypatch.setattr(reference_video_tasks, "extract_video_thumbnail", _fake_thumbnail)
 
     app = FastAPI()
+    register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(reference_videos.router, prefix="/api/v1")
     return TestClient(app), pm

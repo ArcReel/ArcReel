@@ -16,6 +16,7 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from lib.api_errors import NotFoundError
 from lib.i18n import Translator
 from lib.image_utils import normalize_storyboard_upload
 from lib.path_safety import PathTraversalError, safe_join
@@ -139,9 +140,9 @@ async def upload_shot_media(
 
     except UploadValidationError as e:
         raise HTTPException(status_code=e.status_code, detail=_t(e.key, **e.params))
-    except FileNotFoundError:
-        # 不回传 str(e)：load_script 的异常信息含服务器绝对路径
-        raise HTTPException(status_code=404, detail=_t("script_not_found", name=script_file))
+    except FileNotFoundError as exc:
+        # 不回传 str(exc)：load_script 的异常信息含服务器绝对路径
+        raise NotFoundError("script_not_found", name=script_file) from exc
     except KeyError:
         raise HTTPException(status_code=404, detail=_t("segment_not_found", id=shot_id))
     except ScriptEditError as e:

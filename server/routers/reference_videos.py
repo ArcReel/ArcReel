@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
+from lib.api_errors import NotFoundError
 from lib.asset_types import BUCKET_KEY
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
@@ -73,7 +74,7 @@ def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tup
     try:
         project = get_project_manager().load_project(project_name)
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name)) from exc
+        raise NotFoundError("project_not_found", name=project_name) from exc
     episodes = project.get("episodes") or []
     meta = next((e for e in episodes if e.get("episode") == episode), None)
     if meta is None or not meta.get("script_file"):
@@ -82,7 +83,7 @@ def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tup
     try:
         script = get_project_manager().load_script(project_name, script_file)
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=_t("script_not_found", name=script_file)) from exc
+        raise NotFoundError("script_not_found", name=script_file) from exc
     if effective_mode(project=project, episode=meta) != "reference_video":
         raise HTTPException(status_code=409, detail=_t("ref_not_reference_video_mode"))
     return project, script, script_file
@@ -136,8 +137,8 @@ def _locked_episode_script(project_name: str, resolver: Callable[[dict], str], _
     except FileNotFoundError as exc:
         # 区分「项目缺失」与「project.json 指向的脚本文件缺失（stale 绑定）」
         if not get_project_manager().project_exists(project_name):
-            raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name)) from exc
-        raise HTTPException(status_code=404, detail=_t("ref_script_missing")) from exc
+            raise NotFoundError("project_not_found", name=project_name) from exc
+        raise NotFoundError("ref_script_missing") from exc
     except EpisodeScriptReboundError as exc:
         logger.info("episode script rebound during write: %s", exc)
         raise HTTPException(status_code=409, detail=_t("ref_script_rebound")) from exc
@@ -535,7 +536,7 @@ async def upload_unit_video(
         raise HTTPException(status_code=exc.status_code, detail=_t(exc.key, **exc.params)) from exc
     except FileNotFoundError as exc:
         # 不回传 str(exc)：load_script 的异常信息含服务器绝对路径
-        raise HTTPException(status_code=404, detail=_t("ref_script_missing")) from exc
+        raise NotFoundError("ref_script_missing") from exc
     except KeyError as exc:
         # finalize 写回时 unit 已被并发删除（落盘后绑定重查到锁内写回之间的窄竞态）
         raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=unit_id)) from exc
