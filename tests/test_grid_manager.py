@@ -52,7 +52,14 @@ class TestGridManager:
         import pytest
 
         gm = GridManager(tmp_path)
-        for bad in ("nonexistent", "../../etc/passwd", "grid_../../evil", "grid_ABCDEF123456", "grid_123"):
+        for bad in (
+            "nonexistent",
+            "../../etc/passwd",
+            "grid_../../evil",
+            "grid_ABCDEF123456",
+            "grid_123",
+            "grid_000000000000\n",
+        ):
             with pytest.raises(ValueError, match="非法宫格 ID"):
                 gm.get(bad)
             with pytest.raises(ValueError, match="非法宫格 ID"):

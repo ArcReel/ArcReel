@@ -75,11 +75,12 @@ def safe_join(
     except (OSError, ValueError) as exc:
         raise PathTraversalError(f"路径解析失败：{parts!r}") from exc
 
-    # 越界校验写成单一 “.startswith() 调用直接作为 if 条件” 这一形状（CodeQL
-    # py/path-injection 官方 query-help 的 canonical 范例即此形状），allow_base
-    # 分支拆成独立 if，避免复合布尔表达式打断 barrier 识别。
-    if allow_base and candidate_real == base_real:
-        candidate_real = base_real
+    # candidate_real == base_real 单独判支：base 为文件系统根 / 盘符根时
+    # base_prefix == base_real，相等的候选路径也会通过下面的 startswith 分支，
+    # 若把 allow_base 判断合并进该分支会让根目录下的 allow_base=False 被绕过。
+    if candidate_real == base_real:
+        if not allow_base:
+            raise PathTraversalError(f"路径越界：{candidate_real!r} 不在 {base_real!r} 内")
     elif not candidate_real.startswith(base_prefix):
         raise PathTraversalError(f"路径越界：{candidate_real!r} 不在 {base_real!r} 内")
 

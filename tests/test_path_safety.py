@@ -87,6 +87,14 @@ def test_safe_join_base_itself_allowed_with_flag(tmp_path: Path):
     assert safe_join(tmp_path, "", allow_base=True) == Path(os.path.realpath(tmp_path))
 
 
+def test_safe_join_root_base_itself_rejected_by_default():
+    # base 为文件系统根时 base_prefix == base_real，候选路径与 base 相等也会通过
+    # startswith 前缀比较——回归覆盖 allow_base=False 在这种情况下仍需拒绝。
+    root = Path(os.path.abspath(os.sep))
+    with pytest.raises(PathTraversalError):
+        safe_join(root, "")
+
+
 def test_safe_join_must_exist(tmp_path: Path):
     with pytest.raises(FileNotFoundError):
         safe_join(tmp_path, "nope.txt", must_exist=True)
