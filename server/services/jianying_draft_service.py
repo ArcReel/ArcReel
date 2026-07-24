@@ -7,6 +7,7 @@
 
 import json
 import logging
+import os
 import shutil
 import tempfile
 import zipfile
@@ -552,7 +553,20 @@ class JianyingDraftService:
                     dest = safe_join(assets_dir, staged.name)
                 except (PathTraversalError, FileNotFoundError) as exc:
                     raise ValueError(f"路径越界，拒绝写入: {staged.name}") from exc
-                shutil.move(str(src), str(dest))
+                # sink 前贴身补一道 realpath + startswith 冗余校验：safe_join 内部的
+                # barrier 是否跨函数边界传播到这里的返回值未经证实，直接在 sink 所在
+                # 函数内重做一遍最小化、CodeQL 已知可识别的收敛判断，不依赖跨函数推导。
+                # 必须用 realpath 而非 normpath 与 src/dest（已是 safe_join 返回的
+                # realpath 结果）对齐——staging_dir/assets_dir 所在的系统临时目录在
+                # macOS 上是指向 /private/tmp 的 symlink，normpath 不展开会导致误判越界。
+                src_str, dest_str = str(src), str(dest)
+                staging_root = os.path.realpath(str(staging_dir)) + os.sep
+                assets_root = os.path.realpath(str(assets_dir)) + os.sep
+                if not src_str.startswith(staging_root):
+                    raise ValueError(f"路径越界，拒绝写入: {staged.name}")
+                if not dest_str.startswith(assets_root):
+                    raise ValueError(f"路径越界，拒绝写入: {staged.name}")
+                shutil.move(src_str, dest_str)
 
             # 7. 路径后处理：staging 路径 → 用户本地路径
             draft_content_path = draft_dir / "draft_content.json"

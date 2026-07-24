@@ -63,15 +63,20 @@ def safe_join(
     # 分隔符（如 "/"、"C:\\"），再拼一次会变成 "//"/"C:\\\\"，导致任何合法子路径都
     # 无法匹配前缀而被误判越界。
     base_prefix = base_real if base_real.endswith(os.sep) else base_real + os.sep
-    joined = os.path.join(base_real, *(os.fspath(part) for part in parts))
-    candidate_real = os.path.realpath(joined)
+    # os.path.join 本身接受 PathLike 参数（内部会调 os.fspath），不需要预先转换；
+    # 额外包一层生成器表达式只会在 CodeQL 的 dataflow 里插入不必要的中间节点。
+    candidate_real = os.path.realpath(os.path.join(base_real, *parts))
 
-    # 越界校验必须写成 “.startswith() 调用直接作为 if 条件” 这一形状：CodeQL
-    # py/path-injection 的 SafeAccessCheck 只识别这一语法结构为 sanitizer barrier
-    # （见 python/ql/lib/semmle/python/frameworks/Stdlib.qll 的 StartswithCall）；
-    # 把结果先存进变量再判断会打断识别，之后所有用到 candidate_real 的文件系统
-    # 探测都会被当成未经校验的 sink。
-    if not (candidate_real.startswith(base_prefix) or (allow_base and candidate_real == base_real)):
+    # 越界校验必须写成单一 “.startswith() 调用直接作为 if 条件” 这一形状：CodeQL
+    # py/path-injection 的 SafeAccessCheck barrier guard（BarrierGuard<safeAccessCheck/3>）
+    # 按 CFG 支配关系识别「该调用求值为 True 的分支」，`not (A or B)` 这类复合布尔表达式
+    # 会让 barrier 的分支归属判断失败（见 python/ql/lib/semmle/python/security/dataflow/
+    # PathInjectionQuery.qll 的双状态 taint-tracking：SafeAccessCheck 只在能精确匹配到
+    # 单一 GuardNode 分支时才转入已校验态）。allow_base 分支必须拆成独立 if，
+    # 让越界判断退化成纯 “if not candidate_real.startswith(...): raise” 这一 canonical 形状。
+    if allow_base and candidate_real == base_real:
+        pass
+    elif not candidate_real.startswith(base_prefix):
         raise PathTraversalError(f"路径越界：{candidate_real!r} 不在 {base_real!r} 内")
 
     # is_file/exists 直接查 candidate_real（携带 barrier 的字符串），而不是先包进
