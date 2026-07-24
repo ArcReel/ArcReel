@@ -7,6 +7,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
+from lib.api_errors import NotFoundError
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.i18n import Translator
@@ -29,8 +30,8 @@ async def get_cost_estimate(project_name: str, _user: CurrentUser, _t: Translato
 
         try:
             project_data = pm.load_project(project_name)
-        except FileNotFoundError:
-            raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+        except FileNotFoundError as exc:
+            raise NotFoundError("project_not_found", name=project_name) from exc
 
         # 加载所有剧本
         scripts: dict[str, dict] = {}

@@ -20,6 +20,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
+from lib.api_errors import NotFoundError
 from lib.asset_types import ASSET_SPECS, validate_asset_name
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
@@ -123,8 +124,8 @@ def build_asset_router(
                 return {"success": True, result_key: data[spec.bucket_key][name]}
 
             return await asyncio.to_thread(_sync)
-        except FileNotFoundError:
-            raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+        except FileNotFoundError as exc:
+            raise NotFoundError("project_not_found", name=project_name) from exc
         except HTTPException:
             raise
         except Exception:
@@ -174,8 +175,8 @@ def build_asset_router(
             return await asyncio.to_thread(_sync)
         except KeyError:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
-        except FileNotFoundError:
-            raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+        except FileNotFoundError as exc:
+            raise NotFoundError("project_not_found", name=project_name) from exc
         except HTTPException:
             raise
         except Exception:
@@ -202,8 +203,8 @@ def build_asset_router(
             return await asyncio.to_thread(_sync)
         except KeyError:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
-        except FileNotFoundError:
-            raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+        except FileNotFoundError as exc:
+            raise NotFoundError("project_not_found", name=project_name) from exc
         except HTTPException:
             raise
         except Exception:

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 
 
 @pytest.fixture
@@ -59,6 +60,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
 
     app = FastAPI()
+    register_error_handlers(app)
     app.include_router(router_mod.router, prefix="/api/v1")
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="test", role="admin")
     return TestClient(app)

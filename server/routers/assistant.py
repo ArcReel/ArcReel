@@ -13,7 +13,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
 
 from lib import PROJECT_ROOT
-from lib.api_errors import BadRequestError, ConflictError, ServiceUnavailableError
+from lib.api_errors import BadRequestError, ConflictError, NotFoundError, ServiceUnavailableError
 from lib.i18n import Translator, get_locale
 from server.agent_runtime.failure_observation import build_startup_failure_observation
 from server.agent_runtime.models import SessionMeta
@@ -108,8 +108,8 @@ async def send_message(
         return result
     except SessionCapacityError as exc:
         raise ServiceUnavailableError("session_capacity_exceeded") from exc
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("session_or_project_not_found"))
+    except FileNotFoundError as exc:
+        raise NotFoundError("session_or_project_not_found") from exc
     except TimeoutError:
         raise HTTPException(status_code=504, detail=_t("sdk_session_timeout"))
     except SessionBusyError as exc:
@@ -215,8 +215,8 @@ async def list_entries(
         return await service.list_session_entries(session_id, meta=meta, after_seq=after)
     except HTTPException:
         raise
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=session_id))
+    except FileNotFoundError as exc:
+        raise NotFoundError("session_not_found", session_id=session_id) from exc
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
@@ -273,8 +273,8 @@ async def interrupt_session(project_name: str, session_id: str, _user: CurrentUs
         return result
     except HTTPException:
         raise
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=session_id))
+    except FileNotFoundError as exc:
+        raise NotFoundError("session_not_found", session_id=session_id) from exc
     except ValueError as exc:
         logger.warning("会话中断请求非法: %s", exc)
         raise BadRequestError("request_invalid") from exc
@@ -306,8 +306,8 @@ async def answer_question(
         return result
     except HTTPException:
         raise
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("session_not_found", session_id=session_id))
+    except FileNotFoundError as exc:
+        raise NotFoundError("session_not_found", session_id=session_id) from exc
     except ValueError as exc:
         # 会话未运行或无待回答问题
         logger.warning("会话回答请求非法: %s", exc)
@@ -330,8 +330,8 @@ async def list_skills(project_name: str, _user: CurrentUser, _t: Translator):
     try:
         skills = get_assistant_service().list_available_skills(project_name=project_name)
         return {"skills": skills}
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
     except Exception:

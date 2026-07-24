@@ -9,10 +9,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from lib.i18n.zh import errors as zh_errors
 from lib.project_change_hints import get_project_change_source
 from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import reference_videos, shot_uploads
 from server.services import generation_tasks, reference_video_tasks, upload_finalize
 
@@ -64,6 +66,7 @@ def _client(monkeypatch, tmp_path):
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
 
     app = FastAPI()
+    register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(shot_uploads.router, prefix="/api/v1")
     return TestClient(app), pm
@@ -358,6 +361,7 @@ def _ref_client(monkeypatch, tmp_path):
     monkeypatch.setattr(reference_video_tasks, "extract_video_thumbnail", _fake_thumbnail)
 
     app = FastAPI()
+    register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(reference_videos.router, prefix="/api/v1")
     return TestClient(app), pm
@@ -413,6 +417,32 @@ class TestReferenceUnitVideoUpload:
         with client:
             resp = _upload_unit(client, filename="clip.avi")
             assert resp.status_code == 400
+
+    def test_missing_project_404(self, tmp_path, monkeypatch):
+        """项目不存在 → 404，不退化成 500。
+
+        _load_episode_script 抛出的 NotFoundError 不是 HTTPException 子类，
+        端点的 except 阶梯必须同时放行 ApiError，否则被兜底分支吞成 500。
+        """
+        client, _ = _ref_client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/nope/reference-videos/episodes/1/units/E1U1/upload-video",
+                files={"file": ("clip.mp4", BytesIO(b"\x00" * 256), "application/octet-stream")},
+            )
+            assert resp.status_code == 404
+            assert resp.json()["detail"] == zh_errors.MESSAGES["project_not_found"].format(name="nope")
+
+    def test_stale_script_binding_404(self, tmp_path, monkeypatch):
+        """project.json 指向的剧本文件已丢失（stale 绑定）→ 404 而非 500。"""
+        client, pm = _ref_client(monkeypatch, tmp_path)
+        project = pm.load_project("demo")
+        project["episodes"][0]["script_file"] = "scripts/gone.json"
+        pm.save_project("demo", project)
+        with client:
+            resp = _upload_unit(client)
+            assert resp.status_code == 404
+            assert resp.json()["detail"] == zh_errors.MESSAGES["script_not_found"].format(name="scripts/gone.json")
 
     def test_emit_uses_webui_source(self, tmp_path, monkeypatch):
         """emit 在 project_change_source("webui") 上下文内被调用（SSE source 由 contextvar 决定）。"""

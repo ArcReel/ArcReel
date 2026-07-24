@@ -10,7 +10,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from lib.api_errors import BadRequestError, ConflictError, ServiceUnavailableError
+from lib.api_errors import BadRequestError, ConflictError, NotFoundError, ServiceUnavailableError
 from lib.i18n import Translator, get_locale
 from server.agent_runtime.models import Heartbeat, LiveMessage
 from server.agent_runtime.result_status import resolve_result_status
@@ -168,8 +168,8 @@ async def agent_chat(
     # 验证项目是否存在
     try:
         service.pm.get_project_path(body.project_name)
-    except (FileNotFoundError, KeyError):
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=body.project_name))
+    except (FileNotFoundError, KeyError) as exc:
+        raise NotFoundError("project_not_found", name=body.project_name) from exc
 
     # 若传入 session_id，先校验会话归属
     if body.session_id:
