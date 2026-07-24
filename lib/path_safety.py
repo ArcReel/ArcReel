@@ -59,19 +59,23 @@ def safe_join(
         TypeError: ``parts`` 含非路径类型（如 project.json 里的脏数据）。
     """
     base_real = _realpath(base)
+    # 预先补齐末尾分隔符：base 恰为文件系统根 / Windows 盘符根时 base_real 本身已带
+    # 分隔符（如 "/"、"C:\\"），再拼一次会变成 "//"/"C:\\\\"，导致任何合法子路径都
+    # 无法匹配前缀而被误判越界。
+    base_prefix = base_real if base_real.endswith(os.sep) else base_real + os.sep
     joined = os.path.join(base_real, *(os.fspath(part) for part in parts))
     candidate_real = os.path.realpath(joined)
 
-    if candidate_real == base_real:
-        contained = allow_base
-    else:
-        contained = candidate_real.startswith(base_real + os.sep)
-    if not contained:
+    # 越界校验必须写成 “.startswith() 调用直接作为 if 条件” 这一形状：CodeQL
+    # py/path-injection 的 SafeAccessCheck 只识别这一语法结构为 sanitizer barrier
+    # （见 python/ql/lib/semmle/python/frameworks/Stdlib.qll 的 StartswithCall）；
+    # 把结果先存进变量再判断会打断识别，之后所有用到 candidate_real 的文件系统
+    # 探测都会被当成未经校验的 sink。
+    if not (candidate_real.startswith(base_prefix) or (allow_base and candidate_real == base_real)):
         raise PathTraversalError(f"路径越界：{candidate_real!r} 不在 {base_real!r} 内")
 
-    # is_file/exists 直接查 candidate_real（携带 sanitizer barrier 的字符串），
-    # 而不是先包进 Path 再查：Path() 包装会打断 CodeQL 对该 barrier 的识别，
-    # 导致下面两次文件系统探测被当成未经校验的 py/path-injection sink。
+    # is_file/exists 直接查 candidate_real（携带 barrier 的字符串），而不是先包进
+    # Path 再查：Path() 包装同样会打断上面这层识别。
     if require_file and not os.path.isfile(candidate_real):
         raise FileNotFoundError(candidate_real)
     if must_exist and not os.path.exists(candidate_real):

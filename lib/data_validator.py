@@ -145,7 +145,9 @@ class DataValidator:
 
             try:
                 resolved = safe_join(project_dir, candidate)
-            except PathTraversalError:
+            except (PathTraversalError, ValueError, OSError):
+                # ValueError/OSError：文件系统非法但 JSON 可表达的路径字符串（如内嵌
+                # NUL 字节）会让 os.path.realpath 直接抛出，而不是走 PathTraversalError
                 return None, f"引用路径越界: {normalized}"
 
             if resolved.exists():
