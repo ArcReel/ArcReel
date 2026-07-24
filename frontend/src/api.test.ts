@@ -441,11 +441,13 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/tasks/stats?project_name=demo");
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/assistant/sessions?status=running",
+        { signal: undefined },
       );
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/assistant/sessions/session-1/entries?after=5",
+        { signal: undefined },
       );
-      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/assistant/skills");
+      expect(requestSpy).toHaveBeenCalledWith("/projects/demo/assistant/skills", { signal: undefined });
       expect(requestSpy).toHaveBeenCalledWith(
         "/usage/stats?project_name=demo&start_date=2026-01-01&end_date=2026-02-01",
       );
