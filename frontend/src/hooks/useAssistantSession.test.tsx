@@ -1179,4 +1179,70 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-b1"]);
     expect(MockEventSource.instances).toHaveLength(0);
   });
+
+  it("does not let a delayed session-list response overwrite the new project's list after project switch", async () => {
+    // 项目 A 的 listAssistantSessions 挂起期间切到项目 B；A 的响应在 abort() 之后
+    // 才 resolve（fetch 不会因此 reject），此时不得把 A 的会话列表写入已切到 B 的
+    // store（写入前须复核 projectAbort.signal.aborted）。
+    const deferredA = createDeferred<{ sessions: SessionMeta[] }>();
+    vi.spyOn(API, "listAssistantSessions").mockImplementation((projectName) => {
+      if (projectName === "project-a") return deferredA.promise;
+      return Promise.resolve({ sessions: [makeSession("session-b1", "idle")] });
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [] }));
+
+    const { rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+      initialProps: { projectName: "project-a" as string | null },
+    });
+
+    // 切到项目 B：其会话列表正常落地
+    rerender({ projectName: "project-b" });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-b1"]);
+    });
+
+    // 迟到：A 的会话列表此刻才返回，signal 已 abort，不得覆盖 B 的列表
+    await act(async () => {
+      deferredA.resolve({ sessions: [makeSession("session-a1", "idle")] });
+      await deferredA.promise;
+    });
+
+    expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-b1"]);
+  });
+
+  it("does not let a delayed skills response overwrite the new project's skills after project switch", async () => {
+    // 同上，针对技能列表：A 的响应在离开 A 之后才 resolve，不得写入 B 的 skills。
+    const deferredA = createDeferred<{ skills: SkillInfo[] }>();
+    vi.spyOn(API, "listAssistantSkills").mockImplementation((projectName) => {
+      if (projectName === "project-a") return deferredA.promise;
+      return Promise.resolve({
+        skills: [{ name: "b-skill", description: "d", scope: "project", path: "/p" }],
+      });
+    });
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "idle")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "idle") });
+    vi.spyOn(API, "listAssistantEntries").mockResolvedValue(makeEntriesResponse({ entries: [] }));
+
+    const { rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+      initialProps: { projectName: "project-a" as string | null },
+    });
+
+    rerender({ projectName: "project-b" });
+    await waitFor(() => {
+      expect(useAssistantStore.getState().skills.map((s) => s.name)).toEqual(["b-skill"]);
+    });
+
+    // 迟到：A 的技能列表此刻才返回，不得覆盖 B 的技能列表
+    await act(async () => {
+      deferredA.resolve({ skills: [{ name: "a-skill", description: "d", scope: "project", path: "/p" }] });
+      await deferredA.promise;
+    });
+
+    expect(useAssistantStore.getState().skills.map((s) => s.name)).toEqual(["b-skill"]);
+  });
 });

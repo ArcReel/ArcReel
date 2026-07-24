@@ -279,6 +279,7 @@ export function useAssistantSession(projectName: string | null) {
       try {
         // 获取会话列表（项目级数据：即便自动选择已被用户操作作废，列表照常落地）
         const res = await API.listAssistantSessions(projectName!, null, { signal: projectAbort.signal });
+        if (projectAbort.signal.aborted) return;
         const sessions = res.sessions ?? [];
         store.getState().setSessions(sessions);
         if (loadSignal.aborted) return;
@@ -310,6 +311,7 @@ export function useAssistantSession(projectName: string | null) {
     // 加载技能列表
     API.listAssistantSkills(projectName, { signal: projectAbort.signal })
       .then((res) => {
+        if (projectAbort.signal.aborted) return;
         store.getState().setSkills(res.skills ?? []);
       })
       .catch(() => {});
