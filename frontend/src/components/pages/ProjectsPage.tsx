@@ -36,6 +36,7 @@ import { Typewriter, type TypewriterSegment } from "@/components/ui/Typewriter";
 import { WARM_TONE } from "@/utils/severity-tone";
 import { getProjectDisplayName } from "@/utils/project-display";
 import { CreateProjectModal } from "./CreateProjectModal";
+import { OnboardingPrototype } from "@/components/prototype/onboarding/OnboardingPrototype";
 import { OpenClawModal } from "./OpenClawModal";
 import { rememberAssetLibraryReturnTo } from "./AssetLibraryPage";
 import { ICON_BTN_FILLED_CLS, posterGridStyle } from "@/components/ui/darkroom-tokens";
@@ -675,13 +676,16 @@ interface PlaceholderTileProps {
   kicker: string;
   icon: ReactNode;
   ariaLabel?: string;
+  /** PROTOTYPE:onboarding 形态原型的遮罩锚点标记,原型下线时一并移除 */
+  dataOnboarding?: string;
 }
 
-function PlaceholderTile({ onClick, title, kicker, icon, ariaLabel }: PlaceholderTileProps) {
+function PlaceholderTile({ onClick, title, kicker, icon, ariaLabel, dataOnboarding }: PlaceholderTileProps) {
   return (
     <button
       type="button"
       onClick={onClick}
+      data-onboarding={dataOnboarding}
       className="group relative flex h-full min-h-[380px] flex-col overflow-hidden rounded-[12px] border border-dashed border-hairline-strong bg-bg-grad-a/55 text-left transition-colors hover:border-accent/55 hover:bg-bg-grad-a/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       aria-label={ariaLabel ?? title}
     >
@@ -762,6 +766,7 @@ function NewProjectTile({ onClick, t }: { onClick: () => void; t: TFunction }) {
       title={t("dashboard:lobby_new_project_title")}
       kicker={t("dashboard:lobby_new_project_kicker")}
       icon={<Plus className="h-6 w-6" />}
+      dataOnboarding="new-project"
     />
   );
 }
@@ -893,6 +898,7 @@ function TopBar({
           <button
             type="button"
             onClick={onSettings}
+            data-onboarding="settings"
             className={`relative ${ICON_BTN_FILLED_CLS}`}
             title={t("settings")}
             aria-label={t("settings")}
@@ -1565,6 +1571,7 @@ export function ProjectsPage() {
         }}
         onConfirm={handleDeleteProject}
       />
+      <OnboardingPrototype />
     </div>
   );
 }
