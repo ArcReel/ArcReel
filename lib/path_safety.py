@@ -69,12 +69,14 @@ def safe_join(
     if not contained:
         raise PathTraversalError(f"路径越界：{candidate_real!r} 不在 {base_real!r} 内")
 
-    candidate = Path(candidate_real)
-    if require_file and not candidate.is_file():
+    # is_file/exists 直接查 candidate_real（携带 sanitizer barrier 的字符串），
+    # 而不是先包进 Path 再查：Path() 包装会打断 CodeQL 对该 barrier 的识别，
+    # 导致下面两次文件系统探测被当成未经校验的 py/path-injection sink。
+    if require_file and not os.path.isfile(candidate_real):
         raise FileNotFoundError(candidate_real)
-    if must_exist and not candidate.exists():
+    if must_exist and not os.path.exists(candidate_real):
         raise FileNotFoundError(candidate_real)
-    return candidate
+    return Path(candidate_real)
 
 
 def try_safe_join(

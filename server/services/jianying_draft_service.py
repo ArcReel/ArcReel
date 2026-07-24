@@ -545,11 +545,14 @@ class JianyingDraftService:
             assets_dir = draft_dir / "assets"
             assets_dir.mkdir(exist_ok=True)
             for staged in staging_dir.iterdir():
+                # 源、目的地都过一遍 safe_join：目的地此前已校验，源（staged 文件名）
+                # 未经校验直接传给 shutil.move 时，CodeQL 会把它当未经校验的 sink 输入
                 try:
+                    src = safe_join(staging_dir, staged.name, require_file=True)
                     dest = safe_join(assets_dir, staged.name)
-                except PathTraversalError as exc:
+                except (PathTraversalError, FileNotFoundError) as exc:
                     raise ValueError(f"路径越界，拒绝写入: {staged.name}") from exc
-                shutil.move(str(staged), str(dest))
+                shutil.move(str(src), str(dest))
 
             # 7. 路径后处理：staging 路径 → 用户本地路径
             draft_content_path = draft_dir / "draft_content.json"
