@@ -70,6 +70,14 @@ def test_safe_join_absolute_within_base_allowed(tmp_path: Path):
     assert safe_join(tmp_path, str(inside)) == inside
 
 
+def test_safe_join_rejects_malformed_path(tmp_path: Path):
+    # 内嵌 NUL 字节：JSON 可表达但文件系统非法，os.path.realpath 会直接抛
+    # 原生 ValueError；safe_join 需统一转换成 PathTraversalError，否则只捕获
+    # PathTraversalError 的调用点会让这类脏数据退化成未预期的 500。
+    with pytest.raises(PathTraversalError):
+        safe_join(tmp_path, "bad\x00name.png")
+
+
 def test_safe_join_base_itself_rejected_by_default(tmp_path: Path):
     with pytest.raises(PathTraversalError):
         safe_join(tmp_path, "")

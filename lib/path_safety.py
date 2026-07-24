@@ -54,7 +54,8 @@ def safe_join(
         require_file: 为 True 时结果必须是已存在的**文件**，否则抛 ``FileNotFoundError``。
 
     Raises:
-        PathTraversalError: 解析结果不在 ``base`` 内。
+        PathTraversalError: 解析结果不在 ``base`` 内，或 ``parts`` 含文件系统非法字符
+            导致 ``os.path.realpath`` 解析失败（如内嵌 NUL 字节）。
         FileNotFoundError: ``must_exist`` / ``require_file`` 校验未通过。
         TypeError: ``parts`` 含非路径类型（如 project.json 里的脏数据）。
     """
@@ -65,7 +66,14 @@ def safe_join(
     base_prefix = base_real if base_real.endswith(os.sep) else base_real + os.sep
     # os.path.join 本身接受 PathLike 参数（内部会调 os.fspath），不需要预先转换；
     # 额外包一层生成器表达式只会在 CodeQL 的 dataflow 里插入不必要的中间节点。
-    candidate_real = os.path.realpath(os.path.join(base_real, *parts))
+    #
+    # parts 来自不可信输入，可能含文件系统非法字符（如内嵌 NUL 字节）：这类值 JSON
+    # 可表达但会让 os.path.realpath 直接抛出原生 ValueError/OSError。调用方普遍只捕获
+    # PathTraversalError，在这里统一转换，避免每个调用点各自补漏、遗漏的会退化成 500。
+    try:
+        candidate_real = os.path.realpath(os.path.join(base_real, *parts))
+    except (OSError, ValueError) as exc:
+        raise PathTraversalError(f"路径解析失败：{parts!r}") from exc
 
     # 越界校验写成单一 “.startswith() 调用直接作为 if 条件” 这一形状（CodeQL
     # py/path-injection 官方 query-help 的 canonical 范例即此形状），allow_base
