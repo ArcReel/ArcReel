@@ -175,6 +175,7 @@ export async function enqueueGridRegenerate(
   scriptFile: string | null,
 ): Promise<EnqueueResult> {
   const res = await API.regenerateGrid(projectName, gridId);
+  useTasksStore.getState().markOptimisticActive(projectName, "grid", gridId, "grid");
   if (scriptFile) {
     useTasksStore.getState().markOptimisticActiveForScriptFile(projectName, "grid", scriptFile);
   }

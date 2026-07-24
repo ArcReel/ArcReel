@@ -4,6 +4,7 @@ import { Wand2 } from "lucide-react";
 import { enqueueImageEdit } from "@/actions/generation";
 import { GlassModal } from "@/components/ui/GlassModal";
 import { useAppStore } from "@/stores/app-store";
+import { selectActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
 
 export type ImageEditResourceType =
@@ -65,9 +66,15 @@ export function ImageEditButton({
 
   const handleSubmit = async () => {
     const trimmed = instruction.trim();
-    // disabled 是响应式的 busy||!hasImage：弹窗打开期间资源转为占用中时随之更新，
-    // 这里兜底防止禁用态生效前的一次点击仍发出请求。
-    if (!trimmed || submitting || disabled) return;
+    if (!trimmed || submitting || !hasImage) return;
+    // 占用判定改用 getState() 新鲜读：弹窗停留期间响应式 busy prop 的更新依赖父组件
+    // 重渲染，存在感知延迟；这里直接读 store 当前值，与 resourceType/resourceId
+    // 命中同一占用槽（taskResourceKind 对 image_edit 按 resource_type 归槽）。
+    const { tasks, optimisticActive } = useTasksStore.getState();
+    if (selectActiveResourceIds(tasks, resourceType, projectName, optimisticActive).has(resourceId)) {
+      useAppStore.getState().pushToast(t("image_edit_resource_busy"), "error");
+      return;
+    }
     setSubmitting(true);
     try {
       await enqueueImageEdit(projectName, {
