@@ -1425,6 +1425,7 @@ class TestProjectsRouter:
         with client:
             resp = client.patch("/api/v1/projects/nope/episodes/1", json={"title": "x"})
             assert resp.status_code == 404
+            assert resp.json()["detail"] == zh_errors.MESSAGES["project_not_found"].format(name="nope")
 
     def test_update_episode_stale_script_binding_404(self, tmp_path, monkeypatch):
         """项目在但 project.json 指向的剧本文件已丢失（stale 绑定）→ 404 而非 500。"""
@@ -1435,6 +1436,7 @@ class TestProjectsRouter:
         with client:
             resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": "x"})
             assert resp.status_code == 404
+            assert resp.json()["detail"] == zh_errors.MESSAGES["ref_script_missing"]
 
 
 class TestGetVideoCapabilities:

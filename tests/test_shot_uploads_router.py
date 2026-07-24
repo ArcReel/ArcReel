@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from lib.i18n.zh import errors as zh_errors
 from lib.project_change_hints import get_project_change_source
 from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
@@ -430,6 +431,7 @@ class TestReferenceUnitVideoUpload:
                 files={"file": ("clip.mp4", BytesIO(b"\x00" * 256), "application/octet-stream")},
             )
             assert resp.status_code == 404
+            assert resp.json()["detail"] == zh_errors.MESSAGES["project_not_found"].format(name="nope")
 
     def test_stale_script_binding_404(self, tmp_path, monkeypatch):
         """project.json 指向的剧本文件已丢失（stale 绑定）→ 404 而非 500。"""
@@ -440,6 +442,7 @@ class TestReferenceUnitVideoUpload:
         with client:
             resp = _upload_unit(client)
             assert resp.status_code == 404
+            assert resp.json()["detail"] == zh_errors.MESSAGES["script_not_found"].format(name="scripts/gone.json")
 
     def test_emit_uses_webui_source(self, tmp_path, monkeypatch):
         """emit 在 project_change_source("webui") 上下文内被调用（SSE source 由 contextvar 决定）。"""

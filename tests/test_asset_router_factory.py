@@ -163,7 +163,6 @@ class TestAssetRouterNoLeak:
             lambda: (_ for _ in ()).throw(RuntimeError("LEAK_add")),
         )
         app = FastAPI()
-        register_error_handlers(app)
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(characters.router, prefix="/api/v1")
         with TestClient(app) as client:
@@ -179,7 +178,6 @@ class TestAssetRouterNoLeak:
             lambda: (_ for _ in ()).throw(RuntimeError("LEAK_update")),
         )
         app = FastAPI()
-        register_error_handlers(app)
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(characters.router, prefix="/api/v1")
         with TestClient(app) as client:
@@ -195,7 +193,6 @@ class TestAssetRouterNoLeak:
             lambda: (_ for _ in ()).throw(RuntimeError("LEAK_delete")),
         )
         app = FastAPI()
-        register_error_handlers(app)
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(characters.router, prefix="/api/v1")
         with TestClient(app) as client:
