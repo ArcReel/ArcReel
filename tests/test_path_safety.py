@@ -9,7 +9,6 @@ import pytest
 
 from lib.path_safety import (
     PathTraversalError,
-    is_within,
     safe_exists,
     safe_join,
     try_safe_join,
@@ -110,13 +109,3 @@ def test_try_safe_join_returns_none_on_escape(tmp_path: Path):
     assert try_safe_join(tmp_path, "../x") is None
     assert try_safe_join(tmp_path, cast(Any, 42)) is None
     assert try_safe_join(tmp_path, "ok.txt") == Path(os.path.realpath(tmp_path)) / "ok.txt"
-
-
-# ==================== is_within ====================
-
-
-def test_is_within(tmp_path: Path):
-    assert is_within(tmp_path, tmp_path / "a") is True
-    assert is_within(tmp_path, tmp_path / ".." / "b") is False
-    assert is_within(tmp_path, tmp_path) is False
-    assert is_within(tmp_path, tmp_path, allow_base=True) is True

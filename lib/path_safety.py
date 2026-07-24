@@ -15,7 +15,6 @@ from pathlib import Path
 
 __all__ = [
     "PathTraversalError",
-    "is_within",
     "safe_exists",
     "safe_join",
     "safe_resolve",
@@ -33,21 +32,6 @@ class PathTraversalError(ValueError):
 
 def _realpath(value: str | os.PathLike[str]) -> str:
     return os.path.realpath(os.fspath(value))
-
-
-def is_within(base: str | os.PathLike[str], path: str | os.PathLike[str], *, allow_base: bool = False) -> bool:
-    """``path`` 解析后是否落在 ``base`` 之内。
-
-    Args:
-        base: 基准目录。
-        path: 待判定路径（绝对或相对当前工作目录）。
-        allow_base: 解析结果恰等于 ``base`` 本身时是否算通过。默认 False（要求真子路径）。
-    """
-    base_real = _realpath(base)
-    candidate = _realpath(path)
-    if candidate == base_real:
-        return allow_base
-    return candidate.startswith(base_real + os.sep)
 
 
 def safe_join(
