@@ -113,6 +113,16 @@ class TestFactoryWiring:
 
 
 class TestLookupPricing:
+    def test_m3_text_cny_per_token(self):
+        p = lookup_pricing(PROVIDER_MINIMAX, "MiniMax-M3", "text")
+        amount, cur = calculate_pricing(
+            p,
+            PricingParams(call_type="text", model="MiniMax-M3", input_tokens=1_000_000, output_tokens=1_000_000),
+        )
+        assert cur == "CNY"
+        # ¥4.2 input + ¥16.8 output
+        assert amount == pytest.approx(21.0)
+
     def test_text_cny_per_token(self):
         p = lookup_pricing(PROVIDER_MINIMAX, "MiniMax-M2.7", "text")
         amount, cur = calculate_pricing(
