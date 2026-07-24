@@ -78,22 +78,15 @@ def safe_join(
     # is_file/exists 直接查 candidate_real（携带 barrier 的字符串），而不是先包进
     # Path 再查：Path() 包装同样会打断上面这层识别。
     #
-    # 下方两处 CodeQL 仍判定为未经校验的 sink（alert #384/#385），已确认为已知的
-    # 识别缺口而非真实漏洞，行内抑制、留痕审计依据：
-    # - 越界校验逻辑与本仓库迁移前已被 CodeQL 判定安全的写法（server/app.py
-    #   spa_deep_link、jianying_draft_service.py 的 dest 校验）同构：单一
-    #   `.startswith()` 调用直接作为 if 条件，防护强度未变。
-    # - tests/test_path_safety.py 有专门的路径穿越用例（含符号链接逃逸）覆盖
-    #   candidate_real 无法越界的断言。
-    # - 已排查两轮（拆分复合布尔条件、消除 allow_base 分支绕过 barrier 的旁路）
-    #   仍未让 CodeQL 的 taint-tracking 识别到此处的校验，判定为工具对本函数
-    #   跨分支合流后的 sink 归因存在识别缺口，非防护逻辑本身的缺陷。
-    # 官方行内抑制标记须独占一行、紧邻被抑制行之上——此前误写成同行尾注
-    # （那是 lgtm[] legacy 语法的写法），CodeQL 未能识别为抑制标记。
-    # codeql[py/path-injection]
+    # 下方两处 CodeQL 仍判定为未经校验的 sink，已通过 GitHub code scanning UI
+    # dismiss（false positive，理由见对应 alert 的 dismiss comment，含 PR 链接）：
+    # 越界校验逻辑与本仓库迁移前已被 CodeQL 判定安全的写法（server/app.py
+    # spa_deep_link、jianying_draft_service.py 的 dest 校验）同构，防护强度未变，
+    # 且 tests/test_path_safety.py 有专门的路径穿越用例（含符号链接逃逸）锁定；
+    # 本函数自身作为该仓库唯一的越界校验实现，其内部操作的正是未净化的候选路径，
+    # 判定为 CodeQL 对 sanitizer 自身跨分支合流后的 sink 归因存在识别缺口。
     if require_file and not os.path.isfile(candidate_real):
         raise FileNotFoundError(candidate_real)
-    # codeql[py/path-injection]
     if must_exist and not os.path.exists(candidate_real):
         raise FileNotFoundError(candidate_real)
     return Path(candidate_real)
