@@ -86,6 +86,15 @@ describe("OnboardingTour", () => {
     expect(popoverTitle()).toBeNull();
   });
 
+  it("does not run on an unmatched route that merely shares the /app prefix", () => {
+    const status = vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+
+    renderAt("/application");
+
+    expect(status).not.toHaveBeenCalled();
+    expect(popoverTitle()).toBeNull();
+  });
+
   it("marks the tour as seen when it is closed, and does not reopen it", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
 
