@@ -605,12 +605,16 @@ export function StudioCanvasRouter() {
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_SOURCE}/:filename`}>
-        {(params) => (
-          <SourceFileViewer
-            projectName={currentProjectName}
-            filename={decodeURIComponent(params.filename)}
-          />
-        )}
+        {(params) =>
+          demoMode ? (
+            <Redirect to="/" />
+          ) : (
+            <SourceFileViewer
+              projectName={currentProjectName}
+              filename={decodeURIComponent(params.filename)}
+            />
+          )
+        }
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_EPISODES}/:episodeId`}>
