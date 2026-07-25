@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from lib.config.service import ConfigService
+from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 from lib.db import get_async_session
 from lib.db.base import Base
 from server.auth import CurrentUserInfo, get_current_user
@@ -238,9 +239,23 @@ class TestEndpointCatalog:
                 "request_method",
                 "request_path_template",
                 "image_capabilities",
+                "end_image_capable",
             }
             assert entry["request_method"] == "POST"
             assert entry["request_path_template"].startswith("/")
+
+    def test_endpoints_expose_end_image_capable(self, client: TestClient):
+        """catalog 带出 end_image_capable：前端据此禁用不下传尾帧的 endpoint 的 last_frame 强制开，
+        用户不必撞上写入侧的 422 才知道这条路不通。非 video 类恒为 False。"""
+        resp = client.get("/api/v1/custom-providers/endpoints")
+        assert resp.status_code == 200
+        by_key = {e["key"]: e for e in resp.json()["endpoints"]}
+        assert by_key["kling-video"]["end_image_capable"] is True
+        assert by_key["openai-chat"]["end_image_capable"] is False
+        assert by_key["openai-images"]["end_image_capable"] is False
+        # 与注册表保持同源，不在响应层另立一份判断
+        for key, spec in ENDPOINT_REGISTRY.items():
+            assert by_key[key]["end_image_capable"] is spec.end_image_capable
 
     def test_endpoints_expose_image_capabilities(self, client: TestClient):
         """每个 entry 上返回 image_capabilities：image 类填能力数组，其他为 None。"""

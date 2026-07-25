@@ -12,6 +12,7 @@ const FIXTURE: EndpointDescriptor[] = [
     request_method: "POST",
     request_path_template: "/v1/chat/completions",
     image_capabilities: null,
+    end_image_capable: false,
   },
   {
     key: "newapi-video",
@@ -21,6 +22,7 @@ const FIXTURE: EndpointDescriptor[] = [
     request_method: "POST",
     request_path_template: "/v1/video/generations",
     image_capabilities: null,
+    end_image_capable: true,
   },
   {
     key: "openai-images",
@@ -30,6 +32,7 @@ const FIXTURE: EndpointDescriptor[] = [
     request_method: "POST",
     request_path_template: "/v1/images/{generations,edits}",
     image_capabilities: ["text_to_image", "image_to_image"],
+    end_image_capable: false,
   },
   {
     key: "openai-images-generations",
@@ -39,6 +42,7 @@ const FIXTURE: EndpointDescriptor[] = [
     request_method: "POST",
     request_path_template: "/v1/images/generations",
     image_capabilities: ["text_to_image"],
+    end_image_capable: false,
   },
   {
     key: "openai-images-edits",
@@ -48,6 +52,7 @@ const FIXTURE: EndpointDescriptor[] = [
     request_method: "POST",
     request_path_template: "/v1/images/edits",
     image_capabilities: ["image_to_image"],
+    end_image_capable: false,
   },
 ];
 
@@ -88,6 +93,19 @@ describe("endpoint-catalog-store", () => {
     // 非 image 类不出现在 map 中
     expect(map["openai-chat"]).toBeUndefined();
     expect(map["newapi-video"]).toBeUndefined();
+  });
+
+  it("derives endpointToEndImageCapable for every endpoint", async () => {
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: FIXTURE });
+
+    await useEndpointCatalogStore.getState().fetch();
+
+    const map = useEndpointCatalogStore.getState().endpointToEndImageCapable;
+    expect(map["newapi-video"]).toBe(true);
+    // 非 video 类恒为 false，且每个 endpoint 都有条目——控件读不到条目会误判成「不支持尾帧」
+    expect(map["openai-chat"]).toBe(false);
+    expect(map["openai-images"]).toBe(false);
+    expect(Object.keys(map)).toHaveLength(FIXTURE.length);
   });
 
   it("fetch short-circuits after initialized", async () => {
