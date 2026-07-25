@@ -251,6 +251,25 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     def video_capabilities(self) -> VideoCapabilities:
         return self.video_capabilities_for_model(self._model)
 
+    def video_capabilities_for_tier(self, service_tier: str) -> VideoCapabilities:
+        """按实际请求档位收窄的 last_frame 声明，供有请求上下文的调用方使用。
+
+        `video_capabilities_for_model(model)` 是无请求上下文的纯函数，对
+        `last_frame_requires_pro` 的 model 只能保守声明 `last_frame=False`（供
+        `/video-capabilities`、custom provider resolver 等无 tier 信息的调用方）。而
+        `media_generator` 转发 `end_image` 前已知 `service_tier`——按此处收窄，pro 档放行、
+        std/4k 档仍保守拒绝，与 `_build_payload` 的 fail-loud 护栏放行条件对齐，避免 pro 档
+        请求被上层静默丢帧（该请求实际会被 `_build_payload` 接受）。
+        """
+        caps = _lookup_video_caps(self._model)
+        last_frame = caps.last_frame and (not caps.last_frame_requires_pro or (service_tier or "").lower() == "pro")
+        return VideoCapabilities(
+            first_frame=True,
+            last_frame=last_frame,
+            reference_images=caps.reference_images,
+            max_reference_images=caps.max_reference_images,
+        )
+
     # ── request building ────────────────────────────────────────────────
 
     def _resolve_mode(self, request: VideoGenerationRequest) -> str:

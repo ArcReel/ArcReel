@@ -329,6 +329,63 @@ class TestMediaGenerator:
         assert call.end_image is None
         assert call.reference_images is None
 
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_end_image_forwarded_when_backend_reports_tier_aware_last_frame(self, tmp_path):
+        """后端实现 video_capabilities_for_tier 时按实际 service_tier 收窄决定是否转发
+        end_image：pro 档放行——无请求上下文的 video_capabilities 恒 False 也不应误判丢帧。"""
+        from lib.video_backends.base import VideoCapabilities
+
+        class _TierAwareVideoBackend(_FakeVideoBackend):
+            def __init__(self):
+                super().__init__(video_capabilities=VideoCapabilities(last_frame=False))
+
+            def video_capabilities_for_tier(self, service_tier: str) -> VideoCapabilities:
+                return VideoCapabilities(last_frame=(service_tier or "").lower() == "pro")
+
+        gen = _build_generator(tmp_path)
+        gen._video_backend = _TierAwareVideoBackend()
+        end_image = tmp_path / "end.png"
+        end_image.write_bytes(b"fake-end-image")
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S07",
+            end_image=end_image,
+            service_tier="pro",
+        )
+        call = gen._video_backend.calls[0]
+        assert call.end_image == end_image
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_end_image_ignored_when_tier_aware_backend_reports_std_tier(self, tmp_path):
+        """同一后端，std 档时仍按能力收窄拒绝转发——覆盖 pro/std 两条分支。"""
+        from lib.video_backends.base import VideoCapabilities
+
+        class _TierAwareVideoBackend(_FakeVideoBackend):
+            def __init__(self):
+                super().__init__(video_capabilities=VideoCapabilities(last_frame=False))
+
+            def video_capabilities_for_tier(self, service_tier: str) -> VideoCapabilities:
+                return VideoCapabilities(last_frame=(service_tier or "").lower() == "pro")
+
+        gen = _build_generator(tmp_path)
+        gen._video_backend = _TierAwareVideoBackend()
+        end_image = tmp_path / "end.png"
+        end_image.write_bytes(b"fake-end-image")
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S08",
+            end_image=end_image,
+            service_tier="std",
+        )
+        call = gen._video_backend.calls[0]
+        assert call.end_image is None
+
 
 # ── 咽喉层参考图压缩接线 ────────────────────────────────────────────────────
 

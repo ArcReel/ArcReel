@@ -101,6 +101,28 @@ class TestConstructionAndCapabilities:
         assert caps.max_reference_images == 0
 
 
+class TestVideoCapabilitiesForTier:
+    """有请求上下文（service_tier）时的 last_frame 收窄——供 media_generator 转发 end_image 前调用。"""
+
+    def test_pro_tier_allows_last_frame_for_gated_model(self):
+        caps = _jwt_backend().video_capabilities_for_tier("pro")
+        assert caps.last_frame is True
+
+    def test_std_tier_still_conservative(self):
+        caps = _jwt_backend().video_capabilities_for_tier("std")
+        assert caps.last_frame is False
+
+    def test_pro_tier_case_insensitive(self):
+        caps = _jwt_backend().video_capabilities_for_tier("PRO")
+        assert caps.last_frame is True
+
+    def test_ungated_model_last_frame_unaffected_by_tier(self):
+        # kling-v3 的 last_frame 各档皆真，不受 last_frame_requires_pro 收窄影响
+        b = _jwt_backend("kling-v3")
+        assert b.video_capabilities_for_tier("std").last_frame is True
+        assert b.video_capabilities_for_tier("pro").last_frame is True
+
+
 class TestPerModelCapabilities:
     def test_v3_t2v_i2v_no_audio_no_reference(self):
         b = _jwt_backend("kling-v3")
