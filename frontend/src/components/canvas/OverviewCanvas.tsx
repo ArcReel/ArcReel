@@ -109,6 +109,21 @@ export function OverviewCanvas({
   const readOnlyRef = useRef(readOnly);
   readOnlyRef.current = readOnly;
 
+  // 组件整体卸载（如经由历史记录跳转到 characters 等非概览深链）后 readOnlyRef 不再更新，
+  // 仅凭它无法识别"实例已被销毁"——上传收尾与冲突弹窗都需额外核对这个标记，避免对已卸载
+  // 组件 setState、或把过期上传结果补投到当前所在的其他路由页面；卸载时主动 resolve 悬挂
+  // 中的冲突弹窗 Promise，防止 handleUpload 永久等待一个不会再渲染的弹窗。
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      setConflictPrompt((prev) => {
+        prev?.resolve("cancel");
+        return null;
+      });
+    };
+  }, []);
+
   const handleUpload = useCallback(
     async (file: File) => {
       const tryUpload = async (
@@ -117,8 +132,9 @@ export function OverviewCanvas({
         const res = await API.uploadFile(projectName, "source", file, null, {
           onConflict,
         });
-        // 上传期间可能已切到只读态——过期项目的成功反馈不该展示在只读页面上。
-        if (readOnlyRef.current) return;
+        // 上传期间可能已切到只读态，或组件已整体卸载——过期项目的成功反馈不该展示在
+        // 只读页面或当前所在的其他路由页面上。
+        if (!mountedRef.current || readOnlyRef.current) return;
         const filename = res.filename ?? file.name;
         const enc = res.used_encoding ?? null;
         const chapters = res.chapter_count ?? 0;
@@ -145,9 +161,10 @@ export function OverviewCanvas({
         await tryUpload();
       } catch (err) {
         if (err instanceof ConflictError) {
-          // 上传耗时期间可能已切到只读态（如导航到演示项目复用同一实例）——
-          // 冲突弹窗不该在只读页面上凭一个过期项目的旧上传结果重新弹出。
-          if (readOnlyRef.current) return;
+          // 上传耗时期间可能已切到只读态（如导航到演示项目复用同一实例），或组件已
+          // 整体卸载——冲突弹窗不该在只读页面上、或对已卸载实例凭一个过期项目的旧
+          // 上传结果重新弹出。
+          if (!mountedRef.current || readOnlyRef.current) return;
           const decision = await new Promise<ConflictResolution>((resolve) => {
             setConflictPrompt({
               existing: err.existing,

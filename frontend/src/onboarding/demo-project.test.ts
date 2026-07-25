@@ -25,6 +25,11 @@ describe("demo project data", () => {
     expect(isDemoProject(null)).toBe(false);
   });
 
+  it("recognizes case-variant route params (wouter matches routes case-insensitively)", () => {
+    expect(isDemoProject("ONBOARDING_DEMO")).toBe(true);
+    expect(isDemoProject("Onboarding_Demo")).toBe(true);
+  });
+
   it("keeps the lobby card and the workbench on the same summary", () => {
     const summary = buildDemoProject(t);
     const data = buildDemoProjectData(t);

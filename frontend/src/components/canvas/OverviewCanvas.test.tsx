@@ -275,6 +275,56 @@ describe("OverviewCanvas", () => {
     });
   });
 
+  it("does not push a stale success toast if a slow upload resolves after the canvas unmounts", async () => {
+    let resolveUpload: ((res: Awaited<ReturnType<typeof API.uploadFile>>) => void) | undefined;
+    vi.spyOn(API, "uploadFile").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const pushToastSpy = vi.spyOn(useAppStore.getState(), "pushToast");
+
+    const { unmount } = render(
+      <OverviewCanvas
+        projectName="real-project"
+        projectData={makeProjectData({ overview: undefined, episodes: [] })}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("welcome-canvas"));
+    await waitFor(() => expect(resolveUpload).toBeDefined());
+
+    // 用户经由历史记录跳转到非概览深链，整个组件实例被卸载——readOnlyRef 不会再更新
+    unmount();
+
+    // 卸载后旧上传才成功返回——不该在当前所在的其他路由页面上补投过期的成功提示
+    resolveUpload?.({ success: true, path: "source.txt", url: "/source.txt", filename: "source.txt" });
+
+    await waitFor(() => {
+      expect(pushToastSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  it("resolves a pending conflict prompt as cancel when the canvas unmounts", async () => {
+    vi.spyOn(API, "uploadFile").mockRejectedValue(
+      new ConflictError("existing.txt", "existing (1).txt", "conflict"),
+    );
+
+    const { unmount } = render(
+      <OverviewCanvas
+        projectName="real-project"
+        projectData={makeProjectData({ overview: undefined, episodes: [] })}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("welcome-canvas"));
+    await screen.findByText("同名文件已存在");
+
+    // 冲突弹窗等待用户决策期间组件被卸载——不该让 handleUpload 里的 Promise 永久悬空
+    expect(() => unmount()).not.toThrow();
+  });
+
   it("unmounts an already-visible handoff hint when switching to read-only", () => {
     useAppStore.setState({ assistantPanelOpen: false });
 

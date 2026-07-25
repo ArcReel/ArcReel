@@ -39,8 +39,11 @@ export const DEMO_SCRIPTED_EPISODE = 1;
 /** 该分集的剧本文件名，与 `EpisodeMeta.script_file` 去掉 `scripts/` 前缀后一致。 */
 const DEMO_SCRIPT_FILE = "E1.json";
 
+// 路由参数大小写不敏感比较：wouter 编译路由时带 `i` 标志（见 APP_PROJECT_WORKSPACE_PATTERN），
+// `/APP/Projects/ONBOARDING_DEMO` 等大小写变体同样会命中工作台路由，若仅用 === 比较则无法
+// 识别成演示项目，转而被当成真实项目名向后端请求一个实际不存在的项目。
 export function isDemoProject(name: string | null | undefined): boolean {
-  return name === DEMO_PROJECT_NAME;
+  return name?.toLowerCase() === DEMO_PROJECT_NAME;
 }
 
 const DEMO_STATUS: ProjectStatus = {
