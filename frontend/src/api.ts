@@ -68,6 +68,7 @@ import type {
   UpdateAgentCredentialRequest,
 } from "@/types/agent-credential";
 import { getToken, clearToken } from "@/utils/auth";
+import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import i18n from "./i18n";
 
 // ==================== Helper types ====================
@@ -332,9 +333,31 @@ export class ReadOnlyModeError extends Error {
   }
 }
 
-function withAuth(options: RequestInit = {}): RequestInit {
+// `/projects/import` 之类的静态子路径不是项目名，从项目名判定里排除
+const RESERVED_PROJECT_PATH_SEGMENTS = new Set(["import"]);
+
+/** 从形如 `/projects/{name}` 或 `/projects/{name}/...` 的 endpoint 中取出项目名；非项目路径或保留字返回 null */
+function extractProjectName(endpoint: string): string | null {
+  const match = /^\/projects\/([^/?]+)/.exec(endpoint);
+  if (!match) return null;
+  const name = decodeURIComponent(match[1]);
+  return RESERVED_PROJECT_PATH_SEGMENTS.has(name) ? null : name;
+}
+
+/**
+ * 只读闸门是否应拦截这次请求。指向某个具体真实项目的写请求放行 ——
+ * 演示态可能在该请求发出前才切入，但它拦不住已经从真实项目发起的操作；
+ * 指向演示项目本身或不带项目归属的请求（全局资产库等）仍按闸门原意拦截。
+ */
+function isReadOnlyGateBlocking(endpoint: string): boolean {
+  if (!apiReadOnly) return false;
+  const projectName = extractProjectName(endpoint);
+  return projectName === null || projectName === DEMO_PROJECT_NAME;
+}
+
+function withAuth(endpoint: string, options: RequestInit = {}): RequestInit {
   const method = (options.method ?? "GET").toUpperCase();
-  if (apiReadOnly && method !== "GET" && method !== "HEAD") {
+  if (method !== "GET" && method !== "HEAD" && isReadOnlyGateBlocking(endpoint)) {
     throw new ReadOnlyModeError(method);
   }
   const token = getToken();
@@ -370,7 +393,7 @@ class API {
       },
     };
 
-    const response = await fetch(url, withAuth({ ...defaultOptions, ...options }));
+    const response = await fetch(url, withAuth(endpoint, { ...defaultOptions, ...options }));
 
     if (!response.ok) {
       handleUnauthorized(response);
@@ -420,7 +443,7 @@ class API {
   static async downloadDiagnostics(): Promise<{ blob: Blob; filename: string }> {
     const response = await fetch(
       `${API_BASE}/system/logs/download`,
-      withAuth({ method: "GET" }),
+      withAuth("/system/logs/download", { method: "GET" }),
     );
     await throwIfNotOk(response, `HTTP ${response.status}`);
     const disposition = response.headers.get("Content-Disposition") ?? "";
@@ -550,7 +573,7 @@ class API {
 
     const response = await fetch(
       `${API_BASE}/projects/import`,
-      withAuth({
+      withAuth("/projects/import", {
         method: "POST",
         body: formData,
       })
@@ -926,7 +949,7 @@ class API {
     const qs = qsParts.join("&");
     const url = `/projects/${encodeURIComponent(projectName)}/upload/${uploadType}${qs ? "?" + qs : ""}`;
 
-    const response = await fetch(`${API_BASE}${url}`, withAuth({
+    const response = await fetch(`${API_BASE}${url}`, withAuth(url, {
       method: "POST",
       body: formData,
     }));
@@ -970,7 +993,7 @@ class API {
   private static async postFileUpload<T>(url: string, file: File): Promise<T> {
     const formData = new FormData();
     formData.append("file", file);
-    const response = await fetch(`${API_BASE}${url}`, withAuth({ method: "POST", body: formData }));
+    const response = await fetch(`${API_BASE}${url}`, withAuth(url, { method: "POST", body: formData }));
     await throwIfNotOk(response, "上传失败");
     return (await response.json()) as T;
   }
@@ -1047,9 +1070,10 @@ class API {
     projectName: string,
     filename: string
   ): Promise<string> {
+    const url = `/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`;
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`,
-      withAuth()
+      `${API_BASE}${url}`,
+      withAuth(url)
     );
     await throwIfNotOk(response, "获取文件内容失败");
     return response.text();
@@ -1063,9 +1087,10 @@ class API {
     filename: string,
     content: string
   ): Promise<SuccessResponse> {
+    const url = `/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`;
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`,
-      withAuth({
+      `${API_BASE}${url}`,
+      withAuth(url, {
         method: "PUT",
         headers: { "Content-Type": "text/plain" },
         body: content,
@@ -1082,9 +1107,10 @@ class API {
     projectName: string,
     filename: string
   ): Promise<SuccessResponse> {
+    const url = `/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`;
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`,
-      withAuth({
+      `${API_BASE}${url}`,
+      withAuth(url, {
         method: "DELETE",
       })
     );
@@ -1102,9 +1128,10 @@ class API {
     episode: number,
     stepNum: number
   ): Promise<string> {
+    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`;
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`,
-      withAuth()
+      `${API_BASE}${url}`,
+      withAuth(url)
     );
     await throwIfNotOk(response, "获取草稿内容失败");
     return response.text();
@@ -1119,9 +1146,10 @@ class API {
     stepNum: number,
     content: string
   ): Promise<SuccessResponse> {
+    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`;
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`,
-      withAuth({
+      `${API_BASE}${url}`,
+      withAuth(url, {
         method: "PUT",
         headers: { "Content-Type": "text/plain" },
         body: content,
@@ -1588,9 +1616,10 @@ class API {
     const formData = new FormData();
     formData.append("file", file);
 
+    const url = `/projects/${encodeURIComponent(projectName)}/style-image`;
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/style-image`,
-      withAuth({
+      `${API_BASE}${url}`,
+      withAuth(url, {
         method: "POST",
         body: formData,
       })
@@ -1868,9 +1897,10 @@ class API {
   static async uploadVertexCredential(name: string, file: File): Promise<ProviderCredential> {
     const formData = new FormData();
     formData.append("file", file);
+    const url = `/providers/gemini-vertex/credentials/upload?name=${encodeURIComponent(name)}`;
     const response = await fetch(
-      `${API_BASE}/providers/gemini-vertex/credentials/upload?name=${encodeURIComponent(name)}`,
-      withAuth({ method: "POST", body: formData }),
+      `${API_BASE}${url}`,
+      withAuth(url, { method: "POST", body: formData }),
     );
     await throwIfNotOk(response, "上传凭证失败");
     return response.json() as Promise<ProviderCredential>;
@@ -2096,8 +2126,9 @@ class API {
     form.append("description", payload.description ?? "");
     form.append("voice_style", payload.voice_style ?? "");
     if (payload.image) form.append("image", payload.image);
-    const url = `${API_BASE}/assets`;
-    const response = await fetch(url, withAuth({ method: "POST", body: form }));
+    const endpoint = "/assets";
+    const url = `${API_BASE}${endpoint}`;
+    const response = await fetch(url, withAuth(endpoint, { method: "POST", body: form }));
     if (!response.ok) {
       handleUnauthorized(response);
       const error = (await response.json().catch(() => ({ detail: response.statusText }))) as {
@@ -2118,8 +2149,9 @@ class API {
   static async replaceAssetImage(id: string, image: File) {
     const form = new FormData();
     form.append("image", image);
-    const url = `${API_BASE}/assets/${encodeURIComponent(id)}/image`;
-    const response = await fetch(url, withAuth({ method: "POST", body: form }));
+    const endpoint = `/assets/${encodeURIComponent(id)}/image`;
+    const url = `${API_BASE}${endpoint}`;
+    const response = await fetch(url, withAuth(endpoint, { method: "POST", body: form }));
     if (!response.ok) {
       handleUnauthorized(response);
       const error = (await response.json().catch(() => ({ detail: response.statusText }))) as {

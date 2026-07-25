@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API, ReadOnlyModeError, setApiReadOnly } from "@/api";
+import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 
 /**
  * 只读闸门的结构性保证：`withAuth()` 是全部 fetch 的唯一出口，闸门落在那里，
@@ -41,17 +42,35 @@ describe("read-only demo mode", () => {
 
   it("blocks every non-GET method, not just POST", async () => {
     for (const method of ["POST", "PUT", "PATCH", "DELETE", "post"]) {
-      await expect(API.request("/projects/x", { method })).rejects.toThrow(
-        ReadOnlyModeError,
-      );
+      await expect(
+        API.request(`/projects/${DEMO_PROJECT_NAME}/x`, { method }),
+      ).rejects.toThrow(ReadOnlyModeError);
     }
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks writes with no project in the URL (global endpoints)", async () => {
+    await expect(
+      API.request("/assets", { method: "POST", body: "{}" }),
+    ).rejects.toThrow(ReadOnlyModeError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not block writes aimed at a different, real project", async () => {
+    // 真实项目发起的多请求写操作，若在两次请求之间导航进了演示工作台，
+    // 闸门此时是全局态而非按请求目标判定——但只要请求本身写的不是演示项目，
+    // 就不该被这个兜底拦下，否则会留下部分完成的真实项目写入。
+    await API.request("/projects/real-project/characters/hero", {
+      method: "PATCH",
+      body: "{}",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("blocks task enqueueing", async () => {
     // 入队端点一律是 POST，所以闸门对它们的覆盖和对普通写操作一样
     await expect(
-      API.request("/projects/onboarding_demo/generate/storyboard/E1S1", {
+      API.request(`/projects/${DEMO_PROJECT_NAME}/generate/storyboard/E1S1`, {
         method: "POST",
         body: JSON.stringify({ prompt: "p", script_file: "E1.json" }),
       }),
