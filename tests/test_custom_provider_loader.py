@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.backends import CustomImageBackend
+from lib.custom_provider.capabilities import system_video_capabilities
 from lib.custom_provider.loader import load_custom_backend
 from lib.db.base import Base
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
@@ -84,3 +85,70 @@ class TestLoadCustomBackend:
         )
         with pytest.raises(ValueError, match="没有默认"):
             await load_custom_backend(session=session, provider_id=pid, model_id=None, media_type="video")
+
+
+class TestVideoCapabilityOverridesReachExecution:
+    """DB 的 capability_overrides 必须在装载出的 backend 上生效——执行层门控读的就是这里。"""
+
+    @staticmethod
+    async def _load_video_backend(session, *, overrides: object | None):
+        pid = await _seed(
+            session,
+            models=[
+                {
+                    "model_id": "sora-2",
+                    "endpoint": "openai-video",
+                    "is_enabled": True,
+                    "is_default": True,
+                    "capability_overrides": overrides,
+                }
+            ],
+        )
+        # 清 identity map，逼装载重新 SELECT：覆盖字典要真经过 JSON 编解码往返才算验到 DB 语义
+        session.expunge_all()
+        return await load_custom_backend(session=session, provider_id=pid, model_id="sora-2", media_type="video")
+
+    @pytest.mark.integration
+    @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
+    async def test_null_overrides_follow_system_judgement(self, _mock_cls, session):
+        backend = await self._load_video_backend(session, overrides=None)
+        assert backend.video_capabilities == system_video_capabilities(endpoint="openai-video", model_id="sora-2")
+
+    @pytest.mark.integration
+    @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
+    async def test_override_forces_capability_on(self, _mock_cls, session):
+        # 系统判定 last_frame=False；覆盖强制开启后执行层看到 True，且不再转发被包装 backend
+        backend = await self._load_video_backend(session, overrides={"last_frame": True})
+        assert backend.video_capabilities.last_frame is True
+        assert backend.video_capabilities.max_reference_images == 1
+
+    @pytest.mark.integration
+    @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
+    async def test_override_forces_capability_off(self, _mock_cls, session):
+        backend = await self._load_video_backend(session, overrides={"reference_images": False})
+        assert backend.video_capabilities.reference_images is False
+        assert backend.video_capabilities.first_frame is True
+
+    @pytest.mark.integration
+    @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
+    async def test_unknown_key_in_stored_overrides_does_not_break_loading(self, _mock_cls, session):
+        # 存量行可能带已下线的键，装载不得失败，该维度按系统判定走
+        backend = await self._load_video_backend(session, overrides={"retired_dimension": True, "last_frame": True})
+        assert backend.video_capabilities.last_frame is True
+
+    @pytest.mark.integration
+    @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
+    async def test_non_video_backend_untouched_by_overrides(self, _mock_cls, session):
+        pid = await _seed(
+            session,
+            models=[
+                {
+                    "model_id": "dall-e-3",
+                    "endpoint": "openai-images",
+                    "is_enabled": True,
+                    "capability_overrides": {"last_frame": True},
+                }
+            ],
+        )
+        result = await load_custom_backend(session=session, provider_id=pid, model_id="dall-e-3", media_type="image")
+        assert isinstance(result, CustomImageBackend)

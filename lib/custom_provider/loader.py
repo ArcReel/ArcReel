@@ -80,4 +80,9 @@ async def load_custom_backend(
 
     if model_id is None:
         raise ValueError(f"自定义供应商 {provider_id} 解析后仍缺少 model_id")
-    return create_custom_backend(provider=provider, model_id=model_id, endpoint=model.endpoint)
+    return create_custom_backend(
+        provider=provider,
+        model_id=model_id,
+        endpoint=model.endpoint,
+        capability_overrides=model.capability_overrides,
+    )
