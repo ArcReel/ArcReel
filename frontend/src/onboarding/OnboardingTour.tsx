@@ -17,22 +17,14 @@
  * 切换高亮之前把即将停靠的步号同步上报，本组件据此提前导航，驱动效果本身不重启。
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
-import {
-  APP_PROJECT_WORKSPACE_PATTERN,
-  APP_TOP_LEVEL_ROUTES,
-  ROUTE_APP_PROJECTS,
-  ROUTE_APP_SETTINGS,
-} from "@/app-routes";
+import { APP_PROJECT_WORKSPACE_PATTERN, APP_TOP_LEVEL_ROUTES } from "@/app-routes";
 import { buildTourSteps } from "./steps";
 import { startTour, type TourLabels } from "./tour";
-
-/** 引导步骤大纲当下覆盖的路由集合——驱动效果据此判断「是否还在引导范围内」。 */
-const TOUR_ROUTES: readonly string[] = [ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS];
 
 export function OnboardingTour() {
   const { t } = useTranslation("onboarding");
@@ -55,9 +47,15 @@ export function OnboardingTour() {
     (normalizedLocation === "/" ||
       (APP_TOP_LEVEL_ROUTES as readonly string[]).includes(normalizedLocation) ||
       APP_PROJECT_WORKSPACE_PATTERN.test(normalizedLocation));
-  // 当前所在路由是否是引导覆盖的路由之一（大厅或设置页）——驱动效果（4）以此为准，
-  // 而不是逐步比对，这样大厅↔设置页之间的跨页步骤切换不会拆重建 driver 实例。
-  const onTourRoute = TOUR_ROUTES.includes(normalizedLocation);
+
+  // 步骤大纲只随界面语言重建，渲染期与两个效果共用同一份，避免每次渲染重跑一遍翻译。
+  const steps = useMemo(() => buildTourSteps(t), [t]);
+  // 引导覆盖的路由集合，从大纲自身派生而非另写一份常量——后续段落在新页面加步骤时
+  // 只需给那一步写 `route`，这里自动跟上，不存在「忘了同步」的维护缺口。
+  const tourRoutes = useMemo(
+    () => new Set(steps.map((s) => s.route).filter((route): route is string => Boolean(route))),
+    [steps],
+  );
 
   // 停在第几步（0 基）。用 ref 给驱动效果读取初始值又不把它列进依赖（步骤切换不该
   // 重启驱动效果），state 给下面的路由判定效果做响应式依赖。两者总是同步写入。
@@ -68,7 +66,10 @@ export function OnboardingTour() {
     setStepIndex(index);
   };
 
-  const requiredRoute = buildTourSteps(t)[stepIndex]?.route ?? null;
+  // 当前所在路由是否是引导覆盖的路由之一（大厅或设置页）——驱动效果（4）以此为准，
+  // 而不是逐步比对，这样大厅↔设置页之间的跨页步骤切换不会拆重建 driver 实例。
+  const onTourRoute = tourRoutes.has(normalizedLocation);
+  const requiredRoute = steps[stepIndex]?.route ?? null;
 
   // 0. 引导开启但当前路由不是本步所需的路由——先导航过去，锚点才能挂载。跨页步骤
   //    切换（见 tour.ts 的 onStepChange）与「重看引导」从非首步路由触发都走这里。
@@ -111,7 +112,7 @@ export function OnboardingTour() {
       close: t("close"),
       progress: (current, total) => t("progress", { current, total }),
     };
-    const handle = startTour(buildTourSteps(t), labels, {
+    const handle = startTour(steps, labels, {
       onExit: () => useOnboardingStore.getState().exit(),
       startIndex: stepIndexRef.current,
       onStepChange: setStep,
@@ -122,7 +123,7 @@ export function OnboardingTour() {
     };
     // 步骤号有意不进依赖（stepIndexRef 是 ref，读取本就不受 lint 约束）——步骤号变化
     // 不该重启这个效果，否则每次「下一步」都会拆重建 driver 实例。
-  }, [active, onTourRoute, t]);
+  }, [active, onTourRoute, steps, t]);
 
   return null;
 }
