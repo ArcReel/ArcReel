@@ -339,6 +339,12 @@ export class ReadOnlyModeError extends Error {
 // import 的写请求）一并误判成不带项目归属
 const RESERVED_PROJECT_ENDPOINTS = new Set(["/projects/import"]);
 
+// 不带项目归属、但本身不写入任何项目数据的系统级端点：闸门默认拦截所有无项目归属的
+// 写请求（全局资产库、供应商凭证等），这里是唯一的窄豁免。引导 tour 退出时会在仍处于
+// 演示路由（apiReadOnly 尚未复位）期间写这一条「已看过」标记，它只影响当前用户的引导
+// 状态，不属于闸门要防的「误写演示态/其他项目数据」范畴。
+const READ_ONLY_GATE_EXEMPT_ENDPOINTS = new Set(["/onboarding/seen"]);
+
 /** 从形如 `/projects/{name}` 或 `/projects/{name}/...` 的 endpoint 中取出项目名；非项目路径或静态保留端点返回 null */
 function extractProjectName(endpoint: string): string | null {
   if (RESERVED_PROJECT_ENDPOINTS.has(endpoint)) return null;
@@ -350,10 +356,12 @@ function extractProjectName(endpoint: string): string | null {
 /**
  * 只读闸门是否应拦截这次请求。指向某个具体真实项目的写请求放行 ——
  * 演示态可能在该请求发出前才切入，但它拦不住已经从真实项目发起的操作；
- * 指向演示项目本身或不带项目归属的请求（全局资产库等）仍按闸门原意拦截。
+ * 指向演示项目本身或不带项目归属的请求（全局资产库等）仍按闸门原意拦截，
+ * 窄豁免名单中的系统端点除外。
  */
 function isReadOnlyGateBlocking(endpoint: string): boolean {
   if (!apiReadOnly) return false;
+  if (READ_ONLY_GATE_EXEMPT_ENDPOINTS.has(endpoint)) return false;
   const projectName = extractProjectName(endpoint);
   return projectName === null || projectName === DEMO_PROJECT_NAME;
 }

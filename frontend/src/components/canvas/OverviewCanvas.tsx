@@ -58,9 +58,11 @@ export function OverviewCanvas({
   const debouncedFetch = useCostStore((s) => s.debouncedFetch);
 
   useEffect(() => {
-    if (!projectName) return;
+    // 只读态（如演示项目）不发起费用请求：演示数据没有对应的真实费用记录，
+    // 请求了也只会拿到不相关项目的费用或报错。
+    if (!projectName || readOnly) return;
     debouncedFetch(projectName);
-  }, [projectName, projectData?.episodes, debouncedFetch]);
+  }, [projectName, readOnly, projectData?.episodes, debouncedFetch]);
 
   const [regenerating, setRegenerating] = useState(false);
   const [conflictPrompt, setConflictPrompt] = useState<{
@@ -589,7 +591,7 @@ export function OverviewCanvas({
             )}
 
             {/* Cost loading / error */}
-            {costLoading && (
+            {!readOnly && costLoading && (
               <div
                 role="status"
                 aria-live="polite"
@@ -603,7 +605,7 @@ export function OverviewCanvas({
                 {t("calculating_cost")}
               </div>
             )}
-            {costError && (
+            {!readOnly && costError && (
               <div
                 role="alert"
                 className="rounded-2xl px-5 py-3 text-[12px]"
@@ -618,7 +620,7 @@ export function OverviewCanvas({
             )}
 
             {/* Project total cost */}
-            {projectTotals && (
+            {!readOnly && projectTotals && (
               <section
                 className="relative overflow-hidden rounded-2xl p-5"
                 style={{
@@ -713,7 +715,8 @@ export function OverviewCanvas({
               ) : (
                 <div className="space-y-2">
                   {(projectData.episodes ?? []).map((ep) => {
-                    const epCost = getEpisodeCost(ep.episode);
+                    // 只读态不展示费用：演示数据没有对应的真实费用记录。
+                    const epCost = readOnly ? undefined : getEpisodeCost(ep.episode);
                     return (
                       <div
                         key={ep.episode}

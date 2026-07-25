@@ -101,6 +101,13 @@ describe("read-only demo mode", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("exempts the onboarding-seen system endpoint from the gate", async () => {
+    // 引导 tour 退出时会在仍处于演示路由（apiReadOnly 尚未复位）期间写这条已看过标记，
+    // 它不写任何项目数据，不该被「无项目归属即拦截」的默认规则连带挡下
+    await API.request("/onboarding/seen", { method: "POST" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("lifts the gate when the demo workbench is left", async () => {
     setApiReadOnly(false);
     await API.request("/projects", { method: "POST", body: "{}" });

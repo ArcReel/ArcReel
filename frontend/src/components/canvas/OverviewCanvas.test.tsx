@@ -4,6 +4,7 @@ import { API, ConflictError } from "@/api";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useCostStore } from "@/stores/cost-store";
 import type { ProjectData } from "@/types";
 
 vi.mock("./WelcomeCanvas", () => ({
@@ -42,6 +43,7 @@ describe("OverviewCanvas", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+    useCostStore.setState(useCostStore.getInitialState(), true);
     vi.restoreAllMocks();
     vi.stubGlobal("confirm", vi.fn(() => true));
   });
@@ -200,12 +202,41 @@ describe("OverviewCanvas", () => {
 
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });
+
+  it("does not fetch or display cost data on a read-only project", () => {
+    const getCostEstimateSpy = vi.spyOn(API, "getCostEstimate");
+    // 模拟仍带着上一个真实项目的费用残留（如同一路由实例复用时的短暂窗口）——
+    // 只读态下即便 store 里有数据也不该展示
+    useCostStore.setState({
+      costData: {
+        project_name: "real-project",
+        models: { image: { provider: "p", model: "m" }, video: { provider: "p", model: "m" } },
+        episodes: [],
+        project_totals: {
+          estimate: { image: { usd: 1 } },
+          actual: { image: { usd: 1 } },
+        },
+      },
+    });
+
+    render(
+      <OverviewCanvas
+        projectName="onboarding_demo"
+        projectData={makeProjectData()}
+        readOnly
+      />,
+    );
+
+    expect(screen.queryByText("项目总费用")).not.toBeInTheDocument();
+    expect(getCostEstimateSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("OverviewCanvas ad mode", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+    useCostStore.setState(useCostStore.getInitialState(), true);
     vi.restoreAllMocks();
   });
 
