@@ -714,6 +714,7 @@ class TestVideoCapabilities:
         assert caps["source"] == "custom"
         assert caps["max_reference_images"] == 1
 
+    @pytest.mark.integration
     async def test_custom_disabled_model_falls_back_to_default_like_execution_layer(self):
         """project 仍指向已禁用的 model 时，能力解析须与 loader.load_custom_backend 同一条回退
         规则改读默认启用 model——否则会宣称执行层实际不会兑现的 first_frame/last_frame。"""

@@ -104,28 +104,34 @@ class TestConstructionAndCapabilities:
 class TestVideoCapabilitiesForTier:
     """有请求上下文（service_tier）时的 last_frame 收窄——供 media_generator 转发 end_image 前调用。"""
 
+    @pytest.mark.unit
     def test_pro_tier_allows_last_frame_for_gated_model(self):
         caps = _jwt_backend().video_capabilities_for_tier("pro")
         assert caps.last_frame is True
 
+    @pytest.mark.unit
     def test_std_tier_still_conservative(self):
         caps = _jwt_backend().video_capabilities_for_tier("std")
         assert caps.last_frame is False
 
+    @pytest.mark.unit
     def test_pro_tier_case_insensitive(self):
         caps = _jwt_backend().video_capabilities_for_tier("PRO")
         assert caps.last_frame is True
 
+    @pytest.mark.unit
     def test_ungated_model_last_frame_unaffected_by_tier(self):
         # kling-v3 的 last_frame 各档皆真，不受 last_frame_requires_pro 收窄影响
         b = _jwt_backend("kling-v3")
         assert b.video_capabilities_for_tier("std").last_frame is True
         assert b.video_capabilities_for_tier("pro").last_frame is True
 
+    @pytest.mark.unit
     def test_4k_tier_still_conservative(self):
         caps = _jwt_backend().video_capabilities_for_tier("std", resolution="4k")
         assert caps.last_frame is False
 
+    @pytest.mark.unit
     def test_4k_overrides_pro_tier_stays_conservative(self):
         # resolution=4k 优先于 service_tier（与 _resolve_mode 同一派生规则）：即使 tier=pro，
         # 4k 请求解出的 mode 是 "4k" 而非 "pro"，last_frame 仍须保守拒绝，否则会与
@@ -377,6 +383,7 @@ class TestPayloadBuilding:
         )
         assert "image" in payload and "image_tail" in payload
 
+    @pytest.mark.integration
     def test_image2video_end_frame_rejected_at_std_tier(self, tmp_path):
         # kling-v2-5-turbo 首尾帧仅 pro 档生效：std（含未显式指定 service_tier 的默认档）提交
         # image_tail 虽会被官方接口受理，尾帧约束却不生效，须 fail loud 而非静默发出无效请求。
@@ -388,6 +395,7 @@ class TestPayloadBuilding:
             _jwt_backend()._build_payload(_request(tmp_path, start_image=first, end_image=last))
         assert exc.value.code == "video_last_frame_requires_pro"
 
+    @pytest.mark.integration
     def test_image2video_end_frame_allowed_at_std_tier_for_v3(self, tmp_path):
         # kling-v3 首尾帧未标"仅 pro"（官方能力表未附此限制），std 档应正常放行。
         first = tmp_path / "first.png"
