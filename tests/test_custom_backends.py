@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from lib.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
 from lib.custom_provider.backends import (
@@ -14,7 +16,12 @@ from lib.custom_provider.backends import (
 )
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
 from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
-from lib.video_backends.base import VideoCapability, VideoGenerationRequest, VideoGenerationResult
+from lib.video_backends.base import (
+    VideoCapabilities,
+    VideoCapability,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+)
 
 # ---------------------------------------------------------------------------
 # CustomTextBackend
@@ -195,6 +202,70 @@ class TestCustomVideoBackend:
         backend = CustomVideoBackend(provider_id="full-provider", delegate=delegate, model="veo-3")
 
         assert backend.capabilities == all_caps
+
+    @pytest.mark.unit
+    def test_video_capabilities_for_tier_delegates_when_delegate_supports_it(self):
+        """delegate 实现 tier-aware 查询（如 Kling）时，按请求档位透传其结果，而不是回落
+        context-free 的 video_capabilities——否则 media_generator 的 getattr 探测会命中一个
+        总是保守拒绝的空壳方法,起不到收窄效果。"""
+        pro_caps = VideoCapabilities(first_frame=True, last_frame=True, reference_images=False)
+        delegate = AsyncMock()
+        delegate.video_capabilities_for_tier = MagicMock(return_value=pro_caps)
+        backend = CustomVideoBackend(provider_id="vid-provider", delegate=delegate, model="kling-v2-5-turbo")
+
+        result = backend.video_capabilities_for_tier("pro", resolution="1080p")
+
+        assert result is pro_caps
+        delegate.video_capabilities_for_tier.assert_called_once_with("pro", resolution="1080p")
+
+    @pytest.mark.unit
+    def test_video_capabilities_for_tier_falls_back_without_tier_support(self):
+        """delegate 未实现 tier-aware 查询时,回落到 context-free 的 video_capabilities。"""
+        static_caps = VideoCapabilities(first_frame=True, last_frame=False, reference_images=False)
+        delegate = AsyncMock(spec=["video_capabilities", "capabilities"])
+        delegate.video_capabilities = static_caps
+        backend = CustomVideoBackend(provider_id="vid-provider", delegate=delegate, model="wan-pro")
+
+        result = backend.video_capabilities_for_tier("pro")
+
+        assert result is static_caps
+
+    @pytest.mark.unit
+    def test_video_capabilities_for_tier_ignores_full_injected_capabilities(self):
+        """工厂注入的完整合成能力（`with_video_capabilities` 不带 overrides,如 factory.py 未
+        配置用户覆盖时的调用形状）不得短路档位查询——那是 context-free 的系统判定,对 Kling 等
+        档位敏感 backend 是保守声明;短路会让本方法在生产环境等价于未实现档位感知。"""
+        static_merged = VideoCapabilities(first_frame=True, last_frame=False, reference_images=False)
+        pro_caps = VideoCapabilities(first_frame=True, last_frame=True, reference_images=False)
+        delegate = AsyncMock()
+        delegate.video_capabilities_for_tier = MagicMock(return_value=pro_caps)
+        backend = CustomVideoBackend(
+            provider_id="vid-provider", delegate=delegate, model="kling-v2-5-turbo"
+        ).with_video_capabilities(static_merged)
+
+        result = backend.video_capabilities_for_tier("pro", resolution="1080p")
+
+        assert result is pro_caps
+        delegate.video_capabilities_for_tier.assert_called_once_with("pro", resolution="1080p")
+
+    @pytest.mark.unit
+    def test_video_capabilities_for_tier_merges_sparse_override_onto_delegate_base(self):
+        """稀疏用户覆盖（`with_video_capabilities` 的 `overrides` 参数）叠加到 delegate 的档位
+        感知基底上,未覆盖字段跟随基底——覆盖必须能翻转执行层看到的能力,但不能整体替换基底,
+        否则档位切换时未覆盖字段会冻结在覆盖注入时刻的值。"""
+        base_caps = VideoCapabilities(first_frame=True, last_frame=False, reference_images=False)
+        delegate = AsyncMock()
+        delegate.video_capabilities_for_tier = MagicMock(return_value=base_caps)
+        backend = CustomVideoBackend(
+            provider_id="vid-provider", delegate=delegate, model="kling-v2-5-turbo"
+        ).with_video_capabilities(base_caps, overrides={"last_frame": True})
+
+        result = backend.video_capabilities_for_tier("pro")
+
+        assert result.first_frame is True
+        assert result.last_frame is True
+        assert result.reference_images is False
+        delegate.video_capabilities_for_tier.assert_called_once_with("pro", resolution=None)
 
 
 # ---------------------------------------------------------------------------
