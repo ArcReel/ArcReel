@@ -238,6 +238,43 @@ describe("OverviewCanvas", () => {
     });
   });
 
+  it("does not push a stale success toast if a slow upload resolves after switching to read-only", async () => {
+    let resolveUpload: ((res: Awaited<ReturnType<typeof API.uploadFile>>) => void) | undefined;
+    vi.spyOn(API, "uploadFile").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUpload = resolve;
+        }),
+    );
+    const pushToastSpy = vi.spyOn(useAppStore.getState(), "pushToast");
+
+    const { rerender } = render(
+      <OverviewCanvas
+        projectName="real-project"
+        projectData={makeProjectData({ overview: undefined, episodes: [] })}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("welcome-canvas"));
+    await waitFor(() => expect(resolveUpload).toBeDefined());
+
+    // 上传仍在途时切到只读态（如导航到演示项目复用同一路由实例）
+    rerender(
+      <OverviewCanvas
+        projectName="onboarding_demo"
+        projectData={makeProjectData()}
+        readOnly
+      />,
+    );
+
+    // 真实项目的旧上传这时才成功返回——不该在只读页面上展示过期的成功提示
+    resolveUpload?.({ success: true, path: "source.txt", url: "/source.txt", filename: "source.txt" });
+
+    await waitFor(() => {
+      expect(pushToastSpy).not.toHaveBeenCalled();
+    });
+  });
+
   it("does not fetch or display cost data on a read-only project", () => {
     const getCostEstimateSpy = vi.spyOn(API, "getCostEstimate");
     // 模拟仍带着上一个真实项目的费用残留（如同一路由实例复用时的短暂窗口）——

@@ -117,6 +117,8 @@ export function OverviewCanvas({
         const res = await API.uploadFile(projectName, "source", file, null, {
           onConflict,
         });
+        // 上传期间可能已切到只读态——过期项目的成功反馈不该展示在只读页面上。
+        if (readOnlyRef.current) return;
         const filename = res.filename ?? file.name;
         const enc = res.used_encoding ?? null;
         const chapters = res.chapter_count ?? 0;
