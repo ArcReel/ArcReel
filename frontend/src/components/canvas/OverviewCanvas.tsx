@@ -177,9 +177,18 @@ export function OverviewCanvas({
   const themeFieldId = useId();
   const worldFieldId = useId();
 
-  // 编辑态期间切到只读项目（如切入演示项目）时立即退出编辑态，避免表单和保存操作残留可用
+  // 编辑态期间切到只读项目（如切入演示项目）时立即退出编辑态，避免表单和保存操作残留可用。
+  // 冲突弹窗同理：真实项目上传撞名后，用户在弹窗未处理时切到演示项目——同一路由复用同一个
+  // OverviewCanvas 实例，弹窗若不清空会继续挂在演示页上，「保留两者/替换」仍可点击（点击后
+  // 走的是切换前 handleUpload 闭包里的旧 projectName，写入会被全局只读闸门拒绝，但弹窗本身
+  // 不该出现在只读页面）。用 cancel 主动结束等待中的 Promise，不留悬空 resolve。
   useEffect(() => {
-    if (readOnly) setEditingOverview(false);
+    if (!readOnly) return;
+    setEditingOverview(false);
+    setConflictPrompt((prev) => {
+      prev?.resolve("cancel");
+      return null;
+    });
   }, [readOnly]);
 
   const enterOverviewEdit = useCallback(() => {

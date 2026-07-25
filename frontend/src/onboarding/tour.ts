@@ -136,6 +136,10 @@ let interactiveHoleElements: Array<{ el: HTMLElement; prevInert: boolean }> = []
  * `closeInteractiveHole` 只会复原兄弟节点，链路节点（含 `#app-root`）会一直停留在
  * `inert = false`，直到整场引导结束才被 `setPeripheralIsolation(false)` 顺带修正，
  * 期间的后续步骤都会误留这条路径可达。
+ *
+ * 打兄弟节点 inert 时同样要排除 `DRIVER_PORTAL_SELECTOR`——链路一路往上走到
+ * `document.body` 时，`#app-root` 的兄弟节点里就包含 driver 自己的 overlay/popover/
+ * dummy-element，不排除的话会连自己的 Next/Previous/Close 按钮一起锁死。
  */
 function openInteractiveHole(target: HTMLElement): void {
   let node: HTMLElement | null = target;
@@ -143,7 +147,13 @@ function openInteractiveHole(target: HTMLElement): void {
     const parent: HTMLElement | null = node.parentElement;
     if (parent) {
       Array.from(parent.children).forEach((sibling) => {
-        if (sibling === node || !(sibling instanceof HTMLElement) || sibling.inert) return;
+        if (
+          sibling === node ||
+          !(sibling instanceof HTMLElement) ||
+          sibling.inert ||
+          sibling.matches(DRIVER_PORTAL_SELECTOR)
+        )
+          return;
         sibling.inert = true;
         interactiveHoleElements.push({ el: sibling, prevInert: false });
       });

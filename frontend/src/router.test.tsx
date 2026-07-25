@@ -25,6 +25,14 @@ vi.mock("@/components/pages/ProjectsPage", () => ({
   ProjectsPage: () => <div data-testid="projects-page">Projects Page</div>,
 }));
 
+vi.mock("@/components/pages/SystemConfigPage", () => ({
+  SystemConfigPage: () => <div data-testid="system-config-page">System Config Page</div>,
+}));
+
+vi.mock("@/components/pages/ProjectSettingsPage", () => ({
+  ProjectSettingsPage: () => <div data-testid="project-settings-page">Project Settings Page</div>,
+}));
+
 function renderAt(path: string) {
   const { hook } = memoryLocation({ path });
   return render(
@@ -220,6 +228,17 @@ describe("AppRoutes", () => {
     // /app/projects/demo/login（无匹配 → 404）；用 ~/login 绝对路径才落到 /login。
     expect(await screen.findByTestId("login-page")).toBeInTheDocument();
     expect(screen.queryByText("404")).not.toBeInTheDocument();
+  });
+
+  it("redirects the demo project's settings deep link to global settings", async () => {
+    renderAt(`/app/projects/${DEMO_PROJECT_NAME}/settings`);
+    expect(await screen.findByTestId("system-config-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("project-settings-page")).not.toBeInTheDocument();
+  });
+
+  it("still renders project settings for a real project", async () => {
+    renderAt("/app/projects/demo/settings");
+    expect(await screen.findByTestId("project-settings-page")).toBeInTheDocument();
   });
 
   it("redirects unauthenticated non-nested protected route to /login", async () => {

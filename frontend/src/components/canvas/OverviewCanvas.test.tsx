@@ -1,13 +1,17 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { API } from "@/api";
+import { API, ConflictError } from "@/api";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectData } from "@/types";
 
 vi.mock("./WelcomeCanvas", () => ({
-  WelcomeCanvas: () => <div data-testid="welcome-canvas">welcome</div>,
+  WelcomeCanvas: ({ onUpload }: { onUpload: (file: File) => void }) => (
+    <button data-testid="welcome-canvas" onClick={() => onUpload(new File(["x"], "source.txt"))}>
+      welcome
+    </button>
+  ),
 }));
 
 vi.mock("./AdInitCanvas", () => ({
@@ -114,6 +118,34 @@ describe("OverviewCanvas", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "创建概述" })).toBeInTheDocument();
+  });
+
+  it("dismisses a pending conflict prompt once the canvas turns read-only", async () => {
+    vi.spyOn(API, "uploadFile").mockRejectedValue(
+      new ConflictError("existing.txt", "existing (1).txt", "conflict"),
+    );
+
+    const { rerender } = render(
+      <OverviewCanvas
+        projectName="demo"
+        projectData={makeProjectData({ overview: undefined, episodes: [] })}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("welcome-canvas"));
+    expect(await screen.findByText("同名文件已存在")).toBeInTheDocument();
+
+    // 切到只读态（如工作台切到演示项目复用同一路由实例）——悬挂的冲突弹窗须一并清空，
+    // 不能带着「保留两者/替换」这类写操作继续留在只读页面上。
+    rerender(
+      <OverviewCanvas
+        projectName="demo"
+        projectData={makeProjectData({ overview: undefined, episodes: [] })}
+        readOnly
+      />,
+    );
+
+    expect(screen.queryByText("同名文件已存在")).not.toBeInTheDocument();
   });
 });
 

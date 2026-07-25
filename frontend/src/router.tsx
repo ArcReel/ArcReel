@@ -17,6 +17,7 @@ import { OnboardingTour } from "@/onboarding/OnboardingTour";
 import {
   buildDemoProjectData,
   buildDemoScripts,
+  DEMO_PROJECT_NAME,
   isDemoProject,
 } from "@/onboarding/demo-project";
 import { API, setApiReadOnly } from "@/api";
@@ -215,6 +216,13 @@ export function AppRoutes() {
           <AuthGuard>
             <AssetLibraryPage />
           </AuthGuard>
+        </Route>
+
+        {/* 演示项目没有可用的项目级设置（后端不存在该项目）——地址栏直达、书签或外部链接
+            都可能绕开 GlobalHeader 里已做的重定向，这里在路由层再挡一次，指向全局设置。
+            必须排在下面通用的项目设置路由之前，wouter 按声明顺序匹配。 */}
+        <Route path={`${ROUTE_APP_PROJECTS}/${DEMO_PROJECT_NAME}/${WORKSPACE_ROUTE_SETTINGS}`}>
+          <Redirect to={ROUTE_APP_SETTINGS} />
         </Route>
 
         {/* Project settings — full-screen, must be before the nested workspace route */}
