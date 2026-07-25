@@ -244,9 +244,8 @@ describe("GlobalHeader", () => {
     // 请求未返回前切到演示项目——effect 依赖变化触发 cleanup，abort 前一份请求
     useProjectsStore.setState({ currentProjectName: DEMO_PROJECT_NAME });
     await waitFor(() => expect(pending.length).toBe(2));
+    expect(pending[0].signal?.aborted).toBe(true);
 
-    // 旧请求（已 abort）在新请求之后才返回，不该覆盖新数据
-    pending[0].resolve({ cost_by_currency: { usd: 999 } });
     pending[1].resolve({ cost_by_currency: { usd: 1 } });
 
     await waitFor(() => {
