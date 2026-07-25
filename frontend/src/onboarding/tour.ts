@@ -125,14 +125,17 @@ function setPeripheralIsolation(hidden: boolean): void {
   }
 }
 
-let interactiveHoleElements: HTMLElement[] = [];
+let interactiveHoleElements: Array<{ el: HTMLElement; prevInert: boolean }> = [];
 
 /**
  * 为 `interactive` 步凿一个只通向目标元素的孔。`inert` 不能被后代自行覆盖（同上），
  * 因此要把目标元素到 `document.body` 祖先链上每一层节点自身的 `inert` 解除；同时
  * 把链上每层的其余兄弟节点显式打成 `inert`（多数已因整体隔离而是 `inert`，这里只
  * 处理链路本身此前未被顶层快照覆盖到的中间层），确保只有目标元素这一条路径可达，
- * 而不是连带打开整个 `#app-root`。
+ * 而不是连带打开整个 `#app-root`。链路节点自身原始的 `inert` 值也要记下——不记的话
+ * `closeInteractiveHole` 只会复原兄弟节点，链路节点（含 `#app-root`）会一直停留在
+ * `inert = false`，直到整场引导结束才被 `setPeripheralIsolation(false)` 顺带修正，
+ * 期间的后续步骤都会误留这条路径可达。
  */
 function openInteractiveHole(target: HTMLElement): void {
   let node: HTMLElement | null = target;
@@ -142,17 +145,18 @@ function openInteractiveHole(target: HTMLElement): void {
       Array.from(parent.children).forEach((sibling) => {
         if (sibling === node || !(sibling instanceof HTMLElement) || sibling.inert) return;
         sibling.inert = true;
-        interactiveHoleElements.push(sibling);
+        interactiveHoleElements.push({ el: sibling, prevInert: false });
       });
     }
+    interactiveHoleElements.push({ el: node, prevInert: node.inert });
     node.inert = false;
     node = parent;
   }
 }
 
 function closeInteractiveHole(): void {
-  interactiveHoleElements.forEach((el) => {
-    el.inert = false;
+  interactiveHoleElements.forEach(({ el, prevInert }) => {
+    el.inert = prevInert;
   });
   interactiveHoleElements = [];
 }
