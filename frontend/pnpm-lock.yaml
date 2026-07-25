@@ -34,6 +34,9 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.14.3
         version: 3.14.5(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      driver.js:
+        specifier: ^1.8.0
+        version: 1.8.0
       framer-motion:
         specifier: ^12.40.0
         version: 12.42.2(@emotion/is-prop-valid@1.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -2322,6 +2325,9 @@ packages:
 
   dompurify@3.4.8:
     resolution: {integrity: sha512-yb1cEmaOum7wFvOCSQxyfgVlv5D47Rc30iZWoMpbDIWTnJ6grDDQyu2KFJzB2k7u0pMuJcQ1zphH//fFnw2tjQ==}
+
+  driver.js@1.8.0:
+    resolution: {integrity: sha512-+8/IO7h1v14IzWh2GP60N7T3PFZweXwdn5e5POuxRSBoCYUojsBxzqawPeXh3YZIibRy7EehYNEyxe7slwwtdg==}
 
   dunder-proto@1.0.1:
     resolution: {integrity: sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A==}
@@ -7080,6 +7086,8 @@ snapshots:
   dompurify@3.4.8:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
+
+  driver.js@1.8.0: {}
 
   dunder-proto@1.0.1:
     dependencies:

@@ -26,6 +26,7 @@ import type {
   ProjectDeletedPayload,
   GetSystemConfigResponse,
   GetSystemVersionResponse,
+  OnboardingStatus,
   SystemConfigPatch,
   ApiKeyInfo,
   CreateApiKeyResponse,
@@ -379,6 +380,18 @@ class API {
 
   static async getSystemVersion(): Promise<GetSystemVersionResponse> {
     return this.request("/system/version");
+  }
+
+  // ==================== 首次使用引导 ====================
+
+  static async getOnboardingStatus(
+    options: { signal?: AbortSignal } = {}
+  ): Promise<OnboardingStatus> {
+    return this.request("/onboarding/status", { signal: options.signal });
+  }
+
+  static async markOnboardingSeen(): Promise<OnboardingStatus> {
+    return this.request("/onboarding/seen", { method: "POST" });
   }
 
   static async downloadDiagnostics(): Promise<{ blob: Blob; filename: string }> {

@@ -13,6 +13,7 @@ import { AssetLibraryPage } from "@/components/pages/AssetLibraryPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
+import { OnboardingTour } from "@/onboarding/OnboardingTour";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAssistantStore } from "@/stores/assistant-store";
@@ -147,6 +148,7 @@ export function AppRoutes() {
   return (
     <>
       <ConfigStatusLoader />
+      <OnboardingTour />
       <Switch>
         {/* Login page */}
         <Route path="/login" component={LoginPage} />

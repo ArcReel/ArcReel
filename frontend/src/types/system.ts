@@ -51,6 +51,11 @@ export interface GetSystemVersionResponse {
   update_check_error: string | null;
 }
 
+/** 首次使用引导的「已看过」状态 —— 实例级，未设置视为未看过。 */
+export interface OnboardingStatus {
+  seen: boolean;
+}
+
 export interface SystemConfigPatch {
   default_video_backend?: string;
   default_image_backend?: string;

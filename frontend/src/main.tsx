@@ -8,10 +8,14 @@ import { useAuthStore } from "@/stores/auth-store";
 import { i18nReady } from "@/i18n";
 import { BRAND, BRAND_DOCUMENT_TITLE } from "@/branding";
 
+import "driver.js/dist/driver.css";
+
 import "./index.css";
 import "./css/styles.css";
 import "./css/app.css";
 import "./css/studio.css";
+// driver 默认皮肤之后加载，覆盖生效
+import "./css/onboarding.css";
 
 // 启动时按 BRAND 设置文档标题与 meta description（index.html 中的
 // <title> 与 <meta name="description"> 仅作为加载阶段的占位）。

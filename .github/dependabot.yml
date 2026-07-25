@@ -161,6 +161,7 @@ updates:
           - "@lobehub/*"
           - "@tanstack/react-virtual"
           - "streamdown"
+          - "driver.js"
         update-types:
           - "minor"
           - "patch"

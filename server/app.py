@@ -54,6 +54,7 @@ from server.routers import (
     files,
     generate,
     grids,
+    onboarding,
     products,
     project_events,
     projects,
@@ -583,6 +584,7 @@ app.include_router(cost_estimation.router, prefix="/api/v1", tags=["费用估算
 app.include_router(grids.router, prefix="/api/v1", tags=["宫格图"])
 app.include_router(reference_videos.router, prefix="/api/v1", tags=["参考生视频"])
 app.include_router(assets.router, prefix="/api/v1", tags=["全局资产库"])
+app.include_router(onboarding.router, prefix="/api/v1", tags=["首次使用引导"])
 
 
 def create_generation_worker() -> GenerationWorker:
