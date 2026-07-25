@@ -233,10 +233,16 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         # max_reference_images 同时声明于 registry ModelInfo（编排层裁剪读它）与此处（生成时防御），取保守
         # 值、待 app.klingai.com 控制台核对。纯函数（不构造 client / 不需 api_key），供 custom endpoint
         # resolver 按 model_id 读上限复用。
+        #
+        # last_frame_requires_pro 为真的 model（kling-v2-5-turbo、kling-v2-6）：该位不按 service_tier
+        # 分档——service_tier 是逐请求字段（generation_tasks 入队时选定），本函数只按 model 声明、
+        # 无从得知调用方将选哪档。std/4k 档提交尾帧会被 _build_payload 的 fail-loud 护栏拒绝，declare
+        # 一个仅在少数档位成立的 True 会让 media_generator 按此位放行 end_image、多数请求撞 guard 硬失败；
+        # 保守声明 False 更贴近默认档的真实执行结果，与未登记 model 回落保守默认同一原则。
         caps = _lookup_video_caps(model)
         return VideoCapabilities(
             first_frame=True,
-            last_frame=caps.last_frame,
+            last_frame=caps.last_frame and not caps.last_frame_requires_pro,
             reference_images=caps.reference_images,
             max_reference_images=caps.max_reference_images,
         )

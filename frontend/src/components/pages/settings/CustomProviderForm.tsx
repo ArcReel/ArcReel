@@ -684,11 +684,17 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                           const nextId = e.target.value;
                           updateModel(m.key, {
                             model_id: nextId,
-                            // capability_overrides 是模型级配置，能力判定本身依赖 model_id：
-                            // 对齐加载时的 original_model_id 而非上一次中间态——否则临时改动
-                            // 又逐字符改回原值时，第一次改动已清空覆盖，改回原值也无法找回。
+                            // capability_overrides 是模型级配置，能力判定本身依赖 model_id 与
+                            // endpoint 二者共同决定的 (endpoint, model_id) 组合：对齐加载时的
+                            // original_model_id 而非上一次中间态——否则临时改动又逐字符改回原值
+                            // 时，第一次改动已清空覆盖，改回原值也无法找回。同时要求 endpoint 仍
+                            // 等于加载时的 original_endpoint 才恢复——否则「先改 model_id、再切换
+                            // endpoint 又切回」会把只对原 (endpoint, model_id) 组合成立的覆盖，
+                            // 错配到已变更的 model_id 上。
                             capability_overrides:
-                              nextId === m.original_model_id ? m.original_capability_overrides : null,
+                              nextId === m.original_model_id && m.endpoint === m.original_endpoint
+                                ? m.original_capability_overrides
+                                : null,
                           });
                         }}
                         placeholder="model-id…"
@@ -709,7 +715,13 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                             // 否则隐藏字段原样提交可能被后端因白名单/兼容性拒绝，用户无法保存。对齐
                             // 加载时的 original_endpoint 而非上一次中间态——弹层里重新点选当前已选中
                             // 项、或切到别的 endpoint 后又切回原值，都不应清空用户尚未改动的原有覆盖。
-                            capability_overrides: next === m.original_endpoint ? m.original_capability_overrides : null,
+                            // 同时要求 model_id 仍等于 original_model_id 才恢复——否则「先切 endpoint、
+                            // 再改 model_id、又切回原 endpoint」会把只对原 (endpoint, model_id) 组合
+                            // 成立的覆盖，错配到已变更的 model_id 上。
+                            capability_overrides:
+                              next === m.original_endpoint && m.model_id === m.original_model_id
+                                ? m.original_capability_overrides
+                                : null,
                           })
                         }
                         ariaLabel={t("endpoint_label")}

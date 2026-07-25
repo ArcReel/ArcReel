@@ -94,7 +94,8 @@ class TestConstructionAndCapabilities:
     def test_video_capabilities_first_and_last_frame(self):
         caps = _jwt_backend().video_capabilities
         assert caps.first_frame is True
-        assert caps.last_frame is True
+        # turbo 尾帧仅 pro 档生效，声明按默认档保守为 False（std 档提交会被 _build_payload 拒绝）
+        assert caps.last_frame is False
         # turbo 不建模参考图（多图主体留 v3-omni/o1）
         assert caps.reference_images is False
         assert caps.max_reference_images == 0
@@ -130,11 +131,12 @@ class TestPerModelCapabilities:
         assert vc.reference_images is True and vc.max_reference_images == 4
 
     def test_unknown_model_falls_back_to_default_caps(self):
-        # bearer 透传原生 model_name：未登记 → 保守默认（t2v+i2v、首尾帧、无音频/参考）
+        # bearer 透传原生 model_name：未登记 → 保守默认（t2v+i2v、尾帧仅 pro 档，声明按 std 档保守
+        # 为 False；无音频/参考）
         b = _bearer_backend("kling-some-passthrough")
         assert b.capabilities == {VideoCapability.TEXT_TO_VIDEO, VideoCapability.IMAGE_TO_VIDEO}
         vc = b.video_capabilities
-        assert vc.last_frame is True
+        assert vc.last_frame is False
         assert vc.reference_images is False and vc.max_reference_images == 0
 
     def test_prefixed_and_cased_model_normalizes_to_registered_caps(self):
