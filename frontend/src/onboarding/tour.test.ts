@@ -196,6 +196,18 @@ describe("startTour", () => {
       handle.dispose();
     });
 
+    it("finishes the tour on ArrowRight at the last step, same as clicking next", () => {
+      const onExit = vi.fn();
+      const onStepChange = vi.fn();
+      startTour(TWO_STEPS, LABELS, { onExit, startIndex: 1, onStepChange });
+
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight" }));
+
+      expect(onStepChange).not.toHaveBeenCalled();
+      expect(onExit).toHaveBeenCalledTimes(1);
+      expect(document.querySelector(".driver-popover")).toBeNull();
+    });
+
     it("moves back and reports onStepChange on ArrowLeft", () => {
       const onStepChange = vi.fn();
       const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn(), startIndex: 1, onStepChange });
