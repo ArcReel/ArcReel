@@ -47,8 +47,10 @@ export const useCostStore = create<CostState>((set, get) => ({
   _episodeIndex: new Map(),
 
   fetchCost: async (projectName: string) => {
-    // 引导演示项目在后端不存在，费用估算无从计算，界面按「未估算」显示
+    // 引导演示项目在后端不存在，费用估算无从计算，界面按「未估算」显示；
+    // 递增 _fetchId 使切入前尚在途的真实项目请求作废，避免其晚到响应把真实费用写回演示页
     if (isDemoProject(projectName)) {
+      _fetchId += 1;
       get().clear();
       return;
     }

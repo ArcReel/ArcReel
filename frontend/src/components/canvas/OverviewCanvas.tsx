@@ -177,6 +177,11 @@ export function OverviewCanvas({
   const themeFieldId = useId();
   const worldFieldId = useId();
 
+  // 编辑态期间切到只读项目（如切入演示项目）时立即退出编辑态，避免表单和保存操作残留可用
+  useEffect(() => {
+    if (readOnly) setEditingOverview(false);
+  }, [readOnly]);
+
   const enterOverviewEdit = useCallback(() => {
     const ov = projectData?.overview;
     setDraft({
@@ -328,7 +333,7 @@ export function OverviewCanvas({
                 )}
               </div>
 
-              {editingOverview ? (
+              {editingOverview && !readOnly ? (
                 <div className="space-y-3">
                   <div>
                     <FieldLabel htmlFor={synopsisFieldId}>{t("synopsis_label")}</FieldLabel>

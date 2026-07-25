@@ -4,7 +4,8 @@ interface Props {
   icon: React.ReactNode;
   label: string;
   hint: string;
-  onClick: () => void;
+  /** 缺省即只读展示：不接受点击，也不画悬浮态。 */
+  onClick?: () => void;
 }
 
 /**
@@ -15,7 +16,8 @@ export function GalleryEmptyState({ icon, label, hint, onClick }: Props) {
     <button
       type="button"
       onClick={onClick}
-      className="focus-ring group relative w-full overflow-hidden rounded-2xl px-8 py-16 text-center transition-colors"
+      disabled={!onClick}
+      className="focus-ring group relative w-full overflow-hidden rounded-2xl px-8 py-16 text-center transition-colors disabled:cursor-default"
       style={{
         border: "1px dashed var(--color-hairline)",
         background:

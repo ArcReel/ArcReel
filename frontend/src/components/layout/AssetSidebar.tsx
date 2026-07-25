@@ -88,13 +88,18 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
 
   const navItems: NavItem[] = [
     { key: "overview", path: "/", label: t("dashboard:workspace_nav_overview"), icon: LayoutDashboard },
-    {
-      key: "source",
-      path: "/source",
-      label: t("dashboard:workspace_nav_source"),
-      icon: BookOpen,
-      meta: sourceCount,
-    },
+    // 演示项目没有可切片的源文件，且后端不存在该项目，隐藏入口而非渲染必然报错的空页
+    ...(demoMode
+      ? []
+      : [
+          {
+            key: "source",
+            path: "/source",
+            label: t("dashboard:workspace_nav_source"),
+            icon: BookOpen,
+            meta: sourceCount,
+          },
+        ]),
     {
       key: "characters",
       path: "/characters",

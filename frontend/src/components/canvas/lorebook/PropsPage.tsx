@@ -64,7 +64,7 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
             icon={<Package className="h-6 w-6" />}
             label={t("dashboard:props")}
             hint={t("dashboard:no_props_hint_clickable")}
-            onClick={() => setAdding(true)}
+            onClick={readOnly ? undefined : () => setAdding(true)}
           />
         ) : (
           <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">

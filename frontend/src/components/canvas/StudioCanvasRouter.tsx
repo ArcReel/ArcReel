@@ -540,7 +540,8 @@ export function StudioCanvasRouter() {
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_SOURCE}`}>
-        <SourceFilesPage projectName={currentProjectName} />
+        {/* 演示项目没有源文件、后端也不存在该项目；侧栏已隐藏该入口，这里再兜底直接输入 URL 的情形 */}
+        {demoMode ? <Redirect to="/" /> : <SourceFilesPage projectName={currentProjectName} />}
       </Route>
 
       <Route path={`/${WORKSPACE_ROUTE_CHARACTERS}`}>

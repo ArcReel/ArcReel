@@ -47,21 +47,26 @@ const DEMO_STATUS: ProjectStatus = {
   current_phase: "production",
   phase_progress: 0.62,
   characters: { completed: 3, total: 4 },
-  scenes: { completed: 5, total: 6 },
+  scenes: { completed: 3, total: 3 },
   props: { completed: 2, total: 3 },
-  episodes_summary: { total: 8, scripted: 3, in_production: 2, completed: 3 },
+  episodes_summary: { total: 8, scripted: 1, in_production: 1, completed: 0 },
 };
 
-/** 8 集的状态分布，与 `DEMO_STATUS.episodes_summary` 的计数对齐。 */
+/**
+ * 8 集的状态分布，与 `DEMO_STATUS.episodes_summary` 的计数对齐。
+ * 只有第 1 集在演示里带剧本，真实后端对没有剧本的分集只会算出 draft（见
+ * `lib/status_calculator.py::_make_fallback_ep_stats`）——第 2-8 集因此不能标成
+ * scripted/completed，否则点进去发现只有占位说明，统计与内容对不上。
+ */
 const EPISODE_STATUSES: NonNullable<EpisodeMeta["status"]>[] = [
   "in_production",
-  "in_production",
-  "completed",
-  "completed",
-  "completed",
-  "scripted",
-  "scripted",
-  "scripted",
+  "draft",
+  "draft",
+  "draft",
+  "draft",
+  "draft",
+  "draft",
+  "draft",
 ];
 
 /** 第 1 集 6 条分镜的骨架：时长、出场引用、镜别与运镜。文案按 index 从 i18n 取。 */

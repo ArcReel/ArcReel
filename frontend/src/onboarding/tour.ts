@@ -25,6 +25,12 @@ export interface TourStep {
    * （开场欢迎气泡以外的居中步通常这样用）。
    */
   route?: string;
+  /**
+   * 该步是否允许点击高亮元素本身。默认继承全局 `disableActiveInteraction: true`
+   * （防止讲到哪点到哪，意外触发生成动作）。仅当该步的落点动作就是导航（如点进演示
+   * 工作台）而非写操作时才置 true——否则高亮元素在整个引导期间都点不到。
+   */
+  interactive?: boolean;
 }
 
 export interface TourLabels {
@@ -160,6 +166,7 @@ export function startTour(
 
   const driveSteps: DriveStep[] = steps.map((step) => ({
     ...(step.anchor === null ? {} : { element: anchorSelector(step.anchor), data: { anchor: step.anchor } }),
+    ...(step.interactive ? { disableActiveInteraction: false } : {}),
     popover: { title: step.title, description: step.body },
   }));
 

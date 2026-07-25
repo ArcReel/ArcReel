@@ -61,7 +61,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   }, []);
 
   const sseProjectName = demoMode ? null : currentProjectName;
-  useTasksSSE(sseProjectName);
+  useTasksSSE(sseProjectName, !demoMode);
   useProjectEventsSSE(sseProjectName);
 
   const restoreBodyStyle = useCallback(() => {

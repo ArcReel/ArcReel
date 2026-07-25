@@ -843,10 +843,12 @@ export function ShotDetail({
         estimatedCost={sbEstimate ?? undefined}
         onGenerate={onGenerateStoryboard ? () => onGenerateStoryboard(segmentId) : undefined}
         onRestore={onRestoreStoryboard}
-        onUpload={scriptFile ? (file) => handleUpload("storyboard", file) : undefined}
+        onUpload={
+          scriptFile && !refsReadOnly ? (file) => handleUpload("storyboard", file) : undefined
+        }
         uploading={uploadingKind === "storyboard"}
         uploadDisabled={uploadingKind !== null}
-        editScriptFile={scriptFile}
+        editScriptFile={refsReadOnly ? undefined : scriptFile}
         generateDisabled={dirty || saving}
         generateDisabledHint={dirty ? dirtyHint : undefined}
       />
@@ -863,7 +865,9 @@ export function ShotDetail({
         estimatedCost={vidEstimate ?? undefined}
         onGenerate={onGenerateVideo ? () => onGenerateVideo(segmentId) : undefined}
         onRestore={onRestoreVideo}
-        onUpload={scriptFile ? (file) => handleUpload("video", file) : undefined}
+        onUpload={
+          scriptFile && !refsReadOnly ? (file) => handleUpload("video", file) : undefined
+        }
         uploading={uploadingKind === "video"}
         uploadDisabled={uploadingKind !== null}
       />

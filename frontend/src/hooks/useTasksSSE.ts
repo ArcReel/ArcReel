@@ -11,12 +11,17 @@ const POLL_INTERVAL_MS = 3000;
  *
  * 替代原先的 EventSource SSE 长连接，释放浏览器连接槽位
  * （Chrome HTTP/1.1 同域名 6 连接限制）。
+ *
+ * `projectName` 传 `null` 只是「不按项目过滤」（拉全局任务），不是「停用」——
+ * 停用必须用 `enabled: false` 显式声明，否则调用方以为传 null 能关掉轮询，
+ * 实际仍会持续拉取全局任务列表。
  */
-export function useTasksSSE(projectName?: string | null): void {
+export function useTasksSSE(projectName?: string | null, enabled = true): void {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { setTasks, setStats, setConnected } = useTasksStore();
 
   useEffect(() => {
+    if (!enabled) return;
     let disposed = false;
 
     async function poll() {
@@ -54,5 +59,5 @@ export function useTasksSSE(projectName?: string | null): void {
       }
       setConnected(false);
     };
-  }, [projectName, setTasks, setStats, setConnected]);
+  }, [projectName, enabled, setTasks, setStats, setConnected]);
 }

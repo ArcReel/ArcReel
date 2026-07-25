@@ -64,7 +64,7 @@ export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene
             icon={<Landmark className="h-6 w-6" />}
             label={t("dashboard:scenes")}
             hint={t("dashboard:no_scenes_hint_clickable")}
-            onClick={() => setAdding(true)}
+            onClick={readOnly ? undefined : () => setAdding(true)}
           />
         ) : (
           <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">

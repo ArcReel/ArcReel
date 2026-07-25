@@ -62,7 +62,7 @@ export function DropdownPill<T extends string>({
 
       {/* Options popover */}
       <Popover
-        open={open}
+        open={open && !disabled}
         onClose={() => setOpen(false)}
         anchorRef={containerRef}
         align="start"
@@ -83,11 +83,12 @@ export function DropdownPill<T extends string>({
             <button
               key={opt}
               type="button"
+              disabled={disabled}
               onClick={() => {
                 onChange(opt);
                 setOpen(false);
               }}
-              className="flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors"
+              className="flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors disabled:cursor-default"
               style={{
                 background: isActive ? "var(--color-accent-dim)" : "transparent",
                 color: isActive ? "var(--color-accent-2)" : "var(--color-text-2)",

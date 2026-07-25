@@ -64,7 +64,7 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
             icon={<User className="h-6 w-6" />}
             label={t("dashboard:characters")}
             hint={t("dashboard:no_characters_hint_clickable")}
-            onClick={() => setAdding(true)}
+            onClick={readOnly ? undefined : () => setAdding(true)}
           />
         ) : (
           <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">
