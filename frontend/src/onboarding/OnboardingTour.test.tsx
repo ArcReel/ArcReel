@@ -204,6 +204,18 @@ describe("OnboardingTour", () => {
     anchor.remove();
   });
 
+  it("navigates to the lobby before running the tour when replayed from another main-UI route", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: true });
+
+    renderAt("/app/settings");
+    await waitFor(() => expect(API.getOnboardingStatus).toHaveBeenCalled());
+    expect(popoverTitle()).toBeNull();
+
+    act(() => useOnboardingStore.getState().start());
+
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+  });
+
   it("takes the tour down when the user navigates back to the login page mid-tour", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
 
