@@ -96,9 +96,10 @@ describe("GlobalHeader", () => {
     expect(screen.queryByText("halou-92d19a04")).not.toBeInTheDocument();
 
     await waitFor(() => {
-      expect(API.getUsageStats).toHaveBeenCalledWith({
-        projectName: "halou-92d19a04",
-      });
+      expect(API.getUsageStats).toHaveBeenCalledWith(
+        { projectName: "halou-92d19a04" },
+        expect.anything(),
+      );
     });
   });
 
@@ -206,6 +207,50 @@ describe("GlobalHeader", () => {
 
     await waitFor(() => {
       expect(screen.queryByTestId("export-scope-dialog")).not.toBeInTheDocument();
+    });
+  });
+
+  it("discards a stale usage-stats response after the project switches before it resolves", async () => {
+    const pending: {
+      signal: AbortSignal | undefined;
+      resolve: (v: Record<string, unknown>) => void;
+    }[] = [];
+    vi.spyOn(API, "getUsageStats").mockImplementation(
+      (_filters, options) =>
+        new Promise((resolve, reject) => {
+          options?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+          pending.push({ signal: options?.signal, resolve });
+        }),
+    );
+
+    useProjectsStore.setState({
+      currentProjectName: "real-project",
+      currentProjectData: {
+        title: "真实项目",
+        content_mode: "narration",
+        style: "Anime",
+        episodes: [],
+        characters: {},
+        scenes: {},
+        props: {},
+      },
+    });
+
+    renderHeader();
+    await waitFor(() => expect(pending.length).toBe(1));
+
+    // 请求未返回前切到演示项目——effect 依赖变化触发 cleanup，abort 前一份请求
+    useProjectsStore.setState({ currentProjectName: DEMO_PROJECT_NAME });
+    await waitFor(() => expect(pending.length).toBe(2));
+
+    // 旧请求（已 abort）在新请求之后才返回，不该覆盖新数据
+    pending[0].resolve({ cost_by_currency: { usd: 999 } });
+    pending[1].resolve({ cost_by_currency: { usd: 1 } });
+
+    await waitFor(() => {
+      expect(useUsageStore.getState().stats?.cost_by_currency).toEqual({ usd: 1 });
     });
   });
 

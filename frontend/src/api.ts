@@ -1732,7 +1732,8 @@ class API {
    * @param filters - 筛选条件
    */
   static async getUsageStats(
-    filters: UsageStatsFilters = {}
+    filters: UsageStatsFilters = {},
+    options: { signal?: AbortSignal } = {}
   ): Promise<Record<string, unknown>> {
     const params = new URLSearchParams();
     if (filters.projectName)
@@ -1740,7 +1741,9 @@ class API {
     if (filters.startDate) params.append("start_date", filters.startDate);
     if (filters.endDate) params.append("end_date", filters.endDate);
     const query = params.toString();
-    return this.request(`/usage/stats${query ? "?" + query : ""}`);
+    return this.request(`/usage/stats${query ? "?" + query : ""}`, {
+      signal: options.signal,
+    });
   }
 
   /**

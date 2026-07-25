@@ -82,11 +82,16 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
 
   const completedTaskCount = stats.succeeded + stats.failed;
   useEffect(() => {
-    API.getUsageStats(usageProjectName ? { projectName: usageProjectName } : {})
+    const controller = new AbortController();
+    API.getUsageStats(
+      usageProjectName ? { projectName: usageProjectName } : {},
+      { signal: controller.signal }
+    )
       .then((res) => {
         setUsageStats(res as unknown as UsageStats);
       })
       .catch(() => {});
+    return () => controller.abort();
   }, [usageProjectName, completedTaskCount, setUsageStats]);
 
   useEffect(() => {
