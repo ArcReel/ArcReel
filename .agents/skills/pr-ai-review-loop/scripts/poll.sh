@@ -102,9 +102,11 @@
 #                            verification    "_💡 Verification agent"  trivial   "_🔵 Trivial"
 #                            nitpick         "_🧹 Nitpick"             low_value "_💤 Low value"
 #   severity_alt           Gemini severity or Codex "Pn Badge" from the inline badge image alt text
-#   has_pass_marker        Gemini review summary carries an explicit pass marker: "LGTM" / "no issues found" /
-#                          "no feedback to provide" (any case) / word "approved" (any case), or body is empty
-#                          aside from the "## Code Review" heading (any case)
+#   has_pass_marker        Gemini review summary carries no actionable opinion: "LGTM" / "no issues found" /
+#                          a "no [adjective] feedback" clause (covers "no feedback to provide", "no additional
+#                          feedback", "no feedback is provided"; any case) / word "approved" (any case), or body
+#                          is empty aside from the "## Code Review" heading (any case). Gemini-only; an unmatched
+#                          summary is treated as still actionable (safe default — no silent pass).
 #   has_started            Codex has posted eyes on the PR or an @codex review trigger comment
 #   preview                first 120 chars of body after stripping HTML comments and markdown images, whitespace
 #                          collapsed — the eyeball safety net for flag misparses (flag vs preview conflict => fetch
@@ -376,10 +378,17 @@ jq -n \
     | map(select(.[1] as $pat | $h | contains($pat)) | .[0]);
 
   def has_pass_marker_body:
+    # A Gemini review summary is one paragraph: it either describes the feedback it gave, or
+    # states there is none. The "no feedback" clause is that pass signal, so match the grammar
+    # mechanically instead of enumerating exact phrasings — "\\bno(\\s+\\w+)?\\s+feedback\\b"
+    # tolerates an inserted adjective ("no additional feedback") and passive voice ("no
+    # feedback is provided"), both of which broke the old fixed-substring match. An unmatched
+    # summary stays actionable (has_pass_marker=false) — the safe default keeps the loop polling
+    # rather than declaring a silent pass. Gemini-only; other bots use their own pass paths.
     (. // "")
     | ((test("\\bLGTM\\b"))
        or (test("no issues found"; "i"))
-       or (test("no feedback to provide"; "i"))
+       or (test("\\bno(\\s+\\w+)?\\s+feedback\\b"; "i"))
        or (test("\\bapproved\\b"; "i"))
        or ((gsub("\\s+"; "") | ascii_downcase) as $bare | ($bare == "" or $bare == "##codereview")));
 

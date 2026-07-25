@@ -36,6 +36,8 @@
 - 本轮 inline 均为 `is_ack == true`
 - 本轮 inline 均为 nit 级(`cr_markers` 仅含 nit 级 token,无 actionable token)
 
+**outside diff range 意见**:CodeRabbit 对 diff 之外代码的建议内嵌在 review body(`coderabbit.reviews` 一行,source `coderabbit_review`)里,没有独立 inline comment id。索引只给出这条 review 的存在与 `is_new`、不含正文,`unacked coderabbitai[bot]` 兜底只扫 `inline_*_by_user`,同样看不见它——只靠 inline 口径会漏。发现靠 `query.sh <PR> history`(按 400 字 head 扫出该 review),全文用 `query.sh <PR> details <该 review 的 id>` 取;因无 inline 锚点,回复只能走 PR 顶层评论,不能回 inline。
+
 ## Gemini Code Assist
 
 **触发**(按 `pr_created_at` 与 `gemini.reviews` 判别,均受触发去重约束):
@@ -49,7 +51,7 @@
 **actionable**(两条路径,任一命中即算):
 
 - **inline 路径**:`inline_new_by_user["gemini-code-assist[bot]"]` 中 `severity_alt` 为 `high` / `medium` / `critical`;`low` / `nit` / `style` 不算
-- **summary 路径**:最新一条 `gemini.reviews` 的 `has_pass_marker == false`(通过标记词表见 poll.sh)
+- **summary 路径**:最新一条 `gemini.reviews` 的 `has_pass_marker == false`(通过判定见 poll.sh header——按 summary 的 "no feedback" 语法结构判,未命中即视为仍有 actionable)
 
 **通过**:前置条件——已审当前 HEAD(避免误用上一轮的通过标记)。前置之上需**同时**满足:
 
@@ -99,7 +101,7 @@ PR reaction 是当前审查状态:新 push 启动审查时,Codex 会把上一轮
 **退出门槛**(代替"通过",在准备宣布循环结束时核对):
 
 1. **分析完成且成功**:`codeql_checks.all_ok == true`(要求 total > 0 且无 pending、无 failing;失败态集合定义见 poll.sh header `checks_failing` 条,同名重跑已由 poll.sh 归一为每名最新一条)。`total == 0` 只说明分析未注册(继续等待)或仓库未接入(见下),不是通过;`failing` 非空时 alerts 数据停留在上次成功分析,直接核对门槛 2 会漏报新告警——归入故障类暂停。分析超过 25 分钟未完成同样归入故障类暂停
-2. **security 无遗留**:`security_alerts.open_introduced` 为空(poll.sh 已做 base 分支差集,排除存量告警)。`available == false` 时降级:把 `unavailable_hint` 贴给用户,说明无法核对 alerts API(权限或 merge ref 原因),请人工确认后再退出
+2. **security 无遗留**:`security_alerts.open_introduced` 为空(poll.sh 已做 base 分支差集,排除存量告警)。**勿采信 CodeQL check-run 标题里的 "N new alerts" 计数**——该数字按 merge-ref 全量统计,存量场景会把 main 上的旧告警一并计入,`N` 虚高会误导判定;口径一律以 `open_introduced`(已做 base 差集)为准。`available == false` 时降级:把 `unavailable_hint` 贴给用户,说明无法核对 alerts API(权限或 merge ref 原因),请人工确认后再退出
 3. **quality 无遗留**:终核时跑 `query.sh quality-all` 取 `github-code-quality[bot]` 的**全量** inline 评论(不限本轮)逐条核对——对应代码已修改,或已有 pushback 记录(PR 评论说明)。quality 没有可查的告警列表 API(实测 404),全量评论 + 代码现状就是完整事实,以本次查询结果为准而非对话记忆(压缩后无法重建)。常规 PR 该量级是个位数;若全量达数十条,向用户说明数量并商定抽查口径
 
 **仓库未接入 code scanning 的判定**:`codeql_checks.total` 全程为 0 + `security_alerts.available == false`(两端 alerts API 均不可用)+ PR 上从无两家 bot 评论 → 疑似未接入。跳过该门槛前必须先向用户确认一次——GitHub 对无权限的资源同样返回 404,权限不足(如 token 缺 `security_events` scope)会伪装成与未接入相同的三信号,静默跳过等于放行未核对的安全告警。判别辅助:读 `unavailable_hint`,含 403 / permission / "must be enabled"(Advanced Security 未开)字样 → 权限或配置问题,按故障类暂停处理;含 404 + "not enabled" / "no analysis found" → 未接入佐证。经用户确认跳过后,在退出汇报中注明"code scanning 未接入(经用户确认),该门槛未核对"

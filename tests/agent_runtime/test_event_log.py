@@ -991,6 +991,31 @@ class TestLazyBackfill:
         assert len(again) == 2
         assert adapter.read_count == 1
 
+    async def test_backfill_preserves_historical_assistant_error_as_assistant_message(
+        self,
+        log_store: EventLogStore,
+    ):
+        adapter = _FakeAdapter(
+            [
+                {
+                    "type": "assistant",
+                    "error": "invalid_request",
+                    "model": "<synthetic>",
+                    "content": [{"type": "text", "text": "raw upstream error"}],
+                    "uuid": "a-error",
+                    "timestamp": "2026-07-23T01:02:03Z",
+                    "raw_transcript_payload": {"future_field": "preserved"},
+                }
+            ]
+        )
+        service = EventLogService(log_store, adapter)
+
+        entries = await service.list_entries("old-session", "/data/projects/demo")
+
+        assert len(entries) == 1
+        assert entries[0]["type"] == "assistant"
+        assert entries[0]["content"] == [{"type": "text", "text": "raw upstream error"}]
+
     async def test_concurrent_first_access_backfills_once(self, log_store: EventLogStore):
         adapter = _FakeAdapter([{"type": "user", "content": "hi", "uuid": "u1"}])
         service = EventLogService(log_store, adapter)
@@ -1047,10 +1072,10 @@ class TestLazyBackfill:
 
         original_normalize = SdkMessageNormalizer.normalize
 
-        def _boom_on_poison(self, message):
+        def _boom_on_poison(self, message, **kwargs):
             if message.get("uuid") == "poison":
                 raise ValueError("boom")
-            return original_normalize(self, message)
+            return original_normalize(self, message, **kwargs)
 
         monkeypatch.setattr(SdkMessageNormalizer, "normalize", _boom_on_poison)
 
@@ -1098,6 +1123,24 @@ class TestLazyBackfill:
         assert entries[3]["subtype"] == "task_notification"
         assert entries[3]["task_id"] == "t1"
         assert entries[4]["subtype"] == "interrupt"
+
+    async def test_backfill_does_not_reclassify_historical_result_as_failure(self, log_store: EventLogStore):
+        adapter = _FakeAdapter(
+            [
+                {"type": "user", "content": "开始", "uuid": "u1"},
+                {
+                    "type": "result",
+                    "subtype": "error_during_execution",
+                    "errors": ["upstream failed"],
+                    "uuid": "r1",
+                },
+            ]
+        )
+        service = EventLogService(log_store, adapter)
+
+        entries = await service.list_entries("old-session", None)
+
+        assert [entry["type"] for entry in entries] == ["user"]
 
     async def test_backfill_collapses_adjacent_interrupt_echoes(self, log_store: EventLogStore):
         """相邻 interrupt echo（SDK 回显 + 竞态副本）在写入点去重，只产出一条。"""

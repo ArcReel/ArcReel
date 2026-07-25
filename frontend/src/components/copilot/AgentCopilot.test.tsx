@@ -164,4 +164,5 @@ describe("AgentCopilot", () => {
       expect(useAssistantStore.getState().input).toBe("");
     });
   });
+
 });

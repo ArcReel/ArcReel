@@ -35,9 +35,15 @@ from lib.app_data_dir import app_data_dir
 from lib.i18n import DEFAULT_LOCALE, get_locale
 from lib.profile_manifest import VALID_CONTENT_MODES
 from lib.project_manager import ProjectManager
-from server.agent_runtime.event_log import EventLogService, EventLogStore, build_user_entry
+from server.agent_runtime.event_log import (
+    EventLogService,
+    EventLogStore,
+    build_failure_entry,
+    build_user_entry,
+)
 from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.models import Heartbeat, LiveMessage, SessionMeta, SessionStatus, SubscriptionReady
+from server.agent_runtime.result_status import resolve_result_status
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
@@ -533,6 +539,7 @@ class AssistantService:
                         if drain_beats >= 2:
                             yield self._result_status_event(pending_result, session_id)
                             break
+
                         continue
                     live_status = await self.session_manager.get_status(session_id) or status
                     if live_status != "running":
@@ -585,6 +592,20 @@ class AssistantService:
                 if msg_type == "result":
                     pending_result = message
                     continue
+
+    async def stream_startup_failure_events(
+        self,
+        session_id: str,
+        failure: dict[str, Any],
+    ) -> AsyncIterator[ServerSentEvent]:
+        """即时发送冷恢复启动失败；只落终态，不把故障详情写入历史。"""
+        entry = build_failure_entry(failure)
+        await self.meta_store.update_status(session_id, "error")
+        yield self._sse_event("entry", entry)
+        yield self._sse_event(
+            "status",
+            self._build_status_event_payload(status="error", session_id=session_id),
+        )
 
     def _result_status_event(self, result_message: dict[str, Any], session_id: str) -> ServerSentEvent:
         return self._sse_event(
@@ -643,14 +664,7 @@ class AssistantService:
     @staticmethod
     def _resolve_result_status(result_message: dict[str, Any]) -> SessionStatus:
         """Map SDK result subtype/is_error to runtime session status."""
-        explicit_status = str(result_message.get("session_status") or "").strip()
-        if explicit_status in {"idle", "running", "completed", "error", "interrupted"}:
-            return explicit_status  # type: ignore[return-value]
-        subtype = str(result_message.get("subtype") or "").strip().lower()
-        is_error = bool(result_message.get("is_error"))
-        if is_error or subtype.startswith("error"):
-            return "error"
-        return "completed"
+        return resolve_result_status(result_message)
 
     @staticmethod
     def _build_status_event_payload(

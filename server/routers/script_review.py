@@ -10,6 +10,7 @@ import logging
 
 from fastapi import APIRouter, Body, HTTPException
 
+from lib.api_errors import NotFoundError
 from lib.i18n import Translator
 from lib.project_manager import get_project_manager
 from server.auth import CurrentUser
@@ -52,8 +53,8 @@ async def get_script_review(project_name: str, episode: int, _user: CurrentUser,
         return await asyncio.to_thread(service.get_state, project_name, episode)
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
 
 
 @router.put("/projects/{project_name}/episodes/{episode}/script-review/content")
@@ -70,8 +71,8 @@ async def update_script_review_content(
         return await asyncio.to_thread(service.save_content, project_name, episode, content)
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
 
 
 @router.post("/projects/{project_name}/episodes/{episode}/script-review/confirm")
@@ -82,5 +83,5 @@ async def confirm_script_review(project_name: str, episode: int, _user: CurrentU
         return await asyncio.to_thread(service.confirm, project_name, episode)
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc

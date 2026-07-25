@@ -38,6 +38,7 @@ class TestRegistry:
         assert meta.default_base_url == "https://api.minimaxi.com/v1"
         assert "MiniMax-M3" in meta.models
         assert meta.models["MiniMax-M3"].default is True
+        assert "vision" in meta.models["MiniMax-M3"].capabilities
         assert "MiniMax-M2.7" in meta.models
         assert meta.models["MiniMax-M2.7"].default is False
         # image-01：默认图像模型，T2I + I2I，单脸参考
