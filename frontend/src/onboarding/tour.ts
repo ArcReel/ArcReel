@@ -54,19 +54,19 @@ export function anchorSelector(anchor: string): string {
  * 时刻快照 body 的直接子节点、逐个打 inert——此刻 driver 自己的遮罩与气泡还没创建
  * （在随后的 `instance.drive()` 里才挂上），因此不会误伤 driver 自身。
  */
-let peripheralElements: HTMLElement[] = [];
+let peripheralElements: Array<[element: HTMLElement, wasInert: boolean]> = [];
 
 function setPeripheralInert(hidden: boolean): void {
   if (hidden) {
-    peripheralElements = Array.from(document.body.children).filter(
-      (el): el is HTMLElement => el instanceof HTMLElement,
-    );
-    peripheralElements.forEach((el) => {
+    peripheralElements = Array.from(document.body.children)
+      .filter((el): el is HTMLElement => el instanceof HTMLElement)
+      .map((el) => [el, Boolean(el.inert)]);
+    peripheralElements.forEach(([el]) => {
       el.inert = true;
     });
   } else {
-    peripheralElements.forEach((el) => {
-      el.inert = false;
+    peripheralElements.forEach(([el, wasInert]) => {
+      el.inert = wasInert;
     });
     peripheralElements = [];
   }

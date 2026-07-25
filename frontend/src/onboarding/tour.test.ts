@@ -192,6 +192,22 @@ describe("startTour", () => {
       appRoot.remove();
     });
 
+    it("restores a peripheral element's pre-existing inert state instead of forcing it false", () => {
+      const appRoot = withAppRoot();
+      const preInerted = document.createElement("div");
+      preInerted.inert = true;
+      document.body.appendChild(preInerted);
+
+      const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn() });
+      expect(preInerted.inert).toBe(true);
+
+      handle.dispose();
+
+      expect(preInerted.inert).toBe(true);
+      appRoot.remove();
+      preInerted.remove();
+    });
+
     it("also inerts a dialog already portaled to body when the tour starts, and clears it on dispose", () => {
       const appRoot = withAppRoot();
       // 模拟 ModalShell/CreateProjectModal 用 createPortal 挂到 body 的对话框——
