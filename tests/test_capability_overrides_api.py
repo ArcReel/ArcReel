@@ -713,6 +713,87 @@ class TestResolverReturnsEffectiveCapabilities:
         assert executed == expected
 
     @pytest.mark.integration
+    async def test_disabled_model_falls_back_to_default_model(self, session: AsyncSession):
+        """请求的 model 被禁用时,与执行层同一条回退规则:改用该 provider 的默认启用 video
+        model,而不是报错——否则 /video-capabilities 会 4xx,而实际生成请求会静默用默认模型
+        成功,展示层与执行层因此漂移。"""
+        repo = CustomProviderRepository(session)
+        provider = await repo.create_provider(
+            display_name="Relay",
+            discovery_format="openai",
+            base_url="https://relay.test/v1",
+            api_key="sk-relay",
+            models=[
+                {
+                    "model_id": "disabled-model",
+                    "display_name": "Disabled",
+                    "endpoint": VIDEO_ENDPOINT,
+                    "is_enabled": False,
+                    "is_default": False,
+                    "supported_durations": "[5, 10]",
+                    "capability_overrides": None,
+                },
+                {
+                    "model_id": VIDEO_MODEL,
+                    "display_name": "Sora 2",
+                    "endpoint": VIDEO_ENDPOINT,
+                    "is_enabled": True,
+                    "is_default": True,
+                    "supported_durations": "[5, 10]",
+                    "capability_overrides": None,
+                },
+            ],
+        )
+        await session.commit()
+        pid = make_provider_id(provider.id)
+
+        caps = await self._resolve(session, pid, model_id="disabled-model")
+        system = system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
+        assert caps["last_frame"] is system.last_frame
+        assert caps["first_frame"] is system.first_frame
+
+    @pytest.mark.integration
+    async def test_media_type_mismatch_falls_back_to_default_model(self, session: AsyncSession):
+        """请求的 model 仍启用,但用户已把该模型的 endpoint 改成非 video 类型时,与执行层同一条
+        回退规则:改用该 provider 的默认启用 video model。此前这里只检查 is_enabled,遗漏 endpoint
+        媒体类型不符会让本方法直接抛错(响应层 422),而 loader.load_custom_backend 会静默回退
+        成功,展示层与执行层因此漂移。"""
+        repo = CustomProviderRepository(session)
+        provider = await repo.create_provider(
+            display_name="Relay",
+            discovery_format="openai",
+            base_url="https://relay.test/v1",
+            api_key="sk-relay",
+            models=[
+                {
+                    "model_id": "repurposed-model",
+                    "display_name": "Repurposed",
+                    "endpoint": "openai-images",
+                    "is_enabled": True,
+                    "is_default": False,
+                    "supported_durations": "[5, 10]",
+                    "capability_overrides": None,
+                },
+                {
+                    "model_id": VIDEO_MODEL,
+                    "display_name": "Sora 2",
+                    "endpoint": VIDEO_ENDPOINT,
+                    "is_enabled": True,
+                    "is_default": True,
+                    "supported_durations": "[5, 10]",
+                    "capability_overrides": None,
+                },
+            ],
+        )
+        await session.commit()
+        pid = make_provider_id(provider.id)
+
+        caps = await self._resolve(session, pid, model_id="repurposed-model")
+        system = system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
+        assert caps["last_frame"] is system.last_frame
+        assert caps["first_frame"] is system.first_frame
+
+    @pytest.mark.integration
     async def test_builtin_boolean_caps_come_from_backend(self, session: AsyncSession):
         """内置分支的布尔位来自 backend 纯函数，注册表不存第二份。"""
         from lib.backend_assembly.specs import get_provider_spec

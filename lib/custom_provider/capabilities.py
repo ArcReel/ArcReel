@@ -137,9 +137,33 @@ def synthesize_video_capabilities(
     Raises:
         ValueError: 系统判定本身不可得（见 :func:`system_video_capabilities`）。
     """
+    caps, _applied = synthesize_video_capabilities_with_overrides(
+        endpoint=endpoint, model_id=model_id, overrides=overrides
+    )
+    return caps
+
+
+def synthesize_video_capabilities_with_overrides(
+    *,
+    endpoint: str,
+    model_id: str,
+    overrides: object | None,
+) -> tuple[VideoCapabilities, dict[str, object]]:
+    """同 :func:`synthesize_video_capabilities`，额外返回过滤后的稀疏覆盖字典。
+
+    工厂需要这份稀疏覆盖单独下传给请求期档位查询（见
+    ``CustomVideoBackend.video_capabilities_for_tier``）：该查询以被包装 backend 的档位感知
+    结果为基底，只应叠加真正被用户覆盖的字段，不能整体替换为本函数合并出的完整对象——那是
+    context-free 的系统判定（对 Kling 等档位敏感 backend 而言是保守声明），会让档位查询短路
+    回到未实现档位感知时的效果。
+
+    Raises:
+        ValueError: 系统判定本身不可得（见 :func:`system_video_capabilities`）。
+    """
     caps = system_video_capabilities(endpoint=endpoint, model_id=model_id)
     applied = filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides)
-    return replace(caps, **applied) if applied else caps
+    merged = replace(caps, **applied) if applied else caps
+    return merged, applied
 
 
 def capability_value_matches(value: object, expected: type) -> bool:

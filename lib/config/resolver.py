@@ -33,6 +33,7 @@ from lib.config.service import (
 )
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.custom_provider.capabilities import synthesize_video_capabilities
+from lib.custom_provider.endpoints import endpoint_to_media_type
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project_manager import get_project_manager
@@ -675,11 +676,12 @@ class ConfigResolver:
                 raise ValueError(f"invalid custom provider_id: {provider_id}") from exc
             repo = CustomProviderRepository(session)
             model = await repo.get_model_by_ids(db_pid, model_id)
-            if model is not None and not model.is_enabled:
-                # 与 loader.load_custom_backend 同一条回退规则：请求 model 已禁用时执行层改派
-                # 默认启用 model，展示的能力必须与执行层一致，否则能力位仍按已禁用 model 合成，
-                # 会宣称执行层实际不会兑现的 first_frame/last_frame。
-                logger.warning("自定义模型 %s/%s 已禁用，能力解析回退到默认模型", provider_id, model_id)
+            if model is not None and (not model.is_enabled or endpoint_to_media_type(model.endpoint) != "video"):
+                # 与 loader.load_custom_backend 同一条回退规则：请求 model 已禁用或 endpoint 媒体
+                # 类型不再是 video（用户在设置里改了该模型的 endpoint）时执行层改派默认启用 model，
+                # 展示的能力必须与执行层一致，否则这里要么按已失效的 model 合成能力，要么直接报错，
+                # 而执行层其实静默回退成功了。
+                logger.warning("自定义模型 %s/%s 已禁用或媒体类型不符，能力解析回退到默认模型", provider_id, model_id)
                 model = None
             if model is None:
                 default_model = await repo.get_default_model(db_pid, "video")

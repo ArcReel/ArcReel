@@ -10,7 +10,7 @@ from lib.custom_provider.backends import (
     CustomTextBackend,
     CustomVideoBackend,
 )
-from lib.custom_provider.capabilities import synthesize_video_capabilities
+from lib.custom_provider.capabilities import synthesize_video_capabilities_with_overrides
 from lib.custom_provider.endpoints import get_endpoint_spec
 
 if TYPE_CHECKING:
@@ -41,7 +41,8 @@ def create_custom_backend(
     spec = get_endpoint_spec(endpoint)
     backend = spec.build_backend(provider, model_id)
     if isinstance(backend, CustomVideoBackend):
-        return backend.with_video_capabilities(
-            synthesize_video_capabilities(endpoint=endpoint, model_id=model_id, overrides=capability_overrides)
+        merged, applied = synthesize_video_capabilities_with_overrides(
+            endpoint=endpoint, model_id=model_id, overrides=capability_overrides
         )
+        return backend.with_video_capabilities(merged, overrides=applied)
     return backend
