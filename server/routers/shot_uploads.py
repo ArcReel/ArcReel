@@ -16,8 +16,10 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from lib.api_errors import NotFoundError
 from lib.i18n import Translator
 from lib.image_utils import normalize_storyboard_upload
+from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager
 from lib.resource_paths import resource_relative_path
@@ -71,10 +73,9 @@ async def upload_shot_media(
             if find_storyboard_item(items, id_field, shot_id) is None:
                 raise HTTPException(status_code=404, detail=_t("segment_not_found", id=shot_id))
             # 路径遍历防护：shot_id 拼出的绝对路径不得逃出项目目录（与 versions.py 对齐）
-            target = project_path / relative_path
             try:
-                target.resolve().relative_to(project_path.resolve())
-            except ValueError:
+                safe_join(project_path, relative_path)
+            except PathTraversalError:
                 raise HTTPException(status_code=400, detail=_t("invalid_resource_id", resource_id=shot_id))
             return project_path, VersionManager(project_path)
 
@@ -139,9 +140,9 @@ async def upload_shot_media(
 
     except UploadValidationError as e:
         raise HTTPException(status_code=e.status_code, detail=_t(e.key, **e.params))
-    except FileNotFoundError:
-        # 不回传 str(e)：load_script 的异常信息含服务器绝对路径
-        raise HTTPException(status_code=404, detail=_t("script_not_found", name=script_file))
+    except FileNotFoundError as exc:
+        # 不回传 str(exc)：load_script 的异常信息含服务器绝对路径
+        raise NotFoundError("script_not_found", name=script_file) from exc
     except KeyError:
         raise HTTPException(status_code=404, detail=_t("segment_not_found", id=shot_id))
     except ScriptEditError as e:

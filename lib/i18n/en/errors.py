@@ -53,6 +53,7 @@ MESSAGES = {
     "video_prompt_action_empty": "prompt.action cannot be empty",
     "video_prompt_dialogue_array": "prompt.dialogue must be an array",
     "video_task_submitted": "Video generation task for '{segment_id}' submitted",
+    "grid_task_submitted": "Submitted {count} grid generation tasks",
     "tts_prompt_must_be_string_or_null": "tts task prompt must be a non-empty string or omitted",
     "tts_task_submitted": "Narration audio task for '{segment_id}' submitted",
     "tts_batch_submitted": "Submitted {count} narration audio tasks",
@@ -115,6 +116,7 @@ MESSAGES = {
     "session_or_project_not_found": "Session or project does not exist",
     "sdk_session_timeout": "SDK session creation timed out",
     "agent_startup_failed": "Failed to start agent:\n{details}",
+    "agent_startup_failed_title": "Failed to start agent",
     "interface_offline": "This interface is offline, please use the recommended interface",
     "answers_required": "answers cannot be empty",
     # Custom Providers

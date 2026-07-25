@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -18,6 +19,7 @@ from lib.grid.layout import calculate_grid_layout
 from lib.grid.models import GridGeneration
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
+from lib.i18n import Translator
 from lib.project_manager import get_project_manager
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.auth import CurrentUser
@@ -79,6 +81,7 @@ async def generate_grid(
     episode: int,
     req: GenerateGridRequest,
     _user: CurrentUser,
+    _t: Translator,
 ):
     """
     提交宫格图生成任务到队列，按分段分组，每组 N>=4 个场景生成一个宫格图。
@@ -222,7 +225,7 @@ async def generate_grid(
         grid_ids=grid_ids,
         task_ids=task_ids,
         deduped=bool(task_ids) and all(deduped_flags),
-        message=f"已提交 {len(grid_ids)} 个宫格生成任务",
+        message=_t("grid_task_submitted", count=len(grid_ids)),
     )
 
 
@@ -243,6 +246,17 @@ async def list_grids(project_name: str, _user: CurrentUser):
 # ==================== 宫格图详情 ====================
 
 
+def _load_grid_or_404(project_path: Path, grid_id: str) -> GridGeneration:
+    """按 ID 取宫格记录；ID 格式非法与记录不存在同样收口为 404，不泄漏格式细节。"""
+    try:
+        grid = GridManager(project_path).get(grid_id)
+    except ValueError as exc:
+        raise NotFoundError("grid_not_found", grid_id=grid_id) from exc
+    if grid is None:
+        raise NotFoundError("grid_not_found", grid_id=grid_id)
+    return grid
+
+
 @router.get("/grids/{grid_id}")
 async def get_grid(project_name: str, grid_id: str, _user: CurrentUser):
     """获取单个宫格图记录。"""
@@ -250,10 +264,7 @@ async def get_grid(project_name: str, grid_id: str, _user: CurrentUser):
         project_path = get_project_manager().get_project_path(project_name)
     except ValueError as exc:
         raise BadRequestError("invalid_project_name", name=project_name) from exc
-    gm = GridManager(project_path)
-    grid = gm.get(grid_id)
-    if grid is None:
-        raise NotFoundError("grid_not_found", grid_id=grid_id)
+    grid = _load_grid_or_404(project_path, grid_id)
     return grid.to_dict()
 
 
@@ -277,9 +288,7 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
         raise BadRequestError("ad_grid_not_supported")
     project_path = get_project_manager().get_project_path(project_name)
     gm = GridManager(project_path)
-    grid = gm.get(grid_id)
-    if grid is None:
-        raise NotFoundError("grid_not_found", grid_id=grid_id)
+    grid = _load_grid_or_404(project_path, grid_id)
 
     grid.status = "pending"
     grid.error_message = None

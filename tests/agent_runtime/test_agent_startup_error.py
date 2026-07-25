@@ -8,7 +8,7 @@
   2. _build_options 把 stderr 回调透传到 ClaudeAgentOptions；
   3. send_new_session 在 actor.start 失败时收集 stderr 并包装为
      AgentStartupError；
-  4. router 把 AgentStartupError 翻译成 502 + i18n 包装的 detail。
+  4. router 把 AgentStartupError 翻译成 502 + 结构化故障观测。
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from server.agent_runtime.session_manager import (
-    _SDK_STDERR_BUFFER_MAX,
     AgentStartupError,
     SessionManager,
 )
@@ -83,7 +82,9 @@ async def test_build_options_forwards_stderr_callback(
 
 @pytest.mark.asyncio
 async def test_send_new_session_wraps_actor_failure_with_stderr(
-    session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
+    session_manager: SessionManager,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """actor.start() 抛错时应收集 stderr 并包装为 AgentStartupError 抛出。"""
 
@@ -93,6 +94,7 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
     monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
 
     captured_stderr_cb: list = []
+    secret = "startup-secret-must-not-leak"
 
     class _FakeActor:
         def __init__(self, *_, on_message=None, client_factory=None):
@@ -106,7 +108,8 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
             cb = captured_stderr_cb[0]
             cb("Claude Code on Windows requires either Git for Windows (for bash) or PowerShell.")
             cb("Or set CLAUDE_CODE_GIT_BASH_PATH to your bash.exe location.")
-            raise RuntimeError("Command failed with exit code 1")
+            cb(f"Authorization: Bearer {secret}")
+            raise RuntimeError(f"Command failed with exit code 1; api_key={secret}")
 
         def add_done_callback(self, _cb):
             pass
@@ -124,6 +127,7 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
 
     # _ensure_capacity 内部访问 DB，跳过
     monkeypatch.setattr(SessionManager, "_ensure_capacity", AsyncMock(return_value=None))
+    caplog.set_level("ERROR", logger="server.agent_runtime.session_manager")
 
     with pytest.raises(AgentStartupError) as exc_info:
         await session_manager.send_new_session("demo", "你好")
@@ -135,6 +139,17 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
     text = str(err)
     assert "Command failed with exit code 1" in text
     assert "Git for Windows" in text
+    assert err.failure_observation is not None
+    assert err.failure_observation["phase"] == "startup"
+    assert err.failure_observation["project_name"] == "demo"
+    assert err.failure_observation["raw"]["sdk_stderr"].startswith("Claude Code on Windows")
+    assert secret not in str(err)
+
+    rendered_logs = "\n".join(record.getMessage() for record in caplog.records)
+    assert "failure_observation=" in rendered_logs
+    assert '"type": "RuntimeError"' in rendered_logs
+    assert "CLAUDE_CODE_GIT_BASH_PATH" in rendered_logs
+    assert secret not in rendered_logs
 
 
 @pytest.mark.asyncio
@@ -168,6 +183,24 @@ async def test_send_new_session_no_stderr_still_wraps(
     assert "ENOENT" in str(exc_info.value)
     # 原因链保留，便于 logger.exception 看到底层异常
     assert isinstance(exc_info.value.__cause__, OSError)
+
+
+@pytest.mark.asyncio
+async def test_send_new_session_wraps_option_assembly_failure(
+    session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(SessionManager, "_ensure_capacity", AsyncMock(return_value=None))
+    monkeypatch.setattr(SessionManager, "_build_options", AsyncMock(side_effect=LookupError("credential missing")))
+
+    with pytest.raises(AgentStartupError) as exc_info:
+        await session_manager.send_new_session("demo", "你好")
+
+    failure = exc_info.value.failure_observation
+    assert failure is not None
+    assert failure["phase"] == "startup"
+    assert failure["summary"]["type"] == "LookupError"
+    assert failure["summary"]["message"] == "credential missing"
+    assert session_manager.sessions == {}
 
 
 @pytest.mark.asyncio
@@ -224,14 +257,10 @@ async def test_get_or_connect_wraps_actor_failure_with_stderr(
 
 
 @pytest.mark.asyncio
-async def test_stderr_buffer_caps_to_maxlen(session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch) -> None:
-    """SDK 在长会话中持续吐 stderr 时，缓冲必须裁剪到 maxlen，避免无界增长。
-
-    回归 gemini-code-assist / chatgpt-codex review #573：``_collect_stderr`` 被
-    SDK 在整个会话期间持有，启动成功后没人消费的话 list 会无限增长。改用
-    ``deque(maxlen=_SDK_STDERR_BUFFER_MAX)`` 后旧行被 FIFO 裁掉，最坏占用
-    可控；这里直接打超过上限的行数，断言 sdk_stderr 行数受限。
-    """
+async def test_startup_stderr_is_not_truncated(
+    session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """启动阶段实际收到的 stderr 必须完整进入故障观测，不做行数裁剪。"""
 
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
@@ -239,7 +268,7 @@ async def test_stderr_buffer_caps_to_maxlen(session_manager: SessionManager, mon
     monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
 
     captured_stderr_cb: list = []
-    overflow_count = _SDK_STDERR_BUFFER_MAX + 50
+    observed_count = 250
 
     class _FakeActor:
         def __init__(self, *_, on_message=None, client_factory=None):
@@ -247,7 +276,7 @@ async def test_stderr_buffer_caps_to_maxlen(session_manager: SessionManager, mon
 
         async def start(self):
             cb = captured_stderr_cb[0]
-            for i in range(overflow_count):
+            for i in range(observed_count):
                 cb(f"line-{i:04d}")
             raise RuntimeError("Command failed with exit code 1")
 
@@ -269,7 +298,6 @@ async def test_stderr_buffer_caps_to_maxlen(session_manager: SessionManager, mon
         await session_manager.send_new_session("demo", "你好")
 
     lines = exc_info.value.sdk_stderr.split("\n")
-    assert len(lines) == _SDK_STDERR_BUFFER_MAX
-    # FIFO：最早 50 行被裁，剩下的应是 line-0050 .. line-(MAX+49)
-    assert lines[0] == f"line-{overflow_count - _SDK_STDERR_BUFFER_MAX:04d}"
-    assert lines[-1] == f"line-{overflow_count - 1:04d}"
+    assert len(lines) == observed_count
+    assert lines[0] == "line-0000"
+    assert lines[-1] == f"line-{observed_count - 1:04d}"

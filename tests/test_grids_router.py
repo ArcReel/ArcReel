@@ -7,6 +7,7 @@ RuntimeError（带唯一哨兵串），异常沿 app 级 exception handler 统�
 
 import json
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -318,9 +319,30 @@ def test_generate_grid_success(monkeypatch, tmp_path):
         assert len(body["grid_ids"]) == 1
         assert len(body["task_ids"]) == 1
         assert body["deduped"] is False
+        # message 走 i18n（默认中文），不再硬编码
+        assert body["message"] == "已提交 1 个宫格生成任务"
     assert len(fake_queue.calls) == 1
     saved = json.loads((tmp_path / "grids" / f"{body['grid_ids'][0]}.json").read_text(encoding="utf-8"))
     assert saved["scene_ids"] == ["E1S01", "E1S02", "E1S03", "E1S04"]
+
+
+def test_generate_grid_success_message_localized_en(monkeypatch, tmp_path):
+    # Accept-Language=en 时 message 按英文渲染，验证成功文案已接入 Translator
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=lambda: _FakePMGenerate(tmp_path),
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        resp = client.post(
+            "/api/v1/projects/demo/generate/grid/1",
+            json={"script_file": "episode_1.json"},
+            headers={"Accept-Language": "en"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["message"] == "Submitted 1 grid generation tasks"
 
 
 class _FakePMPath:
@@ -371,6 +393,26 @@ def test_get_grid_success(monkeypatch, tmp_path):
         resp = client.get(f"/api/v1/projects/demo/grids/{grid.id}")
         assert resp.status_code == 200
         assert resp.json()["id"] == grid.id
+
+
+@pytest.mark.parametrize(
+    "bad_id",
+    [
+        "..%2F..%2Fetc%2Fpasswd",  # URL 编码的 ../../etc/passwd
+        "grid_..%2F..%2Fsecret",  # 前缀合法但含穿越段
+        "grid_ABCDEF123456",  # 大写十六进制不匹配白名单
+        "not-a-grid-id",
+    ],
+)
+def test_get_grid_malformed_id_returns_404(monkeypatch, tmp_path, bad_id):
+    """grid_id 直接来自 URL 路径参数：格式非法一律 404，不落到文件系统读越界文件。"""
+    outside = tmp_path.parent / "secret.json"
+    outside.write_text('{"leak": true}', encoding="utf-8")
+    client = _client(monkeypatch, get_project_manager=lambda: _FakePMPath(tmp_path))
+    with client:
+        resp = client.get(f"/api/v1/projects/demo/grids/{bad_id}")
+        assert resp.status_code == 404
+        assert "leak" not in resp.text
 
 
 class _FakePMRegenerate(_FakePMPath):

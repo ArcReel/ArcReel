@@ -53,6 +53,7 @@ MESSAGES = {
     "video_prompt_action_empty": "prompt.action không được để trống",
     "video_prompt_dialogue_array": "prompt.dialogue phải là mảng",
     "video_task_submitted": "Đã gửi tác vụ tạo video cho '{segment_id}'",
+    "grid_task_submitted": "Đã gửi {count} tác vụ tạo lưới",
     "tts_prompt_must_be_string_or_null": "prompt của tác vụ tts phải là chuỗi không rỗng hoặc để trống",
     "tts_task_submitted": "Đã gửi tác vụ tạo thuyết minh cho '{segment_id}'",
     "tts_batch_submitted": "Đã gửi {count} tác vụ tạo thuyết minh",
@@ -115,6 +116,7 @@ MESSAGES = {
     "session_or_project_not_found": "Phiên hoặc dự án không tồn tại",
     "sdk_session_timeout": "Tạo phiên SDK quá thời gian",
     "agent_startup_failed": "Khởi động agent thất bại:\n{details}",
+    "agent_startup_failed_title": "Khởi động agent thất bại",
     "interface_offline": "Giao diện này đã ngừng hoạt động, vui lòng dùng giao diện được khuyến nghị",
     "answers_required": "answers không được để trống",
     # Custom Providers

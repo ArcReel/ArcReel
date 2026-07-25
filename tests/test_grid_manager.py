@@ -45,7 +45,25 @@ class TestGridManager:
         assert gm.get(grid.id).status == "completed"
 
     def test_get_nonexistent(self, tmp_path):
-        assert GridManager(tmp_path).get("nonexistent") is None
+        assert GridManager(tmp_path).get("grid_000000000000") is None
+
+    def test_malformed_id_rejected(self, tmp_path):
+        """grid_id 直接来自 URL 路径参数：格式不符即拒，不落到文件系统。"""
+        import pytest
+
+        gm = GridManager(tmp_path)
+        for bad in (
+            "nonexistent",
+            "../../etc/passwd",
+            "grid_../../evil",
+            "grid_ABCDEF123456",
+            "grid_123",
+            "grid_000000000000\n",
+        ):
+            with pytest.raises(ValueError, match="非法宫格 ID"):
+                gm.get(bad)
+            with pytest.raises(ValueError, match="非法宫格 ID"):
+                gm.delete(bad)
 
     def test_grids_dir_created(self, tmp_path):
         """GridManager creates the grids/ subdirectory automatically."""

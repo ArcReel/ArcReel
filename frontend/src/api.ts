@@ -18,6 +18,7 @@ import type {
   SessionMeta,
   EntriesResponse,
   TimelineEntry,
+  FailureObservation,
   SkillInfo,
   ProjectOverview,
   ProjectChangeBatchPayload,
@@ -78,7 +79,27 @@ export interface LoginResponse {
 
 /** Standard error response body from backend (mirrors FastAPI HTTPException detail). */
 export interface ErrorResponse {
-  detail: string | { msg?: string }[];
+  detail: string | { msg?: string }[] | AgentFailureDetail;
+}
+
+/** Structured detail returned when the local Agent process cannot start. */
+export interface AgentFailureDetail {
+  code: "agent_startup_failed";
+  message: string;
+  failure: FailureObservation;
+}
+
+/** Keeps the redacted failure observation attached while remaining a normal Error. */
+export class AgentFailureError extends Error {
+  readonly code = "agent_startup_failed" as const;
+
+  constructor(
+    message: string,
+    public readonly failure: FailureObservation,
+  ) {
+    super(message);
+    this.name = "AgentFailureError";
+  }
 }
 
 /**
@@ -278,6 +299,18 @@ function handleUnauthorized(response: Response): void {
   throw new Error("认证已过期，请重新登录");
 }
 
+function isAgentFailureDetail(value: unknown): value is AgentFailureDetail {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const detail = value as Record<string, unknown>;
+  return (
+    detail.code === "agent_startup_failed"
+    && typeof detail.message === "string"
+    && Boolean(detail.failure)
+    && typeof detail.failure === "object"
+    && !Array.isArray(detail.failure)
+  );
+}
+
 /** 为 fetch options 注入 Authorization header */
 function withAuth(options: RequestInit = {}): RequestInit {
   const token = getToken();
@@ -320,6 +353,9 @@ class API {
       const error = await response
         .json()
         .catch(() => ({ detail: response.statusText })) as ErrorResponse;
+      if (isAgentFailureDetail(error.detail)) {
+        throw new AgentFailureError(error.detail.message, error.detail.failure);
+      }
       let message = "请求失败";
       if (typeof error.detail === "string") {
         message = error.detail;
@@ -1532,22 +1568,26 @@ class API {
 
   static async listAssistantSessions(
     projectName: string,
-    status: string | null = null
+    status: string | null = null,
+    options: { signal?: AbortSignal } = {}
   ): Promise<{ sessions: SessionMeta[] }> {
     const params = new URLSearchParams();
     if (status) params.append("status", status);
     const query = params.toString();
     return this.request(
-      `${this.assistantBase(projectName)}/sessions${query ? "?" + query : ""}`
+      `${this.assistantBase(projectName)}/sessions${query ? "?" + query : ""}`,
+      { signal: options.signal }
     );
   }
 
   static async getAssistantSession(
     projectName: string,
-    sessionId: string
+    sessionId: string,
+    options: { signal?: AbortSignal } = {}
   ): Promise<{ session: SessionMeta }> {
     return this.request(
-      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}`
+      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}`,
+      { signal: options.signal }
     );
   }
 
@@ -1555,11 +1595,13 @@ class API {
   static async listAssistantEntries(
     projectName: string,
     sessionId: string,
-    after: number = -1
+    after: number = -1,
+    options: { signal?: AbortSignal } = {}
   ): Promise<EntriesResponse> {
     const query = after >= 0 ? `?after=${after}` : "";
     return this.request(
-      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/entries${query}`
+      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/entries${query}`,
+      { signal: options.signal }
     );
   }
 
@@ -1620,10 +1662,12 @@ class API {
   }
 
   static async listAssistantSkills(
-    projectName: string
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
   ): Promise<{ skills: SkillInfo[] }> {
     return this.request(
-      `${this.assistantBase(projectName)}/skills`
+      `${this.assistantBase(projectName)}/skills`,
+      { signal: options.signal }
     );
   }
 

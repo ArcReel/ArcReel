@@ -6,11 +6,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import cost_estimation
 
 
 def _make_app():
     app = FastAPI()
+    register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(cost_estimation.router, prefix="/api/v1")
     return app
@@ -63,6 +65,7 @@ class TestCostEstimationRouter:
 
     def test_no_auth_returns_401(self):
         app = FastAPI()
+        register_error_handlers(app)
         # Do NOT override the auth dependency — real auth should reject
         app.include_router(cost_estimation.router, prefix="/api/v1")
         with TestClient(app, raise_server_exceptions=False) as client:

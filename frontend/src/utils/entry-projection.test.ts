@@ -145,6 +145,42 @@ describe("projectEntriesToTurns", () => {
     expect(turns[1].uuid).toBe("i-1");
   });
 
+  it("projects a typed agent turn failure without sniffing its upstream message", () => {
+    const failure = {
+      version: 1 as const,
+      phase: "turn" as const,
+      timestamp: "2026-07-23T01:02:03Z",
+      project_name: "demo",
+      session_id: "session-1",
+      summary: {
+        source: "sdk_assistant",
+        type: "invalid_request",
+        status: 404,
+        message: "There's an issue with the selected model (gpt-5.6-sol).",
+      },
+      raw: {
+        assistant_message: {
+          error: "invalid_request",
+          future_sdk_field: { kept: "verbatim" },
+        },
+      },
+    };
+
+    const turns = projectEntriesToTurns([
+      userEntry("你好"),
+      entry({
+        type: "system",
+        subtype: "agent_turn_failure",
+        uuid: "failure-1",
+        failure,
+      }),
+    ]);
+
+    expect(turns.map((turn) => turn.type)).toEqual(["user", "system"]);
+    expect(turns[1].content).toEqual([{ type: "agent_failure", failure }]);
+    expect(turns[1].uuid).toBe("failure-1");
+  });
+
   it("does not sniff interrupt echo text in user entries (typing happens at the write point)", () => {
     const turns = projectEntriesToTurns([userEntry("[Request interrupted by user]")]);
     expect(turns.map((t) => t.type)).toEqual(["user"]);

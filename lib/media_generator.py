@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import RateLimiter
 from lib.ledger import Ledger
+from lib.path_safety import PathTraversalError, safe_join
 from lib.providers import require_provider_pair
 from lib.resource_paths import resource_relative_path
 from lib.version_manager import VersionManager
@@ -147,12 +148,10 @@ class MediaGenerator:
             输出文件的绝对路径
         """
         relative_path = resource_relative_path(resource_type, resource_id)
-        output_path = (self.project_path / relative_path).resolve()
         try:
-            output_path.relative_to(self.project_path.resolve())
-        except ValueError:
+            return safe_join(self.project_path, relative_path)
+        except PathTraversalError:
             raise ValueError(f"非法资源 ID: '{resource_id}'")
-        return output_path
 
     def _ensure_parent_dir(self, output_path: Path) -> None:
         """确保输出目录存在"""

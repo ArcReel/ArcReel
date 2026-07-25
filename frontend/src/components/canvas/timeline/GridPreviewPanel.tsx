@@ -19,6 +19,7 @@ import { enqueueGridRegenerate } from "@/actions/generation";
 import { errMsg } from "@/utils/async";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
+import { selectActiveResourceIds, useActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
 import type { GridGeneration, ReferenceImage } from "@/types/grid";
 
 // ---------------------------------------------------------------------------
@@ -217,8 +218,10 @@ export function GridPreviewPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- grid 仅用于切换批次判断；refreshKey 与 gridsRevision 同源，仅保留后者避免双触发；t 稳定
   }, [expanded, selectedGridId, projectName, gridsRevision]);
 
-  const isInProgress =
-    grid?.status === "pending" || grid?.status === "generating" || grid?.status === "splitting";
+  // 占用判定接入 live tasks store：与同页兄弟控件（如 AdReferenceUnitsPanel）同源，
+  // 不再依赖本地 grid.status 快照（刷新才更新，提交后到下次 fetch 之间会误判为空闲）。
+  const activeGridIds = useActiveResourceIds("grid", projectName);
+  const isInProgress = selectedGridId != null && activeGridIds.has(selectedGridId);
 
   // 优先使用持久化的 mtime 指纹做 cache-bust，跨页面刷新仍然有效；
   // 回退到 refreshKey 仅用于指纹尚未送达前的当次会话。
@@ -341,6 +344,16 @@ export function GridPreviewPanel({
                       disabled={regenerating || isInProgress}
                       onClick={() => {
                         if (!selectedGridId || regenerating || isInProgress) return;
+                        // 提交前用 getState() 新鲜读复核：面板停留期间占用状态可能
+                        // 已变化，渲染期捕获的 isInProgress 未必反映最新状态。
+                        const { tasks, optimisticActive } = useTasksStore.getState();
+                        if (selectActiveResourceIds(tasks, "grid", projectName, optimisticActive).has(selectedGridId)) {
+                          // 用 toast 而非 setError：error 是面板的整体错误态，会把宫格图、
+                          // 批次切换与本按钮一并替换掉，直到下次 refetch 才恢复；占用拒绝是
+                          // 瞬态提示，不该毁掉当前视图。
+                          useAppStore.getState().pushToast(t("grid_regenerate_busy"), "error");
+                          return;
+                        }
                         setRegenerating(true);
                         enqueueGridRegenerate(projectName, selectedGridId, grid?.script_file ?? null)
                           .then(() => {

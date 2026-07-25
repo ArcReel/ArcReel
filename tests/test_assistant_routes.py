@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from lib.i18n import get_translator
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
+from server.error_handlers import register_error_handlers
 from server.routers import assistant
 from tests.conftest import make_translator
 from tests.factories import make_session_meta
@@ -29,6 +30,7 @@ def _override_translator():
 
 def _build_client() -> TestClient:
     app = FastAPI()
+    register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
     app.dependency_overrides[get_current_user_flexible] = lambda: _FAKE_USER
     app.dependency_overrides[get_translator] = _override_translator
@@ -196,8 +198,7 @@ class TestAssistantRoutes:
         _assert_generic_500(response, "LEAK_skills")
 
     def test_send_endpoint_translates_agent_startup_error_to_502(self):
-        """``AgentStartupError`` 必须翻译成 502 + i18n 包装的 detail，
-        透传 SDK 自带的安装指引；500 + 占位符是回归（PR #573）。"""
+        """启动失败通过结构化故障观测返回，空异常消息也不能丢掉异常类型。"""
         from server.agent_runtime.session_manager import AgentStartupError
 
         stderr_text = (
@@ -205,9 +206,10 @@ class TestAssistantRoutes:
             "Or set CLAUDE_CODE_GIT_BASH_PATH to your bash.exe location."
         )
         startup_err = AgentStartupError(
-            "Command failed with exit code 1",
+            "",
             sdk_stderr=stderr_text,
         )
+        startup_err.__cause__ = NotImplementedError()
 
         with patch.object(
             assistant.assistant_service,
@@ -221,8 +223,62 @@ class TestAssistantRoutes:
                 )
 
         assert response.status_code == 502
-        detail = response.json().get("detail", "")
-        # i18n 前缀 + SDK 原文必须都在 detail 里
-        assert "Agent" in detail or "agent" in detail
-        assert "Git for Windows" in detail
-        assert "CLAUDE_CODE_GIT_BASH_PATH" in detail
+        detail = response.json()["detail"]
+        assert detail["code"] == "agent_startup_failed"
+        assert detail["message"] == "Agent 启动失败"
+
+        failure = detail["failure"]
+        assert failure["version"] == 1
+        assert failure["phase"] == "startup"
+        assert failure["project_name"] == PROJECT
+        assert failure["session_id"] is None
+        assert failure["summary"] == {
+            "source": "sdk_stderr",
+            "type": "NotImplementedError",
+            "message": stderr_text,
+        }
+        assert failure["raw"]["sdk_stderr"] == stderr_text
+        assert failure["raw"]["exception"]["type"] == "NotImplementedError"
+        assert failure["raw"]["exception"]["message"] is None
+
+    def test_agent_startup_observation_redacts_only_secrets_without_truncating(self):
+        from server.agent_runtime.session_manager import AgentStartupError
+
+        long_detail = "diagnostic-" + "x" * 1200
+        api_key = "sk-ant-api03-this-must-not-leak"
+        bearer = "bearer-token-must-not-leak"
+        cookie = "session-cookie-must-not-leak"
+        signature = "signed-url-secret-must-not-leak"
+        original = RuntimeError(f"{long_detail} at /opt/arcreel/runtime.py?line=42")
+        startup_err = AgentStartupError(
+            "wrapper",
+            sdk_stderr=(
+                f"OPENAI_API_KEY={api_key}\nCookie: sid={cookie}\nAuthorization: Bearer {bearer}\n"
+                f"https://example.test/file?part=1&X-Amz-Signature={signature}\n{long_detail}"
+            ),
+        )
+        startup_err.__cause__ = original
+
+        with patch.object(
+            assistant.assistant_service,
+            "send_or_create",
+            new=AsyncMock(side_effect=startup_err),
+        ):
+            with _build_client() as client:
+                response = client.post(f"{PREFIX}/sessions/send", json={"content": "hi"})
+
+        assert response.status_code == 502
+        body = response.text
+        assert api_key not in body
+        assert bearer not in body
+        assert cookie not in body
+        assert signature not in body
+        assert long_detail in body
+        assert "/opt/arcreel/runtime.py?line=42" in body
+
+        failure = response.json()["detail"]["failure"]
+        raw_exception = failure["raw"]["exception"]
+        assert set(raw_exception) == {"type", "module", "message", "traceback"}
+        assert long_detail in raw_exception["message"]
+        assert "/opt/arcreel/runtime.py?line=42" in raw_exception["message"]
+        assert failure["raw"]["sdk_stderr"].splitlines()[3].endswith("part=1&X-Amz-Signature=••••")

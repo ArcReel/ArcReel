@@ -31,6 +31,10 @@ class _FakeMetaStore:
     async def get(self, session_id):
         return self._meta if session_id == self._meta.id else None
 
+    async def update_status(self, session_id, status):
+        if session_id == self._meta.id:
+            self._meta.status = status
+
 
 class _FakeAdapter:
     def __init__(self, messages=None):
@@ -95,6 +99,23 @@ def _collect(event: ServerSentEvent) -> tuple[str, dict, str | None]:
 
 
 class TestStreamEntryEvents:
+    async def test_startup_failure_events_are_ephemeral_and_end_with_error_status(self, entry_service):
+        service, store = entry_service
+        failure = {
+            "version": 1,
+            "phase": "startup",
+            "summary": {"source": "sdk_stderr", "type": "RuntimeError", "message": "provider failed"},
+            "raw": {"exception_chain": [], "sdk_stderr": "provider failed"},
+        }
+
+        events = [_collect(event) async for event in service.stream_startup_failure_events(SESSION_ID, failure)]
+
+        assert [name for name, _, _ in events] == ["entry", "status"]
+        assert events[0][1]["subtype"] == "agent_turn_failure"
+        assert events[0][1]["failure"] == failure
+        assert events[1][1]["status"] == "error"
+        assert await store.list_after(SESSION_ID) == []
+
     async def test_non_running_emits_entries_then_terminal_status(self, entry_service):
         service, store = entry_service
         service.session_manager = _FakeEntrySessionManager(status="completed")
