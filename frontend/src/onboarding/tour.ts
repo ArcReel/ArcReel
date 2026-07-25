@@ -179,6 +179,11 @@ export function startTour(
     // 讲解本身仍然成立，丢的只是高亮，driver 会退回自己的占位元素、把气泡摆到屏幕中央。
     waitForElement: anchorWaitMs,
     skipMissingElement: false,
+    // driver 自带的方向键切步直接调 moveNext()/movePrevious()，不经过下面的
+    // onNextClick/onPrevClick——跨页导航的 onStepChange 上报会被绕过。这里关闭它，
+    // 改由本文件末尾的 keyup 监听统一接管 Esc/方向键，确保键盘路径与按钮路径走同一条
+    // 上报逻辑。
+    allowKeyboardControl: false,
     nextBtnText: labels.next,
     prevBtnText: labels.prev,
     doneBtnText: labels.done,
@@ -200,22 +205,28 @@ export function startTour(
     // 写进 state 之后才会触发，而那次写入排在 requestAnimationFrame 里 —— 同步 destroy
     // 与无 DOM 帧的环境下会静默漏掉回调。改走「按钮 + 主动收起」这两个我们自己掌握的
     // 入口，退出必然被记一次。
-    onNextClick: () => {
-      if (instance.isLastStep()) {
-        finish();
-        return;
-      }
-      onStepChange?.((instance.getActiveIndex() ?? 0) + 1);
-      instance.moveNext();
-    },
-    onPrevClick: () => {
-      onStepChange?.(Math.max((instance.getActiveIndex() ?? 0) - 1, 0));
-      instance.movePrevious();
-    },
+    onNextClick: () => handleNext(),
+    onPrevClick: () => handlePrev(),
     onCloseClick: () => finish(),
     // Esc 与点击遮罩走 driver 内部的收起流程，在真正拆掉之前回调这里。
     onDestroyStarted: () => finish(),
   });
+
+  /** 下一步：按钮点击与 `ArrowRight` 键共用，保证跨页上报一致。 */
+  function handleNext(): void {
+    if (instance.isLastStep()) {
+      finish();
+      return;
+    }
+    onStepChange?.((instance.getActiveIndex() ?? 0) + 1);
+    instance.moveNext();
+  }
+
+  /** 上一步：按钮点击与 `ArrowLeft` 键共用，保证跨页上报一致。 */
+  function handlePrev(): void {
+    onStepChange?.(Math.max((instance.getActiveIndex() ?? 0) - 1, 0));
+    instance.movePrevious();
+  }
 
   /** 记一次退出并收起。重复调用只记一次。 */
   function finish(): void {
@@ -223,17 +234,33 @@ export function startTour(
       exited = true;
       onExit();
     }
+    window.removeEventListener("keyup", onKeyUp);
     setPeripheralIsolation(false);
     instance.destroy();
   }
 
+  // allowKeyboardControl 关闭后 driver 不再自行处理 Esc/方向键，这里接管：Esc 走 finish()
+  // （与 driver 默认的 allowClose 行为一致，本文件未覆盖该配置，其默认值即为 true）；
+  // 方向键复用 handleNext/handlePrev，与按钮点击走同一条上报路径。
+  function onKeyUp(e: KeyboardEvent): void {
+    if (e.key === "Escape") {
+      finish();
+    } else if (e.key === "ArrowRight") {
+      handleNext();
+    } else if (e.key === "ArrowLeft") {
+      handlePrev();
+    }
+  }
+
   setPeripheralIsolation(true);
+  window.addEventListener("keyup", onKeyUp);
   instance.drive(Math.min(Math.max(startIndex, 0), total - 1));
 
   return {
     currentIndex: () => instance.getActiveIndex() ?? 0,
     dispose: () => {
       disposing = true;
+      window.removeEventListener("keyup", onKeyUp);
       setPeripheralIsolation(false);
       instance.destroy();
     },
