@@ -4,9 +4,10 @@ import { memoryLocation } from "wouter/memory-location";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { API } from "@/api";
+import { ROUTE_APP_ASSETS } from "@/app-routes";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
-import { ONBOARDING_ANCHORS } from "./anchors";
+import { ONBOARDING_ANCHORS, type OnboardingAnchor } from "./anchors";
 import { DEMO_PROJECT_NAME, DEMO_SCRIPTED_EPISODE } from "./demo-project";
 import { OnboardingTour } from "./OnboardingTour";
 
@@ -225,13 +226,11 @@ describe("OnboardingTour", () => {
     expect(history.at(-1)).toBe("/app/projects");
   });
 
-  /** 大厅三步的锚点。没有大厅页面可渲染，手动补上元素，测的是跳页而不是锚点降级。 */
-  function mountLobbyAnchors(): HTMLElement[] {
-    const names = [
-      ONBOARDING_ANCHORS.lobbyCreateProject,
-      ONBOARDING_ANCHORS.lobbyDemoCard,
-      ONBOARDING_ANCHORS.lobbySettings,
-    ];
+  /**
+   * 手动补上锚点元素。没有真实页面可渲染，这里测的是跳页串联而不是锚点降级——锚点在真实
+   * 界面上的存在性由 `anchors.test.tsx` 单独兜。
+   */
+  function mountAnchors(...names: OnboardingAnchor[]): HTMLElement[] {
     return names.map((name) => {
       const el = document.createElement("button");
       el.setAttribute("data-onboarding", name);
@@ -240,15 +239,18 @@ describe("OnboardingTour", () => {
     });
   }
 
+  /** 大厅三步的锚点。 */
+  function mountLobbyAnchors(): HTMLElement[] {
+    return mountAnchors(
+      ONBOARDING_ANCHORS.lobbyCreateProject,
+      ONBOARDING_ANCHORS.lobbyDemoCard,
+      ONBOARDING_ANCHORS.lobbySettings,
+    );
+  }
+
   /** 设置页两步的锚点。 */
   function mountSettingsAnchors(): HTMLElement[] {
-    const names = [ONBOARDING_ANCHORS.settingsProviders, ONBOARDING_ANCHORS.settingsAgent];
-    return names.map((name) => {
-      const el = document.createElement("button");
-      el.setAttribute("data-onboarding", name);
-      document.body.appendChild(el);
-      return el;
-    });
+    return mountAnchors(ONBOARDING_ANCHORS.settingsProviders, ONBOARDING_ANCHORS.settingsAgent);
   }
 
   function click(selector: string): void {
@@ -338,6 +340,33 @@ describe("OnboardingTour", () => {
     lobbyAnchors.forEach((el) => el.remove());
   });
 
+  it("pulls back to the lobby if a route outside the tour is reached mid-way through the interactive demo-card step", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+    const lobbyAnchors = mountLobbyAnchors();
+
+    const { hook, history, navigate } = memoryLocation({ path: "/app/projects", record: true });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+
+    click(".driver-popover-next-btn"); // → 新建项目入口
+    click(".driver-popover-next-btn"); // → 演示卡（interactive 步）
+    await waitFor(() => expect(popoverTitle()).toBe("项目推进后长这样"));
+
+    // 落点之外的去处一律拽回，不因为它在引导覆盖范围之外就放过：资产库是主界面路由但
+    // 不在 `tourRoutes` 里，这一步的豁免只认它自己声明的 `interactiveTarget`。
+    act(() => navigate(ROUTE_APP_ASSETS));
+
+    await waitFor(() => expect(history.at(-1)).toBe("/app/projects"));
+    expect(popoverTitle()).toBe("项目推进后长这样");
+    expect(API.markOnboardingSeen).not.toHaveBeenCalled();
+
+    lobbyAnchors.forEach((el) => el.remove());
+  });
+
   it("degrades to a centered popover when the settings-step anchor never mounts", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -396,20 +425,19 @@ describe("OnboardingTour", () => {
     [...lobbyAnchors, settingsAnchor].forEach((el) => el.remove());
   });
 
-  /** 工作台四步的锚点。同样没有工作台页面可渲染，补上元素测的是跨页串联而不是降级。 */
+  /** 演示工作台四步的锚点。 */
   function mountWorkbenchAnchors(): HTMLElement[] {
-    const names = [
+    return mountAnchors(
       ONBOARDING_ANCHORS.workbenchOverview,
       ONBOARDING_ANCHORS.workbenchLorebook,
       ONBOARDING_ANCHORS.workbenchTimeline,
       ONBOARDING_ANCHORS.workbenchExport,
-    ];
-    return names.map((name) => {
-      const el = document.createElement("button");
-      el.setAttribute("data-onboarding", name);
-      document.body.appendChild(el);
-      return el;
-    });
+    );
+  }
+
+  /** 全程 11 步的锚点，供跑完整串联的用例一次挂齐。 */
+  function mountAllAnchors(): HTMLElement[] {
+    return [...mountLobbyAnchors(), ...mountSettingsAnchors(), ...mountWorkbenchAnchors()];
   }
 
   const DEMO_WORKBENCH = `/app/projects/${DEMO_PROJECT_NAME}`;
@@ -417,7 +445,7 @@ describe("OnboardingTour", () => {
 
   it("walks all eleven steps from the lobby through the demo workbench and back to the lobby", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
-    const anchors = [...mountLobbyAnchors(), ...mountSettingsAnchors(), ...mountWorkbenchAnchors()];
+    const anchors = mountAllAnchors();
 
     const { hook, history } = memoryLocation({ path: "/app/projects", record: true });
     render(
@@ -495,7 +523,7 @@ describe("OnboardingTour", () => {
 
   it("still marks the tour as seen when skipped inside the read-only demo workbench", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
-    const anchors = [...mountLobbyAnchors(), ...mountSettingsAnchors(), ...mountWorkbenchAnchors()];
+    const anchors = mountAllAnchors();
 
     const { hook, history } = memoryLocation({ path: "/app/projects", record: true });
     render(
@@ -521,7 +549,7 @@ describe("OnboardingTour", () => {
 
   it("replays the full eleven steps from the settings entry", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: true });
-    const anchors = [...mountLobbyAnchors(), ...mountSettingsAnchors(), ...mountWorkbenchAnchors()];
+    const anchors = mountAllAnchors();
 
     // 重看入口在设置页，起步得先跨回大厅——重看和首弹共用同一条 11 步大纲。
     const { hook, history } = memoryLocation({ path: "/app/settings", record: true });
@@ -554,7 +582,7 @@ describe("OnboardingTour", () => {
     // 的页面组件不在本用例里，这里守的是引导这条链路自己。
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    const anchors = [...mountLobbyAnchors(), ...mountSettingsAnchors(), ...mountWorkbenchAnchors()];
+    const anchors = mountAllAnchors();
 
     const { hook } = memoryLocation({ path: "/app/projects" });
     render(
