@@ -69,6 +69,14 @@ export const useCostStore = create<CostState>((set, get) => ({
 
   debouncedFetch: (projectName: string) => {
     if (_debounceTimer) clearTimeout(_debounceTimer);
+    // 演示项目立即清空，不等 500ms 防抖窗口——否则切入演示项目后的这段窗口期，
+    // UI 仍会读到上一个真实项目残留在 store 里的费用数据
+    if (isDemoProject(projectName)) {
+      _debounceTimer = null;
+      _fetchId += 1;
+      get().clear();
+      return;
+    }
     _debounceTimer = setTimeout(() => {
       _debounceTimer = null;
       void get().fetchCost(projectName);

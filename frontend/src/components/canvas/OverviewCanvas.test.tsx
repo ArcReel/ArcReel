@@ -147,6 +147,30 @@ describe("OverviewCanvas", () => {
 
     expect(screen.queryByText("同名文件已存在")).not.toBeInTheDocument();
   });
+
+  it("does not trigger the agent handoff prompt when switching to a read-only project", () => {
+    useAppStore.setState({ assistantPanelOpen: false });
+
+    // 真实项目停在欢迎页（wasWelcomeRef 记为 true）
+    const { rerender } = render(
+      <OverviewCanvas
+        projectName="demo"
+        projectData={makeProjectData({ overview: undefined, episodes: [] })}
+      />,
+    );
+
+    // 切到只读态（如工作台切到演示项目复用同一路由实例）——演示数据自带 overview/episodes，
+    // 之前会被误判成「欢迎页 → 完成」触发交接提示，强行打开演示态并不挂载的助手面板。
+    rerender(
+      <OverviewCanvas
+        projectName="demo"
+        projectData={makeProjectData()}
+        readOnly
+      />,
+    );
+
+    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
+  });
 });
 
 describe("OverviewCanvas ad mode", () => {

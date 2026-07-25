@@ -76,13 +76,21 @@ export function OverviewCanvas({
   const [handoffTrigger, setHandoffTrigger] = useState(0);
   const wasWelcomeRef = useRef<boolean | null>(null);
   useEffect(() => {
+    // 只读态（如切入演示项目）不触发交接提示：同一路由复用同一个 OverviewCanvas 实例时，
+    // 上一个真实项目若停在欢迎页，演示数据的 overview/episodes 一到位就会被误判成
+    // 「欢迎页 → 完成」，提示会强行打开助手面板——但演示态已卸载该面板，
+    // 离开演示项目后还会带出一个意外展开的助手。清空 ref 避免下次真实切换沿用这份脏状态。
+    if (readOnly) {
+      wasWelcomeRef.current = null;
+      return;
+    }
     if (!projectData) return;
     const isWelcome = !projectData.overview && (projectData.episodes?.length ?? 0) === 0;
     if (wasWelcomeRef.current === true && !isWelcome) {
       setHandoffTrigger((k) => k + 1);
     }
     wasWelcomeRef.current = isWelcome;
-  }, [projectData]);
+  }, [projectData, readOnly]);
 
   // 在途合并 + 失败留旧收敛于 projects-store；此处仅表达刷新意图，忽略返回值。
   const refreshProject = useCallback(
