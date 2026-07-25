@@ -668,7 +668,16 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       <input
                         type="text"
                         value={m.model_id}
-                        onChange={(e) => updateModel(m.key, { model_id: e.target.value })}
+                        onChange={(e) => {
+                          const nextId = e.target.value;
+                          updateModel(m.key, {
+                            model_id: nextId,
+                            // capability_overrides 是模型级配置，能力判定本身依赖 model_id：
+                            // model_id 实际变化时随之清空，否则旧模型的覆盖（如 last_frame）
+                            // 会静默带到 endpoint 相同但能力不同的新模型上。
+                            capability_overrides: nextId === m.model_id ? m.capability_overrides : null,
+                          });
+                        }}
                         placeholder="model-id…"
                         aria-label={t("model_id_label")}
                         className={`${COMPACT_INPUT_CLS} flex-1`}
