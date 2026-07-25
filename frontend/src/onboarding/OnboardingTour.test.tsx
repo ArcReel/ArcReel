@@ -207,13 +207,21 @@ describe("OnboardingTour", () => {
   it("navigates to the lobby before running the tour when replayed from another main-UI route", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: true });
 
-    renderAt("/app/settings");
+    // 欢迎步骤本身 anchor 为 null、居中显示，跳没跳转它都会出现——单看气泡标题测
+    // 不出跳转是否真的发生了，需要 `record: true` 记录的导航历史直接断言落点。
+    const { hook, history } = memoryLocation({ path: "/app/settings", record: true });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
     await waitFor(() => expect(API.getOnboardingStatus).toHaveBeenCalled());
     expect(popoverTitle()).toBeNull();
 
     act(() => useOnboardingStore.getState().start());
 
     await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+    expect(history.at(-1)).toBe("/app/projects");
   });
 
   it("takes the tour down when the user navigates back to the login page mid-tour", async () => {
