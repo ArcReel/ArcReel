@@ -463,7 +463,7 @@ describe("OnboardingTour", () => {
       ["配置一个媒体供应商", "/app/settings"],
       ["接入 Agent", "/app/settings"],
       ["项目全景在概述画布", DEMO_WORKBENCH],
-      ["设定集统一管角色、场景、道具", `${DEMO_WORKBENCH}/characters`],
+      ["设定集统一管理角色、场景、道具", `${DEMO_WORKBENCH}/characters`],
       ["一集的活都在分镜画布上", DEMO_EPISODE],
       ["出片后从顶栏导出", DEMO_EPISODE],
       ["轮到你了", "/app/projects"],

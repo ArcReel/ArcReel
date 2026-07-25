@@ -16,7 +16,7 @@ export default {
   'settings_agent_body': '生成概述、剧本和对话回复都依赖 Anthropic 凭证，在这里添加。',
   'workbench_overview_title': '项目全景在概述画布',
   'workbench_overview_body': '刚才那张示例卡片，点进来就是这里。上半是故事概述——题材、主题、世界观由 Agent 通读原著后写出，随时可改；下半是分集大纲，每一集的状态和进度都记在那里。',
-  'workbench_lorebook_title': '设定集统一管角色、场景、道具',
+  'workbench_lorebook_title': '设定集统一管理角色、场景、道具',
   'workbench_lorebook_body': '角色在这里立卡：外形、音色，以及一张作为后续所有画面基准的形象图。左侧同组的场景与道具用法一样——先把设定定下来，再生成分镜，画面才不会一集一个样。',
   'workbench_timeline_title': '一集的活都在分镜画布上',
   'workbench_timeline_body': '时间线按镜头排开，每个镜头带画面提示词、分镜图和视频。先出分镜图定构图，满意了再生成视频，两步都能单镜头重来。',
