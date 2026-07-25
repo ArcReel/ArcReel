@@ -379,18 +379,18 @@ class VideoCapabilityError(RuntimeError):
 class VideoCapabilities:
     """Declares what a video backend supports.
 
-    ``reference_images`` 表示后端接受 ``reference_images`` 请求字段，但多家后端把它
-    实现为独立的「参考生视频」模式——与首帧（``start_image``）互斥或竞争（如 Vidu 见图
-    切端点丢首帧、Sora 首帧与参考共享单槽）。``reference_images_with_start_frame``
-    才表示「参考图可叠加在带首帧的请求上且首帧语义保持」；产品参考二次注入等
-    「图生视频 + 参考」叠加场景必须按它门控，不得只看 ``reference_images``。
+    ``first_frame`` / ``last_frame`` 描述图生视频路径的首帧与尾帧槽位。
+    ``reference_images`` / ``max_reference_images`` 描述参考生视频路径：后端接受
+    ``reference_images`` 请求字段及其数量上限。两条路径是否可叠加（同一请求同时带
+    首帧与参考图）因后端而异，不是统一契约：部分后端拒绝叠加（如 Agnes 抛
+    ``VideoCapabilityError``），部分静默叠加（如 v2 中转、Grok、Sora 首帧与参考共享
+    单槽）。调用方不应假设某种统一行为，需按具体后端核实。
     """
 
     first_frame: bool = True
     last_frame: bool = False
     reference_images: bool = False
     max_reference_images: int = 0
-    reference_images_with_start_frame: bool = False
 
 
 class VideoCapability(StrEnum):
