@@ -31,6 +31,12 @@ export interface TourStep {
    * 工作台）而非写操作时才置 true——否则高亮元素在整个引导期间都点不到。
    */
   interactive?: boolean;
+  /**
+   * `interactive` 步点击锚点后会落到的路由（前缀，含其子路由）。调用方自行定义、这里
+   * 不解释语义——原样透传，供调用方区分「用户顺着这一步的入口走了」与「跑到了别处」，
+   * 前者挂起引导等用户回来，后者仍按强制导航拽回。只在 `interactive` 为真时有意义。
+   */
+  interactiveTarget?: string;
 }
 
 export interface TourLabels {

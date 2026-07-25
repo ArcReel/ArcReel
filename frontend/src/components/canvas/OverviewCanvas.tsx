@@ -14,6 +14,7 @@ import { WelcomeCanvas } from "./WelcomeCanvas";
 import { AdInitCanvas } from "./AdInitCanvas";
 import { ConflictModal, type ConflictResolution } from "./ConflictModal";
 import { AgentHandoffHint } from "@/components/copilot/AgentHandoffHint";
+import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 
 interface OverviewCanvasProps {
   projectName: string;
@@ -334,6 +335,7 @@ export function OverviewCanvas({
           <>
             {/* Synopsis / overview card */}
             <section
+              data-onboarding={ONBOARDING_ANCHORS.workbenchOverview}
               className="relative overflow-hidden rounded-2xl p-5"
               style={{
                 border: "1px solid var(--color-hairline-soft)",

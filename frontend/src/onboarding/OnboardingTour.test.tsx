@@ -4,9 +4,11 @@ import { memoryLocation } from "wouter/memory-location";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { API } from "@/api";
+import { ROUTE_APP_ASSETS } from "@/app-routes";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
-import { ONBOARDING_ANCHORS } from "./anchors";
+import { ONBOARDING_ANCHORS, type OnboardingAnchor } from "./anchors";
+import { DEMO_PROJECT_NAME, DEMO_SCRIPTED_EPISODE } from "./demo-project";
 import { OnboardingTour } from "./OnboardingTour";
 
 function renderAt(path: string) {
@@ -224,19 +226,31 @@ describe("OnboardingTour", () => {
     expect(history.at(-1)).toBe("/app/projects");
   });
 
-  /** 大厅三步的锚点。没有大厅页面可渲染，手动补上元素，测的是跳页而不是锚点降级。 */
-  function mountLobbyAnchors(): HTMLElement[] {
-    const names = [
-      ONBOARDING_ANCHORS.lobbyCreateProject,
-      ONBOARDING_ANCHORS.lobbyDemoCard,
-      ONBOARDING_ANCHORS.lobbySettings,
-    ];
+  /**
+   * 手动补上锚点元素。没有真实页面可渲染，这里测的是跳页串联而不是锚点降级——锚点在真实
+   * 界面上的存在性由 `anchors.test.tsx` 单独兜。
+   */
+  function mountAnchors(...names: OnboardingAnchor[]): HTMLElement[] {
     return names.map((name) => {
       const el = document.createElement("button");
       el.setAttribute("data-onboarding", name);
       document.body.appendChild(el);
       return el;
     });
+  }
+
+  /** 大厅三步的锚点。 */
+  function mountLobbyAnchors(): HTMLElement[] {
+    return mountAnchors(
+      ONBOARDING_ANCHORS.lobbyCreateProject,
+      ONBOARDING_ANCHORS.lobbyDemoCard,
+      ONBOARDING_ANCHORS.lobbySettings,
+    );
+  }
+
+  /** 设置页两步的锚点。 */
+  function mountSettingsAnchors(): HTMLElement[] {
+    return mountAnchors(ONBOARDING_ANCHORS.settingsProviders, ONBOARDING_ANCHORS.settingsAgent);
   }
 
   function click(selector: string): void {
@@ -326,6 +340,33 @@ describe("OnboardingTour", () => {
     lobbyAnchors.forEach((el) => el.remove());
   });
 
+  it("pulls back to the lobby if a route outside the tour is reached mid-way through the interactive demo-card step", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+    const lobbyAnchors = mountLobbyAnchors();
+
+    const { hook, history, navigate } = memoryLocation({ path: "/app/projects", record: true });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+
+    click(".driver-popover-next-btn"); // → 新建项目入口
+    click(".driver-popover-next-btn"); // → 演示卡（interactive 步）
+    await waitFor(() => expect(popoverTitle()).toBe("项目推进后长这样"));
+
+    // 落点之外的去处一律拽回，不因为它在引导覆盖范围之外就放过：资产库是主界面路由但
+    // 不在 `tourRoutes` 里，这一步的豁免只认它自己声明的 `interactiveTarget`。
+    act(() => navigate(ROUTE_APP_ASSETS));
+
+    await waitFor(() => expect(history.at(-1)).toBe("/app/projects"));
+    expect(popoverTitle()).toBe("项目推进后长这样");
+    expect(API.markOnboardingSeen).not.toHaveBeenCalled();
+
+    lobbyAnchors.forEach((el) => el.remove());
+  });
+
   it("degrades to a centered popover when the settings-step anchor never mounts", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -383,6 +424,185 @@ describe("OnboardingTour", () => {
     expect(useOnboardingStore.getState().seen).toBe(true);
     [...lobbyAnchors, settingsAnchor].forEach((el) => el.remove());
   });
+
+  /** 演示工作台四步的锚点。 */
+  function mountWorkbenchAnchors(): HTMLElement[] {
+    return mountAnchors(
+      ONBOARDING_ANCHORS.workbenchOverview,
+      ONBOARDING_ANCHORS.workbenchLorebook,
+      ONBOARDING_ANCHORS.workbenchTimeline,
+      ONBOARDING_ANCHORS.workbenchExport,
+    );
+  }
+
+  /** 全程 11 步的锚点，供跑完整串联的用例一次挂齐。 */
+  function mountAllAnchors(): HTMLElement[] {
+    return [...mountLobbyAnchors(), ...mountSettingsAnchors(), ...mountWorkbenchAnchors()];
+  }
+
+  const DEMO_WORKBENCH = `/app/projects/${DEMO_PROJECT_NAME}`;
+  const DEMO_EPISODE = `${DEMO_WORKBENCH}/episodes/${DEMO_SCRIPTED_EPISODE}`;
+
+  it("walks all eleven steps from the lobby through the demo workbench and back to the lobby", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+    const anchors = mountAllAnchors();
+
+    const { hook, history } = memoryLocation({ path: "/app/projects", record: true });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+
+    // 每一步：标题 + 该步走完后当前所在路由。跨页步骤的落点由 route 驱动。
+    const expected: [string, string][] = [
+      ["从这里新建项目", "/app/projects"],
+      ["项目推进后长这样", "/app/projects"],
+      ["供应商配置在设置里", "/app/projects"],
+      ["配置一个媒体供应商", "/app/settings"],
+      ["接入 Agent", "/app/settings"],
+      ["项目全景在概述画布", DEMO_WORKBENCH],
+      ["设定集统一管理角色、场景、道具", `${DEMO_WORKBENCH}/characters`],
+      ["一集的活都在分镜画布上", DEMO_EPISODE],
+      ["出片后从顶栏导出", DEMO_EPISODE],
+      ["轮到你了", "/app/projects"],
+    ];
+
+    for (const [title, route] of expected) {
+      click(".driver-popover-next-btn");
+      await waitFor(() => expect(popoverTitle()).toBe(title));
+      expect(history.at(-1)).toBe(route);
+    }
+
+    // 收尾之前一次都没写过标记——中途没有哪一步误判成结束。
+    expect(API.markOnboardingSeen).not.toHaveBeenCalled();
+
+    click(".driver-popover-next-btn"); // 收尾气泡上是「完成」
+    await waitFor(() => expect(API.markOnboardingSeen).toHaveBeenCalledTimes(1));
+    expect(popoverTitle()).toBeNull();
+    expect(useOnboardingStore.getState().seen).toBe(true);
+
+    anchors.forEach((el) => el.remove());
+  }, 20_000);
+
+  it("suspends the tour when the user follows the demo card into the workbench, and resumes in place on return", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+    const anchors = mountLobbyAnchors();
+
+    const { hook, history, navigate } = memoryLocation({ path: "/app/projects", record: true });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+
+    click(".driver-popover-next-btn");
+    click(".driver-popover-next-btn"); // → 演示卡（interactive）
+    await waitFor(() => expect(popoverTitle()).toBe("项目推进后长这样"));
+
+    // 顺着这一步给的入口点进演示工作台：不该被拽回大厅，气泡先收起让用户自己逛。
+    act(() => navigate(DEMO_WORKBENCH));
+
+    await waitFor(() => expect(popoverTitle()).toBeNull());
+    expect(history.at(-1)).toBe(DEMO_WORKBENCH);
+    // 工作台的子路由同样算「还在落点里」。
+    act(() => navigate(`${DEMO_WORKBENCH}/characters`));
+    expect(popoverTitle()).toBeNull();
+    expect(history.at(-1)).toBe(`${DEMO_WORKBENCH}/characters`);
+
+    // 逛完回到大厅，引导从演示卡这一步原位续讲，不重头也不记已看过。
+    act(() => navigate("/app/projects"));
+
+    await waitFor(() => expect(popoverTitle()).toBe("项目推进后长这样"));
+    expect(API.markOnboardingSeen).not.toHaveBeenCalled();
+
+    anchors.forEach((el) => el.remove());
+  });
+
+  it("still marks the tour as seen when skipped inside the read-only demo workbench", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+    const anchors = mountAllAnchors();
+
+    const { hook, history } = memoryLocation({ path: "/app/projects", record: true });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+
+    for (let i = 0; i < 6; i++) click(".driver-popover-next-btn"); // → 概述画布（工作台第一步）
+    await waitFor(() => expect(popoverTitle()).toBe("项目全景在概述画布"));
+    expect(history.at(-1)).toBe(DEMO_WORKBENCH);
+
+    click(".arc-tour-skip-btn");
+
+    // 只读闸门对 /onboarding/seen 有窄豁免，工作台里跳过照样写得进去。
+    await waitFor(() => expect(API.markOnboardingSeen).toHaveBeenCalledTimes(1));
+    expect(popoverTitle()).toBeNull();
+    expect(useOnboardingStore.getState().seen).toBe(true);
+
+    anchors.forEach((el) => el.remove());
+  }, 20_000);
+
+  it("replays the full eleven steps from the settings entry", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: true });
+    const anchors = mountAllAnchors();
+
+    // 重看入口在设置页，起步得先跨回大厅——重看和首弹共用同一条 11 步大纲。
+    const { hook, history } = memoryLocation({ path: "/app/settings", record: true });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(API.getOnboardingStatus).toHaveBeenCalled());
+
+    act(() => useOnboardingStore.getState().start());
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+    expect(history.at(-1)).toBe("/app/projects");
+
+    for (let i = 0; i < 10; i++) click(".driver-popover-next-btn");
+    await waitFor(() => expect(popoverTitle()).toBe("轮到你了"));
+    expect(history.at(-1)).toBe("/app/projects");
+
+    click(".driver-popover-next-btn");
+    await waitFor(() => expect(popoverTitle()).toBeNull());
+    // 重看不改写标记——本来就已经是已看过。
+    expect(API.markOnboardingSeen).not.toHaveBeenCalled();
+
+    anchors.forEach((el) => el.remove());
+  }, 20_000);
+
+  it("issues no requests of its own beyond the seen flag across the whole eleven-step run", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+    // 引导自身不该发任何别的请求：没有生成调用、没有入队、没有项目写入。挂载点之外
+    // 的页面组件不在本用例里，这里守的是引导这条链路自己。
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const anchors = mountAllAnchors();
+
+    const { hook } = memoryLocation({ path: "/app/projects" });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+
+    for (let i = 0; i < 10; i++) click(".driver-popover-next-btn");
+    await waitFor(() => expect(popoverTitle()).toBe("轮到你了"));
+    click(".driver-popover-next-btn");
+    await waitFor(() => expect(API.markOnboardingSeen).toHaveBeenCalledTimes(1));
+
+    // 两个查询/写标记的端点都被 spy 挡在 fetch 之前，所以这里应当一次都没到网络。
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
+    anchors.forEach((el) => el.remove());
+  }, 20_000);
 
   it("takes the tour down when the user navigates back to the login page mid-tour", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });

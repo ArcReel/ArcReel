@@ -12,6 +12,13 @@
  * | `lobby-settings` | 大厅 4 | 项目大厅顶栏的设置图标（未配置齐全时带红点） |
  * | `settings-providers` | 设置 5 | 设置页侧栏「媒体供应商」入口 |
  * | `settings-agent` | 设置 6 | 设置页侧栏「Agent 配置」入口 |
+ * | `workbench-overview` | 工作台 7 | 概述画布的故事概述卡 |
+ * | `workbench-lorebook` | 工作台 8 | 设定集角色页的卡片区 |
+ * | `workbench-timeline` | 工作台 9 | 剧集分镜画布的镜头主体 |
+ * | `workbench-export` | 工作台 10 | 顶栏的导出按钮 |
+ *
+ * 工作台四步落在演示项目的只读工作台上（见 `demo-project.ts`），锚点挂在真实工作台
+ * 组件上而不是演示专用的副本——演示与真实项目共用同一份实现，锚点因此对两者都成立。
  *
  * 大厅第 1 步与收尾步是居中的气泡，不挂锚点。
  */
@@ -22,6 +29,10 @@ export const ONBOARDING_ANCHORS = {
   lobbySettings: "lobby-settings",
   settingsProviders: "settings-providers",
   settingsAgent: "settings-agent",
+  workbenchOverview: "workbench-overview",
+  workbenchLorebook: "workbench-lorebook",
+  workbenchTimeline: "workbench-timeline",
+  workbenchExport: "workbench-export",
 } as const;
 
 export type OnboardingAnchor = (typeof ONBOARDING_ANCHORS)[keyof typeof ONBOARDING_ANCHORS];

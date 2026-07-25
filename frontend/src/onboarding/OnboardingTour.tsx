@@ -11,10 +11,11 @@
  * 4. store 里 active 为真、且当前路由是引导覆盖的路由之一时驱动 driver.js —— 自动
  *    首弹与设置页「重看引导」共用这条路径，组件本身不区分二者。
  *
- * 步骤大纲现在跨大厅、设置两个页面。driver.js 实例挂在 `document.body` 上、在
- * React 树之外，只要第 3 点里的路由判定在这两页之间保持同一个真值，实例就不会被
- * effect 4 拆重建——「下一步」跨页时靠 `tour.ts` 的 `onStepChange` 在 driver 真正
- * 切换高亮之前把即将停靠的步号同步上报，本组件据此提前导航，驱动效果本身不重启。
+ * 步骤大纲跨大厅、设置页与演示工作台（概述 / 设定集 / 剧集分镜三条路由）。driver.js
+ * 实例挂在 `document.body` 上、在 React 树之外，只要第 3 点里的路由判定在这些页面之间
+ * 保持同一个真值，实例就不会被 effect 4 拆重建——「下一步」跨页时靠 `tour.ts` 的
+ * `onStepChange` 在 driver 真正切换高亮之前把即将停靠的步号同步上报，本组件据此提前
+ * 导航，驱动效果本身不重启。
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -74,29 +75,35 @@ export function OnboardingTour() {
   // 0. 引导开启但当前路由不是本步所需的路由——先导航过去，锚点才能挂载。跨页步骤
   //    切换（见 tour.ts 的 onStepChange）与「重看引导」从非首步路由触发都走这里。
   //
-  //    `interactive` 步是例外：该步的落点动作本身就是导航离开 requiredRoute（如点
-  //    演示卡进工作台），不是驱动效果（3）触发的跨页步骤切换，此时不该把用户拽回
-  //    来——离开引导覆盖路由后 `onTourRoute` 变假，效果（3）会按既有的「离开覆盖路由」
-  //    路径暂停引导（不计一次退出），用户回到大厅时 `requiredRoute` 重新匹配，引导
-  //    从原位恢复，不需要额外状态。
+  //    `interactive` 步是例外：该步的落点动作本身就是导航离开 requiredRoute（点演示卡
+  //    进演示工作台），不是驱动效果（3）触发的跨页步骤切换，此时不该把用户拽回来。
   //
-  //    该豁免必须限定在「离开引导覆盖范围」时才成立（`!onTourRoute`）：如果落点仍是
-  //    引导覆盖的另一个路由（如引导中途点顶栏「设置」跳到设置页），效果（3）判定
-  //    仍在覆盖范围内不会暂停，若此时也豁免强制导航，driver 会停在当前步（如演示卡）
-  //    却找不到锚点，降级成与页面内容不符的居中气泡。
-  const currentStepInteractive = Boolean(steps[stepIndex]?.interactive);
-  const skipForcedNavigation = currentStepInteractive && !onTourRoute;
+  //    豁免只认这一步自己声明的落点 `interactiveTarget`（含其子路由），不是「凡是离开
+  //    requiredRoute 都算」。落点之外的去处一律拽回，无论它在不在引导覆盖范围内：跳到
+  //    另一条引导路由（如顶栏「设置」）要拽回，跳到引导之外的主界面路由（如资产库）同样
+  //    要拽回——否则 driver 停在演示卡那一步却找不到锚点，降级成与页面内容不符的居中气泡。
+  //    这也让 `interactive` 步与普通步在「跑到无关页面」时表现一致，差别只在它多认一个
+  //    自己声明的落点。不能改判「落点在引导覆盖范围之外」——演示工作台的路由已随工作台段
+  //    （第 7~10 步）进了 `tourRoutes`，那个条件会让用户刚点进工作台就被弹回大厅。
+  //
+  //    顺着入口走进落点时，效果（3）同步挂起引导（遮罩收起，用户自由浏览），步号原地保留；
+  //    用户回到 `requiredRoute` 后引导从原位恢复，不需要额外状态。
+  const currentStep = steps[stepIndex];
+  const interactiveTarget = currentStep?.interactive ? currentStep.interactiveTarget : undefined;
+  const enteredInteractiveTarget =
+    interactiveTarget !== undefined &&
+    (normalizedLocation === interactiveTarget || normalizedLocation.startsWith(`${interactiveTarget}/`));
   useEffect(() => {
     if (
       !active ||
       !inMainUi ||
       !requiredRoute ||
       normalizedLocation === requiredRoute ||
-      skipForcedNavigation
+      enteredInteractiveTarget
     )
       return;
     navigate(requiredRoute);
-  }, [active, inMainUi, requiredRoute, normalizedLocation, navigate, skipForcedNavigation]);
+  }, [active, inMainUi, requiredRoute, normalizedLocation, navigate, enteredInteractiveTarget]);
 
   // 1. 查询「是否已看过」
   useEffect(() => {
@@ -117,9 +124,10 @@ export function OnboardingTour() {
   // 文案是构造时一次性交给 driver 的，切换界面语言（`t` 换身份）必须重建一遍才能生效。
   // 重建走 `dispose()` —— 不记退出 —— 并把停留的步号带过去，讲到第几步就还在第几步。
   useEffect(() => {
-    // 离开引导覆盖的路由（如运行期间浏览器后退回登录页）或尚未导航过去时收起正在
-    // 运行的引导——不算一次退出（不记 seen），保留步号，回到范围内后从原位继续。
-    if (!active || !onTourRoute) {
+    // 离开引导覆盖的路由（如运行期间浏览器后退回登录页）、尚未导航过去、或用户在
+    // `interactive` 步顺着入口走进了它的落点（见效果 0）时收起正在运行的引导——不算一次退出
+    // （不记 seen），保留步号，回到本步所需的路由后从原位继续。
+    if (!active || !onTourRoute || enteredInteractiveTarget) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 引导退出时把步号复位到起点，是有意的受控重置，下次开启从头开始
       if (!active) setStep(0);
       return;
@@ -143,7 +151,7 @@ export function OnboardingTour() {
     };
     // 步骤号有意不进依赖（stepIndexRef 是 ref，读取本就不受 lint 约束）——步骤号变化
     // 不该重启这个效果，否则每次「下一步」都会拆重建 driver 实例。
-  }, [active, onTourRoute, steps, t]);
+  }, [active, onTourRoute, enteredInteractiveTarget, steps, t]);
 
   return null;
 }
