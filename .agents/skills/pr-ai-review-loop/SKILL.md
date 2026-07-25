@@ -89,7 +89,7 @@ GitHub code scanning 两家(quality / security)的评论并入同一批,处置�
 下列任一条件触发退出:
 
 1. `round_estimate` ≥ 5 → 暂停询问"已 5 轮,merge / 继续 / 放弃?"
-2. 连续 2 轮 push 都没有改变用户可感知的行为(跑 `classify_commits.sh` 看最近两批)→ 暂停询问"边际收益已降低,是否结束?"。按行为本身判断,不按改动的标签:修掉一条真实可达的崩溃或错误路径是用户可感知的,哪怕它形式上是一处防御;纯内部重构与风格调整不可感知。本条判断的是用户收益,fix-up 顺延的五类形状判断的是重审风险,两处口径不通用
+2. 连续 2 轮 push 都没有改变用户可感知的行为(跑 `classify_commits.sh` 看最近两批;它只给 commit 说明与文件行数统计,说明笼统或同一文件里内部逻辑与用户路径混在一起时,按输出的 `sha` 跑 `git show` 看改动本身)→ 暂停询问"边际收益已降低,是否结束?"。按行为本身判断,不按改动的标签:修掉一条真实可达的崩溃或错误路径是用户可感知的,哪怕它形式上是一处防御;纯内部重构与风格调整不可感知。本条判断的是用户收益,fix-up 顺延的五类形状判断的是重审风险,两处口径不通用
 3. 同一主题(reviewer + 关键词,例如 "Pydantic `extra=ignore` vs `forbid`")被同一家 reviewer 在 ≥ 3 个 HEAD 上反复提出,且无 ADR / memory 兜底 → 暂停询问是否升级 ADR。新评论似曾相识时跑 `query.sh <PR> history` 通读评论历史,按语义归并主题,数同一主题出现在几个 HEAD 上
 4. 目标状态全部达成 → 正常退出,按 [references/retrospective.md](references/retrospective.md) 产出复盘随汇报交出(何种出口产复盘以该文件开篇为准)
 
