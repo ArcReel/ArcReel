@@ -247,6 +247,9 @@ class EndpointDescriptor(BaseModel):
     request_method: str
     request_path_template: str
     image_capabilities: list[str] | None = None  # image 类填能力字符串列表，其他为 None
+    # 该 endpoint 的执行层是否真的下传尾帧约束；仅 video 类有意义。前端据此收窄 last_frame
+    # 覆盖控件里「强制开」的可选范围——否则用户只能撞上写入侧的 422 才知道这条路不通。
+    end_image_capable: bool = False
 
 
 class EndpointCatalogResponse(BaseModel):

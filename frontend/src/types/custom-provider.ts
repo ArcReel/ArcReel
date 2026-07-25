@@ -16,6 +16,8 @@ export interface EndpointDescriptor {
   request_path_template: string;
   /** image 类 endpoint 填能力数组，其他媒体类型为 null。 */
   image_capabilities: ImageCap[] | null;
+  /** 执行层是否真的下传尾帧约束；仅 video 类有意义，其余恒为 false。 */
+  end_image_capable: boolean;
 }
 
 export interface CustomProviderInfo {
