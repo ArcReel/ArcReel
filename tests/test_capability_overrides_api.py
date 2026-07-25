@@ -397,3 +397,53 @@ class TestBuiltinBackendsDeclareCapabilityFunction:
 
         with pytest.raises(ValueError, match="Unknown video backend"):
             video_capabilities_for_model("no-such-backend", "m")
+
+
+class TestVideoCapabilitiesEndpoint:
+    """GET /projects/{name}/video-capabilities 的响应形状与覆盖联动。
+
+    其余同源测试打在 resolver 私有方法上，这里补住 HTTP 这一层：新增的两个布尔位真的
+    出现在接口响应里，且写入覆盖后接口返回值随之变化（不只是 resolver 内部变了）。
+    """
+
+    @staticmethod
+    def _client(monkeypatch, session_factory, provider_id: str) -> TestClient:
+        from fastapi import FastAPI
+
+        from lib.config import resolver as resolver_mod
+        from server.routers import projects as projects_mod
+
+        class _FakePM:
+            def load_project(self, name: str) -> dict:
+                return {"name": name, "video_backend": f"{provider_id}/{VIDEO_MODEL}"}
+
+        monkeypatch.setattr(projects_mod, "async_session_factory", session_factory)
+        monkeypatch.setattr(resolver_mod, "get_project_manager", lambda: _FakePM())
+
+        app = FastAPI()
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="t", sub="t", role="admin")
+        app.include_router(projects_mod.router, prefix="/api/v1")
+        register_error_handlers(app)
+        return TestClient(app)
+
+    async def test_endpoint_returns_effective_boolean_caps(self, session_factory, monkeypatch):
+        async with session_factory() as session:
+            pid = await TestResolverReturnsEffectiveCapabilities._seed(session, overrides=None)
+
+        with self._client(monkeypatch, session_factory, pid) as client:
+            body = client.get("/api/v1/projects/demo/video-capabilities").json()
+
+        system = system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
+        assert body["first_frame"] is system.first_frame
+        assert body["last_frame"] is system.last_frame is False
+
+    async def test_endpoint_follows_written_override(self, session_factory, monkeypatch):
+        """AC：对自定义模型写入覆盖后，该接口返回值随之变化。"""
+        async with session_factory() as session:
+            pid = await TestResolverReturnsEffectiveCapabilities._seed(session, overrides={"last_frame": True})
+
+        with self._client(monkeypatch, session_factory, pid) as client:
+            body = client.get("/api/v1/projects/demo/video-capabilities").json()
+
+        assert system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL).last_frame is False
+        assert body["last_frame"] is True

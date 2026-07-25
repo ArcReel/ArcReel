@@ -20,7 +20,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.api_errors import BadRequestError
 from lib.config.repository import mask_secret
 from lib.custom_provider import make_provider_id
-from lib.custom_provider.capabilities import CAPABILITY_OVERRIDE_FIELDS, system_video_capabilities
+from lib.custom_provider.capabilities import (
+    CAPABILITY_OVERRIDE_FIELDS,
+    capability_value_matches,
+    system_video_capabilities,
+)
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
     endpoint_spec_to_dict,
@@ -368,14 +372,9 @@ def _check_capability_overrides(
                     allowed=", ".join(sorted(CAPABILITY_OVERRIDE_ALLOWLIST)),
                 ),
             )
-        # bool 是 int 子类，两个方向都要显式排除，否则 True 会被当作 int 覆盖放行。
-        if expected is bool:
-            ok = isinstance(value, bool)
-        elif expected is int:
-            ok = isinstance(value, int) and not isinstance(value, bool) and value >= 0
-        else:
-            ok = isinstance(value, expected)
-        if not ok:
+        # 值类型判定复用合成层的同一函数：两边各写一份会漂移，届时写入侧放行的值被合成
+        # 静默忽略，正是本能力覆盖链路要消灭的「界面允许、执行反悔」。
+        if not capability_value_matches(value, expected):
             raise HTTPException(
                 status_code=422,
                 detail=_t(

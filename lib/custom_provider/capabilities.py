@@ -97,7 +97,7 @@ def synthesize_video_capabilities(
         if expected is None:
             logger.warning("忽略 %s/%s 的未知能力覆盖键 %r", endpoint, model_id, key)
             continue
-        if not _value_matches(value, expected):
+        if not capability_value_matches(value, expected):
             logger.warning(
                 "忽略 %s/%s 的能力覆盖 %s=%r：期望 %s，该维度回退系统判定",
                 endpoint,
@@ -112,11 +112,14 @@ def synthesize_video_capabilities(
     return replace(caps, **applied) if applied else caps
 
 
-def _value_matches(value: object, expected: type) -> bool:
+def capability_value_matches(value: object, expected: type) -> bool:
     """覆盖值是否可直接落入该能力维度。
 
     bool 是 int 的子类，两个方向都要显式排除，否则 ``True`` 会被当成 1 张参考图上限、
     ``1`` 会被当成布尔真——这类宽松真值是语义猜测，不做。数值维度另拒负数。
+
+    写入侧校验（API 层白名单）与此处的合成必须用同一判定：两边一旦漂移，写入放行的值会被
+    合成静默忽略，正是本模块要消灭的「界面允许、执行反悔」。故此函数公开供 API 层复用。
     """
     if expected is bool:
         return isinstance(value, bool)

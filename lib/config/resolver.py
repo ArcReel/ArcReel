@@ -421,7 +421,9 @@ class ConfigResolver:
               "model": str,
               "supported_durations": list[int],    # 来自 model (单一真相源)
               "max_duration": int,                 # max(supported_durations) 派生
-              "max_reference_images": int,         # registry: model.max_reference_images；custom: endpoint.video_max_reference_images
+              "max_reference_images": int,         # registry: model.max_reference_images；custom: 合成后的生效值
+              "first_frame": bool,                 # 生效值（系统判定 ⊕ 用户覆盖），与执行层同源
+              "last_frame": bool,                  # 同上
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
               "content_mode": str | None,
