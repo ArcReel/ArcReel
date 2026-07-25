@@ -1,8 +1,9 @@
 """自定义供应商视频能力的唯一合成点：endpoint spec 系统判定 ⊕ 模型级用户覆盖。
 
-执行层（工厂构建 backend 时注入）与展示层都从这里取生效能力，两侧严格同源——避免
-「界面允许的操作在执行期反悔」。系统判定本身不落库，随注册表升级自动变化；用户覆盖是
-稀疏字典（`CustomProviderModel.capability_overrides`），键缺席即该维度跟随系统判定。
+合成语义只此一份：需要生效能力的调用方一律走这里，不得自行合并覆盖，否则「界面允许的
+操作在执行期反悔」。执行层由工厂构建 backend 时注入。系统判定本身不落库，随注册表升级
+自动变化；用户覆盖是稀疏字典（`CustomProviderModel.capability_overrides`），键缺席即该
+维度跟随系统判定。
 """
 
 from __future__ import annotations

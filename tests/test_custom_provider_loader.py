@@ -104,6 +104,8 @@ class TestVideoCapabilityOverridesReachExecution:
                 }
             ],
         )
+        # 清 identity map，逼装载重新 SELECT：覆盖字典要真经过 JSON 编解码往返才算验到 DB 语义
+        session.expunge_all()
         return await load_custom_backend(session=session, provider_id=pid, model_id="sora-2", media_type="video")
 
     @pytest.mark.integration

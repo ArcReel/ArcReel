@@ -98,6 +98,14 @@ class TestSynthesize:
         assert caps.max_reference_images == 1
 
     @pytest.mark.unit
+    def test_force_off_on_last_frame(self):
+        """last_frame 是首批开放的覆盖维度，单独验一遍「系统判定 True → 强制关」。"""
+        assert system_video_capabilities(endpoint="vidu-video", model_id="viduq3").last_frame is True
+        caps = synthesize_video_capabilities(endpoint="vidu-video", model_id="viduq3", overrides={"last_frame": False})
+        assert caps.last_frame is False
+        assert caps.first_frame is True
+
+    @pytest.mark.unit
     def test_int_field_override(self):
         caps = synthesize_video_capabilities(
             endpoint="openai-video", model_id="sora-2", overrides={"max_reference_images": 3}
@@ -118,8 +126,8 @@ class TestSynthesize:
 class TestTolerance:
     """存量数据容错：合成函数是执行层的最后一道，坏数据降级为「跟随系统判定」而非抛错。
 
-    API 层白名单校验拒绝非法写入（另票），但存量行、手工 SQL、以及未来收窄的字段集都可能
-    让这里读到不认识的键，抛错会让整条生成链路因一条脏配置而不可用。
+    合法性把关属于写入侧；存量行、手工 SQL、以及字段集收窄都可能让这里读到不认识的键，
+    抛错会让整条生成链路因一条脏配置而不可用。
     """
 
     @pytest.mark.unit
