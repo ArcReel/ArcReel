@@ -208,6 +208,24 @@ describe("startTour", () => {
       handle.dispose();
     });
 
+    it("ignores ArrowLeft on the first step instead of exiting the tour", () => {
+      // driver 的「上一步」按钮在首步会被禁用，click() 不会触发；但键盘路径没有这层禁用
+      // 态——不挡住的话 movePrevious() 在 driver.js 内部找不到上一步会直接把引导销毁掉，
+      // 表现为用户什么都没做（没跳过/没关闭/没走完）却提前退出了引导。
+      const onExit = vi.fn();
+      const onStepChange = vi.fn();
+      const handle = startTour(TWO_STEPS, LABELS, { onExit, onStepChange });
+
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowLeft" }));
+
+      expect(onStepChange).not.toHaveBeenCalled();
+      expect(onExit).not.toHaveBeenCalled();
+      expect(handle.currentIndex()).toBe(0);
+      expect(document.querySelector(".driver-popover")).not.toBeNull();
+
+      handle.dispose();
+    });
+
     it("reports the exit once on Escape", () => {
       const onExit = vi.fn();
       startTour(TWO_STEPS, LABELS, { onExit });

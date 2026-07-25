@@ -222,9 +222,14 @@ export function startTour(
     instance.moveNext();
   }
 
-  /** 上一步：按钮点击与 `ArrowLeft` 键共用，保证跨页上报一致。 */
+  /**
+   * 上一步：按钮点击与 `ArrowLeft` 键共用，保证跨页上报一致。首步无上一步可退——
+   * 按钮此时被 driver 禁用不会触发，但键盘路径没有这层禁用态，不挡住的话
+   * `instance.movePrevious()` 会在 driver.js 内部找不到上一步时把整个引导销毁掉。
+   */
   function handlePrev(): void {
-    onStepChange?.(Math.max((instance.getActiveIndex() ?? 0) - 1, 0));
+    if (instance.isFirstStep()) return;
+    onStepChange?.((instance.getActiveIndex() ?? 0) - 1);
     instance.movePrevious();
   }
 
