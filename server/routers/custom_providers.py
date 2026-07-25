@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from typing import Annotated, Literal
 
@@ -416,9 +416,25 @@ def _check_capability_overrides(
             )
 
 
-def _check_model_capability_overrides(models: list[ModelInput], _t: Callable[..., str]) -> None:
-    """对整批模型逐个跑覆盖白名单校验（保存模型列表的写入路径）。"""
+def _check_model_capability_overrides(
+    models: list[ModelInput],
+    _t: Callable[..., str],
+    *,
+    stored_overrides: Mapping[str, object | None] | None = None,
+) -> None:
+    """对整批模型逐个跑覆盖白名单校验（保存模型列表的写入路径）。
+
+    ``stored_overrides`` 传入时按 model_id 对照当前落库值：与落库值相同则跳过白名单校验。
+    这条端点承载的是模型基础字段（名称/价格/是否启用等）的整表写入，覆盖内容的编辑走专门的
+    PATCH 端点（``update_model_capability_overrides``），白名单收紧只在那里把关。否则前端把
+    GET 回显（``filter_valid_overrides`` 只做结构性校验，不过滤白名单）原样带回本端点时，历史
+    行 / 非 API 写入产生的、已不在开放白名单内但结构合法的覆盖值会让用户连改个显示名都被拒绝，
+    且没有入口能清掉它。
+    """
+    stored_overrides = stored_overrides or {}
     for m in models:
+        if m.model_id in stored_overrides and m.capability_overrides == stored_overrides[m.model_id]:
+            continue
         _check_capability_overrides(m.capability_overrides, m.endpoint, m.model_id, _t)
 
 
@@ -618,8 +634,10 @@ async def full_update_provider(
     """原子更新供应商元数据 + 模型列表（单一事务）。"""
     _check_duplicate_model_ids(body.models, _t)
     _check_unique_defaults(body.models, _t)
-    _check_model_capability_overrides(body.models, _t)
     repo = CustomProviderRepository(session)
+    old_models = await repo.list_models(provider_id)
+    stored_overrides = {m.model_id: m.capability_overrides for m in old_models}
+    _check_model_capability_overrides(body.models, _t, stored_overrides=stored_overrides)
     kwargs: dict = {
         "display_name": body.display_name,
         "base_url": body.base_url,
@@ -688,14 +706,15 @@ async def replace_models(
     """替换供应商的整个模型列表。"""
     _check_duplicate_model_ids(body.models, _t)
     _check_unique_defaults(body.models, _t)
-    _check_model_capability_overrides(body.models, _t)
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    # 记录旧模型 ID，用于清理悬空引用
+    # 记录旧模型 ID，用于清理悬空引用；同时对照旧覆盖值判定白名单校验是否可跳过
     old_models = await repo.list_models(provider_id)
     old_model_ids = {m.model_id for m in old_models}
+    stored_overrides = {m.model_id: m.capability_overrides for m in old_models}
+    _check_model_capability_overrides(body.models, _t, stored_overrides=stored_overrides)
     new_model_ids = {m.model_id for m in body.models}
     deleted_model_ids = old_model_ids - new_model_ids
 

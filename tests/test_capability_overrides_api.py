@@ -472,6 +472,109 @@ class TestReplaceModelsOverrideSemantics:
         )
         assert resp.status_code == 422
 
+    @pytest.mark.integration
+    async def test_unchanged_unallowlisted_override_does_not_block_replace(self, client: TestClient, session_factory):
+        """first_frame 不在开放白名单内，但结构合法：filter_valid_overrides 不按白名单过滤
+        （见 test_stale_incompatible_override_filtered_from_response 同类容忍），GET 会原样
+        回显；表单据此把它原样带回整表 PUT。若整表写入对未变更的覆盖仍跑白名单校验，用户会
+        连改个无关字段都被 422 拒绝，且没有入口能清掉这条历史值——未变更时须放行。"""
+        async with session_factory() as session:
+            repo = CustomProviderRepository(session)
+            provider = await repo.create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://relay.test/v1",
+                api_key="sk-relay",
+                models=[
+                    {
+                        "model_id": VIDEO_MODEL,
+                        "display_name": "Sora 2",
+                        "endpoint": VIDEO_ENDPOINT,
+                        "is_enabled": True,
+                        "is_default": True,
+                        "capability_overrides": {"first_frame": False},
+                    }
+                ],
+            )
+            await session.commit()
+            pid = provider.id
+
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}/models",
+            json={"models": [_video_model(capability_overrides={"first_frame": False})]},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()[0]["capability_overrides"] == {"first_frame": False}
+
+    @pytest.mark.integration
+    async def test_changed_unallowlisted_override_still_rejected_on_replace(self, client: TestClient, session_factory):
+        """未变更才豁免白名单校验；把历史值改成另一个值仍须照常拒绝，白名单不能被整表端点绕过。"""
+        async with session_factory() as session:
+            repo = CustomProviderRepository(session)
+            provider = await repo.create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://relay.test/v1",
+                api_key="sk-relay",
+                models=[
+                    {
+                        "model_id": VIDEO_MODEL,
+                        "display_name": "Sora 2",
+                        "endpoint": VIDEO_ENDPOINT,
+                        "is_enabled": True,
+                        "is_default": True,
+                        "capability_overrides": {"first_frame": False},
+                    }
+                ],
+            )
+            await session.commit()
+            pid = provider.id
+
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}/models",
+            json={"models": [_video_model(capability_overrides={"first_frame": True})]},
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.integration
+    async def test_unchanged_unallowlisted_override_does_not_block_full_update(
+        self, client: TestClient, session_factory
+    ):
+        """同上，覆盖 PUT /{provider_id}（原子更新 provider 元数据 + 模型列表）这条写入路径。"""
+        async with session_factory() as session:
+            repo = CustomProviderRepository(session)
+            provider = await repo.create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://relay.test/v1",
+                api_key="sk-relay",
+                models=[
+                    {
+                        "model_id": VIDEO_MODEL,
+                        "display_name": "Sora 2",
+                        "endpoint": VIDEO_ENDPOINT,
+                        "is_enabled": True,
+                        "is_default": True,
+                        "capability_overrides": {"first_frame": False},
+                    }
+                ],
+            )
+            await session.commit()
+            pid = provider.id
+
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}",
+            json={
+                # 只改 display_name，验证「与该覆盖无关的编辑」不会被历史脏值挡住
+                "display_name": "Relay Renamed",
+                "base_url": "https://relay.test/v1",
+                "models": [_video_model(capability_overrides={"first_frame": False})],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["display_name"] == "Relay Renamed"
+        assert resp.json()["models"][0]["capability_overrides"] == {"first_frame": False}
+
 
 class TestResolverReturnsEffectiveCapabilities:
     """/video-capabilities 走的 resolver 必须回生效能力，且与执行层同源。"""
