@@ -195,7 +195,7 @@ _Avoid_: 与「参考图（reference image，生成的条件输入）」混为�
 _Avoid_: 把它与项目当「引用耦合」——入库 / 应用到项目都物理复制图片，改一边不影响另一边；以为改名/删除库内资产会传导到已用项目；把 product 放进来——多图列表型资产不兼容库的单图列模型，spec 以 `in_global_library=False` 豁免。
 
 **产品资产（product）**：
-第 4 个 ASSET_SPECS 条目（bucket `products`、sheet 字段 `product_sheet`、子目录 `products/`），承载广告/短片项目的带货主体。持有列表字段 `reference_images`（用户上传多张原图，保存时保留原件不压缩，是「成片产品忠实于真品」的**保真验收锚点**）与 `selling_points`（卖点列表，agent 可起草、用户可改），及自由文本 `brand`。product sheet 是可选的标准化多角度派生参考（生成时原图全量注入），须经人工确认才进下游（agent 工作流软门禁，不设状态机）。下游注入二元：镜头 `products_in_shot` 非空即产品镜头——产品参考全量注入、排在所有其它参考之前并附高保真还原指令（有 sheet 时「sheet 多角度 + 原图压阵」，无 sheet 时原图直注），视频层按后端 reference 能力门控二次注入、不支持的后端正常降级；氛围镜头零产品图（见 `docs/adr/0034`）。
+第 4 个 ASSET_SPECS 条目（bucket `products`、sheet 字段 `product_sheet`、子目录 `products/`），承载广告/短片项目的带货主体。持有列表字段 `reference_images`（用户上传多张原图，保存时保留原件不压缩，是「成片产品忠实于真品」的**保真验收锚点**）与 `selling_points`（卖点列表，agent 可起草、用户可改），及自由文本 `brand`。product sheet 是可选的标准化多角度派生参考（生成时原图全量注入），须经人工确认才进下游（agent 工作流软门禁，不设状态机）。下游注入二元：镜头 `products_in_shot` 非空即产品镜头——产品参考全量注入、排在所有其它参考之前并附高保真还原指令（有 sheet 时「sheet 多角度 + 原图压阵」，无 sheet 时原图直注）；氛围镜头零产品图。产品一致性由分镜图单层承载，图生视频路径不再二次注入产品参考（见 `docs/adr/0034`）。
 _Avoid_: 把 `reference_images` 交给 agent 改写——系统级字段不在 agent 白名单，更新走专用上传 API；把原图与 sheet 的锚点地位颠倒——原图必有且永远是验收基准，sheet 只是净化派生；对原图套用 2MB/q85 保存压缩——那是其它资产上传的归一化策略，对锚点过狠；发明「弱注入」中间档——给图又求别太像机制上自相矛盾，画风统一由项目级 style 承载。
 
 **风格模版（style template）**：
