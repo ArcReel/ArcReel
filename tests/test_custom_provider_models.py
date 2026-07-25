@@ -114,6 +114,7 @@ class TestCustomProviderModelTable:
             "currency",
             "supported_durations",
             "resolution",
+            "capability_overrides",
             "created_at",
             "updated_at",
         }

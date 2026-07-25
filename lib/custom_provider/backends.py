@@ -90,12 +90,34 @@ class CustomAudioBackend:
 
 
 class CustomVideoBackend:
-    """自定义供应商视频生成后端包装类。"""
+    """自定义供应商视频生成后端包装类。
 
-    def __init__(self, *, provider_id: str, delegate: VideoBackend, model: str) -> None:
+    ``video_capabilities`` 可被工厂注入生效能力（系统判定 ⊕ 用户覆盖），此时不再转发被包装
+    backend 的声明——后者只是系统判定的一个来源，用户覆盖必须能翻转执行层看到的能力。未注入
+    时（endpoint 闭包直接构造）回落到转发。
+    """
+
+    def __init__(
+        self,
+        *,
+        provider_id: str,
+        delegate: VideoBackend,
+        model: str,
+        video_capabilities: VideoCapabilities | None = None,
+    ) -> None:
         self._provider_id = provider_id
         self._delegate = delegate
         self._model = model
+        self._video_capabilities = video_capabilities
+
+    def with_video_capabilities(self, capabilities: VideoCapabilities) -> CustomVideoBackend:
+        """返回注入生效能力的新实例（不就地改写，包装器保持构造后不可变）。"""
+        return CustomVideoBackend(
+            provider_id=self._provider_id,
+            delegate=self._delegate,
+            model=self._model,
+            video_capabilities=capabilities,
+        )
 
     @property
     def name(self) -> str:
@@ -111,6 +133,8 @@ class CustomVideoBackend:
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
+        if self._video_capabilities is not None:
+            return self._video_capabilities
         return self._delegate.video_capabilities
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:

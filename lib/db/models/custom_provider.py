@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, CheckConstraint, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, TimestampMixin
@@ -76,3 +87,7 @@ class CustomProviderModel(TimestampMixin, Base):
     resolution: Mapped[str | None] = mapped_column(
         String(64), nullable=True
     )  # standard token ("1080p"/"2K") or native "WxH"
+    # 模型级能力覆盖，稀疏字典，键名对齐 VideoCapabilities 字段名。NULL 或字典缺该键 =
+    # 跟随系统判定；写死的能力维度列表不进 schema，向新维度开放无需迁移。合成语义由
+    # lib.custom_provider.capabilities 唯一承载。
+    capability_overrides: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
