@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { anchorSelector, isOnboardingTourActive, startTour, type TourLabels, type TourStep } from "./tour";
+import { anchorSelector, startTour, type TourLabels, type TourStep } from "./tour";
 
 const LABELS: TourLabels = {
   next: "继续",
@@ -226,16 +226,37 @@ describe("startTour", () => {
       modal.remove();
     });
 
-    it("reports itself active only while the tour is up", () => {
+    it("suppresses a peripheral document keydown listener while the tour is active, and restores it on dispose", () => {
       const appRoot = withAppRoot();
-      expect(isOnboardingTourActive()).toBe(false);
+      const onKeyDown = vi.fn();
+      document.addEventListener("keydown", onKeyDown);
 
       const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn() });
-      expect(isOnboardingTourActive()).toBe(true);
+
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      expect(onKeyDown).not.toHaveBeenCalled();
 
       handle.dispose();
 
-      expect(isOnboardingTourActive()).toBe(false);
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      expect(onKeyDown).toHaveBeenCalledTimes(1);
+
+      document.removeEventListener("keydown", onKeyDown);
+      appRoot.remove();
+    });
+
+    it("does not suppress Tab so driver's own focus trap keeps working", () => {
+      const appRoot = withAppRoot();
+      const onKeyDown = vi.fn();
+      document.addEventListener("keydown", onKeyDown);
+
+      const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn() });
+
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+      expect(onKeyDown).toHaveBeenCalledTimes(1);
+
+      handle.dispose();
+      document.removeEventListener("keydown", onKeyDown);
       appRoot.remove();
     });
   });

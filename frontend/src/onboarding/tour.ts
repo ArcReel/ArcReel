@@ -55,20 +55,18 @@ export function anchorSelector(anchor: string): string {
  * （在随后的 `instance.drive()` 里才挂上），因此不会误伤 driver 自身。
  */
 let peripheralElements: Array<[element: HTMLElement, wasInert: boolean]> = [];
-let tourActive = false;
 
 /**
- * 引导是否正在进行中。`inert` 只摘除无障碍树，不注销底层弹窗自己挂在 `document`/
- * `window` 上的全局键盘监听（如 `useEscapeClose`）——那些监听不看谁在无障碍树里，
- * 照样会在按 Esc 时把弹窗关掉，和 driver 自己的 Esc 退出流程互相打架。这些全局
- * 处理器改为查询这里，引导期间让位。
+ * `inert` 摘不掉底层弹窗自己挂在 `document`/`window` 上的全局键盘监听——Esc 关闭、
+ * Enter 提交（如 `ApiKeysTab` 的「新建 API Key」弹窗）这类监听不看谁在无障碍树里，
+ * 引导期间照样会被触发，在遮罩后台悄悄关弹窗、甚至提交表单。逐个让每个监听器自行
+ * 判断引导状态属于挂一漏万，这里改为统一拦截：引导激活期间在 document 的捕获阶段
+ * 拦下所有 `keydown`（`Tab` 除外，放行给 driver 自己的焦点陷阱）。driver 自己的
+ * Esc/方向键处理挂在 `keyup` 而非 `keydown`，不受影响。
  */
-export function isOnboardingTourActive(): boolean {
-  return tourActive;
-}
+let suspendKeyboard: (() => void) | null = null;
 
-function setPeripheralInert(hidden: boolean): void {
-  tourActive = hidden;
+function setPeripheralIsolation(hidden: boolean): void {
   if (hidden) {
     peripheralElements = Array.from(document.body.children)
       .filter((el): el is HTMLElement => el instanceof HTMLElement)
@@ -76,11 +74,20 @@ function setPeripheralInert(hidden: boolean): void {
     peripheralElements.forEach(([el]) => {
       el.inert = true;
     });
+
+    const onKeyDownCapture = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") e.stopPropagation();
+    };
+    document.addEventListener("keydown", onKeyDownCapture, true);
+    suspendKeyboard = () => document.removeEventListener("keydown", onKeyDownCapture, true);
   } else {
     peripheralElements.forEach(([el, wasInert]) => {
       el.inert = wasInert;
     });
     peripheralElements = [];
+
+    suspendKeyboard?.();
+    suspendKeyboard = null;
   }
 }
 
@@ -166,18 +173,18 @@ export function startTour(
       exited = true;
       onExit();
     }
-    setPeripheralInert(false);
+    setPeripheralIsolation(false);
     instance.destroy();
   }
 
-  setPeripheralInert(true);
+  setPeripheralIsolation(true);
   instance.drive(Math.min(Math.max(startIndex, 0), total - 1));
 
   return {
     currentIndex: () => instance.getActiveIndex() ?? 0,
     dispose: () => {
       disposing = true;
-      setPeripheralInert(false);
+      setPeripheralIsolation(false);
       instance.destroy();
     },
   };

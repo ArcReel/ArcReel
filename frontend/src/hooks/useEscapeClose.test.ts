@@ -15,7 +15,7 @@ const LABELS: TourLabels = {
 const ONE_STEP: TourStep[] = [{ anchor: null, title: "欢迎", body: "开场" }];
 
 function pressEscape(): void {
-  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 }
 
 describe("useEscapeClose", () => {
@@ -41,7 +41,7 @@ describe("useEscapeClose", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("defers to the onboarding tour's own Esc handling while it is active", () => {
+  it("is suppressed by the onboarding tour's global keydown isolation while it is active", () => {
     const appRoot = document.createElement("div");
     appRoot.id = "app-root";
     document.body.appendChild(appRoot);
