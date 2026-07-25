@@ -5,15 +5,18 @@
  * 文案，锚点→选择器的映射、按钮文案、皮肤、退出路径收口都在这里一次性给定。后续段落
  * 新增步骤时只写 TourStep，不碰 driver 配置。
  *
- * 锚点约定：`anchor` 为锚点名时映射到 `[data-onboarding="<名字>"]`；为 null 时该步不
- * 高亮任何元素，driver 渲染居中气泡（开场与收尾用这个形态）。
+ * 锚点约定：`anchor` 取自 `anchors.ts` 的注册表，映射到 `[data-onboarding="<名字>"]`；
+ * 为 null 时该步不高亮任何元素，driver 渲染居中气泡（开场与收尾用这个形态）。锚点当下
+ * 不在 DOM 里（跨页导航后目标尚未渲染、或元素被改没了）时，等 `anchorWaitMs` 后降级
+ * 成居中气泡继续讲，不跳步、不中止，同时 `console.warn` 留线索。
  */
 
 import { driver, type Driver, type DriveStep, type PopoverDOM } from "driver.js";
+import type { OnboardingAnchor } from "./anchors";
 
 export interface TourStep {
   /** 锚点名 → `[data-onboarding="…"]`；null = 居中气泡，不高亮元素 */
-  anchor: string | null;
+  anchor: OnboardingAnchor | null;
   title: string;
   body: string;
 }
@@ -38,7 +41,14 @@ export interface TourHandle {
 /** 遮罩墨色 —— body 背景同色系的冷紫墨，而不是 driver 默认纯黑 */
 const OVERLAY_INK = "oklch(0.10 0.012 265)";
 
-export function anchorSelector(anchor: string): string {
+/**
+ * 锚点缺席时的等待上限（毫秒）。driver 在这段时间里挂 MutationObserver 等元素出现，
+ * 等到就正常高亮，等不到就降级居中气泡。够跨页导航后目标组件挂载完，又不至于让用户
+ * 对着空遮罩发呆。
+ */
+export const ANCHOR_WAIT_MS = 1500;
+
+export function anchorSelector(anchor: OnboardingAnchor): string {
   return `[data-onboarding="${anchor}"]`;
 }
 
@@ -117,18 +127,23 @@ function renderProgress(progress: HTMLElement, current: number, total: number, l
  *
  * @param onExit 任一退出路径（跳过 / 关闭 / 走完）都会调用一次；`dispose()` 不调用。
  * @param startIndex 从第几步开始（0 基）。默认 0；重建时传入上一次的 `currentIndex()`。
+ * @param anchorWaitMs 锚点缺席时的等待上限，默认 `ANCHOR_WAIT_MS`。
  */
 export function startTour(
   steps: TourStep[],
   labels: TourLabels,
-  { onExit, startIndex = 0 }: { onExit: () => void; startIndex?: number },
+  {
+    onExit,
+    startIndex = 0,
+    anchorWaitMs = ANCHOR_WAIT_MS,
+  }: { onExit: () => void; startIndex?: number; anchorWaitMs?: number },
 ): TourHandle {
   const total = steps.length;
   let exited = false;
   let disposing = false;
 
   const driveSteps: DriveStep[] = steps.map((step) => ({
-    ...(step.anchor === null ? {} : { element: anchorSelector(step.anchor) }),
+    ...(step.anchor === null ? {} : { element: anchorSelector(step.anchor), data: { anchor: step.anchor } }),
     popover: { title: step.title, description: step.body },
   }));
 
@@ -144,6 +159,10 @@ export function startTour(
     disableActiveInteraction: true,
     showProgress: true,
     showButtons: ["next", "previous", "close"],
+    // 锚点缺席时先等一会儿（driver 内部挂 MutationObserver），超时后不跳过这一步 ——
+    // 讲解本身仍然成立，丢的只是高亮，driver 会退回自己的占位元素、把气泡摆到屏幕中央。
+    waitForElement: anchorWaitMs,
+    skipMissingElement: false,
     nextBtnText: labels.next,
     prevBtnText: labels.prev,
     doneBtnText: labels.done,
@@ -152,6 +171,14 @@ export function startTour(
       popover.closeButton.setAttribute("aria-label", labels.close);
       renderProgress(popover.progress, current, total, labels.progress(current + 1, total));
       decorateSkip(popover, instance.isLastStep(), labels.skip);
+    },
+    // 高亮到的元素是 driver 的占位元素时，回调收到的 element 是 undefined。步骤本来就
+    // 声明了锚点却落到这里，说明锚点在页面上找不到 —— 降级已经发生，这里只负责留线索。
+    onHighlightStarted: (element, step) => {
+      const anchor = step.data?.anchor as OnboardingAnchor | undefined;
+      if (anchor && !element) {
+        console.warn(`[onboarding] anchor "${anchor}" not found; falling back to a centered popover`);
+      }
     },
     // 退出全部收口到这里，而不是 driver 的 onDestroyed。后者只在 driver 内部把高亮元素
     // 写进 state 之后才会触发，而那次写入排在 requestAnimationFrame 里 —— 同步 destroy

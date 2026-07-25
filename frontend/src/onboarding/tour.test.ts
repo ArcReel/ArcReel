@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ONBOARDING_ANCHORS } from "./anchors";
 import { anchorSelector, startTour, type TourLabels, type TourStep } from "./tour";
 
 const LABELS: TourLabels = {
@@ -29,7 +30,9 @@ function click(selector: string): void {
 
 describe("anchorSelector", () => {
   it("maps an anchor name to its data-onboarding selector", () => {
-    expect(anchorSelector("new-project")).toBe('[data-onboarding="new-project"]');
+    expect(anchorSelector(ONBOARDING_ANCHORS.lobbyCreateProject)).toBe(
+      '[data-onboarding="lobby-create-project"]',
+    );
   });
 });
 
@@ -63,17 +66,39 @@ describe("startTour", () => {
 
   it("uses the anchor's element when an anchor name is given", () => {
     const target = document.createElement("div");
-    target.setAttribute("data-onboarding", "new-project");
+    target.setAttribute("data-onboarding", ONBOARDING_ANCHORS.lobbyCreateProject);
     document.body.appendChild(target);
 
-    const handle = startTour([{ anchor: "new-project", title: "入口", body: "在这里新建" }], LABELS, {
-      onExit: vi.fn(),
-    });
+    const handle = startTour(
+      [{ anchor: ONBOARDING_ANCHORS.lobbyCreateProject, title: "入口", body: "在这里新建" }],
+      LABELS,
+      { onExit: vi.fn() },
+    );
 
     expect(target.classList.contains("driver-active-element")).toBe(true);
 
     handle.dispose();
     target.remove();
+  });
+
+  it("falls back to a centered popover when the anchor is missing, and warns", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const handle = startTour(
+      [{ anchor: ONBOARDING_ANCHORS.lobbyDemoCard, title: "演示卡", body: "长这样" }],
+      LABELS,
+      // 等待窗口压到最短：真实值给的是跨页导航的余量，这里只想看超时之后的降级
+      { onExit: vi.fn(), anchorWaitMs: 10 },
+    );
+
+    await vi.waitFor(() => {
+      expect(document.querySelector(".driver-popover-title")?.textContent).toBe("演示卡");
+    });
+    // 讲解照常进行，丢的只是高亮 —— driver 顶上自己的占位元素，气泡回到屏幕中央
+    expect(document.querySelector(".driver-active-element")?.id).toBe("driver-dummy-element");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(ONBOARDING_ANCHORS.lobbyDemoCard));
+
+    handle.dispose();
+    warn.mockRestore();
   });
 
   it("renders one filmstrip cell per step, filled up to the current step", () => {
