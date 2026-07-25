@@ -6,6 +6,7 @@ import i18n from "@/i18n";
 import { API } from "@/api";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
+import { ONBOARDING_ANCHORS } from "./anchors";
 import { OnboardingTour } from "./OnboardingTour";
 
 function renderAt(path: string) {
@@ -183,18 +184,44 @@ describe("OnboardingTour", () => {
 
   it("keeps its place when the interface language changes mid-tour", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+    // 第 2 步指向大厅的「新建项目」按钮。这里只渲染引导挂载点、没有大厅，补一个锚点
+    // 元素，测的才是保位而不是锚点缺席时的降级。
+    const anchor = document.createElement("button");
+    anchor.setAttribute("data-onboarding", ONBOARDING_ANCHORS.lobbyCreateProject);
+    document.body.appendChild(anchor);
 
     renderAt("/app/projects");
     await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
     document.querySelector<HTMLElement>(".driver-popover-next-btn")?.click();
-    expect(popoverTitle()).toBe("轮到你了");
+    expect(popoverTitle()).toBe("从这里新建项目");
 
     await act(async () => {
       await i18n.changeLanguage("en");
     });
 
-    await waitFor(() => expect(popoverTitle()).toBe("Your turn"));
+    await waitFor(() => expect(popoverTitle()).toBe("Start a project here"));
     expect(API.markOnboardingSeen).not.toHaveBeenCalled();
+    anchor.remove();
+  });
+
+  it("navigates to the lobby before running the tour when replayed from another main-UI route", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: true });
+
+    // 欢迎步骤本身 anchor 为 null、居中显示，跳没跳转它都会出现——单看气泡标题测
+    // 不出跳转是否真的发生了，需要 `record: true` 记录的导航历史直接断言落点。
+    const { hook, history } = memoryLocation({ path: "/app/settings", record: true });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(API.getOnboardingStatus).toHaveBeenCalled());
+    expect(popoverTitle()).toBeNull();
+
+    act(() => useOnboardingStore.getState().start());
+
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+    expect(history.at(-1)).toBe("/app/projects");
   });
 
   it("takes the tour down when the user navigates back to the login page mid-tour", async () => {

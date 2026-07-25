@@ -2,12 +2,14 @@
  * 引导挂载点 —— 挂在路由根，跨页面导航存活，自身不渲染任何 DOM（气泡与遮罩由
  * driver.js 挂到 body 上）。
  *
- * 三件事：
+ * 四件事：
  * 1. 进入主界面后查一次「是否已看过」（auth 开启 = 登录成功后；匿名 = auth status 放行
  *    后，两种情形都由 `isAuthenticated` 统一表达）。登录页不掺和。
  * 2. 未看过则自动开一次。
- * 3. store 里 active 为真时驱动 driver.js —— 自动首弹与设置页「重看引导」共用这条路径，
- *    组件本身不区分二者。
+ * 3. 开启但当前不在大厅（如设置页点「重看引导」、或深链接直落其它主界面路由）时先
+ *    导航到大厅——当前步骤大纲的锚点全部落在大厅，其它页面上没有可高亮的目标。
+ * 4. store 里 active 为真且已在大厅时驱动 driver.js —— 自动首弹与设置页「重看引导」
+ *    共用这条路径，组件本身不区分二者。
  */
 
 import { useEffect, useRef } from "react";
@@ -15,14 +17,14 @@ import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
-import { APP_PROJECT_WORKSPACE_PATTERN, APP_TOP_LEVEL_ROUTES } from "@/app-routes";
+import { APP_PROJECT_WORKSPACE_PATTERN, APP_TOP_LEVEL_ROUTES, ROUTE_APP_PROJECTS } from "@/app-routes";
 import { buildTourSteps } from "./steps";
 import { startTour, type TourLabels } from "./tour";
 
 export function OnboardingTour() {
   const { t } = useTranslation("onboarding");
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const seen = useOnboardingStore((s) => s.seen);
   const active = useOnboardingStore((s) => s.active);
 
@@ -40,6 +42,16 @@ export function OnboardingTour() {
     (normalizedLocation === "/" ||
       (APP_TOP_LEVEL_ROUTES as readonly string[]).includes(normalizedLocation) ||
       APP_PROJECT_WORKSPACE_PATTERN.test(normalizedLocation));
+  // 当前步骤大纲的锚点全部落在大厅（ROUTE_APP_PROJECTS）——「重看引导」在设置页
+  // 等其它主界面路由触发时，driver.js 找不到锚点只会退化居中，不会自动跳转。
+  // 后续段落若在设置页/工作台新增带锚点的步骤，需按步骤索引扩展这里的路由判定。
+  const atLobby = normalizedLocation === ROUTE_APP_PROJECTS;
+
+  // 0. 引导开启但不在大厅——先导航过去，锚点才能挂载
+  useEffect(() => {
+    if (!active || atLobby || !inMainUi) return;
+    navigate(ROUTE_APP_PROJECTS);
+  }, [active, atLobby, inMainUi, navigate]);
 
   // 1. 查询「是否已看过」
   useEffect(() => {
@@ -61,9 +73,9 @@ export function OnboardingTour() {
   // 重建走 `dispose()` —— 不记退出 —— 并把停留的步号带过去，讲到第几步就还在第几步。
   const stepIndexRef = useRef(0);
   useEffect(() => {
-    // 离开主界面（如运行期间浏览器后退回登录页）时收起正在运行的引导——不算一次
-    // 退出（不记 seen），保留步号，回到主界面后从原位继续。
-    if (!active || !inMainUi) {
+    // 离开主界面（如运行期间浏览器后退回登录页）或尚未导航到大厅时收起正在运行的
+    // 引导——不算一次退出（不记 seen），保留步号，回到大厅后从原位继续。
+    if (!active || !atLobby) {
       if (!active) stepIndexRef.current = 0;
       return;
     }
@@ -83,7 +95,7 @@ export function OnboardingTour() {
       stepIndexRef.current = handle.currentIndex();
       handle.dispose();
     };
-  }, [active, inMainUi, t]);
+  }, [active, atLobby, t]);
 
   return null;
 }
