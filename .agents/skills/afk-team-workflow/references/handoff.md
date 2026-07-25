@@ -27,6 +27,6 @@ follow-up 候选只记不立项：`gh issue create` 的立项权在 team-lead（
 
 ### 审查循环（review-looper 追加）
 
-- pushback 在案清单（驳回内容与依据）；防御性意见的依据写成可达性判断——守的是哪条路径、谁能触发它，实施与驳回都记
+- pushback 在案清单（驳回内容与依据）；防御性意见的依据写成可达性说明：这条防御要防的是哪条路径、什么输入会触发它，实施与驳回都要记
 - 复盘候选全文：过程总结 + 按 /pr-ai-review-loop 的 retrospective.md 四类（ADR / CONTEXT.md / CLAUDE.md / follow-up）
 - 故障记录（如有）

@@ -65,10 +65,10 @@ bash .agents/skills/pr-ai-review-loop/scripts/query.sh <PR_NUMBER> <子命令>
 
 GitHub code scanning 两家(quality / security)的评论一并转交,处置口径(全部 actionable、修复与 pushback 落点)见 reviewers.md「GitHub code scanning bots」节。
 
-**修复形状**:下面两条随评论批次一起交进去,覆盖 `receiving-code-review` 的 "one item at a time"——逐条实施会把一批意见摊成一批零散改动,让代码更难改(不 ETC)。
+**修复形状**:调用时把下面两条作为约束一并传入,与 `receiving-code-review` 逐条实施的要求冲突时以本节为准——逐条实施会把一批意见变成一批分散的小改动,累积下来持续降低代码的可修改性(ETC)。
 
-- **YAGNI**——防御性意见(加检查 / 兜底 / try-except / 默认值 / 空值分支):**这条防御守的失败路径,能指出一个具体的调用方或输入让它发生吗?** 指得出就实施,指不出就回评驳回、代码不动。两种结论都留一句话写清守的是哪条路径:驳回写进回评,实施写进 commit 说明。`receiving-code-review` 的 `YAGNI Check` 只判静态未被调用,这条是运行时版
-- **Duplicated Code**——**这批意见里有几条指向同一处逻辑或同一个根因?** ≥2 条收敛成一处改动,落在已有抽象里
+- **YAGNI**:对防御性意见(新增检查、兜底、try-except、默认值、空值分支),先确认它要防的失败路径是否真实存在,即能否指出一个具体的调用方或输入触发它。能指出就实施;不能指出就回复评论说明理由,不修改代码。两种处置都要用一句话记录这条路径:驳回的写在回复评论里,实施的写在 commit 说明里。`receiving-code-review` 的 `YAGNI Check` 一节检查的是静态未被调用的代码,这里检查的是运行时不可达的分支
+- **Duplicated Code**:先确认这批意见中有几条指向同一处逻辑或同一个根因。有两条以上时,在已有抽象内合并为一处改动
 
 `receiving-code-review` 调用完成后回到步骤 1。
 
@@ -89,7 +89,7 @@ GitHub code scanning 两家(quality / security)的评论一并转交,处置口�
 下列任一条件触发退出:
 
 1. `round_estimate` ≥ 5 → 暂停询问"已 5 轮,merge / 继续 / 放弃?"
-2. 连续 2 轮 push 无一条改变用户可感知行为(跑 `classify_commits.sh` 看最近两批;内部防御、风格调整、局部健壮性都算不可感知)→ 暂停询问"边际收益已降低,是否结束?"。口径与 fix-up 顺延的五类不同轴——本条数用户收益,那边数重审风险
+2. 连续 2 轮 push 都没有改变用户可感知的行为(跑 `classify_commits.sh` 看最近两批;内部防御、风格调整、局部健壮性都属于不可感知)→ 暂停询问"边际收益已降低,是否结束?"。本条判断的是用户收益,fix-up 顺延的五类形状判断的是重审风险,两处口径不通用
 3. 同一主题(reviewer + 关键词,例如 "Pydantic `extra=ignore` vs `forbid`")被同一家 reviewer 在 ≥ 3 个 HEAD 上反复提出,且无 ADR / memory 兜底 → 暂停询问是否升级 ADR。新评论似曾相识时跑 `query.sh <PR> history` 通读评论历史,按语义归并主题,数同一主题出现在几个 HEAD 上
 4. 目标状态全部达成 → 正常退出,按 [references/retrospective.md](references/retrospective.md) 产出复盘随汇报交出(何种出口产复盘以该文件开篇为准)
 

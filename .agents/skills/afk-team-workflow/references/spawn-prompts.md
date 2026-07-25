@@ -52,7 +52,7 @@ task 文本模板（启动命令与前置的 worktree 建法见 SKILL.md「实�
 达标或遇到契约规定的请示场景时，SendMessage 给 team-lead（to 一律填 team-lead，不要用 main）。
 ```
 
-> model 在 spawn 这一刻按本 PR 的实际情况定（PR、diff、handoff 两段都在手上），选择理由 append 账本 `decision`。
+> model 在 spawn 时按本 PR 的实际情况选定——此时 PR、diff 与 handoff 的两段都已具备，比批次计划阶段的信息更完整；选择理由 append 账本 `decision`。
 
 ## 替补接管附言
 

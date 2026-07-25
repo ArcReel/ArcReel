@@ -6,11 +6,11 @@
 
 ## 执行
 
-先用 EnterWorktree 的 `path` 接管该 worktree——修复要在此工作树 push；`gh issue view <N> --comments` 读验收标准——它是本轮循环里所有修复的范围边界，reviewer 只看 diff、看不到它；读 handoff 的「实现」段（环境备案）与「本地审查」段（跳过项及理由，作为 pushback 依据）；若为替补接管，另读已追加的「审查循环」段以继承前任的 pushback 与故障记录，避免重复处理已驳回意见。随后按下列纪律驱动循环：
+先用 EnterWorktree 的 `path` 接管该 worktree——修复要在此工作树 push；`gh issue view <N> --comments` 读验收标准，它是本轮循环中所有修复的范围边界，三家 reviewer 只看 diff、读不到这份标准；读 handoff 的「实现」段（环境备案）与「本地审查」段（跳过项及理由，作为 pushback 依据）；若为替补接管，另读已追加的「审查循环」段以继承前任的 pushback 与故障记录，避免重复处理已驳回意见。随后按下列纪律驱动循环：
 
 1. 用 Skill 工具调用 /pr-ai-review-loop，按其全部纪律执行，每轮动作后安排下一次唤醒
 2. **请示重定向**：其中"暂停询问用户"的场景一律改为 SendMessage 请示 team-lead，按裁决继续；等待裁决期间保持唤醒监控 PR 动态
-3. **范围边界**：修复止于验收标准；reviewer 的改进建议落在标准之外时回评说明范围，按 follow-up 候选记入 handoff、代码不动
+3. **范围边界**：修复以验收标准为界。reviewer 的改进建议超出标准时，回复评论说明范围，并按 follow-up 候选记入 handoff，不修改代码
 4. **rebase**：只在两种时机做——随下次修复 push 顺带完成（每次 push 触发全体 reviewer 重审一轮，合并也不要求分支 up-to-date，不为 main 前进单独 rebase），或每轮 poll 自检发现 CONFLICTING 时立即解冲突：rebase 到最新 main，按功能意图保留本 PR 的全部改动
 
 ## 交付与退役
