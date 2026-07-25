@@ -1,6 +1,16 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
 import { Route, Switch, Redirect } from "wouter";
+import {
+  WORKSPACE_ROUTE_LOREBOOK,
+  WORKSPACE_ROUTE_CLUES,
+  WORKSPACE_ROUTE_SOURCE,
+  WORKSPACE_ROUTE_CHARACTERS,
+  WORKSPACE_ROUTE_SCENES,
+  WORKSPACE_ROUTE_PROPS,
+  WORKSPACE_ROUTE_PRODUCTS,
+  WORKSPACE_ROUTE_EPISODES,
+} from "@/app-routes";
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
@@ -515,19 +525,19 @@ export function StudioCanvasRouter() {
         />
       </Route>
 
-      <Route path="/lorebook">
-        <Redirect to="/characters" />
+      <Route path={`/${WORKSPACE_ROUTE_LOREBOOK}`}>
+        <Redirect to={`/${WORKSPACE_ROUTE_CHARACTERS}`} />
       </Route>
 
-      <Route path="/clues">
-        <Redirect to="/scenes" />
+      <Route path={`/${WORKSPACE_ROUTE_CLUES}`}>
+        <Redirect to={`/${WORKSPACE_ROUTE_SCENES}`} />
       </Route>
 
-      <Route path="/source">
+      <Route path={`/${WORKSPACE_ROUTE_SOURCE}`}>
         <SourceFilesPage projectName={currentProjectName} />
       </Route>
 
-      <Route path="/characters">
+      <Route path={`/${WORKSPACE_ROUTE_CHARACTERS}`}>
         <CharactersPage
           projectName={currentProjectName}
           characters={currentProjectData?.characters ?? {}}
@@ -540,7 +550,7 @@ export function StudioCanvasRouter() {
         />
       </Route>
 
-      <Route path="/scenes">
+      <Route path={`/${WORKSPACE_ROUTE_SCENES}`}>
         <ScenesPage
           projectName={currentProjectName}
           scenes={currentProjectData?.scenes ?? {}}
@@ -553,7 +563,7 @@ export function StudioCanvasRouter() {
         />
       </Route>
 
-      <Route path="/props">
+      <Route path={`/${WORKSPACE_ROUTE_PROPS}`}>
         <PropsPage
           projectName={currentProjectName}
           props={currentProjectData?.props ?? {}}
@@ -566,7 +576,7 @@ export function StudioCanvasRouter() {
         />
       </Route>
 
-      <Route path="/products">
+      <Route path={`/${WORKSPACE_ROUTE_PRODUCTS}`}>
         <ProductsPage
           projectName={currentProjectName}
           products={currentProjectData?.products ?? {}}
@@ -579,7 +589,7 @@ export function StudioCanvasRouter() {
         />
       </Route>
 
-      <Route path="/source/:filename">
+      <Route path={`/${WORKSPACE_ROUTE_SOURCE}/:filename`}>
         {(params) => (
           <SourceFileViewer
             projectName={currentProjectName}
@@ -588,7 +598,7 @@ export function StudioCanvasRouter() {
         )}
       </Route>
 
-      <Route path="/episodes/:episodeId">
+      <Route path={`/${WORKSPACE_ROUTE_EPISODES}/:episodeId`}>
         {(params) => {
           const epNum = parseInt(params.episodeId, 10);
           const episode = currentProjectData?.episodes?.find((e) => e.episode === epNum);

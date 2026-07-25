@@ -19,7 +19,13 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import { ROUTE_APP, ROUTE_APP_ASSETS, ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS } from "@/app-routes";
+import {
+  ROUTE_APP,
+  ROUTE_APP_ASSETS,
+  ROUTE_APP_PROJECTS,
+  ROUTE_APP_SETTINGS,
+  WORKSPACE_ROUTE_SETTINGS,
+} from "@/app-routes";
 
 // ---------------------------------------------------------------------------
 // ConfigStatusLoader — 登录后集中拉取一次配置完整性状态
@@ -186,7 +192,7 @@ export function AppRoutes() {
         </Route>
 
         {/* Project settings — full-screen, must be before the nested workspace route */}
-        <Route path={`${ROUTE_APP_PROJECTS}/:projectName/settings`}>
+        <Route path={`${ROUTE_APP_PROJECTS}/:projectName/${WORKSPACE_ROUTE_SETTINGS}`}>
           <AuthGuard>
             <ProjectSettingsPage />
           </AuthGuard>

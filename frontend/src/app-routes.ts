@@ -12,6 +12,32 @@ export const ROUTE_APP_ASSETS = "/app/assets";
 export const APP_TOP_LEVEL_ROUTES = [ROUTE_APP, ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS, ROUTE_APP_ASSETS] as const;
 
 /**
+ * `/app/projects/:projectName` 下的路由段常量——`router.tsx`（项目设置页）与
+ * `StudioCanvasRouter`（内层 `<Switch>`）的 `<Route path>` 都从这里取值，
+ * `APP_PROJECT_WORKSPACE_PATTERN` 同样由它们拼出，新增/改名路由只需改这一处。
+ */
+export const WORKSPACE_ROUTE_SETTINGS = "settings";
+export const WORKSPACE_ROUTE_LOREBOOK = "lorebook";
+export const WORKSPACE_ROUTE_CLUES = "clues";
+export const WORKSPACE_ROUTE_SOURCE = "source";
+export const WORKSPACE_ROUTE_CHARACTERS = "characters";
+export const WORKSPACE_ROUTE_SCENES = "scenes";
+export const WORKSPACE_ROUTE_PROPS = "props";
+export const WORKSPACE_ROUTE_PRODUCTS = "products";
+export const WORKSPACE_ROUTE_EPISODES = "episodes";
+
+/** 无子路径、直接匹配的工作区叶子路由段。 */
+const WORKSPACE_STATIC_LEAF_ROUTES = [
+  WORKSPACE_ROUTE_SETTINGS,
+  WORKSPACE_ROUTE_LOREBOOK,
+  WORKSPACE_ROUTE_CLUES,
+  WORKSPACE_ROUTE_CHARACTERS,
+  WORKSPACE_ROUTE_SCENES,
+  WORKSPACE_ROUTE_PROPS,
+  WORKSPACE_ROUTE_PRODUCTS,
+] as const;
+
+/**
  * `/app/projects/:projectName` 下真正有路由承接的子路径——`.../settings`
  * 是 router.tsx 里独立注册的 `ProjectSettingsPage` 全屏路由；其余是
  * `StudioCanvasRouter`（nest 路由）内层 `<Switch>` 实际注册的路由集合。
@@ -19,5 +45,5 @@ export const APP_TOP_LEVEL_ROUTES = [ROUTE_APP, ROUTE_APP_PROJECTS, ROUTE_APP_SE
  * `/app/projects/` 前缀放行，需要按这份路由表精确匹配。
  */
 export const APP_PROJECT_WORKSPACE_PATTERN = new RegExp(
-  `^${ROUTE_APP_PROJECTS}/[^/]+(/(?:settings|lorebook|clues|source(?:/[^/]+)?|characters|scenes|props|products|episodes/[^/]+))?$`,
+  `^${ROUTE_APP_PROJECTS}/[^/]+(/(?:${WORKSPACE_STATIC_LEAF_ROUTES.join("|")}|${WORKSPACE_ROUTE_SOURCE}/[^/]+|${WORKSPACE_ROUTE_EPISODES}/[^/]+))?$`,
 );
