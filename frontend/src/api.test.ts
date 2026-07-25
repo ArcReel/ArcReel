@@ -224,7 +224,7 @@ describe("API", () => {
         method: "POST",
         body: JSON.stringify({ title: "Untitled" }),
       });
-      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b");
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b", { signal: undefined });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo", {
         method: "PATCH",
         body: JSON.stringify({ style: "Anime" }),

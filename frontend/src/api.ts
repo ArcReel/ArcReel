@@ -456,13 +456,14 @@ class API {
   }
 
   static async getProject(
-    name: string
+    name: string,
+    options: { signal?: AbortSignal } = {}
   ): Promise<{
     project: ProjectData;
     scripts: Record<string, EpisodeScript>;
     asset_fingerprints?: Record<string, number>;
   }> {
-    return this.request(`/projects/${encodeURIComponent(name)}`);
+    return this.request(`/projects/${encodeURIComponent(name)}`, { signal: options.signal });
   }
 
   static async updateProject(
@@ -1024,8 +1025,9 @@ class API {
     path: string,
     cacheBust?: number | string | null
   ): string {
-    // 已经是自带协议的地址（引导演示的内联 SVG 占位图走 data:）直接用，不要再包一层项目路径
-    if (/^(data:|blob:|https?:)/.test(path)) {
+    // 引导演示的占位图是现算的内联 SVG（data: URI），直接用，不要再包一层项目路径。
+    // 只放行 data: —— 目前没有第二种自带协议的图源，多放行的协议只是没人用的入口。
+    if (path.startsWith("data:")) {
       return path;
     }
     const base = `${API_BASE}/files/${encodeURIComponent(projectName)}/${path}`;

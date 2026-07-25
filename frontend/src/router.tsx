@@ -111,11 +111,12 @@ function StudioWorkspace() {
   const { setCurrentProject, setProjectDetailLoading } = useProjectsStore();
   const { t } = useTranslation("onboarding");
 
+  // 项目生命周期：清空上一个项目的 assistant 状态，再按项目类型取数据。
+  // 依赖里不含 `t` —— 界面语言变化只该重灌演示常量（见下一个 effect），不该让真实项目
+  // 整条加载重跑（会先清空 store 闪一次空态，还会连带清掉助手会话状态）。
   useEffect(() => {
     if (!projectName) return;
-    let cancelled = false;
 
-    // 清空上一个项目的 assistant 状态，确保会话隔离
     const assistantState = useAssistantStore.getState();
     assistantState.setSessions([]);
     assistantState.setCurrentSessionId(null);
@@ -124,10 +125,9 @@ function StudioWorkspace() {
     assistantState.setIsDraftSession(false);
 
     // 引导演示项目在磁盘上并不存在：数据直接来自前端常量，不发请求，并在这段生命周期内
-    // 锁死写请求。切语言时 t 变化会重新灌一遍，演示内容随界面语言走。
+    // 锁死写请求。数据本身由下一个 effect 灌入。
     if (isDemoProject(projectName)) {
       setApiReadOnly(true);
-      setCurrentProject(projectName, buildDemoProjectData(t), buildDemoScripts(t));
       setProjectDetailLoading(false);
       return () => {
         setApiReadOnly(false);
@@ -138,27 +138,33 @@ function StudioWorkspace() {
     // 进真实项目一律解锁，不让上一次演示的闸门残留下来
     setApiReadOnly(false);
     setProjectDetailLoading(true);
-    API.getProject(projectName)
+    const controller = new AbortController();
+    API.getProject(projectName, { signal: controller.signal })
       .then((res) => {
-        if (!cancelled) {
-          setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
-        }
+        if (controller.signal.aborted) return;
+        setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
       })
       .catch(() => {
         // Still set the project name so the UI shows something
-        if (!cancelled) {
-          setCurrentProject(projectName, null);
-        }
+        if (controller.signal.aborted) return;
+        setCurrentProject(projectName, null);
       })
       .finally(() => {
-        if (!cancelled) setProjectDetailLoading(false);
+        // 已被接管方作废时不动共享状态，否则会踩到新一轮加载
+        if (!controller.signal.aborted) setProjectDetailLoading(false);
       });
 
     return () => {
-      cancelled = true;
+      controller.abort();
       setCurrentProject(null, null);
     };
-  }, [projectName, setCurrentProject, setProjectDetailLoading, t]);
+  }, [projectName, setCurrentProject, setProjectDetailLoading]);
+
+  // 演示数据随界面语言走：`t` 换身份时重灌一遍常量，只影响演示项目
+  useEffect(() => {
+    if (!projectName || !isDemoProject(projectName)) return;
+    setCurrentProject(projectName, buildDemoProjectData(t), buildDemoScripts(t));
+  }, [projectName, setCurrentProject, t]);
 
   return (
     <StudioLayout>

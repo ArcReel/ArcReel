@@ -1,5 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
+import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
@@ -105,7 +107,7 @@ describe("AppRoutes", () => {
     expect(await screen.findByTestId("studio-layout")).toBeInTheDocument();
     expect(await screen.findByTestId("studio-canvas-router")).toBeInTheDocument();
     await waitFor(() => {
-      expect(API.getProject).toHaveBeenCalledWith("demo");
+      expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
     });
 
     const assistant = useAssistantStore.getState();
@@ -126,6 +128,75 @@ describe("AppRoutes", () => {
     view.unmount();
     expect(useProjectsStore.getState().currentProjectName).toBeNull();
     expect(useProjectsStore.getState().currentProjectData).toBeNull();
+  });
+
+  it("切换界面语言不重跑真实项目的加载", async () => {
+    // 回归：演示项目的常量随 `t` 重灌，但这条依赖不能落到真实项目的加载 effect 上——
+    // 否则切语言会先清空 store 闪一次空态，还连带清掉助手会话状态。
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo Project",
+        content_mode: "narration",
+      } as never,
+      scripts: {},
+    });
+
+    renderAt("/app/projects/demo");
+    await waitFor(() => {
+      expect(useProjectsStore.getState().currentProjectData?.title).toBe("Demo Project");
+    });
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    expect(API.getProject).toHaveBeenCalledTimes(1);
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("Demo Project");
+
+    await act(async () => {
+      await i18n.changeLanguage("zh");
+    });
+  });
+
+  it("演示项目不发请求，数据随界面语言重灌", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({ project: {} as never, scripts: {} });
+
+    const view = renderAt(`/app/projects/${DEMO_PROJECT_NAME}`);
+    await waitFor(() => {
+      expect(useProjectsStore.getState().currentProjectName).toBe(DEMO_PROJECT_NAME);
+      expect(useProjectsStore.getState().currentProjectData).not.toBeNull();
+    });
+    expect(API.getProject).not.toHaveBeenCalled();
+
+    const zhTitle = useProjectsStore.getState().currentProjectData?.title;
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+    const enTitle = useProjectsStore.getState().currentProjectData?.title;
+    expect(enTitle).not.toBe(zhTitle);
+
+    await act(async () => {
+      await i18n.changeLanguage("zh");
+    });
+    view.unmount();
+    expect(useProjectsStore.getState().currentProjectName).toBeNull();
+  });
+
+  it("离开项目会中止在途的详情请求", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    vi.spyOn(API, "getProject").mockImplementation((_name, options) => {
+      capturedSignal = options?.signal;
+      return new Promise(() => {
+        // 永不 settle：模拟一条还挂在网络上的请求
+      });
+    });
+
+    const view = renderAt("/app/projects/demo");
+    await waitFor(() => expect(capturedSignal).toBeDefined());
+    expect(capturedSignal?.aborted).toBe(false);
+
+    view.unmount();
+    expect(capturedSignal?.aborted).toBe(true);
   });
 
   it("keeps project name when loading project details fails", async () => {
