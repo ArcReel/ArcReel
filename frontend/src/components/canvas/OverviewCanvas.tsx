@@ -18,6 +18,8 @@ import { AgentHandoffHint } from "@/components/copilot/AgentHandoffHint";
 interface OverviewCanvasProps {
   projectName: string;
   projectData: ProjectData | null;
+  /** 只读展示（引导演示项目）：不渲染编辑与重新生成入口。 */
+  readOnly?: boolean;
 }
 
 const CARD_BG =
@@ -39,7 +41,11 @@ interface OverviewDraft {
   world_setting: string;
 }
 
-export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps) {
+export function OverviewCanvas({
+  projectName,
+  projectData,
+  readOnly = false,
+}: OverviewCanvasProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const tRef = useRef(t);
   tRef.current = t;
@@ -295,7 +301,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                   {t("project_overview_title")}
                 </span>
                 <div className="flex-1" />
-                {!editingOverview && (
+                {!editingOverview && !readOnly && (
                   <>
                     <button
                       type="button"
@@ -458,7 +464,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                     </div>
                   )}
                 </>
-              ) : (
+              ) : readOnly ? null : (
                 <button
                   type="button"
                   onClick={enterOverviewEdit}

@@ -13,6 +13,8 @@ interface DropdownPillProps<T extends string> {
   label?: string;
   className?: string;
   renderOption?: (value: T) => ReactNode;
+  /** 只读展示：仍显示当前取值，但不能展开选项。 */
+  disabled?: boolean;
 }
 
 export function DropdownPill<T extends string>({
@@ -22,6 +24,7 @@ export function DropdownPill<T extends string>({
   label,
   className,
   renderOption,
+  disabled,
 }: DropdownPillProps<T>) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -33,7 +36,8 @@ export function DropdownPill<T extends string>({
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="focus-ring inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs transition-colors"
+        disabled={disabled}
+        className="focus-ring inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs transition-colors disabled:cursor-default"
         style={{
           background: "oklch(0.225 0.003 285 / 0.55)",
           border: "1px solid var(--color-hairline-soft)",
@@ -50,7 +54,10 @@ export function DropdownPill<T extends string>({
       >
         {label && <span style={{ color: "var(--color-text-4)" }}>{label}</span>}
         <span>{display(value)}</span>
-        <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
+        {/* 只读态不画展开箭头：留着会暗示一个点不开的下拉 */}
+        {!disabled && (
+          <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
+        )}
       </button>
 
       {/* Options popover */}

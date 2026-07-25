@@ -26,6 +26,8 @@ interface SceneCardProps {
   onRestoreVersion?: () => void | Promise<void>;
   onReload?: () => void | Promise<unknown>;
   generating?: boolean;
+  /** 只读展示（引导演示项目）：不渲染上传 / 编辑 / 入库 / 版本 / 生成入口，文本字段只读。 */
+  readOnly?: boolean;
 }
 
 const FIELD_STYLE: React.CSSProperties = {
@@ -49,6 +51,7 @@ export function SceneCard({
   onRestoreVersion,
   onReload,
   generating = false,
+  readOnly = false,
 }: SceneCardProps) {
   const { t } = useTranslation(["dashboard", "assets"]);
   const sheetFp = useProjectsStore(
@@ -162,6 +165,7 @@ export function SceneCard({
         >
           {name}
         </h3>
+        {readOnly ? null : (
         <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"
@@ -207,6 +211,7 @@ export function SceneCard({
             busy={generating || uploadingSheet}
           />
         </div>
+        )}
       </div>
 
       {/* ---- Image area ---- */}
@@ -250,13 +255,14 @@ export function SceneCard({
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         onInput={autoResize}
+        readOnly={readOnly}
         rows={2}
         className="focus-ring mt-1.5 mb-3 w-full resize-none overflow-hidden rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow]"
         style={FIELD_STYLE}
         placeholder={t("scene_desc_placeholder")}
       />
 
-      {isDirty && (
+      {isDirty && !readOnly && (
         <button
           type="button"
           onClick={handleSave}
@@ -273,12 +279,14 @@ export function SceneCard({
         </button>
       )}
 
-      <GenerateButton
-        onClick={() => onGenerate(name)}
-        loading={generating}
-        label={scene.scene_sheet ? t("regenerate_design") : t("generate_design")}
-        className="w-full justify-center"
-      />
+      {readOnly ? null : (
+        <GenerateButton
+          onClick={() => onGenerate(name)}
+          loading={generating}
+          label={scene.scene_sheet ? t("regenerate_design") : t("generate_design")}
+          className="w-full justify-center"
+        />
+      )}
     </div>
   );
 }

@@ -11,6 +11,8 @@ import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
 import { TaskFailureListener } from "./TaskFailureListener";
 import { ScriptGenerationNoticeListener } from "./ScriptGenerationNoticeListener";
 import { useProjectsStore } from "@/stores/projects-store";
+import { DemoReadOnlyBanner } from "@/onboarding/DemoReadOnlyBanner";
+import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import {
   ASSISTANT_PANEL_DEFAULT_WIDTH,
   clampAssistantPanelWidth,
@@ -29,6 +31,8 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   const { t } = useTranslation("dashboard");
   const [, setLocation] = useLocation();
   const currentProjectName = useProjectsStore((s) => s.currentProjectName);
+  // 演示项目在后端不存在：任务 / 项目事件流和助手都是真实写路径，演示态下整条都不接
+  const demoMode = useDemoWorkbench();
   const assistantPanelOpen = useAppStore((s) => s.assistantPanelOpen);
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
   const assistantPanelWidth = useAppStore((s) => s.assistantPanelWidth);
@@ -56,8 +60,9 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     setDraftWidth(next);
   }, []);
 
-  useTasksSSE(currentProjectName);
-  useProjectEventsSSE(currentProjectName);
+  const sseProjectName = demoMode ? null : currentProjectName;
+  useTasksSSE(sseProjectName);
+  useProjectEventsSSE(sseProjectName);
 
   const restoreBodyStyle = useCallback(() => {
     const saved = restoreBodyStyleRef.current;
@@ -147,14 +152,17 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       className="flex h-screen flex-col"
       style={{ color: "var(--color-text)" }}
     >
-      <TaskFailureListener projectName={currentProjectName} />
+      <TaskFailureListener projectName={sseProjectName} />
       <ScriptGenerationNoticeListener />
       <GlobalHeader onNavigateBack={() => setLocation("~/app/projects")} />
+      {demoMode ? <DemoReadOnlyBanner /> : null}
       <div className="flex flex-1 overflow-hidden">
         <AssetSidebar />
         <main className="flex-1 overflow-hidden">
           {children}
         </main>
+        {/* 助手是真实的写路径（建会话、跑工具），演示态下整块不挂载 */}
+        {demoMode ? null : (
         <div
           className={`relative shrink-0 overflow-hidden ${
             isResizing
@@ -190,9 +198,11 @@ export function StudioLayout({ children }: StudioLayoutProps) {
             <AgentCopilot />
           </div>
         </div>
+        )}
       </div>
 
       {/* 悬浮助手球：收起时显示在右上角 */}
+      {demoMode ? null : (
       <button
         type="button"
         onClick={toggleAssistantPanel}
@@ -217,6 +227,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       >
         <Bot className="h-5 w-5" />
       </button>
+      )}
     </div>
   );
 }

@@ -13,6 +13,8 @@ import {
 } from "@/app-routes";
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
+import { DemoEpisodePlaceholder } from "@/onboarding/DemoEpisodePlaceholder";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
@@ -87,6 +89,8 @@ export function StudioCanvasRouter() {
   tRef.current = t;
   const { currentProjectData, currentProjectName, currentScripts } =
     useProjectsStore();
+  // 演示态：不传写回调，编辑 / 生成 / 上传 / 版本恢复的入口按既有惯例整块不渲染
+  const demoMode = useDemoWorkbench();
 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
@@ -125,7 +129,8 @@ export function StudioCanvasRouter() {
       setResolvedDurationOptions(undefined);
       return;
     }
-    if (!currentProjectName) {
+    // 演示项目查不到 /video-capabilities（后端无此项目），时长选项留空即可
+    if (!currentProjectName || demoMode) {
       setResolvedDurationOptions(undefined);
       return;
     }
@@ -143,7 +148,7 @@ export function StudioCanvasRouter() {
     return () => {
       disposed = true;
     };
-  }, [currentProjectName, localDurationOptions]);
+  }, [currentProjectName, localDurationOptions, demoMode]);
 
   const durationOptions = localDurationOptions ?? resolvedDurationOptions;
 
@@ -522,6 +527,7 @@ export function StudioCanvasRouter() {
         <OverviewCanvas
           projectName={currentProjectName}
           projectData={currentProjectData}
+          readOnly={demoMode}
         />
       </Route>
 
@@ -541,6 +547,7 @@ export function StudioCanvasRouter() {
         <CharactersPage
           projectName={currentProjectName}
           characters={currentProjectData?.characters ?? {}}
+          readOnly={demoMode}
           onSaveCharacter={handleSaveCharacter}
           onGenerateCharacter={handleGenerateCharacterVoid}
           onAddCharacter={handleAddCharacterSubmit}
@@ -554,6 +561,7 @@ export function StudioCanvasRouter() {
         <ScenesPage
           projectName={currentProjectName}
           scenes={currentProjectData?.scenes ?? {}}
+          readOnly={demoMode}
           onUpdateScene={handleUpdateSceneVoid}
           onGenerateScene={handleGenerateSceneVoid}
           onAddScene={handleAddSceneSubmit}
@@ -567,6 +575,7 @@ export function StudioCanvasRouter() {
         <PropsPage
           projectName={currentProjectName}
           props={currentProjectData?.props ?? {}}
+          readOnly={demoMode}
           onUpdateProp={handleUpdatePropVoid}
           onGenerateProp={handleGeneratePropVoid}
           onAddProp={handleAddPropSubmit}
@@ -621,12 +630,16 @@ export function StudioCanvasRouter() {
           // 已选集但剧本未生成：进入切片审阅视图（narration/drama 全部生成路径——
           // reference_video 此时 units 为空，同样没有可展示内容）；ad 恒单集无源文
           // 切片，走各自画布。
-          const showSourceReview = Boolean(episode) && !script && !hasDraft && !isAd;
+          // 演示项目没有源文可切片，缺剧本的分集直接说明「演示只做到第 1 集」
+          const showSourceReview =
+            Boolean(episode) && !script && !hasDraft && !isAd && !demoMode;
 
           return (
             <div className="flex h-full flex-col">
               <div className="min-h-0 flex-1">
-                {showSourceReview && episode ? (
+                {demoMode && !script ? (
+                  <DemoEpisodePlaceholder />
+                ) : showSourceReview && episode ? (
                   <EpisodeSourceReview
                     projectName={currentProjectName}
                     episode={epNum}
@@ -677,21 +690,32 @@ export function StudioCanvasRouter() {
                     projectName={currentProjectName}
                     episode={epNum}
                     episodeTitle={episode?.title}
-                    onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
-                    canEditTitle={Boolean(episode?.script_file)}
+                    onSaveTitle={
+                      demoMode ? undefined : (title) => handleUpdateEpisodeTitle(epNum, title)
+                    }
+                    canEditTitle={Boolean(episode?.script_file) && !demoMode}
                     hasDraft={hasDraft}
                     episodeScript={script}
-                    scriptFile={scriptFile ?? undefined}
+                    // 演示态不给 scriptFile：分镜卡的上传入口以它为开关，缺省即整块不渲染
+                    scriptFile={demoMode ? undefined : (scriptFile ?? undefined)}
                     projectData={currentProjectData}
                     durationOptions={effectiveDurationOptions}
-                    onUpdatePrompt={handleUpdatePrompt}
-                    onMoveShot={isAd ? handleMoveShot : undefined}
-                    onGenerateStoryboard={adReference ? undefined : voidPromise(handleGenerateStoryboard)}
-                    onGenerateVideo={adReference ? undefined : voidPromise(handleGenerateVideo)}
-                    onGenerateNarration={voidPromise(handleGenerateNarration)}
-                    onGenerateEpisodeNarration={voidPromise(handleGenerateEpisodeNarration)}
-                    onRestoreStoryboard={handleRestoreAsset}
-                    onRestoreVideo={handleRestoreAsset}
+                    onUpdatePrompt={demoMode ? undefined : handleUpdatePrompt}
+                    onMoveShot={isAd && !demoMode ? handleMoveShot : undefined}
+                    onGenerateStoryboard={
+                      adReference || demoMode ? undefined : voidPromise(handleGenerateStoryboard)
+                    }
+                    onGenerateVideo={
+                      adReference || demoMode ? undefined : voidPromise(handleGenerateVideo)
+                    }
+                    onGenerateNarration={
+                      demoMode ? undefined : voidPromise(handleGenerateNarration)
+                    }
+                    onGenerateEpisodeNarration={
+                      demoMode ? undefined : voidPromise(handleGenerateEpisodeNarration)
+                    }
+                    onRestoreStoryboard={demoMode ? undefined : handleRestoreAsset}
+                    onRestoreVideo={demoMode ? undefined : handleRestoreAsset}
                   />
                 )}
               </div>

@@ -39,7 +39,7 @@ interface MediaCardProps {
   estimatedCost?: CostBreakdown;
   /** 触发生成 */
   onGenerate?: () => void;
-  /** 版本恢复回调 */
+  /** 版本恢复回调；未提供时不显示版本入口（只读展示无版本可回滚） */
   onRestore?: () => Promise<void> | void;
   /** 自主上传回调（替换该镜头的分镜图/视频）；未提供时不显示上传入口 */
   onUpload?: (file: File) => Promise<void> | void;
@@ -137,13 +137,15 @@ export function MediaCard({
             busy={generating || uploading}
           />
         )}
-        <VersionTimeMachine
-          projectName={projectName}
-          resourceType={resourceType}
-          resourceId={segmentId}
-          onRestore={onRestore}
-          busy={kind === "storyboard" ? generating || uploading : undefined}
-        />
+        {onRestore && (
+          <VersionTimeMachine
+            projectName={projectName}
+            resourceType={resourceType}
+            resourceId={segmentId}
+            onRestore={onRestore}
+            busy={kind === "storyboard" ? generating || uploading : undefined}
+          />
+        )}
       </div>
 
       {/* Media */}

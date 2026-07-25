@@ -29,6 +29,8 @@ interface CharacterCardProps {
   onRestoreVersion?: () => Promise<void> | void;
   onReload?: () => Promise<unknown> | void;
   generating?: boolean;
+  /** 只读展示（引导演示项目）：所有改写入口不渲染，文本字段不可编辑。 */
+  readOnly?: boolean;
 }
 
 const FIELD_STYLE: React.CSSProperties = {
@@ -48,6 +50,7 @@ export function CharacterCard({
   onRestoreVersion,
   onReload,
   generating = false,
+  readOnly = false,
 }: CharacterCardProps) {
   const { t } = useTranslation(["dashboard", "assets"]);
   const sheetFp = useProjectsStore(
@@ -231,6 +234,7 @@ export function CharacterCard({
         >
           {name}
         </h3>
+        {readOnly ? null : (
         <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"
@@ -277,6 +281,7 @@ export function CharacterCard({
             busy={generating || uploadingSheet}
           />
         </div>
+        )}
       </div>
 
       {/* ---- Image area ---- */}
@@ -312,10 +317,12 @@ export function CharacterCard({
           </div>
         </div>
 
+        {/* 只读且没有参考图时整块不渲染：留一个不能用的上传框只是噪声 */}
+        {readOnly && !displayedReferenceUrl ? null : (
         <div>
           <div className="flex items-center justify-between">
             <CapsLabel>{t("reference_image")}</CapsLabel>
-            {(referenceFile || hasSavedReference) && (
+            {!readOnly && (referenceFile || hasSavedReference) && (
               <button
                 type="button"
                 onClick={() =>
@@ -359,6 +366,7 @@ export function CharacterCard({
                     <ImagePlus className="h-3.5 w-3.5" />
                     {referenceFile ? t("unsaved_reference") : t("saved_reference")}
                   </span>
+                  {readOnly ? null : (
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
@@ -371,6 +379,7 @@ export function CharacterCard({
                   >
                     {t("change")}
                   </button>
+                  )}
                 </div>
               </div>
             </PreviewableImageFrame>
@@ -394,6 +403,7 @@ export function CharacterCard({
             className="hidden"
           />
         </div>
+        )}
       </div>
 
       <CapsLabel htmlFor={descId}>{t("description")}</CapsLabel>
@@ -401,6 +411,7 @@ export function CharacterCard({
         ref={textareaRef}
         id={descId}
         value={description}
+        readOnly={readOnly}
         onChange={(e) => setDescription(e.target.value)}
         onInput={autoResize}
         rows={3}
@@ -415,6 +426,7 @@ export function CharacterCard({
           id={voiceId}
           type="text"
           value={voiceStyle}
+          readOnly={readOnly}
           onChange={(e) => setVoiceStyle(e.target.value)}
           className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-[border-color,box-shadow]"
           style={FIELD_STYLE}
@@ -422,7 +434,7 @@ export function CharacterCard({
         />
       </div>
 
-      {isDirty && (
+      {isDirty && !readOnly && (
         <button
           type="button"
           onClick={() => void handleSave()}
@@ -440,6 +452,7 @@ export function CharacterCard({
         </button>
       )}
 
+      {readOnly ? null : (
       <div className="mt-4">
         <GenerateButton
           onClick={() => onGenerate(name)}
@@ -448,6 +461,7 @@ export function CharacterCard({
           className="w-full justify-center"
         />
       </div>
+      )}
     </div>
   );
 }

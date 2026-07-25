@@ -313,7 +313,30 @@ function isAgentFailureDetail(value: unknown): value is AgentFailureDetail {
 }
 
 /** 为 fetch options 注入 Authorization header */
+let apiReadOnly = false;
+
+/**
+ * 进入 / 离开只读态（引导演示工作台）。只读期间任何非 GET / HEAD 请求会在发出前被拒绝。
+ *
+ * 演示工作台是用真组件渲染假数据，写操作的入口都已经不渲染；这道闸门是结构性兜底 ——
+ * 漏掉一个入口时会得到一个明确的异常，而不是一条真写进用户项目的请求。
+ */
+export function setApiReadOnly(readOnly: boolean): void {
+  apiReadOnly = readOnly;
+}
+
+export class ReadOnlyModeError extends Error {
+  constructor(method: string) {
+    super(`Blocked ${method} request: the workspace is in read-only demo mode`);
+    this.name = "ReadOnlyModeError";
+  }
+}
+
 function withAuth(options: RequestInit = {}): RequestInit {
+  const method = (options.method ?? "GET").toUpperCase();
+  if (apiReadOnly && method !== "GET" && method !== "HEAD") {
+    throw new ReadOnlyModeError(method);
+  }
   const token = getToken();
   const headers = new Headers(options.headers);
   if (token) {
@@ -1001,6 +1024,10 @@ class API {
     path: string,
     cacheBust?: number | string | null
   ): string {
+    // 已经是自带协议的地址（引导演示的内联 SVG 占位图走 data:）直接用，不要再包一层项目路径
+    if (/^(data:|blob:|https?:)/.test(path)) {
+      return path;
+    }
     const base = `${API_BASE}/files/${encodeURIComponent(projectName)}/${path}`;
     if (cacheBust == null || cacheBust === "") {
       return base;

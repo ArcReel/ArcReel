@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageStore, type UsageStats } from "@/stores/usage-store";
 import { TaskHud } from "@/components/task-hud/TaskHud";
@@ -67,14 +68,18 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const runningCount = stats.running + stats.queued;
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
 
+  // 演示项目在后端没有用量记录，按项目查会 404；退回全局用量，顶栏费用仍有值可显示
+  const demoMode = useDemoWorkbench();
+  const usageProjectName = demoMode ? null : currentProjectName;
+
   const completedTaskCount = stats.succeeded + stats.failed;
   useEffect(() => {
-    API.getUsageStats(currentProjectName ? { projectName: currentProjectName } : {})
+    API.getUsageStats(usageProjectName ? { projectName: usageProjectName } : {})
       .then((res) => {
         setUsageStats(res as unknown as UsageStats);
       })
       .catch(() => {});
-  }, [currentProjectName, completedTaskCount, setUsageStats]);
+  }, [usageProjectName, completedTaskCount, setUsageStats]);
 
   useEffect(() => {
     void fetchConfigStatus();
@@ -315,7 +320,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             <UsageDrawer
               open={usageDrawerOpen}
               onClose={() => setUsageDrawerOpen(false)}
-              projectName={currentProjectName}
+              projectName={usageProjectName}
               anchorRef={usageAnchorRef}
             />
           </div>
@@ -367,7 +372,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             <button
               type="button"
               onClick={() => setExportDialogOpen(!exportDialogOpen)}
-              disabled={!currentProjectName || exportingProject}
+              disabled={!currentProjectName || exportingProject || demoMode}
               className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors focus-ring disabled:cursor-not-allowed disabled:opacity-50"
               style={{
                 background:
@@ -376,7 +381,11 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
                 boxShadow:
                   "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 4px 14px -6px var(--color-accent-glow)",
               }}
-              title={t("dashboard:export_project_zip")}
+              title={
+                demoMode
+                  ? t("onboarding:demo_action_unavailable")
+                  : t("dashboard:export_project_zip")
+              }
               aria-label={t("dashboard:export_project_zip")}
             >
               {exportingProject ? (
@@ -429,7 +438,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             type="button"
             onClick={() =>
               setLocation(
-                currentProjectName
+                // 演示项目没有项目级设置页可看，指向全局设置
+                currentProjectName && !demoMode
                   ? `~/app/projects/${encodeURIComponent(currentProjectName)}/settings`
                   : "~/app/settings",
               )

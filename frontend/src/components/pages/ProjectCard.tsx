@@ -3,7 +3,7 @@
  *
  * 从 ProjectsPage 拆出来，是因为引导的演示卡也要用同一张卡 —— 「项目推进后长这样」
  * 这句话只有在演示卡与真实卡片是同一份实现时才不会随时间说谎。演示卡走 `readOnly`
- * 形态：不可点进工作台、不带操作菜单。
+ * 形态：点进去是只读工作台，卡上不带操作菜单。
  */
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -12,7 +12,7 @@ import { MoreHorizontal, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { getProjectDisplayName } from "@/utils/project-display";
 import { ProgressBar } from "@/components/ui/ProgressBar";
-import { posterGridStyle } from "@/components/ui/darkroom-tokens";
+import { hashHue, posterGridStyle } from "@/components/ui/darkroom-tokens";
 import type { Phase, ProjectStatus, ProjectSummary } from "@/types";
 
 interface PhaseTone {
@@ -60,14 +60,6 @@ const POSTER_SPROCKET_STYLE: CSSProperties = {
   background:
     "repeating-linear-gradient(0deg, oklch(0 0 0 / 0.6) 0 6px, transparent 6px 12px)",
 };
-
-function hashHue(name: string, salt: number): number {
-  let hash = salt;
-  for (let i = 0; i < name.length; i += 1) {
-    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  }
-  return hash % 360;
-}
 
 export function asProjectStatus(s: ProjectSummary["status"]): ProjectStatus | null {
   return s && "current_phase" in s ? (s as ProjectStatus) : null;
@@ -255,16 +247,15 @@ interface ProjectCardBaseProps {
 }
 
 /**
- * 两种形态互斥：可交互的卡片必须给 `onDelete`，只读演示卡不接受它 —— 「不可点进工作台」
- * 与「没有删除入口」是同一件事，用一个判别字段表达，免得出现两种无意义的组合。
+ * 两种形态互斥：大厅里的真实卡片必须给 `onDelete`，只读演示卡不接受它。两种形态都点得进
+ * 工作台——演示项目进的是只读工作台，删除则只对真实项目成立。
  */
 type ProjectCardProps = ProjectCardBaseProps &
   ({ readOnly: true; onDelete?: never } | { readOnly?: false; onDelete: () => void });
 
 export function ProjectCard(props: ProjectCardProps) {
   const { project, styleLabel } = props;
-  const readOnly = props.readOnly ?? false;
-  const { t } = useTranslation("dashboard");
+  const { t } = useTranslation(["dashboard", "onboarding"]);
   const phaseLabels = usePhaseLabels();
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -301,6 +292,15 @@ export function ProjectCard(props: ProjectCardProps) {
   const episodes =
     status?.episodes_summary ?? { total: 0, scripted: 0, in_production: 0, completed: 0 };
   const projectDisplayName = getProjectDisplayName(project.title, t("untitled_project"));
+  // 演示卡的可读名里带上「只读」：视觉上有 eyebrow 说明，只听朗读的人否则会以为点进的是自己的项目
+  const linkLabel = [
+    projectDisplayName,
+    styleLabel,
+    phaseLabel,
+    props.readOnly ? t("onboarding:demo_banner_title") : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   const { trackStyle, barStyle } = gradientProgressStyles(
     phase === "completed" ? "good" : "accent",
@@ -394,17 +394,13 @@ export function ProjectCard(props: ProjectCardProps) {
 
   return (
     <article className="group relative overflow-hidden rounded-[12px] border border-hairline bg-bg-grad-a/85 transition-[transform,border-color,box-shadow] duration-150 motion-safe:hover:-translate-y-0.5 hover:border-accent/45 hover:shadow-[0_18px_40px_-22px_oklch(0_0_0_/_0.6),0_0_0_1px_var(--color-accent-soft)] focus-within:border-accent/60 focus-within:shadow-[0_0_0_2px_var(--color-accent-soft)]">
-      {readOnly ? (
-        <div className="text-text">{body}</div>
-      ) : (
-        <Link
-          href={`/app/projects/${project.name}`}
-          className="block w-full text-left text-text no-underline outline-none"
-          aria-label={`${projectDisplayName} · ${styleLabel}${phaseLabel ? ` · ${phaseLabel}` : ""}`}
-        >
-          {body}
-        </Link>
-      )}
+      <Link
+        href={`/app/projects/${project.name}`}
+        className="block w-full text-left text-text no-underline outline-none"
+        aria-label={linkLabel}
+      >
+        {body}
+      </Link>
 
       {props.readOnly ? null : (
         <div className="absolute right-2.5 bottom-2.5 z-[2]">

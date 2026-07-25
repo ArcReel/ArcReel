@@ -583,6 +583,7 @@ export function ShotDetail({
               list={`shot-section-options-${segmentId}`}
               value={draft.section ?? ""}
               onChange={(e) => setDraft((d) => ({ ...d, section: e.target.value }))}
+              readOnly={refsReadOnly}
               placeholder={t("detail_shot_section_placeholder")}
               className="prompt-ta"
               style={{ minHeight: 0 }}
@@ -613,6 +614,7 @@ export function ShotDetail({
               className="prompt-ta"
               value={draft.voiceover_text ?? ""}
               onChange={(e) => setDraft((d) => ({ ...d, voiceover_text: e.target.value }))}
+              readOnly={refsReadOnly}
               placeholder={t("detail_voiceover_placeholder")}
               style={{ minHeight: 96 }}
             />
@@ -688,6 +690,7 @@ export function ShotDetail({
             <DialogueListEditor
               dialogue={vidDraft.dialogue ?? []}
               onChange={handleDialogueChange}
+              readOnly={refsReadOnly}
             />
           ) : (
             <div
@@ -772,7 +775,7 @@ export function ShotDetail({
           )}
         </div>
         {imgDraft ? (
-          <ImagePromptEditor prompt={imgDraft} onUpdate={handleImgUpdate} />
+          <ImagePromptEditor prompt={imgDraft} onUpdate={handleImgUpdate} readOnly={refsReadOnly} />
         ) : (
           <textarea
             className="prompt-ta"
@@ -780,6 +783,7 @@ export function ShotDetail({
               typeof draft.image_prompt === "string" ? draft.image_prompt : ""
             }
             onChange={(e) => handleImgStringChange(e.target.value)}
+            readOnly={refsReadOnly}
             placeholder={t("detail_image_prompt_placeholder")}
             style={{ minHeight: 124 }}
           />
@@ -809,7 +813,7 @@ export function ShotDetail({
           )}
         </div>
         {vidDraft ? (
-          <VideoPromptEditor prompt={vidDraft} onUpdate={handleVidUpdate} />
+          <VideoPromptEditor prompt={vidDraft} onUpdate={handleVidUpdate} readOnly={refsReadOnly} />
         ) : (
           <textarea
             className="prompt-ta"
@@ -817,6 +821,7 @@ export function ShotDetail({
               typeof draft.video_prompt === "string" ? draft.video_prompt : ""
             }
             onChange={(e) => handleVidStringChange(e.target.value)}
+            readOnly={refsReadOnly}
             placeholder={t("detail_video_prompt_placeholder")}
             style={{ minHeight: 88 }}
           />
@@ -972,11 +977,14 @@ export function ShotDetail({
           >
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
-          <NotesDrawer
-            shotId={segmentId}
-            value={note}
-            onCommit={handleNotesCommit}
-          />
+          {/* 备注抽屉只有落库才有意义：只读展示下不给入口，免得输入的备注静默丢弃 */}
+          {refsReadOnly ? null : (
+            <NotesDrawer
+              shotId={segmentId}
+              value={note}
+              onCommit={handleNotesCommit}
+            />
+          )}
         </div>
       </div>
 

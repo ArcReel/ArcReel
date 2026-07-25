@@ -14,7 +14,12 @@ import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
 import { OnboardingTour } from "@/onboarding/OnboardingTour";
-import { API } from "@/api";
+import {
+  buildDemoProjectData,
+  buildDemoScripts,
+  isDemoProject,
+} from "@/onboarding/demo-project";
+import { API, setApiReadOnly } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
@@ -104,6 +109,7 @@ function StudioWorkspace() {
   const params = useParams<{ projectName: string }>();
   const projectName = params.projectName ?? null;
   const { setCurrentProject, setProjectDetailLoading } = useProjectsStore();
+  const { t } = useTranslation("onboarding");
 
   useEffect(() => {
     if (!projectName) return;
@@ -117,6 +123,20 @@ function StudioWorkspace() {
     assistantState.setSessionStatus(null);
     assistantState.setIsDraftSession(false);
 
+    // 引导演示项目在磁盘上并不存在：数据直接来自前端常量，不发请求，并在这段生命周期内
+    // 锁死写请求。切语言时 t 变化会重新灌一遍，演示内容随界面语言走。
+    if (isDemoProject(projectName)) {
+      setApiReadOnly(true);
+      setCurrentProject(projectName, buildDemoProjectData(t), buildDemoScripts(t));
+      setProjectDetailLoading(false);
+      return () => {
+        setApiReadOnly(false);
+        setCurrentProject(null, null);
+      };
+    }
+
+    // 进真实项目一律解锁，不让上一次演示的闸门残留下来
+    setApiReadOnly(false);
     setProjectDetailLoading(true);
     API.getProject(projectName)
       .then((res) => {
@@ -138,7 +158,7 @@ function StudioWorkspace() {
       cancelled = true;
       setCurrentProject(null, null);
     };
-  }, [projectName, setCurrentProject, setProjectDetailLoading]);
+  }, [projectName, setCurrentProject, setProjectDetailLoading, t]);
 
   return (
     <StudioLayout>

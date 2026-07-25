@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { API } from "@/api";
+import { isDemoProject } from "@/onboarding/demo-project";
 import { errMsg } from "@/utils/async";
 import type { CostEstimateResponse, SegmentCost, EpisodeCost } from "@/types";
 
@@ -46,6 +47,11 @@ export const useCostStore = create<CostState>((set, get) => ({
   _episodeIndex: new Map(),
 
   fetchCost: async (projectName: string) => {
+    // 引导演示项目在后端不存在，费用估算无从计算，界面按「未估算」显示
+    if (isDemoProject(projectName)) {
+      get().clear();
+      return;
+    }
     const currentId = ++_fetchId;
     set({ loading: true, error: null });
     try {

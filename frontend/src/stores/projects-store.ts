@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ProjectData, ProjectSummary, EpisodeScript } from "@/types";
 import { API } from "@/api";
+import { isDemoProject } from "@/onboarding/demo-project";
 import { useAppStore } from "./app-store";
 
 /** {@link ProjectsState.refreshProject} 的可选行为。 */
@@ -148,6 +149,8 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
 
     refreshProject: (name, options) => {
       if (!name) return Promise.resolve(false);
+      // 引导演示项目的数据来自前端常量，没有可刷新的服务端状态
+      if (isDemoProject(name)) return Promise.resolve(true);
       const invalidateKeys = options?.invalidateKeys ?? [];
       return new Promise<boolean>((resolve) => {
         if (refreshRunning) {
