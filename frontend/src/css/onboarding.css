@@ -211,4 +211,16 @@
     .arc-tour-filmstrip {
         width: 56px;
     }
+
+    /* 进度条 + 跳过 + 上一步/继续两组按钮，英/越文案比中文长得多，三者挤在一行
+     * 在窄屏（~320px）会溢出。这里让进度条独占一行，按钮组换到下一行。 */
+    .driver-popover.arc-tour .driver-popover-footer {
+        flex-wrap: wrap;
+        row-gap: 10px;
+    }
+
+    .driver-popover.arc-tour .driver-popover-progress-text {
+        flex-basis: 100%;
+        order: -1;
+    }
 }

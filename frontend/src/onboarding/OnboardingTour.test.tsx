@@ -137,6 +137,14 @@ describe("OnboardingTour", () => {
     await waitFor(() => expect(status).toHaveBeenCalled());
   });
 
+  it("runs on a URL with a trailing slash that wouter itself matches", async () => {
+    const status = vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+
+    renderAt("/app/settings/");
+
+    await waitFor(() => expect(status).toHaveBeenCalled());
+  });
+
   it("marks the tour as seen when it is closed, and does not reopen it", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
 
