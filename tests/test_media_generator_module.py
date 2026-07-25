@@ -45,10 +45,11 @@ class _FakeVideoBackend:
     name = "fake-video"
     model = "video-model"
 
-    def __init__(self, result_duration_seconds: int | None = None):
+    def __init__(self, result_duration_seconds: int | None = None, video_capabilities=None):
         self.calls = []
         # None = 回显请求时长（多数后端行为）；指定值 = 模拟 provider 回报的实际计费时长
         self._result_duration_seconds = result_duration_seconds
+        self.video_capabilities = video_capabilities
 
     async def generate(self, request):
         self.calls.append(request)
@@ -306,6 +307,26 @@ class TestMediaGenerator:
             resource_id="E1S05",
         )
         assert gen.ledger.started[-1]["generate_audio"] is True
+
+    @pytest.mark.asyncio
+    async def test_end_image_ignored_when_backend_lacks_last_frame(self, tmp_path):
+        """后端 last_frame=False 时忽略 end_image 并告警，不降级为参考图。"""
+        from lib.video_backends.base import VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+        gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=False))
+        end_image = tmp_path / "end.png"
+        end_image.write_bytes(b"fake-end-image")
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S06",
+            end_image=end_image,
+        )
+        call = gen._video_backend.calls[0]
+        assert call.end_image is None
+        assert call.reference_images is None
 
 
 # ── 咽喉层参考图压缩接线 ────────────────────────────────────────────────────

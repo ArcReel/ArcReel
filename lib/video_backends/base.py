@@ -381,8 +381,10 @@ class VideoCapabilities:
 
     ``first_frame`` / ``last_frame`` 描述图生视频路径的首帧与尾帧槽位。
     ``reference_images`` / ``max_reference_images`` 描述参考生视频路径：后端接受
-    ``reference_images`` 请求字段及其数量上限。两条路径各自独立，参考图不叠加到
-    带首帧的图生视频请求上。
+    ``reference_images`` 请求字段及其数量上限。两条路径是否可叠加（同一请求同时带
+    首帧与参考图）因后端而异，不是统一契约：部分后端拒绝叠加（如 Agnes 抛
+    ``VideoCapabilityError``），部分静默叠加（如 v2 中转、Grok、Sora 首帧与参考共享
+    单槽）。调用方不应假设某种统一行为，需按具体后端核实。
     """
 
     first_frame: bool = True
