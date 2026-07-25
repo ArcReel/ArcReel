@@ -8,6 +8,7 @@ import pytest
 
 from lib.custom_provider.capabilities import (
     CAPABILITY_OVERRIDE_FIELDS,
+    filter_valid_overrides,
     synthesize_video_capabilities,
     system_video_capabilities,
 )
@@ -185,3 +186,14 @@ class TestTolerance:
             caps = synthesize_video_capabilities(endpoint="openai-video", model_id="sora-2", overrides=bad)
         assert caps == system_video_capabilities(endpoint="openai-video", model_id="sora-2")
         assert caplog.records
+
+    @pytest.mark.unit
+    def test_last_frame_override_on_retired_endpoint_does_not_raise(self, caplog: pytest.LogCaptureFixture):
+        """endpoint 已从注册表下线（升级移除）时，get_endpoint_spec 抛 ValueError；filter_valid_overrides
+        是 API 响应过滤边界的最后一道，不得让存量脏配置把这里也炸穿——须降级丢弃并告警，而非抛错。"""
+        with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
+            applied = filter_valid_overrides(
+                endpoint="no-such-retired-endpoint", model_id="whatever", overrides={"last_frame": True}
+            )
+        assert applied == {}
+        assert "last_frame" in caplog.text
