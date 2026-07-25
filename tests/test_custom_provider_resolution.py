@@ -147,7 +147,7 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
     svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
-    with pytest.raises(ValueError, match="endpoint media_type mismatch"):
+    with pytest.raises(ValueError, match="is text, not video"):
         await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
 
 

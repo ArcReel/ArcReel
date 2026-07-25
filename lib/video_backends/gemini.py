@@ -105,11 +105,19 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
+    @staticmethod
+    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+        """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
+
+        Veo 文档（docs/google-genai-docs/veo.md）把 Image-to-video 与 Reference images
+        列为并列模式，带参考图时 durationSeconds 必须为 8。当前全系模型能力一致，不按
+        model_id 分支；instance property 委托至此，保持 backend 为单一真相源。
+        """
+        return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=3)
+
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        # Veo 文档（docs/google-genai-docs/veo.md）把 Image-to-video 与 Reference images
-        # 列为并列模式，带参考图时 durationSeconds 必须为 8。
-        return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=3)
+        return self.video_capabilities_for_model(self._video_model)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""

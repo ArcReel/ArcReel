@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
 from lib.config.service import (
     _DEFAULT_AUDIO_BACKEND,
@@ -31,11 +32,12 @@ from lib.config.service import (
     ConfigService,
 )
 from lib.custom_provider import is_custom_provider, parse_provider_id
-from lib.custom_provider.endpoints import get_endpoint_spec
+from lib.custom_provider.capabilities import synthesize_video_capabilities
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project_manager import get_project_manager
 from lib.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
+from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -674,33 +676,21 @@ class ConfigResolver:
             if model is None:
                 raise ValueError(f"custom model not found: {provider_id}/{model_id}")
 
-            endpoint_spec = get_endpoint_spec(model.endpoint)
-            if endpoint_spec.media_type != "video":
-                raise ValueError(
-                    f"endpoint media_type mismatch: {provider_id}/{model_id} endpoint={model.endpoint!r} "
-                    f"is {endpoint_spec.media_type}, not video"
+            # 生效能力（系统判定 ⊕ 用户覆盖）只此一个合成点：工厂给执行层注入的也是它的返回值，
+            # 展示层与执行层因此严格同源，不在此处自行合并覆盖或重算系统判定。纯函数不查
+            # provider 行、不构造 SDK client，故每镜头解析无 DB/网络/client 构造副作用
+            # （也不因 api_key 缺失而抛）。
+            try:
+                caps = synthesize_video_capabilities(
+                    endpoint=model.endpoint,
+                    model_id=model_id,
+                    overrides=model.capability_overrides,
                 )
-            endpoint_cap = endpoint_spec.video_max_reference_images
-            if endpoint_cap is not None:
-                max_reference_images = endpoint_cap
-            else:
-                # endpoint cap 未声明（多 model 共享端点、容量随 model 变）→ 用 endpoint 绑定的纯
-                # caps 函数按 model_id 读 backend 声明的上限。纯函数不查 provider 行、不构造 SDK
-                # client，故每镜头解析无 DB/网络/client 构造副作用（也不因 api_key 缺失而抛）。
-                caps_fn = endpoint_spec.video_caps_for_model
-                if caps_fn is None:
-                    raise ValueError(
-                        f"video endpoint {model.endpoint!r} declares neither video_max_reference_images "
-                        f"nor video_caps_for_model: {provider_id}/{model_id}"
-                    )
-                max_reference_images = caps_fn(model_id).max_reference_images
-                if max_reference_images < 0:
-                    # backend caps 是这条链路的真相源，负数直接抛错，不静默下传——
-                    # 否则 reference_video_tasks 会按坏值跳过裁剪。
-                    raise ValueError(
-                        f"invalid backend max_reference_images: {provider_id}/{model_id} "
-                        f"endpoint={model.endpoint!r} value={max_reference_images!r}"
-                    )
+            except ValueError as exc:
+                raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
+            max_reference_images = caps.max_reference_images
+            first_frame = caps.first_frame
+            last_frame = caps.last_frame
             raw_durations = model.supported_durations
             supported_durations: list[int] = []
             if raw_durations:
@@ -722,6 +712,15 @@ class ConfigResolver:
                 raise ValueError(f"model not found in registry: {provider_id}/{model_id}")
             supported_durations = list(model_info.supported_durations or [])
             max_reference_images = model_info.max_reference_images
+            # 布尔能力位读 backend 声明，不复制进 ModelInfo：backend 是这几位的唯一真相源。
+            # max_reference_images 维持读 ModelInfo（注册表按 model 分档，backend 侧不区分）。
+            try:
+                spec = get_provider_spec(provider_id, "video")
+                builtin_caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+            except ValueError as exc:
+                raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
+            first_frame = builtin_caps.first_frame
+            last_frame = builtin_caps.last_frame
 
         if not supported_durations:
             raise ValueError(f"supported_durations is empty for {provider_id}/{model_id}; cannot derive capabilities")
@@ -750,6 +749,8 @@ class ConfigResolver:
             "supported_durations": supported_durations,
             "max_duration": max_duration,
             "max_reference_images": max_reference_images,
+            "first_frame": first_frame,
+            "last_frame": last_frame,
             "source": source,
             "default_duration": default_duration,
             "content_mode": content_mode,

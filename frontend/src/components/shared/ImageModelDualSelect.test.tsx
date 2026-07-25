@@ -63,6 +63,8 @@ const CUSTOM_PROVIDERS: CustomProviderInfo[] = [
         currency: null,
         supported_durations: null,
         resolution: null,
+        system_capabilities: null,
+        capability_overrides: null,
       },
       {
         id: 2,
@@ -77,6 +79,8 @@ const CUSTOM_PROVIDERS: CustomProviderInfo[] = [
         currency: null,
         supported_durations: null,
         resolution: null,
+        system_capabilities: null,
+        capability_overrides: null,
       },
       {
         id: 3,
@@ -91,6 +95,8 @@ const CUSTOM_PROVIDERS: CustomProviderInfo[] = [
         currency: null,
         supported_durations: null,
         resolution: null,
+        system_capabilities: null,
+        capability_overrides: null,
       },
     ],
   },

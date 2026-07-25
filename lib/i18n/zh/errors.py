@@ -131,6 +131,11 @@ MESSAGES = {
     "endpoint_media_type_mismatch": "模型 endpoint 与媒体类型不一致: {detail}",
     "backend_creation_failed": "Backend 创建失败: {err_msg}",
     "unsupported_discovery_format": "供应商 {discovery_format} 暂不支持连接测试",
+    "custom_model_not_found": "模型不存在: {model_id}",
+    "capability_overrides_video_only": "模型 {model_id} 的 endpoint {endpoint} 不是视频类，不支持能力覆盖",
+    "capability_override_unknown_key": "模型 {model_id} 的能力覆盖包含未知能力项: {capability}",
+    "capability_override_not_open": "模型 {model_id} 的能力项 {capability} 暂不开放覆盖，当前可覆盖: {allowed}",
+    "capability_override_invalid_value": "模型 {model_id} 的能力项 {capability} 取值类型不正确，应为 {expected}",
     # Projects
     "unknown_style_template": "未知的风格模版: {template_id}",
     "ad_only_field": "{field} 仅广告/短片项目（content_mode=ad）可用",

@@ -7,6 +7,7 @@ import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { uid } from "@/utils/id";
 import { errMsg } from "@/utils/async";
 import type {
+  CapabilityOverrides,
   CustomProviderInfo,
   CustomProviderModelInput,
   DiscoveredModel,
@@ -67,6 +68,8 @@ interface ModelRow {
   currency: string;
   resolution: string; // 空串 = null
   supported_durations_text: string; // 用户原始文本，提交前 parse；空串 = 让后端按 preset 兜底
+  // 本表单不编辑能力覆盖，仅原样携带：保存是整体替换语义，不回传会清空已写入的覆盖。
+  capability_overrides: CapabilityOverrides | null;
 }
 
 function newModelRow(partial?: Partial<ModelRow>): ModelRow {
@@ -83,6 +86,7 @@ function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     currency: "USD",
     resolution: "",
     supported_durations_text: "",
+    capability_overrides: null,
     ...partial,
   };
 }
@@ -110,6 +114,7 @@ function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
     currency: m.currency ?? "",
     resolution: m.resolution ?? "",
     supported_durations_text: m.supported_durations ? compactRangeFormat(m.supported_durations) : "",
+    capability_overrides: m.capability_overrides,
   });
 }
 
@@ -131,6 +136,7 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
     ...(r.currency ? { currency: r.currency } : {}),
     ...(r.resolution ? { resolution: r.resolution } : { resolution: null }),
     ...(supported_durations ? { supported_durations } : { supported_durations: null }),
+    capability_overrides: r.capability_overrides,
   };
 }
 

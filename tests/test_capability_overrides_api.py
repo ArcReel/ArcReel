@@ -1,0 +1,399 @@
+"""能力覆盖的 API 面与展示层同源。
+
+覆盖三件事：配置 API 读写覆盖（含白名单 4xx 与整体替换语义）、resolver 返回生效能力、
+展示层与执行层出自同一个合成函数。API 侧沿用 test_custom_providers_api.py 的内存 SQLite +
+TestClient 范式，同源侧沿用 test_custom_provider_loader.py 的真 repo 装载范式。
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncGenerator, Generator
+from unittest.mock import patch
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from lib.custom_provider import make_provider_id
+from lib.custom_provider.capabilities import synthesize_video_capabilities, system_video_capabilities
+from lib.custom_provider.loader import load_custom_backend
+from lib.db import get_async_session
+from lib.db.base import Base
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
+from server.routers import custom_providers
+
+# 系统判定 last_frame=False、reference_images=True/max=1 —— 覆盖前后差异可断言
+VIDEO_ENDPOINT = "openai-video"
+VIDEO_MODEL = "sora-2"
+
+
+@pytest.fixture()
+async def db_engine():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture()
+async def session_factory(db_engine):
+    return async_sessionmaker(db_engine, expire_on_commit=False)
+
+
+@pytest.fixture()
+def app(session_factory) -> FastAPI:
+    _app = FastAPI()
+
+    async def _override_session():
+        async with session_factory() as session:
+            yield session
+
+    _app.dependency_overrides[get_async_session] = _override_session
+    _app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
+    _app.include_router(custom_providers.router, prefix="/api/v1")
+    register_error_handlers(_app)
+    return _app
+
+
+@pytest.fixture()
+async def session(session_factory) -> AsyncGenerator[AsyncSession, None]:
+    async with session_factory() as s:
+        yield s
+
+
+@pytest.fixture()
+def client(app) -> Generator[TestClient, None, None]:
+    with TestClient(app) as c:
+        yield c
+
+
+def _create_provider(client: TestClient, models: list[dict]) -> int:
+    resp = client.post(
+        "/api/v1/custom-providers",
+        json={
+            "display_name": "Relay",
+            "discovery_format": "openai",
+            "base_url": "https://relay.test/v1",
+            "api_key": "sk-relay",
+            "models": models,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+def _video_model(**overrides) -> dict:
+    model = {
+        "model_id": VIDEO_MODEL,
+        "display_name": "Sora 2",
+        "endpoint": VIDEO_ENDPOINT,
+        "is_default": True,
+        "is_enabled": True,
+    }
+    model.update(overrides)
+    return model
+
+
+class TestModelListExposesCapabilities:
+    """models 列表同时给出系统判定与用户覆盖，设置页平凡合并即可展示。"""
+
+    def test_video_model_reports_system_capabilities(self, client: TestClient):
+        pid = _create_provider(client, [_video_model()])
+
+        models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
+        assert models[0]["system_capabilities"] == {
+            "first_frame": True,
+            "last_frame": False,
+            "reference_images": True,
+            "max_reference_images": 1,
+        }
+        assert models[0]["capability_overrides"] is None
+
+    def test_system_capabilities_matches_synthesis_source(self, client: TestClient):
+        """判定值不是 API 里另写一份，而是合成函数的系统判定分支。"""
+        pid = _create_provider(client, [_video_model()])
+
+        models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
+        expected = system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
+        assert models[0]["system_capabilities"] == {
+            "first_frame": expected.first_frame,
+            "last_frame": expected.last_frame,
+            "reference_images": expected.reference_images,
+            "max_reference_images": expected.max_reference_images,
+        }
+
+    def test_non_video_model_has_no_system_capabilities(self, client: TestClient):
+        pid = _create_provider(
+            client,
+            [{"model_id": "dall-e-3", "display_name": "D3", "endpoint": "openai-images", "is_enabled": True}],
+        )
+
+        models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
+        assert models[0]["system_capabilities"] is None
+
+    def test_overrides_round_trip_through_create(self, client: TestClient):
+        pid = _create_provider(client, [_video_model(capability_overrides={"last_frame": True})])
+
+        models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
+        assert models[0]["capability_overrides"] == {"last_frame": True}
+        # 判定值不受覆盖影响：设置页要能同时显示"判定 False / 生效 True"
+        assert models[0]["system_capabilities"]["last_frame"] is False
+
+
+class TestPatchCapabilityOverrides:
+    """PATCH 携带完整覆盖字典，整体替换存量。"""
+
+    @staticmethod
+    def _patch(client: TestClient, pid: int, payload: dict, model_id: str = VIDEO_MODEL):
+        return client.patch(
+            f"/api/v1/custom-providers/{pid}/models/{model_id}/capability-overrides",
+            json=payload,
+        )
+
+    def test_write_override_and_read_back(self, client: TestClient):
+        pid = _create_provider(client, [_video_model()])
+
+        resp = self._patch(client, pid, {"capability_overrides": {"last_frame": True}})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["capability_overrides"] == {"last_frame": True}
+
+        models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
+        assert models[0]["capability_overrides"] == {"last_frame": True}
+
+    def test_empty_dict_clears_existing_overrides(self, client: TestClient):
+        """整体替换而非逐键 merge：空字典即回到全部跟随系统判定。"""
+        pid = _create_provider(client, [_video_model(capability_overrides={"last_frame": True})])
+
+        resp = self._patch(client, pid, {"capability_overrides": {}})
+        assert resp.status_code == 200
+        assert resp.json()["capability_overrides"] is None
+
+    def test_null_clears_existing_overrides(self, client: TestClient):
+        pid = _create_provider(client, [_video_model(capability_overrides={"last_frame": True})])
+
+        resp = self._patch(client, pid, {"capability_overrides": None})
+        assert resp.status_code == 200
+        assert resp.json()["capability_overrides"] is None
+
+    def test_unknown_key_rejected(self, client: TestClient):
+        pid = _create_provider(client, [_video_model()])
+
+        resp = self._patch(client, pid, {"capability_overrides": {"no_such_capability": True}})
+        assert resp.status_code == 422
+        assert "no_such_capability" in resp.json()["detail"]
+
+    def test_known_but_unallowlisted_key_rejected(self, client: TestClient):
+        """first_frame 是合法 VideoCapabilities 字段，但首批未开放覆盖。"""
+        pid = _create_provider(client, [_video_model()])
+
+        resp = self._patch(client, pid, {"capability_overrides": {"first_frame": False}})
+        assert resp.status_code == 422
+        assert "first_frame" in resp.json()["detail"]
+
+    @pytest.mark.parametrize("bad_value", ["true", 1, 0, None, [], {}])
+    def test_wrong_value_type_rejected(self, client: TestClient, bad_value):
+        pid = _create_provider(client, [_video_model()])
+
+        resp = self._patch(client, pid, {"capability_overrides": {"last_frame": bad_value}})
+        assert resp.status_code == 422
+
+    def test_non_video_endpoint_rejected(self, client: TestClient):
+        pid = _create_provider(
+            client,
+            [{"model_id": "dall-e-3", "display_name": "D3", "endpoint": "openai-images", "is_enabled": True}],
+        )
+
+        resp = self._patch(client, pid, {"capability_overrides": {"last_frame": True}}, model_id="dall-e-3")
+        assert resp.status_code == 422
+
+    def test_missing_model_returns_404(self, client: TestClient):
+        pid = _create_provider(client, [_video_model()])
+
+        resp = self._patch(client, pid, {"capability_overrides": {"last_frame": True}}, model_id="ghost")
+        assert resp.status_code == 404
+
+    def test_rejected_write_leaves_stored_overrides_intact(self, client: TestClient):
+        pid = _create_provider(client, [_video_model(capability_overrides={"last_frame": True})])
+
+        assert self._patch(client, pid, {"capability_overrides": {"first_frame": False}}).status_code == 422
+
+        models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
+        assert models[0]["capability_overrides"] == {"last_frame": True}
+
+
+class TestReplaceModelsOverrideSemantics:
+    """保存模型列表是整体替换：覆盖必须随列表回传，否则被清空。"""
+
+    def test_overrides_survive_when_resubmitted(self, client: TestClient):
+        pid = _create_provider(client, [_video_model(capability_overrides={"last_frame": True})])
+
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}/models",
+            json={"models": [_video_model(capability_overrides={"last_frame": True})]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()[0]["capability_overrides"] == {"last_frame": True}
+
+    def test_overrides_dropped_when_omitted(self, client: TestClient):
+        """整体替换语义的直接后果，前端保存模型列表时必须回传覆盖字段。"""
+        pid = _create_provider(client, [_video_model(capability_overrides={"last_frame": True})])
+
+        resp = client.put(f"/api/v1/custom-providers/{pid}/models", json={"models": [_video_model()]})
+        assert resp.status_code == 200
+        assert resp.json()[0]["capability_overrides"] is None
+
+    def test_invalid_override_rejected_on_replace(self, client: TestClient):
+        pid = _create_provider(client, [_video_model()])
+
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}/models",
+            json={"models": [_video_model(capability_overrides={"first_frame": False})]},
+        )
+        assert resp.status_code == 422
+
+    def test_invalid_override_rejected_on_create(self, client: TestClient):
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Relay",
+                "discovery_format": "openai",
+                "base_url": "https://relay.test/v1",
+                "api_key": "sk-relay",
+                "models": [_video_model(capability_overrides={"nope": True})],
+            },
+        )
+        assert resp.status_code == 422
+
+    def test_invalid_override_rejected_on_full_update(self, client: TestClient):
+        pid = _create_provider(client, [_video_model()])
+
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}",
+            json={
+                "display_name": "Relay",
+                "base_url": "https://relay.test/v1",
+                "models": [_video_model(capability_overrides={"last_frame": "yes"})],
+            },
+        )
+        assert resp.status_code == 422
+
+
+class TestResolverReturnsEffectiveCapabilities:
+    """/video-capabilities 走的 resolver 必须回生效能力，且与执行层同源。"""
+
+    @staticmethod
+    async def _seed(session: AsyncSession, *, overrides: object | None) -> str:
+        repo = CustomProviderRepository(session)
+        provider = await repo.create_provider(
+            display_name="Relay",
+            discovery_format="openai",
+            base_url="https://relay.test/v1",
+            api_key="sk-relay",
+            models=[
+                {
+                    "model_id": VIDEO_MODEL,
+                    "display_name": "Sora 2",
+                    "endpoint": VIDEO_ENDPOINT,
+                    "is_enabled": True,
+                    "is_default": True,
+                    "supported_durations": "[5, 10]",
+                    "capability_overrides": overrides,
+                }
+            ],
+        )
+        await session.commit()
+        return make_provider_id(provider.id)
+
+    @staticmethod
+    async def _resolve(session: AsyncSession, provider_id: str) -> dict:
+        from lib.config.resolver import ConfigResolver
+        from lib.config.service import ConfigService
+
+        factory = async_sessionmaker(bind=session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+        resolver = ConfigResolver(factory, _bound_session=session)
+        return await resolver._resolve_video_caps_for_model(
+            ConfigService(session), session, provider_id, VIDEO_MODEL, None
+        )
+
+    async def test_custom_model_without_overrides_follows_system(self, session: AsyncSession):
+        pid = await self._seed(session, overrides=None)
+
+        caps = await self._resolve(session, pid)
+        system = system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL)
+        assert caps["last_frame"] is system.last_frame
+        assert caps["first_frame"] is system.first_frame
+        assert caps["max_reference_images"] == system.max_reference_images
+
+    async def test_override_changes_resolver_output(self, session: AsyncSession):
+        """AC：对自定义模型写入覆盖后，该接口返回值随之变化。"""
+        pid = await self._seed(session, overrides={"last_frame": True})
+
+        caps = await self._resolve(session, pid)
+        assert system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL).last_frame is False
+        assert caps["last_frame"] is True
+
+    @pytest.mark.integration
+    @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
+    async def test_resolver_matches_execution_layer(self, _mock_cls, session: AsyncSession):
+        """展示层与执行层出自同一合成函数：逐字段比对 resolver 与装载出的 backend。"""
+        pid = await self._seed(session, overrides={"last_frame": True})
+
+        caps = await self._resolve(session, pid)
+        session.expunge_all()
+        backend = await load_custom_backend(session=session, provider_id=pid, model_id=VIDEO_MODEL, media_type="video")
+
+        executed = backend.video_capabilities
+        assert caps["first_frame"] is executed.first_frame
+        assert caps["last_frame"] is executed.last_frame
+        assert caps["max_reference_images"] == executed.max_reference_images
+        # 同源的判据：两侧都等于合成函数在同一输入下的返回值
+        expected = synthesize_video_capabilities(
+            endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL, overrides={"last_frame": True}
+        )
+        assert executed == expected
+
+    async def test_builtin_boolean_caps_come_from_backend(self, session: AsyncSession):
+        """内置分支的布尔位来自 backend 纯函数，注册表不存第二份。"""
+        from lib.backend_assembly.specs import get_provider_spec
+        from lib.config.resolver import ConfigResolver
+        from lib.config.service import ConfigService
+        from lib.video_backends.registry import video_capabilities_for_model
+
+        factory = async_sessionmaker(bind=session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+        resolver = ConfigResolver(factory, _bound_session=session)
+        caps = await resolver._resolve_video_caps_for_model(ConfigService(session), session, "openai", "sora-2", None)
+
+        spec = get_provider_spec("openai", "video")
+        backend_caps = video_capabilities_for_model(spec.registry_backend, "sora-2")
+        assert caps["source"] == "registry"
+        assert caps["first_frame"] is backend_caps.first_frame
+        assert caps["last_frame"] is backend_caps.last_frame
+
+
+class TestBuiltinBackendsDeclareCapabilityFunction:
+    """每个能承载视频模型的内置 provider 都要能被纯函数问出布尔能力位。"""
+
+    def test_every_builtin_video_provider_resolvable(self):
+        from lib.backend_assembly.specs import get_provider_spec
+        from lib.config.registry import PROVIDER_REGISTRY
+        from lib.video_backends.base import VideoCapabilities
+        from lib.video_backends.registry import video_capabilities_for_model
+
+        for provider_id, meta in PROVIDER_REGISTRY.items():
+            video_models = [mid for mid, mi in meta.models.items() if mi.media_type == "video"]
+            if not video_models:
+                continue
+            spec = get_provider_spec(provider_id, "video")
+            for model_id in video_models:
+                caps = video_capabilities_for_model(spec.registry_backend, model_id)
+                assert isinstance(caps, VideoCapabilities), f"{provider_id}/{model_id}"
+
+    def test_unknown_backend_name_fails_loud(self):
+        from lib.video_backends.registry import video_capabilities_for_model
+
+        with pytest.raises(ValueError, match="Unknown video backend"):
+            video_capabilities_for_model("no-such-backend", "m")

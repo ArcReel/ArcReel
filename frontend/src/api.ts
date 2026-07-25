@@ -455,6 +455,9 @@ class API {
     supported_durations: number[];
     max_duration: number;
     max_reference_images: number;
+    /** 生效值（系统判定 ⊕ 用户覆盖），与执行层注入 backend 的能力同源。 */
+    first_frame: boolean;
+    last_frame: boolean;
     source: "registry" | "custom";
     default_duration?: number | null;
     content_mode?: string | null;

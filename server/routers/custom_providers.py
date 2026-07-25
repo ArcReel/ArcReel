@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable
+from dataclasses import asdict
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.api_errors import BadRequestError
 from lib.config.repository import mask_secret
 from lib.custom_provider import make_provider_id
+from lib.custom_provider.capabilities import CAPABILITY_OVERRIDE_FIELDS, system_video_capabilities
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
     endpoint_spec_to_dict,
@@ -47,6 +49,10 @@ DiscoveryFormatLiteral = Literal["openai", "google"]
 
 # 并发上限定型字段：可空正整数（≥1）；None = 未设置 → 容量装载回退全局默认。
 MaxWorkers = Annotated[int | None, Field(default=None, ge=1)]
+
+# 开放给用户覆盖的能力维度。DB 列与合成函数对 VideoCapabilities 全字段通用，写入侧在此收窄：
+# 未列入的维度即便是合法字段名也拒收，扩容只需往这里加键名，无需 DB 迁移或改合成语义。
+CAPABILITY_OVERRIDE_ALLOWLIST = frozenset({"last_frame"})
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +101,9 @@ class ModelInput(BaseModel):
     currency: str | None = None
     supported_durations: list[int] | None = None
     resolution: str | None = None
+    # 稀疏覆盖字典，键名对齐 VideoCapabilities 字段名；None 或键缺席 = 跟随系统判定。
+    # 保存模型列表是整体替换语义，本字段必须随列表回传，否则存量覆盖被清空。
+    capability_overrides: dict[str, object] | None = None
 
     def to_db_dict(self) -> dict:
         """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。
@@ -173,6 +182,16 @@ class ModelResponse(BaseModel):
     currency: str | None = None
     supported_durations: list[int] | None = None
     resolution: str | None = None
+    # 系统判定值（四字段全量），video endpoint 才有；非 video 或 endpoint 声明异常时为 None。
+    system_capabilities: dict[str, object] | None = None
+    # 用户覆盖（稀疏字典），与 system_capabilities 平凡合并即为生效值。
+    capability_overrides: dict[str, object] | None = None
+
+
+class CapabilityOverridesRequest(BaseModel):
+    """单模型能力覆盖写入体：携带完整覆盖字典，整体替换存量（非逐键 merge）。"""
+
+    capability_overrides: dict[str, object] | None = None
 
 
 class ProviderResponse(BaseModel):
@@ -229,9 +248,26 @@ class EndpointCatalogResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _system_capabilities_for(endpoint: str, model_id: str) -> dict[str, object] | None:
+    """读该 model 的系统判定能力（四字段全量）；非 video endpoint 返回 None。
+
+    判定失败（endpoint 已下线、注册表声明异常）时降级为 None 而非 500：列表端点要能把
+    其余模型正常呈现出来，单行判定不出来只是设置页少一段"判定值"提示。
+    """
+    try:
+        if endpoint_to_media_type(endpoint) != "video":
+            return None
+        return asdict(system_video_capabilities(endpoint=endpoint, model_id=model_id))
+    except ValueError:
+        logger.warning("无法判定系统能力: endpoint=%r model_id=%r", endpoint, model_id)
+        return None
+
+
 def _model_to_response(m) -> ModelResponse:
     durations = json.loads(m.supported_durations) if m.supported_durations else None
     return ModelResponse(
+        system_capabilities=_system_capabilities_for(m.endpoint, m.model_id),
+        capability_overrides=m.capability_overrides,
         id=m.id,
         model_id=m.model_id,
         display_name=m.display_name,
@@ -295,6 +331,66 @@ def _check_duplicate_model_ids(models: list[ModelInput], _t: Callable[..., str])
             raise HTTPException(status_code=422, detail=_t("duplicate_model_id", model_id=m.model_id))
         if m.model_id:
             seen.add(m.model_id)
+
+
+def _check_capability_overrides(
+    overrides: dict[str, object] | None,
+    endpoint: str,
+    model_id: str,
+    _t: Callable[..., str],
+) -> None:
+    """写入侧白名单校验：合成函数对脏值只降级不抛，合法性把关全在这里。
+
+    None 与空字典都表示"全部跟随系统判定"，一律放行。非空字典要求 endpoint 为 video 类，
+    且每个键都是 VideoCapabilities 字段、在开放白名单内、值类型与该字段一致。
+    """
+    if not overrides:
+        return
+    if endpoint_to_media_type(endpoint) != "video":
+        raise HTTPException(
+            status_code=422,
+            detail=_t("capability_overrides_video_only", model_id=model_id, endpoint=endpoint),
+        )
+    for key, value in overrides.items():
+        expected = CAPABILITY_OVERRIDE_FIELDS.get(key)
+        if expected is None:
+            raise HTTPException(
+                status_code=422,
+                detail=_t("capability_override_unknown_key", model_id=model_id, capability=key),
+            )
+        if key not in CAPABILITY_OVERRIDE_ALLOWLIST:
+            raise HTTPException(
+                status_code=422,
+                detail=_t(
+                    "capability_override_not_open",
+                    model_id=model_id,
+                    capability=key,
+                    allowed=", ".join(sorted(CAPABILITY_OVERRIDE_ALLOWLIST)),
+                ),
+            )
+        # bool 是 int 子类，两个方向都要显式排除，否则 True 会被当作 int 覆盖放行。
+        if expected is bool:
+            ok = isinstance(value, bool)
+        elif expected is int:
+            ok = isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        else:
+            ok = isinstance(value, expected)
+        if not ok:
+            raise HTTPException(
+                status_code=422,
+                detail=_t(
+                    "capability_override_invalid_value",
+                    model_id=model_id,
+                    capability=key,
+                    expected=expected.__name__,
+                ),
+            )
+
+
+def _check_model_capability_overrides(models: list[ModelInput], _t: Callable[..., str]) -> None:
+    """对整批模型逐个跑覆盖白名单校验（保存模型列表的写入路径）。"""
+    for m in models:
+        _check_capability_overrides(m.capability_overrides, m.endpoint, m.model_id, _t)
 
 
 def _check_unique_defaults(models: list[ModelInput], _t: Callable[..., str]) -> None:
@@ -390,6 +486,7 @@ async def create_provider(
     if body.models:
         _check_duplicate_model_ids(body.models, _t)
         _check_unique_defaults(body.models, _t)
+        _check_model_capability_overrides(body.models, _t)
     repo = CustomProviderRepository(session)
     model_dicts = [m.to_db_dict() for m in body.models] if body.models else None
     provider = await repo.create_provider(
@@ -492,6 +589,7 @@ async def full_update_provider(
     """原子更新供应商元数据 + 模型列表（单一事务）。"""
     _check_duplicate_model_ids(body.models, _t)
     _check_unique_defaults(body.models, _t)
+    _check_model_capability_overrides(body.models, _t)
     repo = CustomProviderRepository(session)
     kwargs: dict = {
         "display_name": body.display_name,
@@ -561,6 +659,7 @@ async def replace_models(
     """替换供应商的整个模型列表。"""
     _check_duplicate_model_ids(body.models, _t)
     _check_unique_defaults(body.models, _t)
+    _check_model_capability_overrides(body.models, _t)
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
@@ -590,6 +689,41 @@ async def replace_models(
     await session.commit()
     await _invalidate_caches(request)
     return [_model_to_response(m) for m in new_models]
+
+
+@router.patch("/{provider_id}/models/{model_id:path}/capability-overrides", response_model=ModelResponse)
+async def update_model_capability_overrides(
+    provider_id: int,
+    model_id: str,
+    body: CapabilityOverridesRequest,
+    request: Request,
+    _user: CurrentUser,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> ModelResponse:
+    """整体替换单个模型的能力覆盖字典。
+
+    请求体携带完整覆盖字典（不是逐键 patch）：省略某键即该维度回到跟随系统判定，传 None 或
+    空字典即清空全部覆盖。走单模型端点而非重发整张模型列表，设置页切一个三态控件不必回传
+    其余模型，也不触碰列表的整体替换语义。
+    """
+    repo = CustomProviderRepository(session)
+    model = await repo.get_model_by_ids(provider_id, model_id)
+    if model is None:
+        raise HTTPException(status_code=404, detail=_t("custom_model_not_found", model_id=model_id))
+
+    overrides = body.capability_overrides
+    _check_capability_overrides(overrides, model.endpoint, model_id, _t)
+    # 空字典与 None 都表示"全部跟随"，统一落 NULL，避免 DB 里出现两种等价表示。
+    await repo.update_model(model.id, capability_overrides=overrides or None)
+    await session.commit()
+    await _invalidate_caches(request)
+
+    updated = await repo.get_model_by_ids(provider_id, model_id)
+    # 刚更新成功，行必然存在；理论上并发删除可致 None，此时按 404 语义回报而非 500。
+    if updated is None:
+        raise HTTPException(status_code=404, detail=_t("custom_model_not_found", model_id=model_id))
+    return _model_to_response(updated)
 
 
 # ---------------------------------------------------------------------------

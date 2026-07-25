@@ -134,6 +134,17 @@ MESSAGES = {
     "endpoint_media_type_mismatch": "Endpoint media_type mismatch: {detail}",
     "backend_creation_failed": "Backend creation failed: {err_msg}",
     "unsupported_discovery_format": "Connection test not supported for {discovery_format}",
+    "custom_model_not_found": "Model not found: {model_id}",
+    "capability_overrides_video_only": (
+        "Endpoint {endpoint} of model {model_id} is not a video endpoint; capability overrides are not supported"
+    ),
+    "capability_override_unknown_key": "Capability overrides of model {model_id} contain an unknown capability: {capability}",
+    "capability_override_not_open": (
+        "Capability {capability} of model {model_id} is not open for override; currently overridable: {allowed}"
+    ),
+    "capability_override_invalid_value": (
+        "Capability {capability} of model {model_id} has an invalid value type; expected {expected}"
+    ),
     # Projects
     "unknown_style_template": "Unknown style template: {template_id}",
     "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",
