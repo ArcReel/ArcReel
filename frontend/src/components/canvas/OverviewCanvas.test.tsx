@@ -230,6 +230,33 @@ describe("OverviewCanvas", () => {
     expect(screen.queryByText("项目总费用")).not.toBeInTheDocument();
     expect(getCostEstimateSpy).not.toHaveBeenCalled();
   });
+
+  it("cancels a real project's queued cost request when switching to the read-only demo project", async () => {
+    vi.useFakeTimers();
+    const getCostEstimateSpy = vi.spyOn(API, "getCostEstimate");
+    try {
+      const { rerender } = render(
+        <OverviewCanvas projectName="real-project" projectData={makeProjectData()} />,
+      );
+
+      // 切到只读演示项目——此前真实项目排队的 500ms 防抖任务应被费用 store 的
+      // isDemoProject 分支取消，而不是遗留下来在之后照常触发
+      rerender(
+        <OverviewCanvas
+          projectName="onboarding_demo"
+          projectData={makeProjectData()}
+          readOnly
+        />,
+      );
+
+      await vi.advanceTimersByTimeAsync(600);
+
+      expect(getCostEstimateSpy).not.toHaveBeenCalled();
+      expect(useCostStore.getState().costData).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("OverviewCanvas ad mode", () => {

@@ -58,11 +58,13 @@ export function OverviewCanvas({
   const debouncedFetch = useCostStore((s) => s.debouncedFetch);
 
   useEffect(() => {
-    // 只读态（如演示项目）不发起费用请求：演示数据没有对应的真实费用记录，
-    // 请求了也只会拿到不相关项目的费用或报错。
-    if (!projectName || readOnly) return;
+    // 演示项目的费用请求交给费用 store 自身的 isDemoProject 分支跳过并失效：
+    // 那条分支会取消已排队的防抖计时器、递增 _fetchId 使在途真实请求作废、清空费用状态——
+    // 这里若改成对 readOnly 直接 return，反而会绕过这套失效机制，让切入只读态前
+    // 真实项目已排队的防抖任务照常在之后触发，把真实费用写回全局 store。
+    if (!projectName) return;
     debouncedFetch(projectName);
-  }, [projectName, readOnly, projectData?.episodes, debouncedFetch]);
+  }, [projectName, projectData?.episodes, debouncedFetch]);
 
   const [regenerating, setRegenerating] = useState(false);
   const [conflictPrompt, setConflictPrompt] = useState<{
