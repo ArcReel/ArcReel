@@ -84,10 +84,14 @@ export function OverviewCanvas({
     // 上一个真实项目若停在欢迎页，演示数据的 overview/episodes 一到位就会被误判成
     // 「欢迎页 → 完成」，提示会强行打开助手面板——但演示态已卸载该面板，
     // 离开演示项目后还会带出一个意外展开的助手。清空 ref 避免下次真实切换沿用这份脏状态。
-    // handoffTrigger 本身不在此清零：子组件 AgentHandoffHint 的 effect 先于本 effect
-    // 提交，state 更新赶不上同一次渲染；改在下方渲染时直接把 triggerKey 收窄为 0。
+    // trigger 一并归零：AgentHandoffHint 按 `<storageScope>:<triggerKey>` 去重，切项目后
+    // 同一个非零 trigger 会被当成新项目的新事件。若不清零，「项目 A 完成交接 → 途经演示
+    // 项目 → 进入项目 B」会让 B 凭 A 留下的 trigger 误弹提示并强行展开助手，而 B 根本没
+    // 发生过「欢迎页 → 完成」转换。只读态下 AgentHandoffHint 不渲染，此处置 0 不会与它的
+    // effect 抢同一次提交。
     if (readOnly) {
       wasWelcomeRef.current = null;
+      setHandoffTrigger(0);
       return;
     }
     if (!projectData) return;

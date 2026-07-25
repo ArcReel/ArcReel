@@ -203,6 +203,32 @@ describe("OverviewCanvas", () => {
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });
 
+  it("does not replay a stale handoff trigger after passing through the demo project into another real project", () => {
+    useAppStore.setState({ assistantPanelOpen: false });
+
+    // 项目 A 内完成一次「欢迎页 → 完成」，handoffTrigger 变为非零
+    const { rerender } = render(
+      <OverviewCanvas
+        projectName="project-a"
+        projectData={makeProjectData({ overview: undefined, episodes: [] })}
+      />,
+    );
+    rerender(<OverviewCanvas projectName="project-a" projectData={makeProjectData()} />);
+    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+
+    // 途经只读演示项目——AgentHandoffHint 在只读态不渲染
+    useAppStore.setState({ assistantPanelOpen: false });
+    rerender(
+      <OverviewCanvas projectName="onboarding_demo" projectData={makeProjectData()} readOnly />,
+    );
+
+    // 再进入另一个真实项目 B：B 未发生「欢迎页 → 完成」转换，重新挂载的
+    // AgentHandoffHint 不该把 A 留下的非零 trigger 当成 B 的新事件消费掉
+    rerender(<OverviewCanvas projectName="project-b" projectData={makeProjectData()} />);
+
+    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
+  });
+
   it("does not reopen the conflict prompt if a stale upload resolves after switching to read-only", async () => {
     let rejectUpload: ((err: unknown) => void) | undefined;
     vi.spyOn(API, "uploadFile").mockImplementation(
