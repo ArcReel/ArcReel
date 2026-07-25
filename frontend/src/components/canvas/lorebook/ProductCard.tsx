@@ -274,6 +274,7 @@ export function ProductCard({
             <ImagePlus className="h-3.5 w-3.5" />
           </button>
           )}
+          {readOnly ? null : (
           <input
             ref={refsInputRef}
             type="file"
@@ -283,6 +284,7 @@ export function ProductCard({
             className="hidden"
             onChange={(e) => void handleRefsUpload(e)}
           />
+          )}
         </div>
         {referenceImages.length > 0 ? (
           <div className="mt-1.5 flex flex-wrap gap-2">
