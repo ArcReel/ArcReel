@@ -537,6 +537,49 @@ class TestReplaceModelsOverrideSemantics:
         assert resp.status_code == 422
 
     @pytest.mark.integration
+    async def test_endpoint_change_still_validated_even_when_override_dict_unchanged(
+        self, client: TestClient, session_factory
+    ):
+        """未变更豁免比对的是 (endpoint, 覆盖值) 二元组，不能只比对覆盖值：model_id 与覆盖字典
+        原样不动、只切 endpoint 时，校验结果天然随新 endpoint 变化（last_frame=True 是否合法
+        依赖 endpoint 的 end_image_capable），必须照常针对新 endpoint 校验。"""
+        async with session_factory() as session:
+            repo = CustomProviderRepository(session)
+            provider = await repo.create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://relay.test/v1",
+                api_key="sk-relay",
+                models=[
+                    {
+                        "model_id": LAST_FRAME_MODEL,
+                        "display_name": "Seedance",
+                        "endpoint": LAST_FRAME_ENDPOINT,
+                        "is_enabled": True,
+                        "is_default": True,
+                        "capability_overrides": {"last_frame": True},
+                    }
+                ],
+            )
+            await session.commit()
+            pid = provider.id
+
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}/models",
+            json={
+                "models": [
+                    _video_model(
+                        model_id=LAST_FRAME_MODEL,
+                        # endpoint 悄悄换成 openai-video（不 end_image_capable），覆盖字典原样不动
+                        endpoint=VIDEO_ENDPOINT,
+                        capability_overrides={"last_frame": True},
+                    )
+                ]
+            },
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.integration
     async def test_unchanged_unallowlisted_override_does_not_block_full_update(
         self, client: TestClient, session_factory
     ):
