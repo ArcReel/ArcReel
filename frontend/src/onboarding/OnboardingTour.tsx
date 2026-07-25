@@ -15,7 +15,7 @@ import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
-import { APP_TOP_LEVEL_ROUTES, ROUTE_APP_PROJECTS } from "@/app-routes";
+import { APP_PROJECT_WORKSPACE_PATTERN, APP_TOP_LEVEL_ROUTES } from "@/app-routes";
 import { buildTourSteps } from "./steps";
 import { startTour, type TourLabels } from "./tour";
 
@@ -29,12 +29,13 @@ export function OnboardingTour() {
   // 只在已知应用路由内生效——未匹配路由（404）与 /login 一样不掺和，否则引导会
   // 在错链接 / 旧书签落地的 404 页自动弹出，且关闭时把全局 seen 标记写成已看过。
   // /app/settings、/app/assets 是无子路由的单页，前缀匹配会把 /app/settings/unknown
-  // 这类 404 误判为主界面；只有 /app/projects/:projectName 是 `nest` 路由，允许前缀匹配。
+  // 这类 404 误判为主界面；/app/projects/:projectName 下 StudioCanvasRouter 的内层
+  // <Switch> 同样没有兜底路由，未注册的子路径按 APP_PROJECT_WORKSPACE_PATTERN 精确匹配。
   const inMainUi =
     isAuthenticated &&
     (location === "/" ||
       (APP_TOP_LEVEL_ROUTES as readonly string[]).includes(location) ||
-      location.startsWith(`${ROUTE_APP_PROJECTS}/`));
+      APP_PROJECT_WORKSPACE_PATTERN.test(location));
 
   // 1. 查询「是否已看过」
   useEffect(() => {

@@ -104,6 +104,31 @@ describe("OnboardingTour", () => {
     expect(popoverTitle()).toBeNull();
   });
 
+  it("does not run on an unregistered sub-path inside a project workspace", () => {
+    const status = vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+
+    renderAt("/app/projects/my-novel/unknown");
+
+    expect(status).not.toHaveBeenCalled();
+    expect(popoverTitle()).toBeNull();
+  });
+
+  it("runs on a registered sub-path inside a project workspace", async () => {
+    const status = vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+
+    renderAt("/app/projects/my-novel/characters");
+
+    await waitFor(() => expect(status).toHaveBeenCalled());
+  });
+
+  it("runs on the project settings page", async () => {
+    const status = vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+
+    renderAt("/app/projects/my-novel/settings");
+
+    await waitFor(() => expect(status).toHaveBeenCalled());
+  });
+
   it("marks the tour as seen when it is closed, and does not reopen it", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
 
