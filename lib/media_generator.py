@@ -615,7 +615,7 @@ class MediaGenerator:
             if end_image and self._video_backend:
                 tier_aware_caps = getattr(self._video_backend, "video_capabilities_for_tier", None)
                 caps = (
-                    tier_aware_caps(version_metadata.get("service_tier", "default"))
+                    tier_aware_caps(version_metadata.get("service_tier", "default"), resolution=resolution)
                     if tier_aware_caps is not None
                     else self._video_backend.video_capabilities
                 )

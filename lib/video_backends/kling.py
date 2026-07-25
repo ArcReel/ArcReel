@@ -251,18 +251,21 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     def video_capabilities(self) -> VideoCapabilities:
         return self.video_capabilities_for_model(self._model)
 
-    def video_capabilities_for_tier(self, service_tier: str) -> VideoCapabilities:
+    def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None) -> VideoCapabilities:
         """按实际请求档位收窄的 last_frame 声明，供有请求上下文的调用方使用。
 
         `video_capabilities_for_model(model)` 是无请求上下文的纯函数，对
         `last_frame_requires_pro` 的 model 只能保守声明 `last_frame=False`（供
         `/video-capabilities`、custom provider resolver 等无 tier 信息的调用方）。而
-        `media_generator` 转发 `end_image` 前已知 `service_tier`——按此处收窄，pro 档放行、
-        std/4k 档仍保守拒绝，与 `_build_payload` 的 fail-loud 护栏放行条件对齐，避免 pro 档
-        请求被上层静默丢帧（该请求实际会被 `_build_payload` 接受）。
+        `media_generator` 转发 `end_image` 前已知 `service_tier`/`resolution`——按此处收窄，
+        实际解析出的 mode（复用 `_resolve_mode_from` 同一派生规则，`resolution="4k"` 优先于
+        `service_tier`）为 pro 才放行、std/4k 档仍保守拒绝，与 `_build_payload` 的 fail-loud
+        护栏放行条件对齐，避免 pro 档请求被上层静默丢帧（该请求实际会被 `_build_payload` 接受），
+        也避免 4k+pro 组合被误判放行（`_resolve_mode` 对该组合解出 ``"4k"`` 而非 ``"pro"``）。
         """
         caps = _lookup_video_caps(self._model)
-        last_frame = caps.last_frame and (not caps.last_frame_requires_pro or (service_tier or "").lower() == "pro")
+        mode = self._resolve_mode_from(resolution, service_tier)
+        last_frame = caps.last_frame and (not caps.last_frame_requires_pro or mode == "pro")
         return VideoCapabilities(
             first_frame=True,
             last_frame=last_frame,
@@ -272,14 +275,20 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
 
     # ── request building ────────────────────────────────────────────────
 
-    def _resolve_mode(self, request: VideoGenerationRequest) -> str:
+    @staticmethod
+    def _resolve_mode_from(resolution: str | None, service_tier: str | None) -> str:
         """质量档 → mode：resolution=4k 独立成 ``4k`` 档（仅 v3/v3-omni 可达），否则 service_tier→std/pro。
 
         与 per_second_tiered 定价的档位派生一致（4k 优先于 std/pro），保证请求档与计费档同源。
+        `_resolve_mode` 与 `video_capabilities_for_tier` 共用此同一派生规则，避免两处独立实现
+        对同一请求解出不同 mode（曾因此让 tier-aware 能力查询对 4k+pro 组合误判 last_frame=True）。
         """
-        if (request.resolution or "").lower() == "4k":
+        if (resolution or "").lower() == "4k":
             return "4k"
-        return "pro" if (request.service_tier or "").lower() == "pro" else "std"
+        return "pro" if (service_tier or "").lower() == "pro" else "std"
+
+    def _resolve_mode(self, request: VideoGenerationRequest) -> str:
+        return self._resolve_mode_from(request.resolution, request.service_tier)
 
     def _effective_audio(self, request: VideoGenerationRequest) -> bool:
         """实际是否产出视频内人声：请求要 + model 有 generate_audio 能力 + pro 档（官方仅 v2-6 pro ✅）。

@@ -122,6 +122,17 @@ class TestVideoCapabilitiesForTier:
         assert b.video_capabilities_for_tier("std").last_frame is True
         assert b.video_capabilities_for_tier("pro").last_frame is True
 
+    def test_4k_tier_still_conservative(self):
+        caps = _jwt_backend().video_capabilities_for_tier("std", resolution="4k")
+        assert caps.last_frame is False
+
+    def test_4k_overrides_pro_tier_stays_conservative(self):
+        # resolution=4k 优先于 service_tier（与 _resolve_mode 同一派生规则）：即使 tier=pro，
+        # 4k 请求解出的 mode 是 "4k" 而非 "pro"，last_frame 仍须保守拒绝，否则会与
+        # _build_payload 的 fail-loud 护栏（按 _resolve_mode 判定）不一致。
+        caps = _jwt_backend().video_capabilities_for_tier("pro", resolution="4k")
+        assert caps.last_frame is False
+
 
 class TestPerModelCapabilities:
     def test_v3_t2v_i2v_no_audio_no_reference(self):

@@ -340,7 +340,9 @@ class TestMediaGenerator:
             def __init__(self):
                 super().__init__(video_capabilities=VideoCapabilities(last_frame=False))
 
-            def video_capabilities_for_tier(self, service_tier: str) -> VideoCapabilities:
+            def video_capabilities_for_tier(
+                self, service_tier: str, resolution: str | None = None
+            ) -> VideoCapabilities:
                 return VideoCapabilities(last_frame=(service_tier or "").lower() == "pro")
 
         gen = _build_generator(tmp_path)
@@ -368,7 +370,9 @@ class TestMediaGenerator:
             def __init__(self):
                 super().__init__(video_capabilities=VideoCapabilities(last_frame=False))
 
-            def video_capabilities_for_tier(self, service_tier: str) -> VideoCapabilities:
+            def video_capabilities_for_tier(
+                self, service_tier: str, resolution: str | None = None
+            ) -> VideoCapabilities:
                 return VideoCapabilities(last_frame=(service_tier or "").lower() == "pro")
 
         gen = _build_generator(tmp_path)
