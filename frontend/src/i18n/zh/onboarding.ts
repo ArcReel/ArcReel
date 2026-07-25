@@ -1,4 +1,4 @@
-import type enOnboarding from '../en/onboarding';
+import type enOnboarding from '@/i18n/en/onboarding';
 
 export default {
   // 引导步骤
