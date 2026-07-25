@@ -19,6 +19,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { ROUTE_APP, ROUTE_APP_ASSETS, ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS } from "@/app-routes";
 
 // ---------------------------------------------------------------------------
 // ConfigStatusLoader — 登录后集中拉取一次配置完整性状态
@@ -159,40 +160,40 @@ export function AppRoutes() {
         </Route>
 
         {/* /app and /app/ also redirect to projects list */}
-        <Route path="/app">
-          <Redirect to="/app/projects" />
+        <Route path={ROUTE_APP}>
+          <Redirect to={ROUTE_APP_PROJECTS} />
         </Route>
 
         {/* Projects list */}
-        <Route path="/app/projects">
+        <Route path={ROUTE_APP_PROJECTS}>
           <AuthGuard>
             <ProjectsPage />
           </AuthGuard>
         </Route>
 
         {/* System settings */}
-        <Route path="/app/settings">
+        <Route path={ROUTE_APP_SETTINGS}>
           <AuthGuard>
             <SystemConfigPage />
           </AuthGuard>
         </Route>
 
         {/* Asset library */}
-        <Route path="/app/assets">
+        <Route path={ROUTE_APP_ASSETS}>
           <AuthGuard>
             <AssetLibraryPage />
           </AuthGuard>
         </Route>
 
         {/* Project settings — full-screen, must be before the nested workspace route */}
-        <Route path="/app/projects/:projectName/settings">
+        <Route path={`${ROUTE_APP_PROJECTS}/:projectName/settings`}>
           <AuthGuard>
             <ProjectSettingsPage />
           </AuthGuard>
         </Route>
 
         {/* Studio workspace (three-column layout) */}
-        <Route path="/app/projects/:projectName" nest>
+        <Route path={`${ROUTE_APP_PROJECTS}/:projectName`} nest>
           <AuthGuard>
             <StudioWorkspace />
           </AuthGuard>
