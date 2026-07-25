@@ -275,9 +275,9 @@ describe("OnboardingTour", () => {
     click(".driver-popover-next-btn"); // → 新建项目入口
     click(".driver-popover-next-btn"); // → 演示卡
     click(".driver-popover-next-btn"); // → 设置入口（仍在大厅）
-    click(".driver-popover-next-btn"); // → 媒体供应商（跨页到设置）
+    click(".driver-popover-next-btn"); // → 供应商（跨页到设置）
 
-    await waitFor(() => expect(popoverTitle()).toBe("配置一个媒体供应商"));
+    await waitFor(() => expect(popoverTitle()).toBe("配置一个供应商"));
     expect(history.at(-1)).toBe("/app/settings");
     expect(API.markOnboardingSeen).not.toHaveBeenCalled();
     [...lobbyAnchors, settingsAnchor].forEach((el) => el.remove());
@@ -301,8 +301,8 @@ describe("OnboardingTour", () => {
     click(".driver-popover-next-btn");
     click(".driver-popover-next-btn");
     click(".driver-popover-next-btn");
-    click(".driver-popover-next-btn"); // → 媒体供应商（跨页到设置）
-    await waitFor(() => expect(popoverTitle()).toBe("配置一个媒体供应商"));
+    click(".driver-popover-next-btn"); // → 供应商（跨页到设置）
+    await waitFor(() => expect(popoverTitle()).toBe("配置一个供应商"));
     expect(history.at(-1)).toBe("/app/settings");
 
     click(".driver-popover-prev-btn"); // ← 设置入口（跨页回大厅）
@@ -385,7 +385,7 @@ describe("OnboardingTour", () => {
     click(".driver-popover-next-btn");
     click(".driver-popover-next-btn"); // 没有渲染设置页，锚点不存在——等待超时后应当降级为居中气泡而不是卡住
 
-    await waitFor(() => expect(popoverTitle()).toBe("配置一个媒体供应商"), { timeout: 3000 });
+    await waitFor(() => expect(popoverTitle()).toBe("配置一个供应商"), { timeout: 3000 });
     // 讲解照常进行，丢的只是高亮——driver 顶上自己的占位元素，气泡回到屏幕中央。
     expect(document.getElementById("driver-dummy-element")?.classList.contains("driver-active-element")).toBe(
       true,
@@ -415,7 +415,7 @@ describe("OnboardingTour", () => {
     click(".driver-popover-next-btn");
     click(".driver-popover-next-btn");
     click(".driver-popover-next-btn");
-    await waitFor(() => expect(popoverTitle()).toBe("配置一个媒体供应商"));
+    await waitFor(() => expect(popoverTitle()).toBe("配置一个供应商"));
 
     click(".arc-tour-skip-btn");
 
@@ -460,10 +460,10 @@ describe("OnboardingTour", () => {
       ["从这里新建项目", "/app/projects"],
       ["项目推进后长这样", "/app/projects"],
       ["供应商配置在设置里", "/app/projects"],
-      ["配置一个媒体供应商", "/app/settings"],
-      ["接入 Agent", "/app/settings"],
-      ["项目全景在概述画布", DEMO_WORKBENCH],
-      ["设定集统一管理角色、场景、道具", `${DEMO_WORKBENCH}/characters`],
+      ["配置一个供应商", "/app/settings"],
+      ["接入智能体", "/app/settings"],
+      ["项目概览一页看全", DEMO_WORKBENCH],
+      ["角色集、场景库、道具库先定设定", `${DEMO_WORKBENCH}/characters`],
       ["一集的活都在分镜画布上", DEMO_EPISODE],
       ["出片后从顶栏导出", DEMO_EPISODE],
       ["轮到你了", "/app/projects"],
@@ -533,8 +533,8 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
 
-    for (let i = 0; i < 6; i++) click(".driver-popover-next-btn"); // → 概述画布（工作台第一步）
-    await waitFor(() => expect(popoverTitle()).toBe("项目全景在概述画布"));
+    for (let i = 0; i < 6; i++) click(".driver-popover-next-btn"); // → 项目概览（工作台第一步）
+    await waitFor(() => expect(popoverTitle()).toBe("项目概览一页看全"));
     expect(history.at(-1)).toBe(DEMO_WORKBENCH);
 
     click(".arc-tour-skip-btn");

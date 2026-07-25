@@ -71,6 +71,17 @@ export function anchorSelector(anchor: OnboardingAnchor): string {
 }
 
 /**
+ * driver 自带的高亮框位移与气泡淡入是元素级动画，写在它自己的样式里，`.arc-tour` 皮肤
+ * 覆盖不到。声明了 reduced motion 的用户整场引导会看到 11 次跨页大幅位移，这里直接关掉
+ * driver 的动画开关，改为逐步瞬间就位——讲解内容一字不少。
+ *
+ * `matchMedia` 在测试环境（jsdom 未 stub 时）可能缺席，取不到就按「不减弱」处理。
+ */
+function prefersReducedMotion(): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
  * driver.js 只用 `pointer-events: none` 和一个仅拦截 Tab 键的焦点陷阱隔离底层界面，
  * 不触及无障碍树——屏幕阅读器的虚拟光标导航能绕开这两者，在引导期间直接读到并激活
  * 底层工作台的控件。这里显式给 body 的既有子节点打 `inert`，把它们从无障碍树摘除，
@@ -238,6 +249,7 @@ export function startTour(
   const instance: Driver = driver({
     steps: driveSteps,
     popoverClass: "arc-tour",
+    animate: !prefersReducedMotion(),
     overlayColor: OVERLAY_INK,
     overlayOpacity: 0.78,
     stagePadding: 8,
