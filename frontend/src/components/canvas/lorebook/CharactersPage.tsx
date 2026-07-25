@@ -11,6 +11,7 @@ import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { errMsg } from "@/utils/async";
 import type { Character } from "@/types";
 import { GalleryEmptyState } from "./GalleryEmptyState";
+import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 
 interface Props {
   projectName: string;
@@ -58,7 +59,7 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
         onAdd={readOnly ? undefined : () => setAdding(true)}
         onPickFromLibrary={readOnly ? undefined : () => setPicking(true)}
       />
-      <div className="px-5 py-5">
+      <div className="px-5 py-5" data-onboarding={ONBOARDING_ANCHORS.workbenchLorebook}>
         {entries.length === 0 ? (
           <GalleryEmptyState
             icon={<User className="h-6 w-6" />}

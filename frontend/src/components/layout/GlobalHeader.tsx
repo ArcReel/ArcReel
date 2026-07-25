@@ -20,6 +20,7 @@ import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
 import { rememberAssetLibraryReturnTo } from "@/components/pages/AssetLibraryPage";
 import { costEntries, formatCostOrZero, formatCurrencyAmount } from "@/utils/cost-format";
+import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
 
 /** 通过隐藏 <a> 触发浏览器下载，避免 window.open 产生空白标签页 */
@@ -381,7 +382,11 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           />
 
           {/* Export — accent CTA */}
-          <div className="relative" ref={exportAnchorRef}>
+          <div
+            className="relative"
+            ref={exportAnchorRef}
+            data-onboarding={ONBOARDING_ANCHORS.workbenchExport}
+          >
             <button
               type="button"
               onClick={() => setExportDialogOpen(!exportDialogOpen)}

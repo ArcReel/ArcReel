@@ -108,6 +108,13 @@ describe("read-only demo mode", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("lets the tour mark itself seen from inside the demo workbench", async () => {
+    // 工作台四步就跑在只读态里，那里按「跳过」或「完成」写的正是这条标记——
+    // 走真实的 API 方法而不是手写 endpoint，方法改路径时这条也跟着失败。
+    await API.markOnboardingSeen();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("lifts the gate when the demo workbench is left", async () => {
     setApiReadOnly(false);
     await API.request("/projects", { method: "POST", body: "{}" });
