@@ -75,10 +75,10 @@ export function anchorSelector(anchor: OnboardingAnchor): string {
  * 打 `#app-root` 的 inert 罩不住"引导启动时已有弹窗开着"这种情形。这里改为在调用
  * 时刻快照 body 的直接子节点、逐个打 inert。
  *
- * `interactive` 步会在 `onHighlightStarted` 里动态解除/重新施加隔离（见下方调用
- * 处），这意味着重新施加时 driver 自己的 overlay/popover 已经挂在 `document.body`
- * 上（不再是"调用时刻还没创建"的最初场景）——必须显式排除，否则把 Next/Prev/Close
- * 等引导控件本身也打成 inert，引导直接卡死。
+ * 隔离只在引导启动/结束时整体施加/解除一次，`interactive` 步不整体解除——那样会
+ * 把 `#app-root` 里「新建项目」、其他真实项目卡片、设置入口等一并开放，不只是目标
+ * 元素。`interactive` 步改由 `openInteractiveHole` 单独凿一个只通向目标元素的孔
+ * （见下方），driver 自己的 overlay/popover 因为一直被排除在快照之外，不受影响。
  */
 const DRIVER_PORTAL_SELECTOR = ".driver-overlay, .driver-popover, #driver-dummy-element";
 
@@ -123,6 +123,38 @@ function setPeripheralIsolation(hidden: boolean): void {
     suspendKeyboard?.();
     suspendKeyboard = null;
   }
+}
+
+let interactiveHoleElements: HTMLElement[] = [];
+
+/**
+ * 为 `interactive` 步凿一个只通向目标元素的孔。`inert` 不能被后代自行覆盖（同上），
+ * 因此要把目标元素到 `document.body` 祖先链上每一层节点自身的 `inert` 解除；同时
+ * 把链上每层的其余兄弟节点显式打成 `inert`（多数已因整体隔离而是 `inert`，这里只
+ * 处理链路本身此前未被顶层快照覆盖到的中间层），确保只有目标元素这一条路径可达，
+ * 而不是连带打开整个 `#app-root`。
+ */
+function openInteractiveHole(target: HTMLElement): void {
+  let node: HTMLElement | null = target;
+  while (node && node !== document.body) {
+    const parent: HTMLElement | null = node.parentElement;
+    if (parent) {
+      Array.from(parent.children).forEach((sibling) => {
+        if (sibling === node || !(sibling instanceof HTMLElement) || sibling.inert) return;
+        sibling.inert = true;
+        interactiveHoleElements.push(sibling);
+      });
+    }
+    node.inert = false;
+    node = parent;
+  }
+}
+
+function closeInteractiveHole(): void {
+  interactiveHoleElements.forEach((el) => {
+    el.inert = false;
+  });
+  interactiveHoleElements = [];
 }
 
 /** 进度齿孔轨道 —— 装饰，语义由同级的 sr-only 文本承载 */
@@ -216,16 +248,18 @@ export function startTour(
     // 高亮到的元素是 driver 的占位元素时，回调收到的 element 是 undefined。步骤本来就
     // 声明了锚点却落到这里，说明锚点在页面上找不到 —— 降级已经发生，这里只负责留线索。
     //
-    // `inert` 是原生隔离，不像 `pointer-events` 能靠 CSS 选择器给单个后代开口子——祖先
-    // 一旦 inert，后代无法自行「取消 inert」重新变为可操作。`interactive` 步的高亮元素
-    // 恰恰是 `#app-root` 的后代，因此该步必须整体解除 `setPeripheralIsolation`，仅让
-    // driver 自己的 `disableActiveInteraction: false` 决定谁可点；离开该步立即复原。
+    // 每次切换先收起上一步可能凿开的孔，`interactive` 步再针对当前目标元素重新凿一个——
+    // 只让目标元素可达，`#app-root` 里其余内容（新建项目、其他项目卡片、设置入口等）
+    // 仍保持隔离，不因为这一步是 interactive 就整体开放。
     onHighlightStarted: (element, step) => {
       const anchor = step.data?.anchor as OnboardingAnchor | undefined;
       if (anchor && !element) {
         console.warn(`[onboarding] anchor "${anchor}" not found; falling back to a centered popover`);
       }
-      setPeripheralIsolation(!step.data?.interactive);
+      closeInteractiveHole();
+      if (step.data?.interactive && element instanceof HTMLElement) {
+        openInteractiveHole(element);
+      }
     },
     // 退出全部收口到这里，而不是 driver 的 onDestroyed。后者只在 driver 内部把高亮元素
     // 写进 state 之后才会触发，而那次写入排在 requestAnimationFrame 里 —— 同步 destroy
@@ -266,6 +300,7 @@ export function startTour(
       onExit();
     }
     window.removeEventListener("keyup", onKeyUp);
+    closeInteractiveHole();
     setPeripheralIsolation(false);
     instance.destroy();
   }
@@ -292,6 +327,7 @@ export function startTour(
     dispose: () => {
       disposing = true;
       window.removeEventListener("keyup", onKeyUp);
+      closeInteractiveHole();
       setPeripheralIsolation(false);
       instance.destroy();
     },
