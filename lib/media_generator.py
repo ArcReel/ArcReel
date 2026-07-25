@@ -604,24 +604,17 @@ class MediaGenerator:
 
             from lib.video_backends.base import VideoGenerationRequest
 
-            # Three-level fallback based on backend video capabilities
+            # 尾帧只在后端声明 last_frame 时下发：参考图是与首帧互斥的独立路径，
+            # 把尾帧转投参考图会丢掉首帧语义，故不支持尾帧的后端直接忽略该槽位。
             actual_end_image = None
             actual_reference_images = reference_images
 
             if end_image and self._video_backend:
-                caps = self._video_backend.video_capabilities
-                if caps.last_frame:
+                if self._video_backend.video_capabilities.last_frame:
                     actual_end_image = end_image  # first_last mode
-                elif caps.reference_images:
-                    # Fallback: pass end_image as reference image
-                    actual_reference_images = (actual_reference_images or []) + [end_image]
-                    logger.info(
-                        "Video backend %s does not support last_frame, falling back to reference_images",
-                        self._video_backend.name,
-                    )
                 else:
                     logger.warning(
-                        "Video backend %s supports neither last_frame nor reference_images, end_image will be ignored",
+                        "Video backend %s does not support last_frame, end_image will be ignored",
                         self._video_backend.name,
                     )
 

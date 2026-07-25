@@ -90,8 +90,6 @@ class TestCapabilities:
         assert caps.last_frame is True
         assert caps.reference_images is True
         assert caps.max_reference_images == 4
-        # 单通道 + mode 不可叠加：参考图不与首帧并存
-        assert caps.reference_images_with_start_frame is False
 
 
 class TestNumFramesAndSize:

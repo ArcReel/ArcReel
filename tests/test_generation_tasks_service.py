@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from lib.config.resolver import ProviderModel
-from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
+from lib.video_backends.base import VideoCapabilityError
 from server.services import generation_tasks
 from server.services.generation_context import GenerationContext, ImageLaneResult, VideoLaneResult
 from server.services.generation_tasks import assert_duration_supported
@@ -1252,13 +1252,6 @@ class TestAdProductFidelityStoryboard:
         assert generation_tasks._collect_shot_product_references(project, project_path, {"shot_id": "E1S01"}) == []
 
 
-class _FakeVideoBackend:
-    def __init__(self, capabilities):
-        self.name = "fake"
-        self.model = "fake-model"
-        self.video_capabilities = capabilities
-
-
 def _patch_video_path(monkeypatch, pm, generator):
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(generator))
@@ -1266,134 +1259,30 @@ def _patch_video_path(monkeypatch, pm, generator):
     monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
 
 
-class TestAdProductFidelityVideo:
-    """产品保真注入二元化——视频层（按后端「首帧叠加参考」能力门控）。"""
+class TestAdProductVideoRequest:
+    """产品镜头的视频请求走纯图生视频：分镜图作首帧，不带参考图。"""
 
-    async def _run_product_shot(self, tmp_path, monkeypatch, capabilities, *, shot_id="E1S02", mutate_pm=None):
-        """公共骨架：ad 产品镜头视频任务跑到底，返回 (project_path, video_call)。"""
+    async def test_product_shot_video_request_carries_no_reference_images(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         (project_path / "products" / "保温杯.png").write_bytes(b"png")
-        (project_path / "storyboards" / f"scene_{shot_id}.png").write_bytes(b"png")
+        (project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
         pm = _ad_pm(project_path, with_sheet=True)
-        if mutate_pm is not None:
-            mutate_pm(pm, project_path)
         generator = _FakeGenerator()
-        generator._video_backend = _FakeVideoBackend(capabilities)
         _patch_video_path(monkeypatch, pm, generator)
 
         result = await generation_tasks.execute_video_task(
             "demo",
-            shot_id,
+            "E1S02",
             {
                 "script_file": "episode_1.json",
                 "prompt": {"action": "举起保温杯", "camera_motion": "Static", "dialogue": []},
                 "duration_seconds": 4,
             },
         )
+
         assert result["resource_type"] == "videos"
-        return project_path, generator.video_calls[0]
-
-    async def test_product_shot_injects_product_references_when_backend_supports(self, tmp_path, monkeypatch):
-        """支持首帧叠加参考的视频后端：产品镜头把产品参考（sheet + 原图压阵）注入视频请求。"""
-        project_path, call = await self._run_product_shot(
-            tmp_path,
-            monkeypatch,
-            VideoCapabilities(reference_images=True, max_reference_images=9, reference_images_with_start_frame=True),
-        )
-
-        assert call["reference_images"] == [
-            project_path / "products" / "保温杯.png",
-            project_path / "products" / "refs" / "保温杯_1.jpg",
-        ]
-        # 起始帧仍是分镜图（既有图生视频路径不变）
+        call = generator.video_calls[0]
+        assert "reference_images" not in call
         assert call["start_image"] == project_path / "storyboards" / "scene_E1S02.png"
-        assert "「保温杯」" in call["prompt"]
-
-    async def test_backend_without_reference_support_degrades(self, tmp_path, monkeypatch):
-        """完全不支持参考输入的后端：产品镜头正常生成，不注入、不报错。"""
-        _, call = await self._run_product_shot(
-            tmp_path,
-            monkeypatch,
-            VideoCapabilities(reference_images=False, max_reference_images=0),
-        )
-
-        assert call["reference_images"] is None
-        # 未注入参考时不附保真指令（指令指向参考图，参考缺席会误导模型）
-        assert "高保真" not in call["prompt"]
-
-    async def test_reference_mode_only_backend_degrades(self, tmp_path, monkeypatch):
-        """声明 reference_images 但参考与首帧互斥的后端（如见图切端点丢首帧的实现）：不注入、不报错。"""
-        _, call = await self._run_product_shot(
-            tmp_path,
-            monkeypatch,
-            VideoCapabilities(reference_images=True, max_reference_images=7),
-        )
-
-        assert call["reference_images"] is None
-        assert "高保真" not in call["prompt"]
-
-    async def test_product_references_clamped_to_backend_limit(self, tmp_path, monkeypatch):
-        """产品参考超过后端 max_reference_images 上限时截断：sheet 优先存活。"""
-
-        def _more_originals(pm, project_path):
-            (project_path / "products" / "refs" / "保温杯_2.jpg").write_bytes(b"jpg")
-            pm.project["products"]["保温杯"]["reference_images"] = [
-                "products/refs/保温杯_1.jpg",
-                "products/refs/保温杯_2.jpg",
-            ]
-
-        project_path, call = await self._run_product_shot(
-            tmp_path,
-            monkeypatch,
-            VideoCapabilities(reference_images=True, max_reference_images=2, reference_images_with_start_frame=True),
-            mutate_pm=_more_originals,
-        )
-
-        assert call["reference_images"] == [
-            project_path / "products" / "保温杯.png",
-            project_path / "products" / "refs" / "保温杯_1.jpg",
-        ]
-
-    async def test_truncation_keeps_every_product_sheet(self, tmp_path, monkeypatch):
-        """多产品截断时 sheet 跨产品前置：每个产品的锚定 sheet 都存活，而非整体裁掉后面的产品。"""
-
-        def _second_product(pm, project_path):
-            (project_path / "products" / "杯刷.png").write_bytes(b"png")
-            (project_path / "products" / "refs" / "杯刷_1.jpg").write_bytes(b"jpg")
-            pm.project["products"]["杯刷"] = {
-                "description": "配套杯刷",
-                "product_sheet": "products/杯刷.png",
-                "brand": "",
-                "reference_images": ["products/refs/杯刷_1.jpg"],
-                "selling_points": [],
-            }
-            pm.script["shots"][1]["products_in_shot"] = ["保温杯", "杯刷"]
-
-        project_path, call = await self._run_product_shot(
-            tmp_path,
-            monkeypatch,
-            VideoCapabilities(reference_images=True, max_reference_images=3, reference_images_with_start_frame=True),
-            mutate_pm=_second_product,
-        )
-
-        # 全量 4 张（2 sheet + 2 原图）截到 3：两个 sheet 全部存活、原图按序裁尾
-        assert call["reference_images"] == [
-            project_path / "products" / "保温杯.png",
-            project_path / "products" / "杯刷.png",
-            project_path / "products" / "refs" / "保温杯_1.jpg",
-        ]
-        # 指令点名按截断后的实际注入集：两个产品都有 sheet 存活，均点名
-        assert "「保温杯」" in call["prompt"]
-        assert "「杯刷」" in call["prompt"]
-
-    async def test_atmosphere_shot_video_request_unchanged(self, tmp_path, monkeypatch):
-        """氛围镜头视频请求零产品参考，即便后端支持首帧叠加参考。"""
-        _, call = await self._run_product_shot(
-            tmp_path,
-            monkeypatch,
-            VideoCapabilities(reference_images=True, max_reference_images=9, reference_images_with_start_frame=True),
-            shot_id="E1S01",
-        )
-
-        assert call["reference_images"] is None
+        # 参考缺席时不附产品保真指令（指令指向参考图，会误导模型）
         assert "高保真" not in call["prompt"]

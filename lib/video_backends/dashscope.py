@@ -95,10 +95,8 @@ _MODEL_PROFILES: dict[str, tuple[set[VideoCapability], VideoCapabilities]] = {
     "wan2.7-r2v": (
         {_IV, _AUDIO, _SEED},
         # 带首帧的参考生视频是 wan2.7-r2v 的官方形态（_build_media 同请求组装
-        # first_frame + reference_image），故声明首帧叠加参考能力。
-        VideoCapabilities(
-            first_frame=True, reference_images=True, max_reference_images=5, reference_images_with_start_frame=True
-        ),
+        # first_frame + reference_image）。
+        VideoCapabilities(first_frame=True, reference_images=True, max_reference_images=5),
     ),
 }
 

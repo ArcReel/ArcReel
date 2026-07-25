@@ -355,42 +355,6 @@ def _product_names_in_references(product_references: list[dict]) -> list[str]:
     return list(dict.fromkeys(ref["name"] for ref in product_references))
 
 
-def _product_references_for_video(generator: Any, project: dict, project_path: Path, item: dict) -> list[dict]:
-    """视频层产品参考的能力门控收集：仅「首帧上可叠加参考输入」的后端注入。
-
-    门控看 ``reference_images_with_start_frame`` 而非 ``reference_images``——后者在
-    多家后端意味着与首帧互斥的「参考生视频」模式（见 ``VideoCapabilities`` docstring），
-    误注入会丢弃已审核的分镜首帧甚至整请求被拒。不支持（或能力不可知）的后端返回
-    空列表——正常降级、不报错，视频请求与既有图生视频路径完全一致。
-
-    超过 ``max_reference_images`` 上限时截断，截断前把 sheet 稳定前置（跨产品 sheet
-    全部排在原图之前），保证每个产品的锚定 sheet 优先存活；未触发截断时保持
-    「每产品 sheet + 原图压阵」的原始顺序。end_image（首尾帧）路径与本门控无关，
-    该槽位恢复使用时需复核与 max 上限的合并核算。
-    """
-    if not item.get("products_in_shot"):
-        return []
-    backend = getattr(generator, "_video_backend", None)
-    caps = getattr(backend, "video_capabilities", None)
-    if caps is None or not (caps.reference_images and caps.reference_images_with_start_frame):
-        logger.info(
-            "视频后端 %s 不支持在首帧请求上叠加参考图，产品参考二次注入跳过（正常降级）",
-            getattr(backend, "name", "unknown"),
-        )
-        return []
-    references = _collect_shot_product_references(project, project_path, item)
-    max_refs = caps.max_reference_images
-    if max_refs and len(references) > max_refs:
-        logger.warning(
-            "产品参考 %d 张超过视频后端 %s 上限 %d，sheet 前置后截断（每个产品的 sheet 优先存活）",
-            len(references),
-            getattr(backend, "name", "unknown"),
-            max_refs,
-        )
-        references = sorted(references, key=lambda ref: 0 if ref["kind"] == "sheet" else 1)[:max_refs]
-    return references
-
-
 def _episode_from_script(script: dict[str, Any] | None) -> int | None:
     if not isinstance(script, dict):
         return None
@@ -847,14 +811,6 @@ async def execute_video_task(
     seed = payload.get("seed")
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
-    # 产品镜头的视频层二次注入：把产品参考注入视频请求（零额外图像成本），
-    # 按后端「首帧叠加参考」能力门控——不支持的后端正常降级、不报错。
-    # 首尾帧锚定不在本路径（end_image 槽位保留，capability-gated 后续增强）。
-    _gated_product_refs = await asyncio.to_thread(_product_references_for_video, generator, project, project_path, item)
-    product_reference_images = [ref["image"] for ref in _gated_product_refs] or None
-    if product_reference_images:
-        prompt_text = append_product_fidelity_tail(prompt_text, _product_names_in_references(_gated_product_refs))
-
     # provider / model / 能力 / 分辨率均取自单次解析的 video lane：能力按 backend 实际身份
     # （registry provider_id + backend.model）查询，与实际要调用的 model 对齐——历史任务 payload
     # 携带 provider 覆盖、或自定义供应商目标 model 被禁用回退时，二者一致避免 duration 守卫误判
@@ -889,7 +845,6 @@ async def execute_video_task(
         resource_id=resource_id,
         start_image=storyboard_file,
         end_image=end_image,
-        reference_images=product_reference_images,
         aspect_ratio=aspect_ratio,
         duration_seconds=duration_seconds,
         resolution=resolution,

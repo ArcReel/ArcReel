@@ -9,8 +9,7 @@
 上游回落自身默认横屏尺寸）。
 
 关键帧 / 多图映射：无图 → 文生视频；起始图 → 顶层 ``image``；首尾帧 → ``extra_body.image=[s,e]``
-+ ``mode="keyframes"``；参考图 → ``extra_body.image=[refs]``。单通道 + mode 不叠加
-（``reference_images_with_start_frame=False``）。
++ ``mode="keyframes"``；参考图 → ``extra_body.image=[refs]``。单通道 + mode 不叠加。
 """
 
 from __future__ import annotations
@@ -230,7 +229,6 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             last_frame=True,
             reference_images=True,
             max_reference_images=_MAX_REFERENCE_IMAGES,
-            reference_images_with_start_frame=False,
         )
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
@@ -279,7 +277,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         start_image = self._single_path(request.start_image)
         end_image = self._single_path(request.end_image)
 
-        # 参考图与首/尾帧走互斥的单通道（reference_images_with_start_frame=False）。两者同时给出时
+        # 参考图与首/尾帧走互斥的单通道。两者同时给出时
         # fail-loud，而非静默走参考图分支丢掉用户的首/尾帧。
         if reference_images and (start_image is not None or end_image is not None):
             raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)

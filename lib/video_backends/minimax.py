@@ -143,8 +143,7 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         """海螺图生视频走 first_frame_image 首帧；S2V-01 走 subject_reference 单脸参考生视频。
 
         S2V-01 仅接受单张人脸参考、不接受首帧图，故 first_frame=False + reference_images=True
-        + max_reference_images=1；reference_images_with_start_frame 维持 False（参考与首帧不叠加）。
-        Hailuo 系列首批不建模尾帧/参考图。
+        + max_reference_images=1。Hailuo 系列首批不建模尾帧/参考图。
         """
         if model == _S2V:
             return VideoCapabilities(first_frame=False, reference_images=True, max_reference_images=1)
