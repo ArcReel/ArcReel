@@ -67,6 +67,24 @@ describe("read-only demo mode", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("does not treat a project literally named 'import' as project-less", async () => {
+    // ProjectManager.normalize_project_name 允许 "import" 作为合法项目名，归档导入
+    // 也会直接采用该名——只有精确的 /projects/import 静态归档端点本身该被排除，
+    // 不能连带把「项目名恰好叫 import」的写请求也判成无归属而拦下
+    await API.request("/projects/import/characters/hero", {
+      method: "PATCH",
+      body: "{}",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still blocks the static archive-import endpoint itself", async () => {
+    await expect(
+      API.request("/projects/import", { method: "POST", body: "{}" }),
+    ).rejects.toThrow(ReadOnlyModeError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("blocks task enqueueing", async () => {
     // 入队端点一律是 POST，所以闸门对它们的覆盖和对普通写操作一样
     await expect(

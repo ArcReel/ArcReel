@@ -80,6 +80,8 @@ export function OverviewCanvas({
     // 上一个真实项目若停在欢迎页，演示数据的 overview/episodes 一到位就会被误判成
     // 「欢迎页 → 完成」，提示会强行打开助手面板——但演示态已卸载该面板，
     // 离开演示项目后还会带出一个意外展开的助手。清空 ref 避免下次真实切换沿用这份脏状态。
+    // handoffTrigger 本身不在此清零：子组件 AgentHandoffHint 的 effect 先于本 effect
+    // 提交，state 更新赶不上同一次渲染；改在下方渲染时直接把 triggerKey 收窄为 0。
     if (readOnly) {
       wasWelcomeRef.current = null;
       return;
@@ -799,7 +801,7 @@ export function OverviewCanvas({
           onResolve={conflictPrompt.resolve}
         />
       )}
-      <AgentHandoffHint triggerKey={handoffTrigger} storageScope={projectName} />
+      <AgentHandoffHint triggerKey={readOnly ? 0 : handoffTrigger} storageScope={projectName} />
     </div>
   );
 }

@@ -171,6 +171,35 @@ describe("OverviewCanvas", () => {
 
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });
+
+  it("does not replay a stale handoff trigger after switching to a read-only demo project", () => {
+    useAppStore.setState({ assistantPanelOpen: false });
+
+    // 真实项目内先完成一次「欢迎页 → 完成」，使 handoffTrigger 变为非零并已消费过一次
+    const { rerender } = render(
+      <OverviewCanvas
+        projectName="real-project"
+        projectData={makeProjectData({ overview: undefined, episodes: [] })}
+      />,
+    );
+    rerender(
+      <OverviewCanvas projectName="real-project" projectData={makeProjectData()} />,
+    );
+    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+
+    // 复位后再切到只读的演示项目——storageScope 变化不应让残留的非零 trigger
+    // 被 AgentHandoffHint 当成新事件重新触发一次
+    useAppStore.setState({ assistantPanelOpen: false });
+    rerender(
+      <OverviewCanvas
+        projectName="onboarding_demo"
+        projectData={makeProjectData()}
+        readOnly
+      />,
+    );
+
+    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
+  });
 });
 
 describe("OverviewCanvas ad mode", () => {

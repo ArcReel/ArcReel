@@ -333,15 +333,18 @@ export class ReadOnlyModeError extends Error {
   }
 }
 
-// `/projects/import` 之类的静态子路径不是项目名，从项目名判定里排除
-const RESERVED_PROJECT_PATH_SEGMENTS = new Set(["import"]);
+// 静态归档导入端点，不是「项目名恰好叫 import」——项目名允许字母数字中划线，
+// `import` 本身是合法项目名（ProjectManager.normalize_project_name 不排除它），
+// 按精确路径匹配而非按名称黑名单，避免把 `/projects/import/...`（真实项目名为
+// import 的写请求）一并误判成不带项目归属
+const RESERVED_PROJECT_ENDPOINTS = new Set(["/projects/import"]);
 
-/** 从形如 `/projects/{name}` 或 `/projects/{name}/...` 的 endpoint 中取出项目名；非项目路径或保留字返回 null */
+/** 从形如 `/projects/{name}` 或 `/projects/{name}/...` 的 endpoint 中取出项目名；非项目路径或静态保留端点返回 null */
 function extractProjectName(endpoint: string): string | null {
+  if (RESERVED_PROJECT_ENDPOINTS.has(endpoint)) return null;
   const match = /^\/projects\/([^/?]+)/.exec(endpoint);
   if (!match) return null;
-  const name = decodeURIComponent(match[1]);
-  return RESERVED_PROJECT_PATH_SEGMENTS.has(name) ? null : name;
+  return decodeURIComponent(match[1]);
 }
 
 /**
@@ -1780,7 +1783,8 @@ class API {
    * @param filters - 筛选条件
    */
   static async getUsageCalls(
-    filters: UsageCallsFilters = {}
+    filters: UsageCallsFilters = {},
+    options: { signal?: AbortSignal } = {}
   ): Promise<Record<string, unknown>> {
     const params = new URLSearchParams();
     if (filters.projectName)
@@ -1792,7 +1796,7 @@ class API {
     if (filters.page) params.append("page", String(filters.page));
     if (filters.pageSize) params.append("page_size", String(filters.pageSize));
     const query = params.toString();
-    return this.request(`/usage/calls${query ? "?" + query : ""}`);
+    return this.request(`/usage/calls${query ? "?" + query : ""}`, { signal: options.signal });
   }
 
   /**
