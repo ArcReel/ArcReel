@@ -1,6 +1,6 @@
 # 崩溃恢复：接管未完成批次
 
-SKILL.md 入口扫描发现 `.afk/` 下存在缺少 `closed` 收尾行的账本时加载本契约——上一会话的 lead 可能中途终止。gh/git 是唯一真相：恢复即 replay 账本补回不可从远端重推的事实，再以一次 poll 对账，而非重建状态机。
+SKILL.md 入口扫描发现 `.afk/` 下存在缺少 `closed` 收尾行的账本时加载本契约——上一会话的 team-lead 可能中途终止。gh/git 是唯一真相：恢复即 replay 账本补回不可从远端重推的事实，再以一次 poll 对账，而非重建状态机。
 
 ## 1. 对账并询问用户
 
@@ -18,7 +18,7 @@ SKILL.md 入口扫描发现 `.afk/` 下存在缺少 `closed` 收尾行的账本�
 
 ## 3. 对非终态 issue 重 spawn
 
-前任 lead 终止后其 teammate 不可达也不可问责，一律重 spawn 替补——假死 teammate 与新上下文并发驱动同一 PR 比重复劳动更糟。按 `stage_hint` 重 spawn 对应阶段（`no-branch`→实现、`local-review`→本地审查、`review-loop`→审查循环），使用 spawn-prompts.md 的替补接管附言。两个特例：
+前任 team-lead 终止后其 teammate 不可达也不可问责，一律重 spawn 替补——假死 teammate 与新上下文并发驱动同一 PR 比重复劳动更糟。按 `stage_hint` 重 spawn 对应阶段（`no-branch`→实现、`local-review`→本地审查、`review-loop`→审查循环），使用 spawn-prompts.md 的替补接管附言。两个特例：
 
 - `review-loop`：poll 显示该 PR `updatedAt` 近期仍在变动时，先观察一个唤醒周期再重 spawn，避免两个上下文同时推同一 PR
-- `no-branch` 且路线为 codex：codex 后台任务不随 lead 会话终止而死。先看 worktree：HEAD 有 `origin/main` 之外的 commit（前任已代 commit）→ 实现已交付，直接重 spawn 本地审查阶段；否则在对应 worktree 跑 companion（codex 插件的 `codex-companion.mjs`）`status --all` 分三态处置：已完成 → 按 SKILL.md「实现路线与模型」以 `result` 交付并核验，不重跑；在途且有进展 → 等待其完成；失败或停滞 → 按 SKILL.md 健康检查节的替补处置执行
+- `no-branch` 且路线为 codex：codex 后台任务不随 team-lead 会话终止而死。先看 worktree：HEAD 有 `origin/main` 之外的 commit（前任已代 commit）→ 实现已交付，直接重 spawn 本地审查阶段；否则在对应 worktree 跑 companion（codex 插件的 `codex-companion.mjs`）`status --all` 分三态处置：已完成 → 按 SKILL.md「实现路线与模型」以 `result` 交付并核验，不重跑；在途且有进展 → 等待其完成；失败或停滞 → 按 SKILL.md 健康检查节的替补处置执行
