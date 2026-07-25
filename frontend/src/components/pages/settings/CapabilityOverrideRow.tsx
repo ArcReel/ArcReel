@@ -1,5 +1,6 @@
+import { useRef } from "react";
 import { useTranslation } from "react-i18next";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 
 // ---------------------------------------------------------------------------
 // CapabilityOverrideRow —— 视频模型行内的能力覆盖三态控件（首批仅 last_frame）
@@ -12,6 +13,9 @@ import type { ReactNode } from "react";
 // ---------------------------------------------------------------------------
 
 export type OverrideState = "follow" | "on" | "off";
+
+/** 段的排布顺序，同时是键盘左右移动的顺序。 */
+const SEGMENT_ORDER: OverrideState[] = ["follow", "on", "off"];
 
 /** 覆盖值（undefined = 键缺席）与三态之间的双向映射，写入侧的唯一转换点。 */
 export function overrideToState(override: boolean | undefined): OverrideState {
@@ -48,16 +52,52 @@ export function CapabilityOverrideRow({
     v ? t("cap_override_value_supported") : t("cap_override_value_unsupported");
   const detectedLabel = systemValue === null ? t("cap_override_value_unknown") : valueLabel(systemValue);
 
-  const segment = (target: OverrideState, label: ReactNode, title: string, disabled = false) => {
+  const groupRef = useRef<HTMLDivElement>(null);
+  // 「强制开」在 endpoint 不下传尾帧时不可选，键盘移动要跳过它而不是停在一个点不动的段上。
+  const reachable = SEGMENT_ORDER.filter((s) => s !== "on" || endImageCapable);
+  // roving tabindex：整组只占一个 Tab 位，组内移动交给方向键（对齐 ModelConfigSection 的时长
+  // 选择组）。当前态不可达时（理论上不会出现）退回第一个可达段，避免整组都是 -1 而 Tab 不进去。
+  const tabbable = reachable.includes(state) ? state : reachable[0];
+
+  const select = (target: OverrideState) => {
+    onChange(stateToOverride(target));
+    groupRef.current?.querySelector<HTMLButtonElement>(`[data-state="${target}"]`)?.focus();
+  };
+
+  // radio 组的标准键盘行为：方向键移动焦点即选中，Home/End 跳到首尾。挂在各段而非容器上——
+  // 焦点本就落在段内，容器自身不该可聚焦。
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    const current = reachable.indexOf(state);
+    const from = current === -1 ? 0 : current;
+    let next: OverrideState | undefined;
+    if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      next = reachable[(from - 1 + reachable.length) % reachable.length];
+    } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      next = reachable[(from + 1) % reachable.length];
+    } else if (e.key === "Home") {
+      next = reachable[0];
+    } else if (e.key === "End") {
+      next = reachable[reachable.length - 1];
+    }
+    if (next === undefined) return;
+    e.preventDefault();
+    select(next);
+  };
+
+  const segment = (target: OverrideState, label: ReactNode, ariaLabel: string, title: string) => {
     const active = state === target;
     return (
       <button
         type="button"
         role="radio"
         aria-checked={active}
-        disabled={disabled}
+        aria-label={ariaLabel}
+        data-state={target}
+        disabled={!reachable.includes(target)}
+        tabIndex={target === tabbable ? 0 : -1}
         title={title}
-        onClick={() => onChange(stateToOverride(target))}
+        onClick={() => select(target)}
+        onKeyDown={onKeyDown}
         className="px-2 py-1 text-[10.5px] font-semibold transition-colors first:rounded-l-[6px] last:rounded-r-[6px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-45"
         style={{
           color: active ? "var(--color-accent-2)" : "var(--color-text-4)",
@@ -78,17 +118,24 @@ export function CapabilityOverrideRow({
           {t("cap_override_last_frame_label")}
         </span>
 
-        <div className="flex items-center" role="radiogroup" aria-label={t("cap_override_group_label")}>
+        <div
+          ref={groupRef}
+          className="flex items-center"
+          role="radiogroup"
+          aria-label={t("cap_override_group_label")}
+        >
           {segment(
             "follow",
             <span>
               {t("cap_override_follow")}
               <span className="ml-1 opacity-70">·{detectedLabel}</span>
             </span>,
+            // 可访问名带上判定值，读屏用户与视觉用户听到／看到的是同一句
+            `${t("cap_override_follow")}·${detectedLabel}`,
             t("cap_override_follow_title"),
           )}
-          {segment("on", t("cap_override_on"), t("cap_override_on_title"), !endImageCapable)}
-          {segment("off", t("cap_override_off"), t("cap_override_off_title"))}
+          {segment("on", t("cap_override_on"), t("cap_override_on"), t("cap_override_on_title"))}
+          {segment("off", t("cap_override_off"), t("cap_override_off"), t("cap_override_off_title"))}
         </div>
 
         {overridden && (

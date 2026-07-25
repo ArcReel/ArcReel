@@ -58,7 +58,7 @@ describe("CapabilityOverrideRow", () => {
     expect(screen.getByText("生效值：支持（判定：不支持）")).toBeInTheDocument();
   });
 
-  it("点强制关回写 false，点回跟随回写 undefined", async () => {
+  it("点强制关回写 false", async () => {
     const user = userEvent.setup();
     const { onChange } = setup();
     await user.click(seg(/强制关/));
@@ -85,5 +85,45 @@ describe("CapabilityOverrideRow", () => {
     const { onChange } = setup({ endImageCapable: false });
     await user.click(seg(/强制开/));
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("CapabilityOverrideRow 键盘操作", () => {
+  it("整组只占一个 Tab 位，Tab 进来落在当前选中段", async () => {
+    const user = userEvent.setup();
+    setup({ override: false });
+    await user.tab();
+    expect(seg(/强制关/)).toHaveFocus();
+    expect(seg(/跟随判定/)).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("方向键在组内移动即选中，不需要额外按空格", async () => {
+    const user = userEvent.setup();
+    const { onChange } = setup();
+    await user.tab();
+    expect(seg(/跟随判定/)).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("方向键跳过不可选的强制开，键盘用户不会停在点不动的段上", async () => {
+    const user = userEvent.setup();
+    const { onChange } = setup({ endImageCapable: false });
+    await user.tab();
+    await user.keyboard("{ArrowRight}");
+    // follow 的下一个可达段是 off——on 不可选，直接跳过
+    expect(onChange).toHaveBeenCalledWith(false);
+  });
+
+  it("方向键循环回绕，Home/End 跳到首尾", async () => {
+    const user = userEvent.setup();
+    const { onChange } = setup();
+    await user.tab();
+    await user.keyboard("{ArrowLeft}");
+    expect(onChange).toHaveBeenLastCalledWith(false); // follow 向左回绕到 off
+    await user.keyboard("{End}");
+    expect(onChange).toHaveBeenLastCalledWith(false);
+    await user.keyboard("{Home}");
+    expect(onChange).toHaveBeenLastCalledWith(undefined);
   });
 });

@@ -425,17 +425,17 @@ def _check_model_capability_overrides(
     *,
     stored_state: Mapping[str, tuple[str, object | None]] | None = None,
 ) -> None:
-    """对整批模型逐个跑覆盖白名单校验（保存模型列表的写入路径）。
+    """对整批模型逐个跑覆盖白名单校验（保存模型列表的写入路径，设置页表单的覆盖编辑也走这里）。
 
     ``stored_state`` 传入时按 model_id 对照当前落库的 ``(endpoint, capability_overrides)``：
     两者都未变更才跳过白名单校验——校验结果本就是 endpoint 相关的（白名单本身不区分 endpoint，
     但 last_frame=True 还要求 endpoint 的 end_image_capable；non-video endpoint 直接拒绝非空
     覆盖），只比对覆盖值而不比对 endpoint 会让「model_id 不变、覆盖字典不变、endpoint 悄悄换了」
-    的整表 PUT 绕过针对新 endpoint 的校验。这条端点承载的是模型基础字段（名称/价格/是否启用等）
-    的整表写入，覆盖内容的编辑走专门的 PATCH 端点（``update_model_capability_overrides``），白
-    名单收紧只在那里把关。否则前端把 GET 回显（``filter_valid_overrides`` 只做结构性校验，不过
-    滤白名单）原样带回本端点时，历史行 / 非 API 写入产生的、已不在开放白名单内但结构合法的覆盖
-    值会让用户连改个显示名都被拒绝，且没有入口能清掉它。
+    的整表 PUT 绕过针对新 endpoint 的校验。未变更即跳过，是因为 GET 回显不按白名单过滤
+    （``filter_valid_overrides`` 只做结构性校验），前端会把历史行 / 非 API 写入产生的、已不在
+    开放白名单内但结构合法的覆盖值原样带回：对这类未经用户改动的值也从严校验，用户连改个显示名
+    都会被拒绝，且没有入口能清掉它。用户真的改动了某行的覆盖或 endpoint 时，该行按当前白名单从严
+    校验。
     """
     stored_state = stored_state or {}
     for m in models:

@@ -473,6 +473,71 @@ class TestReplaceModelsOverrideSemantics:
         assert resp.status_code == 422
 
     @pytest.mark.integration
+    def test_override_written_and_read_back_through_full_update(self, client: TestClient):
+        """设置页表单的覆盖编辑就走这条整表 PUT：从「跟随判定」改成「强制开」保存后，
+        重新加载页面（GET）必须还能读回同一个覆盖，否则用户的选择保存了个寂寞。"""
+        pid = _create_provider(
+            client,
+            [_video_model(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL)],
+        )
+
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}",
+            json={
+                "display_name": "Relay",
+                "base_url": "https://relay.test/v1",
+                "models": [
+                    _video_model(
+                        capability_overrides={"last_frame": True},
+                        endpoint=LAST_FRAME_ENDPOINT,
+                        model_id=LAST_FRAME_MODEL,
+                    )
+                ],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["models"][0]["capability_overrides"] == {"last_frame": True}
+
+        reloaded = client.get(f"/api/v1/custom-providers/{pid}")
+        assert reloaded.status_code == 200
+        assert reloaded.json()["models"][0]["capability_overrides"] == {"last_frame": True}
+
+    @pytest.mark.integration
+    def test_override_cleared_to_null_through_full_update(self, client: TestClient):
+        """控件回到「跟随判定」时前端把该键从稀疏字典移除、字典空则整体收敛回 null。
+        这条 PUT 必须真的把落库的覆盖清掉，生效值才会重新跟随系统判定。"""
+        pid = _create_provider(
+            client,
+            [
+                _video_model(
+                    capability_overrides={"last_frame": True},
+                    endpoint=LAST_FRAME_ENDPOINT,
+                    model_id=LAST_FRAME_MODEL,
+                )
+            ],
+        )
+
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}",
+            json={
+                "display_name": "Relay",
+                "base_url": "https://relay.test/v1",
+                "models": [
+                    _video_model(
+                        capability_overrides=None,
+                        endpoint=LAST_FRAME_ENDPOINT,
+                        model_id=LAST_FRAME_MODEL,
+                    )
+                ],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["models"][0]["capability_overrides"] is None
+
+        reloaded = client.get(f"/api/v1/custom-providers/{pid}")
+        assert reloaded.json()["models"][0]["capability_overrides"] is None
+
+    @pytest.mark.integration
     async def test_unchanged_unallowlisted_override_does_not_block_replace(self, client: TestClient, session_factory):
         """first_frame 不在开放白名单内，但结构合法：filter_valid_overrides 不按白名单过滤
         （见 test_stale_incompatible_override_filtered_from_response 同类容忍），GET 会原样
