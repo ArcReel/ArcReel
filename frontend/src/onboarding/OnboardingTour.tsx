@@ -18,6 +18,8 @@ import { useOnboardingStore } from "@/stores/onboarding-store";
 import { buildTourSteps } from "./steps";
 import { startTour, type TourLabels } from "./tour";
 
+const APP_TOP_LEVEL_ROUTES = ["/app", "/app/projects", "/app/settings", "/app/assets"];
+
 export function OnboardingTour() {
   const { t } = useTranslation("onboarding");
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -27,8 +29,14 @@ export function OnboardingTour() {
 
   // 只在已知应用路由内生效——未匹配路由（404）与 /login 一样不掺和，否则引导会
   // 在错链接 / 旧书签落地的 404 页自动弹出，且关闭时把全局 seen 标记写成已看过。
+  // 这份列表须跟 router.tsx 的顶层路由表保持一致：/app/settings、/app/assets 是无子路由
+  // 的单页，前缀匹配会把 /app/settings/unknown 这类 404 误判为主界面；只有
+  // /app/projects/:projectName 是 `nest` 路由，允许前缀匹配。
   const inMainUi =
-    isAuthenticated && (location === "/" || location === "/app" || location.startsWith("/app/"));
+    isAuthenticated &&
+    (location === "/" ||
+      APP_TOP_LEVEL_ROUTES.includes(location) ||
+      location.startsWith("/app/projects/"));
 
   // 1. 查询「是否已看过」
   useEffect(() => {

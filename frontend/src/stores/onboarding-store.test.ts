@@ -37,6 +37,21 @@ describe("useOnboardingStore", () => {
       expect(useOnboardingStore.getState().seen).toBeNull();
     });
 
+    it("still writes the flag on replay when the earlier suppression was only a fetch failure", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(API, "getOnboardingStatus").mockRejectedValue(new Error("offline"));
+      const markSeen = vi.spyOn(API, "markOnboardingSeen").mockResolvedValue({ seen: true });
+
+      await useOnboardingStore.getState().loadStatus();
+      expect(useOnboardingStore.getState().seen).toBe(true);
+
+      // 后端此时可能已经恢复；本地 seen:true 只是本次会话的临时抑制，不是确认。
+      useOnboardingStore.getState().start();
+      useOnboardingStore.getState().exit();
+
+      await vi.waitFor(() => expect(markSeen).toHaveBeenCalledTimes(1));
+    });
+
     it("does not let a slow response undo an exit that already completed", async () => {
       let resolveStatus: (value: { seen: boolean }) => void;
       vi.spyOn(API, "getOnboardingStatus").mockReturnValue(
@@ -80,7 +95,7 @@ describe("useOnboardingStore", () => {
 
     it("writes nothing when the tour is replayed", async () => {
       const markSeen = vi.spyOn(API, "markOnboardingSeen").mockResolvedValue({ seen: true });
-      useOnboardingStore.setState({ seen: true });
+      useOnboardingStore.setState({ seen: true, seenConfirmed: true });
       useOnboardingStore.getState().start();
 
       useOnboardingStore.getState().exit();

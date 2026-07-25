@@ -95,6 +95,15 @@ describe("OnboardingTour", () => {
     expect(popoverTitle()).toBeNull();
   });
 
+  it("does not run on an unregistered sub-path under a single-page app route", () => {
+    const status = vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+
+    renderAt("/app/settings/unknown");
+
+    expect(status).not.toHaveBeenCalled();
+    expect(popoverTitle()).toBeNull();
+  });
+
   it("marks the tour as seen when it is closed, and does not reopen it", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
 
