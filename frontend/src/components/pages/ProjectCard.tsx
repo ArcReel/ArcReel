@@ -10,7 +10,6 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { Link } from "wouter";
 import { MoreHorizontal, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
 import { getProjectDisplayName } from "@/utils/project-display";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { posterGridStyle } from "@/components/ui/darkroom-tokens";
@@ -235,24 +234,38 @@ export function gradientProgressStyles(variant: "accent" | "good"): {
 
 // -- ProjectCard --------------------------------------------------------------
 
-interface ProjectCardProps {
-  project: ProjectSummary;
-  styleLabel: string;
-  phaseLabels: Record<Phase, string>;
-  t: TFunction;
-  /** 只读展示：卡片不再是进入工作台的链接，也不挂操作菜单。引导演示卡用这个形态。 */
-  readOnly?: boolean;
-  onDelete?: () => void;
+/** 五个阶段的本地化标签。卡片、筛选胶囊、搜索匹配都读同一份。 */
+export function usePhaseLabels(): Record<Phase, string> {
+  const { t } = useTranslation("dashboard");
+  return useMemo(
+    () => ({
+      setup: t("phase_setup"),
+      worldbuilding: t("phase_worldbuilding"),
+      scripting: t("phase_scripting"),
+      production: t("phase_production"),
+      completed: t("phase_completed"),
+    }),
+    [t],
+  );
 }
 
-export function ProjectCard({
-  project,
-  styleLabel,
-  phaseLabels,
-  t,
-  readOnly = false,
-  onDelete,
-}: ProjectCardProps) {
+interface ProjectCardBaseProps {
+  project: ProjectSummary;
+  styleLabel: string;
+}
+
+/**
+ * 两种形态互斥：可交互的卡片必须给 `onDelete`，只读演示卡不接受它 —— 「不可点进工作台」
+ * 与「没有删除入口」是同一件事，用一个判别字段表达，免得出现两种无意义的组合。
+ */
+type ProjectCardProps = ProjectCardBaseProps &
+  ({ readOnly: true; onDelete?: never } | { readOnly?: false; onDelete: () => void });
+
+export function ProjectCard(props: ProjectCardProps) {
+  const { project, styleLabel } = props;
+  const readOnly = props.readOnly ?? false;
+  const { t } = useTranslation("dashboard");
+  const phaseLabels = usePhaseLabels();
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -287,7 +300,7 @@ export function ProjectCard({
   const propsStat = status?.props ?? { completed: 0, total: 0 };
   const episodes =
     status?.episodes_summary ?? { total: 0, scripted: 0, in_production: 0, completed: 0 };
-  const projectDisplayName = getProjectDisplayName(project.title, t("dashboard:untitled_project"));
+  const projectDisplayName = getProjectDisplayName(project.title, t("untitled_project"));
 
   const { trackStyle, barStyle } = gradientProgressStyles(
     phase === "completed" ? "good" : "accent",
@@ -324,11 +337,11 @@ export function ProjectCard({
         >
           {(
             [
-              { k: t("dashboard:lobby_card_stat_cast"), v: characters },
-              { k: t("dashboard:lobby_card_stat_scene"), v: scenes },
-              { k: t("dashboard:lobby_card_stat_prop"), v: propsStat },
+              { k: t("lobby_card_stat_cast"), v: characters },
+              { k: t("lobby_card_stat_scene"), v: scenes },
+              { k: t("lobby_card_stat_prop"), v: propsStat },
               {
-                k: t("dashboard:lobby_card_stat_episode"),
+                k: t("lobby_card_stat_episode"),
                 v: { completed: episodes.completed, total: episodes.total },
               },
             ] as const
@@ -354,7 +367,7 @@ export function ProjectCard({
         <div className="mt-3 flex items-center gap-2.5">
           <ProgressBar
             value={progressPct}
-            label={t("dashboard:lobby_now_editing_progress_label")}
+            label={t("lobby_now_editing_progress_label")}
             className="h-[3px] rounded-[2px] bg-transparent"
             style={trackStyle}
             barClassName="rounded-none"
@@ -393,12 +406,12 @@ export function ProjectCard({
         </Link>
       )}
 
-      {readOnly || !onDelete ? null : (
+      {props.readOnly ? null : (
         <div className="absolute right-2.5 bottom-2.5 z-[2]">
           <button
             ref={triggerRef}
             type="button"
-            aria-label={`${t("dashboard:lobby_card_actions")} — ${projectDisplayName}`}
+            aria-label={`${t("lobby_card_actions")} — ${projectDisplayName}`}
             aria-expanded={menuOpen}
             onClick={(e) => {
               e.preventDefault();
@@ -425,13 +438,13 @@ export function ProjectCard({
                   e.preventDefault();
                   e.stopPropagation();
                   setMenuOpen(false);
-                  onDelete();
+                  props.onDelete();
                 }}
-                aria-label={`${t("dashboard:delete_project")} — ${projectDisplayName}`}
+                aria-label={`${t("delete_project")} — ${projectDisplayName}`}
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] text-danger-2 transition-colors hover:bg-danger-soft focus-visible:bg-danger-soft focus-visible:outline-none"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                {t("dashboard:delete_project")}
+                {t("delete_project")}
               </button>
             </div>
           ) : null}

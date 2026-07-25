@@ -50,11 +50,13 @@ describe("onboarding anchors", () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
   });
 
-  it.each(Object.entries(RENDERERS))("%s is present in the UI", async (anchor, mount) => {
+  const CASES = Object.entries(RENDERERS) as [OnboardingAnchor, () => void][];
+
+  it.each(CASES)("%s is present in the UI", async (anchor, mount) => {
     mount();
 
     await waitFor(() => {
-      expect(document.querySelector(anchorSelector(anchor as OnboardingAnchor))).not.toBeNull();
+      expect(document.querySelector(anchorSelector(anchor))).not.toBeNull();
     });
   });
 

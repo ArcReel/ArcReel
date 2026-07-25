@@ -35,6 +35,7 @@ import {
   PhasePill,
   asProjectStatus,
   gradientProgressStyles,
+  usePhaseLabels,
 } from "./ProjectCard";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { OnboardingDemoCard } from "@/onboarding/OnboardingDemoCard";
@@ -720,7 +721,7 @@ function FilterPills({ active, onChange, counts, phaseLabels, t }: FilterPillsPr
 // -- ProjectsPage -------------------------------------------------------------
 
 export function ProjectsPage() {
-  const { t, i18n } = useTranslation(["common", "dashboard", "assets"]);
+  const { t } = useTranslation(["common", "dashboard", "assets"]);
   const [, navigate] = useLocation();
   const {
     projects,
@@ -749,17 +750,7 @@ export function ProjectsPage() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const isConfigComplete = useConfigStatusStore((s) => s.isComplete);
 
-  const phaseLabels = useMemo<Record<Phase, string>>(
-    () => ({
-      setup: t("dashboard:phase_setup"),
-      worldbuilding: t("dashboard:phase_worldbuilding"),
-      scripting: t("dashboard:phase_scripting"),
-      production: t("dashboard:phase_production"),
-      completed: t("dashboard:phase_completed"),
-    }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- t reference rotates with i18n.language
-    [i18n.language],
-  );
+  const phaseLabels = usePhaseLabels();
 
   const fetchProjects = useCallback(async () => {
     setProjectsLoading(true);
@@ -1076,8 +1067,6 @@ export function ProjectsPage() {
                       key={project.name}
                       project={project}
                       styleLabel={styleLabels[project.name] ?? ""}
-                      phaseLabels={phaseLabels}
-                      t={t}
                       onDelete={() => setDeletingProject(project)}
                     />
                   ))}

@@ -11,26 +11,13 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { ProjectCard } from "@/components/pages/ProjectCard";
-import type { Phase } from "@/types";
 import { ONBOARDING_ANCHORS } from "./anchors";
 import { buildDemoProject } from "./demo-project";
 
 export function OnboardingDemoCard() {
   const { t } = useTranslation("onboarding");
-  const { t: tDashboard, i18n } = useTranslation("dashboard");
 
   const project = useMemo(() => buildDemoProject(t), [t]);
-  const phaseLabels = useMemo<Record<Phase, string>>(
-    () => ({
-      setup: tDashboard("phase_setup"),
-      worldbuilding: tDashboard("phase_worldbuilding"),
-      scripting: tDashboard("phase_scripting"),
-      production: tDashboard("phase_production"),
-      completed: tDashboard("phase_completed"),
-    }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- t reference rotates with i18n.language
-    [i18n.language],
-  );
 
   return (
     <section className="mb-7" aria-labelledby="onboarding-demo-heading">
@@ -45,13 +32,7 @@ export function OnboardingDemoCard() {
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div data-onboarding={ONBOARDING_ANCHORS.lobbyDemoCard}>
-          <ProjectCard
-            project={project}
-            styleLabel={t("demo_project_style")}
-            phaseLabels={phaseLabels}
-            t={tDashboard}
-            readOnly
-          />
+          <ProjectCard project={project} styleLabel={t("demo_project_style")} readOnly />
         </div>
       </div>
     </section>

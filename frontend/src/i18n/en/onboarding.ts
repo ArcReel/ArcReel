@@ -9,6 +9,8 @@ export default {
   'lobby_demo_body': 'This card is a sample, not one of your projects. The badge shows the current phase, and the counters below track characters, scenes, props, and episodes as production fills them in.',
   'lobby_settings_title': 'Providers live in Settings',
   'lobby_settings_body': 'Image, video, and text generation each run on a provider you choose. A red dot on this button means something required is still missing — open Settings and it points you at the gap.',
+  'finish_title': 'Your turn',
+  'finish_body': 'Start by importing a novel, then take the rest one step at a time. To see this again, open Settings → About.',
 
   // Tour controls
   'next': 'Continue',
