@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { API } from "@/api";
-import { useTasksStore } from "@/stores/tasks-store";
+import { defaultTaskStats, useTasksStore } from "@/stores/tasks-store";
 import { voidCall } from "@/utils/async";
 
 const POLL_INTERVAL_MS = 3000;
@@ -21,7 +21,14 @@ export function useTasksSSE(projectName?: string | null, enabled = true): void {
   const { setTasks, setStats, setConnected } = useTasksStore();
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      // 停用（如切到只读演示项目）不只是不再拉取——store 里残留的上一项目 tasks/stats
+      // 若不清空，无条件挂载的 GlobalHeader 任务角标/TaskHud 会继续展示旧项目数据。
+      setTasks([]);
+      setStats(defaultTaskStats);
+      setConnected(false);
+      return;
+    }
     let disposed = false;
 
     async function poll() {

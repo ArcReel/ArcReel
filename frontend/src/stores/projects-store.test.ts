@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import type { ProjectData } from "@/types";
 
 type GetProjectResult = Awaited<ReturnType<typeof API.getProject>>;
@@ -253,5 +254,26 @@ describe("projects-store refreshProject", () => {
     // 第一轮失效 S1；排队轮把 S2 带上（S1 不重复计入排队轮）
     expect(app.getEntityRevision("segment:S1")).toBe(1);
     expect(app.getEntityRevision("segment:S2")).toBe(1);
+  });
+
+  it("真实项目的刷新在只读演示项目接管当前视图后落定：不覆盖回真实项目", async () => {
+    // 模拟场景：SSE onChanges 触发了真实项目的 refreshProject，请求在途期间用户
+    // 导航进了只读演示工作台（演示项目不经过 refreshProject，直接调用
+    // setCurrentProject 写入前端常量）——迟到的真实项目响应落定时不该把
+    // currentProjectName 写回真实项目，否则只读横幅/演示数据会被悄悄顶掉。
+    const d = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(d.promise);
+
+    const store = useProjectsStore.getState();
+    const p = store.refreshProject("real-project");
+
+    store.setCurrentProject(DEMO_PROJECT_NAME, makeProject("演示"), {}, {});
+
+    d.resolve(makeResult("迟到的真实数据"));
+    const ok = await p;
+
+    expect(ok).toBe(false);
+    expect(useProjectsStore.getState().currentProjectName).toBe(DEMO_PROJECT_NAME);
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("演示");
   });
 });
