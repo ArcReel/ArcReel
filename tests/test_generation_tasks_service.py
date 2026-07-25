@@ -1259,6 +1259,7 @@ def _patch_video_path(monkeypatch, pm, generator):
     monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
 
 
+@pytest.mark.integration
 class TestAdProductVideoRequest:
     """产品镜头的视频请求走纯图生视频：分镜图作首帧，不带参考图。"""
 

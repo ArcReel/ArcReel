@@ -607,7 +607,6 @@ class MediaGenerator:
             # 尾帧只在后端声明 last_frame 时下发：参考图是与首帧互斥的独立路径，
             # 把尾帧转投参考图会丢掉首帧语义，故不支持尾帧的后端直接忽略该槽位。
             actual_end_image = None
-            actual_reference_images = reference_images
 
             if end_image and self._video_backend:
                 if self._video_backend.video_capabilities.last_frame:
@@ -635,21 +634,17 @@ class MediaGenerator:
             if actual_end_image is not None:
                 end_spec_idx = len(specs)
                 specs.append(ReferenceSpec(source=Path(actual_end_image), label="", role=RefRole.FRAME))
-            if actual_reference_images:
+            if reference_images:
                 ref_start_idx = len(specs)
-                specs.extend(
-                    ReferenceSpec(source=Path(r), label="", role=RefRole.ARRAY) for r in actual_reference_images
-                )
+                specs.extend(ReferenceSpec(source=Path(r), label="", role=RefRole.ARRAY) for r in reference_images)
 
             def _call_video(compressed: "list[CompressedRef]"):
                 start_arg = compressed[start_spec_idx].path if start_spec_idx is not None else None
                 end_arg = compressed[end_spec_idx].path if end_spec_idx is not None else None
                 # 数组参考图恒在 specs 末段（append start/end 之后），故 [ref_start_idx:] 精确取它们；
-                # 无可压缩数组项时回落原 actual_reference_images（保留 None / [] 语义）。
+                # 无可压缩数组项时回落原 reference_images（保留 None / [] 语义）。
                 ref_arg = (
-                    [c.path for c in compressed[ref_start_idx:]]
-                    if ref_start_idx is not None
-                    else actual_reference_images
+                    [c.path for c in compressed[ref_start_idx:]] if ref_start_idx is not None else reference_images
                 )
                 return video_backend.generate(
                     VideoGenerationRequest(

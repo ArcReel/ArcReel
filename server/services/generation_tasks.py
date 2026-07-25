@@ -287,7 +287,7 @@ def _collect_reference_images(
 
 
 def _collect_shot_product_references(project: dict, project_path: Path, item: dict) -> list[dict]:
-    """产品镜头（``products_in_shot`` 非空）的产品参考集，分镜图与视频两层共用。
+    """产品镜头（``products_in_shot`` 非空）的产品参考集，用于分镜图生成。
 
     每个产品：有 product sheet 时注入集为「sheet 多角度 + 原图压阵」（sheet 在前、
     原图收尾），无 sheet 时原图直注。返回 ``{"image": Path, "label": str, "name": str,
@@ -314,7 +314,7 @@ def collect_product_references_for_names(
     names: Sequence[str],
 ) -> list[dict]:
     """按产品名列表收集产品参考集（注入二元规则的装配核心，条目语义见
-    ``_collect_shot_product_references``）。分镜/视频按镜头注入与 ad 参考直出
+    ``_collect_shot_product_references``）。分镜图按镜头注入与 ad 参考直出
     按 unit 注入共用此函数，保证两条路径的「sheet 在前、原图压阵」口径一致。
     """
     spec = ASSET_SPECS["product"]
