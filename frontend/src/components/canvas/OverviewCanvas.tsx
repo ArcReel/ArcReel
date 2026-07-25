@@ -106,6 +106,9 @@ export function OverviewCanvas({
     [projectName],
   );
 
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+
   const handleUpload = useCallback(
     async (file: File) => {
       const tryUpload = async (
@@ -140,6 +143,9 @@ export function OverviewCanvas({
         await tryUpload();
       } catch (err) {
         if (err instanceof ConflictError) {
+          // 上传耗时期间可能已切到只读态（如导航到演示项目复用同一实例）——
+          // 冲突弹窗不该在只读页面上凭一个过期项目的旧上传结果重新弹出。
+          if (readOnlyRef.current) return;
           const decision = await new Promise<ConflictResolution>((resolve) => {
             setConflictPrompt({
               existing: err.existing,

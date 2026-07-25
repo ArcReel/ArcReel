@@ -203,6 +203,41 @@ describe("OverviewCanvas", () => {
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });
 
+  it("does not reopen the conflict prompt if a stale upload resolves after switching to read-only", async () => {
+    let rejectUpload: ((err: unknown) => void) | undefined;
+    vi.spyOn(API, "uploadFile").mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectUpload = reject;
+        }),
+    );
+
+    const { rerender } = render(
+      <OverviewCanvas
+        projectName="real-project"
+        projectData={makeProjectData({ overview: undefined, episodes: [] })}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("welcome-canvas"));
+
+    // 上传仍在途时切到只读态（如导航到演示项目复用同一路由实例）
+    rerender(
+      <OverviewCanvas
+        projectName="onboarding_demo"
+        projectData={makeProjectData()}
+        readOnly
+      />,
+    );
+
+    // 真实项目的旧上传这时才返回冲突——不该在只读页面上重新弹出弹窗
+    rejectUpload?.(new ConflictError("existing.txt", "existing (1).txt", "conflict"));
+
+    await waitFor(() => {
+      expect(screen.queryByText("同名文件已存在")).not.toBeInTheDocument();
+    });
+  });
+
   it("does not fetch or display cost data on a read-only project", () => {
     const getCostEstimateSpy = vi.spyOn(API, "getCostEstimate");
     // 模拟仍带着上一个真实项目的费用残留（如同一路由实例复用时的短暂窗口）——
