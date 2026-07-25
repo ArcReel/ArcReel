@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from lib.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
 from lib.custom_provider.backends import (
@@ -14,7 +14,12 @@ from lib.custom_provider.backends import (
 )
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
 from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
-from lib.video_backends.base import VideoCapability, VideoGenerationRequest, VideoGenerationResult
+from lib.video_backends.base import (
+    VideoCapabilities,
+    VideoCapability,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+)
 
 # ---------------------------------------------------------------------------
 # CustomTextBackend
@@ -195,6 +200,48 @@ class TestCustomVideoBackend:
         backend = CustomVideoBackend(provider_id="full-provider", delegate=delegate, model="veo-3")
 
         assert backend.capabilities == all_caps
+
+    def test_video_capabilities_for_tier_delegates_when_delegate_supports_it(self):
+        """delegate 实现 tier-aware 查询（如 Kling）时，按请求档位透传其结果，而不是回落
+        context-free 的 video_capabilities——否则 media_generator 的 getattr 探测会命中一个
+        总是保守拒绝的空壳方法,起不到收窄效果。"""
+        pro_caps = VideoCapabilities(first_frame=True, last_frame=True, reference_images=False)
+        delegate = AsyncMock()
+        delegate.video_capabilities_for_tier = MagicMock(return_value=pro_caps)
+        backend = CustomVideoBackend(provider_id="vid-provider", delegate=delegate, model="kling-v2-5-turbo")
+
+        result = backend.video_capabilities_for_tier("pro", resolution="1080p")
+
+        assert result is pro_caps
+        delegate.video_capabilities_for_tier.assert_called_once_with("pro", resolution="1080p")
+
+    def test_video_capabilities_for_tier_falls_back_without_tier_support(self):
+        """delegate 未实现 tier-aware 查询时,回落到 context-free 的 video_capabilities。"""
+        static_caps = VideoCapabilities(first_frame=True, last_frame=False, reference_images=False)
+        delegate = AsyncMock(spec=["video_capabilities", "capabilities"])
+        delegate.video_capabilities = static_caps
+        backend = CustomVideoBackend(provider_id="vid-provider", delegate=delegate, model="wan-pro")
+
+        result = backend.video_capabilities_for_tier("pro")
+
+        assert result is static_caps
+
+    def test_video_capabilities_for_tier_prefers_injected_override(self):
+        """注入生效能力（用户覆盖）存在时优先返回它，不查 delegate——与 `video_capabilities`
+        属性同一优先级,覆盖必须能翻转执行层看到的能力。"""
+        override_caps = VideoCapabilities(first_frame=True, last_frame=True, reference_images=False)
+        delegate = AsyncMock()
+        delegate.video_capabilities_for_tier = MagicMock(
+            return_value=VideoCapabilities(first_frame=True, last_frame=False, reference_images=False)
+        )
+        backend = CustomVideoBackend(
+            provider_id="vid-provider", delegate=delegate, model="kling-v2-5-turbo", video_capabilities=override_caps
+        )
+
+        result = backend.video_capabilities_for_tier("std")
+
+        assert result is override_caps
+        delegate.video_capabilities_for_tier.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -137,6 +137,21 @@ class CustomVideoBackend:
             return self._video_capabilities
         return self._delegate.video_capabilities
 
+    def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None) -> VideoCapabilities:
+        """按请求档位收窄能力，转发给被包装 backend（如 Kling）——与 `video_capabilities`
+        同一优先级：注入生效能力（用户覆盖）存在时优先返回它，否则查被包装 backend 是否实现
+        tier-aware 查询（`getattr` 探测，与 `media_generator` 的探测方式一致），未实现则回落
+        `video_capabilities`。缺失本方法时 `media_generator` 会回落到无请求上下文的保守声明，
+        让 Pro 档本可接受的尾帧被静默丢弃（`KlingVideoBackend.video_capabilities_for_tier` 的
+        docstring 详述了该保守声明的由来）。
+        """
+        if self._video_capabilities is not None:
+            return self._video_capabilities
+        tier_aware = getattr(self._delegate, "video_capabilities_for_tier", None)
+        if tier_aware is not None:
+            return tier_aware(service_tier, resolution=resolution)
+        return self._delegate.video_capabilities
+
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         return await self._delegate.generate(request)
 
