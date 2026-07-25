@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { anchorSelector, startTour, type TourLabels, type TourStep } from "./tour";
+import { anchorSelector, isOnboardingTourActive, startTour, type TourLabels, type TourStep } from "./tour";
 
 const LABELS: TourLabels = {
   next: "继续",
@@ -224,6 +224,19 @@ describe("startTour", () => {
       expect(modal.inert).toBe(false);
       appRoot.remove();
       modal.remove();
+    });
+
+    it("reports itself active only while the tour is up", () => {
+      const appRoot = withAppRoot();
+      expect(isOnboardingTourActive()).toBe(false);
+
+      const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn() });
+      expect(isOnboardingTourActive()).toBe(true);
+
+      handle.dispose();
+
+      expect(isOnboardingTourActive()).toBe(false);
+      appRoot.remove();
     });
   });
 });

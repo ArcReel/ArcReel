@@ -55,8 +55,20 @@ export function anchorSelector(anchor: string): string {
  * （在随后的 `instance.drive()` 里才挂上），因此不会误伤 driver 自身。
  */
 let peripheralElements: Array<[element: HTMLElement, wasInert: boolean]> = [];
+let tourActive = false;
+
+/**
+ * 引导是否正在进行中。`inert` 只摘除无障碍树，不注销底层弹窗自己挂在 `document`/
+ * `window` 上的全局键盘监听（如 `useEscapeClose`）——那些监听不看谁在无障碍树里，
+ * 照样会在按 Esc 时把弹窗关掉，和 driver 自己的 Esc 退出流程互相打架。这些全局
+ * 处理器改为查询这里，引导期间让位。
+ */
+export function isOnboardingTourActive(): boolean {
+  return tourActive;
+}
 
 function setPeripheralInert(hidden: boolean): void {
+  tourActive = hidden;
   if (hidden) {
     peripheralElements = Array.from(document.body.children)
       .filter((el): el is HTMLElement => el instanceof HTMLElement)
