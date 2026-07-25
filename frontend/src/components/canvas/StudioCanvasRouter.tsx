@@ -546,6 +546,7 @@ export function StudioCanvasRouter() {
 
       <Route path={`/${WORKSPACE_ROUTE_CHARACTERS}`}>
         <CharactersPage
+          key={currentProjectName}
           projectName={currentProjectName}
           characters={currentProjectData?.characters ?? {}}
           readOnly={demoMode}
@@ -560,6 +561,7 @@ export function StudioCanvasRouter() {
 
       <Route path={`/${WORKSPACE_ROUTE_SCENES}`}>
         <ScenesPage
+          key={currentProjectName}
           projectName={currentProjectName}
           scenes={currentProjectData?.scenes ?? {}}
           readOnly={demoMode}
@@ -574,6 +576,7 @@ export function StudioCanvasRouter() {
 
       <Route path={`/${WORKSPACE_ROUTE_PROPS}`}>
         <PropsPage
+          key={currentProjectName}
           projectName={currentProjectName}
           props={currentProjectData?.props ?? {}}
           readOnly={demoMode}
@@ -588,8 +591,10 @@ export function StudioCanvasRouter() {
 
       <Route path={`/${WORKSPACE_ROUTE_PRODUCTS}`}>
         <ProductsPage
+          key={currentProjectName}
           projectName={currentProjectName}
           products={currentProjectData?.products ?? {}}
+          readOnly={demoMode}
           onUpdateProduct={handleUpdateProductVoid}
           onGenerateProduct={handleGenerateProductVoid}
           onAddProduct={handleAddProductSubmit}

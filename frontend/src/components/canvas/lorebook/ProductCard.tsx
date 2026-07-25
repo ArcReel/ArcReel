@@ -25,6 +25,8 @@ interface ProductCardProps {
   onRestoreVersion?: () => void | Promise<void>;
   onReload?: () => void | Promise<unknown>;
   generating?: boolean;
+  /** 只读展示（引导演示项目）：所有改写入口不渲染，文本字段不可编辑。 */
+  readOnly?: boolean;
 }
 
 const FIELD_STYLE: React.CSSProperties = {
@@ -48,6 +50,7 @@ export function ProductCard({
   onRestoreVersion,
   onReload,
   generating = false,
+  readOnly = false,
 }: ProductCardProps) {
   const { t } = useTranslation(["dashboard", "assets", "common"]);
   const sheetFp = useProjectsStore(
@@ -211,6 +214,7 @@ export function ProductCard({
         >
           {name}
         </h3>
+        {readOnly ? null : (
         <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"
@@ -247,13 +251,17 @@ export function ProductCard({
             busy={generating || uploadingSheet}
           />
         </div>
+        )}
       </div>
 
       {/* ---- 原图（保真锚点） ---- */}
+      {/* 只读且没有参考图时整块不渲染：留一个不能用的上传框只是噪声 */}
+      {readOnly && referenceImages.length === 0 ? null : (
       <div className="mb-4">
         <div className="flex items-center gap-2">
           <CapsLabel>{t("dashboard:product_reference_images")}</CapsLabel>
           <div className="flex-1" />
+          {readOnly ? null : (
           <button
             type="button"
             onClick={() => refsInputRef.current?.click()}
@@ -265,6 +273,7 @@ export function ProductCard({
           >
             <ImagePlus className="h-3.5 w-3.5" />
           </button>
+          )}
           <input
             ref={refsInputRef}
             type="file"
@@ -305,6 +314,7 @@ export function ProductCard({
           </button>
         )}
       </div>
+      )}
 
       {/* ---- 标准参考图 ---- */}
       <div className="mb-4">
@@ -345,6 +355,7 @@ export function ProductCard({
         ref={textareaRef}
         id={descId}
         value={description}
+        readOnly={readOnly}
         onChange={(e) => setDescription(e.target.value)}
         onInput={autoResize}
         rows={2}
@@ -359,6 +370,7 @@ export function ProductCard({
         id={brandId}
         type="text"
         value={brand}
+        readOnly={readOnly}
         onChange={(e) => setBrand(e.target.value)}
         className="focus-ring mt-1.5 mb-3 w-full rounded-lg px-3 py-2 text-[13px] outline-none"
         style={FIELD_STYLE}
@@ -370,6 +382,7 @@ export function ProductCard({
       <textarea
         id={sellingPointsId}
         value={sellingPointsText}
+        readOnly={readOnly}
         onChange={(e) => setSellingPointsText(e.target.value)}
         rows={3}
         className="focus-ring mt-1.5 mb-3 w-full resize-y rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none"
@@ -377,7 +390,7 @@ export function ProductCard({
         placeholder={t("dashboard:product_selling_points_placeholder")}
       />
 
-      {isDirty && (
+      {isDirty && !readOnly && (
         <button
           type="button"
           onClick={handleSave}
@@ -394,12 +407,14 @@ export function ProductCard({
         </button>
       )}
 
+      {readOnly ? null : (
       <GenerateButton
         onClick={() => onGenerate(name)}
         loading={generating}
         label={product.product_sheet ? t("dashboard:regenerate_design") : t("dashboard:generate_design")}
         className="w-full justify-center"
       />
+      )}
     </div>
   );
 }

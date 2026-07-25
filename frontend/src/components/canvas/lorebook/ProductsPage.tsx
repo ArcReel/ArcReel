@@ -20,6 +20,8 @@ interface Props {
   onRestoreProductVersion?: () => Promise<void> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingProductNames?: Set<string>;
+  /** 只读展示（引导演示项目）：不渲染新增 / 生成 / 上传入口。 */
+  readOnly?: boolean;
 }
 
 /**
@@ -35,6 +37,7 @@ export function ProductsPage({
   onRestoreProductVersion,
   onRefreshProject,
   generatingProductNames,
+  readOnly = false,
 }: Props) {
   const { t } = useTranslation(["dashboard", "assets"]);
   const [adding, setAdding] = useState(false);
@@ -48,15 +51,15 @@ export function ProductsPage({
       <GalleryToolbar
         title={t("dashboard:products")}
         count={entries.length}
-        onAdd={() => setAdding(true)}
+        onAdd={readOnly ? undefined : () => setAdding(true)}
       />
       <div className="px-5 py-5">
         {entries.length === 0 ? (
           <GalleryEmptyState
             icon={<ShoppingBag className="h-6 w-6" />}
             label={t("dashboard:products")}
-            hint={t("dashboard:no_products_hint_clickable")}
-            onClick={() => setAdding(true)}
+            hint={t(readOnly ? "dashboard:no_products_hint" : "dashboard:no_products_hint_clickable")}
+            onClick={readOnly ? undefined : () => setAdding(true)}
           />
         ) : (
           <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">
@@ -71,13 +74,14 @@ export function ProductsPage({
                 onRestoreVersion={onRestoreProductVersion}
                 onReload={onRefreshProject}
                 generating={generatingProductNames?.has(name)}
+                readOnly={readOnly}
               />
             ))}
           </div>
         )}
       </div>
 
-      {adding && (
+      {adding && !readOnly && (
         <ProductFormModal
           onClose={() => setAdding(false)}
           onSubmit={async ({ name, description, brand }) => {

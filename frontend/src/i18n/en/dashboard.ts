@@ -247,6 +247,7 @@ export default {
   'products': 'Products',
   'product_design': 'Product Reference Sheet',
   'product_desc_placeholder': 'Enter product description...',
+  'no_products_hint': 'No products yet.',
   'no_products_hint_clickable': 'No products yet, click to add',
   'product_reference_images': 'Product Photos',
   'product_upload_refs': 'Add product photos',

@@ -248,6 +248,7 @@ export default {
   'products': '产品',
   'product_design': '产品参考图',
   'product_desc_placeholder': '输入产品描述...',
+  'no_products_hint': '暂无产品',
   'no_products_hint_clickable': '暂无产品，点此添加',
   'product_reference_images': '产品原图',
   'product_upload_refs': '添加产品图',

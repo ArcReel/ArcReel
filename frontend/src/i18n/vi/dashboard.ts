@@ -248,6 +248,7 @@ export default {
   'products': 'Sản phẩm',
   'product_design': 'Ảnh tham chiếu sản phẩm',
   'product_desc_placeholder': 'Nhập mô tả sản phẩm...',
+  'no_products_hint': 'Chưa có sản phẩm.',
   'no_products_hint_clickable': 'Chưa có sản phẩm, nhấn để thêm',
   'product_reference_images': 'Ảnh gốc sản phẩm',
   'product_upload_refs': 'Thêm ảnh sản phẩm',
