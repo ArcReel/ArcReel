@@ -17,6 +17,16 @@ function renderAt(path: string) {
   );
 }
 
+function renderWithNavigation(path: string) {
+  const { hook, navigate } = memoryLocation({ path });
+  const view = render(
+    <Router hook={hook}>
+      <OnboardingTour />
+    </Router>,
+  );
+  return { ...view, navigate };
+}
+
 function popoverTitle(): string | null {
   return document.querySelector(".driver-popover-title")?.textContent ?? null;
 }
@@ -67,6 +77,15 @@ describe("OnboardingTour", () => {
     expect(status).not.toHaveBeenCalled();
   });
 
+  it("does not run on an unmatched route (404)", () => {
+    const status = vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+
+    renderAt("/some/unknown/path");
+
+    expect(status).not.toHaveBeenCalled();
+    expect(popoverTitle()).toBeNull();
+  });
+
   it("marks the tour as seen when it is closed, and does not reopen it", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
 
@@ -108,6 +127,18 @@ describe("OnboardingTour", () => {
     });
 
     await waitFor(() => expect(popoverTitle()).toBe("Your turn"));
+    expect(API.markOnboardingSeen).not.toHaveBeenCalled();
+  });
+
+  it("takes the tour down when the user navigates back to the login page mid-tour", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+
+    const { navigate } = renderWithNavigation("/app/projects");
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+
+    act(() => navigate("/login"));
+
+    expect(popoverTitle()).toBeNull();
     expect(API.markOnboardingSeen).not.toHaveBeenCalled();
   });
 

@@ -56,6 +56,7 @@ async def unauth_client(_session_factory):
         yield client
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_status_reports_not_seen_when_flag_missing(authed_client) -> None:
     resp = await authed_client.get("/api/v1/onboarding/status")
@@ -63,6 +64,7 @@ async def test_status_reports_not_seen_when_flag_missing(authed_client) -> None:
     assert resp.json() == {"seen": False}
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_mark_seen_then_status_reports_seen(authed_client) -> None:
     marked = await authed_client.post("/api/v1/onboarding/seen")
@@ -73,6 +75,7 @@ async def test_mark_seen_then_status_reports_seen(authed_client) -> None:
     assert resp.json() == {"seen": True}
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_mark_seen_is_idempotent(authed_client) -> None:
     for _ in range(3):
@@ -83,6 +86,7 @@ async def test_mark_seen_is_idempotent(authed_client) -> None:
     assert (await authed_client.get("/api/v1/onboarding/status")).json() == {"seen": True}
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_mark_seen_persists_flag_under_expected_key(authed_client, _session_factory) -> None:
     """标记写在实例级 SystemSetting 的 `onboarding_seen` 上，不是内存态。"""
@@ -93,6 +97,7 @@ async def test_mark_seen_persists_flag_under_expected_key(authed_client, _sessio
     assert stored == "true"
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_mark_seen_writes_only_the_flag(authed_client, _session_factory) -> None:
     """零副作用：标记引导只落一个 setting，不碰其他配置。"""
@@ -107,6 +112,7 @@ async def test_mark_seen_writes_only_the_flag(authed_client, _session_factory) -
     assert {k: v for k, v in after.items() if k != onboarding.ONBOARDING_SEEN_KEY} == before
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_status_rejects_unauthenticated(unauth_client, monkeypatch) -> None:
     monkeypatch.setenv("AUTH_ENABLED", "true")
@@ -114,6 +120,7 @@ async def test_status_rejects_unauthenticated(unauth_client, monkeypatch) -> Non
     assert resp.status_code == 401
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_mark_seen_rejects_unauthenticated(unauth_client, monkeypatch) -> None:
     monkeypatch.setenv("AUTH_ENABLED", "true")

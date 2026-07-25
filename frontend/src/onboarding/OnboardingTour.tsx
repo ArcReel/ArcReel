@@ -25,7 +25,9 @@ export function OnboardingTour() {
   const seen = useOnboardingStore((s) => s.seen);
   const active = useOnboardingStore((s) => s.active);
 
-  const inMainUi = isAuthenticated && location !== "/login";
+  // 只在已知应用路由内生效——未匹配路由（404）与 /login 一样不掺和，否则引导会
+  // 在错链接 / 旧书签落地的 404 页自动弹出，且关闭时把全局 seen 标记写成已看过。
+  const inMainUi = isAuthenticated && (location === "/" || location.startsWith("/app"));
 
   // 1. 查询「是否已看过」
   useEffect(() => {
@@ -47,8 +49,10 @@ export function OnboardingTour() {
   // 重建走 `dispose()` —— 不记退出 —— 并把停留的步号带过去，讲到第几步就还在第几步。
   const stepIndexRef = useRef(0);
   useEffect(() => {
-    if (!active) {
-      stepIndexRef.current = 0;
+    // 离开主界面（如运行期间浏览器后退回登录页）时收起正在运行的引导——不算一次
+    // 退出（不记 seen），保留步号，回到主界面后从原位继续。
+    if (!active || !inMainUi) {
+      if (!active) stepIndexRef.current = 0;
       return;
     }
     const labels: TourLabels = {
@@ -67,7 +71,7 @@ export function OnboardingTour() {
       stepIndexRef.current = handle.currentIndex();
       handle.dispose();
     };
-  }, [active, t]);
+  }, [active, inMainUi, t]);
 
   return null;
 }

@@ -36,6 +36,26 @@ describe("useOnboardingStore", () => {
 
       expect(useOnboardingStore.getState().seen).toBeNull();
     });
+
+    it("does not let a slow response undo an exit that already completed", async () => {
+      let resolveStatus: (value: { seen: boolean }) => void;
+      vi.spyOn(API, "getOnboardingStatus").mockReturnValue(
+        new Promise((resolve) => {
+          resolveStatus = resolve;
+        }),
+      );
+      vi.spyOn(API, "markOnboardingSeen").mockResolvedValue({ seen: true });
+
+      const pending = useOnboardingStore.getState().loadStatus();
+      // 查询飞行途中，用户从设置页启动重看并立即退出——本地已确立 seen: true。
+      useOnboardingStore.getState().start();
+      useOnboardingStore.getState().exit();
+
+      resolveStatus!({ seen: false });
+      await pending;
+
+      expect(useOnboardingStore.getState().seen).toBe(true);
+    });
   });
 
   describe("start", () => {

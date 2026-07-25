@@ -22,6 +22,9 @@ export const useOnboardingStore = create<OnboardingState>((set, get) => ({
     try {
       const { seen } = await API.getOnboardingStatus({ signal: options.signal });
       if (options.signal?.aborted) return;
+      // 迟到的查询结果不得回退已确立的「已看过」——用户可能在这次查询飞行途中
+      // 已经跑完并退出过一轮引导（本地 exit() 早已写入 seen: true）。
+      if (get().seen === true) return;
       set({ seen });
     } catch (err) {
       if (options.signal?.aborted) return;
