@@ -683,9 +683,11 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                             is_default: false,
                             // 表单没有覆盖编辑控件（专门的 PATCH 端点承载，见 issue #1294），且覆盖的
                             // 合法性本身随 endpoint 变化（如 last_frame 要求目标 endpoint 支持尾帧）：
-                            // 前端拿不到判定所需的 end_image_capable 数据，任何 endpoint 切换一律清空，
-                            // 否则隐藏字段原样提交可能被后端因白名单/兼容性拒绝，用户无法保存。
-                            capability_overrides: null,
+                            // 前端拿不到判定所需的 end_image_capable 数据，endpoint 实际切换时一律清空，
+                            // 否则隐藏字段原样提交可能被后端因白名单/兼容性拒绝，用户无法保存。仅在
+                            // next !== m.endpoint 时清空——弹层里重新点选当前已选中项也会触发 onChange，
+                            // 此时无条件清空会把用户尚未改动的已有覆盖静默删掉。
+                            capability_overrides: next === m.endpoint ? m.capability_overrides : null,
                           })
                         }
                         ariaLabel={t("endpoint_label")}

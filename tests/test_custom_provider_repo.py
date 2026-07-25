@@ -338,6 +338,7 @@ class TestModelManagement:
         result = await repo.update_model(999, display_name="Nope")
         assert result is None
 
+    @pytest.mark.integration
     async def test_update_model_rejects_pk_reused_by_unrelated_row(self, session: AsyncSession):
         """SQLite 整表删除重建会复用释放出的主键：模拟并发 PUT 用同一主键插入了一个业务上
         完全不同的新模型，若只按主键匹配，更新会静默命中并污染这条无关的行；一并校验业务标识
@@ -378,6 +379,7 @@ class TestModelManagement:
         untouched = (await repo.list_models(p.id))[0]
         assert untouched.display_name == "Unrelated"
 
+    @pytest.mark.integration
     async def test_update_model_rejects_endpoint_changed_by_concurrent_replace(self, session: AsyncSession):
         """业务身份（provider_id/model_id）不变，但并发整表 PUT 把模型换到了另一个 endpoint：
         仅按业务身份匹配仍会命中，调用方对旧 endpoint 校验过的字段会被写入新 endpoint 的行；
