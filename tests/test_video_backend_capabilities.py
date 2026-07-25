@@ -68,11 +68,15 @@ class TestVideoGenerationRequestNewFields:
 class TestGrokVideoCapabilities:
     def test_no_start_frame_overlay_field(self):
         """Grok 同时下发 image_url 与 reference_image_urls，但字段已收敛，不再单独声明该组合能力。"""
+        from unittest.mock import patch
+
         from lib.video_backends.grok import GrokVideoBackend
 
-        caps = GrokVideoBackend(api_key="test-key").video_capabilities
+        with patch("lib.video_backends.grok.create_grok_client"):
+            caps = GrokVideoBackend(api_key="test-key").video_capabilities
         assert caps.reference_images is True
         assert caps.max_reference_images == 7
+        assert not hasattr(caps, "reference_images_with_start_frame")
 
 
 class TestVideoCapabilitiesForModel:
