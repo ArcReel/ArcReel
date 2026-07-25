@@ -155,9 +155,11 @@ describe("startTour", () => {
     expect(document.querySelector(".driver-popover")).toBeNull();
   });
 
-  describe("app root isolation", () => {
+  describe("peripheral isolation", () => {
     // driver.js 只挡 pointer-events + Tab 键，屏幕阅读器的虚拟光标仍能读到底层界面；
-    // #app-root 打 inert 把整棵子树从无障碍树摘除，才是真正的「全程只读」。
+    // body 的既有子节点（#app-root，以及 ModalShell/CreateProjectModal 这类直接
+    // createPortal 到 body、与 #app-root 是兄弟关系的对话框）打 inert 摘出无障碍树，
+    // 才是真正的「全程只读」。
     function withAppRoot(): HTMLElement {
       const appRoot = document.createElement("div");
       appRoot.id = "app-root";
@@ -188,6 +190,24 @@ describe("startTour", () => {
 
       expect(appRoot.inert).toBe(false);
       appRoot.remove();
+    });
+
+    it("also inerts a dialog already portaled to body when the tour starts, and clears it on dispose", () => {
+      const appRoot = withAppRoot();
+      // 模拟 ModalShell/CreateProjectModal 用 createPortal 挂到 body 的对话框——
+      // 是 #app-root 的兄弟节点，不在其子树内。
+      const modal = document.createElement("div");
+      document.body.appendChild(modal);
+
+      const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn() });
+
+      expect(modal.inert).toBe(true);
+
+      handle.dispose();
+
+      expect(modal.inert).toBe(false);
+      appRoot.remove();
+      modal.remove();
     });
   });
 });

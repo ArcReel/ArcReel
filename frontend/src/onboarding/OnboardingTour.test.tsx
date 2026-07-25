@@ -121,6 +121,14 @@ describe("OnboardingTour", () => {
     await waitFor(() => expect(status).toHaveBeenCalled());
   });
 
+  it("runs on the source files list page, which has no filename segment", async () => {
+    const status = vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+
+    renderAt("/app/projects/my-novel/source");
+
+    await waitFor(() => expect(status).toHaveBeenCalled());
+  });
+
   it("runs on the project settings page", async () => {
     const status = vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
 

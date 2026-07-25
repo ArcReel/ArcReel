@@ -45,13 +45,31 @@ export function anchorSelector(anchor: string): string {
 /**
  * driver.js 只用 `pointer-events: none` 和一个仅拦截 Tab 键的焦点陷阱隔离底层界面，
  * 不触及无障碍树——屏幕阅读器的虚拟光标导航能绕开这两者，在引导期间直接读到并激活
- * 底层工作台的控件。这里显式给 `#app-root`（挂载点见 main.tsx）打 `inert`，把整棵子树
- * 从无障碍树摘除，引导退出时复原。driver 自身的遮罩与气泡挂在 body 上、是 `#app-root`
- * 的兄弟节点，不受影响。
+ * 底层工作台的控件。这里显式给 body 的既有子节点打 `inert`，把它们从无障碍树摘除，
+ * 引导退出时复原。
+ *
+ * 不止 `#app-root`（挂载点见 main.tsx）：`ModalShell`/`CreateProjectModal` 等对话框
+ * 用 `createPortal` 直接挂到 `document.body`，是 `#app-root` 的兄弟节点而非子孙，只
+ * 打 `#app-root` 的 inert 罩不住"引导启动时已有弹窗开着"这种情形。这里改为在调用
+ * 时刻快照 body 的直接子节点、逐个打 inert——此刻 driver 自己的遮罩与气泡还没创建
+ * （在随后的 `instance.drive()` 里才挂上），因此不会误伤 driver 自身。
  */
-function setAppRootInert(hidden: boolean): void {
-  const appRoot = document.getElementById("app-root");
-  if (appRoot) appRoot.inert = hidden;
+let peripheralElements: HTMLElement[] = [];
+
+function setPeripheralInert(hidden: boolean): void {
+  if (hidden) {
+    peripheralElements = Array.from(document.body.children).filter(
+      (el): el is HTMLElement => el instanceof HTMLElement,
+    );
+    peripheralElements.forEach((el) => {
+      el.inert = true;
+    });
+  } else {
+    peripheralElements.forEach((el) => {
+      el.inert = false;
+    });
+    peripheralElements = [];
+  }
 }
 
 /** 进度齿孔轨道 —— 装饰，语义由同级的 sr-only 文本承载 */
@@ -136,18 +154,18 @@ export function startTour(
       exited = true;
       onExit();
     }
-    setAppRootInert(false);
+    setPeripheralInert(false);
     instance.destroy();
   }
 
-  setAppRootInert(true);
+  setPeripheralInert(true);
   instance.drive(Math.min(Math.max(startIndex, 0), total - 1));
 
   return {
     currentIndex: () => instance.getActiveIndex() ?? 0,
     dispose: () => {
       disposing = true;
-      setAppRootInert(false);
+      setPeripheralInert(false);
       instance.destroy();
     },
   };
