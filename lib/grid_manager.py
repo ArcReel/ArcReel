@@ -2,11 +2,16 @@
 
 import json
 import logging
+import re
 from pathlib import Path
 
 from lib.grid.models import GridGeneration
+from lib.path_safety import safe_join
 
 logger = logging.getLogger(__name__)
+
+# 与 lib/grid/models.py::GridGeneration.create 的生成格式一致
+_GRID_ID_RE = re.compile(r"grid_[0-9a-f]{12}")
 
 
 class GridManager:
@@ -16,8 +21,16 @@ class GridManager:
         self._dir = project_path / "grids"
         self._dir.mkdir(parents=True, exist_ok=True)
 
-    def _path(self, grid_id: str) -> Path:
-        return self._dir / f"{grid_id}.json"
+    def _path(self, grid_id: str, suffix: str = ".json") -> Path:
+        """grids/ 下的记录路径。grid_id 来自 URL 路径参数，先卡格式白名单再过越界校验。
+
+        用 ``fullmatch`` 而非 ``match()`` + ``$``：``$`` 会匹配字符串末尾换行符之前的
+        位置，``grid_xxxxxxxxxxxx\\n`` 这类带尾随换行的输入能骗过 ``match()``，让换行符
+        混入最终文件名。
+        """
+        if not isinstance(grid_id, str) or _GRID_ID_RE.fullmatch(grid_id) is None:
+            raise ValueError(f"非法宫格 ID: {grid_id!r}")
+        return safe_join(self._dir, f"{grid_id}{suffix}")
 
     def save(self, grid: GridGeneration) -> None:
         """Write grid as JSON to {grid_id}.json."""
@@ -37,7 +50,7 @@ class GridManager:
         if not path.exists():
             return False
         # Also remove the grid image if it exists
-        image_path = self._dir / f"{grid_id}.png"
+        image_path = self._path(grid_id, ".png")
         if image_path.exists():
             image_path.unlink()
         path.unlink()

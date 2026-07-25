@@ -327,6 +327,15 @@ export function createTimelineProjector(): TimelineProjector {
     }
 
     if (entry.type === "system") {
+      if (entry.subtype === "agent_turn_failure" && entry.failure) {
+        startTurn(
+          fold,
+          "system",
+          [{ type: "agent_failure", failure: structuredClone(entry.failure) }],
+          entry,
+        );
+        return;
+      }
       if (entry.subtype === "skill_invocation") {
         // 芯片渲染锚点是 Skill tool_use 块（input 即名与入参）；tool_use 块
         // 已登记时不再追加，避免同一调用出现两枚芯片。按 toolUseSites 查找

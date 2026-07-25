@@ -49,7 +49,7 @@ _SUBTITLE_TEXT_FIELDS: dict[str, str] = {
 # 故此处只列 drama。未注册且不在此集合的模式（未知脏值）不挂字幕轨。
 _SPAN_SUBTITLE_MODES: frozenset[str] = frozenset({"drama"})
 
-from lib.path_safety import safe_resolve
+from lib.path_safety import PathTraversalError, safe_join, safe_resolve
 from lib.project_manager import ProjectManager, effective_mode
 from lib.reference_video.ad_units import ad_shots_by_id
 from lib.script_models import ad_shot_duration_seconds
@@ -425,10 +425,10 @@ class JianyingDraftService:
 
     def _replace_paths_in_draft(self, *, json_path: Path, tmp_prefix: str, target_prefix: str) -> None:
         """JSON 安全地替换 draft_content.json 中的临时路径"""
-        real = os.path.realpath(json_path)
-        tmp = os.path.realpath(tempfile.gettempdir()) + os.sep
-        if not real.startswith(tmp):
-            raise ValueError(f"路径越界，拒绝写入: {real}")
+        try:
+            real = str(safe_join(tempfile.gettempdir(), json_path))
+        except PathTraversalError as exc:
+            raise ValueError(f"路径越界，拒绝写入: {json_path}") from exc
 
         with open(real, encoding="utf-8") as f:  # noqa: PTH123
             data = json.load(f)
@@ -515,9 +515,10 @@ class JianyingDraftService:
             def stage_once(src: Path) -> str:
                 if src not in staged_by_src:
                     # 暂存前重校验：收集与暂存之间文件可能被替换（如换成越界 symlink）
-                    resolved = src.resolve()
-                    if not (resolved.is_relative_to(project_root) and resolved.is_file()):
-                        raise ValueError(f"路径越界，拒绝导出: {src}")
+                    try:
+                        resolved = safe_join(project_root, src, require_file=True)
+                    except (PathTraversalError, FileNotFoundError) as exc:
+                        raise ValueError(f"路径越界，拒绝导出: {src}") from exc
                     staged_by_src[src] = self._stage_file(resolved, staging_dir)
                 return str(staged_by_src[src])
 
@@ -544,14 +545,28 @@ class JianyingDraftService:
             # 6. 将素材移入草稿目录（暂存区内容即全部已暂存素材）
             assets_dir = draft_dir / "assets"
             assets_dir.mkdir(exist_ok=True)
-            # normpath + startswith 做越界守卫：纯字符串规范化，不触发文件系统访问，
-            # 且是静态分析可识别的收敛模式（resolve/is_relative_to 不被识别）
-            assets_root = os.path.normpath(assets_dir)
             for staged in staging_dir.iterdir():
-                dest = os.path.normpath(os.path.join(assets_root, staged.name))
-                if not dest.startswith(assets_root + os.sep):
-                    raise ValueError(f"路径越界，拒绝写入: {dest}")
-                shutil.move(str(staged), dest)
+                # 源、目的地都过一遍 safe_join：目的地此前已校验，源（staged 文件名）
+                # 未经校验直接传给 shutil.move 时，CodeQL 会把它当未经校验的 sink 输入
+                try:
+                    src = safe_join(staging_dir, staged.name, require_file=True)
+                    dest = safe_join(assets_dir, staged.name)
+                except (PathTraversalError, FileNotFoundError) as exc:
+                    raise ValueError(f"路径越界，拒绝写入: {staged.name}") from exc
+                # sink 前贴身补一道 realpath + startswith 冗余校验：safe_join 内部的
+                # barrier 是否跨函数边界传播到这里的返回值未经证实，直接在 sink 所在
+                # 函数内重做一遍最小化、CodeQL 已知可识别的收敛判断，不依赖跨函数推导。
+                # 必须用 realpath 而非 normpath 与 src/dest（已是 safe_join 返回的
+                # realpath 结果）对齐——staging_dir/assets_dir 所在的系统临时目录在
+                # macOS 上是指向 /private/tmp 的 symlink，normpath 不展开会导致误判越界。
+                src_str, dest_str = str(src), str(dest)
+                staging_root = os.path.realpath(str(staging_dir)) + os.sep
+                assets_root = os.path.realpath(str(assets_dir)) + os.sep
+                if not src_str.startswith(staging_root):
+                    raise ValueError(f"路径越界，拒绝写入: {staged.name}")
+                if not dest_str.startswith(assets_root):
+                    raise ValueError(f"路径越界，拒绝写入: {staged.name}")
+                shutil.move(src_str, dest_str)
 
             # 7. 路径后处理：staging 路径 → 用户本地路径
             draft_content_path = draft_dir / "draft_content.json"

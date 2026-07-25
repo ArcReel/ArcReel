@@ -169,6 +169,7 @@ async def test_query_consumes_all_messages_and_sets_done():
     await actor.enqueue(cmd)
     await cmd.done.wait()
     assert cmd.error is None
+    assert cmd.accepted is True
     assert collected == messages
     assert client.sent_queries == ["hi"]
 
@@ -366,6 +367,7 @@ async def test_actor_error_propagates_to_waiter():
     await actor.enqueue(q)
     await q.done.wait()
     assert isinstance(q.error, RuntimeError)
+    assert q.accepted is False
     assert str(q.error) == "sdk boom"
     assert actor._fatal is q.error
 

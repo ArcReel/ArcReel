@@ -32,6 +32,7 @@ from lib.episode_ledger import (
     parse_episode_num,
 )
 from lib.episode_paths import episode_script_relpath
+from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import ProjectManager, resolve_source_kind
 from lib.text_backends.base import (
     DEFAULT_MAX_OUTPUT_TOKENS,
@@ -925,11 +926,10 @@ class EpisodePlanner:
         return rels[idx + 1] if idx + 1 < len(rels) else None
 
     def _load_normalized_source(self, rel: str) -> str:
-        path = self.project_path / rel
-        base = self.project_path.resolve()
-        candidate = path.resolve()
-        if candidate != base and not candidate.is_relative_to(base):
-            raise EpisodePlanningError(f"源文件路径越出项目目录：{rel}")
+        try:
+            path = safe_join(self.project_path, rel, allow_base=True)
+        except PathTraversalError as exc:
+            raise EpisodePlanningError(f"源文件路径越出项目目录：{rel}") from exc
         if not path.is_file():
             raise EpisodePlanningError(f"源文件不存在：{rel}")
         try:

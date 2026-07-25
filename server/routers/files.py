@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
+from lib.api_errors import NotFoundError
 from lib.asset_types import GLOBAL_LIBRARY_ASSET_TYPES
 from lib.config.resolver import VisionCapabilityError
 from lib.episode_paths import (
@@ -28,6 +29,7 @@ from lib.episode_paths import (
 )
 from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
+from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import effective_mode, get_project_manager
 from lib.source_loader import (
@@ -70,16 +72,16 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            file_path = project_dir / path
+
+            # 安全检查先于存在性检查：越界路径一律 403，不让 404/403 的差异成为
+            # 项目目录外的文件存在性探针
+            try:
+                file_path = safe_join(project_dir, path)
+            except PathTraversalError:
+                raise HTTPException(status_code=403, detail=_t("forbidden_access"))
 
             if not file_path.exists():
                 raise HTTPException(status_code=404, detail=_t("file_not_found", path=path))
-
-            # 安全检查：确保路径在项目目录内
-            try:
-                file_path.resolve().relative_to(project_dir.resolve())
-            except ValueError:
-                raise HTTPException(status_code=403, detail=_t("forbidden_access"))
 
             return file_path
 
@@ -91,8 +93,8 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
             headers["Cache-Control"] = "public, max-age=31536000, immutable"
 
         return FileResponse(file_path, headers=headers)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
 
 
 @router.get("/global-assets/{asset_type}/{filename}")
@@ -104,16 +106,15 @@ async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
         raise HTTPException(status_code=400, detail=_t("invalid_asset_filename"))
 
     root = get_project_manager().get_global_assets_root()
-    path = root / asset_type / filename
-    if not path.exists() or not path.is_file():
-        raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
-
     # 防御性检查：即使 filename 通过了字符串校验，也要确保解析后的路径仍在 root 之内
     # （防御 symlink / URL 编码等边界场景）
     try:
-        path.resolve().relative_to(root.resolve())
-    except ValueError:
+        path = safe_join(root, asset_type, filename)
+    except PathTraversalError:
         raise HTTPException(status_code=403, detail=_t("forbidden_access"))
+
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
 
     return FileResponse(str(path))
 
@@ -342,8 +343,8 @@ async def upload_file(
 
         return await asyncio.to_thread(_sync)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
     except Exception:
@@ -363,8 +364,8 @@ async def _handle_source_upload(
 
     try:
         project_dir = get_project_manager().get_project_path(project_name)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
 
     source_dir = project_dir / "source"
     source_dir.mkdir(parents=True, exist_ok=True)
@@ -494,8 +495,8 @@ async def list_project_files(project_name: str, _user: CurrentUser, _t: Translat
 
         return await asyncio.to_thread(_sync)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
     except Exception:
@@ -510,24 +511,23 @@ async def get_source_file(project_name: str, filename: str, _user: CurrentUser, 
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            source_path = project_dir / "source" / filename
-
-            if not source_path.exists():
-                raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
 
             # 安全检查：确保路径在项目目录内
             try:
-                source_path.resolve().relative_to(project_dir.resolve())
-            except ValueError:
+                source_path = safe_join(project_dir, "source", filename)
+            except PathTraversalError:
                 raise HTTPException(status_code=403, detail=_t("forbidden_access"))
+
+            if not source_path.exists():
+                raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
 
             return source_path.read_text(encoding="utf-8")
 
         content = await asyncio.to_thread(_sync)
         return PlainTextResponse(content)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail=_t("invalid_encoding"))
     except HTTPException:
@@ -552,12 +552,11 @@ async def update_source_file(
             project_dir = get_project_manager().get_project_path(project_name)
             source_dir = project_dir / "source"
             source_dir.mkdir(parents=True, exist_ok=True)
-            source_path = source_dir / filename
 
-            # 安全检查：确保路径在项目目录内
+            # 安全检查：确保路径在项目目录内（文件尚不存在也要能通过，此处允许新建）
             try:
-                source_path.resolve().relative_to(project_dir.resolve())
-            except ValueError:
+                source_path = safe_join(project_dir, "source", filename)
+            except PathTraversalError:
                 raise HTTPException(status_code=403, detail=_t("forbidden_access"))
 
             source_path.write_text(content, encoding="utf-8")
@@ -565,8 +564,8 @@ async def update_source_file(
 
         return await asyncio.to_thread(_sync)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
     except Exception:
@@ -581,12 +580,11 @@ async def delete_source_file(project_name: str, filename: str, _user: CurrentUse
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            source_path = project_dir / "source" / filename
 
             # 安全检查：确保路径在项目目录内
             try:
-                source_path.resolve().relative_to(project_dir.resolve())
-            except ValueError:
+                source_path = safe_join(project_dir, "source", filename)
+            except PathTraversalError:
                 raise HTTPException(status_code=403, detail=_t("forbidden_access"))
 
             if source_path.exists():
@@ -604,8 +602,8 @@ async def delete_source_file(project_name: str, filename: str, _user: CurrentUse
 
         return await asyncio.to_thread(_sync)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
     except Exception:
@@ -709,8 +707,8 @@ async def get_draft_content(project_name: str, episode: int, step_num: int, _use
         content = await asyncio.to_thread(_sync)
         return PlainTextResponse(content)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
 
 
 @router.put("/projects/{project_name}/drafts/{episode}/step{step_num}")
@@ -789,8 +787,8 @@ async def update_draft_content(
 
         return await asyncio.to_thread(_sync)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
 
 
 @router.delete("/projects/{project_name}/drafts/{episode}/step{step_num}")
@@ -817,8 +815,8 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _user: Cu
 
         return await asyncio.to_thread(_sync)
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
 
 
 # ==================== 风格参考图管理 ====================
@@ -897,8 +895,8 @@ async def upload_style_image(project_name: str, _user: CurrentUser, _t: Translat
             "url": f"/api/v1/files/{project_name}/{style_filename}",
         }
 
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=project_name))
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except HTTPException:
         raise
     except VisionCapabilityError as e:

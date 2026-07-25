@@ -10,13 +10,14 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from lib.api_errors import BadRequestError, ConflictError, ServiceUnavailableError
+from lib.api_errors import BadRequestError, ConflictError, NotFoundError, ServiceUnavailableError
 from lib.i18n import Translator, get_locale
 from server.agent_runtime.models import Heartbeat, LiveMessage
+from server.agent_runtime.result_status import resolve_result_status
 from server.agent_runtime.service import AssistantService
-from server.agent_runtime.session_manager import SessionBusyError, SessionCapacityError
+from server.agent_runtime.session_manager import AgentStartupError, SessionBusyError, SessionCapacityError
 from server.auth import CurrentUser
-from server.routers.assistant import get_assistant_service
+from server.routers.assistant import agent_startup_failure_detail, get_assistant_service
 
 logger = logging.getLogger(__name__)
 
@@ -69,9 +70,7 @@ def _consume_message(message: dict, reply_parts: list[str]) -> str | None:
             reply_parts.append(text)
 
     elif msg_type == "result":
-        subtype = str(message.get("subtype") or "").lower()
-        is_error = bool(message.get("is_error"))
-        return "error" if is_error or subtype.startswith("error") else "completed"
+        return resolve_result_status(message)
 
     elif msg_type == "runtime_status":
         runtime_status = str(message.get("status") or "").strip()
@@ -169,8 +168,8 @@ async def agent_chat(
     # 验证项目是否存在
     try:
         service.pm.get_project_path(body.project_name)
-    except (FileNotFoundError, KeyError):
-        raise HTTPException(status_code=404, detail=_t("project_not_found", name=body.project_name))
+    except (FileNotFoundError, KeyError) as exc:
+        raise NotFoundError("project_not_found", name=body.project_name) from exc
 
     # 若传入 session_id，先校验会话归属
     if body.session_id:
@@ -209,6 +208,16 @@ async def agent_chat(
         # 空消息内容等坏请求，str(exc) 只进日志
         logger.warning("会话对话请求非法: %s", exc)
         raise BadRequestError("request_invalid") from exc
+    except AgentStartupError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=agent_startup_failure_detail(
+                exc,
+                project_name=body.project_name,
+                session_id=body.session_id,
+                title=_t("agent_startup_failed_title"),
+            ),
+        )
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))

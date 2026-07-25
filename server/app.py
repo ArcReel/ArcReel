@@ -37,6 +37,7 @@ from lib.db import async_session_factory, close_db, init_db
 from lib.generation_worker import GenerationWorker
 from lib.httpx_shared import shutdown_http_client, startup_http_client
 from lib.logging_config import attach_file_handler, migrate_legacy_log_dir, setup_logging
+from lib.path_safety import try_safe_join
 from lib.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.source_loader.migration import migrate_project_source_encoding
 from server.auth import ensure_auth_password
@@ -667,12 +668,9 @@ if (frontend_dist_dir / "index.html").is_file():
         # 本路由注册在 app.frontend 之前，/app/ 下任何请求都会先到这里——若构建产物中
         # 恰好存在 dist/app/... 下的真实静态文件（URL 路径与 app.frontend 的映射规则一致，
         # 即相对 dist 根目录同路径），须优先返回该文件，避免被无条件遮蔽。
-        # normpath + startswith 做越界守卫而非 resolve()/is_relative_to()：纯字符串规范化，
-        # 且是 CodeQL py/path-injection 能识别的收敛模式（resolve/is_relative_to 不被识别，
-        # 参见 jianying_draft_service.py 同类注释）
-        app_static_root = os.path.normpath(str(frontend_dist_dir / "app"))
-        candidate = os.path.normpath(os.path.join(app_static_root, _rest))
-        if candidate.startswith(app_static_root + os.sep) and os.path.isfile(candidate):
+        # _rest 是用户可控的 URL 段：越界一律降级回 SPA 外壳，不暴露 dist 之外的文件
+        candidate = try_safe_join(frontend_dist_dir / "app", _rest, require_file=True)
+        if candidate is not None:
             return FileResponse(candidate)
         return FileResponse(frontend_dist_dir / "index.html")
 

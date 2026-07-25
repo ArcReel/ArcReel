@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
 from server.routers import script_review as router_mod
 
 
@@ -59,6 +60,7 @@ def _client(monkeypatch, tmp_path: Path, *, generation_mode: str | None = None) 
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: pm)
 
     app = FastAPI()
+    register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(router_mod.router, prefix="/api/v1")
     return TestClient(app), pm

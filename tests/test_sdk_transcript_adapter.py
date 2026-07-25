@@ -1,5 +1,7 @@
 """Unit tests for SdkTranscriptAdapter."""
 
+import os
+import tempfile
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -83,6 +85,42 @@ class TestSdkTranscriptAdapterLegacyPath:
 
         assert result[0]["type"] == "assistant"
         assert result[0]["content"] == [{"type": "text", "text": "Hello"}]
+
+    async def test_legacy_result_does_not_backfill_failure_fields(self):
+        mock_msg = MagicMock(
+            spec=[
+                "type",
+                "message",
+                "uuid",
+                "parent_tool_use_id",
+                "timestamp",
+                "subtype",
+                "is_error",
+                "api_error_status",
+                "errors",
+                "result",
+            ]
+        )
+        mock_msg.type = "result"
+        mock_msg.message = {}
+        mock_msg.uuid = "legacy-result"
+        mock_msg.parent_tool_use_id = None
+        mock_msg.timestamp = None
+        mock_msg.subtype = "error_during_execution"
+        mock_msg.is_error = True
+        mock_msg.api_error_status = 429
+        mock_msg.errors = ["rate limited"]
+        mock_msg.result = "failed"
+
+        with patch("server.agent_runtime.sdk_transcript_adapter.get_session_messages", return_value=[mock_msg]):
+            result = await SdkTranscriptAdapter().read_raw_messages("sdk-session")
+
+        assert result[0] == {
+            "type": "result",
+            "content": "",
+            "uuid": "legacy-result",
+            "timestamp": None,
+        }
 
 
 class TestSdkTranscriptAdapterStorePath:
@@ -173,7 +211,9 @@ class TestSdkTranscriptAdapterStorePath:
             new=AsyncMock(return_value=[mock_msg]),
         ):
             adapter = SdkTranscriptAdapter(store=fake_store)
-            result = await adapter.read_raw_messages("sdk-session", project_cwd="/tmp/proj")
+            result = await adapter.read_raw_messages(
+                "sdk-session", project_cwd=os.path.join(tempfile.gettempdir(), "proj")
+            )
 
         assert result[0]["timestamp"] == "2026-05-01T01:00:00Z"
         fake_store.load.assert_awaited_once()

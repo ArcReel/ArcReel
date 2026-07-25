@@ -23,8 +23,10 @@ from sqlalchemy.exc import IntegrityError
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.session_event import AgentSessionEventLogEntry
+from server.agent_runtime.failure_observation import build_turn_failure_observation
 from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.message_serialization import utc_now_iso
+from server.agent_runtime.result_status import result_indicates_error
 from server.agent_runtime.turn_schema import _stringify_content, normalize_content
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,7 @@ ENTRY_TYPE_SYSTEM = "system"
 ENTRY_SUBTYPE_INTERRUPT = "interrupt"
 ENTRY_SUBTYPE_TASK_NOTIFICATION = "task_notification"
 ENTRY_SUBTYPE_QUESTION_ANSWER = "question_answer"
+ENTRY_SUBTYPE_AGENT_TURN_FAILURE = "agent_turn_failure"
 
 SYSTEM_SUBTYPE_SKILL_INVOCATION = "skill_invocation"
 
@@ -181,10 +184,50 @@ def build_user_entry(
     }
 
 
+def _build_turn_failure_entry(
+    *,
+    assistant_message: dict[str, Any] | None,
+    result_message: dict[str, Any] | None,
+    project_name: str | None,
+    session_id: str | None,
+) -> dict[str, Any]:
+    source = assistant_message if assistant_message is not None else (result_message or {})
+    entry: dict[str, Any] = {
+        "type": ENTRY_TYPE_SYSTEM,
+        "subtype": ENTRY_SUBTYPE_AGENT_TURN_FAILURE,
+        "failure": build_turn_failure_observation(
+            assistant_message=assistant_message,
+            result_message=result_message,
+            project_name=project_name,
+            session_id=session_id,
+        ),
+        "uuid": source.get("uuid") or f"failure-{uuid4().hex}",
+        "timestamp": source.get("timestamp") or utc_now_iso(),
+    }
+    if assistant_message is not None:
+        _copy_parent(assistant_message, entry)
+    elif result_message is not None:
+        _copy_parent(result_message, entry)
+    return entry
+
+
+def build_failure_entry(observation: dict[str, Any]) -> dict[str, Any]:
+    """把已脱敏的故障观测定型为系统事件。"""
+    timestamp = observation.get("timestamp")
+    return {
+        "type": ENTRY_TYPE_SYSTEM,
+        "subtype": ENTRY_SUBTYPE_AGENT_TURN_FAILURE,
+        "failure": observation,
+        "uuid": f"failure-{uuid4().hex}",
+        "timestamp": timestamp if isinstance(timestamp, str) and timestamp else utc_now_iso(),
+    }
+
+
 class SdkMessageNormalizer:
     """写入点定型器：把 SDK 消息 dict 规范化为零或多个日志条目。
 
-    - assistant → 单条 assistant 条目（携带 message_id，供 draft 精确替换）；
+    - assistant(error) → 暂存到 result 后定型为单条 agent_turn_failure 系统
+      条目；普通 assistant → 单条 assistant 条目（携带 message_id，供 draft 精确替换）；
       AskUserQuestion 的 tool_use_id 登记进实例状态，供答复定型；Skill
       tool_use 登记进实例状态，供随后到达的注入消息定型为 skill_invocation
       系统条目
@@ -196,7 +239,8 @@ class SdkMessageNormalizer:
       其余 tool_result 块定型为独立条目（引用 tool_use_id）；剩余内容以
       通用 user 条目收录；SDK 回放副本（已打标）不入日志
     - system(task_*) → typed system 条目
-    - stream_event / result / 其它 → 不进日志
+    - result(error) → 与暂存的 assistant(error) 合并为 agent_turn_failure；
+      stream_event / 其它 → 不进日志
 
     实例维护跨消息关联状态：Skill tool_use → 随后到达的注入用户消息；
     AskUserQuestion tool_use → 随后到达的答复 tool_result。Skill 状态按
@@ -205,20 +249,34 @@ class SdkMessageNormalizer:
     保证两条路径产出相同的 typed 条目。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, capture_failures: bool = True) -> None:
+        self._capture_failures = capture_failures
         # 上下文 → 未被注入消息消费的 Skill tool_use 元数据队列（FIFO）。
         # 同一上下文可能并发发起多个 Skill 调用（同一 assistant 消息内多个
         # tool_use 块），按调用顺序逐一消费，避免后一个覆盖前一个。
         self._pending_skills: dict[str | None, list[dict[str, Any]]] = {}
         # 已登记但尚未收到答复的 AskUserQuestion tool_use_id。
         self.question_tool_use_ids: set[str] = set()
+        # 主线与多个 subagent 的消息会交错到达；按 parent 上下文分别等待
+        # 各自的 result，禁止把两个执行上下文的故障对象拼成虚假观测。
+        self._pending_turn_failures: dict[str | None, dict[str, Any]] = {}
 
-    def normalize(self, message: Any) -> list[dict[str, Any]]:
+    def normalize(
+        self,
+        message: Any,
+        *,
+        project_name: str | None = None,
+        session_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         if not isinstance(message, dict):
             return []
         msg_type = message.get("type")
 
         if msg_type == "assistant":
+            if self._capture_failures and message.get("error") is not None:
+                parent = _extract_parent(message)
+                self._pending_turn_failures[parent] = dict(message)
+                return []
             content = normalize_content(message.get("content", []))
             for block in content:
                 if (
@@ -237,6 +295,24 @@ class SdkMessageNormalizer:
             _copy_parent(message, entry)
             self._track_skill_tool_use(message, entry)
             return [entry]
+
+        if msg_type == "result":
+            if not self._capture_failures:
+                return []
+            parent = _extract_parent(message)
+            assistant = self._pending_turn_failures.pop(parent, None)
+            if str(message.get("session_status") or "") == "interrupted":
+                return []
+            if assistant is not None or result_indicates_error(message):
+                return [
+                    _build_turn_failure_entry(
+                        assistant_message=assistant,
+                        result_message=message,
+                        project_name=project_name,
+                        session_id=session_id,
+                    )
+                ]
+            return []
 
         if msg_type == "user":
             return self._normalize_user(message)
@@ -725,14 +801,21 @@ class EventLogService:
             except Exception:
                 logger.exception("subagent 子时间线读取失败，跳过合并 session_id=%s", session_id)
                 subagent_groups = {}
-            normalizer = SdkMessageNormalizer()
+            # 历史 transcript 只重建既有时间线；ADR 0052 明确禁止据此
+            # 反推并新增故障事件。故障定型只发生在 live 写入点。
+            normalizer = SdkMessageNormalizer(capture_failures=False)
             entries: list[dict[str, Any]] = []
+            project_name = Path(project_cwd).name if project_cwd is not None else None
 
             def _consume(message: dict[str, Any], parent_tool_use_id: str | None = None) -> None:
                 if parent_tool_use_id:
                     message = {**message, "parent_tool_use_id": parent_tool_use_id}
                 try:
-                    for entry in normalizer.normalize(message):
+                    for entry in normalizer.normalize(
+                        message,
+                        project_name=project_name,
+                        session_id=session_id,
+                    ):
                         # 相邻 interrupt 回显（SDK 回显 + 竞态副本）收敛为一条，
                         # 与 live 写入点的尾检去重语义一致。
                         if is_interrupt_entry(entry) and entries and is_interrupt_entry(entries[-1]):

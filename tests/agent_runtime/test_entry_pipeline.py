@@ -221,14 +221,16 @@ class TestSessionEntryPipeline:
         await pipeline.handle_message({"type": "assistant", "message_id": "msg_01", "uuid": "a-0", "content": []})
         assert pipeline.draft.snapshot() is not None
 
-    async def test_result_clears_draft_without_logging(self):
+    async def test_error_subtype_result_logs_failure_and_clears_draft(self):
         pipeline, store, broadcasts = _make_pipeline()
         await pipeline.handle_message(_message_start("msg_01"))
         await pipeline.handle_message(_text_delta("部分内容"))
 
         await pipeline.handle_message({"type": "result", "subtype": "error_during_execution"})
 
-        assert store.entries == []
+        assert len(store.entries) == 1
+        assert store.entries[0]["type"] == "system"
+        assert store.entries[0]["subtype"] == "agent_turn_failure"
         assert pipeline.draft.snapshot() is None
         # 轮次终结标记：entry 流以此产出终态，保证末条 log_entry 先送达
         assert broadcasts[-1] == {"type": "log_turn_complete", "session_id": "s1"}

@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import time
-from collections import deque
 from collections.abc import AsyncIterable, AsyncIterator, Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -18,15 +17,20 @@ from uuid import uuid4
 from lib.db.base import DEFAULT_USER_ID
 from lib.i18n import DEFAULT_LOCALE
 from lib.logging_config import resolve_log_dir
+from lib.logging_utils import redact_diagnostic_text
+from lib.path_safety import PathTraversalError, safe_join
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.entry_pipeline import SessionEntryPipeline
 from server.agent_runtime.event_log import (
     REPLAYED_USER_ECHO_KEY,
     EventLogStore,
 )
+from server.agent_runtime.failure_observation import (
+    build_startup_failure_observation,
+    failure_observation_json,
+)
 from server.agent_runtime.message_serialization import (
     IMAGE_ONLY_SENTINEL,
-    build_runtime_status_message,
     is_duplicate_user_echo,
     message_to_dict,
     utc_now_iso,
@@ -40,6 +44,7 @@ from server.agent_runtime.models import (
     SubscriptionReady,
 )
 from server.agent_runtime.options_assembler import OptionsAssembler
+from server.agent_runtime.result_status import resolve_result_status
 from server.agent_runtime.session_actor import SessionActor, SessionCommand
 from server.agent_runtime.session_store import SessionMetaStore
 from server.agent_runtime.usage_extraction import (
@@ -71,10 +76,25 @@ SDK_AVAILABLE = True
 _INBOX_BACKLOG_WARN_THRESHOLD = 100
 _INBOX_BACKLOG_RESET_THRESHOLD = 50  # 降至此水位以下才重置告警状态，避免抖动刷屏
 
-# SDK stderr 缓冲上限（行）：actor.start() 失败时启动期 stderr 一般 <20 行；
-# 上限主要为应对启动成功后 SDK 在会话存活期间持续输出 stderr 的场景，cap
-# 在 200 行 × 平均行长，单会话最坏占用 <100KB，可控。
-_SDK_STDERR_BUFFER_MAX = 200
+
+class _StartupStderrCollector:
+    """在 sdk_session_id 就绪前无损收集 stderr，随后停止并释放。"""
+
+    def __init__(self) -> None:
+        self._active = True
+        self._lines: list[str] = []
+
+    def __call__(self, line: str) -> None:
+        logger.warning("claude_agent_sdk stderr: %s", redact_diagnostic_text(line))
+        if self._active:
+            self._lines.append(line)
+
+    def render(self) -> str:
+        return "\n".join(self._lines)
+
+    def stop(self) -> None:
+        self._active = False
+        self._lines.clear()
 
 
 class SessionCapacityError(Exception):
@@ -103,15 +123,49 @@ class AgentStartupError(RuntimeError):
     捕获。
     """
 
-    def __init__(self, message: str, sdk_stderr: str = "") -> None:
+    def __init__(
+        self,
+        message: str,
+        sdk_stderr: str = "",
+        *,
+        failure_observation: dict[str, Any] | None = None,
+    ) -> None:
         self.message = message
         self.sdk_stderr = sdk_stderr
+        self.failure_observation = failure_observation
         super().__init__(self._compose())
 
     def _compose(self) -> str:
         if self.sdk_stderr:
             return f"{self.message}\n\n{self.sdk_stderr}"
         return self.message
+
+
+def _make_agent_startup_error(
+    exc: BaseException,
+    *,
+    project_name: str,
+    session_id: str | None,
+    sdk_stderr: str = "",
+) -> AgentStartupError:
+    """在 runtime 边界统一保留、脱敏并包装启动阶段实际观测。"""
+    failure = build_startup_failure_observation(
+        exc,
+        project_name=project_name,
+        session_id=session_id,
+        sdk_stderr=sdk_stderr,
+    )
+    logger.error(
+        "Agent 启动失败 project_name=%s session_id=%s failure_observation=%s",
+        project_name,
+        session_id,
+        failure_observation_json(failure),
+    )
+    return AgentStartupError(
+        redact_diagnostic_text(exc),
+        sdk_stderr=redact_diagnostic_text(sdk_stderr),
+        failure_observation=failure,
+    )
 
 
 @dataclass
@@ -121,6 +175,13 @@ class PendingQuestion:
     question_id: str
     payload: dict[str, Any]
     answer_future: asyncio.Future[dict[str, str]]
+
+
+@dataclass(frozen=True)
+class _ActorExitNotice:
+    """Actor 的完成事件；异常随队列顺序交给 inbox processor 处理。"""
+
+    error: BaseException | None = None
 
 
 def _make_session_channel() -> SseChannel:
@@ -405,11 +466,9 @@ class SessionManager:
 
     def _resolve_project_cwd(self, project_name: str) -> Path:
         """Resolve and validate per-session project working directory."""
-        projects_root = self.projects_root
-        project_cwd = (projects_root / project_name).resolve()
         try:
-            project_cwd.relative_to(projects_root)
-        except ValueError as exc:
+            project_cwd = safe_join(self.projects_root, project_name)
+        except PathTraversalError as exc:
             raise ValueError("invalid project name") from exc
         if not project_cwd.exists() or not project_cwd.is_dir():
             raise FileNotFoundError(f"project not found: {project_name}")
@@ -424,6 +483,7 @@ class SessionManager:
         return SessionEntryPipeline(
             self.event_log_store,
             session_id_provider=lambda: managed.resolved_sdk_id,
+            project_name_provider=lambda: managed.project_name,
             broadcast=managed.channel.broadcast,
         )
 
@@ -473,35 +533,21 @@ class SessionManager:
         """
 
         def _on_done(task: asyncio.Task) -> None:
+            error: BaseException | None = None
+            if not task.cancelled():
+                error = task.exception()
+                if error is not None:
+                    logger.warning(
+                        "session actor 异常退出 session_id=%s: %s",
+                        managed.session_id,
+                        redact_diagnostic_text(error),
+                    )
             try:
-                managed._inbox.put_nowait(None)
+                managed._inbox.put_nowait(_ActorExitNotice(error=error))
             except Exception:
                 logger.debug("inbox sentinel push failed", exc_info=True)
-            if task.cancelled():
-                return
-            exc = task.exception()
-            if exc is None:
-                return
-            logger.warning(
-                "session actor 异常退出 session_id=%s: %s",
-                managed.session_id,
-                exc,
-            )
-            managed.status = "error"
-            try:
-                managed.channel.broadcast(build_runtime_status_message("error", managed.session_id))
-            except Exception:
-                logger.debug("broadcast runtime_status after actor failure failed", exc_info=True)
-            # Persist error state so DB doesn't stay at "running" after a crash.
-            asyncio.create_task(self._persist_actor_error_status(managed.session_id))
 
         return _on_done
-
-    async def _persist_actor_error_status(self, session_id: str) -> None:
-        try:
-            await self.meta_store.update_status(session_id, "error")
-        except Exception:
-            logger.exception("持久化 actor error 状态失败 session_id=%s", session_id)
 
     async def send_new_session(
         self,
@@ -521,29 +567,34 @@ class SessionManager:
         条目落在 ``managed.initial_user_log_entry`` 供受理响应回传。
         """
         if not SDK_AVAILABLE or ClaudeSDKClient is None:
-            raise RuntimeError("claude_agent_sdk is not installed")
+            exc = RuntimeError("claude_agent_sdk is not installed")
+            raise _make_agent_startup_error(exc, project_name=project_name, session_id=None) from exc
 
         await self._ensure_capacity()
         temp_id = uuid4().hex
         managed_ref: list[ManagedSession | None] = [None]
 
-        # SDK stderr 回调在整个会话存活期间都被 ClaudeAgentOptions 持有，
-        # actor.start() 成功后仍会被调；用 deque(maxlen=) FIFO 自动裁剪老行，
-        # 避免长会话期间因 SDK 持续输出 stderr 造成内存无界增长。
-        # 启动失败场景下 stderr 通常远小于上限，关键提示不会被裁掉。
-        stderr_lines: deque[str] = deque(maxlen=_SDK_STDERR_BUFFER_MAX)
+        # 回调在整个会话中存活，但仅启动阶段收集；actor.start() 成功后立刻
+        # 停止并清空，既完整保留启动故障证据，也不让长会话 stderr 占用内存。
+        startup_stderr = _StartupStderrCollector()
 
-        def _collect_stderr(line: str) -> None:
-            stderr_lines.append(line)
-            logger.warning("claude_agent_sdk stderr: %s", line)
-
-        options = await self._build_options(
-            project_name,
-            resume_id=None,
-            can_use_tool=await self._build_can_use_tool_callback(temp_id, managed_ref),
-            locale=locale,
-            stderr=_collect_stderr,
-        )
+        try:
+            options = await self._build_options(
+                project_name,
+                resume_id=None,
+                can_use_tool=await self._build_can_use_tool_callback(temp_id, managed_ref),
+                locale=locale,
+                stderr=startup_stderr,
+            )
+        except Exception as exc:
+            sdk_stderr = startup_stderr.render()
+            startup_stderr.stop()
+            raise _make_agent_startup_error(
+                exc,
+                project_name=project_name,
+                session_id=None,
+                sdk_stderr=sdk_stderr,
+            ) from exc
         assistant_model = resolve_configured_assistant_model(getattr(options, "env", None))
 
         actor = SessionActor(
@@ -568,13 +619,16 @@ class SessionManager:
         try:
             await actor.start()
         except Exception as exc:
-            logger.exception("新会话 actor 启动失败 temp_id=%s", temp_id)
+            sdk_stderr = startup_stderr.render()
+            startup_error = _make_agent_startup_error(
+                exc, project_name=project_name, session_id=None, sdk_stderr=sdk_stderr
+            )
             self.sessions.pop(temp_id, None)
-            raise AgentStartupError(str(exc), sdk_stderr="\n".join(stderr_lines)) from exc
-
+            startup_stderr.stop()
+            raise startup_error from exc
         # Register done callback BEFORE spawning processor to avoid a race
-        # where the actor task completes before add_done_callback is attached,
-        # leaving the None sentinel un-pushed and _process_inbox hanging.
+        # where the actor task completes before add_done_callback is attached，
+        # leaving the completion notice un-pushed and _process_inbox hanging.
         actor.add_done_callback(self._make_actor_done_callback(managed))
 
         # Spawn inbox processor BEFORE sending query so we don't miss messages.
@@ -604,6 +658,7 @@ class SessionManager:
             if managed._process_task is not None and not managed._process_task.done():
                 managed._process_task.cancel()
                 await asyncio.gather(managed._process_task, return_exceptions=True)
+            startup_stderr.stop()
 
         # 登记待回放的用户消息标识：SDK 会回放刚发送消息的副本，写入点凭此
         # 打标跳过（POST 受理时已写日志分配身份，回放副本不得二次落库）。
@@ -615,18 +670,24 @@ class SessionManager:
 
         try:
             await managed.send_query(prompt)
-        except Exception:
-            logger.exception("新会话消息发送失败")
+        except Exception as exc:
+            sdk_stderr = startup_stderr.render()
+            startup_error = _make_agent_startup_error(
+                exc, project_name=project_name, session_id=None, sdk_stderr=sdk_stderr
+            )
             await _cleanup_on_error()
-            raise
+            raise startup_error from exc
 
-        # Wait for sdk_session_id with timeout; also monitor actor task so we
-        # fail fast if the background task crashes before the event fires.
+        # Wait for sdk_session_id with timeout. Monitor the inbox processor rather
+        # than the actor task: actor may exit immediately after enqueueing init,
+        # while the processor still has to persist that already-observed session id.
+        # The done callback appends a completion notice after all actor messages, so processor
+        # completion is the safe proof that no queued init remains to be consumed.
         event_task = asyncio.create_task(managed.sdk_id_event.wait())
-        watch_tasks: set[asyncio.Task] = {event_task}
+        processor_task = managed._process_task
+        assert processor_task is not None
+        watch_tasks: set[asyncio.Task] = {event_task, processor_task}
         actor_task = actor.task
-        if actor_task is not None:
-            watch_tasks.add(actor_task)
         try:
             await asyncio.wait(
                 watch_tasks,
@@ -638,13 +699,32 @@ class SessionManager:
                 event_task.cancel()
 
         if not managed.sdk_id_event.is_set():
+            startup_exception = None
+            if processor_task.done() and not processor_task.cancelled():
+                try:
+                    startup_exception = processor_task.result()
+                except Exception as exc:
+                    # _process_inbox 正常完成时以返回值传递 actor 启动异常；它自身
+                    # 意外崩溃时 Task.result() 会重新抛出。两者都属于启动失败证据，
+                    # 必须先走下方统一清理，再包装为结构化 AgentStartupError。
+                    startup_exception = exc
             if actor_task is not None and actor_task.done():
                 logger.error("session actor 提前退出，未获得 sdk_session_id temp_id=%s", temp_id)
             else:
                 logger.error("等待 sdk_session_id 超时 temp_id=%s", temp_id)
             managed.cancel_pending_questions("session creation timed out")
+            sdk_stderr = startup_stderr.render()
             await _cleanup_on_error()
+            if startup_exception is not None:
+                raise _make_agent_startup_error(
+                    startup_exception,
+                    project_name=project_name,
+                    session_id=None,
+                    sdk_stderr=sdk_stderr,
+                ) from startup_exception
             raise TimeoutError("SDK 会话创建超时")
+
+        startup_stderr.stop()
 
         sdk_id = managed.resolved_sdk_id
         assert sdk_id is not None
@@ -673,7 +753,7 @@ class SessionManager:
 
         return sdk_id
 
-    async def _process_inbox(self, managed: ManagedSession) -> None:
+    async def _process_inbox(self, managed: ManagedSession) -> BaseException | None:
         """Drain ManagedSession._inbox and run async post-processing.
 
         Replaces the async tail of _consume_messages. The synchronous bits
@@ -687,8 +767,15 @@ class SessionManager:
         try:
             while True:
                 msg_dict = await managed._inbox.get()
+                if isinstance(msg_dict, _ActorExitNotice):
+                    if msg_dict.error is not None:
+                        if managed.resolved_sdk_id is not None:
+                            await self._mark_session_terminal(managed, "error", "session actor failed")
+                        else:
+                            managed.status = "error"
+                    return msg_dict.error
                 if msg_dict is None:
-                    return
+                    return None
                 depth = managed._inbox.qsize()
                 if not managed._inbox_warned and depth >= _INBOX_BACKLOG_WARN_THRESHOLD:
                     managed._inbox_warned = True
@@ -731,7 +818,7 @@ class SessionManager:
                         )
                         with contextlib.suppress(Exception):
                             await self._mark_session_terminal(managed, "error", "finalize failed")
-                        return
+                        return None
         except asyncio.CancelledError:
             # Only mark interrupted if session was actually running. Cancel can
             # also happen during failed send_new_session cleanup or normal
@@ -783,25 +870,32 @@ class SessionManager:
                     raise FileNotFoundError(f"session not found: {session_id}")
 
             if not SDK_AVAILABLE or ClaudeSDKClient is None:
-                raise RuntimeError("claude_agent_sdk is not installed")
+                exc = RuntimeError("claude_agent_sdk is not installed")
+                raise _make_agent_startup_error(exc, project_name=meta.project_name, session_id=session_id) from exc
 
             await self._ensure_capacity()
             managed_ref: list[ManagedSession | None] = [None]
 
-            # 见 send_new_session 同名注释：deque(maxlen=) 防长会话内存累积。
-            stderr_lines: deque[str] = deque(maxlen=_SDK_STDERR_BUFFER_MAX)
+            # 见 send_new_session 同名注释：只在启动阶段无损收集，成功后释放。
+            startup_stderr = _StartupStderrCollector()
 
-            def _collect_stderr(line: str) -> None:
-                stderr_lines.append(line)
-                logger.warning("claude_agent_sdk stderr: %s", line)
-
-            options = await self._build_options(
-                meta.project_name,
-                meta.id,  # SessionMeta.id 就是 sdk_session_id
-                can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
-                locale=locale,
-                stderr=_collect_stderr,
-            )
+            try:
+                options = await self._build_options(
+                    meta.project_name,
+                    meta.id,  # SessionMeta.id 就是 sdk_session_id
+                    can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
+                    locale=locale,
+                    stderr=startup_stderr,
+                )
+            except Exception as exc:
+                sdk_stderr = startup_stderr.render()
+                startup_stderr.stop()
+                raise _make_agent_startup_error(
+                    exc,
+                    project_name=meta.project_name,
+                    session_id=session_id,
+                    sdk_stderr=sdk_stderr,
+                ) from exc
             assistant_model = resolve_configured_assistant_model(getattr(options, "env", None))
 
             actor = SessionActor(
@@ -829,9 +923,17 @@ class SessionManager:
             try:
                 await actor.start()
             except Exception as exc:
-                logger.exception("恢复会话 actor 启动失败 session_id=%s", session_id)
+                sdk_stderr = startup_stderr.render()
+                startup_error = _make_agent_startup_error(
+                    exc,
+                    project_name=meta.project_name,
+                    session_id=session_id,
+                    sdk_stderr=sdk_stderr,
+                )
                 self.sessions.pop(session_id, None)
-                raise AgentStartupError(str(exc), sdk_stderr="\n".join(stderr_lines)) from exc
+                raise startup_error from exc
+            finally:
+                startup_stderr.stop()
 
             # done_callback BEFORE processor spawn (avoids race where actor
             # completes before the callback attaches and the None sentinel
@@ -913,8 +1015,8 @@ class SessionManager:
         # cmd.error and re-raises; we ensure meta store reflects that too.
         try:
             await managed.send_query(prompt, sdk_session_id=session_id)
-        except Exception:
-            logger.exception("会话消息处理失败")
+        except Exception as exc:
+            logger.error("会话消息处理失败: %s", redact_diagnostic_text(exc))
             managed.pending_user_echoes.clear()
             if log_entry is not None:
                 # 补偿删除受理条目：投递失败即受理失败，条目残留会让同幂等键
@@ -1259,16 +1361,7 @@ class SessionManager:
         interrupt_requested: bool = False,
     ) -> SessionStatus:
         """Map SDK result subtype/is_error to runtime session status."""
-        subtype = str(result_message.get("subtype") or "").strip().lower()
-        is_error = bool(result_message.get("is_error"))
-        if interrupt_requested:
-            if subtype in {"interrupted", "interrupt"}:
-                return "interrupted"
-            if is_error or subtype.startswith("error"):
-                return "interrupted"
-        if is_error or subtype.startswith("error"):
-            return "error"
-        return "completed"
+        return resolve_result_status(result_message, interrupt_requested=interrupt_requested)
 
     async def _handle_ask_user_question(
         self,

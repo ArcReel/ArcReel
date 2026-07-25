@@ -12,6 +12,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
+from lib.api_errors import NotFoundError
 from lib.asset_types import BUCKET_KEY, GLOBAL_LIBRARY_ASSET_TYPES, SHEET_KEY, validate_asset_name
 from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
@@ -255,11 +256,8 @@ async def from_project(
     # 2) 加载项目
     try:
         project = get_project_manager().load_project(req.project_name)
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail=_t("asset_target_project_not_found", project=req.project_name),
-        )
+    except FileNotFoundError as exc:
+        raise NotFoundError("asset_target_project_not_found", project=req.project_name) from exc
     except Exception:
         logger.exception("Failed to load project '%s' for from-project", req.project_name)
         raise HTTPException(status_code=500, detail=_t("asset_load_project_failed"))
@@ -390,11 +388,8 @@ async def apply_to_project(
     project_manager = get_project_manager()
     try:
         project = project_manager.load_project(req.target_project)
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail=_t("asset_target_project_not_found", project=req.target_project),
-        )
+    except FileNotFoundError as exc:
+        raise NotFoundError("asset_target_project_not_found", project=req.target_project) from exc
 
     succeeded: list[dict] = []
     skipped: list[dict] = []

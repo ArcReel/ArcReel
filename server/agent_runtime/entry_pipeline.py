@@ -17,12 +17,14 @@ from collections.abc import Callable
 from typing import Any
 
 from server.agent_runtime.event_log import (
+    ENTRY_SUBTYPE_AGENT_TURN_FAILURE,
     ENTRY_TYPE_ASSISTANT,
     EventLogStore,
     SdkMessageNormalizer,
     build_interrupt_entry,
     is_interrupt_entry,
 )
+from server.agent_runtime.failure_observation import failure_observation_json
 from server.agent_runtime.turn_schema import normalize_block
 
 logger = logging.getLogger(__name__)
@@ -229,9 +231,11 @@ class SessionEntryPipeline:
         *,
         session_id_provider: Callable[[], str | None],
         broadcast: Callable[[dict[str, Any]], None],
+        project_name_provider: Callable[[], str | None] | None = None,
     ) -> None:
         self._store = store
         self._session_id_provider = session_id_provider
+        self._project_name_provider = project_name_provider or (lambda: None)
         self._broadcast = broadcast
         # 每会话一个定型器：跨消息关联（Skill tool_use → 注入消息；
         # AskUserQuestion 提问登记 → 答复定型）随会话存续
@@ -267,6 +271,12 @@ class SessionEntryPipeline:
             return
 
         if msg_type == "result":
+            entries = self._normalizer.normalize(
+                msg_dict,
+                project_name=self._project_name_provider(),
+                session_id=session_id,
+            )
+            await self._append_normalized(session_id, entries)
             # 轮次终结：未被权威条目替换的 draft（中断/错误）随内存丢弃。
             self.draft.clear()
             # 中断的结果是时间线事件：SDK 回显缺席时由 result 兜底定型，
@@ -281,9 +291,25 @@ class SessionEntryPipeline:
             self._broadcast({"type": "log_turn_complete", "session_id": session_id})
             return
 
-        entries = self._normalizer.normalize(msg_dict)
+        entries = self._normalizer.normalize(
+            msg_dict,
+            project_name=self._project_name_provider(),
+            session_id=session_id,
+        )
+        if msg_type == "assistant" and msg_dict.get("error") is not None:
+            self.draft.clear_for_message(msg_dict.get("message_id"))
         if not entries:
             return
+        await self._append_normalized(session_id, entries)
+
+    async def _append_normalized(self, session_id: str, entries: list[dict[str, Any]]) -> None:
+        if not entries:
+            return
+        for entry in entries:
+            if entry.get("type") == "system" and entry.get("subtype") == ENTRY_SUBTYPE_AGENT_TURN_FAILURE:
+                failure = entry.get("failure")
+                if isinstance(failure, dict):
+                    logger.warning("agent turn failure failure_observation=%s", failure_observation_json(failure))
         if len(entries) == 1 and is_interrupt_entry(entries[0]):
             appended = await self._append_interrupt_deduped(session_id, entries[0])
         else:

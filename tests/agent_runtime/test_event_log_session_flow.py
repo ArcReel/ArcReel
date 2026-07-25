@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from server.agent_runtime.event_log import EventLogStore, build_user_entry
-from server.agent_runtime.session_manager import SessionManager
+from server.agent_runtime.session_manager import AgentStartupError, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import FakeSDKClient
 
@@ -146,7 +146,83 @@ class _InterruptingClient(FakeSDKClient):
         await self._pending_messages.put(None)
 
 
+class _CrashBeforeInitClient(FakeSDKClient):
+    def __init__(self, stderr_callback=None):
+        super().__init__()
+        self._stderr_callback = stderr_callback
+
+    async def receive_response(self):
+        self._record("receive_response")
+        if self._stderr_callback is not None:
+            self._stderr_callback("OPENAI_API_KEY=pre-init-secret\nprovider stderr detail")
+        if False:
+            yield {}
+        raise RuntimeError("receive_response crashed before init")
+
+
+class _QueryFailureClient(FakeSDKClient):
+    async def query(self, prompt, session_id: str = "default") -> None:
+        self._record("query")
+        raise RuntimeError("query rejected before session init")
+
+
 class TestNewSessionEventLogFlow:
+    async def test_receive_crash_before_init_is_reported_as_structured_startup_failure(self, manager: SessionManager):
+        captured_stderr: list = []
+
+        async def build_options(*_args, **kwargs):
+            captured_stderr.append(kwargs["stderr"])
+            return SimpleNamespace(env=None)
+
+        client = _CrashBeforeInitClient(lambda line: captured_stderr[0](line))
+
+        with (
+            patch.object(manager, "_build_options", new=build_options),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+        ):
+            with pytest.raises(AgentStartupError) as exc_info:
+                await manager.send_new_session("demo", "hello")
+
+        assert exc_info.value.failure_observation is not None
+        assert exc_info.value.failure_observation["phase"] == "startup"
+        assert exc_info.value.failure_observation["summary"]["message"] == "receive_response crashed before init"
+        assert exc_info.value.failure_observation["raw"]["sdk_stderr"] == (
+            "OPENAI_API_KEY=••••\nprovider stderr detail"
+        )
+
+    async def test_query_failure_before_init_is_reported_as_structured_startup_failure(self, manager: SessionManager):
+        client = _QueryFailureClient()
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env=None))),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+        ):
+            with pytest.raises(AgentStartupError) as exc_info:
+                await manager.send_new_session("demo", "hello")
+
+        assert exc_info.value.failure_observation is not None
+        assert exc_info.value.failure_observation["phase"] == "startup"
+        assert exc_info.value.failure_observation["summary"]["message"] == "query rejected before session init"
+
+    async def test_inbox_processor_failure_before_init_is_cleaned_up_and_reported(self, manager: SessionManager):
+        client = FakeSDKClient()
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env=None))),
+            patch.object(
+                manager,
+                "_process_inbox",
+                new=AsyncMock(side_effect=RuntimeError("inbox processor crashed before init")),
+            ),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+        ):
+            with pytest.raises(AgentStartupError) as exc_info:
+                await manager.send_new_session("demo", "hello")
+
+        assert manager.sessions == {}
+        assert exc_info.value.failure_observation is not None
+        assert exc_info.value.failure_observation["summary"]["message"] == "inbox processor crashed before init"
+
     async def test_full_round_produces_typed_monotonic_entries(self, manager: SessionManager):
         client = FakeSDKClient(messages=_new_session_messages())
         fake_options = SimpleNamespace(env=None)
@@ -193,6 +269,92 @@ class TestNewSessionEventLogFlow:
 
             # 一轮结束后 draft 已随 result 丢弃
             assert manager.get_draft_state(SDK_ID)["draft"] is None
+        finally:
+            await manager.close_session(SDK_ID)
+
+    async def test_sdk_error_becomes_one_turn_failure_event_with_raw_assistant_and_result(
+        self,
+        manager: SessionManager,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        upstream_message = (
+            "There's an issue with the selected model (gpt-5.6-sol). It may not exist or you may not have access to it."
+        )
+        assistant_error = {
+            "type": "assistant",
+            "message_id": "msg-error",
+            "uuid": "a-error",
+            "timestamp": "2026-07-23T01:02:03Z",
+            "session_id": SDK_ID,
+            "model": "<synthetic>",
+            "error": "invalid_request",
+            "stop_reason": "stop_sequence",
+            "content": [{"type": "text", "text": upstream_message}],
+            "future_sdk_field": {"kept": "verbatim", "api_key": "sk-ant-api03-secret-value"},
+        }
+        result_error = {
+            "type": "result",
+            "subtype": "success",
+            "is_error": True,
+            "api_error_status": 404,
+            "errors": ["upstream request failed"],
+            "session_id": SDK_ID,
+            "uuid": "r-error",
+            "future_result_field": {"request_id": "req-visible"},
+        }
+        client = FakeSDKClient(
+            messages=[
+                {"type": "system", "subtype": "init", "session_id": SDK_ID, "uuid": "init-error"},
+                {"type": "user", "content": "你好", "uuid": "sdk-u-error", "session_id": SDK_ID},
+                assistant_error,
+                result_error,
+            ]
+        )
+        fake_options = SimpleNamespace(env=None)
+        caplog.set_level("WARNING", logger="server.agent_runtime.entry_pipeline")
+
+        with (
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
+            patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
+            patch("server.agent_runtime.session_manager.tag_session", None),
+        ):
+            await manager.send_new_session(
+                "demo",
+                "你好",
+                user_entry=build_user_entry([{"type": "text", "text": "你好"}]),
+                client_key="ck-error",
+            )
+
+        try:
+            entries = await _wait_for_entries(manager.event_log_store, SDK_ID, 2)
+            await _wait_for_status(manager, SDK_ID, "error")
+            assert [entry["type"] for entry in entries] == ["user", "system"]
+
+            failure_entry = entries[1]
+            assert failure_entry["subtype"] == "agent_turn_failure"
+            failure = failure_entry["failure"]
+            assert failure["phase"] == "turn"
+            assert failure["project_name"] == "demo"
+            assert failure["session_id"] == SDK_ID
+            assert failure["summary"] == {
+                "source": "sdk_assistant",
+                "type": "invalid_request",
+                "status": 404,
+                "message": upstream_message,
+            }
+            assert failure["raw"]["assistant_message"]["model"] == "<synthetic>"
+            assert failure["raw"]["assistant_message"]["future_sdk_field"] == {
+                "kept": "verbatim",
+                "api_key": "••••",
+            }
+            assert failure["raw"]["result_message"]["future_result_field"] == {"request_id": "req-visible"}
+            assert all(entry["type"] != "assistant" for entry in entries)
+
+            rendered_logs = "\n".join(record.getMessage() for record in caplog.records)
+            assert "failure_observation=" in rendered_logs
+            assert "invalid_request" in rendered_logs
+            assert upstream_message in rendered_logs
+            assert "sk-ant-api03-secret-value" not in rendered_logs
         finally:
             await manager.close_session(SDK_ID)
 
