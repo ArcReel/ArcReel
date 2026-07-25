@@ -129,6 +129,14 @@ describe("OnboardingTour", () => {
     await waitFor(() => expect(status).toHaveBeenCalled());
   });
 
+  it("runs on a case-variant URL that wouter itself matches case-insensitively", async () => {
+    const status = vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+
+    renderAt("/APP/Projects/my-novel/Characters");
+
+    await waitFor(() => expect(status).toHaveBeenCalled());
+  });
+
   it("marks the tour as seen when it is closed, and does not reopen it", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
 

@@ -42,6 +42,18 @@ export function anchorSelector(anchor: string): string {
   return `[data-onboarding="${anchor}"]`;
 }
 
+/**
+ * driver.js 只用 `pointer-events: none` 和一个仅拦截 Tab 键的焦点陷阱隔离底层界面，
+ * 不触及无障碍树——屏幕阅读器的虚拟光标导航能绕开这两者，在引导期间直接读到并激活
+ * 底层工作台的控件。这里显式给 `#app-root`（挂载点见 main.tsx）打 `inert`，把整棵子树
+ * 从无障碍树摘除，引导退出时复原。driver 自身的遮罩与气泡挂在 body 上、是 `#app-root`
+ * 的兄弟节点，不受影响。
+ */
+function setAppRootInert(hidden: boolean): void {
+  const appRoot = document.getElementById("app-root");
+  if (appRoot) appRoot.inert = hidden;
+}
+
 /** 进度齿孔轨道 —— 装饰，语义由同级的 sr-only 文本承载 */
 function renderProgress(progress: HTMLElement, current: number, total: number, label: string): void {
   progress.replaceChildren();
@@ -124,15 +136,18 @@ export function startTour(
       exited = true;
       onExit();
     }
+    setAppRootInert(false);
     instance.destroy();
   }
 
+  setAppRootInert(true);
   instance.drive(Math.min(Math.max(startIndex, 0), total - 1));
 
   return {
     currentIndex: () => instance.getActiveIndex() ?? 0,
     dispose: () => {
       disposing = true;
+      setAppRootInert(false);
       instance.destroy();
     },
   };

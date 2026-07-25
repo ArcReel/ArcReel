@@ -31,11 +31,14 @@ export function OnboardingTour() {
   // /app/settings、/app/assets 是无子路由的单页，前缀匹配会把 /app/settings/unknown
   // 这类 404 误判为主界面；/app/projects/:projectName 下 StudioCanvasRouter 的内层
   // <Switch> 同样没有兜底路由，未注册的子路径按 APP_PROJECT_WORKSPACE_PATTERN 精确匹配。
+  // wouter 底层 regexparam 大小写不敏感，这里统一转小写后再比对，避免大小写变体的
+  // 合法路径（wouter 能正常渲染）被本判断误判为不在主界面内。
+  const normalizedLocation = location.toLowerCase();
   const inMainUi =
     isAuthenticated &&
-    (location === "/" ||
-      (APP_TOP_LEVEL_ROUTES as readonly string[]).includes(location) ||
-      APP_PROJECT_WORKSPACE_PATTERN.test(location));
+    (normalizedLocation === "/" ||
+      (APP_TOP_LEVEL_ROUTES as readonly string[]).includes(normalizedLocation) ||
+      APP_PROJECT_WORKSPACE_PATTERN.test(normalizedLocation));
 
   // 1. 查询「是否已看过」
   useEffect(() => {

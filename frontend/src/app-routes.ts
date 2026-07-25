@@ -43,7 +43,10 @@ const WORKSPACE_STATIC_LEAF_ROUTES = [
  * `StudioCanvasRouter`（nest 路由）内层 `<Switch>` 实际注册的路由集合。
  * 内层没有兜底 404，未匹配的子路径只会渲染空白画布，因此不能整段
  * `/app/projects/` 前缀放行，需要按这份路由表精确匹配。
+ * wouter 底层 regexparam 编译路由时带 `i` 标志（大小写不敏感），这里同步加
+ * 上 `i`，否则大小写变体的合法路径会被本模式误判为未注册子路径。
  */
 export const APP_PROJECT_WORKSPACE_PATTERN = new RegExp(
   `^${ROUTE_APP_PROJECTS}/[^/]+(/(?:${WORKSPACE_STATIC_LEAF_ROUTES.join("|")}|${WORKSPACE_ROUTE_SOURCE}/[^/]+|${WORKSPACE_ROUTE_EPISODES}/[^/]+))?$`,
+  "i",
 );

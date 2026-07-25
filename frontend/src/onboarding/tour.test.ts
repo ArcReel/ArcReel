@@ -154,4 +154,40 @@ describe("startTour", () => {
     expect(onExit).not.toHaveBeenCalled();
     expect(document.querySelector(".driver-popover")).toBeNull();
   });
+
+  describe("app root isolation", () => {
+    // driver.js 只挡 pointer-events + Tab 键，屏幕阅读器的虚拟光标仍能读到底层界面；
+    // #app-root 打 inert 把整棵子树从无障碍树摘除，才是真正的「全程只读」。
+    function withAppRoot(): HTMLElement {
+      const appRoot = document.createElement("div");
+      appRoot.id = "app-root";
+      document.body.appendChild(appRoot);
+      return appRoot;
+    }
+
+    it("marks #app-root inert while the tour is active, and clears it on close", () => {
+      const appRoot = withAppRoot();
+      const onExit = vi.fn();
+      startTour(TWO_STEPS, LABELS, { onExit });
+
+      expect(appRoot.inert).toBe(true);
+
+      click(".driver-popover-close-btn");
+
+      expect(appRoot.inert).toBe(false);
+      appRoot.remove();
+    });
+
+    it("clears #app-root inert when the caller disposes the tour", () => {
+      const appRoot = withAppRoot();
+      const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn() });
+
+      expect(appRoot.inert).toBe(true);
+
+      handle.dispose();
+
+      expect(appRoot.inert).toBe(false);
+      appRoot.remove();
+    });
+  });
 });
