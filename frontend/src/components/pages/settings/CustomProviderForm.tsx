@@ -681,9 +681,11 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                           updateModel(m.key, {
                             endpoint: next,
                             is_default: false,
-                            // 覆盖字段只对 video endpoint 有意义；切到非 video 时随表单一并清除，
-                            // 否则隐藏字段原样提交会被后端因 media_type 不符拒绝，用户无法保存。
-                            capability_overrides: endpointToMediaType[next] === "video" ? m.capability_overrides : null,
+                            // 表单没有覆盖编辑控件（专门的 PATCH 端点承载，见 issue #1294），且覆盖的
+                            // 合法性本身随 endpoint 变化（如 last_frame 要求目标 endpoint 支持尾帧）：
+                            // 前端拿不到判定所需的 end_image_capable 数据，任何 endpoint 切换一律清空，
+                            // 否则隐藏字段原样提交可能被后端因白名单/兼容性拒绝，用户无法保存。
+                            capability_overrides: null,
                           })
                         }
                         ariaLabel={t("endpoint_label")}

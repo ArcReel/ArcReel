@@ -338,6 +338,46 @@ class TestModelManagement:
         result = await repo.update_model(999, display_name="Nope")
         assert result is None
 
+    async def test_update_model_rejects_pk_reused_by_unrelated_row(self, session: AsyncSession):
+        """SQLite 整表删除重建会复用释放出的主键：模拟并发 PUT 用同一主键插入了一个业务上
+        完全不同的新模型，若只按主键匹配，更新会静默命中并污染这条无关的行；一并校验业务标识
+        （provider_id/model_id）后谓词应落空，正确返回 None 而不是误报更新成功。"""
+        from sqlalchemy import insert
+
+        from lib.db.models.custom_provider import CustomProviderModel
+
+        repo = CustomProviderRepository(session)
+        p = await repo.create_provider(
+            display_name="TestProvider",
+            discovery_format="openai",
+            base_url="https://example.com",
+            api_key="key",
+            models=[{"model_id": "gpt-4o", "display_name": "GPT-4o", "endpoint": "openai-chat"}],
+        )
+        await session.flush()
+        stale_id = (await repo.list_models(p.id))[0].id
+
+        # 模拟并发整表 PUT：删除旧行，用同一主键插入一个业务上无关的新模型
+        await repo.replace_models(p.id, [])
+        await session.execute(
+            insert(CustomProviderModel).values(
+                id=stale_id,
+                provider_id=p.id,
+                model_id="unrelated-model",
+                display_name="Unrelated",
+                endpoint="openai-chat",
+            )
+        )
+        await session.flush()
+
+        result = await repo.update_model(
+            stale_id, expect_provider_id=p.id, expect_model_id="gpt-4o", display_name="Hijacked"
+        )
+        assert result is None
+
+        untouched = (await repo.list_models(p.id))[0]
+        assert untouched.display_name == "Unrelated"
+
     async def test_delete_model(self, session: AsyncSession):
         repo = CustomProviderRepository(session)
         p = await repo.create_provider(

@@ -769,8 +769,18 @@ async def update_model_capability_overrides(
     # 空字典与 None 都表示"全部跟随"，统一落 NULL，避免 DB 里出现两种等价表示。
     # 按行首查到的旧主键（model.id）更新：并发的整表 PUT（replace_models）会先删后按同一
     # model_id 重建新行，旧主键随之失效。update_model 返回 None 即命中该竞态——此时旧主键已
-    # 不存在，写入根本没有落到任何行，须回 409 而非静默按更新成功处理。
-    if await repo.update_model(model.id, capability_overrides=overrides or None) is None:
+    # 不存在，写入根本没有落到任何行，须回 409 而非静默按更新成功处理。一并传入业务标识
+    # （provider_id/model_id）：SQLite 整表删除重建会复用释放出的主键，仅按主键匹配可能命中
+    # 业务上无关的新行，一并校验业务标识可挡住这类静默写错模型。
+    if (
+        await repo.update_model(
+            model.id,
+            expect_provider_id=provider_id,
+            expect_model_id=model_id,
+            capability_overrides=overrides or None,
+        )
+        is None
+    ):
         raise HTTPException(status_code=409, detail=_t("custom_model_concurrent_update", model_id=model_id))
     await session.commit()
     await _invalidate_caches(request)

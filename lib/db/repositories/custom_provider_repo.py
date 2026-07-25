@@ -117,19 +117,31 @@ class CustomProviderRepository(BaseRepository):
         await self.session.flush()
         return new_models
 
-    async def update_model(self, model_id: int, **kwargs) -> CustomProviderModel | None:
+    async def update_model(
+        self,
+        model_id: int,
+        *,
+        expect_provider_id: int | None = None,
+        expect_model_id: str | None = None,
+        **kwargs,
+    ) -> CustomProviderModel | None:
         """按主键原子更新模型字段，返回更新后的对象，行不存在（含更新前一刻被删除）时返回 None。
 
         用 ``UPDATE ... WHERE id = :model_id RETURNING *`` 而非「先 SELECT 再 setattr」：
-        后者的 SELECT 与后续 flush 之间存在窗口，调用方按旧主键整表删除重建（同一 model_id
+        后者的 SELECT 与后续 flush 之间存在窗口，调用方按旧主键整表删除重建（同一业务 model_id
         新行）可在此间隙发生而不被发现。原子语句把「行是否还在」与「更新」并成一步，无中间态。
+
+        ``expect_provider_id``/``expect_model_id`` 传入时一并入谓词：SQLite 整表删除重建时会
+        复用已释放的 ``INTEGER PRIMARY KEY``（表清空后新插入从最小可用值起），仅按主键匹配可能
+        命中业务上完全不同的新行，把覆盖写错模型且不会返回 None（真实故障因此被吞掉）。业务标识
+        一并校验后，主键复用但业务身份不符时谓词不命中，仍正确返回 None 触发调用方的 409。
         """
-        stmt = (
-            update(CustomProviderModel)
-            .where(CustomProviderModel.id == model_id)
-            .values(**kwargs)
-            .returning(CustomProviderModel)
-        )
+        predicate = [CustomProviderModel.id == model_id]
+        if expect_provider_id is not None:
+            predicate.append(CustomProviderModel.provider_id == expect_provider_id)
+        if expect_model_id is not None:
+            predicate.append(CustomProviderModel.model_id == expect_model_id)
+        stmt = update(CustomProviderModel).where(*predicate).values(**kwargs).returning(CustomProviderModel)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
