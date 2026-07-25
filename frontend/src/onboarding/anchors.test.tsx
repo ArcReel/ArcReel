@@ -11,6 +11,7 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
+import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
 import { useAppStore } from "@/stores/app-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -30,6 +31,15 @@ function renderLobby() {
   );
 }
 
+function renderSettings() {
+  const { hook } = memoryLocation({ path: "/app/settings" });
+  render(
+    <Router hook={hook}>
+      <SystemConfigPage />
+    </Router>,
+  );
+}
+
 /** 每个锚点挂载它所在的界面。断言统一在下面的用例里做。 */
 const RENDERERS: Record<OnboardingAnchor, () => void> = {
   [ONBOARDING_ANCHORS.lobbyCreateProject]: renderLobby,
@@ -39,6 +49,8 @@ const RENDERERS: Record<OnboardingAnchor, () => void> = {
     useOnboardingStore.setState({ active: true });
     renderLobby();
   },
+  [ONBOARDING_ANCHORS.settingsProviders]: renderSettings,
+  [ONBOARDING_ANCHORS.settingsAgent]: renderSettings,
 };
 
 describe("onboarding anchors", () => {

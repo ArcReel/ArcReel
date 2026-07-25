@@ -9,6 +9,10 @@ export default {
   'lobby_demo_body': 'This card is a sample, not one of your projects. The badge shows the current phase, and the counters below track characters, scenes, props, and episodes as production fills them in.',
   'lobby_settings_title': 'Providers live in Settings',
   'lobby_settings_body': 'Image, video, and text generation each run on a provider you choose. A red dot on this button means something required is still missing — open Settings and it points you at the gap.',
+  'settings_providers_title': 'Set up a media provider',
+  'settings_providers_body': 'Configure at least one provider here — enter its API key and run the connection test before generating anything.',
+  'settings_agent_title': 'Connect the agent',
+  'settings_agent_body': 'The assistant needs an Anthropic credential to generate overviews, scripts, and chat replies. Add it here.',
   'finish_title': 'Your turn',
   'finish_body': 'Start by importing a novel, then take the rest one step at a time. To see this again, open Settings → About.',
 

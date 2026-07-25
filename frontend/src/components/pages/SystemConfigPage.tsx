@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { AgentConfigTab } from "./AgentConfigTab";
 import { ApiKeysTab } from "./ApiKeysTab";
 import { AboutSection } from "./settings/AboutSection";
@@ -34,6 +35,12 @@ import {
 // ---------------------------------------------------------------------------
 
 type SettingsSection = "agent" | "providers" | "media" | "usage" | "api-keys" | "about";
+
+/** 引导第 5/6 步指向的侧栏入口——只有这两项挂锚点，其余小节不在当前引导覆盖范围内。 */
+const SECTION_ONBOARDING_ANCHORS: Partial<Record<SettingsSection, string>> = {
+  providers: ONBOARDING_ANCHORS.settingsProviders,
+  agent: ONBOARDING_ANCHORS.settingsAgent,
+};
 
 interface SectionDef {
   id: SettingsSection;
@@ -210,6 +217,7 @@ export function SystemConfigPage() {
                     key={id}
                     type="button"
                     onClick={() => setActiveSection(id)}
+                    data-onboarding={SECTION_ONBOARDING_ANCHORS[id]}
                     aria-current={isActive ? "page" : undefined}
                     aria-pressed={isActive}
                     className={

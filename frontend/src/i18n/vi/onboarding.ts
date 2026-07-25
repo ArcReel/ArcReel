@@ -10,6 +10,10 @@ export default {
   'lobby_demo_body': 'Đây là thẻ ví dụ, không phải dự án của bạn. Nhãn hiển thị giai đoạn hiện tại, các số liệu bên dưới theo dõi tiến độ của nhân vật, bối cảnh, đạo cụ và các tập.',
   'lobby_settings_title': 'Cấu hình nhà cung cấp nằm trong Cài đặt',
   'lobby_settings_body': 'Tạo hình ảnh, video và văn bản đều chạy trên nhà cung cấp do bạn chọn. Chấm đỏ trên nút này nghĩa là còn mục bắt buộc chưa được cấu hình — mở Cài đặt sẽ thấy ngay phần còn thiếu.',
+  'settings_providers_title': 'Cấu hình một nhà cung cấp',
+  'settings_providers_body': 'Cấu hình ít nhất một nhà cung cấp ở đây — nhập API Key và chạy thử kết nối trước khi bắt đầu tạo nội dung.',
+  'settings_agent_title': 'Kết nối Agent',
+  'settings_agent_body': 'Tạo tổng quan, kịch bản và trả lời trò chuyện đều cần thông tin xác thực Anthropic — hãy thêm vào đây.',
   'finish_title': 'Đến lượt bạn',
   'finish_body': 'Hãy bắt đầu bằng cách nhập một cuốn tiểu thuyết, phần còn lại làm từng bước một. Muốn xem lại, hãy mở Cài đặt → Giới thiệu.',
 

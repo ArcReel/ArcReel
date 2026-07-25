@@ -19,6 +19,12 @@ export interface TourStep {
   anchor: OnboardingAnchor | null;
   title: string;
   body: string;
+  /**
+   * 该步所需的路由，调用方自行定义、这里不解释语义——纯粹原样透传，供调用方在
+   * `onStepChange` 里比对是否需要导航。省略 = 不要求特定路由，留在当前页继续讲
+   * （开场欢迎气泡以外的居中步通常这样用）。
+   */
+  route?: string;
 }
 
 export interface TourLabels {
@@ -128,6 +134,10 @@ function renderProgress(progress: HTMLElement, current: number, total: number, l
  * @param onExit 任一退出路径（跳过 / 关闭 / 走完）都会调用一次；`dispose()` 不调用。
  * @param startIndex 从第几步开始（0 基）。默认 0；重建时传入上一次的 `currentIndex()`。
  * @param anchorWaitMs 锚点缺席时的等待上限，默认 `ANCHOR_WAIT_MS`。
+ * @param onStepChange 「下一步/上一步」被触发时（按钮点击与方向键都走同一条内部回调，
+ *   见 `onNextClick`/`onPrevClick`）、在 driver 实际切换高亮之前，同步上报即将停靠的
+ *   步号。调用方可以据此在 driver 尝试高亮新步骤的锚点之前先行导航——两者天然存在的
+ *   时间差由 driver 自己的 `waitForElement` 轮询吸收，不需要额外的等待逻辑。
  */
 export function startTour(
   steps: TourStep[],
@@ -136,7 +146,13 @@ export function startTour(
     onExit,
     startIndex = 0,
     anchorWaitMs = ANCHOR_WAIT_MS,
-  }: { onExit: () => void; startIndex?: number; anchorWaitMs?: number },
+    onStepChange,
+  }: {
+    onExit: () => void;
+    startIndex?: number;
+    anchorWaitMs?: number;
+    onStepChange?: (index: number) => void;
+  },
 ): TourHandle {
   const total = steps.length;
   let exited = false;
@@ -185,10 +201,17 @@ export function startTour(
     // 与无 DOM 帧的环境下会静默漏掉回调。改走「按钮 + 主动收起」这两个我们自己掌握的
     // 入口，退出必然被记一次。
     onNextClick: () => {
-      if (instance.isLastStep()) finish();
-      else instance.moveNext();
+      if (instance.isLastStep()) {
+        finish();
+        return;
+      }
+      onStepChange?.((instance.getActiveIndex() ?? 0) + 1);
+      instance.moveNext();
     },
-    onPrevClick: () => instance.movePrevious(),
+    onPrevClick: () => {
+      onStepChange?.(Math.max((instance.getActiveIndex() ?? 0) - 1, 0));
+      instance.movePrevious();
+    },
     onCloseClick: () => finish(),
     // Esc 与点击遮罩走 driver 内部的收起流程，在真正拆掉之前回调这里。
     onDestroyStarted: () => finish(),

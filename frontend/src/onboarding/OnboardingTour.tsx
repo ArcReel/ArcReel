@@ -6,20 +6,33 @@
  * 1. 进入主界面后查一次「是否已看过」（auth 开启 = 登录成功后；匿名 = auth status 放行
  *    后，两种情形都由 `isAuthenticated` 统一表达）。登录页不掺和。
  * 2. 未看过则自动开一次。
- * 3. 开启但当前不在大厅（如设置页点「重看引导」、或深链接直落其它主界面路由）时先
- *    导航到大厅——当前步骤大纲的锚点全部落在大厅，其它页面上没有可高亮的目标。
- * 4. store 里 active 为真且已在大厅时驱动 driver.js —— 自动首弹与设置页「重看引导」
- *    共用这条路径，组件本身不区分二者。
+ * 3. 开启但当前所在路由不是当前步骤所需的路由（如设置页点「重看引导」回到第 1 步、
+ *    或跨页步骤切到下一段）时先导航过去，锚点才能挂载。
+ * 4. store 里 active 为真、且当前路由是引导覆盖的路由之一时驱动 driver.js —— 自动
+ *    首弹与设置页「重看引导」共用这条路径，组件本身不区分二者。
+ *
+ * 步骤大纲现在跨大厅、设置两个页面。driver.js 实例挂在 `document.body` 上、在
+ * React 树之外，只要第 3 点里的路由判定在这两页之间保持同一个真值，实例就不会被
+ * effect 4 拆重建——「下一步」跨页时靠 `tour.ts` 的 `onStepChange` 在 driver 真正
+ * 切换高亮之前把即将停靠的步号同步上报，本组件据此提前导航，驱动效果本身不重启。
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
-import { APP_PROJECT_WORKSPACE_PATTERN, APP_TOP_LEVEL_ROUTES, ROUTE_APP_PROJECTS } from "@/app-routes";
+import {
+  APP_PROJECT_WORKSPACE_PATTERN,
+  APP_TOP_LEVEL_ROUTES,
+  ROUTE_APP_PROJECTS,
+  ROUTE_APP_SETTINGS,
+} from "@/app-routes";
 import { buildTourSteps } from "./steps";
 import { startTour, type TourLabels } from "./tour";
+
+/** 引导步骤大纲当下覆盖的路由集合——驱动效果据此判断「是否还在引导范围内」。 */
+const TOUR_ROUTES: readonly string[] = [ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS];
 
 export function OnboardingTour() {
   const { t } = useTranslation("onboarding");
@@ -42,16 +55,27 @@ export function OnboardingTour() {
     (normalizedLocation === "/" ||
       (APP_TOP_LEVEL_ROUTES as readonly string[]).includes(normalizedLocation) ||
       APP_PROJECT_WORKSPACE_PATTERN.test(normalizedLocation));
-  // 当前步骤大纲的锚点全部落在大厅（ROUTE_APP_PROJECTS）——「重看引导」在设置页
-  // 等其它主界面路由触发时，driver.js 找不到锚点只会退化居中，不会自动跳转。
-  // 后续段落若在设置页/工作台新增带锚点的步骤，需按步骤索引扩展这里的路由判定。
-  const atLobby = normalizedLocation === ROUTE_APP_PROJECTS;
+  // 当前所在路由是否是引导覆盖的路由之一（大厅或设置页）——驱动效果（4）以此为准，
+  // 而不是逐步比对，这样大厅↔设置页之间的跨页步骤切换不会拆重建 driver 实例。
+  const onTourRoute = TOUR_ROUTES.includes(normalizedLocation);
 
-  // 0. 引导开启但不在大厅——先导航过去，锚点才能挂载
+  // 停在第几步（0 基）。用 ref 给驱动效果读取初始值又不把它列进依赖（步骤切换不该
+  // 重启驱动效果），state 给下面的路由判定效果做响应式依赖。两者总是同步写入。
+  const stepIndexRef = useRef(0);
+  const [stepIndex, setStepIndex] = useState(0);
+  const setStep = (index: number) => {
+    stepIndexRef.current = index;
+    setStepIndex(index);
+  };
+
+  const requiredRoute = buildTourSteps(t)[stepIndex]?.route ?? null;
+
+  // 0. 引导开启但当前路由不是本步所需的路由——先导航过去，锚点才能挂载。跨页步骤
+  //    切换（见 tour.ts 的 onStepChange）与「重看引导」从非首步路由触发都走这里。
   useEffect(() => {
-    if (!active || atLobby || !inMainUi) return;
-    navigate(ROUTE_APP_PROJECTS);
-  }, [active, atLobby, inMainUi, navigate]);
+    if (!active || !inMainUi || !requiredRoute || normalizedLocation === requiredRoute) return;
+    navigate(requiredRoute);
+  }, [active, inMainUi, requiredRoute, normalizedLocation, navigate]);
 
   // 1. 查询「是否已看过」
   useEffect(() => {
@@ -71,12 +95,12 @@ export function OnboardingTour() {
   //
   // 文案是构造时一次性交给 driver 的，切换界面语言（`t` 换身份）必须重建一遍才能生效。
   // 重建走 `dispose()` —— 不记退出 —— 并把停留的步号带过去，讲到第几步就还在第几步。
-  const stepIndexRef = useRef(0);
   useEffect(() => {
-    // 离开主界面（如运行期间浏览器后退回登录页）或尚未导航到大厅时收起正在运行的
-    // 引导——不算一次退出（不记 seen），保留步号，回到大厅后从原位继续。
-    if (!active || !atLobby) {
-      if (!active) stepIndexRef.current = 0;
+    // 离开引导覆盖的路由（如运行期间浏览器后退回登录页）或尚未导航过去时收起正在
+    // 运行的引导——不算一次退出（不记 seen），保留步号，回到范围内后从原位继续。
+    if (!active || !onTourRoute) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 引导退出时把步号复位到起点，是有意的受控重置，下次开启从头开始
+      if (!active) setStep(0);
       return;
     }
     const labels: TourLabels = {
@@ -90,12 +114,15 @@ export function OnboardingTour() {
     const handle = startTour(buildTourSteps(t), labels, {
       onExit: () => useOnboardingStore.getState().exit(),
       startIndex: stepIndexRef.current,
+      onStepChange: setStep,
     });
     return () => {
-      stepIndexRef.current = handle.currentIndex();
+      setStep(handle.currentIndex());
       handle.dispose();
     };
-  }, [active, atLobby, t]);
+    // 步骤号有意不进依赖（stepIndexRef 是 ref，读取本就不受 lint 约束）——步骤号变化
+    // 不该重启这个效果，否则每次「下一步」都会拆重建 driver 实例。
+  }, [active, onTourRoute, t]);
 
   return null;
 }
