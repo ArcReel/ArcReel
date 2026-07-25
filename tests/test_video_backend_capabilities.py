@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from lib.video_backends.base import VideoCapabilities, VideoGenerationRequest
 
 
@@ -66,6 +68,7 @@ class TestVideoGenerationRequestNewFields:
 
 
 class TestGrokVideoCapabilities:
+    @pytest.mark.unit
     def test_no_start_frame_overlay_field(self):
         """Grok 同时下发 image_url 与 reference_image_urls，但字段已收敛，不再单独声明该组合能力。"""
         from unittest.mock import patch

@@ -308,6 +308,7 @@ class TestMediaGenerator:
         )
         assert gen.ledger.started[-1]["generate_audio"] is True
 
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_end_image_ignored_when_backend_lacks_last_frame(self, tmp_path):
         """后端 last_frame=False 时忽略 end_image 并告警，不降级为参考图。"""
