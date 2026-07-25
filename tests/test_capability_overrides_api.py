@@ -190,6 +190,66 @@ class TestModelListExposesCapabilities:
         models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["capability_overrides"] is None
 
+    @pytest.mark.integration
+    async def test_corrupted_non_dict_override_does_not_500_response(self, client: TestClient, session_factory):
+        """存量行 / 手工 SQL 可能让 JSON 列存了非字典值（字符串、列表等）：执行层的
+        synthesize_video_capabilities 按容错设计忽略它，响应边界须同样容错，不能把原值
+        直接塞进只接受 dict | None 的 ModelResponse 触发 Pydantic 校验错误，让整个列表/详情
+        请求 500——用户也就无法进入设置页清理这条坏值。"""
+        async with session_factory() as session:
+            repo = CustomProviderRepository(session)
+            provider = await repo.create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://relay.test/v1",
+                api_key="sk-relay",
+                models=[
+                    {
+                        "model_id": VIDEO_MODEL,
+                        "display_name": "Sora 2",
+                        "endpoint": VIDEO_ENDPOINT,
+                        "is_enabled": True,
+                        "is_default": True,
+                        "capability_overrides": "last_frame",
+                    }
+                ],
+            )
+            await session.commit()
+            pid = provider.id
+
+        resp = client.get(f"/api/v1/custom-providers/{pid}")
+        assert resp.status_code == 200
+        assert resp.json()["models"][0]["capability_overrides"] is None
+
+    @pytest.mark.integration
+    async def test_retired_endpoint_override_does_not_500_response(self, client: TestClient, session_factory):
+        """endpoint 已从注册表下线（升级移除）时，get_endpoint_spec 会抛 ValueError；响应边界
+        过滤 last_frame 覆盖时须容错这条查表失败，不能让存量脏配置把列表/详情请求也炸成 500。"""
+        async with session_factory() as session:
+            repo = CustomProviderRepository(session)
+            provider = await repo.create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://relay.test/v1",
+                api_key="sk-relay",
+                models=[
+                    {
+                        "model_id": "retired-model",
+                        "display_name": "Retired",
+                        "endpoint": "no-such-retired-endpoint",
+                        "is_enabled": True,
+                        "is_default": True,
+                        "capability_overrides": {"last_frame": True},
+                    }
+                ],
+            )
+            await session.commit()
+            pid = provider.id
+
+        resp = client.get(f"/api/v1/custom-providers/{pid}")
+        assert resp.status_code == 200
+        assert resp.json()["models"][0]["capability_overrides"] is None
+
 
 class TestPatchCapabilityOverrides:
     """PATCH 携带完整覆盖字典，整体替换存量。"""
