@@ -1,0 +1,226 @@
+/* === 首次使用引导 — driver.js 皮肤 ===
+ *
+ * driver.js 的 popover 用 `all: unset` 起手，所有观感都要在这里显式给出。皮肤刻意
+ * 复用工作台既有 token（玻璃面板、紫色 accent、文字四档、编辑体大标题），让引导读起来
+ * 是产品本身的一部分，而不是嵌进来的第三方控件。
+ *
+ * 作用域全部挂在 `.arc-tour` 上（driver 的 popoverClass），不改 driver 默认皮肤，
+ * 避免将来引入 hints 等其他 driver 形态时互相打架。
+ */
+
+/* 遮罩色不在这里 —— driver 把它写进 SVG 的 fill，取值见 tour.ts 的 OVERLAY_INK。 */
+
+/* ── 气泡本体 ─────────────────────────────────────────────── */
+
+.driver-popover.arc-tour {
+    /* 与 .arc-glass-panel 同源 */
+    background: linear-gradient(180deg, oklch(0.21 0.012 265 / 0.97), oklch(0.18 0.010 265 / 0.97));
+    border: 1px solid var(--color-hairline);
+    border-radius: 16px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow:
+        0 24px 60px -12px oklch(0 0 0 / 0.6),
+        inset 0 1px 0 oklch(1 0 0 / 0.05);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    min-width: 0;
+    max-width: min(92vw, 420px);
+    padding: 26px 26px 20px;
+}
+
+/* 顶部 accent hairline — 与 .arc-glass-hairline 一致 */
+.driver-popover.arc-tour::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--color-accent-soft), transparent);
+    pointer-events: none;
+}
+
+.driver-popover.arc-tour .driver-popover-arrow {
+    border-color: transparent;
+}
+
+/* ── 文字 ─────────────────────────────────────────────────── */
+
+.driver-popover.arc-tour .driver-popover-title {
+    /* 编辑体大标题 —— 与项目大厅的电影感标题同一张脸 */
+    font-family: var(--font-editorial);
+    font-size: 27px;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    color: var(--color-text);
+    padding-right: 28px; /* 让开右上角的关闭按钮 */
+}
+
+.driver-popover.arc-tour .driver-popover-description {
+    margin-top: 10px;
+    font-size: 13.5px;
+    line-height: 1.75;
+    color: var(--color-text-2);
+}
+
+/* ── 关闭按钮 ─────────────────────────────────────────────── */
+
+.driver-popover.arc-tour .driver-popover-close-btn {
+    top: 14px;
+    right: 14px;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    font-size: 17px;
+    line-height: 26px;
+    color: var(--color-text-4);
+    transition: color 150ms, background 150ms;
+}
+
+.driver-popover.arc-tour .driver-popover-close-btn:hover {
+    color: var(--color-text);
+    background: oklch(1 0 0 / 0.05);
+}
+
+/* ── 页脚 ─────────────────────────────────────────────────── */
+
+.driver-popover.arc-tour .driver-popover-footer {
+    margin-top: 22px;
+    gap: 16px;
+    align-items: center;
+}
+
+.driver-popover.arc-tour .driver-popover-navigation-btns {
+    gap: 8px;
+}
+
+.driver-popover.arc-tour .driver-popover-navigation-btns button + button {
+    margin-left: 0;
+}
+
+/* 进度：胶片齿孔 —— 轨道宽度恒定，格数随步数变化（2 步是两格宽条，11 步是细齿条）。
+ * 语义由页脚的 sr-only 文本承载，齿孔本身是装饰。 */
+.arc-tour-filmstrip {
+    display: flex;
+    gap: 3px;
+    width: 88px;
+    flex: none;
+}
+
+.arc-tour-filmstrip span {
+    flex: 1;
+    height: 4px;
+    border-radius: 1px;
+    background: var(--color-hairline);
+    transition: background 220ms;
+}
+
+.arc-tour-filmstrip span[data-on="1"] {
+    background: var(--color-accent);
+    box-shadow: 0 0 10px -2px var(--color-accent-glow);
+}
+
+.arc-tour-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* ── 按钮 ─────────────────────────────────────────────────── */
+
+.driver-popover.arc-tour .driver-popover-footer-btn {
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.3;
+    cursor: pointer;
+}
+
+.driver-popover.arc-tour .driver-popover-footer-btn:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+/* 次按钮：上一步 / 跳过 —— 与 .arc-btn-secondary 一致 */
+.driver-popover.arc-tour .driver-popover-prev-btn,
+.driver-popover.arc-tour .arc-tour-skip-btn {
+    color: var(--color-text-3);
+    border: 1px solid var(--color-hairline);
+    background: oklch(0.22 0.011 265 / 0.5);
+    transition: color 150ms, background 150ms, border-color 150ms;
+}
+
+.driver-popover.arc-tour .driver-popover-prev-btn:hover,
+.driver-popover.arc-tour .arc-tour-skip-btn:hover {
+    color: var(--color-text);
+    background: oklch(0.26 0.013 265 / 0.7);
+    border-color: var(--color-hairline-strong);
+}
+
+/* 跳过按钮无边框，压得比"上一步"更轻——它是退出路径，不是导航 */
+.driver-popover.arc-tour .arc-tour-skip-btn {
+    border-color: transparent;
+    background: transparent;
+    margin-right: auto;
+}
+
+/* 主按钮：继续 / 完成 —— 与 .arc-btn-primary 一致 */
+.driver-popover.arc-tour .driver-popover-next-btn,
+.driver-popover.arc-tour .driver-popover-done-btn {
+    color: oklch(0.14 0 0);
+    border: none;
+    font-weight: 600;
+    background: linear-gradient(135deg, var(--color-accent-2), var(--color-accent));
+    box-shadow:
+        inset 0 1px 0 oklch(1 0 0 / 0.35),
+        0 6px 18px -6px var(--color-accent-glow),
+        0 0 0 1px var(--color-accent-soft);
+    transition: transform 150ms;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .driver-popover.arc-tour .driver-popover-next-btn:hover,
+    .driver-popover.arc-tour .driver-popover-done-btn:hover {
+        transform: translateY(-1px);
+    }
+}
+
+.driver-popover.arc-tour .driver-popover-btn-disabled {
+    opacity: 0.4;
+}
+
+/* ── 窄屏 ─────────────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+    .driver-popover.arc-tour {
+        padding: 20px 20px 16px;
+    }
+
+    .driver-popover.arc-tour .driver-popover-title {
+        font-size: 23px;
+    }
+
+    .arc-tour-filmstrip {
+        width: 56px;
+    }
+
+    /* 进度条 + 跳过 + 上一步/继续两组按钮，英/越文案比中文长得多，三者挤在一行
+     * 在窄屏（~320px）会溢出。这里让进度条独占一行，按钮组换到下一行。 */
+    .driver-popover.arc-tour .driver-popover-footer {
+        flex-wrap: wrap;
+        row-gap: 10px;
+    }
+
+    .driver-popover.arc-tour .driver-popover-progress-text {
+        flex-basis: 100%;
+        order: -1;
+    }
+}

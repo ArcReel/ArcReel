@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertTriangle, ExternalLink, Info, Loader2, RefreshCcw } from "lucide-react";
+import { AlertTriangle, ExternalLink, Info, Loader2, Play, RefreshCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { StreamMarkdown } from "@/components/copilot/StreamMarkdown";
 import { CARD_STYLE, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
+import { useOnboardingStore } from "@/stores/onboarding-store";
 import { formatDate } from "@/utils/date-format";
 import type { GetSystemVersionResponse } from "@/types";
 
@@ -17,6 +18,8 @@ const ABOUT_DATE_OPTS: Intl.DateTimeFormatOptions = {
 
 export function AboutSection() {
   const { t, i18n } = useTranslation("dashboard");
+  const { t: tOnboarding } = useTranslation("onboarding");
+  const startTour = useOnboardingStore((s) => s.start);
   const [data, setData] = useState<GetSystemVersionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -241,6 +244,25 @@ export function AboutSection() {
         ) : (
           <p className="text-[12.5px] text-text-3">{t("about_release_notes_empty")}</p>
         )}
+      </div>
+
+      {/* 重看引导 —— 与首次自动弹出共用同一组件，重看不重置「已看过」标记 */}
+      <div
+        className="rounded-[12px] border border-hairline p-6"
+        style={CARD_STYLE}
+      >
+        <div className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
+          {tOnboarding("replay_title")}
+        </div>
+        <p className="text-[12.5px] text-text-3">{tOnboarding("replay_desc")}</p>
+        <button
+          type="button"
+          onClick={startTour}
+          className={`${GHOST_BTN_LG_CLS} mt-3`}
+        >
+          <Play className="h-3.5 w-3.5" aria-hidden />
+          {tOnboarding("replay_action")}
+        </button>
       </div>
 
       {/* Diagnostic logs */}
