@@ -29,7 +29,8 @@ export interface TourLabels {
 }
 
 export interface TourHandle {
-  isActive: () => boolean;
+  /** 当前停在第几步（0 基）。用于重建时接着讲，而不是退回开头。 */
+  currentIndex: () => number;
   /** 主动收起（组件卸载等）。不触发 onExit。 */
   dispose: () => void;
 }
@@ -66,11 +67,12 @@ function renderProgress(progress: HTMLElement, current: number, total: number, l
  * 启动引导。
  *
  * @param onExit 任一退出路径（跳过 / 关闭 / 走完）都会调用一次；`dispose()` 不调用。
+ * @param startIndex 从第几步开始（0 基）。默认 0；重建时传入上一次的 `currentIndex()`。
  */
 export function startTour(
   steps: TourStep[],
   labels: TourLabels,
-  { onExit }: { onExit: () => void },
+  { onExit, startIndex = 0 }: { onExit: () => void; startIndex?: number },
 ): TourHandle {
   const total = steps.length;
   let exited = false;
@@ -125,10 +127,10 @@ export function startTour(
     instance.destroy();
   }
 
-  instance.drive();
+  instance.drive(Math.min(Math.max(startIndex, 0), total - 1));
 
   return {
-    isActive: () => instance.isActive(),
+    currentIndex: () => instance.getActiveIndex() ?? 0,
     dispose: () => {
       disposing = true;
       instance.destroy();

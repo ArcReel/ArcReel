@@ -10,7 +10,7 @@
  *    组件本身不区分二者。
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
@@ -42,8 +42,15 @@ export function OnboardingTour() {
   }, [inMainUi, seen]);
 
   // 3. 驱动 driver.js
+  //
+  // 文案是构造时一次性交给 driver 的，切换界面语言（`t` 换身份）必须重建一遍才能生效。
+  // 重建走 `dispose()` —— 不记退出 —— 并把停留的步号带过去，讲到第几步就还在第几步。
+  const stepIndexRef = useRef(0);
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      stepIndexRef.current = 0;
+      return;
+    }
     const labels: TourLabels = {
       next: t("next"),
       prev: t("prev"),
@@ -54,8 +61,12 @@ export function OnboardingTour() {
     };
     const handle = startTour(buildTourSteps(t), labels, {
       onExit: () => useOnboardingStore.getState().exit(),
+      startIndex: stepIndexRef.current,
     });
-    return () => handle.dispose();
+    return () => {
+      stepIndexRef.current = handle.currentIndex();
+      handle.dispose();
+    };
   }, [active, t]);
 
   return null;

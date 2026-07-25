@@ -1,7 +1,8 @@
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import { API } from "@/api";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
@@ -25,6 +26,10 @@ describe("OnboardingTour", () => {
     useOnboardingStore.setState(useOnboardingStore.getInitialState(), true);
     useAuthStore.setState({ isAuthenticated: true });
     vi.spyOn(API, "markOnboardingSeen").mockResolvedValue({ seen: true });
+  });
+
+  afterEach(async () => {
+    await i18n.changeLanguage("zh");
   });
 
   it("opens the tour on the first visit to the main interface", async () => {
@@ -87,6 +92,22 @@ describe("OnboardingTour", () => {
     document.querySelector<HTMLElement>(".driver-popover-close-btn")?.click();
 
     await waitFor(() => expect(popoverTitle()).toBeNull());
+    expect(API.markOnboardingSeen).not.toHaveBeenCalled();
+  });
+
+  it("keeps its place when the interface language changes mid-tour", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+
+    renderAt("/app/projects");
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+    document.querySelector<HTMLElement>(".driver-popover-next-btn")?.click();
+    expect(popoverTitle()).toBe("轮到你了");
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    await waitFor(() => expect(popoverTitle()).toBe("Your turn"));
     expect(API.markOnboardingSeen).not.toHaveBeenCalled();
   });
 

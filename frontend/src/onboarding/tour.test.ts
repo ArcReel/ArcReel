@@ -44,6 +44,23 @@ describe("startTour", () => {
     handle.dispose();
   });
 
+  it("opens at the requested step and reports where it stands", () => {
+    const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn(), startIndex: 1 });
+
+    expect(popover().querySelector(".driver-popover-title")?.textContent).toBe("轮到你了");
+    expect(handle.currentIndex()).toBe(1);
+
+    handle.dispose();
+  });
+
+  it("clamps an out-of-range start index onto the last step", () => {
+    const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn(), startIndex: 9 });
+
+    expect(handle.currentIndex()).toBe(1);
+
+    handle.dispose();
+  });
+
   it("uses the anchor's element when an anchor name is given", () => {
     const target = document.createElement("div");
     target.setAttribute("data-onboarding", "new-project");
@@ -135,6 +152,6 @@ describe("startTour", () => {
     handle.dispose();
 
     expect(onExit).not.toHaveBeenCalled();
-    expect(handle.isActive()).toBe(false);
+    expect(document.querySelector(".driver-popover")).toBeNull();
   });
 });
