@@ -64,24 +64,21 @@ def system_video_capabilities(*, endpoint: str, model_id: str) -> VideoCapabilit
     return VideoCapabilities(reference_images=endpoint_cap > 0, max_reference_images=endpoint_cap)
 
 
-def synthesize_video_capabilities(
-    *,
-    endpoint: str,
-    model_id: str,
-    overrides: object | None,
-) -> VideoCapabilities:
-    """系统判定 ⊕ 用户覆盖 → 生效能力。
+def filter_valid_overrides(*, endpoint: str, model_id: str, overrides: object | None) -> dict[str, object]:
+    """按写入侧同一判定过滤 overrides，丢弃执行层不会采用的键值，返回真正生效的子集。
 
     ``overrides`` 为 ``CustomProviderModel.capability_overrides`` 的原始值（DB 里可能是任何
-    形状）。不被识别的键、类型不符的值一律忽略并告警，降级为该维度跟随系统判定：合成是执行
-    链路的最后一道，一条脏配置不该让整个生成路径不可用。合法性由 API 层白名单在写入侧把关。
+    形状）。不被识别的键、类型不符的值一律忽略并告警：合成是执行链路的最后一道，一条脏配置
+    不该让整个生成路径不可用。合法性由 API 层白名单在写入侧把关。
 
-    Raises:
-        ValueError: 系统判定本身不可得（见 :func:`system_video_capabilities`）。
+    :func:`synthesize_video_capabilities` 与 API 响应边界（``server/routers/custom_providers.py``
+    的 ``_model_to_response``）共用此过滤：后者据此裁剪回显给客户端的 ``capability_overrides``，
+    保证"界面显示的覆盖"与"执行层实际采用的覆盖"不漂移——否则存量脏数据会被界面呈现为已生效，
+    而实际执行时静默忽略。不校验 endpoint / media_type 合法性，调用方已各自处理（见
+    :func:`system_video_capabilities` 与 ``_system_capabilities_for``）。
     """
-    caps = system_video_capabilities(endpoint=endpoint, model_id=model_id)
     if overrides is None:
-        return caps
+        return {}
     if not isinstance(overrides, dict):
         logger.warning(
             "忽略 %s/%s 的能力覆盖：期望字典，实际 %s",
@@ -89,7 +86,7 @@ def synthesize_video_capabilities(
             model_id,
             type(overrides).__name__,
         )
-        return caps
+        return {}
 
     applied: dict[str, object] = {}
     for key, value in overrides.items():
@@ -119,6 +116,22 @@ def synthesize_video_capabilities(
             continue
         applied[key] = value
 
+    return applied
+
+
+def synthesize_video_capabilities(
+    *,
+    endpoint: str,
+    model_id: str,
+    overrides: object | None,
+) -> VideoCapabilities:
+    """系统判定 ⊕ 用户覆盖 → 生效能力。
+
+    Raises:
+        ValueError: 系统判定本身不可得（见 :func:`system_video_capabilities`）。
+    """
+    caps = system_video_capabilities(endpoint=endpoint, model_id=model_id)
+    applied = filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides)
     return replace(caps, **applied) if applied else caps
 
 

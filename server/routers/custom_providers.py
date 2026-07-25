@@ -23,6 +23,7 @@ from lib.custom_provider import make_provider_id
 from lib.custom_provider.capabilities import (
     CAPABILITY_OVERRIDE_FIELDS,
     capability_value_matches,
+    filter_valid_overrides,
     system_video_capabilities,
 )
 from lib.custom_provider.endpoints import (
@@ -272,11 +273,24 @@ def _system_capabilities_for(endpoint: str, model_id: str) -> dict[str, object] 
         return None
 
 
+def _effective_overrides_for_response(
+    endpoint: str, model_id: str, overrides: object | None
+) -> dict[str, object] | None:
+    """回显前按写入侧同一判定过滤，剔除执行层不会采用的键值。
+
+    存量行 / 非 API 写入可能留下已不兼容的覆盖（如 endpoint 不再 end_image_capable 后的
+    last_frame=True）：原样回显会让界面显示"覆盖已生效"，但执行层其实静默忽略；且客户端
+    普通保存时把它原样回传，会被写入侧白名单拒为 422，堵住与该覆盖无关的编辑。
+    """
+    filtered = filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides)
+    return filtered or None
+
+
 def _model_to_response(m) -> ModelResponse:
     durations = json.loads(m.supported_durations) if m.supported_durations else None
     return ModelResponse(
         system_capabilities=_system_capabilities_for(m.endpoint, m.model_id),
-        capability_overrides=m.capability_overrides,
+        capability_overrides=_effective_overrides_for_response(m.endpoint, m.model_id, m.capability_overrides),
         id=m.id,
         model_id=m.model_id,
         display_name=m.display_name,

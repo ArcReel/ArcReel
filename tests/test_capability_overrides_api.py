@@ -107,6 +107,7 @@ def _video_model(**overrides) -> dict:
 class TestModelListExposesCapabilities:
     """models 列表同时给出系统判定与用户覆盖，设置页平凡合并即可展示。"""
 
+    @pytest.mark.integration
     def test_video_model_reports_system_capabilities(self, client: TestClient):
         pid = _create_provider(client, [_video_model()])
 
@@ -119,6 +120,7 @@ class TestModelListExposesCapabilities:
         }
         assert models[0]["capability_overrides"] is None
 
+    @pytest.mark.integration
     def test_system_capabilities_matches_synthesis_source(self, client: TestClient):
         """判定值不是 API 里另写一份，而是合成函数的系统判定分支。"""
         pid = _create_provider(client, [_video_model()])
@@ -132,6 +134,7 @@ class TestModelListExposesCapabilities:
             "max_reference_images": expected.max_reference_images,
         }
 
+    @pytest.mark.integration
     def test_non_video_model_has_no_system_capabilities(self, client: TestClient):
         pid = _create_provider(
             client,
@@ -141,6 +144,7 @@ class TestModelListExposesCapabilities:
         models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["system_capabilities"] is None
 
+    @pytest.mark.integration
     def test_overrides_round_trip_through_create(self, client: TestClient):
         pid = _create_provider(
             client,
@@ -156,6 +160,36 @@ class TestModelListExposesCapabilities:
         # 判定值不受覆盖影响：设置页要能同时显示"判定 False / 生效 True"
         assert models[0]["system_capabilities"]["last_frame"] is False
 
+    @pytest.mark.integration
+    async def test_stale_incompatible_override_filtered_from_response(self, client: TestClient, session_factory):
+        """存量行 / 非 API 写入可能留下已不兼容的覆盖（如 openai-video 上的 last_frame=True，
+        endpoint 不 end_image_capable）：写入侧白名单挡不住这条已落库的数据，回显前须过滤，
+        不能让界面呈现"覆盖已生效"而执行层其实静默忽略——原样回显还会让下次普通保存被
+        写入校验拒为 422，堵住与该覆盖无关的编辑。"""
+        async with session_factory() as session:
+            repo = CustomProviderRepository(session)
+            provider = await repo.create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://relay.test/v1",
+                api_key="sk-relay",
+                models=[
+                    {
+                        "model_id": VIDEO_MODEL,
+                        "display_name": "Sora 2",
+                        "endpoint": VIDEO_ENDPOINT,
+                        "is_enabled": True,
+                        "is_default": True,
+                        "capability_overrides": {"last_frame": True},
+                    }
+                ],
+            )
+            await session.commit()
+            pid = provider.id
+
+        models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
+        assert models[0]["capability_overrides"] is None
+
 
 class TestPatchCapabilityOverrides:
     """PATCH 携带完整覆盖字典，整体替换存量。"""
@@ -167,6 +201,7 @@ class TestPatchCapabilityOverrides:
             json=payload,
         )
 
+    @pytest.mark.integration
     def test_write_override_and_read_back(self, client: TestClient):
         pid = _create_provider(client, [_video_model(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL)])
 
@@ -177,6 +212,7 @@ class TestPatchCapabilityOverrides:
         models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["capability_overrides"] == {"last_frame": True}
 
+    @pytest.mark.integration
     def test_empty_dict_clears_existing_overrides(self, client: TestClient):
         """整体替换而非逐键 merge：空字典即回到全部跟随系统判定。"""
         pid = _create_provider(
@@ -194,6 +230,7 @@ class TestPatchCapabilityOverrides:
         assert resp.status_code == 200
         assert resp.json()["capability_overrides"] is None
 
+    @pytest.mark.integration
     def test_null_clears_existing_overrides(self, client: TestClient):
         pid = _create_provider(
             client,
@@ -210,6 +247,7 @@ class TestPatchCapabilityOverrides:
         assert resp.status_code == 200
         assert resp.json()["capability_overrides"] is None
 
+    @pytest.mark.integration
     def test_unknown_key_rejected(self, client: TestClient):
         pid = _create_provider(client, [_video_model()])
 
@@ -217,6 +255,7 @@ class TestPatchCapabilityOverrides:
         assert resp.status_code == 422
         assert "no_such_capability" in resp.json()["detail"]
 
+    @pytest.mark.integration
     def test_known_but_unallowlisted_key_rejected(self, client: TestClient):
         """first_frame 是合法 VideoCapabilities 字段，但首批未开放覆盖。"""
         pid = _create_provider(client, [_video_model()])
@@ -225,6 +264,7 @@ class TestPatchCapabilityOverrides:
         assert resp.status_code == 422
         assert "first_frame" in resp.json()["detail"]
 
+    @pytest.mark.integration
     @pytest.mark.parametrize("bad_value", ["true", 1, 0, None, [], {}])
     def test_wrong_value_type_rejected(self, client: TestClient, bad_value):
         pid = _create_provider(client, [_video_model()])
@@ -232,6 +272,7 @@ class TestPatchCapabilityOverrides:
         resp = self._patch(client, pid, {"capability_overrides": {"last_frame": bad_value}})
         assert resp.status_code == 422
 
+    @pytest.mark.integration
     def test_last_frame_rejected_on_endpoint_without_end_image_support(self, client: TestClient):
         """openai-video 的 delegate 不下传 end_image：开启覆盖只会让 UI 宣称支持、执行层仍静默丢帧。"""
         pid = _create_provider(client, [_video_model()])
@@ -240,6 +281,7 @@ class TestPatchCapabilityOverrides:
         assert resp.status_code == 422
         assert "last_frame" in resp.json()["detail"]
 
+    @pytest.mark.integration
     def test_non_video_endpoint_rejected(self, client: TestClient):
         pid = _create_provider(
             client,
@@ -249,12 +291,14 @@ class TestPatchCapabilityOverrides:
         resp = self._patch(client, pid, {"capability_overrides": {"last_frame": True}}, model_id="dall-e-3")
         assert resp.status_code == 422
 
+    @pytest.mark.integration
     def test_missing_model_returns_404(self, client: TestClient):
         pid = _create_provider(client, [_video_model()])
 
         resp = self._patch(client, pid, {"capability_overrides": {"last_frame": True}}, model_id="ghost")
         assert resp.status_code == 404
 
+    @pytest.mark.integration
     def test_rejected_write_leaves_stored_overrides_intact(self, client: TestClient):
         pid = _create_provider(
             client,
@@ -281,6 +325,7 @@ class TestPatchCapabilityOverrides:
 class TestReplaceModelsOverrideSemantics:
     """保存模型列表是整体替换：覆盖必须随列表回传，否则被清空。"""
 
+    @pytest.mark.integration
     def test_overrides_survive_when_resubmitted(self, client: TestClient):
         pid = _create_provider(
             client,
@@ -308,6 +353,7 @@ class TestReplaceModelsOverrideSemantics:
         assert resp.status_code == 200
         assert resp.json()[0]["capability_overrides"] == {"last_frame": True}
 
+    @pytest.mark.integration
     def test_overrides_dropped_when_omitted(self, client: TestClient):
         """整体替换语义的直接后果，前端保存模型列表时必须回传覆盖字段。"""
         pid = _create_provider(
@@ -328,6 +374,7 @@ class TestReplaceModelsOverrideSemantics:
         assert resp.status_code == 200
         assert resp.json()[0]["capability_overrides"] is None
 
+    @pytest.mark.integration
     def test_invalid_override_rejected_on_replace(self, client: TestClient):
         pid = _create_provider(client, [_video_model()])
 
@@ -337,6 +384,7 @@ class TestReplaceModelsOverrideSemantics:
         )
         assert resp.status_code == 422
 
+    @pytest.mark.integration
     def test_invalid_override_rejected_on_create(self, client: TestClient):
         resp = client.post(
             "/api/v1/custom-providers",
@@ -350,6 +398,7 @@ class TestReplaceModelsOverrideSemantics:
         )
         assert resp.status_code == 422
 
+    @pytest.mark.integration
     def test_invalid_override_rejected_on_full_update(self, client: TestClient):
         pid = _create_provider(client, [_video_model()])
 
@@ -403,6 +452,7 @@ class TestResolverReturnsEffectiveCapabilities:
             ConfigService(session), session, provider_id, model_id, None
         )
 
+    @pytest.mark.integration
     async def test_custom_model_without_overrides_follows_system(self, session: AsyncSession):
         pid = await self._seed(session, overrides=None)
 
@@ -412,6 +462,7 @@ class TestResolverReturnsEffectiveCapabilities:
         assert caps["first_frame"] is system.first_frame
         assert caps["max_reference_images"] == system.max_reference_images
 
+    @pytest.mark.integration
     async def test_override_changes_resolver_output(self, session: AsyncSession):
         """AC：对自定义模型写入覆盖后，该接口返回值随之变化。"""
         pid = await self._seed(
@@ -422,6 +473,7 @@ class TestResolverReturnsEffectiveCapabilities:
         assert system_video_capabilities(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL).last_frame is False
         assert caps["last_frame"] is True
 
+    @pytest.mark.integration
     async def test_override_ignored_when_endpoint_lacks_end_image_support(self, session: AsyncSession):
         """openai-video 的 delegate 不下传 end_image：即便存量行/非 API 写入把 last_frame 写成 True，
         resolver 也须回退系统判定，而不是把「合成层宣称支持、执行层静默丢帧」的错误状态当作生效。"""
@@ -454,6 +506,7 @@ class TestResolverReturnsEffectiveCapabilities:
         )
         assert executed == expected
 
+    @pytest.mark.integration
     async def test_builtin_boolean_caps_come_from_backend(self, session: AsyncSession):
         """内置分支的布尔位来自 backend 纯函数，注册表不存第二份。"""
         from lib.backend_assembly.specs import get_provider_spec
@@ -475,6 +528,7 @@ class TestResolverReturnsEffectiveCapabilities:
 class TestBuiltinBackendsDeclareCapabilityFunction:
     """每个能承载视频模型的内置 provider 都要能被纯函数问出布尔能力位。"""
 
+    @pytest.mark.unit
     def test_every_builtin_video_provider_resolvable(self):
         from lib.backend_assembly.specs import get_provider_spec
         from lib.config.registry import PROVIDER_REGISTRY
@@ -490,6 +544,7 @@ class TestBuiltinBackendsDeclareCapabilityFunction:
                 caps = video_capabilities_for_model(spec.registry_backend, model_id)
                 assert isinstance(caps, VideoCapabilities), f"{provider_id}/{model_id}"
 
+    @pytest.mark.unit
     def test_unknown_backend_name_fails_loud(self):
         from lib.video_backends.registry import video_capabilities_for_model
 
@@ -524,6 +579,7 @@ class TestVideoCapabilitiesEndpoint:
         register_error_handlers(app)
         return TestClient(app)
 
+    @pytest.mark.integration
     async def test_endpoint_returns_effective_boolean_caps(self, session_factory, monkeypatch):
         async with session_factory() as session:
             pid = await TestResolverReturnsEffectiveCapabilities._seed(session, overrides=None)
@@ -535,6 +591,7 @@ class TestVideoCapabilitiesEndpoint:
         assert body["first_frame"] is system.first_frame
         assert body["last_frame"] is system.last_frame is False
 
+    @pytest.mark.integration
     async def test_endpoint_follows_written_override(self, session_factory, monkeypatch):
         """AC：对自定义模型写入覆盖后，该接口返回值随之变化。"""
         async with session_factory() as session:
