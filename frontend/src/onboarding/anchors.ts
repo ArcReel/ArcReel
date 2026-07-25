@@ -10,10 +10,10 @@
  * | `lobby-create-project` | 大厅 2 | 项目大厅顶栏的「新建项目」按钮 |
  * | `lobby-demo-card` | 大厅 3 | 引导期间注入大厅的演示项目卡 |
  * | `lobby-settings` | 大厅 4 | 项目大厅顶栏的设置图标（未配置齐全时带红点） |
- * | `settings-providers` | 设置 5 | 设置页侧栏「媒体供应商」入口 |
- * | `settings-agent` | 设置 6 | 设置页侧栏「Agent 配置」入口 |
- * | `workbench-overview` | 工作台 7 | 概述画布的故事概述卡 |
- * | `workbench-lorebook` | 工作台 8 | 设定集角色页的卡片区 |
+ * | `settings-providers` | 设置 5 | 设置页侧栏「供应商」入口 |
+ * | `settings-agent` | 设置 6 | 设置页侧栏「智能体」入口 |
+ * | `workbench-overview` | 工作台 7 | 项目概览的项目概述卡 |
+ * | `workbench-lorebook` | 工作台 8 | 角色集页面的卡片区 |
  * | `workbench-timeline` | 工作台 9 | 剧集分镜画布的镜头主体 |
  * | `workbench-export` | 工作台 10 | 顶栏的导出按钮 |
  *

@@ -64,6 +64,28 @@ describe("startTour", () => {
     handle.dispose();
   });
 
+  it("drops driver's own transitions when the user asks for reduced motion", () => {
+    // driver 把动画开关写成 body 上的 driver-fade / driver-simple 二选一
+    const matchMedia = vi.fn((query: string) => ({ matches: query.includes("reduce") }) as MediaQueryList);
+    vi.stubGlobal("matchMedia", matchMedia);
+
+    const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn() });
+
+    expect(document.body.classList.contains("driver-simple")).toBe(true);
+    expect(document.body.classList.contains("driver-fade")).toBe(false);
+
+    handle.dispose();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps driver's transitions when reduced motion is not requested", () => {
+    const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn() });
+
+    expect(document.body.classList.contains("driver-fade")).toBe(true);
+
+    handle.dispose();
+  });
+
   it("uses the anchor's element when an anchor name is given", () => {
     const target = document.createElement("div");
     target.setAttribute("data-onboarding", ONBOARDING_ANCHORS.lobbyCreateProject);
