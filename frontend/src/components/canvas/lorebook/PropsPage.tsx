@@ -63,7 +63,7 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
           <GalleryEmptyState
             icon={<Package className="h-6 w-6" />}
             label={t("dashboard:props")}
-            hint={t("dashboard:no_props_hint_clickable")}
+            hint={t(readOnly ? "dashboard:no_props_hint" : "dashboard:no_props_hint_clickable")}
             onClick={readOnly ? undefined : () => setAdding(true)}
           />
         ) : (

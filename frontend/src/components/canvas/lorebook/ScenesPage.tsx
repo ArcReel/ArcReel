@@ -63,7 +63,7 @@ export function ScenesPage({ projectName, scenes, onUpdateScene, onGenerateScene
           <GalleryEmptyState
             icon={<Landmark className="h-6 w-6" />}
             label={t("dashboard:scenes")}
-            hint={t("dashboard:no_scenes_hint_clickable")}
+            hint={t(readOnly ? "dashboard:no_scenes_hint" : "dashboard:no_scenes_hint_clickable")}
             onClick={readOnly ? undefined : () => setAdding(true)}
           />
         ) : (

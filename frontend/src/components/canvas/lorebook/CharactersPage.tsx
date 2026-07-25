@@ -63,7 +63,9 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
           <GalleryEmptyState
             icon={<User className="h-6 w-6" />}
             label={t("dashboard:characters")}
-            hint={t("dashboard:no_characters_hint_clickable")}
+            hint={t(
+              readOnly ? "dashboard:no_characters_hint" : "dashboard:no_characters_hint_clickable",
+            )}
             onClick={readOnly ? undefined : () => setAdding(true)}
           />
         ) : (
