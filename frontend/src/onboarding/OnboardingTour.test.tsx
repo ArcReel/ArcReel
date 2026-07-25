@@ -299,6 +299,33 @@ describe("OnboardingTour", () => {
     [...lobbyAnchors, settingsAnchor].forEach((el) => el.remove());
   });
 
+  it("pulls back to the lobby if another tour route is reached mid-way through the interactive demo-card step", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+    const lobbyAnchors = mountLobbyAnchors();
+
+    const { hook, history, navigate } = memoryLocation({ path: "/app/projects", record: true });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+
+    click(".driver-popover-next-btn"); // → 新建项目入口
+    click(".driver-popover-next-btn"); // → 演示卡（interactive 步，锚点仍在大厅）
+    await waitFor(() => expect(popoverTitle()).toBe("项目推进后长这样"));
+
+    // 演示卡步是 interactive，允许用户点卡片本身离开大厅进工作台；但如果落点是引导
+    // 覆盖的另一个路由（如顶栏「设置」），不该被这条豁免一并放过——否则 driver 停在
+    // 演示卡步却找不到锚点，会降级成与设置页内容不符的居中气泡。
+    act(() => navigate("/app/settings"));
+
+    await waitFor(() => expect(history.at(-1)).toBe("/app/projects"));
+    expect(popoverTitle()).toBe("项目推进后长这样");
+
+    lobbyAnchors.forEach((el) => el.remove());
+  });
+
   it("degrades to a centered popover when the settings-step anchor never mounts", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

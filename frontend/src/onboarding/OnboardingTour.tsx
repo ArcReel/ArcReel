@@ -79,18 +79,24 @@ export function OnboardingTour() {
   //    来——离开引导覆盖路由后 `onTourRoute` 变假，效果（3）会按既有的「离开覆盖路由」
   //    路径暂停引导（不计一次退出），用户回到大厅时 `requiredRoute` 重新匹配，引导
   //    从原位恢复，不需要额外状态。
+  //
+  //    该豁免必须限定在「离开引导覆盖范围」时才成立（`!onTourRoute`）：如果落点仍是
+  //    引导覆盖的另一个路由（如引导中途点顶栏「设置」跳到设置页），效果（3）判定
+  //    仍在覆盖范围内不会暂停，若此时也豁免强制导航，driver 会停在当前步（如演示卡）
+  //    却找不到锚点，降级成与页面内容不符的居中气泡。
   const currentStepInteractive = Boolean(steps[stepIndex]?.interactive);
+  const skipForcedNavigation = currentStepInteractive && !onTourRoute;
   useEffect(() => {
     if (
       !active ||
       !inMainUi ||
       !requiredRoute ||
       normalizedLocation === requiredRoute ||
-      currentStepInteractive
+      skipForcedNavigation
     )
       return;
     navigate(requiredRoute);
-  }, [active, inMainUi, requiredRoute, normalizedLocation, navigate, currentStepInteractive]);
+  }, [active, inMainUi, requiredRoute, normalizedLocation, navigate, skipForcedNavigation]);
 
   // 1. 查询「是否已看过」
   useEffect(() => {

@@ -9,6 +9,7 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageStore } from "@/stores/usage-store";
+import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 
 vi.mock("@/components/task-hud/TaskHud", () => ({
   TaskHud: () => <div data-testid="task-hud" />,
@@ -171,6 +172,41 @@ describe("GlobalHeader", () => {
     });
     expect(anchorClick).toHaveBeenCalled();
     expect(useAppStore.getState().toast?.text).toContain("包含 1 条诊断");
+  });
+
+  it("closes an already-open export dialog when the workbench switches to the demo project", async () => {
+    vi.spyOn(API, "getUsageStats").mockResolvedValue({
+      total_cost: 0,
+      image_count: 0,
+      video_count: 0,
+      failed_count: 0,
+      total_count: 0,
+    });
+
+    useProjectsStore.setState({
+      currentProjectName: "real-project",
+      currentProjectData: {
+        title: "真实项目",
+        content_mode: "narration",
+        style: "Anime",
+        episodes: [],
+        characters: {},
+        scenes: {},
+        props: {},
+      },
+    });
+
+    renderHeader();
+    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+    expect(await screen.findByTestId("export-scope-dialog")).toBeInTheDocument();
+
+    // 浏览器前进/后退等场景会复用同一个 GlobalHeader 实例切到演示项目——已打开的
+    // 导出弹窗须随之关闭，不能继续展示可点击的导出/剪映草稿操作
+    useProjectsStore.setState({ currentProjectName: DEMO_PROJECT_NAME });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("export-scope-dialog")).not.toBeInTheDocument();
+    });
   });
 
   it("renders asset library button", async () => {

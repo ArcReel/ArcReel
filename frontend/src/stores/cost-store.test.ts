@@ -25,5 +25,6 @@ describe("cost-store", () => {
 
     expect(useCostStore.getState().costData).toBeNull();
     expect(useCostStore.getState().loading).toBe(false);
+    expect(API.getCostEstimate).not.toHaveBeenCalledWith(DEMO_PROJECT_NAME);
   });
 });

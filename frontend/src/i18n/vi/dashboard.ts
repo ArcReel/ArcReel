@@ -210,7 +210,7 @@ export default {
   'scene_design': 'Thiết kế cảnh',
   'prop_design': 'Thiết kế đạo cụ',
   'reference_image': 'Ảnh tham chiếu',
-  'click_to_generate': 'Nhấn để tạo',
+  'click_to_generate': 'Đang chờ',
   'cancel_pending': 'Hủy chờ',
   'replace': 'Thay thế',
   'change': 'Thay đổi',

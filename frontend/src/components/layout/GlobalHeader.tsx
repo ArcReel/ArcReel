@@ -72,6 +72,14 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const demoMode = useDemoWorkbench();
   const usageProjectName = demoMode ? null : currentProjectName;
 
+  // 导出弹窗打开期间切到演示项目（如浏览器前进/后退复用同一路由实例）时随即关闭——
+  // 触发按钮虽已按 demoMode 禁用，但已打开的弹窗不受影响，仍会展示可点击的导出/剪映草稿操作
+  useEffect(() => {
+    if (!demoMode) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 切入演示态时关闭已打开的导出弹窗，是有意的 UI 状态重置
+    setExportDialogOpen(false);
+  }, [demoMode]);
+
   const completedTaskCount = stats.succeeded + stats.failed;
   useEffect(() => {
     API.getUsageStats(usageProjectName ? { projectName: usageProjectName } : {})
