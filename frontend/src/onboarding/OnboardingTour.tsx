@@ -73,10 +73,30 @@ export function OnboardingTour() {
 
   // 0. 引导开启但当前路由不是本步所需的路由——先导航过去，锚点才能挂载。跨页步骤
   //    切换（见 tour.ts 的 onStepChange）与「重看引导」从非首步路由触发都走这里。
+  //
+  //    `interactive` 步是例外：该步的落点动作本身就是导航离开 requiredRoute（如点
+  //    演示卡进工作台），不是驱动效果（3）触发的跨页步骤切换，此时不该把用户拽回
+  //    来——离开引导覆盖路由后 `onTourRoute` 变假，效果（3）会按既有的「离开覆盖路由」
+  //    路径暂停引导（不计一次退出），用户回到大厅时 `requiredRoute` 重新匹配，引导
+  //    从原位恢复，不需要额外状态。
+  //
+  //    该豁免必须限定在「离开引导覆盖范围」时才成立（`!onTourRoute`）：如果落点仍是
+  //    引导覆盖的另一个路由（如引导中途点顶栏「设置」跳到设置页），效果（3）判定
+  //    仍在覆盖范围内不会暂停，若此时也豁免强制导航，driver 会停在当前步（如演示卡）
+  //    却找不到锚点，降级成与页面内容不符的居中气泡。
+  const currentStepInteractive = Boolean(steps[stepIndex]?.interactive);
+  const skipForcedNavigation = currentStepInteractive && !onTourRoute;
   useEffect(() => {
-    if (!active || !inMainUi || !requiredRoute || normalizedLocation === requiredRoute) return;
+    if (
+      !active ||
+      !inMainUi ||
+      !requiredRoute ||
+      normalizedLocation === requiredRoute ||
+      skipForcedNavigation
+    )
+      return;
     navigate(requiredRoute);
-  }, [active, inMainUi, requiredRoute, normalizedLocation, navigate]);
+  }, [active, inMainUi, requiredRoute, normalizedLocation, navigate, skipForcedNavigation]);
 
   // 1. 查询「是否已看过」
   useEffect(() => {

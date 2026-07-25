@@ -28,7 +28,7 @@ interface TasksState {
   ) => void;
 }
 
-const defaultStats: TaskStats = {
+export const defaultTaskStats: TaskStats = {
   queued: 0, running: 0, cancelling: 0, succeeded: 0, failed: 0, cancelled: 0, total: 0,
 };
 
@@ -102,7 +102,7 @@ function pruneSupersededOptimisticActiveScriptFile(
 
 export const useTasksStore = create<TasksState>((set) => ({
   tasks: [],
-  stats: defaultStats,
+  stats: defaultTaskStats,
   connected: false,
   optimisticActive: new Set(),
   optimisticActiveScriptFile: new Set(),

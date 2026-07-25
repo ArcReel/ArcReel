@@ -29,6 +29,10 @@ export function buildTourSteps(t: TFunction<"onboarding">): TourStep[] {
       title: t("lobby_demo_title"),
       body: t("lobby_demo_body"),
       route: ROUTE_APP_PROJECTS,
+      // 全程只读的例外：这一步的落点动作是导航进演示工作台，不是写操作，因此开放
+      // 交互（见 tour.ts 的 `interactive` 语义）；演示卡本身仅在引导运行期间挂载，
+      // 退出后随即卸载，不留可写入口。
+      interactive: true,
     },
     {
       anchor: ONBOARDING_ANCHORS.lobbySettings,

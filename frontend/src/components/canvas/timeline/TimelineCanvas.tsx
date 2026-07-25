@@ -182,11 +182,10 @@ export function TimelineCanvas({
       status: hasScript ? "in_production" : "draft",
     } as const);
 
-  const handleUpdatePrompt = (
-    segId: string,
-    fieldOrPatch: string | Record<string, unknown>,
-    value?: unknown,
-  ) => onUpdatePrompt?.(segId, fieldOrPatch, value, scriptFile);
+  const handleUpdatePrompt = onUpdatePrompt
+    ? (segId: string, fieldOrPatch: string | Record<string, unknown>, value?: unknown) =>
+        onUpdatePrompt(segId, fieldOrPatch, value, scriptFile)
+    : undefined;
   const handleMoveShot = onMoveShot
     ? (shotId: string, direction: "earlier" | "later") => onMoveShot(shotId, direction, scriptFile)
     : undefined;

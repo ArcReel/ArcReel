@@ -18,6 +18,8 @@ import { AgentHandoffHint } from "@/components/copilot/AgentHandoffHint";
 interface OverviewCanvasProps {
   projectName: string;
   projectData: ProjectData | null;
+  /** 只读展示（引导演示项目）：不渲染编辑与重新生成入口。 */
+  readOnly?: boolean;
 }
 
 const CARD_BG =
@@ -39,7 +41,11 @@ interface OverviewDraft {
   world_setting: string;
 }
 
-export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps) {
+export function OverviewCanvas({
+  projectName,
+  projectData,
+  readOnly = false,
+}: OverviewCanvasProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const tRef = useRef(t);
   tRef.current = t;
@@ -52,6 +58,10 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const debouncedFetch = useCostStore((s) => s.debouncedFetch);
 
   useEffect(() => {
+    // 演示项目的费用请求交给费用 store 自身的 isDemoProject 分支跳过并失效：
+    // 那条分支会取消已排队的防抖计时器、递增 _fetchId 使在途真实请求作废、清空费用状态——
+    // 这里若改成对 readOnly 直接 return，反而会绕过这套失效机制，让切入只读态前
+    // 真实项目已排队的防抖任务照常在之后触发，把真实费用写回全局 store。
     if (!projectName) return;
     debouncedFetch(projectName);
   }, [projectName, projectData?.episodes, debouncedFetch]);
@@ -70,13 +80,27 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const [handoffTrigger, setHandoffTrigger] = useState(0);
   const wasWelcomeRef = useRef<boolean | null>(null);
   useEffect(() => {
+    // 只读态（如切入演示项目）不触发交接提示：同一路由复用同一个 OverviewCanvas 实例时，
+    // 上一个真实项目若停在欢迎页，演示数据的 overview/episodes 一到位就会被误判成
+    // 「欢迎页 → 完成」，提示会强行打开助手面板——但演示态已卸载该面板，
+    // 离开演示项目后还会带出一个意外展开的助手。清空 ref 避免下次真实切换沿用这份脏状态。
+    // trigger 一并归零：AgentHandoffHint 按 `<storageScope>:<triggerKey>` 去重，切项目后
+    // 同一个非零 trigger 会被当成新项目的新事件。若不清零，「项目 A 完成交接 → 途经演示
+    // 项目 → 进入项目 B」会让 B 凭 A 留下的 trigger 误弹提示并强行展开助手，而 B 根本没
+    // 发生过「欢迎页 → 完成」转换。只读态下 AgentHandoffHint 不渲染，此处置 0 不会与它的
+    // effect 抢同一次提交。
+    if (readOnly) {
+      wasWelcomeRef.current = null;
+      setHandoffTrigger(0);
+      return;
+    }
     if (!projectData) return;
     const isWelcome = !projectData.overview && (projectData.episodes?.length ?? 0) === 0;
     if (wasWelcomeRef.current === true && !isWelcome) {
       setHandoffTrigger((k) => k + 1);
     }
     wasWelcomeRef.current = isWelcome;
-  }, [projectData]);
+  }, [projectData, readOnly]);
 
   // 在途合并 + 失败留旧收敛于 projects-store；此处仅表达刷新意图，忽略返回值。
   const refreshProject = useCallback(
@@ -86,6 +110,24 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
     [projectName],
   );
 
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+
+  // 组件整体卸载（如经由历史记录跳转到 characters 等非概览深链）后 readOnlyRef 不再更新，
+  // 仅凭它无法识别"实例已被销毁"——上传收尾与冲突弹窗都需额外核对这个标记，避免对已卸载
+  // 组件 setState、或把过期上传结果补投到当前所在的其他路由页面；卸载时主动 resolve 悬挂
+  // 中的冲突弹窗 Promise，防止 handleUpload 永久等待一个不会再渲染的弹窗。
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      setConflictPrompt((prev) => {
+        prev?.resolve("cancel");
+        return null;
+      });
+    };
+  }, []);
+
   const handleUpload = useCallback(
     async (file: File) => {
       const tryUpload = async (
@@ -94,6 +136,9 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
         const res = await API.uploadFile(projectName, "source", file, null, {
           onConflict,
         });
+        // 上传期间可能已切到只读态，或组件已整体卸载——过期项目的成功反馈不该展示在
+        // 只读页面或当前所在的其他路由页面上。
+        if (!mountedRef.current || readOnlyRef.current) return;
         const filename = res.filename ?? file.name;
         const enc = res.used_encoding ?? null;
         const chapters = res.chapter_count ?? 0;
@@ -120,6 +165,10 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
         await tryUpload();
       } catch (err) {
         if (err instanceof ConflictError) {
+          // 上传耗时期间可能已切到只读态（如导航到演示项目复用同一实例），或组件已
+          // 整体卸载——冲突弹窗不该在只读页面上、或对已卸载实例凭一个过期项目的旧
+          // 上传结果重新弹出。
+          if (!mountedRef.current || readOnlyRef.current) return;
           const decision = await new Promise<ConflictResolution>((resolve) => {
             setConflictPrompt({
               existing: err.existing,
@@ -170,6 +219,20 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
   const genreFieldId = useId();
   const themeFieldId = useId();
   const worldFieldId = useId();
+
+  // 编辑态期间切到只读项目（如切入演示项目）时立即退出编辑态，避免表单和保存操作残留可用。
+  // 冲突弹窗同理：真实项目上传撞名后，用户在弹窗未处理时切到演示项目——同一路由复用同一个
+  // OverviewCanvas 实例，弹窗若不清空会继续挂在演示页上，「保留两者/替换」仍可点击（点击后
+  // 走的是切换前 handleUpload 闭包里的旧 projectName，写入会被全局只读闸门拒绝，但弹窗本身
+  // 不该出现在只读页面）。用 cancel 主动结束等待中的 Promise，不留悬空 resolve。
+  useEffect(() => {
+    if (!readOnly) return;
+    setEditingOverview(false);
+    setConflictPrompt((prev) => {
+      prev?.resolve("cancel");
+      return null;
+    });
+  }, [readOnly]);
 
   const enterOverviewEdit = useCallback(() => {
     const ov = projectData?.overview;
@@ -295,7 +358,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                   {t("project_overview_title")}
                 </span>
                 <div className="flex-1" />
-                {!editingOverview && (
+                {!editingOverview && !readOnly && (
                   <>
                     <button
                       type="button"
@@ -322,7 +385,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                 )}
               </div>
 
-              {editingOverview ? (
+              {editingOverview && !readOnly ? (
                 <div className="space-y-3">
                   <div>
                     <FieldLabel htmlFor={synopsisFieldId}>{t("synopsis_label")}</FieldLabel>
@@ -458,7 +521,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                     </div>
                   )}
                 </>
-              ) : (
+              ) : readOnly ? null : (
                 <button
                   type="button"
                   onClick={enterOverviewEdit}
@@ -559,7 +622,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             )}
 
             {/* Cost loading / error */}
-            {costLoading && (
+            {!readOnly && costLoading && (
               <div
                 role="status"
                 aria-live="polite"
@@ -573,7 +636,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
                 {t("calculating_cost")}
               </div>
             )}
-            {costError && (
+            {!readOnly && costError && (
               <div
                 role="alert"
                 className="rounded-2xl px-5 py-3 text-[12px]"
@@ -588,7 +651,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
             )}
 
             {/* Project total cost */}
-            {projectTotals && (
+            {!readOnly && projectTotals && (
               <section
                 className="relative overflow-hidden rounded-2xl p-5"
                 style={{
@@ -683,7 +746,8 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
               ) : (
                 <div className="space-y-2">
                   {(projectData.episodes ?? []).map((ep) => {
-                    const epCost = getEpisodeCost(ep.episode);
+                    // 只读态不展示费用：演示数据没有对应的真实费用记录。
+                    const epCost = readOnly ? undefined : getEpisodeCost(ep.episode);
                     return (
                       <div
                         key={ep.episode}
@@ -771,7 +835,7 @@ export function OverviewCanvas({ projectName, projectData }: OverviewCanvasProps
           onResolve={conflictPrompt.resolve}
         />
       )}
-      <AgentHandoffHint triggerKey={handoffTrigger} storageScope={projectName} />
+      {!readOnly && <AgentHandoffHint triggerKey={handoffTrigger} storageScope={projectName} />}
     </div>
   );
 }

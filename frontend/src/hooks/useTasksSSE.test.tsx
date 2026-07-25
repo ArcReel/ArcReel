@@ -138,4 +138,38 @@ describe("useTasksSSE (polling)", () => {
     const { stats } = useTasksStore.getState();
     expect(stats).toEqual({ queued: 3, running: 2, succeeded: 10, failed: 1, total: 16 });
   });
+
+  it("clears stale tasks/stats when disabled after polling a real project", async () => {
+    vi.spyOn(API, "listTasks").mockResolvedValue({
+      items: [makeTask()],
+      total: 1,
+      page: 1,
+      page_size: 200,
+    });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({
+      stats: { queued: 1, running: 1, succeeded: 0, failed: 0, total: 1 },
+    } as any);
+
+    const { rerender } = renderHook(({ enabled }) => useTasksSSE("real-project", enabled), {
+      initialProps: { enabled: true },
+    });
+    await act(async () => {});
+    expect(useTasksStore.getState().tasks).toHaveLength(1);
+
+    // 切到只读演示项目——GlobalHeader 的任务角标/TaskHud 无条件挂载，残留的
+    // 上一项目 tasks/stats 不清空会一直展示旧数据
+    rerender({ enabled: false });
+
+    expect(useTasksStore.getState().tasks).toEqual([]);
+    expect(useTasksStore.getState().stats).toEqual({
+      queued: 0,
+      running: 0,
+      cancelling: 0,
+      succeeded: 0,
+      failed: 0,
+      cancelled: 0,
+      total: 0,
+    });
+    expect(useTasksStore.getState().connected).toBe(false);
+  });
 });

@@ -113,4 +113,30 @@ describe("CharacterCard", () => {
       expect(textarea).toHaveStyle({ height: "128px" });
     });
   });
+
+  it("renders no write entries when read-only", () => {
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{
+          description: "hero desc",
+          voice_style: "warm",
+          character_sheet: "characters/Hero.png",
+        }}
+        projectName="demo"
+        onSave={vi.fn()}
+        onGenerate={vi.fn()}
+        readOnly
+      />,
+    );
+
+    // 内容照旧展示，只是每一个写入口都不在了
+    expect(screen.getByText("Hero")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/角色描述/)).toHaveAttribute("readonly");
+    expect(screen.queryByTestId("version-time-machine")).toBeNull();
+    expect(screen.queryByRole("button", { name: /生成|上传|入库|保存/ })).toBeNull();
+    for (const field of screen.getAllByRole("textbox")) {
+      expect(field).toHaveAttribute("readonly");
+    }
+  });
 });

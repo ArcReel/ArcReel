@@ -25,6 +25,12 @@ export interface TourStep {
    * （开场欢迎气泡以外的居中步通常这样用）。
    */
   route?: string;
+  /**
+   * 该步是否允许点击高亮元素本身。默认继承全局 `disableActiveInteraction: true`
+   * （防止讲到哪点到哪，意外触发生成动作）。仅当该步的落点动作就是导航（如点进演示
+   * 工作台）而非写操作时才置 true——否则高亮元素在整个引导期间都点不到。
+   */
+  interactive?: boolean;
 }
 
 export interface TourLabels {
@@ -67,10 +73,19 @@ export function anchorSelector(anchor: OnboardingAnchor): string {
  * 不止 `#app-root`（挂载点见 main.tsx）：`ModalShell`/`CreateProjectModal` 等对话框
  * 用 `createPortal` 直接挂到 `document.body`，是 `#app-root` 的兄弟节点而非子孙，只
  * 打 `#app-root` 的 inert 罩不住"引导启动时已有弹窗开着"这种情形。这里改为在调用
- * 时刻快照 body 的直接子节点、逐个打 inert——此刻 driver 自己的遮罩与气泡还没创建
- * （在随后的 `instance.drive()` 里才挂上），因此不会误伤 driver 自身。
+ * 时刻快照 body 的直接子节点、逐个打 inert。
+ *
+ * 隔离只在引导启动/结束时整体施加/解除一次，`interactive` 步不整体解除——那样会
+ * 把 `#app-root` 里「新建项目」、其他真实项目卡片、设置入口等一并开放，不只是目标
+ * 元素。`interactive` 步改由 `openInteractiveHole` 单独凿一个只通向目标元素的孔
+ * （见下方），driver 自己的 overlay/popover 因为一直被排除在快照之外，不受影响。
  */
+const DRIVER_PORTAL_SELECTOR = ".driver-overlay, .driver-popover, #driver-dummy-element";
+
 let peripheralElements: Array<[element: HTMLElement, wasInert: boolean]> = [];
+/** 当前是否已施加隔离——避免 `interactive` 步之间来回切换时重复快照，把「已因上次
+ *  隔离而变 inert」的状态误当作原始值记下，导致复原时回不去。 */
+let isolationApplied = false;
 
 /**
  * `inert` 摘不掉底层弹窗自己挂在 `document`/`window` 上的全局键盘监听——Esc 关闭、
@@ -83,9 +98,12 @@ let peripheralElements: Array<[element: HTMLElement, wasInert: boolean]> = [];
 let suspendKeyboard: (() => void) | null = null;
 
 function setPeripheralIsolation(hidden: boolean): void {
+  if (hidden === isolationApplied) return;
+  isolationApplied = hidden;
   if (hidden) {
     peripheralElements = Array.from(document.body.children)
       .filter((el): el is HTMLElement => el instanceof HTMLElement)
+      .filter((el) => !el.matches(DRIVER_PORTAL_SELECTOR))
       .map((el) => [el, Boolean(el.inert)]);
     peripheralElements.forEach(([el]) => {
       el.inert = true;
@@ -105,6 +123,52 @@ function setPeripheralIsolation(hidden: boolean): void {
     suspendKeyboard?.();
     suspendKeyboard = null;
   }
+}
+
+let interactiveHoleElements: Array<{ el: HTMLElement; prevInert: boolean }> = [];
+
+/**
+ * 为 `interactive` 步凿一个只通向目标元素的孔。`inert` 不能被后代自行覆盖（同上），
+ * 因此要把目标元素到 `document.body` 祖先链上每一层节点自身的 `inert` 解除；同时
+ * 把链上每层的其余兄弟节点显式打成 `inert`（多数已因整体隔离而是 `inert`，这里只
+ * 处理链路本身此前未被顶层快照覆盖到的中间层），确保只有目标元素这一条路径可达，
+ * 而不是连带打开整个 `#app-root`。链路节点自身原始的 `inert` 值也要记下——不记的话
+ * `closeInteractiveHole` 只会复原兄弟节点，链路节点（含 `#app-root`）会一直停留在
+ * `inert = false`，直到整场引导结束才被 `setPeripheralIsolation(false)` 顺带修正，
+ * 期间的后续步骤都会误留这条路径可达。
+ *
+ * 打兄弟节点 inert 时同样要排除 `DRIVER_PORTAL_SELECTOR`——链路一路往上走到
+ * `document.body` 时，`#app-root` 的兄弟节点里就包含 driver 自己的 overlay/popover/
+ * dummy-element，不排除的话会连自己的 Next/Previous/Close 按钮一起锁死。
+ */
+function openInteractiveHole(target: HTMLElement): void {
+  let node: HTMLElement | null = target;
+  while (node && node !== document.body) {
+    const parent: HTMLElement | null = node.parentElement;
+    if (parent) {
+      Array.from(parent.children).forEach((sibling) => {
+        if (
+          sibling === node ||
+          !(sibling instanceof HTMLElement) ||
+          sibling.inert ||
+          sibling.matches(DRIVER_PORTAL_SELECTOR)
+        )
+          return;
+        sibling.inert = true;
+        interactiveHoleElements.push({ el: sibling, prevInert: false });
+      });
+    }
+    interactiveHoleElements.push({ el: node, prevInert: node.inert });
+    node.inert = false;
+    node = parent;
+  }
+}
+
+function closeInteractiveHole(): void {
+  interactiveHoleElements.forEach(({ el, prevInert }) => {
+    el.inert = prevInert;
+  });
+  interactiveHoleElements = [];
 }
 
 /** 进度齿孔轨道 —— 装饰，语义由同级的 sr-only 文本承载 */
@@ -159,7 +223,9 @@ export function startTour(
   let disposing = false;
 
   const driveSteps: DriveStep[] = steps.map((step) => ({
-    ...(step.anchor === null ? {} : { element: anchorSelector(step.anchor), data: { anchor: step.anchor } }),
+    ...(step.anchor === null ? {} : { element: anchorSelector(step.anchor) }),
+    data: { anchor: step.anchor, interactive: Boolean(step.interactive) },
+    ...(step.interactive ? { disableActiveInteraction: false } : {}),
     popover: { title: step.title, description: step.body },
   }));
 
@@ -195,10 +261,18 @@ export function startTour(
     },
     // 高亮到的元素是 driver 的占位元素时，回调收到的 element 是 undefined。步骤本来就
     // 声明了锚点却落到这里，说明锚点在页面上找不到 —— 降级已经发生，这里只负责留线索。
+    //
+    // 每次切换先收起上一步可能凿开的孔，`interactive` 步再针对当前目标元素重新凿一个——
+    // 只让目标元素可达，`#app-root` 里其余内容（新建项目、其他项目卡片、设置入口等）
+    // 仍保持隔离，不因为这一步是 interactive 就整体开放。
     onHighlightStarted: (element, step) => {
       const anchor = step.data?.anchor as OnboardingAnchor | undefined;
       if (anchor && !element) {
         console.warn(`[onboarding] anchor "${anchor}" not found; falling back to a centered popover`);
+      }
+      closeInteractiveHole();
+      if (step.data?.interactive && element instanceof HTMLElement) {
+        openInteractiveHole(element);
       }
     },
     // 退出全部收口到这里，而不是 driver 的 onDestroyed。后者只在 driver 内部把高亮元素
@@ -240,6 +314,7 @@ export function startTour(
       onExit();
     }
     window.removeEventListener("keyup", onKeyUp);
+    closeInteractiveHole();
     setPeripheralIsolation(false);
     instance.destroy();
   }
@@ -266,6 +341,7 @@ export function startTour(
     dispose: () => {
       disposing = true;
       window.removeEventListener("keyup", onKeyUp);
+      closeInteractiveHole();
       setPeripheralIsolation(false);
       instance.destroy();
     },

@@ -349,6 +349,32 @@ describe("startTour", () => {
       appRoot.remove();
     });
 
+    it("re-locks the interactive step's ancestor chain (not just its siblings) once the step is left", () => {
+      const appRoot = withAppRoot();
+      const target = document.createElement("button");
+      target.setAttribute("data-onboarding", ONBOARDING_ANCHORS.lobbyDemoCard);
+      appRoot.appendChild(target);
+
+      const steps: TourStep[] = [
+        { anchor: ONBOARDING_ANCHORS.lobbyDemoCard, title: "演示卡", body: "点这里", interactive: true },
+        { anchor: null, title: "收尾", body: "结束" },
+      ];
+      const handle = startTour(steps, LABELS, { onExit: vi.fn() });
+
+      // interactive 步：目标元素的祖先链（含 #app-root 本身）解除 inert，才够得到目标
+      expect(appRoot.inert).toBe(false);
+
+      click(".driver-popover-next-btn");
+
+      // 离开该步后链路应重新锁上——只复原孔的兄弟节点不够，链路节点自身也要复原，
+      // 否则 #app-root 会在后续所有步骤里持续保持可达
+      expect(appRoot.inert).toBe(true);
+
+      handle.dispose();
+      target.remove();
+      appRoot.remove();
+    });
+
     it("does not suppress Tab so driver's own focus trap keeps working", () => {
       const appRoot = withAppRoot();
       const onKeyDown = vi.fn();
