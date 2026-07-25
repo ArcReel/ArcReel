@@ -814,7 +814,7 @@ export function OverviewCanvas({
           onResolve={conflictPrompt.resolve}
         />
       )}
-      <AgentHandoffHint triggerKey={readOnly ? 0 : handoffTrigger} storageScope={projectName} />
+      {!readOnly && <AgentHandoffHint triggerKey={handoffTrigger} storageScope={projectName} />}
     </div>
   );
 }

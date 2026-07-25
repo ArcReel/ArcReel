@@ -275,6 +275,34 @@ describe("OverviewCanvas", () => {
     });
   });
 
+  it("unmounts an already-visible handoff hint when switching to read-only", () => {
+    useAppStore.setState({ assistantPanelOpen: false });
+
+    // 真实项目内先完成一次「欢迎页 → 完成」，触发交接提示并保持可见（未到 6.5s 自动消失）
+    const { rerender } = render(
+      <OverviewCanvas
+        projectName="real-project-visible"
+        projectData={makeProjectData({ overview: undefined, episodes: [] })}
+      />,
+    );
+    rerender(
+      <OverviewCanvas projectName="real-project-visible" projectData={makeProjectData()} />,
+    );
+    expect(screen.getByRole("status")).toBeInTheDocument();
+
+    // 提示仍可见时切到只读的演示项目——不该继续挂在只读页面上（此前只把 triggerKey
+    // 归零，子组件的 visible 状态不会因此复位，提示会永久卡在只读页面）
+    rerender(
+      <OverviewCanvas
+        projectName="onboarding_demo"
+        projectData={makeProjectData()}
+        readOnly
+      />,
+    );
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("does not fetch or display cost data on a read-only project", () => {
     const getCostEstimateSpy = vi.spyOn(API, "getCostEstimate");
     // 模拟仍带着上一个真实项目的费用残留（如同一路由实例复用时的短暂窗口）——
