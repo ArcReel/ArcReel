@@ -70,14 +70,20 @@ interface ModelRow {
   supported_durations_text: string; // 用户原始文本，提交前 parse；空串 = 让后端按 preset 兜底
   // 本表单不编辑能力覆盖，仅原样携带：保存是整体替换语义，不回传会清空已写入的覆盖。
   capability_overrides: CapabilityOverrides | null;
+  // 行创建时的快照，之后不再变化：model_id/endpoint 的清除判断须对齐这份原始值而非上一次
+  // 的中间态——逐字符编辑 model_id 时若拿"上一次的值"作基准，第一次改动即清空覆盖，之后就
+  // 算把输入改回原值也已丢失、无法通过继续编辑恢复；改回原值时应从这份快照原样取回覆盖。
+  original_model_id: string;
+  original_endpoint: EndpointKey;
+  original_capability_overrides: CapabilityOverrides | null;
 }
 
 function newModelRow(partial?: Partial<ModelRow>): ModelRow {
-  return {
+  const base = {
     key: uid(),
     model_id: "",
     display_name: "",
-    endpoint: "openai-chat",
+    endpoint: "openai-chat" as EndpointKey,
     is_default: false,
     is_enabled: true,
     price_unit: "",
@@ -88,6 +94,12 @@ function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     supported_durations_text: "",
     capability_overrides: null,
     ...partial,
+  };
+  return {
+    ...base,
+    original_model_id: base.model_id,
+    original_endpoint: base.endpoint,
+    original_capability_overrides: base.capability_overrides,
   };
 }
 
@@ -673,9 +685,10 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                           updateModel(m.key, {
                             model_id: nextId,
                             // capability_overrides 是模型级配置，能力判定本身依赖 model_id：
-                            // model_id 实际变化时随之清空，否则旧模型的覆盖（如 last_frame）
-                            // 会静默带到 endpoint 相同但能力不同的新模型上。
-                            capability_overrides: nextId === m.model_id ? m.capability_overrides : null,
+                            // 对齐加载时的 original_model_id 而非上一次中间态——否则临时改动
+                            // 又逐字符改回原值时，第一次改动已清空覆盖，改回原值也无法找回。
+                            capability_overrides:
+                              nextId === m.original_model_id ? m.original_capability_overrides : null,
                           });
                         }}
                         placeholder="model-id…"
@@ -693,10 +706,10 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                             // 表单没有覆盖编辑控件（专门的 PATCH 端点承载，见 issue #1294），且覆盖的
                             // 合法性本身随 endpoint 变化（如 last_frame 要求目标 endpoint 支持尾帧）：
                             // 前端拿不到判定所需的 end_image_capable 数据，endpoint 实际切换时一律清空，
-                            // 否则隐藏字段原样提交可能被后端因白名单/兼容性拒绝，用户无法保存。仅在
-                            // next !== m.endpoint 时清空——弹层里重新点选当前已选中项也会触发 onChange，
-                            // 此时无条件清空会把用户尚未改动的已有覆盖静默删掉。
-                            capability_overrides: next === m.endpoint ? m.capability_overrides : null,
+                            // 否则隐藏字段原样提交可能被后端因白名单/兼容性拒绝，用户无法保存。对齐
+                            // 加载时的 original_endpoint 而非上一次中间态——弹层里重新点选当前已选中
+                            // 项、或切到别的 endpoint 后又切回原值，都不应清空用户尚未改动的原有覆盖。
+                            capability_overrides: next === m.original_endpoint ? m.original_capability_overrides : null,
                           })
                         }
                         ariaLabel={t("endpoint_label")}

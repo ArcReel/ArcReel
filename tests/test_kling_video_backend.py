@@ -332,11 +332,34 @@ class TestPayloadBuilding:
         assert "image_tail" not in payload
 
     def test_image2video_with_end_frame(self, tmp_path):
+        # kling-v2-5-turbo 首尾帧仅 pro 档生效，须显式带 service_tier="pro" 才会放行 image_tail。
         first = tmp_path / "first.png"
         last = tmp_path / "last.png"
         first.write_bytes(b"\x89PNG\r\n1")
         last.write_bytes(b"\x89PNG\r\n2")
-        _, payload = _jwt_backend()._build_payload(_request(tmp_path, start_image=first, end_image=last))
+        _, payload = _jwt_backend()._build_payload(
+            _request(tmp_path, start_image=first, end_image=last, service_tier="pro")
+        )
+        assert "image" in payload and "image_tail" in payload
+
+    def test_image2video_end_frame_rejected_at_std_tier(self, tmp_path):
+        # kling-v2-5-turbo 首尾帧仅 pro 档生效：std（含未显式指定 service_tier 的默认档）提交
+        # image_tail 虽会被官方接口受理，尾帧约束却不生效，须 fail loud 而非静默发出无效请求。
+        first = tmp_path / "first.png"
+        last = tmp_path / "last.png"
+        first.write_bytes(b"\x89PNG\r\n1")
+        last.write_bytes(b"\x89PNG\r\n2")
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend()._build_payload(_request(tmp_path, start_image=first, end_image=last))
+        assert exc.value.code == "video_last_frame_requires_pro"
+
+    def test_image2video_end_frame_allowed_at_std_tier_for_v3(self, tmp_path):
+        # kling-v3 首尾帧未标"仅 pro"（官方能力表未附此限制），std 档应正常放行。
+        first = tmp_path / "first.png"
+        last = tmp_path / "last.png"
+        first.write_bytes(b"\x89PNG\r\n1")
+        last.write_bytes(b"\x89PNG\r\n2")
+        _, payload = _jwt_backend("kling-v3")._build_payload(_request(tmp_path, start_image=first, end_image=last))
         assert "image" in payload and "image_tail" in payload
 
     def test_image2video_empty_end_frame_is_omitted(self, tmp_path):

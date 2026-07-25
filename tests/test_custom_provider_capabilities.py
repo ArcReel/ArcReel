@@ -102,9 +102,15 @@ class TestSynthesize:
 
     @pytest.mark.unit
     def test_force_off_on_last_frame(self):
-        """last_frame 是首批开放的覆盖维度，单独验一遍「系统判定 True → 强制关」。"""
-        assert system_video_capabilities(endpoint="vidu-video", model_id="viduq3").last_frame is True
-        caps = synthesize_video_capabilities(endpoint="vidu-video", model_id="viduq3", overrides={"last_frame": False})
+        """last_frame 是首批开放的覆盖维度，单独验一遍「系统判定 True → 强制关」。
+
+        用 viduq3-turbo 而非 viduq3：后者不在 /start-end2video、/img2video 白名单内
+        （只支持 /reference2video），系统判定本身就是 False，验不出"强制关"的效果。
+        """
+        assert system_video_capabilities(endpoint="vidu-video", model_id="viduq3-turbo").last_frame is True
+        caps = synthesize_video_capabilities(
+            endpoint="vidu-video", model_id="viduq3-turbo", overrides={"last_frame": False}
+        )
         assert caps.last_frame is False
         assert caps.first_frame is True
 

@@ -675,8 +675,18 @@ class ConfigResolver:
                 raise ValueError(f"invalid custom provider_id: {provider_id}") from exc
             repo = CustomProviderRepository(session)
             model = await repo.get_model_by_ids(db_pid, model_id)
+            if model is not None and not model.is_enabled:
+                # 与 loader.load_custom_backend 同一条回退规则：请求 model 已禁用时执行层改派
+                # 默认启用 model，展示的能力必须与执行层一致，否则能力位仍按已禁用 model 合成，
+                # 会宣称执行层实际不会兑现的 first_frame/last_frame。
+                logger.warning("自定义模型 %s/%s 已禁用，能力解析回退到默认模型", provider_id, model_id)
+                model = None
             if model is None:
-                raise ValueError(f"custom model not found: {provider_id}/{model_id}")
+                default_model = await repo.get_default_model(db_pid, "video")
+                if default_model is None:
+                    raise ValueError(f"custom model not found: {provider_id}/{model_id}")
+                model = default_model
+                model_id = default_model.model_id
 
             # 生效能力（系统判定 ⊕ 用户覆盖）只此一个合成点：工厂给执行层注入的也是它的返回值，
             # 展示层与执行层因此严格同源，不在此处自行合并覆盖或重算系统判定。纯函数不查

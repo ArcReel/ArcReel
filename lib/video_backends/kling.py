@@ -69,6 +69,11 @@ class _KlingVideoModelCaps:
     text_to_video: bool
     image_to_video: bool
     last_frame: bool
+    # last_frame=True 但仅 pro 档可用（官方一手：kling-v2-5-turbo、kling-v2-6 首尾帧均标"仅 pro"，
+    # 出处 docs/research/arcreel-vendor-integration-research.md）；std 档提交 image_tail 请求体虽会
+    # 被受理，尾帧约束却不生效——_build_payload 按此位在 std 档拒绝 image_tail，而非放行一个
+    # 调用方以为已生效实则被忽略的请求。
+    last_frame_requires_pro: bool
     reference_images: bool
     max_reference_images: int
     generate_audio: bool  # 能产出视频内人声；官方仅 v2-6（pro 档）标 ✅
@@ -80,6 +85,7 @@ _DEFAULT_VIDEO_CAPS = _KlingVideoModelCaps(
     text_to_video=True,
     image_to_video=True,
     last_frame=True,
+    last_frame_requires_pro=True,
     reference_images=False,
     max_reference_images=0,
     generate_audio=False,
@@ -92,6 +98,7 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         text_to_video=True,
         image_to_video=True,
         last_frame=True,
+        last_frame_requires_pro=False,
         reference_images=False,
         max_reference_images=0,
         generate_audio=False,
@@ -101,6 +108,7 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         text_to_video=True,
         image_to_video=True,
         last_frame=True,
+        last_frame_requires_pro=False,
         reference_images=True,
         max_reference_images=_R2V_MAX_REFERENCE_IMAGES,
         generate_audio=False,
@@ -110,6 +118,7 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         text_to_video=True,
         image_to_video=True,
         last_frame=True,
+        last_frame_requires_pro=True,
         reference_images=False,
         max_reference_images=0,
         generate_audio=True,
@@ -119,6 +128,7 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         text_to_video=False,
         image_to_video=True,
         last_frame=True,
+        last_frame_requires_pro=False,
         reference_images=True,
         max_reference_images=_R2V_MAX_REFERENCE_IMAGES,
         generate_audio=False,
@@ -301,6 +311,10 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             payload["image"] = self._encode_frame(Path(start_image))
             end_image = request.end_image
             if isinstance(end_image, (str, Path)) and str(end_image):
+                # 该 model 的首尾帧仅 pro 档生效时，std/4k 档提交 image_tail 虽会被官方接口受理，
+                # 尾帧约束却不生效——fail loud 拒绝而非放行一个调用方以为已生效实则被忽略的请求。
+                if self._caps.last_frame_requires_pro and self._resolve_mode(request) != "pro":
+                    raise VideoCapabilityError("video_last_frame_requires_pro", provider=self.name, model=self._model)
                 payload["image_tail"] = self._encode_frame(Path(end_image))
             subpath = _IMAGE2VIDEO
 

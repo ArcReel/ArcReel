@@ -185,16 +185,20 @@ class ViduVideoBackend:
 
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
-        """按 model_id 纯计算 caps —— 不构造 client。保留 `model` 形参仅为跨 backend 接口统一，
-        Vidu 容量当前不随 model 变（恒为 `_MAX_REFERENCE_IMAGES`）。
+        """按 model_id 纯计算 caps —— 不构造 client。first_frame/last_frame/reference_images
+        直接查 `_ENDPOINT_MODELS` 的端点白名单，与 `_select_endpoint`/`_build_request` 实际能否
+        派发到 /img2video、/start-end2video、/reference2video 同源：例如 `viduq3` 不在
+        /img2video、/start-end2video 白名单内（只支持 /reference2video），若恒为 True，
+        调用方按声明提交首帧/尾帧会在 `_build_request` 抛 RuntimeError。容量上限
+        （max_reference_images）不随 model 变，恒为 `_MAX_REFERENCE_IMAGES`。
         """
         return VideoCapabilities(
-            first_frame=True,
-            last_frame=True,
-            reference_images=True,
+            first_frame=model in _ENDPOINT_MODELS["/img2video"],
+            last_frame=model in _ENDPOINT_MODELS["/start-end2video"],
+            reference_images=model in _ENDPOINT_MODELS["/reference2video"],
             max_reference_images=_MAX_REFERENCE_IMAGES,
             # 参考图与首帧在 Vidu 上是互斥模式：_select_endpoint 见参考图即切 /reference2video，
-            # start_image 不进请求体（首帧被丢弃），且多数型号不在该端点白名单内会直接 RuntimeError。
+            # start_image 不进请求体（首帧被丢弃）。
         )
 
     @property
