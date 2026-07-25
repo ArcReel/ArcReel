@@ -73,10 +73,24 @@ export function OnboardingTour() {
 
   // 0. 引导开启但当前路由不是本步所需的路由——先导航过去，锚点才能挂载。跨页步骤
   //    切换（见 tour.ts 的 onStepChange）与「重看引导」从非首步路由触发都走这里。
+  //
+  //    `interactive` 步是例外：该步的落点动作本身就是导航离开 requiredRoute（如点
+  //    演示卡进工作台），不是驱动效果（3）触发的跨页步骤切换，此时不该把用户拽回
+  //    来——离开引导覆盖路由后 `onTourRoute` 变假，效果（3）会按既有的「离开覆盖路由」
+  //    路径暂停引导（不计一次退出），用户回到大厅时 `requiredRoute` 重新匹配，引导
+  //    从原位恢复，不需要额外状态。
+  const currentStepInteractive = Boolean(steps[stepIndex]?.interactive);
   useEffect(() => {
-    if (!active || !inMainUi || !requiredRoute || normalizedLocation === requiredRoute) return;
+    if (
+      !active ||
+      !inMainUi ||
+      !requiredRoute ||
+      normalizedLocation === requiredRoute ||
+      currentStepInteractive
+    )
+      return;
     navigate(requiredRoute);
-  }, [active, inMainUi, requiredRoute, normalizedLocation, navigate]);
+  }, [active, inMainUi, requiredRoute, normalizedLocation, navigate, currentStepInteractive]);
 
   // 1. 查询「是否已看过」
   useEffect(() => {

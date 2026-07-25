@@ -77,6 +77,9 @@ export function anchorSelector(anchor: OnboardingAnchor): string {
  * （在随后的 `instance.drive()` 里才挂上），因此不会误伤 driver 自身。
  */
 let peripheralElements: Array<[element: HTMLElement, wasInert: boolean]> = [];
+/** 当前是否已施加隔离——避免 `interactive` 步之间来回切换时重复快照，把「已因上次
+ *  隔离而变 inert」的状态误当作原始值记下，导致复原时回不去。 */
+let isolationApplied = false;
 
 /**
  * `inert` 摘不掉底层弹窗自己挂在 `document`/`window` 上的全局键盘监听——Esc 关闭、
@@ -89,6 +92,8 @@ let peripheralElements: Array<[element: HTMLElement, wasInert: boolean]> = [];
 let suspendKeyboard: (() => void) | null = null;
 
 function setPeripheralIsolation(hidden: boolean): void {
+  if (hidden === isolationApplied) return;
+  isolationApplied = hidden;
   if (hidden) {
     peripheralElements = Array.from(document.body.children)
       .filter((el): el is HTMLElement => el instanceof HTMLElement)
@@ -165,7 +170,8 @@ export function startTour(
   let disposing = false;
 
   const driveSteps: DriveStep[] = steps.map((step) => ({
-    ...(step.anchor === null ? {} : { element: anchorSelector(step.anchor), data: { anchor: step.anchor } }),
+    ...(step.anchor === null ? {} : { element: anchorSelector(step.anchor) }),
+    data: { anchor: step.anchor, interactive: Boolean(step.interactive) },
     ...(step.interactive ? { disableActiveInteraction: false } : {}),
     popover: { title: step.title, description: step.body },
   }));
@@ -202,11 +208,17 @@ export function startTour(
     },
     // 高亮到的元素是 driver 的占位元素时，回调收到的 element 是 undefined。步骤本来就
     // 声明了锚点却落到这里，说明锚点在页面上找不到 —— 降级已经发生，这里只负责留线索。
+    //
+    // `inert` 是原生隔离，不像 `pointer-events` 能靠 CSS 选择器给单个后代开口子——祖先
+    // 一旦 inert，后代无法自行「取消 inert」重新变为可操作。`interactive` 步的高亮元素
+    // 恰恰是 `#app-root` 的后代，因此该步必须整体解除 `setPeripheralIsolation`，仅让
+    // driver 自己的 `disableActiveInteraction: false` 决定谁可点；离开该步立即复原。
     onHighlightStarted: (element, step) => {
       const anchor = step.data?.anchor as OnboardingAnchor | undefined;
       if (anchor && !element) {
         console.warn(`[onboarding] anchor "${anchor}" not found; falling back to a centered popover`);
       }
+      setPeripheralIsolation(!step.data?.interactive);
     },
     // 退出全部收口到这里，而不是 driver 的 onDestroyed。后者只在 driver 内部把高亮元素
     // 写进 state 之后才会触发，而那次写入排在 requestAnimationFrame 里 —— 同步 destroy
