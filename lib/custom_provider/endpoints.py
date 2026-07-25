@@ -71,6 +71,10 @@ class EndpointSpec:
     # caps —— 不构造 SDK client、不查 provider 行。video_max_reference_images 为 int 时此字段应为
     # None（endpoint 维度已能给出硬上限）。二者对每个 video endpoint 恰填其一（见注册表末尾不变式）。
     video_caps_for_model: Callable[[str], VideoCapabilities] | None = None
+    # 该 endpoint 的 delegate.generate() 是否真的读取 VideoGenerationRequest.end_image 并下传
+    # 尾帧约束。仅 video 类有意义；False 时即便系统判定或用户覆盖把 last_frame 置为 True，执行层
+    # 也会静默丢弃尾帧、按无约束生成——写入侧 last_frame 覆盖据此收窄可开启的 endpoint 范围。
+    end_image_capable: bool = False
 
 
 # ── 各 endpoint 的 build_backend 闭包 ──────────────────────────────
@@ -317,6 +321,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_v2_video_generations,
         # 多 model 共享端点、容量不同 → endpoint 维度不声明，按 model 读 backend caps（不构造 client）
         video_caps_for_model=V2VideoGenerationsBackend.video_capabilities_for_model,
+        end_image_capable=True,
     ),
     "ark-seedance": EndpointSpec(
         key="ark-seedance",
@@ -327,6 +332,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/api/v3/contents/generations/tasks",
         build_backend=_build_ark_seedance,
         video_caps_for_model=ArkVideoBackend.video_capabilities_for_model,
+        end_image_capable=True,
     ),
     "vidu-video": EndpointSpec(
         key="vidu-video",
@@ -337,6 +343,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/ent/v2/img2video",
         build_backend=_build_vidu_video,
         video_caps_for_model=ViduVideoBackend.video_capabilities_for_model,
+        end_image_capable=True,
     ),
     "dashscope-image": EndpointSpec(
         key="dashscope-image",
@@ -413,6 +420,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         # 参考图上限随 model 异质（v3-omni / video-o1 多图主体 R2V max=4，其余首尾帧无参考为 0）→ 不在
         # endpoint 维度声明 int cap，按 model 读 backend 纯 caps 函数（与 minimax-video 同构）。
         video_caps_for_model=KlingVideoBackend.video_capabilities_for_model,
+        end_image_capable=True,
     ),
 }
 

@@ -30,6 +30,7 @@ from lib.custom_provider.endpoints import (
     endpoint_spec_to_dict,
     endpoint_to_image_capabilities,
     endpoint_to_media_type,
+    get_endpoint_spec,
 )
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
@@ -193,9 +194,13 @@ class ModelResponse(BaseModel):
 
 
 class CapabilityOverridesRequest(BaseModel):
-    """单模型能力覆盖写入体：携带完整覆盖字典，整体替换存量（非逐键 merge）。"""
+    """单模型能力覆盖写入体：携带完整覆盖字典，整体替换存量（非逐键 merge）。
 
-    capability_overrides: dict[str, object] | None = None
+    字段无默认值——必须显式传 null 或字典才表示"整体替换"；请求体缺失该键（如拼写错误、
+    序列化遗漏）会被 Pydantic 拒为 422，而不是静默当作 null 把已有覆盖清空。
+    """
+
+    capability_overrides: dict[str, object] | None
 
 
 class ProviderResponse(BaseModel):
@@ -382,6 +387,17 @@ def _check_capability_overrides(
                     model_id=model_id,
                     capability=key,
                     expected=expected.__name__,
+                ),
+            )
+        # last_frame 覆盖为 True 时，endpoint 的 delegate.generate() 必须真的会读取
+        # end_image 下传尾帧约束——否则覆盖只是让合成层宣称支持，执行层仍静默生成无约束视频。
+        if key == "last_frame" and value is True and not get_endpoint_spec(endpoint).end_image_capable:
+            raise HTTPException(
+                status_code=422,
+                detail=_t(
+                    "capability_override_last_frame_unsupported",
+                    model_id=model_id,
+                    endpoint=endpoint,
                 ),
             )
 
@@ -714,7 +730,11 @@ async def update_model_capability_overrides(
     overrides = body.capability_overrides
     _check_capability_overrides(overrides, model.endpoint, model_id, _t)
     # 空字典与 None 都表示"全部跟随"，统一落 NULL，避免 DB 里出现两种等价表示。
-    await repo.update_model(model.id, capability_overrides=overrides or None)
+    # 按行首查到的旧主键（model.id）更新：并发的整表 PUT（replace_models）会先删后按同一
+    # model_id 重建新行，旧主键随之失效。update_model 返回 None 即命中该竞态——此时旧主键已
+    # 不存在，写入根本没有落到任何行，须回 409 而非静默按更新成功处理。
+    if await repo.update_model(model.id, capability_overrides=overrides or None) is None:
+        raise HTTPException(status_code=409, detail=_t("custom_model_concurrent_update", model_id=model_id))
     await session.commit()
     await _invalidate_caches(request)
 

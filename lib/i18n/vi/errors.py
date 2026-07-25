@@ -145,6 +145,11 @@ MESSAGES = {
     "capability_override_invalid_value": (
         "Năng lực {capability} của mô hình {model_id} có kiểu giá trị không hợp lệ; cần {expected}"
     ),
+    "capability_override_last_frame_unsupported": (
+        "Endpoint {endpoint} của mô hình {model_id} không hỗ trợ tạo khung hình cuối; "
+        "không thể ghi đè last_frame thành true"
+    ),
+    "custom_model_concurrent_update": "Mô hình {model_id} đã bị sửa đổi đồng thời; vui lòng làm mới và thử lại",
     # Projects
     "unknown_style_template": "Mẫu phong cách không xác định: {template_id}",
     "ad_only_field": "{field} chỉ khả dụng cho dự án quảng cáo/video ngắn (content_mode=ad)",

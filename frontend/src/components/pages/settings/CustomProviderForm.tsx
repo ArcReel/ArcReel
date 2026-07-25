@@ -677,7 +677,15 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       {/* Endpoint select (custom dropdown showing real API path) */}
                       <EndpointSelect
                         value={m.endpoint}
-                        onChange={(next) => updateModel(m.key, { endpoint: next, is_default: false })}
+                        onChange={(next) =>
+                          updateModel(m.key, {
+                            endpoint: next,
+                            is_default: false,
+                            // 覆盖字段只对 video endpoint 有意义；切到非 video 时随表单一并清除，
+                            // 否则隐藏字段原样提交会被后端因 media_type 不符拒绝，用户无法保存。
+                            capability_overrides: endpointToMediaType[next] === "video" ? m.capability_overrides : null,
+                          })
+                        }
                         ariaLabel={t("endpoint_label")}
                       />
 

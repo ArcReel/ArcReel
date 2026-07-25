@@ -29,6 +29,12 @@ from server.routers import custom_providers
 VIDEO_ENDPOINT = "openai-video"
 VIDEO_MODEL = "sora-2"
 
+# openai-video 的 delegate 不序列化 end_image（见 _check_capability_overrides 的
+# end_image_capable 门槛），last_frame 覆盖为 True 的用例须换一个真正支持尾帧的 endpoint。
+# ark-seedance 非 seedance-2 系列模型系统判定同样是 last_frame=False，可类比断言覆盖前后差异。
+LAST_FRAME_ENDPOINT = "ark-seedance"
+LAST_FRAME_MODEL = "seedance-1-pro"
+
 
 @pytest.fixture()
 async def db_engine():
@@ -136,7 +142,14 @@ class TestModelListExposesCapabilities:
         assert models[0]["system_capabilities"] is None
 
     def test_overrides_round_trip_through_create(self, client: TestClient):
-        pid = _create_provider(client, [_video_model(capability_overrides={"last_frame": True})])
+        pid = _create_provider(
+            client,
+            [
+                _video_model(
+                    capability_overrides={"last_frame": True}, endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL
+                )
+            ],
+        )
 
         models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["capability_overrides"] == {"last_frame": True}
@@ -155,9 +168,9 @@ class TestPatchCapabilityOverrides:
         )
 
     def test_write_override_and_read_back(self, client: TestClient):
-        pid = _create_provider(client, [_video_model()])
+        pid = _create_provider(client, [_video_model(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL)])
 
-        resp = self._patch(client, pid, {"capability_overrides": {"last_frame": True}})
+        resp = self._patch(client, pid, {"capability_overrides": {"last_frame": True}}, model_id=LAST_FRAME_MODEL)
         assert resp.status_code == 200, resp.text
         assert resp.json()["capability_overrides"] == {"last_frame": True}
 
@@ -166,16 +179,34 @@ class TestPatchCapabilityOverrides:
 
     def test_empty_dict_clears_existing_overrides(self, client: TestClient):
         """整体替换而非逐键 merge：空字典即回到全部跟随系统判定。"""
-        pid = _create_provider(client, [_video_model(capability_overrides={"last_frame": True})])
+        pid = _create_provider(
+            client,
+            [
+                _video_model(
+                    capability_overrides={"last_frame": True},
+                    endpoint=LAST_FRAME_ENDPOINT,
+                    model_id=LAST_FRAME_MODEL,
+                )
+            ],
+        )
 
-        resp = self._patch(client, pid, {"capability_overrides": {}})
+        resp = self._patch(client, pid, {"capability_overrides": {}}, model_id=LAST_FRAME_MODEL)
         assert resp.status_code == 200
         assert resp.json()["capability_overrides"] is None
 
     def test_null_clears_existing_overrides(self, client: TestClient):
-        pid = _create_provider(client, [_video_model(capability_overrides={"last_frame": True})])
+        pid = _create_provider(
+            client,
+            [
+                _video_model(
+                    capability_overrides={"last_frame": True},
+                    endpoint=LAST_FRAME_ENDPOINT,
+                    model_id=LAST_FRAME_MODEL,
+                )
+            ],
+        )
 
-        resp = self._patch(client, pid, {"capability_overrides": None})
+        resp = self._patch(client, pid, {"capability_overrides": None}, model_id=LAST_FRAME_MODEL)
         assert resp.status_code == 200
         assert resp.json()["capability_overrides"] is None
 
@@ -201,6 +232,14 @@ class TestPatchCapabilityOverrides:
         resp = self._patch(client, pid, {"capability_overrides": {"last_frame": bad_value}})
         assert resp.status_code == 422
 
+    def test_last_frame_rejected_on_endpoint_without_end_image_support(self, client: TestClient):
+        """openai-video 的 delegate 不下传 end_image：开启覆盖只会让 UI 宣称支持、执行层仍静默丢帧。"""
+        pid = _create_provider(client, [_video_model()])
+
+        resp = self._patch(client, pid, {"capability_overrides": {"last_frame": True}})
+        assert resp.status_code == 422
+        assert "last_frame" in resp.json()["detail"]
+
     def test_non_video_endpoint_rejected(self, client: TestClient):
         pid = _create_provider(
             client,
@@ -217,9 +256,23 @@ class TestPatchCapabilityOverrides:
         assert resp.status_code == 404
 
     def test_rejected_write_leaves_stored_overrides_intact(self, client: TestClient):
-        pid = _create_provider(client, [_video_model(capability_overrides={"last_frame": True})])
+        pid = _create_provider(
+            client,
+            [
+                _video_model(
+                    capability_overrides={"last_frame": True},
+                    endpoint=LAST_FRAME_ENDPOINT,
+                    model_id=LAST_FRAME_MODEL,
+                )
+            ],
+        )
 
-        assert self._patch(client, pid, {"capability_overrides": {"first_frame": False}}).status_code == 422
+        assert (
+            self._patch(
+                client, pid, {"capability_overrides": {"first_frame": False}}, model_id=LAST_FRAME_MODEL
+            ).status_code
+            == 422
+        )
 
         models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["capability_overrides"] == {"last_frame": True}
@@ -229,20 +282,49 @@ class TestReplaceModelsOverrideSemantics:
     """保存模型列表是整体替换：覆盖必须随列表回传，否则被清空。"""
 
     def test_overrides_survive_when_resubmitted(self, client: TestClient):
-        pid = _create_provider(client, [_video_model(capability_overrides={"last_frame": True})])
+        pid = _create_provider(
+            client,
+            [
+                _video_model(
+                    capability_overrides={"last_frame": True},
+                    endpoint=LAST_FRAME_ENDPOINT,
+                    model_id=LAST_FRAME_MODEL,
+                )
+            ],
+        )
 
         resp = client.put(
             f"/api/v1/custom-providers/{pid}/models",
-            json={"models": [_video_model(capability_overrides={"last_frame": True})]},
+            json={
+                "models": [
+                    _video_model(
+                        capability_overrides={"last_frame": True},
+                        endpoint=LAST_FRAME_ENDPOINT,
+                        model_id=LAST_FRAME_MODEL,
+                    )
+                ]
+            },
         )
         assert resp.status_code == 200
         assert resp.json()[0]["capability_overrides"] == {"last_frame": True}
 
     def test_overrides_dropped_when_omitted(self, client: TestClient):
         """整体替换语义的直接后果，前端保存模型列表时必须回传覆盖字段。"""
-        pid = _create_provider(client, [_video_model(capability_overrides={"last_frame": True})])
+        pid = _create_provider(
+            client,
+            [
+                _video_model(
+                    capability_overrides={"last_frame": True},
+                    endpoint=LAST_FRAME_ENDPOINT,
+                    model_id=LAST_FRAME_MODEL,
+                )
+            ],
+        )
 
-        resp = client.put(f"/api/v1/custom-providers/{pid}/models", json={"models": [_video_model()]})
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}/models",
+            json={"models": [_video_model(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL)]},
+        )
         assert resp.status_code == 200
         assert resp.json()[0]["capability_overrides"] is None
 

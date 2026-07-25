@@ -145,6 +145,11 @@ MESSAGES = {
     "capability_override_invalid_value": (
         "Capability {capability} of model {model_id} has an invalid value type; expected {expected}"
     ),
+    "capability_override_last_frame_unsupported": (
+        "Endpoint {endpoint} of model {model_id} does not support last-frame generation; "
+        "last_frame cannot be overridden to true"
+    ),
+    "custom_model_concurrent_update": "Model {model_id} was modified concurrently; please refresh and retry",
     # Projects
     "unknown_style_template": "Unknown style template: {template_id}",
     "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",

@@ -136,6 +136,8 @@ MESSAGES = {
     "capability_override_unknown_key": "模型 {model_id} 的能力覆盖包含未知能力项: {capability}",
     "capability_override_not_open": "模型 {model_id} 的能力项 {capability} 暂不开放覆盖，当前可覆盖: {allowed}",
     "capability_override_invalid_value": "模型 {model_id} 的能力项 {capability} 取值类型不正确，应为 {expected}",
+    "capability_override_last_frame_unsupported": "模型 {model_id} 的 endpoint {endpoint} 不支持尾帧生成，无法覆盖 last_frame 为开启",
+    "custom_model_concurrent_update": "模型 {model_id} 已被并发修改，请刷新后重试",
     # Projects
     "unknown_style_template": "未知的风格模版: {template_id}",
     "ad_only_field": "{field} 仅广告/短片项目（content_mode=ad）可用",
