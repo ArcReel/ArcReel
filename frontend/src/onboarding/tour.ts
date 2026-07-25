@@ -19,6 +19,12 @@ export interface TourStep {
   anchor: OnboardingAnchor | null;
   title: string;
   body: string;
+  /**
+   * 该步所需的路由，调用方自行定义、这里不解释语义——纯粹原样透传，供调用方在
+   * `onStepChange` 里比对是否需要导航。省略 = 不要求特定路由，留在当前页继续讲
+   * （开场欢迎气泡以外的居中步通常这样用）。
+   */
+  route?: string;
 }
 
 export interface TourLabels {
@@ -128,6 +134,10 @@ function renderProgress(progress: HTMLElement, current: number, total: number, l
  * @param onExit 任一退出路径（跳过 / 关闭 / 走完）都会调用一次；`dispose()` 不调用。
  * @param startIndex 从第几步开始（0 基）。默认 0；重建时传入上一次的 `currentIndex()`。
  * @param anchorWaitMs 锚点缺席时的等待上限，默认 `ANCHOR_WAIT_MS`。
+ * @param onStepChange 「下一步/上一步」被触发时（按钮点击与方向键都走同一条内部回调，
+ *   见 `onNextClick`/`onPrevClick`）、在 driver 实际切换高亮之前，同步上报即将停靠的
+ *   步号。调用方可以据此在 driver 尝试高亮新步骤的锚点之前先行导航——两者天然存在的
+ *   时间差由 driver 自己的 `waitForElement` 轮询吸收，不需要额外的等待逻辑。
  */
 export function startTour(
   steps: TourStep[],
@@ -136,7 +146,13 @@ export function startTour(
     onExit,
     startIndex = 0,
     anchorWaitMs = ANCHOR_WAIT_MS,
-  }: { onExit: () => void; startIndex?: number; anchorWaitMs?: number },
+    onStepChange,
+  }: {
+    onExit: () => void;
+    startIndex?: number;
+    anchorWaitMs?: number;
+    onStepChange?: (index: number) => void;
+  },
 ): TourHandle {
   const total = steps.length;
   let exited = false;
@@ -163,6 +179,11 @@ export function startTour(
     // 讲解本身仍然成立，丢的只是高亮，driver 会退回自己的占位元素、把气泡摆到屏幕中央。
     waitForElement: anchorWaitMs,
     skipMissingElement: false,
+    // driver 自带的方向键切步直接调 moveNext()/movePrevious()，不经过下面的
+    // onNextClick/onPrevClick——跨页导航的 onStepChange 上报会被绕过。这里关闭它，
+    // 改由本文件末尾的 keyup 监听统一接管 Esc/方向键，确保键盘路径与按钮路径走同一条
+    // 上报逻辑。
+    allowKeyboardControl: false,
     nextBtnText: labels.next,
     prevBtnText: labels.prev,
     doneBtnText: labels.done,
@@ -184,15 +205,33 @@ export function startTour(
     // 写进 state 之后才会触发，而那次写入排在 requestAnimationFrame 里 —— 同步 destroy
     // 与无 DOM 帧的环境下会静默漏掉回调。改走「按钮 + 主动收起」这两个我们自己掌握的
     // 入口，退出必然被记一次。
-    onNextClick: () => {
-      if (instance.isLastStep()) finish();
-      else instance.moveNext();
-    },
-    onPrevClick: () => instance.movePrevious(),
+    onNextClick: () => handleNext(),
+    onPrevClick: () => handlePrev(),
     onCloseClick: () => finish(),
     // Esc 与点击遮罩走 driver 内部的收起流程，在真正拆掉之前回调这里。
     onDestroyStarted: () => finish(),
   });
+
+  /** 下一步：按钮点击与 `ArrowRight` 键共用，保证跨页上报一致。 */
+  function handleNext(): void {
+    if (instance.isLastStep()) {
+      finish();
+      return;
+    }
+    onStepChange?.((instance.getActiveIndex() ?? 0) + 1);
+    instance.moveNext();
+  }
+
+  /**
+   * 上一步：按钮点击与 `ArrowLeft` 键共用，保证跨页上报一致。首步无上一步可退——
+   * 按钮此时被 driver 禁用不会触发，但键盘路径没有这层禁用态，不挡住的话
+   * `instance.movePrevious()` 会在 driver.js 内部找不到上一步时把整个引导销毁掉。
+   */
+  function handlePrev(): void {
+    if (instance.isFirstStep()) return;
+    onStepChange?.((instance.getActiveIndex() ?? 0) - 1);
+    instance.movePrevious();
+  }
 
   /** 记一次退出并收起。重复调用只记一次。 */
   function finish(): void {
@@ -200,17 +239,33 @@ export function startTour(
       exited = true;
       onExit();
     }
+    window.removeEventListener("keyup", onKeyUp);
     setPeripheralIsolation(false);
     instance.destroy();
   }
 
+  // allowKeyboardControl 关闭后 driver 不再自行处理 Esc/方向键，这里接管：Esc 走 finish()
+  // （与 driver 默认的 allowClose 行为一致，本文件未覆盖该配置，其默认值即为 true）；
+  // 方向键复用 handleNext/handlePrev，与按钮点击走同一条上报路径。
+  function onKeyUp(e: KeyboardEvent): void {
+    if (e.key === "Escape") {
+      finish();
+    } else if (e.key === "ArrowRight") {
+      handleNext();
+    } else if (e.key === "ArrowLeft") {
+      handlePrev();
+    }
+  }
+
   setPeripheralIsolation(true);
+  window.addEventListener("keyup", onKeyUp);
   instance.drive(Math.min(Math.max(startIndex, 0), total - 1));
 
   return {
     currentIndex: () => instance.getActiveIndex() ?? 0,
     dispose: () => {
       disposing = true;
+      window.removeEventListener("keyup", onKeyUp);
       setPeripheralIsolation(false);
       instance.destroy();
     },

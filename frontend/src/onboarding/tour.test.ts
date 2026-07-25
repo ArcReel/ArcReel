@@ -180,6 +180,85 @@ describe("startTour", () => {
     expect(document.querySelector(".driver-popover")).toBeNull();
   });
 
+  describe("keyboard navigation", () => {
+    // driver 自带的方向键处理绕过 onNextClick/onPrevClick、不会触发 onStepChange 上报
+    // （跨页导航因此失效）——startTour 关闭了它，自己接管 Esc/方向键，这里断言键盘路径
+    // 与按钮点击走的是同一条上报逻辑。
+    it("advances and reports onStepChange on ArrowRight, same as clicking next", () => {
+      const onStepChange = vi.fn();
+      const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn(), onStepChange });
+
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight" }));
+
+      expect(onStepChange).toHaveBeenCalledWith(1);
+      expect(handle.currentIndex()).toBe(1);
+
+      handle.dispose();
+    });
+
+    it("finishes the tour on ArrowRight at the last step, same as clicking next", () => {
+      const onExit = vi.fn();
+      const onStepChange = vi.fn();
+      startTour(TWO_STEPS, LABELS, { onExit, startIndex: 1, onStepChange });
+
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight" }));
+
+      expect(onStepChange).not.toHaveBeenCalled();
+      expect(onExit).toHaveBeenCalledTimes(1);
+      expect(document.querySelector(".driver-popover")).toBeNull();
+    });
+
+    it("moves back and reports onStepChange on ArrowLeft", () => {
+      const onStepChange = vi.fn();
+      const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn(), startIndex: 1, onStepChange });
+
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowLeft" }));
+
+      expect(onStepChange).toHaveBeenCalledWith(0);
+      expect(handle.currentIndex()).toBe(0);
+
+      handle.dispose();
+    });
+
+    it("ignores ArrowLeft on the first step instead of exiting the tour", () => {
+      // driver 的「上一步」按钮在首步会被禁用，click() 不会触发；但键盘路径没有这层禁用
+      // 态——不挡住的话 movePrevious() 在 driver.js 内部找不到上一步会直接把引导销毁掉，
+      // 表现为用户什么都没做（没跳过/没关闭/没走完）却提前退出了引导。
+      const onExit = vi.fn();
+      const onStepChange = vi.fn();
+      const handle = startTour(TWO_STEPS, LABELS, { onExit, onStepChange });
+
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowLeft" }));
+
+      expect(onStepChange).not.toHaveBeenCalled();
+      expect(onExit).not.toHaveBeenCalled();
+      expect(handle.currentIndex()).toBe(0);
+      expect(document.querySelector(".driver-popover")).not.toBeNull();
+
+      handle.dispose();
+    });
+
+    it("reports the exit once on Escape", () => {
+      const onExit = vi.fn();
+      startTour(TWO_STEPS, LABELS, { onExit });
+
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape" }));
+
+      expect(onExit).toHaveBeenCalledTimes(1);
+      expect(document.querySelector(".driver-popover")).toBeNull();
+    });
+
+    it("stops handling arrow keys after the caller disposes the tour", () => {
+      const onStepChange = vi.fn();
+      const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn(), onStepChange });
+
+      handle.dispose();
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight" }));
+
+      expect(onStepChange).not.toHaveBeenCalled();
+    });
+  });
+
   describe("peripheral isolation", () => {
     // driver.js 只挡 pointer-events + Tab 键，屏幕阅读器的虚拟光标仍能读到底层界面；
     // body 的既有子节点（#app-root，以及 ModalShell/CreateProjectModal 这类直接

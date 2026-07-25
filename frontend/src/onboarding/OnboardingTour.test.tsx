@@ -224,6 +224,139 @@ describe("OnboardingTour", () => {
     expect(history.at(-1)).toBe("/app/projects");
   });
 
+  /** 大厅三步的锚点。没有大厅页面可渲染，手动补上元素，测的是跳页而不是锚点降级。 */
+  function mountLobbyAnchors(): HTMLElement[] {
+    const names = [
+      ONBOARDING_ANCHORS.lobbyCreateProject,
+      ONBOARDING_ANCHORS.lobbyDemoCard,
+      ONBOARDING_ANCHORS.lobbySettings,
+    ];
+    return names.map((name) => {
+      const el = document.createElement("button");
+      el.setAttribute("data-onboarding", name);
+      document.body.appendChild(el);
+      return el;
+    });
+  }
+
+  function click(selector: string): void {
+    document.querySelector<HTMLElement>(selector)?.click();
+  }
+
+  it("crosses from the lobby into settings when the tour reaches the provider step", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+    const lobbyAnchors = mountLobbyAnchors();
+    const settingsAnchor = document.createElement("button");
+    settingsAnchor.setAttribute("data-onboarding", ONBOARDING_ANCHORS.settingsProviders);
+    document.body.appendChild(settingsAnchor);
+
+    const { hook, history } = memoryLocation({ path: "/app/projects", record: true });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+
+    click(".driver-popover-next-btn"); // → 新建项目入口
+    click(".driver-popover-next-btn"); // → 演示卡
+    click(".driver-popover-next-btn"); // → 设置入口（仍在大厅）
+    click(".driver-popover-next-btn"); // → 媒体供应商（跨页到设置）
+
+    await waitFor(() => expect(popoverTitle()).toBe("配置一个媒体供应商"));
+    expect(history.at(-1)).toBe("/app/settings");
+    expect(API.markOnboardingSeen).not.toHaveBeenCalled();
+    [...lobbyAnchors, settingsAnchor].forEach((el) => el.remove());
+  });
+
+  it("crosses back into the lobby when the tour steps backwards out of settings", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+    const lobbyAnchors = mountLobbyAnchors();
+    const settingsAnchor = document.createElement("button");
+    settingsAnchor.setAttribute("data-onboarding", ONBOARDING_ANCHORS.settingsProviders);
+    document.body.appendChild(settingsAnchor);
+
+    const { hook, history } = memoryLocation({ path: "/app/projects", record: true });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+
+    click(".driver-popover-next-btn");
+    click(".driver-popover-next-btn");
+    click(".driver-popover-next-btn");
+    click(".driver-popover-next-btn"); // → 媒体供应商（跨页到设置）
+    await waitFor(() => expect(popoverTitle()).toBe("配置一个媒体供应商"));
+    expect(history.at(-1)).toBe("/app/settings");
+
+    click(".driver-popover-prev-btn"); // ← 设置入口（跨页回大厅）
+
+    await waitFor(() => expect(popoverTitle()).toBe("供应商配置在设置里"));
+    expect(history.at(-1)).toBe("/app/projects");
+    expect(API.markOnboardingSeen).not.toHaveBeenCalled();
+    [...lobbyAnchors, settingsAnchor].forEach((el) => el.remove());
+  });
+
+  it("degrades to a centered popover when the settings-step anchor never mounts", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const lobbyAnchors = mountLobbyAnchors();
+
+    const { hook } = memoryLocation({ path: "/app/projects" });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+
+    click(".driver-popover-next-btn");
+    click(".driver-popover-next-btn");
+    click(".driver-popover-next-btn");
+    click(".driver-popover-next-btn"); // 没有渲染设置页，锚点不存在——等待超时后应当降级为居中气泡而不是卡住
+
+    await waitFor(() => expect(popoverTitle()).toBe("配置一个媒体供应商"), { timeout: 3000 });
+    // 讲解照常进行，丢的只是高亮——driver 顶上自己的占位元素，气泡回到屏幕中央。
+    expect(document.getElementById("driver-dummy-element")?.classList.contains("driver-active-element")).toBe(
+      true,
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(ONBOARDING_ANCHORS.settingsProviders));
+
+    warn.mockRestore();
+    lobbyAnchors.forEach((el) => el.remove());
+  });
+
+  it("still marks the tour as seen when skipped mid-way through the settings steps", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+    const lobbyAnchors = mountLobbyAnchors();
+    const settingsAnchor = document.createElement("button");
+    settingsAnchor.setAttribute("data-onboarding", ONBOARDING_ANCHORS.settingsProviders);
+    document.body.appendChild(settingsAnchor);
+
+    const { hook } = memoryLocation({ path: "/app/projects" });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎来到 ArcReel"));
+
+    click(".driver-popover-next-btn");
+    click(".driver-popover-next-btn");
+    click(".driver-popover-next-btn");
+    click(".driver-popover-next-btn");
+    await waitFor(() => expect(popoverTitle()).toBe("配置一个媒体供应商"));
+
+    click(".arc-tour-skip-btn");
+
+    await waitFor(() => expect(API.markOnboardingSeen).toHaveBeenCalledTimes(1));
+    expect(popoverTitle()).toBeNull();
+    expect(useOnboardingStore.getState().seen).toBe(true);
+    [...lobbyAnchors, settingsAnchor].forEach((el) => el.remove());
+  });
+
   it("takes the tour down when the user navigates back to the login page mid-tour", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
 
