@@ -368,7 +368,9 @@ class TestResolverReturnsEffectiveCapabilities:
     """/video-capabilities 走的 resolver 必须回生效能力，且与执行层同源。"""
 
     @staticmethod
-    async def _seed(session: AsyncSession, *, overrides: object | None) -> str:
+    async def _seed(
+        session: AsyncSession, *, overrides: object | None, endpoint: str = VIDEO_ENDPOINT, model_id: str = VIDEO_MODEL
+    ) -> str:
         repo = CustomProviderRepository(session)
         provider = await repo.create_provider(
             display_name="Relay",
@@ -377,9 +379,9 @@ class TestResolverReturnsEffectiveCapabilities:
             api_key="sk-relay",
             models=[
                 {
-                    "model_id": VIDEO_MODEL,
+                    "model_id": model_id,
                     "display_name": "Sora 2",
-                    "endpoint": VIDEO_ENDPOINT,
+                    "endpoint": endpoint,
                     "is_enabled": True,
                     "is_default": True,
                     "supported_durations": "[5, 10]",
@@ -391,14 +393,14 @@ class TestResolverReturnsEffectiveCapabilities:
         return make_provider_id(provider.id)
 
     @staticmethod
-    async def _resolve(session: AsyncSession, provider_id: str) -> dict:
+    async def _resolve(session: AsyncSession, provider_id: str, model_id: str = VIDEO_MODEL) -> dict:
         from lib.config.resolver import ConfigResolver
         from lib.config.service import ConfigService
 
         factory = async_sessionmaker(bind=session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
         resolver = ConfigResolver(factory, _bound_session=session)
         return await resolver._resolve_video_caps_for_model(
-            ConfigService(session), session, provider_id, VIDEO_MODEL, None
+            ConfigService(session), session, provider_id, model_id, None
         )
 
     async def test_custom_model_without_overrides_follows_system(self, session: AsyncSession):
@@ -412,21 +414,35 @@ class TestResolverReturnsEffectiveCapabilities:
 
     async def test_override_changes_resolver_output(self, session: AsyncSession):
         """AC：对自定义模型写入覆盖后，该接口返回值随之变化。"""
-        pid = await self._seed(session, overrides={"last_frame": True})
+        pid = await self._seed(
+            session, overrides={"last_frame": True}, endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL
+        )
 
-        caps = await self._resolve(session, pid)
-        assert system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL).last_frame is False
+        caps = await self._resolve(session, pid, model_id=LAST_FRAME_MODEL)
+        assert system_video_capabilities(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL).last_frame is False
         assert caps["last_frame"] is True
 
-    @pytest.mark.integration
-    @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
-    async def test_resolver_matches_execution_layer(self, _mock_cls, session: AsyncSession):
-        """展示层与执行层出自同一合成函数：逐字段比对 resolver 与装载出的 backend。"""
+    async def test_override_ignored_when_endpoint_lacks_end_image_support(self, session: AsyncSession):
+        """openai-video 的 delegate 不下传 end_image：即便存量行/非 API 写入把 last_frame 写成 True，
+        resolver 也须回退系统判定，而不是把「合成层宣称支持、执行层静默丢帧」的错误状态当作生效。"""
         pid = await self._seed(session, overrides={"last_frame": True})
 
         caps = await self._resolve(session, pid)
+        assert caps["last_frame"] is False
+
+    @pytest.mark.integration
+    @patch("lib.custom_provider.endpoints.ArkVideoBackend")
+    async def test_resolver_matches_execution_layer(self, _mock_cls, session: AsyncSession):
+        """展示层与执行层出自同一合成函数：逐字段比对 resolver 与装载出的 backend。"""
+        pid = await self._seed(
+            session, overrides={"last_frame": True}, endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL
+        )
+
+        caps = await self._resolve(session, pid, model_id=LAST_FRAME_MODEL)
         session.expunge_all()
-        backend = await load_custom_backend(session=session, provider_id=pid, model_id=VIDEO_MODEL, media_type="video")
+        backend = await load_custom_backend(
+            session=session, provider_id=pid, model_id=LAST_FRAME_MODEL, media_type="video"
+        )
 
         executed = backend.video_capabilities
         assert caps["first_frame"] is executed.first_frame
@@ -434,7 +450,7 @@ class TestResolverReturnsEffectiveCapabilities:
         assert caps["max_reference_images"] == executed.max_reference_images
         # 同源的判据：两侧都等于合成函数在同一输入下的返回值
         expected = synthesize_video_capabilities(
-            endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL, overrides={"last_frame": True}
+            endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL, overrides={"last_frame": True}
         )
         assert executed == expected
 
@@ -489,7 +505,7 @@ class TestVideoCapabilitiesEndpoint:
     """
 
     @staticmethod
-    def _client(monkeypatch, session_factory, provider_id: str) -> TestClient:
+    def _client(monkeypatch, session_factory, provider_id: str, model_id: str = VIDEO_MODEL) -> TestClient:
         from fastapi import FastAPI
 
         from lib.config import resolver as resolver_mod
@@ -497,7 +513,7 @@ class TestVideoCapabilitiesEndpoint:
 
         class _FakePM:
             def load_project(self, name: str) -> dict:
-                return {"name": name, "video_backend": f"{provider_id}/{VIDEO_MODEL}"}
+                return {"name": name, "video_backend": f"{provider_id}/{model_id}"}
 
         monkeypatch.setattr(projects_mod, "async_session_factory", session_factory)
         monkeypatch.setattr(resolver_mod, "get_project_manager", lambda: _FakePM())
@@ -522,10 +538,12 @@ class TestVideoCapabilitiesEndpoint:
     async def test_endpoint_follows_written_override(self, session_factory, monkeypatch):
         """AC：对自定义模型写入覆盖后，该接口返回值随之变化。"""
         async with session_factory() as session:
-            pid = await TestResolverReturnsEffectiveCapabilities._seed(session, overrides={"last_frame": True})
+            pid = await TestResolverReturnsEffectiveCapabilities._seed(
+                session, overrides={"last_frame": True}, endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL
+            )
 
-        with self._client(monkeypatch, session_factory, pid) as client:
+        with self._client(monkeypatch, session_factory, pid, model_id=LAST_FRAME_MODEL) as client:
             body = client.get("/api/v1/projects/demo/video-capabilities").json()
 
-        assert system_video_capabilities(endpoint=VIDEO_ENDPOINT, model_id=VIDEO_MODEL).last_frame is False
+        assert system_video_capabilities(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL).last_frame is False
         assert body["last_frame"] is True

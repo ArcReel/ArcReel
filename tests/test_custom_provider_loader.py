@@ -91,13 +91,15 @@ class TestVideoCapabilityOverridesReachExecution:
     """DB 的 capability_overrides 必须在装载出的 backend 上生效——执行层门控读的就是这里。"""
 
     @staticmethod
-    async def _load_video_backend(session, *, overrides: object | None):
+    async def _load_video_backend(
+        session, *, overrides: object | None, endpoint: str = "openai-video", model_id: str = "sora-2"
+    ):
         pid = await _seed(
             session,
             models=[
                 {
-                    "model_id": "sora-2",
-                    "endpoint": "openai-video",
+                    "model_id": model_id,
+                    "endpoint": endpoint,
                     "is_enabled": True,
                     "is_default": True,
                     "capability_overrides": overrides,
@@ -106,7 +108,7 @@ class TestVideoCapabilityOverridesReachExecution:
         )
         # 清 identity map，逼装载重新 SELECT：覆盖字典要真经过 JSON 编解码往返才算验到 DB 语义
         session.expunge_all()
-        return await load_custom_backend(session=session, provider_id=pid, model_id="sora-2", media_type="video")
+        return await load_custom_backend(session=session, provider_id=pid, model_id=model_id, media_type="video")
 
     @pytest.mark.integration
     @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
@@ -115,12 +117,15 @@ class TestVideoCapabilityOverridesReachExecution:
         assert backend.video_capabilities == system_video_capabilities(endpoint="openai-video", model_id="sora-2")
 
     @pytest.mark.integration
-    @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
+    @patch("lib.custom_provider.endpoints.ArkVideoBackend")
     async def test_override_forces_capability_on(self, _mock_cls, session):
         # 系统判定 last_frame=False；覆盖强制开启后执行层看到 True，且不再转发被包装 backend
-        backend = await self._load_video_backend(session, overrides={"last_frame": True})
+        # endpoint 须支持尾帧（end_image_capable）覆盖才会生效，openai-video 不满足此前提
+        backend = await self._load_video_backend(
+            session, overrides={"last_frame": True}, endpoint="ark-seedance", model_id="seedance-1-pro"
+        )
         assert backend.video_capabilities.last_frame is True
-        assert backend.video_capabilities.max_reference_images == 1
+        assert backend.video_capabilities.max_reference_images == 0
 
     @pytest.mark.integration
     @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
@@ -130,10 +135,15 @@ class TestVideoCapabilityOverridesReachExecution:
         assert backend.video_capabilities.first_frame is True
 
     @pytest.mark.integration
-    @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
+    @patch("lib.custom_provider.endpoints.ArkVideoBackend")
     async def test_unknown_key_in_stored_overrides_does_not_break_loading(self, _mock_cls, session):
         # 存量行可能带已下线的键，装载不得失败，该维度按系统判定走
-        backend = await self._load_video_backend(session, overrides={"retired_dimension": True, "last_frame": True})
+        backend = await self._load_video_backend(
+            session,
+            overrides={"retired_dimension": True, "last_frame": True},
+            endpoint="ark-seedance",
+            model_id="seedance-1-pro",
+        )
         assert backend.video_capabilities.last_frame is True
 
     @pytest.mark.integration

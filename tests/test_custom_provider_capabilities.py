@@ -74,15 +74,17 @@ class TestSynthesize:
     @pytest.mark.unit
     def test_missing_key_follows_system(self):
         """字典存在但缺某键 → 该维度跟随系统判定，其余键照常覆盖。"""
-        caps = synthesize_video_capabilities(endpoint="openai-video", model_id="sora-2", overrides={"last_frame": True})
+        caps = synthesize_video_capabilities(
+            endpoint="ark-seedance", model_id="seedance-1-pro", overrides={"last_frame": True}
+        )
         assert caps.last_frame is True
         assert caps.first_frame is True
-        assert caps.max_reference_images == 1
+        assert caps.max_reference_images == 0
 
     @pytest.mark.unit
     def test_force_on(self):
         caps = synthesize_video_capabilities(
-            endpoint="newapi-video", model_id="x", overrides={"last_frame": True, "reference_images": True}
+            endpoint="ark-seedance", model_id="seedance-1-pro", overrides={"last_frame": True, "reference_images": True}
         )
         assert caps.last_frame is True
         assert caps.reference_images is True
@@ -116,9 +118,9 @@ class TestSynthesize:
     def test_system_capabilities_not_mutated_across_calls(self):
         """合成返回新实例，不得就地改写系统判定（caps_fn 可能返回共享对象）。"""
         first = synthesize_video_capabilities(
-            endpoint="openai-video", model_id="sora-2", overrides={"last_frame": True}
+            endpoint="ark-seedance", model_id="seedance-1-pro", overrides={"last_frame": True}
         )
-        second = system_video_capabilities(endpoint="openai-video", model_id="sora-2")
+        second = system_video_capabilities(endpoint="ark-seedance", model_id="seedance-1-pro")
         assert first.last_frame is True
         assert second.last_frame is False
 
@@ -134,15 +136,25 @@ class TestTolerance:
     def test_unknown_key_ignored_with_warning(self, caplog: pytest.LogCaptureFixture):
         with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
             caps = synthesize_video_capabilities(
-                endpoint="openai-video",
-                model_id="sora-2",
+                endpoint="ark-seedance",
+                model_id="seedance-1-pro",
                 overrides={"last_frame": True, "audio_track": True},
             )
         assert caps.last_frame is True
         assert caps == VideoCapabilities(
-            first_frame=True, last_frame=True, reference_images=True, max_reference_images=1
+            first_frame=True, last_frame=True, reference_images=False, max_reference_images=0
         )
         assert "audio_track" in caplog.text
+
+    @pytest.mark.unit
+    def test_last_frame_override_ignored_when_endpoint_lacks_end_image_support(self, caplog: pytest.LogCaptureFixture):
+        """openai-video 的 delegate 不下传 end_image：覆盖只会让合成层宣称支持、执行层仍静默丢帧，须降级跟随系统判定。"""
+        with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
+            caps = synthesize_video_capabilities(
+                endpoint="openai-video", model_id="sora-2", overrides={"last_frame": True}
+            )
+        assert caps.last_frame is False
+        assert "last_frame" in caplog.text
 
     @pytest.mark.unit
     @pytest.mark.parametrize("bad", ["true", 1, None, [], {"x": 1}])

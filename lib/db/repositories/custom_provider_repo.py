@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import NamedTuple
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -118,15 +118,20 @@ class CustomProviderRepository(BaseRepository):
         return new_models
 
     async def update_model(self, model_id: int, **kwargs) -> CustomProviderModel | None:
-        """更新模型字段。返回更新后的对象，若不存在返回 None。"""
-        stmt = select(CustomProviderModel).where(CustomProviderModel.id == model_id)
+        """按主键原子更新模型字段，返回更新后的对象，行不存在（含更新前一刻被删除）时返回 None。
+
+        用 ``UPDATE ... WHERE id = :model_id RETURNING *`` 而非「先 SELECT 再 setattr」：
+        后者的 SELECT 与后续 flush 之间存在窗口，调用方按旧主键整表删除重建（同一 model_id
+        新行）可在此间隙发生而不被发现。原子语句把「行是否还在」与「更新」并成一步，无中间态。
+        """
+        stmt = (
+            update(CustomProviderModel)
+            .where(CustomProviderModel.id == model_id)
+            .values(**kwargs)
+            .returning(CustomProviderModel)
+        )
         result = await self.session.execute(stmt)
-        model = result.scalar_one_or_none()
-        if model is None:
-            return None
-        for key, value in kwargs.items():
-            setattr(model, key, value)
-        return model
+        return result.scalar_one_or_none()
 
     async def delete_model(self, model_id: int) -> None:
         """删除单个模型。"""

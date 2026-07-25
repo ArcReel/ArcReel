@@ -107,6 +107,16 @@ def synthesize_video_capabilities(
                 expected.__name__,
             )
             continue
+        # 与写入侧同一判定（见 server/routers/custom_providers.py::_check_capability_overrides）：
+        # last_frame=True 但 endpoint 的 delegate 不下传 end_image 时，覆盖只会让合成层宣称
+        # 支持、执行层仍静默丢帧。写入侧已挡住新配置，这里再挡一遍存量行 / 非 API 写入路径。
+        if key == "last_frame" and value is True and not get_endpoint_spec(endpoint).end_image_capable:
+            logger.warning(
+                "忽略 %s/%s 的能力覆盖 last_frame=True：endpoint 不支持尾帧生成，该维度回退系统判定",
+                endpoint,
+                model_id,
+            )
+            continue
         applied[key] = value
 
     return replace(caps, **applied) if applied else caps
