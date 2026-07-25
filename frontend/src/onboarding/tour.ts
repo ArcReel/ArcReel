@@ -73,9 +73,15 @@ export function anchorSelector(anchor: OnboardingAnchor): string {
  * 不止 `#app-root`（挂载点见 main.tsx）：`ModalShell`/`CreateProjectModal` 等对话框
  * 用 `createPortal` 直接挂到 `document.body`，是 `#app-root` 的兄弟节点而非子孙，只
  * 打 `#app-root` 的 inert 罩不住"引导启动时已有弹窗开着"这种情形。这里改为在调用
- * 时刻快照 body 的直接子节点、逐个打 inert——此刻 driver 自己的遮罩与气泡还没创建
- * （在随后的 `instance.drive()` 里才挂上），因此不会误伤 driver 自身。
+ * 时刻快照 body 的直接子节点、逐个打 inert。
+ *
+ * `interactive` 步会在 `onHighlightStarted` 里动态解除/重新施加隔离（见下方调用
+ * 处），这意味着重新施加时 driver 自己的 overlay/popover 已经挂在 `document.body`
+ * 上（不再是"调用时刻还没创建"的最初场景）——必须显式排除，否则把 Next/Prev/Close
+ * 等引导控件本身也打成 inert，引导直接卡死。
  */
+const DRIVER_PORTAL_SELECTOR = ".driver-overlay, .driver-popover, #driver-dummy-element";
+
 let peripheralElements: Array<[element: HTMLElement, wasInert: boolean]> = [];
 /** 当前是否已施加隔离——避免 `interactive` 步之间来回切换时重复快照，把「已因上次
  *  隔离而变 inert」的状态误当作原始值记下，导致复原时回不去。 */
@@ -97,6 +103,7 @@ function setPeripheralIsolation(hidden: boolean): void {
   if (hidden) {
     peripheralElements = Array.from(document.body.children)
       .filter((el): el is HTMLElement => el instanceof HTMLElement)
+      .filter((el) => !el.matches(DRIVER_PORTAL_SELECTOR))
       .map((el) => [el, Boolean(el.inert)]);
     peripheralElements.forEach(([el]) => {
       el.inert = true;
