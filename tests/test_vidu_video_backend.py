@@ -48,6 +48,14 @@ class TestBackendBasics:
         backend = ViduVideoBackend(api_key="test-key")
         assert backend.video_capabilities.max_reference_images == 7
 
+    def test_max_reference_images_zero_for_non_reference2video_model(self):
+        # viduq3-pro-fast 支持 /img2video、/start-end2video，但不在 /reference2video 白名单内——
+        # 与 reference_images=False 联动归零，避免展示层声称支持参考图但生成期必然 RuntimeError。
+        backend = ViduVideoBackend(api_key="test-key", model="viduq3-pro-fast")
+        caps = backend.video_capabilities
+        assert caps.reference_images is False
+        assert caps.max_reference_images == 0
+
 
 class TestEndpointSelection:
     def _backend(self, model: str = "viduq3-turbo") -> ViduVideoBackend:
