@@ -600,11 +600,14 @@ class TestGenerationTasks:
         assert fake_generator.video_calls[0]["end_image"] == end_frame_dir / "scene_E1S01.png"
 
     @pytest.mark.integration
-    async def test_execute_video_task_without_end_frame_image_passes_none(self, monkeypatch, tmp_path):
-        """未设置尾帧的镜头行为不变：end_image 恒为 None。"""
+    @pytest.mark.parametrize("missing", [True, False], ids=["field-absent", "empty-string"])
+    async def test_execute_video_task_without_end_frame_image_passes_none(self, monkeypatch, tmp_path, missing):
+        """未设置尾帧的镜头行为不变：字段缺失或显式空字符串，end_image 均为 None。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
+        if not missing:
+            fake_pm.script["segments"][0]["end_frame_image"] = ""
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
@@ -652,6 +655,7 @@ class TestGenerationTasks:
             0,  # falsy 脏数据：真值判断不得把它当成「未设置」而静默跳过尾帧
             False,  # 同上
             [],  # 同上
+            {},  # 同上
         ],
     )
     @pytest.mark.integration
