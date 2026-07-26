@@ -865,15 +865,17 @@ async def execute_video_task(
         # canonical 相对路径，但磁盘上那个位置（含 end_frames/ 目录本身等中间组件）被替换成
         # 指向别处（如另一镜头快照、分镜图）的符号链接，两次解析会算出同一个被展开的真实目标，
         # 让下面的相等比较失去意义。这里逐段检查 canonical 路径每个组件——文件名与父目录——
-        # 挡住"路径字符串正确但磁盘对象被调包"，不止查最终文件名那一段。
-        canonical_path_has_symlink = False
+        # 挡住"路径字符串正确但磁盘对象被调包"，不止查最终文件名那一段。Windows 原生环境下
+        # 目录联接（junction）是独立于符号链接的 reparse point 类型，`is_symlink()` 识别不到，
+        # 须用 `is_junction()`（3.12+，POSIX 上恒为 False）单独检测。
+        canonical_path_tampered = False
         current = project_path
         for component in Path(expected_rel).parts:
             current = current / component
-            if current.is_symlink():
-                canonical_path_has_symlink = True
+            if current.is_symlink() or current.is_junction():
+                canonical_path_tampered = True
                 break
-        if end_frame_file is None or end_frame_file != expected_file or canonical_path_has_symlink:
+        if end_frame_file is None or end_frame_file != expected_file or canonical_path_tampered:
             raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
         if not end_frame_file.is_file():
             raise ValueError(f"end frame snapshot not found: {end_frame_file.name}")

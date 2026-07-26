@@ -774,6 +774,38 @@ class TestGenerationTasks:
         assert fake_generator.video_calls == []
 
     @pytest.mark.integration
+    async def test_execute_video_task_end_frame_parent_dir_junction_fails_hard(self, monkeypatch, tmp_path):
+        """Windows 原生环境下目录联接（junction）是独立于符号链接的 reparse point 类型，
+        `Path.is_symlink()` 识别不到；`end_frames/` 被联接到项目内别的目录时须靠 `is_junction()`
+        单独挡住。非 Windows 平台无法真实创建 junction，这里 monkeypatch `Path.is_junction()`
+        模拟该状态，验证逐段检查确实调用了它而非只查符号链接。"""
+        project_path = _prepare_files(tmp_path)
+        real_dir = project_path / "storyboards_end_frames_swap"
+        real_dir.mkdir(parents=True, exist_ok=True)
+        (real_dir / "scene_E1S01.png").write_bytes(b"png")
+        end_frames_dir = project_path / "end_frames"
+        end_frames_dir.mkdir(parents=True, exist_ok=True)
+        (end_frames_dir / "scene_E1S01.png").write_bytes(b"png")
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(Path, "is_junction", lambda self: self == end_frames_dir)
+
+        with pytest.raises(ValueError, match="invalid end frame snapshot path"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
     async def test_execute_video_task_end_frame_capability_unsupported_propagates(self, monkeypatch, tmp_path):
         """后端不支持尾帧能力时硬失败，不降级为参考图、不静默丢帧。
 
