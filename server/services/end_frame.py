@@ -52,13 +52,11 @@ from lib.image_utils import normalize_storyboard_upload
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager, get_project_manager
-from lib.resource_paths import resource_relative_path
+from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.services.upload_finalize import write_bytes_atomic
 
 logger = logging.getLogger(__name__)
-
-END_FRAME_RESOURCE_TYPE = "end_frames"
 
 _ShotKey = tuple[str, str, str]
 _generation_lock = threading.Lock()

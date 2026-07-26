@@ -718,6 +718,34 @@ class TestGenerationTasks:
         assert fake_generator.video_calls == []
 
     @pytest.mark.integration
+    async def test_execute_video_task_end_frame_canonical_path_symlink_fails_hard(self, monkeypatch, tmp_path):
+        """尾帧字段值恰是当前镜头的 canonical 相对路径，但磁盘上那个位置被替换成指向别处
+        （另一镜头快照）的符号链接：try_safe_join / safe_join 都会展开符号链接把两侧解析到
+        同一真实目标，仅凭路径相等挡不住「路径字符串对、磁盘对象被调包」，须显式拒绝。"""
+        project_path = _prepare_files(tmp_path)
+        end_frame_dir = project_path / "end_frames"
+        end_frame_dir.mkdir(parents=True, exist_ok=True)
+        (end_frame_dir / "scene_E1S02.png").write_bytes(b"png")
+        (end_frame_dir / "scene_E1S01.png").symlink_to(end_frame_dir / "scene_E1S02.png")
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="invalid end frame snapshot path"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
     async def test_execute_video_task_end_frame_capability_unsupported_propagates(self, monkeypatch, tmp_path):
         """后端不支持尾帧能力时硬失败，不降级为参考图、不静默丢帧。
 

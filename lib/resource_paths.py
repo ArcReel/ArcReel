@@ -38,6 +38,11 @@ _PATTERNS: dict[str, ResourcePattern] = {
 
 RESOURCE_TYPES: tuple[str, ...] = tuple(_PATTERNS)
 
+# 尾帧快照的资源类型名，与 `_PATTERNS["end_frames"]` 同值。独立导出到这个无反向依赖的
+# 纯函数模块，供 server/services/end_frame.py（写侧）与 generation_tasks.py（读侧）共用，
+# 避免二者互相 import 对方所在的 server.services 包造成循环依赖。
+END_FRAME_RESOURCE_TYPE = "end_frames"
+
 
 def _pattern(resource_type: str) -> ResourcePattern:
     pattern = _PATTERNS.get(resource_type)
