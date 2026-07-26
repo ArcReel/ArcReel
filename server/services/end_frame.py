@@ -105,9 +105,10 @@ def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
 
     try:
         script = manager.load_script(project_name, script_file)
-    except json.JSONDecodeError:
-        # JSONDecodeError 是 ValueError 子类，须先于下面的 except ValueError 拦截：
-        # 剧本文件损坏不能误判为「非法 script_file」，交由 _translated_errors 的兜底分支收口为 500
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # 二者都是 ValueError 子类，须先于下面的 except ValueError 拦截：
+        # 剧本文件损坏（JSON 语法错误或非 UTF-8 字节）不能误判为「非法 script_file」，
+        # 交由 _translated_errors 的兜底分支收口为 500
         raise
     except ValueError as exc:
         raise EndFrameError("invalid_script_file", status_code=400, name=script_file) from exc

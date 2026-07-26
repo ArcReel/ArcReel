@@ -653,6 +653,14 @@ class TestErrorMapping:
 
         assert _upload(c, _img_bytes("PNG")).status_code == 500
 
+    def test_non_utf8_script_still_maps_to_500(self, client):
+        """`UnicodeDecodeError` 同样是 `ValueError` 子类：剧本文件含非法 UTF-8 字节须落 500 兜底，
+        不能被非法 script_file 的 400 分支吞掉。"""
+        c, pm = client
+        (pm.get_project_path("demo") / "scripts" / "episode_1.json").write_bytes(b"\xff\xfe not utf-8")
+
+        assert _upload(c, _img_bytes("PNG")).status_code == 500
+
 
 class TestValidatorAcceptsWrittenSnapshot:
     def test_written_project_passes_tree_validation(self, client):
