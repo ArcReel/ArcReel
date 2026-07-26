@@ -13,6 +13,7 @@ import { ScriptGenerationNoticeListener } from "./ScriptGenerationNoticeListener
 import { useProjectsStore } from "@/stores/projects-store";
 import { DemoReadOnlyBanner } from "@/onboarding/DemoReadOnlyBanner";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
+import { isDemoProject } from "@/onboarding/demo-project";
 import {
   ASSISTANT_PANEL_DEFAULT_WIDTH,
   clampAssistantPanelWidth,
@@ -60,7 +61,9 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     setDraftWidth(next);
   }, []);
 
-  const sseProjectName = demoMode ? null : currentProjectName;
+  // demoMode 演示→真实切换时先于 store 变为 false，currentProjectName 单独判一次
+  // 兜住这一帧仍读到旧演示项目名的窗口，避免对不存在的演示项目建一次必然失败的 SSE 连接。
+  const sseProjectName = demoMode || isDemoProject(currentProjectName) ? null : currentProjectName;
   useTasksSSE(sseProjectName, !demoMode);
   useProjectEventsSSE(sseProjectName);
 

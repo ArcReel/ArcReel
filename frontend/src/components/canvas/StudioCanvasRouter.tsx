@@ -123,12 +123,20 @@ export function StudioCanvasRouter() {
   const localDurationOptions = useMemo(() => {
     // 演示态即便 state 里还留着上一个真实项目的 providers/backend（同一组件实例原地切入
     // 演示路由，effect 提前 return 不会清掉旧值），也不参与比对——否则真实后端的时长限制
-    // 会继续套用到演示的虚构时长上，重新触发「不兼容」误报。
-    if (demoMode) return undefined;
+    // 会继续套用到演示的虚构时长上，重新触发「不兼容」误报。demoMode 演示→真实切换时先于
+    // store 变为 false，currentProjectName 单独判一次兜住这一帧仍读到旧演示项目名的窗口。
+    if (demoMode || isDemoProject(currentProjectName)) return undefined;
     const backend = currentProjectData?.video_backend || globalVideoBackend;
     if (!backend) return undefined;
     return lookupSupportedDurations(providers, backend, customProviders);
-  }, [demoMode, providers, customProviders, globalVideoBackend, currentProjectData?.video_backend]);
+  }, [
+    demoMode,
+    currentProjectName,
+    providers,
+    customProviders,
+    globalVideoBackend,
+    currentProjectData?.video_backend,
+  ]);
 
   useEffect(() => {
     // 依赖变化时清理旧的 resolved 选项；本地 lookup 有结果或缺项目名时同步清零，

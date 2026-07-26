@@ -19,6 +19,7 @@ import { useCostStore } from "@/stores/cost-store";
 import { useAppStore } from "@/stores/app-store";
 import { API } from "@/api";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
+import { isDemoProject } from "@/onboarding/demo-project";
 import { EpisodeCard } from "./EpisodeCard";
 
 interface AssetSidebarProps {
@@ -66,7 +67,9 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   }, [currentProjectName, debouncedFetchCost]);
 
   useEffect(() => {
-    if (!currentProjectName || demoMode) return;
+    // demoMode 演示→真实切换时先于 store 变为 false，currentProjectName 单独判一次
+    // 兜住这一帧仍读到旧演示项目名的窗口，避免对不存在的演示项目发一次必然失败的请求。
+    if (!currentProjectName || demoMode || isDemoProject(currentProjectName)) return;
     let cancelled = false;
     API.listFiles(currentProjectName)
       .then((res) => {

@@ -7,6 +7,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
+import { isDemoProject } from "@/onboarding/demo-project";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageStore, type UsageStats } from "@/stores/usage-store";
 import { TaskHud } from "@/components/task-hud/TaskHud";
@@ -69,9 +70,11 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const runningCount = stats.running + stats.queued;
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
 
-  // 演示项目在后端没有用量记录，按项目查会 404；退回全局用量，顶栏费用仍有值可显示
+  // 演示项目在后端没有用量记录，按项目查会 404；退回全局用量，顶栏费用仍有值可显示。
+  // demoMode 演示→真实切换时先于 store 变为 false，currentProjectName 单独判一次
+  // 兜住这一帧仍读到旧演示项目名的窗口，避免按不存在的演示项目查用量而 404。
   const demoMode = useDemoWorkbench();
-  const usageProjectName = demoMode ? null : currentProjectName;
+  const usageProjectName = demoMode || isDemoProject(currentProjectName) ? null : currentProjectName;
 
   // 导出弹窗打开期间切到演示项目（如浏览器前进/后退复用同一路由实例）时随即关闭——
   // 触发按钮虽已按 demoMode 禁用，但已打开的弹窗不受影响，仍会展示可点击的导出/剪映草稿操作
