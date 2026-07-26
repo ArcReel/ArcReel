@@ -89,7 +89,7 @@ export function StudioCanvasRouter() {
   tRef.current = t;
   const { currentProjectData, currentProjectName, currentScripts } =
     useProjectsStore();
-  // 演示态：不传写回调，编辑 / 生成 / 上传 / 版本恢复的入口按既有惯例整块不渲染
+  // 演示态：资产画布仍走 readOnly 透传，工作台时间线的只读则由组件自己直读同一判定
   const demoMode = useDemoWorkbench();
 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -100,7 +100,8 @@ export function StudioCanvasRouter() {
   >(undefined);
 
   useEffect(() => {
-    // 这三份数据只服务视频时长选项；演示态时长选择器是静态展示，取回来也用不上
+    // 这三份数据只服务视频时长选项。演示态的时长是虚构的静态展示，唯一还会用到选项的
+    // 是「时长与后端不兼容」的橙色标记——对虚构数据那是伪告警，不值得为它发三个全局请求。
     if (demoMode) return;
     let disposed = false;
     Promise.all([getProviderModels(), getCustomProviderModels(), API.getSystemConfig()]).then(

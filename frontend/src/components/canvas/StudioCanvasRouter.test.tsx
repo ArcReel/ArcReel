@@ -388,6 +388,31 @@ describe("StudioCanvasRouter", () => {
     expect(systemConfigSpy).not.toHaveBeenCalled();
   });
 
+  // 上一条的正向对照：没有它，门控写成无条件 return 或整个 effect 被删都照样全绿
+  it("still performs the provider/system-config lookups outside the demo workbench", async () => {
+    const providersSpy = vi.spyOn(API, "getProviders").mockResolvedValue({ providers: [] });
+    const customProvidersSpy = vi
+      .spyOn(API, "listCustomProviders")
+      .mockResolvedValue({ providers: [] });
+    const systemConfigSpy = vi
+      .spyOn(API, "getSystemConfig")
+      .mockResolvedValue({ settings: {} } as Awaited<ReturnType<typeof API.getSystemConfig>>);
+
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    renderAt("/episodes/1");
+
+    await waitFor(() => {
+      expect(providersSpy).toHaveBeenCalled();
+    });
+    expect(customProvidersSpy).toHaveBeenCalled();
+    expect(systemConfigSpy).toHaveBeenCalled();
+  });
+
   it("shows EpisodeSourceReview instead of TimelineCanvas when an episode has no script and no draft", () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
