@@ -162,7 +162,10 @@ export function StudioCanvasRouter() {
     };
   }, [currentProjectName, localDurationOptions, demoMode]);
 
-  const durationOptions = localDurationOptions ?? resolvedDurationOptions;
+  // demoMode 翻转的同一渲染帧内 localDurationOptions 已同步归零，但 resolvedDurationOptions
+  // 是异步 effect 才清空的旧 state，真实项目切入演示路由的这一帧仍可能读到上一个项目的时长
+  // 能力；显式屏蔽 fallback，避免虚构时长被套用真实后端限制而误报「不兼容」。
+  const durationOptions = demoMode ? undefined : localDurationOptions ?? resolvedDurationOptions;
 
   // 从任务队列派生 loading 状态（替代本地 state）：活跃 + 最新行胜出两条不变量下沉到 store selector
   const generatingCharacterNames = useActiveResourceIds("character", currentProjectName);
