@@ -30,6 +30,8 @@ interface EndFrameRowProps {
   readOnly?: boolean;
   /** 提交在途状态回传：供父级同步禁用同卡片的视频生成 / 上传 / 恢复控件。 */
   onSubmittingChange?: (submitting: boolean) => void;
+  /** 视频卡的手动上传占用：同镜头视频文件正在上传时反向禁用本行的写入通道，避免与其共享的资产落盘并发冲突。 */
+  videoUploadBusy?: boolean;
 }
 
 /**
@@ -54,6 +56,7 @@ export function EndFrameRow({
   videoBackend,
   readOnly = false,
   onSubmittingChange,
+  videoUploadBusy = false,
 }: EndFrameRowProps) {
   const { t } = useTranslation("dashboard");
   const panelId = useId();
@@ -70,14 +73,19 @@ export function EndFrameRow({
   const unsupported = caps ? !caps.last_frame : false;
 
   const videoBusyIds = useActiveResourceIds("video", projectName);
-  const videoBusy = videoBusyIds.has(segmentId);
+  // 占用不区分来源（任务队列在跑 / 视频卡手动上传在途）：二者都在写同一份 project.json，
+  // 并发写入都要拦。能力不支持是另一维度——只挡「新写入」，不挡「清除」，见下方 clearDisabled。
+  const videoBusy = videoBusyIds.has(segmentId) || videoUploadBusy;
   const fp = useProjectsStore((s) => (endFramePath ? s.getAssetFingerprint(endFramePath) : null));
 
-  // 兄弟控件同步：设置行的两个按钮与选图器的提交入口共读这一个值。
+  // 兄弟控件同步：更换 / 选图器的提交入口共读这一个值。
   const controlsDisabled = unsupported || videoBusy || submitting || capsLoading || viewOnly;
+  // 清除不受「模型不支持」门控：清掉一张已设置的尾帧不需要模型支持该能力，
+  // 后端也未对 clear 做任何能力校验（纯本地资产删除），只有占用 / 在途 / 只读挡它。
+  const clearDisabled = videoBusy || submitting || capsLoading || viewOnly;
 
   // 灰化控件的 hover 原因。不支持是模型级的稳定原因，优先于临时性的占用 / 检查中。
-  const disabledHint = viewOnly
+  const chooseDisabledHint = viewOnly
     ? undefined
     : unsupported
       ? t("end_frame_unsupported_hint")
@@ -86,14 +94,26 @@ export function EndFrameRow({
         : capsLoading
           ? t("end_frame_capability_checking")
           : undefined;
+  const clearDisabledHint = viewOnly
+    ? undefined
+    : videoBusy
+      ? t("end_frame_busy_hint")
+      : capsLoading
+        ? t("end_frame_capability_checking")
+        : undefined;
 
   /**
    * 提交时刻复核最新禁用态：面板 / 选图器打开后能力可能已变为不支持，或本镜头
    * 可能已被入队，只查开窗时刻会留一个竞态窗口。命中则拒绝并给出可见反馈。
+   * `skipUnsupportedCheck` 供清除路径使用——清除不受模型能力门控。
    */
-  const rejectIfDisabled = (): boolean => {
-    if (unsupported) {
+  const rejectIfDisabled = (skipUnsupportedCheck = false): boolean => {
+    if (!skipUnsupportedCheck && unsupported) {
       useAppStore.getState().pushToast(t("end_frame_unsupported_hint"), "info");
+      return true;
+    }
+    if (videoUploadBusy) {
+      useAppStore.getState().pushToast(t("end_frame_busy_hint"), "info");
       return true;
     }
     const { tasks, optimisticActive } = useTasksStore.getState();
@@ -108,8 +128,12 @@ export function EndFrameRow({
     onSubmittingChange?.(value);
   };
 
-  const runWrite = async (action: () => Promise<unknown>, successKey: string) => {
-    if (rejectIfDisabled()) return;
+  const runWrite = async (
+    action: () => Promise<unknown>,
+    successKey: string,
+    skipUnsupportedCheck = false,
+  ) => {
+    if (rejectIfDisabled(skipUnsupportedCheck)) return;
     updateSubmitting(true);
     try {
       await action();
@@ -148,6 +172,7 @@ export function EndFrameRow({
     void runWrite(
       () => API.clearEndFrame(projectName, segmentId, scriptFile),
       "end_frame_clear_success",
+      true,
     );
 
   const previewUrl = endFramePath ? API.getFileUrl(projectName, endFramePath, fp) : null;
@@ -265,7 +290,7 @@ export function EndFrameRow({
                     setPickerOpen(true);
                   }}
                   disabled={controlsDisabled}
-                  title={disabledHint}
+                  title={chooseDisabledHint}
                   className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
                   style={{
                     border: "1px solid var(--color-hairline)",
@@ -279,8 +304,8 @@ export function EndFrameRow({
                   <button
                     type="button"
                     onClick={handleClear}
-                    disabled={controlsDisabled}
-                    title={disabledHint}
+                    disabled={clearDisabled}
+                    title={clearDisabledHint}
                     className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
                     style={{ color: "var(--color-text-3)" }}
                   >

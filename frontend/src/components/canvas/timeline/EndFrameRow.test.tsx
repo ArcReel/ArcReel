@@ -116,7 +116,7 @@ describe("EndFrameRow 三态摘要", () => {
     expect(getByRole("button", { name: "清除" })).toBeInTheDocument();
   });
 
-  it("last_frame 生效值为否时摘要为「模型不支持」，写入控件灰化并给出原因", async () => {
+  it("last_frame 生效值为否时摘要为「模型不支持」，更换灰化给出原因、清除仍可点", async () => {
     vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(false));
     const { getByRole, findByText } = renderRow({
       endFramePath: "end_frames/scene_E1S01.png",
@@ -126,12 +126,12 @@ describe("EndFrameRow 三态摘要", () => {
     fireEvent.click(getByRole("button", { name: /尾帧/ }));
     expect(getByRole("button", { name: /尾帧/ })).toHaveAttribute("aria-expanded", "true");
     await findByText(/当前视频模型不支持尾帧/);
-    // 灰化而非隐藏：两个写入控件都在位、都禁用，hover 提示给出模型级原因。
-    for (const name of ["更换图片", "清除"]) {
-      const btn = getByRole("button", { name });
-      expect(btn).toBeDisabled();
-      expect(btn).toHaveAttribute("title", expect.stringMatching(/当前视频模型不支持尾帧/));
-    }
+    // 灰化而非隐藏：更换在位且禁用，hover 提示给出模型级原因。
+    const replaceBtn = getByRole("button", { name: "更换图片" });
+    expect(replaceBtn).toBeDisabled();
+    expect(replaceBtn).toHaveAttribute("title", expect.stringMatching(/当前视频模型不支持尾帧/));
+    // 清除不受模型能力门控：清掉一张已设置的尾帧不需要模型支持该能力。
+    expect(getByRole("button", { name: "清除" })).toBeEnabled();
   });
 
   it("换模型后重新解析能力，门控随之更新", async () => {
@@ -304,6 +304,18 @@ describe("EndFrameRow 占用态", () => {
     await waitFor(() => {
       expect(clear).toHaveBeenCalledWith(PROJECT, SHOT, SCRIPT);
     });
+  });
+
+  it("视频卡手动上传在途时反向禁用本行写入控件", async () => {
+    const { getByRole, findByText } = renderRow({
+      endFramePath: "end_frames/scene_E1S01.png",
+      videoUploadBusy: true,
+    });
+    await findByText("已设置");
+
+    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    expect(getByRole("button", { name: "更换图片" })).toBeDisabled();
+    expect(getByRole("button", { name: "清除" })).toBeDisabled();
   });
 
   it("只读上下文不给写入入口", async () => {

@@ -868,6 +868,7 @@ export function ShotDetail({
             videoBackend={videoBackend}
             readOnly={refsReadOnly}
             onSubmittingChange={setEndFrameSubmitting}
+            videoUploadBusy={uploadingKind === "video"}
           />
         )}
         <MediaCard
