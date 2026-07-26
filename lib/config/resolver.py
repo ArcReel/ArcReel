@@ -32,8 +32,6 @@ from lib.config.service import (
     ConfigService,
 )
 from lib.custom_provider import is_custom_provider, parse_provider_id
-from lib.custom_provider.capabilities import synthesize_video_capabilities
-from lib.custom_provider.endpoints import endpoint_to_media_type
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project_manager import get_project_manager
@@ -669,6 +667,13 @@ class ConfigResolver:
         project: dict | None,
     ) -> dict:
         if is_custom_provider(provider_id):
+            # 延迟导入：``lib.custom_provider.{capabilities,endpoints}`` 依赖全部媒体 backend，而
+            # backend 又依赖 ``lib.config``，模块级导入会让 ``lib.config`` 反向依赖上层的自定义供应商
+            # 装配层。分层方向以 ``lib.config`` 为下层，故这条向上的边只在调用期建立；注册表分支
+            # 不用这两个符号，也就不必为它拉起整个装配层。
+            from lib.custom_provider.capabilities import synthesize_video_capabilities
+            from lib.custom_provider.endpoints import endpoint_to_media_type
+
             source = "custom"
             try:
                 db_pid = parse_provider_id(provider_id)
