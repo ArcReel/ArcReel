@@ -134,6 +134,22 @@ MESSAGES = {
     "endpoint_media_type_mismatch": "media_type của endpoint không khớp: {detail}",
     "backend_creation_failed": "Tạo backend thất bại: {err_msg}",
     "unsupported_discovery_format": "Kiểm tra kết nối không hỗ trợ với {discovery_format}",
+    "custom_model_not_found": "Không tìm thấy mô hình: {model_id}",
+    "capability_overrides_video_only": (
+        "Endpoint {endpoint} của mô hình {model_id} không phải loại video; không hỗ trợ ghi đè năng lực"
+    ),
+    "capability_override_unknown_key": "Ghi đè năng lực của mô hình {model_id} chứa năng lực không xác định: {capability}",
+    "capability_override_not_open": (
+        "Năng lực {capability} của mô hình {model_id} chưa mở cho ghi đè; hiện có thể ghi đè: {allowed}"
+    ),
+    "capability_override_invalid_value": (
+        "Năng lực {capability} của mô hình {model_id} có kiểu giá trị không hợp lệ; cần {expected}"
+    ),
+    "capability_override_last_frame_unsupported": (
+        "Endpoint {endpoint} của mô hình {model_id} không hỗ trợ tạo khung hình cuối; "
+        "không thể ghi đè last_frame thành true"
+    ),
+    "custom_model_concurrent_update": "Mô hình {model_id} đã bị sửa đổi đồng thời; vui lòng làm mới và thử lại",
     # Projects
     "unknown_style_template": "Mẫu phong cách không xác định: {template_id}",
     "ad_only_field": "{field} chỉ khả dụng cho dự án quảng cáo/video ngắn (content_mode=ad)",
@@ -225,6 +241,7 @@ MESSAGES = {
     "video_start_image_unreadable": "Ảnh khung hình đầu của mô hình {model} không đọc được; đã hủy tạo: {name}; hãy kiểm tra đường dẫn ảnh khung hình đầu",
     "video_end_image_unreadable": "Ảnh khung hình cuối của mô hình {model} không đọc được; đã hủy tạo: {name}; hãy kiểm tra đường dẫn ảnh khung hình cuối",
     "video_end_image_requires_start_image": "Mô hình {model} không hỗ trợ khung hình cuối độc lập; hãy cung cấp thêm khung hình đầu (chế độ khung đầu+cuối) hoặc bỏ khung hình cuối",
+    "video_last_frame_requires_pro": "{provider}/{model} chỉ hỗ trợ khung đầu+cuối ở gói pro; hãy chuyển sang gói pro hoặc bỏ khung hình cuối",
     # Agent credentials
     "agent_preset_unknown": "Nhà cung cấp đặt sẵn không xác định: {preset_id}",
     "agent_base_url_required_custom": "Cấu hình tuỳ chỉnh yêu cầu base_url",

@@ -11,6 +11,7 @@ import { useScrollTarget } from "@/hooks/useScrollTarget";
 import { errMsg } from "@/utils/async";
 import type { Character } from "@/types";
 import { GalleryEmptyState } from "./GalleryEmptyState";
+import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 
 interface Props {
   projectName: string;
@@ -21,9 +22,11 @@ interface Props {
   onRestoreCharacterVersion?: () => Promise<void> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingCharacterNames?: Set<string>;
+  /** 只读展示（引导演示项目）：不渲染新增 / 入库 / 生成 / 上传入口。 */
+  readOnly?: boolean;
 }
 
-export function CharactersPage({ projectName, characters, onSaveCharacter, onGenerateCharacter, onAddCharacter, onRestoreCharacterVersion, onRefreshProject, generatingCharacterNames }: Props) {
+export function CharactersPage({ projectName, characters, onSaveCharacter, onGenerateCharacter, onAddCharacter, onRestoreCharacterVersion, onRefreshProject, generatingCharacterNames, readOnly = false }: Props) {
   const { t } = useTranslation(["dashboard", "assets"]);
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -53,16 +56,18 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
       <GalleryToolbar
         title={t("dashboard:characters")}
         count={entries.length}
-        onAdd={() => setAdding(true)}
-        onPickFromLibrary={() => setPicking(true)}
+        onAdd={readOnly ? undefined : () => setAdding(true)}
+        onPickFromLibrary={readOnly ? undefined : () => setPicking(true)}
       />
-      <div className="px-5 py-5">
+      <div className="px-5 py-5" data-onboarding={ONBOARDING_ANCHORS.workbenchLorebook}>
         {entries.length === 0 ? (
           <GalleryEmptyState
             icon={<User className="h-6 w-6" />}
             label={t("dashboard:characters")}
-            hint={t("dashboard:no_characters_hint_clickable")}
-            onClick={() => setAdding(true)}
+            hint={t(
+              readOnly ? "dashboard:no_characters_hint" : "dashboard:no_characters_hint_clickable",
+            )}
+            onClick={readOnly ? undefined : () => setAdding(true)}
           />
         ) : (
           <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">
@@ -73,6 +78,7 @@ export function CharactersPage({ projectName, characters, onSaveCharacter, onGen
                 onRestoreVersion={onRestoreCharacterVersion}
                 onReload={onRefreshProject}
                 generating={generatingCharacterNames?.has(name)}
+                readOnly={readOnly}
               />
             ))}
           </div>

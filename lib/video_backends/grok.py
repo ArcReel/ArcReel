@@ -55,9 +55,18 @@ class GrokVideoBackend:
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
+    @staticmethod
+    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+        """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
+
+        当前全系模型能力一致，不按 model_id 分支；instance property 委托至此，
+        保持 backend 为单一真相源。
+        """
+        return VideoCapabilities(reference_images=True, max_reference_images=7)
+
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return VideoCapabilities(reference_images=True, max_reference_images=7)
+        return self.video_capabilities_for_model(self._model)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         # Grok 同步型 API，无 job_id 可接续；orphan handler 据 NotImplementedError 标 [resume_unsupported]

@@ -338,6 +338,94 @@ class TestModelManagement:
         result = await repo.update_model(999, display_name="Nope")
         assert result is None
 
+    @pytest.mark.integration
+    async def test_update_model_rejects_pk_reused_by_unrelated_row(self, session: AsyncSession):
+        """SQLite 整表删除重建会复用释放出的主键：模拟并发 PUT 用同一主键插入了一个业务上
+        完全不同的新模型，若只按主键匹配，更新会静默命中并污染这条无关的行；一并校验业务标识
+        （provider_id/model_id）后谓词应落空，正确返回 None 而不是误报更新成功。"""
+        from sqlalchemy import insert
+
+        from lib.db.models.custom_provider import CustomProviderModel
+
+        repo = CustomProviderRepository(session)
+        p = await repo.create_provider(
+            display_name="TestProvider",
+            discovery_format="openai",
+            base_url="https://example.com",
+            api_key="key",
+            models=[{"model_id": "gpt-4o", "display_name": "GPT-4o", "endpoint": "openai-chat"}],
+        )
+        await session.flush()
+        stale_id = (await repo.list_models(p.id))[0].id
+
+        # 模拟并发整表 PUT：删除旧行，用同一主键插入一个业务上无关的新模型
+        await repo.replace_models(p.id, [])
+        await session.execute(
+            insert(CustomProviderModel).values(
+                id=stale_id,
+                provider_id=p.id,
+                model_id="unrelated-model",
+                display_name="Unrelated",
+                endpoint="openai-chat",
+            )
+        )
+        await session.flush()
+
+        result = await repo.update_model(
+            stale_id, expect_provider_id=p.id, expect_model_id="gpt-4o", display_name="Hijacked"
+        )
+        assert result is None
+
+        untouched = (await repo.list_models(p.id))[0]
+        assert untouched.display_name == "Unrelated"
+
+    @pytest.mark.integration
+    async def test_update_model_rejects_endpoint_changed_by_concurrent_replace(self, session: AsyncSession):
+        """业务身份（provider_id/model_id）不变，但并发整表 PUT 把模型换到了另一个 endpoint：
+        仅按业务身份匹配仍会命中，调用方对旧 endpoint 校验过的字段会被写入新 endpoint 的行；
+        一并校验 expect_endpoint 后谓词应落空，正确返回 None 而不是把校验结果写错目标行。"""
+        from sqlalchemy import insert
+
+        from lib.db.models.custom_provider import CustomProviderModel
+
+        repo = CustomProviderRepository(session)
+        p = await repo.create_provider(
+            display_name="TestProvider",
+            discovery_format="openai",
+            base_url="https://example.com",
+            api_key="key",
+            models=[{"model_id": "seedance", "display_name": "Seedance", "endpoint": "ark-seedance"}],
+        )
+        await session.flush()
+        stale_id = (await repo.list_models(p.id))[0].id
+
+        # 模拟并发整表 PUT：删除旧行，用同一主键 + 同一业务 model_id 重建，但换到了
+        # 不支持覆盖字段的 endpoint（业务身份不变，只有 endpoint 变了）
+        await repo.replace_models(p.id, [])
+        await session.execute(
+            insert(CustomProviderModel).values(
+                id=stale_id,
+                provider_id=p.id,
+                model_id="seedance",
+                display_name="Seedance",
+                endpoint="openai-video",
+            )
+        )
+        await session.flush()
+
+        result = await repo.update_model(
+            stale_id,
+            expect_provider_id=p.id,
+            expect_model_id="seedance",
+            expect_endpoint="ark-seedance",
+            capability_overrides={"last_frame": True},
+        )
+        assert result is None
+
+        untouched = (await repo.list_models(p.id))[0]
+        assert untouched.endpoint == "openai-video"
+        assert untouched.capability_overrides is None
+
     async def test_delete_model(self, session: AsyncSession):
         repo = CustomProviderRepository(session)
         p = await repo.create_provider(

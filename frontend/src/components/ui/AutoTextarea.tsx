@@ -7,6 +7,8 @@ interface AutoTextareaProps {
   className?: string;
   id?: string;
   disabled?: boolean;
+  /** 只读展示：文本仍可选中复制，但不接受输入。 */
+  readOnly?: boolean;
   "aria-label"?: string;
   "aria-labelledby"?: string;
 }
@@ -19,6 +21,7 @@ export function AutoTextarea({
   className,
   id,
   disabled,
+  readOnly,
   "aria-label": ariaLabel,
   "aria-labelledby": ariaLabelledBy,
 }: AutoTextareaProps) {
@@ -31,6 +34,7 @@ export function AutoTextarea({
       aria-label={ariaLabel}
       aria-labelledby={ariaLabelledBy}
       disabled={disabled}
+      readOnly={readOnly}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onInput={resize}

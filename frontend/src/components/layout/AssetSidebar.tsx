@@ -18,6 +18,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useAppStore } from "@/stores/app-store";
 import { API } from "@/api";
+import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { EpisodeCard } from "./EpisodeCard";
 
 interface AssetSidebarProps {
@@ -57,12 +58,15 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
   const sourceFilesVersion = useAppStore((s) => s.sourceFilesVersion);
   const [sourceCount, setSourceCount] = useState<number>(0);
 
+  // 演示项目没有服务端侧数据，源文件计数跳过（导航与分集列表照常渲染）
+  const demoMode = useDemoWorkbench();
+
   useEffect(() => {
     if (currentProjectName) debouncedFetchCost(currentProjectName);
   }, [currentProjectName, debouncedFetchCost]);
 
   useEffect(() => {
-    if (!currentProjectName) return;
+    if (!currentProjectName || demoMode) return;
     let cancelled = false;
     API.listFiles(currentProjectName)
       .then((res) => {
@@ -74,7 +78,7 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
     return () => {
       cancelled = true;
     };
-  }, [currentProjectName, sourceFilesVersion]);
+  }, [currentProjectName, sourceFilesVersion, demoMode]);
 
   // Derive active episode from `/episodes/:id`
   const activeEp = useMemo(() => {
@@ -84,13 +88,18 @@ export function AssetSidebar({ className }: AssetSidebarProps) {
 
   const navItems: NavItem[] = [
     { key: "overview", path: "/", label: t("dashboard:workspace_nav_overview"), icon: LayoutDashboard },
-    {
-      key: "source",
-      path: "/source",
-      label: t("dashboard:workspace_nav_source"),
-      icon: BookOpen,
-      meta: sourceCount,
-    },
+    // 演示项目没有可切片的源文件，且后端不存在该项目，隐藏入口而非渲染必然报错的空页
+    ...(demoMode
+      ? []
+      : [
+          {
+            key: "source",
+            path: "/source",
+            label: t("dashboard:workspace_nav_source"),
+            icon: BookOpen,
+            meta: sourceCount,
+          },
+        ]),
     {
       key: "characters",
       path: "/characters",

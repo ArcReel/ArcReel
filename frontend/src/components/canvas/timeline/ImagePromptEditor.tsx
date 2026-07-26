@@ -10,12 +10,15 @@ import type { ImagePrompt, ShotType } from "@/types";
 interface ImagePromptEditorProps {
   prompt: ImagePrompt;
   onUpdate: (patch: Partial<ImagePrompt>) => void;
+  /** 只读展示（引导演示项目）：字段可读不可改。 */
+  readOnly?: boolean;
 }
 
 /** Structured editor for ImagePrompt fields with collapsible composition section. */
 export function ImagePromptEditor({
   prompt,
   onUpdate,
+  readOnly,
 }: ImagePromptEditorProps) {
   const { t } = useTranslation("dashboard");
   const [collapsed, setCollapsed] = useState(false);
@@ -25,6 +28,7 @@ export function ImagePromptEditor({
       <AutoTextarea
         value={prompt.scene}
         onChange={(v) => onUpdate({ scene: v })}
+        readOnly={readOnly}
         placeholder={t("image_prompt_placeholder")}
       />
 
@@ -47,6 +51,7 @@ export function ImagePromptEditor({
             value={prompt.composition.shot_type}
             options={SHOT_TYPES}
             renderOption={(v: ShotType) => t(SHOT_TYPE_I18N_KEYS[v])}
+            disabled={readOnly}
             onChange={(v: ShotType) =>
               onUpdate({
                 composition: { ...prompt.composition, shot_type: v },
@@ -61,6 +66,7 @@ export function ImagePromptEditor({
                 composition: { ...prompt.composition, lighting: v },
               })
             }
+            readOnly={readOnly}
             placeholder={t("lighting_placeholder")}
           />
           <CompactInput
@@ -71,6 +77,7 @@ export function ImagePromptEditor({
                 composition: { ...prompt.composition, ambiance: v },
               })
             }
+            readOnly={readOnly}
             placeholder={t("ambiance_placeholder")}
           />
         </div>

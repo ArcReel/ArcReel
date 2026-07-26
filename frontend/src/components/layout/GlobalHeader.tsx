@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageStore, type UsageStats } from "@/stores/usage-store";
 import { TaskHud } from "@/components/task-hud/TaskHud";
@@ -19,6 +20,7 @@ import { API } from "@/api";
 import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnosticsDialog";
 import { rememberAssetLibraryReturnTo } from "@/components/pages/AssetLibraryPage";
 import { costEntries, formatCostOrZero, formatCurrencyAmount } from "@/utils/cost-format";
+import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
 
 /** 通过隐藏 <a> 触发浏览器下载，避免 window.open 产生空白标签页 */
@@ -67,14 +69,31 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
   const runningCount = stats.running + stats.queued;
   const unreadNotificationCount = workspaceNotifications.filter((item) => !item.read).length;
 
+  // 演示项目在后端没有用量记录，按项目查会 404；退回全局用量，顶栏费用仍有值可显示
+  const demoMode = useDemoWorkbench();
+  const usageProjectName = demoMode ? null : currentProjectName;
+
+  // 导出弹窗打开期间切到演示项目（如浏览器前进/后退复用同一路由实例）时随即关闭——
+  // 触发按钮虽已按 demoMode 禁用，但已打开的弹窗不受影响，仍会展示可点击的导出/剪映草稿操作
+  useEffect(() => {
+    if (!demoMode) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 切入演示态时关闭已打开的导出弹窗，是有意的 UI 状态重置
+    setExportDialogOpen(false);
+  }, [demoMode]);
+
   const completedTaskCount = stats.succeeded + stats.failed;
   useEffect(() => {
-    API.getUsageStats(currentProjectName ? { projectName: currentProjectName } : {})
+    const controller = new AbortController();
+    API.getUsageStats(
+      usageProjectName ? { projectName: usageProjectName } : {},
+      { signal: controller.signal }
+    )
       .then((res) => {
         setUsageStats(res as unknown as UsageStats);
       })
       .catch(() => {});
-  }, [currentProjectName, completedTaskCount, setUsageStats]);
+    return () => controller.abort();
+  }, [usageProjectName, completedTaskCount, setUsageStats]);
 
   useEffect(() => {
     void fetchConfigStatus();
@@ -315,7 +334,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             <UsageDrawer
               open={usageDrawerOpen}
               onClose={() => setUsageDrawerOpen(false)}
-              projectName={currentProjectName}
+              projectName={usageProjectName}
               anchorRef={usageAnchorRef}
             />
           </div>
@@ -363,11 +382,15 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
           />
 
           {/* Export — accent CTA */}
-          <div className="relative" ref={exportAnchorRef}>
+          <div
+            className="relative"
+            ref={exportAnchorRef}
+            data-onboarding={ONBOARDING_ANCHORS.workbenchExport}
+          >
             <button
               type="button"
               onClick={() => setExportDialogOpen(!exportDialogOpen)}
-              disabled={!currentProjectName || exportingProject}
+              disabled={!currentProjectName || exportingProject || demoMode}
               className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors focus-ring disabled:cursor-not-allowed disabled:opacity-50"
               style={{
                 background:
@@ -376,7 +399,11 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
                 boxShadow:
                   "inset 0 1px 0 oklch(1 0 0 / 0.3), 0 0 0 1px oklch(0.55 0.10 295 / 0.4), 0 4px 14px -6px var(--color-accent-glow)",
               }}
-              title={t("dashboard:export_project_zip")}
+              title={
+                demoMode
+                  ? t("onboarding:demo_action_unavailable")
+                  : t("dashboard:export_project_zip")
+              }
               aria-label={t("dashboard:export_project_zip")}
             >
               {exportingProject ? (
@@ -429,7 +456,8 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
             type="button"
             onClick={() =>
               setLocation(
-                currentProjectName
+                // 演示项目没有项目级设置页可看，指向全局设置
+                currentProjectName && !demoMode
                   ? `~/app/projects/${encodeURIComponent(currentProjectName)}/settings`
                   : "~/app/settings",
               )

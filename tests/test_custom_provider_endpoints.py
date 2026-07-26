@@ -61,6 +61,7 @@ class TestRegistry:
             "image_capabilities": None,
             # 未声明的 endpoint cap 序列化为 None（resolver fallthrough 到 backend caps）
             "video_max_reference_images": None,
+            "end_image_capable": False,
         }
 
     def test_new_video_endpoints_have_unset_cap(self):

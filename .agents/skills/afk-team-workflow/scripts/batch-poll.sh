@@ -4,7 +4,7 @@
 # Sibling in spirit to pr-ai-review-loop/scripts/poll.sh: collect gh/git facts,
 # project them mechanically, and leave every semantic call to Claude. This script
 # answers "where does each issue physically sit on the remote, right now" so the
-# lead doesn't hand-expand sub-issues / rebuild the dependency graph each time it
+# team-lead doesn't hand-expand sub-issues / rebuild the dependency graph each time it
 # plans, runs a health check, or recovers a crashed batch.
 #
 # USAGE
@@ -16,7 +16,7 @@
 #
 # JSON SCHEMA
 # {
-#   "batch_id_hint": "spec-<N>" | null,       # spec-<N> for --spec; null for --issues (lead names that batch's slug)
+#   "batch_id_hint": "spec-<N>" | null,       # spec-<N> for --spec; null for --issues (team-lead names that batch's slug)
 #   "generated_for": {"spec": <N>} | {"issues": [<int>,...]},
 #   "issues": [
 #     {
@@ -24,7 +24,7 @@
 #       "title":           "<str>",
 #       "state":           "open" | "closed",
 #       "state_reason":    "completed" | "not_planned" | "reopened" | null,
-#       "labels":          ["<name>", ...],   # raw triage labels — lead applies ready-for-agent/-human policy, script does NOT
+#       "labels":          ["<name>", ...],   # raw triage labels — team-lead applies ready-for-agent/-human policy, script does NOT
 #       "blocked_by":      [<int>, ...],       # see "## Blocked by" parsing below; [] when the section starts with "None"
 #       "blockers_merged": <bool> | null,      # all blocked_by issues closed-as-completed; null when blocked_by is empty;
 #                                              # an unknown/unfetchable blocker counts as NOT merged (conservative)
@@ -60,14 +60,14 @@
 #   "None" prefix check is what defends against bodies like
 #   "None - can start immediately (prereqs #41/#42 already merged)" — those trailing #refs
 #   are merged context, not blockers, so a naive #N grep would wrongly capture them as deps.
-#   This is a documented-format projection, not open-ended NLP; the lead still reads each
+#   This is a documented-format projection, not open-ended NLP; the team-lead still reads each
 #   body (SKILL.md step 1) and overrides if a human wrote the section unconventionally.
 #
 # BOUNDARY (hold this line — crossing it turns a fact collector into a semantic judge)
 #   - Reports gh/git facts and mechanical roll-ups ONLY.
 #   - Does NOT judge whether a teammate is alive/stalled (no-branch is a remote fact, not a verdict).
 #   - Does NOT decide whether a PR should merge (merge_candidate is the mechanical "green & mergeable"
-#     signal; the merge decision stays with the lead, who also weighs the review-looper's report).
+#     signal; the merge decision stays with the team-lead, who also weighs the review-looper's report).
 #   - Does NOT drill into per-reviewer detail (that is poll.sh's job, one PR at a time).
 #   - Does NOT read the .afk ledger (the ledger is replayed by the recovery flow, not by this script).
 #
@@ -79,8 +79,8 @@
 #      and on MERGED PRs. A freshly pushed PR can miss merge_candidate for a poll or two — re-run.
 #   3. statusCheckRollup mixes CheckRun (status/conclusion) and StatusContext (state, e.g. CodeRabbit,
 #      license/cla). Both shapes are checked; metric-only contexts (codecov) count as real checks here,
-#      so a red codecov keeps a PR out of merge_candidate — the lead overrides knowing it is non-blocking.
-#   4. ready_to_start is dependency+stage only; it does NOT subtract ready-for-human. The lead intersects
+#      so a red codecov keeps a PR out of merge_candidate — the team-lead overrides knowing it is non-blocking.
+#   4. ready_to_start is dependency+stage only; it does NOT subtract ready-for-human. The team-lead intersects
 #      it with triage (SKILL.md step 2) — a needs-human issue can be "startable" by deps yet must be skipped.
 
 set -euo pipefail

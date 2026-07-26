@@ -16,6 +16,8 @@ export interface EndpointDescriptor {
   request_path_template: string;
   /** image 类 endpoint 填能力数组，其他媒体类型为 null。 */
   image_capabilities: ImageCap[] | null;
+  /** 执行层是否真的下传尾帧约束；仅 video 类有意义，其余恒为 false。 */
+  end_image_capable: boolean;
 }
 
 export interface CustomProviderInfo {
@@ -45,7 +47,22 @@ export interface CustomProviderModelInfo {
   currency: string | null;
   supported_durations: number[] | null;
   resolution: string | null;
+  /** 系统判定的视频能力（四字段全量）；非视频模型为 null。 */
+  system_capabilities: VideoCapabilityFlags | null;
+  /** 用户覆盖（稀疏），与 system_capabilities 合并即为生效值；无覆盖为 null。 */
+  capability_overrides: CapabilityOverrides | null;
 }
+
+/** 与后端 VideoCapabilities 字段对齐。 */
+export interface VideoCapabilityFlags {
+  first_frame: boolean;
+  last_frame: boolean;
+  reference_images: boolean;
+  max_reference_images: number;
+}
+
+/** 稀疏覆盖字典：键缺席 = 跟随系统判定。当前后端只开放 last_frame。 */
+export type CapabilityOverrides = Partial<VideoCapabilityFlags>;
 
 export interface DiscoveredModel {
   model_id: string;
@@ -91,6 +108,8 @@ export interface CustomProviderModelInput {
   currency?: string;
   supported_durations?: number[] | null;
   resolution?: string | null;
+  /** 保存模型列表是整体替换语义：省略该字段会清空已有覆盖，编辑既有模型时必须原样回传。 */
+  capability_overrides?: CapabilityOverrides | null;
 }
 
 export interface CustomProviderCredentials {

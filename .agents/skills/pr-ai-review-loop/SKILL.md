@@ -5,7 +5,7 @@ description: 无人值守驱动 PR 的 review → 修复 → push → 再 review
 
 # AI Review 自动循环
 
-本 skill 监控 reviewer 状态、必要时触发 review、收集评论转交 `receiving-code-review`。进入循环前:确认当前分支已有非 draft 的 PR(draft 时 CodeRabbit 默认不审;无 PR 时交用户决定是否创建,不代为提交),并通读 [references/reviewers.md](references/reviewers.md)——每轮判定(已审 / actionable / 通过)全部依赖其中的 per-reviewer 规则。
+本 skill 监控 reviewer 状态、必要时触发 review、收集评论并按 `receiving-code-review` 的纪律处置。进入循环前:确认当前分支已有非 draft 的 PR(draft 时 CodeRabbit 默认不审;无 PR 时交用户决定是否创建,不代为提交),并通读 [references/reviewers.md](references/reviewers.md)——每轮判定(已审 / actionable / 通过)全部依赖其中的 per-reviewer 规则。
 
 ## 目标状态
 
@@ -59,13 +59,18 @@ bash .agents/skills/pr-ai-review-loop/scripts/query.sh <PR_NUMBER> <子命令>
 
 执行完触发动作后,按「轮询节奏」表选择延迟,调用 `ScheduleWakeup`。
 
-### 步骤 3:收集评论并转交 receiving-code-review
+### 步骤 3:收集评论并实施修复
 
-按索引挑出本轮新 actionable 条目(判定见 reviewers.md),用 `query.sh details <id>...` 一次批量取全文;Gemini 最新 summary 的 `has_pass_marker == false` 时再取 `gemini-latest-body` 整段——某些建议仅出现在 summary 中,inline 部分为空。将所有 reviewer 的本轮新评论**合并为一次调用**,通过 Skill 工具调用 `receiving-code-review`——分家调用意味着多次 push,而每次 push 都会让全部 reviewer 重审一轮。
+按索引挑出本轮新 actionable 条目(判定见 reviewers.md),用 `query.sh details <id>...` 一次批量取全文;Gemini 最新 summary 的 `has_pass_marker == false` 时再取 `gemini-latest-body` 整段——某些建议仅出现在 summary 中,inline 部分为空。用 Skill 工具调用 `receiving-code-review` 取得评估与回复的纪律,把本轮所有 reviewer 的新评论**合并为一批处理**,处置完这一批后一次 push——分批处理意味着多次 push,而每次 push 都会让全部 reviewer 重审一轮。
 
-GitHub code scanning 两家(quality / security)的评论一并转交,处置口径(全部 actionable、修复与 pushback 落点)见 reviewers.md「GitHub code scanning bots」节。
+GitHub code scanning 两家(quality / security)的评论并入同一批,处置口径(全部 actionable、修复与 pushback 落点)见 reviewers.md「GitHub code scanning bots」节。
 
-`receiving-code-review` 调用完成后回到步骤 1。
+**修复形状**:下面两条与 `receiving-code-review` 逐条实施的要求冲突时以本节为准——逐条实施会把一批意见变成一批分散的小改动,累积下来持续降低代码的可修改性(ETC)。
+
+- **YAGNI**:对防御性意见(新增检查、兜底、try-except、默认值、空值分支),先确认它要防的失败路径是否真实存在,即能否指出一个具体的调用方或输入触发它。能指出就实施;不能指出就回复评论说明理由,不修改代码。两种处置都要用一句话记录这条路径:驳回的写在回复评论里,实施的写在 commit 说明里。`receiving-code-review` 的 `YAGNI Check` 一节检查的是静态未被调用的代码,这里检查的是运行时不可达的分支
+- **Duplicated Code**:先确认这批意见中有几条指向同一处逻辑或同一个根因。有两条以上时,在已有抽象内合并为一处改动
+
+这一批处置完并 push 后回到步骤 1。
 
 ## 轮询节奏
 
@@ -83,8 +88,8 @@ GitHub code scanning 两家(quality / security)的评论一并转交,处置口�
 
 下列任一条件触发退出:
 
-1. `round_estimate` ≥ 8 → 暂停询问"已 8 轮,merge / 继续 / 放弃?"
-2. 连续 2 轮 push 全为 nit / format 形状(跑 `classify_commits.sh` 看最近两批;口径故意比 fix-up 顺延的五类窄,typo / 单字段调整 / 小 bug 修复不算)→ 暂停询问"边际收益已降低,是否结束?"
+1. `round_estimate` ≥ 5 → 暂停询问"已 5 轮,merge / 继续 / 放弃?"
+2. 连续 2 轮 push 都没有产生实质收益 → 暂停询问"边际收益已降低,是否结束?"。实质收益有两种,占一种即算:**用户可感知的行为改善**(修掉一条真实可达的崩溃或错误路径算,哪怕形式上是一处防御),或**后续改动成本的下降**(消除重复、拆掉错误抽象、去掉不可达的防御分支)。按改动实际做了什么判断,不按它的标签——架构与 DRY 上的改善是要争取的收益,不因为用户看不见就算没收益。真正不算的是往复:风格与命名的口味调整、reviewer 之间的偏好差异、已驳回又换个说法重提的意见。证据跑 `classify_commits.sh` 看最近两批;它只给 commit 说明与文件行数统计,说明笼统或同一文件里内部逻辑与用户路径混在一起时,按输出的 `sha` 跑 `git show` 看改动本身。本条判断的是收益,fix-up 顺延的五类形状判断的是重审风险,两处口径不通用
 3. 同一主题(reviewer + 关键词,例如 "Pydantic `extra=ignore` vs `forbid`")被同一家 reviewer 在 ≥ 3 个 HEAD 上反复提出,且无 ADR / memory 兜底 → 暂停询问是否升级 ADR。新评论似曾相识时跑 `query.sh <PR> history` 通读评论历史,按语义归并主题,数同一主题出现在几个 HEAD 上
 4. 目标状态全部达成 → 正常退出,按 [references/retrospective.md](references/retrospective.md) 产出复盘随汇报交出(何种出口产复盘以该文件开篇为准)
 
@@ -100,4 +105,4 @@ GitHub code scanning 两家(quality / security)的评论一并转交,处置口�
 - **`codeql_checks.failing` 非空**(失败态集合见 poll.sh header `checks_failing` 条):分析失败,alerts 数据停留在上次成功分析,不能做终核;询问是否重跑失败的 workflow
 - **`security_alerts.available == false`**:贴出 `unavailable_hint`,按 reviewers.md「仓库未接入」段判别权限问题与未接入——两种情形都需用户确认,不得自动跳过 security 门槛
 - **`gh` 401/403**:请用户运行 `gh auth refresh -s repo`
-- **review 评论语义模糊**,`receiving-code-review` 无法判定是否 pushback:贴出原文请用户定夺
+- **review 评论语义模糊**,按 `receiving-code-review` 的纪律仍无法判定是否 pushback:贴出原文请用户定夺

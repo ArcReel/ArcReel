@@ -21,9 +21,11 @@ interface Props {
   onRestorePropVersion?: () => Promise<void> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingPropNames?: Set<string>;
+  /** 只读展示（引导演示项目）：不渲染新增 / 入库 / 生成 / 上传入口。 */
+  readOnly?: boolean;
 }
 
-export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, onAddProp, onRestorePropVersion, onRefreshProject, generatingPropNames }: Props) {
+export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, onAddProp, onRestorePropVersion, onRefreshProject, generatingPropNames, readOnly = false }: Props) {
   const { t } = useTranslation(["dashboard", "assets"]);
   const [adding, setAdding] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -53,16 +55,16 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
       <GalleryToolbar
         title={t("dashboard:props")}
         count={entries.length}
-        onAdd={() => setAdding(true)}
-        onPickFromLibrary={() => setPicking(true)}
+        onAdd={readOnly ? undefined : () => setAdding(true)}
+        onPickFromLibrary={readOnly ? undefined : () => setPicking(true)}
       />
       <div className="px-5 py-5">
         {entries.length === 0 ? (
           <GalleryEmptyState
             icon={<Package className="h-6 w-6" />}
             label={t("dashboard:props")}
-            hint={t("dashboard:no_props_hint_clickable")}
-            onClick={() => setAdding(true)}
+            hint={t(readOnly ? "dashboard:no_props_hint" : "dashboard:no_props_hint_clickable")}
+            onClick={readOnly ? undefined : () => setAdding(true)}
           />
         ) : (
           <div className="grid justify-evenly gap-4 [grid-template-columns:repeat(auto-fill,320px)]">
@@ -73,6 +75,7 @@ export function PropsPage({ projectName, props, onUpdateProp, onGenerateProp, on
                 onRestoreVersion={onRestorePropVersion}
                 onReload={onRefreshProject}
                 generating={generatingPropNames?.has(name)}
+                readOnly={readOnly}
               />
             ))}
           </div>

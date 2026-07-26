@@ -59,4 +59,9 @@ describe("MediaCard upload", () => {
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');
     expect(input?.accept).toContain(".mp4");
   });
+
+  it("disables the generate CTA when a sibling upload is in flight (uploadDisabled)", () => {
+    const { getByRole } = renderCard({ onGenerate: vi.fn(), uploadDisabled: true });
+    expect(getByRole("button", { name: /生成分镜/ })).toBeDisabled();
+  });
 });

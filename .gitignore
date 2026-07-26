@@ -58,6 +58,7 @@ CLAUDE.local.md
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+*.tsbuildinfo
 
 # Git backup
 .git.backup

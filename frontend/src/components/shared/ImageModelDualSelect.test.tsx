@@ -16,6 +16,7 @@ const ENDPOINT_FIXTURE: EndpointDescriptor[] = [
     request_method: "POST",
     request_path_template: "/v1/images/{generations,edits}",
     image_capabilities: ["text_to_image", "image_to_image"],
+    end_image_capable: false,
   },
   {
     key: "openai-images-generations",
@@ -25,6 +26,7 @@ const ENDPOINT_FIXTURE: EndpointDescriptor[] = [
     request_method: "POST",
     request_path_template: "/v1/images/generations",
     image_capabilities: ["text_to_image"],
+    end_image_capable: false,
   },
   {
     key: "openai-images-edits",
@@ -34,6 +36,7 @@ const ENDPOINT_FIXTURE: EndpointDescriptor[] = [
     request_method: "POST",
     request_path_template: "/v1/images/edits",
     image_capabilities: ["image_to_image"],
+    end_image_capable: false,
   },
 ];
 
@@ -63,6 +66,8 @@ const CUSTOM_PROVIDERS: CustomProviderInfo[] = [
         currency: null,
         supported_durations: null,
         resolution: null,
+        system_capabilities: null,
+        capability_overrides: null,
       },
       {
         id: 2,
@@ -77,6 +82,8 @@ const CUSTOM_PROVIDERS: CustomProviderInfo[] = [
         currency: null,
         supported_durations: null,
         resolution: null,
+        system_capabilities: null,
+        capability_overrides: null,
       },
       {
         id: 3,
@@ -91,6 +98,8 @@ const CUSTOM_PROVIDERS: CustomProviderInfo[] = [
         currency: null,
         supported_durations: null,
         resolution: null,
+        system_capabilities: null,
+        capability_overrides: null,
       },
     ],
   },
