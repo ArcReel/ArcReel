@@ -81,6 +81,10 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
     if parts[0] == "generated_assets":
         # patch 是纯字段 setter，资产生命周期与剧本编辑解耦（见 ADR-0003）。
         raise ScriptEditError("patch_episode_script 不可改 generated_assets；资产的生成/重生是独立的显式动作")
+    if parts[0] == "end_frame_image":
+        # 尾帧字段的值是本服务写出的快照相对路径，只由尾帧设置/清除端点写入。放行 patch
+        # 会让原样写入的任意字符串绕过快照复制，重新引入悬空引用与越界路径。
+        raise ScriptEditError("patch_episode_script 不可改 end_frame_image；尾帧的设置/清除是独立的显式动作")
     if parts[0] in {"segment_id", "scene_id", "unit_id", "shot_id"}:
         # patch 不可改分镜 id：id 由 insert/split 从锚点派生，结构校验不查 id 唯一性，
         # agent 改 id 后会让其他依赖 id 定位的 helper（update_scene_asset 等）回写到错误分镜
@@ -119,8 +123,8 @@ def patch_field(script: dict[str, Any], item_id: str, field_path: str, value: An
 def insert_segment(script: dict[str, Any], after_id: str, new_item: dict[str, Any]) -> dict[str, Any]:
     """在 ``after_id`` 之后插入一个新分镜，分配派生自锚点 id 的稳定新 id。
 
-    新分镜的 id 字段被强制改写为 ``{after_id}_{k}``（唯一），``generated_assets`` 清空。
-    其余字段由 agent 提供，结构是否合法由写盘统一入口校验。
+    新分镜的 id 字段被强制改写为 ``{after_id}_{k}``（唯一），``generated_assets`` 与
+    ``end_frame_image`` 清空。其余字段由 agent 提供，结构是否合法由写盘统一入口校验。
     """
     if not isinstance(new_item, dict):
         raise ScriptEditError("new_item 必须是对象")
@@ -129,6 +133,8 @@ def insert_segment(script: dict[str, Any], after_id: str, new_item: dict[str, An
     item = deepcopy(new_item)
     item[id_field] = _next_suffixed_id(str(after_id), _existing_ids(items, id_field))
     item["generated_assets"] = {}
+    # 尾帧快照按镜头 id 命名，新 id 名下还没有快照；agent 自带的值只会指向别人的快照或空路径。
+    item.pop("end_frame_image", None)
     items.insert(idx + 1, item)
     return script
 
@@ -144,10 +150,10 @@ def remove_segment(script: dict[str, Any], item_id: str) -> dict[str, Any]:
 def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
     """把 ``item_id`` 分镜按 agent 提供的各部分内容拆成多个。
 
-    首个部分保留原 id 且**保留** ``generated_assets`` 不清空——视为"锚点延续",与
-    ``insert_segment`` 的锚点资产不动语义对齐(同族结构操作,资产作废粒度统一)。其余 parts
-    取 ``{item_id}_{k}`` 后缀的新 id 且清空 ``generated_assets``(身份变化,旧资产无归属,
-    退回 pending 待重生)。agent 想微调原分镜内容请用 ``patch_episode_script`` 改字段,
+    首个部分保留原 id 且**保留** ``generated_assets`` 与 ``end_frame_image`` 不清空——视为
+    "锚点延续",与 ``insert_segment`` 的锚点资产不动语义对齐(同族结构操作,资产作废粒度统一)。
+    其余 parts 取 ``{item_id}_{k}`` 后缀的新 id 且清空 ``generated_assets`` 与
+    ``end_frame_image``(身份变化,旧资产无归属,退回 pending 待重生)。agent 想微调原分镜内容请用 ``patch_episode_script`` 改字段,
     用 split 时锚点资产被保留是为了避免误用一次 split 把已生成的图/视频全部失效。
 
     reference 模式下各 unit 的 ``duration_seconds`` 须与其 ``shots`` 总时长一致——由写盘
@@ -160,6 +166,7 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
     items, id_field, _ = resolve_items(script)
     idx = _find_index(items, id_field, item_id)
     anchor_assets = items[idx].get("generated_assets")
+    anchor_end_frame = items[idx].get("end_frame_image")
 
     taken = _existing_ids(items, id_field)
     new_parts: list[dict[str, Any]] = []
@@ -183,11 +190,18 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
                         type(anchor_assets).__name__,
                     )
                 part["generated_assets"] = {}
+            # 尾帧同锚点延续：以原分镜实际值为准，不让 agent 在 parts[0] 凭空改写快照路径。
+            if anchor_end_frame is None:
+                part.pop("end_frame_image", None)
+            else:
+                part["end_frame_image"] = anchor_end_frame
         else:
             new_id = _next_suffixed_id(str(item_id), taken)
             taken.add(new_id)
             part[id_field] = new_id
             part["generated_assets"] = {}
+            # 新 id 名下没有快照，agent 自带的值只会指向锚点的快照。
+            part.pop("end_frame_image", None)
         new_parts.append(part)
 
     items[idx : idx + 1] = new_parts

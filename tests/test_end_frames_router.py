@@ -15,6 +15,7 @@ from PIL import Image
 from lib.data_validator import DataValidator
 from lib.project_manager import ProjectManager
 from lib.script_editor import ScriptEditError
+from lib.version_manager import VersionManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import end_frames
@@ -201,6 +202,28 @@ class TestSnapshotDecoupling:
         # 源图重生成（内容与尺寸都变）后再删除，模拟版本回滚 / 资源清理
         _write_source_image(pm, source_rel, _img_bytes("PNG", size=(24, 24), color=(0, 0, 255)))
         (pm.get_project_path("demo") / source_rel).unlink()
+
+        assert snapshot.read_bytes() == before
+        assert _segment(pm)["end_frame_image"] == END_FRAME_REL
+
+    def test_source_version_rollback_leaves_end_frame_intact(self, client):
+        """源图回滚到旧版本后已定尾帧不变——尾帧存的是快照路径，与源图的版本轴无关。"""
+        c, pm = client
+        source_rel = "storyboards/scene_E1S02.png"
+        source_abs = pm.get_project_path("demo") / source_rel
+        vm = VersionManager(pm.get_project_path("demo"))
+
+        _write_source_image(pm, source_rel, _img_bytes("PNG", size=(12, 12), color=(255, 0, 0)))
+        vm.add_version("storyboards", "E1S02", "v1", source_file=source_abs)
+        _select(c, source_rel)
+
+        snapshot = pm.get_project_path("demo") / END_FRAME_REL
+        before = snapshot.read_bytes()
+
+        # 源图重生成为 v2，再回滚到 v1
+        _write_source_image(pm, source_rel, _img_bytes("PNG", size=(24, 24), color=(0, 0, 255)))
+        vm.add_version("storyboards", "E1S02", "v2", source_file=source_abs)
+        vm.restore_version("storyboards", "E1S02", 1, source_abs)
 
         assert snapshot.read_bytes() == before
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
