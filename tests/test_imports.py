@@ -3,9 +3,7 @@
 参数化遍历 lib/ 与 server/ 下核心子模块，每个 importlib.import_module 一次。
 任何循环依赖、缺失依赖、顶层副作用崩溃都会在此红。
 
-同进程遍历只能发现"任何顺序都炸"的环；只在特定模块作为首个导入时才触发的环，会被先前
-用例留在 ``sys.modules`` 里的缓存掩盖。故另有 :func:`test_module_imports_first_in_fresh_process`
-在全新解释器里逐个验证首位导入。
+同进程遍历有其盲区，:func:`test_module_imports_first_in_fresh_process` 补上，理由见该函数。
 """
 
 from __future__ import annotations
@@ -21,6 +19,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # 核心子模块白名单。新增包时请在此追加（而不是用 pkgutil.walk_packages，
 # 以避免意外拉起 lib.i18n.zh/en 的翻译数据包和 alembic.versions 迁移脚本）。
+# 参与 lib.config ↔ lib.custom_provider 互引的模块另需登记 FIRST_IMPORT_MODULES。
 MODULES = [
     # lib 顶层单文件模块
     "lib.ark_shared",
@@ -74,8 +73,7 @@ MODULES = [
 ]
 
 
-# 首位导入必须成立的模块：``lib.config`` ↔ ``lib.custom_provider`` ↔ 各媒体 backend 三者
-# 相互引用，环只在特定模块打头时才显形，故逐个在全新解释器里验证。
+# 首位导入必须成立的模块，逐个在全新解释器里验证（理由见用例 docstring）。
 FIRST_IMPORT_MODULES = [
     "lib.config",
     "lib.config.resolver",
@@ -94,7 +92,7 @@ def test_module_imports_cleanly(module_name: str) -> None:
     importlib.import_module(module_name)
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 @pytest.mark.parametrize("module_name", FIRST_IMPORT_MODULES)
 def test_module_imports_first_in_fresh_process(module_name: str) -> None:
     """该模块作为解释器里第一个被导入的项目模块时也能成功。
@@ -104,11 +102,17 @@ def test_module_imports_first_in_fresh_process(module_name: str) -> None:
     冒烟遍历因 ``sys.modules`` 已被前序用例填热而看不见。全新子进程是唯一能钉住"任意顺序
     均可独立导入"的手段。
     """
-    result = subprocess.run(
-        [sys.executable, "-c", f"import {module_name}"],
-        cwd=str(_REPO_ROOT),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", f"import {module_name}"],
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        # 导入期的阻塞式副作用（网络、锁等待）正是本用例要拦的形态之一，超时须显式转红，
+        # 而不是把 CI job 挂满时限。
+        pytest.fail(f"{module_name} 首位导入超时，疑似存在阻塞式顶层副作用")
     assert result.returncode == 0, f"{module_name} 无法作为首个导入：\n{result.stderr}"
