@@ -76,10 +76,10 @@ class TestSynthesize:
     def test_missing_key_follows_system(self):
         """字典存在但缺某键 → 该维度跟随系统判定，其余键照常覆盖。"""
         caps = synthesize_video_capabilities(
-            endpoint="ark-seedance", model_id="doubao-seedance-1-0-pro-fast-251015", overrides={"last_frame": True}
+            endpoint="ark-seedance", model_id="doubao-seedance-1-0-pro-fast-251015", overrides={"first_frame": False}
         )
-        assert caps.last_frame is True
-        assert caps.first_frame is True
+        assert caps.first_frame is False
+        assert caps.last_frame is False
         assert caps.max_reference_images == 0
 
     @pytest.mark.unit
