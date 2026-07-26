@@ -9,12 +9,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import asdict
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.api_errors import BadRequestError
@@ -57,8 +57,16 @@ DiscoveryFormatLiteral = Literal["openai", "google"]
 MaxWorkers = Annotated[int | None, Field(default=None, ge=1)]
 
 # 开放给用户覆盖的能力维度。DB 列与合成函数对 VideoCapabilities 全字段通用，写入侧在此收窄：
-# 未列入的维度即便是合法字段名也拒收，扩容只需往这里加键名，无需 DB 迁移或改合成语义。
+# 未列入的维度即便是合法字段名也不落库，扩容只需往这里加键名，无需 DB 迁移或改合成语义。
 CAPABILITY_OVERRIDE_ALLOWLIST = frozenset({"last_frame"})
+
+# 白名单必须是 VideoCapabilities 字段名的子集：值类型校验直接按字段名取期望类型，键名写错
+# 要在导入期炸掉，而不是等到一次真实写入才 KeyError 成 500。
+if not CAPABILITY_OVERRIDE_ALLOWLIST <= CAPABILITY_OVERRIDE_FIELDS.keys():
+    raise RuntimeError(
+        f"能力覆盖白名单含非 VideoCapabilities 字段: "
+        f"{sorted(CAPABILITY_OVERRIDE_ALLOWLIST - set(CAPABILITY_OVERRIDE_FIELDS))}"
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +118,23 @@ class ModelInput(BaseModel):
     # 稀疏覆盖字典，键名对齐 VideoCapabilities 字段名；None 或键缺席 = 跟随系统判定。
     # 保存模型列表是整体替换语义，本字段必须随列表回传，否则存量覆盖被清空。
     capability_overrides: dict[str, object] | None = None
+
+    @field_validator("capability_overrides")
+    @classmethod
+    def _keep_open_capabilities_only(cls, value: dict[str, object] | None) -> dict[str, object] | None:
+        """静默剔除开放白名单外的覆盖键，空字典收敛为 None。
+
+        白名单外的键只能由手工改库产生：界面既不显示也没有入口能删，写入侧若为此报错，用户
+        会被堵在一个自己无法处置的 422 上，连改显示名都保存不了。剔除即这类键的唯一出口，
+        落库的覆盖字典因此只含当前开放的维度。剔除对用户静默，但落一条 warning：这是数据被
+        丢弃的唯一痕迹，运维排查"我改的库值怎么没了"时需要它。
+        """
+        if not value:
+            return None
+        kept = {k: v for k, v in value.items() if k in CAPABILITY_OVERRIDE_ALLOWLIST}
+        if dropped := sorted(value.keys() - kept.keys()):
+            logger.warning("能力覆盖含未开放键，保存时已剔除: %s", ", ".join(dropped))
+        return kept or None
 
     def to_db_dict(self) -> dict:
         """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。
@@ -192,16 +217,6 @@ class ModelResponse(BaseModel):
     system_capabilities: dict[str, object] | None = None
     # 用户覆盖（稀疏字典），与 system_capabilities 平凡合并即为生效值。
     capability_overrides: dict[str, object] | None = None
-
-
-class CapabilityOverridesRequest(BaseModel):
-    """单模型能力覆盖写入体：携带完整覆盖字典，整体替换存量（非逐键 merge）。
-
-    字段无默认值——必须显式传 null 或字典才表示"整体替换"；请求体缺失该键（如拼写错误、
-    序列化遗漏）会被 Pydantic 拒为 422，而不是静默当作 null 把已有覆盖清空。
-    """
-
-    capability_overrides: dict[str, object] | None
 
 
 class ProviderResponse(BaseModel):
@@ -365,10 +380,10 @@ def _check_capability_overrides(
     model_id: str,
     _t: Callable[..., str],
 ) -> None:
-    """写入侧白名单校验：合成函数对脏值只降级不抛，合法性把关全在这里。
+    """写入侧校验：合成函数对脏值只降级不抛，合法性把关全在这里。
 
-    None 与空字典都表示"全部跟随系统判定"，一律放行。非空字典要求 endpoint 为 video 类，
-    且每个键都是 VideoCapabilities 字段、在开放白名单内、值类型与该字段一致。
+    None 与空字典都表示"全部跟随系统判定"，一律放行。键集合已由 ``ModelInput`` 收窄到开放
+    白名单内，此处校验其余维度：非空覆盖要求 endpoint 为 video 类，值类型与该能力字段一致。
     """
     if not overrides:
         return
@@ -378,22 +393,7 @@ def _check_capability_overrides(
             detail=_t("capability_overrides_video_only", model_id=model_id, endpoint=endpoint),
         )
     for key, value in overrides.items():
-        expected = CAPABILITY_OVERRIDE_FIELDS.get(key)
-        if expected is None:
-            raise HTTPException(
-                status_code=422,
-                detail=_t("capability_override_unknown_key", model_id=model_id, capability=key),
-            )
-        if key not in CAPABILITY_OVERRIDE_ALLOWLIST:
-            raise HTTPException(
-                status_code=422,
-                detail=_t(
-                    "capability_override_not_open",
-                    model_id=model_id,
-                    capability=key,
-                    allowed=", ".join(sorted(CAPABILITY_OVERRIDE_ALLOWLIST)),
-                ),
-            )
+        expected = CAPABILITY_OVERRIDE_FIELDS[key]
         # 值类型判定复用合成层的同一函数：两边各写一份会漂移，届时写入侧放行的值被合成
         # 静默忽略，正是本能力覆盖链路要消灭的「界面允许、执行反悔」。
         if not capability_value_matches(value, expected):
@@ -419,29 +419,15 @@ def _check_capability_overrides(
             )
 
 
-def _check_model_capability_overrides(
-    models: list[ModelInput],
-    _t: Callable[..., str],
-    *,
-    stored_state: Mapping[str, tuple[str, object | None]] | None = None,
-) -> None:
-    """对整批模型逐个跑覆盖白名单校验（保存模型列表的写入路径，设置页表单的覆盖编辑也走这里）。
+def _check_model_capability_overrides(models: list[ModelInput], _t: Callable[..., str]) -> None:
+    """对整批模型逐个跑覆盖校验（保存模型列表的写入路径，设置页表单的覆盖编辑也走这里）。
 
-    ``stored_state`` 传入时按 model_id 对照当前落库的 ``(endpoint, capability_overrides)``：
-    两者都未变更才跳过白名单校验——校验结果本就是 endpoint 相关的（白名单本身不区分 endpoint，
-    但 last_frame=True 还要求 endpoint 的 end_image_capable；non-video endpoint 直接拒绝非空
-    覆盖），只比对覆盖值而不比对 endpoint 会让「model_id 不变、覆盖字典不变、endpoint 悄悄换了」
-    的整表 PUT 绕过针对新 endpoint 的校验。未变更即跳过，是因为 GET 回显不按白名单过滤
-    （``filter_valid_overrides`` 只做结构性校验），前端会把历史行 / 非 API 写入产生的、已不在
-    开放白名单内但结构合法的覆盖值原样带回：对这类未经用户改动的值也从严校验，用户连改个显示名
-    都会被拒绝，且没有入口能清掉它。用户真的改动了某行的覆盖或 endpoint 时，该行按当前白名单从严
-    校验。
+    每行都按提交上来的 ``(endpoint, 覆盖值)`` 校验：覆盖是否合法随 endpoint 变化
+    （last_frame=True 要求 endpoint 的 end_image_capable，非 video endpoint 直接拒绝非空覆盖），
+    故覆盖字典原样不动、只切 endpoint 的整表 PUT 同样要按新 endpoint 重新判定。开放白名单外的
+    键不会走到这里——``ModelInput`` 已在解析期把它们剔除。
     """
-    stored_state = stored_state or {}
     for m in models:
-        stored = stored_state.get(m.model_id)
-        if stored is not None and stored == (m.endpoint, m.capability_overrides):
-            continue
         _check_capability_overrides(m.capability_overrides, m.endpoint, m.model_id, _t)
 
 
@@ -641,10 +627,8 @@ async def full_update_provider(
     """原子更新供应商元数据 + 模型列表（单一事务）。"""
     _check_duplicate_model_ids(body.models, _t)
     _check_unique_defaults(body.models, _t)
+    _check_model_capability_overrides(body.models, _t)
     repo = CustomProviderRepository(session)
-    old_models = await repo.list_models(provider_id)
-    stored_state = {m.model_id: (m.endpoint, m.capability_overrides) for m in old_models}
-    _check_model_capability_overrides(body.models, _t, stored_state=stored_state)
     kwargs: dict = {
         "display_name": body.display_name,
         "base_url": body.base_url,
@@ -713,15 +697,13 @@ async def replace_models(
     """替换供应商的整个模型列表。"""
     _check_duplicate_model_ids(body.models, _t)
     _check_unique_defaults(body.models, _t)
+    _check_model_capability_overrides(body.models, _t)
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    # 记录旧模型 ID，用于清理悬空引用；同时对照旧 (endpoint, 覆盖值) 判定白名单校验是否可跳过
-    old_models = await repo.list_models(provider_id)
-    old_model_ids = {m.model_id for m in old_models}
-    stored_state = {m.model_id: (m.endpoint, m.capability_overrides) for m in old_models}
-    _check_model_capability_overrides(body.models, _t, stored_state=stored_state)
+    # 记录旧模型 ID，用于清理悬空引用
+    old_model_ids = {m.model_id for m in await repo.list_models(provider_id)}
     new_model_ids = {m.model_id for m in body.models}
     deleted_model_ids = old_model_ids - new_model_ids
 
@@ -744,58 +726,6 @@ async def replace_models(
     await session.commit()
     await _invalidate_caches(request)
     return [_model_to_response(m) for m in new_models]
-
-
-@router.patch("/{provider_id}/models/{model_id:path}/capability-overrides", response_model=ModelResponse)
-async def update_model_capability_overrides(
-    provider_id: int,
-    model_id: str,
-    body: CapabilityOverridesRequest,
-    request: Request,
-    _user: CurrentUser,
-    _t: Translator,
-    session: AsyncSession = Depends(get_async_session),
-) -> ModelResponse:
-    """整体替换单个模型的能力覆盖字典。
-
-    请求体携带完整覆盖字典（不是逐键 patch）：省略某键即该维度回到跟随系统判定，传 None 或
-    空字典即清空全部覆盖。走单模型端点而非重发整张模型列表，设置页切一个三态控件不必回传
-    其余模型，也不触碰列表的整体替换语义。
-    """
-    repo = CustomProviderRepository(session)
-    model = await repo.get_model_by_ids(provider_id, model_id)
-    if model is None:
-        raise HTTPException(status_code=404, detail=_t("custom_model_not_found", model_id=model_id))
-
-    overrides = body.capability_overrides
-    _check_capability_overrides(overrides, model.endpoint, model_id, _t)
-    # 空字典与 None 都表示"全部跟随"，统一落 NULL，避免 DB 里出现两种等价表示。
-    # 按行首查到的旧主键（model.id）更新：并发的整表 PUT（replace_models）会先删后按同一
-    # model_id 重建新行，旧主键随之失效。update_model 返回 None 即命中该竞态——此时旧主键已
-    # 不存在，写入根本没有落到任何行，须回 409 而非静默按更新成功处理。一并传入业务标识
-    # （provider_id/model_id）：SQLite 整表删除重建会复用释放出的主键，仅按主键匹配可能命中
-    # 业务上无关的新行，一并校验业务标识可挡住这类静默写错模型。再传入校验时读到的旧 endpoint
-    # （model.endpoint）：业务身份不变但并发 PUT 把模型换到了另一个 endpoint 时，上面的校验是
-    # 针对旧 endpoint 做的，若不核对 endpoint 是否仍一致，写入会落到一个校验结果并不适用的行。
-    if (
-        await repo.update_model(
-            model.id,
-            expect_provider_id=provider_id,
-            expect_model_id=model_id,
-            expect_endpoint=model.endpoint,
-            capability_overrides=overrides or None,
-        )
-        is None
-    ):
-        raise HTTPException(status_code=409, detail=_t("custom_model_concurrent_update", model_id=model_id))
-    await session.commit()
-    await _invalidate_caches(request)
-
-    updated = await repo.get_model_by_ids(provider_id, model_id)
-    # 刚更新成功，行必然存在；理论上并发删除可致 None，此时按 404 语义回报而非 500。
-    if updated is None:
-        raise HTTPException(status_code=404, detail=_t("custom_model_not_found", model_id=model_id))
-    return _model_to_response(updated)
 
 
 # ---------------------------------------------------------------------------
