@@ -435,6 +435,60 @@ class TestPersistFailureRestoresSnapshot:
         # 回滚跳过：文件保持并发清除后的「已删除」结果，没有被旧字节重新写回制造孤儿文件
         assert not snapshot.exists()
 
+    @pytest.mark.integration
+    def test_set_failure_skips_restore_when_concurrent_takeover_uses_other_alias(self, client, monkeypatch):
+        """Codex 指出的别名归一问题：本次失败操作用 `scripts/episode_1.json` 这个别名，
+        代次键若不归一化会与并发接管（用 `episode_1.json` 归一后的键）各自生成一把代次，
+        互相看不见——回滚会误判「无人接手」，用旧字节覆盖对方已成功落盘的内容。"""
+        c, pm = client
+        snapshot = pm.get_project_path("demo") / END_FRAME_REL
+        normalized_key = ("demo", "episode_1.json", "E1S01")
+        concurrent_bytes = _img_bytes("PNG", size=(48, 48))
+
+        _fail_first_persist(monkeypatch)
+        _inject_concurrent_takeover_before_nth_load(monkeypatch, normalized_key, snapshot, concurrent_bytes, n=3)
+
+        resp = c.post(
+            "/api/v1/projects/demo/shots/E1S01/end-frame/upload?script_file=scripts/episode_1.json",
+            files={"file": ("f.png", BytesIO(_img_bytes("PNG", size=(16, 16))), "application/octet-stream")},
+        )
+        assert resp.status_code == 500
+
+        # 未归一化则代次键不同，回滚会看不到接管、用旧字节覆盖并发写入的新内容
+        assert snapshot.read_bytes() == concurrent_bytes
+
+    @pytest.mark.integration
+    def test_set_failure_restore_uses_bytes_read_inside_critical_section(self, client, monkeypatch):
+        """Codex 指出的陈旧基线问题：`old_bytes` 若在取得剧本锁之前预读，读到的是「进入
+        临界区之前」而非「进入临界区那一刻」的文件内容。这里不推进代次，只在本次操作
+        自己的 `load_script` 调用（进入临界区的时点）直接改写文件——代次检查不会拦截
+        （因为没有别的操作声称接管），能否回滚出这份改写后的内容，才真正区分基线是在
+        锁内读还是锁外预读：锁外预读会读到改写前的旧内容，回滚会把改写后的内容覆盖掉。"""
+        c, pm = client
+        _upload(c, _img_bytes("PNG", size=(8, 8)))
+        snapshot = pm.get_project_path("demo") / END_FRAME_REL
+
+        original_load_script = ProjectManager.load_script
+        calls = {"n": 0}
+        content_at_critical_section_entry = _img_bytes("PNG", size=(56, 56))
+
+        def _load_with_rewrite(self, *args, **kwargs):
+            calls["n"] += 1
+            # load 序列：_locate_shot(1) → 本次失败操作自己的 locked_script(2)
+            if calls["n"] == 2:
+                snapshot.write_bytes(content_at_critical_section_entry)
+            return original_load_script(self, *args, **kwargs)
+
+        monkeypatch.setattr(ProjectManager, "load_script", _load_with_rewrite)
+        _fail_first_persist(monkeypatch)
+
+        resp = _upload(c, _img_bytes("PNG", size=(16, 16)))
+        assert resp.status_code == 500
+
+        # 基线在临界区内读取，读到的就是这份改写后的内容，回滚据此还原；
+        # 若基线在锁外预读，读到的是改写前的旧内容，回滚会把这份改写覆盖掉
+        assert snapshot.read_bytes() == content_at_critical_section_entry
+
 
 class TestErrorMapping:
     """领域错误到 HTTP 的映射：三个端点行为一致，不泄漏服务器路径。"""

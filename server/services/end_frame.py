@@ -21,6 +21,13 @@ mid-flight 被删除而失败时跳过整段写回，不留半截状态。
 成功与否，只要有人在本次失败到回滚重新过锁之间进入过临界区，代次必然前移，据此可靠判定
 是否跳过。孤儿快照文件（如进程在文件写完、锁释放前被杀）仍可能残留，无害，与 storyboards
 现状一致，不做清理机制。
+
+代次键须按 `ProjectManager` 内部同款规则归一化剧本文件名（见 `_normalize_script_file`）——
+`episode_1.json` 与 `scripts/episode_1.json` 是同一剧本的合法别名，不归一的话两个别名各自
+生成一把代次键，用不同别名操作同一镜头的并发请求就互相看不见。回滚基线（`old_bytes`）须在
+取得剧本锁之后、mutation 之前读取，不能在锁外预读——锁外预读的话，若本次操作前还有一次
+并发写入抢先成功落盘，读到的就是比"操作前"更早的陈旧内容，失败时会用它覆盖那次已成功的
+写入，即便代次判定本身没有问题。
 """
 
 from __future__ import annotations
@@ -60,6 +67,17 @@ def _advance_shot_generation(key: _ShotKey) -> int:
         generation = _shot_generations.get(key, 0) + 1
         _shot_generations[key] = generation
         return generation
+
+
+def _normalize_script_file(script_file: str) -> str:
+    """按 `ProjectManager.locked_script`/`_script_lock` 同款规则归一化剧本文件名。
+
+    `episode_1.json` 与 `scripts/episode_1.json` 是指向同一剧本的合法别名，
+    `ProjectManager` 内部按此规则归一到同一把文件锁；代次键若直接用调用方传入的原始
+    字符串，两个别名会各自生成一把代次键，互相看不见对方——两个并发请求分别用不同别名
+    操作同一镜头时，失败一方的补偿据此误判「无人接手」，用旧字节覆盖对方已成功落盘的内容。
+    """
+    return script_file[len("scripts/") :] if script_file.startswith("scripts/") else script_file
 
 
 class EndFrameError(Exception):
@@ -147,15 +165,21 @@ def _write_snapshot_and_field(
 
     剧本持久化失败（校验/落盘异常）时把快照文件还原成操作前状态——否则字段写入
     虽被回滚，快照文件的旧内容已被静默替换，调用方收到失败响应却看不出内容已丢失。
+    读旧字节须在取得剧本锁之后、写入之前——锁外预读的话，若排在本次操作之前还有一次
+    并发写入抢先成功落盘，预读到的就是比"操作前"更早的陈旧内容，失败时会用它把那次
+    已成功的写入覆盖掉。
     """
     manager = get_project_manager()
-    key = (project_name, script_file, shot_id)
-    old_bytes = target.read_bytes() if target.exists() else None
-    generation = _current_shot_generation(key)
+    key = (project_name, _normalize_script_file(script_file), shot_id)
+    generation = 0
+    old_bytes: bytes | None = None
+    entered = False
     try:
         with project_change_source("webui"):
             with manager.locked_script(project_name, script_file) as script:
                 generation = _advance_shot_generation(key)
+                entered = True
+                old_bytes = target.read_bytes() if target.exists() else None
                 items, id_field, _, _, _ = get_storyboard_items(script)
                 matched = find_storyboard_item(items, id_field, shot_id)
                 if matched is None:
@@ -165,7 +189,8 @@ def _write_snapshot_and_field(
     except EndFrameError:
         raise
     except BaseException:
-        _restore_after_persist_failure(manager, project_name, script_file, target, old_bytes, key, generation)
+        if entered:
+            _restore_after_persist_failure(manager, project_name, script_file, target, old_bytes, key, generation)
         raise
 
 
@@ -173,16 +198,20 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
     """在剧本锁临界区内完成「置空字段 + 删快照文件」，与设置操作互斥。
 
     剧本持久化失败时把已删除的快照文件恢复——否则字段清空虽被回滚（仍指向原路径），
-    快照文件已被删除，重新落回悬空引用。
+    快照文件已被删除，重新落回悬空引用。读旧字节须在取得剧本锁之后、删除之前，理由
+    同 `_write_snapshot_and_field`。
     """
     manager = get_project_manager()
-    key = (project_name, script_file, shot_id)
-    old_bytes = target.read_bytes() if target.exists() else None
-    generation = _current_shot_generation(key)
+    key = (project_name, _normalize_script_file(script_file), shot_id)
+    generation = 0
+    old_bytes: bytes | None = None
+    entered = False
     try:
         with project_change_source("webui"):
             with manager.locked_script(project_name, script_file) as script:
                 generation = _advance_shot_generation(key)
+                entered = True
+                old_bytes = target.read_bytes() if target.exists() else None
                 items, id_field, _, _, _ = get_storyboard_items(script)
                 matched = find_storyboard_item(items, id_field, shot_id)
                 if matched is None:
@@ -192,7 +221,8 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
     except EndFrameError:
         raise
     except BaseException:
-        _restore_after_persist_failure(manager, project_name, script_file, target, old_bytes, key, generation)
+        if entered:
+            _restore_after_persist_failure(manager, project_name, script_file, target, old_bytes, key, generation)
         raise
 
 
