@@ -68,7 +68,7 @@ import type {
   UpdateAgentCredentialRequest,
 } from "@/types/agent-credential";
 import { getToken, clearToken } from "@/utils/auth";
-import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
+import { isDemoProject } from "@/onboarding/demo-project";
 import i18n from "./i18n";
 
 // ==================== Helper types ====================
@@ -363,7 +363,7 @@ function isReadOnlyGateBlocking(endpoint: string): boolean {
   if (!apiReadOnly) return false;
   if (READ_ONLY_GATE_EXEMPT_ENDPOINTS.has(endpoint)) return false;
   const projectName = extractProjectName(endpoint);
-  return projectName === null || projectName === DEMO_PROJECT_NAME;
+  return projectName === null || isDemoProject(projectName);
 }
 
 function withAuth(endpoint: string, options: RequestInit = {}): RequestInit {

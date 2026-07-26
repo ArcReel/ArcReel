@@ -8,6 +8,7 @@ import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { selectActiveResourceIds, selectHasActiveTaskForScriptFile, useTasksStore } from "@/stores/tasks-store";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
+import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import type { AdEpisodeScript, EpisodeScript, ProjectData } from "@/types";
 
 vi.mock("./OverviewCanvas", () => ({
@@ -364,6 +365,27 @@ describe("StudioCanvasRouter", () => {
     await waitFor(() => {
       expect(screen.queryByText("加载中...")).not.toBeInTheDocument();
     });
+  });
+
+  it("skips the provider/system-config lookups in the demo workbench", async () => {
+    const providersSpy = vi.spyOn(API, "getProviders");
+    const customProvidersSpy = vi.spyOn(API, "listCustomProviders");
+    const systemConfigSpy = vi.spyOn(API, "getSystemConfig");
+
+    useProjectsStore.setState({
+      currentProjectName: DEMO_PROJECT_NAME,
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    renderAt("/episodes/1");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
+    });
+    expect(providersSpy).not.toHaveBeenCalled();
+    expect(customProvidersSpy).not.toHaveBeenCalled();
+    expect(systemConfigSpy).not.toHaveBeenCalled();
   });
 
   it("shows EpisodeSourceReview instead of TimelineCanvas when an episode has no script and no draft", () => {

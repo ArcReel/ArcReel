@@ -100,6 +100,8 @@ export function StudioCanvasRouter() {
   >(undefined);
 
   useEffect(() => {
+    // 这三份数据只服务视频时长选项；演示态时长选择器是静态展示，取回来也用不上
+    if (demoMode) return;
     let disposed = false;
     Promise.all([getProviderModels(), getCustomProviderModels(), API.getSystemConfig()]).then(
       ([provList, customList, configRes]) => {
@@ -110,7 +112,7 @@ export function StudioCanvasRouter() {
       },
     ).catch(() => {});
     return () => { disposed = true; };
-  }, []);
+  }, [demoMode]);
 
   // 已配置 backend 时本地 lookup 即可（同步、零延迟）；未配置时调后端
   // /video-capabilities，让 ConfigResolver 自动 fallback 到 PROVIDER_REGISTRY
@@ -700,32 +702,24 @@ export function StudioCanvasRouter() {
                     projectName={currentProjectName}
                     episode={epNum}
                     episodeTitle={episode?.title}
-                    onSaveTitle={
-                      demoMode ? undefined : (title) => handleUpdateEpisodeTitle(epNum, title)
-                    }
-                    canEditTitle={Boolean(episode?.script_file) && !demoMode}
+                    // 演示态的只读由 TimelineCanvas 直读判定收口，这里只表达非演示态的固有约束
+                    onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
+                    canEditTitle={Boolean(episode?.script_file)}
                     hasDraft={hasDraft}
                     episodeScript={script}
-                    // 演示态不给 scriptFile：分镜卡的上传入口以它为开关，缺省即整块不渲染
-                    scriptFile={demoMode ? undefined : (scriptFile ?? undefined)}
+                    scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={effectiveDurationOptions}
-                    onUpdatePrompt={demoMode ? undefined : handleUpdatePrompt}
-                    onMoveShot={isAd && !demoMode ? handleMoveShot : undefined}
+                    onUpdatePrompt={handleUpdatePrompt}
+                    onMoveShot={isAd ? handleMoveShot : undefined}
                     onGenerateStoryboard={
-                      adReference || demoMode ? undefined : voidPromise(handleGenerateStoryboard)
+                      adReference ? undefined : voidPromise(handleGenerateStoryboard)
                     }
-                    onGenerateVideo={
-                      adReference || demoMode ? undefined : voidPromise(handleGenerateVideo)
-                    }
-                    onGenerateNarration={
-                      demoMode ? undefined : voidPromise(handleGenerateNarration)
-                    }
-                    onGenerateEpisodeNarration={
-                      demoMode ? undefined : voidPromise(handleGenerateEpisodeNarration)
-                    }
-                    onRestoreStoryboard={demoMode ? undefined : handleRestoreAsset}
-                    onRestoreVideo={demoMode ? undefined : handleRestoreAsset}
+                    onGenerateVideo={adReference ? undefined : voidPromise(handleGenerateVideo)}
+                    onGenerateNarration={voidPromise(handleGenerateNarration)}
+                    onGenerateEpisodeNarration={voidPromise(handleGenerateEpisodeNarration)}
+                    onRestoreStoryboard={handleRestoreAsset}
+                    onRestoreVideo={handleRestoreAsset}
                   />
                 )}
               </div>

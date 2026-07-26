@@ -1,5 +1,7 @@
 import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
+import { useProjectsStore } from "@/stores/projects-store";
 import { MediaCard } from "./MediaCard";
 
 function renderCard(props: Partial<Parameters<typeof MediaCard>[0]> = {}) {
@@ -63,5 +65,44 @@ describe("MediaCard upload", () => {
   it("disables the generate CTA when a sibling upload is in flight (uploadDisabled)", () => {
     const { getByRole } = renderCard({ onGenerate: vi.fn(), uploadDisabled: true });
     expect(getByRole("button", { name: /生成分镜/ })).toBeDisabled();
+  });
+});
+
+describe("MediaCard in the demo workbench", () => {
+  afterEach(() => {
+    useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+  });
+
+  // 四个入口的回调/开关全部给足：只有演示态判定本身能把它们关掉
+  function renderCardWithAllEntries() {
+    return renderCard({
+      assetPath: "storyboards/E1S01_v1.png",
+      onUpload: vi.fn(),
+      onRestore: vi.fn(),
+      onGenerate: vi.fn(),
+      editScriptFile: "episode_1.json",
+    });
+  }
+
+  it("hides the write entries and the version entry from the same judgement", () => {
+    useProjectsStore.setState({ currentProjectName: DEMO_PROJECT_NAME });
+
+    const { container, queryByRole } = renderCardWithAllEntries();
+
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+    expect(queryByRole("button", { name: /版本/ })).toBeNull();
+    expect(queryByRole("button", { name: /编辑/ })).toBeNull();
+    expect(queryByRole("button", { name: /重新生成分镜/ })).toBeNull();
+  });
+
+  it("keeps all four entries outside the demo workbench", () => {
+    useProjectsStore.setState({ currentProjectName: "demo" });
+
+    const { container, getByRole } = renderCardWithAllEntries();
+
+    expect(container.querySelector('input[type="file"]')).not.toBeNull();
+    expect(getByRole("button", { name: /版本/ })).toBeInTheDocument();
+    expect(getByRole("button", { name: /编辑/ })).toBeInTheDocument();
+    expect(getByRole("button", { name: /重新生成分镜/ })).toBeInTheDocument();
   });
 });

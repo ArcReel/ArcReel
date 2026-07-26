@@ -1,7 +1,9 @@
 import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
+import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import { useCostStore } from "@/stores/cost-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./TimelineCanvas";
 import type { NarrationEpisodeScript, ProjectData } from "@/types";
@@ -10,10 +12,24 @@ vi.mock("./ScriptReviewGate", () => ({
   ScriptReviewGate: () => <div data-testid="script-review-gate" />,
 }));
 vi.mock("./ShotSplitView", () => ({
-  ShotSplitView: () => <div data-testid="shot-split-view" />,
+  ShotSplitView: ({
+    onUpdatePrompt,
+    onGenerateNarration,
+  }: {
+    onUpdatePrompt?: unknown;
+    onGenerateNarration?: unknown;
+  }) => (
+    <div
+      data-testid="shot-split-view"
+      data-can-update-prompt={onUpdatePrompt ? "yes" : "no"}
+      data-can-generate-narration={onGenerateNarration ? "yes" : "no"}
+    />
+  ),
 }));
 vi.mock("./EpisodeHeader", () => ({
-  EpisodeHeader: () => <div data-testid="episode-header" />,
+  EpisodeHeader: ({ canEditTitle }: { canEditTitle?: boolean }) => (
+    <div data-testid="episode-header" data-can-edit-title={canEditTitle ? "yes" : "no"} />
+  ),
 }));
 vi.mock("./AdReferenceUnitsPanel", () => ({
   AdReferenceUnitsPanel: () => <div data-testid="ad-reference-units-panel" />,
@@ -119,5 +135,55 @@ describe("TimelineCanvas", () => {
     );
 
     expect(screen.getByText("请在左侧选择剧集")).toBeInTheDocument();
+  });
+
+  describe("in the demo workbench", () => {
+    afterEach(() => {
+      useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+    });
+
+    // 写回调一律给足：只有演示态判定本身能把它们作废
+    function renderWithAllWriteHandlers() {
+      return render(
+        <TimelineCanvas
+          projectName={DEMO_PROJECT_NAME}
+          episode={1}
+          hasDraft
+          episodeScript={makeScript()}
+          scriptFile="scripts/episode_1.json"
+          projectData={makeProjectData()}
+          onUpdatePrompt={vi.fn()}
+          onMoveShot={vi.fn()}
+          onGenerateNarration={vi.fn()}
+          onGenerateEpisodeNarration={vi.fn()}
+          onSaveTitle={vi.fn()}
+          canEditTitle
+        />,
+      );
+    }
+
+    it("passes no write handlers down and drops the batch narration entry", () => {
+      useProjectsStore.setState({ currentProjectName: DEMO_PROJECT_NAME });
+
+      renderWithAllWriteHandlers();
+
+      const shotView = screen.getByTestId("shot-split-view");
+      expect(shotView).toHaveAttribute("data-can-update-prompt", "no");
+      expect(shotView).toHaveAttribute("data-can-generate-narration", "no");
+      expect(screen.getByTestId("episode-header")).toHaveAttribute("data-can-edit-title", "no");
+      expect(screen.queryByRole("button", { name: /生成全集旁白/ })).toBeNull();
+    });
+
+    it("keeps the same write handlers outside the demo workbench", () => {
+      useProjectsStore.setState({ currentProjectName: "demo" });
+
+      renderWithAllWriteHandlers();
+
+      const shotView = screen.getByTestId("shot-split-view");
+      expect(shotView).toHaveAttribute("data-can-update-prompt", "yes");
+      expect(shotView).toHaveAttribute("data-can-generate-narration", "yes");
+      expect(screen.getByTestId("episode-header")).toHaveAttribute("data-can-edit-title", "yes");
+      expect(screen.getByRole("button", { name: /生成全集旁白/ })).toBeInTheDocument();
+    });
   });
 });

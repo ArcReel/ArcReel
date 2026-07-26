@@ -67,6 +67,18 @@ describe("read-only demo mode", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("blocks the demo project under any casing, matching isDemoProject", async () => {
+    // 闸门与 isDemoProject 必须同一口径：后者大小写不敏感，闸门若做精确比较，
+    // 大小写不同的演示项目名就会被判成「另一个真实项目」而放行写请求
+    await expect(
+      API.request(`/projects/${DEMO_PROJECT_NAME.toUpperCase()}/characters/hero`, {
+        method: "PATCH",
+        body: "{}",
+      }),
+    ).rejects.toThrow(ReadOnlyModeError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("does not treat a project literally named 'import' as project-less", async () => {
     // ProjectManager.normalize_project_name 允许 "import" 作为合法项目名，归档导入
     // 也会直接采用该名——只有精确的 /projects/import 静态归档端点本身该被排除，
