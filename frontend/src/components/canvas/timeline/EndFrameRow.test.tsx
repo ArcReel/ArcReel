@@ -1,6 +1,7 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { TaskItem, VideoCapabilities } from "@/types";
@@ -213,6 +214,82 @@ describe("EndFrameRow 占用态", () => {
     });
     await waitFor(() => {
       expect(refreshProject).toHaveBeenCalledWith(PROJECT);
+    });
+  });
+
+  it("选图器打开后能力变为不支持：提交时刻复核并拒绝", async () => {
+    const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(true));
+    const select = vi.spyOn(API, "selectEndFrame");
+    const { getByRole, findByText, findByRole, rerender } = renderRow();
+    await findByText("未设置");
+
+    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: "选择图片" }));
+    fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
+
+    // 打开选图器之后能力才被判定为不支持——只查开窗时刻会漏掉这个窗口
+    spy.mockResolvedValue(caps(false));
+    rerender(
+      <EndFrameRow
+        projectName={PROJECT}
+        segmentId={SHOT}
+        scriptFile={SCRIPT}
+        contentMode="narration"
+        aspectRatio="9:16"
+        endFramePath={null}
+        videoBackend="ark"
+      />,
+    );
+    await findByText("模型不支持");
+
+    fireEvent.click(getByRole("button", { name: "设为尾帧" }));
+    await waitFor(() => {
+      expect(select).not.toHaveBeenCalled();
+    });
+  });
+
+  it("写入成功但刷新项目失败：提示刷新失败而非写入失败", async () => {
+    refreshProject.mockResolvedValueOnce(false);
+    vi
+      .spyOn(API, "selectEndFrame")
+      .mockResolvedValue({ success: true, end_frame_image: "end_frames/scene_E1S01.png" });
+    const { getByRole, findByText, findByRole } = renderRow();
+    await findByText("未设置");
+
+    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: "选择图片" }));
+    fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
+    fireEvent.click(getByRole("button", { name: "设为尾帧" }));
+
+    await waitFor(() => {
+      expect(useAppStore.getState().toast?.text).toMatch(/页面数据刷新失败/);
+    });
+  });
+
+  it("提交在途状态经 onSubmittingChange 回传父级", async () => {
+    let resolveSelect: (v: { success: boolean; end_frame_image: string }) => void = () => {};
+    vi.spyOn(API, "selectEndFrame").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSelect = resolve;
+        }),
+    );
+    const onSubmittingChange = vi.fn();
+    const { getByRole, findByText, findByRole } = renderRow({ onSubmittingChange });
+    await findByText("未设置");
+
+    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: "选择图片" }));
+    fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
+    fireEvent.click(getByRole("button", { name: "设为尾帧" }));
+
+    await waitFor(() => {
+      expect(onSubmittingChange).toHaveBeenCalledWith(true);
+    });
+
+    resolveSelect({ success: true, end_frame_image: "end_frames/scene_E1S01.png" });
+    await waitFor(() => {
+      expect(onSubmittingChange).toHaveBeenCalledWith(false);
     });
   });
 

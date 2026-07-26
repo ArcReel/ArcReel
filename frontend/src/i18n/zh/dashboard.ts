@@ -1516,6 +1516,7 @@ export default {
   'end_frame_set_success': '已设置镜头 {{id}} 的尾帧。',
   'end_frame_clear_success': '已清除镜头 {{id}} 的尾帧。',
   'end_frame_action_failed': '尾帧未能更新：{{message}}',
+  'end_frame_refresh_failed': '已保存，但页面数据刷新失败，请刷新页面查看最新结果。',
   'end_frame_picker_title': '选择尾帧',
   'end_frame_picker_eyebrow': 'END FRAME',
   'end_frame_picker_upload': '上传',

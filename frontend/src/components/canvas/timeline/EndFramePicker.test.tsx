@@ -165,6 +165,18 @@ describe("EndFramePicker 上传通道", () => {
     expect(getByRole("button", { name: /设置中/ })).toBeDisabled();
   });
 
+  it("禁用态（能力不支持 / 占用）下上传与确认不可点，取消仍可点", async () => {
+    const { getByRole, findByRole, findByText } = renderPicker({ disabled: true });
+    await findByText("本集分镜图");
+
+    const cell = await findByRole("button", { name: /镜头 E1S01/ });
+    fireEvent.click(cell);
+
+    expect(getByRole("button", { name: /上传/ })).toBeDisabled();
+    expect(getByRole("button", { name: "设为尾帧" })).toBeDisabled();
+    expect(getByRole("button", { name: "取消" })).toBeEnabled();
+  });
+
   it("宫格接口失败不阻断其余分组", async () => {
     vi.spyOn(API, "listGrids").mockRejectedValue(new Error("boom"));
     const { findByText, queryByText } = renderPicker();

@@ -388,6 +388,7 @@ export function ShotDetail({
   );
   const [saving, setSaving] = useState(false);
   const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
+  const [endFrameSubmitting, setEndFrameSubmitting] = useState(false);
 
   const handleUpload = async (kind: "storyboard" | "video", file: File) => {
     // 单镜头同时只允许一个上传：两张卡写同一后端资源族，避免并发覆写
@@ -856,7 +857,7 @@ export function ShotDetail({
         generateDisabledHint={dirty ? dirtyHint : undefined}
       />
       <div className="flex flex-col">
-        {scriptFile && (
+        {scriptFile && onGenerateVideo && (
           <EndFrameRow
             projectName={projectName}
             segmentId={segmentId}
@@ -866,6 +867,7 @@ export function ShotDetail({
             endFramePath={segment.end_frame_image ?? null}
             videoBackend={videoBackend}
             readOnly={refsReadOnly}
+            onSubmittingChange={setEndFrameSubmitting}
           />
         )}
         <MediaCard
@@ -885,7 +887,7 @@ export function ShotDetail({
             scriptFile && !refsReadOnly ? (file) => handleUpload("video", file) : undefined
           }
           uploading={uploadingKind === "video"}
-          uploadDisabled={uploadingKind !== null}
+          uploadDisabled={uploadingKind !== null || endFrameSubmitting}
         />
       </div>
       {contentMode === "narration" && (

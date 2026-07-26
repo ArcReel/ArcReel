@@ -1516,6 +1516,7 @@ export default {
   'end_frame_set_success': 'End frame set for shot {{id}}.',
   'end_frame_clear_success': 'End frame cleared for shot {{id}}.',
   'end_frame_action_failed': 'Could not update the end frame: {{message}}',
+  'end_frame_refresh_failed': 'Saved, but the page failed to refresh — reload to see the latest result.',
   'end_frame_picker_title': 'Choose an end frame',
   'end_frame_picker_eyebrow': 'END FRAME',
   'end_frame_picker_upload': 'Upload',

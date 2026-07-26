@@ -37,6 +37,8 @@ interface EndFramePickerProps {
   onPickUpload: (file: File) => void;
   /** 设置请求在途：禁用确认，避免重复提交。 */
   submitting?: boolean;
+  /** 弹窗打开后禁用态发生变化（如能力被判定为不支持、本镜头被入队）：与提交在途一并禁用写入通道。 */
+  disabled?: boolean;
 }
 
 /**
@@ -55,7 +57,9 @@ export function EndFramePicker({
   onPickProjectImage,
   onPickUpload,
   submitting = false,
+  disabled = false,
 }: EndFramePickerProps) {
+  const writeDisabled = submitting || disabled;
   const { t } = useTranslation("dashboard");
   const titleId = useId();
   const [selected, setSelected] = useState<PickableImage | null>(null);
@@ -196,7 +200,7 @@ export function EndFramePicker({
         />
         <SecondaryButton
           size="sm"
-          disabled={submitting}
+          disabled={writeDisabled}
           onClick={() => fileRef.current?.click()}
         >
           <Upload className="h-3.5 w-3.5" aria-hidden />
@@ -260,7 +264,7 @@ export function EndFramePicker({
         </SecondaryButton>
         <PrimaryButton
           size="sm"
-          disabled={!selected || submitting}
+          disabled={!selected || writeDisabled}
           onClick={() => selected && onPickProjectImage(selected.path)}
         >
           {submitting ? t("end_frame_picker_submitting") : t("end_frame_picker_confirm")}

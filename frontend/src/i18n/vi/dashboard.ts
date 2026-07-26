@@ -1512,6 +1512,7 @@ export default {
   'end_frame_set_success': 'Đã đặt khung hình cuối cho cảnh {{id}}.',
   'end_frame_clear_success': 'Đã xóa khung hình cuối của cảnh {{id}}.',
   'end_frame_action_failed': 'Không cập nhật được khung hình cuối: {{message}}',
+  'end_frame_refresh_failed': 'Đã lưu, nhưng làm mới trang thất bại — hãy tải lại trang để xem kết quả mới nhất.',
   'end_frame_picker_title': 'Chọn khung hình cuối',
   'end_frame_picker_eyebrow': 'END FRAME',
   'end_frame_picker_upload': 'Tải lên',

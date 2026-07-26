@@ -28,6 +28,8 @@ interface EndFrameRowProps {
   videoBackend?: string | null;
   /** 只读上下文（如剧本不可编辑时）：仅展示，不给写入入口。 */
   readOnly?: boolean;
+  /** 提交在途状态回传：供父级同步禁用同卡片的视频生成 / 上传 / 恢复控件。 */
+  onSubmittingChange?: (submitting: boolean) => void;
 }
 
 /**
@@ -51,6 +53,7 @@ export function EndFrameRow({
   endFramePath,
   videoBackend,
   readOnly = false,
+  onSubmittingChange,
 }: EndFrameRowProps) {
   const { t } = useTranslation("dashboard");
   const panelId = useId();
@@ -85,10 +88,14 @@ export function EndFrameRow({
           : undefined;
 
   /**
-   * 提交时刻复核最新占用态：面板 / 选图器打开后本镜头可能已被入队，
-   * 只查打开时刻会留一个竞态窗口。忙则拒绝并给出可见反馈。
+   * 提交时刻复核最新禁用态：面板 / 选图器打开后能力可能已变为不支持，或本镜头
+   * 可能已被入队，只查开窗时刻会留一个竞态窗口。命中则拒绝并给出可见反馈。
    */
-  const rejectIfBusy = (): boolean => {
+  const rejectIfDisabled = (): boolean => {
+    if (unsupported) {
+      useAppStore.getState().pushToast(t("end_frame_unsupported_hint"), "info");
+      return true;
+    }
     const { tasks, optimisticActive } = useTasksStore.getState();
     const active = selectActiveResourceIds(tasks, "video", projectName, optimisticActive);
     if (!active.has(segmentId)) return false;
@@ -96,21 +103,32 @@ export function EndFrameRow({
     return true;
   };
 
+  const updateSubmitting = (value: boolean) => {
+    setSubmitting(value);
+    onSubmittingChange?.(value);
+  };
+
   const runWrite = async (action: () => Promise<unknown>, successKey: string) => {
-    if (rejectIfBusy()) return;
-    setSubmitting(true);
+    if (rejectIfDisabled()) return;
+    updateSubmitting(true);
     try {
       await action();
-      // 快照路径固定、换图原地覆盖，须重取项目数据拿新的资产指纹才能 cache-bust。
-      await useProjectsStore.getState().refreshProject(projectName);
-      setPickerOpen(false);
-      useAppStore.getState().pushToast(t(successKey, { id: segmentId }), "success");
     } catch (err) {
       useAppStore
         .getState()
         .pushToast(t("end_frame_action_failed", { message: errMsg(err) }), "error");
+      return;
     } finally {
-      setSubmitting(false);
+      updateSubmitting(false);
+    }
+    setPickerOpen(false);
+    useAppStore.getState().pushToast(t(successKey, { id: segmentId }), "success");
+    // 快照路径固定、换图原地覆盖，须重取项目数据拿新的资产指纹才能 cache-bust。
+    // refreshProject 内部吞掉请求错误、以返回值表达结果（从不 reject）：写入已经成功，
+    // 刷新失败要单独提示，不能把它误报成尾帧写入失败。
+    const refreshed = await useProjectsStore.getState().refreshProject(projectName);
+    if (!refreshed) {
+      useAppStore.getState().pushToast(t("end_frame_refresh_failed"), "error");
     }
   };
 
@@ -243,7 +261,7 @@ export function EndFrameRow({
                 <button
                   type="button"
                   onClick={() => {
-                    if (rejectIfBusy()) return;
+                    if (rejectIfDisabled()) return;
                     setPickerOpen(true);
                   }}
                   disabled={controlsDisabled}
@@ -282,6 +300,7 @@ export function EndFrameRow({
           contentMode={contentMode}
           aspectRatio={aspectRatio}
           submitting={submitting}
+          disabled={unsupported || videoBusy || capsLoading}
           onClose={() => setPickerOpen(false)}
           onPickProjectImage={handlePickProjectImage}
           onPickUpload={handlePickUpload}
