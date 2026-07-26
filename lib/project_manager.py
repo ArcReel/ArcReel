@@ -661,13 +661,15 @@ class ProjectManager:
     def normalize_script_filename(script_filename: str) -> str:
         """剥离 `scripts/` 前缀并折叠 `./` 片段，归一到与 `_script_lock`/`_safe_subpath` 一致的身份。
 
-        `episode_1.json`、`scripts/episode_1.json`、`./episode_1.json` 是指向同一剧本的合法
-        别名——`_safe_subpath` 底层按真实路径解析，三者共享同一把文件锁；调用方需要跨调用比较
-        或做 key（如按剧本分组的并发标记）时应先过这里，避免几种写法各自生成一份身份、互相看
-        不见对方。保留 `..` 片段原样交给 `_safe_subpath` 拒绝，这里不做越界判断。
+        `episode_1.json`、`scripts/episode_1.json`、`./episode_1.json`、`./scripts/episode_1.json`
+        是指向同一剧本的合法别名——`_safe_subpath` 底层按真实路径解析，均共享同一把文件锁；调用方
+        需要跨调用比较或做 key（如按剧本分组的并发标记）时应先过这里，避免几种写法各自生成一份
+        身份、互相看不见对方。须先折叠路径片段再剥前缀——顺序反过来的话，`./scripts/x.json` 先剥
+        前缀不命中（前缀前面还有 `./`），折叠后才变回 `scripts/x.json`，会被 `load_script`/
+        `_script_lock` 当成不含前缀的裸文件名再次拼接 `scripts/` 目录，产生 `scripts/scripts/x.json`
+        双重前缀。保留 `..` 片段原样交给 `_safe_subpath` 拒绝，这里不做越界判断。
         """
-        normalized = script_filename.removeprefix("scripts/")
-        normalized = posixpath.normpath(normalized)
+        normalized = posixpath.normpath(script_filename).removeprefix("scripts/")
         return "" if normalized == "." else normalized
 
     @contextmanager

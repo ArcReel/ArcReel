@@ -34,6 +34,11 @@ mid-flight 被删除而失败时跳过整段写回，不留半截状态。
 标记"可补偿"（`entered`）须在基线读取*成功之后*才置位，不能在读之前——读之前置位的话，
 读基线本身失败（权限 / 临时 IO 错误）时 `old_bytes` 仍是初始的 `None`，补偿会把"读失败"
 误判成"目标文件原本不存在"，进而 unlink 一个从未被本次操作触碰过的既有快照。
+
+操作代次的推进（`_advance_shot_generation`）须放在镜头匹配成功、紧邻首次文件 mutation
+之前，不能在此之前就推进——提前推进的话，一次因镜头未找到而空手退出的请求也会让代次
+前移，导致同一时间段内另一个真正持久化失败、正在等待重新过锁补偿的请求，把这次空手
+退出误判成"已被接管、自身状态自洽"而跳过回滚，把它自己失败前的半截效果留在磁盘上。
 """
 
 from __future__ import annotations
@@ -186,13 +191,13 @@ def _write_snapshot_and_field(
     try:
         with project_change_source("webui"):
             with manager.locked_script(project_name, script_file) as script:
-                generation = _advance_shot_generation(key)
                 old_bytes = target.read_bytes() if target.exists() else None
-                entered = True
                 items, id_field, _, _, _ = get_storyboard_items(script)
                 matched = find_storyboard_item(items, id_field, shot_id)
                 if matched is None:
                     raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
+                generation = _advance_shot_generation(key)
+                entered = True
                 write_bytes_atomic(png_bytes, target)
                 matched[0]["end_frame_image"] = relative
     except EndFrameError:
@@ -218,13 +223,13 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
     try:
         with project_change_source("webui"):
             with manager.locked_script(project_name, script_file) as script:
-                generation = _advance_shot_generation(key)
                 old_bytes = target.read_bytes() if target.exists() else None
-                entered = True
                 items, id_field, _, _, _ = get_storyboard_items(script)
                 matched = find_storyboard_item(items, id_field, shot_id)
                 if matched is None:
                     raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
+                generation = _advance_shot_generation(key)
+                entered = True
                 matched[0]["end_frame_image"] = None
                 target.unlink(missing_ok=True)
     except EndFrameError:
