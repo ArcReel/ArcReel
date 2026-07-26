@@ -553,8 +553,8 @@ class ProjectManager:
         Returns:
             保存的文件路径
         """
-        if filename is not None and filename.startswith("scripts/"):
-            filename = filename[len("scripts/") :]
+        if filename is not None:
+            filename = self.normalize_script_filename(filename)
 
         if filename is None:
             chapter = script["novel"].get("chapter", "chapter_01")
@@ -710,12 +710,12 @@ class ProjectManager:
         若加锁前后绑定指向了不同脚本（并发改绑），抛 `EpisodeScriptReboundError` 让调用方重试。
         """
         candidate = resolve_script_file(self.load_project(project_name))
-        norm = candidate[len("scripts/") :] if candidate.startswith("scripts/") else candidate
+        norm = self.normalize_script_filename(candidate)
         with self._script_lock(project_name, norm):
             with self._project_lock(project_name):
                 project = self._read_project_raw_unlocked(project_name)
                 current = resolve_script_file(project)
-                cur_norm = current[len("scripts/") :] if current.startswith("scripts/") else current
+                cur_norm = self.normalize_script_filename(current)
                 if cur_norm != norm:
                     raise EpisodeScriptReboundError(f"episode script binding changed: {norm} -> {cur_norm}")
                 script = self.load_script(project_name, norm)
@@ -739,7 +739,7 @@ class ProjectManager:
 
         filename 缺集号模式或脚本内无 `episode` int 时静默放行（兼容旧数据）。
         """
-        base_name = script_filename[len("scripts/") :] if script_filename.startswith("scripts/") else script_filename
+        base_name = ProjectManager.normalize_script_filename(script_filename)
         filename_match = re.search(r"episode[-_\s]*(\d+)", base_name, re.IGNORECASE)
         if filename_match is None:
             return
@@ -825,7 +825,7 @@ class ProjectManager:
         供 `sync_episode_from_script`（在 `update_project` 锁内）与 `locked_episode_script`
         （在已持 `_project_lock` 的临界区内）共用，避免重复实现集元数据同步逻辑。
         """
-        base_name = script_filename[len("scripts/") :] if script_filename.startswith("scripts/") else script_filename
+        base_name = self.normalize_script_filename(script_filename)
         # 防御纵深：SSE 扫描路径直接调用此函数（不经 save_script），同样需要校验
         self._require_filename_episode_consistency(script, base_name)
 
@@ -863,8 +863,7 @@ class ProjectManager:
             剧本字典
         """
         project_dir = self.get_project_path(project_name)
-        if filename.startswith("scripts/"):
-            filename = filename[len("scripts/") :]
+        filename = self.normalize_script_filename(filename)
         real = Path(self._safe_subpath(project_dir / "scripts", filename))
 
         if not real.exists():
@@ -1351,8 +1350,7 @@ class ProjectManager:
         """
         scripts_dir = self.get_project_path(project_name) / "scripts"
         scripts_dir.mkdir(parents=True, exist_ok=True)
-        if script_filename.startswith("scripts/"):
-            script_filename = script_filename[len("scripts/") :]
+        script_filename = self.normalize_script_filename(script_filename)
         real = Path(self._safe_subpath(scripts_dir, script_filename))
         lock_path = real.parent / f".{real.name}.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
