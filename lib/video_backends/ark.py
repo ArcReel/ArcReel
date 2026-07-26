@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -102,6 +103,20 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         "seedance-1-0-lite-t2v",
         "seedance-1.0-lite-t2v",
     )
+    # 白名单命中后要求剩余部分为空或纯数字日期戳（如 "-251215"）——单纯 `in` 子串匹配会让
+    # "doubao-seedance-1-5-pro-future" 这类未上表的未知变体因包含 "seedance-1-5-pro" 而
+    # 被误判为继承已验证型号的尾帧能力，绕过本模块新增的硬拒绝。
+    _KNOWN_MODEL_SUFFIX_RE = re.compile(r"^(-\d+)?$")
+
+    @staticmethod
+    def _matches_known_model(model_lower: str, prefixes: tuple[str, ...]) -> bool:
+        for prefix in prefixes:
+            idx = model_lower.find(prefix)
+            if idx == -1:
+                continue
+            if ArkVideoBackend._KNOWN_MODEL_SUFFIX_RE.match(model_lower[idx + len(prefix) :]):
+                return True
+        return False
 
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
@@ -121,7 +136,9 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         # 未命中白名单的一律 last_frame=False（含未来新增/自定义供应商的未知型号）。
         model_lower = model.lower()
         no_first_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_FIRST_FRAME_SUBSTRINGS)
-        allowed_last_frame = any(sub in model_lower for sub in ArkVideoBackend._LAST_FRAME_ALLOW_SUBSTRINGS)
+        allowed_last_frame = ArkVideoBackend._matches_known_model(
+            model_lower, ArkVideoBackend._LAST_FRAME_ALLOW_SUBSTRINGS
+        )
         denied_last_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_LAST_FRAME_SUBSTRINGS)
         return VideoCapabilities(
             first_frame=not no_first_frame, last_frame=allowed_last_frame and not denied_last_frame

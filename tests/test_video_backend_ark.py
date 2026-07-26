@@ -435,6 +435,13 @@ class TestArkModelCapabilities:
         assert caps.last_frame is False
 
     @pytest.mark.unit
+    def test_unknown_suffix_on_known_prefix_does_not_inherit_last_frame(self):
+        """白名单命中要求边界匹配：型号名包含已验证前缀 "seedance-1-5-pro" 但带未知后缀
+        （非纯数字日期戳）时，不能因子串包含关系继承该前缀型号的尾帧能力。"""
+        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-5-pro-future")
+        assert caps.last_frame is False
+
+    @pytest.mark.unit
     def test_seedance_1_0_lite_t2v_no_last_frame(self):
         """纯文生视频型号，能力表「图生视频-首帧」「图生视频-首尾帧」均标 "-"，不接受任何图片输入。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0-lite-t2v-250428")
