@@ -1,10 +1,12 @@
 import json
+import shutil
 from io import BytesIO
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from lib.i18n.zh import errors as zh_errors
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -96,6 +98,41 @@ class TestFilesRouter:
 
             missing = client.get("/api/v1/projects/demo/source/missing.txt")
             assert missing.status_code == 404
+
+    def test_source_upload_race_project_deleted_reports_project_not_found(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+
+        class _RaceLoader:
+            @staticmethod
+            def load(*args, **kwargs):
+                shutil.rmtree(tmp_path / "projects" / "demo")
+                raise FileNotFoundError("/server/projects/demo/source gone")
+
+        monkeypatch.setattr(files, "SourceLoader", _RaceLoader)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/source",
+                files={"file": ("chapter.txt", BytesIO(b"hello"), "text/plain")},
+            )
+            assert resp.status_code == 404
+            assert resp.json()["detail"] == zh_errors.MESSAGES["project_not_found"].format(name="demo")
+
+    def test_source_upload_loader_file_missing_with_project_intact_stays_generic(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+
+        class _BrokenLoader:
+            @staticmethod
+            def load(*args, **kwargs):
+                raise FileNotFoundError("upload-tmp gone")
+
+        monkeypatch.setattr(files, "SourceLoader", _BrokenLoader)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/source",
+                files={"file": ("chapter.txt", BytesIO(b"hello"), "text/plain")},
+            )
+            assert resp.status_code == 404
+            assert resp.json()["detail"] == zh_errors.MESSAGES["resource_not_found"]
 
     def test_upload_assets_and_drafts(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)

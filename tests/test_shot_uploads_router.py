@@ -219,6 +219,16 @@ class TestShotStoryboardUpload:
             assert resp.status_code == 404
             assert str(tmp_path) not in resp.json()["detail"]
 
+    def test_missing_project_404_reports_project_not_found(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/nope/shots/E1S01/upload/storyboard?script_file=episode_1.json",
+                files={"file": ("x.png", BytesIO(_img_bytes("PNG")), "application/octet-stream")},
+            )
+            assert resp.status_code == 404
+            assert resp.json()["detail"] == zh_errors.MESSAGES["project_not_found"].format(name="nope")
+
 
 class TestShotVideoUpload:
     def test_upload_finalizes_and_clears_stale_video_uri(self, tmp_path, monkeypatch):
