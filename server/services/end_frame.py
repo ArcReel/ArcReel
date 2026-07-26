@@ -30,6 +30,10 @@ mid-flight 被删除而失败时跳过整段写回，不留半截状态。
 回滚基线（`old_bytes`）须在取得剧本锁之后、mutation 之前读取，不能在锁外预读——锁外预读的话，
 若本次操作前还有一次并发写入抢先成功落盘，读到的就是比"操作前"更早的陈旧内容，失败时会用
 它覆盖那次已成功的写入，即便代次判定本身没有问题。
+
+标记"可补偿"（`entered`）须在基线读取*成功之后*才置位，不能在读之前——读之前置位的话，
+读基线本身失败（权限 / 临时 IO 错误）时 `old_bytes` 仍是初始的 `None`，补偿会把"读失败"
+误判成"目标文件原本不存在"，进而 unlink 一个从未被本次操作触碰过的既有快照。
 """
 
 from __future__ import annotations
@@ -110,6 +114,17 @@ def _snapshot_target(project_path: Path, shot_id: str) -> tuple[Path, str]:
     return target, relative
 
 
+class _RollbackDone(Exception):
+    """哨兵：标记补偿分支已跑完，用于跳过 `locked_script` 退出时的正常剧本写回。
+
+    `locked_script` 基于 `@contextmanager`：`with` 体内无论正常落出还是 `return`，生成器都
+    会在 `yield` 之后继续跑 `_write_script_unlocked`。补偿只改快照文件，从不读改 `script`，
+    正常落出会触发一次多余落盘（附带更新 `metadata["updated_at"]`、触发项目同步与变更事件，
+    失败时还会被这里的 `except Exception` 误记成"回滚失败"）。抛这个哨兵异常换生成器在
+    `yield` 处直接重新抛出，绕过写回；下面的 `except _RollbackDone: pass` 吞掉它。
+    """
+
+
 def _restore_after_persist_failure(
     manager: ProjectManager,
     project_name: str,
@@ -130,11 +145,14 @@ def _restore_after_persist_failure(
     try:
         with manager.locked_script(project_name, script_file):
             if _current_shot_generation(key) != expected_generation:
-                return
+                raise _RollbackDone
             if old_bytes is not None:
                 write_bytes_atomic(old_bytes, target)
             else:
                 target.unlink(missing_ok=True)
+            raise _RollbackDone
+    except _RollbackDone:
+        pass
     except Exception:
         logger.exception(
             "尾帧快照回滚失败：project=%s script=%s target=%s（原持久化异常见上一条 traceback）",
@@ -169,8 +187,8 @@ def _write_snapshot_and_field(
         with project_change_source("webui"):
             with manager.locked_script(project_name, script_file) as script:
                 generation = _advance_shot_generation(key)
-                entered = True
                 old_bytes = target.read_bytes() if target.exists() else None
+                entered = True
                 items, id_field, _, _, _ = get_storyboard_items(script)
                 matched = find_storyboard_item(items, id_field, shot_id)
                 if matched is None:
@@ -201,8 +219,8 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
         with project_change_source("webui"):
             with manager.locked_script(project_name, script_file) as script:
                 generation = _advance_shot_generation(key)
-                entered = True
                 old_bytes = target.read_bytes() if target.exists() else None
+                entered = True
                 items, id_field, _, _, _ = get_storyboard_items(script)
                 matched = find_storyboard_item(items, id_field, shot_id)
                 if matched is None:

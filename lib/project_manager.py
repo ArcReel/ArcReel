@@ -9,6 +9,7 @@ import errno
 import json
 import logging
 import os
+import posixpath
 import re
 import secrets
 import shutil
@@ -658,13 +659,16 @@ class ProjectManager:
 
     @staticmethod
     def normalize_script_filename(script_filename: str) -> str:
-        """剥离 `scripts/` 前缀，把剧本文件名归一到与内部锁键/存储路径一致的形式。
+        """剥离 `scripts/` 前缀并折叠 `./` 片段，归一到与 `_script_lock`/`_safe_subpath` 一致的身份。
 
-        `episode_1.json` 与 `scripts/episode_1.json` 是指向同一剧本的合法别名；调用方需要
-        跨调用比较或做 key（如按剧本分组的并发标记）时应先过这里，避免两种写法各自生成一份
-        身份、互相看不见对方。
+        `episode_1.json`、`scripts/episode_1.json`、`./episode_1.json` 是指向同一剧本的合法
+        别名——`_safe_subpath` 底层按真实路径解析，三者共享同一把文件锁；调用方需要跨调用比较
+        或做 key（如按剧本分组的并发标记）时应先过这里，避免几种写法各自生成一份身份、互相看
+        不见对方。保留 `..` 片段原样交给 `_safe_subpath` 拒绝，这里不做越界判断。
         """
-        return script_filename[len("scripts/") :] if script_filename.startswith("scripts/") else script_filename
+        normalized = script_filename.removeprefix("scripts/")
+        normalized = posixpath.normpath(normalized)
+        return "" if normalized == "." else normalized
 
     @contextmanager
     def locked_script(self, project_name: str, script_filename: str, *, validate: bool = True):
