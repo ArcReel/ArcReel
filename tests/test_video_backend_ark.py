@@ -455,6 +455,29 @@ class TestArkModelCapabilities:
         assert caps.first_frame is True
         assert caps.last_frame is True
 
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "doubao-seedance-2-0-260128",
+            "doubao-seedance-2-0-fast-260128",
+            "doubao-seedance-2-0-mini-260615",
+            "doubao-seedance-2.0",
+            "doubao-seedance-2.0-fast",
+            "doubao-seedance-2.0-mini",
+        ],
+    )
+    def test_seedance_2_known_variants_support_last_frame(self, model: str):
+        caps = ArkVideoBackend.video_capabilities_for_model(model)
+        assert caps.last_frame is True
+
+    @pytest.mark.unit
+    def test_seedance_2_unknown_suffix_does_not_inherit_last_frame(self):
+        """白名单命中要求边界匹配：型号名包含已验证前缀 "seedance-2-0" 但带未知后缀
+        （非已验证的 fast/mini/日期戳形态）时，不能因子串包含关系继承 2.0 系列的尾帧能力。"""
+        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-future")
+        assert caps.last_frame is False
+
     def test_seedance_2_dot_format_no_flex_tier(self):
         """ark-agent-plan 用 dot 命名（doubao-seedance-2.0），同样不该带 FLEX_TIER。"""
         with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):

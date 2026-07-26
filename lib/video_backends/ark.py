@@ -108,6 +108,19 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     # 被误判为继承已验证型号的尾帧能力，绕过本模块新增的硬拒绝。
     _KNOWN_MODEL_SUFFIX_RE = re.compile(r"^(-\d+)?$")
 
+    # Seedance 2.0 系列已验证支持首尾帧的三个变体（lib/config/registry.py 内建型号：
+    # doubao-seedance-2-0-260128 / -2-0-fast-260128 / -2-0-mini-260615，及无日期戳的
+    # doubao-seedance-2.0 / -2.0-fast / -2.0-mini）。同样走边界匹配，未知后缀（如
+    # "doubao-seedance-2-0-future"）不得因子串包含 "seedance-2-0" 而继承尾帧能力。
+    _SEEDANCE_2_LAST_FRAME_ALLOW_SUBSTRINGS = (
+        "seedance-2-0-fast",
+        "seedance-2.0-fast",
+        "seedance-2-0-mini",
+        "seedance-2.0-mini",
+        "seedance-2-0",
+        "seedance-2.0",
+    )
+
     @staticmethod
     def _matches_known_model(model_lower: str, prefixes: tuple[str, ...]) -> bool:
         for prefix in prefixes:
@@ -129,7 +142,12 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             # API 拒绝首帧/尾帧与参考素材混合请求（InvalidParameter: first/last frame content
             # cannot be mixed with reference media content，实测）——参考图是与首尾帧互斥的
             # 参考生视频模式，故不声明首帧叠加参考能力；若上游后续放开混合可重新开启。
-            return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=9)
+            # last_frame 单独走边界校验的已验证型号白名单：_is_seedance_2 本身只做宽松族群
+            # 识别（供 FLEX_TIER 剔除复用），未验证的 2.0 系列未来变体不应继承尾帧能力。
+            verified_last_frame = ArkVideoBackend._matches_known_model(
+                model.lower(), ArkVideoBackend._SEEDANCE_2_LAST_FRAME_ALLOW_SUBSTRINGS
+            )
+            return VideoCapabilities(last_frame=verified_last_frame, reference_images=True, max_reference_images=9)
         # 非 2.0 系列：DEFAULT_MODEL 1.5 pro 实测正常下发 role="last_frame"（见
         # test_first_last_frame_role_fields），此前统一按 VideoCapabilities() 默认
         # last_frame=False 处理是误判；白名单覆盖能力表已验证支持首尾帧的三个型号，
