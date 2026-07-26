@@ -115,9 +115,9 @@ describe("EndFrameRow 三态摘要", () => {
     expect(getByRole("button", { name: "清除" })).toBeInTheDocument();
   });
 
-  it("last_frame 生效值为否时摘要为「模型不支持」，展开只给原因、无写入入口", async () => {
+  it("last_frame 生效值为否时摘要为「模型不支持」，写入控件灰化并给出原因", async () => {
     vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(false));
-    const { getByRole, queryByRole, findByText } = renderRow({
+    const { getByRole, findByText } = renderRow({
       endFramePath: "end_frames/scene_E1S01.png",
     });
     await findByText("模型不支持");
@@ -125,8 +125,12 @@ describe("EndFrameRow 三态摘要", () => {
     fireEvent.click(getByRole("button", { name: /尾帧/ }));
     expect(getByRole("button", { name: /尾帧/ })).toHaveAttribute("aria-expanded", "true");
     await findByText(/当前视频模型不支持尾帧/);
-    expect(queryByRole("button", { name: "更换图片" })).toBeNull();
-    expect(queryByRole("button", { name: "清除" })).toBeNull();
+    // 灰化而非隐藏：两个写入控件都在位、都禁用，hover 提示给出模型级原因。
+    for (const name of ["更换图片", "清除"]) {
+      const btn = getByRole("button", { name });
+      expect(btn).toBeDisabled();
+      expect(btn).toHaveAttribute("title", expect.stringMatching(/当前视频模型不支持尾帧/));
+    }
   });
 
   it("换模型后重新解析能力，门控随之更新", async () => {

@@ -71,15 +71,18 @@ export function EndFrameRow({
   const fp = useProjectsStore((s) => (endFramePath ? s.getAssetFingerprint(endFramePath) : null));
 
   // 兄弟控件同步：设置行的两个按钮与选图器的提交入口共读这一个值。
-  const controlsBusy = videoBusy || submitting || capsLoading || viewOnly;
+  const controlsDisabled = unsupported || videoBusy || submitting || capsLoading || viewOnly;
 
+  // 灰化控件的 hover 原因。不支持是模型级的稳定原因，优先于临时性的占用 / 检查中。
   const disabledHint = viewOnly
     ? undefined
-    : videoBusy
-      ? t("end_frame_busy_hint")
-      : capsLoading
-        ? t("end_frame_capability_checking")
-        : undefined;
+    : unsupported
+      ? t("end_frame_unsupported_hint")
+      : videoBusy
+        ? t("end_frame_busy_hint")
+        : capsLoading
+          ? t("end_frame_capability_checking")
+          : undefined;
 
   /**
    * 提交时刻复核最新占用态：面板 / 选图器打开后本镜头可能已被入队，
@@ -199,78 +202,76 @@ export function EndFrameRow({
           className="flex items-start gap-3 px-3 pb-3 pt-1"
           style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
         >
-          {unsupported ? (
-            <p className="pt-1 text-[11px] leading-relaxed" style={{ color: "var(--color-text-4)" }}>
-              {t("end_frame_unsupported_hint")}
+          <div
+            className="w-16 shrink-0 overflow-hidden rounded-[6px]"
+            style={{
+              border: previewUrl
+                ? "1px solid var(--color-accent-soft)"
+                : "1px dashed var(--color-hairline-strong)",
+              background: previewUrl ? undefined : "oklch(0.20 0.011 265 / 0.5)",
+            }}
+          >
+            <AspectFrame ratio={aspectRatio}>
+              {previewUrl ? (
+                <img
+                  src={previewUrl}
+                  alt={t("end_frame_preview_alt", { id: segmentId })}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div
+                  className="grid h-full w-full place-items-center text-[9.5px]"
+                  style={{ color: "var(--color-text-4)" }}
+                >
+                  {t("end_frame_summary_unset")}
+                </div>
+              )}
+            </AspectFrame>
+          </div>
+          <div className="flex flex-1 flex-col gap-2 pt-1">
+            <p className="text-[11px] leading-relaxed" style={{ color: "var(--color-text-3)" }}>
+              {t("end_frame_description")}
             </p>
-          ) : (
-            <>
-              <div
-                className="w-16 shrink-0 overflow-hidden rounded-[6px]"
-                style={{
-                  border: previewUrl
-                    ? "1px solid var(--color-accent-soft)"
-                    : "1px dashed var(--color-hairline-strong)",
-                  background: previewUrl ? undefined : "oklch(0.20 0.011 265 / 0.5)",
-                }}
-              >
-                <AspectFrame ratio={aspectRatio}>
-                  {previewUrl ? (
-                    <img
-                      src={previewUrl}
-                      alt={t("end_frame_preview_alt", { id: segmentId })}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div
-                      className="grid h-full w-full place-items-center text-[9.5px]"
-                      style={{ color: "var(--color-text-4)" }}
-                    >
-                      {t("end_frame_summary_unset")}
-                    </div>
-                  )}
-                </AspectFrame>
-              </div>
-              <div className="flex flex-1 flex-col gap-2 pt-1">
-                <p className="text-[11px] leading-relaxed" style={{ color: "var(--color-text-3)" }}>
-                  {t("end_frame_description")}
-                </p>
-                {!viewOnly && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (rejectIfBusy()) return;
-                        setPickerOpen(true);
-                      }}
-                      disabled={controlsBusy}
-                      title={disabledHint}
-                      className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
-                      style={{
-                        border: "1px solid var(--color-hairline)",
-                        background: "oklch(0.22 0.011 265 / 0.5)",
-                        color: "var(--color-text-2)",
-                      }}
-                    >
-                      {endFramePath ? t("end_frame_replace") : t("end_frame_choose")}
-                    </button>
-                    {endFramePath && (
-                      <button
-                        type="button"
-                        onClick={handleClear}
-                        disabled={controlsBusy}
-                        title={disabledHint}
-                        className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
-                        style={{ color: "var(--color-text-3)" }}
-                      >
-                        {t("end_frame_clear")}
-                      </button>
-                    )}
-                  </div>
+            {/* 不支持时的原因同时给可见文本：title 只有指针能读到，键盘用户读不到。 */}
+            {unsupported && (
+              <p className="text-[11px] leading-relaxed" style={{ color: "var(--color-text-4)" }}>
+                {t("end_frame_unsupported_hint")}
+              </p>
+            )}
+            {!viewOnly && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (rejectIfBusy()) return;
+                    setPickerOpen(true);
+                  }}
+                  disabled={controlsDisabled}
+                  title={disabledHint}
+                  className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{
+                    border: "1px solid var(--color-hairline)",
+                    background: "oklch(0.22 0.011 265 / 0.5)",
+                    color: "var(--color-text-2)",
+                  }}
+                >
+                  {endFramePath ? t("end_frame_replace") : t("end_frame_choose")}
+                </button>
+                {endFramePath && (
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    disabled={controlsDisabled}
+                    title={disabledHint}
+                    className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ color: "var(--color-text-3)" }}
+                  >
+                    {t("end_frame_clear")}
+                  </button>
                 )}
               </div>
-            </>
-          )}
+            )}
+          </div>
         </div>
       )}
 
