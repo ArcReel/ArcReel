@@ -166,6 +166,16 @@ describe("ShotDetail ad 模式", () => {
     }
   });
 
+  it("未接生成回调（参考生视频路径）时不渲染尾帧设置行", () => {
+    renderDetail();
+    expect(screen.queryByText("尾帧")).toBeNull();
+  });
+
+  it("接了 onGenerateVideo 时渲染尾帧设置行", () => {
+    renderDetail({ onGenerateVideo: vi.fn() });
+    expect(screen.getByText("尾帧")).toBeInTheDocument();
+  });
+
   it("重排请求在途时移动按钮禁用（movePending）", () => {
     const onMoveShot = vi.fn();
     renderDetail({ onMoveShot, movePending: true, selectedIndex: 1 });

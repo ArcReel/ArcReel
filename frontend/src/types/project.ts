@@ -216,3 +216,22 @@ export interface ImportProjectResponse {
   conflict_resolution: "none" | "renamed" | "overwritten";
   diagnostics: ImportSuccessDiagnostics;
 }
+
+/**
+ * 三级解析（项目 > 系统设置 > 系统默认）后的视频模型能力。
+ * 后端：server/routers/projects.py 的 /projects/{name}/video-capabilities。
+ */
+export interface VideoCapabilities {
+  provider_id: string;
+  model: string;
+  supported_durations: number[];
+  max_duration: number;
+  max_reference_images: number;
+  /** 生效值（系统判定 ⊕ 用户覆盖），与执行层注入 backend 的能力同源。 */
+  first_frame: boolean;
+  last_frame: boolean;
+  source: "registry" | "custom";
+  default_duration?: number | null;
+  content_mode?: string | null;
+  generation_mode?: string | null;
+}

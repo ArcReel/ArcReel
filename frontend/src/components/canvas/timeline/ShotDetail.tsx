@@ -27,6 +27,7 @@ import { DialogueListEditor } from "./DialogueListEditor";
 import { UtteranceListEditor } from "./UtteranceListEditor";
 import { ResponsiveDetailGrid } from "./ResponsiveDetailGrid";
 import { MediaCard } from "./MediaCard";
+import { EndFrameRow } from "./EndFrameRow";
 import { NarrationAudioCard } from "./NarrationAudioCard";
 import { NotesDrawer } from "./NotesDrawer";
 import { ReferencesSection } from "./ReferencesSection";
@@ -364,6 +365,8 @@ export function ShotDetail({
   const novelText = getNovelText(segment, contentMode);
   const hasNarrationText = novelText.trim().length > 0;
   const segCost = useCostStore((s) => s.getSegmentCost(segmentId));
+  // 尾帧能力按项目级视频后端解析：后端换了，门控要跟着换。
+  const videoBackend = useProjectsStore((s) => s.currentProjectData?.video_backend ?? null);
 
   const ip = segment.image_prompt;
   const vp = segment.video_prompt;
@@ -385,6 +388,7 @@ export function ShotDetail({
   );
   const [saving, setSaving] = useState(false);
   const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
+  const [endFrameSubmitting, setEndFrameSubmitting] = useState(false);
 
   const handleUpload = async (kind: "storyboard" | "video", file: File) => {
     // 单镜头同时只允许一个上传：两张卡写同一后端资源族，避免并发覆写
@@ -852,25 +856,41 @@ export function ShotDetail({
         generateDisabled={dirty || saving}
         generateDisabledHint={dirty ? dirtyHint : undefined}
       />
-      <MediaCard
-        kind="video"
-        projectName={projectName}
-        segmentId={segmentId}
-        assetPath={assets?.video_clip ?? null}
-        posterPath={assets?.video_thumbnail ?? null}
-        aspectRatio={aspectRatio}
-        generating={generatingVideo}
-        generateDisabled={!hasStoryboard || dirty || saving}
-        generateDisabledHint={dirty ? dirtyHint : undefined}
-        estimatedCost={vidEstimate ?? undefined}
-        onGenerate={onGenerateVideo ? () => onGenerateVideo(segmentId) : undefined}
-        onRestore={onRestoreVideo}
-        onUpload={
-          scriptFile && !refsReadOnly ? (file) => handleUpload("video", file) : undefined
-        }
-        uploading={uploadingKind === "video"}
-        uploadDisabled={uploadingKind !== null}
-      />
+      <div className="flex flex-col">
+        {scriptFile && onGenerateVideo && (
+          <EndFrameRow
+            projectName={projectName}
+            segmentId={segmentId}
+            scriptFile={scriptFile}
+            contentMode={contentMode}
+            aspectRatio={aspectRatio}
+            endFramePath={segment.end_frame_image ?? null}
+            videoBackend={videoBackend}
+            readOnly={refsReadOnly}
+            onSubmittingChange={setEndFrameSubmitting}
+            videoUploadBusy={uploadingKind === "video"}
+          />
+        )}
+        <MediaCard
+          kind="video"
+          projectName={projectName}
+          segmentId={segmentId}
+          assetPath={assets?.video_clip ?? null}
+          posterPath={assets?.video_thumbnail ?? null}
+          aspectRatio={aspectRatio}
+          generating={generatingVideo}
+          generateDisabled={!hasStoryboard || dirty || saving}
+          generateDisabledHint={dirty ? dirtyHint : undefined}
+          estimatedCost={vidEstimate ?? undefined}
+          onGenerate={onGenerateVideo ? () => onGenerateVideo(segmentId) : undefined}
+          onRestore={onRestoreVideo}
+          onUpload={
+            scriptFile && !refsReadOnly ? (file) => handleUpload("video", file) : undefined
+          }
+          uploading={uploadingKind === "video"}
+          uploadDisabled={uploadingKind !== null || endFrameSubmitting}
+        />
+      </div>
       {contentMode === "narration" && (
         <NarrationAudioCard
           projectName={projectName}
