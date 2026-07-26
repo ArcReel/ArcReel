@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 
 from lib.config.resolver import ProviderModel
-from lib.video_backends.base import VideoCapabilityError
+from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
+from lib.video_frame_slots import plan_frame_slots
 from server.services import generation_tasks
 from server.services.generation_context import GenerationContext, ImageLaneResult, VideoLaneResult
 from server.services.generation_tasks import assert_duration_supported
@@ -637,11 +638,47 @@ class TestGenerationTasks:
             )
         assert fake_generator.video_calls == []
 
+    @pytest.mark.parametrize(
+        "end_frame_value",
+        [
+            "/etc/passwd",  # 绝对路径：裸 `/` 拼接会整体丢弃左操作数，读到项目外文件
+            "../../outside.png",  # `..` 穿越出项目目录
+            "end_frames/../storyboards/scene_E1S01.png",  # 项目内但绕开快照目录，等于直接引用源图
+            "storyboards/scene_E1S01.png",  # 同上：字段只接受 end_frames/ 内的快照
+            123,  # 剧本 JSON 里的脏数据（非字符串）须给出可读失败，而非 TypeError
+        ],
+    )
+    async def test_execute_video_task_end_frame_path_outside_snapshot_dir_fails_hard(
+        self, monkeypatch, tmp_path, end_frame_value
+    ):
+        """剧本是磁盘 JSON，尾帧字段不可信：越界 / 绕开 end_frames 快照目录 / 脏数据一律硬失败，
+        不把任意服务器文件送进视频请求。约束与写侧 end_frame.py、校验侧 data_validator 同口径。"""
+        project_path = _prepare_files(tmp_path)
+        (tmp_path / "outside.png").write_bytes(b"png")
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["end_frame_image"] = end_frame_value
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="invalid end frame snapshot path"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
     async def test_execute_video_task_end_frame_capability_unsupported_propagates(self, monkeypatch, tmp_path):
-        """后端不支持尾帧能力时，generator 抛出的 VideoCapabilityError 原样上抛——不降级为
-        参考图、不静默丢帧。具体的能力 gating 由 lib/video_frame_slots.plan_frame_slots 负责
-        （见 tests/test_video_frame_slots.py），这里只验证 execute_video_task 把 end_image
-        接线进去后不吞掉/篡改该异常。"""
+        """后端不支持尾帧能力时硬失败，不降级为参考图、不静默丢帧。
+
+        替身只替换 provider 调用，能力判定交给生产代码 plan_frame_slots 跑真值（caps
+        last_frame=False）——否则替身按自己的条件抛异常，验的是替身而非接线是否真能触达
+        gating。能力组合的各分支另见 tests/test_video_frame_slots.py。"""
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
@@ -651,13 +688,18 @@ class TestGenerationTasks:
         (end_frame_dir / "scene_E1S01.png").write_bytes(b"png")
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
-        async def _raise_unsupported(**kwargs):
+        async def _plan_with_real_gating(**kwargs):
             fake_generator.video_calls.append(kwargs)
-            if kwargs.get("end_image") is not None:
-                raise VideoCapabilityError("video_last_frame_unsupported", provider="ark", model="seedance")
-            raise AssertionError("expected end_image to be populated")
+            plan_frame_slots(
+                caps=VideoCapabilities(first_frame=True, last_frame=False),
+                provider="ark",
+                model="seedance",
+                start_image=kwargs.get("start_image"),
+                end_image=kwargs.get("end_image"),
+            )
+            raise AssertionError("plan_frame_slots 应在 end_image 非空且 caps.last_frame 为假时硬失败")
 
-        fake_generator.generate_video_async = _raise_unsupported
+        fake_generator.generate_video_async = _plan_with_real_gating
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))

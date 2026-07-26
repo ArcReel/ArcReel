@@ -16,7 +16,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.i18n import DEFAULT_LOCALE
 from lib.i18n import _ as i18n_translate
 from lib.image_backends.base import ImageCapabilityError
-from lib.path_safety import safe_exists, try_safe_join
+from lib.path_safety import safe_exists, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import get_project_manager
 from lib.prompt_builders import (
@@ -45,6 +45,7 @@ from lib.storyboard_sequence import (
 )
 from lib.thumbnail import extract_video_thumbnail
 from lib.video_backends.base import VideoCapabilityError
+from server.services.end_frame import END_FRAME_RESOURCE_TYPE
 from server.services.generation_context import (
     AudioLaneRequest,
     ImageLaneRequest,
@@ -838,15 +839,23 @@ async def execute_video_task(
     assert_duration_supported(duration_seconds, supported_durations)
 
     # end_frame_image 是镜头持久属性（见 server/services/end_frame.py），剧本每次加载都带出，
-    # 重新生成无需额外操作即可沿用。快照路径恒为服务层写出的 canonical 相对路径，直接拼接；
-    # 能力是否支持尾帧不在此处判断——generator.generate_video_async 内的 plan_frame_slots
-    # 已按已解析 backend 的实际能力统一 gating，不支持时硬失败（VideoCapabilityError），
-    # 不在这里重复一份判断逻辑。
+    # 重新生成无需额外操作即可沿用。能力是否支持尾帧由 generate_video_async 内的 plan_frame_slots
+    # 按已解析 backend 统一 gating（不支持即 VideoCapabilityError），此处不重复一份判断。
+    #
+    # 剧本是磁盘上的 JSON，字段值不可直接信任（归档导入、外部编辑、脏数据都能落值）：绝对路径会
+    # 覆盖 `/` 的左操作数、`..` 会越出项目目录，把任意服务器文件送进视频请求上传给供应商。口径与
+    # 写侧 end_frame.py、校验侧 data_validator（confine_to_default_dir="end_frames"）一致：
+    # 只接受 end_frames/ 内的已存在快照，其余硬失败。
     end_frame_rel = item.get("end_frame_image") if isinstance(item, dict) else None
     end_image: Path | None = None
     if end_frame_rel:
-        end_frame_file = project_path / end_frame_rel
-        if not end_frame_file.exists():
+        end_frames_dir = safe_join(project_path, END_FRAME_RESOURCE_TYPE)
+        # None 兜住越界 / 脏数据 / 解析失败；目录归属另判，挡住 `end_frames/../storyboards/x.png`
+        # 这类落在项目内却绕开快照目录的值。
+        end_frame_file = try_safe_join(project_path, end_frame_rel)
+        if end_frame_file is None or not end_frame_file.is_relative_to(end_frames_dir):
+            raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
+        if not end_frame_file.is_file():
             raise ValueError(f"end frame snapshot not found: {end_frame_file.name}")
         end_image = end_frame_file
 
