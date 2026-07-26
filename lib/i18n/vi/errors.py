@@ -134,13 +134,8 @@ MESSAGES = {
     "endpoint_media_type_mismatch": "media_type của endpoint không khớp: {detail}",
     "backend_creation_failed": "Tạo backend thất bại: {err_msg}",
     "unsupported_discovery_format": "Kiểm tra kết nối không hỗ trợ với {discovery_format}",
-    "custom_model_not_found": "Không tìm thấy mô hình: {model_id}",
     "capability_overrides_video_only": (
         "Endpoint {endpoint} của mô hình {model_id} không phải loại video; không hỗ trợ ghi đè năng lực"
-    ),
-    "capability_override_unknown_key": "Ghi đè năng lực của mô hình {model_id} chứa năng lực không xác định: {capability}",
-    "capability_override_not_open": (
-        "Năng lực {capability} của mô hình {model_id} chưa mở cho ghi đè; hiện có thể ghi đè: {allowed}"
     ),
     "capability_override_invalid_value": (
         "Năng lực {capability} của mô hình {model_id} có kiểu giá trị không hợp lệ; cần {expected}"
@@ -149,7 +144,6 @@ MESSAGES = {
         "Endpoint {endpoint} của mô hình {model_id} không hỗ trợ tạo khung hình cuối; "
         "không thể ghi đè last_frame thành true"
     ),
-    "custom_model_concurrent_update": "Mô hình {model_id} đã bị sửa đổi đồng thời; vui lòng làm mới và thử lại",
     # Projects
     "unknown_style_template": "Mẫu phong cách không xác định: {template_id}",
     "ad_only_field": "{field} chỉ khả dụng cho dự án quảng cáo/video ngắn (content_mode=ad)",

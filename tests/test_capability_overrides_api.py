@@ -1,6 +1,6 @@
 """能力覆盖的 API 面与展示层同源。
 
-覆盖三件事：配置 API 读写覆盖（含白名单 4xx 与整体替换语义）、resolver 返回生效能力、
+覆盖三件事：配置 API 读写覆盖（含白名单外键剔除、4xx 与整体替换语义）、resolver 返回生效能力、
 展示层与执行层出自同一个合成函数。API 侧沿用 test_custom_providers_api.py 的内存 SQLite +
 TestClient 范式，同源侧沿用 test_custom_provider_loader.py 的真 repo 装载范式。
 """
@@ -77,8 +77,8 @@ def client(app) -> Generator[TestClient, None, None]:
         yield c
 
 
-def _create_provider(client: TestClient, models: list[dict]) -> int:
-    resp = client.post(
+def _post_provider(client: TestClient, models: list[dict]):
+    return client.post(
         "/api/v1/custom-providers",
         json={
             "display_name": "Relay",
@@ -88,8 +88,27 @@ def _create_provider(client: TestClient, models: list[dict]) -> int:
             "models": models,
         },
     )
+
+
+def _create_provider(client: TestClient, models: list[dict]) -> int:
+    resp = _post_provider(client, models)
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
+
+
+async def _seed_provider_with_raw_models(session_factory, models: list[dict]) -> int:
+    """绕过 API 直接落库：模拟手工改库产生的、界面无从产生的覆盖字典。"""
+    async with session_factory() as session:
+        repo = CustomProviderRepository(session)
+        provider = await repo.create_provider(
+            display_name="Relay",
+            discovery_format="openai",
+            base_url="https://relay.test/v1",
+            api_key="sk-relay",
+            models=models,
+        )
+        await session.commit()
+        return provider.id
 
 
 def _video_model(**overrides) -> dict:
@@ -163,29 +182,22 @@ class TestModelListExposesCapabilities:
     @pytest.mark.integration
     async def test_stale_incompatible_override_filtered_from_response(self, client: TestClient, session_factory):
         """存量行 / 非 API 写入可能留下已不兼容的覆盖（如 openai-video 上的 last_frame=True，
-        endpoint 不 end_image_capable）：写入侧白名单挡不住这条已落库的数据，回显前须过滤，
+        endpoint 不 end_image_capable）：写入侧挡不住这条已落库的数据，回显前须过滤，
         不能让界面呈现"覆盖已生效"而执行层其实静默忽略——原样回显还会让下次普通保存被
         写入校验拒为 422，堵住与该覆盖无关的编辑。"""
-        async with session_factory() as session:
-            repo = CustomProviderRepository(session)
-            provider = await repo.create_provider(
-                display_name="Relay",
-                discovery_format="openai",
-                base_url="https://relay.test/v1",
-                api_key="sk-relay",
-                models=[
-                    {
-                        "model_id": VIDEO_MODEL,
-                        "display_name": "Sora 2",
-                        "endpoint": VIDEO_ENDPOINT,
-                        "is_enabled": True,
-                        "is_default": True,
-                        "capability_overrides": {"last_frame": True},
-                    }
-                ],
-            )
-            await session.commit()
-            pid = provider.id
+        pid = await _seed_provider_with_raw_models(
+            session_factory,
+            [
+                {
+                    "model_id": VIDEO_MODEL,
+                    "display_name": "Sora 2",
+                    "endpoint": VIDEO_ENDPOINT,
+                    "is_enabled": True,
+                    "is_default": True,
+                    "capability_overrides": {"last_frame": True},
+                }
+            ],
+        )
 
         models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["capability_overrides"] is None
@@ -196,26 +208,19 @@ class TestModelListExposesCapabilities:
         synthesize_video_capabilities 按容错设计忽略它，响应边界须同样容错，不能把原值
         直接塞进只接受 dict | None 的 ModelResponse 触发 Pydantic 校验错误，让整个列表/详情
         请求 500——用户也就无法进入设置页清理这条坏值。"""
-        async with session_factory() as session:
-            repo = CustomProviderRepository(session)
-            provider = await repo.create_provider(
-                display_name="Relay",
-                discovery_format="openai",
-                base_url="https://relay.test/v1",
-                api_key="sk-relay",
-                models=[
-                    {
-                        "model_id": VIDEO_MODEL,
-                        "display_name": "Sora 2",
-                        "endpoint": VIDEO_ENDPOINT,
-                        "is_enabled": True,
-                        "is_default": True,
-                        "capability_overrides": "last_frame",
-                    }
-                ],
-            )
-            await session.commit()
-            pid = provider.id
+        pid = await _seed_provider_with_raw_models(
+            session_factory,
+            [
+                {
+                    "model_id": VIDEO_MODEL,
+                    "display_name": "Sora 2",
+                    "endpoint": VIDEO_ENDPOINT,
+                    "is_enabled": True,
+                    "is_default": True,
+                    "capability_overrides": "last_frame",
+                }
+            ],
+        )
 
         resp = client.get(f"/api/v1/custom-providers/{pid}")
         assert resp.status_code == 200
@@ -225,141 +230,154 @@ class TestModelListExposesCapabilities:
     async def test_retired_endpoint_override_does_not_500_response(self, client: TestClient, session_factory):
         """endpoint 已从注册表下线（升级移除）时，get_endpoint_spec 会抛 ValueError；响应边界
         过滤 last_frame 覆盖时须容错这条查表失败，不能让存量脏配置把列表/详情请求也炸成 500。"""
-        async with session_factory() as session:
-            repo = CustomProviderRepository(session)
-            provider = await repo.create_provider(
-                display_name="Relay",
-                discovery_format="openai",
-                base_url="https://relay.test/v1",
-                api_key="sk-relay",
-                models=[
-                    {
-                        "model_id": "retired-model",
-                        "display_name": "Retired",
-                        "endpoint": "no-such-retired-endpoint",
-                        "is_enabled": True,
-                        "is_default": True,
-                        "capability_overrides": {"last_frame": True},
-                    }
-                ],
-            )
-            await session.commit()
-            pid = provider.id
+        pid = await _seed_provider_with_raw_models(
+            session_factory,
+            [
+                {
+                    "model_id": "retired-model",
+                    "display_name": "Retired",
+                    "endpoint": "no-such-retired-endpoint",
+                    "is_enabled": True,
+                    "is_default": True,
+                    "capability_overrides": {"last_frame": True},
+                }
+            ],
+        )
 
         resp = client.get(f"/api/v1/custom-providers/{pid}")
         assert resp.status_code == 200
         assert resp.json()["models"][0]["capability_overrides"] is None
 
 
-class TestPatchCapabilityOverrides:
-    """PATCH 携带完整覆盖字典，整体替换存量。"""
+class TestSaveDropsUnlistedOverrides:
+    """白名单外的键随保存被静默剔除——这是它们唯一的出口。
 
-    @staticmethod
-    def _patch(client: TestClient, pid: int, payload: dict, model_id: str = VIDEO_MODEL):
-        return client.patch(
-            f"/api/v1/custom-providers/{pid}/models/{model_id}/capability-overrides",
-            json=payload,
-        )
+    这类键只能由手工改库产生：界面既不显示也没有入口能删，写入侧若为此报错，用户会被堵在一个
+    自己无法处置的 422 上，连改显示名都保存不了。
+    """
 
     @pytest.mark.integration
-    def test_write_override_and_read_back(self, client: TestClient):
-        pid = _create_provider(client, [_video_model(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL)])
+    def test_unknown_key_stripped_on_create(self, client: TestClient):
+        pid = _create_provider(client, [_video_model(capability_overrides={"no_such_capability": True})])
 
-        resp = self._patch(client, pid, {"capability_overrides": {"last_frame": True}}, model_id=LAST_FRAME_MODEL)
+        models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
+        assert models[0]["capability_overrides"] is None
+
+    @pytest.mark.integration
+    def test_known_but_unallowlisted_key_stripped_on_create(self, client: TestClient):
+        """first_frame 是合法 VideoCapabilities 字段，但首批未开放覆盖。"""
+        pid = _create_provider(client, [_video_model(capability_overrides={"first_frame": False})])
+
+        models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
+        assert models[0]["capability_overrides"] is None
+
+    @pytest.mark.integration
+    async def test_legacy_key_stripped_while_editing_last_frame(self, client: TestClient, session_factory):
+        """AC：含遗留键的行改动 last_frame 后保存不再 422，落库覆盖字典只剩白名单内的键。"""
+        pid = await _seed_provider_with_raw_models(
+            session_factory,
+            [
+                {
+                    "model_id": LAST_FRAME_MODEL,
+                    "display_name": "Seedance",
+                    "endpoint": LAST_FRAME_ENDPOINT,
+                    "is_enabled": True,
+                    "is_default": True,
+                    "capability_overrides": {"first_frame": False},
+                }
+            ],
+        )
+
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}/models",
+            json={
+                "models": [
+                    _video_model(
+                        endpoint=LAST_FRAME_ENDPOINT,
+                        model_id=LAST_FRAME_MODEL,
+                        # 表单把 GET 回显的遗留键原样带回，同时把 last_frame 切成「强制开」
+                        capability_overrides={"first_frame": False, "last_frame": True},
+                    )
+                ]
+            },
+        )
         assert resp.status_code == 200, resp.text
-        assert resp.json()["capability_overrides"] == {"last_frame": True}
+        assert resp.json()[0]["capability_overrides"] == {"last_frame": True}
 
         models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["capability_overrides"] == {"last_frame": True}
 
     @pytest.mark.integration
-    def test_empty_dict_clears_existing_overrides(self, client: TestClient):
-        """整体替换而非逐键 merge：空字典即回到全部跟随系统判定。"""
-        pid = _create_provider(
-            client,
+    async def test_legacy_key_stripped_on_full_update(self, client: TestClient, session_factory):
+        """同上，覆盖 PUT /{provider_id}（原子更新 provider 元数据 + 模型列表）这条写入路径：
+        只改 display_name 时，历史脏值既不该挡住保存，也不该被原样写回去。"""
+        pid = await _seed_provider_with_raw_models(
+            session_factory,
             [
-                _video_model(
-                    capability_overrides={"last_frame": True},
-                    endpoint=LAST_FRAME_ENDPOINT,
-                    model_id=LAST_FRAME_MODEL,
-                )
+                {
+                    "model_id": VIDEO_MODEL,
+                    "display_name": "Sora 2",
+                    "endpoint": VIDEO_ENDPOINT,
+                    "is_enabled": True,
+                    "is_default": True,
+                    "capability_overrides": {"first_frame": False},
+                }
             ],
         )
 
-        resp = self._patch(client, pid, {"capability_overrides": {}}, model_id=LAST_FRAME_MODEL)
-        assert resp.status_code == 200
-        assert resp.json()["capability_overrides"] is None
-
-    @pytest.mark.integration
-    def test_null_clears_existing_overrides(self, client: TestClient):
-        pid = _create_provider(
-            client,
-            [
-                _video_model(
-                    capability_overrides={"last_frame": True},
-                    endpoint=LAST_FRAME_ENDPOINT,
-                    model_id=LAST_FRAME_MODEL,
-                )
-            ],
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}",
+            json={
+                "display_name": "Relay Renamed",
+                "base_url": "https://relay.test/v1",
+                "models": [_video_model(capability_overrides={"first_frame": False})],
+            },
         )
-
-        resp = self._patch(client, pid, {"capability_overrides": None}, model_id=LAST_FRAME_MODEL)
-        assert resp.status_code == 200
-        assert resp.json()["capability_overrides"] is None
-
-    @pytest.mark.integration
-    def test_unknown_key_rejected(self, client: TestClient):
-        pid = _create_provider(client, [_video_model()])
-
-        resp = self._patch(client, pid, {"capability_overrides": {"no_such_capability": True}})
-        assert resp.status_code == 422
-        assert "no_such_capability" in resp.json()["detail"]
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["display_name"] == "Relay Renamed"
+        assert resp.json()["models"][0]["capability_overrides"] is None
 
     @pytest.mark.integration
-    def test_known_but_unallowlisted_key_rejected(self, client: TestClient):
-        """first_frame 是合法 VideoCapabilities 字段，但首批未开放覆盖。"""
-        pid = _create_provider(client, [_video_model()])
+    def test_patch_endpoint_absent_from_openapi(self, app):
+        """单模型覆盖 PATCH 端点已删除：按 (provider_id, model_id, endpoint) 定位够不着新建
+        provider / 新增模型行 / 改过 model_id 的行，覆盖编辑统一走表单的整表保存。"""
+        assert not [path for path in app.openapi()["paths"] if "capability-overrides" in path]
 
-        resp = self._patch(client, pid, {"capability_overrides": {"first_frame": False}})
-        assert resp.status_code == 422
-        assert "first_frame" in resp.json()["detail"]
+
+class TestSaveValidatesOpenOverrides:
+    """白名单内的键仍按 endpoint 与值类型从严校验，报错用户能在界面上处置。"""
 
     @pytest.mark.integration
     @pytest.mark.parametrize("bad_value", ["true", 1, 0, None, [], {}])
-    def test_wrong_value_type_rejected(self, client: TestClient, bad_value):
-        pid = _create_provider(client, [_video_model()])
-
-        resp = self._patch(client, pid, {"capability_overrides": {"last_frame": bad_value}})
+    def test_wrong_value_type_rejected_on_create(self, client: TestClient, bad_value):
+        resp = _post_provider(client, [_video_model(capability_overrides={"last_frame": bad_value})])
         assert resp.status_code == 422
 
     @pytest.mark.integration
     def test_last_frame_rejected_on_endpoint_without_end_image_support(self, client: TestClient):
         """openai-video 的 delegate 不下传 end_image：开启覆盖只会让 UI 宣称支持、执行层仍静默丢帧。"""
-        pid = _create_provider(client, [_video_model()])
-
-        resp = self._patch(client, pid, {"capability_overrides": {"last_frame": True}})
+        resp = _post_provider(client, [_video_model(capability_overrides={"last_frame": True})])
         assert resp.status_code == 422
         assert "last_frame" in resp.json()["detail"]
 
     @pytest.mark.integration
     def test_non_video_endpoint_rejected(self, client: TestClient):
-        pid = _create_provider(
+        resp = _post_provider(
             client,
-            [{"model_id": "dall-e-3", "display_name": "D3", "endpoint": "openai-images", "is_enabled": True}],
+            [
+                {
+                    "model_id": "dall-e-3",
+                    "display_name": "D3",
+                    "endpoint": "openai-images",
+                    "is_enabled": True,
+                    "capability_overrides": {"last_frame": True},
+                }
+            ],
         )
-
-        resp = self._patch(client, pid, {"capability_overrides": {"last_frame": True}}, model_id="dall-e-3")
         assert resp.status_code == 422
 
     @pytest.mark.integration
-    def test_missing_model_returns_404(self, client: TestClient):
-        pid = _create_provider(client, [_video_model()])
-
-        resp = self._patch(client, pid, {"capability_overrides": {"last_frame": True}}, model_id="ghost")
-        assert resp.status_code == 404
-
-    @pytest.mark.integration
-    def test_rejected_write_leaves_stored_overrides_intact(self, client: TestClient):
+    def test_rejected_save_leaves_stored_overrides_intact(self, client: TestClient):
         pid = _create_provider(
             client,
             [
@@ -371,12 +389,19 @@ class TestPatchCapabilityOverrides:
             ],
         )
 
-        assert (
-            self._patch(
-                client, pid, {"capability_overrides": {"first_frame": False}}, model_id=LAST_FRAME_MODEL
-            ).status_code
-            == 422
+        resp = client.put(
+            f"/api/v1/custom-providers/{pid}/models",
+            json={
+                "models": [
+                    _video_model(
+                        endpoint=LAST_FRAME_ENDPOINT,
+                        model_id=LAST_FRAME_MODEL,
+                        capability_overrides={"last_frame": "yes"},
+                    )
+                ]
+            },
         )
+        assert resp.status_code == 422
 
         models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["capability_overrides"] == {"last_frame": True}
@@ -440,22 +465,13 @@ class TestReplaceModelsOverrideSemantics:
 
         resp = client.put(
             f"/api/v1/custom-providers/{pid}/models",
-            json={"models": [_video_model(capability_overrides={"first_frame": False})]},
+            json={"models": [_video_model(capability_overrides={"last_frame": "yes"})]},
         )
         assert resp.status_code == 422
 
     @pytest.mark.integration
     def test_invalid_override_rejected_on_create(self, client: TestClient):
-        resp = client.post(
-            "/api/v1/custom-providers",
-            json={
-                "display_name": "Relay",
-                "discovery_format": "openai",
-                "base_url": "https://relay.test/v1",
-                "api_key": "sk-relay",
-                "models": [_video_model(capability_overrides={"nope": True})],
-            },
-        )
+        resp = _post_provider(client, [_video_model(capability_overrides={"last_frame": 1})])
         assert resp.status_code == 422
 
     @pytest.mark.integration
@@ -538,96 +554,25 @@ class TestReplaceModelsOverrideSemantics:
         assert reloaded.json()["models"][0]["capability_overrides"] is None
 
     @pytest.mark.integration
-    async def test_unchanged_unallowlisted_override_does_not_block_replace(self, client: TestClient, session_factory):
-        """first_frame 不在开放白名单内，但结构合法：filter_valid_overrides 不按白名单过滤
-        （见 test_stale_incompatible_override_filtered_from_response 同类容忍），GET 会原样
-        回显；表单据此把它原样带回整表 PUT。若整表写入对未变更的覆盖仍跑白名单校验，用户会
-        连改个无关字段都被 422 拒绝，且没有入口能清掉这条历史值——未变更时须放行。"""
-        async with session_factory() as session:
-            repo = CustomProviderRepository(session)
-            provider = await repo.create_provider(
-                display_name="Relay",
-                discovery_format="openai",
-                base_url="https://relay.test/v1",
-                api_key="sk-relay",
-                models=[
-                    {
-                        "model_id": VIDEO_MODEL,
-                        "display_name": "Sora 2",
-                        "endpoint": VIDEO_ENDPOINT,
-                        "is_enabled": True,
-                        "is_default": True,
-                        "capability_overrides": {"first_frame": False},
-                    }
-                ],
-            )
-            await session.commit()
-            pid = provider.id
-
-        resp = client.put(
-            f"/api/v1/custom-providers/{pid}/models",
-            json={"models": [_video_model(capability_overrides={"first_frame": False})]},
-        )
-        assert resp.status_code == 200, resp.text
-        assert resp.json()[0]["capability_overrides"] == {"first_frame": False}
-
-    @pytest.mark.integration
-    async def test_changed_unallowlisted_override_still_rejected_on_replace(self, client: TestClient, session_factory):
-        """未变更才豁免白名单校验；把历史值改成另一个值仍须照常拒绝，白名单不能被整表端点绕过。"""
-        async with session_factory() as session:
-            repo = CustomProviderRepository(session)
-            provider = await repo.create_provider(
-                display_name="Relay",
-                discovery_format="openai",
-                base_url="https://relay.test/v1",
-                api_key="sk-relay",
-                models=[
-                    {
-                        "model_id": VIDEO_MODEL,
-                        "display_name": "Sora 2",
-                        "endpoint": VIDEO_ENDPOINT,
-                        "is_enabled": True,
-                        "is_default": True,
-                        "capability_overrides": {"first_frame": False},
-                    }
-                ],
-            )
-            await session.commit()
-            pid = provider.id
-
-        resp = client.put(
-            f"/api/v1/custom-providers/{pid}/models",
-            json={"models": [_video_model(capability_overrides={"first_frame": True})]},
-        )
-        assert resp.status_code == 422
-
-    @pytest.mark.integration
-    async def test_endpoint_change_still_validated_even_when_override_dict_unchanged(
+    async def test_endpoint_change_validated_even_when_override_dict_unchanged(
         self, client: TestClient, session_factory
     ):
-        """未变更豁免比对的是 (endpoint, 覆盖值) 二元组，不能只比对覆盖值：model_id 与覆盖字典
-        原样不动、只切 endpoint 时，校验结果天然随新 endpoint 变化（last_frame=True 是否合法
-        依赖 endpoint 的 end_image_capable），必须照常针对新 endpoint 校验。"""
-        async with session_factory() as session:
-            repo = CustomProviderRepository(session)
-            provider = await repo.create_provider(
-                display_name="Relay",
-                discovery_format="openai",
-                base_url="https://relay.test/v1",
-                api_key="sk-relay",
-                models=[
-                    {
-                        "model_id": LAST_FRAME_MODEL,
-                        "display_name": "Seedance",
-                        "endpoint": LAST_FRAME_ENDPOINT,
-                        "is_enabled": True,
-                        "is_default": True,
-                        "capability_overrides": {"last_frame": True},
-                    }
-                ],
-            )
-            await session.commit()
-            pid = provider.id
+        """每行都按提交上来的 (endpoint, 覆盖值) 校验：model_id 与覆盖字典原样不动、只切 endpoint
+        时，校验结果天然随新 endpoint 变化（last_frame=True 是否合法依赖 endpoint 的
+        end_image_capable），须针对新 endpoint 拒绝。"""
+        pid = await _seed_provider_with_raw_models(
+            session_factory,
+            [
+                {
+                    "model_id": LAST_FRAME_MODEL,
+                    "display_name": "Seedance",
+                    "endpoint": LAST_FRAME_ENDPOINT,
+                    "is_enabled": True,
+                    "is_default": True,
+                    "capability_overrides": {"last_frame": True},
+                }
+            ],
+        )
 
         resp = client.put(
             f"/api/v1/custom-providers/{pid}/models",
@@ -643,45 +588,6 @@ class TestReplaceModelsOverrideSemantics:
             },
         )
         assert resp.status_code == 422
-
-    @pytest.mark.integration
-    async def test_unchanged_unallowlisted_override_does_not_block_full_update(
-        self, client: TestClient, session_factory
-    ):
-        """同上，覆盖 PUT /{provider_id}（原子更新 provider 元数据 + 模型列表）这条写入路径。"""
-        async with session_factory() as session:
-            repo = CustomProviderRepository(session)
-            provider = await repo.create_provider(
-                display_name="Relay",
-                discovery_format="openai",
-                base_url="https://relay.test/v1",
-                api_key="sk-relay",
-                models=[
-                    {
-                        "model_id": VIDEO_MODEL,
-                        "display_name": "Sora 2",
-                        "endpoint": VIDEO_ENDPOINT,
-                        "is_enabled": True,
-                        "is_default": True,
-                        "capability_overrides": {"first_frame": False},
-                    }
-                ],
-            )
-            await session.commit()
-            pid = provider.id
-
-        resp = client.put(
-            f"/api/v1/custom-providers/{pid}",
-            json={
-                # 只改 display_name，验证「与该覆盖无关的编辑」不会被历史脏值挡住
-                "display_name": "Relay Renamed",
-                "base_url": "https://relay.test/v1",
-                "models": [_video_model(capability_overrides={"first_frame": False})],
-            },
-        )
-        assert resp.status_code == 200, resp.text
-        assert resp.json()["display_name"] == "Relay Renamed"
-        assert resp.json()["models"][0]["capability_overrides"] == {"first_frame": False}
 
 
 class TestResolverReturnsEffectiveCapabilities:
