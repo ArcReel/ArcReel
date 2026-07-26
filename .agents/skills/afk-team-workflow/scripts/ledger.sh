@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ledger.sh — append one line to a batch's thin ledger.
 #
-# The ledger records ONLY facts that gh/git cannot re-derive: a decision the lead
-# made, an authorization the user gave verbally, a fault the lead absorbed, a gap it
+# The ledger records ONLY facts that gh/git cannot re-derive: a decision the team-lead
+# made, an authorization the user gave verbally, a fault the team-lead absorbed, a gap it
 # spotted, why an issue was shelved, a merge it performed, a retrospective handed in.
 # Everything reconstructable from the remote (issue/PR/branch state, dependency graph)
 # stays out — batch-poll.sh recomputes that on demand. Recovery replays this file to

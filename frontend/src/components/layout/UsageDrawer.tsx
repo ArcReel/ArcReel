@@ -60,33 +60,50 @@ export function UsageDrawer({ open, onClose, projectName, anchorRef }: UsageDraw
 
   useEffect(() => {
     if (!open) return;
+    const controller = new AbortController();
     setLoading(true);
-    API.getUsageStats(projectName ? { projectName } : {})
+    API.getUsageStats(projectName ? { projectName } : {}, { signal: controller.signal })
       .then((res) => {
+        if (controller.signal.aborted) return;
         setStats(res as unknown as UsageStats);
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
   }, [open, projectName, setStats, setLoading]);
 
-  const loadCalls = useCallback(() => {
-    setCallsLoading(true);
-    API.getUsageCalls({
-      projectName: projectName ?? undefined,
-      page,
-      pageSize,
-    })
-      .then((res) => {
-        const r = res as { items?: UsageCall[]; total?: number };
-        setCalls(r.items ?? [], r.total ?? 0);
-      })
-      .catch(() => {})
-      .finally(() => setCallsLoading(false));
-  }, [projectName, page, pageSize, setCalls]);
+  const loadCalls = useCallback(
+    (signal?: AbortSignal) => {
+      setCallsLoading(true);
+      API.getUsageCalls(
+        {
+          projectName: projectName ?? undefined,
+          page,
+          pageSize,
+        },
+        { signal },
+      )
+        .then((res) => {
+          if (signal?.aborted) return;
+          const r = res as { items?: UsageCall[]; total?: number };
+          setCalls(r.items ?? [], r.total ?? 0);
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!signal?.aborted) setCallsLoading(false);
+        });
+    },
+    [projectName, page, pageSize, setCalls],
+  );
 
   useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 抽屉打开时触发数据加载，loadCalls 内部有 setState，属于正常异步数据获取模式
-    if (open) loadCalls();
+    loadCalls(controller.signal);
+    return () => controller.abort();
   }, [open, loadCalls]);
 
   const totalPages = Math.ceil(total / pageSize);

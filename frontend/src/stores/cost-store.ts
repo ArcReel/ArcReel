@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { API } from "@/api";
+import { isDemoProject } from "@/onboarding/demo-project";
 import { errMsg } from "@/utils/async";
 import type { CostEstimateResponse, SegmentCost, EpisodeCost } from "@/types";
 
@@ -46,6 +47,13 @@ export const useCostStore = create<CostState>((set, get) => ({
   _episodeIndex: new Map(),
 
   fetchCost: async (projectName: string) => {
+    // 引导演示项目在后端不存在，费用估算无从计算，界面按「未估算」显示；
+    // 递增 _fetchId 使切入前尚在途的真实项目请求作废，避免其晚到响应把真实费用写回演示页
+    if (isDemoProject(projectName)) {
+      _fetchId += 1;
+      get().clear();
+      return;
+    }
     const currentId = ++_fetchId;
     set({ loading: true, error: null });
     try {
@@ -61,6 +69,14 @@ export const useCostStore = create<CostState>((set, get) => ({
 
   debouncedFetch: (projectName: string) => {
     if (_debounceTimer) clearTimeout(_debounceTimer);
+    // 演示项目立即清空，不等 500ms 防抖窗口——否则切入演示项目后的这段窗口期，
+    // UI 仍会读到上一个真实项目残留在 store 里的费用数据
+    if (isDemoProject(projectName)) {
+      _debounceTimer = null;
+      _fetchId += 1;
+      get().clear();
+      return;
+    }
     _debounceTimer = setTimeout(() => {
       _debounceTimer = null;
       void get().fetchCost(projectName);

@@ -111,10 +111,19 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
+    @staticmethod
+    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+        """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
+
+        Sora input_reference 为单张首帧图，参考图上限为 1；首帧与参考共享该单槽位。
+        当前全系模型能力一致，不按 model_id 分支；instance property 委托至此，
+        保持 backend 为单一真相源。
+        """
+        return VideoCapabilities(reference_images=True, max_reference_images=1)
+
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        # Sora input_reference 为单张首帧图，参考图上限为 1；首帧与参考共享该单槽位。
-        return VideoCapabilities(reference_images=True, max_reference_images=1)
+        return self.video_capabilities_for_model(self._model)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         kwargs: dict = {

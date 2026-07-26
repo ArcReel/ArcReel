@@ -224,7 +224,7 @@ describe("API", () => {
         method: "POST",
         body: JSON.stringify({ title: "Untitled" }),
       });
-      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b");
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b", { signal: undefined });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo", {
         method: "PATCH",
         body: JSON.stringify({ style: "Anime" }),
@@ -450,9 +450,11 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo/assistant/skills", { signal: undefined });
       expect(requestSpy).toHaveBeenCalledWith(
         "/usage/stats?project_name=demo&start_date=2026-01-01&end_date=2026-02-01",
+        { signal: undefined },
       );
       expect(requestSpy).toHaveBeenCalledWith(
         "/usage/calls?project_name=demo&call_type=image&status=succeeded&start_date=2026-01-01&end_date=2026-02-01&page=1&page_size=50",
+        { signal: undefined },
       );
       expect(requestSpy).toHaveBeenCalledWith("/usage/projects");
     });

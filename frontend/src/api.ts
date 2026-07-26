@@ -68,6 +68,7 @@ import type {
   UpdateAgentCredentialRequest,
 } from "@/types/agent-credential";
 import { getToken, clearToken } from "@/utils/auth";
+import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import i18n from "./i18n";
 
 // ==================== Helper types ====================
@@ -313,7 +314,63 @@ function isAgentFailureDetail(value: unknown): value is AgentFailureDetail {
 }
 
 /** 为 fetch options 注入 Authorization header */
-function withAuth(options: RequestInit = {}): RequestInit {
+let apiReadOnly = false;
+
+/**
+ * 进入 / 离开只读态（引导演示工作台）。只读期间任何非 GET / HEAD 请求会在发出前被拒绝。
+ *
+ * 演示工作台是用真组件渲染假数据，写操作的入口都已经不渲染；这道闸门是结构性兜底 ——
+ * 漏掉一个入口时会得到一个明确的异常，而不是一条真写进用户项目的请求。
+ */
+export function setApiReadOnly(readOnly: boolean): void {
+  apiReadOnly = readOnly;
+}
+
+export class ReadOnlyModeError extends Error {
+  constructor(method: string) {
+    super(`Blocked ${method} request: the workspace is in read-only demo mode`);
+    this.name = "ReadOnlyModeError";
+  }
+}
+
+// 静态归档导入端点，不是「项目名恰好叫 import」——项目名允许字母数字中划线，
+// `import` 本身是合法项目名（ProjectManager.normalize_project_name 不排除它），
+// 按精确路径匹配而非按名称黑名单，避免把 `/projects/import/...`（真实项目名为
+// import 的写请求）一并误判成不带项目归属
+const RESERVED_PROJECT_ENDPOINTS = new Set(["/projects/import"]);
+
+// 不带项目归属、但本身不写入任何项目数据的系统级端点：闸门默认拦截所有无项目归属的
+// 写请求（全局资产库、供应商凭证等），这里是唯一的窄豁免。引导 tour 退出时会在仍处于
+// 演示路由（apiReadOnly 尚未复位）期间写这一条「已看过」标记，它只影响当前用户的引导
+// 状态，不属于闸门要防的「误写演示态/其他项目数据」范畴。
+const READ_ONLY_GATE_EXEMPT_ENDPOINTS = new Set(["/onboarding/seen"]);
+
+/** 从形如 `/projects/{name}` 或 `/projects/{name}/...` 的 endpoint 中取出项目名；非项目路径或静态保留端点返回 null */
+function extractProjectName(endpoint: string): string | null {
+  if (RESERVED_PROJECT_ENDPOINTS.has(endpoint)) return null;
+  const match = /^\/projects\/([^/?]+)/.exec(endpoint);
+  if (!match) return null;
+  return decodeURIComponent(match[1]);
+}
+
+/**
+ * 只读闸门是否应拦截这次请求。指向某个具体真实项目的写请求放行 ——
+ * 演示态可能在该请求发出前才切入，但它拦不住已经从真实项目发起的操作；
+ * 指向演示项目本身或不带项目归属的请求（全局资产库等）仍按闸门原意拦截，
+ * 窄豁免名单中的系统端点除外。
+ */
+function isReadOnlyGateBlocking(endpoint: string): boolean {
+  if (!apiReadOnly) return false;
+  if (READ_ONLY_GATE_EXEMPT_ENDPOINTS.has(endpoint)) return false;
+  const projectName = extractProjectName(endpoint);
+  return projectName === null || projectName === DEMO_PROJECT_NAME;
+}
+
+function withAuth(endpoint: string, options: RequestInit = {}): RequestInit {
+  const method = (options.method ?? "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD" && isReadOnlyGateBlocking(endpoint)) {
+    throw new ReadOnlyModeError(method);
+  }
   const token = getToken();
   const headers = new Headers(options.headers);
   if (token) {
@@ -347,7 +404,7 @@ class API {
       },
     };
 
-    const response = await fetch(url, withAuth({ ...defaultOptions, ...options }));
+    const response = await fetch(url, withAuth(endpoint, { ...defaultOptions, ...options }));
 
     if (!response.ok) {
       handleUnauthorized(response);
@@ -397,7 +454,7 @@ class API {
   static async downloadDiagnostics(): Promise<{ blob: Blob; filename: string }> {
     const response = await fetch(
       `${API_BASE}/system/logs/download`,
-      withAuth({ method: "GET" }),
+      withAuth("/system/logs/download", { method: "GET" }),
     );
     await throwIfNotOk(response, `HTTP ${response.status}`);
     const disposition = response.headers.get("Content-Disposition") ?? "";
@@ -433,13 +490,14 @@ class API {
   }
 
   static async getProject(
-    name: string
+    name: string,
+    options: { signal?: AbortSignal } = {}
   ): Promise<{
     project: ProjectData;
     scripts: Record<string, EpisodeScript>;
     asset_fingerprints?: Record<string, number>;
   }> {
-    return this.request(`/projects/${encodeURIComponent(name)}`);
+    return this.request(`/projects/${encodeURIComponent(name)}`, { signal: options.signal });
   }
 
   static async updateProject(
@@ -468,6 +526,9 @@ class API {
     supported_durations: number[];
     max_duration: number;
     max_reference_images: number;
+    /** 生效值（系统判定 ⊕ 用户覆盖），与执行层注入 backend 的能力同源。 */
+    first_frame: boolean;
+    last_frame: boolean;
     source: "registry" | "custom";
     default_duration?: number | null;
     content_mode?: string | null;
@@ -526,7 +587,7 @@ class API {
 
     const response = await fetch(
       `${API_BASE}/projects/import`,
-      withAuth({
+      withAuth("/projects/import", {
         method: "POST",
         body: formData,
       })
@@ -902,7 +963,7 @@ class API {
     const qs = qsParts.join("&");
     const url = `/projects/${encodeURIComponent(projectName)}/upload/${uploadType}${qs ? "?" + qs : ""}`;
 
-    const response = await fetch(`${API_BASE}${url}`, withAuth({
+    const response = await fetch(`${API_BASE}${url}`, withAuth(url, {
       method: "POST",
       body: formData,
     }));
@@ -946,7 +1007,7 @@ class API {
   private static async postFileUpload<T>(url: string, file: File): Promise<T> {
     const formData = new FormData();
     formData.append("file", file);
-    const response = await fetch(`${API_BASE}${url}`, withAuth({ method: "POST", body: formData }));
+    const response = await fetch(`${API_BASE}${url}`, withAuth(url, { method: "POST", body: formData }));
     await throwIfNotOk(response, "上传失败");
     return (await response.json()) as T;
   }
@@ -1001,6 +1062,11 @@ class API {
     path: string,
     cacheBust?: number | string | null
   ): string {
+    // 引导演示的占位图是现算的内联 SVG（data: URI），直接用，不要再包一层项目路径。
+    // 只放行 data: —— 目前没有第二种自带协议的图源，多放行的协议只是没人用的入口。
+    if (path.startsWith("data:")) {
+      return path;
+    }
     const base = `${API_BASE}/files/${encodeURIComponent(projectName)}/${path}`;
     if (cacheBust == null || cacheBust === "") {
       return base;
@@ -1018,9 +1084,10 @@ class API {
     projectName: string,
     filename: string
   ): Promise<string> {
+    const url = `/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`;
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`,
-      withAuth()
+      `${API_BASE}${url}`,
+      withAuth(url)
     );
     await throwIfNotOk(response, "获取文件内容失败");
     return response.text();
@@ -1034,9 +1101,10 @@ class API {
     filename: string,
     content: string
   ): Promise<SuccessResponse> {
+    const url = `/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`;
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`,
-      withAuth({
+      `${API_BASE}${url}`,
+      withAuth(url, {
         method: "PUT",
         headers: { "Content-Type": "text/plain" },
         body: content,
@@ -1053,9 +1121,10 @@ class API {
     projectName: string,
     filename: string
   ): Promise<SuccessResponse> {
+    const url = `/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`;
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/source/${encodeURIComponent(filename)}`,
-      withAuth({
+      `${API_BASE}${url}`,
+      withAuth(url, {
         method: "DELETE",
       })
     );
@@ -1073,9 +1142,10 @@ class API {
     episode: number,
     stepNum: number
   ): Promise<string> {
+    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`;
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`,
-      withAuth()
+      `${API_BASE}${url}`,
+      withAuth(url)
     );
     await throwIfNotOk(response, "获取草稿内容失败");
     return response.text();
@@ -1090,9 +1160,10 @@ class API {
     stepNum: number,
     content: string
   ): Promise<SuccessResponse> {
+    const url = `/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`;
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/drafts/${episode}/step${stepNum}`,
-      withAuth({
+      `${API_BASE}${url}`,
+      withAuth(url, {
         method: "PUT",
         headers: { "Content-Type": "text/plain" },
         body: content,
@@ -1559,9 +1630,10 @@ class API {
     const formData = new FormData();
     formData.append("file", file);
 
+    const url = `/projects/${encodeURIComponent(projectName)}/style-image`;
     const response = await fetch(
-      `${API_BASE}/projects/${encodeURIComponent(projectName)}/style-image`,
-      withAuth({
+      `${API_BASE}${url}`,
+      withAuth(url, {
         method: "POST",
         body: formData,
       })
@@ -1703,7 +1775,8 @@ class API {
    * @param filters - 筛选条件
    */
   static async getUsageStats(
-    filters: UsageStatsFilters = {}
+    filters: UsageStatsFilters = {},
+    options: { signal?: AbortSignal } = {}
   ): Promise<Record<string, unknown>> {
     const params = new URLSearchParams();
     if (filters.projectName)
@@ -1711,7 +1784,9 @@ class API {
     if (filters.startDate) params.append("start_date", filters.startDate);
     if (filters.endDate) params.append("end_date", filters.endDate);
     const query = params.toString();
-    return this.request(`/usage/stats${query ? "?" + query : ""}`);
+    return this.request(`/usage/stats${query ? "?" + query : ""}`, {
+      signal: options.signal,
+    });
   }
 
   /**
@@ -1719,7 +1794,8 @@ class API {
    * @param filters - 筛选条件
    */
   static async getUsageCalls(
-    filters: UsageCallsFilters = {}
+    filters: UsageCallsFilters = {},
+    options: { signal?: AbortSignal } = {}
   ): Promise<Record<string, unknown>> {
     const params = new URLSearchParams();
     if (filters.projectName)
@@ -1731,7 +1807,7 @@ class API {
     if (filters.page) params.append("page", String(filters.page));
     if (filters.pageSize) params.append("page_size", String(filters.pageSize));
     const query = params.toString();
-    return this.request(`/usage/calls${query ? "?" + query : ""}`);
+    return this.request(`/usage/calls${query ? "?" + query : ""}`, { signal: options.signal });
   }
 
   /**
@@ -1836,9 +1912,10 @@ class API {
   static async uploadVertexCredential(name: string, file: File): Promise<ProviderCredential> {
     const formData = new FormData();
     formData.append("file", file);
+    const url = `/providers/gemini-vertex/credentials/upload?name=${encodeURIComponent(name)}`;
     const response = await fetch(
-      `${API_BASE}/providers/gemini-vertex/credentials/upload?name=${encodeURIComponent(name)}`,
-      withAuth({ method: "POST", body: formData }),
+      `${API_BASE}${url}`,
+      withAuth(url, { method: "POST", body: formData }),
     );
     await throwIfNotOk(response, "上传凭证失败");
     return response.json() as Promise<ProviderCredential>;
@@ -2064,8 +2141,9 @@ class API {
     form.append("description", payload.description ?? "");
     form.append("voice_style", payload.voice_style ?? "");
     if (payload.image) form.append("image", payload.image);
-    const url = `${API_BASE}/assets`;
-    const response = await fetch(url, withAuth({ method: "POST", body: form }));
+    const endpoint = "/assets";
+    const url = `${API_BASE}${endpoint}`;
+    const response = await fetch(url, withAuth(endpoint, { method: "POST", body: form }));
     if (!response.ok) {
       handleUnauthorized(response);
       const error = (await response.json().catch(() => ({ detail: response.statusText }))) as {
@@ -2086,8 +2164,9 @@ class API {
   static async replaceAssetImage(id: string, image: File) {
     const form = new FormData();
     form.append("image", image);
-    const url = `${API_BASE}/assets/${encodeURIComponent(id)}/image`;
-    const response = await fetch(url, withAuth({ method: "POST", body: form }));
+    const endpoint = `/assets/${encodeURIComponent(id)}/image`;
+    const url = `${API_BASE}${endpoint}`;
+    const response = await fetch(url, withAuth(endpoint, { method: "POST", body: form }));
     if (!response.ok) {
       handleUnauthorized(response);
       const error = (await response.json().catch(() => ({ detail: response.statusText }))) as {

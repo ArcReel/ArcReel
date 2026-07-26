@@ -1,4 +1,4 @@
-import type { EndpointKey, ImageCap, MediaType } from "@/types";
+import type { CapabilityOverrides, EndpointKey, ImageCap, MediaType, VideoCapabilityFlags } from "@/types";
 
 export type DiscoveryFormat = "openai" | "google";
 export type ModelLike = { key: string; endpoint: EndpointKey; is_default: boolean };
@@ -158,4 +158,50 @@ export function mergeDiscoveredModels<T extends MergeRow>(
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// 能力覆盖（模型级，首批仅 last_frame）
+// ---------------------------------------------------------------------------
+
+/** 覆盖与系统判定的行内快照：加载时拍一次，之后不变。 */
+export interface CapabilitySnapshotRow {
+  original_model_id: string;
+  original_endpoint: EndpointKey;
+  original_capability_overrides: CapabilityOverrides | null;
+  original_system_capabilities: VideoCapabilityFlags | null;
+}
+
+/** 稀疏覆盖字典的唯一写入点：next === undefined 表示回到「跟随判定」，此时把该键从字典移除
+ *  而不是写 false——键缺席与显式 false 在后端是两种语义（跟随判定 vs 强制关）。移除后字典为空
+ *  则整体收敛回 null，避免把 {} 存进去让「有无覆盖」多出一种等价表示。 */
+export function withLastFrameOverride(
+  prev: CapabilityOverrides | null,
+  next: boolean | undefined,
+): CapabilityOverrides | null {
+  const merged: CapabilityOverrides = { ...(prev ?? {}) };
+  if (next === undefined) {
+    delete merged.last_frame;
+  } else {
+    merged.last_frame = next;
+  }
+  return Object.keys(merged).length > 0 ? merged : null;
+}
+
+/** 覆盖与系统判定都绑定 (endpoint, model_id) 组合：任一维度偏离加载时的快照就一并作废，
+ *  两者同时改回快照值才原样取回——对齐快照而非上一次中间态，否则逐字符编辑 model_id 时
+ *  第一次改动就丢掉覆盖，再改回原值也找不回来。判定值不跟着作废的话，改过 model_id 的行
+ *  会拿旧 model 的判定当作新 model 的判定展示，控件上就是一个看不出错的错值。 */
+export function capabilityFieldsFor(
+  row: CapabilitySnapshotRow,
+  nextModelId: string,
+  nextEndpoint: EndpointKey,
+): { capability_overrides: CapabilityOverrides | null; system_capabilities: VideoCapabilityFlags | null } {
+  const matchesSnapshot = nextModelId === row.original_model_id && nextEndpoint === row.original_endpoint;
+  return matchesSnapshot
+    ? {
+        capability_overrides: row.original_capability_overrides,
+        system_capabilities: row.original_system_capabilities,
+      }
+    : { capability_overrides: null, system_capabilities: null };
 }

@@ -714,6 +714,59 @@ class TestVideoCapabilities:
         assert caps["source"] == "custom"
         assert caps["max_reference_images"] == 1
 
+    @pytest.mark.integration
+    async def test_custom_disabled_model_falls_back_to_default_like_execution_layer(self):
+        """project 仍指向已禁用的 model 时，能力解析须与 loader.load_custom_backend 同一条回退
+        规则改读默认启用 model——否则会宣称执行层实际不会兑现的 first_frame/last_frame。"""
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                provider = CustomProvider(
+                    display_name="Custom Fallback",
+                    discovery_format="openai",
+                    base_url="https://example.com",
+                    api_key="xxx",
+                )
+                session.add(provider)
+                await session.flush()
+                disabled = CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="disabled-model",
+                    display_name="Disabled",
+                    endpoint="ark-seedance",
+                    is_enabled=False,
+                    supported_durations="[5]",
+                    capability_overrides={"last_frame": True},
+                )
+                default = CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="default-model",
+                    display_name="Default",
+                    endpoint="newapi-video",
+                    is_enabled=True,
+                    is_default=True,
+                    supported_durations="[5, 10]",
+                )
+                session.add_all([disabled, default])
+                await session.flush()
+
+                project_backend = f"custom-{provider.id}/disabled-model"
+                with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                    mock_pm.return_value.load_project.return_value = {
+                        "video_backend": project_backend,
+                    }
+                    caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        finally:
+            await engine.dispose()
+        assert caps["model"] == "default-model"
+        assert caps["supported_durations"] == [5, 10]
+        # newapi-video 不接受尾帧覆盖；已禁用 model 的 last_frame=True 覆盖不应残留
+        assert caps["last_frame"] is False
+
 
 class TestResolveImageBackend:
     """resolve_image_backend：payload > project > 全局默认，capability=t2i/i2i 各覆盖。"""

@@ -4,7 +4,8 @@ interface Props {
   icon: React.ReactNode;
   label: string;
   hint: string;
-  onClick: () => void;
+  /** 缺省即只读展示：不接受点击，也不画悬浮态。 */
+  onClick?: () => void;
 }
 
 /**
@@ -15,18 +16,27 @@ export function GalleryEmptyState({ icon, label, hint, onClick }: Props) {
     <button
       type="button"
       onClick={onClick}
-      className="focus-ring group relative w-full overflow-hidden rounded-2xl px-8 py-16 text-center transition-colors"
+      disabled={!onClick}
+      className="focus-ring group relative w-full overflow-hidden rounded-2xl px-8 py-16 text-center transition-colors disabled:cursor-default"
       style={{
         border: "1px dashed var(--color-hairline)",
         background:
           "radial-gradient(600px 280px at 50% -10%, var(--color-accent-dim), transparent 60%), oklch(0.18 0.010 265 / 0.35)",
       }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = "var(--color-accent-soft)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = "var(--color-hairline)";
-      }}
+      onMouseEnter={
+        onClick
+          ? (e) => {
+              e.currentTarget.style.borderColor = "var(--color-accent-soft)";
+            }
+          : undefined
+      }
+      onMouseLeave={
+        onClick
+          ? (e) => {
+              e.currentTarget.style.borderColor = "var(--color-hairline)";
+            }
+          : undefined
+      }
     >
       {/* Top accent line */}
       <span
@@ -66,19 +76,21 @@ export function GalleryEmptyState({ icon, label, hint, onClick }: Props) {
             {hint}
           </p>
         </div>
-        <span
-          className="mt-1 inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] font-medium transition-transform group-hover:translate-y-[-1px]"
-          style={{
-            color: "oklch(0.14 0 0)",
-            background:
-              "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
-            boxShadow:
-              "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
-          }}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          {label}
-        </span>
+        {onClick && (
+          <span
+            className="mt-1 inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] font-medium transition-transform group-hover:translate-y-[-1px]"
+            style={{
+              color: "oklch(0.14 0 0)",
+              background:
+                "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+              boxShadow:
+                "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+            }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {label}
+          </span>
+        )}
       </div>
     </button>
   );

@@ -10,12 +10,15 @@ import type { VideoPrompt, CameraMotion } from "@/types";
 interface VideoPromptEditorProps {
   prompt: VideoPrompt;
   onUpdate: (patch: Partial<VideoPrompt>) => void;
+  /** 只读展示（引导演示项目）：字段可读不可改。 */
+  readOnly?: boolean;
 }
 
 /** Structured editor for VideoPrompt fields with collapsible metadata section. */
 export function VideoPromptEditor({
   prompt,
   onUpdate,
+  readOnly,
 }: VideoPromptEditorProps) {
   const { t } = useTranslation("dashboard");
   const [collapsed, setCollapsed] = useState(false);
@@ -25,6 +28,7 @@ export function VideoPromptEditor({
       <AutoTextarea
         value={prompt.action}
         onChange={(v) => onUpdate({ action: v })}
+        readOnly={readOnly}
         placeholder={t("video_prompt_placeholder")}
       />
 
@@ -47,12 +51,14 @@ export function VideoPromptEditor({
             value={prompt.camera_motion}
             options={CAMERA_MOTIONS}
             renderOption={(v: CameraMotion) => t(CAMERA_MOTION_I18N_KEYS[v])}
+            disabled={readOnly}
             onChange={(v: CameraMotion) => onUpdate({ camera_motion: v })}
           />
           <CompactInput
             label={t("ambiance_audio_label")}
             value={prompt.ambiance_audio}
             onChange={(v) => onUpdate({ ambiance_audio: v })}
+            readOnly={readOnly}
             placeholder={t("ambiance_audio_placeholder")}
           />
         </div>

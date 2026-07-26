@@ -69,6 +69,11 @@ class _KlingVideoModelCaps:
     text_to_video: bool
     image_to_video: bool
     last_frame: bool
+    # last_frame=True 但仅 pro 档可用（官方一手：kling-v2-5-turbo、kling-v2-6 首尾帧均标"仅 pro"，
+    # 出处 docs/research/arcreel-vendor-integration-research.md）；std 档提交 image_tail 请求体虽会
+    # 被受理，尾帧约束却不生效——_build_payload 按此位在 std 档拒绝 image_tail，而非放行一个
+    # 调用方以为已生效实则被忽略的请求。
+    last_frame_requires_pro: bool
     reference_images: bool
     max_reference_images: int
     generate_audio: bool  # 能产出视频内人声；官方仅 v2-6（pro 档）标 ✅
@@ -80,6 +85,7 @@ _DEFAULT_VIDEO_CAPS = _KlingVideoModelCaps(
     text_to_video=True,
     image_to_video=True,
     last_frame=True,
+    last_frame_requires_pro=True,
     reference_images=False,
     max_reference_images=0,
     generate_audio=False,
@@ -92,6 +98,7 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         text_to_video=True,
         image_to_video=True,
         last_frame=True,
+        last_frame_requires_pro=False,
         reference_images=False,
         max_reference_images=0,
         generate_audio=False,
@@ -101,6 +108,7 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         text_to_video=True,
         image_to_video=True,
         last_frame=True,
+        last_frame_requires_pro=False,
         reference_images=True,
         max_reference_images=_R2V_MAX_REFERENCE_IMAGES,
         generate_audio=False,
@@ -110,6 +118,7 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         text_to_video=True,
         image_to_video=True,
         last_frame=True,
+        last_frame_requires_pro=True,
         reference_images=False,
         max_reference_images=0,
         generate_audio=True,
@@ -119,6 +128,7 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         text_to_video=False,
         image_to_video=True,
         last_frame=True,
+        last_frame_requires_pro=False,
         reference_images=True,
         max_reference_images=_R2V_MAX_REFERENCE_IMAGES,
         generate_audio=False,
@@ -223,10 +233,16 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         # max_reference_images 同时声明于 registry ModelInfo（编排层裁剪读它）与此处（生成时防御），取保守
         # 值、待 app.klingai.com 控制台核对。纯函数（不构造 client / 不需 api_key），供 custom endpoint
         # resolver 按 model_id 读上限复用。
+        #
+        # last_frame_requires_pro 为真的 model（kling-v2-5-turbo、kling-v2-6）：该位不按 service_tier
+        # 分档——service_tier 是逐请求字段（generation_tasks 入队时选定），本函数只按 model 声明、
+        # 无从得知调用方将选哪档。std/4k 档提交尾帧会被 _build_payload 的 fail-loud 护栏拒绝，declare
+        # 一个仅在少数档位成立的 True 会让 media_generator 按此位放行 end_image、多数请求撞 guard 硬失败；
+        # 保守声明 False 更贴近默认档的真实执行结果，与未登记 model 回落保守默认同一原则。
         caps = _lookup_video_caps(model)
         return VideoCapabilities(
             first_frame=True,
-            last_frame=caps.last_frame,
+            last_frame=caps.last_frame and not caps.last_frame_requires_pro,
             reference_images=caps.reference_images,
             max_reference_images=caps.max_reference_images,
         )
@@ -235,16 +251,44 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     def video_capabilities(self) -> VideoCapabilities:
         return self.video_capabilities_for_model(self._model)
 
+    def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None) -> VideoCapabilities:
+        """按实际请求档位收窄的 last_frame 声明，供有请求上下文的调用方使用。
+
+        `video_capabilities_for_model(model)` 是无请求上下文的纯函数，对
+        `last_frame_requires_pro` 的 model 只能保守声明 `last_frame=False`（供
+        `/video-capabilities`、custom provider resolver 等无 tier 信息的调用方）。而
+        `media_generator` 转发 `end_image` 前已知 `service_tier`/`resolution`——按此处收窄，
+        实际解析出的 mode（复用 `_resolve_mode_from` 同一派生规则，`resolution="4k"` 优先于
+        `service_tier`）为 pro 才放行、std/4k 档仍保守拒绝，与 `_build_payload` 的 fail-loud
+        护栏放行条件对齐，避免 pro 档请求被上层静默丢帧（该请求实际会被 `_build_payload` 接受），
+        也避免 4k+pro 组合被误判放行（`_resolve_mode` 对该组合解出 ``"4k"`` 而非 ``"pro"``）。
+        """
+        caps = _lookup_video_caps(self._model)
+        mode = self._resolve_mode_from(resolution, service_tier)
+        last_frame = caps.last_frame and (not caps.last_frame_requires_pro or mode == "pro")
+        return VideoCapabilities(
+            first_frame=True,
+            last_frame=last_frame,
+            reference_images=caps.reference_images,
+            max_reference_images=caps.max_reference_images,
+        )
+
     # ── request building ────────────────────────────────────────────────
 
-    def _resolve_mode(self, request: VideoGenerationRequest) -> str:
+    @staticmethod
+    def _resolve_mode_from(resolution: str | None, service_tier: str | None) -> str:
         """质量档 → mode：resolution=4k 独立成 ``4k`` 档（仅 v3/v3-omni 可达），否则 service_tier→std/pro。
 
         与 per_second_tiered 定价的档位派生一致（4k 优先于 std/pro），保证请求档与计费档同源。
+        `_resolve_mode` 与 `video_capabilities_for_tier` 共用此同一派生规则，避免两处独立实现
+        对同一请求解出不同 mode（曾因此让 tier-aware 能力查询对 4k+pro 组合误判 last_frame=True）。
         """
-        if (request.resolution or "").lower() == "4k":
+        if (resolution or "").lower() == "4k":
             return "4k"
-        return "pro" if (request.service_tier or "").lower() == "pro" else "std"
+        return "pro" if (service_tier or "").lower() == "pro" else "std"
+
+    def _resolve_mode(self, request: VideoGenerationRequest) -> str:
+        return self._resolve_mode_from(request.resolution, request.service_tier)
 
     def _effective_audio(self, request: VideoGenerationRequest) -> bool:
         """实际是否产出视频内人声：请求要 + model 有 generate_audio 能力 + pro 档（官方仅 v2-6 pro ✅）。
@@ -301,6 +345,10 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             payload["image"] = self._encode_frame(Path(start_image))
             end_image = request.end_image
             if isinstance(end_image, (str, Path)) and str(end_image):
+                # 该 model 的首尾帧仅 pro 档生效时，std/4k 档提交 image_tail 虽会被官方接口受理，
+                # 尾帧约束却不生效——fail loud 拒绝而非放行一个调用方以为已生效实则被忽略的请求。
+                if self._caps.last_frame_requires_pro and self._resolve_mode(request) != "pro":
+                    raise VideoCapabilityError("video_last_frame_requires_pro", provider=self.name, model=self._model)
                 payload["image_tail"] = self._encode_frame(Path(end_image))
             subpath = _IMAGE2VIDEO
 

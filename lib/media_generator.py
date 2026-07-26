@@ -606,10 +606,20 @@ class MediaGenerator:
 
             # 尾帧只在后端声明 last_frame 时下发：参考图是与首帧互斥的独立路径，
             # 把尾帧转投参考图会丢掉首帧语义，故不支持尾帧的后端直接忽略该槽位。
+            #
+            # 优先取 video_capabilities_for_tier（若后端实现）：某些后端（如 Kling）的
+            # last_frame 仅在特定 service_tier 生效，无请求上下文的 video_capabilities 属性
+            # 只能保守声明，会让合法档位的请求在这里被误判不支持而静默丢帧。
             actual_end_image = None
 
             if end_image and self._video_backend:
-                if self._video_backend.video_capabilities.last_frame:
+                tier_aware_caps = getattr(self._video_backend, "video_capabilities_for_tier", None)
+                caps = (
+                    tier_aware_caps(version_metadata.get("service_tier", "default"), resolution=resolution)
+                    if tier_aware_caps is not None
+                    else self._video_backend.video_capabilities
+                )
+                if caps.last_frame:
                     actual_end_image = end_image  # first_last mode
                 else:
                     logger.warning(
