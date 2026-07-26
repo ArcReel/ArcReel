@@ -1,4 +1,5 @@
 import json
+import shutil
 from io import BytesIO
 
 from fastapi import FastAPI
@@ -104,6 +105,7 @@ class TestFilesRouter:
         class _RaceLoader:
             @staticmethod
             def load(*args, **kwargs):
+                shutil.rmtree(tmp_path / "projects" / "demo")
                 raise FileNotFoundError("/server/projects/demo/source gone")
 
         monkeypatch.setattr(files, "SourceLoader", _RaceLoader)
@@ -114,6 +116,23 @@ class TestFilesRouter:
             )
             assert resp.status_code == 404
             assert resp.json()["detail"] == zh_errors.MESSAGES["project_not_found"].format(name="demo")
+
+    def test_source_upload_loader_file_missing_with_project_intact_stays_generic(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+
+        class _BrokenLoader:
+            @staticmethod
+            def load(*args, **kwargs):
+                raise FileNotFoundError("/tmp/upload-tmp gone")
+
+        monkeypatch.setattr(files, "SourceLoader", _BrokenLoader)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/source",
+                files={"file": ("chapter.txt", BytesIO(b"hello"), "text/plain")},
+            )
+            assert resp.status_code == 404
+            assert resp.json()["detail"] == zh_errors.MESSAGES["resource_not_found"]
 
     def test_upload_assets_and_drafts(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)

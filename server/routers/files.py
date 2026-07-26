@@ -393,7 +393,10 @@ async def _handle_source_upload(
         result = await asyncio.to_thread(_sync)
     except FileNotFoundError as exc:
         # 竞态窗口：get_project_path 通过后项目目录被并发删除，SourceLoader 写入时才炸。
-        # 不映射会落到 app 级兜底的泛化 resource_not_found，丢失项目语义
+        # 不映射会落到 app 级兜底的泛化 resource_not_found，丢失项目语义。
+        # 仅在项目目录确实消失时转换：tmp 文件/加载器内部的文件缺失不是项目问题，继续上抛
+        if project_dir.exists():
+            raise
         raise NotFoundError("project_not_found", name=project_name) from exc
     except UnsupportedFormatError as exc:
         raise HTTPException(
