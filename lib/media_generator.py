@@ -564,7 +564,39 @@ class MediaGenerator:
         if self._video_backend is None:
             raise RuntimeError("video_backend not configured")
 
+        # 空串 end_image 归一为 None：遗留/直接 Python 调用者可能以 "" 表示无尾帧
+        # （kling _build_payload 的真值判断锁定了这个兼容语义，见
+        # tests/test_kling_video_backend.py::test_image2video_empty_end_frame_is_omitted）。
+        # 下方 gating 用 is not None 判空，"" 若不归一会被误判成真尾帧。
+        if not end_image:
+            end_image = None
+
         model_name = self._video_backend.model
+
+        # 能力 gating 与槽位组装先于记账括号：尾帧不被支持时硬失败要"不扣费"，
+        # 在括号内抛虽也不结算，却会留一条 failed ApiCall 行；纯函数无副作用，前置最干净。
+        from lib.video_frame_slots import plan_frame_slots, resolve_video_capabilities
+
+        # 能力查询保持惰性：不带尾帧的请求不触发 gating，无谓查询只会给无尾帧路径
+        # 新增一层后端属性依赖；未查询即传 None，不伪造一份占位能力声明。
+        video_caps = (
+            resolve_video_capabilities(
+                self._video_backend,
+                service_tier=version_metadata.get("service_tier", "default"),
+                resolution=resolution,
+            )
+            if end_image is not None
+            else None
+        )
+        slot_plan = plan_frame_slots(
+            caps=video_caps,
+            provider=self._video_backend.name,
+            model=model_name,
+            start_image=start_image,
+            end_image=end_image,
+            reference_images=reference_images,
+        )
+
         if self._config is not None:
             configured_generate_audio = await self._config.video_generate_audio(self.project_name)
         else:
@@ -604,49 +636,13 @@ class MediaGenerator:
 
             from lib.video_backends.base import VideoGenerationRequest
 
-            # 尾帧只在后端声明 last_frame 时下发：参考图是与首帧互斥的独立路径，
-            # 把尾帧转投参考图会丢掉首帧语义，故不支持尾帧的后端直接忽略该槽位。
-            #
-            # 优先取 video_capabilities_for_tier（若后端实现）：某些后端（如 Kling）的
-            # last_frame 仅在特定 service_tier 生效，无请求上下文的 video_capabilities 属性
-            # 只能保守声明，会让合法档位的请求在这里被误判不支持而静默丢帧。
-            actual_end_image = None
-
-            if end_image and self._video_backend:
-                tier_aware_caps = getattr(self._video_backend, "video_capabilities_for_tier", None)
-                caps = (
-                    tier_aware_caps(version_metadata.get("service_tier", "default"), resolution=resolution)
-                    if tier_aware_caps is not None
-                    else self._video_backend.video_capabilities
-                )
-                if caps.last_frame:
-                    actual_end_image = end_image  # first_last mode
-                else:
-                    logger.warning(
-                        "Video backend %s does not support last_frame, end_image will be ignored",
-                        self._video_backend.name,
-                    )
-
-            from lib.reference_compression import ReferenceSpec, RefRole
-
             video_backend = self._video_backend
             # FRAME（start/end 帧，永不缩尺寸）+ ARRAY（参考数组，完整梯子）按已知序位组织成
-            # specs，压缩后按 index 还原回三个请求字段。start_image 沿用现有 path 门控：仅 str/Path
-            # 文件源作 FRAME，PIL.Image / None 不入压缩器（维持原行为 request.start_image=None）。
-            specs: list[ReferenceSpec] = []
-            start_spec_idx: int | None = None
-            end_spec_idx: int | None = None
-            ref_start_idx: int | None = None
-
-            if isinstance(start_image, (str, Path)):
-                start_spec_idx = len(specs)
-                specs.append(ReferenceSpec(source=Path(start_image), label="", role=RefRole.FRAME))
-            if actual_end_image is not None:
-                end_spec_idx = len(specs)
-                specs.append(ReferenceSpec(source=Path(actual_end_image), label="", role=RefRole.FRAME))
-            if reference_images:
-                ref_start_idx = len(specs)
-                specs.extend(ReferenceSpec(source=Path(r), label="", role=RefRole.ARRAY) for r in reference_images)
+            # specs（见 lib/video_frame_slots.py），压缩后按 index 还原回三个请求字段。
+            specs = slot_plan.specs
+            start_spec_idx = slot_plan.start_index
+            end_spec_idx = slot_plan.end_index
+            ref_start_idx = slot_plan.reference_start_index
 
             def _call_video(compressed: "list[CompressedRef]"):
                 start_arg = compressed[start_spec_idx].path if start_spec_idx is not None else None
