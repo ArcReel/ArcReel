@@ -421,6 +421,20 @@ class TestArkModelCapabilities:
         assert caps.last_frame is False
 
     @pytest.mark.unit
+    def test_seedance_1_0_pro_non_fast_supports_last_frame(self):
+        """能力表标首尾帧 ✅；型号名含 "seedance-1-0-pro" 是 "seedance-1-0-pro-fast" 的前缀子串，
+        验证白名单与黑名单的先后顺序不会把非 fast 型号误判为不支持。"""
+        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0-pro-250528")
+        assert caps.last_frame is True
+
+    @pytest.mark.unit
+    def test_unknown_model_defaults_to_no_last_frame(self):
+        """白名单而非黑名单：能力表之外的未知型号（自定义供应商新配置、上游未来新增）一律保守
+        判定为不支持尾帧，避免错误声明支持而绕过硬拒绝、产生真实供应商调用与扣费。"""
+        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-9-9-ultra-future")
+        assert caps.last_frame is False
+
+    @pytest.mark.unit
     def test_seedance_1_0_lite_t2v_no_last_frame(self):
         """纯文生视频型号，能力表「图生视频-首帧」「图生视频-首尾帧」均标 "-"，不接受任何图片输入。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0-lite-t2v-250428")

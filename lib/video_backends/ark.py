@@ -80,12 +80,22 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         model_lower = model.lower()
         return "seedance-2-0" in model_lower or "seedance-2.0" in model_lower
 
-    # docs/ark-docs/seedance2.0.md 能力表中「图生视频-首帧」「图生视频-首尾帧」标 "-" 的两个
-    # 1.0 系列型号：1.0 pro fast 支持首帧但未开放尾帧；1.0 lite t2v 是纯文生视频，首帧/尾帧均
-    # 不支持。子串同时收录连字符与点号两种版本号写法（如 "1-0" / "1.0"）——上游命名不统一，
-    # docs/ark-docs/火山方舟费用参考.md 中 doubao-seedance-1.0-pro-fast 即用点号，
-    # 自定义供应商配置也可能沿用该写法。
+    # docs/ark-docs/seedance2.0.md 能力表中，非 seedance-2.0 系列里明确支持首尾帧的仅这三个
+    # 1.x 型号（1.0 pro fast 与 1.0 lite t2v 标 "-"，其余未上表的型号未经验证）。改用白名单
+    # 而非黑名单：自定义供应商配置或上游新增的未知型号一律保守判定为不支持尾帧，避免错误声明
+    # 支持而绕过本模块新增的硬拒绝——一旦放行，真实不支持的型号会照样产生供应商侧调用与扣费，
+    # 与本 issue 的验收标准直接相悖。子串同时收录连字符与点号两种版本号写法（如 "1-0" /
+    # "1.0"）——上游命名不统一，docs/ark-docs/火山方舟费用参考.md 中 doubao-seedance-1.0-pro-fast
+    # 即用点号。
     _NO_FIRST_FRAME_SUBSTRINGS = ("seedance-1-0-lite-t2v", "seedance-1.0-lite-t2v")
+    _LAST_FRAME_ALLOW_SUBSTRINGS = (
+        "seedance-1-5-pro",
+        "seedance-1.5-pro",
+        "seedance-1-0-pro",
+        "seedance-1.0-pro",
+        "seedance-1-0-lite-i2v",
+        "seedance-1.0-lite-i2v",
+    )
     _NO_LAST_FRAME_SUBSTRINGS = (
         "seedance-1-0-pro-fast",
         "seedance-1.0-pro-fast",
@@ -105,13 +115,17 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             # cannot be mixed with reference media content，实测）——参考图是与首尾帧互斥的
             # 参考生视频模式，故不声明首帧叠加参考能力；若上游后续放开混合可重新开启。
             return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=9)
-        # 非 2.0 系列：能力表除 1.0 pro fast / 1.0 lite t2v 外均支持首尾帧（含 DEFAULT_MODEL
-        # 1.5 pro），此前统一按 VideoCapabilities() 默认 last_frame=False 处理是误判——见
-        # test_first_last_frame_role_fields，1.5 pro 实测正常下发 role="last_frame"。
+        # 非 2.0 系列：DEFAULT_MODEL 1.5 pro 实测正常下发 role="last_frame"（见
+        # test_first_last_frame_role_fields），此前统一按 VideoCapabilities() 默认
+        # last_frame=False 处理是误判；白名单覆盖能力表已验证支持首尾帧的三个型号，
+        # 未命中白名单的一律 last_frame=False（含未来新增/自定义供应商的未知型号）。
         model_lower = model.lower()
         no_first_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_FIRST_FRAME_SUBSTRINGS)
-        no_last_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_LAST_FRAME_SUBSTRINGS)
-        return VideoCapabilities(first_frame=not no_first_frame, last_frame=not no_last_frame)
+        allowed_last_frame = any(sub in model_lower for sub in ArkVideoBackend._LAST_FRAME_ALLOW_SUBSTRINGS)
+        denied_last_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_LAST_FRAME_SUBSTRINGS)
+        return VideoCapabilities(
+            first_frame=not no_first_frame, last_frame=allowed_last_frame and not denied_last_frame
+        )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
