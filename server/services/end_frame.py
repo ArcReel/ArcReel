@@ -254,8 +254,8 @@ def read_project_image(project_path: Path, source_path: str) -> bytes:
     不限定来源子目录——分镜图 / 角色 / 场景 / 宫格切图都可直接选用，越界防护
     由 ``safe_join`` 统一负责（与 data_validator 的路径字段校验同口径）。
 
-    读取按上传通道同一 30 MiB 上限有界读取，不整读入内存——项目内合法存在的
-    大文件（如视频）被当作选图源时不至于无界内存占用。
+    读取按上传通道同一上限（``UPLOAD_IMAGE_MAX_BYTES``）有界读取，不整读入内存——
+    项目内合法存在的大文件（如视频）被当作选图源时不至于无界内存占用。
     """
     normalized = source_path.strip().replace("\\", "/")
     if not normalized:

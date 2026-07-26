@@ -168,8 +168,8 @@ class TestSelectChannel:
         c, _pm = client
         assert _select(c, "storyboards/scene_E1S99.png").status_code == 404
 
-    def test_oversized_source_image_rejected_without_full_read(self, client, monkeypatch):
-        """项目内选图源超过上传通道同一上限时须拒绝，不整读入内存（见 read_project_image）。"""
+    def test_oversized_source_image_rejected(self, client, monkeypatch):
+        """项目内选图源超过上传通道同一上限时须拒绝（见 read_project_image）。"""
         c, pm = client
         monkeypatch.setattr(end_frame_service, "UPLOAD_IMAGE_MAX_BYTES", 16)
         _write_source_image(pm, "storyboards/scene_E1S02.png", _img_bytes("PNG", size=(64, 64)))
@@ -177,6 +177,37 @@ class TestSelectChannel:
         resp = _select(c, "storyboards/scene_E1S02.png")
         assert resp.status_code == 413
         assert _segment(pm).get("end_frame_image") is None
+
+    def test_source_image_read_is_bounded(self, client, monkeypatch):
+        """超限源图不得整读入内存：单次 read 请求的字节数以上限 +1 为界，够判超限即止。"""
+        _c, pm = client
+        _write_source_image(pm, "storyboards/scene_E1S02.png", _img_bytes("PNG", size=(64, 64)))
+        project_path = pm.get_project_path("demo")
+        monkeypatch.setattr(end_frame_service, "UPLOAD_IMAGE_MAX_BYTES", 16)
+
+        read_sizes: list[int] = []
+        real_open = Path.open
+
+        class _SpyHandle:
+            def __init__(self, handle) -> None:
+                self._handle = handle
+
+            def read(self, size: int = -1) -> bytes:
+                read_sizes.append(size)
+                return self._handle.read(size)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return self._handle.__exit__(*exc_info)
+
+        monkeypatch.setattr(Path, "open", lambda self, *a, **kw: _SpyHandle(real_open(self, *a, **kw)))
+
+        with pytest.raises(upload_finalize.UploadTooLargeError):
+            end_frame_service.read_project_image(project_path, "storyboards/scene_E1S02.png")
+
+        assert read_sizes == [17]
 
 
 class TestClear:
@@ -599,6 +630,28 @@ class TestErrorMapping:
         )
         assert resp.status_code == 400
         assert _segment(pm).get("end_frame_image") is None
+
+    def test_illegal_path_returns_400_on_select_and_clear(self, client):
+        """三个端点共用 `_locate_shot`，选图与清除通道同样须落 400 而非 500。"""
+        c, _pm = client
+        select_resp = c.post(
+            "/api/v1/projects/demo.evil/shots/E1S01/end-frame/select",
+            json={"script_file": "episode_1.json", "source_path": "storyboards/scene_E1S01.png"},
+        )
+        assert select_resp.status_code == 400
+
+        clear_resp = c.delete(
+            "/api/v1/projects/demo/shots/E1S01/end-frame?script_file=../../../../etc/passwd",
+        )
+        assert clear_resp.status_code == 400
+
+    def test_corrupt_script_still_maps_to_500(self, client):
+        """`JSONDecodeError` 是 `ValueError` 子类：剧本文件损坏须落 500 兜底，
+        不能被非法 script_file 的 400 分支吞掉，否则错误原因对排查完全失真。"""
+        c, pm = client
+        (pm.get_project_path("demo") / "scripts" / "episode_1.json").write_text("{ not json", encoding="utf-8")
+
+        assert _upload(c, _img_bytes("PNG")).status_code == 500
 
 
 class TestValidatorAcceptsWrittenSnapshot:
