@@ -48,6 +48,7 @@ export default {
   'demo_episode_placeholder': 'Bản minh hoạ chỉ đến tập {{episode}}: tập này chỉ có tiêu đề, chưa có kịch bản và phân cảnh.',
 
   // Hội thoại tĩnh trong bảng Agent của bàn làm việc minh hoạ (do người dùng mở lời)
+  'demo_chat_agent_analyzed': 'Đã phân tích xong tiểu thuyết — các tập, nhân vật và bối cảnh đều đã được tách ra. Bạn có thể bắt đầu sản xuất bất cứ lúc nào.',
   'demo_chat_user_start': 'Bắt đầu sản xuất',
   'demo_chat_agent_progress': 'Được. Tổng quan dự án đã được tạo, đang tạo ảnh tạo hình nhân vật; tiếp theo sẽ lần lượt tạo phân cảnh và video cho từng tập, tiến độ sẽ được cập nhật tại đây.',
 

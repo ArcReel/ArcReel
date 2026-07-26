@@ -47,6 +47,7 @@ export default {
   'demo_episode_placeholder': 'The demo only goes up to episode {{episode}}: this one has a title but no script or shots.',
 
   // Static conversation in the demo workbench agent panel (user-initiated)
+  'demo_chat_agent_analyzed': 'Analysis of the novel is complete — episodes, characters and scenes have all been extracted. You can start production whenever you like.',
   'demo_chat_user_start': 'Start production',
   'demo_chat_agent_progress': 'OK. The project overview has been generated and character images are being generated now; storyboards and videos will follow episode by episode, with progress updated here.',
 

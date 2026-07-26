@@ -10,8 +10,8 @@ import { ONBOARDING_ANCHORS } from "./anchors";
  *
  * 真实助手面板（`AgentCopilot`）从头到尾都是写路径——建会话、SSE 订阅、跑工具，演示态
  * 一概不接。但智能体全程参与制作是产品核心，演示工作台不能没有它：这里用同一套消息气泡
- * （`ChatMessage`）渲染两条静态演示对话，把首次制作的时序演出来——用户发「开始制作」→
- * 智能体汇报推进。对话由用户发起（智能体不会主动发消息，演示不演产品做不到的行为），
+ * （`ChatMessage`）渲染三条静态演示对话，把首次制作的时序演出来——智能体汇报小说分析
+ * 完成 → 用户发「开始制作」→ 智能体汇报推进。智能体的每条消息都是对上一步动作的回应，
  * 不伪造工具调用卡片，输入框禁用并标「演示中不可用」。
  *
  * 引导第 8 步的 `workbench-agent` 锚点挂在这里（真实面板是写路径、演示态不挂载，锚点
@@ -24,13 +24,18 @@ export function DemoAssistantPanel() {
   const turns = useMemo<Turn[]>(
     () => [
       {
-        type: "user",
+        type: "assistant",
         uuid: "demo-chat-1",
+        content: [{ type: "text", text: t("onboarding:demo_chat_agent_analyzed") }],
+      },
+      {
+        type: "user",
+        uuid: "demo-chat-2",
         content: [{ type: "text", text: t("onboarding:demo_chat_user_start") }],
       },
       {
         type: "assistant",
-        uuid: "demo-chat-2",
+        uuid: "demo-chat-3",
         content: [{ type: "text", text: t("onboarding:demo_chat_agent_progress") }],
       },
     ],
