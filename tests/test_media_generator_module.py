@@ -310,24 +310,27 @@ class TestMediaGenerator:
 
     @pytest.mark.integration
     @pytest.mark.asyncio
-    async def test_end_image_ignored_when_backend_lacks_last_frame(self, tmp_path):
-        """后端 last_frame=False 时忽略 end_image 并告警，不降级为参考图。"""
-        from lib.video_backends.base import VideoCapabilities
+    async def test_end_image_rejected_when_backend_lacks_last_frame(self, tmp_path):
+        """后端 last_frame=False 时硬失败：不下发供应商调用、不开记账，也不降级为参考图。"""
+        from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
 
         gen = _build_generator(tmp_path)
         gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=False))
         end_image = tmp_path / "end.png"
         end_image.write_bytes(b"fake-end-image")
+        started_before = len(gen.ledger.started)
 
-        await gen.generate_video_async(
-            prompt="p",
-            resource_type="videos",
-            resource_id="E1S06",
-            end_image=end_image,
-        )
-        call = gen._video_backend.calls[0]
-        assert call.end_image is None
-        assert call.reference_images is None
+        with pytest.raises(VideoCapabilityError) as exc:
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="videos",
+                resource_id="E1S06",
+                end_image=end_image,
+            )
+
+        assert exc.value.code == "video_last_frame_unsupported"
+        assert gen._video_backend.calls == []
+        assert len(gen.ledger.started) == started_before
 
     @pytest.mark.integration
     @pytest.mark.asyncio
@@ -362,9 +365,9 @@ class TestMediaGenerator:
 
     @pytest.mark.integration
     @pytest.mark.asyncio
-    async def test_end_image_ignored_when_tier_aware_backend_reports_std_tier(self, tmp_path):
-        """同一后端，std 档时仍按能力收窄拒绝转发——覆盖 pro/std 两条分支。"""
-        from lib.video_backends.base import VideoCapabilities
+    async def test_end_image_rejected_when_tier_aware_backend_reports_std_tier(self, tmp_path):
+        """同一后端，std 档时仍按能力收窄硬失败——覆盖 pro/std 两条分支。"""
+        from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
 
         class _TierAwareVideoBackend(_FakeVideoBackend):
             def __init__(self):
@@ -379,16 +382,20 @@ class TestMediaGenerator:
         gen._video_backend = _TierAwareVideoBackend()
         end_image = tmp_path / "end.png"
         end_image.write_bytes(b"fake-end-image")
+        started_before = len(gen.ledger.started)
 
-        await gen.generate_video_async(
-            prompt="p",
-            resource_type="videos",
-            resource_id="E1S08",
-            end_image=end_image,
-            service_tier="std",
-        )
-        call = gen._video_backend.calls[0]
-        assert call.end_image is None
+        with pytest.raises(VideoCapabilityError) as exc:
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="videos",
+                resource_id="E1S08",
+                end_image=end_image,
+                service_tier="std",
+            )
+
+        assert exc.value.code == "video_last_frame_unsupported"
+        assert gen._video_backend.calls == []
+        assert len(gen.ledger.started) == started_before
 
 
 # ── 咽喉层参考图压缩接线 ────────────────────────────────────────────────────
