@@ -8,23 +8,32 @@
 
 设置写快照文件 + 写字段、清除删快照文件 + 置空字段，各自整段落在同一把剧本锁
 （`ProjectManager.locked_script`）临界区内完成，与对方互斥——不会出现一方写完文件、
-对方抢在字段写回前把文件删掉的交错，结构上杜绝悬空引用。临界区内失败（如目标镜头
-mid-flight 被删除）会跳过整段写回，不留半截状态；孤儿快照文件（如进程在文件写完、
-锁释放前被杀）仍可能残留，无害，与 storyboards 现状一致，不做清理机制。
+对方抢在字段写回前把文件删掉的交错，结构上杜绝悬空引用。临界区内因目标镜头
+mid-flight 被删除而失败时跳过整段写回，不留半截状态。
+
+`locked_script` 在锁内完成剧本持久化，校验/落盘异常向调用方传出前锁已释放，故文件
+系统副作用（写快照 / 删快照）不能靠锁外的 try/except 直接回滚——那样回滚本身会跟同
+一间隙内另一个成功落盘的并发请求打架。补偿改为重新过锁并按「文件内容是否仍是失败前
+留下的状态」做条件回滚（见 `_restore_after_persist_failure`），只撤销自己的效果、不
+覆盖旁人已落盘的成果。孤儿快照文件（如进程在文件写完、锁释放前被杀）仍可能残留，
+无害，与 storyboards 现状一致，不做清理机制。
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 from lib.image_utils import normalize_storyboard_upload
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
-from lib.project_manager import get_project_manager
+from lib.project_manager import ProjectManager, get_project_manager
 from lib.resource_paths import resource_relative_path
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.services.upload_finalize import write_bytes_atomic
+
+logger = logging.getLogger(__name__)
 
 END_FRAME_RESOURCE_TYPE = "end_frames"
 
@@ -68,6 +77,40 @@ def _snapshot_target(project_path: Path, shot_id: str) -> tuple[Path, str]:
     return target, relative
 
 
+def _restore_after_persist_failure(
+    manager: ProjectManager,
+    project_name: str,
+    script_file: str,
+    target: Path,
+    old_bytes: bytes | None,
+    expected_current: bytes | None,
+) -> None:
+    """剧本持久化失败后的补偿：在新的一次剧本锁临界区内条件回滚快照文件。
+
+    补偿本身必须重新过锁——`locked_script` 在锁内完成持久化，异常向上传播前锁已释放，
+    若在锁外直接按调用方持有的旧字节回写，会跟同一间隙内另一个成功落盘的并发请求打架。
+    回滚前用 `expected_current` 复核文件当前内容是否仍是本次失败前留下的状态：仍是则说明这段时间无人接手，安全回滚；
+    已不是则说明并发操作已经用它自己的一次原子写快照+写字段接管，当前状态已自洽，
+    回滚只会用陈旧字节覆盖它的成果，直接跳过。
+    """
+    try:
+        with manager.locked_script(project_name, script_file):
+            current = target.read_bytes() if target.exists() else None
+            if current != expected_current:
+                return
+            if old_bytes is not None:
+                write_bytes_atomic(old_bytes, target)
+            else:
+                target.unlink(missing_ok=True)
+    except BaseException:
+        logger.exception(
+            "尾帧快照回滚失败：project=%s script=%s target=%s（原持久化异常见上一条 traceback）",
+            project_name,
+            script_file,
+            target,
+        )
+
+
 def _write_snapshot_and_field(
     project_name: str,
     script_file: str,
@@ -92,11 +135,10 @@ def _write_snapshot_and_field(
                     raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
                 write_bytes_atomic(png_bytes, target)
                 matched[0]["end_frame_image"] = relative
+    except EndFrameError:
+        raise
     except BaseException:
-        if old_bytes is not None:
-            write_bytes_atomic(old_bytes, target)
-        else:
-            target.unlink(missing_ok=True)
+        _restore_after_persist_failure(manager, project_name, script_file, target, old_bytes, png_bytes)
         raise
 
 
@@ -117,9 +159,10 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
                     raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
                 matched[0]["end_frame_image"] = None
                 target.unlink(missing_ok=True)
+    except EndFrameError:
+        raise
     except BaseException:
-        if old_bytes is not None:
-            write_bytes_atomic(old_bytes, target)
+        _restore_after_persist_failure(manager, project_name, script_file, target, old_bytes, expected_current=None)
         raise
 
 

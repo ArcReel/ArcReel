@@ -7,6 +7,7 @@
 import asyncio
 import threading
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -287,6 +288,42 @@ class TestConcurrentSetClear:
             # 清除赢：字段置空，文件可能已删或残留孤儿（无害），但不检验其存在性
 
 
+def _fail_first_persist(monkeypatch):
+    """让下一次剧本持久化失败一次，随后（补偿回滚重新过锁触发的第二次）恢复原实现。
+
+    补偿回滚本身也要走一次 `locked_script`（读快照现状、必要时改写、重新持久化），若一律
+    拦截会连回滚自身的持久化也打断，所以只失败第一次。
+    """
+    original = ProjectManager._write_script_unlocked
+    calls = {"n": 0}
+
+    def _boom(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ValueError("simulated persist failure")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(ProjectManager, "_write_script_unlocked", _boom)
+
+
+def _inject_concurrent_write_before_nth_load(monkeypatch, target: Path, content: bytes, n: int):
+    """模拟「回滚重新过锁前，另一个并发请求已抢先完成自己的一次成功落盘」。
+
+    补偿回滚会再发起一次 `locked_script`，其 `load_script` 调用即回滚临界区的起点——在其
+    第 n 次被调用时把 target 改写为 content，相当于并发请求恰好在回滚拿到锁之前完成。
+    """
+    original = ProjectManager.load_script
+    calls = {"n": 0}
+
+    def _load_with_race(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == n:
+            target.write_bytes(content)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(ProjectManager, "load_script", _load_with_race)
+
+
 class TestPersistFailureRestoresSnapshot:
     """剧本持久化在临界区内失败时，快照文件须回滚到操作前状态，不留悬空引用或静默丢失。"""
 
@@ -297,10 +334,7 @@ class TestPersistFailureRestoresSnapshot:
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         before = snapshot.read_bytes()
 
-        def _boom(*_a, **_k):
-            raise ValueError("simulated persist failure")
-
-        monkeypatch.setattr(ProjectManager, "_write_script_unlocked", _boom)
+        _fail_first_persist(monkeypatch)
         resp = _upload(c, _img_bytes("PNG", size=(16, 16)))
         assert resp.status_code == 500
 
@@ -314,10 +348,7 @@ class TestPersistFailureRestoresSnapshot:
         c, pm = client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
 
-        def _boom(*_a, **_k):
-            raise ValueError("simulated persist failure")
-
-        monkeypatch.setattr(ProjectManager, "_write_script_unlocked", _boom)
+        _fail_first_persist(monkeypatch)
         resp = _upload(c, _img_bytes("PNG"))
         assert resp.status_code == 500
 
@@ -331,10 +362,7 @@ class TestPersistFailureRestoresSnapshot:
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         before = snapshot.read_bytes()
 
-        def _boom(*_a, **_k):
-            raise ValueError("simulated persist failure")
-
-        monkeypatch.setattr(ProjectManager, "_write_script_unlocked", _boom)
+        _fail_first_persist(monkeypatch)
         resp = _delete(c)
         assert resp.status_code == 500
 
@@ -342,6 +370,40 @@ class TestPersistFailureRestoresSnapshot:
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
         assert snapshot.exists()
         assert snapshot.read_bytes() == before
+
+    @pytest.mark.integration
+    def test_set_failure_skips_restore_when_concurrent_write_supersedes(self, client, monkeypatch):
+        """回滚重新过锁时若文件内容已不是本次失败前写入的字节，说明并发请求已经接管，
+        必须跳过回滚——否则会用陈旧字节覆盖对方刚成功落盘的内容。"""
+        c, pm = client
+        snapshot = pm.get_project_path("demo") / END_FRAME_REL
+        concurrent_bytes = _img_bytes("PNG", size=(32, 32))
+
+        _fail_first_persist(monkeypatch)
+        # load 序列：_locate_shot(1) → 本次失败的 locked_script(2) → 回滚的 locked_script(3)
+        _inject_concurrent_write_before_nth_load(monkeypatch, snapshot, concurrent_bytes, n=3)
+
+        resp = _upload(c, _img_bytes("PNG", size=(16, 16)))
+        assert resp.status_code == 500
+
+        assert snapshot.read_bytes() == concurrent_bytes
+
+    @pytest.mark.integration
+    def test_clear_failure_skips_restore_when_concurrent_write_recreates_snapshot(self, client, monkeypatch):
+        c, pm = client
+        _upload(c, _img_bytes("PNG"))
+        snapshot = pm.get_project_path("demo") / END_FRAME_REL
+        concurrent_bytes = _img_bytes("PNG", size=(40, 40))
+
+        _fail_first_persist(monkeypatch)
+        _inject_concurrent_write_before_nth_load(monkeypatch, snapshot, concurrent_bytes, n=3)
+
+        resp = _delete(c)
+        assert resp.status_code == 500
+
+        # 回滚跳过：文件保留并发请求写入的新内容，没有被「删除态」覆盖
+        assert snapshot.exists()
+        assert snapshot.read_bytes() == concurrent_bytes
 
 
 class TestErrorMapping:
