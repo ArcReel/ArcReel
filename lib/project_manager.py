@@ -656,6 +656,16 @@ class ProjectManager:
 
         return output_path
 
+    @staticmethod
+    def normalize_script_filename(script_filename: str) -> str:
+        """剥离 `scripts/` 前缀，把剧本文件名归一到与内部锁键/存储路径一致的形式。
+
+        `episode_1.json` 与 `scripts/episode_1.json` 是指向同一剧本的合法别名；调用方需要
+        跨调用比较或做 key（如按剧本分组的并发标记）时应先过这里，避免两种写法各自生成一份
+        身份、互相看不见对方。
+        """
+        return script_filename[len("scripts/") :] if script_filename.startswith("scripts/") else script_filename
+
     @contextmanager
     def locked_script(self, project_name: str, script_filename: str, *, validate: bool = True):
         """在单一 `_script_lock` 内完成剧本的 load → mutate → save 读-改-写。
@@ -667,7 +677,7 @@ class ProjectManager:
         `validate=True`（默认）时在 yield 前快照「改前」剧本，写回走「不更坏」结构校验（零额外
         读盘）。只动 `generated_assets` 的资产回写热路径传 `validate=False` 整体豁免。
         """
-        norm = script_filename[len("scripts/") :] if script_filename.startswith("scripts/") else script_filename
+        norm = self.normalize_script_filename(script_filename)
         with self._script_lock(project_name, norm):
             script = self.load_script(project_name, norm)
             before = copy.deepcopy(script) if validate else None

@@ -22,12 +22,14 @@ mid-flight 被删除而失败时跳过整段写回，不留半截状态。
 是否跳过。孤儿快照文件（如进程在文件写完、锁释放前被杀）仍可能残留，无害，与 storyboards
 现状一致，不做清理机制。
 
-代次键须按 `ProjectManager` 内部同款规则归一化剧本文件名（见 `_normalize_script_file`）——
-`episode_1.json` 与 `scripts/episode_1.json` 是同一剧本的合法别名，不归一的话两个别名各自
-生成一把代次键，用不同别名操作同一镜头的并发请求就互相看不见。回滚基线（`old_bytes`）须在
-取得剧本锁之后、mutation 之前读取，不能在锁外预读——锁外预读的话，若本次操作前还有一次
-并发写入抢先成功落盘，读到的就是比"操作前"更早的陈旧内容，失败时会用它覆盖那次已成功的
-写入，即便代次判定本身没有问题。
+代次键须按 `ProjectManager.normalize_script_filename` 归一化剧本文件名——`episode_1.json`
+与 `scripts/episode_1.json` 是同一剧本的合法别名，不归一的话两个别名各自生成一把代次键，
+用不同别名操作同一镜头的并发请求就互相看不见。归一化调用 `ProjectManager` 的公开入口而非
+在本文件复刻其内部规则，避免上游改动（如支持新别名形式）时两处静默漂移、代次键重新分裂。
+
+回滚基线（`old_bytes`）须在取得剧本锁之后、mutation 之前读取，不能在锁外预读——锁外预读的话，
+若本次操作前还有一次并发写入抢先成功落盘，读到的就是比"操作前"更早的陈旧内容，失败时会用
+它覆盖那次已成功的写入，即便代次判定本身没有问题。
 """
 
 from __future__ import annotations
@@ -67,17 +69,6 @@ def _advance_shot_generation(key: _ShotKey) -> int:
         generation = _shot_generations.get(key, 0) + 1
         _shot_generations[key] = generation
         return generation
-
-
-def _normalize_script_file(script_file: str) -> str:
-    """按 `ProjectManager.locked_script`/`_script_lock` 同款规则归一化剧本文件名。
-
-    `episode_1.json` 与 `scripts/episode_1.json` 是指向同一剧本的合法别名，
-    `ProjectManager` 内部按此规则归一到同一把文件锁；代次键若直接用调用方传入的原始
-    字符串，两个别名会各自生成一把代次键，互相看不见对方——两个并发请求分别用不同别名
-    操作同一镜头时，失败一方的补偿据此误判「无人接手」，用旧字节覆盖对方已成功落盘的内容。
-    """
-    return script_file[len("scripts/") :] if script_file.startswith("scripts/") else script_file
 
 
 class EndFrameError(Exception):
@@ -170,7 +161,7 @@ def _write_snapshot_and_field(
     已成功的写入覆盖掉。
     """
     manager = get_project_manager()
-    key = (project_name, _normalize_script_file(script_file), shot_id)
+    key = (project_name, ProjectManager.normalize_script_filename(script_file), shot_id)
     generation = 0
     old_bytes: bytes | None = None
     entered = False
@@ -202,7 +193,7 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
     同 `_write_snapshot_and_field`。
     """
     manager = get_project_manager()
-    key = (project_name, _normalize_script_file(script_file), shot_id)
+    key = (project_name, ProjectManager.normalize_script_filename(script_file), shot_id)
     generation = 0
     old_bytes: bytes | None = None
     entered = False
