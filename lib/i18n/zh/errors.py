@@ -172,6 +172,8 @@ MESSAGES = {
     # Versions
     "unsupported_resource_type": "不支持的资源类型: {resource_type}",
     "invalid_resource_id": "非法的资源 ID: {resource_id}",
+    "invalid_end_frame_source": "尾帧来源路径非法或越出项目目录: {path}",
+    "end_frame_source_not_found": "尾帧来源图片不存在: {path}",
     # Reference Video
     "ref_missing_asset": "参考图引用的{type}「{name}」不在项目资产库中，请先生成",
     "ref_duration_exceeded": "参考视频单元时长 {duration}s 超出 {model} 上限 {max_duration}s，已裁剪",

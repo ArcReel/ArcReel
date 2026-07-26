@@ -1,7 +1,7 @@
 """资源路径解析器 — 「资源类型 → 项目内相对路径」的唯一真相源。
 
 纯函数，不读盘、不持有项目状态。独家拥有各资源类型的子目录、文件名模板、
-扩展名，以及 storyboards/videos（``scene_``）、audio（``segment_``）的文件名前缀。
+扩展名，以及 storyboards/end_frames/videos（``scene_``）、audio（``segment_``）的文件名前缀。
 
 写侧（MediaGenerator）、版本回溯（versions 路由）、导入修复（project_archive）、
 版本管理（VersionManager）都从这里取形状，避免副本各自漂移。越界校验不在此处，
@@ -24,6 +24,8 @@ class ResourcePattern:
 
 _PATTERNS: dict[str, ResourcePattern] = {
     "storyboards": ResourcePattern("storyboards", ".png", prefix="scene_"),
+    # 尾帧快照与分镜图、镜头视频同按镜头 id 命名，故共用 scene_ 前缀。
+    "end_frames": ResourcePattern("end_frames", ".png", prefix="scene_"),
     "videos": ResourcePattern("videos", ".mp4", prefix="scene_"),
     "characters": ResourcePattern("characters", ".png"),
     "scenes": ResourcePattern("scenes", ".png"),
@@ -47,7 +49,7 @@ def _pattern(resource_type: str) -> ResourcePattern:
 def resource_relative_path(resource_type: str, resource_id: str) -> str:
     """返回资源在项目内的相对路径（posix，正斜杠）。
 
-    storyboards/videos 形如 ``storyboards/scene_{id}.png``、audio 形如 ``audio/segment_{id}.wav``；
+    storyboards/end_frames/videos 形如 ``storyboards/scene_{id}.png``、audio 形如 ``audio/segment_{id}.wav``；
     其余 ``{subdir}/{id}{ext}``。未知类型抛 ``ValueError``。
     """
     pattern = _pattern(resource_type)

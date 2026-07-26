@@ -93,6 +93,7 @@ class DataValidator:
         "products",
         "reference_videos",
         "storyboards",
+        "end_frames",
         "videos",
         "audio",
         "thumbnails",
@@ -504,6 +505,25 @@ class DataValidator:
             default_dir="audio",
         )
 
+    def _validate_end_frame_image(
+        self,
+        project_dir: Path,
+        prefix: str,
+        item: dict[str, Any],
+        errors: list[str],
+    ) -> None:
+        """校验镜头条目的尾帧快照路径：越界与缺失均报 error（缺失即悬空引用，不容忍）。
+
+        与 generated_assets 内的路径字段同口径，但字段在条目顶层（用户意图而非运行时产出）。
+        """
+        self._validate_local_reference(
+            project_dir,
+            item.get("end_frame_image"),
+            errors,
+            f"{prefix}.end_frame_image",
+            default_dir="end_frames",
+        )
+
     def _validate_segments(
         self,
         segments: list[dict[str, Any]] | Any,
@@ -585,6 +605,7 @@ class DataValidator:
                     segment.get("generated_assets"),
                     errors,
                 )
+                self._validate_end_frame_image(project_dir, prefix, segment, errors)
 
     def _validate_scenes(
         self,
@@ -684,6 +705,7 @@ class DataValidator:
                     scene.get("generated_assets"),
                     errors,
                 )
+                self._validate_end_frame_image(project_dir, prefix, scene, errors)
 
     @staticmethod
     def _validate_utterances(utterances: Any, prefix: str, errors: list[str]) -> None:
@@ -864,6 +886,7 @@ class DataValidator:
                     shot.get("generated_assets"),
                     errors,
                 )
+                self._validate_end_frame_image(project_dir, prefix, shot, errors)
 
     @staticmethod
     def _warn_ad_target_duration_drift(
