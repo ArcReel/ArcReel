@@ -220,3 +220,11 @@ class TestDataValidatorEndFramePath:
         result = self._validate_with(pm, validator, "end_frames/../storyboards/scene_E1S02.png")
         assert [e for e in result.errors if "end_frame_image" in e]
         assert not result.valid
+
+    def test_directory_reference_is_error(self, project):
+        """指向 end_frames/ 下确实存在的目录须拒绝——校验只认普通文件，不认目录。"""
+        pm, validator = project
+        (pm.get_project_path("demo") / "end_frames" / "scene_E1S01.png").mkdir(parents=True)
+        result = self._validate_with(pm, validator, END_FRAME_REL)
+        assert [e for e in result.errors if "end_frame_image" in e]
+        assert not result.valid

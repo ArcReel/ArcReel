@@ -253,14 +253,21 @@ class TestConcurrentSetClear:
 
         for _ in range(20):
             barrier = threading.Barrier(2)
+            results: dict[str, object] = {}
 
             def _do_set():
                 barrier.wait()
-                _upload(c, _img_bytes("PNG"))
+                try:
+                    results["set"] = _upload(c, _img_bytes("PNG")).status_code
+                except Exception as exc:  # noqa: BLE001 - 捕获后由主线程断言失败
+                    results["set"] = exc
 
             def _do_clear():
                 barrier.wait()
-                _delete(c)
+                try:
+                    results["clear"] = _delete(c).status_code
+                except Exception as exc:  # noqa: BLE001
+                    results["clear"] = exc
 
             t_set = threading.Thread(target=_do_set)
             t_clear = threading.Thread(target=_do_clear)
@@ -268,6 +275,9 @@ class TestConcurrentSetClear:
             t_clear.start()
             t_set.join()
             t_clear.join()
+
+            assert results["set"] == 200, results["set"]
+            assert results["clear"] == 200, results["clear"]
 
             end_frame_image = _segment(pm).get("end_frame_image")
             # 设置赢：字段非空则快照文件必须存在——不允许指向缺失文件的引用

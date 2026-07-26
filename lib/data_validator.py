@@ -162,7 +162,7 @@ class DataValidator:
                     saw_out_of_confine = True
                     continue
 
-            if resolved.exists():
+            if resolved.is_file():
                 return candidate.as_posix(), None
 
         if saw_out_of_confine:
