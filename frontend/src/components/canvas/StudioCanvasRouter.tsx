@@ -144,8 +144,11 @@ export function StudioCanvasRouter() {
       setResolvedDurationOptions(undefined);
       return;
     }
-    // 演示项目查不到 /video-capabilities（后端无此项目），时长选项留空即可
-    if (!currentProjectName || demoMode) {
+    // 演示项目查不到 /video-capabilities（后端无此项目），时长选项留空即可。
+    // currentProjectName 单独判一次：demo→真实项目切换后路由已使 demoMode 为 false，
+    // 但 store 的 currentProjectName 还没同步完成时仍是演示项目名，只看 demoMode 会
+    // 对着不存在的演示项目发一次必然失败的请求。
+    if (!currentProjectName || demoMode || isDemoProject(currentProjectName)) {
       setResolvedDurationOptions(undefined);
       return;
     }

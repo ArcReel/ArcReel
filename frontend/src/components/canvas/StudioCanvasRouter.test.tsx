@@ -551,6 +551,41 @@ describe("StudioCanvasRouter", () => {
     expect(systemConfigSpy).toHaveBeenCalled();
   });
 
+  // demo→真实项目切换后路由已让 demoMode 变为 false，但 store 的 currentProjectName 还滞留
+  // 演示项目名；只看 demoMode 会对着后端不存在的演示项目发一次必然失败的 /video-capabilities。
+  it("skips the video-capabilities lookup for the stale demo project name after navigating to a real project, before the store catches up", async () => {
+    const capabilitiesSpy = vi
+      .spyOn(API, "getVideoCapabilities")
+      .mockResolvedValue({ supported_durations: [5, 10] } as Awaited<
+        ReturnType<typeof API.getVideoCapabilities>
+      >);
+    vi.spyOn(API, "getProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      settings: {},
+    } as Awaited<ReturnType<typeof API.getSystemConfig>>);
+
+    useProjectsStore.setState({
+      currentProjectName: DEMO_PROJECT_NAME,
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    const view = renderAtProjectRoute(DEMO_PROJECT_NAME, "/episodes/1");
+    await waitFor(() => {
+      expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
+    });
+
+    // 原地切换到真实项目：只挪路由，store 的 currentProjectName 刻意留在演示项目名，
+    // 复刻 StudioWorkspace 的 effect 尚未执行完成的时间窗。
+    view.navigate("/real-project/episodes/1");
+
+    await waitFor(() => {
+      expect(API.getProviders).toHaveBeenCalled();
+    });
+    expect(capabilitiesSpy).not.toHaveBeenCalledWith(DEMO_PROJECT_NAME);
+  });
+
   it("shows EpisodeSourceReview instead of TimelineCanvas when an episode has no script and no draft", () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
