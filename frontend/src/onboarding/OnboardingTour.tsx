@@ -6,8 +6,9 @@
  * 1. 进入主界面后查一次「是否已看过」（auth 开启 = 登录成功后；匿名 = auth status 放行
  *    后，两种情形都由 `isAuthenticated` 统一表达）。登录页不掺和。
  * 2. 未看过则自动开一次。
- * 3. 开启但当前所在路由不是当前步骤所需的路由（如设置页点「重看引导」回到第 1 步、
- *    或跨页步骤切到下一段）时先导航过去，锚点才能挂载。
+ * 3. 开启但当前所在路由（pathname 或该步声明的查询参数）不是当前步骤所需的（如设置页
+ *    点「重看引导」回到第 1 步、跨页步骤切到下一段、设置页两步间换 section）时先导航
+ *    过去，锚点与内容区才能就位。
  * 4. store 里 active 为真、且当前路由是引导覆盖的路由之一时驱动 driver.js —— 自动
  *    首弹与设置页「重看引导」共用这条路径，组件本身不区分二者。
  *
@@ -19,7 +20,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
@@ -31,6 +32,7 @@ export function OnboardingTour() {
   const { t } = useTranslation("onboarding");
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const [location, navigate] = useLocation();
+  const search = useSearch();
   const seen = useOnboardingStore((s) => s.seen);
   const active = useOnboardingStore((s) => s.active);
 
@@ -71,9 +73,17 @@ export function OnboardingTour() {
   // 而不是逐步比对，这样大厅↔设置页之间的跨页步骤切换不会拆重建 driver 实例。
   const onTourRoute = tourRoutes.has(normalizedLocation);
   const requiredRoute = steps[stepIndex]?.route ?? null;
+  const requiredQuery = steps[stepIndex]?.query;
+  // 该步声明的查询参数是否已满足。同一 pathname 下按查询参数切分区的页面（设置页的
+  // `section`），pathname 相同不代表内容区落对了地方——设置页两步之间就靠这个判定
+  // 触发导航，把内容区从供应商切到智能体（以及退回时切回来）。
+  const querySatisfied =
+    !requiredQuery ||
+    Object.entries(requiredQuery).every(([key, value]) => new URLSearchParams(search).get(key) === value);
 
-  // 0. 引导开启但当前路由不是本步所需的路由——先导航过去，锚点才能挂载。跨页步骤
-  //    切换（见 tour.ts 的 onStepChange）与「重看引导」从非首步路由触发都走这里。
+  // 0. 引导开启但当前路由（pathname 或该步声明的查询参数）不是本步所需的——先导航
+  //    过去，锚点与内容区才能就位。跨页步骤切换（见 tour.ts 的 onStepChange）、同页
+  //    换分区与「重看引导」从非首步路由触发都走这里。
   //
   //    `interactive` 步是例外：该步的落点动作本身就是导航离开 requiredRoute（点演示卡
   //    进演示工作台），不是驱动效果（3）触发的跨页步骤切换，此时不该把用户拽回来。
@@ -98,12 +108,23 @@ export function OnboardingTour() {
       !active ||
       !inMainUi ||
       !requiredRoute ||
-      normalizedLocation === requiredRoute ||
+      (normalizedLocation === requiredRoute && querySatisfied) ||
       enteredInteractiveTarget
     )
       return;
-    navigate(requiredRoute);
-  }, [active, inMainUi, requiredRoute, normalizedLocation, navigate, enteredInteractiveTarget]);
+    navigate(
+      requiredQuery ? `${requiredRoute}?${new URLSearchParams(requiredQuery).toString()}` : requiredRoute,
+    );
+  }, [
+    active,
+    inMainUi,
+    requiredRoute,
+    requiredQuery,
+    querySatisfied,
+    normalizedLocation,
+    navigate,
+    enteredInteractiveTarget,
+  ]);
 
   // 1. 查询「是否已看过」
   useEffect(() => {

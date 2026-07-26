@@ -38,6 +38,12 @@ describe("buildTourSteps", () => {
     ]);
   });
 
+  it("declares the settings section for both settings steps so the content pane follows the tour", () => {
+    const settingsSteps = buildTourSteps(t).filter((s) => s.route === ROUTE_APP_SETTINGS);
+
+    expect(settingsSteps.map((s) => s.query)).toEqual([{ section: "providers" }, { section: "agent" }]);
+  });
+
   it("declares the demo card's landing route so the guard can tell 'followed the tour' from 'wandered off'", () => {
     const demoCard = buildTourSteps(t).find((s) => s.anchor === ONBOARDING_ANCHORS.lobbyDemoCard);
 

@@ -53,12 +53,17 @@ export function buildTourSteps(t: TFunction<"onboarding">): TourStep[] {
       title: t("settings_providers_title"),
       body: t("settings_providers_body"),
       route: ROUTE_APP_SETTINGS,
+      // 设置页的内容区由 `section` 查询参数驱动（`SystemConfigPage`），锚点只在侧栏
+      // 入口上——不声明查询参数的话，两步之间内容区不会跟着切，讲智能体时右边还摆着
+      // 供应商。取值须与 `SystemConfigPage` 的 SettingsSection id 一致。
+      query: { section: "providers" },
     },
     {
       anchor: ONBOARDING_ANCHORS.settingsAgent,
       title: t("settings_agent_title"),
       body: t("settings_agent_body"),
       route: ROUTE_APP_SETTINGS,
+      query: { section: "agent" },
     },
     {
       anchor: ONBOARDING_ANCHORS.lobbyDemoCard,

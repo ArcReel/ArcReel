@@ -277,7 +277,8 @@ describe("OnboardingTour", () => {
     click(".driver-popover-next-btn"); // → 供应商（跨页到设置）
 
     await waitFor(() => expect(popoverTitle()).toBe("配置供应商"));
-    expect(history.at(-1)).toBe("/app/settings");
+    // 带上 section 查询参数——设置页内容区靠它落到供应商一节。
+    expect(history.at(-1)).toBe("/app/settings?section=providers");
     expect(API.markOnboardingSeen).not.toHaveBeenCalled();
     [...lobbyAnchors, settingsAnchor].forEach((el) => el.remove());
   });
@@ -301,7 +302,7 @@ describe("OnboardingTour", () => {
     click(".driver-popover-next-btn");
     click(".driver-popover-next-btn"); // → 供应商（跨页到设置）
     await waitFor(() => expect(popoverTitle()).toBe("配置供应商"));
-    expect(history.at(-1)).toBe("/app/settings");
+    expect(history.at(-1)).toBe("/app/settings?section=providers");
 
     click(".driver-popover-prev-btn"); // ← 设置入口（跨页回大厅）
 
@@ -362,6 +363,33 @@ describe("OnboardingTour", () => {
 
     anchors.forEach((el) => el.remove());
   }, 20_000);
+
+  it("switches the settings pane back to providers when stepping backwards from the agent step", async () => {
+    vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
+    const anchors = [...mountLobbyAnchors(), ...mountSettingsAnchors()];
+
+    const { hook, history } = memoryLocation({ path: "/app/projects", record: true });
+    render(
+      <Router hook={hook}>
+        <OnboardingTour />
+      </Router>,
+    );
+    await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
+
+    for (let i = 0; i < 4; i++) click(".driver-popover-next-btn"); // → 配置智能体
+    await waitFor(() => expect(popoverTitle()).toBe("配置智能体"));
+    expect(history.at(-1)).toBe("/app/settings?section=agent");
+
+    // 两步同在 /app/settings，退回时 pathname 不变——内容区必须靠 section 参数切回
+    // 供应商，否则讲供应商时右边还摆着智能体（正向同理）。
+    click(".driver-popover-prev-btn");
+
+    await waitFor(() => expect(popoverTitle()).toBe("配置供应商"));
+    expect(history.at(-1)).toBe("/app/settings?section=providers");
+    expect(API.markOnboardingSeen).not.toHaveBeenCalled();
+
+    anchors.forEach((el) => el.remove());
+  });
 
   it("degrades to a centered popover when the settings-step anchor never mounts", async () => {
     vi.spyOn(API, "getOnboardingStatus").mockResolvedValue({ seen: false });
@@ -454,8 +482,8 @@ describe("OnboardingTour", () => {
     const expected: [string, string][] = [
       ["新建项目", "/app/projects"],
       ["设置", "/app/projects"],
-      ["配置供应商", "/app/settings"],
-      ["配置智能体", "/app/settings"],
+      ["配置供应商", "/app/settings?section=providers"],
+      ["配置智能体", "/app/settings?section=agent"],
       ["演示项目", "/app/projects"],
       ["项目概览", DEMO_WORKBENCH],
       ["智能体", DEMO_WORKBENCH],
