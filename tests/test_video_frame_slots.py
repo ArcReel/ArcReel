@@ -16,7 +16,7 @@ CAPS_NO_LAST_FRAME = VideoCapabilities(
 )
 
 
-def _plan(caps: VideoCapabilities, **kwargs):
+def _plan(caps: VideoCapabilities | None, **kwargs):
     return plan_frame_slots(caps=caps, provider="acme", model="acme-v1", **kwargs)
 
 
@@ -60,6 +60,19 @@ class TestLastFrameGating:
 
         assert plan.start_index is None
         assert plan.end_index == 0
+
+    def test_uncharted_caps_without_end_image_passes(self):
+        """caps=None（调用方未查询能力）× 不携带尾帧：能力不影响任何槽位，正常放行。"""
+        plan = _plan(None, start_image=Path("start.png"), reference_images=[Path("r1.png")])
+
+        assert (plan.start_index, plan.end_index, plan.reference_start_index) == (0, None, 1)
+
+    def test_uncharted_caps_with_end_image_raises(self):
+        """caps=None × 携带尾帧：未经能力核实的尾帧一律拒绝，不按"支持"放行。"""
+        with pytest.raises(VideoCapabilityError) as exc:
+            _plan(None, start_image=Path("start.png"), end_image=Path("end.png"))
+
+        assert exc.value.code == "video_last_frame_unsupported"
 
 
 class TestSlotAssembly:

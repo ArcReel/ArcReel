@@ -11,7 +11,7 @@ provider 调用，可独立导入并直接单测各能力组合分支。
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Protocol
 
 from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
 
@@ -20,11 +20,23 @@ if TYPE_CHECKING:
 
     from lib.reference_compression import ReferenceSpec
 
-__all__ = ["FrameSlotPlan", "plan_frame_slots", "resolve_video_capabilities"]
+__all__ = ["FrameSlotPlan", "VideoCapabilityProbe", "plan_frame_slots", "resolve_video_capabilities"]
+
+
+class VideoCapabilityProbe(Protocol):
+    """能力查询实际需要的最小后端接口：只读能力声明，不碰 generate / resume。
+
+    比 ``VideoBackend`` 窄是有意的——收窄到用得着的那一个成员，调用方与测试替身都不必
+    为一次能力查询实现整个生成协议。档位感知的 ``video_capabilities_for_tier`` 不在此列，
+    它是可选成员，由 ``resolve_video_capabilities`` 探测。
+    """
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities: ...
 
 
 def resolve_video_capabilities(
-    backend: Any,
+    backend: VideoCapabilityProbe,
     *,
     service_tier: str = "default",
     resolution: str | None = None,
@@ -58,7 +70,7 @@ class FrameSlotPlan:
 
 def plan_frame_slots(
     *,
-    caps: VideoCapabilities,
+    caps: VideoCapabilities | None,
     provider: str,
     model: str,
     start_image: "str | Path | Image.Image | None" = None,
@@ -71,10 +83,14 @@ def plan_frame_slots(
     静默丢弃尾帧则会照常生成并扣费、产出与用户意图不符的视频。故 ``caps.last_frame``
     为假而请求携带尾帧时抛 ``VideoCapabilityError``，由上层渲染成用户可读错误。
 
+    ``caps`` 为 None 表示调用方未查询后端能力——无尾帧诉求时能力声明不影响任何槽位，
+    调用方可省去这次查询。传 None 却带尾帧一律按不支持拒绝，而不是放行：占位一份
+    "支持尾帧"的假能力会让未经能力核实的尾帧下发出去，正是本函数要堵的降级。
+
     ``start_image`` 仅 ``str`` / ``Path`` 文件源进压缩器；``PIL.Image`` 与 None 不入
     specs（对应请求字段保持 None），维持原有行为。
     """
-    if end_image is not None and not caps.last_frame:
+    if end_image is not None and (caps is None or not caps.last_frame):
         raise VideoCapabilityError("video_last_frame_unsupported", provider=provider, model=model)
 
     from lib.reference_compression import ReferenceSpec, RefRole

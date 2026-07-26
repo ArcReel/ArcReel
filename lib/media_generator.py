@@ -568,11 +568,10 @@ class MediaGenerator:
 
         # 能力 gating 与槽位组装先于记账括号：尾帧不被支持时硬失败要"不扣费"，
         # 在括号内抛虽也不结算，却会留一条 failed ApiCall 行；纯函数无副作用，前置最干净。
-        from lib.video_backends.base import VideoCapabilities
         from lib.video_frame_slots import plan_frame_slots, resolve_video_capabilities
 
-        # 能力查询保持惰性：不带尾帧的请求不触发 gating，任何能力声明都等价，
-        # 无谓查询只会给无尾帧路径新增一层后端属性依赖。
+        # 能力查询保持惰性：不带尾帧的请求不触发 gating，无谓查询只会给无尾帧路径
+        # 新增一层后端属性依赖；未查询即传 None，不伪造一份占位能力声明。
         video_caps = (
             resolve_video_capabilities(
                 self._video_backend,
@@ -580,7 +579,7 @@ class MediaGenerator:
                 resolution=resolution,
             )
             if end_image is not None
-            else VideoCapabilities()
+            else None
         )
         slot_plan = plan_frame_slots(
             caps=video_caps,

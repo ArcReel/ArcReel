@@ -236,9 +236,11 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         #
         # last_frame_requires_pro 为真的 model（kling-v2-5-turbo、kling-v2-6）：该位不按 service_tier
         # 分档——service_tier 是逐请求字段（generation_tasks 入队时选定），本函数只按 model 声明、
-        # 无从得知调用方将选哪档。std/4k 档提交尾帧会被 _build_payload 的 fail-loud 护栏拒绝，declare
-        # 一个仅在少数档位成立的 True 会让 media_generator 按此位放行 end_image、多数请求撞 guard 硬失败；
-        # 保守声明 False 更贴近默认档的真实执行结果，与未登记 model 回落保守默认同一原则。
+        # 无从得知调用方将选哪档。std/4k 档提交尾帧会被拒绝——有 tier 上下文的调用方走
+        # video_capabilities_for_tier 在 media_generator 处拒，能力被用户覆盖放行时由
+        # _build_payload 的 fail-loud 护栏兜底。declare 一个仅在少数档位成立的 True 会让无 tier
+        # 上下文的调用方按此位放行 end_image、多数请求撞硬失败；保守声明 False 更贴近默认档的
+        # 真实执行结果，与未登记 model 回落保守默认同一原则。
         caps = _lookup_video_caps(model)
         return VideoCapabilities(
             first_frame=True,

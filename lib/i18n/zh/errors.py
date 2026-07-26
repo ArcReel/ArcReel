@@ -226,7 +226,7 @@ MESSAGES = {
     "video_end_image_unreadable": "模型 {model} 的尾帧图无法读取，已中止生成：{name}；请检查尾帧图路径",
     "video_end_image_requires_start_image": "模型 {model} 不支持单独的尾帧；请同时提供首帧（首尾帧模式），或移除尾帧",
     "video_last_frame_requires_pro": "{provider}/{model} 的首尾帧仅在 pro 档生效；请切换到 pro 档，或移除尾帧",
-    "video_last_frame_unsupported": "{provider}/{model} 不支持尾帧，已中止生成；请移除该镜头的尾帧，或改用支持尾帧的模型",
+    "video_last_frame_unsupported": "{provider}/{model} 当前配置不支持尾帧，已中止生成；请移除该镜头的尾帧，或改用支持尾帧的模型/档位",
     # Agent credentials
     "agent_preset_unknown": "未知预设供应商: {preset_id}",
     "agent_base_url_required_custom": "自定义配置需要填写 base_url",
