@@ -182,6 +182,8 @@ MESSAGES = {
     # Versions
     "unsupported_resource_type": "Unsupported resource type: {resource_type}",
     "invalid_resource_id": "Invalid resource ID: {resource_id}",
+    "invalid_end_frame_source": "End frame source path is invalid or outside the project directory: {path}",
+    "end_frame_source_not_found": "End frame source image not found: {path}",
     # Reference Video
     "ref_missing_asset": "Reference to {type} '{name}' is not in the project asset library, please generate it first",
     "ref_duration_exceeded": "Reference video unit duration {duration}s exceeds {model} limit of {max_duration}s, clamped",

@@ -5,6 +5,7 @@ from pathlib import Path
 # 扫描的媒体子目录
 _MEDIA_SUBDIRS = (
     "storyboards",
+    "end_frames",
     "videos",
     "thumbnails",
     "characters",

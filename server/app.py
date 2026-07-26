@@ -51,6 +51,7 @@ from server.routers import (
     characters,
     cost_estimation,
     custom_providers,
+    end_frames,
     files,
     generate,
     grids,
@@ -568,6 +569,7 @@ app.include_router(files.router, prefix="/api/v1", tags=["文件管理"])
 app.include_router(generate.router, prefix="/api/v1", tags=["生成"])
 app.include_router(script_review.router, prefix="/api/v1", tags=["剧本审核 gate"])
 app.include_router(shot_uploads.router, prefix="/api/v1", tags=["镜头上传"])
+app.include_router(end_frames.router, prefix="/api/v1", tags=["镜头尾帧"])
 app.include_router(versions.router, prefix="/api/v1", tags=["版本管理"])
 app.include_router(usage.router, prefix="/api/v1", tags=["费用统计"])
 app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant", tags=["助手会话"])

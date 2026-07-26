@@ -93,6 +93,7 @@ class DataValidator:
         "products",
         "reference_videos",
         "storyboards",
+        "end_frames",
         "videos",
         "audio",
         "thumbnails",
@@ -127,6 +128,7 @@ class DataValidator:
         *,
         default_dir: str | None = None,
         missing_ok: bool = False,
+        confine_to_default_dir: bool = False,
     ) -> tuple[str | None, str | None]:
         normalized = str(raw_path).strip().replace("\\", "/")
         if not normalized:
@@ -136,7 +138,12 @@ class DataValidator:
         if default_dir and len(candidate_paths[0].parts) == 1:
             candidate_paths.append(Path(default_dir) / candidate_paths[0])
 
+        confine_root = (
+            safe_join(project_dir, default_dir, allow_base=True) if confine_to_default_dir and default_dir else None
+        )
+
         seen: set[str] = set()
+        saw_out_of_confine = False
         for candidate in candidate_paths:
             candidate_key = candidate.as_posix()
             if candidate_key in seen:
@@ -148,9 +155,18 @@ class DataValidator:
             except PathTraversalError:
                 return None, f"引用路径越界: {normalized}"
 
-            if resolved.exists():
+            if confine_root is not None:
+                try:
+                    resolved.relative_to(confine_root)
+                except ValueError:
+                    saw_out_of_confine = True
+                    continue
+
+            if resolved.is_file():
                 return candidate.as_posix(), None
 
+        if saw_out_of_confine:
+            return None, f"引用路径必须位于 {default_dir}/ 目录下: {normalized}"
         if missing_ok:
             return None, None
         return None, f"引用的文件不存在: {normalized}"
@@ -165,6 +181,7 @@ class DataValidator:
         default_dir: str | None = None,
         allow_external: bool = False,
         missing_ok: bool = False,
+        confine_to_default_dir: bool = False,
     ) -> str | None:
         if value in (None, ""):
             return None
@@ -187,6 +204,7 @@ class DataValidator:
             raw_value,
             default_dir=default_dir,
             missing_ok=missing_ok,
+            confine_to_default_dir=confine_to_default_dir,
         )
         if error:
             errors.append(f"{field_name}: {error}")
@@ -504,6 +522,28 @@ class DataValidator:
             default_dir="audio",
         )
 
+    def _validate_end_frame_image(
+        self,
+        project_dir: Path,
+        prefix: str,
+        item: dict[str, Any],
+        errors: list[str],
+    ) -> None:
+        """校验镜头条目的尾帧快照路径：越界、缺失、目录外均报 error（缺失即悬空引用，不容忍）。
+
+        与 generated_assets 内的路径字段不同：尾帧字段只接受服务层写出的 `end_frames/`
+        快照路径（`confine_to_default_dir`），不接受指向 storyboards/scripts 等其它目录
+        内恰好存在的文件——否则字段等于绕过快照复制直接引用源图，废掉解耦设计。
+        """
+        self._validate_local_reference(
+            project_dir,
+            item.get("end_frame_image"),
+            errors,
+            f"{prefix}.end_frame_image",
+            default_dir="end_frames",
+            confine_to_default_dir=True,
+        )
+
     def _validate_segments(
         self,
         segments: list[dict[str, Any]] | Any,
@@ -585,6 +625,7 @@ class DataValidator:
                     segment.get("generated_assets"),
                     errors,
                 )
+                self._validate_end_frame_image(project_dir, prefix, segment, errors)
 
     def _validate_scenes(
         self,
@@ -684,6 +725,7 @@ class DataValidator:
                     scene.get("generated_assets"),
                     errors,
                 )
+                self._validate_end_frame_image(project_dir, prefix, scene, errors)
 
     @staticmethod
     def _validate_utterances(utterances: Any, prefix: str, errors: list[str]) -> None:
@@ -864,6 +906,7 @@ class DataValidator:
                     shot.get("generated_assets"),
                     errors,
                 )
+                self._validate_end_frame_image(project_dir, prefix, shot, errors)
 
     @staticmethod
     def _warn_ad_target_duration_drift(

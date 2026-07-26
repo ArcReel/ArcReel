@@ -232,6 +232,10 @@ class NarrationSegment(BaseModel):
     # 以下字段对 LLM 隐藏（SkipJsonSchema）：note 是人工备注、generated_assets 是 post-LLM 运行时状态。
     # 仍保留在 Pydantic 模型里以便存储 / 校验，但不出现在 response_schema 中，避免 LLM 填污染数据。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
+    # 尾帧快照的项目内相对路径（``end_frames/scene_{id}.png``）。用户意图而非运行时产出，
+    # 故不进 generated_assets；只由尾帧设置/清除端点写入（通用 PATCH 白名单不含此字段，
+    # 避免绕过快照复制写出悬空引用或越界路径），整集剧本重生成不保留（同 note 口径）。
+    end_frame_image: SkipJsonSchema[str | None] = Field(default=None, description="尾帧快照路径（项目内相对路径）")
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
@@ -478,6 +482,7 @@ class DramaScene(BaseModel):
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 见 NarrationSegment 同名字段说明。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
+    end_frame_image: SkipJsonSchema[str | None] = Field(default=None, description="尾帧快照路径（项目内相对路径）")
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
@@ -671,6 +676,7 @@ class AdShot(BaseModel):
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     # 见 NarrationSegment 同名字段说明。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
+    end_frame_image: SkipJsonSchema[str | None] = Field(default=None, description="尾帧快照路径（项目内相对路径）")
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )

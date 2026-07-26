@@ -22,6 +22,7 @@ class TestResourceRelativePath:
         [
             # storyboards / videos 带 scene_ 前缀特例
             ("storyboards", "E1S01", "storyboards/scene_E1S01.png"),
+            ("end_frames", "E1S01", "end_frames/scene_E1S01.png"),
             ("videos", "E1S01", "videos/scene_E1S01.mp4"),
             # audio 带 segment_ 前缀特例
             ("audio", "E1S01", "audio/segment_E1S01.wav"),
@@ -36,8 +37,8 @@ class TestResourceRelativePath:
     def test_canonical_paths(self, resource_type: str, resource_id: str, expected: str) -> None:
         assert resource_relative_path(resource_type, resource_id) == expected
 
-    def test_only_storyboards_and_videos_get_scene_prefix(self) -> None:
-        # 反向断言：非 storyboards/videos 不得带 scene_ 前缀（audio 用 segment_ 前缀，单独验证）
+    def test_only_shot_keyed_types_get_scene_prefix(self) -> None:
+        # 反向断言：非按镜头 id 命名的类型不得带 scene_ 前缀（audio 用 segment_ 前缀，单独验证）
         for rt in ("characters", "scenes", "props", "grids", "reference_videos"):
             assert "scene_" not in resource_relative_path(rt, "X")
         assert resource_relative_path("audio", "X").startswith("audio/segment_")
@@ -57,6 +58,7 @@ class TestResourceExtension:
         ("resource_type", "expected"),
         [
             ("storyboards", ".png"),
+            ("end_frames", ".png"),
             ("videos", ".mp4"),
             ("characters", ".png"),
             ("scenes", ".png"),
@@ -79,6 +81,7 @@ class TestResourceTypes:
     def test_covers_canonical_types(self) -> None:
         assert set(RESOURCE_TYPES) == {
             "storyboards",
+            "end_frames",
             "videos",
             "audio",
             "characters",

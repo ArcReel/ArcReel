@@ -196,6 +196,21 @@ class TestProjectArchiveService:
             assert "demo/.DS_Store" not in names
             assert "demo/.hidden/secret.txt" not in names
 
+    @pytest.mark.integration
+    @pytest.mark.parametrize("scope", ["full", "current"])
+    def test_export_includes_end_frame_snapshots(self, tmp_path, scope):
+        """end_frames 登记为允许的根目录条目后，两种 scope 的导出都自动带上尾帧快照。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        _write_bytes(project_dir / "end_frames" / "scene_E1S01.png", b"png")
+        payload = json.loads((project_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        payload["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+        _write_json(project_dir / "scripts" / "episode_1.json", payload)
+
+        archive_path, _ = ProjectArchiveService(pm).export_project("demo", scope=scope)
+        with zipfile.ZipFile(archive_path) as archive:
+            assert "demo/end_frames/scene_E1S01.png" in set(archive.namelist())
+
     def test_export_excludes_agent_runtime_symlinks(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)

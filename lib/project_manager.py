@@ -9,6 +9,7 @@ import errno
 import json
 import logging
 import os
+import posixpath
 import re
 import secrets
 import shutil
@@ -553,8 +554,8 @@ class ProjectManager:
         Returns:
             保存的文件路径
         """
-        if filename is not None and filename.startswith("scripts/"):
-            filename = filename[len("scripts/") :]
+        if filename is not None:
+            filename = self.normalize_script_filename(filename)
 
         if filename is None:
             chapter = script["novel"].get("chapter", "chapter_01")
@@ -656,6 +657,21 @@ class ProjectManager:
 
         return output_path
 
+    @staticmethod
+    def normalize_script_filename(script_filename: str) -> str:
+        """剥离 `scripts/` 前缀并折叠 `./` 片段，归一到与 `_script_lock`/`_safe_subpath` 一致的身份。
+
+        `episode_1.json`、`scripts/episode_1.json`、`./episode_1.json`、`./scripts/episode_1.json`
+        是指向同一剧本的合法别名——`_safe_subpath` 底层按真实路径解析，均共享同一把文件锁；调用方
+        需要跨调用比较或做 key（如按剧本分组的并发标记）时应先过这里，避免几种写法各自生成一份
+        身份、互相看不见对方。须先折叠路径片段再剥前缀——顺序反过来的话，`./scripts/x.json` 先剥
+        前缀不命中（前缀前面还有 `./`），折叠后才变回 `scripts/x.json`，会被 `load_script`/
+        `_script_lock` 当成不含前缀的裸文件名再次拼接 `scripts/` 目录，产生 `scripts/scripts/x.json`
+        双重前缀。保留 `..` 片段原样交给 `_safe_subpath` 拒绝，这里不做越界判断。
+        """
+        normalized = posixpath.normpath(script_filename).removeprefix("scripts/")
+        return "" if normalized == "." else normalized
+
     @contextmanager
     def locked_script(self, project_name: str, script_filename: str, *, validate: bool = True):
         """在单一 `_script_lock` 内完成剧本的 load → mutate → save 读-改-写。
@@ -667,7 +683,7 @@ class ProjectManager:
         `validate=True`（默认）时在 yield 前快照「改前」剧本，写回走「不更坏」结构校验（零额外
         读盘）。只动 `generated_assets` 的资产回写热路径传 `validate=False` 整体豁免。
         """
-        norm = script_filename[len("scripts/") :] if script_filename.startswith("scripts/") else script_filename
+        norm = self.normalize_script_filename(script_filename)
         with self._script_lock(project_name, norm):
             script = self.load_script(project_name, norm)
             before = copy.deepcopy(script) if validate else None
@@ -700,12 +716,12 @@ class ProjectManager:
         若加锁前后绑定指向了不同脚本（并发改绑），抛 `EpisodeScriptReboundError` 让调用方重试。
         """
         candidate = resolve_script_file(self.load_project(project_name))
-        norm = candidate[len("scripts/") :] if candidate.startswith("scripts/") else candidate
+        norm = self.normalize_script_filename(candidate)
         with self._script_lock(project_name, norm):
             with self._project_lock(project_name):
                 project = self._read_project_raw_unlocked(project_name)
                 current = resolve_script_file(project)
-                cur_norm = current[len("scripts/") :] if current.startswith("scripts/") else current
+                cur_norm = self.normalize_script_filename(current)
                 if cur_norm != norm:
                     raise EpisodeScriptReboundError(f"episode script binding changed: {norm} -> {cur_norm}")
                 script = self.load_script(project_name, norm)
@@ -729,7 +745,7 @@ class ProjectManager:
 
         filename 缺集号模式或脚本内无 `episode` int 时静默放行（兼容旧数据）。
         """
-        base_name = script_filename[len("scripts/") :] if script_filename.startswith("scripts/") else script_filename
+        base_name = ProjectManager.normalize_script_filename(script_filename)
         filename_match = re.search(r"episode[-_\s]*(\d+)", base_name, re.IGNORECASE)
         if filename_match is None:
             return
@@ -815,7 +831,7 @@ class ProjectManager:
         供 `sync_episode_from_script`（在 `update_project` 锁内）与 `locked_episode_script`
         （在已持 `_project_lock` 的临界区内）共用，避免重复实现集元数据同步逻辑。
         """
-        base_name = script_filename[len("scripts/") :] if script_filename.startswith("scripts/") else script_filename
+        base_name = self.normalize_script_filename(script_filename)
         # 防御纵深：SSE 扫描路径直接调用此函数（不经 save_script），同样需要校验
         self._require_filename_episode_consistency(script, base_name)
 
@@ -853,8 +869,7 @@ class ProjectManager:
             剧本字典
         """
         project_dir = self.get_project_path(project_name)
-        if filename.startswith("scripts/"):
-            filename = filename[len("scripts/") :]
+        filename = self.normalize_script_filename(filename)
         real = Path(self._safe_subpath(project_dir / "scripts", filename))
 
         if not real.exists():
@@ -1341,8 +1356,7 @@ class ProjectManager:
         """
         scripts_dir = self.get_project_path(project_name) / "scripts"
         scripts_dir.mkdir(parents=True, exist_ok=True)
-        if script_filename.startswith("scripts/"):
-            script_filename = script_filename[len("scripts/") :]
+        script_filename = self.normalize_script_filename(script_filename)
         real = Path(self._safe_subpath(scripts_dir, script_filename))
         lock_path = real.parent / f".{real.name}.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
