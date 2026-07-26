@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
-import { Route, Switch, Redirect, useParams } from "wouter";
+import { Route, Switch, Redirect } from "wouter";
 import {
   WORKSPACE_ROUTE_LOREBOOK,
   WORKSPACE_ROUTE_CLUES,
@@ -90,15 +90,9 @@ export function StudioCanvasRouter() {
   tRef.current = t;
   const { currentProjectData, currentProjectName, currentScripts } =
     useProjectsStore();
-  // 演示态：资产画布仍走 readOnly 透传，工作台时间线的只读则由组件自己直读同一判定
-  // store 的 currentProjectName 由父组件 StudioWorkspace 在 effect 里异步写入，路由参数切换
-  // （含大厅进入演示路由、演示态与真实项目间切换，:projectName 变化不remount组件）后的首轮渲染
-  // store 都还没同步；路由参数在渲染期即可用，路由参数存在时以它为准，避免双向的一轮判定滞后。
-  const routeParams = useParams<{ projectName?: string }>();
-  const storeDemoMode = useDemoWorkbench();
-  const demoMode = routeParams.projectName
-    ? isDemoProject(routeParams.projectName)
-    : storeDemoMode;
+  // 演示态：资产画布仍走 readOnly 透传，工作台时间线的只读则由组件自己直读同一判定。
+  // useDemoWorkbench() 已把路由参数与 store 的判定滞后收口在单一来源，此处直接消费。
+  const demoMode = useDemoWorkbench();
 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
