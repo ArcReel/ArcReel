@@ -91,11 +91,14 @@ export function StudioCanvasRouter() {
   const { currentProjectData, currentProjectName, currentScripts } =
     useProjectsStore();
   // 演示态：资产画布仍走 readOnly 透传，工作台时间线的只读则由组件自己直读同一判定
-  // store 的 currentProjectName 由父组件 StudioWorkspace 在 effect 里异步写入，首轮渲染时
-  // （直接打开演示路由或刚从大厅进入）store 还没同步，仅靠它会在首轮判定为非演示态并放行三个
-  // 真实 GET；路由参数在渲染期即可用，兜底覆盖这段首轮时间差。
+  // store 的 currentProjectName 由父组件 StudioWorkspace 在 effect 里异步写入，路由参数切换
+  // （含大厅进入演示路由、演示态与真实项目间切换，:projectName 变化不remount组件）后的首轮渲染
+  // store 都还没同步；路由参数在渲染期即可用，路由参数存在时以它为准，避免双向的一轮判定滞后。
   const routeParams = useParams<{ projectName?: string }>();
-  const demoMode = useDemoWorkbench() || isDemoProject(routeParams.projectName);
+  const storeDemoMode = useDemoWorkbench();
+  const demoMode = routeParams.projectName
+    ? isDemoProject(routeParams.projectName)
+    : storeDemoMode;
 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);

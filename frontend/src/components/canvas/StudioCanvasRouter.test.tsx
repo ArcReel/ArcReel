@@ -516,6 +516,41 @@ describe("StudioCanvasRouter", () => {
     expect(providersSpy).not.toHaveBeenCalled();
   });
 
+  // 反方向：同一实例从演示项目切到真实项目时，store 的 currentProjectName 仍滞留上一轮的
+  // 演示项目名（StudioWorkspace 的 effect 还没写入新值）。demoMode 若仍以 store 值兜底会误判
+  // 为演示态，延迟真实项目的三个 GET；路由参数存在时须直接采信它。
+  it("performs the provider/system-config lookups immediately after navigating from the demo route to a real project, before the store catches up", async () => {
+    const providersSpy = vi.spyOn(API, "getProviders").mockResolvedValue({ providers: [] });
+    const customProvidersSpy = vi
+      .spyOn(API, "listCustomProviders")
+      .mockResolvedValue({ providers: [] });
+    const systemConfigSpy = vi
+      .spyOn(API, "getSystemConfig")
+      .mockResolvedValue({ settings: {} } as Awaited<ReturnType<typeof API.getSystemConfig>>);
+
+    useProjectsStore.setState({
+      currentProjectName: DEMO_PROJECT_NAME,
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    const view = renderAtProjectRoute(DEMO_PROJECT_NAME, "/episodes/1");
+    await waitFor(() => {
+      expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
+    });
+    expect(providersSpy).not.toHaveBeenCalled();
+
+    // 原地切换到真实项目：只挪路由，store 的 currentProjectName 刻意留在演示项目名，
+    // 复刻 StudioWorkspace 的 effect 尚未执行完成的时间窗。
+    view.navigate("/real-project/episodes/1");
+
+    await waitFor(() => {
+      expect(providersSpy).toHaveBeenCalled();
+    });
+    expect(customProvidersSpy).toHaveBeenCalled();
+    expect(systemConfigSpy).toHaveBeenCalled();
+  });
+
   it("shows EpisodeSourceReview instead of TimelineCanvas when an episode has no script and no draft", () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
