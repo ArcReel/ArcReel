@@ -44,6 +44,7 @@ mid-flight 被删除而失败时跳过整段写回，不留半截状态。
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
 from pathlib import Path
@@ -54,7 +55,7 @@ from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager, get_project_manager
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
-from server.services.upload_finalize import write_bytes_atomic
+from server.services.upload_finalize import UPLOAD_IMAGE_MAX_BYTES, UploadTooLargeError, write_bytes_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +100,17 @@ def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
         project_path = manager.get_project_path(project_name)
     except FileNotFoundError as exc:
         raise EndFrameError("project_not_found", status_code=404, name=project_name) from exc
+    except ValueError as exc:
+        raise EndFrameError("invalid_project_name", status_code=400, name=project_name) from exc
 
-    script = manager.load_script(project_name, script_file)
+    try:
+        script = manager.load_script(project_name, script_file)
+    except json.JSONDecodeError:
+        # JSONDecodeError 是 ValueError 子类，须先于下面的 except ValueError 拦截：
+        # 剧本文件损坏不能误判为「非法 script_file」，交由 _translated_errors 的兜底分支收口为 500
+        raise
+    except ValueError as exc:
+        raise EndFrameError("invalid_script_file", status_code=400, name=script_file) from exc
     items, id_field, _, _, _ = get_storyboard_items(script)
     if find_storyboard_item(items, id_field, shot_id) is None:
         raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
@@ -239,10 +249,13 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
 
 
 def read_project_image(project_path: Path, source_path: str) -> bytes:
-    """读取项目内已有图片的字节；路径越界或文件缺失时抛领域错误。
+    """读取项目内已有图片的字节；路径越界、文件缺失或超限时抛领域错误。
 
     不限定来源子目录——分镜图 / 角色 / 场景 / 宫格切图都可直接选用，越界防护
     由 ``safe_join`` 统一负责（与 data_validator 的路径字段校验同口径）。
+
+    读取按上传通道同一 30 MiB 上限有界读取，不整读入内存——项目内合法存在的
+    大文件（如视频）被当作选图源时不至于无界内存占用。
     """
     normalized = source_path.strip().replace("\\", "/")
     if not normalized:
@@ -253,7 +266,11 @@ def read_project_image(project_path: Path, source_path: str) -> bytes:
         raise EndFrameError("invalid_end_frame_source", path=source_path) from exc
     if not resolved.is_file():
         raise EndFrameError("end_frame_source_not_found", status_code=404, path=normalized)
-    return resolved.read_bytes()
+    with resolved.open("rb") as f:
+        content = f.read(UPLOAD_IMAGE_MAX_BYTES + 1)
+    if len(content) > UPLOAD_IMAGE_MAX_BYTES:
+        raise UploadTooLargeError(UPLOAD_IMAGE_MAX_BYTES)
+    return content
 
 
 async def _apply_snapshot(

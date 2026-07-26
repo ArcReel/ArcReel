@@ -24,6 +24,8 @@ from server.routers import end_frames
 from server.services import end_frame as end_frame_service
 from server.services import upload_finalize
 
+pytestmark = pytest.mark.integration
+
 END_FRAME_REL = "end_frames/scene_E1S01.png"
 
 
@@ -165,6 +167,16 @@ class TestSelectChannel:
     def test_missing_source_returns_404(self, client):
         c, _pm = client
         assert _select(c, "storyboards/scene_E1S99.png").status_code == 404
+
+    def test_oversized_source_image_rejected_without_full_read(self, client, monkeypatch):
+        """项目内选图源超过上传通道同一上限时须拒绝，不整读入内存（见 read_project_image）。"""
+        c, pm = client
+        monkeypatch.setattr(end_frame_service, "UPLOAD_IMAGE_MAX_BYTES", 16)
+        _write_source_image(pm, "storyboards/scene_E1S02.png", _img_bytes("PNG", size=(64, 64)))
+
+        resp = _select(c, "storyboards/scene_E1S02.png")
+        assert resp.status_code == 413
+        assert _segment(pm).get("end_frame_image") is None
 
 
 class TestClear:
@@ -335,7 +347,6 @@ def _inject_concurrent_takeover_before_nth_load(monkeypatch, key, target: Path, 
 class TestPersistFailureRestoresSnapshot:
     """剧本持久化在临界区内失败时，快照文件须回滚到操作前状态，不留悬空引用或静默丢失。"""
 
-    @pytest.mark.integration
     def test_set_failure_restores_previous_snapshot_bytes(self, client, monkeypatch):
         c, pm = client
         _upload(c, _img_bytes("PNG", size=(8, 8)))
@@ -350,7 +361,6 @@ class TestPersistFailureRestoresSnapshot:
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
         assert snapshot.read_bytes() == before
 
-    @pytest.mark.integration
     def test_set_failure_on_first_write_removes_snapshot(self, client, monkeypatch):
         """此前未设置过尾帧时失败：快照文件此前不存在，须整段撤回而非留下孤儿文件。"""
         c, pm = client
@@ -363,7 +373,6 @@ class TestPersistFailureRestoresSnapshot:
         assert _segment(pm).get("end_frame_image") is None
         assert not snapshot.exists()
 
-    @pytest.mark.integration
     def test_clear_failure_restores_deleted_snapshot(self, client, monkeypatch):
         c, pm = client
         _upload(c, _img_bytes("PNG"))
@@ -379,7 +388,6 @@ class TestPersistFailureRestoresSnapshot:
         assert snapshot.exists()
         assert snapshot.read_bytes() == before
 
-    @pytest.mark.integration
     def test_set_failure_skips_restore_when_concurrent_write_supersedes(self, client, monkeypatch):
         """回滚重新过锁时若该镜头的操作代次已前移，说明并发请求已经接管，
         必须跳过回滚——否则会用陈旧字节覆盖对方刚成功落盘的内容。"""
@@ -397,7 +405,6 @@ class TestPersistFailureRestoresSnapshot:
 
         assert snapshot.read_bytes() == concurrent_bytes
 
-    @pytest.mark.integration
     def test_clear_failure_skips_restore_when_concurrent_write_recreates_snapshot(self, client, monkeypatch):
         c, pm = client
         _upload(c, _img_bytes("PNG"))
@@ -415,7 +422,6 @@ class TestPersistFailureRestoresSnapshot:
         assert snapshot.exists()
         assert snapshot.read_bytes() == concurrent_bytes
 
-    @pytest.mark.integration
     def test_clear_failure_skips_restore_when_concurrent_clear_wins(self, client, monkeypatch):
         """CodeRabbit 指出的退化值场景：清除失败后文件已被删（期望内容与「无人接手」的
         期望值同为 None），并发的另一次清除随后也成功完成，结果同样是文件不存在——若
@@ -435,7 +441,6 @@ class TestPersistFailureRestoresSnapshot:
         # 回滚跳过：文件保持并发清除后的「已删除」结果，没有被旧字节重新写回制造孤儿文件
         assert not snapshot.exists()
 
-    @pytest.mark.integration
     def test_set_failure_skips_restore_when_concurrent_takeover_uses_other_alias(self, client, monkeypatch):
         """Codex 指出的别名归一问题：本次失败操作用 `scripts/episode_1.json` 这个别名，
         代次键若不归一化会与并发接管（用 `episode_1.json` 归一后的键）各自生成一把代次，
@@ -457,7 +462,6 @@ class TestPersistFailureRestoresSnapshot:
         # 未归一化则代次键不同，回滚会看不到接管、用旧字节覆盖并发写入的新内容
         assert snapshot.read_bytes() == concurrent_bytes
 
-    @pytest.mark.integration
     def test_set_failure_restore_uses_bytes_read_inside_critical_section(self, client, monkeypatch):
         """Codex 指出的陈旧基线问题：`old_bytes` 若在取得剧本锁之前预读，读到的是「进入
         临界区之前」而非「进入临界区那一刻」的文件内容。这里不推进代次，只在本次操作
@@ -576,6 +580,25 @@ class TestErrorMapping:
         resp = _upload(c, _img_bytes("PNG"))
         assert resp.status_code == 500
         assert "leaked" not in resp.text
+
+    def test_illegal_project_name_returns_400(self, client):
+        """`get_project_path` 对非法项目名（正则不匹配）抛 ValueError，须映射为 400 而非落 500 兜底。"""
+        c, _pm = client
+        resp = c.post(
+            "/api/v1/projects/demo.evil/shots/E1S01/end-frame/upload?script_file=episode_1.json",
+            files={"file": ("f.png", BytesIO(_img_bytes("PNG")), "application/octet-stream")},
+        )
+        assert resp.status_code == 400
+
+    def test_illegal_script_file_returns_400(self, client):
+        """`load_script` 底层 `_safe_subpath` 对越界 script_file 抛 ValueError，须映射为 400。"""
+        c, pm = client
+        resp = c.post(
+            "/api/v1/projects/demo/shots/E1S01/end-frame/upload?script_file=../../../../etc/passwd",
+            files={"file": ("f.png", BytesIO(_img_bytes("PNG")), "application/octet-stream")},
+        )
+        assert resp.status_code == 400
+        assert _segment(pm).get("end_frame_image") is None
 
 
 class TestValidatorAcceptsWrittenSnapshot:

@@ -76,6 +76,7 @@ _BUILDERS = pytest.mark.parametrize(
 )
 
 
+@pytest.mark.unit
 class TestEndFrameImageField:
     @_BUILDERS
     def test_defaults_to_none(self, build) -> None:
@@ -125,6 +126,7 @@ def _projects_client(pm: ProjectManager, monkeypatch) -> TestClient:
     return TestClient(app)
 
 
+@pytest.mark.integration
 class TestGenericPatchIgnoresEndFrame:
     """通用剧本 PATCH 白名单不含 end_frame_image：设置尾帧只能走专用端点。"""
 
@@ -169,6 +171,7 @@ def _write_png(path, size=(8, 8)) -> None:
     path.write_bytes(buf.getvalue())
 
 
+@pytest.mark.integration
 class TestDataValidatorEndFramePath:
     @pytest.fixture
     def project(self, tmp_path):
