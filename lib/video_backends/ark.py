@@ -80,6 +80,10 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         model_lower = model.lower()
         return "seedance-2-0" in model_lower or "seedance-2.0" in model_lower
 
+    # docs/ark-docs/seedance2.0.md 能力表中「图生视频-首尾帧」标 "-" 的两个 1.0 系列型号：
+    # 1.0 pro fast 未开放首尾帧；1.0 lite t2v 是纯文生视频，不接受任何图片输入。
+    _NO_LAST_FRAME_SUBSTRINGS = ("seedance-1-0-pro-fast", "seedance-1-0-lite-t2v")
+
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         """按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
@@ -92,7 +96,12 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             # cannot be mixed with reference media content，实测）——参考图是与首尾帧互斥的
             # 参考生视频模式，故不声明首帧叠加参考能力；若上游后续放开混合可重新开启。
             return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=9)
-        return VideoCapabilities()
+        # 非 2.0 系列：能力表除 1.0 pro fast / 1.0 lite t2v 外均支持首尾帧（含 DEFAULT_MODEL
+        # 1.5 pro），此前统一按 VideoCapabilities() 默认 last_frame=False 处理是误判——见
+        # test_first_last_frame_role_fields，1.5 pro 实测正常下发 role="last_frame"。
+        model_lower = model.lower()
+        no_last_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_LAST_FRAME_SUBSTRINGS)
+        return VideoCapabilities(last_frame=not no_last_frame)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

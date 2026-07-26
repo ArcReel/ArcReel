@@ -397,6 +397,26 @@ class TestMediaGenerator:
         assert gen._video_backend.calls == []
         assert len(gen.ledger.started) == started_before
 
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_empty_string_end_image_normalized_to_no_end_frame(self, tmp_path):
+        """遗留/直接调用者以 end_image="" 表示无尾帧：即便后端不支持 last_frame 也应正常放行，
+        不误判为携带尾帧而硬失败（与 kling _build_payload 的真值判断兼容语义对齐）。"""
+        from lib.video_backends.base import VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+        gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=False))
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S09",
+            end_image="",
+        )
+
+        call = gen._video_backend.calls[0]
+        assert call.end_image is None
+
 
 # ── 咽喉层参考图压缩接线 ────────────────────────────────────────────────────
 

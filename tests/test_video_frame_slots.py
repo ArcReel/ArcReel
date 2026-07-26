@@ -8,6 +8,8 @@ from lib.reference_compression import RefRole
 from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
 from lib.video_frame_slots import plan_frame_slots, resolve_video_capabilities
 
+pytestmark = pytest.mark.unit
+
 CAPS_WITH_LAST_FRAME = VideoCapabilities(
     first_frame=True, last_frame=True, reference_images=True, max_reference_images=4
 )

@@ -564,6 +564,13 @@ class MediaGenerator:
         if self._video_backend is None:
             raise RuntimeError("video_backend not configured")
 
+        # 空串 end_image 归一为 None：遗留/直接 Python 调用者可能以 "" 表示无尾帧
+        # （kling _build_payload 的真值判断锁定了这个兼容语义，见
+        # tests/test_kling_video_backend.py::test_image2video_empty_end_frame_is_omitted）。
+        # 下方 gating 用 is not None 判空，"" 若不归一会被误判成真尾帧。
+        if not end_image:
+            end_image = None
+
         model_name = self._video_backend.model
 
         # 能力 gating 与槽位组装先于记账括号：尾帧不被支持时硬失败要"不扣费"，
