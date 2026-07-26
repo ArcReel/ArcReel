@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from lib.retry import _should_retry
 from lib.video_backends.base import VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.gemini import GeminiVideoBackend
 
@@ -82,6 +81,9 @@ def _frame(tmp_path, name="frame.png"):
     return p
 
 
+# 统一走 generate()：校验在重试装饰器之外，只有从这个入口进才覆盖真实调用顺序。
+
+
 @pytest.mark.parametrize("seconds", [4, 6])
 @pytest.mark.asyncio
 async def test_reference_images_reject_non_8s(tmp_path, seconds):
@@ -93,7 +95,7 @@ async def test_reference_images_reject_non_8s(tmp_path, seconds):
         reference_images=[_frame(tmp_path, "ref.png")],
     )
     with pytest.raises(VideoCapabilityError) as exc:
-        await backend._create_task(req)
+        await backend.generate(req)
 
     assert exc.value.code == "video_reference_images_duration_unsupported"
     assert exc.value.params["duration"] == seconds
@@ -101,29 +103,24 @@ async def test_reference_images_reject_non_8s(tmp_path, seconds):
     backend._client.aio.models.generate_videos.assert_not_awaited()
 
 
+@pytest.mark.parametrize("seconds", [4, 6])
 @pytest.mark.parametrize("resolution", ["1080p", "1080P", "4k", "4K"])
 @pytest.mark.asyncio
-async def test_high_resolution_rejects_non_8s(tmp_path, resolution):
+async def test_high_resolution_rejects_non_8s(tmp_path, resolution, seconds):
     backend = _make_backend()
     req = VideoGenerationRequest(
         prompt="x",
         output_path=tmp_path / "o.mp4",
-        duration_seconds=6,
+        duration_seconds=seconds,
         resolution=resolution,
     )
     with pytest.raises(VideoCapabilityError) as exc:
-        await backend._create_task(req)
+        await backend.generate(req)
 
     assert exc.value.code == "video_resolution_duration_unsupported"
     assert exc.value.params["resolution"] == resolution.upper()
+    assert exc.value.params["duration"] == seconds
     backend._client.aio.models.generate_videos.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_capability_error_is_not_retried():
-    """约束违规必然复现，重试只会重复失败——确认它不落入瞬态重试。"""
-    assert not _should_retry(VideoCapabilityError("video_resolution_duration_unsupported"), ())
-    assert not _should_retry(VideoCapabilityError("video_reference_images_duration_unsupported"), ())
 
 
 @pytest.mark.parametrize("seconds", [4, 6])
@@ -140,30 +137,24 @@ async def test_start_and_last_frame_keep_short_durations(tmp_path, seconds):
         end_image=_frame(tmp_path, "end.png"),
     )
     with pytest.raises(RuntimeError):  # SDK mock 的 stop 哨兵，说明已走到调用点
-        await backend._create_task(req)
+        await backend.generate(req)
 
     backend._client.aio.models.generate_videos.assert_awaited_once()
     assert backend._types.GenerateVideosConfig.call_args.kwargs["duration_seconds"] == str(seconds)
 
 
-@pytest.mark.parametrize(
-    "extra",
-    [
-        {"resolution": "1080p"},
-        {"resolution": "4k"},
-    ],
-)
+@pytest.mark.parametrize("resolution", ["1080p", "4k"])
 @pytest.mark.asyncio
-async def test_8s_passes_through(tmp_path, extra):
+async def test_8s_passes_through(tmp_path, resolution):
     backend = _make_backend()
     req = VideoGenerationRequest(
         prompt="x",
         output_path=tmp_path / "o.mp4",
         duration_seconds=8,
+        resolution=resolution,
         reference_images=[_frame(tmp_path, "ref.png")],
-        **extra,
     )
     with pytest.raises(RuntimeError):
-        await backend._create_task(req)
+        await backend.generate(req)
 
     backend._client.aio.models.generate_videos.assert_awaited_once()
