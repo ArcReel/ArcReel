@@ -9,6 +9,7 @@ import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
 import { effectiveMode } from "@/utils/generation-mode";
 import { getScriptItemId } from "@/utils/script-shape";
+import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import type {
   EpisodeScript,
   NarrationEpisodeScript,
@@ -182,11 +183,10 @@ export function TimelineCanvas({
       status: hasScript ? "in_production" : "draft",
     } as const);
 
-  const handleUpdatePrompt = (
-    segId: string,
-    fieldOrPatch: string | Record<string, unknown>,
-    value?: unknown,
-  ) => onUpdatePrompt?.(segId, fieldOrPatch, value, scriptFile);
+  const handleUpdatePrompt = onUpdatePrompt
+    ? (segId: string, fieldOrPatch: string | Record<string, unknown>, value?: unknown) =>
+        onUpdatePrompt(segId, fieldOrPatch, value, scriptFile)
+    : undefined;
   const handleMoveShot = onMoveShot
     ? (shotId: string, direction: "earlier" | "later") => onMoveShot(shotId, direction, scriptFile)
     : undefined;
@@ -306,7 +306,10 @@ export function TimelineCanvas({
       </div>
 
       {/* 主体 */}
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div
+        className="min-h-0 flex-1 overflow-hidden"
+        data-onboarding={ONBOARDING_ANCHORS.workbenchTimeline}
+      >
         {activeTab === "preprocessing" && hasDraft && editorContentMode !== "ad" ? (
           <div className="h-full overflow-y-auto p-4">
             <ScriptReviewGate

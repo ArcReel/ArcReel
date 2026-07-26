@@ -4,7 +4,8 @@ import { Plus, Package } from "lucide-react";
 interface Props {
   title: string;
   count: number;
-  onAdd: () => void;
+  /** 未提供时隐藏「新增」入口（如只读展示的引导演示项目）。 */
+  onAdd?: () => void;
   /** 未提供时隐藏「从资产库选择」入口（如不入全局库的资产类型）。 */
   onPickFromLibrary?: () => void;
 }
@@ -76,6 +77,7 @@ export function GalleryToolbar({ title, count, onAdd, onPickFromLibrary }: Props
         {t("assets:from_library")}
       </button>
       )}
+      {onAdd && (
       <button
         type="button"
         onClick={onAdd}
@@ -97,6 +99,7 @@ export function GalleryToolbar({ title, count, onAdd, onPickFromLibrary }: Props
         <Plus className="h-3.5 w-3.5" />
         {title}
       </button>
+      )}
     </div>
   );
 }

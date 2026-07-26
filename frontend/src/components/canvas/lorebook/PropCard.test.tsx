@@ -111,4 +111,21 @@ describe("PropCard", () => {
     );
     expect(screen.getByRole("button", { name: /生成/ })).toBeInTheDocument();
   });
+
+  it("renders no write entries when read-only", () => {
+    render(
+      <PropCard
+        name="A"
+        prop={prop}
+        projectName="demo"
+        onUpdate={vi.fn()}
+        onGenerate={vi.fn()}
+        readOnly
+      />,
+    );
+
+    expect(screen.getByDisplayValue("古铜色钥匙")).toHaveAttribute("readonly");
+    expect(screen.queryByTestId("version-time-machine")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
 });

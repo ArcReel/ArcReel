@@ -110,7 +110,11 @@ async def test_endpoint_field_stores_gemini_image(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSession):
-    """配 endpoint=openai-chat 但被当作 video_backend 使用 → ValueError。"""
+    """配 endpoint=openai-chat 但被当作 video_backend 使用，且该 provider 没有任何默认启用的
+    video model 可回退 → ValueError。与 loader.load_custom_backend 同一条回退规则：media_type
+    不符视为该 model 失效，先尝试回退默认 video model，回退也找不到才报错——不是原样报
+    「media_type 不符」（那会让展示层与仍能静默回退成功的执行层不一致，见 resolver.py 中
+    is_enabled/media_type 回退分支的注释）。"""
     from lib.config.resolver import ConfigResolver
 
     provider = CustomProvider(
@@ -147,7 +151,7 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
     svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
-    with pytest.raises(ValueError, match="endpoint media_type mismatch"):
+    with pytest.raises(ValueError, match="custom model not found"):
         await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
 
 

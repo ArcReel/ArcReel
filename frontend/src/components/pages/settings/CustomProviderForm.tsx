@@ -7,19 +7,24 @@ import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { uid } from "@/utils/id";
 import { errMsg } from "@/utils/async";
 import type {
+  CapabilityOverrides,
   CustomProviderInfo,
   CustomProviderModelInput,
   DiscoveredModel,
   EndpointKey,
+  VideoCapabilityFlags,
 } from "@/types";
 import {
   priceLabel,
   urlPreviewFor,
   toggleDefaultReducer,
   mergeDiscoveredModels,
+  withLastFrameOverride,
+  capabilityFieldsFor,
   type DiscoveryFormat,
 } from "./customProviderHelpers";
 import { EndpointSelect } from "./EndpointSelect";
+import { CapabilityOverrideRow } from "./CapabilityOverrideRow";
 import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
 import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS } from "@/utils/provider-models";
 import {
@@ -67,14 +72,25 @@ interface ModelRow {
   currency: string;
   resolution: string; // 空串 = null
   supported_durations_text: string; // 用户原始文本，提交前 parse；空串 = 让后端按 preset 兜底
+  capability_overrides: CapabilityOverrides | null;
+  // 系统按 (endpoint, model_id) 判定的能力，只读展示用；null = 非视频模型，或该行尚未落库
+  // （新增/改过 model_id 的行判定要后端算，前端不猜），此时控件只显示「待判定」。
+  system_capabilities: VideoCapabilityFlags | null;
+  // 行创建时的快照，之后不再变化：model_id/endpoint 的清除判断须对齐这份原始值而非上一次
+  // 的中间态——逐字符编辑 model_id 时若拿"上一次的值"作基准，第一次改动即清空覆盖，之后就
+  // 算把输入改回原值也已丢失、无法通过继续编辑恢复；改回原值时应从这份快照原样取回覆盖。
+  original_model_id: string;
+  original_endpoint: EndpointKey;
+  original_capability_overrides: CapabilityOverrides | null;
+  original_system_capabilities: VideoCapabilityFlags | null;
 }
 
 function newModelRow(partial?: Partial<ModelRow>): ModelRow {
-  return {
+  const base = {
     key: uid(),
     model_id: "",
     display_name: "",
-    endpoint: "openai-chat",
+    endpoint: "openai-chat" as EndpointKey,
     is_default: false,
     is_enabled: true,
     price_unit: "",
@@ -83,7 +99,16 @@ function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     currency: "USD",
     resolution: "",
     supported_durations_text: "",
+    capability_overrides: null,
+    system_capabilities: null,
     ...partial,
+  };
+  return {
+    ...base,
+    original_model_id: base.model_id,
+    original_endpoint: base.endpoint,
+    original_capability_overrides: base.capability_overrides,
+    original_system_capabilities: base.system_capabilities,
   };
 }
 
@@ -110,6 +135,8 @@ function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
     currency: m.currency ?? "",
     resolution: m.resolution ?? "",
     supported_durations_text: m.supported_durations ? compactRangeFormat(m.supported_durations) : "",
+    capability_overrides: m.capability_overrides,
+    system_capabilities: m.system_capabilities,
   });
 }
 
@@ -131,6 +158,7 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
     ...(r.currency ? { currency: r.currency } : {}),
     ...(r.resolution ? { resolution: r.resolution } : { resolution: null }),
     ...(supported_durations ? { supported_durations } : { supported_durations: null }),
+    capability_overrides: r.capability_overrides,
   };
 }
 
@@ -266,6 +294,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   // Endpoint catalog（后端单一真相源）：mediaType 推断、price/default 互斥分组都从这里读。
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
   const endpointToImageCapabilities = useEndpointCatalogStore((s) => s.endpointToImageCapabilities);
+  const endpointToEndImageCapable = useEndpointCatalogStore((s) => s.endpointToEndImageCapable);
   const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
   useEffect(() => {
     void fetchEndpointCatalog();
@@ -662,7 +691,14 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       <input
                         type="text"
                         value={m.model_id}
-                        onChange={(e) => updateModel(m.key, { model_id: e.target.value })}
+                        onChange={(e) => {
+                          const nextId = e.target.value;
+                          updateModel(m.key, {
+                            model_id: nextId,
+                            // 覆盖与判定都随 (endpoint, model_id) 作废/恢复，见 capabilityFieldsFor
+                            ...capabilityFieldsFor(m, nextId, m.endpoint),
+                          });
+                        }}
                         placeholder="model-id…"
                         aria-label={t("model_id_label")}
                         className={`${COMPACT_INPUT_CLS} flex-1`}
@@ -671,7 +707,16 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       {/* Endpoint select (custom dropdown showing real API path) */}
                       <EndpointSelect
                         value={m.endpoint}
-                        onChange={(next) => updateModel(m.key, { endpoint: next, is_default: false })}
+                        onChange={(next) =>
+                          updateModel(m.key, {
+                            endpoint: next,
+                            is_default: false,
+                            // 覆盖的合法性本身随 endpoint 变化（last_frame 要求目标 endpoint 支持
+                            // 尾帧），切走即作废；切回原 endpoint 且 model_id 未变则原样取回。
+                            // 用户改动后控件会可见地弹回「跟随判定」，作废行为在界面上有反馈。
+                            ...capabilityFieldsFor(m, m.model_id, next),
+                          })
+                        }
                         ariaLabel={t("endpoint_label")}
                       />
 
@@ -773,6 +818,20 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       <DurationsInputRow
                         value={m.supported_durations_text}
                         onChange={(v) => updateModel(m.key, { supported_durations_text: v })}
+                      />
+                    )}
+
+                    {/* 能力覆盖行（仅 video endpoint；首批只开放 last_frame） */}
+                    {media === "video" && (
+                      <CapabilityOverrideRow
+                        override={m.capability_overrides?.last_frame}
+                        systemValue={m.system_capabilities?.last_frame ?? null}
+                        endImageCapable={endpointToEndImageCapable[m.endpoint] ?? false}
+                        onChange={(next) =>
+                          updateModel(m.key, {
+                            capability_overrides: withLastFrameOverride(m.capability_overrides, next),
+                          })
+                        }
                       />
                     )}
                   </div>

@@ -64,24 +64,21 @@ def system_video_capabilities(*, endpoint: str, model_id: str) -> VideoCapabilit
     return VideoCapabilities(reference_images=endpoint_cap > 0, max_reference_images=endpoint_cap)
 
 
-def synthesize_video_capabilities(
-    *,
-    endpoint: str,
-    model_id: str,
-    overrides: object | None,
-) -> VideoCapabilities:
-    """系统判定 ⊕ 用户覆盖 → 生效能力。
+def filter_valid_overrides(*, endpoint: str, model_id: str, overrides: object | None) -> dict[str, object]:
+    """按写入侧同一判定过滤 overrides，丢弃执行层不会采用的键值，返回真正生效的子集。
 
     ``overrides`` 为 ``CustomProviderModel.capability_overrides`` 的原始值（DB 里可能是任何
-    形状）。不被识别的键、类型不符的值一律忽略并告警，降级为该维度跟随系统判定：合成是执行
-    链路的最后一道，一条脏配置不该让整个生成路径不可用。合法性由 API 层白名单在写入侧把关。
+    形状）。不被识别的键、类型不符的值一律忽略并告警：合成是执行链路的最后一道，一条脏配置
+    不该让整个生成路径不可用。合法性由 API 层白名单在写入侧把关。
 
-    Raises:
-        ValueError: 系统判定本身不可得（见 :func:`system_video_capabilities`）。
+    :func:`synthesize_video_capabilities` 与 API 响应边界（``server/routers/custom_providers.py``
+    的 ``_model_to_response``）共用此过滤：后者据此裁剪回显给客户端的 ``capability_overrides``，
+    保证"界面显示的覆盖"与"执行层实际采用的覆盖"不漂移——否则存量脏数据会被界面呈现为已生效，
+    而实际执行时静默忽略。不校验 endpoint / media_type 合法性，调用方已各自处理（见
+    :func:`system_video_capabilities` 与 ``_system_capabilities_for``）。
     """
-    caps = system_video_capabilities(endpoint=endpoint, model_id=model_id)
     if overrides is None:
-        return caps
+        return {}
     if not isinstance(overrides, dict):
         logger.warning(
             "忽略 %s/%s 的能力覆盖：期望字典，实际 %s",
@@ -89,7 +86,7 @@ def synthesize_video_capabilities(
             model_id,
             type(overrides).__name__,
         )
-        return caps
+        return {}
 
     applied: dict[str, object] = {}
     for key, value in overrides.items():
@@ -97,7 +94,7 @@ def synthesize_video_capabilities(
         if expected is None:
             logger.warning("忽略 %s/%s 的未知能力覆盖键 %r", endpoint, model_id, key)
             continue
-        if not _value_matches(value, expected):
+        if not capability_value_matches(value, expected):
             logger.warning(
                 "忽略 %s/%s 的能力覆盖 %s=%r：期望 %s，该维度回退系统判定",
                 endpoint,
@@ -107,16 +104,76 @@ def synthesize_video_capabilities(
                 expected.__name__,
             )
             continue
+        # 与写入侧同一判定（见 server/routers/custom_providers.py::_check_capability_overrides）：
+        # last_frame=True 但 endpoint 的 delegate 不下传 end_image 时，覆盖只会让合成层宣称
+        # 支持、执行层仍静默丢帧。写入侧已挡住新配置，这里再挡一遍存量行 / 非 API 写入路径。
+        # endpoint 本身可能已从注册表下线（升级移除）：get_endpoint_spec 此时抛 ValueError，
+        # 视同不支持尾帧处理——存量脏配置不该让响应过滤这道最后防线也跟着炸。
+        if key == "last_frame" and value is True:
+            try:
+                end_image_capable = get_endpoint_spec(endpoint).end_image_capable
+            except ValueError:
+                end_image_capable = False
+            if not end_image_capable:
+                logger.warning(
+                    "忽略 %s/%s 的能力覆盖 last_frame=True：endpoint 不支持尾帧生成，该维度回退系统判定",
+                    endpoint,
+                    model_id,
+                )
+                continue
         applied[key] = value
 
-    return replace(caps, **applied) if applied else caps
+    return applied
 
 
-def _value_matches(value: object, expected: type) -> bool:
+def synthesize_video_capabilities(
+    *,
+    endpoint: str,
+    model_id: str,
+    overrides: object | None,
+) -> VideoCapabilities:
+    """系统判定 ⊕ 用户覆盖 → 生效能力。
+
+    Raises:
+        ValueError: 系统判定本身不可得（见 :func:`system_video_capabilities`）。
+    """
+    caps, _applied = synthesize_video_capabilities_with_overrides(
+        endpoint=endpoint, model_id=model_id, overrides=overrides
+    )
+    return caps
+
+
+def synthesize_video_capabilities_with_overrides(
+    *,
+    endpoint: str,
+    model_id: str,
+    overrides: object | None,
+) -> tuple[VideoCapabilities, dict[str, object]]:
+    """同 :func:`synthesize_video_capabilities`，额外返回过滤后的稀疏覆盖字典。
+
+    工厂需要这份稀疏覆盖单独下传给请求期档位查询（见
+    ``CustomVideoBackend.video_capabilities_for_tier``）：该查询以被包装 backend 的档位感知
+    结果为基底，只应叠加真正被用户覆盖的字段，不能整体替换为本函数合并出的完整对象——那是
+    context-free 的系统判定（对 Kling 等档位敏感 backend 而言是保守声明），会让档位查询短路
+    回到未实现档位感知时的效果。
+
+    Raises:
+        ValueError: 系统判定本身不可得（见 :func:`system_video_capabilities`）。
+    """
+    caps = system_video_capabilities(endpoint=endpoint, model_id=model_id)
+    applied = filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides)
+    merged = replace(caps, **applied) if applied else caps
+    return merged, applied
+
+
+def capability_value_matches(value: object, expected: type) -> bool:
     """覆盖值是否可直接落入该能力维度。
 
     bool 是 int 的子类，两个方向都要显式排除，否则 ``True`` 会被当成 1 张参考图上限、
     ``1`` 会被当成布尔真——这类宽松真值是语义猜测，不做。数值维度另拒负数。
+
+    写入侧校验（API 层白名单）与此处的合成必须用同一判定：两边一旦漂移，写入放行的值会被
+    合成静默忽略，正是本模块要消灭的「界面允许、执行反悔」。故此函数公开供 API 层复用。
     """
     if expected is bool:
         return isinstance(value, bool)

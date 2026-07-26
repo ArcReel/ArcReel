@@ -117,12 +117,14 @@ export function EndpointSelect({ value, onChange, ariaLabel, disabled }: Endpoin
 
   const handleSelect = useCallback(
     (next: EndpointKey) => {
-      onChange(next);
+      // 同值重选（用户打开下拉又点回当前项）不算变化：调用方按 endpoint 是否变化
+      // 决定是否作废未保存的能力覆盖，误触发会静默丢弃用户刚做的三态选择。
+      if (next !== value) onChange(next);
       setOpen(false);
       // 关闭后把焦点还给 trigger，键盘可访问。
       requestAnimationFrame(() => triggerRef.current?.focus());
     },
-    [onChange],
+    [onChange, value],
   );
 
   // 键盘：弹层中支持上下键切换、Enter 选中、Escape 关闭。

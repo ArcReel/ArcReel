@@ -48,6 +48,24 @@ class TestBackendBasics:
         backend = ViduVideoBackend(api_key="test-key")
         assert backend.video_capabilities.max_reference_images == 7
 
+    @pytest.mark.unit
+    def test_max_reference_images_zero_for_non_reference2video_model(self):
+        # viduq3-pro-fast 支持 /img2video，但不在 /start-end2video、/reference2video 白名单内——
+        # last_frame/reference_images 应为 False，max_reference_images 随 reference_images 归零，
+        # 避免展示层声称支持尾帧/参考图但生成期必然 RuntimeError。
+        backend = ViduVideoBackend(api_key="test-key", model="viduq3-pro-fast")
+        caps = backend.video_capabilities
+        assert caps.first_frame is True
+        assert caps.last_frame is False
+        assert caps.reference_images is False
+        assert caps.max_reference_images == 0
+
+    @pytest.mark.unit
+    def test_last_frame_true_for_start_end2video_model(self):
+        # viduq3-turbo 在 /start-end2video 白名单内，last_frame 应为 True。
+        backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
+        assert backend.video_capabilities.last_frame is True
+
 
 class TestEndpointSelection:
     def _backend(self, model: str = "viduq3-turbo") -> ViduVideoBackend:

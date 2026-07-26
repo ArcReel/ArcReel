@@ -99,6 +99,41 @@ describe("SceneCard", () => {
     expect(screen.queryByText(/major|minor|主要|次要|location|场景类型/i)).toBeNull();
   });
 
+  describe("read-only", () => {
+    const renderReadOnly = () =>
+      render(
+        <SceneCard
+          name="A"
+          scene={scene}
+          projectName="demo"
+          onUpdate={vi.fn()}
+          onGenerate={vi.fn()}
+          readOnly
+        />,
+      );
+
+    it("still shows the content", () => {
+      renderReadOnly();
+      expect(screen.getByText("A")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("阴森古朴")).toBeInTheDocument();
+    });
+
+    it("drops the generate, upload and version entries", () => {
+      renderReadOnly();
+      expect(screen.queryByRole("button", { name: /生成/ })).toBeNull();
+      expect(screen.queryByTestId("version-time-machine")).toBeNull();
+      expect(screen.queryByRole("button")).toBeNull();
+    });
+
+    it("keeps the description from being edited", () => {
+      renderReadOnly();
+      const textarea = screen.getByDisplayValue("阴森古朴");
+      expect(textarea).toHaveAttribute("readonly");
+      fireEvent.change(textarea, { target: { value: "新描述" } });
+      expect(screen.queryByRole("button", { name: /保存/ })).toBeNull();
+    });
+  });
+
   it("always shows generate button (not gated on importance)", () => {
     render(
       <SceneCard

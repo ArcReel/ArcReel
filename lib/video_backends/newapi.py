@@ -94,9 +94,18 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
+    @staticmethod
+    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+        """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
+
+        中转端点不接受参考图；当前全系模型能力一致，不按 model_id 分支。
+        instance property 委托至此，保持 backend 为单一真相源。
+        """
+        return VideoCapabilities(reference_images=False, max_reference_images=0)
+
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return VideoCapabilities(reference_images=False, max_reference_images=0)
+        return self.video_capabilities_for_model(self._model)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         width, height = _resolve_size(request.resolution, request.aspect_ratio)

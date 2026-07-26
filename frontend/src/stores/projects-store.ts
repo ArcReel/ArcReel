@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ProjectData, ProjectSummary, EpisodeScript } from "@/types";
 import { API } from "@/api";
+import { isDemoProject } from "@/onboarding/demo-project";
 import { useAppStore } from "./app-store";
 
 /** {@link ProjectsState.refreshProject} 的可选行为。 */
@@ -90,7 +91,12 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
         // 在途期间若已排队到不同项目的刷新请求，本轮响应针对的是即将切走的旧项目——
         // 跳过写入，避免用它覆盖排队轮即将加载的新项目（数据 / 名称均不提交）。
         const supersededByOtherProject = refreshQueued && queuedName !== null && queuedName !== curName;
-        if (!supersededByOtherProject) {
+        // 演示项目导航不经过 refreshProject（数据来自前端常量，见入口处的 isDemoProject
+        // 短路），因此上面的排队去重看不到它——真实项目的刷新请求（如 SSE onChanges 触发）
+        // 若在只读演示项目已接管当前视图之后才落定，也不该把 currentProjectName 写回真实
+        // 项目，否则只读横幅 / 演示数据会被这次迟到响应悄悄顶掉。
+        const supersededByDemoNavigation = isDemoProject(get().currentProjectName);
+        if (!supersededByOtherProject && !supersededByDemoNavigation) {
           get().setCurrentProject(curName, res.project, res.scripts ?? {}, res.asset_fingerprints);
           if (curKeys.length > 0) {
             useAppStore.getState().invalidateEntities(curKeys);
@@ -148,6 +154,8 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
 
     refreshProject: (name, options) => {
       if (!name) return Promise.resolve(false);
+      // 引导演示项目的数据来自前端常量，没有可刷新的服务端状态
+      if (isDemoProject(name)) return Promise.resolve(true);
       const invalidateKeys = options?.invalidateKeys ?? [];
       return new Promise<boolean>((resolve) => {
         if (refreshRunning) {

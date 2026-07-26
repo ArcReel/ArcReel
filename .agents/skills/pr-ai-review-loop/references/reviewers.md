@@ -83,7 +83,7 @@ PR reaction 是当前审查状态:新 push 启动审查时,Codex 会把上一轮
 
 `poll.sh` 优先用 REST review 的 `commit_id` 判当前 HEAD,缺失时解析 body 的 `Reviewed commit`,再缺失才按 review 提交时间回退;顶层通过评论同样先解析 `Reviewed commit`,缺失时按评论创建时间回退。
 
-**actionable**:本轮非 ack inline 的 `P0 Badge` / `P1 Badge` 一律 actionable;兼容旧 payload 时,P2/P3 交 `receiving-code-review` 核实。判定为非 actionable 并记录 pushback 的 P2/P3 不再阻塞通过。
+**actionable**:本轮非 ack inline 的 `P0 Badge` / `P1 Badge` 一律 actionable;兼容旧 payload 时,P2/P3 按 `receiving-code-review` 的纪律核实。判定为非 actionable 并记录 pushback 的 P2/P3 不再阻塞通过。
 
 **通过**:满足四种已审信号之一,且本轮无未解决的 actionable inline。
 
@@ -96,7 +96,7 @@ PR reaction 是当前审查状态:新 push 启动审查时,Codex 会把上一轮
 - **对未修复告警不重复提醒**:同一 alert 只在引入时评论一次,后续 push 不重贴。因此"无遗留告警"**不能**用"本轮无新评论"判定,漏修一条会静默通过
 - quality 告警通常**不会**让 check 变红,光看 CI 红绿会漏
 
-**actionable**:两家所有本轮新 inline 一律算 actionable,与 CodeRabbit / Gemini / Codex 的评论合并转交 `receiving-code-review`。pushback(误报、不该提交的产物等)仍由 `receiving-code-review` 判断,但落点是 PR 评论说明或 dismiss alert,**不是**回 inline。
+**actionable**:两家所有本轮新 inline 一律算 actionable,与 CodeRabbit / Gemini / Codex 的评论并入同一批处理。pushback(误报、不该提交的产物等)同样按 `receiving-code-review` 的纪律判断,但落点是 PR 评论说明或 dismiss alert,**不是**回 inline。
 
 **退出门槛**(代替"通过",在准备宣布循环结束时核对):
 

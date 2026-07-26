@@ -14,7 +14,13 @@ import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
 import { OnboardingTour } from "@/onboarding/OnboardingTour";
-import { API } from "@/api";
+import {
+  buildDemoProjectData,
+  buildDemoScripts,
+  DEMO_PROJECT_NAME,
+  isDemoProject,
+} from "@/onboarding/demo-project";
+import { API, setApiReadOnly } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
@@ -104,12 +110,14 @@ function StudioWorkspace() {
   const params = useParams<{ projectName: string }>();
   const projectName = params.projectName ?? null;
   const { setCurrentProject, setProjectDetailLoading } = useProjectsStore();
+  const { t } = useTranslation("onboarding");
 
+  // 项目生命周期：清空上一个项目的 assistant 状态，再按项目类型取数据。
+  // 依赖里不含 `t` —— 界面语言变化只该重灌演示常量（见下一个 effect），不该让真实项目
+  // 整条加载重跑（会先清空 store 闪一次空态，还会连带清掉助手会话状态）。
   useEffect(() => {
     if (!projectName) return;
-    let cancelled = false;
 
-    // 清空上一个项目的 assistant 状态，确保会话隔离
     const assistantState = useAssistantStore.getState();
     assistantState.setSessions([]);
     assistantState.setCurrentSessionId(null);
@@ -117,28 +125,47 @@ function StudioWorkspace() {
     assistantState.setSessionStatus(null);
     assistantState.setIsDraftSession(false);
 
+    // 引导演示项目在磁盘上并不存在：数据直接来自前端常量，不发请求，并在这段生命周期内
+    // 锁死写请求。数据本身由下一个 effect 灌入。
+    if (isDemoProject(projectName)) {
+      setApiReadOnly(true);
+      setProjectDetailLoading(false);
+      return () => {
+        setApiReadOnly(false);
+        setCurrentProject(null, null);
+      };
+    }
+
+    // 进真实项目一律解锁，不让上一次演示的闸门残留下来
+    setApiReadOnly(false);
     setProjectDetailLoading(true);
-    API.getProject(projectName)
+    const controller = new AbortController();
+    API.getProject(projectName, { signal: controller.signal })
       .then((res) => {
-        if (!cancelled) {
-          setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
-        }
+        if (controller.signal.aborted) return;
+        setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
       })
       .catch(() => {
         // Still set the project name so the UI shows something
-        if (!cancelled) {
-          setCurrentProject(projectName, null);
-        }
+        if (controller.signal.aborted) return;
+        setCurrentProject(projectName, null);
       })
       .finally(() => {
-        if (!cancelled) setProjectDetailLoading(false);
+        // 已被接管方作废时不动共享状态，否则会踩到新一轮加载
+        if (!controller.signal.aborted) setProjectDetailLoading(false);
       });
 
     return () => {
-      cancelled = true;
+      controller.abort();
       setCurrentProject(null, null);
     };
   }, [projectName, setCurrentProject, setProjectDetailLoading]);
+
+  // 演示数据随界面语言走：`t` 换身份时重灌一遍常量，只影响演示项目
+  useEffect(() => {
+    if (!projectName || !isDemoProject(projectName)) return;
+    setCurrentProject(projectName, buildDemoProjectData(t), buildDemoScripts(t));
+  }, [projectName, setCurrentProject, t]);
 
   return (
     <StudioLayout>
@@ -189,6 +216,13 @@ export function AppRoutes() {
           <AuthGuard>
             <AssetLibraryPage />
           </AuthGuard>
+        </Route>
+
+        {/* 演示项目没有可用的项目级设置（后端不存在该项目）——地址栏直达、书签或外部链接
+            都可能绕开 GlobalHeader 里已做的重定向，这里在路由层再挡一次，指向全局设置。
+            必须排在下面通用的项目设置路由之前，wouter 按声明顺序匹配。 */}
+        <Route path={`${ROUTE_APP_PROJECTS}/${DEMO_PROJECT_NAME}/${WORKSPACE_ROUTE_SETTINGS}`}>
+          <Redirect to={ROUTE_APP_SETTINGS} />
         </Route>
 
         {/* Project settings — full-screen, must be before the nested workspace route */}

@@ -183,6 +183,8 @@ describe("config-status-store", () => {
               currency: null,
               supported_durations: null,
               resolution: null,
+              system_capabilities: null,
+              capability_overrides: null,
             },
           ],
         },

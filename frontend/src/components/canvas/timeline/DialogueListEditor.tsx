@@ -7,17 +7,20 @@ import { useAutoResizeTextarea } from "@/hooks/useAutoResizeTextarea";
 interface DialogueListEditorProps {
   dialogue: Dialogue[];
   onChange: (dialogue: Dialogue[]) => void;
+  /** 只读展示（引导演示项目）：对白可读，不能增删改。 */
+  readOnly?: boolean;
 }
 
 interface DialogueRowProps {
   value: Dialogue;
   onUpdate: (patch: Partial<Dialogue>) => void;
   onRemove: () => void;
+  readOnly?: boolean;
 }
 
 /** A single speaker/line pair. The line uses an auto-growing textarea so long
  *  dialogue wraps and stays fully visible instead of being clipped. */
-function DialogueRow({ value, onUpdate, onRemove }: DialogueRowProps) {
+function DialogueRow({ value, onUpdate, onRemove, readOnly }: DialogueRowProps) {
   const { t } = useTranslation("dashboard");
   const { ref, resize } = useAutoResizeTextarea(value.line);
 
@@ -27,6 +30,7 @@ function DialogueRow({ value, onUpdate, onRemove }: DialogueRowProps) {
         type="text"
         value={value.speaker}
         onChange={(e) => onUpdate({ speaker: e.target.value })}
+        readOnly={readOnly}
         placeholder={t("speaker_placeholder")}
         className="dlg-input dlg-input--speaker w-16 shrink-0"
       />
@@ -43,20 +47,23 @@ function DialogueRow({ value, onUpdate, onRemove }: DialogueRowProps) {
           }
         }}
         onInput={resize}
+        readOnly={readOnly}
         placeholder={t("line_placeholder")}
         rows={1}
         className="dlg-input min-w-0 flex-1 resize-none overflow-hidden"
       />
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={t("dialogue_remove")}
-        title={t("dialogue_remove")}
-        className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
-        style={{ color: "var(--color-text-4)" }}
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
+      {readOnly ? null : (
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={t("dialogue_remove")}
+          title={t("dialogue_remove")}
+          className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
+          style={{ color: "var(--color-text-4)" }}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
     </div>
   );
 }
@@ -73,6 +80,7 @@ function nextKey(keys: string[]): string {
 export function DialogueListEditor({
   dialogue,
   onChange,
+  readOnly,
 }: DialogueListEditorProps) {
   const { t } = useTranslation("dashboard");
 
@@ -114,18 +122,21 @@ export function DialogueListEditor({
           value={d}
           onUpdate={(patch) => update(i, patch)}
           onRemove={() => remove(i)}
+          readOnly={readOnly}
         />
       ))}
 
-      <button
-        type="button"
-        onClick={add}
-        className="focus-ring inline-flex items-center gap-1 self-start rounded-md px-2 py-1 text-[11.5px] transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
-        style={{ color: "var(--color-text-3)" }}
-      >
-        <Plus className="h-3 w-3" />
-        {t("add_dialogue")}
-      </button>
+      {readOnly ? null : (
+        <button
+          type="button"
+          onClick={add}
+          className="focus-ring inline-flex items-center gap-1 self-start rounded-md px-2 py-1 text-[11.5px] transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
+          style={{ color: "var(--color-text-3)" }}
+        >
+          <Plus className="h-3 w-3" />
+          {t("add_dialogue")}
+        </button>
+      )}
     </div>
   );
 }

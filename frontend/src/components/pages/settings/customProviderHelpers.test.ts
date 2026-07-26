@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { ImageCap, MediaType } from "@/types";
+import type { CapabilityOverrides, ImageCap, MediaType, VideoCapabilityFlags } from "@/types";
 import {
   priceLabel,
   urlPreviewFor,
   toggleDefaultReducer,
   mergeDiscoveredModels,
+  withLastFrameOverride,
+  capabilityFieldsFor,
+  type CapabilitySnapshotRow,
 } from "./customProviderHelpers";
 
 const id = (k: string) => k;
@@ -274,5 +277,78 @@ describe("mergeDiscoveredModels", () => {
     const discovered = [row("w", "openai-images", true), row("e", "openai-images-edits", true)];
     const merged = mergeDiscoveredModels([], discovered, ENDPOINT_TO_MEDIA, ENDPOINT_TO_CAPS);
     expect(merged.filter((m) => m.is_default).map((m) => m.model_id)).toEqual(["w", "e"]);
+  });
+});
+
+describe("withLastFrameOverride", () => {
+  it("跟随（undefined）从字典移除该键，而不是写成 false", () => {
+    expect(withLastFrameOverride({ last_frame: true }, undefined)).toBeNull();
+    expect(withLastFrameOverride({ last_frame: false }, undefined)).toBeNull();
+  });
+
+  it("强制开/关写入显式布尔值", () => {
+    expect(withLastFrameOverride(null, true)).toEqual({ last_frame: true });
+    expect(withLastFrameOverride(null, false)).toEqual({ last_frame: false });
+  });
+
+  it("保留字典里其他维度的覆盖，移除 last_frame 后不清空整个字典", () => {
+    const prev = { last_frame: true, first_frame: false } as CapabilityOverrides;
+    expect(withLastFrameOverride(prev, undefined)).toEqual({ first_frame: false });
+    expect(withLastFrameOverride(prev, false)).toEqual({ last_frame: false, first_frame: false });
+  });
+
+  it("不改动入参字典", () => {
+    const prev: CapabilityOverrides = { last_frame: true };
+    withLastFrameOverride(prev, undefined);
+    expect(prev).toEqual({ last_frame: true });
+  });
+});
+
+describe("capabilityFieldsFor", () => {
+  const SYSTEM: VideoCapabilityFlags = {
+    first_frame: true,
+    last_frame: false,
+    reference_images: false,
+    max_reference_images: 0,
+  };
+  const snapshot: CapabilitySnapshotRow = {
+    original_model_id: "kling-v2",
+    original_endpoint: "newapi-video",
+    original_capability_overrides: { last_frame: true },
+    original_system_capabilities: SYSTEM,
+  };
+
+  it("两个维度都等于快照时原样取回覆盖与判定", () => {
+    expect(capabilityFieldsFor(snapshot, "kling-v2", "newapi-video")).toEqual({
+      capability_overrides: { last_frame: true },
+      system_capabilities: SYSTEM,
+    });
+  });
+
+  it("model_id 偏离快照时覆盖与判定一并作废", () => {
+    expect(capabilityFieldsFor(snapshot, "kling-v2-pro", "newapi-video")).toEqual({
+      capability_overrides: null,
+      system_capabilities: null,
+    });
+  });
+
+  it("endpoint 偏离快照时覆盖与判定一并作废", () => {
+    expect(capabilityFieldsFor(snapshot, "kling-v2", "openai-video")).toEqual({
+      capability_overrides: null,
+      system_capabilities: null,
+    });
+  });
+
+  it("另一维度仍偏离时不恢复——覆盖只对原 (endpoint, model_id) 组合成立", () => {
+    // 先改 model_id 再把 endpoint 切回原值：endpoint 匹配但 model_id 不匹配，不能恢复
+    const row = { ...snapshot };
+    expect(capabilityFieldsFor(row, "other-model", "newapi-video").capability_overrides).toBeNull();
+  });
+
+  it("逐字符改回原 model_id 后能取回覆盖", () => {
+    expect(capabilityFieldsFor(snapshot, "kling-v", "newapi-video").capability_overrides).toBeNull();
+    expect(capabilityFieldsFor(snapshot, "kling-v2", "newapi-video").capability_overrides).toEqual({
+      last_frame: true,
+    });
   });
 });

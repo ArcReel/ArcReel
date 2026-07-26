@@ -39,7 +39,7 @@ interface MediaCardProps {
   estimatedCost?: CostBreakdown;
   /** 触发生成 */
   onGenerate?: () => void;
-  /** 版本恢复回调 */
+  /** 版本恢复回调；未提供时不显示版本入口（只读展示无版本可回滚） */
   onRestore?: () => Promise<void> | void;
   /** 自主上传回调（替换该镜头的分镜图/视频）；未提供时不显示上传入口 */
   onUpload?: (file: File) => Promise<void> | void;
@@ -101,6 +101,9 @@ export function MediaCard({
         : t("media_generate_video");
   const resourceType: "storyboards" | "videos" =
     kind === "storyboard" ? "storyboards" : "videos";
+  // uploadDisabled 是本卡片之外的互斥占用（如同一镜头另一张卡在上传中）；
+  // 编辑/版本恢复/生成同样写这个资源，须一并禁用，否则会与占用中的写操作并发冲突。
+  const resourceBusy = generating || uploading || uploadDisabled;
 
   return (
     <div>
@@ -134,16 +137,18 @@ export function MediaCard({
             resourceId={segmentId}
             scriptFile={editScriptFile}
             hasImage={Boolean(assetPath)}
-            busy={generating || uploading}
+            busy={resourceBusy}
           />
         )}
-        <VersionTimeMachine
-          projectName={projectName}
-          resourceType={resourceType}
-          resourceId={segmentId}
-          onRestore={onRestore}
-          busy={kind === "storyboard" ? generating || uploading : undefined}
-        />
+        {onRestore && (
+          <VersionTimeMachine
+            projectName={projectName}
+            resourceType={resourceType}
+            resourceId={segmentId}
+            onRestore={onRestore}
+            busy={resourceBusy}
+          />
+        )}
       </div>
 
       {/* Media */}
@@ -204,7 +209,7 @@ export function MediaCard({
         <button
           type="button"
           onClick={onGenerate}
-          disabled={generateDisabled || generating}
+          disabled={generateDisabled || resourceBusy}
           title={
             generateDisabled
               ? (generateDisabledHint ?? t("media_generate_video_disabled_hint"))

@@ -134,6 +134,22 @@ MESSAGES = {
     "endpoint_media_type_mismatch": "Endpoint media_type mismatch: {detail}",
     "backend_creation_failed": "Backend creation failed: {err_msg}",
     "unsupported_discovery_format": "Connection test not supported for {discovery_format}",
+    "custom_model_not_found": "Model not found: {model_id}",
+    "capability_overrides_video_only": (
+        "Endpoint {endpoint} of model {model_id} is not a video endpoint; capability overrides are not supported"
+    ),
+    "capability_override_unknown_key": "Capability overrides of model {model_id} contain an unknown capability: {capability}",
+    "capability_override_not_open": (
+        "Capability {capability} of model {model_id} is not open for override; currently overridable: {allowed}"
+    ),
+    "capability_override_invalid_value": (
+        "Capability {capability} of model {model_id} has an invalid value type; expected {expected}"
+    ),
+    "capability_override_last_frame_unsupported": (
+        "Endpoint {endpoint} of model {model_id} does not support last-frame generation; "
+        "last_frame cannot be overridden to true"
+    ),
+    "custom_model_concurrent_update": "Model {model_id} was modified concurrently; please refresh and retry",
     # Projects
     "unknown_style_template": "Unknown style template: {template_id}",
     "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",
@@ -225,6 +241,7 @@ MESSAGES = {
     "video_start_image_unreadable": "The first-frame image for model {model} is unreadable; generation aborted: {name}; check the first-frame image path",
     "video_end_image_unreadable": "The last-frame image for model {model} is unreadable; generation aborted: {name}; check the last-frame image path",
     "video_end_image_requires_start_image": "Model {model} does not support a standalone last frame; also provide a first frame (first+last keyframes) or remove the last frame",
+    "video_last_frame_requires_pro": "{provider}/{model} only supports first+last frame at the pro tier; switch to the pro tier or remove the last frame",
     # Agent credentials
     "agent_preset_unknown": "Unknown preset provider: {preset_id}",
     "agent_base_url_required_custom": "base_url is required for custom configuration",

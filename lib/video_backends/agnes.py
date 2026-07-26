@@ -221,15 +221,24 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
     def capabilities(self) -> set[VideoCapability]:
         return self._capabilities
 
-    @property
-    def video_capabilities(self) -> VideoCapabilities:
-        # 首帧 + 尾帧（首尾关键帧）+ 多图主体参考；参考图不与首帧叠加（单通道 + mode 不可叠加）。
+    @staticmethod
+    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+        """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
+
+        首帧 + 尾帧（首尾关键帧）+ 多图主体参考；参考图不与首帧叠加（单通道 + mode 不可叠加）。
+        当前全系模型能力一致，不按 model_id 分支；instance property 委托至此，
+        保持 backend 为单一真相源。
+        """
         return VideoCapabilities(
             first_frame=True,
             last_frame=True,
             reference_images=True,
             max_reference_images=_MAX_REFERENCE_IMAGES,
         )
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return self.video_capabilities_for_model(self._model)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         # 读盘 + base64 编码（首尾帧最多 2 张、参考图最多 4 张，可能数 MB）offload 到线程，

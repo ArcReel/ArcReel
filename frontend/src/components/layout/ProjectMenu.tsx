@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { ChevronDown, Plus, SlidersHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { getProjectDisplayName } from "@/utils/project-display";
 
 /**
@@ -16,6 +17,8 @@ export function ProjectMenu() {
   const { t } = useTranslation(["dashboard", "common"]);
   const [, setLocation] = useLocation();
   const { currentProjectData, currentProjectName } = useProjectsStore();
+  // 演示项目没有项目级设置页可看，指向全局设置——与顶栏齿轮入口口径一致
+  const demoMode = useDemoWorkbench();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -184,7 +187,9 @@ export function ProjectMenu() {
               if (!currentProjectName) return;
               setOpen(false);
               setLocation(
-                `~/app/projects/${encodeURIComponent(currentProjectName)}/settings`,
+                demoMode
+                  ? "~/app/settings"
+                  : `~/app/projects/${encodeURIComponent(currentProjectName)}/settings`,
               );
             }}
             className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12px] transition-colors focus-ring disabled:opacity-50"
