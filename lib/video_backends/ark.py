@@ -80,9 +80,18 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         model_lower = model.lower()
         return "seedance-2-0" in model_lower or "seedance-2.0" in model_lower
 
-    # docs/ark-docs/seedance2.0.md 能力表中「图生视频-首尾帧」标 "-" 的两个 1.0 系列型号：
-    # 1.0 pro fast 未开放首尾帧；1.0 lite t2v 是纯文生视频，不接受任何图片输入。
-    _NO_LAST_FRAME_SUBSTRINGS = ("seedance-1-0-pro-fast", "seedance-1-0-lite-t2v")
+    # docs/ark-docs/seedance2.0.md 能力表中「图生视频-首帧」「图生视频-首尾帧」标 "-" 的两个
+    # 1.0 系列型号：1.0 pro fast 支持首帧但未开放尾帧；1.0 lite t2v 是纯文生视频，首帧/尾帧均
+    # 不支持。子串同时收录连字符与点号两种版本号写法（如 "1-0" / "1.0"）——上游命名不统一，
+    # docs/ark-docs/火山方舟费用参考.md 中 doubao-seedance-1.0-pro-fast 即用点号，
+    # 自定义供应商配置也可能沿用该写法。
+    _NO_FIRST_FRAME_SUBSTRINGS = ("seedance-1-0-lite-t2v", "seedance-1.0-lite-t2v")
+    _NO_LAST_FRAME_SUBSTRINGS = (
+        "seedance-1-0-pro-fast",
+        "seedance-1.0-pro-fast",
+        "seedance-1-0-lite-t2v",
+        "seedance-1.0-lite-t2v",
+    )
 
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
@@ -100,8 +109,9 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         # 1.5 pro），此前统一按 VideoCapabilities() 默认 last_frame=False 处理是误判——见
         # test_first_last_frame_role_fields，1.5 pro 实测正常下发 role="last_frame"。
         model_lower = model.lower()
+        no_first_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_FIRST_FRAME_SUBSTRINGS)
         no_last_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_LAST_FRAME_SUBSTRINGS)
-        return VideoCapabilities(last_frame=not no_last_frame)
+        return VideoCapabilities(first_frame=not no_first_frame, last_frame=not no_last_frame)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

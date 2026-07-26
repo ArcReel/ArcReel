@@ -401,24 +401,37 @@ class TestArkModelCapabilities:
         caps = b.capabilities
         assert VideoCapability.FLEX_TIER in caps
 
+    @pytest.mark.unit
     def test_seedance_1_5_pro_default_model_supports_last_frame(self):
         """DEFAULT_MODEL：能力表标首尾帧 ✅，实测 generate() 正常下发 role=last_frame。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-5-pro-251215")
         assert caps.last_frame is True
 
+    @pytest.mark.unit
     def test_seedance_1_0_pro_fast_no_last_frame(self):
-        """能力表「图生视频-首尾帧」列该型号标 "-"。"""
+        """能力表「图生视频-首尾帧」列该型号标 "-"，但「图生视频-首帧」列仍是 ✅。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0-pro-fast-251015")
+        assert caps.first_frame is True
         assert caps.last_frame is False
 
+    @pytest.mark.unit
+    def test_seedance_1_0_pro_fast_dot_naming_no_last_frame(self):
+        """上游命名不统一：费用文档用点号 "1.0" 而非连字符 "1-0"，判定须同时兼容两种写法。"""
+        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1.0-pro-fast")
+        assert caps.last_frame is False
+
+    @pytest.mark.unit
     def test_seedance_1_0_lite_t2v_no_last_frame(self):
-        """纯文生视频型号，不接受任何图片输入。"""
+        """纯文生视频型号，能力表「图生视频-首帧」「图生视频-首尾帧」均标 "-"，不接受任何图片输入。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0-lite-t2v-250428")
+        assert caps.first_frame is False
         assert caps.last_frame is False
 
+    @pytest.mark.unit
     def test_seedance_1_0_lite_i2v_supports_last_frame(self):
         """能力表标首尾帧 ✅，且型号名含 "lite-t2v" 判定串的邻近变体，验证不误命中。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0-lite-i2v-250428")
+        assert caps.first_frame is True
         assert caps.last_frame is True
 
     def test_seedance_2_dot_format_no_flex_tier(self):
