@@ -746,6 +746,34 @@ class TestGenerationTasks:
         assert fake_generator.video_calls == []
 
     @pytest.mark.integration
+    async def test_execute_video_task_end_frame_parent_dir_symlink_fails_hard(self, monkeypatch, tmp_path):
+        """符号链接调包不止发生在文件名这一级：`end_frames/` 目录本身被替换成指向项目内
+        别的目录的符号链接时，最终文件名一致、realpath 展开后两侧路径也相等，仅检查文件名
+        这一段挡不住——须逐段检查 canonical 路径的每个组件（含父目录）。"""
+        project_path = _prepare_files(tmp_path)
+        real_dir = project_path / "storyboards_end_frames_swap"
+        real_dir.mkdir(parents=True, exist_ok=True)
+        (real_dir / "scene_E1S01.png").write_bytes(b"png")
+        (project_path / "end_frames").symlink_to(real_dir)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="invalid end frame snapshot path"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
     async def test_execute_video_task_end_frame_capability_unsupported_propagates(self, monkeypatch, tmp_path):
         """后端不支持尾帧能力时硬失败，不降级为参考图、不静默丢帧。
 

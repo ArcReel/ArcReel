@@ -22,10 +22,16 @@ class ResourcePattern:
     prefix: str = ""  # 文件名前缀：storyboards/videos 用 "scene_"，audio 用 "segment_"，其余空
 
 
+# 尾帧快照的资源类型名。独立导出到这个无反向依赖的纯函数模块，供
+# server/services/end_frame.py（写侧）与 generation_tasks.py（读侧）共用，避免二者互相
+# import 对方所在的 server.services 包造成循环依赖；同时作为 `_PATTERNS` 对应 key 的唯一
+# 来源，防止两处字面量各自维护后读写侧路径口径分叉。
+END_FRAME_RESOURCE_TYPE = "end_frames"
+
 _PATTERNS: dict[str, ResourcePattern] = {
     "storyboards": ResourcePattern("storyboards", ".png", prefix="scene_"),
     # 尾帧快照与分镜图、镜头视频同按镜头 id 命名，故共用 scene_ 前缀。
-    "end_frames": ResourcePattern("end_frames", ".png", prefix="scene_"),
+    END_FRAME_RESOURCE_TYPE: ResourcePattern(END_FRAME_RESOURCE_TYPE, ".png", prefix="scene_"),
     "videos": ResourcePattern("videos", ".mp4", prefix="scene_"),
     "characters": ResourcePattern("characters", ".png"),
     "scenes": ResourcePattern("scenes", ".png"),
@@ -37,11 +43,6 @@ _PATTERNS: dict[str, ResourcePattern] = {
 }
 
 RESOURCE_TYPES: tuple[str, ...] = tuple(_PATTERNS)
-
-# 尾帧快照的资源类型名，与 `_PATTERNS["end_frames"]` 同值。独立导出到这个无反向依赖的
-# 纯函数模块，供 server/services/end_frame.py（写侧）与 generation_tasks.py（读侧）共用，
-# 避免二者互相 import 对方所在的 server.services 包造成循环依赖。
-END_FRAME_RESOURCE_TYPE = "end_frames"
 
 
 def _pattern(resource_type: str) -> ResourcePattern:

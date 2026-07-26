@@ -862,11 +862,18 @@ async def execute_video_task(
         end_frame_file = try_safe_join(project_path, candidate)
         expected_file = safe_join(project_path, expected_rel)
         # try_safe_join / safe_join 都走 realpath，会展开符号链接：若字段值恰是当前镜头的
-        # canonical 相对路径，但磁盘上那个位置被替换成指向别处（如另一镜头快照、分镜图）的
-        # 符号链接，两次解析会算出同一个被展开的真实目标，让下面的相等比较失去意义。这里额外
-        # 拒绝 canonical 位置本身是符号链接的情况——挡住"路径字符串正确但磁盘对象被调包"。
-        canonical_path_literal = project_path / expected_rel
-        if end_frame_file is None or end_frame_file != expected_file or canonical_path_literal.is_symlink():
+        # canonical 相对路径，但磁盘上那个位置（含 end_frames/ 目录本身等中间组件）被替换成
+        # 指向别处（如另一镜头快照、分镜图）的符号链接，两次解析会算出同一个被展开的真实目标，
+        # 让下面的相等比较失去意义。这里逐段检查 canonical 路径每个组件——文件名与父目录——
+        # 挡住"路径字符串正确但磁盘对象被调包"，不止查最终文件名那一段。
+        canonical_path_has_symlink = False
+        current = project_path
+        for component in Path(expected_rel).parts:
+            current = current / component
+            if current.is_symlink():
+                canonical_path_has_symlink = True
+                break
+        if end_frame_file is None or end_frame_file != expected_file or canonical_path_has_symlink:
             raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
         if not end_frame_file.is_file():
             raise ValueError(f"end frame snapshot not found: {end_frame_file.name}")
