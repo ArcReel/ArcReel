@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
-import { Route, Switch, Redirect } from "wouter";
+import { Route, Switch, Redirect, useParams } from "wouter";
 import {
   WORKSPACE_ROUTE_LOREBOOK,
   WORKSPACE_ROUTE_CLUES,
@@ -14,6 +14,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
+import { isDemoProject } from "@/onboarding/demo-project";
 import { DemoEpisodePlaceholder } from "@/onboarding/DemoEpisodePlaceholder";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
@@ -90,7 +91,11 @@ export function StudioCanvasRouter() {
   const { currentProjectData, currentProjectName, currentScripts } =
     useProjectsStore();
   // 演示态：资产画布仍走 readOnly 透传，工作台时间线的只读则由组件自己直读同一判定
-  const demoMode = useDemoWorkbench();
+  // store 的 currentProjectName 由父组件 StudioWorkspace 在 effect 里异步写入，首轮渲染时
+  // （直接打开演示路由或刚从大厅进入）store 还没同步，仅靠它会在首轮判定为非演示态并放行三个
+  // 真实 GET；路由参数在渲染期即可用，兜底覆盖这段首轮时间差。
+  const routeParams = useParams<{ projectName?: string }>();
+  const demoMode = useDemoWorkbench() || isDemoProject(routeParams.projectName);
 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
@@ -119,10 +124,14 @@ export function StudioCanvasRouter() {
   // /video-capabilities，让 ConfigResolver 自动 fallback 到 PROVIDER_REGISTRY
   // 第一个 ready 的 default video model（与生成路径用同一套规则，避免 FE/BE 漂移）。
   const localDurationOptions = useMemo(() => {
+    // 演示态即便 state 里还留着上一个真实项目的 providers/backend（同一组件实例原地切入
+    // 演示路由，effect 提前 return 不会清掉旧值），也不参与比对——否则真实后端的时长限制
+    // 会继续套用到演示的虚构时长上，重新触发「不兼容」误报。
+    if (demoMode) return undefined;
     const backend = currentProjectData?.video_backend || globalVideoBackend;
     if (!backend) return undefined;
     return lookupSupportedDurations(providers, backend, customProviders);
-  }, [providers, customProviders, globalVideoBackend, currentProjectData?.video_backend]);
+  }, [demoMode, providers, customProviders, globalVideoBackend, currentProjectData?.video_backend]);
 
   useEffect(() => {
     // 依赖变化时清理旧的 resolved 选项；本地 lookup 有结果或缺项目名时同步清零，

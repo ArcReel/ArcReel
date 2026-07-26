@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Router } from "wouter";
+import { Route, Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -318,6 +318,22 @@ function renderAt(path: string) {
   );
 }
 
+// 复刻真实入口的路由结构：父路由 `/:projectName` nest 出 `projectName` 参数，
+// 供 StudioCanvasRouter 在 store 的 currentProjectName 还没同步时兜底判定演示态。
+// 返回 `navigate` 以便测试原地切换路由——不卸载组件，复刻同一 StudioCanvasRouter 实例
+// 从真实项目切到演示项目时的时序（wouter 路由参数变化不会重新挂载组件）。
+function renderAtProjectRoute(projectName: string, subPath: string) {
+  const { hook, navigate } = memoryLocation({ path: `/${projectName}${subPath}` });
+  const view = render(
+    <Router hook={hook}>
+      <Route path="/:projectName" nest>
+        <StudioCanvasRouter />
+      </Route>
+    </Router>,
+  );
+  return { ...view, navigate };
+}
+
 describe("StudioCanvasRouter", () => {
   beforeEach(() => {
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
@@ -411,6 +427,93 @@ describe("StudioCanvasRouter", () => {
     });
     expect(customProvidersSpy).toHaveBeenCalled();
     expect(systemConfigSpy).toHaveBeenCalled();
+  });
+
+  // 复刻真实入口时序：StudioWorkspace 要到自己的 effect 才把演示项目名写入 store，
+  // 子组件的首轮渲染此时读到的 currentProjectName 仍是旧值/空值。只靠 store 判定
+  // 会在首轮放行三个真实 GET；路由参数在渲染期即可用，必须兜底覆盖这段时间差。
+  it("skips the provider/system-config lookups on first render before the store's currentProjectName catches up with the demo route", async () => {
+    const providersSpy = vi.spyOn(API, "getProviders");
+    const customProvidersSpy = vi.spyOn(API, "listCustomProviders");
+    const systemConfigSpy = vi.spyOn(API, "getSystemConfig");
+
+    useProjectsStore.setState({
+      currentProjectName: null,
+      currentProjectData: null,
+      currentScripts: {},
+    });
+
+    renderAtProjectRoute(DEMO_PROJECT_NAME, "/episodes/1");
+
+    await waitFor(() => {
+      expect(screen.getByText("加载中...")).toBeInTheDocument();
+    });
+    expect(providersSpy).not.toHaveBeenCalled();
+    expect(customProvidersSpy).not.toHaveBeenCalled();
+    expect(systemConfigSpy).not.toHaveBeenCalled();
+  });
+
+  // 同一 StudioCanvasRouter 实例从真实项目切到演示项目（路由 nest 下 projectName 参数
+  // 变化，组件不会重新挂载）时，上一个真实项目遗留的时长能力缓存必须清空，否则真实后端的
+  // 时长限制会继续套用到演示的虚构时长上，重新触发「不兼容」误报。
+  it("clears cached provider/backend duration capabilities when switching from a real project into the demo route", async () => {
+    const providersSpy = vi.spyOn(API, "getProviders").mockResolvedValue({
+      providers: [
+        {
+          id: "real-backend",
+          display_name: "Real",
+          description: "",
+          status: "ready",
+          media_types: ["video"],
+          capabilities: [],
+          configured_keys: [],
+          missing_keys: [],
+          models: {
+            "model-1": {
+              display_name: "Model 1",
+              media_type: "video",
+              capabilities: [],
+              default: true,
+              supported_durations: [5, 10],
+              duration_resolution_constraints: {},
+              resolutions: [],
+            },
+          },
+        },
+      ],
+    });
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      settings: { default_video_backend: "real-backend/model-1" },
+    } as Awaited<ReturnType<typeof API.getSystemConfig>>);
+
+    useProjectsStore.setState({
+      currentProjectName: "real-project",
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    const view = renderAtProjectRoute("real-project", "/episodes/1");
+    await waitFor(() => {
+      expect(screen.getByTestId("timeline-duration-options")).toHaveTextContent("5,10");
+    });
+
+    providersSpy.mockClear();
+
+    // 原地切换到演示项目：不卸载组件，复刻同一实例从真实项目切入演示态的时序，
+    // 与 StudioWorkspace 的 effect 同步写入 store 一致。
+    useProjectsStore.setState({
+      currentProjectName: DEMO_PROJECT_NAME,
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+    view.navigate(`/${DEMO_PROJECT_NAME}/episodes/1`);
+
+    await waitFor(() => {
+      // 缓存已清空：真实项目遗留的 providers/backend 不再参与时长兼容性比对
+      expect(screen.getByTestId("timeline-duration-options")).toHaveTextContent("");
+    });
+    expect(providersSpy).not.toHaveBeenCalled();
   });
 
   it("shows EpisodeSourceReview instead of TimelineCanvas when an episode has no script and no draft", () => {
