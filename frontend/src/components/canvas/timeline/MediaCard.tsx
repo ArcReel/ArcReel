@@ -10,6 +10,7 @@ import {
   UPLOAD_VIDEO_ACCEPT,
   UploadIconButton,
 } from "@/components/ui/UploadIconButton";
+import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { formatCost } from "@/utils/cost-format";
 import type { CostBreakdown } from "@/types";
 import { ImageEditButton } from "./ImageEditButton";
@@ -76,6 +77,9 @@ export function MediaCard({
   editScriptFile,
 }: MediaCardProps) {
   const { t } = useTranslation("dashboard");
+  // 演示态只读：卡片上的四个写入口（上传 / 编辑 / 版本恢复 / 生成）从同一处判定关闭，
+  // 不再各自靠「对应回调是否传入」推断——那让版本入口与其余入口分属两套机制。
+  const demoReadOnly = useDemoWorkbench();
 
   const assetFp = useProjectsStore((s) =>
     assetPath ? s.getAssetFingerprint(assetPath) : null,
@@ -117,7 +121,7 @@ export function MediaCard({
           {title}
         </span>
         <span className="flex-1" />
-        {onUpload && (
+        {onUpload && !demoReadOnly && (
           <UploadIconButton
             accept={UPLOAD_ACCEPT[kind]}
             label={
@@ -130,7 +134,7 @@ export function MediaCard({
             onSelect={(f) => void onUpload(f)}
           />
         )}
-        {kind === "storyboard" && editScriptFile && (
+        {kind === "storyboard" && editScriptFile && !demoReadOnly && (
           <ImageEditButton
             projectName={projectName}
             resourceType="storyboard"
@@ -140,7 +144,7 @@ export function MediaCard({
             busy={resourceBusy}
           />
         )}
-        {onRestore && (
+        {onRestore && !demoReadOnly && (
           <VersionTimeMachine
             projectName={projectName}
             resourceType={resourceType}
@@ -205,7 +209,7 @@ export function MediaCard({
       )}
 
       {/* Generate CTA */}
-      {!hideGenerateButton && onGenerate && (
+      {!hideGenerateButton && onGenerate && !demoReadOnly && (
         <button
           type="button"
           onClick={onGenerate}

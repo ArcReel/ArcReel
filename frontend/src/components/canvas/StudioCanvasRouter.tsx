@@ -14,6 +14,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
+import { isDemoProject } from "@/onboarding/demo-project";
 import { DemoEpisodePlaceholder } from "@/onboarding/DemoEpisodePlaceholder";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
@@ -89,7 +90,8 @@ export function StudioCanvasRouter() {
   tRef.current = t;
   const { currentProjectData, currentProjectName, currentScripts } =
     useProjectsStore();
-  // 演示态：不传写回调，编辑 / 生成 / 上传 / 版本恢复的入口按既有惯例整块不渲染
+  // 演示态：资产画布仍走 readOnly 透传，工作台时间线的只读则由组件自己直读同一判定。
+  // useDemoWorkbench() 已把路由参数与 store 的判定滞后收口在单一来源，此处直接消费。
   const demoMode = useDemoWorkbench();
 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -100,6 +102,9 @@ export function StudioCanvasRouter() {
   >(undefined);
 
   useEffect(() => {
+    // 这三份数据只服务视频时长选项。演示态的时长是虚构的静态展示，唯一还会用到选项的
+    // 是「时长与后端不兼容」的橙色标记——对虚构数据那是伪告警，不值得为它发三个全局请求。
+    if (demoMode) return;
     let disposed = false;
     Promise.all([getProviderModels(), getCustomProviderModels(), API.getSystemConfig()]).then(
       ([provList, customList, configRes]) => {
@@ -110,16 +115,28 @@ export function StudioCanvasRouter() {
       },
     ).catch(() => {});
     return () => { disposed = true; };
-  }, []);
+  }, [demoMode]);
 
   // 已配置 backend 时本地 lookup 即可（同步、零延迟）；未配置时调后端
   // /video-capabilities，让 ConfigResolver 自动 fallback 到 PROVIDER_REGISTRY
   // 第一个 ready 的 default video model（与生成路径用同一套规则，避免 FE/BE 漂移）。
   const localDurationOptions = useMemo(() => {
+    // 演示态即便 state 里还留着上一个真实项目的 providers/backend（同一组件实例原地切入
+    // 演示路由，effect 提前 return 不会清掉旧值），也不参与比对——否则真实后端的时长限制
+    // 会继续套用到演示的虚构时长上，重新触发「不兼容」误报。demoMode 演示→真实切换时先于
+    // store 变为 false，currentProjectName 单独判一次兜住这一帧仍读到旧演示项目名的窗口。
+    if (demoMode || isDemoProject(currentProjectName)) return undefined;
     const backend = currentProjectData?.video_backend || globalVideoBackend;
     if (!backend) return undefined;
     return lookupSupportedDurations(providers, backend, customProviders);
-  }, [providers, customProviders, globalVideoBackend, currentProjectData?.video_backend]);
+  }, [
+    demoMode,
+    currentProjectName,
+    providers,
+    customProviders,
+    globalVideoBackend,
+    currentProjectData?.video_backend,
+  ]);
 
   useEffect(() => {
     // 依赖变化时清理旧的 resolved 选项；本地 lookup 有结果或缺项目名时同步清零，
@@ -129,8 +146,11 @@ export function StudioCanvasRouter() {
       setResolvedDurationOptions(undefined);
       return;
     }
-    // 演示项目查不到 /video-capabilities（后端无此项目），时长选项留空即可
-    if (!currentProjectName || demoMode) {
+    // 演示项目查不到 /video-capabilities（后端无此项目），时长选项留空即可。
+    // currentProjectName 单独判一次：demo→真实项目切换后路由已使 demoMode 为 false，
+    // 但 store 的 currentProjectName 还没同步完成时仍是演示项目名，只看 demoMode 会
+    // 对着不存在的演示项目发一次必然失败的请求。
+    if (!currentProjectName || demoMode || isDemoProject(currentProjectName)) {
       setResolvedDurationOptions(undefined);
       return;
     }
@@ -150,7 +170,14 @@ export function StudioCanvasRouter() {
     };
   }, [currentProjectName, localDurationOptions, demoMode]);
 
-  const durationOptions = localDurationOptions ?? resolvedDurationOptions;
+  // demoMode 翻转的同一渲染帧内 localDurationOptions 已同步归零，但 resolvedDurationOptions
+  // 是异步 effect 才清空的旧 state，真实项目切入演示路由的这一帧仍可能读到上一个项目的时长
+  // 能力；显式屏蔽 fallback，避免虚构时长被套用真实后端限制而误报「不兼容」。demoMode 演示→
+  // 真实切换时先于 store 变为 false，currentProjectName 单独判一次兜住同一滞后窗口。
+  const durationOptions =
+    demoMode || isDemoProject(currentProjectName)
+      ? undefined
+      : localDurationOptions ?? resolvedDurationOptions;
 
   // 从任务队列派生 loading 状态（替代本地 state）：活跃 + 最新行胜出两条不变量下沉到 store selector
   const generatingCharacterNames = useActiveResourceIds("character", currentProjectName);
@@ -700,32 +727,24 @@ export function StudioCanvasRouter() {
                     projectName={currentProjectName}
                     episode={epNum}
                     episodeTitle={episode?.title}
-                    onSaveTitle={
-                      demoMode ? undefined : (title) => handleUpdateEpisodeTitle(epNum, title)
-                    }
-                    canEditTitle={Boolean(episode?.script_file) && !demoMode}
+                    // 演示态的只读由 TimelineCanvas 直读判定收口，这里只表达非演示态的固有约束
+                    onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
+                    canEditTitle={Boolean(episode?.script_file)}
                     hasDraft={hasDraft}
                     episodeScript={script}
-                    // 演示态不给 scriptFile：分镜卡的上传入口以它为开关，缺省即整块不渲染
-                    scriptFile={demoMode ? undefined : (scriptFile ?? undefined)}
+                    scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={effectiveDurationOptions}
-                    onUpdatePrompt={demoMode ? undefined : handleUpdatePrompt}
-                    onMoveShot={isAd && !demoMode ? handleMoveShot : undefined}
+                    onUpdatePrompt={handleUpdatePrompt}
+                    onMoveShot={isAd ? handleMoveShot : undefined}
                     onGenerateStoryboard={
-                      adReference || demoMode ? undefined : voidPromise(handleGenerateStoryboard)
+                      adReference ? undefined : voidPromise(handleGenerateStoryboard)
                     }
-                    onGenerateVideo={
-                      adReference || demoMode ? undefined : voidPromise(handleGenerateVideo)
-                    }
-                    onGenerateNarration={
-                      demoMode ? undefined : voidPromise(handleGenerateNarration)
-                    }
-                    onGenerateEpisodeNarration={
-                      demoMode ? undefined : voidPromise(handleGenerateEpisodeNarration)
-                    }
-                    onRestoreStoryboard={demoMode ? undefined : handleRestoreAsset}
-                    onRestoreVideo={demoMode ? undefined : handleRestoreAsset}
+                    onGenerateVideo={adReference ? undefined : voidPromise(handleGenerateVideo)}
+                    onGenerateNarration={voidPromise(handleGenerateNarration)}
+                    onGenerateEpisodeNarration={voidPromise(handleGenerateEpisodeNarration)}
+                    onRestoreStoryboard={handleRestoreAsset}
+                    onRestoreVideo={handleRestoreAsset}
                   />
                 )}
               </div>

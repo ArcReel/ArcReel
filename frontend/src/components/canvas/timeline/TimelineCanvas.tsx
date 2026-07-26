@@ -10,6 +10,7 @@ import { useActiveResourceIds } from "@/stores/tasks-store";
 import { effectiveMode } from "@/utils/generation-mode";
 import { getScriptItemId } from "@/utils/script-shape";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
+import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import type {
   EpisodeScript,
   NarrationEpisodeScript,
@@ -50,26 +51,43 @@ interface TimelineCanvasProps {
   canEditTitle?: boolean;
 }
 
-export function TimelineCanvas({
-  projectName,
-  episode,
-  episodeTitle,
-  hasDraft,
-  episodeScript,
-  scriptFile,
-  projectData,
-  durationOptions,
-  onUpdatePrompt,
-  onMoveShot,
-  onGenerateStoryboard,
-  onGenerateVideo,
-  onGenerateNarration,
-  onGenerateEpisodeNarration,
-  onRestoreStoryboard,
-  onRestoreVideo,
-  onSaveTitle,
-  canEditTitle,
-}: TimelineCanvasProps) {
+/**
+ * 演示态作废的入参。分镜卡自身的写入口（生成 / 上传 / 编辑 / 版本恢复）由 `MediaCard`
+ * 直读同一判定关闭，这里只列本画布额外承载的写能力，两处不重复兜同一个入口。
+ */
+const DEMO_READ_ONLY_PROPS = {
+  onUpdatePrompt: undefined,
+  onMoveShot: undefined,
+  onGenerateNarration: undefined,
+  onGenerateEpisodeNarration: undefined,
+  onSaveTitle: undefined,
+  canEditTitle: false,
+} as const satisfies Partial<TimelineCanvasProps>;
+
+export function TimelineCanvas(props: TimelineCanvasProps) {
+  // 演示态只读判定直读单一来源，不经父级逐个回调透传——漏接一个回调就是漏一个写入口
+  const demoReadOnly = useDemoWorkbench();
+  const {
+    projectName,
+    episode,
+    episodeTitle,
+    hasDraft,
+    episodeScript,
+    scriptFile,
+    projectData,
+    durationOptions,
+    onUpdatePrompt,
+    onMoveShot,
+    onGenerateStoryboard,
+    onGenerateVideo,
+    onGenerateNarration,
+    onGenerateEpisodeNarration,
+    onRestoreStoryboard,
+    onRestoreVideo,
+    onSaveTitle,
+    canEditTitle,
+  } = demoReadOnly ? { ...props, ...DEMO_READ_ONLY_PROPS } : props;
+
   const { t } = useTranslation("dashboard");
   const contentMode = projectData?.content_mode ?? "narration";
   // 分镜编辑子视图按剧本形状显式分派：narration（segments）/ drama（scenes）/ ad（shots）。
