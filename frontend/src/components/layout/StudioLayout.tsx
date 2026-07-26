@@ -169,12 +169,15 @@ export function StudioLayout({ children }: StudioLayoutProps) {
           {children}
         </main>
         {/* 真实助手是写路径（建会话、跑工具），演示态下换成静态演示对话的面板：
-            固定默认宽度、不可收起、不可拖宽——演示里没有要腾的空间，少两个交互点 */}
+            不可收起、不可拖宽——演示里没有要腾的空间，少两个交互点。宽度封顶在默认宽度
+            但随视口收缩：真实面板窄屏下还能手动收起，演示面板收不起来，引导期间底层又是
+            inert 的，固定 505px 会把工作区挤没，后面几步就没东西可看了 */}
         {demoMode ? (
           <div
             className="shrink-0 overflow-hidden"
             style={{
-              width: ASSISTANT_PANEL_DEFAULT_WIDTH,
+              width: `min(${ASSISTANT_PANEL_DEFAULT_WIDTH}px, 40vw)`,
+              minWidth: 0,
               background: "oklch(0.19 0.011 250 / 0.5)",
               borderLeft: "1px solid var(--color-hairline)",
             }}
