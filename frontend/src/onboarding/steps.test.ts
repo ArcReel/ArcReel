@@ -1,6 +1,6 @@
 /**
- * 步骤大纲的形状：大厅四步（欢迎 + 三个带锚点的入口）跨页进入设置页两步，再进演示工作台
- * 四步，最后落回大厅收尾。
+ * 步骤大纲的形状：大厅三步（欢迎 + 新建项目 + 设置入口）跨页进设置页两步，回大厅讲演示卡，
+ * 再进演示工作台五步，最后落回大厅收尾。
  *
  * 锚点名漂移由类型拦，步骤被顺手删掉只有这里拦 —— 收尾气泡里带着「重看引导」的去处，
  * 中间任何一段落地时都不该把它挤掉。`route` 一并断言，跨页步骤的导航目标写错也会在
@@ -25,11 +25,12 @@ describe("buildTourSteps", () => {
     expect(buildTourSteps(t).map((s) => [s.anchor, s.title, s.route])).toEqual([
       [null, "welcome_title", ROUTE_APP_PROJECTS],
       [ONBOARDING_ANCHORS.lobbyCreateProject, "lobby_create_title", ROUTE_APP_PROJECTS],
-      [ONBOARDING_ANCHORS.lobbyDemoCard, "lobby_demo_title", ROUTE_APP_PROJECTS],
       [ONBOARDING_ANCHORS.lobbySettings, "lobby_settings_title", ROUTE_APP_PROJECTS],
       [ONBOARDING_ANCHORS.settingsProviders, "settings_providers_title", ROUTE_APP_SETTINGS],
       [ONBOARDING_ANCHORS.settingsAgent, "settings_agent_title", ROUTE_APP_SETTINGS],
+      [ONBOARDING_ANCHORS.lobbyDemoCard, "lobby_demo_title", ROUTE_APP_PROJECTS],
       [ONBOARDING_ANCHORS.workbenchOverview, "workbench_overview_title", WORKBENCH],
+      [ONBOARDING_ANCHORS.workbenchAgent, "workbench_agent_title", WORKBENCH],
       [ONBOARDING_ANCHORS.workbenchLorebook, "workbench_lorebook_title", `${WORKBENCH}/characters`],
       [ONBOARDING_ANCHORS.workbenchTimeline, "workbench_timeline_title", EPISODE],
       [ONBOARDING_ANCHORS.workbenchExport, "workbench_export_title", EPISODE],

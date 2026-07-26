@@ -11,6 +11,7 @@ import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
 import { TaskFailureListener } from "./TaskFailureListener";
 import { ScriptGenerationNoticeListener } from "./ScriptGenerationNoticeListener";
 import { useProjectsStore } from "@/stores/projects-store";
+import { DemoAssistantPanel } from "@/onboarding/DemoAssistantPanel";
 import { DemoReadOnlyBanner } from "@/onboarding/DemoReadOnlyBanner";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { isDemoProject } from "@/onboarding/demo-project";
@@ -167,8 +168,20 @@ export function StudioLayout({ children }: StudioLayoutProps) {
         <main className="flex-1 overflow-hidden">
           {children}
         </main>
-        {/* 助手是真实的写路径（建会话、跑工具），演示态下整块不挂载 */}
-        {demoMode ? null : (
+        {/* 真实助手是写路径（建会话、跑工具），演示态下换成静态演示对话的面板：
+            固定默认宽度、不可收起、不可拖宽——演示里没有要腾的空间，少两个交互点 */}
+        {demoMode ? (
+          <div
+            className="shrink-0 overflow-hidden"
+            style={{
+              width: ASSISTANT_PANEL_DEFAULT_WIDTH,
+              background: "oklch(0.19 0.011 250 / 0.5)",
+              borderLeft: "1px solid var(--color-hairline)",
+            }}
+          >
+            <DemoAssistantPanel />
+          </div>
+        ) : (
         <div
           className={`relative shrink-0 overflow-hidden ${
             isResizing

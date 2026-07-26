@@ -23,6 +23,7 @@ import { useOnboardingStore } from "@/stores/onboarding-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { ONBOARDING_ANCHORS, type OnboardingAnchor } from "./anchors";
+import { DemoAssistantPanel } from "./DemoAssistantPanel";
 import {
   buildDemoProjectData,
   buildDemoScripts,
@@ -89,6 +90,10 @@ const RENDERERS: Record<OnboardingAnchor, () => void> = {
   [ONBOARDING_ANCHORS.settingsAgent]: renderSettings,
   [ONBOARDING_ANCHORS.workbenchOverview]: () => {
     render(<OverviewCanvas projectName={DEMO_PROJECT_NAME} projectData={buildDemoProjectData(demoT)} readOnly />);
+  },
+  // 锚点挂在演示态专用的助手面板上（真实面板演示态不挂载，见 anchors.ts）
+  [ONBOARDING_ANCHORS.workbenchAgent]: () => {
+    render(<DemoAssistantPanel />);
   },
   [ONBOARDING_ANCHORS.workbenchLorebook]: () => {
     render(

@@ -84,10 +84,10 @@ export function OnboardingTour() {
   //    要拽回——否则 driver 停在演示卡那一步却找不到锚点，降级成与页面内容不符的居中气泡。
   //    这也让 `interactive` 步与普通步在「跑到无关页面」时表现一致，差别只在它多认一个
   //    自己声明的落点。不能改判「落点在引导覆盖范围之外」——演示工作台的路由已随工作台段
-  //    （第 7~10 步）进了 `tourRoutes`，那个条件会让用户刚点进工作台就被弹回大厅。
+  //    进了 `tourRoutes`，那个条件会让用户刚点进工作台就被弹回大厅。
   //
-  //    顺着入口走进落点时，效果（3）同步挂起引导（遮罩收起，用户自由浏览），步号原地保留；
-  //    用户回到 `requiredRoute` 后引导从原位恢复，不需要额外状态。
+  //    顺着入口走进落点时，效果（2.5）把步号推进到下一步——点卡片与点「下一步」殊途同归，
+  //    引导顺势接着讲工作台段，不挂起等待。
   const currentStep = steps[stepIndex];
   const interactiveTarget = currentStep?.interactive ? currentStep.interactiveTarget : undefined;
   const enteredInteractiveTarget =
@@ -119,14 +119,26 @@ export function OnboardingTour() {
     useOnboardingStore.getState().start();
   }, [inMainUi, seen]);
 
+  // 2.5 用户在 `interactive` 步顺着入口走进落点（点演示卡进演示工作台）——把步号推进
+  //     到下一步，与点「下一步」殊途同归。同一帧里效果（3）先按 enteredInteractiveTarget
+  //     收起旧 driver 实例；这里推进步号后 enteredInteractiveTarget 随之变假（新步不是
+  //     interactive），效果（3）随即在新步号上重建实例，接着讲工作台段。
+  useEffect(() => {
+    if (!active || !enteredInteractiveTarget) return;
+    const next = stepIndexRef.current + 1;
+    if (next >= steps.length) return;
+    setStep(next);
+  }, [active, enteredInteractiveTarget, steps]);
+
   // 3. 驱动 driver.js
   //
   // 文案是构造时一次性交给 driver 的，切换界面语言（`t` 换身份）必须重建一遍才能生效。
   // 重建走 `dispose()` —— 不记退出 —— 并把停留的步号带过去，讲到第几步就还在第几步。
   useEffect(() => {
-    // 离开引导覆盖的路由（如运行期间浏览器后退回登录页）、尚未导航过去、或用户在
-    // `interactive` 步顺着入口走进了它的落点（见效果 0）时收起正在运行的引导——不算一次退出
-    // （不记 seen），保留步号，回到本步所需的路由后从原位继续。
+    // 离开引导覆盖的路由（如运行期间浏览器后退回登录页）时收起正在运行的引导——不算
+    // 一次退出（不记 seen），保留步号，回到引导覆盖的路由后从原位继续。用户在
+    // `interactive` 步顺着入口走进落点的那一帧同样先收起旧实例：效果（2.5）随即把步号
+    // 推进到下一步，本效果在新步号上重建实例，外观上就是顺势接着讲。
     if (!active || !onTourRoute || enteredInteractiveTarget) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 引导退出时把步号复位到起点，是有意的受控重置，下次开启从头开始
       if (!active) setStep(0);

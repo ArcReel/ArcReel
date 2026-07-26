@@ -3,30 +3,32 @@ import type enOnboarding from '@/i18n/en/onboarding';
 export default {
   // Các bước hướng dẫn
   'welcome_title': 'Chào mừng đến với [[brand]]',
-  'welcome_body': 'Đưa vào một cuốn tiểu thuyết, hệ thống sẽ tách thành phân cảnh, tạo hình ảnh và dựng thành video ngắn. Phần hướng dẫn này chỉ giới thiệu giao diện, không thay đổi bất kỳ dữ liệu nào của bạn.',
-  'lobby_create_title': 'Tạo dự án từ đây',
-  'lobby_create_body': 'Mỗi dự án đều bắt đầu từ một cuốn tiểu thuyết. Hãy nhập tệp .txt, .docx, .epub hoặc .pdf, [[brand]] sẽ đọc và chia thành từng tập để bạn triển khai.',
-  'lobby_demo_title': 'Dự án sẽ trông như thế này',
-  'lobby_demo_body': 'Đây là thẻ ví dụ, không phải dự án của bạn. Nhãn hiển thị giai đoạn hiện tại, các số liệu bên dưới theo dõi tiến độ của nhân vật, bối cảnh, đạo cụ và các tập.',
-  'lobby_settings_title': 'Cấu hình nhà cung cấp nằm trong Cài đặt',
-  'lobby_settings_body': 'Tạo hình ảnh, video và văn bản đều chạy trên nhà cung cấp do bạn chọn. Chấm đỏ trên nút này nghĩa là còn mục bắt buộc chưa được cấu hình — mở Cài đặt sẽ thấy ngay phần còn thiếu.',
-  'settings_providers_title': 'Cấu hình một nhà cung cấp',
-  'settings_providers_body': 'Cấu hình ít nhất một nhà cung cấp ở đây — nhập API Key và chạy thử kết nối trước khi bắt đầu tạo nội dung.',
-  'settings_agent_title': 'Kết nối Trợ lý AI',
-  'settings_agent_body': 'Tổng quan, kịch bản và trả lời trò chuyện đều do Trợ lý AI tạo ra, và nó cần một thông tin xác thực Anthropic — hãy thêm vào đây.',
-  'workbench_overview_title': 'Tổng quan gói cả dự án trong một trang',
-  'workbench_overview_body': 'Thẻ dự án mẫu vừa rồi mở ra chính là đây. Phần trên là tổng quan dự án — thể loại, chủ đề và thế giới quan do Trợ lý AI viết ra sau khi đọc hết nguyên tác, sửa được bất cứ lúc nào. Phần dưới là dàn ý các tập, mỗi tập ghi trạng thái và tiến độ riêng.',
-  'workbench_lorebook_title': 'Nhân vật, Cảnh và Đạo cụ phải chốt trước',
-  'workbench_lorebook_body': 'Mỗi nhân vật có một thẻ riêng: ngoại hình, chất giọng và một ảnh tạo hình làm chuẩn cho mọi khung hình về sau. Cảnh và Đạo cụ nằm ngay bên dưới ở cột trái, cách dùng y hệt. Chốt thiết định trước rồi mới tạo phân cảnh thì hình ảnh mới không lệch nhau giữa các tập.',
-  'workbench_timeline_title': 'Toàn bộ việc của một tập nằm ở tab Cảnh quay',
-  'workbench_timeline_body': 'Dòng thời gian xếp các cảnh quay theo thứ tự, mỗi cảnh có prompt hình ảnh, ảnh phân cảnh và video. Tạo ảnh phân cảnh trước để chốt bố cục, ưng rồi mới tạo video — cả hai bước đều làm lại được cho từng cảnh.',
-  'workbench_export_title': 'Xuất bản từ thanh trên cùng',
-  'workbench_export_body': 'Xuất bản nháp JianYing để đưa thẳng cảnh quay, thời lượng và tư liệu vào phần mềm dựng, hoặc tải cả dự án về dưới dạng ZIP. Dự án mẫu chưa có thành phẩm nên nút đang bị làm mờ.',
-  'finish_title': 'Đến lượt bạn',
-  'finish_body': 'Hãy bắt đầu bằng cách nhập một cuốn tiểu thuyết, phần còn lại làm từng bước một. Muốn xem lại, hãy mở Cài đặt → Giới thiệu.',
+  'welcome_body': '[[brand]] biến tiểu thuyết hoặc kịch bản thành video ngắn: Agent phụ trách phân tích nguyên tác, viết kịch bản từng tập, tạo phân cảnh và video, và mỗi bước đều có thể chỉnh sửa thủ công. Phần hướng dẫn này giới thiệu giao diện chính và quy trình cơ bản.',
+  'lobby_create_title': 'Tạo dự án',
+  'lobby_create_body': 'Tạo dự án tại đây, thiết lập thông tin cơ bản, mô hình sử dụng và phong cách hình ảnh của dự án.',
+  'lobby_settings_title': 'Cài đặt',
+  'lobby_settings_body': 'Trước khi bắt đầu sản xuất cần hoàn tất hai mục cấu hình. Chấm đỏ trên nút nghĩa là còn mục bắt buộc chưa được cấu hình.',
+  'settings_providers_title': 'Cấu hình nhà cung cấp',
+  'settings_providers_body': 'Hình ảnh và video do các nhà cung cấp cấu hình tại đây tạo ra. Cấu hình ít nhất một nhà cung cấp: nhập API Key và xác nhận khả dụng bằng "Kiểm tra kết nối".',
+  'settings_agent_title': 'Cấu hình Agent',
+  'settings_agent_body': 'Agent phụ trách phân tích nguyên tác, viết kịch bản và thực hiện sản xuất; cấu hình dịch vụ mô hình mà nó sử dụng tại đây.',
+  'lobby_demo_title': 'Dự án minh hoạ',
+  'lobby_demo_body': 'Nhấp vào thẻ để mở bàn làm việc minh hoạ và xem giao diện sản xuất của dự án.',
+  'workbench_overview_title': 'Tổng quan dự án',
+  'workbench_overview_body': 'Trang đầu của bàn làm việc là tổng quan dự án, gồm phần tổng quan do Agent tạo và danh sách các tập; trạng thái và tiến độ sản xuất của từng tập đều xem tại đây.',
+  'workbench_agent_title': 'Agent',
+  'workbench_agent_body': 'Bên phải là Agent — nó thực hiện sản xuất và báo cáo tiến độ. Với dự án mới, vào bàn làm việc rồi nhập tiểu thuyết hoặc kịch bản trước; phân tích xong, gửi "Bắt đầu sản xuất" và nó sẽ lần lượt tạo tổng quan dự án, ảnh tạo hình nhân vật cùng phân cảnh và video cho từng tập.',
+  'workbench_lorebook_title': 'Nhân vật, bối cảnh và đạo cụ',
+  'workbench_lorebook_body': 'Nhân vật, bối cảnh và đạo cụ được quản lý thống nhất ở cột trái, mỗi tài sản đều có thể tạo ảnh tài sản. Ảnh tài sản dùng làm ảnh tham chiếu cho việc tạo ảnh phân cảnh và tạo video từ tham chiếu, giúp giữ hình ảnh nhất quán.',
+  'workbench_timeline_title': 'Bảng phân cảnh',
+  'workbench_timeline_body': 'Các cảnh quay của mỗi tập xếp theo dòng thời gian, gồm prompt hình ảnh, ảnh phân cảnh và video. Có thể tạo ảnh phân cảnh trước để chốt bố cục rồi mới tạo video; từng cảnh quay đều có thể tạo lại bất cứ lúc nào.',
+  'workbench_export_title': 'Xuất',
+  'workbench_export_body': 'Sản xuất xong, xuất bản nháp JianYing từ thanh trên cùng để tiếp tục dựng, hoặc tải cả dự án về. Dự án minh hoạ chưa có thành phẩm nên nút xuất không khả dụng.',
+  'finish_title': 'Bắt đầu dự án đầu tiên của bạn',
+  'finish_body': 'Tạo dự án và nhập tiểu thuyết hoặc kịch bản là có thể bắt đầu sản xuất. Có thể xem lại phần hướng dẫn này bất cứ lúc nào trong Cài đặt → Giới thiệu.',
 
   // Điều khiển hướng dẫn
-  'next': 'Tiếp tục',
+  'next': 'Tiếp theo',
   'prev': 'Quay lại',
   'done': 'Hoàn tất',
   'skip': 'Bỏ qua',
@@ -41,9 +43,13 @@ export default {
 
   // Bàn làm việc minh hoạ chỉ đọc
   'demo_banner_title': 'Dự án minh hoạ · Chỉ đọc',
-  'demo_banner_body': 'Đây là dữ liệu mẫu. Chỉnh sửa, tạo, tải lên và xuất đều không khả dụng trong bản minh hoạ.',
+  'demo_banner_body': 'Bạn đang xem một dự án mẫu. Chỉnh sửa, tạo, tải lên và xuất không khả dụng trong bản minh hoạ.',
   'demo_action_unavailable': 'Không khả dụng trong bản minh hoạ',
-  'demo_episode_placeholder': 'Bản minh hoạ chỉ có tập {{episode}}. Tập này chỉ có tiêu đề, chưa có kịch bản và phân cảnh.',
+  'demo_episode_placeholder': 'Bản minh hoạ chỉ đến tập {{episode}}: tập này chỉ có tiêu đề, chưa có kịch bản và phân cảnh.',
+
+  // Hội thoại tĩnh trong bảng Agent của bàn làm việc minh hoạ (do người dùng mở lời)
+  'demo_chat_user_start': 'Bắt đầu sản xuất',
+  'demo_chat_agent_progress': 'Được. Tổng quan dự án đã được tạo, đang tạo ảnh tạo hình nhân vật; tiếp theo sẽ lần lượt tạo phân cảnh và video cho từng tập, tiến độ sẽ được cập nhật tại đây.',
 
   // Tổng quan dự án minh hoạ
   'demo_overview_synopsis': 'Một buổi chiều nóng nực, Alice đuổi theo con thỏ trắng mặc áo gi-lê, tay giữ đồng hồ quả quýt, rồi rơi xuống một nơi mà kích cỡ, phép tắc và cả logic đều không còn tính. Cô bé lúc lớn lúc nhỏ, lần lượt gặp sâu bướm, Thợ Mũ điên và Nữ hoàng Cơ, cuối cùng làm đổ cả triều đình quân bài trong một phiên xử vô lý.',
@@ -131,6 +137,6 @@ export default {
 
   // Mục trong Cài đặt → Giới thiệu
   'replay_title': 'Hướng dẫn sử dụng',
-  'replay_desc': 'Xem lại phần hướng dẫn lần đầu. Chỉ giới thiệu giao diện, không thay đổi dữ liệu.',
+  'replay_desc': 'Xem lại phần hướng dẫn lần đầu, tìm hiểu giao diện chính và quy trình cơ bản.',
   'replay_action': 'Xem lại hướng dẫn',
 } satisfies Record<keyof typeof enOnboarding, string>;
