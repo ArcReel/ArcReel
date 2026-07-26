@@ -123,7 +123,7 @@ class TestFilesRouter:
         class _BrokenLoader:
             @staticmethod
             def load(*args, **kwargs):
-                raise FileNotFoundError("/tmp/upload-tmp gone")
+                raise FileNotFoundError("upload-tmp gone")
 
         monkeypatch.setattr(files, "SourceLoader", _BrokenLoader)
         with client:
