@@ -577,6 +577,7 @@ class TestLLMSchemaExclusion:
         assert "utterances" in keys
         assert "voiceover" not in keys
 
+    @pytest.mark.unit
     def test_ad_schema_excludes_runtime_fields(self):
         from lib.script_models import AdEpisodeScript
 

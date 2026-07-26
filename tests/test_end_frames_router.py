@@ -287,6 +287,63 @@ class TestConcurrentSetClear:
             # 清除赢：字段置空，文件可能已删或残留孤儿（无害），但不检验其存在性
 
 
+class TestPersistFailureRestoresSnapshot:
+    """剧本持久化在临界区内失败时，快照文件须回滚到操作前状态，不留悬空引用或静默丢失。"""
+
+    @pytest.mark.integration
+    def test_set_failure_restores_previous_snapshot_bytes(self, client, monkeypatch):
+        c, pm = client
+        _upload(c, _img_bytes("PNG", size=(8, 8)))
+        snapshot = pm.get_project_path("demo") / END_FRAME_REL
+        before = snapshot.read_bytes()
+
+        def _boom(*_a, **_k):
+            raise ValueError("simulated persist failure")
+
+        monkeypatch.setattr(ProjectManager, "_write_script_unlocked", _boom)
+        resp = _upload(c, _img_bytes("PNG", size=(16, 16)))
+        assert resp.status_code == 500
+
+        # 字段未变（写回被跳过），快照文件也须还原成写前内容——不能是被换图覆盖后的新内容
+        assert _segment(pm)["end_frame_image"] == END_FRAME_REL
+        assert snapshot.read_bytes() == before
+
+    @pytest.mark.integration
+    def test_set_failure_on_first_write_removes_snapshot(self, client, monkeypatch):
+        """此前未设置过尾帧时失败：快照文件此前不存在，须整段撤回而非留下孤儿文件。"""
+        c, pm = client
+        snapshot = pm.get_project_path("demo") / END_FRAME_REL
+
+        def _boom(*_a, **_k):
+            raise ValueError("simulated persist failure")
+
+        monkeypatch.setattr(ProjectManager, "_write_script_unlocked", _boom)
+        resp = _upload(c, _img_bytes("PNG"))
+        assert resp.status_code == 500
+
+        assert _segment(pm).get("end_frame_image") is None
+        assert not snapshot.exists()
+
+    @pytest.mark.integration
+    def test_clear_failure_restores_deleted_snapshot(self, client, monkeypatch):
+        c, pm = client
+        _upload(c, _img_bytes("PNG"))
+        snapshot = pm.get_project_path("demo") / END_FRAME_REL
+        before = snapshot.read_bytes()
+
+        def _boom(*_a, **_k):
+            raise ValueError("simulated persist failure")
+
+        monkeypatch.setattr(ProjectManager, "_write_script_unlocked", _boom)
+        resp = _delete(c)
+        assert resp.status_code == 500
+
+        # 字段未变（仍指向原路径），快照文件须恢复——否则字段回滚后指向的是已删除的文件
+        assert _segment(pm)["end_frame_image"] == END_FRAME_REL
+        assert snapshot.exists()
+        assert snapshot.read_bytes() == before
+
+
 class TestErrorMapping:
     """领域错误到 HTTP 的映射：三个端点行为一致，不泄漏服务器路径。"""
 

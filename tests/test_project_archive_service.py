@@ -196,6 +196,7 @@ class TestProjectArchiveService:
             assert "demo/.DS_Store" not in names
             assert "demo/.hidden/secret.txt" not in names
 
+    @pytest.mark.integration
     @pytest.mark.parametrize("scope", ["full", "current"])
     def test_export_includes_end_frame_snapshots(self, tmp_path, scope):
         """end_frames 登记为允许的根目录条目后，两种 scope 的导出都自动带上尾帧快照。"""

@@ -76,29 +76,51 @@ def _write_snapshot_and_field(
     png_bytes: bytes,
     relative: str,
 ) -> None:
-    """在剧本锁临界区内完成「写快照文件 + 写字段」，与清除操作互斥。"""
+    """在剧本锁临界区内完成「写快照文件 + 写字段」，与清除操作互斥。
+
+    剧本持久化失败（校验/落盘异常）时把快照文件还原成操作前状态——否则字段写入
+    虽被回滚，快照文件的旧内容已被静默替换，调用方收到失败响应却看不出内容已丢失。
+    """
     manager = get_project_manager()
-    with project_change_source("webui"):
-        with manager.locked_script(project_name, script_file) as script:
-            items, id_field, _, _, _ = get_storyboard_items(script)
-            matched = find_storyboard_item(items, id_field, shot_id)
-            if matched is None:
-                raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
-            write_bytes_atomic(png_bytes, target)
-            matched[0]["end_frame_image"] = relative
+    old_bytes = target.read_bytes() if target.exists() else None
+    try:
+        with project_change_source("webui"):
+            with manager.locked_script(project_name, script_file) as script:
+                items, id_field, _, _, _ = get_storyboard_items(script)
+                matched = find_storyboard_item(items, id_field, shot_id)
+                if matched is None:
+                    raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
+                write_bytes_atomic(png_bytes, target)
+                matched[0]["end_frame_image"] = relative
+    except BaseException:
+        if old_bytes is not None:
+            write_bytes_atomic(old_bytes, target)
+        else:
+            target.unlink(missing_ok=True)
+        raise
 
 
 def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str, target: Path) -> None:
-    """在剧本锁临界区内完成「置空字段 + 删快照文件」，与设置操作互斥。"""
+    """在剧本锁临界区内完成「置空字段 + 删快照文件」，与设置操作互斥。
+
+    剧本持久化失败时把已删除的快照文件恢复——否则字段清空虽被回滚（仍指向原路径），
+    快照文件已被删除，重新落回悬空引用。
+    """
     manager = get_project_manager()
-    with project_change_source("webui"):
-        with manager.locked_script(project_name, script_file) as script:
-            items, id_field, _, _, _ = get_storyboard_items(script)
-            matched = find_storyboard_item(items, id_field, shot_id)
-            if matched is None:
-                raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
-            matched[0]["end_frame_image"] = None
-            target.unlink(missing_ok=True)
+    old_bytes = target.read_bytes() if target.exists() else None
+    try:
+        with project_change_source("webui"):
+            with manager.locked_script(project_name, script_file) as script:
+                items, id_field, _, _, _ = get_storyboard_items(script)
+                matched = find_storyboard_item(items, id_field, shot_id)
+                if matched is None:
+                    raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
+                matched[0]["end_frame_image"] = None
+                target.unlink(missing_ok=True)
+    except BaseException:
+        if old_bytes is not None:
+            write_bytes_atomic(old_bytes, target)
+        raise
 
 
 def read_project_image(project_path: Path, source_path: str) -> bytes:

@@ -179,6 +179,7 @@ class TestPatchField:
         with pytest.raises(ScriptEditError, match="不可改分镜 id"):
             patch_field(_narration(), "E1S01", id_field, "X")
 
+    @pytest.mark.unit
     def test_patch_end_frame_image_rejected(self):
         # 尾帧字段只由尾帧设置/清除端点写入：patch 放行等于让 agent 原样写任意字符串，
         # 绕过快照复制并重新引入悬空引用与越界路径。
@@ -204,6 +205,7 @@ class TestInsertSegment:
         script = insert_segment(_narration(), "E1S01", _segment("X"))
         assert script["segments"][1]["generated_assets"] == {}
 
+    @pytest.mark.unit
     def test_insert_drops_end_frame_image(self):
         # 新 id 名下还没有快照，agent 自带的值只会指向锚点的快照或不存在的路径。
         new_item = _segment("X") | {"end_frame_image": "end_frames/scene_E1S01.png"}
@@ -265,6 +267,7 @@ class TestSplitSegment:
         assert script["segments"][0]["generated_assets"] == anchor_assets
         assert script["segments"][1]["generated_assets"] == {}
 
+    @pytest.mark.unit
     def test_split_keeps_anchor_end_frame_clears_new_parts(self):
         # 尾帧快照按镜头 id 命名：锚点保留原 id 故快照仍归它；新派生 id 名下没有快照，
         # 且以原分镜实际值为准，不让 agent 在 parts[0] 凭空改写快照路径。
@@ -275,6 +278,7 @@ class TestSplitSegment:
         assert script["segments"][0]["end_frame_image"] == "end_frames/scene_E1S01.png"
         assert script["segments"][1].get("end_frame_image") is None
 
+    @pytest.mark.unit
     def test_split_anchor_without_end_frame_drops_agent_supplied_value(self):
         parts = [_segment("a") | {"end_frame_image": "end_frames/forged.png"}, _segment("b")]
         script = split_segment(_narration(), "E1S01", parts)
