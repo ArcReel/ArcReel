@@ -391,6 +391,10 @@ async def _handle_source_upload(
 
     try:
         result = await asyncio.to_thread(_sync)
+    except FileNotFoundError as exc:
+        # 竞态窗口：get_project_path 通过后项目目录被并发删除，SourceLoader 写入时才炸。
+        # 不映射会落到 app 级兜底的泛化 resource_not_found，丢失项目语义
+        raise NotFoundError("project_not_found", name=project_name) from exc
     except UnsupportedFormatError as exc:
         raise HTTPException(
             status_code=400,

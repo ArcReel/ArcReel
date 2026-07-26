@@ -16,7 +16,7 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from lib.api_errors import NotFoundError
+from lib.api_errors import ApiError, NotFoundError
 from lib.i18n import Translator
 from lib.image_utils import normalize_storyboard_upload
 from lib.path_safety import PathTraversalError, safe_join
@@ -66,7 +66,11 @@ async def upload_shot_media(
         relative_path = resource_relative_path(resource_type, shot_id)
 
         def _validate_shot() -> tuple[Path, VersionManager]:
-            project_path = get_project_manager().get_project_path(project_name)
+            # 项目缺失单独映射：落到外层 except FileNotFoundError 会误报「剧本不存在」
+            try:
+                project_path = get_project_manager().get_project_path(project_name)
+            except FileNotFoundError as exc:
+                raise NotFoundError("project_not_found", name=project_name) from exc
             script = get_project_manager().load_script(project_name, script_file)
             # reference_video 剧本返回空列表 → 404，该模式的视频上传走 reference-videos 路由
             items, id_field, _, _, _ = get_storyboard_items(script)
@@ -147,7 +151,7 @@ async def upload_shot_media(
         raise HTTPException(status_code=404, detail=_t("segment_not_found", id=shot_id))
     except ScriptEditError as e:
         raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=str(e)))
-    except HTTPException:
+    except (HTTPException, ApiError):
         raise
     except Exception as e:
         # 不回传 str(e)：未预期异常的消息可能含服务器路径等内部细节，堆栈进日志即可
