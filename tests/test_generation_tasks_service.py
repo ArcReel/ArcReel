@@ -573,6 +573,7 @@ class TestGenerationTasks:
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
 
+    @pytest.mark.integration
     async def test_execute_video_task_end_frame_image_passed_to_generator(self, monkeypatch, tmp_path):
         """镜头设置了 end_frame_image 时，生成视频请求携带 end_image；快照路径取自
         镜头持久字段拼接的项目内固定相对路径。"""
@@ -598,6 +599,7 @@ class TestGenerationTasks:
 
         assert fake_generator.video_calls[0]["end_image"] == end_frame_dir / "scene_E1S01.png"
 
+    @pytest.mark.integration
     async def test_execute_video_task_without_end_frame_image_passes_none(self, monkeypatch, tmp_path):
         """未设置尾帧的镜头行为不变：end_image 恒为 None。"""
         project_path = _prepare_files(tmp_path)
@@ -617,6 +619,7 @@ class TestGenerationTasks:
 
         assert fake_generator.video_calls[0]["end_image"] is None
 
+    @pytest.mark.integration
     async def test_execute_video_task_missing_end_frame_snapshot_fails_hard(self, monkeypatch, tmp_path):
         """尾帧字段指向的快照文件缺失时硬失败，不调用后端生成。"""
         project_path = _prepare_files(tmp_path)
@@ -646,8 +649,12 @@ class TestGenerationTasks:
             "end_frames/../storyboards/scene_E1S01.png",  # 项目内但绕开快照目录，等于直接引用源图
             "storyboards/scene_E1S01.png",  # 同上：字段只接受 end_frames/ 内的快照
             123,  # 剧本 JSON 里的脏数据（非字符串）须给出可读失败，而非 TypeError
+            0,  # falsy 脏数据：真值判断不得把它当成「未设置」而静默跳过尾帧
+            False,  # 同上
+            [],  # 同上
         ],
     )
+    @pytest.mark.integration
     async def test_execute_video_task_end_frame_path_outside_snapshot_dir_fails_hard(
         self, monkeypatch, tmp_path, end_frame_value
     ):
@@ -673,6 +680,7 @@ class TestGenerationTasks:
             )
         assert fake_generator.video_calls == []
 
+    @pytest.mark.integration
     async def test_execute_video_task_end_frame_capability_unsupported_propagates(self, monkeypatch, tmp_path):
         """后端不支持尾帧能力时硬失败，不降级为参考图、不静默丢帧。
 
@@ -715,6 +723,7 @@ class TestGenerationTasks:
             )
         assert exc.value.code == "video_last_frame_unsupported"
 
+    @pytest.mark.integration
     async def test_execute_video_task_reuses_end_frame_on_regeneration(self, monkeypatch, tmp_path):
         """视频重生成无需额外操作即自动沿用尾帧：字段是镜头持久属性，每次执行都从剧本重新加载。"""
         project_path = _prepare_files(tmp_path)

@@ -848,7 +848,10 @@ async def execute_video_task(
     # 只接受 end_frames/ 内的已存在快照，其余硬失败。
     end_frame_rel = item.get("end_frame_image") if isinstance(item, dict) else None
     end_image: Path | None = None
-    if end_frame_rel:
+    # 只把 None / "" 视为「未设置」（与 data_validator 的 _resolve_existing_path 同口径）；
+    # 0 / False / [] / {} 等其余 falsy 脏数据必须继续走下面的 try_safe_join 硬失败，不能被
+    # Python 的真值判断静默吞成「未设置」进而无声跳过尾帧、照常生成扣费。
+    if end_frame_rel not in (None, ""):
         end_frames_dir = safe_join(project_path, END_FRAME_RESOURCE_TYPE)
         # None 兜住越界 / 脏数据 / 解析失败；目录归属另判，挡住 `end_frames/../storyboards/x.png`
         # 这类落在项目内却绕开快照目录的值。
