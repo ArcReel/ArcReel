@@ -21,12 +21,18 @@ from lib.video_backends.base import (
     ResumeExpiredError,
     VideoCapabilities,
     VideoCapability,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
     poll_with_retry,
 )
 
 logger = logging.getLogger(__name__)
+
+# Veo 的 durationSeconds 取值为 4/6/8，但参考图路径与 1080p/4k 分辨率下只接受 8 秒。
+# 两条路径各自独立触发，与首帧/尾帧无关。
+_LOCKED_DURATION_SECONDS = 8
+_LOCKED_DURATION_RESOLUTIONS = frozenset({"1080p", "4k"})
 
 
 class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
@@ -153,9 +159,41 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
                 raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_GEMINI) from exc
             raise
 
+    def _validate_duration_constraints(self, request: VideoGenerationRequest) -> None:
+        """参考图 / 1080p·4k 两条路径强制 8 秒，违反即拒绝。
+
+        供应商侧对这两种组合直接报错，透传过去用户拿到的是原始报文；在构建请求前
+        fail-loud 换成可读拒绝，也省掉一次必然失败的调用。首帧（image）与尾帧
+        （last_frame）不在约束内，4/6 秒照常下发。
+        """
+        if request.duration_seconds == _LOCKED_DURATION_SECONDS:
+            return
+
+        supported = f"{_LOCKED_DURATION_SECONDS}s"
+        if request.reference_images:
+            raise VideoCapabilityError(
+                "video_reference_images_duration_unsupported",
+                model=self._video_model,
+                duration=request.duration_seconds,
+                supported=supported,
+            )
+
+        resolution = (request.resolution or "").strip().lower()
+        if resolution in _LOCKED_DURATION_RESOLUTIONS:
+            raise VideoCapabilityError(
+                "video_resolution_duration_unsupported",
+                model=self._video_model,
+                resolution=resolution.upper(),
+                duration=request.duration_seconds,
+                supported=supported,
+            )
+
     @with_retry_async()
     async def _create_task(self, request: VideoGenerationRequest) -> Any:
         """创建 Gemini 视频生成任务（带重试保护）。"""
+        # 0. 能力校验：不合法组合在限流与 SDK 调用之前拒绝
+        self._validate_duration_constraints(request)
+
         # 1. 限流
         if self._rate_limiter:
             await self._rate_limiter.acquire_async(self._video_model)
