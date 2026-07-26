@@ -21,12 +21,18 @@ from lib.video_backends.base import (
     ResumeExpiredError,
     VideoCapabilities,
     VideoCapability,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
     poll_with_retry,
 )
 
 logger = logging.getLogger(__name__)
+
+# Veo 的 durationSeconds 取值为 4/6/8，但参考图路径与 1080p/4k 分辨率下只接受 8 秒。
+# 两条路径各自独立触发，与首帧/尾帧无关。
+_REQUIRED_DURATION_SECONDS = 8
+_DURATION_CONSTRAINED_RESOLUTIONS = frozenset({"1080p", "4k"})
 
 
 class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
@@ -121,6 +127,8 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
+        # 能力校验放在重试装饰器之外：约束违规必然复现，重试只是重复失败
+        self._validate_duration_constraints(request)
         operation = await self._create_task(request)
         op_name = getattr(operation, "name", None)
         if not op_name:
@@ -152,6 +160,35 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
             if _is_gemini_not_found(exc):
                 raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_GEMINI) from exc
             raise
+
+    def _validate_duration_constraints(self, request: VideoGenerationRequest) -> None:
+        """参考图 / 1080p·4k 两条路径强制 8 秒，违反即拒绝。
+
+        供应商侧对这两种组合直接报错，透传过去用户拿到的是原始报文；在构建请求前
+        fail-loud 换成可读拒绝，也省掉一次必然失败的调用。首帧（image）与尾帧
+        （last_frame）不在约束内，4/6 秒照常下发。
+        """
+        if request.duration_seconds == _REQUIRED_DURATION_SECONDS:
+            return
+
+        supported = f"{_REQUIRED_DURATION_SECONDS}s"
+        if request.reference_images:
+            raise VideoCapabilityError(
+                "video_reference_images_duration_unsupported",
+                model=self._video_model,
+                duration=request.duration_seconds,
+                supported=supported,
+            )
+
+        resolution = (request.resolution or "").strip().lower()
+        if resolution in _DURATION_CONSTRAINED_RESOLUTIONS:
+            raise VideoCapabilityError(
+                "video_resolution_duration_unsupported",
+                model=self._video_model,
+                resolution=resolution.upper(),
+                duration=request.duration_seconds,
+                supported=supported,
+            )
 
     @with_retry_async()
     async def _create_task(self, request: VideoGenerationRequest) -> Any:
