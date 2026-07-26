@@ -112,8 +112,12 @@ export function OnboardingTour() {
       enteredInteractiveTarget
     )
       return;
+    // 走 replace：这是引导自己的纠偏跳转，不是用户点出来的去处。设置页两步之间来回步进
+    // 会反复导航，push 的话历史里会堆满引导的中间态，用户按浏览器后退得连按多次才退得
+    // 出去。用户主动产生的导航（点演示卡进工作台）不经这里，仍是正常的 push。
     navigate(
       requiredQuery ? `${requiredRoute}?${new URLSearchParams(requiredQuery).toString()}` : requiredRoute,
+      { replace: true },
     );
   }, [
     active,

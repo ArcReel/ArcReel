@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import type { Turn } from "@/types";
 
 // ---------------------------------------------------------------------------
@@ -39,17 +40,20 @@ export function composeAllTurns(turns: Turn[], draftTurn: Turn | null): Turn[] {
 
 // ---------------------------------------------------------------------------
 // getRoleLabel – maps a turn role (user | assistant | system) to a display label.
+//
+// 标签是面向用户的文本，翻译由调用方的 `useTranslation("dashboard")` 传入——这个函数
+// 在组件之外（纯函数）复用，自己拿不到 hook。未知 role 原样透出，只有空值才落兜底文案。
 // ---------------------------------------------------------------------------
 
-export function getRoleLabel(role: string): string {
+export function getRoleLabel(role: string, t: TFunction<"dashboard">): string {
   switch (role) {
     case "assistant":
-      return "助手";
+      return t("chat_role_assistant");
     case "user":
-      return "你";
+      return t("chat_role_user");
     case "system":
-      return "系统";
+      return t("chat_role_system");
     default:
-      return role || "消息";
+      return role || t("chat_role_message");
   }
 }
