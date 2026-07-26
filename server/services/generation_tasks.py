@@ -837,7 +837,18 @@ async def execute_video_task(
     # 此处不预先 int() 截断，避免把非整数秒静默修正成「碰巧合法」的值。
     assert_duration_supported(duration_seconds, supported_durations)
 
-    end_image = None  # 宫格模式不再使用首尾帧，统一走普通图生视频
+    # end_frame_image 是镜头持久属性（见 server/services/end_frame.py），剧本每次加载都带出，
+    # 重新生成无需额外操作即可沿用。快照路径恒为服务层写出的 canonical 相对路径，直接拼接；
+    # 能力是否支持尾帧不在此处判断——generator.generate_video_async 内的 plan_frame_slots
+    # 已按已解析 backend 的实际能力统一 gating，不支持时硬失败（VideoCapabilityError），
+    # 不在这里重复一份判断逻辑。
+    end_frame_rel = item.get("end_frame_image") if isinstance(item, dict) else None
+    end_image: Path | None = None
+    if end_frame_rel:
+        end_frame_file = project_path / end_frame_rel
+        if not end_frame_file.exists():
+            raise ValueError(f"end frame snapshot not found: {end_frame_file.name}")
+        end_image = end_frame_file
 
     _, version, _, video_uri = await generator.generate_video_async(
         prompt=prompt_text,
