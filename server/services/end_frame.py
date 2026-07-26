@@ -13,16 +13,21 @@ mid-flight 被删除而失败时跳过整段写回，不留半截状态。
 
 `locked_script` 在锁内完成剧本持久化，校验/落盘异常向调用方传出前锁已释放，故文件
 系统副作用（写快照 / 删快照）不能靠锁外的 try/except 直接回滚——那样回滚本身会跟同
-一间隙内另一个成功落盘的并发请求打架。补偿改为重新过锁并按「文件内容是否仍是失败前
-留下的状态」做条件回滚（见 `_restore_after_persist_failure`），只撤销自己的效果、不
-覆盖旁人已落盘的成果。孤儿快照文件（如进程在文件写完、锁释放前被杀）仍可能残留，
-无害，与 storyboards 现状一致，不做清理机制。
+一间隙内另一个成功落盘的并发请求打架。补偿改为重新过锁并按「本镜头的操作代次是否仍是
+失败前那一次」做条件回滚（见 `_restore_after_persist_failure`），只撤销自己的效果、不
+覆盖旁人已落盘的成果。代次而非文件内容——内容比对有退化值问题：并发的另一次清除同样会
+让文件落到「不存在」，与「无人接手」的期望内容（None）无法区分，会把并发清除的结果误判
+为无人接手，回滚出不该存在的孤儿文件。代次在临界区内随每次进入自增，无论那次操作最终
+成功与否，只要有人在本次失败到回滚重新过锁之间进入过临界区，代次必然前移，据此可靠判定
+是否跳过。孤儿快照文件（如进程在文件写完、锁释放前被杀）仍可能残留，无害，与 storyboards
+现状一致，不做清理机制。
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from pathlib import Path
 
 from lib.image_utils import normalize_storyboard_upload
@@ -36,6 +41,25 @@ from server.services.upload_finalize import write_bytes_atomic
 logger = logging.getLogger(__name__)
 
 END_FRAME_RESOURCE_TYPE = "end_frames"
+
+_ShotKey = tuple[str, str, str]
+_generation_lock = threading.Lock()
+_shot_generations: dict[_ShotKey, int] = {}
+
+
+def _current_shot_generation(key: _ShotKey) -> int:
+    with _generation_lock:
+        return _shot_generations.get(key, 0)
+
+
+def _advance_shot_generation(key: _ShotKey) -> int:
+    """推进该镜头的操作代次，返回新值。在临界区内、mutation 之前调用——无论后续
+    是否失败，都代表「一次操作进入过临界区」，供失败一方的补偿回滚据此判断有无被接手。
+    """
+    with _generation_lock:
+        generation = _shot_generations.get(key, 0) + 1
+        _shot_generations[key] = generation
+        return generation
 
 
 class EndFrameError(Exception):
@@ -83,26 +107,26 @@ def _restore_after_persist_failure(
     script_file: str,
     target: Path,
     old_bytes: bytes | None,
-    expected_current: bytes | None,
+    key: _ShotKey,
+    expected_generation: int,
 ) -> None:
     """剧本持久化失败后的补偿：在新的一次剧本锁临界区内条件回滚快照文件。
 
     补偿本身必须重新过锁——`locked_script` 在锁内完成持久化，异常向上传播前锁已释放，
     若在锁外直接按调用方持有的旧字节回写，会跟同一间隙内另一个成功落盘的并发请求打架。
-    回滚前用 `expected_current` 复核文件当前内容是否仍是本次失败前留下的状态：仍是则说明这段时间无人接手，安全回滚；
-    已不是则说明并发操作已经用它自己的一次原子写快照+写字段接管，当前状态已自洽，
-    回滚只会用陈旧字节覆盖它的成果，直接跳过。
+    回滚前用 `expected_generation` 复核该镜头的操作代次是否仍是本次失败前那一次：仍是
+    则说明这段时间无人进入过临界区，安全回滚；已前移则说明并发操作已经接管（不论其
+    自身成败），当前状态可能已自洽，回滚只会用陈旧字节覆盖它的成果，直接跳过。
     """
     try:
         with manager.locked_script(project_name, script_file):
-            current = target.read_bytes() if target.exists() else None
-            if current != expected_current:
+            if _current_shot_generation(key) != expected_generation:
                 return
             if old_bytes is not None:
                 write_bytes_atomic(old_bytes, target)
             else:
                 target.unlink(missing_ok=True)
-    except BaseException:
+    except Exception:
         logger.exception(
             "尾帧快照回滚失败：project=%s script=%s target=%s（原持久化异常见上一条 traceback）",
             project_name,
@@ -125,10 +149,13 @@ def _write_snapshot_and_field(
     虽被回滚，快照文件的旧内容已被静默替换，调用方收到失败响应却看不出内容已丢失。
     """
     manager = get_project_manager()
+    key = (project_name, script_file, shot_id)
     old_bytes = target.read_bytes() if target.exists() else None
+    generation = _current_shot_generation(key)
     try:
         with project_change_source("webui"):
             with manager.locked_script(project_name, script_file) as script:
+                generation = _advance_shot_generation(key)
                 items, id_field, _, _, _ = get_storyboard_items(script)
                 matched = find_storyboard_item(items, id_field, shot_id)
                 if matched is None:
@@ -138,7 +165,7 @@ def _write_snapshot_and_field(
     except EndFrameError:
         raise
     except BaseException:
-        _restore_after_persist_failure(manager, project_name, script_file, target, old_bytes, png_bytes)
+        _restore_after_persist_failure(manager, project_name, script_file, target, old_bytes, key, generation)
         raise
 
 
@@ -149,10 +176,13 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
     快照文件已被删除，重新落回悬空引用。
     """
     manager = get_project_manager()
+    key = (project_name, script_file, shot_id)
     old_bytes = target.read_bytes() if target.exists() else None
+    generation = _current_shot_generation(key)
     try:
         with project_change_source("webui"):
             with manager.locked_script(project_name, script_file) as script:
+                generation = _advance_shot_generation(key)
                 items, id_field, _, _, _ = get_storyboard_items(script)
                 matched = find_storyboard_item(items, id_field, shot_id)
                 if matched is None:
@@ -162,7 +192,7 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
     except EndFrameError:
         raise
     except BaseException:
-        _restore_after_persist_failure(manager, project_name, script_file, target, old_bytes, expected_current=None)
+        _restore_after_persist_failure(manager, project_name, script_file, target, old_bytes, key, generation)
         raise
 
 

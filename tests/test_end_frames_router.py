@@ -306,11 +306,15 @@ def _fail_first_persist(monkeypatch):
     monkeypatch.setattr(ProjectManager, "_write_script_unlocked", _boom)
 
 
-def _inject_concurrent_write_before_nth_load(monkeypatch, target: Path, content: bytes, n: int):
-    """模拟「回滚重新过锁前，另一个并发请求已抢先完成自己的一次成功落盘」。
+def _inject_concurrent_takeover_before_nth_load(monkeypatch, key, target: Path, content: bytes | None, n: int):
+    """模拟「回滚重新过锁前，另一个并发请求已抢先完整地执行完自己的一次操作」。
+
+    回滚判定的是「操作代次」而非文件内容（见 end_frame.py 模块 docstring 的退化值说明），
+    所以这里不能只改文件字节，还要推进该镜头的代次，否则复现不出代次判定要拦截的场景。
+    `content=None` 表示并发的那一次是清除（文件被删）；否则表示并发的那一次是设置。
 
     补偿回滚会再发起一次 `locked_script`，其 `load_script` 调用即回滚临界区的起点——在其
-    第 n 次被调用时把 target 改写为 content，相当于并发请求恰好在回滚拿到锁之前完成。
+    第 n 次被调用时执行这次「并发接管」，相当于恰好在回滚拿到锁之前完成。
     """
     original = ProjectManager.load_script
     calls = {"n": 0}
@@ -318,7 +322,11 @@ def _inject_concurrent_write_before_nth_load(monkeypatch, target: Path, content:
     def _load_with_race(self, *args, **kwargs):
         calls["n"] += 1
         if calls["n"] == n:
-            target.write_bytes(content)
+            end_frame_service._advance_shot_generation(key)
+            if content is None:
+                target.unlink(missing_ok=True)
+            else:
+                target.write_bytes(content)
         return original(self, *args, **kwargs)
 
     monkeypatch.setattr(ProjectManager, "load_script", _load_with_race)
@@ -373,15 +381,16 @@ class TestPersistFailureRestoresSnapshot:
 
     @pytest.mark.integration
     def test_set_failure_skips_restore_when_concurrent_write_supersedes(self, client, monkeypatch):
-        """回滚重新过锁时若文件内容已不是本次失败前写入的字节，说明并发请求已经接管，
+        """回滚重新过锁时若该镜头的操作代次已前移，说明并发请求已经接管，
         必须跳过回滚——否则会用陈旧字节覆盖对方刚成功落盘的内容。"""
         c, pm = client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
+        key = ("demo", "episode_1.json", "E1S01")
         concurrent_bytes = _img_bytes("PNG", size=(32, 32))
 
         _fail_first_persist(monkeypatch)
         # load 序列：_locate_shot(1) → 本次失败的 locked_script(2) → 回滚的 locked_script(3)
-        _inject_concurrent_write_before_nth_load(monkeypatch, snapshot, concurrent_bytes, n=3)
+        _inject_concurrent_takeover_before_nth_load(monkeypatch, key, snapshot, concurrent_bytes, n=3)
 
         resp = _upload(c, _img_bytes("PNG", size=(16, 16)))
         assert resp.status_code == 500
@@ -393,10 +402,11 @@ class TestPersistFailureRestoresSnapshot:
         c, pm = client
         _upload(c, _img_bytes("PNG"))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
+        key = ("demo", "episode_1.json", "E1S01")
         concurrent_bytes = _img_bytes("PNG", size=(40, 40))
 
         _fail_first_persist(monkeypatch)
-        _inject_concurrent_write_before_nth_load(monkeypatch, snapshot, concurrent_bytes, n=3)
+        _inject_concurrent_takeover_before_nth_load(monkeypatch, key, snapshot, concurrent_bytes, n=3)
 
         resp = _delete(c)
         assert resp.status_code == 500
@@ -404,6 +414,26 @@ class TestPersistFailureRestoresSnapshot:
         # 回滚跳过：文件保留并发请求写入的新内容，没有被「删除态」覆盖
         assert snapshot.exists()
         assert snapshot.read_bytes() == concurrent_bytes
+
+    @pytest.mark.integration
+    def test_clear_failure_skips_restore_when_concurrent_clear_wins(self, client, monkeypatch):
+        """CodeRabbit 指出的退化值场景：清除失败后文件已被删（期望内容与「无人接手」的
+        期望值同为 None），并发的另一次清除随后也成功完成，结果同样是文件不存在——若
+        仅比对文件内容将无法区分两者，误判为无人接手并把旧快照字节回滚出孤儿文件。
+        代次判定下，并发清除会推进代次，回滚据此正确跳过。"""
+        c, pm = client
+        _upload(c, _img_bytes("PNG"))
+        snapshot = pm.get_project_path("demo") / END_FRAME_REL
+        key = ("demo", "episode_1.json", "E1S01")
+
+        _fail_first_persist(monkeypatch)
+        _inject_concurrent_takeover_before_nth_load(monkeypatch, key, snapshot, None, n=3)
+
+        resp = _delete(c)
+        assert resp.status_code == 500
+
+        # 回滚跳过：文件保持并发清除后的「已删除」结果，没有被旧字节重新写回制造孤儿文件
+        assert not snapshot.exists()
 
 
 class TestErrorMapping:
