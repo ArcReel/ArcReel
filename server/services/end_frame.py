@@ -6,8 +6,11 @@
 只存该固定相对路径。源图与快照就此彻底解耦——源图重生成、版本回滚、删除都动不到
 已定尾帧，结构上不存在悬空引用。
 
-写入顺序遵循「先落文件、后写字段」（清除时反向），任一步失败都不会留下指向缺失
-文件的字段值；残留的孤儿快照文件无害，与 storyboards 现状一致，不做清理机制。
+设置写快照文件 + 写字段、清除删快照文件 + 置空字段，各自整段落在同一把剧本锁
+（`ProjectManager.locked_script`）临界区内完成，与对方互斥——不会出现一方写完文件、
+对方抢在字段写回前把文件删掉的交错，结构上杜绝悬空引用。临界区内失败（如目标镜头
+mid-flight 被删除）会跳过整段写回，不留半截状态；孤儿快照文件（如进程在文件写完、
+锁释放前被杀）仍可能残留，无害，与 storyboards 现状一致，不做清理机制。
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager
 from lib.resource_paths import resource_relative_path
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
-from server.services.upload_finalize import save_uploaded_bytes
+from server.services.upload_finalize import write_bytes_atomic
 
 END_FRAME_RESOURCE_TYPE = "end_frames"
 
@@ -65,8 +68,15 @@ def _snapshot_target(project_path: Path, shot_id: str) -> tuple[Path, str]:
     return target, relative
 
 
-def _write_end_frame_field(project_name: str, script_file: str, shot_id: str, value: str | None) -> None:
-    """在剧本锁内把镜头条目的 ``end_frame_image`` 写成 value（``None`` 即清除）。"""
+def _write_snapshot_and_field(
+    project_name: str,
+    script_file: str,
+    shot_id: str,
+    target: Path,
+    png_bytes: bytes,
+    relative: str,
+) -> None:
+    """在剧本锁临界区内完成「写快照文件 + 写字段」，与清除操作互斥。"""
     manager = get_project_manager()
     with project_change_source("webui"):
         with manager.locked_script(project_name, script_file) as script:
@@ -74,7 +84,21 @@ def _write_end_frame_field(project_name: str, script_file: str, shot_id: str, va
             matched = find_storyboard_item(items, id_field, shot_id)
             if matched is None:
                 raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
-            matched[0]["end_frame_image"] = value
+            write_bytes_atomic(png_bytes, target)
+            matched[0]["end_frame_image"] = relative
+
+
+def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str, target: Path) -> None:
+    """在剧本锁临界区内完成「置空字段 + 删快照文件」，与设置操作互斥。"""
+    manager = get_project_manager()
+    with project_change_source("webui"):
+        with manager.locked_script(project_name, script_file) as script:
+            items, id_field, _, _, _ = get_storyboard_items(script)
+            matched = find_storyboard_item(items, id_field, shot_id)
+            if matched is None:
+                raise EndFrameError("segment_not_found", status_code=404, id=shot_id)
+            matched[0]["end_frame_image"] = None
+            target.unlink(missing_ok=True)
 
 
 def read_project_image(project_path: Path, source_path: str) -> bytes:
@@ -114,8 +138,7 @@ async def _apply_snapshot(
     except ValueError as exc:
         raise EndFrameError("invalid_image_file") from exc
 
-    await save_uploaded_bytes(png_bytes, target)
-    await asyncio.to_thread(_write_end_frame_field, project_name, script_file, shot_id, relative)
+    await asyncio.to_thread(_write_snapshot_and_field, project_name, script_file, shot_id, target, png_bytes, relative)
     return relative
 
 
@@ -157,12 +180,7 @@ async def set_end_frame_from_project_image(
 
 
 async def clear_end_frame(*, project_name: str, script_file: str, shot_id: str) -> None:
-    """清除镜头尾帧：先把字段置空，再删快照文件。
-
-    先置空字段可保证删文件失败时不留下指向缺失文件的引用（data_validator 会判 error）；
-    反之残留的快照文件无害。
-    """
+    """清除镜头尾帧：在同一剧本锁临界区内把字段置空并删快照文件，与设置操作互斥。"""
     project_path = await asyncio.to_thread(_locate_shot, project_name, script_file, shot_id)
     target, _ = _snapshot_target(project_path, shot_id)
-    await asyncio.to_thread(_write_end_frame_field, project_name, script_file, shot_id, None)
-    await asyncio.to_thread(target.unlink, missing_ok=True)
+    await asyncio.to_thread(_clear_snapshot_and_field, project_name, script_file, shot_id, target)

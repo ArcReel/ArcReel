@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import threading
 from io import BytesIO
 
 import pytest
@@ -243,6 +244,39 @@ class TestSnapshotDecoupling:
         assert (pm.get_project_path("demo") / "end_frames/scene_E1S02.png").exists()
 
 
+class TestConcurrentSetClear:
+    """设置与清除并发交错时，字段与快照文件必须同进同退，不留悬空引用。"""
+
+    def test_interleaved_set_and_clear_never_dangles(self, client):
+        c, pm = client
+        snapshot = pm.get_project_path("demo") / END_FRAME_REL
+
+        for _ in range(20):
+            barrier = threading.Barrier(2)
+
+            def _do_set():
+                barrier.wait()
+                _upload(c, _img_bytes("PNG"))
+
+            def _do_clear():
+                barrier.wait()
+                _delete(c)
+
+            t_set = threading.Thread(target=_do_set)
+            t_clear = threading.Thread(target=_do_clear)
+            t_set.start()
+            t_clear.start()
+            t_set.join()
+            t_clear.join()
+
+            end_frame_image = _segment(pm).get("end_frame_image")
+            # 设置赢：字段非空则快照文件必须存在——不允许指向缺失文件的引用
+            if end_frame_image is not None:
+                assert end_frame_image == END_FRAME_REL
+                assert snapshot.exists()
+            # 清除赢：字段置空，文件可能已删或残留孤儿（无害），但不检验其存在性
+
+
 class TestErrorMapping:
     """领域错误到 HTTP 的映射：三个端点行为一致，不泄漏服务器路径。"""
 
@@ -262,7 +296,8 @@ class TestErrorMapping:
             ).status_code
             == 404
         )
-        assert c.delete("/api/v1/projects/demo/shots/E1S01/end-frame?script_file=missing.json").status_code == 404
+        resp = c.delete("/api/v1/projects/demo/shots/E1S01/end-frame?script_file=missing.json")
+        assert resp.status_code == 404
 
     def test_unknown_project_returns_404(self, client):
         c, _pm = client

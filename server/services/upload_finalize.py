@@ -104,20 +104,25 @@ async def save_uploaded_video_stream(src: BinaryIO, target: Path, *, max_bytes: 
         raise
 
 
+def write_bytes_atomic(content: bytes, target: Path) -> None:
+    """同步版本：把内存中的内容原子写入 target（同 dot-tmp + replace + 失败清理）。
+
+    阻塞 I/O，供调用方自行决定线程化时机——需要与其它阻塞操作（如剧本锁）共享
+    同一临界区时（见 `server/services/end_frame.py`），不能各自套一层 `asyncio.to_thread`。
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = _upload_tmp_path(target)
+    try:
+        tmp_path.write_bytes(content)
+        tmp_path.replace(target)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
 async def save_uploaded_bytes(content: bytes, target: Path) -> None:
     """把内存中的上传内容原子写入 target（同 dot-tmp + replace + 失败清理）。"""
-
-    def _write() -> None:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = _upload_tmp_path(target)
-        try:
-            tmp_path.write_bytes(content)
-            tmp_path.replace(target)
-        except BaseException:
-            tmp_path.unlink(missing_ok=True)
-            raise
-
-    await asyncio.to_thread(_write)
+    await asyncio.to_thread(write_bytes_atomic, content, target)
 
 
 def record_upload_version(

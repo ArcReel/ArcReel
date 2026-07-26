@@ -203,3 +203,20 @@ class TestDataValidatorEndFramePath:
         pm, validator = project
         result = self._validate_with(pm, validator, None)
         assert not [e for e in result.errors if "end_frame_image" in e]
+
+    def test_path_outside_end_frames_dir_is_error(self, project):
+        """指向 end_frames/ 之外目录内确实存在的文件也须拒绝——字段只认服务层写出的快照路径，
+        否则等于绕过快照复制直接引用源图，重新引入源图耦合。"""
+        pm, validator = project
+        _write_png(pm.get_project_path("demo") / "storyboards/scene_E1S02.png")
+        result = self._validate_with(pm, validator, "storyboards/scene_E1S02.png")
+        assert [e for e in result.errors if "end_frame_image" in e]
+        assert not result.valid
+
+    def test_dot_dot_escaping_end_frames_prefix_is_error(self, project):
+        """`end_frames/../storyboards/x.png` 表面以 end_frames 前缀开头，实际逃出该目录，同样拒绝。"""
+        pm, validator = project
+        _write_png(pm.get_project_path("demo") / "storyboards/scene_E1S02.png")
+        result = self._validate_with(pm, validator, "end_frames/../storyboards/scene_E1S02.png")
+        assert [e for e in result.errors if "end_frame_image" in e]
+        assert not result.valid
