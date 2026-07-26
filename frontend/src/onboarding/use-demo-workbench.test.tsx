@@ -25,7 +25,7 @@ describe("useDemoWorkbench", () => {
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
   });
 
-  it("stays read-only immediately after navigating from the demo route to a real project, before the store catches up", () => {
+  it("switches out of demo mode immediately after navigating from the demo route to a real project, before the store catches up", () => {
     useProjectsStore.setState({ currentProjectName: DEMO_PROJECT_NAME });
     const { result, navigate } = renderAtProjectRoute(DEMO_PROJECT_NAME);
     expect(result.current).toBe(true);
