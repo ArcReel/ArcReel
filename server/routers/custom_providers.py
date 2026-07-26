@@ -126,11 +126,15 @@ class ModelInput(BaseModel):
 
         白名单外的键只能由手工改库产生：界面既不显示也没有入口能删，写入侧若为此报错，用户
         会被堵在一个自己无法处置的 422 上，连改显示名都保存不了。剔除即这类键的唯一出口，
-        落库的覆盖字典因此只含当前开放的维度。
+        落库的覆盖字典因此只含当前开放的维度。剔除对用户静默，但落一条 warning：这是数据被
+        丢弃的唯一痕迹，运维排查"我改的库值怎么没了"时需要它。
         """
         if not value:
             return None
-        return {k: v for k, v in value.items() if k in CAPABILITY_OVERRIDE_ALLOWLIST} or None
+        kept = {k: v for k, v in value.items() if k in CAPABILITY_OVERRIDE_ALLOWLIST}
+        if dropped := sorted(value.keys() - kept.keys()):
+            logger.warning("能力覆盖含未开放键，保存时已剔除: %s", ", ".join(dropped))
+        return kept or None
 
     def to_db_dict(self) -> dict:
         """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。
@@ -418,10 +422,10 @@ def _check_capability_overrides(
 def _check_model_capability_overrides(models: list[ModelInput], _t: Callable[..., str]) -> None:
     """对整批模型逐个跑覆盖校验（保存模型列表的写入路径，设置页表单的覆盖编辑也走这里）。
 
-    每行都按提交上来的 ``(endpoint, 覆盖值)`` 校验，不与落库的旧值比对：校验结果随 endpoint
-    变化（last_frame=True 要求 endpoint 的 end_image_capable，非 video endpoint 直接拒绝非空
-    覆盖），按旧值豁免会让「覆盖字典原样不动、endpoint 悄悄换了」的整表 PUT 绕过新 endpoint
-    的校验。开放白名单外的键不会走到这里——``ModelInput`` 已在解析期把它们剔除。
+    每行都按提交上来的 ``(endpoint, 覆盖值)`` 校验：覆盖是否合法随 endpoint 变化
+    （last_frame=True 要求 endpoint 的 end_image_capable，非 video endpoint 直接拒绝非空覆盖），
+    故覆盖字典原样不动、只切 endpoint 的整表 PUT 同样要按新 endpoint 重新判定。开放白名单外的
+    键不会走到这里——``ModelInput`` 已在解析期把它们剔除。
     """
     for m in models:
         _check_capability_overrides(m.capability_overrides, m.endpoint, m.model_id, _t)
