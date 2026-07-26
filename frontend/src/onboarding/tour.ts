@@ -26,6 +26,11 @@ export interface TourStep {
    */
   route?: string;
   /**
+   * 该步所需的查询参数。与 `route` 一样原样透传、这里不解释语义——供调用方在同一
+   * pathname 下按查询参数切换页面内分区（如设置页的 `section`）时比对与导航。
+   */
+  query?: Record<string, string>;
+  /**
    * 该步是否允许点击高亮元素本身。默认继承全局 `disableActiveInteraction: true`
    * （防止讲到哪点到哪，意外触发生成动作）。仅当该步的落点动作就是导航（如点进演示
    * 工作台）而非写操作时才置 true——否则高亮元素在整个引导期间都点不到。
@@ -34,7 +39,7 @@ export interface TourStep {
   /**
    * `interactive` 步点击锚点后会落到的路由（前缀，含其子路由）。调用方自行定义、这里
    * 不解释语义——原样透传，供调用方区分「用户顺着这一步的入口走了」与「跑到了别处」，
-   * 前者挂起引导等用户回来，后者仍按强制导航拽回。只在 `interactive` 为真时有意义。
+   * 前者把引导顺势推进到下一步，后者仍按强制导航拽回。只在 `interactive` 为真时有意义。
    */
   interactiveTarget?: string;
 }

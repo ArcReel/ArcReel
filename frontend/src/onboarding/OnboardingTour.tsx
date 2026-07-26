@@ -6,8 +6,9 @@
  * 1. 进入主界面后查一次「是否已看过」（auth 开启 = 登录成功后；匿名 = auth status 放行
  *    后，两种情形都由 `isAuthenticated` 统一表达）。登录页不掺和。
  * 2. 未看过则自动开一次。
- * 3. 开启但当前所在路由不是当前步骤所需的路由（如设置页点「重看引导」回到第 1 步、
- *    或跨页步骤切到下一段）时先导航过去，锚点才能挂载。
+ * 3. 开启但当前所在路由（pathname 或该步声明的查询参数）不是当前步骤所需的（如设置页
+ *    点「重看引导」回到第 1 步、跨页步骤切到下一段、设置页两步间换 section）时先导航
+ *    过去，锚点与内容区才能就位。
  * 4. store 里 active 为真、且当前路由是引导覆盖的路由之一时驱动 driver.js —— 自动
  *    首弹与设置页「重看引导」共用这条路径，组件本身不区分二者。
  *
@@ -19,7 +20,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
@@ -31,6 +32,7 @@ export function OnboardingTour() {
   const { t } = useTranslation("onboarding");
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const [location, navigate] = useLocation();
+  const search = useSearch();
   const seen = useOnboardingStore((s) => s.seen);
   const active = useOnboardingStore((s) => s.active);
 
@@ -71,9 +73,17 @@ export function OnboardingTour() {
   // 而不是逐步比对，这样大厅↔设置页之间的跨页步骤切换不会拆重建 driver 实例。
   const onTourRoute = tourRoutes.has(normalizedLocation);
   const requiredRoute = steps[stepIndex]?.route ?? null;
+  const requiredQuery = steps[stepIndex]?.query;
+  // 该步声明的查询参数是否已满足。同一 pathname 下按查询参数切分区的页面（设置页的
+  // `section`），pathname 相同不代表内容区落对了地方——设置页两步之间就靠这个判定
+  // 触发导航，把内容区从供应商切到智能体（以及退回时切回来）。
+  const querySatisfied =
+    !requiredQuery ||
+    Object.entries(requiredQuery).every(([key, value]) => new URLSearchParams(search).get(key) === value);
 
-  // 0. 引导开启但当前路由不是本步所需的路由——先导航过去，锚点才能挂载。跨页步骤
-  //    切换（见 tour.ts 的 onStepChange）与「重看引导」从非首步路由触发都走这里。
+  // 0. 引导开启但当前路由（pathname 或该步声明的查询参数）不是本步所需的——先导航
+  //    过去，锚点与内容区才能就位。跨页步骤切换（见 tour.ts 的 onStepChange）、同页
+  //    换分区与「重看引导」从非首步路由触发都走这里。
   //
   //    `interactive` 步是例外：该步的落点动作本身就是导航离开 requiredRoute（点演示卡
   //    进演示工作台），不是驱动效果（3）触发的跨页步骤切换，此时不该把用户拽回来。
@@ -84,10 +94,10 @@ export function OnboardingTour() {
   //    要拽回——否则 driver 停在演示卡那一步却找不到锚点，降级成与页面内容不符的居中气泡。
   //    这也让 `interactive` 步与普通步在「跑到无关页面」时表现一致，差别只在它多认一个
   //    自己声明的落点。不能改判「落点在引导覆盖范围之外」——演示工作台的路由已随工作台段
-  //    （第 7~10 步）进了 `tourRoutes`，那个条件会让用户刚点进工作台就被弹回大厅。
+  //    进了 `tourRoutes`，那个条件会让用户刚点进工作台就被弹回大厅。
   //
-  //    顺着入口走进落点时，效果（3）同步挂起引导（遮罩收起，用户自由浏览），步号原地保留；
-  //    用户回到 `requiredRoute` 后引导从原位恢复，不需要额外状态。
+  //    顺着入口走进落点时，效果（2.5）把步号推进到下一步——点卡片与点「下一步」殊途同归，
+  //    引导顺势接着讲工作台段，不挂起等待。
   const currentStep = steps[stepIndex];
   const interactiveTarget = currentStep?.interactive ? currentStep.interactiveTarget : undefined;
   const enteredInteractiveTarget =
@@ -98,12 +108,27 @@ export function OnboardingTour() {
       !active ||
       !inMainUi ||
       !requiredRoute ||
-      normalizedLocation === requiredRoute ||
+      (normalizedLocation === requiredRoute && querySatisfied) ||
       enteredInteractiveTarget
     )
       return;
-    navigate(requiredRoute);
-  }, [active, inMainUi, requiredRoute, normalizedLocation, navigate, enteredInteractiveTarget]);
+    // 走 replace：这是引导自己的纠偏跳转，不是用户点出来的去处。设置页两步之间来回步进
+    // 会反复导航，push 的话历史里会堆满引导的中间态，用户按浏览器后退得连按多次才退得
+    // 出去。用户主动产生的导航（点演示卡进工作台）不经这里，仍是正常的 push。
+    navigate(
+      requiredQuery ? `${requiredRoute}?${new URLSearchParams(requiredQuery).toString()}` : requiredRoute,
+      { replace: true },
+    );
+  }, [
+    active,
+    inMainUi,
+    requiredRoute,
+    requiredQuery,
+    querySatisfied,
+    normalizedLocation,
+    navigate,
+    enteredInteractiveTarget,
+  ]);
 
   // 1. 查询「是否已看过」
   useEffect(() => {
@@ -119,14 +144,26 @@ export function OnboardingTour() {
     useOnboardingStore.getState().start();
   }, [inMainUi, seen]);
 
+  // 2.5 用户在 `interactive` 步顺着入口走进落点（点演示卡进演示工作台）——把步号推进
+  //     到下一步，与点「下一步」殊途同归。同一帧里效果（3）先按 enteredInteractiveTarget
+  //     收起旧 driver 实例；这里推进步号后 enteredInteractiveTarget 随之变假（新步不是
+  //     interactive），效果（3）随即在新步号上重建实例，接着讲工作台段。
+  useEffect(() => {
+    if (!active || !enteredInteractiveTarget) return;
+    const next = stepIndexRef.current + 1;
+    if (next >= steps.length) return;
+    setStep(next);
+  }, [active, enteredInteractiveTarget, steps]);
+
   // 3. 驱动 driver.js
   //
   // 文案是构造时一次性交给 driver 的，切换界面语言（`t` 换身份）必须重建一遍才能生效。
   // 重建走 `dispose()` —— 不记退出 —— 并把停留的步号带过去，讲到第几步就还在第几步。
   useEffect(() => {
-    // 离开引导覆盖的路由（如运行期间浏览器后退回登录页）、尚未导航过去、或用户在
-    // `interactive` 步顺着入口走进了它的落点（见效果 0）时收起正在运行的引导——不算一次退出
-    // （不记 seen），保留步号，回到本步所需的路由后从原位继续。
+    // 离开引导覆盖的路由（如运行期间浏览器后退回登录页）时收起正在运行的引导——不算
+    // 一次退出（不记 seen），保留步号，回到引导覆盖的路由后从原位继续。用户在
+    // `interactive` 步顺着入口走进落点的那一帧同样先收起旧实例：效果（2.5）随即把步号
+    // 推进到下一步，本效果在新步号上重建实例，外观上就是顺势接着讲。
     if (!active || !onTourRoute || enteredInteractiveTarget) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 引导退出时把步号复位到起点，是有意的受控重置，下次开启从头开始
       if (!active) setStep(0);

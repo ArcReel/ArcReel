@@ -6,18 +6,20 @@
  * 字面量。`route` 是该步所需落地的页面（`OnboardingTour` 据此在步骤切换前先行导航），
  * 省略表示不要求特定路由。
  *
- * 全程 11 步，跨三个页面：大厅段（欢迎 → 新建项目入口 → 演示卡 → 设置入口）→ 设置页段
- * （供应商 → 智能体）→ 演示工作台段（项目概览 → 角色集 → 剧集分镜 → 导出）→ 收尾。
+ * 全程 12 步，跨三个页面：大厅段（欢迎 → 新建项目入口 → 设置入口）→ 设置页段（供应商
+ * → 智能体）→ 回大厅（演示卡，进工作台的桥）→ 演示工作台段（项目概览 → 智能体 →
+ * 角色/场景/道具 → 剧集分镜 → 导出）→ 收尾。每一次换页都由上一步高亮的入口提供动机：
+ * 设置图标讲完进设置页，演示卡讲完进工作台，不存在没有来路的跳转。
  *
- * 步骤文案里指路用的名字（「供应商」「角色集」等）一律取被高亮元素在界面上的实际标签，
+ * 步骤文案里指路用的名字（「供应商」「智能体」等）一律取被高亮元素在界面上的实际标签，
  * 不另造概念——用户照着文案在界面上找得到，才算指对了路。
  *
- * 工作台段落在演示项目的只读工作台上（`demo-project.ts`），由 `route` 强制导航带入——
- * 用户不需要、也不被要求自己点进去。大厅第 3 步的演示卡仍是 `interactive`，用户主动点
- * 进工作台时引导挂起、回到大厅后从原位续讲（判定见 `OnboardingTour.tsx`）。
+ * 工作台段落在演示项目的只读工作台上（`demo-project.ts`）。第 6 步的演示卡是
+ * `interactive`：用户点卡片本身或点「下一步」都会进入演示工作台，引导顺势推进到工作台
+ * 首步（判定见 `OnboardingTour.tsx`）；工作台段内部的换路由仍由 `route` 强制导航驱动。
  *
- * 收尾步落回大厅：文案让用户「从导入一本小说开始」，落点就该是那个入口所在的页面，而
- * 不是停在只读演示工作台上。
+ * 收尾步落回大厅：文案让用户新建项目开始制作，落点就该是新建入口所在的页面，而不是停
+ * 在只读演示工作台上。
  */
 
 import type { TFunction } from "i18next";
@@ -41,19 +43,6 @@ export function buildTourSteps(t: TFunction<"onboarding">): TourStep[] {
       route: ROUTE_APP_PROJECTS,
     },
     {
-      anchor: ONBOARDING_ANCHORS.lobbyDemoCard,
-      title: t("lobby_demo_title"),
-      body: t("lobby_demo_body"),
-      route: ROUTE_APP_PROJECTS,
-      // 全程只读的例外：这一步的落点动作是导航进演示工作台，不是写操作，因此开放
-      // 交互（见 tour.ts 的 `interactive` 语义）；演示卡本身仅在引导运行期间挂载，
-      // 退出后随即卸载，不留可写入口。
-      interactive: true,
-      // 点卡片落到演示工作台（含其子路由）。落到这里算「顺着引导走」，引导挂起等用户
-      // 回来；落到别处仍按强制导航拽回大厅。
-      interactiveTarget: DEMO_WORKBENCH,
-    },
-    {
       anchor: ONBOARDING_ANCHORS.lobbySettings,
       title: t("lobby_settings_title"),
       body: t("lobby_settings_body"),
@@ -64,17 +53,42 @@ export function buildTourSteps(t: TFunction<"onboarding">): TourStep[] {
       title: t("settings_providers_title"),
       body: t("settings_providers_body"),
       route: ROUTE_APP_SETTINGS,
+      // 设置页的内容区由 `section` 查询参数驱动（`SystemConfigPage`），锚点只在侧栏
+      // 入口上——不声明查询参数的话，两步之间内容区不会跟着切，讲智能体时右边还摆着
+      // 供应商。取值须与 `SystemConfigPage` 的 SettingsSection id 一致。
+      query: { section: "providers" },
     },
     {
       anchor: ONBOARDING_ANCHORS.settingsAgent,
       title: t("settings_agent_title"),
       body: t("settings_agent_body"),
       route: ROUTE_APP_SETTINGS,
+      query: { section: "agent" },
+    },
+    {
+      anchor: ONBOARDING_ANCHORS.lobbyDemoCard,
+      title: t("lobby_demo_title"),
+      body: t("lobby_demo_body"),
+      route: ROUTE_APP_PROJECTS,
+      // 全程只读的例外：这一步的落点动作是导航进演示工作台，不是写操作，因此开放
+      // 交互（见 tour.ts 的 `interactive` 语义）；演示卡本身仅在引导运行期间挂载，
+      // 退出后随即卸载，不留可写入口。
+      interactive: true,
+      // 点卡片落到演示工作台（含其子路由）。落到这里算「顺着引导走」，引导顺势推进
+      // 到下一步（工作台首步）；落到别处仍按强制导航拽回大厅。
+      interactiveTarget: DEMO_WORKBENCH,
     },
     {
       anchor: ONBOARDING_ANCHORS.workbenchOverview,
       title: t("workbench_overview_title"),
       body: t("workbench_overview_body"),
+      route: DEMO_WORKBENCH,
+    },
+    {
+      anchor: ONBOARDING_ANCHORS.workbenchAgent,
+      title: t("workbench_agent_title"),
+      body: t("workbench_agent_body"),
+      // 智能体面板挂在工作台布局壳上，所有工作台路由都渲染；留在概览页讲，省一次导航。
       route: DEMO_WORKBENCH,
     },
     {

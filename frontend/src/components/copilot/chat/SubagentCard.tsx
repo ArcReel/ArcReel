@@ -157,6 +157,7 @@ export function SubagentCard({ block }: SubagentCardProps) {
 }
 
 function SubTimelineTurn({ turn }: Readonly<{ turn: Turn }>) {
+  const { t } = useTranslation("dashboard");
   const blocks = Array.isArray(turn.content) ? turn.content : [];
   if (blocks.length === 0) return null;
   return (
@@ -165,7 +166,7 @@ function SubTimelineTurn({ turn }: Readonly<{ turn: Turn }>) {
         className="mb-0.5 text-[9.5px] font-semibold uppercase"
         style={{ color: "var(--color-text-4)", letterSpacing: "0.06em" }}
       >
-        {getRoleLabel(turn.type)}
+        {getRoleLabel(turn.type, t)}
       </div>
       <div className="min-w-0 overflow-hidden text-[12px] leading-[1.55]" style={{ color: "var(--color-text-2)" }}>
         {blocks.map((subBlock, index) => (

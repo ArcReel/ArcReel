@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { ContentBlock, Turn } from "@/types";
 import { cn } from "./utils";
 import { getRoleLabel } from "./utils";
@@ -17,6 +18,9 @@ interface ChatMessageProps {
 }
 
 export function ChatMessage({ message, streaming }: ChatMessageProps) {
+  // hook 必须在下面各处早退之前调用。
+  const { t } = useTranslation("dashboard");
+
   if (!message) return null;
 
   const messageType = typeof message.type === "string" ? message.type : "";
@@ -76,7 +80,7 @@ export function ChatMessage({ message, streaming }: ChatMessageProps) {
         className="mb-1 text-[10px] font-semibold uppercase"
         style={labelStyle}
       >
-        {getRoleLabel(messageType)}
+        {getRoleLabel(messageType, t)}
       </div>
       <div
         className="min-w-0 overflow-hidden text-[12.5px] leading-[1.55]"

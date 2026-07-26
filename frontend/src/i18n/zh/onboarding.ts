@@ -2,31 +2,33 @@ import type enOnboarding from '@/i18n/en/onboarding';
 
 export default {
   // 引导步骤
-  'welcome_title': '欢迎来到 [[brand]]',
-  'welcome_body': '把一本小说交给它，它会拆出分镜、生成画面、剪成短视频。这趟引导只讲解界面，不会改动你的任何数据。',
-  'lobby_create_title': '从这里新建项目',
-  'lobby_create_body': '每个项目都从一本小说开始。导入 .txt、.docx、.epub 或 .pdf，[[brand]] 会把它读成一集集剧本，供你逐集推进。',
-  'lobby_demo_title': '项目推进后长这样',
-  'lobby_demo_body': '这是一张示例卡片，不是你的项目。角标显示当前阶段，下方计数随制作进度记录角色、场景、道具和分集的完成情况。',
-  'lobby_settings_title': '供应商配置在设置里',
-  'lobby_settings_body': '图像、视频、文本三类生成各自跑在你选定的供应商上。按钮上的红点表示还有必填项没配齐，进设置页会直接指出缺口。',
-  'settings_providers_title': '配置一个供应商',
-  'settings_providers_body': '在这里至少配好一个供应商——填入 API Key 并跑一次连接测试，再开始生成。',
-  'settings_agent_title': '接入智能体',
-  'settings_agent_body': '概述、剧本和对话回复都由智能体生成，它依赖一份 Anthropic 凭证，在这里添加。',
-  'workbench_overview_title': '项目概览一页看全',
-  'workbench_overview_body': '刚才那张示例卡片，点进来就是这里。上半是项目概述——题材、主题、世界观由智能体通读原著后写出，随时可改；下半是分集大纲，每一集的状态和进度都记在那里。',
-  'workbench_lorebook_title': '角色集、场景库、道具库先定设定',
-  'workbench_lorebook_body': '角色在这里立卡：外形、音色，以及一张作为后续所有画面基准的形象图。左侧的场景库与道具库用法一样——先把设定定下来，再生成分镜，画面才不会一集一个样。',
-  'workbench_timeline_title': '一集的活都在分镜画布上',
-  'workbench_timeline_body': '时间线按镜头排开，每个镜头带画面提示词、分镜图和视频。先出分镜图定构图，满意了再生成视频，两步都能单镜头重来。',
-  'workbench_export_title': '出片后从顶栏导出',
-  'workbench_export_body': '导出剪映草稿，镜头、时长和素材直接进剪映继续精修；也可以打包整个项目的 ZIP 存档。示例项目没有成片，所以按钮是灰的。',
-  'finish_title': '轮到你了',
-  'finish_body': '从导入一本小说开始，剩下的一步步来。想再看一遍，去「设置 → 关于」打开这份引导。',
+  'welcome_title': '欢迎使用 [[brand]]',
+  'welcome_body': '[[brand]] 将小说或剧本制作成短视频：智能体负责分析原文、编写分集剧本、生成分镜和视频，过程中的每一步都可以人工调整。本引导介绍主要界面和基本流程。',
+  'lobby_create_title': '新建项目',
+  'lobby_create_body': '在这里新建项目，设置项目的基本信息、使用的模型和画面风格。',
+  'lobby_settings_title': '设置',
+  'lobby_settings_body': '开始制作前需要完成两项配置。按钮上的红点表示还有必填项未配置。',
+  'settings_providers_title': '配置供应商',
+  'settings_providers_body': '图像和视频由这里配置的供应商生成。至少配置一个供应商：填入 API Key，通过「测试连接」确认可用。',
+  'settings_agent_title': '配置智能体',
+  'settings_agent_body': '智能体负责分析原文、编写剧本和执行制作，在这里配置它使用的模型服务。',
+  'lobby_demo_title': '演示项目',
+  'lobby_demo_body': '点击卡片打开演示工作台，查看项目的制作界面。',
+  'workbench_overview_title': '项目概览',
+  'workbench_overview_body': '工作台首页是项目概览，包含智能体生成的项目概述和分集列表，每一集的制作状态和进度都在这里查看。',
+  'workbench_agent_title': '智能体',
+  'workbench_agent_body': '右侧是智能体，制作由它执行并汇报进度。新项目进入工作台后先导入小说或剧本，分析完成后发送「开始制作」，它会依次生成项目概述、角色形象图和每一集的分镜与视频。',
+  'workbench_lorebook_title': '角色、场景与道具',
+  'workbench_lorebook_body': '角色、场景和道具在左侧统一管理，每项资产都可以生成资产图。资产图会作为分镜图生成和参考生视频的参考图，用于保持画面一致。',
+  'workbench_timeline_title': '分镜画布',
+  'workbench_timeline_body': '每一集的镜头按时间线排列，包含画面提示词、分镜图和视频。可以先生成分镜图确认构图，再生成视频，单个镜头支持随时重新生成。',
+  'workbench_export_title': '导出',
+  'workbench_export_body': '制作完成后，从顶栏导出剪映草稿继续剪辑，或打包下载整个项目。演示项目没有成片，导出按钮不可用。',
+  'finish_title': '开始你的第一个项目',
+  'finish_body': '新建项目并导入小说或剧本，即可开始制作。本引导可随时在「设置 → 关于」中重新查看。',
 
   // 引导控件
-  'next': '继续',
+  'next': '下一步',
   'prev': '上一步',
   'done': '完成',
   'skip': '跳过',
@@ -41,9 +43,15 @@ export default {
 
   // 只读演示工作台
   'demo_banner_title': '演示项目 · 只读',
-  'demo_banner_body': '这是一份示例数据，编辑、生成、上传和导出在演示中都不可用。',
+  'demo_banner_body': '你正在查看一个示例项目。编辑、生成、上传和导出功能在演示中不可用。',
   'demo_action_unavailable': '演示中不可用',
-  'demo_episode_placeholder': '演示只做到第 {{episode}} 集。这一集只有标题，没有剧本和分镜。',
+  'demo_episode_placeholder': '演示内容只到第 {{episode}} 集：这一集只有标题，没有剧本和分镜。',
+
+  // 演示工作台智能体面板的静态对话：智能体汇报分析结果 → 用户发起制作 → 智能体汇报推进，
+  // 演的是首次制作的完整时序（智能体的每条消息都是对上一步动作的回应，不主动发起对话）
+  'demo_chat_agent_analyzed': '小说已分析完成，剧集、角色和场景都已拆解出来。随时可以开始制作。',
+  'demo_chat_user_start': '开始制作',
+  'demo_chat_agent_progress': '好的。项目概述已生成，正在生成角色形象图，之后会逐集生成分镜和视频，进度会在这里同步。',
 
   // 演示项目概述
   'demo_overview_synopsis': '一个闷热的下午，爱丽丝追着一只穿马甲、掏怀表的白兔跳进洞里，落进一个尺寸、礼节和逻辑都不作数的地方。她一路变大变小，跟毛毛虫、疯帽子和红心女王周旋，最后在一场荒唐的审判上把整座纸牌宫廷掀翻。',
@@ -131,6 +139,6 @@ export default {
 
   // 设置 → 关于 的入口
   'replay_title': '使用引导',
-  'replay_desc': '重看首次使用引导。只讲解界面，不改动任何数据。',
+  'replay_desc': '重看首次使用引导，了解主要界面和基本流程。',
   'replay_action': '重看引导',
 } satisfies Record<keyof typeof enOnboarding, string>;
