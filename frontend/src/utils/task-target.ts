@@ -35,7 +35,11 @@ const FAILURE_TEXT_KEYS: Partial<
   image_edit: { key: "image_edit_task_failed", idParam: "id" },
 };
 
-function stripScriptsPrefix(path: string): string {
+/**
+ * 归一化 script_file：episode 元数据固定带 `scripts/` 前缀，任务行与 grid 记录
+ * 由各入队调用方自行传入、格式不保证一致，比较前统一剥前缀。
+ */
+export function stripScriptsPrefix(path: string): string {
   return path.replace(/^scripts\//, "");
 }
 

@@ -55,6 +55,7 @@ import type {
   DramaNormalizedScript,
   NarrationStep1Draft,
   ReferenceStep1Draft,
+  VideoCapabilities,
 } from "@/types";
 import type { GenerationMode } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
@@ -520,21 +521,13 @@ class API {
   }
 
   /** 三级解析（项目 > 系统设置 > 系统默认）后的视频模型能力。 */
-  static async getVideoCapabilities(name: string): Promise<{
-    provider_id: string;
-    model: string;
-    supported_durations: number[];
-    max_duration: number;
-    max_reference_images: number;
-    /** 生效值（系统判定 ⊕ 用户覆盖），与执行层注入 backend 的能力同源。 */
-    first_frame: boolean;
-    last_frame: boolean;
-    source: "registry" | "custom";
-    default_duration?: number | null;
-    content_mode?: string | null;
-    generation_mode?: string | null;
-  }> {
-    return this.request(`/projects/${encodeURIComponent(name)}/video-capabilities`);
+  static async getVideoCapabilities(
+    name: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<VideoCapabilities> {
+    return this.request(`/projects/${encodeURIComponent(name)}/video-capabilities`, {
+      signal: options.signal,
+    });
   }
 
   static async requestExportToken(
@@ -1024,6 +1017,53 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/shots/${encodeURIComponent(shotId)}` +
       `/upload/${kind}?script_file=${encodeURIComponent(scriptFile)}`;
     return API.postFileUpload<ShotUploadResult>(url, file);
+  }
+
+  // ==================== 镜头尾帧 ====================
+  //
+  // 三个端点同一落点：设置走上传或项目内选图两条通道，都归一为 PNG 快照写到
+  // end_frames/scene_{id}.png（原地覆盖），清除删快照并置空字段。返回的
+  // end_frame_image 是项目内相对路径；换图后路径不变，靠资产指纹 cache-bust。
+
+  /** 上传任意图片作为该镜头的尾帧。 */
+  static async uploadEndFrame(
+    projectName: string,
+    shotId: string,
+    scriptFile: string,
+    file: File
+  ): Promise<{ success: boolean; end_frame_image: string }> {
+    const url =
+      `/projects/${encodeURIComponent(projectName)}/shots/${encodeURIComponent(shotId)}` +
+      `/end-frame/upload?script_file=${encodeURIComponent(scriptFile)}`;
+    return API.postFileUpload<{ success: boolean; end_frame_image: string }>(url, file);
+  }
+
+  /** 选项目内已有图片作为该镜头的尾帧（快照复制，不建立引用）。 */
+  static async selectEndFrame(
+    projectName: string,
+    shotId: string,
+    scriptFile: string,
+    sourcePath: string
+  ): Promise<{ success: boolean; end_frame_image: string }> {
+    const url =
+      `/projects/${encodeURIComponent(projectName)}/shots/${encodeURIComponent(shotId)}` +
+      `/end-frame/select`;
+    return this.request(url, {
+      method: "POST",
+      body: JSON.stringify({ script_file: scriptFile, source_path: sourcePath }),
+    });
+  }
+
+  /** 清除该镜头的尾帧。 */
+  static async clearEndFrame(
+    projectName: string,
+    shotId: string,
+    scriptFile: string
+  ): Promise<SuccessResponse> {
+    const url =
+      `/projects/${encodeURIComponent(projectName)}/shots/${encodeURIComponent(shotId)}` +
+      `/end-frame?script_file=${encodeURIComponent(scriptFile)}`;
+    return this.request(url, { method: "DELETE" });
   }
 
   /** 上传参考生视频单元的成片视频。 */
@@ -2088,8 +2128,13 @@ class API {
    * 列出项目所有 Grid 记录
    * @param projectName - 项目名称
    */
-  static async listGrids(projectName: string): Promise<GridGeneration[]> {
-    return this.request(`/projects/${encodeURIComponent(projectName)}/grids`);
+  static async listGrids(
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<GridGeneration[]> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/grids`, {
+      signal: options.signal,
+    });
   }
 
   /**
