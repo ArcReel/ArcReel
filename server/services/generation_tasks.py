@@ -16,7 +16,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.i18n import DEFAULT_LOCALE
 from lib.i18n import _ as i18n_translate
 from lib.image_backends.base import ImageCapabilityError
-from lib.path_safety import safe_exists, try_safe_join
+from lib.path_safety import safe_exists, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import get_project_manager
 from lib.prompt_builders import (
@@ -34,7 +34,7 @@ from lib.prompt_utils import (
     video_prompt_to_yaml,
 )
 from lib.reference_compression import ReferencePayloadFloorError
-from lib.resource_paths import resource_relative_path
+from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
@@ -837,7 +837,49 @@ async def execute_video_task(
     # 此处不预先 int() 截断，避免把非整数秒静默修正成「碰巧合法」的值。
     assert_duration_supported(duration_seconds, supported_durations)
 
-    end_image = None  # 宫格模式不再使用首尾帧，统一走普通图生视频
+    # end_frame_image 是镜头持久属性（见 server/services/end_frame.py），剧本每次加载都带出，
+    # 重新生成无需额外操作即可沿用。能力是否支持尾帧由 generate_video_async 内的 plan_frame_slots
+    # 按已解析 backend 统一 gating（不支持即 VideoCapabilityError），此处不重复一份判断。
+    #
+    # 剧本是磁盘上的 JSON，字段值不可直接信任（归档导入、外部编辑、脏数据都能落值）：绝对路径会
+    # 覆盖 `/` 的左操作数、`..` 会越出项目目录，把任意服务器文件送进视频请求上传给供应商。只接受
+    # 「当前镜头自己的」end_frames/ 快照——不是随便一个存在的 end_frames/ 内文件：字段被外部编辑
+    # 指向别的镜头（如 E1S01 引用 E1S02 的快照）会静默生成/扣费错镜头的尾帧，仅凭目录归属挡不住，
+    # 须与 resource_relative_path 算出的当前镜头 canonical 路径逐一比对。裸文件名（无路径分隔符）
+    # 按校验侧 data_validator._resolve_existing_path 的 default_dir 回退口径补 end_frames/ 前缀
+    # 重试，否则通过导入校验的值会在生成期无理由硬失败。
+    end_frame_rel = item.get("end_frame_image") if isinstance(item, dict) else None
+    end_image: Path | None = None
+    # 只把 None / "" 视为「未设置」（与 data_validator 的 _resolve_existing_path 同口径）；
+    # 0 / False / [] / {} 等其余 falsy 脏数据必须继续走下面的硬失败，不能被 Python 的真值判断
+    # 静默吞成「未设置」进而无声跳过尾帧、照常生成扣费。
+    if end_frame_rel not in (None, ""):
+        if not isinstance(end_frame_rel, str):
+            raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
+        normalized = end_frame_rel.strip().replace("\\", "/")
+        candidate = normalized if "/" in normalized else f"{END_FRAME_RESOURCE_TYPE}/{normalized}"
+        expected_rel = resource_relative_path(END_FRAME_RESOURCE_TYPE, resource_id)
+        end_frame_file = try_safe_join(project_path, candidate)
+        expected_file = safe_join(project_path, expected_rel)
+        # try_safe_join / safe_join 都走 realpath，会展开符号链接：若字段值恰是当前镜头的
+        # canonical 相对路径，但磁盘上那个位置（含 end_frames/ 目录本身等中间组件）被替换成
+        # 指向别处（如另一镜头快照、分镜图）的符号链接，两次解析会算出同一个被展开的真实目标，
+        # 让下面的相等比较失去意义。这里逐段检查 canonical 路径每个组件——文件名与父目录——
+        # 挡住"路径字符串正确但磁盘对象被调包"，不止查最终文件名那一段。Windows 原生环境下
+        # 目录联接（junction）是独立于符号链接的 reparse point 类型，`is_symlink()` 识别不到，
+        # 须用 `is_junction()`（3.12+，POSIX 上恒为 False）单独检测。
+        canonical_path_tampered = False
+        current = project_path
+        for component in Path(expected_rel).parts:
+            current = current / component
+            if current.is_symlink() or current.is_junction():
+                canonical_path_tampered = True
+                break
+        if end_frame_file is None or end_frame_file != expected_file or canonical_path_tampered:
+            raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
+        if not end_frame_file.is_file():
+            raise ValueError(f"end frame snapshot not found: {end_frame_file.name}")
+        end_image = end_frame_file
 
     _, version, _, video_uri = await generator.generate_video_async(
         prompt=prompt_text,

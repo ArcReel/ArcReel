@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 
 from lib.config.resolver import ProviderModel
-from lib.video_backends.base import VideoCapabilityError
+from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
+from lib.video_frame_slots import plan_frame_slots
 from server.services import generation_tasks
 from server.services.generation_context import GenerationContext, ImageLaneResult, VideoLaneResult
 from server.services.generation_tasks import assert_duration_supported
@@ -571,6 +572,312 @@ class TestGenerationTasks:
         )
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
+
+    @pytest.mark.integration
+    async def test_execute_video_task_end_frame_image_passed_to_generator(self, monkeypatch, tmp_path):
+        """镜头设置了 end_frame_image 时，生成视频请求携带 end_image；快照路径取自
+        镜头持久字段拼接的项目内固定相对路径。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        end_frame_dir = project_path / "end_frames"
+        end_frame_dir.mkdir(parents=True, exist_ok=True)
+        (end_frame_dir / "scene_E1S01.png").write_bytes(b"png")
+        fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+        )
+
+        assert fake_generator.video_calls[0]["end_image"] == end_frame_dir / "scene_E1S01.png"
+
+    @pytest.mark.integration
+    async def test_execute_video_task_end_frame_image_bare_filename_resolves_via_default_dir(
+        self, monkeypatch, tmp_path
+    ):
+        """尾帧字段是裸文件名（无 `end_frames/` 前缀）时按校验侧
+        data_validator._resolve_existing_path 的 default_dir 回退口径解析——否则通过导入校验
+        （校验器对裸文件名会补目录重试）的值会在生成期无理由硬失败。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        end_frame_dir = project_path / "end_frames"
+        end_frame_dir.mkdir(parents=True, exist_ok=True)
+        (end_frame_dir / "scene_E1S01.png").write_bytes(b"png")
+        fake_pm.script["segments"][0]["end_frame_image"] = "scene_E1S01.png"
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+        )
+
+        assert fake_generator.video_calls[0]["end_image"] == end_frame_dir / "scene_E1S01.png"
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize("missing", [True, False], ids=["field-absent", "empty-string"])
+    async def test_execute_video_task_without_end_frame_image_passes_none(self, monkeypatch, tmp_path, missing):
+        """未设置尾帧的镜头行为不变：字段缺失或显式空字符串，end_image 均为 None。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        if not missing:
+            fake_pm.script["segments"][0]["end_frame_image"] = ""
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+        )
+
+        assert fake_generator.video_calls[0]["end_image"] is None
+
+    @pytest.mark.integration
+    async def test_execute_video_task_missing_end_frame_snapshot_fails_hard(self, monkeypatch, tmp_path):
+        """尾帧字段指向的快照文件缺失时硬失败，不调用后端生成。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="end frame snapshot not found"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.parametrize(
+        "end_frame_value",
+        [
+            "/etc/passwd",  # 绝对路径：裸 `/` 拼接会整体丢弃左操作数，读到项目外文件
+            "../../outside.png",  # `..` 穿越出项目目录
+            "end_frames/../storyboards/scene_E1S01.png",  # 项目内但绕开快照目录，等于直接引用源图
+            "storyboards/scene_E1S01.png",  # 同上：字段只接受 end_frames/ 内的快照
+            123,  # 剧本 JSON 里的脏数据（非字符串）须给出可读失败，而非 TypeError
+            0,  # falsy 脏数据：真值判断不得把它当成「未设置」而静默跳过尾帧
+            False,  # 同上
+            [],  # 同上
+            {},  # 同上
+            "end_frames/scene_E1S02.png",  # 落在快照目录内、文件也存在，但属于别的镜头——跨镜头误引
+        ],
+    )
+    @pytest.mark.integration
+    async def test_execute_video_task_end_frame_path_outside_snapshot_dir_fails_hard(
+        self, monkeypatch, tmp_path, end_frame_value
+    ):
+        """剧本是磁盘 JSON，尾帧字段不可信：越界 / 绕开 end_frames 快照目录 / 脏数据一律硬失败，
+        不把任意服务器文件送进视频请求。约束与写侧 end_frame.py、校验侧 data_validator 同口径。"""
+        project_path = _prepare_files(tmp_path)
+        (tmp_path / "outside.png").write_bytes(b"png")
+        end_frame_dir = project_path / "end_frames"
+        end_frame_dir.mkdir(parents=True, exist_ok=True)
+        (end_frame_dir / "scene_E1S02.png").write_bytes(b"png")  # 别的镜头的快照，供跨镜头误引用例检查
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["end_frame_image"] = end_frame_value
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="invalid end frame snapshot path"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
+    async def test_execute_video_task_end_frame_canonical_path_symlink_fails_hard(self, monkeypatch, tmp_path):
+        """尾帧字段值恰是当前镜头的 canonical 相对路径，但磁盘上那个位置被替换成指向别处
+        （另一镜头快照）的符号链接：try_safe_join / safe_join 都会展开符号链接把两侧解析到
+        同一真实目标，仅凭路径相等挡不住「路径字符串对、磁盘对象被调包」，须显式拒绝。"""
+        project_path = _prepare_files(tmp_path)
+        end_frame_dir = project_path / "end_frames"
+        end_frame_dir.mkdir(parents=True, exist_ok=True)
+        (end_frame_dir / "scene_E1S02.png").write_bytes(b"png")
+        (end_frame_dir / "scene_E1S01.png").symlink_to(end_frame_dir / "scene_E1S02.png")
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="invalid end frame snapshot path"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
+    async def test_execute_video_task_end_frame_parent_dir_symlink_fails_hard(self, monkeypatch, tmp_path):
+        """符号链接调包不止发生在文件名这一级：`end_frames/` 目录本身被替换成指向项目内
+        别的目录的符号链接时，最终文件名一致、realpath 展开后两侧路径也相等，仅检查文件名
+        这一段挡不住——须逐段检查 canonical 路径的每个组件（含父目录）。"""
+        project_path = _prepare_files(tmp_path)
+        real_dir = project_path / "storyboards_end_frames_swap"
+        real_dir.mkdir(parents=True, exist_ok=True)
+        (real_dir / "scene_E1S01.png").write_bytes(b"png")
+        (project_path / "end_frames").symlink_to(real_dir)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="invalid end frame snapshot path"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
+    async def test_execute_video_task_end_frame_parent_dir_junction_fails_hard(self, monkeypatch, tmp_path):
+        """Windows 原生环境下目录联接（junction）是独立于符号链接的 reparse point 类型，
+        `Path.is_symlink()` 识别不到；`end_frames/` 被联接到项目内别的目录时须靠 `is_junction()`
+        单独挡住。非 Windows 平台无法真实创建 junction，这里 monkeypatch `Path.is_junction()`
+        模拟该状态，验证逐段检查确实调用了它而非只查符号链接。"""
+        project_path = _prepare_files(tmp_path)
+        real_dir = project_path / "storyboards_end_frames_swap"
+        real_dir.mkdir(parents=True, exist_ok=True)
+        (real_dir / "scene_E1S01.png").write_bytes(b"png")
+        end_frames_dir = project_path / "end_frames"
+        end_frames_dir.mkdir(parents=True, exist_ok=True)
+        (end_frames_dir / "scene_E1S01.png").write_bytes(b"png")
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(Path, "is_junction", lambda self: self == end_frames_dir)
+
+        with pytest.raises(ValueError, match="invalid end frame snapshot path"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
+    async def test_execute_video_task_end_frame_capability_unsupported_propagates(self, monkeypatch, tmp_path):
+        """后端不支持尾帧能力时硬失败，不降级为参考图、不静默丢帧。
+
+        替身只替换 provider 调用，能力判定交给生产代码 plan_frame_slots 跑真值（caps
+        last_frame=False）——否则替身按自己的条件抛异常，验的是替身而非接线是否真能触达
+        gating。能力组合的各分支另见 tests/test_video_frame_slots.py。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        end_frame_dir = project_path / "end_frames"
+        end_frame_dir.mkdir(parents=True, exist_ok=True)
+        (end_frame_dir / "scene_E1S01.png").write_bytes(b"png")
+        fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+
+        async def _plan_with_real_gating(**kwargs):
+            fake_generator.video_calls.append(kwargs)
+            plan_frame_slots(
+                caps=VideoCapabilities(first_frame=True, last_frame=False),
+                provider="ark",
+                model="seedance",
+                start_image=kwargs.get("start_image"),
+                end_image=kwargs.get("end_image"),
+            )
+            raise AssertionError("plan_frame_slots 应在 end_image 非空且 caps.last_frame 为假时硬失败")
+
+        fake_generator.generate_video_async = _plan_with_real_gating
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert exc.value.code == "video_last_frame_unsupported"
+
+    @pytest.mark.integration
+    async def test_execute_video_task_reuses_end_frame_on_regeneration(self, monkeypatch, tmp_path):
+        """视频重生成无需额外操作即自动沿用尾帧：字段是镜头持久属性，每次执行都从剧本重新加载。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        end_frame_dir = project_path / "end_frames"
+        end_frame_dir.mkdir(parents=True, exist_ok=True)
+        (end_frame_dir / "scene_E1S01.png").write_bytes(b"png")
+        fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        for _ in range(2):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+
+        assert len(fake_generator.video_calls) == 2
+        for call in fake_generator.video_calls:
+            assert call["end_image"] == end_frame_dir / "scene_E1S01.png"
 
     async def test_execute_video_task_drama_dialogue_from_utterances(self, monkeypatch, tmp_path):
         """drama 口型台词从场景级 dialogue-kind utterances 取（覆盖 payload 已不带的
