@@ -600,6 +600,35 @@ class TestGenerationTasks:
         assert fake_generator.video_calls[0]["end_image"] == end_frame_dir / "scene_E1S01.png"
 
     @pytest.mark.integration
+    async def test_execute_video_task_end_frame_image_bare_filename_resolves_via_default_dir(
+        self, monkeypatch, tmp_path
+    ):
+        """尾帧字段是裸文件名（无 `end_frames/` 前缀）时按校验侧
+        data_validator._resolve_existing_path 的 default_dir 回退口径解析——否则通过导入校验
+        （校验器对裸文件名会补目录重试）的值会在生成期无理由硬失败。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        end_frame_dir = project_path / "end_frames"
+        end_frame_dir.mkdir(parents=True, exist_ok=True)
+        (end_frame_dir / "scene_E1S01.png").write_bytes(b"png")
+        fake_pm.script["segments"][0]["end_frame_image"] = "scene_E1S01.png"
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+        )
+
+        assert fake_generator.video_calls[0]["end_image"] == end_frame_dir / "scene_E1S01.png"
+
+    @pytest.mark.integration
     @pytest.mark.parametrize("missing", [True, False], ids=["field-absent", "empty-string"])
     async def test_execute_video_task_without_end_frame_image_passes_none(self, monkeypatch, tmp_path, missing):
         """未设置尾帧的镜头行为不变：字段缺失或显式空字符串，end_image 均为 None。"""
@@ -656,6 +685,7 @@ class TestGenerationTasks:
             False,  # 同上
             [],  # 同上
             {},  # 同上
+            "end_frames/scene_E1S02.png",  # 落在快照目录内、文件也存在，但属于别的镜头——跨镜头误引
         ],
     )
     @pytest.mark.integration
@@ -666,6 +696,9 @@ class TestGenerationTasks:
         不把任意服务器文件送进视频请求。约束与写侧 end_frame.py、校验侧 data_validator 同口径。"""
         project_path = _prepare_files(tmp_path)
         (tmp_path / "outside.png").write_bytes(b"png")
+        end_frame_dir = project_path / "end_frames"
+        end_frame_dir.mkdir(parents=True, exist_ok=True)
+        (end_frame_dir / "scene_E1S02.png").write_bytes(b"png")  # 别的镜头的快照，供跨镜头误引用例检查
         fake_pm = _FakePM(project_path)
         fake_generator = _FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = end_frame_value

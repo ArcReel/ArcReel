@@ -843,20 +843,25 @@ async def execute_video_task(
     # 按已解析 backend 统一 gating（不支持即 VideoCapabilityError），此处不重复一份判断。
     #
     # 剧本是磁盘上的 JSON，字段值不可直接信任（归档导入、外部编辑、脏数据都能落值）：绝对路径会
-    # 覆盖 `/` 的左操作数、`..` 会越出项目目录，把任意服务器文件送进视频请求上传给供应商。口径与
-    # 写侧 end_frame.py、校验侧 data_validator（confine_to_default_dir="end_frames"）一致：
-    # 只接受 end_frames/ 内的已存在快照，其余硬失败。
+    # 覆盖 `/` 的左操作数、`..` 会越出项目目录，把任意服务器文件送进视频请求上传给供应商。只接受
+    # 「当前镜头自己的」end_frames/ 快照——不是随便一个存在的 end_frames/ 内文件：字段被外部编辑
+    # 指向别的镜头（如 E1S01 引用 E1S02 的快照）会静默生成/扣费错镜头的尾帧，仅凭目录归属挡不住，
+    # 须与 resource_relative_path 算出的当前镜头 canonical 路径逐一比对。裸文件名（无路径分隔符）
+    # 按校验侧 data_validator._resolve_existing_path 的 default_dir 回退口径补 end_frames/ 前缀
+    # 重试，否则通过导入校验的值会在生成期无理由硬失败。
     end_frame_rel = item.get("end_frame_image") if isinstance(item, dict) else None
     end_image: Path | None = None
     # 只把 None / "" 视为「未设置」（与 data_validator 的 _resolve_existing_path 同口径）；
-    # 0 / False / [] / {} 等其余 falsy 脏数据必须继续走下面的 try_safe_join 硬失败，不能被
-    # Python 的真值判断静默吞成「未设置」进而无声跳过尾帧、照常生成扣费。
+    # 0 / False / [] / {} 等其余 falsy 脏数据必须继续走下面的硬失败，不能被 Python 的真值判断
+    # 静默吞成「未设置」进而无声跳过尾帧、照常生成扣费。
     if end_frame_rel not in (None, ""):
-        end_frames_dir = safe_join(project_path, END_FRAME_RESOURCE_TYPE)
-        # None 兜住越界 / 脏数据 / 解析失败；目录归属另判，挡住 `end_frames/../storyboards/x.png`
-        # 这类落在项目内却绕开快照目录的值。
-        end_frame_file = try_safe_join(project_path, end_frame_rel)
-        if end_frame_file is None or not end_frame_file.is_relative_to(end_frames_dir):
+        if not isinstance(end_frame_rel, str):
+            raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
+        normalized = end_frame_rel.strip().replace("\\", "/")
+        candidate = normalized if "/" in normalized else f"{END_FRAME_RESOURCE_TYPE}/{normalized}"
+        end_frame_file = try_safe_join(project_path, candidate)
+        expected_file = safe_join(project_path, resource_relative_path(END_FRAME_RESOURCE_TYPE, resource_id))
+        if end_frame_file is None or end_frame_file != expected_file:
             raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
         if not end_frame_file.is_file():
             raise ValueError(f"end frame snapshot not found: {end_frame_file.name}")
