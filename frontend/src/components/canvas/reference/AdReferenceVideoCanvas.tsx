@@ -8,7 +8,7 @@
  * 参考直出下不参与生成。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Clock, Layers, RefreshCw, Scissors, Sparkles } from "lucide-react";
 import { API } from "@/api";
@@ -93,7 +93,19 @@ export function AdReferenceVideoCanvas({
   const [error, setError] = useState<string | null>(null);
   // 该 unit 存在未落库的镜头字段写入时，阻止同 unit 的生成入队——PATCH 与生成请求
   // 并发时后端可能仍按写入前的旧值处理，成片与用户刚编辑的时长/文案对不上。
-  const [savingUnitIds, setSavingUnitIds] = useState<Set<string>>(new Set());
+  // ref 与 state 同步维护：state 供渲染（禁用态展示），ref 供 liveSavingUnitIds()
+  // 在异步函数体内新鲜读——与 liveBusyUnitIds() 同一动机，闭包捕获的 state 在
+  // await 跨越的时间窗口里可能已经过期（如 generateAll 的 derive() 之后的循环）。
+  const savingUnitIdsRef = useRef<Set<string>>(new Set());
+  const [savingUnitIds, setSavingUnitIdsState] = useState<Set<string>>(new Set());
+  const setSavingUnitIds = useCallback((updater: (prev: Set<string>) => Set<string>) => {
+    setSavingUnitIdsState((prev) => {
+      const next = updater(prev);
+      savingUnitIdsRef.current = next;
+      return next;
+    });
+  }, []);
+  const liveSavingUnitIds = useCallback(() => savingUnitIdsRef.current, []);
 
   useEffect(() => {
     // 剧本未生成时后端无分组可返回；hasScript 转 true 后本 effect 随依赖重跑补上首次拉取。
@@ -167,7 +179,8 @@ export function AdReferenceVideoCanvas({
     // 命中即中止——避免把仍在跑的旧任务对应的成员重新绑定到派生后的新分组；
     // 有镜头字段写入未落库时同样中止，避免派生与该 PATCH 的落库顺序不确定。
     const live = liveBusyUnitIds();
-    if (hydrated.some(({ unit }) => live.has(unit.unit_id) || savingUnitIds.has(unit.unit_id))) {
+    const saving = liveSavingUnitIds();
+    if (hydrated.some(({ unit }) => live.has(unit.unit_id) || saving.has(unit.unit_id))) {
       useAppStore.getState().pushToast(t("ad_ref_rederive_busy"), "error");
       return [];
     }
@@ -183,13 +196,13 @@ export function AdReferenceVideoCanvas({
     } finally {
       setDeriving(false);
     }
-  }, [projectName, episode, hydrated, liveBusyUnitIds, savingUnitIds, t]);
+  }, [projectName, episode, hydrated, liveBusyUnitIds, liveSavingUnitIds, t]);
 
   // 错误清空只在触发入口做：generateUnit 自身不清，避免批量循环中
   // 后一个 unit 的调用抹掉前一个 unit 的失败信息
   const generateUnit = useCallback(
     async (unitId: string) => {
-      if (liveBusyUnitIds().has(unitId) || savingUnitIds.has(unitId)) {
+      if (liveBusyUnitIds().has(unitId) || liveSavingUnitIds().has(unitId)) {
         useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
         return;
       }
@@ -199,15 +212,16 @@ export function AdReferenceVideoCanvas({
         setError(errMsg(err));
       }
     },
-    [projectName, episode, liveBusyUnitIds, savingUnitIds, t],
+    [projectName, episode, liveBusyUnitIds, liveSavingUnitIds, t],
   );
 
   // 编辑期间该 unit 若已被其他入口占用，放弃这次写入而非与生成中的任务乱序落库
-  // ——与 generateUnit 同一判定口径。返回是否已受理，供调用方决定是否保留未提交的草稿。
+  // ——与 generateUnit 同一判定口径。deriving 反向同理：派生进行中不接受新的镜头字段
+  // 写入，避免落库顺序与派生顺序不确定。返回是否已受理，供调用方决定是否保留未提交的草稿。
   const commitShotField = useCallback(
     async (unitId: string, shotId: string, patch: Record<string, unknown>): Promise<boolean> => {
       if (!onUpdatePrompt) return false;
-      if (liveBusyUnitIds().has(unitId) || savingUnitIds.has(unitId)) {
+      if (deriving || liveBusyUnitIds().has(unitId) || liveSavingUnitIds().has(unitId)) {
         useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
         return false;
       }
@@ -224,23 +238,25 @@ export function AdReferenceVideoCanvas({
         });
       }
     },
-    [onUpdatePrompt, liveBusyUnitIds, savingUnitIds, scriptFile, t],
+    [onUpdatePrompt, deriving, liveBusyUnitIds, liveSavingUnitIds, setSavingUnitIds, scriptFile, t],
   );
 
   const generateAll = useCallback(async () => {
     // 先重新派生（保证索引与 shots 一致），再为未完成且空闲的 unit 入队
     const fresh = await derive();
     for (const unit of fresh) {
-      // 每轮重读：串行 await 期间其他入口（如单 unit 按钮）可能已入队同一 unit
+      // 每轮重读：串行 await 期间其他入口（如单 unit 按钮）可能已入队同一 unit；
+      // saving 同样须新鲜读——derive() 的 await 期间某个 unit 的编辑写入完全可能
+      // 已经落库，闭包捕获的 savingUnitIds 会让该 unit 被永久跳过、这批不再补入队。
       if (
         unit.generated_assets?.video_clip ||
         liveBusyUnitIds().has(unit.unit_id) ||
-        savingUnitIds.has(unit.unit_id)
+        liveSavingUnitIds().has(unit.unit_id)
       )
         continue;
       await generateUnit(unit.unit_id);
     }
-  }, [derive, generateUnit, liveBusyUnitIds, savingUnitIds]);
+  }, [derive, generateUnit, liveBusyUnitIds, liveSavingUnitIds]);
 
   const hasUnits = hydrated.length > 0;
   // 任一分组仍有活跃任务（含取消中）或镜头字段写入未落库时禁止重新派生：派生会按
@@ -463,8 +479,9 @@ function AdUnitCard({
                       shot={shot}
                       // saving 一并计入：写入未落库期间禁用同组全部编辑控件，避免用户在
                       // PATCH 结果落地前重新聚焦输入新草稿，被早先请求异步 resolve 时的
-                      // 清空逻辑覆盖丢失。
-                      disabled={busy || saving}
+                      // 清空逻辑覆盖丢失。deriving 同理反向覆盖：重新派生进行中时也禁止
+                      // 发起新的镜头字段写入，避免落库顺序与派生顺序不确定。
+                      disabled={busy || saving || deriving}
                       onCommitDuration={onEditDuration}
                       onCommitVoiceover={onEditVoiceover}
                     />

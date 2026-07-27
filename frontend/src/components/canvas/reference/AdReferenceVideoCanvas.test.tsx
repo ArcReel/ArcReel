@@ -631,6 +631,36 @@ describe("AdReferenceVideoCanvas", () => {
     expect(screen.getByRole("textbox", { name: /E1S1 口播文案/ })).toBeDisabled();
   });
 
+  // 反向同理于「写入未落库期间禁用重新派生」：派生会按位置重算 unit_id 的成员镜头，
+  // 派生进行中若仍接受新的镜头字段写入，落库顺序与派生顺序不确定。
+  it("重新派生进行中时禁用镜头编辑控件", async () => {
+    let resolveDerive: (result: { units: AdReferenceUnit[] }) => void = () => {};
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    mockedAPI.deriveAdReferenceUnits.mockReturnValue(
+      new Promise((resolve) => {
+        resolveDerive = resolve;
+      }),
+    );
+
+    renderCanvas({ onUpdatePrompt: vi.fn() });
+    const durationSelect = await screen.findByRole("combobox", { name: /E1S1 时长/ });
+    const voiceoverInput = screen.getByRole("textbox", { name: /E1S1 口播文案/ });
+    expect(durationSelect).not.toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: /重新派生/ }));
+
+    await waitFor(() => {
+      expect(durationSelect).toBeDisabled();
+    });
+    expect(voiceoverInput).toBeDisabled();
+
+    resolveDerive({ units: [makeUnit()] });
+
+    await waitFor(() => {
+      expect(durationSelect).not.toBeDisabled();
+    });
+  });
+
   it("响应式占用信号尚未追上真实 store 时，镜头编辑提交仍被 getState() 新鲜读拦截", async () => {
     const onUpdatePrompt = vi.fn();
     mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
