@@ -7,19 +7,19 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from lib.api_errors import ApiError, BadRequestError, NotFoundError
+from lib.api_errors import BadRequestError, NotFoundError
 from lib.generation_queue import get_generation_queue
 from lib.grid.layout import calculate_grid_layout
 from lib.grid.models import GridGeneration
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.i18n import Translator
+from lib.json_io import domain_error_on_value_error
 from lib.project_manager import get_project_manager
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.auth import CurrentUser
@@ -88,28 +88,18 @@ async def generate_grid(
 
     立即返回 grid_ids 和 task_ids。生成由 GenerationWorker 异步执行。
     """
-    try:
+    # 非法项目名（路径穿越等）是坏请求，不是「不存在」；project.json 损坏（JSONDecodeError）
+    # 不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
+    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
         project = get_project_manager().load_project(project_name)
-    except json.JSONDecodeError:
-        # JSONDecodeError 是 ValueError 子类，须先于下面的 except ValueError 拦截：
-        # project.json 损坏时不能误判为「非法项目名」，交由 app 级 catch-all 收口为通用 500
-        raise
-    except ValueError as exc:
-        # 非法项目名（路径穿越等）是坏请求，不是「不存在」
-        raise BadRequestError("invalid_project_name", name=project_name) from exc
     # 广告/短片项目不开放宫格生视频（宫格单格分辨率与产品高保真目标冲突），
     # 写入边界（create/PATCH 拒 generation_mode=grid）之外在动作端点再设一道防线
     if project.get("content_mode") == "ad":
         raise BadRequestError("ad_grid_not_supported")
-    try:
+    # 路径穿越等非法 script_file 是坏请求，400 而非落入下方 500 兜底；剧本文件损坏
+    # （JSONDecodeError）不能被误判为非法 script_file，交由 app 级 catch-all 收口为通用 500
+    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=req.script_file)):
         script = get_project_manager().load_script(project_name, req.script_file)
-    except json.JSONDecodeError:
-        # JSONDecodeError 是 ValueError 子类，须先于下面的 except ValueError 拦截：
-        # 剧本文件损坏不能误判为「非法 script_file」，交由 app 级 catch-all 收口为通用 500
-        raise
-    except ValueError as exc:
-        # 路径穿越等非法 script_file 是坏请求，422 而非落入下方 500 兜底
-        raise ApiError("invalid_script_file", status_code=422, name=req.script_file) from exc
     project_path = get_project_manager().get_project_path(project_name)
 
     items, id_field, _, _, _ = get_storyboard_items(script)
@@ -274,14 +264,9 @@ async def get_grid(project_name: str, grid_id: str, _user: CurrentUser):
 @router.post("/grids/{grid_id}/regenerate")
 async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
     """重置宫格图状态并重新入队生成任务。"""
-    try:
+    # project.json 损坏（JSONDecodeError）不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
+    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
         project = get_project_manager().load_project(project_name)
-    except json.JSONDecodeError:
-        # JSONDecodeError 是 ValueError 子类，须先于下面的 except ValueError 拦截：
-        # project.json 损坏时不能误判为「非法项目名」，交由 app 级 catch-all 收口为通用 500
-        raise
-    except ValueError as exc:
-        raise BadRequestError("invalid_project_name", name=project_name) from exc
     # 广告/短片项目不开放宫格生视频：首次提交端点已封禁，重生成端点同样设防,
     # 否则残留的历史 grid 记录仍可被重新入队
     if project.get("content_mode") == "ad":

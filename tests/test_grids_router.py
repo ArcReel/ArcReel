@@ -271,7 +271,7 @@ class _FakePMInvalidScriptFile:
 
 
 def test_generate_grid_invalid_script_file(monkeypatch):
-    # 非法 script_file（路径穿越等）是坏请求，422 而非落入下方 500 兜底
+    # 非法 script_file（路径穿越等）是坏请求，400 而非落入下方 500 兜底
     client = _client(
         monkeypatch,
         get_project_manager=_FakePMInvalidScriptFile,
@@ -281,7 +281,7 @@ def test_generate_grid_invalid_script_file(monkeypatch):
             "/api/v1/projects/demo/generate/grid/1",
             json={"script_file": "../../etc/passwd"},
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 400
 
 
 class _FakePMGenerate:

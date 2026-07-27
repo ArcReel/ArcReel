@@ -34,6 +34,7 @@ from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.i18n import Translator
+from lib.json_io import domain_error_on_value_error
 from lib.profile_manifest import ContentMode
 from lib.project_change_hints import project_change_source
 from lib.project_manager import EmptySourceError, EpisodeScriptReboundError, SourceKind, get_project_manager
@@ -1313,9 +1314,21 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
     except Exception:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+    def _provider_not_configured(exc: ValueError) -> BadRequestError:
+        # 非法项目名已由上方预校验拦截，此处均来自供应商解析链路（未配置/无可用供应商）；str(exc) 只进日志
+        logger.warning("生成概述配置错误: name=%s (%s)", name, exc)
+        return BadRequestError("text_provider_not_configured")
+
     try:
         with project_change_source("webui"):
-            overview = await get_project_manager().generate_overview(name)
+            # EmptySourceError / PydanticValidationError 都是 ValueError 子类，须放行给下方各自的
+            # 专属 except 分支，不能被这里的通用 ValueError 处理误判为「未配置供应商」
+            with domain_error_on_value_error(
+                _provider_not_configured,
+                extra_passthrough=(EmptySourceError, PydanticValidationError),
+            ):
+                overview = await get_project_manager().generate_overview(name)
         return {"success": True, "overview": overview}
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
@@ -1328,14 +1341,9 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
         logger.warning("生成概述参数错误: name=%s (%s)", name, e)
         raise BadRequestError("overview_source_empty") from e
     except json.JSONDecodeError:
-        # JSONDecodeError 是 ValueError 子类，须先于下面的 except ValueError 拦截：
         # 供应商解析链路内部会重新 load_project，project.json 损坏时不能误判为「未配置供应商」
         logger.exception("生成概述失败：项目数据损坏 name=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
-    except ValueError as e:
-        # 非法项目名已由上方预校验拦截，此处均来自供应商解析链路（未配置/无可用供应商）；str(e) 只进日志
-        logger.warning("生成概述配置错误: name=%s (%s)", name, e)
-        raise BadRequestError("text_provider_not_configured") from e
     except (HTTPException, ApiError):
         raise
     except Exception:

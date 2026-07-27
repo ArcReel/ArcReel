@@ -44,18 +44,18 @@ mid-flight 被删除而失败时跳过整段写回，不留半截状态。
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import threading
 from pathlib import Path
 
 from lib.image_utils import normalize_storyboard_upload
+from lib.json_io import domain_error_on_value_error
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager, get_project_manager, is_reference_video_episode
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
-from server.services.upload_finalize import UPLOAD_IMAGE_MAX_BYTES, UploadTooLargeError, write_bytes_atomic
+from server.services.upload_finalize import UPLOAD_IMAGE_MAX_BYTES, write_bytes_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -109,15 +109,13 @@ def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
     except ValueError as exc:
         raise EndFrameError("invalid_project_name", status_code=400, name=project_name) from exc
 
-    try:
+    # 剧本文件损坏（JSON 语法错误或非 UTF-8 字节）不能误判为「非法 script_file」，
+    # 交由 _translated_errors 的兜底分支收口为 500
+    with domain_error_on_value_error(
+        lambda _exc: EndFrameError("invalid_script_file", status_code=400, name=script_file),
+        extra_passthrough=(UnicodeDecodeError,),
+    ):
         script = manager.load_script(project_name, script_file)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        # 二者都是 ValueError 子类，须先于下面的 except ValueError 拦截：
-        # 剧本文件损坏（JSON 语法错误或非 UTF-8 字节）不能误判为「非法 script_file」，
-        # 交由 _translated_errors 的兜底分支收口为 500
-        raise
-    except ValueError as exc:
-        raise EndFrameError("invalid_script_file", status_code=400, name=script_file) from exc
 
     try:
         project = manager.load_project(project_name)
@@ -288,7 +286,9 @@ def read_project_image(project_path: Path, source_path: str) -> bytes:
     with resolved.open("rb") as f:
         content = f.read(UPLOAD_IMAGE_MAX_BYTES + 1)
     if len(content) > UPLOAD_IMAGE_MAX_BYTES:
-        raise UploadTooLargeError(UPLOAD_IMAGE_MAX_BYTES)
+        raise EndFrameError(
+            "end_frame_source_too_large", max_mb=UPLOAD_IMAGE_MAX_BYTES // (1024 * 1024), path=normalized
+        )
     return content
 
 
