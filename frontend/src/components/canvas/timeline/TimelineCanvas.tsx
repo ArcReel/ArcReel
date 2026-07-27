@@ -4,10 +4,8 @@ import { useTranslation } from "react-i18next";
 import { ScriptReviewGate } from "./ScriptReviewGate";
 import { ShotSplitView } from "./ShotSplitView";
 import { EpisodeHeader } from "./EpisodeHeader";
-import { AdReferenceUnitsPanel } from "./AdReferenceUnitsPanel";
 import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
-import { effectiveMode } from "@/utils/generation-mode";
 import { getScriptItemId } from "@/utils/script-shape";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
@@ -187,9 +185,6 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     segments.reduce((sum, s) => sum + (s.duration_seconds ?? 0), 0);
 
   const currentEpisodeMeta = projectData?.episodes?.find((e) => e.episode === episode);
-  // ad + reference_video：镜头按派生分组直出视频，展示分组面板（其余路径不渲染）
-  const adReference =
-    contentMode === "ad" && effectiveMode(projectData, currentEpisodeMeta) === "reference_video";
   const epMeta =
     currentEpisodeMeta ??
     ({
@@ -208,8 +203,8 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const handleMoveShot = onMoveShot
     ? (shotId: string, direction: "earlier" | "later") => onMoveShot(shotId, direction, scriptFile)
     : undefined;
-  // 生成回调保持可选透传：未提供（如 ad + reference_video 不开放逐镜头图生视频）时
-  // 编辑器隐藏对应生成入口，而非渲染一个点了没反应的按钮。
+  // 生成回调保持可选透传：未提供时编辑器隐藏对应生成入口，
+  // 而非渲染一个点了没反应的按钮。
   const handleGenSb = onGenerateStoryboard
     ? (segId: string) => onGenerateStoryboard(segId, scriptFile)
     : undefined;
@@ -339,13 +334,6 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
           </div>
         ) : episodeScript && segments.length > 0 ? (
           <div className="flex h-full flex-col">
-            {adReference && (
-              <AdReferenceUnitsPanel
-                projectName={projectName}
-                episode={episode}
-                shots={segments as AdShot[]}
-              />
-            )}
             <div className="min-h-0 flex-1 overflow-hidden">
               <ShotSplitView
                 segments={segments}

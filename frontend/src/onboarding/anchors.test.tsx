@@ -44,7 +44,6 @@ vi.mock("@/components/layout/ExportScopeDialog", () => ({ ExportScopeDialog: () 
 vi.mock("@/components/canvas/timeline/ScriptReviewGate", () => ({ ScriptReviewGate: () => null }));
 vi.mock("@/components/canvas/timeline/ShotSplitView", () => ({ ShotSplitView: () => null }));
 vi.mock("@/components/canvas/timeline/EpisodeHeader", () => ({ EpisodeHeader: () => null }));
-vi.mock("@/components/canvas/timeline/AdReferenceUnitsPanel", () => ({ AdReferenceUnitsPanel: () => null }));
 
 function renderLobby() {
   const { hook } = memoryLocation({ path: "/app/projects" });

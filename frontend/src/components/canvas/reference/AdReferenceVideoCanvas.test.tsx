@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AdReferenceUnitsPanel } from "./AdReferenceUnitsPanel";
+import { AdReferenceVideoCanvas } from "./AdReferenceVideoCanvas";
 import { API } from "@/api";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { AdReferenceUnit, AdShot } from "@/types";
@@ -22,7 +22,7 @@ function makeShot(shotId: string, duration: number): AdShot {
     shot_id: shotId,
     section: "hook",
     duration_seconds: duration,
-    voiceover_text: "口播",
+    voiceover_text: `口播 ${shotId}`,
     image_prompt: {
       scene: "画面",
       composition: { shot_type: "Close-up", lighting: "顶光", ambiance: "清爽" },
@@ -44,8 +44,16 @@ function makeUnit(overrides: Partial<AdReferenceUnit> = {}): AdReferenceUnit {
 
 const SHOTS = [makeShot("E1S1", 3), makeShot("E1S2", 2)];
 
-function renderPanel() {
-  return render(<AdReferenceUnitsPanel projectName="demo" episode={1} shots={SHOTS} />);
+function renderCanvas(props: { shots?: AdShot[]; hasScript?: boolean } = {}) {
+  return render(
+    <AdReferenceVideoCanvas
+      projectName="demo"
+      episode={1}
+      episodeTitle="广告片"
+      shots={props.shots ?? SHOTS}
+      hasScript={props.hasScript ?? true}
+    />,
+  );
 }
 
 beforeEach(() => {
@@ -58,33 +66,54 @@ beforeEach(() => {
   });
 });
 
-describe("AdReferenceUnitsPanel", () => {
+describe("AdReferenceVideoCanvas", () => {
   it("未派生时展示派生入口", async () => {
     mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [] });
 
-    renderPanel();
+    renderCanvas();
 
     expect(await screen.findByRole("button", { name: /派生分组/ })).toBeInTheDocument();
     expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledWith("demo", 1);
   });
 
-  it("点击派生后展示 unit 列表（成员镜头范围与总时长按本地剧本水合）", async () => {
+  it("剧本未生成时不拉取分组并给出指引", async () => {
+    renderCanvas({ shots: [], hasScript: false });
+
+    expect(await screen.findByText(/剧本尚未生成/)).toBeInTheDocument();
+    expect(mockedAPI.listAdReferenceUnits).not.toHaveBeenCalled();
+  });
+
+  it("点击派生后展示分组卡片（成员镜头与总时长按本地剧本水合）", async () => {
     mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [] });
     mockedAPI.deriveAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
 
-    renderPanel();
+    renderCanvas();
     await userEvent.click(await screen.findByRole("button", { name: /派生分组/ }));
 
     expect(await screen.findByText("E1U1")).toBeInTheDocument();
     expect(screen.getByText(/E1S1\s*–\s*E1S2/)).toBeInTheDocument();
-    expect(screen.getByText(/5s/)).toBeInTheDocument();
+    // 成员镜头逐条列出，正文取本地剧本口播
+    expect(screen.getByText("口播 E1S1")).toBeInTheDocument();
+    expect(screen.getByText("口播 E1S2")).toBeInTheDocument();
+    // 分组时长 = 成员镜头时长之和
+    expect(screen.getAllByText("5s").length).toBeGreaterThan(0);
   });
 
-  it("逐 unit 生成调用生成 API", async () => {
+  it("不提供分镜图与 Image Prompt 等参考直出下不生效的入口", async () => {
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+
+    renderCanvas();
+    await screen.findByText("E1U1");
+
+    expect(screen.queryByRole("button", { name: /生成分镜|上传/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Image Prompt/i)).not.toBeInTheDocument();
+  });
+
+  it("逐分组生成调用生成 API", async () => {
     mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
     mockedAPI.generateReferenceVideoUnit.mockResolvedValue({ task_id: "t1", deduped: false });
 
-    renderPanel();
+    renderCanvas();
     await userEvent.click(await screen.findByRole("button", { name: /生成视频/ }));
 
     await waitFor(() =>
@@ -92,7 +121,7 @@ describe("AdReferenceUnitsPanel", () => {
     );
   });
 
-  it("任务进行中时禁用该 unit 的生成按钮", async () => {
+  it("任务进行中时禁用该分组的生成按钮", async () => {
     mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
     useTasksStore.setState({
       tasks: [
@@ -107,42 +136,73 @@ describe("AdReferenceUnitsPanel", () => {
       ] as never,
     });
 
-    renderPanel();
+    renderCanvas();
 
     expect(await screen.findByRole("button", { name: /生成中/ })).toBeDisabled();
   });
 
-  it("已完成的 unit 展示视频链接", async () => {
+  it("已完成的分组展示成片预览与视频链接", async () => {
     mockedAPI.listAdReferenceUnits.mockResolvedValue({
-      units: [makeUnit({ generated_assets: { video_clip: "reference_videos/E1U1.mp4", status: "completed" } })],
+      units: [
+        makeUnit({
+          generated_assets: { video_clip: "reference_videos/E1U1.mp4", status: "completed" },
+        }),
+      ],
     });
 
-    renderPanel();
+    renderCanvas();
 
     const link = await screen.findByRole("link", { name: /查看视频/ });
     expect(link).toHaveAttribute("href", "http://file/E1U1.mp4");
+    expect(screen.getByLabelText(/分组 E1U1 的成片/)).toBeInTheDocument();
+    // 已有成片时主按钮转为重新生成
+    expect(screen.getByRole("button", { name: /重新生成/ })).toBeInTheDocument();
   });
 
-  it("索引悬空的 unit 提示需重新派生", async () => {
+  it("任务失败时展示失败原因并允许重试", async () => {
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "demo",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "failed",
+          error_message: "供应商拒绝",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+
+    renderCanvas();
+
+    expect(await screen.findByText("供应商拒绝")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /重试生成/ })).toBeInTheDocument();
+  });
+
+  it("索引悬空的分组提示需重新派生并禁用生成", async () => {
     mockedAPI.listAdReferenceUnits.mockResolvedValue({
       units: [makeUnit({ shot_ids: ["E1S1", "E1S9"] })],
     });
 
-    renderPanel();
+    renderCanvas();
 
     expect(await screen.findByText(/需重新派生/)).toBeInTheDocument();
+    expect(screen.getByText(/镜头已删除/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /生成视频/ })).toBeDisabled();
   });
 
   it("加载失败展示错误而非空态提示", async () => {
     mockedAPI.listAdReferenceUnits.mockRejectedValue(new Error("加载炸了"));
 
-    renderPanel();
+    renderCanvas();
 
     expect(await screen.findByRole("alert")).toHaveTextContent("加载炸了");
     expect(screen.queryByText(/先派生分组/)).not.toBeInTheDocument();
   });
 
-  it("批量生成时前一 unit 的失败不被后续调用清掉", async () => {
+  it("批量生成时前一分组的失败不被后续调用清掉", async () => {
     const units = [makeUnit(), makeUnit({ unit_id: "E1U2", shot_ids: ["E1S2"] })];
     mockedAPI.listAdReferenceUnits.mockResolvedValue({ units });
     mockedAPI.deriveAdReferenceUnits.mockResolvedValue({ units });
@@ -150,14 +210,14 @@ describe("AdReferenceUnitsPanel", () => {
       .mockRejectedValueOnce(new Error("U1 入队失败"))
       .mockResolvedValueOnce({ task_id: "t2", deduped: false });
 
-    renderPanel();
+    renderCanvas();
     await userEvent.click(await screen.findByRole("button", { name: /全部生成/ }));
 
     await waitFor(() => expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledTimes(2));
     expect(await screen.findByRole("alert")).toHaveTextContent("U1 入队失败");
   });
 
-  it("批量生成按实时任务状态跳过已入队的 unit", async () => {
+  it("批量生成按实时任务状态跳过已入队的分组", async () => {
     const units = [makeUnit(), makeUnit({ unit_id: "E1U2", shot_ids: ["E1S2"] })];
     mockedAPI.listAdReferenceUnits.mockResolvedValue({ units });
     mockedAPI.deriveAdReferenceUnits.mockImplementation(async () => {
@@ -178,7 +238,7 @@ describe("AdReferenceUnitsPanel", () => {
     });
     mockedAPI.generateReferenceVideoUnit.mockResolvedValue({ task_id: "t2", deduped: false });
 
-    renderPanel();
+    renderCanvas();
     await userEvent.click(await screen.findByRole("button", { name: /全部生成/ }));
 
     await waitFor(() =>

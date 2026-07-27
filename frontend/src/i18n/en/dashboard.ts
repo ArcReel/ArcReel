@@ -1407,6 +1407,14 @@ export default {
   'ad_ref_view_video': 'View video',
   'ad_ref_stale': 'Shots changed, re-derive needed',
   'ad_ref_empty_hint': 'Reference-to-video groups consecutive shots into video units (up to 4 shots each) and generates videos directly from product references and asset sheets. Derive the groups first.',
+  'ad_ref_member_shots': 'Member shots',
+  'ad_ref_references': 'References',
+  'ad_ref_shot_missing': 'Shot removed',
+  'ad_ref_no_video': 'No video yet',
+  'ad_ref_regenerate': 'Regenerate',
+  'ad_ref_retry': 'Retry',
+  'ad_ref_failed_unknown': 'Generation failed for an unknown reason',
+  'ad_ref_preview_video_aria': 'Video for group {{id}}',
   'workspace_nav_products': 'Products',
 
   // ---- Projects lobby · Darkroom ----
