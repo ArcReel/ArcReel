@@ -244,9 +244,18 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           lastFingerprintRef.current = payload.fingerprint;
           setAssistantToolActivitySuppressed(true);
 
+          // 任务终态是刷新信号而非实体变更，先与实体变更分开：下方的实体失效、分组通知与
+          // 聚焦跳转都只针对实体变更。混入任务变更会有两处实际损害——每个终态任务都会在
+          // `entityRevisions` 里留下一个从未被消费的 `task:<uuid>` 键（该表不随切项目清空，
+          // 且每次失效整表复制，长会话下无界增长）；而任务批次没有可导航目标，走到聚焦逻辑
+          // 会把前一批实体变更排队等待 refreshProject 的 `queuedFocusRef` 清成 null，用户
+          // 因此丢失本该发生的自动导航与高亮。
+          const taskChanges = payload.changes.filter(isTaskChange);
+          const entityChanges = payload.changes.filter((c) => !isTaskChange(c));
+
           // 提取并更新 asset fingerprints（零延迟，立即写入 store）
           const mergedFingerprints: Record<string, number> = {};
-          for (const change of payload.changes) {
+          for (const change of entityChanges) {
             if (change.asset_fingerprints) {
               Object.assign(mergedFingerprints, change.asset_fingerprints);
             }
@@ -255,16 +264,18 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             useProjectsStore.getState().updateAssetFingerprints(mergedFingerprints);
           }
 
-          const invalidationKeys = payload.changes.map((change) =>
+          const invalidationKeys = entityChanges.map((change) =>
             buildEntityRevisionKey(change.entity_type, change.entity_id),
           );
-          invalidateEntities(invalidationKeys);
+          if (invalidationKeys.length > 0) {
+            invalidateEntities(invalidationKeys);
+          }
 
           const groupedChanges = sortGroupedChanges(
-            groupChangesByType(payload.changes),
+            groupChangesByType(entityChanges),
           );
 
-          if (payload.source !== "webui") {
+          if (entityChanges.length > 0 && payload.source !== "webui") {
             for (const group of groupedChanges) {
               if (!hasImportantChanges(group)) {
                 continue;
@@ -273,10 +284,10 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             }
           }
 
-          if (payload.source !== "webui") {
+          if (entityChanges.length > 0 && payload.source !== "webui") {
             // Draft 事件 — 自动导航到剧集预处理 Tab
             let draftHandled = false;
-            for (const change of payload.changes) {
+            for (const change of entityChanges) {
               if (
                 change.entity_type === "draft" &&
                 change.action === "created" &&
@@ -312,7 +323,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           }
 
           // 任务终态：立即重拉任务列表与统计，不等兜底轮询的间隔。
-          const taskChanges = payload.changes.filter(isTaskChange);
           if (taskChanges.length > 0) {
             void useTasksStore.getState().refreshTasks();
           }
@@ -332,7 +342,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           void refreshProject();
 
           // Refresh cost data when generation completes
-          const hasGenerationEvent = payload.changes.some((c) =>
+          const hasGenerationEvent = entityChanges.some((c) =>
             GENERATION_ACTIONS.has(c.action),
           );
           if (hasGenerationEvent && projectName) {
@@ -340,7 +350,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           }
 
           // Refresh grid list when a grid completes
-          if (payload.changes.some((c) => c.action === "grid_ready")) {
+          if (entityChanges.some((c) => c.action === "grid_ready")) {
             useAppStore.getState().invalidateGrids();
           }
         },

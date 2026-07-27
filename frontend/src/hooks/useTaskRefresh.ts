@@ -30,7 +30,13 @@ const IDLE_POLL_INTERVAL_MS = 30000;
  * 实际仍会持续拉取全局任务列表。
  */
 export function useTaskRefresh(projectName?: string | null, enabled = true): void {
-  const { setTasks, setStats, setConnected, setRefreshScope, refreshTasks } = useTasksStore();
+  // 逐个 selector 取 action：无 selector 的 useTasksStore() 会订阅整个 store，而本 Hook
+  // 挂在顶层 StudioLayout 上——那样每轮刷新写回 tasks/stats 都会连带重渲染整棵子树。
+  const setTasks = useTasksStore((s) => s.setTasks);
+  const setStats = useTasksStore((s) => s.setStats);
+  const setConnected = useTasksStore((s) => s.setConnected);
+  const setRefreshScope = useTasksStore((s) => s.setRefreshScope);
+  const refreshTasks = useTasksStore((s) => s.refreshTasks);
   const needsFastPolling = useTasksStore(selectNeedsFastPolling);
   // 初值 true：挂载首帧的对账归作用域 effect，不在调频 effect 里重复一次。
   const prevNeedsFastPollingRef = useRef(true);

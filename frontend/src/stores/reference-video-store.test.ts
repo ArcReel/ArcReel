@@ -67,6 +67,51 @@ describe("reference-video-store", () => {
     expect(state.loading).toBe(false);
   });
 
+  it("loadUnits 丢弃迟到响应，不让旧结果盖住新结果", async () => {
+    // 画布 effect 与任务完成失效可能在同一 key 上叠出两次 loadUnits：先发的那次若后返回，
+    // 会把新响应里已经生成的成片盖成旧数据，界面停在「无成片」直到下一次失效。
+    const releases: Array<(units: ReferenceVideoUnit[]) => void> = [];
+    vi.spyOn(API, "listReferenceVideoUnits").mockImplementation(
+      () => new Promise((resolve) => releases.push((units) => resolve({ units }))),
+    );
+
+    let first: Promise<void>;
+    let second: Promise<void>;
+    await act(async () => {
+      first = useReferenceVideoStore.getState().loadUnits("proj", 1);
+      second = useReferenceVideoStore.getState().loadUnits("proj", 1);
+      // 后发的先返回（带成片），先发的迟到（无成片）。
+      releases[1]([mkUnit("E1U1", { generated_assets: { ...mkUnit("E1U1").generated_assets, video_clip: "v.mp4" } })]);
+      releases[0]([mkUnit("E1U1")]);
+      await Promise.all([first, second]);
+    });
+
+    const units = useReferenceVideoStore.getState().unitsByEpisode["proj::1"];
+    expect(units?.[0].generated_assets.video_clip).toBe("v.mp4");
+  });
+
+  it("loadUnits 的迟到失败不覆盖已接管请求写入的数据", async () => {
+    const releases: Array<{ resolve: (units: ReferenceVideoUnit[]) => void; reject: (e: Error) => void }> = [];
+    vi.spyOn(API, "listReferenceVideoUnits").mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          releases.push({ resolve: (units) => resolve({ units }), reject });
+        }),
+    );
+
+    await act(async () => {
+      const first = useReferenceVideoStore.getState().loadUnits("proj", 1);
+      const second = useReferenceVideoStore.getState().loadUnits("proj", 1);
+      releases[1].resolve([mkUnit("E1U1")]);
+      releases[0].reject(new Error("boom"));
+      await Promise.all([first, second]);
+    });
+
+    const state = useReferenceVideoStore.getState();
+    expect(state.unitsByEpisode["proj::1"]).toHaveLength(1);
+    expect(state.error).toBeNull();
+  });
+
   it("addUnit appends unit and selects it", async () => {
     vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValueOnce({ unit: mkUnit("E1U3") });
 

@@ -1037,5 +1037,69 @@ describe("useProjectEventsSSE", () => {
       expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
     });
 
+    it("任务终态不写入实体版本表（entity_id 是一次性 task_id，无人消费）", async () => {
+      // 每个终态任务的 entity_id 都是新的 task_id，若混进实体失效会在 entityRevisions
+      // 里留下永不消费、也不随切项目清空的键，长会话下无界增长。
+      const options = openStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+
+      renderHarness("/");
+      emit(options(), [
+        taskChange(),
+        taskChange({ entity_id: "task-2", action: "task_failed" }),
+      ]);
+
+      expect(Object.keys(useAppStore.getState().entityRevisions)).toHaveLength(0);
+    });
+
+    it("任务终态到达不清掉前一批实体变更排队中的聚焦目标", async () => {
+      // 实体批次的 refreshProject 尚在途时，任务终态批次到达。任务变更没有可导航目标，
+      // 若让它走通用聚焦逻辑会把排队的目标改写成 null，用户丢失本该发生的自动导航。
+      let capturedOptions: ProjectEventStreamOptions | undefined;
+      vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+        capturedOptions = options;
+        return { close: vi.fn() } as unknown as EventSource;
+      });
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+      const d1 = deferred<GetProjectResult>();
+      vi.spyOn(API, "getProject").mockReturnValue(d1.promise);
+
+      renderHarness("/");
+
+      act(() => {
+        capturedOptions?.onChanges?.(
+          {
+            project_name: "demo",
+            batch_id: "batch-entity",
+            fingerprint: "fp-entity",
+            generated_at: "2026-03-01T00:00:00Z",
+            source: "filesystem",
+            changes: [
+              {
+                entity_type: "character",
+                action: "created",
+                entity_id: "hero",
+                label: "角色「hero」",
+                focus: { pane: "characters", anchor_type: "character", anchor_id: "hero" },
+                important: true,
+              },
+            ],
+          },
+          new MessageEvent("changes"),
+        );
+      });
+
+      emit(capturedOptions, [taskChange()]);
+
+      await act(async () => {
+        d1.resolve(makeGetProjectResult("R1"));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("location")).toHaveTextContent("/characters");
+      });
+    });
   });
 });

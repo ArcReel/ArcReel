@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
+from lib.db.repositories.task_repo import TaskRepository
 from lib.generation_queue import GenerationQueue
 from lib.project_change_hints import register_project_change_batch_listener
 from lib.task_terminal_events import build_task_terminal_change
@@ -162,6 +163,29 @@ class TestQueueEmitsTerminalEvents:
             source="webui",
         )
         await queue.claim_next_task(media_type="video")
+
+        assert _task_changes(captured_batches) == []
+
+    async def test_no_publish_when_body_raises_before_commit(self, queue, captured_batches, monkeypatch):
+        """终态已收集但会话未提交时不得发布——没有终态落库就没有终态可通告。
+
+        `_task_repo` 把发布放在 `async with` 之后正是为此；若发布挪进 repo 内部或提到
+        提交之前，前端会收到一条对应状态并未落库的终态事件。
+        """
+        task_id = await self._enqueue_running(queue)
+        captured_batches.clear()
+
+        original = TaskRepository.mark_succeeded
+
+        async def raise_after_collecting(self, task_id_arg, result=None):
+            await original(self, task_id_arg, result)
+            assert self.terminal_events, "前置条件：终态已被 _append_event 收集"
+            raise RuntimeError("commit 前炸了")
+
+        monkeypatch.setattr(TaskRepository, "mark_succeeded", raise_after_collecting)
+
+        with pytest.raises(RuntimeError, match="commit 前炸了"):
+            await queue.mark_task_succeeded(task_id, {"file_path": "videos/E1S01.mp4"})
 
         assert _task_changes(captured_batches) == []
 

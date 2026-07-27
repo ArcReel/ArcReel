@@ -78,7 +78,12 @@ export function AdReferenceVideoCanvas({
     const controller = new AbortController();
     API.listAdReferenceUnits(projectName, episode, { signal: controller.signal })
       .then((resp) => {
-        if (!controller.signal.aborted) setUnits(resp.units);
+        // 一并清空旧错误：首次加载失败后，任务完成触发的这次重拉即便成功，残留的错误
+        // 提示也会继续挂在界面上。
+        if (!controller.signal.aborted) {
+          setError(null);
+          setUnits(resp.units);
+        }
       })
       .catch((err: unknown) => {
         // 加载失败保持 units === null（区分「无数据」与「出错」），仅记错误展示

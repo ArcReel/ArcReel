@@ -1,12 +1,14 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { API } from "@/api";
 import {
+  defaultTaskStats,
   isActiveStatus,
   isOccupyingStatus,
   isTerminalStatus,
   selectActiveResourceIds,
   selectHasActiveTaskForScriptFile,
   selectLatestTaskByResource,
+  selectNeedsFastPolling,
   taskResourceKind,
   useTasksStore,
 } from "./tasks-store";
@@ -657,8 +659,16 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
       page_size: 200,
     });
     vi.spyOn(API, "getTaskStats").mockResolvedValue({
-      stats: { queued: 0, running: 0, succeeded: 0, failed: 0, total: 0 },
-    } as never);
+      stats: {
+        queued: 0,
+        running: 0,
+        cancelling: 0,
+        succeeded: 0,
+        failed: 0,
+        cancelled: 0,
+        total: 0,
+      },
+    });
     return listSpy;
   }
 
@@ -700,8 +710,16 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
         }),
     );
     vi.spyOn(API, "getTaskStats").mockResolvedValue({
-      stats: { queued: 0, running: 0, succeeded: 0, failed: 0, total: 0 },
-    } as never);
+      stats: {
+        queued: 0,
+        running: 0,
+        cancelling: 0,
+        succeeded: 0,
+        failed: 0,
+        cancelled: 0,
+        total: 0,
+      },
+    });
     useTasksStore.getState().setRefreshScope({ projectName: "proj" });
 
     const first = useTasksStore.getState().refreshTasks();
@@ -728,8 +746,16 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
         }),
     );
     vi.spyOn(API, "getTaskStats").mockResolvedValue({
-      stats: { queued: 0, running: 0, succeeded: 0, failed: 0, total: 0 },
-    } as never);
+      stats: {
+        queued: 0,
+        running: 0,
+        cancelling: 0,
+        succeeded: 0,
+        failed: 0,
+        cancelled: 0,
+        total: 0,
+      },
+    });
     useTasksStore.getState().setRefreshScope({ projectName: "old-project" });
 
     const pending = useTasksStore.getState().refreshTasks();
@@ -752,5 +778,67 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
 
     expect(useTasksStore.getState().connected).toBe(false);
     expect(useTasksStore.getState().tasks).toHaveLength(1);
+  });
+});
+
+describe("selectNeedsFastPolling", () => {
+  const idle = {
+    stats: defaultTaskStats,
+    connected: true,
+    refreshScope: { projectName: "proj" },
+    optimisticActive: new Set<string>(),
+    optimisticActiveScriptFile: new Set<string>(),
+  };
+
+  it("空闲且连接正常时退到低频档", () => {
+    expect(selectNeedsFastPolling(idle)).toBe(false);
+  });
+
+  it("有任务未落终态时留在高频档", () => {
+    expect(
+      selectNeedsFastPolling({ ...idle, stats: { ...defaultTaskStats, cancelling: 1 } }),
+    ).toBe(true);
+  });
+
+  it("上一轮拉取失败时留在高频档", () => {
+    expect(selectNeedsFastPolling({ ...idle, connected: false })).toBe(true);
+  });
+
+  it("当前作用域内的乐观标记让判据留在高频档", () => {
+    expect(
+      selectNeedsFastPolling({
+        ...idle,
+        optimisticActive: new Set(["proj\0character\0A\0image_edit\0"]),
+      }),
+    ).toBe(true);
+    expect(
+      selectNeedsFastPolling({
+        ...idle,
+        optimisticActiveScriptFile: new Set(["proj\0grid\0episode_1.json\0"]),
+      }),
+    ).toBe(true);
+  });
+
+  it("别的项目残留的乐观标记不把当前作用域钉在高频档", () => {
+    // 在项目 A 打标后、真实任务行落地前切到项目 B：A 的标记再也等不到同项目任务行来修剪，
+    // 若计入判据，B 即便完全空闲也会一直 3 秒轮询。
+    expect(
+      selectNeedsFastPolling({
+        ...idle,
+        refreshScope: { projectName: "other-proj" },
+        optimisticActive: new Set(["proj\0character\0A\0image_edit\0"]),
+        optimisticActiveScriptFile: new Set(["proj\0grid\0episode_1.json\0"]),
+      }),
+    ).toBe(false);
+  });
+
+  it("不按项目过滤（全局作用域）时所有标记都计入", () => {
+    expect(
+      selectNeedsFastPolling({
+        ...idle,
+        refreshScope: { projectName: null },
+        optimisticActive: new Set(["proj\0character\0A\0image_edit\0"]),
+      }),
+    ).toBe(true);
   });
 });

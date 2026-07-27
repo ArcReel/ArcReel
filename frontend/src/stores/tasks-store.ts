@@ -269,26 +269,50 @@ export function isActiveStatus(status: TaskStatus): boolean {
 }
 
 /**
+ * 标记集中是否有属于当前刷新作用域的条目。两类乐观标记的 key 均以 `projectName` 打头，
+ * 故统一按前缀判定；作用域为「不按项目过滤」（`projectName === null`）时全部计入。
+ *
+ * 按作用域筛而非直接看 `size`：标记只在同项目的真实任务行落地时才被修剪，切到别的项目
+ * 后原项目的残留标记永远等不到修剪，若计入判据会把兜底轮询永久钉在高频档。
+ */
+function hasOptimisticInScope(
+  marks: ReadonlySet<string>,
+  scopeProjectName: string | null,
+): boolean {
+  if (marks.size === 0) return false;
+  if (scopeProjectName === null) return true;
+  const prefix = `${scopeProjectName}\0`;
+  for (const key of marks) {
+    if (key.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+/**
  * 兜底轮询是否需要留在高频档。三种情形都算「需要」：
  *
  * - **有任务未落终态**。判据取 stats 而非 tasks 数组：stats 覆盖整个作用域，tasks 只是
  *   分页后的前 N 条。中间态（queued→running）没有事件推送，只有轮询能看见。
- * - **有乐观占用标记**。入队成功到该任务出现在 stats 之间还有一段空窗，此时若判为空闲，
- *   新任务要等一整个空闲间隔才在界面上出现。
+ * - **当前作用域内有乐观占用标记**。入队成功到该任务出现在 stats 之间还有一段空窗，
+ *   此时若判为空闲，新任务要等一整个空闲间隔才在界面上出现。
  * - **上一轮拉取失败**（`connected === false`）。此时 stats 是过期数据，据它判空闲会把
  *   恢复推迟一整个空闲间隔；失败后本就该尽快重试。
  */
 export function selectNeedsFastPolling(s: {
   stats: TaskStats;
   connected: boolean;
+  refreshScope: TasksRefreshScope | null;
   optimisticActive: ReadonlySet<string>;
   optimisticActiveScriptFile: ReadonlySet<string>;
 }): boolean {
+  // 作用域未启用时 refreshTasks 不发请求，标记落在哪个项目都无从对账，一律不计入。
+  const scope = s.refreshScope;
   return (
     !s.connected ||
     s.stats.queued + s.stats.running + s.stats.cancelling > 0 ||
-    s.optimisticActive.size > 0 ||
-    s.optimisticActiveScriptFile.size > 0
+    (scope !== null &&
+      (hasOptimisticInScope(s.optimisticActive, scope.projectName) ||
+        hasOptimisticInScope(s.optimisticActiveScriptFile, scope.projectName)))
   );
 }
 
@@ -345,7 +369,7 @@ export function selectLatestTaskByResource(
  *
  * 乐观占用：入队请求成功返回到下一次刷新把新任务行写进 store 之间有一段空窗，期间该
  * resource 在 store 里还没有对应任务行、判定为空闲（标记本身会把兜底轮询拉回忙碌档，
- * 见 `selectHasPendingTasks`，故空窗上限是一个忙碌档间隔而非空闲档间隔）。
+ * 见 `selectNeedsFastPolling`，故空窗上限是一个忙碌档间隔而非空闲档间隔）。
  * image_edit 与其目标资源共用占用槽，是第一个会在此空窗内与「本资源另一 task_type」
  * 并发提交的场景（同 task_type 的并发提交已被后端 dedupe 索引拦下，见
  * `idx_tasks_dedupe_active`，但该索引以 task_type 为键的一部分，不拦跨 task_type 并发）。

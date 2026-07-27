@@ -294,6 +294,19 @@ describe("AdReferenceVideoCanvas", () => {
     expect(screen.queryByText(/先派生分组/)).not.toBeInTheDocument();
   });
 
+  it("首次加载失败后，任务完成触发的重拉成功即清掉旧错误", async () => {
+    mockedAPI.listAdReferenceUnits.mockRejectedValueOnce(new Error("加载炸了"));
+    renderCanvas();
+    expect(await screen.findByRole("alert")).toHaveTextContent("加载炸了");
+
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    act(() => {
+      useAppStore.getState().invalidateReferenceVideoUnits();
+    });
+
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
   it("批量生成时前一分组的失败不被后续调用清掉", async () => {
     const units = [makeUnit(), makeUnit({ unit_id: "E1U2", shot_ids: ["E1S2"] })];
     mockedAPI.listAdReferenceUnits.mockResolvedValue({ units });
