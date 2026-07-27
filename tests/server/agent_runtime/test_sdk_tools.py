@@ -293,6 +293,40 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
     assert "audio/segment_E1S01.wav" in text
 
 
+async def test_generate_narration_audio_selects_item_with_corrupt_generated_assets(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，不抛 AttributeError。"""
+    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+
+    script = _narration_audio_script()
+    script["segments"][0]["generated_assets"] = "corrupt"
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    captured: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+
+        captured.extend(specs)
+        succ = [
+            BatchTaskResult(
+                resource_id=s.resource_id,
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": f"audio/segment_{s.resource_id}.wav"},
+            )
+            for s in specs
+        ]
+        return succ, []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    tool_obj = mod.generate_narration_audio_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert [s.resource_id for s in captured] == ["E1S01"]
+
+
 async def test_generate_narration_audio_explicit_ids_regenerate(fake_ctx: ToolContext, monkeypatch) -> None:
     """传 segment_ids → 即使该段已有 narration_audio 也重新入队（批量范围/单段重生语义）。"""
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
@@ -527,6 +561,37 @@ async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) ->
     tool_obj = generate_storyboards_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
+
+
+async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，不抛 AttributeError。"""
+    from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
+
+    captured: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+
+        captured.extend(specs)
+        succ = [
+            BatchTaskResult(
+                resource_id=s.resource_id,
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": f"storyboards/scene_{s.resource_id}.png"},
+            )
+            for s in specs
+        ]
+        return succ, []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = "corrupt"  # type: ignore[attr-defined]
+    tool_obj = generate_storyboards_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+    assert out.get("is_error") is not True, out
+    assert [s.resource_id for s in captured] == ["E1S01"]
 
 
 async def test_generate_storyboards_error(fake_ctx: ToolContext, monkeypatch) -> None:

@@ -77,6 +77,18 @@ def test_calculate_episode_stats_reference_video_empty_draft(pm: ProjectManager)
     assert stats["duration_seconds"] == 0
 
 
+def test_calculate_episode_stats_reference_video_tolerates_corrupt_generated_assets(
+    pm: ProjectManager,
+) -> None:
+    """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，不抛 AttributeError。"""
+    calc = StatusCalculator(pm)
+    script = _mk_reference_script(units_total=2, units_done=1)
+    script["video_units"][0]["generated_assets"] = "corrupt"
+    stats = calc.calculate_episode_stats("proj", script)
+    assert stats["status"] == "draft"
+    assert stats["videos"] == {"total": 2, "completed": 0}
+
+
 def test_enrich_script_reference_video_aggregates_references(pm: ProjectManager) -> None:
     """enrich_script must collect @character/@scene/@prop references from units."""
     calc = StatusCalculator(pm)

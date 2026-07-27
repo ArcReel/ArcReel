@@ -230,6 +230,30 @@ class TestCollectVideoClips:
         assert clips[1]["id"] == "E1S2"
         assert clips[1]["subtitle_text"] == "点击下方链接立即下单"
 
+    def test_tolerates_corrupt_generated_assets(self, tmp_path):
+        """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，不抛 AttributeError"""
+        from server.services.jianying_draft_service import JianyingDraftService
+
+        project_dir = tmp_path / "projects" / "demo"
+        project_dir.mkdir(parents=True)
+
+        script = {
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "S1",
+                    "duration_seconds": 8,
+                    "novel_text": "从前有座山",
+                    "generated_assets": "corrupt",
+                },
+            ],
+        }
+
+        svc = JianyingDraftService.__new__(JianyingDraftService)
+        clips = svc._collect_video_clips(script, project_dir)
+
+        assert len(clips) == 0
+
     def test_skips_missing_video_files(self, tmp_path):
         """script 中有记录但文件不存在时跳过"""
         from server.services.jianying_draft_service import JianyingDraftService
