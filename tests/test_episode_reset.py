@@ -762,6 +762,24 @@ def test_partial_reset_rejects_when_retain_boundary_has_no_source_range(tmp_path
     assert _load_project(project_dir) == before
 
 
+def test_partial_reset_rejects_structurally_incomplete_boundary_same_as_missing(tmp_path: Path) -> None:
+    """退回点 source_range 结构不完整（非 None 但字段非法）与缺失同口径处理：
+    都归为「无可信坐标」，报同一条「缺少可信的原文范围记录」，不是单独的「非法」硬错误。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": "0", "end": 10}),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="缺少可信的原文范围记录"):
+        reset_episode_planning(project_dir, from_episode=2)
+
+    assert _load_project(project_dir) == before
+
+
 def test_partial_reset_rejects_on_fingerprint_mismatch(tmp_path: Path) -> None:
     """已记录的源文指纹与当前源文不一致时拒绝，账本与文件均不被改动。"""
     project_dir = _write_project(

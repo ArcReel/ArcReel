@@ -329,13 +329,13 @@ def _resolve_partial_reset_cursor(
     prev: tuple[str, int] | None = None
     for num in range(1, from_episode):
         entry = entries_by_num[num]
-        # 位置记录是唯一真相：有 source_range 才可信，ledger_status 不参与判定
-        if not isinstance(entry.get("source_range"), Mapping):
-            prev = None  # 无可信坐标，切断连续性比较
-            continue
+        # 位置记录是唯一真相：有 source_range 才可信，ledger_status 不参与判定。缺失与
+        # 结构不完整同口径处理（与 plan 侧 parse_source_range(entry) is None 一致）——
+        # 二者都不构成可信坐标，不应因为 source_range 恰好是 Mapping 就单独升级成硬错误
         coords = parse_source_range(entry)
         if coords is None:
-            raise EpisodeResetError(f"第 {num} 集原文范围记录非法，无法安全部分重置，{_FULL_RESET_HINT}")
+            prev = None  # 无可信坐标（缺失或结构不完整），切断连续性比较
+            continue
         rel, start, end = coords
         text = text_by_rel.get(rel)
         if text is None or not (0 <= start < end <= len(text)):
