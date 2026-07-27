@@ -828,7 +828,7 @@ def test_partial_reset_rejects_when_first_episode_not_at_source_start(tmp_path: 
     )
     before = _load_project(project_dir)
 
-    with pytest.raises(EpisodeResetError, match="未从首个源文件起点开始"):
+    with pytest.raises(EpisodeResetError, match="未从源文件起点开始"):
         reset_episode_planning(project_dir, from_episode=2)
 
     assert _load_project(project_dir) == before
@@ -852,6 +852,66 @@ def test_partial_reset_rejects_out_of_order_source_file_switch(tmp_path: Path) -
 
     with pytest.raises(EpisodeResetError, match="切换源文件不合法"):
         reset_episode_planning(project_dir, from_episode=3)
+
+    assert _load_project(project_dir) == before
+
+
+def test_partial_reset_allows_first_episode_after_blank_leading_source(tmp_path: Path) -> None:
+    """排序中排在第 1 集源文件之前的文件若只剩空白（EpisodePlanner 会自动跳过），
+    第 1 集合法落在非首个文件，不应被误判为账本损坏。"""
+    project_dir = _write_project(tmp_path)
+    (project_dir / "source" / "a.txt").write_text("   \n  ", encoding="utf-8")
+    (project_dir / "source" / "b.txt").write_text("B" * 10, encoding="utf-8")
+    project = _load_project(project_dir)
+    project["episodes"] = [
+        _entry(1, source_range={"source_file": "source/b.txt", "start": 0, "end": 10}),
+        _entry(2, source_range={"source_file": "source/b.txt", "start": 10, "end": 10}),
+    ]
+    (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    result = reset_episode_planning(project_dir, from_episode=2)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert _load_project(project_dir)["planning_cursor"] == {"source_file": "source/b.txt", "offset": 10}
+
+
+def test_partial_reset_allows_skip_over_blank_middle_source(tmp_path: Path) -> None:
+    """相邻保留集跨源文件时，中间被跳过的文件若只剩空白同样合法，不要求恰为紧邻下一个
+    文件。"""
+    project_dir = _write_project(tmp_path)
+    (project_dir / "source" / "a.txt").write_text("A" * 10, encoding="utf-8")
+    (project_dir / "source" / "b.txt").write_text("   \n  ", encoding="utf-8")
+    (project_dir / "source" / "c.txt").write_text("C" * 10, encoding="utf-8")
+    project = _load_project(project_dir)
+    project["episodes"] = [
+        _entry(1, source_range={"source_file": "source/a.txt", "start": 0, "end": 10}),
+        _entry(2, source_range={"source_file": "source/c.txt", "start": 0, "end": 10}),
+        _entry(3, source_range={"source_file": "source/c.txt", "start": 10, "end": 10}),
+    ]
+    (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    result = reset_episode_planning(project_dir, from_episode=3)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert _load_project(project_dir)["planning_cursor"] == {"source_file": "source/c.txt", "offset": 10}
+
+
+def test_partial_reset_rejects_mid_sequence_unanchored_entry(tmp_path: Path) -> None:
+    """保留段中间（非边界）出现失锚条目，其后又有锚定记录：该记录的坐标无法证明与
+    已验证内容衔接，中间那段源文可能被永久遗漏，拒绝而非凭空重新起锚。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(2, source_range=None, status="unanchored"),
+            _entry(3, source_range={"source_file": "source/novel.txt", "start": 20, "end": 30}),
+            _entry(4, source_range={"source_file": "source/novel.txt", "start": 30, "end": 40}),
+        ],
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="存在失锚（unanchored）条目"):
+        reset_episode_planning(project_dir, from_episode=4)
 
     assert _load_project(project_dir) == before
 

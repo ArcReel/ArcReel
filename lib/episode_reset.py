@@ -286,12 +286,14 @@ def _resolve_partial_reset_cursor(
     - 全部已记录源文指纹须与当前源文一致（``mismatched_source_fingerprints``，与
       ``EpisodePlanner`` 的提交门禁同一套逃生口）
     - 保留段（1..from_episode-1）每一集若带可信的 ``source_range``，须结构完整、
-      落在对应源文件当前长度界内；第 1 集须从排序后的首个源文件偏移 0 起；相邻两条
-      记录须首尾相接——同一源文件内后一条 ``start`` 须等于前一条 ``end``，跨源文件
-      时须切到排序中紧邻的下一个文件、起点为 0、且上一文件在切出点之后只剩空白
-      （``ledger_status == "unanchored"`` 的条目视为无坐标可信，不参与本项检查，
-      也会切断与后续记录的连续性比较——它没有可信坐标能证明后续记录确实紧接其后；
-      规划器同样不采信这类条目的 ``source_range``，见
+      落在对应源文件当前长度界内；第 1 集起点须为 0，且排序中排在其源文件之前的
+      文件全部只剩空白（``EpisodePlanner`` 会自动跳过纯空白源文件，第 1 集因此可能
+      合法落在非首个文件）；相邻两条记录须首尾相接——同一源文件内后一条 ``start``
+      须等于前一条 ``end``，跨源文件时须切到排序中下一个仍有内容的文件、起点为 0、
+      且被跳过的中间文件（含切出点所在文件的剩余部分）全部只剩空白
+      （``ledger_status == "unanchored"`` 的条目视为无坐标可信，不参与坐标校验；
+      若这类条目出现在保留段中间，其后任何锚定记录都无法证明与已验证内容衔接，
+      直接拒绝——规划器同样不采信这类条目的 ``source_range``，见
       ``EpisodePlanner._reconcile_derived_files``）
     """
     raw_episodes = project.get("episodes")
@@ -366,10 +368,23 @@ def _resolve_partial_reset_cursor(
                 f"无法安全部分重置，{_FULL_RESET_HINT}"
             )
         if prev is None:
-            if num == 1 and (source_order.get(rel) != 0 or start != 0):
+            if num != 1:
+                # 保留段中间存在失锚条目切断了连续性：这条记录的坐标无法与任何可信的
+                # 前序位置比对，不能证明它确实紧接着已验证过的内容，只能拒绝——沉默
+                # 放行会让退回后的游标凭空重新起锚，中间那段源文既无法证明已覆盖，
+                # 也不会再被规划
                 raise EpisodeResetError(
-                    f"第 1 集原文范围未从首个源文件起点开始（记录范围 [{start}, {end}) @ {rel}），"
-                    f"账本可能已损坏，无法安全部分重置，{_FULL_RESET_HINT}"
+                    f"第 {num} 集之前存在失锚（unanchored）条目，无法确认原文范围是否与保留段"
+                    f"其余部分衔接，无法安全部分重置，{_FULL_RESET_HINT}"
+                )
+            rel_idx = source_order.get(rel)
+            # 排序中排在它之前的源文件必须全部只剩空白：EpisodePlanner 遇到纯空白源文件会
+            # 自动跳过（见 `_effective_start` 的耗尽推进），第 1 集因此可能合法落在非首个
+            # 源文件——只要求 rel_idx == 0 会把这种合法账本误判为损坏
+            if start != 0 or rel_idx is None or any(doc.text.strip() for doc in current_sources[:rel_idx]):
+                raise EpisodeResetError(
+                    f"第 1 集原文范围未从源文件起点开始（记录范围 [{start}, {end}) @ {rel}，"
+                    f"其前源文件仍有非空白内容），账本可能已损坏，无法安全部分重置，{_FULL_RESET_HINT}"
                 )
         else:
             prev_rel, prev_end = prev
@@ -379,16 +394,25 @@ def _resolve_partial_reset_cursor(
                 prev_idx = source_order.get(prev_rel)
                 rel_idx = source_order.get(rel)
                 prev_text = text_by_rel.get(prev_rel)
+                # 同理：中间被跳过的源文件（prev_idx 到 rel_idx 之间）必须全部只剩空白，
+                # 而非要求 rel_idx 恰为 prev_idx + 1——纯空白的中间源文件同样会被
+                # EpisodePlanner 自动跳过
+                skipped_have_content = (
+                    prev_idx is not None
+                    and rel_idx is not None
+                    and any(current_sources[i].text.strip() for i in range(prev_idx + 1, rel_idx))
+                )
                 if (
                     prev_idx is None
                     or rel_idx is None
-                    or rel_idx != prev_idx + 1
+                    or rel_idx <= prev_idx
                     or prev_text is None
                     or prev_text[prev_end:].strip()
+                    or skipped_have_content
                 ):
                     raise EpisodeResetError(
-                        f"第 {num} 集切换源文件不合法（应在 {prev_rel} 耗尽后顺序切到下一源文件），"
-                        f"账本可能已损坏，无法安全部分重置，{_FULL_RESET_HINT}"
+                        f"第 {num} 集切换源文件不合法（应在 {prev_rel} 及其间源文件耗尽后顺序切到"
+                        f"下一有内容的源文件），账本可能已损坏，无法安全部分重置，{_FULL_RESET_HINT}"
                     )
                 expected_start = 0
             if start != expected_start:
