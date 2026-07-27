@@ -14,6 +14,7 @@ from lib.generation_worker import (
     _extract_provider,
     _read_int_env,
 )
+from lib.script_editor import ScriptEditError
 
 
 def _cap(limits: dict[str, dict[str, int]] | None = None, *, image: int = 5, video: int = 3) -> CapacityTable:
@@ -540,6 +541,24 @@ class TestGenerationWorker:
         monkeypatch.setattr("server.services.generation_tasks.execute_generation_task", _raise)
         await worker._process_task({"task_id": "t2"})
         assert queue.failed and queue.failed[0][0] == "t2"
+
+    @pytest.mark.asyncio
+    async def test_process_task_script_edit_error_encodes_key_not_chinese_str(self, monkeypatch):
+        """apply_unit_video_assets 经异步任务队列（非 upload_unit_video 同步路由）抛出时，
+        error_message 落成可翻译的 [key] 结构而非 str(exc) 的固定中文，任务状态接口按
+        Accept-Language 渲染时才不会给 en/vi 用户漏出中文。"""
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+
+        async def _raise_script_edit_error(_task):
+            raise ScriptEditError("generated_assets 必须是 dict", key="script_edit_generated_assets_invalid")
+
+        monkeypatch.setattr(
+            "server.services.generation_tasks.execute_generation_task",
+            _raise_script_edit_error,
+        )
+        await worker._process_task({"task_id": "t_script_edit"})
+        assert queue.failed and queue.failed[0] == ("t_script_edit", "[script_edit_generated_assets_invalid]")
 
     @pytest.mark.asyncio
     async def test_process_task_cancelled_error_marks_cancelled(self, monkeypatch):

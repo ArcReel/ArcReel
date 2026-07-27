@@ -34,6 +34,7 @@ from lib.generation_queue import (
     GenerationQueue,
     get_generation_queue,
 )
+from lib.script_editor import ScriptEditError
 from lib.task_failure import encode_failure
 
 # Default provider used when a task payload does not specify one.
@@ -670,7 +671,8 @@ class GenerationWorker:
             raise
         except Exception as exc:
             logger.exception("任务失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
-            rows = await asyncio.shield(self.queue.mark_task_failed(task_id, str(exc)))
+            message = encode_failure(exc.key, **exc.params) if isinstance(exc, ScriptEditError) else str(exc)
+            rows = await asyncio.shield(self.queue.mark_task_failed(task_id, message))
             if rows == 0:
                 # 外部已抢先翻 cancelling → 落地 cancelled 终态
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
