@@ -6,7 +6,7 @@ import { GlobalHeader } from "./GlobalHeader";
 import { AssetSidebar } from "./AssetSidebar";
 import { AssistantResizeHandle } from "./AssistantResizeHandle";
 import { AgentCopilot } from "@/components/copilot/AgentCopilot";
-import { useTasksSSE } from "@/hooks/useTasksSSE";
+import { useTaskRefresh } from "@/hooks/useTaskRefresh";
 import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
 import { TaskFailureListener } from "./TaskFailureListener";
 import { ScriptGenerationNoticeListener } from "./ScriptGenerationNoticeListener";
@@ -64,11 +64,11 @@ export function StudioLayout({ children }: StudioLayoutProps) {
 
   // demoMode 演示→真实切换时先于 store 变为 false，currentProjectName 单独判一次
   // 兜住这一帧仍读到旧演示项目名的窗口，避免对不存在的演示项目建一次必然失败的 SSE 连接。
-  // useTasksSSE 的 projectName=null 语义是「不按项目过滤」而非「停用」，enabled 必须
+  // useTaskRefresh 的 projectName=null 语义是「不按项目过滤」而非「停用」，enabled 必须
   // 同步这一判定，否则该帧会退化成对全局任务的轮询而非真正停用。
   const isEffectivelyDemo = demoMode || isDemoProject(currentProjectName);
   const sseProjectName = isEffectivelyDemo ? null : currentProjectName;
-  useTasksSSE(sseProjectName, !isEffectivelyDemo);
+  useTaskRefresh(sseProjectName, !isEffectivelyDemo);
   useProjectEventsSSE(sseProjectName);
 
   const restoreBodyStyle = useCallback(() => {

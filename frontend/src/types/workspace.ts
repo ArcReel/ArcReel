@@ -25,7 +25,10 @@ export interface ProjectChange {
     | "episode"
     | "overview"
     | "draft"
-    | "grid";
+    | "grid"
+    // task 不是项目实体，而是任务终态的刷新信号（important=false / focus=null）：
+    // 只用来重拉任务列表与受影响画布，不进通知与聚焦跳转。
+    | "task";
   action:
     | "created"
     | "updated"
@@ -34,11 +37,16 @@ export interface ProjectChange {
     | "video_ready"
     | "grid_ready"
     | "reference_video_ready"
-    | "tts_ready";
+    | "tts_ready"
+    | "task_succeeded"
+    | "task_failed"
+    | "task_cancelled";
   entity_id: string;
   label: string;
   script_file?: string;
   episode?: number;
+  /** 仅 entity_type === "task" 携带：终态任务的任务类型，用于判定哪类画布需重拉。 */
+  task_type?: string;
   focus?: ProjectChangeFocus | null;
   important: boolean;
   asset_fingerprints?: Record<string, number>;

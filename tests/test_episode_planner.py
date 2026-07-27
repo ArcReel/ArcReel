@@ -6,12 +6,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import unicodedata
 from pathlib import Path
 
 import pytest
 
+from lib.episode_ledger import SOURCE_FINGERPRINTS_KEY
+from lib.episode_ledger import discover_sources as _real_discover_sources
 from lib.episode_planner import (
     EpisodePlanner,
     EpisodePlanningError,
@@ -19,6 +22,7 @@ from lib.episode_planner import (
     ReplanConfirmationRequired,
     _find_all_overlapping,
 )
+from lib.episode_reset import EpisodeResetResult, reset_episode_planning
 from lib.text_backends.base import TextGenerationResult
 from lib.text_metrics import count_reading_units
 
@@ -1075,6 +1079,224 @@ def _planned_two_files(
     for num, (text, s, e) in enumerate(ranges, start=1):
         (project_dir / "source" / f"episode_{num}.txt").write_text(text[s:e], encoding="utf-8")
     return project_dir
+
+
+@pytest.mark.integration
+class TestSourceFingerprintGate:
+    """plan 提交路径记录源文指纹、入口比对拒绝已改动的源文。"""
+
+    async def test_plan_records_fingerprints_for_legacy_project_without_error(self, tmp_path: Path):
+        """存量项目无指纹字段：首次 plan 正常执行并补记。"""
+        project_dir = _write_project(tmp_path)
+        fake = _FakeTextGenerator([_plan_response([{"title": "t1", "hook": "h1", "end_anchor": ANCHOR_EP2}])])
+        planner = EpisodePlanner(project_dir, generator=fake)
+
+        await planner.plan()
+
+        project = _load_project(project_dir)
+        expected = hashlib.sha256(SOURCE.encode("utf-8")).hexdigest()
+        assert project[SOURCE_FINGERPRINTS_KEY] == {"source/novel.txt": expected}
+
+    async def test_plan_rejects_when_recorded_fingerprint_mismatches(self, tmp_path: Path):
+        stale_fp = hashlib.sha256("旧版本原文内容".encode()).hexdigest()
+        project_dir = _write_project(tmp_path, extra={SOURCE_FINGERPRINTS_KEY: {"source/novel.txt": stale_fp}})
+        planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
+
+        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+            await planner.plan()
+
+    async def test_plan_error_names_changed_file_and_points_to_reset(self, tmp_path: Path):
+        stale_fp = hashlib.sha256(b"stale").hexdigest()
+        project_dir = _write_project(tmp_path, extra={SOURCE_FINGERPRINTS_KEY: {"source/novel.txt": stale_fp}})
+        planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
+
+        with pytest.raises(EpisodePlanningError, match="reset_episode_planning"):
+            await planner.plan()
+
+    async def test_full_reset_clears_gate_and_plan_recovers(self, tmp_path: Path):
+        """长篇已规划后源文被替换：plan 被拒 → 全量重置 → 重新规划成功（复刻报告场景）。"""
+        project_dir = _write_project(tmp_path)
+        fake = _FakeTextGenerator([_plan_response([{"title": "t1", "hook": "h1", "end_anchor": ANCHOR_EP1}])])
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        (project_dir / "source" / "novel.txt").write_text("全新的故事内容，这是重置后的新素材。", encoding="utf-8")
+        blocked = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
+        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+            await blocked.plan()
+
+        result = reset_episode_planning(project_dir, from_episode=1)
+        assert isinstance(result, EpisodeResetResult)
+        assert SOURCE_FINGERPRINTS_KEY not in _load_project(project_dir)
+
+        fake2 = _FakeTextGenerator([_plan_response([{"title": "t2", "hook": "h2", "end_anchor": "重置后的新素材。"}])])
+        result2 = await EpisodePlanner(project_dir, generator=fake2).plan()
+        assert result2.episodes[0].title == "t2"
+
+    async def test_partial_reset_retains_prefix_and_plan_continues_numbering(self, tmp_path: Path):
+        """规划 2 集后部分重置到第 2 集：账本保留第 1 集、游标退到其末尾，再次 plan 从第 2 集续接编号。"""
+        project_dir = _write_project(tmp_path)
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "t1", "hook": "h1", "end_anchor": ANCHOR_EP1},
+                        {"title": "t2", "hook": "h2", "end_anchor": ANCHOR_EP2},
+                    ]
+                )
+            ]
+        )
+        await EpisodePlanner(project_dir, generator=fake).plan()
+        assert [e["episode"] for e in _load_project(project_dir)["episodes"]] == [1, 2]
+
+        result = reset_episode_planning(project_dir, from_episode=2)
+        assert isinstance(result, EpisodeResetResult)
+
+        project = _load_project(project_dir)
+        assert [e["episode"] for e in project["episodes"]] == [1]
+        # 游标退到第 1 集原文范围末尾，指纹字段保留（部分重置已验证其与当前源文一致）
+        assert project["planning_cursor"] == {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP1)}
+        assert SOURCE_FINGERPRINTS_KEY in project
+        # 保留段派生文件不动，重置范围内的派生文件已删除
+        assert (project_dir / "source" / "episode_1.txt").is_file()
+        assert not (project_dir / "source" / "episode_2.txt").exists()
+
+        fake2 = _FakeTextGenerator([_plan_response([{"title": "t2b", "hook": "h2b", "end_anchor": ANCHOR_EP2}])])
+        result2 = await EpisodePlanner(project_dir, generator=fake2).plan()
+
+        assert [ep.episode for ep in result2.episodes] == [2]
+        assert [e["episode"] for e in _load_project(project_dir)["episodes"]] == [1, 2]
+
+    async def test_plan_rejects_when_source_changes_during_model_call_without_record(self, tmp_path: Path):
+        """存量项目补记路径：模型调用期间源文被改动，提交时按文本复核拒绝，不落任何写入。"""
+        project_dir = _write_project(tmp_path)
+        source_path = project_dir / "source" / "novel.txt"
+
+        class _MutatingGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                source_path.write_text("规划期间被换掉的全新原文内容。", encoding="utf-8")
+                return await super().generate(request, project_name)
+
+        fake = _MutatingGenerator([_plan_response([{"title": "t1", "hook": "h1", "end_anchor": ANCHOR_EP2}])])
+        planner = EpisodePlanner(project_dir, generator=fake)
+
+        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+            await planner.plan()
+
+        project = _load_project(project_dir)
+        assert not project.get("episodes")
+        assert SOURCE_FINGERPRINTS_KEY not in project
+
+    async def test_plan_rejects_when_already_anchored_source_changes_during_model_call(self, tmp_path: Path):
+        """存量多源文件项目：本批规划 novel2.txt 时，已锚定第 1 集的 novel.txt 在模型调用期间被
+        改动同样拒绝——只复核本批 source_rel 会漏掉这类跨文件的界内漂移。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel2.txt", "offset": 0},
+        )
+        (project_dir / "source" / "novel2.txt").write_text(SOURCE2, encoding="utf-8")
+        novel_path = project_dir / "source" / "novel.txt"
+
+        class _MutatingGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                novel_path.write_text("已锚定的第1集原文被换掉。", encoding="utf-8")
+                return await super().generate(request, project_name)
+
+        fake = _MutatingGenerator([_plan_response([{"title": "t3", "hook": "h3", "end_anchor": ANCHOR2_MID}])])
+        planner = EpisodePlanner(project_dir, generator=fake)
+
+        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+            await planner.plan()
+
+        project = _load_project(project_dir)
+        assert len(project.get("episodes") or []) == 1  # 第 1 集不受影响，也没有新集落账
+        assert SOURCE_FINGERPRINTS_KEY not in project
+
+    async def test_plan_backfills_fingerprints_on_source_exhausted_early_return(self, tmp_path: Path):
+        """存量项目游标已在全部源文末尾：source_exhausted 早退路径不经过提交闭包，
+        仍须补记指纹，否则后续等长编辑旧正文因无基线可比而被放行。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+        )
+        planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
+
+        result = await planner.plan()
+
+        assert result.source_exhausted is True
+        project = _load_project(project_dir)
+        expected = hashlib.sha256(SOURCE.encode("utf-8")).hexdigest()
+        assert project[SOURCE_FINGERPRINTS_KEY] == {"source/novel.txt": expected}
+
+    async def test_plan_rejects_when_source_changes_between_snapshot_and_exhausted_backfill(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """存量项目游标已在全部源文末尾：入口快照之后、耗尽补记闭包读取之前源文被改动，
+        补记必须与入口快照比对拒绝，不能把变更后的内容直接登记为可信基线。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+        )
+        source_path = project_dir / "source" / "novel.txt"
+        call_count = 0
+
+        def _mutating_discover_sources(project_path: Path):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:  # 入口快照(第1次)之后、耗尽补记闭包(第3次)读取之前改动源文
+                source_path.write_text("耗尽补记窗口期间被换掉的原文。", encoding="utf-8")
+            return _real_discover_sources(project_path)
+
+        monkeypatch.setattr("lib.episode_planner.discover_sources", _mutating_discover_sources)
+        planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
+
+        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+            await planner.plan()
+
+        project = _load_project(project_dir)
+        assert SOURCE_FINGERPRINTS_KEY not in project
+
+    async def test_plan_rejects_when_source_file_discovered_mid_loop_changes_during_model_call(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """已耗尽 novel.txt 游标的存量项目：novel2.txt 在入口快照之后才出现，被
+        `_next_source_rel()` 发现并读入本批规划——提交复核必须覆盖这份中途读入的文本，
+        只查入口快照会漏掉模型调用期间对它的改动。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+        )
+        novel2_path = project_dir / "source" / "novel2.txt"
+        novel2_path.write_text(SOURCE2, encoding="utf-8")
+        call_count = 0
+
+        def _discover_sources_hiding_novel2_on_first_call(project_path: Path):
+            nonlocal call_count
+            call_count += 1
+            docs = _real_discover_sources(project_path)
+            if call_count == 1:  # 入口快照：novel2.txt 尚未出现
+                return [doc for doc in docs if doc.rel_path != "source/novel2.txt"]
+            return docs
+
+        monkeypatch.setattr("lib.episode_planner.discover_sources", _discover_sources_hiding_novel2_on_first_call)
+
+        class _MutatingGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                novel2_path.write_text("新源文件在模型调用期间被换掉。", encoding="utf-8")
+                return await super().generate(request, project_name)
+
+        fake = _MutatingGenerator([_plan_response([{"title": "t3", "hook": "h3", "end_anchor": ANCHOR2_MID}])])
+        planner = EpisodePlanner(project_dir, generator=fake)
+
+        with pytest.raises(EpisodePlanningError, match="source/novel2.txt"):
+            await planner.plan()
+
+        project = _load_project(project_dir)
+        assert len(project.get("episodes") or []) == 1  # 第 1 集不受影响，也没有新集落账
+        assert SOURCE_FINGERPRINTS_KEY not in project
 
 
 class TestReplan:

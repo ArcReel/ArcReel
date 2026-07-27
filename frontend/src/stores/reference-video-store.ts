@@ -41,6 +41,27 @@ interface ReferenceVideoStore {
   select: (unitId: string | null) => void;
 }
 
+// 每个 cache key 上最新一次 loadUnits 的序号：`loadUnits` 有多个入口（画布 effect 随
+// 项目/剧集/任务完成失效重跑、重新派生后重拉、手动重试），同一 key 上可能有多个请求并发
+// 在途。没有这道校验时，先发后到的旧响应会盖掉新响应里已经生成的成片，界面停在「无成片」
+// 直到下一次失效。响应落定时序号已被更新的请求接管即丢弃，只让最新一次写回。
+const _loadSeqByKey = new Map<string, number>();
+let _loadSeq = 0;
+
+/**
+ * 作废该 cache key 上所有在途加载。
+ *
+ * 写入口（增删改排序）落定后调用：迟到的 GET 读的是写入之前的列表，直接写回会把用户刚做的
+ * 编辑、增删或排序在界面上暂时撤销，直到下一次失效才复原。
+ *
+ * 一并结算 `loading`：被作废的那次加载会在响应落定时直接丢弃，不再自己复位，而作废它的是
+ * 写入口、不是另一次加载，没有接管方来收尾——不在这里落定，画布会一直停在加载态。
+ */
+function invalidateInFlightLoads(cacheKey: string, set: (patch: { loading: false }) => void): void {
+  _loadSeqByKey.set(cacheKey, ++_loadSeq);
+  set({ loading: false });
+}
+
 export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
   unitsByEpisode: {},
   selectedUnitId: null,
@@ -48,20 +69,26 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
   error: null,
 
   loadUnits: async (projectName, episode) => {
+    const cacheKey = referenceVideoCacheKey(projectName, episode);
+    const seq = ++_loadSeq;
+    _loadSeqByKey.set(cacheKey, seq);
     set({ loading: true, error: null });
     try {
       const { units } = await API.listReferenceVideoUnits(projectName, episode);
+      if (_loadSeqByKey.get(cacheKey) !== seq) return;
       set((s) => ({
-        unitsByEpisode: { ...s.unitsByEpisode, [referenceVideoCacheKey(projectName, episode)]: units },
+        unitsByEpisode: { ...s.unitsByEpisode, [cacheKey]: units },
         loading: false,
       }));
     } catch (e) {
+      if (_loadSeqByKey.get(cacheKey) !== seq) return;
       set({ loading: false, error: errMsg(e) });
     }
   },
 
   addUnit: async (projectName, episode, payload) => {
     const { unit } = await API.addReferenceVideoUnit(projectName, episode, payload);
+    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode), set);
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
       const list = s.unitsByEpisode[key] ?? [];
@@ -75,6 +102,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
 
   patchUnit: async (projectName, episode, unitId, patch) => {
     const { unit } = await API.patchReferenceVideoUnit(projectName, episode, unitId, patch);
+    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode), set);
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
       const list = s.unitsByEpisode[key] ?? [];
@@ -90,6 +118,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
 
   deleteUnit: async (projectName, episode, unitId) => {
     await API.deleteReferenceVideoUnit(projectName, episode, unitId);
+    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode), set);
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
       const list = s.unitsByEpisode[key] ?? [];
@@ -102,6 +131,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
 
   reorderUnits: async (projectName, episode, unitIds) => {
     const { units } = await API.reorderReferenceVideoUnits(projectName, episode, unitIds);
+    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode), set);
     set((s) => ({
       unitsByEpisode: { ...s.unitsByEpisode, [referenceVideoCacheKey(projectName, episode)]: units },
     }));

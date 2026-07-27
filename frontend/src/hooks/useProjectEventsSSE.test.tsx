@@ -7,6 +7,8 @@ import { useProjectEventsSSE } from "./useProjectEventsSSE";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
+import { useTasksStore } from "@/stores/tasks-store";
+import type { ProjectChange } from "@/types";
 
 function HookHarness({ projectName }: { projectName: string }) {
   useProjectEventsSSE(projectName);
@@ -891,5 +893,213 @@ describe("useProjectEventsSSE", () => {
 
     // 若定时器未被清除，会在 3s 时触发 connect() 导致 openSpy 被再次调用。
     expect(openSpy).toHaveBeenCalledTimes(1);
+  });
+
+  describe("任务终态事件", () => {
+    function taskChange(overrides: Partial<ProjectChange> = {}): ProjectChange {
+      return {
+        entity_type: "task",
+        action: "task_succeeded",
+        entity_id: "task-1",
+        label: "task-1",
+        focus: null,
+        important: false,
+        ...overrides,
+      };
+    }
+
+    function openStream() {
+      let capturedOptions: ProjectEventStreamOptions | undefined;
+      vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+        capturedOptions = options;
+        return { close: vi.fn() } as unknown as EventSource;
+      });
+      return () => capturedOptions;
+    }
+
+    function emit(
+      capturedOptions: ProjectEventStreamOptions | undefined,
+      changes: ProjectChange[],
+    ) {
+      act(() => {
+        capturedOptions?.onChanges?.(
+          {
+            project_name: "demo",
+            batch_id: "batch-task",
+            fingerprint: "fp-task",
+            generated_at: "2026-03-01T00:00:00Z",
+            source: "worker",
+            changes,
+          },
+          new MessageEvent("changes"),
+        );
+      });
+    }
+
+    it("收到任务终态即刷新任务列表，不等兜底轮询", async () => {
+      const options = openStream();
+      const refreshTasksSpy = vi
+        .spyOn(useTasksStore.getState(), "refreshTasks")
+        .mockResolvedValue(undefined);
+
+      renderHarness("/");
+      emit(options(), [taskChange()]);
+
+      expect(refreshTasksSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("纯任务终态批次同样重拉项目数据（后端每次广播都会 rebase 快照）", async () => {
+      // 后端每广播一批就把项目快照 rebase 到最新，与之并发的文件变更来不及被扫描
+      // diff 出来就失去基线；refreshProject 是这类漏广播的兜底，不能因为「本批次
+      // 只有任务事件」就跳过。
+      const options = openStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+      const getProjectSpy = vi.spyOn(API, "getProject");
+
+      renderHarness("/");
+      emit(options(), [
+        taskChange(),
+        taskChange({ entity_id: "task-2", action: "task_failed" }),
+      ]);
+
+      expect(getProjectSpy).toHaveBeenCalled();
+    });
+
+    it("批次混有项目实体变更时照常重拉项目数据", async () => {
+      const options = openStream();
+      const refreshTasksSpy = vi
+        .spyOn(useTasksStore.getState(), "refreshTasks")
+        .mockResolvedValue(undefined);
+
+      renderHarness("/episodes/1");
+      emit(options(), [
+        taskChange(),
+        {
+          entity_type: "segment",
+          action: "video_ready",
+          entity_id: "E1S01",
+          label: "分镜「E1S01」",
+          episode: 1,
+          focus: null,
+          important: true,
+        },
+      ]);
+
+      await waitFor(() => {
+        expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
+      });
+      expect(refreshTasksSpy).toHaveBeenCalled();
+    });
+
+    it("任务终态不弹通知、不触发聚焦跳转（important=false / focus=null）", async () => {
+      const options = openStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+
+      renderHarness("/");
+      emit(options(), [taskChange()]);
+
+      expect(useAppStore.getState().toast).toBeNull();
+      expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
+      expect(useAppStore.getState().scrollTarget).toBeNull();
+      expect(screen.getByTestId("location")).toHaveTextContent("/");
+    });
+
+    it("参考生视频任务成功让分组失效，画布据此重拉成片", async () => {
+      const options = openStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+
+      renderHarness("/");
+      emit(options(), [taskChange({ task_type: "reference_video" })]);
+
+      expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
+    });
+
+    it("参考生视频任务失败/取消不重拉分组（成片未变）", async () => {
+      const options = openStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+
+      renderHarness("/");
+      emit(options(), [
+        taskChange({ action: "task_failed", task_type: "reference_video" }),
+        taskChange({ entity_id: "task-2", action: "task_cancelled", task_type: "reference_video" }),
+      ]);
+
+      expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
+    });
+
+    it("其它类型任务成功不触发参考生视频画布重拉", async () => {
+      const options = openStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+
+      renderHarness("/");
+      emit(options(), [taskChange({ task_type: "video" })]);
+
+      expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
+    });
+
+    it("任务终态不写入实体版本表（entity_id 是一次性 task_id，无人消费）", async () => {
+      // 每个终态任务的 entity_id 都是新的 task_id，若混进实体失效会在 entityRevisions
+      // 里留下永不消费、也不随切项目清空的键，长会话下无界增长。
+      const options = openStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+
+      renderHarness("/");
+      emit(options(), [
+        taskChange(),
+        taskChange({ entity_id: "task-2", action: "task_failed" }),
+      ]);
+
+      expect(Object.keys(useAppStore.getState().entityRevisions)).toHaveLength(0);
+    });
+
+    it("任务终态到达不清掉前一批实体变更排队中的聚焦目标", async () => {
+      // 实体批次的 refreshProject 尚在途时，任务终态批次到达。任务变更没有可导航目标，
+      // 若让它走通用聚焦逻辑会把排队的目标改写成 null，用户丢失本该发生的自动导航。
+      let capturedOptions: ProjectEventStreamOptions | undefined;
+      vi.spyOn(API, "openProjectEventStream").mockImplementation((options) => {
+        capturedOptions = options;
+        return { close: vi.fn() } as unknown as EventSource;
+      });
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+      const d1 = deferred<GetProjectResult>();
+      vi.spyOn(API, "getProject").mockReturnValue(d1.promise);
+
+      renderHarness("/");
+
+      act(() => {
+        capturedOptions?.onChanges?.(
+          {
+            project_name: "demo",
+            batch_id: "batch-entity",
+            fingerprint: "fp-entity",
+            generated_at: "2026-03-01T00:00:00Z",
+            source: "filesystem",
+            changes: [
+              {
+                entity_type: "character",
+                action: "created",
+                entity_id: "hero",
+                label: "角色「hero」",
+                focus: { pane: "characters", anchor_type: "character", anchor_id: "hero" },
+                important: true,
+              },
+            ],
+          },
+          new MessageEvent("changes"),
+        );
+      });
+
+      emit(capturedOptions, [taskChange()]);
+
+      await act(async () => {
+        d1.resolve(makeGetProjectResult("R1"));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("location")).toHaveTextContent("/characters");
+      });
+    });
   });
 });

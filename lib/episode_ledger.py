@@ -13,6 +13,7 @@ consumed/planned 范围末尾为准推进起点，游标前移由规划工具负
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import unicodedata
@@ -212,6 +213,35 @@ def discover_sources(project_dir: Path) -> list[SourceDoc]:
             continue
         docs.append(SourceDoc(rel_path=f"source/{name}", text=normalize_source_text(text)))
     return docs
+
+
+def compute_source_fingerprints(sources: list[SourceDoc]) -> dict[str, str]:
+    """按源文件记录归一化文本的 sha256 指纹（源文相对路径 → hexdigest）。
+
+    ``sources`` 取自 ``discover_sources``，其 ``text`` 已是 ``normalize_source_text`` 输出，
+    故换行风格（CRLF/LF）差异不会体现在指纹上。
+    """
+    return {doc.rel_path: hashlib.sha256(doc.text.encode("utf-8")).hexdigest() for doc in sources}
+
+
+def mismatched_source_fingerprints(recorded: Any, sources: list[SourceDoc]) -> list[str]:
+    """比对记录指纹与当前源文，返回不一致的源文相对路径（按路径排序）。
+
+    只比对「已记录」的文件：``recorded`` 非 ``Mapping`` 或某文件不在其中，视为存量项目 /
+    新源文件尚未补记指纹，不参与比对（不阻塞首次规划）。已记录文件若当前指纹不同、或该
+    文件已从候选源文件中消失（被删除/改名），均判为不一致——账本坐标绑定的原文内容已不
+    可信，唯一出路是全量重置。记录值形状损坏（非 str）按未记录处理，不让脏数据本身崩溃
+    比对逻辑。
+    """
+    if not isinstance(recorded, Mapping):
+        return []
+    current = compute_source_fingerprints(sources)
+    mismatched = {
+        rel
+        for rel, fingerprint in recorded.items()
+        if isinstance(rel, str) and isinstance(fingerprint, str) and current.get(rel) != fingerprint
+    }
+    return sorted(mismatched)
 
 
 def discover_episode_file_aliases(project_dir: Path) -> dict[int, list[Path]]:
