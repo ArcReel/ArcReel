@@ -453,4 +453,20 @@ describe("ReferenceVideoCanvas", () => {
     // 此后不再产生任何依赖变化，仅靠一次性定时器到期清理
     await waitFor(() => expect(useAppStore.getState().scrollTarget).toBeNull());
   });
+
+  it("参考生视频分组失效信号自增时重拉分组，展示新落地的成片", async () => {
+    // 生成完成的任务终态经项目事件 SSE 推来 → invalidateReferenceVideoUnits →
+    // 本画布重拉分组，用户无需手动刷新即可看到成片。
+    const listSpy = vi
+      .spyOn(API, "listReferenceVideoUnits")
+      .mockResolvedValue({ units: [mkUnit("E1U1")] });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      useAppStore.getState().invalidateReferenceVideoUnits();
+    });
+
+    await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
+  });
 });

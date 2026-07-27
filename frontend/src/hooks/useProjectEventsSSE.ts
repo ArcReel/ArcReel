@@ -5,6 +5,7 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
+import { useTasksStore } from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
 import type {
   ProjectChange,
@@ -42,6 +43,11 @@ const CHANGE_PRIORITY: Record<string, number> = {
   reference_video_ready: 10,
   tts_ready: 11,
 };
+
+/** 任务终态变更（刷新信号，非项目实体变更）。 */
+function isTaskChange(change: ProjectChange): boolean {
+  return change.entity_type === "task";
+}
 
 function getChangePriority(change: ProjectChange): number {
   if (COMPLETION_ACTIONS.has(change.action)) {
@@ -140,6 +146,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
   const setAssistantToolActivitySuppressed = useAppStore(
     (s) => s.setAssistantToolActivitySuppressed
   );
+  const setProjectEventsConnected = useAppStore((s) => s.setProjectEventsConnected);
 
   const sourceRef = useRef<EventSource | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -227,6 +234,8 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         projectName,
         onSnapshot(payload) {
           if (disposed) return;
+          // 首帧即代表通道已建立：任务轮询据此退到低频兜底。
+          setProjectEventsConnected(true);
           const previousFingerprint = lastFingerprintRef.current;
           lastFingerprintRef.current = payload.fingerprint;
           if (previousFingerprint && previousFingerprint !== payload.fingerprint) {
@@ -235,6 +244,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         },
         onChanges(payload: ProjectChangeBatchPayload) {
           if (disposed) return;
+          setProjectEventsConnected(true);
           lastFingerprintRef.current = payload.fingerprint;
           setAssistantToolActivitySuppressed(true);
 
@@ -305,7 +315,25 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             }
           }
 
-          void refreshProject();
+          // 任务终态：立即重拉任务列表与统计，不等兜底轮询的间隔。
+          const taskChanges = payload.changes.filter(isTaskChange);
+          if (taskChanges.length > 0) {
+            void useTasksStore.getState().refreshTasks();
+          }
+
+          // 参考生视频生成完成：两个参考生视频画布据此重拉分组展示成片。
+          if (
+            taskChanges.some(
+              (c) => c.action === "task_succeeded" && c.task_type === "reference_video",
+            )
+          ) {
+            useAppStore.getState().invalidateReferenceVideoUnits();
+          }
+
+          // 纯任务终态批次不含项目实体变更，重拉 project.json 是白费一次请求。
+          if (taskChanges.length < payload.changes.length) {
+            void refreshProject();
+          }
 
           // Refresh cost data when generation completes
           const hasGenerationEvent = payload.changes.some((c) =>
@@ -336,6 +364,8 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         },
         onError() {
           if (disposed) return;
+          // 断线：任务轮询回到高频兜底，直到重连成功。
+          setProjectEventsConnected(false);
           if (terminatedRef.current) return;
           if (sourceRef.current) {
             sourceRef.current.close();
@@ -354,6 +384,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
 
     return () => {
       disposed = true;
+      setProjectEventsConnected(false);
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
@@ -372,5 +403,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     refreshProject,
     setAssistantToolActivitySuppressed,
     setLocation,
+    setProjectEventsConnected,
   ]);
 }

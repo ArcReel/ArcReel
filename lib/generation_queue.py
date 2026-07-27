@@ -15,6 +15,7 @@ from typing import Any
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskRepository
+from lib.task_terminal_events import emit_task_terminal_events
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,7 @@ class GenerationQueue:
         async with self._session_factory() as session:
             repo = TaskRepository(session)
             affected = await repo.mark_succeeded(task_id, result)
+        emit_task_terminal_events(repo.terminal_events)
         if affected > 0:
             logger.info("任务成功 task_id=%s", task_id)
         else:
@@ -191,6 +193,7 @@ class GenerationQueue:
         async with self._session_factory() as session:
             repo = TaskRepository(session)
             affected = await repo.mark_failed(task_id, error_message)
+        emit_task_terminal_events(repo.terminal_events)
         if affected > 0:
             logger.warning("任务失败 task_id=%s error=%s", task_id, error_message[:200])
         else:
@@ -208,6 +211,7 @@ class GenerationQueue:
         async with self._session_factory() as session:
             repo = TaskRepository(session)
             result = await repo.finalize_cancelled(task_id, cancelled_by=cancelled_by)
+        emit_task_terminal_events(repo.terminal_events)
 
         callback = self._worker_cancel_callback
         if callback is not None:
@@ -223,6 +227,7 @@ class GenerationQueue:
         async with self._session_factory() as session:
             repo = TaskRepository(session)
             result = await repo.cancel_task(task_id)
+        emit_task_terminal_events(repo.terminal_events)
 
         # Repository 返回 cancelling 意图列表 → GenerationQueue 同步分发 in-process 信号。
         # callback 同步调用：worker request_cancel 是 asyncio.Task.cancel()，O(1) 无 I/O。
@@ -258,6 +263,7 @@ class GenerationQueue:
         async with self._session_factory() as session:
             repo = TaskRepository(session)
             result = await repo.cancel_all_queued(project_name)
+        emit_task_terminal_events(repo.terminal_events)
         if result["cancelled_count"] > 0:
             logger.info("批量取消 project=%s 共取消 %d 个", project_name, result["cancelled_count"])
         return result

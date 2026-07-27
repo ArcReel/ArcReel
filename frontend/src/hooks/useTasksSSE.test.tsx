@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useTasksSSE } from "@/hooks/useTasksSSE";
+import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { TaskItem } from "@/types";
 
@@ -33,6 +34,7 @@ function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
 describe("useTasksSSE (polling)", () => {
   beforeEach(() => {
     useTasksStore.setState(useTasksStore.getInitialState(), true);
+    useAppStore.setState({ projectEventsConnected: false });
     vi.useFakeTimers();
   });
 
@@ -171,5 +173,61 @@ describe("useTasksSSE (polling)", () => {
       total: 0,
     });
     expect(useTasksStore.getState().connected).toBe(false);
+  });
+
+  describe("按项目事件 SSE 在线状态自适应轮询频率", () => {
+    function mockOk() {
+      const listSpy = vi.spyOn(API, "listTasks").mockResolvedValue({
+        items: [],
+        total: 0,
+        page: 1,
+        page_size: 200,
+      });
+      vi.spyOn(API, "getTaskStats").mockResolvedValue({
+        stats: { queued: 0, running: 0, succeeded: 0, failed: 0, total: 0 },
+      } as never);
+      return listSpy;
+    }
+
+    it("SSE 在线时退到 30 秒空闲对账，不再每 3 秒轮询", async () => {
+      useAppStore.setState({ projectEventsConnected: true });
+      const listSpy = mockOk();
+
+      renderHook(() => useTasksSSE("demo"));
+      await act(async () => {});
+      expect(listSpy).toHaveBeenCalledTimes(1);
+
+      // 主通道是 SSE：3 秒间隔不再触发轮询。
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(listSpy).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(27000);
+      });
+      expect(listSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("SSE 断线时立即对账一次并回到 3 秒兜底轮询", async () => {
+      useAppStore.setState({ projectEventsConnected: true });
+      const listSpy = mockOk();
+
+      renderHook(() => useTasksSSE("demo"));
+      await act(async () => {});
+      expect(listSpy).toHaveBeenCalledTimes(1);
+
+      // 断线：不等 30 秒空闲间隔，当场取一次状态。
+      await act(async () => {
+        useAppStore.setState({ projectEventsConnected: false });
+      });
+      expect(listSpy).toHaveBeenCalledTimes(2);
+
+      // 此后按 3 秒高频兜底，保证断连期间任务状态仍可恢复。
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(listSpy).toHaveBeenCalledTimes(3);
+    });
   });
 });

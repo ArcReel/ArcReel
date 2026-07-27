@@ -12,11 +12,13 @@ from sqlalchemy import bindparam as sa_bindparam
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.task import Task, TaskEvent, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
 from lib.task_failure import bound_reason, encode_failure
+from lib.task_terminal_events import TERMINAL_TASK_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +104,13 @@ def _event_to_dict(row: TaskEvent) -> dict[str, Any]:
 
 
 class TaskRepository(BaseRepository):
+    def __init__(self, session: AsyncSession):
+        super().__init__(session)
+        # 本次会话内落地的任务终态，供上层（GenerationQueue）在事务提交后发布项目事件。
+        # 在此收集而非各终态方法各自记账：所有终态迁移（含级联失败/级联取消、批量取消
+        # 队列）都经 _append_event 收口，一处挂钩即全覆盖。
+        self.terminal_events: list[dict[str, Any]] = []
+
     async def _append_event(
         self,
         *,
@@ -111,6 +120,16 @@ class TaskRepository(BaseRepository):
         status: str,
         data: dict | None = None,
     ) -> int:
+        if status in TERMINAL_TASK_STATUSES:
+            self.terminal_events.append(
+                {
+                    "task_id": task_id,
+                    "project_name": project_name,
+                    "status": status,
+                    "task_type": (data or {}).get("task_type"),
+                    "resource_id": (data or {}).get("resource_id"),
+                }
+            )
         now = utc_now()
         event = TaskEvent(
             task_id=task_id,

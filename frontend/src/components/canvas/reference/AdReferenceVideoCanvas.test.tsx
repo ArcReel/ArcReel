@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdReferenceVideoCanvas } from "./AdReferenceVideoCanvas";
@@ -502,5 +502,27 @@ describe("AdReferenceVideoCanvas", () => {
       expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledWith("demo", 1, "E1U2"),
     );
     expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledTimes(1);
+  });
+
+  it("参考生视频分组失效信号自增时重拉分组，展示新落地的成片", async () => {
+    // 生成完成的任务终态经项目事件 SSE 推来 → invalidateReferenceVideoUnits →
+    // 本画布重拉分组，用户无需手动重新派生/刷新即可看到成片。
+    mockedAPI.listAdReferenceUnits.mockResolvedValueOnce({ units: [makeUnit()] });
+
+    renderCanvas();
+    await waitFor(() => {
+      expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledTimes(1);
+    });
+
+    mockedAPI.listAdReferenceUnits.mockResolvedValueOnce({
+      units: [makeUnit({ generated_assets: { video_clip: "videos/E1U1.mp4", status: "completed" } })],
+    });
+    act(() => {
+      useAppStore.getState().invalidateReferenceVideoUnits();
+    });
+
+    await waitFor(() => {
+      expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledTimes(2);
+    });
   });
 });

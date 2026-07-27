@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+import { API } from "@/api";
 import {
   isActiveStatus,
   isOccupyingStatus,
@@ -639,5 +640,117 @@ describe("selectHasActiveTaskForScriptFile with cancelling", () => {
       }),
     ];
     expect(selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "proj")).toBe(true);
+  });
+});
+
+describe("refreshTasks（多入口共享刷新的在途合并）", () => {
+  beforeEach(() => {
+    useTasksStore.setState(useTasksStore.getInitialState(), true);
+    vi.restoreAllMocks();
+  });
+
+  function mockFetch(items: TaskItem[] = []) {
+    const listSpy = vi.spyOn(API, "listTasks").mockResolvedValue({
+      items,
+      total: items.length,
+      page: 1,
+      page_size: 200,
+    });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({
+      stats: { queued: 0, running: 0, succeeded: 0, failed: 0, total: 0 },
+    } as never);
+    return listSpy;
+  }
+
+  it("作用域未启用时不发请求", async () => {
+    const listSpy = mockFetch();
+
+    await useTasksStore.getState().refreshTasks();
+
+    expect(listSpy).not.toHaveBeenCalled();
+  });
+
+  it("按作用域拉取并写回 store", async () => {
+    const listSpy = mockFetch([task({ task_id: "t1" })]);
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+
+    await useTasksStore.getState().refreshTasks();
+
+    expect(listSpy).toHaveBeenCalledWith({ projectName: "proj", pageSize: 200 });
+    expect(useTasksStore.getState().tasks).toHaveLength(1);
+    expect(useTasksStore.getState().connected).toBe(true);
+  });
+
+  it("projectName 为 null 时拉全局任务（不按项目过滤）", async () => {
+    const listSpy = mockFetch();
+    useTasksStore.getState().setRefreshScope({ projectName: null });
+
+    await useTasksStore.getState().refreshTasks();
+
+    expect(listSpy).toHaveBeenCalledWith({ projectName: undefined, pageSize: 200 });
+  });
+
+  it("在途期间到达的多次调用合并为结束后再跑一轮", async () => {
+    // 两个入口（轮询 + SSE 任务终态）同时刷新时不各自发请求：首轮 1 次 + 合并轮 1 次。
+    const releases: Array<() => void> = [];
+    const listSpy = vi.spyOn(API, "listTasks").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releases.push(() => resolve({ items: [], total: 0, page: 1, page_size: 200 }));
+        }),
+    );
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({
+      stats: { queued: 0, running: 0, succeeded: 0, failed: 0, total: 0 },
+    } as never);
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+
+    const first = useTasksStore.getState().refreshTasks();
+    const second = useTasksStore.getState().refreshTasks();
+    const third = useTasksStore.getState().refreshTasks();
+
+    expect(listSpy).toHaveBeenCalledTimes(1);
+
+    releases[0]();
+    // 首轮落定后合并轮才发第二次请求——两个排队调用方合并成这一轮，不是各发一次。
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    releases[1]();
+    await Promise.all([first, second, third]);
+
+    expect(listSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("落定时作用域已切换的迟到响应不写回", async () => {
+    const releases: Array<(items: TaskItem[]) => void> = [];
+    vi.spyOn(API, "listTasks").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releases.push((items) => resolve({ items, total: items.length, page: 1, page_size: 200 }));
+        }),
+    );
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({
+      stats: { queued: 0, running: 0, succeeded: 0, failed: 0, total: 0 },
+    } as never);
+    useTasksStore.getState().setRefreshScope({ projectName: "old-project" });
+
+    const pending = useTasksStore.getState().refreshTasks();
+    await Promise.resolve();
+    // 切项目：旧项目的在途响应此刻才回来，不能盖住接管方的数据。
+    useTasksStore.getState().setRefreshScope({ projectName: "new-project" });
+    releases[0]([task({ task_id: "stale" })]);
+    await pending;
+
+    expect(useTasksStore.getState().tasks).toEqual([]);
+  });
+
+  it("请求失败时置 connected=false 并留旧数据", async () => {
+    mockFetch([task({ task_id: "t1" })]);
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+    await useTasksStore.getState().refreshTasks();
+
+    vi.spyOn(API, "listTasks").mockRejectedValue(new Error("network"));
+    await useTasksStore.getState().refreshTasks();
+
+    expect(useTasksStore.getState().connected).toBe(false);
+    expect(useTasksStore.getState().tasks).toHaveLength(1);
   });
 });

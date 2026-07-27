@@ -1,11 +1,26 @@
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
+import { API } from "@/api";
 import type { TaskItem, TaskStats, TaskStatus } from "@/types";
+
+/** 单次刷新拉取的任务条数上限。 */
+const TASKS_PAGE_SIZE = 200;
+
+/**
+ * 刷新作用域：`projectName === null` 表示「不按项目过滤」（拉全局任务），整个 scope 为
+ * `null` 表示「未启用」——此时 {@link TasksState.refreshTasks} 不发请求。作用域由
+ * `useTasksSSE` 单点登记，其余入口（项目事件 SSE 推来的任务终态）只调 refreshTasks、
+ * 不各自决定拉哪个项目，避免全局任务列表被项目过滤结果覆盖。
+ */
+export interface TasksRefreshScope {
+  projectName: string | null;
+}
 
 interface TasksState {
   tasks: TaskItem[];
   stats: TaskStats;
   connected: boolean;
+  refreshScope: TasksRefreshScope | null;
   /** 乐观占用标记，见下方 {@link selectActiveResourceIds} 的乐观占用小节。 */
   optimisticActive: Set<string>;
   /** 乐观占用标记（scriptFile 粒度），见下方 {@link selectHasActiveTaskForScriptFile} 的乐观占用小节。 */
@@ -15,6 +30,15 @@ interface TasksState {
   setTasks: (tasks: TaskItem[]) => void;
   setStats: (stats: TaskStats) => void;
   setConnected: (connected: boolean) => void;
+  setRefreshScope: (scope: TasksRefreshScope | null) => void;
+  /**
+   * 拉取当前作用域的任务列表与统计并写回 store。
+   *
+   * 多入口共享（轮询定时器 + 项目事件 SSE 推来的任务终态）故收敛为单个 action，并在
+   * 内部做在途合并：已有刷新在途时新请求合并为「结束后再跑一轮」，各调用方分别结算
+   * 自己那一轮。否则两个入口同时刷新会交错写回，先发后到的旧结果盖住新结果。
+   */
+  refreshTasks: () => Promise<void>;
   markOptimisticActive: (
     projectName: string,
     resourceKind: string,
@@ -100,12 +124,70 @@ function pruneSupersededOptimisticActiveScriptFile(
   return next;
 }
 
+// 刷新的在途合并协调状态（模块级单例，不进 store state，避免触发订阅重渲染）。
+let refreshRunning = false;
+let refreshQueued = false;
+let queuedResolvers: Array<() => void> = [];
+
+// 单轮拉取；自身不抛错，失败只把 connected 置 false 并留旧数据。
+async function runTasksRefresh(): Promise<void> {
+  const scope = useTasksStore.getState().refreshScope;
+  if (!scope) return;
+  const { projectName } = scope;
+
+  // 落定时作用域可能已被切项目/停用改写：迟到响应不写回，否则旧项目的任务列表会盖住
+  // 接管方刚写入的数据（停用时则会盖住本该清空的 store）。
+  const scopeUnchanged = () => {
+    const current = useTasksStore.getState().refreshScope;
+    return current !== null && current.projectName === projectName;
+  };
+
+  try {
+    const [tasksRes, statsRes] = await Promise.all([
+      API.listTasks({ projectName: projectName ?? undefined, pageSize: TASKS_PAGE_SIZE }),
+      API.getTaskStats(projectName ?? null),
+    ]);
+    if (!scopeUnchanged()) return;
+    const store = useTasksStore.getState();
+    store.setTasks(tasksRes.items);
+    store.setStats(statsRes.stats);
+    store.setConnected(true);
+  } catch {
+    if (!scopeUnchanged()) return;
+    useTasksStore.getState().setConnected(false);
+  }
+}
+
 export const useTasksStore = create<TasksState>((set) => ({
   tasks: [],
   stats: defaultTaskStats,
   connected: false,
+  refreshScope: null,
   optimisticActive: new Set(),
   optimisticActiveScriptFile: new Set(),
+
+  setRefreshScope: (scope) => set({ refreshScope: scope }),
+  refreshTasks: async () => {
+    if (refreshRunning) {
+      refreshQueued = true;
+      return new Promise<void>((resolve) => {
+        queuedResolvers.push(resolve);
+      });
+    }
+    refreshRunning = true;
+    try {
+      await runTasksRefresh();
+      while (refreshQueued) {
+        refreshQueued = false;
+        const resolvers = queuedResolvers;
+        queuedResolvers = [];
+        await runTasksRefresh();
+        for (const resolve of resolvers) resolve();
+      }
+    } finally {
+      refreshRunning = false;
+    }
+  },
 
   setTasks: (tasks) =>
     set((s) => ({

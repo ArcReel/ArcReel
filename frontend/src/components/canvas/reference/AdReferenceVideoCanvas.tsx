@@ -69,6 +69,9 @@ export function AdReferenceVideoCanvas({
   const [deriving, setDeriving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 参考生视频任务完成时经项目事件 SSE 自增，驱动本 effect 重拉分组展示成片。
+  const unitsRevision = useAppStore((s) => s.referenceVideoUnitsRevision);
+
   useEffect(() => {
     // 剧本未生成时后端无分组可返回；hasScript 转 true 后本 effect 随依赖重跑补上首次拉取。
     if (!hasScript) return;
@@ -82,7 +85,7 @@ export function AdReferenceVideoCanvas({
         if (!controller.signal.aborted) setError(errMsg(err));
       });
     return () => controller.abort();
-  }, [projectName, episode, hasScript]);
+  }, [projectName, episode, hasScript, unitsRevision]);
 
   const shotById = useMemo(() => new Map(shots.map((s) => [s.shot_id, s])), [shots]);
 

@@ -92,6 +92,18 @@ interface AppState {
   gridsRevision: number;
   invalidateGrids: () => void;
 
+  // 参考生视频分组失效信号：参考生视频任务终态经项目事件 SSE 推来时自增，两个参考生
+  // 视频画布据此重拉分组，生成完成后无需手动重新派生/刷新即可看到成片。
+  referenceVideoUnitsRevision: number;
+  invalidateReferenceVideoUnits: () => void;
+
+  /**
+   * 项目事件 SSE 是否在线。任务状态刷新以该通道为主：在线时任务轮询退到低频兜底，
+   * 断线时回到高频轮询，保证断连期间任务状态仍能恢复。
+   */
+  projectEventsConnected: boolean;
+  setProjectEventsConnected: (connected: boolean) => void;
+
   // Entity-scoped invalidation signal for cache-busted asset URLs
   entityRevisions: Record<string, number>;
   invalidateEntities: (keys: string[]) => void;
@@ -236,6 +248,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   gridsRevision: 0,
   invalidateGrids: () => set((s) => ({ gridsRevision: s.gridsRevision + 1 })),
+
+  referenceVideoUnitsRevision: 0,
+  invalidateReferenceVideoUnits: () =>
+    set((s) => ({ referenceVideoUnitsRevision: s.referenceVideoUnitsRevision + 1 })),
+
+  projectEventsConnected: false,
+  setProjectEventsConnected: (connected) => set({ projectEventsConnected: connected }),
 
   entityRevisions: {},
   invalidateEntities: (keys) =>
