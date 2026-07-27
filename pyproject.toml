@@ -48,6 +48,7 @@ dev = [
     "pre-commit>=4.0.0",
     "python-docx>=1.2.0",
     "basedpyright>=1.39.4",
+    "import-linter>=2.13",
 ]
 
 [build-system]
@@ -78,6 +79,50 @@ skip_empty = true
 exclude_lines = [
     'if __name__ == "__main__":',
     "if __name__ == '__main__':",
+]
+
+[tool.importlinter]
+root_packages = ["lib"]
+
+# lib.config < lib.*_backends < lib.custom_provider：config 是配置解析的基础层，backends
+# 在其上组装出各供应商实现，custom_provider 再在 backends 之上拼装自定义供应商。四个 backend
+# 包为同层 sibling（`:` 分隔），彼此复用 video_backends.base 的工具不算方向违规。
+# ignore_imports 是存量违规的 baseline，逐条掐的是**违规链的终端边**而非首跳，这样中间模块
+# （project_manager / cost_calculator / usage_repo 等）后续新增的反向依赖仍会被契约拦下。
+# 新增条目前先确认该边无法就地清零；清零一条即删一行。
+[[tool.importlinter.contracts]]
+name = "lib.config / lib.*_backends / lib.custom_provider 分层契约"
+type = "layers"
+layers = [
+    "custom_provider",
+    "image_backends : video_backends : audio_backends : text_backends",
+    "config",
+]
+containers = ["lib"]
+ignore_imports = [
+    # lib.config.resolver 直接向上引用自定义供应商装配层（函数体内延迟导入，静态分析仍计入）
+    "lib.config.resolver -> lib.custom_provider",
+    "lib.config.resolver -> lib.custom_provider.capabilities",
+    "lib.config.resolver -> lib.custom_provider.endpoints",
+    # lib.config.resolver 直接向上引用 backend 层
+    "lib.config.resolver -> lib.text_backends.base",
+    "lib.config.resolver -> lib.video_backends.registry",
+    # 中间模块把 backend 层拉回 config 之下的可达范围
+    "lib.backend_assembly.specs -> lib.audio_backends.registry",
+    "lib.backend_assembly.specs -> lib.image_backends.registry",
+    "lib.backend_assembly.specs -> lib.video_backends.registry",
+    "lib.backend_assembly.specs -> lib.text_backends.registry",
+    "lib.project_manager -> lib.text_backends.base",
+    "lib.text_generator -> lib.text_backends.base",
+    "lib.text_generator -> lib.text_backends.factory",
+    # 中间模块反向引用 custom_provider（provider_id 解析与自定义供应商记账）
+    "lib.backend_assembly.assembler -> lib.custom_provider",
+    "lib.backend_assembly.assembler -> lib.custom_provider.loader",
+    "lib.cost_calculator -> lib.custom_provider",
+    "lib.db.repositories.usage_repo -> lib.custom_provider",
+    "lib.db.repositories.custom_provider_repo -> lib.custom_provider",
+    "lib.db.repositories.custom_provider_repo -> lib.custom_provider.endpoints",
+    "lib.db.models.custom_provider -> lib.custom_provider",
 ]
 
 [tool.ruff]
