@@ -10,6 +10,7 @@ import { GenerateButton } from "@/components/ui/GenerateButton";
 import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { selectActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
 import type { Prop } from "@/types";
 
@@ -67,6 +68,12 @@ export function PropCard({
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    // 提交时刻复核最新占用态：弹窗打开到文件选完之间可能已被别处入队占用。
+    const { tasks, optimisticActive } = useTasksStore.getState();
+    if (selectActiveResourceIds(tasks, "prop", projectName, optimisticActive).has(name)) {
+      useAppStore.getState().pushToast(t("assets:upload_sheet_busy_hint"), "info");
+      return;
+    }
     setUploadingSheet(true);
     try {
       await API.uploadFile(projectName, "prop", file, name);

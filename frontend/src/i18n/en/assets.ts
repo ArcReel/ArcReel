@@ -46,6 +46,7 @@ export default {
   "add_to_library_short": "Library",
   "add_to_library_success": "\"{{name}}\" added to library",
   "add_to_library_busy_hint": "Generation or editing in progress — cannot add to library",
+  "upload_sheet_busy_hint": "Generation or editing in progress — cannot upload a design sheet",
   "upload_sheet_short": "Upload",
   "edit": "Edit",
   "delete": "Delete",
