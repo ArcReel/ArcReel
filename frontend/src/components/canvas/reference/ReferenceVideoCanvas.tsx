@@ -837,6 +837,7 @@ export function ReferenceVideoCanvas({
                           uploadingVideo={uploading.ids.has(selected.unit_id)}
                           restoring={restoring.ids.has(selected.unit_id)}
                           onRestoringChange={handleRestoringChange}
+                          checkBusy={isUnitLocked}
                           onRestored={handleUnitsRefresh}
                         />
                       </div>
@@ -867,6 +868,7 @@ export function ReferenceVideoCanvas({
                   uploadingVideo={selected ? uploading.ids.has(selected.unit_id) : false}
                   restoring={selected ? restoring.ids.has(selected.unit_id) : false}
                   onRestoringChange={handleRestoringChange}
+                  checkBusy={isUnitLocked}
                   onRestored={handleUnitsRefresh}
                 />
               </div>

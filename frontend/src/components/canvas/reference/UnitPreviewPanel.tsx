@@ -41,6 +41,11 @@ export interface UnitPreviewPanelProps {
    */
   restoring?: boolean;
   onRestoringChange?: (unitId: string, restoring: boolean) => void;
+  /**
+   * 恢复提交时刻的占用复核（新鲜读）：面板打开着而 Agent、批量入口或轮询随后占用该 unit
+   * 时，`restoring`/`busy` 这类渲染快照要等 render 冲刷才生效，其间的点击仍会发出恢复请求。
+   */
+  checkBusy?: (unitId: string) => boolean;
   /** 版本恢复后的刷新回调（重新拉取 units） */
   onRestored?: () => void | Promise<void>;
 }
@@ -65,6 +70,7 @@ export function UnitPreviewPanel({
   uploadingVideo,
   restoring = false,
   onRestoringChange,
+  checkBusy,
   onRestored,
 }: UnitPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
@@ -129,6 +135,7 @@ export function UnitPreviewPanel({
             onRestore={onRestored}
             busy={inFlight || busy || Boolean(uploadingVideo) || restoring}
             onRestoringChange={(r) => onRestoringChange?.(unit.unit_id, r)}
+            checkBusy={checkBusy ? () => checkBusy(unit.unit_id) : undefined}
             iconOnly
           />
         )}

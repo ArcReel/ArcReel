@@ -26,6 +26,12 @@ interface VersionTimeMachineProps {
    * 两个请求并发写同一路径、后完成者覆盖前者且双方都提示成功。
    */
   onRestoringChange?: (restoring: boolean) => void;
+  /**
+   * 提交时刻的占用复核（新鲜读）：`busy` 是最近一次渲染的快照，版本面板打开期间
+   * Agent 入队、批量入口或轮询落库都可能占用该资源，新 prop 冲刷到按钮之前的点击
+   * 仍会发出恢复请求，与在跑的任务并发写同一个资源文件。返回 true 即拒绝本次恢复。
+   */
+  checkBusy?: () => boolean;
 }
 
 function getImagePreviewHeightClass(
@@ -56,6 +62,7 @@ export function VersionTimeMachine({
   iconOnly = false,
   busy = false,
   onRestoringChange,
+  checkBusy,
 }: VersionTimeMachineProps) {
   const { t } = useTranslation("dashboard");
   const resourcePath =
@@ -117,6 +124,11 @@ export function VersionTimeMachine({
     // disabled 是响应式的 restoringVersion/busy：面板打开期间资源转为占用中时随之更新，
     // 这里兜底防止禁用态生效前的一次点击仍发出恢复请求。
     if (busy || restoringVersion !== null) return;
+    // 渲染快照之外再做一次新鲜读：状态已变、渲染未到的窗口里按钮仍可点。
+    if (checkBusy?.()) {
+      useAppStore.getState().pushToast(t("version_restore_busy_hint"), "error");
+      return;
+    }
     setRestoringVersion(version);
     onRestoringChange?.(true);
     try {
