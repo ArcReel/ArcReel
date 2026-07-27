@@ -100,6 +100,17 @@ def test_reference_mode_without_generated_assets_falls_back_to_scene_sheet():
     assert url == "/api/v1/files/proj/scenes/酒馆.png"
 
 
+def test_tolerates_corrupt_generated_assets():
+    """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，回退到 scene_sheet，不抛异常。"""
+    project = {
+        "episodes": [{"script_file": "scripts/episode_1.json"}],
+        "scenes": {"酒馆": {"scene_sheet": "scenes/酒馆.png"}},
+    }
+    scripts = {"scripts/episode_1.json": {"video_units": [{"generated_assets": "corrupt"}]}}
+    url = resolve_project_cover(_mk_manager(scripts), "proj", project)
+    assert url == "/api/v1/files/proj/scenes/酒馆.png"
+
+
 def test_falls_back_to_character_sheet_when_no_scenes():
     project = {
         "episodes": [],
