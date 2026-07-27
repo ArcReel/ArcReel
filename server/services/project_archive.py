@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from lib.data_validator import DataValidator, ValidationResult
+from lib.episode_ledger import parse_episode_num
 from lib.json_io import load_json
 from lib.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_hint
@@ -627,9 +628,11 @@ class ProjectArchiveService:
 
                 script_path = project_dir / script_path_rel
                 if not script_path.exists():
-                    if episode_meta.get("ledger_status") is not None:
+                    if parse_episode_num(episode_meta.get("episode")) is not None:
                         # 账本条目的 script_file 是前瞻性契约（剧本生成时回填真实值），
-                        # 拆分先于剧本存在是设计内状态，不阻断归档往返
+                        # 拆分先于剧本存在是设计内状态，不阻断归档往返；ledger_status 不
+                        # 参与判定——v2→v3 迁移不再回填该字段，老项目升级后的条目可能永远
+                        # 没有 ledger_status，形状合法即视为正常账本条目
                         diagnostics.add(
                             "warnings",
                             "missing_script_file",

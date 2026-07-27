@@ -15,7 +15,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from lib.asset_types import ASSET_SPECS, ASSET_TYPES
-from lib.episode_ledger import LEDGER_STATUSES, EpisodeOutline, PlanningCursor, SourceRange
+from lib.episode_ledger import LEDGER_STATUSES, EpisodeOutline, PlanningCursor, SourceRange, parse_episode_num
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
@@ -1319,8 +1319,10 @@ class DataValidator:
                     f"episodes[{index}].script_file",
                     default_dir="scripts",
                     # 账本条目的 script_file 是前瞻性契约（剧本生成时回填真实值），
-                    # 拆分先于剧本存在是设计内状态；路径越界仍照常报错
-                    missing_ok=episode_meta.get("ledger_status") is not None,
+                    # 拆分先于剧本存在是设计内状态；路径越界仍照常报错。ledger_status 不
+                    # 参与判定——v2→v3 迁移不再回填该字段，老项目升级后的条目可能永远
+                    # 没有 ledger_status，形状合法（集号可解析）即视为正常账本条目
+                    missing_ok=parse_episode_num(episode_meta.get("episode")) is not None,
                 )
                 if not resolved_path:
                     continue

@@ -735,10 +735,21 @@ class TestEpisodeLedgerFields:
         )
         assert not any("script_file" in e for e in result.errors), result.errors
 
-    def test_tree_validation_missing_script_still_blocks_legacy_entry(self, tmp_path):
-        """旧式条目（无 ledger_status）维持原不变量：script_file 必须实际存在。"""
+    def test_tree_validation_allows_missing_script_for_entry_without_ledger_status(self, tmp_path):
+        """v2→v3 迁移不再回填 ledger_status，老项目升级后的条目可能永远没有该字段：
+        形状合法（集号可解析）即视为正常账本条目，剧本未生成同样不阻断。"""
         payload = _project_payload()
         payload["episodes"] = [{"episode": 1, "title": "x", "script_file": "scripts/episode_1.json"}]
+        _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+            tmp_path / "projects" / "demo"
+        )
+        assert not any("script_file" in e for e in result.errors), result.errors
+
+    def test_tree_validation_missing_script_still_blocks_malformed_entry(self, tmp_path):
+        """集号无法解析的畸形条目不是合法账本条目：script_file 仍须实际存在。"""
+        payload = _project_payload()
+        payload["episodes"] = [{"title": "x", "script_file": "scripts/episode_1.json"}]
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
             tmp_path / "projects" / "demo"
