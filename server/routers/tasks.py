@@ -102,12 +102,16 @@ async def cancel_preview(task_id: str, _user: CurrentUser):
 
 
 @router.post("/tasks/{task_id}/cancel")
-async def cancel_task(task_id: str, _user: CurrentUser):
+async def cancel_task(task_id: str, _user: CurrentUser, _t: Translator):
     queue = get_task_queue()
     try:
         result = await queue.cancel_task(task_id)
     except ValueError as e:
         raise BadRequestError("task_not_found", id=task_id) from e
+    # 终态任务（含已失败的）原样回给调用方，其 error_message 与列表/详情/SSE 同源，
+    # 不本地化就会在这一个出口泄露裸 [code] {params}。
+    for key in ("cancelled", "skipped_terminal"):
+        result[key] = [_localize_task(task, _t) for task in result.get(key, [])]
     return result
 
 

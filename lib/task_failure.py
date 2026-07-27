@@ -18,9 +18,42 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+# Backend capability rejections (``ImageCapabilityError`` / ``VideoCapabilityError`` /
+# ``ReferencePayloadFloorError``). Their ``.code`` is already an ``errors`` catalog key,
+# so the mapping below is identity — no prefix indirection. Enumerated rather than
+# derived so an unregistered code fails fast; ``tests/test_task_failure_capability.py``
+# AST-scans the raise sites and fails CI when a new code is added without registering it.
+CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
+    {
+        "image_capability_missing_i2i",
+        "image_capability_missing_t2i",
+        "image_dashscope_4k_t2i_only",
+        "image_endpoint_mismatch_no_i2i",
+        "image_endpoint_mismatch_no_t2i",
+        "image_reference_images_unreadable",
+        "ref_payload_floor_exceeded",
+        "video_capability_missing_t2v",
+        "video_duration_invalid",
+        "video_duration_not_supported",
+        "video_end_image_requires_start_image",
+        "video_end_image_unreadable",
+        "video_last_frame_requires_pro",
+        "video_last_frame_unsupported",
+        "video_reference_images_duration_unsupported",
+        "video_reference_images_exceeded",
+        "video_reference_images_required",
+        "video_reference_images_unreadable",
+        "video_reference_images_unsupported",
+        "video_reference_images_with_frames_unsupported",
+        "video_resolution_duration_unsupported",
+        "video_start_image_unreadable",
+    }
+)
+
 # Stable failure code -> i18n errors key. The code is agent-facing and persisted
 # in the DB; the key resolves to zh/en/vi templates rendered at read time.
 FAILURE_CODE_KEYS: dict[str, str] = {
+    **{code: code for code in CAPABILITY_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
     "restart_lost_image": "task_fail_restart_lost_image",
     "restart_lost_audio": "task_fail_restart_lost_audio",
@@ -46,6 +79,8 @@ FAILURE_CODE_KEYS: dict[str, str] = {
 # group matching even if a param value contains an escaped newline.
 _STRUCTURED_RE = re.compile(r"^\[(\w+)\](?:[ ](\{.*\}))?$", re.DOTALL)
 
+_CASCADE_CODE = "cascade_blocked_dependency"
+
 
 def encode_failure(code: str, /, **params: Any) -> str:
     """Encode a known failure code (+ params) into the stored machine string.
@@ -54,11 +89,16 @@ def encode_failure(code: str, /, **params: Any) -> str:
     Raises ``KeyError`` for codes not declared in :data:`FAILURE_CODE_KEYS`, so a
     typo fails fast at the call site instead of silently storing an unrenderable
     reason.
+
+    Param values are stringified when not JSON-native (``default=str``): capability
+    codes carry whatever the caller rejected — e.g. ``video_duration_invalid`` echoes
+    the raw payload value — and a failed task must still record a reason rather than
+    have encoding raise inside the failure path.
     """
     if code not in FAILURE_CODE_KEYS:
         raise KeyError(f"unknown failure code: {code!r}")
     if params:
-        return f"[{code}] {json.dumps(params, ensure_ascii=False, sort_keys=True)}"
+        return f"[{code}] {json.dumps(params, ensure_ascii=False, sort_keys=True, default=str)}"
     return f"[{code}]"
 
 
@@ -107,31 +147,45 @@ def bound_reason(reason: str, limit: int) -> str:
 def render_failure(error_message: str | None, translate: Callable[..., str]) -> str | None:
     """Render a stored failure reason for display via the request Translator.
 
-    Recognised ``[code]`` / ``[code] {params}`` strings render to localized text;
-    everything else (raw exception text, legacy rows, malformed payloads) passes
-    through unchanged.
+    Recognised ``[code]`` / ``[code] {params}`` strings render to localized text; cascade
+    reasons nest the upstream reason in their ``reason`` param and are expanded
+    recursively, so it is localized too. Everything else (raw exception text, legacy rows,
+    malformed payloads) passes through unchanged.
+
+    Cascade nesting is self-limiting: each layer re-encodes the previous envelope into JSON,
+    so escaping makes the string grow super-linearly and the write side caps it well before
+    the depth could threaten the recursion limit.
     """
     if not error_message:
         return error_message
-    match = _STRUCTURED_RE.match(error_message)
-    if match is None:
+    parsed = _parse_structured(error_message)
+    if parsed is None:
         return error_message
-    code = match.group(1)
-    key = FAILURE_CODE_KEYS.get(code)
-    if key is None:
-        return error_message
-    raw_params = match.group(2)
-    params: dict[str, Any] = {}
-    if raw_params:
-        try:
-            parsed = json.loads(raw_params)
-        except ValueError:
-            return error_message
-        if not isinstance(parsed, dict):
-            return error_message
-        params = parsed
-    if code == "cascade_blocked_dependency":
+    code, params = parsed
+    if code == _CASCADE_CODE:
         nested_reason = params.get("reason")
         if isinstance(nested_reason, str):
             params = {**params, "reason": render_failure(nested_reason, translate)}
-    return translate(key, **params)
+    return translate(FAILURE_CODE_KEYS[code], **params)
+
+
+def _parse_structured(error_message: str) -> tuple[str, dict[str, Any]] | None:
+    """把 ``[code] {params}`` 拆成 (code, params)，识别不了或 params 畸形时返回 ``None``。"""
+    match = _STRUCTURED_RE.match(error_message)
+    if match is None:
+        return None
+    code = match.group(1)
+    if code not in FAILURE_CODE_KEYS:
+        return None
+    raw_params = match.group(2)
+    if not raw_params:
+        return code, {}
+    try:
+        parsed = json.loads(raw_params)
+    except (ValueError, RecursionError):
+        # 畸形 JSON，以及嵌套过深到 ``json.loads`` 自身撞递归上限的 payload。渲染发生在
+        # HTTP 请求内，异常逸出就是 500，因此一并按无法识别处理：调用方原样透传，原因不丢。
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return code, parsed

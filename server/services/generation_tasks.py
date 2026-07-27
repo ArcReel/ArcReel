@@ -13,9 +13,6 @@ from typing import Any
 from lib.asset_types import ASSET_SPECS
 from lib.config.registry import PROVIDER_REGISTRY, model_info_for
 from lib.db.base import DEFAULT_USER_ID
-from lib.i18n import DEFAULT_LOCALE
-from lib.i18n import _ as i18n_translate
-from lib.image_backends.base import ImageCapabilityError
 from lib.path_safety import safe_exists, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import get_project_manager
@@ -33,7 +30,6 @@ from lib.prompt_utils import (
     utterances_to_dialogue,
     video_prompt_to_yaml,
 )
-from lib.reference_compression import ReferencePayloadFloorError
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
 from lib.storyboard_sequence import (
@@ -194,7 +190,7 @@ def assert_duration_supported(duration: int | float | str, supported_durations: 
     视为非法而**拒绝**，不做截断式归一化（截断会把本应拒绝的非法值静默修正）。
 
     校验失败抛 :class:`VideoCapabilityError`（带稳定 code），与 ImageCapabilityError 对称——
-    Worker 捕获后渲染为本地化的 task.error_message。
+    Worker 按 code + params 落 task.error_message，文案由读侧 Translator 渲染。
     """
     if not supported_durations:
         return
@@ -1539,14 +1535,10 @@ async def execute_generation_task(task: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"unsupported task_type: {task_type}")
 
     with project_change_source("worker"):
-        try:
-            result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)
-        except (ImageCapabilityError, VideoCapabilityError, ReferencePayloadFloorError) as err:
-            # Worker 后台无 request 上下文，按 DEFAULT_LOCALE 渲染稳定的 i18n 文案
-            # 落到 task.error_message，前端轮询时即可看到本地化提示。
-            # ReferencePayloadFloorError 对普通图/视频与 R2V 都经此渲染（R2V 走同一 dispatch catch）。
-            message = i18n_translate(err.code, locale=DEFAULT_LOCALE, **err.params)
-            raise RuntimeError(message) from err
+        # 能力类异常（Image/VideoCapabilityError、ReferencePayloadFloorError）原样上抛：
+        # worker 的 _encode_task_failure_message 按 code + params 落库，渲染留到读侧
+        # Translator，同一失败任务按 Accept-Language 显示 zh/en/vi。
+        result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)
         emit_generation_success_batch(
             task_type=task_type,
             project_name=project_name,

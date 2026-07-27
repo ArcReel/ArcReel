@@ -24,26 +24,27 @@ logger = logging.getLogger(__name__)
 
 ACTIVE_TASK_STATUSES = ("queued", "running", "cancelling")
 
-# _mark_failed_queued_dep 落库时按此长度截断 error_message；级联编码若超过此长度会被
-# 切断结尾的 `}`，使 render_failure 无法解析为合法 JSON。_encode_bounded_cascade_failure
-# 在编码前先按预算裁剪 reason，保证结果本身不需要再被截断，深层依赖链也不会近指数增长。
-_CASCADE_MESSAGE_LIMIT = 2000
+# 落库 error_message 的长度上限。裸切片会把结构化原因切在 JSON 中途，使 render_failure
+# 无法解析、用户看到机器码碎片而非本地化文案，因此两条落库路径都经 bound_reason 收窄。
+# 级联编码另在编码前按预算裁剪 reason（_encode_bounded_cascade_failure），保证结果本身
+# 不需要再被截断，深层依赖链也不会近指数增长。
+_MAX_ERROR_MESSAGE_LEN = 2000
 
 
 def _encode_bounded_cascade_failure(*, dependency_task_id: str, reason: str) -> str:
     encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
-    if len(encoded) <= _CASCADE_MESSAGE_LIMIT:
+    if len(encoded) <= _MAX_ERROR_MESSAGE_LEN:
         return encoded
 
     overhead = len(encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=""))
-    budget = max(_CASCADE_MESSAGE_LIMIT - overhead, 0)
+    budget = max(_MAX_ERROR_MESSAGE_LEN - overhead, 0)
     # JSON 转义（reason 中的引号/反斜杠）会让 budget 字符的 reason 编码后略超预算；始终经
     # bound_reason 收窄以保持结构化 reason 合法，不对已裁剪结果做原始字符再截断（那会切断
-    # JSON 尾部）。极少数迭代仍超限时接受结果略超 _CASCADE_MESSAGE_LIMIT，好过写坏 JSON。
+    # JSON 尾部）。极少数迭代仍超限时接受结果略超 _MAX_ERROR_MESSAGE_LEN，好过写坏 JSON。
     for _ in range(5):
         reason = bound_reason(reason, budget)
         encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
-        overflow = len(encoded) - _CASCADE_MESSAGE_LIMIT
+        overflow = len(encoded) - _MAX_ERROR_MESSAGE_LEN
         if overflow <= 0 or budget <= 0:
             break
         budget = max(budget - overflow, 0)
@@ -375,7 +376,7 @@ class TaskRepository(BaseRepository):
             .where(Task.task_id == task_id, Task.status == "running")
             .values(
                 status="failed",
-                error_message=error_message[:2000],
+                error_message=bound_reason(error_message, _MAX_ERROR_MESSAGE_LEN),
                 finished_at=now,
                 updated_at=now,
             )
@@ -405,7 +406,7 @@ class TaskRepository(BaseRepository):
             .where(Task.task_id == task_id, Task.status == "queued")
             .values(
                 status="failed",
-                error_message=error_message[:2000],
+                error_message=bound_reason(error_message, _MAX_ERROR_MESSAGE_LEN),
                 finished_at=now,
                 updated_at=now,
             )

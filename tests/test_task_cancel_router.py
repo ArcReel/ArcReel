@@ -6,9 +6,11 @@
   - POST /projects/{project_name}/tasks/cancel-all
 """
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.i18n import MESSAGES
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import tasks as tasks_router
@@ -195,6 +197,26 @@ class TestCancelTask:
         assert resp.status_code == 200
         body = resp.json()
         assert body["skipped_terminal"][0]["task_id"] == "done-task"
+
+    @pytest.mark.unit
+    def test_skipped_terminal_failure_reason_renders_per_locale(self, monkeypatch):
+        """取消命中已失败任务时，响应里的失败原因与列表/详情/SSE 同口径按请求语言渲染。"""
+        stored = '[video_duration_not_supported] {"duration": 7, "supported": "5, 10"}'
+        result = {
+            "cancelled": [],
+            "cancelling": [],
+            "skipped_terminal": [{"task_id": "failed-task", "status": "failed", "error_message": stored}],
+        }
+        fake = _FakeQueue(cancel_task_result=result)
+        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
+
+        app = _make_app()
+        with TestClient(app) as client:
+            resp = client.post("/api/v1/tasks/failed-task/cancel", headers={"Accept-Language": "en"})
+
+        assert resp.status_code == 200
+        expected = MESSAGES["en"]["video_duration_not_supported"].format(duration=7, supported="5, 10")
+        assert resp.json()["skipped_terminal"][0]["error_message"] == expected
 
 
 # ---------------------------------------------------------------------------
