@@ -18,6 +18,7 @@ from lib.episode_ledger import discover_sources as _real_discover_sources
 from lib.episode_planner import (
     EpisodePlanner,
     EpisodePlanningError,
+    PlanningConflictError,
     _find_all_overlapping,
 )
 from lib.episode_reset import EpisodeResetResult, reset_episode_planning
@@ -588,6 +589,33 @@ class TestPlan:
             await EpisodePlanner(project_dir, generator=fake).plan()
 
         assert (project_dir / "project.json").read_text(encoding="utf-8") == before
+        assert not list((project_dir / "source").glob("episode_*.txt"))
+
+    @pytest.mark.integration
+    async def test_plan_raises_planning_conflict_when_ledger_advances_during_call(self, tmp_path: Path):
+        """请求在途时账本被另一次调用抢先提交、有效起点前移：锁内复核发现不一致，整批作废，账本与磁盘均无写入。"""
+        project_dir = _write_project(tmp_path)
+        after_concurrent_commit: list[str] = []
+
+        class _ConcurrentCommitGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                # 模拟另一次 plan() 调用在本次锁外快照之后、锁内复核之前抢先提交了第 1 集
+                project = _load_project(project_dir)
+                project["episodes"] = [_entry(1, 0, _end_of(ANCHOR_EP1))]
+                project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP1)}
+                (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+                after_concurrent_commit.append((project_dir / "project.json").read_text(encoding="utf-8"))
+                return await super().generate(request, project_name)
+
+        fake = _ConcurrentCommitGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "玉中剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+
+        with pytest.raises(PlanningConflictError, match="并发"):
+            await EpisodePlanner(project_dir, generator=fake).plan()
+
+        # 账本逐字停留在并发提交后的状态：本次调用的集条目、游标与源文指纹一个字节都没落盘
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == after_concurrent_commit[0]
         assert not list((project_dir / "source").glob("episode_*.txt"))
 
     async def test_plan_truncation_short_circuits_retry_and_hints_leverage(self, tmp_path: Path):
