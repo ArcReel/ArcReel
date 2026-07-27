@@ -88,7 +88,7 @@ export function StudioCanvasRouter() {
   const tRef = useRef(t);
   // eslint-disable-next-line react-hooks/refs -- tRef 是稳定 event-handler ref 模式，用于在回调中获取最新 t 而不触发无限 useCallback 重建
   tRef.current = t;
-  const { currentProjectData, currentProjectName, currentScripts } =
+  const { currentProjectData, currentProjectName, currentScripts, projectDetailLoading } =
     useProjectsStore();
   // 演示态：资产画布仍走 readOnly 透传，工作台时间线的只读则由组件自己直读同一判定。
   // useDemoWorkbench() 已把路由参数与 store 的判定滞后收口在单一来源，此处直接消费。
@@ -545,7 +545,10 @@ export function StudioCanvasRouter() {
     void handleGenerateProduct(...args).catch(console.error);
   }, [handleGenerateProduct]);
 
-  if (!currentProjectName) {
+  // `currentProjectName` 在详情到达前就已落地（见 router.tsx 首屏加载的注释），
+  // 仅查它会在深链（/characters 等）直接打开或详情较慢时把空集合渲染成可交互的
+  // 「空项目」页面；`projectDetailLoading` 才是详情是否已到达的信号。
+  if (!currentProjectName || projectDetailLoading) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
         {t("loading_placeholder")}

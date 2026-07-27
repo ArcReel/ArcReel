@@ -444,4 +444,59 @@ describe("projects-store refreshProject", () => {
     expect(useProjectsStore.getState().currentProjectName).toBe("B");
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-新数据");
   });
+
+  it("在途轮是当前项目、排队的却是旧项目名：在途轮照常写入，不为排队者让位", async () => {
+    // 首屏加载收编进来之后，「排队里有别的项目」不再必然意味着本轮即将被取代：路由切换
+    // 会先落名再刷新，因此真正要取代本轮的项目此刻已是当前项目；而持旧项目名的调用方
+    // （写操作完成后的刷新、SSE）排进来时，当前项目并未易主。此时若仍为它让位，本轮
+    // 就是当前项目自己的首屏数据，丢掉后没有任何人会再加载它。
+    useProjectsStore.getState().setCurrentProject("B", null);
+    const dB = deferred<GetProjectResult>();
+    const dStale = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockImplementation((name) =>
+      name === "B" ? dB.promise : dStale.promise,
+    );
+
+    const store = useProjectsStore.getState();
+    const pB = store.refreshProject("B"); // 当前项目 B 的首屏轮，在途
+    const pStale = store.refreshProject("A"); // 持旧项目名的调用方排队
+
+    dB.resolve(makeResult("B-数据"));
+    expect(await pB).toBe("success");
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
+
+    // 排队轮跑的是旧项目 A：它本就写不进去（非当前项目），结算为 cancelled 即可。
+    dStale.resolve(makeResult("A-迟到数据"));
+    expect(await pStale).toBe("cancelled");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
+  });
+
+  it("当前项目的刷新在排队时，持旧项目名的调用方不夺走唯一的排队名额", async () => {
+    // 排队只有一个名额，且设计上「取最新 name」。收编首屏加载后，被挤掉的那个可能正是
+    // 当前项目自己的首屏刷新——而挤进来的旧项目名注定写不进 store，于是当前项目的数据
+    // 一轮都不会被拉取，projectDetailLoading 也永远回落不了。
+    useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
+    const dSseA = deferred<GetProjectResult>();
+    const dB = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockImplementation((name) =>
+      name === "B" ? dB.promise : dSseA.promise,
+    );
+
+    const store = useProjectsStore.getState();
+    const pSseA = store.refreshProject("A"); // A 页面上的 SSE 刷新，在途
+    store.setCurrentProject("B", null); // 路由切到 B：先落名，取消域随之轮换
+    const pFirstScreenB = store.refreshProject("B"); // B 的首屏刷新 → 排队
+    const pStaleA = store.refreshProject("A"); // 持旧项目名的调用方，不该挤掉 B
+
+    dSseA.resolve(makeResult("A-迟到数据"));
+    await flush();
+    dB.resolve(makeResult("B-数据"));
+
+    expect(await pFirstScreenB).toBe("success");
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
+    expect(await pSseA).toBe("cancelled");
+    expect(await pStaleA).toBe("cancelled");
+  });
 });

@@ -199,6 +199,7 @@ export default {
   'overview_gen_desc': 'A project overview will be generated, then you can start creating scripts and storyboards',
   'project_overview_regenerated': 'Project overview regenerated',
   'project_sync_failed': 'Failed to sync project changes: {{message}}',
+  'project_load_failed': 'Failed to load project: {{message}}',
   'synopsis': 'Synopsis',
   'genre': 'Genre',
   'theme': 'Theme',

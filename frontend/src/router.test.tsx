@@ -192,12 +192,16 @@ describe("AppRoutes", () => {
 
   it("离开项目会中止在途的详情请求", async () => {
     let capturedSignal: AbortSignal | undefined;
-    vi.spyOn(API, "getProject").mockImplementation((_name, options) => {
-      capturedSignal = options?.signal;
-      return new Promise(() => {
-        // 永不 settle：模拟一条还挂在网络上的请求
-      });
-    });
+    vi.spyOn(API, "getProject").mockImplementation(
+      (_name, options) =>
+        new Promise((_resolve, reject) => {
+          capturedSignal = options?.signal;
+          // 模拟真实 fetch + AbortSignal 语义：abort 后 reject，而不是永久悬挂——
+          // 否则 refreshProject 的共享「在途」标志会被这条请求永久卡住，污染同一
+          // 文件里排在后面的用例（它们的 refreshProject 调用会被无限期排队）。
+          options?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        }),
+    );
 
     const view = renderAt("/app/projects/demo");
     await waitFor(() => expect(capturedSignal).toBeDefined());
@@ -205,6 +209,55 @@ describe("AppRoutes", () => {
 
     view.unmount();
     expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  it("快速切换项目：旧项目的迟到响应不覆盖新项目的首屏数据", async () => {
+    // 回归：首屏加载收编进 refreshProject 的取消域后，A → B 快速切换时 A 的响应可能
+    // 在切换完成之后才落定（abort 与响应落定同为异步，响应先到时网络层不会 reject）。
+    // 它既不该写回 currentProject，也不该让 B 自己的首屏加载失踪或停在加载态。
+    let resolveA!: (value: Awaited<ReturnType<typeof API.getProject>>) => void;
+    const pendingA = new Promise<Awaited<ReturnType<typeof API.getProject>>>((res) => {
+      resolveA = res;
+    });
+    vi.spyOn(API, "getProject").mockImplementation((name) =>
+      name === "A"
+        ? pendingA
+        : Promise.resolve({ project: { title: "B-数据" } as never, scripts: {} }),
+    );
+
+    // 只看最终态不足以证伪「迟到覆盖」——A 的数据即便写进去了，也会被随后跑完的 B 盖回
+    // 去。订阅整段过程，断言 A 的数据一次都没有落进 store。
+    const seenTitles: Array<string | undefined> = [];
+    const unsubscribe = useProjectsStore.subscribe((s) =>
+      seenTitles.push(s.currentProjectData?.title),
+    );
+
+    const { hook, navigate } = memoryLocation({ path: "/app/projects/A" });
+    render(
+      <Router hook={hook}>
+        <AppRoutes />
+      </Router>,
+    );
+    await waitFor(() => {
+      expect(API.getProject).toHaveBeenCalledWith("A", { signal: expect.any(AbortSignal) });
+    });
+
+    act(() => navigate("/app/projects/B"));
+    // 切换完成后 A 的响应才落定
+    await act(async () => {
+      resolveA({ project: { title: "A-迟到数据" } as never, scripts: {} });
+      await pendingA;
+    });
+
+    await waitFor(() => {
+      const s = useProjectsStore.getState();
+      expect(s.currentProjectName).toBe("B");
+      expect(s.currentProjectData?.title).toBe("B-数据");
+      // B 的首屏加载正常收口，不因 A 占着在途/排队名额而停在加载态
+      expect(s.projectDetailLoading).toBe(false);
+    });
+    unsubscribe();
+    expect(seenTitles).not.toContain("A-迟到数据");
   });
 
   it("keeps project name when loading project details fails", async () => {
