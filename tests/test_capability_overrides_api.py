@@ -250,6 +250,49 @@ class TestModelListExposesCapabilities:
         assert resp.status_code == 200
         assert resp.json()["models"][0]["capability_overrides"] is None
 
+    @pytest.mark.integration
+    async def test_unallowlisted_key_dropped_from_response(self, client: TestClient, session_factory):
+        """DB 遗留的白名单外键（如 first_frame，语义合法但未开放给用户覆盖）不该在回显中
+        原样带出：否则界面呈现"覆盖已生效"，而写入侧一保存这条键就会被剔除——GET 与 PUT
+        的键集合必须一致，调用方不该额外知道"回显可能含脏键但写回会被剔除"这条隐藏知识。"""
+        pid = await _seed_provider_with_raw_models(
+            session_factory,
+            [
+                {
+                    "model_id": VIDEO_MODEL,
+                    "display_name": "Sora 2",
+                    "endpoint": VIDEO_ENDPOINT,
+                    "is_enabled": True,
+                    "is_default": True,
+                    "capability_overrides": {"first_frame": False},
+                }
+            ],
+        )
+
+        models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
+        assert models[0]["capability_overrides"] is None
+
+    @pytest.mark.integration
+    async def test_allowlisted_key_kept_when_mixed_with_unallowlisted(self, client: TestClient, session_factory):
+        """混合了白名单内外键的存量行：白名单内键（last_frame）回显不变，白名单外键
+        （first_frame）被剔除，回显集合与写入落库集合一致。"""
+        pid = await _seed_provider_with_raw_models(
+            session_factory,
+            [
+                {
+                    "model_id": LAST_FRAME_MODEL,
+                    "display_name": "Seedance",
+                    "endpoint": LAST_FRAME_ENDPOINT,
+                    "is_enabled": True,
+                    "is_default": True,
+                    "capability_overrides": {"last_frame": True, "first_frame": False},
+                }
+            ],
+        )
+
+        models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
+        assert models[0]["capability_overrides"] == {"last_frame": True}
+
 
 class TestSaveDropsUnlistedOverrides:
     """白名单外的键随保存被静默剔除——这是它们唯一的出口。

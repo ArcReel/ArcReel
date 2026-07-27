@@ -68,6 +68,12 @@ if not CAPABILITY_OVERRIDE_ALLOWLIST <= CAPABILITY_OVERRIDE_FIELDS.keys():
         f"{sorted(CAPABILITY_OVERRIDE_ALLOWLIST - set(CAPABILITY_OVERRIDE_FIELDS))}"
     )
 
+
+def _narrow_to_allowlist(overrides: dict[str, object]) -> dict[str, object]:
+    """收窄至开放白名单。写入侧与回显侧共用，两处键集合同源而非各自推导后靠注释约定一致。"""
+    return {k: v for k, v in overrides.items() if k in CAPABILITY_OVERRIDE_ALLOWLIST}
+
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/custom-providers", tags=["Custom Providers"])
@@ -131,7 +137,7 @@ class ModelInput(BaseModel):
         """
         if not value:
             return None
-        kept = {k: v for k, v in value.items() if k in CAPABILITY_OVERRIDE_ALLOWLIST}
+        kept = _narrow_to_allowlist(value)
         if dropped := sorted(value.keys() - kept.keys()):
             logger.warning("能力覆盖含未开放键，保存时已剔除: %s", ", ".join(dropped))
         return kept or None
@@ -294,13 +300,17 @@ def _system_capabilities_for(endpoint: str, model_id: str) -> dict[str, object] 
 def _effective_overrides_for_response(
     endpoint: str, model_id: str, overrides: object | None
 ) -> dict[str, object] | None:
-    """回显前按写入侧同一判定过滤，剔除执行层不会采用的键值。
+    """回显前按写入侧同一判定过滤，剔除执行层不会采用的键值，并收窄至开放白名单。
 
     存量行 / 非 API 写入可能留下已不兼容的覆盖（如 endpoint 不再 end_image_capable 后的
     last_frame=True）：原样回显会让界面显示"覆盖已生效"，但执行层其实静默忽略；且客户端
     普通保存时把它原样回传，会被写入侧白名单拒为 422，堵住与该覆盖无关的编辑。
+
+    再经 :func:`_narrow_to_allowlist` 收窄：DB 遗留的白名单外键（同样只能来自手工改库）若原样
+    回显，与写入落库的键集合不一致，调用方需要额外知道"回显可能含脏键但写回会被剔除"。收窄与
+    写入侧走同一个函数，两处集合同源。
     """
-    filtered = filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides)
+    filtered = _narrow_to_allowlist(filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides))
     return filtered or None
 
 
