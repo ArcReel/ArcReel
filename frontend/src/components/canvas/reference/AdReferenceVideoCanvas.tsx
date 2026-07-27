@@ -111,8 +111,9 @@ export function AdReferenceVideoCanvas({
       let st: UnitStatus = clip ? "ready" : "pending";
       const queueRow = tasksByUnit.get(unit.unit_id);
       if (queueRow && isActiveStatus(queueRow.status)) st = "running";
-      // 失败任务行 DB 持久化、不会过期：已有成片时不再让历史失败盖住 ready。
-      else if (queueRow?.status === "failed" && !clip) st = "failed";
+      // 「最新行胜出」已保证 queueRow 是该 unit 最新一次生成尝试：重新生成失败时
+      // 最新行必然是这次失败，不能被旧成片压成 ready，否则失败原因无处可见。
+      else if (queueRow?.status === "failed") st = "failed";
       // 乐观窗口：真实任务行尚未落库时按占用集显示 running。
       else if (!queueRow && busyUnitIds.has(unit.unit_id)) st = "running";
       map[unit.unit_id] = st;
@@ -171,6 +172,13 @@ export function AdReferenceVideoCanvas({
   }, [derive, generateUnit, projectName]);
 
   const hasUnits = hydrated.length > 0;
+  // 任一分组仍有活跃任务（含取消中）时禁止重新派生：派生会按位置重算 unit_id 的
+  // 成员镜头，若此时有任务仍在跑，任务完成落回 apply_unit_video_assets 时会按
+  // unit_id 把产物写给重新派生后的新成员，造成成片挂错分组。
+  const anyUnitBusy = hydrated.some(({ unit }) => busyUnitIds.has(unit.unit_id));
+  // 首次列表 GET 未完成时 units 为 null：此时点击派生，POST 结果可能被随后落地的
+  // 首次 GET（携带派生前的旧列表）覆盖，画布会误报尚未派生。禁用入口直到首次加载完成。
+  const initialLoadPending = units === null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -191,7 +199,7 @@ export function AdReferenceVideoCanvas({
         <button
           type="button"
           className="sv-navbtn inline-flex items-center gap-1.5"
-          disabled={!hasScript || deriving}
+          disabled={!hasScript || deriving || initialLoadPending || anyUnitBusy}
           onClick={() => void derive()}
         >
           <RefreshCw className="h-3 w-3" aria-hidden="true" />
@@ -201,7 +209,7 @@ export function AdReferenceVideoCanvas({
           <button
             type="button"
             className="sv-navbtn inline-flex items-center gap-1.5"
-            disabled={deriving}
+            disabled={deriving || anyUnitBusy}
             onClick={() => void generateAll()}
           >
             <Sparkles className="h-3 w-3" aria-hidden="true" />
@@ -242,6 +250,7 @@ export function AdReferenceVideoCanvas({
                 stale={stale}
                 status={statusMap[unit.unit_id]}
                 busy={busyUnitIds.has(unit.unit_id)}
+                cancelling={tasksByUnit.get(unit.unit_id)?.status === "cancelling"}
                 errorMessage={tasksByUnit.get(unit.unit_id)?.error_message ?? null}
                 projectName={projectName}
                 deriving={deriving}
@@ -270,6 +279,8 @@ interface AdUnitCardProps {
    * 重试与重新生成这两条路径上旧任务行始终在，仅看 status 会在乐观窗口内漏禁用。
    */
   busy: boolean;
+  /** 最新任务行是否处于取消中——占用集会计入 cancelling，但不应展示为「生成中」。 */
+  cancelling: boolean;
   errorMessage: string | null;
   projectName: string;
   deriving: boolean;
@@ -283,6 +294,7 @@ function AdUnitCard({
   stale,
   status,
   busy,
+  cancelling,
   errorMessage,
   projectName,
   deriving,
@@ -296,8 +308,10 @@ function AdUnitCard({
 
   // 状态先于 video_clip 落库的窗口里 status 已 ready 但 videoUrl 仍为 null——
   // 这种情况按生成中占位，避免空白预览框。busy 一并计入，使重试/重新生成在
-  // 乐观窗口内也占位并禁用按钮；生成中优先于 ready/failed，三者互斥。
-  const inFlight = busy || status === "running" || (status === "ready" && !videoUrl);
+  // 乐观窗口内也占位；但 cancelling 时排除在外——取消中不是「生成中」，展示层
+  // 沿用取消前的状态，仅按钮仍需保持禁用（见下方 disabled）。生成中优先于
+  // ready/failed，三者互斥。
+  const inFlight = (busy && !cancelling) || status === "running" || (status === "ready" && !videoUrl);
   const ready = status === "ready" && Boolean(videoUrl) && !inFlight;
   const failed = status === "failed" && !inFlight;
 
@@ -438,7 +452,7 @@ function AdUnitCard({
           <button
             type="button"
             className="sv-navbtn inline-flex items-center justify-center gap-1.5"
-            disabled={inFlight || stale || deriving}
+            disabled={inFlight || busy || stale || deriving}
             onClick={() => onGenerate(unit.unit_id)}
           >
             <Sparkles className="h-3 w-3" aria-hidden="true" />

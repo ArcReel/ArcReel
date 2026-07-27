@@ -286,6 +286,95 @@ describe("AdReferenceVideoCanvas", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("U1 入队失败");
   });
 
+  it("重新生成已完成分组失败后展示失败原因而非仍报已完成", async () => {
+    // 最新任务行落库为 failed 时必须信任它——旧的 !clip 判定会被已有成片盖成 ready，
+    // 隐藏这次重新生成的失败原因。
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({
+      units: [makeUnit({ generated_assets: { video_clip: "videos/E1U1.mp4", status: "completed" } })],
+    });
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t2",
+          project_name: "demo",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "failed",
+          error_message: "重新生成失败",
+          updated_at: "2026-06-12T11:00:00Z",
+        },
+      ] as never,
+    });
+
+    renderCanvas();
+
+    expect(await screen.findByText("重新生成失败")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /重试生成/ })).toBeInTheDocument();
+  });
+
+  it("首次分组加载完成前禁用派生入口，避免派生结果被迟到的旧列表覆盖", async () => {
+    let resolveList!: (v: { units: AdReferenceUnit[] }) => void;
+    mockedAPI.listAdReferenceUnits.mockReturnValue(
+      new Promise((resolve) => {
+        resolveList = resolve;
+      }),
+    );
+
+    renderCanvas();
+
+    const deriveButton = await screen.findByRole("button", { name: /派生分组/ });
+    expect(deriveButton).toBeDisabled();
+
+    resolveList({ units: [] });
+    await waitFor(() => expect(deriveButton).not.toBeDisabled());
+  });
+
+  it("分组仍有任务运行时禁用重新派生，避免任务完成后把成片挂到重派生后的新分组", async () => {
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "demo",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "running",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+
+    renderCanvas();
+
+    expect(await screen.findByRole("button", { name: /重新派生/ })).toBeDisabled();
+  });
+
+  it("任务取消中时不展示为生成中，按钮维持禁用", async () => {
+    // busy（占用谓词）计入 cancelling，但卡片不应把取消中误报成生成中——
+    // 展示层需沿用取消前的既有状态（此处为已完成）。
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({
+      units: [makeUnit({ generated_assets: { video_clip: "videos/E1U1.mp4", status: "completed" } })],
+    });
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "demo",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "cancelling",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+
+    renderCanvas();
+
+    const regenerate = await screen.findByRole("button", { name: /重新生成/ });
+    expect(regenerate).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /生成中/ })).not.toBeInTheDocument();
+  });
+
   it("批量生成按实时任务状态跳过已入队的分组", async () => {
     const units = [makeUnit(), makeUnit({ unit_id: "E1U2", shot_ids: ["E1S2"] })];
     mockedAPI.listAdReferenceUnits.mockResolvedValue({ units });
