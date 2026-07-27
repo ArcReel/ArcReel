@@ -4,7 +4,7 @@ status: accepted
 
 # 分集以 project.json 账本为单一真相源，物理集文件降级为同锁派生物
 
-旧拆分流程以物理文件本身为真相（`episode_N.txt` 存在即已拆、`_remaining.txt` 滚动覆盖作进度指针），没有任何"第 N 集对应原文哪一段"的显式记录——下游选错文件无从对账，后续集靠 Glob 推断集数易错，`_remaining.txt` 损坏即不可恢复。决定把分集真相源并入 project.json `episodes[]`：条目扩展原文素材范围（source_range，narration 为精确切分点、drama 为软素材范围）、钩子（hook）、drama 分集大纲与消费状态字段（ledger_status，planned/consumed/stale 三态，咨询性——能否重造派生文件或续接规划不看该字段，而看 source_range 结构是否完整、引用的源文件是否存在、范围是否在界内、指纹是否与已记录一致），顶层增加 planning_cursor 标记下一批规划起点、source_fingerprints 记录候选源文件的内容 sha256 指纹，用于检测规划中途源文件被外部替换。物理 `episode_N.txt` 降级为派生物，由规划/重置工具在同一把项目锁内随账本一并重写并清理账本之外的残留文件，不一致窗口为零；`_remaining.txt` 废除。存量项目沿 ADR 0022 启动迁移只盖版本章，不反推位置记录：它们的集照常消费，要重新规划则先做一次全量重置。
+旧拆分流程以物理文件本身为真相（`episode_N.txt` 存在即已拆、`_remaining.txt` 滚动覆盖作进度指针），没有任何"第 N 集对应原文哪一段"的显式记录——下游选错文件无从对账，后续集靠 Glob 推断集数易错，`_remaining.txt` 损坏即不可恢复。决定把分集真相源并入 project.json `episodes[]`：条目扩展原文素材范围（source_range，narration 为精确切分点、drama 为软素材范围）、钩子（hook）、drama 分集大纲与消费状态字段（ledger_status，planned/consumed/stale 三态，咨询性——能否重造派生文件或续接规划不看该字段，而看 source_range 结构是否完整、引用的源文件是否存在、范围是否在界内、指纹是否与已记录一致），顶层增加 planning_cursor 标记下一批规划起点、source_fingerprints 按候选源文件相对路径记录 `normalize_source_text` 输出文本的 SHA-256 指纹，用于检测规划中途源文件被外部替换。物理 `episode_N.txt` 降级为派生物，由规划/重置工具在同一把项目锁内随账本一并重写并清理账本之外的残留文件，不一致窗口为零；`_remaining.txt` 废除。存量项目沿 ADR 0022 启动迁移只盖版本章，不反推位置记录：它们的集照常消费，要重新规划则先做一次全量重置。
 
 ## Considered Options
 
