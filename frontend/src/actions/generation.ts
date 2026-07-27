@@ -62,22 +62,24 @@ function markScriptFile(projectName: string, taskType: string, scriptFile: strin
  * 入队请求的统一骨架：标记已在 `marks` 里打好，此处只负责发请求并按结果兑现——
  * 失败全部回滚后原样抛出，成功用 `taskIdsOf` 取出的 task_id 兑现（为空即回滚，
  * 后端没建任务行时标记永远等不到真实行）。
+ *
+ * 响应解析（`taskIdsOf`）与兑现同在 try 内：在途标记不被任何轮询写回清除，因此
+ * 兑现前的任何异常路径都必须回滚，否则标记会残留到页面刷新为止。
  */
 async function submit<T>(
   marks: readonly OptimisticHandle[],
   request: () => Promise<T>,
   taskIdsOf: (res: T) => string[],
 ): Promise<T> {
-  let res: T;
   try {
-    res = await request();
+    const res = await request();
+    const taskIds = taskIdsOf(res);
+    for (const m of marks) m.settle(taskIds);
+    return res;
   } catch (e) {
     for (const m of marks) m.rollback();
     throw e;
   }
-  const taskIds = taskIdsOf(res);
-  for (const m of marks) m.settle(taskIds);
-  return res;
 }
 
 function oneTaskId(res: { task_id: string }): string[] {

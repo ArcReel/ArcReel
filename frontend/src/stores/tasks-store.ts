@@ -106,10 +106,14 @@ function optimisticScriptFileKey(
 /**
  * 标记是否已被自己等待的真实任务行取代。在途标记（taskIds 为空）永不成立——请求
  * 往返期间没有任何依据可以判定资源已空闲。
+ *
+ * 一次提交建多条任务行时（宫格按分组逐条入队），要**全部**出现才让位：只等到其中
+ * 一条就交还，会在「首条已终态、其余尚未进入快照」的窗口里把资源误判为空闲。
  */
 function isMarkSuperseded(taskIds: readonly string[], tasks: TaskItem[]): boolean {
   if (taskIds.length === 0) return false;
-  return tasks.some((t) => taskIds.includes(t.task_id));
+  const landed = new Set(tasks.map((t) => t.task_id));
+  return taskIds.every((id) => landed.has(id));
 }
 
 // 按当前 tasks 修剪已让位的乐观占用标记（不新增标记，仅清理）。除兑现时机的顺带清理外，

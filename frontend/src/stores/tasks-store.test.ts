@@ -578,30 +578,36 @@ describe("selectHasActiveTaskForScriptFile", () => {
       ).toBe(false);
     });
 
-    it("releases as soon as any of the marker's rows lands", () => {
-      // 一次宫格入队会建多条任务行；只要其中一条落库，占用判定就交回真实数据
+    it("releases only after all of the marker's rows land", () => {
+      // 一次宫格入队会建多条任务行；只落地一条就交回真实数据的话，「首条已终态、
+      // 其余尚未进入快照」的窗口里 scriptFile 会被误判为空闲。
       const key = settledScriptFileKey("grid", "episode_1.json", ["grid-1", "grid-2"]);
-      const tasks = [
+      const landedOne = [
         task({
           task_id: "grid-2",
           task_type: "grid",
           resource_id: "grid-def",
           script_file: "episode_1.json",
-          status: "queued",
+          status: "succeeded",
         }),
       ];
       expect(
-        selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "proj", new Set([key])),
-      ).toBe(true); // 该行本身活跃
+        selectHasActiveTaskForScriptFile(landedOne, "grid", "episode_1.json", "proj", new Set([key])),
+      ).toBe(true); // 仅一条落地且已终态，标记继续守住剩余那条
+
+      const landedAll = [
+        ...landedOne,
+        task({
+          task_id: "grid-1",
+          task_type: "grid",
+          resource_id: "grid-abc",
+          script_file: "episode_1.json",
+          status: "succeeded",
+        }),
+      ];
       expect(
-        selectHasActiveTaskForScriptFile(
-          [{ ...tasks[0], status: "succeeded" }],
-          "grid",
-          "episode_1.json",
-          "proj",
-          new Set([key]),
-        ),
-      ).toBe(false); // 行已终态且标记已让位
+        selectHasActiveTaskForScriptFile(landedAll, "grid", "episode_1.json", "proj", new Set([key])),
+      ).toBe(false); // 全部落地且均已终态，标记让位
     });
 
     it("does not let another submission's grid row supersede the marker", () => {
@@ -721,6 +727,45 @@ describe("useTasksStore.setTasks prunes stale optimisticActiveScriptFile markers
       }),
     ]);
 
+    expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([]);
+  });
+
+  it("一次提交建多条任务行时，只落地其中一条不让位", () => {
+    // 宫格按分组逐条入队：首条已快速失败、其余尚未进入快照的窗口里，若按「任一落地」
+    // 让位，scriptFile 既无乐观标记也无活跃真实行，分镜编辑会短暂解禁并与后续切割竞争。
+    const key = settledScriptFileKey("grid", "episode_1.json", ["grid-1", "grid-2"]);
+    useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set([key]) });
+
+    useTasksStore.getState().setTasks([
+      task({
+        task_id: "grid-1",
+        task_type: "grid",
+        resource_id: "grid-abc",
+        script_file: "episode_1.json",
+        status: "failed",
+        updated_at: "2026-07-16T00:00:00Z",
+      }),
+    ]);
+    expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([key]);
+
+    useTasksStore.getState().setTasks([
+      task({
+        task_id: "grid-1",
+        task_type: "grid",
+        resource_id: "grid-abc",
+        script_file: "episode_1.json",
+        status: "failed",
+        updated_at: "2026-07-16T00:00:00Z",
+      }),
+      task({
+        task_id: "grid-2",
+        task_type: "grid",
+        resource_id: "grid-def",
+        script_file: "episode_1.json",
+        status: "running",
+        updated_at: "2026-07-16T00:00:01Z",
+      }),
+    ]);
     expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([]);
   });
 });

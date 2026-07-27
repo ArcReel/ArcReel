@@ -115,6 +115,19 @@ describe("enqueueStoryboard", () => {
     expect(markCounts().resource).toBe(0);
     expect(useAppStore.getState().toast).toBeNull();
   });
+
+  it("响应体形状意外时同样回滚，不留下永不清除的在途标记", async () => {
+    // 在途标记不被任何轮询写回清除，故兑现前的异常路径（如 204 让 API.request 返回
+    // undefined、随后取 task_id 抛 TypeError）也必须回滚，否则资源锁死到刷新为止。
+    vi.spyOn(API, "generateStoryboard").mockResolvedValue(
+      undefined as unknown as Awaited<ReturnType<typeof API.generateStoryboard>>,
+    );
+
+    await expect(enqueueStoryboard("demo", "seg-1", "p", "episode_1.json")).rejects.toThrow();
+
+    expect(occupied("demo", "storyboard", "seg-1")).toBe(false);
+    expect(markCounts().resource).toBe(0);
+  });
 });
 
 describe("单资源入队动作的乐观标记 kind / taskType", () => {
