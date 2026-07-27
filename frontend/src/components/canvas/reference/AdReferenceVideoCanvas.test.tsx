@@ -329,6 +329,15 @@ describe("AdReferenceVideoCanvas", () => {
     await waitFor(() => expect(deriveButton).not.toBeDisabled());
   });
 
+  it("首次加载失败后不永久禁用派生入口，可点击重试", async () => {
+    mockedAPI.listAdReferenceUnits.mockRejectedValue(new Error("加载炸了"));
+
+    renderCanvas();
+
+    await screen.findByRole("alert");
+    expect(await screen.findByRole("button", { name: /派生分组/ })).not.toBeDisabled();
+  });
+
   it("分组仍有任务运行时禁用重新派生，避免任务完成后把成片挂到重派生后的新分组", async () => {
     mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
     useTasksStore.setState({

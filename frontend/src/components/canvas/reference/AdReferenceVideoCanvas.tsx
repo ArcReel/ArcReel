@@ -177,8 +177,9 @@ export function AdReferenceVideoCanvas({
   // unit_id 把产物写给重新派生后的新成员，造成成片挂错分组。
   const anyUnitBusy = hydrated.some(({ unit }) => busyUnitIds.has(unit.unit_id));
   // 首次列表 GET 未完成时 units 为 null：此时点击派生，POST 结果可能被随后落地的
-  // 首次 GET（携带派生前的旧列表）覆盖，画布会误报尚未派生。禁用入口直到首次加载完成。
-  const initialLoadPending = units === null;
+  // 首次 GET（携带派生前的旧列表）覆盖，画布会误报尚未派生。禁用入口直到首次加载完成；
+  // 加载失败（error 非空）不算「加载中」，否则派生入口会永久禁用、用户无法自救。
+  const initialLoadPending = units === null && error === null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
