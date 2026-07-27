@@ -53,6 +53,7 @@ MESSAGES = {
     "prompt_text_empty": "prompt must not be empty",
     "storyboard_task_submitted": "Storyboard generation task for '{segment_id}' submitted",
     "generate_storyboard_first": "Please generate storyboard scene_{segment_id}.png first",
+    "invalid_storyboard_image_path": "Segment '{segment_id}' has an invalid storyboard image reference; please regenerate the storyboard",
     "video_prompt_must_be_string_or_action_object": "prompt must be a string or an object containing action/camera_motion",
     "video_prompt_action_empty": "prompt.action cannot be empty",
     "video_prompt_dialogue_array": "prompt.dialogue must be an array",

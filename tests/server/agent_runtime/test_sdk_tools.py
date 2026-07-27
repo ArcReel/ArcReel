@@ -880,6 +880,23 @@ async def test_generate_video_scene_missing(fake_ctx: ToolContext) -> None:
     assert out.get("is_error") is True
 
 
+@pytest.mark.parametrize(
+    "storyboard_value",
+    [
+        123,  # 剧本 JSON 里的脏数据（非字符串）须可读失败而非未处理 TypeError
+        "/etc/passwd",  # 绝对路径：越权引用项目外文件
+        "../../outside.png",  # `..` 穿越出项目目录
+    ],
+)
+async def test_generate_video_scene_rejects_invalid_storyboard_image(
+    fake_ctx: ToolContext, storyboard_value: object
+) -> None:
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {"storyboard_image": storyboard_value}  # type: ignore[attr-defined]
+    tool_obj = generate_video_scene_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1S01"})
+    assert out.get("is_error") is True
+
+
 async def test_generate_video_all_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
@@ -1003,6 +1020,49 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
         log=[],
     )
     assert "duration_seconds" not in specs2[0].payload
+
+
+@pytest.mark.parametrize(
+    "storyboard_value",
+    [
+        123,  # 剧本 JSON 里的脏数据（非字符串）
+        "/etc/passwd",  # 绝对路径
+        "../../outside.png",  # `..` 穿越出项目目录
+    ],
+)
+def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch(
+    tmp_path: Path, storyboard_value: object
+) -> None:
+    """批量入队场景下，单个条目 storyboard_image 非法（脏数据/越界/绝对路径）只跳过并记日志，
+    不应让 `project_dir / storyboard_image` 抛未处理异常中断整批。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_video_specs
+
+    (tmp_path / "storyboards").mkdir()
+    (tmp_path / "storyboards" / "scene_S02.png").write_bytes(b"png")
+    items = [
+        {
+            "segment_id": "S01",
+            "video_prompt": "非法引用",
+            "generated_assets": {"storyboard_image": storyboard_value},
+        },
+        {
+            "segment_id": "S02",
+            "video_prompt": "合法引用",
+            "generated_assets": {"storyboard_image": "storyboards/scene_S02.png"},
+        },
+    ]
+    log: list[str] = []
+    specs, order_map = _build_video_specs(
+        items=items,
+        id_field="segment_id",
+        content_mode="narration",
+        script_filename="episode_1.json",
+        project_dir=tmp_path,
+        skip_ids=None,
+        log=log,
+    )
+    assert [s.resource_id for s in specs] == ["S02"]
+    assert any("S01" in line for line in log)
 
 
 def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:

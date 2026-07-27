@@ -42,6 +42,7 @@ from lib.storyboard_sequence import (
     get_storyboard_items,
     group_scenes_by_segment_break,
     resolve_previous_storyboard_path,
+    resolve_storyboard_image_ref,
 )
 from lib.thumbnail import extract_video_thumbnail
 from lib.video_backends.base import VideoCapabilityError
@@ -789,34 +790,12 @@ async def execute_video_task(
     )
     generator = ctx.generator
 
-    # 优先读取 generated_assets.storyboard_image，回退默认路径。
-    # 旧宫格项目 storyboard_image 指向 scene_{id}_first.png，仍可正常解析——这点与 end_frame_image
-    # 不同，不能要求与 canonical 路径逐一比对，只做目录归属校验：剧本是磁盘上的 JSON，字段值不可
-    # 信任（归档导入、外部编辑、脏数据都能落值），绝对路径 / `..` 会把项目外任意文件送进视频请求
-    # 上传给供应商，须先用 try_safe_join 解析并确认结果落在 storyboards/ 目录内，否则可读硬失败。
+    # 优先读取 generated_assets.storyboard_image，回退默认路径。校验口径见
+    # resolve_storyboard_image_ref：与路由入队预检、SDK 工具入队预检共用同一份。
     assets = item.get("generated_assets", {})
     storyboard_rel = assets.get("storyboard_image") if isinstance(assets, dict) else None
-    if storyboard_rel not in (None, ""):
-        if not isinstance(storyboard_rel, str):
-            raise ValueError(f"invalid storyboard image path: {storyboard_rel!r}")
-        # try_safe_join 的越界校验只挡「解析结果落在项目外」；`os.path.join` 遇到绝对路径会
-        # 丢弃 base，若该绝对路径恰好落在项目 storyboards/ 内仍会通过越界检查。issue 验收标准
-        # 要求绝对路径本身一律拒绝（与是否越界无关），须在解析前显式挡掉。Windows 原生运行时
-        # 无盘符的「根路径」（如 `\Users\...`）对 `Path.is_absolute()` 不算绝对，但 os.path.join
-        # 遇到它同样会丢弃 base（仅保留 base 的盘符），需按正斜杠归一化后再查是否以根分隔符开头。
-        if Path(storyboard_rel).is_absolute() or storyboard_rel.replace("\\", "/").startswith("/"):
-            raise ValueError(f"invalid storyboard image path: {storyboard_rel!r}")
-        storyboards_root = safe_join(project_path, "storyboards", allow_base=True)
-        storyboard_file = try_safe_join(project_path, storyboard_rel)
-        if storyboard_file is None:
-            raise ValueError(f"invalid storyboard image path: {storyboard_rel!r}")
-        try:
-            storyboard_file.relative_to(storyboards_root)
-        except ValueError:
-            # 与越界/脏数据分开措辞：这一支是「项目内但不在 storyboards/」，唯一能自然落进来的
-            # 是外部编辑过的剧本，运维需要从失败原因直接看出是目录归属而非路径越界。
-            raise ValueError(f"storyboard image path must stay under storyboards/: {storyboard_rel!r}") from None
-    else:
+    storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
+    if storyboard_file is None:
         storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
     # is_file 而非 exists：字段被外部编辑指向目录（如 "storyboards" 本身）时 exists() 仍为
     # True，目录会被当作 start_image 传给视频后端，在编码阶段才失败且原因不可读。
