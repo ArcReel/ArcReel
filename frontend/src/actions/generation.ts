@@ -2,21 +2,22 @@
  * 入队动作层：所有生成类入队操作的唯一入口。
  *
  * 每个动作内部固定封装三件事：
- * 1. 调用对应 API 入队端点；
- * 2. 成功后在 tasks-store 打乐观占用标记（入队成功到 SSE 轮询把真实任务行
- *    写进 store 之间有 ~3s 空窗，期间同资源的其它入口会误判为空闲）；
+ * 1. 在**请求发出前**于 tasks-store 打乐观占用标记，请求失败即回滚，成功则用后端
+ *    返回的 task_id 兑现（见 {@link submit}）——占用态因此从点击那一刻起就成立，
+ *    调用方无须自备「请求在途」标记来覆盖网络往返窗口；
+ * 2. 调用对应 API 入队端点；
  * 3. 弹提示：后端 deduped=true（同资源任务已在处理中，本次未新建）时统一
  *    弹 info 提示，否则沿用各操作原有的成功文案。
  *
- * 失败一律向上抛，由调用方决定错误提示与回滚副作用。返回值统一归一化为
- * EnqueueResult，屏蔽各端点 task_id / task_ids 的形状差异。
+ * 失败一律向上抛，由调用方决定错误提示。返回值统一归一化为 EnqueueResult，
+ * 屏蔽各端点 task_id / task_ids 的形状差异。
  *
  * 组件禁止绕过本层直调入队类 API 方法（ESLint no-restricted-syntax 强制）。
  */
 import { API } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { useTasksStore, type OptimisticHandle } from "@/stores/tasks-store";
 
 export interface EnqueueResult {
   taskIds: string[];
@@ -40,14 +41,64 @@ function notifyEnqueued(
   }
 }
 
+/** 资源粒度乐观标记的简写（请求发出前调用）。 */
+function markResource(
+  projectName: string,
+  resourceKind: string,
+  resourceId: string,
+  pendingTaskType: string,
+): OptimisticHandle {
+  return useTasksStore
+    .getState()
+    .beginOptimisticActive(projectName, resourceKind, resourceId, pendingTaskType);
+}
+
+/** scriptFile 粒度乐观标记的简写（请求发出前调用）。 */
+function markScriptFile(projectName: string, taskType: string, scriptFile: string): OptimisticHandle {
+  return useTasksStore.getState().beginOptimisticActiveForScriptFile(projectName, taskType, scriptFile);
+}
+
+/**
+ * 入队请求的统一骨架：标记已在 `marks` 里打好，此处只负责发请求并按结果兑现——
+ * 失败全部回滚后原样抛出，成功用 `taskIdsOf` 取出的 task_id 兑现（为空即回滚，
+ * 后端没建任务行时标记永远等不到真实行）。
+ */
+async function submit<T>(
+  marks: readonly OptimisticHandle[],
+  request: () => Promise<T>,
+  taskIdsOf: (res: T) => string[],
+): Promise<T> {
+  let res: T;
+  try {
+    res = await request();
+  } catch (e) {
+    for (const m of marks) m.rollback();
+    throw e;
+  }
+  const taskIds = taskIdsOf(res);
+  for (const m of marks) m.settle(taskIds);
+  return res;
+}
+
+function oneTaskId(res: { task_id: string }): string[] {
+  return [res.task_id];
+}
+
+function manyTaskIds(res: { task_ids: string[] }): string[] {
+  return res.task_ids;
+}
+
 export async function enqueueStoryboard(
   projectName: string,
   segmentId: string,
   prompt: string | Record<string, unknown>,
   scriptFile: string,
 ): Promise<EnqueueResult> {
-  const res = await API.generateStoryboard(projectName, segmentId, prompt, scriptFile);
-  useTasksStore.getState().markOptimisticActive(projectName, "storyboard", segmentId, "storyboard");
+  const res = await submit(
+    [markResource(projectName, "storyboard", segmentId, "storyboard")],
+    () => API.generateStoryboard(projectName, segmentId, prompt, scriptFile),
+    oneTaskId,
+  );
   notifyEnqueued(res.deduped, i18n.t("dashboard:storyboard_task_submitted_toast", { id: segmentId }));
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
@@ -59,8 +110,11 @@ export async function enqueueVideo(
   scriptFile: string,
   durationSeconds?: number,
 ): Promise<EnqueueResult> {
-  const res = await API.generateVideo(projectName, segmentId, prompt, scriptFile, durationSeconds);
-  useTasksStore.getState().markOptimisticActive(projectName, "video", segmentId, "video");
+  const res = await submit(
+    [markResource(projectName, "video", segmentId, "video")],
+    () => API.generateVideo(projectName, segmentId, prompt, scriptFile, durationSeconds),
+    oneTaskId,
+  );
   notifyEnqueued(res.deduped, i18n.t("dashboard:video_task_submitted_toast", { id: segmentId }));
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
@@ -70,8 +124,11 @@ export async function enqueueNarration(
   segmentId: string,
   scriptFile: string,
 ): Promise<EnqueueResult> {
-  const res = await API.generateNarrationAudio(projectName, segmentId, scriptFile);
-  useTasksStore.getState().markOptimisticActive(projectName, "tts", segmentId, "tts");
+  const res = await submit(
+    [markResource(projectName, "tts", segmentId, "tts")],
+    () => API.generateNarrationAudio(projectName, segmentId, scriptFile),
+    oneTaskId,
+  );
   notifyEnqueued(res.deduped, i18n.t("dashboard:narration_task_submitted_toast", { id: segmentId }));
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
@@ -97,8 +154,11 @@ export async function enqueueCharacter(
   name: string,
   prompt: string,
 ): Promise<EnqueueResult> {
-  const res = await API.generateCharacter(projectName, name, prompt);
-  useTasksStore.getState().markOptimisticActive(projectName, "character", name, "character");
+  const res = await submit(
+    [markResource(projectName, "character", name, "character")],
+    () => API.generateCharacter(projectName, name, prompt),
+    oneTaskId,
+  );
   notifyEnqueued(res.deduped, i18n.t("dashboard:character_task_submitted_toast", { name }));
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
@@ -108,8 +168,11 @@ export async function enqueueScene(
   name: string,
   prompt: string,
 ): Promise<EnqueueResult> {
-  const res = await API.generateProjectScene(projectName, name, prompt);
-  useTasksStore.getState().markOptimisticActive(projectName, "scene", name, "scene");
+  const res = await submit(
+    [markResource(projectName, "scene", name, "scene")],
+    () => API.generateProjectScene(projectName, name, prompt),
+    oneTaskId,
+  );
   notifyEnqueued(res.deduped, i18n.t("dashboard:scene_task_submitted_toast", { name }));
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
@@ -119,8 +182,11 @@ export async function enqueueProp(
   name: string,
   prompt: string,
 ): Promise<EnqueueResult> {
-  const res = await API.generateProjectProp(projectName, name, prompt);
-  useTasksStore.getState().markOptimisticActive(projectName, "prop", name, "prop");
+  const res = await submit(
+    [markResource(projectName, "prop", name, "prop")],
+    () => API.generateProjectProp(projectName, name, prompt),
+    oneTaskId,
+  );
   notifyEnqueued(res.deduped, i18n.t("dashboard:prop_task_submitted_toast", { name }));
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
@@ -130,8 +196,11 @@ export async function enqueueProduct(
   name: string,
   prompt: string,
 ): Promise<EnqueueResult> {
-  const res = await API.generateProjectProduct(projectName, name, prompt);
-  useTasksStore.getState().markOptimisticActive(projectName, "product", name, "product");
+  const res = await submit(
+    [markResource(projectName, "product", name, "product")],
+    () => API.generateProjectProduct(projectName, name, prompt),
+    oneTaskId,
+  );
   notifyEnqueued(res.deduped, i18n.t("dashboard:product_task_submitted_toast", { name }));
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
@@ -145,10 +214,13 @@ export async function enqueueImageEdit(
     scriptFile?: string | null;
   },
 ): Promise<EnqueueResult> {
-  const res = await API.editImage(projectName, params);
   // image_edit 与生成任务共享同一资源槽位：kind 按被编辑资源类型归槽，
   // pendingTaskType 固定 image_edit，与 taskResourceKind 的归一化保持一致。
-  useTasksStore.getState().markOptimisticActive(projectName, params.resourceType, params.resourceId, "image_edit");
+  const res = await submit(
+    [markResource(projectName, params.resourceType, params.resourceId, "image_edit")],
+    () => API.editImage(projectName, params),
+    oneTaskId,
+  );
   notifyEnqueued(res.deduped, res.message);
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
@@ -159,12 +231,13 @@ export async function enqueueGrid(
   scriptFile: string,
   sceneIds?: string[],
 ): Promise<EnqueueResult> {
-  const res = await API.generateGrid(projectName, episode, scriptFile, sceneIds);
-  // task_ids 可能为空数组（如 scene_ids 过滤后无匹配分组）：此时后端不会产生
-  // 任何任务行，乐观标记将永远等不到真实任务落库来解除，需在打标前排除。
-  if (res.task_ids.length > 0) {
-    useTasksStore.getState().markOptimisticActiveForScriptFile(projectName, "grid", scriptFile);
-  }
+  // task_ids 可能为空数组（如 scene_ids 过滤后无匹配分组）：此时后端不产生任何任务行，
+  // settle([]) 会把标记回滚掉，不留下永远等不到真实行的残留。
+  const res = await submit(
+    [markScriptFile(projectName, "grid", scriptFile)],
+    () => API.generateGrid(projectName, episode, scriptFile, sceneIds),
+    manyTaskIds,
+  );
   notifyEnqueued(res.deduped, res.message);
   return { taskIds: res.task_ids, deduped: res.deduped };
 }
@@ -174,11 +247,14 @@ export async function enqueueGridRegenerate(
   gridId: string,
   scriptFile: string | null,
 ): Promise<EnqueueResult> {
-  const res = await API.regenerateGrid(projectName, gridId);
-  useTasksStore.getState().markOptimisticActive(projectName, "grid", gridId, "grid");
-  if (scriptFile) {
-    useTasksStore.getState().markOptimisticActiveForScriptFile(projectName, "grid", scriptFile);
-  }
+  const res = await submit(
+    [
+      markResource(projectName, "grid", gridId, "grid"),
+      ...(scriptFile ? [markScriptFile(projectName, "grid", scriptFile)] : []),
+    ],
+    () => API.regenerateGrid(projectName, gridId),
+    oneTaskId,
+  );
   // 重生成入口成功时静默（面板内已有状态反馈），仅 deduped 时弹提示。
   notifyEnqueued(res.deduped, null);
   return { taskIds: [res.task_id], deduped: res.deduped };
@@ -189,8 +265,11 @@ export async function enqueueReferenceVideoUnit(
   episode: number,
   unitId: string,
 ): Promise<EnqueueResult> {
-  const res = await API.generateReferenceVideoUnit(projectName, episode, unitId);
-  useTasksStore.getState().markOptimisticActive(projectName, "reference_video", unitId, "reference_video");
+  const res = await submit(
+    [markResource(projectName, "reference_video", unitId, "reference_video")],
+    () => API.generateReferenceVideoUnit(projectName, episode, unitId),
+    oneTaskId,
+  );
   notifyEnqueued(res.deduped, i18n.t("dashboard:reference_generate_queued"), "info");
   return { taskIds: [res.task_id], deduped: res.deduped };
 }

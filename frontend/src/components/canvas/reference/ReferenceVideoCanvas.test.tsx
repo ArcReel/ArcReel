@@ -49,6 +49,21 @@ function mkUnit(id: string, shotText = "x"): ReferenceVideoUnit {
   };
 }
 
+// 单元预览面板的生成 CTA。锚定行首把批量入口「批量生成视频」排除在外——两者都含
+// 「生成视频」，不锚定会按 DOM 顺序先匹配到批量按钮，测到的就不是这条提交路径。
+const UNIT_GENERATE_CTA = /^(Generate video|生成视频)/;
+
+function runningTask(unitId: string) {
+  return {
+    task_id: `task-${unitId}`,
+    project_name: "proj",
+    task_type: "reference_video",
+    resource_id: unitId,
+    status: "running",
+    updated_at: "2026-06-12T10:00:00Z",
+  };
+}
+
 const STUB_PROJECT: ProjectData = {
   title: "p",
   content_mode: "narration",
@@ -356,28 +371,81 @@ describe("ReferenceVideoCanvas", () => {
 
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
 
-    const generate = await screen.findByRole("button", { name: /Generate video|生成视频/ });
+    // 锚定行首，避免匹配到批量入口「批量生成视频」——它是另一条提交路径（见下一个用例）
+    const generate = await screen.findByRole("button", { name: UNIT_GENERATE_CTA });
     expect(generate).not.toBeDisabled();
 
     // 渲染之后、点击之前，另一入口（Agent 入队 / SSE 落库）已占用同一 unit
     act(() => {
-      useTasksStore.setState({
-        tasks: [
-          {
-            task_id: "t1",
-            project_name: "proj",
-            task_type: "reference_video",
-            resource_id: "E1U1",
-            status: "running",
-            updated_at: "2026-06-12T10:00:00Z",
-          },
-        ] as never,
-      });
+      useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
     });
 
     fireEvent.click(generate);
     await waitFor(() => expect(pushToast).toHaveBeenCalled());
     expect(genSpy).not.toHaveBeenCalled();
+  });
+
+  // 批量入口的保护对象是「全部待生成 unit」：占用的 unit 静默跳过（逐个报错只会刷屏），
+  // 没有待生成 unit 时按钮直接禁用——此前禁用条件只看当前选中 unit，与保护对象无关。
+  it("批量生成跳过提交时刻已被占用的 unit，不重复入队", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1"), mkUnit("E1U2")],
+    });
+    const genSpy = vi
+      .spyOn(API, "generateReferenceVideoUnit")
+      .mockResolvedValue({ task_id: "t9", deduped: false } as never);
+    vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
+    vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
+    await waitFor(() => expect(batch).not.toBeDisabled());
+
+    // 渲染之后、点击之前，E1U1 已被别的入口占用；E1U2 仍空闲
+    act(() => {
+      useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+    });
+
+    fireEvent.click(batch);
+    await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
+    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2");
+  });
+
+  // 上传与生成回写同一个成片文件：文件选择对话框打开期间同一 unit 可能已被占用，
+  // 按钮渲染期的禁用态挡不住这段窗口，提交时刻须再用 getState() 新鲜读复核一次。
+  it("上传确认时刻复核占用态，命中即拒绝并提示", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    const uploadSpy = vi.spyOn(API, "uploadReferenceUnitVideo");
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
+    vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
+
+    const { container } = render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    await screen.findByRole("button", { name: UNIT_GENERATE_CTA });
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+
+    // 选择文件之后、确认之前，该 unit 已被别的入口占用
+    act(() => {
+      useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+    });
+
+    fireEvent.change(input!, { target: { files: [new File(["x"], "clip.mp4", { type: "video/mp4" })] } });
+
+    await waitFor(() => expect(pushToast).toHaveBeenCalled());
+    expect(uploadSpy).not.toHaveBeenCalled();
+  });
+
+  it("没有待生成 unit 时批量生成按钮禁用", async () => {
+    // 唯一的 unit 已有成片：statusMap 为 ready，批量入口无作用对象
+    const ready = mkUnit("E1U1");
+    ready.generated_assets.video_clip = "videos/E1U1.mp4";
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [ready] });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
+    await waitFor(() => expect(batch).toBeDisabled());
   });
 
   // 后台任务失败通知已统一迁移到全局 useTaskFailureNotifications hook（转变驱动 /

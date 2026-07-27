@@ -3,6 +3,18 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import type { ReferenceVideoUnit } from "@/types";
 
+// VersionTimeMachine 的 busy 只关面板内的恢复按钮，触发按钮的可用性不变；替身把这个
+// 入参渲染成可断言的属性，避免为了读它去展开面板、加载版本列表。
+vi.mock("@/components/canvas/timeline/VersionTimeMachine", () => ({
+  VersionTimeMachine: ({ busy }: { busy?: boolean }) => (
+    <div data-testid="version-time-machine" data-busy={String(Boolean(busy))} />
+  ),
+}));
+
+function versionMachineBusy(): boolean {
+  return screen.getByTestId("version-time-machine").dataset.busy === "true";
+}
+
 function mkUnit(overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
   return {
     unit_id: "E1U1",
@@ -79,5 +91,34 @@ describe("UnitPreviewPanel", () => {
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');
     const button = input?.nextElementSibling as HTMLButtonElement;
     expect(button).toBeDisabled();
+  });
+
+  // 版本恢复与生成回写同一个成片文件：占用期间恢复旧版本会显示成功、随后被在跑的
+  // 生成任务覆盖。VersionTimeMachine 的 busy 关掉的是面板内的恢复按钮（触发按钮照常
+  // 可开，只读浏览不受影响），故这里断言接线本身。
+  describe("版本恢复的占用接线", () => {
+    it("空闲时不置 busy", () => {
+      render(<UnitPreviewPanel unit={mkUnit()} projectName="proj" />);
+      expect(versionMachineBusy()).toBe(false);
+    });
+
+    it("生成中置 busy", () => {
+      render(<UnitPreviewPanel unit={mkUnit()} projectName="proj" status="running" />);
+      expect(versionMachineBusy()).toBe(true);
+    });
+
+    it("取消中置 busy——占用比 running 状态活得更久", () => {
+      // cancelling 期间不展示为生成中（status 不是 running），但 worker 仍可能在写
+      // 成片文件，占用判定仍成立；仅看 status 会漏禁用
+      render(<UnitPreviewPanel unit={mkUnit()} projectName="proj" busy cancelling />);
+      expect(versionMachineBusy()).toBe(true);
+    });
+
+    it("成片上传在途置 busy", () => {
+      render(
+        <UnitPreviewPanel unit={mkUnit()} projectName="proj" onUploadVideo={vi.fn()} uploadingVideo />,
+      );
+      expect(versionMachineBusy()).toBe(true);
+    });
   });
 });

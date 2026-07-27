@@ -5,7 +5,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { UPLOAD_VIDEO_ACCEPT, UploadIconButton } from "@/components/ui/UploadIconButton";
 import { formatCost } from "@/utils/cost-format";
-import { StatusBadge, deriveUnitStatus } from "./unit-status";
+import { StatusBadge, resolveUnitStatus } from "./unit-status";
 import type { CostBreakdown, ReferenceVideoUnit, UnitStatus } from "@/types";
 
 export interface UnitPreviewPanelProps {
@@ -70,7 +70,7 @@ export function UnitPreviewPanel({
     );
   }
 
-  const effectiveStatus = status ?? deriveUnitStatus(unit);
+  const effectiveStatus = status ?? resolveUnitStatus(unit);
   const videoUrl = clip && projectName ? API.getFileUrl(projectName, clip, clipFp) : null;
 
   // 状态先于 video_clip 落库的窗口里，effectiveStatus==="ready" 但 videoUrl
@@ -109,12 +109,15 @@ export function UnitPreviewPanel({
             onSelect={(f) => void onUploadVideo(unit.unit_id, f)}
           />
         )}
+        {/* 版本恢复同样写这个 unit 的成片文件，与上传、主 CTA 同步接线禁用：
+            占用期间恢复旧版本会显示成功、随后被在跑的生成任务覆盖 */}
         {projectName && (
           <VersionTimeMachine
             projectName={projectName}
             resourceType="reference_videos"
             resourceId={unit.unit_id}
             onRestore={onRestored}
+            busy={inFlight || busy || Boolean(uploadingVideo)}
             iconOnly
           />
         )}
