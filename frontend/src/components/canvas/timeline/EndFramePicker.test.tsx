@@ -2,7 +2,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { EpisodeScript, ProjectData } from "@/types";
+import type { EpisodeScript } from "@/types";
 import type { GridGeneration } from "@/types/grid";
 import { EndFramePicker } from "./EndFramePicker";
 
@@ -24,12 +24,6 @@ const script = {
     { segment_id: "E1S02", novel_text: "", image_prompt: "", video_prompt: "" },
   ],
 } as unknown as EpisodeScript;
-
-const projectData = {
-  characters: { 阿澈: { character_sheet: "characters/achr.png" } },
-  scenes: { 长街: { scene_sheet: "scenes/street.png" } },
-  props: { 铜镜: { prop_sheet: "props/mirror.png" } },
-} as unknown as ProjectData;
 
 function grid(scriptFile: string, cellPath: string): GridGeneration {
   return {
@@ -94,7 +88,6 @@ beforeEach(() => {
   ]);
   useProjectsStore.setState({
     currentProjectName: PROJECT,
-    currentProjectData: projectData,
     currentScripts: { [SCRIPT]: script },
   });
 });
@@ -105,13 +98,11 @@ afterEach(() => {
 });
 
 describe("EndFramePicker 项目内通道", () => {
-  it("按来源分组：本集分镜图 / 角色 / 场景 / 本集宫格切图", async () => {
+  it("按来源分组：本集分镜图 / 本集宫格切图", async () => {
     const { findByText, getByText, queryByRole } = renderPicker();
 
     await findByText("本集宫格切图");
     expect(getByText("本集分镜图")).toBeInTheDocument();
-    expect(getByText("角色")).toBeInTheDocument();
-    expect(getByText("场景")).toBeInTheDocument();
 
     // 无分镜图的镜头不出现
     expect(queryByRole("button", { name: /镜头 E1S02/ })).toBeNull();

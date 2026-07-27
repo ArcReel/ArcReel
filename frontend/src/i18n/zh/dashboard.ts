@@ -1528,8 +1528,6 @@ export default {
   'end_frame_picker_selected': '已选：{{label}}',
   'end_frame_picker_empty': '本项目还没有图片，可以直接上传一张。',
   'end_frame_picker_group_storyboards': '本集分镜图',
-  'end_frame_picker_group_characters': '角色',
-  'end_frame_picker_group_scenes': '场景',
   'end_frame_picker_group_grid_cells': '本集宫格切图',
   'end_frame_picker_storyboard_label': '镜头 {{id}}',
   'end_frame_picker_grid_cell_label': '{{grid}} 第 {{index}} 格',

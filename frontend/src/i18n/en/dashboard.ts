@@ -1528,8 +1528,6 @@ export default {
   'end_frame_picker_selected': 'Selected: {{label}}',
   'end_frame_picker_empty': 'No images in this project yet. Upload one instead.',
   'end_frame_picker_group_storyboards': 'Storyboards in this episode',
-  'end_frame_picker_group_characters': 'Characters',
-  'end_frame_picker_group_scenes': 'Scenes',
   'end_frame_picker_group_grid_cells': 'Grid cells in this episode',
   'end_frame_picker_storyboard_label': 'Shot {{id}}',
   'end_frame_picker_grid_cell_label': '{{grid}} cell {{index}}',
