@@ -1,6 +1,6 @@
 // router.tsx — Route definitions for the studio layout
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Route, Switch, Redirect, useParams } from "wouter";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
@@ -22,9 +22,11 @@ import {
 } from "@/onboarding/demo-project";
 import { setApiReadOnly } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { errMsg } from "@/utils/async";
 import {
   ROUTE_APP,
   ROUTE_APP_ASSETS,
@@ -111,6 +113,12 @@ function StudioWorkspace() {
   const projectName = params.projectName ?? null;
   const { setCurrentProject, setProjectDetailLoading } = useProjectsStore();
   const { t } = useTranslation("onboarding");
+  // 把 t 通过 ref 暴露给首屏加载的 onError 回调，避免切语言触发 t 重建 → effect
+  // 依赖跟着重建 → 真实项目整条加载重跑（下方 effect 依赖里刻意不含 t，理由见下）。
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
 
   // 项目生命周期：清空上一个项目的 assistant 状态，再按项目类型取数据。
   // 依赖里不含 `t` —— 界面语言变化只该重灌演示常量（见下一个 effect），不该让真实项目
@@ -146,7 +154,10 @@ function StudioWorkspace() {
     setCurrentProject(projectName, null);
     void useProjectsStore
       .getState()
-      .refreshProject(projectName)
+      .refreshProject(projectName, {
+        onError: (err) =>
+          useAppStore.getState().pushToast(tRef.current("dashboard:project_load_failed", { message: errMsg(err) }), "error"),
+      })
       .then((result) => {
         // "cancelled" 代表本轮未同步（项目已被切走、取消域已轮换），loading 状态交由
         // 接管的新一轮自行结算，此处不动共享状态。
