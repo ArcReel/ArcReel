@@ -98,12 +98,14 @@ export function UnitPreviewPanel({
           {t("reference_preview_label")}
         </span>
         <span className="flex-1" />
+        {/* 上传是同一 unit 上的兄弟控件，与主 CTA 同步接线禁用：cancelling 期间
+            inFlight 为假但占用仍在，上传会与在跑的生成回写同一个成片文件 */}
         {onUploadVideo && (
           <UploadIconButton
             accept={UPLOAD_VIDEO_ACCEPT}
             label={t("media_upload_video")}
             busy={uploadingVideo}
-            disabled={inFlight}
+            disabled={inFlight || busy}
             onSelect={(f) => void onUploadVideo(unit.unit_id, f)}
           />
         )}

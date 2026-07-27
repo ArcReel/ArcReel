@@ -953,6 +953,7 @@ export default {
   'reference_tab_preprocess': 'Tiền xử lý tách',
   'reference_batch_generate': 'Tạo hàng loạt',
   'reference_batch_nothing_to_do': 'Tất cả đơn vị đã được tạo hoặc đang xử lý',
+  'reference_generate_busy': 'Đơn vị này đang được tạo, vui lòng thử lại sau',
   'reference_episode_header_units_one': '{{count}} đơn vị',
   'reference_episode_header_units_other': '{{count}} đơn vị',
   'reference_episode_header_ready': 'Sẵn sàng',
