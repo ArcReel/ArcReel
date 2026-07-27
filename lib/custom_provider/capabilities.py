@@ -73,9 +73,10 @@ def filter_valid_overrides(*, endpoint: str, model_id: str, overrides: object | 
 
     :func:`synthesize_video_capabilities` 与 API 响应边界（``server/routers/custom_providers.py``
     的 ``_model_to_response``）共用此过滤：后者据此裁剪回显给客户端的 ``capability_overrides``，
-    保证"界面显示的覆盖"与"执行层实际采用的覆盖"不漂移——否则存量脏数据会被界面呈现为已生效，
-    而实际执行时静默忽略。不校验 endpoint / media_type 合法性，调用方已各自处理（见
-    :func:`system_video_capabilities` 与 ``_system_capabilities_for``）。
+    存量脏数据因此不会被界面呈现为已生效、而执行时静默忽略。回显侧在此之上再按开放白名单收窄
+    一道，故回显是执行层采用集合的子集：未开放维度的键只能由手工改库产生，界面既无入口呈现也
+    无入口删除，回显隐去它以保证 GET 与写入落库的键集合一致。不校验 endpoint / media_type
+    合法性，调用方已各自处理（见 :func:`system_video_capabilities` 与 ``_system_capabilities_for``）。
     """
     if overrides is None:
         return {}
