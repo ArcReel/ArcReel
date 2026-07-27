@@ -21,6 +21,7 @@ from lib.api_errors import ApiError, NotFoundError
 from lib.i18n import Translator
 from lib.script_editor import ScriptEditError
 from server.auth import CurrentUser
+from server.error_handlers import script_edit_detail
 from server.services.end_frame import (
     EndFrameError,
     clear_end_frame,
@@ -54,7 +55,7 @@ def _translated_errors(script_file: str, _t: Translator) -> Iterator[None]:
         # 不回传 str(exc)：load_script 的异常信息含服务器绝对路径
         raise NotFoundError("script_not_found", name=script_file) from exc
     except ScriptEditError as e:
-        raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=str(e)))
+        raise HTTPException(status_code=400, detail=script_edit_detail(e, _t))
     except (HTTPException, ApiError):
         raise
     except Exception as e:

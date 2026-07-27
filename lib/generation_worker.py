@@ -34,6 +34,7 @@ from lib.generation_queue import (
     GenerationQueue,
     get_generation_queue,
 )
+from lib.script_editor import ScriptEditError
 from lib.task_failure import encode_failure
 
 # Default provider used when a task payload does not specify one.
@@ -65,6 +66,28 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
     except (TypeError, ValueError):
         return default
     return max(minimum, value)
+
+
+def _encode_task_failure_message(exc: Exception) -> str:
+    """把任务执行异常编码为落库的 error_message：ScriptEditError 走 key/params 结构化，
+    其余异常沿用 str(exc)。normal（_process_task）与 resume（_process_resume_task）两条
+    独立的任务执行路径都会捕获 ScriptEditError（前者经常规 finalize，后者经
+    resume_executor 复用同一批 finalize helper），共用这份编码逻辑避免同一处理漂移成两份。
+    """
+    if not isinstance(exc, ScriptEditError):
+        return str(exc)
+    try:
+        return encode_failure(exc.key, **exc.params)
+    except KeyError:
+        # exc.key 未登记进 FAILURE_CODE_KEYS——两个列表靠约定同步而非运行时校验，脱节时
+        # 降级到通用 key 而非让编码异常打断 mark_task_failed，否则任务会卡死在 running。
+        logger.warning("ScriptEditError key 未登记进 FAILURE_CODE_KEYS，降级为通用失败原因: key=%s", exc.key)
+        return encode_failure("script_edit_error")
+    except (TypeError, ValueError):
+        # params 不可 JSON 序列化（TypeError：非基础类型；ValueError：json.dumps 默认
+        # check_circular 检出循环引用），同样降级而不是让编码异常打断落库。
+        logger.warning("ScriptEditError params 无法序列化，降级为通用失败原因: key=%s", exc.key)
+        return encode_failure("script_edit_error")
 
 
 def _parse_lane_max(config: dict[str, str], key: str, default: int, provider_id: str) -> int:
@@ -670,7 +693,7 @@ class GenerationWorker:
             raise
         except Exception as exc:
             logger.exception("任务失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
-            rows = await asyncio.shield(self.queue.mark_task_failed(task_id, str(exc)))
+            rows = await asyncio.shield(self.queue.mark_task_failed(task_id, _encode_task_failure_message(exc)))
             if rows == 0:
                 # 外部已抢先翻 cancelling → 落地 cancelled 终态
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
@@ -763,7 +786,7 @@ class GenerationWorker:
             return
         except Exception as exc:
             logger.exception("resume 失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
-            rows = await asyncio.shield(self.queue.mark_task_failed(task_id, str(exc)))
+            rows = await asyncio.shield(self.queue.mark_task_failed(task_id, _encode_task_failure_message(exc)))
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
             return
