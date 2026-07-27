@@ -148,7 +148,7 @@ def test_derived_files_deleted_and_legacy_files_archived(tmp_path: Path) -> None
         tmp_path,
         episodes=[
             _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
-            _entry(2, source_range=None, status="unanchored"),
+            _entry(2, source_range=None),
         ],
     )
     derived = project_dir / "source" / "episode_1.txt"
@@ -171,7 +171,7 @@ def test_archived_file_left_out_of_discovery(tmp_path: Path) -> None:
     """留底文件既不进源文候选，也不被当成派生集文件重新认领。"""
     project_dir = _write_project(
         tmp_path,
-        episodes=[_entry(2, source_range=None, status="unanchored")],
+        episodes=[_entry(2, source_range=None)],
     )
     (project_dir / "source" / "episode_2.txt").write_text("老项目手工内容", encoding="utf-8")
 
@@ -185,7 +185,7 @@ def test_archive_does_not_overwrite_existing_backup(tmp_path: Path) -> None:
     """重复重置不覆盖上一次的留底：同名时追加序号。"""
     project_dir = _write_project(
         tmp_path,
-        episodes=[_entry(2, source_range=None, status="unanchored")],
+        episodes=[_entry(2, source_range=None)],
     )
     (project_dir / "source" / "_episode_2.txt.bak").write_text("上一次的留底", encoding="utf-8")
     (project_dir / "source" / "episode_2.txt").write_text("这一次的内容", encoding="utf-8")
@@ -385,7 +385,7 @@ def test_reset_clears_dangling_symlinked_episode_file(tmp_path: Path) -> None:
     写派生文件时被 EpisodePlanner 的符号链接校验硬拦截，重置的"可继续规划"承诺落空。"""
     project_dir = _write_project(
         tmp_path,
-        episodes=[_entry(2, source_range=None, status="unanchored")],
+        episodes=[_entry(2, source_range=None)],
     )
     link = project_dir / "source" / "episode_2.txt"
     link.symlink_to(project_dir / "source" / "does_not_exist.txt")
@@ -462,7 +462,7 @@ def test_reset_archives_when_any_duplicate_entry_lacks_source_range(tmp_path: Pa
         tmp_path,
         episodes=[
             _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
-            _entry(1, source_range=None, status="unanchored"),
+            _entry(1, source_range=None),
         ],
     )
     derived = project_dir / "source" / "episode_1.txt"
@@ -481,7 +481,7 @@ def test_archive_path_increments_past_dangling_symlink_collision(tmp_path: Path)
     exists() 对悬空链接返回 False，只查 exists() 会让 rename() 静默覆盖旧留底。"""
     project_dir = _write_project(
         tmp_path,
-        episodes=[_entry(2, source_range=None, status="unanchored")],
+        episodes=[_entry(2, source_range=None)],
     )
     stale_backup = project_dir / "source" / "_episode_2.txt.bak"
     stale_backup.symlink_to(project_dir / "source" / "does_not_exist_either.txt")
@@ -499,7 +499,7 @@ def test_archive_path_increments_past_dangling_symlink_collision(tmp_path: Path)
 
 def test_discover_episode_files_prefers_readable_over_dangling_alias(tmp_path: Path) -> None:
     """代表路径在悬空别名恰好排序在前时仍优先选可读文件，避免 backfill 等按内容匹配
-    source_range 的调用方读到悬空链接而误判该集 unanchored。"""
+    source_range 的调用方读到悬空链接而误判该集无内容。"""
     project_dir = _write_project(tmp_path)
     valid = project_dir / "source" / "episode_1.txt"
     valid.write_text(SOURCE[:10], encoding="utf-8")
@@ -512,7 +512,7 @@ def test_discover_episode_files_prefers_readable_over_dangling_alias(tmp_path: P
 def test_discover_episode_files_skips_episode_with_only_dangling_alias(tmp_path: Path) -> None:
     """某集号全部别名都是悬空符号链接（无真实内容）时，代表路径映射里不出现该集号，
     而不是返回一个读不到内容的路径——否则 backfill 会为纯悬空、无真实内容的集号
-    凭空补建一个 unanchored 幽灵条目。"""
+    凭空补建一个幽灵条目。"""
     project_dir = _write_project(tmp_path)
     dangling = project_dir / "source" / "episode_9.txt"
     dangling.symlink_to(project_dir / "source" / "does_not_exist.txt")
@@ -671,13 +671,13 @@ def test_partial_reset_deletes_derived_files_in_range_keeps_retained(tmp_path: P
     assert retained_file.exists()  # 保留段派生文件不动
 
 
-def test_partial_reset_archives_unanchored_file_in_range(tmp_path: Path) -> None:
-    """范围内 unanchored（无 source_range）的集文件按无法重造处理，留底而非删除。"""
+def test_partial_reset_archives_file_without_source_range_in_range(tmp_path: Path) -> None:
+    """范围内无 source_range 的集文件按无法重造处理，留底而非删除。"""
     project_dir = _write_project(
         tmp_path,
         episodes=[
             _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
-            _entry(2, source_range=None, status="unanchored"),
+            _entry(2, source_range=None),
         ],
     )
     (project_dir / "source" / "episode_1.txt").write_text(SOURCE[:10], encoding="utf-8")
@@ -745,12 +745,12 @@ def test_partial_reset_rejects_huge_from_episode_without_hanging(tmp_path: Path)
     assert _load_project(project_dir) == before
 
 
-def test_partial_reset_rejects_when_retain_boundary_unanchored(tmp_path: Path) -> None:
-    """第 from_episode-1 集（游标退回点）本身是 unanchored 时无法确定重置后的规划起点。"""
+def test_partial_reset_rejects_when_retain_boundary_has_no_source_range(tmp_path: Path) -> None:
+    """第 from_episode-1 集（游标退回点）本身没有位置记录时无法确定重置后的规划起点。"""
     project_dir = _write_project(
         tmp_path,
         episodes=[
-            _entry(1, source_range=None, status="unanchored"),
+            _entry(1, source_range=None),
             _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
         ],
     )
@@ -896,21 +896,21 @@ def test_partial_reset_allows_skip_over_blank_middle_source(tmp_path: Path) -> N
     assert _load_project(project_dir)["planning_cursor"] == {"source_file": "source/c.txt", "offset": 10}
 
 
-def test_partial_reset_rejects_mid_sequence_unanchored_entry(tmp_path: Path) -> None:
-    """保留段中间（非边界）出现失锚条目，其后又有锚定记录：该记录的坐标无法证明与
-    已验证内容衔接，中间那段源文可能被永久遗漏，拒绝而非凭空重新起锚。"""
+def test_partial_reset_rejects_mid_sequence_entry_without_source_range(tmp_path: Path) -> None:
+    """保留段中间（非边界）出现无位置记录的条目，其后又有坐标记录：该记录无法证明与
+    已验证内容衔接，中间那段源文可能被永久遗漏，拒绝而非凭空重新起算。"""
     project_dir = _write_project(
         tmp_path,
         episodes=[
             _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
-            _entry(2, source_range=None, status="unanchored"),
+            _entry(2, source_range=None),
             _entry(3, source_range={"source_file": "source/novel.txt", "start": 20, "end": 30}),
             _entry(4, source_range={"source_file": "source/novel.txt", "start": 30, "end": 40}),
         ],
     )
     before = _load_project(project_dir)
 
-    with pytest.raises(EpisodeResetError, match="存在失锚（unanchored）条目"):
+    with pytest.raises(EpisodeResetError, match="存在没有原文范围记录的条目"):
         reset_episode_planning(project_dir, from_episode=4)
 
     assert _load_project(project_dir) == before
@@ -934,9 +934,9 @@ def test_partial_reset_rejects_zero_length_retained_range(tmp_path: Path) -> Non
     assert _load_project(project_dir) == before
 
 
-def test_partial_reset_rejects_retain_boundary_pending_backfill(tmp_path: Path) -> None:
-    """游标退回点缺少 ledger_status（``backfill_episode_ledger`` 眼中待回填）：账本里
-    存的 source_range 未必是下一次 plan() 回填后的最终结果，不可信，拒绝而非直接采信。"""
+def test_partial_reset_accepts_retain_boundary_without_ledger_status(tmp_path: Path) -> None:
+    """游标退回点没有 ledger_status 但有结构完整、界内连续的 source_range：照常接受——
+    位置真相在 source_range，状态是咨询性的。"""
     project_dir = _write_project(tmp_path)
     project = _load_project(project_dir)
     entry = _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})
@@ -946,34 +946,33 @@ def test_partial_reset_rejects_retain_boundary_pending_backfill(tmp_path: Path) 
         _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
     ]
     (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    before = _load_project(project_dir)
 
-    with pytest.raises(EpisodeResetError, match="缺少可信的原文范围记录"):
-        reset_episode_planning(project_dir, from_episode=2)
+    result = reset_episode_planning(project_dir, from_episode=2)
 
-    assert _load_project(project_dir) == before
+    assert isinstance(result, EpisodeResetResult)
+    after = _load_project(project_dir)
+    assert [e["episode"] for e in after["episodes"]] == [1]
+    assert after["planning_cursor"] == {"source_file": "source/novel.txt", "offset": 10}
 
 
-def test_partial_reset_rejects_unanchored_status_with_forged_source_range(tmp_path: Path) -> None:
-    """游标退回点标 unanchored 但仍带结构合法、坐标连续的 source_range：不采信该坐标——
-    规划器同样不认它，采信会让重置写出一个规划器自己都不承认的游标。"""
+def test_partial_reset_trusts_source_range_under_legacy_status(tmp_path: Path) -> None:
+    """存量遗留的已废弃状态值不再让坐标失效：结构完整、界内连续的 source_range 照常采信。"""
     project_dir = _write_project(
         tmp_path,
         episodes=[
             _entry(
                 1,
                 source_range={"source_file": "source/novel.txt", "start": 0, "end": 10},
-                status="unanchored",
+                status="已废弃的状态",
             ),
             _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
         ],
     )
-    before = _load_project(project_dir)
 
-    with pytest.raises(EpisodeResetError, match="缺少可信的原文范围记录"):
-        reset_episode_planning(project_dir, from_episode=2)
+    result = reset_episode_planning(project_dir, from_episode=2)
 
-    assert _load_project(project_dir) == before
+    assert isinstance(result, EpisodeResetResult)
+    assert _load_project(project_dir)["planning_cursor"] == {"source_file": "source/novel.txt", "offset": 10}
 
 
 def test_partial_reset_rejects_non_positive_episode_numbers_in_ledger(tmp_path: Path) -> None:

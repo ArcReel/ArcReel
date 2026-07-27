@@ -618,7 +618,7 @@ class TestDataValidator:
 
 
 class TestEpisodeLedgerFields:
-    """分集账本字段：全部可缺失（旧式条目），存在时按 lib.episode_ledger 模型校验形状。"""
+    """分集账本字段：全部可缺失（该集无位置记录），存在时按 lib.episode_ledger 模型校验形状。"""
 
     def _validate(self, tmp_path, episode_entry=None, planning_cursor="__absent__"):
         payload = _project_payload()
@@ -650,7 +650,7 @@ class TestEpisodeLedgerFields:
         assert result.valid, result.errors
 
     def test_empty_title_allowed_on_episode_entry(self, tmp_path):
-        # 回填新建的孤儿条目 title 为空串；写入方（剧本同步）在剧本缺 title 时也写 ""
+        # 孤儿条目登记新建的条目 title 为空串；写入方（剧本同步）在剧本缺 title 时也写 ""
         entry = self._entry()
         entry["title"] = ""
         result = self._validate(tmp_path, entry)
@@ -662,8 +662,13 @@ class TestEpisodeLedgerFields:
         result = self._validate(tmp_path, entry)
         assert any("title" in e for e in result.errors)
 
-    def test_invalid_ledger_status_rejected(self, tmp_path):
+    def test_unknown_ledger_status_tolerated(self, tmp_path):
+        """当前状态集之外的取值按「无状态」容忍：存量项目可能留有已废弃的状态值。"""
         result = self._validate(tmp_path, self._entry(ledger_status="done"))
+        assert result.valid, result.errors
+
+    def test_non_string_ledger_status_rejected(self, tmp_path):
+        result = self._validate(tmp_path, self._entry(ledger_status=3))
         assert any("ledger_status" in e for e in result.errors)
 
     def test_malformed_source_range_rejected(self, tmp_path):
@@ -685,15 +690,16 @@ class TestEpisodeLedgerFields:
         result = self._validate(tmp_path, planning_cursor={"source_file": "/etc/passwd", "offset": 0})
         assert any("planning_cursor" in e for e in result.errors)
 
-    def test_unanchored_with_source_range_rejected(self, tmp_path):
+    def test_legacy_status_with_source_range_tolerated(self, tmp_path):
+        """遗留状态值 + 合法 source_range 不再互斥校验：位置真相只看 source_range 本身。"""
         result = self._validate(
             tmp_path,
             self._entry(
-                ledger_status="unanchored",
+                ledger_status="已废弃的状态",
                 source_range={"source_file": "source/novel.txt", "start": 0, "end": 1},
             ),
         )
-        assert any("unanchored" in e for e in result.errors)
+        assert result.valid, result.errors
 
     def test_non_string_hook_rejected(self, tmp_path):
         result = self._validate(tmp_path, self._entry(hook=123))

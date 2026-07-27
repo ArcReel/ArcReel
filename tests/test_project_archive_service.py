@@ -380,7 +380,7 @@ class TestProjectArchiveService:
         assert any("episodes[0].script_file" in w for w in result.warnings)
 
     def test_migrated_project_archive_roundtrip_with_unscripted_episode(self, tmp_path):
-        """迁移补建的孤儿集条目（剧本未生成）不破坏导出→再导入往返。"""
+        """自愈登记的孤儿集条目（无位置记录、剧本未生成）不破坏导出→再导入往返。"""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         service = ProjectArchiveService(pm)
@@ -390,8 +390,7 @@ class TestProjectArchiveService:
                 "episode": 2,
                 "title": "",
                 "script_file": "scripts/episode_2.json",
-                "source_range": None,
-                "ledger_status": "unanchored",
+                "ledger_status": "planned",
             }
         )
         pm.save_project("demo", project)
@@ -403,7 +402,7 @@ class TestProjectArchiveService:
             conflict_policy="rename",
         )
         imported = result.project
-        assert imported["episodes"][1]["ledger_status"] == "unanchored"
+        assert imported["episodes"][1]["ledger_status"] == "planned"
 
     def test_import_surfaces_unconvertible_source_encoding_as_warning(self, tmp_path, monkeypatch):
         """源文件编码无法识别时导入不中止（局部损坏不阻断整体），failed 文件浮到导入 warnings。"""

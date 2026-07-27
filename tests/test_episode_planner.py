@@ -146,8 +146,8 @@ class TestPlan:
         assert result.episodes[0].reading_units > 0
         assert result.source_exhausted is False
 
-    async def test_plan_backfills_old_flow_episodes_before_planning(self, tmp_path: Path):
-        """旧拆分流程留下的集（无账本字段 + 余文文件）先回填再续规划，余文文件随提交清理。"""
+    async def test_plan_rejects_old_flow_episodes_without_source_range(self, tmp_path: Path):
+        """旧拆分流程留下的集（无位置记录）拦住规划：指名集号并指路全量重置，不调模型。"""
         project_dir = _write_project(
             tmp_path,
             episodes=[{"episode": 1, "title": "旧集", "script_file": "scripts/episode_1.json"}],
@@ -155,28 +155,65 @@ class TestPlan:
         ep1_end = _end_of(ANCHOR_EP1)
         (project_dir / "source" / "episode_1.txt").write_text(SOURCE[:ep1_end], encoding="utf-8")
         (project_dir / "source" / "_remaining.txt").write_text(SOURCE[ep1_end:], encoding="utf-8")
-        fake = _FakeTextGenerator(
-            [_plan_response([{"title": "城门遇袭", "hook": "少女为何被追杀", "end_anchor": ANCHOR_EP2}])]
-        )
+        fake = _FakeTextGenerator([])
 
-        await EpisodePlanner(project_dir, generator=fake).plan()
+        with pytest.raises(EpisodePlanningError, match="没有原文范围记录"):
+            await EpisodePlanner(project_dir, generator=fake).plan()
 
-        project = _load_project(project_dir)
-        eps = {e["episode"]: e for e in project["episodes"]}
-        assert eps[1]["ledger_status"] == "planned"  # 回填吸收旧集
-        assert eps[1]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": ep1_end}
-        assert eps[2]["source_range"] == {
-            "source_file": "source/novel.txt",
-            "start": ep1_end,
-            "end": _end_of(ANCHOR_EP2),
-        }
-        # 规划窗口从回填出的进度续起：发给模型的原文不含第 1 集内容
-        assert ANCHOR_EP1 not in fake.requests[0].prompt
-        assert ANCHOR_EP2 in fake.requests[0].prompt
-        assert not (project_dir / "source" / "_remaining.txt").exists()
-        assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == SOURCE[
-            ep1_end : _end_of(ANCHOR_EP2)
+        assert fake.requests == []
+        assert _load_project(project_dir)["episodes"] == [
+            {"episode": 1, "title": "旧集", "script_file": "scripts/episode_1.json"}
         ]
+
+    async def test_plan_rejects_legacy_status_entry_without_source_range(self, tmp_path: Path):
+        """存量项目遗留的已废弃状态值不影响判定：看的是有没有 source_range。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[
+                {
+                    "episode": 1,
+                    "title": "老条目",
+                    "script_file": "scripts/episode_1.json",
+                    "source_range": None,
+                    "ledger_status": "已废弃的状态",
+                }
+            ],
+            planning_cursor={"source_file": "source/novel.txt", "offset": 0},
+        )
+        (project_dir / "source" / "episode_1.txt").write_text("人工改过的内容。", encoding="utf-8")
+        fake = _FakeTextGenerator([])
+
+        with pytest.raises(EpisodePlanningError, match="reset_episode_planning"):
+            await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert fake.requests == []
+        # 集文件不动：没有位置记录的集，其物理文件就是最终记录
+        assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == "人工改过的内容。"
+
+    async def test_full_reset_unblocks_planning_for_legacy_ledger(self, tmp_path: Path):
+        """老项目出路：无位置记录的账本先被 plan 拒绝，全量重置后可正常从头规划。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[{"episode": 1, "title": "旧集", "script_file": "scripts/episode_1.json"}],
+        )
+        (project_dir / "source" / "episode_1.txt").write_text("人工预拆分的旧集内容。", encoding="utf-8")
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "玉中剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+        planner = EpisodePlanner(project_dir, generator=fake)
+
+        with pytest.raises(EpisodePlanningError, match="没有原文范围记录"):
+            await planner.plan()
+
+        reset = reset_episode_planning(project_dir, from_episode=1, confirm_consumed=True)
+        assert isinstance(reset, EpisodeResetResult)
+
+        result = await planner.plan()
+
+        assert [s.title for s in result.episodes] == ["古玉藏诀"]
+        eps = _load_project(project_dir)["episodes"]
+        assert [e["episode"] for e in eps] == [1]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP1)}
 
     async def test_plan_retries_with_failure_reason_when_anchor_invalid(self, tmp_path: Path):
         """机械校验失败自动重试：锚点不存在 → 重试 prompt 附失败原因，第二轮通过。"""
@@ -851,31 +888,29 @@ class TestPlan:
         cursor = _load_project(project_dir)["planning_cursor"]
         assert cursor == {"source_file": "source/novel.txt", "offset": len(SOURCE)}
 
-    async def test_plan_keeps_unanchored_episode_file_untouched(self, tmp_path: Path):
-        """unanchored 集的物理文件是其最终记录：规划提交既不重写也不删除它。"""
-        unanchored_text = "这段内容在源文里找不到，是人工改过的。"
-        project_dir = _write_project(
-            tmp_path,
-            episodes=[
-                {
-                    "episode": 1,
-                    "title": "失锚集",
-                    "script_file": "scripts/episode_1.json",
-                    "source_range": None,
-                    "ledger_status": "unanchored",
-                }
-            ],
-            planning_cursor={"source_file": "source/novel.txt", "offset": 0},
-        )
-        (project_dir / "source" / "episode_1.txt").write_text(unanchored_text, encoding="utf-8")
+    async def test_plan_rejects_when_entry_loses_source_range_during_model_call(self, tmp_path: Path):
+        """锁内复核：模型调用期间账本被补进无位置记录的条目，提交仍被拦下、账本不写入。"""
+        project_dir = _write_project(tmp_path)
         fake = _FakeTextGenerator([_plan_response([{"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1}])])
+        planner = EpisodePlanner(project_dir, generator=fake)
 
-        await EpisodePlanner(project_dir, generator=fake).plan()
+        original_generate = fake.generate
 
-        assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == unanchored_text
-        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
-        assert eps[1]["ledger_status"] == "unanchored"
-        assert eps[2]["ledger_status"] == "planned"
+        async def _generate_then_pollute(*args, **kwargs):
+            result = await original_generate(*args, **kwargs)
+            project = _load_project(project_dir)
+            project["episodes"] = [{"episode": 7, "title": "手动上传集", "script_file": "scripts/episode_7.json"}]
+            (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+            return result
+
+        fake.generate = _generate_then_pollute
+
+        with pytest.raises(EpisodePlanningError, match="没有原文范围记录"):
+            await planner.plan()
+
+        episodes = _load_project(project_dir)["episodes"]
+        assert [e["episode"] for e in episodes] == [7]
+        assert not (project_dir / "source" / "episode_1.txt").exists()
 
     async def test_plan_forwards_instructions_into_prompt(self, tmp_path: Path):
         """首批规划带 instructions 时，原文进「用户规划意见（必须全部落实）」分节。"""

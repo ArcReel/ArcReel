@@ -289,16 +289,15 @@ class ProjectArchiveService:
                     # 启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的旧归档需在此补跑，
                     # 否则解析链不再读 legacy 字段会让该项目静默回退全局默认。放在安装**前** → 迁移若抛错，
                     # staging 临时目录随 TemporaryDirectory 丢弃、不会留下半迁移的脏项目目录，无需回滚已落盘安装。
-                    # 编码迁移先于 schema 迁移：v2→v3 账本回填按 UTF-8 读源文，
-                    # GBK 等历史编码若不先转换会让全部集文件错锁 unanchored。
-                    # 转换失败 = 文件本身不可解码（任何路径都读不出），浮成导入 warning
-                    # 而非中止——局部损坏文件不应阻断整个项目导入。
+                    # 编码迁移先于 schema 迁移：源文一律先归到 UTF-8，之后所有按 UTF-8 读源文的
+                    # 链路才有统一的输入。转换失败 = 文件本身不可解码（任何路径都读不出），浮成
+                    # 导入 warning 而非中止——局部损坏文件不应阻断整个项目导入。
                     encoding_summary = migrate_project_source_encoding(staging_dir)
                     for failed_name in encoding_summary.failed:
                         diagnostics.add(
                             "warnings",
                             "source_encoding_unconverted",
-                            f"源文件编码无法识别，未转换为 UTF-8：source/{failed_name}（引用它的分集将回填为 unanchored）",
+                            f"源文件编码无法识别，未转换为 UTF-8：source/{failed_name}（分集规划无法读取该文件）",
                         )
                     migrate_project_dir(staging_dir)
 

@@ -14,7 +14,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from lib.asset_types import ASSET_SPECS, ASSET_TYPES
-from lib.episode_ledger import LEDGER_STATUSES, EpisodeOutline, PlanningCursor, SourceRange
+from lib.episode_ledger import EpisodeOutline, PlanningCursor, SourceRange
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
@@ -212,10 +212,15 @@ class DataValidator:
 
     @staticmethod
     def _validate_episode_ledger_fields(episode: dict[str, Any], prefix: str, errors: list[str]) -> None:
-        """分集账本字段的形状校验（全部可缺失 = 旧式条目），形状真相源复用 lib.episode_ledger 模型。"""
+        """分集账本字段的形状校验（全部可缺失 = 该集无位置记录），形状真相源复用 lib.episode_ledger 模型。
+
+        ``ledger_status`` 只校验类型：它是咨询性的消费状态，位置真相在 ``source_range``。
+        当前状态集之外的取值按「无状态」容忍不报错——存量 project.json 可能留有历史版本
+        写入的、现已废弃的状态值，为此把老项目整体判成损坏得不偿失。
+        """
         ledger_status = episode.get("ledger_status")
-        if ledger_status is not None and ledger_status not in LEDGER_STATUSES:
-            errors.append(f"{prefix}: ledger_status 值无效: {ledger_status!r}，必须是 {sorted(LEDGER_STATUSES)}")
+        if ledger_status is not None and not isinstance(ledger_status, str):
+            errors.append(f"{prefix}: ledger_status 必须是字符串，当前取值: {ledger_status!r}")
 
         source_range = episode.get("source_range")
         if source_range is not None:
@@ -223,8 +228,6 @@ class DataValidator:
                 SourceRange.model_validate(source_range)
             except ValidationError as exc:
                 errors.append(f"{prefix}: source_range 不合法: {_pydantic_error_summary(exc)}")
-        if ledger_status == "unanchored" and source_range is not None:
-            errors.append(f"{prefix}: unanchored 条目的 source_range 必须为 null（失锚集不持有原文范围）")
 
         hook = episode.get("hook")
         if hook is not None and not isinstance(hook, str):

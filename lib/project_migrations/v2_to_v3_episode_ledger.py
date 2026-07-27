@@ -1,17 +1,15 @@
-"""v2→v3 迁移：episodes 列表回填为分集账本 + 顶层 planning_cursor。
+"""v2→v3 迁移：分集账本版本盖章。
 
-回填逻辑在 ``lib.episode_ledger.backfill_episode_ledger``（可重跑纯函数，规划
-工具后续吸收漂移时复用），本模块只做版本守卫与原子提交。回填对文件系统只读，
-唯一写盘是一次原子替换 project.json：中途崩溃 schema_version 仍为 2，下次启动
-整体重跑，无半态。``source/_remaining.txt`` 保留——旧拆分流程仍以它为下一集
-源文件，物理废除随流程切换进行。
+只写 schema_version，episodes 内容逐字不动。v2 项目的分集条目没有位置记录
+（source_range），账本坐标绑定的是具体源文内容，机械反推出的坐标不足以承担
+「切法调整」的重造职责——升级后这些集照常消费（剧本 / 媒体 / 状态 / 导出不看
+位置记录），要重新规划则走一次全量重置（``reset_episode_planning``）进入新机制。
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from lib.episode_ledger import backfill_episode_ledger
 from lib.json_io import atomic_write_json, load_json
 
 
@@ -24,6 +22,5 @@ def migrate_v2_to_v3(project_dir: Path) -> None:
     # 与 runner 的版本读取同口径做 int 归一化：历史 project.json 可能存字符串版本号
     if int(data.get("schema_version") or 0) >= 3:
         return
-    migrated = backfill_episode_ledger(project_dir, data)
-    migrated["schema_version"] = 3
-    atomic_write_json(pj, migrated)
+    data["schema_version"] = 3
+    atomic_write_json(pj, data)

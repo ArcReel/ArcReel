@@ -342,8 +342,8 @@ async def lifespan(app: FastAPI):
 
     projects_root = app_data_dir()
 
-    # 源文件编码迁移（幂等；失败不阻塞启动）。必须先于 schema 迁移：
-    # v2→v3 账本回填按 UTF-8 读源文，历史编码项目若后转换会被错锁 unanchored。
+    # 源文件编码迁移（幂等；失败不阻塞启动）。先于 schema 迁移跑：源文一律先归到 UTF-8，
+    # 之后所有按 UTF-8 读源文的链路（分集规划、派生文件对账）才有统一的输入。
     source_migration_summary = await _migrate_source_encoding_on_startup(projects_root)
     migrated_total = sum(len(s.get("migrated") or []) for s in source_migration_summary.values())
     failed_total = sum(len(s.get("failed") or []) for s in source_migration_summary.values())

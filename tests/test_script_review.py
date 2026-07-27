@@ -505,8 +505,8 @@ class TestLegacyEnumeration:
 
 
 class TestManualSplitSelfHeal:
-    def test_get_state_self_heals_unanchored_orphan(self, tmp_path):
-        """无可匹配原文 → 自愈为 unanchored 条目（source_range 为 null），get_state 不再 episode_not_found。"""
+    def test_get_state_self_heals_orphan_without_source_range(self, tmp_path):
+        """孤儿派生文件 → 自愈登记条目（不写 source_range），get_state 不再 episode_not_found。"""
         pm = _make_manual_split_project(tmp_path, "narration")
         _write_source_text(pm, "episode_1.txt", "裴与出征后的第二年。")
         _write_step1(pm, "narration", _narration_step1())
@@ -516,8 +516,8 @@ class TestManualSplitSelfHeal:
 
         ep = script_review.find_episode(pm.load_project("demo"), 1)
         assert ep is not None
-        assert ep["ledger_status"] == "unanchored"
-        assert ep["source_range"] is None
+        assert ep["ledger_status"] == "consumed"  # 已有 step1 中间文件
+        assert "source_range" not in ep
 
     def test_confirm_self_heals_and_unblocks_step2(self, tmp_path):
         """confirm（web 与 agent 工具共用同一 service）在空账本下不再 episode_not_found，且放行 step2。"""
@@ -531,8 +531,8 @@ class TestManualSplitSelfHeal:
         project_path = pm.get_project_path("demo")
         assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
 
-    def test_self_heal_anchors_when_source_text_matches(self, tmp_path):
-        """派生文件内容能在原文中精确子串匹配 → 回填 source_range（而非 unanchored）。"""
+    def test_self_heal_never_anchors_even_when_source_text_matches(self, tmp_path):
+        """派生文件内容即使能在原文中精确匹配，自愈也只登记不锚定：位置记录只由规划工具写入。"""
         pm = _make_manual_split_project(tmp_path, "narration")
         original = "裴与出征后的第二年，送回一个襁褓中的婴儿。后续内容在此。"
         _write_source_text(pm, "novel.txt", original)
@@ -542,11 +542,10 @@ class TestManualSplitSelfHeal:
 
         ep = script_review.find_episode(pm.load_project("demo"), 1)
         assert ep is not None
-        assert ep["ledger_status"] in ("planned", "consumed")
-        assert ep["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": 21}
+        assert "source_range" not in ep
 
-    def test_self_heal_backfills_all_orphans_not_just_requested(self, tmp_path):
-        """自愈一次回填账本中所有孤儿集号的派生文件，不只是当前请求的那一集。"""
+    def test_self_heal_registers_all_orphans_not_just_requested(self, tmp_path):
+        """自愈一次登记账本中所有孤儿集号的派生文件，不只是当前请求的那一集。"""
         pm = _make_manual_split_project(tmp_path, "narration")
         _write_source_text(pm, "episode_1.txt", "第一集内容")
         _write_source_text(pm, "episode_2.txt", "第二集内容")

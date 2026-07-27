@@ -1,4 +1,4 @@
-"""v2→v3 迁移：分集账本回填 + planning_cursor；版本守卫、幂等、余文保留。"""
+"""v2→v3 迁移：纯版本盖章；episodes 逐字不变、版本守卫、幂等、余文保留。"""
 
 import json
 from pathlib import Path
@@ -25,21 +25,33 @@ def _load(d: Path) -> dict:
     return json.loads((d / "project.json").read_text(encoding="utf-8"))
 
 
-def test_bumps_schema_version_and_backfills(tmp_path: Path):
-    d = _write(
-        tmp_path,
-        {
-            "schema_version": 2,
-            "episodes": [{"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json"}],
-        },
-    )
+def test_bumps_schema_version_only(tmp_path: Path):
+    """只写 schema_version：episodes 逐字不变，不补账本字段、不推导 planning_cursor。"""
+    episodes = [{"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json"}]
+    d = _write(tmp_path, {"schema_version": 2, "episodes": episodes})
     migrate_v2_to_v3(d)
     data = _load(d)
     assert data["schema_version"] == 3
-    entry = data["episodes"][0]
-    assert entry["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": len(EP1)}
-    assert entry["ledger_status"] == "planned"
-    assert data["planning_cursor"] == {"source_file": "source/novel.txt", "offset": len(EP1)}
+    assert data["episodes"] == episodes
+    assert "planning_cursor" not in data
+
+
+def test_existing_ledger_fields_preserved_verbatim(tmp_path: Path):
+    """已带账本字段的 v2 项目（手工或旧版本写入）原样保留，迁移不改写。"""
+    episodes = [
+        {
+            "episode": 1,
+            "title": "开端",
+            "script_file": "scripts/episode_1.json",
+            "source_range": {"source_file": "source/novel.txt", "start": 0, "end": len(EP1)},
+            "ledger_status": "consumed",
+        }
+    ]
+    d = _write(tmp_path, {"schema_version": 2, "episodes": episodes, "planning_cursor": None})
+    migrate_v2_to_v3(d)
+    data = _load(d)
+    assert data["episodes"] == episodes
+    assert data["planning_cursor"] is None
 
 
 def test_version_guard_skips_already_v3(tmp_path: Path):
@@ -85,7 +97,7 @@ def test_double_run_idempotent_at_file_level(tmp_path: Path):
 
 
 def test_remaining_file_preserved(tmp_path: Path):
-    """余文文件保留——旧拆分流程仍以它为下一集源文件，物理废除随流程切换进行。"""
+    """余文文件保留：迁移只碰 project.json，不动 source/ 下任何文件。"""
     d = _write(tmp_path, {"schema_version": 2, "episodes": []})
     migrate_v2_to_v3(d)
     assert (d / "source" / "_remaining.txt").read_text(encoding="utf-8") == NOVEL[len(EP1) :]

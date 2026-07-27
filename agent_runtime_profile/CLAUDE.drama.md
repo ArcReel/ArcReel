@@ -177,7 +177,7 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 - `schema_version`：项目数据格式版本（当前 1）
 - `title`、`content_mode`（`narration`/`drama`）、`generation_mode`（`storyboard`/`grid`/`reference_video`）、`style`、`style_description`
 - `overview`：项目概述（synopsis、genre、theme、world_setting）
-- `episodes`：分集账本（单一真相源）：episode、title、script_file、可选 `generation_mode` 覆盖，以及账本字段 `source_range`（原文范围）/ `hook`（集尾钩子）/ `outline`（drama 分集大纲）/ `ledger_status`（planned/consumed/stale/unanchored）；顶层 `planning_cursor` 标记下一批规划起点。`source/episode_N.txt` 是账本的派生物，由规划工具维护，不要手工编辑或重命名
+- `episodes`：分集账本（单一真相源）：episode、title、script_file、可选 `generation_mode` 覆盖，以及账本字段 `source_range`（原文范围）/ `hook`（集尾钩子）/ `outline`（drama 分集大纲）/ `ledger_status`（planned/consumed/stale）；顶层 `planning_cursor` 标记下一批规划起点。`source/episode_N.txt` 是账本的派生物，由规划工具维护，不要手工编辑或重命名
 - `characters`：角色完整定义（description、voice_style、character_sheet）
 - `scenes`：场景完整定义（description、scene_sheet）
 - `props`：道具完整定义（description、prop_sheet）

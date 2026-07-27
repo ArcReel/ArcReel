@@ -193,8 +193,8 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, from_episode: int = 
         return from_episode == 1 or num >= from_episode
 
     # 账本条目、磁盘派生文件、磁盘下游产物三者取并集：
-    # - 孤儿集文件（账本无对应条目）同样要处置，否则重置后它会被回填重新补建成账本
-    #   条目，账本清空的承诺落空
+    # - 孤儿集文件（账本无对应条目）同样要处置，否则重置后它会被孤儿条目登记
+    #   （``register_orphan_episode_entries``）重新补建成账本条目，账本清空的承诺落空
     # - 孤儿下游产物同样要纳入已消费判定，否则会绕过确认直接清空
     for num in sorted(set(entries) | set(episode_file_aliases) | product_nums):
         if not _in_scope(num):
@@ -214,7 +214,7 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, from_episode: int = 
         if not paths:
             continue
         # 同一集号可能存在多个 padding 别名（episode_1.txt / episode_01.txt），
-        # 全部按同一处置口径处理，否则未处理的别名会在下次回填中重新补建账本条目。
+        # 全部按同一处置口径处理，否则未处理的别名会被孤儿条目登记重新补建账本条目。
         # 判定是否可删除取该集号全部重复条目的可重造性交集：任一条目无法证明文件可
         # 从账本重造，都按无法重造处理——删除是不可逆操作，证据冲突时偏保守
         can_recreate = all(_has_recreatable_source_range(dupe) for dupe in dupes)
@@ -227,8 +227,8 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, from_episode: int = 
 def _apply_files(project_dir: Path, plan: _ResetPlan) -> tuple[list[str], list[tuple[str, str]]]:
     """落盘文件处置：删派生集文件、留底非派生集文件、清理余文文件。
 
-    失败一律抛错中止提交（账本写回随之回滚）：残留的集文件会被回填重新认领成账本
-    条目，「重置后账本为空」的承诺会被悄悄推翻，宁可整体失败让调用方重试。重置本身
+    失败一律抛错中止提交（账本写回随之回滚）：残留的集文件会被孤儿条目登记重新认领
+    成账本条目，「重置后账本为空」的承诺会被悄悄推翻，宁可整体失败让调用方重试。重置本身
     幂等，重跑即可自愈已完成的部分。
     """
     source_dir = project_dir / "source"
@@ -254,8 +254,8 @@ def _apply_files(project_dir: Path, plan: _ResetPlan) -> tuple[list[str], list[t
         except OSError as exc:
             raise EpisodeResetError(f"集文件留底改名失败，重置已中止：{path.name}: {exc}") from exc
         archived.append((_rel(project_dir, path), _rel(project_dir, target)))
-    # 余文文件是旧流程的进度指针，留着会在下次规划的回填中被换算成 planning_cursor，
-    # 让「从头规划」变成从余文起点续规划
+    # 余文文件是旧拆分流程的进度指针，账本游标已取代它；留着只会让用户在 source/ 下
+    # 看到一份与账本无关的陈旧剩余正文，随重置一并清理
     remaining = project_dir / "source" / "_remaining.txt"
     if remaining.is_file():
         try:
@@ -291,12 +291,10 @@ def _resolve_partial_reset_cursor(
       文件全部只剩空白（``EpisodePlanner`` 会自动跳过纯空白源文件，第 1 集因此可能
       合法落在非首个文件）；相邻两条记录须首尾相接——同一源文件内后一条 ``start``
       须等于前一条 ``end``，跨源文件时须切到排序中下一个仍有内容的文件、起点为 0、
-      且被跳过的中间文件（含切出点所在文件的剩余部分）全部只剩空白
-      （``ledger_status`` 为 ``"unanchored"`` 或缺失（``None``，即待
-      ``backfill_episode_ledger`` 回填、当前坐标未必是最终结果）的条目均视为无
-      坐标可信，不参与坐标校验；若这类条目出现在保留段中间，其后任何锚定记录都
-      无法证明与已验证内容衔接，直接拒绝——规划器同样不采信 unanchored 条目的
-      ``source_range``，见 ``EpisodePlanner._reconcile_derived_files``）
+      且被跳过的中间文件（含切出点所在文件的剩余部分）全部只剩空白（没有位置记录的
+      条目——``source_range`` 缺失或结构不完整——不参与坐标校验；若这类条目出现在
+      保留段中间，其后任何记录都无法证明与已验证内容衔接，直接拒绝。plan 侧同口径：
+      账本存在无位置记录的条目即拒绝规划，见 ``EpisodePlanner._check_source_ranges``）
     """
     raw_episodes = project.get("episodes")
     if not isinstance(raw_episodes, list):
@@ -354,14 +352,8 @@ def _resolve_partial_reset_cursor(
     prev: tuple[str, int] | None = None
     for num in range(1, from_episode):
         entry = entries_by_num[num]
-        # ledger_status 缺失（None）是 backfill_episode_ledger 眼中的「待回填」条目：
-        # 下一次 plan() 会按物理集文件重新核实/改写它的 source_range，此刻账本里存的
-        # 坐标未必是回填后的最终结果，与 unanchored 一样不可信，不能据此推算游标
-        has_range = isinstance(entry.get("source_range"), Mapping) and entry.get("ledger_status") not in (
-            None,
-            "unanchored",
-        )
-        if not has_range:
+        # 位置记录是唯一真相：有 source_range 才可信，ledger_status 不参与判定
+        if not isinstance(entry.get("source_range"), Mapping):
             prev = None  # 无可信坐标，切断连续性比较
             continue
         coords = _parse_source_range(entry)
@@ -377,12 +369,12 @@ def _resolve_partial_reset_cursor(
             )
         if prev is None:
             if num != 1:
-                # 保留段中间存在失锚条目切断了连续性：这条记录的坐标无法与任何可信的
-                # 前序位置比对，不能证明它确实紧接着已验证过的内容，只能拒绝——沉默
-                # 放行会让退回后的游标凭空重新起锚，中间那段源文既无法证明已覆盖，
-                # 也不会再被规划
+                # 保留段中间存在无位置记录的条目，连续性被切断：这条记录的坐标无法与
+                # 任何可信的前序位置比对，不能证明它确实紧接着已验证过的内容，只能
+                # 拒绝——沉默放行会让退回后的游标凭空重新起算，中间那段源文既无法证明
+                # 已覆盖，也不会再被规划
                 raise EpisodeResetError(
-                    f"第 {num} 集之前存在失锚（unanchored）条目，无法确认原文范围是否与保留段"
+                    f"第 {num} 集之前存在没有原文范围记录的条目，无法确认原文范围是否与保留段"
                     f"其余部分衔接，无法安全部分重置，{_FULL_RESET_HINT}"
                 )
             rel_idx = source_order.get(rel)
@@ -432,7 +424,7 @@ def _resolve_partial_reset_cursor(
 
     if prev is None:
         raise EpisodeResetError(
-            f"第 {retain_num} 集缺少可信的原文范围记录（unanchored 或待回填），"
+            f"第 {retain_num} 集缺少可信的原文范围记录（source_range），"
             f"无法确定部分重置后的规划起点，{_FULL_RESET_HINT}"
         )
     retain_rel, retain_end = prev

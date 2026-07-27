@@ -1,14 +1,13 @@
-"""分集账本：episodes[] 账本字段的数据模型与存量项目机械回填。
+"""分集账本：episodes[] 账本字段的数据模型与账本读取工具。
 
 project.json 的 episodes 列表是分集单一真相源，条目在 episode/title/script_file
 之外扩展账本字段（source_range / hook / outline / ledger_status），顶层增加
 planning_cursor 标记下一批规划起点。物理 ``source/episode_N.txt`` 是派生物。
 
-账本字段全部可缺失：缺失 = 旧式条目（旧拆分流程写入，尚未回填）。
-``backfill_episode_ledger`` 是幂等纯函数，可在启动迁移之外重跑以吸收旧流程
-继续产生的新集。注意 planning_cursor 仅在缺失或为 null 时推导：首次回填写出
-非空值后，重跑只补齐新集的 source_range，不再前移游标——规划方应以
-consumed/planned 范围末尾为准推进起点，游标前移由规划工具负责。
+``source_range`` 是账本里唯一的位置真相：有它才能从源文重造派生文件、才能续接
+规划。账本字段全部可缺失，缺失即该集没有位置记录（旧拆分流程写入、或手工预拆分
+上传）——这类条目的物理集文件就是它的最终记录，下游消费不受影响，但规划入口会
+拒绝执行并指引全量重置（见 ``lib.episode_planner`` 与 ``lib.episode_reset``）。
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal, get_args
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -31,9 +30,7 @@ logger = logging.getLogger(__name__)
 
 _STRICT_CONFIG = ConfigDict(extra="forbid")
 
-LedgerStatus = Literal["planned", "consumed", "stale", "unanchored"]
-
-LEDGER_STATUSES: tuple[str, ...] = get_args(LedgerStatus)
+LedgerStatus = Literal["planned", "consumed", "stale"]
 
 # 仅 ASCII 数字：\d 会放行全角等 Unicode 数字，把非流水线产物误判为派生集文件
 _EPISODE_FILE_RE = re.compile(r"episode_([0-9]+)\.txt")
@@ -157,15 +154,14 @@ def normalize_source_text(text: str) -> str:
 
 @dataclass
 class SourceDoc:
-    """候选源文件：归一化全文 + 顺序先验游标（上一集匹配末尾）。"""
+    """候选源文件：项目根相对 POSIX 路径 + 归一化全文。"""
 
     rel_path: str
     text: str
-    cursor: int = 0
 
 
 def _read_text_or_none(path: Path) -> str | None:
-    """读取文本文件；不可读/非 UTF-8 返回 None（回填容错降级，不让单文件拖垮整项目迁移）。"""
+    """读取文本文件；不可读/非 UTF-8 返回 None（容错降级，不让单个坏文件拖垮整次枚举）。"""
     try:
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
@@ -275,9 +271,8 @@ def discover_episode_files(project_dir: Path) -> dict[int, Path]:
     内容）时该集号整体不出现在结果里，而不是退而返回一个读不到内容的路径——
     ``discover_episode_file_aliases`` 按文件名排序、不区分悬空与否，若悬空别名
     （如 ``episode_01.txt``）恰好排在有效文件（``episode_1.txt``）之前，直接取
-    排序首个会让 ``backfill_episode_ledger`` 等按内容匹配 ``source_range`` 的调用
-    方读到悬空链接：内容为空既会误判本可从有效别名恢复坐标的集为 unanchored，也
-    会给纯悬空、毫无真实内容的集号凭空补建一个 unanchored 幽灵条目。
+    排序首个会让按内容读派生文件的调用方读到空内容，也会给纯悬空、毫无真实内容
+    的集号凭空补建一个幽灵条目。
     """
     result: dict[int, Path] = {}
     for num, paths in discover_episode_file_aliases(project_dir).items():
@@ -313,28 +308,6 @@ def discover_product_episode_nums(project_dir: Path) -> set[int]:
     return nums
 
 
-def _find_in_sources(
-    sources: list[SourceDoc], needle: str, preferred: SourceDoc | None
-) -> tuple[SourceDoc, int, int] | None:
-    """在候选源文件中精确匹配 needle，返回 (源文件, start, end)。
-
-    两遍搜索：第一遍按局部性先验顺序（上一集命中的文件优先）从各文件游标
-    （上一集末尾）起搜；全部落空再做第二遍全文搜索（覆盖用户重切过、起点早于
-    上一集末尾的情形）。先验文件中游标前的重复段不会遮蔽其他文件的前向匹配。
-    命中取第一个匹配保证确定性；只做精确子串匹配，不做模糊锚定。
-    """
-    ordered = sources if preferred is None else [preferred, *(d for d in sources if d is not preferred)]
-    for doc in ordered:
-        idx = doc.text.find(needle, doc.cursor)
-        if idx >= 0:
-            return doc, idx, idx + len(needle)
-    for doc in ordered:
-        idx = doc.text.find(needle)
-        if idx >= 0:
-            return doc, idx, idx + len(needle)
-    return None
-
-
 def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[str, Any]) -> bool:
     """该集是否已有下游产物（剧本 JSON / step1 中间文件；媒体必经剧本，剧本存在即覆盖）。
 
@@ -351,117 +324,72 @@ def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[
     return drafts_dir.is_dir() and any(drafts_dir.glob("step1_*"))
 
 
-def _derive_cursor(
-    project_dir: Path,
-    sources: list[SourceDoc],
-    last_doc: SourceDoc | None,
-    last_end: tuple[str, int] | None,
-) -> dict[str, Any] | None:
-    """把滚动余文文件的起点换算为 planning_cursor。
+def register_orphan_episode_entries(project_dir: Path, project: Mapping[str, Any]) -> dict[str, Any]:
+    """为磁盘上有派生集文件、账本却无条目的集号补建条目。纯函数：不修改入参，对文件系统只读。
 
-    余文缺失/为空/匹配不上时回退到最后一个 anchored 集的末尾（同为精确证据）；
-    完全无证据返回 None。空余文必须跳过匹配——``str.find("")`` 恒为 0，会把
-    游标错锚到文件头。余文匹配位置若回退进最后锚定集所在文件的已消费范围
-    （崩溃残留/陈旧余文），以锚定证据为准。回填本身只读不删文件；余文文件由
-    规划工具在首次提交时清理（账本游标取代其进度指针职责）。
-    """
-    remaining = project_dir / "source" / "_remaining.txt"
-    if remaining.is_file():
-        raw = _read_text_or_none(remaining)
-        rem_text = normalize_source_text(raw) if raw is not None else ""
-        if rem_text:
-            found = _find_in_sources(sources, rem_text, last_doc)
-            if found is not None:
-                doc, start, _end = found
-                rewinds = last_end is not None and doc.rel_path == last_end[0] and start < last_end[1]
-                if not rewinds:
-                    return {"source_file": doc.rel_path, "offset": start}
-    if last_end is not None:
-        return {"source_file": last_end[0], "offset": last_end[1]}
-    return None
+    只做登记（``episode`` / ``title`` / ``script_file`` / ``ledger_status``），不写
+    ``source_range``——补建出的条目因此没有位置记录，规划入口会据此拒绝并指引全量重置，
+    消费链路照常。``script_file`` 填规范预期路径，剧本生成时 ``_apply_episode_sync``
+    按集号命中本条目回填真实值；``ledger_status`` 按磁盘产物取 consumed / planned。
 
-
-def backfill_episode_ledger(project_dir: Path, project: Mapping[str, Any]) -> dict[str, Any]:
-    """机械回填分集账本。纯函数：不修改入参，对文件系统只读零写入。
-
-    对每个派生集文件按内容回源文做精确子串匹配反推 source_range；有下游产物的集标
-    consumed，无下游标 planned；匹配不上/集文件缺失的集标 unanchored 并锁定
-    （source_range 置 null，即使有下游产物——物理文件即其最终记录，不参与重新规划）。
-    已带 ledger_status（非 null）的条目整条跳过（保护规划工具写入的状态），故可
-    安全重跑；显式 null 视同缺失，正常回填。planning_cursor 仅在缺失或为 null 时
-    推导，规划工具写入的非空值不触碰。
+    用于用户绕过分集规划器、手动预拆分上传的存量场景（见
+    ``server.services.script_review``）：账本为空时这是该集唯一的登记来源。已登记的集号
+    不重复补建，可安全重跑。
     """
     data = dict(project)
     raw_episodes = data.get("episodes", [])
     if not isinstance(raw_episodes, list):
-        return data  # 形状异常留给 data_validator 报告，回填不处理
+        return data  # 形状异常留给 data_validator 报告，本函数不处理
 
-    episodes: list[Any] = [dict(e) if isinstance(e, dict) else e for e in raw_episodes]
-    episode_files = discover_episode_files(project_dir)
-
-    by_num: dict[int, dict[str, Any]] = {}
+    episodes: list[Any] = list(raw_episodes)
+    known: set[int] = set()
     for entry in episodes:
-        if isinstance(entry, dict):
+        if isinstance(entry, Mapping):
             num = parse_episode_num(entry.get("episode"))
             if num is not None:
-                by_num.setdefault(num, entry)  # 重复集号首见优先，其余原样保留
+                known.add(num)
 
-    # 孤儿派生文件（已拆但 episodes 无条目，如拆分后尚未生成剧本）补建条目；
-    # script_file 填规范预期路径，剧本生成时 _apply_episode_sync 按集号命中本条目回填真实值
-    for num in sorted(episode_files):
-        if num not in by_num:
+    for num in sorted(discover_episode_files(project_dir)):
+        if num not in known:
             entry = {"episode": num, "title": "", "script_file": episode_script_relpath(num)}
+            entry["ledger_status"] = "consumed" if has_downstream_products(project_dir, num, entry) else "planned"
             episodes.append(entry)
-            by_num[num] = entry
+            known.add(num)
 
-    if all(isinstance(e, dict) and parse_episode_num(e.get("episode")) is not None for e in episodes):
+    if all(isinstance(e, Mapping) and parse_episode_num(e.get("episode")) is not None for e in episodes):
         episodes.sort(key=lambda e: parse_episode_num(e["episode"]) or 0)
     data["episodes"] = episodes
-
-    pending = [num for num in by_num if by_num[num].get("ledger_status") is None]
-    if not pending and data.get("planning_cursor") is not None:
-        return data  # 无待回填条目且游标已有值：跳过源文读取（重跑快路径）
-
-    sources = discover_sources(project_dir)
-    last_doc: SourceDoc | None = None
-    last_end: tuple[str, int] | None = None
-    for num in sorted(by_num):
-        entry = by_num[num]
-        if entry.get("ledger_status") is not None:
-            source_range = entry.get("source_range")
-            if isinstance(source_range, Mapping):
-                rel_path = source_range.get("source_file")
-                end = source_range.get("end")
-                if isinstance(rel_path, str) and isinstance(end, int) and not isinstance(end, bool):
-                    last_end = (rel_path, end)
-                    doc = next((d for d in sources if d.rel_path == rel_path), None)
-                    if doc is not None:
-                        # 已账条目只前推游标（max）；新锚定（下方直接赋值）才允许回退以跟随重切
-                        doc.cursor = max(doc.cursor, end)
-                        last_doc = doc
-            continue
-
-        anchored: tuple[SourceDoc, int, int] | None = None
-        path = episode_files.get(num)
-        if path is not None:
-            raw = _read_text_or_none(path)
-            ep_text = normalize_source_text(raw) if raw is not None else ""
-            if ep_text:  # 空集文件无定位信息（零长度范围无意义），落 unanchored
-                anchored = _find_in_sources(sources, ep_text, last_doc)
-
-        if anchored is None:
-            entry["source_range"] = None
-            entry["ledger_status"] = "unanchored"
-            continue
-
-        doc, start, end = anchored
-        entry["source_range"] = {"source_file": doc.rel_path, "start": start, "end": end}
-        entry["ledger_status"] = "consumed" if has_downstream_products(project_dir, num, entry) else "planned"
-        # 直接赋值（允许回退）：全文退化命中早于游标说明用户重切过，后续集跟随新布局
-        doc.cursor = end
-        last_doc = doc
-        last_end = (doc.rel_path, end)
-
-    if data.get("planning_cursor") is None:
-        data["planning_cursor"] = _derive_cursor(project_dir, sources, last_doc, last_end)
     return data
+
+
+def episodes_without_source_range(project: Mapping[str, Any]) -> list[int]:
+    """账本中没有位置记录（``source_range`` 缺失或结构不完整）的集号，升序去重。
+
+    这类条目无法重造派生文件、也无法据以续接规划，是规划入口（plan / 部分重置）拒绝
+    执行的依据；消费链路不看它。集号无法解析的条目不在此列——它们由各调用方按自身
+    的损坏容忍口径处理。
+    """
+    nums: set[int] = set()
+    raw_episodes = project.get("episodes")
+    for entry in raw_episodes if isinstance(raw_episodes, list) else []:
+        if not isinstance(entry, Mapping):
+            continue
+        num = parse_episode_num(entry.get("episode"))
+        if num is None:
+            continue
+        source_range = entry.get("source_range")
+        if not isinstance(source_range, Mapping):
+            nums.add(num)
+            continue
+        rel = source_range.get("source_file")
+        start = source_range.get("start")
+        end = source_range.get("end")
+        if not (
+            isinstance(rel, str)
+            and isinstance(start, int)
+            and not isinstance(start, bool)
+            and isinstance(end, int)
+            and not isinstance(end, bool)
+        ):
+            nums.add(num)
+    return sorted(nums)
