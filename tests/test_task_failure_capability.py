@@ -23,6 +23,7 @@ from lib.reference_compression import ReferencePayloadFloorError
 from lib.task_failure import (
     CAPABILITY_FAILURE_CODES,
     FAILURE_CODE_KEYS,
+    bound_reason,
     encode_failure,
     render_failure,
 )
@@ -369,3 +370,36 @@ def test_render_degrades_when_json_hits_recursion_limit(monkeypatch):
     monkeypatch.setattr(task_failure.json, "loads", _boom)
 
     assert render_failure(stored, _translator("en")) == stored
+
+
+def test_bound_reason_shrinks_oversized_non_string_params():
+    """非字符串参数撑爆预算时也要留下可解析的信封。
+
+    ``video_duration_invalid`` 回显调用方拒绝的原始配置值，导入或手工编辑的 project.json
+    能把它写成一个大数组；JSON 原生类型不经 ``default=str``，没有字符串参数可收窄时旧路径
+    会退到裸切片，把信封切在 JSON 中途，读侧解析失败后原样吐出整串机器码。
+    """
+    stored = _encode_task_failure_message(VideoCapabilityError("video_duration_invalid", duration=list(range(2000))))
+    assert len(stored) > 2000
+
+    bounded = bound_reason(stored, 2000)
+
+    assert len(bounded) <= 2000
+    # 仍是合法信封：读侧解析得出来，渲染成本地化文案而非裸机器码。
+    rendered = render_failure(bounded, _translator("en"))
+    assert rendered is not None
+    assert rendered != bounded
+    assert "video_duration_invalid" not in rendered
+
+
+def test_bound_reason_degrades_when_param_json_hits_recursion_limit(monkeypatch):
+    """嵌套过深的参数量不出长度时降级为省略号，而不是把异常抛进落库路径。"""
+    stored = '[video_duration_invalid] {"duration": [[[1]]]}' + "x" * 3000
+
+    def _boom(*_args, **_kwargs):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(task_failure.json, "dumps", _boom)
+
+    assert task_failure._as_shrinkable([[[1]]]) == "…"
+    assert len(bound_reason(stored, 2000)) <= 2000

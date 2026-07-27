@@ -102,6 +102,21 @@ def encode_failure(code: str, /, **params: Any) -> str:
     return f"[{code}]"
 
 
+def _as_shrinkable(value: Any) -> Any:
+    """把非字符串参数值换成自身的 JSON 文本，好让裁剪逻辑能收窄它。
+
+    截断一个容器的字符串形态比截断 JSON 字面量安全——后者会留下不闭合的括号。嵌套过深到
+    ``json.dumps`` 撞递归上限的值降级为省略号：裁剪发生在落库路径上，抛出去会让任务卡在
+    running。
+    """
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str)
+    except RecursionError:
+        return "…"
+
+
 def bound_reason(reason: str, limit: int) -> str:
     """把 ``reason`` 裁剪到 ``limit`` 字符内，供级联失败编码前调用。
 
@@ -110,6 +125,11 @@ def bound_reason(reason: str, limit: int) -> str:
     的 ``detail`` 参数源自远端错误响应，可能长达上千字符）。这里优先裁剪结构化串里最长的
     字符串参数，保持重新编码后仍是合法的 ``[code] {params}``；非结构化文本或裁剪后仍超限
     时退回按原始字符裁剪。
+
+    超长的非字符串参数先降级成自身的 JSON 文本再参与裁剪：容器值同样可能撑爆预算——
+    ``video_duration_invalid`` 回显的是调用方拒绝的原始配置值，导入或手工编辑的
+    ``project.json`` 能把它写成一个大数组——而 JSON 原生类型不经 ``default=str``，
+    没有字符串参数可收窄时就会退到裸切片，把信封切在 JSON 中途。
     """
     if len(reason) <= limit:
         return reason
@@ -128,7 +148,7 @@ def bound_reason(reason: str, limit: int) -> str:
         return reason[:limit]
     if not isinstance(parsed, dict):
         return reason[:limit]
-    params: dict[str, Any] = parsed
+    params: dict[str, Any] = {key: _as_shrinkable(value) for key, value in parsed.items()}
     string_keys = [k for k, v in params.items() if isinstance(v, str)]
     if not string_keys:
         return reason[:limit]
