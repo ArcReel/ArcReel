@@ -95,6 +95,29 @@ def _archive_path(path: Path) -> Path:
     return candidate
 
 
+def _has_recreatable_source_range(entry: Mapping[str, Any]) -> bool:
+    """entry 的 source_range 是否携带足以重造派生文件的坐标结构。
+
+    只查字段类型（``source_file`` 是 str、``start``/``end`` 是非 bool 的 int），不校验
+    数值是否越界——重置零前置校验，不读源文、不做范围合法性判断，那是 plan/replan
+    的职责。空字典 ``{}`` 或缺字段的损坏映射满足 ``isinstance(..., Mapping)`` 但没有
+    可用坐标，仍会被误判为「可从账本重造」进而永久删除本应留底的文件。
+    """
+    source_range = entry.get("source_range")
+    if not isinstance(source_range, Mapping):
+        return False
+    rel = source_range.get("source_file")
+    start = source_range.get("start")
+    end = source_range.get("end")
+    return (
+        isinstance(rel, str)
+        and isinstance(start, int)
+        and not isinstance(start, bool)
+        and isinstance(end, int)
+        and not isinstance(end, bool)
+    )
+
+
 def _scan(project_dir: Path, project: Mapping[str, Any]) -> _ResetPlan:
     """扫描账本与磁盘得出处置计划。纯读：不改入参、不动文件。
 
@@ -136,18 +159,25 @@ def _scan(project_dir: Path, project: Mapping[str, Any]) -> _ResetPlan:
     #   条目，账本清空的承诺落空
     # - 孤儿下游产物同样要纳入已消费判定，否则会绕过确认直接清空
     for num in sorted(set(entries) | set(episode_file_aliases) | product_nums):
-        entry = entries.get(num) or {}
-        if num in consumed_by_ledger_status or num in product_nums or has_downstream_products(project_dir, num, entry):
+        dupes = entries_by_num.get(num) or [{}]
+        # 已消费判定同样要聚合全部重复条目：损坏账本可能首条指向缺失的规范剧本路径、
+        # 后条的 script_file 指向实际存在的非规范路径（如 scripts/custom_name.json），
+        # 只传被 setdefault 留下的首条给 has_downstream_products 会漏判
+        is_consumed = (
+            num in consumed_by_ledger_status
+            or num in product_nums
+            or any(has_downstream_products(project_dir, num, dupe) for dupe in dupes)
+        )
+        if is_consumed:
             consumed.append(num)
         paths = episode_file_aliases.get(num) or []
         if not paths:
             continue
         # 同一集号可能存在多个 padding 别名（episode_1.txt / episode_01.txt），
         # 全部按同一处置口径处理，否则未处理的别名会在下次回填中重新补建账本条目。
-        # 判定是否可删除取该集号全部重复条目的 source_range 交集：任一条目无法证明
-        # 文件可从账本重造，都按无法重造处理——删除是不可逆操作，证据冲突时偏保守
-        dupes = entries_by_num.get(num) or [entry]
-        can_recreate = all(isinstance(dupe.get("source_range"), Mapping) for dupe in dupes)
+        # 判定是否可删除取该集号全部重复条目的可重造性交集：任一条目无法证明文件可
+        # 从账本重造，都按无法重造处理——删除是不可逆操作，证据冲突时偏保守
+        can_recreate = all(_has_recreatable_source_range(dupe) for dupe in dupes)
         target = deletes if can_recreate else archives
         target.extend(paths)
     return _ResetPlan(episode_nums=sorted(entries), consumed=consumed, deletes=deletes, archives=archives)

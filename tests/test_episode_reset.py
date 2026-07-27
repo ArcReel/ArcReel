@@ -14,6 +14,7 @@ import pytest
 
 from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
+    discover_episode_file_aliases,
     discover_episode_files,
     discover_sources,
 )
@@ -415,6 +416,45 @@ def test_reset_aggregates_consumed_status_across_duplicate_episode_entries(tmp_p
     assert result.consumed_episodes == [1]
 
 
+def test_reset_aggregates_downstream_products_across_duplicate_entries(tmp_path: Path) -> None:
+    """损坏账本同一集号出现多条条目，首条指向缺失的规范剧本路径、后条的 script_file
+    指向实际存在的非规范路径（如 scripts/custom_name.json）时，已消费判定仍要命中——
+    不能只把 setdefault 留下的首条传给 has_downstream_products。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            {"episode": 1, "title": "首条", "script_file": "scripts/episode_1.json"},
+            {"episode": 1, "title": "后条", "script_file": "scripts/custom_name.json"},
+        ],
+    )
+    scripts = project_dir / "scripts"
+    scripts.mkdir()
+    (scripts / "custom_name.json").write_text("{}", encoding="utf-8")
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, ResetConfirmationRequired)
+    assert result.consumed_episodes == [1]
+
+
+def test_reset_archives_when_source_range_is_structurally_incomplete(tmp_path: Path) -> None:
+    """source_range 是空字典或缺字段的损坏映射时，虽满足 isinstance(Mapping) 但没有
+    可用坐标，仍按无法从账本重造处理（留底而非删除）。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[_entry(1, source_range={})],
+    )
+    derived = project_dir / "source" / "episode_1.txt"
+    derived.write_text(SOURCE[:10], encoding="utf-8")
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert result.deleted_files == []
+    assert result.archived_files
+    assert not derived.exists()
+
+
 def test_reset_archives_when_any_duplicate_entry_lacks_source_range(tmp_path: Path) -> None:
     """损坏账本同一集号出现多条条目，首条带 source_range、后条不带时，按无法证明可
     重造处理（留底而非删除）——删除不可逆，证据冲突时偏保守。"""
@@ -467,6 +507,18 @@ def test_discover_episode_files_prefers_readable_over_dangling_alias(tmp_path: P
     dangling.symlink_to(project_dir / "source" / "does_not_exist.txt")
 
     assert discover_episode_files(project_dir)[1] == valid
+
+
+def test_discover_episode_files_skips_episode_with_only_dangling_alias(tmp_path: Path) -> None:
+    """某集号全部别名都是悬空符号链接（无真实内容）时，代表路径映射里不出现该集号，
+    而不是返回一个读不到内容的路径——否则 backfill 会为纯悬空、无真实内容的集号
+    凭空补建一个 unanchored 幽灵条目。"""
+    project_dir = _write_project(tmp_path)
+    dangling = project_dir / "source" / "episode_9.txt"
+    dangling.symlink_to(project_dir / "source" / "does_not_exist.txt")
+
+    assert 9 not in discover_episode_files(project_dir)
+    assert discover_episode_file_aliases(project_dir)[9] == [dangling]
 
 
 def test_empty_drafts_dir_does_not_require_confirmation(tmp_path: Path) -> None:

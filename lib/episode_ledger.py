@@ -239,17 +239,21 @@ def discover_episode_file_aliases(project_dir: Path) -> dict[int, list[Path]]:
 
 
 def discover_episode_files(project_dir: Path) -> dict[int, Path]:
-    """枚举派生集文件 source/episode_N.txt → {集号: 路径}（每号取一个代表路径）。
+    """枚举派生集文件 source/episode_N.txt → {集号: 路径}（每号取一个可读的代表路径）。
 
-    代表路径优先选可读的普通文件；该集号全部别名都是悬空符号链接时才退而取排序
-    后的首个。``discover_episode_file_aliases`` 按文件名排序、不区分悬空与否，若
-    悬空别名（如 ``episode_01.txt``）恰好排在有效文件（``episode_1.txt``）之前，
-    直接取首个会让 ``backfill_episode_ledger`` 等按内容匹配 ``source_range`` 的
-    调用方读到悬空链接而误判该集 unanchored，白白丢失本可从有效文件恢复的坐标。
+    代表路径只从该集号别名中选可读的普通文件；全部别名都是悬空符号链接（无真实
+    内容）时该集号整体不出现在结果里，而不是退而返回一个读不到内容的路径——
+    ``discover_episode_file_aliases`` 按文件名排序、不区分悬空与否，若悬空别名
+    （如 ``episode_01.txt``）恰好排在有效文件（``episode_1.txt``）之前，直接取
+    排序首个会让 ``backfill_episode_ledger`` 等按内容匹配 ``source_range`` 的调用
+    方读到悬空链接：内容为空既会误判本可从有效别名恢复坐标的集为 unanchored，也
+    会给纯悬空、毫无真实内容的集号凭空补建一个 unanchored 幽灵条目。
     """
     result: dict[int, Path] = {}
     for num, paths in discover_episode_file_aliases(project_dir).items():
-        result[num] = next((p for p in paths if p.is_file()), paths[0])
+        readable = next((p for p in paths if p.is_file()), None)
+        if readable is not None:
+            result[num] = readable
     return result
 
 
