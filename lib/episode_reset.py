@@ -282,13 +282,17 @@ def _resolve_partial_reset_cursor(
       不重复）——部分重置与全量重置相反，不做「零前置校验」的损坏容忍，形状有问题
       直接指向更彻底的全量重置
     - ``from_episode`` 必须是既有集号，且第 1..from_episode-1 集须连续存在（无缺口）
-    - 第 from_episode-1 集（即 cursor 退回点）须带结构完整的 ``source_range``
+    - 第 from_episode-1 集（即 cursor 退回点）须带可信的 ``source_range``
     - 全部已记录源文指纹须与当前源文一致（``mismatched_source_fingerprints``，与
       ``EpisodePlanner`` 的提交门禁同一套逃生口）
-    - 保留段（1..from_episode-1）每一集若带 ``source_range``，须结构完整、落在
-      对应源文件当前长度界内、且与前一条锚定记录首尾相接（unanchored 保留集无坐标
-      可越界或可比较，不参与本项检查，但会切断与后续记录的连续性比较——它没有坐标
-      能证明后续记录确实紧接其后）
+    - 保留段（1..from_episode-1）每一集若带可信的 ``source_range``，须结构完整、
+      落在对应源文件当前长度界内；第 1 集须从排序后的首个源文件偏移 0 起；相邻两条
+      记录须首尾相接——同一源文件内后一条 ``start`` 须等于前一条 ``end``，跨源文件
+      时须切到排序中紧邻的下一个文件、起点为 0、且上一文件在切出点之后只剩空白
+      （``ledger_status == "unanchored"`` 的条目视为无坐标可信，不参与本项检查，
+      也会切断与后续记录的连续性比较——它没有可信坐标能证明后续记录确实紧接其后；
+      规划器同样不采信这类条目的 ``source_range``，见
+      ``EpisodePlanner._reconcile_derived_files``）
     """
     raw_episodes = project.get("episodes")
     if not isinstance(raw_episodes, list):
@@ -313,20 +317,19 @@ def _resolve_partial_reset_cursor(
         raise EpisodeResetError(
             f"第 {from_episode} 集不在账本中，无法从此处部分重置（当前已规划集号：{sorted(entries_by_num)}）"
         )
-    missing = [num for num in range(1, from_episode) if num not in entries_by_num]
-    if missing:
-        raise EpisodeResetError(f"账本缺少第 {missing} 集，保留段不连续，无法安全推算部分重置边界，{_FULL_RESET_HINT}")
+    # 只扫描已存在的条目找缺口，不物化 range(1, from_episode)：损坏账本可能把 from_episode
+    # 写成天文数字的集号，物化整段区间会让本应快速拒绝的逃生口自己先耗尽内存/长时间阻塞
+    expected = 1
+    for num in sorted(n for n in entries_by_num if n < from_episode):
+        if num != expected:
+            break
+        expected += 1
+    if expected != from_episode:
+        raise EpisodeResetError(
+            f"账本缺少第 {expected} 集起的条目，保留段不连续，无法安全推算部分重置边界，{_FULL_RESET_HINT}"
+        )
 
     retain_num = from_episode - 1
-    retain_entry = entries_by_num[retain_num]
-    if not isinstance(retain_entry.get("source_range"), Mapping):
-        raise EpisodeResetError(
-            f"第 {retain_num} 集缺少原文范围记录（unanchored），无法确定部分重置后的规划起点，{_FULL_RESET_HINT}"
-        )
-    retain_coords = _parse_source_range(retain_entry)
-    if retain_coords is None or retain_coords[1] > retain_coords[2]:
-        raise EpisodeResetError(f"第 {retain_num} 集原文范围记录非法，无法确定部分重置后的规划起点，{_FULL_RESET_HINT}")
-    retain_rel, _, retain_end = retain_coords
 
     current_sources = discover_sources(project_dir)
     mismatched = mismatched_source_fingerprints(project.get(SOURCE_FINGERPRINTS_KEY), current_sources)
@@ -337,16 +340,19 @@ def _resolve_partial_reset_cursor(
         )
 
     text_by_rel = {doc.rel_path: doc.text for doc in current_sources}
+    source_order = {doc.rel_path: idx for idx, doc in enumerate(current_sources)}
     # EpisodePlanner 逐批规划时严格首尾相接写坐标（同一源文件内下一集 start 恒等于
-    # 上一集 end，切到下一源文件时 start 恒为 0，见 episode_planner.py 的 `prev = abs_end`
-    # 续接逻辑）——保留段任意两条锚定记录之间出现缺口或倒序，只能是账本被篡改或损坏，
-    # 若放行会让退回后的 planning_cursor 与真实已消费范围脱节，下次 plan 产出的内容
-    # 与已保留集重叠或遗漏
+    # 上一集 end，切到下一源文件时 start 恒为 0 且上一文件必然只剩空白，见
+    # episode_planner.py 的 `prev = abs_end` 续接逻辑与 `_effective_start` 的耗尽推进）——
+    # 保留段任意两条锚定记录之间出现缺口、倒序或跳文件，只能是账本被篡改或损坏，若放行
+    # 会让退回后的 planning_cursor 与真实已消费范围脱节，下次 plan 产出的内容与已保留集
+    # 重叠或遗漏
     prev: tuple[str, int] | None = None
     for num in range(1, from_episode):
         entry = entries_by_num[num]
-        if not isinstance(entry.get("source_range"), Mapping):
-            prev = None  # unanchored 保留集没有坐标可越界，物理文件本身即其最终记录
+        has_range = isinstance(entry.get("source_range"), Mapping) and entry.get("ledger_status") != "unanchored"
+        if not has_range:
+            prev = None  # unanchored 保留集没有可信坐标，物理文件本身即其最终记录
             continue
         coords = _parse_source_range(entry)
         if coords is None:
@@ -359,9 +365,32 @@ def _resolve_partial_reset_cursor(
                 f"第 {num} 集原文范围越界（源文件 {rel} 当前长度 {length}，记录范围 [{start}, {end})），"
                 f"无法安全部分重置，{_FULL_RESET_HINT}"
             )
-        if prev is not None:
+        if prev is None:
+            if num == 1 and (source_order.get(rel) != 0 or start != 0):
+                raise EpisodeResetError(
+                    f"第 1 集原文范围未从首个源文件起点开始（记录范围 [{start}, {end}) @ {rel}），"
+                    f"账本可能已损坏，无法安全部分重置，{_FULL_RESET_HINT}"
+                )
+        else:
             prev_rel, prev_end = prev
-            expected_start = prev_end if rel == prev_rel else 0
+            if rel == prev_rel:
+                expected_start = prev_end
+            else:
+                prev_idx = source_order.get(prev_rel)
+                rel_idx = source_order.get(rel)
+                prev_text = text_by_rel.get(prev_rel)
+                if (
+                    prev_idx is None
+                    or rel_idx is None
+                    or rel_idx != prev_idx + 1
+                    or prev_text is None
+                    or prev_text[prev_end:].strip()
+                ):
+                    raise EpisodeResetError(
+                        f"第 {num} 集切换源文件不合法（应在 {prev_rel} 耗尽后顺序切到下一源文件），"
+                        f"账本可能已损坏，无法安全部分重置，{_FULL_RESET_HINT}"
+                    )
+                expected_start = 0
             if start != expected_start:
                 raise EpisodeResetError(
                     f"第 {num} 集原文范围与前一集不连续（应从 {expected_start} 起，实际 {start}），"
@@ -369,6 +398,11 @@ def _resolve_partial_reset_cursor(
                 )
         prev = (rel, end)
 
+    if prev is None:
+        raise EpisodeResetError(
+            f"第 {retain_num} 集缺少原文范围记录（unanchored），无法确定部分重置后的规划起点，{_FULL_RESET_HINT}"
+        )
+    retain_rel, retain_end = prev
     return retain_rel, retain_end
 
 

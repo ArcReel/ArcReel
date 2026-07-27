@@ -726,6 +726,25 @@ def test_partial_reset_rejects_gap_before_from_episode(tmp_path: Path) -> None:
     assert _load_project(project_dir) == before
 
 
+def test_partial_reset_rejects_huge_from_episode_without_hanging(tmp_path: Path) -> None:
+    """账本只有少量条目、``from_episode`` 却是天文数字集号（损坏写出）时快速拒绝：
+    缺口扫描按已有条目而非 ``range(1, from_episode)`` 走，不物化整段区间。"""
+    huge = 100_000_000
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(huge, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="不连续"):
+        reset_episode_planning(project_dir, from_episode=huge)
+
+    assert _load_project(project_dir) == before
+
+
 def test_partial_reset_rejects_when_retain_boundary_unanchored(tmp_path: Path) -> None:
     """第 from_episode-1 集（游标退回点）本身是 unanchored 时无法确定重置后的规划起点。"""
     project_dir = _write_project(
@@ -784,8 +803,8 @@ def test_partial_reset_rejects_non_contiguous_retained_ranges(tmp_path: Path) ->
     project_dir = _write_project(
         tmp_path,
         episodes=[
-            _entry(1, source_range={"source_file": "source/novel.txt", "start": 20, "end": 30}),
-            _entry(2, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 30, "end": 40}),
             _entry(3, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
         ],
     )
@@ -793,6 +812,68 @@ def test_partial_reset_rejects_non_contiguous_retained_ranges(tmp_path: Path) ->
 
     with pytest.raises(EpisodeResetError, match="不连续"):
         reset_episode_planning(project_dir, from_episode=3)
+
+    assert _load_project(project_dir) == before
+
+
+def test_partial_reset_rejects_when_first_episode_not_at_source_start(tmp_path: Path) -> None:
+    """第 1 集范围本身未越界，但没有从首个源文件偏移 0 起：放行会让 [0, 该起点) 这段
+    源文既不在保留账本里、退回后的游标也不会再规划到它，永久遗漏。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 20, "end": 30}),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 30, "end": 40}),
+        ],
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="未从首个源文件起点开始"):
+        reset_episode_planning(project_dir, from_episode=2)
+
+    assert _load_project(project_dir) == before
+
+
+def test_partial_reset_rejects_out_of_order_source_file_switch(tmp_path: Path) -> None:
+    """保留段跨源文件时必须切到排序中紧邻的下一个文件：这里第 1 集用完 a.txt 后跳过
+    b.txt 直接切到 c.txt，拒绝。"""
+    project_dir = _write_project(tmp_path)
+    (project_dir / "source" / "a.txt").write_text("A" * 10, encoding="utf-8")
+    (project_dir / "source" / "b.txt").write_text("B" * 10, encoding="utf-8")
+    (project_dir / "source" / "c.txt").write_text("C" * 10, encoding="utf-8")
+    project = _load_project(project_dir)
+    project["episodes"] = [
+        _entry(1, source_range={"source_file": "source/a.txt", "start": 0, "end": 10}),
+        _entry(2, source_range={"source_file": "source/c.txt", "start": 0, "end": 10}),
+        _entry(3, source_range={"source_file": "source/c.txt", "start": 10, "end": 10}),
+    ]
+    (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="切换源文件不合法"):
+        reset_episode_planning(project_dir, from_episode=3)
+
+    assert _load_project(project_dir) == before
+
+
+def test_partial_reset_rejects_unanchored_status_with_forged_source_range(tmp_path: Path) -> None:
+    """游标退回点标 unanchored 但仍带结构合法、坐标连续的 source_range：不采信该坐标——
+    规划器同样不认它，采信会让重置写出一个规划器自己都不承认的游标。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(
+                1,
+                source_range={"source_file": "source/novel.txt", "start": 0, "end": 10},
+                status="unanchored",
+            ),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="缺少原文范围记录"):
+        reset_episode_planning(project_dir, from_episode=2)
 
     assert _load_project(project_dir) == before
 
