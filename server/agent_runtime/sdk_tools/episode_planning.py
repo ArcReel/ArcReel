@@ -222,20 +222,24 @@ def replan_episodes_tool(ctx: ToolContext):
 def reset_episode_planning_tool(ctx: ToolContext):
     @tool(
         "reset_episode_planning",
-        "重置分集规划：清空分集账本（episodes 与 planning_cursor），让 plan_episodes 可以从头重新规划。"
-        "这是账本损坏时的逃生口——源文被替换或删除重建后，规划会报「起点越界」「范围无效」等错误并"
-        "永久失败，此时用本工具重置即可恢复；不调用文本模型，不受供应商配置影响。"
-        "当前只支持 from_episode=1（全量重置），传更大的集号会被拒绝且账本不变。"
-        "波及已消费集（已有 step1/剧本/媒体产物）时不执行并返回受影响清单，须告知用户、确认后带 "
-        "confirm_consumed=true 重新调用。任何下游产物（剧本、媒体）都不会被删除；"
-        "可由账本重造的 source/episode_N.txt 会被删除，无原文范围记录的集文件改名留底（不会丢内容）。"
-        "重置后账本为空，需要重新调用 plan_episodes 规划，集号从第 1 集重新开始。",
+        "重置分集规划：把账本退回未规划状态的逃生口，不调用文本模型，不受供应商配置影响。"
+        "from_episode=1 是全量重置（清空整个账本与 planning_cursor），源文被替换或删除重建、"
+        "账本写坏导致规划报「起点越界」「范围无效」等错误并永久失败时用它恢复，零前置校验、"
+        "任何损坏状态都能执行成功。from_episode>1 是部分重置：保留第 1..from_episode-1 集，"
+        "只清除 from_episode 起的条目，游标退到第 from_episode-1 集原文范围末尾，下次 "
+        "plan_episodes 从第 from_episode 集续接编号；这条路径有前置校验（全部已记录源文指纹须"
+        "与当前源文一致，且保留段坐标须完整、连续、落在当前源文界内），任一不满足会拒绝执行并"
+        "指明具体原因，此时改用 from_episode=1 做全量重置。"
+        "两种模式都对波及已消费集（已有 step1/剧本/媒体产物）时不执行并返回受影响清单，须告知用户、"
+        "确认后带 confirm_consumed=true 重新调用。任何下游产物（剧本、媒体）都不会被删除；"
+        "重置范围内可由账本重造的 source/episode_N.txt 会被删除，无原文范围记录的集文件改名留底"
+        "（不会丢内容），保留段的派生文件不受影响。",
         {
             "type": "object",
             "properties": {
                 "from_episode": {
                     "type": "integer",
-                    "description": "重置起点集号；当前仅支持 1（全量重置）",
+                    "description": "重置起点集号；1 为全量重置，大于 1 为部分重置（保留其前的集）",
                 },
                 "confirm_consumed": {
                     "type": "boolean",
@@ -265,16 +269,26 @@ def reset_episode_planning_tool(ctx: ToolContext):
 
         if isinstance(result, ResetConfirmationRequired):
             episodes = "、".join(str(num) for num in result.consumed_episodes)
+            if from_episode == 1:
+                aftermath = "账本清空后这些集需要重新规划"
+            else:
+                aftermath = f"这些集的账本条目被清除后需要重新规划，第 1..{from_episode - 1} 集保留不动"
             lines = [
                 f"⚠️ 本次重置会波及已消费集（已有 step1/剧本/媒体产物）：第 {episodes} 集。尚未执行任何改动。",
                 "请把影响范围告知用户；用户确认后带 confirm_consumed=true 重新调用"
-                "（剧本与媒体产物不会被删除，但账本清空后这些集需要重新规划）。",
+                f"（剧本与媒体产物不会被删除，但{aftermath}）。",
             ]
             if result.archived_files:
                 lines.append(f"其中无原文范围记录的集文件会改名留底：{'、'.join(result.archived_files)}")
             return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
-        lines = [f"✅ 已全量重置分集规划：清空 {len(result.removed_episodes)} 集，planning_cursor 已置空。"]
+        if from_episode == 1:
+            lines = [f"✅ 已全量重置分集规划：清空 {len(result.removed_episodes)} 集，planning_cursor 已置空。"]
+        else:
+            lines = [
+                f"✅ 已部分重置分集规划：清空第 {from_episode} 集起共 {len(result.removed_episodes)} 集，"
+                f"planning_cursor 已退到第 {from_episode - 1} 集原文范围末尾。"
+            ]
         if result.deleted_files:
             lines.append(f"已删除可重造的派生集文件 {len(result.deleted_files)} 个。")
         if result.archived_files:
@@ -283,7 +297,10 @@ def reset_episode_planning_tool(ctx: ToolContext):
         if result.consumed_episodes:
             consumed = "、".join(str(num) for num in result.consumed_episodes)
             lines.append(f"第 {consumed} 集的剧本 / 媒体产物仍在磁盘，未删除。")
-        lines.append("账本已空，请调用 plan_episodes 从头重新规划（集号从第 1 集起）。")
+        if from_episode == 1:
+            lines.append("账本已空，请调用 plan_episodes 从头重新规划（集号从第 1 集起）。")
+        else:
+            lines.append(f"请调用 plan_episodes 继续规划（新集号从第 {from_episode} 集起）。")
         return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
     return _handler

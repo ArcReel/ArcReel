@@ -2077,17 +2077,39 @@ async def test_reset_episode_planning_forwards_confirm(fake_ctx: ToolContext, mo
 
 @pytest.mark.unit
 async def test_reset_episode_planning_partial_reset_error(fake_ctx: ToolContext, monkeypatch) -> None:
-    """暂不支持的部分重置按可读错误返回，不走通用异常兜底。"""
+    """部分重置前置校验未通过（如源文指纹不一致）按可读错误返回，不走通用异常兜底。"""
     from lib.episode_reset import EpisodeResetError
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     monkeypatch.setattr(
-        mod, "reset_episode_planning", _fake_reset(EpisodeResetError("暂不支持部分重置（from_episode=3）"))
+        mod, "reset_episode_planning", _fake_reset(EpisodeResetError("源文件已被修改或移除：source/novel.txt"))
     )
     out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 3})
 
     assert out.get("is_error") is True
-    assert "暂不支持部分重置" in out["content"][0]["text"]
+    assert "源文件已被修改或移除" in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_reset_episode_planning_partial_reset_success_message(fake_ctx: ToolContext, monkeypatch) -> None:
+    """部分重置成功时的摘要区分于全量重置：报清空范围与新起点，而非「账本已空」。"""
+    from lib.episode_reset import EpisodeResetResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    result = EpisodeResetResult(
+        removed_episodes=[2, 3], deleted_files=["source/episode_2.txt"], archived_files=[], consumed_episodes=[]
+    )
+    monkeypatch.setattr(mod, "reset_episode_planning", _fake_reset(result))
+
+    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 2})
+
+    assert out.get("is_error") is not True
+    text = out["content"][0]["text"]
+    assert "部分重置" in text
+    assert "第 2 集起共 2 集" in text
+    assert "第 1 集原文范围末尾" in text
+    assert "新集号从第 2 集起" in text
+    assert "账本已空" not in text
 
 
 @pytest.mark.unit
