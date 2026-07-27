@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from lib.data_validator import DataValidator
+from lib.i18n import _ as i18n_message
 from lib.project_manager import ProjectManager
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
@@ -67,16 +68,21 @@ def _seed_project(tmp_path) -> ProjectManager:
     return pm
 
 
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    pm = _seed_project(tmp_path)
+def _build_client(pm: ProjectManager, monkeypatch) -> TestClient:
+    """把给定 ProjectManager 接到尾帧路由上，返回可发请求的 TestClient。"""
     monkeypatch.setattr(end_frame_service, "get_project_manager", lambda: pm)
 
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(end_frames.router, prefix="/api/v1")
-    return TestClient(app), pm
+    return TestClient(app)
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    pm = _seed_project(tmp_path)
+    return _build_client(pm, monkeypatch), pm
 
 
 def _upload(client, content: bytes, filename="frame.jpg", shot_id="E1S01"):
@@ -660,6 +666,148 @@ class TestErrorMapping:
         (pm.get_project_path("demo") / "scripts" / "episode_1.json").write_bytes(b"\xff\xfe not utf-8")
 
         assert _upload(c, _img_bytes("PNG")).status_code == 500
+
+
+def _client_with_project(
+    tmp_path, monkeypatch, *, content_mode, script, project_generation_mode=None, episode_generation_mode=None
+):
+    """构造项目/集级 generation_mode 可控的测试 client，用于覆盖生效 generation_mode 判定。"""
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo", content_mode=content_mode)
+    pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
+
+    project = pm.load_project("demo")
+    if project_generation_mode is not None:
+        project["generation_mode"] = project_generation_mode
+    episode_entry = {"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}
+    if episode_generation_mode is not None:
+        episode_entry["generation_mode"] = episode_generation_mode
+    project["episodes"] = [episode_entry]
+    pm.save_project("demo", project)
+    pm.save_script("demo", script, "episode_1.json", validate=False)
+
+    return _build_client(pm, monkeypatch), pm
+
+
+def _assert_reference_video_rejected(resp) -> None:
+    """断言响应是参考生视频专属的拒绝，而非碰巧同为 400 的其他错误。"""
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == i18n_message("end_frame_reference_video_unsupported")
+
+
+def _ad_script(shot_id="E1S01") -> dict:
+    return {
+        "episode": 1,
+        "title": "E1",
+        "content_mode": "ad",
+        "shots": [
+            {
+                "shot_id": shot_id,
+                "section": "hook",
+                "duration_seconds": 4,
+                "voiceover_text": "t",
+                "characters_in_shot": [],
+                "image_prompt": "img",
+                "video_prompt": "vid",
+                "generated_assets": {"status": "pending"},
+            }
+        ],
+    }
+
+
+class TestReferenceVideoRejection:
+    """生效 generation_mode（集级覆盖项目级）为 reference_video 时，尾帧三端点一律拒绝。
+
+    判定只看 project.json：ad 剧本骨架不携带剧本级 generation_mode 戳（见 script_generator），
+    各内容模式共用这一口径。
+    """
+
+    def test_ad_project_level_reference_video_rejects_all_three_endpoints(self, tmp_path, monkeypatch):
+        # ad 剧本骨架不携带 generation_mode 戳，参考生视频只由项目级配置声明。
+        c, pm = _client_with_project(
+            tmp_path, monkeypatch, content_mode="ad", script=_ad_script(), project_generation_mode="reference_video"
+        )
+
+        _assert_reference_video_rejected(_upload(c, _img_bytes("PNG"), shot_id="E1S01"))
+        _assert_reference_video_rejected(_select(c, "storyboards/whatever.png", shot_id="E1S01"))
+        _assert_reference_video_rejected(_delete(c, shot_id="E1S01"))
+
+        assert pm.load_script("demo", "episode_1.json")["shots"][0].get("end_frame_image") is None
+
+    def test_ad_episode_level_override_reference_video_rejects_all_three_endpoints(self, tmp_path, monkeypatch):
+        # 集级覆盖项目级：项目级未声明（回退 storyboard 默认），集级显式声明 reference_video。
+        c, pm = _client_with_project(
+            tmp_path,
+            monkeypatch,
+            content_mode="ad",
+            script=_ad_script(),
+            episode_generation_mode="reference_video",
+        )
+
+        _assert_reference_video_rejected(_upload(c, _img_bytes("PNG"), shot_id="E1S01"))
+        _assert_reference_video_rejected(_select(c, "storyboards/whatever.png", shot_id="E1S01"))
+        _assert_reference_video_rejected(_delete(c, shot_id="E1S01"))
+
+        assert pm.load_script("demo", "episode_1.json")["shots"][0].get("end_frame_image") is None
+
+    def test_ad_episode_level_storyboard_overrides_project_reference_video(self, tmp_path, monkeypatch):
+        # 集级覆盖项目级的另一半：项目级 reference_video 被集级 storyboard 覆盖时须放行。
+        c, _pm = _client_with_project(
+            tmp_path,
+            monkeypatch,
+            content_mode="ad",
+            script=_ad_script(),
+            project_generation_mode="reference_video",
+            episode_generation_mode="storyboard",
+        )
+        assert _upload(c, _img_bytes("PNG"), shot_id="E1S01").status_code == 200
+
+    def test_drama_reference_video_script_rejected(self, tmp_path, monkeypatch):
+        # drama/narration 的参考生视频剧本同样落到这条拒绝上。
+        script = {
+            "episode": 1,
+            "title": "E1",
+            "content_mode": "drama",
+            "generation_mode": "reference_video",
+            "video_units": [{"unit_id": "E1S01", "scenes": [], "props": []}],
+        }
+        c, _pm = _client_with_project(
+            tmp_path, monkeypatch, content_mode="drama", script=script, project_generation_mode="reference_video"
+        )
+        _assert_reference_video_rejected(_upload(c, _img_bytes("PNG"), shot_id="E1S01"))
+
+    def test_grid_mode_no_regression(self, tmp_path, monkeypatch):
+        # 常规宫格生视频路径不受影响，尾帧设置照常放行。
+        script = {
+            "episode": 1,
+            "title": "E1",
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "novel_text": "t", "duration_seconds": 5}],
+        }
+        c, pm = _client_with_project(
+            tmp_path, monkeypatch, content_mode="narration", script=script, project_generation_mode="grid"
+        )
+        resp = _upload(c, _img_bytes("PNG"), shot_id="E1S01")
+        assert resp.status_code == 200, resp.text
+        assert pm.load_script("demo", "episode_1.json")["segments"][0]["end_frame_image"] == END_FRAME_REL
+
+    def test_unresolvable_episode_falls_back_to_project_mode(self, tmp_path, monkeypatch):
+        # 集号既不在剧本里也不在文件名里：回退项目级判定照常拒绝，不落到 500。
+        script = {
+            "title": "E1",
+            "content_mode": "narration",
+            "segments": [{"segment_id": "E1S01", "novel_text": "t", "duration_seconds": 5}],
+        }
+        c, pm = _client_with_project(
+            tmp_path, monkeypatch, content_mode="narration", script=script, project_generation_mode="reference_video"
+        )
+        pm.save_script("demo", script, "custom.json", validate=False)
+
+        resp = c.post(
+            "/api/v1/projects/demo/shots/E1S01/end-frame/upload?script_file=custom.json",
+            files={"file": ("frame.png", BytesIO(_img_bytes("PNG")), "application/octet-stream")},
+        )
+        _assert_reference_video_rejected(resp)
 
 
 class TestValidatorAcceptsWrittenSnapshot:

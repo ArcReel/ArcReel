@@ -184,6 +184,7 @@ MESSAGES = {
     "invalid_resource_id": "ID tài nguyên không hợp lệ: {resource_id}",
     "invalid_end_frame_source": "Đường dẫn ảnh nguồn cho khung hình cuối không hợp lệ hoặc nằm ngoài thư mục dự án: {path}",
     "end_frame_source_not_found": "Không tìm thấy ảnh nguồn cho khung hình cuối: {path}",
+    "end_frame_reference_video_unsupported": "Chế độ video tham chiếu không có khái niệm khung hình đầu/cuối, không hỗ trợ đặt khung hình cuối",
     # Reference Video
     "ref_missing_asset": "Tham chiếu đến {type} '{name}' không có trong thư viện tài nguyên dự án, vui lòng tạo trước",
     "ref_duration_exceeded": "Thời lượng đơn vị video tham chiếu {duration}s vượt giới hạn {max_duration}s của {model}, đã cắt bớt",

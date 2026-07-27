@@ -84,6 +84,28 @@ def effective_mode(*, project: dict, episode: dict) -> str:
     return _DEFAULT_GENERATION_MODE
 
 
+def find_episode(project: dict[str, Any], episode: int | None) -> dict[str, Any] | None:
+    """返回 project.json ``episodes[]`` 中 ``episode == N`` 的条目，缺失则 None。
+
+    ``episode`` 为 None（集号未知）时不匹配任何条目，调用方据此回退到项目级配置。
+    """
+    if episode is None:
+        return None
+    for ep in project.get("episodes") or []:
+        if isinstance(ep, dict) and ep.get("episode") == episode:
+            return ep
+    return None
+
+
+def is_reference_video_episode(project: dict[str, Any], episode: int | None) -> bool:
+    """该集的生效 generation_mode 是否为 reference_video。
+
+    project.json 是该判定的唯一真相源：ad 内容模式的剧本骨架不携带剧本级
+    ``generation_mode`` 戳（见 ``script_generator``），只看剧本判不出参考生视频。
+    """
+    return effective_mode(project=project, episode=find_episode(project, episode) or {}) == "reference_video"
+
+
 def resolve_source_kind(project: Mapping[str, Any]) -> SourceKind:
     """项目源文件性质（novel / screenplay），缺失或非法值回退默认 novel，兼容脏数据。"""
     value = project.get("source_kind")

@@ -18,7 +18,7 @@ from lib.generation_queue_client import (
     batch_enqueue_and_wait,
     enqueue_and_wait,
 )
-from lib.project_manager import ProjectManager, effective_mode
+from lib.project_manager import ProjectManager, is_reference_video_episode
 from lib.prompt_utils import is_structured_video_prompt, utterances_to_dialogue, video_prompt_to_yaml
 from lib.reference_video import assemble_shots_text
 from lib.reference_video.ad_units import (
@@ -65,12 +65,7 @@ def _is_ad_reference(ctx: ToolContext, script: dict[str, Any]) -> bool:
     project = ctx.pm.load_project(ctx.project_name)
     if project.get("content_mode") != "ad":
         return False
-    episode = script.get("episode")
-    meta = next(
-        (e for e in (project.get("episodes") or []) if isinstance(e, dict) and e.get("episode") == episode),
-        None,
-    )
-    return effective_mode(project=project, episode=meta or {}) == "reference_video"
+    return is_reference_video_episode(project, script.get("episode"))
 
 
 # Checkpoint helpers
