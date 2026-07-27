@@ -164,9 +164,10 @@ export function AdReferenceVideoCanvas({
   }, [projectName]);
 
   const derive = useCallback(async (): Promise<AdReferenceUnit[]> => {
-    // 命中即中止——避免把仍在跑的旧任务对应的成员重新绑定到派生后的新分组。
+    // 命中即中止——避免把仍在跑的旧任务对应的成员重新绑定到派生后的新分组；
+    // 有镜头字段写入未落库时同样中止，避免派生与该 PATCH 的落库顺序不确定。
     const live = liveBusyUnitIds();
-    if (hydrated.some(({ unit }) => live.has(unit.unit_id))) {
+    if (hydrated.some(({ unit }) => live.has(unit.unit_id) || savingUnitIds.has(unit.unit_id))) {
       useAppStore.getState().pushToast(t("ad_ref_rederive_busy"), "error");
       return [];
     }
@@ -182,7 +183,7 @@ export function AdReferenceVideoCanvas({
     } finally {
       setDeriving(false);
     }
-  }, [projectName, episode, hydrated, liveBusyUnitIds, t]);
+  }, [projectName, episode, hydrated, liveBusyUnitIds, savingUnitIds, t]);
 
   // 错误清空只在触发入口做：generateUnit 自身不清，避免批量循环中
   // 后一个 unit 的调用抹掉前一个 unit 的失败信息
@@ -242,10 +243,13 @@ export function AdReferenceVideoCanvas({
   }, [derive, generateUnit, liveBusyUnitIds, savingUnitIds]);
 
   const hasUnits = hydrated.length > 0;
-  // 任一分组仍有活跃任务（含取消中）时禁止重新派生：派生会按位置重算 unit_id 的
-  // 成员镜头，若此时有任务仍在跑，任务完成落回 apply_unit_video_assets 时会按
-  // unit_id 把产物写给重新派生后的新成员，造成成片挂错分组。
-  const anyUnitBusy = hydrated.some(({ unit }) => busyUnitIds.has(unit.unit_id));
+  // 任一分组仍有活跃任务（含取消中）或镜头字段写入未落库时禁止重新派生：派生会按
+  // 位置重算 unit_id 的成员镜头，若此时有任务仍在跑，任务完成落回
+  // apply_unit_video_assets 时会按 unit_id 把产物写给重新派生后的新成员，造成成片
+  // 挂错分组；写入未落库同理，落库顺序与派生顺序不确定时同样不该允许触发。
+  const anyUnitBusy = hydrated.some(
+    ({ unit }) => busyUnitIds.has(unit.unit_id) || savingUnitIds.has(unit.unit_id),
+  );
   // 首次列表 GET 未完成时 units 为 null：此时点击派生，POST 结果可能被随后落地的
   // 首次 GET（携带派生前的旧列表）覆盖，画布会误报尚未派生。禁用入口直到首次加载完成；
   // 加载失败（error 非空）不算「加载中」，否则派生入口会永久禁用、用户无法自救。

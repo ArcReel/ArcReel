@@ -61,6 +61,19 @@ vi.mock("./timeline/TimelineCanvas", () => ({
       <button
         onClick={(e) => {
           const el = e.currentTarget;
+          el.setAttribute("data-update-pending", "true");
+          void Promise.resolve(
+            onUpdatePrompt?.("SEG-1", "image_prompt", "new prompt", scriptFile),
+          ).then(() => {
+            el.setAttribute("data-update-pending", "false");
+          });
+        }}
+      >
+        update-prompt-await
+      </button>
+      <button
+        onClick={(e) => {
+          const el = e.currentTarget;
           void Promise.resolve(onMoveShot?.("SEG-1", "later", scriptFile)).then((moved) => {
             el.setAttribute("data-move-result", String(moved));
           });
@@ -971,6 +984,47 @@ describe("StudioCanvasRouter", () => {
         4,
       );
       expect(useAppStore.getState().toast?.text).toContain("生成视频失败");
+    });
+  });
+
+  // TimelineCanvas 的 ShotDetail.handleSave / handleRefsSave 靠 await 这个回调维持保存中
+  // 状态；handleUpdatePrompt 改回真实结果契约后若在此处包一层 voidPromise（丢弃返回值的
+  // 同时也让包装函数立即 resolve），await 会在 PATCH 真正落库前就提前结束。
+  it("keeps the update-prompt callback pending until the underlying write settles", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData(),
+      scripts: { "episode_1.json": makeScript() },
+    });
+    let resolveUpdate: (result: { success: boolean }) => void = () => {};
+    vi.spyOn(API, "updateSegment").mockReturnValue(
+      new Promise((resolve) => {
+        resolveUpdate = resolve;
+      }),
+    );
+
+    renderAt("/episodes/1");
+
+    fireEvent.click(screen.getByText("update-prompt-await"));
+
+    // 放几轮微任务/宏任务过去：底层 PATCH 仍未落地，回调不能提前 resolve——
+    // 若用 voidPromise 包一层，包装函数会在这里已经 resolve，暴露不出真正的 bug。
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByText("update-prompt-await")).toHaveAttribute("data-update-pending", "true");
+
+    resolveUpdate({ success: true });
+
+    await waitFor(() => {
+      expect(screen.getByText("update-prompt-await")).toHaveAttribute(
+        "data-update-pending",
+        "false",
+      );
     });
   });
 

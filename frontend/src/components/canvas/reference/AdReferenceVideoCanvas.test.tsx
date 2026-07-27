@@ -389,6 +389,37 @@ describe("AdReferenceVideoCanvas", () => {
     expect(await screen.findByRole("button", { name: /重新派生/ })).toBeDisabled();
   });
 
+  // 派生会按位置重算 unit_id 的成员镜头；镜头字段写入未落库时落库顺序与派生顺序不确定，
+  // 与「任务运行中禁止重新派生」（上一条用例）同一类风险，禁用条件与提交时复核须一并覆盖。
+  it("镜头字段写入未落库期间禁用重新派生，避免与 PATCH 落库顺序不确定", async () => {
+    let resolveUpdate: (committed: boolean) => void = () => {};
+    const onUpdatePrompt = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveUpdate = resolve;
+        }),
+    );
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    mockedAPI.deriveAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+
+    renderCanvas({ onUpdatePrompt });
+    const durationSelect = await screen.findByRole("combobox", { name: /E1S1 时长/ });
+    const rederiveButton = await screen.findByRole("button", { name: /重新派生/ });
+    expect(rederiveButton).not.toBeDisabled();
+
+    await userEvent.selectOptions(durationSelect, "7");
+
+    await waitFor(() => {
+      expect(rederiveButton).toBeDisabled();
+    });
+
+    resolveUpdate(true);
+
+    await waitFor(() => {
+      expect(rederiveButton).not.toBeDisabled();
+    });
+  });
+
   it("响应式占用信号尚未追上真实 store 时，生成提交仍被 getState() 新鲜读拦截", async () => {
     mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
     const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");

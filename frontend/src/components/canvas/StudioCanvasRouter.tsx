@@ -735,7 +735,12 @@ export function StudioCanvasRouter() {
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
-                    onUpdatePrompt={voidPromise(handleUpdatePrompt)}
+                    // 不能用 voidPromise：它把返回值转 void 的同时也让包装函数立即 resolve，
+                    // 而 ShotDetail.handleSave / handleRefsSave 靠 await 这个回调维持保存中
+                    // 状态——真正要丢弃的只是布尔返回值，等待本身必须原样保留。
+                    onUpdatePrompt={async (...args) => {
+                      await handleUpdatePrompt(...args);
+                    }}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={voidPromise(handleGenerateVideo)}
                     onGenerateNarration={voidPromise(handleGenerateNarration)}
@@ -761,7 +766,12 @@ export function StudioCanvasRouter() {
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
-                    onUpdatePrompt={voidPromise(handleUpdatePrompt)}
+                    // 不能用 voidPromise：它把返回值转 void 的同时也让包装函数立即 resolve，
+                    // 而 ShotDetail.handleSave / handleRefsSave 靠 await 这个回调维持保存中
+                    // 状态——真正要丢弃的只是布尔返回值，等待本身必须原样保留。
+                    onUpdatePrompt={async (...args) => {
+                      await handleUpdatePrompt(...args);
+                    }}
                     onMoveShot={isAd ? handleMoveShot : undefined}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={voidPromise(handleGenerateVideo)}
