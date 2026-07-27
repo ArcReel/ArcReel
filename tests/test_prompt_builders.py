@@ -1,3 +1,5 @@
+import pytest
+
 from lib.prompt_builders import (
     append_image_negative_tail,
     append_product_fidelity_tail,
@@ -54,6 +56,7 @@ class TestScenePromptAndPropPrompt:
         assert "画面避免" in prompt
 
 
+@pytest.mark.unit
 class TestFigureExclusion:
     """展示环境或物件的图种排除人物；画面主体本身是人物的图种不排除。"""
 
