@@ -108,7 +108,13 @@ def _scan_tree(tree: ast.Module, rel: str) -> tuple[dict[str, str], list[tuple[s
         # 真正的 new code 既不入集合也不记为动态点，两道守卫一起失效。
         code_expr = node.args[0] if node.args else _keyword_value(node, "code")
         if code_expr is None:
-            if name == "ReferencePayloadFloorError":
+            # ``**kwargs`` 解包里可能藏着 code，静态看不见。此时不能当「没给 code」处理：
+            # ``ReferencePayloadFloorError(**{"code": "new"})`` 会被登记成默认码，真正的
+            # new code 两道守卫一起放行。无位置参数也无显式 ``code=`` 时，只有确定没有解包
+            # 才敢认默认码。
+            if any(keyword.arg is None for keyword in node.keywords):
+                dynamic_sites.append((where, f"{rel}::{_enclosing_function(tree, node.lineno)}"))
+            elif name == "ReferencePayloadFloorError":
                 # 唯一带默认 code 的能力异常（构造点常省略实参）。
                 codes.setdefault(ReferencePayloadFloorError().code, where)
             else:
@@ -185,9 +191,12 @@ def test_static_code_enumeration_rejects_partially_dynamic_expressions(expr, exp
 @pytest.mark.parametrize(
     ("source", "expected_codes", "expected_dynamic"),
     [
-        ('VideoCapabilityError("video_duration_invalid")', ["video_duration_invalid"], 0),
-        ('VideoCapabilityError(code="video_duration_invalid")', ["video_duration_invalid"], 0),
+        ('VideoCapabilityError("video_duration_not_supported")', ["video_duration_not_supported"], 0),
+        ('VideoCapabilityError(code="video_duration_not_supported")', ["video_duration_not_supported"], 0),
         ("VideoCapabilityError(code=chosen)", [], 1),
+        # ``**`` 解包里可能藏着 code，静态看不见：不能当「没给 code」而登记默认码。
+        ('ReferencePayloadFloorError(**{"code": "new_code"})', [], 1),
+        ("VideoCapabilityError(**overrides)", [], 1),
         # 默认 code 只在真的没给 code 时才算数：给了关键字就按关键字扫。
         ("ReferencePayloadFloorError()", ["ref_payload_floor_exceeded"], 0),
         ('ReferencePayloadFloorError(code="new_code")', ["new_code"], 0),
@@ -202,10 +211,12 @@ def test_scanner_reads_code_from_keyword_form(source, expected_codes, expected_d
     真实的新 code 既不进已发现集合也不记为动态点，两道漂移守卫一起放行。
     """
     # ``error_code=`` 仅在确有 capability 构造点的文件里采集，合成源码补一个构造点作陪衬。
+    # 陪衬的 code 与各用例都不重合，且断言取全等而非差集——否则被测 code 与陪衬同名时，
+    # 两边一起减掉会让「一条都没采集到」也照样通过。
     prelude = 'VideoCapabilityError("video_duration_invalid")\n'
     codes, dynamic = _scan_tree(ast.parse(prelude + source), "synthetic.py")
 
-    assert sorted(set(codes) - {"video_duration_invalid"}) == sorted(set(expected_codes) - {"video_duration_invalid"})
+    assert sorted(codes) == sorted({"video_duration_invalid", *expected_codes})
     assert len(dynamic) == expected_dynamic
 
 
