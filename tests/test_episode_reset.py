@@ -242,9 +242,9 @@ def test_conflict_when_new_consumed_episode_appears_during_commit(
     original_scan = episode_reset_module._scan
     calls = {"n": 0}
 
-    def _fake_scan(pd: Path, project: dict):
+    def _fake_scan(pd: Path, project: dict, *, from_episode: int = 1):
         calls["n"] += 1
-        result = original_scan(pd, project)
+        result = original_scan(pd, project, from_episode=from_episode)
         if calls["n"] == 2:  # 第二次调用发生在锁内（_commit 的复扫）
             result.consumed.append(1)
         return result
@@ -605,15 +605,268 @@ def test_reset_processes_all_padding_aliases_of_same_episode(tmp_path: Path) -> 
     assert discover_episode_files(project_dir) == {}
 
 
-def test_partial_reset_rejected_without_touching_ledger(tmp_path: Path) -> None:
+def test_reset_rejects_non_positive_from_episode(tmp_path: Path) -> None:
+    project_dir = _write_project(tmp_path)
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="正整数"):
+        reset_episode_planning(project_dir, from_episode=0)
+
+    assert _load_project(project_dir) == before
+
+
+# ---------------------------------------------------------------------------
+# 部分重置：成功路径
+# ---------------------------------------------------------------------------
+
+
+def test_partial_reset_keeps_retained_episodes_and_rewinds_cursor(tmp_path: Path) -> None:
+    """规划 3 集后部分重置到第 2 集：账本只保留第 1 集，游标退到第 1 集原文范围末尾，
+    再次规划的起点与集号自然从第 2 集续上。"""
+    end1 = 10
+    end2 = 20
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": end1}),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": end1, "end": end2}),
+            _entry(3, source_range={"source_file": "source/novel.txt", "start": end2, "end": end2 + 10}),
+        ],
+        planning_cursor={"source_file": "source/novel.txt", "offset": end2 + 10},
+    )
+    (project_dir / "source" / "episode_2.txt").write_text(SOURCE[end1:end2], encoding="utf-8")
+    (project_dir / "source" / "episode_3.txt").write_text(SOURCE[end2 : end2 + 10], encoding="utf-8")
+
+    result = reset_episode_planning(project_dir, from_episode=2)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert result.removed_episodes == [2, 3]
+    project = _load_project(project_dir)
+    assert [e["episode"] for e in project["episodes"]] == [1]
+    assert project["planning_cursor"] == {"source_file": "source/novel.txt", "offset": end1}
+    # 再次规划的起点（供 EpisodePlanner._effective_start 消费）与新集号自然从第 2 集续上
+    assert EpisodePlanner(project_dir)._effective_start(project) == ("source/novel.txt", end1)
+
+
+def test_partial_reset_deletes_derived_files_in_range_keeps_retained(tmp_path: Path) -> None:
+    """范围内（>= from_episode）有 source_range 的派生文件删除，保留段（< from_episode）
+    派生文件不受影响。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+    )
+    retained_file = project_dir / "source" / "episode_1.txt"
+    retained_file.write_text(SOURCE[:10], encoding="utf-8")
+    reset_file = project_dir / "source" / "episode_2.txt"
+    reset_file.write_text(SOURCE[10:20], encoding="utf-8")
+
+    result = reset_episode_planning(project_dir, from_episode=2)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert result.deleted_files == ["source/episode_2.txt"]
+    assert not reset_file.exists()
+    assert retained_file.exists()  # 保留段派生文件不动
+
+
+def test_partial_reset_archives_unanchored_file_in_range(tmp_path: Path) -> None:
+    """范围内 unanchored（无 source_range）的集文件按无法重造处理，留底而非删除。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(2, source_range=None, status="unanchored"),
+        ],
+    )
+    (project_dir / "source" / "episode_1.txt").write_text(SOURCE[:10], encoding="utf-8")
+    legacy = project_dir / "source" / "episode_2.txt"
+    legacy.write_text("老项目手工内容", encoding="utf-8")
+
+    result = reset_episode_planning(project_dir, from_episode=2)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert result.archived_files == [("source/episode_2.txt", "source/_episode_2.txt.bak")]
+    assert not legacy.exists()
+
+
+# ---------------------------------------------------------------------------
+# 部分重置：前置校验拒绝（账本与文件均不被改动）
+# ---------------------------------------------------------------------------
+
+
+def test_partial_reset_rejects_when_from_episode_not_in_ledger(tmp_path: Path) -> None:
     project_dir = _write_project(
         tmp_path,
         episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],
-        planning_cursor={"source_file": "source/novel.txt", "offset": 10},
     )
     before = _load_project(project_dir)
 
-    with pytest.raises(EpisodeResetError, match="部分重置"):
+    with pytest.raises(EpisodeResetError, match="不在账本中"):
+        reset_episode_planning(project_dir, from_episode=5)
+
+    assert _load_project(project_dir) == before
+
+
+def test_partial_reset_rejects_gap_before_from_episode(tmp_path: Path) -> None:
+    """保留段（1..from_episode-1）存在缺口时拒绝：无法确定「保留到哪」。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(3, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="不连续"):
+        reset_episode_planning(project_dir, from_episode=3)
+
+    assert _load_project(project_dir) == before
+
+
+def test_partial_reset_rejects_when_retain_boundary_unanchored(tmp_path: Path) -> None:
+    """第 from_episode-1 集（游标退回点）本身是 unanchored 时无法确定重置后的规划起点。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range=None, status="unanchored"),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="缺少原文范围记录"):
         reset_episode_planning(project_dir, from_episode=2)
 
     assert _load_project(project_dir) == before
+
+
+def test_partial_reset_rejects_on_fingerprint_mismatch(tmp_path: Path) -> None:
+    """已记录的源文指纹与当前源文不一致时拒绝，账本与文件均不被改动。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+        extra={SOURCE_FINGERPRINTS_KEY: {"source/novel.txt": "0" * 64}},  # 与实际内容不一致的假指纹
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="已被修改或移除"):
+        reset_episode_planning(project_dir, from_episode=2)
+
+    assert _load_project(project_dir) == before
+
+
+def test_partial_reset_rejects_when_retained_range_out_of_bounds(tmp_path: Path) -> None:
+    """保留段坐标越出当前源文长度（源文已被替换为更短内容，指纹未记录故绕过指纹门禁）时拒绝。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 99999}),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 99999, "end": 100010}),
+        ],
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="越界"):
+        reset_episode_planning(project_dir, from_episode=2)
+
+    assert _load_project(project_dir) == before
+
+
+def test_partial_reset_rejects_duplicate_episode_numbers(tmp_path: Path) -> None:
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="重复集号"):
+        reset_episode_planning(project_dir, from_episode=2)
+
+    assert _load_project(project_dir) == before
+
+
+def test_partial_reset_rejects_non_list_episodes(tmp_path: Path) -> None:
+    project_dir = _write_project(tmp_path, extra={"episodes": 1})
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="形状异常"):
+        reset_episode_planning(project_dir, from_episode=2)
+
+    assert _load_project(project_dir) == before
+
+
+# ---------------------------------------------------------------------------
+# 部分重置：已消费集的二段确认
+# ---------------------------------------------------------------------------
+
+
+def test_partial_reset_consumed_within_range_requires_confirmation(tmp_path: Path) -> None:
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(
+                2,
+                source_range={"source_file": "source/novel.txt", "start": 10, "end": 20},
+                status="consumed",
+            ),
+        ],
+    )
+    script = _write_script(project_dir, 2)
+    before = _load_project(project_dir)
+
+    result = reset_episode_planning(project_dir, from_episode=2)
+
+    assert isinstance(result, ResetConfirmationRequired)
+    assert result.consumed_episodes == [2]
+    assert _load_project(project_dir) == before
+    assert script.is_file()
+
+
+def test_partial_reset_consumed_before_range_not_flagged(tmp_path: Path) -> None:
+    """保留段（< from_episode）已消费不影响二段确认：确认只针对本次重置范围内的集。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}, status="consumed"),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+    )
+    _write_script(project_dir, 1)
+
+    result = reset_episode_planning(project_dir, from_episode=2)
+
+    assert isinstance(result, EpisodeResetResult)
+
+
+def test_partial_reset_confirmed_keeps_downstream_products(tmp_path: Path) -> None:
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(
+                2,
+                source_range={"source_file": "source/novel.txt", "start": 10, "end": 20},
+                status="consumed",
+            ),
+        ],
+    )
+    script = _write_script(project_dir, 2)
+
+    result = reset_episode_planning(project_dir, from_episode=2, confirm_consumed=True)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert result.consumed_episodes == [2]
+    assert script.is_file()
+    project = _load_project(project_dir)
+    assert [e["episode"] for e in project["episodes"]] == [1]

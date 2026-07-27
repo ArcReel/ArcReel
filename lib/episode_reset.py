@@ -6,6 +6,13 @@
 执行后 ``episodes`` 清空、``planning_cursor`` 置 null、源文指纹清除，
 ``plan_episodes`` 可从头重新规划。
 
+部分重置（``from_episode > 1``）保留第 1..from_episode-1 集、只清除
+from_episode 起的条目，与全量重置相反，走**前置校验**：全部已记录源文指纹须与
+当前源文一致，且保留段每一集的 ``source_range`` 须结构完整、落在当前源文界内、
+且连续无缺口——任一不满足都无法安全推算「保留到哪、退回到哪」，直接拒绝执行
+（账本不改动）并指引改用全量重置。校验通过后 ``planning_cursor`` 退到第
+from_episode-1 集原文范围末尾，源文指纹字段保留不动（已验证与当前源文一致）。
+
 本模块刻意不依赖 :class:`lib.text_generator.TextGenerator`：重置不调模型，
 逃生口不能因供应商未配置而失效。写入与 ``EpisodePlanner`` 共用同一把项目锁
 （``ProjectManager.update_project``），提交纪律一致。
@@ -13,7 +20,8 @@
 派生集文件按「是否可从账本重造」分流：账本条目带 ``source_range`` 的
 ``source/episode_N.txt`` 是派生物，直接删除；无 ``source_range`` 的集文件可能是
 老项目原件（含手工内容，无坐标可重造），改名留底而非删除。下游产物（剧本 JSON、
-step1 中间文件、媒体）一律不删。
+step1 中间文件、媒体）一律不删。部分重置时上述处置只施于 from_episode 起的范围，
+保留段的派生文件与下游产物不受影响。
 """
 
 from __future__ import annotations
@@ -28,7 +36,9 @@ from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     discover_episode_file_aliases,
     discover_product_episode_nums,
+    discover_sources,
     has_downstream_products,
+    mismatched_source_fingerprints,
     parse_episode_num,
 )
 from lib.project_manager import ProjectManager
@@ -118,11 +128,15 @@ def _has_recreatable_source_range(entry: Mapping[str, Any]) -> bool:
     )
 
 
-def _scan(project_dir: Path, project: Mapping[str, Any]) -> _ResetPlan:
+def _scan(project_dir: Path, project: Mapping[str, Any], *, from_episode: int = 1) -> _ResetPlan:
     """扫描账本与磁盘得出处置计划。纯读：不改入参、不动文件。
 
     已消费判定取账本状态与磁盘产物的并集——账本损坏时 ``ledger_status`` 未必可信，
     磁盘上的剧本 / step1 产物才是「这一集已经被消费过」的硬证据。
+
+    ``from_episode`` 限定处置范围（默认 1 即全量，与既有调用方行为逐字一致）：
+    集号小于它的账本条目、孤儿派生文件、孤儿下游产物均视为保留段，不参与本次
+    扫描——它们既不计入已消费判定，也不进入删除/留底候选。
     """
     raw_episodes = project.get("episodes")
     entries: dict[int, Mapping[str, Any]] = {}
@@ -159,6 +173,8 @@ def _scan(project_dir: Path, project: Mapping[str, Any]) -> _ResetPlan:
     #   条目，账本清空的承诺落空
     # - 孤儿下游产物同样要纳入已消费判定，否则会绕过确认直接清空
     for num in sorted(set(entries) | set(episode_file_aliases) | product_nums):
+        if from_episode > 1 and num < from_episode:
+            continue
         dupes = entries_by_num.get(num) or [{}]
         # 已消费判定同样要聚合全部重复条目：损坏账本可能首条指向缺失的规范剧本路径、
         # 后条的 script_file 指向实际存在的非规范路径（如 scripts/custom_name.json），
@@ -180,7 +196,8 @@ def _scan(project_dir: Path, project: Mapping[str, Any]) -> _ResetPlan:
         can_recreate = all(_has_recreatable_source_range(dupe) for dupe in dupes)
         target = deletes if can_recreate else archives
         target.extend(paths)
-    return _ResetPlan(episode_nums=sorted(entries), consumed=consumed, deletes=deletes, archives=archives)
+    episode_nums = [num for num in sorted(entries) if not (from_episode > 1 and num < from_episode)]
+    return _ResetPlan(episode_nums=episode_nums, consumed=consumed, deletes=deletes, archives=archives)
 
 
 def _apply_files(project_dir: Path, plan: _ResetPlan) -> tuple[list[str], list[tuple[str, str]]]:
@@ -228,35 +245,148 @@ def _rel(project_dir: Path, path: Path) -> str:
     return path.relative_to(project_dir).as_posix()
 
 
+def _validate_partial_reset(project_dir: Path, project: Mapping[str, Any], *, from_episode: int) -> tuple[str, int]:
+    """校验部分重置（``from_episode > 1``）的前置条件，返回重置后 planning_cursor
+    的 ``(source_file, offset)``（第 from_episode-1 集原文范围末尾）。
+
+    任一不满足都会让「保留到哪、退回到哪」无法安全推算，抛 :class:`EpisodeResetError`
+    并指引改用全量重置；调用方保证校验失败时账本不被改动：
+
+    - 账本形状必须干净（``episodes`` 是列表、条目均为对象、集号均可解析且不重复）——
+      部分重置与全量重置相反，不做「零前置校验」的损坏容忍，形状有问题直接指向
+      更彻底的全量重置
+    - ``from_episode`` 必须是既有集号，且第 1..from_episode-1 集须连续存在（无缺口）
+    - 第 from_episode-1 集须带结构完整的 ``source_range``（regarding cursor 退回点）
+    - 全部已记录源文指纹须与当前源文一致（``mismatched_source_fingerprints``，与
+      ``EpisodePlanner`` 的提交门禁同一套逃生口）
+    - 保留段（1..from_episode-1）每一集若带 ``source_range``，须结构完整且落在
+      对应源文件当前长度界内（unanchored 保留集无坐标可越界，不参与本项检查）
+    """
+    raw_episodes = project.get("episodes")
+    if not isinstance(raw_episodes, list):
+        raise EpisodeResetError(
+            "账本 episodes 字段形状异常，无法安全推算部分重置边界，请改用 from_episode=1 做全量重置"
+        )
+
+    entries_by_num: dict[int, Mapping[str, Any]] = {}
+    for entry in raw_episodes:
+        if not isinstance(entry, Mapping):
+            raise EpisodeResetError(
+                "账本存在非法条目（非对象），无法安全推算部分重置边界，请改用 from_episode=1 做全量重置"
+            )
+        num = parse_episode_num(entry.get("episode"))
+        if num is None:
+            raise EpisodeResetError(
+                "账本存在无法解析集号的条目，无法安全推算部分重置边界，请改用 from_episode=1 做全量重置"
+            )
+        if num in entries_by_num:
+            raise EpisodeResetError(
+                f"账本存在重复集号 {num}，无法安全推算部分重置边界，请改用 from_episode=1 做全量重置"
+            )
+        entries_by_num[num] = entry
+
+    if from_episode not in entries_by_num:
+        raise EpisodeResetError(
+            f"第 {from_episode} 集不在账本中，无法从此处部分重置（当前已规划集号：{sorted(entries_by_num)}）"
+        )
+    missing = [num for num in range(1, from_episode) if num not in entries_by_num]
+    if missing:
+        raise EpisodeResetError(
+            f"账本缺少第 {missing} 集，保留段不连续，无法安全推算部分重置边界，请改用 from_episode=1 做全量重置"
+        )
+
+    retain_num = from_episode - 1
+    retain_range = entries_by_num[retain_num].get("source_range")
+    if not isinstance(retain_range, Mapping):
+        raise EpisodeResetError(
+            f"第 {retain_num} 集缺少原文范围记录（unanchored），无法确定部分重置后的规划起点，"
+            "请改用 from_episode=1 做全量重置"
+        )
+    retain_rel = retain_range.get("source_file")
+    retain_start = retain_range.get("start")
+    retain_end = retain_range.get("end")
+    if (
+        not isinstance(retain_rel, str)
+        or not isinstance(retain_start, int)
+        or isinstance(retain_start, bool)
+        or not isinstance(retain_end, int)
+        or isinstance(retain_end, bool)
+        or retain_start > retain_end
+    ):
+        raise EpisodeResetError(
+            f"第 {retain_num} 集原文范围记录非法，无法确定部分重置后的规划起点，请改用 from_episode=1 做全量重置"
+        )
+
+    current_sources = discover_sources(project_dir)
+    mismatched = mismatched_source_fingerprints(project.get(SOURCE_FINGERPRINTS_KEY), current_sources)
+    if mismatched:
+        raise EpisodeResetError(
+            f"源文件已被修改或移除：{'、'.join(mismatched)}；账本坐标绑定的是修改前的原文内容，"
+            "无法安全部分重置，请改用 from_episode=1 做全量重置"
+        )
+
+    text_by_rel = {doc.rel_path: doc.text for doc in current_sources}
+    for num in range(1, from_episode):
+        source_range = entries_by_num[num].get("source_range")
+        if not isinstance(source_range, Mapping):
+            continue  # unanchored 保留集没有坐标可越界，物理文件本身即其最终记录
+        rel = source_range.get("source_file")
+        start = source_range.get("start")
+        end = source_range.get("end")
+        if (
+            not isinstance(rel, str)
+            or not isinstance(start, int)
+            or isinstance(start, bool)
+            or not isinstance(end, int)
+            or isinstance(end, bool)
+        ):
+            raise EpisodeResetError(f"第 {num} 集原文范围记录非法，无法安全部分重置，请改用 from_episode=1 做全量重置")
+        text = text_by_rel.get(rel)
+        if text is None or not (0 <= start <= end <= len(text)):
+            length = len(text) if text is not None else 0
+            raise EpisodeResetError(
+                f"第 {num} 集原文范围越界（源文件 {rel} 当前长度 {length}，记录范围 [{start}, {end})），"
+                "无法安全部分重置，请改用 from_episode=1 做全量重置"
+            )
+
+    return retain_rel, retain_end
+
+
 def reset_episode_planning(
     project_path: str | Path,
     *,
     from_episode: int = 1,
     confirm_consumed: bool = False,
 ) -> EpisodeResetResult | ResetConfirmationRequired:
-    """重置分集规划账本。当前仅支持 ``from_episode=1`` 的全量重置。
+    """重置分集规划账本。
 
-    波及已消费集（账本标 consumed 或磁盘已有剧本 / step1 产物）且未
+    ``from_episode=1``：全量重置，零前置校验，账本处于任何损坏状态都必须执行成功
+    （见模块文档）。``from_episode > 1``：部分重置，保留第 1..from_episode-1 集，
+    见 :func:`_validate_partial_reset` 的前置校验；校验不通过时指名具体原因并指引
+    改用全量重置，账本不被改动。
+
+    两种模式都对波及已消费集（账本标 consumed 或磁盘已有剧本 / step1 产物）且未
     ``confirm_consumed`` 时不执行，返回 :class:`ResetConfirmationRequired` 等待
     显式确认；确认后执行，下游产物一律保留。
 
     Raises:
-        EpisodeResetError: ``from_episode > 1``（部分重置尚未支持）或文件处置失败，
-            两种情形下账本均未被改动。
+        EpisodeResetError: ``from_episode`` 非正整数、部分重置前置校验未通过、或
+            文件处置失败，均保证账本未被改动。
         EpisodeResetConflictError: 重置期间出现确认清单之外的已消费集。
     """
-    if from_episode != 1:
-        raise EpisodeResetError(
-            f"暂不支持部分重置（from_episode={from_episode}）：当前只能用 from_episode=1 做全量重置"
-            "（清空整个账本后重新规划）。账本未做任何改动。"
-        )
+    if from_episode < 1:
+        raise EpisodeResetError(f"from_episode 必须是正整数，收到 {from_episode}")
 
     project_dir = Path(project_path)
     pm = ProjectManager(str(project_dir.parent))
     project_name = project_dir.name
 
-    # 锁外预扫描只为二段确认服务：需要确认时零写入返回，不进锁、不碰文件
-    plan = _scan(project_dir, pm.load_project(project_name))
+    # 锁外预扫描/前置校验只为二段确认与快速失败服务：校验不通过或需要确认时零写入返回，
+    # 不进锁、不碰文件
+    project = pm.load_project(project_name)
+    if from_episode > 1:
+        _validate_partial_reset(project_dir, project, from_episode=from_episode)
+    plan = _scan(project_dir, project, from_episode=from_episode)
     if plan.consumed and not confirm_consumed:
         return ResetConfirmationRequired(
             consumed_episodes=plan.consumed,
@@ -268,13 +398,25 @@ def reset_episode_planning(
 
     def _commit(p: dict[str, Any]) -> None:
         nonlocal committed
-        # 锁内重新扫描：确认清单是锁外读取时刻的快照，期间新消费的集不在用户确认范围内
-        current = _scan(project_dir, p)
+        # 锁内重新校验/重新扫描：确认清单与前置校验都是锁外读取时刻的快照，期间源文件
+        # 可能被外部改动、也可能出现清单之外的新消费集
+        cursor = _validate_partial_reset(project_dir, p, from_episode=from_episode) if from_episode > 1 else None
+        current = _scan(project_dir, p, from_episode=from_episode)
         if any(num not in plan.consumed for num in current.consumed):
             raise EpisodeResetConflictError("重置期间出现新的已消费集，需重新确认后再执行")
-        p["episodes"] = []
-        p["planning_cursor"] = None
-        p.pop(SOURCE_FINGERPRINTS_KEY, None)
+        if cursor is not None:
+            retained = [
+                entry
+                for entry in (p.get("episodes") or [])
+                if isinstance(entry, Mapping) and (parse_episode_num(entry.get("episode")) or 0) < from_episode
+            ]
+            retained.sort(key=lambda entry: parse_episode_num(entry.get("episode")) or 0)
+            p["episodes"] = retained
+            p["planning_cursor"] = {"source_file": cursor[0], "offset": cursor[1]}
+        else:
+            p["episodes"] = []
+            p["planning_cursor"] = None
+            p.pop(SOURCE_FINGERPRINTS_KEY, None)
         deleted, archived = _apply_files(project_dir, current)
         committed = EpisodeResetResult(
             removed_episodes=current.episode_nums,
@@ -287,7 +429,8 @@ def reset_episode_planning(
     if committed is None:  # pragma: no cover - update_project 必然调用 mutate_fn
         raise EpisodeResetError("重置未执行：账本更新回调未被调用")
     logger.info(
-        "分集规划已全量重置：项目 %s，清空 %d 集，删除派生文件 %d 个，留底 %d 个",
+        "分集规划已%s重置：项目 %s，清空 %d 集，删除派生文件 %d 个，留底 %d 个",
+        "全量" if from_episode == 1 else f"部分（从第 {from_episode} 集起）",
         project_name,
         len(committed.removed_episodes),
         len(committed.deleted_files),
