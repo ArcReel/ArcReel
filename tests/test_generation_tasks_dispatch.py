@@ -35,6 +35,7 @@ async def test_execute_generation_task_rejects_unknown_type():
         )
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "error",
