@@ -7,6 +7,15 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from lib.db.repositories.task_repo import TaskRepository
+from lib.i18n import _ as translate_message
+from lib.task_failure import encode_failure, render_failure
+
+
+def _translator(locale: str):
+    def translate(key: str, **kwargs):
+        return translate_message(key, locale=locale, **kwargs)
+
+    return translate
 
 
 @pytest.fixture
@@ -141,7 +150,84 @@ class TestTaskRepository:
 
         dep_task = await repo.get(second["task_id"])
         assert dep_task["status"] == "failed"
-        assert "blocked by failed dependency" in dep_task["error_message"]
+        assert dep_task["error_message"] == encode_failure(
+            "cascade_blocked_dependency", dependency_task_id=first["task_id"], reason="boom"
+        )
+
+    @pytest.mark.integration
+    async def test_cascade_with_long_structured_root_reason_stays_renderable(self, db_session):
+        """根任务的失败原因本身是带长 detail 的结构化编码时，级联包裹后仍须是合法可解析的 JSON。"""
+        repo = TaskRepository(db_session)
+
+        first = await repo.enqueue(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
+        )
+        second = await repo.enqueue(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S02",
+            payload={},
+            script_file="ep1.json",
+            dependency_task_id=first["task_id"],
+        )
+
+        await repo.claim_next("image")
+        long_reason = encode_failure("resume_expired_detail", detail="x" * 1900)
+        await repo.mark_failed(first["task_id"], long_reason)
+
+        dep_task = await repo.get(second["task_id"])
+        assert dep_task["status"] == "failed"
+        error_message = dep_task["error_message"]
+        assert error_message is not None
+        assert len(error_message) <= 2000
+
+        for locale in ("zh", "en", "vi"):
+            rendered = render_failure(error_message, _translator(locale))
+            assert rendered is not None
+            assert "[" not in rendered
+            assert "resume_expired_detail" not in rendered
+
+    @pytest.mark.integration
+    async def test_deep_dependency_cascade_stays_renderable(self, db_session):
+        """10 层依赖链级联失败：编码不应因深度嵌套被截断成非法 JSON。"""
+        repo = TaskRepository(db_session)
+
+        chain_length = 10
+        tasks = []
+        dependency_task_id = None
+        for i in range(chain_length):
+            task = await repo.enqueue(
+                project_name="demo",
+                task_type="storyboard",
+                media_type="image",
+                resource_id=f"E1S{i:02d}",
+                payload={},
+                script_file="ep1.json",
+                dependency_task_id=dependency_task_id,
+            )
+            tasks.append(task)
+            dependency_task_id = task["task_id"]
+
+        await repo.claim_next("image")
+        await repo.mark_failed(tasks[0]["task_id"], "boom" * 50)
+
+        deepest = await repo.get(tasks[-1]["task_id"])
+        assert deepest["status"] == "failed"
+        error_message = deepest["error_message"]
+        assert error_message is not None
+        assert len(error_message) <= 2000
+
+        for locale in ("zh", "en", "vi"):
+            rendered = render_failure(error_message, _translator(locale))
+            assert rendered is not None
+            assert "[" not in rendered
+            assert "cascade_blocked_dependency" not in rendered
 
     async def test_requeue_running_tasks(self, db_session):
         repo = TaskRepository(db_session)

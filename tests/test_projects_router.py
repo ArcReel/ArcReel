@@ -1500,7 +1500,10 @@ class TestGetVideoCapabilities:
         with client:
             resp = client.get("/api/v1/projects/ready/video-capabilities")
             assert resp.status_code == 422
-            assert "model not found" in resp.json()["detail"]
+            detail = resp.json()["detail"]
+            # 异常原文只进日志，不进用户可见响应（en/vi 界面不能混入未译英文原文）
+            assert "model not found" not in detail
+            assert detail == zh_errors.MESSAGES["video_capabilities_unresolved"].format(name="ready")
 
 
 class TestModelSettingsApi:

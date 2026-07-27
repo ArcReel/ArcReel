@@ -35,6 +35,9 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "script_edit_items_not_list": "script_edit_items_not_list",
     "script_edit_unit_lists_invalid": "script_edit_unit_lists_invalid",
     "script_edit_generated_assets_invalid": "script_edit_generated_assets_invalid",
+    # 级联失败（TaskRepository._cascade_failed_queued）：reason 嵌套存储被级联依赖任务自身
+    # 的失败原因（可能又是一个结构化编码串），渲染时递归展开，见 render_failure。
+    "cascade_blocked_dependency": "task_fail_cascade_blocked_dependency",
 }
 
 # A structured reason is ``[code]`` optionally followed by a single space and a
@@ -57,6 +60,48 @@ def encode_failure(code: str, /, **params: Any) -> str:
     if params:
         return f"[{code}] {json.dumps(params, ensure_ascii=False, sort_keys=True)}"
     return f"[{code}]"
+
+
+def bound_reason(reason: str, limit: int) -> str:
+    """把 ``reason`` 裁剪到 ``limit`` 字符内，供级联失败编码前调用。
+
+    直接按字符截断合法的 ``[code] {params}`` 结构化串会切断 JSON 尾部，使
+    :func:`render_failure` 无法解析、原文未翻译地泄露给界面（如 ``resume_expired_detail``
+    的 ``detail`` 参数源自远端错误响应，可能长达上千字符）。这里优先裁剪结构化串里最长的
+    字符串参数，保持重新编码后仍是合法的 ``[code] {params}``；非结构化文本或裁剪后仍超限
+    时退回按原始字符裁剪。
+    """
+    if len(reason) <= limit:
+        return reason
+    match = _STRUCTURED_RE.match(reason)
+    if match is None:
+        return reason[:limit]
+    code = match.group(1)
+    if code not in FAILURE_CODE_KEYS:
+        return reason[:limit]
+    raw_params = match.group(2)
+    if not raw_params:
+        return reason[:limit]
+    try:
+        parsed = json.loads(raw_params)
+    except ValueError:
+        return reason[:limit]
+    if not isinstance(parsed, dict):
+        return reason[:limit]
+    params: dict[str, Any] = parsed
+    string_keys = [k for k, v in params.items() if isinstance(v, str)]
+    if not string_keys:
+        return reason[:limit]
+
+    encoded = encode_failure(code, **params)
+    while len(encoded) > limit:
+        longest_key = max(string_keys, key=lambda k: len(params[k]))
+        deficit = len(encoded) - limit
+        if len(params[longest_key]) <= deficit:
+            return reason[:limit]
+        params[longest_key] = params[longest_key][: len(params[longest_key]) - deficit]
+        encoded = encode_failure(code, **params)
+    return encoded
 
 
 def render_failure(error_message: str | None, translate: Callable[..., str]) -> str | None:
@@ -85,4 +130,8 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
         if not isinstance(parsed, dict):
             return error_message
         params = parsed
+    if code == "cascade_blocked_dependency":
+        nested_reason = params.get("reason")
+        if isinstance(nested_reason, str):
+            params = {**params, "reason": render_failure(nested_reason, translate)}
     return translate(key, **params)

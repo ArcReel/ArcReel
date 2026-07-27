@@ -3,7 +3,7 @@
 import pytest
 
 from lib.i18n import _ as translate_message
-from lib.task_failure import FAILURE_CODE_KEYS, encode_failure, render_failure
+from lib.task_failure import FAILURE_CODE_KEYS, bound_reason, encode_failure, render_failure
 
 
 def _translator(locale: str):
@@ -58,6 +58,69 @@ class TestRenderKnownCodes:
         en = render_failure(encoded, _translator("en"))
         assert "HTTP 404 job gone" in zh
         assert "HTTP 404 job gone" in en
+
+
+@pytest.mark.unit
+class TestCascadeBlockedDependency:
+    def test_renders_nested_structured_reason(self):
+        inner = encode_failure("restart_lost_image")
+        outer = encode_failure("cascade_blocked_dependency", dependency_task_id="task-1", reason=inner)
+        rendered = render_failure(outer, _translator("zh"))
+        assert "task-1" in rendered
+        assert "[" not in rendered
+        assert render_failure(inner, _translator("zh")) in rendered
+
+    def test_renders_nested_raw_text_reason(self):
+        outer = encode_failure("cascade_blocked_dependency", dependency_task_id="task-1", reason="boom")
+        rendered = render_failure(outer, _translator("en"))
+        assert "task-1" in rendered
+        assert "boom" in rendered
+
+    def test_renders_per_locale(self):
+        inner = encode_failure("restart_lost_image")
+        outer = encode_failure("cascade_blocked_dependency", dependency_task_id="task-1", reason=inner)
+        rendered = {locale: render_failure(outer, _translator(locale)) for locale in ("zh", "en", "vi")}
+        for locale, text in rendered.items():
+            # 嵌套 reason 必须跟随外层同一 locale 渲染，而不是回落到别的语言。
+            assert render_failure(inner, _translator(locale)) in text
+            assert "task-1" in text
+            assert "[" not in text
+        assert len(set(rendered.values())) == 3
+
+    def test_renders_double_nested_cascade(self):
+        level1 = encode_failure("cascade_blocked_dependency", dependency_task_id="task-1", reason="boom")
+        level2 = encode_failure("cascade_blocked_dependency", dependency_task_id="task-2", reason=level1)
+        rendered = render_failure(level2, _translator("en"))
+        assert "task-1" in rendered
+        assert "task-2" in rendered
+        assert "boom" in rendered
+        assert "[" not in rendered
+
+
+@pytest.mark.unit
+class TestBoundReason:
+    def test_returns_unchanged_when_within_limit(self):
+        assert bound_reason("boom", 100) == "boom"
+
+    def test_truncates_raw_text_when_over_limit(self):
+        assert bound_reason("x" * 200, 100) == "x" * 100
+
+    def test_shrinks_longest_string_param_of_structured_reason(self):
+        reason = encode_failure("resume_expired_detail", detail="x" * 1900)
+        bounded = bound_reason(reason, 500)
+        assert len(bounded) <= 500
+        rendered = render_failure(bounded, _translator("en"))
+        assert rendered is not None
+        assert "[" not in rendered
+
+    def test_shrunk_structured_reason_still_round_trips_through_render(self):
+        reason = encode_failure("resume_expired_detail", detail="y" * 3000)
+        bounded = bound_reason(reason, 200)
+        assert len(bounded) <= 200
+        rendered = render_failure(bounded, _translator("zh"))
+        assert rendered is not None
+        assert "[" not in rendered
+        assert "resume_expired_detail" not in rendered
 
 
 class TestPassthrough:
