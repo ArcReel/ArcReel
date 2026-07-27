@@ -165,7 +165,7 @@ export function UnitPreviewPanel({
           </div>
         )}
 
-        {failed && (
+        {failed && !inFlight && (
           <div className="absolute inset-0 grid place-items-center p-5">
             <div className="max-w-[280px] text-center">
               <div className="mx-auto mb-2.5 grid h-9 w-9 place-items-center rounded-full border border-red-400/60 bg-red-500/15 text-red-300">

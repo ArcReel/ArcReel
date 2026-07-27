@@ -290,11 +290,15 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled();
     });
+    // 旧任务行仍是 failed，statusMap 未变；预览区不能同时叠出「生成中」占位与
+    // 旧失败覆盖层——inFlight 应压过 failed 的展示（回归 Codex P2）。
+    expect(screen.queryByText(/Generation failed|生成失败/)).not.toBeInTheDocument();
     resolveGen({ task_id: "t2", deduped: false });
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled();
     });
+    expect(screen.queryByText(/Generation failed|生成失败/)).not.toBeInTheDocument();
   });
 
   // 重新生成路径：旧成功行始终在，statusMap 的乐观分支不生效，同样需要按占用集
