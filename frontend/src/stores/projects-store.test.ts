@@ -300,6 +300,25 @@ describe("projects-store refreshProject", () => {
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
   });
 
+  it("项目已切到 B 后才发起的 A 刷新：不写回 store（现役域未 abort，靠当前项目名拦截）", async () => {
+    // 与上一条不同：这里切换先于 refreshProject("A") 调用完成——例如写操作完成后的
+    // 回调捕获了切换前的旧项目名，等它真正发起请求时项目已经是 B。此时拿到的是 B
+    // 现役、未 abort 的域，signal.aborted 与排队去重都拦不住，必须靠当前项目名核对。
+    useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
+    useProjectsStore.getState().setCurrentProject("B", makeProject("B-数据"), {}, {});
+
+    const dA = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise);
+
+    const pA = useProjectsStore.getState().refreshProject("A");
+    dA.resolve(makeResult("A-迟到数据"));
+    const ok = await pA;
+
+    expect(ok).toBe(false);
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
+  });
+
   it("项目切换 abort 在途请求：请求被取消，且不按刷新失败提示", async () => {
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
     let abortedSignal: AbortSignal | undefined;

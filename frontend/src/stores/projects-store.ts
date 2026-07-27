@@ -115,7 +115,16 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
         // 离开工作台清空）。这些路径都不经过 refreshProject，排队去重看不到它们，只能靠
         // 取消域识别。abort 与响应落定同为异步，响应先到、abort 后到时网络层不会 reject，
         // 因此写入前还要复核一次 aborted。
-        if (!supersededByOtherProject && !signal.aborted) {
+        // 上述两项都只能拦住「请求发起时项目已切走」的情形：若调用方（如写操作完成后
+        // 的刷新）捕获的是切走前的旧项目名，且这次调用是在切换已经完成之后才发起的，
+        // 拿到的会是新项目现役、未 abort 的域——因此还要在写入前核对 curName 是否仍是
+        // 当前项目，防止旧项目的数据覆盖已经切入的新项目。
+        // currentProjectName 为 null 时放行：refreshProject 也承担着把首个项目数据
+        // 建立进 store 的职责（届时还没有「当前项目」可比较），只有已经易主给另一个
+        // 具体项目名时才需要拦截。
+        const currentProjectName = get().currentProjectName;
+        const isCurrentProject = currentProjectName === null || currentProjectName === curName;
+        if (!supersededByOtherProject && !signal.aborted && isCurrentProject) {
           get().setCurrentProject(curName, res.project, res.scripts ?? {}, res.asset_fingerprints);
           if (curKeys.length > 0) {
             useAppStore.getState().invalidateEntities(curKeys);
