@@ -778,6 +778,43 @@ def test_partial_reset_rejects_when_retained_range_out_of_bounds(tmp_path: Path)
     assert _load_project(project_dir) == before
 
 
+def test_partial_reset_rejects_non_contiguous_retained_ranges(tmp_path: Path) -> None:
+    """保留段相邻两集各自坐标均未越界，但首尾不相接（此处为倒序）时拒绝：放行会让退回
+    后的游标与真实已消费范围脱节，下次 plan 与已保留内容重叠。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 20, "end": 30}),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(3, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="不连续"):
+        reset_episode_planning(project_dir, from_episode=3)
+
+    assert _load_project(project_dir) == before
+
+
+def test_partial_reset_rejects_non_positive_episode_numbers_in_ledger(tmp_path: Path) -> None:
+    """账本存在非正数集号（如损坏写出的 0）时拒绝：不能证明它属于保留段还是应被清除。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(0, source_range={"source_file": "source/novel.txt", "start": 0, "end": 0}),
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+        ],
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="非法集号"):
+        reset_episode_planning(project_dir, from_episode=2)
+
+    assert _load_project(project_dir) == before
+
+
 def test_partial_reset_rejects_duplicate_episode_numbers(tmp_path: Path) -> None:
     project_dir = _write_project(
         tmp_path,
