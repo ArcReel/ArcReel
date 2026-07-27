@@ -3,7 +3,7 @@
 import pytest
 
 from lib.i18n import _ as translate_message
-from lib.task_failure import FAILURE_CODE_KEYS, encode_failure, render_failure
+from lib.task_failure import FAILURE_CODE_KEYS, bound_reason, encode_failure, render_failure
 
 
 def _translator(locale: str):
@@ -95,6 +95,32 @@ class TestCascadeBlockedDependency:
         assert "task-2" in rendered
         assert "boom" in rendered
         assert "[" not in rendered
+
+
+@pytest.mark.unit
+class TestBoundReason:
+    def test_returns_unchanged_when_within_limit(self):
+        assert bound_reason("boom", 100) == "boom"
+
+    def test_truncates_raw_text_when_over_limit(self):
+        assert bound_reason("x" * 200, 100) == "x" * 100
+
+    def test_shrinks_longest_string_param_of_structured_reason(self):
+        reason = encode_failure("resume_expired_detail", detail="x" * 1900)
+        bounded = bound_reason(reason, 500)
+        assert len(bounded) <= 500
+        rendered = render_failure(bounded, _translator("en"))
+        assert rendered is not None
+        assert "[" not in rendered
+
+    def test_shrunk_structured_reason_still_round_trips_through_render(self):
+        reason = encode_failure("resume_expired_detail", detail="y" * 3000)
+        bounded = bound_reason(reason, 200)
+        assert len(bounded) <= 200
+        rendered = render_failure(bounded, _translator("zh"))
+        assert rendered is not None
+        assert "[" not in rendered
+        assert "resume_expired_detail" not in rendered
 
 
 class TestPassthrough:

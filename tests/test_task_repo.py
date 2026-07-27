@@ -155,6 +155,45 @@ class TestTaskRepository:
         )
 
     @pytest.mark.integration
+    async def test_cascade_with_long_structured_root_reason_stays_renderable(self, db_session):
+        """根任务的失败原因本身是带长 detail 的结构化编码时，级联包裹后仍须是合法可解析的 JSON。"""
+        repo = TaskRepository(db_session)
+
+        first = await repo.enqueue(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S01",
+            payload={},
+            script_file="ep1.json",
+        )
+        second = await repo.enqueue(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="E1S02",
+            payload={},
+            script_file="ep1.json",
+            dependency_task_id=first["task_id"],
+        )
+
+        await repo.claim_next("image")
+        long_reason = encode_failure("resume_expired_detail", detail="x" * 1900)
+        await repo.mark_failed(first["task_id"], long_reason)
+
+        dep_task = await repo.get(second["task_id"])
+        assert dep_task["status"] == "failed"
+        error_message = dep_task["error_message"]
+        assert error_message is not None
+        assert len(error_message) <= 2000
+
+        for locale in ("zh", "en", "vi"):
+            rendered = render_failure(error_message, _translator(locale))
+            assert rendered is not None
+            assert "[" not in rendered
+            assert "resume_expired_detail" not in rendered
+
+    @pytest.mark.integration
     async def test_deep_dependency_cascade_stays_renderable(self, db_session):
         """10 层依赖链级联失败：编码不应因深度嵌套被截断成非法 JSON。"""
         repo = TaskRepository(db_session)

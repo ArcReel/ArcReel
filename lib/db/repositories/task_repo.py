@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.task import Task, TaskEvent, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
-from lib.task_failure import encode_failure
+from lib.task_failure import bound_reason, encode_failure
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +35,16 @@ def _encode_bounded_cascade_failure(*, dependency_task_id: str, reason: str) -> 
 
     overhead = len(encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=""))
     budget = max(_CASCADE_MESSAGE_LIMIT - overhead, 0)
-    reason = reason[:budget]
-    encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
-    while len(encoded) > _CASCADE_MESSAGE_LIMIT and reason:
-        reason = reason[: len(reason) - (len(encoded) - _CASCADE_MESSAGE_LIMIT)]
+    # JSON 转义（reason 中的引号/反斜杠）会让 budget 字符的 reason 编码后略超预算；始终经
+    # bound_reason 收窄以保持结构化 reason 合法，不对已裁剪结果做原始字符再截断（那会切断
+    # JSON 尾部）。极少数迭代仍超限时接受结果略超 _CASCADE_MESSAGE_LIMIT，好过写坏 JSON。
+    for _ in range(5):
+        reason = bound_reason(reason, budget)
         encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
+        overflow = len(encoded) - _CASCADE_MESSAGE_LIMIT
+        if overflow <= 0 or budget <= 0:
+            break
+        budget = max(budget - overflow, 0)
     return encoded
 
 
