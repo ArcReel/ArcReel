@@ -18,6 +18,7 @@ from lib.episode_ledger import discover_sources as _real_discover_sources
 from lib.episode_planner import (
     EpisodePlanner,
     EpisodePlanningError,
+    PlanningConflictError,
     _find_all_overlapping,
 )
 from lib.episode_reset import EpisodeResetResult, reset_episode_planning
@@ -589,6 +590,32 @@ class TestPlan:
 
         assert (project_dir / "project.json").read_text(encoding="utf-8") == before
         assert not list((project_dir / "source").glob("episode_*.txt"))
+
+    async def test_plan_raises_planning_conflict_when_ledger_advances_during_call(self, tmp_path: Path):
+        """请求在途时账本被另一次调用抢先提交、有效起点前移：锁内复核发现不一致，整批作废，账本与磁盘均无写入。"""
+        project_dir = _write_project(tmp_path)
+
+        class _ConcurrentCommitGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                # 模拟另一次 plan() 调用在本次锁外快照之后、锁内复核之前抢先提交了第 1 集
+                project = _load_project(project_dir)
+                project["episodes"] = [_entry(1, 0, _end_of(ANCHOR_EP1))]
+                project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP1)}
+                (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+                return await super().generate(request, project_name)
+
+        fake = _ConcurrentCommitGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "玉中剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+
+        with pytest.raises(PlanningConflictError, match="并发"):
+            await EpisodePlanner(project_dir, generator=fake).plan()
+
+        project = _load_project(project_dir)
+        assert [e["episode"] for e in project["episodes"]] == [1]
+        assert project["episodes"][0]["title"] == "第1集"  # 并发提交的版本保留，本次调用的结果未覆盖
+        assert project["planning_cursor"] == {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP1)}
+        assert not (project_dir / "source" / "episode_1.txt").exists()  # 本次调用未走到派生文件写入
 
     async def test_plan_truncation_short_circuits_retry_and_hints_leverage(self, tmp_path: Path):
         """结构化输出被截断时不重试，直接冒泡 EpisodePlanningError 并附带调小窗口/集数的提示（见 docs/adr/0044）。"""
