@@ -880,6 +880,7 @@ async def test_generate_video_scene_missing(fake_ctx: ToolContext) -> None:
     assert out.get("is_error") is True
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "storyboard_value",
     [
@@ -1022,6 +1023,7 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
     assert "duration_seconds" not in specs2[0].payload
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "storyboard_value",
     [
