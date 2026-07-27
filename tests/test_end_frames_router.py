@@ -175,13 +175,17 @@ class TestSelectChannel:
         assert _select(c, "storyboards/scene_E1S99.png").status_code == 404
 
     def test_oversized_source_image_rejected(self, client, monkeypatch):
-        """项目内选图源超过上传通道同一上限时须拒绝（见 read_project_image）。"""
+        """项目内选图源超过上传通道同一上限时须拒绝（见 read_project_image）。
+
+        专属文案 + 400：选图请求体只是路径字符串，413（请求体过大）语义不适用，
+        与上传通道自身的 413 + upload_too_large 分流（见 test_shot_uploads_router）。
+        """
         c, pm = client
         monkeypatch.setattr(end_frame_service, "UPLOAD_IMAGE_MAX_BYTES", 16)
         _write_source_image(pm, "storyboards/scene_E1S02.png", _img_bytes("PNG", size=(64, 64)))
 
         resp = _select(c, "storyboards/scene_E1S02.png")
-        assert resp.status_code == 413
+        assert resp.status_code == 400
         assert _segment(pm).get("end_frame_image") is None
 
     def test_source_image_read_is_bounded(self, client, monkeypatch):
@@ -210,7 +214,7 @@ class TestSelectChannel:
 
         monkeypatch.setattr(Path, "open", lambda self, *a, **kw: _SpyHandle(real_open(self, *a, **kw)))
 
-        with pytest.raises(upload_finalize.UploadTooLargeError):
+        with pytest.raises(end_frame_service.EndFrameError):
             end_frame_service.read_project_image(project_path, "storyboards/scene_E1S02.png")
 
         assert read_sizes == [17]

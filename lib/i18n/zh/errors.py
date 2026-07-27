@@ -178,6 +178,7 @@ MESSAGES = {
     "invalid_resource_id": "非法的资源 ID: {resource_id}",
     "invalid_end_frame_source": "尾帧来源路径非法或越出项目目录: {path}",
     "end_frame_source_not_found": "尾帧来源图片不存在: {path}",
+    "end_frame_source_too_large": "尾帧图超过大小上限（{max_mb} MB）: {path}",
     "end_frame_reference_video_unsupported": "参考生视频模式下镜头无首尾帧概念，不支持设置尾帧",
     # Reference Video
     "ref_missing_asset": "参考图引用的{type}「{name}」不在项目资产库中，请先生成",

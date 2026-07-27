@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +15,34 @@ def load_json(path: Path) -> Any:
     """严格加载 JSON。异常直接抛出，调用方按业务需要做 try/except。"""
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
+
+
+@contextmanager
+def domain_error_on_value_error(
+    factory: Callable[[ValueError], BaseException],
+    *,
+    on_json_decode_error: Callable[[json.JSONDecodeError], None] | None = None,
+    extra_passthrough: tuple[type[BaseException], ...] = (),
+) -> Iterator[None]:
+    """把业务解析调用抛出的 ``ValueError`` 转换为调用方指定的领域错误。
+
+    ``json.JSONDecodeError`` 是 ``ValueError`` 子类，须先于通用 ``ValueError`` 分支放行——
+    它代表 JSON 文件本身损坏（语法错误），与业务级非法值（如路径穿越、非法项目名）语义不同，
+    不能被误判为后者、进而返回一个误导性的 4xx。`on_json_decode_error` 用于放行前追加调用方
+    特有的副作用（如记录更具体的日志、直接改抛专属的 HTTP 响应）；不传则原样重新抛出。
+    `extra_passthrough` 追加调用方需要按同一理由豁免的其它 ``ValueError`` 子类（如读取非
+    UTF-8 剧本文件时的 ``UnicodeDecodeError``）。
+    """
+    try:
+        yield
+    except json.JSONDecodeError as exc:
+        if on_json_decode_error is not None:
+            on_json_decode_error(exc)
+        raise
+    except extra_passthrough:
+        raise
+    except ValueError as exc:
+        raise factory(exc) from exc
 
 
 def load_json_or_none(path: Path) -> Any | None:
