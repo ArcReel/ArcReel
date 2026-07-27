@@ -457,7 +457,10 @@ function AdUnitCard({
                   <li key={shotId}>
                     <ShotLightEditor
                       shot={shot}
-                      disabled={busy}
+                      // saving 一并计入：写入未落库期间禁用同组全部编辑控件，避免用户在
+                      // PATCH 结果落地前重新聚焦输入新草稿，被早先请求异步 resolve 时的
+                      // 清空逻辑覆盖丢失。
+                      disabled={busy || saving}
                       onCommitDuration={onEditDuration}
                       onCommitVoiceover={onEditVoiceover}
                     />

@@ -225,8 +225,9 @@ export function StudioCanvasRouter() {
       } else {
         await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, ...patch });
       }
-      await refreshProject();
-      return true;
+      // 仅在本地 store 已同步成功时报告成功：PATCH 已落库但刷新失败/取消时 store
+      // 仍是旧剧本，此时报告成功会让调用方清空草稿却回显旧值——与 handleMoveShot 同一契约。
+      return await refreshProject();
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("update_prompt_failed", { message: errMsg(err) }), "error");
       return false;

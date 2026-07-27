@@ -97,7 +97,7 @@ vi.mock("./reference/AdReferenceVideoCanvas", () => ({
     hasScript: boolean;
     canEditTitle?: boolean;
     onSaveTitle?: (title: string) => Promise<void>;
-    onUpdatePrompt?: (...args: unknown[]) => void | Promise<void>;
+    onUpdatePrompt?: (...args: unknown[]) => Promise<boolean> | void;
   }) => (
     <div
       data-testid="ad-reference-canvas"
@@ -108,6 +108,18 @@ vi.mock("./reference/AdReferenceVideoCanvas", () => ({
       {shots.map((s) => s.shot_id).join(",")}
       <button onClick={() => void onSaveTitle?.("新标题")?.catch(() => {})}>
         ad-reference-save-title
+      </button>
+      <button
+        onClick={(e) => {
+          const el = e.currentTarget;
+          void Promise.resolve(
+            onUpdatePrompt?.("SEG-1", { duration_seconds: 7 }, undefined, "episode_1.json"),
+          ).then((result) => {
+            el.setAttribute("data-update-result", String(result));
+          });
+        }}
+      >
+        ad-reference-update-prompt
       </button>
     </div>
   ),
@@ -1037,6 +1049,33 @@ describe("StudioCanvasRouter", () => {
     });
     expect(updateSceneSpy).not.toHaveBeenCalled();
     expect(updateSegmentSpy).not.toHaveBeenCalled();
+  });
+
+  // PATCH 成功但本地刷新失败/取消时不能报告成功：调用方（AdReferenceVideoCanvas 的
+  // 镜头编辑）会据此清空本地草稿，届时 store 里仍是旧剧本，回显会与用户刚提交的值不符。
+  // 与 handleMoveShot 的既有契约（"moves an ad shot..." 用例）保持一致。
+  it("reports the shot PATCH as failed when the local refresh doesn't land", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({
+        content_mode: "ad",
+        generation_mode: "reference_video",
+      }),
+      currentScripts: { "episode_1.json": makeAdScript() },
+    });
+
+    vi.spyOn(API, "updateShot").mockResolvedValue({ success: true });
+    vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
+
+    renderAt("/episodes/1");
+
+    fireEvent.click(screen.getByText("ad-reference-update-prompt"));
+    await waitFor(() => {
+      expect(screen.getByText("ad-reference-update-prompt")).toHaveAttribute(
+        "data-update-result",
+        "false",
+      );
+    });
   });
 
   it("moves an ad shot by submitting the full reordered id list", async () => {

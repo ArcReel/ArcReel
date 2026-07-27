@@ -714,4 +714,35 @@ describe("AdReferenceVideoCanvas", () => {
       expect(generateButton).not.toBeDisabled();
     });
   });
+
+  // 只禁用生成入口不够：写入未落库期间若编辑控件仍可用，用户能重新聚焦输入新草稿，
+  // 先前请求异步落地时的清空逻辑会把这份更新的草稿一并覆盖丢失。
+  it("镜头字段写入未落库期间禁用同分组的编辑控件本身", async () => {
+    let resolveUpdate: (committed: boolean) => void = () => {};
+    const onUpdatePrompt = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveUpdate = resolve;
+        }),
+    );
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+
+    renderCanvas({ onUpdatePrompt });
+    const durationSelect = await screen.findByRole("combobox", { name: /E1S1 时长/ });
+    const voiceoverInput = screen.getByRole("textbox", { name: /E1S1 口播文案/ });
+    expect(voiceoverInput).not.toBeDisabled();
+
+    await userEvent.selectOptions(durationSelect, "7");
+
+    await waitFor(() => {
+      expect(voiceoverInput).toBeDisabled();
+    });
+    expect(durationSelect).toBeDisabled();
+
+    resolveUpdate(true);
+
+    await waitFor(() => {
+      expect(voiceoverInput).not.toBeDisabled();
+    });
+  });
 });
