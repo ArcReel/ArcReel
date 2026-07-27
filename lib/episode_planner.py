@@ -450,15 +450,21 @@ class EpisodePlanner:
         """
         planning_instructions = (instructions or "").strip() or None
         project = backfill_episode_ledger(self.project_path, self.pm.load_project(self.project_name))
-        self._check_source_fingerprints(project)
+        pre_call_sources = discover_sources(self.project_path)
+        self._check_source_fingerprints(project, sources=pre_call_sources)
+        # 本次调用起始时刻的全量源文快照：锁内提交时据此复核「模型调用期间是否有任何
+        # 已读入的源文被改动」，覆盖面不止本批 source_rel——已记录指纹的存量校验只保护
+        # 「跨调用」的漂移，这里补的是单次调用内、指纹补记前也生效的窄窗口
+        pre_call_texts = {doc.rel_path: doc.text for doc in pre_call_sources}
         start_ref = self._effective_start(project)
         source_rel, start = start_ref
-        text = self._load_normalized_source(source_rel)
+        text = pre_call_texts.get(source_rel, self._load_normalized_source(source_rel))
         if start > len(text):
             raise EpisodePlanningError(f"规划起点越界：{source_rel} 长度 {len(text)}，起点 {start}；请检查账本")
         while not text[start:].strip():
             next_rel = self._next_source_rel(source_rel)
             if next_rel is None:
+                project = self._backfill_source_fingerprints_if_missing(project)
                 return PlanResult(
                     episodes=[],
                     cursor=project.get("planning_cursor"),
@@ -467,7 +473,7 @@ class EpisodePlanner:
                     ledger_stats=self._compute_ledger_stats(project),
                 )
             source_rel, start = next_rel, 0
-            text = self._load_normalized_source(source_rel)
+            text = pre_call_texts.get(source_rel, self._load_normalized_source(source_rel))
 
         window_chars = self._setting_int(project, "planning_window_chars", DEFAULT_PLANNING_WINDOW_CHARS)
         max_episodes = self._setting_int(project, "planning_max_episodes", DEFAULT_PLANNING_MAX_EPISODES)
@@ -528,10 +534,14 @@ class EpisodePlanner:
             # 复用同一错误提示——重试只会再次命中同一比对，须先重置
             current_sources = discover_sources(self.project_path)
             self._check_source_fingerprints(p, sources=current_sources)
-            # 指纹比对只覆盖「已记录」的文件，存量项目补记路径上恒为空；而本批的切分坐标与
-            # 派生文件都基于锁外读入的 text，故对当前源文直接比文本，堵住补记路径裸露的窗口
-            if next((doc.text for doc in current_sources if doc.rel_path == source_rel), None) != text:
-                raise _source_changed_error([source_rel])
+            # 指纹比对只覆盖「已记录」的文件，存量项目补记路径上恒为空；而切分坐标与派生
+            # 文件都基于锁外读入的 pre_call_texts，故对本次调用锁外读到的全部源文（不止本批
+            # source_rel）直接比文本，堵住补记路径裸露的窗口——本次调用之前已锚定其它集号
+            # 的源文若在模型调用期间被改动，同样会被这里拦下
+            current_texts = {doc.rel_path: doc.text for doc in current_sources}
+            changed = sorted(rel for rel, snapshot in pre_call_texts.items() if current_texts.get(rel) != snapshot)
+            if changed:
+                raise _source_changed_error(changed)
             episodes_list = [e for e in (p.get("episodes") or []) if e is not None]
             nums = [parse_episode_num(e.get("episode")) for e in episodes_list if isinstance(e, dict)]
             # 集号只在正整数域上推进：负数/0 集号属脏数据，不让它把新集编号拖成非正数
@@ -969,6 +979,21 @@ class EpisodePlanner:
         mismatched = mismatched_source_fingerprints(project.get(SOURCE_FINGERPRINTS_KEY), docs)
         if mismatched:
             raise _source_changed_error(mismatched)
+
+    def _backfill_source_fingerprints_if_missing(self, project: Mapping[str, Any]) -> dict:
+        """存量项目在 ``source_exhausted`` 早退路径上补记指纹：该路径不经过 ``plan()`` 的
+        提交闭包，若跳过会让「首次 plan 补记指纹」对已耗尽游标的存量项目失效——后续等长
+        编辑旧正文都因无基线可比而放行。已有指纹的项目直接原样返回，不重复计算。
+        """
+        if project.get(SOURCE_FINGERPRINTS_KEY) is not None:
+            return dict(project)
+
+        def _commit(p: dict) -> None:
+            current_sources = discover_sources(self.project_path)
+            self._check_source_fingerprints(p, sources=current_sources)
+            p[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(current_sources)
+
+        return self.pm.update_project(self.project_name, _commit)
 
     @staticmethod
     def _setting_int(project: Mapping[str, Any], key: str, default: int) -> int:

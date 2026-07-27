@@ -5,6 +5,8 @@ import json
 import unicodedata
 from pathlib import Path
 
+import pytest
+
 from lib.episode_ledger import (
     backfill_episode_ledger,
     compute_source_fingerprints,
@@ -347,6 +349,7 @@ class TestIdempotency:
         assert project == snapshot
 
 
+@pytest.mark.integration
 class TestSourceFingerprints:
     def test_compute_ignores_newline_style(self, tmp_path: Path):
         d = _project(tmp_path, novel="第一行\r\n第二行\r第三行")

@@ -1080,6 +1080,7 @@ def _planned_two_files(
     return project_dir
 
 
+@pytest.mark.integration
 class TestSourceFingerprintGate:
     """plan 提交路径记录源文指纹、入口比对拒绝已改动的源文。"""
 
@@ -1149,6 +1150,49 @@ class TestSourceFingerprintGate:
         project = _load_project(project_dir)
         assert not project.get("episodes")
         assert SOURCE_FINGERPRINTS_KEY not in project
+
+    async def test_plan_rejects_when_already_anchored_source_changes_during_model_call(self, tmp_path: Path):
+        """存量多源文件项目：本批规划 novel2.txt 时，已锚定第 1 集的 novel.txt 在模型调用期间被
+        改动同样拒绝——只复核本批 source_rel 会漏掉这类跨文件的界内漂移。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel2.txt", "offset": 0},
+        )
+        (project_dir / "source" / "novel2.txt").write_text(SOURCE2, encoding="utf-8")
+        novel_path = project_dir / "source" / "novel.txt"
+
+        class _MutatingGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                novel_path.write_text("已锚定的第1集原文被换掉。", encoding="utf-8")
+                return await super().generate(request, project_name)
+
+        fake = _MutatingGenerator([_plan_response([{"title": "t3", "hook": "h3", "end_anchor": ANCHOR2_MID}])])
+        planner = EpisodePlanner(project_dir, generator=fake)
+
+        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+            await planner.plan()
+
+        project = _load_project(project_dir)
+        assert len(project.get("episodes") or []) == 1  # 第 1 集不受影响，也没有新集落账
+        assert SOURCE_FINGERPRINTS_KEY not in project
+
+    async def test_plan_backfills_fingerprints_on_source_exhausted_early_return(self, tmp_path: Path):
+        """存量项目游标已在全部源文末尾：source_exhausted 早退路径不经过提交闭包，
+        仍须补记指纹，否则后续等长编辑旧正文因无基线可比而被放行。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+        )
+        planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
+
+        result = await planner.plan()
+
+        assert result.source_exhausted is True
+        project = _load_project(project_dir)
+        expected = hashlib.sha256(SOURCE.encode("utf-8")).hexdigest()
+        assert project[SOURCE_FINGERPRINTS_KEY] == {"source/novel.txt": expected}
 
 
 class TestReplan:
