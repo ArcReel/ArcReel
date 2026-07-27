@@ -475,7 +475,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             ),
             # --- video ---
             # 分辨率取自 Vertex 各型号文档页的 "Supported output resolutions"——GA 的 001 型号里
-            # 只有 standard 列出 4K，fast 与 lite 仍是 720p/1080p（与 AI Studio 的 preview 型号不同，
+            # 只有 standard 列出 4K，fast 仍是 720p/1080p（与 AI Studio 的 preview 型号不同，
             # 故两侧声明不对称）。参考图↔时长：standard 页明文「reference image to video only
             # supports 8 seconds」；fast 页未提，按 Gemini API 文档中同代 Fast 的同一约束声明。
             # 分辨率↔时长约束 Vertex 页整体未提，同样按 Gemini API 文档的同代声明，与 backend

@@ -10,6 +10,7 @@ from typing import Any
 
 from PIL import Image
 
+from lib.config.registry import model_info_for
 from lib.config.url_utils import normalize_base_url
 from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, resolve_gemini_api_key
 from lib.logging_utils import format_kwargs_for_log
@@ -172,8 +173,6 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         原始报文；在构建请求前 fail-loud 换成可读拒绝，也省掉一次必然失败的调用。首帧
         （image）与尾帧（last_frame）不在约束内，4/6 秒照常下发。
         """
-        from lib.config.registry import model_info_for
-
         info = model_info_for(self.name, self._video_model)
 
         if request.reference_images:
