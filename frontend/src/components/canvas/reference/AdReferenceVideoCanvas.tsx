@@ -36,7 +36,29 @@ export interface AdReferenceVideoCanvasProps {
   shots: AdShot[];
   /** 剧本（scripts/episode_N.json）是否已生成 */
   hasScript: boolean;
+  scriptFile?: string;
+  /**
+   * 镜头时长/口播文案的轻量编辑写入口；未提供（演示态/只读）时镜头明细
+   * 降级为纯文本展示，与其余画布的只读判定保持一致。scriptFile 由本组件
+   * 自行透传，与 TimelineCanvas / GridImageToVideoCanvas 同一约定。
+   * 返回是否写入成功——调用方内部会吞掉异常并转 toast，不 await 到抛出，
+   * 只能靠返回值判断能否清空本地草稿。
+   */
+  onUpdatePrompt?: (
+    segmentId: string,
+    fieldOrPatch: string | Record<string, unknown>,
+    value?: unknown,
+    scriptFile?: string,
+  ) => Promise<boolean>;
 }
+
+/**
+ * 单镜头时长（秒）的合法取值，镜像 lib/script_models.py 的
+ * `REFERENCE_SHOT_DURATION_RANGE`：ad + reference_video 路径下单镜头时长是
+ * 1-15 自由整数，不取供应商 supported_durations——供应商枚举约束的是发给 API 的
+ * 分组总时长（各成员镜头之和），单镜头只是同一段 clip 内的时间编排。
+ */
+const SHOT_DURATION_OPTIONS = Array.from({ length: 15 }, (_, i) => i + 1);
 
 /** 分组视图模型：派生索引 + 本地剧本水合出的成员镜头、时长与失效标记。 */
 interface HydratedUnit {
@@ -62,11 +84,28 @@ export function AdReferenceVideoCanvas({
   canEditTitle,
   shots,
   hasScript,
+  scriptFile,
+  onUpdatePrompt,
 }: AdReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
   const [units, setUnits] = useState<AdReferenceUnit[] | null>(null);
   const [deriving, setDeriving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 该 unit 存在未落库的镜头字段写入时，阻止同 unit 的生成入队——PATCH 与生成请求
+  // 并发时后端可能仍按写入前的旧值处理，成片与用户刚编辑的时长/文案对不上。
+  // ref 与 state 同步维护：state 供渲染（禁用态展示），ref 供 liveSavingUnitIds()
+  // 在异步函数体内新鲜读——与 liveBusyUnitIds() 同一动机，闭包捕获的 state 在
+  // await 跨越的时间窗口里可能已经过期（如 generateAll 的 derive() 之后的循环）。
+  const savingUnitIdsRef = useRef<Set<string>>(new Set());
+  const [savingUnitIds, setSavingUnitIdsState] = useState<Set<string>>(new Set());
+  const setSavingUnitIds = useCallback((updater: (prev: Set<string>) => Set<string>) => {
+    setSavingUnitIdsState((prev) => {
+      const next = updater(prev);
+      savingUnitIdsRef.current = next;
+      return next;
+    });
+  }, []);
+  const liveSavingUnitIds = useCallback(() => savingUnitIdsRef.current, []);
 
   // 参考生视频任务完成时经项目事件 SSE 自增，驱动本 effect 重拉分组展示成片。
   const unitsRevision = useAppStore((s) => s.referenceVideoUnitsRevision);
@@ -141,12 +180,20 @@ export function AdReferenceVideoCanvas({
     [hydrated],
   );
 
-  const derive = useCallback(async (): Promise<AdReferenceUnit[]> => {
-    // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的 anyUnitBusy 未必反映最新占用态，
-    // 命中即中止——避免把仍在跑的旧任务对应的成员重新绑定到派生后的新分组。
+  // 提交时刻的占用集新鲜读：渲染期捕获的 busy 快照未必反映最新占用态（批量生成循环、
+  // Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit），故各写入口一律在
+  // 提交那一刻重读 store 而非用渲染期的值。乐观标记集一并计入，动作层刚打的标记才能被看到。
+  const liveBusyUnitIds = useCallback(() => {
     const { tasks, optimisticActive } = useTasksStore.getState();
-    const live = selectActiveResourceIds(tasks, "reference_video", projectName, optimisticActive);
-    if (hydrated.some(({ unit }) => live.has(unit.unit_id))) {
+    return selectActiveResourceIds(tasks, "reference_video", projectName, optimisticActive);
+  }, [projectName]);
+
+  const derive = useCallback(async (): Promise<AdReferenceUnit[]> => {
+    // 命中即中止——避免把仍在跑的旧任务对应的成员重新绑定到派生后的新分组；
+    // 有镜头字段写入未落库时同样中止，避免派生与该 PATCH 的落库顺序不确定。
+    const live = liveBusyUnitIds();
+    const saving = liveSavingUnitIds();
+    if (hydrated.some(({ unit }) => live.has(unit.unit_id) || saving.has(unit.unit_id))) {
       useAppStore.getState().pushToast(t("ad_ref_rederive_busy"), "error");
       return [];
     }
@@ -164,16 +211,13 @@ export function AdReferenceVideoCanvas({
     } finally {
       setDeriving(false);
     }
-  }, [projectName, episode, hydrated, t]);
+  }, [projectName, episode, hydrated, liveBusyUnitIds, liveSavingUnitIds, t]);
 
   // 错误清空只在触发入口做：generateUnit 自身不清，避免批量循环中
   // 后一个 unit 的调用抹掉前一个 unit 的失败信息
   const generateUnit = useCallback(
     async (unitId: string) => {
-      // 提交前用 getState() 新鲜读复核：卡片渲染期捕获的 busy 未必反映最新占用态
-      // （全部生成循环、Agent 入队、SSE 落库均可能在渲染之后、点击之前占用同一 unit）。
-      const { tasks, optimisticActive } = useTasksStore.getState();
-      if (selectActiveResourceIds(tasks, "reference_video", projectName, optimisticActive).has(unitId)) {
+      if (liveBusyUnitIds().has(unitId) || liveSavingUnitIds().has(unitId)) {
         useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
         return;
       }
@@ -183,27 +227,65 @@ export function AdReferenceVideoCanvas({
         setError(errMsg(err));
       }
     },
-    [projectName, episode, t],
+    [projectName, episode, liveBusyUnitIds, liveSavingUnitIds, t],
+  );
+
+  // 编辑期间该 unit 若已被其他入口占用，放弃这次写入而非与生成中的任务乱序落库
+  // ——与 generateUnit 同一判定口径。deriving 反向同理：派生进行中不接受新的镜头字段
+  // 写入，避免落库顺序与派生顺序不确定。返回是否已受理，供调用方决定是否保留未提交的草稿。
+  const commitShotField = useCallback(
+    async (unitId: string, shotId: string, patch: Record<string, unknown>): Promise<boolean> => {
+      if (!onUpdatePrompt) return false;
+      if (deriving || liveBusyUnitIds().has(unitId) || liveSavingUnitIds().has(unitId)) {
+        useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
+        return false;
+      }
+      setSavingUnitIds((prev) => new Set(prev).add(unitId));
+      try {
+        // onUpdatePrompt 内部吞掉异常并转 toast，不会向这里抛出——「未抛出」不等于
+        // 「写入成功」，必须取其返回值，否则 PATCH 失败时草稿仍会被当作已提交清空。
+        return await onUpdatePrompt(shotId, patch, undefined, scriptFile);
+      } catch (err: unknown) {
+        // 防止 onUpdatePrompt 违反「不抛出」契约时产生未处理的 rejection——
+        // onEditDuration 以 void 调用本函数，没有调用方会捕获这里的拒绝。
+        useAppStore.getState().pushToast(errMsg(err), "error");
+        return false;
+      } finally {
+        setSavingUnitIds((prev) => {
+          const next = new Set(prev);
+          next.delete(unitId);
+          return next;
+        });
+      }
+    },
+    [onUpdatePrompt, deriving, liveBusyUnitIds, liveSavingUnitIds, setSavingUnitIds, scriptFile, t],
   );
 
   const generateAll = useCallback(async () => {
     // 先重新派生（保证索引与 shots 一致），再为未完成且空闲的 unit 入队
     const fresh = await derive();
     for (const unit of fresh) {
-      // 实时读 store 而非渲染期快照：串行 await 期间其他入口（如单 unit 按钮）
-      // 可能已入队同一 unit；乐观标记集也要带上，动作层刚打的标记才能被循环看到
-      const { tasks, optimisticActive } = useTasksStore.getState();
-      const live = selectActiveResourceIds(tasks, "reference_video", projectName, optimisticActive);
-      if (unit.generated_assets?.video_clip || live.has(unit.unit_id)) continue;
+      // 每轮重读：串行 await 期间其他入口（如单 unit 按钮）可能已入队同一 unit；
+      // saving 同样须新鲜读——derive() 的 await 期间某个 unit 的编辑写入完全可能
+      // 已经落库，闭包捕获的 savingUnitIds 会让该 unit 被永久跳过、这批不再补入队。
+      if (
+        unit.generated_assets?.video_clip ||
+        liveBusyUnitIds().has(unit.unit_id) ||
+        liveSavingUnitIds().has(unit.unit_id)
+      )
+        continue;
       await generateUnit(unit.unit_id);
     }
-  }, [derive, generateUnit, projectName]);
+  }, [derive, generateUnit, liveBusyUnitIds, liveSavingUnitIds]);
 
   const hasUnits = hydrated.length > 0;
-  // 任一分组仍有活跃任务（含取消中）时禁止重新派生：派生会按位置重算 unit_id 的
-  // 成员镜头，若此时有任务仍在跑，任务完成落回 apply_unit_video_assets 时会按
-  // unit_id 把产物写给重新派生后的新成员，造成成片挂错分组。
-  const anyUnitBusy = hydrated.some(({ unit }) => busyUnitIds.has(unit.unit_id));
+  // 任一分组仍有活跃任务（含取消中）或镜头字段写入未落库时禁止重新派生：派生会按
+  // 位置重算 unit_id 的成员镜头，若此时有任务仍在跑，任务完成落回
+  // apply_unit_video_assets 时会按 unit_id 把产物写给重新派生后的新成员，造成成片
+  // 挂错分组；写入未落库同理，落库顺序与派生顺序不确定时同样不该允许触发。
+  const anyUnitBusy = hydrated.some(
+    ({ unit }) => busyUnitIds.has(unit.unit_id) || savingUnitIds.has(unit.unit_id),
+  );
   // 首次列表 GET 未完成时 units 为 null：此时点击派生，POST 结果可能被随后落地的
   // 首次 GET（携带派生前的旧列表）覆盖，画布会误报尚未派生。禁用入口直到首次加载完成；
   // 加载失败（error 非空）不算「加载中」，否则派生入口会永久禁用、用户无法自救。
@@ -279,14 +361,22 @@ export function AdReferenceVideoCanvas({
                 stale={stale}
                 status={statusMap[unit.unit_id]}
                 busy={busyUnitIds.has(unit.unit_id)}
+                saving={savingUnitIds.has(unit.unit_id)}
                 cancelling={tasksByUnit.get(unit.unit_id)?.status === "cancelling"}
                 errorMessage={tasksByUnit.get(unit.unit_id)?.error_message ?? null}
                 projectName={projectName}
                 deriving={deriving}
+                editable={!!onUpdatePrompt}
                 onGenerate={(unitId) => {
                   setError(null);
                   void generateUnit(unitId);
                 }}
+                onEditDuration={(shotId, seconds) => {
+                  void commitShotField(unit.unit_id, shotId, { duration_seconds: seconds });
+                }}
+                onEditVoiceover={(shotId, textValue) =>
+                  commitShotField(unit.unit_id, shotId, { voiceover_text: textValue })
+                }
               />
             ))}
           </ul>
@@ -308,12 +398,18 @@ interface AdUnitCardProps {
    * 重试与重新生成这两条路径上旧任务行始终在，仅看 status 会在乐观窗口内漏禁用。
    */
   busy: boolean;
+  /** 该 unit 有镜头字段写入未落库——生成入口须一并禁用，避免与写入并发乱序。 */
+  saving: boolean;
   /** 最新任务行是否处于取消中——占用集会计入 cancelling，但不应展示为「生成中」。 */
   cancelling: boolean;
   errorMessage: string | null;
   projectName: string;
   deriving: boolean;
+  /** 未传 onUpdatePrompt（演示态/只读）时降级为纯文本展示，不渲染编辑控件。 */
+  editable: boolean;
   onGenerate: (unitId: string) => void;
+  onEditDuration: (shotId: string, seconds: number) => void;
+  onEditVoiceover: (shotId: string, text: string) => Promise<boolean>;
 }
 
 function AdUnitCard({
@@ -323,11 +419,15 @@ function AdUnitCard({
   stale,
   status,
   busy,
+  saving,
   cancelling,
   errorMessage,
   projectName,
   deriving,
+  editable,
   onGenerate,
+  onEditDuration,
+  onEditVoiceover,
 }: AdUnitCardProps) {
   const { t } = useTranslation("dashboard");
   const clip = unit.generated_assets?.video_clip ?? null;
@@ -386,9 +486,28 @@ function AdUnitCard({
           <h4 className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-4)]">
             {t("ad_ref_member_shots")}
           </h4>
+          {editable && clip && (
+            <p className="mb-1.5 text-[11px] text-amber-300">{t("ad_ref_edit_regenerate_hint")}</p>
+          )}
           <ol className="flex flex-col gap-1.5">
             {members.map((shot, i) => {
               const shotId = unit.shot_ids[i];
+              if (editable && shot) {
+                return (
+                  <li key={shotId}>
+                    <ShotLightEditor
+                      shot={shot}
+                      // saving 一并计入：写入未落库期间禁用同组全部编辑控件，避免用户在
+                      // PATCH 结果落地前重新聚焦输入新草稿，被早先请求异步 resolve 时的
+                      // 清空逻辑覆盖丢失。deriving 同理反向覆盖：重新派生进行中时也禁止
+                      // 发起新的镜头字段写入，避免落库顺序与派生顺序不确定。
+                      disabled={busy || saving || deriving}
+                      onCommitDuration={onEditDuration}
+                      onCommitVoiceover={onEditVoiceover}
+                    />
+                  </li>
+                );
+              }
               return (
                 <li
                   key={shotId}
@@ -481,7 +600,7 @@ function AdUnitCard({
           <button
             type="button"
             className="sv-navbtn inline-flex items-center justify-center gap-1.5"
-            disabled={inFlight || busy || stale || deriving}
+            disabled={inFlight || busy || saving || stale || deriving}
             onClick={() => onGenerate(unit.unit_id)}
           >
             <Sparkles className="h-3 w-3" aria-hidden="true" />
@@ -501,5 +620,74 @@ function AdUnitCard({
         </div>
       </div>
     </li>
+  );
+}
+
+interface ShotLightEditorProps {
+  shot: AdShot;
+  disabled: boolean;
+  onCommitDuration: (shotId: string, seconds: number) => void;
+  /** 返回是否已受理——被占用拦截时（false）调用方须保留草稿，不清空用户已输入的文字。 */
+  onCommitVoiceover: (shotId: string, text: string) => Promise<boolean>;
+}
+
+/**
+ * 镜头级轻量编辑：时长本质是生视频 prompt 的文本控制而非真实视频时长，
+ * 故用即选即提交的下拉框而非重交互控件；口播文案失焦提交，避免逐键触发写请求。
+ */
+function ShotLightEditor({
+  shot,
+  disabled,
+  onCommitDuration,
+  onCommitVoiceover,
+}: ShotLightEditorProps) {
+  const { t } = useTranslation("dashboard");
+  const [draftText, setDraftText] = useState<string | null>(null);
+  const text = draftText ?? shot.voiceover_text;
+  // 剧本里的脏值（区间外时长）也列进选项，否则 select 会显示成首个选项、
+  // 与镜头实际时长不符
+  const options = SHOT_DURATION_OPTIONS.includes(shot.duration_seconds)
+    ? SHOT_DURATION_OPTIONS
+    : [shot.duration_seconds, ...SHOT_DURATION_OPTIONS].sort((a, b) => a - b);
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded bg-[oklch(0.22_0.012_250_/_0.5)] px-2.5 py-1.5 text-[12px]">
+      <span className="font-mono font-medium text-[var(--color-text-2)]" translate="no">
+        {shot.shot_id}
+      </span>
+      {shot.section && <span className="text-[11px] text-[var(--color-text-4)]">{shot.section}</span>}
+      <select
+        aria-label={t("ad_ref_shot_duration_label", { shot_id: shot.shot_id })}
+        className="focus-ring rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-1.5 py-0.5 text-[11.5px] text-[var(--color-text-2)]"
+        value={shot.duration_seconds}
+        disabled={disabled}
+        onChange={(e) => onCommitDuration(shot.shot_id, parseInt(e.target.value, 10))}
+      >
+        {options.map((d) => (
+          <option key={d} value={d}>
+            {t("duration_seconds_value_text", { value: d })}
+          </option>
+        ))}
+      </select>
+      <input
+        type="text"
+        aria-label={t("ad_ref_shot_voiceover_label", { shot_id: shot.shot_id })}
+        className="focus-ring min-w-0 flex-1 rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-1.5 py-0.5 text-[11.5px] text-[var(--color-text-2)]"
+        value={text}
+        disabled={disabled}
+        onChange={(e) => setDraftText(e.target.value)}
+        onBlur={() => {
+          if (draftText === null || draftText === shot.voiceover_text) {
+            setDraftText(null);
+            return;
+          }
+          // 被占用拦截时保留草稿，避免用户刚输入的文字被静默丢弃
+          void onCommitVoiceover(shot.shot_id, draftText).then((committed) => {
+            if (committed) setDraftText(null);
+          });
+        }}
+        placeholder={t("detail_voiceover_placeholder")}
+      />
+    </div>
   );
 }
