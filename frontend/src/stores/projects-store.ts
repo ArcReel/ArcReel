@@ -161,7 +161,13 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
           result = "cancelled";
         } else {
           result = "failed";
-          curOnErrors.forEach((cb) => cb(err));
+          curOnErrors.forEach((cb) => {
+            try {
+              cb(err);
+            } catch (callbackErr) {
+              console.error("refreshProject onError 回调失败", callbackErr);
+            }
+          });
         }
       }
       curResolvers.forEach((resolve) => resolve(result));
