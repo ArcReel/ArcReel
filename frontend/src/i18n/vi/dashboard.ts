@@ -1464,6 +1464,8 @@ export default {
   'ad_ref_retry': 'Thử lại',
   'ad_ref_failed_unknown': 'Tạo thất bại, không rõ nguyên nhân',
   'ad_ref_preview_video_aria': 'Video của nhóm {{id}}',
+  'ad_ref_busy': 'Nhóm này đang tạo, vui lòng thử lại sau',
+  'ad_ref_rederive_busy': 'Có nhóm đang tạo, chưa thể phái sinh lúc này',
   'workspace_nav_products': 'Sản phẩm',
   'workspace_nav_scenes': 'Cảnh',
   'workspace_nav_source': 'Tệp gốc',

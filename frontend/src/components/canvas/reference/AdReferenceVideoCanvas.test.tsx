@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdReferenceVideoCanvas } from "./AdReferenceVideoCanvas";
 import { API } from "@/api";
-import { useTasksStore } from "@/stores/tasks-store";
+import { useAppStore } from "@/stores/app-store";
+import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@/stores/tasks-store";
 import type { AdReferenceUnit, AdShot } from "@/types";
 
 vi.mock("@/api", () => ({
@@ -16,6 +17,25 @@ vi.mock("@/api", () => ({
 }));
 
 const mockedAPI = vi.mocked(API);
+
+// useActiveResourceIds / useLatestTasksByResource 默认包裹真实实现，仅在个别用例里
+// 冻结返回值模拟"响应式信号尚未追上真实 store"的场景，验证提交 handler 不依赖它们、
+// 独立用 getState() 新鲜读 store。
+const mockHolder = vi.hoisted(() => ({
+  realActiveResourceIds: undefined as unknown as typeof import("@/stores/tasks-store").useActiveResourceIds,
+  realLatestTasksByResource:
+    undefined as unknown as typeof import("@/stores/tasks-store").useLatestTasksByResource,
+}));
+vi.mock("@/stores/tasks-store", async () => {
+  const actual = await vi.importActual<typeof import("@/stores/tasks-store")>("@/stores/tasks-store");
+  mockHolder.realActiveResourceIds = actual.useActiveResourceIds;
+  mockHolder.realLatestTasksByResource = actual.useLatestTasksByResource;
+  return {
+    ...actual,
+    useActiveResourceIds: vi.fn(actual.useActiveResourceIds),
+    useLatestTasksByResource: vi.fn(actual.useLatestTasksByResource),
+  };
+});
 
 function makeShot(shotId: string, duration: number): AdShot {
   return {
@@ -58,12 +78,15 @@ function renderCanvas(props: { shots?: AdShot[]; hasScript?: boolean } = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(useActiveResourceIds).mockImplementation(mockHolder.realActiveResourceIds);
+  vi.mocked(useLatestTasksByResource).mockImplementation(mockHolder.realLatestTasksByResource);
   // 乐观标记由入队动作层写入且跨测试共享同一 store 实例，须一并重置
   useTasksStore.setState({
     tasks: [],
     optimisticActive: new Set(),
     optimisticActiveScriptFile: new Set(),
   });
+  useAppStore.setState(useAppStore.getInitialState(), true);
 });
 
 describe("AdReferenceVideoCanvas", () => {
@@ -356,6 +379,73 @@ describe("AdReferenceVideoCanvas", () => {
     renderCanvas();
 
     expect(await screen.findByRole("button", { name: /重新派生/ })).toBeDisabled();
+  });
+
+  it("响应式占用信号尚未追上真实 store 时，生成提交仍被 getState() 新鲜读拦截", async () => {
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    // 冻结两个 reactive hook 的返回值——模拟卡片渲染期捕获的 busy/status 未能
+    // 反映随后落库的真实任务行，只有 getState() 新鲜读才能看见它。
+    vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
+    vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
+
+    renderCanvas();
+
+    const generateBtn = await screen.findByRole("button", { name: /生成视频/ });
+    expect(generateBtn).not.toBeDisabled();
+
+    // 渲染之后、点击之前，另一入口已把该 unit 占用——响应式 busy 仍是渲染期的旧值
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "demo",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "running",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+
+    await userEvent.click(generateBtn);
+
+    await waitFor(() => {
+      expect(pushToast).toHaveBeenCalledWith("该分组正在生成中，请稍后再试", "error");
+    });
+    expect(mockedAPI.generateReferenceVideoUnit).not.toHaveBeenCalled();
+  });
+
+  it("响应式占用信号尚未追上真实 store 时，重新派生提交仍被 getState() 新鲜读拦截", async () => {
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
+    vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
+
+    renderCanvas();
+
+    const rederiveBtn = await screen.findByRole("button", { name: /重新派生/ });
+    expect(rederiveBtn).not.toBeDisabled();
+
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "demo",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "running",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+
+    await userEvent.click(rederiveBtn);
+
+    await waitFor(() => {
+      expect(pushToast).toHaveBeenCalledWith("有分组正在生成中，暂不可派生", "error");
+    });
+    expect(mockedAPI.deriveAdReferenceUnits).not.toHaveBeenCalled();
   });
 
   it("任务取消中时不展示为生成中，按钮维持禁用", async () => {

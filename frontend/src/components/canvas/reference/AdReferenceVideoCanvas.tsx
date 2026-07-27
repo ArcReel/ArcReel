@@ -22,6 +22,7 @@ import {
   useLatestTasksByResource,
   useTasksStore,
 } from "@/stores/tasks-store";
+import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import type { AdReferenceUnit, AdShot, UnitStatus } from "@/types";
@@ -131,6 +132,14 @@ export function AdReferenceVideoCanvas({
   );
 
   const derive = useCallback(async (): Promise<AdReferenceUnit[]> => {
+    // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的 anyUnitBusy 未必反映最新占用态，
+    // 命中即中止——避免把仍在跑的旧任务对应的成员重新绑定到派生后的新分组。
+    const { tasks, optimisticActive } = useTasksStore.getState();
+    const live = selectActiveResourceIds(tasks, "reference_video", projectName, optimisticActive);
+    if (hydrated.some(({ unit }) => live.has(unit.unit_id))) {
+      useAppStore.getState().pushToast(t("ad_ref_rederive_busy"), "error");
+      return [];
+    }
     setDeriving(true);
     setError(null);
     try {
@@ -143,19 +152,26 @@ export function AdReferenceVideoCanvas({
     } finally {
       setDeriving(false);
     }
-  }, [projectName, episode]);
+  }, [projectName, episode, hydrated, t]);
 
   // 错误清空只在触发入口做：generateUnit 自身不清，避免批量循环中
   // 后一个 unit 的调用抹掉前一个 unit 的失败信息
   const generateUnit = useCallback(
     async (unitId: string) => {
+      // 提交前用 getState() 新鲜读复核：卡片渲染期捕获的 busy 未必反映最新占用态
+      // （全部生成循环、Agent 入队、SSE 落库均可能在渲染之后、点击之前占用同一 unit）。
+      const { tasks, optimisticActive } = useTasksStore.getState();
+      if (selectActiveResourceIds(tasks, "reference_video", projectName, optimisticActive).has(unitId)) {
+        useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
+        return;
+      }
       try {
         await enqueueReferenceVideoUnit(projectName, episode, unitId);
       } catch (err: unknown) {
         setError(errMsg(err));
       }
     },
-    [projectName, episode],
+    [projectName, episode, t],
   );
 
   const generateAll = useCallback(async () => {

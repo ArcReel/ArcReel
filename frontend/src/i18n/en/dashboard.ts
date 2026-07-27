@@ -1415,6 +1415,8 @@ export default {
   'ad_ref_retry': 'Retry',
   'ad_ref_failed_unknown': 'Generation failed for an unknown reason',
   'ad_ref_preview_video_aria': 'Video for group {{id}}',
+  'ad_ref_busy': 'This group is generating, try again later',
+  'ad_ref_rederive_busy': 'A group is generating, cannot derive right now',
   'workspace_nav_products': 'Products',
 
   // ---- Projects lobby · Darkroom ----
