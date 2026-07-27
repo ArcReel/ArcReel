@@ -300,6 +300,31 @@ describe("projects-store refreshProject", () => {
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
   });
 
+  it("null 过渡窗口内发起的旧项目刷新：不豁免为「无当前项目」，不写回", async () => {
+    // Codex 提出的场景：router cleanup 先把 currentProjectName 清为 null，B 自己的
+    // getProject 落定、写入 currentProjectName 之前有一段异步窗口。若 A 中未取消的
+    // 写操作恰好在这段窗口里发起 refreshProject("A")，此时取到的是清空后现役、未 abort
+    // 的域，且 currentProjectName 恰为 null——不能被「无当前项目，放行」豁免，否则
+    // A 的数据会在 B 落地前抢先写回。
+    useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
+    useProjectsStore.getState().setCurrentProject(null, null); // 路由 cleanup：清空但尚未加载 B
+
+    const dA = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise);
+
+    const pA = useProjectsStore.getState().refreshProject("A"); // 在 null 窗口内发起
+    dA.resolve(makeResult("A-迟到数据"));
+    const ok = await pA;
+
+    expect(ok).toBe(false);
+    expect(useProjectsStore.getState().currentProjectName).toBe(null);
+    expect(useProjectsStore.getState().currentProjectData).toBe(null);
+
+    // B 随后落地：不受上面被拦截的 A 写入影响。
+    useProjectsStore.getState().setCurrentProject("B", makeProject("B-数据"), {}, {});
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+  });
+
   it("项目已切到 B 后才发起的 A 刷新：不写回 store（现役域未 abort，靠当前项目名拦截）", async () => {
     // 与上一条不同：这里切换先于 refreshProject("A") 调用完成——例如写操作完成后的
     // 回调捕获了切换前的旧项目名，等它真正发起请求时项目已经是 B。此时拿到的是 B

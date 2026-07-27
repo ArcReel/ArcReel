@@ -86,6 +86,12 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
     projectScope = new AbortController();
   };
 
+  // 路由 cleanup 会先把 currentProjectName 置 null 再异步加载新项目，null 期间尚未
+  // 轮换到新项目自己的域，旧项目的迟到写入会被误判成「无当前项目可比较，放行」。记下
+  // 被清空前的名字，null 期间专门排除它，同时不影响这个 null 状态本身允许建立任意
+  // 其它（未被排除的）项目——包括 store 从未加载过任何项目时的首次建立。
+  let vacatedProjectName: string | null = null;
+
   // 执行刷新循环：while 排队重跑替代递归，失败路径也消费排队请求，直至无新排队为止。
   // 每轮结束立刻 resolve 该轮的调用方（curResolvers），不等后续排队轮跑完——否则先到
   // 的调用方会被后到、且与自己无关的轮次结果覆盖返回值（如已成功写入的重排刷新，被
@@ -119,11 +125,16 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
         // 的刷新）捕获的是切走前的旧项目名，且这次调用是在切换已经完成之后才发起的，
         // 拿到的会是新项目现役、未 abort 的域——因此还要在写入前核对 curName 是否仍是
         // 当前项目，防止旧项目的数据覆盖已经切入的新项目。
-        // currentProjectName 为 null 时放行：refreshProject 也承担着把首个项目数据
-        // 建立进 store 的职责（届时还没有「当前项目」可比较），只有已经易主给另一个
-        // 具体项目名时才需要拦截。
+        // currentProjectName 为 null 时原则上放行：refreshProject 也承担着把首个项目
+        // 数据建立进 store 的职责（届时还没有「当前项目」可比较）。但 null 也是路由
+        // cleanup 清空旧项目、异步加载新项目之间的过渡态——这段窗口里旧项目名不能被
+        // 放行的「无当前项目」豁免过：否则旧项目迟到的写入会在新项目自己的数据落地前
+        // 抢先写回 store。用 vacatedProjectName 单独排除刚被清空的那个名字，其它待建立
+        // 的项目名（含 store 从未加载过任何项目的场景）仍按原语义放行。
         const currentProjectName = get().currentProjectName;
-        const isCurrentProject = currentProjectName === null || currentProjectName === curName;
+        const isCurrentProject =
+          currentProjectName === curName ||
+          (currentProjectName === null && curName !== vacatedProjectName);
         if (!supersededByOtherProject && !signal.aborted && isCurrentProject) {
           get().setCurrentProject(curName, res.project, res.scripts ?? {}, res.asset_fingerprints);
           if (curKeys.length > 0) {
@@ -173,7 +184,15 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
     setCurrentProject: (name, data, scripts, fingerprints) => {
       // 当前项目易主即轮换取消域。这是全部切换路径（路由 effect 及其 cleanup、演示工作台
       // 接管）的必经之处，因此不必让各调用方各自传播取消——它们保持原样即受此保护。
-      if (name !== get().currentProjectName) rotateProjectScope();
+      const previousName = get().currentProjectName;
+      if (name !== previousName) {
+        if (name === null && previousName !== null) {
+          vacatedProjectName = previousName;
+        } else if (name !== null) {
+          vacatedProjectName = null;
+        }
+        rotateProjectScope();
+      }
       set((s) => ({
         currentProjectName: name,
         currentProjectData: data,
