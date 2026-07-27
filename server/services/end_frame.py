@@ -112,7 +112,7 @@ def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
     # 剧本文件损坏（JSON 语法错误或非 UTF-8 字节）不能误判为「非法 script_file」，
     # 交由 _translated_errors 的兜底分支收口为 500
     with domain_error_on_value_error(
-        lambda exc: EndFrameError("invalid_script_file", status_code=400, name=script_file),
+        lambda _exc: EndFrameError("invalid_script_file", status_code=400, name=script_file),
         extra_passthrough=(UnicodeDecodeError,),
     ):
         script = manager.load_script(project_name, script_file)

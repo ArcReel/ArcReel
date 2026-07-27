@@ -1320,18 +1320,12 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
         logger.warning("生成概述配置错误: name=%s (%s)", name, exc)
         return BadRequestError("text_provider_not_configured")
 
-    def _project_corrupted(exc: json.JSONDecodeError) -> None:
-        # 供应商解析链路内部会重新 load_project，project.json 损坏时不能误判为「未配置供应商」
-        logger.exception("生成概述失败：项目数据损坏 name=%s", name)
-        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
-
     try:
         with project_change_source("webui"):
             # EmptySourceError / PydanticValidationError 都是 ValueError 子类，须放行给下方各自的
             # 专属 except 分支，不能被这里的通用 ValueError 处理误判为「未配置供应商」
             with domain_error_on_value_error(
                 _provider_not_configured,
-                on_json_decode_error=_project_corrupted,
                 extra_passthrough=(EmptySourceError, PydanticValidationError),
             ):
                 overview = await get_project_manager().generate_overview(name)
@@ -1346,6 +1340,10 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
     except EmptySourceError as e:
         logger.warning("生成概述参数错误: name=%s (%s)", name, e)
         raise BadRequestError("overview_source_empty") from e
+    except json.JSONDecodeError:
+        # 供应商解析链路内部会重新 load_project，project.json 损坏时不能误判为「未配置供应商」
+        logger.exception("生成概述失败：项目数据损坏 name=%s", name)
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
     except (HTTPException, ApiError):
         raise
     except Exception:

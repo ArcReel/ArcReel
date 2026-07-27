@@ -7,9 +7,18 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from lib.i18n.zh import errors as zh_errors
 from lib.project_manager import EmptySourceError
+
+
+class _OverviewProbe(BaseModel):
+    """仅用于让 fake 生成器抛出真实的 pydantic ValidationError（也是 ValueError 子类）。"""
+
+    synopsis: str
+
+
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import projects
@@ -59,6 +68,7 @@ class _FakePM:
         (self.base / "bad").mkdir(parents=True, exist_ok=True)
         (self.base / "no-provider").mkdir(parents=True, exist_ok=True)
         (self.base / "corrupted").mkdir(parents=True, exist_ok=True)
+        (self.base / "bad-schema").mkdir(parents=True, exist_ok=True)
         # 上传后概览生成失败的软降级路径：项目存在，但 generate_overview 抛带路径异常
         (self.base / "leaky").mkdir(parents=True, exist_ok=True)
 
@@ -208,6 +218,10 @@ class _FakePM:
             # 模拟供应商解析链路内部重新 load_project 时命中损坏的 project.json：
             # JSONDecodeError 是 ValueError 子类，不该被误判为「未配置供应商」
             json.loads("{not valid json")
+        if name == "bad-schema":
+            # 模拟模型输出未通过 schema 校验：pydantic ValidationError 同样是 ValueError 子类，
+            # 不该被误判为「未配置供应商」
+            _OverviewProbe.model_validate({})
         raise EmptySourceError("source missing")
 
 
@@ -1713,6 +1727,15 @@ class TestUnexpectedErrorsDoNotLeak:
             resp = client.post("/api/v1/projects/corrupted/generate-overview")
             assert resp.status_code == 500
             assert "配置文本供应商" not in self._body(resp)
+
+    def test_generate_overview_schema_failure_maps_to_ai_response_invalid(self, tmp_path, monkeypatch):
+        # pydantic ValidationError 也是 ValueError 子类：模型输出不合 schema 时须命中
+        # 「AI 响应无效」专属分支，不能被通用 ValueError 处理误判为「未配置文本供应商」
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.post("/api/v1/projects/bad-schema/generate-overview")
+            assert resp.status_code == 400
+            assert resp.json()["detail"] == zh_errors.MESSAGES["overview_ai_response_invalid"]
 
     def test_generate_overview_invalid_project_name_maps_to_400_not_provider_error(self, tmp_path, monkeypatch):
         # get_project_path 抛出的非法项目名 ValueError（路径穿越等）不能被 generate_overview()

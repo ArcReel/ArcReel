@@ -90,7 +90,7 @@ async def generate_grid(
     """
     # 非法项目名（路径穿越等）是坏请求，不是「不存在」；project.json 损坏（JSONDecodeError）
     # 不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
-    with domain_error_on_value_error(lambda exc: BadRequestError("invalid_project_name", name=project_name)):
+    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
         project = get_project_manager().load_project(project_name)
     # 广告/短片项目不开放宫格生视频（宫格单格分辨率与产品高保真目标冲突），
     # 写入边界（create/PATCH 拒 generation_mode=grid）之外在动作端点再设一道防线
@@ -98,7 +98,7 @@ async def generate_grid(
         raise BadRequestError("ad_grid_not_supported")
     # 路径穿越等非法 script_file 是坏请求，400 而非落入下方 500 兜底；剧本文件损坏
     # （JSONDecodeError）不能被误判为非法 script_file，交由 app 级 catch-all 收口为通用 500
-    with domain_error_on_value_error(lambda exc: BadRequestError("invalid_script_file", name=req.script_file)):
+    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=req.script_file)):
         script = get_project_manager().load_script(project_name, req.script_file)
     project_path = get_project_manager().get_project_path(project_name)
 
@@ -265,7 +265,7 @@ async def get_grid(project_name: str, grid_id: str, _user: CurrentUser):
 async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
     """重置宫格图状态并重新入队生成任务。"""
     # project.json 损坏（JSONDecodeError）不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
-    with domain_error_on_value_error(lambda exc: BadRequestError("invalid_project_name", name=project_name)):
+    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
         project = get_project_manager().load_project(project_name)
     # 广告/短片项目不开放宫格生视频：首次提交端点已封禁，重生成端点同样设防,
     # 否则残留的历史 grid 记录仍可被重新入队
