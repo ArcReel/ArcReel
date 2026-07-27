@@ -325,6 +325,32 @@ describe("projects-store refreshProject", () => {
     expect(useProjectsStore.getState().currentProjectName).toBe("B");
   });
 
+  it("跨两次切换的更早项目迟到写入（C→A→B）：null 窗口不因换了新名字而放行", async () => {
+    // Codex 在上一条修复后指出的多跳场景：C 页面未取消的写操作直到 A→B 切换期间
+    // 的 null 窗口才发起 refreshProject("C")。若只记「最近一次被清空的名字」（当时是
+    // A），curName="C" 不等于它，会被误判成「无当前项目，可放行」重新写回。真正的
+    // 判据应是「store 是否已经建立过任何真实项目」，不分具体是哪一个。
+    const store = useProjectsStore.getState();
+    store.setCurrentProject("C", makeProject("C-数据"), {}, {}); // 建立 C
+    store.setCurrentProject(null, null); // 路由 cleanup：离开 C
+    store.setCurrentProject("A", makeProject("A-数据"), {}, {}); // A 落地
+    store.setCurrentProject(null, null); // 路由 cleanup：离开 A，尚未加载 B
+
+    const dC = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(dC.promise);
+
+    const pC = useProjectsStore.getState().refreshProject("C"); // 在第二次 null 窗口内发起
+    dC.resolve(makeResult("C-迟到数据"));
+    const ok = await pC;
+
+    expect(ok).toBe(false);
+    expect(useProjectsStore.getState().currentProjectName).toBe(null);
+
+    useProjectsStore.getState().setCurrentProject("B", makeProject("B-数据"), {}, {});
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
+  });
+
   it("项目已切到 B 后才发起的 A 刷新：不写回 store（现役域未 abort，靠当前项目名拦截）", async () => {
     // 与上一条不同：这里切换先于 refreshProject("A") 调用完成——例如写操作完成后的
     // 回调捕获了切换前的旧项目名，等它真正发起请求时项目已经是 B。此时拿到的是 B
