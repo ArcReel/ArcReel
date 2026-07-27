@@ -269,10 +269,14 @@ def reset_episode_planning_tool(ctx: ToolContext):
 
         if isinstance(result, ResetConfirmationRequired):
             episodes = "、".join(str(num) for num in result.consumed_episodes)
+            if from_episode == 1:
+                aftermath = "账本清空后这些集需要重新规划"
+            else:
+                aftermath = f"这些集的账本条目被清除后需要重新规划，第 1..{from_episode - 1} 集保留不动"
             lines = [
                 f"⚠️ 本次重置会波及已消费集（已有 step1/剧本/媒体产物）：第 {episodes} 集。尚未执行任何改动。",
                 "请把影响范围告知用户；用户确认后带 confirm_consumed=true 重新调用"
-                "（剧本与媒体产物不会被删除，但账本清空后这些集需要重新规划）。",
+                f"（剧本与媒体产物不会被删除，但{aftermath}）。",
             ]
             if result.archived_files:
                 lines.append(f"其中无原文范围记录的集文件会改名留底：{'、'.join(result.archived_files)}")

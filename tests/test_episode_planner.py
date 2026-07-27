@@ -1132,6 +1132,40 @@ class TestSourceFingerprintGate:
         result2 = await EpisodePlanner(project_dir, generator=fake2).plan()
         assert result2.episodes[0].title == "t2"
 
+    async def test_partial_reset_retains_prefix_and_plan_continues_numbering(self, tmp_path: Path):
+        """规划 2 集后部分重置到第 2 集：账本保留第 1 集、游标退到其末尾，再次 plan 从第 2 集续接编号。"""
+        project_dir = _write_project(tmp_path)
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {"title": "t1", "hook": "h1", "end_anchor": ANCHOR_EP1},
+                        {"title": "t2", "hook": "h2", "end_anchor": ANCHOR_EP2},
+                    ]
+                )
+            ]
+        )
+        await EpisodePlanner(project_dir, generator=fake).plan()
+        assert [e["episode"] for e in _load_project(project_dir)["episodes"]] == [1, 2]
+
+        result = reset_episode_planning(project_dir, from_episode=2)
+        assert isinstance(result, EpisodeResetResult)
+
+        project = _load_project(project_dir)
+        assert [e["episode"] for e in project["episodes"]] == [1]
+        # 游标退到第 1 集原文范围末尾，指纹字段保留（部分重置已验证其与当前源文一致）
+        assert project["planning_cursor"] == {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP1)}
+        assert SOURCE_FINGERPRINTS_KEY in project
+        # 保留段派生文件不动，重置范围内的派生文件已删除
+        assert (project_dir / "source" / "episode_1.txt").is_file()
+        assert not (project_dir / "source" / "episode_2.txt").exists()
+
+        fake2 = _FakeTextGenerator([_plan_response([{"title": "t2b", "hook": "h2b", "end_anchor": ANCHOR_EP2}])])
+        result2 = await EpisodePlanner(project_dir, generator=fake2).plan()
+
+        assert [ep.episode for ep in result2.episodes] == [2]
+        assert [e["episode"] for e in _load_project(project_dir)["episodes"]] == [1, 2]
+
     async def test_plan_rejects_when_source_changes_during_model_call_without_record(self, tmp_path: Path):
         """存量项目补记路径：模型调用期间源文被改动，提交时按文本复核拒绝，不落任何写入。"""
         project_dir = _write_project(tmp_path)
