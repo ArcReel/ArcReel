@@ -136,7 +136,7 @@ def _has_recreatable_source_range(entry: Mapping[str, Any]) -> bool:
     """entry 的 source_range 是否携带足以重造派生文件的坐标结构。
 
     只看坐标结构是否完整、不读源文校验数值是否越界——重置零前置校验，范围合法性判断
-    是 plan/replan 的职责。坐标结构不完整的损坏条目按「不可重造」处理，其集文件走留底
+    是 plan 的职责。坐标结构不完整的损坏条目按「不可重造」处理，其集文件走留底
     而非删除：删除不可逆，证据不足时偏保守。
     """
     return _parse_source_range(entry) is not None
@@ -286,8 +286,8 @@ def _resolve_partial_reset_cursor(
     - 全部已记录源文指纹须与当前源文一致（``mismatched_source_fingerprints``，与
       ``EpisodePlanner`` 的提交门禁同一套逃生口）
     - 保留段（1..from_episode-1）每一集若带可信的 ``source_range``，须结构完整、
-      落在对应源文件当前长度界内且非空（``start < end``，与 ``EpisodePlanner``
-      对重排范围的校验口径一致）；第 1 集起点须为 0，且排序中排在其源文件之前的
+      落在对应源文件当前长度界内且非空（``start < end``——零长度区间不构成可信的
+      保留段坐标）；第 1 集起点须为 0，且排序中排在其源文件之前的
       文件全部只剩空白（``EpisodePlanner`` 会自动跳过纯空白源文件，第 1 集因此可能
       合法落在非首个文件）；相邻两条记录须首尾相接——同一源文件内后一条 ``start``
       须等于前一条 ``end``，跨源文件时须切到排序中下一个仍有内容的文件、起点为 0、

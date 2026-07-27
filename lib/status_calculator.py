@@ -338,7 +338,7 @@ class StatusCalculator:
         content_mode = project.get("content_mode", "narration")
         episodes_stats = []
         for ep in project.get("episodes", []):
-            # 账本标 stale 的集（重排后原文范围已失效）：读时状态回退为待预处理，
+            # 账本标 stale 的集（重新规划后原文范围已失效）：读时状态回退为待预处理，
             # 驱动重做流程；剧本/媒体产物不删除，重做沿现有覆盖/版本机制替换。
             if ep.get("ledger_status") == "stale":
                 episodes_stats.append(self._make_fallback_ep_stats("none"))

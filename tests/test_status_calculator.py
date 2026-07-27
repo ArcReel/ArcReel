@@ -312,7 +312,7 @@ class TestStatusCalculator:
     def test_stale_ledger_episode_regresses_to_pending_preprocess(self, tmp_path):
         """账本标 stale 的集：读时状态回退为待预处理（script_status=none），已有产物不删除。
 
-        重排使该集原文范围失效，剧本/媒体虽存在但已过期；读时回退驱动前端
+        重新规划使该集原文范围失效，剧本/媒体虽存在但已过期；读时回退驱动前端
         与 agent 走重做流程，旧产物沿覆盖/版本机制保留可回滚。
         """
         project_root = tmp_path / "projects"

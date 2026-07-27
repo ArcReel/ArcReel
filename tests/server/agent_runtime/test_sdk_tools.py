@@ -1641,12 +1641,12 @@ class TestBuildPrompt:
 
 
 # ---------------------------------------------------------------------------
-# episode_planning — plan_episodes / replan_episodes 薄包装
+# episode_planning — plan_episodes 薄包装
 # ---------------------------------------------------------------------------
 
 
 def _fake_planner_cls(result: Any, captured: dict[str, Any] | None = None):
-    """构造可注入的 EpisodePlanner 替身：create() 工厂 + plan/replan 返回预置结果。"""
+    """构造可注入的 EpisodePlanner 替身：create() 工厂 + plan() 返回预置结果。"""
 
     class _FakePlanner:
         def __init__(self) -> None:
@@ -1661,13 +1661,6 @@ def _fake_planner_cls(result: Any, captured: dict[str, Any] | None = None):
         async def plan(self, instructions=None):
             if captured is not None:
                 captured["plan_instructions"] = instructions
-            if isinstance(result, BaseException):
-                raise result
-            return result
-
-        async def replan(self, from_episode, instructions, *, confirm_consumed=False):
-            if captured is not None:
-                captured["replan_args"] = (from_episode, instructions, confirm_consumed)
             if isinstance(result, BaseException):
                 raise result
             return result
@@ -1860,147 +1853,6 @@ async def test_plan_episodes_error_envelope(fake_ctx: ToolContext, monkeypatch) 
 
     assert out.get("is_error") is True
     assert "校验耗尽" in out["content"][0]["text"]
-
-
-async def test_replan_episodes_passes_args_and_reports_stale(fake_ctx: ToolContext, monkeypatch) -> None:
-    from lib.episode_planner import EpisodePlanSummary, PlanResult
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    captured: dict[str, Any] = {}
-    result = PlanResult(
-        episodes=[EpisodePlanSummary(episode=2, title="辞别下山", hook="甲", reading_units=700, ledger_status="stale")],
-        cursor=None,
-        stale_episodes=[2],
-        settings_updated={"episode_target_units": 800},
-    )
-    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result, captured))
-    out = await _call(
-        mod.replan_episodes_tool(fake_ctx),
-        {"from_episode": 2, "instructions": "每集短一点", "confirm_consumed": True},
-    )
-
-    assert out.get("is_error") is not True
-    assert captured["replan_args"] == (2, "每集短一点", True)
-    text = out["content"][0]["text"]
-    assert "stale" in text
-    assert "episode_target_units" in text
-
-
-async def test_replan_episodes_includes_ledger_stats(fake_ctx: ToolContext, monkeypatch) -> None:
-    """replan 是偏差修复的主要动作，返回一律附全局核对材料，闭合复核循环。"""
-    from lib.episode_planner import EpisodePlanSummary, LedgerStats, PlanResult
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    stats = LedgerStats(total_episodes=3, smallest=[(3, 23), (2, 37), (1, 45)], median_units=37, target_units=None)
-    result = PlanResult(
-        episodes=[
-            EpisodePlanSummary(episode=2, title="辞别下山", hook="甲", reading_units=700, ledger_status="planned")
-        ],
-        cursor=None,
-        ledger_stats=stats,
-    )
-    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result))
-    out = await _call(
-        mod.replan_episodes_tool(fake_ctx),
-        {"from_episode": 2, "instructions": "第2集在下山处收尾"},
-    )
-
-    assert out.get("is_error") is not True
-    text = out["content"][0]["text"]
-    assert "累计总集数：3" in text
-    assert "第 3 集（约 23）" in text
-    assert "有偏差须向用户明确说明" in text
-
-
-async def test_replan_episodes_confirmation_required(fake_ctx: ToolContext, monkeypatch) -> None:
-    from lib.episode_planner import ReplanConfirmationRequired
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(ReplanConfirmationRequired(consumed_episodes=[2, 3])))
-    out = await _call(mod.replan_episodes_tool(fake_ctx), {"from_episode": 2, "instructions": "重排"})
-
-    assert out.get("is_error") is not True  # 预期内的流程出口，不是错误
-    text = out["content"][0]["text"]
-    assert "已消费" in text and "confirm_consumed" in text
-
-
-async def test_replan_episodes_rejects_missing_instructions(fake_ctx: ToolContext) -> None:
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    out = await _call(mod.replan_episodes_tool(fake_ctx), {"from_episode": 2})
-    assert out.get("is_error") is True
-
-
-async def test_replan_episodes_rejects_string_confirm_consumed(fake_ctx: ToolContext) -> None:
-    """confirm_consumed 是确认安全边界：非布尔值（如字符串 "false"）必须拒绝而非真值化。"""
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    out = await _call(
-        mod.replan_episodes_tool(fake_ctx),
-        {"from_episode": 2, "instructions": "重排", "confirm_consumed": "false"},
-    )
-    assert out.get("is_error") is True
-    assert "confirm_consumed" in out["content"][0]["text"]
-
-
-async def test_replan_episodes_rejects_overlong_instructions(fake_ctx: ToolContext) -> None:
-    """instructions 超长按参数错误拒绝。"""
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    out = await _call(
-        mod.replan_episodes_tool(fake_ctx),
-        {"from_episode": 2, "instructions": "重" * (mod._MAX_INSTRUCTIONS_LEN + 1)},
-    )
-    assert out.get("is_error") is True
-    assert "过长" in out["content"][0]["text"]
-
-
-async def test_replan_episodes_accepts_boundary_length_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
-    """instructions 恰好等于上限长度应被接受（覆盖 > 比较的差一边界）。"""
-    from lib.episode_planner import EpisodePlanSummary, PlanResult
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    captured: dict[str, Any] = {}
-    result = PlanResult(
-        episodes=[
-            EpisodePlanSummary(episode=2, title="辞别下山", hook="甲", reading_units=700, ledger_status="planned")
-        ],
-        cursor=None,
-    )
-    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result, captured))
-    text = "重" * mod._MAX_INSTRUCTIONS_LEN
-    out = await _call(mod.replan_episodes_tool(fake_ctx), {"from_episode": 2, "instructions": text})
-
-    assert out.get("is_error") is not True
-    assert captured["replan_args"] == (2, text, False)
-
-
-async def test_replan_episodes_rejects_non_integer_from_episode(fake_ctx: ToolContext) -> None:
-    """from_episode 必须是 JSON 整数：布尔与字符串都拒绝。"""
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    for bad in (True, "2"):
-        out = await _call(
-            mod.replan_episodes_tool(fake_ctx),
-            {"from_episode": bad, "instructions": "重排"},
-        )
-        assert out.get("is_error") is True
-        assert "from_episode" in out["content"][0]["text"]
-
-
-async def test_replan_episodes_planner_value_error_not_mislabeled_as_param_error(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
-    """重排器内部抛出的 ValueError（如供应商未配置）走通用工具错误，不被误标为参数错误。"""
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(ValueError("未找到可用的 text 供应商")))
-    out = await _call(mod.replan_episodes_tool(fake_ctx), {"from_episode": 2, "instructions": "重排"})
-
-    assert out.get("is_error") is True
-    text = out["content"][0]["text"]
-    assert "未找到可用的 text 供应商" in text
-    assert "参数错误" not in text  # 供应商未配置不是入参问题
 
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ drama 模式预期源文件是小说，由三段 LLM（plan_episodes 语义切�
 
 提取优先**不另造剧本解析器**，而是铺在 analyze-assets / plan_episodes / normalize-drama-script 现有每个阶段——LLM 先用作者已写的（任意形态、不写死标记正则），缺了才生成，贴合现有「按集惰性消费」架构（脚本可达 10 万字）、复用现成 subagent/skill，各阶段独立降级（有人物表无分集标记 → 人物逐字提取 + 分集语义规划）。**分集永不机械切**：plan_episodes 仍是语义规划，剧本自带分集（任意形态）则照用其边界/标题/钩子/大纲，没有则按完整剧情弧选切分点——切分点至关重要，机械按长度切会切碎剧情弧。**逐字保真只锚「可听见的内容」**：严格不改写/不丢/不润色的仅限角色台词文字与画外音文字两类，排版/标签、运镜与舞台提示、视觉描述、泛指群演由 LLM 裁量转写或剥离（硬逐字会把舞台提示、群演、排版符号强行灌进结构化字段）。
 
-screenplay 下逐字提取的台词与画外音落在 `DramaScene.utterances`（台词 `kind=dialogue` 带 speaker、画外音 `kind=voiceover` 无 speaker，按出现顺序；模型见 ADR 0040），不改写、不丢、不润色。泛指 speaker（`老人甲`/`年轻人乙`）不注册为 character 资产、不进 characters_in_scene，其台词的 speaker 照填原文称呼、但不注册为角色资产——泛指 vs 命名角色由 LLM 在 prompt 层判定（`speaker ∈ characters_in_scene` 只是 `prompt_builders_script.py` 的 prompt 指令、无机械校验，screenplay 下放松该指令）。提取出的骨架（分集 + 人物）经 `/manga-workflow` 既有的每阶段确认 + plan/replan 批级审阅兜住 LLM 在野格式上的误判，零新增机制。「画外音/台词配音」（drama-TTS）属配音/合成阶段，单列后续议题。
+screenplay 下逐字提取的台词与画外音落在 `DramaScene.utterances`（台词 `kind=dialogue` 带 speaker、画外音 `kind=voiceover` 无 speaker，按出现顺序；模型见 ADR 0040），不改写、不丢、不润色。泛指 speaker（`老人甲`/`年轻人乙`）不注册为 character 资产、不进 characters_in_scene，其台词的 speaker 照填原文称呼、但不注册为角色资产——泛指 vs 命名角色由 LLM 在 prompt 层判定（`speaker ∈ characters_in_scene` 只是 `prompt_builders_script.py` 的 prompt 指令、无机械校验，screenplay 下放松该指令）。提取出的骨架（分集 + 人物）经 `/manga-workflow` 既有的每阶段确认 + plan 批级审阅（调整走「重置 + 重新规划」）兜住 LLM 在野格式上的误判，零新增机制。「画外音/台词配音」（drama-TTS）属配音/合成阶段，单列后续议题。
 
 ## Considered Options
 
