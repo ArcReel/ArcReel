@@ -175,14 +175,14 @@ class TestQueueEmitsTerminalEvents:
         task_id = await self._enqueue_running(queue)
         captured_batches.clear()
 
-        original = TaskRepository.mark_succeeded
+        original_append = TaskRepository._append_event
 
-        async def raise_after_collecting(self, task_id_arg, result=None):
-            await original(self, task_id_arg, result)
+        async def raise_after_collecting(self, **kwargs):
+            await original_append(self, **kwargs)
             assert self.terminal_events, "前置条件：终态已被 _append_event 收集"
             raise RuntimeError("commit 前炸了")
 
-        monkeypatch.setattr(TaskRepository, "mark_succeeded", raise_after_collecting)
+        monkeypatch.setattr(TaskRepository, "_append_event", raise_after_collecting)
 
         with pytest.raises(RuntimeError, match="commit 前炸了"):
             await queue.mark_task_succeeded(task_id, {"file_path": "videos/E1S01.mp4"})

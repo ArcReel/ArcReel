@@ -1,5 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import {
   defaultTaskStats,
   isActiveStatus,
@@ -972,6 +973,36 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
     expect(listSpy).toHaveBeenCalledWith({ projectName: undefined, pageSize: 200 });
   });
 
+  it("轮询看到参考生视频任务转成功时失效单元缓存，且不重复失效", async () => {
+    // 成片重拉此前只挂在项目事件 SSE 的终态分支上：SSE 断线或丢掉这条事件时，任务状态还能
+    // 靠轮询兜底恢复，成片却一直不出现。轮询走同一次失效补上这个缺口。
+    useAppStore.setState({ referenceVideoUnitsRevision: 0 });
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+
+    mockFetch([task({ task_id: "rv1", task_type: "reference_video", status: "running" })]);
+    await useTasksStore.getState().refreshTasks();
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
+
+    vi.restoreAllMocks();
+    mockFetch([task({ task_id: "rv1", task_type: "reference_video", status: "succeeded" })]);
+    await useTasksStore.getState().refreshTasks();
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
+
+    // 同一条任务在后续轮次里已是终态，不再重复失效。
+    await useTasksStore.getState().refreshTasks();
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
+  });
+
+  it("首轮拉取不把历史成功的参考生视频任务当作刚完成", async () => {
+    useAppStore.setState({ referenceVideoUnitsRevision: 0 });
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+    mockFetch([task({ task_id: "rv-old", task_type: "reference_video", status: "succeeded" })]);
+
+    await useTasksStore.getState().refreshTasks();
+
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
+  });
+
   it("在途期间到达的多次调用合并为结束后再跑一轮", async () => {
     // 两个入口（轮询 + SSE 任务终态）同时刷新时不各自发请求：首轮 1 次 + 合并轮 1 次。
     const releases: Array<() => void> = [];
@@ -1055,6 +1086,7 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
 
 describe("selectNeedsFastPolling", () => {
   const idle = {
+    tasks: [] as TaskItem[],
     stats: defaultTaskStats,
     connected: true,
     refreshScope: { projectName: "proj" },
@@ -1100,6 +1132,30 @@ describe("selectNeedsFastPolling", () => {
         refreshScope: { projectName: "other-proj" },
         optimisticActive: new Set(["proj\0character\0A\0image_edit\0"]),
         optimisticActiveScriptFile: new Set(["proj\0grid\0episode_1.json\0"]),
+      }),
+    ).toBe(false);
+  });
+
+  it("统计尚未反映的在途任务行也让判据留在高频档", () => {
+    // 任务列表与统计是两个并发请求、不是同一快照：别处恰在本轮刷新期间入队时，统计可能
+    // 读到零活跃而列表已含那条 queued 行。只看统计会把这一轮判成空闲，该任务的中间态要
+    // 等满一个空闲间隔才出现在界面上。
+    expect(
+      selectNeedsFastPolling({
+        ...idle,
+        tasks: [task({ task_id: "t-new", status: "queued" })],
+      }),
+    ).toBe(true);
+  });
+
+  it("列表里只剩终态任务时不阻止退到低频档", () => {
+    expect(
+      selectNeedsFastPolling({
+        ...idle,
+        tasks: [
+          task({ task_id: "t-done", status: "succeeded" }),
+          task({ task_id: "t-fail", status: "failed" }),
+        ],
       }),
     ).toBe(false);
   });

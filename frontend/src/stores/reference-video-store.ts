@@ -48,6 +48,16 @@ interface ReferenceVideoStore {
 const _loadSeqByKey = new Map<string, number>();
 let _loadSeq = 0;
 
+/**
+ * 作废该 cache key 上所有在途加载。
+ *
+ * 写入口（增删改排序）落定后调用：迟到的 GET 读的是写入之前的列表，直接写回会把用户刚做的
+ * 编辑、增删或排序在界面上暂时撤销，直到下一次失效才复原。
+ */
+function invalidateInFlightLoads(cacheKey: string): void {
+  _loadSeqByKey.set(cacheKey, ++_loadSeq);
+}
+
 export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
   unitsByEpisode: {},
   selectedUnitId: null,
@@ -74,6 +84,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
 
   addUnit: async (projectName, episode, payload) => {
     const { unit } = await API.addReferenceVideoUnit(projectName, episode, payload);
+    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode));
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
       const list = s.unitsByEpisode[key] ?? [];
@@ -87,6 +98,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
 
   patchUnit: async (projectName, episode, unitId, patch) => {
     const { unit } = await API.patchReferenceVideoUnit(projectName, episode, unitId, patch);
+    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode));
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
       const list = s.unitsByEpisode[key] ?? [];
@@ -102,6 +114,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
 
   deleteUnit: async (projectName, episode, unitId) => {
     await API.deleteReferenceVideoUnit(projectName, episode, unitId);
+    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode));
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
       const list = s.unitsByEpisode[key] ?? [];
@@ -114,6 +127,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
 
   reorderUnits: async (projectName, episode, unitIds) => {
     const { units } = await API.reorderReferenceVideoUnits(projectName, episode, unitIds);
+    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode));
     set((s) => ({
       unitsByEpisode: { ...s.unitsByEpisode, [referenceVideoCacheKey(projectName, episode)]: units },
     }));

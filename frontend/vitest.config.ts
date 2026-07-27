@@ -29,7 +29,7 @@ export default defineConfig({
       include: [
         "src/api.ts",
         "src/stores/**/*.ts",
-        "src/hooks/useTasksSSE.ts",
+        "src/hooks/useTaskRefresh.ts",
         "src/hooks/useScrollTarget.ts",
         "src/hooks/useProjectEventsSSE.ts",
         "src/router.tsx",

@@ -90,6 +90,29 @@ describe("reference-video-store", () => {
     expect(units?.[0].generated_assets.video_clip).toBe("v.mp4");
   });
 
+  it("迟到的加载不撤销加载期间落定的增删改排序", async () => {
+    // 写入口读到的是写入之后的列表，在途的那次 GET 读的是写入之前的。迟到响应若照样写回，
+    // 用户刚做的编辑会在界面上被撤销，直到下一次失效才复原。
+    const releases: Array<(units: ReferenceVideoUnit[]) => void> = [];
+    vi.spyOn(API, "listReferenceVideoUnits").mockImplementation(
+      () => new Promise((resolve) => releases.push((units) => resolve({ units }))),
+    );
+    vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValueOnce({ unit: mkUnit("E1U9") });
+
+    await act(async () => {
+      const load = useReferenceVideoStore.getState().loadUnits("proj", 1);
+      await useReferenceVideoStore.getState().addUnit("proj", 1, {
+        prompt: "p",
+        references: [],
+      });
+      releases[0]([mkUnit("E1U1")]);
+      await load;
+    });
+
+    const units = useReferenceVideoStore.getState().unitsByEpisode["proj::1"];
+    expect(units.map((u) => u.unit_id)).toEqual(["E1U9"]);
+  });
+
   it("loadUnits 的迟到失败不覆盖已接管请求写入的数据", async () => {
     const releases: Array<{ resolve: (units: ReferenceVideoUnit[]) => void; reject: (e: Error) => void }> = [];
     vi.spyOn(API, "listReferenceVideoUnits").mockImplementation(

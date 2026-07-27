@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import type { TaskItem, TaskStats, TaskStatus } from "@/types";
 
 /** 单次刷新拉取的任务条数上限。 */
@@ -177,6 +178,30 @@ export const useTasksStore = create<TasksState>((set, get) => {
   // 排队轮调用方各自的 resolve：每个调用方只对自己实际服务的那一轮结果负责。
   let queuedResolvers: Array<() => void> = [];
 
+  /**
+   * 本轮拉取里是否有 reference_video 任务刚由非终态转成功。
+   *
+   * 参考生视频画布靠 `referenceVideoUnitsRevision` 重拉成片，而自增只发生在项目事件 SSE
+   * 的终态分支上：SSE 断线、静默失速或丢掉这一条事件时，任务状态还能靠轮询兜底恢复，成片
+   * 却一直不出现，直到画布重新挂载。这里让轮询走同一次失效，补上兜底路径的缺口。
+   *
+   * 判据是「上一轮见过这条任务且当时不是 succeeded」：既天然去重（下一轮它在旧快照里已是
+   * succeeded，不再命中），也不会让首次加载把历史成功任务全当成刚完成。代价是任务的入队与
+   * 完成整个落在两次轮询之间时不触发——那种情形下 SSE 事件与画布自身的挂载失效仍在。
+   */
+  const hasNewlySucceededReferenceVideo = (
+    prev: readonly TaskItem[],
+    next: readonly TaskItem[],
+  ): boolean => {
+    if (prev.length === 0) return false;
+    const prevStatus = new Map(prev.map((t) => [t.task_id, t.status]));
+    return next.some((t) => {
+      if (t.task_type !== "reference_video" || t.status !== "succeeded") return false;
+      const before = prevStatus.get(t.task_id);
+      return before !== undefined && before !== "succeeded";
+    });
+  };
+
   // 单轮拉取；自身不抛错，失败只把 connected 置 false 并留旧数据。
   const runTasksRefresh = async (): Promise<void> => {
     const scope = get().refreshScope;
@@ -196,9 +221,13 @@ export const useTasksStore = create<TasksState>((set, get) => {
         API.getTaskStats(projectName ?? null),
       ]);
       if (!scopeUnchanged()) return;
+      const unitsStale = hasNewlySucceededReferenceVideo(get().tasks, tasksRes.items);
       get().setTasks(tasksRes.items);
       get().setStats(statsRes.stats);
       get().setConnected(true);
+      if (unitsStale) {
+        useAppStore.getState().invalidateReferenceVideoUnits();
+      }
     } catch {
       if (!scopeUnchanged()) return;
       get().setConnected(false);
@@ -339,14 +368,18 @@ function hasOptimisticInScope(
 /**
  * 兜底轮询是否需要留在高频档。三种情形都算「需要」：
  *
- * - **有任务未落终态**。判据取 stats 而非 tasks 数组：stats 覆盖整个作用域，tasks 只是
- *   分页后的前 N 条。中间态（queued→running）没有事件推送，只有轮询能看见。
+ * - **有任务未落终态**。以 stats 为主判据：它覆盖整个作用域，而 tasks 只是分页后的前 N 条。
+ *   中间态（queued→running）没有事件推送，只有轮询能看见。tasks 一并计入是因为二者由两个
+ *   并发请求分别读出、彼此不是同一快照：别处（另一客户端或 Skill）恰在本轮刷新期间入队时，
+ *   stats 可能读到零活跃而 tasks 已含那条 queued 行，只看 stats 会把这一轮判成空闲，该任务
+ *   的中间态要等满一个空闲间隔才可见。
  * - **当前作用域内有乐观占用标记**。入队成功到该任务出现在 stats 之间还有一段空窗，
  *   此时若判为空闲，新任务要等一整个空闲间隔才在界面上出现。
  * - **上一轮拉取失败**（`connected === false`）。此时 stats 是过期数据，据它判空闲会把
  *   恢复推迟一整个空闲间隔；失败后本就该尽快重试。
  */
 export function selectNeedsFastPolling(s: {
+  tasks: readonly TaskItem[];
   stats: TaskStats;
   connected: boolean;
   refreshScope: TasksRefreshScope | null;
@@ -358,6 +391,7 @@ export function selectNeedsFastPolling(s: {
   return (
     !s.connected ||
     s.stats.queued + s.stats.running + s.stats.cancelling > 0 ||
+    s.tasks.some((t) => isOccupyingStatus(t.status)) ||
     (scope !== null &&
       (hasOptimisticInScope(s.optimisticActive, scope.projectName) ||
         hasOptimisticInScope(s.optimisticActiveScriptFile, scope.projectName)))
