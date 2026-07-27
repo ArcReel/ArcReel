@@ -73,7 +73,9 @@ describe("AdReferenceVideoCanvas", () => {
     renderCanvas();
 
     expect(await screen.findByRole("button", { name: /派生分组/ })).toBeInTheDocument();
-    expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledWith("demo", 1);
+    expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledWith("demo", 1, {
+      signal: expect.any(AbortSignal) as AbortSignal,
+    });
   });
 
   it("剧本未生成时不拉取分组并给出指引", async () => {
@@ -179,6 +181,73 @@ describe("AdReferenceVideoCanvas", () => {
 
     expect(await screen.findByText("供应商拒绝")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /重试生成/ })).toBeInTheDocument();
+  });
+
+  it("重试失败分组后在真实任务行落库前即禁用按钮", async () => {
+    // 旧失败行始终在，status 的乐观分支不生效；禁用须直接取占用集，
+    // 否则入队到任务行落库之间可重复点击。
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    mockedAPI.generateReferenceVideoUnit.mockResolvedValue({
+      task_id: "t2",
+      deduped: false,
+    } as never);
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "demo",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "failed",
+          error_message: "供应商拒绝",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+
+    renderCanvas();
+
+    const retry = await screen.findByRole("button", { name: /重试生成/ });
+    await userEvent.click(retry);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /生成中/ })).toBeDisabled();
+    });
+  });
+
+  it("重新生成已完成分组后在真实任务行落库前即禁用按钮", async () => {
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({
+      units: [
+        makeUnit({ generated_assets: { video_clip: "videos/E1U1.mp4", status: "completed" } }),
+      ],
+    });
+    mockedAPI.generateReferenceVideoUnit.mockResolvedValue({
+      task_id: "t3",
+      deduped: false,
+    } as never);
+    // 已成功的历史任务行：queueRow 非空使 status 的乐观分支失效，
+    // 重新生成的乐观窗口只能靠占用集兜住
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "demo",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "succeeded",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+
+    renderCanvas();
+
+    const regenerate = await screen.findByRole("button", { name: /重新生成/ });
+    await userEvent.click(regenerate);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /生成中/ })).toBeDisabled();
+    });
   });
 
   it("索引悬空的分组提示需重新派生并禁用生成", async () => {

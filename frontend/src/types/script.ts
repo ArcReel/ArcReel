@@ -267,15 +267,6 @@ export interface DramaEpisodeScript {
   scenes: DramaScene[];
 }
 
-/**
- * 参考生视频路径下单镜头时长可选值（1-15 秒自由整数）。
- * 与后端 lib/script_models.py 的 REFERENCE_SHOT_DURATION_RANGE 同源，调整区间时两侧同步。
- */
-export const REFERENCE_SHOT_DURATION_OPTIONS: number[] = Array.from(
-  { length: 15 },
-  (_, i) => i + 1,
-);
-
 /** 带货框架 section 八值引导（与后端审定配比表用词一致；不硬枚举，允许自定义值）。 */
 export const AD_SECTION_VALUES = [
   "hook",

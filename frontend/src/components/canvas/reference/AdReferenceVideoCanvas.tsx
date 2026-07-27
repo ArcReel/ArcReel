@@ -71,18 +71,16 @@ export function AdReferenceVideoCanvas({
   useEffect(() => {
     // 剧本未生成时后端无分组可返回；hasScript 转 true 后本 effect 随依赖重跑补上首次拉取。
     if (!hasScript) return;
-    let cancelled = false;
-    API.listAdReferenceUnits(projectName, episode)
+    const controller = new AbortController();
+    API.listAdReferenceUnits(projectName, episode, { signal: controller.signal })
       .then((resp) => {
-        if (!cancelled) setUnits(resp.units);
+        if (!controller.signal.aborted) setUnits(resp.units);
       })
       .catch((err: unknown) => {
         // 加载失败保持 units === null（区分「无数据」与「出错」），仅记错误展示
-        if (!cancelled) setError(errMsg(err));
+        if (!controller.signal.aborted) setError(errMsg(err));
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [projectName, episode, hasScript]);
 
   const shotById = useMemo(() => new Map(shots.map((s) => [s.shot_id, s])), [shots]);
@@ -243,6 +241,7 @@ export function AdReferenceVideoCanvas({
                 durationSeconds={durationSeconds}
                 stale={stale}
                 status={statusMap[unit.unit_id]}
+                busy={busyUnitIds.has(unit.unit_id)}
                 errorMessage={tasksByUnit.get(unit.unit_id)?.error_message ?? null}
                 projectName={projectName}
                 deriving={deriving}
@@ -265,6 +264,12 @@ interface AdUnitCardProps {
   durationSeconds: number;
   stale: boolean;
   status: UnitStatus;
+  /**
+   * 占用集（含入队后真实任务行落库前的乐观标记）命中与否，独立于 status：
+   * status 的乐观分支只在无任务行时生效（保持 cancelling 不显示为生成中），
+   * 重试与重新生成这两条路径上旧任务行始终在，仅看 status 会在乐观窗口内漏禁用。
+   */
+  busy: boolean;
   errorMessage: string | null;
   projectName: string;
   deriving: boolean;
@@ -277,6 +282,7 @@ function AdUnitCard({
   durationSeconds,
   stale,
   status,
+  busy,
   errorMessage,
   projectName,
   deriving,
@@ -289,10 +295,11 @@ function AdUnitCard({
   const videoUrl = clip ? API.getFileUrl(projectName, clip, clipFp) : null;
 
   // 状态先于 video_clip 落库的窗口里 status 已 ready 但 videoUrl 仍为 null——
-  // 这种情况按生成中占位，避免空白预览框。
-  const ready = status === "ready" && Boolean(videoUrl);
-  const failed = status === "failed";
-  const inFlight = status === "running" || (status === "ready" && !videoUrl);
+  // 这种情况按生成中占位，避免空白预览框。busy 一并计入，使重试/重新生成在
+  // 乐观窗口内也占位并禁用按钮；生成中优先于 ready/failed，三者互斥。
+  const inFlight = busy || status === "running" || (status === "ready" && !videoUrl);
+  const ready = status === "ready" && Boolean(videoUrl) && !inFlight;
+  const failed = status === "failed" && !inFlight;
 
   const ctaLabel = inFlight
     ? t("ad_ref_generating")
