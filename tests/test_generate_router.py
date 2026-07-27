@@ -228,6 +228,8 @@ class TestGenerateRouter:
                 json={"script_file": "episode_1.json", "prompt": "x"},
             )
             assert video.status_code == 400, video.text
+            # detail 走 invalid_storyboard_image_path 这条可读文案，不是通用 500/内部错误
+            assert "E1S01" in video.json()["detail"]
             assert fake_queue.calls == []
 
     @pytest.mark.integration
@@ -245,6 +247,7 @@ class TestGenerateRouter:
                 json={"script_file": "episode_1.json", "prompt": "x"},
             )
             assert video.status_code == 400, video.text
+            assert "E1S01" in video.json()["detail"]
             assert fake_queue.calls == []
 
     @pytest.mark.integration
@@ -262,6 +265,7 @@ class TestGenerateRouter:
                 json={"script_file": "episode_1.json", "prompt": "x"},
             )
             assert video.status_code == 400, video.text
+            assert "E1S01" in video.json()["detail"]
             assert fake_queue.calls == []
 
     def test_video_dirty_script_fail_fast_400(self, tmp_path, monkeypatch):
