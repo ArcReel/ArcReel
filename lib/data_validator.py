@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,7 +15,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from lib.asset_types import ASSET_SPECS, ASSET_TYPES
-from lib.episode_ledger import EpisodeOutline, PlanningCursor, SourceRange
+from lib.episode_ledger import LEDGER_STATUSES, EpisodeOutline, PlanningCursor, SourceRange
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
@@ -34,6 +35,8 @@ from lib.speech_rate import estimate_spoken_seconds
 #: ——duration 由画面驱动、留白合法，不被此约束反向改写。仅 DataValidator 消费，与 ad 总时长
 #: 漂移阈值同量级、同「只 warn 不阻塞」语义。
 DRAMA_SPEECH_OVERFLOW_TOLERANCE = 0.20
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -221,6 +224,9 @@ class DataValidator:
         ledger_status = episode.get("ledger_status")
         if ledger_status is not None and not isinstance(ledger_status, str):
             errors.append(f"{prefix}: ledger_status 必须是字符串，当前取值: {ledger_status!r}")
+        elif isinstance(ledger_status, str) and ledger_status not in LEDGER_STATUSES:
+            # 容忍放行、只留排查线索：分不清是存量遗留值还是手编拼写错误，不拿它判项目损坏
+            logger.debug("%s: ledger_status 取值 %r 不在当前状态集内，按无状态处理", prefix, ledger_status)
 
         source_range = episode.get("source_range")
         if source_range is not None:
@@ -316,7 +322,7 @@ class DataValidator:
 
                 if not isinstance(episode.get("episode"), int):
                     errors.append(f"{prefix}: 缺少必填字段 episode (整数)")
-                # title 允许空串：写入方（剧本同步/账本回填）在标题未知时即写 ""，
+                # title 允许空串：写入方（剧本同步/孤儿条目登记）在标题未知时即写 ""，
                 # 待用户或智能体后续命名
                 if not isinstance(episode.get("title"), str):
                     errors.append(f"{prefix}: 缺少必填字段 title (字符串，可为空)")

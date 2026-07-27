@@ -19,7 +19,7 @@ import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 _STRICT_CONFIG = ConfigDict(extra="forbid")
 
 LedgerStatus = Literal["planned", "consumed", "stale"]
+
+#: 当前状态集，供校验层识别「不在当前状态集内」的取值（容忍放行，仅记诊断日志）
+LEDGER_STATUSES: tuple[str, ...] = get_args(LedgerStatus)
 
 # 仅 ASCII 数字：\d 会放行全角等 Unicode 数字，把非流水线产物误判为派生集文件
 _EPISODE_FILE_RE = re.compile(r"episode_([0-9]+)\.txt")
@@ -84,7 +87,7 @@ class SourceRange(BaseModel):
 
 
 class EpisodeOutline(BaseModel):
-    """drama 分集大纲：故事节点 + 下集预告语（由规划工具产出，机械回填不生成）。"""
+    """drama 分集大纲：故事节点 + 下集预告语（由规划工具产出）。"""
 
     model_config = _STRICT_CONFIG
 
@@ -165,13 +168,13 @@ def _read_text_or_none(path: Path) -> str | None:
     try:
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        logger.warning("回填读取文件失败，按缺失处理：%s: %s", path, exc)
+        logger.warning("文本文件读取失败，按缺失处理：%s: %s", path, exc)
         return None
 
 
 def parse_episode_num(value: Any) -> int | None:
     """宽松解析条目集号：int（排除 bool——True 会与第 1 集同键碰撞）或纯数字
-    字符串（历史手编数据），其余返回 None（条目原样保留，不参与回填）。
+    字符串（历史手编数据），其余返回 None（条目原样保留，不参与按集号的处置）。
 
     ``str.isdigit()`` 认可的字符集比 ``int()`` 能转换的更宽（如上标 ``²``、
     带圈数字 ``①``），损坏账本写入这类字符会让 ``isdigit()`` 放行但 ``int()`` 抛
