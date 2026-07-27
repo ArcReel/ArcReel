@@ -164,6 +164,26 @@ export function ModelConfigSection({
     !!supportedDurations &&
     !supportedDurations.includes(value.defaultDuration);
 
+  // 提示文案按越界成因分开：模型全集就不含该值才是「模型不支持」，被联动约束收窄掉时说清
+  // 是分辨率还是参考图路径——用户据此改对应设置，而不是被引去换模型。
+  const durationNoticeKey = useMemo(() => {
+    const saved = value.defaultDuration;
+    if (!isDurationOutOfRange || saved === null) return null;
+    const raw = lookupSupportedDurations(providers, effectiveVideoBackend, customProviders);
+    if (!raw?.includes(saved)) return "duration_unsupported_notice";
+    const { withReferenceImages } = lookupDurationConstraints(providers, effectiveVideoBackend);
+    if (usesReferenceImages && withReferenceImages.length > 0 && !withReferenceImages.includes(saved))
+      return "duration_unsupported_reference_notice";
+    return "duration_unsupported_resolution_notice";
+  }, [
+    isDurationOutOfRange,
+    value.defaultDuration,
+    providers,
+    customProviders,
+    effectiveVideoBackend,
+    usesReferenceImages,
+  ]);
+
   const renderResolutionField = (
     backend: string,
     resolution: string | null,
@@ -236,12 +256,12 @@ export function ModelConfigSection({
                   autoLabel={t("duration_auto")}
                 />
               )}
-              {isDurationOutOfRange && (
+              {durationNoticeKey && (
                 <div
                   role="alert"
                   className="mt-2 flex flex-wrap items-center gap-2 text-[12px] leading-[1.5] text-amber-300"
                 >
-                  <span>{t("duration_unsupported_notice", { value: value.defaultDuration })}</span>
+                  <span>{t(durationNoticeKey, { value: value.defaultDuration })}</span>
                   <button
                     type="button"
                     onClick={() => handleDurationClick(null)}

@@ -99,6 +99,8 @@ export default {
   duration_label: "Default duration",
   duration_auto: "auto",
   duration_unsupported_notice: "Saved duration {{value}}s is no longer supported by the current model. Please reselect.",
+  duration_unsupported_resolution_notice: "Saved duration {{value}}s is unavailable at the current resolution. Please reselect.",
+  duration_unsupported_reference_notice: "Saved duration {{value}}s is unavailable in Reference-to-Video mode. Please reselect.",
   duration_reset_auto: "Reset to auto",
   resolution_label: "Resolution",
   resolution_default_placeholder: "Default (unset)",
