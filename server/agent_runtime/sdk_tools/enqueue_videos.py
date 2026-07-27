@@ -26,7 +26,7 @@ from lib.reference_video.ad_units import (
     resolve_ad_unit_shots,
     sync_ad_reference_units,
 )
-from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
+from lib.storyboard_sequence import get_generated_assets, get_storyboard_items, resolve_storyboard_image_ref
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
     tool_error,
@@ -124,7 +124,7 @@ def _build_video_specs(
         if item_id in skip_set:
             continue
 
-        storyboard_image = (item.get("generated_assets") or {}).get("storyboard_image")
+        storyboard_image = get_generated_assets(item).get("storyboard_image")
         # 字段值来自磁盘剧本 JSON，不可信任：非字符串脏数据/越界/绝对路径引用统一交给
         # resolve_storyboard_image_ref 校验（与路由入队预检、执行层读盘点共用同一份），
         # 批量场景下单个条目非法只跳过并记日志，不中断整批。
@@ -467,7 +467,7 @@ async def _run_ad_reference_episode(
         ),
         # sync 把成员/参考集变化的 unit 重置为待生成；旧同名产物不可复用，
         # 仅 generated_assets 仍指向产物的 unit 才按磁盘文件跳过
-        reuse_existing=lambda u: bool((u.get("generated_assets") or {}).get("video_clip")),
+        reuse_existing=lambda u: bool(get_generated_assets(u).get("video_clip")),
     )
     header = f"参考直出生成完成，共 {len(paths)} 个 unit"
     return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
@@ -610,7 +610,7 @@ def generate_video_scene_tool(ctx: ToolContext):
             # checkpoint 扫描会找不到产物。
             item_id = str(item[id_field])
 
-            storyboard_image = item.get("generated_assets", {}).get("storyboard_image")
+            storyboard_image = get_generated_assets(item).get("storyboard_image")
             # 字段值来自磁盘剧本 JSON，不可信任：resolve_storyboard_image_ref 统一做类型检查 +
             # 越界 / 绝对路径拒绝（与路由入队预检、执行层读盘点共用同一份），异常经外层
             # except 转为可读的 tool_error，不再让非字符串脏数据抛未处理 TypeError。
@@ -687,7 +687,7 @@ def generate_video_all_tool(ctx: ToolContext):
 
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             content_mode = script.get("content_mode", "narration")
-            pending = [it for it in items if not (it.get("generated_assets") or {}).get("video_clip")]
+            pending = [it for it in items if not get_generated_assets(it).get("video_clip")]
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
 

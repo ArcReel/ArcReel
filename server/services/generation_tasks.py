@@ -39,6 +39,7 @@ from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, reso
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
+    get_generated_assets,
     get_storyboard_items,
     group_scenes_by_segment_break,
     resolve_previous_storyboard_path,
@@ -792,8 +793,7 @@ async def execute_video_task(
 
     # 优先读取 generated_assets.storyboard_image，回退默认路径。校验口径见
     # resolve_storyboard_image_ref：与路由入队预检、SDK 工具入队预检共用同一份。
-    assets = item.get("generated_assets", {})
-    storyboard_rel = assets.get("storyboard_image") if isinstance(assets, dict) else None
+    storyboard_rel = get_generated_assets(item).get("storyboard_image")
     storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
     if storyboard_file is None:
         storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"

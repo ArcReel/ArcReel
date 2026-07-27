@@ -855,6 +855,39 @@ async def test_generate_video_episode_happy(fake_ctx: ToolContext, monkeypatch) 
     assert out.get("is_error") is not True
 
 
+@pytest.mark.integration
+async def test_generate_video_episode_non_dict_generated_assets_does_not_abort_batch(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """整集入队先按 generated_assets.video_clip 过滤已完成条目。容器被外部编辑损坏为非 dict
+    时该过滤须按「未生成」处理，而不是在 pending 过滤阶段就抛未处理 AttributeError——那会
+    让整批在到达逐条跳过逻辑之前就中断。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    project_dir = fake_ctx.pm.get_project_path("demo")
+    (project_dir / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
+    fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
+        {"segment_id": "E1S01", "video_prompt": "脏数据", "generated_assets": ["bad"]},
+        {
+            "segment_id": "E1S02",
+            "video_prompt": "合法条目",
+            "generated_assets": {"storyboard_image": "storyboards/scene_E1S02.png"},
+        },
+    ]
+    enqueued: list[str] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        enqueued.extend(spec.resource_id for spec in specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True
+    assert enqueued == ["E1S02"]
+
+
 async def test_generate_video_episode_error(fake_ctx: ToolContext) -> None:
     fake_ctx.pm.script_payload = {"content_mode": "narration", "segments": [], "episode": 1}  # type: ignore[attr-defined]
     tool_obj = generate_video_episode_tool(fake_ctx)
@@ -1067,6 +1100,47 @@ def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch
     )
     assert [s.resource_id for s in specs] == ["S02"]
     assert any("S01" in line for line in log)
+
+
+@pytest.mark.integration
+def test_build_video_specs_skips_non_dict_generated_assets_without_aborting_batch(tmp_path: Path) -> None:
+    """generated_assets 容器本身被外部编辑损坏为非 dict（如 list）时按「没有分镜图」跳过，
+    不应让 `.get("storyboard_image")` 在非 dict 上抛未处理 AttributeError 中断整批。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _build_video_specs
+
+    (tmp_path / "storyboards").mkdir()
+    (tmp_path / "storyboards" / "scene_S02.png").write_bytes(b"png")
+    items = [
+        {"segment_id": "S01", "video_prompt": "脏数据", "generated_assets": ["bad"]},
+        {
+            "segment_id": "S02",
+            "video_prompt": "合法引用",
+            "generated_assets": {"storyboard_image": "storyboards/scene_S02.png"},
+        },
+    ]
+    log: list[str] = []
+    specs, order_map = _build_video_specs(
+        items=items,
+        id_field="segment_id",
+        content_mode="narration",
+        script_filename="episode_1.json",
+        project_dir=tmp_path,
+        skip_ids=None,
+        log=log,
+    )
+    assert [s.resource_id for s in specs] == ["S02"]
+    assert any("S01" in line for line in log)
+
+
+@pytest.mark.integration
+async def test_generate_video_scene_generated_assets_non_dict_readable_rejection(fake_ctx: ToolContext) -> None:
+    """generated_assets 容器本身非 dict 时须走「没有分镜图」的可读拒绝分支，
+    不应在单条路径上抛未处理 AttributeError。"""
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = ["bad"]  # type: ignore[attr-defined]
+    tool_obj = generate_video_scene_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1S01"})
+    assert out.get("is_error") is True
+    assert "没有分镜图" in out["content"][0]["text"]
 
 
 def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
