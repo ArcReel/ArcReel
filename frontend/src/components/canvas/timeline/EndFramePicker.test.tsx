@@ -25,12 +25,6 @@ const script = {
   ],
 } as unknown as EpisodeScript;
 
-const projectData = {
-  characters: { 阿澈: { character_sheet: "characters/achr.png" } },
-  scenes: { 长街: { scene_sheet: "scenes/street.png" } },
-  props: { 铜镜: { prop_sheet: "props/mirror.png" } },
-} as unknown as ProjectData;
-
 function grid(scriptFile: string, cellPath: string): GridGeneration {
   return {
     id: "g1",
@@ -94,8 +88,11 @@ beforeEach(() => {
   ]);
   useProjectsStore.setState({
     currentProjectName: PROJECT,
-    currentProjectData: projectData,
     currentScripts: { [SCRIPT]: script },
+    currentProjectData: {
+      characters: { 张三: { description: "", character_sheet: "characters/zhangsan.png" } },
+      scenes: { 客厅: { description: "", scene_sheet: "scenes/living_room.png" } },
+    } as unknown as ProjectData,
   });
 });
 
@@ -105,16 +102,18 @@ afterEach(() => {
 });
 
 describe("EndFramePicker 项目内通道", () => {
-  it("按来源分组：本集分镜图 / 角色 / 场景 / 本集宫格切图", async () => {
-    const { findByText, getByText, queryByRole } = renderPicker();
+  it("按来源分组：本集分镜图 / 本集宫格切图", async () => {
+    const { findByText, getByText, queryByRole, queryByText } = renderPicker();
 
     await findByText("本集宫格切图");
     expect(getByText("本集分镜图")).toBeInTheDocument();
-    expect(getByText("角色")).toBeInTheDocument();
-    expect(getByText("场景")).toBeInTheDocument();
 
     // 无分镜图的镜头不出现
     expect(queryByRole("button", { name: /镜头 E1S02/ })).toBeNull();
+
+    // 角色/场景分组已移除：即使 currentProjectData 里有对应素材也不展示
+    expect(queryByText("角色")).toBeNull();
+    expect(queryByText("场景")).toBeNull();
   });
 
   it("宫格切图只取本集、且跳过未切出图的格子", async () => {

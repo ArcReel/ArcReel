@@ -9,7 +9,6 @@ import { PrimaryButton } from "@/components/ui/PrimaryButton";
 import { SecondaryButton } from "@/components/ui/SecondaryButton";
 import { UPLOAD_IMAGE_ACCEPT } from "@/components/ui/UploadIconButton";
 import { useProjectsStore } from "@/stores/projects-store";
-import { SHEET_FIELD } from "@/types/reference-video";
 import { getScriptItems, getScriptItemId, type EditorContentMode } from "@/utils/script-shape";
 import { stripScriptsPrefix } from "@/utils/task-target";
 
@@ -44,7 +43,7 @@ interface EndFramePickerProps {
 /**
  * 尾帧选图器：单选，两条通道同一落点。
  *
- * 通道一是项目内图片按来源分组平铺（本集分镜图 / 角色 / 场景 / 本集宫格切图），
+ * 通道一是项目内图片按来源分组平铺（本集分镜图 / 本集宫格切图），
  * 选定后走 `/end-frame/select` 按相对路径快照复制；通道二是 header 的上传入口，
  * 走 `/end-frame/upload`。两者都不建立对源图的引用，源图后续变动不影响尾帧。
  */
@@ -66,7 +65,6 @@ export function EndFramePicker({
   const fileRef = useRef<HTMLInputElement>(null);
 
   const script = useProjectsStore((s) => s.currentScripts[scriptFile]);
-  const projectData = useProjectsStore((s) => s.currentProjectData);
   const [gridImages, setGridImages] = useState<PickableImage[]>([]);
 
   // 宫格切图不在 store 里，弹窗打开时拉一次。取消走 AbortSignal：
@@ -115,35 +113,11 @@ export function EndFramePicker({
         };
       });
 
-    const assetGroup = (
-      kind: "character" | "scene",
-      dict: Record<string, Record<string, unknown>> | undefined,
-    ): PickableImage[] =>
-      Object.entries(dict ?? {})
-        .map(([name, asset]) => ({ name, sheet: asset[SHEET_FIELD[kind]] }))
-        .filter((row): row is { name: string; sheet: string } => typeof row.sheet === "string")
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((row) => ({ path: row.sheet, label: row.name }));
-
     return [
       { title: t("end_frame_picker_group_storyboards"), images: storyboards },
-      {
-        title: t("end_frame_picker_group_characters"),
-        images: assetGroup(
-          "character",
-          projectData?.characters as Record<string, Record<string, unknown>> | undefined,
-        ),
-      },
-      {
-        title: t("end_frame_picker_group_scenes"),
-        images: assetGroup(
-          "scene",
-          projectData?.scenes as Record<string, Record<string, unknown>> | undefined,
-        ),
-      },
       { title: t("end_frame_picker_group_grid_cells"), images: gridImages },
     ].filter((g) => g.images.length > 0);
-  }, [script, contentMode, projectData, gridImages, t]);
+  }, [script, contentMode, gridImages, t]);
 
   return (
     <GlassModal
