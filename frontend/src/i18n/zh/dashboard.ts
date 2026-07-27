@@ -1526,7 +1526,7 @@ export default {
   'end_frame_picker_submitting': '设置中\u2026',
   'end_frame_picker_hint': '从本项目中选一张图片，或上传自己的图片。',
   'end_frame_picker_selected': '已选：{{label}}',
-  'end_frame_picker_empty': '本项目还没有图片，可以直接上传一张。',
+  'end_frame_picker_empty': '本集暂无可选的分镜图或宫格切图，可以直接上传一张。',
   'end_frame_picker_group_storyboards': '本集分镜图',
   'end_frame_picker_group_grid_cells': '本集宫格切图',
   'end_frame_picker_storyboard_label': '镜头 {{id}}',

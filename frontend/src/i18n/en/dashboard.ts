@@ -1526,7 +1526,7 @@ export default {
   'end_frame_picker_submitting': 'Setting\u2026',
   'end_frame_picker_hint': 'Pick an image from this project, or upload your own.',
   'end_frame_picker_selected': 'Selected: {{label}}',
-  'end_frame_picker_empty': 'No images in this project yet. Upload one instead.',
+  'end_frame_picker_empty': 'No storyboard or grid images for this episode yet. Upload one instead.',
   'end_frame_picker_group_storyboards': 'Storyboards in this episode',
   'end_frame_picker_group_grid_cells': 'Grid cells in this episode',
   'end_frame_picker_storyboard_label': 'Shot {{id}}',

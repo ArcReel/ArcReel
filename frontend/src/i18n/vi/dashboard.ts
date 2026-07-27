@@ -1522,7 +1522,7 @@ export default {
   'end_frame_picker_submitting': 'Đang đặt\u2026',
   'end_frame_picker_hint': 'Chọn một ảnh trong dự án này, hoặc tải ảnh của bạn lên.',
   'end_frame_picker_selected': 'Đã chọn: {{label}}',
-  'end_frame_picker_empty': 'Dự án này chưa có ảnh nào. Bạn có thể tải lên một ảnh.',
+  'end_frame_picker_empty': 'Tập này chưa có ảnh phân cảnh hoặc ảnh cắt lưới nào. Bạn có thể tải lên một ảnh.',
   'end_frame_picker_group_storyboards': 'Ảnh storyboard của tập này',
   'end_frame_picker_group_grid_cells': 'Ô lưới của tập này',
   'end_frame_picker_storyboard_label': 'Cảnh {{id}}',

@@ -2,7 +2,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { EpisodeScript } from "@/types";
+import type { EpisodeScript, ProjectData } from "@/types";
 import type { GridGeneration } from "@/types/grid";
 import { EndFramePicker } from "./EndFramePicker";
 
@@ -89,6 +89,10 @@ beforeEach(() => {
   useProjectsStore.setState({
     currentProjectName: PROJECT,
     currentScripts: { [SCRIPT]: script },
+    currentProjectData: {
+      characters: { 张三: { description: "", character_sheet: "characters/zhangsan.png" } },
+      scenes: { 客厅: { description: "", scene_sheet: "scenes/living_room.png" } },
+    } as unknown as ProjectData,
   });
 });
 
@@ -99,13 +103,17 @@ afterEach(() => {
 
 describe("EndFramePicker 项目内通道", () => {
   it("按来源分组：本集分镜图 / 本集宫格切图", async () => {
-    const { findByText, getByText, queryByRole } = renderPicker();
+    const { findByText, getByText, queryByRole, queryByText } = renderPicker();
 
     await findByText("本集宫格切图");
     expect(getByText("本集分镜图")).toBeInTheDocument();
 
     // 无分镜图的镜头不出现
     expect(queryByRole("button", { name: /镜头 E1S02/ })).toBeNull();
+
+    // 角色/场景分组已移除：即使 currentProjectData 里有对应素材也不展示
+    expect(queryByText("角色")).toBeNull();
+    expect(queryByText("场景")).toBeNull();
   });
 
   it("宫格切图只取本集、且跳过未切出图的格子", async () => {
