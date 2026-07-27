@@ -398,6 +398,29 @@ def test_encode_stringifies_non_json_params():
     assert json.loads(stored.split("] ", 1)[1]) == {"duration": "weird"}
 
 
+def test_bound_reason_preserves_scalar_param_types():
+    """裁剪不得改掉同条失败里其它参数的类型。
+
+    裁剪是整个 params 一起过一遍的：只要有任一参数超长触发裁剪，同条失败携带的全部标量都会
+    跟着走一遍归一。把 JSON 原生标量转成文本会在重新编码时被加上引号存回去（``42`` 变
+    ``"42"``、``True`` 变 ``"true"``、``None`` 变 ``"null"``），落库信封的参数类型就变了；
+    模板若用带类型说明符的占位符（如 ``{n:d}``），``str.format`` 抛出的异常会被
+    ``lib/i18n/__init__.py::_`` 吞掉，最终把裸占位符显示给用户。
+    """
+    stored = encode_failure("resume_expired_detail", detail="x" * 3000, retries=3, ratio=1.5, expired=True, note=None)
+
+    bounded = bound_reason(stored, 2000)
+
+    assert len(bounded) <= 2000
+    params = json.loads(bounded.split("] ", 1)[1])
+    assert params["retries"] == 3 and isinstance(params["retries"], int)
+    assert params["ratio"] == 1.5 and isinstance(params["ratio"], float)
+    assert params["expired"] is True
+    assert params["note"] is None
+    # 超长的那个仍被收窄。
+    assert len(params["detail"]) < 3000
+
+
 def test_unregistered_capability_code_degrades_to_passthrough_text():
     """code 未登记时退回非结构化文本，读侧原样透传——失败原因不丢，任务不卡 running。"""
     exc = VideoCapabilityError("video_totally_new_code", model="x")

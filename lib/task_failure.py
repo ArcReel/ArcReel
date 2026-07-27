@@ -106,13 +106,18 @@ def encode_failure(code: str, /, **params: Any) -> str:
 
 
 def _as_shrinkable(value: Any) -> Any:
-    """把非字符串参数值换成自身的 JSON 文本，好让裁剪逻辑能收窄它。
+    """把容器参数值换成自身的 JSON 文本，好让裁剪逻辑能收窄它。
 
     截断一个容器的字符串形态比截断 JSON 字面量安全——后者会留下不闭合的括号。嵌套过深到
     ``json.dumps`` 撞递归上限的值降级为省略号：裁剪发生在落库路径上，抛出去会让任务卡在
     running。
+
+    只动容器：``int`` / ``float`` / ``bool`` / ``None`` 本就是 JSON 原生标量，撑不爆预算也
+    无从收窄，转成文本反而会在重新编码时被加上引号存回去（``42`` 变 ``"42"``、``True`` 变
+    ``"true"``、``None`` 变 ``"null"``），把落库信封里的参数类型改掉。而裁剪是整个 params
+    一起过一遍的，所以只要有任一参数触发裁剪，同条失败里全部标量都会跟着变形。
     """
-    if isinstance(value, str):
+    if not isinstance(value, dict | list):
         return value
     try:
         return json.dumps(value, ensure_ascii=False, default=str)
