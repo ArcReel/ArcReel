@@ -159,18 +159,18 @@ _VEO_STANDARD_RATES: dict[tuple[str, bool | None], float] = {
     ("4k", False): 0.40,
 }
 _VEO_FAST_RATES: dict[tuple[str, bool | None], float] = {
-    ("720p", True): 0.15,
-    ("720p", False): 0.10,
-    ("1080p", True): 0.15,
+    ("720p", True): 0.10,
+    ("720p", False): 0.08,
+    ("1080p", True): 0.12,
     ("1080p", False): 0.10,
-    ("4k", True): 0.35,
-    ("4k", False): 0.30,
+    ("4k", True): 0.30,
+    ("4k", False): 0.25,
 }
 _VEO_LITE_RATES: dict[tuple[str, bool | None], float] = {
     ("720p", True): 0.05,
-    ("720p", False): 0.05,
+    ("720p", False): 0.03,
     ("1080p", True): 0.08,
-    ("1080p", False): 0.08,
+    ("1080p", False): 0.05,
 }
 
 
