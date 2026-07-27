@@ -25,9 +25,13 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from lib.episode_ledger import (
+    SOURCE_FINGERPRINTS_KEY,
+    SourceDoc,
     backfill_episode_ledger,
+    compute_source_fingerprints,
     discover_episode_files,
     discover_sources,
+    mismatched_source_fingerprints,
     normalize_source_text,
     parse_episode_num,
 )
@@ -438,6 +442,7 @@ class EpisodePlanner:
         """
         planning_instructions = (instructions or "").strip() or None
         project = backfill_episode_ledger(self.project_path, self.pm.load_project(self.project_name))
+        self._check_source_fingerprints(project)
         start_ref = self._effective_start(project)
         source_rel, start = start_ref
         text = self._load_normalized_source(source_rel)
@@ -511,6 +516,10 @@ class EpisodePlanner:
             p.update(fresh)
             if self._effective_start(p) != start_ref:
                 raise PlanningConflictError("规划期间账本进度被并发修改，本次结果作废；请重新调用规划")
+            # 锁内复核：文本模型调用期间源文件可能被外部改动，与锁外预检查同一套逃生口，
+            # 复用同一错误提示——重试只会再次命中同一比对，须先重置
+            current_sources = discover_sources(self.project_path)
+            self._check_source_fingerprints(p, sources=current_sources)
             episodes_list = [e for e in (p.get("episodes") or []) if e is not None]
             nums = [parse_episode_num(e.get("episode")) for e in episodes_list if isinstance(e, dict)]
             # 集号只在正整数域上推进：负数/0 集号属脏数据，不让它把新集编号拖成非正数
@@ -537,6 +546,7 @@ class EpisodePlanner:
             _sort_episodes_if_possible(episodes_list)
             p["episodes"] = episodes_list
             p["planning_cursor"] = {"source_file": source_rel, "offset": start + ends[-1]}
+            p[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(current_sources)
             self._reconcile_derived_files(p, {source_rel: text})
             committed["cursor"] = p["planning_cursor"]
             committed["exhausted"] = (
@@ -936,6 +946,21 @@ class EpisodePlanner:
             return normalize_source_text(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError) as exc:
             raise EpisodePlanningError(f"源文件读取失败：{rel}: {exc}") from exc
+
+    def _check_source_fingerprints(self, project: Mapping[str, Any], *, sources: list[SourceDoc] | None = None) -> None:
+        """比对账本记录的源文指纹与当前源文，不一致（含记录文件已消失）即拒绝规划。
+
+        存量项目无记录 / 新源文件尚未记录时不比对（首次 plan 只补记不报错）。``sources`` 由
+        调用方传入以复用已读取的源文快照，缺省时现读一次。
+        """
+        docs = sources if sources is not None else discover_sources(self.project_path)
+        mismatched = mismatched_source_fingerprints(project.get(SOURCE_FINGERPRINTS_KEY), docs)
+        if mismatched:
+            changed = "、".join(mismatched)
+            raise EpisodePlanningError(
+                f"源文件已被修改或移除：{changed}。账本坐标绑定的是修改前的原文内容，继续规划会静默切出"
+                "错误内容；请先调用 reset_episode_planning 做全量重置，再重新规划。"
+            )
 
     @staticmethod
     def _setting_int(project: Mapping[str, Any], key: str, default: int) -> int:
