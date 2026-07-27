@@ -806,7 +806,9 @@ async def execute_video_task(
         try:
             storyboard_file.relative_to(storyboards_root)
         except ValueError:
-            raise ValueError(f"invalid storyboard image path: {storyboard_rel!r}") from None
+            # 与越界/脏数据分开措辞：这一支是「项目内但不在 storyboards/」，唯一能自然落进来的
+            # 是外部编辑过的剧本，运维需要从失败原因直接看出是目录归属而非路径越界。
+            raise ValueError(f"storyboard image path must stay under storyboards/: {storyboard_rel!r}") from None
     else:
         storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
     if not storyboard_file.exists():

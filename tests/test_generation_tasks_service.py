@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -620,22 +621,24 @@ class TestGenerationTasks:
         assert fake_generator.video_calls == []
 
     @pytest.mark.parametrize(
-        "storyboard_value",
+        ("storyboard_value", "expected_message"),
         [
-            "/etc/passwd",  # 绝对路径：裸 `/` 拼接会整体丢弃左操作数，读到项目外文件
-            "../../outside.png",  # `..` 穿越出项目目录
-            "storyboards/../end_frames/scene_E1S01.png",  # 项目内但绕开 storyboards 目录
-            "end_frames/scene_E1S01.png",  # 落在项目内合法目录，但不是 storyboards/
-            123,  # 剧本 JSON 里的脏数据（非字符串）须给出可读失败，而非 TypeError
-            0,  # falsy 脏数据：真值判断不得把它当成「未设置」而静默回退默认路径
-            False,  # 同上
-            [],  # 同上
-            {},  # 同上
+            # 越界与脏数据：统称非法路径
+            ("/etc/passwd", "invalid storyboard image path"),  # 绝对路径：裸 `/` 拼接会整体丢弃左操作数
+            ("../../outside.png", "invalid storyboard image path"),  # `..` 穿越出项目目录
+            (123, "invalid storyboard image path"),  # 剧本 JSON 里的脏数据（非字符串）须可读失败而非 TypeError
+            (0, "invalid storyboard image path"),  # falsy 脏数据：真值判断不得当成「未设置」而静默回退默认路径
+            (False, "invalid storyboard image path"),  # 同上
+            ([], "invalid storyboard image path"),  # 同上
+            ({}, "invalid storyboard image path"),  # 同上
+            # 目录归属：项目内但不在 storyboards/，措辞需与越界区分，便于定位外部编辑过的剧本
+            ("storyboards/../end_frames/scene_E1S01.png", "must stay under storyboards/"),
+            ("end_frames/scene_E1S01.png", "must stay under storyboards/"),
         ],
     )
     @pytest.mark.integration
     async def test_execute_video_task_storyboard_image_outside_dir_fails_hard(
-        self, monkeypatch, tmp_path, storyboard_value
+        self, monkeypatch, tmp_path, storyboard_value, expected_message
     ):
         """剧本是磁盘 JSON，storyboard_image 字段不可信：越界 / 绕开 storyboards 目录 / 脏数据
         一律硬失败，不把任意服务器文件送进视频请求上传给供应商。"""
@@ -651,7 +654,7 @@ class TestGenerationTasks:
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
 
-        with pytest.raises(ValueError, match="invalid storyboard image path"):
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
             await generation_tasks.execute_video_task(
                 "demo",
                 "E1S01",
