@@ -799,6 +799,11 @@ async def execute_video_task(
     if storyboard_rel not in (None, ""):
         if not isinstance(storyboard_rel, str):
             raise ValueError(f"invalid storyboard image path: {storyboard_rel!r}")
+        # try_safe_join 的越界校验只挡「解析结果落在项目外」；`os.path.join` 遇到绝对路径会
+        # 丢弃 base，若该绝对路径恰好落在项目 storyboards/ 内仍会通过越界检查。issue 验收标准
+        # 要求绝对路径本身一律拒绝（与是否越界无关），须在解析前显式挡掉。
+        if Path(storyboard_rel).is_absolute():
+            raise ValueError(f"invalid storyboard image path: {storyboard_rel!r}")
         storyboards_root = safe_join(project_path, "storyboards", allow_base=True)
         storyboard_file = try_safe_join(project_path, storyboard_rel)
         if storyboard_file is None:

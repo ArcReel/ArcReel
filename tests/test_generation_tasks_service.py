@@ -666,6 +666,34 @@ class TestGenerationTasks:
         assert fake_generator.video_calls == []
 
     @pytest.mark.integration
+    async def test_execute_video_task_storyboard_image_absolute_path_inside_project_fails_hard(
+        self, monkeypatch, tmp_path
+    ):
+        """storyboard_image 是项目 storyboards/ 内的绝对路径时同样硬失败：`os.path.join` 遇绝对
+        路径会丢弃项目根，越界校验只看结果是否落在项目内，光靠目录归属挡不住这类值，须显式拒绝
+        绝对路径本身。"""
+        project_path = _prepare_files(tmp_path)
+        (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        absolute_value = str(project_path / "storyboards" / "scene_E1S01.png")
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": absolute_value}
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="invalid storyboard image path"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
     async def test_execute_video_task_end_frame_image_passed_to_generator(self, monkeypatch, tmp_path):
         """镜头设置了 end_frame_image 时，生成视频请求携带 end_image；快照路径取自
         镜头持久字段拼接的项目内固定相对路径。"""
