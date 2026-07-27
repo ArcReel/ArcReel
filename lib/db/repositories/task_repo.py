@@ -22,6 +22,26 @@ logger = logging.getLogger(__name__)
 
 ACTIVE_TASK_STATUSES = ("queued", "running", "cancelling")
 
+# _mark_failed_queued_dep 落库时按此长度截断 error_message；级联编码若超过此长度会被
+# 切断结尾的 `}`，使 render_failure 无法解析为合法 JSON。_encode_bounded_cascade_failure
+# 在编码前先按预算裁剪 reason，保证结果本身不需要再被截断，深层依赖链也不会近指数增长。
+_CASCADE_MESSAGE_LIMIT = 2000
+
+
+def _encode_bounded_cascade_failure(*, dependency_task_id: str, reason: str) -> str:
+    encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
+    if len(encoded) <= _CASCADE_MESSAGE_LIMIT:
+        return encoded
+
+    overhead = len(encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=""))
+    budget = max(_CASCADE_MESSAGE_LIMIT - overhead, 0)
+    reason = reason[:budget]
+    encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
+    while len(encoded) > _CASCADE_MESSAGE_LIMIT and reason:
+        reason = reason[: len(reason) - (len(encoded) - _CASCADE_MESSAGE_LIMIT)]
+        encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
+    return encoded
+
 
 def _json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
@@ -385,6 +405,10 @@ class TaskRepository(BaseRepository):
         return affected
 
     async def _cascade_failed_queued(self, *, task_id: str, error_message: str) -> int:
+        """按依赖链级联标失败。`error_message` 沿链条原样传递（根因，不随层数重新嵌套），
+        每层只把自己的直接阻塞方 `task_id` 写入编码——避免深层依赖链把上一层的完整编码串
+        再嵌套进新一层 JSON 造成的近指数增长与落库截断损坏。
+        """
         result = await self.session.execute(
             select(Task.task_id)
             .where(
@@ -397,14 +421,12 @@ class TaskRepository(BaseRepository):
 
         cascaded = 0
         for dep_id in dependent_ids:
-            blocked_message = encode_failure(
-                "cascade_blocked_dependency", dependency_task_id=task_id, reason=error_message
-            )
+            blocked_message = _encode_bounded_cascade_failure(dependency_task_id=task_id, reason=error_message)
             affected = await self._mark_failed_queued_dep(task_id=dep_id, error_message=blocked_message)
             if affected == 0:
                 continue
             cascaded += affected
-            cascaded += await self._cascade_failed_queued(task_id=dep_id, error_message=blocked_message)
+            cascaded += await self._cascade_failed_queued(task_id=dep_id, error_message=error_message)
         return cascaded
 
     async def get_cancel_preview(self, task_id: str) -> dict[str, Any]:

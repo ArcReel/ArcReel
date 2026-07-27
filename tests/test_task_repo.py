@@ -7,7 +7,15 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from lib.db.repositories.task_repo import TaskRepository
-from lib.task_failure import encode_failure
+from lib.i18n import _ as translate_message
+from lib.task_failure import encode_failure, render_failure
+
+
+def _translator(locale: str):
+    def translate(key: str, **kwargs):
+        return translate_message(key, locale=locale, **kwargs)
+
+    return translate
 
 
 @pytest.fixture
@@ -145,6 +153,42 @@ class TestTaskRepository:
         assert dep_task["error_message"] == encode_failure(
             "cascade_blocked_dependency", dependency_task_id=first["task_id"], reason="boom"
         )
+
+    @pytest.mark.integration
+    async def test_deep_dependency_cascade_stays_renderable(self, db_session):
+        """10 层依赖链级联失败：编码不应因深度嵌套被截断成非法 JSON。"""
+        repo = TaskRepository(db_session)
+
+        chain_length = 10
+        tasks = []
+        dependency_task_id = None
+        for i in range(chain_length):
+            task = await repo.enqueue(
+                project_name="demo",
+                task_type="storyboard",
+                media_type="image",
+                resource_id=f"E1S{i:02d}",
+                payload={},
+                script_file="ep1.json",
+                dependency_task_id=dependency_task_id,
+            )
+            tasks.append(task)
+            dependency_task_id = task["task_id"]
+
+        await repo.claim_next("image")
+        await repo.mark_failed(tasks[0]["task_id"], "boom" * 50)
+
+        deepest = await repo.get(tasks[-1]["task_id"])
+        assert deepest["status"] == "failed"
+        error_message = deepest["error_message"]
+        assert error_message is not None
+        assert len(error_message) <= 2000
+
+        for locale in ("zh", "en", "vi"):
+            rendered = render_failure(error_message, _translator(locale))
+            assert rendered is not None
+            assert "[" not in rendered
+            assert "cascade_blocked_dependency" not in rendered
 
     async def test_requeue_running_tasks(self, db_session):
         repo = TaskRepository(db_session)
