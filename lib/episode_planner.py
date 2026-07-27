@@ -25,9 +25,13 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from lib.episode_ledger import (
+    SOURCE_FINGERPRINTS_KEY,
+    SourceDoc,
     backfill_episode_ledger,
+    compute_source_fingerprints,
     discover_episode_files,
     discover_sources,
+    mismatched_source_fingerprints,
     normalize_source_text,
     parse_episode_num,
 )
@@ -371,6 +375,14 @@ def _language_of(project: Mapping[str, Any]) -> str | None:
     return language if isinstance(language, str) else None
 
 
+def _source_changed_error(paths: list[str]) -> EpisodePlanningError:
+    """构造源文已变动的拒绝错误：指名变动文件并指路全量重置。"""
+    return EpisodePlanningError(
+        f"源文件已被修改或移除：{'、'.join(paths)}。账本坐标绑定的是修改前的原文内容，继续规划会静默切出"
+        "错误内容；请先调用 reset_episode_planning 做全量重置，再重新规划。"
+    )
+
+
 # plan_episodes 开篇定位：novel 走「切分 / 创作」，screenplay 翻为「尊重作者分集 / 提取」。
 # screenplay 二分支——剧本自带分集（任意形态）照用作者边界，无分集才按剧情弧语义切，
 # 绝不按字数机械切；不依赖任何固定分集标记，靠模型语义识别作者写下的分集形态。
@@ -438,14 +450,30 @@ class EpisodePlanner:
         """
         planning_instructions = (instructions or "").strip() or None
         project = backfill_episode_ledger(self.project_path, self.pm.load_project(self.project_name))
+        pre_call_sources = discover_sources(self.project_path)
+        self._check_source_fingerprints(project, sources=pre_call_sources)
+        # 提交时复核的基线只留指纹摘要，不为暂不参与本批规划的源文件常驻其全文：
+        # discover_sources 已读入全部候选源文的原文用于计算这批指纹，本函数下方
+        # 显式 del 释放该列表，避免大型多源项目在跨模型调用的等待期间叠加持有整套原文
+        used_fingerprints = compute_source_fingerprints(pre_call_sources)
+
+        def _pre_call_text(rel: str) -> str | None:
+            return next((doc.text for doc in pre_call_sources if doc.rel_path == rel), None)
+
         start_ref = self._effective_start(project)
         source_rel, start = start_ref
-        text = self._load_normalized_source(source_rel)
+        text = _pre_call_text(source_rel)
+        if text is None:
+            text = self._load_normalized_source(source_rel)
+            used_fingerprints[source_rel] = compute_source_fingerprints([SourceDoc(rel_path=source_rel, text=text)])[
+                source_rel
+            ]
         if start > len(text):
             raise EpisodePlanningError(f"规划起点越界：{source_rel} 长度 {len(text)}，起点 {start}；请检查账本")
         while not text[start:].strip():
             next_rel = self._next_source_rel(source_rel)
             if next_rel is None:
+                project = self._backfill_source_fingerprints_if_missing(project, used_fingerprints=used_fingerprints)
                 return PlanResult(
                     episodes=[],
                     cursor=project.get("planning_cursor"),
@@ -454,7 +482,13 @@ class EpisodePlanner:
                     ledger_stats=self._compute_ledger_stats(project),
                 )
             source_rel, start = next_rel, 0
-            text = self._load_normalized_source(source_rel)
+            text = _pre_call_text(source_rel)
+            if text is None:
+                text = self._load_normalized_source(source_rel)
+                used_fingerprints[source_rel] = compute_source_fingerprints(
+                    [SourceDoc(rel_path=source_rel, text=text)]
+                )[source_rel]
+        pre_call_sources = []  # 之后只需 used_fingerprints（摘要）与本批实际使用的 text，显式释放原文引用
 
         window_chars = self._setting_int(project, "planning_window_chars", DEFAULT_PLANNING_WINDOW_CHARS)
         max_episodes = self._setting_int(project, "planning_max_episodes", DEFAULT_PLANNING_MAX_EPISODES)
@@ -511,6 +545,19 @@ class EpisodePlanner:
             p.update(fresh)
             if self._effective_start(p) != start_ref:
                 raise PlanningConflictError("规划期间账本进度被并发修改，本次结果作废；请重新调用规划")
+            # 锁内复核：模型调用期间源文件可能被外部改动，与锁外预检查同一套逃生口，
+            # 复用同一错误提示——重试只会再次命中同一比对，须先重置
+            current_sources = discover_sources(self.project_path)
+            self._check_source_fingerprints(p, sources=current_sources)
+            # 指纹比对只覆盖「已记录」的文件，存量项目补记路径上恒为空；而切分坐标与派生
+            # 文件都基于本次调用读入的 used_fingerprints（覆盖入口快照 + 循环中途新发现的
+            # 源文件），故直接比指纹堵住补记路径裸露的窗口——本次调用之前已锚定其它集号
+            # 的源文、以及 _next_source_rel() 在快照之后才发现并读入的新源文件，若在模型
+            # 调用期间被改动，同样会被这里拦下
+            current_fingerprints = compute_source_fingerprints(current_sources)
+            changed = sorted(rel for rel, fp in used_fingerprints.items() if current_fingerprints.get(rel) != fp)
+            if changed:
+                raise _source_changed_error(changed)
             episodes_list = [e for e in (p.get("episodes") or []) if e is not None]
             nums = [parse_episode_num(e.get("episode")) for e in episodes_list if isinstance(e, dict)]
             # 集号只在正整数域上推进：负数/0 集号属脏数据，不让它把新集编号拖成非正数
@@ -537,6 +584,7 @@ class EpisodePlanner:
             _sort_episodes_if_possible(episodes_list)
             p["episodes"] = episodes_list
             p["planning_cursor"] = {"source_file": source_rel, "offset": start + ends[-1]}
+            p[SOURCE_FINGERPRINTS_KEY] = current_fingerprints
             self._reconcile_derived_files(p, {source_rel: text})
             committed["cursor"] = p["planning_cursor"]
             committed["exhausted"] = (
@@ -936,6 +984,43 @@ class EpisodePlanner:
             return normalize_source_text(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError) as exc:
             raise EpisodePlanningError(f"源文件读取失败：{rel}: {exc}") from exc
+
+    def _check_source_fingerprints(self, project: Mapping[str, Any], *, sources: list[SourceDoc] | None = None) -> None:
+        """比对账本记录的源文指纹与当前源文，不一致（含记录文件已消失）即拒绝规划。
+
+        存量项目无记录 / 新源文件尚未记录时不比对（首次 plan 只补记不报错）。``sources`` 由
+        调用方传入以复用已读取的源文快照，缺省时现读一次。
+        """
+        docs = sources if sources is not None else discover_sources(self.project_path)
+        mismatched = mismatched_source_fingerprints(project.get(SOURCE_FINGERPRINTS_KEY), docs)
+        if mismatched:
+            raise _source_changed_error(mismatched)
+
+    def _backfill_source_fingerprints_if_missing(
+        self, project: Mapping[str, Any], *, used_fingerprints: dict[str, str]
+    ) -> dict:
+        """存量项目在 ``source_exhausted`` 早退路径上补记指纹：该路径不经过 ``plan()`` 的
+        提交闭包，若跳过会让「首次 plan 补记指纹」对已耗尽游标的存量项目失效——后续等长
+        编辑旧正文都因无基线可比而放行。已有指纹的项目直接原样返回，不重复计算。
+
+        ``used_fingerprints`` 是本次 plan() 调用锁外读入的源文摘要基线（入口快照 + 循环
+        中途新发现的源文件）：锁内复核与常规提交路径同一套逃生口——若 plan() 保存快照后、
+        本闭包读取前源文被改动，直接把变更内容登记为基线会让这次变更永久失去可比对象，
+        须先拒绝。
+        """
+        if project.get(SOURCE_FINGERPRINTS_KEY) is not None:
+            return dict(project)
+
+        def _commit(p: dict) -> None:
+            current_sources = discover_sources(self.project_path)
+            self._check_source_fingerprints(p, sources=current_sources)
+            current_fingerprints = compute_source_fingerprints(current_sources)
+            changed = sorted(rel for rel, fp in used_fingerprints.items() if current_fingerprints.get(rel) != fp)
+            if changed:
+                raise _source_changed_error(changed)
+            p[SOURCE_FINGERPRINTS_KEY] = current_fingerprints
+
+        return self.pm.update_project(self.project_name, _commit)
 
     @staticmethod
     def _setting_int(project: Mapping[str, Any], key: str, default: int) -> int:
