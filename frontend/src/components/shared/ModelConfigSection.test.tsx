@@ -433,4 +433,108 @@ describe("ModelConfigSection", () => {
     await user.click(screen.getByRole("button", { name: "回退到 auto" }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ defaultDuration: null }));
   });
+
+  // ── 联动约束：分辨率 / 参考图路径收窄可选时长 ──────────────────
+
+  const VEO_PROVIDERS: ProviderInfo[] = [
+    {
+      id: "gemini-aistudio",
+      display_name: "AI Studio",
+      description: "",
+      status: "ready",
+      media_types: ["video"],
+      capabilities: [],
+      configured_keys: [],
+      missing_keys: [],
+      models: {
+        veo: {
+          display_name: "Veo 3.1",
+          media_type: "video",
+          capabilities: [],
+          default: false,
+          supported_durations: [4, 6, 8],
+          duration_resolution_constraints: { "1080p": [8], "4k": [8] },
+          reference_image_durations: [8],
+          resolutions: ["720p", "1080p", "4k"],
+        },
+      },
+    },
+  ];
+
+  const VEO_OPTIONS = {
+    videoBackends: ["gemini-aistudio/veo"],
+    imageBackends: [],
+    textBackends: [],
+    providerNames: { "gemini-aistudio": "AI Studio" },
+  };
+
+  const NO_GLOBAL_DEFAULTS = {
+    video: "",
+    imageT2I: "",
+    imageI2I: "",
+    textDefault: "",
+    textSimple: "",
+    textComplex: "",
+  };
+
+  function renderVeo(
+    overrides: Partial<React.ComponentProps<typeof ModelConfigSection>> & {
+      videoResolution?: string | null;
+      defaultDuration?: number | null;
+    } = {},
+  ) {
+    const { videoResolution = null, defaultDuration = null, ...props } = overrides;
+    return render(
+      <ModelConfigSection
+        value={{
+          ...EMPTY_VALUE,
+          videoBackend: "gemini-aistudio/veo",
+          videoResolution,
+          defaultDuration,
+        }}
+        onChange={() => {}}
+        providers={VEO_PROVIDERS}
+        options={VEO_OPTIONS}
+        globalDefaults={NO_GLOBAL_DEFAULTS}
+        {...props}
+      />,
+    );
+  }
+
+  it("offers every supported duration at an unconstrained resolution", () => {
+    renderVeo({ videoResolution: "720p" });
+    for (const sec of ["4 秒", "6 秒", "8 秒"]) {
+      expect(screen.getByRole("radio", { name: sec })).toBeInTheDocument();
+    }
+  });
+
+  it.each(["1080p", "4k"])("offers only 8s at %s", (resolution) => {
+    renderVeo({ videoResolution: resolution });
+    expect(screen.getByRole("radio", { name: "8 秒" })).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "6 秒" })).not.toBeInTheDocument();
+  });
+
+  it("offers only 8s on the reference-video path even at 720p", () => {
+    renderVeo({ videoResolution: "720p", usesReferenceImages: true });
+    expect(screen.getByRole("radio", { name: "8 秒" })).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
+  });
+
+  // 警告文案按越界成因分开：模型本身仍支持 4 秒，指向「模型不支持」会把用户引去换模型。
+  it.each([
+    ["1080p 分辨率", { videoResolution: "1080p" }, /当前分辨率下不可用/],
+    ["参考生视频模式", { videoResolution: "720p", usesReferenceImages: true }, /参考生视频模式下不可用/],
+  ])("warns about a saved 4s duration under %s", (_label, overrides, expected) => {
+    renderVeo({ ...overrides, defaultDuration: 4 });
+    expect(screen.getByRole("alert")).toHaveTextContent(expected);
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/不再受当前模型支持/);
+    expect(screen.getByRole("radio", { name: "8 秒" })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("keeps a saved 4s duration valid when neither constraint applies", () => {
+    renderVeo({ videoResolution: "720p", defaultDuration: 4 });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "4 秒" })).toHaveAttribute("aria-checked", "true");
+  });
 });

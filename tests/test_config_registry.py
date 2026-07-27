@@ -97,26 +97,46 @@ class TestModelInfoDurations:
                         f"{provider_id}/{model_id} 不是视频模型但有 supported_durations"
                     )
 
-    def test_aistudio_veo_has_resolution_constraints(self):
-        """AI Studio Veo 模型在 1080p 下只支持 8s。"""
-        meta = PROVIDER_REGISTRY["gemini-aistudio"]
+    @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
+    def test_veo_declares_high_resolution_constraints(self, provider_id):
+        """两侧 Veo 模型每个可选高分辨率档都声明「仅 8s」，UI 才能据此收窄时长选项。"""
+        meta = PROVIDER_REGISTRY[provider_id]
         for model_id, model_info in meta.models.items():
-            if model_info.media_type == "video":
-                assert "1080p" in model_info.duration_resolution_constraints
-                assert model_info.duration_resolution_constraints["1080p"] == [8]
+            if model_info.media_type != "video":
+                continue
+            for resolution in model_info.resolutions:
+                if resolution in ("1080p", "4k"):
+                    assert model_info.duration_resolution_constraints.get(resolution) == [8], (
+                        f"{provider_id}/{model_id} 的 {resolution} 未声明仅 8s"
+                    )
 
-    def test_vertex_veo_has_no_resolution_constraints(self):
-        """Vertex Veo 模型无分辨率约束。"""
-        meta = PROVIDER_REGISTRY["gemini-vertex"]
+    @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
+    def test_veo_declares_reference_image_durations(self, provider_id):
+        """Veo 带参考图时只接受 8s，两侧全系声明，与 backend 的执行期拒绝对齐。"""
+        meta = PROVIDER_REGISTRY[provider_id]
         for model_id, model_info in meta.models.items():
             if model_info.media_type == "video":
-                assert model_info.duration_resolution_constraints == {}
+                assert model_info.reference_image_durations == [8], f"{provider_id}/{model_id} 参考图时长约束缺失"
+
+    def test_veo_4k_only_where_officially_supported(self):
+        """4k 仅 Veo 3.1 Standard 两侧 + AI Studio 的 Fast 支持；Lite 与 Vertex Fast 不支持。"""
+        expected_4k = {
+            ("gemini-aistudio", "veo-3.1-generate-preview"): True,
+            ("gemini-aistudio", "veo-3.1-fast-generate-preview"): True,
+            ("gemini-aistudio", "veo-3.1-lite-generate-preview"): False,
+            ("gemini-vertex", "veo-3.1-generate-001"): True,
+            ("gemini-vertex", "veo-3.1-fast-generate-001"): False,
+        }
+        for (provider_id, model_id), supported in expected_4k.items():
+            resolutions = PROVIDER_REGISTRY[provider_id].models[model_id].resolutions
+            assert ("4k" in resolutions) is supported, f"{provider_id}/{model_id} 的 4k 支持性与官方文档不符"
 
     def test_model_info_default_values(self):
         """ModelInfo 新字段的默认值。"""
         mi = ModelInfo(display_name="test", media_type="text", capabilities=[])
         assert mi.supported_durations == []
         assert mi.duration_resolution_constraints == {}
+        assert mi.reference_image_durations == []
 
 
 class TestCredentialGroups:
