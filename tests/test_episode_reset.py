@@ -126,7 +126,7 @@ def test_reset_clears_source_fingerprints(tmp_path: Path) -> None:
 
 
 def test_reset_removes_remaining_file(tmp_path: Path) -> None:
-    """余文文件被清理：留着会在下次规划的回填中被换算成游标，让「从头规划」变成续规划。"""
+    """余文文件被清理：账本游标已取代它，留着只会在 source/ 下留一份与账本无关的陈旧剩余正文。"""
     project_dir = _write_project(tmp_path)
     remaining = project_dir / "source" / "_remaining.txt"
     remaining.write_text("第三章 风波。少女身份成谜。", encoding="utf-8")
@@ -197,7 +197,7 @@ def test_archive_does_not_overwrite_existing_backup(tmp_path: Path) -> None:
 
 
 def test_orphan_episode_file_archived(tmp_path: Path) -> None:
-    """账本无对应条目的孤儿集文件按无坐标处理：留底而非删除，避免回填重新补建条目。"""
+    """账本无对应条目的孤儿集文件按无坐标处理：留底而非删除，避免孤儿条目登记重新补建条目。"""
     project_dir = _write_project(tmp_path)
     (project_dir / "source" / "episode_7.txt").write_text("孤儿内容", encoding="utf-8")
 
@@ -498,8 +498,8 @@ def test_archive_path_increments_past_dangling_symlink_collision(tmp_path: Path)
 
 
 def test_discover_episode_files_prefers_readable_over_dangling_alias(tmp_path: Path) -> None:
-    """代表路径在悬空别名恰好排序在前时仍优先选可读文件，避免 backfill 等按内容匹配
-    source_range 的调用方读到悬空链接而误判该集无内容。"""
+    """代表路径在悬空别名恰好排序在前时仍优先选可读文件，避免按内容读派生文件的调用方
+    读到悬空链接而误判该集无内容。"""
     project_dir = _write_project(tmp_path)
     valid = project_dir / "source" / "episode_1.txt"
     valid.write_text(SOURCE[:10], encoding="utf-8")
@@ -511,7 +511,7 @@ def test_discover_episode_files_prefers_readable_over_dangling_alias(tmp_path: P
 
 def test_discover_episode_files_skips_episode_with_only_dangling_alias(tmp_path: Path) -> None:
     """某集号全部别名都是悬空符号链接（无真实内容）时，代表路径映射里不出现该集号，
-    而不是返回一个读不到内容的路径——否则 backfill 会为纯悬空、无真实内容的集号
+    而不是返回一个读不到内容的路径——否则孤儿条目登记会为纯悬空、无真实内容的集号
     凭空补建一个幽灵条目。"""
     project_dir = _write_project(tmp_path)
     dangling = project_dir / "source" / "episode_9.txt"
@@ -587,7 +587,7 @@ def test_orphan_draft_dir_requires_confirmation(tmp_path: Path) -> None:
 
 def test_reset_processes_all_padding_aliases_of_same_episode(tmp_path: Path) -> None:
     """同一集号的多个 padding 别名（episode_1.txt / episode_01.txt）全部被处置，
-    否则未处理的别名会在下次回填中重新补建账本条目。"""
+    否则未处理的别名会被孤儿条目登记重新补建账本条目。"""
     project_dir = _write_project(
         tmp_path,
         episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],

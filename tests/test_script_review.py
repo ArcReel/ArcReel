@@ -588,7 +588,7 @@ class TestManualSplitSelfHeal:
         assert pm.load_project("demo")["episodes"] == []
 
     def test_self_heal_idempotent_no_duplicate_entries(self, tmp_path):
-        """重复触发自愈（同集反复读状态）不产生重复集号条目，也不重复改写已回填条目。"""
+        """重复触发自愈（同集反复读状态）不产生重复集号条目，也不重复改写已登记条目。"""
         pm = _make_manual_split_project(tmp_path, "narration")
         _write_source_text(pm, "episode_1.txt", "第一集派生内容")
 

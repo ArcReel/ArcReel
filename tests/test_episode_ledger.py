@@ -46,9 +46,10 @@ class TestNormalizeSourceText:
         assert normalize_source_text("a\r\nb\rc\nd") == "a\nb\nc\nd"
 
 
+@pytest.mark.integration
 class TestRegisterOrphanEpisodeEntries:
     def test_orphan_episode_file_creates_entry_without_source_range(self, tmp_path: Path):
-        """孤儿派生文件补建条目：只登记不锚定，不写 source_range。"""
+        """孤儿派生文件补建条目：只做登记，不写位置记录 source_range。"""
         d = _project(tmp_path)
         _write_episode(d, 1, NOVEL[:CUT_1])
         result = register_orphan_episode_entries(d, {"episodes": []})
@@ -127,6 +128,7 @@ class TestRegisterOrphanEpisodeEntries:
         assert remaining.read_text(encoding="utf-8") == NOVEL
 
 
+@pytest.mark.unit
 class TestEpisodesWithoutSourceRange:
     def _entry(self, num, source_range="skip"):
         entry = {"episode": num, "title": "x", "script_file": f"scripts/episode_{num}.json"}

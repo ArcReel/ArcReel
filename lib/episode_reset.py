@@ -40,6 +40,7 @@ from lib.episode_ledger import (
     has_downstream_products,
     mismatched_source_fingerprints,
     parse_episode_num,
+    parse_source_range,
 )
 from lib.project_manager import ProjectManager
 
@@ -108,30 +109,6 @@ def _archive_path(path: Path) -> Path:
 _FULL_RESET_HINT = "请改用 from_episode=1 做全量重置"
 
 
-def _parse_source_range(entry: Mapping[str, Any]) -> tuple[str, int, int] | None:
-    """解析 entry 的 source_range 坐标，结构不完整时返回 None。
-
-    只查字段类型（``source_file`` 是 str、``start``/``end`` 是非 bool 的 int），不校验
-    数值是否越界——是否要求坐标落在源文界内由调用方按各自口径决定。空字典 ``{}`` 或缺
-    字段的损坏映射满足 ``isinstance(..., Mapping)`` 但没有可用坐标，一律按无坐标处理。
-    """
-    source_range = entry.get("source_range")
-    if not isinstance(source_range, Mapping):
-        return None
-    rel = source_range.get("source_file")
-    start = source_range.get("start")
-    end = source_range.get("end")
-    if (
-        isinstance(rel, str)
-        and isinstance(start, int)
-        and not isinstance(start, bool)
-        and isinstance(end, int)
-        and not isinstance(end, bool)
-    ):
-        return rel, start, end
-    return None
-
-
 def _has_recreatable_source_range(entry: Mapping[str, Any]) -> bool:
     """entry 的 source_range 是否携带足以重造派生文件的坐标结构。
 
@@ -139,7 +116,7 @@ def _has_recreatable_source_range(entry: Mapping[str, Any]) -> bool:
     是 plan 的职责。坐标结构不完整的损坏条目按「不可重造」处理，其集文件走留底
     而非删除：删除不可逆，证据不足时偏保守。
     """
-    return _parse_source_range(entry) is not None
+    return parse_source_range(entry) is not None
 
 
 def _scan(project_dir: Path, project: Mapping[str, Any], *, from_episode: int = 1) -> _ResetPlan:
@@ -356,7 +333,7 @@ def _resolve_partial_reset_cursor(
         if not isinstance(entry.get("source_range"), Mapping):
             prev = None  # 无可信坐标，切断连续性比较
             continue
-        coords = _parse_source_range(entry)
+        coords = parse_source_range(entry)
         if coords is None:
             raise EpisodeResetError(f"第 {num} 集原文范围记录非法，无法安全部分重置，{_FULL_RESET_HINT}")
         rel, start, end = coords

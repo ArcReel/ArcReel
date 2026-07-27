@@ -365,6 +365,31 @@ def register_orphan_episode_entries(project_dir: Path, project: Mapping[str, Any
     return data
 
 
+def parse_source_range(entry: Mapping[str, Any]) -> tuple[str, int, int] | None:
+    """解析条目的 ``source_range`` 坐标，结构不完整时返回 None。
+
+    「这一集有没有位置记录」的唯一判据，plan 与重置两侧共用：只查字段类型
+    （``source_file`` 是 str、``start`` / ``end`` 是非 bool 的 int），不校验数值是否
+    越界——是否要求坐标落在源文界内由调用方按各自口径决定。空字典 ``{}`` 或缺字段的
+    损坏映射满足 ``isinstance(..., Mapping)`` 但没有可用坐标，一律按无坐标处理。
+    """
+    source_range = entry.get("source_range")
+    if not isinstance(source_range, Mapping):
+        return None
+    rel = source_range.get("source_file")
+    start = source_range.get("start")
+    end = source_range.get("end")
+    if (
+        isinstance(rel, str)
+        and isinstance(start, int)
+        and not isinstance(start, bool)
+        and isinstance(end, int)
+        and not isinstance(end, bool)
+    ):
+        return rel, start, end
+    return None
+
+
 def episodes_without_source_range(project: Mapping[str, Any]) -> list[int]:
     """账本中没有位置记录（``source_range`` 缺失或结构不完整）的集号，升序去重。
 
@@ -380,19 +405,6 @@ def episodes_without_source_range(project: Mapping[str, Any]) -> list[int]:
         num = parse_episode_num(entry.get("episode"))
         if num is None:
             continue
-        source_range = entry.get("source_range")
-        if not isinstance(source_range, Mapping):
-            nums.add(num)
-            continue
-        rel = source_range.get("source_file")
-        start = source_range.get("start")
-        end = source_range.get("end")
-        if not (
-            isinstance(rel, str)
-            and isinstance(start, int)
-            and not isinstance(start, bool)
-            and isinstance(end, int)
-            and not isinstance(end, bool)
-        ):
+        if parse_source_range(entry) is None:
             nums.add(num)
     return sorted(nums)

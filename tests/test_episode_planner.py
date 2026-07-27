@@ -544,7 +544,7 @@ class TestPlan:
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP1)}
 
     async def test_plan_continues_from_cursor_advanced_into_next_source_file(self, tmp_path: Path):
-        """游标已合法推进到后一个源文件（如升级回填的失锚项目）：续规划从游标起，不重复规划该文件前缀。"""
+        """游标已合法推进到后一个源文件：续规划从游标起，不重复规划该文件前缀。"""
         c = _end_of(ANCHOR2_MID, SOURCE2)
         project_dir = _write_project(
             tmp_path,
