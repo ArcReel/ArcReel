@@ -192,12 +192,16 @@ describe("AppRoutes", () => {
 
   it("离开项目会中止在途的详情请求", async () => {
     let capturedSignal: AbortSignal | undefined;
-    vi.spyOn(API, "getProject").mockImplementation((_name, options) => {
-      capturedSignal = options?.signal;
-      return new Promise(() => {
-        // 永不 settle：模拟一条还挂在网络上的请求
-      });
-    });
+    vi.spyOn(API, "getProject").mockImplementation(
+      (_name, options) =>
+        new Promise((_resolve, reject) => {
+          capturedSignal = options?.signal;
+          // 模拟真实 fetch + AbortSignal 语义：abort 后 reject，而不是永久悬挂——
+          // 否则 refreshProject 的共享「在途」标志会被这条请求永久卡住，污染同一
+          // 文件里排在后面的用例（它们的 refreshProject 调用会被无限期排队）。
+          options?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        }),
+    );
 
     const view = renderAt("/app/projects/demo");
     await waitFor(() => expect(capturedSignal).toBeDefined());

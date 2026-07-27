@@ -20,7 +20,7 @@ import {
   DEMO_PROJECT_NAME,
   isDemoProject,
 } from "@/onboarding/demo-project";
-import { API, setApiReadOnly } from "@/api";
+import { setApiReadOnly } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useAuthStore } from "@/stores/auth-store";
@@ -139,24 +139,22 @@ function StudioWorkspace() {
     // 进真实项目一律解锁，不让上一次演示的闸门残留下来
     setApiReadOnly(false);
     setProjectDetailLoading(true);
-    const controller = new AbortController();
-    API.getProject(projectName, { signal: controller.signal })
-      .then((res) => {
-        if (controller.signal.aborted) return;
-        setCurrentProject(projectName, res.project, res.scripts ?? {}, res.asset_fingerprints);
-      })
-      .catch(() => {
-        // Still set the project name so the UI shows something
-        if (controller.signal.aborted) return;
-        setCurrentProject(projectName, null);
-      })
-      .finally(() => {
-        // 已被接管方作废时不动共享状态，否则会踩到新一轮加载
-        if (!controller.signal.aborted) setProjectDetailLoading(false);
+    // 先落地项目名（数据置空）：refreshProject 的写入门槛要求 currentProjectName 已等于
+    // 目标项目，否则响应落地时会被判成「非当前项目」而丢弃（见 projects-store.ts
+    // isCurrentProject 的注释）。这一步同时轮换取消域，上一个项目的在途请求随之作废，
+    // 首屏加载与 refreshProject 的其余调用方共用同一取消域。
+    setCurrentProject(projectName, null);
+    void useProjectsStore
+      .getState()
+      .refreshProject(projectName)
+      .then((result) => {
+        // "cancelled" 代表本轮未同步（项目已被切走、取消域已轮换），loading 状态交由
+        // 接管的新一轮自行结算，此处不动共享状态。
+        if (result === "cancelled") return;
+        setProjectDetailLoading(false);
       });
 
     return () => {
-      controller.abort();
       setCurrentProject(null, null);
     };
   }, [projectName, setCurrentProject, setProjectDetailLoading]);
