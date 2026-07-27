@@ -34,8 +34,11 @@ from lib.generation_queue import (
     GenerationQueue,
     get_generation_queue,
 )
+from lib.image_backends.base import ImageCapabilityError
+from lib.reference_compression import ReferencePayloadFloorError
 from lib.script_editor import ScriptEditError
 from lib.task_failure import encode_failure
+from lib.video_backends.base import VideoCapabilityError
 
 # Default provider used when a task payload does not specify one.
 DEFAULT_PROVIDER = "gemini-aistudio"
@@ -69,25 +72,40 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
 
 
 def _encode_task_failure_message(exc: Exception) -> str:
-    """把任务执行异常编码为落库的 error_message：ScriptEditError 走 key/params 结构化，
-    其余异常沿用 str(exc)。normal（_process_task）与 resume（_process_resume_task）两条
-    独立的任务执行路径都会捕获 ScriptEditError（前者经常规 finalize，后者经
-    resume_executor 复用同一批 finalize helper），共用这份编码逻辑避免同一处理漂移成两份。
+    """把任务执行异常编码为落库的 error_message：ScriptEditError 与后端能力类异常走
+    code/params 结构化，其余异常沿用 str(exc)。normal（_process_task）与 resume
+    （_process_resume_task）两条独立的任务执行路径都会捕获这些异常（前者经常规 finalize，
+    后者经 resume_executor 复用同一批 finalize helper），共用这份编码逻辑避免同一处理漂移成两份。
+
+    落库只存机器码，本地化文案由读侧按 ``Accept-Language`` 渲染——worker 后台无 request
+    上下文，在这里渲染会把任务的失败原因锁死成单一语言。
     """
-    if not isinstance(exc, ScriptEditError):
-        return str(exc)
+    if isinstance(exc, ScriptEditError):
+        # 编不出来时退到通用 script_edit_error，保住"是剧本编辑失败"这一层信息。
+        return _try_encode_failure(exc.key, exc.params) or encode_failure("script_edit_error")
+    if isinstance(exc, ImageCapabilityError | VideoCapabilityError | ReferencePayloadFloorError):
+        # 能力类异常没有通用兜底 code 可退，退回 str(exc)（即 code 本身）——
+        # 非结构化文本在读侧原样透传，不会丢失原因。
+        return _try_encode_failure(exc.code, exc.params) or str(exc)
+    return str(exc)
+
+
+def _try_encode_failure(code: str, params: dict[str, Any]) -> str | None:
+    """结构化编码失败原因，编不出来返回 None 交调用方降级。
+
+    编码异常绝不能打断 mark_task_failed，否则任务会卡死在 running。
+    """
     try:
-        return encode_failure(exc.key, **exc.params)
+        return encode_failure(code, **params)
     except KeyError:
-        # exc.key 未登记进 FAILURE_CODE_KEYS——两个列表靠约定同步而非运行时校验，脱节时
-        # 降级到通用 key 而非让编码异常打断 mark_task_failed，否则任务会卡死在 running。
-        logger.warning("ScriptEditError key 未登记进 FAILURE_CODE_KEYS，降级为通用失败原因: key=%s", exc.key)
-        return encode_failure("script_edit_error")
-    except (TypeError, ValueError):
-        # params 不可 JSON 序列化（TypeError：非基础类型；ValueError：json.dumps 默认
-        # check_circular 检出循环引用），同样降级而不是让编码异常打断落库。
-        logger.warning("ScriptEditError params 无法序列化，降级为通用失败原因: key=%s", exc.key)
-        return encode_failure("script_edit_error")
+        # code 未登记进 FAILURE_CODE_KEYS——两份清单靠约定同步而非运行时校验。
+        logger.warning("失败 code 未登记进 FAILURE_CODE_KEYS，降级为通用失败原因: code=%s", code)
+    except (TypeError, ValueError, RecursionError):
+        # params 无法 JSON 序列化（TypeError：default=str 也转不了的键类型；
+        # ValueError：json.dumps 默认 check_circular 检出循环引用；
+        # RecursionError：嵌套过深的容器，default=str 不接管容器本身）。
+        logger.warning("失败 params 无法序列化，降级为通用失败原因: code=%s", code)
+    return None
 
 
 def _parse_lane_max(config: dict[str, str], key: str, default: int, provider_id: str) -> int:

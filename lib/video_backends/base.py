@@ -366,7 +366,8 @@ class VideoCapabilityError(RuntimeError):
     """视频后端能力不匹配（如 duration ↔ supported_durations）。
 
     与 ImageCapabilityError 对称：不携带本地化字符串，只带稳定 code + 上下文 params；
-    Worker 捕获后用 i18n_translate(code, **params) 渲染到 task.error_message。
+    路由层直接 _t(code, **params) 渲染，Worker 则按 code + params 落 task.error_message，
+    文案留到读侧按 Accept-Language 渲染。
     """
 
     def __init__(self, code: str, **params) -> None:

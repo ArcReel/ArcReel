@@ -122,6 +122,8 @@ class TestPayloadAndCapabilityGating:
         with pytest.raises(VideoCapabilityError) as exc:
             _backend()._build_payload(_request(tmp_path, resolution="540p", duration_seconds=6))
         assert exc.value.code == "video_resolution_duration_unsupported"
+        # params 会原样进 en/vi 文案，空集合兜底必须语言中性，否则非中文界面里露出中文。
+        assert exc.value.params["supported"] == "-"
 
     def test_i2v_embeds_first_frame_data_uri(self, tmp_path):
         img = tmp_path / "first.png"
