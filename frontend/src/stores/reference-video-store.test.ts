@@ -109,8 +109,10 @@ describe("reference-video-store", () => {
       await load;
     });
 
-    const units = useReferenceVideoStore.getState().unitsByEpisode["proj::1"];
-    expect(units.map((u) => u.unit_id)).toEqual(["E1U9"]);
+    const state = useReferenceVideoStore.getState();
+    expect(state.unitsByEpisode["proj::1"].map((u) => u.unit_id)).toEqual(["E1U9"]);
+    // 被作废的那次加载直接丢弃、不再自己复位，写入口不结算的话画布会一直停在加载态。
+    expect(state.loading).toBe(false);
   });
 
   it("loadUnits 的迟到失败不覆盖已接管请求写入的数据", async () => {

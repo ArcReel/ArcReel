@@ -8,7 +8,7 @@
  * 参考直出下不参与生成。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Clock, Layers, RefreshCw, Scissors, Sparkles } from "lucide-react";
 import { API } from "@/api";
@@ -71,10 +71,15 @@ export function AdReferenceVideoCanvas({
   // 参考生视频任务完成时经项目事件 SSE 自增，驱动本 effect 重拉分组展示成片。
   const unitsRevision = useAppStore((s) => s.referenceVideoUnitsRevision);
 
+  // 在途列表加载的 controller：分组另有一条写入路径（重新派生），它写回的是比在途 GET 更新
+  // 的数据，落定前必须把这次加载作废，否则派生前读出的旧分组会盖掉刚派生出的新分组。
+  const loadControllerRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     // 剧本未生成时后端无分组可返回；hasScript 转 true 后本 effect 随依赖重跑补上首次拉取。
     if (!hasScript) return;
     const controller = new AbortController();
+    loadControllerRef.current = controller;
     API.listAdReferenceUnits(projectName, episode, { signal: controller.signal })
       .then((resp) => {
         // 一并清空旧错误：首次加载失败后，任务完成触发的这次重拉即便成功，残留的错误
@@ -149,6 +154,8 @@ export function AdReferenceVideoCanvas({
     setError(null);
     try {
       const resp = await API.deriveAdReferenceUnits(projectName, episode);
+      // 在途的那次列表加载读的是派生之前的分组，迟到写回会撤销这次派生：作废它。
+      loadControllerRef.current?.abort();
       setUnits(resp.units);
       return resp.units;
     } catch (err: unknown) {

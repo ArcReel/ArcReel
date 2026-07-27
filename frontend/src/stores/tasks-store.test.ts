@@ -993,6 +993,39 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
     expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
   });
 
+  it("整个生命周期落在两次轮询之间的参考生视频任务也算完成", async () => {
+    // 空闲档间隔较长，provider 命中缓存时任务可能在一个间隔内走完：它是首次以 succeeded
+    // 出现的，若要求上一轮见过就会漏掉，画布仍看不到成片。
+    useAppStore.setState({ referenceVideoUnitsRevision: 0 });
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+
+    mockFetch([task({ task_id: "other", task_type: "storyboard", status: "succeeded" })]);
+    await useTasksStore.getState().refreshTasks();
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
+
+    vi.restoreAllMocks();
+    mockFetch([
+      task({ task_id: "other", task_type: "storyboard", status: "succeeded" }),
+      task({ task_id: "rv-fast", task_type: "reference_video", status: "succeeded" }),
+    ]);
+    await useTasksStore.getState().refreshTasks();
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
+  });
+
+  it("切作用域后的第一轮只建基线，不把新作用域的历史成功任务当作刚完成", async () => {
+    useAppStore.setState({ referenceVideoUnitsRevision: 0 });
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+    mockFetch([]);
+    await useTasksStore.getState().refreshTasks();
+
+    vi.restoreAllMocks();
+    useTasksStore.getState().setRefreshScope({ projectName: "other-proj" });
+    mockFetch([task({ task_id: "rv-old", task_type: "reference_video", status: "succeeded" })]);
+    await useTasksStore.getState().refreshTasks();
+
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
+  });
+
   it("首轮拉取不把历史成功的参考生视频任务当作刚完成", async () => {
     useAppStore.setState({ referenceVideoUnitsRevision: 0 });
     useTasksStore.getState().setRefreshScope({ projectName: "proj" });

@@ -177,6 +177,8 @@ export const useTasksStore = create<TasksState>((set, get) => {
   let refreshQueued = false;
   // 排队轮调用方各自的 resolve：每个调用方只对自己实际服务的那一轮结果负责。
   let queuedResolvers: Array<() => void> = [];
+  // 已建立任务基线的作用域；null 表示下一轮是该作用域的第一轮，只建基线不做终态判定。
+  let baselineScopeKey: string | null = null;
 
   /**
    * 本轮拉取里是否有 reference_video 任务刚由非终态转成功。
@@ -185,21 +187,25 @@ export const useTasksStore = create<TasksState>((set, get) => {
    * 的终态分支上：SSE 断线、静默失速或丢掉这一条事件时，任务状态还能靠轮询兜底恢复，成片
    * 却一直不出现，直到画布重新挂载。这里让轮询走同一次失效，补上兜底路径的缺口。
    *
-   * 判据是「上一轮见过这条任务且当时不是 succeeded」：既天然去重（下一轮它在旧快照里已是
-   * succeeded，不再命中），也不会让首次加载把历史成功任务全当成刚完成。代价是任务的入队与
-   * 完成整个落在两次轮询之间时不触发——那种情形下 SSE 事件与画布自身的挂载失效仍在。
+   * 判据是「这一轮成功、上一轮不成功」，其中「上一轮没见过」也算不成功——任务的入队与完成
+   * 整个落在两次轮询之间时（空闲档间隔较长，provider 命中缓存时可能秒回），它是首次以
+   * succeeded 出现的，要求上一轮见过就会漏掉这一类。下一轮它在旧快照里已是 succeeded，
+   * 因此不会重复失效。
+   *
+   * 作用域的第一轮只建基线、不判定：那一轮的旧快照要么是空的、要么属于上一个项目，把历史
+   * 成功任务全当成刚完成没有意义。基线由 `baselineScopeKey` 标记，切项目或停用后重置。
    */
   const hasNewlySucceededReferenceVideo = (
     prev: readonly TaskItem[],
     next: readonly TaskItem[],
   ): boolean => {
-    if (prev.length === 0) return false;
     const prevStatus = new Map(prev.map((t) => [t.task_id, t.status]));
-    return next.some((t) => {
-      if (t.task_type !== "reference_video" || t.status !== "succeeded") return false;
-      const before = prevStatus.get(t.task_id);
-      return before !== undefined && before !== "succeeded";
-    });
+    return next.some(
+      (t) =>
+        t.task_type === "reference_video" &&
+        t.status === "succeeded" &&
+        prevStatus.get(t.task_id) !== "succeeded",
+    );
   };
 
   // 单轮拉取；自身不抛错，失败只把 connected 置 false 并留旧数据。
@@ -221,10 +227,17 @@ export const useTasksStore = create<TasksState>((set, get) => {
         API.getTaskStats(projectName ?? null),
       ]);
       if (!scopeUnchanged()) return;
-      const unitsStale = hasNewlySucceededReferenceVideo(get().tasks, tasksRes.items);
+      const scopeKey = projectName ?? "";
+      const unitsStale =
+        baselineScopeKey === scopeKey &&
+        hasNewlySucceededReferenceVideo(get().tasks, tasksRes.items);
+      baselineScopeKey = scopeKey;
       get().setTasks(tasksRes.items);
       get().setStats(statsRes.stats);
       get().setConnected(true);
+      // 留在 try 内是有意的：失效只是一次 zustand set，没有抛出路径；而把它挪到 try 外会让
+      // 本函数不再满足「自身不抛错」——项目事件 SSE 那一路是裸 void 调用 refreshTasks，
+      // 抛出会变成未处理的 rejection，且在途合并里排队的调用方永远等不到结算。
       if (unitsStale) {
         useAppStore.getState().invalidateReferenceVideoUnits();
       }
@@ -279,7 +292,11 @@ export const useTasksStore = create<TasksState>((set, get) => {
     optimisticActive: new Set(),
     optimisticActiveScriptFile: new Set(),
 
-    setRefreshScope: (scope) => set({ refreshScope: scope }),
+    setRefreshScope: (scope) => {
+      // 切项目与停用都会清空/替换任务快照，旧基线不再可比：下一轮重新建基线。
+      baselineScopeKey = null;
+      set({ refreshScope: scope });
+    },
     refreshTasks: async () => {
       if (refreshRunning) {
         refreshQueued = true;

@@ -53,9 +53,13 @@ let _loadSeq = 0;
  *
  * 写入口（增删改排序）落定后调用：迟到的 GET 读的是写入之前的列表，直接写回会把用户刚做的
  * 编辑、增删或排序在界面上暂时撤销，直到下一次失效才复原。
+ *
+ * 一并结算 `loading`：被作废的那次加载会在响应落定时直接丢弃，不再自己复位，而作废它的是
+ * 写入口、不是另一次加载，没有接管方来收尾——不在这里落定，画布会一直停在加载态。
  */
-function invalidateInFlightLoads(cacheKey: string): void {
+function invalidateInFlightLoads(cacheKey: string, set: (patch: { loading: false }) => void): void {
   _loadSeqByKey.set(cacheKey, ++_loadSeq);
+  set({ loading: false });
 }
 
 export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
@@ -84,7 +88,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
 
   addUnit: async (projectName, episode, payload) => {
     const { unit } = await API.addReferenceVideoUnit(projectName, episode, payload);
-    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode));
+    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode), set);
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
       const list = s.unitsByEpisode[key] ?? [];
@@ -98,7 +102,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
 
   patchUnit: async (projectName, episode, unitId, patch) => {
     const { unit } = await API.patchReferenceVideoUnit(projectName, episode, unitId, patch);
-    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode));
+    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode), set);
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
       const list = s.unitsByEpisode[key] ?? [];
@@ -114,7 +118,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
 
   deleteUnit: async (projectName, episode, unitId) => {
     await API.deleteReferenceVideoUnit(projectName, episode, unitId);
-    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode));
+    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode), set);
     set((s) => {
       const key = referenceVideoCacheKey(projectName, episode);
       const list = s.unitsByEpisode[key] ?? [];
@@ -127,7 +131,7 @@ export const useReferenceVideoStore = create<ReferenceVideoStore>((set) => ({
 
   reorderUnits: async (projectName, episode, unitIds) => {
     const { units } = await API.reorderReferenceVideoUnits(projectName, episode, unitIds);
-    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode));
+    invalidateInFlightLoads(referenceVideoCacheKey(projectName, episode), set);
     set((s) => ({
       unitsByEpisode: { ...s.unitsByEpisode, [referenceVideoCacheKey(projectName, episode)]: units },
     }));
