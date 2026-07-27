@@ -801,8 +801,10 @@ async def execute_video_task(
             raise ValueError(f"invalid storyboard image path: {storyboard_rel!r}")
         # try_safe_join 的越界校验只挡「解析结果落在项目外」；`os.path.join` 遇到绝对路径会
         # 丢弃 base，若该绝对路径恰好落在项目 storyboards/ 内仍会通过越界检查。issue 验收标准
-        # 要求绝对路径本身一律拒绝（与是否越界无关），须在解析前显式挡掉。
-        if Path(storyboard_rel).is_absolute():
+        # 要求绝对路径本身一律拒绝（与是否越界无关），须在解析前显式挡掉。Windows 原生运行时
+        # 无盘符的「根路径」（如 `\Users\...`）对 `Path.is_absolute()` 不算绝对，但 os.path.join
+        # 遇到它同样会丢弃 base（仅保留 base 的盘符），需按正斜杠归一化后再查是否以根分隔符开头。
+        if Path(storyboard_rel).is_absolute() or storyboard_rel.replace("\\", "/").startswith("/"):
             raise ValueError(f"invalid storyboard image path: {storyboard_rel!r}")
         storyboards_root = safe_join(project_path, "storyboards", allow_base=True)
         storyboard_file = try_safe_join(project_path, storyboard_rel)
@@ -816,7 +818,9 @@ async def execute_video_task(
             raise ValueError(f"storyboard image path must stay under storyboards/: {storyboard_rel!r}") from None
     else:
         storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
-    if not storyboard_file.exists():
+    # is_file 而非 exists：字段被外部编辑指向目录（如 "storyboards" 本身）时 exists() 仍为
+    # True，目录会被当作 start_image 传给视频后端，在编码阶段才失败且原因不可读。
+    if not storyboard_file.is_file():
         raise ValueError(f"storyboard not found: {storyboard_file.name}")
 
     # drama 口型台词单一真相源在场景级有序 utterances：从 dialogue-kind 条目取台词注入 video YAML

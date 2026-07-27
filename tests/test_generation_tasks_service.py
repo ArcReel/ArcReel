@@ -694,6 +694,56 @@ class TestGenerationTasks:
         assert fake_generator.video_calls == []
 
     @pytest.mark.integration
+    async def test_execute_video_task_storyboard_image_rooted_no_drive_path_fails_hard(self, monkeypatch, tmp_path):
+        """storyboard_image 是无盘符的根路径（如 `\\Users\\...`）时同样硬失败：`Path.is_absolute()`
+        在 Windows 原生运行时对这类值返回 False，但 `os.path.join` 遇到根路径仍会丢弃项目根（仅
+        保留 base 的盘符），须按正斜杠归一化后单独判断根分隔符开头。"""
+        project_path = _prepare_files(tmp_path)
+        (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "\\Users\\Alice\\scene.png"}
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="invalid storyboard image path"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
+    async def test_execute_video_task_storyboard_image_pointing_to_directory_fails_hard(self, monkeypatch, tmp_path):
+        """storyboard_image 指向 storyboards/ 内一个存在的目录（而非文件）时硬失败：目录同样
+        通过 `exists()`，若不显式要求是文件，目录会被当作 start_image 传给视频后端，在编码阶段
+        才失败且原因不可读。"""
+        project_path = _prepare_files(tmp_path)
+        (project_path / "storyboards" / "subdir").mkdir(parents=True)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/subdir"}
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="storyboard not found"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
     async def test_execute_video_task_end_frame_image_passed_to_generator(self, monkeypatch, tmp_path):
         """镜头设置了 end_frame_image 时，生成视频请求携带 end_image；快照路径取自
         镜头持久字段拼接的项目内固定相对路径。"""
