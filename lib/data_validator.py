@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,7 +15,13 @@ from typing import Any
 from pydantic import ValidationError
 
 from lib.asset_types import ASSET_SPECS, ASSET_TYPES
-from lib.episode_ledger import LEDGER_STATUSES, EpisodeOutline, PlanningCursor, SourceRange
+from lib.episode_ledger import (
+    LEDGER_STATUSES,
+    EpisodeOutline,
+    PlanningCursor,
+    SourceRange,
+    parse_positive_episode_num,
+)
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
@@ -34,6 +41,8 @@ from lib.speech_rate import estimate_spoken_seconds
 #: ——duration 由画面驱动、留白合法，不被此约束反向改写。仅 DataValidator 消费，与 ad 总时长
 #: 漂移阈值同量级、同「只 warn 不阻塞」语义。
 DRAMA_SPEECH_OVERFLOW_TOLERANCE = 0.20
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -212,10 +221,18 @@ class DataValidator:
 
     @staticmethod
     def _validate_episode_ledger_fields(episode: dict[str, Any], prefix: str, errors: list[str]) -> None:
-        """分集账本字段的形状校验（全部可缺失 = 旧式条目），形状真相源复用 lib.episode_ledger 模型。"""
+        """分集账本字段的形状校验（全部可缺失 = 该集无位置记录），形状真相源复用 lib.episode_ledger 模型。
+
+        ``ledger_status`` 只校验类型：它是咨询性的消费状态，位置真相在 ``source_range``。
+        当前状态集之外的取值按「无状态」容忍不报错——存量 project.json 可能留有历史版本
+        写入的、现已废弃的状态值，为此把老项目整体判成损坏得不偿失。
+        """
         ledger_status = episode.get("ledger_status")
-        if ledger_status is not None and ledger_status not in LEDGER_STATUSES:
-            errors.append(f"{prefix}: ledger_status 值无效: {ledger_status!r}，必须是 {sorted(LEDGER_STATUSES)}")
+        if ledger_status is not None and not isinstance(ledger_status, str):
+            errors.append(f"{prefix}: ledger_status 必须是字符串，当前取值: {ledger_status!r}")
+        elif isinstance(ledger_status, str) and ledger_status not in LEDGER_STATUSES:
+            # 容忍放行、只留排查线索：分不清是存量遗留值还是手编拼写错误，不拿它判项目损坏
+            logger.debug("%s: ledger_status 取值 %r 不在当前状态集内，按无状态处理", prefix, ledger_status)
 
         source_range = episode.get("source_range")
         if source_range is not None:
@@ -223,8 +240,6 @@ class DataValidator:
                 SourceRange.model_validate(source_range)
             except ValidationError as exc:
                 errors.append(f"{prefix}: source_range 不合法: {_pydantic_error_summary(exc)}")
-        if ledger_status == "unanchored" and source_range is not None:
-            errors.append(f"{prefix}: unanchored 条目的 source_range 必须为 null（失锚集不持有原文范围）")
 
         hook = episode.get("hook")
         if hook is not None and not isinstance(hook, str):
@@ -311,9 +326,10 @@ class DataValidator:
                     errors.append(f"{prefix}: 数据格式错误，应为对象")
                     continue
 
-                if not isinstance(episode.get("episode"), int):
+                episode_num = episode.get("episode")
+                if not isinstance(episode_num, int) or isinstance(episode_num, bool):
                     errors.append(f"{prefix}: 缺少必填字段 episode (整数)")
-                # title 允许空串：写入方（剧本同步/账本回填）在标题未知时即写 ""，
+                # title 允许空串：写入方（剧本同步/孤儿条目登记）在标题未知时即写 ""，
                 # 待用户或智能体后续命名
                 if not isinstance(episode.get("title"), str):
                     errors.append(f"{prefix}: 缺少必填字段 title (字符串，可为空)")
@@ -1310,8 +1326,10 @@ class DataValidator:
                     f"episodes[{index}].script_file",
                     default_dir="scripts",
                     # 账本条目的 script_file 是前瞻性契约（剧本生成时回填真实值），
-                    # 拆分先于剧本存在是设计内状态；路径越界仍照常报错
-                    missing_ok=episode_meta.get("ledger_status") is not None,
+                    # 拆分先于剧本存在是设计内状态；路径越界仍照常报错。ledger_status 不
+                    # 参与判定——v2→v3 迁移不再回填该字段，老项目升级后的条目可能永远
+                    # 没有 ledger_status，形状合法（集号可解析为正整数）即视为正常账本条目
+                    missing_ok=parse_positive_episode_num(episode_meta.get("episode")) is not None,
                 )
                 if not resolved_path:
                     continue

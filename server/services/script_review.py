@@ -17,7 +17,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from lib import script_review
-from lib.episode_ledger import backfill_episode_ledger, discover_episode_files
+from lib.episode_ledger import discover_episode_files, register_orphan_episode_entries
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
 from lib.reference_video import rederive_unit_references
@@ -67,33 +67,35 @@ class ScriptReviewService:
         ``save_content`` 给未登记分集写出永远无法与 project.json 关联的孤儿 step1 文件。
 
         条目缺失时不立即拒绝：若该集的派生文件 ``source/episode_N.txt`` 实际存在（用户绕过
-        分集规划器、手动预拆分上传的存量场景），先用 ``backfill_episode_ledger`` 自愈补建条目
-        再重新校验，而非直接判死锁——手动预拆分与账本为空同时出现时，唯一的登记来源就是这次
-        自愈，不做即无法登记、也无法确认。派生文件也不存在时（真正缺失的集号）不自愈，直接抛出。
+        分集规划器、手动预拆分上传的存量场景），先用 ``register_orphan_episode_entries`` 自愈
+        补建条目再重新校验，而非直接判死锁——手动预拆分与账本为空同时出现时，唯一的登记来源
+        就是这次自愈，不做即无法登记、也无法确认。派生文件也不存在时（真正缺失的集号）不自愈，
+        直接抛出。补建出的条目没有位置记录（source_range），消费链路照常，重新规划须先走一次
+        全量重置。
         """
         if script_review.find_episode(project, episode) is not None:
             return project
         project_path = self.pm.get_project_path(project_name)
         if episode not in discover_episode_files(project_path):
             raise ScriptReviewError("episode_not_found")
-        project = self._backfill_ledger(project_name)
+        project = self._register_orphan_episodes(project_name)
         if script_review.find_episode(project, episode) is None:
             raise ScriptReviewError("episode_not_found")
         return project
 
-    def _backfill_ledger(self, project_name: str) -> dict[str, Any]:
-        """在项目锁内运行一次 ``backfill_episode_ledger`` 并落盘，返回自愈后的 project。
+    def _register_orphan_episodes(self, project_name: str) -> dict[str, Any]:
+        """在项目锁内运行一次 ``register_orphan_episode_entries`` 并落盘，返回自愈后的 project。
 
         落盘走 ``ProjectManager.update_project`` 的锁内 read-modify-write，不绕锁直写
-        project.json。``backfill_episode_ledger`` 是不修改入参的纯函数，返回新 dict；
+        project.json。``register_orphan_episode_entries`` 是不修改入参的纯函数，返回新 dict；
         这里在回调内把结果拷回被就地修改的 ``p``，桥接纯函数输出与 update_project 的
-        原地修改约定。已带 ``ledger_status`` 的条目在纯函数内部即被跳过，重复触发不会
-        重写既有条目或产生重复集号。
+        原地修改约定。已登记的集号在纯函数内部即被跳过，重复触发不会重写既有条目或产生
+        重复集号。
         """
         project_path = self.pm.get_project_path(project_name)
 
         def _mutate(p: dict[str, Any]) -> None:
-            healed = backfill_episode_ledger(project_path, p)
+            healed = register_orphan_episode_entries(project_path, p)
             p.clear()
             p.update(healed)
 

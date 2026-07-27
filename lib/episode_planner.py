@@ -29,14 +29,15 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from lib.episode_ledger import (
     SOURCE_FINGERPRINTS_KEY,
     SourceDoc,
-    backfill_episode_ledger,
     compute_source_fingerprints,
     discover_episode_files,
     discover_sources,
+    episodes_without_source_range,
     has_downstream_products,
     mismatched_source_fingerprints,
     normalize_source_text,
     parse_episode_num,
+    register_orphan_episode_entries,
 )
 from lib.episode_paths import episode_script_relpath
 from lib.path_safety import PathTraversalError, safe_join
@@ -62,6 +63,10 @@ _MAX_PLAN_ATTEMPTS = 3
 
 # 注入 prompt 的已规划上下文条数上限（保持续写连贯，不膨胀 prompt）
 _CONTEXT_EPISODES_LIMIT = 5
+
+# 缺位置记录的集号在拒绝信息里最多逐个列出的条数（整本老项目可能每一集都缺，逐个列
+# 会把错误信息撑成几百集的清单）
+_MISSING_RANGE_LISTED_LIMIT = 10
 
 
 class EpisodePlanningError(RuntimeError):
@@ -335,6 +340,18 @@ def _source_changed_error(paths: list[str]) -> EpisodePlanningError:
     )
 
 
+def _missing_source_range_error(nums: list[int]) -> EpisodePlanningError:
+    """构造账本缺位置记录的拒绝错误：指名集号并指路全量重置。"""
+    listed = "、".join(str(num) for num in nums[:_MISSING_RANGE_LISTED_LIMIT])
+    if len(nums) > _MISSING_RANGE_LISTED_LIMIT:
+        listed += f" 等 {len(nums)} 集"
+    return EpisodePlanningError(
+        f"账本中第 {listed} 没有原文范围记录（source_range），无法据此续接规划——这类条目的物理集文件"
+        "就是它们的最终记录，既无法重造也无法确定下一批的起点；请先调用 reset_episode_planning 做"
+        "全量重置（这些集的集文件会改名留底、下游产物不删），再重新规划。"
+    )
+
+
 # plan_episodes 开篇定位：novel 走「切分 / 创作」，screenplay 翻为「尊重作者分集 / 提取」。
 # screenplay 二分支——剧本自带分集（任意形态）照用作者边界，无分集才按剧情弧语义切，
 # 绝不按字数机械切；不依赖任何固定分集标记，靠模型语义识别作者写下的分集形态。
@@ -408,7 +425,11 @@ class EpisodePlanner:
         已消费集确认。
         """
         planning_instructions = (instructions or "").strip() or None
-        project = backfill_episode_ledger(self.project_path, self.pm.load_project(self.project_name))
+        project = self.pm.load_project(self.project_name)
+        # 手动预拆分上传等场景下磁盘可能已有账本无条目的孤儿派生集文件：不先补建条目，
+        # 门禁看见空账本会直接放行，规划随后会把该集内容当无主原文重新生成并覆盖
+        project = register_orphan_episode_entries(self.project_path, project)
+        self._check_source_ranges(project)
         pre_call_sources = discover_sources(self.project_path)
         self._check_source_fingerprints(project, sources=pre_call_sources)
         # 提交时复核的基线只留指纹摘要，不为暂不参与本批规划的源文件常驻其全文：
@@ -496,9 +517,13 @@ class EpisodePlanner:
         committed: dict[str, Any] = {"stale": []}
 
         def _commit(p: dict) -> None:
-            fresh = backfill_episode_ledger(self.project_path, p)
+            # 锁内复核缺位置记录的条目：与指纹复核同一套逃生口——模型调用期间账本可能被
+            # 并发写入（如另一条链路补建了手动预拆分集的条目），锁外那次快照不足以放行提交；
+            # 先重跑一次孤儿登记补齐同一并发窗口内新出现的孤儿派生文件，再校验
+            healed = register_orphan_episode_entries(self.project_path, p)
             p.clear()
-            p.update(fresh)
+            p.update(healed)
+            self._check_source_ranges(p)
             if self._effective_start(p) != start_ref:
                 raise PlanningConflictError("规划期间账本进度被并发修改，本次结果作废；请重新调用规划")
             # 锁内复核：模型调用期间源文件可能被外部改动，与锁外预检查同一套逃生口，
@@ -662,7 +687,7 @@ class EpisodePlanner:
             if cur[0] == last[0]:
                 return (last[0], max(last[1], cur[1]))
             # 文件不同时按源文件顺序取更靠后者，与同文件 max 语义一致：游标滞后取账本末尾，
-            # 游标已合法推进到后一个文件（如升级回填的失锚项目）则取游标，避免重复规划该文件前缀
+            # 游标已合法推进到后一个文件则取游标，避免重复规划该文件前缀
             rels = [doc.rel_path for doc in discover_sources(self.project_path)]
             last_idx = rels.index(last[0]) if last[0] in rels else None
             cur_idx = rels.index(cur[0]) if cur[0] in rels else None
@@ -730,6 +755,17 @@ class EpisodePlanner:
         if mismatched:
             raise _source_changed_error(mismatched)
 
+    @staticmethod
+    def _check_source_ranges(project: Mapping[str, Any]) -> None:
+        """账本存在无位置记录的条目即拒绝规划（老项目遗留，指路全量重置）。
+
+        没有 ``source_range`` 的集既无法重造派生文件、也无法证明其覆盖的原文范围，
+        续接规划只会与它重叠或遗漏。消费链路（剧本 / 媒体 / 状态 / 导出）不受影响。
+        """
+        missing = episodes_without_source_range(project)
+        if missing:
+            raise _missing_source_range_error(missing)
+
     def _backfill_source_fingerprints_if_missing(
         self, project: Mapping[str, Any], *, used_fingerprints: dict[str, str]
     ) -> dict:
@@ -766,11 +802,11 @@ class EpisodePlanner:
         return default
 
     def _reconcile_derived_files(self, project: Mapping[str, Any], text_cache: dict[str, str]) -> None:
-        """按账本全量对账派生集文件：重写有 source_range 的集、删除账本之外的残留。
+        """按账本全量对账派生集文件：重写每一集、删除账本之外的残留。
 
-        unanchored 集的物理文件即其最终记录，既不重写也不删除。余文文件
-        ``_remaining.txt`` 已由账本游标取代，一并清理。每次提交全量对账使
-        中途崩溃后重跑即可自愈。
+        账本条目此刻必然都带 source_range（提交前经 ``_check_source_ranges`` 门禁），
+        缺记录仍按损坏中止提交。余文文件 ``_remaining.txt`` 已由账本游标取代，一并
+        清理。每次提交全量对账使中途崩溃后重跑即可自愈。
 
         两阶段执行：先全量校验并构建写入计划，全部通过后再统一落盘——锚定集
         原文范围非法或源文不可读时在校验阶段抛错中止提交（账本写回随之回滚，
@@ -791,8 +827,6 @@ class EpisodePlanner:
             if num is None:
                 continue
             keep.add(num)
-            if entry.get("ledger_status") == "unanchored":
-                continue
             source_range = entry.get("source_range")
             if not isinstance(source_range, Mapping):
                 raise EpisodePlanningError(f"第 {num} 集缺少原文范围记录，无法完成派生文件对账，提交已中止")
@@ -845,8 +879,7 @@ class EpisodePlanner:
     def _compute_ledger_stats(self, project: Mapping[str, Any]) -> LedgerStats:
         """账本现算全局体量分布：累计集数、最小 5 集、体量中位数（供偏差核对用）。
 
-        unanchored 集没有 source_range，物理集文件即其最终记录，直接读派生文件计体量；
-        锚定集读原文按 source_range 切片计。个别条目原文/派生文件读取失败时跳过，
+        读原文按 source_range 切片计体量。无位置记录或原文读取失败的条目跳过，
         不阻断整体统计（核对材料本身是尽力而为、非提交前置校验）。
         """
         language = _language_of(project)
@@ -857,14 +890,6 @@ class EpisodePlanner:
                 continue
             num = parse_episode_num(entry.get("episode"))
             if num is None:
-                continue
-            if entry.get("ledger_status") == "unanchored":
-                path = self.project_path / "source" / f"episode_{num}.txt"
-                try:
-                    text = normalize_source_text(path.read_text(encoding="utf-8"))
-                except (OSError, UnicodeDecodeError):
-                    continue
-                units_by_episode[num] = count_reading_units(text, language)
                 continue
             source_range = entry.get("source_range")
             if not isinstance(source_range, Mapping):
@@ -903,7 +928,7 @@ class EpisodePlanner:
 
 
 def _sort_episodes_if_possible(episodes: list[Any]) -> None:
-    """全部集号可解析时按集号排序（与回填同口径），否则保持原序。"""
+    """全部集号可解析时按集号排序，否则保持原序。"""
     if all(isinstance(e, dict) and parse_episode_num(e.get("episode")) is not None for e in episodes):
         episodes.sort(key=lambda e: parse_episode_num(e["episode"]) or 0)
 
@@ -918,13 +943,17 @@ def _count_planned_episodes(project: Mapping[str, Any]) -> int:
 
 
 def _context_entries(project: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """已规划末尾若干集的 标题+钩子，作为续写连贯性上下文。"""
+    """已规划末尾若干集的 标题+钩子，作为续写连贯性上下文。
+
+    只取有位置记录的条目：没有 source_range 的集不是本机制规划出来的，它的标题/钩子
+    未必出自同一套分集口径，不拿来当续写基准。
+    """
     anchored: list[tuple[int, dict[str, Any]]] = []
     for entry in project.get("episodes") or []:
         if not isinstance(entry, dict):
             continue
         num = parse_episode_num(entry.get("episode"))
-        if num is None or entry.get("ledger_status") in (None, "unanchored"):
+        if num is None or not isinstance(entry.get("source_range"), Mapping):
             continue
         anchored.append((num, entry))
     anchored.sort(key=lambda pair: pair[0])

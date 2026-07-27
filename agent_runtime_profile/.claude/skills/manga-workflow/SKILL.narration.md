@@ -45,7 +45,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 进入工作流后，使用 Read 读取 `project.json`，使用 Glob 检查文件系统。按顺序检查，遇到第一个缺失项即确定当前阶段：
 
 1. characters / scenes / props 中**任一**为空（定义缺失）？ → **阶段 1**
-2. 目标集在账本（project.json `episodes[]`）中没有条目？ → **阶段 2**。分集接续状态**只读账本**：条目的 `ledger_status` 标记每集状态（planned 已规划 / consumed 已消费 / stale 已有下游产物待重做 / unanchored 失锚锁定），顶层 `planning_cursor` 标记下一批规划起点；**不要用 Glob 文件名推断集数**（`source/episode_{N}.txt` 只是账本的派生物）
+2. 目标集在账本（project.json `episodes[]`）中没有条目？ → **阶段 2**。分集接续状态**只读账本**：条目的 `ledger_status` 标记每集状态（planned 已规划 / consumed 已消费 / stale 已有下游产物待重做），顶层 `planning_cursor` 标记下一批规划起点；**不要用 Glob 文件名推断集数**（`source/episode_{N}.txt` 只是账本的派生物）
 3. 目标集 `ledger_status` 为 `stale`（该集号重新规划前已有下游产物——旧 step1/剧本/媒体一律视为失效，即使文件还在也从本阶段起重做，产物沿版本机制替换），或目标集**当前组合对应的** step1 中间文件不存在？ → **阶段 3**。按 `effective_mode(project, episode)` × `content_mode` 三分支检查对应文件（注意 effective_mode 含集级 `episodes[i].generation_mode` 覆盖，不能只看项目顶层字段）：
    - effective_mode == reference_video（任一 content_mode）: `drafts/episode_{N}/step1_reference_units.json`
    - effective_mode ∈ {storyboard, grid} 且 content_mode == narration: `drafts/episode_{N}/step1_segments.json`
