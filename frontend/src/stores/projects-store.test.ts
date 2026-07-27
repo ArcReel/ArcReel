@@ -319,6 +319,33 @@ describe("projects-store refreshProject", () => {
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
   });
 
+  it("A 在途时排队同项目再刷一轮，期间切到 B：排队轮响应不写回（同名不豁免当前项目核对）", async () => {
+    // Codex 提出的场景：A 首轮在途、又有一次 A 刷新排队合并（queuedName === curName，
+    // 不触发 supersededByOtherProject）；随后用户切到 B。首轮因取消域轮换而 abort，
+    // 但排队轮沿用 while 循环继续跑，取的是 B 现役、未 abort 的域，对 queuedName=A 发起
+    // 第二次请求。响应落定时当前项目已是 B，须靠当前项目名核对拦截，而非同名判断。
+    useProjectsStore.getState().setCurrentProject("A", makeProject("A-旧"), {}, {});
+    const d1 = deferred<GetProjectResult>();
+    const d2 = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
+
+    const store = useProjectsStore.getState();
+    const p1 = store.refreshProject("A");
+    const p2 = store.refreshProject("A"); // 在途 → 合并排队
+
+    store.setCurrentProject("B", makeProject("B-数据"), {}, {});
+    d1.resolve(makeResult("A-首轮迟到"));
+    await flush();
+    // 首轮 abort，排队轮已发起第二次请求
+    d2.resolve(makeResult("A-排队轮迟到"));
+
+    const [ok1, ok2] = await Promise.all([p1, p2]);
+    expect(ok1).toBe(false);
+    expect(ok2).toBe(false);
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
+  });
+
   it("项目切换 abort 在途请求：请求被取消，且不按刷新失败提示", async () => {
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
     let abortedSignal: AbortSignal | undefined;
