@@ -668,11 +668,30 @@ describe("AdReferenceVideoCanvas", () => {
     expect(voiceoverInput).toHaveValue("被占用时的草稿");
   });
 
+  // onUpdatePrompt 契约：内部吞掉异常并转 toast，失败时以返回 false（而非抛出）通知调用方——
+  // 不能靠「未抛出」推断已持久化，否则失败的 PATCH 也会被当作成功清空草稿。
+  it("写入失败（onUpdatePrompt 返回 false）时保留口播草稿，不当作已提交清空", async () => {
+    const onUpdatePrompt = vi.fn().mockResolvedValue(false);
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+
+    renderCanvas({ onUpdatePrompt });
+    const voiceoverInput = await screen.findByRole("textbox", { name: /E1S1 口播文案/ });
+
+    await userEvent.clear(voiceoverInput);
+    await userEvent.type(voiceoverInput, "写入失败时的草稿");
+    await userEvent.tab();
+
+    await waitFor(() => {
+      expect(onUpdatePrompt).toHaveBeenCalled();
+    });
+    expect(voiceoverInput).toHaveValue("写入失败时的草稿");
+  });
+
   it("镜头字段写入未落库期间禁用同分组生成入口，避免与写入并发乱序", async () => {
-    let resolveUpdate: () => void = () => {};
+    let resolveUpdate: (committed: boolean) => void = () => {};
     const onUpdatePrompt = vi.fn(
       () =>
-        new Promise<void>((resolve) => {
+        new Promise<boolean>((resolve) => {
           resolveUpdate = resolve;
         }),
     );
@@ -689,7 +708,7 @@ describe("AdReferenceVideoCanvas", () => {
       expect(generateButton).toBeDisabled();
     });
 
-    resolveUpdate();
+    resolveUpdate(true);
 
     await waitFor(() => {
       expect(generateButton).not.toBeDisabled();

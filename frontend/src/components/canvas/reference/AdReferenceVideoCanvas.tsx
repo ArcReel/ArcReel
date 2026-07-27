@@ -41,13 +41,15 @@ export interface AdReferenceVideoCanvasProps {
    * 镜头时长/口播文案的轻量编辑写入口；未提供（演示态/只读）时镜头明细
    * 降级为纯文本展示，与其余画布的只读判定保持一致。scriptFile 由本组件
    * 自行透传，与 TimelineCanvas / GridImageToVideoCanvas 同一约定。
+   * 返回是否写入成功——调用方内部会吞掉异常并转 toast，不 await 到抛出，
+   * 只能靠返回值判断能否清空本地草稿。
    */
   onUpdatePrompt?: (
     segmentId: string,
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
     scriptFile?: string,
-  ) => void | Promise<void>;
+  ) => Promise<boolean>;
 }
 
 /**
@@ -210,8 +212,9 @@ export function AdReferenceVideoCanvas({
       }
       setSavingUnitIds((prev) => new Set(prev).add(unitId));
       try {
-        await onUpdatePrompt(shotId, patch, undefined, scriptFile);
-        return true;
+        // onUpdatePrompt 内部吞掉异常并转 toast，不会向这里抛出——「未抛出」不等于
+        // 「写入成功」，必须取其返回值，否则 PATCH 失败时草稿仍会被当作已提交清空。
+        return await onUpdatePrompt(shotId, patch, undefined, scriptFile);
       } finally {
         setSavingUnitIds((prev) => {
           const next = new Set(prev);

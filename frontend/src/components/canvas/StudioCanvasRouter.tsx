@@ -202,13 +202,16 @@ export function StudioCanvasRouter() {
 
   // ---- Timeline action callbacks ----
   // These receive scriptFile from TimelineCanvas so they always use the active episode's script.
+  // 返回是否写入成功：本函数内部吞掉异常并转 toast，调用方（如 AdReferenceVideoCanvas
+  // 的镜头级编辑）靠返回值而非"是否抛出"判断能否清空本地草稿——不依赖此契约的调用方
+  // （TimelineCanvas / GridImageToVideoCanvas）按 void 用即可，多出的返回值不影响它们。
   const handleUpdatePrompt = useCallback(async (
     segmentId: string,
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
     scriptFile?: string,
-  ) => {
-    if (!currentProjectName) return;
+  ): Promise<boolean> => {
+    if (!currentProjectName) return false;
     const mode = currentProjectData?.content_mode ?? "narration";
     const patch =
       typeof fieldOrPatch === "string"
@@ -223,8 +226,10 @@ export function StudioCanvasRouter() {
         await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, ...patch });
       }
       await refreshProject();
+      return true;
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("update_prompt_failed", { message: errMsg(err) }), "error");
+      return false;
     }
   }, [currentProjectName, currentProjectData, refreshProject]);
 
@@ -729,7 +734,7 @@ export function StudioCanvasRouter() {
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
-                    onUpdatePrompt={handleUpdatePrompt}
+                    onUpdatePrompt={voidPromise(handleUpdatePrompt)}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={voidPromise(handleGenerateVideo)}
                     onGenerateNarration={voidPromise(handleGenerateNarration)}
@@ -755,7 +760,7 @@ export function StudioCanvasRouter() {
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
-                    onUpdatePrompt={handleUpdatePrompt}
+                    onUpdatePrompt={voidPromise(handleUpdatePrompt)}
                     onMoveShot={isAd ? handleMoveShot : undefined}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={voidPromise(handleGenerateVideo)}
