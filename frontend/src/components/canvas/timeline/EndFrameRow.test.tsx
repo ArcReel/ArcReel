@@ -2,7 +2,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
+import { type RefreshProjectResult, useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { TaskItem, VideoCapabilities } from "@/types";
 import { EndFrameRow } from "./EndFrameRow";
@@ -63,7 +63,9 @@ function renderRow(props: Partial<Parameters<typeof EndFrameRow>[0]> = {}) {
   );
 }
 
-const refreshProject = vi.fn().mockResolvedValue("success");
+// mock 的结果值用 satisfies 钉在 RefreshProjectResult 上：vi.fn() 本身不受 setState 的
+// 类型约束，联合成员改名时若不钉住，这里会静默停留在过期字面量上而测试照常通过。
+const refreshProject = vi.fn().mockResolvedValue("success" satisfies RefreshProjectResult);
 
 beforeEach(() => {
   vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(true));
@@ -249,7 +251,7 @@ describe("EndFrameRow 占用态", () => {
   });
 
   it("写入成功但刷新项目失败：提示刷新失败而非写入失败", async () => {
-    refreshProject.mockResolvedValueOnce("failed");
+    refreshProject.mockResolvedValueOnce("failed" satisfies RefreshProjectResult);
     vi
       .spyOn(API, "selectEndFrame")
       .mockResolvedValue({ success: true, end_frame_image: "end_frames/scene_E1S01.png" });
@@ -267,7 +269,7 @@ describe("EndFrameRow 占用态", () => {
   });
 
   it("写入成功但刷新恰好被项目切换取消：不误报刷新失败", async () => {
-    refreshProject.mockResolvedValueOnce("cancelled");
+    refreshProject.mockResolvedValueOnce("cancelled" satisfies RefreshProjectResult);
     vi
       .spyOn(API, "selectEndFrame")
       .mockResolvedValue({ success: true, end_frame_image: "end_frames/scene_E1S01.png" });
