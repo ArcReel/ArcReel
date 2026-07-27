@@ -37,19 +37,21 @@ _CHARACTER_GUARD = "四个面板中角色面部、发型、服装、配饰完全
 # 场景 description 由剧本提取，常包含人物动作与剧情事件，仅靠末尾的反向提示词不足以抵消
 # 描述中的正向叙述，因此在正向语句中再声明一次无人。道具与产品的 description 描述的是物件
 # 本身，layout 也已限定纯净背景多视图，不存在同类冲突，只需反向提示词。
-_SCENE_GUARD = "画面中不出现任何人物，空间透视正常，陈设固定，光影统一。"
+_SCENE_GUARD = "画面中没有人物出镜，空间透视正常，陈设固定，光影统一。"
 _PROP_GUARD = "外观结构完整，焦点清晰。"
 # 产品保真核心句：sheet 生成守卫与镜头注入指令共用，调优措辞只改这一处。
 _PRODUCT_FIDELITY_CORE = "logo、文字、配色、材质、比例与结构不得改变或臆造"
 _PRODUCT_GUARD = f"产品外观必须忠实于参考图中的真实产品：{_PRODUCT_FIDELITY_CORE}；各视图为同一件产品。"
 
 # 反向提示词：只列实体排除项，不写质量词（质量词对现代生成模型近于噪声，且稀释 CFG 权重）。
-# 「人物」仅用于展示环境或物件的图种；角色图与分镜图的画面主体本身就是人物，加入该排除项
-# 会损害生成结果。
+# 人物排除项仅用于展示环境或物件的图种；角色图与分镜图的画面主体本身就是人物，加入该排除项
+# 会损害生成结果。写「出镜人物」而非「人物」，是为了把排除范围限定在进入画面的人：画像、造像、
+# 人偶这类道具，以及包装上印有人物图案的产品，其人像属于物件本体，与 _PROP_GUARD /
+# _PRODUCT_GUARD 要求的外观忠实一致，排除项不应波及。
 _NEGATIVE_TAIL_CHARACTER = "画面避免：水印、多余文字、Logo。"
-_NEGATIVE_TAIL_SCENE = "画面避免：人物、水印、多余文字、Logo。"
-_NEGATIVE_TAIL_PROP = "画面避免：人物、水印、多余文字、Logo。"
-_NEGATIVE_TAIL_PRODUCT = "画面避免：人物、水印、多余文字、Logo。"
+_NEGATIVE_TAIL_SCENE = "画面避免：出镜人物、水印、多余文字、Logo。"
+_NEGATIVE_TAIL_PROP = "画面避免：出镜人物、水印、多余文字、Logo。"
+_NEGATIVE_TAIL_PRODUCT = "画面避免：出镜人物、水印、多余文字、Logo。"
 _NEGATIVE_TAIL_STORYBOARD = "画面避免：水印、多余文字、Logo。"
 _NEGATIVE_TAIL_VIDEO = "禁止出现：BGM、文字字幕、水印。"
 
