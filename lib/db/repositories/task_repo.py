@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.task import Task, TaskEvent, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
+from lib.task_failure import encode_failure
 
 logger = logging.getLogger(__name__)
 
@@ -396,7 +397,9 @@ class TaskRepository(BaseRepository):
 
         cascaded = 0
         for dep_id in dependent_ids:
-            blocked_message = f"blocked by failed dependency {task_id}: {error_message}"
+            blocked_message = encode_failure(
+                "cascade_blocked_dependency", dependency_task_id=task_id, reason=error_message
+            )
             affected = await self._mark_failed_queued_dep(task_id=dep_id, error_message=blocked_message)
             if affected == 0:
                 continue

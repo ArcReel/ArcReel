@@ -4,22 +4,16 @@
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import AsyncIterator, Callable
-from datetime import UTC, datetime
+from collections.abc import Callable
 from typing import Any
 
-from fastapi import APIRouter, Header, Query, Request
-from fastapi.sse import EventSourceResponse, ServerSentEvent
+from fastapi import APIRouter, Query
 
 from lib.api_errors import BadRequestError, NotFoundError
-from lib.generation_queue import (
-    get_generation_queue,
-    read_queue_poll_interval,
-)
+from lib.generation_queue import get_generation_queue
 from lib.i18n import Translator
 from lib.task_failure import render_failure
-from server.auth import CurrentUser, CurrentUserFlexible
+from server.auth import CurrentUser
 
 router = APIRouter()
 
@@ -40,34 +34,6 @@ def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[
     if not message:
         return task
     return {**task, "error_message": render_failure(message, translate)}
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _parse_last_event_id(value: str | None) -> int | None:
-    if value is None:
-        return None
-    value = value.strip()
-    if not value:
-        return None
-    try:
-        parsed = int(value)
-    except ValueError:
-        return None
-    return max(0, parsed)
-
-
-def _transform_task_event(raw_event: dict, stats: dict) -> dict:
-    """将原始 task_events 行转换为前端期望的 TaskStreamTaskPayload 结构。"""
-    event_type = raw_event.get("event_type", "")
-    action = "created" if event_type == "queued" else "updated"
-    return {
-        "action": action,
-        "task": raw_event.get("data", {}),
-        "stats": stats,
-    }
 
 
 @router.get("/tasks/stats")
@@ -123,60 +89,6 @@ async def list_project_tasks(
     )
     result["items"] = [_localize_task(task, _t) for task in result.get("items", [])]
     return result
-
-
-@router.get("/tasks/stream", response_class=EventSourceResponse, deprecated=True)
-async def stream_tasks(
-    request: Request,
-    _user: CurrentUserFlexible,
-    project_name: str | None = None,
-    last_event_id: int | None = Query(default=None, ge=0),
-    last_event_header: str | None = Header(default=None, alias="Last-Event-ID"),
-) -> AsyncIterator[ServerSentEvent]:
-    queue = get_task_queue()
-    poll_interval = read_queue_poll_interval()
-
-    header_last_id = _parse_last_event_id(last_event_header)
-    resume_requested = (last_event_id is not None) or (header_last_id is not None)
-    cursor = last_event_id if last_event_id is not None else header_last_id
-    if cursor is None:
-        cursor = 0
-    cursor = max(0, int(cursor))
-
-    latest_event_id = await queue.get_latest_event_id(project_name=project_name)
-    snapshot_last_event_id = max(cursor, latest_event_id) if resume_requested else latest_event_id
-    snapshot = {
-        "project_name": project_name,
-        "tasks": await queue.get_recent_tasks_snapshot(project_name=project_name, limit=1000),
-        "stats": await queue.get_task_stats(project_name=project_name),
-        "last_event_id": snapshot_last_event_id,
-        "generated_at": _utc_now_iso(),
-    }
-    yield ServerSentEvent(event="snapshot", data=snapshot)
-    cursor = snapshot_last_event_id
-
-    while True:
-        if await request.is_disconnected():
-            break
-
-        events = await queue.get_events_since(
-            last_event_id=cursor,
-            project_name=project_name,
-            limit=200,
-        )
-        if events:
-            batch_stats = await queue.get_task_stats(project_name=project_name)
-            for event in events:
-                cursor = int(event["id"])
-                transformed = _transform_task_event(event, batch_stats)
-                yield ServerSentEvent(
-                    event="task",
-                    data=transformed,
-                    id=str(cursor),
-                )
-            continue
-
-        await asyncio.sleep(poll_interval)
 
 
 @router.get("/tasks/{task_id}/cancel-preview")

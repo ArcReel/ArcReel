@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from lib.generation_queue import GenerationQueue
+from lib.task_failure import encode_failure
 
 
 @pytest.fixture
@@ -228,9 +229,14 @@ class TestGenerationQueue:
         assert third_task is not None
         assert second_task["status"] == "failed"
         assert third_task["status"] == "failed"
-        assert "blocked by failed dependency" in second_task["error_message"]
-        assert first["task_id"] in second_task["error_message"]
-        assert second["task_id"] in third_task["error_message"]
+        expected_second = encode_failure(
+            "cascade_blocked_dependency", dependency_task_id=first["task_id"], reason="boom"
+        )
+        expected_third = encode_failure(
+            "cascade_blocked_dependency", dependency_task_id=second["task_id"], reason=expected_second
+        )
+        assert second_task["error_message"] == expected_second
+        assert third_task["error_message"] == expected_third
 
     async def test_requeue_running_tasks(self, queue):
         task = await queue.enqueue_task(

@@ -60,6 +60,43 @@ class TestRenderKnownCodes:
         assert "HTTP 404 job gone" in en
 
 
+@pytest.mark.unit
+class TestCascadeBlockedDependency:
+    def test_renders_nested_structured_reason(self):
+        inner = encode_failure("restart_lost_image")
+        outer = encode_failure("cascade_blocked_dependency", dependency_task_id="task-1", reason=inner)
+        rendered = render_failure(outer, _translator("zh"))
+        assert "task-1" in rendered
+        assert "[" not in rendered
+        assert render_failure(inner, _translator("zh")) in rendered
+
+    def test_renders_nested_raw_text_reason(self):
+        outer = encode_failure("cascade_blocked_dependency", dependency_task_id="task-1", reason="boom")
+        rendered = render_failure(outer, _translator("en"))
+        assert "task-1" in rendered
+        assert "boom" in rendered
+
+    def test_renders_per_locale(self):
+        inner = encode_failure("restart_lost_image")
+        outer = encode_failure("cascade_blocked_dependency", dependency_task_id="task-1", reason=inner)
+        rendered = {locale: render_failure(outer, _translator(locale)) for locale in ("zh", "en", "vi")}
+        for locale, text in rendered.items():
+            # 嵌套 reason 必须跟随外层同一 locale 渲染，而不是回落到别的语言。
+            assert render_failure(inner, _translator(locale)) in text
+            assert "task-1" in text
+            assert "[" not in text
+        assert len(set(rendered.values())) == 3
+
+    def test_renders_double_nested_cascade(self):
+        level1 = encode_failure("cascade_blocked_dependency", dependency_task_id="task-1", reason="boom")
+        level2 = encode_failure("cascade_blocked_dependency", dependency_task_id="task-2", reason=level1)
+        rendered = render_failure(level2, _translator("en"))
+        assert "task-1" in rendered
+        assert "task-2" in rendered
+        assert "boom" in rendered
+        assert "[" not in rendered
+
+
 class TestPassthrough:
     def test_none_and_empty(self):
         assert render_failure(None, _translator("en")) is None

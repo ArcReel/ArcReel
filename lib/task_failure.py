@@ -35,6 +35,9 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "script_edit_items_not_list": "script_edit_items_not_list",
     "script_edit_unit_lists_invalid": "script_edit_unit_lists_invalid",
     "script_edit_generated_assets_invalid": "script_edit_generated_assets_invalid",
+    # 级联失败（TaskRepository._cascade_failed_queued）：reason 嵌套存储被级联依赖任务自身
+    # 的失败原因（可能又是一个结构化编码串），渲染时递归展开，见 render_failure。
+    "cascade_blocked_dependency": "task_fail_cascade_blocked_dependency",
 }
 
 # A structured reason is ``[code]`` optionally followed by a single space and a
@@ -85,4 +88,8 @@ def render_failure(error_message: str | None, translate: Callable[..., str]) -> 
         if not isinstance(parsed, dict):
             return error_message
         params = parsed
+    if code == "cascade_blocked_dependency":
+        nested_reason = params.get("reason")
+        if isinstance(nested_reason, str):
+            params = {**params, "reason": render_failure(nested_reason, translate)}
     return translate(key, **params)

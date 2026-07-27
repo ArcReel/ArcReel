@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
 from lib.db.repositories.task_repo import TaskRepository
+from lib.task_failure import encode_failure
 
 
 @pytest.fixture
@@ -141,7 +142,9 @@ class TestTaskRepository:
 
         dep_task = await repo.get(second["task_id"])
         assert dep_task["status"] == "failed"
-        assert "blocked by failed dependency" in dep_task["error_message"]
+        assert dep_task["error_message"] == encode_failure(
+            "cascade_blocked_dependency", dependency_task_id=first["task_id"], reason="boom"
+        )
 
     async def test_requeue_running_tasks(self, db_session):
         repo = TaskRepository(db_session)

@@ -576,9 +576,11 @@ async def get_video_capabilities(
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except ValueError as exc:
+        # 异常原文只进日志：str(exc) 混英文技术细节，直接插进翻译文案会让 en/vi 界面混入未译原文
+        logger.warning("项目 '%s' 视频模型能力解析失败: %s", name, exc)
         raise HTTPException(
             status_code=422,
-            detail=_t("video_capabilities_unresolved", name=name, reason=str(exc)),
+            detail=_t("video_capabilities_unresolved", name=name),
         ) from exc
 
 
