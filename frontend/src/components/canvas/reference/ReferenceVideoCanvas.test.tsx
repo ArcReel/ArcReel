@@ -235,6 +235,77 @@ describe("ReferenceVideoCanvas", () => {
     });
   });
 
+  // 重试路径：旧失败行始终在，statusMap 的乐观分支（!queueRow）不生效，禁用须
+  // 直接取占用集，否则入队到任务行落库之间的窗口内按钮可重复点击。
+  it("重试失败 unit 后在真实任务行落库前即禁用按钮", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "proj",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "failed",
+          error_message: "供应商拒绝",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+    let resolveGen: (v: { task_id: string; deduped: boolean }) => void = () => {};
+    const genSpy = vi.spyOn(API, "generateReferenceVideoUnit").mockReturnValue(
+      new Promise((resolve) => {
+        resolveGen = resolve;
+      }),
+    );
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const retry = await screen.findByRole("button", { name: /Retry generation|重试生成/ });
+    fireEvent.click(retry);
+    await waitFor(() => expect(genSpy).toHaveBeenCalled());
+    resolveGen({ task_id: "t2", deduped: false });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled();
+    });
+  });
+
+  // 重新生成路径：旧成功行始终在，statusMap 的乐观分支不生效，同样需要按占用集
+  // 独立禁用，不能仅靠 statusMap 派生的 status。
+  it("重新生成已完成 unit 后在真实任务行落库前即禁用按钮", async () => {
+    const unit = mkUnit("E1U1");
+    unit.generated_assets.video_clip = "videos/E1U1.mp4";
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "proj",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "succeeded",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+    let resolveGen: (v: { task_id: string; deduped: boolean }) => void = () => {};
+    const genSpy = vi.spyOn(API, "generateReferenceVideoUnit").mockReturnValue(
+      new Promise((resolve) => {
+        resolveGen = resolve;
+      }),
+    );
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const regenerate = await screen.findByRole("button", { name: /Regenerate video|重新生成视频/ });
+    fireEvent.click(regenerate);
+    await waitFor(() => expect(genSpy).toHaveBeenCalled());
+    resolveGen({ task_id: "t2", deduped: false });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled();
+    });
+  });
+
   // 后台任务失败通知已统一迁移到全局 useTaskFailureNotifications hook（转变驱动 /
   // 历史失败不重报 / 同一失败只报一次回归均在那里覆盖），见
   // hooks/useTaskFailureNotifications.test.tsx。此处只验证回跳消费。

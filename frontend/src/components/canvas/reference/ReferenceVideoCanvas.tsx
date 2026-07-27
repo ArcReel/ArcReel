@@ -143,6 +143,12 @@ export function ReferenceVideoCanvas({
 
   const generating = !!(selected && statusMap[selected.unit_id] === "running");
 
+  // 独立于 statusMap 传给 UnitPreviewPanel：重试（旧失败行在）与重新生成（旧成功行在）
+  // 两条路径上 queueRow 始终非空，statusMap 的乐观分支不生效，仅看 status 会在入队到
+  // 任务行落库之间的窗口内漏禁用生成按钮。
+  const selectedBusy = !!(selected && busyUnitIds.has(selected.unit_id));
+  const selectedCancelling = !!(selected && tasksByUnit.get(selected.unit_id)?.status === "cancelling");
+
   const failureMessage = useMemo(() => {
     if (!selected) return null;
     if (statusMap[selected.unit_id] !== "failed") return null;
@@ -760,6 +766,8 @@ export function ReferenceVideoCanvas({
                           projectName={projectName}
                           status={statusMap[selected.unit_id]}
                           errorMessage={failureMessage}
+                          busy={selectedBusy}
+                          cancelling={selectedCancelling}
                           estimatedCost={estimatedCost}
                           actualCost={actualCost}
                           onGenerate={onGenerateVoid}
@@ -786,6 +794,8 @@ export function ReferenceVideoCanvas({
                   projectName={projectName}
                   status={selected ? statusMap[selected.unit_id] : undefined}
                   errorMessage={failureMessage}
+                  busy={selectedBusy}
+                  cancelling={selectedCancelling}
                   estimatedCost={estimatedCost}
                   actualCost={actualCost}
                   onGenerate={onGenerateVoid}
