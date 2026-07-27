@@ -52,6 +52,10 @@ _Avoid_: default credential（与「默认 model / 默认 backend」混淆）；
 供 Claude Agent SDK 使用的 Anthropic 兼容网关凭证（base_url + api_key + routing model），存于独立的 agent 凭证表，与自定义 provider 凭证是**两套互不相通的存储**（见 `docs/adr/0017`）。
 _Avoid_: 把它当成一个自定义 provider（`custom-{id}`）——agent 凭证不进 `ENDPOINT_REGISTRY`、不参与媒体生成；自定义 provider 也不会注入 Agent SDK。
 
+**分层依赖方向（import layering）**：
+层级自下而上为 `lib.config`（配置解析）→ `lib.*_backends`（供应商实现）→ `lib.custom_provider`（自定义供应商装配）；实际允许的 import 方向与此相反，即上层可以 import 下层（`custom_provider` → `backends` → `config`），下层反向 import 上层禁止。由 `pyproject.toml` 的 `[tool.importlinter]` 契约在 CI 强制，存量违规列在其 `ignore_imports`。
+_Avoid_: 把「函数体内延迟导入」当作绕过方向约束的手段——linter 按静态语法计入，延迟导入同样是一条边。
+
 ### 任务与取消
 
 **task（任务）**：

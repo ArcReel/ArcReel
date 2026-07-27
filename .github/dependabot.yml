@@ -100,6 +100,7 @@ updates:
           - "basedpyright"
           - "pre-commit"
           - "python-docx"
+          - "import-linter"
         update-types:
           - "minor"
           - "patch"
