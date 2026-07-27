@@ -1081,7 +1081,7 @@ def _planned_two_files(
 
 
 class TestSourceFingerprintGate:
-    """plan 提交路径记录源文指纹、入口比对拒绝已改动的源文（issue #1369）。"""
+    """plan 提交路径记录源文指纹、入口比对拒绝已改动的源文。"""
 
     async def test_plan_records_fingerprints_for_legacy_project_without_error(self, tmp_path: Path):
         """存量项目无指纹字段：首次 plan 正常执行并补记。"""
@@ -1129,6 +1129,26 @@ class TestSourceFingerprintGate:
         fake2 = _FakeTextGenerator([_plan_response([{"title": "t2", "hook": "h2", "end_anchor": "重置后的新素材。"}])])
         result2 = await EpisodePlanner(project_dir, generator=fake2).plan()
         assert result2.episodes[0].title == "t2"
+
+    async def test_plan_rejects_when_source_changes_during_model_call_without_record(self, tmp_path: Path):
+        """存量项目补记路径：模型调用期间源文被改动，提交时按文本复核拒绝，不落任何写入。"""
+        project_dir = _write_project(tmp_path)
+        source_path = project_dir / "source" / "novel.txt"
+
+        class _MutatingGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                source_path.write_text("规划期间被换掉的全新原文内容。", encoding="utf-8")
+                return await super().generate(request, project_name)
+
+        fake = _MutatingGenerator([_plan_response([{"title": "t1", "hook": "h1", "end_anchor": ANCHOR_EP2}])])
+        planner = EpisodePlanner(project_dir, generator=fake)
+
+        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+            await planner.plan()
+
+        project = _load_project(project_dir)
+        assert not project.get("episodes")
+        assert SOURCE_FINGERPRINTS_KEY not in project
 
 
 class TestReplan:

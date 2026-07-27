@@ -375,6 +375,14 @@ def _language_of(project: Mapping[str, Any]) -> str | None:
     return language if isinstance(language, str) else None
 
 
+def _source_changed_error(paths: list[str]) -> EpisodePlanningError:
+    """构造源文已变动的拒绝错误：指名变动文件并指路全量重置。"""
+    return EpisodePlanningError(
+        f"源文件已被修改或移除：{'、'.join(paths)}。账本坐标绑定的是修改前的原文内容，继续规划会静默切出"
+        "错误内容；请先调用 reset_episode_planning 做全量重置，再重新规划。"
+    )
+
+
 # plan_episodes 开篇定位：novel 走「切分 / 创作」，screenplay 翻为「尊重作者分集 / 提取」。
 # screenplay 二分支——剧本自带分集（任意形态）照用作者边界，无分集才按剧情弧语义切，
 # 绝不按字数机械切；不依赖任何固定分集标记，靠模型语义识别作者写下的分集形态。
@@ -520,6 +528,10 @@ class EpisodePlanner:
             # 复用同一错误提示——重试只会再次命中同一比对，须先重置
             current_sources = discover_sources(self.project_path)
             self._check_source_fingerprints(p, sources=current_sources)
+            # 指纹比对只覆盖「已记录」的文件，存量项目补记路径上恒为空；而本批的切分坐标与
+            # 派生文件都基于锁外读入的 text，故对当前源文直接比文本，堵住补记路径裸露的窗口
+            if next((doc.text for doc in current_sources if doc.rel_path == source_rel), None) != text:
+                raise _source_changed_error([source_rel])
             episodes_list = [e for e in (p.get("episodes") or []) if e is not None]
             nums = [parse_episode_num(e.get("episode")) for e in episodes_list if isinstance(e, dict)]
             # 集号只在正整数域上推进：负数/0 集号属脏数据，不让它把新集编号拖成非正数
@@ -956,11 +968,7 @@ class EpisodePlanner:
         docs = sources if sources is not None else discover_sources(self.project_path)
         mismatched = mismatched_source_fingerprints(project.get(SOURCE_FINGERPRINTS_KEY), docs)
         if mismatched:
-            changed = "、".join(mismatched)
-            raise EpisodePlanningError(
-                f"源文件已被修改或移除：{changed}。账本坐标绑定的是修改前的原文内容，继续规划会静默切出"
-                "错误内容；请先调用 reset_episode_planning 做全量重置，再重新规划。"
-            )
+            raise _source_changed_error(mismatched)
 
     @staticmethod
     def _setting_int(project: Mapping[str, Any], key: str, default: int) -> int:
