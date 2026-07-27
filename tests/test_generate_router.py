@@ -213,6 +213,7 @@ class TestGenerateRouter:
             assert video.status_code == 200, video.text
             assert video.json()["success"] is True
 
+    @pytest.mark.integration
     def test_video_generated_assets_non_dict_falls_back_to_default(self, tmp_path, monkeypatch):
         """generated_assets 容器本身被外部编辑损坏为非 dict（如 list）时按「未设置」处理、
         回退默认路径，不抛未捕获 AttributeError（脏数据非 dict 上没有 .get()）。"""

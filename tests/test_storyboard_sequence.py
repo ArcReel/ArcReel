@@ -10,6 +10,7 @@ from lib.storyboard_sequence import (
 )
 
 
+@pytest.mark.unit
 class TestGetGeneratedAssets:
     def test_returns_dict_container_unchanged(self):
         item = {"generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"}}

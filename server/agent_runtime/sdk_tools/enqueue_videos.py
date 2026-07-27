@@ -467,7 +467,7 @@ async def _run_ad_reference_episode(
         ),
         # sync 把成员/参考集变化的 unit 重置为待生成；旧同名产物不可复用，
         # 仅 generated_assets 仍指向产物的 unit 才按磁盘文件跳过
-        reuse_existing=lambda u: bool((u.get("generated_assets") or {}).get("video_clip")),
+        reuse_existing=lambda u: bool(get_generated_assets(u).get("video_clip")),
     )
     header = f"参考直出生成完成，共 {len(paths)} 个 unit"
     return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
@@ -687,7 +687,7 @@ def generate_video_all_tool(ctx: ToolContext):
 
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
             content_mode = script.get("content_mode", "narration")
-            pending = [it for it in items if not (it.get("generated_assets") or {}).get("video_clip")]
+            pending = [it for it in items if not get_generated_assets(it).get("video_clip")]
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
 

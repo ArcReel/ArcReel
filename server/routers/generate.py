@@ -331,8 +331,7 @@ async def generate_tts_batch(
         for item in items:
             if not _narration_text(item):
                 continue
-            assets = item.get("generated_assets") or {}
-            if isinstance(assets, dict) and assets.get("narration_audio"):
+            if get_generated_assets(item).get("narration_audio"):
                 continue
             seg_id = item.get(id_field)
             if seg_id:
