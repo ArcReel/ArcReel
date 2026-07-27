@@ -1517,6 +1517,7 @@ export default {
   'end_frame_choose': 'Choose image',
   'end_frame_replace': 'Replace image',
   'end_frame_clear': 'Clear',
+  'end_frame_clear_end_frame': 'Clear end frame',
   'end_frame_summary_set': 'Set',
   'end_frame_summary_unset': 'Not set',
   'end_frame_unsupported_hint': 'The current video model does not support end frames. Change the model or adjust the capability override in Settings.',

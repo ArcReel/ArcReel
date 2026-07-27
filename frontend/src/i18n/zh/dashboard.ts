@@ -1517,6 +1517,7 @@ export default {
   'end_frame_choose': '选择图片',
   'end_frame_replace': '更换图片',
   'end_frame_clear': '清除',
+  'end_frame_clear_end_frame': '清除尾帧',
   'end_frame_summary_set': '已设置',
   'end_frame_summary_unset': '未设置',
   'end_frame_unsupported_hint': '当前视频模型不支持尾帧，请在设置中更换模型或调整能力覆盖。',

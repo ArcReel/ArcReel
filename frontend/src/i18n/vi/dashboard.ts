@@ -1513,6 +1513,7 @@ export default {
   'end_frame_choose': 'Chọn ảnh',
   'end_frame_replace': 'Đổi ảnh',
   'end_frame_clear': 'Xóa',
+  'end_frame_clear_end_frame': 'Xóa khung hình cuối',
   'end_frame_summary_set': 'Đã đặt',
   'end_frame_summary_unset': 'Chưa đặt',
   'end_frame_unsupported_hint': 'Model video hiện tại không hỗ trợ khung hình cuối. Hãy đổi model hoặc điều chỉnh ghi đè năng lực trong Cài đặt.',

@@ -80,16 +80,12 @@ export function EndFrameRow({
   const fp = useProjectsStore((s) => (endFramePath ? s.getAssetFingerprint(endFramePath) : null));
 
   // 兄弟控件同步：更换 / 清除 / 选图器的提交入口共读这一个值。
-  const controlsDisabled = videoBusy || submitting || capsLoading || viewOnly;
+  // 只含占用维度——能力维度（不支持、以及「尚未查到」）一律不参与门控：既然不支持都不
+  // 拦，等待查询结果更没有可拦的理由，否则换模型后又会凭能力管线短暂灰掉写入控件。
+  const controlsDisabled = videoBusy || submitting || viewOnly;
 
   // 灰化控件的 hover 原因。
-  const disabledHint = viewOnly
-    ? undefined
-    : videoBusy
-      ? t("end_frame_busy_hint")
-      : capsLoading
-        ? t("end_frame_capability_checking")
-        : undefined;
+  const disabledHint = !viewOnly && videoBusy ? t("end_frame_busy_hint") : undefined;
 
   // 已设尾帧 + 模型明确不支持才告警：未设尾帧的镜头没有会被拒绝的东西，不该打扰。
   const showUnsupportedNotice = unsupported && !!endFramePath;
@@ -237,7 +233,9 @@ export function EndFrameRow({
               title={disabledHint}
               className="rounded-[6px] border border-hairline-soft px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {t("end_frame_clear")}
+              {/* 展开时面板内另有一个「清除」，两个按钮同屏：这里用全称，
+                  否则屏幕阅读器读到两个同名按钮无从区分。 */}
+              {t("end_frame_clear_end_frame")}
             </button>
           )}
         </div>
@@ -279,7 +277,8 @@ export function EndFrameRow({
             <p className="text-[11px] leading-relaxed" style={{ color: "var(--color-text-3)" }}>
               {t("end_frame_description")}
             </p>
-            {/* 不支持时的原因同时给可见文本：title 只有指针能读到，键盘用户读不到。 */}
+            {/* 展开面板讲恢复路径（改模型 / 调能力覆盖），与警告条的「后果 + 清除」互补；
+                未设尾帧时也给，让用户在动手设之前就知道这个模型设了也白设。 */}
             {unsupported && (
               <p className="text-[11px] leading-relaxed" style={{ color: "var(--color-text-4)" }}>
                 {t("end_frame_unsupported_hint")}
@@ -329,7 +328,7 @@ export function EndFrameRow({
           contentMode={contentMode}
           aspectRatio={aspectRatio}
           submitting={submitting}
-          disabled={videoBusy || capsLoading}
+          disabled={videoBusy}
           onClose={() => setPickerOpen(false)}
           onPickProjectImage={handlePickProjectImage}
           onPickUpload={handlePickUpload}

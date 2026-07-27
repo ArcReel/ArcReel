@@ -104,7 +104,7 @@ describe("EndFrameRow 摘要", () => {
     const { getByRole, queryByRole, findByText } = renderRow();
     await findByText("未设置");
 
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     expect(getByRole("button", { name: "选择图片" })).toBeInTheDocument();
     expect(queryByRole("button", { name: "清除" })).toBeNull();
   });
@@ -113,7 +113,7 @@ describe("EndFrameRow 摘要", () => {
     const { getByRole, findByText } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
     await findByText("已设置");
 
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     expect(getByRole("button", { name: "更换图片" })).toBeInTheDocument();
     expect(getByRole("button", { name: "清除" })).toBeInTheDocument();
   });
@@ -135,9 +135,9 @@ describe("EndFrameRow 能力警告", () => {
     // 收起状态即可见：不必展开就知道这条尾帧会让生成被拒。
     const alert = await findByRole("alert");
     expect(alert).toHaveTextContent(/当前模型不支持尾帧/);
-    expect(getByRole("button", { name: /尾帧/ })).toHaveAttribute("aria-expanded", "false");
+    expect(getByRole("button", { name: /^尾帧/ })).toHaveAttribute("aria-expanded", "false");
 
-    const clearBtn = within(alert).getByRole("button", { name: "清除" });
+    const clearBtn = within(alert).getByRole("button", { name: "清除尾帧" });
     expect(clearBtn).toBeEnabled();
     fireEvent.click(clearBtn);
     await waitFor(() => {
@@ -150,7 +150,7 @@ describe("EndFrameRow 能力警告", () => {
     const { getByRole, findByRole } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
     await findByRole("alert");
 
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     // 能力不足靠警告表达，不靠灰化控件：后端硬失败仍在兜底。
     expect(getByRole("button", { name: "更换图片" })).toBeEnabled();
   });
@@ -164,7 +164,7 @@ describe("EndFrameRow 能力警告", () => {
     await findByText("未设置");
 
     // 入口可点
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     const chooseBtn = getByRole("button", { name: "选择图片" });
     expect(chooseBtn).toBeEnabled();
     fireEvent.click(chooseBtn);
@@ -181,6 +181,18 @@ describe("EndFrameRow 能力警告", () => {
     await waitFor(() => {
       expect(select).toHaveBeenCalledWith(PROJECT, SHOT, SCRIPT, "storyboards/E1S01_v1.png");
     });
+  });
+
+  it("能力查询尚未落地时也不禁用写入控件", async () => {
+    // 能力维度整体不参与门控：「不支持」不拦，「还不知道支不支持」更没有可拦的理由，
+    // 否则换模型后凭能力管线又会短暂灰掉写入控件——这正是要清掉的半禁用残留。
+    vi.spyOn(API, "getVideoCapabilities").mockReturnValue(new Promise(() => {}));
+    const { getByRole, findByText } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
+    await findByText("检查中…");
+
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
+    expect(getByRole("button", { name: "更换图片" })).toBeEnabled();
+    expect(getByRole("button", { name: "清除" })).toBeEnabled();
   });
 
   it("模型支持尾帧时无警告", async () => {
@@ -230,11 +242,9 @@ describe("EndFrameRow 能力警告", () => {
   it("警告里的清除按占用态同步禁用", async () => {
     vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(false));
     useTasksStore.setState({ tasks: [videoTask("running")] });
-    const alert = await (async () => {
-      const { findByRole } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
-      return findByRole("alert");
-    })();
-    expect(within(alert).getByRole("button", { name: "清除" })).toBeDisabled();
+    const { findByRole } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
+    const alert = await findByRole("alert");
+    expect(within(alert).getByRole("button", { name: "清除尾帧" })).toBeDisabled();
   });
 
   it("只读上下文只给警告文本，不给清除入口", async () => {
@@ -255,7 +265,7 @@ describe("EndFrameRow 占用态", () => {
     const { getByRole, findByText } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
     await findByText("已设置");
 
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     expect(getByRole("button", { name: "更换图片" })).toBeDisabled();
     expect(getByRole("button", { name: "清除" })).toBeDisabled();
   });
@@ -267,7 +277,7 @@ describe("EndFrameRow 占用态", () => {
     const { getByRole, findByText } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
     await findByText("已设置");
 
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     expect(getByRole("button", { name: "清除" })).toBeEnabled();
   });
 
@@ -276,7 +286,7 @@ describe("EndFrameRow 占用态", () => {
     const { getByRole, findByText, findByRole } = renderRow();
     await findByText("未设置");
 
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     fireEvent.click(getByRole("button", { name: "选择图片" }));
 
     // 选中本集分镜图（项目内通道）
@@ -298,7 +308,7 @@ describe("EndFrameRow 占用态", () => {
     const { getByRole, findByText, findByRole } = renderRow();
     await findByText("未设置");
 
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     fireEvent.click(getByRole("button", { name: "选择图片" }));
     fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
     fireEvent.click(getByRole("button", { name: "设为尾帧" }));
@@ -311,7 +321,6 @@ describe("EndFrameRow 占用态", () => {
     });
   });
 
-
   it("写入成功但刷新项目失败：提示刷新失败而非写入失败", async () => {
     refreshProject.mockResolvedValueOnce("failed" satisfies RefreshProjectResult);
     vi
@@ -320,7 +329,7 @@ describe("EndFrameRow 占用态", () => {
     const { getByRole, findByText, findByRole } = renderRow();
     await findByText("未设置");
 
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     fireEvent.click(getByRole("button", { name: "选择图片" }));
     fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
     fireEvent.click(getByRole("button", { name: "设为尾帧" }));
@@ -338,7 +347,7 @@ describe("EndFrameRow 占用态", () => {
     const { getByRole, findByText, findByRole } = renderRow();
     await findByText("未设置");
 
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     fireEvent.click(getByRole("button", { name: "选择图片" }));
     fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
     fireEvent.click(getByRole("button", { name: "设为尾帧" }));
@@ -363,7 +372,7 @@ describe("EndFrameRow 占用态", () => {
     const { getByRole, findByText, findByRole } = renderRow({ onSubmittingChange });
     await findByText("未设置");
 
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     fireEvent.click(getByRole("button", { name: "选择图片" }));
     fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
     fireEvent.click(getByRole("button", { name: "设为尾帧" }));
@@ -383,7 +392,7 @@ describe("EndFrameRow 占用态", () => {
     const { getByRole, findByText } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
     await findByText("已设置");
 
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     fireEvent.click(getByRole("button", { name: "清除" }));
 
     await waitFor(() => {
@@ -398,7 +407,7 @@ describe("EndFrameRow 占用态", () => {
     });
     await findByText("已设置");
 
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     expect(getByRole("button", { name: "更换图片" })).toBeDisabled();
     expect(getByRole("button", { name: "清除" })).toBeDisabled();
   });
@@ -410,7 +419,7 @@ describe("EndFrameRow 占用态", () => {
     });
     await findByText("已设置");
 
-    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     expect(queryByRole("button", { name: "更换图片" })).toBeNull();
     expect(queryByRole("button", { name: "清除" })).toBeNull();
   });
