@@ -1512,6 +1512,33 @@ class TestGenerationWorker:
         assert not queue.failed[0][1].startswith("[resume_")
 
     @pytest.mark.asyncio
+    async def test_process_resume_task_script_edit_error_encodes_key(self, monkeypatch):
+        """resume_executor 复用 _finalize_reference_video_unit 等 finalize helper，同样会抛
+        ScriptEditError；resume 路径与常规 _process_task 走同一份 _encode_task_failure_message，
+        不能因为是重启自愈这条独立调用链就退回 str(exc) 的固定中文。"""
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+
+        async def _raise_script_edit_error(_task, *, job_id):
+            raise ScriptEditError("generated_assets 必须是 dict", key="script_edit_generated_assets_invalid")
+
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _raise_script_edit_error)
+        task = {
+            "task_id": "resume_script_edit",
+            "task_type": "reference_video",
+            "media_type": "video",
+            "provider_id": "ark",
+            "provider_job_id": "x",
+            "payload": {},
+            "project_name": "demo",
+        }
+        await worker._process_resume_task(task)
+        assert queue.failed and queue.failed[0] == (
+            "resume_script_edit",
+            "[script_edit_generated_assets_invalid]",
+        )
+
+    @pytest.mark.asyncio
     async def test_process_resume_task_cancelled_error(self, monkeypatch):
         """CancelledError → mark_cancelled + 重新抛出。"""
         queue = _FakeQueue()
