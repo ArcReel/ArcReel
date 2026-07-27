@@ -26,7 +26,7 @@ from lib.reference_video.ad_units import (
     resolve_ad_unit_shots,
     sync_ad_reference_units,
 )
-from lib.storyboard_sequence import get_storyboard_items
+from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
     tool_error,
@@ -125,11 +125,18 @@ def _build_video_specs(
             continue
 
         storyboard_image = (item.get("generated_assets") or {}).get("storyboard_image")
-        if not storyboard_image:
+        # 字段值来自磁盘剧本 JSON，不可信任：非字符串脏数据/越界/绝对路径引用统一交给
+        # resolve_storyboard_image_ref 校验（与路由入队预检、执行层读盘点共用同一份），
+        # 批量场景下单个条目非法只跳过并记日志，不中断整批。
+        try:
+            storyboard_path = resolve_storyboard_image_ref(project_dir, storyboard_image)
+        except ValueError as exc:
+            log.append(f"⚠️  {item_type} {item_id} 的分镜图引用无效，跳过: {exc}")
+            continue
+        if storyboard_path is None:
             log.append(f"⚠️  {item_type} {item_id} 没有分镜图，跳过")
             continue
-        storyboard_path = project_dir / storyboard_image
-        if not storyboard_path.exists():
+        if not storyboard_path.is_file():
             log.append(f"⚠️  分镜图不存在: {storyboard_path}，跳过")
             continue
 
@@ -604,10 +611,14 @@ def generate_video_scene_tool(ctx: ToolContext):
             item_id = str(item[id_field])
 
             storyboard_image = item.get("generated_assets", {}).get("storyboard_image")
-            if not storyboard_image:
+            # 字段值来自磁盘剧本 JSON，不可信任：resolve_storyboard_image_ref 统一做类型检查 +
+            # 越界 / 绝对路径拒绝（与路由入队预检、执行层读盘点共用同一份），异常经外层
+            # except 转为可读的 tool_error，不再让非字符串脏数据抛未处理 TypeError。
+            storyboard_path = resolve_storyboard_image_ref(project_dir, storyboard_image)
+            if storyboard_path is None:
                 raise ValueError(f"场景/片段 '{item_id}' 没有分镜图，请先运行 generate_storyboards")
-            if not (project_dir / storyboard_image).exists():
-                raise FileNotFoundError(f"分镜图不存在: {project_dir / storyboard_image}")
+            if not storyboard_path.is_file():
+                raise FileNotFoundError(f"分镜图不存在: {storyboard_path}")
 
             prompt = _get_video_prompt(item)
             # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；

@@ -25,6 +25,7 @@ from lib.project_manager import get_project_manager
 from lib.storyboard_sequence import (
     find_storyboard_item,
     get_storyboard_items,
+    resolve_storyboard_image_ref,
 )
 from server.auth import CurrentUser
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
@@ -159,7 +160,7 @@ async def generate_video(
         # fail-fast：不能 silently 降级走 default 路径——default 文件恰好存在时会让请求
         # 「先返回提交成功、worker 解析脚本时再确定失败」，撕裂用户预期。两者均由 app 级
         # handler 统一映射为脱敏响应（404 / 400）。
-        storyboard_rel: str | None = None
+        storyboard_rel: object = None
         script = pm_local.load_script(project_name, req.script_file)
         items, id_field, _, _, _ = get_storyboard_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
@@ -169,11 +170,15 @@ async def generate_video(
         if isinstance(assets, dict):
             storyboard_rel = assets.get("storyboard_image")
 
-        storyboard_file = (
-            project_path / storyboard_rel
-            if storyboard_rel
-            else project_path / "storyboards" / f"scene_{segment_id}.png"
-        )
+        # 字段值来自磁盘剧本 JSON，不可信任：非字符串脏数据会让下面的路径拼接抛未处理
+        # TypeError 变成通用 500；越界 / 绝对路径引用会把项目外任意文件当分镜图使用。
+        # 校验口径与 execute_video_task / SDK 工具入队预检共用同一份（resolve_storyboard_image_ref）。
+        try:
+            storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
+        except ValueError:
+            raise BadRequestError("invalid_storyboard_image_path", segment_id=segment_id) from None
+        if storyboard_file is None:
+            storyboard_file = project_path / "storyboards" / f"scene_{segment_id}.png"
         if not storyboard_file.is_file():
             raise BadRequestError("generate_storyboard_first", segment_id=segment_id)
 

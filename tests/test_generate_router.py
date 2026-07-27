@@ -1,8 +1,10 @@
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.i18n import _ as i18n_message
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -210,6 +212,61 @@ class TestGenerateRouter:
             )
             assert video.status_code == 200, video.text
             assert video.json()["success"] is True
+
+    @pytest.mark.integration
+    def test_video_storyboard_image_non_string_returns_400(self, tmp_path, monkeypatch):
+        """storyboard_image 是剧本 JSON 里的脏数据（非字符串）时应 400 可读失败，
+        而不是让 `project_path / storyboard_rel` 抛未处理 TypeError 变成 500。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": 123}
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            video = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+            assert video.status_code == 400, video.text
+            assert video.json()["detail"] == i18n_message("invalid_storyboard_image_path", segment_id="E1S01")
+            assert fake_queue.calls == []
+
+    @pytest.mark.integration
+    def test_video_storyboard_image_absolute_path_returns_400(self, tmp_path, monkeypatch):
+        """storyboard_image 是绝对路径时应 400 可读失败，不越权引用项目外文件。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "/etc/passwd"}
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            video = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+            assert video.status_code == 400, video.text
+            assert video.json()["detail"] == i18n_message("invalid_storyboard_image_path", segment_id="E1S01")
+            assert fake_queue.calls == []
+
+    @pytest.mark.integration
+    def test_video_storyboard_image_path_traversal_returns_400(self, tmp_path, monkeypatch):
+        """storyboard_image 含 `..` 越出项目目录时应 400 可读失败，不越权引用项目外文件。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "../../outside.png"}
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            video = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+            assert video.status_code == 400, video.text
+            assert video.json()["detail"] == i18n_message("invalid_storyboard_image_path", segment_id="E1S01")
+            assert fake_queue.calls == []
 
     def test_video_dirty_script_fail_fast_400(self, tmp_path, monkeypatch):
         """脏脚本(分镜数组键损坏)时,/generate/video 应在路由层 4xx 失败,

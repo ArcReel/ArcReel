@@ -53,6 +53,7 @@ MESSAGES = {
     "prompt_text_empty": "prompt không được để trống",
     "storyboard_task_submitted": "Đã gửi tác vụ tạo phân cảnh cho '{segment_id}'",
     "generate_storyboard_first": "Vui lòng tạo phân cảnh scene_{segment_id}.png trước",
+    "invalid_storyboard_image_path": "Đoạn '{segment_id}' có tham chiếu ảnh phân cảnh không hợp lệ, vui lòng tạo lại phân cảnh",
     "video_prompt_must_be_string_or_action_object": "prompt phải là chuỗi hoặc đối tượng chứa action/camera_motion",
     "video_prompt_action_empty": "prompt.action không được để trống",
     "video_prompt_dialogue_array": "prompt.dialogue phải là mảng",
