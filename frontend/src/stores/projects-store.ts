@@ -33,6 +33,11 @@ interface ProjectsState {
   // Actions
   setProjects: (projects: ProjectSummary[]) => void;
   setProjectsLoading: (loading: boolean) => void;
+  /**
+   * 写入当前项目。名称易主时同时轮换项目级取消域：前一个项目挂在旧域上的在途请求当场
+   * 取消，其迟到响应写不回 store（见 refreshProject 的「项目级取消域」）。这不是纯 setter，
+   * 全部切换路径（路由 effect 及其 cleanup、演示工作台接管）经此收口。
+   */
   setCurrentProject: (
     name: string | null,
     data: ProjectData | null,
@@ -73,6 +78,8 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
   // 项目级取消域：当前项目的数据请求都挂在这个 controller 上。切换项目时轮换（abort 旧的、
   // 换上新的），使前一个项目的在途请求当场取消、迟到响应无法写回 store。轮换后现役
   // controller 恒为未 abort 状态，因此不会长期作废后续刷新。
+  // 刷新自己写入成功时（名称由 null 变为该项目）也会走一次轮换，abort 的是本轮刚用完的域：
+  // 后续每一轮都重新取现役域，故无影响；日后若有别的项目级请求挂上来，需要复核这一点。
   let projectScope = new AbortController();
   const rotateProjectScope = () => {
     projectScope.abort();
