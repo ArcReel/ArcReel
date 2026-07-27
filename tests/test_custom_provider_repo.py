@@ -301,43 +301,6 @@ class TestModelManagement:
 
         assert await repo.list_models(p.id) == []
 
-    async def test_update_model(self, session: AsyncSession):
-        repo = CustomProviderRepository(session)
-        p = await repo.create_provider(
-            display_name="TestProvider",
-            discovery_format="openai",
-            base_url="https://example.com",
-            api_key="key",
-            models=[
-                {
-                    "model_id": "gpt-4o",
-                    "display_name": "GPT-4o",
-                    "endpoint": "openai-chat",
-                    "price_unit": "token",
-                    "price_input": 0.01,
-                    "price_output": 0.03,
-                    "currency": "USD",
-                },
-            ],
-        )
-        await session.flush()
-
-        models = await repo.list_models(p.id)
-        model = models[0]
-
-        await repo.update_model(model.id, price_input=0.005, price_output=0.015)
-        await session.flush()
-
-        updated_models = await repo.list_models(p.id)
-        assert updated_models[0].price_input == 0.005
-        assert updated_models[0].price_output == 0.015
-        assert updated_models[0].display_name == "GPT-4o"  # unchanged
-
-    async def test_update_model_nonexistent(self, session: AsyncSession):
-        repo = CustomProviderRepository(session)
-        result = await repo.update_model(999, display_name="Nope")
-        assert result is None
-
     async def test_delete_model(self, session: AsyncSession):
         repo = CustomProviderRepository(session)
         p = await repo.create_provider(

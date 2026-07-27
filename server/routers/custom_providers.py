@@ -294,13 +294,18 @@ def _system_capabilities_for(endpoint: str, model_id: str) -> dict[str, object] 
 def _effective_overrides_for_response(
     endpoint: str, model_id: str, overrides: object | None
 ) -> dict[str, object] | None:
-    """回显前按写入侧同一判定过滤，剔除执行层不会采用的键值。
+    """回显前按写入侧同一判定过滤，剔除执行层不会采用的键值，并收窄至开放白名单。
 
     存量行 / 非 API 写入可能留下已不兼容的覆盖（如 endpoint 不再 end_image_capable 后的
     last_frame=True）：原样回显会让界面显示"覆盖已生效"，但执行层其实静默忽略；且客户端
     普通保存时把它原样回传，会被写入侧白名单拒为 422，堵住与该覆盖无关的编辑。
+
+    再按 ``CAPABILITY_OVERRIDE_ALLOWLIST`` 收窄：DB 遗留的白名单外键（同样只能来自手工改库）
+    在被保存剔除前会原样回显，与写入落库的键集合不一致，调用方需要额外知道"回显可能含脏键
+    但写回会被剔除"。这里与写入侧共用同一白名单常量，两处集合保持一致。
     """
     filtered = filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides)
+    filtered = {k: v for k, v in filtered.items() if k in CAPABILITY_OVERRIDE_ALLOWLIST}
     return filtered or None
 
 
