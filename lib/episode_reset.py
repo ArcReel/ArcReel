@@ -86,7 +86,10 @@ def _archive_path(path: Path) -> Path:
     base = f"_{path.name}"
     candidate = path.with_name(f"{base}.bak")
     index = 1
-    while candidate.exists():
+    # exists() 对悬空符号链接返回 False（它会解引用到不存在的目标）：上一次重置把悬空
+    # episode_N.txt 留底后，candidate 本身可能就是这样一个悬空链接，仅查 exists() 会漏判
+    # 占用，导致 rename() 静默覆盖上一次的留底，违反本函数「同名时追加序号」的承诺
+    while candidate.exists() or candidate.is_symlink():
         candidate = path.with_name(f"{base}.{index}.bak")
         index += 1
     return candidate
@@ -100,9 +103,11 @@ def _scan(project_dir: Path, project: Mapping[str, Any]) -> _ResetPlan:
     """
     raw_episodes = project.get("episodes")
     entries: dict[int, Mapping[str, Any]] = {}
-    # 损坏账本可能对同一集号写出多条条目（如首条 planned、后条 consumed）：只取首条会
-    # 丢失后条携带的已消费证据，故已消费判定按集号聚合全部条目，而非只看被 setdefault
-    # 留下的那一条
+    # 损坏账本可能对同一集号写出多条条目（如首条 planned、后条 consumed，或首条带
+    # source_range、后条不带）：只取首条会丢失后条携带的证据，故已消费判定与
+    # 「文件是否可从账本重造」判定都按集号聚合全部条目，而非只看被 setdefault 留下的
+    # 那一条
+    entries_by_num: dict[int, list[Mapping[str, Any]]] = {}
     consumed_by_ledger_status: set[int] = set()
     # episodes 容器本身可能被写坏成非列表值（如 truthy 标量）：重置承诺零前置校验，
     # 这种情形按空账本处理而非抛错，不能让逃生口本身崩溃
@@ -115,6 +120,7 @@ def _scan(project_dir: Path, project: Mapping[str, Any]) -> _ResetPlan:
         if entry.get("ledger_status") == "consumed":
             consumed_by_ledger_status.add(num)
         entries.setdefault(num, entry)
+        entries_by_num.setdefault(num, []).append(entry)
 
     episode_file_aliases = discover_episode_file_aliases(project_dir)
     # 孤儿下游产物候选集号（账本无条目、无 source/episode_N.txt，但 scripts/ 或 drafts/
@@ -137,8 +143,12 @@ def _scan(project_dir: Path, project: Mapping[str, Any]) -> _ResetPlan:
         if not paths:
             continue
         # 同一集号可能存在多个 padding 别名（episode_1.txt / episode_01.txt），
-        # 全部按同一处置口径处理，否则未处理的别名会在下次回填中重新补建账本条目
-        target = deletes if isinstance(entry.get("source_range"), Mapping) else archives
+        # 全部按同一处置口径处理，否则未处理的别名会在下次回填中重新补建账本条目。
+        # 判定是否可删除取该集号全部重复条目的 source_range 交集：任一条目无法证明
+        # 文件可从账本重造，都按无法重造处理——删除是不可逆操作，证据冲突时偏保守
+        dupes = entries_by_num.get(num) or [entry]
+        can_recreate = all(isinstance(dupe.get("source_range"), Mapping) for dupe in dupes)
+        target = deletes if can_recreate else archives
         target.extend(paths)
     return _ResetPlan(episode_nums=sorted(entries), consumed=consumed, deletes=deletes, archives=archives)
 

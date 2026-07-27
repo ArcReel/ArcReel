@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ from lib.episode_ledger import (
 )
 from lib.episode_planner import EpisodePlanner
 from lib.episode_reset import (
+    EpisodeResetConflictError,
     EpisodeResetError,
     EpisodeResetResult,
     ResetConfirmationRequired,
@@ -231,23 +233,24 @@ def test_conflict_when_new_consumed_episode_appears_during_commit(
 ) -> None:
     """锁内复扫发现确认清单之外的新消费集时拒绝提交、账本不被改动：这是防止「确认时看到的
     清单」与「实际提交时的账本状态」不一致的关键安全网，用 monkeypatch 模拟该竞态窗口。"""
-    import lib.episode_reset as reset_mod
-
+    # 通过 sys.modules 取模块对象供 monkeypatch 使用，不再新增一种 import 风格
+    # （lib.episode_reset 已在文件顶部用 from-import 引入）
+    episode_reset_module = sys.modules["lib.episode_reset"]
     project_dir = _write_project(tmp_path)
     before = _load_project(project_dir)
-    original_scan = reset_mod._scan
+    original_scan = episode_reset_module._scan
     calls = {"n": 0}
 
-    def _fake_scan(pd: Path, project: dict) -> reset_mod._ResetPlan:
+    def _fake_scan(pd: Path, project: dict):
         calls["n"] += 1
         result = original_scan(pd, project)
         if calls["n"] == 2:  # 第二次调用发生在锁内（_commit 的复扫）
             result.consumed.append(1)
         return result
 
-    monkeypatch.setattr(reset_mod, "_scan", _fake_scan)
+    monkeypatch.setattr(episode_reset_module, "_scan", _fake_scan)
 
-    with pytest.raises(reset_mod.EpisodeResetConflictError):
+    with pytest.raises(EpisodeResetConflictError):
         reset_episode_planning(project_dir, from_episode=1)
 
     assert _load_project(project_dir) == before
@@ -410,6 +413,71 @@ def test_reset_aggregates_consumed_status_across_duplicate_episode_entries(tmp_p
 
     assert isinstance(result, ResetConfirmationRequired)
     assert result.consumed_episodes == [1]
+
+
+def test_reset_archives_when_any_duplicate_entry_lacks_source_range(tmp_path: Path) -> None:
+    """损坏账本同一集号出现多条条目，首条带 source_range、后条不带时，按无法证明可
+    重造处理（留底而非删除）——删除不可逆，证据冲突时偏保守。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+            _entry(1, source_range=None, status="unanchored"),
+        ],
+    )
+    derived = project_dir / "source" / "episode_1.txt"
+    derived.write_text(SOURCE[:10], encoding="utf-8")
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert result.deleted_files == []
+    assert result.archived_files
+    assert not derived.exists()
+
+
+def test_archive_path_increments_past_dangling_symlink_collision(tmp_path: Path) -> None:
+    """留底目标名恰好被上一次遗留的悬空符号链接占用时仍按占用处理并追加序号：
+    exists() 对悬空链接返回 False，只查 exists() 会让 rename() 静默覆盖旧留底。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[_entry(2, source_range=None, status="unanchored")],
+    )
+    stale_backup = project_dir / "source" / "_episode_2.txt.bak"
+    stale_backup.symlink_to(project_dir / "source" / "does_not_exist_either.txt")
+    legacy = project_dir / "source" / "episode_2.txt"
+    legacy.write_text("这一次的内容", encoding="utf-8")
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert stale_backup.is_symlink()  # 旧留底（悬空链接）未被覆盖
+    new_backup = project_dir / "source" / "_episode_2.txt.1.bak"
+    assert new_backup.read_text(encoding="utf-8") == "这一次的内容"
+    assert result.archived_files == [("source/episode_2.txt", "source/_episode_2.txt.1.bak")]
+
+
+def test_discover_episode_files_prefers_readable_over_dangling_alias(tmp_path: Path) -> None:
+    """代表路径在悬空别名恰好排序在前时仍优先选可读文件，避免 backfill 等按内容匹配
+    source_range 的调用方读到悬空链接而误判该集 unanchored。"""
+    project_dir = _write_project(tmp_path)
+    valid = project_dir / "source" / "episode_1.txt"
+    valid.write_text(SOURCE[:10], encoding="utf-8")
+    dangling = project_dir / "source" / "episode_01.txt"  # 排序早于 episode_1.txt
+    dangling.symlink_to(project_dir / "source" / "does_not_exist.txt")
+
+    assert discover_episode_files(project_dir)[1] == valid
+
+
+def test_empty_drafts_dir_does_not_require_confirmation(tmp_path: Path) -> None:
+    """drafts/episode_N/ 目录存在但为空（如一次被拒绝的草稿保存留下的空目录）时不计入
+    已消费产物，不能因为目录存在就误报需要确认。"""
+    project_dir = _write_project(tmp_path)
+    (project_dir / "drafts" / "episode_1").mkdir(parents=True)
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, EpisodeResetResult)
 
 
 def test_reset_tolerates_unconvertible_digit_episode_num(tmp_path: Path) -> None:

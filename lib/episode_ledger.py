@@ -239,8 +239,18 @@ def discover_episode_file_aliases(project_dir: Path) -> dict[int, list[Path]]:
 
 
 def discover_episode_files(project_dir: Path) -> dict[int, Path]:
-    """枚举派生集文件 source/episode_N.txt → {集号: 路径}（每号取排序后首个别名）。"""
-    return {num: paths[0] for num, paths in discover_episode_file_aliases(project_dir).items()}
+    """枚举派生集文件 source/episode_N.txt → {集号: 路径}（每号取一个代表路径）。
+
+    代表路径优先选可读的普通文件；该集号全部别名都是悬空符号链接时才退而取排序
+    后的首个。``discover_episode_file_aliases`` 按文件名排序、不区分悬空与否，若
+    悬空别名（如 ``episode_01.txt``）恰好排在有效文件（``episode_1.txt``）之前，
+    直接取首个会让 ``backfill_episode_ledger`` 等按内容匹配 ``source_range`` 的
+    调用方读到悬空链接而误判该集 unanchored，白白丢失本可从有效文件恢复的坐标。
+    """
+    result: dict[int, Path] = {}
+    for num, paths in discover_episode_file_aliases(project_dir).items():
+        result[num] = next((p for p in paths if p.is_file()), paths[0])
+    return result
 
 
 def discover_product_episode_nums(project_dir: Path) -> set[int]:
@@ -261,7 +271,10 @@ def discover_product_episode_nums(project_dir: Path) -> set[int]:
     if drafts_dir.is_dir():
         for path in drafts_dir.iterdir():
             match = _DRAFT_DIR_RE.fullmatch(path.name)
-            if match and path.is_dir():
+            # 目录存在不等于有产物：files.py::update_draft_content 会在校验草稿内容前
+            # 先建目录，一次被拒绝的无效保存就会留下空目录；只有真正落了 step1_* 才算
+            # 下游产物，与 has_downstream_products() 的口径保持一致
+            if match and path.is_dir() and any(path.glob("step1_*")):
                 nums.add(int(match.group(1)))
     return nums
 
