@@ -790,11 +790,23 @@ async def execute_video_task(
     generator = ctx.generator
 
     # 优先读取 generated_assets.storyboard_image，回退默认路径。
-    # 旧宫格项目 storyboard_image 指向 scene_{id}_first.png，仍可正常解析。
+    # 旧宫格项目 storyboard_image 指向 scene_{id}_first.png，仍可正常解析——这点与 end_frame_image
+    # 不同，不能要求与 canonical 路径逐一比对，只做目录归属校验：剧本是磁盘上的 JSON，字段值不可
+    # 信任（归档导入、外部编辑、脏数据都能落值），绝对路径 / `..` 会把项目外任意文件送进视频请求
+    # 上传给供应商，须先用 try_safe_join 解析并确认结果落在 storyboards/ 目录内，否则可读硬失败。
     assets = item.get("generated_assets", {})
     storyboard_rel = assets.get("storyboard_image") if isinstance(assets, dict) else None
-    if storyboard_rel:
-        storyboard_file = project_path / storyboard_rel
+    if storyboard_rel not in (None, ""):
+        if not isinstance(storyboard_rel, str):
+            raise ValueError(f"invalid storyboard image path: {storyboard_rel!r}")
+        storyboards_root = safe_join(project_path, "storyboards", allow_base=True)
+        storyboard_file = try_safe_join(project_path, storyboard_rel)
+        if storyboard_file is None:
+            raise ValueError(f"invalid storyboard image path: {storyboard_rel!r}")
+        try:
+            storyboard_file.relative_to(storyboards_root)
+        except ValueError:
+            raise ValueError(f"invalid storyboard image path: {storyboard_rel!r}") from None
     else:
         storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
     if not storyboard_file.exists():
