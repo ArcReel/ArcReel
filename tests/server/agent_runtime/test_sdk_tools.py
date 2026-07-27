@@ -569,9 +569,12 @@ async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
     """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，不抛 AttributeError。"""
     from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
 
+    captured: list[Any] = []
+
     async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
         from lib.generation_queue_client import BatchTaskResult
 
+        captured.extend(specs)
         succ = [
             BatchTaskResult(
                 resource_id=s.resource_id,
@@ -588,6 +591,7 @@ async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
     tool_obj = generate_storyboards_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True, out
+    assert [s.resource_id for s in captured] == ["E1S01"]
 
 
 async def test_generate_storyboards_error(fake_ctx: ToolContext, monkeypatch) -> None:
