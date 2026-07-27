@@ -160,6 +160,29 @@ def _get_model_default_duration(provider_name: str, model_name: str | None) -> i
     return 4
 
 
+def constrain_durations_by_resolution(
+    provider_name: str, model_name: str | None, durations: list[int], resolution: str | None
+) -> list[int]:
+    """按型号声明的「分辨率↔时长」约束收窄候选；无声明或交集为空时返回原候选。
+
+    只服务于「未显式指定时长」时的取值：Veo 在 1080p/4k 下只接受 8 秒，而候选全集
+    ``supported_durations`` 首项是 4 秒，直接取首项会让默认设置必然撞上执行期拒绝。
+    显式指定的时长不经此收窄——其合法性仍由 :func:`assert_duration_supported` 与 backend
+    的执行期校验把关，拒绝行为不变。
+    """
+    if not durations or not resolution:
+        return durations
+    provider_meta = PROVIDER_REGISTRY.get(provider_name)
+    model_info = provider_meta.models.get(model_name) if provider_meta and model_name else None
+    if model_info is None:
+        return durations
+    allowed = model_info.duration_resolution_constraints.get(resolution.strip().lower())
+    if not allowed:
+        return durations
+    narrowed = [d for d in durations if d in allowed]
+    return narrowed or durations
+
+
 def assert_duration_supported(duration: int | float | str, supported_durations: list[int]) -> None:
     """执行层能力守卫：duration 必须落在已解析 model 的 supported_durations 内。
 
@@ -830,10 +853,14 @@ async def execute_video_task(
     if duration_seconds is None:
         duration_seconds = project.get("default_duration")
     if not duration_seconds:
+        # 取首项前先按当前分辨率的联动约束收窄：否则 Veo + 1080p/4k 的默认（Auto）设置会取到
+        # 4 秒，被 backend 的「该分辨率必须 8 秒」拒绝——UI 已按同一份声明门控，此处不收窄
+        # 就等于默认配置必然失败。
+        candidates = constrain_durations_by_resolution(
+            registry_provider_id, model_name, supported_durations, resolution
+        )
         duration_seconds = (
-            supported_durations[0]
-            if supported_durations
-            else _get_model_default_duration(registry_provider_id, model_name)
+            candidates[0] if candidates else _get_model_default_duration(registry_provider_id, model_name)
         )
     # 能力守卫：provider 解析之后的唯一权威家（见 ADR-0001）。安全解析交给守卫，
     # 此处不预先 int() 截断，避免把非整数秒静默修正成「碰巧合法」的值。

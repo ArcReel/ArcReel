@@ -176,8 +176,12 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         info = model_info_for(self.name, self._video_model)
 
         if request.reference_images:
-            allowed = (info.reference_image_durations if info else None) or [_REQUIRED_DURATION_SECONDS]
-            if request.duration_seconds not in allowed:
+            # 已登记型号一律采信其声明：空声明的语义是「参考图路径不额外约束时长」（见
+            # ModelInfo.reference_image_durations），与前端 `?? []` 同口径；只有型号未登记
+            # （info is None）才回落兜底常量。用 `or` 折叠两者会让空声明被兜底覆盖成 [8]，
+            # 前后端读同一份声明得出不同结论。
+            allowed = info.reference_image_durations if info is not None else [_REQUIRED_DURATION_SECONDS]
+            if allowed and request.duration_seconds not in allowed:
                 raise VideoCapabilityError(
                     "video_reference_images_duration_unsupported",
                     model=self._video_model,

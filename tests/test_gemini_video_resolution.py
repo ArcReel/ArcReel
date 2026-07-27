@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from lib.config.registry import ModelInfo
 from lib.video_backends.base import VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.gemini import GeminiVideoBackend
 
@@ -186,6 +187,32 @@ async def test_reference_images_constraint_for_unregistered_model(tmp_path):
 
     assert exc.value.code == "video_reference_images_duration_unsupported"
     assert exc.value.params["supported"] == "8s"
+
+
+@pytest.mark.asyncio
+async def test_reference_images_empty_declaration_means_unconstrained(tmp_path, monkeypatch):
+    """已登记但把 reference_image_durations 声明为空 = 该路径不额外约束，不落兜底。
+
+    空声明与「未登记」是两种语义（前端读同一份声明也按不约束处理），兜底只对未登记生效。
+    """
+    info = ModelInfo(
+        display_name="Veo test",
+        media_type="video",
+        capabilities=["text_to_video"],
+        supported_durations=[4, 6, 8],
+        reference_image_durations=[],
+    )
+    monkeypatch.setattr("lib.video_backends.gemini.model_info_for", lambda *_: info)
+
+    backend = _make_backend()
+    req = VideoGenerationRequest(
+        prompt="x",
+        output_path=tmp_path / "o.mp4",
+        duration_seconds=4,
+        reference_images=[_frame(tmp_path, "ref.png")],
+    )
+    with pytest.raises(RuntimeError):  # 走到 SDK 调用即说明未被约束拦截
+        await backend.generate(req)
 
 
 @pytest.mark.parametrize("resolution", ["1080p", "4k"])
