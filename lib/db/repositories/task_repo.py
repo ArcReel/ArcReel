@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.task import Task, TaskEvent, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
-from lib.task_failure import bound_reason, encode_failure
+from lib.task_failure import bound_reason, collapse_cascade_reason, encode_failure
 from lib.task_terminal_events import TERMINAL_TASK_STATUSES
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,9 @@ _MAX_ERROR_MESSAGE_LEN = 2000
 
 
 def _encode_bounded_cascade_failure(*, dependency_task_id: str, reason: str) -> str:
+    # 上游原因本身是级联串时先折叠到根本原因：逐层包裹近指数增长，深链上裁剪只能把内层信封
+    # 切在 JSON 中途，读侧会把残缺内层当普通文本嵌进本地化文案。折叠后串长与链深无关。
+    reason = collapse_cascade_reason(reason)
     encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
     if len(encoded) <= _MAX_ERROR_MESSAGE_LEN:
         return encoded

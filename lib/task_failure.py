@@ -81,6 +81,9 @@ _STRUCTURED_RE = re.compile(r"^\[(\w+)\](?:[ ](\{.*\}))?$", re.DOTALL)
 
 _CASCADE_CODE = "cascade_blocked_dependency"
 
+# collapse_cascade_reason 的解包上限，纯粹的空转防线。
+_MAX_CASCADE_UNWRAP = 100
+
 
 def encode_failure(code: str, /, **params: Any) -> str:
     """Encode a known failure code (+ params) into the stored machine string.
@@ -115,6 +118,32 @@ def _as_shrinkable(value: Any) -> Any:
         return json.dumps(value, ensure_ascii=False, default=str)
     except RecursionError:
         return "…"
+
+
+def collapse_cascade_reason(reason: str) -> str:
+    """把嵌套的级联原因折叠成最内层的根本原因，供级联编码前调用。
+
+    逐层包裹会让串近指数增长：每一层都把上一层的整个信封重新编码进 JSON，转义使长度翻倍，
+    七层左右就会撑破落库预算，裁剪只能从尾部切字符，把内层信封切在 JSON 中途——外层仍可解析，
+    读侧却把残缺的内层当普通文本原样嵌进本地化文案里。
+
+    中间层携带的只是「另一个同样被阻塞的任务 id」，用户能据以行动的是直接依赖与根本原因两项，
+    前者由外层自己的 ``dependency_task_id`` 保留。折叠后串长与依赖链深度无关。
+    """
+    seen = 0
+    while True:
+        parsed = _parse_structured(reason)
+        if parsed is None or parsed[0] != _CASCADE_CODE:
+            return reason
+        nested = parsed[1].get("reason")
+        if not isinstance(nested, str):
+            return reason
+        reason = nested
+        seen += 1
+        if seen > _MAX_CASCADE_UNWRAP:
+            # 正常链路远达不到这个深度（撑破预算前就折叠掉了）。真撞上说明遇到了畸形或人造
+            # 的深层串，就地收手：返回当前层，不在落库路径上空转。
+            return reason
 
 
 def bound_reason(reason: str, limit: int) -> str:

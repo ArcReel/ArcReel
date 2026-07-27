@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from lib import task_failure
+from lib.db.repositories.task_repo import _encode_bounded_cascade_failure
 from lib.generation_worker import _encode_task_failure_message
 from lib.i18n import MESSAGES
 from lib.i18n import _ as i18n_translate
@@ -25,6 +26,7 @@ from lib.task_failure import (
     CAPABILITY_FAILURE_CODES,
     FAILURE_CODE_KEYS,
     bound_reason,
+    collapse_cascade_reason,
     encode_failure,
     render_failure,
 )
@@ -444,6 +446,41 @@ def test_cascade_reason_renders_upstream_reason_per_locale():
         assert "5a38f38e" in text
         inner = MESSAGES[locale]["video_duration_not_supported"].format(duration=7, supported="5, 10")
         assert inner in text
+
+
+def test_deep_cascade_chain_keeps_root_cause_renderable():
+    """长依赖链上每层都要渲染成本地化文案，而不是嵌一段被切坏的内层信封。
+
+    逐层包裹近指数增长：每层把上一层整个信封重新编码进 JSON，转义使长度翻倍，七层左右撑破
+    落库预算，裁剪只能从尾部切字符，把内层切在 JSON 中途——外层仍可解析，读侧却把残缺内层
+    当普通文本原样嵌进本地化文案。编码前折叠掉中间层后，串长与链深无关。
+    """
+    upstream = _encode_task_failure_message(
+        VideoCapabilityError("video_duration_not_supported", duration=7, supported="5, 10")
+    )
+    inner = MESSAGES["zh"]["video_duration_not_supported"].format(duration=7, supported="5, 10")
+
+    stored = upstream
+    lengths = set()
+    for depth in range(1, 21):
+        stored = _encode_bounded_cascade_failure(dependency_task_id=f"{depth:032d}", reason=stored)
+        lengths.add(len(stored))
+        rendered = render_failure(stored, _translator("zh"))
+        assert rendered is not None
+        # 直接依赖与根本原因两项都在，且没有任何机器码碎片漏出。
+        assert f"{depth:032d}" in rendered
+        assert inner in rendered
+        assert "[cascade_blocked_dependency]" not in rendered
+        assert "video_duration_not_supported" not in rendered
+
+    assert len(lengths) == 1, f"折叠后串长应与链深无关，实际出现多种长度: {sorted(lengths)}"
+
+
+def test_collapse_cascade_reason_leaves_non_cascade_reason_untouched():
+    """非级联原因（含 provider 原始文本）不该被折叠动到。"""
+    upstream = _encode_task_failure_message(VideoCapabilityError("video_duration_invalid", duration="x"))
+    assert collapse_cascade_reason(upstream) == upstream
+    assert collapse_cascade_reason("provider rejected") == "provider rejected"
 
 
 def test_cascade_reason_with_unstructured_upstream_still_renders():
