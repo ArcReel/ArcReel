@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from lib.asset_types import ASSET_SPECS
-from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.registry import PROVIDER_REGISTRY, model_info_for
 from lib.db.base import DEFAULT_USER_ID
 from lib.i18n import DEFAULT_LOCALE
 from lib.i18n import _ as i18n_translate
@@ -172,8 +172,7 @@ def constrain_durations_by_resolution(
     """
     if not durations or not resolution:
         return durations
-    provider_meta = PROVIDER_REGISTRY.get(provider_name)
-    model_info = provider_meta.models.get(model_name) if provider_meta and model_name else None
+    model_info = model_info_for(provider_name, model_name) if model_name else None
     if model_info is None:
         return durations
     allowed = model_info.duration_resolution_constraints.get(resolution.strip().lower())
