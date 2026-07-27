@@ -1224,6 +1224,46 @@ class TestSourceFingerprintGate:
         project = _load_project(project_dir)
         assert SOURCE_FINGERPRINTS_KEY not in project
 
+    async def test_plan_rejects_when_source_file_discovered_mid_loop_changes_during_model_call(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """已耗尽 novel.txt 游标的存量项目：novel2.txt 在入口快照之后才出现，被
+        `_next_source_rel()` 发现并读入本批规划——提交复核必须覆盖这份中途读入的文本，
+        只查入口快照会漏掉模型调用期间对它的改动。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+        )
+        novel2_path = project_dir / "source" / "novel2.txt"
+        novel2_path.write_text(SOURCE2, encoding="utf-8")
+        call_count = 0
+
+        def _discover_sources_hiding_novel2_on_first_call(project_path: Path):
+            nonlocal call_count
+            call_count += 1
+            docs = _real_discover_sources(project_path)
+            if call_count == 1:  # 入口快照：novel2.txt 尚未出现
+                return [doc for doc in docs if doc.rel_path != "source/novel2.txt"]
+            return docs
+
+        monkeypatch.setattr("lib.episode_planner.discover_sources", _discover_sources_hiding_novel2_on_first_call)
+
+        class _MutatingGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                novel2_path.write_text("新源文件在模型调用期间被换掉。", encoding="utf-8")
+                return await super().generate(request, project_name)
+
+        fake = _MutatingGenerator([_plan_response([{"title": "t3", "hook": "h3", "end_anchor": ANCHOR2_MID}])])
+        planner = EpisodePlanner(project_dir, generator=fake)
+
+        with pytest.raises(EpisodePlanningError, match="source/novel2.txt"):
+            await planner.plan()
+
+        project = _load_project(project_dir)
+        assert len(project.get("episodes") or []) == 1  # 第 1 集不受影响，也没有新集落账
+        assert SOURCE_FINGERPRINTS_KEY not in project
+
 
 class TestReplan:
     async def test_replan_repartitions_from_episode_keeping_prior_fixed(self, tmp_path: Path):

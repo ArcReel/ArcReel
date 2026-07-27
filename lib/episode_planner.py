@@ -456,15 +456,22 @@ class EpisodePlanner:
         # 已读入的源文被改动」，覆盖面不止本批 source_rel——已记录指纹的存量校验只保护
         # 「跨调用」的漂移，这里补的是单次调用内、指纹补记前也生效的窄窗口
         pre_call_texts = {doc.rel_path: doc.text for doc in pre_call_sources}
+        # 本次调用实际读取过的源文文本，用作提交时的复核基线：起点覆盖 pre_call_texts，
+        # 并随 _next_source_rel() 在循环中发现快照之外的新源文件而追加——那些文件同样是
+        # 本次读入并可能交给模型的内容，提交复核必须能查出它们在模型调用期间被改动
+        used_texts = dict(pre_call_texts)
         start_ref = self._effective_start(project)
         source_rel, start = start_ref
-        text = pre_call_texts.get(source_rel, self._load_normalized_source(source_rel))
+        text = used_texts.get(source_rel)
+        if text is None:
+            text = self._load_normalized_source(source_rel)
+            used_texts[source_rel] = text
         if start > len(text):
             raise EpisodePlanningError(f"规划起点越界：{source_rel} 长度 {len(text)}，起点 {start}；请检查账本")
         while not text[start:].strip():
             next_rel = self._next_source_rel(source_rel)
             if next_rel is None:
-                project = self._backfill_source_fingerprints_if_missing(project, pre_call_texts=pre_call_texts)
+                project = self._backfill_source_fingerprints_if_missing(project, used_texts=used_texts)
                 return PlanResult(
                     episodes=[],
                     cursor=project.get("planning_cursor"),
@@ -473,7 +480,10 @@ class EpisodePlanner:
                     ledger_stats=self._compute_ledger_stats(project),
                 )
             source_rel, start = next_rel, 0
-            text = pre_call_texts.get(source_rel, self._load_normalized_source(source_rel))
+            text = used_texts.get(source_rel)
+            if text is None:
+                text = self._load_normalized_source(source_rel)
+                used_texts[source_rel] = text
 
         window_chars = self._setting_int(project, "planning_window_chars", DEFAULT_PLANNING_WINDOW_CHARS)
         max_episodes = self._setting_int(project, "planning_max_episodes", DEFAULT_PLANNING_MAX_EPISODES)
@@ -535,11 +545,12 @@ class EpisodePlanner:
             current_sources = discover_sources(self.project_path)
             self._check_source_fingerprints(p, sources=current_sources)
             # 指纹比对只覆盖「已记录」的文件，存量项目补记路径上恒为空；而切分坐标与派生
-            # 文件都基于锁外读入的 pre_call_texts，故对本次调用锁外读到的全部源文（不止本批
-            # source_rel）直接比文本，堵住补记路径裸露的窗口——本次调用之前已锚定其它集号
-            # 的源文若在模型调用期间被改动，同样会被这里拦下
+            # 文件都基于本次调用读入的 used_texts（覆盖入口快照 + 循环中途新发现的源文件），
+            # 故直接比文本堵住补记路径裸露的窗口——本次调用之前已锚定其它集号的源文、以及
+            # _next_source_rel() 在快照之后才发现并读入的新源文件，若在模型调用期间被改动，
+            # 同样会被这里拦下
             current_texts = {doc.rel_path: doc.text for doc in current_sources}
-            changed = sorted(rel for rel, snapshot in pre_call_texts.items() if current_texts.get(rel) != snapshot)
+            changed = sorted(rel for rel, snapshot in used_texts.items() if current_texts.get(rel) != snapshot)
             if changed:
                 raise _source_changed_error(changed)
             episodes_list = [e for e in (p.get("episodes") or []) if e is not None]
@@ -981,15 +992,16 @@ class EpisodePlanner:
             raise _source_changed_error(mismatched)
 
     def _backfill_source_fingerprints_if_missing(
-        self, project: Mapping[str, Any], *, pre_call_texts: dict[str, str]
+        self, project: Mapping[str, Any], *, used_texts: dict[str, str]
     ) -> dict:
         """存量项目在 ``source_exhausted`` 早退路径上补记指纹：该路径不经过 ``plan()`` 的
         提交闭包，若跳过会让「首次 plan 补记指纹」对已耗尽游标的存量项目失效——后续等长
         编辑旧正文都因无基线可比而放行。已有指纹的项目直接原样返回，不重复计算。
 
-        ``pre_call_texts`` 是锁外读入的全量源文快照：锁内复核与常规提交路径同一套逃生口——
-        若 plan() 保存快照后、本闭包读取前源文被改动，直接把变更内容登记为基线会让这次变更
-        永久失去可比对象，须先拒绝。
+        ``used_texts`` 是本次 plan() 调用锁外读入的全量源文快照（含入口快照与循环中途
+        新发现的源文件）：锁内复核与常规提交路径同一套逃生口——若 plan() 保存快照后、
+        本闭包读取前源文被改动，直接把变更内容登记为基线会让这次变更永久失去可比对象，
+        须先拒绝。
         """
         if project.get(SOURCE_FINGERPRINTS_KEY) is not None:
             return dict(project)
@@ -998,7 +1010,7 @@ class EpisodePlanner:
             current_sources = discover_sources(self.project_path)
             self._check_source_fingerprints(p, sources=current_sources)
             current_texts = {doc.rel_path: doc.text for doc in current_sources}
-            changed = sorted(rel for rel, snapshot in pre_call_texts.items() if current_texts.get(rel) != snapshot)
+            changed = sorted(rel for rel, snapshot in used_texts.items() if current_texts.get(rel) != snapshot)
             if changed:
                 raise _source_changed_error(changed)
             p[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(current_sources)
