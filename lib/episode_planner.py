@@ -37,6 +37,7 @@ from lib.episode_ledger import (
     mismatched_source_fingerprints,
     normalize_source_text,
     parse_episode_num,
+    register_orphan_episode_entries,
 )
 from lib.episode_paths import episode_script_relpath
 from lib.path_safety import PathTraversalError, safe_join
@@ -425,6 +426,9 @@ class EpisodePlanner:
         """
         planning_instructions = (instructions or "").strip() or None
         project = self.pm.load_project(self.project_name)
+        # 手动预拆分上传等场景下磁盘可能已有账本无条目的孤儿派生集文件：不先补建条目，
+        # 门禁看见空账本会直接放行，规划随后会把该集内容当无主原文重新生成并覆盖
+        project = register_orphan_episode_entries(self.project_path, project)
         self._check_source_ranges(project)
         pre_call_sources = discover_sources(self.project_path)
         self._check_source_fingerprints(project, sources=pre_call_sources)
@@ -514,7 +518,11 @@ class EpisodePlanner:
 
         def _commit(p: dict) -> None:
             # 锁内复核缺位置记录的条目：与指纹复核同一套逃生口——模型调用期间账本可能被
-            # 并发写入（如另一条链路补建了手动预拆分集的条目），锁外那次快照不足以放行提交
+            # 并发写入（如另一条链路补建了手动预拆分集的条目），锁外那次快照不足以放行提交；
+            # 先重跑一次孤儿登记补齐同一并发窗口内新出现的孤儿派生文件，再校验
+            healed = register_orphan_episode_entries(self.project_path, p)
+            p.clear()
+            p.update(healed)
             self._check_source_ranges(p)
             if self._effective_start(p) != start_ref:
                 raise PlanningConflictError("规划期间账本进度被并发修改，本次结果作废；请重新调用规划")

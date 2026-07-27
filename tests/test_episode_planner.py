@@ -165,6 +165,22 @@ class TestPlan:
             {"episode": 1, "title": "旧集", "script_file": "scripts/episode_1.json"}
         ]
 
+    async def test_plan_registers_orphan_episode_file_and_rejects_instead_of_overwriting(self, tmp_path: Path):
+        """账本为空但磁盘已有手动预拆分的集文件：规划先自愈识别出这是孤儿集号再拒绝，
+        不会因为账本读起来是空的就当无主原文重新生成并覆盖手动内容。"""
+        project_dir = _write_project(tmp_path, episodes=[])
+        (project_dir / "source" / "episode_1.txt").write_text("人工预拆分的旧集内容。", encoding="utf-8")
+        fake = _FakeTextGenerator([])
+
+        with pytest.raises(EpisodePlanningError, match="没有原文范围记录"):
+            await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert fake.requests == []
+        # 拒绝发生在提交之前，账本未被落盘改动——但已能正确认出集号 1（而非把它当空账本放行）
+        assert _load_project(project_dir)["episodes"] == []
+        # 手动预拆分的集文件原样保留，未被规划重新生成覆盖
+        assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == "人工预拆分的旧集内容。"
+
     async def test_plan_rejects_legacy_status_entry_without_source_range(self, tmp_path: Path):
         """存量项目遗留的已废弃状态值不影响判定：看的是有没有 source_range。"""
         project_dir = _write_project(
