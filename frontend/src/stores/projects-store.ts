@@ -4,6 +4,15 @@ import { API } from "@/api";
 import { isDemoProject } from "@/onboarding/demo-project";
 import { useAppStore } from "./app-store";
 
+/**
+ * {@link ProjectsState.refreshProject} 的结算结果：
+ * - `success` — store 已同步为最新数据
+ * - `failed` — 请求本身出错（网络 / 服务端错误），`onError` 会被调用
+ * - `cancelled` — 未同步但不代表出错：项目切换取消域轮换、被更晚的排队请求取代等。
+ *   调用方应静默处理，不弹错误提示
+ */
+export type RefreshProjectResult = "success" | "failed" | "cancelled";
+
 /** {@link ProjectsState.refreshProject} 的可选行为。 */
 interface RefreshProjectOptions {
   /** 刷新成功后要失效的实体版本 key（沿用 StudioCanvasRouter 旧变体语义）。 */
@@ -57,18 +66,18 @@ interface ProjectsState {
   updateAssetFingerprints: (fps: Record<string, number>) => void;
   getAssetFingerprint: (path: string) => number | null;
   /**
-   * 刷新当前项目数据到 store，返回 store 是否已同步成功。
+   * 刷新当前项目数据到 store，返回结果判别式联合（见 {@link RefreshProjectResult}）。
    *
    * 单一入口收敛此前各调用点分散的刷新语义，消除「两入口同时刷新时后完成者盖住
    * 先完成者」的竞态：
    * - **在途合并**：同一时刻只允许一个 getProject 在途；在途期间到达的刷新请求
    *   合并为「结束后再跑一轮」，取最新一次请求的 name / invalidateKeys。
-   * - **失败留旧**：getProject 失败时不覆盖 currentProjectData，返回 false 交调用方
-   *   决定是否提示（onError 亦会被调用）。
+   * - **失败留旧**：getProject 失败时不覆盖 currentProjectData，返回 `"failed"` 交
+   *   调用方决定是否提示（onError 亦会被调用）。
    * - **项目级取消域**：请求挂在随当前项目轮换的 AbortSignal 上，切换项目即作废前一个
-   *   项目的在途与迟到刷新，返回 false 且不视为失败（不触发 onError）。
+   *   项目的在途与迟到刷新，返回 `"cancelled"`，不视为失败（不触发 onError）。
    */
-  refreshProject: (name: string, options?: RefreshProjectOptions) => Promise<boolean>;
+  refreshProject: (name: string, options?: RefreshProjectOptions) => Promise<RefreshProjectResult>;
 }
 
 export const useProjectsStore = create<ProjectsState>((set, get) => {
@@ -80,7 +89,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
   let queuedOnErrors: Array<(err: unknown) => void> = [];
   // 排队轮调用方各自的 resolve——与 curResolvers 分开累积，避免"排队进同一批"
   // 被误解为"共享同一个最终结果"：每个调用方只对自己实际服务的那一轮结果负责。
-  let queuedResolvers: Array<(ok: boolean) => void> = [];
+  let queuedResolvers: Array<(result: RefreshProjectResult) => void> = [];
 
   // 项目级取消域：当前项目的数据请求都挂在这个 controller 上。切换项目时轮换（abort 旧的、
   // 换上新的），使前一个项目的在途请求当场取消、迟到响应无法写回 store。轮换后现役
@@ -101,7 +110,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
     name: string,
     keys: string[],
     onError: ((err: unknown) => void) | undefined,
-    resolvers: Array<(ok: boolean) => void>,
+    resolvers: Array<(result: RefreshProjectResult) => void>,
   ): Promise<void> => {
     let curName = name;
     let curKeys = keys;
@@ -110,7 +119,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
     let again = true;
     while (again) {
       again = false;
-      let ok = false;
+      let result: RefreshProjectResult = "cancelled";
       // 每轮取一次现役取消域：排队轮要挂在它自己发起时刻的域上，不复用上一轮的。
       const signal = projectScope.signal;
       try {
@@ -140,18 +149,22 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
           if (curKeys.length > 0) {
             useAppStore.getState().invalidateEntities(curKeys);
           }
-          ok = true;
+          result = "success";
         }
+        // 未写入但也未出错（superseded / aborted / 非当前项目）：结算为 "cancelled"，
+        // 调用方据此静默，不与真正的请求失败混淆。
       } catch (err) {
-        // 失败留旧：不覆盖 currentProjectData；调用方按返回值 / onError 决定提示。
-        ok = false;
-        // 取消域轮换导致的 abort 是项目切换的正常结果，不是刷新失败：按「未同步」结算
-        // 为 false，但不触发 onError，否则每次切项目都会弹一条同步失败提示。
-        if (!signal.aborted) {
+        // 取消域轮换导致的 abort 是项目切换的正常结果，不是刷新失败：结算为
+        // "cancelled"，不触发 onError，否则每次切项目都会弹一条同步失败提示。
+        // 失败留旧：两种结果都不覆盖 currentProjectData。
+        if (signal.aborted) {
+          result = "cancelled";
+        } else {
+          result = "failed";
           curOnErrors.forEach((cb) => cb(err));
         }
       }
-      curResolvers.forEach((resolve) => resolve(ok));
+      curResolvers.forEach((resolve) => resolve(result));
       if (refreshQueued) {
         refreshQueued = false;
         curName = queuedName ?? curName;
@@ -202,11 +215,11 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
     getAssetFingerprint: (path) => get().assetFingerprints[path] ?? null,
 
     refreshProject: (name, options) => {
-      if (!name) return Promise.resolve(false);
+      if (!name) return Promise.resolve("cancelled");
       // 引导演示项目的数据来自前端常量，没有可刷新的服务端状态
-      if (isDemoProject(name)) return Promise.resolve(true);
+      if (isDemoProject(name)) return Promise.resolve("success");
       const invalidateKeys = options?.invalidateKeys ?? [];
-      return new Promise<boolean>((resolve) => {
+      return new Promise<RefreshProjectResult>((resolve) => {
         if (refreshRunning) {
           // 已有刷新在途：合并为「结束后再跑一轮」，取最新 name，累积 invalidateKeys /
           // onError / resolve——排队轮次结束时需各自通知全部合并进来的调用方，
@@ -218,13 +231,13 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
           // 被接下来实际执行的那一轮命中；不提前结算就会被并入并共享本次这个新项目
           // 的结果，即便它们请求的从来不是这个项目（例如 B 排队后 C 覆盖，B 的调用方
           // 会在 C 成功后错误地收到 true，但 store 从未同步过 B 的数据）。按「未同步」
-          // 立即结算为 false，不视为请求出错，因此不触发 onError。
+          // 立即结算为 "cancelled"，不视为请求出错，因此不触发 onError。
           if (refreshQueued && queuedName !== null && queuedName !== name) {
             const supersededResolvers = queuedResolvers;
             queuedResolvers = [];
             queuedKeys = [];
             queuedOnErrors = [];
-            supersededResolvers.forEach((r) => r(false));
+            supersededResolvers.forEach((r) => r("cancelled"));
           }
           refreshQueued = true;
           queuedName = name;

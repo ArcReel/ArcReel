@@ -63,7 +63,7 @@ function renderRow(props: Partial<Parameters<typeof EndFrameRow>[0]> = {}) {
   );
 }
 
-const refreshProject = vi.fn().mockResolvedValue(true);
+const refreshProject = vi.fn().mockResolvedValue("success");
 
 beforeEach(() => {
   vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(true));
@@ -249,7 +249,7 @@ describe("EndFrameRow 占用态", () => {
   });
 
   it("写入成功但刷新项目失败：提示刷新失败而非写入失败", async () => {
-    refreshProject.mockResolvedValueOnce(false);
+    refreshProject.mockResolvedValueOnce("failed");
     vi
       .spyOn(API, "selectEndFrame")
       .mockResolvedValue({ success: true, end_frame_image: "end_frames/scene_E1S01.png" });
@@ -264,6 +264,27 @@ describe("EndFrameRow 占用态", () => {
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toMatch(/页面数据刷新失败/);
     });
+  });
+
+  it("写入成功但刷新恰好被项目切换取消：不误报刷新失败", async () => {
+    refreshProject.mockResolvedValueOnce("cancelled");
+    vi
+      .spyOn(API, "selectEndFrame")
+      .mockResolvedValue({ success: true, end_frame_image: "end_frames/scene_E1S01.png" });
+    const { getByRole, findByText, findByRole } = renderRow();
+    await findByText("未设置");
+
+    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: "选择图片" }));
+    fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
+    fireEvent.click(getByRole("button", { name: "设为尾帧" }));
+
+    await waitFor(() => {
+      expect(refreshProject).toHaveBeenCalledWith(PROJECT);
+    });
+    // 写入成功的提示保留，不被追加或覆盖为刷新失败提示。
+    expect(useAppStore.getState().toast?.text).not.toMatch(/页面数据刷新失败/);
+    expect(useAppStore.getState().toast?.tone).toBe("success");
   });
 
   it("提交在途状态经 onSubmittingChange 回传父级", async () => {

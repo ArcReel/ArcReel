@@ -47,17 +47,17 @@ describe("projects-store refreshProject", () => {
     vi.restoreAllMocks();
   });
 
-  it("空 name 直接返回 false，不发请求", async () => {
+  it("空 name 直接返回 cancelled，不发请求", async () => {
     const spy = vi.spyOn(API, "getProject");
-    const ok = await useProjectsStore.getState().refreshProject("");
-    expect(ok).toBe(false);
+    const result = await useProjectsStore.getState().refreshProject("");
+    expect(result).toBe("cancelled");
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("成功时写入 currentProject 并返回 true", async () => {
+  it("成功时写入 currentProject 并返回 success", async () => {
     vi.spyOn(API, "getProject").mockResolvedValue(makeResult("Demo", { "a.png": 1 }));
-    const ok = await useProjectsStore.getState().refreshProject("demo");
-    expect(ok).toBe(true);
+    const result = await useProjectsStore.getState().refreshProject("demo");
+    expect(result).toBe("success");
     const s = useProjectsStore.getState();
     expect(s.currentProjectName).toBe("demo");
     expect(s.currentProjectData?.title).toBe("Demo");
@@ -74,13 +74,13 @@ describe("projects-store refreshProject", () => {
     expect(app.getEntityRevision("character:hero")).toBe(1);
   });
 
-  it("失败留旧：不覆盖 currentProjectData，返回 false，onError 收到错误", async () => {
+  it("失败留旧：不覆盖 currentProjectData，返回 failed，onError 收到错误", async () => {
     useProjectsStore.getState().setCurrentProject("demo", makeProject("旧"), {}, {});
     const err = new Error("boom");
     vi.spyOn(API, "getProject").mockRejectedValue(err);
     const onError = vi.fn();
-    const ok = await useProjectsStore.getState().refreshProject("demo", { onError });
-    expect(ok).toBe(false);
+    const result = await useProjectsStore.getState().refreshProject("demo", { onError });
+    expect(result).toBe("failed");
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("旧");
     expect(onError).toHaveBeenCalledWith(err);
   });
@@ -107,7 +107,7 @@ describe("projects-store refreshProject", () => {
 
     d2.resolve(makeResult("R2"));
     const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
-    expect([r1, r2, r3]).toEqual([true, true, true]);
+    expect([r1, r2, r3]).toEqual(["success", "success", "success"]);
     // 3 个刷新意图合并为 2 次请求，store 落定在最新一轮
     expect(spy).toHaveBeenCalledTimes(2);
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("R2");
@@ -132,12 +132,12 @@ describe("projects-store refreshProject", () => {
     const [r1, r2] = await Promise.all([p1, p2]);
     // 首轮调用方拿到自己那一轮的真实结果（失败），不因排队轮后续成功被覆盖；
     // 排队轮调用方拿到自己那一轮的结果（成功）。
-    expect(r1).toBe(false);
-    expect(r2).toBe(true);
+    expect(r1).toBe("failed");
+    expect(r2).toBe("success");
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("新");
   });
 
-  it("首轮成功、排队轮失败时，首轮调用方仍返回 true（不被无关的后续轮次拖累）", async () => {
+  it("首轮成功、排队轮失败时，首轮调用方仍返回 success（不被无关的后续轮次拖累）", async () => {
     const d1 = deferred<GetProjectResult>();
     const d2 = deferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
@@ -155,14 +155,14 @@ describe("projects-store refreshProject", () => {
 
     d2.reject(new Error("sse round fail"));
     const [okMoveShot, okSse] = await Promise.all([pMoveShot, pSse]);
-    // 首轮调用方拿到自己那一轮的真实结果（成功），不因排队轮后续失败被覆盖为 false。
-    expect(okMoveShot).toBe(true);
-    expect(okSse).toBe(false);
+    // 首轮调用方拿到自己那一轮的真实结果（成功），不因排队轮后续失败被覆盖。
+    expect(okMoveShot).toBe("success");
+    expect(okSse).toBe("failed");
     // 失败留旧：store 仍保留首轮写入的数据，不因排队轮失败被清空或回滚。
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("重排后");
   });
 
-  it("排队期间被更晚的不同项目请求取代：被取代的调用方立即收到 false，不与新项目的结果混同", async () => {
+  it("排队期间被更晚的不同项目请求取代：被取代的调用方立即收到 cancelled，不与新项目的结果混同", async () => {
     const dA = deferred<GetProjectResult>();
     const dC = deferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise).mockReturnValueOnce(dC.promise);
@@ -172,10 +172,10 @@ describe("projects-store refreshProject", () => {
     const pB = store.refreshProject("B"); // 排队 → queuedName = B
     const pC = store.refreshProject("C"); // 排队期间到达不同项目：B 被 C 取代
 
-    // B 的调用方无需等 A / C 落定，在被取代的一刻就立即收到 false——
+    // B 的调用方无需等 A / C 落定，在被取代的一刻就立即收到 cancelled——
     // 它请求的项目从未被真正拉取过，不能被并入 C 的结果。
     const okB = await pB;
-    expect(okB).toBe(false);
+    expect(okB).toBe("cancelled");
     // 只发起了 A 的请求；B 被取代时尚未轮到它，不产生任何请求。
     expect(API.getProject).toHaveBeenCalledTimes(1);
 
@@ -187,8 +187,8 @@ describe("projects-store refreshProject", () => {
 
     dC.resolve(makeResult("C-数据"));
     const [okA, okC] = await Promise.all([pA, pC]);
-    expect(okA).toBe(false);
-    expect(okC).toBe(true);
+    expect(okA).toBe("cancelled");
+    expect(okC).toBe("success");
     expect(useProjectsStore.getState().currentProjectName).toBe("C");
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("C-数据");
   });
@@ -211,8 +211,8 @@ describe("projects-store refreshProject", () => {
 
     dB.reject(new Error("B failed"));
     const [okA, okB] = await Promise.all([pA, pB]);
-    expect(okA).toBe(false);
-    expect(okB).toBe(false);
+    expect(okA).toBe("cancelled");
+    expect(okB).toBe("failed");
     // B 轮失败：留旧，仍是 B 的旧数据，绝不能变成 A 的数据
     expect(useProjectsStore.getState().currentProjectName).toBe("B");
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-旧");
@@ -272,7 +272,7 @@ describe("projects-store refreshProject", () => {
     d.resolve(makeResult("迟到的真实数据"));
     const ok = await p;
 
-    expect(ok).toBe(false);
+    expect(ok).toBe("cancelled");
     expect(useProjectsStore.getState().currentProjectName).toBe(DEMO_PROJECT_NAME);
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("演示");
   });
@@ -295,7 +295,7 @@ describe("projects-store refreshProject", () => {
     dA.resolve(makeResult("A-迟到数据"));
     const ok = await pA;
 
-    expect(ok).toBe(false);
+    expect(ok).toBe("cancelled");
     expect(useProjectsStore.getState().currentProjectName).toBe("B");
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
   });
@@ -316,7 +316,7 @@ describe("projects-store refreshProject", () => {
     dA.resolve(makeResult("A-迟到数据"));
     const ok = await pA;
 
-    expect(ok).toBe(false);
+    expect(ok).toBe("cancelled");
     expect(useProjectsStore.getState().currentProjectName).toBe(null);
     expect(useProjectsStore.getState().currentProjectData).toBe(null);
 
@@ -343,7 +343,7 @@ describe("projects-store refreshProject", () => {
     dC.resolve(makeResult("C-迟到数据"));
     const ok = await pC;
 
-    expect(ok).toBe(false);
+    expect(ok).toBe("cancelled");
     expect(useProjectsStore.getState().currentProjectName).toBe(null);
 
     useProjectsStore.getState().setCurrentProject("B", makeProject("B-数据"), {}, {});
@@ -365,7 +365,7 @@ describe("projects-store refreshProject", () => {
     dA.resolve(makeResult("A-迟到数据"));
     const ok = await pA;
 
-    expect(ok).toBe(false);
+    expect(ok).toBe("cancelled");
     expect(useProjectsStore.getState().currentProjectName).toBe("B");
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
   });
@@ -391,8 +391,8 @@ describe("projects-store refreshProject", () => {
     d2.resolve(makeResult("A-排队轮迟到"));
 
     const [ok1, ok2] = await Promise.all([p1, p2]);
-    expect(ok1).toBe(false);
-    expect(ok2).toBe(false);
+    expect(ok1).toBe("cancelled");
+    expect(ok2).toBe("cancelled");
     expect(useProjectsStore.getState().currentProjectName).toBe("B");
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
   });
@@ -418,7 +418,7 @@ describe("projects-store refreshProject", () => {
 
     const ok = await pA;
     expect(abortedSignal?.aborted).toBe(true);
-    expect(ok).toBe(false);
+    expect(ok).toBe("cancelled");
     // abort 是项目切换的正常结果，不是刷新失败：不该弹「项目同步失败」。
     expect(onError).not.toHaveBeenCalled();
     expect(useProjectsStore.getState().currentProjectName).toBe("B");
@@ -437,10 +437,10 @@ describe("projects-store refreshProject", () => {
 
     store.setCurrentProject("B", makeProject("B-数据"), {}, {});
     dA.resolve(makeResult("A-迟到数据"));
-    expect(await pA).toBe(false);
+    expect(await pA).toBe("cancelled");
 
     const okB = await useProjectsStore.getState().refreshProject("B");
-    expect(okB).toBe(true);
+    expect(okB).toBe("success");
     expect(useProjectsStore.getState().currentProjectName).toBe("B");
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-新数据");
   });
