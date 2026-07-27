@@ -587,6 +587,7 @@ export function ProjectSettingsPage() {
                   }}
                   videoGenerateAudio={audioOverride}
                   onVideoGenerateAudioChange={setAudioOverride}
+                  usesReferenceImages={generationMode === "reference_video"}
                   enable={contentMode === "ad" ? { duration: false } : undefined}
                 />
               </SectionCard>

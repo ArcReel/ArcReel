@@ -14,9 +14,8 @@ import { Clock, Layers, RefreshCw, Scissors, Sparkles } from "lucide-react";
 import { API } from "@/api";
 import { enqueueReferenceVideoUnit } from "@/actions/generation";
 import { EpisodeHeader } from "./EpisodeHeader";
-import { StatusBadge } from "./unit-status";
+import { StatusBadge, deriveUnitStatus } from "./unit-status";
 import {
-  isActiveStatus,
   selectActiveResourceIds,
   useActiveResourceIds,
   useLatestTasksByResource,
@@ -116,16 +115,14 @@ export function AdReferenceVideoCanvas({
   const statusMap = useMemo<Record<string, UnitStatus>>(() => {
     const map: Record<string, UnitStatus> = {};
     for (const { unit } of hydrated) {
-      const clip = unit.generated_assets?.video_clip ?? null;
-      let st: UnitStatus = clip ? "ready" : "pending";
-      const queueRow = tasksByUnit.get(unit.unit_id);
-      if (queueRow && isActiveStatus(queueRow.status)) st = "running";
-      // 「最新行胜出」已保证 queueRow 是该 unit 最新一次生成尝试：重新生成失败时
-      // 最新行必然是这次失败，不能被旧成片压成 ready，否则失败原因无处可见。
-      else if (queueRow?.status === "failed") st = "failed";
-      // 乐观窗口：真实任务行尚未落库时按占用集显示 running。
-      else if (!queueRow && busyUnitIds.has(unit.unit_id)) st = "running";
-      map[unit.unit_id] = st;
+      map[unit.unit_id] = deriveUnitStatus({
+        hasClip: Boolean(unit.generated_assets?.video_clip),
+        queueRow: tasksByUnit.get(unit.unit_id),
+        busy: busyUnitIds.has(unit.unit_id),
+        // 本画布不提供成片上传入口（ADR 0033 的参考直出路径）：成片只能来自生成，
+        // 最新行失败即本次尝试失败，不能被旧成片压成 ready。
+        supportsManualUpload: false,
+      });
     }
     return map;
   }, [hydrated, tasksByUnit, busyUnitIds]);

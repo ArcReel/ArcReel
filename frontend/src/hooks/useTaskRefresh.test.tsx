@@ -250,7 +250,7 @@ describe("useTaskRefresh", () => {
       expect(listSpy).toHaveBeenCalledTimes(1);
 
       await act(async () => {
-        useTasksStore.getState().markOptimisticActive("demo", "segment", "segment-1", "storyboard");
+        useTasksStore.getState().beginOptimisticActive("demo", "segment", "segment-1", "storyboard");
       });
       // 不等 30 秒空闲间隔，当场取一次状态。
       expect(listSpy).toHaveBeenCalledTimes(2);

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Scissors, Search } from "lucide-react";
 import { assetColor } from "./asset-colors";
-import { StatusBadge, deriveUnitStatus } from "./unit-status";
+import { StatusBadge, resolveUnitStatus } from "./unit-status";
 import type { ReferenceVideoUnit, UnitStatus } from "@/types";
 
 export interface UnitListProps {
@@ -85,7 +85,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd, dirtyMap, statusM
           className="min-h-0 flex-1 overflow-y-auto px-2 pb-2"
         >
           {filtered.map((u) => {
-            const status = deriveUnitStatus(u, statusMap);
+            const status = resolveUnitStatus(u, statusMap);
             const selected = u.unit_id === selectedId;
             const dirty = !!dirtyMap?.[u.unit_id];
             return (

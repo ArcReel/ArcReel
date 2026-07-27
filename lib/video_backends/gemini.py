@@ -10,6 +10,7 @@ from typing import Any
 
 from PIL import Image
 
+from lib.config.registry import model_info_for
 from lib.config.url_utils import normalize_base_url
 from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, resolve_gemini_api_key
 from lib.logging_utils import format_kwargs_for_log
@@ -29,8 +30,11 @@ from lib.video_backends.base import (
 
 logger = logging.getLogger(__name__)
 
-# Veo 的 durationSeconds 取值为 4/6/8，但参考图路径与 1080p/4k 分辨率下只接受 8 秒。
-# 两条路径各自独立触发，与首帧/尾帧无关。
+# 约束的单一真相源是 registry 的 ModelInfo（reference_image_durations /
+# duration_resolution_constraints），下面两个常量只在 registry 查不到该型号时兜底——中转站、
+# 自定义供应商包装、已下线型号都会走到未登记路径，那里同样不能把必然失败的请求发出去。
+# 兜底值复刻 Veo 全系现行约束：参考图路径与 1080p/4k 分辨率下只接受 8 秒，两条路径各自
+# 独立触发，与首帧/尾帧无关。
 _REQUIRED_DURATION_SECONDS = 8
 _DURATION_CONSTRAINED_RESOLUTIONS = frozenset({"1080p", "4k"})
 
@@ -162,32 +166,44 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
             raise
 
     def _validate_duration_constraints(self, request: VideoGenerationRequest) -> None:
-        """参考图 / 1080p·4k 两条路径强制 8 秒，违反即拒绝。
+        """参考图 / 受约束分辨率两条路径的时长约束，违反即拒绝。
 
-        供应商侧对这两种组合直接报错，透传过去用户拿到的是原始报文；在构建请求前
-        fail-loud 换成可读拒绝，也省掉一次必然失败的调用。首帧（image）与尾帧
-        （last_frame）不在约束内，4/6 秒照常下发。
+        约束按本型号的 registry 声明判定（前端门控读的是同一份声明，两侧不再各自为政）；
+        型号未登记时回落模块级兜底常量。供应商侧对越界组合直接报错，透传过去用户拿到的是
+        原始报文；在构建请求前 fail-loud 换成可读拒绝，也省掉一次必然失败的调用。首帧
+        （image）与尾帧（last_frame）不在约束内，4/6 秒照常下发。
         """
-        if request.duration_seconds == _REQUIRED_DURATION_SECONDS:
-            return
+        info = model_info_for(self.name, self._video_model)
 
-        supported = f"{_REQUIRED_DURATION_SECONDS}s"
         if request.reference_images:
-            raise VideoCapabilityError(
-                "video_reference_images_duration_unsupported",
-                model=self._video_model,
-                duration=request.duration_seconds,
-                supported=supported,
-            )
+            # 已登记型号一律采信其声明：空声明的语义是「参考图路径不额外约束时长」（见
+            # ModelInfo.reference_image_durations），与前端 `?? []` 同口径；只有型号未登记
+            # （info is None）才回落兜底常量。用 `or` 折叠两者会让空声明被兜底覆盖成 [8]，
+            # 前后端读同一份声明得出不同结论。
+            allowed = info.reference_image_durations if info is not None else [_REQUIRED_DURATION_SECONDS]
+            if allowed and request.duration_seconds not in allowed:
+                raise VideoCapabilityError(
+                    "video_reference_images_duration_unsupported",
+                    model=self._video_model,
+                    duration=request.duration_seconds,
+                    supported=_format_durations(allowed),
+                )
 
         resolution = (request.resolution or "").strip().lower()
-        if resolution in _DURATION_CONSTRAINED_RESOLUTIONS:
+        constraints = (info.duration_resolution_constraints if info else None) or {}
+        # 声明缺位处兜底常量继续生效：registry 只声明本型号「支持的分辨率」下的时长约束，
+        # 而防线要覆盖的是所有会被送到供应商的取值——如 Lite 不支持 4k、声明里自然没有 4k 档，
+        # 但真收到 4k 请求时放行只会换来一次必然失败的调用。
+        allowed = constraints.get(resolution)
+        if allowed is None and resolution in _DURATION_CONSTRAINED_RESOLUTIONS:
+            allowed = [_REQUIRED_DURATION_SECONDS]
+        if allowed and request.duration_seconds not in allowed:
             raise VideoCapabilityError(
                 "video_resolution_duration_unsupported",
                 model=self._video_model,
                 resolution=resolution.upper(),
                 duration=request.duration_seconds,
-                supported=supported,
+                supported=_format_durations(allowed),
             )
 
     @with_retry_async()
@@ -361,6 +377,11 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
             # AI Studio 模式：使用 files.download
             self._client.files.download(file=video_ref)
             video_ref.save(str(output_path))
+
+
+def _format_durations(durations: list[int]) -> str:
+    """把允许时长列表渲染进拒绝文案，如 ``[8]`` → ``8s``。"""
+    return ", ".join(f"{d}s" for d in sorted(durations))
 
 
 def _is_gemini_not_found(exc: BaseException) -> bool:
