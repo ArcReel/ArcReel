@@ -34,6 +34,7 @@ from server.agent_runtime.sdk_tools.enqueue_videos import (
 from server.agent_runtime.sdk_tools.episode_planning import (
     plan_episodes_tool,
     replan_episodes_tool,
+    reset_episode_planning_tool,
 )
 from server.agent_runtime.sdk_tools.patch_episode_meta import patch_episode_meta_tool
 from server.agent_runtime.sdk_tools.patch_project import patch_project_tool
@@ -80,6 +81,7 @@ ARCREEL_MCP_TOOL_IDS: tuple[str, ...] = (
     "get_video_capabilities",
     "plan_episodes",
     "replan_episodes",
+    "reset_episode_planning",
     "patch_episode_script",
     "patch_episode_meta",
     "insert_segment",
@@ -114,6 +116,7 @@ def build_arcreel_mcp_server(*, project_name: str, projects_root: Path) -> Any:
             get_video_capabilities_tool(ctx),
             plan_episodes_tool(ctx),
             replan_episodes_tool(ctx),
+            reset_episode_planning_tool(ctx),
             patch_episode_script_tool(ctx),
             patch_episode_meta_tool(ctx),
             insert_segment_tool(ctx),

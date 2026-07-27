@@ -1410,6 +1410,7 @@ export default {
   'tool_name_get_video_capabilities': 'Truy vấn năng lực mô hình video',
   'tool_name_plan_episodes': 'Lập kế hoạch chia tập',
   'tool_name_replan_episodes': 'Sắp xếp lại các tập',
+  'tool_name_reset_episode_planning': 'Đặt lại kế hoạch chia tập',
   'tool_name_patch_episode_script': 'Sửa trường phân cảnh',
   'tool_name_patch_episode_meta': 'Sửa tiêu đề tập',
   'tool_name_insert_segment': 'Chèn phân cảnh',

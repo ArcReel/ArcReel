@@ -1,7 +1,8 @@
-"""SDK MCP tools for episode planning (plan / replan).
+"""SDK MCP tools for episode planning (plan / replan / reset).
 
 主 agent 单次调用、只收账本摘要；窗口读取、文本模型调用、机械校验重试与
-同锁提交全部在 :class:`lib.episode_planner.EpisodePlanner` 内完成。
+同锁提交全部在 :class:`lib.episode_planner.EpisodePlanner` 内完成。重置走
+:mod:`lib.episode_reset`，不经文本模型。
 """
 
 from __future__ import annotations
@@ -17,11 +18,32 @@ from lib.episode_planner import (
     PlanResult,
     ReplanConfirmationRequired,
 )
+from lib.episode_reset import (
+    EpisodeResetError,
+    ResetConfirmationRequired,
+    reset_episode_planning,
+)
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 
 # instructions 以「必须全部落实」的最高优先级注入规划 prompt，超长文本会失控 token 用量
 # 并稀释规划器对原文的处理，超限按参数错误提前拒绝。上限对偏好文本足够宽松，仅挡病态输入。
 _MAX_INSTRUCTIONS_LEN = 4000
+
+
+def _require_positive_int(args: dict[str, Any], key: str) -> int:
+    """取必填正整数入参。``bool`` 是 ``int`` 子类，须单独排除以免 ``true`` 被当成 1。"""
+    value = args[key]
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError(f"{key} 必须是正整数，收到 {value!r}")
+    return value
+
+
+def _optional_bool(args: dict[str, Any], key: str) -> bool:
+    """取可选布尔入参，缺省为 False。确认类开关不做真值化，非布尔一律拒绝。"""
+    value = args.get(key, False)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} 必须是布尔值（JSON true/false），收到 {value!r}")
+    return value
 
 
 def _render_ledger_stats(stats: LedgerStats) -> list[str]:
@@ -150,10 +172,7 @@ def replan_episodes_tool(ctx: ToolContext):
         # 参数校验与 planner 调用分属两个 try：校验阶段的 KeyError/ValueError 才算参数错误，
         # planner 内部（如供应商未配置）抛出的 ValueError 走 tool_error 通用路径，不被误标。
         try:
-            raw_from_episode = args["from_episode"]
-            if not isinstance(raw_from_episode, int) or isinstance(raw_from_episode, bool) or raw_from_episode < 1:
-                raise ValueError(f"from_episode 必须是正整数，收到 {raw_from_episode!r}")
-            from_episode = raw_from_episode
+            from_episode = _require_positive_int(args, "from_episode")
             raw_instructions = args["instructions"]
             if not isinstance(raw_instructions, str):
                 raise ValueError(f"instructions 必须是字符串，收到 {type(raw_instructions).__name__}")
@@ -164,10 +183,7 @@ def replan_episodes_tool(ctx: ToolContext):
                 raise ValueError(
                     f"instructions 过长（{len(raw_instructions)} 字符，上限 {_MAX_INSTRUCTIONS_LEN}），请精简后重试"
                 )
-            raw_confirm = args.get("confirm_consumed", False)
-            if not isinstance(raw_confirm, bool):
-                raise ValueError(f"confirm_consumed 必须是布尔值（JSON true/false），收到 {raw_confirm!r}")
-            confirm_consumed = raw_confirm
+            confirm_consumed = _optional_bool(args, "confirm_consumed")
         except (KeyError, ValueError) as exc:
             return {"content": [{"type": "text", "text": f"❌ 参数错误：{exc}"}], "is_error": True}
 
@@ -201,4 +217,74 @@ def replan_episodes_tool(ctx: ToolContext):
     return _handler
 
 
-__all__ = ["plan_episodes_tool", "replan_episodes_tool"]
+def reset_episode_planning_tool(ctx: ToolContext):
+    @tool(
+        "reset_episode_planning",
+        "重置分集规划：清空分集账本（episodes 与 planning_cursor），让 plan_episodes 可以从头重新规划。"
+        "这是账本损坏时的逃生口——源文被替换或删除重建后，规划会报「起点越界」「范围无效」等错误并"
+        "永久失败，此时用本工具重置即可恢复；不调用文本模型，不受供应商配置影响。"
+        "当前只支持 from_episode=1（全量重置），传更大的集号会被拒绝且账本不变。"
+        "波及已消费集（已有 step1/剧本/媒体产物）时不执行并返回受影响清单，须告知用户、确认后带 "
+        "confirm_consumed=true 重新调用。任何下游产物（剧本、媒体）都不会被删除；"
+        "可由账本重造的 source/episode_N.txt 会被删除，无原文范围记录的集文件改名留底（不会丢内容）。"
+        "重置后账本为空，需要重新调用 plan_episodes 规划，集号从第 1 集重新开始。",
+        {
+            "type": "object",
+            "properties": {
+                "from_episode": {
+                    "type": "integer",
+                    "description": "重置起点集号；当前仅支持 1（全量重置）",
+                },
+                "confirm_consumed": {
+                    "type": "boolean",
+                    "description": "已向用户确认波及的已消费集后置 true",
+                },
+            },
+            "required": ["from_episode"],
+        },
+    )
+    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            from_episode = _require_positive_int(args, "from_episode")
+            confirm_consumed = _optional_bool(args, "confirm_consumed")
+        except (KeyError, ValueError) as exc:
+            return {"content": [{"type": "text", "text": f"❌ 参数错误：{exc}"}], "is_error": True}
+
+        try:
+            result = reset_episode_planning(
+                ctx.project_path,
+                from_episode=from_episode,
+                confirm_consumed=confirm_consumed,
+            )
+        except (EpisodeResetError, FileNotFoundError) as exc:
+            return {"content": [{"type": "text", "text": f"❌ 分集规划重置失败：{exc}"}], "is_error": True}
+        except Exception as exc:  # noqa: BLE001
+            return tool_error("reset_episode_planning", exc)
+
+        if isinstance(result, ResetConfirmationRequired):
+            episodes = "、".join(str(num) for num in result.consumed_episodes)
+            lines = [
+                f"⚠️ 本次重置会波及已消费集（已有 step1/剧本/媒体产物）：第 {episodes} 集。尚未执行任何改动。",
+                "请把影响范围告知用户；用户确认后带 confirm_consumed=true 重新调用"
+                "（剧本与媒体产物不会被删除，但账本清空后这些集需要重新规划）。",
+            ]
+            if result.archived_files:
+                lines.append(f"其中无原文范围记录的集文件会改名留底：{'、'.join(result.archived_files)}")
+            return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+        lines = [f"✅ 已全量重置分集规划：清空 {len(result.removed_episodes)} 集，planning_cursor 已置空。"]
+        if result.deleted_files:
+            lines.append(f"已删除可重造的派生集文件 {len(result.deleted_files)} 个。")
+        if result.archived_files:
+            archived = "、".join(f"{src} → {dst}" for src, dst in result.archived_files)
+            lines.append(f"无原文范围记录的集文件已改名留底（内容保留）：{archived}")
+        if result.consumed_episodes:
+            consumed = "、".join(str(num) for num in result.consumed_episodes)
+            lines.append(f"第 {consumed} 集的剧本 / 媒体产物仍在磁盘，未删除。")
+        lines.append("账本已空，请调用 plan_episodes 从头重新规划（集号从第 1 集起）。")
+        return {"content": [{"type": "text", "text": "\n".join(lines)}]}
+
+    return _handler
+
+
+__all__ = ["plan_episodes_tool", "replan_episodes_tool", "reset_episode_planning_tool"]

@@ -2004,6 +2004,124 @@ async def test_replan_episodes_planner_value_error_not_mislabeled_as_param_error
 
 
 # ---------------------------------------------------------------------------
+# episode_planning — reset_episode_planning 薄包装
+# ---------------------------------------------------------------------------
+
+
+def _fake_reset(result: Any, captured: dict[str, Any] | None = None):
+    def _reset(project_path, *, from_episode, confirm_consumed):
+        if captured is not None:
+            captured["args"] = (project_path, from_episode, confirm_consumed)
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    return _reset
+
+
+@pytest.mark.unit
+async def test_reset_episode_planning_happy(fake_ctx: ToolContext, monkeypatch) -> None:
+    from lib.episode_reset import EpisodeResetResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    captured: dict[str, Any] = {}
+    result = EpisodeResetResult(
+        removed_episodes=[1, 2],
+        deleted_files=["source/episode_1.txt"],
+        archived_files=[("source/episode_2.txt", "source/_episode_2.txt.bak")],
+        consumed_episodes=[],
+    )
+    monkeypatch.setattr(mod, "reset_episode_planning", _fake_reset(result, captured))
+
+    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 1})
+
+    assert out.get("is_error") is not True
+    assert captured["args"][1:] == (1, False)
+    text = out["content"][0]["text"]
+    assert "清空 2 集" in text
+    assert "source/_episode_2.txt.bak" in text
+    assert "plan_episodes" in text  # 指路后续动作
+
+
+@pytest.mark.unit
+async def test_reset_episode_planning_confirmation_required(fake_ctx: ToolContext, monkeypatch) -> None:
+    from lib.episode_reset import ResetConfirmationRequired
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    monkeypatch.setattr(
+        mod,
+        "reset_episode_planning",
+        _fake_reset(ResetConfirmationRequired(consumed_episodes=[1, 3], archived_files=[])),
+    )
+    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 1})
+
+    assert out.get("is_error") is not True  # 预期内的流程出口，不是错误
+    text = out["content"][0]["text"]
+    assert "已消费" in text and "confirm_consumed" in text
+
+
+@pytest.mark.unit
+async def test_reset_episode_planning_forwards_confirm(fake_ctx: ToolContext, monkeypatch) -> None:
+    from lib.episode_reset import EpisodeResetResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    captured: dict[str, Any] = {}
+    result = EpisodeResetResult(removed_episodes=[1], deleted_files=[], archived_files=[], consumed_episodes=[1])
+    monkeypatch.setattr(mod, "reset_episode_planning", _fake_reset(result, captured))
+
+    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 1, "confirm_consumed": True})
+
+    assert captured["args"][1:] == (1, True)
+    assert "未删除" in out["content"][0]["text"]  # 产物保留须对主 agent 说明
+
+
+@pytest.mark.unit
+async def test_reset_episode_planning_partial_reset_error(fake_ctx: ToolContext, monkeypatch) -> None:
+    """暂不支持的部分重置按可读错误返回，不走通用异常兜底。"""
+    from lib.episode_reset import EpisodeResetError
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    monkeypatch.setattr(
+        mod, "reset_episode_planning", _fake_reset(EpisodeResetError("暂不支持部分重置（from_episode=3）"))
+    )
+    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 3})
+
+    assert out.get("is_error") is True
+    assert "暂不支持部分重置" in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_reset_episode_planning_rejects_string_confirm_consumed(fake_ctx: ToolContext) -> None:
+    """confirm_consumed 是确认安全边界：非布尔值必须拒绝而非真值化。"""
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    out = await _call(
+        mod.reset_episode_planning_tool(fake_ctx),
+        {"from_episode": 1, "confirm_consumed": "true"},
+    )
+    assert out.get("is_error") is True
+    assert "confirm_consumed" in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("bad", [0, -1, "1", True, None])
+async def test_reset_episode_planning_rejects_bad_from_episode(fake_ctx: ToolContext, bad: Any) -> None:
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": bad})
+    assert out.get("is_error") is True
+    assert "from_episode" in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_reset_episode_planning_requires_from_episode(fake_ctx: ToolContext) -> None:
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {})
+    assert out.get("is_error") is True
+
+
+# ---------------------------------------------------------------------------
 # enqueue_videos — ad + reference_video（派生分组直出）
 # ---------------------------------------------------------------------------
 

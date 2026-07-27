@@ -36,9 +36,15 @@ LEDGER_STATUSES: tuple[str, ...] = get_args(LedgerStatus)
 
 # 仅 ASCII 数字：\d 会放行全角等 Unicode 数字，把非流水线产物误判为派生集文件
 _EPISODE_FILE_RE = re.compile(r"episode_([0-9]+)\.txt")
+_SCRIPT_FILE_RE = re.compile(r"episode_([0-9]+)\.json")
+_DRAFT_DIR_RE = re.compile(r"episode_([0-9]+)")
 
 # 「什么后缀算源文本文件」的唯一定义，候选枚举与其他源文读取方共用
 SOURCE_TEXT_SUFFIXES = {".txt", ".md"}
+
+# project.json 顶层源文指纹字段（源文相对路径 → 归一化文本 sha256）。账本坐标绑定
+# 具体源文内容，指纹是「原文未变」的证据；全量重置把账本清空，指纹随之失效清除。
+SOURCE_FINGERPRINTS_KEY = "source_fingerprints"
 
 
 def _validate_rel_posix_path(value: str) -> str:
@@ -168,11 +174,20 @@ def _read_text_or_none(path: Path) -> str | None:
 
 def parse_episode_num(value: Any) -> int | None:
     """宽松解析条目集号：int（排除 bool——True 会与第 1 集同键碰撞）或纯数字
-    字符串（历史手编数据），其余返回 None（条目原样保留，不参与回填）。"""
+    字符串（历史手编数据），其余返回 None（条目原样保留，不参与回填）。
+
+    ``str.isdigit()`` 认可的字符集比 ``int()`` 能转换的更宽（如上标 ``²``、
+    带圈数字 ``①``），损坏账本写入这类字符会让 ``isdigit()`` 放行但 ``int()`` 抛
+    ``ValueError``；两者不一致时同样返回 None，不能让调用方（含零前置校验的重置
+    逃生口）因此崩溃。
+    """
     if isinstance(value, int) and not isinstance(value, bool):
         return value
     if isinstance(value, str) and value.isdigit():
-        return int(value)
+        try:
+            return int(value)
+        except ValueError:
+            return None
     return None
 
 
@@ -199,17 +214,73 @@ def discover_sources(project_dir: Path) -> list[SourceDoc]:
     return docs
 
 
-def discover_episode_files(project_dir: Path) -> dict[int, Path]:
-    """枚举派生集文件 source/episode_N.txt → {集号: 路径}。"""
+def discover_episode_file_aliases(project_dir: Path) -> dict[int, list[Path]]:
+    """枚举派生集文件的全部别名 source/episode_N.txt → {集号: [路径, ...]}（按文件名排序）。
+
+    同一集号可能因命名 padding 不同（``episode_1.txt`` / ``episode_01.txt``）产生多个
+    别名文件。大多数调用方只需其中一个代表路径（见 ``discover_episode_files``）；需要
+    完整处置某集号全部派生文件的场景（如重置清理）用本函数取全部。
+
+    悬空符号链接（目标不存在）同样纳入：``Path.is_file()`` 会因链接目标缺失而返回
+    False，导致这类文件对发现逻辑完全不可见——处置类调用方（如重置）因此漏清它，
+    残留的悬空链接会在下一次派生文件写入时被 ``EpisodePlanner`` 的符号链接校验硬
+    拦截。``unlink()``/``rename()`` 只作用于链接条目本身、不跟随最终一段的链接目标，
+    纳入悬空链接不会引入跟随写入的风险。
+    """
     source_dir = project_dir / "source"
     if not source_dir.is_dir():
         return {}
-    result: dict[int, Path] = {}
+    result: dict[int, list[Path]] = {}
     for path in sorted(source_dir.iterdir()):
         match = _EPISODE_FILE_RE.fullmatch(path.name)
-        if match and path.is_file():
-            result.setdefault(int(match.group(1)), path)
+        if match and (path.is_file() or path.is_symlink()):
+            result.setdefault(int(match.group(1)), []).append(path)
     return result
+
+
+def discover_episode_files(project_dir: Path) -> dict[int, Path]:
+    """枚举派生集文件 source/episode_N.txt → {集号: 路径}（每号取一个可读的代表路径）。
+
+    代表路径只从该集号别名中选可读的普通文件；全部别名都是悬空符号链接（无真实
+    内容）时该集号整体不出现在结果里，而不是退而返回一个读不到内容的路径——
+    ``discover_episode_file_aliases`` 按文件名排序、不区分悬空与否，若悬空别名
+    （如 ``episode_01.txt``）恰好排在有效文件（``episode_1.txt``）之前，直接取
+    排序首个会让 ``backfill_episode_ledger`` 等按内容匹配 ``source_range`` 的调用
+    方读到悬空链接：内容为空既会误判本可从有效别名恢复坐标的集为 unanchored，也
+    会给纯悬空、毫无真实内容的集号凭空补建一个 unanchored 幽灵条目。
+    """
+    result: dict[int, Path] = {}
+    for num, paths in discover_episode_file_aliases(project_dir).items():
+        readable = next((p for p in paths if p.is_file()), None)
+        if readable is not None:
+            result[num] = readable
+    return result
+
+
+def discover_product_episode_nums(project_dir: Path) -> set[int]:
+    """枚举磁盘上有下游产物（剧本 JSON / step1 草稿目录）的集号，不依赖账本条目。
+
+    账本丢失条目（写坏/手工误删）但 ``scripts/episode_N.json`` 或
+    ``drafts/episode_N/`` 仍在磁盘时，仅从账本条目与 ``source/episode_N.txt`` 取候选
+    集号会漏掉这类孤儿产物，使其消费状态判定被跳过。
+    """
+    nums: set[int] = set()
+    scripts_dir = project_dir / "scripts"
+    if scripts_dir.is_dir():
+        for path in scripts_dir.iterdir():
+            match = _SCRIPT_FILE_RE.fullmatch(path.name)
+            if match and path.is_file():
+                nums.add(int(match.group(1)))
+    drafts_dir = project_dir / "drafts"
+    if drafts_dir.is_dir():
+        for path in drafts_dir.iterdir():
+            match = _DRAFT_DIR_RE.fullmatch(path.name)
+            # 目录存在不等于有产物：files.py::update_draft_content 会在校验草稿内容前
+            # 先建目录，一次被拒绝的无效保存就会留下空目录；只有真正落了 step1_* 才算
+            # 下游产物，与 has_downstream_products() 的口径保持一致
+            if match and path.is_dir() and any(path.glob("step1_*")):
+                nums.add(int(match.group(1)))
+    return nums
 
 
 def _find_in_sources(
@@ -234,8 +305,11 @@ def _find_in_sources(
     return None
 
 
-def _has_downstream(project_dir: Path, episode_num: int, entry: Mapping[str, Any]) -> bool:
-    """该集是否已有下游产物（剧本 JSON / step1 中间文件；媒体必经剧本，剧本存在即覆盖）。"""
+def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[str, Any]) -> bool:
+    """该集是否已有下游产物（剧本 JSON / step1 中间文件；媒体必经剧本，剧本存在即覆盖）。
+
+    磁盘证据优先于账本状态：账本损坏（状态缺失/错乱）时仍能判定该集是否已被消费。
+    """
     script_file = entry.get("script_file")
     if isinstance(script_file, str) and safe_exists(project_dir, script_file):
         return True
@@ -352,7 +426,7 @@ def backfill_episode_ledger(project_dir: Path, project: Mapping[str, Any]) -> di
 
         doc, start, end = anchored
         entry["source_range"] = {"source_file": doc.rel_path, "start": start, "end": end}
-        entry["ledger_status"] = "consumed" if _has_downstream(project_dir, num, entry) else "planned"
+        entry["ledger_status"] = "consumed" if has_downstream_products(project_dir, num, entry) else "planned"
         # 直接赋值（允许回退）：全文退化命中早于游标说明用户重切过，后续集跟随新布局
         doc.cursor = end
         last_doc = doc
