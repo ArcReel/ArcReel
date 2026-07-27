@@ -636,6 +636,11 @@ class TestEpisodeLedgerFields:
         result = self._validate(tmp_path, self._entry())
         assert result.valid, result.errors
 
+    def test_bool_episode_num_rejected(self, tmp_path):
+        """True/False 是 int 子类但不是合法集号：会与第 1/0 集同键碰撞，须显式拒绝。"""
+        result = self._validate(tmp_path, self._entry(episode=True))
+        assert any("episode" in e for e in result.errors)
+
     def test_full_ledger_entry_is_valid(self, tmp_path):
         result = self._validate(
             tmp_path,
@@ -750,6 +755,17 @@ class TestEpisodeLedgerFields:
         """集号无法解析的畸形条目不是合法账本条目：script_file 仍须实际存在。"""
         payload = _project_payload()
         payload["episodes"] = [{"title": "x", "script_file": "scripts/episode_1.json"}]
+        _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+            tmp_path / "projects" / "demo"
+        )
+        assert any("episodes[0].script_file" in e for e in result.errors)
+
+    @pytest.mark.parametrize("bad_episode_num", [0, -1])
+    def test_tree_validation_missing_script_still_blocks_non_positive_episode_num(self, tmp_path, bad_episode_num):
+        """0/负数集号能被 parse_episode_num 解析，但不是合法集号：script_file 仍须实际存在。"""
+        payload = _project_payload()
+        payload["episodes"] = [{"episode": bad_episode_num, "title": "x", "script_file": "scripts/episode_1.json"}]
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
             tmp_path / "projects" / "demo"

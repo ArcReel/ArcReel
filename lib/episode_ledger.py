@@ -191,6 +191,18 @@ def parse_episode_num(value: Any) -> int | None:
     return None
 
 
+def parse_positive_episode_num(value: Any) -> int | None:
+    """在 :func:`parse_episode_num` 基础上再要求正整数。
+
+    0 与负数虽能被 ``parse_episode_num`` 解析，但账本消费方（如
+    ``lib.episode_reset`` 的零前置校验）一律视非正集号为损坏账本，不参与正常
+    处置；判定「这是不是一条形状合法的账本条目」时须与该口径一致，否则 0/
+    负数集号的畸形条目会被误当合法条目放行。
+    """
+    num = parse_episode_num(value)
+    return num if num is not None and num > 0 else None
+
+
 def discover_sources(project_dir: Path) -> list[SourceDoc]:
     """枚举 source/ 直下一级的候选源文件（.txt/.md），按文件名排序。
 

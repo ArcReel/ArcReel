@@ -398,6 +398,25 @@ class TestProjectArchiveService:
         result = service.import_project_archive(archive_path, uploaded_filename="unledgered.zip")
         assert any("episodes[0].script_file" in w for w in result.warnings)
 
+    def test_import_rejects_missing_script_reference_for_non_positive_episode_num(self, tmp_path):
+        """0/负数集号能被 parse_episode_num 解析，但不是合法集号：剧本缺失仍阻断导入。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        project_dir = pm.get_project_path("demo")
+        project = pm.load_project("demo")
+        project["episodes"][0]["episode"] = 0
+        pm.save_project("demo", project)
+        (project_dir / "scripts" / "episode_1.json").unlink()
+
+        archive_path = tmp_path / "zero-episode-missing-script.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="broken.zip")
+
+        assert any("episodes[0].script_file" in error for error in exc_info.value.errors)
+
     def test_migrated_project_archive_roundtrip_with_unscripted_episode(self, tmp_path):
         """自愈登记的孤儿集条目（无位置记录、剧本未生成）不破坏导出→再导入往返。"""
         pm = ProjectManager(tmp_path / "projects")

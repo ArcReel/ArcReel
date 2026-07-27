@@ -15,7 +15,13 @@ from typing import Any
 from pydantic import ValidationError
 
 from lib.asset_types import ASSET_SPECS, ASSET_TYPES
-from lib.episode_ledger import LEDGER_STATUSES, EpisodeOutline, PlanningCursor, SourceRange, parse_episode_num
+from lib.episode_ledger import (
+    LEDGER_STATUSES,
+    EpisodeOutline,
+    PlanningCursor,
+    SourceRange,
+    parse_positive_episode_num,
+)
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
@@ -320,7 +326,8 @@ class DataValidator:
                     errors.append(f"{prefix}: 数据格式错误，应为对象")
                     continue
 
-                if not isinstance(episode.get("episode"), int):
+                episode_num = episode.get("episode")
+                if not isinstance(episode_num, int) or isinstance(episode_num, bool):
                     errors.append(f"{prefix}: 缺少必填字段 episode (整数)")
                 # title 允许空串：写入方（剧本同步/孤儿条目登记）在标题未知时即写 ""，
                 # 待用户或智能体后续命名
@@ -1321,8 +1328,8 @@ class DataValidator:
                     # 账本条目的 script_file 是前瞻性契约（剧本生成时回填真实值），
                     # 拆分先于剧本存在是设计内状态；路径越界仍照常报错。ledger_status 不
                     # 参与判定——v2→v3 迁移不再回填该字段，老项目升级后的条目可能永远
-                    # 没有 ledger_status，形状合法（集号可解析）即视为正常账本条目
-                    missing_ok=parse_episode_num(episode_meta.get("episode")) is not None,
+                    # 没有 ledger_status，形状合法（集号可解析为正整数）即视为正常账本条目
+                    missing_ok=parse_positive_episode_num(episode_meta.get("episode")) is not None,
                 )
                 if not resolved_path:
                     continue
