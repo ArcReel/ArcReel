@@ -6,8 +6,17 @@ import type { ReferenceVideoUnit } from "@/types";
 // VersionTimeMachine 的 busy 只关面板内的恢复按钮，触发按钮的可用性不变；替身把这个
 // 入参渲染成可断言的属性，避免为了读它去展开面板、加载版本列表。
 vi.mock("@/components/canvas/timeline/VersionTimeMachine", () => ({
-  VersionTimeMachine: ({ busy }: { busy?: boolean }) => (
-    <div data-testid="version-time-machine" data-busy={String(Boolean(busy))} />
+  VersionTimeMachine: ({
+    busy,
+    onRestoringChange,
+  }: {
+    busy?: boolean;
+    onRestoringChange?: (restoring: boolean) => void;
+  }) => (
+    <div data-testid="version-time-machine" data-busy={String(Boolean(busy))}>
+      {/* 替身把恢复态回传口暴露成一个按钮，供断言兄弟控件的反向互斥 */}
+      <button type="button" data-testid="start-restore" onClick={() => onRestoringChange?.(true)} />
+    </div>
   ),
 }));
 
@@ -119,6 +128,33 @@ describe("UnitPreviewPanel", () => {
         <UnitPreviewPanel unit={mkUnit()} projectName="proj" onUploadVideo={vi.fn()} uploadingVideo />,
       );
       expect(versionMachineBusy()).toBe(true);
+    });
+
+    it("恢复在途反向禁用同一 unit 的生成与上传", () => {
+      // 恢复不产生任务行，占用只存在于组件树内：若不回传父级，恢复返回前生成/上传
+      // 仍可点，两个请求并发写同一个 reference_videos/{unit_id}.mp4，后完成者覆盖
+      // 前者且双方都提示成功。
+      const { container } = render(
+        <UnitPreviewPanel
+          unit={mkUnit()}
+          projectName="proj"
+          onGenerate={vi.fn()}
+          onUploadVideo={vi.fn()}
+        />,
+      );
+      const uploadButton = () =>
+        container.querySelector<HTMLInputElement>('input[type="file"]')
+          ?.nextElementSibling as HTMLButtonElement;
+      const generateButton = () =>
+        [...container.querySelectorAll("button")].find((b) => b.textContent?.trim());
+
+      expect(uploadButton()).not.toBeDisabled();
+      expect(generateButton()).not.toBeDisabled();
+
+      fireEvent.click(screen.getByTestId("start-restore"));
+
+      expect(uploadButton()).toBeDisabled();
+      expect(generateButton()).toBeDisabled();
     });
   });
 });

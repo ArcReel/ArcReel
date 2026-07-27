@@ -730,6 +730,41 @@ describe("useTasksStore.setTasks prunes stale optimisticActiveScriptFile markers
     expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([]);
   });
 
+  it("多条任务行分两轮落地也让位，不要求同一快照里同时出现", () => {
+    // 轮询每次只取最新 200 行，单次入队产生的任务行数没有上限：若要求所有 task_id
+    // 在同一快照里同时出现，超出窗口的批次会永久残留、锁死分镜编辑直到刷新页面。
+    const key = settledScriptFileKey("grid", "episode_1.json", ["grid-1", "grid-2"]);
+    useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set([key]) });
+
+    const row = (taskId: string, resourceId: string) =>
+      task({
+        task_id: taskId,
+        task_type: "grid",
+        resource_id: resourceId,
+        script_file: "episode_1.json",
+        status: "succeeded",
+        updated_at: "2026-07-16T00:00:00Z",
+      });
+
+    // 第一轮只看得到 grid-1：扣除它，标记继续守住 grid-2
+    useTasksStore.getState().setTasks([row("grid-1", "grid-abc")]);
+    const afterFirst = [...useTasksStore.getState().optimisticActiveScriptFile];
+    expect(afterFirst).toHaveLength(1);
+    expect(
+      selectHasActiveTaskForScriptFile(
+        useTasksStore.getState().tasks,
+        "grid",
+        "episode_1.json",
+        "proj",
+        useTasksStore.getState().optimisticActiveScriptFile,
+      ),
+    ).toBe(true);
+
+    // 第二轮 grid-1 已被挤出窗口、只剩 grid-2：扣完，标记让位
+    useTasksStore.getState().setTasks([row("grid-2", "grid-def")]);
+    expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([]);
+  });
+
   it("一次提交建多条任务行时，只落地其中一条不让位", () => {
     // 宫格按分组逐条入队：首条已快速失败、其余尚未进入快照的窗口里，若按「任一落地」
     // 让位，scriptFile 既无乐观标记也无活跃真实行，分镜编辑会短暂解禁并与后续切割竞争。
@@ -746,7 +781,16 @@ describe("useTasksStore.setTasks prunes stale optimisticActiveScriptFile markers
         updated_at: "2026-07-16T00:00:00Z",
       }),
     ]);
-    expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([key]);
+    // 已落地的 grid-1 被扣除，标记仍在等 grid-2——占用按 selector 断言，不比对 key 字面量
+    expect(
+      selectHasActiveTaskForScriptFile(
+        useTasksStore.getState().tasks,
+        "grid",
+        "episode_1.json",
+        "proj",
+        useTasksStore.getState().optimisticActiveScriptFile,
+      ),
+    ).toBe(true);
 
     useTasksStore.getState().setTasks([
       task({

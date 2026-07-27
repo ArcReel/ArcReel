@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Film, Loader2, Sparkles, RotateCcw, AlertTriangle } from "lucide-react";
 import { API } from "@/api";
@@ -61,6 +62,9 @@ export function UnitPreviewPanel({
   const clip = unit?.generated_assets.video_clip ?? null;
   // 上传/还原后路径不变，靠 fingerprint cache-bust 让 <video> 重新拉取
   const clipFp = useProjectsStore((s) => (clip ? s.getAssetFingerprint(clip) : null));
+  // 版本恢复不产生任务行，占用只存在于组件树内：由 VersionTimeMachine 回传，
+  // 供同 unit 的生成 / 上传按钮反向互斥（三者写同一个 reference_videos/{unit_id}.mp4）。
+  const [restoring, setRestoring] = useState(false);
 
   if (!unit) {
     return (
@@ -105,7 +109,7 @@ export function UnitPreviewPanel({
             accept={UPLOAD_VIDEO_ACCEPT}
             label={t("media_upload_video")}
             busy={uploadingVideo}
-            disabled={inFlight || busy}
+            disabled={inFlight || busy || restoring}
             onSelect={(f) => void onUploadVideo(unit.unit_id, f)}
           />
         )}
@@ -118,6 +122,7 @@ export function UnitPreviewPanel({
             resourceId={unit.unit_id}
             onRestore={onRestored}
             busy={inFlight || busy || Boolean(uploadingVideo)}
+            onRestoringChange={setRestoring}
             iconOnly
           />
         )}
@@ -203,9 +208,9 @@ export function UnitPreviewPanel({
         <button
           type="button"
           onClick={() => onGenerate(unit.unit_id)}
-          disabled={inFlight || busy}
+          disabled={inFlight || busy || restoring}
           className={`focus-ring inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-semibold transition-colors ${
-            inFlight || busy
+            inFlight || busy || restoring
               ? "cursor-not-allowed border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.6)] text-[var(--color-text-3)]"
               : "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_14px_-4px_var(--color-accent-glow)]"
           }`}

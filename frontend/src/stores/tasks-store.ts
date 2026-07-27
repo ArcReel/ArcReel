@@ -59,8 +59,9 @@ export const defaultTaskStats: TaskStats = {
 // 后端任务 id 未知，此时标记不可被任何轮询写回清除。两种粒度的字段数不同，但 taskIds
 // 一律是最后一段，故让位判定只需 {@link markTaskIds} 一个解析口径，加字段不会错位。
 //
-// 让位判定看 task_id 而非时间戳：只有本次提交自己的任务行出现在 tasks 里，标记才交还给
-// 真实数据。这条判据同时堵住两个时序洞：
+// 让位判定看 task_id 而非时间戳：只有本次提交自己的任务行**全部**出现在 tasks 里，标记
+// 才交还给真实数据；已落库的 id 逐轮从 key 里扣除，故不要求它们在同一个快照里同时出现。
+// 这条判据同时堵住两个时序洞：
 //   1. 终态先到不再永久残留——去重命中既有任务时后端返回的是那条既有行的 task_id，
 //      它已在（或即将在）tasks 里，标记随即让位；按时间戳比较则会因该行 updated_at
 //      不大于标记发起时的基线而永不让位。
@@ -103,26 +104,43 @@ function optimisticScriptFileKey(
   return `${projectName}\0${taskType}\0${stripScriptsPrefix(scriptFile)}\0${seq}\0${encodeTaskIds(taskIds)}`;
 }
 
-/**
- * 标记是否已被自己等待的真实任务行取代。在途标记（taskIds 为空）永不成立——请求
- * 往返期间没有任何依据可以判定资源已空闲。
- *
- * 一次提交建多条任务行时（宫格按分组逐条入队），要**全部**出现才让位：只等到其中
- * 一条就交还，会在「首条已终态、其余尚未进入快照」的窗口里把资源误判为空闲。
- */
-function isMarkSuperseded(taskIds: readonly string[], tasks: TaskItem[]): boolean {
-  if (taskIds.length === 0) return false;
-  const landed = new Set(tasks.map((t) => t.task_id));
-  return taskIds.every((id) => landed.has(id));
+/** 把 key 末段的 taskIds 换成 `taskIds`，其余字段原样保留。 */
+function withTaskIds(key: string, taskIds: readonly string[]): string {
+  return key.slice(0, key.lastIndexOf("\0") + 1) + encodeTaskIds(taskIds);
 }
 
-// 按当前 tasks 修剪已让位的乐观占用标记（不新增标记，仅清理）。除兑现时机的顺带清理外，
-// 也要在每次 setTasks（轮询写回）时执行——真实任务行是经轮询进入 store 的，标记只能在
-// 那一刻发现自己该让位。
+/** 本次快照里已落库的 task_id。 */
+function landedTaskIds(tasks: TaskItem[]): Set<string> {
+  return new Set(tasks.map((t) => t.task_id));
+}
+
+/**
+ * 该标记经本次快照后应以什么形态留下：已扣完（等待的 task_id 全部落库）返回 null
+ * 表示让位，否则返回扣除后的 key（无变化时原样返回，避免无谓的 Set 抖动）。
+ *
+ * 在途标记（taskIds 为空）原样留下、永不让位——请求往返期间没有任何依据可以判定
+ * 资源已空闲。一次提交建多条任务行时（宫格按分组逐条入队），要**全部**落库才让位：
+ * 只等到其中一条就交还，会在「首条已终态、其余尚未进入快照」的窗口里把资源误判为
+ * 空闲。扣除逐轮累计，不要求所有 task_id 在同一个快照里同时出现——轮询每次只取最新
+ * 200 行，而单次入队产生的任务行数没有上限。
+ */
+function keepMark(key: string, landed: ReadonlySet<string>): string | null {
+  const taskIds = markTaskIds(key);
+  if (taskIds.length === 0) return key; // 在途标记
+  const remaining = taskIds.filter((id) => !landed.has(id));
+  if (remaining.length === 0) return null;
+  return remaining.length === taskIds.length ? key : withTaskIds(key, remaining);
+}
+
+// 按当前 tasks 修剪乐观占用标记（不新增标记，仅扣除已落库的 task_id 并清理已让位者）。
+// 除兑现时机的顺带清理外，也要在每次 setTasks（轮询写回）时执行——真实任务行是经轮询
+// 进入 store 的，标记只能在那一刻发现自己的行已落库。
 function pruneSupersededOptimistic(tasks: TaskItem[], marks: ReadonlySet<string>): Set<string> {
+  const landed = landedTaskIds(tasks);
   const next = new Set<string>();
   for (const key of marks) {
-    if (!isMarkSuperseded(markTaskIds(key), tasks)) next.add(key);
+    const kept = keepMark(key, landed);
+    if (kept !== null) next.add(kept);
   }
   return next;
 }
@@ -149,9 +167,11 @@ export const useTasksStore = create<TasksState>((set, get) => {
       set((s) => {
         const next = new Set(s[field]);
         next.delete(pendingKey);
-        // 去重命中既有任务时该行往往已在 store 里，此刻即判定让位，不必等下一轮轮询。
-        if (replacement !== null && !isMarkSuperseded(markTaskIds(replacement), s.tasks)) {
-          next.add(replacement);
+        if (replacement !== null) {
+          // 去重命中既有任务时该行往往已在 store 里，此刻即扣除，不必等下一轮轮询；
+          // 全部扣完即当场让位。
+          const kept = keepMark(replacement, landedTaskIds(s.tasks));
+          if (kept !== null) next.add(kept);
         }
         return { [field]: next };
       });
@@ -295,10 +315,12 @@ export function selectActiveResourceIds(
   for (const task of latestByResourceAndTaskType.values()) {
     if (isOccupyingStatus(task.status)) ids.add(task.resource_id);
   }
+  // 修剪发生在 setTasks 时，selector 可能先于它看到新快照，故这里按同一判据现算。
+  const landed = landedTaskIds(tasks);
   for (const key of optimisticActive) {
     const [kProject, kResourceKind, kResourceId] = key.split("\0");
     if (kProject !== projectName || kResourceKind !== taskType) continue;
-    if (!isMarkSuperseded(markTaskIds(key), tasks)) ids.add(kResourceId);
+    if (keepMark(key, landed) !== null) ids.add(kResourceId);
   }
   return ids;
 }
@@ -343,10 +365,11 @@ export function selectHasActiveTaskForScriptFile(
   );
   if (hasRealActive) return true;
 
+  const landed = landedTaskIds(tasks);
   for (const key of optimisticActiveScriptFile) {
     const [kProject, kTaskType, kScriptFile] = key.split("\0");
     if (kProject !== projectName || kTaskType !== taskType || kScriptFile !== normalized) continue;
-    if (!isMarkSuperseded(markTaskIds(key), tasks)) return true;
+    if (keepMark(key, landed) !== null) return true;
   }
   return false;
 }

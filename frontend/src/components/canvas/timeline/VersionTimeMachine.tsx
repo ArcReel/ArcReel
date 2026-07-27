@@ -20,6 +20,12 @@ interface VersionTimeMachineProps {
    * 显示成功但随后被编辑任务覆盖，用户最后一次选择丢失。
    */
   busy?: boolean;
+  /**
+   * 恢复请求在途状态回传父级：`busy` 只做「外部占用 → 禁恢复」这一向，兄弟控件
+   * （生成、上传）还需反向知道恢复正在写同一个资源文件，否则恢复返回前它们仍可点，
+   * 两个请求并发写同一路径、后完成者覆盖前者且双方都提示成功。
+   */
+  onRestoringChange?: (restoring: boolean) => void;
 }
 
 function getImagePreviewHeightClass(
@@ -49,6 +55,7 @@ export function VersionTimeMachine({
   onRestore,
   iconOnly = false,
   busy = false,
+  onRestoringChange,
 }: VersionTimeMachineProps) {
   const { t } = useTranslation("dashboard");
   const resourcePath =
@@ -111,6 +118,7 @@ export function VersionTimeMachine({
     // 这里兜底防止禁用态生效前的一次点击仍发出恢复请求。
     if (busy || restoringVersion !== null) return;
     setRestoringVersion(version);
+    onRestoringChange?.(true);
     try {
       const result = await API.restoreVersion(projectName, resourceType, resourceId, version);
       if (result.asset_fingerprints) {
@@ -126,6 +134,7 @@ export function VersionTimeMachine({
         .pushToast(t("switch_version_failed", { message: errMsg(err) }), "error");
     } finally {
       setRestoringVersion(null);
+      onRestoringChange?.(false);
     }
   }
 
