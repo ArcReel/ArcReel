@@ -588,6 +588,29 @@ class TestGenerationWorker:
         assert queue.failed and queue.failed[0] == ("t_unregistered", "[script_edit_error]")
 
     @pytest.mark.asyncio
+    async def test_process_task_script_edit_error_circular_params_falls_back(self, monkeypatch):
+        """params 含循环引用时 json.dumps 抛 ValueError（而非 TypeError）——同一条降级路径
+        也要接住这个分支，否则序列化失败照样打断 mark_task_failed，任务卡在 running。"""
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+
+        async def _raise_circular_params(_task):
+            circular: dict[str, Any] = {}
+            circular["self"] = circular
+            raise ScriptEditError(
+                "generated_assets 必须是 dict",
+                key="script_edit_generated_assets_invalid",
+                circular=circular,
+            )
+
+        monkeypatch.setattr(
+            "server.services.generation_tasks.execute_generation_task",
+            _raise_circular_params,
+        )
+        await worker._process_task({"task_id": "t_circular"})
+        assert queue.failed and queue.failed[0] == ("t_circular", "[script_edit_error]")
+
+    @pytest.mark.asyncio
     async def test_process_task_cancelled_error_marks_cancelled(self, monkeypatch):
         """ADR 0006: asyncio.CancelledError 走 finally → mark_cancelled。"""
         queue = _FakeQueue()
