@@ -698,7 +698,6 @@ export function StudioCanvasRouter() {
                     shots={script?.content_mode === "ad" ? script.shots : []}
                     hasScript={Boolean(script)}
                     scriptFile={scriptFile ?? undefined}
-                    durationOptions={durationOptions}
                     onUpdatePrompt={handleUpdatePrompt}
                   />
                 ) : mode === "reference_video" ? (

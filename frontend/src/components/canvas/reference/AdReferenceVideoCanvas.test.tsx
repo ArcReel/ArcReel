@@ -69,7 +69,6 @@ function renderCanvas(
     shots?: AdShot[];
     hasScript?: boolean;
     onUpdatePrompt?: AdReferenceVideoCanvasProps["onUpdatePrompt"];
-    durationOptions?: number[];
   } = {},
 ) {
   return render(
@@ -81,7 +80,6 @@ function renderCanvas(
       hasScript={props.hasScript ?? true}
       scriptFile="episode_1.json"
       onUpdatePrompt={props.onUpdatePrompt}
-      durationOptions={props.durationOptions}
     />,
   );
 }
@@ -528,7 +526,7 @@ describe("AdReferenceVideoCanvas", () => {
     const onUpdatePrompt = vi.fn();
     mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
 
-    renderCanvas({ onUpdatePrompt, durationOptions: [3, 5, 7] });
+    renderCanvas({ onUpdatePrompt });
     await screen.findByText("E1U1");
 
     const durationSelect = await screen.findByRole("combobox", { name: /E1S1 时长/ });
@@ -550,6 +548,25 @@ describe("AdReferenceVideoCanvas", () => {
       undefined,
       "episode_1.json",
     );
+  });
+
+  it("镜头时长选项是 1-15 自由整数，不取供应商 supported_durations", async () => {
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+
+    renderCanvas({ onUpdatePrompt: vi.fn() });
+
+    const durationSelect = await screen.findByRole("combobox", { name: /E1S1 时长/ });
+    const values = Array.from(durationSelect.querySelectorAll("option")).map((o) => o.value);
+    expect(values).toEqual(Array.from({ length: 15 }, (_, i) => String(i + 1)));
+  });
+
+  it("剧本里的区间外时长仍如实回显，不被显示成首个选项", async () => {
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit({ shot_ids: ["E1S1"] })] });
+
+    renderCanvas({ onUpdatePrompt: vi.fn(), shots: [makeShot("E1S1", 20)] });
+
+    const durationSelect = await screen.findByRole("combobox", { name: /E1S1 时长/ });
+    expect((durationSelect as HTMLSelectElement).value).toBe("20");
   });
 
   it("已生成的分组展示需重新生成才能生效的提示", async () => {
@@ -590,7 +607,7 @@ describe("AdReferenceVideoCanvas", () => {
     vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
     vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
 
-    renderCanvas({ onUpdatePrompt, durationOptions: [3, 7] });
+    renderCanvas({ onUpdatePrompt });
     const durationSelect = await screen.findByRole("combobox", { name: /E1S1 时长/ });
     expect(durationSelect).not.toBeDisabled();
 
