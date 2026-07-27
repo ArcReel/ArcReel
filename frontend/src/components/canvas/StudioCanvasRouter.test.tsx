@@ -370,6 +370,22 @@ describe("StudioCanvasRouter", () => {
     expect(screen.getByText("加载中...")).toBeInTheDocument();
   });
 
+  it("keeps showing loading state on a deep link while the project detail request is still in flight", () => {
+    // 首屏加载先落地 currentProjectName（数据置空）再等 refreshProject 结算（见
+    // router.tsx）：currentProjectName 非空不代表详情已到达。直接打开 /characters 这类
+    // 深链时,若只看 currentProjectName 会把空集合渲染成可交互的「空项目」页面。
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: null,
+      projectDetailLoading: true,
+    });
+
+    renderAt("/characters");
+
+    expect(screen.getByText("加载中...")).toBeInTheDocument();
+    expect(screen.queryByTestId("character-card")).not.toBeInTheDocument();
+  });
+
   it("routes characters/scenes/props/source/episodes views correctly", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
