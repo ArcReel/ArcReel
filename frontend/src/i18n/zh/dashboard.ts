@@ -982,6 +982,7 @@ export default {
   'reference_tab_preprocess': '拆分预处理',
   'reference_batch_generate': '批量生成视频',
   'reference_batch_nothing_to_do': '所有 Unit 都已生成或正在生成中',
+  'reference_generate_busy': '该 Unit 正在生成中，请稍后再试',
   'reference_episode_header_units_one': '{{count}} 单元',
   'reference_episode_header_units_other': '{{count}} 单元',
   'reference_episode_header_ready': '就绪',

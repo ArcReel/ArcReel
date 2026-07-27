@@ -982,6 +982,7 @@ export default {
   'reference_tab_preprocess': 'Splitting preprocess',
   'reference_batch_generate': 'Batch generate videos',
   'reference_batch_nothing_to_do': 'All units are already generated or in flight',
+  'reference_generate_busy': 'This unit is generating, try again later',
   'reference_episode_header_units_one': '{{count}} unit',
   'reference_episode_header_units_other': '{{count}} units',
   'reference_episode_header_ready': 'Ready',

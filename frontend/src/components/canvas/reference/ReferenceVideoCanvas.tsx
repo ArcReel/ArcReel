@@ -22,7 +22,13 @@ import {
   useReferenceVideoStore,
   referenceVideoCacheKey,
 } from "@/stores/reference-video-store";
-import { isActiveStatus, useActiveResourceIds, useLatestTasksByResource } from "@/stores/tasks-store";
+import {
+  isActiveStatus,
+  selectActiveResourceIds,
+  useActiveResourceIds,
+  useLatestTasksByResource,
+  useTasksStore,
+} from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
@@ -121,6 +127,13 @@ export function ReferenceVideoCanvas({
 
   const [uploadingUnitIds, setUploadingUnitIds] = useState<Set<string>>(() => new Set());
 
+  // 入队请求自身在途的 unit：动作层的乐观打标要等 API 响应回来才落，这段往返里
+  // busyUnitIds 仍是空的，只靠它禁用会在「请求已发出、响应未回」的窗口内漏禁用。
+  // ref 是提交时刻复核的同步真相源（同一 tick 内连点时 state 尚未提交到闭包），
+  // state 仅用于驱动禁用态重渲染。
+  const submittingRef = useRef<Set<string>>(new Set());
+  const [submittingUnitIds, setSubmittingUnitIds] = useState<Set<string>>(() => new Set());
+
   const statusMap = useMemo<Record<string, UnitStatus>>(() => {
     const map: Record<string, UnitStatus> = {};
     for (const u of units) {
@@ -142,6 +155,16 @@ export function ReferenceVideoCanvas({
   }, [units, tasksByUnit, busyUnitIds, uploadingUnitIds]);
 
   const generating = !!(selected && statusMap[selected.unit_id] === "running");
+
+  // 独立于 statusMap 传给 UnitPreviewPanel：重试（旧失败行在）与重新生成（旧成功行在）
+  // 两条路径上 queueRow 始终非空，statusMap 的乐观分支不生效，仅看 status 会在入队到
+  // 任务行落库之间的窗口内漏禁用生成按钮。submittingUnitIds 补上请求往返那一段，
+  // 合起来覆盖「请求发出 → 乐观打标 → 真实任务行落库」全程。
+  const selectedBusy = !!(
+    selected &&
+    (busyUnitIds.has(selected.unit_id) || submittingUnitIds.has(selected.unit_id))
+  );
+  const selectedCancelling = !!(selected && tasksByUnit.get(selected.unit_id)?.status === "cancelling");
 
   const failureMessage = useMemo(() => {
     if (!selected) return null;
@@ -171,11 +194,25 @@ export function ReferenceVideoCanvas({
   const handleGenerate = useCallback(
     async (unitId: string) => {
       setStackTab("preview");
+      // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的占用态未必是最新的
+      // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）。
+      const { tasks, optimisticActive } = useTasksStore.getState();
+      const live = selectActiveResourceIds(tasks, "reference_video", projectName, optimisticActive);
+      if (live.has(unitId) || submittingRef.current.has(unitId)) {
+        useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
+        return;
+      }
+      submittingRef.current.add(unitId);
+      setSubmittingUnitIds(new Set(submittingRef.current));
       try {
         // 入队成功的乐观打标与 queued/deduped 提示都在动作层内完成
         await enqueueReferenceVideoUnit(projectName, episode, unitId);
       } catch (e) {
         toastError(e, (msg) => t("reference_generate_request_failed", { error: msg }));
+      } finally {
+        // 打标已由动作层完成（失败时无标可解），此处只交还请求在途标记
+        submittingRef.current.delete(unitId);
+        setSubmittingUnitIds(new Set(submittingRef.current));
       }
     },
     [projectName, episode, t],
@@ -760,6 +797,8 @@ export function ReferenceVideoCanvas({
                           projectName={projectName}
                           status={statusMap[selected.unit_id]}
                           errorMessage={failureMessage}
+                          busy={selectedBusy}
+                          cancelling={selectedCancelling}
                           estimatedCost={estimatedCost}
                           actualCost={actualCost}
                           onGenerate={onGenerateVoid}
@@ -786,6 +825,8 @@ export function ReferenceVideoCanvas({
                   projectName={projectName}
                   status={selected ? statusMap[selected.unit_id] : undefined}
                   errorMessage={failureMessage}
+                  busy={selectedBusy}
+                  cancelling={selectedCancelling}
                   estimatedCost={estimatedCost}
                   actualCost={actualCost}
                   onGenerate={onGenerateVoid}

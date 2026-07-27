@@ -3,11 +3,30 @@ import { render, screen, waitFor, fireEvent, act } from "@testing-library/react"
 import { ReferenceVideoCanvas } from "./ReferenceVideoCanvas";
 import { useReferenceVideoStore } from "@/stores/reference-video-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { API } from "@/api";
 import type { ReferenceVideoUnit } from "@/types";
 import type { ProjectData } from "@/types";
+
+// useActiveResourceIds / useLatestTasksByResource 默认包裹真实实现，仅在个别用例里
+// 冻结返回值模拟「响应式信号尚未追上真实 store」的场景，验证提交 handler 不依赖它们、
+// 独立用 getState() 新鲜读 store。
+const mockHolder = vi.hoisted(() => ({
+  realActiveResourceIds: undefined as unknown as typeof import("@/stores/tasks-store").useActiveResourceIds,
+  realLatestTasksByResource:
+    undefined as unknown as typeof import("@/stores/tasks-store").useLatestTasksByResource,
+}));
+vi.mock("@/stores/tasks-store", async () => {
+  const actual = await vi.importActual<typeof import("@/stores/tasks-store")>("@/stores/tasks-store");
+  mockHolder.realActiveResourceIds = actual.useActiveResourceIds;
+  mockHolder.realLatestTasksByResource = actual.useLatestTasksByResource;
+  return {
+    ...actual,
+    useActiveResourceIds: vi.fn(actual.useActiveResourceIds),
+    useLatestTasksByResource: vi.fn(actual.useLatestTasksByResource),
+  };
+});
 
 function mkUnit(id: string, shotText = "x"): ReferenceVideoUnit {
   return {
@@ -42,6 +61,8 @@ const STUB_PROJECT: ProjectData = {
 
 describe("ReferenceVideoCanvas", () => {
   beforeEach(() => {
+    vi.mocked(useActiveResourceIds).mockImplementation(mockHolder.realActiveResourceIds);
+    vi.mocked(useLatestTasksByResource).mockImplementation(mockHolder.realLatestTasksByResource);
     useReferenceVideoStore.setState({ unitsByEpisode: {}, selectedUnitId: null, loading: false, error: null });
     useProjectsStore.setState({ currentProjectName: "proj", currentProjectData: STUB_PROJECT });
     // 乐观标记由入队动作层写入且跨测试共享同一 store 实例，须一并重置
@@ -233,6 +254,130 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toMatch(/Queued for generation|已加入生成队列/);
     });
+  });
+
+  // 重试路径：旧失败行始终在，statusMap 的乐观分支（!queueRow）不生效，禁用须
+  // 直接取占用集，否则入队到任务行落库之间的窗口内按钮可重复点击。
+  it("重试失败 unit 后在真实任务行落库前即禁用按钮", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "proj",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "failed",
+          error_message: "供应商拒绝",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+    let resolveGen: (v: { task_id: string; deduped: boolean }) => void = () => {};
+    const genSpy = vi.spyOn(API, "generateReferenceVideoUnit").mockReturnValue(
+      new Promise((resolve) => {
+        resolveGen = resolve;
+      }),
+    );
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const retry = await screen.findByRole("button", { name: /Retry generation|重试生成/ });
+    fireEvent.click(retry);
+    await waitFor(() => expect(genSpy).toHaveBeenCalled());
+
+    // 请求在途（响应未回、动作层乐观打标尚未落）时按钮就必须已禁用——AC 要求的
+    // 窗口起点是「请求发出」，不是「响应返回」。
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled();
+    });
+    // 旧任务行仍是 failed，statusMap 未变；预览区不能同时叠出「生成中」占位与
+    // 旧失败覆盖层——inFlight 应压过 failed 的展示（回归 Codex P2）。
+    expect(screen.queryByText(/Generation failed|生成失败/)).not.toBeInTheDocument();
+    resolveGen({ task_id: "t2", deduped: false });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled();
+    });
+    expect(screen.queryByText(/Generation failed|生成失败/)).not.toBeInTheDocument();
+  });
+
+  // 重新生成路径：旧成功行始终在，statusMap 的乐观分支不生效，同样需要按占用集
+  // 独立禁用，不能仅靠 statusMap 派生的 status。
+  it("重新生成已完成 unit 后在真实任务行落库前即禁用按钮", async () => {
+    const unit = mkUnit("E1U1");
+    unit.generated_assets.video_clip = "videos/E1U1.mp4";
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "proj",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "succeeded",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+    let resolveGen: (v: { task_id: string; deduped: boolean }) => void = () => {};
+    const genSpy = vi.spyOn(API, "generateReferenceVideoUnit").mockReturnValue(
+      new Promise((resolve) => {
+        resolveGen = resolve;
+      }),
+    );
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const regenerate = await screen.findByRole("button", { name: /Regenerate video|重新生成视频/ });
+    fireEvent.click(regenerate);
+    await waitFor(() => expect(genSpy).toHaveBeenCalled());
+
+    // 同上：请求往返期间即须禁用，而非等响应回来才禁用。
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled();
+    });
+    resolveGen({ task_id: "t2", deduped: false });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled();
+    });
+  });
+
+  // 提交时刻复核：渲染期捕获的占用信号已过期（真实 store 里该 unit 已被别的入口占用），
+  // 点击须被 getState() 新鲜读拦下并提示，不得静默再发一次入队请求。
+  it("响应式占用信号尚未追上真实 store 时，生成提交仍被 getState() 新鲜读拦截", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    const genSpy = vi
+      .spyOn(API, "generateReferenceVideoUnit")
+      .mockResolvedValue({ task_id: "t1", deduped: false } as never);
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    // 冻结两个响应式 hook——模拟面板渲染期捕获的 busy/status 未能反映随后落库的任务行
+    vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
+    vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const generate = await screen.findByRole("button", { name: /Generate video|生成视频/ });
+    expect(generate).not.toBeDisabled();
+
+    // 渲染之后、点击之前，另一入口（Agent 入队 / SSE 落库）已占用同一 unit
+    act(() => {
+      useTasksStore.setState({
+        tasks: [
+          {
+            task_id: "t1",
+            project_name: "proj",
+            task_type: "reference_video",
+            resource_id: "E1U1",
+            status: "running",
+            updated_at: "2026-06-12T10:00:00Z",
+          },
+        ] as never,
+      });
+    });
+
+    fireEvent.click(generate);
+    await waitFor(() => expect(pushToast).toHaveBeenCalled());
+    expect(genSpy).not.toHaveBeenCalled();
   });
 
   // 后台任务失败通知已统一迁移到全局 useTaskFailureNotifications hook（转变驱动 /

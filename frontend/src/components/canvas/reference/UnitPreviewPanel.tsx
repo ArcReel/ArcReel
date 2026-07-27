@@ -16,6 +16,14 @@ export interface UnitPreviewPanelProps {
   status?: UnitStatus;
   /** Latest task error message (if any) for the failed state. */
   errorMessage?: string | null;
+  /**
+   * 占用集（含入队后真实任务行落库前的乐观标记）命中与否，独立于 status：
+   * status 的乐观分支只在无任务行时生效（保持 cancelling 不显示为生成中），
+   * 重试与重新生成这两条路径上旧任务行始终在，仅看 status 会在乐观窗口内漏禁用。
+   */
+  busy?: boolean;
+  /** 最新任务行是否处于取消中——占用集会计入 cancelling，但不应展示为「生成中」。 */
+  cancelling?: boolean;
   /** Estimated cost for this unit (optional; rendered next to the CTA). */
   estimatedCost?: CostBreakdown;
   /** Actual already-spent cost; rendered in the metadata block. */
@@ -40,6 +48,8 @@ export function UnitPreviewPanel({
   projectName,
   status,
   errorMessage,
+  busy = false,
+  cancelling = false,
   estimatedCost,
   actualCost,
   onGenerate,
@@ -67,8 +77,12 @@ export function UnitPreviewPanel({
   // 还为 null —— 这种情况下走 inFlight 占位避免空白面板。
   const ready = effectiveStatus === "ready" && Boolean(videoUrl);
   const failed = effectiveStatus === "failed";
+  // busy 一并计入，使重试/重新生成在乐观窗口内也占位；但 cancelling 时排除在外——
+  // 取消中不是「生成中」，展示层沿用取消前的状态，仅按钮仍需保持禁用（见下方 disabled）。
   const inFlight =
-    effectiveStatus === "running" || (effectiveStatus === "ready" && !videoUrl);
+    (busy && !cancelling) ||
+    effectiveStatus === "running" ||
+    (effectiveStatus === "ready" && !videoUrl);
 
   const ctaLabel = ready
     ? t("reference_preview_regenerate")
@@ -84,12 +98,14 @@ export function UnitPreviewPanel({
           {t("reference_preview_label")}
         </span>
         <span className="flex-1" />
+        {/* 上传是同一 unit 上的兄弟控件，与主 CTA 同步接线禁用：cancelling 期间
+            inFlight 为假但占用仍在，上传会与在跑的生成回写同一个成片文件 */}
         {onUploadVideo && (
           <UploadIconButton
             accept={UPLOAD_VIDEO_ACCEPT}
             label={t("media_upload_video")}
             busy={uploadingVideo}
-            disabled={inFlight}
+            disabled={inFlight || busy}
             onSelect={(f) => void onUploadVideo(unit.unit_id, f)}
           />
         )}
@@ -149,7 +165,7 @@ export function UnitPreviewPanel({
           </div>
         )}
 
-        {failed && (
+        {failed && !inFlight && (
           <div className="absolute inset-0 grid place-items-center p-5">
             <div className="max-w-[280px] text-center">
               <div className="mx-auto mb-2.5 grid h-9 w-9 place-items-center rounded-full border border-red-400/60 bg-red-500/15 text-red-300">
@@ -184,9 +200,9 @@ export function UnitPreviewPanel({
         <button
           type="button"
           onClick={() => onGenerate(unit.unit_id)}
-          disabled={inFlight}
+          disabled={inFlight || busy}
           className={`focus-ring inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-semibold transition-colors ${
-            inFlight
+            inFlight || busy
               ? "cursor-not-allowed border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.6)] text-[var(--color-text-3)]"
               : "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_14px_-4px_var(--color-accent-glow)]"
           }`}
