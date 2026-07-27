@@ -132,12 +132,15 @@ export function ReferenceVideoCanvas({
   // store 不保证 tasks 顺序（SSE 原位 upsert），重试的新行不被旧失败行盖住。
   const tasksByUnit = useLatestTasksByResource(projectName, "reference_video");
 
+  // 参考生视频任务完成时经项目事件 SSE 自增，驱动本 effect 重拉分组展示成片。
+  const unitsRevision = useAppStore((s) => s.referenceVideoUnitsRevision);
+
   useEffect(() => {
     // step2 剧本未生成时 /episodes/{episode}/units 后端会 404（无脚本可拆单元）；
     // hasScript 转 true 后本 effect 随依赖变化重跑，补上首次拉取。
     if (!hasScript) return;
     void loadUnits(projectName, episode);
-  }, [loadUnits, projectName, episode, hasScript]);
+  }, [loadUnits, projectName, episode, hasScript, unitsRevision]);
 
   const selected = useMemo(
     () => units.find((u) => u.unit_id === selectedUnitId) ?? null,

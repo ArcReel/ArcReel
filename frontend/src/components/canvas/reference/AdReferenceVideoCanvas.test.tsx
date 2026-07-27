@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdReferenceVideoCanvas } from "./AdReferenceVideoCanvas";
@@ -294,6 +294,19 @@ describe("AdReferenceVideoCanvas", () => {
     expect(screen.queryByText(/先派生分组/)).not.toBeInTheDocument();
   });
 
+  it("首次加载失败后，任务完成触发的重拉成功即清掉旧错误", async () => {
+    mockedAPI.listAdReferenceUnits.mockRejectedValueOnce(new Error("加载炸了"));
+    renderCanvas();
+    expect(await screen.findByRole("alert")).toHaveTextContent("加载炸了");
+
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    act(() => {
+      useAppStore.getState().invalidateReferenceVideoUnits();
+    });
+
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
   it("批量生成时前一分组的失败不被后续调用清掉", async () => {
     const units = [makeUnit(), makeUnit({ unit_id: "E1U2", shot_ids: ["E1S2"] })];
     mockedAPI.listAdReferenceUnits.mockResolvedValue({ units });
@@ -350,6 +363,36 @@ describe("AdReferenceVideoCanvas", () => {
 
     resolveList({ units: [] });
     await waitFor(() => expect(deriveButton).not.toBeDisabled());
+  });
+
+  it("重新派生不被终态重拉的迟到旧列表覆盖", async () => {
+    // 任务完成触发的重拉在途、且任务已不占用（派生入口因此可点）时用户重新派生：那次 GET
+    // 读的是派生之前的分组，迟到写回会把刚派生出的新分组撤销。
+    mockedAPI.listAdReferenceUnits.mockResolvedValueOnce({ units: [makeUnit()] });
+    renderCanvas();
+    await screen.findByText(/E1U1/);
+
+    let resolveStale!: (v: { units: AdReferenceUnit[] }) => void;
+    mockedAPI.listAdReferenceUnits.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStale = resolve;
+      }),
+    );
+    act(() => {
+      useAppStore.getState().invalidateReferenceVideoUnits();
+    });
+
+    const derived = [makeUnit({ unit_id: "E1U7", shot_ids: ["E1S1"] })];
+    mockedAPI.deriveAdReferenceUnits.mockResolvedValueOnce({ units: derived });
+    await userEvent.click(await screen.findByRole("button", { name: /重新派生/ }));
+    await screen.findByText(/E1U7/);
+
+    // 迟到的旧列表落定：新分组必须留在界面上。
+    await act(async () => {
+      resolveStale({ units: [makeUnit()] });
+    });
+    expect(screen.getByText(/E1U7/)).toBeInTheDocument();
+    expect(screen.queryByText(/E1U1/)).not.toBeInTheDocument();
   });
 
   it("首次加载失败后不永久禁用派生入口，可点击重试", async () => {
@@ -502,5 +545,27 @@ describe("AdReferenceVideoCanvas", () => {
       expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledWith("demo", 1, "E1U2"),
     );
     expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledTimes(1);
+  });
+
+  it("参考生视频分组失效信号自增时重拉分组，展示新落地的成片", async () => {
+    // 生成完成的任务终态经项目事件 SSE 推来 → invalidateReferenceVideoUnits →
+    // 本画布重拉分组，用户无需手动重新派生/刷新即可看到成片。
+    mockedAPI.listAdReferenceUnits.mockResolvedValueOnce({ units: [makeUnit()] });
+
+    renderCanvas();
+    await waitFor(() => {
+      expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledTimes(1);
+    });
+
+    mockedAPI.listAdReferenceUnits.mockResolvedValueOnce({
+      units: [makeUnit({ generated_assets: { video_clip: "videos/E1U1.mp4", status: "completed" } })],
+    });
+    act(() => {
+      useAppStore.getState().invalidateReferenceVideoUnits();
+    });
+
+    await waitFor(() => {
+      expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledTimes(2);
+    });
   });
 });

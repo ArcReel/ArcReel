@@ -1,11 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import {
+  defaultTaskStats,
   isActiveStatus,
   isOccupyingStatus,
   isTerminalStatus,
   selectActiveResourceIds,
   selectHasActiveTaskForScriptFile,
   selectLatestTaskByResource,
+  selectNeedsFastPolling,
   taskResourceKind,
   useTasksStore,
 } from "./tasks-store";
@@ -911,5 +915,291 @@ describe("selectHasActiveTaskForScriptFile with cancelling", () => {
       }),
     ];
     expect(selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "proj")).toBe(true);
+  });
+});
+
+describe("refreshTasks（多入口共享刷新的在途合并）", () => {
+  beforeEach(() => {
+    useTasksStore.setState(useTasksStore.getInitialState(), true);
+    vi.restoreAllMocks();
+  });
+
+  function mockFetch(items: TaskItem[] = []) {
+    const listSpy = vi.spyOn(API, "listTasks").mockResolvedValue({
+      items,
+      total: items.length,
+      page: 1,
+      page_size: 200,
+    });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({
+      stats: {
+        queued: 0,
+        running: 0,
+        cancelling: 0,
+        succeeded: 0,
+        failed: 0,
+        cancelled: 0,
+        total: 0,
+      },
+    });
+    return listSpy;
+  }
+
+  it("作用域未启用时不发请求", async () => {
+    const listSpy = mockFetch();
+
+    await useTasksStore.getState().refreshTasks();
+
+    expect(listSpy).not.toHaveBeenCalled();
+  });
+
+  it("按作用域拉取并写回 store", async () => {
+    const listSpy = mockFetch([task({ task_id: "t1" })]);
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+
+    await useTasksStore.getState().refreshTasks();
+
+    expect(listSpy).toHaveBeenCalledWith({ projectName: "proj", pageSize: 200 });
+    expect(useTasksStore.getState().tasks).toHaveLength(1);
+    expect(useTasksStore.getState().connected).toBe(true);
+  });
+
+  it("projectName 为 null 时拉全局任务（不按项目过滤）", async () => {
+    const listSpy = mockFetch();
+    useTasksStore.getState().setRefreshScope({ projectName: null });
+
+    await useTasksStore.getState().refreshTasks();
+
+    expect(listSpy).toHaveBeenCalledWith({ projectName: undefined, pageSize: 200 });
+  });
+
+  it("轮询看到参考生视频任务转成功时失效单元缓存，且不重复失效", async () => {
+    // 成片重拉此前只挂在项目事件 SSE 的终态分支上：SSE 断线或丢掉这条事件时，任务状态还能
+    // 靠轮询兜底恢复，成片却一直不出现。轮询走同一次失效补上这个缺口。
+    useAppStore.setState({ referenceVideoUnitsRevision: 0 });
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+
+    mockFetch([task({ task_id: "rv1", task_type: "reference_video", status: "running" })]);
+    await useTasksStore.getState().refreshTasks();
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
+
+    vi.restoreAllMocks();
+    mockFetch([task({ task_id: "rv1", task_type: "reference_video", status: "succeeded" })]);
+    await useTasksStore.getState().refreshTasks();
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
+
+    // 同一条任务在后续轮次里已是终态，不再重复失效。
+    await useTasksStore.getState().refreshTasks();
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
+  });
+
+  it("整个生命周期落在两次轮询之间的参考生视频任务也算完成", async () => {
+    // 空闲档间隔较长，provider 命中缓存时任务可能在一个间隔内走完：它是首次以 succeeded
+    // 出现的，若要求上一轮见过就会漏掉，画布仍看不到成片。
+    useAppStore.setState({ referenceVideoUnitsRevision: 0 });
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+
+    mockFetch([task({ task_id: "other", task_type: "storyboard", status: "succeeded" })]);
+    await useTasksStore.getState().refreshTasks();
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
+
+    vi.restoreAllMocks();
+    mockFetch([
+      task({ task_id: "other", task_type: "storyboard", status: "succeeded" }),
+      task({ task_id: "rv-fast", task_type: "reference_video", status: "succeeded" }),
+    ]);
+    await useTasksStore.getState().refreshTasks();
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(1);
+  });
+
+  it("切作用域后的第一轮只建基线，不把新作用域的历史成功任务当作刚完成", async () => {
+    useAppStore.setState({ referenceVideoUnitsRevision: 0 });
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+    mockFetch([]);
+    await useTasksStore.getState().refreshTasks();
+
+    vi.restoreAllMocks();
+    useTasksStore.getState().setRefreshScope({ projectName: "other-proj" });
+    mockFetch([task({ task_id: "rv-old", task_type: "reference_video", status: "succeeded" })]);
+    await useTasksStore.getState().refreshTasks();
+
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
+  });
+
+  it("首轮拉取不把历史成功的参考生视频任务当作刚完成", async () => {
+    useAppStore.setState({ referenceVideoUnitsRevision: 0 });
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+    mockFetch([task({ task_id: "rv-old", task_type: "reference_video", status: "succeeded" })]);
+
+    await useTasksStore.getState().refreshTasks();
+
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
+  });
+
+  it("在途期间到达的多次调用合并为结束后再跑一轮", async () => {
+    // 两个入口（轮询 + SSE 任务终态）同时刷新时不各自发请求：首轮 1 次 + 合并轮 1 次。
+    const releases: Array<() => void> = [];
+    const listSpy = vi.spyOn(API, "listTasks").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releases.push(() => resolve({ items: [], total: 0, page: 1, page_size: 200 }));
+        }),
+    );
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({
+      stats: {
+        queued: 0,
+        running: 0,
+        cancelling: 0,
+        succeeded: 0,
+        failed: 0,
+        cancelled: 0,
+        total: 0,
+      },
+    });
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+
+    const first = useTasksStore.getState().refreshTasks();
+    const second = useTasksStore.getState().refreshTasks();
+    const third = useTasksStore.getState().refreshTasks();
+
+    expect(listSpy).toHaveBeenCalledTimes(1);
+
+    releases[0]();
+    // 首轮落定后合并轮才发第二次请求——两个排队调用方合并成这一轮，不是各发一次。
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    releases[1]();
+    await Promise.all([first, second, third]);
+
+    expect(listSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("落定时作用域已切换的迟到响应不写回", async () => {
+    const releases: Array<(items: TaskItem[]) => void> = [];
+    vi.spyOn(API, "listTasks").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releases.push((items) => resolve({ items, total: items.length, page: 1, page_size: 200 }));
+        }),
+    );
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({
+      stats: {
+        queued: 0,
+        running: 0,
+        cancelling: 0,
+        succeeded: 0,
+        failed: 0,
+        cancelled: 0,
+        total: 0,
+      },
+    });
+    useTasksStore.getState().setRefreshScope({ projectName: "old-project" });
+
+    const pending = useTasksStore.getState().refreshTasks();
+    await Promise.resolve();
+    // 切项目：旧项目的在途响应此刻才回来，不能盖住接管方的数据。
+    useTasksStore.getState().setRefreshScope({ projectName: "new-project" });
+    releases[0]([task({ task_id: "stale" })]);
+    await pending;
+
+    expect(useTasksStore.getState().tasks).toEqual([]);
+  });
+
+  it("请求失败时置 connected=false 并留旧数据", async () => {
+    mockFetch([task({ task_id: "t1" })]);
+    useTasksStore.getState().setRefreshScope({ projectName: "proj" });
+    await useTasksStore.getState().refreshTasks();
+
+    vi.spyOn(API, "listTasks").mockRejectedValue(new Error("network"));
+    await useTasksStore.getState().refreshTasks();
+
+    expect(useTasksStore.getState().connected).toBe(false);
+    expect(useTasksStore.getState().tasks).toHaveLength(1);
+  });
+});
+
+describe("selectNeedsFastPolling", () => {
+  const idle = {
+    tasks: [] as TaskItem[],
+    stats: defaultTaskStats,
+    connected: true,
+    refreshScope: { projectName: "proj" },
+    optimisticActive: new Set<string>(),
+    optimisticActiveScriptFile: new Set<string>(),
+  };
+
+  it("空闲且连接正常时退到低频档", () => {
+    expect(selectNeedsFastPolling(idle)).toBe(false);
+  });
+
+  it("有任务未落终态时留在高频档", () => {
+    expect(
+      selectNeedsFastPolling({ ...idle, stats: { ...defaultTaskStats, cancelling: 1 } }),
+    ).toBe(true);
+  });
+
+  it("上一轮拉取失败时留在高频档", () => {
+    expect(selectNeedsFastPolling({ ...idle, connected: false })).toBe(true);
+  });
+
+  it("当前作用域内的乐观标记让判据留在高频档", () => {
+    expect(
+      selectNeedsFastPolling({
+        ...idle,
+        optimisticActive: new Set(["proj\0character\0A\0image_edit\0"]),
+      }),
+    ).toBe(true);
+    expect(
+      selectNeedsFastPolling({
+        ...idle,
+        optimisticActiveScriptFile: new Set(["proj\0grid\0episode_1.json\0"]),
+      }),
+    ).toBe(true);
+  });
+
+  it("别的项目残留的乐观标记不把当前作用域钉在高频档", () => {
+    // 在项目 A 打标后、真实任务行落地前切到项目 B：A 的标记再也等不到同项目任务行来修剪，
+    // 若计入判据，B 即便完全空闲也会一直 3 秒轮询。
+    expect(
+      selectNeedsFastPolling({
+        ...idle,
+        refreshScope: { projectName: "other-proj" },
+        optimisticActive: new Set(["proj\0character\0A\0image_edit\0"]),
+        optimisticActiveScriptFile: new Set(["proj\0grid\0episode_1.json\0"]),
+      }),
+    ).toBe(false);
+  });
+
+  it("统计尚未反映的在途任务行也让判据留在高频档", () => {
+    // 任务列表与统计是两个并发请求、不是同一快照：别处恰在本轮刷新期间入队时，统计可能
+    // 读到零活跃而列表已含那条 queued 行。只看统计会把这一轮判成空闲，该任务的中间态要
+    // 等满一个空闲间隔才出现在界面上。
+    expect(
+      selectNeedsFastPolling({
+        ...idle,
+        tasks: [task({ task_id: "t-new", status: "queued" })],
+      }),
+    ).toBe(true);
+  });
+
+  it("列表里只剩终态任务时不阻止退到低频档", () => {
+    expect(
+      selectNeedsFastPolling({
+        ...idle,
+        tasks: [
+          task({ task_id: "t-done", status: "succeeded" }),
+          task({ task_id: "t-fail", status: "failed" }),
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it("不按项目过滤（全局作用域）时所有标记都计入", () => {
+    expect(
+      selectNeedsFastPolling({
+        ...idle,
+        refreshScope: { projectName: null },
+        optimisticActive: new Set(["proj\0character\0A\0image_edit\0"]),
+      }),
+    ).toBe(true);
   });
 });
