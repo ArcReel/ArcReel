@@ -245,6 +245,11 @@ export function AdReferenceVideoCanvas({
         // onUpdatePrompt 内部吞掉异常并转 toast，不会向这里抛出——「未抛出」不等于
         // 「写入成功」，必须取其返回值，否则 PATCH 失败时草稿仍会被当作已提交清空。
         return await onUpdatePrompt(shotId, patch, undefined, scriptFile);
+      } catch (err: unknown) {
+        // 防止 onUpdatePrompt 违反「不抛出」契约时产生未处理的 rejection——
+        // onEditDuration 以 void 调用本函数，没有调用方会捕获这里的拒绝。
+        useAppStore.getState().pushToast(errMsg(err), "error");
+        return false;
       } finally {
         setSavingUnitIds((prev) => {
           const next = new Set(prev);
