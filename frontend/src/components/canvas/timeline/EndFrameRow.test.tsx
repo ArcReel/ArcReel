@@ -155,6 +155,34 @@ describe("EndFrameRow 能力警告", () => {
     expect(getByRole("button", { name: "更换图片" })).toBeEnabled();
   });
 
+  it("模型不支持时新设尾帧全程可走通，无半禁用残留", async () => {
+    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(false));
+    const select = vi
+      .spyOn(API, "selectEndFrame")
+      .mockResolvedValue({ success: true, end_frame_image: "end_frames/scene_E1S01.png" });
+    const { getByRole, findByText, findByRole } = renderRow({ endFramePath: null });
+    await findByText("未设置");
+
+    // 入口可点
+    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    const chooseBtn = getByRole("button", { name: "选择图片" });
+    expect(chooseBtn).toBeEnabled();
+    fireEvent.click(chooseBtn);
+
+    // 选图器内部同样不得残留禁用：候选可选、确认可点。
+    const candidate = await findByRole("button", { name: /镜头 E1S01/ });
+    expect(candidate).toBeEnabled();
+    fireEvent.click(candidate);
+    const confirmBtn = getByRole("button", { name: "设为尾帧" });
+    expect(confirmBtn).toBeEnabled();
+    fireEvent.click(confirmBtn);
+
+    // 提交时刻的复核只看占用态，不再因能力不支持而拦截。
+    await waitFor(() => {
+      expect(select).toHaveBeenCalledWith(PROJECT, SHOT, SCRIPT, "storyboards/E1S01_v1.png");
+    });
+  });
+
   it("模型支持尾帧时无警告", async () => {
     const { findByText, queryByRole } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
     await findByText("已设置");
