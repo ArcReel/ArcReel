@@ -213,6 +213,23 @@ class TestGenerateRouter:
             assert video.status_code == 200, video.text
             assert video.json()["success"] is True
 
+    def test_video_generated_assets_non_dict_falls_back_to_default(self, tmp_path, monkeypatch):
+        """generated_assets 容器本身被外部编辑损坏为非 dict（如 list）时按「未设置」处理、
+        回退默认路径，不抛未捕获 AttributeError（脏数据非 dict 上没有 .get()）。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][0]["generated_assets"] = ["bad"]
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            video = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+            assert video.status_code == 200, video.text
+            assert video.json()["success"] is True
+
     @pytest.mark.integration
     def test_video_storyboard_image_non_string_returns_400(self, tmp_path, monkeypatch):
         """storyboard_image 是剧本 JSON 里的脏数据（非字符串）时应 400 可读失败，

@@ -26,7 +26,7 @@ from lib.reference_video.ad_units import (
     resolve_ad_unit_shots,
     sync_ad_reference_units,
 )
-from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
+from lib.storyboard_sequence import get_generated_assets, get_storyboard_items, resolve_storyboard_image_ref
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
     tool_error,
@@ -124,7 +124,7 @@ def _build_video_specs(
         if item_id in skip_set:
             continue
 
-        storyboard_image = (item.get("generated_assets") or {}).get("storyboard_image")
+        storyboard_image = get_generated_assets(item).get("storyboard_image")
         # 字段值来自磁盘剧本 JSON，不可信任：非字符串脏数据/越界/绝对路径引用统一交给
         # resolve_storyboard_image_ref 校验（与路由入队预检、执行层读盘点共用同一份），
         # 批量场景下单个条目非法只跳过并记日志，不中断整批。
@@ -610,7 +610,7 @@ def generate_video_scene_tool(ctx: ToolContext):
             # checkpoint 扫描会找不到产物。
             item_id = str(item[id_field])
 
-            storyboard_image = item.get("generated_assets", {}).get("storyboard_image")
+            storyboard_image = get_generated_assets(item).get("storyboard_image")
             # 字段值来自磁盘剧本 JSON，不可信任：resolve_storyboard_image_ref 统一做类型检查 +
             # 越界 / 绝对路径拒绝（与路由入队预检、执行层读盘点共用同一份），异常经外层
             # except 转为可读的 tool_error，不再让非字符串脏数据抛未处理 TypeError。

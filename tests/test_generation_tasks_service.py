@@ -620,6 +620,28 @@ class TestGenerationTasks:
             )
         assert fake_generator.video_calls == []
 
+    @pytest.mark.integration
+    async def test_execute_video_task_generated_assets_non_dict_falls_back_to_default(self, monkeypatch, tmp_path):
+        """generated_assets 容器本身被外部编辑损坏为非 dict（如 list）时按「未设置」处理、
+        回退默认路径，不抛未捕获 AttributeError（`{"...": ...}.get()` 在非 dict 上不存在）。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["generated_assets"] = ["bad"]
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+        )
+
+        assert fake_generator.video_calls[0]["start_image"] == project_path / "storyboards" / "scene_E1S01.png"
+
     @pytest.mark.parametrize(
         ("storyboard_value", "expected_message"),
         [
