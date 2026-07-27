@@ -120,7 +120,7 @@ describe("useProjectEventsSSE", () => {
     });
 
     await waitFor(() => {
-      expect(API.getProject).toHaveBeenCalledWith("demo");
+      expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
       expect(screen.getByTestId("location")).toHaveTextContent("/characters");
     });
     expect(useAppStore.getState().scrollTarget).toEqual(
@@ -182,7 +182,7 @@ describe("useProjectEventsSSE", () => {
     });
 
     await waitFor(() => {
-      expect(API.getProject).toHaveBeenCalledWith("demo");
+      expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
       expect(useAppStore.getState().scrollTarget).toEqual(
         expect.objectContaining({
           type: "reference_unit",
@@ -243,7 +243,7 @@ describe("useProjectEventsSSE", () => {
     });
 
     await waitFor(() => {
-      expect(API.getProject).toHaveBeenCalledWith("demo");
+      expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
       expect(useAppStore.getState().workspaceNotifications[0]?.target?.id).toBe("酒馆");
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/");
@@ -284,7 +284,7 @@ describe("useProjectEventsSSE", () => {
     });
 
     await waitFor(() => {
-      expect(API.getProject).toHaveBeenCalledWith("demo");
+      expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
       expect(useAppStore.getState().toast?.text).toBe("分镜「E1S01」的分镜图已生成");
     });
     expect(useAppStore.getState().toast?.tone).toBe("success");
@@ -358,7 +358,7 @@ describe("useProjectEventsSSE", () => {
       });
 
       await waitFor(() => {
-        expect(API.getProject).toHaveBeenCalledWith("demo");
+        expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
         expect(useAppStore.getState().toast?.text).toBe(expectedText);
       });
       expect(useAppStore.getState().toast?.tone).toBe("success");
@@ -421,7 +421,7 @@ describe("useProjectEventsSSE", () => {
     });
 
     await waitFor(() => {
-      expect(API.getProject).toHaveBeenCalledWith("demo");
+      expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
       expect(useAppStore.getState().toast?.text).toBe("旁白「E1S01」已生成");
     });
   });
@@ -487,7 +487,7 @@ describe("useProjectEventsSSE", () => {
     });
 
     await waitFor(() => {
-      expect(API.getProject).toHaveBeenCalledWith("demo");
+      expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
       expect(useAppStore.getState().toast?.text).toBe("道具「玉佩」已更新");
     });
 
@@ -554,7 +554,7 @@ describe("useProjectEventsSSE", () => {
     });
 
     await waitFor(() => {
-      expect(API.getProject).toHaveBeenCalledWith("demo");
+      expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/props");
     expect(useAppStore.getState().scrollTarget).toBeNull();

@@ -276,4 +276,75 @@ describe("projects-store refreshProject", () => {
     expect(useProjectsStore.getState().currentProjectName).toBe(DEMO_PROJECT_NAME);
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("演示");
   });
+
+  it("项目切换后 A 的迟到响应落定：不覆盖已接管的 B", async () => {
+    // 路由层的项目切换不经过 refreshProject（自带 AbortController + setCurrentProject），
+    // 因此排队去重看不到它——A 页面上 SSE / 写操作触发的刷新若在切到 B 之后才落定，
+    // 不该把 currentProjectName 写回 A。
+    useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
+    const dA = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise);
+
+    const store = useProjectsStore.getState();
+    const pA = store.refreshProject("A");
+
+    // 路由切到 B：cleanup 清空当前项目，随后写入 B 的数据。
+    store.setCurrentProject(null, null);
+    store.setCurrentProject("B", makeProject("B-数据"), {}, {});
+
+    dA.resolve(makeResult("A-迟到数据"));
+    const ok = await pA;
+
+    expect(ok).toBe(false);
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
+  });
+
+  it("项目切换 abort 在途请求：请求被取消，且不按刷新失败提示", async () => {
+    useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
+    let abortedSignal: AbortSignal | undefined;
+    vi.spyOn(API, "getProject").mockImplementation(
+      (_name, options) =>
+        new Promise<GetProjectResult>((_resolve, reject) => {
+          abortedSignal = options?.signal;
+          options?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        }),
+    );
+
+    const onError = vi.fn();
+    const store = useProjectsStore.getState();
+    const pA = store.refreshProject("A", { onError });
+
+    store.setCurrentProject("B", makeProject("B-数据"), {}, {});
+
+    const ok = await pA;
+    expect(abortedSignal?.aborted).toBe(true);
+    expect(ok).toBe(false);
+    // abort 是项目切换的正常结果，不是刷新失败：不该弹「项目同步失败」。
+    expect(onError).not.toHaveBeenCalled();
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
+  });
+
+  it("切换项目后新项目的刷新照常生效（取消域轮换不会长期作废后续刷新）", async () => {
+    useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
+    const dA = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject")
+      .mockReturnValueOnce(dA.promise)
+      .mockResolvedValue(makeResult("B-新数据"));
+
+    const store = useProjectsStore.getState();
+    const pA = store.refreshProject("A");
+
+    store.setCurrentProject("B", makeProject("B-数据"), {}, {});
+    dA.resolve(makeResult("A-迟到数据"));
+    expect(await pA).toBe(false);
+
+    const okB = await useProjectsStore.getState().refreshProject("B");
+    expect(okB).toBe(true);
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-新数据");
+  });
 });

@@ -53,6 +53,8 @@ interface ProjectsState {
    *   合并为「结束后再跑一轮」，取最新一次请求的 name / invalidateKeys。
    * - **失败留旧**：getProject 失败时不覆盖 currentProjectData，返回 false 交调用方
    *   决定是否提示（onError 亦会被调用）。
+   * - **项目级取消域**：请求挂在随当前项目轮换的 AbortSignal 上，切换项目即作废前一个
+   *   项目的在途与迟到刷新，返回 false 且不视为失败（不触发 onError）。
    */
   refreshProject: (name: string, options?: RefreshProjectOptions) => Promise<boolean>;
 }
@@ -67,6 +69,15 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
   // 排队轮调用方各自的 resolve——与 curResolvers 分开累积，避免"排队进同一批"
   // 被误解为"共享同一个最终结果"：每个调用方只对自己实际服务的那一轮结果负责。
   let queuedResolvers: Array<(ok: boolean) => void> = [];
+
+  // 项目级取消域：当前项目的数据请求都挂在这个 controller 上。切换项目时轮换（abort 旧的、
+  // 换上新的），使前一个项目的在途请求当场取消、迟到响应无法写回 store。轮换后现役
+  // controller 恒为未 abort 状态，因此不会长期作废后续刷新。
+  let projectScope = new AbortController();
+  const rotateProjectScope = () => {
+    projectScope.abort();
+    projectScope = new AbortController();
+  };
 
   // 执行刷新循环：while 排队重跑替代递归，失败路径也消费排队请求，直至无新排队为止。
   // 每轮结束立刻 resolve 该轮的调用方（curResolvers），不等后续排队轮跑完——否则先到
@@ -86,17 +97,18 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
     while (again) {
       again = false;
       let ok = false;
+      // 每轮取一次现役取消域：排队轮要挂在它自己发起时刻的域上，不复用上一轮的。
+      const signal = projectScope.signal;
       try {
-        const res = await API.getProject(curName);
+        const res = await API.getProject(curName, { signal });
         // 在途期间若已排队到不同项目的刷新请求，本轮响应针对的是即将切走的旧项目——
         // 跳过写入，避免用它覆盖排队轮即将加载的新项目（数据 / 名称均不提交）。
         const supersededByOtherProject = refreshQueued && queuedName !== null && queuedName !== curName;
-        // 演示项目导航不经过 refreshProject（数据来自前端常量，见入口处的 isDemoProject
-        // 短路），因此上面的排队去重看不到它——真实项目的刷新请求（如 SSE onChanges 触发）
-        // 若在只读演示项目已接管当前视图之后才落定，也不该把 currentProjectName 写回真实
-        // 项目，否则只读横幅 / 演示数据会被这次迟到响应悄悄顶掉。
-        const supersededByDemoNavigation = isDemoProject(get().currentProjectName);
-        if (!supersededByOtherProject && !supersededByDemoNavigation) {
+        // 取消域已轮换：当前项目在请求在途期间被换掉了（路由切到别的项目、演示工作台接管、
+        // 离开工作台清空）。这些路径都不经过 refreshProject，排队去重看不到它们，只能靠
+        // 取消域识别。abort 与响应落定同为异步，响应先到、abort 后到时网络层不会 reject，
+        // 因此写入前还要复核一次 aborted。
+        if (!supersededByOtherProject && !signal.aborted) {
           get().setCurrentProject(curName, res.project, res.scripts ?? {}, res.asset_fingerprints);
           if (curKeys.length > 0) {
             useAppStore.getState().invalidateEntities(curKeys);
@@ -106,7 +118,11 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
       } catch (err) {
         // 失败留旧：不覆盖 currentProjectData；调用方按返回值 / onError 决定提示。
         ok = false;
-        curOnErrors.forEach((cb) => cb(err));
+        // 取消域轮换导致的 abort 是项目切换的正常结果，不是刷新失败：按「未同步」结算
+        // 为 false，但不触发 onError，否则每次切项目都会弹一条同步失败提示。
+        if (!signal.aborted) {
+          curOnErrors.forEach((cb) => cb(err));
+        }
       }
       curResolvers.forEach((resolve) => resolve(ok));
       if (refreshQueued) {
@@ -138,13 +154,17 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
 
     setProjects: (projects) => set({ projects }),
     setProjectsLoading: (loading) => set({ projectsLoading: loading }),
-    setCurrentProject: (name, data, scripts, fingerprints) =>
+    setCurrentProject: (name, data, scripts, fingerprints) => {
+      // 当前项目易主即轮换取消域。这是全部切换路径（路由 effect 及其 cleanup、演示工作台
+      // 接管）的必经之处，因此不必让各调用方各自传播取消——它们保持原样即受此保护。
+      if (name !== get().currentProjectName) rotateProjectScope();
       set((s) => ({
         currentProjectName: name,
         currentProjectData: data,
         currentScripts: scripts ?? {},
         assetFingerprints: fingerprints ?? s.assetFingerprints,
-      })),
+      }));
+    },
     setProjectDetailLoading: (loading) => set({ projectDetailLoading: loading }),
     setShowCreateModal: (show) => set({ showCreateModal: show }),
     setCreatingProject: (creating) => set({ creatingProject: creating }),
