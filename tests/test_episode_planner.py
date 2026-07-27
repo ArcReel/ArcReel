@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from lib.episode_ledger import SOURCE_FINGERPRINTS_KEY
+from lib.episode_ledger import discover_sources as _real_discover_sources
 from lib.episode_planner import (
     EpisodePlanner,
     EpisodePlanningError,
@@ -1199,15 +1200,12 @@ class TestSourceFingerprintGate:
     ) -> None:
         """存量项目游标已在全部源文末尾：入口快照之后、耗尽补记闭包读取之前源文被改动，
         补记必须与入口快照比对拒绝，不能把变更后的内容直接登记为可信基线。"""
-        import lib.episode_planner as episode_planner_module
-
         project_dir = _write_project(
             tmp_path,
             episodes=[_entry(1, 0, len(SOURCE))],
             planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
         )
         source_path = project_dir / "source" / "novel.txt"
-        real_discover_sources = episode_planner_module.discover_sources
         call_count = 0
 
         def _mutating_discover_sources(project_path: Path):
@@ -1215,9 +1213,9 @@ class TestSourceFingerprintGate:
             call_count += 1
             if call_count == 2:  # 入口快照(第1次)之后、耗尽补记闭包(第3次)读取之前改动源文
                 source_path.write_text("耗尽补记窗口期间被换掉的原文。", encoding="utf-8")
-            return real_discover_sources(project_path)
+            return _real_discover_sources(project_path)
 
-        monkeypatch.setattr(episode_planner_module, "discover_sources", _mutating_discover_sources)
+        monkeypatch.setattr("lib.episode_planner.discover_sources", _mutating_discover_sources)
         planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
 
         with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
