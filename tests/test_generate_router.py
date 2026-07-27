@@ -4,6 +4,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.i18n import _ as i18n_message
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
@@ -228,8 +229,7 @@ class TestGenerateRouter:
                 json={"script_file": "episode_1.json", "prompt": "x"},
             )
             assert video.status_code == 400, video.text
-            # detail 走 invalid_storyboard_image_path 这条可读文案，不是通用 500/内部错误
-            assert "E1S01" in video.json()["detail"]
+            assert video.json()["detail"] == i18n_message("invalid_storyboard_image_path", segment_id="E1S01")
             assert fake_queue.calls == []
 
     @pytest.mark.integration
@@ -247,7 +247,7 @@ class TestGenerateRouter:
                 json={"script_file": "episode_1.json", "prompt": "x"},
             )
             assert video.status_code == 400, video.text
-            assert "E1S01" in video.json()["detail"]
+            assert video.json()["detail"] == i18n_message("invalid_storyboard_image_path", segment_id="E1S01")
             assert fake_queue.calls == []
 
     @pytest.mark.integration
@@ -265,7 +265,7 @@ class TestGenerateRouter:
                 json={"script_file": "episode_1.json", "prompt": "x"},
             )
             assert video.status_code == 400, video.text
-            assert "E1S01" in video.json()["detail"]
+            assert video.json()["detail"] == i18n_message("invalid_storyboard_image_path", segment_id="E1S01")
             assert fake_queue.calls == []
 
     def test_video_dirty_script_fail_fast_400(self, tmp_path, monkeypatch):

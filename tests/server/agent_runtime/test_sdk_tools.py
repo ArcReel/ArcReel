@@ -896,9 +896,8 @@ async def test_generate_video_scene_rejects_invalid_storyboard_image(
     tool_obj = generate_video_scene_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "E1S01"})
     assert out.get("is_error") is True
-    # tool_error 文本须带 storyboard image path 相关提示，不是通用失败信息
-    text = out["content"][0]["text"]
-    assert "storyboard image path" in text
+    # 锁定 resolve_storyboard_image_ref 抛出的 canonical 消息，而不是模糊子串或通用失败文本
+    assert f"invalid storyboard image path: {storyboard_value!r}" in out["content"][0]["text"]
 
 
 async def test_generate_video_all_happy(fake_ctx: ToolContext, monkeypatch) -> None:
