@@ -35,16 +35,17 @@ interface EndFrameRowProps {
 }
 
 /**
- * 镜头尾帧设置行：收起显示三态摘要（未设置 / 已设置 / 模型不支持），展开为
- * 预览 + 说明 + 更换 / 清除。
+ * 镜头尾帧设置行：收起显示摘要（未设置 / 已设置），展开为预览 + 说明 + 更换 / 清除。
  *
  * 占用态按仓库规范做三项检查：本镜头视频任务占用时两个写入控件同步禁用（开窗校验 +
  * 兄弟控件同步），提交时刻再从 store 直读一次最新占用态（打开面板后状态可能已变化）。
  * 源图侧零占用——尾帧是快照复制，与源图的生成任务无关；分镜 / 宫格任务同样不参与判定。
  *
- * 能力门控读 `/video-capabilities` 的 `last_frame` 生效值（已含用户覆盖）。能力查询
- * 失败时按「未知」放行控件而非禁用：后端在不支持尾帧时会拒绝生成并给出可读原因，
- * 网络抖动不该把功能锁死。
+ * 能力不支持不阻断控件，改由常驻的行内警告承载：模型不支持尾帧且本镜头已设过尾帧时，
+ * 折叠头下方显示告警 + 「清除」一键修正入口，收起状态也可见——这条尾帧会让视频生成在
+ * 执行期被后端拒绝，藏在折叠面板里等于让用户逐个失败后才知道。能力值读
+ * `/video-capabilities` 的 `last_frame` 生效值（已含用户覆盖），前端不自建判定；查询
+ * 失败时按「未知」处理，不谎报不支持。
  */
 export function EndFrameRow({
   projectName,
@@ -74,44 +75,26 @@ export function EndFrameRow({
 
   const videoBusyIds = useActiveResourceIds("video", projectName);
   // 占用不区分来源（任务队列在跑 / 视频卡手动上传在途）：二者都在写同一份 project.json，
-  // 并发写入都要拦。能力不支持是另一维度——只挡「新写入」，不挡「清除」，见下方 clearDisabled。
+  // 并发写入都要拦。能力不支持不在此列——它不禁用任何控件，只出警告。
   const videoBusy = videoBusyIds.has(segmentId) || videoUploadBusy;
   const fp = useProjectsStore((s) => (endFramePath ? s.getAssetFingerprint(endFramePath) : null));
 
-  // 兄弟控件同步：更换 / 选图器的提交入口共读这一个值。
-  const controlsDisabled = unsupported || videoBusy || submitting || capsLoading || viewOnly;
-  // 清除不受「模型不支持」门控：清掉一张已设置的尾帧不需要模型支持该能力，
-  // 后端也未对 clear 做任何能力校验（纯本地资产删除），只有占用 / 在途 / 只读挡它。
-  const clearDisabled = videoBusy || submitting || capsLoading || viewOnly;
+  // 兄弟控件同步：更换 / 清除 / 选图器的提交入口共读这一个值。
+  // 只含占用维度——能力维度（不支持、以及「尚未查到」）一律不参与门控：既然不支持都不
+  // 拦，等待查询结果更没有可拦的理由，否则换模型后又会凭能力管线短暂灰掉写入控件。
+  const controlsDisabled = videoBusy || submitting || viewOnly;
 
-  // 灰化控件的 hover 原因。不支持是模型级的稳定原因，优先于临时性的占用 / 检查中。
-  const chooseDisabledHint = viewOnly
-    ? undefined
-    : unsupported
-      ? t("end_frame_unsupported_hint")
-      : videoBusy
-        ? t("end_frame_busy_hint")
-        : capsLoading
-          ? t("end_frame_capability_checking")
-          : undefined;
-  const clearDisabledHint = viewOnly
-    ? undefined
-    : videoBusy
-      ? t("end_frame_busy_hint")
-      : capsLoading
-        ? t("end_frame_capability_checking")
-        : undefined;
+  // 灰化控件的 hover 原因。
+  const disabledHint = !viewOnly && videoBusy ? t("end_frame_busy_hint") : undefined;
+
+  // 已设尾帧 + 模型明确不支持才告警：未设尾帧的镜头没有会被拒绝的东西，不该打扰。
+  const showUnsupportedNotice = unsupported && !!endFramePath;
 
   /**
-   * 提交时刻复核最新禁用态：面板 / 选图器打开后能力可能已变为不支持，或本镜头
-   * 可能已被入队，只查开窗时刻会留一个竞态窗口。命中则拒绝并给出可见反馈。
-   * `skipUnsupportedCheck` 供清除路径使用——清除不受模型能力门控。
+   * 提交时刻复核最新占用态：面板 / 选图器打开后本镜头可能已被入队，只查开窗时刻会留
+   * 一个竞态窗口。命中则拒绝并给出可见反馈。
    */
-  const rejectIfDisabled = (skipUnsupportedCheck = false): boolean => {
-    if (!skipUnsupportedCheck && unsupported) {
-      useAppStore.getState().pushToast(t("end_frame_unsupported_hint"), "info");
-      return true;
-    }
+  const rejectIfDisabled = (): boolean => {
     if (videoUploadBusy) {
       useAppStore.getState().pushToast(t("end_frame_busy_hint"), "info");
       return true;
@@ -128,12 +111,8 @@ export function EndFrameRow({
     onSubmittingChange?.(value);
   };
 
-  const runWrite = async (
-    action: () => Promise<unknown>,
-    successKey: string,
-    skipUnsupportedCheck = false,
-  ) => {
-    if (rejectIfDisabled(skipUnsupportedCheck)) return;
+  const runWrite = async (action: () => Promise<unknown>, successKey: string) => {
+    if (rejectIfDisabled()) return;
     updateSubmitting(true);
     try {
       await action();
@@ -173,18 +152,17 @@ export function EndFrameRow({
     void runWrite(
       () => API.clearEndFrame(projectName, segmentId, scriptFile),
       "end_frame_clear_success",
-      true,
     );
 
   const previewUrl = endFramePath ? API.getFileUrl(projectName, endFramePath, fp) : null;
 
+  // 摘要只说尾帧本身设没设：能力不支持由下方警告条承载，混进摘要会盖掉「已设置」，
+  // 让用户看不出自己设过一张待清除的尾帧。
   const summary = capsLoading
     ? t("end_frame_capability_checking")
-    : unsupported
-      ? t("end_frame_summary_unsupported")
-      : endFramePath
-        ? t("end_frame_summary_set")
-        : t("end_frame_summary_unset");
+    : endFramePath
+      ? t("end_frame_summary_set")
+      : t("end_frame_summary_unset");
 
   return (
     <div
@@ -219,7 +197,7 @@ export function EndFrameRow({
           {t("end_frame_title")}
         </span>
         <span className="flex-1" />
-        {endFramePath && !unsupported && previewUrl && (
+        {previewUrl && (
           <img
             src={previewUrl}
             alt=""
@@ -230,15 +208,38 @@ export function EndFrameRow({
         )}
         <span
           className="text-[11px]"
-          // 摘要随能力解析异步变化（检查中 → 支持 / 不支持），朗读器需要跟上
+          // 摘要随能力查询异步变化（检查中 → 已设置 / 未设置），朗读器需要跟上
           aria-live="polite"
           style={{
-            color: endFramePath && !unsupported ? "var(--color-accent-2)" : "var(--color-text-4)",
+            color: endFramePath ? "var(--color-accent-2)" : "var(--color-text-4)",
           }}
         >
           {summary}
         </span>
       </button>
+
+      {/* 常驻警告：收起状态也可见，让「已设尾帧后切到不支持的模型」在入队前就暴露。 */}
+      {showUnsupportedNotice && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-2 px-3 pb-2 text-[12px] leading-[1.5] text-amber-300"
+        >
+          <span>{t("end_frame_unsupported_notice")}</span>
+          {!viewOnly && (
+            <button
+              type="button"
+              onClick={handleClear}
+              disabled={controlsDisabled}
+              title={disabledHint}
+              className="rounded-[6px] border border-hairline-soft px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {/* 展开时面板内另有一个「清除」，两个按钮同屏：这里用全称，
+                  否则屏幕阅读器读到两个同名按钮无从区分。 */}
+              {t("end_frame_clear_end_frame")}
+            </button>
+          )}
+        </div>
+      )}
 
       {expanded && (
         <div
@@ -276,7 +277,8 @@ export function EndFrameRow({
             <p className="text-[11px] leading-relaxed" style={{ color: "var(--color-text-3)" }}>
               {t("end_frame_description")}
             </p>
-            {/* 不支持时的原因同时给可见文本：title 只有指针能读到，键盘用户读不到。 */}
+            {/* 展开面板讲恢复路径（改模型 / 调能力覆盖），与警告条的「后果 + 清除」互补；
+                未设尾帧时也给，让用户在动手设之前就知道这个模型设了也白设。 */}
             {unsupported && (
               <p className="text-[11px] leading-relaxed" style={{ color: "var(--color-text-4)" }}>
                 {t("end_frame_unsupported_hint")}
@@ -291,7 +293,7 @@ export function EndFrameRow({
                     setPickerOpen(true);
                   }}
                   disabled={controlsDisabled}
-                  title={chooseDisabledHint}
+                  title={disabledHint}
                   className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
                   style={{
                     border: "1px solid var(--color-hairline)",
@@ -305,8 +307,8 @@ export function EndFrameRow({
                   <button
                     type="button"
                     onClick={handleClear}
-                    disabled={clearDisabled}
-                    title={clearDisabledHint}
+                    disabled={controlsDisabled}
+                    title={disabledHint}
                     className="focus-ring rounded-md px-2.5 py-1 text-[11.5px] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] disabled:cursor-not-allowed disabled:opacity-50"
                     style={{ color: "var(--color-text-3)" }}
                   >
@@ -326,7 +328,7 @@ export function EndFrameRow({
           contentMode={contentMode}
           aspectRatio={aspectRatio}
           submitting={submitting}
-          disabled={unsupported || videoBusy || capsLoading}
+          disabled={videoBusy}
           onClose={() => setPickerOpen(false)}
           onPickProjectImage={handlePickProjectImage}
           onPickUpload={handlePickUpload}
