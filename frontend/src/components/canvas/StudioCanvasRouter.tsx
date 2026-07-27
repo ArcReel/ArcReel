@@ -698,7 +698,9 @@ export function StudioCanvasRouter() {
                     shots={script?.content_mode === "ad" ? script.shots : []}
                     hasScript={Boolean(script)}
                     scriptFile={scriptFile ?? undefined}
-                    onUpdatePrompt={handleUpdatePrompt}
+                    // 其余画布的演示只读靠组件内部 useDemoWorkbench() 自行收口；本画布未读取
+                    // demoMode（未提供 onUpdatePrompt 时自行降级为纯文本），故在调用点显式门控。
+                    onUpdatePrompt={demoMode ? undefined : handleUpdatePrompt}
                   />
                 ) : mode === "reference_video" ? (
                   <ReferenceVideoCanvas

@@ -91,13 +91,19 @@ vi.mock("./reference/AdReferenceVideoCanvas", () => ({
     hasScript,
     canEditTitle,
     onSaveTitle,
+    onUpdatePrompt,
   }: {
     shots: { shot_id: string }[];
     hasScript: boolean;
     canEditTitle?: boolean;
     onSaveTitle?: (title: string) => Promise<void>;
+    onUpdatePrompt?: (...args: unknown[]) => void | Promise<void>;
   }) => (
-    <div data-testid="ad-reference-canvas" data-has-script={hasScript ? "yes" : "no"}>
+    <div
+      data-testid="ad-reference-canvas"
+      data-has-script={hasScript ? "yes" : "no"}
+      data-editable={onUpdatePrompt ? "yes" : "no"}
+    >
       <div data-testid="ad-reference-can-edit-title">{canEditTitle ? "yes" : "no"}</div>
       {shots.map((s) => s.shot_id).join(",")}
       <button onClick={() => void onSaveTitle?.("新标题")?.catch(() => {})}>
@@ -1160,6 +1166,24 @@ describe("StudioCanvasRouter", () => {
     await waitFor(() => {
       expect(API.updateEpisode).toHaveBeenCalledWith("demo", 1, { title: "新标题" });
     });
+  });
+
+  // 演示项目当前的 content_mode 恒为 narration，不会真的落到这条路由分支；本用例直接摆出
+  // demoMode + ad + reference_video 的组合，核对调用点本身的门控独立于「当前是否可达」——
+  // 与其余画布一致，demoMode 下不得把写入回调暴露给子组件。
+  it("does not expose the edit callback to the derived-group canvas in demo mode", () => {
+    useProjectsStore.setState({
+      currentProjectName: DEMO_PROJECT_NAME,
+      currentProjectData: makeProjectData({
+        content_mode: "ad",
+        generation_mode: "reference_video",
+      }),
+      currentScripts: { "episode_1.json": makeAdScript() },
+    });
+
+    renderAt("/episodes/1");
+
+    expect(screen.getByTestId("ad-reference-canvas")).toHaveAttribute("data-editable", "no");
   });
 
   it("falls back to an empty shot list when the episode script isn't an ad script", () => {

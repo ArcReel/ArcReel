@@ -1471,7 +1471,7 @@ export default {
   'ad_ref_rederive_busy': 'Có nhóm đang tạo, chưa thể phái sinh lúc này',
   'ad_ref_shot_duration_label': 'Thời lượng {{shot_id}}',
   'ad_ref_shot_voiceover_label': 'Lời thoại {{shot_id}}',
-  'ad_ref_edit_regenerate_hint': 'Nhóm này đã được tạo — hãy tạo lại sau khi chỉnh sửa thời lượng hoặc lời thoại cảnh quay để thay đổi có hiệu lực',
+  'ad_ref_edit_regenerate_hint': 'Nhóm này đã được tạo — hãy tạo lại sau khi chỉnh sửa thời lượng cảnh quay để thay đổi có hiệu lực; lời thoại không ảnh hưởng đến video, chỉ dùng khi xuất phụ đề/lồng tiếng',
   'workspace_nav_products': 'Sản phẩm',
   'workspace_nav_scenes': 'Cảnh',
   'workspace_nav_source': 'Tệp gốc',

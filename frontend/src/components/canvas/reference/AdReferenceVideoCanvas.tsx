@@ -89,6 +89,9 @@ export function AdReferenceVideoCanvas({
   const [units, setUnits] = useState<AdReferenceUnit[] | null>(null);
   const [deriving, setDeriving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 该 unit 存在未落库的镜头字段写入时，阻止同 unit 的生成入队——PATCH 与生成请求
+  // 并发时后端可能仍按写入前的旧值处理，成片与用户刚编辑的时长/文案对不上。
+  const [savingUnitIds, setSavingUnitIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     // 剧本未生成时后端无分组可返回；hasScript 转 true 后本 effect 随依赖重跑补上首次拉取。
@@ -183,7 +186,7 @@ export function AdReferenceVideoCanvas({
   // 后一个 unit 的调用抹掉前一个 unit 的失败信息
   const generateUnit = useCallback(
     async (unitId: string) => {
-      if (liveBusyUnitIds().has(unitId)) {
+      if (liveBusyUnitIds().has(unitId) || savingUnitIds.has(unitId)) {
         useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
         return;
       }
@@ -193,21 +196,31 @@ export function AdReferenceVideoCanvas({
         setError(errMsg(err));
       }
     },
-    [projectName, episode, liveBusyUnitIds, t],
+    [projectName, episode, liveBusyUnitIds, savingUnitIds, t],
   );
 
   // 编辑期间该 unit 若已被其他入口占用，放弃这次写入而非与生成中的任务乱序落库
-  // ——与 generateUnit 同一判定口径。
+  // ——与 generateUnit 同一判定口径。返回是否已受理，供调用方决定是否保留未提交的草稿。
   const commitShotField = useCallback(
-    (unitId: string, shotId: string, patch: Record<string, unknown>) => {
-      if (!onUpdatePrompt) return;
-      if (liveBusyUnitIds().has(unitId)) {
+    async (unitId: string, shotId: string, patch: Record<string, unknown>): Promise<boolean> => {
+      if (!onUpdatePrompt) return false;
+      if (liveBusyUnitIds().has(unitId) || savingUnitIds.has(unitId)) {
         useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
-        return;
+        return false;
       }
-      void onUpdatePrompt(shotId, patch, undefined, scriptFile);
+      setSavingUnitIds((prev) => new Set(prev).add(unitId));
+      try {
+        await onUpdatePrompt(shotId, patch, undefined, scriptFile);
+        return true;
+      } finally {
+        setSavingUnitIds((prev) => {
+          const next = new Set(prev);
+          next.delete(unitId);
+          return next;
+        });
+      }
     },
-    [onUpdatePrompt, liveBusyUnitIds, scriptFile, t],
+    [onUpdatePrompt, liveBusyUnitIds, savingUnitIds, scriptFile, t],
   );
 
   const generateAll = useCallback(async () => {
@@ -215,10 +228,15 @@ export function AdReferenceVideoCanvas({
     const fresh = await derive();
     for (const unit of fresh) {
       // 每轮重读：串行 await 期间其他入口（如单 unit 按钮）可能已入队同一 unit
-      if (unit.generated_assets?.video_clip || liveBusyUnitIds().has(unit.unit_id)) continue;
+      if (
+        unit.generated_assets?.video_clip ||
+        liveBusyUnitIds().has(unit.unit_id) ||
+        savingUnitIds.has(unit.unit_id)
+      )
+        continue;
       await generateUnit(unit.unit_id);
     }
-  }, [derive, generateUnit, liveBusyUnitIds]);
+  }, [derive, generateUnit, liveBusyUnitIds, savingUnitIds]);
 
   const hasUnits = hydrated.length > 0;
   // 任一分组仍有活跃任务（含取消中）时禁止重新派生：派生会按位置重算 unit_id 的
@@ -300,6 +318,7 @@ export function AdReferenceVideoCanvas({
                 stale={stale}
                 status={statusMap[unit.unit_id]}
                 busy={busyUnitIds.has(unit.unit_id)}
+                saving={savingUnitIds.has(unit.unit_id)}
                 cancelling={tasksByUnit.get(unit.unit_id)?.status === "cancelling"}
                 errorMessage={tasksByUnit.get(unit.unit_id)?.error_message ?? null}
                 projectName={projectName}
@@ -309,9 +328,9 @@ export function AdReferenceVideoCanvas({
                   setError(null);
                   void generateUnit(unitId);
                 }}
-                onEditDuration={(shotId, seconds) =>
-                  commitShotField(unit.unit_id, shotId, { duration_seconds: seconds })
-                }
+                onEditDuration={(shotId, seconds) => {
+                  void commitShotField(unit.unit_id, shotId, { duration_seconds: seconds });
+                }}
                 onEditVoiceover={(shotId, textValue) =>
                   commitShotField(unit.unit_id, shotId, { voiceover_text: textValue })
                 }
@@ -336,6 +355,8 @@ interface AdUnitCardProps {
    * 重试与重新生成这两条路径上旧任务行始终在，仅看 status 会在乐观窗口内漏禁用。
    */
   busy: boolean;
+  /** 该 unit 有镜头字段写入未落库——生成入口须一并禁用，避免与写入并发乱序。 */
+  saving: boolean;
   /** 最新任务行是否处于取消中——占用集会计入 cancelling，但不应展示为「生成中」。 */
   cancelling: boolean;
   errorMessage: string | null;
@@ -345,7 +366,7 @@ interface AdUnitCardProps {
   editable: boolean;
   onGenerate: (unitId: string) => void;
   onEditDuration: (shotId: string, seconds: number) => void;
-  onEditVoiceover: (shotId: string, text: string) => void;
+  onEditVoiceover: (shotId: string, text: string) => Promise<boolean>;
 }
 
 function AdUnitCard({
@@ -355,6 +376,7 @@ function AdUnitCard({
   stale,
   status,
   busy,
+  saving,
   cancelling,
   errorMessage,
   projectName,
@@ -531,7 +553,7 @@ function AdUnitCard({
           <button
             type="button"
             className="sv-navbtn inline-flex items-center justify-center gap-1.5"
-            disabled={inFlight || busy || stale || deriving}
+            disabled={inFlight || busy || saving || stale || deriving}
             onClick={() => onGenerate(unit.unit_id)}
           >
             <Sparkles className="h-3 w-3" aria-hidden="true" />
@@ -558,7 +580,8 @@ interface ShotLightEditorProps {
   shot: AdShot;
   disabled: boolean;
   onCommitDuration: (shotId: string, seconds: number) => void;
-  onCommitVoiceover: (shotId: string, text: string) => void;
+  /** 返回是否已受理——被占用拦截时（false）调用方须保留草稿，不清空用户已输入的文字。 */
+  onCommitVoiceover: (shotId: string, text: string) => Promise<boolean>;
 }
 
 /**
@@ -607,10 +630,14 @@ function ShotLightEditor({
         disabled={disabled}
         onChange={(e) => setDraftText(e.target.value)}
         onBlur={() => {
-          if (draftText !== null && draftText !== shot.voiceover_text) {
-            onCommitVoiceover(shot.shot_id, draftText);
+          if (draftText === null || draftText === shot.voiceover_text) {
+            setDraftText(null);
+            return;
           }
-          setDraftText(null);
+          // 被占用拦截时保留草稿，避免用户刚输入的文字被静默丢弃
+          void onCommitVoiceover(shot.shot_id, draftText).then((committed) => {
+            if (committed) setDraftText(null);
+          });
         }}
         placeholder={t("detail_voiceover_placeholder")}
       />

@@ -632,4 +632,67 @@ describe("AdReferenceVideoCanvas", () => {
     });
     expect(onUpdatePrompt).not.toHaveBeenCalled();
   });
+
+  it("占用拦截时保留用户已输入的口播草稿，不静默清空", async () => {
+    const onUpdatePrompt = vi.fn();
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
+    vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
+
+    renderCanvas({ onUpdatePrompt });
+    const voiceoverInput = await screen.findByRole("textbox", { name: /E1S1 口播文案/ });
+    expect(voiceoverInput).not.toBeDisabled();
+
+    await userEvent.clear(voiceoverInput);
+    await userEvent.type(voiceoverInput, "被占用时的草稿");
+
+    // 打字之后、失焦提交之前，另一入口（如批量生成）已把该 unit 占用
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "demo",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "running",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+
+    await userEvent.tab();
+
+    await waitFor(() => {
+      expect(onUpdatePrompt).not.toHaveBeenCalled();
+    });
+    expect(voiceoverInput).toHaveValue("被占用时的草稿");
+  });
+
+  it("镜头字段写入未落库期间禁用同分组生成入口，避免与写入并发乱序", async () => {
+    let resolveUpdate: () => void = () => {};
+    const onUpdatePrompt = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveUpdate = resolve;
+        }),
+    );
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+
+    renderCanvas({ onUpdatePrompt });
+    const durationSelect = await screen.findByRole("combobox", { name: /E1S1 时长/ });
+    const generateButton = await screen.findByRole("button", { name: /生成视频/ });
+    expect(generateButton).not.toBeDisabled();
+
+    await userEvent.selectOptions(durationSelect, "7");
+
+    await waitFor(() => {
+      expect(generateButton).toBeDisabled();
+    });
+
+    resolveUpdate();
+
+    await waitFor(() => {
+      expect(generateButton).not.toBeDisabled();
+    });
+  });
 });

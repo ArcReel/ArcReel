@@ -1422,7 +1422,7 @@ export default {
   'ad_ref_rederive_busy': 'A group is generating, cannot derive right now',
   'ad_ref_shot_duration_label': '{{shot_id}} duration',
   'ad_ref_shot_voiceover_label': '{{shot_id}} voiceover text',
-  'ad_ref_edit_regenerate_hint': 'This group is already generated — regenerate it after editing shot duration or voiceover text for the change to take effect',
+  'ad_ref_edit_regenerate_hint': 'This group is already generated — regenerate it after editing shot duration for the change to take effect. Voiceover text doesn\'t affect the generated video; it\'s used for subtitle/dubbing export instead',
   'workspace_nav_products': 'Products',
 
   // ---- Projects lobby · Darkroom ----
