@@ -441,6 +441,8 @@ class TestProjectArchiveService:
         )
         imported = result.project
         assert imported["episodes"][1]["ledger_status"] == "planned"
+        # 孤儿条目不写入位置记录：导出/导入往返不应凭空补出 source_range
+        assert "source_range" not in imported["episodes"][1]
 
     def test_import_surfaces_unconvertible_source_encoding_as_warning(self, tmp_path, monkeypatch):
         """源文件编码无法识别时导入不中止（局部损坏不阻断整体），failed 文件浮到导入 warnings。"""
