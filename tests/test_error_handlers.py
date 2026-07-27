@@ -3,6 +3,7 @@
 import tempfile
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -104,6 +105,7 @@ class TestLibExceptionHandlers:
         assert resp.status_code == 400
         assert "损坏" in resp.json()["detail"]
 
+    @pytest.mark.integration
     def test_script_edit_error_keyed_reason_translated_en(self):
         """带 key/params 的 ScriptEditError（如 resolve_items 抛出的那种）en 请求下，
         reason 须按英文翻译，不得混入中文原文。"""
@@ -114,6 +116,7 @@ class TestLibExceptionHandlers:
         assert detail == "Script data is corrupted: segments must be a list, but got NoneType"
         assert not any("一" <= ch <= "鿿" for ch in detail)
 
+    @pytest.mark.integration
     def test_script_edit_error_keyed_reason_translated_vi(self):
         client = _make_client()
         resp = client.get("/script-edit-error-keyed", headers={"Accept-Language": "vi"})

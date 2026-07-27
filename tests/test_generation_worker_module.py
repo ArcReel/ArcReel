@@ -542,6 +542,7 @@ class TestGenerationWorker:
         await worker._process_task({"task_id": "t2"})
         assert queue.failed and queue.failed[0][0] == "t2"
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_task_script_edit_error_encodes_key_and_params(self, monkeypatch):
         """apply_unit_video_assets 经异步任务队列（非 upload_unit_video 同步路由）抛出时，
@@ -569,6 +570,7 @@ class TestGenerationWorker:
             '[script_edit_items_not_list] {"kind": "segments", "type_name": "dict"}',
         )
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_task_script_edit_error_unregistered_key_falls_back(self, monkeypatch):
         """两份登记（errors.py 的翻译 key、task_failure.FAILURE_CODE_KEYS 的 worker 编码表）
@@ -587,6 +589,7 @@ class TestGenerationWorker:
         await worker._process_task({"task_id": "t_unregistered"})
         assert queue.failed and queue.failed[0] == ("t_unregistered", "[script_edit_error]")
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_task_script_edit_error_circular_params_falls_back(self, monkeypatch):
         """params 含循环引用时 json.dumps 抛 ValueError（而非 TypeError）——同一条降级路径
@@ -1511,6 +1514,7 @@ class TestGenerationWorker:
         # 无 [resume_*] 前缀
         assert not queue.failed[0][1].startswith("[resume_")
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_resume_task_script_edit_error_encodes_key(self, monkeypatch):
         """resume_executor 复用 _finalize_reference_video_unit 等 finalize helper，同样会抛
