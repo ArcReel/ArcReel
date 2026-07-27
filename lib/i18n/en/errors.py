@@ -22,6 +22,8 @@ MESSAGES = {
     "script_data_corrupted": "Script data is corrupted: {reason}",
     "script_edit_error": "Segment edit validation failed",
     "script_edit_items_not_list": "{kind} must be a list, but got {type_name}",
+    "script_edit_unit_lists_invalid": "video_units / reference_units must be a list",
+    "script_edit_generated_assets_invalid": "generated_assets must be a dictionary",
     "narration_mode_required": "This script is not in narration mode, please use the scene update interface",
     "ad_mode_required": "This script is not in ad/short-video mode, please use the update interface for its mode",
     "shot_not_found": "Shot '{id}' does not exist",

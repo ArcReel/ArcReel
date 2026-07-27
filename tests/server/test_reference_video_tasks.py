@@ -877,21 +877,28 @@ async def test_execute_reference_video_task_rejects_unsupported_duration(
 
 
 def test_apply_unit_video_assets_distinguishes_failures():
-    """结构损坏与 unit 不存在抛不同异常：还原侧据此区分「脏脚本告警」与「正常跳过」。"""
+    """结构损坏与 unit 不存在抛不同异常：还原侧据此区分「脏脚本告警」与「正常跳过」。
+
+    结构损坏的两类异常会经 upload_unit_video 路由回传终端用户，故须带具体 i18n key
+    （默认兜底 key 会让 en/vi 用户只看到无信息的通用句）。
+    """
     from lib.script_editor import ScriptEditError
     from server.services.reference_video_tasks import apply_unit_video_assets
 
-    with pytest.raises(ScriptEditError):
+    with pytest.raises(ScriptEditError) as unit_lists_broken:
         apply_unit_video_assets({"video_units": "broken"}, "E1U1", video_uri=None, thumb_rel=None)
-    with pytest.raises(ScriptEditError):
+    assert unit_lists_broken.value.key == "script_edit_unit_lists_invalid"
+    with pytest.raises(ScriptEditError) as unit_lists_missing:
         apply_unit_video_assets({}, "E1U1", video_uri=None, thumb_rel=None)
-    with pytest.raises(ScriptEditError):
+    assert unit_lists_missing.value.key == "script_edit_unit_lists_invalid"
+    with pytest.raises(ScriptEditError) as assets_broken:
         apply_unit_video_assets(
             {"video_units": [{"unit_id": "E1U1", "generated_assets": "broken"}]},
             "E1U1",
             video_uri=None,
             thumb_rel=None,
         )
+    assert assets_broken.value.key == "script_edit_generated_assets_invalid"
     with pytest.raises(KeyError):
         apply_unit_video_assets({"video_units": []}, "E1U1", video_uri=None, thumb_rel=None)
 

@@ -22,6 +22,8 @@ MESSAGES = {
     "script_data_corrupted": "剧本数据损坏：{reason}",
     "script_edit_error": "剧本编辑操作校验失败",
     "script_edit_items_not_list": "{kind} 必须是列表，当前为 {type_name}",
+    "script_edit_unit_lists_invalid": "video_units / reference_units 必须是列表",
+    "script_edit_generated_assets_invalid": "generated_assets 必须是字典",
     "narration_mode_required": "该剧本不是说书模式，请使用场景更新接口",
     "ad_mode_required": "该剧本不是广告/短片模式，请使用对应模式的更新接口",
     "shot_not_found": "镜头 '{id}' 不存在",

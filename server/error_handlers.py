@@ -12,7 +12,7 @@
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -23,6 +23,16 @@ from lib.i18n import get_translator
 from lib.script_editor import ScriptEditError
 
 logger = logging.getLogger(__name__)
+
+
+def script_edit_detail(exc: ScriptEditError, _t: Callable[..., str]) -> str:
+    """``ScriptEditError`` → 用户可见 detail 的单点映射。
+
+    reason 走 ``exc.key``/``exc.params`` 按请求语言翻译，不嵌 ``str(exc)``——后者文案固定
+    中文，会在 en/vi 响应里混入中文原文。仍自行 ``except ScriptEditError`` 的路由与本模块
+    的全局 handler 共用本函数，避免同一表达式散落多处各自演化。
+    """
+    return _t("script_data_corrupted", reason=_t(exc.key, **exc.params))
 
 
 def _cors_headers_for(
@@ -86,11 +96,9 @@ def register_error_handlers(
 
     @app.exception_handler(ScriptEditError)
     async def _handle_script_edit_error(request: Request, exc: ScriptEditError) -> JSONResponse:
-        # 脏脚本（分镜数组键损坏等）→ 4xx 客户端错误；reason 经 exc.key/exc.params 按请求语言
-        # 翻译，不直接嵌 str(exc)（其文案固定中文，会在 en/vi 响应里混入中文原文）
+        # 脏脚本（分镜数组键损坏等）→ 4xx 客户端错误
         _t = get_translator(request)
-        reason = _t(exc.key, **exc.params)
-        return JSONResponse(status_code=400, content={"detail": _t("script_data_corrupted", reason=reason)})
+        return JSONResponse(status_code=400, content={"detail": script_edit_detail(exc, _t)})
 
     @app.exception_handler(FileNotFoundError)
     async def _handle_file_not_found(request: Request, exc: FileNotFoundError) -> JSONResponse:

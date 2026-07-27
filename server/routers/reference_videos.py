@@ -33,6 +33,7 @@ from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
 from server.auth import CurrentUser
+from server.error_handlers import script_edit_detail
 from server.routers._reorder import full_permutation_error
 from server.services.generation_tasks import emit_generation_success_batch
 from server.services.reference_video_tasks import _finalize_reference_video_unit, resolve_max_unit_duration
@@ -541,10 +542,7 @@ async def upload_unit_video(
         # finalize 写回时 unit 已被并发删除（落盘后绑定重查到锁内写回之间的窄竞态）
         raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=unit_id)) from exc
     except ScriptEditError as exc:
-        # reason 经 exc.key/exc.params 按请求语言翻译，不直接嵌 str(exc)（固定中文，会混入 en/vi 响应）
-        raise HTTPException(
-            status_code=400, detail=_t("script_data_corrupted", reason=_t(exc.key, **exc.params))
-        ) from exc
+        raise HTTPException(status_code=400, detail=script_edit_detail(exc, _t)) from exc
     except (HTTPException, ApiError):
         # ApiError 与 HTTPException 并列：_load_episode_script 抛出的 NotFoundError
         # 不是 HTTPException 子类，不并入这里会被下面的 except Exception 吞成 500

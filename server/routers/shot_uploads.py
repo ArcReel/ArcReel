@@ -27,6 +27,7 @@ from lib.script_editor import ScriptEditError
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from lib.version_manager import VersionManager
 from server.auth import CurrentUser
+from server.error_handlers import script_edit_detail
 from server.services.generation_tasks import emit_generation_success_batch
 from server.services.upload_finalize import (
     UploadTooLargeError,
@@ -150,8 +151,7 @@ async def upload_shot_media(
     except KeyError:
         raise HTTPException(status_code=404, detail=_t("segment_not_found", id=shot_id))
     except ScriptEditError as e:
-        # reason 经 e.key/e.params 按请求语言翻译，不直接嵌 str(e)（固定中文，会混入 en/vi 响应）
-        raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=_t(e.key, **e.params)))
+        raise HTTPException(status_code=400, detail=script_edit_detail(e, _t))
     except (HTTPException, ApiError):
         raise
     except Exception as e:

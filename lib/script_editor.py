@@ -25,12 +25,10 @@ logger = logging.getLogger(__name__)
 class ScriptEditError(ValueError):
     """剧本编辑操作非法（id 未命中、数组越界、拆分份数不足、字段路径不存在等）。
 
-    多数 raise 点只被 MCP 工具（`server/agent_runtime/sdk_tools/patch_script.py`）消费,
-    str(self) 的中文文案是 agent-facing、按 CLAUDE.md 豁免 i18n。唯一会经 HTTP 路由回传
-    给终端用户的是 `resolve_items` 的"数组键损坏"错误（`server/error_handlers.py` /
-    `end_frames.py` / `shot_uploads.py` / `reference_videos.py` 统一按 `Accept-Language`
-    翻译该场景），故只有它显式传 ``key``/``params``；其余 raise 点沿用默认 key，
-    翻译为通用兜底文案而非把中文 str(self) 直接嵌进已翻译的响应模板。
+    ``key``/``params`` 是给用户可见路径准备的翻译坐标：会经 HTTP 路由回传终端用户的 raise 点
+    必须显式传具体 ``key``，服务端按请求 ``Accept-Language`` 渲染，而不是把固定中文的
+    ``str(self)`` 嵌进已翻译的响应模板。只被 MCP 工具与日志消费的 raise 点是 agent-facing、
+    按 CLAUDE.md 豁免 i18n，沿用默认 key 即可（渲染为通用兜底文案）。
     """
 
     def __init__(self, message: str, *, key: str = "script_edit_error", **params: Any) -> None:

@@ -421,14 +421,14 @@ def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | 
     unit_lists = [script.get(key) for key in ("video_units", "reference_units")]
     candidates = [units for units in unit_lists if isinstance(units, list)]
     if not candidates:
-        raise ScriptEditError("video_units / reference_units 必须是 list")
+        raise ScriptEditError("video_units / reference_units 必须是 list", key="script_edit_unit_lists_invalid")
     for units in candidates:
         for u in units:
             if not isinstance(u, dict) or u.get("unit_id") != resource_id:
                 continue
             ga = u.setdefault("generated_assets", {})
             if not isinstance(ga, dict):
-                raise ScriptEditError("generated_assets 必须是 dict")
+                raise ScriptEditError("generated_assets 必须是 dict", key="script_edit_generated_assets_invalid")
             ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
             if video_uri:
                 ga["video_uri"] = video_uri

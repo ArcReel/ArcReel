@@ -106,7 +106,7 @@ class TestLibExceptionHandlers:
 
     def test_script_edit_error_keyed_reason_translated_en(self):
         """带 key/params 的 ScriptEditError（如 resolve_items 抛出的那种）en 请求下，
-        reason 须按英文翻译，不得混入中文原文（issue #1353）。"""
+        reason 须按英文翻译，不得混入中文原文。"""
         client = _make_client()
         resp = client.get("/script-edit-error-keyed", headers={"Accept-Language": "en"})
         assert resp.status_code == 400
