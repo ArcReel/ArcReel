@@ -276,4 +276,172 @@ describe("projects-store refreshProject", () => {
     expect(useProjectsStore.getState().currentProjectName).toBe(DEMO_PROJECT_NAME);
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("演示");
   });
+
+  it("项目切换后 A 的迟到响应落定：不覆盖已接管的 B", async () => {
+    // 路由层的项目切换不经过 refreshProject（自带 AbortController + setCurrentProject），
+    // 因此排队去重看不到它——A 页面上 SSE / 写操作触发的刷新若在切到 B 之后才落定，
+    // 不该把 currentProjectName 写回 A。
+    useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
+    const dA = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise);
+
+    const store = useProjectsStore.getState();
+    const pA = store.refreshProject("A");
+
+    // 路由切到 B：cleanup 清空当前项目，随后写入 B 的数据。
+    store.setCurrentProject(null, null);
+    store.setCurrentProject("B", makeProject("B-数据"), {}, {});
+
+    dA.resolve(makeResult("A-迟到数据"));
+    const ok = await pA;
+
+    expect(ok).toBe(false);
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
+  });
+
+  it("null 过渡窗口内发起的旧项目刷新：不豁免为「无当前项目」，不写回", async () => {
+    // Codex 提出的场景：router cleanup 先把 currentProjectName 清为 null，B 自己的
+    // getProject 落定、写入 currentProjectName 之前有一段异步窗口。若 A 中未取消的
+    // 写操作恰好在这段窗口里发起 refreshProject("A")，此时取到的是清空后现役、未 abort
+    // 的域，且 currentProjectName 恰为 null——不能被「无当前项目，放行」豁免，否则
+    // A 的数据会在 B 落地前抢先写回。
+    useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
+    useProjectsStore.getState().setCurrentProject(null, null); // 路由 cleanup：清空但尚未加载 B
+
+    const dA = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise);
+
+    const pA = useProjectsStore.getState().refreshProject("A"); // 在 null 窗口内发起
+    dA.resolve(makeResult("A-迟到数据"));
+    const ok = await pA;
+
+    expect(ok).toBe(false);
+    expect(useProjectsStore.getState().currentProjectName).toBe(null);
+    expect(useProjectsStore.getState().currentProjectData).toBe(null);
+
+    // B 随后落地：不受上面被拦截的 A 写入影响。
+    useProjectsStore.getState().setCurrentProject("B", makeProject("B-数据"), {}, {});
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+  });
+
+  it("跨两次切换的更早项目迟到写入（C→A→B）：null 窗口不因换了新名字而放行", async () => {
+    // Codex 在上一条修复后指出的多跳场景：C 页面未取消的写操作直到 A→B 切换期间
+    // 的 null 窗口才发起 refreshProject("C")。若只记「最近一次被清空的名字」（当时是
+    // A），curName="C" 不等于它，会被误判成「无当前项目，可放行」重新写回。真正的
+    // 判据应是「store 是否已经建立过任何真实项目」，不分具体是哪一个。
+    const store = useProjectsStore.getState();
+    store.setCurrentProject("C", makeProject("C-数据"), {}, {}); // 建立 C
+    store.setCurrentProject(null, null); // 路由 cleanup：离开 C
+    store.setCurrentProject("A", makeProject("A-数据"), {}, {}); // A 落地
+    store.setCurrentProject(null, null); // 路由 cleanup：离开 A，尚未加载 B
+
+    const dC = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(dC.promise);
+
+    const pC = useProjectsStore.getState().refreshProject("C"); // 在第二次 null 窗口内发起
+    dC.resolve(makeResult("C-迟到数据"));
+    const ok = await pC;
+
+    expect(ok).toBe(false);
+    expect(useProjectsStore.getState().currentProjectName).toBe(null);
+
+    useProjectsStore.getState().setCurrentProject("B", makeProject("B-数据"), {}, {});
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
+  });
+
+  it("项目已切到 B 后才发起的 A 刷新：不写回 store（现役域未 abort，靠当前项目名拦截）", async () => {
+    // 与上一条不同：这里切换先于 refreshProject("A") 调用完成——例如写操作完成后的
+    // 回调捕获了切换前的旧项目名，等它真正发起请求时项目已经是 B。此时拿到的是 B
+    // 现役、未 abort 的域，signal.aborted 与排队去重都拦不住，必须靠当前项目名核对。
+    useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
+    useProjectsStore.getState().setCurrentProject("B", makeProject("B-数据"), {}, {});
+
+    const dA = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise);
+
+    const pA = useProjectsStore.getState().refreshProject("A");
+    dA.resolve(makeResult("A-迟到数据"));
+    const ok = await pA;
+
+    expect(ok).toBe(false);
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
+  });
+
+  it("A 在途时排队同项目再刷一轮，期间切到 B：排队轮响应不写回（同名不豁免当前项目核对）", async () => {
+    // Codex 提出的场景：A 首轮在途、又有一次 A 刷新排队合并（queuedName === curName，
+    // 不触发 supersededByOtherProject）；随后用户切到 B。首轮因取消域轮换而 abort，
+    // 但排队轮沿用 while 循环继续跑，取的是 B 现役、未 abort 的域，对 queuedName=A 发起
+    // 第二次请求。响应落定时当前项目已是 B，须靠当前项目名核对拦截，而非同名判断。
+    useProjectsStore.getState().setCurrentProject("A", makeProject("A-旧"), {}, {});
+    const d1 = deferred<GetProjectResult>();
+    const d2 = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject").mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise);
+
+    const store = useProjectsStore.getState();
+    const p1 = store.refreshProject("A");
+    const p2 = store.refreshProject("A"); // 在途 → 合并排队
+
+    store.setCurrentProject("B", makeProject("B-数据"), {}, {});
+    d1.resolve(makeResult("A-首轮迟到"));
+    await flush();
+    // 首轮 abort，排队轮已发起第二次请求
+    d2.resolve(makeResult("A-排队轮迟到"));
+
+    const [ok1, ok2] = await Promise.all([p1, p2]);
+    expect(ok1).toBe(false);
+    expect(ok2).toBe(false);
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
+  });
+
+  it("项目切换 abort 在途请求：请求被取消，且不按刷新失败提示", async () => {
+    useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
+    let abortedSignal: AbortSignal | undefined;
+    vi.spyOn(API, "getProject").mockImplementation(
+      (_name, options) =>
+        new Promise<GetProjectResult>((_resolve, reject) => {
+          abortedSignal = options?.signal;
+          options?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        }),
+    );
+
+    const onError = vi.fn();
+    const store = useProjectsStore.getState();
+    const pA = store.refreshProject("A", { onError });
+
+    store.setCurrentProject("B", makeProject("B-数据"), {}, {});
+
+    const ok = await pA;
+    expect(abortedSignal?.aborted).toBe(true);
+    expect(ok).toBe(false);
+    // abort 是项目切换的正常结果，不是刷新失败：不该弹「项目同步失败」。
+    expect(onError).not.toHaveBeenCalled();
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-数据");
+  });
+
+  it("切换项目后新项目的刷新照常生效（取消域轮换不会长期作废后续刷新）", async () => {
+    useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
+    const dA = deferred<GetProjectResult>();
+    vi.spyOn(API, "getProject")
+      .mockReturnValueOnce(dA.promise)
+      .mockResolvedValue(makeResult("B-新数据"));
+
+    const store = useProjectsStore.getState();
+    const pA = store.refreshProject("A");
+
+    store.setCurrentProject("B", makeProject("B-数据"), {}, {});
+    dA.resolve(makeResult("A-迟到数据"));
+    expect(await pA).toBe(false);
+
+    const okB = await useProjectsStore.getState().refreshProject("B");
+    expect(okB).toBe(true);
+    expect(useProjectsStore.getState().currentProjectName).toBe("B");
+    expect(useProjectsStore.getState().currentProjectData?.title).toBe("B-新数据");
+  });
 });
