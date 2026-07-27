@@ -1,8 +1,10 @@
-"""SDK MCP tools for episode planning (plan / replan / reset).
+"""SDK MCP tools for episode planning (plan / reset).
 
 主 agent 单次调用、只收账本摘要；窗口读取、文本模型调用、机械校验重试与
 同锁提交全部在 :class:`lib.episode_planner.EpisodePlanner` 内完成。重置走
-:mod:`lib.episode_reset`，不经文本模型。
+:mod:`lib.episode_reset`，不经文本模型。用户需要调整已规划内容时走「重置 +
+重新规划」：先调用 reset_episode_planning 退回到最早受影响的集，再带
+instructions 分批重新调用 plan_episodes。
 """
 
 from __future__ import annotations
@@ -16,7 +18,6 @@ from lib.episode_planner import (
     EpisodePlanningError,
     LedgerStats,
     PlanResult,
-    ReplanConfirmationRequired,
 )
 from lib.episode_reset import (
     EpisodeResetError,
@@ -63,16 +64,13 @@ def _render_ledger_stats(stats: LedgerStats) -> list[str]:
 def _format_summary(result: PlanResult, *, header: str) -> str:
     """账本摘要：每集标题 + 钩子 + 体量（阅读单位）。
 
-    常规批次只加「累计已规划 N 集」一行；末批/耗尽/重排时 ``result.ledger_stats`` 非
+    常规批次只加「累计已规划 N 集」一行；末批/耗尽时 ``result.ledger_stats`` 非
     None，改附全局核对材料（累计集数已含在其中，不重复加那一行）。
     """
     lines = [header]
     for ep in result.episodes:
         status_note = "（stale，需重做下游产物）" if ep.ledger_status == "stale" else ""
         lines.append(f"- 第 {ep.episode} 集《{ep.title}》{status_note}｜体量约 {ep.reading_units}｜钩子：{ep.hook}")
-    if result.settings_updated:
-        updated = "、".join(f"{key}={value}" for key, value in result.settings_updated.items())
-        lines.append(f"已回写项目设置（后续批次自动继承）：{updated}")
     if result.source_exhausted:
         lines.append("源文已全部规划完毕。")
     elif result.cursor:
@@ -81,7 +79,10 @@ def _format_summary(result: PlanResult, *, header: str) -> str:
         lines += _render_ledger_stats(result.ledger_stats)
     else:
         lines.append(f"累计已规划 {result.total_planned} 集。")
-    lines.append("请把以上摘要展示给用户做批级审阅；需要调整时调用 replan_episodes。")
+    lines.append(
+        "请把以上摘要展示给用户做批级审阅；需要调整时先调用 reset_episode_planning 退回到"
+        "最早受影响的集，再带 instructions 重新调用本工具。"
+    )
     return "\n".join(lines)
 
 
@@ -141,80 +142,6 @@ def plan_episodes_tool(ctx: ToolContext):
             return {"content": [{"type": "text", "text": f"❌ 分集规划失败：{exc}"}], "is_error": True}
         except Exception as exc:  # noqa: BLE001
             return tool_error("plan_episodes", exc)
-
-    return _handler
-
-
-def replan_episodes_tool(ctx: ToolContext):
-    @tool(
-        "replan_episodes",
-        "分集重排：按用户自由文本意见（instructions 可同时包含任意多处意见）重排账本中 "
-        "from_episode 起的已规划集，from_episode 取意见中最早受影响的集；之前的集作为已定上下文。"
-        "波及已消费集（已有 step1/剧本/媒体）时不执行并返回受影响清单，须告知用户、确认后带 "
-        "confirm_consumed=true 重新调用，这些集会标 stale（产物不删除）。全局性意见（每集体量等）"
-        "自动回写项目设置。返回重排后的账本摘要，并附全局体量核对材料（累计集数、体量最小几集、"
-        "体量中位数、目标体量）——重排是用户发现偏差后的主要修复动作，须对照核对、有偏差明确告知用户。",
-        {
-            "type": "object",
-            "properties": {
-                "from_episode": {"type": "integer", "description": "重排起点集号（意见中最早受影响的集）"},
-                "instructions": {
-                    "type": "string",
-                    "description": f"用户重排意见原文（可含多处意见），最长 {_MAX_INSTRUCTIONS_LEN} 字符",
-                },
-                "confirm_consumed": {
-                    "type": "boolean",
-                    "description": "已向用户确认波及的已消费集后置 true",
-                },
-            },
-            "required": ["from_episode", "instructions"],
-        },
-    )
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
-        # 参数校验与 planner 调用分属两个 try：校验阶段的 KeyError/ValueError 才算参数错误，
-        # planner 内部（如供应商未配置）抛出的 ValueError 走 tool_error 通用路径，不被误标。
-        try:
-            from_episode = _require_positive_int(args, "from_episode")
-            raw_instructions = args["instructions"]
-            if not isinstance(raw_instructions, str):
-                raise ValueError(f"instructions 必须是字符串，收到 {type(raw_instructions).__name__}")
-            instructions = raw_instructions.strip()
-            if not instructions:
-                raise ValueError("instructions 不能为空")
-            if len(raw_instructions) > _MAX_INSTRUCTIONS_LEN:
-                raise ValueError(
-                    f"instructions 过长（{len(raw_instructions)} 字符，上限 {_MAX_INSTRUCTIONS_LEN}），请精简后重试"
-                )
-            confirm_consumed = _optional_bool(args, "confirm_consumed")
-        except (KeyError, ValueError) as exc:
-            return {"content": [{"type": "text", "text": f"❌ 参数错误：{exc}"}], "is_error": True}
-
-        try:
-            planner = await EpisodePlanner.create(ctx.project_path)
-            result = await planner.replan(from_episode, instructions, confirm_consumed=confirm_consumed)
-            if isinstance(result, ReplanConfirmationRequired):
-                episodes = "、".join(str(num) for num in result.consumed_episodes)
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                f"⚠️ 本次重排会波及已消费集（已有 step1/剧本/媒体产物）：第 {episodes} 集。"
-                                "尚未执行任何改动。请把影响范围告知用户；用户确认后带 confirm_consumed=true "
-                                "重新调用（这些集将标 stale，产物不删除、重做时沿版本机制替换）。"
-                            ),
-                        }
-                    ]
-                }
-            header = f"✅ 已重排第 {from_episode} 集起的 {len(result.episodes)} 集："
-            if result.stale_episodes:
-                stale = "、".join(str(num) for num in result.stale_episodes)
-                header += f"（第 {stale} 集标 stale，需重做下游产物）"
-            return {"content": [{"type": "text", "text": _format_summary(result, header=header)}]}
-        except (EpisodePlanningError, FileNotFoundError) as exc:
-            return {"content": [{"type": "text", "text": f"❌ 分集重排失败：{exc}"}], "is_error": True}
-        except Exception as exc:  # noqa: BLE001
-            return tool_error("replan_episodes", exc)
 
     return _handler
 
@@ -306,4 +233,4 @@ def reset_episode_planning_tool(ctx: ToolContext):
     return _handler
 
 
-__all__ = ["plan_episodes_tool", "replan_episodes_tool", "reset_episode_planning_tool"]
+__all__ = ["plan_episodes_tool", "reset_episode_planning_tool"]

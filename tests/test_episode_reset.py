@@ -917,8 +917,8 @@ def test_partial_reset_rejects_mid_sequence_unanchored_entry(tmp_path: Path) -> 
 
 
 def test_partial_reset_rejects_zero_length_retained_range(tmp_path: Path) -> None:
-    """保留段坐标 start == end（零长度）时拒绝：与 EpisodePlanner 重排校验的
-    ``start < end`` 口径一致，否则会保留一个空集并让游标退到起点，造成编号错位。"""
+    """保留段坐标 start == end（零长度）时拒绝：零长度区间不构成可信的保留段坐标，
+    否则会保留一个空集并让游标退到起点，造成编号错位。"""
     project_dir = _write_project(
         tmp_path,
         episodes=[

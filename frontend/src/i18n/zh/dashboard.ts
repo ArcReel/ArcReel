@@ -1290,7 +1290,6 @@ export default {
   'tool_name_split_narration_segments': '拆分说书片段',
   'tool_name_get_video_capabilities': '查询视频模型能力',
   'tool_name_plan_episodes': '分集规划',
-  'tool_name_replan_episodes': '分集重排',
   'tool_name_reset_episode_planning': '重置分集规划',
   'tool_name_patch_episode_script': '编辑分镜字段',
   'tool_name_patch_episode_meta': '编辑分集标题',

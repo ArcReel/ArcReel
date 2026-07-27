@@ -386,7 +386,7 @@ def backfill_episode_ledger(project_dir: Path, project: Mapping[str, Any]) -> di
 
     对每个派生集文件按内容回源文做精确子串匹配反推 source_range；有下游产物的集标
     consumed，无下游标 planned；匹配不上/集文件缺失的集标 unanchored 并锁定
-    （source_range 置 null，即使有下游产物——物理文件即其最终记录，不参与重排）。
+    （source_range 置 null，即使有下游产物——物理文件即其最终记录，不参与重新规划）。
     已带 ledger_status（非 null）的条目整条跳过（保护规划工具写入的状态），故可
     安全重跑；显式 null 视同缺失，正常回填。planning_cursor 仅在缺失或为 null 时
     推导，规划工具写入的非空值不触碰。

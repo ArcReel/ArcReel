@@ -24,7 +24,7 @@
 
 ### 工具调用
 
-- **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/图片编辑/集脚本/规范化剧本/说书片段拆分/参考视频单元拆分/分集规划与重排/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，agent 直接以 tool 形式调用。
+- **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/图片编辑/集脚本/规范化剧本/说书片段拆分/参考视频单元拆分/分集规划与重置/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，agent 直接以 tool 形式调用。
 - **图片编辑 vs 重新生成**：审核检查点用户只想改设计图/分镜图的局部（换色、去杂物、调光线等）时用 `edit_images`——保底图微调、不改 `description`/`image_prompt`；用户想推翻构图整体重来、或本来就要改 description/image_prompt 时仍用对应的 `generate_*` 工具重新生成。用户脱离生成流程直接说「把某某改一下」时也可直接调 `edit_images`，不依赖处于哪个工作流步骤。
 - **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——剧本改字段用 `patch_episode_script`（batch-native：传 `{分镜id: {字段路径: 值}}` 映射，单次调用改多分镜 × 多字段，单条编辑写成长度 1 的 map；all-or-nothing 原子，任一编辑非法则整批不落盘、错误会指出出错的分镜 id 与字段（结构校验类错误按字段路径报告）；批量编辑前先 Read 该剧本确认现状），改分集标题用 `patch_episode_meta`，增/删/拆分镜用 `insert_segment` / `remove_segment` / `split_segment`，角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等），以及 `compose-video` skill 内还保留的 Python 脚本。
@@ -131,7 +131,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 1. **项目设置**：创建项目（创建时确定 `content_mode`，之后不可变）、选择 `generation_mode`、上传小说、生成项目概述
 2. **全局角色/场景/道具提取** → dispatch `analyze-assets` subagent
-3. **分集规划** → 主 agent 调用 `mcp__arcreel__plan_episodes` 服务端工具规划一批集（账本+派生集文件由工具维护）+ 批级审阅，意见经 `mcp__arcreel__replan_episodes` 一次性重排。用户表达常驻分集偏好（如按章节对齐切分）时，须经 `plan_episodes` 的 `instructions` 传入，并在规划完成前**每一批调用都重复带上**（偏好不持久化）
+3. **分集规划** → 主 agent 调用 `mcp__arcreel__plan_episodes` 服务端工具规划一批集（账本+派生集文件由工具维护）+ 批级审阅。用户对已规划内容提出调整意见时走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning` 退回到意见中最早受影响的集（保留其前的集），再带调整后的 `instructions` 分批重新调用 `plan_episodes`。用户表达常驻分集偏好（如按章节对齐切分）时，须经 `plan_episodes` 的 `instructions` 传入，并在规划完成前**每一批调用都重复带上**（偏好不持久化）；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
 4. **单集预处理** → 按 `effective_mode` × `content_mode` 三分支选（中间文件统一位于 `drafts/episode_{N}/`）：
    - reference_video（任一 content_mode）→ `split-reference-video-units`（产出 `step1_reference_units.json`）
    - storyboard / grid + narration → `split-narration-segments`（产出 `step1_segments.json`）
