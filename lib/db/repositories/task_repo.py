@@ -127,7 +127,6 @@ class TaskRepository(BaseRepository):
                     "project_name": project_name,
                     "status": status,
                     "task_type": (data or {}).get("task_type"),
-                    "resource_id": (data or {}).get("resource_id"),
                 }
             )
         now = utc_now()

@@ -42,21 +42,19 @@ def _task_changes(batches):
     return [c for _, changes in batches for c in changes if c["entity_type"] == "task"]
 
 
+@pytest.mark.unit
 class TestBuildTaskTerminalChange:
     @pytest.mark.parametrize(
         ("status", "action"),
         [("succeeded", "task_succeeded"), ("failed", "task_failed"), ("cancelled", "task_cancelled")],
     )
     def test_terminal_statuses_map_to_actions(self, status, action):
-        change = build_task_terminal_change(
-            {"task_id": "t1", "status": status, "task_type": "video", "resource_id": "E1S01"}
-        )
+        change = build_task_terminal_change({"task_id": "t1", "status": status, "task_type": "video"})
         assert change is not None
         assert change["action"] == action
         assert change["entity_type"] == "task"
         assert change["entity_id"] == "t1"
         assert change["task_type"] == "video"
-        assert change["resource_id"] == "E1S01"
 
     def test_refresh_signal_not_user_facing_notification(self):
         """终态变更只用于触发刷新：不弹通知、不聚焦跳转。"""
@@ -78,6 +76,7 @@ class TestBuildTaskTerminalChange:
         assert build_task_terminal_change(event) is None
 
 
+@pytest.mark.integration
 class TestQueueEmitsTerminalEvents:
     async def _enqueue_running(self, queue, resource_id="E1S01", task_type="video"):
         task = await queue.enqueue_task(
@@ -102,7 +101,6 @@ class TestQueueEmitsTerminalEvents:
         assert [c["action"] for c in changes] == ["task_succeeded"]
         assert changes[0]["entity_id"] == task_id
         assert changes[0]["task_type"] == "video"
-        assert changes[0]["resource_id"] == "E1S01"
         assert captured_batches[0][0] == "demo"
 
     async def test_failure_emits_task_failed(self, queue, captured_batches):

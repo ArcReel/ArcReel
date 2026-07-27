@@ -146,7 +146,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
   const setAssistantToolActivitySuppressed = useAppStore(
     (s) => s.setAssistantToolActivitySuppressed
   );
-  const setProjectEventsConnected = useAppStore((s) => s.setProjectEventsConnected);
 
   const sourceRef = useRef<EventSource | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -234,8 +233,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         projectName,
         onSnapshot(payload) {
           if (disposed) return;
-          // 首帧即代表通道已建立：任务轮询据此退到低频兜底。
-          setProjectEventsConnected(true);
           const previousFingerprint = lastFingerprintRef.current;
           lastFingerprintRef.current = payload.fingerprint;
           if (previousFingerprint && previousFingerprint !== payload.fingerprint) {
@@ -244,7 +241,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         },
         onChanges(payload: ProjectChangeBatchPayload) {
           if (disposed) return;
-          setProjectEventsConnected(true);
           lastFingerprintRef.current = payload.fingerprint;
           setAssistantToolActivitySuppressed(true);
 
@@ -330,10 +326,10 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             useAppStore.getState().invalidateReferenceVideoUnits();
           }
 
-          // 纯任务终态批次不含项目实体变更，重拉 project.json 是白费一次请求。
-          if (taskChanges.length < payload.changes.length) {
-            void refreshProject();
-          }
+          // 每个批次都重拉，纯任务终态批次也不例外：后端每次广播都会把项目快照 rebase
+          // 到最新，与之并发的文件变更来不及被扫描 diff 出来就失去基线；refreshProject
+          // 是这类漏广播的兜底，不能因为「本批次只有任务事件」就跳过。
+          void refreshProject();
 
           // Refresh cost data when generation completes
           const hasGenerationEvent = payload.changes.some((c) =>
@@ -364,8 +360,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         },
         onError() {
           if (disposed) return;
-          // 断线：任务轮询回到高频兜底，直到重连成功。
-          setProjectEventsConnected(false);
           if (terminatedRef.current) return;
           if (sourceRef.current) {
             sourceRef.current.close();
@@ -384,7 +378,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
 
     return () => {
       disposed = true;
-      setProjectEventsConnected(false);
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
@@ -403,6 +396,5 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     refreshProject,
     setAssistantToolActivitySuppressed,
     setLocation,
-    setProjectEventsConnected,
   ]);
 }

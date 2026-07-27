@@ -49,8 +49,8 @@ def build_task_terminal_change(event: dict[str, Any]) -> dict[str, Any] | None:
         "label": task_id,
         "focus": None,
         "important": False,
+        # 前端据此判定哪类画布需要重拉（当前只有 reference_video 用到）。
         "task_type": str(event.get("task_type") or ""),
-        "resource_id": str(event.get("resource_id") or ""),
     }
 
 

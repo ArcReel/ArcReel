@@ -9,7 +9,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from typing import Any
 
 from lib.db import safe_session_factory
@@ -90,6 +91,21 @@ class GenerationQueue:
         so cancel API can deliver signals synchronously (ADR 0006 秒级响应)."""
         self._worker_cancel_callback = callback
 
+    @asynccontextmanager
+    async def _task_repo(self) -> AsyncIterator[TaskRepository]:
+        """打开一条 TaskRepository 会话，退出时把本次落地的任务终态发上项目事件总线。
+
+        发布放在会话退出之后而非 repo 内部：repo 内直接发会让前端读到尚未提交的状态。
+        body 抛异常时会话不提交、发布也不发生——没有终态落库就没有终态可通告。
+
+        本类所有方法一律经此入口拿 repo，终态事件的发布因而是结构保证而非每处记得挂钩：
+        新增写终态的方法自动获得发布，不会漏。
+        """
+        async with self._session_factory() as session:
+            repo = TaskRepository(session)
+            yield repo
+        emit_task_terminal_events(repo.terminal_events)
+
     async def enqueue_task(
         self,
         *,
@@ -117,8 +133,7 @@ class GenerationQueue:
                 media_type=media_type,
             )
 
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             result = await repo.enqueue(
                 project_name=project_name,
                 task_type=task_type,
@@ -146,42 +161,35 @@ class GenerationQueue:
         *,
         pool_full_providers: frozenset[str] | None = None,
     ) -> dict[str, Any] | None:
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             task = await repo.claim_next(media_type, pool_full_providers=pool_full_providers)
         if task:
             logger.debug("任务被领取 task_id=%s", task["task_id"])
         return task
 
     async def requeue_running_tasks(self, *, limit: int = 1000) -> int:
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             recovered = await repo.requeue_running(limit=limit)
         if recovered > 0:
             logger.warning("回收 %d 个 running 任务", recovered)
         return recovered
 
     async def list_orphan_tasks_on_start(self) -> list[dict[str, Any]]:
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             return await repo.list_orphan_tasks_on_start()
 
     async def persist_provider_job_id(self, task_id: str, job_id: str) -> None:
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             await repo.persist_provider_job_id(task_id, job_id)
 
     async def persist_api_call_id(self, task_id: str, call_id: int) -> None:
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             await repo.persist_api_call_id(task_id, call_id)
 
     async def mark_task_succeeded(self, task_id: str, result: dict[str, Any] | None) -> int:
         """Returns rows_affected (0 = 已被外部翻成非 running 终/中间态，worker 走 0-rows-cancelled 协议)."""
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             affected = await repo.mark_succeeded(task_id, result)
-        emit_task_terminal_events(repo.terminal_events)
         if affected > 0:
             logger.info("任务成功 task_id=%s", task_id)
         else:
@@ -190,10 +198,8 @@ class GenerationQueue:
 
     async def mark_task_failed(self, task_id: str, error_message: str) -> int:
         """Returns rows_affected (0 = 已被外部翻状态，worker 走 0-rows-cancelled 协议)."""
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             affected = await repo.mark_failed(task_id, error_message)
-        emit_task_terminal_events(repo.terminal_events)
         if affected > 0:
             logger.warning("任务失败 task_id=%s error=%s", task_id, error_message[:200])
         else:
@@ -208,10 +214,8 @@ class GenerationQueue:
         模式一致），让父任务 finalize 时打到的 running 子任务也能立刻收到 cancel 信号，
         而不必等它跑完整个 provider 调用。返回 rows 兼容现有 0-rows-cancelled 协议 caller。
         """
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             result = await repo.finalize_cancelled(task_id, cancelled_by=cancelled_by)
-        emit_task_terminal_events(repo.terminal_events)
 
         callback = self._worker_cancel_callback
         if callback is not None:
@@ -224,10 +228,8 @@ class GenerationQueue:
         return int(result.get("rows", 0))
 
     async def cancel_task(self, task_id: str) -> dict[str, Any]:
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             result = await repo.cancel_task(task_id)
-        emit_task_terminal_events(repo.terminal_events)
 
         # Repository 返回 cancelling 意图列表 → GenerationQueue 同步分发 in-process 信号。
         # callback 同步调用：worker request_cancel 是 asyncio.Task.cancel()，O(1) 无 I/O。
@@ -255,28 +257,23 @@ class GenerationQueue:
         return result
 
     async def get_cancel_preview(self, task_id: str) -> dict[str, Any]:
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             return await repo.get_cancel_preview(task_id)
 
     async def cancel_all_queued(self, project_name: str) -> dict[str, Any]:
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             result = await repo.cancel_all_queued(project_name)
-        emit_task_terminal_events(repo.terminal_events)
         if result["cancelled_count"] > 0:
             logger.info("批量取消 project=%s 共取消 %d 个", project_name, result["cancelled_count"])
         return result
 
     async def get_cancel_all_preview(self, project_name: str) -> int:
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             return await repo.get_cancel_all_preview(project_name)
 
     async def get_task(self, task_id: str) -> dict[str, Any] | None:
 
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             return await repo.get(task_id)
 
     async def list_tasks(
@@ -290,8 +287,7 @@ class GenerationQueue:
         page_size: int = 50,
     ) -> dict[str, Any]:
 
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             return await repo.list_tasks(
                 project_name=project_name,
                 status=status,
@@ -303,8 +299,7 @@ class GenerationQueue:
 
     async def get_task_stats(self, project_name: str | None = None) -> dict[str, int]:
 
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             return await repo.get_stats(project_name=project_name)
 
     async def get_recent_tasks_snapshot(
@@ -314,8 +309,7 @@ class GenerationQueue:
         limit: int = 200,
     ) -> list[dict[str, Any]]:
 
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             return await repo.get_recent_tasks_snapshot(
                 project_name=project_name,
                 limit=limit,
@@ -329,8 +323,7 @@ class GenerationQueue:
         limit: int = 200,
     ) -> list[dict[str, Any]]:
 
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             return await repo.get_events_since(
                 last_event_id=last_event_id,
                 project_name=project_name,
@@ -339,8 +332,7 @@ class GenerationQueue:
 
     async def get_latest_event_id(self, *, project_name: str | None = None) -> int:
 
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             return await repo.get_latest_event_id(project_name=project_name)
 
     async def acquire_or_renew_worker_lease(
@@ -351,8 +343,7 @@ class GenerationQueue:
         ttl_seconds: float,
     ) -> bool:
 
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             return await repo.acquire_or_renew_lease(
                 name=name,
                 owner_id=owner_id,
@@ -361,20 +352,17 @@ class GenerationQueue:
 
     async def release_worker_lease(self, *, name: str, owner_id: str) -> None:
 
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             await repo.release_lease(name=name, owner_id=owner_id)
 
     async def is_worker_online(self, *, name: str = "default") -> bool:
 
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             return await repo.is_worker_online(name=name)
 
     async def get_worker_lease(self, *, name: str = "default") -> dict[str, Any] | None:
 
-        async with self._session_factory() as session:
-            repo = TaskRepository(session)
+        async with self._task_repo() as repo:
             return await repo.get_worker_lease(name=name)
 
 

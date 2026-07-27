@@ -9,7 +9,7 @@ const TASKS_PAGE_SIZE = 200;
 /**
  * 刷新作用域：`projectName === null` 表示「不按项目过滤」（拉全局任务），整个 scope 为
  * `null` 表示「未启用」——此时 {@link TasksState.refreshTasks} 不发请求。作用域由
- * `useTasksSSE` 单点登记，其余入口（项目事件 SSE 推来的任务终态）只调 refreshTasks、
+ * `useTaskRefresh` 单点登记，其余入口（项目事件 SSE 推来的任务终态）只调 refreshTasks、
  * 不各自决定拉哪个项目，避免全局任务列表被项目过滤结果覆盖。
  */
 export interface TasksRefreshScope {
@@ -124,120 +124,129 @@ function pruneSupersededOptimisticActiveScriptFile(
   return next;
 }
 
-// 刷新的在途合并协调状态（模块级单例，不进 store state，避免触发订阅重渲染）。
-let refreshRunning = false;
-let refreshQueued = false;
-let queuedResolvers: Array<() => void> = [];
+export const useTasksStore = create<TasksState>((set, get) => {
+  // 刷新的在途合并协调状态（非响应式单例，不进 store state，避免触发订阅重渲染）。
+  // 与 projects-store.refreshProject 同构，随 store 一同创建，不跨 store 实例残留。
+  let refreshRunning = false;
+  let refreshQueued = false;
+  // 排队轮调用方各自的 resolve：每个调用方只对自己实际服务的那一轮结果负责。
+  let queuedResolvers: Array<() => void> = [];
 
-// 单轮拉取；自身不抛错，失败只把 connected 置 false 并留旧数据。
-async function runTasksRefresh(): Promise<void> {
-  const scope = useTasksStore.getState().refreshScope;
-  if (!scope) return;
-  const { projectName } = scope;
+  // 单轮拉取；自身不抛错，失败只把 connected 置 false 并留旧数据。
+  const runTasksRefresh = async (): Promise<void> => {
+    const scope = get().refreshScope;
+    if (!scope) return;
+    const { projectName } = scope;
 
-  // 落定时作用域可能已被切项目/停用改写：迟到响应不写回，否则旧项目的任务列表会盖住
-  // 接管方刚写入的数据（停用时则会盖住本该清空的 store）。
-  const scopeUnchanged = () => {
-    const current = useTasksStore.getState().refreshScope;
-    return current !== null && current.projectName === projectName;
+    // 落定时作用域可能已被切项目/停用改写：迟到响应不写回，否则旧项目的任务列表会盖住
+    // 接管方刚写入的数据（停用时则会盖住本该清空的 store）。
+    const scopeUnchanged = () => {
+      const current = get().refreshScope;
+      return current !== null && current.projectName === projectName;
+    };
+
+    try {
+      const [tasksRes, statsRes] = await Promise.all([
+        API.listTasks({ projectName: projectName ?? undefined, pageSize: TASKS_PAGE_SIZE }),
+        API.getTaskStats(projectName ?? null),
+      ]);
+      if (!scopeUnchanged()) return;
+      get().setTasks(tasksRes.items);
+      get().setStats(statsRes.stats);
+      get().setConnected(true);
+    } catch {
+      if (!scopeUnchanged()) return;
+      get().setConnected(false);
+    }
   };
 
-  try {
-    const [tasksRes, statsRes] = await Promise.all([
-      API.listTasks({ projectName: projectName ?? undefined, pageSize: TASKS_PAGE_SIZE }),
-      API.getTaskStats(projectName ?? null),
-    ]);
-    if (!scopeUnchanged()) return;
-    const store = useTasksStore.getState();
-    store.setTasks(tasksRes.items);
-    store.setStats(statsRes.stats);
-    store.setConnected(true);
-  } catch {
-    if (!scopeUnchanged()) return;
-    useTasksStore.getState().setConnected(false);
-  }
-}
+  return {
+    tasks: [],
+    stats: defaultTaskStats,
+    connected: false,
+    refreshScope: null,
+    optimisticActive: new Set(),
+    optimisticActiveScriptFile: new Set(),
 
-export const useTasksStore = create<TasksState>((set) => ({
-  tasks: [],
-  stats: defaultTaskStats,
-  connected: false,
-  refreshScope: null,
-  optimisticActive: new Set(),
-  optimisticActiveScriptFile: new Set(),
-
-  setRefreshScope: (scope) => set({ refreshScope: scope }),
-  refreshTasks: async () => {
-    if (refreshRunning) {
-      refreshQueued = true;
-      return new Promise<void>((resolve) => {
-        queuedResolvers.push(resolve);
-      });
-    }
-    refreshRunning = true;
-    try {
-      await runTasksRefresh();
-      while (refreshQueued) {
-        refreshQueued = false;
-        const resolvers = queuedResolvers;
-        queuedResolvers = [];
+    setRefreshScope: (scope) => set({ refreshScope: scope }),
+    refreshTasks: async () => {
+      if (refreshRunning) {
+        refreshQueued = true;
+        return new Promise<void>((resolve) => {
+          queuedResolvers.push(resolve);
+        });
+      }
+      refreshRunning = true;
+      try {
         await runTasksRefresh();
-        for (const resolve of resolvers) resolve();
-      }
-    } finally {
-      refreshRunning = false;
-    }
-  },
-
-  setTasks: (tasks) =>
-    set((s) => ({
-      tasks,
-      optimisticActive: pruneSupersededOptimisticActive(tasks, s.optimisticActive),
-      optimisticActiveScriptFile: pruneSupersededOptimisticActiveScriptFile(tasks, s.optimisticActiveScriptFile),
-    })),
-  setStats: (stats) => set({ stats }),
-  setConnected: (connected) => set({ connected }),
-  markOptimisticActive: (projectName, resourceKind, resourceId, pendingTaskType) =>
-    set((s) => {
-      let baseline = "";
-      for (const t of s.tasks) {
-        if (
-          t.project_name === projectName &&
-          t.task_type === pendingTaskType &&
-          t.resource_id === resourceId &&
-          taskResourceKind(t) === resourceKind &&
-          t.updated_at > baseline
-        ) {
-          baseline = t.updated_at;
+        while (refreshQueued) {
+          refreshQueued = false;
+          const resolvers = queuedResolvers;
+          queuedResolvers = [];
+          await runTasksRefresh();
+          for (const resolve of resolvers) resolve();
         }
+      } finally {
+        refreshRunning = false;
       }
+    },
 
-      // 顺带清理已被真实任务行取代的旧标记，避免 Set 在会话周期内无界增长。
-      const next = pruneSupersededOptimisticActive(s.tasks, s.optimisticActive);
-      next.add(optimisticKey(projectName, resourceKind, resourceId, pendingTaskType, baseline));
-      return { optimisticActive: next };
-    }),
-  markOptimisticActiveForScriptFile: (projectName, taskType, scriptFile) =>
-    set((s) => {
-      const normalized = stripScriptsPrefix(scriptFile);
-      let baseline = "";
-      for (const t of s.tasks) {
-        if (
-          t.project_name === projectName &&
-          t.task_type === taskType &&
-          t.script_file != null &&
-          stripScriptsPrefix(t.script_file) === normalized &&
-          t.updated_at > baseline
-        ) {
-          baseline = t.updated_at;
+    setTasks: (tasks) =>
+      set((s) => ({
+        tasks,
+        optimisticActive: pruneSupersededOptimisticActive(tasks, s.optimisticActive),
+        optimisticActiveScriptFile: pruneSupersededOptimisticActiveScriptFile(
+          tasks,
+          s.optimisticActiveScriptFile,
+        ),
+      })),
+    setStats: (stats) => set({ stats }),
+    setConnected: (connected) => set({ connected }),
+    markOptimisticActive: (projectName, resourceKind, resourceId, pendingTaskType) =>
+      set((s) => {
+        let baseline = "";
+        for (const t of s.tasks) {
+          if (
+            t.project_name === projectName &&
+            t.task_type === pendingTaskType &&
+            t.resource_id === resourceId &&
+            taskResourceKind(t) === resourceKind &&
+            t.updated_at > baseline
+          ) {
+            baseline = t.updated_at;
+          }
         }
-      }
 
-      const next = pruneSupersededOptimisticActiveScriptFile(s.tasks, s.optimisticActiveScriptFile);
-      next.add(optimisticScriptFileKey(projectName, taskType, scriptFile, baseline));
-      return { optimisticActiveScriptFile: next };
-    }),
-}));
+        // 顺带清理已被真实任务行取代的旧标记，避免 Set 在会话周期内无界增长。
+        const next = pruneSupersededOptimisticActive(s.tasks, s.optimisticActive);
+        next.add(optimisticKey(projectName, resourceKind, resourceId, pendingTaskType, baseline));
+        return { optimisticActive: next };
+      }),
+    markOptimisticActiveForScriptFile: (projectName, taskType, scriptFile) =>
+      set((s) => {
+        const normalized = stripScriptsPrefix(scriptFile);
+        let baseline = "";
+        for (const t of s.tasks) {
+          if (
+            t.project_name === projectName &&
+            t.task_type === taskType &&
+            t.script_file != null &&
+            stripScriptsPrefix(t.script_file) === normalized &&
+            t.updated_at > baseline
+          ) {
+            baseline = t.updated_at;
+          }
+        }
+
+        const next = pruneSupersededOptimisticActiveScriptFile(
+          s.tasks,
+          s.optimisticActiveScriptFile,
+        );
+        next.add(optimisticScriptFileKey(projectName, taskType, scriptFile, baseline));
+        return { optimisticActiveScriptFile: next };
+      }),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // 派生 selector —— 任务队列两条不变量的单一真相源
@@ -257,6 +266,30 @@ export const useTasksStore = create<TasksState>((set) => ({
 /** 显示谓词：排队或运行中的任务显示为进行中；cancelling 是收尾中间态，不显示为进行中。 */
 export function isActiveStatus(status: TaskStatus): boolean {
   return status === "queued" || status === "running";
+}
+
+/**
+ * 兜底轮询是否需要留在高频档。三种情形都算「需要」：
+ *
+ * - **有任务未落终态**。判据取 stats 而非 tasks 数组：stats 覆盖整个作用域，tasks 只是
+ *   分页后的前 N 条。中间态（queued→running）没有事件推送，只有轮询能看见。
+ * - **有乐观占用标记**。入队成功到该任务出现在 stats 之间还有一段空窗，此时若判为空闲，
+ *   新任务要等一整个空闲间隔才在界面上出现。
+ * - **上一轮拉取失败**（`connected === false`）。此时 stats 是过期数据，据它判空闲会把
+ *   恢复推迟一整个空闲间隔；失败后本就该尽快重试。
+ */
+export function selectNeedsFastPolling(s: {
+  stats: TaskStats;
+  connected: boolean;
+  optimisticActive: ReadonlySet<string>;
+  optimisticActiveScriptFile: ReadonlySet<string>;
+}): boolean {
+  return (
+    !s.connected ||
+    s.stats.queued + s.stats.running + s.stats.cancelling > 0 ||
+    s.optimisticActive.size > 0 ||
+    s.optimisticActiveScriptFile.size > 0
+  );
 }
 
 /**
@@ -310,8 +343,9 @@ export function selectLatestTaskByResource(
  * （成功/失败）会掩盖仍在运行的生成任务（或反之），导致资源被误判为空闲。故按各自
  * task_type 分别取最新行，再在任一 task_type 的最新行活跃时即计入占用。
  *
- * 乐观占用：入队请求成功返回到 `useTasksSSE` 下一次轮询把新任务行写进 store 之间有
- * ~3s 空窗（轮询间隔），期间该 resource 在 store 里还没有对应任务行、判定为空闲。
+ * 乐观占用：入队请求成功返回到下一次刷新把新任务行写进 store 之间有一段空窗，期间该
+ * resource 在 store 里还没有对应任务行、判定为空闲（标记本身会把兜底轮询拉回忙碌档，
+ * 见 `selectHasPendingTasks`，故空窗上限是一个忙碌档间隔而非空闲档间隔）。
  * image_edit 与其目标资源共用占用槽，是第一个会在此空窗内与「本资源另一 task_type」
  * 并发提交的场景（同 task_type 的并发提交已被后端 dedupe 索引拦下，见
  * `idx_tasks_dedupe_active`，但该索引以 task_type 为键的一部分，不拦跨 task_type 并发）。

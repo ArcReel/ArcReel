@@ -948,7 +948,10 @@ describe("useProjectEventsSSE", () => {
       expect(refreshTasksSpy).toHaveBeenCalledTimes(1);
     });
 
-    it("纯任务终态批次不重拉项目数据（无实体变更可拉）", async () => {
+    it("纯任务终态批次同样重拉项目数据（后端每次广播都会 rebase 快照）", async () => {
+      // 后端每广播一批就把项目快照 rebase 到最新，与之并发的文件变更来不及被扫描
+      // diff 出来就失去基线；refreshProject 是这类漏广播的兜底，不能因为「本批次
+      // 只有任务事件」就跳过。
       const options = openStream();
       vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
       const getProjectSpy = vi.spyOn(API, "getProject");
@@ -959,7 +962,7 @@ describe("useProjectEventsSSE", () => {
         taskChange({ entity_id: "task-2", action: "task_failed" }),
       ]);
 
-      expect(getProjectSpy).not.toHaveBeenCalled();
+      expect(getProjectSpy).toHaveBeenCalled();
     });
 
     it("批次混有项目实体变更时照常重拉项目数据", async () => {
@@ -1034,33 +1037,5 @@ describe("useProjectEventsSSE", () => {
       expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
     });
 
-    it("通道在线状态随首帧/事件/断线/卸载切换——任务轮询据此调频", async () => {
-      const options = openStream();
-      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
-
-      const { unmount } = renderHarness("/");
-      expect(useAppStore.getState().projectEventsConnected).toBe(false);
-
-      act(() => {
-        options()?.onSnapshot?.(
-          { project_name: "demo", fingerprint: "fp-a", generated_at: "2026-03-01T00:00:00Z" },
-          new MessageEvent("snapshot"),
-        );
-      });
-      expect(useAppStore.getState().projectEventsConnected).toBe(true);
-
-      act(() => {
-        options()?.onError?.(new Event("error"));
-      });
-      expect(useAppStore.getState().projectEventsConnected).toBe(false);
-
-      emit(options(), [taskChange()]);
-      expect(useAppStore.getState().projectEventsConnected).toBe(true);
-
-      act(() => {
-        unmount();
-      });
-      expect(useAppStore.getState().projectEventsConnected).toBe(false);
-    });
   });
 });

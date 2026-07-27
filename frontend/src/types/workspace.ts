@@ -45,9 +45,8 @@ export interface ProjectChange {
   label: string;
   script_file?: string;
   episode?: number;
-  /** 仅 entity_type === "task" 携带：终态任务的任务类型 / 资源 id。 */
+  /** 仅 entity_type === "task" 携带：终态任务的任务类型，用于判定哪类画布需重拉。 */
   task_type?: string;
-  resource_id?: string;
   focus?: ProjectChangeFocus | null;
   important: boolean;
   asset_fingerprints?: Record<string, number>;
