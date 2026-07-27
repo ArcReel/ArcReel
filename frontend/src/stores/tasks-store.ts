@@ -56,7 +56,8 @@ export const defaultTaskStats: TaskStats = {
 //   scriptFile project \0 taskType \0 scriptFile \0 seq \0 taskIds
 //
 // seq 让同一资源上的两次并发提交各自可独立回滚；taskIds 为空串即「在途」——请求已发出、
-// 后端任务 id 未知，此时标记不可被任何轮询写回清除。
+// 后端任务 id 未知，此时标记不可被任何轮询写回清除。两种粒度的字段数不同，但 taskIds
+// 一律是最后一段，故让位判定只需 {@link markTaskIds} 一个解析口径，加字段不会错位。
 //
 // 让位判定看 task_id 而非时间戳：只有本次提交自己的任务行出现在 tasks 里，标记才交还给
 // 真实数据。这条判据同时堵住两个时序洞：
@@ -75,8 +76,9 @@ function encodeTaskIds(taskIds: readonly string[]): string {
   return taskIds.join(TASK_ID_SEP);
 }
 
-/** 取 key 尾部的 taskIds 段；在途标记返回空数组。 */
-function decodeTaskIds(encoded: string | undefined): string[] {
+/** 取标记 key 末段的 taskIds；在途标记（末段为空串）返回空数组。 */
+function markTaskIds(key: string): string[] {
+  const encoded = key.split("\0").at(-1);
   return encoded ? encoded.split(TASK_ID_SEP) : [];
 }
 
@@ -113,22 +115,13 @@ function isMarkSuperseded(taskIds: readonly string[], tasks: TaskItem[]): boolea
 // 按当前 tasks 修剪已让位的乐观占用标记（不新增标记，仅清理）。除兑现时机的顺带清理外，
 // 也要在每次 setTasks（轮询写回）时执行——真实任务行是经轮询进入 store 的，标记只能在
 // 那一刻发现自己该让位。
-function pruneSupersededOptimistic(
-  tasks: TaskItem[],
-  marks: ReadonlySet<string>,
-  taskIdsAt: number,
-): Set<string> {
+function pruneSupersededOptimistic(tasks: TaskItem[], marks: ReadonlySet<string>): Set<string> {
   const next = new Set<string>();
   for (const key of marks) {
-    if (!isMarkSuperseded(decodeTaskIds(key.split("\0")[taskIdsAt]), tasks)) next.add(key);
+    if (!isMarkSuperseded(markTaskIds(key), tasks)) next.add(key);
   }
   return next;
 }
-
-/** 资源粒度 key 中 taskIds 段的下标。 */
-const RESOURCE_TASK_IDS_AT = 5;
-/** scriptFile 粒度 key 中 taskIds 段的下标。 */
-const SCRIPT_FILE_TASK_IDS_AT = 4;
 
 export const useTasksStore = create<TasksState>((set, get) => {
   /**
@@ -137,13 +130,12 @@ export const useTasksStore = create<TasksState>((set, get) => {
    */
   function beginMark(
     field: "optimisticActive" | "optimisticActiveScriptFile",
-    taskIdsAt: number,
     keyOf: (taskIds: readonly string[]) => string,
   ): OptimisticHandle {
     const pendingKey = keyOf([]);
     set((s) => {
       // 顺带清理已让位的旧标记，避免 Set 在会话周期内无界增长。
-      const next = pruneSupersededOptimistic(s.tasks, s[field], taskIdsAt);
+      const next = pruneSupersededOptimistic(s.tasks, s[field]);
       next.add(pendingKey);
       return { [field]: next };
     });
@@ -154,7 +146,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
         const next = new Set(s[field]);
         next.delete(pendingKey);
         // 去重命中既有任务时该行往往已在 store 里，此刻即判定让位，不必等下一轮轮询。
-        if (replacement !== null && !isMarkSuperseded(decodeTaskIds(replacement.split("\0")[taskIdsAt]), s.tasks)) {
+        if (replacement !== null && !isMarkSuperseded(markTaskIds(replacement), s.tasks)) {
           next.add(replacement);
         }
         return { [field]: next };
@@ -177,24 +169,20 @@ export const useTasksStore = create<TasksState>((set, get) => {
     setTasks: (tasks) =>
       set((s) => ({
         tasks,
-        optimisticActive: pruneSupersededOptimistic(tasks, s.optimisticActive, RESOURCE_TASK_IDS_AT),
-        optimisticActiveScriptFile: pruneSupersededOptimistic(
-          tasks,
-          s.optimisticActiveScriptFile,
-          SCRIPT_FILE_TASK_IDS_AT,
-        ),
+        optimisticActive: pruneSupersededOptimistic(tasks, s.optimisticActive),
+        optimisticActiveScriptFile: pruneSupersededOptimistic(tasks, s.optimisticActiveScriptFile),
       })),
     setStats: (stats) => set({ stats }),
     setConnected: (connected) => set({ connected }),
     beginOptimisticActive: (projectName, resourceKind, resourceId, pendingTaskType) => {
       const seq = ++optimisticSeq;
-      return beginMark("optimisticActive", RESOURCE_TASK_IDS_AT, (taskIds) =>
+      return beginMark("optimisticActive", (taskIds) =>
         optimisticKey(projectName, resourceKind, resourceId, pendingTaskType, seq, taskIds),
       );
     },
     beginOptimisticActiveForScriptFile: (projectName, taskType, scriptFile) => {
       const seq = ++optimisticSeq;
-      return beginMark("optimisticActiveScriptFile", SCRIPT_FILE_TASK_IDS_AT, (taskIds) =>
+      return beginMark("optimisticActiveScriptFile", (taskIds) =>
         optimisticScriptFileKey(projectName, taskType, scriptFile, seq, taskIds),
       );
     },
@@ -304,10 +292,9 @@ export function selectActiveResourceIds(
     if (isOccupyingStatus(task.status)) ids.add(task.resource_id);
   }
   for (const key of optimisticActive) {
-    const parts = key.split("\0");
-    const [kProject, kResourceKind, kResourceId] = parts;
+    const [kProject, kResourceKind, kResourceId] = key.split("\0");
     if (kProject !== projectName || kResourceKind !== taskType) continue;
-    if (!isMarkSuperseded(decodeTaskIds(parts[RESOURCE_TASK_IDS_AT]), tasks)) ids.add(kResourceId);
+    if (!isMarkSuperseded(markTaskIds(key), tasks)) ids.add(kResourceId);
   }
   return ids;
 }
@@ -353,10 +340,9 @@ export function selectHasActiveTaskForScriptFile(
   if (hasRealActive) return true;
 
   for (const key of optimisticActiveScriptFile) {
-    const parts = key.split("\0");
-    const [kProject, kTaskType, kScriptFile] = parts;
+    const [kProject, kTaskType, kScriptFile] = key.split("\0");
     if (kProject !== projectName || kTaskType !== taskType || kScriptFile !== normalized) continue;
-    if (!isMarkSuperseded(decodeTaskIds(parts[SCRIPT_FILE_TASK_IDS_AT]), tasks)) return true;
+    if (!isMarkSuperseded(markTaskIds(key), tasks)) return true;
   }
   return false;
 }
