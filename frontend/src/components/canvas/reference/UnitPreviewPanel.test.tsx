@@ -152,6 +152,13 @@ describe("UnitPreviewPanel", () => {
       expect(generateButton).toBeDisabled();
     });
 
+    it("外部恢复态同样置 busy——重挂载后不放行第二次恢复", () => {
+      // 面板在窄屏 sub-tab / 宽屏右栏之间切换时会重挂载，VersionTimeMachine 自身的
+      // 恢复中状态随之丢失；父级仍记录该 unit 恢复在途，此时放行会并发写同一成片文件。
+      render(<UnitPreviewPanel unit={mkUnit()} projectName="proj" restoring />);
+      expect(versionMachineBusy()).toBe(true);
+    });
+
     it("恢复态上报带 unitId，供画布层按 unit 记录", () => {
       // 恢复态必须存在面板之外：本面板有窄屏 sub-tab / 宽屏右栏两处挂载点，切换会卸载
       // 它而在途请求不取消；且它随选中项复用，面板内的单个布尔量会串到别的 unit 上。

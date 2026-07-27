@@ -52,6 +52,25 @@ export interface ReferenceVideoCanvasProps {
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
 
+/**
+ * 画布层自记的按 unit 占用位（不产生任务行、进不了 tasks-store 占用集的那些写入路径）。
+ *
+ * `ids` 供渲染，`ref` 供提交时刻新鲜读：state 要等 render 冲刷才可见，而「点击发生在状态
+ * 已变、渲染未到」的窗口正是提交时复核要挡的（与 isUnitBusy 的新鲜读同理）。
+ */
+function useUnitFlagSet() {
+  const [ids, setIds] = useState<Set<string>>(() => new Set());
+  const ref = useRef<Set<string>>(new Set());
+  const set = useCallback((unitId: string, on: boolean) => {
+    const next = new Set(ref.current);
+    if (on) next.add(unitId);
+    else next.delete(unitId);
+    ref.current = next;
+    setIds(next);
+  }, []);
+  return useMemo(() => ({ ids, ref, set }), [ids, set]);
+}
+
 // 容器宽度断点（px，对应设计稿的响应式行为）。
 //   < LIST_RAIL_BREAKPOINT — 左侧 UnitList 收成 56px rail（带 flyout 触发）
 //   < STACK_PREVIEW_BREAKPOINT — 中右合栏，预览叠成 sub-tab
@@ -136,28 +155,23 @@ export function ReferenceVideoCanvas({
   // 让位，故「请求发出 → 任务行落库」全程都被覆盖，画布无须自备请求在途标记。
   const busyUnitIds = useActiveResourceIds("reference_video", projectName);
 
-  const [uploadingUnitIds, setUploadingUnitIds] = useState<Set<string>>(() => new Set());
-  // 版本恢复不产生任务行，进不了 tasks-store 占用集，故在画布层按 unit 记录。存在这里
-  // 而非 UnitPreviewPanel 内：该面板有窄屏 sub-tab 与宽屏右栏两处挂载点，切换子页或跨越
-  // STACK_PREVIEW_BREAKPOINT 都会卸载它（在途的恢复请求不会因此取消），且它随选中项切换
-  // 复用，面板内的单个布尔量还会把 A 的恢复态串到 B 上。
-  const [restoringUnitIds, setRestoringUnitIds] = useState<Set<string>>(() => new Set());
-  // 渲染用上面的 state，提交时刻复核用这个镜像：state 要等 render 冲刷才可见，而
-  // 「点击发生在状态已变、渲染未到」的窗口正是复核要挡的（与 isUnitBusy 的新鲜读同理）。
-  const restoringRef = useRef<Set<string>>(new Set());
+  // 成片上传与版本恢复都不产生任务行，进不了 tasks-store 占用集，故在画布层按 unit 记录。
+  // 存在这里而非 UnitPreviewPanel 内：该面板有窄屏 sub-tab 与宽屏右栏两处挂载点，切换子页
+  // 或跨越 STACK_PREVIEW_BREAKPOINT 都会卸载它（在途请求不会因此取消），且它随选中项切换
+  // 复用，面板内的单个布尔量还会把 A 的占用态串到 B 上。
+  const uploading = useUnitFlagSet();
+  const restoring = useUnitFlagSet();
 
-  const handleRestoringChange = useCallback((unitId: string, restoring: boolean) => {
-    const next = new Set(restoringRef.current);
-    if (restoring) next.add(unitId);
-    else next.delete(unitId);
-    restoringRef.current = next;
-    setRestoringUnitIds(next);
-  }, []);
+  const setUploading = uploading.set;
+  const handleRestoringChange = restoring.set;
 
-  /** 该 unit 是否被任一写入路径占用：生成/上传（tasks-store 占用集）或版本恢复。 */
+  /** 该 unit 是否被任一写入路径占用：生成（tasks-store 占用集）、成片上传或版本恢复。 */
   const isUnitLocked = useCallback(
-    (unitId: string) => isUnitBusy(projectName, unitId) || restoringRef.current.has(unitId),
-    [projectName],
+    (unitId: string) =>
+      isUnitBusy(projectName, unitId) ||
+      uploading.ref.current.has(unitId) ||
+      restoring.ref.current.has(unitId),
+    [projectName, uploading.ref, restoring.ref],
   );
 
   const statusMap = useMemo<Record<string, UnitStatus>>(() => {
@@ -167,14 +181,14 @@ export function ReferenceVideoCanvas({
         hasClip: Boolean(u.generated_assets.video_clip),
         queueRow: tasksByUnit.get(u.unit_id),
         busy: busyUnitIds.has(u.unit_id),
-        uploading: uploadingUnitIds.has(u.unit_id),
+        uploading: uploading.ids.has(u.unit_id),
         // 本画布提供成片上传入口：上传后单元已有可播放资产，历史失败不再覆盖 ready
         // （与 timeline/grid 画布用 toast 提示失败的语义对齐）。
         supportsManualUpload: true,
       });
     }
     return map;
-  }, [units, tasksByUnit, busyUnitIds, uploadingUnitIds]);
+  }, [units, tasksByUnit, busyUnitIds, uploading.ids]);
 
   // 独立于 statusMap 传给 UnitPreviewPanel：重试（旧失败行在）与重新生成（旧成功行在）
   // 两条路径上 queueRow 始终非空，statusMap 的乐观分支不生效，仅看 status 会在入队到
@@ -234,11 +248,7 @@ export function ReferenceVideoCanvas({
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
       }
-      setUploadingUnitIds((s) => {
-        const next = new Set(s);
-        next.add(unitId);
-        return next;
-      });
+      setUploading(unitId, true);
       try {
         try {
           const result = await API.uploadReferenceUnitVideo(projectName, episode, unitId, file);
@@ -255,14 +265,10 @@ export function ReferenceVideoCanvas({
           toastError(e, (msg) => t("media_refresh_failed", { message: msg }));
         }
       } finally {
-        setUploadingUnitIds((s) => {
-          const next = new Set(s);
-          next.delete(unitId);
-          return next;
-        });
+        setUploading(unitId, false);
       }
     },
-    [projectName, episode, loadUnits, isUnitLocked, t],
+    [projectName, episode, loadUnits, isUnitLocked, setUploading, t],
   );
 
   const handleUnitsRefresh = useCallback(
@@ -828,8 +834,8 @@ export function ReferenceVideoCanvas({
                           actualCost={actualCost}
                           onGenerate={onGenerateVoid}
                           onUploadVideo={handleUploadVideo}
-                          uploadingVideo={uploadingUnitIds.has(selected.unit_id)}
-                          restoring={restoringUnitIds.has(selected.unit_id)}
+                          uploadingVideo={uploading.ids.has(selected.unit_id)}
+                          restoring={restoring.ids.has(selected.unit_id)}
                           onRestoringChange={handleRestoringChange}
                           onRestored={handleUnitsRefresh}
                         />
@@ -858,8 +864,8 @@ export function ReferenceVideoCanvas({
                   actualCost={actualCost}
                   onGenerate={onGenerateVoid}
                   onUploadVideo={handleUploadVideo}
-                  uploadingVideo={selected ? uploadingUnitIds.has(selected.unit_id) : false}
-                  restoring={selected ? restoringUnitIds.has(selected.unit_id) : false}
+                  uploadingVideo={selected ? uploading.ids.has(selected.unit_id) : false}
+                  restoring={selected ? restoring.ids.has(selected.unit_id) : false}
                   onRestoringChange={handleRestoringChange}
                   onRestored={handleUnitsRefresh}
                 />

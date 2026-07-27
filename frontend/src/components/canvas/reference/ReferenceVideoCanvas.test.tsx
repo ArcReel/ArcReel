@@ -436,6 +436,34 @@ describe("ReferenceVideoCanvas", () => {
     expect(uploadSpy).not.toHaveBeenCalled();
   });
 
+  // 上传不产生任务行，进不了 tasks-store 占用集，故由画布自记。它必须进入提交时刻的
+  // 复核口径：否则上传在途期间批量生成仍会入队同一 unit，两条路径并发写同一个成片文件。
+  it("批量生成跳过上传在途的 unit", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1"), mkUnit("E1U2")],
+    });
+    // 上传挂起不 resolve，模拟「请求已发出、尚未落盘」的窗口
+    vi.spyOn(API, "uploadReferenceUnitVideo").mockReturnValue(new Promise(() => {}) as never);
+    const genSpy = vi
+      .spyOn(API, "generateReferenceVideoUnit")
+      .mockResolvedValue({ task_id: "t9", deduped: false } as never);
+    vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
+    vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
+
+    const { container } = render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
+    await waitFor(() => expect(batch).not.toBeDisabled());
+
+    // 选中项默认是 E1U1，其预览面板的上传入口即针对该 unit
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, { target: { files: [new File(["x"], "clip.mp4", { type: "video/mp4" })] } });
+
+    fireEvent.click(batch);
+    await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
+    expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2");
+  });
+
   it("没有待生成 unit 时批量生成按钮禁用", async () => {
     // 唯一的 unit 已有成片：statusMap 为 ready，批量入口无作用对象
     const ready = mkUnit("E1U1");

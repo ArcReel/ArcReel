@@ -127,7 +127,7 @@ export function UnitPreviewPanel({
             resourceType="reference_videos"
             resourceId={unit.unit_id}
             onRestore={onRestored}
-            busy={inFlight || busy || Boolean(uploadingVideo)}
+            busy={inFlight || busy || Boolean(uploadingVideo) || restoring}
             onRestoringChange={(r) => onRestoringChange?.(unit.unit_id, r)}
             iconOnly
           />
