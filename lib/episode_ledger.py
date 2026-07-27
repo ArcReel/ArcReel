@@ -174,11 +174,20 @@ def _read_text_or_none(path: Path) -> str | None:
 
 def parse_episode_num(value: Any) -> int | None:
     """宽松解析条目集号：int（排除 bool——True 会与第 1 集同键碰撞）或纯数字
-    字符串（历史手编数据），其余返回 None（条目原样保留，不参与回填）。"""
+    字符串（历史手编数据），其余返回 None（条目原样保留，不参与回填）。
+
+    ``str.isdigit()`` 认可的字符集比 ``int()`` 能转换的更宽（如上标 ``²``、
+    带圈数字 ``①``），损坏账本写入这类字符会让 ``isdigit()`` 放行但 ``int()`` 抛
+    ``ValueError``；两者不一致时同样返回 None，不能让调用方（含零前置校验的重置
+    逃生口）因此崩溃。
+    """
     if isinstance(value, int) and not isinstance(value, bool):
         return value
     if isinstance(value, str) and value.isdigit():
-        return int(value)
+        try:
+            return int(value)
+        except ValueError:
+            return None
     return None
 
 
@@ -211,6 +220,12 @@ def discover_episode_file_aliases(project_dir: Path) -> dict[int, list[Path]]:
     同一集号可能因命名 padding 不同（``episode_1.txt`` / ``episode_01.txt``）产生多个
     别名文件。大多数调用方只需其中一个代表路径（见 ``discover_episode_files``）；需要
     完整处置某集号全部派生文件的场景（如重置清理）用本函数取全部。
+
+    悬空符号链接（目标不存在）同样纳入：``Path.is_file()`` 会因链接目标缺失而返回
+    False，导致这类文件对发现逻辑完全不可见——处置类调用方（如重置）因此漏清它，
+    残留的悬空链接会在下一次派生文件写入时被 ``EpisodePlanner`` 的符号链接校验硬
+    拦截。``unlink()``/``rename()`` 只作用于链接条目本身、不跟随最终一段的链接目标，
+    纳入悬空链接不会引入跟随写入的风险。
     """
     source_dir = project_dir / "source"
     if not source_dir.is_dir():
@@ -218,7 +233,7 @@ def discover_episode_file_aliases(project_dir: Path) -> dict[int, list[Path]]:
     result: dict[int, list[Path]] = {}
     for path in sorted(source_dir.iterdir()):
         match = _EPISODE_FILE_RE.fullmatch(path.name)
-        if match and path.is_file():
+        if match and (path.is_file() or path.is_symlink()):
             result.setdefault(int(match.group(1)), []).append(path)
     return result
 

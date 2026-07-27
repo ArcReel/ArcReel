@@ -24,6 +24,10 @@ from lib.episode_reset import (
     reset_episode_planning,
 )
 
+# 全部用例跨 EpisodeReset / ProjectManager / EpisodePlanner 协作，用真实 tmp_path 文件系统，
+# 不 mock 被测模块的公共入口——按 CONTRIBUTING.md 的 marker 纪律归类为 integration。
+pytestmark = pytest.mark.integration
+
 SOURCE = "第一章 山村少年。李恒在山村长大。第二章 下山。李恒辞别师父。第三章 风波。少女身份成谜。"
 
 
@@ -222,6 +226,33 @@ def test_file_failure_aborts_and_leaves_ledger_intact(tmp_path: Path, monkeypatc
     assert _load_project(project_dir) == before
 
 
+def test_conflict_when_new_consumed_episode_appears_during_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """锁内复扫发现确认清单之外的新消费集时拒绝提交、账本不被改动：这是防止「确认时看到的
+    清单」与「实际提交时的账本状态」不一致的关键安全网，用 monkeypatch 模拟该竞态窗口。"""
+    import lib.episode_reset as reset_mod
+
+    project_dir = _write_project(tmp_path)
+    before = _load_project(project_dir)
+    original_scan = reset_mod._scan
+    calls = {"n": 0}
+
+    def _fake_scan(pd: Path, project: dict) -> reset_mod._ResetPlan:
+        calls["n"] += 1
+        result = original_scan(pd, project)
+        if calls["n"] == 2:  # 第二次调用发生在锁内（_commit 的复扫）
+            result.consumed.append(1)
+        return result
+
+    monkeypatch.setattr(reset_mod, "_scan", _fake_scan)
+
+    with pytest.raises(reset_mod.EpisodeResetConflictError):
+        reset_episode_planning(project_dir, from_episode=1)
+
+    assert _load_project(project_dir) == before
+
+
 # ---------------------------------------------------------------------------
 # 已消费集的二段确认
 # ---------------------------------------------------------------------------
@@ -325,22 +356,89 @@ def test_reset_rejects_symlinked_source_dir(tmp_path: Path) -> None:
     assert _load_project(project_dir) == before
 
 
-def test_reset_rejects_symlinked_episode_file(tmp_path: Path) -> None:
-    """单个派生集文件是符号链接时拒绝处置，避免跟随链接删除/改名外部文件。"""
+def test_reset_deletes_symlinked_episode_file_without_touching_target(tmp_path: Path) -> None:
+    """单个派生集文件是符号链接时按计划正常处置：unlink/rename 只作用于链接条目本身、
+    不跟随最终一段的链接目标，外部文件不受影响（与 source/ 本身是符号链接的风险不同）。"""
     project_dir = _write_project(
         tmp_path,
         episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],
     )
     outside_target = tmp_path / "outside_episode_1.txt"
     outside_target.write_text("外部文件", encoding="utf-8")
-    (project_dir / "source" / "episode_1.txt").symlink_to(outside_target)
-    before = _load_project(project_dir)
+    link = project_dir / "source" / "episode_1.txt"
+    link.symlink_to(outside_target)
 
-    with pytest.raises(EpisodeResetError, match="符号链接"):
-        reset_episode_planning(project_dir, from_episode=1)
+    result = reset_episode_planning(project_dir, from_episode=1)
 
+    assert isinstance(result, EpisodeResetResult)
+    assert not link.exists()
     assert outside_target.exists()
-    assert _load_project(project_dir) == before
+    assert outside_target.read_text(encoding="utf-8") == "外部文件"
+
+
+def test_reset_clears_dangling_symlinked_episode_file(tmp_path: Path) -> None:
+    """目标不存在的悬空符号链接同样被发现并清理，否则残留链接会在下次 plan_episodes
+    写派生文件时被 EpisodePlanner 的符号链接校验硬拦截，重置的"可继续规划"承诺落空。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[_entry(2, source_range=None, status="unanchored")],
+    )
+    link = project_dir / "source" / "episode_2.txt"
+    link.symlink_to(project_dir / "source" / "does_not_exist.txt")
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert not link.exists()
+    assert result.archived_files
+    archived_target = project_dir / result.archived_files[0][1]
+    assert archived_target.is_symlink()
+
+
+def test_reset_aggregates_consumed_status_across_duplicate_episode_entries(tmp_path: Path) -> None:
+    """损坏账本同一集号出现多条条目（首条 planned、后条 consumed）时，已消费判定按
+    集号聚合全部条目，不能只看被去重逻辑留下的首条而漏判。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}, status="planned"),
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}, status="consumed"),
+        ],
+    )
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, ResetConfirmationRequired)
+    assert result.consumed_episodes == [1]
+
+
+def test_reset_tolerates_unconvertible_digit_episode_num(tmp_path: Path) -> None:
+    """episode 字段是 str.isdigit() 认可但 int() 无法转换的字符（如上标 ²）时不崩溃，
+    该条目按无法识别集号处理（原样跳过），不阻断重置这个逃生口本身。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[{"episode": "²", "title": "损坏集号"}],
+    )
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert result.removed_episodes == []
+
+
+def test_orphan_disk_product_with_padded_filename_requires_confirmation(tmp_path: Path) -> None:
+    """账本丢失条目、产物文件名 padding 与规范路径不一致（episode_01.json 而非
+    episode_1.json）时，仍要求确认——不能因为 has_downstream_products 只认规范路径
+    就漏判已消费。"""
+    project_dir = _write_project(tmp_path)
+    scripts = project_dir / "scripts"
+    scripts.mkdir()
+    (scripts / "episode_01.json").write_text("{}", encoding="utf-8")
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, ResetConfirmationRequired)
+    assert result.consumed_episodes == [1]
 
 
 def test_orphan_disk_product_requires_confirmation(tmp_path: Path) -> None:

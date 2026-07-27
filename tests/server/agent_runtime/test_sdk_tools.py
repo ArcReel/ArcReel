@@ -1881,6 +1881,7 @@ def _fake_reset(result: Any, captured: dict[str, Any] | None = None):
     return _reset
 
 
+@pytest.mark.unit
 async def test_reset_episode_planning_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from lib.episode_reset import EpisodeResetResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
@@ -1904,6 +1905,7 @@ async def test_reset_episode_planning_happy(fake_ctx: ToolContext, monkeypatch) 
     assert "plan_episodes" in text  # 指路后续动作
 
 
+@pytest.mark.unit
 async def test_reset_episode_planning_confirmation_required(fake_ctx: ToolContext, monkeypatch) -> None:
     from lib.episode_reset import ResetConfirmationRequired
     from server.agent_runtime.sdk_tools import episode_planning as mod
@@ -1920,6 +1922,7 @@ async def test_reset_episode_planning_confirmation_required(fake_ctx: ToolContex
     assert "已消费" in text and "confirm_consumed" in text
 
 
+@pytest.mark.unit
 async def test_reset_episode_planning_forwards_confirm(fake_ctx: ToolContext, monkeypatch) -> None:
     from lib.episode_reset import EpisodeResetResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
@@ -1934,6 +1937,7 @@ async def test_reset_episode_planning_forwards_confirm(fake_ctx: ToolContext, mo
     assert "未删除" in out["content"][0]["text"]  # 产物保留须对主 agent 说明
 
 
+@pytest.mark.unit
 async def test_reset_episode_planning_partial_reset_error(fake_ctx: ToolContext, monkeypatch) -> None:
     """暂不支持的部分重置按可读错误返回，不走通用异常兜底。"""
     from lib.episode_reset import EpisodeResetError
@@ -1948,6 +1952,7 @@ async def test_reset_episode_planning_partial_reset_error(fake_ctx: ToolContext,
     assert "暂不支持部分重置" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_reset_episode_planning_rejects_string_confirm_consumed(fake_ctx: ToolContext) -> None:
     """confirm_consumed 是确认安全边界：非布尔值必须拒绝而非真值化。"""
     from server.agent_runtime.sdk_tools import episode_planning as mod
@@ -1960,6 +1965,7 @@ async def test_reset_episode_planning_rejects_string_confirm_consumed(fake_ctx: 
     assert "confirm_consumed" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize("bad", [0, -1, "1", True, None])
 async def test_reset_episode_planning_rejects_bad_from_episode(fake_ctx: ToolContext, bad: Any) -> None:
     from server.agent_runtime.sdk_tools import episode_planning as mod
@@ -1969,6 +1975,7 @@ async def test_reset_episode_planning_rejects_bad_from_episode(fake_ctx: ToolCon
     assert "from_episode" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_reset_episode_planning_requires_from_episode(fake_ctx: ToolContext) -> None:
     from server.agent_runtime.sdk_tools import episode_planning as mod
 

@@ -100,27 +100,38 @@ def _scan(project_dir: Path, project: Mapping[str, Any]) -> _ResetPlan:
     """
     raw_episodes = project.get("episodes")
     entries: dict[int, Mapping[str, Any]] = {}
+    # 损坏账本可能对同一集号写出多条条目（如首条 planned、后条 consumed）：只取首条会
+    # 丢失后条携带的已消费证据，故已消费判定按集号聚合全部条目，而非只看被 setdefault
+    # 留下的那一条
+    consumed_by_ledger_status: set[int] = set()
     # episodes 容器本身可能被写坏成非列表值（如 truthy 标量）：重置承诺零前置校验，
     # 这种情形按空账本处理而非抛错，不能让逃生口本身崩溃
     for entry in raw_episodes if isinstance(raw_episodes, list) else []:
         if not isinstance(entry, Mapping):
             continue
         num = parse_episode_num(entry.get("episode"))
-        if num is not None:
-            entries.setdefault(num, entry)
+        if num is None:
+            continue
+        if entry.get("ledger_status") == "consumed":
+            consumed_by_ledger_status.add(num)
+        entries.setdefault(num, entry)
 
     episode_file_aliases = discover_episode_file_aliases(project_dir)
+    # 孤儿下游产物候选集号（账本无条目、无 source/episode_N.txt，但 scripts/ 或 drafts/
+    # 仍有该集产物）本身就是「该集已消费」的直接证据：has_downstream_products 只认
+    # episode_script_relpath 算出的规范路径，无法识别 discover_product_episode_nums 已
+    # 靠正则宽松匹配到的 padding 别名文件名（如 episode_01.json），必须单独纳入判定
+    product_nums = discover_product_episode_nums(project_dir)
     consumed: list[int] = []
     deletes: list[Path] = []
     archives: list[Path] = []
     # 账本条目、磁盘派生文件、磁盘下游产物三者取并集：
     # - 孤儿集文件（账本无对应条目）同样要处置，否则重置后它会被回填重新补建成账本
     #   条目，账本清空的承诺落空
-    # - 孤儿下游产物（账本无条目、无 source/episode_N.txt，但 scripts/ 或 drafts/ 仍有
-    #   该集产物）同样要纳入已消费判定，否则会绕过确认直接清空
-    for num in sorted(set(entries) | set(episode_file_aliases) | discover_product_episode_nums(project_dir)):
+    # - 孤儿下游产物同样要纳入已消费判定，否则会绕过确认直接清空
+    for num in sorted(set(entries) | set(episode_file_aliases) | product_nums):
         entry = entries.get(num) or {}
-        if entry.get("ledger_status") == "consumed" or has_downstream_products(project_dir, num, entry):
+        if num in consumed_by_ledger_status or num in product_nums or has_downstream_products(project_dir, num, entry):
             consumed.append(num)
         paths = episode_file_aliases.get(num) or []
         if not paths:
@@ -140,23 +151,22 @@ def _apply_files(project_dir: Path, plan: _ResetPlan) -> tuple[list[str], list[t
     幂等，重跑即可自愈已完成的部分。
     """
     source_dir = project_dir / "source"
-    # source/ 是符号链接时拒绝处置：unlink/rename 会作用到链接目标（可能在项目外），
-    # 与 EpisodePlanner._reconcile_derived_files 的同类校验保持一致
-    if source_dir.is_symlink():
-        raise EpisodeResetError("source/ 不能是符号链接，拒绝处置派生集文件")
+    # source/ 是符号链接或（Windows 原生）目录联接时拒绝处置：这类 reparse point 会让
+    # source_dir 之下的路径解析穿透到项目外目录，unlink/rename 因此可能作用到外部文件；
+    # is_junction() 3.12+ 可用、POSIX 上恒为 False，与 EpisodePlanner._reconcile_derived_files
+    # 的同类校验保持一致。派生集文件自身是符号链接则不受影响——unlink/rename 操作的是链接
+    # 条目本身、不跟随最终一段的链接目标，悬空链接同样能被安全清理
+    if source_dir.is_symlink() or source_dir.is_junction():
+        raise EpisodeResetError("source/ 不能是符号链接或目录联接，拒绝处置派生集文件")
     deleted: list[str] = []
     archived: list[tuple[str, str]] = []
     for path in plan.deletes:
-        if path.is_symlink():
-            raise EpisodeResetError(f"派生集文件是符号链接，拒绝删除：{path.name}")
         try:
             path.unlink(missing_ok=True)
         except OSError as exc:
             raise EpisodeResetError(f"派生集文件删除失败，重置已中止：{path.name}: {exc}") from exc
         deleted.append(_rel(project_dir, path))
     for path in plan.archives:
-        if path.is_symlink():
-            raise EpisodeResetError(f"集文件是符号链接，拒绝留底改名：{path.name}")
         target = _archive_path(path)
         try:
             path.rename(target)
