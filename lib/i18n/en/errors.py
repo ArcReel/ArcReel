@@ -184,6 +184,7 @@ MESSAGES = {
     "invalid_resource_id": "Invalid resource ID: {resource_id}",
     "invalid_end_frame_source": "End frame source path is invalid or outside the project directory: {path}",
     "end_frame_source_not_found": "End frame source image not found: {path}",
+    "end_frame_reference_video_unsupported": "Reference video mode has no start/end frame concept; setting an end frame is not supported",
     # Reference Video
     "ref_missing_asset": "Reference to {type} '{name}' is not in the project asset library, please generate it first",
     "ref_duration_exceeded": "Reference video unit duration {duration}s exceeds {model} limit of {max_duration}s, clamped",
