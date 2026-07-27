@@ -137,6 +137,28 @@ export function ReferenceVideoCanvas({
   const busyUnitIds = useActiveResourceIds("reference_video", projectName);
 
   const [uploadingUnitIds, setUploadingUnitIds] = useState<Set<string>>(() => new Set());
+  // 版本恢复不产生任务行，进不了 tasks-store 占用集，故在画布层按 unit 记录。存在这里
+  // 而非 UnitPreviewPanel 内：该面板有窄屏 sub-tab 与宽屏右栏两处挂载点，切换子页或跨越
+  // STACK_PREVIEW_BREAKPOINT 都会卸载它（在途的恢复请求不会因此取消），且它随选中项切换
+  // 复用，面板内的单个布尔量还会把 A 的恢复态串到 B 上。
+  const [restoringUnitIds, setRestoringUnitIds] = useState<Set<string>>(() => new Set());
+  // 渲染用上面的 state，提交时刻复核用这个镜像：state 要等 render 冲刷才可见，而
+  // 「点击发生在状态已变、渲染未到」的窗口正是复核要挡的（与 isUnitBusy 的新鲜读同理）。
+  const restoringRef = useRef<Set<string>>(new Set());
+
+  const handleRestoringChange = useCallback((unitId: string, restoring: boolean) => {
+    const next = new Set(restoringRef.current);
+    if (restoring) next.add(unitId);
+    else next.delete(unitId);
+    restoringRef.current = next;
+    setRestoringUnitIds(next);
+  }, []);
+
+  /** 该 unit 是否被任一写入路径占用：生成/上传（tasks-store 占用集）或版本恢复。 */
+  const isUnitLocked = useCallback(
+    (unitId: string) => isUnitBusy(projectName, unitId) || restoringRef.current.has(unitId),
+    [projectName],
+  );
 
   const statusMap = useMemo<Record<string, UnitStatus>>(() => {
     const map: Record<string, UnitStatus> = {};
@@ -190,7 +212,7 @@ export function ReferenceVideoCanvas({
       setStackTab("preview");
       // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的占用态未必是最新的
       // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）。
-      if (isUnitBusy(projectName, unitId)) {
+      if (isUnitLocked(unitId)) {
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
       }
@@ -201,14 +223,14 @@ export function ReferenceVideoCanvas({
         toastError(e, (msg) => t("reference_generate_request_failed", { error: msg }));
       }
     },
-    [projectName, episode, t],
+    [projectName, episode, isUnitLocked, t],
   );
 
   const handleUploadVideo = useCallback(
     async (unitId: string, file: File) => {
       // 上传与生成回写同一个成片文件，故与生成入口同一套占用判定：文件选择对话框
       // 打开期间同一 unit 可能已被占用，按钮渲染期的禁用态挡不住这段窗口。
-      if (isUnitBusy(projectName, unitId)) {
+      if (isUnitLocked(unitId)) {
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
       }
@@ -240,7 +262,7 @@ export function ReferenceVideoCanvas({
         });
       }
     },
-    [projectName, episode, loadUnits, t],
+    [projectName, episode, loadUnits, isUnitLocked, t],
   );
 
   const handleUnitsRefresh = useCallback(
@@ -265,11 +287,11 @@ export function ReferenceVideoCanvas({
       // 实时复核而非用渲染期快照：串行 await 期间其它入口（单元按钮、Agent 入队、
       // SSE 落库）可能已占用同一 unit。命中即跳过，不当作错误提示——批量入口的语义
       // 是「把还能生成的都排上」，逐个报错只会刷屏。
-      if (isUnitBusy(projectName, u.unit_id)) continue;
+      if (isUnitLocked(u.unit_id)) continue;
       // 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
       await handleGenerate(u.unit_id);
     }
-  }, [batchTargets, handleGenerate, projectName, t]);
+  }, [batchTargets, handleGenerate, isUnitLocked, t]);
 
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
@@ -807,6 +829,8 @@ export function ReferenceVideoCanvas({
                           onGenerate={onGenerateVoid}
                           onUploadVideo={handleUploadVideo}
                           uploadingVideo={uploadingUnitIds.has(selected.unit_id)}
+                          restoring={restoringUnitIds.has(selected.unit_id)}
+                          onRestoringChange={handleRestoringChange}
                           onRestored={handleUnitsRefresh}
                         />
                       </div>
@@ -835,6 +859,8 @@ export function ReferenceVideoCanvas({
                   onGenerate={onGenerateVoid}
                   onUploadVideo={handleUploadVideo}
                   uploadingVideo={selected ? uploadingUnitIds.has(selected.unit_id) : false}
+                  restoring={selected ? restoringUnitIds.has(selected.unit_id) : false}
+                  onRestoringChange={handleRestoringChange}
                   onRestored={handleUnitsRefresh}
                 />
               </div>

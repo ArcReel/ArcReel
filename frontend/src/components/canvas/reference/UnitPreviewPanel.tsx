@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Film, Loader2, Sparkles, RotateCcw, AlertTriangle } from "lucide-react";
 import { API } from "@/api";
@@ -34,6 +33,14 @@ export interface UnitPreviewPanelProps {
   onUploadVideo?: (unitId: string, file: File) => void | Promise<void>;
   /** 上传进行中 */
   uploadingVideo?: boolean;
+  /**
+   * 该 unit 的版本恢复请求在途。恢复不产生任务行、进不了 tasks-store 占用集，状态由
+   * {@link VersionTimeMachine} 经 `onRestoringChange` 上报，但必须存在**本面板之外**：
+   * 本面板在窄屏 sub-tab 与宽屏右栏是两处挂载点，切换子页或跨越断点都会卸载它，而在途
+   * 的恢复请求不会因此取消；且同一面板会随选中项切换复用，状态存在这里还会串到别的 unit。
+   */
+  restoring?: boolean;
+  onRestoringChange?: (unitId: string, restoring: boolean) => void;
   /** 版本恢复后的刷新回调（重新拉取 units） */
   onRestored?: () => void | Promise<void>;
 }
@@ -56,15 +63,14 @@ export function UnitPreviewPanel({
   onGenerate,
   onUploadVideo,
   uploadingVideo,
+  restoring = false,
+  onRestoringChange,
   onRestored,
 }: UnitPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
   const clip = unit?.generated_assets.video_clip ?? null;
   // 上传/还原后路径不变，靠 fingerprint cache-bust 让 <video> 重新拉取
   const clipFp = useProjectsStore((s) => (clip ? s.getAssetFingerprint(clip) : null));
-  // 版本恢复不产生任务行，占用只存在于组件树内：由 VersionTimeMachine 回传，
-  // 供同 unit 的生成 / 上传按钮反向互斥（三者写同一个 reference_videos/{unit_id}.mp4）。
-  const [restoring, setRestoring] = useState(false);
 
   if (!unit) {
     return (
@@ -122,7 +128,7 @@ export function UnitPreviewPanel({
             resourceId={unit.unit_id}
             onRestore={onRestored}
             busy={inFlight || busy || Boolean(uploadingVideo)}
-            onRestoringChange={setRestoring}
+            onRestoringChange={(r) => onRestoringChange?.(unit.unit_id, r)}
             iconOnly
           />
         )}

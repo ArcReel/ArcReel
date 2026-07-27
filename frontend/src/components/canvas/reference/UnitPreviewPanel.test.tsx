@@ -131,30 +131,42 @@ describe("UnitPreviewPanel", () => {
     });
 
     it("恢复在途反向禁用同一 unit 的生成与上传", () => {
-      // 恢复不产生任务行，占用只存在于组件树内：若不回传父级，恢复返回前生成/上传
-      // 仍可点，两个请求并发写同一个 reference_videos/{unit_id}.mp4，后完成者覆盖
-      // 前者且双方都提示成功。
+      // 恢复与生成、上传写同一个 reference_videos/{unit_id}.mp4：恢复返回前若这两个
+      // 入口仍可点，两个请求并发落盘，后完成者覆盖前者且双方都提示成功。
       const { container } = render(
         <UnitPreviewPanel
           unit={mkUnit()}
           projectName="proj"
           onGenerate={vi.fn()}
           onUploadVideo={vi.fn()}
+          restoring
         />,
       );
-      const uploadButton = () =>
-        container.querySelector<HTMLInputElement>('input[type="file"]')
-          ?.nextElementSibling as HTMLButtonElement;
-      const generateButton = () =>
-        [...container.querySelectorAll("button")].find((b) => b.textContent?.trim());
+      const uploadButton = container.querySelector<HTMLInputElement>('input[type="file"]')
+        ?.nextElementSibling as HTMLButtonElement;
+      const generateButton = [...container.querySelectorAll("button")].find((b) =>
+        b.textContent?.trim(),
+      );
 
-      expect(uploadButton()).not.toBeDisabled();
-      expect(generateButton()).not.toBeDisabled();
+      expect(uploadButton).toBeDisabled();
+      expect(generateButton).toBeDisabled();
+    });
+
+    it("恢复态上报带 unitId，供画布层按 unit 记录", () => {
+      // 恢复态必须存在面板之外：本面板有窄屏 sub-tab / 宽屏右栏两处挂载点，切换会卸载
+      // 它而在途请求不取消；且它随选中项复用，面板内的单个布尔量会串到别的 unit 上。
+      const onRestoringChange = vi.fn();
+      render(
+        <UnitPreviewPanel
+          unit={mkUnit({ unit_id: "E1U2" })}
+          projectName="proj"
+          onRestoringChange={onRestoringChange}
+        />,
+      );
 
       fireEvent.click(screen.getByTestId("start-restore"));
 
-      expect(uploadButton()).toBeDisabled();
-      expect(generateButton()).toBeDisabled();
+      expect(onRestoringChange).toHaveBeenCalledWith("E1U2", true);
     });
   });
 });
