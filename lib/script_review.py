@@ -29,7 +29,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
     episode_script_relpath,
 )
-from lib.project_manager import effective_mode
+from lib.project_manager import find_episode, is_reference_video_episode
 
 #: 审核状态：not_applicable=该集不走 gate；no_step1=适用但 step1 未产出；
 #: pending_review=step1 已产出但未经确认（或确认后内容又变）→ 阻塞 step2；confirmed=已确认放行。
@@ -43,14 +43,6 @@ REVIEW_FIELD = "step1_review"
 Step1Kind = Literal["drama", "narration", "reference_video"]
 
 
-def find_episode(project: dict[str, Any], episode: int) -> dict[str, Any] | None:
-    """返回 project.json ``episodes[]`` 中 ``episode == N`` 的条目，缺失则 None。"""
-    for ep in project.get("episodes") or []:
-        if ep.get("episode") == episode:
-            return ep
-    return None
-
-
 def step1_kind(project: dict[str, Any], episode: int) -> Step1Kind | None:
     """该集 step1 变体；无结构化 step1 中间态（如 ad）时返回 None。
 
@@ -61,7 +53,7 @@ def step1_kind(project: dict[str, Any], episode: int) -> Step1Kind | None:
     content_mode = project.get("content_mode")
     if content_mode not in STEP1_FILENAMES:
         return None
-    if effective_mode(project=project, episode=find_episode(project, episode) or {}) == "reference_video":
+    if is_reference_video_episode(project, episode):
         return "reference_video"
     return content_mode  # "drama" | "narration"（STEP1_FILENAMES 成员）
 
