@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import json
+import string
 from collections import Counter
 from pathlib import Path
 
@@ -37,12 +38,38 @@ _SCANNED_ROOTS = ("lib", "server")
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _exception_name(func: ast.expr) -> str | None:
-    """取构造表达式的类名，`VideoCapabilityError(...)` 与 `base.VideoCapabilityError(...)` 同看待。"""
+def _import_aliases(tree: ast.Module) -> dict[str, str]:
+    """收集本模块里能力异常的导入别名，映射到原类名。
+
+    ``from ... import VideoCapabilityError as VCE`` 后调用点只叫 ``VCE``，只比对当前名称
+    会让该构造点两道守卫都扫不到——未登记 code 由 ``_try_encode_failure()`` 降级为
+    ``str(exc)``，最终以裸机器码落到界面上。
+    """
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom | ast.Import):
+            continue
+        for alias in node.names:
+            original = alias.name.rsplit(".", 1)[-1]
+            if original in _CAPABILITY_EXCEPTIONS and alias.asname:
+                aliases[alias.asname] = original
+    return aliases
+
+
+def _exception_name(func: ast.expr, aliases: dict[str, str]) -> str | None:
+    """取构造表达式的类名。
+
+    `VideoCapabilityError(...)`、`base.VideoCapabilityError(...)` 与导入别名 `VCE(...)`
+    同看待——别名经 ``aliases`` 还原成原类名。
+    """
     if isinstance(func, ast.Name):
-        return func.id if func.id in _CAPABILITY_EXCEPTIONS else None
+        if func.id in _CAPABILITY_EXCEPTIONS:
+            return func.id
+        return aliases.get(func.id)
     if isinstance(func, ast.Attribute):
-        return func.attr if func.attr in _CAPABILITY_EXCEPTIONS else None
+        if func.attr in _CAPABILITY_EXCEPTIONS:
+            return func.attr
+        return aliases.get(func.attr)
     return None
 
 
@@ -98,7 +125,8 @@ def _scan_tree(tree: ast.Module, rel: str) -> tuple[dict[str, str], list[tuple[s
     codes: dict[str, str] = {}
     dynamic_sites: list[tuple[str, str]] = []
     calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
-    constructions = [(node, name) for node in calls if (name := _exception_name(node.func)) is not None]
+    aliases = _import_aliases(tree)
+    constructions = [(node, name) for node in calls if (name := _exception_name(node.func, aliases)) is not None]
     if not constructions:
         return codes, dynamic_sites
 
@@ -221,6 +249,22 @@ def test_scanner_reads_code_from_keyword_form(source, expected_codes, expected_d
     assert len(dynamic) == expected_dynamic
 
 
+@pytest.mark.parametrize(
+    ("import_line", "call"),
+    [
+        ("from lib.video_backends.base import VideoCapabilityError as VCE", 'VCE("new_code")'),
+        ("import lib.video_backends.base as base", 'base.VideoCapabilityError("new_code")'),
+        ("from lib.reference_compression import ReferencePayloadFloorError as RPFE", 'RPFE(code="new_code")'),
+    ],
+)
+def test_scanner_resolves_import_aliases(import_line, call):
+    """经 ``as`` 改名导入的构造点照样扫得到，否则该点两道守卫一起失效。"""
+    codes, dynamic = _scan_tree(ast.parse(f"{import_line}\n{call}\n"), "synthetic.py")
+
+    assert sorted(codes) == ["new_code"]
+    assert dynamic == []
+
+
 def test_capability_codes_registered_no_drift():
     """新增 capability code 未登记时在 CI 失败，而不是等到线上落库时才 KeyError 降级。"""
     raised, _ = _scan_raised_codes()
@@ -244,6 +288,59 @@ def test_no_unscannable_capability_construction_sites():
     assert counted == Counter(_ALLOWED_DYNAMIC_SCOPES), (
         f"白名单 scope 的动态构造点数量与定额不符，新增的那个未自证 code 已登记: {counted}"
     )
+
+
+def _template_placeholders(template: str) -> set[str]:
+    """取模板里的具名占位符集合。"""
+    return {field for _, field, _, _ in string.Formatter().parse(template) if field}
+
+
+def _scan_param_contracts() -> list[tuple[str, str, set[str]]]:
+    """采集能静态看全的构造点：(出处, code, 该点显式传入的 param 名)。
+
+    只收 code 与 kwargs 都静态可见的直接构造点。带 ``**`` 解包的调用看不全实参，纳入会产生
+    假阳性；``error_code=`` 那类透传给 helper 的调用，params 由 helper 自己组装，也不在此列。
+    """
+    contracts: list[tuple[str, str, set[str]]] = []
+    for root in _SCANNED_ROOTS:
+        for path in sorted((_REPO_ROOT / root).rglob("*.py")):
+            rel = str(path.relative_to(_REPO_ROOT))
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            aliases = _import_aliases(tree)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call) or _exception_name(node.func, aliases) is None:
+                    continue
+                if any(keyword.arg is None for keyword in node.keywords):
+                    continue
+                code_expr = node.args[0] if node.args else _keyword_value(node, "code")
+                literals = _static_str_choices(code_expr) if code_expr is not None else None
+                if code_expr is None:
+                    literals = [ReferencePayloadFloorError().code]
+                if literals is None:
+                    continue
+                provided = {keyword.arg for keyword in node.keywords if keyword.arg and keyword.arg != "code"}
+                for literal in literals:
+                    contracts.append((f"{rel}:{node.lineno}", literal, provided))
+    return contracts
+
+
+def test_capability_construction_sites_supply_every_template_param():
+    """构造点必须给全三语模板所需的参数，否则用户会看到未替换的 ``{name}``。
+
+    ``lib/i18n/__init__.py::_`` 在 ``format`` 抛异常时吞掉异常、返回未格式化的模板，缺参数
+    不会响亮失败：读侧照常返回一段带花括号占位符的文案。code 已登记、三语模板齐全这两道守卫
+    都拦不住这种漏传，因为它们只看 key 存不存在。
+    """
+    missing: list[str] = []
+    for where, code, provided in _scan_param_contracts():
+        for locale in ("zh", "en", "vi"):
+            template = MESSAGES[locale].get(code)
+            if template is None:
+                continue  # 缺模板由 test_capability_code_has_all_three_locales 负责
+            absent = _template_placeholders(template) - provided
+            if absent:
+                missing.append(f"{where} ({code}, {locale}) 缺参数 {sorted(absent)}")
+    assert not missing, "以下构造点漏传模板参数，读侧会渲染出裸占位符:\n" + "\n".join(missing)
 
 
 @pytest.mark.parametrize("code", sorted(CAPABILITY_FAILURE_CODES))
