@@ -40,6 +40,10 @@ _EPISODE_FILE_RE = re.compile(r"episode_([0-9]+)\.txt")
 # 「什么后缀算源文本文件」的唯一定义，候选枚举与其他源文读取方共用
 SOURCE_TEXT_SUFFIXES = {".txt", ".md"}
 
+# project.json 顶层源文指纹字段（源文相对路径 → 归一化文本 sha256）。账本坐标绑定
+# 具体源文内容，指纹是「原文未变」的证据；全量重置把账本清空，指纹随之失效清除。
+SOURCE_FINGERPRINTS_KEY = "source_fingerprints"
+
 
 def _validate_rel_posix_path(value: str) -> str:
     """``source_file`` 的路径语义：项目根相对 POSIX 路径，拒绝绝对路径 / ``..`` / 反斜杠。
@@ -234,8 +238,11 @@ def _find_in_sources(
     return None
 
 
-def _has_downstream(project_dir: Path, episode_num: int, entry: Mapping[str, Any]) -> bool:
-    """该集是否已有下游产物（剧本 JSON / step1 中间文件；媒体必经剧本，剧本存在即覆盖）。"""
+def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[str, Any]) -> bool:
+    """该集是否已有下游产物（剧本 JSON / step1 中间文件；媒体必经剧本，剧本存在即覆盖）。
+
+    磁盘证据优先于账本状态：账本损坏（状态缺失/错乱）时仍能判定该集是否已被消费。
+    """
     script_file = entry.get("script_file")
     if isinstance(script_file, str) and safe_exists(project_dir, script_file):
         return True
@@ -352,7 +359,7 @@ def backfill_episode_ledger(project_dir: Path, project: Mapping[str, Any]) -> di
 
         doc, start, end = anchored
         entry["source_range"] = {"source_file": doc.rel_path, "start": start, "end": end}
-        entry["ledger_status"] = "consumed" if _has_downstream(project_dir, num, entry) else "planned"
+        entry["ledger_status"] = "consumed" if has_downstream_products(project_dir, num, entry) else "planned"
         # 直接赋值（允许回退）：全文退化命中早于游标说明用户重切过，后续集跟随新布局
         doc.cursor = end
         last_doc = doc

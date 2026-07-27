@@ -1289,6 +1289,7 @@ export default {
   'tool_name_get_video_capabilities': 'Query video model capabilities',
   'tool_name_plan_episodes': 'Plan episodes',
   'tool_name_replan_episodes': 'Replan episodes',
+  'tool_name_reset_episode_planning': 'Reset episode planning',
   'tool_name_patch_episode_script': 'Edit shot field',
   'tool_name_patch_episode_meta': 'Edit episode title',
   'tool_name_insert_segment': 'Insert shot',
