@@ -2355,9 +2355,11 @@ class API {
   static async listAdReferenceUnits(
     projectName: string,
     episode: number,
+    options?: { signal?: AbortSignal },
   ): Promise<{ units: AdReferenceUnit[] }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units`,
+      { signal: options?.signal },
     );
   }
 

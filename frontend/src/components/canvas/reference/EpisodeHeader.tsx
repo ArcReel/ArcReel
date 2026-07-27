@@ -3,12 +3,20 @@ import { useTranslation } from "react-i18next";
 import { EditableEpisodeTitle } from "@/components/canvas/EditableEpisodeTitle";
 import { useCostStore } from "@/stores/cost-store";
 import { formatCost } from "@/utils/cost-format";
-import type { ReferenceVideoUnit } from "@/types";
+
+/**
+ * 头部统计只需要时长与成片两项，故按结构约束而非绑定具体单元类型：
+ * ReferenceVideoUnit（narration/drama）与 ad 派生分组水合后的视图对象都能直接传入。
+ */
+export interface EpisodeHeaderUnit {
+  duration_seconds: number;
+  generated_assets: { video_clip?: string | null };
+}
 
 export interface EpisodeHeaderProps {
   episode: number;
   title: string;
-  units: ReferenceVideoUnit[];
+  units: EpisodeHeaderUnit[];
   onSaveTitle?: (next: string) => Promise<void>;
   canEditTitle?: boolean;
 }

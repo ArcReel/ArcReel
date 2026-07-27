@@ -1407,6 +1407,16 @@ export default {
   'ad_ref_view_video': '查看视频',
   'ad_ref_stale': '镜头已变化，需重新派生',
   'ad_ref_empty_hint': '参考直出会把连续镜头自动分组为视频单元（每单元最多 4 个镜头），按产品参考与资产图直接生成视频。先派生分组。',
+  'ad_ref_member_shots': '成员镜头',
+  'ad_ref_references': '参考',
+  'ad_ref_shot_missing': '镜头已删除',
+  'ad_ref_no_video': '尚未生成视频',
+  'ad_ref_regenerate': '重新生成',
+  'ad_ref_retry': '重试生成',
+  'ad_ref_failed_unknown': '生成失败，原因未知',
+  'ad_ref_preview_video_aria': '分组 {{id}} 的成片',
+  'ad_ref_busy': '该分组正在生成中，请稍后再试',
+  'ad_ref_rederive_busy': '有分组正在生成中，暂不可派生',
   'workspace_nav_products': '产品',
 
   // ---- 项目大厅 · Darkroom ----

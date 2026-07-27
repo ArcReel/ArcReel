@@ -28,6 +28,7 @@ import { ScenesPage } from "./lorebook/ScenesPage";
 import { PropsPage } from "./lorebook/PropsPage";
 import { ProductsPage } from "./lorebook/ProductsPage";
 import { ReferenceVideoCanvas } from "./reference/ReferenceVideoCanvas";
+import { AdReferenceVideoCanvas } from "./reference/AdReferenceVideoCanvas";
 import { GridImageToVideoCanvas } from "./grid/GridImageToVideoCanvas";
 import { EpisodeSourceReview } from "./EpisodeSourceReview";
 import { API } from "@/api";
@@ -47,7 +48,6 @@ import { getProviderModels, getCustomProviderModels, lookupSupportedDurations } 
 import { effectiveMode } from "@/utils/generation-mode";
 import type { Scene, Prop, Product, CustomProviderInfo, ProviderInfo } from "@/types";
 import type { EpisodeScript } from "@/types/script";
-import { REFERENCE_SHOT_DURATION_OPTIONS } from "@/types/script";
 
 // ---------------------------------------------------------------------------
 // resolveSegmentPrompt -- shared segment lookup for generate storyboard/video
@@ -653,16 +653,11 @@ export function StudioCanvasRouter() {
           const mode = effectiveMode(currentProjectData, episode);
           const hasDraft =
             episode?.script_status === "segmented" || episode?.script_status === "generated";
-          // ad 剧本骨架唯一（shots[]），两条生成路径都进镜头编辑画布：
-          // reference_video 路径的派生分组画布尚未落地，先共用 Timeline 编辑器；
-          // 该路径下镜头时长为 1-15 秒自由整数，不取供应商 supported_durations，
-          // 且不暴露逐镜头图生视频入口（该路径按 ADR 0033 跳过分镜步骤，
-          // 入队也会被执行层 supported_durations 校验拒绝）。
+          // ad 剧本骨架唯一（shots[]），但两条生成路径进不同画布：storyboard 走镜头
+          // 编辑画布，reference_video 走按派生分组组织的专用画布（不提供分镜图与
+          // 逐镜头图生视频——该路径按 ADR 0033 跳过分镜步骤）。
           const isAd = currentProjectData?.content_mode === "ad";
           const adReference = isAd && mode === "reference_video";
-          const effectiveDurationOptions = adReference
-            ? REFERENCE_SHOT_DURATION_OPTIONS
-            : durationOptions;
 
           // 已选集但剧本未生成：进入切片审阅视图（narration/drama 全部生成路径——
           // reference_video 此时 units 为空，同样没有可展示内容）；ad 恒单集无源文
@@ -682,7 +677,20 @@ export function StudioCanvasRouter() {
                     episode={epNum}
                     episodes={currentProjectData?.episodes ?? []}
                   />
-                ) : mode === "reference_video" && !isAd ? (
+                ) : adReference ? (
+                  <AdReferenceVideoCanvas
+                    // 与下方画布同理：同 epNum 跨项目不 remount 会让分组列表、
+                    // 派生态等内部 state 残留上一个项目的值。
+                    key={`${currentProjectName}::${epNum}`}
+                    projectName={currentProjectName}
+                    episode={epNum}
+                    episodeTitle={episode?.title}
+                    onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
+                    canEditTitle={Boolean(episode?.script_file)}
+                    shots={script?.content_mode === "ad" ? script.shots : []}
+                    hasScript={Boolean(script)}
+                  />
+                ) : mode === "reference_video" ? (
                   <ReferenceVideoCanvas
                     // 同一 epNum 跨项目不 remount 会让 optimisticUnitIds / prevTaskStatusRef
                     // 残留上个项目的状态（例如 "E1U1" 长驻 set 里），切到同名 unit 的新项目
@@ -734,13 +742,11 @@ export function StudioCanvasRouter() {
                     episodeScript={script}
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
-                    durationOptions={effectiveDurationOptions}
+                    durationOptions={durationOptions}
                     onUpdatePrompt={handleUpdatePrompt}
                     onMoveShot={isAd ? handleMoveShot : undefined}
-                    onGenerateStoryboard={
-                      adReference ? undefined : voidPromise(handleGenerateStoryboard)
-                    }
-                    onGenerateVideo={adReference ? undefined : voidPromise(handleGenerateVideo)}
+                    onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
+                    onGenerateVideo={voidPromise(handleGenerateVideo)}
                     onGenerateNarration={voidPromise(handleGenerateNarration)}
                     onGenerateEpisodeNarration={voidPromise(handleGenerateEpisodeNarration)}
                     onRestoreStoryboard={handleRestoreAsset}

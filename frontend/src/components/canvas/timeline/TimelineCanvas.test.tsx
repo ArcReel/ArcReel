@@ -31,9 +31,6 @@ vi.mock("./EpisodeHeader", () => ({
     <div data-testid="episode-header" data-can-edit-title={canEditTitle ? "yes" : "no"} />
   ),
 }));
-vi.mock("./AdReferenceUnitsPanel", () => ({
-  AdReferenceUnitsPanel: () => <div data-testid="ad-reference-units-panel" />,
-}));
 
 function makeProjectData(): ProjectData {
   return {

@@ -85,6 +85,28 @@ vi.mock("./EpisodeSourceReview", () => ({
   ),
 }));
 
+vi.mock("./reference/AdReferenceVideoCanvas", () => ({
+  AdReferenceVideoCanvas: ({
+    shots,
+    hasScript,
+    canEditTitle,
+    onSaveTitle,
+  }: {
+    shots: { shot_id: string }[];
+    hasScript: boolean;
+    canEditTitle?: boolean;
+    onSaveTitle?: (title: string) => Promise<void>;
+  }) => (
+    <div data-testid="ad-reference-canvas" data-has-script={hasScript ? "yes" : "no"}>
+      <div data-testid="ad-reference-can-edit-title">{canEditTitle ? "yes" : "no"}</div>
+      {shots.map((s) => s.shot_id).join(",")}
+      <button onClick={() => void onSaveTitle?.("新标题")?.catch(() => {})}>
+        ad-reference-save-title
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock("./grid/GridImageToVideoCanvas", () => ({
   GridImageToVideoCanvas: ({
     onGenerateGrid,
@@ -1093,7 +1115,7 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
-  it("routes ad + reference_video projects to the shot editor with free 1-15s durations", () => {
+  it("routes ad + reference_video projects to the derived-group canvas with the script's shots", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: makeProjectData({
@@ -1106,13 +1128,62 @@ describe("StudioCanvasRouter", () => {
       project: makeProjectData({ content_mode: "ad", generation_mode: "reference_video" }),
       scripts: { "episode_1.json": makeAdScript() },
     });
+    vi.spyOn(API, "updateEpisode").mockResolvedValue({ success: true });
+
+    renderAt("/episodes/1");
+
+    const canvas = screen.getByTestId("ad-reference-canvas");
+    expect(canvas).toHaveAttribute("data-has-script", "yes");
+    expect(canvas).toHaveTextContent("SEG-1");
+    // 分镜编辑画布在该路径下不再渲染
+    expect(screen.queryByTestId("timeline-canvas")).not.toBeInTheDocument();
+    // script_file 存在 → 标题可编辑入口透传为 true
+    expect(screen.getByTestId("ad-reference-can-edit-title")).toHaveTextContent("yes");
+
+    fireEvent.click(screen.getByText("ad-reference-save-title"));
+    await waitFor(() => {
+      expect(API.updateEpisode).toHaveBeenCalledWith("demo", 1, { title: "新标题" });
+    });
+  });
+
+  it("falls back to an empty shot list when the episode script isn't an ad script", () => {
+    // 路由分支只按 project.content_mode 判定 isAd；剧本条目理应与项目模式一致，
+    // 但类型上是各自独立的 union，ternary 的 : [] 分支正是应对二者暂时不一致的防御。
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({
+        content_mode: "ad",
+        generation_mode: "reference_video",
+      }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData({ content_mode: "ad", generation_mode: "reference_video" }),
+      scripts: { "episode_1.json": makeScript() },
+    });
+
+    renderAt("/episodes/1");
+
+    const canvas = screen.getByTestId("ad-reference-canvas");
+    expect(canvas).toHaveAttribute("data-has-script", "yes");
+    expect(canvas).not.toHaveTextContent("SEG-1");
+  });
+
+  it("keeps ad + storyboard projects on the shot editor", () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData({ content_mode: "ad" }),
+      currentScripts: { "episode_1.json": makeAdScript() },
+    });
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData({ content_mode: "ad" }),
+      scripts: { "episode_1.json": makeAdScript() },
+    });
 
     renderAt("/episodes/1");
 
     expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
-    expect(screen.getByTestId("timeline-duration-options").textContent).toBe(
-      Array.from({ length: 15 }, (_, i) => i + 1).join(","),
-    );
+    expect(screen.queryByTestId("ad-reference-canvas")).not.toBeInTheDocument();
   });
 
   it("resolves drama scenes by scene_id when generating storyboard", async () => {

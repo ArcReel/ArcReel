@@ -218,7 +218,7 @@ export function GridPreviewPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- grid 仅用于切换批次判断；refreshKey 与 gridsRevision 同源，仅保留后者避免双触发；t 稳定
   }, [expanded, selectedGridId, projectName, gridsRevision]);
 
-  // 占用判定接入 live tasks store：与同页兄弟控件（如 AdReferenceUnitsPanel）同源，
+  // 占用判定接入 live tasks store：与同页兄弟控件同源，
   // 不再依赖本地 grid.status 快照（刷新才更新，提交后到下次 fetch 之间会误判为空闲）。
   const activeGridIds = useActiveResourceIds("grid", projectName);
   const isInProgress = selectedGridId != null && activeGridIds.has(selectedGridId);
