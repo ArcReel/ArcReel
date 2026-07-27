@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -288,6 +289,102 @@ def test_confirmed_reset_keeps_downstream_products(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # 部分重置尚未支持
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# 损坏边界：非列表 episodes / 符号链接 / 磁盘孤儿产物 / 同集号别名文件
+# ---------------------------------------------------------------------------
+
+
+def test_reset_tolerates_non_list_episodes(tmp_path: Path) -> None:
+    """episodes 被写坏成 truthy 非列表值（如手工误编辑成整数）时按空账本处理，不崩溃。"""
+    project_dir = _write_project(tmp_path, extra={"episodes": 1})
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert result.removed_episodes == []
+    assert _load_project(project_dir)["episodes"] == []
+
+
+def test_reset_rejects_symlinked_source_dir(tmp_path: Path) -> None:
+    """source/ 是指向项目外目录的符号链接时拒绝处置，避免删除/改名外部目录中的文件。"""
+    project_dir = _write_project(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "episode_1.txt").write_text("外部文件", encoding="utf-8")
+    source_dir = project_dir / "source"
+    shutil.rmtree(source_dir)
+    source_dir.symlink_to(outside, target_is_directory=True)
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="符号链接"):
+        reset_episode_planning(project_dir, from_episode=1)
+
+    assert (outside / "episode_1.txt").exists()
+    assert _load_project(project_dir) == before
+
+
+def test_reset_rejects_symlinked_episode_file(tmp_path: Path) -> None:
+    """单个派生集文件是符号链接时拒绝处置，避免跟随链接删除/改名外部文件。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],
+    )
+    outside_target = tmp_path / "outside_episode_1.txt"
+    outside_target.write_text("外部文件", encoding="utf-8")
+    (project_dir / "source" / "episode_1.txt").symlink_to(outside_target)
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="符号链接"):
+        reset_episode_planning(project_dir, from_episode=1)
+
+    assert outside_target.exists()
+    assert _load_project(project_dir) == before
+
+
+def test_orphan_disk_product_requires_confirmation(tmp_path: Path) -> None:
+    """账本丢失条目、无对应 source/episode_N.txt，但 scripts/ 下仍有产物时仍要求确认。"""
+    project_dir = _write_project(tmp_path)
+    _write_script(project_dir, 1)
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, ResetConfirmationRequired)
+    assert result.consumed_episodes == [1]
+
+
+def test_orphan_draft_dir_requires_confirmation(tmp_path: Path) -> None:
+    """账本丢失条目、无对应 source/episode_N.txt，但 drafts/ 下仍有 step1 产物时仍要求确认。"""
+    project_dir = _write_project(tmp_path)
+    drafts = project_dir / "drafts" / "episode_1"
+    drafts.mkdir(parents=True)
+    (drafts / "step1_segments.json").write_text("{}", encoding="utf-8")
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, ResetConfirmationRequired)
+    assert result.consumed_episodes == [1]
+
+
+def test_reset_processes_all_padding_aliases_of_same_episode(tmp_path: Path) -> None:
+    """同一集号的多个 padding 别名（episode_1.txt / episode_01.txt）全部被处置，
+    否则未处理的别名会在下次回填中重新补建账本条目。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],
+    )
+    alias_a = project_dir / "source" / "episode_1.txt"
+    alias_a.write_text(SOURCE[:10], encoding="utf-8")
+    alias_b = project_dir / "source" / "episode_01.txt"
+    alias_b.write_text(SOURCE[:10], encoding="utf-8")
+
+    result = reset_episode_planning(project_dir, from_episode=1)
+
+    assert isinstance(result, EpisodeResetResult)
+    assert not alias_a.exists()
+    assert not alias_b.exists()
+    assert discover_episode_files(project_dir) == {}
 
 
 def test_partial_reset_rejected_without_touching_ledger(tmp_path: Path) -> None:

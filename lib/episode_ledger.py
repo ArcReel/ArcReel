@@ -36,6 +36,8 @@ LEDGER_STATUSES: tuple[str, ...] = get_args(LedgerStatus)
 
 # 仅 ASCII 数字：\d 会放行全角等 Unicode 数字，把非流水线产物误判为派生集文件
 _EPISODE_FILE_RE = re.compile(r"episode_([0-9]+)\.txt")
+_SCRIPT_FILE_RE = re.compile(r"episode_([0-9]+)\.json")
+_DRAFT_DIR_RE = re.compile(r"episode_([0-9]+)")
 
 # 「什么后缀算源文本文件」的唯一定义，候选枚举与其他源文读取方共用
 SOURCE_TEXT_SUFFIXES = {".txt", ".md"}
@@ -203,17 +205,50 @@ def discover_sources(project_dir: Path) -> list[SourceDoc]:
     return docs
 
 
-def discover_episode_files(project_dir: Path) -> dict[int, Path]:
-    """枚举派生集文件 source/episode_N.txt → {集号: 路径}。"""
+def discover_episode_file_aliases(project_dir: Path) -> dict[int, list[Path]]:
+    """枚举派生集文件的全部别名 source/episode_N.txt → {集号: [路径, ...]}（按文件名排序）。
+
+    同一集号可能因命名 padding 不同（``episode_1.txt`` / ``episode_01.txt``）产生多个
+    别名文件。大多数调用方只需其中一个代表路径（见 ``discover_episode_files``）；需要
+    完整处置某集号全部派生文件的场景（如重置清理）用本函数取全部。
+    """
     source_dir = project_dir / "source"
     if not source_dir.is_dir():
         return {}
-    result: dict[int, Path] = {}
+    result: dict[int, list[Path]] = {}
     for path in sorted(source_dir.iterdir()):
         match = _EPISODE_FILE_RE.fullmatch(path.name)
         if match and path.is_file():
-            result.setdefault(int(match.group(1)), path)
+            result.setdefault(int(match.group(1)), []).append(path)
     return result
+
+
+def discover_episode_files(project_dir: Path) -> dict[int, Path]:
+    """枚举派生集文件 source/episode_N.txt → {集号: 路径}（每号取排序后首个别名）。"""
+    return {num: paths[0] for num, paths in discover_episode_file_aliases(project_dir).items()}
+
+
+def discover_product_episode_nums(project_dir: Path) -> set[int]:
+    """枚举磁盘上有下游产物（剧本 JSON / step1 草稿目录）的集号，不依赖账本条目。
+
+    账本丢失条目（写坏/手工误删）但 ``scripts/episode_N.json`` 或
+    ``drafts/episode_N/`` 仍在磁盘时，仅从账本条目与 ``source/episode_N.txt`` 取候选
+    集号会漏掉这类孤儿产物，使其消费状态判定被跳过。
+    """
+    nums: set[int] = set()
+    scripts_dir = project_dir / "scripts"
+    if scripts_dir.is_dir():
+        for path in scripts_dir.iterdir():
+            match = _SCRIPT_FILE_RE.fullmatch(path.name)
+            if match and path.is_file():
+                nums.add(int(match.group(1)))
+    drafts_dir = project_dir / "drafts"
+    if drafts_dir.is_dir():
+        for path in drafts_dir.iterdir():
+            match = _DRAFT_DIR_RE.fullmatch(path.name)
+            if match and path.is_dir():
+                nums.add(int(match.group(1)))
+    return nums
 
 
 def _find_in_sources(
