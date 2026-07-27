@@ -1194,6 +1194,38 @@ class TestSourceFingerprintGate:
         expected = hashlib.sha256(SOURCE.encode("utf-8")).hexdigest()
         assert project[SOURCE_FINGERPRINTS_KEY] == {"source/novel.txt": expected}
 
+    async def test_plan_rejects_when_source_changes_between_snapshot_and_exhausted_backfill(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """存量项目游标已在全部源文末尾：入口快照之后、耗尽补记闭包读取之前源文被改动，
+        补记必须与入口快照比对拒绝，不能把变更后的内容直接登记为可信基线。"""
+        import lib.episode_planner as episode_planner_module
+
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+        )
+        source_path = project_dir / "source" / "novel.txt"
+        real_discover_sources = episode_planner_module.discover_sources
+        call_count = 0
+
+        def _mutating_discover_sources(project_path: Path):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:  # 入口快照(第1次)之后、耗尽补记闭包(第3次)读取之前改动源文
+                source_path.write_text("耗尽补记窗口期间被换掉的原文。", encoding="utf-8")
+            return real_discover_sources(project_path)
+
+        monkeypatch.setattr(episode_planner_module, "discover_sources", _mutating_discover_sources)
+        planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
+
+        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+            await planner.plan()
+
+        project = _load_project(project_dir)
+        assert SOURCE_FINGERPRINTS_KEY not in project
+
 
 class TestReplan:
     async def test_replan_repartitions_from_episode_keeping_prior_fixed(self, tmp_path: Path):

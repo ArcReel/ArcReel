@@ -464,7 +464,7 @@ class EpisodePlanner:
         while not text[start:].strip():
             next_rel = self._next_source_rel(source_rel)
             if next_rel is None:
-                project = self._backfill_source_fingerprints_if_missing(project)
+                project = self._backfill_source_fingerprints_if_missing(project, pre_call_texts=pre_call_texts)
                 return PlanResult(
                     episodes=[],
                     cursor=project.get("planning_cursor"),
@@ -980,10 +980,16 @@ class EpisodePlanner:
         if mismatched:
             raise _source_changed_error(mismatched)
 
-    def _backfill_source_fingerprints_if_missing(self, project: Mapping[str, Any]) -> dict:
+    def _backfill_source_fingerprints_if_missing(
+        self, project: Mapping[str, Any], *, pre_call_texts: dict[str, str]
+    ) -> dict:
         """存量项目在 ``source_exhausted`` 早退路径上补记指纹：该路径不经过 ``plan()`` 的
         提交闭包，若跳过会让「首次 plan 补记指纹」对已耗尽游标的存量项目失效——后续等长
         编辑旧正文都因无基线可比而放行。已有指纹的项目直接原样返回，不重复计算。
+
+        ``pre_call_texts`` 是锁外读入的全量源文快照：锁内复核与常规提交路径同一套逃生口——
+        若 plan() 保存快照后、本闭包读取前源文被改动，直接把变更内容登记为基线会让这次变更
+        永久失去可比对象，须先拒绝。
         """
         if project.get(SOURCE_FINGERPRINTS_KEY) is not None:
             return dict(project)
@@ -991,6 +997,10 @@ class EpisodePlanner:
         def _commit(p: dict) -> None:
             current_sources = discover_sources(self.project_path)
             self._check_source_fingerprints(p, sources=current_sources)
+            current_texts = {doc.rel_path: doc.text for doc in current_sources}
+            changed = sorted(rel for rel, snapshot in pre_call_texts.items() if current_texts.get(rel) != snapshot)
+            if changed:
+                raise _source_changed_error(changed)
             p[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(current_sources)
 
         return self.pm.update_project(self.project_name, _commit)
