@@ -5,7 +5,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { UPLOAD_VIDEO_ACCEPT, UploadIconButton } from "@/components/ui/UploadIconButton";
 import { formatCost } from "@/utils/cost-format";
-import { StatusBadge, deriveUnitStatus } from "./unit-status";
+import { StatusBadge, resolveUnitStatus } from "./unit-status";
 import type { CostBreakdown, ReferenceVideoUnit, UnitStatus } from "@/types";
 
 export interface UnitPreviewPanelProps {
@@ -33,6 +33,19 @@ export interface UnitPreviewPanelProps {
   onUploadVideo?: (unitId: string, file: File) => void | Promise<void>;
   /** 上传进行中 */
   uploadingVideo?: boolean;
+  /**
+   * 该 unit 的版本恢复请求在途。恢复不产生任务行、进不了 tasks-store 占用集，状态由
+   * {@link VersionTimeMachine} 经 `onRestoringChange` 上报，但必须存在**本面板之外**：
+   * 本面板在窄屏 sub-tab 与宽屏右栏是两处挂载点，切换子页或跨越断点都会卸载它，而在途
+   * 的恢复请求不会因此取消；且同一面板会随选中项切换复用，状态存在这里还会串到别的 unit。
+   */
+  restoring?: boolean;
+  onRestoringChange?: (unitId: string, restoring: boolean) => void;
+  /**
+   * 恢复提交时刻的占用复核（新鲜读）：面板打开着而 Agent、批量入口或轮询随后占用该 unit
+   * 时，`restoring`/`busy` 这类渲染快照要等 render 冲刷才生效，其间的点击仍会发出恢复请求。
+   */
+  checkBusy?: (unitId: string) => boolean;
   /** 版本恢复后的刷新回调（重新拉取 units） */
   onRestored?: () => void | Promise<void>;
 }
@@ -55,6 +68,9 @@ export function UnitPreviewPanel({
   onGenerate,
   onUploadVideo,
   uploadingVideo,
+  restoring = false,
+  onRestoringChange,
+  checkBusy,
   onRestored,
 }: UnitPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
@@ -70,7 +86,7 @@ export function UnitPreviewPanel({
     );
   }
 
-  const effectiveStatus = status ?? deriveUnitStatus(unit);
+  const effectiveStatus = status ?? resolveUnitStatus(unit);
   const videoUrl = clip && projectName ? API.getFileUrl(projectName, clip, clipFp) : null;
 
   // 状态先于 video_clip 落库的窗口里，effectiveStatus==="ready" 但 videoUrl
@@ -105,16 +121,21 @@ export function UnitPreviewPanel({
             accept={UPLOAD_VIDEO_ACCEPT}
             label={t("media_upload_video")}
             busy={uploadingVideo}
-            disabled={inFlight || busy}
+            disabled={inFlight || busy || restoring}
             onSelect={(f) => void onUploadVideo(unit.unit_id, f)}
           />
         )}
+        {/* 版本恢复同样写这个 unit 的成片文件，与上传、主 CTA 同步接线禁用：
+            占用期间恢复旧版本会显示成功、随后被在跑的生成任务覆盖 */}
         {projectName && (
           <VersionTimeMachine
             projectName={projectName}
             resourceType="reference_videos"
             resourceId={unit.unit_id}
             onRestore={onRestored}
+            busy={inFlight || busy || Boolean(uploadingVideo) || restoring}
+            onRestoringChange={(r) => onRestoringChange?.(unit.unit_id, r)}
+            checkBusy={checkBusy ? () => checkBusy(unit.unit_id) : undefined}
             iconOnly
           />
         )}
@@ -200,9 +221,9 @@ export function UnitPreviewPanel({
         <button
           type="button"
           onClick={() => onGenerate(unit.unit_id)}
-          disabled={inFlight || busy}
+          disabled={inFlight || busy || restoring}
           className={`focus-ring inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2.5 text-sm font-semibold transition-colors ${
-            inFlight || busy
+            inFlight || busy || restoring
               ? "cursor-not-allowed border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.6)] text-[var(--color-text-3)]"
               : "text-[oklch(0.14_0_0)] [background:linear-gradient(180deg,var(--color-accent-2),var(--color-accent))] shadow-[inset_0_1px_0_oklch(1_0_0_/_0.3),0_4px_14px_-4px_var(--color-accent-glow)]"
           }`}

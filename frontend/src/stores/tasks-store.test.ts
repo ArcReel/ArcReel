@@ -35,6 +35,50 @@ function task(overrides: Partial<TaskItem> & { task_id: string }): TaskItem {
   };
 }
 
+// 乐观标记 key 的构造（与 tasks-store 内部编码一致）。seq 只用于区分同资源上的并发
+// 标记，单条标记的测试取固定值即可。
+const TASK_ID_SEP = "\u0001";
+
+/** 在途标记：请求已发出、后端 task_id 未知。 */
+function pendingKey(
+  resourceKind: string,
+  resourceId: string,
+  pendingTaskType: string,
+  opts: { projectName?: string; seq?: number } = {},
+): string {
+  const { projectName = "proj", seq = 1 } = opts;
+  return `${projectName}\0${resourceKind}\0${resourceId}\0${pendingTaskType}\0${seq}\0`;
+}
+
+/** 已兑现标记：等待这些 task_id 的真实行落库。 */
+function settledKey(
+  resourceKind: string,
+  resourceId: string,
+  pendingTaskType: string,
+  taskIds: string[],
+  opts: { projectName?: string; seq?: number } = {},
+): string {
+  return pendingKey(resourceKind, resourceId, pendingTaskType, opts) + taskIds.join(TASK_ID_SEP);
+}
+
+function pendingScriptFileKey(
+  taskType: string,
+  scriptFile: string,
+  opts: { projectName?: string; seq?: number } = {},
+): string {
+  const { projectName = "proj", seq = 1 } = opts;
+  return `${projectName}\0${taskType}\0${scriptFile}\0${seq}\0`;
+}
+
+function settledScriptFileKey(
+  taskType: string,
+  scriptFile: string,
+  taskIds: string[],
+  opts: { projectName?: string; seq?: number } = {},
+): string {
+  return pendingScriptFileKey(taskType, scriptFile, opts) + taskIds.join(TASK_ID_SEP);
+}
+
 describe("isActiveStatus", () => {
   it("counts queued and running as active", () => {
     expect(isActiveStatus("queued")).toBe(true);
@@ -177,17 +221,15 @@ describe("selectActiveResourceIds with image_edit", () => {
 });
 
 describe("selectActiveResourceIds optimistic occupancy", () => {
-  it("counts a resource active via an optimistic marker when no real task row exists yet", () => {
-    // 提交成功但 SSE 尚未把任务行写进 store 的空窗：仅凭乐观标记也应判定占用（空 baseline）
-    const key = "proj\0character\0A\0image_edit\0";
+  it("counts a resource active via an in-flight marker when no real task row exists yet", () => {
+    // 请求已发出、后端 task_id 未知的往返窗口：仅凭在途标记也应判定占用
+    const key = pendingKey("character", "A", "image_edit");
     expect(selectActiveResourceIds([], "character", "proj", new Set([key])).has("A")).toBe(true);
   });
 
-  it("lets a real task row newer than the baseline supersede the optimistic marker regardless of its status", () => {
-    // 真实任务行一旦出现（哪怕已是终态），不再依赖乐观标记——但此时该行本身若是活跃态，
-    // 仍会通过 selectActiveResourceIds 主逻辑判定占用；这里验证的是"不因乐观标记残留而
-    // 对已完结的真实行仍强制判占用"
-    const key = "proj\0character\0A\0image_edit\0";
+  it("lets the marker's own task row supersede it regardless of that row's status", () => {
+    // 本次提交的任务行一旦出现（哪怕已是终态），占用判定就交回真实数据
+    const key = settledKey("character", "A", "image_edit", ["edit-A"]);
     const tasks = [
       task({
         task_id: "edit-A",
@@ -200,10 +242,10 @@ describe("selectActiveResourceIds optimistic occupancy", () => {
     expect(selectActiveResourceIds(tasks, "character", "proj", new Set([key])).has("A")).toBe(false);
   });
 
-  it("does not let a stale task row predating the baseline supersede a marker for a repeat edit", () => {
-    // 同一资源被反复编辑：本次标记的 baseline 取自上一次编辑遗留的终态行 updated_at，
-    // 该旧行本身不该被当作"本次"标记等待的真实行，否则二次编辑期间会误判空闲
-    const key = `proj\0character\0A\0image_edit\0${"2026-07-16T00:00:00Z"}`;
+  it("does not let another task row of the same resource supersede the marker", () => {
+    // 同一资源被反复编辑：上一次编辑遗留的终态行不是本次标记等待的行，
+    // 否则二次编辑期间会误判空闲
+    const key = settledKey("character", "A", "image_edit", ["edit-A-second"]);
     const tasks = [
       task({
         task_id: "edit-A-first",
@@ -217,8 +259,25 @@ describe("selectActiveResourceIds optimistic occupancy", () => {
     expect(selectActiveResourceIds(tasks, "character", "proj", new Set([key])).has("A")).toBe(true);
   });
 
+  it("keeps an in-flight marker alive no matter what rows the poll brings back", () => {
+    // 晚到的旧轮询快照里不会有本次提交的任务行；在途标记更不该被它清掉，
+    // 否则请求往返窗口内资源会被误判为空闲、可重复入队
+    const key = pendingKey("character", "A", "image_edit");
+    const stale = [
+      task({
+        task_id: "edit-A-first",
+        task_type: "image_edit",
+        resource_type: "character",
+        resource_id: "A",
+        status: "failed",
+        updated_at: "2999-01-01T00:00:00Z",
+      }),
+    ];
+    expect(selectActiveResourceIds(stale, "character", "proj", new Set([key])).has("A")).toBe(true);
+  });
+
   it("ignores an optimistic marker scoped to a different project or resource kind", () => {
-    const key = "proj\0character\0A\0image_edit\0";
+    const key = pendingKey("character", "A", "image_edit");
     expect(selectActiveResourceIds([], "storyboard", "proj", new Set([key])).has("A")).toBe(false);
     expect(selectActiveResourceIds([], "character", "other-proj", new Set([key])).has("A")).toBe(false);
   });
@@ -226,7 +285,7 @@ describe("selectActiveResourceIds optimistic occupancy", () => {
   it("does not let a same-resource_id task of a different resource kind supersede the marker", () => {
     // character "A" 与 scene "A" 偶然同名(resource_id 相同)：scene 的真实行不该
     // 让 character 的乐观标记失效
-    const key = "proj\0character\0A\0image_edit\0";
+    const key = settledKey("character", "A", "image_edit", ["edit-char-A"]);
     const tasks = [
       task({
         task_id: "edit-scene-A",
@@ -240,8 +299,65 @@ describe("selectActiveResourceIds optimistic occupancy", () => {
   });
 });
 
-describe("useTasksStore.markOptimisticActive", () => {
-  it("marks a resource optimistically active and prunes markers already superseded by a real row", () => {
+describe("useTasksStore.beginOptimisticActive", () => {
+  function activeIds(): Set<string> {
+    const { tasks, optimisticActive } = useTasksStore.getState();
+    return selectActiveResourceIds(tasks, "character", "proj", optimisticActive);
+  }
+
+  it("occupies the resource from the moment the mark is taken, before any task id is known", () => {
+    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+
+    useTasksStore.getState().beginOptimisticActive("proj", "character", "A", "image_edit");
+
+    expect(activeIds().has("A")).toBe(true);
+  });
+
+  it("releases the resource on rollback so a failed request leaves no residue", () => {
+    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+
+    const mark = useTasksStore.getState().beginOptimisticActive("proj", "character", "A", "image_edit");
+    mark.rollback();
+
+    expect([...useTasksStore.getState().optimisticActive]).toEqual([]);
+    expect(activeIds().has("A")).toBe(false);
+  });
+
+  it("treats settling with no task ids as a rollback", () => {
+    // 后端没建任何任务行（如宫格按 scene_ids 过滤后无匹配分组）：标记若留下就永远
+    // 等不到真实行，资源被误判为永久占用
+    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+
+    const mark = useTasksStore.getState().beginOptimisticActive("proj", "character", "A", "image_edit");
+    mark.settle([]);
+
+    expect([...useTasksStore.getState().optimisticActive]).toEqual([]);
+  });
+
+  it("keeps occupying until the settled task row lands", () => {
+    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+
+    const mark = useTasksStore.getState().beginOptimisticActive("proj", "character", "A", "image_edit");
+    mark.settle(["edit-A"]);
+    expect(activeIds().has("A")).toBe(true);
+
+    useTasksStore.getState().setTasks([
+      task({
+        task_id: "edit-A",
+        task_type: "image_edit",
+        resource_type: "character",
+        resource_id: "A",
+        status: "succeeded",
+      }),
+    ]);
+    expect([...useTasksStore.getState().optimisticActive]).toEqual([]);
+    expect(activeIds().has("A")).toBe(false);
+  });
+
+  it("releases immediately when the settled task row is already a terminal row in the store", () => {
+    // 去重命中既有任务：后端返回的是那条既有行的 task_id，它已在 store 里且已终态。
+    // 标记必须当场让位——按时间戳基线比较时这条行永远「不比基线新」，标记会永久残留、
+    // 把资源锁死到页面刷新为止。
     useTasksStore.setState({
       tasks: [
         task({
@@ -253,51 +369,57 @@ describe("useTasksStore.markOptimisticActive", () => {
           updated_at: "2026-07-16T00:00:00Z",
         }),
       ],
-      optimisticActive: new Set([`proj\0character\0A\0image_edit\0${"2025-01-01T00:00:00Z"}`]),
+      optimisticActive: new Set(),
     });
 
-    // 标记一个新资源 B 的同时，A 的旧标记（baseline 早于真实终态行）已被取代，应被顺带清理
-    useTasksStore.getState().markOptimisticActive("proj", "character", "B", "image_edit");
+    const mark = useTasksStore.getState().beginOptimisticActive("proj", "character", "A", "image_edit");
+    mark.settle(["edit-A"]);
 
-    const keys = [...useTasksStore.getState().optimisticActive];
-    expect(keys).toEqual(["proj\0character\0B\0image_edit\0"]);
+    expect([...useTasksStore.getState().optimisticActive]).toEqual([]);
+    expect(activeIds().has("A")).toBe(false);
   });
 
-  it("uses the latest matching real row's updated_at as baseline so a repeat edit isn't superseded by the old row", () => {
-    // A 已有一条旧终态行；对 A 发起新一轮编辑时，baseline 应取该旧行的 updated_at，
-    // 使得新标记不会被这条旧行自己判定为"已超越"
+  it("rolls back only its own mark when two submissions overlap on the same resource", () => {
+    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+
+    const first = useTasksStore.getState().beginOptimisticActive("proj", "character", "A", "image_edit");
+    useTasksStore.getState().beginOptimisticActive("proj", "character", "A", "image_edit");
+    first.rollback();
+
+    expect(useTasksStore.getState().optimisticActive.size).toBe(1);
+    expect(activeIds().has("A")).toBe(true);
+  });
+
+  it("prunes markers already released by their task row when taking a new mark", () => {
     useTasksStore.setState({
       tasks: [
         task({
-          task_id: "edit-A-first",
+          task_id: "edit-A",
           task_type: "image_edit",
           resource_type: "character",
           resource_id: "A",
           status: "succeeded",
-          updated_at: "2026-07-16T00:00:00Z",
         }),
       ],
-      optimisticActive: new Set(),
+      optimisticActive: new Set([settledKey("character", "A", "image_edit", ["edit-A"])]),
     });
 
-    useTasksStore.getState().markOptimisticActive("proj", "character", "A", "image_edit");
+    useTasksStore.getState().beginOptimisticActive("proj", "character", "B", "image_edit");
 
     const keys = [...useTasksStore.getState().optimisticActive];
-    expect(keys).toEqual([`proj\0character\0A\0image_edit\0${"2026-07-16T00:00:00Z"}`]);
-
-    const { tasks, optimisticActive } = useTasksStore.getState();
-    expect(selectActiveResourceIds(tasks, "character", "proj", optimisticActive).has("A")).toBe(true);
+    expect(keys).toHaveLength(1);
+    expect(keys[0].startsWith("proj\0character\0B\0image_edit\0")).toBe(true);
   });
 });
 
 describe("useTasksStore.setTasks prunes stale optimistic markers", () => {
-  it("removes a marker superseded by a real row even without a new markOptimisticActive call", () => {
+  it("removes a marker released by its task row even without a new mark call", () => {
     // store 只保留最近 200 条任务：真实行落地后若被更晚的大量新任务挤出该窗口，
-    // 仅靠 markOptimisticActive 内的顺带清理不会再触发——轮询写回本身也要清理，
-    // 否则这条已完结的旧标记会永久残留，把资源误判为占用中直到页面刷新。
+    // 仅靠打标时的顺带清理不会再触发——轮询写回本身也要清理，否则这条已完结的旧
+    // 标记会永久残留，把资源误判为占用中直到页面刷新。
     useTasksStore.setState({
       tasks: [],
-      optimisticActive: new Set([`proj\0character\0A\0image_edit\0${"2025-01-01T00:00:00Z"}`]),
+      optimisticActive: new Set([settledKey("character", "A", "image_edit", ["edit-A"])]),
     });
 
     useTasksStore.getState().setTasks([
@@ -314,19 +436,34 @@ describe("useTasksStore.setTasks prunes stale optimistic markers", () => {
     expect([...useTasksStore.getState().optimisticActive]).toEqual([]);
   });
 
-  it("keeps a marker whose real row has not landed yet", () => {
-    useTasksStore.setState({
-      tasks: [],
-      optimisticActive: new Set([`proj\0character\0A\0image_edit\0`]),
-    });
+  it("keeps a marker whose task row has not landed yet", () => {
+    const key = settledKey("character", "A", "image_edit", ["edit-A"]);
+    useTasksStore.setState({ tasks: [], optimisticActive: new Set([key]) });
 
     useTasksStore.getState().setTasks([
       task({ task_id: "unrelated", resource_id: "B", task_type: "character" }),
     ]);
 
-    expect([...useTasksStore.getState().optimisticActive]).toEqual([
-      `proj\0character\0A\0image_edit\0`,
+    expect([...useTasksStore.getState().optimisticActive]).toEqual([key]);
+  });
+
+  it("never drops an in-flight marker, even on a poll that carries newer unrelated rows", () => {
+    // 晚到轮询不覆盖较新的乐观标记：请求往返期间任何写回都不足以判定资源已空闲
+    const key = pendingKey("character", "A", "image_edit");
+    useTasksStore.setState({ tasks: [], optimisticActive: new Set([key]) });
+
+    useTasksStore.getState().setTasks([
+      task({
+        task_id: "edit-A-first",
+        task_type: "image_edit",
+        resource_type: "character",
+        resource_id: "A",
+        status: "failed",
+        updated_at: "2999-01-01T00:00:00Z",
+      }),
     ]);
+
+    expect([...useTasksStore.getState().optimisticActive]).toEqual([key]);
   });
 });
 
@@ -417,16 +554,16 @@ describe("selectHasActiveTaskForScriptFile", () => {
   });
 
   describe("optimistic occupancy", () => {
-    it("counts the scriptFile active via an optimistic marker when no real grid row exists yet", () => {
-      // 宫格入队成功到轮询写回新 grid 任务行之间的空窗：仅凭乐观标记也应判定本集占用中
-      const key = "proj\0grid\0episode_1.json\0";
+    it("counts the scriptFile active via an in-flight marker when no real grid row exists yet", () => {
+      // 宫格请求发出到轮询写回新 grid 任务行之间的空窗：仅凭乐观标记也应判定本集占用中
+      const key = pendingScriptFileKey("grid", "episode_1.json");
       expect(
         selectHasActiveTaskForScriptFile([], "grid", "episode_1.json", "proj", new Set([key])),
       ).toBe(true);
     });
 
-    it("lets a real grid row newer than the baseline supersede the marker regardless of its status", () => {
-      const key = "proj\0grid\0episode_1.json\0";
+    it("lets the marker's own grid row supersede it regardless of that row's status", () => {
+      const key = settledScriptFileKey("grid", "episode_1.json", ["grid-1"]);
       const tasks = [
         task({
           task_id: "grid-1",
@@ -441,8 +578,40 @@ describe("selectHasActiveTaskForScriptFile", () => {
       ).toBe(false);
     });
 
-    it("does not let a stale row predating the baseline supersede a marker for a repeat submission", () => {
-      const key = `proj\0grid\0episode_1.json\0${"2026-07-16T00:00:00Z"}`;
+    it("releases only after all of the marker's rows land", () => {
+      // 一次宫格入队会建多条任务行；只落地一条就交回真实数据的话，「首条已终态、
+      // 其余尚未进入快照」的窗口里 scriptFile 会被误判为空闲。
+      const key = settledScriptFileKey("grid", "episode_1.json", ["grid-1", "grid-2"]);
+      const landedOne = [
+        task({
+          task_id: "grid-2",
+          task_type: "grid",
+          resource_id: "grid-def",
+          script_file: "episode_1.json",
+          status: "succeeded",
+        }),
+      ];
+      expect(
+        selectHasActiveTaskForScriptFile(landedOne, "grid", "episode_1.json", "proj", new Set([key])),
+      ).toBe(true); // 仅一条落地且已终态，标记继续守住剩余那条
+
+      const landedAll = [
+        ...landedOne,
+        task({
+          task_id: "grid-1",
+          task_type: "grid",
+          resource_id: "grid-abc",
+          script_file: "episode_1.json",
+          status: "succeeded",
+        }),
+      ];
+      expect(
+        selectHasActiveTaskForScriptFile(landedAll, "grid", "episode_1.json", "proj", new Set([key])),
+      ).toBe(false); // 全部落地且均已终态，标记让位
+    });
+
+    it("does not let another submission's grid row supersede the marker", () => {
+      const key = settledScriptFileKey("grid", "episode_1.json", ["grid-new"]);
       const tasks = [
         task({
           task_id: "grid-old",
@@ -459,7 +628,7 @@ describe("selectHasActiveTaskForScriptFile", () => {
     });
 
     it("ignores a marker scoped to a different project, task type, or scriptFile", () => {
-      const key = "proj\0grid\0episode_1.json\0";
+      const key = pendingScriptFileKey("grid", "episode_1.json");
       expect(
         selectHasActiveTaskForScriptFile([], "storyboard", "episode_1.json", "proj", new Set([key])),
       ).toBe(false);
@@ -473,32 +642,51 @@ describe("selectHasActiveTaskForScriptFile", () => {
   });
 });
 
-describe("useTasksStore.markOptimisticActiveForScriptFile", () => {
-  it("marks a scriptFile optimistically active for the given taskType", () => {
+describe("useTasksStore.beginOptimisticActiveForScriptFile", () => {
+  function scriptFileActive(scriptFile = "episode_1.json"): boolean {
+    const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+    return selectHasActiveTaskForScriptFile(tasks, "grid", scriptFile, "proj", optimisticActiveScriptFile);
+  }
+
+  it("occupies the scriptFile from the moment the mark is taken", () => {
     useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
 
-    useTasksStore.getState().markOptimisticActiveForScriptFile("proj", "grid", "episode_1.json");
+    useTasksStore.getState().beginOptimisticActiveForScriptFile("proj", "grid", "episode_1.json");
 
-    const keys = [...useTasksStore.getState().optimisticActiveScriptFile];
-    expect(keys).toEqual(["proj\0grid\0episode_1.json\0"]);
-
-    const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
-    expect(
-      selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "proj", optimisticActiveScriptFile),
-    ).toBe(true);
+    expect(scriptFileActive()).toBe(true);
   });
 
   it("normalizes a scripts/ prefix in the scriptFile before storing the key", () => {
     useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
 
-    useTasksStore.getState().markOptimisticActiveForScriptFile("proj", "grid", "scripts/episode_1.json");
+    useTasksStore.getState().beginOptimisticActiveForScriptFile("proj", "grid", "scripts/episode_1.json");
 
-    expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([
-      "proj\0grid\0episode_1.json\0",
-    ]);
+    // 带前缀打的标记，用裸文件名查询也要命中
+    expect(scriptFileActive("episode_1.json")).toBe(true);
   });
 
-  it("prunes markers already superseded by a real row when marking a different scriptFile", () => {
+  it("releases the scriptFile on rollback", () => {
+    useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
+
+    const mark = useTasksStore.getState().beginOptimisticActiveForScriptFile("proj", "grid", "episode_1.json");
+    mark.rollback();
+
+    expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([]);
+    expect(scriptFileActive()).toBe(false);
+  });
+
+  it("treats settling with no task ids as a rollback", () => {
+    // 宫格按 scene_ids 过滤后无匹配分组时后端不建任务行，标记不能留下
+    useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
+
+    const mark = useTasksStore.getState().beginOptimisticActiveForScriptFile("proj", "grid", "episode_1.json");
+    mark.settle([]);
+
+    expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([]);
+    expect(scriptFileActive()).toBe(false);
+  });
+
+  it("prunes markers already released by their task row when taking a new mark", () => {
     useTasksStore.setState({
       tasks: [
         task({
@@ -510,21 +698,22 @@ describe("useTasksStore.markOptimisticActiveForScriptFile", () => {
           updated_at: "2026-07-16T00:00:00Z",
         }),
       ],
-      optimisticActiveScriptFile: new Set([`proj\0grid\0episode_1.json\0${"2025-01-01T00:00:00Z"}`]),
+      optimisticActiveScriptFile: new Set([settledScriptFileKey("grid", "episode_1.json", ["grid-1"])]),
     });
 
-    useTasksStore.getState().markOptimisticActiveForScriptFile("proj", "grid", "episode_2.json");
+    useTasksStore.getState().beginOptimisticActiveForScriptFile("proj", "grid", "episode_2.json");
 
     const keys = [...useTasksStore.getState().optimisticActiveScriptFile];
-    expect(keys).toEqual(["proj\0grid\0episode_2.json\0"]);
+    expect(keys).toHaveLength(1);
+    expect(keys[0].startsWith("proj\0grid\0episode_2.json\0")).toBe(true);
   });
 });
 
 describe("useTasksStore.setTasks prunes stale optimisticActiveScriptFile markers", () => {
-  it("removes a scriptFile marker superseded by a real row without a new mark call", () => {
+  it("removes a scriptFile marker released by its task row without a new mark call", () => {
     useTasksStore.setState({
       tasks: [],
-      optimisticActiveScriptFile: new Set([`proj\0grid\0episode_1.json\0${"2025-01-01T00:00:00Z"}`]),
+      optimisticActiveScriptFile: new Set([settledScriptFileKey("grid", "episode_1.json", ["grid-1"])]),
     });
 
     useTasksStore.getState().setTasks([
@@ -538,6 +727,89 @@ describe("useTasksStore.setTasks prunes stale optimisticActiveScriptFile markers
       }),
     ]);
 
+    expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([]);
+  });
+
+  it("多条任务行分两轮落地也让位，不要求同一快照里同时出现", () => {
+    // 轮询每次只取最新 200 行，单次入队产生的任务行数没有上限：若要求所有 task_id
+    // 在同一快照里同时出现，超出窗口的批次会永久残留、锁死分镜编辑直到刷新页面。
+    const key = settledScriptFileKey("grid", "episode_1.json", ["grid-1", "grid-2"]);
+    useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set([key]) });
+
+    const row = (taskId: string, resourceId: string) =>
+      task({
+        task_id: taskId,
+        task_type: "grid",
+        resource_id: resourceId,
+        script_file: "episode_1.json",
+        status: "succeeded",
+        updated_at: "2026-07-16T00:00:00Z",
+      });
+
+    // 第一轮只看得到 grid-1：扣除它，标记继续守住 grid-2
+    useTasksStore.getState().setTasks([row("grid-1", "grid-abc")]);
+    const afterFirst = [...useTasksStore.getState().optimisticActiveScriptFile];
+    expect(afterFirst).toHaveLength(1);
+    expect(
+      selectHasActiveTaskForScriptFile(
+        useTasksStore.getState().tasks,
+        "grid",
+        "episode_1.json",
+        "proj",
+        useTasksStore.getState().optimisticActiveScriptFile,
+      ),
+    ).toBe(true);
+
+    // 第二轮 grid-1 已被挤出窗口、只剩 grid-2：扣完，标记让位
+    useTasksStore.getState().setTasks([row("grid-2", "grid-def")]);
+    expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([]);
+  });
+
+  it("一次提交建多条任务行时，只落地其中一条不让位", () => {
+    // 宫格按分组逐条入队：首条已快速失败、其余尚未进入快照的窗口里，若按「任一落地」
+    // 让位，scriptFile 既无乐观标记也无活跃真实行，分镜编辑会短暂解禁并与后续切割竞争。
+    const key = settledScriptFileKey("grid", "episode_1.json", ["grid-1", "grid-2"]);
+    useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set([key]) });
+
+    useTasksStore.getState().setTasks([
+      task({
+        task_id: "grid-1",
+        task_type: "grid",
+        resource_id: "grid-abc",
+        script_file: "episode_1.json",
+        status: "failed",
+        updated_at: "2026-07-16T00:00:00Z",
+      }),
+    ]);
+    // 已落地的 grid-1 被扣除，标记仍在等 grid-2——占用按 selector 断言，不比对 key 字面量
+    expect(
+      selectHasActiveTaskForScriptFile(
+        useTasksStore.getState().tasks,
+        "grid",
+        "episode_1.json",
+        "proj",
+        useTasksStore.getState().optimisticActiveScriptFile,
+      ),
+    ).toBe(true);
+
+    useTasksStore.getState().setTasks([
+      task({
+        task_id: "grid-1",
+        task_type: "grid",
+        resource_id: "grid-abc",
+        script_file: "episode_1.json",
+        status: "failed",
+        updated_at: "2026-07-16T00:00:00Z",
+      }),
+      task({
+        task_id: "grid-2",
+        task_type: "grid",
+        resource_id: "grid-def",
+        script_file: "episode_1.json",
+        status: "running",
+        updated_at: "2026-07-16T00:00:01Z",
+      }),
+    ]);
     expect([...useTasksStore.getState().optimisticActiveScriptFile]).toEqual([]);
   });
 });
