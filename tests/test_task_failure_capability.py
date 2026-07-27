@@ -392,6 +392,27 @@ def test_bound_reason_shrinks_oversized_non_string_params():
     assert "video_duration_invalid" not in rendered
 
 
+def test_bound_reason_shrinks_escape_heavy_params():
+    """转义后翻倍的参数也要收窄成合法信封，而不是被判定「砍不动」退回裸切片。
+
+    超额长度以编码后的字符计，而 ``"`` / ``\\`` 经 JSON 转义占两列：拿它直接当要砍的原始
+    字符数比较，会把原始长度小于超额长度、但实际收窄后装得下的参数误判成无从收窄。
+    """
+    names = "\\" * 900
+    stored = encode_failure("image_reference_images_unreadable", names=names)
+    # 转义让编码长度约为原始长度的两倍——正是误判成立的前提。
+    assert len(stored) > 2 * len(names)
+
+    bounded = bound_reason(stored, 900)
+
+    assert len(bounded) <= 900
+    rendered = render_failure(bounded, _translator("en"))
+    assert rendered is not None
+    assert "image_reference_images_unreadable" not in rendered
+    # 预算够放下相当一部分参数时就不该削空——诊断内容是这条原因的全部价值。
+    assert len(json.loads(bounded.split(" ", 1)[1])["names"]) > 100
+
+
 def _oversized_envelope() -> str:
     """一个超出 2000 字符预算、且整体仍是合法 ``[code] {params}`` 的信封。
 

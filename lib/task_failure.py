@@ -130,6 +130,9 @@ def bound_reason(reason: str, limit: int) -> str:
     ``video_duration_invalid`` 回显的是调用方拒绝的原始配置值，导入或手工编辑的
     ``project.json`` 能把它写成一个大数组——而 JSON 原生类型不经 ``default=str``，
     没有字符串参数可收窄时就会退到裸切片，把信封切在 JSON 中途。
+
+    裁剪按重新编码后的实际长度迭代收敛，不用一次算准的差值：``"`` 与 ``\\`` 之类的字符经
+    JSON 转义后占两列，超额长度与原始字符数不等长，一次估算会把本可收窄的参数误判成砍不动。
     """
     if len(reason) <= limit:
         return reason
@@ -158,10 +161,17 @@ def bound_reason(reason: str, limit: int) -> str:
     encoded = encode_failure(code, **params)
     while len(encoded) > limit:
         longest_key = max(string_keys, key=lambda k: len(params[k]))
-        deficit = len(encoded) - limit
-        if len(params[longest_key]) <= deficit:
+        current: str = params[longest_key]
+        if not current:
+            # 字符串参数全被削空仍超限，说明预算连信封骨架都装不下，只能退回按字符裁剪。
             return reason[:limit]
-        params[longest_key] = params[longest_key][: len(params[longest_key]) - deficit]
+        # 超额长度以编码后的字符计，而原始字符经 JSON 转义可能占多列，两者不等长：拿它当
+        # 要砍的原始字符数只是个下界估算，砍完重编码再看，直到真正装下为止。估算超过参数
+        # 自身长度时改砍一半而非削空——转义参数的超额长度常大于原始长度，一次削空会把本
+        # 可保留的诊断内容全丢掉。至少砍一个字符保证收敛。
+        deficit = len(encoded) - limit
+        drop = deficit if deficit < len(current) else max(1, len(current) // 2)
+        params[longest_key] = current[: len(current) - drop]
         encoded = encode_failure(code, **params)
     return encoded
 
