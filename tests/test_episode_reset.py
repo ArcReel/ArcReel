@@ -756,7 +756,7 @@ def test_partial_reset_rejects_when_retain_boundary_unanchored(tmp_path: Path) -
     )
     before = _load_project(project_dir)
 
-    with pytest.raises(EpisodeResetError, match="缺少原文范围记录"):
+    with pytest.raises(EpisodeResetError, match="缺少可信的原文范围记录"):
         reset_episode_planning(project_dir, from_episode=2)
 
     assert _load_project(project_dir) == before
@@ -791,7 +791,7 @@ def test_partial_reset_rejects_when_retained_range_out_of_bounds(tmp_path: Path)
     )
     before = _load_project(project_dir)
 
-    with pytest.raises(EpisodeResetError, match="越界"):
+    with pytest.raises(EpisodeResetError, match="原文范围无效"):
         reset_episode_planning(project_dir, from_episode=2)
 
     assert _load_project(project_dir) == before
@@ -916,6 +916,44 @@ def test_partial_reset_rejects_mid_sequence_unanchored_entry(tmp_path: Path) -> 
     assert _load_project(project_dir) == before
 
 
+def test_partial_reset_rejects_zero_length_retained_range(tmp_path: Path) -> None:
+    """保留段坐标 start == end（零长度）时拒绝：与 EpisodePlanner 重排校验的
+    ``start < end`` 口径一致，否则会保留一个空集并让游标退到起点，造成编号错位。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[
+            _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 0}),
+            _entry(2, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10}),
+        ],
+    )
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="原文范围无效"):
+        reset_episode_planning(project_dir, from_episode=2)
+
+    assert _load_project(project_dir) == before
+
+
+def test_partial_reset_rejects_retain_boundary_pending_backfill(tmp_path: Path) -> None:
+    """游标退回点缺少 ledger_status（``backfill_episode_ledger`` 眼中待回填）：账本里
+    存的 source_range 未必是下一次 plan() 回填后的最终结果，不可信，拒绝而非直接采信。"""
+    project_dir = _write_project(tmp_path)
+    project = _load_project(project_dir)
+    entry = _entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})
+    del entry["ledger_status"]
+    project["episodes"] = [
+        entry,
+        _entry(2, source_range={"source_file": "source/novel.txt", "start": 10, "end": 20}),
+    ]
+    (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    before = _load_project(project_dir)
+
+    with pytest.raises(EpisodeResetError, match="缺少可信的原文范围记录"):
+        reset_episode_planning(project_dir, from_episode=2)
+
+    assert _load_project(project_dir) == before
+
+
 def test_partial_reset_rejects_unanchored_status_with_forged_source_range(tmp_path: Path) -> None:
     """游标退回点标 unanchored 但仍带结构合法、坐标连续的 source_range：不采信该坐标——
     规划器同样不认它，采信会让重置写出一个规划器自己都不承认的游标。"""
@@ -932,7 +970,7 @@ def test_partial_reset_rejects_unanchored_status_with_forged_source_range(tmp_pa
     )
     before = _load_project(project_dir)
 
-    with pytest.raises(EpisodeResetError, match="缺少原文范围记录"):
+    with pytest.raises(EpisodeResetError, match="缺少可信的原文范围记录"):
         reset_episode_planning(project_dir, from_episode=2)
 
     assert _load_project(project_dir) == before

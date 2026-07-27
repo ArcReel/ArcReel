@@ -286,15 +286,17 @@ def _resolve_partial_reset_cursor(
     - 全部已记录源文指纹须与当前源文一致（``mismatched_source_fingerprints``，与
       ``EpisodePlanner`` 的提交门禁同一套逃生口）
     - 保留段（1..from_episode-1）每一集若带可信的 ``source_range``，须结构完整、
-      落在对应源文件当前长度界内；第 1 集起点须为 0，且排序中排在其源文件之前的
+      落在对应源文件当前长度界内且非空（``start < end``，与 ``EpisodePlanner``
+      对重排范围的校验口径一致）；第 1 集起点须为 0，且排序中排在其源文件之前的
       文件全部只剩空白（``EpisodePlanner`` 会自动跳过纯空白源文件，第 1 集因此可能
       合法落在非首个文件）；相邻两条记录须首尾相接——同一源文件内后一条 ``start``
       须等于前一条 ``end``，跨源文件时须切到排序中下一个仍有内容的文件、起点为 0、
       且被跳过的中间文件（含切出点所在文件的剩余部分）全部只剩空白
-      （``ledger_status == "unanchored"`` 的条目视为无坐标可信，不参与坐标校验；
-      若这类条目出现在保留段中间，其后任何锚定记录都无法证明与已验证内容衔接，
-      直接拒绝——规划器同样不采信这类条目的 ``source_range``，见
-      ``EpisodePlanner._reconcile_derived_files``）
+      （``ledger_status`` 为 ``"unanchored"`` 或缺失（``None``，即待
+      ``backfill_episode_ledger`` 回填、当前坐标未必是最终结果）的条目均视为无
+      坐标可信，不参与坐标校验；若这类条目出现在保留段中间，其后任何锚定记录都
+      无法证明与已验证内容衔接，直接拒绝——规划器同样不采信 unanchored 条目的
+      ``source_range``，见 ``EpisodePlanner._reconcile_derived_files``）
     """
     raw_episodes = project.get("episodes")
     if not isinstance(raw_episodes, list):
@@ -352,19 +354,25 @@ def _resolve_partial_reset_cursor(
     prev: tuple[str, int] | None = None
     for num in range(1, from_episode):
         entry = entries_by_num[num]
-        has_range = isinstance(entry.get("source_range"), Mapping) and entry.get("ledger_status") != "unanchored"
+        # ledger_status 缺失（None）是 backfill_episode_ledger 眼中的「待回填」条目：
+        # 下一次 plan() 会按物理集文件重新核实/改写它的 source_range，此刻账本里存的
+        # 坐标未必是回填后的最终结果，与 unanchored 一样不可信，不能据此推算游标
+        has_range = isinstance(entry.get("source_range"), Mapping) and entry.get("ledger_status") not in (
+            None,
+            "unanchored",
+        )
         if not has_range:
-            prev = None  # unanchored 保留集没有可信坐标，物理文件本身即其最终记录
+            prev = None  # 无可信坐标，切断连续性比较
             continue
         coords = _parse_source_range(entry)
         if coords is None:
             raise EpisodeResetError(f"第 {num} 集原文范围记录非法，无法安全部分重置，{_FULL_RESET_HINT}")
         rel, start, end = coords
         text = text_by_rel.get(rel)
-        if text is None or not (0 <= start <= end <= len(text)):
+        if text is None or not (0 <= start < end <= len(text)):
             length = len(text) if text is not None else 0
             raise EpisodeResetError(
-                f"第 {num} 集原文范围越界（源文件 {rel} 当前长度 {length}，记录范围 [{start}, {end})），"
+                f"第 {num} 集原文范围无效（源文件 {rel} 当前长度 {length}，记录范围 [{start}, {end})），"
                 f"无法安全部分重置，{_FULL_RESET_HINT}"
             )
         if prev is None:
@@ -424,7 +432,8 @@ def _resolve_partial_reset_cursor(
 
     if prev is None:
         raise EpisodeResetError(
-            f"第 {retain_num} 集缺少原文范围记录（unanchored），无法确定部分重置后的规划起点，{_FULL_RESET_HINT}"
+            f"第 {retain_num} 集缺少可信的原文范围记录（unanchored 或待回填），"
+            f"无法确定部分重置后的规划起点，{_FULL_RESET_HINT}"
         )
     retain_rel, retain_end = prev
     return retain_rel, retain_end
