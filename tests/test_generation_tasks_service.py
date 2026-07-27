@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -572,6 +573,175 @@ class TestGenerationTasks:
         )
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
+
+    @pytest.mark.integration
+    async def test_execute_video_task_storyboard_image_legacy_grid_filename_resolves(self, monkeypatch, tmp_path):
+        """旧宫格项目 storyboard_image 指向 scene_{id}_first.png（非 canonical 文件名），只要落在
+        storyboards/ 目录内就正常解析——与 end_frame_image 不同，这里不要求文件名与 canonical
+        路径逐一比对。"""
+        project_path = _prepare_files(tmp_path)
+        (project_path / "storyboards" / "scene_E1S01_first.png").write_bytes(b"png")
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01_first.png"}
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {"script_file": "episode_1.json", "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []}},
+        )
+
+        assert fake_generator.video_calls[0]["start_image"] == project_path / "storyboards" / "scene_E1S01_first.png"
+
+    @pytest.mark.integration
+    async def test_execute_video_task_missing_storyboard_image_fails_hard(self, monkeypatch, tmp_path):
+        """storyboard_image 字段指向的文件缺失时硬失败，不调用后端生成。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_missing.png"}
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="storyboard not found"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.parametrize(
+        ("storyboard_value", "expected_message"),
+        [
+            # 越界与脏数据：统称非法路径
+            ("/etc/passwd", "invalid storyboard image path"),  # 绝对路径：裸 `/` 拼接会整体丢弃左操作数
+            ("../../outside.png", "invalid storyboard image path"),  # `..` 穿越出项目目录
+            (123, "invalid storyboard image path"),  # 剧本 JSON 里的脏数据（非字符串）须可读失败而非 TypeError
+            (0, "invalid storyboard image path"),  # falsy 脏数据：真值判断不得当成「未设置」而静默回退默认路径
+            (False, "invalid storyboard image path"),  # 同上
+            ([], "invalid storyboard image path"),  # 同上
+            ({}, "invalid storyboard image path"),  # 同上
+            # 目录归属：项目内但不在 storyboards/，措辞需与越界区分，便于定位外部编辑过的剧本
+            ("storyboards/../end_frames/scene_E1S01.png", "must stay under storyboards/"),
+            ("end_frames/scene_E1S01.png", "must stay under storyboards/"),
+        ],
+    )
+    @pytest.mark.integration
+    async def test_execute_video_task_storyboard_image_outside_dir_fails_hard(
+        self, monkeypatch, tmp_path, storyboard_value, expected_message
+    ):
+        """剧本是磁盘 JSON，storyboard_image 字段不可信：越界 / 绕开 storyboards 目录 / 脏数据
+        一律硬失败，不把任意服务器文件送进视频请求上传给供应商。"""
+        project_path = _prepare_files(tmp_path)
+        (tmp_path / "outside.png").write_bytes(b"png")
+        end_frame_dir = project_path / "end_frames"
+        end_frame_dir.mkdir(parents=True, exist_ok=True)
+        (end_frame_dir / "scene_E1S01.png").write_bytes(b"png")
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": storyboard_value}
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match=re.escape(expected_message)):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
+    async def test_execute_video_task_storyboard_image_absolute_path_inside_project_fails_hard(
+        self, monkeypatch, tmp_path
+    ):
+        """storyboard_image 是项目 storyboards/ 内的绝对路径时同样硬失败：`os.path.join` 遇绝对
+        路径会丢弃项目根，越界校验只看结果是否落在项目内，光靠目录归属挡不住这类值，须显式拒绝
+        绝对路径本身。"""
+        project_path = _prepare_files(tmp_path)
+        (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        absolute_value = str(project_path / "storyboards" / "scene_E1S01.png")
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": absolute_value}
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="invalid storyboard image path"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
+    async def test_execute_video_task_storyboard_image_rooted_no_drive_path_fails_hard(self, monkeypatch, tmp_path):
+        """storyboard_image 是无盘符的根路径（如 `\\Users\\...`）时同样硬失败：`Path.is_absolute()`
+        在 Windows 原生运行时对这类值返回 False，但 `os.path.join` 遇到根路径仍会丢弃项目根（仅
+        保留 base 的盘符），须按正斜杠归一化后单独判断根分隔符开头。"""
+        project_path = _prepare_files(tmp_path)
+        (project_path / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "\\Users\\Alice\\scene.png"}
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="invalid storyboard image path"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
+
+    @pytest.mark.integration
+    async def test_execute_video_task_storyboard_image_pointing_to_directory_fails_hard(self, monkeypatch, tmp_path):
+        """storyboard_image 指向 storyboards/ 内一个存在的目录（而非文件）时硬失败：目录同样
+        通过 `exists()`，若不显式要求是文件，目录会被当作 start_image 传给视频后端，在编码阶段
+        才失败且原因不可读。"""
+        project_path = _prepare_files(tmp_path)
+        (project_path / "storyboards" / "subdir").mkdir(parents=True)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/subdir"}
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+
+        with pytest.raises(ValueError, match="storyboard not found"):
+            await generation_tasks.execute_video_task(
+                "demo",
+                "E1S01",
+                {
+                    "script_file": "episode_1.json",
+                    "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                },
+            )
+        assert fake_generator.video_calls == []
 
     @pytest.mark.integration
     async def test_execute_video_task_end_frame_image_passed_to_generator(self, monkeypatch, tmp_path):
