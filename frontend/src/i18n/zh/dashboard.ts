@@ -1420,6 +1420,9 @@ export default {
   'ad_ref_preview_video_aria': '分组 {{id}} 的成片',
   'ad_ref_busy': '该分组正在生成中，请稍后再试',
   'ad_ref_rederive_busy': '有分组正在生成中，暂不可派生',
+  'ad_ref_shot_duration_label': '{{shot_id}} 时长',
+  'ad_ref_shot_voiceover_label': '{{shot_id}} 口播文案',
+  'ad_ref_edit_regenerate_hint': '该分组已生成，编辑镜头时长或文案后需重新生成才能生效',
   'workspace_nav_products': '产品',
 
   // ---- 项目大厅 · Darkroom ----

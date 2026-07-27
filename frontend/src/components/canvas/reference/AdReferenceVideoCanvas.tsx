@@ -36,6 +36,19 @@ export interface AdReferenceVideoCanvasProps {
   shots: AdShot[];
   /** 剧本（scripts/episode_N.json）是否已生成 */
   hasScript: boolean;
+  scriptFile?: string;
+  durationOptions?: number[];
+  /**
+   * 镜头时长/口播文案的轻量编辑写入口；未提供（演示态/只读）时镜头明细
+   * 降级为纯文本展示，与其余画布的只读判定保持一致。scriptFile 由本组件
+   * 自行透传，与 TimelineCanvas / GridImageToVideoCanvas 同一约定。
+   */
+  onUpdatePrompt?: (
+    segmentId: string,
+    fieldOrPatch: string | Record<string, unknown>,
+    value?: unknown,
+    scriptFile?: string,
+  ) => void | Promise<void>;
 }
 
 /** 分组视图模型：派生索引 + 本地剧本水合出的成员镜头、时长与失效标记。 */
@@ -62,6 +75,9 @@ export function AdReferenceVideoCanvas({
   canEditTitle,
   shots,
   hasScript,
+  scriptFile,
+  durationOptions,
+  onUpdatePrompt,
 }: AdReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
   const [units, setUnits] = useState<AdReferenceUnit[] | null>(null);
@@ -171,6 +187,21 @@ export function AdReferenceVideoCanvas({
     [projectName, episode, t],
   );
 
+  // 提交前复核最新占用态：展开编辑期间若该 unit 已被其他入口（批量生成、Agent
+  // 入队等）占用，放弃这次写入而非与生成中的任务乱序落库——与 generateUnit 同一判定口径。
+  const commitShotField = useCallback(
+    (unitId: string, shotId: string, patch: Record<string, unknown>) => {
+      if (!onUpdatePrompt) return;
+      const { tasks, optimisticActive } = useTasksStore.getState();
+      if (selectActiveResourceIds(tasks, "reference_video", projectName, optimisticActive).has(unitId)) {
+        useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
+        return;
+      }
+      void onUpdatePrompt(shotId, patch, undefined, scriptFile);
+    },
+    [onUpdatePrompt, projectName, scriptFile, t],
+  );
+
   const generateAll = useCallback(async () => {
     // 先重新派生（保证索引与 shots 一致），再为未完成且空闲的 unit 入队
     const fresh = await derive();
@@ -268,10 +299,18 @@ export function AdReferenceVideoCanvas({
                 errorMessage={tasksByUnit.get(unit.unit_id)?.error_message ?? null}
                 projectName={projectName}
                 deriving={deriving}
+                durationOptions={durationOptions ?? []}
+                editable={!!onUpdatePrompt}
                 onGenerate={(unitId) => {
                   setError(null);
                   void generateUnit(unitId);
                 }}
+                onEditDuration={(shotId, seconds) =>
+                  commitShotField(unit.unit_id, shotId, { duration_seconds: seconds })
+                }
+                onEditVoiceover={(shotId, textValue) =>
+                  commitShotField(unit.unit_id, shotId, { voiceover_text: textValue })
+                }
               />
             ))}
           </ul>
@@ -298,7 +337,12 @@ interface AdUnitCardProps {
   errorMessage: string | null;
   projectName: string;
   deriving: boolean;
+  durationOptions: number[];
+  /** 未传 onUpdatePrompt（演示态/只读）时降级为纯文本展示，不渲染编辑控件。 */
+  editable: boolean;
   onGenerate: (unitId: string) => void;
+  onEditDuration: (shotId: string, seconds: number) => void;
+  onEditVoiceover: (shotId: string, text: string) => void;
 }
 
 function AdUnitCard({
@@ -312,7 +356,11 @@ function AdUnitCard({
   errorMessage,
   projectName,
   deriving,
+  durationOptions,
+  editable,
   onGenerate,
+  onEditDuration,
+  onEditVoiceover,
 }: AdUnitCardProps) {
   const { t } = useTranslation("dashboard");
   const clip = unit.generated_assets?.video_clip ?? null;
@@ -371,9 +419,25 @@ function AdUnitCard({
           <h4 className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-4)]">
             {t("ad_ref_member_shots")}
           </h4>
+          {editable && clip && (
+            <p className="mb-1.5 text-[11px] text-amber-300">{t("ad_ref_edit_regenerate_hint")}</p>
+          )}
           <ol className="flex flex-col gap-1.5">
             {members.map((shot, i) => {
               const shotId = unit.shot_ids[i];
+              if (editable && shot) {
+                return (
+                  <li key={shotId}>
+                    <ShotLightEditor
+                      shot={shot}
+                      durationOptions={durationOptions}
+                      disabled={busy}
+                      onCommitDuration={onEditDuration}
+                      onCommitVoiceover={onEditVoiceover}
+                    />
+                  </li>
+                );
+              }
               return (
                 <li
                   key={shotId}
@@ -486,5 +550,68 @@ function AdUnitCard({
         </div>
       </div>
     </li>
+  );
+}
+
+interface ShotLightEditorProps {
+  shot: AdShot;
+  durationOptions: number[];
+  disabled: boolean;
+  onCommitDuration: (shotId: string, seconds: number) => void;
+  onCommitVoiceover: (shotId: string, text: string) => void;
+}
+
+/**
+ * 镜头级轻量编辑：时长本质是生视频 prompt 的文本控制而非真实视频时长，
+ * 故用即选即提交的下拉框而非重交互控件；口播文案失焦提交，避免逐键触发写请求。
+ */
+function ShotLightEditor({
+  shot,
+  durationOptions,
+  disabled,
+  onCommitDuration,
+  onCommitVoiceover,
+}: ShotLightEditorProps) {
+  const { t } = useTranslation("dashboard");
+  const [draftText, setDraftText] = useState<string | null>(null);
+  const text = draftText ?? shot.voiceover_text;
+  // 时长能力尚未解析出来时，至少保留镜头当前值可选，不虚构范围
+  const options = durationOptions.length > 0 ? durationOptions : [shot.duration_seconds];
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded bg-[oklch(0.22_0.012_250_/_0.5)] px-2.5 py-1.5 text-[12px]">
+      <span className="font-mono font-medium text-[var(--color-text-2)]" translate="no">
+        {shot.shot_id}
+      </span>
+      {shot.section && <span className="text-[11px] text-[var(--color-text-4)]">{shot.section}</span>}
+      <select
+        aria-label={t("ad_ref_shot_duration_label", { shot_id: shot.shot_id })}
+        className="focus-ring rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-1.5 py-0.5 text-[11.5px] text-[var(--color-text-2)]"
+        value={shot.duration_seconds}
+        disabled={disabled}
+        onChange={(e) => onCommitDuration(shot.shot_id, parseInt(e.target.value, 10))}
+      >
+        {options.map((d) => (
+          <option key={d} value={d}>
+            {t("duration_seconds_value_text", { value: d })}
+          </option>
+        ))}
+      </select>
+      <input
+        type="text"
+        aria-label={t("ad_ref_shot_voiceover_label", { shot_id: shot.shot_id })}
+        className="focus-ring min-w-0 flex-1 rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-1.5 py-0.5 text-[11.5px] text-[var(--color-text-2)]"
+        value={text}
+        disabled={disabled}
+        onChange={(e) => setDraftText(e.target.value)}
+        onBlur={() => {
+          if (draftText !== null && draftText !== shot.voiceover_text) {
+            onCommitVoiceover(shot.shot_id, draftText);
+          }
+          setDraftText(null);
+        }}
+        placeholder={t("detail_voiceover_placeholder")}
+      />
+    </div>
   );
 }

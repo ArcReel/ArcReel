@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AdReferenceVideoCanvas } from "./AdReferenceVideoCanvas";
+import { AdReferenceVideoCanvas, type AdReferenceVideoCanvasProps } from "./AdReferenceVideoCanvas";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@/stores/tasks-store";
@@ -64,7 +64,14 @@ function makeUnit(overrides: Partial<AdReferenceUnit> = {}): AdReferenceUnit {
 
 const SHOTS = [makeShot("E1S1", 3), makeShot("E1S2", 2)];
 
-function renderCanvas(props: { shots?: AdShot[]; hasScript?: boolean } = {}) {
+function renderCanvas(
+  props: {
+    shots?: AdShot[];
+    hasScript?: boolean;
+    onUpdatePrompt?: AdReferenceVideoCanvasProps["onUpdatePrompt"];
+    durationOptions?: number[];
+  } = {},
+) {
   return render(
     <AdReferenceVideoCanvas
       projectName="demo"
@@ -72,6 +79,9 @@ function renderCanvas(props: { shots?: AdShot[]; hasScript?: boolean } = {}) {
       episodeTitle="广告片"
       shots={props.shots ?? SHOTS}
       hasScript={props.hasScript ?? true}
+      scriptFile="episode_1.json"
+      onUpdatePrompt={props.onUpdatePrompt}
+      durationOptions={props.durationOptions}
     />,
   );
 }
@@ -502,5 +512,107 @@ describe("AdReferenceVideoCanvas", () => {
       expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledWith("demo", 1, "E1U2"),
     );
     expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledTimes(1);
+  });
+
+  it("未传 onUpdatePrompt（只读）时镜头明细不渲染编辑控件", async () => {
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+
+    renderCanvas();
+    await screen.findByText("E1U1");
+
+    expect(screen.queryByRole("combobox", { name: /E1S1 时长/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /E1S1 口播文案/ })).not.toBeInTheDocument();
+  });
+
+  it("传入 onUpdatePrompt 时可编辑镜头时长（即选即提交）与口播文案（失焦提交）", async () => {
+    const onUpdatePrompt = vi.fn();
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+
+    renderCanvas({ onUpdatePrompt, durationOptions: [3, 5, 7] });
+    await screen.findByText("E1U1");
+
+    const durationSelect = await screen.findByRole("combobox", { name: /E1S1 时长/ });
+    await userEvent.selectOptions(durationSelect, "7");
+    expect(onUpdatePrompt).toHaveBeenCalledWith(
+      "E1S1",
+      { duration_seconds: 7 },
+      undefined,
+      "episode_1.json",
+    );
+
+    const voiceoverInput = screen.getByRole("textbox", { name: /E1S1 口播文案/ });
+    await userEvent.clear(voiceoverInput);
+    await userEvent.type(voiceoverInput, "新文案");
+    await userEvent.tab();
+    expect(onUpdatePrompt).toHaveBeenCalledWith(
+      "E1S1",
+      { voiceover_text: "新文案" },
+      undefined,
+      "episode_1.json",
+    );
+  });
+
+  it("已生成的分组展示需重新生成才能生效的提示", async () => {
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({
+      units: [makeUnit({ generated_assets: { video_clip: "reference_videos/E1U1.mp4", status: "completed" } })],
+    });
+
+    renderCanvas({ onUpdatePrompt: vi.fn() });
+
+    expect(await screen.findByText(/该分组已生成.*需重新生成才能生效/)).toBeInTheDocument();
+  });
+
+  it("生成中的分组镜头编辑控件禁用", async () => {
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "demo",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "running",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+
+    renderCanvas({ onUpdatePrompt: vi.fn() });
+
+    expect(await screen.findByRole("combobox", { name: /E1S1 时长/ })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: /E1S1 口播文案/ })).toBeDisabled();
+  });
+
+  it("响应式占用信号尚未追上真实 store 时，镜头编辑提交仍被 getState() 新鲜读拦截", async () => {
+    const onUpdatePrompt = vi.fn();
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
+    vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
+
+    renderCanvas({ onUpdatePrompt, durationOptions: [3, 7] });
+    const durationSelect = await screen.findByRole("combobox", { name: /E1S1 时长/ });
+    expect(durationSelect).not.toBeDisabled();
+
+    // 渲染之后、提交之前，另一入口（如批量生成）已把该 unit 占用
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "t1",
+          project_name: "demo",
+          task_type: "reference_video",
+          resource_id: "E1U1",
+          status: "running",
+          updated_at: "2026-06-12T10:00:00Z",
+        },
+      ] as never,
+    });
+
+    await userEvent.selectOptions(durationSelect, "7");
+
+    await waitFor(() => {
+      expect(pushToast).toHaveBeenCalledWith("该分组正在生成中，请稍后再试", "error");
+    });
+    expect(onUpdatePrompt).not.toHaveBeenCalled();
   });
 });
