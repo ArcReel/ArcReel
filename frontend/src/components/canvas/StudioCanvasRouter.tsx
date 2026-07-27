@@ -187,10 +187,15 @@ export function StudioCanvasRouter() {
 
   // 刷新项目数据；返回本地 store 是否已同步成功，供调用方决定是否推进依赖新顺序的 UI 状态。
   // 在途合并 + 失败留旧收敛于 projects-store 的 refreshProject，此处仅表达意图。
+  // "cancelled"（项目切换取消域轮换等）与 "failed" 在这里都不算已同步，统一按 false
+  // 处理——本地调用方只用这个值决定是否推进 UI 状态，不弹错误提示，故无需再细分。
   const refreshProject = useCallback(
     (invalidateKeys: string[] = []): Promise<boolean> =>
       currentProjectName
-        ? useProjectsStore.getState().refreshProject(currentProjectName, { invalidateKeys })
+        ? useProjectsStore
+            .getState()
+            .refreshProject(currentProjectName, { invalidateKeys })
+            .then((result) => result === "success")
         : Promise.resolve(false),
     [currentProjectName],
   );

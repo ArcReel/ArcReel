@@ -149,9 +149,10 @@ export function EndFrameRow({
     useAppStore.getState().pushToast(t(successKey, { id: segmentId }), "success");
     // 快照路径固定、换图原地覆盖，须重取项目数据拿新的资产指纹才能 cache-bust。
     // refreshProject 内部吞掉请求错误、以返回值表达结果（从不 reject）：写入已经成功，
-    // 刷新失败要单独提示，不能把它误报成尾帧写入失败。
-    const refreshed = await useProjectsStore.getState().refreshProject(projectName);
-    if (!refreshed) {
+    // 刷新失败要单独提示，不能把它误报成尾帧写入失败；刷新被项目切换取消则不代表出错，
+    // 静默跳过，否则设置尾帧后立刻切项目会误报一条刷新失败。
+    const refreshResult = await useProjectsStore.getState().refreshProject(projectName);
+    if (refreshResult === "failed") {
       useAppStore.getState().pushToast(t("end_frame_refresh_failed"), "error");
     }
   };

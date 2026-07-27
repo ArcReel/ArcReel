@@ -2,7 +2,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { useProjectsStore } from "@/stores/projects-store";
+import { type RefreshProjectResult, useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { TaskItem, VideoCapabilities } from "@/types";
 import { EndFrameRow } from "./EndFrameRow";
@@ -63,7 +63,9 @@ function renderRow(props: Partial<Parameters<typeof EndFrameRow>[0]> = {}) {
   );
 }
 
-const refreshProject = vi.fn().mockResolvedValue(true);
+// mock 的结果值用 satisfies 钉在 RefreshProjectResult 上：vi.fn() 本身不受 setState 的
+// 类型约束，联合成员改名时若不钉住，这里会静默停留在过期字面量上而测试照常通过。
+const refreshProject = vi.fn().mockResolvedValue("success" satisfies RefreshProjectResult);
 
 beforeEach(() => {
   vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(true));
@@ -249,7 +251,7 @@ describe("EndFrameRow 占用态", () => {
   });
 
   it("写入成功但刷新项目失败：提示刷新失败而非写入失败", async () => {
-    refreshProject.mockResolvedValueOnce(false);
+    refreshProject.mockResolvedValueOnce("failed" satisfies RefreshProjectResult);
     vi
       .spyOn(API, "selectEndFrame")
       .mockResolvedValue({ success: true, end_frame_image: "end_frames/scene_E1S01.png" });
@@ -264,6 +266,27 @@ describe("EndFrameRow 占用态", () => {
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toMatch(/页面数据刷新失败/);
     });
+  });
+
+  it("写入成功但刷新恰好被项目切换取消：不误报刷新失败", async () => {
+    refreshProject.mockResolvedValueOnce("cancelled" satisfies RefreshProjectResult);
+    vi
+      .spyOn(API, "selectEndFrame")
+      .mockResolvedValue({ success: true, end_frame_image: "end_frames/scene_E1S01.png" });
+    const { getByRole, findByText, findByRole } = renderRow();
+    await findByText("未设置");
+
+    fireEvent.click(getByRole("button", { name: /尾帧/ }));
+    fireEvent.click(getByRole("button", { name: "选择图片" }));
+    fireEvent.click(await findByRole("button", { name: /镜头 E1S01/ }));
+    fireEvent.click(getByRole("button", { name: "设为尾帧" }));
+
+    await waitFor(() => {
+      expect(refreshProject).toHaveBeenCalledWith(PROJECT);
+    });
+    // 写入成功的提示保留，不被追加或覆盖为刷新失败提示。
+    expect(useAppStore.getState().toast?.text).not.toMatch(/页面数据刷新失败/);
+    expect(useAppStore.getState().toast?.tone).toBe("success");
   });
 
   it("提交在途状态经 onSubmittingChange 回传父级", async () => {
