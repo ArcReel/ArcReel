@@ -30,6 +30,22 @@ from server.agent_runtime.sdk_tools._context import ToolContext, tool_error
 _MAX_INSTRUCTIONS_LEN = 4000
 
 
+def _require_positive_int(args: dict[str, Any], key: str) -> int:
+    """取必填正整数入参。``bool`` 是 ``int`` 子类，须单独排除以免 ``true`` 被当成 1。"""
+    value = args[key]
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError(f"{key} 必须是正整数，收到 {value!r}")
+    return value
+
+
+def _optional_bool(args: dict[str, Any], key: str) -> bool:
+    """取可选布尔入参，缺省为 False。确认类开关不做真值化，非布尔一律拒绝。"""
+    value = args.get(key, False)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} 必须是布尔值（JSON true/false），收到 {value!r}")
+    return value
+
+
 def _render_ledger_stats(stats: LedgerStats) -> list[str]:
     """全局核对材料：累计集数、最小体量集、中位数、目标体量，附一句面向主 agent 的核对指令。"""
     lines = [f"累计总集数：{stats.total_episodes}"]
@@ -156,10 +172,7 @@ def replan_episodes_tool(ctx: ToolContext):
         # 参数校验与 planner 调用分属两个 try：校验阶段的 KeyError/ValueError 才算参数错误，
         # planner 内部（如供应商未配置）抛出的 ValueError 走 tool_error 通用路径，不被误标。
         try:
-            raw_from_episode = args["from_episode"]
-            if not isinstance(raw_from_episode, int) or isinstance(raw_from_episode, bool) or raw_from_episode < 1:
-                raise ValueError(f"from_episode 必须是正整数，收到 {raw_from_episode!r}")
-            from_episode = raw_from_episode
+            from_episode = _require_positive_int(args, "from_episode")
             raw_instructions = args["instructions"]
             if not isinstance(raw_instructions, str):
                 raise ValueError(f"instructions 必须是字符串，收到 {type(raw_instructions).__name__}")
@@ -170,10 +183,7 @@ def replan_episodes_tool(ctx: ToolContext):
                 raise ValueError(
                     f"instructions 过长（{len(raw_instructions)} 字符，上限 {_MAX_INSTRUCTIONS_LEN}），请精简后重试"
                 )
-            raw_confirm = args.get("confirm_consumed", False)
-            if not isinstance(raw_confirm, bool):
-                raise ValueError(f"confirm_consumed 必须是布尔值（JSON true/false），收到 {raw_confirm!r}")
-            confirm_consumed = raw_confirm
+            confirm_consumed = _optional_bool(args, "confirm_consumed")
         except (KeyError, ValueError) as exc:
             return {"content": [{"type": "text", "text": f"❌ 参数错误：{exc}"}], "is_error": True}
 
@@ -235,14 +245,8 @@ def reset_episode_planning_tool(ctx: ToolContext):
     )
     async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            raw_from_episode = args["from_episode"]
-            if not isinstance(raw_from_episode, int) or isinstance(raw_from_episode, bool) or raw_from_episode < 1:
-                raise ValueError(f"from_episode 必须是正整数，收到 {raw_from_episode!r}")
-            from_episode = raw_from_episode
-            raw_confirm = args.get("confirm_consumed", False)
-            if not isinstance(raw_confirm, bool):
-                raise ValueError(f"confirm_consumed 必须是布尔值（JSON true/false），收到 {raw_confirm!r}")
-            confirm_consumed = raw_confirm
+            from_episode = _require_positive_int(args, "from_episode")
+            confirm_consumed = _optional_bool(args, "confirm_consumed")
         except (KeyError, ValueError) as exc:
             return {"content": [{"type": "text", "text": f"❌ 参数错误：{exc}"}], "is_error": True}
 

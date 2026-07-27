@@ -197,9 +197,11 @@ def reset_episode_planning(
             archived_files=[_rel(project_dir, path) for path in plan.archives],
         )
 
-    committed: dict[str, Any] = {}
+    # 结果只能在锁内（按锁内复扫的实际处置）拼出，用闭包变量带回锁外
+    committed: EpisodeResetResult | None = None
 
     def _commit(p: dict[str, Any]) -> None:
+        nonlocal committed
         # 锁内重新扫描：确认清单是锁外读取时刻的快照，期间新消费的集不在用户确认范围内
         current = _scan(project_dir, p)
         if any(num not in plan.consumed for num in current.consumed):
@@ -208,25 +210,24 @@ def reset_episode_planning(
         p["planning_cursor"] = None
         p.pop(SOURCE_FINGERPRINTS_KEY, None)
         deleted, archived = _apply_files(project_dir, current)
-        committed["removed"] = current.episode_nums
-        committed["consumed"] = current.consumed
-        committed["deleted"] = deleted
-        committed["archived"] = archived
+        committed = EpisodeResetResult(
+            removed_episodes=current.episode_nums,
+            deleted_files=deleted,
+            archived_files=archived,
+            consumed_episodes=current.consumed,
+        )
 
     pm.update_project(project_name, _commit)
+    if committed is None:  # pragma: no cover - update_project 必然调用 mutate_fn
+        raise EpisodeResetError("重置未执行：账本更新回调未被调用")
     logger.info(
         "分集规划已全量重置：项目 %s，清空 %d 集，删除派生文件 %d 个，留底 %d 个",
         project_name,
-        len(committed["removed"]),
-        len(committed["deleted"]),
-        len(committed["archived"]),
+        len(committed.removed_episodes),
+        len(committed.deleted_files),
+        len(committed.archived_files),
     )
-    return EpisodeResetResult(
-        removed_episodes=committed["removed"],
-        deleted_files=committed["deleted"],
-        archived_files=committed["archived"],
-        consumed_episodes=committed["consumed"],
-    )
+    return committed
 
 
 __all__ = [

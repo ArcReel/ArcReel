@@ -200,6 +200,27 @@ def test_orphan_episode_file_archived(tmp_path: Path) -> None:
     assert discover_episode_files(project_dir) == {}
 
 
+def test_file_failure_aborts_and_leaves_ledger_intact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """文件处置失败硬失败：账本写回随之回滚，避免留下「账本已空但残留文件会被重新认领」的中间态。"""
+    project_dir = _write_project(
+        tmp_path,
+        episodes=[_entry(1, source_range={"source_file": "source/novel.txt", "start": 0, "end": 10})],
+        planning_cursor={"source_file": "source/novel.txt", "offset": 10},
+    )
+    (project_dir / "source" / "episode_1.txt").write_text(SOURCE[:10], encoding="utf-8")
+    before = _load_project(project_dir)
+
+    def _boom(self: Path, missing_ok: bool = False) -> None:
+        raise OSError("device busy")
+
+    monkeypatch.setattr(Path, "unlink", _boom)
+
+    with pytest.raises(EpisodeResetError, match="派生集文件删除失败"):
+        reset_episode_planning(project_dir, from_episode=1)
+
+    assert _load_project(project_dir) == before
+
+
 # ---------------------------------------------------------------------------
 # 已消费集的二段确认
 # ---------------------------------------------------------------------------
