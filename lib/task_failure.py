@@ -144,7 +144,9 @@ def bound_reason(reason: str, limit: int) -> str:
         return reason[:limit]
     try:
         parsed = json.loads(raw_params)
-    except ValueError:
+    except (ValueError, RecursionError):
+        # 畸形 JSON，以及嵌套过深到 ``json.loads`` 自身撞递归上限的 params。裁剪发生在落库
+        # 路径上，异常逸出会让任务卡在 running，因此一并按不可解析处理，退回按字符裁剪。
         return reason[:limit]
     if not isinstance(parsed, dict):
         return reason[:limit]

@@ -392,9 +392,23 @@ def test_bound_reason_shrinks_oversized_non_string_params():
     assert "video_duration_invalid" not in rendered
 
 
-def test_bound_reason_degrades_when_param_json_hits_recursion_limit(monkeypatch):
-    """嵌套过深的参数量不出长度时降级为省略号，而不是把异常抛进落库路径。"""
-    stored = '[video_duration_invalid] {"duration": [[[1]]]}' + "x" * 3000
+def _oversized_envelope() -> str:
+    """一个超出 2000 字符预算、且整体仍是合法 ``[code] {params}`` 的信封。
+
+    超长部分必须落在 JSON 内部：拼在 ``}`` 之后的尾巴会让 ``_STRUCTURED_RE`` 失配，裁剪在
+    进入 ``json`` 之前就返回，测不到本节要测的降级路径。
+    """
+    stored = encode_failure("video_duration_invalid", duration="x" * 3000)
+    assert len(stored) > 2000
+    return stored
+
+
+def test_as_shrinkable_degrades_when_param_json_hits_recursion_limit(monkeypatch):
+    """嵌套过深的参数量不出长度时降级为省略号，而不是把异常抛进落库路径。
+
+    只断言 ``_as_shrinkable`` 本身：经它归一后 ``params`` 全是扁平字符串，``encode_failure``
+    的 ``dumps`` 已无从撞上限，再去断言 ``bound_reason`` 只能靠全局打桩造出不可达的场景。
+    """
 
     def _boom(*_args, **_kwargs):
         raise RecursionError("maximum recursion depth exceeded")
@@ -402,4 +416,15 @@ def test_bound_reason_degrades_when_param_json_hits_recursion_limit(monkeypatch)
     monkeypatch.setattr(task_failure.json, "dumps", _boom)
 
     assert task_failure._as_shrinkable([[[1]]]) == "…"
-    assert len(bound_reason(stored, 2000)) <= 2000
+
+
+def test_bound_reason_degrades_when_params_json_load_hits_recursion_limit(monkeypatch):
+    """params 深到 ``json.loads`` 自身撞递归上限时退回字符裁剪，而不是把异常抛进落库路径。"""
+    stored = _oversized_envelope()
+
+    def _boom(*_args, **_kwargs):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(task_failure.json, "loads", _boom)
+
+    assert bound_reason(stored, 2000) == stored[:2000]
