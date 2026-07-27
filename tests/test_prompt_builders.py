@@ -55,7 +55,7 @@ class TestScenePromptAndPropPrompt:
 
 
 class TestFigureExclusion:
-    """展示环境 / 物件的图种排除人物；画面主体本就是人的图种不能排。"""
+    """展示环境或物件的图种排除人物；画面主体本身是人物的图种不排除。"""
 
     def test_environment_and_object_sheets_exclude_people(self):
         assert "人物" in build_scene_prompt("祠堂", "昏暗古朴")
@@ -63,7 +63,7 @@ class TestFigureExclusion:
         assert "人物" in build_product_prompt("护手霜", "白色管装，哑光质感")
 
     def test_character_and_storyboard_keep_people(self):
-        # 四类资产各持一条尾巴而非共用：合并省事，但会把「人物」误排给画面主体本就是人的图种。
+        # 四类资产的反向提示词各自定义而非共用，避免把「人物」排除项误加到主体为人物的图种上。
         assert "人物" not in build_character_prompt("张三", "短发青年")
         assert "人物" not in append_image_negative_tail("林清坐在窗边木桌前")
 
