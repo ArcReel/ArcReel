@@ -61,6 +61,70 @@ export function lookupSupportedDurations(
 }
 
 // ---------------------------------------------------------------------------
+// Duration constraints
+//
+// 时长并非只由 supported_durations 决定：部分模型（当前是 Veo 全系）在高分辨率或参考图
+// 路径下把时长收窄到单一取值。约束声明在后端 registry 的 ModelInfo 上，这里只做消费——
+// UI 据此收窄可选项，用户就不会选到入队后必然被拒的组合。
+// ---------------------------------------------------------------------------
+
+export interface DurationConstraints {
+  /** 分辨率（小写）→ 该分辨率下允许的时长 */
+  byResolution: Record<string, number[]>;
+  /** 使用参考图时允许的时长；空数组 = 无额外约束 */
+  withReferenceImages: number[];
+}
+
+const EMPTY_CONSTRAINTS: DurationConstraints = { byResolution: {}, withReferenceImages: [] };
+
+/** 读取该 (provider, model) 的时长联动约束。自定义供应商不表达这类约束，返回空。 */
+export function lookupDurationConstraints(
+  providers: ProviderInfo[],
+  videoBackend: string,
+): DurationConstraints {
+  const slashIdx = videoBackend.indexOf("/");
+  if (slashIdx === -1) return EMPTY_CONSTRAINTS;
+  const providerId = videoBackend.slice(0, slashIdx);
+  if (providerId.startsWith(CUSTOM_PREFIX)) return EMPTY_CONSTRAINTS;
+
+  const provider = providers.find((p) => p.id === providerId);
+  const model = provider?.models?.[videoBackend.slice(slashIdx + 1)];
+  if (!model) return EMPTY_CONSTRAINTS;
+
+  const byResolution: Record<string, number[]> = {};
+  for (const [resolution, durations] of Object.entries(
+    model.duration_resolution_constraints ?? {},
+  )) {
+    byResolution[resolution.toLowerCase()] = durations;
+  }
+  return { byResolution, withReferenceImages: model.reference_image_durations ?? [] };
+}
+
+/**
+ * 按当前分辨率与是否走参考图路径收窄时长候选。
+ *
+ * 两条约束各自独立触发、可同时生效，取交集。交集为空说明声明之间自相矛盾（不该发生），
+ * 此时保留原候选而非清空——留一个空的时长选择器会让用户无从操作，且后端仍有执行期拦截。
+ */
+export function constrainDurations(
+  durations: readonly number[],
+  constraints: DurationConstraints,
+  ctx: { resolution?: string | null; usesReferenceImages?: boolean },
+): number[] {
+  let allowed = [...durations];
+  if (ctx.usesReferenceImages && constraints.withReferenceImages.length > 0) {
+    allowed = allowed.filter((d) => constraints.withReferenceImages.includes(d));
+  }
+  const byResolution = ctx.resolution
+    ? constraints.byResolution[ctx.resolution.toLowerCase()]
+    : undefined;
+  if (byResolution?.length) {
+    allowed = allowed.filter((d) => byResolution.includes(d));
+  }
+  return allowed.length > 0 ? allowed : [...durations];
+}
+
+// ---------------------------------------------------------------------------
 // Resolution lookup
 // ---------------------------------------------------------------------------
 

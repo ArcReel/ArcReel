@@ -416,6 +416,7 @@ export function CreateProjectModal() {
               data={step2Data}
               error={step2Error}
               hideDuration={basics.contentMode === "ad"}
+              usesReferenceImages={basics.generationMode === "reference_video"}
             />
           )}
           {step === 3 && (

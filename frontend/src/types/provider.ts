@@ -5,6 +5,8 @@ export interface ModelInfoResponse {
   default: boolean;
   supported_durations: number[];
   duration_resolution_constraints: Record<string, number[]>;
+  // 使用参考图时允许的时长；空 = 参考图路径不额外约束时长。
+  reference_image_durations?: number[];
   resolutions: string[];
 }
 

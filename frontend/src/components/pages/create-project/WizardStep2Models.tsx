@@ -34,6 +34,8 @@ export interface WizardStep2ModelsProps {
   error: string | null;
   /** ad 项目不暴露 default_duration（镜头时长按目标总时长规划）。 */
   hideDuration?: boolean;
+  /** 上一步选定的生成模式是否为参考生视频——参考图路径可能收窄可选时长。 */
+  usesReferenceImages?: boolean;
 }
 
 export function WizardStep2Models({
@@ -45,6 +47,7 @@ export function WizardStep2Models({
   data,
   error,
   hideDuration = false,
+  usesReferenceImages = false,
 }: WizardStep2ModelsProps) {
   const { t } = useTranslation(["common", "templates"]);
   const loading = !data && !error;
@@ -79,6 +82,7 @@ export function WizardStep2Models({
             providerNames: data.options.providerNames,
           }}
           globalDefaults={data.globalDefaults}
+          usesReferenceImages={usesReferenceImages}
           enable={hideDuration ? { duration: false } : undefined}
         />
       )}
