@@ -32,6 +32,7 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "resume_expired_detail": "task_fail_resume_expired_detail",
     # ScriptEditError.key 本身就是 errors.py 的 key（见 lib/script_editor.py），无需前缀间接层。
     "script_edit_error": "script_edit_error",
+    "script_edit_items_not_list": "script_edit_items_not_list",
     "script_edit_unit_lists_invalid": "script_edit_unit_lists_invalid",
     "script_edit_generated_assets_invalid": "script_edit_generated_assets_invalid",
 }

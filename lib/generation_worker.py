@@ -671,7 +671,16 @@ class GenerationWorker:
             raise
         except Exception as exc:
             logger.exception("任务失败 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
-            message = encode_failure(exc.key, **exc.params) if isinstance(exc, ScriptEditError) else str(exc)
+            message = str(exc)
+            if isinstance(exc, ScriptEditError):
+                try:
+                    message = encode_failure(exc.key, **exc.params)
+                except (KeyError, TypeError):
+                    # exc.key 未登记进 FAILURE_CODE_KEYS，或 params 不可 JSON 序列化——两个列表
+                    # 靠约定同步而非运行时校验，脱节时降级到通用 key 而非让编码异常打断
+                    # mark_task_failed，否则任务会卡死在 running 终态之外。
+                    logger.warning("ScriptEditError key 未登记，降级为通用失败原因: key=%s", exc.key)
+                    message = encode_failure("script_edit_error")
             rows = await asyncio.shield(self.queue.mark_task_failed(task_id, message))
             if rows == 0:
                 # 外部已抢先翻 cancelling → 落地 cancelled 终态
