@@ -23,7 +23,20 @@ logger = logging.getLogger(__name__)
 
 
 class ScriptEditError(ValueError):
-    """剧本编辑操作非法（id 未命中、数组越界、拆分份数不足、字段路径不存在等）。"""
+    """剧本编辑操作非法（id 未命中、数组越界、拆分份数不足、字段路径不存在等）。
+
+    多数 raise 点只被 MCP 工具（`server/agent_runtime/sdk_tools/patch_script.py`）消费,
+    str(self) 的中文文案是 agent-facing、按 CLAUDE.md 豁免 i18n。唯一会经 HTTP 路由回传
+    给终端用户的是 `resolve_items` 的"数组键损坏"错误（`server/error_handlers.py` /
+    `end_frames.py` / `shot_uploads.py` / `reference_videos.py` 统一按 `Accept-Language`
+    翻译该场景），故只有它显式传 ``key``/``params``；其余 raise 点沿用默认 key，
+    翻译为通用兜底文案而非把中文 str(self) 直接嵌进已翻译的响应模板。
+    """
+
+    def __init__(self, message: str, *, key: str = "script_edit_error", **params: Any) -> None:
+        super().__init__(message)
+        self.key = key
+        self.params = params
 
 
 def resolve_items(script: dict[str, Any]) -> tuple[list[dict[str, Any]], str, str]:
@@ -41,7 +54,13 @@ def resolve_items(script: dict[str, Any]) -> tuple[list[dict[str, Any]], str, st
         return [], id_field, kind
     items = script[kind]
     if not isinstance(items, list):
-        raise ScriptEditError(f"{kind} 必须是列表，当前为 {type(items).__name__}")
+        type_name = type(items).__name__
+        raise ScriptEditError(
+            f"{kind} 必须是列表，当前为 {type_name}",
+            key="script_edit_items_not_list",
+            kind=kind,
+            type_name=type_name,
+        )
     return items, id_field, kind
 
 

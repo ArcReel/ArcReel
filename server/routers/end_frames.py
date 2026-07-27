@@ -54,7 +54,8 @@ def _translated_errors(script_file: str, _t: Translator) -> Iterator[None]:
         # 不回传 str(exc)：load_script 的异常信息含服务器绝对路径
         raise NotFoundError("script_not_found", name=script_file) from exc
     except ScriptEditError as e:
-        raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=str(e)))
+        # reason 经 e.key/e.params 按请求语言翻译，不直接嵌 str(e)（固定中文，会混入 en/vi 响应）
+        raise HTTPException(status_code=400, detail=_t("script_data_corrupted", reason=_t(e.key, **e.params)))
     except (HTTPException, ApiError):
         raise
     except Exception as e:

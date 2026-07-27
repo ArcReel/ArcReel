@@ -86,9 +86,11 @@ def register_error_handlers(
 
     @app.exception_handler(ScriptEditError)
     async def _handle_script_edit_error(request: Request, exc: ScriptEditError) -> JSONResponse:
-        # 脏脚本（分镜数组键损坏等）→ 4xx 客户端错误；reason 是结构性描述，不含服务器路径
+        # 脏脚本（分镜数组键损坏等）→ 4xx 客户端错误；reason 经 exc.key/exc.params 按请求语言
+        # 翻译，不直接嵌 str(exc)（其文案固定中文，会在 en/vi 响应里混入中文原文）
         _t = get_translator(request)
-        return JSONResponse(status_code=400, content={"detail": _t("script_data_corrupted", reason=str(exc))})
+        reason = _t(exc.key, **exc.params)
+        return JSONResponse(status_code=400, content={"detail": _t("script_data_corrupted", reason=reason)})
 
     @app.exception_handler(FileNotFoundError)
     async def _handle_file_not_found(request: Request, exc: FileNotFoundError) -> JSONResponse:

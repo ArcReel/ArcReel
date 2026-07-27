@@ -39,6 +39,15 @@ def _make_client() -> TestClient:
     async def _script_edit_error():
         raise ScriptEditError("segments 必须是列表，当前为 NoneType")
 
+    @app.get("/script-edit-error-keyed")
+    async def _script_edit_error_keyed():
+        raise ScriptEditError(
+            "segments 必须是列表，当前为 NoneType",
+            key="script_edit_items_not_list",
+            kind="segments",
+            type_name="NoneType",
+        )
+
     @app.get("/file-not-found")
     async def _file_not_found():
         raise FileNotFoundError(f"剧本文件不存在: {_SERVER_PATH}")
@@ -94,6 +103,24 @@ class TestLibExceptionHandlers:
         resp = client.get("/script-edit-error")
         assert resp.status_code == 400
         assert "损坏" in resp.json()["detail"]
+
+    def test_script_edit_error_keyed_reason_translated_en(self):
+        """带 key/params 的 ScriptEditError（如 resolve_items 抛出的那种）en 请求下，
+        reason 须按英文翻译，不得混入中文原文（issue #1353）。"""
+        client = _make_client()
+        resp = client.get("/script-edit-error-keyed", headers={"Accept-Language": "en"})
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert detail == "Script data is corrupted: segments must be a list, but got NoneType"
+        assert not any("一" <= ch <= "鿿" for ch in detail)
+
+    def test_script_edit_error_keyed_reason_translated_vi(self):
+        client = _make_client()
+        resp = client.get("/script-edit-error-keyed", headers={"Accept-Language": "vi"})
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert detail == "Dữ liệu kịch bản bị hỏng: segments phải là một danh sách, nhưng nhận được NoneType"
+        assert not any("一" <= ch <= "鿿" for ch in detail)
 
     def test_file_not_found_404_hides_server_path(self):
         client = _make_client()
