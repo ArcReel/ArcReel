@@ -506,11 +506,23 @@ class TestProjectEventService:
                     source="worker",
                 )
 
+                # 排空所有 payload 再统计：补扫走独立 payload，去重回归时重复的那条会落在
+                # 紧随其后的另一条 payload 里，只看第一条的话护栏形同虚设
+                broadcast_changes = []
                 event_name, payload = await _next_event(stream, timeout=2.0)
                 assert event_name == "changes"
+                broadcast_changes.extend(payload["changes"])
+                while True:
+                    try:
+                        event_name, payload = await _next_event(stream, timeout=0.5)
+                    except TimeoutError:
+                        break
+                    assert event_name == "changes"
+                    broadcast_changes.extend(payload["changes"])
+
                 ready = [
                     change
-                    for change in payload["changes"]
+                    for change in broadcast_changes
                     if change["action"] == "storyboard_ready" and change["entity_id"] == "E1S01"
                 ]
                 assert len(ready) == 1
