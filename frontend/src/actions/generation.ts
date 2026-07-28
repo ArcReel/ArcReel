@@ -17,7 +17,12 @@
 import { API } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
-import { useTasksStore, type OptimisticHandle } from "@/stores/tasks-store";
+import {
+  useTasksStore,
+  type ImageEditResourceKind,
+  type OptimisticHandle,
+  type ResourceKind,
+} from "@/stores/tasks-store";
 
 export interface EnqueueResult {
   taskIds: string[];
@@ -44,7 +49,7 @@ function notifyEnqueued(
 /** 资源粒度乐观标记的简写（请求发出前调用）。 */
 function markResource(
   projectName: string,
-  resourceKind: string,
+  resourceKind: ResourceKind,
   resourceId: string,
   pendingTaskType: string,
 ): OptimisticHandle {
@@ -210,7 +215,7 @@ export async function enqueueProduct(
 export async function enqueueImageEdit(
   projectName: string,
   params: {
-    resourceType: "character" | "scene" | "prop" | "product" | "storyboard";
+    resourceType: ImageEditResourceKind;
     resourceId: string;
     instruction: string;
     scriptFile?: string | null;

@@ -8,14 +8,11 @@ import {
   isResourceBusy,
   selectHasActiveTaskForScriptFile,
   useTasksStore,
-  type ResourceKind,
+  type ImageEditResourceKind,
 } from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
 
-export type ImageEditResourceType = Extract<
-  ResourceKind,
-  "character" | "scene" | "prop" | "product" | "storyboard"
->;
+export type ImageEditResourceType = ImageEditResourceKind;
 
 interface ImageEditButtonProps {
   projectName: string;

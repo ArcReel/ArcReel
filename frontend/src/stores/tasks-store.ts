@@ -8,6 +8,30 @@ import type { TaskItem, TaskStats, TaskStatus } from "@/types";
 const TASKS_PAGE_SIZE = 200;
 
 /**
+ * 占用判定关心的全量资源种类（不含 image_edit——它按 resource_type 归入其中之一）。
+ *
+ * 占用集的读写两侧共用这一个真相源：写侧 {@link TasksState.beginOptimisticActive} 打标、
+ * 读侧 {@link selectActiveResourceIds} 过滤，两侧的 kind 拼写必须一致才能匹配上同一个槽。
+ * 收紧为联合类型即为把「拼错就静默不占用」的失败模式提前到编译期。
+ */
+export type ResourceKind =
+  | "character"
+  | "scene"
+  | "prop"
+  | "product"
+  | "storyboard"
+  | "video"
+  | "tts"
+  | "reference_video"
+  | "grid";
+
+/** 可做指令式编辑的资源种类；`image_edit` 任务按此归入对应资源槽。 */
+export type ImageEditResourceKind = Extract<
+  ResourceKind,
+  "character" | "scene" | "prop" | "product" | "storyboard"
+>;
+
+/**
  * 刷新作用域：`projectName === null` 表示「不按项目过滤」（拉全局任务），整个 scope 为
  * `null` 表示「未启用」——此时 {@link TasksState.refreshTasks} 不发请求。作用域由
  * `useTaskRefresh` 单点登记，其余入口（项目事件 SSE 推来的任务终态）只调 refreshTasks、
@@ -57,7 +81,7 @@ interface TasksState {
   refreshTasks: () => Promise<void>;
   beginOptimisticActive: (
     projectName: string,
-    resourceKind: string,
+    resourceKind: ResourceKind,
     resourceId: string,
     pendingTaskType: string,
   ) => OptimisticHandle;
@@ -110,7 +134,7 @@ function markTaskIds(key: string): string[] {
 
 function optimisticKey(
   projectName: string,
-  resourceKind: string,
+  resourceKind: ResourceKind,
   resourceId: string,
   pendingTaskType: string,
   seq: number,
@@ -430,22 +454,14 @@ export function isTerminalStatus(status: TaskStatus): boolean {
   return status === "succeeded" || status === "failed" || status === "cancelled";
 }
 
-/** 占用判定关心的全量资源种类（不含 image_edit——它按 resource_type 归入其中之一）。 */
-export type ResourceKind =
-  | "character"
-  | "scene"
-  | "prop"
-  | "product"
-  | "storyboard"
-  | "video"
-  | "tts"
-  | "reference_video"
-  | "grid";
-
 /**
  * 任务占用的「资源种类」。除 image_edit 外，task_type 本身即资源种类；image_edit 跨
  * character/scene/prop/product/storyboard 共用一个 task_type，真正的种类在 resource_type，
  * 故按 resource_type 归槽——编辑任务与同资源的生成任务落入同一占用集、彼此互斥。
+ *
+ * 两处断言是数据边界：{@link TaskItem} 的字段来自后端、TS 管不到其值域。后端若出现未在
+ * {@link ResourceKind} 登记的种类，该行匹配不上任何占用槽（退化为不参与占用判定），
+ * 与收紧前的行为一致；真正被联合类型堵住的是前端调用方自己拼错 kind。
  */
 export function taskResourceKind(task: TaskItem): ResourceKind | "" {
   return task.task_type === "image_edit"
