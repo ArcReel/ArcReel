@@ -1,0 +1,97 @@
+name: "CodeQL"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "22 9 * * 3"
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.gate.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4.0.2
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!LICENSE'
+              - '!.github/ISSUE_TEMPLATE/**'
+              - '!.github/pull_request_template.md'
+      - id: gate
+        # Release PR(release-please-- 前缀)只改版本相关产物：pyproject / 前端 package.json 的 version、
+        # release-please manifest、CHANGELOG，不含源码逻辑改动。为加快版本 PR 合并，强制 code=false
+        # 让 analyze 的两个语言 build 直接 skip。schedule 定时全量扫描与普通 PR/push 不受影响。
+        # 其余分支沿用 paths-filter 结果。head_ref 经 env 传入，避免分支名作为表达式注入到 run 脚本。
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          FILTER_CODE: ${{ steps.filter.outputs.code }}
+        run: |
+          if [[ "$HEAD_REF" == release-please--* ]]; then
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=$FILTER_CODE" >> "$GITHUB_OUTPUT"
+          fi
+
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: javascript-typescript
+            build-mode: none
+          - language: python
+            build-mode: none
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4.37.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          config-file: .github/codeql/codeql-config.yml
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4.37.3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  codeql-required:
+    if: always()
+    needs: [changes, analyze]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify CodeQL jobs
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "CodeQL job failed"
+            exit 1
+          fi
+          echo "CodeQL passed or skipped (docs-only / changes job ok)"

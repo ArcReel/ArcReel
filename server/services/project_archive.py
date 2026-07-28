@@ -1,0 +1,1637 @@
+from __future__ import annotations
+
+import json
+import logging
+import os
+import secrets
+import shutil
+import stat
+import tempfile
+import zipfile
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from lib.data_validator import DataValidator, ValidationResult
+from lib.episode_ledger import parse_positive_episode_num
+from lib.json_io import load_json
+from lib.path_safety import PathTraversalError, safe_join, try_safe_join
+from lib.project_change_hints import emit_project_change_hint
+from lib.project_manager import ProjectManager, effective_mode
+from lib.project_migrations.runner import migrate_project_dir
+from lib.resource_paths import resource_extension, resource_relative_path
+from lib.script_skeleton import SKELETONS, resolve_declared_kind
+from lib.source_loader.migration import migrate_project_source_encoding
+
+logger = logging.getLogger(__name__)
+
+ARCHIVE_MANIFEST_NAME = "arcreel-export.json"
+ARCHIVE_FORMAT_VERSION = 2
+ARCHIVE_SCRIPT_SCHEMA_VERSION = 2
+DEFAULT_IMPORT_FILENAME = "imported-project.zip"
+
+
+@dataclass(frozen=True)
+class ArchiveMember:
+    info: zipfile.ZipInfo
+    parts: tuple[str, ...]
+    is_dir: bool
+
+
+@dataclass(frozen=True)
+class ArchiveDiagnostic:
+    code: str
+    message: str
+    location: str | None = None
+
+    def to_payload(self) -> dict[str, Any]:
+        payload = {
+            "code": self.code,
+            "message": self.message,
+        }
+        if self.location:
+            payload["location"] = self.location
+        return payload
+
+
+@dataclass
+class ArchiveDiagnostics:
+    blocking: list[ArchiveDiagnostic] = field(default_factory=list)
+    auto_fixed: list[ArchiveDiagnostic] = field(default_factory=list)
+    warnings: list[ArchiveDiagnostic] = field(default_factory=list)
+    _seen: set[tuple[str, str, str, str | None]] = field(
+        default_factory=set,
+        init=False,
+        repr=False,
+    )
+
+    def add(
+        self,
+        bucket: str,
+        code: str,
+        message: str,
+        *,
+        location: str | None = None,
+    ) -> None:
+        key = (bucket, code, message, location)
+        if key in self._seen:
+            return
+        self._seen.add(key)
+        getattr(self, bucket).append(
+            ArchiveDiagnostic(
+                code=code,
+                message=message,
+                location=location,
+            )
+        )
+
+    def extend_validation(self, validation: ValidationResult) -> None:
+        for error in validation.errors:
+            self.add("blocking", "validation_error", error)
+        for warning in validation.warnings:
+            self.add("warnings", "validation_warning", warning)
+
+    def to_export_payload(self) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "blocking": [item.to_payload() for item in self.blocking],
+            "auto_fixed": [item.to_payload() for item in self.auto_fixed],
+            "warnings": [item.to_payload() for item in self.warnings],
+        }
+
+    def to_import_success_payload(self) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "auto_fixed": [item.to_payload() for item in self.auto_fixed],
+            "warnings": [item.to_payload() for item in self.warnings],
+        }
+
+    def to_import_error_payload(self) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "blocking": [item.to_payload() for item in self.blocking],
+            "auto_fixable": [item.to_payload() for item in self.auto_fixed],
+            "warnings": [item.to_payload() for item in self.warnings],
+        }
+
+    def blocking_messages(self) -> list[str]:
+        return [item.message for item in self.blocking]
+
+    def warning_messages(self) -> list[str]:
+        return [item.message for item in self.warnings]
+
+
+@dataclass(frozen=True)
+class ProjectImportResult:
+    project_name: str
+    project: dict[str, Any]
+    warnings: list[str]
+    conflict_resolution: str
+    diagnostics: dict[str, list[dict[str, Any]]]
+
+
+class ProjectArchiveValidationError(ValueError):
+    def __init__(
+        self,
+        detail: str,
+        *,
+        status_code: int = 400,
+        errors: list[str] | None = None,
+        warnings: list[str] | None = None,
+        diagnostics: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+    ):
+        super().__init__(detail)
+        self.detail = detail
+        self.status_code = status_code
+        self.errors = errors or []
+        self.warnings = warnings or []
+        merged_extra = dict(extra or {})
+        if diagnostics is not None:
+            merged_extra["diagnostics"] = diagnostics
+        self.extra = merged_extra
+
+
+class ProjectArchiveService:
+    _VERSION_HISTORY_DIRS = frozenset(
+        {
+            "storyboards",
+            "videos",
+            "audio",
+            "characters",
+            "scenes",
+            "props",
+            "reference_videos",
+        }
+    )
+    _ROOT_VISIBLE_ENTRIES = frozenset(DataValidator.ALLOWED_ROOT_ENTRIES)
+    _AGENT_RUNTIME_EXCLUDES = frozenset({".claude", "CLAUDE.md"})
+    _PLACEHOLDER_CHARACTER_DESCRIPTION = "Imported placeholder character"
+
+    def __init__(self, project_manager: ProjectManager):
+        self.project_manager = project_manager
+        self.validator = DataValidator(projects_root=str(project_manager.projects_root))
+
+    def get_export_diagnostics(
+        self,
+        project_name: str,
+        *,
+        scope: str = "full",
+    ) -> dict[str, list[dict[str, Any]]]:
+        self._validate_scope(scope)
+        if not self.project_manager.project_exists(project_name):
+            raise FileNotFoundError(f"项目 '{project_name}' 不存在或未初始化")
+
+        temp_dir, _, _, diagnostics = self._prepare_export_snapshot(project_name, scope=scope)
+        temp_dir.cleanup()
+        return diagnostics.to_export_payload()
+
+    def export_project(self, project_name: str, *, scope: str = "full") -> tuple[Path, str]:
+        self._validate_scope(scope)
+        if not self.project_manager.project_exists(project_name):
+            raise FileNotFoundError(f"项目 '{project_name}' 不存在或未初始化")
+
+        fd, archive_path_str = tempfile.mkstemp(
+            prefix=f"{project_name}-",
+            suffix=".zip",
+        )
+        os.close(fd)
+        archive_path = Path(archive_path_str)
+
+        temp_dir: tempfile.TemporaryDirectory[str] | None = None
+        try:
+            temp_dir, snapshot_dir, manifest, _ = self._prepare_export_snapshot(
+                project_name,
+                scope=scope,
+            )
+            with zipfile.ZipFile(
+                archive_path,
+                mode="w",
+                compression=zipfile.ZIP_DEFLATED,
+            ) as archive:
+                self._write_directory_entry(archive, (project_name,))
+                archive.writestr(
+                    f"{project_name}/{ARCHIVE_MANIFEST_NAME}",
+                    json.dumps(
+                        manifest,
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                )
+                self._write_snapshot_members(
+                    archive,
+                    snapshot_dir,
+                    project_name=project_name,
+                    scope=scope,
+                )
+        except Exception:
+            archive_path.unlink(missing_ok=True)
+            raise
+        finally:
+            if temp_dir is not None:
+                temp_dir.cleanup()
+
+        download_name = f"{project_name}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
+        return archive_path, download_name
+
+    def import_project_archive(
+        self,
+        archive_path: Path,
+        *,
+        uploaded_filename: str | None = None,
+        conflict_policy: str = "prompt",
+    ) -> ProjectImportResult:
+        if conflict_policy not in {"prompt", "rename", "overwrite"}:
+            raise ProjectArchiveValidationError(
+                "无效的冲突策略",
+                errors=[f"conflict_policy 仅支持 prompt、rename 或 overwrite，收到: {conflict_policy}"],
+            )
+
+        try:
+            with zipfile.ZipFile(archive_path) as archive:
+                members = self._scan_archive_members(archive)
+                root_parts, manifest = self._locate_project_root(archive, members)
+
+                with tempfile.TemporaryDirectory(prefix="arcreel-import-") as temp_dir:
+                    staging_dir = Path(temp_dir) / "project"
+                    staging_dir.mkdir(parents=True, exist_ok=True)
+
+                    self._extract_archive_root(
+                        archive,
+                        members,
+                        root_parts,
+                        staging_dir,
+                    )
+
+                    diagnostics = self._repair_project_tree(staging_dir)
+                    diagnostics.extend_validation(self.validator.validate_project_tree(staging_dir))
+                    if diagnostics.blocking:
+                        raise ProjectArchiveValidationError(
+                            "导入包校验失败",
+                            errors=diagnostics.blocking_messages(),
+                            warnings=diagnostics.warning_messages(),
+                            diagnostics=diagnostics.to_import_error_payload(),
+                        )
+
+                    project = self._load_project_file(staging_dir / self.project_manager.PROJECT_FILE)
+                    target_name = self._resolve_target_project_name(
+                        project,
+                        manifest=manifest,
+                        root_parts=root_parts,
+                        uploaded_filename=uploaded_filename,
+                    )
+                    target_name, conflict_resolution = self._resolve_conflict(
+                        target_name,
+                        project_title=str(project.get("title") or "").strip(),
+                        conflict_policy=conflict_policy,
+                    )
+
+                    self._ensure_standard_subdirs(staging_dir)
+
+                    # 在安装前对 staging 副本跑完整迁移链（归一化 legacy provider 名 / 拆分 image_backend）：
+                    # 启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的旧归档需在此补跑，
+                    # 否则解析链不再读 legacy 字段会让该项目静默回退全局默认。放在安装**前** → 迁移若抛错，
+                    # staging 临时目录随 TemporaryDirectory 丢弃、不会留下半迁移的脏项目目录，无需回滚已落盘安装。
+                    # 编码迁移先于 schema 迁移：源文一律先归到 UTF-8，之后所有按 UTF-8 读源文的
+                    # 链路才有统一的输入。转换失败 = 文件本身不可解码（任何路径都读不出），浮成
+                    # 导入 warning 而非中止——局部损坏文件不应阻断整个项目导入。
+                    encoding_summary = migrate_project_source_encoding(staging_dir)
+                    for failed_name in encoding_summary.failed:
+                        diagnostics.add(
+                            "warnings",
+                            "source_encoding_unconverted",
+                            f"源文件编码无法识别，未转换为 UTF-8：source/{failed_name}（分集规划无法读取该文件）",
+                        )
+                    migrate_project_dir(staging_dir)
+
+                    self._install_project_dir(
+                        staging_dir,
+                        target_name,
+                        overwrite=(conflict_policy == "overwrite"),
+                    )
+
+                    imported_project = self.project_manager.load_project(target_name)
+                    emit_project_change_hint(
+                        target_name,
+                        source="webui",
+                        changed_paths=[self.project_manager.PROJECT_FILE],
+                    )
+
+                    return ProjectImportResult(
+                        project_name=target_name,
+                        project=imported_project,
+                        warnings=diagnostics.warning_messages(),
+                        conflict_resolution=conflict_resolution,
+                        diagnostics=diagnostics.to_import_success_payload(),
+                    )
+        except zipfile.BadZipFile as exc:
+            raise ProjectArchiveValidationError(
+                "上传文件不是有效的 ZIP 归档",
+                errors=[str(exc)],
+            ) from exc
+
+    def _prepare_export_snapshot(
+        self,
+        project_name: str,
+        *,
+        scope: str,
+    ) -> tuple[tempfile.TemporaryDirectory[str], Path, dict[str, Any], ArchiveDiagnostics]:
+        source_dir = self.project_manager.get_project_path(project_name)
+        temp_dir = tempfile.TemporaryDirectory(prefix="arcreel-export-")
+        snapshot_dir = Path(temp_dir.name) / project_name
+        self._copy_visible_tree(source_dir, snapshot_dir)
+
+        diagnostics = self._repair_project_tree(snapshot_dir)
+        diagnostics.extend_validation(self.validator.validate_project_tree(snapshot_dir))
+
+        # 从源目录收集非标准顶层条目，记录到诊断中（即使已被过滤不导出）
+        excluded_entries = self._collect_pass_through_entries(source_dir)
+        for entry in excluded_entries:
+            diagnostics.add(
+                "warnings",
+                "non_standard_entry_excluded",
+                f"非标准顶层目录/文件 '{entry}' 未包含在导出中",
+                location=entry,
+            )
+
+        snapshot_project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE)
+        manifest = self._build_archive_manifest(
+            project_name,
+            snapshot_project,
+            scope=scope,
+            diagnostics=diagnostics.to_export_payload(),
+            pass_through_entries=excluded_entries,
+        )
+        return temp_dir, snapshot_dir, manifest, diagnostics
+
+    def _build_archive_manifest(
+        self,
+        project_name: str,
+        project: dict[str, Any] | None,
+        *,
+        scope: str,
+        diagnostics: dict[str, Any],
+        pass_through_entries: list[str],
+    ) -> dict[str, Any]:
+        project_payload = project or {}
+        return {
+            "format_version": ARCHIVE_FORMAT_VERSION,
+            "script_schema_version": ARCHIVE_SCRIPT_SCHEMA_VERSION,
+            "project_name": project_name,
+            "project_title": project_payload.get("title", project_name),
+            "content_mode": project_payload.get("content_mode", ""),
+            "scope": scope,
+            "exported_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "export_diagnostics": diagnostics,
+            "pass_through_entries": pass_through_entries,
+        }
+
+    @staticmethod
+    def _write_directory_entry(
+        archive: zipfile.ZipFile,
+        parts: tuple[str, ...],
+    ) -> None:
+        dirname = "/".join(parts).rstrip("/") + "/"
+        info = zipfile.ZipInfo(dirname)
+        info.external_attr = (0o40755 & 0xFFFF) << 16
+        archive.writestr(info, b"")
+
+    def _write_snapshot_members(
+        self,
+        archive: zipfile.ZipFile,
+        snapshot_dir: Path,
+        *,
+        project_name: str,
+        scope: str,
+    ) -> None:
+        is_current = scope == "current"
+
+        for current_dir, dirnames, filenames in os.walk(snapshot_dir):
+            current_path = Path(current_dir)
+            is_root = current_path == snapshot_dir
+            dirnames[:] = [
+                name
+                for name in sorted(dirnames)
+                if not name.startswith(".")
+                and not (current_path / name).is_symlink()
+                and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
+            ]
+
+            relative_dir = current_path.relative_to(snapshot_dir)
+            if is_current and relative_dir.parts == ("versions",):
+                dirnames[:] = [name for name in dirnames if name not in self._VERSION_HISTORY_DIRS]
+
+            visible_files = [
+                name
+                for name in sorted(filenames)
+                if not name.startswith(".")
+                and not (current_path / name).is_symlink()
+                and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
+            ]
+
+            if relative_dir != Path("."):
+                self._write_directory_entry(
+                    archive,
+                    (project_name, *relative_dir.parts),
+                )
+
+            for filename in visible_files:
+                source_path = current_path / filename
+                archive_name = Path(project_name, relative_dir, filename).as_posix()
+
+                if is_current and relative_dir.parts == ("versions",) and filename == "versions.json":
+                    payload = self._load_json_file(source_path) or {}
+                    archive.writestr(
+                        archive_name,
+                        json.dumps(
+                            self._trim_versions_payload(payload),
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                    )
+                    continue
+
+                archive.write(source_path, arcname=archive_name)
+
+    @staticmethod
+    def _trim_versions_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        trimmed = json.loads(json.dumps(payload))
+        for resource_type_data in trimmed.values():
+            if not isinstance(resource_type_data, dict):
+                continue
+            for resource_info in resource_type_data.values():
+                if not isinstance(resource_info, dict):
+                    continue
+                current_ver = resource_info.get("current_version")
+                versions_list = resource_info.get("versions", [])
+                if current_ver is not None and isinstance(versions_list, list):
+                    resource_info["versions"] = [
+                        version
+                        for version in versions_list
+                        if isinstance(version, dict) and version.get("version") == current_ver
+                    ]
+        return trimmed
+
+    def _copy_visible_tree(self, source_dir: Path, target_dir: Path) -> None:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for current_dir, dirnames, filenames in os.walk(source_dir):
+            current_path = Path(current_dir)
+            is_root = current_path == source_dir
+            dirnames[:] = [
+                name
+                for name in sorted(dirnames)
+                if not name.startswith(".")
+                and not (current_path / name).is_symlink()
+                and not (is_root and name in self._AGENT_RUNTIME_EXCLUDES)
+                and not (is_root and name not in self._ROOT_VISIBLE_ENTRIES)
+            ]
+            relative_dir = current_path.relative_to(source_dir)
+            destination_dir = target_dir / relative_dir
+            destination_dir.mkdir(parents=True, exist_ok=True)
+
+            for filename in sorted(filenames):
+                source_path = current_path / filename
+                if filename.startswith(".") or source_path.is_symlink():
+                    continue
+                if is_root and filename in self._AGENT_RUNTIME_EXCLUDES:
+                    continue
+                if is_root and filename not in self._ROOT_VISIBLE_ENTRIES:
+                    continue
+                destination_path = destination_dir / filename
+                destination_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_path, destination_path)
+
+    def _repair_project_tree(self, project_dir: Path) -> ArchiveDiagnostics:
+        diagnostics = ArchiveDiagnostics()
+        project_path = project_dir / self.project_manager.PROJECT_FILE
+        project = self._load_json_file(project_path)
+        if project is None:
+            diagnostics.add(
+                "blocking",
+                "invalid_project_json",
+                f"无法解析 {self.project_manager.PROJECT_FILE}: {project_path}",
+                location=self.project_manager.PROJECT_FILE,
+            )
+            return diagnostics
+
+        basename_index = self._build_basename_index(project_dir)
+        versions_payload = self._load_versions_payload(project_dir)
+        project_changed = False
+
+        style_image_rel = project.get("style_image") or "style_reference.png"
+        if self._repair_path_to_canonical(
+            project_dir,
+            project,
+            field_name="style_image",
+            canonical_rel=style_image_rel,
+            location="project.style_image",
+            diagnostics=diagnostics,
+        ):
+            project_changed = True
+
+        characters = project.get("characters")
+        if isinstance(characters, dict):
+            for char_name, char_data in characters.items():
+                if not isinstance(char_data, dict):
+                    continue
+                if self._repair_path_to_canonical(
+                    project_dir,
+                    char_data,
+                    field_name="character_sheet",
+                    canonical_rel=f"characters/{char_name}.png",
+                    location=f"characters[{char_name}].character_sheet",
+                    diagnostics=diagnostics,
+                    resource_type="characters",
+                    resource_id=char_name,
+                    versions_payload=versions_payload,
+                ):
+                    project_changed = True
+                if self._repair_path_to_canonical(
+                    project_dir,
+                    char_data,
+                    field_name="reference_image",
+                    canonical_rel=f"characters/refs/{char_name}.png",
+                    location=f"characters[{char_name}].reference_image",
+                    diagnostics=diagnostics,
+                ):
+                    project_changed = True
+
+        scenes = project.get("scenes")
+        if isinstance(scenes, dict):
+            for scene_name, scene_data in scenes.items():
+                if not isinstance(scene_data, dict):
+                    continue
+                if self._repair_path_to_canonical(
+                    project_dir,
+                    scene_data,
+                    field_name="scene_sheet",
+                    canonical_rel=f"scenes/{scene_name}.png",
+                    location=f"scenes[{scene_name}].scene_sheet",
+                    diagnostics=diagnostics,
+                    resource_type="scenes",
+                    resource_id=scene_name,
+                    versions_payload=versions_payload,
+                ):
+                    project_changed = True
+
+        props = project.get("props")
+        if isinstance(props, dict):
+            for prop_name, prop_data in props.items():
+                if not isinstance(prop_data, dict):
+                    continue
+                if self._repair_path_to_canonical(
+                    project_dir,
+                    prop_data,
+                    field_name="prop_sheet",
+                    canonical_rel=f"props/{prop_name}.png",
+                    location=f"props[{prop_name}].prop_sheet",
+                    diagnostics=diagnostics,
+                    resource_type="props",
+                    resource_id=prop_name,
+                    versions_payload=versions_payload,
+                ):
+                    project_changed = True
+
+        project_characters = {name for name, payload in (characters or {}).items() if isinstance(payload, dict)}
+        project_scenes = {name for name, payload in (scenes or {}).items() if isinstance(payload, dict)}
+        project_props = {name for name, payload in (props or {}).items() if isinstance(payload, dict)}
+
+        episodes = project.get("episodes")
+        if isinstance(episodes, list):
+            for index, episode_meta in enumerate(episodes):
+                if not isinstance(episode_meta, dict):
+                    continue
+
+                script_location = f"episodes[{index}].script_file"
+                script_file = episode_meta.get("script_file")
+                if isinstance(script_file, str) and script_file.strip():
+                    repaired_script = self._repair_relative_reference(
+                        project_dir,
+                        script_file,
+                        default_dir="scripts",
+                        basename_index=basename_index,
+                        preferred_prefix="scripts/",
+                    )
+                    if repaired_script and repaired_script != script_file.replace("\\", "/"):
+                        episode_meta["script_file"] = repaired_script
+                        project_changed = True
+                        diagnostics.add(
+                            "auto_fixed",
+                            "script_file_repaired",
+                            f"{script_location}: 自动修复为 {repaired_script}",
+                            location=script_location,
+                        )
+                    script_path_rel = repaired_script or script_file.replace("\\", "/")
+                else:
+                    script_path_rel = None
+
+                if not script_path_rel:
+                    continue
+
+                script_path = project_dir / script_path_rel
+                if not script_path.exists():
+                    if parse_positive_episode_num(episode_meta.get("episode")) is not None:
+                        # 账本条目的 script_file 是前瞻性契约（剧本生成时回填真实值），
+                        # 拆分先于剧本存在是设计内状态，不阻断归档往返；ledger_status 不
+                        # 参与判定——v2→v3 迁移不再回填该字段，老项目升级后的条目可能永远
+                        # 没有 ledger_status，形状合法即视为正常账本条目
+                        diagnostics.add(
+                            "warnings",
+                            "missing_script_file",
+                            f"{script_location}: 剧本尚未生成: {script_path_rel}",
+                            location=script_location,
+                        )
+                    else:
+                        diagnostics.add(
+                            "blocking",
+                            "missing_script_file",
+                            f"{script_location}: 引用的文件不存在: {script_path_rel}",
+                            location=script_location,
+                        )
+                    continue
+
+                script_payload = self._load_json_file(script_path)
+                if script_payload is None:
+                    diagnostics.add(
+                        "blocking",
+                        "invalid_script_json",
+                        f"无法解析剧本文件: {script_path_rel}",
+                        location=script_location,
+                    )
+                    continue
+
+                script_changed, project_changed_from_script = self._repair_script_payload(
+                    project_dir,
+                    script_path_rel=script_path_rel,
+                    script_payload=script_payload,
+                    project_payload=project,
+                    project_characters=project_characters,
+                    project_scenes=project_scenes,
+                    project_props=project_props,
+                    versions_payload=versions_payload,
+                    diagnostics=diagnostics,
+                    basename_index=basename_index,
+                )
+                if script_changed:
+                    self._write_json_file(script_path, script_payload)
+                if project_changed_from_script:
+                    project_changed = True
+
+        if project_changed:
+            self._write_json_file(project_path, project)
+
+        return diagnostics
+
+    def _repair_script_payload(
+        self,
+        project_dir: Path,
+        *,
+        script_path_rel: str,
+        script_payload: dict[str, Any],
+        project_payload: dict[str, Any],
+        project_characters: set[str],
+        project_scenes: set[str],
+        project_props: set[str],
+        versions_payload: dict[str, Any],
+        diagnostics: ArchiveDiagnostics,
+        basename_index: dict[str, list[str]],
+    ) -> tuple[bool, bool]:
+        script_changed = False
+        project_changed = False
+
+        novel = script_payload.get("novel")
+        if isinstance(novel, dict) and "source_file" in novel:
+            novel.pop("source_file")
+            script_changed = True
+            diagnostics.add(
+                "auto_fixed",
+                "deprecated_source_file_removed",
+                "novel.source_file 字段已废弃，已移除",
+                location=f"{script_path_rel}:novel.source_file",
+            )
+
+        # 剥离废弃的 episode 级聚合字段
+        for deprecated_field in ("characters_in_episode", "clues_in_episode"):
+            if deprecated_field in script_payload:
+                script_payload.pop(deprecated_field)
+                script_changed = True
+                diagnostics.add(
+                    "auto_fixed",
+                    "deprecated_field_removed",
+                    f"{deprecated_field} 字段已废弃（改为读时计算），已移除",
+                    location=f"{script_path_rel}:{deprecated_field}",
+                )
+
+        # 剧本戳 → 项目声明的回退链保留；链尾 narration 终兜底删除——项目级 content_mode
+        # 必填且被校验，两处皆缺（或非字符串脏值）即数据损坏，直接 fail-loud，不静默落 drama。
+        # 不用 str(...) 归一：会把缺失的 None 变成字面量 "None" 字符串，既让 reference 分支拿到
+        # 假值绕过 fail-loud，又使非 reference 分支的报错语义失真。
+        raw_content_mode = script_payload.get("content_mode") or project_payload.get("content_mode")
+        if not isinstance(raw_content_mode, str):
+            raise ValueError(f"未知或缺失 content_mode: {raw_content_mode!r}")
+        content_mode = raw_content_mode
+        generation_mode = effective_mode(project=project_payload, episode=script_payload)
+
+        # 修复分流按规范解析的骨架种类走，而非 generation_mode：ad 项目 generation_mode
+        # 可为 reference_video 但骨架恒为 shots（不含 video_units），按 generation_mode
+        # 分流会把它错误送进 video_units 专用分支而静默 no-op。
+        kind = resolve_declared_kind(content_mode, generation_mode)
+
+        # video_units 骨架（narration/drama + 参考生视频）用 references 组织资产，结构与
+        # storyboard 骨架的 characters/scenes/props 不同，单独走专用修复分支。
+        if kind == "video_units":
+            units_changed, units_project_changed = self._repair_video_units_payload(
+                project_dir,
+                script_path_rel=script_path_rel,
+                script_payload=script_payload,
+                project_payload=project_payload,
+                project_characters=project_characters,
+                project_scenes=project_scenes,
+                project_props=project_props,
+                content_mode=content_mode,
+                versions_payload=versions_payload,
+                diagnostics=diagnostics,
+            )
+            return script_changed or units_changed, project_changed or units_project_changed
+
+        # storyboard 骨架（segments/scenes/shots，含 ad 的 shots）逐条补全字段与资产回填。
+        items_key = kind
+        id_field = SKELETONS[kind].id_field
+        chars_field = SKELETONS[kind].chars_field
+        # storyboard 骨架必有 chars_field；video_units 已在上分支返回。
+        assert chars_field is not None
+
+        raw_items = script_payload.get(items_key)
+        if not isinstance(raw_items, list):
+            return script_changed, project_changed
+
+        for index, item in enumerate(raw_items):
+            if not isinstance(item, dict):
+                continue
+
+            location_prefix = f"{script_path_rel}:{items_key}[{index}]"
+            resource_id = str(item.get(id_field) or "").strip()
+
+            for legacy_field in ("clues_in_segment", "clues_in_scene", "clues"):
+                if legacy_field in item:
+                    item.pop(legacy_field)
+                    script_changed = True
+                    diagnostics.add(
+                        "auto_fixed",
+                        "deprecated_clue_field_removed",
+                        f"{items_key}[{index}]: 废弃字段 {legacy_field} 已移除（请改用 scenes/props）",
+                        location=f"{location_prefix}.{legacy_field}",
+                    )
+
+            for asset_field in ("scenes", "props"):
+                if asset_field not in item:
+                    item[asset_field] = []
+                    script_changed = True
+                    diagnostics.add(
+                        "auto_fixed",
+                        f"missing_{asset_field}_field",
+                        f"{items_key}[{index}]: 补全缺失字段 {asset_field}",
+                        location=f"{location_prefix}.{asset_field}",
+                    )
+
+            assets, assets_changed = self._backfill_generated_assets(
+                item,
+                content_mode=content_mode,
+                label=items_key,
+                index=index,
+                location_prefix=location_prefix,
+                diagnostics=diagnostics,
+            )
+            if assets_changed:
+                script_changed = True
+
+            characters = item.get(chars_field)
+            if isinstance(characters, list):
+                for character_name in characters:
+                    if not isinstance(character_name, str):
+                        continue
+                    if self._add_placeholder_character(
+                        project_payload,
+                        project_characters,
+                        character_name,
+                        diagnostics,
+                    ):
+                        project_changed = True
+
+            for asset_field, pool, label in (
+                ("scenes", project_scenes, "场景"),
+                ("props", project_props, "道具"),
+            ):
+                refs = item.get(asset_field)
+                if not isinstance(refs, list):
+                    continue
+                missing = sorted({name for name in refs if isinstance(name, str) and name not in pool})
+                if missing:
+                    diagnostics.add(
+                        "blocking",
+                        f"missing_{asset_field.rstrip('s')}_definition",
+                        (
+                            f"{items_key}[{index}]: {asset_field} 引用了不存在于 "
+                            f"project.json 的{label}: {', '.join(missing)}"
+                        ),
+                        location=f"{location_prefix}.{asset_field}",
+                    )
+
+            if isinstance(assets, dict) and resource_id:
+                for field_name, resource_type in (
+                    ("storyboard_image", "storyboards"),
+                    ("video_clip", "videos"),
+                    ("narration_audio", "audio"),
+                ):
+                    if self._repair_path_to_canonical(
+                        project_dir,
+                        assets,
+                        field_name=field_name,
+                        canonical_rel=resource_relative_path(resource_type, resource_id),
+                        location=f"{location_prefix}.generated_assets.{field_name}",
+                        diagnostics=diagnostics,
+                        resource_type=resource_type,
+                        resource_id=resource_id,
+                        versions_payload=versions_payload,
+                    ):
+                        script_changed = True
+
+        # ad 参考直出的派生索引 reference_units 挂在 shots 之外，storyboard 循环不触及；
+        # 就地补全各 unit 的 generated_assets 缺失字段。
+        if kind == "shots" and self._repair_ad_reference_units(
+            script_path_rel=script_path_rel,
+            script_payload=script_payload,
+            content_mode=content_mode,
+            diagnostics=diagnostics,
+        ):
+            script_changed = True
+
+        return script_changed, project_changed
+
+    def _repair_ad_reference_units(
+        self,
+        *,
+        script_path_rel: str,
+        script_payload: dict[str, Any],
+        content_mode: str,
+        diagnostics: ArchiveDiagnostics,
+    ) -> bool:
+        """回填 ad 参考直出派生索引 reference_units 各 unit 的 generated_assets（就地，缺字段才补）。
+
+        reference_units 是 shots 的派生索引，产物挂在 unit 上而非 shots。这里只对已存在的
+        unit 就地补全缺失的 generated_assets 字段——不从 shots 重派生分组：重派生需供应商时长
+        上限（归档修复时不可得），分组一旦改变会让既有产物指针错位丢失。既有资产值一律保留、
+        仅补缺失键，与派生索引 merge 的资产保留语义一致。
+        """
+        units = script_payload.get("reference_units")
+        if not isinstance(units, list):
+            return False
+
+        changed = False
+        for index, unit in enumerate(units):
+            if not isinstance(unit, dict):
+                continue
+            _, assets_changed = self._backfill_generated_assets(
+                unit,
+                content_mode=content_mode,
+                label="reference_units",
+                index=index,
+                location_prefix=f"{script_path_rel}:reference_units[{index}]",
+                diagnostics=diagnostics,
+            )
+            if assets_changed:
+                changed = True
+        return changed
+
+    def _backfill_generated_assets(
+        self,
+        item: dict[str, Any],
+        *,
+        content_mode: str,
+        label: str,
+        index: int,
+        location_prefix: str,
+        diagnostics: ArchiveDiagnostics,
+    ) -> tuple[Any, bool]:
+        """补全 item.generated_assets 的缺失字段，返回 (assets, changed)。"""
+        assets = item.get("generated_assets")
+        changed = False
+        if assets is None:
+            item["generated_assets"] = self.project_manager.create_generated_assets(content_mode)
+            changed = True
+            diagnostics.add(
+                "auto_fixed",
+                "missing_generated_assets",
+                f"{label}[{index}]: 补全缺失字段 generated_assets",
+                location=f"{location_prefix}.generated_assets",
+            )
+            assets = item["generated_assets"]
+        elif isinstance(assets, dict):
+            template = self.project_manager.create_generated_assets(content_mode)
+            missing_keys = [key for key in template if key not in assets]
+            if missing_keys:
+                for key in missing_keys:
+                    assets[key] = template[key]
+                changed = True
+                # 补全值非 None 的才报诊断，避免 no-op 补全产生噪音
+                non_null_keys = sorted(k for k in missing_keys if template[k] is not None)
+                if non_null_keys:
+                    diagnostics.add(
+                        "auto_fixed",
+                        "generated_assets_defaults",
+                        (f"{label}[{index}].generated_assets: 补全默认字段 {', '.join(non_null_keys)}"),
+                        location=f"{location_prefix}.generated_assets",
+                    )
+        return assets, changed
+
+    def _add_placeholder_character(
+        self,
+        project_payload: dict[str, Any],
+        project_characters: set[str],
+        character_name: str,
+        diagnostics: ArchiveDiagnostics,
+    ) -> bool:
+        """为缺失的角色引用补占位定义，返回是否改动 project_payload。"""
+        if character_name in project_characters:
+            return False
+        project_payload.setdefault("characters", {})
+        if not isinstance(project_payload.get("characters"), dict):
+            return False
+        project_payload["characters"][character_name] = {
+            "description": self._PLACEHOLDER_CHARACTER_DESCRIPTION,
+        }
+        project_characters.add(character_name)
+        diagnostics.add(
+            "auto_fixed",
+            "placeholder_character_added",
+            f"自动补充缺失角色定义: {character_name}",
+            location=f"characters[{character_name}]",
+        )
+        return True
+
+    def _repair_video_units_payload(
+        self,
+        project_dir: Path,
+        *,
+        script_path_rel: str,
+        script_payload: dict[str, Any],
+        project_payload: dict[str, Any],
+        project_characters: set[str],
+        project_scenes: set[str],
+        project_props: set[str],
+        content_mode: str,
+        versions_payload: dict[str, Any],
+        diagnostics: ArchiveDiagnostics,
+    ) -> tuple[bool, bool]:
+        """修复 reference_video 模式剧本的 video_units，返回 (script_changed, project_changed)。
+
+        video_units 没有 narration/drama 的 characters/scenes/props 字段，引用资产改放在
+        references（list[{type, name}]）里。本方法做三件事，与 narration/drama 分支对齐：
+        generated_assets 补全；references 自愈（缺失角色补占位、缺失场景/道具报阻断）；
+        video_clip / video_thumbnail 路径规范化与版本回溯。
+        video_uri 是远端 URL，不当作本地路径处理（否则会被同名 canonical 本地文件覆盖）。
+        """
+        raw_units = script_payload.get("video_units")
+        if not isinstance(raw_units, list):
+            return False, False
+
+        changed = False
+        project_changed = False
+        for index, unit in enumerate(raw_units):
+            if not isinstance(unit, dict):
+                continue
+
+            location_prefix = f"{script_path_rel}:video_units[{index}]"
+            resource_id = str(unit.get("unit_id") or "").strip()
+
+            assets, assets_changed = self._backfill_generated_assets(
+                unit,
+                content_mode=content_mode,
+                label="video_units",
+                index=index,
+                location_prefix=location_prefix,
+                diagnostics=diagnostics,
+            )
+            if assets_changed:
+                changed = True
+
+            if self._repair_unit_references(
+                unit,
+                project_payload=project_payload,
+                project_characters=project_characters,
+                project_scenes=project_scenes,
+                project_props=project_props,
+                index=index,
+                location_prefix=location_prefix,
+                diagnostics=diagnostics,
+            ):
+                project_changed = True
+
+            if not (isinstance(assets, dict) and resource_id):
+                continue
+
+            # video_clip 有版本历史，可从 versions/ 回溯物化当前文件
+            if self._repair_path_to_canonical(
+                project_dir,
+                assets,
+                field_name="video_clip",
+                canonical_rel=resource_relative_path("reference_videos", resource_id),
+                location=f"{location_prefix}.generated_assets.video_clip",
+                diagnostics=diagnostics,
+                resource_type="reference_videos",
+                resource_id=resource_id,
+                versions_payload=versions_payload,
+            ):
+                changed = True
+
+            # 缩略图无版本历史，仅在 canonical 文件存在时规范化路径
+            if self._repair_path_to_canonical(
+                project_dir,
+                assets,
+                field_name="video_thumbnail",
+                canonical_rel=f"reference_videos/thumbnails/{resource_id}.jpg",
+                location=f"{location_prefix}.generated_assets.video_thumbnail",
+                diagnostics=diagnostics,
+            ):
+                changed = True
+
+        return changed, project_changed
+
+    def _repair_unit_references(
+        self,
+        unit: dict[str, Any],
+        *,
+        project_payload: dict[str, Any],
+        project_characters: set[str],
+        project_scenes: set[str],
+        project_props: set[str],
+        index: int,
+        location_prefix: str,
+        diagnostics: ArchiveDiagnostics,
+    ) -> bool:
+        """自愈 video_unit.references：缺失角色补占位，缺失场景/道具报阻断。
+
+        与 narration/drama 的 characters/scenes/props 处理对齐——只是引用结构是
+        list[{type, name}]。返回是否补过占位角色（即 project_payload 是否改动）。
+        """
+        references = unit.get("references")
+        if not isinstance(references, list):
+            return False
+
+        project_changed = False
+        missing_scenes: set[str] = set()
+        missing_props: set[str] = set()
+        for ref in references:
+            if not isinstance(ref, dict):
+                continue
+            ref_name = ref.get("name")
+            if not isinstance(ref_name, str) or not ref_name:
+                continue
+            ref_type = ref.get("type")
+            if ref_type == "character":
+                if self._add_placeholder_character(project_payload, project_characters, ref_name, diagnostics):
+                    project_changed = True
+            elif ref_type == "scene" and ref_name not in project_scenes:
+                missing_scenes.add(ref_name)
+            elif ref_type == "prop" and ref_name not in project_props:
+                missing_props.add(ref_name)
+
+        for missing, asset_type, label in (
+            (missing_scenes, "scene", "场景"),
+            (missing_props, "prop", "道具"),
+        ):
+            if missing:
+                diagnostics.add(
+                    "blocking",
+                    f"missing_{asset_type}_definition",
+                    (
+                        f"video_units[{index}]: references 引用了不存在于 project.json 的{label}: {', '.join(sorted(missing))}"
+                    ),
+                    location=f"{location_prefix}.references",
+                )
+        return project_changed
+
+    def _repair_path_to_canonical(
+        self,
+        project_dir: Path,
+        payload: dict[str, Any],
+        *,
+        field_name: str,
+        canonical_rel: str,
+        location: str,
+        diagnostics: ArchiveDiagnostics,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
+        versions_payload: dict[str, Any] | None = None,
+    ) -> bool:
+        raw_value = payload.get(field_name)
+        if not isinstance(raw_value, str) or not raw_value.strip():
+            return False
+
+        normalized_value = raw_value.strip().replace("\\", "/")
+        canonical_path = project_dir / canonical_rel
+        resolved_raw = self._resolve_existing_relative(project_dir, normalized_value)
+
+        if canonical_path.exists():
+            if normalized_value != canonical_rel:
+                payload[field_name] = canonical_rel
+                diagnostics.add(
+                    "auto_fixed",
+                    "canonical_path_normalized",
+                    f"{location}: 规范化为 {canonical_rel}",
+                    location=location,
+                )
+                return True
+            return False
+
+        if resolved_raw:
+            if (
+                resource_type
+                and resource_id
+                and resolved_raw.startswith(f"versions/{resource_type}/")
+                and Path(resolved_raw).name.startswith(f"{resource_id}_v")
+            ):
+                if self._materialize_current_file(
+                    project_dir / resolved_raw,
+                    canonical_path,
+                ):
+                    payload[field_name] = canonical_rel
+                    diagnostics.add(
+                        "auto_fixed",
+                        "current_asset_materialized",
+                        f"{location}: 从 {resolved_raw} 恢复当前文件 {canonical_rel}",
+                        location=location,
+                    )
+                    return True
+            return False
+
+        if resource_type and resource_id and versions_payload is not None:
+            version_rel = self._resolve_version_file(
+                project_dir,
+                versions_payload,
+                resource_type=resource_type,
+                resource_id=resource_id,
+            )
+            if version_rel:
+                if self._materialize_current_file(
+                    project_dir / version_rel,
+                    canonical_path,
+                ):
+                    payload[field_name] = canonical_rel
+                    diagnostics.add(
+                        "auto_fixed",
+                        "current_asset_restored_from_version",
+                        f"{location}: 从 {version_rel} 恢复当前文件 {canonical_rel}",
+                        location=location,
+                    )
+                    return True
+
+        return False
+
+    def _resolve_version_file(
+        self,
+        project_dir: Path,
+        versions_payload: dict[str, Any],
+        *,
+        resource_type: str,
+        resource_id: str,
+    ) -> str | None:
+        type_payload = versions_payload.get(resource_type, {})
+        resource_info = type_payload.get(resource_id) if isinstance(type_payload, dict) else None
+        if isinstance(resource_info, dict):
+            current_version = resource_info.get("current_version")
+            versions = resource_info.get("versions", [])
+            if current_version is not None and isinstance(versions, list):
+                for version in versions:
+                    if (
+                        isinstance(version, dict)
+                        and version.get("version") == current_version
+                        and isinstance(version.get("file"), str)
+                    ):
+                        rel_path = version["file"].replace("\\", "/")
+                        if self._resolve_existing_relative(project_dir, rel_path):
+                            return rel_path
+
+        version_dir = project_dir / "versions" / resource_type
+        if not version_dir.exists():
+            return None
+
+        prefix = f"{resource_id}_v"
+        extension = resource_extension(resource_type)
+        candidates: list[str] = []
+        for candidate in sorted(version_dir.iterdir(), key=lambda path: path.name):
+            if candidate.is_file() and candidate.name.startswith(prefix) and candidate.suffix == extension:
+                candidates.append(candidate.relative_to(project_dir).as_posix())
+
+        if len(candidates) == 1:
+            return candidates[0]
+        return None
+
+    def _repair_relative_reference(
+        self,
+        project_dir: Path,
+        raw_value: str,
+        *,
+        default_dir: str,
+        basename_index: dict[str, list[str]],
+        preferred_prefix: str | None = None,
+        allow_single_preferred_candidate: bool = False,
+    ) -> str | None:
+        normalized = raw_value.strip().replace("\\", "/")
+        if not normalized:
+            return None
+
+        resolved = self._resolve_existing_relative(
+            project_dir,
+            normalized,
+            default_dir=default_dir,
+        )
+        if resolved:
+            return resolved
+
+        if "/" not in normalized:
+            basename = Path(normalized).name
+            preferred_matches = [
+                candidate
+                for candidate in basename_index.get(basename, [])
+                if candidate.startswith(preferred_prefix or "")
+            ]
+            if len(preferred_matches) == 1:
+                return preferred_matches[0]
+
+            all_matches = basename_index.get(basename, [])
+            if len(all_matches) == 1:
+                return all_matches[0]
+
+        if allow_single_preferred_candidate and preferred_prefix:
+            preferred_candidates = sorted(
+                {
+                    candidate
+                    for candidates in basename_index.values()
+                    for candidate in candidates
+                    if candidate.startswith(preferred_prefix)
+                }
+            )
+            if len(preferred_candidates) == 1:
+                return preferred_candidates[0]
+
+        return None
+
+    def _build_basename_index(self, project_dir: Path) -> dict[str, list[str]]:
+        index: dict[str, list[str]] = {}
+        for item in sorted(project_dir.rglob("*")):
+            if not item.is_file() or item.is_symlink():
+                continue
+            relative = item.relative_to(project_dir)
+            if self._is_hidden_path(relative):
+                continue
+            index.setdefault(item.name, []).append(relative.as_posix())
+        return index
+
+    def _load_versions_payload(self, project_dir: Path) -> dict[str, Any]:
+        versions_path = project_dir / "versions" / "versions.json"
+        payload = self._load_json_file(versions_path)
+        if payload is None:
+            return {
+                "storyboards": {},
+                "videos": {},
+                "characters": {},
+                "scenes": {},
+                "props": {},
+            }
+        return payload
+
+    def _collect_pass_through_entries(self, project_dir: Path) -> list[str]:
+        entries: list[str] = []
+        if not project_dir.exists():
+            return entries
+
+        for child in sorted(project_dir.iterdir(), key=lambda item: item.name):
+            if self._is_hidden_path(Path(child.name)):
+                continue
+            if child.name in self._AGENT_RUNTIME_EXCLUDES:
+                continue
+            if child.name not in self._ROOT_VISIBLE_ENTRIES:
+                entries.append(child.name)
+        return entries
+
+    @staticmethod
+    def _is_hidden_path(path: Path) -> bool:
+        return any(part.startswith(".") or part == "__MACOSX" for part in path.parts)
+
+    def _materialize_current_file(self, source_path: Path, target_path: Path) -> bool:
+        if not source_path.exists() or source_path.resolve() == target_path.resolve():
+            return False
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, target_path)
+        return True
+
+    def _resolve_existing_relative(
+        self,
+        project_dir: Path,
+        raw_path: str,
+        *,
+        default_dir: str | None = None,
+    ) -> str | None:
+        normalized = raw_path.strip().replace("\\", "/")
+        if not normalized:
+            return None
+
+        candidates = [Path(normalized)]
+        if default_dir and len(candidates[0].parts) == 1:
+            candidates.append(Path(default_dir) / candidates[0])
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            key = candidate.as_posix()
+            if key in seen:
+                continue
+            seen.add(key)
+
+            resolved = try_safe_join(project_dir, candidate)
+            if resolved is None:
+                continue
+
+            if resolved.exists():
+                return candidate.as_posix()
+
+        return None
+
+    def _resolve_json_path(self, path: Path) -> Path | None:
+        """归档读写只允许落在 projects_root 或系统临时目录内；越界返回 None。"""
+        for base in (self.project_manager.projects_root, tempfile.gettempdir()):
+            resolved = try_safe_join(base, path)
+            if resolved is not None:
+                return resolved
+        return None
+
+    def _load_json_file(self, path: Path) -> dict[str, Any] | None:
+        real = self._resolve_json_path(path)
+        if real is None:
+            logger.warning("路径越界，拒绝读取: %s", path)
+            return None
+        try:
+            return load_json(real)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return None
+
+    def _write_json_file(self, path: Path, payload: dict[str, Any]) -> None:
+        real = self._resolve_json_path(path)
+        if real is None:
+            raise ValueError(f"路径越界，拒绝写入: {path}")
+        real.parent.mkdir(parents=True, exist_ok=True)
+        with open(real, "w", encoding="utf-8") as handle:  # noqa: PTH123
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+
+    @staticmethod
+    def _validate_scope(scope: str) -> None:
+        if scope not in {"full", "current"}:
+            raise ValueError(f"scope 仅支持 full 或 current，收到: {scope}")
+
+    def _scan_archive_members(self, archive: zipfile.ZipFile) -> list[ArchiveMember]:
+        members: list[ArchiveMember] = []
+        for info in archive.infolist():
+            if info.flag_bits & 0x1:
+                raise ProjectArchiveValidationError(
+                    "导入包校验失败",
+                    errors=[f"ZIP 包含加密条目，无法导入: {info.filename}"],
+                )
+
+            normalized_name = info.filename.replace("\\", "/")
+            if normalized_name.startswith("/"):
+                raise ProjectArchiveValidationError(
+                    "导入包校验失败",
+                    errors=[f"ZIP 包含绝对路径条目: {info.filename}"],
+                )
+
+            stripped_name = normalized_name.strip("/")
+            if not stripped_name:
+                continue
+
+            parts = tuple(part for part in stripped_name.split("/") if part)
+            if parts and len(parts[0]) == 2 and parts[0][1] == ":":
+                raise ProjectArchiveValidationError(
+                    "导入包校验失败",
+                    errors=[f"ZIP 包含绝对路径条目: {info.filename}"],
+                )
+            if any(part == ".." for part in parts):
+                raise ProjectArchiveValidationError(
+                    "导入包校验失败",
+                    errors=[f"ZIP 包含路径穿越条目: {info.filename}"],
+                )
+
+            mode = (info.external_attr >> 16) & 0xFFFF
+            if stat.S_ISLNK(mode):
+                raise ProjectArchiveValidationError(
+                    "导入包校验失败",
+                    errors=[f"ZIP 包含符号链接条目: {info.filename}"],
+                )
+
+            members.append(
+                ArchiveMember(
+                    info=info,
+                    parts=parts,
+                    is_dir=info.is_dir() or normalized_name.endswith("/"),
+                )
+            )
+
+        return members
+
+    @staticmethod
+    def _is_hidden_member(parts: tuple[str, ...]) -> bool:
+        return any(part.startswith(".") or part == "__MACOSX" for part in parts)
+
+    def _load_member_json(
+        self,
+        archive: zipfile.ZipFile,
+        member: ArchiveMember,
+        label: str,
+    ) -> dict[str, Any]:
+        try:
+            with archive.open(member.info) as handle:
+                return json.loads(handle.read().decode("utf-8"))
+        except Exception as exc:
+            raise ProjectArchiveValidationError(
+                "导入包校验失败",
+                errors=[f"无法解析 {label}: {'/'.join(member.parts)}"],
+            ) from exc
+
+    def _locate_project_root(
+        self,
+        archive: zipfile.ZipFile,
+        members: list[ArchiveMember],
+    ) -> tuple[tuple[str, ...], dict[str, Any] | None]:
+        visible_members = [member for member in members if not self._is_hidden_member(member.parts)]
+
+        manifest_members = [member for member in visible_members if member.parts[-1] == ARCHIVE_MANIFEST_NAME]
+        if manifest_members:
+            root_candidates = {member.parts[:-1] for member in manifest_members}
+            if len(root_candidates) != 1:
+                raise ProjectArchiveValidationError(
+                    "导入包校验失败",
+                    errors=["ZIP 中包含多个 arcreel-export.json，无法确定项目根目录"],
+                )
+
+            root_parts = next(iter(root_candidates))
+            if not any(member.parts == (*root_parts, self.project_manager.PROJECT_FILE) for member in visible_members):
+                raise ProjectArchiveValidationError(
+                    "导入包校验失败",
+                    errors=["官方导出包缺少 project.json"],
+                )
+
+            manifest = self._load_member_json(
+                archive,
+                manifest_members[0],
+                ARCHIVE_MANIFEST_NAME,
+            )
+            return root_parts, manifest
+
+        project_members = [
+            member for member in visible_members if member.parts[-1] == self.project_manager.PROJECT_FILE
+        ]
+        root_candidates = {member.parts[:-1] for member in project_members}
+        if not root_candidates:
+            raise ProjectArchiveValidationError(
+                "导入包校验失败",
+                errors=["ZIP 中未找到 project.json"],
+            )
+        if len(root_candidates) != 1:
+            raise ProjectArchiveValidationError(
+                "导入包校验失败",
+                errors=["ZIP 中包含多个 project.json，无法确定项目根目录"],
+            )
+
+        return next(iter(root_candidates)), None
+
+    def _extract_archive_root(
+        self,
+        archive: zipfile.ZipFile,
+        members: list[ArchiveMember],
+        root_parts: tuple[str, ...],
+        staging_dir: Path,
+    ) -> None:
+        root_length = len(root_parts)
+
+        for member in members:
+            if member.parts[:root_length] != root_parts:
+                continue
+
+            relative_parts = member.parts[root_length:]
+            if not relative_parts:
+                continue
+            if relative_parts == (ARCHIVE_MANIFEST_NAME,):
+                continue
+            if self._is_hidden_member(relative_parts):
+                continue
+
+            try:
+                target_path = safe_join(staging_dir, *relative_parts)
+            except PathTraversalError as exc:
+                raise ProjectArchiveValidationError(
+                    "导入包校验失败",
+                    errors=[f"解压路径越界: {'/'.join(member.parts)}"],
+                ) from exc
+
+            if member.is_dir:
+                target_path.mkdir(parents=True, exist_ok=True)
+                continue
+
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member.info) as source, open(target_path, "wb") as target:
+                shutil.copyfileobj(source, target)
+
+    def _normalize_project_name(self, value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        try:
+            return self.project_manager.normalize_project_name(value)
+        except ValueError:
+            return None
+
+    def _resolve_target_project_name(
+        self,
+        project: dict[str, Any],
+        *,
+        manifest: dict[str, Any] | None,
+        root_parts: tuple[str, ...],
+        uploaded_filename: str | None,
+    ) -> str:
+        manifest_name = self._normalize_project_name((manifest or {}).get("project_name"))
+        if manifest_name:
+            return manifest_name
+
+        root_name = self._normalize_project_name(root_parts[-1] if root_parts else None)
+        if root_name:
+            return root_name
+
+        project_title = str(project.get("title") or "").strip()
+        if project_title:
+            return self.project_manager.generate_project_name(project_title)
+
+        filename_stem = Path(uploaded_filename or DEFAULT_IMPORT_FILENAME).stem
+        return self.project_manager.generate_project_name(filename_stem)
+
+    @staticmethod
+    def _load_project_file(project_path: Path) -> dict[str, Any]:
+        with open(project_path, encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def _resolve_conflict(
+        self,
+        preferred_name: str,
+        *,
+        project_title: str,
+        conflict_policy: str,
+    ) -> tuple[str, str]:
+        target_dir = self.project_manager.projects_root / preferred_name
+        if conflict_policy == "prompt":
+            if target_dir.exists():
+                raise ProjectArchiveValidationError(
+                    "检测到项目编号冲突",
+                    status_code=409,
+                    errors=[f"项目编号 '{preferred_name}' 已存在，请选择覆盖现有项目或自动重命名导入。"],
+                    extra={"conflict_project_name": preferred_name},
+                )
+            return preferred_name, "none"
+
+        if conflict_policy == "rename":
+            if target_dir.exists():
+                generated_name = self.project_manager.generate_project_name(project_title or preferred_name)
+                return generated_name, "renamed"
+            return preferred_name, "none"
+
+        if target_dir.exists():
+            return preferred_name, "overwritten"
+        return preferred_name, "none"
+
+    def _ensure_standard_subdirs(self, project_dir: Path) -> None:
+        for subdir in self.project_manager.SUBDIRS:
+            (project_dir / subdir).mkdir(parents=True, exist_ok=True)
+
+    def _install_project_dir(
+        self,
+        staging_dir: Path,
+        project_name: str,
+        *,
+        overwrite: bool,
+    ) -> None:
+        target_dir = self.project_manager.projects_root / project_name
+        backup_dir: Path | None = None
+
+        try:
+            if overwrite and target_dir.exists():
+                backup_dir = target_dir.with_name(f".import-backup-{target_dir.name}-{secrets.token_hex(4)}")
+                target_dir.rename(backup_dir)
+
+            shutil.move(str(staging_dir), str(target_dir))
+            # profile sync 是安装的一部分；纳入同一个事务里，sync 失败也走下面的
+            # rollback：删 target_dir + 恢复 backup_dir。否则失败时旧项目已经被删，
+            # 用户会丢数据（overwrite 分支）或留半安装状态（new 分支）
+            self.project_manager.sync_agent_profile(target_dir)
+        except Exception:
+            if target_dir.exists():
+                shutil.rmtree(target_dir, ignore_errors=True)
+            if backup_dir and backup_dir.exists():
+                backup_dir.rename(target_dir)
+            raise
+
+        if backup_dir and backup_dir.exists():
+            shutil.rmtree(backup_dir)

@@ -1,0 +1,959 @@
+"""
+供应商配置管理 API。
+
+提供供应商列表查询、单个供应商配置读写和连接测试端点。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+from collections.abc import Callable, Mapping
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Any
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from pydantic import AfterValidator, BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import Response
+
+from lib.app_data_dir import app_data_dir
+from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.repository import mask_secret
+from lib.config.service import ConfigService, ProviderConfigValueError
+from lib.config.url_utils import normalize_base_url
+from lib.db import get_async_session
+from lib.db.base import dt_to_iso
+from lib.db.repositories.credential_repository import CredentialRepository
+from lib.gemini_shared import VERTEX_SCOPES
+from lib.i18n import Translator
+from server.dependencies import get_config_service
+
+if TYPE_CHECKING:
+    from lib.db.models.credential import ProviderCredential
+
+logger = logging.getLogger(__name__)
+
+MAX_VERTEX_CREDENTIALS_BYTES = 1024 * 1024  # 1 MiB
+
+router = APIRouter(prefix="/providers", tags=["Providers"])
+
+_CREDENTIAL_KEYS = frozenset({"api_key", "credentials_path", "base_url", "access_key", "secret_key"})
+
+# ---------------------------------------------------------------------------
+# 字段元数据映射（key → label/type/placeholder）
+# ---------------------------------------------------------------------------
+
+_FIELD_META: dict[str, dict[str, str]] = {
+    "api_key": {"label": "API Key", "type": "secret"},
+    "access_key": {"label": "Access Key", "type": "secret"},
+    "secret_key": {"label": "Secret Key", "type": "secret"},
+    "base_url": {"label": "Base URL", "type": "url", "placeholder": "Default"},
+    "credentials_path": {"label": "Vertex Credentials Path", "type": "text"},
+    "gcs_bucket": {"label": "GCS Bucket", "type": "text"},
+    "image_rpm": {"label": "Image RPM", "type": "number"},
+    "video_rpm": {"label": "Video RPM", "type": "number"},
+    "request_gap": {"label": "Request Gap (sec)", "type": "number"},
+    "image_max_workers": {"label": "Image Max Workers", "type": "number"},
+    "video_max_workers": {"label": "Video Max Workers", "type": "number"},
+    "audio_max_workers": {"label": "Audio Max Workers", "type": "number"},
+}
+
+
+# ---------------------------------------------------------------------------
+# Pydantic 模型
+# ---------------------------------------------------------------------------
+
+
+class ModelInfoResponse(BaseModel):
+    display_name: str
+    media_type: str
+    capabilities: list[str]
+    default: bool
+    supported_durations: list[int] = []
+    duration_resolution_constraints: dict[str, list[int]] = {}
+    reference_image_durations: list[int] = []
+    resolutions: list[str] = []
+
+
+class ProviderSummary(BaseModel):
+    id: str
+    display_name: str
+    description: str
+    status: str
+    media_types: list[str]
+    capabilities: list[str]
+    configured_keys: list[str]
+    missing_keys: list[str]
+    models: dict[str, ModelInfoResponse]
+
+
+class ProvidersListResponse(BaseModel):
+    providers: list[ProviderSummary]
+
+
+class FieldInfo(BaseModel):
+    key: str
+    label: str
+    type: str
+    required: bool
+    is_set: bool
+    value: str | None = None
+    value_masked: str | None = None
+    placeholder: str | None = None
+
+
+class CredentialSecretField(BaseModel):
+    """凭证表单需渲染的 secret 输入字段（按 provider 的 required ∩ secret ∩ 凭证键派生）。
+
+    驱动设置页凭证表单渲染：单 secret provider 给 ``[api_key]``（见 ADR 0037），可灵给
+    ``[api_key, access_key, secret_key]``（二选一分组见 ``secret_field_groups``）。
+    key 名全程同名，前端据此读写各字段。
+    """
+
+    key: str
+    label: str
+
+
+class ProviderConfigResponse(BaseModel):
+    id: str
+    display_name: str
+    description: str
+    status: str
+    media_types: list[str]
+    fields: list[FieldInfo]
+    # 该供应商凭证是否接受自定义 base_url（真相源：optional_keys 含 base_url）。
+    # base_url 随凭证走、不进 fields，前端据此决定是否在密钥表单渲染 URL 输入。
+    supports_base_url: bool
+    # 凭证表单应渲染的 secret 字段（有序，真相源：registry required_keys ∩ secret_keys ∩ 凭证键）。
+    secret_fields: list[CredentialSecretField]
+    # 凭证「二选一」分组：前端据此校验「至少一组的字段全部填写」而非「全部字段都填写」
+    # （真相源：registry credential_groups；空声明时 router 回退为 [全部 secret_fields]，
+    # 与迁移前「全部必填」语义等价）。
+    secret_field_groups: list[list[str]]
+
+
+class ConnectionTestResponse(BaseModel):
+    success: bool
+    available_models: list[str]
+    message: str
+
+
+class CredentialResponse(BaseModel):
+    id: int
+    provider: str
+    name: str
+    api_key_masked: str | None = None
+    credentials_filename: str | None = None
+    base_url: str | None = None
+    # 逐字段独立脱敏（不把两段当一个 secret）；除可灵外恒为 None（见 ADR 0037）。
+    access_key_masked: str | None = None
+    secret_key_masked: str | None = None
+    is_active: bool
+    created_at: str
+
+
+class CredentialListResponse(BaseModel):
+    credentials: list[CredentialResponse]
+
+
+def _stripped(v: str | None) -> str | None:
+    """Trim surrounding whitespace from credential string inputs.
+
+    Pasted keys often carry stray leading/trailing whitespace or newlines that
+    silently break auth; normalizing at the API boundary covers the frontend and
+    any direct/third-party caller. Unset fields keep their None default (the
+    validator runs only on provided values), so PATCH preserve-semantics — an
+    omitted secret leaves the stored value untouched — are unaffected.
+    """
+    return v.strip() if isinstance(v, str) else v
+
+
+_StrippedStr = Annotated[str, AfterValidator(_stripped)]
+_StrippedOptStr = Annotated[str | None, AfterValidator(_stripped)]
+
+
+class CreateCredentialRequest(BaseModel):
+    name: _StrippedStr
+    api_key: _StrippedOptStr = None
+    base_url: _StrippedOptStr = None
+    access_key: _StrippedOptStr = None
+    secret_key: _StrippedOptStr = None
+
+
+class UpdateCredentialRequest(BaseModel):
+    name: _StrippedOptStr = None
+    api_key: _StrippedOptStr = None
+    base_url: _StrippedOptStr = None
+    access_key: _StrippedOptStr = None
+    secret_key: _StrippedOptStr = None
+
+
+# ---------------------------------------------------------------------------
+# 辅助函数
+# ---------------------------------------------------------------------------
+
+
+def _validate_provider(provider_id: str, _t: Callable[..., str]) -> None:
+    """验证供应商 ID 是否存在，不存在则抛 404。"""
+    if provider_id not in PROVIDER_REGISTRY:
+        raise HTTPException(status_code=404, detail=_t("unknown_provider", provider_id=provider_id))
+
+
+def _submitted_secret_values(
+    provider_id: str, body: CreateCredentialRequest | UpdateCredentialRequest
+) -> dict[str, str | None]:
+    """从请求体取出参与凭证组切换判定的密钥字段，供 create/update 共用以保持字段集一致。
+
+    按 provider 在 `PROVIDER_REGISTRY` 中声明的 `secret_keys` 动态过滤，而非硬编码排除列表，
+    与 `credential_groups` 同源、同步声明驱动。注：新增凭证字段时，除在注册表登记 `secret_keys`
+    外，仍需同步给 `CreateCredentialRequest`/`UpdateCredentialRequest` 加对应字段——未加字段的
+    key 会被 `hasattr` 过滤静默忽略。
+    """
+    meta = PROVIDER_REGISTRY[provider_id]
+    return {k: getattr(body, k, None) for k in meta.secret_keys if hasattr(body, k)}
+
+
+def _resolve_credential_group_switch(
+    provider_id: str,
+    submitted: Mapping[str, str | None],
+    current: Mapping[str, str | None] | None,
+    _t: Callable[..., str],
+) -> set[str]:
+    """判定本次提交是否触发凭证切组，返回需清空的其它组字段集合。
+
+    切组由 ``ProviderMeta.credential_groups`` 声明驱动：
+    - 单次提交的非空字段横跨多个互斥组时无法判断意图，报错拒绝（避免静默丢弃用户填入的值）；
+    - 完整覆盖某一组、且该组在库内原值中原本未完整存在时，视为「切入」该组，返回其它已声明组
+      的全部字段供调用方清空——消除旧组残留导致的静默沿用旧模式；
+    - 完整覆盖的组在库内原本就已完整存在（存量共存行上例行轮换该组），则不算切组、不清空另一组，
+      避免清掉用户未触碰的休眠凭证；
+    - 未完整覆盖任何组（含未声明 credential_groups 的绝大多数 provider）时返回空集合，维持部分
+      更新的保留语义。
+
+    ``current`` 传入库内原值用于上述「切入」判定；创建端点无原值传 None（新行无可清空项，仅复用
+    本函数的横跨多组拒绝校验）。
+    """
+    meta = PROVIDER_REGISTRY[provider_id]
+    groups = meta.credential_groups
+    if not groups:
+        return set()
+    touched = [g for g in groups if any(submitted.get(k) for k in g)]
+    if len(touched) > 1:
+        raise HTTPException(status_code=422, detail=_t("credential_group_ambiguous"))
+    covered = meta.fully_covered_credential_groups(submitted)
+    if not covered:
+        return set()
+    target = covered[0]
+    if current is not None:
+        pre_covered = {frozenset(g) for g in meta.fully_covered_credential_groups(current)}
+        if frozenset(target) in pre_covered:
+            return set()
+    target_keys = set(target)
+    return {k for group in groups for k in group if k not in target_keys}
+
+
+async def _get_credential_or_404(
+    repo: CredentialRepository,
+    provider_id: str,
+    cred_id: int,
+    _t: Callable[..., str],
+) -> ProviderCredential:
+    """获取凭证并校验归属，不存在则抛 404。"""
+    cred = await repo.get_by_id(cred_id)
+    if not cred or cred.provider != provider_id:
+        raise HTTPException(status_code=404, detail=_t("credentials_not_found"))
+    return cred
+
+
+def _cred_to_response(cred: ProviderCredential) -> CredentialResponse:
+    return CredentialResponse(
+        id=cred.id,
+        provider=cred.provider,
+        name=cred.name,
+        api_key_masked=mask_secret(cred.api_key) if cred.api_key else None,
+        credentials_filename=Path(cred.credentials_path).name if cred.credentials_path else None,
+        base_url=cred.base_url,
+        access_key_masked=mask_secret(cred.access_key) if cred.access_key else None,
+        secret_key_masked=mask_secret(cred.secret_key) if cred.secret_key else None,
+        is_active=cred.is_active,
+        created_at=dt_to_iso(cred.created_at) or "",
+    )
+
+
+async def _invalidate_caches(request: Request) -> None:
+    from server.services.generation_context import invalidate_backend_cache
+
+    invalidate_backend_cache()
+    worker = getattr(request.app.state, "generation_worker", None)
+    if worker:
+        await worker.reload_limits()
+
+
+def _build_field(
+    key: str,
+    required: bool,
+    db_entry: dict[str, Any] | None,
+) -> FieldInfo:
+    """根据 key、是否必填 and DB 取出的条目，构建 FieldInfo。"""
+    meta = _FIELD_META.get(key, {"label": key, "type": "text"})
+    is_set = db_entry is not None and db_entry.get("is_set", False)
+
+    field: dict[str, Any] = {
+        "key": key,
+        "label": meta["label"],
+        "type": meta["type"],
+        "required": required,
+        "is_set": is_set,
+    }
+
+    if "placeholder" in meta:
+        field["placeholder"] = meta["placeholder"]
+
+    if is_set:
+        if meta["type"] == "secret":
+            field["value_masked"] = db_entry.get("masked", "••••")  # type: ignore[index]
+        else:
+            field["value"] = db_entry.get("value", "")  # type: ignore[index]
+    else:
+        if meta["type"] == "secret":
+            field["value_masked"] = None
+        else:
+            field["value"] = ""
+
+    return FieldInfo(**field)
+
+
+# ---------------------------------------------------------------------------
+# 端点
+# ---------------------------------------------------------------------------
+
+
+@router.get("", response_model=ProvidersListResponse)
+async def list_providers(
+    _t: Translator,
+    svc: Annotated[ConfigService, Depends(get_config_service)],
+) -> ProvidersListResponse:
+    """返回所有供应商及其状态。"""
+    statuses = await svc.get_all_providers_status()
+    providers = [
+        ProviderSummary(
+            id=s.name,
+            display_name=_t(f"provider_name_{s.name}"),
+            description=_t(f"provider_desc_{s.name}"),
+            status=s.status,
+            media_types=s.media_types,
+            capabilities=s.capabilities,
+            configured_keys=s.configured_keys,
+            missing_keys=s.missing_keys,
+            models={mid: ModelInfoResponse(**minfo) for mid, minfo in (s.models or {}).items()},
+        )
+        for s in statuses
+    ]
+    return ProvidersListResponse(providers=providers)
+
+
+@router.get("/{provider_id}/config", response_model=ProviderConfigResponse)
+async def get_provider_config(
+    provider_id: str,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> ProviderConfigResponse:
+    """返回单个供应商的配置字段（registry 元数据与 DB 值合并）。"""
+    _validate_provider(provider_id, _t)
+
+    meta = PROVIDER_REGISTRY[provider_id]
+    svc = ConfigService(session)
+    db_values = await svc.get_provider_config_masked(provider_id)
+
+    # 计算状态：基于凭证表是否有活跃凭证
+    cred_repo = CredentialRepository(session)
+    has_active = await cred_repo.has_active_credential(provider_id)
+    status = "ready" if has_active else "unconfigured"
+
+    # 构建字段列表：先必填，再可选，跳过凭证字段
+    fields: list[FieldInfo] = []
+    for key in meta.required_keys:
+        if key not in _CREDENTIAL_KEYS:
+            fields.append(_build_field(key, required=True, db_entry=db_values.get(key)))
+    for key in meta.optional_keys:
+        if key not in _CREDENTIAL_KEYS:
+            fields.append(_build_field(key, required=False, db_entry=db_values.get(key)))
+
+    # 凭证表单的 secret 输入字段：required ∩ secret ∩ 凭证键，保留 required_keys 顺序。
+    # 单 secret provider → [api_key]（见 ADR 0037）；可灵 → [api_key, access_key, secret_key]，
+    # 二选一分组见下方 secret_field_groups。
+    secret_keys = set(meta.secret_keys)
+    secret_fields = [
+        CredentialSecretField(key=key, label=_FIELD_META.get(key, {"label": key})["label"])
+        for key in meta.required_keys
+        if key in _CREDENTIAL_KEYS and key in secret_keys
+    ]
+    # 空声明（绝大多数单 secret / 双 secret-AND provider）回退为单一必填组 = 全部 secret_fields，
+    # 与迁移前「全部必填」语义等价；仅可灵声明了非空 credential_groups（api_key 单键 /
+    # access_key+secret_key 双键二选一）。secret_fields 为空时（当前仅 gemini-vertex，走文件
+    # 上传分支不经过分组校验）不合成 [[]]——与 registry.py 的空分组 fail-fast 语义保持一致，
+    # 避免未来新增"无 secret 字段但走普通凭证表单"的 provider 时该分组恒真、静默绕过校验。
+    secret_field_groups = meta.credential_groups or ([[f.key for f in secret_fields]] if secret_fields else [])
+
+    return ProviderConfigResponse(
+        id=provider_id,
+        display_name=_t(f"provider_name_{provider_id}"),
+        description=_t(f"provider_desc_{provider_id}"),
+        status=status,
+        media_types=list(meta.media_types),
+        fields=fields,
+        supports_base_url="base_url" in meta.optional_keys,
+        secret_fields=secret_fields,
+        secret_field_groups=secret_field_groups,
+    )
+
+
+@router.patch("/{provider_id}/config", status_code=204)
+async def patch_provider_config(
+    provider_id: str,
+    body: dict[str, str | None],
+    request: Request,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> Response:
+    """更新供应商配置。值为 null 表示删除该键。"""
+    _validate_provider(provider_id, _t)
+
+    svc = ConfigService(session)
+    for key, value in body.items():
+        if value is None:
+            await svc.delete_provider_config(provider_id, key, flush=False)
+        else:
+            try:
+                await svc.set_provider_config(provider_id, key, value, flush=False)
+            except ProviderConfigValueError as exc:
+                # 错误文案中的字段名换成 UI 同款 label（如 Image Max Workers），与表单展示一致
+                params = dict(exc.params)
+                meta = _FIELD_META.get(exc.key)
+                if meta is not None:
+                    params["field"] = meta["label"]
+                raise HTTPException(status_code=422, detail=_t(exc.code, **params)) from exc
+
+    await session.commit()
+
+    # 配置变更后刷新缓存和并发池
+    await _invalidate_caches(request)
+
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# 凭证 CRUD 端点
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{provider_id}/credentials", response_model=CredentialListResponse)
+async def list_credentials(
+    provider_id: str,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> CredentialListResponse:
+    _validate_provider(provider_id, _t)
+    repo = CredentialRepository(session)
+    creds = await repo.list_by_provider(provider_id)
+    return CredentialListResponse(credentials=[_cred_to_response(c) for c in creds])
+
+
+@router.post("/{provider_id}/credentials", status_code=201, response_model=CredentialResponse)
+async def create_credential(
+    provider_id: str,
+    body: CreateCredentialRequest,
+    request: Request,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> CredentialResponse:
+    _validate_provider(provider_id, _t)
+    # 创建是全新行，无可清空——仅复用横跨多组的歧义校验拒绝矛盾提交（新行不落盘）。
+    _resolve_credential_group_switch(provider_id, _submitted_secret_values(provider_id, body), None, _t)
+    repo = CredentialRepository(session)
+    cred = await repo.create(
+        provider=provider_id,
+        name=body.name,
+        api_key=body.api_key,
+        base_url=body.base_url,
+        access_key=body.access_key,
+        secret_key=body.secret_key,
+    )
+    await session.commit()
+    await _invalidate_caches(request)
+    return _cred_to_response(cred)
+
+
+@router.patch("/{provider_id}/credentials/{cred_id}", status_code=204)
+async def update_credential(
+    provider_id: str,
+    cred_id: int,
+    body: UpdateCredentialRequest,
+    request: Request,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> Response:
+    _validate_provider(provider_id, _t)
+    repo = CredentialRepository(session)
+    # 先确认凭证存在（404 优先于后续切组歧义的 422），再用库内原值参与「切入」判定。
+    cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
+    submitted = _submitted_secret_values(provider_id, body)
+    clear_keys = _resolve_credential_group_switch(
+        provider_id,
+        submitted,
+        {k: getattr(cred, k, None) for k in submitted},
+        _t,
+    )
+    kwargs: dict = {}
+    if body.name is not None:
+        kwargs["name"] = body.name
+    if "api_key" in body.model_fields_set:
+        kwargs["api_key"] = body.api_key
+    if "base_url" in body.model_fields_set:
+        kwargs["base_url"] = body.base_url
+    if "access_key" in body.model_fields_set:
+        kwargs["access_key"] = body.access_key
+    if "secret_key" in body.model_fields_set:
+        kwargs["secret_key"] = body.secret_key
+    # 切入某组：清空其它已声明组的字段，消除"静默沿用旧模式"。切入判定已排除本次提交触及的组，
+    # 故不会覆盖用户本次填入的值。
+    for key in clear_keys:
+        kwargs[key] = None
+    if kwargs:
+        await repo.update(cred_id, **kwargs)
+        await session.commit()
+        if cred.is_active:
+            await _invalidate_caches(request)
+    return Response(status_code=204)
+
+
+@router.delete("/{provider_id}/credentials/{cred_id}", status_code=204)
+async def delete_credential(
+    provider_id: str,
+    cred_id: int,
+    request: Request,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> Response:
+    _validate_provider(provider_id, _t)
+    repo = CredentialRepository(session)
+    cred = await _get_credential_or_404(repo, provider_id, cred_id, _t)
+    cred_path = cred.credentials_path  # 在 delete 前保存，避免 ORM 对象过期后无法访问
+    await repo.delete(cred_id)
+    await session.commit()
+    await _invalidate_caches(request)
+    # 删除关联的凭证文件（如 vertex_keys/ 下的 JSON），放在 commit 之后确保数据一致性
+    if cred_path:
+        cred_file = Path(cred_path)
+        if cred_file.is_file():
+            try:
+                cred_file.unlink()
+                logger.info("已删除凭证文件: %s", cred_file)
+            except OSError:
+                logger.warning("删除凭证文件失败: %s", cred_file, exc_info=True)
+    return Response(status_code=204)
+
+
+@router.post("/{provider_id}/credentials/{cred_id}/activate", status_code=204)
+async def activate_credential(
+    provider_id: str,
+    cred_id: int,
+    request: Request,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> Response:
+    _validate_provider(provider_id, _t)
+    repo = CredentialRepository(session)
+    await _get_credential_or_404(repo, provider_id, cred_id, _t)
+    await repo.activate(cred_id, provider_id)
+    await session.commit()
+    await _invalidate_caches(request)
+    return Response(status_code=204)
+
+
+@router.post("/gemini-vertex/credentials/upload", status_code=201, response_model=CredentialResponse)
+async def upload_vertex_credential(
+    request: Request,
+    _t: Translator,
+    name: str = "Vertex Credentials",
+    session: AsyncSession = Depends(get_async_session),
+    file: UploadFile = File(...),
+) -> CredentialResponse:
+    """上传 Vertex AI 服务账号 JSON 凭证文件，同时创建凭证记录。"""
+    try:
+        contents = await file.read(MAX_VERTEX_CREDENTIALS_BYTES + 1)
+    except Exception:
+        raise HTTPException(status_code=400, detail=_t("vertex_json_read_failed"))
+
+    if len(contents) > MAX_VERTEX_CREDENTIALS_BYTES:
+        raise HTTPException(status_code=413, detail=_t("vertex_json_too_large"))
+
+    try:
+        payload = json.loads(contents.decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=400, detail=_t("vertex_json_invalid"))
+
+    if not isinstance(payload, dict) or not payload.get("project_id"):
+        raise HTTPException(status_code=400, detail=_t("vertex_json_missing_project_id"))
+
+    repo = CredentialRepository(session)
+    cred = await repo.create(provider="gemini-vertex", name=name)
+
+    dest = app_data_dir().parent / "vertex_keys" / f"vertex_cred_{cred.id}.json"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = dest.with_suffix(".tmp")
+    tmp_path.write_bytes(contents)
+    # chmod 0o600 在 Windows 上只控制只读位，无法限制其他用户访问；
+    # Windows 上凭证保护交给文件系统 ACL（用户级 %LOCALAPPDATA%）。
+    if os.name == "posix":
+        try:
+            os.chmod(tmp_path, 0o600)
+        except OSError:
+            logger.warning("无法设置临时凭证文件权限: %s", tmp_path, exc_info=True)
+    os.replace(tmp_path, dest)
+    if os.name == "posix":
+        try:
+            os.chmod(dest, 0o600)
+        except OSError:
+            logger.warning("无法设置凭证文件权限: %s", dest, exc_info=True)
+
+    await repo.update(cred.id, credentials_path=str(dest))
+    await session.commit()
+    await _invalidate_caches(request)
+
+    await session.refresh(cred)
+    return _cred_to_response(cred)
+
+
+# ---------------------------------------------------------------------------
+# 连接测试：各供应商实现
+# ---------------------------------------------------------------------------
+
+_CONNECTION_TEST_TIMEOUT = 15  # 秒
+
+
+def _test_gemini_aistudio(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+    """通过 models.list() 验证 Gemini AI Studio API Key。"""
+    from google import genai
+
+    api_key = config["api_key"]
+    base_url = normalize_base_url(config.get("base_url"))
+    http_options = {"base_url": base_url} if base_url else None
+    client = genai.Client(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
+
+    pager = client.models.list()
+    available = _extract_gemini_models(pager)
+    return ConnectionTestResponse(
+        success=True,
+        available_models=available,
+        message=_t("connection_success"),
+    )
+
+
+def _test_gemini_vertex(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+    """通过 Vertex AI 凭证验证连通性。"""
+    from google import genai
+    from google.oauth2 import service_account
+
+    credentials_path = config.get("credentials_path", "")
+    if not credentials_path or not Path(credentials_path).is_file():
+        return ConnectionTestResponse(
+            success=False,
+            available_models=[],
+            message=_t("file_not_found", path=credentials_path),
+        )
+
+    with open(credentials_path, encoding="utf-8") as f:
+        creds_data = json.load(f)
+
+    project_id = creds_data.get("project_id")
+    if not project_id:
+        return ConnectionTestResponse(
+            success=False,
+            available_models=[],
+            message=_t("vertex_json_missing_project_id"),
+        )
+
+    credentials = service_account.Credentials.from_service_account_file(
+        credentials_path,
+        scopes=VERTEX_SCOPES,
+    )
+    client = genai.Client(
+        vertexai=True,
+        project=project_id,
+        location="global",
+        credentials=credentials,
+    )
+
+    pager = client.models.list()
+    available = _extract_gemini_models(pager)
+    return ConnectionTestResponse(
+        success=True,
+        available_models=available,
+        message=_t("connection_success"),
+    )
+
+
+def _extract_gemini_models(pager) -> list[str]:
+    """从 Gemini models.list() 结果中提取视频/图像相关模型，去除路径前缀。"""
+    keywords = ("veo", "imagen", "image")
+    models: set[str] = set()
+    for m in pager:
+        name = m.name or ""
+        if not any(k in name.lower() for k in keywords):
+            continue
+        # 去掉 "models/" 或 "publishers/google/models/" 前缀
+        short = name.rsplit("/", 1)[-1]
+        models.add(short)
+    return sorted(models)
+
+
+def _test_ark(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+    """通过 tasks.list 验证 Ark API Key。"""
+    from lib.ark_shared import create_ark_client
+
+    client = create_ark_client(api_key=config["api_key"], base_url=config.get("base_url"))
+    # 轻量级调用验证连通性，不创建任何资源
+    client.content_generation.tasks.list(page_size=1)
+    return ConnectionTestResponse(
+        success=True,
+        available_models=[],
+        message=_t("connection_success"),
+    )
+
+
+def _test_grok(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+    """通过 models.list_language_models() 验证 xAI API Key。"""
+    import xai_sdk
+
+    client = xai_sdk.Client(api_key=config["api_key"])
+    models = client.models.list_language_models()
+    available = sorted(m.name for m in models if m.name)
+    return ConnectionTestResponse(
+        success=True,
+        available_models=available,
+        message=_t("connection_success"),
+    )
+
+
+_OPENAI_MODEL_KEYWORDS = ("gpt", "sora", "dall", "o1", "o3", "o4")
+
+
+def _test_openai(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+    """通过 models.list() 验证 OpenAI API Key。"""
+    from openai import OpenAI
+
+    kwargs: dict = {"api_key": config["api_key"]}
+    base_url = config.get("base_url")
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = OpenAI(**kwargs)
+    models = client.models.list()
+    available = sorted(m.id for m in models.data if any(k in m.id.lower() for k in _OPENAI_MODEL_KEYWORDS))
+    return ConnectionTestResponse(
+        success=True,
+        available_models=available,
+        message=_t("connection_success"),
+    )
+
+
+def _test_vidu(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+    """Vidu 连接测试 — HTTP 细节封装在 lib.vidu_shared.test_vidu_connection（fork-only）。"""
+    from lib.vidu_shared import test_vidu_connection
+
+    test_vidu_connection(config)
+    return ConnectionTestResponse(
+        success=True,
+        available_models=[],
+        message=_t("connection_success"),
+    )
+
+
+def _test_dashscope(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+    """通过 models.list() 验证 DashScope API Key（compatible-mode，OpenAI 协议）。
+
+    与 custom_provider 模型发现走同一 OpenAI 兼容机制；base_url 经 dashscope_text_base_url
+    派生 {host}/compatible-mode/v1，容忍用户填 host 或带任一后缀。
+    """
+    from openai import OpenAI
+
+    from lib.dashscope_shared import dashscope_text_base_url
+
+    client = OpenAI(
+        api_key=config["api_key"],
+        base_url=dashscope_text_base_url(config.get("base_url")),
+    )
+    models = client.models.list()
+    available = sorted(m.id for m in models.data if "qwen" in m.id.lower() or "wan" in m.id.lower())
+    return ConnectionTestResponse(
+        success=True,
+        available_models=available,
+        message=_t("connection_success"),
+    )
+
+
+def _test_minimax(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+    """通过 models.list() 验证 MiniMax API Key（OpenAI 兼容协议）。
+
+    与 DashScope 同构：复用 OpenAI 客户端打 models.list()；base_url 经 minimax_text_base_url
+    归一化为 {host}/v1，容忍用户填 host 或带 /v1 后缀（缺省国内站，可改指向国际站）。
+    """
+    from openai import OpenAI
+
+    from lib.minimax_shared import minimax_text_base_url
+
+    client = OpenAI(
+        api_key=config["api_key"],
+        base_url=minimax_text_base_url(config.get("base_url")),
+    )
+    models = client.models.list()
+    available = sorted(m.id for m in models.data if "minimax" in m.id.lower() or "abab" in m.id.lower())
+    return ConnectionTestResponse(
+        success=True,
+        available_models=available,
+        message=_t("connection_success"),
+    )
+
+
+def _test_kling(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+    """通过查询账户资源包余量验证可灵凭证（``GET /account/costs``，官方标注 free-to-call、无副作用）。
+
+    双模式鉴权二选一，判定收口于 kling_auth_mode（与 backend_assembly._build_kling 共用，保证
+    实际生成任务与连接测试的分派顺序恒一致）；缺失时 resolve_kling_api_key /
+    resolve_kling_jwt_credentials 抛出的 ValueError 经上层 except 转成明确的 connection_failed
+    文案。account/costs 挂在域名根路径（不带 /v1 版本前缀），需从 base_url 剥离该后缀。
+    """
+    import time
+
+    import httpx
+
+    from lib.kling_shared import (
+        KLING_BASE_URL,
+        KlingJWTManager,
+        kling_auth_mode,
+        kling_bearer_headers,
+        kling_response_error,
+        resolve_kling_api_key,
+        resolve_kling_jwt_credentials,
+    )
+
+    if kling_auth_mode(config) == "bearer":
+        headers = kling_bearer_headers(resolve_kling_api_key(config.get("api_key")))
+    else:
+        access_key, secret_key = resolve_kling_jwt_credentials(config.get("access_key"), config.get("secret_key"))
+        headers = KlingJWTManager(access_key, secret_key).auth_headers()
+
+    base_url = (config.get("base_url") or KLING_BASE_URL).rstrip("/")
+    root = base_url.removesuffix("/v1")
+    now_ms = int(time.time() * 1000)
+    one_day_ms = 24 * 60 * 60 * 1000
+    resp = httpx.get(
+        f"{root}/account/costs",
+        params={"start_time": now_ms - one_day_ms, "end_time": now_ms},
+        headers=headers,
+        timeout=_CONNECTION_TEST_TIMEOUT,
+    )
+    # JSON 错误体先于 raise_for_status 解析：鉴权失败等场景可灵仍带 JSON 错误体（业务 code +
+    # message，如"access key 不存在"），先于 raise_for_status 提取能保留这份具体原因；否则
+    # 4xx/5xx 直接 raise 会丢弃响应体，只剩泛泛的 HTTP 状态文案。content-type 声称 JSON 但
+    # 实际非法/空体（如异常网关截断响应）时解析会抛 JSONDecodeError——按声明的 content-type
+    # 判断是否尝试解析，不代表响应体一定合法，解析失败即放弃业务错误提取，跳过、直接走
+    # raise_for_status 兜底暴露 HTTP 状态，而非让解析异常本身掩盖更具体的 HTTP 错误。
+    if "application/json" in resp.headers.get("content-type", ""):
+        try:
+            payload = resp.json()
+        except ValueError:
+            payload = None
+        if payload is not None:
+            err = kling_response_error(payload)
+            if err is not None:
+                raise RuntimeError(err)
+    resp.raise_for_status()
+    return ConnectionTestResponse(
+        success=True,
+        available_models=[],
+        message=_t("connection_success"),
+    )
+
+
+_TEST_DISPATCH: dict[str, Callable[[dict[str, str], Any], ConnectionTestResponse]] = {
+    "gemini-aistudio": _test_gemini_aistudio,
+    "gemini-vertex": _test_gemini_vertex,
+    "ark": _test_ark,
+    "ark-agent-plan": _test_ark,
+    "grok": _test_grok,
+    "openai": _test_openai,
+    "vidu": _test_vidu,
+    "dashscope": _test_dashscope,
+    "minimax": _test_minimax,
+    "kling": _test_kling,
+}
+
+
+@router.post("/{provider_id}/test", response_model=ConnectionTestResponse)
+async def test_provider_connection(
+    provider_id: str,
+    _t: Translator,
+    credential_id: int | None = None,
+    session: AsyncSession = Depends(get_async_session),
+) -> ConnectionTestResponse:
+    """调用供应商 API 验证连通性。可指定 credential_id 测试特定凭证。"""
+    _validate_provider(provider_id, _t)
+
+    repo = CredentialRepository(session)
+    if credential_id is not None:
+        cred = await _get_credential_or_404(repo, provider_id, credential_id, _t)
+    else:
+        cred = await repo.get_active(provider_id)
+
+    if cred is None:
+        return ConnectionTestResponse(
+            success=False,
+            available_models=[],
+            message=_t("missing_credentials"),
+        )
+
+    svc = ConfigService(session)
+    config = await svc.get_provider_config(provider_id)
+    cred.overlay_config(config)
+
+    # 与简单族 backend 构造的 base_url 优先级对称：用户未显式配 base_url
+    # 时，注入 ProviderMeta.default_base_url，使连接测试命中正确 endpoint。
+    if not config.get("base_url"):
+        meta = PROVIDER_REGISTRY.get(provider_id)
+        if meta and meta.default_base_url:
+            config["base_url"] = meta.default_base_url
+
+    test_fn = _TEST_DISPATCH.get(provider_id)
+    if test_fn is None:
+        return ConnectionTestResponse(
+            success=False,
+            available_models=[],
+            message=_t("unsupported_test", provider_id=provider_id),
+        )
+
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(test_fn, config, _t),
+            timeout=_CONNECTION_TEST_TIMEOUT,
+        )
+    except TimeoutError:
+        return ConnectionTestResponse(
+            success=False,
+            available_models=[],
+            message=_t("connection_timeout"),
+        )
+    except Exception as exc:
+        err_msg = str(exc)
+        if len(err_msg) > 200:
+            err_msg = err_msg[:200] + "..."
+        logger.warning("连接测试失败 [%s]: %s", provider_id, err_msg)
+        return ConnectionTestResponse(
+            success=False,
+            available_models=[],
+            message=_t("connection_failed", err_msg=err_msg),
+        )
+    return result

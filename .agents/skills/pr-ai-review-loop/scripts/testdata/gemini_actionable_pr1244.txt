@@ -1,0 +1,7 @@
+## Code Review
+
+This pull request replaces the hardcoded fallback video durations with a single source of truth, `DEFAULT_FALLBACK`, imported from `lib.custom_provider.duration_presets` across the text generation SDK tools and adds corresponding unit tests. The reviewer suggested moving the `durations` parsing logic inside the `try-except` block in `_fetch_reference_caps_with_fallback` to prevent unhandled `ValueError` exceptions when processing invalid capability data, ensuring the fallback mechanism remains robust.
+
+> [!IMPORTANT]
+> The [consumer version of Gemini Code Assist on GitHub](https://developers.google.com/gemini-code-assist/docs/review-repo-code) is being sunset. Starting **June 18, 2026**, new organization installations will be blocked, and all code review activity will officially cease on **July 17, 2026**.
+> For more details on the timeline and next steps, please review the [Help Documentation](https://developers.google.com/gemini-code-assist/docs/deprecations/consumer-code-review).

@@ -1,0 +1,37 @@
+name: 新功能 (Feature)
+description: 提出一个新的功能想法或需求
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决的问题 / 使用场景
+      description: 请先描述你遇到的问题或场景，而不是直接给出方案——了解背后的问题才能设计出合适的功能。
+      placeholder: 例如：我在做 xxx 时，需要 yyy，但目前 zzz，导致……
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望的功能或方案
+      description: 你希望 ArcReel 提供什么样的能力来解决上面的问题？
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: 目前的替代做法
+      description: 在没有这个功能的情况下，你现在是如何处理这个需求的？如果没有可行的办法，留空即可。
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已搜索过现有 issue，没有找到重复的请求
+          required: true

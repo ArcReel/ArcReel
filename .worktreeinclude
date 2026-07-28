@@ -1,0 +1,12 @@
+# 原生 worktree(claude --worktree / EnterWorktree)创建新 checkout 时，
+# 把这些被 gitignore 的本地文件复制进去。.gitignore 语法；仅复制匹配且被忽略的文件。
+#
+# projects/ 整体复制 = 新 worktree 自带真实项目数据 + 配置 DB。
+# 这是「复制」不是「symlink」，每个 worktree 各持独立副本，alembic 迁移互不污染。
+# 代价：每个 worktree 约 1.6GB（versions/ 历史 + 媒体占大头）；
+# .arcreel.db 处于 WAL 模式，建 worktree 前建议先停开发服务器，避免复制到不一致快照。
+.env
+.env.local
+.vscode/
+.claude/settings.local.json
+projects/

@@ -1,0 +1,165 @@
+<!-- This is an auto-generated comment: summarize by coderabbit.ai -->
+<!-- review_stack_entry_start -->
+
+[![Review Change Stack](https://storage.googleapis.com/coderabbit_public_assets/review-stack-in-coderabbit-ui.svg)](https://app.coderabbit.ai/change-stack/ArcReel/ArcReel/pull/1115?utm_source=github_walkthrough&utm_medium=github&utm_campaign=change_stack)
+
+<!-- review_stack_entry_end -->
+<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->
+
+> [!WARNING]
+> ## Review limit reached
+> 
+> `@Pollo3470`, you've reached your PR review limit, so we couldn't start this review.
+> 
+> **Next review available in:** **38 seconds**
+> 
+> Enable **[usage-based reviews](https://app.coderabbit.ai/settings/billing?tab=usage&orgId=cdbd6e0c-9edd-4eb5-a978-65c2225c23e9)** in Billing to review now. Otherwise, wait until the next included review is available.
+> You're only billed for reviews past your plan's rate limits ($0.25/file).
+> 
+> <details>
+> <summary>How can I continue?</summary>
+> 
+> After more reviews become available, a review can be triggered using the `@coderabbitai review` command as a PR comment. Alternatively, push new commits to this PR.
+> 
+> To avoid repeated limits, reduce automatic review volume by pausing incremental auto-reviews earlier, using label-based review opt-in, excluding WIP or generated PR titles, or requesting reviews manually when the PR is ready. If your team needs uninterrupted high-volume reviews, an organization admin can enable usage-based reviews.
+> 
+> </details>
+> 
+> 
+> <details>
+> <summary>How do review limits work?</summary>
+> 
+> CodeRabbit enforces per-developer PR review limits for each organization. Most developers receive the normal plan review availability.
+> 
+> For paid Pro and Pro+ PR reviews, CodeRabbit uses adaptive limits for sustained high-volume activity. When a developer's recent PR review activity reaches the 95th percentile or higher among CodeRabbit users, additional reviews become available more gradually as earlier reviews age out of the rolling window.
+> 
+> Please refer [docs](https://docs.coderabbit.ai/management/plans#rate-limits) for additional details.
+> 
+> </details>
+> 
+> <details>
+> <summary>Review details</summary>
+> 
+> <details>
+> <summary>⚙️ Run configuration</summary>
+> 
+> **Configuration used**: Organization UI
+> 
+> **Review profile**: ASSERTIVE
+> 
+> **Plan**: Pro Plus
+> 
+> **Run ID**: `9bbad795-5959-4dcd-8af7-60a870f94bdf`
+> 
+> </details>
+> 
+> <details>
+> <summary>📥 Commits</summary>
+> 
+> Reviewing files that changed from the base of the PR and between 0310cbb50228987e370eb76982dcf5c8d00c625c and f879673332d10feae5817f1c188f1e3fccd6c352.
+> 
+> </details>
+> 
+> <details>
+> <summary>📒 Files selected for processing (1)</summary>
+> 
+> * `frontend/src/components/pages/settings/AboutSection.tsx`
+> 
+> </details>
+> 
+> </details>
+
+<!-- end of auto-generated comment: rate limited by coderabbit.ai -->
+
+<!-- walkthrough_start -->
+
+<details>
+<summary>📝 Walkthrough</summary>
+
+## Walkthrough
+
+设置页诊断日志下载改为点击后延迟回收 Blob URL，并新增测试验证回收时序、ObjectURL 创建次数及下载文件名。
+
+### Changes
+
+**诊断日志下载**
+
+|Layer / File(s)|Summary|
+|---|---|
+|**延迟回收 Blob URL 与下载验证** <br> `frontend/src/components/pages/settings/AboutSection.tsx`, `frontend/src/components/pages/settings/AboutSection.test.tsx`|`URL.revokeObjectURL` 延迟至下一个宏任务执行；测试覆盖非同步回收、ObjectURL 创建次数及返回文件名对应的下载属性。|
+
+**Estimated code review effort:** 2 (Simple) | ~10 minutes
+
+**Poem**
+
+> 小兔轻点下载键，  
+> Blob 月亮暂不眠。  
+> 定时器响再归还，  
+> 文件名稳稳落地面。  
+> 测试胡萝卜，咔嚓甜！
+
+</details>
+
+<!-- walkthrough_end -->
+<!-- pre_merge_checks_walkthrough_start -->
+
+<details>
+<summary>🚥 Pre-merge checks | ✅ 3 | ❌ 2</summary>
+
+### ❌ Failed checks (2 warnings)
+
+|     Check name     | Status     | Explanation                                                                          | Resolution                                                                         |
+| :----------------: | :--------- | :----------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------- |
+|  Description check | ⚠️ Warning | 内容覆盖了问题、改动、验证和限制，但未按模板提供“范围/变更/验收清单/已知 defer”结构。                                     | 请补齐模板中的“范围”“变更”“验收清单”“已知 defer”四部分，并填写相关勾选项或注明“无”。                                 |
+| Docstring Coverage | ⚠️ Warning | Docstring coverage is 0.00% which is insufficient. The required threshold is 80.00%. | Write docstrings for the functions missing them to satisfy the coverage threshold. |
+
+<details>
+<summary>✅ Passed checks (3 passed)</summary>
+
+|         Check name         | Status   | Explanation                                           |
+| :------------------------: | :------- | :---------------------------------------------------- |
+|         Title check        | ✅ Passed | 标题准确概括了主变更：修复 Firefox/Safari 中诊断日志下载因过早回收 Blob 导致的失败。 |
+|     Linked Issues check    | ✅ Passed | 改动已按 `#1040` 修复同步 revoke 问题，并补充延迟回收、异常回收和下载文件名测试。       |
+| Out of Scope Changes check | ✅ Passed | 改动集中在 AboutSection 下载路径及其测试，没有明显引入与目标无关的变更。           |
+
+</details>
+
+</details>
+
+<!-- pre_merge_checks_walkthrough_end -->
+<!-- finishing_touch_checkbox_start -->
+
+<details>
+<summary>✨ Finishing Touches</summary>
+
+<details>
+<summary>🧪 Generate unit tests (beta)</summary>
+
+- [ ] <!-- {"checkboxId": "f47ac10b-58cc-4372-a567-0e02b2c3d479", "radioGroupId": "utg-output-choice-group-unknown_comment_id"} -->   Create PR with unit tests
+- [ ] <!-- {"checkboxId": "6ba7b810-9dad-11d1-80b4-00c04fd430c8", "radioGroupId": "utg-output-choice-group-unknown_comment_id"} -->   Commit unit tests in branch `issue/1040`
+
+</details>
+
+</details>
+
+<!-- finishing_touch_checkbox_end -->
+<!-- tips_start -->
+
+---
+
+Thanks for using [CodeRabbit](https://coderabbit.ai?utm_source=oss&utm_medium=github&utm_campaign=ArcReel/ArcReel&utm_content=1115)! It's free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out.
+
+<details>
+<summary>❤️ Share</summary>
+
+- [X](https://twitter.com/intent/tweet?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A&url=https%3A//coderabbit.ai)
+- [Mastodon](https://mastodon.social/share?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A%20https%3A%2F%2Fcoderabbit.ai)
+- [Reddit](https://www.reddit.com/submit?title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&text=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code.%20Check%20it%20out%3A%20https%3A//coderabbit.ai)
+- [LinkedIn](https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fcoderabbit.ai&mini=true&title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&summary=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code)
+
+</details>
+
+
+<sub>Comment `@coderabbitai help` to get the list of available commands.</sub>
+
+<!-- tips_end -->

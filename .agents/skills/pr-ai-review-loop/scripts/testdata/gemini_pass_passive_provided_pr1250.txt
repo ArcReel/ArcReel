@@ -1,0 +1,7 @@
+## Code Review
+
+This pull request refactors and enhances the API's error handling by introducing domain-specific exceptions (such as ConflictError, ServiceUnavailableError, UnsupportedDiscoveryFormatError, EmptySourceError, SessionBusyError, and NoCompletedSegmentsError) to replace generic ValueErrors and HTTPExceptions. This allows the routing layer to map errors to precise HTTP status codes (e.g., 400, 409, 422, 503) and return localized error messages without leaking internal system paths. Additionally, deprecated code was cleaned up, and comprehensive unit tests were added to validate the new error propagation logic. There are no review comments to assess, so no feedback is provided on reviewer comments.
+
+> [!IMPORTANT]
+> The [consumer version of Gemini Code Assist on GitHub](https://developers.google.com/gemini-code-assist/docs/review-repo-code) is being sunset. Starting **June 18, 2026**, new organization installations will be blocked, and all code review activity will officially cease on **July 17, 2026**.
+> For more details on the timeline and next steps, please review the [Help Documentation](https://developers.google.com/gemini-code-assist/docs/deprecations/consumer-code-review).

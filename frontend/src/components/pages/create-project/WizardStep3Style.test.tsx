@@ -1,0 +1,161 @@
+import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import "@/i18n";
+import { WizardStep3Style } from "./WizardStep3Style";
+
+const baseValue = {
+  mode: "template" as const,
+  templateId: "live_premium_drama",
+  activeCategory: "live" as const,
+  uploadedFile: null,
+  uploadedPreview: null,
+};
+
+const noop = () => {};
+const commonProps = { onBack: noop, onCreate: noop, onCancel: noop, creating: false };
+
+describe("WizardStep3Style", () => {
+  it("renders live templates in default live tab with default one selected", () => {
+    render(<WizardStep3Style value={baseValue} onChange={noop} {...commonProps} />);
+    // The default template gets a "default" badge
+    expect(screen.getAllByText(/（默认）|\(default\)/i).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("emits onChange with new templateId when a template card is clicked", () => {
+    const onChange = vi.fn();
+    render(<WizardStep3Style value={baseValue} onChange={onChange} {...commonProps} />);
+    // Click a different live template by its i18n name (e.g. 张艺谋风格)
+    const card = screen.getByRole("button", { name: /张艺谋/ });
+    fireEvent.click(card);
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      mode: "template",
+      templateId: "live_zhang_yimou",
+    }));
+  });
+
+  it("switches to custom mode while preserving templateId (切换无损失)", () => {
+    const onChange = vi.fn();
+    render(<WizardStep3Style value={baseValue} onChange={onChange} {...commonProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /自定义|Custom/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      mode: "custom",
+      templateId: baseValue.templateId,   // 原 template 保留，回切时恢复
+    }));
+  });
+
+  it("switches category tab while preserving uploaded file/preview (切换无损失)", () => {
+    const onChange = vi.fn();
+    const uploaded = new File([""], "x.png", { type: "image/png" });
+    const valueWithUpload = {
+      ...baseValue,
+      mode: "custom" as const,
+      uploadedFile: uploaded,
+      uploadedPreview: "blob:test",
+    };
+    render(<WizardStep3Style value={valueWithUpload} onChange={onChange} {...commonProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /漫剧|Animation/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      mode: "template",
+      activeCategory: "anim",
+      uploadedFile: uploaded,
+      uploadedPreview: "blob:test",
+    }));
+  });
+
+  it("switches to anim tab while preserving the live templateId (cross-tab selection is not auto-overridden)", () => {
+    const onChange = vi.fn();
+    render(<WizardStep3Style value={baseValue} onChange={onChange} {...commonProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /漫剧|Animation/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      mode: "template",
+      activeCategory: "anim",
+      templateId: "live_premium_drama",   // preserved from live; anim tab shows no selection
+    }));
+  });
+
+  it("keeps Create button enabled when custom mode has no uploaded file (style 为可选)", () => {
+    const value = { ...baseValue, mode: "custom" as const, templateId: null };
+    render(<WizardStep3Style value={value} onChange={noop} {...commonProps} />);
+    const createBtn = screen.getByRole("button", { name: /创建项目|Create/i });
+    expect(createBtn).not.toBeDisabled();
+  });
+
+  it("enables Create button when custom mode has uploaded file", () => {
+    const value = {
+      ...baseValue,
+      mode: "custom" as const,
+      templateId: null,
+      uploadedFile: new File([""], "x.png", { type: "image/png" }),
+      uploadedPreview: "blob:test",
+    };
+    render(<WizardStep3Style value={value} onChange={noop} {...commonProps} />);
+    const createBtn = screen.getByRole("button", { name: /创建项目|Create/i });
+    expect(createBtn).toBeEnabled();
+  });
+
+  it("disables Create button while creating=true", () => {
+    render(<WizardStep3Style value={baseValue} onChange={noop} {...{ ...commonProps, creating: true }} />);
+    // While creating, button reads "创建中…" / "Creating…"
+    const createBtn = screen.getByRole("button", { name: /创建中|Creating|创建项目|Create/i });
+    expect(createBtn).toBeDisabled();
+  });
+
+  it("calls onBack when Back is clicked", () => {
+    const onBack = vi.fn();
+    render(<WizardStep3Style value={baseValue} onChange={noop} {...commonProps} onBack={onBack} />);
+    fireEvent.click(screen.getByRole("button", { name: /上一步|Back/ }));
+    expect(onBack).toHaveBeenCalledOnce();
+  });
+
+  it("calls onCancel when Cancel is clicked", () => {
+    const onCancel = vi.fn();
+    render(<WizardStep3Style value={baseValue} onChange={noop} {...commonProps} onCancel={onCancel} />);
+    fireEvent.click(screen.getByRole("button", { name: /取消|Cancel/ }));
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("preserves null templateId when switching from custom to live tab (no auto-selection)", () => {
+    const onChange = vi.fn();
+    const customValue = { ...baseValue, mode: "custom" as const, templateId: null };
+    render(<WizardStep3Style value={customValue} onChange={onChange} {...commonProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /真人剧|Live/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      mode: "template",
+      activeCategory: "live",
+      templateId: null,   // unchanged; user must explicitly click a card
+    }));
+  });
+
+  it("preserves live templateId when re-clicking live tab", () => {
+    const onChange = vi.fn();
+    const value = { ...baseValue, templateId: "live_zhang_yimou" };
+    render(<WizardStep3Style value={value} onChange={onChange} {...commonProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /真人剧|Live/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      activeCategory: "live",
+      templateId: "live_zhang_yimou",
+    }));
+  });
+
+  it("shows no selected card in anim tab when current templateId belongs to live (bug repro)", () => {
+    // Simulate the state AFTER the (fixed) tab switch: live_premium_drama
+    // stays as templateId but activeCategory moves to anim.
+    const crossTabValue = { ...baseValue, activeCategory: "anim" as const };
+    render(<WizardStep3Style value={crossTabValue} onChange={noop} {...commonProps} />);
+    // No anim template card should be rendered as pressed/selected.
+    const pressedCards = screen.queryAllByRole("button", { pressed: true });
+    // The tab buttons themselves don't use aria-pressed, so this queries only template cards.
+    expect(pressedCards).toHaveLength(0);
+  });
+
+  it("preserves anim templateId when re-clicking anim tab", () => {
+    const onChange = vi.fn();
+    const animValue = { ...baseValue, activeCategory: "anim" as const, templateId: "anim_ghibli" };
+    render(<WizardStep3Style value={animValue} onChange={onChange} {...commonProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /漫剧|Animation/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({
+      activeCategory: "anim",
+      templateId: "anim_ghibli",
+    }));
+  });
+});

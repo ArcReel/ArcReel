@@ -1,0 +1,130 @@
+/**
+ * Reference-to-video unit types — mirrors lib/script_models.py Pydantic models.
+ *
+ * One "unit" produces one rendered video clip. Each unit may contain 1-4 shots.
+ */
+
+import type { TransitionType } from "./script";
+
+export type AssetKind = "character" | "scene" | "prop";
+
+/** Project.json sheet field for each asset kind. Mirrors lib/asset_types.py SHEET_KEY. */
+export const SHEET_FIELD: Record<AssetKind, "character_sheet" | "scene_sheet" | "prop_sheet"> = {
+  character: "character_sheet",
+  scene: "scene_sheet",
+  prop: "prop_sheet",
+};
+
+/** Project.json bucket for each asset kind. Mirrors lib/asset_types.py BUCKET_KEY. */
+export const BUCKET_FIELD: Record<AssetKind, "characters" | "scenes" | "props"> = {
+  character: "characters",
+  scene: "scenes",
+  prop: "props",
+};
+
+export interface Shot {
+  /** 1-15s per shot */
+  duration: number;
+  /** Raw prompt text including @mentions */
+  text: string;
+}
+
+export interface ReferenceResource {
+  type: AssetKind;
+  /** Must already exist in project.json {characters|scenes|props} bucket */
+  name: string;
+}
+
+/**
+ * Raw persisted status value returned by the backend in `generated_assets.status`.
+ * Mirrors lib/script_models.py:GeneratedAssets.status Pydantic Literal exactly.
+ * Note: "storyboard_ready" never appears for reference_video units — it's a legacy
+ * storyboard-mode value retained in the shared GeneratedAssets model.
+ */
+export type UnitPersistedStatus = "pending" | "storyboard_ready" | "completed";
+
+/**
+ * UI-derived status shown in the UnitList status dot and preview panel.
+ * Composed from (persisted status + task-queue state + error signals) by UI code.
+ * Not sent to or received from the backend.
+ */
+export type UnitStatus = "pending" | "running" | "ready" | "failed";
+
+export interface UnitGeneratedAssets {
+  storyboard_image: string | null;
+  storyboard_last_image: string | null;
+  grid_id: string | null;
+  grid_cell_index: number | null;
+  video_clip: string | null;
+  video_uri: string | null;
+  /** Raw backend status — use `UnitStatus` for UI display. */
+  status: UnitPersistedStatus;
+}
+
+export interface ReferenceVideoUnit {
+  /** Format: "E{episode}U{index}" */
+  unit_id: string;
+  shots: Shot[];
+  /** Ordered — position defines [图N] index in the final prompt */
+  references: ReferenceResource[];
+  /** Sum of shots[].duration; server-derived */
+  duration_seconds: number;
+  /** True when prompt has no Shot markers and user set duration manually */
+  duration_override: boolean;
+  transition_to_next: TransitionType;
+  note: string | null;
+  generated_assets: UnitGeneratedAssets;
+}
+
+/** ad 派生分组的参考条目：比 ReferenceResource 多 product 类型（产品绝对优先）。 */
+export interface AdUnitReference {
+  type: AssetKind | "product";
+  name: string;
+}
+
+/**
+ * ad + reference_video 的派生分组索引条目——仅引用 shot_id 与参考集，
+ * 不复制镜头内容（shots 是内容唯一真相）。Mirrors lib/script_models.py AdReferenceUnit。
+ */
+export interface AdReferenceUnit {
+  /** Format: "E{episode}U{index}" */
+  unit_id: string;
+  /** 成员镜头 ID（连续、1-4 个），展示时对照本地剧本 shots 水合 */
+  shot_ids: string[];
+  /** 继承的参考集，产品在前 */
+  references: AdUnitReference[];
+  generated_assets?: Partial<UnitGeneratedAssets> & { video_thumbnail?: string | null };
+}
+
+/**
+ * reference_video step1 结构化中间态（审核 gate 的可审 / 可改对象）。映射后端
+ * lib/script_models.py 的 ReferenceStep1Unit / ReferenceStep1Draft：step1 定内容层
+ * （unit 边界 + 各 shot 叙事文本与时长 + 派生 references），step2 视觉编排由用户确认后才触发。
+ * references 为服务端从 shot 文本 @ 引用机械派生（首现顺序决定 [图N] 编号），编辑正文保存时重派生，
+ * 故审阅界面只读展示。
+ */
+export interface ReferenceStep1Unit {
+  unit_id: string;
+  shots: Shot[];
+  references: ReferenceResource[];
+}
+
+export interface ReferenceStep1Draft {
+  units: ReferenceStep1Unit[];
+}
+
+export interface ReferenceVideoScript {
+  episode: number;
+  title: string;
+  /**
+   * 内容类型——参考视频集继承项目级 narration/drama，决定画面比例等次级配置；
+   * "视频来源"维度由 generation_mode 表达。
+   */
+  content_mode?: "narration" | "drama";
+  /** 参考视频集固定 "reference_video"；由后端 ScriptGenerator 注入。 */
+  generation_mode?: "reference_video";
+  duration_seconds: number;
+  schema_version?: number;
+  novel: { title: string; chapter: string };
+  video_units: ReferenceVideoUnit[];
+}

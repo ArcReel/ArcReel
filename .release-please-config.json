@@ -1,0 +1,33 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "python",
+  "bootstrap-sha": "dc19732ece340d651d55fd7c93d2674ba1f1e155",
+  "include-component-in-tag": false,
+  "include-v-in-tag": true,
+  "packages": {
+    ".": {
+      "package-name": "arcreel",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "frontend/package.json",
+          "jsonpath": "$.version"
+        }
+      ],
+      "changelog-sections": [
+        { "type": "feat", "section": "✨ 新功能", "hidden": false },
+        { "type": "fix", "section": "🐛 Bug 修复", "hidden": false },
+        { "type": "perf", "section": "⚡ 性能优化", "hidden": false },
+        { "type": "refactor", "section": "♻️ 重构", "hidden": false },
+        { "type": "docs", "section": "📚 文档", "hidden": false },
+        { "type": "revert", "section": "↩️ 回滚", "hidden": false },
+        { "type": "chore", "hidden": true },
+        { "type": "ci", "hidden": true },
+        { "type": "build", "hidden": true },
+        { "type": "test", "hidden": true },
+        { "type": "style", "hidden": true }
+      ]
+    }
+  }
+}

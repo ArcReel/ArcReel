@@ -1,0 +1,28 @@
+"""
+Ark (火山方舟) 共享工具模块
+
+供 text_backends / image_backends / video_backends / providers 复用。
+
+包含：
+- ARK_BASE_URL — 火山方舟 API 基础 URL
+- resolve_ark_api_key — API Key 解析（缺失即 raise，不再走 env fallback）
+- create_ark_client — Ark 客户端工厂
+"""
+
+from __future__ import annotations
+
+ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
+
+
+def resolve_ark_api_key(api_key: str | None = None) -> str:
+    if api_key is None or not api_key.strip():
+        raise ValueError("请到系统配置页填写 Ark API Key")
+    return api_key.strip()
+
+
+def create_ark_client(*, api_key: str | None = None, base_url: str | None = None):
+    """创建 Ark 客户端；base_url 缺省走 ARK_BASE_URL（即 /api/v3）。"""
+    from volcenginesdkarkruntime import Ark
+
+    effective_base_url = base_url or ARK_BASE_URL
+    return Ark(base_url=effective_base_url, api_key=resolve_ark_api_key(api_key))

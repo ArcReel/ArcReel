@@ -1,0 +1,100 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
+import type { AgentCredential } from "@/types/agent-credential";
+
+import { CredentialList } from "../CredentialList";
+
+const mockCred = (overrides: Partial<AgentCredential> = {}): AgentCredential => ({
+  id: 1,
+  preset_id: "deepseek",
+  display_name: "DeepSeek",
+  icon_key: "DeepSeek",
+  base_url: "https://api.deepseek.com/anthropic",
+  api_key_masked: "sk-x…abcd",
+  model: "deepseek-chat",
+  haiku_model: null,
+  sonnet_model: null,
+  opus_model: null,
+  subagent_model: null,
+  is_active: false,
+  created_at: "2026-05-11T00:00:00Z",
+  ...overrides,
+});
+
+describe("CredentialList", () => {
+  it("calls onActivate when activate clicked", () => {
+    const onActivate = vi.fn();
+    render(
+      <CredentialList
+        credentials={[mockCred()]}
+        onActivate={onActivate}
+        onTest={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /set active|activate|设为当前|Đặt làm mặc định/i }));
+    expect(onActivate).toHaveBeenCalledWith(1);
+  });
+
+  it("disables delete on active credential", () => {
+    render(
+      <CredentialList
+        credentials={[mockCred({ is_active: true })]}
+        onActivate={vi.fn()}
+        onTest={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    const deleteBtn = screen.getByRole("button", { name: /delete|remove|删除|Xoá/i });
+    expect(deleteBtn).toBeDisabled();
+  });
+
+  it("renders empty hint when no credentials", () => {
+    render(
+      <CredentialList
+        credentials={[]}
+        onActivate={vi.fn()}
+        onTest={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("credential-list-empty")).toBeInTheDocument();
+  });
+
+  it("calls onTest with credential id when test clicked", () => {
+    const onTest = vi.fn();
+    render(
+      <CredentialList
+        credentials={[mockCred()]}
+        onActivate={vi.fn()}
+        onTest={onTest}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /^test$|cred_test_label|连接测试|Kiểm tra/i }),
+    );
+    expect(onTest).toHaveBeenCalledWith(1);
+  });
+
+  it("calls onEdit with full credential object when edit clicked", () => {
+    const onEdit = vi.fn();
+    const cred = mockCred();
+    render(
+      <CredentialList
+        credentials={[cred]}
+        onActivate={vi.fn()}
+        onTest={vi.fn()}
+        onEdit={onEdit}
+        onDelete={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /edit|编辑|Chỉnh sửa/i }));
+    expect(onEdit).toHaveBeenCalledWith(cred);
+  });
+});

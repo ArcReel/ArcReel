@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: arcreel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: arcreel
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./pgdata:/var/lib/postgresql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arcreel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  arcreel:
+    image: ghcr.io/arcreel/arcreel:latest
+    ports:
+      - "1241:1241"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://arcreel:${POSTGRES_PASSWORD}@postgres:5432/arcreel
+      TZ: ${TZ:-Asia/Shanghai}
+    # Agent Bash 沙箱 (bwrap) 需要：
+    # 1) 非特权 user namespace → 放开 docker 默认 seccomp/apparmor profile
+    # 2) bwrap 嵌套出的 net namespace 内配置 loopback → 容器需要 NET_ADMIN cap
+    #    （否则报 "loopback: Failed RTM_NEWADDR: Operation not permitted"）
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./.env:/app/.env
+      - ./projects:/app/projects
+      - ./logs:/app/logs
+      - ./vertex_keys:/app/vertex_keys
+      - ./claude_data:/root/.claude
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1241/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

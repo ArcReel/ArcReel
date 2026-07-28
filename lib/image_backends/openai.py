@@ -1,0 +1,233 @@
+"""OpenAIImageBackend — OpenAI 图片生成后端。"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from contextlib import ExitStack
+from pathlib import Path
+from typing import Literal
+
+from lib.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
+from lib.image_backends.base import (
+    ImageCapability,
+    ImageCapabilityError,
+    ImageGenerationRequest,
+    ImageGenerationResult,
+    save_image_from_response_item,
+)
+from lib.logging_utils import format_kwargs_for_log
+from lib.openai_shared import (
+    OPENAI_IMAGE_QUALITY_MAP as _QUALITY_MAP,
+)
+from lib.openai_shared import (
+    OPENAI_RETRYABLE_ERRORS,
+    create_openai_client,
+)
+from lib.providers import PROVIDER_OPENAI
+from lib.retry import with_retry_async
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_MODEL = "gpt-image-2"
+_MAX_REFERENCE_IMAGES = 16
+ImageBackendMode = Literal["both", "generations_only", "edits_only"]
+
+# gpt-image-2 / gpt-image-2-2026-04-21：size 接受任意 WxH，宽高均被 16 整除，比例 1:3~3:1；
+# ≤2560x1440 稳定，~3840x2160 实验性，最大 3840x2160（4K）。
+_GPT_IMAGE_MAX_LONG_EDGE = 3840
+_GPT_IMAGE_STABLE_LONG_EDGE = 2560
+_GPT_IMAGE_MAX_RATIO = 3.0
+
+# 档位 → quality 大小写不敏感（与 resolution_to_short_edge 同口径）：用户自定义档位词可能写
+# "2k"/"4K "，不归一会让 size 解析成功但 quality 静默丢失。自定义 WxH（无档位）→ None。
+_QUALITY_MAP_CI = {k.lower(): v for k, v in _QUALITY_MAP.items()}
+
+
+def _quality_for(image_size: str | None) -> str | None:
+    return _QUALITY_MAP_CI.get(image_size.strip().lower()) if image_size else None
+
+
+def _resolve_openai_params(
+    image_size: str | None,
+    aspect_ratio: str,
+) -> dict[str, str]:
+    """按「比例优先、清晰度其次」算出 {size, quality}。
+
+    比例永远来自 aspect_ratio；image_size（档位 / 自定义 WxH / None）只决定清晰度短边，
+    自定义 WxH 剥离其自带比例（取 min 当短边）。image_size=None 时按默认 720P 短边兜底，
+    仍下传精确比例 size——不再回退 SDK 默认（否则中转网关会用自家默认比例，丢掉项目比例）。
+    """
+    short = resolution_to_short_edge(image_size, tier_map=IMAGE_TIER_SHORT_EDGE)
+    w, h = aspect_size(
+        aspect_ratio,
+        short,
+        round_to=16,
+        max_long_edge=_GPT_IMAGE_MAX_LONG_EDGE,
+        max_ratio=_GPT_IMAGE_MAX_RATIO,
+    )
+    if max(w, h) > _GPT_IMAGE_STABLE_LONG_EDGE:
+        logger.warning(
+            "OpenAI image: 尺寸 %dx%d 长边超过稳定区 %d，进入实验性高分辨率区间",
+            w,
+            h,
+            _GPT_IMAGE_STABLE_LONG_EDGE,
+        )
+    params: dict[str, str] = {"size": f"{w}x{h}"}
+    quality = _quality_for(image_size)
+    if quality:
+        params["quality"] = quality
+    return params
+
+
+class OpenAIImageBackend:
+    """OpenAI 图片生成后端，按 mode 决定支持 T2I / I2I / 两者。"""
+
+    _MODE_TO_CAPS: dict[str, set[ImageCapability]] = {
+        "both": {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE},
+        "generations_only": {ImageCapability.TEXT_TO_IMAGE},
+        "edits_only": {ImageCapability.IMAGE_TO_IMAGE},
+    }
+
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        mode: ImageBackendMode = "both",
+    ):
+        self._client = create_openai_client(api_key=api_key, base_url=base_url)
+        self._model = model or DEFAULT_MODEL
+        self._capabilities = set(self._MODE_TO_CAPS[mode])
+
+    @property
+    def name(self) -> str:
+        return PROVIDER_OPENAI
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    @property
+    def capabilities(self) -> set[ImageCapability]:
+        return self._capabilities
+
+    @with_retry_async(retryable_errors=OPENAI_RETRYABLE_ERRORS)
+    async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        has_refs = bool(request.reference_images)
+        if has_refs and ImageCapability.IMAGE_TO_IMAGE not in self._capabilities:
+            raise ImageCapabilityError("image_endpoint_mismatch_no_i2i", model=self._model)
+        if not has_refs and ImageCapability.TEXT_TO_IMAGE not in self._capabilities:
+            raise ImageCapabilityError("image_endpoint_mismatch_no_t2i", model=self._model)
+        return await (self._generate_edit(request) if has_refs else self._generate_create(request))
+
+    async def _generate_create(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        kwargs = {
+            "model": self._model,
+            "prompt": request.prompt,
+            "n": 1,
+        }
+        kwargs.update(_resolve_openai_params(request.image_size, request.aspect_ratio))
+        logger.info("调用 %s 图片 SDK (T2I) kwargs=%s", self.name, format_kwargs_for_log(kwargs))
+        response = await self._client.images.generate(**kwargs)
+        return await self._save_and_return(response, request)
+
+    async def _generate_edit(self, request: ImageGenerationRequest) -> ImageGenerationResult:
+        refs = request.reference_images
+        if len(refs) > _MAX_REFERENCE_IMAGES:
+            logger.warning("参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
+            refs = refs[:_MAX_REFERENCE_IMAGES]
+
+        def _open_refs() -> tuple[ExitStack, list]:
+            """在 ExitStack 内打开所有参考图，保证部分 open 失败时已打开句柄被释放。"""
+            stack = ExitStack()
+            try:
+                files = []
+                for ref in refs:
+                    ref_path = Path(ref.path)
+                    try:
+                        files.append(stack.enter_context(open(ref_path, "rb")))
+                    except FileNotFoundError:
+                        logger.warning("参考图不存在，跳过: %s", ref_path)
+                # 把已打开的句柄所有权移交给调用者
+                return stack.pop_all(), files
+            except BaseException:
+                stack.close()
+                raise
+
+        stack, image_files = await asyncio.to_thread(_open_refs)
+        try:
+            if not image_files:
+                # 旧版会回退到 T2I；新语义下若所有 ref 图都打不开，抛错而非降级
+                # （等价于用户提交了 i2i 请求但没有有效素材，应该是错误而非默默 fallback）
+                raise ImageCapabilityError(
+                    "image_endpoint_mismatch_no_i2i",
+                    model=self._model,
+                    detail="all reference images failed to open",
+                )
+            # I2I 与 T2I 对称下传 size/quality——否则 images.edit 不带 size，比例由上游默认决定，
+            # 项目 aspect_ratio 静默失效（用户实测正是 I2I 路径出图比例错）。
+            edit_kwargs: dict = {
+                "model": self._model,
+                "image": image_files,
+                "prompt": request.prompt,
+            }
+            edit_kwargs.update(_resolve_openai_params(request.image_size, request.aspect_ratio))
+            logger.info(
+                "调用 %s 图片 SDK (I2I) kwargs=%s",
+                self.name,
+                format_kwargs_for_log({**edit_kwargs, "image": f"<{len(image_files)} files>"}),
+            )
+            response = await self._client.images.edit(**edit_kwargs)
+        finally:
+            stack.close()
+        return await self._save_and_return(response, request)
+
+    async def _save_and_return(self, response, request: ImageGenerationRequest) -> ImageGenerationResult:
+        data = getattr(response, "data", None) or []
+        if not data:
+            # 空 data 通常是内容安全过滤命中或上游网关异常，给出清晰错误便于排查
+            raise RuntimeError(
+                f"OpenAI 图片生成响应 data 为空 (model={self._model})，可能触发内容安全过滤或上游服务异常"
+            )
+        await save_image_from_response_item(data[0], request.output_path)
+        logger.info("OpenAI 图片生成完成: %s", request.output_path)
+        quality = _quality_for(request.image_size)
+
+        img_in = img_out = txt_in = txt_out = None
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            try:
+                in_details = getattr(usage, "input_tokens_details", None)
+                # 必须拿到 input 拆分（image_tokens / text_tokens 至少一项有值），否则保留 None
+                # 让 cost_calculator 走静态 fallback，避免部分字段缺失场景下漏算 input 费用
+                in_image = getattr(in_details, "image_tokens", None) if in_details is not None else None
+                in_text = getattr(in_details, "text_tokens", None) if in_details is not None else None
+                if in_image is not None or in_text is not None:
+                    img_in = in_image
+                    txt_in = in_text
+                    out_details = getattr(usage, "output_tokens_details", None)
+                    if out_details is not None:
+                        img_out = getattr(out_details, "image_tokens", None)
+                        txt_out = getattr(out_details, "text_tokens", None)
+                    if img_out is None:
+                        # 部分模型只在顶层暴露 output_tokens（GPT Image 输出基本为 image token）
+                        img_out = getattr(usage, "output_tokens", None)
+                    # 输入拆分到手但输出完全拿不到 → 数据残缺，撤回让上层走静态 fallback
+                    if img_out is None and txt_out is None:
+                        img_in = txt_in = None
+            except Exception:
+                logger.warning("OpenAI image usage 解析失败", exc_info=True)
+                img_in = img_out = txt_in = txt_out = None
+
+        return ImageGenerationResult(
+            image_path=request.output_path,
+            provider=PROVIDER_OPENAI,
+            model=self._model,
+            quality=quality,
+            image_input_tokens=img_in,
+            image_output_tokens=img_out,
+            text_input_tokens=txt_in,
+            text_output_tokens=txt_out,
+        )

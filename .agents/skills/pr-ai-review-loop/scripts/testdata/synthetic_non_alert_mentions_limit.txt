@@ -1,0 +1,7 @@
+<!-- This is an auto-generated comment: summarize by coderabbit.ai -->
+
+## Walkthrough
+
+新增每用户限流(rate limiting)中间件，quota 配置存于 Redis，rate 字段用于每分钟计数。
+
+**Estimated code review effort:** 2 (Simple)

@@ -1,0 +1,1548 @@
+"""
+Task execution service for queued generation jobs.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+
+from lib.asset_types import ASSET_SPECS
+from lib.config.registry import PROVIDER_REGISTRY, model_info_for
+from lib.db.base import DEFAULT_USER_ID
+from lib.path_safety import safe_exists, safe_join, try_safe_join
+from lib.project_change_hints import emit_project_change_batch, project_change_source
+from lib.project_manager import get_project_manager
+from lib.prompt_builders import (
+    append_product_fidelity_tail,
+    build_character_prompt,
+    build_product_prompt,
+    build_prop_prompt,
+    build_scene_prompt,
+)
+from lib.prompt_utils import (
+    image_prompt_to_yaml,
+    is_structured_image_prompt,
+    is_structured_video_prompt,
+    utterances_to_dialogue,
+    video_prompt_to_yaml,
+)
+from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
+from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
+from lib.storyboard_sequence import (
+    build_previous_storyboard_reference,
+    find_storyboard_item,
+    get_generated_assets,
+    get_storyboard_items,
+    group_scenes_by_segment_break,
+    resolve_previous_storyboard_path,
+    resolve_storyboard_image_ref,
+)
+from lib.thumbnail import extract_video_thumbnail
+from lib.video_backends.base import VideoCapabilityError
+from server.services.generation_context import (
+    AudioLaneRequest,
+    ImageLaneRequest,
+    VideoLaneRequest,
+    resolve_generation_context,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def get_aspect_ratio(project: dict, resource_type: str) -> str:
+    if resource_type == "characters":
+        # 角色采用四视图横版
+        return "16:9"
+    if resource_type in ("scenes", "props", "products"):
+        # 多视图横排版式（product sheet 同为多角度横版）
+        return "16:9"
+    # 优先读顶层字段；缺失时按 content_mode 推导（向后兼容）
+    val = project.get("aspect_ratio")
+    if isinstance(val, str):
+        return val
+    if isinstance(val, dict) and resource_type in val:
+        return val[resource_type]
+    # narration/ad 默认竖屏，drama（含未知值的历史兜底）默认横屏
+    return "9:16" if project.get("content_mode", "narration") in {"narration", "ad"} else "16:9"
+
+
+def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
+    """归一化分镜图 prompt 并在末尾追加统一文本化的反向提示词。"""
+    from lib.prompt_builders import append_image_negative_tail
+
+    if isinstance(prompt, str):
+        if not prompt.strip():
+            raise ValueError("prompt must not be empty")
+        return append_image_negative_tail(prompt)
+
+    if not isinstance(prompt, dict):
+        raise ValueError("prompt must be a string or object")
+
+    if not is_structured_image_prompt(prompt):
+        raise ValueError("prompt must be a string or include scene/composition")
+
+    scene_text = str(prompt.get("scene", "")).strip()
+    if not scene_text:
+        raise ValueError("prompt.scene must not be empty")
+
+    composition_raw = prompt.get("composition")
+    composition: dict = composition_raw if isinstance(composition_raw, dict) else {}
+    normalized_prompt = {
+        "scene": scene_text,
+        "composition": {
+            "shot_type": str(composition.get("shot_type") or "Medium Shot"),
+            "lighting": str(composition.get("lighting", "") or ""),
+            "ambiance": str(composition.get("ambiance", "") or ""),
+        },
+    }
+    return append_image_negative_tail(image_prompt_to_yaml(normalized_prompt, style))
+
+
+def _normalize_video_prompt(prompt: str | dict) -> str:
+    """归一化视频 prompt 并在末尾追加统一文本化的反向提示词。"""
+    from lib.prompt_builders import append_video_negative_tail
+
+    if isinstance(prompt, str):
+        if not prompt.strip():
+            raise ValueError("prompt must not be empty")
+        return append_video_negative_tail(prompt)
+
+    if not isinstance(prompt, dict):
+        raise ValueError("prompt must be a string or object")
+
+    if not is_structured_video_prompt(prompt):
+        raise ValueError("prompt must be a string or include action/camera_motion")
+
+    action_text = str(prompt.get("action", "")).strip()
+    if not action_text:
+        raise ValueError("prompt.action must not be empty")
+
+    dialogue = prompt.get("dialogue", [])
+    if dialogue is None:
+        dialogue = []
+    if not isinstance(dialogue, list):
+        raise ValueError("prompt.dialogue must be an array")
+
+    normalized_dialogue = []
+    for item in dialogue:
+        if not isinstance(item, dict):
+            continue
+        speaker = str(item.get("speaker", "") or "").strip()
+        line = str(item.get("line", "") or "").strip()
+        if speaker or line:
+            normalized_dialogue.append({"speaker": speaker, "line": line})
+
+    normalized_prompt: dict[str, Any] = {
+        "action": action_text,
+        "camera_motion": str(prompt.get("camera_motion", "") or "") or "Static",
+        "ambiance_audio": str(prompt.get("ambiance_audio", "") or ""),
+        "dialogue": normalized_dialogue,
+    }
+    return append_video_negative_tail(video_prompt_to_yaml(normalized_prompt))
+
+
+def _get_model_default_duration(provider_name: str, model_name: str | None) -> int:
+    """从 PROVIDER_REGISTRY 查找模型的 supported_durations[0]，找不到则 fallback 4。"""
+    provider_meta = PROVIDER_REGISTRY.get(provider_name)
+    if provider_meta and model_name:
+        model_info = provider_meta.models.get(model_name)
+        if model_info and model_info.supported_durations:
+            return model_info.supported_durations[0]
+    # 自定义供应商或 registry 中无此模型时 fallback
+    return 4
+
+
+def constrain_durations_by_resolution(
+    provider_name: str, model_name: str | None, durations: list[int], resolution: str | None
+) -> list[int]:
+    """按型号声明的「分辨率↔时长」约束收窄候选；无声明或交集为空时返回原候选。
+
+    只服务于「未显式指定时长」时的取值：Veo 在 1080p/4k 下只接受 8 秒，而候选全集
+    ``supported_durations`` 首项是 4 秒，直接取首项会让默认设置必然撞上执行期拒绝。
+    显式指定的时长不经此收窄——其合法性仍由 :func:`assert_duration_supported` 与 backend
+    的执行期校验把关，拒绝行为不变。
+    """
+    if not durations or not resolution:
+        return durations
+    model_info = model_info_for(provider_name, model_name) if model_name else None
+    if model_info is None:
+        return durations
+    allowed = model_info.duration_resolution_constraints.get(resolution.strip().lower())
+    if not allowed:
+        return durations
+    narrowed = [d for d in durations if d in allowed]
+    return narrowed or durations
+
+
+def assert_duration_supported(duration: int | float | str, supported_durations: list[int]) -> None:
+    """执行层能力守卫：duration 必须落在已解析 model 的 supported_durations 内。
+
+    这是 `duration ↔ supported_durations` 唯一的权威校验家——provider 在执行时才解析
+    （见 ADR-0001），故能力校验只能坐在 provider 解析之后。``supported_durations`` 为空时
+    放行（能力不可解析，不更坏：保持既有行为不被本次改动弄坏）。
+
+    duration 可能来自外部配置（payload / project.json），故安全解析字符串 / 浮点：
+    可解析为整数秒（如 ``"6"`` / ``6.0``）的归一化后比较；非整数秒（如 ``4.5``）一律
+    视为非法而**拒绝**，不做截断式归一化（截断会把本应拒绝的非法值静默修正）。
+
+    校验失败抛 :class:`VideoCapabilityError`（带稳定 code），与 ImageCapabilityError 对称——
+    Worker 按 code + params 落 task.error_message，文案由读侧 Translator 渲染。
+    """
+    if not supported_durations:
+        return
+    try:
+        numeric = float(duration)
+    except (TypeError, ValueError):
+        raise VideoCapabilityError("video_duration_invalid", duration=duration)
+    if not numeric.is_integer():
+        raise VideoCapabilityError("video_duration_invalid", duration=duration)
+    seconds = int(numeric)
+    if seconds not in supported_durations:
+        raise VideoCapabilityError(
+            "video_duration_not_supported",
+            duration=seconds,
+            supported=", ".join(str(d) for d in supported_durations),
+        )
+
+
+def _collect_sheet_references(
+    project: dict,
+    project_path: Path,
+    items: list[dict],
+    *,
+    char_field: str | None,
+    scene_field: str,
+    prop_field: str,
+    max_count: int = 0,
+) -> tuple[list[dict], set[str]]:
+    """Collect character_sheet, scene_sheet and prop_sheet references from scene/segment items.
+
+    Returns (list of ``{"image": Path, "label": 资产名}`` dicts, set of relative
+    sheet strings for dedup). If *max_count* > 0 collection stops after that many images.
+
+    label 取 project.json 中的资产名，与 prompt 里的专名严格一致——供支持内联标签的
+    后端（如 Gemini）把参考图与 prompt 专名显式绑定，不再依赖文件名推断。
+
+    ``char_field`` 为 ``None`` 表示该骨架无逐条角色名单字段（video_units：角色以
+    references 条目形态存在），``item.get(None) or []`` 天然跳过角色 sheet 收集。
+    """
+    seen: set[str] = set()
+    refs: list[dict] = []
+
+    characters = project.get("characters")
+    characters = characters if isinstance(characters, dict) else {}
+    project_scenes = project.get("scenes")
+    project_scenes = project_scenes if isinstance(project_scenes, dict) else {}
+    project_props = project.get("props")
+    project_props = project_props if isinstance(project_props, dict) else {}
+
+    for item in items:
+        for char_name in item.get(char_field) or []:
+            if not isinstance(char_name, str):
+                continue
+            char_data = characters.get(char_name)
+            sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
+            if isinstance(sheet, str) and sheet and sheet not in seen:
+                path = project_path / sheet
+                if path.exists():
+                    refs.append({"image": path, "label": char_name})
+                    seen.add(sheet)
+        for scene_name in item.get(scene_field) or []:
+            if not isinstance(scene_name, str):
+                continue
+            scene_data = project_scenes.get(scene_name)
+            sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
+            if isinstance(sheet, str) and sheet and sheet not in seen:
+                path = project_path / sheet
+                if path.exists():
+                    refs.append({"image": path, "label": scene_name})
+                    seen.add(sheet)
+        for prop_name in item.get(prop_field) or []:
+            if not isinstance(prop_name, str):
+                continue
+            prop_data = project_props.get(prop_name)
+            sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
+            if isinstance(sheet, str) and sheet and sheet not in seen:
+                path = project_path / sheet
+                if path.exists():
+                    refs.append({"image": path, "label": prop_name})
+                    seen.add(sheet)
+        if max_count and len(refs) >= max_count:
+            break
+
+    return (refs[:max_count] if max_count else refs), seen
+
+
+def _collect_reference_images(
+    project: dict,
+    project_path: Path,
+    target_item: dict,
+    *,
+    char_field: str | None,
+    scene_field: str,
+    prop_field: str,
+    extra_reference_images: list[str] | None = None,
+    previous_storyboard_path: Path | None = None,
+) -> list[object] | None:
+    sheet_refs, _ = _collect_sheet_references(
+        project, project_path, [target_item], char_field=char_field, scene_field=scene_field, prop_field=prop_field
+    )
+    reference_images: list[object] = list(sheet_refs)
+
+    for extra in extra_reference_images or []:
+        extra_path = Path(extra)
+        if not extra_path.is_absolute():
+            extra_path = project_path / extra_path
+        if extra_path.exists():
+            reference_images.append(extra_path)
+
+    if previous_storyboard_path and previous_storyboard_path.exists():
+        reference_images.append(build_previous_storyboard_reference(previous_storyboard_path))
+
+    return reference_images or None
+
+
+def _collect_shot_product_references(project: dict, project_path: Path, item: dict) -> list[dict]:
+    """产品镜头（``products_in_shot`` 非空）的产品参考集，用于分镜图生成。
+
+    每个产品：有 product sheet 时注入集为「sheet 多角度 + 原图压阵」（sheet 在前、
+    原图收尾），无 sheet 时原图直注。返回 ``{"image": Path, "label": str, "name": str,
+    "kind": "sheet"|"original"}`` 列表——label 供支持内联标签的后端绑定图与产品名，
+    name 供高保真指令点名（指令只点名实际注入了参考的产品），kind 供截断时让 sheet
+    优先存活；调用方负责把该列表排在其它参考之前（排序绝对优先）。氛围镜头
+    （列表为空）返回空列表，零产品图。脏数据（products_in_shot 非列表、products
+    非 dict、产品名非字符串、引用不存在的产品）按既有装配口径跳过不抛。
+    """
+    raw_products_in_shot = item.get("products_in_shot")
+    if not isinstance(raw_products_in_shot, (list, tuple)):
+        if raw_products_in_shot:
+            logger.warning(
+                "products_in_shot 类型异常（%s），产品参考注入跳过",
+                type(raw_products_in_shot).__name__,
+            )
+        return []
+    return collect_product_references_for_names(project, project_path, raw_products_in_shot)
+
+
+def collect_product_references_for_names(
+    project: dict,
+    project_path: Path,
+    names: Sequence[str],
+) -> list[dict]:
+    """按产品名列表收集产品参考集（注入二元规则的装配核心，条目语义见
+    ``_collect_shot_product_references``）。分镜图按镜头注入与 ad 参考直出
+    按 unit 注入共用此函数，保证两条路径的「sheet 在前、原图压阵」口径一致。
+    """
+    spec = ASSET_SPECS["product"]
+    products = project.get(spec.bucket_key)
+    if not isinstance(products, dict):
+        products = {}
+    references: list[dict] = []
+    for name in names:
+        if not isinstance(name, str):
+            logger.warning("products_in_shot 含非字符串条目 %r，产品参考跳过", name)
+            continue
+        entry = products.get(name)
+        if not isinstance(entry, dict):
+            logger.warning("镜头引用的产品 '%s' 不在 project.json products 中，产品参考跳过", name)
+            continue
+        before = len(references)
+        sheet = entry.get(spec.sheet_field)
+        if sheet and safe_exists(project_path, sheet):
+            references.append(
+                {
+                    "image": project_path / sheet,
+                    "label": f"产品「{name}」标准多角度参考图",
+                    "name": name,
+                    "kind": "sheet",
+                }
+            )
+        for original in _collect_product_reference_images(project, project_path, name) or []:
+            references.append(
+                {"image": original, "label": f"产品「{name}」实拍原图（保真锚点）", "name": name, "kind": "original"}
+            )
+        if len(references) == before:
+            logger.warning("产品镜头引用的产品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)
+    return references
+
+
+def _product_names_in_references(product_references: list[dict]) -> list[str]:
+    """从产品参考集提取去重保序的产品名——高保真指令只点名实际注入了参考的产品。"""
+    return list(dict.fromkeys(ref["name"] for ref in product_references))
+
+
+def _episode_from_script(script: dict[str, Any] | None) -> int | None:
+    if not isinstance(script, dict):
+        return None
+    episode = script.get("episode")
+    if isinstance(episode, int):
+        return episode
+    return None
+
+
+def compute_affected_fingerprints(project_name: str, task_type: str, resource_id: str) -> dict[str, int]:
+    """计算受影响文件的 mtime 指纹"""
+    try:
+        project_path = get_project_manager().get_project_path(project_name)
+    except Exception:
+        return {}
+
+    paths: list[tuple[str, Path]] = []
+
+    if task_type == "storyboard":
+        paths.append(
+            (
+                f"storyboards/scene_{resource_id}.png",
+                project_path / "storyboards" / f"scene_{resource_id}.png",
+            )
+        )
+    elif task_type == "video":
+        paths.append(
+            (
+                f"videos/scene_{resource_id}.mp4",
+                project_path / "videos" / f"scene_{resource_id}.mp4",
+            )
+        )
+        paths.append(
+            (
+                f"thumbnails/scene_{resource_id}.jpg",
+                project_path / "thumbnails" / f"scene_{resource_id}.jpg",
+            )
+        )
+    elif task_type == "character":
+        paths.append(
+            (
+                f"characters/{resource_id}.png",
+                project_path / "characters" / f"{resource_id}.png",
+            )
+        )
+    elif task_type == "scene":
+        paths.append(
+            (
+                f"scenes/{resource_id}.png",
+                project_path / "scenes" / f"{resource_id}.png",
+            )
+        )
+    elif task_type == "prop":
+        paths.append(
+            (
+                f"props/{resource_id}.png",
+                project_path / "props" / f"{resource_id}.png",
+            )
+        )
+    elif task_type == "product":
+        paths.append(
+            (
+                f"products/{resource_id}.png",
+                project_path / "products" / f"{resource_id}.png",
+            )
+        )
+    elif task_type == "grid":
+        paths.append(
+            (
+                f"grids/{resource_id}.png",
+                project_path / "grids" / f"{resource_id}.png",
+            )
+        )
+        # 宫格切割还会覆写多个 canonical 分镜图，实际写入的 cell 路径持久化在
+        # grid 记录的 frame_chain 中，一并纳入指纹让前端对这些文件 cache-bust；
+        # 记录缺失/损坏时降级为只报宫格主图。
+        try:
+            from lib.grid_manager import GridManager
+
+            grid = GridManager(project_path).get(resource_id)
+        except Exception:
+            grid = None
+        if grid is not None:
+            # 记录是磁盘上的 JSON，image_path 不可直接信任：绝对路径会覆盖左操作数、
+            # ../ 会越出项目目录，把任意服务器文件的存在性/mtime 暴露给前端
+            project_root = project_path.resolve()
+            for frame in grid.frame_chain:
+                if not frame.image_path:
+                    continue
+                candidate = try_safe_join(project_root, frame.image_path)
+                if candidate is None:
+                    logger.warning("跳过越出项目目录的宫格 cell 路径: %s", frame.image_path)
+                    continue
+                # 指纹 key 用归一化后的项目相对路径：原始字符串若是项目内的
+                # 绝对路径，会把服务器路径泄漏给前端且匹配不上前端的资源 key
+                rel = candidate.relative_to(project_root).as_posix()
+                paths.append((rel, candidate))
+    elif task_type == "reference_video":
+        paths.append(
+            (
+                f"reference_videos/{resource_id}.mp4",
+                project_path / "reference_videos" / f"{resource_id}.mp4",
+            )
+        )
+        paths.append(
+            (
+                f"reference_videos/thumbnails/{resource_id}.jpg",
+                project_path / "reference_videos" / "thumbnails" / f"{resource_id}.jpg",
+            )
+        )
+    elif task_type == "tts":
+        audio_rel = resource_relative_path("audio", resource_id)
+        paths.append((audio_rel, project_path / audio_rel))
+
+    result: dict[str, int] = {}
+    for rel, abs_path in paths:
+        if abs_path.exists():
+            result[rel] = abs_path.stat().st_mtime_ns
+
+    return result
+
+
+# (entity_type, action, label_tpl, include_script_episode)
+# 三类项目级资产（character / scene / prop）的 spec 由 lib.asset_types.ASSET_SPECS 派生。
+# storyboard / video / reference_video 不在此表——三者按剧本骨架种类（segments/scenes/shots/
+# video_units）动态派生 entity_type 与条目名词，见 _SKELETON_DRIVEN_TASK_ACTIONS，避免恒发
+# ``segment``/「分镜」而与分镜级事件（project_events.py）名词不一致。
+_TASK_CHANGE_SPECS: dict[str, tuple] = {
+    "tts": ("segment", "tts_ready", "旁白「{}」", True),
+    "grid": ("grid", "grid_ready", "宫格「{}」", True),
+    **{atype: (atype, "updated", f"{spec.label_zh}「{{}}」设计图", False) for atype, spec in ASSET_SPECS.items()},
+}
+
+# 骨架驱动的任务类型 → 完成事件 action。entity_type/条目名词按项目剧本当前骨架种类
+# （resolve_script_kind，与分镜级事件同一判定）动态解析，不按 task_type 恒定硬编码。
+_SKELETON_DRIVEN_TASK_ACTIONS: dict[str, str] = {
+    "storyboard": "storyboard_ready",
+    "video": "video_ready",
+    "reference_video": "reference_video_ready",
+}
+
+# reference_video 的条目标签沿用「参考视频」措辞（区别于分镜级事件的骨架名词「视频单元」，
+# 两者服务不同场景：此为任务完成通知的条目文案，不随骨架名词收敛）；storyboard/video 未列出，
+# 回退到骨架名词本身（分镜/场景/镜头），与同项目分镜级事件同口径。
+_SKELETON_TASK_LABEL_NOUNS: dict[str, str] = {
+    "reference_video": "参考视频",
+}
+
+
+def _load_event_script(project_name: str, script_file: str | None) -> dict[str, Any] | None:
+    """加载完成事件所属剧本一次，供骨架种类与 episode 共用；缺失/损坏时返回 None。
+
+    调用方对 None 各自兜底（骨架种类回退 ``"segments"``、episode 回退 ``None``），
+    不让剧本加载失败导致通知发送中断。
+    """
+    if not script_file:
+        return None
+    try:
+        return get_project_manager().load_script(project_name, script_file)
+    except Exception:
+        return None
+
+
+def emit_generation_success_batch(
+    *,
+    task_type: str,
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+) -> dict[str, int]:
+    """发送生成/上传完成的项目变更事件，返回受影响文件的指纹（调用方可直接复用，免二次计算）。
+
+    事件 source 由 project_change_source contextvar 决定（worker / webui 调用方各自包裹）。
+    """
+    if task_type == "image_edit":
+        # 编辑完成事件与「同一资源的生成完成事件」同形状：按 payload.resource_type 派发到
+        # 既有 spec 表（storyboard 走骨架驱动、四类资产走 ASSET_SPECS 派生表），entity/action/
+        # 指纹与生成路径一致，前端既有的 SSE fingerprint 刷新零改动即可覆盖编辑完成。
+        task_type = str(payload.get("resource_type") or "")
+
+    script_file = str(payload.get("script_file") or "") or None
+    # 单次加载剧本，骨架种类与 episode 共用，避免同一 script_file 双解析。
+    script = _load_event_script(project_name, script_file)
+
+    action = _SKELETON_DRIVEN_TASK_ACTIONS.get(task_type)
+    if action is not None:
+        if task_type == "reference_video":
+            # ad 剧本骨架恒为 shots[]（reference_video 路径只是把镜头派生分组为
+            # video_unit 索引，二者持久于同一份剧本 JSON），resolve_script_kind
+            # 的数据形状优先判别会因 shots 键仍在而退回 content_mode==ad→shots，
+            # 与该任务实际对应 video_unit 资源不符——直接固定 kind，不经骨架判别。
+            kind = "video_units"
+        else:
+            kind = resolve_script_kind(script) if isinstance(script, dict) else "segments"
+        entity_type = SKELETON_ENTITY_TYPES.get(kind, "segment")
+        noun = _SKELETON_TASK_LABEL_NOUNS.get(task_type) or SKELETON_ITEM_NOUNS.get(kind, "分镜")
+        label_tpl = f"{noun}「{{}}」"
+        include_script_episode = True
+    else:
+        spec = _TASK_CHANGE_SPECS.get(task_type)
+        if spec is None:
+            return {}
+        entity_type, action, label_tpl, include_script_episode = spec
+
+    asset_fingerprints = compute_affected_fingerprints(project_name, task_type, resource_id)
+
+    change: dict[str, Any] = {
+        "entity_type": entity_type,
+        "action": action,
+        "entity_id": resource_id,
+        "label": label_tpl.format(resource_id),
+        "focus": None,
+        "important": True,
+        "asset_fingerprints": asset_fingerprints,
+    }
+    if include_script_episode:
+        change["script_file"] = script_file
+        change["episode"] = _episode_from_script(script)
+
+    try:
+        emit_project_change_batch(project_name, [change])
+    except Exception:
+        logger.exception(
+            "发送生成完成项目事件失败 project=%s task_type=%s resource_id=%s",
+            project_name,
+            task_type,
+            resource_id,
+        )
+    return asset_fingerprints
+
+
+async def execute_storyboard_task(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    script_file = payload.get("script_file")
+    if not script_file:
+        raise ValueError("script_file is required for storyboard task")
+
+    prompt = payload.get("prompt")
+    if prompt is None:
+        raise ValueError("prompt is required for storyboard task")
+
+    def _prepare():
+        _project = get_project_manager().load_project(project_name)
+        _project_path = get_project_manager().get_project_path(project_name)
+        _script = get_project_manager().load_script(project_name, script_file)
+        _items, _id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(_script)
+
+        _resolved = find_storyboard_item(_items, _id_field, resource_id)
+        if _resolved is None:
+            raise ValueError(f"scene/segment not found: {resource_id}")
+        _target_item, _ = _resolved
+
+        _prev_path = resolve_previous_storyboard_path(_project_path, _items, _id_field, resource_id)
+        _prompt_text = _normalize_storyboard_prompt(prompt, _project.get("style", ""))
+        _ref_images = _collect_reference_images(
+            _project,
+            _project_path,
+            _target_item,
+            char_field=_char_field,
+            scene_field=_scene_field,
+            prop_field=_prop_field,
+            extra_reference_images=payload.get("extra_reference_images") or [],
+            previous_storyboard_path=_prev_path,
+        )
+        # 产品镜头：产品参考全量注入且排序绝对优先（先于角色/场景/道具 sheet），
+        # 并附高保真还原指令；氛围镜头零产品图，既有装配不变。
+        _product_refs = _collect_shot_product_references(_project, _project_path, _target_item)
+        if _product_refs:
+            _ref_images = _product_refs + (_ref_images or [])
+            _prompt_text = append_product_fidelity_tail(_prompt_text, _product_names_in_references(_product_refs))
+        return _project, _project_path, _prompt_text, _ref_images
+
+    project, project_path, prompt_text, reference_images = await asyncio.to_thread(_prepare)
+    _needs_i2i = bool(reference_images)
+
+    ctx = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
+    )
+    generator = ctx.generator
+    aspect_ratio = get_aspect_ratio(project, "storyboards")
+    image_size = ctx.image.resolution
+
+    _, version = await generator.generate_image_async(
+        prompt=prompt_text,
+        resource_type="storyboards",
+        resource_id=resource_id,
+        reference_images=reference_images,
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+
+    def _finalize():
+        get_project_manager().update_scene_asset(
+            project_name=project_name,
+            script_filename=script_file,
+            scene_id=resource_id,
+            asset_type="storyboard_image",
+            asset_path=f"storyboards/scene_{resource_id}.png",
+        )
+        return generator.versions.get_versions("storyboards", resource_id)["versions"][-1]["created_at"]
+
+    created_at = await asyncio.to_thread(_finalize)
+
+    return {
+        "version": version,
+        "file_path": f"storyboards/scene_{resource_id}.png",
+        "created_at": created_at,
+        "resource_type": "storyboards",
+        "resource_id": resource_id,
+    }
+
+
+async def execute_tts_task(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """为说书模式单个 segment 合成旁白音频（同步 TTS，无续传）。
+
+    文本来源：payload.text 显式优先；否则从脚本 segment 的 novel_text 读取。文本为空 /
+    segment 找不到 / 脚本未生成一律显式 raise，绝不把空串送给 backend 合成。
+    """
+    script_file = payload.get("script_file")
+
+    def _prepare() -> tuple[dict, str]:
+        _project = get_project_manager().load_project(project_name)
+        _text = payload.get("text") or payload.get("prompt")
+        if not _text:
+            if not script_file:
+                raise ValueError("tts task 需要 payload.text 或 payload.script_file 之一")
+            _script = get_project_manager().load_script(project_name, script_file)
+            _items, _id_field, *_ = get_storyboard_items(_script)
+            _resolved = find_storyboard_item(_items, _id_field, resource_id)
+            if _resolved is None:
+                raise ValueError(f"segment not found: {resource_id}")
+            _segment, _ = _resolved
+            _text = _segment.get("novel_text")
+        if not isinstance(_text, str) or not _text.strip():
+            raise ValueError(f"segment {resource_id} 无可合成的旁白文本（novel_text 为空）")
+        return _project, _text.strip()
+
+    project, text = await asyncio.to_thread(_prepare)
+
+    ctx = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        audio=AudioLaneRequest(),
+    )
+    generator = ctx.generator
+    voice = ctx.audio.narration_voice
+    speed = ctx.audio.narration_speed
+
+    _, version = await generator.generate_audio_async(
+        text=text,
+        resource_id=resource_id,
+        voice=voice,
+        speed=speed,
+    )
+
+    audio_rel = resource_relative_path("audio", resource_id)
+
+    def _finalize():
+        if script_file:
+            get_project_manager().update_scene_asset(
+                project_name=project_name,
+                script_filename=script_file,
+                scene_id=resource_id,
+                asset_type="narration_audio",
+                asset_path=audio_rel,
+            )
+        return generator.versions.get_versions("audio", resource_id)["versions"][-1]["created_at"]
+
+    created_at = await asyncio.to_thread(_finalize)
+
+    return {
+        "version": version,
+        "file_path": audio_rel,
+        "created_at": created_at,
+        "resource_type": "audio",
+        "resource_id": resource_id,
+    }
+
+
+async def execute_video_task(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    script_file = payload.get("script_file")
+    if not script_file:
+        raise ValueError("script_file is required for video task")
+
+    prompt = payload.get("prompt")
+    if prompt is None:
+        raise ValueError("prompt is required for video task")
+
+    def _load():
+        _pm = get_project_manager()
+        _project = _pm.load_project(project_name)
+        _project_path = _pm.get_project_path(project_name)
+        _script = _pm.load_script(project_name, script_file)
+        _items, _id_field, _, _, _ = get_storyboard_items(_script)
+        _resolved = find_storyboard_item(_items, _id_field, resource_id)
+        _item = _resolved[0] if _resolved else {}
+        return _project, _project_path, _item
+
+    project, project_path, item = await asyncio.to_thread(_load)
+    ctx = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        video=VideoLaneRequest(),
+    )
+    generator = ctx.generator
+
+    # 优先读取 generated_assets.storyboard_image，回退默认路径。校验口径见
+    # resolve_storyboard_image_ref：与路由入队预检、SDK 工具入队预检共用同一份。
+    storyboard_rel = get_generated_assets(item).get("storyboard_image")
+    storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
+    if storyboard_file is None:
+        storyboard_file = project_path / "storyboards" / f"scene_{resource_id}.png"
+    # is_file 而非 exists：字段被外部编辑指向目录（如 "storyboards" 本身）时 exists() 仍为
+    # True，目录会被当作 start_image 传给视频后端，在编码阶段才失败且原因不可读。
+    if not storyboard_file.is_file():
+        raise ValueError(f"storyboard not found: {storyboard_file.name}")
+
+    # drama 口型台词单一真相源在场景级有序 utterances：从 dialogue-kind 条目取台词注入 video YAML
+    # 的 dialogue 出口（覆盖 payload 里 drama 已不再携带的 video_prompt.dialogue）。narration / ad
+    # 的 item 无 utterances 字段，payload.dialogue 原样透传；SDK 路径 prompt 已是渲染好的字符串、跳过。
+    if isinstance(item, dict) and "utterances" in item and isinstance(prompt, dict):
+        prompt = {**prompt, "dialogue": utterances_to_dialogue(item.get("utterances"))}
+
+    prompt_text = _normalize_video_prompt(prompt)
+    aspect_ratio = get_aspect_ratio(project, "videos")
+    seed = payload.get("seed")
+    service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
+
+    # provider / model / 能力 / 分辨率均取自单次解析的 video lane：能力按 backend 实际身份
+    # （registry provider_id + backend.model）查询，与实际要调用的 model 对齐——历史任务 payload
+    # 携带 provider 覆盖、或自定义供应商目标 model 被禁用回退时，二者一致避免 duration 守卫误判
+    # （用「项目默认 model 的能力」误判「实际调用的 model」）。能力不可解析时 supported_durations
+    # 留空，守卫遇空列表放行（不更坏，见 ADR-0002）。解析/构造失败已在 resolve_generation_context
+    # 内原样上抛整次任务失败，不再有硬编码 provider/model 静默兜底。
+    registry_provider_id = ctx.video.provider_model.provider_id
+    model_name = ctx.video.backend_model
+    supported_durations: list[int] = list(ctx.video.supported_durations)
+    resolution = ctx.video.resolution
+
+    # duration 解析收口于执行层：payload > project.default_duration > caps 默认。
+    # 用 ``is not None`` 而非 ``or`` 取 payload 值，避免显式 falsy 值被当作未设置。
+    duration_seconds = payload.get("duration_seconds")
+    if duration_seconds is None:
+        duration_seconds = project.get("default_duration")
+    if not duration_seconds:
+        # 取首项前先按当前分辨率的联动约束收窄：否则 Veo + 1080p/4k 的默认（Auto）设置会取到
+        # 4 秒，被 backend 的「该分辨率必须 8 秒」拒绝——UI 已按同一份声明门控，此处不收窄
+        # 就等于默认配置必然失败。
+        candidates = constrain_durations_by_resolution(
+            registry_provider_id, model_name, supported_durations, resolution
+        )
+        duration_seconds = (
+            candidates[0] if candidates else _get_model_default_duration(registry_provider_id, model_name)
+        )
+    # 能力守卫：provider 解析之后的唯一权威家（见 ADR-0001）。安全解析交给守卫，
+    # 此处不预先 int() 截断，避免把非整数秒静默修正成「碰巧合法」的值。
+    assert_duration_supported(duration_seconds, supported_durations)
+
+    # end_frame_image 是镜头持久属性（见 server/services/end_frame.py），剧本每次加载都带出，
+    # 重新生成无需额外操作即可沿用。能力是否支持尾帧由 generate_video_async 内的 plan_frame_slots
+    # 按已解析 backend 统一 gating（不支持即 VideoCapabilityError），此处不重复一份判断。
+    #
+    # 剧本是磁盘上的 JSON，字段值不可直接信任（归档导入、外部编辑、脏数据都能落值）：绝对路径会
+    # 覆盖 `/` 的左操作数、`..` 会越出项目目录，把任意服务器文件送进视频请求上传给供应商。只接受
+    # 「当前镜头自己的」end_frames/ 快照——不是随便一个存在的 end_frames/ 内文件：字段被外部编辑
+    # 指向别的镜头（如 E1S01 引用 E1S02 的快照）会静默生成/扣费错镜头的尾帧，仅凭目录归属挡不住，
+    # 须与 resource_relative_path 算出的当前镜头 canonical 路径逐一比对。裸文件名（无路径分隔符）
+    # 按校验侧 data_validator._resolve_existing_path 的 default_dir 回退口径补 end_frames/ 前缀
+    # 重试，否则通过导入校验的值会在生成期无理由硬失败。
+    end_frame_rel = item.get("end_frame_image") if isinstance(item, dict) else None
+    end_image: Path | None = None
+    # 只把 None / "" 视为「未设置」（与 data_validator 的 _resolve_existing_path 同口径）；
+    # 0 / False / [] / {} 等其余 falsy 脏数据必须继续走下面的硬失败，不能被 Python 的真值判断
+    # 静默吞成「未设置」进而无声跳过尾帧、照常生成扣费。
+    if end_frame_rel not in (None, ""):
+        if not isinstance(end_frame_rel, str):
+            raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
+        normalized = end_frame_rel.strip().replace("\\", "/")
+        candidate = normalized if "/" in normalized else f"{END_FRAME_RESOURCE_TYPE}/{normalized}"
+        expected_rel = resource_relative_path(END_FRAME_RESOURCE_TYPE, resource_id)
+        end_frame_file = try_safe_join(project_path, candidate)
+        expected_file = safe_join(project_path, expected_rel)
+        # try_safe_join / safe_join 都走 realpath，会展开符号链接：若字段值恰是当前镜头的
+        # canonical 相对路径，但磁盘上那个位置（含 end_frames/ 目录本身等中间组件）被替换成
+        # 指向别处（如另一镜头快照、分镜图）的符号链接，两次解析会算出同一个被展开的真实目标，
+        # 让下面的相等比较失去意义。这里逐段检查 canonical 路径每个组件——文件名与父目录——
+        # 挡住"路径字符串正确但磁盘对象被调包"，不止查最终文件名那一段。Windows 原生环境下
+        # 目录联接（junction）是独立于符号链接的 reparse point 类型，`is_symlink()` 识别不到，
+        # 须用 `is_junction()`（3.12+，POSIX 上恒为 False）单独检测。
+        canonical_path_tampered = False
+        current = project_path
+        for component in Path(expected_rel).parts:
+            current = current / component
+            if current.is_symlink() or current.is_junction():
+                canonical_path_tampered = True
+                break
+        if end_frame_file is None or end_frame_file != expected_file or canonical_path_tampered:
+            raise ValueError(f"invalid end frame snapshot path: {end_frame_rel!r}")
+        if not end_frame_file.is_file():
+            raise ValueError(f"end frame snapshot not found: {end_frame_file.name}")
+        end_image = end_frame_file
+
+    _, version, _, video_uri = await generator.generate_video_async(
+        prompt=prompt_text,
+        resource_type="videos",
+        resource_id=resource_id,
+        start_image=storyboard_file,
+        end_image=end_image,
+        aspect_ratio=aspect_ratio,
+        duration_seconds=duration_seconds,
+        resolution=resolution,
+        task_id=task_id,
+        seed=seed,
+        service_tier=service_tier,
+    )
+
+    return await _finalize_video_task(
+        project_name=project_name,
+        script_file=script_file,
+        project_path=project_path,
+        resource_id=resource_id,
+        version=version,
+        video_uri=video_uri,
+        generator=generator,
+    )
+
+
+async def _finalize_video_task(
+    *,
+    project_name: str,
+    script_file: str,
+    project_path: Path,
+    resource_id: str,
+    version: int,
+    video_uri: str | None,
+    generator: Any,
+) -> dict[str, Any]:
+    """Normal + resume 共用的 finalize 逻辑：写 scene asset + 抽缩略图 + 返回 result dict。"""
+
+    def _update_video_metadata():
+        get_project_manager().update_scene_asset(
+            project_name=project_name,
+            script_filename=script_file,
+            scene_id=resource_id,
+            asset_type="video_clip",
+            asset_path=f"videos/scene_{resource_id}.mp4",
+        )
+        if video_uri:
+            get_project_manager().update_scene_asset(
+                project_name=project_name,
+                script_filename=script_file,
+                scene_id=resource_id,
+                asset_type="video_uri",
+                asset_path=video_uri,
+            )
+
+    await asyncio.to_thread(_update_video_metadata)
+
+    video_file = project_path / f"videos/scene_{resource_id}.mp4"
+    thumbnail_file = project_path / f"thumbnails/scene_{resource_id}.jpg"
+    if await extract_video_thumbnail(video_file, thumbnail_file):
+        await asyncio.to_thread(
+            get_project_manager().update_scene_asset,
+            project_name=project_name,
+            script_filename=script_file,
+            scene_id=resource_id,
+            asset_type="video_thumbnail",
+            asset_path=f"thumbnails/scene_{resource_id}.jpg",
+        )
+    else:
+        thumbnail_file.unlink(missing_ok=True)
+
+    created_at = await asyncio.to_thread(
+        lambda: generator.versions.get_versions("videos", resource_id)["versions"][-1]["created_at"]
+    )
+
+    return {
+        "version": version,
+        "file_path": f"videos/scene_{resource_id}.mp4",
+        "created_at": created_at,
+        "resource_type": "videos",
+        "resource_id": resource_id,
+        "video_uri": video_uri,
+    }
+
+
+async def execute_character_task(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    prompt = str(payload.get("prompt", "") or "").strip()
+    if not prompt:
+        raise ValueError("prompt is required for character task")
+
+    def _prepare_char():
+        _project = get_project_manager().load_project(project_name)
+        _project_path = get_project_manager().get_project_path(project_name)
+        if resource_id not in _project.get("characters", {}):
+            raise ValueError(f"character not found: {resource_id}")
+        _char_data = _project["characters"][resource_id]
+        _style = _project.get("style", "")
+        _style_desc = _project.get("style_description", "")
+        _full_prompt = build_character_prompt(resource_id, prompt, _style, _style_desc)
+        _ref_images = None
+        _ref_path = _char_data.get("reference_image")
+        if _ref_path:
+            _full_ref = _project_path / _ref_path
+            if _full_ref.exists():
+                _ref_images = [_full_ref]
+        return _project, _full_prompt, _ref_images
+
+    project, full_prompt, reference_images = await asyncio.to_thread(_prepare_char)
+    _needs_i2i = bool(reference_images)
+
+    ctx = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
+    )
+    generator = ctx.generator
+    aspect_ratio = get_aspect_ratio(project, "characters")
+    image_size = ctx.image.resolution
+
+    _, version = await generator.generate_image_async(
+        prompt=full_prompt,
+        resource_type="characters",
+        resource_id=resource_id,
+        reference_images=reference_images,
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+
+    sheet_path = f"characters/{resource_id}.png"
+
+    def _finalize_char():
+        def _set_character_sheet(p: dict) -> None:
+            p["characters"][resource_id]["character_sheet"] = sheet_path
+
+        get_project_manager().update_project(project_name, _set_character_sheet)
+        return generator.versions.get_versions("characters", resource_id)["versions"][-1]["created_at"]
+
+    created_at = await asyncio.to_thread(_finalize_char)
+
+    return {
+        "version": version,
+        "file_path": f"characters/{resource_id}.png",
+        "created_at": created_at,
+        "resource_type": "characters",
+        "resource_id": resource_id,
+    }
+
+
+# 仅保留 design 任务的「prompt 构造器」差异；bucket_key 与 sheet 写入由 ASSET_SPECS 与
+# ProjectManager._update_asset_sheet 统一派发。
+_DESIGN_PROMPT_BUILDERS: dict[str, Any] = {
+    "scene": build_scene_prompt,
+    "prop": build_prop_prompt,
+    "product": build_product_prompt,
+}
+
+
+def _collect_product_reference_images(project: dict, project_path: Path, resource_id: str) -> list[Path] | None:
+    """产品原图（保真验收锚点）作为 sheet 标准化整理的参考输入；缺失文件跳过。"""
+    entry = (project.get("products") or {}).get(resource_id) or {}
+    refs = entry.get("reference_images")
+    if not isinstance(refs, list):
+        return None
+    # safe_exists 同时兜住脏数据（非字符串）、越出项目目录的绝对路径 / `..` 穿越与文件缺失
+    existing = [project_path / ref for ref in refs if safe_exists(project_path, ref)]
+    if refs and not existing:
+        # 声明了原图却全部缺失：下游（sheet 生成 / 镜头保真注入）静默退化会丢失保真锚定，
+        # 留观测痕迹便于诊断（不阻塞——文件缺失可能是归档迁移等正常历史原因）。
+        # 文案保持场景中立：本函数同时服务 sheet 生成与产品镜头参考收集两个调用方。
+        logger.warning("产品 '%s' 声明了 %d 张原图但磁盘均缺失", resource_id, len(refs))
+    return existing or None
+
+
+# design 任务的参考图收集器差异：product 的 sheet 是「原图 → 标准多角度图」的整理，
+# 原图全量注入；scene / prop 维持纯文生图。
+_DESIGN_REFERENCE_COLLECTORS: dict[str, Any] = {
+    "product": _collect_product_reference_images,
+}
+
+
+async def execute_design_task(
+    kind: str,
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+) -> dict[str, Any]:
+    """合并 execute_scene_task / execute_prop_task / execute_product_task：按 kind 查表派发。"""
+    spec = ASSET_SPECS[kind]
+    bucket_key = spec.bucket_key
+    prompt_builder = _DESIGN_PROMPT_BUILDERS[kind]
+    reference_collector = _DESIGN_REFERENCE_COLLECTORS.get(kind)
+
+    prompt = str(payload.get("prompt", "") or "").strip()
+    if not prompt:
+        raise ValueError(f"prompt is required for {kind} task")
+
+    def _prepare():
+        project = get_project_manager().load_project(project_name)
+        project_path = get_project_manager().get_project_path(project_name)
+        if resource_id not in project.get(bucket_key, {}):
+            raise ValueError(f"{kind} not found: {resource_id}")
+        style = project.get("style", "")
+        style_desc = project.get("style_description", "")
+        full_prompt = prompt_builder(resource_id, prompt, style, style_desc)
+        refs = reference_collector(project, project_path, resource_id) if reference_collector else None
+        return project, full_prompt, refs
+
+    project, full_prompt, reference_images = await asyncio.to_thread(_prepare)
+    needs_i2i = bool(reference_images)
+
+    ctx = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        image=ImageLaneRequest(capability="i2i" if needs_i2i else "t2i"),
+    )
+    generator = ctx.generator
+    aspect_ratio = get_aspect_ratio(project, bucket_key)
+    image_size = ctx.image.resolution
+
+    _, version = await generator.generate_image_async(
+        prompt=full_prompt,
+        resource_type=bucket_key,
+        resource_id=resource_id,
+        reference_images=reference_images,
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+    )
+
+    sheet_path = f"{bucket_key}/{resource_id}.png"
+
+    def _finalize():
+        get_project_manager()._update_asset_sheet(kind, project_name, resource_id, sheet_path)
+        return generator.versions.get_versions(bucket_key, resource_id)["versions"][-1]["created_at"]
+
+    created_at = await asyncio.to_thread(_finalize)
+
+    return {
+        "version": version,
+        "file_path": sheet_path,
+        "created_at": created_at,
+        "resource_type": bucket_key,
+        "resource_id": resource_id,
+    }
+
+
+async def execute_scene_task(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    return await execute_design_task("scene", project_name, resource_id, payload, user_id=user_id)
+
+
+async def execute_prop_task(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    return await execute_design_task("prop", project_name, resource_id, payload, user_id=user_id)
+
+
+async def execute_product_task(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    return await execute_design_task("product", project_name, resource_id, payload, user_id=user_id)
+
+
+def _group_scenes_by_segment_break(items: list[dict], id_field: str) -> list[list[dict]]:
+    """Groups consecutive scene dicts, breaking at segment_break=True.
+
+    Delegates to :func:`lib.storyboard_sequence.group_scenes_by_segment_break`.
+    """
+    return group_scenes_by_segment_break(items, id_field)
+
+
+def _collect_grid_reference_images(
+    project_path: Path,
+    payload: dict[str, Any],
+    scene_ids: list[str],
+) -> tuple[list[object] | None, list[dict]]:
+    """Collect character/scene/prop sheet images referenced by grid scenes.
+
+    Returns a tuple of ``(image_paths, metadata)``:
+    - *image_paths*: up to 6 :class:`~pathlib.Path` objects for the generation API.
+    - *metadata*: list of dicts ``{path, name, ref_type}`` for persisting in
+      :class:`~lib.grid.models.GridGeneration`.
+    """
+    project_json = project_path / "project.json"
+    if not project_json.exists():
+        return None, []
+
+    import json
+
+    project = json.loads(project_json.read_text(encoding="utf-8"))
+
+    script_file = payload.get("script_file")
+    if not script_file:
+        return None, []
+
+    script_path = project_path / "scripts" / script_file
+    if not script_path.exists():
+        return None, []
+
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+
+    items, id_field, char_field, scene_field, prop_field = get_storyboard_items(script)
+
+    scene_id_set = set(scene_ids)
+    matched_items = [item for item in items if str(item.get(id_field, "")) in scene_id_set]
+
+    characters = project.get("characters")
+    characters = characters if isinstance(characters, dict) else {}
+    project_scenes = project.get("scenes")
+    project_scenes = project_scenes if isinstance(project_scenes, dict) else {}
+    project_props = project.get("props")
+    project_props = project_props if isinstance(project_props, dict) else {}
+
+    seen: set[str] = set()
+    paths: list[Path] = []
+    metadata: list[dict] = []
+    max_count = 6
+
+    for item in matched_items:
+        for char_name in item.get(char_field) or []:
+            if not isinstance(char_name, str):
+                continue
+            char_data = characters.get(char_name)
+            sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
+            if isinstance(sheet, str) and sheet and sheet not in seen:
+                p = project_path / sheet
+                if p.exists():
+                    paths.append(p)
+                    seen.add(sheet)
+                    metadata.append({"path": sheet, "name": char_name, "ref_type": "character"})
+        for scene_name in item.get(scene_field) or []:
+            if not isinstance(scene_name, str):
+                continue
+            scene_data = project_scenes.get(scene_name)
+            sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
+            if isinstance(sheet, str) and sheet and sheet not in seen:
+                p = project_path / sheet
+                if p.exists():
+                    paths.append(p)
+                    seen.add(sheet)
+                    metadata.append({"path": sheet, "name": scene_name, "ref_type": "scene"})
+        for prop_name in item.get(prop_field) or []:
+            if not isinstance(prop_name, str):
+                continue
+            prop_data = project_props.get(prop_name)
+            sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
+            if isinstance(sheet, str) and sheet and sheet not in seen:
+                p = project_path / sheet
+                if p.exists():
+                    paths.append(p)
+                    seen.add(sheet)
+                    metadata.append({"path": sheet, "name": prop_name, "ref_type": "prop"})
+        if len(paths) >= max_count:
+            break
+
+    return list(paths[:max_count]) or None, metadata[:max_count]
+
+
+async def execute_grid_task(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """Execute a grid image generation task.
+
+    resource_id is the grid_id. Steps:
+    1. Load GridGeneration, set status to generating
+    2. Generate image via MediaGenerator
+    3. Split grid image into cells
+    4. Assign cell images to scenes in the script
+    5. Mark completed
+    """
+    from PIL import Image
+
+    from lib.grid.splitter import split_grid_image
+    from lib.grid_manager import GridManager
+
+    project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
+    grid_manager = GridManager(project_path)
+
+    # a) Load grid
+    grid = grid_manager.get(resource_id)
+    if grid is None:
+        raise ValueError(f"grid not found: {resource_id}")
+
+    script_file = grid.script_file
+
+    try:
+        # b) Set status to generating
+        grid.status = "generating"
+        grid.error_message = None
+        grid_manager.save(grid)
+
+        # c) Build reference images + metadata
+        from lib.grid.models import ReferenceImage
+
+        reference_images, ref_metadata = await asyncio.to_thread(
+            _collect_grid_reference_images, project_path, payload, grid.scene_ids
+        )
+        grid.reference_images = [ReferenceImage.from_dict(m) for m in ref_metadata] if ref_metadata else []
+        grid_manager.save(grid)
+
+        # d) Generate grid image
+        prompt_text = payload.get("prompt") or grid.prompt
+        if not prompt_text:
+            raise ValueError("prompt is required for grid task")
+
+        _needs_i2i = bool(reference_images)
+        project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+        ctx = await resolve_generation_context(
+            project_name,
+            payload,
+            project=project,
+            user_id=user_id,
+            image=ImageLaneRequest(capability="i2i" if _needs_i2i else "t2i"),
+        )
+        generator = ctx.generator
+        aspect_ratio = payload.get("grid_aspect_ratio") or get_aspect_ratio(project, "storyboards")
+
+        # 回填 grid metadata：route 层创建/重建时无法预知 needs_i2i，由此处补齐。
+        # provider 记 registry 身份（供后续重解析定位供应商），model 记 backend 实际身份
+        # （自定义供应商目标 model 被禁用回退时，实际调用的 model 与解析出的 model_id 不同）。
+        grid.provider = ctx.image.provider_model.provider_id
+        grid.model = ctx.image.backend_model
+        grid_manager.save(grid)
+        image_size = ctx.image.resolution or "2K"  # 宫格图保底高分辨率
+
+        image_path, version = await generator.generate_image_async(
+            prompt=prompt_text,
+            resource_type="grids",
+            resource_id=resource_id,
+            reference_images=reference_images,
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+        )
+
+        # e) Set grid_image_path, status to splitting
+        grid.grid_image_path = f"grids/{resource_id}.png"
+        grid.status = "splitting"
+        grid_manager.save(grid)
+
+        # f) Split the grid image
+        grid_image = Image.open(image_path)
+        video_aspect_ratio = get_aspect_ratio(project, "videos")
+        cells = split_grid_image(grid_image, grid.rows, grid.cols, video_aspect_ratio)
+
+        # g) Assign cells to scenes
+        storyboards_dir = project_path / "storyboards"
+        storyboards_dir.mkdir(parents=True, exist_ok=True)
+
+        def _assign_cells():
+            from lib.script_editor import resolve_items
+
+            # batch_update_scene_assets 在任一 scene_id 未命中时整批 fail-loud 回滚——避免
+            # cell.save() 已写 PNG 落盘后又因 KeyError 整批回滚留下 orphan PNG,这里先 load
+            # 当前剧本拿 valid id 集合,frame_chain 中已不存在的分镜(grid plan 生成后 agent
+            # split/remove 改动了剧本)跳过 cell PNG 保存 + 收集到 missing 列表 + warning。
+            pm = get_project_manager()
+            script = pm.load_script(project_name, script_file)
+            items, id_field, _kind = resolve_items(script)
+            valid_ids = {str(item.get(id_field)) for item in items if isinstance(item, dict)}
+
+            asset_updates: list[tuple[str, str, Any]] = []
+            missing_ids: list[str] = []
+
+            # 宫格已统一走普通图生视频（不再使用 first_last 模式），cell 仅作为
+            # next_scene_id 的起始分镜图，文件名与普通分镜对齐为 scene_{id}.png。
+            for cell, frame in zip(cells, grid.frame_chain):
+                if frame.frame_type == "placeholder":
+                    continue
+                if frame.frame_type not in ("first", "transition"):
+                    continue
+                if not frame.next_scene_id:
+                    continue
+
+                if str(frame.next_scene_id) not in valid_ids:
+                    missing_ids.append(str(frame.next_scene_id))
+                    continue
+
+                cell_rel = f"storyboards/scene_{frame.next_scene_id}.png"
+                cell_path = storyboards_dir / f"scene_{frame.next_scene_id}.png"
+                # 与 MediaGenerator 版本顺序一致：旧文件先补登再覆写、覆写后登记新版本。
+                # 否则宫格重切的单元格不进版本史，版本面板的「当前版本」与磁盘内容脱节，
+                # 且下一次还原/上传会让未登记的格子字节永久丢失。
+                generator.versions.ensure_current_tracked("storyboards", str(frame.next_scene_id), cell_path, "")
+                cell.save(cell_path, format="PNG")
+                generator.versions.add_version(
+                    resource_type="storyboards",
+                    resource_id=str(frame.next_scene_id),
+                    prompt="",
+                    source_file=cell_path,
+                    source="grid_split",
+                    grid_id=resource_id,
+                )
+                frame.image_path = cell_rel
+                asset_updates.append((frame.next_scene_id, "storyboard_image", cell_rel))
+                asset_updates.append((frame.next_scene_id, "grid_id", resource_id))
+                asset_updates.append((frame.next_scene_id, "grid_cell_index", frame.index))
+
+            if missing_ids:
+                logger.warning(
+                    "grid %s: frame_chain 中以下分镜在剧本 %s 已不存在,跳过 cell 保存: %s",
+                    resource_id,
+                    script_file,
+                    sorted(set(missing_ids)),
+                )
+
+            # Batch-write all asset updates in one script read+write pass
+            if asset_updates:
+                pm.batch_update_scene_assets(
+                    project_name=project_name,
+                    script_filename=script_file,
+                    updates=asset_updates,
+                )
+
+        await asyncio.to_thread(_assign_cells)
+
+        # h) Set status to completed
+        grid.status = "completed"
+        grid_manager.save(grid)
+
+    except Exception:
+        grid.status = "failed"
+        import traceback
+
+        grid.error_message = traceback.format_exc()
+        grid_manager.save(grid)
+        raise
+
+    created_at = grid.created_at
+
+    return {
+        "version": version,
+        "file_path": f"grids/{resource_id}.png",
+        "created_at": created_at,
+        "resource_type": "grids",
+        "resource_id": resource_id,
+    }
+
+
+async def _execute_reference_video_task_proxy(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """Lazy proxy to avoid circular import: reference_video_tasks imports from this module."""
+    from server.services.reference_video_tasks import execute_reference_video_task
+
+    return await execute_reference_video_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
+
+
+async def _execute_image_edit_task_proxy(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """Lazy proxy to avoid circular import: image_edit_tasks imports from this module."""
+    from server.services.image_edit_tasks import execute_image_edit_task
+
+    return await execute_image_edit_task(project_name, resource_id, payload, user_id=user_id, task_id=task_id)
+
+
+_TASK_EXECUTORS = {
+    "storyboard": execute_storyboard_task,
+    "video": execute_video_task,
+    "tts": execute_tts_task,
+    "character": execute_character_task,
+    "scene": execute_scene_task,
+    "prop": execute_prop_task,
+    "product": execute_product_task,
+    "grid": execute_grid_task,
+    "reference_video": _execute_reference_video_task_proxy,
+    "image_edit": _execute_image_edit_task_proxy,
+}
+
+
+async def execute_generation_task(task: dict[str, Any]) -> dict[str, Any]:
+    task_type = task.get("task_type")
+    project_name = task.get("project_name")
+    resource_id = str(task.get("resource_id"))
+    payload = task.get("payload") or {}
+    user_id = task.get("user_id", DEFAULT_USER_ID)
+    queue_task_id = task.get("task_id")
+
+    if not project_name:
+        raise ValueError("task.project_name is required")
+    if not task_type:
+        raise ValueError("task.task_type is required")
+
+    executor = _TASK_EXECUTORS.get(task_type)
+    if executor is None:
+        raise ValueError(f"unsupported task_type: {task_type}")
+
+    with project_change_source("worker"):
+        # 能力类异常（Image/VideoCapabilityError、ReferencePayloadFloorError）原样上抛：
+        # worker 的 _encode_task_failure_message 按 code + params 落库，渲染留到读侧
+        # Translator，同一失败任务按 Accept-Language 显示 zh/en/vi。
+        result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)
+        emit_generation_success_batch(
+            task_type=task_type,
+            project_name=project_name,
+            resource_id=resource_id,
+            payload=payload,
+        )
+        return result

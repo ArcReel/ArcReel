@@ -1,0 +1,105 @@
+{
+  "skill_name": "agent-runtime-skills",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我有一部武侠小说想做成短视频，大概3万字，帮我开始",
+      "expected_output": "应触发 manga-workflow，引导创建新项目、询问项目名称和内容模式，不直接读取小说原文",
+      "target_skills": ["manga-workflow"],
+      "assertions": [
+        {
+          "name": "asks_project_name",
+          "text": "询问用户项目名称",
+          "type": "behavior"
+        },
+        {
+          "name": "asks_content_mode",
+          "text": "询问内容模式（narration 或 drama）",
+          "type": "behavior"
+        },
+        {
+          "name": "does_not_read_novel",
+          "text": "不直接读取小说原文到 context",
+          "type": "constraint"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "继续上次的项目，我记得角色已经分析完了，帮我继续",
+      "expected_output": "应触发 manga-workflow 状态检测，按检测清单顺序找到第一个缺失项，从对应阶段继续",
+      "target_skills": ["manga-workflow"],
+      "assertions": [
+        {
+          "name": "reads_project_json",
+          "text": "读取 project.json 检查当前状态",
+          "type": "behavior"
+        },
+        {
+          "name": "uses_glob_check",
+          "text": "使用 Glob 检查文件系统确认各阶段文件是否存在",
+          "type": "behavior"
+        },
+        {
+          "name": "identifies_correct_stage",
+          "text": "根据检测结果确定正确的下一阶段",
+          "type": "behavior"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "帮我把第2集的分镜图重新生成，E2S03 和 E2S07 的画面不太满意",
+      "expected_output": "应使用 generate-storyboard 的 --scene-ids 参数重新生成指定场景，不重新生成全部",
+      "target_skills": ["generate-storyboard"],
+      "assertions": [
+        {
+          "name": "uses_scene_ids_flag",
+          "text": "使用 --scene-ids E2S03 E2S07 参数而非生成全部",
+          "type": "behavior"
+        },
+        {
+          "name": "correct_script_path",
+          "text": "在正确的项目目录下执行脚本",
+          "type": "behavior"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "这集视频生成到一半断了，帮我接着来",
+      "expected_output": "应使用 generate-video 的 --resume 参数断点续传，不重新生成已完成的场景",
+      "target_skills": ["generate-video"],
+      "assertions": [
+        {
+          "name": "uses_resume_flag",
+          "text": "使用 --resume 参数断点续传",
+          "type": "behavior"
+        },
+        {
+          "name": "does_not_regenerate_all",
+          "text": "不重新生成已完成的场景视频",
+          "type": "constraint"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "视频做好了，帮我加个背景音乐，音量小一点大概0.2",
+      "expected_output": "应使用 compose-video 添加 BGM，设置 --music-volume 0.2",
+      "target_skills": ["compose-video"],
+      "assertions": [
+        {
+          "name": "uses_compose_video",
+          "text": "调用 compose-video 脚本",
+          "type": "behavior"
+        },
+        {
+          "name": "correct_volume",
+          "text": "设置 --music-volume 0.2",
+          "type": "behavior"
+        }
+      ]
+    }
+  ]
+}

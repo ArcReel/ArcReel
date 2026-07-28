@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用咨询与求助（Discussions）
+    url: https://github.com/ArcReel/ArcReel/discussions
+    about: 怎么用、效果不理想、配置求助等非缺陷问题，请到 Discussions 交流。
+  - name: 飞书交流群
+    url: https://github.com/ArcReel/ArcReel#交流群
+    about: 扫码加群，获取帮助和最新动态。

@@ -1,0 +1,94 @@
+coverage:
+  status:
+    project:
+      backend:
+        flags:
+          - backend
+        target: 80%
+        threshold: 1%
+        if_ci_failed: error
+      frontend:
+        flags:
+          - frontend
+        target: 60%
+        threshold: 1%
+        if_ci_failed: error
+      postgres:
+        flags:
+          - postgres
+        target: 40%
+        threshold: 5%
+        if_ci_failed: error
+        informational: true
+    patch:
+      backend:
+        flags:
+          - backend
+        target: 80%
+        threshold: 1%
+        if_ci_failed: error
+      frontend:
+        flags:
+          - frontend
+        target: 60%
+        threshold: 1%
+        if_ci_failed: error
+      postgres:
+        flags:
+          - postgres
+        target: 40%
+        threshold: 5%
+        if_ci_failed: error
+        informational: true
+
+flag_management:
+  default_rules:
+    carryforward: true
+  individual_flags:
+    - name: backend
+      paths:
+        - lib/**
+        - server/**
+      carryforward: true
+    - name: frontend
+      paths:
+        - frontend/src/**
+      carryforward: true
+    - name: postgres
+      paths:
+        - lib/**
+        - server/**
+      carryforward: true
+
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        threshold: 1%
+  individual_components:
+    - component_id: backend
+      name: Backend
+      paths:
+        - lib/**
+        - server/**
+      flag_regexes:
+        - backend
+        - postgres
+    - component_id: frontend
+      name: Frontend
+      paths:
+        - frontend/src/**
+      flag_regexes:
+        - frontend
+
+comment:
+  layout: "header, diff, flags, components, files"
+  behavior: default
+  require_changes: true
+
+ignore:
+  - "alembic/versions/**"
+  - "**/__mocks__/**"
+  - "tests/**"
+  - "scripts/**"

@@ -1,0 +1,515 @@
+"""
+状态和统计字段的实时计算器
+
+提供读时计算的统计字段，避免存储冗余数据。
+配合 ProjectManager 使用，在 API 响应时注入计算字段。
+"""
+
+import logging
+
+from lib.episode_paths import (
+    REFERENCE_VIDEO_STEP1_FILENAME,
+    STEP1_FILENAMES,
+    STEP1_LEGACY_FILENAMES,
+    episode_drafts_dir,
+)
+from lib.path_safety import safe_exists
+from lib.project_manager import effective_mode
+from lib.script_models import ad_script_total_duration, script_duration_total
+from lib.script_skeleton import SKELETONS, resolve_declared_kind
+from lib.storyboard_sequence import get_generated_assets
+
+logger = logging.getLogger(__name__)
+
+# 缺 content_mode 声明的老脚本：按主结构鸭子类型兜底探测的骨架种类，顺序固定
+# segments > scenes > shots（video_units 不参与——按声明分派，不嗅探残留派生索引）。
+_LEGACY_DUCK_TYPE_KINDS: tuple[str, ...] = ("segments", "scenes", "shots")
+
+# 「是否分过段」判定中兼认旧版 .md 别名的 content_mode：narration 的旧 step1_segments.md
+# 代表真实的分段工作、兼认；drama 的旧 .md 早于内容抽取前移（见 ADR 0041），不再视为有效
+# step1——仅 .md 无剧本 JSON 的在制品会被路由回重跑 step1，故不在此集合。这与 gate 只认结构化
+# .json、web 读取层兼认双模式旧 .md 的语义有意不同。
+_SEGMENTED_LEGACY_MODES: frozenset[str] = frozenset({"narration"})
+
+
+def _draft_candidates(content_mode: str, generation_mode: str | None = None) -> tuple[str, ...]:
+    """剧本缺失时按 (content_mode, generation_mode) 探测的 step1 草稿候选文件名（任一存在即视为已分段）。
+
+    结构化文件名取自单一真相源 ``lib.episode_paths.STEP1_FILENAMES``，新增 content_mode 自动覆盖。
+    ad 不走拆分中间稿（brief 不经 source_loader），返回空元组表示无草稿可探测；未知值沿用历史
+    兜底探 drama 结构化草稿名。旧版 .md 仅对 ``_SEGMENTED_LEGACY_MODES`` 内的模式附加。
+
+    reference_video 是跨 content_mode 的 generation_mode 维度（与 ``lib.script_review.step1_kind``
+    同口径，effective_mode 优先于 content_mode），命中时探测其专属结构化草稿名
+    ``REFERENCE_VIDEO_STEP1_FILENAME`` 而非 content_mode 对应名——否则 rv 项目的
+    ``step1_reference_units.json`` 永远探测不到，script_status 停留 none，web 路由卡在源文审阅页
+    进不了 ``ScriptReviewGate``。旧版自由文本别名仅供读取 / 浏览层兼认（见 episode_paths 注释），
+    生成侧遇到会拒绝并提示重跑拆分，此处不纳入——避免误报「已分段」掩盖需要重跑的存量草稿。
+    """
+    if content_mode == "ad":
+        return ()
+    if generation_mode == "reference_video":
+        return (REFERENCE_VIDEO_STEP1_FILENAME,)
+    primary = STEP1_FILENAMES.get(content_mode) or STEP1_FILENAMES["drama"]
+    legacy = STEP1_LEGACY_FILENAMES.get(content_mode, ()) if content_mode in _SEGMENTED_LEGACY_MODES else ()
+    return (primary, *legacy)
+
+
+class StatusCalculator:
+    """状态和统计字段的实时计算器"""
+
+    def __init__(self, project_manager):
+        """
+        初始化状态计算器
+
+        Args:
+            project_manager: ProjectManager 实例
+        """
+        self.pm = project_manager
+
+    @classmethod
+    def _select_kind_and_items(cls, script: dict) -> tuple[str, list[dict]]:
+        """返回 ``(骨架种类, items)``，骨架种类 ∈ {segments, scenes, shots, video_units}。
+
+        **主路径**按剧本声明的 ``(content_mode, generation_mode)`` 走规范解析
+        （``resolve_declared_kind``）——计分必须按声明分派、不嗅探数据形状（残留派生索引
+        不得污染 storyboard 计分）：``video_units`` 恒按声明取 ``video_units`` 数组、不回退。
+        **legacy 容忍**（本模块本地，不进解析器本体）：缺失/未知 content_mode 的存量剧本，
+        保留声明的 reference 短路 + 主结构鸭子类型兜底阶梯（现状行为）。
+        """
+        content_mode = script.get("content_mode")
+        generation_mode = script.get("generation_mode")
+        try:
+            kind = resolve_declared_kind(content_mode, generation_mode)
+        except ValueError:
+            kind = None
+
+        if kind == "video_units":
+            # 按声明分派：不回退鸭子类型，残留 segments/scenes 索引不得抢走参考集计分。
+            return "video_units", script.get("video_units") or []
+        if kind is not None:
+            items = script.get(kind)
+            if isinstance(items, list):
+                return kind, items
+        elif generation_mode == "reference_video":
+            # 缺失/未知 content_mode 但声明了 reference：沿用历史 legacy 容忍，按声明取 video_units。
+            return "video_units", script.get("video_units") or []
+
+        for legacy_kind in _LEGACY_DUCK_TYPE_KINDS:
+            if isinstance(script.get(legacy_kind), list):
+                return legacy_kind, script.get(legacy_kind, [])
+
+        return (kind or "segments"), []
+
+    def calculate_episode_stats(self, project_name: str, script: dict, *, generation_mode: str | None = None) -> dict:
+        """计算单集的统计信息 — 按骨架种类分派。
+
+        ``generation_mode`` 由调用方按 project.json 解析（``effective_mode``）传入：
+        ad 剧本不打 generation_mode 戳（骨架唯一），reference_video 路径的视频
+        产物挂在派生索引 ``reference_units`` 的 unit 上而非 shots，计分需按声明的
+        生成路径分派而不能嗅探数据形状（残留索引不应污染 storyboard 路径的状态）。
+        """
+        kind, items = self._select_kind_and_items(script)
+
+        if kind == "video_units":
+            return self._calculate_reference_video_stats(items)
+
+        if kind == "shots" and generation_mode == "reference_video":
+            return self._calculate_ad_reference_stats(script, items)
+
+        storyboard_done = sum(1 for i in items if get_generated_assets(i).get("storyboard_image"))
+        video_done = sum(1 for i in items if get_generated_assets(i).get("video_clip"))
+        total = len(items)
+
+        if video_done == total and total > 0:
+            status = "completed"
+        elif storyboard_done > 0 or video_done > 0:
+            status = "in_production"
+        else:
+            status = "draft"
+
+        return {
+            "scenes_count": total,
+            "status": status,
+            "duration_seconds": script_duration_total(kind, items),
+            "storyboards": {"total": total, "completed": storyboard_done},
+            "videos": {"total": total, "completed": video_done},
+        }
+
+    @staticmethod
+    def _calculate_ad_reference_stats(script: dict, shots: list[dict]) -> dict:
+        """ad + reference_video：视频进度按派生 unit 计，其余口径仍以 shots 为真相。
+
+        索引未派生（reference_units 缺失/空）时 videos 计 0/0、状态 draft；
+        分镜计数保留 shots 口径（该路径跳过分镜，恒为 0/total，不参与状态判定）。
+        索引形状损坏（非数组 / 夹非 dict 条目 / unit 的 generated_assets 非 dict）
+        按未派生同口径计分并记 WARN——不部分计数以免坏索引伪装成真实进度；
+        读时计算保持不抛错，数据契约校验归 DataValidator，索引为派生数据、
+        重新派生即愈。
+        """
+
+        def _wellformed(u: object) -> bool:
+            if not isinstance(u, dict):
+                return False
+            ga = u.get("generated_assets")
+            return ga is None or isinstance(ga, dict)
+
+        raw_units = script.get("reference_units")
+        units: list[dict] = []
+        if isinstance(raw_units, list) and all(_wellformed(u) for u in raw_units):
+            units = raw_units
+        elif raw_units is not None:
+            logger.warning(
+                "reference_units 形状损坏（期望 dict 数组），按未派生计分 episode=%s",
+                script.get("episode"),
+            )
+        video_done = sum(1 for u in units if (u.get("generated_assets") or {}).get("video_clip"))
+        total_units = len(units)
+
+        if total_units == 0:
+            status = "draft"
+        elif video_done == total_units:
+            status = "completed"
+        elif video_done > 0:
+            status = "in_production"
+        else:
+            status = "draft"
+
+        total_shots = len(shots)
+        return {
+            "scenes_count": total_shots,
+            "units_count": total_units,
+            "status": status,
+            "duration_seconds": ad_script_total_duration(shots),
+            "storyboards": {"total": total_shots, "completed": 0},
+            "videos": {"total": total_units, "completed": video_done},
+        }
+
+    @staticmethod
+    def _calculate_reference_video_stats(units: list[dict]) -> dict:
+        """Reference-video scripts are scored by video_units[].generated_assets.video_clip."""
+        total = len(units)
+        video_done = sum(1 for u in units if get_generated_assets(u).get("video_clip"))
+
+        if total == 0:
+            status = "draft"
+        elif video_done == total:
+            status = "completed"
+        elif video_done > 0:
+            status = "in_production"
+        else:
+            status = "draft"
+
+        return {
+            "scenes_count": total,
+            "units_count": total,
+            "status": status,
+            "duration_seconds": script_duration_total("video_units", units),
+            "storyboards": {"total": total, "completed": 0},
+            "videos": {"total": total, "completed": video_done},
+        }
+
+    def _load_episode_script(
+        self,
+        project_name: str,
+        episode_num: int,
+        script_file: str,
+        *,
+        content_mode: str = "narration",
+        generation_mode: str | None = None,
+        preloaded_scripts: dict[str, dict] | None = None,
+    ) -> tuple:
+        """加载单集剧本，返回 (script_status, script|None)，避免重复读取文件。
+        script_status: 'generated' | 'segmented' | 'none'
+
+        若 ``preloaded_scripts`` 提供且 ``script_file`` 命中其 key，则直接复用预加载
+        结果，跳过一次 JSON 解析。缺失时回退到 ``pm.load_script``，保持原兜底语义。
+        ``generation_mode`` 传 effective_mode 解析结果，驱动 rv 项目的草稿探测（见 ``_draft_candidates``）。
+        """
+        if preloaded_scripts is not None and script_file in preloaded_scripts:
+            return "generated", preloaded_scripts[script_file]
+        try:
+            script = self.pm.load_script(project_name, script_file)
+            return "generated", script
+        except FileNotFoundError:
+            project_dir = self.pm.get_project_path(project_name)
+            try:
+                safe_num = int(episode_num)
+            except (ValueError, TypeError):
+                return "none", None
+            draft_filenames = _draft_candidates(content_mode, generation_mode)
+            if not draft_filenames:
+                return "none", None
+            drafts_dir = episode_drafts_dir(project_dir, safe_num)
+            segmented = any((drafts_dir / name).exists() for name in draft_filenames)
+            return ("segmented" if segmented else "none"), None
+        except ValueError as e:
+            logger.warning(
+                "剧本 JSON 损坏或路径无效，跳过状态计算 project=%s file=%s: %s",
+                project_name,
+                script_file,
+                e,
+            )
+            return "generated", None
+
+    def calculate_current_phase(
+        self,
+        project: dict,
+        episodes_stats: list[dict],
+        *,
+        assets_completed: int = 0,
+    ) -> str:
+        """根据项目和集状态推断当前阶段（按实际产物倒序判定）。
+
+        判定顺序（高优先级在前）：
+        1. 已有任意一集脚本生成 → ``scripting`` / ``production`` / ``completed``
+        2. 已有任意分段草稿、资产设计图（character/scene/prop sheet）或 overview
+           → ``worldbuilding``
+        3. 其它（全新项目）→ ``setup``
+
+        这避免了「用户跳过 overview 直接做剧本/分镜/视频，阶段却卡在 setup」
+        的体验问题——overview 只是 worldbuilding 的一种入口信号，而不是
+        离开 setup 的必经门票。
+        """
+        any_generated = False
+        all_generated = bool(episodes_stats)
+        any_segmented = False
+        all_completed = bool(episodes_stats)
+        for s in episodes_stats:
+            script_status = s["script_status"]
+            if script_status == "generated":
+                any_generated = True
+            else:
+                all_generated = False
+                if script_status == "segmented":
+                    any_segmented = True
+            if s.get("status") != "completed":
+                all_completed = False
+
+        if all_generated:
+            return "completed" if all_completed else "production"
+        if any_generated:
+            return "scripting"
+        if any_segmented or assets_completed > 0 or project.get("overview"):
+            return "worldbuilding"
+        return "setup"
+
+    def _calculate_phase_progress(self, project: dict, phase: str, episodes_stats: list[dict]) -> float:
+        """计算当前阶段完成率 0.0–1.0"""
+        if phase == "setup":
+            return 0.0
+        if phase == "worldbuilding":
+            return 0.0
+        if phase == "scripting":
+            total = len(episodes_stats)
+            if total == 0:
+                return 0.0
+            done = sum(1 for s in episodes_stats if s["script_status"] == "generated")
+            return done / total
+        if phase == "production":
+            total_videos = sum(s.get("videos", {}).get("total", 0) for s in episodes_stats)
+            done_videos = sum(s.get("videos", {}).get("completed", 0) for s in episodes_stats)
+            return done_videos / total_videos if total_videos > 0 else 0.0
+        return 1.0  # completed
+
+    @staticmethod
+    def _make_fallback_ep_stats(script_status: str) -> dict:
+        """构造未生成/无剧本集数的默认统计字典。"""
+        return {
+            "script_status": script_status,
+            "status": "draft",
+            "storyboards": {"total": 0, "completed": 0},
+            "videos": {"total": 0, "completed": 0},
+            "scenes_count": 0,
+            "duration_seconds": 0,
+        }
+
+    def _build_episodes_stats(
+        self,
+        project_name: str,
+        project: dict,
+        *,
+        preloaded_scripts: dict[str, dict] | None = None,
+    ) -> list[dict]:
+        """遍历所有集数，加载剧本并计算每集统计。
+
+        ``preloaded_scripts`` 按 ``episode['script_file']`` 原样作为 key，命中则
+        跳过 pm.load_script；未命中仍走磁盘加载 + 草稿探测的既有兜底路径。
+        """
+        content_mode = project.get("content_mode", "narration")
+        episodes_stats = []
+        for ep in project.get("episodes", []):
+            # 账本标 stale 的集（重新规划后原文范围已失效）：读时状态回退为待预处理，
+            # 驱动重做流程；剧本/媒体产物不删除，重做沿现有覆盖/版本机制替换。
+            if ep.get("ledger_status") == "stale":
+                episodes_stats.append(self._make_fallback_ep_stats("none"))
+                continue
+
+            script_file = ep.get("script_file", "")
+            episode_num = ep.get("episode", 0)
+
+            if script_file:
+                script_status, script = self._load_episode_script(
+                    project_name,
+                    episode_num,
+                    script_file,
+                    content_mode=content_mode,
+                    generation_mode=effective_mode(project=project, episode=ep),
+                    preloaded_scripts=preloaded_scripts,
+                )
+            else:
+                script_status, script = "none", None
+
+            if script_status == "generated" and script is not None:
+                ep_stats = self.calculate_episode_stats(
+                    project_name, script, generation_mode=effective_mode(project=project, episode=ep)
+                )
+                if ep_stats["status"] == "draft":
+                    ep_stats["status"] = "scripted"
+                ep_stats["script_status"] = "generated"
+            else:
+                ep_stats = self._make_fallback_ep_stats(script_status)
+            episodes_stats.append(ep_stats)
+        return episodes_stats
+
+    def calculate_project_status(
+        self,
+        project_name: str,
+        project: dict,
+        *,
+        _preloaded_episodes_stats: list[dict] | None = None,
+        preloaded_scripts: dict[str, dict] | None = None,
+    ) -> dict:
+        """
+        计算项目整体状态（用于列表 API）。
+
+        Args:
+            _preloaded_episodes_stats: 若已由 enrich_project 预先计算，直接传入以避免重复 I/O。
+            preloaded_scripts: 调用方（如 list_projects）已加载的剧本字典，key 为
+                ``episode['script_file']`` 原值，value 为剧本 JSON。
+                命中即跳过 pm.load_script，避免与 resolve_project_cover 重复 I/O。
+
+        Returns:
+            ProjectStatus 字典：current_phase, phase_progress, characters, scenes, props, episodes_summary
+        """
+        project_dir = self.pm.get_project_path(project_name)
+
+        # 角色统计
+        chars = project.get("characters", {})
+        chars_total = len(chars)
+        chars_done = sum(1 for c in chars.values() if safe_exists(project_dir, c.get("character_sheet", "")))
+
+        # 场景统计
+        scenes = project.get("scenes", {})
+        scenes_total = len(scenes)
+        scenes_done = sum(1 for s in scenes.values() if safe_exists(project_dir, s.get("scene_sheet", "")))
+
+        # 道具统计
+        props = project.get("props", {})
+        props_total = len(props)
+        props_done = sum(1 for p in props.values() if safe_exists(project_dir, p.get("prop_sheet", "")))
+
+        # 每集状态：优先使用预加载数据，否则自行加载
+        if _preloaded_episodes_stats is not None:
+            episodes_stats = _preloaded_episodes_stats
+        else:
+            episodes_stats = self._build_episodes_stats(project_name, project, preloaded_scripts=preloaded_scripts)
+
+        phase = self.calculate_current_phase(
+            project,
+            episodes_stats,
+            assets_completed=chars_done + scenes_done + props_done,
+        )
+        phase_progress = self._calculate_phase_progress(project, phase, episodes_stats)
+        if phase == "worldbuilding":
+            total_assets = chars_total + scenes_total + props_total
+            completed_assets = chars_done + scenes_done + props_done
+            phase_progress = completed_assets / total_assets if total_assets > 0 else 0.0
+
+        return {
+            "current_phase": phase,
+            "phase_progress": phase_progress,
+            "characters": {"total": chars_total, "completed": chars_done},
+            "scenes": {"total": scenes_total, "completed": scenes_done},
+            "props": {"total": props_total, "completed": props_done},
+            "episodes_summary": {
+                "total": len(episodes_stats),
+                "scripted": sum(1 for s in episodes_stats if s["script_status"] == "generated"),
+                "in_production": sum(1 for s in episodes_stats if s["status"] == "in_production"),
+                "completed": sum(1 for s in episodes_stats if s["status"] == "completed"),
+            },
+        }
+
+    def enrich_project(self, project_name: str, project: dict) -> dict:
+        """
+        为项目数据注入所有计算字段（用于详情 API）。
+        不修改原始 JSON 文件，仅用于 API 响应。
+        """
+        # 计算每集明细（注入到 episode 对象）并收集统计
+        episodes_stats = self._build_episodes_stats(project_name, project)
+
+        for ep, ep_stats in zip(project.get("episodes", []), episodes_stats):
+            ep.update(ep_stats)
+
+        # 传入预加载的 episodes_stats，避免 calculate_project_status 重复加载剧本
+        project["status"] = self.calculate_project_status(
+            project_name, project, _preloaded_episodes_stats=episodes_stats
+        )
+        return project
+
+    def enrich_script(self, script: dict) -> dict:
+        """
+        为剧本数据注入计算字段
+
+        不会修改原始 JSON 文件，仅用于 API 响应。
+
+        Args:
+            script: 原始剧本数据
+
+        Returns:
+            注入计算字段后的剧本数据
+        """
+        kind, items = self._select_kind_and_items(script)
+        total_duration = script_duration_total(kind, items)
+
+        # 注入 metadata 计算字段
+        if "metadata" not in script:
+            script["metadata"] = {}
+
+        script["metadata"]["total_scenes"] = len(items)
+        script["metadata"]["estimated_duration_seconds"] = total_duration
+        script["duration_seconds"] = total_duration  # 读时注入，与 metadata 保持同步
+
+        # 聚合 characters_in_episode / scenes_in_episode / props_in_episode（仅用于 API 响应，不存储）
+        chars_set = set()
+        scenes_set = set()
+        props_set = set()
+
+        if kind == "video_units":
+            for item in items:
+                for ref in item.get("references", []):
+                    ref_type = ref.get("type")
+                    name = ref.get("name")
+                    if not name:
+                        continue
+                    if ref_type == "character":
+                        chars_set.add(name)
+                    elif ref_type == "scene":
+                        scenes_set.add(name)
+                    elif ref_type == "prop":
+                        props_set.add(name)
+        else:
+            # 此分支 kind 必为 storyboard 骨架（segments/scenes/shots，_select 已归一），
+            # chars_field 非 None；video_units 已在上分支按 references 派生角色。
+            char_field = SKELETONS[kind].chars_field
+            for item in items:
+                if char_field is not None:
+                    chars_set.update(item.get(char_field, []))
+                scenes_set.update(item.get("scenes", []))
+                props_set.update(item.get("props", []))
+
+        script["characters_in_episode"] = sorted(chars_set)
+        script["scenes_in_episode"] = sorted(scenes_set)
+        script["props_in_episode"] = sorted(props_set)
+
+        return script

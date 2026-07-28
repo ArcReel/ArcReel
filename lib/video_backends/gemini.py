@@ -1,0 +1,405 @@
+"""GeminiVideoBackend — 从 GeminiClient 提取的视频生成逻辑。"""
+
+from __future__ import annotations
+
+import asyncio
+import io
+import logging
+from pathlib import Path
+from typing import Any
+
+from PIL import Image
+
+from lib.config.registry import model_info_for
+from lib.config.url_utils import normalize_base_url
+from lib.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, resolve_gemini_api_key
+from lib.logging_utils import format_kwargs_for_log
+from lib.providers import PROVIDER_GEMINI
+from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
+from lib.system_config import resolve_vertex_credentials_path
+from lib.video_backends.base import (
+    ProviderJobIdPersistenceMixin,
+    ResumeExpiredError,
+    VideoCapabilities,
+    VideoCapability,
+    VideoCapabilityError,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+    poll_with_retry,
+)
+
+logger = logging.getLogger(__name__)
+
+# 约束的单一真相源是 registry 的 ModelInfo（reference_image_durations /
+# duration_resolution_constraints），下面两个常量只在 registry 查不到该型号时兜底——中转站、
+# 自定义供应商包装、已下线型号都会走到未登记路径，那里同样不能把必然失败的请求发出去。
+# 兜底值复刻 Veo 全系现行约束：参考图路径与 1080p/4k 分辨率下只接受 8 秒，两条路径各自
+# 独立触发，与首帧/尾帧无关。
+_REQUIRED_DURATION_SECONDS = 8
+_DURATION_CONSTRAINED_RESOLUTIONS = frozenset({"1080p", "4k"})
+
+
+class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
+    """Gemini (Veo) 视频生成后端。"""
+
+    def __init__(
+        self,
+        *,
+        backend_type: str = "aistudio",
+        api_key: str | None = None,
+        rate_limiter: RateLimiter | None = None,
+        video_model: str | None = None,
+        base_url: str | None = None,
+    ):
+        from google import genai as _genai
+        from google.genai import types as _types
+
+        self._types = _types
+        self._rate_limiter = rate_limiter or get_shared_rate_limiter()
+        self._backend_type = backend_type.strip().lower()
+        self._credentials = None
+        self._project_id = None
+
+        from lib.cost_calculator import cost_calculator
+
+        self._video_model = video_model or cost_calculator.DEFAULT_VIDEO_MODEL
+
+        if self._backend_type == "vertex":
+            import json as json_module
+
+            from google.oauth2 import service_account
+
+            credentials_file = resolve_vertex_credentials_path()
+            if credentials_file is None:
+                raise ValueError("未找到 Vertex AI 凭证文件")
+
+            with open(credentials_file, encoding="utf-8") as f:
+                creds_data = json_module.load(f)
+            self._project_id = creds_data.get("project_id")
+
+            self._credentials = service_account.Credentials.from_service_account_file(
+                str(credentials_file), scopes=VERTEX_SCOPES
+            )
+
+            self._client = _genai.Client(
+                vertexai=True,
+                project=self._project_id,
+                location="global",
+                credentials=self._credentials,
+            )
+        else:
+            api_key = resolve_gemini_api_key(api_key)
+            effective_base_url = normalize_base_url(base_url)
+            http_options = {"base_url": effective_base_url} if effective_base_url else None
+            self._client = _genai.Client(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
+
+        # 缓存 capabilities，避免每次访问创建新 set
+        self._capabilities: set[VideoCapability] = {
+            VideoCapability.TEXT_TO_VIDEO,
+            VideoCapability.IMAGE_TO_VIDEO,
+            VideoCapability.NEGATIVE_PROMPT,
+            VideoCapability.VIDEO_EXTEND,
+        }
+        if self._backend_type == "vertex":
+            self._capabilities.add(VideoCapability.GENERATE_AUDIO)
+
+    @property
+    def name(self) -> str:
+        return f"gemini-{self._backend_type}"
+
+    @property
+    def model(self) -> str:
+        return self._video_model
+
+    @property
+    def capabilities(self) -> set[VideoCapability]:
+        return self._capabilities
+
+    @staticmethod
+    def video_capabilities_for_model(model: str) -> VideoCapabilities:
+        """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
+
+        Veo 文档（docs/google-genai-docs/veo.md）把 Image-to-video 与 Reference images
+        列为并列模式，带参考图时 durationSeconds 必须为 8。当前全系模型能力一致，不按
+        model_id 分支；instance property 委托至此，保持 backend 为单一真相源。
+        """
+        return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=3)
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return self.video_capabilities_for_model(self._video_model)
+
+    async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
+        # 能力校验放在重试装饰器之外：约束违规必然复现，重试只是重复失败
+        self._validate_duration_constraints(request)
+        operation = await self._create_task(request)
+        op_name = getattr(operation, "name", None)
+        if not op_name:
+            # fail-fast：缺 operation.name 意味着 submit 成功但无法持久化 provider_job_id，
+            # 一旦进程中断，孤儿处理会走 [restart_lost] 回退到重新提交路径——这正是要避免的
+            # 重复扣费场景。直接抛错让 worker finally 标 failed，比静默继续 poll 安全。
+            raise RuntimeError("Gemini 提交成功但未返回 operation.name，无法持久化 provider_job_id")
+        await self._persist_provider_job_id(request, op_name, provider=PROVIDER_GEMINI)
+        return await self._poll_until_done(operation, request)
+
+    async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        """接续已 submit 的 Gemini operation：用 name 重建 GenerateVideosOperation 走 poll + 下载。
+
+        Operation 是 ABC，不可实例化；具体 LRO 子类 GenerateVideosOperation 通过
+        Pydantic v2 ``model_validate`` 接收 dict 构造（pyright 对 Pydantic 多继承的
+        字段推断不全，用 model_validate 绕开）。
+
+        NOT_FOUND 既可能在初次 ``operations.get`` 抛，也可能在 ``_poll_until_done`` 内
+        mid-poll 抛（远端 GC 了 LRO）。两处都需要归类为 ResumeExpiredError 让 worker
+        finally 走 ``[resume_expired]``——下面的 try/except 把整段包住。
+        """
+        op = self._types.GenerateVideosOperation.model_validate({"name": job_id, "done": False})
+        try:
+            refreshed = await self._client.aio.operations.get(op)
+            return await self._poll_until_done(refreshed, request)
+        except ResumeExpiredError:
+            raise
+        except Exception as exc:
+            if _is_gemini_not_found(exc):
+                raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_GEMINI) from exc
+            raise
+
+    def _validate_duration_constraints(self, request: VideoGenerationRequest) -> None:
+        """参考图 / 受约束分辨率两条路径的时长约束，违反即拒绝。
+
+        约束按本型号的 registry 声明判定（前端门控读的是同一份声明，两侧不再各自为政）；
+        型号未登记时回落模块级兜底常量。供应商侧对越界组合直接报错，透传过去用户拿到的是
+        原始报文；在构建请求前 fail-loud 换成可读拒绝，也省掉一次必然失败的调用。首帧
+        （image）与尾帧（last_frame）不在约束内，4/6 秒照常下发。
+        """
+        info = model_info_for(self.name, self._video_model)
+
+        if request.reference_images:
+            # 已登记型号一律采信其声明：空声明的语义是「参考图路径不额外约束时长」（见
+            # ModelInfo.reference_image_durations），与前端 `?? []` 同口径；只有型号未登记
+            # （info is None）才回落兜底常量。用 `or` 折叠两者会让空声明被兜底覆盖成 [8]，
+            # 前后端读同一份声明得出不同结论。
+            allowed = info.reference_image_durations if info is not None else [_REQUIRED_DURATION_SECONDS]
+            if allowed and request.duration_seconds not in allowed:
+                raise VideoCapabilityError(
+                    "video_reference_images_duration_unsupported",
+                    model=self._video_model,
+                    duration=request.duration_seconds,
+                    supported=_format_durations(allowed),
+                )
+
+        resolution = (request.resolution or "").strip().lower()
+        constraints = (info.duration_resolution_constraints if info else None) or {}
+        # 声明缺位处兜底常量继续生效：registry 只声明本型号「支持的分辨率」下的时长约束，
+        # 而防线要覆盖的是所有会被送到供应商的取值——如 Lite 不支持 4k、声明里自然没有 4k 档，
+        # 但真收到 4k 请求时放行只会换来一次必然失败的调用。
+        allowed = constraints.get(resolution)
+        if allowed is None and resolution in _DURATION_CONSTRAINED_RESOLUTIONS:
+            allowed = [_REQUIRED_DURATION_SECONDS]
+        if allowed and request.duration_seconds not in allowed:
+            raise VideoCapabilityError(
+                "video_resolution_duration_unsupported",
+                model=self._video_model,
+                resolution=resolution.upper(),
+                duration=request.duration_seconds,
+                supported=_format_durations(allowed),
+            )
+
+    @with_retry_async()
+    async def _create_task(self, request: VideoGenerationRequest) -> Any:
+        """创建 Gemini 视频生成任务（带重试保护）。"""
+        # 1. 限流
+        if self._rate_limiter:
+            await self._rate_limiter.acquire_async(self._video_model)
+
+        # 2. duration 透传（由模型 supported_durations 校验，不在 backend 做桶映射）
+        duration_str = str(request.duration_seconds)
+
+        # 3. 构建配置
+        # 反向提示词不再走参数通道——caller 在 request.prompt 末尾文本化注入
+        # （prompt_builders.append_video_negative_tail），跨 backend 一致。
+        config_params: dict = {
+            "aspect_ratio": request.aspect_ratio,
+            "duration_seconds": duration_str,
+        }
+        if request.resolution is not None:
+            config_params["resolution"] = request.resolution
+        if self._backend_type == "vertex":
+            config_params["generate_audio"] = request.generate_audio
+
+        # end_image → last_frame（帧插值）
+        if request.end_image is not None:
+            config_params["last_frame"] = await asyncio.to_thread(self._prepare_image_param, request.end_image)
+
+        # reference_images → reference_images（参考图列表，type=ASSET）
+        if request.reference_images:
+            prepared_refs = await asyncio.gather(
+                *[asyncio.to_thread(self._prepare_image_param, img) for img in request.reference_images]
+            )
+            config_params["reference_images"] = [
+                self._types.VideoGenerationReferenceImage(
+                    image=prepared,
+                    reference_type=self._types.VideoGenerationReferenceType.ASSET,
+                )
+                for prepared in prepared_refs
+            ]
+
+        config = self._types.GenerateVideosConfig(**config_params)
+
+        # 4. 准备 source（prompt + 可选起始帧）
+        image_param = (
+            await asyncio.to_thread(self._prepare_image_param, request.start_image) if request.start_image else None
+        )
+        source = self._types.GenerateVideosSource(prompt=request.prompt, image=image_param)
+
+        # 5. 调用 API
+        logger.info(
+            "调用 %s 视频 SDK payload=%s",
+            self.name,
+            format_kwargs_for_log(
+                {
+                    "model": self._video_model,
+                    "prompt": request.prompt,
+                    "config": config_params,
+                    "has_start_image": request.start_image is not None,
+                    "reference_image_count": len(request.reference_images) if request.reference_images else 0,
+                }
+            ),
+        )
+        operation = await self._client.aio.models.generate_videos(model=self._video_model, source=source, config=config)
+        op_name = getattr(operation, "name", "unknown")
+        logger.info("视频生成已提交, operation=%s", op_name)
+        return operation
+
+    async def _poll_until_done(self, operation: Any, request: VideoGenerationRequest) -> VideoGenerationResult:
+        """轮询任务状态直到完成，瞬态错误仅重试当次轮询请求。"""
+        op_name = getattr(operation, "name", "unknown")
+        logger.info("开始轮询 operation=%s ...", op_name)
+
+        if not operation.done:
+            operation = await poll_with_retry(
+                # SDK 通过 operation.name 查询状态并返回新对象，闭包捕获初始 operation 即可
+                poll_fn=lambda: self._client.aio.operations.get(operation),
+                is_done=lambda op: op.done,
+                is_failed=lambda op: None,  # Gemini 在轮询完成后检查失败
+                poll_interval=20,  # 与 Google 官方推荐一致
+                max_wait=600,
+                label="Gemini",
+                on_progress=lambda op, elapsed: logger.info(
+                    "视频生成中... 已等待 %.0f 秒 (operation=%s)", elapsed, op_name
+                ),
+            )
+
+        logger.info("视频生成完成 (operation=%s)", op_name)
+
+        # 检查结果
+        if not operation.response or not operation.response.generated_videos:
+            error_detail = getattr(operation, "error", None)
+            metadata = getattr(operation, "metadata", None)
+            logger.error(
+                "视频生成返回空结果: operation=%s, error=%s, metadata=%s",
+                op_name,
+                error_detail,
+                metadata,
+            )
+            if error_detail:
+                raise RuntimeError(f"视频生成失败: {error_detail}")
+            raise RuntimeError("视频生成失败: API 返回空结果")
+
+        # 提取并下载视频
+        generated_video = operation.response.generated_videos[0]
+        video_ref = generated_video.video
+        video_uri = video_ref.uri if video_ref else None
+
+        await asyncio.to_thread(request.output_path.parent.mkdir, parents=True, exist_ok=True)
+        await self._download_video_with_retry(video_ref, request.output_path)
+
+        return VideoGenerationResult(
+            video_path=request.output_path,
+            provider=PROVIDER_GEMINI,
+            model=self._video_model,
+            duration_seconds=request.duration_seconds,
+            video_uri=video_uri,
+            generate_audio=request.generate_audio if self._backend_type == "vertex" else True,
+        )
+
+    # ------------------------------------------------------------------
+    # 内部辅助方法（从 GeminiClient 提取）
+    # ------------------------------------------------------------------
+
+    def _prepare_image_param(self, image: str | Path | Image.Image | None):
+        """准备图片参数用于 API 调用 — 提取自 GeminiClient。"""
+        if image is None:
+            return None
+
+        mime_type_png = "image/png"
+
+        if isinstance(image, (str, Path)):
+            with open(image, "rb") as f:
+                image_bytes = f.read()
+            suffix = Path(image).suffix.lower()
+            mime_types = {
+                ".png": mime_type_png,
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+                ".webp": "image/webp",
+            }
+            mime_type = mime_types.get(suffix, mime_type_png)
+            return self._types.Image(image_bytes=image_bytes, mime_type=mime_type)
+        elif isinstance(image, Image.Image):
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            image_bytes = buffer.getvalue()
+            return self._types.Image(image_bytes=image_bytes, mime_type=mime_type_png)
+        else:
+            return image
+
+    @with_retry_async(max_attempts=DOWNLOAD_MAX_ATTEMPTS, backoff_seconds=DOWNLOAD_BACKOFF_SECONDS)
+    async def _download_video_with_retry(self, video_ref, output_path: Path) -> None:
+        """下载视频（含瞬态错误重试）。"""
+        await asyncio.to_thread(self._download_video, video_ref, output_path)
+
+    def _download_video(self, video_ref, output_path: Path) -> None:
+        """下载视频到本地文件 — 提取自 GeminiClient。"""
+        if self._backend_type == "vertex":
+            if video_ref and hasattr(video_ref, "video_bytes") and video_ref.video_bytes:
+                with open(output_path, "wb") as f:
+                    f.write(video_ref.video_bytes)
+            elif video_ref and hasattr(video_ref, "uri") and video_ref.uri:
+                import urllib.request
+
+                urllib.request.urlretrieve(video_ref.uri, str(output_path))
+            else:
+                raise RuntimeError("视频生成成功但无法获取视频数据")
+        else:
+            # AI Studio 模式：使用 files.download
+            self._client.files.download(file=video_ref)
+            video_ref.save(str(output_path))
+
+
+def _format_durations(durations: list[int]) -> str:
+    """把允许时长列表渲染进拒绝文案，如 ``[8]`` → ``8s``。"""
+    return ", ".join(f"{d}s" for d in sorted(durations))
+
+
+def _is_gemini_not_found(exc: BaseException) -> bool:
+    """识别 Gemini operations.get 「operation 不存在 / 已过期」响应。
+
+    INVALID_ARGUMENT 不归过期：Gemini 用它表达入参不合法（如非法 operation 格式），
+    与 NOT_FOUND（资源不存在）语义不同；归过期会把客户端 bug 当成幽灵任务静默吞掉。
+    """
+    try:
+        from google.genai import errors as _genai_errors  # pyright: ignore[reportMissingImports]
+    except ImportError:
+        _genai_errors = None
+
+    if _genai_errors is not None:
+        not_found_cls = getattr(_genai_errors, "ClientError", None) or getattr(_genai_errors, "APIError", None)
+        if not_found_cls is not None and isinstance(exc, not_found_cls):
+            code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+            if code in (404, "404", "NOT_FOUND"):
+                return True
+    msg = str(exc).lower()
+    return "not found" in msg or "expired" in msg

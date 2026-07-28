@@ -1,0 +1,206 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.gate.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4.0.2
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!LICENSE'
+              - '!.github/ISSUE_TEMPLATE/**'
+              - '!.github/pull_request_template.md'
+      - id: gate
+        # Release PR(release-please-- 前缀)只改版本相关产物：pyproject / 前端 package.json 的 version、
+        # release-please manifest、CHANGELOG，并由 release-please workflow 推回 uv.lock 同步 commit，
+        # 不含源码逻辑改动。为加快版本 PR 合并，强制 code=false 让 backend/postgres/frontend 直接 skip。
+        # 取舍：lockfile / 版本字段层面的回归不在 PR 阶段拦截，合入 main 后由 push 触发的 CI 兜底。
+        # 其余分支沿用 paths-filter 结果。head_ref 经 env 传入，避免分支名作为表达式注入到 run 脚本。
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          FILTER_CODE: ${{ steps.filter.outputs.code }}
+        run: |
+          if [[ "$HEAD_REF" == release-please--* ]]; then
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=$FILTER_CODE" >> "$GITHUB_OUTPUT"
+          fi
+
+  backend-tests:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg mediainfo bubblewrap socat
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Lint & format check
+        run: uv run ruff check . && uv run ruff format --check .
+
+      - name: Type check (basedpyright)
+        run: uv run basedpyright
+
+      - name: Import layering (import-linter)
+        run: uv run lint-imports
+
+      - name: Run tests with coverage
+        run: uv run python -m pytest -m "not e2e" --cov=lib --cov=server --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+
+      - name: Upload backend coverage
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          flags: backend
+          fail_ci_if_error: false
+
+  postgres-compat:
+    # SQLite/PostgreSQL 方言兼容性闸门：alembic 三步闭环（upgrade/downgrade/idempotent）
+    # + 所有 DB-touching 测试（marker 驱动）跑在 PG16 上。
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: arcreel
+          POSTGRES_PASSWORD: arcreel
+          POSTGRES_DB: arcreel_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql+asyncpg://arcreel:arcreel@localhost:5432/arcreel_test
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Validate alembic migrations (upgrade / idempotent / downgrade / re-upgrade)
+        run: |
+          set -e
+          uv run alembic upgrade head           # 1. 正向迁移
+          uv run alembic upgrade head           # 2. 幂等性：第二次应该 no-op
+          uv run alembic downgrade base         # 3. 反向回到空 schema
+          uv run alembic upgrade head           # 4. 再次正向，验证 downgrade 真清掉了
+
+      - name: Run dialect-sensitive tests against Postgres
+        run: |
+          uv run python -m pytest -v \
+            -m "uses_db and not sqlite_only" \
+            --cov=lib --cov=server --cov-report=xml:coverage-pg.xml
+
+      - name: Upload PG coverage
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage-pg.xml
+          flags: postgres
+          fail_ci_if_error: false
+
+  frontend-tests:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        working-directory: frontend
+        run: pnpm lint
+
+      - name: Build
+        working-directory: frontend
+        run: pnpm build
+
+      - name: Run tests with coverage
+        working-directory: frontend
+        run: pnpm test:coverage
+
+      - name: Upload frontend coverage
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: frontend/coverage/lcov.info
+          flags: frontend
+          fail_ci_if_error: false
+
+  ci-required:
+    if: always()
+    needs: [changes, backend-tests, postgres-compat, frontend-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more required jobs failed"
+            exit 1
+          fi
+          echo "All required jobs passed or were skipped (docs-only change)"

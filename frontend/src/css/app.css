@@ -1,0 +1,188 @@
+@reference "../index.css";
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: var(--font-sans);
+}
+
+/* 全应用 shell 背景：复合 radial + linear 梯度（与 index.css 保持一致；
+ * 旧实现把 .app-shell 设为 transparent，因 class 优先级高于 body 规则，
+ * 导致 body 上同名规则被覆盖、整页变成默认透明背景，视觉上"颜色失踪"。
+ * 这里直接在 .app-shell 上落地最终背景，避免歧义。 */
+.app-shell {
+    background:
+        radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%),
+        radial-gradient(900px 500px at 98% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%),
+        linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b));
+    background-attachment: fixed;
+}
+
+/* 大标题 / Landing display */
+.app-title,
+.landing-shell h1,
+.landing-shell h2,
+.landing-shell h3 {
+    font-family: var(--font-display);
+}
+
+.app-frame {
+    min-height: 100vh;
+}
+
+.app-sidebar {
+    border-right: 1px solid var(--color-hairline);
+    background: linear-gradient(180deg, oklch(0.195 0.011 265 / 0.6), oklch(0.175 0.010 265 / 0.5));
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.app-panel {
+    border: 1px solid var(--color-hairline-soft);
+    background: linear-gradient(180deg, oklch(0.22 0.012 265 / 0.72), oklch(0.18 0.010 265 / 0.62));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.app-panel-strong {
+    border: 1px solid var(--color-hairline-strong);
+    background: linear-gradient(180deg, oklch(0.22 0.012 265 / 0.92), oklch(0.16 0.010 265 / 0.84));
+    box-shadow: 0 20px 40px oklch(0 0 0 / 0.45);
+}
+
+.app-menu-item {
+    transition: all 0.18s ease;
+}
+
+.app-menu-item:hover {
+    transform: translateX(2px);
+}
+
+.app-grid-bg {
+    position: relative;
+}
+
+.app-grid-bg::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(to right, oklch(1 0 0 / 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, oklch(1 0 0 / 0.04) 1px, transparent 1px);
+    background-size: 28px 28px;
+    opacity: 0.25;
+    pointer-events: none;
+}
+
+.toast-enter {
+    animation: slide-down 0.24s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toast-enter {
+        animation: none;
+    }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-down {
+    from {
+        transform: translateY(-8px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.landing-shell {
+    background:
+        radial-gradient(circle at 14% 11%, oklch(0.76 0.09 295 / 0.16), transparent 34%),
+        radial-gradient(circle at 88% 16%, oklch(0.70 0.12 320 / 0.14), transparent 32%),
+        linear-gradient(180deg, var(--color-bg-grad-a), var(--color-bg-grad-b));
+}
+
+.landing-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(to right, oklch(1 0 0 / 0.045) 1px, transparent 1px),
+        linear-gradient(to bottom, oklch(1 0 0 / 0.045) 1px, transparent 1px);
+    background-size: 50px 50px;
+    mask-image: radial-gradient(circle at 50% 42%, #000 26%, transparent 86%);
+    opacity: 0.22;
+}
+
+.landing-curve {
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(to right, oklch(1 0 0 / 0.06) 1px, transparent 1px),
+        linear-gradient(to bottom, oklch(1 0 0 / 0.06) 1px, transparent 1px);
+    background-size: 96px 96px;
+    transform: perspective(1000px) rotateX(42deg) translateY(42%);
+    transform-origin: center bottom;
+    opacity: 0.16;
+    mask-image: radial-gradient(circle at center, #000 44%, transparent 86%);
+}
+
+.landing-slogan {
+    letter-spacing: 0.01em;
+    text-wrap: balance;
+    color: var(--color-text);
+    text-shadow:
+        0 1px 0 oklch(1 0 0 / 0.08),
+        0 14px 32px oklch(0 0 0 / 0.5);
+}
+
+.landing-orb {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(40px);
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.landing-orb-a {
+    width: 380px;
+    height: 380px;
+    background: oklch(0.76 0.09 295 / 0.3);
+    top: 22%;
+    left: 8%;
+    animation: float-a 8s ease-in-out infinite;
+}
+
+.landing-orb-b {
+    width: 320px;
+    height: 320px;
+    background: oklch(0.70 0.12 320 / 0.24);
+    right: 10%;
+    top: 14%;
+    animation: float-b 9s ease-in-out infinite;
+}
+
+@keyframes float-a {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-18px); }
+}
+
+@keyframes float-b {
+    0%, 100% { transform: translate(0, 0); }
+    50% { transform: translate(12px, -14px); }
+}
+
+@media (max-width: 1024px) {
+    .landing-orb-a,
+    .landing-orb-b {
+        opacity: 0.35;
+        transform: scale(0.7);
+    }
+}

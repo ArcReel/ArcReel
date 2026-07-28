@@ -1,0 +1,362 @@
+/* 自定义样式 */
+
+/* 滚动条样式 — 极窄 + 滚动时渐显、停止后渐隐 */
+
+/* 注册可动画的自定义属性（::-webkit-scrollbar-thumb 不支持 transition，
+   但 @property 注册的自定义属性可在元素自身上过渡，伪元素读取插值后的值） */
+@property --scrollbar-opacity {
+    syntax: '<number>';
+    inherits: true;
+    initial-value: 0;
+}
+
+/* 放入 @layer base，避免 transition 简写覆盖 Tailwind utilities 层的过渡属性 */
+@layer base {
+    * {
+        --scrollbar-opacity: 0;
+        transition: --scrollbar-opacity 0.4s ease-out;
+    }
+
+    [data-scrolling] {
+        --scrollbar-opacity: 1;
+        transition: none;
+    }
+}
+
+::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, calc(0.12 * var(--scrollbar-opacity)));
+    border-radius: 9999px;
+}
+
+/* 悬停在滑块上：提亮 */
+[data-scrolling]::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* 卡片悬停效果 — 仅颜色过渡，禁止位移 */
+.project-card {
+    transition: border-color 0.2s ease-in-out, background-color 0.2s ease-in-out;
+}
+
+/* 模态框动画 */
+.modal-enter {
+    opacity: 0;
+    transform: scale(0.95);
+}
+
+.modal-enter-active {
+    opacity: 1;
+    transform: scale(1);
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+
+/* Tab 激活状态 */
+.tab-active {
+    border-bottom: 2px solid #3b82f6;
+    color: #3b82f6;
+}
+
+/* 文件拖拽区域 */
+.drop-zone {
+    border: 2px dashed #3a3a3a;
+    transition: border-color 0.2s, background-color 0.2s;
+}
+
+.drop-zone.dragover {
+    border-color: #3b82f6;
+    background-color: rgba(59, 130, 246, 0.1);
+}
+
+/* 图片预览 */
+.image-preview {
+    position: relative;
+    overflow: hidden;
+}
+
+.image-preview img {
+    transition: opacity 0.3s ease;
+}
+
+.image-preview:hover img {
+    opacity: 0.85;
+}
+
+/* 场景网格 */
+.scene-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+/* 视频预览 */
+.video-preview {
+    position: relative;
+}
+
+.video-preview::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.video-preview:hover::before {
+    opacity: 1;
+}
+
+/* 进度环 */
+.progress-ring {
+    transform: rotate(-90deg);
+}
+
+.progress-ring-circle {
+    transition: stroke-dashoffset 0.35s;
+    transform-origin: 50% 50%;
+}
+
+/* 分析进度条动画 */
+@keyframes progress-indeterminate {
+  0% { width: 0%; margin-left: 0%; }
+  50% { width: 40%; margin-left: 30%; }
+  100% { width: 0%; margin-left: 100%; }
+}
+
+.animate-progress {
+  animation: progress-indeterminate 2s ease-in-out infinite;
+}
+
+/* 响应式调整 */
+@media (max-width: 640px) {
+    .scene-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    .segment-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+/* ==================== 说书模式样式 ==================== */
+
+/* 9:16 竖屏比例 */
+.aspect-portrait {
+    aspect-ratio: 9 / 16;
+}
+
+/* 3:4 竖版比例（角色设计图） */
+.aspect-portrait-3-4 {
+    aspect-ratio: 3 / 4;
+}
+
+/* 片段卡片网格 */
+.segment-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 1rem;
+}
+
+/* 片段卡片 — 仅颜色过渡，禁止位移 */
+.segment-card {
+    transition: border-color 0.2s ease-in-out, background-color 0.2s ease-in-out;
+}
+
+/* 多宫格图展示区 */
+.grid-preview-section {
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 0.5rem;
+}
+
+/* 灰色 750（介于 700 和 800 之间） */
+.bg-gray-750 {
+    background-color: #222222;
+}
+
+/* ==================== Markdown 渲染样式 ==================== */
+
+.markdown-body h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin: 1rem 0 0.5rem;
+    border-bottom: 1px solid #4b5563;
+    padding-bottom: 0.25rem;
+}
+
+.markdown-body h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 1rem 0 0.5rem;
+}
+
+.markdown-body h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0.75rem 0 0.5rem;
+}
+
+.markdown-body h4 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin: 0.5rem 0 0.25rem;
+}
+
+.markdown-body h5,
+.markdown-body h6 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0.5rem 0 0.25rem;
+}
+
+.markdown-body p {
+    margin: 0.5rem 0;
+    line-height: 1.6;
+}
+
+.markdown-body ul {
+    list-style-type: disc;
+    padding-left: 1.5rem;
+    margin: 0.5rem 0;
+}
+
+.markdown-body ol {
+    list-style-type: decimal;
+    padding-left: 1.5rem;
+    margin: 0.5rem 0;
+}
+
+.markdown-body li {
+    margin: 0.25rem 0;
+}
+
+.markdown-body ul ul,
+.markdown-body ol ol,
+.markdown-body ul ol,
+.markdown-body ol ul {
+    margin: 0.25rem 0;
+}
+
+.markdown-body code {
+    background-color: #1f2937;
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-family: ui-monospace, monospace;
+    font-size: 0.875rem;
+    overflow-wrap: break-word;
+    word-break: break-all;
+}
+
+.markdown-body pre {
+    background-color: #1f2937;
+    padding: 0.75rem 1rem;
+    border-radius: 0.375rem;
+    overflow-x: auto;
+    margin: 0.5rem 0;
+    border-left: 3px solid #3b82f6;
+}
+
+.markdown-body pre code {
+    background-color: transparent;
+    padding: 0;
+}
+
+.markdown-body blockquote {
+    border-left: 3px solid #6b7280;
+    padding-left: 1rem;
+    margin: 0.5rem 0;
+    color: #9ca3af;
+    font-style: italic;
+}
+
+.markdown-body .table-wrapper {
+    overflow-x: auto;
+    margin: 0.5rem 0;
+}
+
+/* ---- Compact override ----
+ * 用于已有 page-level 标题的二级页面嵌入（PreprocessingView compact 模式）。
+ * selector specificity 高于上面的 .markdown-body 规则（两 class 同级 selector）。
+ */
+.markdown-compact .markdown-body h1 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+    border-bottom: 0;
+    padding-bottom: 0;
+}
+
+.markdown-compact .markdown-body h2 {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    margin: 0.75rem 0 0.25rem;
+}
+
+.markdown-compact .markdown-body h3 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin: 0.5rem 0 0.25rem;
+}
+
+.markdown-compact .markdown-body h4,
+.markdown-compact .markdown-body h5,
+.markdown-compact .markdown-body h6 {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    margin: 0.5rem 0 0.25rem;
+}
+
+.markdown-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.5rem 0;
+    display: block;
+    overflow-x: auto;
+}
+
+.markdown-body th,
+.markdown-body td {
+    border: 1px solid #4b5563;
+    padding: 0.5rem;
+    text-align: left;
+}
+
+.markdown-body th {
+    background-color: #374151;
+    font-weight: 600;
+}
+
+.markdown-body tr:nth-child(even) {
+    background-color: #374151;
+}
+
+.markdown-body a {
+    color: #60a5fa;
+}
+
+.markdown-body a:hover {
+    text-decoration: underline;
+}
+
+.markdown-body hr {
+    border: none;
+    border-top: 1px solid #4b5563;
+    margin: 1rem 0;
+}
+
+.markdown-body img {
+    max-width: 100%;
+    border-radius: 0.375rem;
+}

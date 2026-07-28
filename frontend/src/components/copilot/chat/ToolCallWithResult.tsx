@@ -1,0 +1,274 @@
+import { useId, useState } from "react";
+import { useTranslation } from "react-i18next";
+import type { ContentBlock, TodoItem } from "@/types";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Produce a one-line summary of a tool call's input.
+ */
+function getToolSummary(name: string, input: Record<string, unknown> | undefined): string {
+  if (!input) return "";
+
+  switch (name) {
+    case "Read":
+      return (input.file_path as string) || "";
+    case "Write":
+    case "Edit":
+      return (input.file_path as string) || "";
+    case "Bash": {
+      const cmd = (input.command as string) || "";
+      return cmd.length > 60 ? cmd.slice(0, 60) + "..." : cmd;
+    }
+    case "Grep":
+      return `"${(input.pattern as string) || ""}" in ${(input.path as string) || "."}`;
+    case "Glob":
+      return (input.pattern as string) || "";
+    case "WebSearch":
+      return (input.query as string) || "";
+    case "WebFetch":
+      return (input.url as string) || "";
+    case "AskUserQuestion": {
+      const questions = Array.isArray(input.questions) ? (input.questions as Array<Record<string, unknown>>) : [];
+      const text = questions
+        .map((q) => (typeof q.question === "string" ? q.question : ""))
+        .filter(Boolean)
+        .join(" / ");
+      return text.length > 60 ? text.slice(0, 60) + "..." : text;
+    }
+    default: {
+      const str = JSON.stringify(input);
+      return str.length > 50 ? str.slice(0, 50) + "..." : str;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ToolCallWithResult
+// ---------------------------------------------------------------------------
+
+interface ToolCallWithResultProps {
+  block: ContentBlock;
+}
+
+/**
+ * ToolCallWithResult -- unified display of a tool_use block with its
+ * optional result: collapsible header showing tool name + summary,
+ * expandable input / result sections.
+ *
+ * Skill 与 Agent/Task tool_use 不经过本组件（分别由 SkillChip 与
+ * SubagentCard 渲染，见 ContentBlockRenderer 分发）。
+ */
+export function ToolCallWithResult({ block }: ToolCallWithResultProps) {
+  const { t } = useTranslation("dashboard");
+  const [isExpanded, setIsExpanded] = useState(false);
+  const detailsId = useId();
+
+  const toolName = block.name || "Tool";
+  const isTodoWrite = toolName === "TodoWrite";
+
+  // ArcReel in-process MCP tool 显示名：从 mcp__arcreel__<id> 中提取 id，
+  // 查 dashboard:tool_name_<id>（单一真相源 = backend ARCREEL_MCP_TOOL_IDS）。
+  // AskUserQuestion 显示为本地化「提问」标签；其余工具（Bash / TodoWrite /
+  // Skill / ...）保留原名。
+  const mcpMatch = /^mcp__arcreel__([a-z0-9_]+)$/.exec(toolName);
+  const displayName = mcpMatch
+    ? t(`tool_name_${mcpMatch[1]}`, { defaultValue: toolName })
+    : toolName === "AskUserQuestion"
+      ? t("tool_call_question_label")
+      : toolName;
+  const hasResult = block.result !== undefined;
+  const isError = block.is_error;
+
+  // -- TodoWrite compact display -----------------------------------------------
+  if (isTodoWrite && !isError) {
+    return <TodoWriteCompact block={block} />;
+  }
+
+  // -- colours ---------------------------------------------------------------
+  const containerStyle: React.CSSProperties = isError
+    ? {
+        border: "1px solid oklch(0.70 0.18 25 / 0.3)",
+        background: "oklch(0.70 0.18 25 / 0.06)",
+      }
+    : {
+        border: "1px solid var(--color-hairline-soft)",
+        background: "oklch(0.21 0.012 265 / 0.5)",
+      };
+
+  const labelColor = isError ? "var(--color-danger)" : "var(--color-warn)";
+
+  // -- status indicator ------------------------------------------------------
+  const statusIcon = hasResult ? (isError ? "\u2717" : "\u2713") : "\u2026";
+
+  const statusColor = hasResult
+    ? isError
+      ? "var(--color-danger)"
+      : "var(--color-good)"
+    : "var(--color-text-4)";
+
+  // -- summary text ----------------------------------------------------------
+  const summary = getToolSummary(toolName, block.input);
+
+  return (
+    <div
+      className="my-1.5 min-w-0 overflow-hidden rounded-lg"
+      style={containerStyle}
+    >
+      {/* Header button */}
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        aria-expanded={isExpanded}
+        aria-controls={detailsId}
+        className="flex w-full items-center justify-between px-2.5 py-1.5 text-left transition-colors"
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "oklch(1 0 0 / 0.04)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+        }}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+          <span
+            className="shrink-0 text-[10px] font-semibold uppercase tracking-wide"
+            style={{ color: labelColor }}
+          >
+            {displayName}
+          </span>
+          <span
+            className="num truncate text-[11px]"
+            style={{ color: "var(--color-text-2)" }}
+          >
+            {summary}
+          </span>
+        </div>
+        <div className="ml-1.5 flex shrink-0 items-center gap-1.5">
+          <span
+            className="text-xs font-medium"
+            style={{ color: statusColor }}
+          >
+            {statusIcon}
+          </span>
+          <span
+            className="text-[10px]"
+            style={{ color: "var(--color-text-4)" }}
+          >
+            {isExpanded ? "\u25BC" : "\u25B6"}
+          </span>
+        </div>
+      </button>
+
+      {/* Expandable detail sections */}
+      {isExpanded && (
+        <div
+          id={detailsId}
+          style={{ borderTop: "1px solid var(--color-hairline-soft)" }}
+        >
+          {/* Tool Input */}
+          <div
+            className="px-2.5 py-2"
+            style={{ background: "oklch(0.16 0.010 265 / 0.5)" }}
+          >
+            <div
+              className="mb-1 text-[10px] uppercase tracking-wide"
+              style={{ color: "var(--color-text-4)" }}
+            >
+              {t("tool_call_input_label")}
+            </div>
+            <pre
+              className="num max-h-32 overflow-y-auto whitespace-pre-wrap break-all text-[11px]"
+              style={{ color: "var(--color-text-2)" }}
+            >
+              {JSON.stringify(block.input, null, 2)}
+            </pre>
+          </div>
+
+          {/* Tool Result */}
+          {hasResult && (
+            <div
+              className="px-2.5 py-2"
+              style={{
+                borderTop: isError
+                  ? "1px solid oklch(0.70 0.18 25 / 0.25)"
+                  : "1px solid var(--color-hairline-soft)",
+                background: isError
+                  ? "oklch(0.70 0.18 25 / 0.08)"
+                  : "oklch(0.16 0.010 265 / 0.5)",
+              }}
+            >
+              <div
+                className="mb-1 text-[10px] uppercase tracking-wide"
+                style={{
+                  color: isError ? "var(--color-danger)" : "var(--color-text-4)",
+                }}
+              >
+                {isError ? t("tool_call_error_label") : t("tool_call_result_label")}
+              </div>
+              <pre
+                className="num max-h-48 overflow-y-auto whitespace-pre-wrap break-all text-[11px]"
+                style={{ color: "var(--color-text-2)" }}
+              >
+                {typeof block.result === "string"
+                  ? block.result
+                  : JSON.stringify(block.result, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TodoWriteCompact – single-line summary for TodoWrite tool calls
+// ---------------------------------------------------------------------------
+
+function TodoWriteCompact({ block }: Readonly<{ block: ContentBlock }>) {
+  const { t } = useTranslation("dashboard");
+  const input = block.input;
+  const todos: TodoItem[] = Array.isArray(input?.todos) ? (input.todos as TodoItem[]) : [];
+  const total = todos.length;
+  const completed = todos.filter((td) => td.status === "completed").length;
+  const hasResult = block.result !== undefined;
+  const statusIcon = hasResult ? "\u2713" : "\u2026";
+  const statusColor = hasResult ? "var(--color-good)" : "var(--color-text-4)";
+
+  return (
+    <div
+      className="my-1.5 min-w-0 overflow-hidden rounded-lg"
+      style={{
+        border: "1px solid var(--color-hairline-soft)",
+        background: "oklch(0.21 0.012 265 / 0.5)",
+      }}
+    >
+      <div className="flex items-center justify-between px-2.5 py-1.5">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+          <span
+            className="shrink-0 text-[10px] font-semibold uppercase tracking-wide"
+            style={{ color: "var(--color-text-4)" }}
+          >
+            TodoWrite
+          </span>
+          <span
+            className="truncate text-[11px]"
+            style={{ color: "var(--color-text-2)" }}
+          >
+            {total > 0
+              ? t("tool_call_todo_summary", { completed, total })
+              : t("tool_call_todo_updated")}
+          </span>
+        </div>
+        <span
+          className="ml-1.5 shrink-0 text-xs font-medium"
+          style={{ color: statusColor }}
+        >
+          {statusIcon}
+        </span>
+      </div>
+    </div>
+  );
+}

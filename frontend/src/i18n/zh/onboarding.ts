@@ -1,0 +1,144 @@
+import type enOnboarding from '@/i18n/en/onboarding';
+
+export default {
+  // 引导步骤
+  'welcome_title': '欢迎使用 [[brand]]',
+  'welcome_body': '[[brand]] 将小说或剧本制作成短视频：智能体负责分析原文、编写分集剧本、生成分镜和视频，过程中的每一步都可以人工调整。本引导介绍主要界面和基本流程。',
+  'lobby_create_title': '新建项目',
+  'lobby_create_body': '在这里新建项目，设置项目的基本信息、使用的模型和画面风格。',
+  'lobby_settings_title': '设置',
+  'lobby_settings_body': '开始制作前需要完成两项配置。按钮上的红点表示还有必填项未配置。',
+  'settings_providers_title': '配置供应商',
+  'settings_providers_body': '图像和视频由这里配置的供应商生成。至少配置一个供应商：填入 API Key，通过「测试连接」确认可用。',
+  'settings_agent_title': '配置智能体',
+  'settings_agent_body': '智能体负责分析原文、编写剧本和执行制作，在这里配置它使用的模型服务。',
+  'lobby_demo_title': '演示项目',
+  'lobby_demo_body': '点击卡片打开演示工作台，查看项目的制作界面。',
+  'workbench_overview_title': '项目概览',
+  'workbench_overview_body': '工作台首页是项目概览，包含智能体生成的项目概述和分集列表，每一集的制作状态和进度都在这里查看。',
+  'workbench_agent_title': '智能体',
+  'workbench_agent_body': '右侧是智能体，制作由它执行并汇报进度。新项目进入工作台后先导入小说或剧本，分析完成后发送「开始制作」，它会依次生成项目概述、角色形象图和每一集的分镜与视频。',
+  'workbench_lorebook_title': '角色、场景与道具',
+  'workbench_lorebook_body': '角色、场景和道具在左侧统一管理，每项资产都可以生成资产图。资产图会作为分镜图生成和参考生视频的参考图，用于保持画面一致。',
+  'workbench_timeline_title': '分镜画布',
+  'workbench_timeline_body': '每一集的镜头按时间线排列，包含画面提示词、分镜图和视频。可以先生成分镜图确认构图，再生成视频，单个镜头支持随时重新生成。',
+  'workbench_export_title': '导出',
+  'workbench_export_body': '制作完成后，从顶栏导出剪映草稿继续剪辑，或打包下载整个项目。演示项目没有成片，导出按钮不可用。',
+  'finish_title': '开始你的第一个项目',
+  'finish_body': '新建项目并导入小说或剧本，即可开始制作。本引导可随时在「设置 → 关于」中重新查看。',
+
+  // 引导控件
+  'next': '下一步',
+  'prev': '上一步',
+  'done': '完成',
+  'skip': '跳过',
+  'close': '关闭引导',
+  'progress': '第 {{current}} 步，共 {{total}} 步',
+
+  // 引导期间展示的演示卡
+  'demo_section_eyebrow': '示例项目',
+  'demo_section_note': '仅在引导期间展示',
+  'demo_project_title': '爱丽丝梦游仙境',
+  'demo_project_style': '水彩绘本',
+
+  // 只读演示工作台
+  'demo_banner_title': '演示项目 · 只读',
+  'demo_banner_body': '你正在查看一个示例项目。编辑、生成、上传和导出功能在演示中不可用。',
+  'demo_action_unavailable': '演示中不可用',
+  'demo_episode_placeholder': '演示内容只到第 {{episode}} 集：这一集只有标题，没有剧本和分镜。',
+
+  // 演示工作台智能体面板的静态对话：智能体汇报分析结果 → 用户发起制作 → 智能体汇报推进，
+  // 演的是首次制作的完整时序（智能体的每条消息都是对上一步动作的回应，不主动发起对话）
+  'demo_chat_agent_analyzed': '小说已分析完成，剧集、角色和场景都已拆解出来。随时可以开始制作。',
+  'demo_chat_user_start': '开始制作',
+  'demo_chat_agent_progress': '好的。项目概述已生成，正在生成角色形象图，之后会逐集生成分镜和视频，进度会在这里同步。',
+
+  // 演示项目概述
+  'demo_overview_synopsis': '一个闷热的下午，爱丽丝追着一只穿马甲、掏怀表的白兔跳进洞里，落进一个尺寸、礼节和逻辑都不作数的地方。她一路变大变小，跟毛毛虫、疯帽子和红心女王周旋，最后在一场荒唐的审判上把整座纸牌宫廷掀翻。',
+  'demo_overview_genre': '童话 · 奇幻冒险',
+  'demo_overview_theme': '秩序的荒谬，与一个孩子不肯照规矩来的固执',
+  'demo_overview_world': '维多利亚时代的河岸午后通向仙境：兔子洞底一排锁着的门、永远停在下午茶的花园、以槌球和砍头治国的纸牌宫廷。水彩绘本质感，纸纹可见，边缘晕染。',
+
+  // 演示分集标题
+  'demo_episode_1_title': '掉进兔子洞',
+  'demo_episode_2_title': '眼泪池塘',
+  'demo_episode_3_title': '毛毛虫的忠告',
+  'demo_episode_4_title': '公爵夫人的厨房',
+  'demo_episode_5_title': '疯帽子的茶会',
+  'demo_episode_6_title': '女王的槌球场',
+  'demo_episode_7_title': '素甲鱼的故事',
+  'demo_episode_8_title': '谁偷了馅饼',
+
+  // 演示角色
+  'demo_character_1_name': '爱丽丝',
+  'demo_character_1_desc': '七岁的英国女孩，蓝裙配白围裙，浅金色头发用黑发带束起。好奇心比谨慎多：遇上荒唐事先讲道理，讲不通就自己往前走。',
+  'demo_character_1_voice': '清亮的童声，语速偏快，好奇多于害怕',
+  'demo_character_2_name': '白兔',
+  'demo_character_2_desc': '穿格纹马甲的白兔，一只爪子攥怀表、另一只拿手套，永远在迟到。心慌全写在耳朵上，说话像还在赶路。',
+  'demo_character_2_voice': '尖细急促，带着喘气与自言自语',
+  'demo_character_3_name': '柴郡猫',
+  'demo_character_3_desc': '灰紫条纹的大猫，笑容从一只耳朵挂到另一只。能一段一段消失，只把笑意留在半空。',
+  'demo_character_3_voice': '慢条斯理的低音，尾音上挑，总在逗人',
+  'demo_character_4_name': '红心女王',
+  'demo_character_4_desc': '纸牌宫廷的统治者，红黑心形长裙，手握权杖。判决只有一句：砍掉她的头。',
+  'demo_character_4_voice': '洪亮急躁的女声，一开口就是命令',
+
+  // 演示场景
+  'demo_scene_1_name': '河岸柳树下',
+  'demo_scene_1_desc': '闷热午后的草坡，柳枝垂到水面，河水缓而亮，一本摊开的书里既没有图画也没有对话。',
+  'demo_scene_2_name': '兔子洞长廊',
+  'demo_scene_2_desc': '洞底一条低矮长廊，两侧门全都锁着，尽头一张三脚玻璃桌，桌上一把小金钥匙。只有一扇十五英寸高的小门透出光。',
+  'demo_scene_3_name': '疯茶会花园',
+  'demo_scene_3_desc': '大树下一张长桌，杯碟一路挤到桌尾，椅子多得没人坐。所有钟都停在六点，茶永远是刚倒上的。',
+
+  // 演示道具
+  'demo_prop_1_name': '白兔的怀表',
+  'demo_prop_1_desc': '黄铜怀表，链子磨得发亮，表盖内侧刻着字。指针走得比任何钟都快，白兔一路盯着它喊迟到。',
+  'demo_prop_2_name': '「喝我」小瓶',
+  'demo_prop_2_desc': '小玻璃瓶，瓶颈系一张纸标签，写着「喝我」。味道像樱桃派混着菠萝，喝完人只剩十英寸高。',
+  'demo_prop_3_name': '火烈鸟球杆',
+  'demo_prop_3_desc': '夹在腋下当槌球杆用的火烈鸟。脖子刚摆正就自己扭回来，每打一杆都得先跟它商量。',
+
+  // 演示分镜 — 第 1 集
+  'demo_shot_1_text': '那个下午很热。爱丽丝和姐姐并坐在河岸上，姐姐读的书里既没有图画也没有对话，她开始困得睁不开眼。',
+  'demo_shot_1_image': '夏日河岸，爱丽丝穿蓝裙白围裙在草坡上打盹，姐姐在一旁读书，柳枝垂到水面。水彩绘本质感，边缘柔和晕染，纸纹可见。',
+  'demo_shot_1_lighting': '午后侧逆光，草地上落着斑驳树影',
+  'demo_shot_1_ambiance': '慵懒、温热、昏昏欲睡',
+  'demo_shot_1_video': '镜头沿河岸缓慢右摇，风吹动草叶与裙摆，她的眼睛慢慢闭上。',
+  'demo_shot_1_audio': '流水声，远处蝉鸣，翻书页的轻响',
+  'demo_shot_2_text': '一只穿马甲的白兔从她身边跑过，掏出怀表看了一眼，自言自语：糟了糟了，我要迟到了。',
+  'demo_shot_2_image': '白兔立起身穿格纹马甲快步穿过草丛，一只爪子高举黄铜怀表，爱丽丝在背景里坐起身。水彩绘本质感。',
+  'demo_shot_2_lighting': '明亮日光，兔毛边缘透光',
+  'demo_shot_2_ambiance': '突然、滑稽、催促',
+  'demo_shot_2_video': '镜头跟着白兔平移，它低头看表又抬头小跑，爱丽丝转头追看。',
+  'demo_shot_2_audio': '急促的碎步声，怀表滴答，兔子的喘气',
+  'demo_shot_3_text': '爱丽丝跳起来追过去，刚好看见白兔钻进树篱下一个大兔子洞，她一头跟着进去，根本没想过怎么出来。',
+  'demo_shot_3_image': '树篱下一个黑洞洞的兔子洞，爱丽丝手撑地探身，裙摆扬起，白兔的尾巴刚消失在洞里。水彩绘本质感。',
+  'demo_shot_3_lighting': '亮草地与洞口的黑形成强对比',
+  'demo_shot_3_ambiance': '好奇压过害怕的一瞬',
+  'demo_shot_3_video': '镜头向洞口推进，她一手撑地探进身子，画面被洞口的暗吞掉。',
+  'demo_shot_3_audio': '草叶摩擦，泥土松落，越收越紧的回声',
+  'demo_shot_4_text': '洞先像隧道一样平着走，随后陡然向下。她掉得很慢，一路看得清井壁上的橱柜、书架和挂着的地图。',
+  'demo_shot_4_image': '深井剖面，爱丽丝裙摆张开缓缓下坠，井壁上挂着橱柜、书架、地图和一盏小灯。水彩绘本质感，越往下越深。',
+  'demo_shot_4_lighting': '上方一圈天光，向下渐暗，灯罩投出暖色光斑',
+  'demo_shot_4_ambiance': '悬空、失重、时间被拉长',
+  'demo_shot_4_video': '镜头随她垂直下降，橱柜与书架一层层向上掠过画面。',
+  'demo_shot_4_audio': '空井里的风声，衣料翻动，远处水滴',
+  'demo_shot_5_text': '井底是一条长廊，一排门全都锁着。她在玻璃桌上找到一把小金钥匙——它只配得上一扇十五英寸高的小门。',
+  'demo_shot_5_image': '三脚玻璃桌特写，桌上一把小金钥匙和一只系着纸标签的小瓶，背景里一扇矮门透出光。水彩绘本质感。',
+  'demo_shot_5_lighting': '门缝透进一束暖光，四周压进暗部',
+  'demo_shot_5_ambiance': '安静、逼仄、一线希望',
+  'demo_shot_5_video': '镜头固定，光斑缓慢移过钥匙，尘埃在光束里浮动。',
+  'demo_shot_5_audio': '空廊回声，钥匙碰玻璃的清响',
+  'demo_shot_6_text': '瓶颈上的纸标签写着「喝我」。她喝了一口，觉得自己像收起来的望远镜，一路缩到只有十英寸高。',
+  'demo_shot_6_image': '爱丽丝举起「喝我」小瓶饮下，同一画面里身形缩小，裙子堆在脚边，矮门变得刚好合身。水彩绘本质感。',
+  'demo_shot_6_lighting': '暖光从矮门溢出，人物边缘发光',
+  'demo_shot_6_ambiance': '惊讶多于害怕的转折',
+  'demo_shot_6_video': '镜头随她缩小而拉远，裙子塌落，视角从平视转为仰看矮门。',
+  'demo_shot_6_audio': '咽下的一声，衣料滑动，空瓶轻放在地',
+
+  // 设置 → 关于 的入口
+  'replay_title': '使用引导',
+  'replay_desc': '重看首次使用引导，了解主要界面和基本流程。',
+  'replay_action': '重看引导',
+} satisfies Record<keyof typeof enOnboarding, string>;
