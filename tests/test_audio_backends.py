@@ -1,5 +1,6 @@
 """AudioBackend 家族测试：registry 注册/创建 + DashScopeAudioBackend（mock httpx，同步端点）
-+ OpenAIAudioBackend（mock SDK client，/v1/audio/speech）+ extract_audio_url。"""
++ OpenAIAudioBackend（mock SDK client，/v1/audio/speech）+ MiniMaxAudioBackend（mock httpx,
+同步 t2a_v2 端点）+ extract_audio_url。"""
 
 from __future__ import annotations
 
@@ -17,18 +18,27 @@ from lib.audio_backends import (
     register_backend,
 )
 from lib.dashscope_shared import extract_audio_url
-from lib.providers import PROVIDER_DASHSCOPE
+from lib.providers import PROVIDER_DASHSCOPE, PROVIDER_MINIMAX
 
 
 class TestRegistry:
     def test_dashscope_auto_registered(self):
         assert PROVIDER_DASHSCOPE in get_registered_backends()
 
+    def test_minimax_auto_registered(self):
+        assert PROVIDER_MINIMAX in get_registered_backends()
+
     def test_create_dashscope(self):
         from lib.audio_backends.dashscope import DashScopeAudioBackend
 
         backend = create_backend(PROVIDER_DASHSCOPE, api_key="sk")
         assert isinstance(backend, DashScopeAudioBackend)
+
+    def test_create_minimax(self):
+        from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+        backend = create_backend(PROVIDER_MINIMAX, api_key="sk")
+        assert isinstance(backend, MiniMaxAudioBackend)
 
     def test_unknown_backend_raises(self):
         with pytest.raises(ValueError, match="Unknown audio backend"):
@@ -374,3 +384,159 @@ class TestOpenAIAudioBackend:
                     await b.synthesize(req)
 
         assert mock_client.audio.speech.create.call_count == 1, "写盘失败不得重跑计费的合成调用"
+
+
+# ── MiniMax TTS (t2a_v2) ─────────────────────────────────────────────────────
+
+
+def _minimax_synth_response(hex_audio: str = "52494646", status_code: int = 0) -> MagicMock:
+    """Build a t2a_v2 response mock with hex-encoded audio in data.audio."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {
+        "data": {"audio": hex_audio, "status": 2},
+        "base_resp": {"status_code": status_code, "status_msg": "success" if status_code == 0 else "error"},
+    }
+    return resp
+
+
+def _minimax_error_response(status_code: int = 1004, status_msg: str = "invalid api key") -> MagicMock:
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {
+        "data": {},
+        "base_resp": {"status_code": status_code, "status_msg": status_msg},
+    }
+    return resp
+
+
+class TestMiniMaxAudioBackend:
+    def test_metadata(self):
+        from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+        b = MiniMaxAudioBackend(api_key="sk", model="speech-2.8-hd")
+        assert b.name == PROVIDER_MINIMAX
+        assert b.model == "speech-2.8-hd"
+        assert b.capabilities == {AudioCapability.TEXT_TO_SPEECH}
+
+    def test_default_model(self):
+        from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+        b = MiniMaxAudioBackend(api_key="sk")
+        assert b.model == "speech-2.8-hd"
+
+    async def test_synthesize_request_and_bytes(self, tmp_path: Path):
+        hex_audio = b"RIFFwavbytes".hex()
+        client = _mock_client(_minimax_synth_response(hex_audio), _download_response(b"unused"))
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+            b = MiniMaxAudioBackend(api_key="sk", model="speech-2.8-hd", base_url="https://api.minimaxi.com/v1")
+            out = tmp_path / "o.mp3"
+            result = await b.synthesize(
+                AudioSynthesisRequest(text="hello world", output_path=out, voice="male-qn-qingse")
+            )
+
+        # Request body shape: model + text + voice_setting.voice_id + output_format from suffix
+        body = client.post.call_args.kwargs["json"]
+        assert body["model"] == "speech-2.8-hd"
+        assert body["text"] == "hello world"
+        assert body["voice_setting"] == {"voice_id": "male-qn-qingse"}
+        assert body["output_format"] == "mp3"
+        # Bearer auth
+        headers = client.post.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer sk"
+        assert headers["Content-Type"] == "application/json"
+        # Endpoint: base + /t2a_v2
+        assert client.post.call_args.args[0].endswith("/t2a_v2")
+        # No second download step — audio decoded from hex directly
+        client.get.assert_not_called()
+        # Hex decoded and written to disk
+        assert out.read_bytes() == b"RIFFwavbytes"
+        assert result.provider == PROVIDER_MINIMAX
+        assert result.model == "speech-2.8-hd"
+        assert result.characters == len("hello world")
+        assert result.output_path == out
+
+    async def test_output_format_from_suffix(self, tmp_path: Path):
+        hex_audio = b"audio".hex()
+        client = _mock_client(_minimax_synth_response(hex_audio), _download_response(b"unused"))
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+            b = MiniMaxAudioBackend(api_key="sk")
+            await b.synthesize(AudioSynthesisRequest(text="hi", output_path=tmp_path / "o.wav", voice="v"))
+        assert client.post.call_args.kwargs["json"]["output_format"] == "wav"
+
+    async def test_unknown_suffix_falls_back_to_mp3(self, tmp_path: Path):
+        hex_audio = b"x".hex()
+        client = _mock_client(_minimax_synth_response(hex_audio), _download_response(b"unused"))
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+            b = MiniMaxAudioBackend(api_key="sk")
+            await b.synthesize(AudioSynthesisRequest(text="hi", output_path=tmp_path / "x.bin", voice="v"))
+        assert client.post.call_args.kwargs["json"]["output_format"] == "mp3"
+
+    async def test_language_type_sent_as_language_boost(self, tmp_path: Path):
+        hex_audio = b"x".hex()
+        client = _mock_client(_minimax_synth_response(hex_audio), _download_response(b"unused"))
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+            b = MiniMaxAudioBackend(api_key="sk")
+            await b.synthesize(
+                AudioSynthesisRequest(text="hi", output_path=tmp_path / "o.mp3", voice="v", language_type="Chinese")
+            )
+        assert client.post.call_args.kwargs["json"]["language_boost"] == "Chinese"
+
+    async def test_base_resp_error_raises(self, tmp_path: Path):
+        client = _mock_client(_minimax_error_response(), _download_response(b"unused"))
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+            b = MiniMaxAudioBackend(api_key="sk")
+            out = tmp_path / "err.mp3"
+            with pytest.raises(RuntimeError, match="1004"):
+                await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="v"))
+        assert not out.exists()
+
+    async def test_missing_audio_raises(self, tmp_path: Path):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.json.return_value = {"data": {}, "base_resp": {"status_code": 0, "status_msg": "success"}}
+        client = _mock_client(resp, _download_response(b"unused"))
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+            b = MiniMaxAudioBackend(api_key="sk")
+            out = tmp_path / "noaudio.mp3"
+            with pytest.raises(RuntimeError, match="data.audio"):
+                await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="v"))
+        assert not out.exists()
+
+    async def test_http_error_raises(self, tmp_path: Path):
+        err_resp = httpx.Response(400, text="bad request", request=httpx.Request("POST", "https://x"))
+        client = _mock_client(err_resp, _download_response(b"unused"))
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+            b = MiniMaxAudioBackend(api_key="sk")
+            with pytest.raises(httpx.HTTPStatusError):
+                await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.mp3", voice="v"))
+        assert client.post.call_count == 1
+
+    async def test_write_failure_does_not_rebill_synthesis(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr("lib.retry.asyncio.sleep", AsyncMock())
+        hex_audio = b"ok".hex()
+        client = _mock_client(_minimax_synth_response(hex_audio), _download_response(b"unused"))
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+            b = MiniMaxAudioBackend(api_key="sk")
+            out_dir = tmp_path / "missing-dir"
+            req = AudioSynthesisRequest(text="hi", output_path=out_dir / "o.mp3", voice="v")
+            with pytest.raises(OSError):
+                with patch.object(type(req.output_path), "write_bytes", side_effect=OSError("Connection timed out")):
+                    await b.synthesize(req)
+        assert client.post.call_count == 1, "write failure must not re-bill the synthesis call"

@@ -31,16 +31,22 @@ class TestRegistry:
         from lib.config.registry import PROVIDER_REGISTRY
 
         meta = PROVIDER_REGISTRY[PROVIDER_MINIMAX]
-        assert meta.media_types == ["image", "text", "video"]
+        assert meta.media_types == ["audio", "image", "text", "video"]
         assert "api_key" in meta.required_keys
         assert "api_key" in meta.secret_keys
         assert "base_url" in meta.optional_keys
+        assert "audio_max_workers" in meta.optional_keys
         assert meta.default_base_url == "https://api.minimaxi.com/v1"
         assert "MiniMax-M3" in meta.models
         assert meta.models["MiniMax-M3"].default is True
         assert "vision" in meta.models["MiniMax-M3"].capabilities
         assert "MiniMax-M2.7" in meta.models
         assert meta.models["MiniMax-M2.7"].default is False
+        # speech-2.8-hd: default audio model, text_to_speech capability
+        audio = meta.models["speech-2.8-hd"]
+        assert audio.media_type == "audio"
+        assert audio.default is True
+        assert audio.capabilities == ["text_to_speech"]
         # image-01：默认图像模型，T2I + I2I，单脸参考
         image = meta.models["image-01"]
         assert image.media_type == "image"

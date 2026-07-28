@@ -135,12 +135,27 @@ def minimax_failure_reason(payload: object) -> str | None:
     return None
 
 
+# ── 同步 T2A v2 响应工具 ─────────────────────────────────────────────────────
+
+
+def extract_minimax_audio_hex(payload: object) -> str:
+    """从 t2a_v2 同步响应 ``data.audio`` 提取 hex 编码音频字节。
+
+    同步 TTS 端点单次 POST 直接返回音频（hex 字符串），无二段下载。
+    缺失或非字符串即抛错（caller 无法在不计费重跑的前提下获取音频，交任务层失败）。
+    """
+    audio = _as_dict(_as_dict(payload).get("data")).get("audio")
+    if not isinstance(audio, str) or not audio:
+        raise RuntimeError("MiniMax TTS response missing data.audio")
+    return audio
+
+
 # ── 日志脱敏 ──────────────────────────────────────────────────────────────────
 
 # 仅允许进日志的标量字段白名单；prompt 仅记长度、subject_reference 仅计数，
 # base64/URL 一律不入日志（对齐 CodeQL clear-text-logging 约束）。
 _SAFE_LOG_KEYS: frozenset[str] = frozenset(
-    {"model", "aspect_ratio", "width", "height", "response_format", "n", "prompt_optimizer", "seed"}
+    {"model", "aspect_ratio", "width", "height", "response_format", "n", "prompt_optimizer", "seed", "output_format", "language_boost"}
 )
 
 

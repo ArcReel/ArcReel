@@ -506,7 +506,7 @@ class TestRegistryShape:
 
     def test_audio_only_dashscope_registered(self):
         audio_keys = {k for k in PROVIDER_SPEC_REGISTRY if k[1] == "audio"}
-        assert audio_keys == {("dashscope", "audio")}
+        assert audio_keys == {("dashscope", "audio"), ("minimax", "audio")}
 
     def test_simple_family_image_video_complete(self):
         for provider in ("ark", "ark-agent-plan", "grok", "openai", "vidu", "dashscope", "minimax"):

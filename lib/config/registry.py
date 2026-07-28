@@ -1102,7 +1102,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         display_name="MiniMax",
         description="MiniMax（海螺）多模态平台，提供文本、图片、视频生成。默认连接国内站，海外可将 base_url 切换到国际站。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -1173,6 +1173,16 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["768p"],
                 max_reference_images=1,
                 pricing=_minimax_video_pricing("S2V-01", {("768p", 6): 3.0}),
+            ),
+            # --- audio ---
+            # speech-2.8-hd: synchronous HTTP TTS (t2a_v2), per-character billing.
+            # Audio bytes returned as hex in data.audio (no separate download step).
+            "speech-2.8-hd": ModelInfo(
+                display_name="MiniMax Speech 2.8 HD",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+                default=True,
+                pricing=None,
             ),
         },
         default_base_url=MINIMAX_BASE_URL,
