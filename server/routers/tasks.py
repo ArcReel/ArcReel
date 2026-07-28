@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Query
 
@@ -22,18 +22,49 @@ def get_task_queue():
     return get_generation_queue()
 
 
+def _render_warnings(warnings: Any, translate: Callable[..., str]) -> list[str]:
+    """把 ``result.warnings`` 的 ``{key, params}`` 条目渲染成当前语言文本。
+
+    形态不符的条目跳过而非报错：warnings 是纯提示信息，畸形条目不该让整个任务列表 500。
+    未知 key 由 ``lib.i18n`` 兜底回落成 key 本身，同样不抛出。
+    """
+    if not isinstance(warnings, list):
+        return []
+    texts: list[str] = []
+    for warning in cast(list[Any], warnings):
+        if not isinstance(warning, dict):
+            continue
+        entry = cast(dict[str, Any], warning)
+        key = entry.get("key")
+        if not isinstance(key, str):
+            continue
+        params = entry.get("params")
+        texts.append(translate(key, **cast(dict[str, Any], params)) if isinstance(params, dict) else translate(key))
+    return texts
+
+
 def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[str, Any]:
-    """Return ``task`` with its stored failure reason rendered for the request locale.
+    """Return ``task`` with its stored failure reason and warnings rendered for the request locale.
 
     Known structured codes become localized text; raw exception text and legacy
-    rows pass through unchanged (see ``lib.task_failure.render_failure``). The input
-    dict is never mutated — a rendered copy is returned — so dicts owned by the queue
-    layer stay locale-neutral and cannot be polluted across requests.
+    rows pass through unchanged (see ``lib.task_failure.render_failure``). Generation
+    warnings stored as ``result.warnings`` (``{key, params}`` entries written by the
+    reference-video pipeline) are rendered in place into a list of strings, mirroring
+    how ``error_message`` is rendered. The input dict is never mutated — a rendered copy
+    is returned — so dicts owned by the queue layer stay locale-neutral and cannot be
+    polluted across requests.
     """
-    message = task.get("error_message")
-    if not message:
-        return task
-    return {**task, "error_message": render_failure(message, translate)}
+    localized = task
+    message = localized.get("error_message")
+    if message:
+        localized = {**localized, "error_message": render_failure(message, translate)}
+    result = localized.get("result")
+    if isinstance(result, dict):
+        result_dict = cast(dict[str, Any], result)
+        if result_dict.get("warnings"):
+            rendered = _render_warnings(result_dict["warnings"], translate)
+            localized = {**localized, "result": {**result_dict, "warnings": rendered}}
+    return localized
 
 
 @router.get("/tasks/stats")
