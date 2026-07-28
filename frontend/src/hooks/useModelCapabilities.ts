@@ -40,7 +40,13 @@ export interface DurationContext {
 export interface ModelCapabilitiesInput extends DurationContext {
   /** 项目名；缺省（如创建向导，项目尚不存在）时不查服务端，仅走目录。 */
   projectName?: string | null;
-  /** 视频后端 "provider/model"；空表示跟随全局默认，由服务端解析。 */
+  /**
+   * 视频后端 "provider/model"；空表示跟随全局默认，由服务端解析。
+   *
+   * 目录侧按它查表，故任意候选模型都问得动。服务端侧只拿它当缓存 key：端点不收该参数、
+   * 一律按已落盘的 project.json 解析，因此 `firstFrame` / `lastFrame` 描述的是**项目当前
+   * 保存的**后端。传入编辑中的未保存值（设置页）时这两维不作数，调用方不得消费。
+   */
   videoBackend?: string | null;
   providers?: ProviderInfo[];
   customProviders?: CustomProviderInfo[];
