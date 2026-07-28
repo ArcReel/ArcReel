@@ -8,11 +8,7 @@ import { useModelCapabilities } from "@/hooks/useModelCapabilities";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import {
-  selectActiveResourceIds,
-  useActiveResourceIds,
-  useTasksStore,
-} from "@/stores/tasks-store";
+import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
 import type { EditorContentMode } from "@/utils/script-shape";
 import { errMsg } from "@/utils/async";
 import { EndFramePicker } from "./EndFramePicker";
@@ -97,9 +93,7 @@ export function EndFrameRow({
       useAppStore.getState().pushToast(t("end_frame_busy_hint"), "info");
       return true;
     }
-    const { tasks, optimisticActive } = useTasksStore.getState();
-    const active = selectActiveResourceIds(tasks, "video", projectName, optimisticActive);
-    if (!active.has(segmentId)) return false;
+    if (!isResourceBusy("video", projectName, segmentId)) return false;
     useAppStore.getState().pushToast(t("end_frame_busy_hint"), "info");
     return true;
   };

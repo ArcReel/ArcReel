@@ -19,7 +19,7 @@ import { enqueueGridRegenerate } from "@/actions/generation";
 import { errMsg } from "@/utils/async";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
-import { selectActiveResourceIds, useActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
+import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
 import type { GridGeneration, ReferenceImage } from "@/types/grid";
 
 // ---------------------------------------------------------------------------
@@ -346,8 +346,7 @@ export function GridPreviewPanel({
                         if (!selectedGridId || regenerating || isInProgress) return;
                         // 提交前用 getState() 新鲜读复核：面板停留期间占用状态可能
                         // 已变化，渲染期捕获的 isInProgress 未必反映最新状态。
-                        const { tasks, optimisticActive } = useTasksStore.getState();
-                        if (selectActiveResourceIds(tasks, "grid", projectName, optimisticActive).has(selectedGridId)) {
+                        if (isResourceBusy("grid", projectName, selectedGridId)) {
                           // 用 toast 而非 setError：error 是面板的整体错误态，会把宫格图、
                           // 批次切换与本按钮一并替换掉，直到下次 refetch 才恢复；占用拒绝是
                           // 瞬态提示，不该毁掉当前视图。

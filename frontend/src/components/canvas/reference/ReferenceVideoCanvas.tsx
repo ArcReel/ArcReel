@@ -24,10 +24,9 @@ import {
   referenceVideoCacheKey,
 } from "@/stores/reference-video-store";
 import {
-  selectActiveResourceIds,
+  isResourceBusy,
   useActiveResourceIds,
   useLatestTasksByResource,
-  useTasksStore,
 } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -97,8 +96,7 @@ function toastError(e: unknown, format?: (msg: string) => string): void {
  * 入队动作层在请求发出前就打乐观标记，因此同一 tick 内的连点也会被这一读拦下。
  */
 function isUnitBusy(projectName: string, unitId: string): boolean {
-  const { tasks, optimisticActive } = useTasksStore.getState();
-  return selectActiveResourceIds(tasks, "reference_video", projectName, optimisticActive).has(unitId);
+  return isResourceBusy("reference_video", projectName, unitId);
 }
 
 export function ReferenceVideoCanvas({

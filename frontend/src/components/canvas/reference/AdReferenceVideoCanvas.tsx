@@ -16,10 +16,9 @@ import { enqueueReferenceVideoUnit } from "@/actions/generation";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { StatusBadge, deriveUnitStatus } from "./unit-status";
 import {
-  selectActiveResourceIds,
+  isResourceBusy,
   useActiveResourceIds,
   useLatestTasksByResource,
-  useTasksStore,
 } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -94,7 +93,7 @@ export function AdReferenceVideoCanvas({
   // 该 unit 存在未落库的镜头字段写入时，阻止同 unit 的生成入队——PATCH 与生成请求
   // 并发时后端可能仍按写入前的旧值处理，成片与用户刚编辑的时长/文案对不上。
   // ref 与 state 同步维护：state 供渲染（禁用态展示），ref 供 liveSavingUnitIds()
-  // 在异步函数体内新鲜读——与 liveBusyUnitIds() 同一动机，闭包捕获的 state 在
+  // 在异步函数体内新鲜读——与 isUnitBusy() 同一动机，闭包捕获的 state 在
   // await 跨越的时间窗口里可能已经过期（如 generateAll 的 derive() 之后的循环）。
   const savingUnitIdsRef = useRef<Set<string>>(new Set());
   const [savingUnitIds, setSavingUnitIdsState] = useState<Set<string>>(new Set());
@@ -183,17 +182,16 @@ export function AdReferenceVideoCanvas({
   // 提交时刻的占用集新鲜读：渲染期捕获的 busy 快照未必反映最新占用态（批量生成循环、
   // Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit），故各写入口一律在
   // 提交那一刻重读 store 而非用渲染期的值。乐观标记集一并计入，动作层刚打的标记才能被看到。
-  const liveBusyUnitIds = useCallback(() => {
-    const { tasks, optimisticActive } = useTasksStore.getState();
-    return selectActiveResourceIds(tasks, "reference_video", projectName, optimisticActive);
-  }, [projectName]);
+  const isUnitBusy = useCallback(
+    (unitId: string) => isResourceBusy("reference_video", projectName, unitId),
+    [projectName],
+  );
 
   const derive = useCallback(async (): Promise<AdReferenceUnit[]> => {
     // 命中即中止——避免把仍在跑的旧任务对应的成员重新绑定到派生后的新分组；
     // 有镜头字段写入未落库时同样中止，避免派生与该 PATCH 的落库顺序不确定。
-    const live = liveBusyUnitIds();
     const saving = liveSavingUnitIds();
-    if (hydrated.some(({ unit }) => live.has(unit.unit_id) || saving.has(unit.unit_id))) {
+    if (hydrated.some(({ unit }) => isUnitBusy(unit.unit_id) || saving.has(unit.unit_id))) {
       useAppStore.getState().pushToast(t("ad_ref_rederive_busy"), "error");
       return [];
     }
@@ -211,13 +209,13 @@ export function AdReferenceVideoCanvas({
     } finally {
       setDeriving(false);
     }
-  }, [projectName, episode, hydrated, liveBusyUnitIds, liveSavingUnitIds, t]);
+  }, [projectName, episode, hydrated, isUnitBusy, liveSavingUnitIds, t]);
 
   // 错误清空只在触发入口做：generateUnit 自身不清，避免批量循环中
   // 后一个 unit 的调用抹掉前一个 unit 的失败信息
   const generateUnit = useCallback(
     async (unitId: string) => {
-      if (liveBusyUnitIds().has(unitId) || liveSavingUnitIds().has(unitId)) {
+      if (isUnitBusy(unitId) || liveSavingUnitIds().has(unitId)) {
         useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
         return;
       }
@@ -227,7 +225,7 @@ export function AdReferenceVideoCanvas({
         setError(errMsg(err));
       }
     },
-    [projectName, episode, liveBusyUnitIds, liveSavingUnitIds, t],
+    [projectName, episode, isUnitBusy, liveSavingUnitIds, t],
   );
 
   // 编辑期间该 unit 若已被其他入口占用，放弃这次写入而非与生成中的任务乱序落库
@@ -236,7 +234,7 @@ export function AdReferenceVideoCanvas({
   const commitShotField = useCallback(
     async (unitId: string, shotId: string, patch: Record<string, unknown>): Promise<boolean> => {
       if (!onUpdatePrompt) return false;
-      if (deriving || liveBusyUnitIds().has(unitId) || liveSavingUnitIds().has(unitId)) {
+      if (deriving || isUnitBusy(unitId) || liveSavingUnitIds().has(unitId)) {
         useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
         return false;
       }
@@ -258,7 +256,7 @@ export function AdReferenceVideoCanvas({
         });
       }
     },
-    [onUpdatePrompt, deriving, liveBusyUnitIds, liveSavingUnitIds, setSavingUnitIds, scriptFile, t],
+    [onUpdatePrompt, deriving, isUnitBusy, liveSavingUnitIds, setSavingUnitIds, scriptFile, t],
   );
 
   const generateAll = useCallback(async () => {
@@ -270,13 +268,13 @@ export function AdReferenceVideoCanvas({
       // 已经落库，闭包捕获的 savingUnitIds 会让该 unit 被永久跳过、这批不再补入队。
       if (
         unit.generated_assets?.video_clip ||
-        liveBusyUnitIds().has(unit.unit_id) ||
+        isUnitBusy(unit.unit_id) ||
         liveSavingUnitIds().has(unit.unit_id)
       )
         continue;
       await generateUnit(unit.unit_id);
     }
-  }, [derive, generateUnit, liveBusyUnitIds, liveSavingUnitIds]);
+  }, [derive, generateUnit, isUnitBusy, liveSavingUnitIds]);
 
   const hasUnits = hydrated.length > 0;
   // 任一分组仍有活跃任务（含取消中）或镜头字段写入未落库时禁止重新派生：派生会按
