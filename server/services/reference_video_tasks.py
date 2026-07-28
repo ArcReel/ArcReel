@@ -18,6 +18,7 @@ from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY
 from lib.config.resolver import ConfigResolver, constrain_durations, get_provider_fallback
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
+from lib.generation_queue import get_generation_queue
 from lib.path_safety import safe_exists
 from lib.prompt_builders import append_product_fidelity_tail, append_video_negative_tail
 from lib.reference_video import assemble_shots_text, render_prompt_for_backend
@@ -47,8 +48,6 @@ async def _persist_effective_duration(task_id: str, duration_seconds: int) -> No
     非致命路径：持久化失败只降级 resume 元数据精度，不影响本次已在进行的生成，
     故只记日志、不上抛阻断 executor 主流程。
     """
-    from lib.generation_queue import get_generation_queue
-
     try:
         await get_generation_queue().persist_effective_duration(task_id, duration_seconds)
     except Exception:
@@ -222,25 +221,29 @@ class ProjectDurationContext:
     resolution: str | None
     provider_id: str
     model_name: str | None
+    max_duration: int | None = None
 
 
 async def resolve_project_duration_context(project: dict) -> ProjectDurationContext:
-    """一次性解析项目视频能力（档位全集 + 分辨率 + provider/model 身份）。
+    """一次性解析项目视频能力（档位全集 + 单次生成时长上限 + 分辨率 + provider/model 身份）。
 
     解析失败按空档位处理（沿用现状放行，不弹确认）；分辨率仅在档位非空时才解析，
-    空档位下分辨率约束无意义。
+    空档位下分辨率约束无意义。``max_duration`` 与 :func:`resolve_max_unit_duration`
+    取自同一份能力解析结果，供需要现推分组的调用方复用而不再触发一次 IO。
     """
     caps = await _project_video_caps(project, degraded_to="时长取档不施加档位约束")
     durations = tuple(int(d) for d in caps.get("supported_durations") or [])
     provider_id = str(caps.get("provider_id") or "")
     model = caps.get("model")
     model_name = str(model) if model else None
+    max_duration = caps.get("max_duration")
     resolution = await _project_video_resolution(project, provider_id, model_name) if durations else None
     return ProjectDurationContext(
         supported_durations=durations,
         resolution=resolution,
         provider_id=provider_id,
         model_name=model_name,
+        max_duration=int(max_duration) if max_duration else None,
     )
 
 

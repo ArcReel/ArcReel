@@ -43,6 +43,23 @@ def _merge_breakdowns(a: CostBreakdown, b: CostBreakdown) -> CostBreakdown:
     return merged
 
 
+def _split_cost_across(cost: CostBreakdown, parts: int) -> list[CostBreakdown]:
+    """把一笔按整体计费的费用均摊成 ``parts`` 份，除不尽的余数补给最后一份。
+
+    补余数是为了让分摊结果的合计与原值分文不差：调用方按分摊后的份额累加集/项目合计，
+    若每份都独立 round，误差会随镜头数放大到用户可见的总价上。
+    """
+    if parts <= 0:
+        return []
+    split: list[CostBreakdown] = [{} for _ in range(parts)]
+    for currency, amount in cost.items():
+        share = round(amount / parts, 6)
+        for bucket in split[:-1]:
+            bucket[currency] = share
+        split[-1][currency] = round(amount - share * (parts - 1), 6)
+    return split
+
+
 class CostEstimationService:
     def __init__(self, resolver: ConfigResolver, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._resolver = resolver
@@ -153,6 +170,25 @@ class CostEstimationService:
         # （见 :func:`server.services.reference_video_tasks.resolve_project_duration_context`）。
         duration_ctx: ProjectDurationContext | None = None
 
+        def _accumulate_episode(
+            ep_meta: dict[str, Any],
+            segments_result: list[dict[str, Any]],
+            ep_est: dict[str, CostBreakdown],
+            ep_act: dict[str, CostBreakdown],
+        ) -> None:
+            """收下一集的估算结果并并入项目级合计（两条估算路径共用的收尾）。"""
+            episodes_result.append(
+                {
+                    "episode": ep_meta.get("episode"),
+                    "title": ep_meta.get("title", ""),
+                    "segments": segments_result,
+                    "totals": {"estimate": ep_est, "actual": ep_act},
+                }
+            )
+            for cost_type in ("image", "video", "audio"):
+                proj_est[cost_type] = _merge_breakdowns(proj_est.get(cost_type, {}), ep_est.get(cost_type, {}))
+                proj_act[cost_type] = _merge_breakdowns(proj_act.get(cost_type, {}), ep_act.get(cost_type, {}))
+
         for ep_meta in episodes_meta:
             script_file = ep_meta.get("script_file", "")
             script = scripts.get(script_file)
@@ -181,17 +217,7 @@ class CostEstimationService:
                     video_price=video_price,
                     actual_by_segment=actual_by_segment,
                 )
-                episodes_result.append(
-                    {
-                        "episode": ep_meta.get("episode"),
-                        "title": ep_meta.get("title", ""),
-                        "segments": segments_result,
-                        "totals": {"estimate": ep_est, "actual": ep_act},
-                    }
-                )
-                for cost_type in ("image", "video", "audio"):
-                    proj_est[cost_type] = _merge_breakdowns(proj_est.get(cost_type, {}), ep_est.get(cost_type, {}))
-                    proj_act[cost_type] = _merge_breakdowns(proj_act.get(cost_type, {}), ep_act.get(cost_type, {}))
+                _accumulate_episode(ep_meta, segments_result, ep_est, ep_act)
                 continue
 
             try:
@@ -315,24 +341,7 @@ class CostEstimationService:
                         seg_act_by_type[cost_type],
                     )
 
-            episodes_result.append(
-                {
-                    "episode": ep_meta.get("episode"),
-                    "title": ep_meta.get("title", ""),
-                    "segments": segments_result,
-                    "totals": {"estimate": ep_est, "actual": ep_act},
-                }
-            )
-
-            for cost_type in ("image", "video", "audio"):
-                proj_est[cost_type] = _merge_breakdowns(
-                    proj_est.get(cost_type, {}),
-                    ep_est.get(cost_type, {}),
-                )
-                proj_act[cost_type] = _merge_breakdowns(
-                    proj_act.get(cost_type, {}),
-                    ep_act.get(cost_type, {}),
-                )
+            _accumulate_episode(ep_meta, segments_result, ep_est, ep_act)
 
         # Project-level actual costs (characters/scenes/props/products 资产图 —— segment_id is null)
         async with self._session_factory() as session:
@@ -366,25 +375,33 @@ class CostEstimationService:
         video_price: Any,
         actual_by_segment: dict[str, dict[str, CostBreakdown]],
     ) -> tuple[list[dict[str, Any]], dict[str, CostBreakdown], dict[str, CostBreakdown]]:
-        """ad + reference_video 集的估值：按 reference_unit（实际计费颗粒度）取档后计费。
+        """ad + reference_video 集的估值：计费颗粒度是 unit，展示颗粒度是 shot。
 
         ad 骨架恒为 shots（ADR-0033），但 reference_video 路径把镜头派生分组为 unit 后
         按 unit 整体送 provider（``execute_reference_video_task``），一个 unit 只申请一次
-        取档后的秒数，不是逐镜头分别计费——预估颗粒度必须与之一致，否则「按镜头合计」与
-        「按 unit 取档」在档位向上/向下取整时永远对不上（这正是本函数要修的缺陷）。
+        取档后的秒数，不是逐镜头分别计费——估值必须按 unit 取档后计算，否则「按镜头合计」
+        与「按 unit 取档」在档位向上/向下取整时永远对不上。
+
+        算出的 unit 费用再均摊回成员镜头输出，与 grid 模式「按 grid 计费、分摊到 scene
+        展示」的口径同构：前端按镜头 ID 索引 segment（``frontend/src/stores/cost-store.ts``），
+        输出 unit ID 会让镜头面板查不到费用。除不尽的余数补给末镜，保证分摊后的合计与
+        unit 原值分文不差。实际费用同样按 unit 分摊——usage 记录的 segment_id 就是 unit ID
+        （执行层把 unit ID 作为 ``resource_id`` 传给 ``generate_video_async``）。
 
         分组优先读剧本已持久化的 ``reference_units``（与执行时同一份索引，见
         ``lib.reference_video.ad_units.sync_ad_reference_units``）；用户尚未打开过参考
         视频面板/触发过入队、索引还未派生时，按纯函数现推一份仅用于估算、不写回剧本——
-        不带供应商时长上限（预估路径不为此单独触发一次 IO），分组可能比实际派生更粗，
-        仅是估算阶段的近似，真实分组仍以执行时派生结果为准。
+        时长上限取自 ``duration_ctx``（与执行侧派生同一份能力解析，不额外触发 IO），
+        分组结果因此与真实派生同约束，真实分组仍以执行时派生结果为准。
 
         无图片/音频维度：ad 参考视频不产生分镜图（跳过分镜步骤）、镜头口播文案不产生
         旁白配音估值（同 storyboard 模式口径，见 ``test_ad_voiceover_does_not_produce_audio_estimate``）。
         """
         units = script.get("reference_units")
         if not isinstance(units, list) or not units:
-            units = derive_ad_reference_units(script.get("shots"), episode=episode or 0, max_unit_duration=None)
+            units = derive_ad_reference_units(
+                script.get("shots"), episode=episode or 0, max_unit_duration=duration_ctx.max_duration
+            )
 
         segments_result: list[dict[str, Any]] = []
         ep_est: dict[str, CostBreakdown] = {}
@@ -397,13 +414,15 @@ class CostEstimationService:
             try:
                 ad_shots = resolve_ad_unit_shots(script, unit)
             except ValueError as exc:
-                # 分组索引过期（镜头被删/改 ID 后未重新派生）：估算对此不可恢复，
-                # 该 unit 降级为 0 估值 + 日志，不让整个项目费用估算失败。
+                # 分组索引过期（镜头被删/改 ID 后未重新派生）：估算对此不可恢复，该 unit
+                # 整体跳过 + 日志，不让整个项目费用估算失败。成员镜头无从解析，也就无处
+                # 分摊——按 0 估值硬造一条记录只会展示一笔查无实据的费用。
                 logger.debug("费用估算跳过过期的 reference_unit %s: %s", unit_id, exc)
-                ad_shots = []
+                continue
+            if not ad_shots:
+                continue
 
             slot = precheck_unit(duration_ctx, unit, ad_shots)
-            duration = slot.seconds
 
             est_video: CostBreakdown = {}
             try:
@@ -413,7 +432,7 @@ class CostEstimationService:
                         call_type="video",
                         model=video_model,
                         resolution=video_resolution,
-                        duration_seconds=duration,
+                        duration_seconds=slot.seconds,
                         generate_audio=generate_audio,
                     ),
                     custom_price_input=video_price.price_input,
@@ -425,16 +444,22 @@ class CostEstimationService:
                 logger.debug("无法计算 video 预估 for %s", unit_id, exc_info=True)
 
             act_video: CostBreakdown = actual_by_segment.get(unit_id, {}).get("video", {})
+            est_by_shot = _split_cost_across(est_video, len(ad_shots))
+            act_by_shot = _split_cost_across(act_video, len(ad_shots))
 
-            segments_result.append(
-                {
-                    "segment_id": unit_id,
-                    "duration_seconds": duration,
-                    "estimate": {"image": {}, "video": est_video, "audio": {}},
-                    "actual": {"image": {}, "video": act_video, "audio": {}},
-                }
-            )
-            ep_est["video"] = _merge_breakdowns(ep_est.get("video", {}), est_video)
-            ep_act["video"] = _merge_breakdowns(ep_act.get("video", {}), act_video)
+            for idx, shot in enumerate(ad_shots):
+                shot_est = est_by_shot[idx]
+                shot_act = act_by_shot[idx]
+                segments_result.append(
+                    {
+                        "segment_id": shot.get("shot_id", ""),
+                        # 展示镜头自身的编排时长：取档发生在 unit 级，摊不回单个镜头
+                        "duration_seconds": shot.get("duration_seconds", 8),
+                        "estimate": {"image": {}, "video": shot_est, "audio": {}},
+                        "actual": {"image": {}, "video": shot_act, "audio": {}},
+                    }
+                )
+                ep_est["video"] = _merge_breakdowns(ep_est.get("video", {}), shot_est)
+                ep_act["video"] = _merge_breakdowns(ep_act.get("video", {}), shot_act)
 
         return segments_result, ep_est, ep_act

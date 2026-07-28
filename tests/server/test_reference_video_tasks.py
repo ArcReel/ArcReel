@@ -1173,7 +1173,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
 
     fake_queue = MagicMock()
     fake_queue.persist_effective_duration = AsyncMock()
-    monkeypatch.setattr("lib.generation_queue.get_generation_queue", lambda: fake_queue)
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     await rvt.execute_reference_video_task(
         "demo",
@@ -1225,7 +1225,7 @@ async def test_execute_reference_video_task_skips_persisting_duration_when_uncha
 
     fake_queue = MagicMock()
     fake_queue.persist_effective_duration = AsyncMock()
-    monkeypatch.setattr("lib.generation_queue.get_generation_queue", lambda: fake_queue)
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     await rvt.execute_reference_video_task(
         "demo",

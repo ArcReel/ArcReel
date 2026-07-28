@@ -478,11 +478,11 @@ class TestCostEstimationService:
         assert result["episodes"][0]["segments"][0]["estimate"]["audio"] == {}
 
     async def test_ad_reference_video_skips_image_estimate(self, db_factory):
-        """ad + 参考生视频路径跳过分镜步骤：不产生分镜图估值，视频估值按 unit 颗粒度保留。
+        """ad + 参考生视频路径跳过分镜步骤：不产生分镜图估值，视频估值按 unit 计费后摊回镜头。
 
         两个镜头（4s + 6s）未受供应商时长上限约束，派生分组合并为同一个 reference_unit——
-        与实际生成/计费的颗粒度一致（``execute_reference_video_task`` 按 unit 整体送 provider，
-        不是逐镜头分别计费），故只产生 1 条 segment，而非 2 条镜头级 segment。
+        计费颗粒度与实际生成一致（``execute_reference_video_task`` 按 unit 整体送 provider，
+        不是逐镜头分别计费），但输出仍按镜头 ID 分条，前端才索引得到。
         """
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -499,16 +499,21 @@ class TestCostEstimationService:
         result = await service.compute(project_data, scripts, project_name="ad-ref")
 
         segments = result["episodes"][0]["segments"]
-        assert len(segments) == 1
-        assert segments[0]["segment_id"] == "E1U1"
-        assert segments[0]["duration_seconds"] == 10
-        assert segments[0]["estimate"]["image"] == {}
-        assert segments[0]["estimate"]["video"]
+        assert [seg["segment_id"] for seg in segments] == ["E1S1", "E1S2"]
+        assert [seg["duration_seconds"] for seg in segments] == [4, 6]
+        for seg in segments:
+            assert seg["estimate"]["image"] == {}
+            assert seg["estimate"]["video"]
         assert result["project_totals"]["estimate"].get("image", {}) == {}
         assert result["project_totals"]["estimate"]["video"]
 
-    async def test_ad_reference_video_estimate_uses_rounded_up_unit_duration(self, db_factory, monkeypatch):
-        """取档向上的 unit：预估金额按取档后的秒数（8s）计，而非剧本原始总时长（5s）。"""
+    async def test_ad_reference_video_apportions_unit_cost_across_shots(self, db_factory, monkeypatch):
+        """unit 费用均摊到成员镜头，除不尽时余数补末镜，合计与 unit 原值分文不差。
+
+        3 个镜头分摊一笔按 8s 计的 unit 费用（USD 1.6 / 3 除不尽）：前两镜各取 6 位小数的
+        均值，末镜吃下余数，三者之和须等于按 unit 整体计费的原值——否则镜头数越多，
+        用户看到的项目总价偏离真实计费越远。
+        """
         import server.services.cost_estimation as cost_estimation_module
         from server.services.reference_video_tasks import ProjectDurationContext
 
@@ -529,12 +534,112 @@ class TestCostEstimationService:
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
+        scripts = {"ep1.json": _make_ad_script(["E1S1", "E1S2", "E1S3"], [2, 2, 2])}
+
+        result = await service.compute(project_data, scripts, project_name="ad-ref-split")
+
+        segments = result["episodes"][0]["segments"]
+        assert [seg["segment_id"] for seg in segments] == ["E1S1", "E1S2", "E1S3"]
+        currency = next(iter(segments[0]["estimate"]["video"]))
+        shares = [seg["estimate"]["video"][currency] for seg in segments]
+        assert shares[0] == shares[1], "除不尽时只有末镜与其它镜头不同"
+        assert shares[2] != shares[0], "余数应落在末镜上，否则合计会缺一截"
+        # 分摊后的合计 == 集合计 == 按 unit 整体计费的原值
+        ep_total = result["episodes"][0]["totals"]["estimate"]["video"][currency]
+        assert round(sum(shares), 6) == ep_total
+        assert ep_total == result["project_totals"]["estimate"]["video"][currency]
+
+    async def test_ad_reference_video_estimate_uses_rounded_up_unit_duration(self, db_factory, monkeypatch):
+        """取档向上的 unit：预估金额按取档后的秒数（8s）计，而非剧本原始总时长（5s）。
+
+        金额必须一起断言：只断言 ``duration_seconds`` 无法区分「按 8s 计价」与「秒数传对了
+        但定价查不到、估值静默为空」——后者在本函数里被吞成 debug 日志。
+        """
+        import server.services.cost_estimation as cost_estimation_module
+        from server.services.reference_video_tasks import ProjectDurationContext
+
+        def _patch_ctx(durations: tuple[int, ...]):
+            async def _fake_ctx(project):
+                return ProjectDurationContext(
+                    supported_durations=durations, resolution=None, provider_id="veo", model_name="veo-3.1"
+                )
+
+            monkeypatch.setattr(cost_estimation_module, "resolve_project_duration_context", _fake_ctx)
+
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Ad",
+            "content_mode": "ad",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
         scripts = {"ep1.json": _make_ad_script(["E1S1"], [5])}
 
-        result = await service.compute(project_data, scripts, project_name="ad-ref-round")
+        _patch_ctx((8,))
+        rounded = await service.compute(project_data, scripts, project_name="ad-ref-round")
+        # 对照组：无档位约束（unconstrained）时按剧本原始 5s 计，验证金额确实随取档后的秒数走
+        _patch_ctx(())
+        unconstrained = await service.compute(project_data, scripts, project_name="ad-ref-round")
 
-        seg = result["episodes"][0]["segments"][0]
-        assert seg["duration_seconds"] == 8
+        seg = rounded["episodes"][0]["segments"][0]
+        base_seg = unconstrained["episodes"][0]["segments"][0]
+        # 单镜头 unit：展示的是镜头自身编排时长（取档发生在 unit 级），两次都是剧本原值 5s
+        assert seg["segment_id"] == "E1S1"
+        assert seg["duration_seconds"] == 5
+        assert base_seg["duration_seconds"] == 5
+        assert seg["estimate"]["video"], "取档后仍应算出视频估值，空 dict 说明定价路径被静默吞掉"
+        assert base_seg["estimate"]["video"]
+        # 视频按秒计价，取档到 8s 的估值须严格高于按剧本 5s 的估值（低估用户实付正是本票要修的缺陷）
+        assert sum(seg["estimate"]["video"].values()) > sum(base_seg["estimate"]["video"].values())
+        assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
+
+    async def test_ad_reference_video_fallback_derivation_applies_max_unit_duration(self, db_factory, monkeypatch):
+        """剧本尚未派生 reference_units 时，估算现推的分组与执行侧同受供应商时长上限约束。
+
+        不施加上限会把本该分成多个 unit 的镜头并成一个，取档命中最大档位后按一次计费，
+        总估值成倍偏低。上限取自同一份能力解析（``ProjectDurationContext.max_duration``），
+        不额外触发 IO。
+        """
+        import server.services.cost_estimation as cost_estimation_module
+        from server.services.reference_video_tasks import ProjectDurationContext
+
+        async def _fake_ctx(project):
+            return ProjectDurationContext(
+                supported_durations=(8,),
+                resolution=None,
+                provider_id="veo",
+                model_name="veo-3.1",
+                max_duration=8,
+            )
+
+        monkeypatch.setattr(cost_estimation_module, "resolve_project_duration_context", _fake_ctx)
+
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Ad",
+            "content_mode": "ad",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        # 三镜头共 18s，8s 上限下派生为 3 个 unit（6+6 超限，故逐镜一组）；无上限时会并成 1 个
+        scripts = {"ep1.json": _make_ad_script(["E1S1", "E1S2", "E1S3"], [6, 6, 6])}
+
+        result = await service.compute(project_data, scripts, project_name="ad-ref-maxdur")
+
+        segments = result["episodes"][0]["segments"]
+        assert [seg["segment_id"] for seg in segments] == ["E1S1", "E1S2", "E1S3"]
+        # 三个单镜头 unit 各按 8s 档位计费一次；若分组不受上限约束会并成 1 个 unit、
+        # 只计一次 8s（18s 超出最大档位取 DOWN），总额恰好是这里的三分之一
+        currency = next(iter(segments[0]["estimate"]["video"]))
+        per_unit = segments[0]["estimate"]["video"][currency]
+        assert [seg["estimate"]["video"][currency] for seg in segments] == [per_unit] * 3
+        assert result["episodes"][0]["totals"]["estimate"]["video"][currency] == round(per_unit * 3, 6)
 
     async def test_empty_episodes(self, db_factory):
         resolver = ConfigResolver(db_factory)
