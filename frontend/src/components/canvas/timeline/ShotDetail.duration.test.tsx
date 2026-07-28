@@ -240,6 +240,43 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     expect(onUpdatePrompt).not.toHaveBeenCalled();
   });
 
+  it("prop 还没跟上、但 store 已记录该镜头在跑时，面板打不开", () => {
+    // 打开时刻同样要新鲜复核：渲染完成到用户点击之间任务可能才启动，此时 busy prop
+    // 还停留在上次渲染，只看它会让面板照常展开。
+    const onUpdatePrompt = vi.fn();
+    renderDetail({ onUpdatePrompt });
+
+    useTasksStore.setState({
+      tasks: [
+        {
+          project_name: "demo",
+          task_type: "storyboard",
+          media_type: "image",
+          resource_id: "E1S01",
+          resource_type: null,
+          script_file: null,
+          payload: {},
+          task_id: "t2",
+          status: "running",
+          result: null,
+          error_message: null,
+          cancelled_by: null,
+          provider_id: null,
+          provider_job_id: null,
+          source: "webui",
+          queued_at: "2026-07-28T00:00:00Z",
+          started_at: null,
+          finished_at: null,
+          updated_at: "2026-07-28T00:00:00Z",
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(onUpdatePrompt).not.toHaveBeenCalled();
+  });
+
   it("任务结束后旧面板不自行重现", () => {
     // 只派生可见性（open && !locked）会在 locked 回落时让旧面板连同未提交草稿一起回来。
     // 转入锁定态必须真正清掉 open 与 draftSeconds。

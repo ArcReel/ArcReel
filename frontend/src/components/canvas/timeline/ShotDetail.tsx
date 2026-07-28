@@ -276,7 +276,11 @@ function DurationPill({
       <button
         ref={ref}
         type="button"
-        onClick={() => !locked && setOpen((o) => !o)}
+        onClick={() => {
+          if (locked) return;
+          if (!open && rejectIfBusy()) return;
+          setOpen((o) => !o);
+        }}
         disabled={locked}
         aria-disabled={locked || undefined}
         title={
