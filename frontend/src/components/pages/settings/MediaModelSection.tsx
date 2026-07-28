@@ -11,6 +11,7 @@ import { ImageModelDualSelect } from "@/components/shared/ImageModelDualSelect";
 import { TextTierFields } from "@/components/shared/TextTierFields";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
+import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { errMsg } from "@/utils/async";
 import { getCustomProviderModels } from "@/utils/provider-models";
@@ -84,6 +85,9 @@ export function MediaModelSection() {
     setSaving(true);
     try {
       await API.updateSystemConfig(draft);
+      // 全局默认视频后端参与项目能力的三级解析（项目 > 系统设置 > 系统默认）。项目未指定
+      // 后端时改这里会换掉生效模型，而项目字段一个都没变、在用的能力查询不会因 props 重取。
+      useCapabilitiesStore.getState().invalidate();
       await fetchConfig();
       void useConfigStatusStore.getState().refresh();
       useAppStore.getState().pushToast(t("media_config_saved"), "success");

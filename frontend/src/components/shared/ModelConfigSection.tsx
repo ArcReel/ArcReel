@@ -1,12 +1,9 @@
 import { useEffect, useId, useMemo, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
+import { InlineWarning } from "@/components/ui/InlineWarning";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
-import {
-  constrainDurations,
-  lookupDurationConstraints,
-  lookupResolutions,
-  lookupSupportedDurations,
-} from "@/utils/provider-models";
+import { catalogDurations, useModelCapabilities } from "@/hooks/useModelCapabilities";
+import { lookupResolutions } from "@/utils/provider-models";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
 import { ImageModelDualSelect } from "./ImageModelDualSelect";
@@ -33,6 +30,11 @@ export interface ModelConfigValue {
 export interface ModelConfigSectionProps {
   value: ModelConfigValue;
   onChange: (next: ModelConfigValue) => void;
+  /**
+   * 所属项目名。项目已存在时（设置页）传入，能力管线据此补上服务端解析出的生效能力；
+   * 创建向导的项目尚不存在，省略即只走静态目录。
+   */
+  projectName?: string | null;
   options: {
     videoBackends: string[];
     imageBackends: string[];
@@ -92,6 +94,7 @@ function ChannelCard({ kicker, title, children }: ChannelCardProps) {
 export function ModelConfigSection({
   value,
   onChange,
+  projectName,
   options,
   providers,
   customProviders = EMPTY_CUSTOM_PROVIDERS,
@@ -118,30 +121,25 @@ export function ModelConfigSection({
 
   const effectiveVideoBackend = value.videoBackend || globalDefaults.video || "";
 
-  // 时长候选 = 模型 supported_durations 经「当前分辨率 / 参考图路径」两条联动约束收窄后的结果。
-  const durationsFor = useMemo(
-    () =>
-      (backend: string, resolution: string | null): number[] | null => {
-        if (!backend) return null;
-        const raw = lookupSupportedDurations(providers, backend, customProviders);
-        if (!raw || raw.length === 0) return null;
-        const constraints = lookupDurationConstraints(providers, backend);
-        return constrainDurations(raw, constraints, { resolution, usesReferenceImages }).sort(
-          (a, b) => a - b,
-        );
-      },
-    [providers, customProviders, usesReferenceImages],
-  );
-
-  const supportedDurations = useMemo<readonly number[] | null>(
-    () => durationsFor(effectiveVideoBackend, value.videoResolution),
-    [durationsFor, effectiveVideoBackend, value.videoResolution],
-  );
+  // 能力统一经 useModelCapabilities 取得（见该模块的真相源规则），本组件不自行查表。
+  const { rawDurations, supportedDurations, durationConstraints } = useModelCapabilities({
+    projectName,
+    videoBackend: effectiveVideoBackend,
+    // 本组件是表单：backend 是编辑中的未保存候选，服务端按已落盘配置解析出的能力对它不作数。
+    unsavedBackend: true,
+    providers,
+    customProviders,
+    videoResolution: value.videoResolution,
+    usesReferenceImages,
+  });
 
   const handleVideoChange = (next: string) => {
     const effectiveNext = next || globalDefaults.video || "";
     // 分辨率随模型切换一并重置为 null，故按 null 分辨率算新模型的时长候选。
-    const nextDurations = durationsFor(effectiveNext, null);
+    const nextDurations = catalogDurations(providers, customProviders, effectiveNext, {
+      videoResolution: null,
+      usesReferenceImages,
+    });
     const shouldReset =
       value.defaultDuration !== null &&
       (!nextDurations || !nextDurations.includes(value.defaultDuration));
@@ -169,18 +167,16 @@ export function ModelConfigSection({
   const durationNoticeKey = useMemo(() => {
     const saved = value.defaultDuration;
     if (!isDurationOutOfRange || saved === null) return null;
-    const raw = lookupSupportedDurations(providers, effectiveVideoBackend, customProviders);
-    if (!raw?.includes(saved)) return "duration_unsupported_notice";
-    const { withReferenceImages } = lookupDurationConstraints(providers, effectiveVideoBackend);
+    if (!rawDurations?.includes(saved)) return "duration_unsupported_notice";
+    const { withReferenceImages } = durationConstraints;
     if (usesReferenceImages && withReferenceImages.length > 0 && !withReferenceImages.includes(saved))
       return "duration_unsupported_reference_notice";
     return "duration_unsupported_resolution_notice";
   }, [
     isDurationOutOfRange,
     value.defaultDuration,
-    providers,
-    customProviders,
-    effectiveVideoBackend,
+    rawDurations,
+    durationConstraints,
     usesReferenceImages,
   ]);
 
@@ -257,19 +253,14 @@ export function ModelConfigSection({
                 />
               )}
               {durationNoticeKey && (
-                <div
-                  role="alert"
-                  className="mt-2 flex flex-wrap items-center gap-2 text-[12px] leading-[1.5] text-amber-300"
-                >
-                  <span>{t(durationNoticeKey, { value: value.defaultDuration })}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleDurationClick(null)}
-                    className="rounded-[6px] border border-hairline-soft px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                  >
-                    {t("duration_reset_auto")}
-                  </button>
-                </div>
+                <InlineWarning
+                  className="mt-2"
+                  message={t(durationNoticeKey, { value: value.defaultDuration })}
+                  action={{
+                    label: t("duration_reset_auto"),
+                    onClick: () => handleDurationClick(null),
+                  }}
+                />
               )}
             </>
           )}

@@ -1,7 +1,8 @@
-import { fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { type RefreshProjectResult, useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { TaskItem, VideoCapabilities } from "@/types";
@@ -230,6 +231,32 @@ describe("EndFrameRow 能力警告", () => {
       />,
     );
     expect(await findByRole("alert")).toHaveTextContent(/当前模型不支持尾帧/);
+  });
+
+  it("改能力覆盖后收起态警告自动出现，无需展开面板", async () => {
+    const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(true));
+    const { findByText, findByRole, queryByRole } = renderRow({
+      endFramePath: "end_frames/scene_E1S01.png",
+    });
+    await findByText("已设置");
+    expect(queryByRole("alert")).toBeNull();
+
+    // 能力覆盖写在供应商配置上、不落任何项目字段：没有 props 会变，靠失效信号驱动重取。
+    spy.mockResolvedValue(caps(false));
+    act(() => useCapabilitiesStore.getState().invalidate());
+    expect(await findByRole("alert")).toHaveTextContent(/当前模型不支持尾帧/);
+  });
+
+  it("改能力覆盖把尾帧放开后，收起态警告自动消失", async () => {
+    const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(false));
+    const { findByRole, queryByRole } = renderRow({
+      endFramePath: "end_frames/scene_E1S01.png",
+    });
+    await findByRole("alert");
+
+    spy.mockResolvedValue(caps(true));
+    act(() => useCapabilitiesStore.getState().invalidate());
+    await waitFor(() => expect(queryByRole("alert")).toBeNull());
   });
 
   it("能力查询失败时不谎报不支持", async () => {

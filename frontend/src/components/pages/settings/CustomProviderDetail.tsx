@@ -3,6 +3,7 @@ import { Loader2, Pencil, Trash2, CheckCircle2, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { errMsg } from "@/utils/async";
 import type { CustomProviderInfo } from "@/types";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
@@ -76,6 +77,8 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
     setDeleting(true);
     try {
       await API.deleteCustomProvider(providerId);
+      // 该供应商上的模型与能力覆盖随之消失，项目会退回解析别的模型；这同样不落任何项目字段。
+      useCapabilitiesStore.getState().invalidate();
       onDeleted();
     } catch (e) {
       showError(t("delete_failed", { message: errMsg(e) }));

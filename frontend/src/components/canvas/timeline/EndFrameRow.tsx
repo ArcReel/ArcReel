@@ -3,7 +3,8 @@ import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { AspectFrame } from "@/components/ui/AspectFrame";
-import { useVideoCapabilities } from "@/hooks/useVideoCapabilities";
+import { InlineWarning } from "@/components/ui/InlineWarning";
+import { useModelCapabilities } from "@/hooks/useModelCapabilities";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -43,9 +44,9 @@ interface EndFrameRowProps {
  *
  * 能力不支持不阻断控件，改由常驻的行内警告承载：模型不支持尾帧且本镜头已设过尾帧时，
  * 折叠头下方显示告警 + 「清除」一键修正入口，收起状态也可见——这条尾帧会让视频生成在
- * 执行期被后端拒绝，藏在折叠面板里等于让用户逐个失败后才知道。能力值读
- * `/video-capabilities` 的 `last_frame` 生效值（已含用户覆盖），前端不自建判定；查询
- * 失败时按「未知」处理，不谎报不支持。
+ * 执行期被后端拒绝，藏在折叠面板里等于让用户逐个失败后才知道。能力值经 useModelCapabilities
+ * 取 `lastFrame` 生效值（已含用户覆盖），前端不自建判定；查询失败时按「未知」处理，
+ * 不谎报不支持。改模型 / 改能力覆盖由该管线自动失效重取，警告的增减不依赖展开面板。
  */
 export function EndFrameRow({
   projectName,
@@ -66,12 +67,9 @@ export function EndFrameRow({
   const [submitting, setSubmitting] = useState(false);
   const viewOnly = useDemoWorkbench() || readOnly;
 
-  const { caps, loading: capsLoading, refresh: refreshCaps } = useVideoCapabilities(
-    projectName,
-    videoBackend,
-  );
+  const { lastFrame, loading: capsLoading } = useModelCapabilities({ projectName, videoBackend });
   // 未查到能力（加载中 / 失败）时不谎报不支持：仅明确的 false 才门控。
-  const unsupported = caps ? !caps.last_frame : false;
+  const unsupported = lastFrame === false;
 
   const videoBusyIds = useActiveResourceIds("video", projectName);
   // 占用不区分来源（任务队列在跑 / 视频卡手动上传在途）：二者都在写同一份 project.json，
@@ -174,13 +172,7 @@ export function EndFrameRow({
     >
       <button
         type="button"
-        onClick={() => {
-          const next = !expanded;
-          setExpanded(next);
-          // 展开是用户显式查看门控的时机：顺带重取一次能力，
-          // 让「改过模型或能力覆盖」在不重挂载组件时也能反映出来。
-          if (next) refreshCaps();
-        }}
+        onClick={() => setExpanded((prev) => !prev)}
         aria-expanded={expanded}
         aria-controls={panelId}
         className="focus-ring flex w-full items-center gap-2 px-3 py-2 text-left"
@@ -220,25 +212,22 @@ export function EndFrameRow({
 
       {/* 常驻警告：收起状态也可见，让「已设尾帧后切到不支持的模型」在入队前就暴露。 */}
       {showUnsupportedNotice && (
-        <div
-          role="alert"
-          className="flex flex-wrap items-center gap-2 px-3 pb-2 text-[12px] leading-[1.5] text-amber-300"
-        >
-          <span>{t("end_frame_unsupported_notice")}</span>
-          {!viewOnly && (
-            <button
-              type="button"
-              onClick={handleClear}
-              disabled={controlsDisabled}
-              title={disabledHint}
-              className="rounded-[6px] border border-hairline-soft px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-text-2 transition-colors hover:border-hairline hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {/* 展开时面板内另有一个「清除」，两个按钮同屏：这里用全称，
-                  否则屏幕阅读器读到两个同名按钮无从区分。 */}
-              {t("end_frame_clear_end_frame")}
-            </button>
-          )}
-        </div>
+        <InlineWarning
+          className="px-3 pb-2"
+          message={t("end_frame_unsupported_notice")}
+          action={
+            viewOnly
+              ? undefined
+              : {
+                  // 展开时面板内另有一个「清除」，两个按钮同屏：这里用全称，
+                  // 否则屏幕阅读器读到两个同名按钮无从区分。
+                  label: t("end_frame_clear_end_frame"),
+                  onClick: handleClear,
+                  disabled: controlsDisabled,
+                  title: disabledHint,
+                }
+          }
+        />
       )}
 
       {expanded && (

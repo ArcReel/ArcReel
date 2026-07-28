@@ -5,6 +5,23 @@ import reactHooks from "eslint-plugin-react-hooks";
 import jsxA11y from "eslint-plugin-jsx-a11y";
 import globals from "globals";
 
+// no-restricted-syntax 的各条约束定义在此处、由下方配置块组合。
+// flat config 对同一文件匹配到的同名规则是「后者整体替换前者的选项」而非合并：若拆成多个
+// 配置块各写一条 selector，文件范围重叠时先声明的那条会被静默摘除。故每个配置块都必须把
+// 该文件应受的全部约束一次性列全，豁免用「少列一条」表达，而不是另起一块。
+const RESTRICT_ENQUEUE = {
+  selector:
+    "CallExpression[callee.object.name='API'][callee.property.name=/^(generateStoryboard|generateVideo|generateNarrationAudio|generateEpisodeNarrationAudio|generateCharacter|generateProjectScene|generateProjectProp|generateProjectProduct|editImage|generateGrid|regenerateGrid|generateReferenceVideoUnit)$/]",
+  message:
+    "入队类 API 方法只能经 src/actions/ 的入队动作层调用（统一封装乐观占用打标与去重提示）。",
+};
+
+const RESTRICT_CAPABILITIES = {
+  selector:
+    "CallExpression[callee.object.name='API'][callee.property.name='getVideoCapabilities']",
+  message: "模型能力只能经 useModelCapabilities 消费（单一真相源 + 统一失效时机）。",
+};
+
 export default tseslint.config(
   // 全局 ignores —— 覆盖 *.config.js 和 *.config.ts（vite.config.ts、vitest.config.ts）
   {
@@ -96,23 +113,31 @@ export default tseslint.config(
     },
   },
 
-  // 入队类 API 方法只能经 src/actions/ 的入队动作层调用——乐观占用打标、
-  // 去重提示与返回值归一化由动作层统一封装，组件直调会绕过这些副作用。
-  // 新增入队类 API 方法时同步把方法名登记进下方 selector 的清单。
-  // src/api.test.ts 豁免：它测试的是 API 层本体的端点路径与请求体。
+  // API 直调约束。两条纪律：
+  // - 入队类 API 方法只能经 src/actions/ 的入队动作层调用——乐观占用打标、去重提示与返回值
+  //   归一化由动作层统一封装，组件直调会绕过这些副作用。新增入队类 API 方法时同步把方法名
+  //   登记进 RESTRICT_ENQUEUE 的清单。
+  // - 模型能力只能经 src/hooks/useModelCapabilities 消费——各能力维度的真相源、失效时机与
+  //   「未知不谎报不支持」的降级规则都收在那里，组件直调会让目录侧与服务端侧重新分叉。
+  // src/api.test.ts 两条都豁免：它测试的是 API 层本体的端点路径与请求体。
   {
     files: ["src/**/*.{ts,tsx}"],
-    ignores: ["src/actions/**", "src/api.test.ts"],
+    ignores: ["src/api.test.ts"],
     rules: {
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector:
-            "CallExpression[callee.object.name='API'][callee.property.name=/^(generateStoryboard|generateVideo|generateNarrationAudio|generateEpisodeNarrationAudio|generateCharacter|generateProjectScene|generateProjectProp|generateProjectProduct|editImage|generateGrid|regenerateGrid|generateReferenceVideoUnit)$/]",
-          message:
-            "入队类 API 方法只能经 src/actions/ 的入队动作层调用（统一封装乐观占用打标与去重提示）。",
-        },
-      ],
+      "no-restricted-syntax": ["error", RESTRICT_ENQUEUE, RESTRICT_CAPABILITIES],
+    },
+  },
+  // 各自的实现方只豁免自己那条，另一条仍受约束（见文件头对 flat config 替换语义的说明）。
+  {
+    files: ["src/actions/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": ["error", RESTRICT_CAPABILITIES],
+    },
+  },
+  {
+    files: ["src/hooks/useModelCapabilities.ts"],
+    rules: {
+      "no-restricted-syntax": ["error", RESTRICT_ENQUEUE],
     },
   },
 );

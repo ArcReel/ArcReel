@@ -547,6 +547,7 @@ export function ProjectSettingsPage() {
               {/* Model config (video + duration + image + text) */}
               <SectionCard kicker="Engine Routing" title={t("model_config")}>
                 <ModelConfigSection
+                  projectName={projectName}
                   value={{
                     videoBackend,
                     imageBackendT2I,
