@@ -12,15 +12,19 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Literal
 
-# 取档相对剧本总时长的偏移方向
-EXACT = "exact"
+# 取档相对剧本总时长的偏移方向。前端 `types/reference-video.ts` 的字面量联合与此对齐，
+# 用 Literal 而非裸 str 让类型检查兜住 `warning()` 与预检响应里的分支判等。
+Adjustment = Literal["exact", "up", "down", "unconstrained"]
+
+EXACT: Adjustment = "exact"
 """总时长本身就是档位成员，申请值与剧本一致。"""
-UP = "up"
+UP: Adjustment = "up"
 """向上取档：成片长于剧本编排。"""
-DOWN = "down"
+DOWN: Adjustment = "down"
 """总时长超过最大档位，按最大档位申请：成片短于剧本编排。"""
-UNCONSTRAINED = "unconstrained"
+UNCONSTRAINED: Adjustment = "unconstrained"
 """能力不可解析（档位集为空），总时长原样透传，决策交给 backend。"""
 
 
@@ -30,7 +34,7 @@ class DurationSlot:
 
     seconds: int
     total_seconds: int | float
-    adjustment: str
+    adjustment: Adjustment
 
     @property
     def needs_confirmation(self) -> bool:
@@ -61,6 +65,7 @@ def resolve_duration_slot(total_seconds: int | float, supported_durations: Seque
     if not slots:
         return DurationSlot(seconds=int(total_seconds), total_seconds=total_seconds, adjustment=UNCONSTRAINED)
     fitting = [d for d in slots if d >= total_seconds]
+    adjustment: Adjustment
     if fitting:
         chosen = fitting[0]
         adjustment = EXACT if chosen == total_seconds else UP

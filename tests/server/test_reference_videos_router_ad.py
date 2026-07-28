@@ -232,6 +232,7 @@ class TestAdGenerate:
 
         assert resp.status_code == 400
 
+    @pytest.mark.integration
     def test_precheck_rounds_up_group_total(self, ad_client: TestClient, monkeypatch: pytest.MonkeyPatch):
         """ad 与通用路径共用取档规则：分组成员镜头求和（3+2=5）非档位成员 → 按 8 秒申请，需确认。"""
         from server.services import reference_video_tasks as rvt
@@ -246,6 +247,7 @@ class TestAdGenerate:
         assert body["request_duration"] == 8
         assert body["adjustment"] == "up"
 
+    @pytest.mark.integration
     def test_precheck_with_stale_index_409(self, ad_client: TestClient):
         ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
         proj_dir: Path = ad_client.proj_dir  # type: ignore[attr-defined]

@@ -30,19 +30,26 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
   const commitRef = useRef<((unitIds: string[]) => Promise<void>) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // 项目/剧集切换即作废在途预检：响应回来时闸门已属于另一份数据
+  // 项目/剧集切换即作废在途预检与未决弹窗：二者都绑定切换前那一份数据，留到切换后
+  // 确认就会把上一个剧集的单元入队。
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
       abortRef.current = null;
+      setPending(null);
+      commitRef.current = null;
     };
   }, [projectName, episode]);
 
   const run = useCallback(
     async (unitIds: string[], commit: (unitIds: string[]) => Promise<void>) => {
       if (unitIds.length === 0) return;
-      // 接管方轮换 controller：新一轮预检作废前任，未决的确认弹窗随之被新一轮替换
+      // 接管方轮换 controller：新一轮预检作废前任，未决的确认弹窗随之被新一轮替换。
+      // 弹窗与 commit 必须在此刻一并清掉，不能等新一轮的结果来覆盖——新一轮若全部无需
+      // 确认（直接 commit 返回），旧弹窗会留在屏幕上，用户点确认就按上一轮的清单入队。
       abortRef.current?.abort();
+      setPending(null);
+      commitRef.current = null;
       const controller = new AbortController();
       abortRef.current = controller;
       const { signal } = controller;

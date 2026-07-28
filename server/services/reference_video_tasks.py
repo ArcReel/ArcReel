@@ -163,32 +163,35 @@ async def precheck_unit_duration_slot(project: dict, unit: dict, ad_shots: list[
     )
 
 
-async def resolve_project_supported_durations(project: dict) -> list[int]:
-    """解析项目视频后端的时长档位集；解析失败返回空列表（与执行层空集放行同口径）。"""
+async def _project_video_caps(project: dict, *, degraded_to: str) -> dict:
+    """项目视频后端的 model 粒度能力；解析失败返回空 dict，由调用方各自降级。
+
+    ``degraded_to`` 只用于日志，说明这次解析失败会让调用方退化成什么行为。
+    """
     try:
         resolver = ConfigResolver(async_session_factory)
-        caps = await resolver.video_capabilities_for_project(project)
-        return [int(d) for d in caps.get("supported_durations") or []]
+        return await resolver.video_capabilities_for_project(project)
     except (ValueError, SQLAlchemyError) as exc:
-        logger.info("无法解析 video_capabilities，时长取档不施加档位约束：%s", exc)
-        return []
+        logger.info("无法解析 video_capabilities，%s：%s", degraded_to, exc)
+        return {}
+
+
+async def resolve_project_supported_durations(project: dict) -> list[int]:
+    """解析项目视频后端的时长档位集；解析失败返回空列表（与执行层空集放行同口径）。"""
+    caps = await _project_video_caps(project, degraded_to="时长取档不施加档位约束")
+    return [int(d) for d in caps.get("supported_durations") or []]
 
 
 async def resolve_max_unit_duration(project: dict) -> int | None:
     """解析项目视频后端的单次生成时长上限（秒），供派生分组约束 unit 总长。
 
-    单一真相源与 executor clamp 同口径（``video_capabilities_for_project`` 的
+    单一真相源与 executor 取档同口径（``video_capabilities_for_project`` 的
     model 粒度 ``max_duration``）；解析失败返回 None——分组退化为仅按镜头数
-    切分，超长 unit 交由执行层 clamp + warning 兜底，不阻塞派生。
+    切分，超长 unit 交由执行层取档 + warning 兜底，不阻塞派生。
     """
-    try:
-        resolver = ConfigResolver(async_session_factory)
-        caps = await resolver.video_capabilities_for_project(project)
-        max_duration = caps.get("max_duration")
-        return int(max_duration) if max_duration else None
-    except (ValueError, SQLAlchemyError) as exc:
-        logger.info("无法解析 video_capabilities，派生分组不施加时长上限：%s", exc)
-        return None
+    caps = await _project_video_caps(project, degraded_to="派生分组不施加时长上限")
+    max_duration = caps.get("max_duration")
+    return int(max_duration) if max_duration else None
 
 
 def _resolve_ad_unit_reference_entries(

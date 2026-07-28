@@ -1,6 +1,10 @@
 """参考视频时长向上取档规则（容量语义）。"""
 
+import pytest
+
 from lib.reference_video.duration_slots import resolve_duration_slot
+
+pytestmark = pytest.mark.unit
 
 
 def test_total_is_slot_member_requests_it_unchanged():

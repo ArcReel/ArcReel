@@ -199,6 +199,7 @@ def test_render_unit_prompt_replaces_mentions_in_order():
     assert "Shot 2 (5s):" in rendered
 
 
+@pytest.mark.unit
 def test_apply_provider_constraints_over_largest_slot_requests_largest_and_clamps_refs():
     # caps 由调用方从 GenerationContext 的 video lane 取得；
     # 这里直接提供 model 级档位集模拟已 resolve 的结果。
@@ -217,6 +218,7 @@ def test_apply_provider_constraints_over_largest_slot_requests_largest_and_clamp
     assert any("ref_too_many_images" in w["key"] for w in warnings)
 
 
+@pytest.mark.unit
 def test_apply_provider_constraints_between_slots_rounds_up():
     """区间内的非成员总时长按容量语义向上取档，不再抛 VideoCapabilityError。"""
     refs = [Path("/tmp/ref0.png")]
@@ -833,6 +835,7 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     assert "@酒馆" in prompt or "@瓶子" in prompt
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_rounds_up_non_member_duration(
     tmp_path: Path,
