@@ -265,7 +265,8 @@ async def test_project_video_resolution_falls_back_like_executor(monkeypatch: py
     from server.services import reference_video_tasks as rvt
 
     class _FakeResolver:
-        def __init__(self, *_a, **_kw): ...
+        def __init__(self, *_a, **_kw):
+            pass
 
         async def resolve_resolution(self, *_a, **_kw):
             return None
