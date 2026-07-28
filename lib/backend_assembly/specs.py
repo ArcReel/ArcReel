@@ -320,13 +320,14 @@ def _text_openai_compat_spec(
 # 构造形态分三类登记（简单文本 / gemini 文本 / OpenAI-compat 文本，见各闭包），其中 dashscope/minimax 文本
 # 映射到 "openai" registry backend，别名映射并入 spec.registry_backend 字段。每对显式登记一行，fail-loud
 # （未登记的 provider × media 抛 ValueError，不「缺席即默认」造静默错误 backend）。只登记今天确有注册 backend
-# 的对：image/video 简单族七家齐全，audio 仅 dashscope，text 八家（六 provider，gemini 两 id）。
+# 的对：image/video 简单族七家齐全，audio 仅 dashscope/minimax，text 八家（六 provider，gemini 两 id）。
 
 _SIMPLE_IMAGE_VIDEO_PROVIDERS = ("ark", "ark-agent-plan", "grok", "openai", "vidu", "dashscope", "minimax")
 _SIMPLE_MEDIA_PAIRS: list[tuple[str, str]] = [
     *((p, "image") for p in _SIMPLE_IMAGE_VIDEO_PROVIDERS),
     *((p, "video") for p in _SIMPLE_IMAGE_VIDEO_PROVIDERS),
     ("dashscope", "audio"),
+    ("minimax", "audio"),
 ]
 
 # gemini 两个 provider_id → backend_type，每个 × image/video 登记一行。

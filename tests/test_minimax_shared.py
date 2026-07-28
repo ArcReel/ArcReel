@@ -13,11 +13,14 @@ from lib.minimax_shared import (
     MINIMAX_STATUS_SUCCESS,
     extract_image_base64,
     extract_image_url,
+    extract_minimax_audio,
     extract_minimax_download_url,
     extract_minimax_file_id,
     extract_minimax_video_task_id,
     image_to_data_uri,
     is_minimax_video_terminal,
+    minimax_audio_base_url,
+    minimax_audio_failure_reason,
     minimax_failure_reason,
     minimax_headers,
     minimax_text_base_url,
@@ -254,3 +257,49 @@ class TestImageToDataUri:
         img = tmp_path / "x.jpg"
         img.write_bytes(b"\xff\xd8\xff")
         assert image_to_data_uri(img).startswith("data:image/jpeg;base64,")
+
+
+class TestAudioBaseUrl:
+    def test_default_is_domestic(self):
+        assert minimax_audio_base_url(None) == MINIMAX_BASE_URL
+
+    def test_override_to_intl(self):
+        assert minimax_audio_base_url(MINIMAX_INTL_BASE_URL) == "https://api.minimax.io/v1"
+
+    def test_host_only_gets_v1_suffix(self):
+        assert minimax_audio_base_url("https://api.minimax.io") == "https://api.minimax.io/v1"
+
+
+class TestAudioFailureReason:
+    def test_success_returns_none(self):
+        assert minimax_audio_failure_reason({"base_resp": {"status_code": 0}}) is None
+
+    def test_nonzero_status_code(self):
+        reason = minimax_audio_failure_reason(
+            {"base_resp": {"status_code": 1004, "status_msg": "invalid api key"}}
+        )
+        assert "1004" in reason
+        assert "invalid api key" in reason
+
+    def test_missing_base_resp_returns_none(self):
+        assert minimax_audio_failure_reason({"data": {"audio": "ab"}}) is None
+
+
+class TestExtractMinimaxAudio:
+    def test_returns_audio_hex(self):
+        payload = {"data": {"audio": "52494646", "status": 2}, "base_resp": {"status_code": 0}}
+        assert extract_minimax_audio(payload) == "52494646"
+
+    def test_base_resp_error_raises(self):
+        payload = {"data": {}, "base_resp": {"status_code": 1004, "status_msg": "bad key"}}
+        with pytest.raises(RuntimeError, match="语音合成失败"):
+            extract_minimax_audio(payload)
+
+    def test_missing_audio_raises(self):
+        payload = {"data": {}, "base_resp": {"status_code": 0}}
+        with pytest.raises(RuntimeError, match="data.audio"):
+            extract_minimax_audio(payload)
+
+    def test_non_dict_payload_raises(self):
+        with pytest.raises(RuntimeError, match="data.audio"):
+            extract_minimax_audio(None)

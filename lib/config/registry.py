@@ -1102,7 +1102,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         display_name="MiniMax",
         description="MiniMax（海螺）多模态平台，提供文本、图片、视频生成。默认连接国内站，海外可将 base_url 切换到国际站。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -1173,6 +1173,49 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["768p"],
                 max_reference_images=1,
                 pricing=_minimax_video_pricing("S2V-01", {("768p", 6): 3.0}),
+            ),
+            # --- audio ---
+            # speech-2.8-hd：同步 HTTP 语音合成（/v1/t2a_v2），hex 音频内联返回，按字符计费。
+            "speech-2.8-hd": ModelInfo(
+                display_name="MiniMax Speech 2.8 HD",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+                default=True,
+            ),
+            "speech-2.8-turbo": ModelInfo(
+                display_name="MiniMax Speech 2.8 Turbo",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+            ),
+            "speech-2.6-hd": ModelInfo(
+                display_name="MiniMax Speech 2.6 HD",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+            ),
+            "speech-2.6-turbo": ModelInfo(
+                display_name="MiniMax Speech 2.6 Turbo",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+            ),
+            "speech-02-hd": ModelInfo(
+                display_name="MiniMax Speech 02 HD",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+            ),
+            "speech-02-turbo": ModelInfo(
+                display_name="MiniMax Speech 02 Turbo",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+            ),
+            "speech-01-hd": ModelInfo(
+                display_name="MiniMax Speech 01 HD",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+            ),
+            "speech-01-turbo": ModelInfo(
+                display_name="MiniMax Speech 01 Turbo",
+                media_type="audio",
+                capabilities=["text_to_speech"],
             ),
         },
         default_base_url=MINIMAX_BASE_URL,

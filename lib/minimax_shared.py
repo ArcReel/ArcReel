@@ -69,6 +69,11 @@ def minimax_video_base_url(configured: str | None = None) -> str:
     return f"{_minimax_host(configured)}{_V1_SUFFIX}"
 
 
+def minimax_audio_base_url(configured: str | None = None) -> str:
+    """TTS 原生端点 base：{host}/v1。与文本/视频共用单一 /v1 base，仅命名区分用途。"""
+    return f"{_minimax_host(configured)}{_V1_SUFFIX}"
+
+
 def minimax_headers(api_key: str) -> dict[str, str]:
     """Bearer 鉴权头。"""
     return {
@@ -133,6 +138,39 @@ def minimax_failure_reason(payload: object) -> str | None:
         msg = base.get("status_msg") or ""
         return f"MiniMax 图像生成失败 status_code={status}: {msg}".strip()
     return None
+
+
+# ── TTS t2a_v2 响应工具 ────────────────────────────────────────────────────────
+
+
+def minimax_audio_failure_reason(payload: object) -> str | None:
+    """``base_resp.status_code != 0`` → 错误描述；0 或缺失 → None。
+
+    MiniMax TTS 业务错误以 HTTP 200 + ``base_resp.status_code`` 非零承载，故同步语音响应
+    须先查 ``base_resp`` 再取 ``data.audio``。
+    """
+    base = _as_dict(_as_dict(payload).get("base_resp"))
+    status = base.get("status_code")
+    if status is not None and status != 0:
+        msg = base.get("status_msg") or ""
+        return f"MiniMax 语音合成失败 status_code={status}: {msg}".strip()
+    return None
+
+
+def extract_minimax_audio(payload: object) -> str:
+    """从 t2a_v2 响应提取 ``data.audio``（hex 编码音频）。
+
+    先查 ``base_resp`` 业务错误（200 + 非零 ``status_code``），再取 ``data.audio``；
+    缺失即抛错交 caller 处理。
+    """
+    reason = minimax_audio_failure_reason(payload)
+    if reason:
+        raise RuntimeError(reason)
+    data = _as_dict(_as_dict(payload).get("data"))
+    audio = data.get("audio")
+    if isinstance(audio, str) and audio:
+        return audio
+    raise RuntimeError(f"MiniMax 语音合成响应缺少 data.audio: {payload}")
 
 
 # ── 日志脱敏 ──────────────────────────────────────────────────────────────────

@@ -17,18 +17,27 @@ from lib.audio_backends import (
     register_backend,
 )
 from lib.dashscope_shared import extract_audio_url
-from lib.providers import PROVIDER_DASHSCOPE
+from lib.providers import PROVIDER_DASHSCOPE, PROVIDER_MINIMAX
 
 
 class TestRegistry:
     def test_dashscope_auto_registered(self):
         assert PROVIDER_DASHSCOPE in get_registered_backends()
 
+    def test_minimax_auto_registered(self):
+        assert PROVIDER_MINIMAX in get_registered_backends()
+
     def test_create_dashscope(self):
         from lib.audio_backends.dashscope import DashScopeAudioBackend
 
         backend = create_backend(PROVIDER_DASHSCOPE, api_key="sk")
         assert isinstance(backend, DashScopeAudioBackend)
+
+    def test_create_minimax(self):
+        from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+        backend = create_backend(PROVIDER_MINIMAX, api_key="sk")
+        assert isinstance(backend, MiniMaxAudioBackend)
 
     def test_unknown_backend_raises(self):
         with pytest.raises(ValueError, match="Unknown audio backend"):
@@ -374,3 +383,99 @@ class TestOpenAIAudioBackend:
                     await b.synthesize(req)
 
         assert mock_client.audio.speech.create.call_count == 1, "写盘失败不得重跑计费的合成调用"
+
+
+def _minimax_synth_response(hex_audio: str = "52494646") -> MagicMock:
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {"data": {"audio": hex_audio, "status": 2}, "base_resp": {"status_code": 0}}
+    return resp
+
+
+class TestMiniMaxAudioBackend:
+    def test_metadata(self):
+        from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+        b = MiniMaxAudioBackend(api_key="sk", model="speech-2.8-hd")
+        assert b.name == PROVIDER_MINIMAX
+        assert b.model == "speech-2.8-hd"
+        assert b.capabilities == {AudioCapability.TEXT_TO_SPEECH}
+
+    def test_default_model(self):
+        from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+        b = MiniMaxAudioBackend(api_key="sk")
+        assert b.model == "speech-2.8-hd"
+
+    async def test_synthesize_request_and_hex_decode(self, tmp_path: Path):
+        client = _mock_client(_minimax_synth_response("5249464657415645"), _download_response(b""))
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+            b = MiniMaxAudioBackend(api_key="sk", model="speech-2.8-hd", base_url="https://api.minimaxi.com/v1")
+            out = tmp_path / "o.wav"
+            result = await b.synthesize(
+                AudioSynthesisRequest(text="你好世界", output_path=out, voice="male-qn-qingse")
+            )
+
+        body = client.post.call_args.kwargs["json"]
+        assert body["model"] == "speech-2.8-hd"
+        assert body["text"] == "你好世界"
+        assert body["voice_setting"] == {"voice_id": "male-qn-qingse"}
+        # 输出格式跟随落盘扩展名（资源路径约定 .wav）
+        assert body["output_format"] == "wav"
+        # 端点：base + t2a_v2
+        assert client.post.call_args.args[0].endswith("/v1/t2a_v2")
+        headers = client.post.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer sk"
+        # hex 解码落盘
+        assert out.read_bytes() == bytes.fromhex("5249464657415645")
+        assert result.provider == PROVIDER_MINIMAX
+        assert result.model == "speech-2.8-hd"
+        assert result.characters == len("你好世界")
+        assert result.output_path == out
+
+    async def test_unknown_suffix_falls_back_to_mp3(self, tmp_path: Path):
+        client = _mock_client(_minimax_synth_response(), _download_response(b""))
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+            b = MiniMaxAudioBackend(api_key="sk")
+            await b.synthesize(AudioSynthesisRequest(text="hi", output_path=tmp_path / "x.bin", voice="v1"))
+        assert client.post.call_args.kwargs["json"]["output_format"] == "mp3"
+
+    async def test_base_resp_error_raises(self, tmp_path: Path):
+        err_resp = MagicMock()
+        err_resp.status_code = 200
+        err_resp.json.return_value = {"base_resp": {"status_code": 1004, "status_msg": "bad key"}}
+        client = _mock_client(err_resp, _download_response(b""))
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+            b = MiniMaxAudioBackend(api_key="sk")
+            with pytest.raises(RuntimeError, match="语音合成失败"):
+                await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.wav", voice="v1"))
+
+    async def test_http_error_raises(self, tmp_path: Path):
+        # 4xx 透出 httpx.HTTPStatusError；计费的合成 POST 只发一次
+        err_resp = httpx.Response(400, text="bad request", request=httpx.Request("POST", "https://x"))
+        client = _mock_client(err_resp, _download_response(b""))
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+            b = MiniMaxAudioBackend(api_key="sk")
+            with pytest.raises(httpx.HTTPStatusError):
+                await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.wav", voice="v1"))
+        assert client.post.call_count == 1
+
+    async def test_missing_audio_raises(self, tmp_path: Path):
+        empty_resp = MagicMock()
+        empty_resp.status_code = 200
+        empty_resp.json.return_value = {"data": {}, "base_resp": {"status_code": 0}}
+        client = _mock_client(empty_resp, _download_response(b""))
+        with patch("httpx.AsyncClient", return_value=client):
+            from lib.audio_backends.minimax import MiniMaxAudioBackend
+
+            b = MiniMaxAudioBackend(api_key="sk")
+            with pytest.raises(RuntimeError, match="data.audio"):
+                await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.wav", voice="v1"))

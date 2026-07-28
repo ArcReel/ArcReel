@@ -31,7 +31,7 @@ class TestRegistry:
         from lib.config.registry import PROVIDER_REGISTRY
 
         meta = PROVIDER_REGISTRY[PROVIDER_MINIMAX]
-        assert meta.media_types == ["image", "text", "video"]
+        assert meta.media_types == ["audio", "image", "text", "video"]
         assert "api_key" in meta.required_keys
         assert "api_key" in meta.secret_keys
         assert "base_url" in meta.optional_keys
