@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from lib.asset_types import ASSET_SPECS
-from lib.config.registry import PROVIDER_REGISTRY, model_info_for
+from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.resolver import constrain_durations
 from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
@@ -154,52 +155,6 @@ def _get_model_default_duration(provider_name: str, model_name: str | None) -> i
             return model_info.supported_durations[0]
     # 自定义供应商或 registry 中无此模型时 fallback
     return 4
-
-
-def constrain_durations_by_resolution(
-    provider_name: str, model_name: str | None, durations: list[int], resolution: str | None
-) -> list[int]:
-    """按型号声明的「分辨率↔时长」约束收窄候选；无声明或交集为空时返回原候选。
-
-    只服务于「未显式指定时长」时的取值：Veo 在 1080p/4k 下只接受 8 秒，而候选全集
-    ``supported_durations`` 首项是 4 秒，直接取首项会让默认设置必然撞上执行期拒绝。
-    显式指定的时长不经此收窄——其合法性仍由 :func:`assert_duration_supported` 与 backend
-    的执行期校验把关，拒绝行为不变。
-    """
-    if not durations or not resolution:
-        return durations
-    model_info = model_info_for(provider_name, model_name) if model_name else None
-    if model_info is None:
-        return durations
-    allowed = model_info.duration_resolution_constraints.get(resolution.strip().lower())
-    if not allowed:
-        return durations
-    narrowed = [d for d in durations if d in allowed]
-    return narrowed or durations
-
-
-def constrain_durations_by_reference_images(
-    provider_name: str, model_name: str | None, durations: list[int]
-) -> list[int]:
-    """按型号声明的「参考图↔时长」约束收窄候选；无声明或交集为空时返回原候选。
-
-    与 :func:`constrain_durations_by_resolution` 并列的第二条条件约束：Veo 3.1 全局支持
-    ``[4, 6, 8]``，但带参考图时只接受 8 秒（``ModelInfo.reference_image_durations``），
-    backend 在执行期对其余取值直接拒绝。带参考图的调用方按全集取值会必然撞上该拒绝。
-
-    空声明的语义是「参考图路径不额外约束时长」，与 backend 同口径——故只在声明非空时收窄，
-    不为未登记型号臆造约束。
-    """
-    if not durations:
-        return durations
-    model_info = model_info_for(provider_name, model_name) if model_name else None
-    if model_info is None:
-        return durations
-    allowed = model_info.reference_image_durations
-    if not allowed:
-        return durations
-    narrowed = [d for d in durations if d in allowed]
-    return narrowed or durations
 
 
 def assert_duration_supported(duration: int | float | str, supported_durations: list[int]) -> None:
@@ -874,10 +829,9 @@ async def execute_video_task(
     if not duration_seconds:
         # 取首项前先按当前分辨率的联动约束收窄：否则 Veo + 1080p/4k 的默认（Auto）设置会取到
         # 4 秒，被 backend 的「该分辨率必须 8 秒」拒绝——UI 已按同一份声明门控，此处不收窄
-        # 就等于默认配置必然失败。
-        candidates = constrain_durations_by_resolution(
-            registry_provider_id, model_name, supported_durations, resolution
-        )
+        # 就等于默认配置必然失败。显式指定的时长不经此收窄，其合法性由 assert_duration_supported
+        # 与 backend 的执行期校验把关。
+        candidates = constrain_durations(registry_provider_id, model_name, supported_durations, resolution=resolution)
         duration_seconds = (
             candidates[0] if candidates else _get_model_default_duration(registry_provider_id, model_name)
         )

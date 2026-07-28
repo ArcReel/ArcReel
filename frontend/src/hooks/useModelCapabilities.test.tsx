@@ -1,7 +1,12 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
-import { catalogDurations, useModelCapabilities } from "@/hooks/useModelCapabilities";
+import {
+  catalogDurations,
+  durationOutOfRangeReason,
+  narrowDurations,
+  useModelCapabilities,
+} from "@/hooks/useModelCapabilities";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import type { ProviderInfo, VideoCapabilities } from "@/types";
 
@@ -270,5 +275,71 @@ describe("catalogDurations", () => {
   it("目录查不到该模型时为 null", () => {
     expect(catalogDurations(provider(), [], "ark/unknown-model")).toBeNull();
     expect(catalogDurations(provider(), [], "")).toBeNull();
+  });
+});
+
+describe("narrowDurations", () => {
+  const CONSTRAINTS = { byResolution: { "1080p": [8] }, withReferenceImages: [8] };
+
+  // 上下文按集变化（generation_mode 可被单集覆盖），而能力查询只在组件顶层做一次；
+  // 收窄规则仍留在本模块，调用点不重新拼查表链路。
+  it("用已取到的能力对另一份上下文再算一次收窄", () => {
+    const capsIn = { rawDurations: [4, 6, 8], durationConstraints: CONSTRAINTS };
+    expect(narrowDurations(capsIn, { videoResolution: "1080p" })).toEqual([8]);
+    expect(narrowDurations(capsIn, { usesReferenceImages: true })).toEqual([8]);
+    expect(narrowDurations(capsIn, {})).toEqual([4, 6, 8]);
+    expect(narrowDurations(capsIn, { videoResolution: "720p" })).toEqual([4, 6, 8]);
+  });
+
+  it("能力未知时为 null（不谎报成空集合）", () => {
+    expect(narrowDurations({ rawDurations: null, durationConstraints: CONSTRAINTS }, {})).toBeNull();
+  });
+});
+
+describe("durationOutOfRangeReason", () => {
+  const CONSTRAINTS = { byResolution: { "1080p": [8] }, withReferenceImages: [8] };
+
+  it("全集就不含该值 → model", () => {
+    expect(
+      durationOutOfRangeReason(
+        5,
+        { rawDurations: [4, 6, 8], supportedDurations: [4, 6, 8], durationConstraints: CONSTRAINTS },
+        {},
+      ),
+    ).toBe("model");
+  });
+
+  // 成因决定提示把用户引向哪里：分辨率 / 参考图两条改对应设置也能解决，不该被引去换模型。
+  it("被分辨率约束收窄 → resolution", () => {
+    expect(
+      durationOutOfRangeReason(
+        4,
+        { rawDurations: [4, 6, 8], supportedDurations: [8], durationConstraints: CONSTRAINTS },
+        { videoResolution: "1080p" },
+      ),
+    ).toBe("resolution");
+  });
+
+  it("被参考图约束收窄 → reference", () => {
+    expect(
+      durationOutOfRangeReason(
+        4,
+        { rawDurations: [4, 6, 8], supportedDurations: [8], durationConstraints: CONSTRAINTS },
+        { usesReferenceImages: true },
+      ),
+    ).toBe("reference");
+  });
+
+  it("未越界 / 值缺失 / 能力未知一律 null", () => {
+    const capsIn = {
+      rawDurations: [4, 6, 8],
+      supportedDurations: [8],
+      durationConstraints: CONSTRAINTS,
+    };
+    expect(durationOutOfRangeReason(8, capsIn, {})).toBeNull();
+    expect(durationOutOfRangeReason(null, capsIn, {})).toBeNull();
+    expect(
+      durationOutOfRangeReason(4, { ...capsIn, supportedDurations: null }, {}),
+    ).toBeNull();
   });
 });

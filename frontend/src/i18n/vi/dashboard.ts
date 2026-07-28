@@ -814,6 +814,8 @@ export default {
   'cap_override_effective': 'Giá trị áp dụng: {{effective}} (nhận định: {{detected}})',
   'cap_override_on_unavailable': 'Endpoint này không gửi khung cuối nên không thể buộc bật.',
   'duration_incompatible_warning': '{{value}}s đã chọn không nằm trong [{{supported}}] mà mô hình hỗ trợ',
+  'duration_incompatible_resolution_warning': '{{value}}s đã chọn không khả dụng ở độ phân giải hiện tại — khả dụng: [{{supported}}]',
+  'duration_incompatible_reference_warning': '{{value}}s đã chọn không khả dụng ở chế độ Reference-to-Video — khả dụng: [{{supported}}]',
   'duration_seconds_value_text': '{{value}}s',
   'duration_no_options': 'Mô hình hiện tại không có thời lượng cấu hình — không thể thay đổi',
   'add_model_manually': 'Thêm mô hình thủ công',

@@ -11,6 +11,7 @@ import {
   Loader2,
   Undo2,
 } from "lucide-react";
+import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
 import type {
   NarrationSegment,
   DramaScene,
@@ -81,6 +82,8 @@ interface ShotDetailProps {
   generatingVideo?: boolean;
   generatingNarration?: boolean;
   durationOptions?: number[];
+  /** 已保存时长越界的成因判定；缺省时退回不区分成因的通用警告文案。 */
+  durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
 }
 
 function getNovelText(seg: Segment, mode: DetailContentMode): string {
@@ -150,6 +153,7 @@ interface DurationPillProps {
   seconds: number;
   segmentId: string;
   durationOptions: number[];
+  durationWarningReason?: ShotDetailProps["durationWarningReason"];
   onUpdatePrompt?: ShotDetailProps["onUpdatePrompt"];
 }
 
@@ -157,6 +161,7 @@ function DurationPill({
   seconds,
   segmentId,
   durationOptions,
+  durationWarningReason,
   onUpdatePrompt,
 }: DurationPillProps) {
   const { t } = useTranslation("dashboard");
@@ -179,7 +184,15 @@ function DurationPill({
   const noOptions = durationOptions.length === 0;
   const isIncompatible =
     durationOptions.length > 0 && !durationOptions.includes(seconds);
-  const incompatibleLabel = t("duration_incompatible_warning", {
+  // 越界文案按成因分开：模型全集就不含该值才是「模型不支持」，被分辨率 / 参考图路径的联动约束
+  // 收窄掉时说清是哪一条——用户据此改对应设置，而不是被引去以为模型换不了这个时长。
+  // 与项目默认时长的三种提示同一套判定（见 useModelCapabilities.durationOutOfRangeReason）。
+  const incompatibleKey = {
+    model: "duration_incompatible_warning",
+    resolution: "duration_incompatible_resolution_warning",
+    reference: "duration_incompatible_reference_warning",
+  }[durationWarningReason?.(seconds) ?? "model"];
+  const incompatibleLabel = t(incompatibleKey, {
     value: seconds,
     supported: durationOptions.join(", "),
   });
@@ -359,6 +372,7 @@ export function ShotDetail({
   generatingVideo,
   generatingNarration,
   durationOptions = [],
+  durationWarningReason,
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
   const status = statusFromAssets(segment.generated_assets?.status);
@@ -942,6 +956,7 @@ export function ShotDetail({
           seconds={segment.duration_seconds ?? 0}
           segmentId={segmentId}
           durationOptions={durationOptions}
+          durationWarningReason={durationWarningReason}
           onUpdatePrompt={onUpdatePrompt}
         />
         <StatusBadge status={status} />

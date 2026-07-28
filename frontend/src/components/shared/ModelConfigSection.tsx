@@ -2,7 +2,11 @@ import { useEffect, useId, useMemo, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { InlineWarning } from "@/components/ui/InlineWarning";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
-import { catalogDurations, useModelCapabilities } from "@/hooks/useModelCapabilities";
+import {
+  catalogDurations,
+  durationOutOfRangeReason,
+  useModelCapabilities,
+} from "@/hooks/useModelCapabilities";
 import { lookupResolutions } from "@/utils/provider-models";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
@@ -157,25 +161,25 @@ export function ModelConfigSection({
 
   // 已保存时长落在当前模型支持集之外（后端不变、支持集被外部缩小的挂载/重渲染场景）：
   // 不自动篡改存值，仅渲染提示并提供一键回退 auto，保留用户感知与重选机会。
-  const isDurationOutOfRange =
-    value.defaultDuration !== null &&
-    !!supportedDurations &&
-    !supportedDurations.includes(value.defaultDuration);
-
+  //
   // 提示文案按越界成因分开：模型全集就不含该值才是「模型不支持」，被联动约束收窄掉时说清
   // 是分辨率还是参考图路径——用户据此改对应设置，而不是被引去换模型。
   const durationNoticeKey = useMemo(() => {
-    const saved = value.defaultDuration;
-    if (!isDurationOutOfRange || saved === null) return null;
-    if (!rawDurations?.includes(saved)) return "duration_unsupported_notice";
-    const { withReferenceImages } = durationConstraints;
-    if (usesReferenceImages && withReferenceImages.length > 0 && !withReferenceImages.includes(saved))
-      return "duration_unsupported_reference_notice";
-    return "duration_unsupported_resolution_notice";
+    const reason = durationOutOfRangeReason(
+      value.defaultDuration,
+      { rawDurations, supportedDurations, durationConstraints },
+      { usesReferenceImages },
+    );
+    if (reason === null) return null;
+    return {
+      model: "duration_unsupported_notice",
+      reference: "duration_unsupported_reference_notice",
+      resolution: "duration_unsupported_resolution_notice",
+    }[reason];
   }, [
-    isDurationOutOfRange,
     value.defaultDuration,
     rawDurations,
+    supportedDurations,
     durationConstraints,
     usesReferenceImages,
   ]);

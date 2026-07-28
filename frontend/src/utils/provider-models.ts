@@ -131,6 +131,30 @@ export function constrainDurations(
 export const IMAGE_STANDARD_RESOLUTIONS = ["512px", "1K", "2K", "4K"];
 export const VIDEO_STANDARD_RESOLUTIONS = ["480p", "720p", "1080p", "4K"];
 
+/** 项目里存了分辨率的两种形状：`model_settings` 以 `provider/model` 复合键，legacy 以裸 model_id。 */
+export interface ProjectResolutionSettings {
+  model_settings?: Record<string, { resolution?: string | null }> | null;
+  video_model_settings?: Record<string, { resolution?: string | null }> | null;
+}
+
+/**
+ * 读项目为该视频后端保存的分辨率：`model_settings` → legacy `video_model_settings` → null。
+ *
+ * `backend` 须是生效后端（项目覆盖 ‖ 全局默认），与写入侧同一口径。null 表示用户未选档位，
+ * 执行期会落到 provider 兜底档位——那张兜底表是后端数据，前端不镜像，故此处不替用户假定档位。
+ */
+export function lookupProjectVideoResolution(
+  project: ProjectResolutionSettings | null | undefined,
+  backend: string,
+): string | null {
+  if (!project || !backend) return null;
+  const fromModelSettings = project.model_settings?.[backend]?.resolution;
+  if (fromModelSettings) return fromModelSettings;
+  const slashIdx = backend.indexOf("/");
+  const modelId = slashIdx === -1 ? backend : backend.slice(slashIdx + 1);
+  return project.video_model_settings?.[modelId]?.resolution ?? null;
+}
+
 /** 返回该 (provider, model) 下的分辨率候选 + 是否自定义供应商（决定 picker 模式）。
  *  自定义 provider 路径需要从 endpoint 推 media_type 选标准分辨率集；该 map 由调用方
  *  从 endpoint-catalog-store 读出注入（保持本文件无 store 副作用）。 */

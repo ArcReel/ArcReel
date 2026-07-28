@@ -806,7 +806,90 @@ def test_resolve_supported_durations_raises_when_unset(tmp_path):
     sg.project_json = {"video_backend": "nonexistent-provider/nonexistent-model"}
 
     with pytest.raises(ValueError, match="supported_durations"):
-        sg._resolve_supported_durations(None)
+        sg._resolve_supported_durations(None, gen_mode="storyboard")
+
+
+def _sg_with_project(tmp_path, project: dict) -> ScriptGenerator:
+    """只为 _resolve_* 系列造一个不走 __init__ 的 ScriptGenerator（不需要 TextGenerator）。"""
+    project_dir = tmp_path / "p"
+    project_dir.mkdir(exist_ok=True)
+    sg = ScriptGenerator.__new__(ScriptGenerator)
+    sg.project_path = project_dir
+    sg.project_json = project
+    return sg
+
+
+_VEO_CAPS = {
+    "provider_id": "gemini-aistudio",
+    "model": "veo-3.1-generate-preview",
+    "supported_durations": [4, 6, 8],
+}
+
+
+def test_resolve_supported_durations_narrows_by_fallback_resolution(tmp_path):
+    """项目未配分辨率时按 provider 兜底档位收窄——Veo 兜底 1080p、只接受 8 秒。
+
+    这是本票的默认场景：不收窄的话剧本产出 4/6 秒镜头，视频入队时才被 backend 拒。
+    """
+    sg = _sg_with_project(tmp_path, {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"})
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [8]
+    # 全集仍可单独取到，供「shot 是 clip 内编排」这类不面向供应商的维度使用
+    assert sg._resolve_raw_supported_durations(_VEO_CAPS) == [4, 6, 8]
+
+
+def test_resolve_supported_durations_respects_project_resolution(tmp_path):
+    """项目显式配了无声明的分辨率时不收窄，行为与改动前一致。"""
+    sg = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}},
+        },
+    )
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [4, 6, 8]
+
+
+def test_resolve_supported_durations_narrows_by_reference_mode(tmp_path):
+    """reference_video 模式触发「参考图↔时长」约束，即便分辨率本身无声明。"""
+    sg = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}},
+        },
+    )
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video") == [8]
+
+
+def test_resolve_supported_durations_unconstrained_model_unchanged(tmp_path):
+    """已登记但无联动约束声明的型号：收窄是恒等变换，两种 gen_mode 都与全集一致。"""
+    caps = {"provider_id": "ark", "model": "doubao-seedance-1-5-pro-251215", "supported_durations": [4, 5, 6]}
+    sg = _sg_with_project(tmp_path, {"video_backend": "ark/doubao-seedance-1-5-pro-251215"})
+    assert sg._resolve_supported_durations(caps, gen_mode="storyboard") == [4, 5, 6]
+    assert sg._resolve_supported_durations(caps, gen_mode="reference_video") == [4, 5, 6]
+
+
+def test_resolve_max_duration_tracks_narrowed_set(tmp_path):
+    """max_duration 随收窄后的集合走：它在 rv 模式下是 unit 总时长上限，须与枚举同一集合。"""
+    sg = _sg_with_project(tmp_path, {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"})
+    caps = {**_VEO_CAPS, "max_duration": 8}
+    assert sg._resolve_max_duration(caps, gen_mode="storyboard") == 8
+
+    hailuo_caps = {
+        "provider_id": "minimax",
+        "model": "MiniMax-Hailuo-2.3",
+        "supported_durations": [6, 10],
+        "max_duration": 10,
+    }
+    hailuo = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "minimax/MiniMax-Hailuo-2.3",
+            "model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}},
+        },
+    )
+    # 1080p 下海螺只接受 6 秒：上限必须跟着降，否则 step1 会拆出 10 秒的 unit 而 step2 判非法
+    assert hailuo._resolve_max_duration(hailuo_caps, gen_mode="storyboard") == 6
 
 
 def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> ScriptGenerator:

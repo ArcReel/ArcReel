@@ -837,6 +837,8 @@ export default {
   'cap_override_effective': 'In effect: {{effective}} (detected: {{detected}})',
   'cap_override_on_unavailable': 'This endpoint does not send end frames, so it cannot be forced on.',
   'duration_incompatible_warning': 'Selected {{value}}s not in model-supported [{{supported}}]',
+  'duration_incompatible_resolution_warning': 'Selected {{value}}s is unavailable at the current resolution — available: [{{supported}}]',
+  'duration_incompatible_reference_warning': 'Selected {{value}}s is unavailable in Reference-to-Video mode — available: [{{supported}}]',
   'duration_seconds_value_text': '{{value}}s',
   'duration_no_options': 'Current model has no configured durations — cannot change',
   'add_model_manually': 'Add model manually',

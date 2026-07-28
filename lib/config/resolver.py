@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.backend_assembly.specs import get_provider_spec
-from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
+from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider, model_info_for
 from lib.config.service import (
     _DEFAULT_AUDIO_BACKEND,
     _DEFAULT_IMAGE_BACKEND,
@@ -204,6 +204,78 @@ def _resolution_from_project(project: dict, provider_id: str, model_id: str) -> 
     if legacy:
         return legacy
     return None
+
+
+# ---------------------------------------------------------------------------
+# 时长联动约束
+#
+# 时长并非只由 supported_durations 决定：部分型号（当前是 Veo 全系与 MiniMax 海螺）在高分辨率
+# 或参考图路径下把时长收窄到单一取值，声明在 registry 的 ModelInfo 上（单一真相源）。这里是
+# 后端唯一的消费入口——候选集合在交给 LLM、写进动态 schema、或作为默认值取首项之前都经此收窄，
+# 否则产出的时长在执行期必然被 backend 拒。
+# ---------------------------------------------------------------------------
+
+
+def constrain_durations(
+    provider_id: str | None,
+    model_id: str | None,
+    durations: list[int],
+    *,
+    resolution: str | None = None,
+    uses_reference_images: bool = False,
+) -> list[int]:
+    """按型号声明的「分辨率↔时长」「参考图↔时长」约束收窄候选。
+
+    两条约束各自独立触发、可同时生效，取交集。无声明、型号不在注册表（自定义供应商不表达
+    这类约束）、或交集为空时返回原候选——空集说明声明之间自相矛盾，清空候选会让上游拿不到
+    任何可用时长，而执行期仍有 backend 校验兜底。
+    """
+    if not durations:
+        return durations
+    model_info = model_info_for(provider_id, model_id) if provider_id and model_id else None
+    if model_info is None:
+        return durations
+    allowed = list(durations)
+    if uses_reference_images and model_info.reference_image_durations:
+        allowed = [d for d in allowed if d in model_info.reference_image_durations]
+    by_resolution = model_info.duration_resolution_constraints.get(resolution.strip().lower()) if resolution else None
+    if by_resolution:
+        allowed = [d for d in allowed if d in by_resolution]
+    return allowed or list(durations)
+
+
+def _resolution_for_constraints(project: dict, provider_id: str | None, model_id: str | None) -> str | None:
+    """约束求值用的生效分辨率：项目覆盖 → provider 兜底档位。
+
+    与下传给 SDK 的 resolution 不同源。``None`` 的语义是「调用时不传 resolution 参数」
+    （见 ``docs/adr/0019``），执行期实际落在 provider 兜底档位上（见 ``get_provider_fallback``），
+    故约束求值必须按那个档位算——否则「用户没配分辨率」会被当成「不受约束」，而 Veo 恰好兜底
+    到 1080p、只接受 8 秒。自定义供应商的 DB 默认档位不在此解析：该类供应商不声明联动约束，
+    解析出来也不改变结果，不值得为此把纯函数变成 async。
+
+    返回值只用于约束求值，不得作为 SDK 的 resolution 参数下传。
+    """
+    if not provider_id or not model_id:
+        return None
+    return _resolution_from_project(project, provider_id, model_id) or get_provider_fallback(provider_id)
+
+
+def constrain_durations_for_project(
+    project: dict,
+    durations: list[int],
+    *,
+    provider_id: str | None,
+    model_id: str | None,
+    generation_mode: str | None,
+) -> list[int]:
+    """按项目当前配置收窄时长候选：分辨率取生效档位，参考图约束按 ``generation_mode`` 判定。"""
+    return constrain_durations(
+        provider_id,
+        model_id,
+        durations,
+        resolution=_resolution_for_constraints(project, provider_id, model_id),
+        uses_reference_images=generation_mode == "reference_video",
+    )
 
 
 class VisionCapabilityError(ValueError):

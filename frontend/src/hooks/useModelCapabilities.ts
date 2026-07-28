@@ -103,6 +103,41 @@ function narrow(raw: readonly number[], constraints: DurationConstraints, ctx: D
 }
 
 /**
+ * 用 hook 已取到的能力，对另一份联动约束上下文再算一次收窄结果；未知为 null。
+ *
+ * 供上下文按集变化、而能力查询只能在组件顶层做一次的调用点使用——`rawDurations` 与
+ * `durationConstraints` 不随上下文变化，收窄规则仍收在本模块内，不在调用点重新拼一条查表链路。
+ */
+export function narrowDurations(
+  caps: Pick<ModelCapabilities, "rawDurations" | "durationConstraints">,
+  ctx: DurationContext,
+): number[] | null {
+  return caps.rawDurations ? narrow(caps.rawDurations, caps.durationConstraints, ctx) : null;
+}
+
+/**
+ * 已保存时长越界的成因；不越界为 null。
+ *
+ * 成因决定提示该把用户引向哪里：`model` 只能换时长或换模型，`resolution` / `reference` 则是
+ * 改对应设置也能解决。判定顺序即优先级——全集就不含该值时，联动约束是不是也排除它无关紧要。
+ */
+export type DurationOutOfRangeReason = "model" | "reference" | "resolution";
+
+export function durationOutOfRangeReason(
+  saved: number | null | undefined,
+  caps: Pick<ModelCapabilities, "rawDurations" | "supportedDurations" | "durationConstraints">,
+  ctx: DurationContext = {},
+): DurationOutOfRangeReason | null {
+  const { rawDurations, supportedDurations, durationConstraints } = caps;
+  if (saved == null || !supportedDurations || supportedDurations.includes(saved)) return null;
+  if (!rawDurations?.includes(saved)) return "model";
+  const { withReferenceImages } = durationConstraints;
+  if (ctx.usesReferenceImages && withReferenceImages.length > 0 && !withReferenceImages.includes(saved))
+    return "reference";
+  return "resolution";
+}
+
+/**
  * 服务端能力查询。
  *
  * 请求 key 只含「决定结果是否仍可用」的上下文：项目与后端。项目 / 后端一变必须立刻丢弃旧

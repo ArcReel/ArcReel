@@ -837,6 +837,8 @@ export default {
   'cap_override_effective': '生效值：{{effective}}（判定：{{detected}}）',
   'cap_override_on_unavailable': '该接口不下传尾帧，无法强制开启。',
   'duration_incompatible_warning': '当前秒数 {{value}} 不在模型支持范围 [{{supported}}] 内',
+  'duration_incompatible_resolution_warning': '当前秒数 {{value}} 在当前分辨率下不可用，可选 [{{supported}}]',
+  'duration_incompatible_reference_warning': '当前秒数 {{value}} 在参考生视频模式下不可用，可选 [{{supported}}]',
   'duration_seconds_value_text': '{{value}} 秒',
   'duration_no_options': '当前模型未配置可用时长，无法修改',
   'add_model_manually': '手动添加模型',

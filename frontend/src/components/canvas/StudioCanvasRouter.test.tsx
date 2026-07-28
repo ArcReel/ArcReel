@@ -585,6 +585,106 @@ describe("StudioCanvasRouter", () => {
     expect(providersSpy).not.toHaveBeenCalled();
   });
 
+  // 逐镜头时长候选须按项目分辨率与生效 generation_mode 收窄——用户在设置里选了 1080p 却仍能把
+  // 单个镜头改成 4 秒，入队时才被 backend 拒。
+  it("narrows the per-shot duration options by the project resolution", async () => {
+    const VEO = "gemini-aistudio/veo-3.1";
+    vi.spyOn(API, "getProviders").mockResolvedValue({
+      providers: [
+        {
+          id: "gemini-aistudio",
+          display_name: "Gemini",
+          description: "",
+          status: "ready",
+          media_types: ["video"],
+          capabilities: [],
+          configured_keys: [],
+          missing_keys: [],
+          models: {
+            "veo-3.1": {
+              display_name: "Veo 3.1",
+              media_type: "video",
+              capabilities: [],
+              default: true,
+              supported_durations: [4, 6, 8],
+              duration_resolution_constraints: { "1080p": [8] },
+              reference_image_durations: [8],
+              resolutions: ["720p", "1080p"],
+            },
+          },
+        },
+      ],
+    });
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      settings: { default_video_backend: VEO },
+    } as Awaited<ReturnType<typeof API.getSystemConfig>>);
+
+    useProjectsStore.setState({
+      currentProjectName: "real-project",
+      currentProjectData: makeProjectData({
+        video_backend: VEO,
+        model_settings: { [VEO]: { resolution: "1080p" } },
+      }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    renderAtProjectRoute("real-project", "/episodes/1");
+    await waitFor(() => {
+      // 精确比对而非包含：全集 "4,6,8" 也含子串 "8"
+      expect(screen.getByTestId("timeline-duration-options").textContent).toBe("8");
+    });
+  });
+
+  // 未受约束的分辨率下行为与改动前一致：全集原样呈现，不因为接了收窄管线而误缩。
+  it("leaves the per-shot duration options untouched at an unconstrained resolution", async () => {
+    const VEO = "gemini-aistudio/veo-3.1";
+    vi.spyOn(API, "getProviders").mockResolvedValue({
+      providers: [
+        {
+          id: "gemini-aistudio",
+          display_name: "Gemini",
+          description: "",
+          status: "ready",
+          media_types: ["video"],
+          capabilities: [],
+          configured_keys: [],
+          missing_keys: [],
+          models: {
+            "veo-3.1": {
+              display_name: "Veo 3.1",
+              media_type: "video",
+              capabilities: [],
+              default: true,
+              supported_durations: [4, 6, 8],
+              duration_resolution_constraints: { "1080p": [8] },
+              reference_image_durations: [8],
+              resolutions: ["720p", "1080p"],
+            },
+          },
+        },
+      ],
+    });
+    vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      settings: { default_video_backend: VEO },
+    } as Awaited<ReturnType<typeof API.getSystemConfig>>);
+
+    useProjectsStore.setState({
+      currentProjectName: "real-project",
+      currentProjectData: makeProjectData({
+        video_backend: VEO,
+        model_settings: { [VEO]: { resolution: "720p" } },
+      }),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    renderAtProjectRoute("real-project", "/episodes/1");
+    await waitFor(() => {
+      expect(screen.getByTestId("timeline-duration-options").textContent).toBe("4,6,8");
+    });
+  });
+
   // 反方向：同一实例从演示项目切到真实项目时，store 的 currentProjectName 仍滞留上一轮的
   // 演示项目名（StudioWorkspace 的 effect 还没写入新值）。demoMode 若仍以 store 值兜底会误判
   // 为演示态，延迟真实项目的三个 GET；路由参数存在时须直接采信它。

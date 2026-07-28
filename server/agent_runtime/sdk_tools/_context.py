@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, constrain_durations_for_project
 from lib.db import async_session_factory
 from lib.project_manager import ProjectManager
 
@@ -36,17 +36,53 @@ def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> d
     return {"content": [{"type": "text", "text": text}], "is_error": True}
 
 
-async def fetch_video_caps(project: dict[str, Any]) -> tuple[int | None, list[int]]:
-    """Resolve ``(default_duration, supported_durations)`` for an MCP tool call.
+async def resolve_video_caps(project: dict[str, Any]) -> dict[str, Any]:
+    """Resolve the full video capability dict for an MCP tool call.
 
     Single source of truth for video model capability lookup across SDK MCP
-    tools (``enqueue_videos`` and ``text_generation`` both depend on this).
-    Returns the raw resolved durations; callers decide whether an empty result
-    is a hard error (video generation) or a soft fallback (script normalization).
+    tools. Callers that only need durations should use :func:`fetch_video_caps`;
+    this variant exposes the model identity so the caller can evaluate the
+    duration linkage constraints declared on it.
     """
     resolver = ConfigResolver(async_session_factory)
-    caps = await resolver.video_capabilities_for_project(project)
+    return await resolver.video_capabilities_for_project(project)
+
+
+def constrained_caps_durations(
+    project: dict[str, Any],
+    caps: dict[str, Any],
+    durations: list[int],
+    *,
+    generation_mode: str | None,
+) -> list[int]:
+    """按 caps 里的模型身份对 ``durations`` 施加时长联动约束（见 ``constrain_durations_for_project``）。
+
+    ``durations`` 单独传入而非从 caps 取：调用方对该集合做过自己的软回退 / 过滤，收窄要作用在
+    那个结果上，不能绕回 caps 的原始集合。
+    """
+    return constrain_durations_for_project(
+        project,
+        durations,
+        provider_id=caps.get("provider_id"),
+        model_id=caps.get("model"),
+        generation_mode=generation_mode,
+    )
+
+
+async def fetch_video_caps(
+    project: dict[str, Any], *, generation_mode: str | None = None
+) -> tuple[int | None, list[int]]:
+    """Resolve ``(default_duration, supported_durations)`` for an MCP tool call.
+
+    ``supported_durations`` 已按项目分辨率与 ``generation_mode`` 经时长联动约束收窄：型号声明的
+    全集不含「分辨率↔时长」「参考图↔时长」两条约束，未收窄的集合交给 LLM 会产出执行期必然被拒
+    的时长。``default_duration`` 是用户配置的原样值，成员性由调用方按各自口径判定。
+    Callers decide whether an empty result is a hard error (video generation) or
+    a soft fallback (script normalization).
+    """
+    caps = await resolve_video_caps(project)
     durations = [int(d) for d in caps.get("supported_durations") or []]
+    durations = constrained_caps_durations(project, caps, durations, generation_mode=generation_mode)
     default = caps.get("default_duration")
     default_int = int(default) if isinstance(default, int | float) else None
     return default_int, durations

@@ -9,6 +9,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useActiveResourceIds, useHasActiveTaskForScriptFile } from "@/stores/tasks-store";
 import { getScriptItemId } from "@/utils/script-shape";
+import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
 import type {
   EpisodeScript,
   NarrationEpisodeScript,
@@ -30,6 +31,8 @@ interface GridImageToVideoCanvasProps {
   scriptFile?: string;
   projectData: ProjectData | null;
   durationOptions?: number[];
+  /** 已保存时长越界的成因判定；缺省时 ShotDetail 退回不区分成因的通用警告文案。 */
+  durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
   onUpdatePrompt?: (
     segmentId: string,
     fieldOrPatch: string | Record<string, unknown>,
@@ -60,6 +63,7 @@ export function GridImageToVideoCanvas({
   scriptFile,
   projectData,
   durationOptions,
+  durationWarningReason,
   onUpdatePrompt,
   onGenerateStoryboard,
   onGenerateVideo,
@@ -342,6 +346,7 @@ export function GridImageToVideoCanvas({
             generatingVideo={generatingVideo}
             generatingNarration={generatingNarration}
             durationOptions={durationOptions}
+        durationWarningReason={durationWarningReason}
           />
         ) : null}
       </div>

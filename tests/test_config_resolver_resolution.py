@@ -10,7 +10,12 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from lib.config.resolver import ConfigResolver, get_provider_fallback
+from lib.config.resolver import (
+    ConfigResolver,
+    constrain_durations,
+    constrain_durations_for_project,
+    get_provider_fallback,
+)
 from lib.custom_provider import make_provider_id
 from lib.db.base import Base
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -207,3 +212,86 @@ def test_get_provider_fallback(provider_id: str | None, expected: str):
 
 def test_get_provider_fallback_custom_default():
     assert get_provider_fallback("unknown", default="720p") == "720p"
+
+
+# ---------------------------------------------------------------------------
+# 时长联动约束
+# ---------------------------------------------------------------------------
+
+_VEO = ("gemini-aistudio", "veo-3.1-generate-preview")  # 声明 {1080p:[8], 4k:[8]} + 参考图 [8]
+_HAILUO = ("minimax", "MiniMax-Hailuo-2.3")  # 声明 {1080p:[6]}，无参考图声明
+
+
+def test_constrain_durations_by_resolution():
+    """已登记且有声明时按声明收窄，大小写不敏感。"""
+    assert constrain_durations(*_VEO, [4, 6, 8], resolution="4K") == [8]
+    assert constrain_durations(*_VEO, [4, 6, 8], resolution="1080p") == [8]
+
+
+def test_constrain_durations_by_reference_images():
+    """参考图约束独立于分辨率触发；未走参考图路径时不施加。"""
+    assert constrain_durations(*_VEO, [4, 6, 8], uses_reference_images=True) == [8]
+    assert constrain_durations(*_VEO, [4, 6, 8], uses_reference_images=False) == [4, 6, 8]
+    # 无参考图声明的型号：该维度不收窄
+    assert constrain_durations(*_HAILUO, [6, 10], uses_reference_images=True) == [6, 10]
+
+
+def test_constrain_durations_both_dimensions_intersect():
+    """两条约束同时生效时取交集。"""
+    assert constrain_durations(*_HAILUO, [6, 10], resolution="1080p", uses_reference_images=True) == [6]
+
+
+def test_constrain_durations_falls_back():
+    """无声明 / 未登记型号 / 交集为空 / 缺参数时返回原候选，不把候选清空。"""
+    # 该分辨率无声明
+    assert constrain_durations(*_VEO, [4, 6, 8], resolution="720p") == [4, 6, 8]
+    # 型号未登记（中转站 / 自定义供应商包装）
+    assert constrain_durations("gemini-aistudio", "veo-3.1-via-relay", [4, 6, 8], resolution="4k") == [4, 6, 8]
+    # 交集为空（声明自相矛盾，不该发生）：保留原候选而非清空。两维各自成立
+    assert constrain_durations(*_VEO, [4, 6], resolution="4k") == [4, 6]
+    assert constrain_durations(*_VEO, [4, 6], uses_reference_images=True) == [4, 6]
+    # resolution 缺失且不走参考图：两维都不触发
+    assert constrain_durations(*_VEO, [4, 6, 8]) == [4, 6, 8]
+    # 身份缺失（能力不可解析）
+    assert constrain_durations(None, None, [4, 6, 8], resolution="4k") == [4, 6, 8]
+    # 空候选原样返回
+    assert constrain_durations(*_VEO, [], resolution="4k") == []
+
+
+def test_constrain_durations_for_project_uses_project_resolution():
+    """项目已设分辨率优先于 provider 兜底档位。"""
+    project = {"model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": "720p"}}}
+    assert constrain_durations_for_project(
+        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
+    ) == [4, 6, 8]
+
+
+def test_constrain_durations_for_project_falls_back_to_provider_resolution():
+    """项目未设分辨率时按 provider 兜底档位求值——执行期实际就落在该档位上。
+
+    这是 issue 描述的默认场景：用户不做任何配置，Veo 兜底 1080p，候选必须收窄到 8 秒，
+    否则剧本产出 4/6 秒镜头、入队时被 backend 拒。
+    """
+    assert constrain_durations_for_project(
+        {}, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
+    ) == [8]
+    # minimax 兜底 768p，该档位无声明 → 不收窄
+    assert constrain_durations_for_project(
+        {}, [6, 10], provider_id=_HAILUO[0], model_id=_HAILUO[1], generation_mode="storyboard"
+    ) == [6, 10]
+
+
+def test_constrain_durations_for_project_reference_mode():
+    """generation_mode=reference_video 触发参考图约束。"""
+    project = {"model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": "720p"}}}
+    assert constrain_durations_for_project(
+        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="reference_video"
+    ) == [8]
+
+
+def test_constrain_durations_for_project_legacy_resolution_key():
+    """legacy video_model_settings（裸 model_id 键）同样参与求值。"""
+    project = {"video_model_settings": {_VEO[1]: {"resolution": "720p"}}}
+    assert constrain_durations_for_project(
+        project, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
+    ) == [4, 6, 8]

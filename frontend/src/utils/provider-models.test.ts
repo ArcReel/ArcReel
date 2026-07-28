@@ -6,6 +6,7 @@ import {
   getCustomProviderModels,
   getProviderModels,
   lookupDurationConstraints,
+  lookupProjectVideoResolution,
 } from "./provider-models";
 
 describe("provider-models fetchers", () => {
@@ -121,5 +122,50 @@ describe("constrainDurations", () => {
   it("keeps the original options when constraints would leave nothing selectable", () => {
     const contradictory = { byResolution: { "720p": [16] }, withReferenceImages: [] };
     expect(constrainDurations([4, 6, 8], contradictory, { resolution: "720p" })).toEqual([4, 6, 8]);
+  });
+});
+
+describe("lookupProjectVideoResolution", () => {
+  const BACKEND = "gemini-aistudio/veo-3.1-generate-preview";
+
+  it("读 model_settings 的 provider/model 复合键", () => {
+    expect(
+      lookupProjectVideoResolution({ model_settings: { [BACKEND]: { resolution: "4K" } } }, BACKEND),
+    ).toBe("4K");
+  });
+
+  // 旧项目的分辨率存在 video_model_settings 下、键是裸 model_id；不回退会让老项目的
+  // 时长候选按「未设分辨率」处理，选到该分辨率下必然被拒的时长。
+  it("回退 legacy video_model_settings 的裸 model_id 键", () => {
+    expect(
+      lookupProjectVideoResolution(
+        { video_model_settings: { "veo-3.1-generate-preview": { resolution: "1080p" } } },
+        BACKEND,
+      ),
+    ).toBe("1080p");
+  });
+
+  it("新键优先于 legacy", () => {
+    expect(
+      lookupProjectVideoResolution(
+        {
+          model_settings: { [BACKEND]: { resolution: "720p" } },
+          video_model_settings: { "veo-3.1-generate-preview": { resolution: "1080p" } },
+        },
+        BACKEND,
+      ),
+    ).toBe("720p");
+  });
+
+  // null 表示用户未选档位：执行期会落到 provider 兜底档位，但那张表是后端数据、前端不镜像，
+  // 故不替用户假定档位（返回 null → 不收窄）。
+  it("未配置 / 缺项目 / 空后端一律 null", () => {
+    expect(lookupProjectVideoResolution({}, BACKEND)).toBeNull();
+    expect(lookupProjectVideoResolution({ model_settings: {} }, BACKEND)).toBeNull();
+    expect(lookupProjectVideoResolution(null, BACKEND)).toBeNull();
+    expect(lookupProjectVideoResolution({ model_settings: { [BACKEND]: { resolution: "4K" } } }, "")).toBeNull();
+    expect(
+      lookupProjectVideoResolution({ model_settings: { [BACKEND]: { resolution: null } } }, BACKEND),
+    ).toBeNull();
   });
 });
