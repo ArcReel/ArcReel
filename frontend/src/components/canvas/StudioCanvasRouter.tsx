@@ -192,10 +192,10 @@ export function StudioCanvasRouter() {
     }
   }, [currentProjectName, currentProjectData, refreshProject]);
 
-  // 不能用 voidPromise：它把返回值转 void 的同时也让包装函数立即 resolve，而
-  // ShotDetail.handleSave / handleRefsSave 靠 await 这个回调维持保存中状态——真正
-  // 要丢弃的只是布尔返回值，等待本身必须原样保留。TimelineCanvas 与
-  // GridImageToVideoCanvas 均不消费返回值，共用同一适配回调。
+  // 不走 voidPromise（见其 JSDoc）：ShotDetail.handleSave / handleRefsSave 靠
+  // await 这个回调维持保存中状态——真正要丢弃的只是布尔返回值，等待本身必须
+  // 原样保留。TimelineCanvas 与 GridImageToVideoCanvas 均不消费返回值，共用
+  // 同一适配回调。
   const awaitedUpdatePrompt = useCallback(
     async (...args: Parameters<typeof handleUpdatePrompt>) => {
       await handleUpdatePrompt(...args);
