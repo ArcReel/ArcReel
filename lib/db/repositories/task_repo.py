@@ -109,15 +109,16 @@ class TaskRepository(BaseRepository):
         task_id: str,
         project_name: str,
         status: str,
-        data: dict | None = None,
+        task_type: str | None = None,
     ) -> None:
+        """非终态调用是空操作：状态守卫兜住未来新增的非终态调用点，避免发出无对应动作的事件。"""
         if status in TERMINAL_TASK_STATUSES:
             self.terminal_events.append(
                 {
                     "task_id": task_id,
                     "project_name": project_name,
                     "status": status,
-                    "task_type": (data or {}).get("task_type"),
+                    "task_type": task_type,
                 }
             )
 
@@ -191,13 +192,6 @@ class TaskRepository(BaseRepository):
                 }
             raise
 
-        task_data = _task_to_dict(task)
-        self._record_terminal_event(
-            task_id=task_id,
-            project_name=project_name,
-            status="queued",
-            data=task_data,
-        )
         await self.session.commit()
 
         return {
@@ -282,13 +276,6 @@ class TaskRepository(BaseRepository):
         result = await self.session.execute(select(Task).where(Task.task_id == target_task_id))
         running_task = result.scalar_one()
         task_data = _task_to_dict(running_task)
-
-        self._record_terminal_event(
-            task_id=target_task_id,
-            project_name=running_task.project_name,
-            status="running",
-            data=task_data,
-        )
         await self.session.commit()
         return task_data
 
@@ -319,12 +306,11 @@ class TaskRepository(BaseRepository):
         await self.session.flush()
         res = await self.session.execute(select(Task).where(Task.task_id == task_id))
         done_task = res.scalar_one()
-        task_data = _task_to_dict(done_task)
         self._record_terminal_event(
             task_id=task_id,
             project_name=done_task.project_name,
             status="succeeded",
-            data=task_data,
+            task_type=done_task.task_type,
         )
         await self.session.commit()
         return affected
@@ -363,12 +349,11 @@ class TaskRepository(BaseRepository):
         await self.session.flush()
         res = await self.session.execute(select(Task).where(Task.task_id == task_id))
         failed_task = res.scalar_one()
-        task_data = _task_to_dict(failed_task)
         self._record_terminal_event(
             task_id=task_id,
             project_name=failed_task.project_name,
             status="failed",
-            data=task_data,
+            task_type=failed_task.task_type,
         )
         return affected
 
@@ -392,12 +377,11 @@ class TaskRepository(BaseRepository):
         await self.session.flush()
         res = await self.session.execute(select(Task).where(Task.task_id == task_id))
         failed_task = res.scalar_one()
-        task_data = _task_to_dict(failed_task)
         self._record_terminal_event(
             task_id=task_id,
             project_name=failed_task.project_name,
             status="failed",
-            data=task_data,
+            task_type=failed_task.task_type,
         )
         return affected
 
@@ -604,7 +588,7 @@ class TaskRepository(BaseRepository):
             task_id=task_id,
             project_name=cancelled_task.project_name,
             status="cancelled",
-            data=task_data,
+            task_type=cancelled_task.task_type,
         )
 
         # 先把自身入 cancelled 列表，再级联——保证 cancel_task 响应体里父先于子。
@@ -634,21 +618,7 @@ class TaskRepository(BaseRepository):
             .values(status="cancelling", cancelled_by=cancelled_by, updated_at=now)
         )
         result = await self.session.execute(stmt)
-        affected = rowcount(result)
-        if affected == 0:
-            return 0
-
-        await self.session.flush()
-        res = await self.session.execute(select(Task).where(Task.task_id == task_id))
-        cancelling_task = res.scalar_one()
-        task_data = _task_to_dict(cancelling_task)
-        self._record_terminal_event(
-            task_id=task_id,
-            project_name=cancelling_task.project_name,
-            status="cancelling",
-            data=task_data,
-        )
-        return affected
+        return rowcount(result)
 
     async def _cascade_cancel_dependents(
         self,
@@ -789,12 +759,11 @@ class TaskRepository(BaseRepository):
                 select(Task).where(Task.task_id.in_(task_ids), Task.status == "cancelled")
             )
             for updated_task in refreshed.scalars().all():
-                task_data = _task_to_dict(updated_task)
                 self._record_terminal_event(
                     task_id=updated_task.task_id,
                     project_name=project_name,
                     status="cancelled",
-                    data=task_data,
+                    task_type=updated_task.task_type,
                 )
 
         await self.session.commit()

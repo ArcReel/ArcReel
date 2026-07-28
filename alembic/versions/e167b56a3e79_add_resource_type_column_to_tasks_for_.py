@@ -34,8 +34,8 @@ def _collapse_duplicate_active_tasks_for_downgrade() -> None:
 
     升级后不同资产类型同名（如角色和道具都叫「玉佩」）的活动 image_edit 任务可以并存；
     降级恢复不含 resource_type 的窄索引前，这些合并后撞键的分组只保留最早入队的一条，
-    其余按既有 cancel 语义（见 ``TaskRepository.cancel_task``）软取消——不落 task_events，
-    降级路径不依赖事件流回放；保留行、仅摘除其终态外的活动任务，不做硬删除。
+    其余按既有 cancel 语义（见 ``TaskRepository.cancel_task``）软取消——直接改状态、不发终态事件，
+    降级路径不依赖事件通知；保留行、仅摘除其终态外的活动任务，不做硬删除。
     """
     op.execute(
         sa.text(
