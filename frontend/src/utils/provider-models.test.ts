@@ -169,9 +169,10 @@ describe("lookupProjectVideoResolution", () => {
     ).toBeNull();
   });
 
-  // 新键存在且为 null 是「用户在新设置里清空了档位」，不是「没配过」——旧项目升级后残留的
-  // legacy 值不该把它顶回去，否则前端会按用户已经取消的档位收窄时长选项。
-  it("新键显式 null 时不回退 legacy", () => {
+  // 新键为空值按「未配置」处理并继续回退 legacy，与后端 `_resolution_from_project` 及保存期的
+  // legacy 迁移（`_migrate_legacy_resolution_on_save` 只在 resolution 有值时清理）同口径。
+  // 三处必须描述同一套语义，否则同一份 project.json 会让工作台呈现执行期实际不接受的时长。
+  it("新键为空值时回退 legacy，与后端读取口径一致", () => {
     expect(
       lookupProjectVideoResolution(
         {
@@ -180,6 +181,6 @@ describe("lookupProjectVideoResolution", () => {
         },
         BACKEND,
       ),
-    ).toBeNull();
+    ).toBe("1080p");
   });
 });

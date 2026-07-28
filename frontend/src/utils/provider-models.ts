@@ -149,10 +149,11 @@ export function lookupProjectVideoResolution(
   backend: string,
 ): string | null {
   if (!project || !backend) return null;
-  // 只在新键完全不存在时回退 legacy：显式 null 是「用户在新设置里清空了档位」，
-  // 旧项目升级后残留的 video_model_settings 值不该把它顶回去。
+  // 空值（null / 空串）按「未配置」处理并继续回退 legacy，与后端 `_resolution_from_project`
+  // 及保存期的 legacy 迁移同口径——这三处必须描述同一套语义，否则同一份 project.json 会让
+  // 工作台呈现执行期实际不接受的时长。
   const fromModelSettings = project.model_settings?.[backend]?.resolution;
-  if (fromModelSettings !== undefined) return fromModelSettings || null;
+  if (fromModelSettings) return fromModelSettings;
   const slashIdx = backend.indexOf("/");
   const modelId = slashIdx === -1 ? backend : backend.slice(slashIdx + 1);
   return project.video_model_settings?.[modelId]?.resolution ?? null;
