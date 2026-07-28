@@ -15,6 +15,7 @@ from lib.script_skeleton import (
 from server.services.project_events import (
     PROJECT_DELETED_EVENT,
     ProjectEventService,
+    _change_identity,
 )
 
 
@@ -346,9 +347,17 @@ class TestProjectEventService:
                 await asyncio.sleep(0.2)
                 release_first.set()
 
+                # 两次重建各自的批次广播与可能的补扫广播都要收齐，再看角色变更的全貌
                 broadcast_changes = []
                 for _ in range(2):
                     event_name, payload = await _next_event(stream, timeout=5.0)
+                    assert event_name == "changes"
+                    broadcast_changes.extend(payload["changes"])
+                while True:
+                    try:
+                        event_name, payload = await _next_event(stream, timeout=0.5)
+                    except TimeoutError:
+                        break
                     assert event_name == "changes"
                     broadcast_changes.extend(payload["changes"])
 
@@ -363,11 +372,14 @@ class TestProjectEventService:
     @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_emitted_batch_broadcasts_concurrent_change_swept_into_rebuild(self, tmp_path):
-        """显式重建读盘捎带了不属于本批的文件变更时，该变更随本次广播发出。
+        """显式重建读盘捎带了不属于本批的文件变更时，该变更由紧随其后的补扫广播发出。
 
         显式重建把新快照写回基线。若某个变更落盘于读盘之前却不在本批 changes 里，
         它会被并入基线而从未广播——后续轮询扫描与基线已无差异，再没有任何机制
         为它补发。这里用「与该变更无关的终态事件」触发重建来覆盖这条路径。
+
+        补扫走独立 payload：source 是 payload 级字段，捎带进来的变更来源与本批未必
+        相同，并入本批会让前端的 webui 抑制判断落到错误的一侧。
 
         并发变更取「原地改写已索引的剧本文件」：这类变更不触发剧集索引同步，
         因而不会顺带发出 hint 唤醒轮询扫描，丢失是终局的。
@@ -411,14 +423,19 @@ class TestProjectEventService:
 
             emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
 
+            # 本批自身的终态事件独占一条 payload（正常路径的时序与结构不受补扫影响）
             event_name, payload = await _next_event(stream, timeout=2.0)
             assert event_name == "changes"
-            # 本批自身的终态事件仍在，且列在最前（正常路径 payload 结构不受影响）
-            assert payload["changes"][0]["action"] == "task_succeeded"
+            assert [change["action"] for change in payload["changes"]] == ["task_succeeded"]
+            assert payload["source"] == "worker"
+
+            # 捎带进来的变更随后单独广播，来源按自己的 hint 标记解析
+            event_name, swept = await _next_event(stream, timeout=2.0)
+            assert event_name == "changes"
             assert any(
-                change["action"] == "storyboard_ready" and change["entity_id"] == "E1S01"
-                for change in payload["changes"]
+                change["action"] == "storyboard_ready" and change["entity_id"] == "E1S01" for change in swept["changes"]
             )
+            assert swept["source"] == "filesystem"
 
         await service.shutdown()
 
@@ -488,6 +505,186 @@ class TestProjectEventService:
             assert len(ready) == 1
 
         await service.shutdown()
+
+    def test_change_identity_normalizes_equivalent_ready_actions(self):
+        """参考视频完成在发布方与快照差分两侧的 action 命名不同，但去重身份相同。
+
+        发布方按 task_type 映射为 ``reference_video_ready``，同一次落盘在 unit 差分里是
+        ``video_ready``；不归一会让同一次完成既由本批广播、又被补扫广播一次。
+        """
+        common = {"entity_type": "reference_unit", "entity_id": "E1U01"}
+        assert _change_identity({**common, "action": "reference_video_ready"}) == _change_identity(
+            {**common, "action": "video_ready"}
+        )
+        # 归一只覆盖这一对等价 action，不牵连其它动作
+        assert _change_identity({**common, "action": "storyboard_ready"}) != _change_identity(
+            {**common, "action": "video_ready"}
+        )
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_sweep_leaves_change_described_by_another_inflight_batch(self, tmp_path, monkeypatch):
+        """另一批次的产物被本次重建读盘捎带时，补扫让给该批次广播，同一件事只发一次。
+
+        两个生成任务几乎同时完成时，先取得重建锁的一方会读到对方已落盘的产物。补扫若把它
+        一并广播，对方自己排队的批次仍会无条件再发一次，前端不跨批去重，用户看到两次完成。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        script = {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "narration_text": "开场",
+                    "image_prompt": "p",
+                    "video_prompt": "v",
+                    "characters_in_scene": [],
+                    "scenes": [],
+                    "props": [],
+                    "generated_assets": _pending_assets(),
+                }
+            ],
+        }
+        with project_change_source("filesystem"):
+            pm.save_script("demo", script, "episode_1.json", validate=False)
+
+        service = ProjectEventService(tmp_path, poll_interval=30.0)
+        await service.start()
+
+        release_first = asyncio.Event()
+
+        try:
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                event_name, _snapshot = await anext(stream)
+                assert event_name == "snapshot"
+
+                original_rebuild = service._rebuild_snapshot
+                calls = 0
+                first_read_done = asyncio.Event()
+                loop = asyncio.get_running_loop()
+
+                def _rebuild_holding_first(project_name: str):
+                    nonlocal calls
+                    calls += 1
+                    index = calls
+                    if index == 1:
+                        # 读盘前停一次：让编排先把 B 的产物落盘并发出 B 的批次，
+                        # 本次读盘因而必然捎带 B 的产物
+                        loop.call_soon_threadsafe(first_read_done.set)
+                        asyncio.run_coroutine_threadsafe(release_first.wait(), loop).result(timeout=5)
+                    return original_rebuild(project_name)
+
+                monkeypatch.setattr(service, "_rebuild_snapshot", _rebuild_holding_first)
+
+                # 批次 A：与分镜无关的终态事件，只为触发重建
+                emit_project_change_batch("demo", [_terminal_task_change("task-a")], source="worker")
+                await asyncio.wait_for(first_read_done.wait(), timeout=5.0)
+
+                # 批次 B 的产物先落盘，再发 B 自己的批次（worker 成功路径的真实次序）
+                script["segments"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
+                script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+                script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+                emit_project_change_batch(
+                    "demo",
+                    [
+                        {
+                            "entity_type": "segment",
+                            "action": "storyboard_ready",
+                            "entity_id": "E1S01",
+                            "label": "分镜「E1S01」",
+                            "focus": None,
+                            "important": True,
+                            "script_file": "episode_1.json",
+                            "episode": 1,
+                        }
+                    ],
+                    source="worker",
+                )
+                release_first.set()
+
+                broadcast_changes = []
+                while True:
+                    try:
+                        event_name, payload = await _next_event(stream, timeout=1.0)
+                    except TimeoutError:
+                        break
+                    assert event_name == "changes"
+                    broadcast_changes.extend(payload["changes"])
+
+                ready = [
+                    change
+                    for change in broadcast_changes
+                    if change["action"] == "storyboard_ready" and change["entity_id"] == "E1S01"
+                ]
+                assert len(ready) == 1
+                # 广播它的是 B 自己那一批：补扫的副本不带 asset_fingerprints
+                assert "script_file" in ready[0]
+        finally:
+            release_first.set()
+            await service.shutdown()
+
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_hint_source_repeated_during_rebuild_read_is_not_dropped(self, tmp_path, monkeypatch):
+        """重建读盘期间重复到达的来源标记不被写回时清掉，下一轮扫描仍据它解析来源。
+
+        读盘前在册的标记整体换出而非事后减去：同一来源在窗口内再次 hint 时，集合语义下
+        「减去旧集合」会把新标记一并抹掉，那条变更会在下一轮扫描被误标成 filesystem，
+        绕过前端对 WebUI 自身编辑的通知抑制。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        service = ProjectEventService(tmp_path, poll_interval=30.0)
+        await service.start()
+
+        release_read = asyncio.Event()
+
+        try:
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                event_name, _snapshot = await anext(stream)
+                assert event_name == "snapshot"
+
+                channel = service._channels["demo"]
+                # 订阅时的首轮扫描会清空标记，等它落定再预置，否则重建捕获到的是空集合
+                await asyncio.sleep(0.1)
+                assert channel.pending_sources == set()
+                # 重建发起前已在册的标记
+                channel.pending_sources.add("webui")
+
+                original_rebuild = service._rebuild_snapshot
+                read_started = asyncio.Event()
+                loop = asyncio.get_running_loop()
+
+                def _rebuild_waiting(project_name: str):
+                    loop.call_soon_threadsafe(read_started.set)
+                    asyncio.run_coroutine_threadsafe(release_read.wait(), loop).result(timeout=5)
+                    return original_rebuild(project_name)
+
+                monkeypatch.setattr(service, "_rebuild_snapshot", _rebuild_waiting)
+
+                emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
+                await asyncio.wait_for(read_started.wait(), timeout=5.0)
+
+                # 读盘窗口内同一来源再次 hint
+                channel.pending_sources.add("webui")
+                release_read.set()
+
+                event_name, _payload = await _next_event(stream, timeout=5.0)
+                assert event_name == "changes"
+
+                # 窗口内的标记留存，下一轮扫描据它解析出 webui 而非 filesystem
+                assert channel.pending_sources == {"webui"}
+                assert service._resolve_batch_source(channel.pending_sources) == "webui"
+        finally:
+            release_read.set()
+            await service.shutdown()
 
     @pytest.mark.integration
     @pytest.mark.asyncio
