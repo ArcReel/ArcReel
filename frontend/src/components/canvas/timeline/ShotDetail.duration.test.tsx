@@ -203,6 +203,43 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     expect(onUpdatePrompt).not.toHaveBeenCalled();
   });
 
+  it("同集宫格任务在跑时提交被拒（grid 按 scriptFile 判，归不进分镜粒度）", () => {
+    // grid 任务的 resource_id 是 grid_id，isResourceBusy 的分镜粒度判定看不到它；
+    // 而切割阶段会覆写本集多个分镜、与改时长并发写同一份剧本。
+    const onUpdatePrompt = vi.fn();
+    renderDetail({ onUpdatePrompt });
+    fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
+
+    useTasksStore.setState({
+      tasks: [
+        {
+          project_name: "demo",
+          task_type: "grid",
+          media_type: "image",
+          resource_id: "grid-1",
+          resource_type: null,
+          script_file: "episode_1.json",
+          payload: {},
+          task_id: "g1",
+          status: "running",
+          result: null,
+          error_message: null,
+          cancelled_by: null,
+          provider_id: null,
+          provider_job_id: null,
+          source: "webui",
+          queued_at: "2026-07-28T00:00:00Z",
+          started_at: null,
+          finished_at: null,
+          updated_at: "2026-07-28T00:00:00Z",
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("radio", { name: /8 秒/ }));
+    expect(onUpdatePrompt).not.toHaveBeenCalled();
+  });
+
   it("任务结束后旧面板不自行重现", () => {
     // 只派生可见性（open && !locked）会在 locked 回落时让旧面板连同未提交草稿一起回来。
     // 转入锁定态必须真正清掉 open 与 draftSeconds。

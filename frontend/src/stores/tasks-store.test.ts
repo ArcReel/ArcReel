@@ -6,6 +6,7 @@ import {
   isActiveStatus,
   isOccupyingStatus,
   isResourceBusy,
+  isScriptFileBusy,
   isTerminalStatus,
   selectActiveResourceIds,
   selectHasActiveTaskForScriptFile,
@@ -930,6 +931,43 @@ describe("isResourceBusy", () => {
     expect(isResourceBusy("video", "p1", "u1")).toBe(true);
     expect(isResourceBusy("storyboard", "p1", "u1")).toBe(false);
     expect(isResourceBusy("video", "p2", "u1")).toBe(false);
+  });
+});
+
+describe("isScriptFileBusy", () => {
+  beforeEach(() => {
+    useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
+  });
+
+  it("reads the store snapshot at call time", () => {
+    // 与 isResourceBusy 同理：提交那一刻必须拿最新占用态，而非渲染期捕获的快照。
+    expect(isScriptFileBusy("grid", "episode_1.json", "proj")).toBe(false);
+    useTasksStore.setState({
+      tasks: [
+        task({ task_id: "g1", task_type: "grid", script_file: "episode_1.json", status: "running" }),
+      ],
+    });
+    expect(isScriptFileBusy("grid", "episode_1.json", "proj")).toBe(true);
+  });
+
+  it("normalizes the scripts/ prefix on both sides", () => {
+    // episode 元数据带 scripts/ 前缀、任务行不一定带，两边都要归一后再比。
+    useTasksStore.setState({
+      tasks: [
+        task({ task_id: "g1", task_type: "grid", script_file: "episode_1.json", status: "running" }),
+      ],
+    });
+    expect(isScriptFileBusy("grid", "scripts/episode_1.json", "proj")).toBe(true);
+  });
+
+  it("returns false when scriptFile or projectName is missing", () => {
+    useTasksStore.setState({
+      tasks: [
+        task({ task_id: "g1", task_type: "grid", script_file: "episode_1.json", status: "running" }),
+      ],
+    });
+    expect(isScriptFileBusy("grid", undefined, "proj")).toBe(false);
+    expect(isScriptFileBusy("grid", "episode_1.json", null)).toBe(false);
   });
 });
 

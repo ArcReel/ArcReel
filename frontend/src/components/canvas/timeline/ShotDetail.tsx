@@ -36,7 +36,7 @@ import { StatusBadge, statusFromAssets } from "./StatusBadge";
 import { Popover } from "@/components/ui/Popover";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { isResourceBusy } from "@/stores/tasks-store";
+import { isResourceBusy, isScriptFileBusy } from "@/stores/tasks-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
@@ -154,6 +154,8 @@ interface DurationPillProps {
   seconds: number;
   segmentId: string;
   projectName: string;
+  /** 本集剧本文件名；宫格任务按它做 scriptFile 粒度的占用判定。 */
+  scriptFile?: string;
   durationOptions: number[];
   durationWarningReason?: ShotDetailProps["durationWarningReason"];
   onUpdatePrompt?: ShotDetailProps["onUpdatePrompt"];
@@ -165,6 +167,7 @@ function DurationPill({
   seconds,
   segmentId,
   projectName,
+  scriptFile,
   durationOptions,
   durationWarningReason,
   onUpdatePrompt,
@@ -183,14 +186,17 @@ function DurationPill({
   // store 更新到重渲染提交之间用户仍可能点下去。命中则拒绝并给可见反馈（与立绘上传的
   // rejectIfAssetBusy 同口径）。
   const rejectIfBusy = useCallback(() => {
+    // 宫格任务另按 scriptFile 判：它的 resource_id 是 grid_id，归不进按分镜 resource_id 的
+    // 判定，而切割阶段会覆写本集内多个分镜、与改时长并发写同一份剧本。
     const stillBusy =
       busy ||
       isResourceBusy("storyboard", projectName, segmentId) ||
-      isResourceBusy("video", projectName, segmentId);
+      isResourceBusy("video", projectName, segmentId) ||
+      isScriptFileBusy("grid", scriptFile, projectName);
     if (!stillBusy) return false;
     useAppStore.getState().pushToast(t("duration_locked_generating"), "info");
     return true;
-  }, [busy, projectName, segmentId, t]);
+  }, [busy, projectName, segmentId, scriptFile, t]);
 
   const commitDraft = useCallback(() => {
     if (draftSeconds == null) return;
@@ -1005,6 +1011,7 @@ export function ShotDetail({
           seconds={segment.duration_seconds ?? 0}
           segmentId={segmentId}
           projectName={projectName}
+          scriptFile={scriptFile}
           durationOptions={durationOptions}
           durationWarningReason={durationWarningReason}
           onUpdatePrompt={onUpdatePrompt}

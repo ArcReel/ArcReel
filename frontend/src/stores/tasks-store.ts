@@ -566,6 +566,30 @@ export function selectHasActiveTaskForScriptFile(
   return false;
 }
 
+/**
+ * scriptFile 粒度的提交时刻复核入口，与 {@link isResourceBusy} 同构（`getState()` 新鲜读）。
+ *
+ * 存在的理由与 resource 粒度那条相同——渲染时刻的 prop 反映的是上次渲染，store 更新到重渲染
+ * 提交之间用户仍可能点下去。粒度换成 scriptFile 是因为 grid 任务的 resource_id 是 grid_id、
+ * 归不进按分镜 resource_id 的判定（见 {@link selectHasActiveTaskForScriptFile}）。
+ * scriptFile/projectName 缺失时返回 false，与 hook 版同口径。
+ */
+export function isScriptFileBusy(
+  taskType: string,
+  scriptFile: string | undefined | null,
+  projectName: string | undefined | null,
+): boolean {
+  if (!scriptFile || !projectName) return false;
+  const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+  return selectHasActiveTaskForScriptFile(
+    tasks,
+    taskType,
+    scriptFile,
+    projectName,
+    optimisticActiveScriptFile,
+  );
+}
+
 /** hook 版 {@link selectHasActiveTaskForScriptFile}；scriptFile/projectName 缺失时返回 false。 */
 export function useHasActiveTaskForScriptFile(
   taskType: string,
