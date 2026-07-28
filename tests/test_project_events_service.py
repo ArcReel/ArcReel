@@ -293,7 +293,7 @@ class TestProjectEventService:
 
     @pytest.mark.integration
     @pytest.mark.asyncio
-    async def test_stale_rebuild_does_not_broadcast_reverse_diff(self, tmp_path):
+    async def test_stale_rebuild_does_not_broadcast_reverse_diff(self, tmp_path, monkeypatch):
         """两次显式重建读盘耗时不同而乱序结算时，先读到旧盘的一方不广播反向变更。
 
         补扫对基线做 diff，故陈旧快照被写回基线会把实际存在的实体 diff 成 ``deleted``。
@@ -307,53 +307,58 @@ class TestProjectEventService:
         service = ProjectEventService(tmp_path, poll_interval=30.0)
         await service.start()
 
-        async with service.stream_events("demo", idle_timeout=0.1) as stream:
-            event_name, _snapshot = await anext(stream)
-            assert event_name == "snapshot"
+        release_first = asyncio.Event()
 
-            original_rebuild = service._rebuild_snapshot
-            calls = 0
-            first_read_done = asyncio.Event()
-            release_first = asyncio.Event()
-            loop = asyncio.get_running_loop()
+        try:
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                event_name, _snapshot = await anext(stream)
+                assert event_name == "snapshot"
 
-            def _rebuild_holding_first(project_name: str):
-                nonlocal calls
-                calls += 1
-                index = calls
-                result = original_rebuild(project_name)
-                if index == 1:
-                    # 首次读盘已完成但尚未结算：交还控制权，等编排放行
-                    loop.call_soon_threadsafe(first_read_done.set)
-                    asyncio.run_coroutine_threadsafe(release_first.wait(), loop).result(timeout=5)
-                return result
+                original_rebuild = service._rebuild_snapshot
+                calls = 0
+                first_read_done = asyncio.Event()
+                loop = asyncio.get_running_loop()
 
-            service._rebuild_snapshot = _rebuild_holding_first
+                def _rebuild_holding_first(project_name: str):
+                    nonlocal calls
+                    calls += 1
+                    index = calls
+                    result = original_rebuild(project_name)
+                    if index == 1:
+                        # 首次读盘已完成但尚未结算：交还控制权，等编排放行
+                        loop.call_soon_threadsafe(first_read_done.set)
+                        asyncio.run_coroutine_threadsafe(release_first.wait(), loop).result(timeout=5)
+                    return result
 
-            emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
-            await asyncio.wait_for(first_read_done.wait(), timeout=5.0)
+                monkeypatch.setattr(service, "_rebuild_snapshot", _rebuild_holding_first)
 
-            # 首次读盘之后落盘一个新角色：直接改写 project.json，不发 hint
-            project_json = pm.get_project_path("demo") / "project.json"
-            data = json.loads(project_json.read_text(encoding="utf-8"))
-            data.setdefault("characters", {})["新角色"] = {"name": "新角色", "description": "d"}
-            project_json.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+                emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
+                await asyncio.wait_for(first_read_done.wait(), timeout=5.0)
 
-            # 第二次重建：留出窗口让它抢先读盘并结算（无锁时它会先于首次广播）
-            emit_project_change_batch("demo", [_terminal_task_change("task-2")], source="worker")
-            await asyncio.sleep(0.2)
+                # 首次读盘之后落盘一个新角色：直接改写 project.json，不发 hint
+                project_json = pm.get_project_path("demo") / "project.json"
+                data = json.loads(project_json.read_text(encoding="utf-8"))
+                data.setdefault("characters", {})["新角色"] = {"name": "新角色", "description": "d"}
+                project_json.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+                # 第二次重建：留出窗口让它抢先读盘并结算（无锁时它会先于首次广播）
+                emit_project_change_batch("demo", [_terminal_task_change("task-2")], source="worker")
+                await asyncio.sleep(0.2)
+                release_first.set()
+
+                broadcast_changes = []
+                for _ in range(2):
+                    event_name, payload = await _next_event(stream, timeout=5.0)
+                    assert event_name == "changes"
+                    broadcast_changes.extend(payload["changes"])
+
+                character_changes = [change for change in broadcast_changes if change["entity_type"] == "character"]
+                assert [change["action"] for change in character_changes] == ["created"]
+        finally:
+            # 断言或 _next_event 提前失败时，被刻意挂起的重建线程仍卡在 release_first 上，
+            # 放行后 shutdown 才收得掉 watch task 与 project_change_hints 的全局监听注册。
             release_first.set()
-
-            broadcast_changes = []
-            for _ in range(2):
-                event_name, payload = await _next_event(stream, timeout=5.0)
-                assert event_name == "changes"
-                broadcast_changes.extend(payload["changes"])
-
-            character_changes = [change for change in broadcast_changes if change["entity_type"] == "character"]
-            assert [change["action"] for change in character_changes] == ["created"]
-
-        await service.shutdown()
+            await service.shutdown()
 
     @pytest.mark.integration
     @pytest.mark.asyncio
