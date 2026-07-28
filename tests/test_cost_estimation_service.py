@@ -576,11 +576,12 @@ class TestCostEstimationService:
         # compute() 不因 resolve_resolution 异常而中断，其余字段照常返回
         assert result["models"]["video"]["provider"] == "unknown"
 
+    @pytest.mark.integration
     @pytest.mark.parametrize(
         ("video_backend", "configured_generate_audio", "expected_usd"),
         [
             # AI Studio 无 audio-off 档，供应商恒按含音价出账：无论开关状态，预估都须落在
-            # veo-3.1-lite-generate-preview 1080p 的含音价 0.08 USD/s（issue #1426 的核心场景）。
+            # veo-3.1-lite-generate-preview 1080p 的含音价 0.08 USD/s。
             ("gemini-aistudio", True, 0.08),
             ("gemini-aistudio", False, 0.08),
             # Vertex 有独立的 audio-off 档，不受 AI Studio 修正影响，预估随开关走
