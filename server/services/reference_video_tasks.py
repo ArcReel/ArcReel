@@ -169,7 +169,7 @@ def unit_script_duration(unit: dict, ad_shots: list[dict] | None) -> int:
 
 
 def effective_reference_durations(
-    provider: str,
+    provider_id: str,
     model: str | None,
     durations: list[int],
     resolution: str | None,
@@ -186,12 +186,12 @@ def effective_reference_durations(
     缺图会退化为纯文本，backend 同样只在 ``reference_images`` 非空时施加该约束——无图单元
     套用它会把 720p 下本可申请的 4 秒错误抬到 8 秒。
 
-    ``provider`` 必须是规范 registry provider id（backend 族名不是 registry key）。两条约束
+    ``provider_id`` 必须是规范 registry provider id（backend 族名不是 registry key）。两条约束
     都遵循「无声明或交集为空时不收窄」的降级口径（见 :func:`lib.config.resolver.constrain_durations`），
     故本函数在能力声明缺位时退化为原全集，不比收窄前更严。
     """
     return constrain_durations(
-        provider, model, durations, resolution=resolution, uses_reference_images=with_reference_images
+        provider_id, model, durations, resolution=resolution, uses_reference_images=with_reference_images
     )
 
 

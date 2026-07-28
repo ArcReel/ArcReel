@@ -241,7 +241,18 @@ def constrain_durations(
     by_resolution = model_info.duration_resolution_constraints.get(resolution.strip().lower()) if resolution else None
     if by_resolution:
         allowed = [d for d in allowed if d in by_resolution]
-    return allowed or list(durations)
+    if not allowed:
+        logger.warning(
+            "duration constraints for %s/%s have no overlap with candidate durations "
+            "(resolution=%r, uses_reference_images=%r), falling back to unconstrained candidates %r",
+            provider_id,
+            model_id,
+            resolution,
+            uses_reference_images,
+            durations,
+        )
+        return list(durations)
+    return allowed
 
 
 def _resolution_for_constraints(
