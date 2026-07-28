@@ -960,6 +960,310 @@ async def test_generate_video_episode_error(fake_ctx: ToolContext) -> None:
     assert out.get("is_error") is True
 
 
+def _reference_video_script(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "content_mode": "narration",
+        "generation_mode": "reference_video",
+        "episode": 1,
+        "video_units": [
+            {
+                "unit_id": "E1U1",
+                "shots": [{"duration": 5, "text": "@张三 推门"}],
+                "references": [{"type": "character", "name": "张三"}],
+                "duration_seconds": 5,
+            }
+        ],
+    }
+    payload.update(overrides)
+    return payload
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_reference_duration_needs_confirmation(fake_ctx: ToolContext, monkeypatch) -> None:
+    """申请秒数与剧本总时长不一致时，首次调用不入队，返回内容含总时长/申请秒数/差异说明。"""
+    from lib.reference_video.duration_slots import UP, DurationSlot
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+
+    async def fake_precheck(project, unit, ad_shots):
+        return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        enqueued.extend(specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True
+    text = out["content"][0]["text"]
+    assert "E1U1" in text
+    assert "5" in text and "8" in text
+    assert "confirm_duration" in text
+    assert enqueued == []
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_ctx: ToolContext, monkeypatch) -> None:
+    """带 confirm_duration=true 的再次调用按取档结果入队并生成成功。"""
+    from lib.generation_queue_client import BatchTaskResult
+    from lib.reference_video.duration_slots import UP, DurationSlot
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+
+    async def fake_precheck(project, unit, ad_shots):
+        return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        for spec in specs:
+            enqueued.append(spec)
+            if on_success:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "confirm_duration": True})
+
+    assert out.get("is_error") is not True, out
+    assert [s.resource_id for s in enqueued] == ["E1U1"]
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_reference_duration_repeat_without_confirm_still_blocked(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """不带确认参数的重复调用仍不入队。"""
+    from lib.reference_video.duration_slots import UP, DurationSlot
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+
+    async def fake_precheck(project, unit, ad_shots):
+        return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        enqueued.extend(specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    await _call(tool_obj, {"script": "episode_1.json"})
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True
+    assert enqueued == []
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_reference_duration_exact_enqueues_directly(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """总时长为档位成员时单次调用直接入队，行为与现状一致。"""
+    from lib.reference_video.duration_slots import EXACT, DurationSlot
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+
+    async def fake_precheck(project, unit, ad_shots):
+        return DurationSlot(seconds=5, total_seconds=5, adjustment=EXACT)
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+
+        for spec in specs:
+            enqueued.append(spec)
+            if on_success:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert [s.resource_id for s in enqueued] == ["E1U1"]
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_reference_duration_skips_unit_without_shots(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """没有 shots 的 unit 不进入确认清单，不阻塞其余合法 unit 直接入队。
+
+    build_specs 本就会跳过没有 shots 的 unit（见 test_build_reference_specs_*）；
+    预检若不做同一过滤，会把这个注定不会入队的 unit 纳入确认清单，阻塞整批，
+    且申请时长的转述本身失实。
+    """
+    from lib.reference_video.duration_slots import EXACT, DurationSlot
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    script = _reference_video_script()
+    script["video_units"].append({"unit_id": "E1U2", "duration_seconds": 5})
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+
+    precheck_calls: list[str] = []
+
+    async def fake_precheck(project, unit, ad_shots):
+        precheck_calls.append(unit["unit_id"])
+        return DurationSlot(seconds=5, total_seconds=5, adjustment=EXACT)
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+
+        for spec in specs:
+            enqueued.append(spec)
+            if on_success:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert precheck_calls == ["E1U1"]
+    assert [s.resource_id for s in enqueued] == ["E1U1"]
+    assert "E1U2" in out["content"][0]["text"]
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
+    ad_reference_ctx: ToolContext, monkeypatch
+) -> None:
+    """ad 参考直出走同一条确认闸门，且预检拿到的是水合后的成员镜头（ad_shots 非空）。"""
+    from lib.reference_video.duration_slots import UP, DurationSlot
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    seen_ad_shots: list[Any] = []
+
+    async def fake_precheck(project, unit, ad_shots):
+        seen_ad_shots.append(ad_shots)
+        return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        enqueued.extend(specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(ad_reference_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert enqueued == []
+    assert seen_ad_shots and seen_ad_shots[0]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("make_tool", "extra_args"),
+    [
+        (generate_video_scene_tool, {"scene_id": "E1S01"}),
+        (generate_video_all_tool, {}),
+        (generate_video_selected_tool, {"scene_ids": ["E1S01"]}),
+    ],
+    ids=["scene", "all", "selected"],
+)
+async def test_generate_video_reference_duration_confirmation_across_entries(
+    fake_ctx: ToolContext, monkeypatch, make_tool, extra_args: dict[str, Any]
+) -> None:
+    """四个入口在 reference 路径下共用同一条确认闸门：未确认不入队、确认后入队。
+
+    确认文本必须保留本次已产生的 log——scene / selected 的「scene_id 被忽略，转整集生成」
+    正是靠它告诉用户，他同意的是整集而非所选的那个 scene。
+    """
+    from lib.generation_queue_client import BatchTaskResult
+    from lib.reference_video.duration_slots import UP, DurationSlot
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+
+    async def fake_precheck(project, unit, ad_shots):
+        return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        for spec in specs:
+            enqueued.append(spec)
+            if on_success:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = make_tool(fake_ctx)
+    pending = await _call(tool_obj, {"script": "episode_1.json", **extra_args})
+
+    assert pending.get("is_error") is not True, pending
+    assert enqueued == []
+    text = pending["content"][0]["text"]
+    assert "confirm_duration" in text
+    if make_tool is not generate_video_all_tool:
+        assert "转整集生成" in text
+
+    confirmed = await _call(tool_obj, {"script": "episode_1.json", **extra_args, "confirm_duration": True})
+
+    assert confirmed.get("is_error") is not True, confirmed
+    assert [s.resource_id for s in enqueued] == ["E1U1"]
+
+
 async def test_generate_video_scene_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 

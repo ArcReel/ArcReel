@@ -54,6 +54,21 @@ ad 剧本骨架唯一（平铺 `shots[]`，不存在 `video_units`）。项目 `
 > 集号从 script 顶层 `episode` 或文件名推导，无需手动传。
 > `reference_video` 模式下 `scene_id` / `scene_ids` 会被忽略，转整集生成。
 
+### reference_video 模式的时长确认
+
+`video_units` / ad 派生 unit 的申请时长按模型支持的档位取整（容量语义：申请能装下
+剧本总时长的最小档位，成片不裁剪；超过最大档位时按最大档位申请）。申请秒数与剧本
+编排的总时长不一致时，`generate_video_episode` / `generate_video_scene` /
+`generate_video_all` / `generate_video_selected` 四个工具在 reference_video 路径下
+**首次调用不会入队任何任务**，只返回待确认清单（每个 unit 的剧本总时长、将申请的
+秒数、成片会更长还是更短）。据此如实转述给用户，用户同意后带 `confirm_duration:
+true` 重新调用同一工具完成入队；不带该参数的重复调用仍不入队。总时长本身就是档位
+成员、或模型能力当前不可解析时，单次调用直接入队，行为与不启用取档时一致。
+
+```text
+mcp__arcreel__generate_video_episode({"script": "episode_1.json", "confirm_duration": true})
+```
+
 ## 工作流程
 
 1. **加载项目和剧本** — 确认所有场景都有 `storyboard_image`
