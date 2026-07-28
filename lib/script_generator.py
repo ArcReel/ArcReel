@@ -333,9 +333,9 @@ class ScriptGenerator:
 
         取值按**最终 schema 的归一化口径**（``TypeAdapter(int)``，即 ``DramaSceneContent``
         的非 strict ``int`` 字段所用的那套）而非 ``isinstance(..., int)``：后者会把 ``"4"``
-        与 ``4.0`` 整个跳过，而它们会被归一成 4 存进剧本，等于给越界值开了一条绕路。缺键同理
-        取该字段的声明默认值——不填不代表不校验，落盘时补的正是这个默认值。归一化失败（如
-        ``"abc"``）不在此报错，交给落盘前的静态校验统一 fail-loud。
+        与 ``4.0`` 整个跳过，而它们会被归一成 4 存进剧本，等于给越界值开了一条绕路。缺键与显式
+        ``null`` 同取该字段的声明默认值——不填不代表不校验，落盘时补的正是这个默认值。归一化
+        失败（如 ``"abc"``）不在此报错，交给落盘前的静态校验统一 fail-loud。
         """
         supported = self._resolve_supported_durations(await self._fetch_video_capabilities(), gen_mode=gen_mode)
         allowed = {int(d) for d in supported}
@@ -343,8 +343,9 @@ class ScriptGenerator:
         for scene in content_scenes:
             if not isinstance(scene, dict):
                 continue
+            raw = scene.get("duration_seconds")
             try:
-                seen.add(_DURATION_ADAPTER.validate_python(scene.get("duration_seconds", _DRAMA_DEFAULT_DURATION)))
+                seen.add(_DURATION_ADAPTER.validate_python(_DRAMA_DEFAULT_DURATION if raw is None else raw))
             except ValidationError:
                 continue
         bad = sorted(seen - allowed)

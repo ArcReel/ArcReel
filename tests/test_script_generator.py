@@ -378,6 +378,23 @@ class TestScriptGenerator:
             await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
 
     @pytest.mark.integration
+    async def test_drama_step2_checks_declared_default_when_duration_null(self, tmp_path):
+        """显式 null 与缺键同口径：都按声明默认值校验，不得绕过。
+
+        `dict.get` 的默认值只在缺键时生效，显式 null 会取到 None；不特判的话该场景跳过校验，
+        要等 step2 跑完、落盘时才被 Pydantic 拒，白耗一次完整的剧本生成调用。
+        """
+        project_path = _drama_project_with_backend(
+            tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p", supported_durations=[6, 10]
+        )
+
+        content = _drama_step1_content()
+        content["scenes"][0]["duration_seconds"] = None
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+
+    @pytest.mark.integration
     async def test_drama_step2_accepts_step1_duration_within_constrained_set(self, tmp_path):
         """同一 1080p 项目下 8 秒仍合法——收窄后集合的成员不得被这道校验误拒。"""
         project_path = _drama_project_with_backend(
