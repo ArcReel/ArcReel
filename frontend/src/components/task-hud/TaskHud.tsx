@@ -52,8 +52,8 @@ function matchesFilter(task: TaskItem, filter: TaskFilter): boolean {
 
 /**
  * 后端 `_localize_task` 已把 `result.warnings` 渲染成当前语言的字符串数组，
- * 这里只做形态收窄：`result` 是 `Record<string, unknown>`，非字符串条目一律丢弃，
- * 避免旧任务行里残留的 `{key, params}` 结构被当成文本渲染成 `[object Object]`。
+ * 这里只做形态收窄：`result` 是 `Record<string, unknown>`，类型上给不出字符串数组的
+ * 保证，非字符串条目一律丢弃而不是渲染成 `[object Object]`。
  */
 function taskWarnings(task: TaskItem): string[] {
   const warnings = task.result?.warnings;
@@ -161,16 +161,20 @@ function TaskRow({
   const isExpandable = hasError || hasWarnings;
   const isExpanded = expandedTaskId === task.task_id;
 
-  const rowBg = hasError
-    ? "oklch(0.30 0.10 25 / 0.18)"
-    : hasWarnings
-      ? "oklch(0.35 0.10 70 / 0.12)"
-      : task.status === "succeeded"
-        ? "oklch(0.30 0.10 155 / 0.12)"
-        : "transparent";
-  const rowHoverBg = hasError
-    ? "oklch(0.30 0.10 25 / 0.28)"
-    : "oklch(0.35 0.10 70 / 0.22)";
+  // 底色标的是任务状态，与「有没有详情可展开」解耦：失败任务即使没有 error_message
+  // 也须保持红色，否则它在列表里与排队行无从区分。
+  const rowBg =
+    task.status === "failed"
+      ? "oklch(0.30 0.10 25 / 0.18)"
+      : hasWarnings
+        ? "oklch(0.35 0.10 70 / 0.12)"
+        : task.status === "succeeded"
+          ? "oklch(0.30 0.10 155 / 0.12)"
+          : "transparent";
+  const rowHoverBg =
+    task.status === "failed"
+      ? "oklch(0.30 0.10 25 / 0.28)"
+      : "oklch(0.35 0.10 70 / 0.22)";
 
   return (
     <motion.div

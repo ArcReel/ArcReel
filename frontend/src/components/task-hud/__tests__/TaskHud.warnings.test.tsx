@@ -9,7 +9,7 @@ import { makeTask } from "@/test/factories";
 import i18n from "@/i18n";
 
 // 后端 `_localize_task` 已把 result.warnings 渲染成当前语言的字符串数组，
-// HUD 只负责标识 + 展开；非字符串条目（旧任务残留的 {key, params}）须被丢弃。
+// HUD 只负责标识 + 展开；`result` 在类型上是 Record<string, unknown>，非字符串条目须被丢弃。
 
 const emptyStats = {
   queued: 0,
@@ -110,6 +110,27 @@ describe("TaskHud generation warnings", () => {
 
     expect(screen.getByText("WARNED1").closest('[role="button"]')).toBeNull();
     expect(screen.queryByText(/object Object/)).toBeNull();
+  });
+
+  it("keeps the failure tint on a failed task that carries no error_message", () => {
+    useTasksStore.setState({
+      tasks: [
+        makeTask({
+          task_id: "failed-nomsg",
+          status: "failed",
+          media_type: "video",
+          resource_id: "NOMSG",
+          error_message: null,
+        }),
+      ],
+    });
+    render(<HostedTaskHud />);
+
+    // 无详情可展开，但底色仍须标出失败，否则这行与排队行无从区分。
+    const row = screen.getByText("NOMSG").parentElement as HTMLElement;
+    expect(row.closest('[role="button"]')).toBeNull();
+    // jsdom 会把 oklch 的数值归一化（0.30 → 0.3），断言按归一化后的形式写。
+    expect(row.style.background).toContain("oklch(0.3 0.1 25");
   });
 
   it("ignores warnings on a failed task and keeps showing the error", async () => {
