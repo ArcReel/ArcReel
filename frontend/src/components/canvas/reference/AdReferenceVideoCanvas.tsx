@@ -213,8 +213,14 @@ export function AdReferenceVideoCanvas({
     }
   }, [projectName, episode, hydrated, isUnitBusy, liveSavingUnitIds, t]);
 
+  /** 该 unit 是否被任一写入路径占用：生成（tasks-store 占用集）或镜头字段保存。 */
+  const isUnitLocked = useCallback(
+    (unitId: string) => isUnitBusy(unitId) || liveSavingUnitIds().has(unitId),
+    [isUnitBusy, liveSavingUnitIds],
+  );
+
   // 时长取档闸门：申请秒数与剧本编排不一致时先确认，取消则不入队
-  const durationGate = useReferenceDurationGate({ projectName, episode });
+  const durationGate = useReferenceDurationGate({ projectName, episode, isLocked: isUnitLocked });
 
   // 错误清空只在触发入口做：enqueueUnit 自身不清，避免批量循环中
   // 后一个 unit 的调用抹掉前一个 unit 的失败信息

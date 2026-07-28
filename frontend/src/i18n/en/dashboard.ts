@@ -993,8 +993,6 @@ export default {
   'reference_duration_note_shorter': 'The model tops out at {{duration}}, so the clip cannot hold the full script.',
   'reference_duration_note_no_trim': 'The model accepts only fixed length options. Clips are delivered at the requested length and are not trimmed.',
   'reference_duration_batch_summary': "{{count}} units will be generated at a length that doesn't match the script:",
-  'reference_duration_batch_more_one': '{{count}} more unit differs as well.',
-  'reference_duration_batch_more_other': '{{count}} more units differ as well.',
   'reference_duration_precheck_failed_one': 'Could not check the length for {{count}} unit; it was not queued. Try again.',
   'reference_duration_precheck_failed_other': 'Could not check the length for {{count}} units; they were not queued. Try again.',
   'reference_episode_header_units_one': '{{count}} unit',

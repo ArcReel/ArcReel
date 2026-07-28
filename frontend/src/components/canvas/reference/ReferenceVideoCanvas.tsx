@@ -225,7 +225,7 @@ export function ReferenceVideoCanvas({
   const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
   // 时长取档闸门：申请秒数与剧本编排不一致时先确认，取消则一个都不入队
-  const durationGate = useReferenceDurationGate({ projectName, episode });
+  const durationGate = useReferenceDurationGate({ projectName, episode, isLocked: isUnitLocked });
 
   const enqueue = useCallback(
     async (unitId: string) => {

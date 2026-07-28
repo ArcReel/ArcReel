@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act, within } from "@testing-library/react";
 import { ReferenceVideoCanvas } from "./ReferenceVideoCanvas";
 import { useReferenceVideoStore } from "@/stores/reference-video-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -583,6 +583,73 @@ describe("ReferenceVideoCanvas", () => {
 
       fireEvent.click(confirm);
       await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(2));
+    });
+
+    // 预检是一段 await 窗口：其间被别处占用的 unit 若仍列进确认清单，就是请用户为一件
+    // 做不成的事拍板（确认后才在入队复核处被拒）。弹窗打开时刻同样要复核占用态。
+    it("预检期间被占用的单元不列入确认清单", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1"), mkUnit("E1U2"), mkUnit("E1U3")],
+      });
+      const genSpy = vi
+        .spyOn(API, "generateReferenceVideoUnit")
+        .mockResolvedValue({ task_id: "t9", deduped: false } as never);
+      vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
+      vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
+      // 预检响应到达之前，E1U1 已被别的入口占用
+      vi.spyOn(API, "precheckReferenceVideoDuration").mockImplementation(async () => {
+        act(() => {
+          useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+        });
+        return {
+          needs_confirmation: true,
+          script_duration: 3,
+          request_duration: 4,
+          adjustment: "up" as const,
+        };
+      });
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+      const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
+      await waitFor(() => expect(batch).not.toBeDisabled());
+      fireEvent.click(batch);
+
+      const confirm = await screen.findByRole("button", { name: CONFIRM_CTA });
+      // 被占用的 E1U1 不在清单里（unit_id 在画布单元列表里也出现，故限定弹窗作用域）
+      const dialog = within(screen.getByRole("dialog"));
+      expect(dialog.queryByText("E1U1")).not.toBeInTheDocument();
+      expect(dialog.getByText("E1U2")).toBeInTheDocument();
+      expect(dialog.getByText("E1U3")).toBeInTheDocument();
+
+      fireEvent.click(confirm);
+      await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(2));
+      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1");
+    });
+
+    // 折叠计数会藏起被折叠单元的调整方向：其中可能有成片更短的单元，而用户是在看不到
+    // 它的情况下为它拍板。列表改为滚动展示全部。
+    it("批量确认列出全部需确认单元，不折叠计数", async () => {
+      const many = Array.from({ length: 8 }, (_, i) => mkUnit(`E1U${i + 1}`));
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: many });
+      vi.spyOn(API, "generateReferenceVideoUnit").mockResolvedValue({
+        task_id: "t9",
+        deduped: false,
+      } as never);
+      stubPrecheck({
+        needs_confirmation: true,
+        script_duration: 3,
+        request_duration: 4,
+        adjustment: "up",
+      });
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+      const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
+      await waitFor(() => expect(batch).not.toBeDisabled());
+      fireEvent.click(batch);
+
+      await screen.findByRole("button", { name: CONFIRM_CTA });
+      const dialog = within(screen.getByRole("dialog"));
+      for (const unit of many) expect(dialog.getByText(unit.unit_id)).toBeInTheDocument();
     });
 
     it("预检失败的单元不入队并提示", async () => {

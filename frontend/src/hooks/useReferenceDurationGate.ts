@@ -8,6 +8,11 @@ import type { DurationConfirmItem } from "@/components/canvas/reference/Referenc
 interface Options {
   projectName: string;
   episode: number;
+  /**
+   * 该 unit 此刻是否被任一写入路径占用。由入口提供（各入口的占用面不同），须实时读取
+   * 而非渲染期快照——预检是一段 await 窗口，其间同一 unit 可能已被其它入口或 Agent 占用。
+   */
+  isLocked: (unitId: string) => boolean;
 }
 
 interface PendingConfirm {
@@ -23,7 +28,7 @@ interface PendingConfirm {
  * 批量入口聚合成一次确认（逐个弹窗会让用户为一次操作点 N 遍），单入口与批量入口共用
  * 同一条闸门——否则批量按钮会成为绕过确认的旁路。
  */
-export function useReferenceDurationGate({ projectName, episode }: Options) {
+export function useReferenceDurationGate({ projectName, episode, isLocked }: Options) {
   const { t } = useTranslation("dashboard");
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   // 入队回调随 run 一起捕获：确认发生在 run 之后的任意时刻，不能从渲染期闭包重取
@@ -90,8 +95,14 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
       }
       if (ok.length === 0) return;
 
-      const needsConfirmation = ok.filter((item) => item.precheck.needs_confirmation);
-      const passing = ok.map((item) => item.unitId);
+      // 弹窗打开时刻复核占用态：预检这段 await 窗口里同一 unit 可能已被别处入队，
+      // 把它列进确认清单等于请用户为一件做不成的事拍板，确认后才在入队复核处被拒。
+      // 静默跳过而非报错——与批量入口「把还能生成的都排上」同口径。
+      const available = ok.filter((item) => !isLocked(item.unitId));
+      if (available.length === 0) return;
+
+      const needsConfirmation = available.filter((item) => item.precheck.needs_confirmation);
+      const passing = available.map((item) => item.unitId);
       if (needsConfirmation.length === 0) {
         await commit(passing);
         return;
@@ -99,7 +110,7 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
       commitRef.current = commit;
       setPending({ items: needsConfirmation, unitIds: passing });
     },
-    [projectName, episode, t],
+    [projectName, episode, isLocked, t],
   );
 
   const confirm = useCallback(() => {

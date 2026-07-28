@@ -48,14 +48,13 @@ function DurationRow({
   );
 }
 
-const MAX_ROWS = 6;
-
 /**
  * 参考视频入队前的时长确认：模型只接受离散时长档位，剧本编排落在档位之间时按能装下它
  * 的最小档位生成，成片不裁剪——秒数不一致这件事在入队前讲清楚，由用户决定是否继续。
  *
- * 单元只有一个时直接陈述两个秒数与后果；批量时逐行列出（超出 MAX_ROWS 折叠计数），
- * 每行自带更长/更短的差值，混合方向也能一次看清。
+ * 单元只有一个时直接陈述两个秒数与后果；批量时逐行列出，每行自带更长/更短的差值，混合
+ * 方向也能一次看清。列表超出高度即滚动而不折叠计数：被折叠的行里可能有成片更短的单元，
+ * 而用户是在看不到它的情况下为它拍板。
  */
 export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCancel }: Props) {
   const { t } = useTranslation("dashboard");
@@ -71,8 +70,6 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
   };
 
   const single = items.length === 1 ? items[0] : null;
-  const rows = items.slice(0, MAX_ROWS);
-  const hiddenCount = items.length - rows.length;
 
   const description = single ? (
     <div className="space-y-2">
@@ -90,8 +87,8 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
   ) : (
     <div className="space-y-2">
       <p>{t("reference_duration_batch_summary", { count: items.length })}</p>
-      <ul className="space-y-1">
-        {rows.map((item) => (
+      <ul className="max-h-48 space-y-1 overflow-y-auto">
+        {items.map((item) => (
           <DurationRow
             key={item.unitId}
             label={item.unitId}
@@ -100,7 +97,6 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
           />
         ))}
       </ul>
-      {hiddenCount > 0 && <p>{t("reference_duration_batch_more", { count: hiddenCount })}</p>}
       <p>{t("reference_duration_note_no_trim")}</p>
     </div>
   );

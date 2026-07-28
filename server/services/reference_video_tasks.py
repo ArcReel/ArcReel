@@ -34,6 +34,8 @@ from lib.version_manager import VersionManager
 from server.services.generation_context import VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
     collect_product_references_for_names,
+    constrain_durations_by_reference_images,
+    constrain_durations_by_resolution,
     get_project_manager,
 )
 
@@ -151,6 +153,23 @@ def unit_script_duration(unit: dict, ad_shots: list[dict] | None) -> int:
     return int(unit.get("duration_seconds") or 8)
 
 
+def effective_reference_durations(
+    provider: str, model: str | None, durations: list[int], resolution: str | None
+) -> list[int]:
+    """参考视频路径实际可申请的时长档位：全集与两条调用条件的约束求交。
+
+    参考视频恒带参考图（unit 的资产图即 ``reference_images``），且按项目配置的分辨率下发，
+    而型号可能对这两个条件各自声明更窄的时长档位。按全集取档会选中执行期必然被拒的秒数
+    （如 Veo 3.1 带参考图只接受 8 秒，5 秒剧本按全集取档得 6 秒），预检也会向用户展示
+    这个申请不到的秒数。取档与预检因此都要先收窄再取档。
+
+    两条约束都遵循「无声明或交集为空时不收窄」的降级口径（见各自实现），故本函数在能力
+    声明缺位时退化为原全集，不比收窄前更严。
+    """
+    narrowed = constrain_durations_by_reference_images(provider, model, durations)
+    return constrain_durations_by_resolution(provider, model, narrowed, resolution)
+
+
 async def precheck_unit_duration_slot(project: dict, unit: dict, ad_shots: list[dict] | None) -> DurationSlot:
     """入队前按项目当前配置近似取档，供 Web 在生成入口确认「将按与剧本不一致的时长生成」。
 
@@ -177,9 +196,33 @@ async def _project_video_caps(project: dict, *, degraded_to: str) -> dict:
 
 
 async def resolve_project_supported_durations(project: dict) -> list[int]:
-    """解析项目视频后端的时长档位集；解析失败返回空列表（与执行层空集放行同口径）。"""
+    """解析项目视频后端在参考视频路径下可申请的时长档位集。
+
+    档位已按参考图与分辨率两条调用条件收窄（见 :func:`effective_reference_durations`），
+    与执行层取档同口径——否则预检展示的申请秒数会是执行期拿不到的值。解析失败返回空列表
+    （与执行层空集放行同口径）。
+    """
     caps = await _project_video_caps(project, degraded_to="时长取档不施加档位约束")
-    return [int(d) for d in caps.get("supported_durations") or []]
+    durations = [int(d) for d in caps.get("supported_durations") or []]
+    if not durations:
+        return []
+    provider_id = str(caps.get("provider_id") or "")
+    model = caps.get("model")
+    model_name = str(model) if model else None
+    return effective_reference_durations(
+        provider_id, model_name, durations, await _project_video_resolution(project, provider_id, model_name)
+    )
+
+
+async def _project_video_resolution(project: dict, provider_id: str, model_id: str | None) -> str | None:
+    """项目视频后端的下发分辨率；解析失败返回 None（该条约束随之不收窄）。"""
+    if not provider_id or not model_id:
+        return None
+    try:
+        return await ConfigResolver(async_session_factory).resolve_resolution(project, provider_id, model_id)
+    except (ValueError, SQLAlchemyError) as exc:
+        logger.info("无法解析 video resolution，时长取档不施加分辨率约束：%s", exc)
+        return None
 
 
 async def resolve_max_unit_duration(project: dict) -> int | None:
@@ -360,7 +403,16 @@ async def execute_reference_video_task(
     #    随之消解。查询失败时 lane 已把能力降级为空值/None——守卫遇空集放行、clamp 不施加
     #    上限，把决策推给 backend，与 ScriptGenerator._fetch_video_capabilities 的口径一致。
     max_refs = video.max_reference_images
-    supported_durations = list(video.supported_durations)
+
+    # 参考视频是唯一需要非空 resolution 档位的调用方：lane 已按 registry provider_id
+    # 兜底（resolution 命中空档位时取 provider fallback），executor 直接取非空档位。
+    resolution = video.resolution_or_fallback
+
+    # 档位全集先按本次调用的条件（恒带参考图 + 上述分辨率）收窄再取档，取档结果才是执行期
+    # 拿得到的秒数；预检走同一函数，用户确认的秒数与实际申请一致。
+    supported_durations = effective_reference_durations(
+        provider_name, model_name, list(video.supported_durations), resolution
+    )
 
     # 5. Provider 特判：裁 refs + 取时长档位。ad 的参考裁剪走专用口径（产品 sheet
     #    跨产品稳定前置存活），时长取档与通用路径共用。
@@ -387,10 +439,6 @@ async def execute_reference_video_task(
             references=source_refs,
             duration_seconds=base_duration,
         )
-
-    # 参考视频是唯一需要非空 resolution 档位的调用方：lane 已按 registry provider_id
-    # 兜底（resolution 命中空档位时取 provider fallback），executor 直接取非空档位。
-    resolution = video.resolution_or_fallback
 
     # 6. 渲染 prompt。ad：镜头文本 + 裁剪后参考的 [图N] 对照表 + 保真/反向尾词。
     #    narration/drama：@→[图N] 替换——必须按 `constrained_refs` 的长度裁
