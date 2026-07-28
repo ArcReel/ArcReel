@@ -576,6 +576,49 @@ class TestCostEstimationService:
         # compute() 不因 resolve_resolution 异常而中断，其余字段照常返回
         assert result["models"]["video"]["provider"] == "unknown"
 
+    @pytest.mark.parametrize(
+        ("video_backend", "configured_generate_audio", "expected_usd"),
+        [
+            # AI Studio 无 audio-off 档，供应商恒按含音价出账：无论开关状态，预估都须落在
+            # veo-3.1-lite-generate-preview 1080p 的含音价 0.08 USD/s（issue #1426 的核心场景）。
+            ("gemini-aistudio", True, 0.08),
+            ("gemini-aistudio", False, 0.08),
+            # Vertex 有独立的 audio-off 档，不受 AI Studio 修正影响，预估随开关走
+            # （veo-3.1-fast-generate-001 1080p：含音 0.12 / 无音 0.10 USD/s）。
+            ("gemini-vertex", True, 0.12),
+            ("gemini-vertex", False, 0.10),
+        ],
+    )
+    async def test_video_estimate_generate_audio_by_provider(
+        self, db_factory, monkeypatch, video_backend, configured_generate_audio, expected_usd
+    ):
+        """费用预估在所有 (provider, audio 开关) 组合下与供应商实际出账口径一致。
+
+        经 ``ConfigResolver.video_generate_audio`` 直接 monkeypatch 配置开关的解析结果，
+        绕开该方法内部对项目文件是否存在于磁盘的依赖（预估路径本不该受此约束）。
+        """
+
+        async def _fake_video_generate_audio(self, project_name=None):
+            return configured_generate_audio
+
+        monkeypatch.setattr(ConfigResolver, "video_generate_audio", _fake_video_generate_audio)
+
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "video_backend": video_backend,
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, ["E1S001"], [1])}
+
+        result = await service.compute(project_data, scripts, project_name="test")
+
+        seg = result["episodes"][0]["segments"][0]
+        assert seg["estimate"]["video"]["USD"] == pytest.approx(expected_usd)
+
     async def test_custom_provider_estimates_use_db_prices(self, db_factory):
         """自定义供应商预估：image/video/audio 单价来自 DB（与实际记账同源），估值按配置价格非零。"""
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
