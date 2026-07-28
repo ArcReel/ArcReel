@@ -222,12 +222,14 @@ _VEO = ("gemini-aistudio", "veo-3.1-generate-preview")  # 声明 {1080p:[8], 4k:
 _HAILUO = ("minimax", "MiniMax-Hailuo-2.3")  # 声明 {1080p:[6]}，无参考图声明
 
 
+@pytest.mark.unit
 def test_constrain_durations_by_resolution():
     """已登记且有声明时按声明收窄，大小写不敏感。"""
     assert constrain_durations(*_VEO, [4, 6, 8], resolution="4K") == [8]
     assert constrain_durations(*_VEO, [4, 6, 8], resolution="1080p") == [8]
 
 
+@pytest.mark.unit
 def test_constrain_durations_by_reference_images():
     """参考图约束独立于分辨率触发；未走参考图路径时不施加。"""
     assert constrain_durations(*_VEO, [4, 6, 8], uses_reference_images=True) == [8]
@@ -236,11 +238,13 @@ def test_constrain_durations_by_reference_images():
     assert constrain_durations(*_HAILUO, [6, 10], uses_reference_images=True) == [6, 10]
 
 
+@pytest.mark.unit
 def test_constrain_durations_both_dimensions_intersect():
     """两条约束同时生效时取交集。"""
     assert constrain_durations(*_HAILUO, [6, 10], resolution="1080p", uses_reference_images=True) == [6]
 
 
+@pytest.mark.unit
 def test_constrain_durations_falls_back():
     """无声明 / 未登记型号 / 交集为空 / 缺参数时返回原候选，不把候选清空。"""
     # 该分辨率无声明
@@ -258,6 +262,7 @@ def test_constrain_durations_falls_back():
     assert constrain_durations(*_VEO, [], resolution="4k") == []
 
 
+@pytest.mark.unit
 def test_constrain_durations_for_project_uses_project_resolution():
     """项目已设分辨率优先于 provider 兜底档位。"""
     project = {"model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": "720p"}}}
@@ -266,6 +271,7 @@ def test_constrain_durations_for_project_uses_project_resolution():
     ) == [4, 6, 8]
 
 
+@pytest.mark.unit
 def test_constrain_durations_for_project_unset_resolution_not_constrained():
     """项目未设分辨率时不施加分辨率约束——普通视频路径此时不下发 resolution 参数。
 
@@ -281,6 +287,7 @@ def test_constrain_durations_for_project_unset_resolution_not_constrained():
     ) == [6, 10]
 
 
+@pytest.mark.unit
 def test_constrain_durations_for_project_unset_resolution_reference_mode_uses_fallback():
     """参考视频模式是唯一按 provider 兜底档位求值的路径——它执行期确实下发非空档位。
 
@@ -297,6 +304,7 @@ def test_constrain_durations_for_project_unset_resolution_reference_mode_uses_fa
     ) == [6, 10]
 
 
+@pytest.mark.unit
 def test_constrain_durations_for_project_reference_mode():
     """generation_mode=reference_video 触发参考图约束。"""
     project = {"model_settings": {f"{_VEO[0]}/{_VEO[1]}": {"resolution": "720p"}}}
@@ -305,6 +313,7 @@ def test_constrain_durations_for_project_reference_mode():
     ) == [8]
 
 
+@pytest.mark.unit
 def test_constrain_durations_for_project_legacy_resolution_key():
     """legacy video_model_settings（裸 model_id 键）同样参与求值。"""
     project = {"video_model_settings": {_VEO[1]: {"resolution": "720p"}}}

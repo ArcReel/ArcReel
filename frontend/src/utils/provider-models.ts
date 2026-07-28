@@ -156,7 +156,9 @@ export function lookupProjectVideoResolution(
   if (fromModelSettings) return fromModelSettings;
   const slashIdx = backend.indexOf("/");
   const modelId = slashIdx === -1 ? backend : backend.slice(slashIdx + 1);
-  return project.video_model_settings?.[modelId]?.resolution ?? null;
+  // legacy 侧同样把空串归一为 null：后端 `_resolution_from_project` 对两层都用真值判断，
+  // 只归一新键会让「空值按未配置处理」在 legacy 上失效。
+  return project.video_model_settings?.[modelId]?.resolution || null;
 }
 
 /** 返回该 (provider, model) 下的分辨率候选 + 是否自定义供应商（决定 picker 模式）。

@@ -183,4 +183,18 @@ describe("lookupProjectVideoResolution", () => {
       ),
     ).toBe("1080p");
   });
+
+  // 后端 `_resolution_from_project` 对新键与 legacy 两层都用真值判断，只归一新键会让
+  // 「空值按未配置处理」在 legacy 上失效。
+  it("legacy 侧的空串同样归一为 null", () => {
+    expect(
+      lookupProjectVideoResolution(
+        {
+          model_settings: { [BACKEND]: { resolution: null } },
+          video_model_settings: { "veo-3.1-generate-preview": { resolution: "" } },
+        },
+        BACKEND,
+      ),
+    ).toBeNull();
+  });
 });

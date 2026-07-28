@@ -298,6 +298,7 @@ class TestScriptGenerator:
         with pytest.raises(ValueError, match="改写到 episode=2 后重复"):
             generator._load_drama_step1_content(2)
 
+    @pytest.mark.integration
     async def test_drama_step2_rejects_step1_duration_out_of_constrained_set(self, tmp_path):
         """step1 在宽松分辨率下拆好、项目改到 Veo 1080p 后再跑 step2 → 越界时长 fail-loud。
 
@@ -320,6 +321,7 @@ class TestScriptGenerator:
         with pytest.raises(ValueError, match="step1 已定场景时长非法"):
             await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
 
+    @pytest.mark.integration
     async def test_drama_step2_accepts_step1_duration_within_constrained_set(self, tmp_path):
         """同一 1080p 项目下 8 秒仍合法——收窄后集合的成员不得被这道校验误拒。"""
         project_path = tmp_path / "demo"
@@ -863,6 +865,7 @@ _VEO_CAPS = {
 }
 
 
+@pytest.mark.integration
 def test_resolve_supported_durations_narrows_by_saved_resolution(tmp_path):
     """项目保存了 1080p 时收窄到该档位声明的集合——Veo 1080p 只接受 8 秒。
 
@@ -880,6 +883,7 @@ def test_resolve_supported_durations_narrows_by_saved_resolution(tmp_path):
     assert sg._resolve_raw_supported_durations(_VEO_CAPS) == [4, 6, 8]
 
 
+@pytest.mark.integration
 def test_resolve_supported_durations_unset_resolution_not_narrowed(tmp_path):
     """项目未配分辨率时不收窄：普通视频路径此时省略 resolution 参数，Veo 按默认 720p 接受 4/6/8。
 
@@ -889,6 +893,7 @@ def test_resolve_supported_durations_unset_resolution_not_narrowed(tmp_path):
     assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [4, 6, 8]
 
 
+@pytest.mark.integration
 def test_resolve_supported_durations_respects_project_resolution(tmp_path):
     """项目显式配了无声明的分辨率时不收窄，行为与改动前一致。"""
     sg = _sg_with_project(
@@ -901,6 +906,7 @@ def test_resolve_supported_durations_respects_project_resolution(tmp_path):
     assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [4, 6, 8]
 
 
+@pytest.mark.integration
 def test_resolve_supported_durations_narrows_by_reference_mode(tmp_path):
     """reference_video 模式触发「参考图↔时长」约束，即便分辨率本身无声明。"""
     sg = _sg_with_project(
@@ -913,6 +919,7 @@ def test_resolve_supported_durations_narrows_by_reference_mode(tmp_path):
     assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video") == [8]
 
 
+@pytest.mark.integration
 def test_resolve_supported_durations_unconstrained_model_unchanged(tmp_path):
     """已登记但无联动约束声明的型号：收窄是恒等变换，两种 gen_mode 都与全集一致。"""
     caps = {"provider_id": "ark", "model": "doubao-seedance-1-5-pro-251215", "supported_durations": [4, 5, 6]}
@@ -921,6 +928,7 @@ def test_resolve_supported_durations_unconstrained_model_unchanged(tmp_path):
     assert sg._resolve_supported_durations(caps, gen_mode="reference_video") == [4, 5, 6]
 
 
+@pytest.mark.integration
 def test_resolve_max_duration_tracks_narrowed_set(tmp_path):
     """max_duration 随收窄后的集合走：它在 rv 模式下是 unit 总时长上限，须与枚举同一集合。"""
     sg = _sg_with_project(tmp_path, {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"})

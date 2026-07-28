@@ -1775,6 +1775,7 @@ async def test_fetch_caps_with_fallback_uses_write_layer_default(monkeypatch) ->
     assert durations == DEFAULT_FALLBACK
 
 
+@pytest.mark.unit
 async def test_fetch_caps_with_fallback_drops_out_of_range_default(monkeypatch) -> None:
     """收窄后落在集合外的已保存 default_duration 归 None（回到 auto 档），不拖垮整个工具。
 
@@ -1800,6 +1801,7 @@ async def test_fetch_caps_with_fallback_drops_out_of_range_default(monkeypatch) 
     assert durations == [4, 6, 8]
 
 
+@pytest.mark.unit
 async def test_fetch_video_caps_narrows_durations_by_constraints(monkeypatch) -> None:
     """交给 LLM 的时长集合已按项目分辨率经联动约束收窄。
 
@@ -2676,6 +2678,7 @@ async def test_fetch_reference_caps_with_fallback_clips_shot_durations_to_static
     assert max_refs is None
 
 
+@pytest.mark.unit
 async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monkeypatch) -> None:
     """unit 总时长上限随联动约束收窄：海螺在 1080p 下只接受 6 秒，全集上限是 10 秒。
 
@@ -2702,6 +2705,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monk
     assert max_duration == 6
 
 
+@pytest.mark.unit
 async def test_fetch_reference_caps_with_fallback_keeps_sub_cap_shot_durations(monkeypatch) -> None:
     """剔除超上限候选不等于按成员集收窄：Veo 1080p 下总时长须为 8，单 shot 仍保留 4/6。
 
