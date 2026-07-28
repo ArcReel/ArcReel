@@ -5,6 +5,7 @@ import {
   defaultTaskStats,
   isActiveStatus,
   isOccupyingStatus,
+  isResourceBusy,
   isTerminalStatus,
   selectActiveResourceIds,
   selectHasActiveTaskForScriptFile,
@@ -900,6 +901,35 @@ describe("selectActiveResourceIds", () => {
     // 返回既有任务、造成「提交成功却没有新任务」的谎报
     const tasks = [task({ task_id: "a", resource_id: "u1", status: "cancelling" })];
     expect(selectActiveResourceIds(tasks, "reference_video", "proj").has("u1")).toBe(true);
+  });
+});
+
+describe("isResourceBusy", () => {
+  beforeEach(() => {
+    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+  });
+
+  it("reads the store snapshot at call time rather than a captured one", () => {
+    // 该函数存在的全部理由：调用方在提交那一刻拿到的必须是最新占用态，
+    // 而非渲染期（或上一次调用时）捕获的快照。
+    expect(isResourceBusy("reference_video", "proj", "u1")).toBe(false);
+    useTasksStore.setState({ tasks: [task({ task_id: "a", resource_id: "u1", status: "running" })] });
+    expect(isResourceBusy("reference_video", "proj", "u1")).toBe(true);
+  });
+
+  it("counts the optimistic in-flight markers held in the store", () => {
+    // 入队动作层在请求发出前打的标记也要被看到，否则同 tick 内的连点会漏过
+    useTasksStore.setState({ optimisticActive: new Set([pendingKey("character", "A", "image_edit")]) });
+    expect(isResourceBusy("character", "proj", "A")).toBe(true);
+  });
+
+  it("scopes to the given kind and projectName", () => {
+    useTasksStore.setState({
+      tasks: [task({ task_id: "a", resource_id: "u1", status: "running", task_type: "video", project_name: "p1" })],
+    });
+    expect(isResourceBusy("video", "p1", "u1")).toBe(true);
+    expect(isResourceBusy("storyboard", "p1", "u1")).toBe(false);
+    expect(isResourceBusy("video", "p2", "u1")).toBe(false);
   });
 });
 

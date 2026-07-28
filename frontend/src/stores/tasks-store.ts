@@ -510,6 +510,15 @@ export function selectActiveResourceIds(
 
 const EMPTY_OPTIMISTIC: ReadonlySet<string> = new Set();
 
+/**
+ * 提交时刻复核占用态的统一入口：封装 `getState()` 新鲜读 + {@link selectActiveResourceIds} +
+ * key 拼装，供各写入控件在提交那一刻直接判定，不必各自重复这三步。
+ */
+export function isResourceBusy(kind: string, projectName: string, resourceId: string): boolean {
+  const { tasks, optimisticActive } = useTasksStore.getState();
+  return selectActiveResourceIds(tasks, kind, projectName, optimisticActive).has(resourceId);
+}
+
 // 与 task-target.ts 的 stripScriptsPrefix 同一归一化规则：episode 元数据的 script_file
 // 固定带 `scripts/` 前缀（见 ProjectManager._apply_episode_sync），但任务行的 script_file
 // 由各入队调用方各自传入——router 直传 webui 表单值，Agent/SDK 工具经 validate_script_filename
