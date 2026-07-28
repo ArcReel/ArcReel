@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
-from lib.db.models.task import Task, TaskEvent, WorkerLease
+from lib.db.models.task import Task, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
 from lib.task_failure import bound_reason, collapse_cascade_reason, encode_failure
 from lib.task_terminal_events import TERMINAL_TASK_STATUSES
@@ -95,35 +95,22 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
     }
 
 
-def _event_to_dict(row: TaskEvent) -> dict[str, Any]:
-    return {
-        "id": row.id,
-        "task_id": row.task_id,
-        "project_name": row.project_name,
-        "event_type": row.event_type,
-        "status": row.status,
-        "data": _json_loads(row.data_json, {}),
-        "created_at": dt_to_iso(row.created_at),
-    }
-
-
 class TaskRepository(BaseRepository):
     def __init__(self, session: AsyncSession):
         super().__init__(session)
         # 本次会话内落地的任务终态，供上层（GenerationQueue）在事务提交后发布项目事件。
         # 在此收集而非各终态方法各自记账：所有终态迁移（含级联失败/级联取消、批量取消
-        # 队列）都经 _append_event 收口，一处挂钩即全覆盖。
+        # 队列）都经 _record_terminal_event 收口，一处挂钩即全覆盖。
         self.terminal_events: list[dict[str, Any]] = []
 
-    async def _append_event(
+    def _record_terminal_event(
         self,
         *,
         task_id: str,
         project_name: str,
-        event_type: str,
         status: str,
         data: dict | None = None,
-    ) -> int:
+    ) -> None:
         if status in TERMINAL_TASK_STATUSES:
             self.terminal_events.append(
                 {
@@ -133,18 +120,6 @@ class TaskRepository(BaseRepository):
                     "task_type": (data or {}).get("task_type"),
                 }
             )
-        now = utc_now()
-        event = TaskEvent(
-            task_id=task_id,
-            project_name=project_name,
-            event_type=event_type,
-            status=status,
-            data_json=_json_dumps(data or {}),
-            created_at=now,
-        )
-        self.session.add(event)
-        await self.session.flush()
-        return event.id
 
     async def enqueue(
         self,
@@ -217,10 +192,9 @@ class TaskRepository(BaseRepository):
             raise
 
         task_data = _task_to_dict(task)
-        await self._append_event(
+        self._record_terminal_event(
             task_id=task_id,
             project_name=project_name,
-            event_type="queued",
             status="queued",
             data=task_data,
         )
@@ -309,10 +283,9 @@ class TaskRepository(BaseRepository):
         running_task = result.scalar_one()
         task_data = _task_to_dict(running_task)
 
-        await self._append_event(
+        self._record_terminal_event(
             task_id=target_task_id,
             project_name=running_task.project_name,
-            event_type="running",
             status="running",
             data=task_data,
         )
@@ -347,10 +320,9 @@ class TaskRepository(BaseRepository):
         res = await self.session.execute(select(Task).where(Task.task_id == task_id))
         done_task = res.scalar_one()
         task_data = _task_to_dict(done_task)
-        await self._append_event(
+        self._record_terminal_event(
             task_id=task_id,
             project_name=done_task.project_name,
-            event_type="succeeded",
             status="succeeded",
             data=task_data,
         )
@@ -392,10 +364,9 @@ class TaskRepository(BaseRepository):
         res = await self.session.execute(select(Task).where(Task.task_id == task_id))
         failed_task = res.scalar_one()
         task_data = _task_to_dict(failed_task)
-        await self._append_event(
+        self._record_terminal_event(
             task_id=task_id,
             project_name=failed_task.project_name,
-            event_type="failed",
             status="failed",
             data=task_data,
         )
@@ -422,10 +393,9 @@ class TaskRepository(BaseRepository):
         res = await self.session.execute(select(Task).where(Task.task_id == task_id))
         failed_task = res.scalar_one()
         task_data = _task_to_dict(failed_task)
-        await self._append_event(
+        self._record_terminal_event(
             task_id=task_id,
             project_name=failed_task.project_name,
-            event_type="failed",
             status="failed",
             data=task_data,
         )
@@ -630,10 +600,9 @@ class TaskRepository(BaseRepository):
         res = await self.session.execute(select(Task).where(Task.task_id == task_id))
         cancelled_task = res.scalar_one()
         task_data = _task_to_dict(cancelled_task)
-        await self._append_event(
+        self._record_terminal_event(
             task_id=task_id,
             project_name=cancelled_task.project_name,
-            event_type="cancelled",
             status="cancelled",
             data=task_data,
         )
@@ -673,10 +642,9 @@ class TaskRepository(BaseRepository):
         res = await self.session.execute(select(Task).where(Task.task_id == task_id))
         cancelling_task = res.scalar_one()
         task_data = _task_to_dict(cancelling_task)
-        await self._append_event(
+        self._record_terminal_event(
             task_id=task_id,
             project_name=cancelling_task.project_name,
-            event_type="cancelling",
             status="cancelling",
             data=task_data,
         )
@@ -822,10 +790,9 @@ class TaskRepository(BaseRepository):
             )
             for updated_task in refreshed.scalars().all():
                 task_data = _task_to_dict(updated_task)
-                await self._append_event(
+                self._record_terminal_event(
                     task_id=updated_task.task_id,
                     project_name=project_name,
-                    event_type="cancelled",
                     status="cancelled",
                     data=task_data,
                 )
@@ -873,20 +840,6 @@ class TaskRepository(BaseRepository):
         rows = await self.session.execute(select(Task).where(Task.task_id.in_(task_ids), Task.status == "queued"))
         requeued_tasks = rows.scalars().all()
 
-        # Step 4: bulk-insert all requeue events
-        event_now = utc_now()
-        events = [
-            TaskEvent(
-                task_id=t.task_id,
-                project_name=t.project_name,
-                event_type="requeued",
-                status="queued",
-                data_json=_json_dumps(_task_to_dict(t)),
-                created_at=event_now,
-            )
-            for t in requeued_tasks
-        ]
-        self.session.add_all(events)
         await self.session.commit()
         return len(requeued_tasks)
 
@@ -970,47 +923,6 @@ class TaskRepository(BaseRepository):
             total += cnt
         stats["total"] = total
         return stats
-
-    async def get_recent_tasks_snapshot(
-        self,
-        *,
-        project_name: str | None = None,
-        limit: int = 200,
-    ) -> list[dict[str, Any]]:
-        limit = max(1, min(1000, limit))
-        stmt = select(Task)
-        if project_name:
-            stmt = stmt.where(Task.project_name == project_name)
-        stmt = stmt.order_by(Task.updated_at.desc()).limit(limit)
-        stmt = self._scope_query(stmt, Task)
-
-        result = await self.session.execute(stmt)
-        return [_task_to_dict(t) for t in result.scalars().all()]
-
-    # NOTE: In multi-user mode, override this method to filter by user via JOIN Task
-    async def get_events_since(
-        self,
-        *,
-        last_event_id: int,
-        project_name: str | None = None,
-        limit: int = 200,
-    ) -> list[dict[str, Any]]:
-        limit = max(1, min(1000, limit))
-        stmt = select(TaskEvent).where(TaskEvent.id > last_event_id)
-        if project_name:
-            stmt = stmt.where(TaskEvent.project_name == project_name)
-        stmt = stmt.order_by(TaskEvent.id.asc()).limit(limit)
-
-        result = await self.session.execute(stmt)
-        return [_event_to_dict(e) for e in result.scalars().all()]
-
-    # NOTE: In multi-user mode, override this method to filter by user via JOIN Task
-    async def get_latest_event_id(self, *, project_name: str | None = None) -> int:
-        stmt = select(func.max(TaskEvent.id))
-        if project_name:
-            stmt = stmt.where(TaskEvent.project_name == project_name)
-        result = await self.session.execute(stmt)
-        return result.scalar() or 0
 
     # ---- Worker Lease ----
 

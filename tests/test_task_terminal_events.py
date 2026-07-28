@@ -175,14 +175,14 @@ class TestQueueEmitsTerminalEvents:
         task_id = await self._enqueue_running(queue)
         captured_batches.clear()
 
-        original_append = TaskRepository._append_event
+        original_record = TaskRepository._record_terminal_event
 
-        async def raise_after_collecting(self, **kwargs):
-            await original_append(self, **kwargs)
-            assert self.terminal_events, "前置条件：终态已被 _append_event 收集"
+        def raise_after_collecting(self, **kwargs):
+            original_record(self, **kwargs)
+            assert self.terminal_events, "前置条件：终态已被 _record_terminal_event 收集"
             raise RuntimeError("commit 前炸了")
 
-        monkeypatch.setattr(TaskRepository, "_append_event", raise_after_collecting)
+        monkeypatch.setattr(TaskRepository, "_record_terminal_event", raise_after_collecting)
 
         with pytest.raises(RuntimeError, match="commit 前炸了"):
             await queue.mark_task_succeeded(task_id, {"file_path": "videos/E1S01.mp4"})
@@ -190,7 +190,7 @@ class TestQueueEmitsTerminalEvents:
         assert _task_changes(captured_batches) == []
 
     async def test_cascade_failure_emits_event_for_dependent(self, queue, captured_batches):
-        """级联失败的下游任务同样进事件——终态收口在 _append_event，一处覆盖全路径。"""
+        """级联失败的下游任务同样进事件——终态收口在 _record_terminal_event，一处覆盖全路径。"""
         parent = await queue.enqueue_task(
             project_name="demo",
             task_type="storyboard",
