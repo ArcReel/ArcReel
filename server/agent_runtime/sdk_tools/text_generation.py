@@ -326,6 +326,11 @@ async def _fetch_caps_with_fallback(project: dict[str, Any]) -> tuple[int | None
     时长已按项目分辨率经联动约束收窄。参考图约束不在此施加：走参考生视频的项目 step1 用
     ``split_reference_video_units``（见 ``_fetch_reference_caps_with_fallback``），本 helper
     服务的 drama normalize / narration 拆分两个工具按分工不服务该路径。
+
+    ``default_duration`` 非返回集合成员时按 None 处理（即回到「auto」档，由模型按内容节奏选）：
+    项目存的是用户配置的原样值，收窄后（或软回退到 ``DEFAULT_FALLBACK`` 后）它可能落在集合外，
+    而 ``build_normalize_prompt`` 对非成员 default 是 fail-loud 的——不归 None 会把「已保存的
+    越界默认时长」变成整个工具的硬失败。与 ``_fetch_reference_caps_with_fallback`` 同口径。
     """
     try:
         default_int, durations = await fetch_video_caps(project, generation_mode=None)
@@ -336,7 +341,9 @@ async def _fetch_caps_with_fallback(project: dict[str, Any]) -> tuple[int | None
         logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         return None, list(DEFAULT_FALLBACK)
     if not durations:
-        return default_int, list(DEFAULT_FALLBACK)
+        durations = list(DEFAULT_FALLBACK)
+    if default_int is not None and default_int not in durations:
+        default_int = None
     return default_int, durations
 
 

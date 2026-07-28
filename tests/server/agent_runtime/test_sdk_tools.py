@@ -1775,6 +1775,31 @@ async def test_fetch_caps_with_fallback_uses_write_layer_default(monkeypatch) ->
     assert durations == DEFAULT_FALLBACK
 
 
+async def test_fetch_caps_with_fallback_drops_out_of_range_default(monkeypatch) -> None:
+    """收窄后落在集合外的已保存 default_duration 归 None（回到 auto 档），不拖垮整个工具。
+
+    ``build_normalize_prompt`` 对非成员 default 是 fail-loud 的：用户在 720p 下存过 4 秒、
+    改到 1080p 后 Veo 收窄为 [8]，不归 None 会让 normalize_drama_script 直接抛 ValueError。
+    """
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def _narrowed_caps(_p, *, generation_mode=None):
+        return 4, [8]
+
+    monkeypatch.setattr(mod, "fetch_video_caps", _narrowed_caps)
+    default, durations = await mod._fetch_caps_with_fallback({})
+    assert default is None
+    assert durations == [8]
+
+    async def _in_range_caps(_p, *, generation_mode=None):
+        return 8, [4, 6, 8]
+
+    monkeypatch.setattr(mod, "fetch_video_caps", _in_range_caps)
+    default, durations = await mod._fetch_caps_with_fallback({})
+    assert default == 8
+    assert durations == [4, 6, 8]
+
+
 async def test_fetch_video_caps_narrows_durations_by_constraints(monkeypatch) -> None:
     """交给 LLM 的时长集合已按项目分辨率经联动约束收窄。
 

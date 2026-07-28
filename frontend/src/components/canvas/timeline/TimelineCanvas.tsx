@@ -357,7 +357,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
                 generatingVideo={generatingVideo}
                 generatingNarration={generatingNarration}
                 durationOptions={durationOptions}
-        durationWarningReason={durationWarningReason}
+                durationWarningReason={durationWarningReason}
               />
             </div>
           </div>

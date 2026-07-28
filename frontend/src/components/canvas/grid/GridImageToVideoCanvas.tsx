@@ -346,7 +346,7 @@ export function GridImageToVideoCanvas({
             generatingVideo={generatingVideo}
             generatingNarration={generatingNarration}
             durationOptions={durationOptions}
-        durationWarningReason={durationWarningReason}
+            durationWarningReason={durationWarningReason}
           />
         ) : null}
       </div>
