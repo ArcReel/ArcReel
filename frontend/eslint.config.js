@@ -115,4 +115,22 @@ export default tseslint.config(
       ],
     },
   },
+
+  // 模型能力只能经 src/hooks/useModelCapabilities 消费——各能力维度的真相源、失效时机与
+  // 「未知不谎报不支持」的降级规则都收在那里，组件直调会让目录侧与服务端侧重新分叉。
+  // src/api.test.ts 豁免：它测试的是 API 层本体的端点路径与请求体。
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/hooks/useModelCapabilities.ts", "src/api.test.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.object.name='API'][callee.property.name='getVideoCapabilities']",
+          message: "模型能力只能经 useModelCapabilities 消费（单一真相源 + 统一失效时机）。",
+        },
+      ],
+    },
+  },
 );

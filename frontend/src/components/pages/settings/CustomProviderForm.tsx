@@ -3,6 +3,7 @@ import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle, Search } fro
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { uid } from "@/utils/id";
 import { errMsg } from "@/utils/async";
@@ -466,6 +467,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           audio_max_workers: audioMax,
         });
       }
+      // 能力覆盖随本次保存落库，但它不落任何项目字段，在用的能力查询不会因 props 变化而重取；
+      // 显式作废，让常驻的能力警告无需重新挂载组件即随新覆盖增减。
+      useCapabilitiesStore.getState().invalidate();
       onSaved();
     } catch (e) {
       showError(t("save_failed", { message: errMsg(e) }));
