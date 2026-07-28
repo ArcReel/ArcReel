@@ -178,6 +178,30 @@ def constrain_durations_by_resolution(
     return narrowed or durations
 
 
+def constrain_durations_by_reference_images(
+    provider_name: str, model_name: str | None, durations: list[int]
+) -> list[int]:
+    """按型号声明的「参考图↔时长」约束收窄候选；无声明或交集为空时返回原候选。
+
+    与 :func:`constrain_durations_by_resolution` 并列的第二条条件约束：Veo 3.1 全局支持
+    ``[4, 6, 8]``，但带参考图时只接受 8 秒（``ModelInfo.reference_image_durations``），
+    backend 在执行期对其余取值直接拒绝。带参考图的调用方按全集取值会必然撞上该拒绝。
+
+    空声明的语义是「参考图路径不额外约束时长」，与 backend 同口径——故只在声明非空时收窄，
+    不为未登记型号臆造约束。
+    """
+    if not durations:
+        return durations
+    model_info = model_info_for(provider_name, model_name) if model_name else None
+    if model_info is None:
+        return durations
+    allowed = model_info.reference_image_durations
+    if not allowed:
+        return durations
+    narrowed = [d for d in durations if d in allowed]
+    return narrowed or durations
+
+
 def assert_duration_supported(duration: int | float | str, supported_durations: list[int]) -> None:
     """执行层能力守卫：duration 必须落在已解析 model 的 supported_durations 内。
 

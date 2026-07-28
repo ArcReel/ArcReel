@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from contextlib import asynccontextmanager, contextmanager
+from functools import partial
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -12,6 +14,7 @@ from server.services.reference_video_tasks import (
     _apply_provider_constraints,
     _render_unit_prompt,
     _resolve_unit_references,
+    effective_reference_durations,
 )
 
 
@@ -89,6 +92,7 @@ def _wire_context(
     *,
     backend_name: str,
     backend_model: str,
+    registry_provider_id: str | None = None,
     resolution_or_fallback: str = "1080p",
     resolution: str | None = None,
     max_refs: int | None = None,
@@ -101,12 +105,15 @@ def _wire_context(
     provider/backend 身份、能力上限、resolution 均由 GenerationContext 的 video lane 提供。
     能力上限与 resolution 的解析逻辑本身在 tests/server/test_generation_context.py 覆盖，此处
     只需喂入 lane 值验证 executor 的下游 clamp / 守卫 / 透传行为。
+
+    ``registry_provider_id`` 缺省与 ``backend_name`` 相同（多数供应商如此）；族别名供应商
+    （如 ark-agent-plan 族复用 Ark backend）两者不同，需显式区分以覆盖 registry 查表路径。
     """
     from lib.config.resolver import ProviderModel
     from server.services.generation_context import GenerationContext, VideoLaneResult
 
     lane = VideoLaneResult(
-        provider_model=ProviderModel(provider_id=backend_name, model_id=backend_model),
+        provider_model=ProviderModel(provider_id=registry_provider_id or backend_name, model_id=backend_model),
         backend_name=backend_name,
         backend_model=backend_model,
         resolution=resolution,
@@ -199,15 +206,16 @@ def test_render_unit_prompt_replaces_mentions_in_order():
     assert "Shot 2 (5s):" in rendered
 
 
-def test_apply_provider_constraints_veo_clamps_duration_and_refs():
+@pytest.mark.unit
+def test_apply_provider_constraints_over_largest_slot_requests_largest_and_clamps_refs():
     # caps 由调用方从 GenerationContext 的 video lane 取得；
-    # 这里直接提供 model 级上限模拟已 resolve 的结果。
+    # 这里直接提供 model 级档位集模拟已 resolve 的结果。
     refs = [Path(f"/tmp/ref{i}.png") for i in range(5)]
     new_refs, new_duration, warnings = _apply_provider_constraints(
         provider="gemini",
         model="veo-3.1-generate-preview",
         max_refs=3,
-        max_duration=8,
+        supported_durations=[4, 6, 8],
         references=refs,
         duration_seconds=12,
     )
@@ -217,13 +225,91 @@ def test_apply_provider_constraints_veo_clamps_duration_and_refs():
     assert any("ref_too_many_images" in w["key"] for w in warnings)
 
 
+@pytest.mark.unit
+def test_apply_provider_constraints_between_slots_rounds_up():
+    """区间内的非成员总时长按容量语义向上取档，不再抛 VideoCapabilityError。"""
+    refs = [Path("/tmp/ref0.png")]
+    _, new_duration, warnings = _apply_provider_constraints(
+        provider="gemini",
+        model="veo-3.1-generate-preview",
+        max_refs=3,
+        supported_durations=[4, 8, 12],
+        references=refs,
+        duration_seconds=5,
+    )
+    assert new_duration == 8
+    assert [w["key"] for w in warnings] == ["ref_duration_rounded_up"]
+
+
+@pytest.mark.unit
+def test_effective_reference_durations_applies_reference_constraint_only_when_images_sent():
+    """参考图约束只在确实带图时施加：backend 同样只在 reference_images 非空时施加它。"""
+    narrow = partial(effective_reference_durations, "gemini-aistudio", "veo-3.1-generate-preview", [4, 6, 8], "720p")
+    # Veo 3.1 全局支持 [4, 6, 8]，带参考图时只接受 8 秒
+    assert narrow(with_reference_images=True) == [8]
+    # 无图单元（通用路径允许空 references、ad 缺图退化为纯文本）：720p 纯文本路径仍是全集
+    assert narrow(with_reference_images=False) == [4, 6, 8]
+    # 未登记型号（中转站 / 自定义供应商包装）无声明可依：退回原全集，不比收窄前更严
+    assert effective_reference_durations(
+        "gemini-aistudio", "veo-3.1-via-relay", [4, 6, 8], "720p", with_reference_images=True
+    ) == [4, 6, 8]
+
+
+@pytest.mark.unit
+async def test_project_video_resolution_falls_back_like_executor(monkeypatch: pytest.MonkeyPatch):
+    """未显式配置分辨率时预检取 provider fallback，与执行层的 resolution_or_fallback 同源。
+
+    停在 None 会漏掉「按 fallback 分辨率才生效」的档位约束：Veo 未配分辨率时执行层按 1080p
+    下发、只接受 8 秒，预检却按全集判 6 秒为档位成员而不弹确认——成片比剧本长且没问过用户。
+    """
+    from server.services import reference_video_tasks as rvt
+
+    class _FakeResolver:
+        def __init__(self, *_a, **_kw):
+            pass
+
+        async def resolve_resolution(self, *_a, **_kw):
+            return None
+
+    monkeypatch.setattr(rvt, "ConfigResolver", _FakeResolver)
+    assert await rvt._project_video_resolution({}, "gemini-aistudio", "veo-3.1-generate-preview") == "1080p"
+
+
+@pytest.mark.unit
+def test_apply_provider_constraints_narrows_by_call_conditions():
+    """执行层取档前按本次调用条件收窄：带图 5 秒取 8（而非执行期必被拒的 6），无图仍取 6。"""
+    ref = Path(tempfile.gettempdir()) / "ref0.png"
+    _, with_images, _ = _apply_provider_constraints(
+        provider="gemini",
+        model="veo-3.1-generate-preview",
+        max_refs=3,
+        supported_durations=[4, 6, 8],
+        references=[ref],
+        duration_seconds=5,
+        registry_provider_id="gemini-aistudio",
+        resolution="720p",
+    )
+    assert with_images == 8
+    _, without_images, _ = _apply_provider_constraints(
+        provider="gemini",
+        model="veo-3.1-generate-preview",
+        max_refs=3,
+        supported_durations=[4, 6, 8],
+        references=[],
+        duration_seconds=5,
+        registry_provider_id="gemini-aistudio",
+        resolution="720p",
+    )
+    assert without_images == 6
+
+
 def test_apply_provider_constraints_sora_single_ref():
     refs = [Path(f"/tmp/ref{i}.png") for i in range(3)]
     new_refs, _, warnings = _apply_provider_constraints(
         provider="openai",
         model="sora-2",
         max_refs=1,
-        max_duration=12,
+        supported_durations=[4, 8, 12],
         references=refs,
         duration_seconds=8,
     )
@@ -237,7 +323,7 @@ def test_apply_provider_constraints_ark_keeps_nine():
         provider="ark",
         model="doubao-seedance-2-0-260128",
         max_refs=9,
-        max_duration=15,
+        supported_durations=list(range(1, 16)),
         references=refs,
         duration_seconds=12,
     )
@@ -247,14 +333,14 @@ def test_apply_provider_constraints_ark_keeps_nine():
 
 
 def test_apply_provider_constraints_none_caps_skip_clamp():
-    """当 ConfigResolver 解析失败（例如无 DB 的 CI 环境），调用方传 None →
-    不裁剪任何维度，把决策推到 backend 自己去报错。"""
+    """当 ConfigResolver 解析失败（例如无 DB 的 CI 环境），调用方传 None / 空档位集 →
+    不裁剪任何维度、时长原样透传，把决策推到 backend 自己去报错。"""
     refs = [Path(f"/tmp/ref{i}.png") for i in range(5)]
     new_refs, new_duration, warnings = _apply_provider_constraints(
         provider="grok",
         model="grok-imagine-video",
         max_refs=None,
-        max_duration=None,
+        supported_durations=[],
         references=refs,
         duration_seconds=30,
     )
@@ -264,15 +350,14 @@ def test_apply_provider_constraints_none_caps_skip_clamp():
 
 
 def test_apply_provider_constraints_custom_provider_model_granular():
-    """Custom provider 场景：max_duration 由自定义 model.supported_durations 决定，
-    无需 PROVIDER_MAX_DURATION 常量查表。用 max_duration=10 模拟 `supported_durations=[4,8,10]`
-    的 custom model，传入 duration=18 应被裁到 10。"""
+    """Custom provider 场景：档位集由自定义 model.supported_durations 决定，
+    无需 PROVIDER_MAX_DURATION 常量查表。传入 duration=18 超过最大档位 → 按 10 申请。"""
     refs = [Path(f"/tmp/ref{i}.png") for i in range(2)]
     new_refs, new_duration, warnings = _apply_provider_constraints(
         provider="custom-openai",
         model="my-custom-video",
         max_refs=9,
-        max_duration=10,
+        supported_durations=[4, 8, 10],
         references=refs,
         duration_seconds=18,
     )
@@ -457,6 +542,69 @@ async def test_execute_reference_video_task_grok_uses_provider_default_resolutio
         f"Grok executor 必须显式传 720p，否则 MediaGenerator 默认 1080p 会被 xai_sdk 拒绝。"
         f"实际收到: {captured.get('resolution')!r}"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_execute_reference_video_task_narrows_durations_by_registry_provider_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """条件档位收窄按规范 registry provider_id 查表，不按 backend 报告的族名。
+
+    族别名供应商（如 ark-agent-plan 族复用 Ark backend）的 backend_name 不是 registry key：
+    拿它查 ModelInfo 会静默落空，收窄整个失效——3 秒剧本会取到 4 秒，而 Veo 3.1 带参考图
+    只接受 8 秒，执行期必然被 backend 拒绝。
+    """
+    proj_dir = _write_project(tmp_path)
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    captured: dict = {}
+
+    async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-21T22:00:00"}]}
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="ark-agent-plan",
+        registry_provider_id="gemini-aistudio",
+        backend_model="veo-3.1-generate-preview",
+        resolution_or_fallback="720p",
+        supported_durations=(4, 6, 8),
+    )
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    # 3 秒剧本 + 带参考图：按 registry 声明收窄到 [8]。落空则取全集首个能装下的 4 秒。
+    assert captured.get("duration_seconds") == 8
 
 
 @pytest.mark.asyncio
@@ -819,20 +967,19 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     assert "@酒馆" in prompt or "@瓶子" in prompt
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_rejects_unsupported_duration(
+async def test_execute_reference_video_task_rounds_up_non_member_duration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """执行层能力守卫：unit 总时长不在 supported_durations 内（且 ≤max 不会被 clamp 修正）时，
-    必须抛 VideoCapabilityError 本地失败，而非把非成员时长漏给供应商 API 报 400。
+    """执行层取档：unit 总时长落在区间内但不是档位成员时，按能装下它的最小档位申请生成，
+    不再抛 VideoCapabilityError；成片不裁剪，取档结果记入任务 warning。
     """
-    from lib.video_backends.base import VideoCapabilityError
-
     proj_dir = _write_project(tmp_path)
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    # 5 ≤ max(12) 不会被 clamp，但不是 [4,8,12] 成员 → 守卫必须拒
+    # 5 不是 [4,8,12] 成员 → 按 8 秒申请
     script["video_units"][0]["shots"] = [{"duration": 5, "text": "Shot 1 (5s): @张三 推门"}]
     script["video_units"][0]["duration_seconds"] = 5
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
@@ -846,7 +993,10 @@ async def test_execute_reference_video_task_rejects_unsupported_duration(
     _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
+    captured: dict = {}
+
     async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"\x00")
@@ -865,15 +1015,16 @@ async def test_execute_reference_video_task_rejects_unsupported_duration(
         supported_durations=(4, 8, 12),
     )
 
-    with pytest.raises(VideoCapabilityError):
-        await rvt.execute_reference_video_task(
-            "demo",
-            "E1U1",
-            {"script_file": "scripts/episode_1.json"},
-            user_id="u1",
-        )
-    # 守卫在调用 backend 前拦下：generate_video_async 不应被调用
-    fake_generator.generate_video_async.assert_not_called()
+    result = await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+    assert captured["duration_seconds"] == 8
+    warnings = result["warnings"]
+    assert [w["key"] for w in warnings] == ["ref_duration_rounded_up"]
+    assert warnings[0]["params"] == {"total": 5, "duration": 8, "model": "sora-2"}
 
 
 def test_apply_unit_video_assets_distinguishes_failures():

@@ -194,7 +194,8 @@ MESSAGES = {
     "end_frame_reference_video_unsupported": "Chế độ video tham chiếu không có khái niệm khung hình đầu/cuối, không hỗ trợ đặt khung hình cuối",
     # Reference Video
     "ref_missing_asset": "Tham chiếu đến {type} '{name}' không có trong thư viện tài nguyên dự án, vui lòng tạo trước",
-    "ref_duration_exceeded": "Thời lượng đơn vị video tham chiếu {duration}s vượt giới hạn {max_duration}s của {model}, đã cắt bớt",
+    "ref_duration_exceeded": "Kịch bản dài {total}s, vượt mức thời lượng lớn nhất của {model}; đã tạo ở {duration}s nên video ngắn hơn kịch bản",
+    "ref_duration_rounded_up": "Kịch bản dài {total}s, không thuộc các mức thời lượng của {model}; đã tạo ở {duration}s nên video dài hơn kịch bản",
     "ref_too_many_images": "Số lượng ảnh tham chiếu {count} vượt giới hạn {max_count} của {model}, đã giữ {max_count} ảnh đầu tiên",
     "ref_payload_too_large": "Dữ liệu ảnh tham chiếu vượt giới hạn của nhà cung cấp, đã thử lại với mức nén bổ sung",
     "ref_payload_floor_exceeded": "Ảnh tham chiếu quá lớn hoặc quá nhiều; ngay cả khi nén ở mức chất lượng thấp nhất vẫn vượt giới hạn kích thước yêu cầu của nhà cung cấp. Vui lòng giảm số lượng ảnh tham chiếu hoặc độ phân giải rồi thử lại",

@@ -51,6 +51,7 @@ import type {
   TransitionType,
   AdShot,
   AdReferenceUnit,
+  ReferenceDurationPrecheck,
   ScriptReviewState,
   DramaNormalizedScript,
   NarrationStep1Draft,
@@ -2334,6 +2335,23 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/reorder`,
       { method: "POST", body: JSON.stringify({ unit_ids: unitIds }) },
+    );
+  }
+
+  /**
+   * 入队前的时长取档预检：申请秒数与剧本编排不一致时需先向用户确认。
+   *
+   * 取档按项目当前配置近似解析，实际档位以执行时的模型能力为准。
+   */
+  static async precheckReferenceVideoDuration(
+    projectName: string,
+    episode: number,
+    unitId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ReferenceDurationPrecheck> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/duration-precheck`,
+      { signal: options?.signal },
     );
   }
 

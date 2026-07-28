@@ -12,6 +12,7 @@ vi.mock("@/api", () => ({
     listAdReferenceUnits: vi.fn(),
     deriveAdReferenceUnits: vi.fn(),
     generateReferenceVideoUnit: vi.fn(),
+    precheckReferenceVideoDuration: vi.fn(),
     getFileUrl: vi.fn(() => "http://file/E1U1.mp4"),
   },
 }));
@@ -95,6 +96,13 @@ beforeEach(() => {
     optimisticActiveScriptFile: new Set(),
   });
   useAppStore.setState(useAppStore.getInitialState(), true);
+  // 时长取档预检默认「与剧本编排一致」：生成入口无确认步骤，与改动前的路径等价
+  mockedAPI.precheckReferenceVideoDuration.mockResolvedValue({
+    needs_confirmation: false,
+    script_duration: 5,
+    request_duration: 5,
+    adjustment: "exact",
+  });
 });
 
 describe("AdReferenceVideoCanvas", () => {
@@ -140,6 +148,83 @@ describe("AdReferenceVideoCanvas", () => {
 
     expect(screen.queryByRole("button", { name: /生成分镜|上传/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Image Prompt/i)).not.toBeInTheDocument();
+  });
+
+  // ad 与通用路径共用同一条时长闸门：分组求和落在档位之间时也要先确认，
+  // 否则 ad 入口会成为绕过确认的旁路。
+  it("分组时长与剧本编排不一致时先确认，确认后才入队", async () => {
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [makeUnit()] });
+    mockedAPI.generateReferenceVideoUnit.mockResolvedValue({ task_id: "t1", deduped: false });
+    mockedAPI.precheckReferenceVideoDuration.mockResolvedValue({
+      needs_confirmation: true,
+      script_duration: 5,
+      request_duration: 8,
+      adjustment: "up",
+    });
+
+    renderCanvas();
+    await userEvent.click(await screen.findByRole("button", { name: /生成视频/ }));
+
+    const confirm = await screen.findByRole("button", { name: /按此时长生成/ });
+    expect(mockedAPI.generateReferenceVideoUnit).not.toHaveBeenCalled();
+
+    await userEvent.click(confirm);
+    await waitFor(() =>
+      expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledWith("demo", 1, "E1U1"),
+    );
+  });
+
+  // 批量入口整批走一次闸门：逐个走会让后一个分组覆盖前一个尚未确认的弹窗，
+  // 除最后一个外的分组既不入队也无提示。
+  it("全部生成时多个分组聚合成一次确认，确认后全部入队", async () => {
+    const units = [makeUnit(), makeUnit({ unit_id: "E1U2", shot_ids: ["E1S1"] })];
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units });
+    mockedAPI.deriveAdReferenceUnits.mockResolvedValue({ units });
+    mockedAPI.generateReferenceVideoUnit.mockResolvedValue({ task_id: "t1", deduped: false });
+    mockedAPI.precheckReferenceVideoDuration.mockResolvedValue({
+      needs_confirmation: true,
+      script_duration: 5,
+      request_duration: 8,
+      adjustment: "up",
+    });
+
+    renderCanvas();
+    await screen.findByText("E1U1");
+    await userEvent.click(screen.getByRole("button", { name: /全部生成/ }));
+
+    // 两个分组列在同一个确认框里，而不是弹两次或只剩最后一个
+    const confirm = await screen.findByRole("button", { name: /按此时长生成/ });
+    const dialog = confirm.closest('[role="dialog"]') ?? confirm.parentElement!;
+    expect(dialog.textContent).toContain("E1U1");
+    expect(dialog.textContent).toContain("E1U2");
+    expect(mockedAPI.generateReferenceVideoUnit).not.toHaveBeenCalled();
+
+    await userEvent.click(confirm);
+    await waitFor(() => expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledTimes(2));
+    expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledWith("demo", 1, "E1U1");
+    expect(mockedAPI.generateReferenceVideoUnit).toHaveBeenCalledWith("demo", 1, "E1U2");
+  });
+
+  it("全部生成时取消确认则一个都不入队", async () => {
+    const units = [makeUnit(), makeUnit({ unit_id: "E1U2", shot_ids: ["E1S1"] })];
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({ units });
+    mockedAPI.deriveAdReferenceUnits.mockResolvedValue({ units });
+    mockedAPI.generateReferenceVideoUnit.mockResolvedValue({ task_id: "t1", deduped: false });
+    mockedAPI.precheckReferenceVideoDuration.mockResolvedValue({
+      needs_confirmation: true,
+      script_duration: 5,
+      request_duration: 8,
+      adjustment: "up",
+    });
+
+    renderCanvas();
+    await screen.findByText("E1U1");
+    await userEvent.click(screen.getByRole("button", { name: /全部生成/ }));
+
+    await screen.findByRole("button", { name: /按此时长生成/ });
+    await userEvent.click(screen.getByRole("button", { name: /取消/ }));
+
+    expect(mockedAPI.generateReferenceVideoUnit).not.toHaveBeenCalled();
   });
 
   it("逐分组生成调用生成 API", async () => {

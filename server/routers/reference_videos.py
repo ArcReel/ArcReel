@@ -36,7 +36,11 @@ from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
 from server.routers._reorder import full_permutation_error
 from server.services.generation_tasks import emit_generation_success_batch
-from server.services.reference_video_tasks import _finalize_reference_video_unit, resolve_max_unit_duration
+from server.services.reference_video_tasks import (
+    _finalize_reference_video_unit,
+    precheck_unit_duration_slot,
+    resolve_max_unit_duration,
+)
 from server.services.upload_finalize import (
     UploadValidationError,
     record_upload_version,
@@ -397,6 +401,40 @@ async def reorder_units(
         reordered = [by_id[uid] for uid in req.unit_ids]
         script["video_units"] = reordered
     return {"units": reordered}
+
+
+@router.get("/episodes/{episode}/units/{unit_id}/duration-precheck")
+async def precheck_unit_duration(
+    project_name: str,
+    episode: int,
+    unit_id: str,
+    _user: CurrentUser,
+    _t: Translator,
+) -> dict[str, Any]:
+    """入队前的时长取档预检：申请秒数与剧本编排不一致时前端需先向用户确认。
+
+    ``needs_confirmation`` 为 false 时（总时长本身是档位成员、或能力不可解析）直接入队。
+    取档按项目当前配置近似解析（provider 在执行时才解析，见 ADR-0001），实际档位以执行
+    时的 model 能力为准；执行时的取档结果记入任务 warning。
+    """
+    project, script, _sf = _load_episode_script(project_name, episode, _t)
+    if project.get("content_mode") == "ad":
+        unit = _find_ad_unit(script, unit_id, _t)
+        try:
+            ad_shots = resolve_ad_unit_shots(script, unit)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=_t("ref_ad_stale_index")) from exc
+    else:
+        unit = _find_unit(script, unit_id, _t)
+        ad_shots = None
+
+    slot = await precheck_unit_duration_slot(project, unit, ad_shots)
+    return {
+        "needs_confirmation": slot.needs_confirmation,
+        "script_duration": slot.total_seconds,
+        "request_duration": slot.seconds,
+        "adjustment": slot.adjustment,
+    }
 
 
 @router.post(

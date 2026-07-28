@@ -16,6 +16,8 @@ import { ReferenceVideoCard, unitPromptText } from "./ReferenceVideoCard";
 import { deriveUnitStatus } from "./unit-status";
 import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
+import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
+import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { ScriptReviewGate } from "@/components/canvas/timeline/ScriptReviewGate";
 import { API } from "@/api";
 import { enqueueReferenceVideoUnit } from "@/actions/generation";
@@ -222,11 +224,35 @@ export function ReferenceVideoCanvas({
 
   const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
-  const handleGenerate = useCallback(
+  // 时长取档闸门：申请秒数与剧本编排不一致时先确认，取消则一个都不入队
+  /** 单元入口的复核：只看占用。「重新生成」本就要覆盖已有成片，不能按有无成片拦。 */
+  const canEnqueueUnit = useCallback((unitId: string) => !isUnitLocked(unitId), [isUnitLocked]);
+
+  /**
+   * 批量入口的复核：占用之外还要求尚无成片——批量的作用对象就是「还没有成片的单元」。
+   *
+   * 任务完成后该 unit 不再 busy，而队列去重只看 queued/running/cancelling，确认弹窗停留
+   * 期间完成的单元若原样提交，会再跑一次生成、重复计费并覆盖刚出的成片。实时读 store
+   * 而非渲染期 units 快照。
+   */
+  const canEnqueueBatchUnit = useCallback(
+    (unitId: string) => {
+      if (isUnitLocked(unitId)) return false;
+      const fresh = useReferenceVideoStore
+        .getState()
+        .unitsByEpisode[referenceVideoCacheKey(projectName, episode)]?.find((u) => u.unit_id === unitId);
+      return !fresh?.generated_assets?.video_clip;
+    },
+    [isUnitLocked, projectName, episode],
+  );
+
+  const durationGate = useReferenceDurationGate({ projectName, episode });
+
+  const enqueue = useCallback(
     async (unitId: string) => {
-      setStackTab("preview");
       // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的占用态未必是最新的
-      // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）。
+      // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）；
+      // 时长确认弹窗打开期间同样会经过这段窗口，故复核落在入队这一刻。
       if (isUnitLocked(unitId)) {
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
@@ -239,6 +265,34 @@ export function ReferenceVideoCanvas({
       }
     },
     [projectName, episode, isUnitLocked, t],
+  );
+
+  /**
+   * 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
+   *
+   * 每次 POST 前都用本次入口的判定复核一遍：循环里每个请求之间都是一段等待窗口，靠后的
+   * 单元可能在此期间由别处生成完成，只在循环开始前过滤一次拦不住它。
+   */
+  const makeEnqueueSerially = useCallback(
+    (canEnqueue: (unitId: string) => boolean) => async (unitIds: string[]) => {
+      for (const id of unitIds) {
+        if (!canEnqueue(id)) continue;
+        await enqueue(id);
+      }
+    },
+    [enqueue],
+  );
+
+  const handleGenerate = useCallback(
+    async (unitId: string) => {
+      setStackTab("preview");
+      if (isUnitLocked(unitId)) {
+        useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
+        return;
+      }
+      await durationGate.run([unitId], makeEnqueueSerially(canEnqueueUnit), canEnqueueUnit);
+    },
+    [durationGate, makeEnqueueSerially, isUnitLocked, canEnqueueUnit, t],
   );
 
   const handleUploadVideo = useCallback(
@@ -290,15 +344,15 @@ export function ReferenceVideoCanvas({
       useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
       return;
     }
-    for (const u of batchTargets) {
-      // 实时复核而非用渲染期快照：串行 await 期间其它入口（单元按钮、Agent 入队、
-      // SSE 落库）可能已占用同一 unit。命中即跳过，不当作错误提示——批量入口的语义
-      // 是「把还能生成的都排上」，逐个报错只会刷屏。
-      if (isUnitLocked(u.unit_id)) continue;
-      // 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
-      await handleGenerate(u.unit_id);
-    }
-  }, [batchTargets, handleGenerate, isUnitLocked, t]);
+    setStackTab("preview");
+    // 实时复核而非用渲染期快照：其它入口（单元按钮、Agent 入队、SSE 落库）可能已占用
+    // 同一 unit。命中即跳过，不当作错误提示——批量入口的语义是「把还能生成的都排上」，
+    // 逐个报错只会刷屏。
+    const targets = batchTargets.map((u) => u.unit_id).filter((id) => !isUnitLocked(id));
+    if (targets.length === 0) return;
+    // 与单元入口共用同一条闸门：需确认的单元聚合成一次确认，否则批量按钮会成为绕过确认的旁路
+    await durationGate.run(targets, makeEnqueueSerially(canEnqueueBatchUnit), canEnqueueBatchUnit);
+  }, [batchTargets, durationGate, makeEnqueueSerially, isUnitLocked, canEnqueueBatchUnit, t]);
 
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
@@ -904,6 +958,8 @@ export function ReferenceVideoCanvas({
           )}
         </div>
       )}
+
+      <ReferenceDurationConfirmDialog {...durationGate.dialogProps} />
     </div>
   );
 }
