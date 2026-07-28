@@ -36,6 +36,7 @@ import { StatusBadge, statusFromAssets } from "./StatusBadge";
 import { Popover } from "@/components/ui/Popover";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { isResourceBusy } from "@/stores/tasks-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
@@ -152,6 +153,7 @@ function draftSig(d: DraftState, isAd: boolean, isDrama: boolean): string {
 interface DurationPillProps {
   seconds: number;
   segmentId: string;
+  projectName: string;
   durationOptions: number[];
   durationWarningReason?: ShotDetailProps["durationWarningReason"];
   onUpdatePrompt?: ShotDetailProps["onUpdatePrompt"];
@@ -162,6 +164,7 @@ interface DurationPillProps {
 function DurationPill({
   seconds,
   segmentId,
+  projectName,
   durationOptions,
   durationWarningReason,
   onUpdatePrompt,
@@ -176,10 +179,23 @@ function DurationPill({
   const [draftSeconds, setDraftSeconds] = useState<number | null>(null);
   // 占用中一律回落到上游值：拖到一半任务才启动时，草稿不该继续顶替真实时长显示。
   const displaySeconds = (busy ? null : draftSeconds) ?? seconds;
+  // 提交时刻复核占用态：面板打开后任务可能才启动，只查打开/渲染时刻会留一个竞态窗口。
+  // 走 tasks-store 的 isResourceBusy 新鲜读而非 busy prop——prop 反映的是上次渲染，
+  // store 更新到重渲染提交之间用户仍可能点下去。命中则拒绝并给可见反馈（与立绘上传的
+  // rejectIfAssetBusy 同口径）。
+  const rejectIfBusy = useCallback(() => {
+    const stillBusy =
+      busy ||
+      isResourceBusy("storyboard", projectName, segmentId) ||
+      isResourceBusy("video", projectName, segmentId);
+    if (!stillBusy) return false;
+    useAppStore.getState().pushToast(t("duration_locked_generating"), "info");
+    return true;
+  }, [busy, projectName, segmentId, t]);
+
   const commitDraft = useCallback(() => {
     if (draftSeconds == null) return;
-    // 提交时刻复核占用态：面板打开后任务可能才启动，只查打开时刻会留一个竞态窗口。
-    if (busy) {
+    if (rejectIfBusy()) {
       setDraftSeconds(null);
       return;
     }
@@ -187,7 +203,7 @@ function DurationPill({
       void onUpdatePrompt?.(segmentId, "duration_seconds", draftSeconds);
     }
     setDraftSeconds(null);
-  }, [draftSeconds, seconds, segmentId, onUpdatePrompt, busy]);
+  }, [draftSeconds, seconds, segmentId, onUpdatePrompt, rejectIfBusy]);
 
   const editable = !!onUpdatePrompt;
   const noOptions = durationOptions.length === 0;
@@ -337,7 +353,7 @@ function DurationPill({
                   aria-checked={checked}
                   onClick={() => {
                     // 与 commitDraft 同口径：提交时刻再复核一次，不吃面板打开后才启动的任务。
-                    if (busy) {
+                    if (rejectIfBusy()) {
                       setOpen(false);
                       return;
                     }
@@ -979,6 +995,7 @@ export function ShotDetail({
         <DurationPill
           seconds={segment.duration_seconds ?? 0}
           segmentId={segmentId}
+          projectName={projectName}
           durationOptions={durationOptions}
           durationWarningReason={durationWarningReason}
           onUpdatePrompt={onUpdatePrompt}

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
+import { useTasksStore } from "@/stores/tasks-store";
 import type { DramaScene } from "@/types";
 
 /**
@@ -108,6 +109,10 @@ describe("ShotDetail 时长候选与越界提示", () => {
  * 兄弟控件（重生成分镜 / 视频）本就按同一对占用态接线，此处覆盖打开时与提交时两道校验。
  */
 describe("ShotDetail 时长编辑的占用态门控", () => {
+  afterEach(() => {
+    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+  });
+
   it("该镜头生成中时禁用时长 pill 并说明原因", () => {
     for (const busyProp of ["generatingStoryboard", "generatingVideo"] as const) {
       const { unmount } = renderDetail({ [busyProp]: true }, 8);
@@ -158,6 +163,43 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
       />,
     );
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(onUpdatePrompt).not.toHaveBeenCalled();
+  });
+
+  it("prop 还没跟上、但 store 已记录该镜头在跑时，提交仍被拒", () => {
+    // 提交时刻复核的存在理由：prop 反映的是上次渲染，store 更新到重渲染提交之间用户仍可能
+    // 点下去。故走 tasks-store 的 isResourceBusy 新鲜读，而不是只看 busy prop。
+    const onUpdatePrompt = vi.fn();
+    renderDetail({ onUpdatePrompt });
+    fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
+
+    useTasksStore.setState({
+      tasks: [
+        {
+          project_name: "demo",
+          task_type: "video",
+          media_type: "video",
+          resource_id: "E1S01",
+          resource_type: null,
+          script_file: null,
+          payload: {},
+          task_id: "t1",
+          status: "running",
+          result: null,
+          error_message: null,
+          cancelled_by: null,
+          provider_id: null,
+          provider_job_id: null,
+          source: "webui",
+          queued_at: "2026-07-28T00:00:00Z",
+          started_at: null,
+          finished_at: null,
+          updated_at: "2026-07-28T00:00:00Z",
+        },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("radio", { name: /8 秒/ }));
     expect(onUpdatePrompt).not.toHaveBeenCalled();
   });
 });
