@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useState, type RefObject } from "react";
 import { activateOnEnterSpace } from "@/utils/a11y";
 import { voidPromise } from "@/utils/async";
 import { motion, AnimatePresence } from "framer-motion";
@@ -33,6 +33,33 @@ const STATUS_COLORS: Record<TaskItem["status"], string> = {
   failed: "oklch(0.72 0.18 25)",
   cancelled: "var(--color-text-3)",
 };
+
+// ---------------------------------------------------------------------------
+// Status filter
+// ---------------------------------------------------------------------------
+
+type TaskFilter = "all" | "active" | "failed" | "done";
+
+const FILTER_STATUSES: Record<Exclude<TaskFilter, "all">, readonly TaskItem["status"][]> = {
+  active: ["running", "cancelling", "queued"],
+  failed: ["failed"],
+  done: ["succeeded", "cancelled"],
+};
+
+function matchesFilter(task: TaskItem, filter: TaskFilter): boolean {
+  return filter === "all" || FILTER_STATUSES[filter].includes(task.status);
+}
+
+/**
+ * 后端 `_localize_task` 已把 `result.warnings` 渲染成当前语言的字符串数组，
+ * 这里只做形态收窄：`result` 是 `Record<string, unknown>`，类型上给不出字符串数组的
+ * 保证，非字符串条目一律丢弃而不是渲染成 `[object Object]`。
+ */
+function taskWarnings(task: TaskItem): string[] {
+  const warnings = task.result?.warnings;
+  if (!Array.isArray(warnings)) return [];
+  return warnings.filter((warning): warning is string => typeof warning === "string");
+}
 
 // ---------------------------------------------------------------------------
 // Task status icon
@@ -108,15 +135,13 @@ function RunningProgressBar() {
 
 function TaskRow({
   task,
-  isFading,
-  expandedErrorId,
-  onToggleError,
+  expandedTaskId,
+  onToggleDetail,
   onCancel,
 }: {
   task: TaskItem;
-  isFading: boolean;
-  expandedErrorId: string | null;
-  onToggleError: (taskId: string) => void;
+  expandedTaskId: string | null;
+  onToggleDetail: (taskId: string) => void;
   onCancel?: (taskId: string) => void;
 }) {
   const { t } = useTranslation("dashboard");
@@ -129,45 +154,55 @@ function TaskRow({
     cancelled: t("cancelled_status"),
   };
 
+  const warnings = task.status === "succeeded" ? taskWarnings(task) : [];
+  const hasWarnings = warnings.length > 0;
+  const hasError = Boolean(task.status === "failed" && task.error_message);
+  // 失败原因与生成警示走同一套展开交互：一行最多只有其中一种详情。
+  const isExpandable = hasError || hasWarnings;
+  const isExpanded = expandedTaskId === task.task_id;
+
+  // 底色标的是任务状态，与「有没有详情可展开」解耦：失败任务即使没有 error_message
+  // 也须保持红色，否则它在列表里与排队行无从区分。
   const rowBg =
     task.status === "failed"
       ? "oklch(0.30 0.10 25 / 0.18)"
-      : task.status === "succeeded" && !isFading
-        ? "oklch(0.30 0.10 155 / 0.12)"
-        : "transparent";
-
-  const isErrorExpanded = expandedErrorId === task.task_id;
-  const hasError = task.status === "failed" && task.error_message;
+      : hasWarnings
+        ? "oklch(0.35 0.10 70 / 0.12)"
+        : task.status === "succeeded"
+          ? "oklch(0.30 0.10 155 / 0.12)"
+          : "transparent";
+  const rowHoverBg =
+    task.status === "failed"
+      ? "oklch(0.30 0.10 25 / 0.28)"
+      : "oklch(0.35 0.10 70 / 0.22)";
 
   return (
     <motion.div
       layout
       initial={{ opacity: 0, height: 0 }}
-      animate={{
-        opacity: isFading ? 0 : 1,
-        height: isFading ? 0 : "auto",
-      }}
+      animate={{ opacity: 1, height: "auto" }}
       exit={{ opacity: 0, height: 0 }}
-      transition={{ duration: isFading ? 0.4 : 0.2 }}
+      transition={{ duration: 0.2 }}
       className="overflow-hidden"
     >
       <div
         className={`flex items-center gap-2 px-3 py-1.5 text-[12px] ${
-          hasError ? "cursor-pointer" : ""
+          isExpandable ? "cursor-pointer" : ""
         }`}
         style={{ background: rowBg, transition: "background-color .12s ease" }}
-        role={hasError ? "button" : undefined}
-        tabIndex={hasError ? 0 : undefined}
-        aria-expanded={hasError ? isErrorExpanded : undefined}
-        aria-controls={hasError ? `task-error-${task.task_id}` : undefined}
-        onClick={hasError ? () => onToggleError(task.task_id) : undefined}
-        onKeyDown={hasError ? activateOnEnterSpace(() => onToggleError(task.task_id)) : undefined}
+        role={isExpandable ? "button" : undefined}
+        tabIndex={isExpandable ? 0 : undefined}
+        aria-expanded={isExpandable ? isExpanded : undefined}
+        aria-controls={isExpandable ? `task-detail-${task.task_id}` : undefined}
+        onClick={isExpandable ? () => onToggleDetail(task.task_id) : undefined}
+        onKeyDown={
+          isExpandable ? activateOnEnterSpace(() => onToggleDetail(task.task_id)) : undefined
+        }
         onMouseEnter={(e) => {
-          if (hasError)
-            e.currentTarget.style.background = "oklch(0.30 0.10 25 / 0.28)";
+          if (isExpandable) e.currentTarget.style.background = rowHoverBg;
         }}
         onMouseLeave={(e) => {
-          if (hasError) e.currentTarget.style.background = rowBg;
+          if (isExpandable) e.currentTarget.style.background = rowBg;
         }}
       >
         <TaskStatusIcon status={task.status} />
@@ -257,10 +292,22 @@ function TaskRow({
             {t("cascade_label")}
           </span>
         )}
-        {hasError && (
+        {hasWarnings && (
+          <span
+            className="inline-flex items-center gap-0.5 text-[10.5px]"
+            style={{ color: "var(--color-warn)" }}
+            title={t("task_warnings_hint")}
+          >
+            <AlertTriangle className="h-3 w-3" aria-hidden />
+            <span className="num">{warnings.length}</span>
+            <span className="sr-only">{t("task_warnings_count", { count: warnings.length })}</span>
+          </span>
+        )}
+        {isExpandable && (
           <ChevronDown
-            className={`h-3 w-3 transition-transform ${isErrorExpanded ? "rotate-180" : ""}`}
+            className={`h-3 w-3 transition-transform ${isExpanded ? "rotate-180" : ""}`}
             style={{ color: "var(--color-text-4)" }}
+            aria-hidden
           />
         )}
       </div>
@@ -272,7 +319,7 @@ function TaskRow({
       )}
 
       <AnimatePresence>
-        {hasError && isErrorExpanded && (
+        {isExpandable && isExpanded && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
@@ -280,17 +327,33 @@ function TaskRow({
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <div
-              id={`task-error-${task.task_id}`}
-              className="mx-3 mb-1.5 rounded px-2 py-1.5 text-[10.5px]"
-              style={{
-                background: "oklch(0.30 0.10 25 / 0.10)",
-                color: "oklch(0.85 0.10 25)",
-                border: "1px solid oklch(0.45 0.18 25 / 0.30)",
-              }}
-            >
-              {task.error_message}
-            </div>
+            {hasError ? (
+              <div
+                id={`task-detail-${task.task_id}`}
+                className="mx-3 mb-1.5 rounded px-2 py-1.5 text-[10.5px]"
+                style={{
+                  background: "oklch(0.30 0.10 25 / 0.10)",
+                  color: "oklch(0.85 0.10 25)",
+                  border: "1px solid oklch(0.45 0.18 25 / 0.30)",
+                }}
+              >
+                {task.error_message}
+              </div>
+            ) : (
+              <ul
+                id={`task-detail-${task.task_id}`}
+                className="mx-3 mb-1.5 space-y-1 rounded px-2 py-1.5 text-[10.5px]"
+                style={{
+                  background: "oklch(0.35 0.10 70 / 0.10)",
+                  color: "oklch(0.86 0.09 70)",
+                  border: "1px solid oklch(0.50 0.12 70 / 0.30)",
+                }}
+              >
+                {warnings.map((warning, index) => (
+                  <li key={`${task.task_id}-warning-${index}`}>{warning}</li>
+                ))}
+              </ul>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -306,61 +369,20 @@ function ChannelSection({
   title,
   icon: Icon,
   tasks,
+  filter,
   onCancel,
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   tasks: TaskItem[];
+  filter: TaskFilter;
   onCancel?: (taskId: string) => void;
 }) {
   const { t } = useTranslation("dashboard");
-  const [fadingIds, setFadingIds] = useState<Set<string>>(new Set());
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
-  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
 
-  const toggleError = useCallback((taskId: string) => {
-    setExpandedErrorId((prev) => (prev === taskId ? null : taskId));
-  }, []);
-
-  useEffect(() => {
-    const autoFadeTasks = tasks.filter(
-      (task) =>
-        (task.status === "succeeded" || task.status === "cancelled") &&
-        !fadingIds.has(task.task_id) &&
-        !hiddenIds.has(task.task_id),
-    );
-
-    for (const task of autoFadeTasks) {
-      if (timersRef.current.has(task.task_id)) continue;
-
-      const fadeTimer = setTimeout(() => {
-        setFadingIds((prev) => new Set(prev).add(task.task_id));
-
-        const hideTimer = setTimeout(() => {
-          setHiddenIds((prev) => new Set(prev).add(task.task_id));
-          timersRef.current.delete(task.task_id);
-        }, 400);
-
-        timersRef.current.set(task.task_id + "_hide", hideTimer);
-      }, 3000);
-
-      timersRef.current.set(task.task_id, fadeTimer);
-    }
-  }, [tasks, fadingIds, hiddenIds]);
-
-  // Cleanup-on-unmount only: 不要把这段并到上面的调度 effect 里——
-  // 上面 deps 含 tasks/fadingIds/hiddenIds，每次 tasks 变更都会清掉所有
-  // 在飞的 fade/hide timer，但 timersRef 的 key 仍存在，下一次调度会被
-  // 跳过，导致已成功任务永远不 fade。
-  useEffect(() => {
-    const timers = timersRef.current;
-    return () => {
-      for (const timer of timers.values()) {
-        clearTimeout(timer);
-      }
-      timers.clear();
-    };
+  const toggleDetail = useCallback((taskId: string) => {
+    setExpandedTaskId((prev) => (prev === taskId ? null : taskId));
   }, []);
 
   // cancelling 是 running 的延伸中间态：worker 在响应 CancelledError 期间任务仍占用
@@ -370,12 +392,13 @@ function ChannelSection({
     (task) => task.status === "running" || task.status === "cancelling",
   );
   const queued = tasks.filter((task) => task.status === "queued");
-  const recent = tasks
-    .filter((task) => isTerminalStatus(task.status))
-    .filter((task) => !hiddenIds.has(task.task_id))
-    .slice(0, 5);
+  // 终态任务不再自动消失也不截断：展示窗口由 API 分页与容器滚动兜底。API 已按
+  // updated_at 倒序返回，这里的过滤保序，因此终态段天然是时间倒序。
+  const recent = tasks.filter((task) => isTerminalStatus(task.status));
 
-  const visible = [...running, ...queued, ...recent];
+  const visible = [...running, ...queued, ...recent].filter((task) =>
+    matchesFilter(task, filter),
+  );
 
   return (
     <div>
@@ -409,9 +432,8 @@ function ChannelSection({
           <TaskRow
             key={task.task_id}
             task={task}
-            isFading={fadingIds.has(task.task_id)}
-            expandedErrorId={expandedErrorId}
-            onToggleError={toggleError}
+            expandedTaskId={expandedTaskId}
+            onToggleDetail={toggleDetail}
             onCancel={onCancel}
           />
         ))}
@@ -421,9 +443,102 @@ function ChannelSection({
           className="px-3 py-2 text-[11px] italic"
           style={{ color: "var(--color-text-4)" }}
         >
-          {t("no_tasks")}
+          {filter === "all" ? t("no_tasks") : t("no_tasks_in_filter")}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Filter pills
+// ---------------------------------------------------------------------------
+
+/**
+ * 状态过滤 pill。计数取自已加载的任务列表而非 `/tasks/stats`：它标的是「点进去能看到
+ * 几条」，与上方统计条的项目级累计口径不同，用当前列表口径才不会点开即落空。
+ */
+function FilterPills({
+  tasks,
+  value,
+  onChange,
+}: {
+  tasks: TaskItem[];
+  value: TaskFilter;
+  onChange: (filter: TaskFilter) => void;
+}) {
+  const { t } = useTranslation("dashboard");
+
+  const options: { key: TaskFilter; label: string; count: number; accent: string }[] = [
+    {
+      key: "all",
+      label: t("task_filter_all"),
+      count: tasks.length,
+      accent: "var(--color-text-2)",
+    },
+    {
+      key: "active",
+      label: t("task_filter_active"),
+      count: tasks.filter((task) => matchesFilter(task, "active")).length,
+      accent: STATUS_COLORS.running,
+    },
+    {
+      key: "failed",
+      label: t("task_filter_failed"),
+      count: tasks.filter((task) => matchesFilter(task, "failed")).length,
+      accent: STATUS_COLORS.failed,
+    },
+    {
+      key: "done",
+      label: t("task_filter_done"),
+      count: tasks.filter((task) => matchesFilter(task, "done")).length,
+      accent: STATUS_COLORS.succeeded,
+    },
+  ];
+
+  return (
+    <div
+      className="flex items-center gap-1.5 px-4 py-2"
+      role="group"
+      aria-label={t("task_filter_group_aria")}
+      style={{ borderBottom: "1px solid var(--color-hairline-soft)" }}
+    >
+      {options.map((option) => {
+        const active = value === option.key;
+        return (
+          <button
+            key={option.key}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(option.key)}
+            className="focus-ring inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] transition-colors"
+            style={{
+              color: active ? "var(--color-accent-2)" : "var(--color-text-3)",
+              background: active ? "var(--color-accent-dim)" : "transparent",
+              border: `1px solid ${active ? "var(--color-accent-soft)" : "var(--color-hairline-soft)"}`,
+            }}
+            onMouseEnter={(e) => {
+              if (!active) e.currentTarget.style.color = "var(--color-text-2)";
+            }}
+            onMouseLeave={(e) => {
+              if (!active) e.currentTarget.style.color = "var(--color-text-3)";
+            }}
+          >
+            {option.label}
+            <span
+              className="num"
+              style={{
+                // 计数只在非零时取状态色：它是"这里有东西值得看"的信号，
+                // 全部为零时着色只是装饰。
+                color: option.count > 0 ? option.accent : "var(--color-text-4)",
+                fontWeight: 600,
+              }}
+            >
+              {option.count}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -470,6 +585,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
     projectName?: string;
   } | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [filter, setFilter] = useState<TaskFilter>("all");
 
   const handleCancelSingle = useCallback(async (taskId: string) => {
     try {
@@ -614,6 +730,9 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
           )}
         </div>
 
+        {/* Status filter */}
+        <FilterPills tasks={tasks} value={filter} onChange={setFilter} />
+
         {/* Channels */}
         <div
           className="max-h-80 overflow-y-auto"
@@ -623,6 +742,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
             title={t("image_channel")}
             icon={Image}
             tasks={imageTasks}
+            filter={filter}
             onCancel={voidPromise(handleCancelSingle)}
           />
           <div
@@ -633,6 +753,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
             title={t("video_channel")}
             icon={Video}
             tasks={videoTasks}
+            filter={filter}
             onCancel={voidPromise(handleCancelSingle)}
           />
           {audioTasks.length > 0 && (
@@ -645,6 +766,7 @@ export function TaskHud({ anchorRef }: { anchorRef: RefObject<HTMLElement | null
                 title={t("audio_channel")}
                 icon={AudioLines}
                 tasks={audioTasks}
+                filter={filter}
                 onCancel={voidPromise(handleCancelSingle)}
               />
             </>
