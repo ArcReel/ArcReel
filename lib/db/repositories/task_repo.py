@@ -690,6 +690,28 @@ class TaskRepository(BaseRepository):
             raise ValueError(f"task not found: {task_id}")
         await self.session.commit()
 
+    async def persist_effective_duration(self, task_id: str, duration_seconds: int) -> None:
+        """把取档后实际申请的秒数写回 ``task.payload["duration_seconds"]``。
+
+        参考视频执行层按 model 能力取档后申请的秒数可能偏离入队时的剧本原值；
+        resume 路径读的正是这个字段（见 ``server.services.resume_executor``），
+        不写回会让 resume 时按剧本原值重新申请，与本次执行实际申请的秒数不一致。
+        read-modify-write 模式同 ``persist_api_call_id``；task 不存在时静默跳过
+        （不影响本次生成结果，仅是 resume 元数据，不必 fail-fast 阻断执行）。
+        """
+        result = await self.session.execute(select(Task.payload_json).where(Task.task_id == task_id))
+        row = result.first()
+        if row is None:
+            return
+        data = _json_loads(row[0], {})
+        if not isinstance(data, dict):
+            data = {}
+        data["duration_seconds"] = duration_seconds
+        await self.session.execute(
+            update(Task).where(Task.task_id == task_id).values(payload_json=_json_dumps(data), updated_at=utc_now())
+        )
+        await self.session.commit()
+
     async def list_orphan_tasks_on_start(self) -> list[dict[str, Any]]:
         """返回 running + cancelling 状态任务用于重启自愈（ADR 0007）。"""
         result = await self.session.execute(

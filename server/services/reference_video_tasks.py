@@ -41,6 +41,20 @@ from server.services.generation_tasks import (
 logger = logging.getLogger(__name__)
 
 
+async def _persist_effective_duration(task_id: str, duration_seconds: int) -> None:
+    """把取档后实际申请的秒数写回 task payload，供 resume 路径读取（见调用点注释）。
+
+    非致命路径：持久化失败只降级 resume 元数据精度，不影响本次已在进行的生成，
+    故只记日志、不上抛阻断 executor 主流程。
+    """
+    from lib.generation_queue import get_generation_queue
+
+    try:
+        await get_generation_queue().persist_effective_duration(task_id, duration_seconds)
+    except Exception:
+        logger.warning("effective_duration 写回 payload 失败 task_id=%s", task_id, exc_info=True)
+
+
 def _resolve_unit_references(
     project: dict,
     project_path: Path,
@@ -504,6 +518,14 @@ async def execute_reference_video_task(
             registry_provider_id=registry_provider_id,
             resolution=resolution,
         )
+
+    # 取档偏移了剧本编排（adjustment != exact）时，把实际申请的秒数写回 task payload：
+    # resume 路径（server.services.resume_executor）读 payload["duration_seconds"] 重建
+    # 申请参数，不写回会在重启续传时按剧本原值而非本次实际申请的秒数记录版本元数据。
+    # 未偏移时两值相等，写回无意义，跳过省一次 DB 往返。持久化失败只降级为 resume 元数据
+    # 不够精确（仍回退到剧本原值，与本次改动前行为一致），不影响本次生成结果，不 fail-fast。
+    if task_id is not None and effective_duration != base_duration:
+        await _persist_effective_duration(task_id, effective_duration)
 
     # 6. 渲染 prompt。ad：镜头文本 + 裁剪后参考的 [图N] 对照表 + 保真/反向尾词。
     #    narration/drama：@→[图N] 替换——必须按 `constrained_refs` 的长度裁

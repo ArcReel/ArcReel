@@ -478,7 +478,12 @@ class TestCostEstimationService:
         assert result["episodes"][0]["segments"][0]["estimate"]["audio"] == {}
 
     async def test_ad_reference_video_skips_image_estimate(self, db_factory):
-        """ad + 参考生视频路径跳过分镜步骤：不产生分镜图估值，视频估值保留。"""
+        """ad + 参考生视频路径跳过分镜步骤：不产生分镜图估值，视频估值按 unit 颗粒度保留。
+
+        两个镜头（4s + 6s）未受供应商时长上限约束，派生分组合并为同一个 reference_unit——
+        与实际生成/计费的颗粒度一致（``execute_reference_video_task`` 按 unit 整体送 provider，
+        不是逐镜头分别计费），故只产生 1 条 segment，而非 2 条镜头级 segment。
+        """
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -494,12 +499,42 @@ class TestCostEstimationService:
         result = await service.compute(project_data, scripts, project_name="ad-ref")
 
         segments = result["episodes"][0]["segments"]
-        assert len(segments) == 2
-        for seg in segments:
-            assert seg["estimate"]["image"] == {}, seg
-            assert seg["estimate"]["video"], seg
+        assert len(segments) == 1
+        assert segments[0]["segment_id"] == "E1U1"
+        assert segments[0]["duration_seconds"] == 10
+        assert segments[0]["estimate"]["image"] == {}
+        assert segments[0]["estimate"]["video"]
         assert result["project_totals"]["estimate"].get("image", {}) == {}
         assert result["project_totals"]["estimate"]["video"]
+
+    async def test_ad_reference_video_estimate_uses_rounded_up_unit_duration(self, db_factory, monkeypatch):
+        """取档向上的 unit：预估金额按取档后的秒数（8s）计，而非剧本原始总时长（5s）。"""
+        import server.services.cost_estimation as cost_estimation_module
+        from server.services.reference_video_tasks import ProjectDurationContext
+
+        async def _fake_ctx(project):
+            return ProjectDurationContext(
+                supported_durations=(8,), resolution=None, provider_id="veo", model_name="veo-3.1"
+            )
+
+        monkeypatch.setattr(cost_estimation_module, "resolve_project_duration_context", _fake_ctx)
+
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Ad",
+            "content_mode": "ad",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_ad_script(["E1S1"], [5])}
+
+        result = await service.compute(project_data, scripts, project_name="ad-ref-round")
+
+        seg = result["episodes"][0]["segments"][0]
+        assert seg["duration_seconds"] == 8
 
     async def test_empty_episodes(self, db_factory):
         resolver = ConfigResolver(db_factory)
