@@ -22,9 +22,9 @@ from lib.generation_queue_client import TaskSpec
 from lib.i18n import Translator
 from lib.path_safety import safe_exists
 from lib.project_manager import get_project_manager
+from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import (
     find_storyboard_item,
-    get_generated_assets,
     get_storyboard_items,
     resolve_storyboard_image_ref,
 )

@@ -16,10 +16,10 @@ from lib.generation_queue_client import (
     batch_enqueue_and_wait,
 )
 from lib.prompt_utils import image_prompt_to_yaml, is_structured_image_prompt, normalize_style
+from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import (
     StoryboardTaskPlan,
     build_storyboard_dependency_plan,
-    get_generated_assets,
     get_storyboard_items,
 )
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename

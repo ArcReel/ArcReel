@@ -31,11 +31,11 @@ from lib.prompt_utils import (
     video_prompt_to_yaml,
 )
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
+from lib.script_models import get_generated_assets
 from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
     find_storyboard_item,
-    get_generated_assets,
     get_storyboard_items,
     group_scenes_by_segment_break,
     resolve_previous_storyboard_path,

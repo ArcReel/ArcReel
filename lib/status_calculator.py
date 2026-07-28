@@ -15,9 +15,8 @@ from lib.episode_paths import (
 )
 from lib.path_safety import safe_exists
 from lib.project_manager import effective_mode
-from lib.script_models import ad_script_total_duration, script_duration_total
+from lib.script_models import ad_script_total_duration, get_generated_assets, script_duration_total
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
-from lib.storyboard_sequence import get_generated_assets
 
 logger = logging.getLogger(__name__)
 

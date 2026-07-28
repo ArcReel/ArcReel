@@ -44,7 +44,7 @@ from lib.profile_manifest import (
 )
 from lib.project_change_hints import emit_project_change_hint
 from lib.script_editor import ScriptEditError, resolve_items
-from lib.script_models import script_duration_total
+from lib.script_models import get_generated_assets, script_duration_total
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
 
 logger = logging.getLogger(__name__)
@@ -1049,7 +1049,9 @@ class ProjectManager:
         Returns:
             更新后的状态值
         """
-        assets = scene.get("generated_assets", {})
+        # generated_assets 来自磁盘剧本 JSON，外部编辑可能损坏成非 dict（None/字符串等）；
+        # get_generated_assets 归一化为空 dict 按「未生成」处理，避免 .get() 链式访问抛 AttributeError。
+        assets = get_generated_assets(scene)
 
         has_image = bool(assets.get("storyboard_image"))
         has_video = bool(assets.get("video_clip"))
@@ -1062,6 +1064,7 @@ class ProjectManager:
             status = "pending"
 
         assets["status"] = status
+        scene["generated_assets"] = assets
         return status
 
     # ==================== 场景管理 ====================

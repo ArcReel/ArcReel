@@ -25,6 +25,7 @@ from lib.project_change_hints import (
     register_project_change_listener,
 )
 from lib.project_manager import ProjectManager, effective_mode
+from lib.script_models import get_generated_assets
 from lib.script_skeleton import (
     SKELETON_ANCHOR_TYPES,
     SKELETON_ENTITY_TYPES,
@@ -963,8 +964,8 @@ class ProjectEventService:
                 focus = self._build_script_item_focus(item_id, current_meta)
                 label = self._build_script_item_label(item_id, current_meta)
                 if self._became_truthy(
-                    previous_item["generated_assets"].get("storyboard_image"),
-                    current_item["generated_assets"].get("storyboard_image"),
+                    get_generated_assets(previous_item).get("storyboard_image"),
+                    get_generated_assets(current_item).get("storyboard_image"),
                 ):
                     changes.append(
                         self._build_entity_change(
@@ -979,8 +980,8 @@ class ProjectEventService:
                         )
                     )
                 if self._became_truthy(
-                    previous_item["generated_assets"].get("video_clip"),
-                    current_item["generated_assets"].get("video_clip"),
+                    get_generated_assets(previous_item).get("video_clip"),
+                    get_generated_assets(current_item).get("video_clip"),
                 ):
                     changes.append(
                         self._build_entity_change(

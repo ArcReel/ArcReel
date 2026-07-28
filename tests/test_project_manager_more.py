@@ -472,6 +472,15 @@ class TestProjectManagerMore:
         assert pm.update_scene_status({"generated_assets": {"storyboard_image": "s.png"}}) == "storyboard_ready"
         assert pm.update_scene_status({"generated_assets": {}}) == "pending"
 
+    @pytest.mark.parametrize("dirty", [None, "bad", ["bad"], 123, False])
+    def test_update_scene_status_recovers_from_corrupted_generated_assets(self, tmp_path, dirty):
+        """外部编辑把 generated_assets 损坏成非 dict 形态时按无资产处理，不抛 AttributeError。"""
+        pm = ProjectManager(tmp_path / "projects")
+        scene = {"scene_id": "S1", "generated_assets": dirty}
+
+        assert pm.update_scene_status(scene) == "pending"
+        assert scene["generated_assets"] == {"status": "pending"}
+
     def test_entity_and_batch_management_and_paths(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")

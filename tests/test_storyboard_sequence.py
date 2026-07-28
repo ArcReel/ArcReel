@@ -4,24 +4,9 @@ import pytest
 
 from lib.storyboard_sequence import (
     build_storyboard_dependency_plan,
-    get_generated_assets,
     get_storyboard_items,
     resolve_previous_storyboard_path,
 )
-
-
-@pytest.mark.unit
-class TestGetGeneratedAssets:
-    def test_returns_dict_container_unchanged(self):
-        item = {"generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"}}
-        assert get_generated_assets(item) == {"storyboard_image": "storyboards/scene_E1S01.png"}
-
-    @pytest.mark.parametrize("dirty", [["bad"], "bad", 123, None, 0, False])
-    def test_normalizes_non_dict_container_to_empty_dict(self, dirty):
-        assert get_generated_assets({"generated_assets": dirty}) == {}
-
-    def test_missing_key_returns_empty_dict(self):
-        assert get_generated_assets({}) == {}
 
 
 class TestStoryboardSequence:

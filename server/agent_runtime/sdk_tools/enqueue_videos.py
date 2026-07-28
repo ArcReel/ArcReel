@@ -26,7 +26,8 @@ from lib.reference_video.ad_units import (
     resolve_ad_unit_shots,
     sync_ad_reference_units,
 )
-from lib.storyboard_sequence import get_generated_assets, get_storyboard_items, resolve_storyboard_image_ref
+from lib.script_models import get_generated_assets
+from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
     tool_error,
