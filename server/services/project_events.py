@@ -69,6 +69,10 @@ class _ProjectChannel:
     sse: SseChannel
     ready_event: asyncio.Event = field(default_factory=asyncio.Event)
     scan_now: asyncio.Event = field(default_factory=asyncio.Event)
+    # 串行化「读盘 → 结算基线 → 广播」这段读-改-写：轮询扫描与显式重建并发时，读盘耗时
+    # 不同会让先读到旧盘的一方后结算，把陈旧快照写回基线并 diff 出反向变更（实际存在的
+    # 实体被广播成 deleted）。不重置该锁——重建 task 可能跨 watch task 重启仍持有它。
+    rebuild_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     pending_sources: set[ProjectChangeSource] = field(default_factory=set)
     task: asyncio.Task | None = None
     snapshot: dict[str, Any] | None = None
@@ -323,36 +327,54 @@ class ProjectEventService:
         changes: tuple[ProjectChangeBatch, ...],
     ) -> None:
         """文件 I/O 在线程中执行，状态更新和广播在事件循环线程中执行。"""
-        # 读盘前在册的来源标记：写回时只退这些，读盘期间新增的标记留给下一轮扫描结算
-        covered_sources = set(channel.pending_sources)
-        try:
-            snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
-        except FileNotFoundError:
-            await self._handle_scan_file_not_found(
-                project_name, channel, log_message="构建显式项目事件快照失败 project=%s"
+        async with channel.rebuild_lock:
+            # 读盘前在册的来源标记：写回时只退这些，读盘期间新增的标记留给下一轮扫描结算
+            covered_sources = set(channel.pending_sources)
+            try:
+                snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
+            except FileNotFoundError:
+                await self._handle_scan_file_not_found(
+                    project_name, channel, log_message="构建显式项目事件快照失败 project=%s"
+                )
+                return
+            except Exception:
+                logger.exception("构建显式项目事件快照失败 project=%s", project_name)
+                return
+
+            # 以下在事件循环线程中执行，线程安全
+            previous = channel.snapshot
+            channel.snapshot = snapshot
+            channel.fingerprint = fingerprint
+            channel.pending_sources -= covered_sources
+
+            self._broadcast_changes(
+                project_name,
+                channel,
+                fingerprint=fingerprint,
+                source=source,
+                changes=[
+                    *(dict(change) for change in changes),
+                    *self._sweep_uncovered_changes(previous, snapshot, changes),
+                ],
             )
-            return
-        except Exception:
-            logger.exception("构建显式项目事件快照失败 project=%s", project_name)
-            return
 
-        # 以下在事件循环线程中执行，线程安全
-        # 基线取重建返回后的现值：读盘期间轮询扫描可能已推进过基线，用现值才不会重发它已广播的变更
-        previous = channel.snapshot
-        channel.snapshot = snapshot
-        channel.fingerprint = fingerprint
-        channel.pending_sources -= covered_sources
-
+    def _broadcast_changes(
+        self,
+        project_name: str,
+        channel: _ProjectChannel,
+        *,
+        fingerprint: str,
+        source: ProjectChangeSource,
+        changes: list[dict[str, Any]],
+    ) -> None:
+        """向订阅者广播一批变更（轮询扫描与显式重建两条路径共用同一 payload 形状）。"""
         payload = {
             "project_name": project_name,
             "batch_id": uuid.uuid4().hex,
             "fingerprint": fingerprint,
             "generated_at": _utc_now_iso(),
             "source": source,
-            "changes": [
-                *(dict(change) for change in changes),
-                *self._sweep_uncovered_changes(previous, snapshot, changes),
-            ],
+            "changes": changes,
         }
         channel.sse.broadcast(("changes", payload))
 
@@ -433,10 +455,11 @@ class ProjectEventService:
         try:
             while channel.sse.has_subscribers:
                 try:
-                    # 仅文件 I/O 在线程中执行
-                    snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
-                    # 状态更新和广播在事件循环线程中执行（线程安全）
-                    self._apply_scan_result(project_name, channel, snapshot, fingerprint)
+                    async with channel.rebuild_lock:
+                        # 仅文件 I/O 在线程中执行
+                        snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
+                        # 状态更新和广播在事件循环线程中执行（线程安全）
+                        self._apply_scan_result(project_name, channel, snapshot, fingerprint)
                 except asyncio.CancelledError:
                     raise
                 except FileNotFoundError:
@@ -484,15 +507,13 @@ class ProjectEventService:
         if not changes:
             return
 
-        payload = {
-            "project_name": project_name,
-            "batch_id": uuid.uuid4().hex,
-            "fingerprint": fingerprint,
-            "generated_at": _utc_now_iso(),
-            "source": source,
-            "changes": changes,
-        }
-        channel.sse.broadcast(("changes", payload))
+        self._broadcast_changes(
+            project_name,
+            channel,
+            fingerprint=fingerprint,
+            source=source,
+            changes=changes,
+        )
 
     def _build_snapshot_payload(
         self,

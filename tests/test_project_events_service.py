@@ -27,6 +27,19 @@ def _pending_assets() -> dict:
     }
 
 
+def _terminal_task_change(task_id: str) -> dict:
+    """任务终态事件：触发显式重建，且不描述任何文件侧实体变更。"""
+    return {
+        "entity_type": "task",
+        "action": "task_succeeded",
+        "entity_id": task_id,
+        "label": task_id,
+        "focus": None,
+        "important": False,
+        "task_type": "video",
+    }
+
+
 async def _next_event(stream, *, timeout: float) -> tuple[str, dict]:
     """Pull the next real (event_name, payload) tuple, skipping ``_idle`` sentinels."""
 
@@ -278,6 +291,71 @@ class TestProjectEventService:
 
         await service.shutdown()
 
+    @pytest.mark.integration
+    @pytest.mark.asyncio
+    async def test_stale_rebuild_does_not_broadcast_reverse_diff(self, tmp_path):
+        """两次显式重建读盘耗时不同而乱序结算时，先读到旧盘的一方不广播反向变更。
+
+        补扫对基线做 diff，故陈旧快照被写回基线会把实际存在的实体 diff 成 ``deleted``。
+        重建锁把「读盘 → 结算基线 → 广播」串成一段读-改-写，后发起的一方等到前一方
+        结算完才读盘，读到的必然更新。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        service = ProjectEventService(tmp_path, poll_interval=30.0)
+        await service.start()
+
+        async with service.stream_events("demo", idle_timeout=0.1) as stream:
+            event_name, _snapshot = await anext(stream)
+            assert event_name == "snapshot"
+
+            original_rebuild = service._rebuild_snapshot
+            calls = 0
+            first_read_done = asyncio.Event()
+            release_first = asyncio.Event()
+            loop = asyncio.get_running_loop()
+
+            def _rebuild_holding_first(project_name: str):
+                nonlocal calls
+                calls += 1
+                index = calls
+                result = original_rebuild(project_name)
+                if index == 1:
+                    # 首次读盘已完成但尚未结算：交还控制权，等编排放行
+                    loop.call_soon_threadsafe(first_read_done.set)
+                    asyncio.run_coroutine_threadsafe(release_first.wait(), loop).result(timeout=5)
+                return result
+
+            service._rebuild_snapshot = _rebuild_holding_first
+
+            emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
+            await asyncio.wait_for(first_read_done.wait(), timeout=5.0)
+
+            # 首次读盘之后落盘一个新角色：直接改写 project.json，不发 hint
+            project_json = pm.get_project_path("demo") / "project.json"
+            data = json.loads(project_json.read_text(encoding="utf-8"))
+            data.setdefault("characters", {})["新角色"] = {"name": "新角色", "description": "d"}
+            project_json.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+            # 第二次重建：留出窗口让它抢先读盘并结算（无锁时它会先于首次广播）
+            emit_project_change_batch("demo", [_terminal_task_change("task-2")], source="worker")
+            await asyncio.sleep(0.2)
+            release_first.set()
+
+            broadcast_changes = []
+            for _ in range(2):
+                event_name, payload = await _next_event(stream, timeout=5.0)
+                assert event_name == "changes"
+                broadcast_changes.extend(payload["changes"])
+
+            character_changes = [change for change in broadcast_changes if change["entity_type"] == "character"]
+            assert [change["action"] for change in character_changes] == ["created"]
+
+        await service.shutdown()
+
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_emitted_batch_broadcasts_concurrent_change_swept_into_rebuild(self, tmp_path):
         """显式重建读盘捎带了不属于本批的文件变更时，该变更随本次广播发出。
@@ -326,21 +404,7 @@ class TestProjectEventService:
             script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
             script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-            emit_project_change_batch(
-                "demo",
-                [
-                    {
-                        "entity_type": "task",
-                        "action": "task_succeeded",
-                        "entity_id": "task-1",
-                        "label": "task-1",
-                        "focus": None,
-                        "important": False,
-                        "task_type": "video",
-                    }
-                ],
-                source="worker",
-            )
+            emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
 
             event_name, payload = await _next_event(stream, timeout=2.0)
             assert event_name == "changes"
@@ -420,6 +484,7 @@ class TestProjectEventService:
 
         await service.shutdown()
 
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_change_landing_after_rebuild_read_is_still_broadcast(self, tmp_path, monkeypatch):
         """变更落盘于「重建读盘完成之后、状态写回之前」时，仍能广播到订阅者。
@@ -458,21 +523,7 @@ class TestProjectEventService:
             monkeypatch.setattr(service, "_rebuild_snapshot", _rebuild_then_land)
             armed = True
 
-            emit_project_change_batch(
-                "demo",
-                [
-                    {
-                        "entity_type": "task",
-                        "action": "task_succeeded",
-                        "entity_id": "task-1",
-                        "label": "task-1",
-                        "focus": None,
-                        "important": False,
-                        "task_type": "video",
-                    }
-                ],
-                source="worker",
-            )
+            emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
 
             # 窗口内落盘的变更最终仍要广播（本次重建未覆盖它，兜底扫描须补上）
             deadline = 3.0
