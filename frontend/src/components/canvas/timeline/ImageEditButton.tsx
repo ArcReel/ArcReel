@@ -4,15 +4,15 @@ import { Wand2 } from "lucide-react";
 import { enqueueImageEdit } from "@/actions/generation";
 import { GlassModal } from "@/components/ui/GlassModal";
 import { useAppStore } from "@/stores/app-store";
-import { isResourceBusy, selectHasActiveTaskForScriptFile, useTasksStore } from "@/stores/tasks-store";
+import {
+  isResourceBusy,
+  selectHasActiveTaskForScriptFile,
+  useTasksStore,
+  type ImageEditResourceKind,
+} from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
 
-export type ImageEditResourceType =
-  | "character"
-  | "scene"
-  | "prop"
-  | "product"
-  | "storyboard";
+export type ImageEditResourceType = ImageEditResourceKind;
 
 interface ImageEditButtonProps {
   projectName: string;

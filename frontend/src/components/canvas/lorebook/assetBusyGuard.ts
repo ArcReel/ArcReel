@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import { useAppStore } from "@/stores/app-store";
-import { isResourceBusy } from "@/stores/tasks-store";
+import { isResourceBusy, type ResourceKind } from "@/stores/tasks-store";
 
 /**
  * 立绘上传的提交时刻复核：从点击上传按钮到文件选完之间，该资源可能已被别处（另一标签页、
@@ -10,7 +10,7 @@ import { isResourceBusy } from "@/stores/tasks-store";
  * `generating` 的口径同源，不另立判据。
  */
 export function rejectIfAssetBusy(
-  kind: string,
+  kind: ResourceKind,
   projectName: string,
   name: string,
   t: TFunction,
