@@ -70,6 +70,14 @@ export interface ModelCapabilities {
   /** 经联动约束收窄并升序排列的时长候选；未知为 null。 */
   supportedDurations: number[] | null;
   durationConstraints: DurationConstraints;
+  /**
+   * 时长与约束实际查自哪个 `provider/model`；未知为 null。
+   *
+   * 传入的后端可能是裸 provider（`video_backend: "gemini-aistudio"`，服务端会补全默认视频模型）
+   * 或留空跟随全局默认，此时该值取服务端解析结果。凡按「项目为该后端保存了什么」查项目配置的
+   * 调用点都须用它，否则裸 provider 会被当成 model ID 去查 `model_settings`、读不到实际档位。
+   */
+  resolvedVideoBackend: string | null;
   /** 首帧 / 尾帧生效值（含用户覆盖）；尚未查到或查询失败时为 null（未知），不谎报不支持。 */
   firstFrame: boolean | null;
   lastFrame: boolean | null;
@@ -100,6 +108,41 @@ function narrow(raw: readonly number[], constraints: DurationConstraints, ctx: D
     resolution: ctx.videoResolution,
     usesReferenceImages: ctx.usesReferenceImages,
   }).sort((a, b) => a - b);
+}
+
+/**
+ * 用 hook 已取到的能力，对另一份联动约束上下文再算一次收窄结果；未知为 null。
+ *
+ * 供上下文按集变化、而能力查询只能在组件顶层做一次的调用点使用——`rawDurations` 与
+ * `durationConstraints` 不随上下文变化，收窄规则仍收在本模块内，不在调用点重新拼一条查表链路。
+ */
+export function narrowDurations(
+  caps: Pick<ModelCapabilities, "rawDurations" | "durationConstraints">,
+  ctx: DurationContext,
+): number[] | null {
+  return caps.rawDurations ? narrow(caps.rawDurations, caps.durationConstraints, ctx) : null;
+}
+
+/**
+ * 已保存时长越界的成因；不越界为 null。
+ *
+ * 成因决定提示该把用户引向哪里：`model` 只能换时长或换模型，`resolution` / `reference` 则是
+ * 改对应设置也能解决。判定顺序即优先级——全集就不含该值时，联动约束是不是也排除它无关紧要。
+ */
+export type DurationOutOfRangeReason = "model" | "reference" | "resolution";
+
+export function durationOutOfRangeReason(
+  saved: number | null | undefined,
+  caps: Pick<ModelCapabilities, "rawDurations" | "supportedDurations" | "durationConstraints">,
+  ctx: DurationContext = {},
+): DurationOutOfRangeReason | null {
+  const { rawDurations, supportedDurations, durationConstraints } = caps;
+  if (saved == null || !supportedDurations || supportedDurations.includes(saved)) return null;
+  if (!rawDurations?.includes(saved)) return "model";
+  const { withReferenceImages } = durationConstraints;
+  if (ctx.usesReferenceImages && withReferenceImages.length > 0 && !withReferenceImages.includes(saved))
+    return "reference";
+  return "resolution";
 }
 
 /**
@@ -204,6 +247,7 @@ export function useModelCapabilities({
     rawDurations,
     supportedDurations,
     durationConstraints,
+    resolvedVideoBackend: durationSource?.backend ?? null,
     firstFrame: caps ? caps.first_frame : null,
     lastFrame: caps ? caps.last_frame : null,
     loading,

@@ -45,7 +45,13 @@ from lib.script_models import (
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
-from server.agent_runtime.sdk_tools._context import ToolContext, fetch_video_caps, tool_error
+from server.agent_runtime.sdk_tools._context import (
+    ToolContext,
+    constrained_caps_durations,
+    fetch_video_caps,
+    resolve_video_caps,
+    tool_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -316,9 +322,18 @@ async def _fetch_caps_with_fallback(project: dict[str, Any]) -> tuple[int | None
     Soft-fallbacks to ``duration_presets.DEFAULT_FALLBACK`` so the LLM still
     receives a usable duration constraint set if the resolver hiccups —— 与
     自定义供应商写入层的保守默认同一真相源，避免软回退口径含供应商未必支持的时长。
+
+    时长已按项目分辨率经联动约束收窄。参考图约束不在此施加：走参考生视频的项目 step1 用
+    ``split_reference_video_units``（见 ``_fetch_reference_caps_with_fallback``），本 helper
+    服务的 drama normalize / narration 拆分两个工具按分工不服务该路径。
+
+    ``default_duration`` 非返回集合成员时按 None 处理（即回到「auto」档，由模型按内容节奏选）：
+    项目存的是用户配置的原样值，收窄后（或软回退到 ``DEFAULT_FALLBACK`` 后）它可能落在集合外，
+    而 ``build_normalize_prompt`` 对非成员 default 是 fail-loud 的——不归 None 会把「已保存的
+    越界默认时长」变成整个工具的硬失败。与 ``_fetch_reference_caps_with_fallback`` 同口径。
     """
     try:
-        default_int, durations = await fetch_video_caps(project)
+        default_int, durations = await fetch_video_caps(project, generation_mode=None)
     except (FileNotFoundError, ValueError) as exc:
         logger.info("video_capabilities 不可解析，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         return None, list(DEFAULT_FALLBACK)
@@ -326,7 +341,9 @@ async def _fetch_caps_with_fallback(project: dict[str, Any]) -> tuple[int | None
         logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         return None, list(DEFAULT_FALLBACK)
     if not durations:
-        return default_int, list(DEFAULT_FALLBACK)
+        durations = list(DEFAULT_FALLBACK)
+    if default_int is not None and default_int not in durations:
+        default_int = None
     return default_int, durations
 
 
@@ -450,28 +467,36 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> tuple[
     """解析 rv 拆分所需的视频能力：``(default_duration, supported_durations, max_duration, max_refs)``。
 
     与 ``_fetch_caps_with_fallback`` 同口径 best-effort：resolver 故障时回退
-    ``duration_presets.DEFAULT_FALLBACK``、``max_duration`` 取集合最大值（用原始集合，不受下方单
-    shot 过滤影响）、``max_refs`` 视为未声明。返回的 ``supported_durations`` 已与
-    ``REFERENCE_SHOT_DURATION_RANGE`` 求交集——部分供应商（如 vidu/agnes）的单 shot 时长上限
-    超过该静态区间，未过滤会让 step1 产出的 shot 时长在 step2 读回校验（复用同一静态区间）时
-    fail-loud。``default_duration`` 非过滤后集合成员（用户配置漂移）按 None 处理，避免 prompt
-    构建自相矛盾。
+    ``duration_presets.DEFAULT_FALLBACK``、``max_refs`` 视为未声明。返回的
+    ``supported_durations`` 已与 ``REFERENCE_SHOT_DURATION_RANGE`` 求交集——部分供应商
+    （如 vidu/agnes）的单 shot 时长上限超过该静态区间，未过滤会让 step1 产出的 shot 时长在
+    step2 读回校验（复用同一静态区间）时 fail-loud。``default_duration`` 非过滤后集合成员
+    （用户配置漂移）按 None 处理，避免 prompt 构建自相矛盾。
+
+    ``max_duration`` 是 unit 总时长上限，也就是真正发给供应商的那个值，故取**经时长联动约束
+    收窄后**集合的最大值：不收窄的话（海螺 1080p 只接受 6 秒）step1 会按全集上限拆出总时长
+    超标的 unit，step2 的枚举 schema 再把它判非法。
+
+    单 shot 时长**不按收窄后集合取成员**——shot 是同一段 clip 内的时间编排、不单独发给供应商，
+    受约束的是它们的和，按成员收窄会让合法编排（如总时长 8 = 4+4）凑不出来。但超过
+    ``max_duration`` 的候选必须剔除：单 shot 时长必然计入 unit 总和，海螺 1080p 下总时长上限为
+    6 而单 shot 枚举仍留 10，会让 prompt 同时要求「默认 10 秒」与「总时长不超过 6 秒」、schema
+    也放行 10，``_derive_and_validate_reference_units`` 再把含该值的 unit 全判非法。
     """
     try:
-        resolver = ConfigResolver(async_session_factory)
-        caps = await resolver.video_capabilities_for_project(project)
+        caps = await resolve_video_caps(project)
     except Exception as exc:  # noqa: BLE001
         logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         caps = {}
     durations = [int(d) for d in caps.get("supported_durations") or []]
     if not durations:
         durations = list(DEFAULT_FALLBACK)
-    raw_max = caps.get("max_duration")
-    max_duration = int(raw_max) if isinstance(raw_max, int | float) else max(durations)
+    unit_durations = constrained_caps_durations(project, caps, durations, generation_mode="reference_video")
+    max_duration = max(unit_durations)
     raw_refs = caps.get("max_reference_images")
     max_refs = int(raw_refs) if isinstance(raw_refs, int | float) else None
     low, high = REFERENCE_SHOT_DURATION_RANGE
-    shot_durations = [d for d in durations if low <= d <= high]
+    shot_durations = [d for d in durations if low <= d <= min(high, max_duration)]
     raw_default = caps.get("default_duration")
     default = int(raw_default) if isinstance(raw_default, int | float) else None
     if default is not None and default not in shot_durations:

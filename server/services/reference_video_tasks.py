@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY
-from lib.config.resolver import ConfigResolver, get_provider_fallback
+from lib.config.resolver import ConfigResolver, constrain_durations, get_provider_fallback
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists
@@ -34,8 +34,6 @@ from lib.version_manager import VersionManager
 from server.services.generation_context import VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
     collect_product_references_for_names,
-    constrain_durations_by_reference_images,
-    constrain_durations_by_resolution,
     get_project_manager,
 )
 
@@ -189,13 +187,12 @@ def effective_reference_durations(
     套用它会把 720p 下本可申请的 4 秒错误抬到 8 秒。
 
     ``provider`` 必须是规范 registry provider id（backend 族名不是 registry key）。两条约束
-    都遵循「无声明或交集为空时不收窄」的降级口径（见各自实现），故本函数在能力声明缺位时
-    退化为原全集，不比收窄前更严。
+    都遵循「无声明或交集为空时不收窄」的降级口径（见 :func:`lib.config.resolver.constrain_durations`），
+    故本函数在能力声明缺位时退化为原全集，不比收窄前更严。
     """
-    narrowed = (
-        constrain_durations_by_reference_images(provider, model, durations) if with_reference_images else durations
+    return constrain_durations(
+        provider, model, durations, resolution=resolution, uses_reference_images=with_reference_images
     )
-    return constrain_durations_by_resolution(provider, model, narrowed, resolution)
 
 
 async def precheck_unit_duration_slot(project: dict, unit: dict, ad_shots: list[dict] | None) -> DurationSlot:

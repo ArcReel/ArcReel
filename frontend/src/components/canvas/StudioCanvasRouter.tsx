@@ -45,8 +45,16 @@ import {
   enqueueVideo,
 } from "@/actions/generation";
 import { buildEntityRevisionKey } from "@/utils/project-changes";
-import { getProviderModels, getCustomProviderModels } from "@/utils/provider-models";
-import { useModelCapabilities } from "@/hooks/useModelCapabilities";
+import {
+  getProviderModels,
+  getCustomProviderModels,
+  lookupProjectVideoResolution,
+} from "@/utils/provider-models";
+import {
+  durationOutOfRangeReason,
+  narrowDurations,
+  useModelCapabilities,
+} from "@/hooks/useModelCapabilities";
 import { effectiveMode } from "@/utils/generation-mode";
 import type { Scene, Prop, Product, CustomProviderInfo, ProviderInfo } from "@/types";
 import type { EpisodeScript } from "@/types/script";
@@ -126,16 +134,29 @@ export function StudioCanvasRouter() {
   // currentProjectName 单独判一次兜住这一帧仍读到旧演示项目名的窗口。
   const capabilitiesEnabled = !demoMode && !isDemoProject(currentProjectName);
 
-  // 时长选项只用于「时长与后端不兼容」的橙色标记，取未经联动约束收窄的全集。
+  // 逐镜头时长编辑器的候选取经联动约束收窄后的集合，用户就选不到入队后必然被拒的组合；
+  // 已保存的越界值不改写，由 ShotDetail 按成因给警告并引导重选。
   // 后端未配置时能力管线退回服务端解析出的 model（与生成路径同一套规则，避免 FE/BE 漂移）。
-  const { rawDurations } = useModelCapabilities({
+  //
+  // 收窄放在下方按集的 Route 渲染里：generation_mode 可被单集覆盖，「是否走参考图路径」因此
+  // 是按集的值，而能力查询只在组件顶层做一次。此处只取不随上下文变化的两项。
+  const effectiveVideoBackend = currentProjectData?.video_backend || globalVideoBackend;
+  const { rawDurations, durationConstraints, resolvedVideoBackend } = useModelCapabilities({
     projectName: currentProjectName,
-    videoBackend: currentProjectData?.video_backend || globalVideoBackend,
+    videoBackend: effectiveVideoBackend,
     providers,
     customProviders,
     enabled: capabilitiesEnabled,
   });
-  const durationOptions = rawDurations ?? undefined;
+  // 分辨率按能力管线解析出的 `provider/model` 查，而非传入的原始值：后者可能是裸 provider
+  // （服务端补全默认视频模型）或留空跟随全局默认，直接拿去查 `model_settings` 会把 provider ID
+  // 当成 model ID、读不到用户实际保存的档位，于是该收窄的候选照旧呈现。
+  // 用户未选分辨率时为 null → 不收窄：执行期省略 resolution 参数、供应商按自己的默认档位处理，
+  // 该档位下全集本就合法。与后端约束求值、项目设置页的时长选择器同口径。
+  const videoResolution = lookupProjectVideoResolution(
+    currentProjectData,
+    resolvedVideoBackend || effectiveVideoBackend,
+  );
 
   // 从任务队列派生 loading 状态（替代本地 state）：活跃 + 最新行胜出两条不变量下沉到 store selector
   const generatingCharacterNames = useActiveResourceIds("character", currentProjectName);
@@ -634,6 +655,19 @@ export function StudioCanvasRouter() {
           const scriptFile = episode?.script_file?.replace(/^scripts\//, "");
           const script = scriptFile ? (currentScripts[scriptFile] ?? null) : null;
           const mode = effectiveMode(currentProjectData, episode);
+          // 本集生效模式决定是否走参考图路径，故时长候选按集收窄（见顶层能力查询处说明）。
+          const durationCtx = {
+            videoResolution,
+            usesReferenceImages: mode === "reference_video",
+          };
+          const durationOptions =
+            narrowDurations({ rawDurations, durationConstraints }, durationCtx) ?? undefined;
+          const durationWarningReason = (seconds: number) =>
+            durationOutOfRangeReason(
+              seconds,
+              { rawDurations, supportedDurations: durationOptions ?? null, durationConstraints },
+              durationCtx,
+            );
           const hasDraft =
             episode?.script_status === "segmented" || episode?.script_status === "generated";
           // ad 剧本骨架唯一（shots[]），但两条生成路径进不同画布：storyboard 走镜头
@@ -704,6 +738,7 @@ export function StudioCanvasRouter() {
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
+                    durationWarningReason={durationWarningReason}
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={voidPromise(handleGenerateVideo)}
@@ -730,6 +765,7 @@ export function StudioCanvasRouter() {
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
+                    durationWarningReason={durationWarningReason}
                     onUpdatePrompt={awaitedUpdatePrompt}
                     onMoveShot={isAd ? handleMoveShot : undefined}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}

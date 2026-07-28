@@ -131,6 +131,36 @@ export function constrainDurations(
 export const IMAGE_STANDARD_RESOLUTIONS = ["512px", "1K", "2K", "4K"];
 export const VIDEO_STANDARD_RESOLUTIONS = ["480p", "720p", "1080p", "4K"];
 
+/** 项目里存了分辨率的两种形状：`model_settings` 以 `provider/model` 复合键，legacy 以裸 model_id。 */
+export interface ProjectResolutionSettings {
+  model_settings?: Record<string, { resolution?: string | null }> | null;
+  video_model_settings?: Record<string, { resolution?: string | null }> | null;
+}
+
+/**
+ * 读项目为该视频后端保存的分辨率：`model_settings` → legacy `video_model_settings` → null。
+ *
+ * `backend` 须是**已解析**的 `provider/model`（裸 provider 会被当成 model ID、读不到实际档位），
+ * 与写入侧同一口径。null 表示用户未选档位：执行期省略 resolution 参数、供应商按自己的默认档位
+ * 处理，故这里不替用户假定档位，与后端约束求值同口径。
+ */
+export function lookupProjectVideoResolution(
+  project: ProjectResolutionSettings | null | undefined,
+  backend: string,
+): string | null {
+  if (!project || !backend) return null;
+  // 空值（null / 空串）按「未配置」处理并继续回退 legacy，与后端 `_resolution_from_project`
+  // 及保存期的 legacy 迁移同口径——这三处必须描述同一套语义，否则同一份 project.json 会让
+  // 工作台呈现执行期实际不接受的时长。
+  const fromModelSettings = project.model_settings?.[backend]?.resolution;
+  if (fromModelSettings) return fromModelSettings;
+  const slashIdx = backend.indexOf("/");
+  const modelId = slashIdx === -1 ? backend : backend.slice(slashIdx + 1);
+  // legacy 侧同样把空串归一为 null：后端 `_resolution_from_project` 对两层都用真值判断，
+  // 只归一新键会让「空值按未配置处理」在 legacy 上失效。
+  return project.video_model_settings?.[modelId]?.resolution || null;
+}
+
 /** 返回该 (provider, model) 下的分辨率候选 + 是否自定义供应商（决定 picker 模式）。
  *  自定义 provider 路径需要从 endpoint 推 media_type 选标准分辨率集；该 map 由调用方
  *  从 endpoint-catalog-store 读出注入（保持本文件无 store 副作用）。 */

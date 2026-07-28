@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.script_generator import ScriptGenerator
+from lib.script_generator import ScriptGenerator, _units_use_references
 from lib.script_structure_validator import ScriptStructureValidationError
 
 
@@ -65,6 +65,31 @@ def _write_drama_ledger_project(project_path: Path, episodes: list[dict], charac
             "episodes": episodes,
         },
     )
+
+
+def _drama_project_with_backend(
+    tmp_path,
+    *,
+    backend: str,
+    resolution: str,
+    supported_durations: list[int] | None = None,
+):
+    """造一个指定视频后端 + 分辨率的最小 drama 项目，返回项目路径。
+
+    四个 step2 时长校验用例只在这三项上不同，其余装配逐字相同。
+    """
+    project_path = tmp_path / "demo"
+    _write_drama_ledger_project(
+        project_path,
+        [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+    )
+    project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+    project["video_backend"] = backend
+    project["model_settings"] = {backend: {"resolution": resolution}}
+    if supported_durations is not None:
+        project["_supported_durations"] = supported_durations
+    _write_json(project_path / "project.json", project)
+    return project_path
 
 
 def _drama_step1_content() -> dict:
@@ -297,6 +322,87 @@ class TestScriptGenerator:
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="改写到 episode=2 后重复"):
             generator._load_drama_step1_content(2)
+
+    @pytest.mark.integration
+    async def test_drama_step2_rejects_step1_duration_out_of_constrained_set(self, tmp_path):
+        """step1 在宽松分辨率下拆好、项目改到 Veo 1080p 后再跑 step2 → 越界时长 fail-loud。
+
+        step2 原样透传 step1 时长，落盘前的静态校验只要求正整数；缺这道校验时越界值会一路存进
+        剧本，直到视频入队才被拒。与 narration / reference_video 的 step1 读回校验对称。
+        """
+        project_path = _drama_project_with_backend(
+            tmp_path, backend="gemini-aistudio/veo-3.1-generate-preview", resolution="1080p"
+        )
+
+        content = _drama_step1_content()
+        content["scenes"][0]["duration_seconds"] = 4
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "raw",
+        ["4", 4.0],
+        ids=["numeric-string", "integral-float"],
+    )
+    async def test_drama_step2_rejects_out_of_range_duration_in_coercible_form(self, tmp_path, raw):
+        """手编的 `"4"` / `4.0` 同样拦下：它们会被最终 schema 归一成 4 落盘，不能绕过校验。
+
+        校验若按 `isinstance(..., int)` 判定就会整个跳过这两种形态，等于给越界值开一条绕路。
+        """
+        project_path = _drama_project_with_backend(
+            tmp_path, backend="gemini-aistudio/veo-3.1-generate-preview", resolution="1080p"
+        )
+
+        content = _drama_step1_content()
+        content["scenes"][0]["duration_seconds"] = raw
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+
+    @pytest.mark.integration
+    async def test_drama_step2_checks_declared_default_when_duration_absent(self, tmp_path):
+        """缺 duration_seconds 键时按字段声明默认值校验——不填不代表不校验，落盘补的正是该默认值。
+
+        海螺 1080p 只接受 6 秒，而 DramaSceneContent 的默认是 8 秒，故该场景须被拦下。
+        """
+        project_path = _drama_project_with_backend(
+            tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p", supported_durations=[6, 10]
+        )
+
+        content = _drama_step1_content()
+        del content["scenes"][0]["duration_seconds"]
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+
+    @pytest.mark.integration
+    async def test_drama_step2_checks_declared_default_when_duration_null(self, tmp_path):
+        """显式 null 与缺键同口径：都按声明默认值校验，不得绕过。
+
+        `dict.get` 的默认值只在缺键时生效，显式 null 会取到 None；不特判的话该场景跳过校验，
+        要等 step2 跑完、落盘时才被 Pydantic 拒，白耗一次完整的剧本生成调用。
+        """
+        project_path = _drama_project_with_backend(
+            tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p", supported_durations=[6, 10]
+        )
+
+        content = _drama_step1_content()
+        content["scenes"][0]["duration_seconds"] = None
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+
+    @pytest.mark.integration
+    async def test_drama_step2_accepts_step1_duration_within_constrained_set(self, tmp_path):
+        """同一 1080p 项目下 8 秒仍合法——收窄后集合的成员不得被这道校验误拒。"""
+        project_path = _drama_project_with_backend(
+            tmp_path, backend="gemini-aistudio/veo-3.1-generate-preview", resolution="1080p"
+        )
+
+        generator = ScriptGenerator(project_path)
+        await generator._assert_drama_step1_durations(_drama_step1_content()["scenes"], gen_mode="storyboard")
 
     async def test_drama_step2_build_prompt_renders_step1_content(self, tmp_path):
         """drama step2（视觉层）build_prompt 须把 step1 已定稿内容渲染入 prompt，仅求视觉字段。"""
@@ -806,7 +912,155 @@ def test_resolve_supported_durations_raises_when_unset(tmp_path):
     sg.project_json = {"video_backend": "nonexistent-provider/nonexistent-model"}
 
     with pytest.raises(ValueError, match="supported_durations"):
-        sg._resolve_supported_durations(None)
+        sg._resolve_supported_durations(None, gen_mode="storyboard")
+
+
+def _sg_with_project(tmp_path, project: dict) -> ScriptGenerator:
+    """只为 _resolve_* 系列造一个不走 __init__ 的 ScriptGenerator（不需要 TextGenerator）。"""
+    project_dir = tmp_path / "p"
+    project_dir.mkdir(exist_ok=True)
+    sg = ScriptGenerator.__new__(ScriptGenerator)
+    sg.project_path = project_dir
+    sg.project_json = project
+    return sg
+
+
+_VEO_CAPS = {
+    "provider_id": "gemini-aistudio",
+    "model": "veo-3.1-generate-preview",
+    "supported_durations": [4, 6, 8],
+}
+
+
+@pytest.mark.integration
+def test_resolve_supported_durations_narrows_by_saved_resolution(tmp_path):
+    """项目保存了 1080p 时收窄到该档位声明的集合——Veo 1080p 只接受 8 秒。
+
+    这是验收标准第 1 条的正例：不收窄的话剧本产出 4/6 秒镜头，视频入队时才被 backend 拒。
+    """
+    sg = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}},
+        },
+    )
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [8]
+    # 全集仍可单独取到，供「shot 是 clip 内编排」这类不面向供应商的维度使用
+    assert sg._resolve_raw_supported_durations(_VEO_CAPS) == [4, 6, 8]
+
+
+@pytest.mark.integration
+def test_resolve_supported_durations_unset_resolution_not_narrowed(tmp_path):
+    """项目未配分辨率时不收窄：普通视频路径此时省略 resolution 参数，Veo 按默认 720p 接受 4/6/8。
+
+    按 provider 兜底档位收窄会把未配置项目的剧本节奏凭空锁死 8 秒，而供应商本来就接受 4/6 秒。
+    """
+    sg = _sg_with_project(tmp_path, {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"})
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [4, 6, 8]
+
+
+@pytest.mark.integration
+def test_resolve_supported_durations_respects_project_resolution(tmp_path):
+    """项目显式配了无声明的分辨率时不收窄，行为与改动前一致。"""
+    sg = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}},
+        },
+    )
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [4, 6, 8]
+
+
+@pytest.mark.integration
+def test_resolve_supported_durations_narrows_by_reference_mode(tmp_path):
+    """reference_video 模式触发「参考图↔时长」约束，即便分辨率本身无声明。"""
+    sg = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}},
+        },
+    )
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video") == [8]
+
+
+@pytest.mark.integration
+def test_resolve_supported_durations_reference_mode_without_refs_not_narrowed(tmp_path):
+    """参考视频模式但本集单元都不带引用时不施加参考图约束。
+
+    通用单元允许空 references，执行层与 backend 都只在实际带图时施加该约束；按模式一刀切
+    会把 720p 下本可申请的 4/6 秒收掉，改变无引用单元改动前的行为。
+    """
+    sg = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}},
+        },
+    )
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video", uses_reference_images=False) == [
+        4,
+        6,
+        8,
+    ]
+    # 有引用的单元存在时照常收窄
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video", uses_reference_images=True) == [8]
+
+
+@pytest.mark.unit
+def test_units_use_references_distinguishes_none_from_no_refs():
+    """None（非参考视频路径）与「确定不带引用」区分开，前者交由下游按模式近似判定。"""
+    assert _units_use_references(None) is None
+    assert _units_use_references([{"unit_id": "E1U01", "references": []}]) is False
+    assert (
+        _units_use_references(
+            [{"unit_id": "E1U01", "references": []}, {"unit_id": "E1U02", "references": [{"name": "甲"}]}]
+        )
+        is True
+    )
+
+
+@pytest.mark.integration
+def test_resolve_supported_durations_unconstrained_model_unchanged(tmp_path):
+    """已登记但无联动约束声明的型号：收窄是恒等变换，两种 gen_mode 都与全集一致。"""
+    caps = {"provider_id": "ark", "model": "doubao-seedance-1-5-pro-251215", "supported_durations": [4, 5, 6]}
+    sg = _sg_with_project(tmp_path, {"video_backend": "ark/doubao-seedance-1-5-pro-251215"})
+    assert sg._resolve_supported_durations(caps, gen_mode="storyboard") == [4, 5, 6]
+    assert sg._resolve_supported_durations(caps, gen_mode="reference_video") == [4, 5, 6]
+
+
+@pytest.mark.integration
+def test_resolve_max_duration_tracks_narrowed_set(tmp_path):
+    """max_duration 随收窄后的集合走：它在 rv 模式下是 unit 总时长上限，须与枚举同一集合。"""
+    sg = _sg_with_project(tmp_path, {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"})
+    caps = {**_VEO_CAPS, "max_duration": 8}
+    assert sg._resolve_max_duration(caps, gen_mode="storyboard") == 8
+
+    hailuo_caps = {
+        "provider_id": "minimax",
+        "model": "MiniMax-Hailuo-2.3",
+        "supported_durations": [6, 10],
+        "max_duration": 10,
+    }
+    hailuo = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "minimax/MiniMax-Hailuo-2.3",
+            "model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}},
+        },
+    )
+    # 1080p 下海螺只接受 6 秒：上限必须跟着降，否则 step1 会拆出 10 秒的 unit 而 step2 判非法
+    assert hailuo._resolve_max_duration(hailuo_caps, gen_mode="storyboard") == 6
+
+    # rv 模式是 max_duration 真正当 unit 总时长上限用的分支：上限一旦退回 caps["max_duration"]
+    # （Veo 全集 8、海螺全集 10），step1 会按全集上限拆 unit、step2 的枚举再判非法。
+    # 两侧都钉死具体值，同时钉住「上限 == max(枚举集合)」这条不变量。
+    for sg_case, caps_case, expected in ((sg, caps, 8), (hailuo, hailuo_caps, 6)):
+        durations = sg_case._resolve_supported_durations(caps_case, gen_mode="reference_video")
+        assert durations == [expected]
+        assert sg_case._resolve_max_duration(caps_case, gen_mode="reference_video") == expected == max(durations)
 
 
 def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> ScriptGenerator:

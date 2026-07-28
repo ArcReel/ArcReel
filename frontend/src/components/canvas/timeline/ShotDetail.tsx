@@ -11,6 +11,7 @@ import {
   Loader2,
   Undo2,
 } from "lucide-react";
+import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
 import type {
   NarrationSegment,
   DramaScene,
@@ -35,6 +36,7 @@ import { StatusBadge, statusFromAssets } from "./StatusBadge";
 import { Popover } from "@/components/ui/Popover";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { isResourceBusy, isScriptFileBusy } from "@/stores/tasks-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
@@ -81,6 +83,8 @@ interface ShotDetailProps {
   generatingVideo?: boolean;
   generatingNarration?: boolean;
   durationOptions?: number[];
+  /** 已保存时长越界的成因判定；缺省时退回不区分成因的通用警告文案。 */
+  durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
 }
 
 function getNovelText(seg: Segment, mode: DetailContentMode): string {
@@ -149,15 +153,25 @@ function draftSig(d: DraftState, isAd: boolean, isDrama: boolean): string {
 interface DurationPillProps {
   seconds: number;
   segmentId: string;
+  projectName: string;
+  /** 本集剧本文件名；宫格任务按它做 scriptFile 粒度的占用判定。 */
+  scriptFile?: string;
   durationOptions: number[];
+  durationWarningReason?: ShotDetailProps["durationWarningReason"];
   onUpdatePrompt?: ShotDetailProps["onUpdatePrompt"];
+  /** 该镜头有分镜 / 视频任务在跑；置真时禁止改时长（在跑的任务已捕获旧值，改了两边就不一致）。 */
+  busy?: boolean;
 }
 
 function DurationPill({
   seconds,
   segmentId,
+  projectName,
+  scriptFile,
   durationOptions,
+  durationWarningReason,
   onUpdatePrompt,
+  busy = false,
 }: DurationPillProps) {
   const { t } = useTranslation("dashboard");
   const [open, setOpen] = useState(false);
@@ -167,19 +181,62 @@ function DurationPill({
   // 避免 onChange 每像素一次 onUpdatePrompt 产生并发写请求 + 乱序落库
   const [draftSeconds, setDraftSeconds] = useState<number | null>(null);
   const displaySeconds = draftSeconds ?? seconds;
+  // 提交时刻复核占用态：面板打开后任务可能才启动，只查打开/渲染时刻会留一个竞态窗口。
+  // 走 tasks-store 的 isResourceBusy 新鲜读而非 busy prop——prop 反映的是上次渲染，
+  // store 更新到重渲染提交之间用户仍可能点下去。命中则拒绝并给可见反馈（与立绘上传的
+  // rejectIfAssetBusy 同口径）。
+  const rejectIfBusy = useCallback(() => {
+    // 宫格任务另按 scriptFile 判：它的 resource_id 是 grid_id，归不进按分镜 resource_id 的
+    // 判定，而切割阶段会覆写本集内多个分镜、与改时长并发写同一份剧本。
+    const stillBusy =
+      busy ||
+      isResourceBusy("storyboard", projectName, segmentId) ||
+      isResourceBusy("video", projectName, segmentId) ||
+      isScriptFileBusy("grid", scriptFile, projectName);
+    if (!stillBusy) return false;
+    useAppStore.getState().pushToast(t("duration_locked_generating"), "info");
+    return true;
+  }, [busy, projectName, segmentId, scriptFile, t]);
+
   const commitDraft = useCallback(() => {
     if (draftSeconds == null) return;
+    if (rejectIfBusy()) {
+      setDraftSeconds(null);
+      return;
+    }
     if (draftSeconds !== seconds) {
       void onUpdatePrompt?.(segmentId, "duration_seconds", draftSeconds);
     }
     setDraftSeconds(null);
-  }, [draftSeconds, seconds, segmentId, onUpdatePrompt]);
+  }, [draftSeconds, seconds, segmentId, onUpdatePrompt, rejectIfBusy]);
 
   const editable = !!onUpdatePrompt;
   const noOptions = durationOptions.length === 0;
+  const locked = noOptions || busy;
+
+  // 转入锁定态时真正清掉面板与草稿，而不只是遮蔽：只派生可见性的话，任务结束、locked 回到
+  // false 时旧面板会自行重现，未提交的 slider 草稿也一起回来、可能被误写回。
+  // 用「prop 变化时于渲染期调整 state」这一 React 官方模式，而不是 effect——后者多一个渲染
+  // 周期，且踩 react-hooks/set-state-in-effect。
+  const [prevLocked, setPrevLocked] = useState(locked);
+  if (locked !== prevLocked) {
+    setPrevLocked(locked);
+    if (locked) {
+      setOpen(false);
+      setDraftSeconds(null);
+    }
+  }
   const isIncompatible =
     durationOptions.length > 0 && !durationOptions.includes(seconds);
-  const incompatibleLabel = t("duration_incompatible_warning", {
+  // 越界文案按成因分开：模型全集就不含该值才是「模型不支持」，被分辨率 / 参考图路径的联动约束
+  // 收窄掉时说清是哪一条——用户据此改对应设置，而不是被引去以为模型换不了这个时长。
+  // 与项目默认时长的三种提示同一套判定（见 useModelCapabilities.durationOutOfRangeReason）。
+  const incompatibleKey = {
+    model: "duration_incompatible_warning",
+    resolution: "duration_incompatible_resolution_warning",
+    reference: "duration_incompatible_reference_warning",
+  }[durationWarningReason?.(seconds) ?? "model"];
+  const incompatibleLabel = t(incompatibleKey, {
     value: seconds,
     supported: durationOptions.join(", "),
   });
@@ -219,10 +276,20 @@ function DurationPill({
       <button
         ref={ref}
         type="button"
-        onClick={() => !noOptions && setOpen((o) => !o)}
-        disabled={noOptions}
-        aria-disabled={noOptions || undefined}
-        title={noOptions ? t("duration_no_options") : undefined}
+        onClick={() => {
+          if (locked) return;
+          if (!open && rejectIfBusy()) return;
+          setOpen((o) => !o);
+        }}
+        disabled={locked}
+        aria-disabled={locked || undefined}
+        title={
+          busy
+            ? t("duration_locked_generating")
+            : noOptions
+              ? t("duration_no_options")
+              : undefined
+        }
         className={`${baseClass} transition-colors disabled:cursor-not-allowed disabled:opacity-60`}
         style={baseStyle}
       >
@@ -304,6 +371,11 @@ function DurationPill({
                   type="button"
                   aria-checked={checked}
                   onClick={() => {
+                    // 与 commitDraft 同口径：提交时刻再复核一次，不吃面板打开后才启动的任务。
+                    if (rejectIfBusy()) {
+                      setOpen(false);
+                      return;
+                    }
                     void onUpdatePrompt(segmentId, "duration_seconds", d);
                     setOpen(false);
                   }}
@@ -359,6 +431,7 @@ export function ShotDetail({
   generatingVideo,
   generatingNarration,
   durationOptions = [],
+  durationWarningReason,
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
   const status = statusFromAssets(segment.generated_assets?.status);
@@ -941,8 +1014,12 @@ export function ShotDetail({
         <DurationPill
           seconds={segment.duration_seconds ?? 0}
           segmentId={segmentId}
+          projectName={projectName}
+          scriptFile={scriptFile}
           durationOptions={durationOptions}
+          durationWarningReason={durationWarningReason}
           onUpdatePrompt={onUpdatePrompt}
+          busy={!!generatingStoryboard || !!generatingVideo}
         />
         <StatusBadge status={status} />
         <span className="flex-1" />

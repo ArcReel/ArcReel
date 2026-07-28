@@ -9,6 +9,7 @@ import { useActiveResourceIds } from "@/stores/tasks-store";
 import { getScriptItemId } from "@/utils/script-shape";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
+import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
 import type {
   EpisodeScript,
   NarrationEpisodeScript,
@@ -43,6 +44,8 @@ interface TimelineCanvasProps {
   onGenerateNarration?: (segmentId: string, scriptFile?: string) => void;
   onGenerateEpisodeNarration?: (scriptFile?: string) => void;
   durationOptions?: number[];
+  /** 已保存时长越界的成因判定；缺省时 ShotDetail 退回不区分成因的通用警告文案。 */
+  durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
   onRestoreStoryboard?: () => Promise<void> | void;
   onRestoreVideo?: () => Promise<void> | void;
   onSaveTitle?: (next: string) => Promise<void>;
@@ -74,6 +77,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
     scriptFile,
     projectData,
     durationOptions,
+    durationWarningReason,
     onUpdatePrompt,
     onMoveShot,
     onGenerateStoryboard,
@@ -353,6 +357,7 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
                 generatingVideo={generatingVideo}
                 generatingNarration={generatingNarration}
                 durationOptions={durationOptions}
+                durationWarningReason={durationWarningReason}
               />
             </div>
           </div>

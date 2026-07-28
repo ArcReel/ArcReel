@@ -6,6 +6,7 @@ import {
   getCustomProviderModels,
   getProviderModels,
   lookupDurationConstraints,
+  lookupProjectVideoResolution,
 } from "./provider-models";
 
 describe("provider-models fetchers", () => {
@@ -121,5 +122,79 @@ describe("constrainDurations", () => {
   it("keeps the original options when constraints would leave nothing selectable", () => {
     const contradictory = { byResolution: { "720p": [16] }, withReferenceImages: [] };
     expect(constrainDurations([4, 6, 8], contradictory, { resolution: "720p" })).toEqual([4, 6, 8]);
+  });
+});
+
+describe("lookupProjectVideoResolution", () => {
+  const BACKEND = "gemini-aistudio/veo-3.1-generate-preview";
+
+  it("读 model_settings 的 provider/model 复合键", () => {
+    expect(
+      lookupProjectVideoResolution({ model_settings: { [BACKEND]: { resolution: "4K" } } }, BACKEND),
+    ).toBe("4K");
+  });
+
+  // 旧项目的分辨率存在 video_model_settings 下、键是裸 model_id；不回退会让老项目的
+  // 时长候选按「未设分辨率」处理，选到该分辨率下必然被拒的时长。
+  it("回退 legacy video_model_settings 的裸 model_id 键", () => {
+    expect(
+      lookupProjectVideoResolution(
+        { video_model_settings: { "veo-3.1-generate-preview": { resolution: "1080p" } } },
+        BACKEND,
+      ),
+    ).toBe("1080p");
+  });
+
+  it("新键优先于 legacy", () => {
+    expect(
+      lookupProjectVideoResolution(
+        {
+          model_settings: { [BACKEND]: { resolution: "720p" } },
+          video_model_settings: { "veo-3.1-generate-preview": { resolution: "1080p" } },
+        },
+        BACKEND,
+      ),
+    ).toBe("720p");
+  });
+
+  // null 表示用户未选档位：执行期省略 resolution 参数、供应商按自己的默认档位处理，
+  // 该档位下全集本就合法，故不替用户假定档位（返回 null → 不收窄）。
+  it("未配置 / 缺项目 / 空后端一律 null", () => {
+    expect(lookupProjectVideoResolution({}, BACKEND)).toBeNull();
+    expect(lookupProjectVideoResolution({ model_settings: {} }, BACKEND)).toBeNull();
+    expect(lookupProjectVideoResolution(null, BACKEND)).toBeNull();
+    expect(lookupProjectVideoResolution({ model_settings: { [BACKEND]: { resolution: "4K" } } }, "")).toBeNull();
+    expect(
+      lookupProjectVideoResolution({ model_settings: { [BACKEND]: { resolution: null } } }, BACKEND),
+    ).toBeNull();
+  });
+
+  // 新键为空值按「未配置」处理并继续回退 legacy，与后端 `_resolution_from_project` 及保存期的
+  // legacy 迁移（`_migrate_legacy_resolution_on_save` 只在 resolution 有值时清理）同口径。
+  // 三处必须描述同一套语义，否则同一份 project.json 会让工作台呈现执行期实际不接受的时长。
+  it("新键为空值时回退 legacy，与后端读取口径一致", () => {
+    expect(
+      lookupProjectVideoResolution(
+        {
+          model_settings: { [BACKEND]: { resolution: null } },
+          video_model_settings: { "veo-3.1-generate-preview": { resolution: "1080p" } },
+        },
+        BACKEND,
+      ),
+    ).toBe("1080p");
+  });
+
+  // 后端 `_resolution_from_project` 对新键与 legacy 两层都用真值判断，只归一新键会让
+  // 「空值按未配置处理」在 legacy 上失效。
+  it("legacy 侧的空串同样归一为 null", () => {
+    expect(
+      lookupProjectVideoResolution(
+        {
+          model_settings: { [BACKEND]: { resolution: null } },
+          video_model_settings: { "veo-3.1-generate-preview": { resolution: "" } },
+        },
+        BACKEND,
+      ),
+    ).toBeNull();
   });
 });

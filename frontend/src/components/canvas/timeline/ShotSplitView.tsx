@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
 import type { NarrationSegment, DramaScene, AdShot } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { getScriptItemId, type EditorContentMode } from "@/utils/script-shape";
@@ -31,6 +32,8 @@ interface ShotSplitViewProps {
   generatingVideo?: (segmentId: string) => boolean;
   generatingNarration?: (segmentId: string) => boolean;
   durationOptions?: number[];
+  /** 已保存时长越界的成因判定；缺省时 ShotDetail 退回不区分成因的通用警告文案。 */
+  durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
 }
 
 
@@ -55,6 +58,7 @@ export function ShotSplitView({
   generatingVideo,
   generatingNarration,
   durationOptions,
+  durationWarningReason,
 }: ShotSplitViewProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [collapsed, setCollapsed] = useState(
@@ -157,6 +161,7 @@ export function ShotSplitView({
         generatingVideo={generatingVideo?.(segmentId)}
         generatingNarration={generatingNarration?.(segmentId)}
         durationOptions={durationOptions}
+        durationWarningReason={durationWarningReason}
       />
     </div>
   );

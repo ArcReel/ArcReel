@@ -1766,13 +1766,79 @@ async def test_fetch_caps_with_fallback_uses_write_layer_default(monkeypatch) ->
     from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def raising_caps(_p):
+    async def raising_caps(_p, *, generation_mode=None):
         raise ValueError("no provider configured")
 
     monkeypatch.setattr(mod, "fetch_video_caps", raising_caps)
     default, durations = await mod._fetch_caps_with_fallback({})
     assert default is None
     assert durations == DEFAULT_FALLBACK
+
+
+@pytest.mark.unit
+async def test_fetch_caps_with_fallback_drops_out_of_range_default(monkeypatch) -> None:
+    """收窄后落在集合外的已保存 default_duration 归 None（回到 auto 档），不拖垮整个工具。
+
+    ``build_normalize_prompt`` 对非成员 default 是 fail-loud 的：用户在 720p 下存过 4 秒、
+    改到 1080p 后 Veo 收窄为 [8]，不归 None 会让 normalize_drama_script 直接抛 ValueError。
+    """
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def _narrowed_caps(_p, *, generation_mode=None):
+        return 4, [8]
+
+    monkeypatch.setattr(mod, "fetch_video_caps", _narrowed_caps)
+    default, durations = await mod._fetch_caps_with_fallback({})
+    assert default is None
+    assert durations == [8]
+
+    async def _in_range_caps(_p, *, generation_mode=None):
+        return 8, [4, 6, 8]
+
+    monkeypatch.setattr(mod, "fetch_video_caps", _in_range_caps)
+    default, durations = await mod._fetch_caps_with_fallback({})
+    assert default == 8
+    assert durations == [4, 6, 8]
+
+
+@pytest.mark.unit
+async def test_fetch_video_caps_narrows_durations_by_constraints(monkeypatch) -> None:
+    """交给 LLM 的时长集合已按项目分辨率经联动约束收窄。
+
+    Veo 项目保存 1080p 时只接受 8 秒；不收窄的话 drama / narration 拆分会产出 4/6 秒镜头，
+    视频入队时才被 backend 拒。
+    """
+    from server.agent_runtime.sdk_tools import _context as ctx_mod
+
+    async def _fake_caps(_project):
+        return {
+            "provider_id": "gemini-aistudio",
+            "model": "veo-3.1-generate-preview",
+            "supported_durations": [4, 6, 8],
+            "default_duration": 4,
+        }
+
+    monkeypatch.setattr(ctx_mod, "resolve_video_caps", _fake_caps)
+
+    project_1080p = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
+    default, durations = await ctx_mod.fetch_video_caps(project_1080p)
+    assert durations == [8]
+    # default_duration 原样返回（用户配置值），成员性由调用方按各自口径判定
+    assert default == 4
+
+    # 未配置分辨率：普通路径省略 resolution 参数，供应商按自己的默认档位（Veo 720p）接受 4/6/8，
+    # 故不施加分辨率约束——按 provider 兜底档位收窄会凭空把剧本节奏锁死 8 秒。
+    _default, durations = await ctx_mod.fetch_video_caps({})
+    assert durations == [4, 6, 8]
+
+    # 项目显式选了无声明的分辨率：不收窄，与改动前一致
+    project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}}
+    _default, durations = await ctx_mod.fetch_video_caps(project)
+    assert durations == [4, 6, 8]
+
+    # 参考图路径：即便分辨率无声明也收窄
+    _default, durations = await ctx_mod.fetch_video_caps(project, generation_mode="reference_video")
+    assert durations == [8]
 
 
 async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -2597,21 +2663,72 @@ async def test_fetch_reference_caps_with_fallback_clips_shot_durations_to_static
     的 shot 时长会在 step2 读回校验（复用同一静态区间的 Shot 模型）时 fail-loud。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    class _FakeResolver:
-        def __init__(self, _factory):
-            pass
+    async def _fake_caps(_project):
+        return {"supported_durations": [1, 8, 16, 18], "max_duration": 18, "default_duration": 16}
 
-        async def video_capabilities_for_project(self, _project):
-            return {"supported_durations": [1, 8, 16, 18], "max_duration": 18, "default_duration": 16}
-
-    monkeypatch.setattr(mod, "ConfigResolver", _FakeResolver)
+    monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
     default, durations, max_duration, max_refs = await mod._fetch_reference_caps_with_fallback({})
 
     assert durations == [1, 8]
-    assert max_duration == 18  # 单 unit 总时长上限沿用 resolver 原始声明，不受单 shot 过滤影响
+    # 单 unit 总时长上限取收窄后集合的最大值；该型号身份不可解析（无联动约束可查），
+    # 收窄是恒等变换，故仍是原始声明的 18，不受单 shot 过滤影响。
+    assert max_duration == 18
     assert default is None  # 16 已被过滤掉，非法 default 归 None
     assert max_refs is None
+
+
+@pytest.mark.unit
+async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monkeypatch) -> None:
+    """unit 总时长上限随联动约束收窄：海螺在 1080p 下只接受 6 秒，全集上限是 10 秒。
+
+    不收窄的话 step1 会按 10 秒拆出 unit，step2 的枚举 schema 再把它判非法。
+    单 shot 枚举同步剔除超过该上限的候选：shot 时长必然计入 unit 总和，留着 10 秒会让 prompt
+    同时要求「可选 10 秒」与「总时长不超过 6 秒」，schema 也放行必被后校验判非法的取值。
+    """
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def _fake_caps(_project):
+        return {
+            "provider_id": "minimax",
+            "model": "MiniMax-Hailuo-2.3",
+            "supported_durations": [6, 10],
+            "max_duration": 10,
+            "default_duration": None,
+        }
+
+    monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+
+    project = {"model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}}}
+    _default, shot_durations, max_duration, _max_refs = await mod._fetch_reference_caps_with_fallback(project)
+    assert shot_durations == [6]
+    assert max_duration == 6
+
+
+@pytest.mark.unit
+async def test_fetch_reference_caps_with_fallback_keeps_sub_cap_shot_durations(monkeypatch) -> None:
+    """剔除超上限候选不等于按成员集收窄：Veo 1080p 下总时长须为 8，单 shot 仍保留 4/6。
+
+    否则每个 shot 都得是 8 秒，凑不出 4+4 这类合法编排，clip 内的节奏被一并卡死，而约束
+    只要求各 shot 之和落在支持集合内。
+    """
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def _fake_caps(_project):
+        return {
+            "provider_id": "gemini-aistudio",
+            "model": "veo-3.1-generate-preview",
+            "supported_durations": [4, 6, 8],
+            "max_duration": 8,
+            "default_duration": None,
+        }
+
+    monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+
+    project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
+    _default, shot_durations, max_duration, _max_refs = await mod._fetch_reference_caps_with_fallback(project)
+    assert shot_durations == [4, 6, 8]
+    assert max_duration == 8
 
 
 async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monkeypatch) -> None:
@@ -2619,14 +2736,10 @@ async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monke
     from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    class _RaisingResolver:
-        def __init__(self, _factory):
-            pass
+    async def _raising_caps(_project):
+        raise ValueError("no provider configured")
 
-        async def video_capabilities_for_project(self, _project):
-            raise ValueError("no provider configured")
-
-    monkeypatch.setattr(mod, "ConfigResolver", _RaisingResolver)
+    monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
     default, durations, max_duration, max_refs = await mod._fetch_reference_caps_with_fallback({})
     assert default is None
     assert durations == DEFAULT_FALLBACK
