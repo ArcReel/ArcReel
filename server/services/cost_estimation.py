@@ -16,6 +16,7 @@ from lib.grid.layout import calculate_grid_layout
 from lib.pricing.strategies import PricingParams
 from lib.project_manager import effective_mode
 from lib.script_editor import ScriptEditError
+from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 
 logger = logging.getLogger(__name__)
@@ -182,10 +183,7 @@ class CostEstimationService:
             # Map grid_id → [scene_ids] from each segment's generated_assets
             grid_to_scenes: dict[str, list[str]] = {}
             for seg in raw_segments:
-                assets = seg.get("generated_assets")
-                if not isinstance(assets, dict):
-                    continue
-                gid = assets.get("grid_id")
+                gid = get_generated_assets(seg).get("grid_id")
                 sid = seg.get(id_key, "")
                 if gid and sid:
                     grid_to_scenes.setdefault(gid, []).append(sid)

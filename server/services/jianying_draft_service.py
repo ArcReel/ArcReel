@@ -207,8 +207,7 @@ class JianyingDraftService:
         for unit in units if isinstance(units, list) else []:
             if not isinstance(unit, dict):
                 continue
-            assets = unit.get("generated_assets") or {}
-            video_clip = assets.get("video_clip") if isinstance(assets, dict) else None
+            video_clip = get_generated_assets(unit).get("video_clip")
             if not video_clip:
                 continue
             abs_path = safe_resolve(project_dir, video_clip)

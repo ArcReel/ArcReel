@@ -940,6 +940,16 @@ class ProjectArchiveService:
                         (f"{label}[{index}].generated_assets: 补全默认字段 {', '.join(non_null_keys)}"),
                         location=f"{location_prefix}.generated_assets",
                     )
+        else:
+            item["generated_assets"] = self.project_manager.create_generated_assets(content_mode)
+            changed = True
+            diagnostics.add(
+                "auto_fixed",
+                "invalid_generated_assets",
+                f"{label}[{index}]: generated_assets 形态异常（{type(assets).__name__}），已重置为默认结构",
+                location=f"{location_prefix}.generated_assets",
+            )
+            assets = item["generated_assets"]
         return assets, changed
 
     def _add_placeholder_character(

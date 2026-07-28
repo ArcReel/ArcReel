@@ -216,6 +216,26 @@ class TestProjectArchiveReferenceVideo:
         assert "video_thumbnail" in assets
         assert assets["status"] == "pending"
 
+    def test_import_resets_invalid_generated_assets(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        unit = _build_unit(video_clip=None, generated_assets="corrupted-value")
+        project_dir = _create_reference_video_project(pm, unit=unit, write_clip=False, write_thumbnail=False)
+        service = ProjectArchiveService(pm)
+
+        archive_path = tmp_path / "invalid-assets.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="invalid-assets.zip")
+
+        imported = json.loads(
+            (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+        )
+        assets = imported["video_units"][0]["generated_assets"]
+        assert isinstance(assets, dict)
+        assert assets["status"] == "pending"
+        assert any(item["code"] == "invalid_generated_assets" for item in result.diagnostics["auto_fixed"])
+
     def test_import_adds_placeholder_for_missing_character_reference(self, tmp_path):
         # 与 narration/drama 对齐：references 引用了 project.json 缺失的角色 → 自动补占位定义
         pm = ProjectManager(tmp_path / "projects")

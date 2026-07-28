@@ -162,7 +162,7 @@ class StatusCalculator:
                 "reference_units 形状损坏（期望 dict 数组），按未派生计分 episode=%s",
                 script.get("episode"),
             )
-        video_done = sum(1 for u in units if (u.get("generated_assets") or {}).get("video_clip"))
+        video_done = sum(1 for u in units if get_generated_assets(u).get("video_clip"))
         total_units = len(units)
 
         if total_units == 0:

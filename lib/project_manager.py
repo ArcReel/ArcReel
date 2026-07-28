@@ -1236,12 +1236,10 @@ class ProjectManager:
         # video_units，不会静默落到 drama 兜底丢失 reference 数据。
         items = _resolve_items_or_warn(script, script_filename=script_filename)
 
-        # item.generated_assets 缺失 / null / 非 dict 一律视为"未生成"——读取侧脏数据容错：
-        # `.get("generated_assets", {}).get(...)` 只挡 key 缺失，None 与非 dict 仍会抛 AttributeError。
-        # 与写入侧 update_scene_asset 的 isinstance check mirror。
+        # item.generated_assets 缺失 / null / 非 dict 一律视为"未生成"——读取侧脏数据容错，
+        # 经 get_generated_assets 归一化，与写入侧 update_scene_asset 的 isinstance check mirror。
         def _missing(item: dict) -> bool:
-            assets = item.get("generated_assets")
-            return not isinstance(assets, dict) or not assets.get(asset_type)
+            return not get_generated_assets(item).get(asset_type)
 
         # 损坏脚本的非 dict 元素直接剔除（镜像 script_editor._existing_ids 的过滤），UI 不渲染垃圾项。
         return [item for item in items if isinstance(item, dict) and _missing(item)]
@@ -1282,12 +1280,11 @@ class ProjectManager:
         script = self.load_script(project_name, script_filename)
 
         # 同 get_pending_scenes：resolve_items 三模式判别 + warn-and-skip 降级 +
-        # generated_assets 容错 isinstance check。
+        # get_generated_assets 归一化容错。
         items = _resolve_items_or_warn(script, script_filename=script_filename)
 
         def _missing_storyboard(item: dict) -> bool:
-            assets = item.get("generated_assets")
-            return not isinstance(assets, dict) or not assets.get("storyboard_image")
+            return not get_generated_assets(item).get("storyboard_image")
 
         # 同 get_pending_scenes：非 dict 元素剔除，镜像 script_editor._existing_ids。
         return [item for item in items if isinstance(item, dict) and _missing_storyboard(item)]
