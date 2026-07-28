@@ -16,6 +16,8 @@ import { ReferenceVideoCard, unitPromptText } from "./ReferenceVideoCard";
 import { deriveUnitStatus } from "./unit-status";
 import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
+import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
+import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { ScriptReviewGate } from "@/components/canvas/timeline/ScriptReviewGate";
 import { API } from "@/api";
 import { enqueueReferenceVideoUnit } from "@/actions/generation";
@@ -222,11 +224,14 @@ export function ReferenceVideoCanvas({
 
   const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
-  const handleGenerate = useCallback(
+  // 时长取档闸门：申请秒数与剧本编排不一致时先确认，取消则一个都不入队
+  const durationGate = useReferenceDurationGate({ projectName, episode });
+
+  const enqueue = useCallback(
     async (unitId: string) => {
-      setStackTab("preview");
       // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的占用态未必是最新的
-      // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）。
+      // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）；
+      // 时长确认弹窗打开期间同样会经过这段窗口，故复核落在入队这一刻。
       if (isUnitLocked(unitId)) {
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
@@ -239,6 +244,26 @@ export function ReferenceVideoCanvas({
       }
     },
     [projectName, episode, isUnitLocked, t],
+  );
+
+  const enqueueSerially = useCallback(
+    async (unitIds: string[]) => {
+      // 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
+      for (const id of unitIds) await enqueue(id);
+    },
+    [enqueue],
+  );
+
+  const handleGenerate = useCallback(
+    async (unitId: string) => {
+      setStackTab("preview");
+      if (isUnitLocked(unitId)) {
+        useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
+        return;
+      }
+      await durationGate.run([unitId], enqueueSerially);
+    },
+    [durationGate, enqueueSerially, isUnitLocked, t],
   );
 
   const handleUploadVideo = useCallback(
@@ -290,15 +315,15 @@ export function ReferenceVideoCanvas({
       useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
       return;
     }
-    for (const u of batchTargets) {
-      // 实时复核而非用渲染期快照：串行 await 期间其它入口（单元按钮、Agent 入队、
-      // SSE 落库）可能已占用同一 unit。命中即跳过，不当作错误提示——批量入口的语义
-      // 是「把还能生成的都排上」，逐个报错只会刷屏。
-      if (isUnitLocked(u.unit_id)) continue;
-      // 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
-      await handleGenerate(u.unit_id);
-    }
-  }, [batchTargets, handleGenerate, isUnitLocked, t]);
+    setStackTab("preview");
+    // 实时复核而非用渲染期快照：其它入口（单元按钮、Agent 入队、SSE 落库）可能已占用
+    // 同一 unit。命中即跳过，不当作错误提示——批量入口的语义是「把还能生成的都排上」，
+    // 逐个报错只会刷屏。
+    const targets = batchTargets.map((u) => u.unit_id).filter((id) => !isUnitLocked(id));
+    if (targets.length === 0) return;
+    // 与单元入口共用同一条闸门：需确认的单元聚合成一次确认，否则批量按钮会成为绕过确认的旁路
+    await durationGate.run(targets, enqueueSerially);
+  }, [batchTargets, durationGate, enqueueSerially, isUnitLocked, t]);
 
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
@@ -904,6 +929,8 @@ export function ReferenceVideoCanvas({
           )}
         </div>
       )}
+
+      <ReferenceDurationConfirmDialog {...durationGate.dialogProps} />
     </div>
   );
 }

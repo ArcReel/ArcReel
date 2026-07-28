@@ -88,6 +88,13 @@ describe("ReferenceVideoCanvas", () => {
       optimisticActiveScriptFile: new Set(),
     });
     useAppStore.setState({ toast: null });
+    // 时长取档预检默认「与剧本编排一致」：生成入口无确认步骤，与改动前的路径等价
+    vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
+      needs_confirmation: false,
+      script_duration: 3,
+      request_duration: 3,
+      adjustment: "exact",
+    });
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -462,6 +469,137 @@ describe("ReferenceVideoCanvas", () => {
     fireEvent.click(batch);
     await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(1));
     expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2");
+  });
+
+  // 时长取档确认：模型只接受离散档位，剧本编排落在档位之间时按能装下它的最小档位生成，
+  // 成片不裁剪——秒数不一致这件事必须在入队前讲清楚，由用户决定是否继续。
+  describe("时长取档确认", () => {
+    const CONFIRM_CTA = /Generate at this length|按此时长生成/;
+
+    function stubPrecheck(precheck: {
+      needs_confirmation: boolean;
+      script_duration: number;
+      request_duration: number;
+      adjustment: "exact" | "up" | "down" | "unconstrained";
+    }) {
+      vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue(precheck);
+    }
+
+    it("申请秒数与剧本编排不一致时先确认，确认后才入队", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+      const genSpy = vi
+        .spyOn(API, "generateReferenceVideoUnit")
+        .mockResolvedValue({ task_id: "t1", deduped: false } as never);
+      stubPrecheck({
+        needs_confirmation: true,
+        script_duration: 5,
+        request_duration: 8,
+        adjustment: "up",
+      });
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+      fireEvent.click(await screen.findByRole("button", { name: UNIT_GENERATE_CTA }));
+
+      // 确认前不得入队
+      const confirm = await screen.findByRole("button", { name: CONFIRM_CTA });
+      expect(genSpy).not.toHaveBeenCalled();
+      // 弹窗内容含剧本编排秒数、申请秒数与「成片更长」的说明
+      expect(screen.getByText(/5 秒|5s/)).toBeInTheDocument();
+      expect(screen.getByText(/8 秒|8s/)).toBeInTheDocument();
+      expect(screen.getByText(/长 3 秒|3s longer/)).toBeInTheDocument();
+
+      fireEvent.click(confirm);
+      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
+    });
+
+    it("取消确认则不入队", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+      const genSpy = vi
+        .spyOn(API, "generateReferenceVideoUnit")
+        .mockResolvedValue({ task_id: "t1", deduped: false } as never);
+      stubPrecheck({
+        needs_confirmation: true,
+        script_duration: 5,
+        request_duration: 8,
+        adjustment: "up",
+      });
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+      fireEvent.click(await screen.findByRole("button", { name: UNIT_GENERATE_CTA }));
+      await screen.findByRole("button", { name: CONFIRM_CTA });
+
+      fireEvent.click(screen.getByRole("button", { name: /Cancel|取消/ }));
+
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: CONFIRM_CTA })).not.toBeInTheDocument(),
+      );
+      expect(genSpy).not.toHaveBeenCalled();
+    });
+
+    it("总时长超过最大档位时说明成片短于剧本编排", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+      vi.spyOn(API, "generateReferenceVideoUnit").mockResolvedValue({
+        task_id: "t1",
+        deduped: false,
+      } as never);
+      stubPrecheck({
+        needs_confirmation: true,
+        script_duration: 20,
+        request_duration: 12,
+        adjustment: "down",
+      });
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+      fireEvent.click(await screen.findByRole("button", { name: UNIT_GENERATE_CTA }));
+
+      await screen.findByRole("button", { name: CONFIRM_CTA });
+      expect(screen.getByText(/短 8 秒|8s shorter/)).toBeInTheDocument();
+      expect(screen.getByText(/放不下完整的剧本编排|cannot hold the full script/)).toBeInTheDocument();
+    });
+
+    it("批量入口把需确认的单元聚合成一次确认，不逐个弹窗", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1"), mkUnit("E1U2")],
+      });
+      const genSpy = vi
+        .spyOn(API, "generateReferenceVideoUnit")
+        .mockResolvedValue({ task_id: "t9", deduped: false } as never);
+      stubPrecheck({
+        needs_confirmation: true,
+        script_duration: 3,
+        request_duration: 4,
+        adjustment: "up",
+      });
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+      const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
+      await waitFor(() => expect(batch).not.toBeDisabled());
+      fireEvent.click(batch);
+
+      const confirm = await screen.findByRole("button", { name: CONFIRM_CTA });
+      // 两个单元只弹一次，且确认前一个都没入队
+      expect(screen.getAllByRole("button", { name: CONFIRM_CTA })).toHaveLength(1);
+      expect(genSpy).not.toHaveBeenCalled();
+
+      fireEvent.click(confirm);
+      await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(2));
+    });
+
+    it("预检失败的单元不入队并提示", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+      const genSpy = vi
+        .spyOn(API, "generateReferenceVideoUnit")
+        .mockResolvedValue({ task_id: "t1", deduped: false } as never);
+      vi.spyOn(API, "precheckReferenceVideoDuration").mockRejectedValue(new Error("offline"));
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+      fireEvent.click(await screen.findByRole("button", { name: UNIT_GENERATE_CTA }));
+
+      await waitFor(() => {
+        expect(useAppStore.getState().toast?.text).toMatch(/时长核对失败|Could not check the length/);
+      });
+      expect(genSpy).not.toHaveBeenCalled();
+    });
   });
 
   it("没有待生成 unit 时批量生成按钮禁用", async () => {

@@ -15,6 +15,8 @@ import { API } from "@/api";
 import { enqueueReferenceVideoUnit } from "@/actions/generation";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { StatusBadge, deriveUnitStatus } from "./unit-status";
+import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
+import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import {
   isResourceBusy,
   useActiveResourceIds,
@@ -211,10 +213,14 @@ export function AdReferenceVideoCanvas({
     }
   }, [projectName, episode, hydrated, isUnitBusy, liveSavingUnitIds, t]);
 
-  // 错误清空只在触发入口做：generateUnit 自身不清，避免批量循环中
+  // 时长取档闸门：申请秒数与剧本编排不一致时先确认，取消则不入队
+  const durationGate = useReferenceDurationGate({ projectName, episode });
+
+  // 错误清空只在触发入口做：enqueueUnit 自身不清，避免批量循环中
   // 后一个 unit 的调用抹掉前一个 unit 的失败信息
-  const generateUnit = useCallback(
+  const enqueueUnit = useCallback(
     async (unitId: string) => {
+      // 复核落在入队这一刻：时长确认弹窗打开期间同一 unit 可能已被其它入口占用
       if (isUnitBusy(unitId) || liveSavingUnitIds().has(unitId)) {
         useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
         return;
@@ -226,6 +232,19 @@ export function AdReferenceVideoCanvas({
       }
     },
     [projectName, episode, isUnitBusy, liveSavingUnitIds, t],
+  );
+
+  const generateUnit = useCallback(
+    async (unitId: string) => {
+      if (isUnitBusy(unitId) || liveSavingUnitIds().has(unitId)) {
+        useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
+        return;
+      }
+      await durationGate.run([unitId], async (unitIds) => {
+        for (const id of unitIds) await enqueueUnit(id);
+      });
+    },
+    [durationGate, enqueueUnit, isUnitBusy, liveSavingUnitIds, t],
   );
 
   // 编辑期间该 unit 若已被其他入口占用，放弃这次写入而非与生成中的任务乱序落库
@@ -380,6 +399,8 @@ export function AdReferenceVideoCanvas({
           </ul>
         )}
       </div>
+
+      <ReferenceDurationConfirmDialog {...durationGate.dialogProps} />
     </div>
   );
 }

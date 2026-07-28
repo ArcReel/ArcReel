@@ -76,6 +76,20 @@ export interface ReferenceVideoUnit {
   generated_assets: UnitGeneratedAssets;
 }
 
+/**
+ * 时长取档预检结果。`adjustment` 说明申请秒数相对剧本编排的偏移方向：
+ * `exact` 一致、`up` 成片更长、`down` 成片更短、`unconstrained` 能力不可解析（原样透传）。
+ */
+export interface ReferenceDurationPrecheck {
+  /** 申请秒数与剧本编排不一致（up / down）时为 true，需先向用户确认 */
+  needs_confirmation: boolean;
+  /** 剧本编排时长（秒） */
+  script_duration: number;
+  /** 将向模型申请的档位秒数 */
+  request_duration: number;
+  adjustment: "exact" | "up" | "down" | "unconstrained";
+}
+
 /** ad 派生分组的参考条目：比 ReferenceResource 多 product 类型（产品绝对优先）。 */
 export interface AdUnitReference {
   type: AssetKind | "product";
