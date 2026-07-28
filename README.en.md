@@ -276,7 +276,7 @@ flowchart TB
 
 - 📖 [Getting Started Guide](docs/getting-started.md) — Step-by-step setup tutorial
 - 📦 [CapCut Draft Export Guide](docs/jianying-export-guide.md) — Import video clips into CapCut desktop for further editing
-- 💰 [Google GenAI Pricing](docs/google-genai-docs/Google视频&图片生成费用参考.md) — Gemini image / Veo video generation pricing reference
+- 💰 [Google GenAI Pricing](docs/google-genai-docs/pricing.md) — Official pricing page snapshot for Gemini image / Veo video generation
 - 💰 [Volcengine Ark Pricing](docs/ark-docs/火山方舟费用参考.md) — Volcengine Ark video / image / text model pricing reference
 
 ## Contributing

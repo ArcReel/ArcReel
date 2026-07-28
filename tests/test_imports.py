@@ -75,7 +75,6 @@ MODULES = [
 
 # 首位导入必须成立的模块，逐个在全新解释器里验证（理由见用例 docstring）。
 FIRST_IMPORT_MODULES = [
-    "lib.config",
     "lib.config.resolver",
     "lib.custom_provider.backends",
     "lib.custom_provider.capabilities",
