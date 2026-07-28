@@ -13,6 +13,7 @@ import {
   selectActiveResourceIds,
   selectHasActiveTaskForScriptFile,
   useTasksStore,
+  type ResourceKind,
 } from "@/stores/tasks-store";
 import {
   enqueueCharacter,
@@ -32,7 +33,7 @@ import {
 const SINGLE_OK = { success: true, task_id: "t1", deduped: false, message: "ok" };
 
 /** 该资源是否被占用（真实任务行或乐观标记）。 */
-function occupied(projectName: string, resourceKind: string, resourceId: string): boolean {
+function occupied(projectName: string, resourceKind: ResourceKind, resourceId: string): boolean {
   const { tasks, optimisticActive } = useTasksStore.getState();
   return selectActiveResourceIds(tasks, resourceKind, projectName, optimisticActive).has(resourceId);
 }
@@ -136,42 +137,42 @@ describe("单资源入队动作的乐观标记 kind / taskType", () => {
       label: "video",
       run: () => enqueueVideo("demo", "seg-1", "p", "episode_1.json", 4),
       method: "generateVideo" as const,
-      kind: "video",
+      kind: "video" as const,
       resourceId: "seg-1",
     },
     {
       label: "tts",
       run: () => enqueueNarration("demo", "seg-1", "episode_1.json"),
       method: "generateNarrationAudio" as const,
-      kind: "tts",
+      kind: "tts" as const,
       resourceId: "seg-1",
     },
     {
       label: "character",
       run: () => enqueueCharacter("demo", "Hero", "p"),
       method: "generateCharacter" as const,
-      kind: "character",
+      kind: "character" as const,
       resourceId: "Hero",
     },
     {
       label: "scene",
       run: () => enqueueScene("demo", "Temple", "p"),
       method: "generateProjectScene" as const,
-      kind: "scene",
+      kind: "scene" as const,
       resourceId: "Temple",
     },
     {
       label: "prop",
       run: () => enqueueProp("demo", "Sword", "p"),
       method: "generateProjectProp" as const,
-      kind: "prop",
+      kind: "prop" as const,
       resourceId: "Sword",
     },
     {
       label: "product",
       run: () => enqueueProduct("demo", "Phone", "p"),
       method: "generateProjectProduct" as const,
-      kind: "product",
+      kind: "product" as const,
       resourceId: "Phone",
     },
   ])("$label：成功后按资源类型打标并归一化 task_id", async ({ run, method, kind, resourceId }) => {
