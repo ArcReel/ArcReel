@@ -79,7 +79,9 @@ async def _pending_duration_confirmations(
     """收集本批将入队的 unit 中，申请时长与剧本编排不一致的清单。
 
     悬空索引 / 结构异常的 unit 在此静默跳过（留给 ``build_specs`` 阶段捕获并记 log），
-    不在预检阶段重复报错。
+    不在预检阶段重复报错；没有 shots 的 unit 同样跳过——``build_specs`` 会以同一理由
+    拒绝它，若仍纳入确认清单，会让批次卡在一个注定不会入队的 unit 上，且申请时长的
+    转述本身就是失实的（该 unit 根本不会被生成）。
     """
     items: list[dict[str, Any]] = []
     for unit in units:
@@ -88,6 +90,8 @@ async def _pending_duration_confirmations(
             continue
         try:
             ad_shots = ad_shots_for(unit) if ad_shots_for else None
+            if not (ad_shots if ad_shots_for else unit.get("shots")):
+                continue
             slot = await precheck_unit_duration_slot(project, unit, ad_shots)
         except ValueError:
             continue

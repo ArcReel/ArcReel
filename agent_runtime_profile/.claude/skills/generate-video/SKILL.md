@@ -65,7 +65,7 @@ ad 剧本骨架唯一（平铺 `shots[]`，不存在 `video_units`）。项目 `
 true` 重新调用同一工具完成入队；不带该参数的重复调用仍不入队。总时长本身就是档位
 成员、或模型能力当前不可解析时，单次调用直接入队，行为与不启用取档时一致。
 
-```
+```text
 mcp__arcreel__generate_video_episode({"script": "episode_1.json", "confirm_duration": true})
 ```
 

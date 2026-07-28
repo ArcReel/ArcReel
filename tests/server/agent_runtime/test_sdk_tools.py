@@ -1119,6 +1119,59 @@ async def test_generate_video_episode_reference_duration_exact_enqueues_directly
 
 
 @pytest.mark.integration
+async def test_generate_video_episode_reference_duration_skips_unit_without_shots(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """没有 shots 的 unit 不进入确认清单，不阻塞其余合法 unit 直接入队。
+
+    build_specs 本就会跳过没有 shots 的 unit（见 test_build_reference_specs_*）；
+    预检若不做同一过滤，会把这个注定不会入队的 unit 纳入确认清单，阻塞整批，
+    且申请时长的转述本身失实。
+    """
+    from lib.reference_video.duration_slots import EXACT, DurationSlot
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    script = _reference_video_script()
+    script["video_units"].append({"unit_id": "E1U2", "duration_seconds": 5})
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+
+    precheck_calls: list[str] = []
+
+    async def fake_precheck(project, unit, ad_shots):
+        precheck_calls.append(unit["unit_id"])
+        return DurationSlot(seconds=5, total_seconds=5, adjustment=EXACT)
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+
+        for spec in specs:
+            enqueued.append(spec)
+            if on_success:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert precheck_calls == ["E1U1"]
+    assert [s.resource_id for s in enqueued] == ["E1U1"]
+    assert "E1U2" in out["content"][0]["text"]
+
+
+@pytest.mark.integration
 async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
     ad_reference_ctx: ToolContext, monkeypatch
 ) -> None:
