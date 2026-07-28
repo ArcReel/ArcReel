@@ -978,6 +978,7 @@ def _reference_video_script(**overrides: Any) -> dict[str, Any]:
     return payload
 
 
+@pytest.mark.integration
 async def test_generate_video_episode_reference_duration_needs_confirmation(fake_ctx: ToolContext, monkeypatch) -> None:
     """申请秒数与剧本总时长不一致时，首次调用不入队，返回内容含总时长/申请秒数/差异说明。"""
     from lib.reference_video.duration_slots import UP, DurationSlot
@@ -1008,6 +1009,7 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
     assert enqueued == []
 
 
+@pytest.mark.integration
 async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_ctx: ToolContext, monkeypatch) -> None:
     """带 confirm_duration=true 的再次调用按取档结果入队并生成成功。"""
     from lib.generation_queue_client import BatchTaskResult
@@ -1045,6 +1047,7 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
     assert [s.resource_id for s in enqueued] == ["E1U1"]
 
 
+@pytest.mark.integration
 async def test_generate_video_episode_reference_duration_repeat_without_confirm_still_blocked(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -1074,6 +1077,7 @@ async def test_generate_video_episode_reference_duration_repeat_without_confirm_
     assert enqueued == []
 
 
+@pytest.mark.integration
 async def test_generate_video_episode_reference_duration_exact_enqueues_directly(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -1114,6 +1118,7 @@ async def test_generate_video_episode_reference_duration_exact_enqueues_directly
     assert [s.resource_id for s in enqueued] == ["E1U1"]
 
 
+@pytest.mark.integration
 async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
     ad_reference_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -1142,6 +1147,68 @@ async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
     assert out.get("is_error") is not True, out
     assert enqueued == []
     assert seen_ad_shots and seen_ad_shots[0]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("make_tool", "extra_args"),
+    [
+        (generate_video_scene_tool, {"scene_id": "E1S01"}),
+        (generate_video_all_tool, {}),
+        (generate_video_selected_tool, {"scene_ids": ["E1S01"]}),
+    ],
+    ids=["scene", "all", "selected"],
+)
+async def test_generate_video_reference_duration_confirmation_across_entries(
+    fake_ctx: ToolContext, monkeypatch, make_tool, extra_args: dict[str, Any]
+) -> None:
+    """四个入口在 reference 路径下共用同一条确认闸门：未确认不入队、确认后入队。
+
+    确认文本必须保留本次已产生的 log——scene / selected 的「scene_id 被忽略，转整集生成」
+    正是靠它告诉用户，他同意的是整集而非所选的那个 scene。
+    """
+    from lib.generation_queue_client import BatchTaskResult
+    from lib.reference_video.duration_slots import UP, DurationSlot
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
+
+    async def fake_precheck(project, unit, ad_shots):
+        return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        for spec in specs:
+            enqueued.append(spec)
+            if on_success:
+                on_success(
+                    BatchTaskResult(
+                        resource_id=spec.resource_id,
+                        task_id="t1",
+                        status="succeeded",
+                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
+                    )
+                )
+        return [], []
+
+    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = make_tool(fake_ctx)
+    pending = await _call(tool_obj, {"script": "episode_1.json", **extra_args})
+
+    assert pending.get("is_error") is not True, pending
+    assert enqueued == []
+    text = pending["content"][0]["text"]
+    assert "confirm_duration" in text
+    if make_tool is not generate_video_all_tool:
+        assert "转整集生成" in text
+
+    confirmed = await _call(tool_obj, {"script": "episode_1.json", **extra_args, "confirm_duration": True})
+
+    assert confirmed.get("is_error") is not True, confirmed
+    assert [s.resource_id for s in enqueued] == ["E1U1"]
 
 
 async def test_generate_video_scene_happy(fake_ctx: ToolContext, monkeypatch) -> None:

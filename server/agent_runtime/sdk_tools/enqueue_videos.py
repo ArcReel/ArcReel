@@ -52,16 +52,21 @@ class DurationConfirmationPending:
     items: list[dict[str, Any]]
 
 
-def _format_duration_confirmation(items: list[dict[str, Any]]) -> str:
-    lines = ["以下 unit 申请时长与剧本编排不一致，需先向用户确认，本次未入队任何任务："]
-    for item in items:
+def _duration_confirmation_response(pending: DurationConfirmationPending, log: list[str]) -> dict[str, Any]:
+    """把待确认清单连同本次已产生的 log 一并交给调用方转述。
+
+    log 携带的是同样影响本次生成范围的事实（如 scene_id 被忽略转整集、ad 派生出的 unit 数），
+    确认时一并呈现，用户才知道自己同意的是什么范围。
+    """
+    lines = [*log, "以下 unit 申请时长与剧本编排不一致，需先向用户确认，本次未入队任何任务："]
+    for item in pending.items:
         longer_or_shorter = "更长" if item["adjustment"] == "up" else "更短"
         lines.append(
             f"- {item['unit_id']}：剧本总时长 {item['script_duration']}s，"
             f"将申请 {item['request_duration']}s（成片{longer_or_shorter}）"
         )
     lines.append("用户同意后，带 confirm_duration=true 再次调用本工具完成入队。")
-    return "\n".join(lines)
+    return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
 
 async def _pending_duration_confirmations(
@@ -414,7 +419,7 @@ async def _generate_reference_units(
     （见 :func:`server.services.reference_video_tasks.resolve_duration_slot`），本次
     调用不产生任何任务，返回 :class:`DurationConfirmationPending` 供调用方转述给用户；
     用户同意后调用方带 ``confirm_duration=True`` 重新调用完成入队（与 Web 端
-    ``duration-precheck`` 预检共用同一取档规则，见 issue #1440/#1441）。
+    ``duration-precheck`` 预检共用同一取档规则）。
     """
     project_dir = ctx.project_path
     ckpt_path = _episode_checkpoint_path(project_dir, episode)
@@ -508,7 +513,7 @@ async def _run_reference_episode(
         confirm_duration=confirm_duration,
     )
     if isinstance(result, DurationConfirmationPending):
-        return {"content": [{"type": "text", "text": _format_duration_confirmation(result.items)}]}
+        return _duration_confirmation_response(result, log)
     header = f"第 {episode} 集参考视频生成完成，共 {len(result)} 个 unit"
     return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
 
@@ -563,7 +568,7 @@ async def _run_ad_reference_episode(
         ad_shots_for=lambda u: resolve_ad_unit_shots(script, u),
     )
     if isinstance(result, DurationConfirmationPending):
-        return {"content": [{"type": "text", "text": _format_duration_confirmation(result.items)}]}
+        return _duration_confirmation_response(result, log)
     header = f"参考直出生成完成，共 {len(result)} 个 unit"
     return {"content": [{"type": "text", "text": "\n".join([header, *log])}]}
 
