@@ -1803,8 +1803,8 @@ async def test_fetch_caps_with_fallback_drops_out_of_range_default(monkeypatch) 
 async def test_fetch_video_caps_narrows_durations_by_constraints(monkeypatch) -> None:
     """交给 LLM 的时长集合已按项目分辨率经联动约束收窄。
 
-    Veo 项目不做任何分辨率配置时执行期落在 provider 兜底档位 1080p 上、只接受 8 秒；
-    不收窄的话 drama / narration 拆分会产出 4/6 秒镜头，视频入队时才被 backend 拒。
+    Veo 项目保存 1080p 时只接受 8 秒；不收窄的话 drama / narration 拆分会产出 4/6 秒镜头，
+    视频入队时才被 backend 拒。
     """
     from server.agent_runtime.sdk_tools import _context as ctx_mod
 
@@ -1818,10 +1818,16 @@ async def test_fetch_video_caps_narrows_durations_by_constraints(monkeypatch) ->
 
     monkeypatch.setattr(ctx_mod, "resolve_video_caps", _fake_caps)
 
-    default, durations = await ctx_mod.fetch_video_caps({})
+    project_1080p = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
+    default, durations = await ctx_mod.fetch_video_caps(project_1080p)
     assert durations == [8]
     # default_duration 原样返回（用户配置值），成员性由调用方按各自口径判定
     assert default == 4
+
+    # 未配置分辨率：普通路径省略 resolution 参数，供应商按自己的默认档位（Veo 720p）接受 4/6/8，
+    # 故不施加分辨率约束——按 provider 兜底档位收窄会凭空把剧本节奏锁死 8 秒。
+    _default, durations = await ctx_mod.fetch_video_caps({})
+    assert durations == [4, 6, 8]
 
     # 项目显式选了无声明的分辨率：不收窄，与改动前一致
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}}
@@ -2674,7 +2680,8 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monk
     """unit 总时长上限随联动约束收窄：海螺在 1080p 下只接受 6 秒，全集上限是 10 秒。
 
     不收窄的话 step1 会按 10 秒拆出 unit，step2 的枚举 schema 再把它判非法。
-    单 shot 时长仍是全集——shot 不单独发给供应商，受约束的是它们的和。
+    单 shot 枚举同步剔除超过该上限的候选：shot 时长必然计入 unit 总和，留着 10 秒会让 prompt
+    同时要求「可选 10 秒」与「总时长不超过 6 秒」，schema 也放行必被后校验判非法的取值。
     """
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -2691,8 +2698,33 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monk
 
     project = {"model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}}}
     _default, shot_durations, max_duration, _max_refs = await mod._fetch_reference_caps_with_fallback(project)
-    assert shot_durations == [6, 10]
+    assert shot_durations == [6]
     assert max_duration == 6
+
+
+async def test_fetch_reference_caps_with_fallback_keeps_sub_cap_shot_durations(monkeypatch) -> None:
+    """剔除超上限候选不等于按成员集收窄：Veo 1080p 下总时长须为 8，单 shot 仍保留 4/6。
+
+    否则每个 shot 都得是 8 秒，凑不出 4+4 这类合法编排，clip 内的节奏被一并卡死，而约束
+    只要求各 shot 之和落在支持集合内。
+    """
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def _fake_caps(_project):
+        return {
+            "provider_id": "gemini-aistudio",
+            "model": "veo-3.1-generate-preview",
+            "supported_durations": [4, 6, 8],
+            "max_duration": 8,
+            "default_duration": None,
+        }
+
+    monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+
+    project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
+    _default, shot_durations, max_duration, _max_refs = await mod._fetch_reference_caps_with_fallback(project)
+    assert shot_durations == [4, 6, 8]
+    assert max_duration == 8
 
 
 async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monkeypatch) -> None:

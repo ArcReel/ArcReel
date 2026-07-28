@@ -134,6 +134,24 @@ describe("useModelCapabilities 时长维度", () => {
     expect(result.current.rawDurations).toEqual([5, 10]);
   });
 
+  it("裸 provider 后端下 resolvedVideoBackend 给出服务端补全的 provider/model", async () => {
+    // 裸 provider 是合法项目配置（服务端补全默认视频模型）。调用方按「项目为该后端保存了什么」
+    // 查配置时必须用这个已解析值，拿裸值去查会把 provider ID 当成 model ID、读不到实际档位。
+    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps());
+    const { result } = renderHook(() =>
+      useModelCapabilities({ projectName: PROJECT, videoBackend: "gemini", providers: provider() }),
+    );
+    await waitFor(() => expect(result.current.resolvedVideoBackend).toBe("gemini/veo-3"));
+  });
+
+  it("目录能解析时 resolvedVideoBackend 即传入的后端", () => {
+    vi.spyOn(API, "getVideoCapabilities").mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() =>
+      useModelCapabilities({ projectName: PROJECT, videoBackend: BACKEND, providers: provider() }),
+    );
+    expect(result.current.resolvedVideoBackend).toBe(BACKEND);
+  });
+
   it("unsavedBackend 时不采用服务端回退，时长按未知处理", async () => {
     // 表单里 backend 是未保存候选：服务端返回的仍是已保存模型的时长，采信会把它摆成新候选
     // 的选项，用户能存下新模型不支持的值。

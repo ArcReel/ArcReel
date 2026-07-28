@@ -140,16 +140,19 @@ export interface ProjectResolutionSettings {
 /**
  * 读项目为该视频后端保存的分辨率：`model_settings` → legacy `video_model_settings` → null。
  *
- * `backend` 须是生效后端（项目覆盖 ‖ 全局默认），与写入侧同一口径。null 表示用户未选档位，
- * 执行期会落到 provider 兜底档位——那张兜底表是后端数据，前端不镜像，故此处不替用户假定档位。
+ * `backend` 须是**已解析**的 `provider/model`（裸 provider 会被当成 model ID、读不到实际档位），
+ * 与写入侧同一口径。null 表示用户未选档位：执行期省略 resolution 参数、供应商按自己的默认档位
+ * 处理，故这里不替用户假定档位，与后端约束求值同口径。
  */
 export function lookupProjectVideoResolution(
   project: ProjectResolutionSettings | null | undefined,
   backend: string,
 ): string | null {
   if (!project || !backend) return null;
+  // 只在新键完全不存在时回退 legacy：显式 null 是「用户在新设置里清空了档位」，
+  // 旧项目升级后残留的 video_model_settings 值不该把它顶回去。
   const fromModelSettings = project.model_settings?.[backend]?.resolution;
-  if (fromModelSettings) return fromModelSettings;
+  if (fromModelSettings !== undefined) return fromModelSettings || null;
   const slashIdx = backend.indexOf("/");
   const modelId = slashIdx === -1 ? backend : backend.slice(slashIdx + 1);
   return project.video_model_settings?.[modelId]?.resolution ?? null;

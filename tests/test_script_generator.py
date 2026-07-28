@@ -298,6 +298,43 @@ class TestScriptGenerator:
         with pytest.raises(ValueError, match="改写到 episode=2 后重复"):
             generator._load_drama_step1_content(2)
 
+    async def test_drama_step2_rejects_step1_duration_out_of_constrained_set(self, tmp_path):
+        """step1 在宽松分辨率下拆好、项目改到 Veo 1080p 后再跑 step2 → 越界时长 fail-loud。
+
+        step2 原样透传 step1 时长，落盘前的静态校验只要求正整数；缺这道校验时越界值会一路存进
+        剧本，直到视频入队才被拒。与 narration / reference_video 的 step1 读回校验对称。
+        """
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+        project["video_backend"] = "gemini-aistudio/veo-3.1-generate-preview"
+        project["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}
+        _write_json(project_path / "project.json", project)
+
+        content = _drama_step1_content()
+        content["scenes"][0]["duration_seconds"] = 4
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+
+    async def test_drama_step2_accepts_step1_duration_within_constrained_set(self, tmp_path):
+        """同一 1080p 项目下 8 秒仍合法——收窄后集合的成员不得被这道校验误拒。"""
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+        project["video_backend"] = "gemini-aistudio/veo-3.1-generate-preview"
+        project["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}
+        _write_json(project_path / "project.json", project)
+
+        generator = ScriptGenerator(project_path)
+        await generator._assert_drama_step1_durations(_drama_step1_content()["scenes"], gen_mode="storyboard")
+
     async def test_drama_step2_build_prompt_renders_step1_content(self, tmp_path):
         """drama step2（视觉层）build_prompt 须把 step1 已定稿内容渲染入 prompt，仅求视觉字段。"""
         project_path = tmp_path / "demo"
@@ -826,15 +863,30 @@ _VEO_CAPS = {
 }
 
 
-def test_resolve_supported_durations_narrows_by_fallback_resolution(tmp_path):
-    """项目未配分辨率时按 provider 兜底档位收窄——Veo 兜底 1080p、只接受 8 秒。
+def test_resolve_supported_durations_narrows_by_saved_resolution(tmp_path):
+    """项目保存了 1080p 时收窄到该档位声明的集合——Veo 1080p 只接受 8 秒。
 
-    这是本票的默认场景：不收窄的话剧本产出 4/6 秒镜头，视频入队时才被 backend 拒。
+    这是验收标准第 1 条的正例：不收窄的话剧本产出 4/6 秒镜头，视频入队时才被 backend 拒。
     """
-    sg = _sg_with_project(tmp_path, {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"})
+    sg = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}},
+        },
+    )
     assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [8]
     # 全集仍可单独取到，供「shot 是 clip 内编排」这类不面向供应商的维度使用
     assert sg._resolve_raw_supported_durations(_VEO_CAPS) == [4, 6, 8]
+
+
+def test_resolve_supported_durations_unset_resolution_not_narrowed(tmp_path):
+    """项目未配分辨率时不收窄：普通视频路径此时省略 resolution 参数，Veo 按默认 720p 接受 4/6/8。
+
+    按 provider 兜底档位收窄会把未配置项目的剧本节奏凭空锁死 8 秒，而供应商本来就接受 4/6 秒。
+    """
+    sg = _sg_with_project(tmp_path, {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"})
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="storyboard") == [4, 6, 8]
 
 
 def test_resolve_supported_durations_respects_project_resolution(tmp_path):

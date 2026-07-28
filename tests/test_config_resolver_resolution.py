@@ -266,18 +266,34 @@ def test_constrain_durations_for_project_uses_project_resolution():
     ) == [4, 6, 8]
 
 
-def test_constrain_durations_for_project_falls_back_to_provider_resolution():
-    """项目未设分辨率时按 provider 兜底档位求值——执行期实际就落在该档位上。
+def test_constrain_durations_for_project_unset_resolution_not_constrained():
+    """项目未设分辨率时不施加分辨率约束——普通视频路径此时不下发 resolution 参数。
 
-    这是 issue 描述的默认场景：用户不做任何配置，Veo 兜底 1080p，候选必须收窄到 8 秒，
-    否则剧本产出 4/6 秒镜头、入队时被 backend 拒。
+    执行期发给供应商的是 ``resolve_resolution()`` 的原始结果，``None`` 即省略该参数，供应商
+    按自己的默认档位处理（Veo 省略时是 720p，4/6/8 全合法）。按 provider 兜底档位收窄会凭空
+    把未配置项目的剧本节奏锁死 8 秒，而供应商本来就接受 4/6 秒。
     """
     assert constrain_durations_for_project(
         {}, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="storyboard"
-    ) == [8]
-    # minimax 兜底 768p，该档位无声明 → 不收窄
+    ) == [4, 6, 8]
     assert constrain_durations_for_project(
         {}, [6, 10], provider_id=_HAILUO[0], model_id=_HAILUO[1], generation_mode="storyboard"
+    ) == [6, 10]
+
+
+def test_constrain_durations_for_project_unset_resolution_reference_mode_uses_fallback():
+    """参考视频模式是唯一按 provider 兜底档位求值的路径——它执行期确实下发非空档位。
+
+    ``reference_video_tasks`` 取 ``resolution_or_fallback``，故未配置分辨率时约束也得按那个
+    档位算，否则 step1 会按全集上限拆 unit、step2 的枚举再判非法。Veo 兜底 1080p → 只剩 8 秒
+    （参考图约束在该模式下同样生效，二者指向同一结果）。
+    """
+    assert constrain_durations_for_project(
+        {}, [4, 6, 8], provider_id=_VEO[0], model_id=_VEO[1], generation_mode="reference_video"
+    ) == [8]
+    # minimax 兜底 768p，该档位无声明 → 分辨率维度不收窄
+    assert constrain_durations_for_project(
+        {}, [6, 10], provider_id=_HAILUO[0], model_id=_HAILUO[1], generation_mode="reference_video"
     ) == [6, 10]
 
 

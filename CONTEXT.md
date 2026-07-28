@@ -137,7 +137,7 @@ _Avoid_: 把 size 当比例或清晰度的同义词——它是二者派生的�
 _Avoid_: `VALID_DURATIONS` / 全局时长白名单（已删除的硬编码 `[4,6,8]`，与 per-model 概念相反）；把它当各家「官方时长能力表」（自定义供应商侧只是启发式预填、需用户 review）。
 
 **时长联动约束（duration_resolution_constraints / reference_image_durations）**：
-在 `supported_durations` 全集之上按上下文收窄的两个 per-model 声明：前者是 `{分辨率: 允许时长}`（如 Veo `{"1080p": [8], "4k": [8]}`），后者是走参考图路径时的允许时长（如 Veo `[8]`）。两条各自独立触发、可同时生效、取交集；与 `supported_durations` 同为 registry 单一真相源。后端唯一收窄入口是 `lib/config/resolver.constrain_durations`：剧本生成的 prompt 与动态 schema、SDK MCP 工具交给 LLM 的候选、执行期未显式指定时长时的取值，都在下传前经它收窄；前端时长选择器（项目级默认与逐镜头 pill）按同一份声明过滤候选。约束求值用的生效分辨率两侧口径不同：后端取「项目覆盖 → provider 兜底档位」（`_resolution_for_constraints`），前端只按项目已保存的分辨率，未保存时不过滤——那张兜底表是后端数据，镜像到前端会引入第二份真相源。已保存的越界时长一律给「警告 + 引导重选」，不静默改写。backend 侧另有模块级兜底常量，只在型号未登记于 registry 时生效（中转站、自定义供应商包装、已下线型号）。
+在 `supported_durations` 全集之上按上下文收窄的两个 per-model 声明：前者是 `{分辨率: 允许时长}`（如 Veo `{"1080p": [8], "4k": [8]}`），后者是走参考图路径时的允许时长（如 Veo `[8]`）。两条各自独立触发、可同时生效、取交集；与 `supported_durations` 同为 registry 单一真相源。后端唯一收窄入口是 `lib/config/resolver.constrain_durations`：剧本生成的 prompt 与动态 schema、SDK MCP 工具交给 LLM 的候选、执行期未显式指定时长时的取值，都在下传前经它收窄；前端时长选择器（项目级默认与逐镜头 pill）按同一份声明过滤候选。约束求值用的生效分辨率（`_resolution_for_constraints`）取项目已保存的档位，前后端同口径；未保存时不施加分辨率约束——普通视频路径此时省略 SDK 的 resolution 参数，供应商按自己的默认档位处理（Veo 是 720p），该档位下全集本就合法。参考视频路径例外：它执行期下发 `resolution_or_fallback`，故未保存时按 provider 兜底档位求值，与实际下发的档位保持同一集合。已保存的越界时长一律给「警告 + 引导重选」，不静默改写。backend 侧另有模块级兜底常量，只在型号未登记于 registry 时生效（中转站、自定义供应商包装、已下线型号）。
 _Avoid_: 把它当通用「条件→约束」DSL 的雏形去扩展——只表达已有官方明文的联动维度；在 backend 里另写一份与 registry 平行的约束表。
 
 **default_duration**：

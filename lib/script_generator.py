@@ -194,7 +194,7 @@ class ScriptGenerator:
         # 透传 utterances / source_text 等非视觉字段。reference_video 路径不入此分支（用 video_units）；
         # content_mode 非 narration（drama 或脏值）走 step2 drama 形状。
         if gen_mode != "reference_video" and self.content_mode != "narration":
-            return await self._generate_drama_step2(episode, output_filename)
+            return await self._generate_drama_step2(episode, output_filename, gen_mode=gen_mode)
 
         caps = await self._fetch_video_capabilities()
 
@@ -258,7 +258,7 @@ class ScriptGenerator:
 
         return await self._generate_and_save(prompt, schema, episode, output_filename, narration_step1=narration_step1)
 
-    async def _generate_drama_step2(self, episode: int, output_filename: str | None) -> Path:
+    async def _generate_drama_step2(self, episode: int, output_filename: str | None, *, gen_mode: str) -> Path:
         """drama 两段式 step2：读 step1 结构化内容 → LLM 仅出视觉层 → 按 scene_id 合并 → 落盘。
 
         非视觉字段（utterances / source_text / characters_in_scene / 时长 / 边界）一律取自 step1 内容、
@@ -269,6 +269,7 @@ class ScriptGenerator:
         content = self._load_drama_step1_content(episode)
         raw_scenes = content.get("scenes")
         content_scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
+        await self._assert_drama_step1_durations(content_scenes, gen_mode=gen_mode)
 
         logger.info("正在生成第 %d 集剧本（drama step2 视觉层）...", episode)
         result = await self.generator.generate(
@@ -293,6 +294,30 @@ class ScriptGenerator:
         self._quality_probe(script_data, episode)
         logger.info("剧本已保存至 %s", output_path)
         return output_path
+
+    async def _assert_drama_step1_durations(self, content_scenes: list, *, gen_mode: str) -> None:
+        """校验 drama step1 已定场景时长在当前能力集合内，越界 fail-loud。
+
+        与 narration（``_load_narration_step1``）、reference_video（``_load_reference_step1``）
+        对称：drama 的时长同样由 step1 定稿、step2 只出视觉层并原样透传，而落盘前的静态校验只
+        要求正整数。缺这道校验时，step1 在某个分辨率下拆好、随后项目切到约束更严的分辨率再跑
+        step2，越界时长会一路存进剧本，直到视频入队才被拒。
+        """
+        supported = self._resolve_supported_durations(await self._fetch_video_capabilities(), gen_mode=gen_mode)
+        allowed = {int(d) for d in supported}
+        bad = sorted(
+            {
+                int(scene["duration_seconds"])
+                for scene in content_scenes
+                if isinstance(scene, dict) and isinstance(scene.get("duration_seconds"), int)
+            }
+            - allowed
+        )
+        if bad:
+            raise ValueError(
+                f"step1 已定场景时长非法（不在 {sorted(allowed)} 内）: {bad}；"
+                f"当前分辨率与型号下这些时长不可用，请重跑 normalize-drama-script 按当前能力规范化"
+            )
 
     def _build_drama_step2_prompt(self, content_scenes: list, episode: int) -> str:
         """构建 drama step2（视觉层）prompt：把 step1 内容渲染为输入，仅求 image_prompt / video_prompt。"""

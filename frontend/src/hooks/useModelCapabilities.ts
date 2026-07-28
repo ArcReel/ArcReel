@@ -70,6 +70,14 @@ export interface ModelCapabilities {
   /** 经联动约束收窄并升序排列的时长候选；未知为 null。 */
   supportedDurations: number[] | null;
   durationConstraints: DurationConstraints;
+  /**
+   * 时长与约束实际查自哪个 `provider/model`；未知为 null。
+   *
+   * 传入的后端可能是裸 provider（`video_backend: "gemini-aistudio"`，服务端会补全默认视频模型）
+   * 或留空跟随全局默认，此时该值取服务端解析结果。凡按「项目为该后端保存了什么」查项目配置的
+   * 调用点都须用它，否则裸 provider 会被当成 model ID 去查 `model_settings`、读不到实际档位。
+   */
+  resolvedVideoBackend: string | null;
   /** 首帧 / 尾帧生效值（含用户覆盖）；尚未查到或查询失败时为 null（未知），不谎报不支持。 */
   firstFrame: boolean | null;
   lastFrame: boolean | null;
@@ -239,6 +247,7 @@ export function useModelCapabilities({
     rawDurations,
     supportedDurations,
     durationConstraints,
+    resolvedVideoBackend: durationSource?.backend ?? null,
     firstFrame: caps ? caps.first_frame : null,
     lastFrame: caps ? caps.last_frame : null,
     loading,

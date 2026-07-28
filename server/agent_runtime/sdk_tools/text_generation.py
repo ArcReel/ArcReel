@@ -474,9 +474,14 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> tuple[
     （用户配置漂移）按 None 处理，避免 prompt 构建自相矛盾。
 
     ``max_duration`` 是 unit 总时长上限，也就是真正发给供应商的那个值，故取**经时长联动约束
-    收窄后**集合的最大值：不收窄的话（Veo 兜底 1080p 只接受 8 秒、海螺 1080p 只接受 6 秒）
-    step1 会按全集上限拆出总时长超标的 unit，step2 的枚举 schema 再把它判非法。单 shot 时长
-    维持全集：shot 是同一段 clip 内的时间编排、不单独发给供应商，受约束的是它们的和。
+    收窄后**集合的最大值：不收窄的话（海螺 1080p 只接受 6 秒）step1 会按全集上限拆出总时长
+    超标的 unit，step2 的枚举 schema 再把它判非法。
+
+    单 shot 时长**不按收窄后集合取成员**——shot 是同一段 clip 内的时间编排、不单独发给供应商，
+    受约束的是它们的和，按成员收窄会让合法编排（如总时长 8 = 4+4）凑不出来。但超过
+    ``max_duration`` 的候选必须剔除：单 shot 时长必然计入 unit 总和，海螺 1080p 下总时长上限为
+    6 而单 shot 枚举仍留 10，会让 prompt 同时要求「默认 10 秒」与「总时长不超过 6 秒」、schema
+    也放行 10，``_derive_and_validate_reference_units`` 再把含该值的 unit 全判非法。
     """
     try:
         caps = await resolve_video_caps(project)
@@ -491,7 +496,7 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> tuple[
     raw_refs = caps.get("max_reference_images")
     max_refs = int(raw_refs) if isinstance(raw_refs, int | float) else None
     low, high = REFERENCE_SHOT_DURATION_RANGE
-    shot_durations = [d for d in durations if low <= d <= high]
+    shot_durations = [d for d in durations if low <= d <= min(high, max_duration)]
     raw_default = caps.get("default_duration")
     default = int(raw_default) if isinstance(raw_default, int | float) else None
     if default is not None and default not in shot_durations:

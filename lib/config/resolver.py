@@ -244,20 +244,33 @@ def constrain_durations(
     return allowed or list(durations)
 
 
-def _resolution_for_constraints(project: dict, provider_id: str | None, model_id: str | None) -> str | None:
-    """约束求值用的生效分辨率：项目覆盖 → provider 兜底档位。
+def _resolution_for_constraints(
+    project: dict, provider_id: str | None, model_id: str | None, *, generation_mode: str | None
+) -> str | None:
+    """约束求值用的生效分辨率：项目已保存的档位，参考视频模式下补 provider 兜底。
 
-    与下传给 SDK 的 resolution 不同源。``None`` 的语义是「调用时不传 resolution 参数」
-    （见 ``docs/adr/0019``），执行期实际落在 provider 兜底档位上（见 ``get_provider_fallback``），
-    故约束求值必须按那个档位算——否则「用户没配分辨率」会被当成「不受约束」，而 Veo 恰好兜底
-    到 1080p、只接受 8 秒。自定义供应商的 DB 默认档位不在此解析：该类供应商不声明联动约束，
-    解析出来也不改变结果，不值得为此把纯函数变成 async。
+    联动约束必须按**执行期真正下发给供应商的那个档位**求值，而两条视频路径下发的值不同源：
+
+    - 普通图生视频路径下发 ``resolve_resolution()`` 的原始结果，``None`` 即「不传 resolution
+      参数」（见 ``docs/adr/0019``），供应商按自己的默认档位处理——Veo 省略时是 720p，4/6/8 全
+      合法。此时按兜底档位求值会凭空收窄：未配置分辨率的 Veo 项目剧本节奏会被锁死 8 秒，而
+      供应商本来就接受 4/6 秒。故未配置时返回 ``None``（不施加分辨率约束）。
+    - 参考视频路径是唯一需要非空档位的调用方，执行期取 ``resolution_or_fallback``（见
+      ``server/services/reference_video_tasks.py``），故这里同样补 ``get_provider_fallback``，
+      让约束与实际下发的档位描述同一件事。
+
+    ``get_provider_fallback`` 本身是费用估算与参考视频路径的内部口径，不是「用户没配分辨率时
+    的生效值」，不可当作后者施加到普通路径上。自定义供应商的 DB 默认档位不在此解析：该类
+    供应商不声明联动约束，解析出来也不改变结果，不值得为此把纯函数变成 async。
 
     返回值只用于约束求值，不得作为 SDK 的 resolution 参数下传。
     """
     if not provider_id or not model_id:
         return None
-    return _resolution_from_project(project, provider_id, model_id) or get_provider_fallback(provider_id)
+    saved = _resolution_from_project(project, provider_id, model_id)
+    if saved or generation_mode != "reference_video":
+        return saved
+    return get_provider_fallback(provider_id)
 
 
 def constrain_durations_for_project(
@@ -273,7 +286,7 @@ def constrain_durations_for_project(
         provider_id,
         model_id,
         durations,
-        resolution=_resolution_for_constraints(project, provider_id, model_id),
+        resolution=_resolution_for_constraints(project, provider_id, model_id, generation_mode=generation_mode),
         uses_reference_images=generation_mode == "reference_video",
     )
 

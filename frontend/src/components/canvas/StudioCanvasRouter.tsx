@@ -141,16 +141,22 @@ export function StudioCanvasRouter() {
   // 收窄放在下方按集的 Route 渲染里：generation_mode 可被单集覆盖，「是否走参考图路径」因此
   // 是按集的值，而能力查询只在组件顶层做一次。此处只取不随上下文变化的两项。
   const effectiveVideoBackend = currentProjectData?.video_backend || globalVideoBackend;
-  const { rawDurations, durationConstraints } = useModelCapabilities({
+  const { rawDurations, durationConstraints, resolvedVideoBackend } = useModelCapabilities({
     projectName: currentProjectName,
     videoBackend: effectiveVideoBackend,
     providers,
     customProviders,
     enabled: capabilitiesEnabled,
   });
-  // 用户未选分辨率时为 null：执行期会落到 provider 兜底档位，但那张兜底表是后端数据、
-  // 前端不镜像，故不替用户假定档位（不收窄，与项目设置页的时长选择器同口径）。
-  const videoResolution = lookupProjectVideoResolution(currentProjectData, effectiveVideoBackend);
+  // 分辨率按能力管线解析出的 `provider/model` 查，而非传入的原始值：后者可能是裸 provider
+  // （服务端补全默认视频模型）或留空跟随全局默认，直接拿去查 `model_settings` 会把 provider ID
+  // 当成 model ID、读不到用户实际保存的档位，于是该收窄的候选照旧呈现。
+  // 用户未选分辨率时为 null → 不收窄：执行期省略 resolution 参数、供应商按自己的默认档位处理，
+  // 该档位下全集本就合法。与后端约束求值、项目设置页的时长选择器同口径。
+  const videoResolution = lookupProjectVideoResolution(
+    currentProjectData,
+    resolvedVideoBackend || effectiveVideoBackend,
+  );
 
   // 从任务队列派生 loading 状态（替代本地 state）：活跃 + 最新行胜出两条不变量下沉到 store selector
   const generatingCharacterNames = useActiveResourceIds("character", currentProjectName);

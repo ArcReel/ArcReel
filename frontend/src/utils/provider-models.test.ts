@@ -157,8 +157,8 @@ describe("lookupProjectVideoResolution", () => {
     ).toBe("720p");
   });
 
-  // null 表示用户未选档位：执行期会落到 provider 兜底档位，但那张表是后端数据、前端不镜像，
-  // 故不替用户假定档位（返回 null → 不收窄）。
+  // null 表示用户未选档位：执行期省略 resolution 参数、供应商按自己的默认档位处理，
+  // 该档位下全集本就合法，故不替用户假定档位（返回 null → 不收窄）。
   it("未配置 / 缺项目 / 空后端一律 null", () => {
     expect(lookupProjectVideoResolution({}, BACKEND)).toBeNull();
     expect(lookupProjectVideoResolution({ model_settings: {} }, BACKEND)).toBeNull();
@@ -166,6 +166,20 @@ describe("lookupProjectVideoResolution", () => {
     expect(lookupProjectVideoResolution({ model_settings: { [BACKEND]: { resolution: "4K" } } }, "")).toBeNull();
     expect(
       lookupProjectVideoResolution({ model_settings: { [BACKEND]: { resolution: null } } }, BACKEND),
+    ).toBeNull();
+  });
+
+  // 新键存在且为 null 是「用户在新设置里清空了档位」，不是「没配过」——旧项目升级后残留的
+  // legacy 值不该把它顶回去，否则前端会按用户已经取消的档位收窄时长选项。
+  it("新键显式 null 时不回退 legacy", () => {
+    expect(
+      lookupProjectVideoResolution(
+        {
+          model_settings: { [BACKEND]: { resolution: null } },
+          video_model_settings: { "veo-3.1-generate-preview": { resolution: "1080p" } },
+        },
+        BACKEND,
+      ),
     ).toBeNull();
   });
 });
