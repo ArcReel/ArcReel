@@ -39,7 +39,13 @@ def _render_warnings(warnings: Any, translate: Callable[..., str]) -> list[str]:
         if not isinstance(key, str):
             continue
         params = entry.get("params")
-        texts.append(translate(key, **cast(dict[str, Any], params)) if isinstance(params, dict) else translate(key))
+        try:
+            text = translate(key, **cast(dict[str, Any], params)) if isinstance(params, dict) else translate(key)
+        except TypeError:
+            # params 里混入了保留字（如 "locale"）等畸形但合法的 JSON，翻译调用本身失败；
+            # 跳过该条而非让整个任务列表 500，与本函数其余分支的容错口径一致。
+            continue
+        texts.append(text)
     return texts
 
 

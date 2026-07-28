@@ -2,9 +2,13 @@
 
 from typing import Any
 
+import pytest
+
 from lib.i18n import _ as translate_message
 from lib.task_failure import encode_failure
 from server.routers.tasks import _localize_task
+
+pytestmark = pytest.mark.unit
 
 
 def _translator(locale: str):
@@ -110,6 +114,7 @@ class TestWarningPassthroughAndTolerance:
                     {"params": {"x": 1}},
                     {"key": 42},
                     {"key": "ref_sora_single_ref", "params": "not a dict"},
+                    {"key": "ref_sora_single_ref", "params": {"locale": "en"}},
                 ]
             }
         )
