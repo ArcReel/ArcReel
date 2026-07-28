@@ -99,6 +99,8 @@ export default {
   duration_label: "默认时长",
   duration_auto: "auto",
   duration_unsupported_notice: "已保存的时长 {{value}} 秒不再受当前模型支持，请重新选择。",
+  duration_unsupported_resolution_notice: "已保存的时长 {{value}} 秒在当前分辨率下不可用，请重新选择。",
+  duration_unsupported_reference_notice: "已保存的时长 {{value}} 秒在参考生视频模式下不可用，请重新选择。",
   duration_reset_auto: "回退到 auto",
   resolution_label: "分辨率",
   resolution_default_placeholder: "默认（不传）",

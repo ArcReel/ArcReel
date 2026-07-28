@@ -1,9 +1,9 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
-import { useTasksSSE } from "@/hooks/useTasksSSE";
+import { useTaskRefresh } from "@/hooks/useTaskRefresh";
 import { useTasksStore } from "@/stores/tasks-store";
-import type { TaskItem } from "@/types";
+import type { TaskItem, TaskStats } from "@/types";
 
 function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
   return {
@@ -30,7 +30,7 @@ function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
   };
 }
 
-describe("useTasksSSE (polling)", () => {
+describe("useTaskRefresh", () => {
   beforeEach(() => {
     useTasksStore.setState(useTasksStore.getInitialState(), true);
     vi.useFakeTimers();
@@ -41,7 +41,16 @@ describe("useTasksSSE (polling)", () => {
   });
 
   it("polls on mount, updates store, and cleans up on unmount", async () => {
-    const stats = { queued: 1, running: 0, succeeded: 0, failed: 0, total: 1 };
+    // 有一个 queued 任务在途 → 轮询留在高频档。
+    const stats = {
+      queued: 1,
+      running: 0,
+      cancelling: 0,
+      succeeded: 0,
+      failed: 0,
+      cancelled: 0,
+      total: 1,
+    };
     const listSpy = vi.spyOn(API, "listTasks").mockResolvedValue({
       items: [makeTask()],
       total: 1,
@@ -52,7 +61,7 @@ describe("useTasksSSE (polling)", () => {
       { stats } as any,
     );
 
-    const { unmount } = renderHook(() => useTasksSSE("demo"));
+    const { unmount } = renderHook(() => useTaskRefresh("demo"));
 
     // Flush initial poll (micro-task only, no timer advance)
     await act(async () => {});
@@ -77,7 +86,7 @@ describe("useTasksSSE (polling)", () => {
     const listSpy = vi.spyOn(API, "listTasks").mockRejectedValueOnce(new Error("network"));
     vi.spyOn(API, "getTaskStats").mockRejectedValueOnce(new Error("network"));
 
-    renderHook(() => useTasksSSE("demo"));
+    renderHook(() => useTaskRefresh("demo"));
 
     await act(async () => {
       await vi.runOnlyPendingTimersAsync();
@@ -109,7 +118,7 @@ describe("useTasksSSE (polling)", () => {
       stats: { queued: 1, running: 1, succeeded: 0, failed: 0, total: 2 },
     } as any);
 
-    renderHook(() => useTasksSSE("demo"));
+    renderHook(() => useTaskRefresh("demo"));
     await act(async () => {});
 
     const { tasks, stats } = useTasksStore.getState();
@@ -132,7 +141,7 @@ describe("useTasksSSE (polling)", () => {
       stats: { queued: 3, running: 2, succeeded: 10, failed: 1, total: 16 },
     } as any);
 
-    renderHook(() => useTasksSSE("demo"));
+    renderHook(() => useTaskRefresh("demo"));
     await act(async () => {});
 
     const { stats } = useTasksStore.getState();
@@ -150,7 +159,7 @@ describe("useTasksSSE (polling)", () => {
       stats: { queued: 1, running: 1, succeeded: 0, failed: 0, total: 1 },
     } as any);
 
-    const { rerender } = renderHook(({ enabled }) => useTasksSSE("real-project", enabled), {
+    const { rerender } = renderHook(({ enabled }) => useTaskRefresh("real-project", enabled), {
       initialProps: { enabled: true },
     });
     await act(async () => {});
@@ -171,5 +180,85 @@ describe("useTasksSSE (polling)", () => {
       total: 0,
     });
     expect(useTasksStore.getState().connected).toBe(false);
+  });
+
+  describe("按有无在途任务自适应轮询频率", () => {
+    function mockOk(stats: Partial<TaskStats> = {}) {
+      const listSpy = vi.spyOn(API, "listTasks").mockResolvedValue({
+        items: [],
+        total: 0,
+        page: 1,
+        page_size: 200,
+      });
+      vi.spyOn(API, "getTaskStats").mockResolvedValue({
+        stats: {
+          queued: 0,
+          running: 0,
+          cancelling: 0,
+          succeeded: 0,
+          failed: 0,
+          cancelled: 0,
+          total: 0,
+          ...stats,
+        },
+      } as never);
+      return listSpy;
+    }
+
+    it("无任务在途时退到 30 秒空闲对账，不再每 3 秒轮询", async () => {
+      const listSpy = mockOk();
+
+      renderHook(() => useTaskRefresh("demo"));
+      await act(async () => {});
+      expect(listSpy).toHaveBeenCalledTimes(1);
+
+      // 没有任务在途，状态本就不会变：3 秒间隔不再触发轮询。
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(listSpy).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(27000);
+      });
+      expect(listSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("有任务在途时保持 3 秒轮询，queued→running 一类中间态不被空闲退避拖慢", async () => {
+      // 回归：中间态没有终态事件推送，只能靠轮询看见；若此时退到空闲档，任务
+      // 「开始执行」会比只有轮询的旧实现更晚出现。
+      const listSpy = mockOk({ queued: 1, total: 1 });
+
+      renderHook(() => useTaskRefresh("demo"));
+      await act(async () => {});
+      // 首帧 stats 落库后判据转忙碌，effect 重跑再对账一次。
+      const busyBaseline = listSpy.mock.calls.length;
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(listSpy.mock.calls.length).toBeGreaterThan(busyBaseline);
+    });
+
+    it("乐观占用标记把轮询拉回忙碌档并立即对账一次", async () => {
+      // 入队成功到该任务出现在 stats 之间的空窗：此时若停在空闲档，新任务要等
+      // 一整个空闲间隔才在界面上出现。
+      const listSpy = mockOk();
+
+      renderHook(() => useTaskRefresh("demo"));
+      await act(async () => {});
+      expect(listSpy).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        useTasksStore.getState().beginOptimisticActive("demo", "segment", "segment-1", "storyboard");
+      });
+      // 不等 30 秒空闲间隔，当场取一次状态。
+      expect(listSpy).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(listSpy).toHaveBeenCalledTimes(3);
+    });
   });
 });

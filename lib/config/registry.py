@@ -30,6 +30,10 @@ class ModelInfo:
     default: bool = False
     supported_durations: list[int] = field(default_factory=list)
     duration_resolution_constraints: dict[str, list[int]] = field(default_factory=dict)
+    # 使用参考图（参考生视频）时允许的时长；空 = 该模型的参考图路径不额外约束时长。
+    # 与 duration_resolution_constraints 同构的最窄表达：目前只有 Veo 一家把「带参考图」
+    # 单独收窄到 8 秒，故按条件各立一字段，不引入通用「条件→约束」语言。
+    reference_image_durations: list[int] = field(default_factory=list)
     resolutions: list[str] = field(default_factory=list)
     # 参考生视频单镜头参考图上限；0 = 不适用（图像/文本模型，或视频模型未声明）。
     max_reference_images: int = 0
@@ -142,6 +146,10 @@ def _veo_video_pricing(model_id: str, rates: dict[tuple[str, bool | None], float
     )
 
 
+# 含音价取自 AI Studio 定价页（Veo 3.1 段，仅列 "video with audio price"），与 Vertex
+# 定价页的 "Video + Audio generation" 档逐项一致；无音价只见于 Vertex 定价页的
+# "Video generation" 档（AI Studio 不区分，其请求也不传 generate_audio）。
+# Lite 两页均无 4k 档，故不设。
 _VEO_STANDARD_RATES: dict[tuple[str, bool | None], float] = {
     ("720p", True): 0.40,
     ("720p", False): 0.20,
@@ -151,18 +159,18 @@ _VEO_STANDARD_RATES: dict[tuple[str, bool | None], float] = {
     ("4k", False): 0.40,
 }
 _VEO_FAST_RATES: dict[tuple[str, bool | None], float] = {
-    ("720p", True): 0.15,
-    ("720p", False): 0.10,
-    ("1080p", True): 0.15,
+    ("720p", True): 0.10,
+    ("720p", False): 0.08,
+    ("1080p", True): 0.12,
     ("1080p", False): 0.10,
-    ("4k", True): 0.35,
-    ("4k", False): 0.30,
+    ("4k", True): 0.30,
+    ("4k", False): 0.25,
 }
 _VEO_LITE_RATES: dict[tuple[str, bool | None], float] = {
     ("720p", True): 0.05,
-    ("720p", False): 0.05,
+    ("720p", False): 0.03,
     ("1080p", True): 0.08,
-    ("1080p", False): 0.08,
+    ("1080p", False): 0.05,
 }
 
 
@@ -379,13 +387,18 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 ),
             ),
             # --- video ---
+            # Veo 的分辨率↔时长、参考图↔时长约束按 Gemini API 文档（docs/google-genai-docs/veo.md
+            # 参数表：durationSeconds 在 reference images 与 1080p/4k 下必须为 8）逐型号声明。
+            # Lite 未见于该参数表，其 4k 不支持取自 AI Studio 定价页明文；两条时长约束沿用同代
+            # Veo 3.1 的行为，与 backend 的执行期拒绝保持一致。
             "veo-3.1-generate-preview": ModelInfo(
                 display_name="Veo 3.1",
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video", "negative_prompt", "video_extend"],
                 supported_durations=[4, 6, 8],
-                duration_resolution_constraints={"1080p": [8]},
-                resolutions=["720p", "1080p"],
+                duration_resolution_constraints={"1080p": [8], "4k": [8]},
+                reference_image_durations=[8],
+                resolutions=["720p", "1080p", "4k"],
                 max_reference_images=3,
                 pricing=_veo_video_pricing("veo-3.1-generate-preview", _VEO_STANDARD_RATES),
             ),
@@ -394,8 +407,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video", "negative_prompt", "video_extend"],
                 supported_durations=[4, 6, 8],
-                duration_resolution_constraints={"1080p": [8]},
-                resolutions=["720p", "1080p"],
+                duration_resolution_constraints={"1080p": [8], "4k": [8]},
+                reference_image_durations=[8],
+                resolutions=["720p", "1080p", "4k"],
                 max_reference_images=3,
                 pricing=_veo_video_pricing("veo-3.1-fast-generate-preview", _VEO_FAST_RATES),
             ),
@@ -406,6 +420,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 default=True,
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8]},
+                reference_image_durations=[8],
                 resolutions=["720p", "1080p"],
                 max_reference_images=3,
                 pricing=_veo_video_pricing("veo-3.1-lite-generate-preview", _VEO_LITE_RATES),
@@ -459,12 +474,20 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 ),
             ),
             # --- video ---
+            # 分辨率取自 Vertex 各型号文档页的 "Supported output resolutions"——GA 的 001 型号里
+            # 只有 standard 列出 4K，fast 仍是 720p/1080p（与 AI Studio 的 preview 型号不同，
+            # 故两侧声明不对称）。参考图↔时长：standard 页明文「reference image to video only
+            # supports 8 seconds」；fast 页未提，按 Gemini API 文档中同代 Fast 的同一约束声明。
+            # 分辨率↔时长约束 Vertex 页整体未提，同样按 Gemini API 文档的同代声明，与 backend
+            # 的执行期拒绝保持一致（宁可 UI 先挡，也不放行到必然失败的调用）。
             "veo-3.1-generate-001": ModelInfo(
                 display_name="Veo 3.1",
                 media_type="video",
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "negative_prompt", "video_extend"],
                 supported_durations=[4, 6, 8],
-                resolutions=["720p", "1080p"],
+                duration_resolution_constraints={"1080p": [8], "4k": [8]},
+                reference_image_durations=[8],
+                resolutions=["720p", "1080p", "4k"],
                 max_reference_images=3,
                 pricing=_veo_video_pricing("veo-3.1-generate-001", _VEO_STANDARD_RATES),
             ),
@@ -474,6 +497,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "negative_prompt", "video_extend"],
                 default=True,
                 supported_durations=[4, 6, 8],
+                duration_resolution_constraints={"1080p": [8]},
+                reference_image_durations=[8],
                 resolutions=["720p", "1080p"],
                 max_reference_images=3,
                 pricing=_veo_video_pricing("veo-3.1-fast-generate-001", _VEO_FAST_RATES),
@@ -1292,6 +1317,18 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         default_concurrency={"video": 1},
     ),
 }
+
+
+def model_info_for(provider_id: str, model_id: str) -> ModelInfo | None:
+    """返回该 (provider, model) 的 ``ModelInfo``；provider 或 model 未登记时 None。
+
+    供 backend 读取本模型的能力/约束声明，把 registry 作为约束的单一真相源。未登记的
+    路径（自定义供应商包装、中转站、下线型号）返回 None，由调用方自行兜底。
+    """
+    meta = PROVIDER_REGISTRY.get(provider_id)
+    if meta is None:
+        return None
+    return meta.models.get(model_id)
 
 
 def default_model_for_provider(provider_id: str, media_type: str) -> str | None:

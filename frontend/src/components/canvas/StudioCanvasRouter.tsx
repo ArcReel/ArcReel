@@ -88,7 +88,7 @@ export function StudioCanvasRouter() {
   const tRef = useRef(t);
   // eslint-disable-next-line react-hooks/refs -- tRef 是稳定 event-handler ref 模式，用于在回调中获取最新 t 而不触发无限 useCallback 重建
   tRef.current = t;
-  const { currentProjectData, currentProjectName, currentScripts } =
+  const { currentProjectData, currentProjectName, currentScripts, projectDetailLoading } =
     useProjectsStore();
   // 演示态：资产画布仍走 readOnly 透传，工作台时间线的只读则由组件自己直读同一判定。
   // useDemoWorkbench() 已把路由参数与 store 的判定滞后收口在单一来源，此处直接消费。
@@ -202,13 +202,16 @@ export function StudioCanvasRouter() {
 
   // ---- Timeline action callbacks ----
   // These receive scriptFile from TimelineCanvas so they always use the active episode's script.
+  // 返回是否写入成功：本函数内部吞掉异常并转 toast，调用方（如 AdReferenceVideoCanvas
+  // 的镜头级编辑）靠返回值而非"是否抛出"判断能否清空本地草稿——不依赖此契约的调用方
+  // （TimelineCanvas / GridImageToVideoCanvas）按 void 用即可，多出的返回值不影响它们。
   const handleUpdatePrompt = useCallback(async (
     segmentId: string,
     fieldOrPatch: string | Record<string, unknown>,
     value?: unknown,
     scriptFile?: string,
-  ) => {
-    if (!currentProjectName) return;
+  ): Promise<boolean> => {
+    if (!currentProjectName) return false;
     const mode = currentProjectData?.content_mode ?? "narration";
     const patch =
       typeof fieldOrPatch === "string"
@@ -222,11 +225,25 @@ export function StudioCanvasRouter() {
       } else {
         await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, ...patch });
       }
-      await refreshProject();
+      // 仅在本地 store 已同步成功时报告成功：PATCH 已落库但刷新失败/取消时 store
+      // 仍是旧剧本，此时报告成功会让调用方清空草稿却回显旧值——与 handleMoveShot 同一契约。
+      return await refreshProject();
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("update_prompt_failed", { message: errMsg(err) }), "error");
+      return false;
     }
   }, [currentProjectName, currentProjectData, refreshProject]);
+
+  // 不能用 voidPromise：它把返回值转 void 的同时也让包装函数立即 resolve，而
+  // ShotDetail.handleSave / handleRefsSave 靠 await 这个回调维持保存中状态——真正
+  // 要丢弃的只是布尔返回值，等待本身必须原样保留。TimelineCanvas 与
+  // GridImageToVideoCanvas 均不消费返回值，共用同一适配回调。
+  const awaitedUpdatePrompt = useCallback(
+    async (...args: Parameters<typeof handleUpdatePrompt>) => {
+      await handleUpdatePrompt(...args);
+    },
+    [handleUpdatePrompt],
+  );
 
   // ad 镜头重排：把目标镜头向前/向后移动一位，提交整列全排列。
   // 返回是否移动成功，供编辑器把选中态跟随到镜头的新位置。
@@ -545,7 +562,10 @@ export function StudioCanvasRouter() {
     void handleGenerateProduct(...args).catch(console.error);
   }, [handleGenerateProduct]);
 
-  if (!currentProjectName) {
+  // `currentProjectName` 在详情到达前就已落地（见 router.tsx 首屏加载的注释），
+  // 仅查它会在深链（/characters 等）直接打开或详情较慢时把空集合渲染成可交互的
+  // 「空项目」页面；`projectDetailLoading` 才是详情是否已到达的信号。
+  if (!currentProjectName || projectDetailLoading) {
     return (
       <div className="flex h-full items-center justify-center text-gray-500">
         {t("loading_placeholder")}
@@ -694,6 +714,10 @@ export function StudioCanvasRouter() {
                     canEditTitle={Boolean(episode?.script_file)}
                     shots={script?.content_mode === "ad" ? script.shots : []}
                     hasScript={Boolean(script)}
+                    scriptFile={scriptFile ?? undefined}
+                    // 其余画布的演示只读靠组件内部 useDemoWorkbench() 自行收口；本画布未读取
+                    // demoMode（未提供 onUpdatePrompt 时自行降级为纯文本），故在调用点显式门控。
+                    onUpdatePrompt={demoMode ? undefined : handleUpdatePrompt}
                   />
                 ) : mode === "reference_video" ? (
                   <ReferenceVideoCanvas
@@ -722,7 +746,7 @@ export function StudioCanvasRouter() {
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
-                    onUpdatePrompt={handleUpdatePrompt}
+                    onUpdatePrompt={awaitedUpdatePrompt}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={voidPromise(handleGenerateVideo)}
                     onGenerateNarration={voidPromise(handleGenerateNarration)}
@@ -748,7 +772,7 @@ export function StudioCanvasRouter() {
                     scriptFile={scriptFile ?? undefined}
                     projectData={currentProjectData}
                     durationOptions={durationOptions}
-                    onUpdatePrompt={handleUpdatePrompt}
+                    onUpdatePrompt={awaitedUpdatePrompt}
                     onMoveShot={isAd ? handleMoveShot : undefined}
                     onGenerateStoryboard={voidPromise(handleGenerateStoryboard)}
                     onGenerateVideo={voidPromise(handleGenerateVideo)}

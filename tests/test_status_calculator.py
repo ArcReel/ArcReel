@@ -80,6 +80,23 @@ class TestStatusCalculator:
         assert completed["storyboards"] == {"total": 1, "completed": 0}
         assert completed["videos"] == {"total": 1, "completed": 1}
 
+    def test_calculate_episode_stats_tolerates_corrupt_generated_assets(self, tmp_path):
+        """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，不抛 AttributeError。"""
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+
+        stats = calc.calculate_episode_stats(
+            "demo",
+            {
+                "content_mode": "narration",
+                "segments": [
+                    {"generated_assets": "corrupt", "duration_seconds": 4},
+                    {"generated_assets": {"storyboard_image": "a.png"}, "duration_seconds": 4},
+                ],
+            },
+        )
+        assert stats["storyboards"] == {"total": 2, "completed": 1}
+        assert stats["videos"] == {"total": 2, "completed": 0}
+
     def test_load_episode_script(self, tmp_path):
         project_root = tmp_path / "projects"
         project_path = project_root / "demo"
@@ -312,7 +329,7 @@ class TestStatusCalculator:
     def test_stale_ledger_episode_regresses_to_pending_preprocess(self, tmp_path):
         """账本标 stale 的集：读时状态回退为待预处理（script_status=none），已有产物不删除。
 
-        重排使该集原文范围失效，剧本/媒体虽存在但已过期；读时回退驱动前端
+        重新规划使该集原文范围失效，剧本/媒体虽存在但已过期；读时回退驱动前端
         与 agent 走重做流程，旧产物沿覆盖/版本机制保留可回滚。
         """
         project_root = tmp_path / "projects"

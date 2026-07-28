@@ -200,6 +200,7 @@ export default {
   'overview_gen_desc': '自动生成项目概述，然后您可以开始创建剧本和分镜',
   'project_overview_regenerated': '项目概述已重新生成',
   'project_sync_failed': '同步项目变更失败: {{message}}',
+  'project_load_failed': '加载项目失败: {{message}}',
   'synopsis': '故事梗概',
   'genre': '题材',
   'theme': '主题',
@@ -1289,7 +1290,6 @@ export default {
   'tool_name_split_narration_segments': '拆分说书片段',
   'tool_name_get_video_capabilities': '查询视频模型能力',
   'tool_name_plan_episodes': '分集规划',
-  'tool_name_replan_episodes': '分集重排',
   'tool_name_reset_episode_planning': '重置分集规划',
   'tool_name_patch_episode_script': '编辑分镜字段',
   'tool_name_patch_episode_meta': '编辑分集标题',
@@ -1419,6 +1419,9 @@ export default {
   'ad_ref_preview_video_aria': '分组 {{id}} 的成片',
   'ad_ref_busy': '该分组正在生成中，请稍后再试',
   'ad_ref_rederive_busy': '有分组正在生成中，暂不可派生',
+  'ad_ref_shot_duration_label': '{{shot_id}} 时长',
+  'ad_ref_shot_voiceover_label': '{{shot_id}} 口播文案',
+  'ad_ref_edit_regenerate_hint': '该分组已生成，编辑镜头时长后需重新生成才能生效；口播文案不参与画面生成，用于字幕/配音导出',
   'workspace_nav_products': '产品',
 
   // ---- 项目大厅 · Darkroom ----

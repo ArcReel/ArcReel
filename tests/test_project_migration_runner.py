@@ -78,8 +78,8 @@ def test_real_v1_to_v2_normalizes_via_runner(tmp_projects: Path):
     assert "image_backend" not in data
 
 
-def test_real_v2_to_v3_backfills_ledger_via_runner(tmp_projects: Path):
-    """用真实 MIGRATORS：v2 项目经 runner 回填分集账本并产生版本化备份。"""
+def test_real_v2_to_v3_stamps_version_via_runner(tmp_projects: Path):
+    """用真实 MIGRATORS：v2 项目经 runner 盖章升级并产生版本化备份，episodes 内容不变。"""
     novel = "第一集的正文内容。第二集还没拆出来的余文。"
     p = _write_project(
         tmp_projects,
@@ -99,11 +99,11 @@ def test_real_v2_to_v3_backfills_ledger_via_runner(tmp_projects: Path):
     assert "p1" in summary.migrated
     data = json.loads((p / "project.json").read_text(encoding="utf-8"))
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
-    # 回填语义细节由 test_project_migration_v2_v3 / test_episode_ledger 专测，
-    # 此处只验证迁移器经 MIGRATORS 注册生效与 runner 外围行为
-    assert data["episodes"][0]["ledger_status"] == "planned"
-    assert data["planning_cursor"] is not None
-    assert (source / "_remaining.txt").exists()  # 余文保留，旧拆分流程不受影响
+    # 盖章语义细节由 test_project_migration_v2_v3 专测，此处只验证迁移器经 MIGRATORS
+    # 注册生效与 runner 外围行为
+    assert data["episodes"] == [{"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json"}]
+    assert "planning_cursor" not in data
+    assert (source / "_remaining.txt").exists()  # 迁移不动 source/ 下任何文件
     assert list(p.glob("project.json.bak.v2-*"))  # runner 自动版本化备份
 
 

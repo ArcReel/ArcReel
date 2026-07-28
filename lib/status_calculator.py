@@ -17,6 +17,7 @@ from lib.path_safety import safe_exists
 from lib.project_manager import effective_mode
 from lib.script_models import ad_script_total_duration, script_duration_total
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
+from lib.storyboard_sequence import get_generated_assets
 
 logger = logging.getLogger(__name__)
 
@@ -116,8 +117,8 @@ class StatusCalculator:
         if kind == "shots" and generation_mode == "reference_video":
             return self._calculate_ad_reference_stats(script, items)
 
-        storyboard_done = sum(1 for i in items if i.get("generated_assets", {}).get("storyboard_image"))
-        video_done = sum(1 for i in items if i.get("generated_assets", {}).get("video_clip"))
+        storyboard_done = sum(1 for i in items if get_generated_assets(i).get("storyboard_image"))
+        video_done = sum(1 for i in items if get_generated_assets(i).get("video_clip"))
         total = len(items)
 
         if video_done == total and total > 0:
@@ -188,7 +189,7 @@ class StatusCalculator:
     def _calculate_reference_video_stats(units: list[dict]) -> dict:
         """Reference-video scripts are scored by video_units[].generated_assets.video_clip."""
         total = len(units)
-        video_done = sum(1 for u in units if u.get("generated_assets", {}).get("video_clip"))
+        video_done = sum(1 for u in units if get_generated_assets(u).get("video_clip"))
 
         if total == 0:
             status = "draft"
@@ -338,7 +339,7 @@ class StatusCalculator:
         content_mode = project.get("content_mode", "narration")
         episodes_stats = []
         for ep in project.get("episodes", []):
-            # 账本标 stale 的集（重排后原文范围已失效）：读时状态回退为待预处理，
+            # 账本标 stale 的集（重新规划后原文范围已失效）：读时状态回退为待预处理，
             # 驱动重做流程；剧本/媒体产物不删除，重做沿现有覆盖/版本机制替换。
             if ep.get("ledger_status") == "stale":
                 episodes_stats.append(self._make_fallback_ep_stats("none"))

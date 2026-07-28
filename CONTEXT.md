@@ -136,6 +136,10 @@ _Avoid_: 把 size 当比例或清晰度的同义词——它是二者派生的�
 某视频模型允许的离散时长集合（秒），是该模型时长的单一真相源；连续区间也会按整数全部展开为离散集（第一方模型恒为非空）。剧本 prompt、前端选择器、视频请求体三处同源消费（见 `docs/adr/0018`）。
 _Avoid_: `VALID_DURATIONS` / 全局时长白名单（已删除的硬编码 `[4,6,8]`，与 per-model 概念相反）；把它当各家「官方时长能力表」（自定义供应商侧只是启发式预填、需用户 review）。
 
+**时长联动约束（duration_resolution_constraints / reference_image_durations）**：
+在 `supported_durations` 全集之上按上下文收窄的两个 per-model 声明：前者是 `{分辨率: 允许时长}`（如 Veo `{"1080p": [8], "4k": [8]}`），后者是走参考图路径时的允许时长（如 Veo `[8]`）。两条各自独立触发、可同时生效、取交集；与 `supported_durations` 同为 registry 单一真相源，前端时长选择器与 backend 入口校验同源消费。backend 侧另有模块级兜底常量，只在型号未登记于 registry 时生效（中转站、自定义供应商包装、已下线型号）。
+_Avoid_: 把它当通用「条件→约束」DSL 的雏形去扩展——只表达已有官方明文的联动维度；在 backend 里另写一份与 registry 平行的约束表。
+
 **default_duration**：
 项目级偏好时长（int）；为 null 或缺失时是一个有语义的「auto」档——由 AI 按内容节奏在 supported_durations 内自行决定，**不是**「未设置 / 待填」。
 _Avoid_: 把 null 读成「未配置」而擅自补默认值；与分镜级逐个时长选择混为一谈。
@@ -246,24 +250,32 @@ project.json 顶层字段，取值 `novel`（小说，默认——现状行为�
 _Avoid_: 用「剧本」同时指上传源与生成产物——上传源是「剧本源（screenplay）」、产物是「剧本（script JSON）」，两个概念；把 screenplay 当新 content_mode；对 screenplay 仍跑「改编式 step1」或「重规划式 plan_episodes」——那正是要消除的二次改写（台词丢失、作者分集被篡改）；把「逐字」理解为连排版/舞台提示/群演都原样照搬——逐字只约束「说出来的话」，不约束「看见的制作」与「纸面排版」。
 
 **分集账本（episode ledger）**：
-project.json `episodes[]` 即分集单一真相源：条目在 episode/title/script_file 之外扩展 `source_range`（原文素材范围）、`hook`（集尾钩子）、`outline`（drama 分集大纲）与 `ledger_status`（消费状态）；物理 `source/episode_N.txt` 是派生物（见 `docs/adr/0031`）。账本字段全部可缺失——缺失即旧式条目，由可重跑的回填（`lib/episode_ledger.backfill_episode_ledger`）补账。
+project.json `episodes[]` 即分集单一真相源：条目在 episode/title/script_file 之外扩展 `source_range`（原文素材范围）、`hook`（集尾钩子）、`outline`（drama 分集大纲）与 `ledger_status`（消费状态）；物理 `source/episode_N.txt` 是派生物（见 `docs/adr/0031`）。账本字段全部可缺失——`source_range` 缺失即该集没有位置记录（旧拆分流程写入、或手动预拆分上传），消费链路继续使用现有物理文件，但规划无法续接：plan 一律拒绝并指引全量重置；部分重置只在这类条目落在保留段时拒绝，落在清除范围内的随重置正常清除。
 _Avoid_: 以物理集文件的存在性推断分集状态或集数（Glob 推断是被替代的旧模式）；把账本字段与 StatusCalculator 读时注入的统计字段混为一类——账本持久化在 project.json，统计字段不落盘。
 
 **ledger_status（消费状态）**：
-账本条目的四态生命周期：planned（已规划未消费）/ consumed（已有下游产物：step1 中间文件、剧本或媒体）/ stale（重排后失效，标记而非删除）/ unanchored（回填无法锚定：内容对不上源文，或集文件缺失/不可读；锁定不参与重排，下游消费不受影响——有物理集文件时该文件即其最终记录）。
-_Avoid_: 与读时注入的 `status`（draft/in_production/completed）混为一谈——同一条目上两键并存、语义不同；把 unanchored 当失败（它是诚实降级，精确子串匹配不做模糊锚定）。
+账本条目的三态生命周期：planned（已规划未消费）/ consumed（已有下游产物：step1 中间文件、剧本或媒体）/ stale（该集号重新规划前已有下游产物，标记而非删除）。状态是咨询性的，位置真相在 `source_range`：能否重造派生文件、能否续接规划一律看它有没有，不看状态。
+_Avoid_: 与读时注入的 `status`（draft/in_production/completed）混为一谈——同一条目上两键并存、语义不同；拿 ledger_status 判断该集有没有原文范围。
 
 **归一化坐标系（normalized source coordinates）**：
 source_range 与 planning_cursor 的字符偏移全部落在 `lib/episode_ledger.normalize_source_text`（Unicode NFC + 换行统一）的输出空间；按偏移切片源文前必须先对源文执行同一函数。
 _Avoid_: 拿偏移直接切原始文件内容——NFD（macOS/越南语导入）或 CRLF 源文会错位。
 
 **planning_cursor**：
-project.json 顶层字段，下一批分集规划在源文中的起点（`{source_file, offset}`，null = 无规划进度），由规划工具在每次提交时前移。`source/_remaining.txt` 余文文件已废除：迁移回填仍读取其内容换算游标，规划工具首次提交时将其清理。
-_Avoid_: 把 `_remaining.txt` 当进度真相源（损坏即不可恢复正是账本要消除的旧模式）；把非空 cursor 当绝对最新——重跑回填只补新集范围、不前移非空值，规划起点以账本锚定范围末尾与 cursor 的较后者为准。
+project.json 顶层字段，下一批分集规划在源文中的起点（`{source_file, offset}`，null = 无规划进度），由规划工具在每次提交时前移。`source/_remaining.txt` 余文文件已废除，无人读取，规划与重置提交时将其清理。
+_Avoid_: 把 `_remaining.txt` 当进度真相源（损坏即不可恢复正是账本要消除的旧模式）；把 cursor 当唯一起点依据——规划起点以账本内最后一集范围末尾与 cursor 的较后者为准。
 
-**分集规划（plan / replan）**：
-服务端分集规划能力（`lib/episode_planner.EpisodePlanner` + SDK 工具 `plan_episodes` / `replan_episodes`）：从 planning_cursor 起读一个源文窗口，调项目配置的文本模型一次规划窗口内所有剧情弧完整的集（标题/钩子/范围；drama 含分集大纲），schema 强约束 + 锚点存在/唯一/连续机械校验失败自动重试，同一把项目锁内写账本、派生集文件并清理残留。窗口取法带弹性：剩余全文不足窗口 1.2 倍时直接延伸到全文末尾，避免残余被迫单独成集。plan 接收可选常驻 `instructions`（用户分集偏好，如按章节对齐切分）：非空时以「必须全部落实」的强度注入规划 prompt、优先于默认剧情弧完整性，并附带账本现算的全局进度（已规划集数、未规划余量、本窗口体量，按阅读单位计）供换算本批切分节奏；不持久化，规划分多批时须由 agent 逐批重复携带，缺省/空白则与今日纯剧情弧行为逐字一致（不含全局进度分节）。replan 按用户自由文本意见从 from_episode 起局部重排：范围跨多个源文件时按文件拆为多段独立重切（单集不跨文件，文件边界即集边界，集号跨段连续编号）；波及已消费集需显式确认（标 stale），全局性意见（每集体量）回写项目设置作为结构化全局意见、后续批次自动继承（与 plan 逐批携带、不持久化的 `instructions` 相对；见 `docs/adr/0032`）。末批即耗尽、再次调用已无新内容、以及每次 replan 返回时，账本现算一份全局分布快照（累计集数、体量最小 5 集、体量中位数、`episode_target_units`）随摘要附回，供主 agent 对照用户结构性偏好核对、有偏差须向用户说明；常规批次只追加一行累计集数，不附完整快照。
-_Avoid_: 让主 agent 自行读原文选切分点（peek/split 脚本是被替代的旧模式）；窗口字数/每批集数硬编码到指令——它们是工具内部默认，`planning_window_chars` / `planning_max_episodes` 项目设置可覆盖；在快照里定义「多小算畸小」——代码只报分布事实，语义判断留给主 agent。
+**源文指纹（source fingerprint）**：
+project.json 顶层字段 `source_fingerprints`（`lib/episode_ledger.SOURCE_FINGERPRINTS_KEY`）：候选源文件（`source/` 直下一级的 .txt/.md，排除派生集文件与下划线/点前缀文件）相对路径 → 归一化文本（`normalize_source_text` 输出）的 sha256。plan 每次提交对全部候选源文件重新计算并整体覆盖写入（非增量合并），检测「规划中途源文件被外部替换」——账本坐标一旦绑定某段原文，原文再变就意味着坐标失真。比对只针对「已记录」的文件：未记录（存量项目、或新发现源文件首次 plan）不参与比对、不阻塞规划；已记录文件当前指纹不同、或该文件从候选源文件中消失，均判不一致，出路是恢复已记录的原文内容或执行全量重置（部分重置的前置校验复用同一套比对函数）。plan 与部分重置均锁外预检查一次（快速失败，plan 因此不浪费一次模型调用）、锁内提交闭包内复核一次。plan 的锁内复核之外另有一道基线比对：本次调用实际读入的源文（入口快照的全部候选源文件 + 循环中途实际读入的新增文件）在模型调用期间被改动即拒绝提交，这道比对不看是否已记录，首次规划途中换源文同样被拦。全量重置清空整本账本，指纹字段随之清除；部分重置保留段已验证指纹有效，字段不变，留给下一次 plan 提交自然刷新覆盖。源文已耗尽、plan 无内容可规划而早退时不进提交闭包，若 `source_fingerprints` 字段缺失则单独补记该字段一次，避免游标已到底的存量项目永远拿不到基线。
+_Avoid_: 把未记录文件「不参与比对」当漏洞去堵——这是存量项目与首次规划的必要逃生口，不是缺陷；以为每次提交只覆盖本批窗口涉及的文件——覆盖对象是全部候选源文件，不是增量合并。
+
+**分集规划（plan）**：
+服务端分集规划能力（`lib/episode_planner.EpisodePlanner` + SDK 工具 `plan_episodes`）：从 planning_cursor 起读一个源文窗口，调项目配置的文本模型一次规划窗口内所有剧情弧完整的集（标题/钩子/范围；drama 含分集大纲），schema 强约束 + 锚点存在/唯一/连续机械校验失败自动重试，同一把项目锁内写账本、派生集文件并清理残留。窗口取法带弹性：剩余全文不足窗口 1.2 倍时直接延伸到全文末尾，避免残余被迫单独成集。plan 接收可选常驻 `instructions`（用户分集偏好，如按章节对齐切分）：非空时以「必须全部落实」的强度注入规划 prompt、优先于默认剧情弧完整性，并附带账本现算的全局进度（已规划集数、未规划余量、本窗口体量，按阅读单位计）供换算本批切分节奏；不持久化，规划分多批时须由 agent 逐批重复携带，缺省/空白则与今日纯剧情弧行为逐字一致（不含全局进度分节）。新提交的集号若在磁盘上已有下游产物（剧本/step1/媒体），说明该集实际已被消费过，提交时直接标 stale（产物不删除），随结果附回，不阻断提交。账本内存在没有 `source_range` 的条目时 plan 一律拒绝执行并指路全量重置——这类集既无法重造也无法确定下一批起点；消费链路（剧本/媒体/状态/导出）不受此限。每集体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`，plan 只读不写该设置。末批即耗尽、再次调用已无新内容时，账本现算一份全局分布快照（累计集数、体量最小 5 集、体量中位数、`episode_target_units`）随摘要附回，供主 agent 对照用户结构性偏好核对、有偏差须向用户说明；常规批次只追加一行累计集数，不附完整快照。
+_Avoid_: 让主 agent 自行读原文选切分点（peek/split 脚本是被替代的旧模式）；窗口字数/每批集数硬编码到指令——它们是工具内部默认，`planning_window_chars` / `planning_max_episodes` 项目设置可覆盖；在快照里定义「多小算畸小」——代码只报分布事实，语义判断留给主 agent；把提交时的 stale 标记当阻断——它只提示主 agent 需重做下游产物，提交本身照常成功。
+
+**重置分集规划（reset_episode_planning）**：
+`lib/episode_reset.reset_episode_planning` + 同名 SDK 工具，是用户对已规划内容的调整入口——把账本退回未规划状态的逃生口（见 `docs/adr/0032`）。`from_episode=1` 全量重置：除已消费集确认外不做前置校验，任何损坏账本状态都能执行成功，`episodes` 清空、`planning_cursor` 置 null、源文指纹清除。`from_episode>1` 部分重置：保留第 1..from_episode-1 集，前置校验账本形状干净（含整本 `episodes` 的非对象条目、非法集号、重复集号）、`from_episode` 为既有集号且保留段集号连续无缺口、退回点（第 from_episode-1 集）坐标结构完整、全部已记录源文指纹一致、保留段坐标落在当前源文界内且首尾相接（跨源文件时前一文件须已耗尽），任一不满足即拒绝执行并指路全量重置。坐标连续性校验只覆盖保留段——重置范围内的条目通过账本形状校验后无论有无坐标都直接清除。两种模式对波及已消费集（`ledger_status=consumed` 或已有 step1/剧本/媒体产物，取并集）均先返回受影响清单待显式确认（`confirm_consumed=true`）才执行；下游产物一律不删除；重置范围内 `source_range` 坐标结构完整的派生集文件删除（只查结构、不读源文校验范围是否仍有效，删除不因源文缺失或越界而改走留底），无原文范围记录或结构不完整的改名留底（避免被后续规划误当孤儿文件重新认领）。重置完成后带调整后的 `instructions` 重新分批调用 plan 即完成调整，若新集号与重置前的已消费范围重叠由 plan 侧的磁盘产物探测自动标 stale。
+_Avoid_: 把重置当删除——留底是改名不是删除，内容保留；把部分重置的前置校验失败当可重试——须先全量重置或修复根因，非瞬时冲突；期待重置本身产出新内容——它只清状态，新内容仍要靠后续 plan 调用产出。
 
 ### 智能体运行时
 

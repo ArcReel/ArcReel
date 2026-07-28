@@ -13,7 +13,7 @@ import type { TaskStatus } from "@/types";
  * 从未进入队列，不会被这里捕获）。覆盖 storyboard/video/character/scene/prop/grid/
  * reference_video/image_edit。
  *
- * 任务队列是 3 秒轮询（useTasksSSE）。两类情况推送：
+ * 任务终态经项目事件 SSE 推来，另有兜底轮询（useTaskRefresh）。两类情况推送：
  * 1. 观察到非 failed → failed 的状态转换；
  * 2. 基线建立后才首次出现、且首次就已是 failed 的新任务——任务在两次 poll 之间
  *    快速失败、从未被观测到非 failed 状态，否则会被漏报。

@@ -6,19 +6,22 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import unicodedata
 from pathlib import Path
 
 import pytest
 
+from lib.episode_ledger import SOURCE_FINGERPRINTS_KEY
+from lib.episode_ledger import discover_sources as _real_discover_sources
 from lib.episode_planner import (
     EpisodePlanner,
     EpisodePlanningError,
     PlanningConflictError,
-    ReplanConfirmationRequired,
     _find_all_overlapping,
 )
+from lib.episode_reset import EpisodeResetResult, reset_episode_planning
 from lib.text_backends.base import TextGenerationResult
 from lib.text_metrics import count_reading_units
 
@@ -144,8 +147,8 @@ class TestPlan:
         assert result.episodes[0].reading_units > 0
         assert result.source_exhausted is False
 
-    async def test_plan_backfills_old_flow_episodes_before_planning(self, tmp_path: Path):
-        """旧拆分流程留下的集（无账本字段 + 余文文件）先回填再续规划，余文文件随提交清理。"""
+    async def test_plan_rejects_old_flow_episodes_without_source_range(self, tmp_path: Path):
+        """旧拆分流程留下的集（无位置记录）拦住规划：指名集号并指路全量重置，不调模型。"""
         project_dir = _write_project(
             tmp_path,
             episodes=[{"episode": 1, "title": "旧集", "script_file": "scripts/episode_1.json"}],
@@ -153,28 +156,81 @@ class TestPlan:
         ep1_end = _end_of(ANCHOR_EP1)
         (project_dir / "source" / "episode_1.txt").write_text(SOURCE[:ep1_end], encoding="utf-8")
         (project_dir / "source" / "_remaining.txt").write_text(SOURCE[ep1_end:], encoding="utf-8")
-        fake = _FakeTextGenerator(
-            [_plan_response([{"title": "城门遇袭", "hook": "少女为何被追杀", "end_anchor": ANCHOR_EP2}])]
-        )
+        fake = _FakeTextGenerator([])
 
-        await EpisodePlanner(project_dir, generator=fake).plan()
+        with pytest.raises(EpisodePlanningError, match="没有原文范围记录"):
+            await EpisodePlanner(project_dir, generator=fake).plan()
 
-        project = _load_project(project_dir)
-        eps = {e["episode"]: e for e in project["episodes"]}
-        assert eps[1]["ledger_status"] == "planned"  # 回填吸收旧集
-        assert eps[1]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": ep1_end}
-        assert eps[2]["source_range"] == {
-            "source_file": "source/novel.txt",
-            "start": ep1_end,
-            "end": _end_of(ANCHOR_EP2),
-        }
-        # 规划窗口从回填出的进度续起：发给模型的原文不含第 1 集内容
-        assert ANCHOR_EP1 not in fake.requests[0].prompt
-        assert ANCHOR_EP2 in fake.requests[0].prompt
-        assert not (project_dir / "source" / "_remaining.txt").exists()
-        assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == SOURCE[
-            ep1_end : _end_of(ANCHOR_EP2)
+        assert fake.requests == []
+        assert _load_project(project_dir)["episodes"] == [
+            {"episode": 1, "title": "旧集", "script_file": "scripts/episode_1.json"}
         ]
+
+    async def test_plan_registers_orphan_episode_file_and_rejects_instead_of_overwriting(self, tmp_path: Path):
+        """账本为空但磁盘已有手动预拆分的集文件：规划先自愈识别出这是孤儿集号再拒绝，
+        不会因为账本读起来是空的就当无主原文重新生成并覆盖手动内容。"""
+        project_dir = _write_project(tmp_path, episodes=[])
+        (project_dir / "source" / "episode_1.txt").write_text("人工预拆分的旧集内容。", encoding="utf-8")
+        fake = _FakeTextGenerator([])
+
+        with pytest.raises(EpisodePlanningError, match="没有原文范围记录"):
+            await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert fake.requests == []
+        # 拒绝发生在提交之前，账本未被落盘改动——但已能正确认出集号 1（而非把它当空账本放行）
+        assert _load_project(project_dir)["episodes"] == []
+        # 手动预拆分的集文件原样保留，未被规划重新生成覆盖
+        assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == "人工预拆分的旧集内容。"
+
+    async def test_plan_rejects_legacy_status_entry_without_source_range(self, tmp_path: Path):
+        """存量项目遗留的已废弃状态值不影响判定：看的是有没有 source_range。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[
+                {
+                    "episode": 1,
+                    "title": "老条目",
+                    "script_file": "scripts/episode_1.json",
+                    "source_range": None,
+                    "ledger_status": "已废弃的状态",
+                }
+            ],
+            planning_cursor={"source_file": "source/novel.txt", "offset": 0},
+        )
+        (project_dir / "source" / "episode_1.txt").write_text("人工改过的内容。", encoding="utf-8")
+        fake = _FakeTextGenerator([])
+
+        with pytest.raises(EpisodePlanningError, match="reset_episode_planning"):
+            await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert fake.requests == []
+        # 集文件不动：没有位置记录的集，其物理文件就是最终记录
+        assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == "人工改过的内容。"
+
+    async def test_full_reset_unblocks_planning_for_legacy_ledger(self, tmp_path: Path):
+        """老项目出路：无位置记录的账本先被 plan 拒绝，全量重置后可正常从头规划。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[{"episode": 1, "title": "旧集", "script_file": "scripts/episode_1.json"}],
+        )
+        (project_dir / "source" / "episode_1.txt").write_text("人工预拆分的旧集内容。", encoding="utf-8")
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "玉中剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+        planner = EpisodePlanner(project_dir, generator=fake)
+
+        with pytest.raises(EpisodePlanningError, match="没有原文范围记录"):
+            await planner.plan()
+
+        reset = reset_episode_planning(project_dir, from_episode=1, confirm_consumed=True)
+        assert isinstance(reset, EpisodeResetResult)
+
+        result = await planner.plan()
+
+        assert [s.title for s in result.episodes] == ["古玉藏诀"]
+        eps = _load_project(project_dir)["episodes"]
+        assert [e["episode"] for e in eps] == [1]
+        assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP1)}
 
     async def test_plan_retries_with_failure_reason_when_anchor_invalid(self, tmp_path: Path):
         """机械校验失败自动重试：锚点不存在 → 重试 prompt 附失败原因，第二轮通过。"""
@@ -505,7 +561,7 @@ class TestPlan:
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP1)}
 
     async def test_plan_continues_from_cursor_advanced_into_next_source_file(self, tmp_path: Path):
-        """游标已合法推进到后一个源文件（如升级回填的失锚项目）：续规划从游标起，不重复规划该文件前缀。"""
+        """游标已合法推进到后一个源文件：续规划从游标起，不重复规划该文件前缀。"""
         c = _end_of(ANCHOR2_MID, SOURCE2)
         project_dir = _write_project(
             tmp_path,
@@ -533,6 +589,33 @@ class TestPlan:
             await EpisodePlanner(project_dir, generator=fake).plan()
 
         assert (project_dir / "project.json").read_text(encoding="utf-8") == before
+        assert not list((project_dir / "source").glob("episode_*.txt"))
+
+    @pytest.mark.integration
+    async def test_plan_raises_planning_conflict_when_ledger_advances_during_call(self, tmp_path: Path):
+        """请求在途时账本被另一次调用抢先提交、有效起点前移：锁内复核发现不一致，整批作废，账本与磁盘均无写入。"""
+        project_dir = _write_project(tmp_path)
+        after_concurrent_commit: list[str] = []
+
+        class _ConcurrentCommitGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                # 模拟另一次 plan() 调用在本次锁外快照之后、锁内复核之前抢先提交了第 1 集
+                project = _load_project(project_dir)
+                project["episodes"] = [_entry(1, 0, _end_of(ANCHOR_EP1))]
+                project["planning_cursor"] = {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP1)}
+                (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+                after_concurrent_commit.append((project_dir / "project.json").read_text(encoding="utf-8"))
+                return await super().generate(request, project_name)
+
+        fake = _ConcurrentCommitGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "玉中剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+
+        with pytest.raises(PlanningConflictError, match="并发"):
+            await EpisodePlanner(project_dir, generator=fake).plan()
+
+        # 账本逐字停留在并发提交后的状态：本次调用的集条目、游标与源文指纹一个字节都没落盘
+        assert (project_dir / "project.json").read_text(encoding="utf-8") == after_concurrent_commit[0]
         assert not list((project_dir / "source").glob("episode_*.txt"))
 
     async def test_plan_truncation_short_circuits_retry_and_hints_leverage(self, tmp_path: Path):
@@ -849,34 +932,32 @@ class TestPlan:
         cursor = _load_project(project_dir)["planning_cursor"]
         assert cursor == {"source_file": "source/novel.txt", "offset": len(SOURCE)}
 
-    async def test_plan_keeps_unanchored_episode_file_untouched(self, tmp_path: Path):
-        """unanchored 集的物理文件是其最终记录：规划提交既不重写也不删除它。"""
-        unanchored_text = "这段内容在源文里找不到，是人工改过的。"
-        project_dir = _write_project(
-            tmp_path,
-            episodes=[
-                {
-                    "episode": 1,
-                    "title": "失锚集",
-                    "script_file": "scripts/episode_1.json",
-                    "source_range": None,
-                    "ledger_status": "unanchored",
-                }
-            ],
-            planning_cursor={"source_file": "source/novel.txt", "offset": 0},
-        )
-        (project_dir / "source" / "episode_1.txt").write_text(unanchored_text, encoding="utf-8")
+    async def test_plan_rejects_when_entry_loses_source_range_during_model_call(self, tmp_path: Path):
+        """锁内复核：模型调用期间账本被补进无位置记录的条目，提交仍被拦下、账本不写入。"""
+        project_dir = _write_project(tmp_path)
         fake = _FakeTextGenerator([_plan_response([{"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1}])])
+        planner = EpisodePlanner(project_dir, generator=fake)
 
-        await EpisodePlanner(project_dir, generator=fake).plan()
+        original_generate = fake.generate
 
-        assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == unanchored_text
-        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
-        assert eps[1]["ledger_status"] == "unanchored"
-        assert eps[2]["ledger_status"] == "planned"
+        async def _generate_then_pollute(*args, **kwargs):
+            result = await original_generate(*args, **kwargs)
+            project = _load_project(project_dir)
+            project["episodes"] = [{"episode": 7, "title": "手动上传集", "script_file": "scripts/episode_7.json"}]
+            (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+            return result
+
+        fake.generate = _generate_then_pollute
+
+        with pytest.raises(EpisodePlanningError, match="没有原文范围记录"):
+            await planner.plan()
+
+        episodes = _load_project(project_dir)["episodes"]
+        assert [e["episode"] for e in episodes] == [7]
+        assert not (project_dir / "source" / "episode_1.txt").exists()
 
     async def test_plan_forwards_instructions_into_prompt(self, tmp_path: Path):
-        """首批规划带 instructions 时，原文进「用户规划意见（必须全部落实）」分节，不用 replan 的「重排」措辞。"""
+        """首批规划带 instructions 时，原文进「用户规划意见（必须全部落实）」分节。"""
         project_dir = _write_project(tmp_path)
         fake = _FakeTextGenerator(
             [_plan_response([{"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
@@ -887,7 +968,6 @@ class TestPlan:
         prompt = fake.requests[0].prompt
         assert "# 用户规划意见（必须全部落实）" in prompt
         assert "严格按章节切分，一章一集" in prompt
-        assert "用户重排意见" not in prompt  # 首批不是重排
 
     async def test_plan_without_instructions_omits_section(self, tmp_path: Path):
         """不传 instructions 时 prompt 无指令分节，与今日纯剧情弧行为逐字一致。"""
@@ -1011,6 +1091,35 @@ class TestPlan:
         assert [num for num, _units in stats.smallest] == [3, 2, 1]
         assert stats.median_units == 37
 
+    async def test_plan_marks_stale_when_new_episode_num_has_downstream_products(self, tmp_path: Path):
+        """新提交的集号若在磁盘上已有剧本产物（如重置到更早集号后重新规划、与原消费范围重叠），标 stale，不删产物。"""
+        project_dir = _write_project(tmp_path)
+        (project_dir / "scripts").mkdir()
+        (project_dir / "scripts" / "episode_1.json").write_text("{}", encoding="utf-8")
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.stale_episodes == [1]
+        assert result.episodes[0].ledger_status == "stale"
+        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
+        assert eps[1]["ledger_status"] == "stale"
+        assert (project_dir / "scripts" / "episode_1.json").exists()  # 产物不删除
+
+    async def test_plan_keeps_planned_when_no_downstream_products(self, tmp_path: Path):
+        """新提交的集号磁盘上没有任何产物：照常标 planned，stale_episodes 为空。"""
+        project_dir = _write_project(tmp_path)
+        fake = _FakeTextGenerator(
+            [_plan_response([{"title": "古玉藏诀", "hook": "剑诀来历成谜", "end_anchor": ANCHOR_EP1}])]
+        )
+
+        result = await EpisodePlanner(project_dir, generator=fake).plan()
+
+        assert result.stale_episodes == []
+        assert result.episodes[0].ledger_status == "planned"
+
 
 def _entry(
     num: int,
@@ -1077,550 +1186,292 @@ def _planned_two_files(
     return project_dir
 
 
-class TestReplan:
-    async def test_replan_repartitions_from_episode_keeping_prior_fixed(self, tmp_path: Path):
-        """replan 重排 from_episode 起的范围：之前的集不动，新布局落账本并重写派生文件。"""
-        project_dir = _planned_three(tmp_path)
-        a = _end_of(ANCHOR_EP1)
-        new_anchor = "踏上去往青云城的路。"
-        fake = _FakeTextGenerator(
-            [
-                _plan_response(
-                    [
-                        {"title": "辞别下山", "hook": "青云城里有什么", "end_anchor": new_anchor},
-                        {"title": "城门风波", "hook": "少女是谁", "end_anchor": "卷入漩涡之中。"},
-                    ]
-                )
-            ]
-        )
+@pytest.mark.integration
+class TestSourceFingerprintGate:
+    """plan 提交路径记录源文指纹、入口比对拒绝已改动的源文。"""
 
-        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "第2集在下山处收尾")
+    async def test_plan_records_fingerprints_for_legacy_project_without_error(self, tmp_path: Path):
+        """存量项目无指纹字段：首次 plan 正常执行并补记。"""
+        project_dir = _write_project(tmp_path)
+        fake = _FakeTextGenerator([_plan_response([{"title": "t1", "hook": "h1", "end_anchor": ANCHOR_EP2}])])
+        planner = EpisodePlanner(project_dir, generator=fake)
 
-        prompt = fake.requests[0].prompt
-        assert "# 用户重排意见（必须全部落实）" in prompt  # replan 保留「重排」措辞
-        assert "第2集在下山处收尾" in prompt  # 用户意见进 prompt
-        assert "钩子1" in prompt  # 之前的集作为已定上下文
-        assert ANCHOR_EP1 not in prompt  # 已定范围的原文不重发
-        assert "# 全局进度" not in prompt  # replan 范围闭合、整段进 prompt，不注入全局进度
+        await planner.plan()
 
         project = _load_project(project_dir)
-        eps = {e["episode"]: e for e in project["episodes"]}
-        assert len(eps) == 3
-        assert eps[1]["title"] == "第1集"  # 未受影响
-        assert eps[2]["title"] == "辞别下山"
-        new_mid = SOURCE.index(new_anchor) + len(new_anchor)
-        assert eps[2]["source_range"] == {"source_file": "source/novel.txt", "start": a, "end": new_mid}
-        assert eps[3]["source_range"] == {"source_file": "source/novel.txt", "start": new_mid, "end": len(SOURCE)}
-        assert eps[2]["ledger_status"] == "planned"
-        # cursor 不变（重排范围闭合）
-        assert project["planning_cursor"] == {"source_file": "source/novel.txt", "offset": len(SOURCE)}
-        # 派生文件重写一致
-        assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == SOURCE[a:new_mid]
-        assert (project_dir / "source" / "episode_3.txt").read_text(encoding="utf-8") == SOURCE[new_mid:]
-        assert [s.episode for s in result.episodes] == [2, 3]
-        assert result.stale_episodes == []
-        assert result.ledger_stats is not None  # replan 是偏差修复的主要动作，每次都附核对材料
+        expected = hashlib.sha256(SOURCE.encode("utf-8")).hexdigest()
+        assert project[SOURCE_FINGERPRINTS_KEY] == {"source/novel.txt": expected}
 
-    async def test_replan_always_includes_ledger_stats_for_review_loop(self, tmp_path: Path):
-        """replan 成功返回一律带全局核对材料，闭合「重排后再核对」的复核循环。"""
-        project_dir = _planned_three(tmp_path)
-        new_anchor = "踏上去往青云城的路。"
+    async def test_plan_rejects_when_recorded_fingerprint_mismatches(self, tmp_path: Path):
+        stale_fp = hashlib.sha256("旧版本原文内容".encode()).hexdigest()
+        project_dir = _write_project(tmp_path, extra={SOURCE_FINGERPRINTS_KEY: {"source/novel.txt": stale_fp}})
+        planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
+
+        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+            await planner.plan()
+
+    async def test_plan_error_names_changed_file_and_points_to_reset(self, tmp_path: Path):
+        stale_fp = hashlib.sha256(b"stale").hexdigest()
+        project_dir = _write_project(tmp_path, extra={SOURCE_FINGERPRINTS_KEY: {"source/novel.txt": stale_fp}})
+        planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
+
+        with pytest.raises(EpisodePlanningError, match="reset_episode_planning"):
+            await planner.plan()
+
+    async def test_full_reset_clears_gate_and_plan_recovers(self, tmp_path: Path):
+        """长篇已规划后源文被替换：plan 被拒 → 全量重置 → 重新规划成功（复刻报告场景）。"""
+        project_dir = _write_project(tmp_path)
+        fake = _FakeTextGenerator([_plan_response([{"title": "t1", "hook": "h1", "end_anchor": ANCHOR_EP1}])])
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        (project_dir / "source" / "novel.txt").write_text("全新的故事内容，这是重置后的新素材。", encoding="utf-8")
+        blocked = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
+        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+            await blocked.plan()
+
+        result = reset_episode_planning(project_dir, from_episode=1)
+        assert isinstance(result, EpisodeResetResult)
+        assert SOURCE_FINGERPRINTS_KEY not in _load_project(project_dir)
+
+        fake2 = _FakeTextGenerator([_plan_response([{"title": "t2", "hook": "h2", "end_anchor": "重置后的新素材。"}])])
+        result2 = await EpisodePlanner(project_dir, generator=fake2).plan()
+        assert result2.episodes[0].title == "t2"
+
+    async def test_partial_reset_retains_prefix_and_plan_continues_numbering(self, tmp_path: Path):
+        """规划 2 集后部分重置到第 2 集：账本保留第 1 集、游标退到其末尾，再次 plan 从第 2 集续接编号。"""
+        project_dir = _write_project(tmp_path)
         fake = _FakeTextGenerator(
             [
                 _plan_response(
                     [
-                        {"title": "辞别下山", "hook": "青云城里有什么", "end_anchor": new_anchor},
-                        {"title": "城门风波", "hook": "少女是谁", "end_anchor": "卷入漩涡之中。"},
+                        {"title": "t1", "hook": "h1", "end_anchor": ANCHOR_EP1},
+                        {"title": "t2", "hook": "h2", "end_anchor": ANCHOR_EP2},
                     ]
                 )
             ]
         )
+        await EpisodePlanner(project_dir, generator=fake).plan()
+        assert [e["episode"] for e in _load_project(project_dir)["episodes"]] == [1, 2]
 
-        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "第2集在下山处收尾")
-
-        stats = result.ledger_stats
-        assert stats is not None
-        assert stats.total_episodes == 3  # 重排未改变集数：仍是 1/2/3 三集
-
-    async def test_replan_requires_confirmation_for_consumed_episodes(self, tmp_path: Path):
-        """波及已消费集且未确认：返回受影响清单，账本与文件零变更。"""
-        project_dir = _planned_three(tmp_path, statuses=("consumed", "consumed", "planned"))
-        before = (project_dir / "project.json").read_text(encoding="utf-8")
-        fake = _FakeTextGenerator([])
-
-        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "重排")
-
-        assert isinstance(result, ReplanConfirmationRequired)
-        assert result.consumed_episodes == [2]
-        assert fake.requests == []  # 未确认不调模型
-        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
-
-    async def test_replan_confirmed_marks_consumed_as_stale(self, tmp_path: Path):
-        """确认后重排：被波及的已消费集在新布局中标 stale（产物不删，状态拉回重做）。"""
-        project_dir = _planned_three(tmp_path, statuses=("consumed", "consumed", "planned"))
-        new_anchor = "踏上去往青云城的路。"
-        fake = _FakeTextGenerator(
-            [
-                _plan_response(
-                    [
-                        {"title": "辞别下山", "hook": "甲", "end_anchor": new_anchor},
-                        {"title": "城门风波", "hook": "乙", "end_anchor": "卷入漩涡之中。"},
-                    ]
-                )
-            ]
-        )
-
-        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "重排", confirm_consumed=True)
-
-        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
-        assert eps[1]["ledger_status"] == "consumed"  # 未波及
-        assert eps[2]["ledger_status"] == "stale"
-        assert eps[3]["ledger_status"] == "planned"  # 原第 3 集本就未消费
-        assert result.stale_episodes == [2]
-
-    async def test_replan_shrinking_episode_count_cleans_removed_files(self, tmp_path: Path):
-        """重排集数变少：被移除集号的派生文件清理，账本不留旧条目。"""
-        project_dir = _planned_three(tmp_path)
-        fake = _FakeTextGenerator([_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])])
-
-        await EpisodePlanner(project_dir, generator=fake).replan(2, "后两集合成一集")
+        result = reset_episode_planning(project_dir, from_episode=2)
+        assert isinstance(result, EpisodeResetResult)
 
         project = _load_project(project_dir)
-        assert [e["episode"] for e in project["episodes"]] == [1, 2]
-        a = _end_of(ANCHOR_EP1)
-        assert project["episodes"][1]["source_range"] == {
-            "source_file": "source/novel.txt",
-            "start": a,
-            "end": len(SOURCE),
-        }
-        assert not (project_dir / "source" / "episode_3.txt").exists()
+        assert [e["episode"] for e in project["episodes"]] == [1]
+        # 游标退到第 1 集原文范围末尾，指纹字段保留（部分重置已验证其与当前源文一致）
+        assert project["planning_cursor"] == {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP1)}
+        assert SOURCE_FINGERPRINTS_KEY in project
+        # 保留段派生文件不动，重置范围内的派生文件已删除
+        assert (project_dir / "source" / "episode_1.txt").is_file()
+        assert not (project_dir / "source" / "episode_2.txt").exists()
 
-    async def test_replan_writes_global_volume_preference_back_to_settings(self, tmp_path: Path):
-        """全局性意见（每集体量）回写项目设置，后续批次自动继承。"""
-        project_dir = _planned_three(tmp_path)
-        response = json.dumps(
-            {
-                "episodes": [
-                    {"title": "甲", "hook": "甲", "end_anchor": "卷入漩涡之中。"},
-                ],
-                "episode_target_units": 800,
-            },
-            ensure_ascii=False,
-        )
-        fake = _FakeTextGenerator([response])
+        fake2 = _FakeTextGenerator([_plan_response([{"title": "t2b", "hook": "h2b", "end_anchor": ANCHOR_EP2}])])
+        result2 = await EpisodePlanner(project_dir, generator=fake2).plan()
 
-        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "整体每集再短一点，800字左右")
+        assert [ep.episode for ep in result2.episodes] == [2]
+        assert [e["episode"] for e in _load_project(project_dir)["episodes"]] == [1, 2]
 
-        assert _load_project(project_dir)["episode_target_units"] == 800
-        assert result.settings_updated == {"episode_target_units": 800}
+    async def test_plan_rejects_when_source_changes_during_model_call_without_record(self, tmp_path: Path):
+        """存量项目补记路径：模型调用期间源文被改动，提交时按文本复核拒绝，不落任何写入。"""
+        project_dir = _write_project(tmp_path)
+        source_path = project_dir / "source" / "novel.txt"
 
-    async def test_replan_rejects_unanchored_in_affected_range(self, tmp_path: Path):
-        """重排范围波及 unanchored 集：拒绝执行（失锚集锁定，不参与重排）。"""
-        a = _end_of(ANCHOR_EP1)
-        project_dir = _write_project(
-            tmp_path,
-            episodes=[
-                _entry(1, 0, a),
-                {
-                    "episode": 2,
-                    "title": "失锚集",
-                    "script_file": "scripts/episode_2.json",
-                    "source_range": None,
-                    "ledger_status": "unanchored",
-                },
-            ],
-            planning_cursor={"source_file": "source/novel.txt", "offset": a},
-        )
-        fake = _FakeTextGenerator([])
-
-        with pytest.raises(EpisodePlanningError, match="unanchored|失锚"):
-            await EpisodePlanner(project_dir, generator=fake).replan(1, "重排")
-
-    async def test_replan_confirmed_rejects_newly_consumed_during_execution(self, tmp_path: Path):
-        """确认后的重排执行期间又有集被消费：旧确认不覆盖新消费集，提交中止。"""
-        project_dir = _planned_three(tmp_path, statuses=("planned", "consumed", "planned"))
-
-        class _ConsumingGenerator(_FakeTextGenerator):
+        class _MutatingGenerator(_FakeTextGenerator):
             async def generate(self, request, project_name=None):
-                # 模拟模型调用期间第 3 集被并发消费
-                project = _load_project(project_dir)
-                for entry in project["episodes"]:
-                    if entry["episode"] == 3:
-                        entry["ledger_status"] = "consumed"
-                (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+                source_path.write_text("规划期间被换掉的全新原文内容。", encoding="utf-8")
                 return await super().generate(request, project_name)
 
-        fake = _ConsumingGenerator(
-            [_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])]
-        )
+        fake = _MutatingGenerator([_plan_response([{"title": "t1", "hook": "h1", "end_anchor": ANCHOR_EP2}])])
+        planner = EpisodePlanner(project_dir, generator=fake)
 
-        with pytest.raises(PlanningConflictError, match="新的已消费集"):
-            await EpisodePlanner(project_dir, generator=fake).replan(2, "重排", confirm_consumed=True)
-
-        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
-        assert eps[2]["title"] == "第2集"  # 重排未生效
-        assert eps[3]["ledger_status"] == "consumed"
-
-    async def test_replan_rejects_concurrent_boundary_change_within_same_range(self, tmp_path: Path):
-        """执行期间同闭合范围内的切分边界被并发改动：合并范围相同也必须判冲突，不得静默覆盖。"""
-        project_dir = _planned_three(tmp_path)
-        b = _end_of(ANCHOR_EP2)
-
-        class _BoundaryShiftingGenerator(_FakeTextGenerator):
-            async def generate(self, request, project_name=None):
-                # 模拟模型调用期间第 2/3 集分界被并发挪动（闭合范围不变）
-                project = _load_project(project_dir)
-                for entry in project["episodes"]:
-                    if entry["episode"] == 2:
-                        entry["source_range"]["end"] = b + 2
-                    if entry["episode"] == 3:
-                        entry["source_range"]["start"] = b + 2
-                (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-                return await super().generate(request, project_name)
-
-        fake = _BoundaryShiftingGenerator(
-            [_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])]
-        )
-
-        with pytest.raises(PlanningConflictError, match="并发"):
-            await EpisodePlanner(project_dir, generator=fake).replan(2, "重排")
-
-        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
-        assert eps[2]["title"] == "第2集"  # 重排未生效，并发写入的边界保留
-        assert eps[2]["source_range"]["end"] == b + 2
-
-    async def test_replan_rejects_unknown_from_episode(self, tmp_path: Path):
-        project_dir = _planned_three(tmp_path)
-
-        with pytest.raises(EpisodePlanningError, match="from_episode"):
-            await EpisodePlanner(project_dir, generator=_FakeTextGenerator([])).replan(9, "重排")
-
-    async def test_replan_rejects_discontinuous_ranges_in_same_source_file(self, tmp_path: Path):
-        """同源文件内相邻条目断档：静默合并会把范围外的原文一并重切，必须拒绝重排。"""
-        a = _end_of(ANCHOR_EP1)
-        project_dir = _write_project(
-            tmp_path,
-            episodes=[_entry(1, 0, a), _entry(2, a + 3, len(SOURCE))],  # [a, a+3) 断档
-            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
-        )
-        fake = _FakeTextGenerator([])
-
-        with pytest.raises(EpisodePlanningError, match="不连续"):
-            await EpisodePlanner(project_dir, generator=fake).replan(1, "重排")
-
-        assert fake.requests == []
-
-    async def test_replan_rejects_inverted_range_entry(self, tmp_path: Path):
-        """单集反向范围（start >= end）是脏数据：即使能被相邻集合并吸收也必须拒绝重排。"""
-        a = _end_of(ANCHOR_EP1)
-        project_dir = _write_project(
-            tmp_path,
-            episodes=[_entry(1, 0, a), _entry(2, a, a - 3), _entry(3, a - 3, len(SOURCE))],
-            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
-        )
-        fake = _FakeTextGenerator([])
-
-        with pytest.raises(EpisodePlanningError, match="范围无效"):
-            await EpisodePlanner(project_dir, generator=fake).replan(1, "重排")
-
-        assert fake.requests == []
-
-    async def test_replan_across_source_files_recuts_each_file_slice(self, tmp_path: Path):
-        """跨源文件重排：按文件拆 slice 独立重切，集号跨文件连续，文件边界即集边界，cursor 不动。"""
-        project_dir = _planned_two_files(tmp_path)
-        a = _end_of(ANCHOR_EP1)
-        new_anchor = "踏上去往青云城的路。"
-        fake = _FakeTextGenerator(
-            [
-                # 第一段（novel.txt 内 [a, 文末)）：重切为 2 集
-                _plan_response(
-                    [
-                        {"title": "辞别下山", "hook": "青云城里有什么", "end_anchor": new_anchor},
-                        {"title": "城门风波", "hook": "少女是谁", "end_anchor": "卷入漩涡之中。"},
-                    ]
-                ),
-                # 第二段（novel2.txt 全文）：重切为 1 集
-                _plan_response([{"title": "上界风云", "hook": "兽潮来袭", "end_anchor": "途中遭遇兽潮。"}]),
-            ]
-        )
-
-        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "第2集在下山处收尾，第二部合成一集")
-
-        # 每段一次独立调用：窗口只含本文件 slice 的原文
-        assert len(fake.requests) == 2
-        assert "第三章" in fake.requests[0].prompt
-        assert "上界风云" not in fake.requests[0].prompt
-        assert "第二部" in fake.requests[1].prompt
-        assert "第三章" not in fake.requests[1].prompt
-        # 后一段的已定上下文衔接前一段刚规划出的集
-        assert "城门风波" in fake.requests[1].prompt
+        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+            await planner.plan()
 
         project = _load_project(project_dir)
-        eps = {e["episode"]: e for e in project["episodes"]}
-        assert sorted(eps) == [1, 2, 3, 4]
-        assert eps[1]["title"] == "第1集"  # 未受影响
-        new_mid = SOURCE.index(new_anchor) + len(new_anchor)
-        assert eps[2]["source_range"] == {"source_file": "source/novel.txt", "start": a, "end": new_mid}
-        # 文件边界贴齐为集边界：前一文件最后一集收在文末，后一文件第一集从 0 起
-        assert eps[3]["source_range"] == {"source_file": "source/novel.txt", "start": new_mid, "end": len(SOURCE)}
-        assert eps[4]["source_range"] == {"source_file": "source/novel2.txt", "start": 0, "end": len(SOURCE2)}
-        # cursor 不变（重排范围闭合）
-        assert project["planning_cursor"] == {"source_file": "source/novel2.txt", "offset": len(SOURCE2)}
-        # 派生文件按新账本重写
-        assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == SOURCE[a:new_mid]
-        assert (project_dir / "source" / "episode_3.txt").read_text(encoding="utf-8") == SOURCE[new_mid:]
-        assert (project_dir / "source" / "episode_4.txt").read_text(encoding="utf-8") == SOURCE2
-        assert [s.episode for s in result.episodes] == [2, 3, 4]
-        assert result.stale_episodes == []
+        assert not project.get("episodes")
+        assert SOURCE_FINGERPRINTS_KEY not in project
 
-    async def test_replan_across_source_files_each_slice_must_close(self, tmp_path: Path):
-        """跨文件重排每段各自闭合：非末段新布局没盖到本文件片段末尾时同样打回重试。"""
-        project_dir = _planned_two_files(tmp_path)
-        fake = _FakeTextGenerator(
-            [
-                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "踏上去往青云城的路。"}]),  # 第一段留尾巴
-                _plan_response([{"title": "乙", "hook": "乙", "end_anchor": "卷入漩涡之中。"}]),
-                _plan_response([{"title": "丙", "hook": "丙", "end_anchor": "途中遭遇兽潮。"}]),
-            ]
-        )
-
-        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "重排")
-
-        assert len(fake.requests) == 3
-        assert "不能留尾巴" in fake.requests[1].prompt  # 第一段重试，失败原因指向闭合
-        assert "不能留尾巴" not in fake.requests[0].prompt
-        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
-        assert eps[2]["source_range"] == {
-            "source_file": "source/novel.txt",
-            "start": _end_of(ANCHOR_EP1),
-            "end": len(SOURCE),
-        }
-        assert eps[3]["source_range"] == {"source_file": "source/novel2.txt", "start": 0, "end": len(SOURCE2)}
-        assert [s.episode for s in result.episodes] == [2, 3]
-
-    async def test_replan_across_source_files_consumed_confirmation_and_stale(self, tmp_path: Path):
-        """跨文件重排的已消费集不引入特例：后一文件的已消费集同样先确认、确认后标 stale。"""
-        project_dir = _planned_two_files(tmp_path, statuses=("planned", "planned", "planned", "consumed"))
-        before = (project_dir / "project.json").read_text(encoding="utf-8")
-        responses = [
-            _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "卷入漩涡之中。"}]),
-            _plan_response(
-                [
-                    {"title": "乙", "hook": "乙", "end_anchor": ANCHOR2_MID},
-                    {"title": "丙", "hook": "丙", "end_anchor": "途中遭遇兽潮。"},
-                ]
-            ),
-        ]
-        planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator(responses))
-
-        unconfirmed = await planner.replan(2, "重排")
-
-        assert isinstance(unconfirmed, ReplanConfirmationRequired)
-        assert unconfirmed.consumed_episodes == [4]
-        assert (project_dir / "project.json").read_text(encoding="utf-8") == before  # 未确认零变更
-
-        result = await EpisodePlanner(project_dir, generator=_FakeTextGenerator(responses)).replan(
-            2, "重排", confirm_consumed=True
-        )
-
-        eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
-        assert eps[2]["ledger_status"] == "planned"
-        assert eps[3]["ledger_status"] == "planned"
-        assert eps[4]["ledger_status"] == "stale"
-        assert result.stale_episodes == [4]
-
-    async def test_replan_across_source_files_renumbers_continuously_when_count_grows(self, tmp_path: Path):
-        """跨文件重排前段集数增多：后段集号顺延不冲突，新增集号派生文件写出。"""
-        project_dir = _planned_two_files(tmp_path)
-        fake = _FakeTextGenerator(
-            [
-                _plan_response(
-                    [
-                        {"title": "甲", "hook": "甲", "end_anchor": "踏上去往青云城的路。"},
-                        {"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2},
-                        {"title": "丙", "hook": "丙", "end_anchor": "卷入漩涡之中。"},
-                    ]
-                ),
-                _plan_response([{"title": "丁", "hook": "丁", "end_anchor": "途中遭遇兽潮。"}]),
-            ]
-        )
-
-        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "前面切细一点")
-
-        project = _load_project(project_dir)
-        assert [e["episode"] for e in project["episodes"]] == [1, 2, 3, 4, 5]
-        eps = {e["episode"]: e for e in project["episodes"]}
-        assert eps[4]["source_range"]["source_file"] == "source/novel.txt"
-        assert eps[5]["source_range"] == {"source_file": "source/novel2.txt", "start": 0, "end": len(SOURCE2)}
-        assert (project_dir / "source" / "episode_5.txt").read_text(encoding="utf-8") == SOURCE2
-        assert [s.episode for s in result.episodes] == [2, 3, 4, 5]
-
-    async def test_replan_across_source_files_shrinking_cleans_removed_files(self, tmp_path: Path):
-        """跨文件重排总集数变少：被移除集号的派生文件清理，账本不留旧条目。"""
-        project_dir = _planned_two_files(tmp_path)
-        fake = _FakeTextGenerator(
-            [
-                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "卷入漩涡之中。"}]),
-                _plan_response([{"title": "乙", "hook": "乙", "end_anchor": "途中遭遇兽潮。"}]),
-            ]
-        )
-
-        await EpisodePlanner(project_dir, generator=fake).replan(2, "两部各合成一集")
-
-        project = _load_project(project_dir)
-        assert [e["episode"] for e in project["episodes"]] == [1, 2, 3]
-        assert not (project_dir / "source" / "episode_4.txt").exists()
-
-    async def test_replan_across_source_files_writes_back_global_preference_from_any_slice(self, tmp_path: Path):
-        """跨文件重排的全局性意见不挑段：任一段结构化返回每集体量都回写项目设置。"""
-        project_dir = _planned_two_files(tmp_path)
-        fake = _FakeTextGenerator(
-            [
-                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "卷入漩涡之中。"}]),
-                json.dumps(
-                    {
-                        "episodes": [{"title": "乙", "hook": "乙", "end_anchor": "途中遭遇兽潮。"}],
-                        "episode_target_units": 800,
-                    },
-                    ensure_ascii=False,
-                ),
-            ]
-        )
-
-        result = await EpisodePlanner(project_dir, generator=fake).replan(2, "整体每集再短一点，800字左右")
-
-        assert _load_project(project_dir)["episode_target_units"] == 800
-        assert result.settings_updated == {"episode_target_units": 800}
-
-    async def test_replan_rejects_interleaved_source_files_without_llm_call(self, tmp_path: Path):
-        """同一源文件在重排范围内非连续出现（集号与源文件顺序错乱）：fail-fast，不调模型不动账本。"""
-        a = _end_of(ANCHOR_EP1)
+    async def test_plan_rejects_when_already_anchored_source_changes_during_model_call(self, tmp_path: Path):
+        """存量多源文件项目：本批规划 novel2.txt 时，已锚定第 1 集的 novel.txt 在模型调用期间被
+        改动同样拒绝——只复核本批 source_rel 会漏掉这类跨文件的界内漂移。"""
         project_dir = _write_project(
             tmp_path,
-            episodes=[
-                _entry(1, 0, a),
-                _entry(2, 0, _end_of(ANCHOR2_MID, SOURCE2), source_file="source/novel2.txt"),
-                _entry(3, a, len(SOURCE)),  # novel.txt 再次出现
-            ],
-            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel2.txt", "offset": 0},
         )
         (project_dir / "source" / "novel2.txt").write_text(SOURCE2, encoding="utf-8")
-        before = (project_dir / "project.json").read_text(encoding="utf-8")
-        fake = _FakeTextGenerator([])
+        novel_path = project_dir / "source" / "novel.txt"
 
-        with pytest.raises(EpisodePlanningError, match="非连续"):
-            await EpisodePlanner(project_dir, generator=fake).replan(1, "重排")
+        class _MutatingGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                novel_path.write_text("已锚定的第1集原文被换掉。", encoding="utf-8")
+                return await super().generate(request, project_name)
 
-        assert fake.requests == []
-        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
+        fake = _MutatingGenerator([_plan_response([{"title": "t3", "hook": "h3", "end_anchor": ANCHOR2_MID}])])
+        planner = EpisodePlanner(project_dir, generator=fake)
 
-    async def test_replan_rejects_invalid_slice_range_without_llm_call(self, tmp_path: Path):
-        """账本片段范围无效（start >= end）：调模型之前直接报错，不烧重试。"""
-        a = _end_of(ANCHOR_EP1)
+        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+            await planner.plan()
+
+        project = _load_project(project_dir)
+        assert len(project.get("episodes") or []) == 1  # 第 1 集不受影响，也没有新集落账
+        assert SOURCE_FINGERPRINTS_KEY not in project
+
+    async def test_plan_backfills_fingerprints_on_source_exhausted_early_return(self, tmp_path: Path):
+        """存量项目游标已在全部源文末尾：source_exhausted 早退路径不经过提交闭包，
+        仍须补记指纹，否则后续等长编辑旧正文因无基线可比而被放行。"""
         project_dir = _write_project(
             tmp_path,
-            episodes=[_entry(1, 0, a), _entry(2, a, a)],  # 第 2 集零宽范围
-            planning_cursor={"source_file": "source/novel.txt", "offset": a},
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
         )
-        fake = _FakeTextGenerator([])
+        planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
 
-        with pytest.raises(EpisodePlanningError, match="范围无效"):
-            await EpisodePlanner(project_dir, generator=fake).replan(2, "重排")
+        result = await planner.plan()
 
-        assert fake.requests == []
+        assert result.source_exhausted is True
+        project = _load_project(project_dir)
+        expected = hashlib.sha256(SOURCE.encode("utf-8")).hexdigest()
+        assert project[SOURCE_FINGERPRINTS_KEY] == {"source/novel.txt": expected}
 
-    async def test_replan_retries_until_layout_covers_span_end(self, tmp_path: Path):
-        """重排范围闭合：新布局没盖到范围末尾时打回重试。"""
-        project_dir = _planned_three(tmp_path)
-        fake = _FakeTextGenerator(
-            [
-                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "踏上去往青云城的路。"}]),  # 留尾巴
-                _plan_response([{"title": "乙", "hook": "乙", "end_anchor": "卷入漩涡之中。"}]),
-            ]
+    async def test_plan_rejects_when_source_changes_between_snapshot_and_exhausted_backfill(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """存量项目游标已在全部源文末尾：入口快照之后、耗尽补记闭包读取之前源文被改动，
+        补记必须与入口快照比对拒绝，不能把变更后的内容直接登记为可信基线。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
         )
+        source_path = project_dir / "source" / "novel.txt"
+        call_count = 0
 
-        await EpisodePlanner(project_dir, generator=fake).replan(2, "重排")
+        def _mutating_discover_sources(project_path: Path):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:  # 入口快照(第1次)之后、耗尽补记闭包(第3次)读取之前改动源文
+                source_path.write_text("耗尽补记窗口期间被换掉的原文。", encoding="utf-8")
+            return _real_discover_sources(project_path)
 
-        assert len(fake.requests) == 2
-        assert "不能留尾巴" in fake.requests[1].prompt  # 失败原因专属文案，静态规则部分不含
-        assert "不能留尾巴" not in fake.requests[0].prompt
+        monkeypatch.setattr("lib.episode_planner.discover_sources", _mutating_discover_sources)
+        planner = EpisodePlanner(project_dir, generator=_FakeTextGenerator([]))
+
+        with pytest.raises(EpisodePlanningError, match="source/novel.txt"):
+            await planner.plan()
+
+        project = _load_project(project_dir)
+        assert SOURCE_FINGERPRINTS_KEY not in project
+
+    async def test_plan_rejects_when_source_file_discovered_mid_loop_changes_during_model_call(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """已耗尽 novel.txt 游标的存量项目：novel2.txt 在入口快照之后才出现，被
+        `_next_source_rel()` 发现并读入本批规划——提交复核必须覆盖这份中途读入的文本，
+        只查入口快照会漏掉模型调用期间对它的改动。"""
+        project_dir = _write_project(
+            tmp_path,
+            episodes=[_entry(1, 0, len(SOURCE))],
+            planning_cursor={"source_file": "source/novel.txt", "offset": len(SOURCE)},
+        )
+        novel2_path = project_dir / "source" / "novel2.txt"
+        novel2_path.write_text(SOURCE2, encoding="utf-8")
+        call_count = 0
+
+        def _discover_sources_hiding_novel2_on_first_call(project_path: Path):
+            nonlocal call_count
+            call_count += 1
+            docs = _real_discover_sources(project_path)
+            if call_count == 1:  # 入口快照：novel2.txt 尚未出现
+                return [doc for doc in docs if doc.rel_path != "source/novel2.txt"]
+            return docs
+
+        monkeypatch.setattr("lib.episode_planner.discover_sources", _discover_sources_hiding_novel2_on_first_call)
+
+        class _MutatingGenerator(_FakeTextGenerator):
+            async def generate(self, request, project_name=None):
+                novel2_path.write_text("新源文件在模型调用期间被换掉。", encoding="utf-8")
+                return await super().generate(request, project_name)
+
+        fake = _MutatingGenerator([_plan_response([{"title": "t3", "hook": "h3", "end_anchor": ANCHOR2_MID}])])
+        planner = EpisodePlanner(project_dir, generator=fake)
+
+        with pytest.raises(EpisodePlanningError, match="source/novel2.txt"):
+            await planner.plan()
+
+        project = _load_project(project_dir)
+        assert len(project.get("episodes") or []) == 1  # 第 1 集不受影响，也没有新集落账
+        assert SOURCE_FINGERPRINTS_KEY not in project
 
 
 class TestReconcileFailFast:
-    """派生文件对账的错误分支必须中止提交：提交成功 ⇒ 对账完成。"""
+    """派生文件对账（``_reconcile_derived_files``）的错误分支必须中止：提交成功 ⇒ 对账完成。
 
-    @staticmethod
-    def _corrupt_entry_1(project_dir: Path, mutate) -> str:
-        """改写第 1 集账本条目制造脏数据，返回改写后的 project.json 原文。"""
-        project = _load_project(project_dir)
-        mutate(project["episodes"][0])
-        (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-        return (project_dir / "project.json").read_text(encoding="utf-8")
+    直接调用该 helper（而非经 plan()）：这些场景考的是「账本里已有一条损坏/越界条目」，
+    与 plan() 从 planning_cursor 续接新一批无关——plan() 的提交路径已由 TestPlan 覆盖。
+    """
 
-    async def test_commit_aborts_when_anchored_entry_has_invalid_source_range(self, tmp_path: Path):
-        """账本中锚定集的原文范围类型非法：提交中止，账本与派生文件零变更。"""
+    def test_commit_aborts_when_anchored_entry_has_invalid_source_range(self, tmp_path: Path):
+        """账本中锚定集的原文范围类型非法：对账中止，派生文件零变更。"""
         project_dir = _planned_three(tmp_path)
-        before = self._corrupt_entry_1(project_dir, lambda e: e["source_range"].update(start="0"))
-        fake = _FakeTextGenerator([_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])])
+        project = _load_project(project_dir)
+        project["episodes"][0]["source_range"]["start"] = "0"
+        planner = EpisodePlanner(project_dir)
 
         with pytest.raises(EpisodePlanningError, match="对账"):
-            await EpisodePlanner(project_dir, generator=fake).replan(2, "后两集合成一集")
+            planner._reconcile_derived_files(project, {})
 
-        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
         assert (project_dir / "source" / "episode_3.txt").exists()  # 旧文件未被清理
 
-    async def test_commit_aborts_when_source_range_out_of_bounds(self, tmp_path: Path):
-        """账本中锚定集的原文范围越界（end 超源文长度）：提交中止，零变更。"""
+    def test_commit_aborts_when_source_range_out_of_bounds(self, tmp_path: Path):
+        """账本中锚定集的原文范围越界（end 超源文长度）：对账中止。"""
         project_dir = _planned_three(tmp_path)
-        before = self._corrupt_entry_1(project_dir, lambda e: e["source_range"].update(end=len(SOURCE) + 999))
-        fake = _FakeTextGenerator([_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])])
+        project = _load_project(project_dir)
+        project["episodes"][0]["source_range"]["end"] = len(SOURCE) + 999
+        planner = EpisodePlanner(project_dir)
 
         with pytest.raises(EpisodePlanningError, match="越界"):
-            await EpisodePlanner(project_dir, generator=fake).replan(2, "后两集合成一集")
+            planner._reconcile_derived_files(project, {})
 
-        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
-
-    async def test_commit_aborts_when_entry_source_file_missing(self, tmp_path: Path):
-        """账本引用的源文件缺失：派生文件重写失败中止提交，不留半成品账本。"""
+    def test_commit_aborts_when_entry_source_file_missing(self, tmp_path: Path):
+        """账本引用的源文件缺失：派生文件重写失败中止对账。"""
         project_dir = _planned_three(tmp_path)
-        before = self._corrupt_entry_1(project_dir, lambda e: e["source_range"].update(source_file="source/gone.txt"))
-        fake = _FakeTextGenerator([_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])])
+        project = _load_project(project_dir)
+        project["episodes"][0]["source_range"]["source_file"] = "source/gone.txt"
+        planner = EpisodePlanner(project_dir)
 
         with pytest.raises(EpisodePlanningError, match="重写失败"):
-            await EpisodePlanner(project_dir, generator=fake).replan(2, "后两集合成一集")
+            planner._reconcile_derived_files(project, {})
 
-        assert (project_dir / "project.json").read_text(encoding="utf-8") == before
         assert (project_dir / "source" / "episode_3.txt").exists()
 
-    async def test_commit_validation_failure_leaves_derived_files_untouched(self, tmp_path: Path):
-        """校验类失败中止提交时不得留下部分重写的派生文件：全部校验通过后才统一落盘。"""
+    def test_commit_validation_failure_leaves_derived_files_untouched(self, tmp_path: Path):
+        """校验类失败中止时不得留下部分重写的派生文件：全部校验通过后才统一落盘。"""
         project_dir = _planned_three(tmp_path)
         sentinel = "哨兵旧内容"
         (project_dir / "source" / "episode_1.txt").write_text(sentinel, encoding="utf-8")
         project = _load_project(project_dir)
         project["episodes"][1]["source_range"]["end"] = len(SOURCE) + 999  # 第 2 集越界，对账时居第 1 集之后
-        (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-        fake = _FakeTextGenerator([_plan_response([{"title": "丙", "hook": "丙", "end_anchor": "卷入漩涡之中。"}])])
+        planner = EpisodePlanner(project_dir)
 
         with pytest.raises(EpisodePlanningError, match="越界"):
-            await EpisodePlanner(project_dir, generator=fake).replan(3, "重排")
+            planner._reconcile_derived_files(project, {})
 
         # 排序在前的第 1 集合法，但因第 2 集校验失败，其派生文件不得被提前重写
         assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == sentinel
 
-    async def test_commit_aborts_when_derived_episode_file_is_symlink(self, tmp_path: Path):
-        """派生集文件是符号链接：写入会跟随链接落到项目外，必须中止提交。"""
+    def test_commit_aborts_when_derived_episode_file_is_symlink(self, tmp_path: Path):
+        """派生集文件是符号链接：写入会跟随链接落到项目外，必须中止对账。"""
         project_dir = _planned_three(tmp_path)
         outside = tmp_path / "outside.txt"
         outside.write_text("外部文件", encoding="utf-8")
         target = project_dir / "source" / "episode_2.txt"
         target.unlink()
         target.symlink_to(outside)
-        before = (project_dir / "project.json").read_text(encoding="utf-8")
-        fake = _FakeTextGenerator([_plan_response([{"title": "合并集", "hook": "甲", "end_anchor": "卷入漩涡之中。"}])])
+        project = _load_project(project_dir)
+        planner = EpisodePlanner(project_dir)
 
         with pytest.raises(EpisodePlanningError, match="符号链接"):
-            await EpisodePlanner(project_dir, generator=fake).replan(2, "后两集合成一集")
+            planner._reconcile_derived_files(project, {})
 
         assert outside.read_text(encoding="utf-8") == "外部文件"  # 链接目标未被覆写
-        assert (project_dir / "project.json").read_text(encoding="utf-8") == before

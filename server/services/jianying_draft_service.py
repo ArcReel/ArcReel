@@ -55,6 +55,7 @@ from lib.reference_video.ad_units import ad_shots_by_id
 from lib.script_models import ad_shot_duration_seconds
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.speech_rate import estimate_spoken_seconds
+from lib.storyboard_sequence import get_generated_assets
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +164,7 @@ class JianyingDraftService:
 
         clips = []
         for item in items:
-            assets = item.get("generated_assets") or {}
+            assets = get_generated_assets(item)
             video_clip = assets.get("video_clip")
             if not video_clip:
                 continue

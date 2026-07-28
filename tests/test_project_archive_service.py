@@ -347,11 +347,15 @@ class TestProjectArchiveService:
         assert exc_info.value.detail == "导入包校验失败"
         assert any("project.json" in error for error in exc_info.value.errors)
 
-    def test_import_rejects_missing_script_reference(self, tmp_path):
+    def test_import_rejects_missing_script_reference_for_malformed_entry(self, tmp_path):
+        """集号无法解析的畸形条目不是合法账本条目：剧本缺失仍阻断导入。"""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         service = ProjectArchiveService(pm)
         project_dir = pm.get_project_path("demo")
+        project = pm.load_project("demo")
+        del project["episodes"][0]["episode"]
+        pm.save_project("demo", project)
         (project_dir / "scripts" / "episode_1.json").unlink()
 
         archive_path = tmp_path / "missing-script.zip"
@@ -379,8 +383,42 @@ class TestProjectArchiveService:
         result = service.import_project_archive(archive_path, uploaded_filename="ledgered.zip")
         assert any("episodes[0].script_file" in w for w in result.warnings)
 
+    def test_import_allows_missing_script_for_entry_without_ledger_status(self, tmp_path):
+        """v2→v3 迁移不再回填 ledger_status，老项目升级后的条目可能永远没有该字段：
+        形状合法（集号可解析）即视为正常账本条目，导入放行并落 warning。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        project_dir = pm.get_project_path("demo")
+        (project_dir / "scripts" / "episode_1.json").unlink()
+
+        archive_path = tmp_path / "unledgered-missing-script.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="unledgered.zip")
+        assert any("episodes[0].script_file" in w for w in result.warnings)
+
+    def test_import_rejects_missing_script_reference_for_non_positive_episode_num(self, tmp_path):
+        """0/负数集号能被 parse_episode_num 解析，但不是合法集号：剧本缺失仍阻断导入。"""
+        pm = ProjectManager(tmp_path / "projects")
+        _create_project(pm)
+        service = ProjectArchiveService(pm)
+        project_dir = pm.get_project_path("demo")
+        project = pm.load_project("demo")
+        project["episodes"][0]["episode"] = 0
+        pm.save_project("demo", project)
+        (project_dir / "scripts" / "episode_1.json").unlink()
+
+        archive_path = tmp_path / "zero-episode-missing-script.zip"
+        _make_manual_zip(project_dir, archive_path)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="broken.zip")
+
+        assert any("episodes[0].script_file" in error for error in exc_info.value.errors)
+
     def test_migrated_project_archive_roundtrip_with_unscripted_episode(self, tmp_path):
-        """迁移补建的孤儿集条目（剧本未生成）不破坏导出→再导入往返。"""
+        """自愈登记的孤儿集条目（无位置记录、剧本未生成）不破坏导出→再导入往返。"""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
         service = ProjectArchiveService(pm)
@@ -390,8 +428,7 @@ class TestProjectArchiveService:
                 "episode": 2,
                 "title": "",
                 "script_file": "scripts/episode_2.json",
-                "source_range": None,
-                "ledger_status": "unanchored",
+                "ledger_status": "planned",
             }
         )
         pm.save_project("demo", project)
@@ -403,7 +440,9 @@ class TestProjectArchiveService:
             conflict_policy="rename",
         )
         imported = result.project
-        assert imported["episodes"][1]["ledger_status"] == "unanchored"
+        assert imported["episodes"][1]["ledger_status"] == "planned"
+        # 孤儿条目不写入位置记录：导出/导入往返不应凭空补出 source_range
+        assert "source_range" not in imported["episodes"][1]
 
     def test_import_surfaces_unconvertible_source_encoding_as_warning(self, tmp_path, monkeypatch):
         """源文件编码无法识别时导入不中止（局部损坏不阻断整体），failed 文件浮到导入 warnings。"""

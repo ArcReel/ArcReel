@@ -11,11 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from lib.asset_types import ASSET_SPECS
-from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.registry import PROVIDER_REGISTRY, model_info_for
 from lib.db.base import DEFAULT_USER_ID
-from lib.i18n import DEFAULT_LOCALE
-from lib.i18n import _ as i18n_translate
-from lib.image_backends.base import ImageCapabilityError
 from lib.path_safety import safe_exists, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import get_project_manager
@@ -33,7 +30,6 @@ from lib.prompt_utils import (
     utterances_to_dialogue,
     video_prompt_to_yaml,
 )
-from lib.reference_compression import ReferencePayloadFloorError
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
 from lib.storyboard_sequence import (
@@ -160,6 +156,28 @@ def _get_model_default_duration(provider_name: str, model_name: str | None) -> i
     return 4
 
 
+def constrain_durations_by_resolution(
+    provider_name: str, model_name: str | None, durations: list[int], resolution: str | None
+) -> list[int]:
+    """按型号声明的「分辨率↔时长」约束收窄候选；无声明或交集为空时返回原候选。
+
+    只服务于「未显式指定时长」时的取值：Veo 在 1080p/4k 下只接受 8 秒，而候选全集
+    ``supported_durations`` 首项是 4 秒，直接取首项会让默认设置必然撞上执行期拒绝。
+    显式指定的时长不经此收窄——其合法性仍由 :func:`assert_duration_supported` 与 backend
+    的执行期校验把关，拒绝行为不变。
+    """
+    if not durations or not resolution:
+        return durations
+    model_info = model_info_for(provider_name, model_name) if model_name else None
+    if model_info is None:
+        return durations
+    allowed = model_info.duration_resolution_constraints.get(resolution.strip().lower())
+    if not allowed:
+        return durations
+    narrowed = [d for d in durations if d in allowed]
+    return narrowed or durations
+
+
 def assert_duration_supported(duration: int | float | str, supported_durations: list[int]) -> None:
     """执行层能力守卫：duration 必须落在已解析 model 的 supported_durations 内。
 
@@ -172,7 +190,7 @@ def assert_duration_supported(duration: int | float | str, supported_durations: 
     视为非法而**拒绝**，不做截断式归一化（截断会把本应拒绝的非法值静默修正）。
 
     校验失败抛 :class:`VideoCapabilityError`（带稳定 code），与 ImageCapabilityError 对称——
-    Worker 捕获后渲染为本地化的 task.error_message。
+    Worker 按 code + params 落 task.error_message，文案由读侧 Translator 渲染。
     """
     if not supported_durations:
         return
@@ -830,10 +848,14 @@ async def execute_video_task(
     if duration_seconds is None:
         duration_seconds = project.get("default_duration")
     if not duration_seconds:
+        # 取首项前先按当前分辨率的联动约束收窄：否则 Veo + 1080p/4k 的默认（Auto）设置会取到
+        # 4 秒，被 backend 的「该分辨率必须 8 秒」拒绝——UI 已按同一份声明门控，此处不收窄
+        # 就等于默认配置必然失败。
+        candidates = constrain_durations_by_resolution(
+            registry_provider_id, model_name, supported_durations, resolution
+        )
         duration_seconds = (
-            supported_durations[0]
-            if supported_durations
-            else _get_model_default_duration(registry_provider_id, model_name)
+            candidates[0] if candidates else _get_model_default_duration(registry_provider_id, model_name)
         )
     # 能力守卫：provider 解析之后的唯一权威家（见 ADR-0001）。安全解析交给守卫，
     # 此处不预先 int() 截断，避免把非整数秒静默修正成「碰巧合法」的值。
@@ -1513,14 +1535,10 @@ async def execute_generation_task(task: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"unsupported task_type: {task_type}")
 
     with project_change_source("worker"):
-        try:
-            result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)
-        except (ImageCapabilityError, VideoCapabilityError, ReferencePayloadFloorError) as err:
-            # Worker 后台无 request 上下文，按 DEFAULT_LOCALE 渲染稳定的 i18n 文案
-            # 落到 task.error_message，前端轮询时即可看到本地化提示。
-            # ReferencePayloadFloorError 对普通图/视频与 R2V 都经此渲染（R2V 走同一 dispatch catch）。
-            message = i18n_translate(err.code, locale=DEFAULT_LOCALE, **err.params)
-            raise RuntimeError(message) from err
+        # 能力类异常（Image/VideoCapabilityError、ReferencePayloadFloorError）原样上抛：
+        # worker 的 _encode_task_failure_message 按 code + params 落库，渲染留到读侧
+        # Translator，同一失败任务按 Accept-Language 显示 zh/en/vi。
+        result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)
         emit_generation_success_batch(
             task_type=task_type,
             project_name=project_name,

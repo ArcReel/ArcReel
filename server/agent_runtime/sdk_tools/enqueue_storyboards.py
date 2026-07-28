@@ -19,6 +19,7 @@ from lib.prompt_utils import image_prompt_to_yaml, is_structured_image_prompt, n
 from lib.storyboard_sequence import (
     StoryboardTaskPlan,
     build_storyboard_dependency_plan,
+    get_generated_assets,
     get_storyboard_items,
 )
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
@@ -93,7 +94,7 @@ def _select_items(items: list[dict[str, Any]], id_field: str, segment_ids: list[
     if segment_ids is not None:
         wanted = {str(s) for s in segment_ids}
         return [item for item in items if str(item.get(id_field)) in wanted]
-    return [item for item in items if not item.get("generated_assets", {}).get("storyboard_image")]
+    return [item for item in items if not get_generated_assets(item).get("storyboard_image")]
 
 
 def _build_specs(

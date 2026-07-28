@@ -31,6 +31,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from lib.storyboard_sequence import get_generated_assets
+
 if TYPE_CHECKING:
     from lib.project_manager import ProjectManager
 
@@ -86,14 +88,14 @@ def resolve_project_cover(
 
     for script in scripts:
         for item in _iter_items(script):
-            ga = (item or {}).get("generated_assets") or {}
+            ga = get_generated_assets(item or {})
             thumb = ga.get("video_thumbnail")
             if thumb:
                 return _url(thumb)
 
     for script in scripts:
         for item in _iter_items(script):
-            ga = (item or {}).get("generated_assets") or {}
+            ga = get_generated_assets(item or {})
             sb = ga.get("storyboard_image")
             if sb:
                 return _url(sb)

@@ -199,6 +199,7 @@ export default {
   'overview_gen_desc': 'A project overview will be generated, then you can start creating scripts and storyboards',
   'project_overview_regenerated': 'Project overview regenerated',
   'project_sync_failed': 'Failed to sync project changes: {{message}}',
+  'project_load_failed': 'Failed to load project: {{message}}',
   'synopsis': 'Synopsis',
   'genre': 'Genre',
   'theme': 'Theme',
@@ -1289,7 +1290,6 @@ export default {
   'tool_name_split_narration_segments': 'Split narration segments',
   'tool_name_get_video_capabilities': 'Query video model capabilities',
   'tool_name_plan_episodes': 'Plan episodes',
-  'tool_name_replan_episodes': 'Replan episodes',
   'tool_name_reset_episode_planning': 'Reset episode planning',
   'tool_name_patch_episode_script': 'Edit shot field',
   'tool_name_patch_episode_meta': 'Edit episode title',
@@ -1419,6 +1419,9 @@ export default {
   'ad_ref_preview_video_aria': 'Video for group {{id}}',
   'ad_ref_busy': 'This group is generating, try again later',
   'ad_ref_rederive_busy': 'A group is generating, cannot derive right now',
+  'ad_ref_shot_duration_label': '{{shot_id}} duration',
+  'ad_ref_shot_voiceover_label': '{{shot_id}} voiceover text',
+  'ad_ref_edit_regenerate_hint': 'This group is already generated — regenerate it after editing shot duration for the change to take effect. Voiceover text doesn\'t affect the generated video; it\'s used for subtitle/dubbing export instead',
   'workspace_nav_products': 'Products',
 
   // ---- Projects lobby · Darkroom ----

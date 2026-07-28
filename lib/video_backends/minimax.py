@@ -189,7 +189,9 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
 
         allowed_durations = _RESOLUTION_DURATIONS.get(resolution, set())
         if duration not in allowed_durations:
-            supported = ", ".join(f"{d}s" for d in sorted(allowed_durations)) or "无"
+            # 空集合（分辨率未知）用语言中性占位符：这个值会原样进 en/vi 文案，
+            # 中文兜底会在非中文界面里露出中文。
+            supported = ", ".join(f"{d}s" for d in sorted(allowed_durations)) or "-"
             raise VideoCapabilityError(
                 "video_resolution_duration_unsupported",
                 model=self._model,

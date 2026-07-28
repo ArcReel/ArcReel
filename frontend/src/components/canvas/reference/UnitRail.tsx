@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { LayoutGrid } from "lucide-react";
-import { STATUS_CONF, deriveUnitStatus } from "./unit-status";
+import { STATUS_CONF, resolveUnitStatus } from "./unit-status";
 import type { ReferenceVideoUnit, UnitStatus } from "@/types";
 
 export interface UnitRailProps {
@@ -35,7 +35,7 @@ export function UnitRail({ units, selectedId, onSelect, onExpand, dirtyMap, stat
         {units.map((u) => {
           const sel = u.unit_id === selectedId;
           const dirty = !!dirtyMap?.[u.unit_id];
-          const status = deriveUnitStatus(u, statusMap);
+          const status = resolveUnitStatus(u, statusMap);
           const conf = STATUS_CONF[status];
           // Strip the leading E{episode} from the unit id so the rail shows just `U{n}`.
           const shortId = u.unit_id.replace(/^E\d+/, "");

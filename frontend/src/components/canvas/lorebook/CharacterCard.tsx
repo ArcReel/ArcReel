@@ -12,6 +12,7 @@ import { PreviewableImageFrame } from "@/components/ui/PreviewableImageFrame";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
+import { rejectIfAssetBusy } from "./assetBusyGuard";
 import type { Character } from "@/types";
 
 interface CharacterSavePayload {
@@ -77,6 +78,7 @@ export function CharacterCard({
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    if (rejectIfAssetBusy("character", projectName, name, t)) return;
     setUploadingSheet(true);
     try {
       await API.uploadFile(projectName, "character", file, name);

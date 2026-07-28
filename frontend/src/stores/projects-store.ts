@@ -124,9 +124,25 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
       const signal = projectScope.signal;
       try {
         const res = await API.getProject(curName, { signal });
-        // 在途期间若已排队到不同项目的刷新请求，本轮响应针对的是即将切走的旧项目——
-        // 跳过写入，避免用它覆盖排队轮即将加载的新项目（数据 / 名称均不提交）。
-        const supersededByOtherProject = refreshQueued && queuedName !== null && queuedName !== curName;
+        // currentProjectName 为 null 时，只有 store 整个生命周期内还从未建立过任何真实
+        // 项目才放行——那是 refreshProject 承担的「把首个项目数据建立进 store」职责，
+        // 届时没有「当前项目」可比较。一旦建立过任意项目，后续任何 null 都只会是路由
+        // cleanup 清空旧项目、异步加载新项目之间的过渡态：这段窗口里不放行任何名字的
+        // 写入（包括比刚清空的项目更早、直到现在才落定的旧项目，见 hasLoadedAnyProject
+        // 的注释），否则旧数据会在新项目自己的数据落地前抢先写回。
+        const { currentProjectName, hasLoadedAnyProject } = get();
+        // 在途期间若已排队到「更有资格写入」的另一个项目，本轮响应针对的就是即将被取代
+        // 的旧项目——跳过写入，避免覆盖排队轮即将加载的新项目（数据 / 名称均不提交）。
+        // 「更有资格」有两种：排队的那个项目已经是当前项目（路由切换先落名再发起刷新，
+        // 切换此刻已经完成），或 store 还没有当前项目（尚未建立任何项目，排队里的最新
+        // 意图就是目标）。反过来，排队者若是持切走前旧项目名的调用方（写操作完成后的
+        // 刷新、SSE），它注定过不了下面的当前项目核对、一个字节也写不进 store，本轮
+        // 不能为它让位——本轮才是当前项目自己的数据，丢掉后没有任何人会再加载它。
+        const supersededByOtherProject =
+          refreshQueued &&
+          queuedName !== null &&
+          queuedName !== curName &&
+          (currentProjectName === null || queuedName === currentProjectName);
         // 取消域已轮换：当前项目在请求在途期间被换掉了（路由切到别的项目、演示工作台接管、
         // 离开工作台清空）。这些路径都不经过 refreshProject，排队去重看不到它们，只能靠
         // 取消域识别。abort 与响应落定同为异步，响应先到、abort 后到时网络层不会 reject，
@@ -135,13 +151,6 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
         // 的刷新）捕获的是切走前的旧项目名，且这次调用是在切换已经完成之后才发起的，
         // 拿到的会是新项目现役、未 abort 的域——因此还要在写入前核对 curName 是否仍是
         // 当前项目，防止旧项目的数据覆盖已经切入的新项目。
-        // currentProjectName 为 null 时，只有 store 整个生命周期内还从未建立过任何真实
-        // 项目才放行——那是 refreshProject 承担的「把首个项目数据建立进 store」职责，
-        // 届时没有「当前项目」可比较。一旦建立过任意项目，后续任何 null 都只会是路由
-        // cleanup 清空旧项目、异步加载新项目之间的过渡态：这段窗口里不放行任何名字的
-        // 写入（包括比刚清空的项目更早、直到现在才落定的旧项目，见 hasLoadedAnyProject
-        // 的注释），否则旧数据会在新项目自己的数据落地前抢先写回。
-        const { currentProjectName, hasLoadedAnyProject } = get();
         const isCurrentProject =
           currentProjectName === curName || (currentProjectName === null && !hasLoadedAnyProject);
         if (!supersededByOtherProject && !signal.aborted && isCurrentProject) {
@@ -239,6 +248,16 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
           // 会在 C 成功后错误地收到 true，但 store 从未同步过 B 的数据）。按「未同步」
           // 立即结算为 "cancelled"，不视为请求出错，因此不触发 onError。
           if (refreshQueued && queuedName !== null && queuedName !== name) {
+            // 名额上已经是当前项目的刷新（通常就是路由切换后的首屏加载），而本次带来的
+            // 是别的项目名——调用方持有的是切走前的旧项目名。这一轮就算跑起来也过不了
+            // 当前项目核对，写不进任何东西：立即结算为 "cancelled"，不占用名额。否则
+            // 当前项目自己的刷新会被挤掉，而设计上只保留一个名额、不会为它补跑，当前
+            // 项目的数据一轮都不会被拉取（首屏则永远停在加载态）。
+            const { currentProjectName } = get();
+            if (currentProjectName !== null && queuedName === currentProjectName && name !== currentProjectName) {
+              resolve("cancelled");
+              return;
+            }
             const supersededResolvers = queuedResolvers;
             queuedResolvers = [];
             queuedKeys = [];

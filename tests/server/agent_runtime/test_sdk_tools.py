@@ -293,6 +293,40 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
     assert "audio/segment_E1S01.wav" in text
 
 
+async def test_generate_narration_audio_selects_item_with_corrupt_generated_assets(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，不抛 AttributeError。"""
+    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+
+    script = _narration_audio_script()
+    script["segments"][0]["generated_assets"] = "corrupt"
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+    captured: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+
+        captured.extend(specs)
+        succ = [
+            BatchTaskResult(
+                resource_id=s.resource_id,
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": f"audio/segment_{s.resource_id}.wav"},
+            )
+            for s in specs
+        ]
+        return succ, []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    tool_obj = mod.generate_narration_audio_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is not True, out
+    assert [s.resource_id for s in captured] == ["E1S01"]
+
+
 async def test_generate_narration_audio_explicit_ids_regenerate(fake_ctx: ToolContext, monkeypatch) -> None:
     """传 segment_ids → 即使该段已有 narration_audio 也重新入队（批量范围/单段重生语义）。"""
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
@@ -527,6 +561,37 @@ async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) ->
     tool_obj = generate_storyboards_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True
+
+
+async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，不抛 AttributeError。"""
+    from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
+
+    captured: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        from lib.generation_queue_client import BatchTaskResult
+
+        captured.extend(specs)
+        succ = [
+            BatchTaskResult(
+                resource_id=s.resource_id,
+                task_id="t1",
+                status="succeeded",
+                result={"file_path": f"storyboards/scene_{s.resource_id}.png"},
+            )
+            for s in specs
+        ]
+        return succ, []
+
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+    fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = "corrupt"  # type: ignore[attr-defined]
+    tool_obj = generate_storyboards_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+    assert out.get("is_error") is not True, out
+    assert [s.resource_id for s in captured] == ["E1S01"]
 
 
 async def test_generate_storyboards_error(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -1641,12 +1706,12 @@ class TestBuildPrompt:
 
 
 # ---------------------------------------------------------------------------
-# episode_planning — plan_episodes / replan_episodes 薄包装
+# episode_planning — plan_episodes 薄包装
 # ---------------------------------------------------------------------------
 
 
 def _fake_planner_cls(result: Any, captured: dict[str, Any] | None = None):
-    """构造可注入的 EpisodePlanner 替身：create() 工厂 + plan/replan 返回预置结果。"""
+    """构造可注入的 EpisodePlanner 替身：create() 工厂 + plan() 返回预置结果。"""
 
     class _FakePlanner:
         def __init__(self) -> None:
@@ -1661,13 +1726,6 @@ def _fake_planner_cls(result: Any, captured: dict[str, Any] | None = None):
         async def plan(self, instructions=None):
             if captured is not None:
                 captured["plan_instructions"] = instructions
-            if isinstance(result, BaseException):
-                raise result
-            return result
-
-        async def replan(self, from_episode, instructions, *, confirm_consumed=False):
-            if captured is not None:
-                captured["replan_args"] = (from_episode, instructions, confirm_consumed)
             if isinstance(result, BaseException):
                 raise result
             return result
@@ -1862,147 +1920,6 @@ async def test_plan_episodes_error_envelope(fake_ctx: ToolContext, monkeypatch) 
     assert "校验耗尽" in out["content"][0]["text"]
 
 
-async def test_replan_episodes_passes_args_and_reports_stale(fake_ctx: ToolContext, monkeypatch) -> None:
-    from lib.episode_planner import EpisodePlanSummary, PlanResult
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    captured: dict[str, Any] = {}
-    result = PlanResult(
-        episodes=[EpisodePlanSummary(episode=2, title="辞别下山", hook="甲", reading_units=700, ledger_status="stale")],
-        cursor=None,
-        stale_episodes=[2],
-        settings_updated={"episode_target_units": 800},
-    )
-    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result, captured))
-    out = await _call(
-        mod.replan_episodes_tool(fake_ctx),
-        {"from_episode": 2, "instructions": "每集短一点", "confirm_consumed": True},
-    )
-
-    assert out.get("is_error") is not True
-    assert captured["replan_args"] == (2, "每集短一点", True)
-    text = out["content"][0]["text"]
-    assert "stale" in text
-    assert "episode_target_units" in text
-
-
-async def test_replan_episodes_includes_ledger_stats(fake_ctx: ToolContext, monkeypatch) -> None:
-    """replan 是偏差修复的主要动作，返回一律附全局核对材料，闭合复核循环。"""
-    from lib.episode_planner import EpisodePlanSummary, LedgerStats, PlanResult
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    stats = LedgerStats(total_episodes=3, smallest=[(3, 23), (2, 37), (1, 45)], median_units=37, target_units=None)
-    result = PlanResult(
-        episodes=[
-            EpisodePlanSummary(episode=2, title="辞别下山", hook="甲", reading_units=700, ledger_status="planned")
-        ],
-        cursor=None,
-        ledger_stats=stats,
-    )
-    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result))
-    out = await _call(
-        mod.replan_episodes_tool(fake_ctx),
-        {"from_episode": 2, "instructions": "第2集在下山处收尾"},
-    )
-
-    assert out.get("is_error") is not True
-    text = out["content"][0]["text"]
-    assert "累计总集数：3" in text
-    assert "第 3 集（约 23）" in text
-    assert "有偏差须向用户明确说明" in text
-
-
-async def test_replan_episodes_confirmation_required(fake_ctx: ToolContext, monkeypatch) -> None:
-    from lib.episode_planner import ReplanConfirmationRequired
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(ReplanConfirmationRequired(consumed_episodes=[2, 3])))
-    out = await _call(mod.replan_episodes_tool(fake_ctx), {"from_episode": 2, "instructions": "重排"})
-
-    assert out.get("is_error") is not True  # 预期内的流程出口，不是错误
-    text = out["content"][0]["text"]
-    assert "已消费" in text and "confirm_consumed" in text
-
-
-async def test_replan_episodes_rejects_missing_instructions(fake_ctx: ToolContext) -> None:
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    out = await _call(mod.replan_episodes_tool(fake_ctx), {"from_episode": 2})
-    assert out.get("is_error") is True
-
-
-async def test_replan_episodes_rejects_string_confirm_consumed(fake_ctx: ToolContext) -> None:
-    """confirm_consumed 是确认安全边界：非布尔值（如字符串 "false"）必须拒绝而非真值化。"""
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    out = await _call(
-        mod.replan_episodes_tool(fake_ctx),
-        {"from_episode": 2, "instructions": "重排", "confirm_consumed": "false"},
-    )
-    assert out.get("is_error") is True
-    assert "confirm_consumed" in out["content"][0]["text"]
-
-
-async def test_replan_episodes_rejects_overlong_instructions(fake_ctx: ToolContext) -> None:
-    """instructions 超长按参数错误拒绝。"""
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    out = await _call(
-        mod.replan_episodes_tool(fake_ctx),
-        {"from_episode": 2, "instructions": "重" * (mod._MAX_INSTRUCTIONS_LEN + 1)},
-    )
-    assert out.get("is_error") is True
-    assert "过长" in out["content"][0]["text"]
-
-
-async def test_replan_episodes_accepts_boundary_length_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
-    """instructions 恰好等于上限长度应被接受（覆盖 > 比较的差一边界）。"""
-    from lib.episode_planner import EpisodePlanSummary, PlanResult
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    captured: dict[str, Any] = {}
-    result = PlanResult(
-        episodes=[
-            EpisodePlanSummary(episode=2, title="辞别下山", hook="甲", reading_units=700, ledger_status="planned")
-        ],
-        cursor=None,
-    )
-    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(result, captured))
-    text = "重" * mod._MAX_INSTRUCTIONS_LEN
-    out = await _call(mod.replan_episodes_tool(fake_ctx), {"from_episode": 2, "instructions": text})
-
-    assert out.get("is_error") is not True
-    assert captured["replan_args"] == (2, text, False)
-
-
-async def test_replan_episodes_rejects_non_integer_from_episode(fake_ctx: ToolContext) -> None:
-    """from_episode 必须是 JSON 整数：布尔与字符串都拒绝。"""
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    for bad in (True, "2"):
-        out = await _call(
-            mod.replan_episodes_tool(fake_ctx),
-            {"from_episode": bad, "instructions": "重排"},
-        )
-        assert out.get("is_error") is True
-        assert "from_episode" in out["content"][0]["text"]
-
-
-async def test_replan_episodes_planner_value_error_not_mislabeled_as_param_error(
-    fake_ctx: ToolContext, monkeypatch
-) -> None:
-    """重排器内部抛出的 ValueError（如供应商未配置）走通用工具错误，不被误标为参数错误。"""
-    from server.agent_runtime.sdk_tools import episode_planning as mod
-
-    monkeypatch.setattr(mod, "EpisodePlanner", _fake_planner_cls(ValueError("未找到可用的 text 供应商")))
-    out = await _call(mod.replan_episodes_tool(fake_ctx), {"from_episode": 2, "instructions": "重排"})
-
-    assert out.get("is_error") is True
-    text = out["content"][0]["text"]
-    assert "未找到可用的 text 供应商" in text
-    assert "参数错误" not in text  # 供应商未配置不是入参问题
-
-
 # ---------------------------------------------------------------------------
 # episode_planning — reset_episode_planning 薄包装
 # ---------------------------------------------------------------------------
@@ -2077,17 +1994,39 @@ async def test_reset_episode_planning_forwards_confirm(fake_ctx: ToolContext, mo
 
 @pytest.mark.unit
 async def test_reset_episode_planning_partial_reset_error(fake_ctx: ToolContext, monkeypatch) -> None:
-    """暂不支持的部分重置按可读错误返回，不走通用异常兜底。"""
+    """部分重置前置校验未通过（如源文指纹不一致）按可读错误返回，不走通用异常兜底。"""
     from lib.episode_reset import EpisodeResetError
     from server.agent_runtime.sdk_tools import episode_planning as mod
 
     monkeypatch.setattr(
-        mod, "reset_episode_planning", _fake_reset(EpisodeResetError("暂不支持部分重置（from_episode=3）"))
+        mod, "reset_episode_planning", _fake_reset(EpisodeResetError("源文件已被修改或移除：source/novel.txt"))
     )
     out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 3})
 
     assert out.get("is_error") is True
-    assert "暂不支持部分重置" in out["content"][0]["text"]
+    assert "源文件已被修改或移除" in out["content"][0]["text"]
+
+
+@pytest.mark.unit
+async def test_reset_episode_planning_partial_reset_success_message(fake_ctx: ToolContext, monkeypatch) -> None:
+    """部分重置成功时的摘要区分于全量重置：报清空范围与新起点，而非「账本已空」。"""
+    from lib.episode_reset import EpisodeResetResult
+    from server.agent_runtime.sdk_tools import episode_planning as mod
+
+    result = EpisodeResetResult(
+        removed_episodes=[2, 3], deleted_files=["source/episode_2.txt"], archived_files=[], consumed_episodes=[]
+    )
+    monkeypatch.setattr(mod, "reset_episode_planning", _fake_reset(result))
+
+    out = await _call(mod.reset_episode_planning_tool(fake_ctx), {"from_episode": 2})
+
+    assert out.get("is_error") is not True
+    text = out["content"][0]["text"]
+    assert "部分重置" in text
+    assert "第 2 集起共 2 集" in text
+    assert "第 1 集原文范围末尾" in text
+    assert "新集号从第 2 集起" in text
+    assert "账本已空" not in text
 
 
 @pytest.mark.unit

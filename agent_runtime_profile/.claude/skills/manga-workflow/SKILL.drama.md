@@ -45,8 +45,8 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 进入工作流后，使用 Read 读取 `project.json`，使用 Glob 检查文件系统。按顺序检查，遇到第一个缺失项即确定当前阶段：
 
 1. characters / scenes / props 中**任一**为空（定义缺失）？ → **阶段 1**
-2. 目标集在账本（project.json `episodes[]`）中没有条目？ → **阶段 2**。分集接续状态**只读账本**：条目的 `ledger_status` 标记每集状态（planned 已规划 / consumed 已消费 / stale 重排后失效需重做 / unanchored 失锚锁定），顶层 `planning_cursor` 标记下一批规划起点；**不要用 Glob 文件名推断集数**（`source/episode_{N}.txt` 只是账本的派生物）
-3. 目标集 `ledger_status` 为 `stale`（重排后失效——旧 step1/剧本/媒体一律视为失效，即使文件还在也从本阶段起重做，产物沿版本机制替换），或目标集**当前组合对应的** step1 中间文件不存在？ → **阶段 3**。按 `effective_mode(project, episode)` × `content_mode` 三分支检查对应文件（注意 effective_mode 含集级 `episodes[i].generation_mode` 覆盖，不能只看项目顶层字段）：
+2. 目标集在账本（project.json `episodes[]`）中没有条目？ → **阶段 2**。分集接续状态**只读账本**：条目的 `ledger_status` 标记每集状态（planned 已规划 / consumed 已消费 / stale 已有下游产物待重做），顶层 `planning_cursor` 标记下一批规划起点；**不要用 Glob 文件名推断集数**（`source/episode_{N}.txt` 只是账本的派生物）
+3. 目标集 `ledger_status` 为 `stale`（该集号重新规划前已有下游产物——旧 step1/剧本/媒体一律视为失效，即使文件还在也从本阶段起重做，产物沿版本机制替换），或目标集**当前组合对应的** step1 中间文件不存在？ → **阶段 3**。按 `effective_mode(project, episode)` × `content_mode` 三分支检查对应文件（注意 effective_mode 含集级 `episodes[i].generation_mode` 覆盖，不能只看项目顶层字段）：
    - effective_mode == reference_video（任一 content_mode）: `drafts/episode_{N}/step1_reference_units.json`
    - effective_mode ∈ {storyboard, grid} 且 content_mode == narration: `drafts/episode_{N}/step1_segments.json`
    - effective_mode ∈ {storyboard, grid} 且 content_mode == drama: `drafts/episode_{N}/step1_normalized_script.json`（结构化内容，见 ADR 0041）
@@ -104,9 +104,9 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
    - `episode_target_units`（每集目标体量，按 `source_language` 解读为阅读单位）：已设置则直接沿用；缺失且用户在对话中明确给过字数 → 经 `mcp__arcreel__patch_project({"settings": {"episode_target_units": N}})` 写入；都没有也可直接规划（工具会按短视频节奏自行把握体量），无需强制询问
 2. 调用 `mcp__arcreel__plan_episodes({})`。窗口字数与每批集数上限为工具内部默认，项目设置 `planning_window_chars` / `planning_max_episodes` 可覆盖（经 patch_project settings 写入）。**用户在规划前给出常驻分集偏好时**（如"严格按章节切分，一章一集""每集在某处收尾"），把偏好原文经 `instructions` 传入：`mcp__arcreel__plan_episodes({"instructions": "用户偏好原文"})`；规划器会以"必须全部落实"的强度对齐该偏好、优先于默认剧情弧完整性。长篇会分多批规划（每批一次工具调用），该偏好**不持久化**，须在规划完成前**每一批调用都重复带上同一 `instructions`**
 3. **批级审阅**：把工具返回的账本摘要（每集标题+钩子+体量）展示给用户，征求意见
-4. 用户提出意见（一句话可同时包含任意多处意见，含全局偏好）→ 调用 `mcp__arcreel__replan_episodes({"from_episode": N, "instructions": "用户意见原文"})`，`from_episode` 取意见中最早受影响的集；重排结果再次展示审阅。全局性意见（如每集体量）由工具自动回写项目设置，后续批次自动继承
-5. **已消费集警告确认**：重排会波及已消费集（已有 step1/剧本/媒体产物）时，工具会返回受影响集清单而不执行——把影响范围告知用户、获得明确确认后，追加 `"confirm_consumed": true` 重新调用；这些集会标 stale（产物不删除，重做沿现有覆盖/版本机制替换）
-6. **规划完毕后返回会附全局核对材料**（累计集数、体量最小几集、体量中位数、目标体量）：若用户给过总集数、按章节对齐等结构性偏好，须对照核对，有偏差须向用户明确说明（可引导用户用 replan 修正）
+4. 用户提出意见（一句话可同时包含任意多处意见，含全局偏好）→ 走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning({"from_episode": N})`，`from_episode` 取意见中最早受影响的集，保留其前的集不受影响
+5. **已消费集警告确认**：重置会波及已消费集（已有 step1/剧本/媒体产物）时，工具会返回受影响集清单而不执行——把影响范围告知用户、获得明确确认后，追加 `"confirm_consumed": true` 重新调用；确认执行后这些集的账本条目被清除，产物本身不删除
+6. 重置完成后，全局性意见（如每集体量）先经 `mcp__arcreel__patch_project({"settings": {"episode_target_units": N}})` 显式写入，再带调整后的 `instructions` 重新调用 `mcp__arcreel__plan_episodes` 从 `from_episode` 起分批规划、结果再次展示审阅；若新提交的集号与原消费范围重叠，工具会自动标 stale（产物不删除，需重做下游产物），无需额外确认。**规划完毕后返回会附全局核对材料**（累计集数、体量最小几集、体量中位数、目标体量）：若用户给过总集数、按章节对齐等结构性偏好，须对照核对，有偏差须向用户明确说明（可引导用户重新走「重置 + 重新规划」修正）
 7. 用户对本批规划满意后进入阶段 3。**用户显式授权全自主时**（如"直接跑完整个流程不用逐步确认"），可跳过批级审阅直接继续
 
 ---

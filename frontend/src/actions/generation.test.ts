@@ -1,13 +1,19 @@
 /**
  * 入队动作层测试：spy API 静态方法 + 真实 zustand store，
- * 验证「API 调用 → 乐观打标 → toast → 返回值归一化」的固定封装，
- * 以及 deduped=true 统一 info 提示与失败上抛不打标。
+ * 验证「乐观打标（请求发出前）→ API 调用 → 兑现/回滚 → toast → 返回值归一化」的固定封装，
+ * 以及 deduped=true 统一 info 提示与失败回滚。
+ *
+ * 占用一律按 selector 断言而非比对标记 key 的字面量——key 编码是 store 内部实现。
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import {
+  selectActiveResourceIds,
+  selectHasActiveTaskForScriptFile,
+  useTasksStore,
+} from "@/stores/tasks-store";
 import {
   enqueueCharacter,
   enqueueEpisodeNarration,
@@ -25,12 +31,27 @@ import {
 
 const SINGLE_OK = { success: true, task_id: "t1", deduped: false, message: "ok" };
 
-function optimisticKeys(): string[] {
-  return Array.from(useTasksStore.getState().optimisticActive);
+/** 该资源是否被占用（真实任务行或乐观标记）。 */
+function occupied(projectName: string, resourceKind: string, resourceId: string): boolean {
+  const { tasks, optimisticActive } = useTasksStore.getState();
+  return selectActiveResourceIds(tasks, resourceKind, projectName, optimisticActive).has(resourceId);
 }
 
-function optimisticScriptFileKeys(): string[] {
-  return Array.from(useTasksStore.getState().optimisticActiveScriptFile);
+/** 该剧集在指定 taskType 下是否被占用。 */
+function scriptFileOccupied(projectName: string, taskType: string, scriptFile: string): boolean {
+  const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+  return selectHasActiveTaskForScriptFile(
+    tasks,
+    taskType,
+    scriptFile,
+    projectName,
+    optimisticActiveScriptFile,
+  );
+}
+
+function markCounts(): { resource: number; scriptFile: number } {
+  const s = useTasksStore.getState();
+  return { resource: s.optimisticActive.size, scriptFile: s.optimisticActiveScriptFile.size };
 }
 
 beforeEach(() => {
@@ -49,11 +70,28 @@ describe("enqueueStoryboard", () => {
     const res = await enqueueStoryboard("demo", "seg-1", "img prompt", "episode_1.json");
 
     expect(spy).toHaveBeenCalledWith("demo", "seg-1", "img prompt", "episode_1.json");
-    expect(optimisticKeys()).toEqual(["demo\0storyboard\0seg-1\0storyboard\0"]);
+    expect(occupied("demo", "storyboard", "seg-1")).toBe(true);
     const toast = useAppStore.getState().toast;
     expect(toast?.text).toBe(i18n.t("dashboard:storyboard_task_submitted_toast", { id: "seg-1" }));
     expect(toast?.tone).toBe("success");
     expect(res).toEqual({ taskIds: ["t1"], deduped: false });
+  });
+
+  it("请求发出前就完成打标，往返窗口内资源即被判为占用", async () => {
+    // 打标若等到 API 返回才落，这段往返里资源判定为空闲，各调用方就得自备在途 ref
+    let release: (v: typeof SINGLE_OK) => void = () => {};
+    vi.spyOn(API, "generateStoryboard").mockReturnValue(
+      new Promise<typeof SINGLE_OK>((resolve) => {
+        release = resolve;
+      }),
+    );
+
+    const pending = enqueueStoryboard("demo", "seg-1", "p", "episode_1.json");
+    expect(occupied("demo", "storyboard", "seg-1")).toBe(true);
+
+    release(SINGLE_OK);
+    await pending;
+    expect(occupied("demo", "storyboard", "seg-1")).toBe(true);
   });
 
   it("deduped=true 时改弹统一 info 提示，仍打标并透出 deduped", async () => {
@@ -64,17 +102,31 @@ describe("enqueueStoryboard", () => {
     const toast = useAppStore.getState().toast;
     expect(toast?.text).toBe(i18n.t("dashboard:enqueue_deduped_toast"));
     expect(toast?.tone).toBe("info");
-    expect(optimisticKeys()).toHaveLength(1);
+    expect(occupied("demo", "storyboard", "seg-1")).toBe(true);
     expect(res.deduped).toBe(true);
   });
 
-  it("API 失败时向上抛，不打标也不弹 toast", async () => {
+  it("API 失败时向上抛并回滚乐观标记，不弹 toast", async () => {
     vi.spyOn(API, "generateStoryboard").mockRejectedValue(new Error("boom"));
 
     await expect(enqueueStoryboard("demo", "seg-1", "p", "episode_1.json")).rejects.toThrow("boom");
 
-    expect(optimisticKeys()).toEqual([]);
+    expect(occupied("demo", "storyboard", "seg-1")).toBe(false);
+    expect(markCounts().resource).toBe(0);
     expect(useAppStore.getState().toast).toBeNull();
+  });
+
+  it("响应体形状意外时同样回滚，不留下永不清除的在途标记", async () => {
+    // 在途标记不被任何轮询写回清除，故兑现前的异常路径（如 204 让 API.request 返回
+    // undefined、随后取 task_id 抛 TypeError）也必须回滚，否则资源锁死到刷新为止。
+    vi.spyOn(API, "generateStoryboard").mockResolvedValue(
+      undefined as unknown as Awaited<ReturnType<typeof API.generateStoryboard>>,
+    );
+
+    await expect(enqueueStoryboard("demo", "seg-1", "p", "episode_1.json")).rejects.toThrow();
+
+    expect(occupied("demo", "storyboard", "seg-1")).toBe(false);
+    expect(markCounts().resource).toBe(0);
   });
 });
 
@@ -84,45 +136,63 @@ describe("单资源入队动作的乐观标记 kind / taskType", () => {
       label: "video",
       run: () => enqueueVideo("demo", "seg-1", "p", "episode_1.json", 4),
       method: "generateVideo" as const,
-      key: "demo\0video\0seg-1\0video\0",
+      kind: "video",
+      resourceId: "seg-1",
     },
     {
       label: "tts",
       run: () => enqueueNarration("demo", "seg-1", "episode_1.json"),
       method: "generateNarrationAudio" as const,
-      key: "demo\0tts\0seg-1\0tts\0",
+      kind: "tts",
+      resourceId: "seg-1",
     },
     {
       label: "character",
       run: () => enqueueCharacter("demo", "Hero", "p"),
       method: "generateCharacter" as const,
-      key: "demo\0character\0Hero\0character\0",
+      kind: "character",
+      resourceId: "Hero",
     },
     {
       label: "scene",
       run: () => enqueueScene("demo", "Temple", "p"),
       method: "generateProjectScene" as const,
-      key: "demo\0scene\0Temple\0scene\0",
+      kind: "scene",
+      resourceId: "Temple",
     },
     {
       label: "prop",
       run: () => enqueueProp("demo", "Sword", "p"),
       method: "generateProjectProp" as const,
-      key: "demo\0prop\0Sword\0prop\0",
+      kind: "prop",
+      resourceId: "Sword",
     },
     {
       label: "product",
       run: () => enqueueProduct("demo", "Phone", "p"),
       method: "generateProjectProduct" as const,
-      key: "demo\0product\0Phone\0product\0",
+      kind: "product",
+      resourceId: "Phone",
     },
-  ])("$label：成功后按资源类型打标并归一化 task_id", async ({ run, method, key }) => {
+  ])("$label：成功后按资源类型打标并归一化 task_id", async ({ run, method, kind, resourceId }) => {
     vi.spyOn(API, method).mockResolvedValue(SINGLE_OK);
 
     const res = await run();
 
-    expect(optimisticKeys()).toEqual([key]);
+    expect(occupied("demo", kind, resourceId)).toBe(true);
+    expect(markCounts().resource).toBe(1);
     expect(res).toEqual({ taskIds: ["t1"], deduped: false });
+  });
+
+  it.each([
+    { label: "video", run: () => enqueueVideo("demo", "seg-1", "p", "episode_1.json", 4), method: "generateVideo" as const },
+    { label: "character", run: () => enqueueCharacter("demo", "Hero", "p"), method: "generateCharacter" as const },
+  ])("$label：请求失败时回滚，不留下占用", async ({ run, method }) => {
+    vi.spyOn(API, method).mockRejectedValue(new Error("boom"));
+
+    await expect(run()).rejects.toThrow("boom");
+
+    expect(markCounts()).toEqual({ resource: 0, scriptFile: 0 });
   });
 });
 
@@ -140,8 +210,7 @@ describe("enqueueEpisodeNarration", () => {
     expect(useAppStore.getState().toast?.text).toBe(
       i18n.t("dashboard:narration_batch_submitted_toast", { count: 2 }),
     );
-    expect(optimisticKeys()).toEqual([]);
-    expect(optimisticScriptFileKeys()).toEqual([]);
+    expect(markCounts()).toEqual({ resource: 0, scriptFile: 0 });
     expect(res).toEqual({ taskIds: ["t1", "t2"], deduped: false });
   });
 
@@ -172,7 +241,8 @@ describe("enqueueImageEdit", () => {
       scriptFile: "episode_1.json",
     });
 
-    expect(optimisticKeys()).toEqual(["demo\0storyboard\0seg-1\0image_edit\0"]);
+    // 编辑任务与目标资源的生成任务同槽：按 storyboard 归槽而非 image_edit
+    expect(occupied("demo", "storyboard", "seg-1")).toBe(true);
     expect(useAppStore.getState().toast?.text).toBe("已提交图片编辑");
     expect(res).toEqual({ taskIds: ["t1"], deduped: false });
   });
@@ -190,12 +260,12 @@ describe("enqueueGrid", () => {
 
     const res = await enqueueGrid("demo", 1, "episode_1.json");
 
-    expect(optimisticScriptFileKeys()).toEqual(["demo\0grid\0episode_1.json\0"]);
+    expect(scriptFileOccupied("demo", "grid", "episode_1.json")).toBe(true);
     expect(useAppStore.getState().toast?.text).toBe("已入队 1 个宫格");
     expect(res).toEqual({ taskIds: ["t1"], deduped: false });
   });
 
-  it("task_ids 为空时不打标（无任务落库，标记会永久残留）", async () => {
+  it("task_ids 为空时回滚标记（无任务落库，标记会永久残留）", async () => {
     vi.spyOn(API, "generateGrid").mockResolvedValue({
       success: true,
       grid_ids: [],
@@ -206,30 +276,40 @@ describe("enqueueGrid", () => {
 
     await enqueueGrid("demo", 1, "episode_1.json", ["S9"]);
 
-    expect(optimisticScriptFileKeys()).toEqual([]);
+    expect(markCounts().scriptFile).toBe(0);
+    expect(scriptFileOccupied("demo", "grid", "episode_1.json")).toBe(false);
   });
 });
 
 describe("enqueueGridRegenerate", () => {
-  it("成功时静默（面板内已有状态反馈），有 scriptFile 则打标", async () => {
+  it("成功时静默（面板内已有状态反馈），宫格与所属剧集同时打标", async () => {
     vi.spyOn(API, "regenerateGrid").mockResolvedValue({ success: true, task_id: "t1", deduped: false });
 
     const res = await enqueueGridRegenerate("demo", "grid-1", "episode_1.json");
 
-    expect(optimisticScriptFileKeys()).toEqual(["demo\0grid\0episode_1.json\0"]);
+    expect(occupied("demo", "grid", "grid-1")).toBe(true);
+    expect(scriptFileOccupied("demo", "grid", "episode_1.json")).toBe(true);
     expect(useAppStore.getState().toast).toBeNull();
     expect(res).toEqual({ taskIds: ["t1"], deduped: false });
   });
 
-  it("scriptFile 为 null 时不打标；deduped=true 仍弹统一 info 提示", async () => {
+  it("scriptFile 为 null 时只打宫格粒度标记；deduped=true 仍弹统一 info 提示", async () => {
     vi.spyOn(API, "regenerateGrid").mockResolvedValue({ success: true, task_id: "t1", deduped: true });
 
     await enqueueGridRegenerate("demo", "grid-1", null);
 
-    expect(optimisticScriptFileKeys()).toEqual([]);
+    expect(markCounts()).toEqual({ resource: 1, scriptFile: 0 });
     const toast = useAppStore.getState().toast;
     expect(toast?.text).toBe(i18n.t("dashboard:enqueue_deduped_toast"));
     expect(toast?.tone).toBe("info");
+  });
+
+  it("请求失败时两个粒度的标记一起回滚", async () => {
+    vi.spyOn(API, "regenerateGrid").mockRejectedValue(new Error("boom"));
+
+    await expect(enqueueGridRegenerate("demo", "grid-1", "episode_1.json")).rejects.toThrow("boom");
+
+    expect(markCounts()).toEqual({ resource: 0, scriptFile: 0 });
   });
 });
 
@@ -239,7 +319,7 @@ describe("enqueueReferenceVideoUnit", () => {
 
     const res = await enqueueReferenceVideoUnit("demo", 1, "E1U1");
 
-    expect(optimisticKeys()).toEqual(["demo\0reference_video\0E1U1\0reference_video\0"]);
+    expect(occupied("demo", "reference_video", "E1U1")).toBe(true);
     const toast = useAppStore.getState().toast;
     expect(toast?.text).toBe(i18n.t("dashboard:reference_generate_queued"));
     expect(toast?.tone).toBe("info");

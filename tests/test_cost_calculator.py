@@ -49,27 +49,32 @@ class TestVideoCost:
             )
             return amount
 
-        # 默认模型 (veo-3.1-lite-generate-preview)
+        # 默认模型 (veo-3.1-lite-generate-preview)：1080p 含音 0.08 / 无音 0.05，720p 0.05 / 0.03
         assert video(8, "1080p", True) == pytest.approx(0.64)
-        assert video(8, "1080p", False) == pytest.approx(0.64)
+        assert video(8, "1080p", False) == pytest.approx(0.40)
         assert video(8, "720p", True) == pytest.approx(0.40)
-        assert video(8, "720p", False) == pytest.approx(0.40)
+        assert video(8, "720p", False) == pytest.approx(0.24)
         # Lite 不支持 4K，未知分辨率回退到 1080p+audio 费率 (0.08)
         assert video(5, "unknown", True) == pytest.approx(0.40)
-        # Fast 模型 (veo-3.1-fast-generate-001，在 gemini-vertex)
+        # Fast 模型 (veo-3.1-fast-generate-001，在 gemini-vertex)：1080p 含音 0.12 / 无音 0.10
         fast = "veo-3.1-fast-generate-001"
-        assert video(8, "1080p", True, provider="gemini-vertex", model=fast) == pytest.approx(1.2)
+        assert video(8, "1080p", True, provider="gemini-vertex", model=fast) == pytest.approx(0.96)
         assert video(8, "1080p", False, provider="gemini-vertex", model=fast) == pytest.approx(0.8)
-        assert video(6, "4k", True, provider="gemini-vertex", model=fast) == pytest.approx(2.1)
-        assert video(6, "4k", False, provider="gemini-vertex", model=fast) == pytest.approx(1.8)
-        # Fast 模型未知分辨率应回退到自身的 1080p+audio 费率 (0.15)，而非标准模型的 0.40
-        assert video(5, "unknown", True, provider="gemini-vertex", model=fast) == pytest.approx(0.75)
-        # 历史兼容：preview 模型费率与 001 相同（preview 在 gemini-aistudio）
+        assert video(8, "720p", True, provider="gemini-vertex", model=fast) == pytest.approx(0.8)
+        assert video(8, "720p", False, provider="gemini-vertex", model=fast) == pytest.approx(0.64)
+        # Fast 模型未知分辨率应回退到自身的 1080p+audio 费率 (0.12)，而非标准模型的 0.40
+        assert video(5, "unknown", True, provider="gemini-vertex", model=fast) == pytest.approx(0.60)
+        # 4K 档（Standard 两侧 + AI Studio Fast 支持）：含音 0.60 / 0.30，无音 0.40 / 0.25
         preview = "veo-3.1-generate-preview"
+        assert video(8, "4k", True, model=preview) == pytest.approx(4.8)
+        assert video(8, "4k", False, model=preview) == pytest.approx(3.2)
+        fast_preview = "veo-3.1-fast-generate-preview"
+        assert video(8, "4k", True, model=fast_preview) == pytest.approx(2.4)
+        assert video(8, "4k", False, model=fast_preview) == pytest.approx(2.0)
+        # 历史兼容：preview 模型费率与 001 相同（preview 在 gemini-aistudio）
         assert video(8, "1080p", True, model=preview) == pytest.approx(3.2)
         assert video(8, "1080p", False, model=preview) == pytest.approx(1.6)
-        fast_preview = "veo-3.1-fast-generate-preview"
-        assert video(8, "1080p", True, model=fast_preview) == pytest.approx(1.2)
+        assert video(8, "1080p", True, model=fast_preview) == pytest.approx(0.96)
 
     def test_singleton_instance(self):
         assert isinstance(cost_calculator, CostCalculator)

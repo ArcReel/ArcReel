@@ -109,6 +109,8 @@ export default {
   duration_label: "Thời lượng mặc định",
   duration_auto: "tự động",
   duration_unsupported_notice: "Thời lượng đã lưu {{value}}s không còn được mô hình hiện tại hỗ trợ. Vui lòng chọn lại.",
+  duration_unsupported_resolution_notice: "Thời lượng đã lưu {{value}}s không khả dụng ở độ phân giải hiện tại. Vui lòng chọn lại.",
+  duration_unsupported_reference_notice: "Thời lượng đã lưu {{value}}s không khả dụng ở chế độ Reference-to-Video. Vui lòng chọn lại.",
   duration_reset_auto: "Đặt lại về tự động",
   resolution_label: "Độ phân giải",
   resolution_default_placeholder: "Mặc định (chưa đặt)",

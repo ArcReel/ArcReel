@@ -13,6 +13,7 @@ import { UnitList } from "./UnitList";
 import { UnitRail } from "./UnitRail";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
 import { ReferenceVideoCard, unitPromptText } from "./ReferenceVideoCard";
+import { deriveUnitStatus } from "./unit-status";
 import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ScriptReviewGate } from "@/components/canvas/timeline/ScriptReviewGate";
@@ -23,7 +24,6 @@ import {
   referenceVideoCacheKey,
 } from "@/stores/reference-video-store";
 import {
-  isActiveStatus,
   selectActiveResourceIds,
   useActiveResourceIds,
   useLatestTasksByResource,
@@ -52,6 +52,25 @@ export interface ReferenceVideoCanvasProps {
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
 
+/**
+ * 画布层自记的按 unit 占用位（不产生任务行、进不了 tasks-store 占用集的那些写入路径）。
+ *
+ * `ids` 供渲染，`ref` 供提交时刻新鲜读：state 要等 render 冲刷才可见，而「点击发生在状态
+ * 已变、渲染未到」的窗口正是提交时复核要挡的（与 isUnitBusy 的新鲜读同理）。
+ */
+function useUnitFlagSet() {
+  const [ids, setIds] = useState<Set<string>>(() => new Set());
+  const ref = useRef<Set<string>>(new Set());
+  const set = useCallback((unitId: string, on: boolean) => {
+    const next = new Set(ref.current);
+    if (on) next.add(unitId);
+    else next.delete(unitId);
+    ref.current = next;
+    setIds(next);
+  }, []);
+  return useMemo(() => ({ ids, ref, set }), [ids, set]);
+}
+
 // 容器宽度断点（px，对应设计稿的响应式行为）。
 //   < LIST_RAIL_BREAKPOINT — 左侧 UnitList 收成 56px rail（带 flyout 触发）
 //   < STACK_PREVIEW_BREAKPOINT — 中右合栏，预览叠成 sub-tab
@@ -70,6 +89,16 @@ function draftKey(projectName: string, episode: number, unitId: string): string 
 function toastError(e: unknown, format?: (msg: string) => string): void {
   const msg = errMsg(e);
   useAppStore.getState().pushToast(format ? format(msg) : msg, "error");
+}
+
+/**
+ * 提交时刻的占用复核：按钮渲染期捕获的占用态未必是最新的（批量循环、Agent 入队、
+ * SSE 落库都可能在渲染之后、点击之前占用同一 unit），故一律用 getState() 新鲜读。
+ * 入队动作层在请求发出前就打乐观标记，因此同一 tick 内的连点也会被这一读拦下。
+ */
+function isUnitBusy(projectName: string, unitId: string): boolean {
+  const { tasks, optimisticActive } = useTasksStore.getState();
+  return selectActiveResourceIds(tasks, "reference_video", projectName, optimisticActive).has(unitId);
 }
 
 export function ReferenceVideoCanvas({
@@ -103,12 +132,15 @@ export function ReferenceVideoCanvas({
   // store 不保证 tasks 顺序（SSE 原位 upsert），重试的新行不被旧失败行盖住。
   const tasksByUnit = useLatestTasksByResource(projectName, "reference_video");
 
+  // 参考生视频任务完成时经项目事件 SSE 自增，驱动本 effect 重拉分组展示成片。
+  const unitsRevision = useAppStore((s) => s.referenceVideoUnitsRevision);
+
   useEffect(() => {
     // step2 剧本未生成时 /episodes/{episode}/units 后端会 404（无脚本可拆单元）；
     // hasScript 转 true 后本 effect 随依赖变化重跑，补上首次拉取。
     if (!hasScript) return;
     void loadUnits(projectName, episode);
-  }, [loadUnits, projectName, episode, hasScript]);
+  }, [loadUnits, projectName, episode, hasScript, unitsRevision]);
 
   const selected = useMemo(
     () => units.find((u) => u.unit_id === selectedUnitId) ?? null,
@@ -122,48 +154,49 @@ export function ReferenceVideoCanvas({
     }
   }, [units, selected, select]);
 
-  // 乐观占用来自 tasks-store：入队动作层在 API 成功后打标，真实任务行落库后让位。
+  // 乐观占用来自 tasks-store：入队动作层在请求发出前打标、失败回滚，真实任务行落库后
+  // 让位，故「请求发出 → 任务行落库」全程都被覆盖，画布无须自备请求在途标记。
   const busyUnitIds = useActiveResourceIds("reference_video", projectName);
 
-  const [uploadingUnitIds, setUploadingUnitIds] = useState<Set<string>>(() => new Set());
+  // 成片上传与版本恢复都不产生任务行，进不了 tasks-store 占用集，故在画布层按 unit 记录。
+  // 存在这里而非 UnitPreviewPanel 内：该面板有窄屏 sub-tab 与宽屏右栏两处挂载点，切换子页
+  // 或跨越 STACK_PREVIEW_BREAKPOINT 都会卸载它（在途请求不会因此取消），且它随选中项切换
+  // 复用，面板内的单个布尔量还会把 A 的占用态串到 B 上。
+  const uploading = useUnitFlagSet();
+  const restoring = useUnitFlagSet();
 
-  // 入队请求自身在途的 unit：动作层的乐观打标要等 API 响应回来才落，这段往返里
-  // busyUnitIds 仍是空的，只靠它禁用会在「请求已发出、响应未回」的窗口内漏禁用。
-  // ref 是提交时刻复核的同步真相源（同一 tick 内连点时 state 尚未提交到闭包），
-  // state 仅用于驱动禁用态重渲染。
-  const submittingRef = useRef<Set<string>>(new Set());
-  const [submittingUnitIds, setSubmittingUnitIds] = useState<Set<string>>(() => new Set());
+  const setUploading = uploading.set;
+  const handleRestoringChange = restoring.set;
+
+  /** 该 unit 是否被任一写入路径占用：生成（tasks-store 占用集）、成片上传或版本恢复。 */
+  const isUnitLocked = useCallback(
+    (unitId: string) =>
+      isUnitBusy(projectName, unitId) ||
+      uploading.ref.current.has(unitId) ||
+      restoring.ref.current.has(unitId),
+    [projectName, uploading.ref, restoring.ref],
+  );
 
   const statusMap = useMemo<Record<string, UnitStatus>>(() => {
     const map: Record<string, UnitStatus> = {};
     for (const u of units) {
-      let st: UnitStatus = u.generated_assets.video_clip ? "ready" : "pending";
-      const queueRow = tasksByUnit.get(u.unit_id);
-      // 上传中的 unit 视为 running：批量生成按 statusMap 选 pending，
-      // 否则上传期间会被再次入队，与生成回写同一个成片文件
-      if (uploadingUnitIds.has(u.unit_id)) st = "running";
-      else if (queueRow && isActiveStatus(queueRow.status)) st = "running";
-      // 失败任务行 DB 持久化、不会过期：手动上传成片后单元已有可播放资产，
-      // 不再让历史失败覆盖 ready（与 timeline/grid 画布用 toast 提示失败的语义对齐）
-      else if (queueRow?.status === "failed" && !u.generated_assets.video_clip) st = "failed";
-      // 乐观窗口：真实任务行尚未落库时按占用集显示 running。已有任务行时不走
-      // 这个分支——显示语义仍由 isActiveStatus 决定（cancelling 不显示为 running）。
-      else if (!queueRow && busyUnitIds.has(u.unit_id)) st = "running";
-      map[u.unit_id] = st;
+      map[u.unit_id] = deriveUnitStatus({
+        hasClip: Boolean(u.generated_assets.video_clip),
+        queueRow: tasksByUnit.get(u.unit_id),
+        busy: busyUnitIds.has(u.unit_id),
+        uploading: uploading.ids.has(u.unit_id),
+        // 本画布提供成片上传入口：上传后单元已有可播放资产，历史失败不再覆盖 ready
+        // （与 timeline/grid 画布用 toast 提示失败的语义对齐）。
+        supportsManualUpload: true,
+      });
     }
     return map;
-  }, [units, tasksByUnit, busyUnitIds, uploadingUnitIds]);
-
-  const generating = !!(selected && statusMap[selected.unit_id] === "running");
+  }, [units, tasksByUnit, busyUnitIds, uploading.ids]);
 
   // 独立于 statusMap 传给 UnitPreviewPanel：重试（旧失败行在）与重新生成（旧成功行在）
   // 两条路径上 queueRow 始终非空，statusMap 的乐观分支不生效，仅看 status 会在入队到
-  // 任务行落库之间的窗口内漏禁用生成按钮。submittingUnitIds 补上请求往返那一段，
-  // 合起来覆盖「请求发出 → 乐观打标 → 真实任务行落库」全程。
-  const selectedBusy = !!(
-    selected &&
-    (busyUnitIds.has(selected.unit_id) || submittingUnitIds.has(selected.unit_id))
-  );
+  // 任务行落库之间的窗口内漏禁用生成按钮。
+  const selectedBusy = !!(selected && busyUnitIds.has(selected.unit_id));
   const selectedCancelling = !!(selected && tasksByUnit.get(selected.unit_id)?.status === "cancelling");
 
   const failureMessage = useMemo(() => {
@@ -196,35 +229,29 @@ export function ReferenceVideoCanvas({
       setStackTab("preview");
       // 提交前用 getState() 新鲜读复核：按钮渲染期捕获的占用态未必是最新的
       // （批量循环、Agent 入队、SSE 落库都可能在渲染之后、点击之前占用同一 unit）。
-      const { tasks, optimisticActive } = useTasksStore.getState();
-      const live = selectActiveResourceIds(tasks, "reference_video", projectName, optimisticActive);
-      if (live.has(unitId) || submittingRef.current.has(unitId)) {
+      if (isUnitLocked(unitId)) {
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
       }
-      submittingRef.current.add(unitId);
-      setSubmittingUnitIds(new Set(submittingRef.current));
       try {
-        // 入队成功的乐观打标与 queued/deduped 提示都在动作层内完成
+        // 乐观打标（请求发出前）、失败回滚与 queued/deduped 提示都在动作层内完成
         await enqueueReferenceVideoUnit(projectName, episode, unitId);
       } catch (e) {
         toastError(e, (msg) => t("reference_generate_request_failed", { error: msg }));
-      } finally {
-        // 打标已由动作层完成（失败时无标可解），此处只交还请求在途标记
-        submittingRef.current.delete(unitId);
-        setSubmittingUnitIds(new Set(submittingRef.current));
       }
     },
-    [projectName, episode, t],
+    [projectName, episode, isUnitLocked, t],
   );
 
   const handleUploadVideo = useCallback(
     async (unitId: string, file: File) => {
-      setUploadingUnitIds((s) => {
-        const next = new Set(s);
-        next.add(unitId);
-        return next;
-      });
+      // 上传与生成回写同一个成片文件，故与生成入口同一套占用判定：文件选择对话框
+      // 打开期间同一 unit 可能已被占用，按钮渲染期的禁用态挡不住这段窗口。
+      if (isUnitLocked(unitId)) {
+        useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
+        return;
+      }
+      setUploading(unitId, true);
       try {
         try {
           const result = await API.uploadReferenceUnitVideo(projectName, episode, unitId, file);
@@ -241,14 +268,10 @@ export function ReferenceVideoCanvas({
           toastError(e, (msg) => t("media_refresh_failed", { message: msg }));
         }
       } finally {
-        setUploadingUnitIds((s) => {
-          const next = new Set(s);
-          next.delete(unitId);
-          return next;
-        });
+        setUploading(unitId, false);
       }
     },
-    [projectName, episode, loadUnits, t],
+    [projectName, episode, loadUnits, isUnitLocked, setUploading, t],
   );
 
   const handleUnitsRefresh = useCallback(
@@ -256,17 +279,28 @@ export function ReferenceVideoCanvas({
     [loadUnits, projectName, episode],
   );
 
+  // 批量生成的作用对象：全部待生成 unit。按钮禁用与它同一口径——此前只看当前选中
+  // unit 是否在跑，与作用对象无关，选中项空闲时按钮会在没有任何待生成 unit 的情况下
+  // 仍可点击，选中项在跑时又会挡住其余 unit 的批量生成。
+  const batchTargets = useMemo(
+    () => units.filter((u) => statusMap[u.unit_id] === "pending"),
+    [units, statusMap],
+  );
+
   const handleBatchGenerate = useCallback(async () => {
-    const targets = units.filter((u) => statusMap[u.unit_id] === "pending");
-    if (targets.length === 0) {
+    if (batchTargets.length === 0) {
       useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
       return;
     }
-    for (const u of targets) {
+    for (const u of batchTargets) {
+      // 实时复核而非用渲染期快照：串行 await 期间其它入口（单元按钮、Agent 入队、
+      // SSE 落库）可能已占用同一 unit。命中即跳过，不当作错误提示——批量入口的语义
+      // 是「把还能生成的都排上」，逐个报错只会刷屏。
+      if (isUnitLocked(u.unit_id)) continue;
       // 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
       await handleGenerate(u.unit_id);
     }
-  }, [units, statusMap, handleGenerate, t]);
+  }, [batchTargets, handleGenerate, isUnitLocked, t]);
 
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
@@ -558,7 +592,7 @@ export function ReferenceVideoCanvas({
           <button
             type="button"
             onClick={() => void handleBatchGenerate()}
-            disabled={units.length === 0 || generating}
+            disabled={batchTargets.length === 0}
             className="focus-ring inline-flex items-center gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[oklch(0.22_0.011_265_/_0.5)] px-2.5 py-1 text-[11.5px] text-[var(--color-text-2)] transition-colors hover:bg-[oklch(0.26_0.013_265_/_0.7)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
@@ -803,7 +837,10 @@ export function ReferenceVideoCanvas({
                           actualCost={actualCost}
                           onGenerate={onGenerateVoid}
                           onUploadVideo={handleUploadVideo}
-                          uploadingVideo={uploadingUnitIds.has(selected.unit_id)}
+                          uploadingVideo={uploading.ids.has(selected.unit_id)}
+                          restoring={restoring.ids.has(selected.unit_id)}
+                          onRestoringChange={handleRestoringChange}
+                          checkBusy={isUnitLocked}
                           onRestored={handleUnitsRefresh}
                         />
                       </div>
@@ -831,7 +868,10 @@ export function ReferenceVideoCanvas({
                   actualCost={actualCost}
                   onGenerate={onGenerateVoid}
                   onUploadVideo={handleUploadVideo}
-                  uploadingVideo={selected ? uploadingUnitIds.has(selected.unit_id) : false}
+                  uploadingVideo={selected ? uploading.ids.has(selected.unit_id) : false}
+                  restoring={selected ? restoring.ids.has(selected.unit_id) : false}
+                  onRestoringChange={handleRestoringChange}
+                  checkBusy={isUnitLocked}
                   onRestored={handleUnitsRefresh}
                 />
               </div>

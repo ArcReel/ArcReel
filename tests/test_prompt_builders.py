@@ -1,8 +1,11 @@
+import pytest
+
 from lib.prompt_builders import (
     append_image_negative_tail,
     append_product_fidelity_tail,
     append_video_negative_tail,
     build_character_prompt,
+    build_product_prompt,
     build_prop_prompt,
     build_scene_prompt,
 )
@@ -51,6 +54,24 @@ class TestScenePromptAndPropPrompt:
         assert "昏暗古朴" in prompt
         assert "主画面" in prompt
         assert "画面避免" in prompt
+
+
+@pytest.mark.unit
+class TestFigureExclusion:
+    """展示环境或物件的图种排除人物；画面主体本身是人物的图种不排除。"""
+
+    # 断言完整片段而非「人物」二字：正文里的普通描述也可能出现该词，按关键词断言会误判。
+    _EXCLUSION = "画面避免：出镜人物"
+
+    def test_environment_and_object_sheets_exclude_people(self):
+        assert self._EXCLUSION in build_scene_prompt("祠堂", "昏暗古朴")
+        assert self._EXCLUSION in build_prop_prompt("玉佩", "古朴温润")
+        assert self._EXCLUSION in build_product_prompt("护手霜", "白色管装，哑光质感")
+
+    def test_character_and_storyboard_keep_people(self):
+        # 四类资产的反向提示词各自定义而非共用，避免把人物排除项误加到主体为人物的图种上。
+        assert self._EXCLUSION not in build_character_prompt("张三", "短发青年")
+        assert self._EXCLUSION not in append_image_negative_tail("林清坐在窗边木桌前")
 
 
 class TestVideoNegativeTail:

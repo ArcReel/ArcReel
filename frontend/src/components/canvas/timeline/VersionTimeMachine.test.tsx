@@ -191,4 +191,60 @@ describe("VersionTimeMachine", () => {
     fireEvent.click(restoreButton);
     expect(restoreSpy).not.toHaveBeenCalled();
   });
+
+  // busy 是渲染快照：版本面板打开着的这段时间里 Agent 入队、批量入口或轮询落库都可能
+  // 占用该资源，新 prop 冲刷到按钮之前的一次点击仍会发出恢复请求，与在跑的任务并发写
+  // 同一个资源文件。故提交处理器里再做一次新鲜读。
+  it("恢复提交时刻复核占用态，命中即拒绝并提示", async () => {
+    vi.spyOn(API, "getVersions").mockResolvedValue({
+      resource_type: "storyboards",
+      resource_id: "SEG-1",
+      current_version: 2,
+      versions: [
+        {
+          version: 1,
+          filename: "v1.png",
+          created_at: "2026-02-01T00:00:00Z",
+          file_size: 10,
+          is_current: false,
+          prompt: "old prompt",
+          file_url: "/api/v1/files/demo/versions/storyboards/v1.png",
+        },
+        {
+          version: 2,
+          filename: "v2.png",
+          created_at: "2026-02-01T01:00:00Z",
+          file_size: 12,
+          is_current: true,
+          file_url: "/api/v1/files/demo/versions/storyboards/v2.png",
+        },
+      ],
+    });
+    const restoreSpy = vi.spyOn(API, "restoreVersion").mockResolvedValue({ success: true });
+    // 渲染期空闲（busy 缺省为 false，按钮可点），提交时刻已被别的入口占用
+    const checkBusy = vi.fn().mockReturnValue(true);
+
+    render(
+      <VersionTimeMachine
+        projectName="demo"
+        resourceType="storyboards"
+        resourceId="SEG-1"
+        checkBusy={checkBusy}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /版本/ }));
+    expect(await screen.findByRole("button", { name: "v1" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "v1" }));
+
+    const restoreButton = await screen.findByRole("button", { name: /切换到此版本/ });
+    expect(restoreButton).not.toBeDisabled();
+
+    fireEvent.click(restoreButton);
+
+    expect(restoreSpy).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(useAppStore.getState().toast?.text).toBe("生成或编辑进行中，暂无法切换版本"),
+    );
+  });
 });
