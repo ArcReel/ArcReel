@@ -280,14 +280,22 @@ def constrain_durations_for_project(
     provider_id: str | None,
     model_id: str | None,
     generation_mode: str | None,
+    uses_reference_images: bool | None = None,
 ) -> list[int]:
-    """按项目当前配置收窄时长候选：分辨率取生效档位，参考图约束按 ``generation_mode`` 判定。"""
+    """按项目当前配置收窄时长候选：分辨率取生效档位，参考图约束按是否真的带参考图判定。
+
+    ``uses_reference_images`` 缺省时退回「生成模式即参考视频」的近似判定。调用方能看到本次
+    实际的参考图情况时应显式传入：参考视频路径允许单元不带任何引用，执行层与 backend 都只在
+    ``reference_images`` 非空时施加该约束，按模式一刀切会把无引用单元本可申请的档位也收掉。
+    """
     return constrain_durations(
         provider_id,
         model_id,
         durations,
         resolution=_resolution_for_constraints(project, provider_id, model_id, generation_mode=generation_mode),
-        uses_reference_images=generation_mode == "reference_video",
+        uses_reference_images=(
+            generation_mode == "reference_video" if uses_reference_images is None else uses_reference_images
+        ),
     )
 
 

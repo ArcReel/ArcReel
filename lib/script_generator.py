@@ -92,6 +92,18 @@ _METADATA_COUNT_KEY: dict[str, str] = {
 }
 
 
+def _units_use_references(units: list[dict] | None) -> bool | None:
+    """本集 step1 是否存在带引用的 unit；``units`` 为 None（非参考视频路径）时返回 None。
+
+    None 的语义是「交给下游按生成模式近似判定」，与「确定不带参考图」的 False 区分开。
+    参考视频路径允许通用 unit 不带任何引用，执行层与 backend 都只在实际带图时施加
+    「参考图↔时长」约束——整集都无引用时按模式一刀切会收掉本可申请的档位。
+    """
+    if units is None:
+        return None
+    return any(u.get("references") for u in units if isinstance(u, dict))
+
+
 def _rewrite_episode_prefix(rid: object, ep: int) -> object:
     """把 ID 中的 `E\\d+` 前缀强制改写为 `E{ep}`；非字符串或无 E 前缀的原样返回。
 
@@ -211,19 +223,27 @@ class ScriptGenerator:
         props = self.project_json.get("props")
         props = props if isinstance(props, dict) else {}
 
+        # 参考视频路径先读 step1：本集是否真的带参考图决定要不要施加「参考图↔时长」约束。
+        # 单 shot 时长按未收窄的全集校验：shot 是同一段 clip 内的时间编排、不单独发给供应商，
+        # 受联动约束的是它们的和（unit 总时长）。用收窄集合校验 shot 会连 clip 内的节奏一起
+        # 卡死（Veo 1080p 下每个 shot 都得是 8 秒，凑不出 4+4），而约束并不要求这一点。
+        step1_units = (
+            self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
+            if gen_mode == "reference_video"
+            else None
+        )
+
         # 解析一次时长能力：reference 据此构造 duration 枚举硬约束 schema；
         # narration 两段式用于校验 step1 各片段时长成员合法（step2 不再产出时长）。
-        supported_durations = self._resolve_supported_durations(caps, gen_mode=gen_mode)
+        supported_durations = self._resolve_supported_durations(
+            caps, gen_mode=gen_mode, uses_reference_images=_units_use_references(step1_units)
+        )
 
         # narration 走两段式：step1 结构化片段透传内容层（novel_text 等），step2 仅产视觉层、
         # 按 segment_id 合并回 step1。非 narration 走单段（step1 markdown 直喂 LLM）。
         narration_step1: list[dict] | None = None
 
-        if gen_mode == "reference_video":
-            # 单 shot 时长按未收窄的全集校验：shot 是同一段 clip 内的时间编排、不单独发给供应商，
-            # 受联动约束的是它们的和（unit 总时长）。用收窄集合校验 shot 会连 clip 内的节奏一起
-            # 卡死（Veo 1080p 下每个 shot 都得是 8 秒，凑不出 4+4），而约束并不要求这一点。
-            step1_units = self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
+        if step1_units is not None:
             prompt = build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -234,7 +254,9 @@ class ScriptGenerator:
                 step1_units=step1_units,
                 supported_durations=supported_durations,
                 max_refs=self._resolve_max_refs(caps),
-                max_duration=self._resolve_max_duration(caps, gen_mode=gen_mode),
+                max_duration=self._resolve_max_duration(
+                    caps, gen_mode=gen_mode, uses_reference_images=_units_use_references(step1_units)
+                ),
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
             )
@@ -510,7 +532,12 @@ class ScriptGenerator:
         props = props if isinstance(props, dict) else {}
 
         if gen_mode == "reference_video":
-            supported_durations = self._resolve_supported_durations(caps, gen_mode=gen_mode)
+            # 单 shot 按全集校验、参考图约束按本集实际引用判定（见 generate() 同位置说明）。
+            step1_units = self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
+            uses_refs = _units_use_references(step1_units)
+            supported_durations = self._resolve_supported_durations(
+                caps, gen_mode=gen_mode, uses_reference_images=uses_refs
+            )
             return build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -518,11 +545,10 @@ class ScriptGenerator:
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                # 单 shot 按全集校验（见 generate() 同位置说明）。
-                step1_units=self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps)),
+                step1_units=step1_units,
                 supported_durations=supported_durations,
                 max_refs=self._resolve_max_refs(caps),
-                max_duration=self._resolve_max_duration(caps, gen_mode=gen_mode),
+                max_duration=self._resolve_max_duration(caps, gen_mode=gen_mode, uses_reference_images=uses_refs),
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
             )
@@ -575,12 +601,17 @@ class ScriptGenerator:
             return provider_id, model_id
         return None, None
 
-    def _resolve_supported_durations(self, caps: dict | None = None, *, gen_mode: str) -> list[int]:
+    def _resolve_supported_durations(
+        self, caps: dict | None = None, *, gen_mode: str, uses_reference_images: bool | None = None
+    ) -> list[int]:
         """从 caps → project.json → registry 三级解析，再按联动约束收窄；都拿不到抛 ValueError。
 
         收窄发生在交给 prompt / 动态 schema 之前：``supported_durations`` 是型号的时长全集，
         不含「分辨率↔时长」「参考图↔时长」两条联动约束。不收窄的话 Veo 项目（兜底分辨率即
         1080p）的剧本会产出 4/6 秒镜头，到视频入队时才被 backend 拒，用户已无统一纠正入口。
+
+        ``uses_reference_images`` 由调用方按本集 step1 的实际引用情况传入；缺省退回按生成模式
+        判定（见 ``constrain_durations_for_project``）。
         """
         raw = self._resolve_raw_supported_durations(caps)
         provider_id, model_id = self._resolve_backend_ids(caps)
@@ -590,6 +621,7 @@ class ScriptGenerator:
             provider_id=provider_id,
             model_id=model_id,
             generation_mode=gen_mode,
+            uses_reference_images=uses_reference_images,
         )
 
     def _resolve_raw_supported_durations(self, caps: dict | None) -> list[int]:
@@ -611,7 +643,9 @@ class ScriptGenerator:
             f"supported_durations 无法解析：caps={bool(caps)}, video_backend={video_backend!r}；请确保 model 配置完整"
         )
 
-    def _resolve_max_duration(self, caps: dict | None = None, *, gen_mode: str) -> int | None:
+    def _resolve_max_duration(
+        self, caps: dict | None = None, *, gen_mode: str, uses_reference_images: bool | None = None
+    ) -> int | None:
         """单次视频生成最长秒数；派生自 max(收窄后的 supported_durations)。
 
         取收窄后的集合而非 caps 自带的 ``max_duration``：该值是全集最大值，参考视频模式下
@@ -619,7 +653,9 @@ class ScriptGenerator:
         枚举 schema 再把它判非法——上限与枚举必须描述同一个收窄后的集合。
         """
         try:
-            durations = self._resolve_supported_durations(caps, gen_mode=gen_mode)
+            durations = self._resolve_supported_durations(
+                caps, gen_mode=gen_mode, uses_reference_images=uses_reference_images
+            )
         except ValueError:
             return None
         return max(durations)

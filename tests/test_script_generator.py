@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.script_generator import ScriptGenerator
+from lib.script_generator import ScriptGenerator, _units_use_references
 from lib.script_structure_validator import ScriptStructureValidationError
 
 
@@ -967,6 +967,42 @@ def test_resolve_supported_durations_narrows_by_reference_mode(tmp_path):
         },
     )
     assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video") == [8]
+
+
+@pytest.mark.integration
+def test_resolve_supported_durations_reference_mode_without_refs_not_narrowed(tmp_path):
+    """参考视频模式但本集单元都不带引用时不施加参考图约束。
+
+    通用单元允许空 references，执行层与 backend 都只在实际带图时施加该约束；按模式一刀切
+    会把 720p 下本可申请的 4/6 秒收掉，改变无引用单元改动前的行为。
+    """
+    sg = _sg_with_project(
+        tmp_path,
+        {
+            "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+            "model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}},
+        },
+    )
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video", uses_reference_images=False) == [
+        4,
+        6,
+        8,
+    ]
+    # 有引用的单元存在时照常收窄
+    assert sg._resolve_supported_durations(_VEO_CAPS, gen_mode="reference_video", uses_reference_images=True) == [8]
+
+
+@pytest.mark.unit
+def test_units_use_references_distinguishes_none_from_no_refs():
+    """None（非参考视频路径）与「确定不带引用」区分开，前者交由下游按模式近似判定。"""
+    assert _units_use_references(None) is None
+    assert _units_use_references([{"unit_id": "E1U01", "references": []}]) is False
+    assert (
+        _units_use_references(
+            [{"unit_id": "E1U01", "references": []}, {"unit_id": "E1U02", "references": [{"name": "甲"}]}]
+        )
+        is True
+    )
 
 
 @pytest.mark.integration
