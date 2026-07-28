@@ -514,7 +514,7 @@ class TestCostEstimationService:
         均值，末镜吃下余数，三者之和须等于按 unit 整体计费的原值——否则镜头数越多，
         用户看到的项目总价偏离真实计费越远。
         """
-        import server.services.cost_estimation as cost_estimation_module
+        from server.services import cost_estimation as cost_estimation_module
         from server.services.reference_video_tasks import ProjectDurationContext
 
         async def _fake_ctx(project):
@@ -555,7 +555,7 @@ class TestCostEstimationService:
         金额必须一起断言：只断言 ``duration_seconds`` 无法区分「按 8s 计价」与「秒数传对了
         但定价查不到、估值静默为空」——后者在本函数里被吞成 debug 日志。
         """
-        import server.services.cost_estimation as cost_estimation_module
+        from server.services import cost_estimation as cost_estimation_module
         from server.services.reference_video_tasks import ProjectDurationContext
 
         def _patch_ctx(durations: tuple[int, ...]):
@@ -603,7 +603,7 @@ class TestCostEstimationService:
         总估值成倍偏低。上限取自同一份能力解析（``ProjectDurationContext.max_duration``），
         不额外触发 IO。
         """
-        import server.services.cost_estimation as cost_estimation_module
+        from server.services import cost_estimation as cost_estimation_module
         from server.services.reference_video_tasks import ProjectDurationContext
 
         async def _fake_ctx(project):
