@@ -223,7 +223,10 @@ class ScriptGenerator:
             # 单 shot 时长按未收窄的全集校验：shot 是同一段 clip 内的时间编排、不单独发给供应商，
             # 受联动约束的是它们的和（unit 总时长）。用收窄集合校验 shot 会连 clip 内的节奏一起
             # 卡死（Veo 1080p 下每个 shot 都得是 8 秒，凑不出 4+4），而约束并不要求这一点。
-            step1_units = self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
+            max_duration = self._resolve_max_duration(caps, gen_mode=gen_mode)
+            step1_units = self._load_reference_step1(
+                episode, self._resolve_raw_supported_durations(caps), max_duration=max_duration
+            )
             prompt = build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -234,7 +237,7 @@ class ScriptGenerator:
                 step1_units=step1_units,
                 supported_durations=supported_durations,
                 max_refs=self._resolve_max_refs(caps),
-                max_duration=self._resolve_max_duration(caps, gen_mode=gen_mode),
+                max_duration=max_duration,
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
             )
@@ -518,8 +521,12 @@ class ScriptGenerator:
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                # 单 shot 按全集校验（见 generate() 同位置说明）。
-                step1_units=self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps)),
+                # 单 shot 按全集校验成员、另按当前 unit 上限设天花板（见 generate() 同位置说明）。
+                step1_units=self._load_reference_step1(
+                    episode,
+                    self._resolve_raw_supported_durations(caps),
+                    max_duration=self._resolve_max_duration(caps, gen_mode=gen_mode),
+                ),
                 supported_durations=supported_durations,
                 max_refs=self._resolve_max_refs(caps),
                 max_duration=self._resolve_max_duration(caps, gen_mode=gen_mode),
@@ -681,14 +688,17 @@ class ScriptGenerator:
 
         return step1_path.read_text(encoding="utf-8")
 
-    def _load_reference_step1(self, episode: int, supported_durations: list[int]) -> list[dict]:
+    def _load_reference_step1(
+        self, episode: int, supported_durations: list[int], *, max_duration: int | None = None
+    ) -> list[dict]:
         """加载并校验 reference_video step1 结构化中间文件 ``step1_reference_units.json``。
 
         返回 unit dict 列表（unit_id / shots / references），供 step2 prompt 渲染
         （``render_reference_units_for_step2``）作唯一基底——step2 不解析自由文本。
         校验：结构合法（``ReferenceStep1Draft``）、units 非空、unit_id 唯一、
         shot ``duration`` ∈ ``supported_durations``（与拆分工具的 response_schema 同口径，
-        防手工编辑漂移出非法时长）。仅存在结构化前的旧 ``step1_reference_units.md`` 时给
+        防手工编辑漂移出非法时长）、且不超过 ``max_duration``（当前 unit 总时长上限，
+        None 表示未声明、跳过该层）。仅存在结构化前的旧 ``step1_reference_units.md`` 时给
         明确的「重跑拆分」报错——不写 md→json 迁移器（旧 md 产于结构化中间态引入前，
         与 narration 同决策）。
         """
@@ -737,6 +747,18 @@ class ScriptGenerator:
         bad = sorted({s["duration"] for u in units for s in u["shots"] if s["duration"] not in allowed})
         if bad:
             raise ValueError(f"step1_reference_units.json shot duration 非法（不在 {sorted(allowed)} 内）: {bad}")
+
+        # 单 shot 成员按全集判，但它仍不得超过当前 unit 总时长上限：shot 之和就是发给供应商的
+        # unit 总时长，单个 shot 超上限时总和必然超标。step1 在宽松分辨率下拆好、随后切到约束
+        # 更严的分辨率再跑 step2，越界 shot 会让 step2 要么静默改写已定的镜头节奏、要么凑不出
+        # 枚举 schema 要求的总时长而失败——与 narration / drama 的过期 step1 同样明确要求重拆。
+        if max_duration is not None:
+            over = sorted({s["duration"] for u in units for s in u["shots"] if s["duration"] > max_duration})
+            if over:
+                raise ValueError(
+                    f"step1_reference_units.json shot duration 超过当前 unit 总时长上限 {max_duration} 秒: {over}；"
+                    "当前分辨率与型号下拆分已过期，请重跑 split-reference-video-units 按当前能力重拆"
+                )
 
         return units
 
