@@ -1271,6 +1271,38 @@ async def test_generate_video_episode_reference_skips_duration_context_when_noth
 
 
 @pytest.mark.integration
+async def test_generate_video_episode_reference_skips_duration_context_when_prompt_blank(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """shots 非空但拼接后提示词全空白时，build_specs 会拒绝该 unit——预检须复用同一份
+    结构校验提前判定，不能先触发项目能力解析再让 build_specs 事后跳过（见 Codex review）。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    script = _reference_video_script()
+    for unit in script["video_units"]:
+        unit["shots"] = [{"duration": 3, "text": "   "}]
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+
+    context_calls: list[dict[str, Any]] = []
+
+    async def fake_duration_context(project):
+        context_calls.append(project)
+        raise AssertionError("整批提示词均空白时不应解析项目视频能力")
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        return [], []
+
+    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert context_calls == []
+    assert "E1U1" in out["content"][0]["text"]
+
+
+@pytest.mark.integration
 async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
     ad_reference_ctx: ToolContext, monkeypatch
 ) -> None:
