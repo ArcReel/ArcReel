@@ -986,7 +986,7 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
 
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
-    async def fake_precheck(project, unit, ad_shots):
+    def fake_precheck(ctx, unit, ad_shots):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
@@ -995,7 +995,11 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
         enqueued.extend(specs)
         return [], []
 
-    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    async def fake_duration_context(_project):
+        return None
+
+    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
@@ -1018,7 +1022,7 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
 
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
-    async def fake_precheck(project, unit, ad_shots):
+    def fake_precheck(ctx, unit, ad_shots):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
@@ -1037,7 +1041,11 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
                 )
         return [], []
 
-    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    async def fake_duration_context(_project):
+        return None
+
+    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
@@ -1057,7 +1065,7 @@ async def test_generate_video_episode_reference_duration_repeat_without_confirm_
 
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
-    async def fake_precheck(project, unit, ad_shots):
+    def fake_precheck(ctx, unit, ad_shots):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
@@ -1066,7 +1074,11 @@ async def test_generate_video_episode_reference_duration_repeat_without_confirm_
         enqueued.extend(specs)
         return [], []
 
-    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    async def fake_duration_context(_project):
+        return None
+
+    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
@@ -1087,7 +1099,7 @@ async def test_generate_video_episode_reference_duration_exact_enqueues_directly
 
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
-    async def fake_precheck(project, unit, ad_shots):
+    def fake_precheck(ctx, unit, ad_shots):
         return DurationSlot(seconds=5, total_seconds=5, adjustment=EXACT)
 
     enqueued: list[Any] = []
@@ -1108,7 +1120,11 @@ async def test_generate_video_episode_reference_duration_exact_enqueues_directly
                 )
         return [], []
 
-    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    async def fake_duration_context(_project):
+        return None
+
+    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
@@ -1137,7 +1153,7 @@ async def test_generate_video_episode_reference_duration_skips_unit_without_shot
 
     precheck_calls: list[str] = []
 
-    async def fake_precheck(project, unit, ad_shots):
+    def fake_precheck(ctx, unit, ad_shots):
         precheck_calls.append(unit["unit_id"])
         return DurationSlot(seconds=5, total_seconds=5, adjustment=EXACT)
 
@@ -1159,7 +1175,11 @@ async def test_generate_video_episode_reference_duration_skips_unit_without_shot
                 )
         return [], []
 
-    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    async def fake_duration_context(_project):
+        return None
+
+    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
@@ -1172,6 +1192,117 @@ async def test_generate_video_episode_reference_duration_skips_unit_without_shot
 
 
 @pytest.mark.integration
+async def test_generate_video_episode_reference_duration_resolves_project_context_once(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """批量预检 N 个 unit 时项目视频能力/分辨率只解析一次，逐 unit 取档改走纯函数 precheck_unit。
+
+    重构前 ``_pending_duration_confirmations`` 对每个待确认 unit 各自触发一轮 DB 往返
+    （``resolve_project_supported_durations``）；重构后项目级 IO 收口到批次开始时的
+    一次 ``resolve_project_duration_context`` 调用，逐 unit 只做纯计算。
+    """
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.services.reference_video_tasks import ProjectDurationContext
+
+    script = _reference_video_script()
+    script["video_units"].append(
+        {
+            "unit_id": "E1U2",
+            "shots": [{"duration": 5, "text": "@张三 转身"}],
+            "references": [{"type": "character", "name": "张三"}],
+            "duration_seconds": 5,
+        }
+    )
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+
+    context_calls: list[dict[str, Any]] = []
+
+    async def fake_duration_context(project):
+        context_calls.append(project)
+        return ProjectDurationContext(supported_durations=(4, 8, 12), resolution=None, provider_id="", model_name=None)
+
+    enqueued: list[Any] = []
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        enqueued.extend(specs)
+        return [], []
+
+    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    # 两个 unit 均 5 秒、档位无 5 → 都需确认，本批不入队；解析只发生一次。
+    assert out.get("is_error") is not True, out
+    assert len(context_calls) == 1
+    assert enqueued == []
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_reference_skips_duration_context_when_nothing_to_precheck(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """整批都没有可预检的 unit 时不解析项目能力——解析推迟到第一个真正要取档的 unit，
+    重构不能让「全部已完成/全部被跳过」的批次凭空多付一轮 DB 往返。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    script = _reference_video_script()
+    for unit in script["video_units"]:
+        unit["shots"] = []
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+
+    context_calls: list[dict[str, Any]] = []
+
+    async def fake_duration_context(project):
+        context_calls.append(project)
+        raise AssertionError("无可预检 unit 时不应解析项目视频能力")
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        return [], []
+
+    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert context_calls == []
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_reference_skips_duration_context_when_prompt_blank(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """shots 非空但拼接后提示词全空白时，build_specs 会拒绝该 unit——预检须复用同一份
+    结构校验提前判定，不能先触发项目能力解析再让 build_specs 事后跳过（见 Codex review）。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    script = _reference_video_script()
+    for unit in script["video_units"]:
+        unit["shots"] = [{"duration": 3, "text": "   "}]
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+
+    context_calls: list[dict[str, Any]] = []
+
+    async def fake_duration_context(project):
+        context_calls.append(project)
+        raise AssertionError("整批提示词均空白时不应解析项目视频能力")
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        return [], []
+
+    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert context_calls == []
+    assert "E1U1" in out["content"][0]["text"]
+
+
+@pytest.mark.integration
 async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
     ad_reference_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -1181,7 +1312,7 @@ async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
 
     seen_ad_shots: list[Any] = []
 
-    async def fake_precheck(project, unit, ad_shots):
+    def fake_precheck(ctx, unit, ad_shots):
         seen_ad_shots.append(ad_shots)
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
@@ -1191,7 +1322,11 @@ async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
         enqueued.extend(specs)
         return [], []
 
-    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    async def fake_duration_context(_project):
+        return None
+
+    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(ad_reference_ctx)
@@ -1226,7 +1361,7 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
 
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
-    async def fake_precheck(project, unit, ad_shots):
+    def fake_precheck(ctx, unit, ad_shots):
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
@@ -1245,7 +1380,11 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
                 )
         return [], []
 
-    monkeypatch.setattr(mod, "precheck_unit_duration_slot", fake_precheck)
+    async def fake_duration_context(_project):
+        return None
+
+    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = make_tool(fake_ctx)

@@ -235,9 +235,11 @@ class TestAdGenerate:
     @pytest.mark.integration
     def test_precheck_rounds_up_group_total(self, ad_client: TestClient, monkeypatch: pytest.MonkeyPatch):
         """ad 与通用路径共用取档规则：分组成员镜头求和（3+2=5）非档位成员 → 按 8 秒申请，需确认。"""
-        from server.services import reference_video_tasks as rvt
+        from server.routers import reference_videos as router_mod
+        from server.services.reference_video_tasks import ProjectDurationContext
 
-        monkeypatch.setattr(rvt, "resolve_project_supported_durations", AsyncMock(return_value=[4, 8, 12]))
+        ctx = ProjectDurationContext(supported_durations=(4, 8, 12), resolution=None, provider_id="", model_name=None)
+        monkeypatch.setattr(router_mod, "resolve_project_duration_context", AsyncMock(return_value=ctx))
         ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
 
         body = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/duration-precheck").json()

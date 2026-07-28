@@ -11,10 +11,12 @@ import pytest
 
 from lib.reference_video.errors import MissingReferenceError
 from server.services.reference_video_tasks import (
+    ProjectDurationContext,
     _apply_provider_constraints,
     _render_unit_prompt,
     _resolve_unit_references,
     effective_reference_durations,
+    precheck_unit,
 )
 
 
@@ -273,6 +275,106 @@ async def test_project_video_resolution_falls_back_like_executor(monkeypatch: py
 
     monkeypatch.setattr(rvt, "ConfigResolver", _FakeResolver)
     assert await rvt._project_video_resolution({}, "gemini-aistudio", "veo-3.1-generate-preview") == "1080p"
+
+
+@pytest.mark.unit
+async def test_resolve_project_duration_context_resolves_caps_and_resolution_once(monkeypatch: pytest.MonkeyPatch):
+    """项目能力与分辨率各只解析一次：批量预检把这次结果复用给每个 unit（见 precheck_unit）。"""
+    from server.services import reference_video_tasks as rvt
+
+    caps_calls = 0
+    resolution_calls = 0
+
+    async def fake_caps(_project, *, degraded_to):
+        nonlocal caps_calls
+        caps_calls += 1
+        return {"provider_id": "gemini-aistudio", "model": "veo-3.1-generate-preview", "supported_durations": [4, 6, 8]}
+
+    async def fake_resolution(_project, _provider_id, _model_id):
+        nonlocal resolution_calls
+        resolution_calls += 1
+        return "720p"
+
+    monkeypatch.setattr(rvt, "_project_video_caps", fake_caps)
+    monkeypatch.setattr(rvt, "_project_video_resolution", fake_resolution)
+
+    ctx = await rvt.resolve_project_duration_context({})
+
+    assert caps_calls == 1
+    assert resolution_calls == 1
+    assert ctx == ProjectDurationContext(
+        supported_durations=(4, 6, 8),
+        resolution="720p",
+        provider_id="gemini-aistudio",
+        model_name="veo-3.1-generate-preview",
+    )
+
+
+@pytest.mark.unit
+async def test_resolve_project_duration_context_skips_resolution_when_no_durations(monkeypatch: pytest.MonkeyPatch):
+    """档位不可解析时分辨率也不解析——空档位下分辨率约束无意义，省一趟 IO。"""
+    from server.services import reference_video_tasks as rvt
+
+    resolution_calls = 0
+
+    async def fake_caps(_project, *, degraded_to):
+        return {}
+
+    async def fake_resolution(*_a, **_kw):
+        nonlocal resolution_calls
+        resolution_calls += 1
+        return "720p"
+
+    monkeypatch.setattr(rvt, "_project_video_caps", fake_caps)
+    monkeypatch.setattr(rvt, "_project_video_resolution", fake_resolution)
+
+    ctx = await rvt.resolve_project_duration_context({})
+
+    assert resolution_calls == 0
+    assert ctx.supported_durations == ()
+    assert ctx.resolution is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("total_seconds", "with_references", "expected_seconds", "expected_adjustment"),
+    [
+        (8, True, 8, "exact"),
+        (5, True, 8, "up"),
+        (20, True, 8, "down"),
+        (5, False, 6, "up"),
+    ],
+)
+def test_precheck_unit_is_pure_and_matches_slot_semantics(
+    total_seconds, with_references, expected_seconds, expected_adjustment
+):
+    """precheck_unit 不触 DB，按 ctx 里已解析好的档位/分辨率为单个 unit 取档；带图/不带图
+    条件档位求交（Veo 3.1 720p 带图仅 8 秒、不带图仍是全集）与容量语义（exact/up/down）
+    行为与重构前一致。"""
+    ctx = ProjectDurationContext(
+        supported_durations=(4, 6, 8),
+        resolution="720p",
+        provider_id="gemini-aistudio",
+        model_name="veo-3.1-generate-preview",
+    )
+    unit = {
+        "duration_seconds": total_seconds,
+        "references": [{"type": "character", "name": "张三"}] if with_references else [],
+    }
+    slot = precheck_unit(ctx, unit, None)
+    assert slot.seconds == expected_seconds
+    assert slot.adjustment == expected_adjustment
+
+
+@pytest.mark.unit
+def test_precheck_unit_unconstrained_when_context_has_no_durations():
+    """能力不可解析（ctx.supported_durations 为空）时原样透传，沿用现状放行不弹确认。"""
+    ctx = ProjectDurationContext(supported_durations=(), resolution=None, provider_id="", model_name=None)
+    unit = {"duration_seconds": 7, "references": []}
+    slot = precheck_unit(ctx, unit, None)
+    assert slot.seconds == 7
+    assert slot.adjustment == "unconstrained"
+    assert slot.needs_confirmation is False
 
 
 @pytest.mark.unit

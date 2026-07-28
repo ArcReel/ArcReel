@@ -34,7 +34,12 @@ from server.agent_runtime.sdk_tools._context import (
     tool_error,
     validate_script_filename,
 )
-from server.services.reference_video_tasks import precheck_unit_duration_slot, resolve_max_unit_duration
+from server.services.reference_video_tasks import (
+    ProjectDurationContext,
+    precheck_unit,
+    resolve_max_unit_duration,
+    resolve_project_duration_context,
+)
 
 _CONFIRM_DURATION_SCHEMA_PROPERTY = {
     "type": "boolean",
@@ -74,25 +79,38 @@ async def _pending_duration_confirmations(
     project: dict[str, Any],
     units: list[dict[str, Any]],
     skip_ids: set[str],
+    spec_for: Callable[[dict[str, Any]], TaskSpec],
     ad_shots_for: Callable[[dict[str, Any]], list[dict[str, Any]]] | None,
 ) -> list[dict[str, Any]]:
     """收集本批将入队的 unit 中，申请时长与剧本编排不一致的清单。
 
-    悬空索引 / 结构异常的 unit 在此静默跳过（留给 ``build_specs`` 阶段捕获并记 log），
-    不在预检阶段重复报错；没有 shots 的 unit 同样跳过——``build_specs`` 会以同一理由
-    拒绝它，若仍纳入确认清单，会让批次卡在一个注定不会入队的 unit 上，且申请时长的
-    转述本身就是失实的（该 unit 根本不会被生成）。
+    项目视频能力（档位 + 分辨率）至多解析一次（:func:`resolve_project_duration_context`），
+    批内逐 unit 取档改用纯函数 :func:`precheck_unit`——避免整批 N 个 unit 各自触发一轮
+    DB 往返。解析推迟到第一个真正需要取档的 unit：整批都已完成或都被跳过时不触发任何 IO。
+
+    悬空索引 / 结构异常 / 空提示词的 unit 在此复用与 ``build_specs`` 同一份 spec 构造
+    （``spec_for``）判定可入队性并静默跳过，不在预检阶段重复报错——不合法的 unit
+    ``build_specs`` 阶段本就会拒绝，若仍纳入确认清单或触发 ctx 解析，会让批次卡在一个
+    注定不会入队的 unit 上，且申请时长的转述本身就是失实的（该 unit 根本不会被生成）。
     """
+    ctx: ProjectDurationContext | None = None
     items: list[dict[str, Any]] = []
     for unit in units:
         unit_id = str(unit.get("unit_id") or "")
         if not unit_id or unit_id in skip_ids:
             continue
         try:
+            spec_for(unit)
+        except ValueError:
+            continue
+        try:
             ad_shots = ad_shots_for(unit) if ad_shots_for else None
-            if not (ad_shots if ad_shots_for else unit.get("shots")):
-                continue
-            slot = await precheck_unit_duration_slot(project, unit, ad_shots)
+        except ValueError:
+            continue
+        if ctx is None:
+            ctx = await resolve_project_duration_context(project)
+        try:
+            slot = precheck_unit(ctx, unit, ad_shots)
         except ValueError:
             continue
         if slot.needs_confirmation:
@@ -240,6 +258,25 @@ def _build_video_specs(
     return specs, order_map
 
 
+def _reference_unit_spec(unit: dict[str, Any], script_filename: str) -> TaskSpec:
+    """单 unit 的 narration/drama TaskSpec 构造，供批量入队与时长预检共用同一份结构校验
+    （见 ADR-0001）——``TaskSpec.from_request`` 是「是否可入队」的唯一真相源，两处判断
+    不能各自维护一份、由此产生分歧（如预检放行了 build_specs 会拒绝的空提示词 unit）。
+    """
+    # 用 .get 归一化：缺失 unit_id 的坏数据（Agent 可裸写 script JSON）会被 from_request
+    # 当作空 resource_id 拒绝，而不是在此抛 KeyError 中断整批。
+    unit_id = str(unit.get("unit_id") or "")
+    if not unit.get("shots"):
+        raise ValueError("没有 shots")
+    return TaskSpec.from_request(
+        task_type="reference_video",
+        media_type="video",
+        resource_id=unit_id,
+        prompt=assemble_shots_text(unit["shots"]),
+        script_file=script_filename,
+    )
+
+
 def _build_reference_specs(
     *,
     units: list[dict[str, Any]],
@@ -251,26 +288,14 @@ def _build_reference_specs(
     specs: list[TaskSpec] = []
     order_map: dict[str, int] = {}
     for idx, unit in enumerate(units):
-        # 用 .get 归一化：缺失 unit_id 的坏数据（Agent 可裸写 script JSON）会被 from_request
-        # 当作空 resource_id 拒绝并走下面的跳过分支，而不是在此抛 KeyError 中断整批。
         unit_id = str(unit.get("unit_id") or "")
         if unit_id in skip_set:
             continue
-        if not unit.get("shots"):
-            log.append(f"⚠️  {unit_id} 没有 shots，跳过")
-            continue
-        # prompt 由 shots[*].text 拼接，经统一守卫点做空提示词结构校验（见 ADR-0001）；
-        # 任一 unit 不合法（空提示词、或 from_request 对空 resource_id 抛的裸 ValueError）
-        # 都跳过并告警，与「没有 shots」一致，不让一个坏 unit 中断整批。
-        # 注意 TaskSpecValidationError 是 ValueError 子类，捕 ValueError 同时覆盖两者。
+        # 任一 unit 不合法（没有 shots、空提示词、或 from_request 对空 resource_id 抛的
+        # 裸 ValueError）都跳过并告警，不让一个坏 unit 中断整批。TaskSpecValidationError
+        # 是 ValueError 子类，捕 ValueError 同时覆盖两者。
         try:
-            spec = TaskSpec.from_request(
-                task_type="reference_video",
-                media_type="video",
-                resource_id=unit_id,
-                prompt=assemble_shots_text(unit["shots"]),
-                script_file=script_filename,
-            )
+            spec = _reference_unit_spec(unit, script_filename)
         except ValueError as exc:
             log.append(f"⚠️  {unit_id} 入队校验未通过，跳过：{exc}")
             continue
@@ -360,6 +385,22 @@ async def _submit_with_checkpoint(
     return failures
 
 
+def _ad_reference_unit_spec(
+    script: dict[str, Any], unit: dict[str, Any], script_filename: str, style: str | None
+) -> TaskSpec:
+    """单 unit 的 ad TaskSpec 构造，供批量入队与时长预检共用同一份结构校验（同
+    ``_reference_unit_spec``）。成员镜头从 shots（内容唯一真相）水合后渲染 prompt。"""
+    unit_id = str(unit.get("unit_id") or "")
+    shots = resolve_ad_unit_shots(script, unit)
+    return TaskSpec.from_request(
+        task_type="reference_video",
+        media_type="video",
+        resource_id=unit_id,
+        prompt=render_ad_unit_prompt(shots, style=style),
+        script_file=script_filename,
+    )
+
+
 def _build_ad_reference_specs(
     *,
     script: dict[str, Any],
@@ -369,9 +410,8 @@ def _build_ad_reference_specs(
     skip_ids: list[str] | None,
     log: list[str],
 ) -> tuple[list[TaskSpec], dict[str, int]]:
-    """ad 派生索引 → TaskSpec。成员镜头从 shots（内容唯一真相）水合后渲染 prompt；
-    索引悬空 / 空画面提示词的 unit 跳过并告警，不让一个坏 unit 中断整批
-    （与 ``_build_reference_specs`` 同口径）。"""
+    """ad 派生索引 → TaskSpec。索引悬空 / 空画面提示词的 unit 跳过并告警，不让一个坏
+    unit 中断整批（与 ``_build_reference_specs`` 同口径）。"""
     skip_set = set(skip_ids or [])
     specs: list[TaskSpec] = []
     order_map: dict[str, int] = {}
@@ -380,14 +420,7 @@ def _build_ad_reference_specs(
         if unit_id in skip_set:
             continue
         try:
-            shots = resolve_ad_unit_shots(script, unit)
-            spec = TaskSpec.from_request(
-                task_type="reference_video",
-                media_type="video",
-                resource_id=unit_id,
-                prompt=render_ad_unit_prompt(shots, style=style),
-                script_file=script_filename,
-            )
+            spec = _ad_reference_unit_spec(script, unit, script_filename, style)
         except ValueError as exc:
             log.append(f"⚠️  {unit_id} 入队校验未通过，跳过：{exc}")
             continue
@@ -404,6 +437,7 @@ async def _generate_reference_units(
     resume: bool,
     log: list[str],
     build_specs: Callable[[list[dict[str, Any]], list[str], list[str]], tuple[list[TaskSpec], dict[str, int]]],
+    spec_for: Callable[[dict[str, Any]], TaskSpec],
     project: dict[str, Any],
     confirm_duration: bool,
     reuse_existing: Callable[[dict[str, Any]], bool] | None = None,
@@ -412,8 +446,10 @@ async def _generate_reference_units(
     """unit 批量生成的共享骨架：时长确认 + checkpoint 续传 + 已产出扫描 + 入队等待。
 
     narration/drama（video_units 内容自包含）与 ad（reference_units 派生索引）
-    仅 spec 构造不同，经 ``build_specs(units, skip_ids, log)`` 注入；ad 的每 unit
-    剧本时长需要成员镜头（``ad_shots_for``）才能算出，narration/drama 不传。
+    仅 spec 构造不同，经 ``build_specs(units, skip_ids, log)`` 注入；``spec_for``
+    是同一份单 unit 构造逻辑，供时长预检判定可入队性，与 ``build_specs`` 不能有
+    第二份校验口径。ad 的每 unit 剧本时长需要成员镜头（``ad_shots_for``）才能
+    算出，narration/drama 不传。
 
     ``reuse_existing`` 决定磁盘上已存在的 ``{unit_id}.mp4`` 能否当作该 unit 的
     现行产物复用（None 表示仅凭文件存在即复用）。ad 派生索引在成员/参考集变化
@@ -456,6 +492,7 @@ async def _generate_reference_units(
             project=project,
             units=units,
             skip_ids=set(already_done),
+            spec_for=spec_for,
             ad_shots_for=ad_shots_for,
         )
         if pending:
@@ -513,6 +550,7 @@ async def _run_reference_episode(
         build_specs=lambda u, skip, lg: _build_reference_specs(
             units=u, script_filename=script_filename, skip_ids=skip, log=lg
         ),
+        spec_for=lambda u: _reference_unit_spec(u, script_filename),
         project=project,
         confirm_duration=confirm_duration,
     )
@@ -563,6 +601,9 @@ async def _run_ad_reference_episode(
             style=style if isinstance(style, str) else None,
             skip_ids=skip,
             log=lg,
+        ),
+        spec_for=lambda u: _ad_reference_unit_spec(
+            script, u, script_filename, style if isinstance(style, str) else None
         ),
         project=project,
         confirm_duration=confirm_duration,

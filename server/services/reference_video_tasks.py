@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -195,20 +196,63 @@ def effective_reference_durations(
     )
 
 
-async def precheck_unit_duration_slot(project: dict, unit: dict, ad_shots: list[dict] | None) -> DurationSlot:
-    """入队前按项目当前配置近似取档，供 Web 在生成入口确认「将按与剧本不一致的时长生成」。
+@dataclass(frozen=True)
+class ProjectDurationContext:
+    """项目视频能力的一次性 IO 解析结果：档位全集（未按单个 unit 条件收窄）+ 分辨率 + provider/model 身份。
 
-    provider 按 ADR-0001 在执行时才解析，故这里只是近似：能力解析失败按空档位处理
-    （沿用现状放行，不弹确认），实际档位以执行时的 model 能力为准。
+    由 :func:`resolve_project_duration_context` 产出，供 :func:`precheck_unit` 对批次内每个
+    unit 反复调用而不重新触发 DB IO——批量预检 N 个 unit 时项目能力/分辨率解析各只发生一次。
+    """
+
+    supported_durations: tuple[int, ...]
+    resolution: str | None
+    provider_id: str
+    model_name: str | None
+
+
+async def resolve_project_duration_context(project: dict) -> ProjectDurationContext:
+    """一次性解析项目视频能力（档位全集 + 分辨率 + provider/model 身份）。
+
+    解析失败按空档位处理（沿用现状放行，不弹确认）；分辨率仅在档位非空时才解析，
+    空档位下分辨率约束无意义。
+    """
+    caps = await _project_video_caps(project, degraded_to="时长取档不施加档位约束")
+    durations = tuple(int(d) for d in caps.get("supported_durations") or [])
+    provider_id = str(caps.get("provider_id") or "")
+    model = caps.get("model")
+    model_name = str(model) if model else None
+    resolution = await _project_video_resolution(project, provider_id, model_name) if durations else None
+    return ProjectDurationContext(
+        supported_durations=durations,
+        resolution=resolution,
+        provider_id=provider_id,
+        model_name=model_name,
+    )
+
+
+def precheck_unit(ctx: ProjectDurationContext, unit: dict, ad_shots: list[dict] | None) -> DurationSlot:
+    """按已解析的项目能力 context 为单个 unit 取档。纯函数，无 IO——批量调用方一次
+    :func:`resolve_project_duration_context` 后对每个 unit 反复调用，不重复 DB 往返。
+
+    provider 按 ADR-0001 在执行时才解析，故 ``ctx`` 只是近似：实际档位以执行时的 model
+    能力为准。
 
     「是否带参考图」按 unit 声明的 references 近似——执行层按解析后的实际图判定，而 ad 路径
     的资产缺图退化为纯文本要读盘才知道。近似方向保守：声明了参考却缺图的异常单元会多收窄
     一档、至多多问一次确认，不会漏掉需要确认的情形。
     """
-    return resolve_duration_slot(
-        unit_script_duration(unit, ad_shots),
-        await resolve_project_supported_durations(project, with_reference_images=bool(unit.get("references"))),
+    durations = (
+        effective_reference_durations(
+            ctx.provider_id,
+            ctx.model_name,
+            list(ctx.supported_durations),
+            ctx.resolution,
+            with_reference_images=bool(unit.get("references")),
+        )
+        if ctx.supported_durations
+        else []
     )
+    return resolve_duration_slot(unit_script_duration(unit, ad_shots), durations)
 
 
 async def _project_video_caps(project: dict, *, degraded_to: str) -> dict:
@@ -222,29 +266,6 @@ async def _project_video_caps(project: dict, *, degraded_to: str) -> dict:
     except (ValueError, SQLAlchemyError) as exc:
         logger.info("无法解析 video_capabilities，%s：%s", degraded_to, exc)
         return {}
-
-
-async def resolve_project_supported_durations(project: dict, *, with_reference_images: bool) -> list[int]:
-    """解析项目视频后端在参考视频路径下可申请的时长档位集。
-
-    档位已按本次调用的条件收窄（见 :func:`effective_reference_durations`），与执行层取档
-    同口径——否则预检展示的申请秒数会是执行期拿不到的值。解析失败返回空列表（与执行层
-    空集放行同口径）。
-    """
-    caps = await _project_video_caps(project, degraded_to="时长取档不施加档位约束")
-    durations = [int(d) for d in caps.get("supported_durations") or []]
-    if not durations:
-        return []
-    provider_id = str(caps.get("provider_id") or "")
-    model = caps.get("model")
-    model_name = str(model) if model else None
-    return effective_reference_durations(
-        provider_id,
-        model_name,
-        durations,
-        await _project_video_resolution(project, provider_id, model_name),
-        with_reference_images=with_reference_images,
-    )
 
 
 async def _project_video_resolution(project: dict, provider_id: str, model_id: str | None) -> str | None:
