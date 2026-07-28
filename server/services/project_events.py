@@ -55,6 +55,15 @@ def _fingerprint(value: Any) -> str:
     return hashlib.sha1(_stable_json(value).encode("utf-8")).hexdigest()
 
 
+def _change_identity(change: dict[str, Any]) -> tuple[Any, Any, Any]:
+    """变更去重身份。
+
+    只取 entity_type/action/entity_id：script_file 与 episode 由发布方按 task_type 选择性
+    附带，纳入身份会让同一件事因一侧为 None 而判成两条。
+    """
+    return (change.get("entity_type"), change.get("action"), change.get("entity_id"))
+
+
 @dataclass
 class _ProjectChannel:
     sse: SseChannel
@@ -314,6 +323,8 @@ class ProjectEventService:
         changes: tuple[ProjectChangeBatch, ...],
     ) -> None:
         """文件 I/O 在线程中执行，状态更新和广播在事件循环线程中执行。"""
+        # 读盘前在册的来源标记：写回时只退这些，读盘期间新增的标记留给下一轮扫描结算
+        covered_sources = set(channel.pending_sources)
         try:
             snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
         except FileNotFoundError:
@@ -326,9 +337,11 @@ class ProjectEventService:
             return
 
         # 以下在事件循环线程中执行，线程安全
+        # 基线取重建返回后的现值：读盘期间轮询扫描可能已推进过基线，用现值才不会重发它已广播的变更
+        previous = channel.snapshot
         channel.snapshot = snapshot
         channel.fingerprint = fingerprint
-        channel.pending_sources.clear()
+        channel.pending_sources -= covered_sources
 
         payload = {
             "project_name": project_name,
@@ -336,9 +349,32 @@ class ProjectEventService:
             "fingerprint": fingerprint,
             "generated_at": _utc_now_iso(),
             "source": source,
-            "changes": [dict(change) for change in changes],
+            "changes": [
+                *(dict(change) for change in changes),
+                *self._sweep_uncovered_changes(previous, snapshot, changes),
+            ],
         }
         channel.sse.broadcast(("changes", payload))
+
+    def _sweep_uncovered_changes(
+        self,
+        previous: dict[str, Any] | None,
+        snapshot: dict[str, Any],
+        changes: tuple[ProjectChangeBatch, ...],
+    ) -> list[dict[str, Any]]:
+        """新快照相对基线多出、而本批 changes 未覆盖的变更。
+
+        重建读盘会捎带任何已落盘的变更，而本批 changes 只描述发布方自己那一件事。
+        新快照被无条件写回基线，捎带进来的变更若不在本次广播里，后续扫描与基线已无
+        差异，就再没有任何机制为它补发——故在此对基线做一次 diff，把未覆盖的部分并入
+        本次广播。它们的 source 随本批标注（source 是 payload 级字段，非逐条）。
+        """
+        if previous is None:
+            return []
+        covered = {_change_identity(change) for change in changes}
+        return [
+            change for change in self._diff_snapshots(previous, snapshot) if _change_identity(change) not in covered
+        ]
 
     def _rebuild_snapshot(self, project_name: str) -> tuple[dict[str, Any], str]:
         """同步方法（在线程池中执行）：重建快照并返回 (snapshot, fingerprint)。"""

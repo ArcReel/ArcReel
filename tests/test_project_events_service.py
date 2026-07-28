@@ -279,6 +279,217 @@ class TestProjectEventService:
         await service.shutdown()
 
     @pytest.mark.asyncio
+    async def test_emitted_batch_broadcasts_concurrent_change_swept_into_rebuild(self, tmp_path):
+        """显式重建读盘捎带了不属于本批的文件变更时，该变更随本次广播发出。
+
+        显式重建把新快照写回基线。若某个变更落盘于读盘之前却不在本批 changes 里，
+        它会被并入基线而从未广播——后续轮询扫描与基线已无差异，再没有任何机制
+        为它补发。这里用「与该变更无关的终态事件」触发重建来覆盖这条路径。
+
+        并发变更取「原地改写已索引的剧本文件」：这类变更不触发剧集索引同步，
+        因而不会顺带发出 hint 唤醒轮询扫描，丢失是终局的。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        script = {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "narration_text": "开场",
+                    "image_prompt": "p",
+                    "video_prompt": "v",
+                    "characters_in_scene": [],
+                    "scenes": [],
+                    "props": [],
+                    "generated_assets": _pending_assets(),
+                }
+            ],
+        }
+        with project_change_source("filesystem"):
+            pm.save_script("demo", script, "episode_1.json", validate=False)
+
+        # poll_interval 远超用例时长：隔离显式重建路径，排除轮询扫描抢先广播该变更
+        service = ProjectEventService(tmp_path, poll_interval=30.0)
+        await service.start()
+
+        async with service.stream_events("demo", idle_timeout=0.1) as stream:
+            event_name, _snapshot = await anext(stream)
+            assert event_name == "snapshot"
+
+            # 直接落盘、不发 hint：模拟变更早于本次重建读盘抵达磁盘
+            script["segments"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
+            script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+            script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+            emit_project_change_batch(
+                "demo",
+                [
+                    {
+                        "entity_type": "task",
+                        "action": "task_succeeded",
+                        "entity_id": "task-1",
+                        "label": "task-1",
+                        "focus": None,
+                        "important": False,
+                        "task_type": "video",
+                    }
+                ],
+                source="worker",
+            )
+
+            event_name, payload = await _next_event(stream, timeout=2.0)
+            assert event_name == "changes"
+            # 本批自身的终态事件仍在，且列在最前（正常路径 payload 结构不受影响）
+            assert payload["changes"][0]["action"] == "task_succeeded"
+            assert any(
+                change["action"] == "storyboard_ready" and change["entity_id"] == "E1S01"
+                for change in payload["changes"]
+            )
+
+        await service.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_emitted_batch_does_not_duplicate_change_it_already_describes(self, tmp_path):
+        """资产已落盘再发本批事件（worker 成功路径的真实次序）时，补扫不重复广播同一条变更。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        script = {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "narration_text": "开场",
+                    "image_prompt": "p",
+                    "video_prompt": "v",
+                    "characters_in_scene": [],
+                    "scenes": [],
+                    "props": [],
+                    "generated_assets": _pending_assets(),
+                }
+            ],
+        }
+        with project_change_source("filesystem"):
+            pm.save_script("demo", script, "episode_1.json", validate=False)
+
+        service = ProjectEventService(tmp_path, poll_interval=30.0)
+        await service.start()
+
+        async with service.stream_events("demo", idle_timeout=0.1) as stream:
+            event_name, _snapshot = await anext(stream)
+            assert event_name == "snapshot"
+
+            # worker 次序：先落盘资产，再发对应的完成事件
+            script["segments"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
+            script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+            script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+            emit_project_change_batch(
+                "demo",
+                [
+                    {
+                        "entity_type": "segment",
+                        "action": "storyboard_ready",
+                        "entity_id": "E1S01",
+                        "label": "分镜「E1S01」",
+                        "focus": None,
+                        "important": True,
+                        "script_file": "episode_1.json",
+                        "episode": 1,
+                    }
+                ],
+                source="worker",
+            )
+
+            event_name, payload = await _next_event(stream, timeout=2.0)
+            assert event_name == "changes"
+            ready = [
+                change
+                for change in payload["changes"]
+                if change["action"] == "storyboard_ready" and change["entity_id"] == "E1S01"
+            ]
+            assert len(ready) == 1
+
+        await service.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_change_landing_after_rebuild_read_is_still_broadcast(self, tmp_path, monkeypatch):
+        """变更落盘于「重建读盘完成之后、状态写回之前」时，仍能广播到订阅者。
+
+        注入点是 ``_rebuild_snapshot``：真实重建返回后再落盘，精确构造该时序窗口。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        service = ProjectEventService(tmp_path, poll_interval=0.05)
+        await service.start()
+
+        async with service.stream_events("demo", idle_timeout=0.1) as stream:
+            event_name, _snapshot = await anext(stream)
+            assert event_name == "snapshot"
+
+            original_rebuild = service._rebuild_snapshot
+            armed = False
+
+            def _rebuild_then_land(project_name: str):
+                nonlocal armed
+                result = original_rebuild(project_name)
+                if armed:
+                    armed = False
+                    script_path = pm.get_project_path("demo") / "scripts" / "episode_2.json"
+                    script_path.write_text(
+                        json.dumps(
+                            {"episode": 2, "title": "第二集", "content_mode": "narration", "segments": []},
+                            ensure_ascii=False,
+                        ),
+                        encoding="utf-8",
+                    )
+                return result
+
+            monkeypatch.setattr(service, "_rebuild_snapshot", _rebuild_then_land)
+            armed = True
+
+            emit_project_change_batch(
+                "demo",
+                [
+                    {
+                        "entity_type": "task",
+                        "action": "task_succeeded",
+                        "entity_id": "task-1",
+                        "label": "task-1",
+                        "focus": None,
+                        "important": False,
+                        "task_type": "video",
+                    }
+                ],
+                source="worker",
+            )
+
+            # 窗口内落盘的变更最终仍要广播（本次重建未覆盖它，兜底扫描须补上）
+            deadline = 3.0
+            for _ in range(10):
+                event_name, payload = await _next_event(stream, timeout=deadline)
+                assert event_name == "changes"
+                if any(
+                    change["entity_type"] == "episode" and change["action"] == "created" and change["episode"] == 2
+                    for change in payload["changes"]
+                ):
+                    break
+            else:
+                raise AssertionError("窗口内落盘的 episode 2 变更从未广播")
+
+        await service.shutdown()
+
+    @pytest.mark.asyncio
     async def test_subscribe_cancellation_cleans_up_subscriber(self, tmp_path, monkeypatch):
         """客户端在首次扫描期间断开 → _subscribe 被取消 → 订阅者与 watch task 不泄漏。"""
         pm = ProjectManager(tmp_path / "projects")
