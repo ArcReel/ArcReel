@@ -2,6 +2,7 @@
 paths:
   - "frontend/src/components/**"
   - "frontend/src/onboarding/**"
+  - "frontend/src/i18n/*/onboarding.ts"
 ---
 
 # 引导锚点防腐

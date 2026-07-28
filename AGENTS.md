@@ -28,7 +28,7 @@ uv run alembic revision --autogenerate -m "desc"     # 生成迁移
 pnpm lint        # ESLint，CI frontend-tests 第一段，含 jsx-a11y 规则
 pnpm check       # typecheck + vitest
 pnpm build       # 生产构建，含 typecheck
-# CI 等价：pnpm lint && pnpm check，push 前两者均须通过
+# 前端 CI 等价：pnpm lint && pnpm check，push 前两者均须通过
 ```
 
 ## 架构要点
@@ -82,7 +82,7 @@ pnpm build       # 生产构建，含 typecheck
 
 ## Agent 沙箱
 
-Linux/macOS 默认通过 bwrap 在 Agent 工具调用外围加一层隔离（文件系统/网络/子进程白名单），
+Linux 默认通过 bwrap、macOS 通过 sandbox-exec 在 Agent 工具调用外围加一层隔离（文件系统/网络/子进程白名单），
 由 `server/app.py::check_sandbox_available` 探测并启用。写新 Agent 工具时假设沙箱**默认开启**：
 路径越界、白名单外网络请求会被拒绝，需要时显式声明权限。
 
@@ -95,11 +95,11 @@ Windows 原生无 bwrap，会自动降级：
 
 ## 智能体运行环境
 
-智能体专用配置位于 `agent_runtime_profile/`，与开发态 `.claude/` 物理分离：
+智能体专用配置的源目录是 `agent_runtime_profile/`，与开发态 `.claude/` 物理分离，其下：
 
 - `.claude/skills/` `.claude/agents/` — Skill 与 Subagent 定义
 - `CLAUDE.*.md` — 按 `content_mode` 拆分的系统 prompt 变体，运行时按项目内容模式动态注入
-- profile 同步由 `lib/profile_manifest.py` 通过 manifest + sha256 驱动，仅复制声明过且校验通过的文件，避免本地临时改动污染项目
+- profile 同步由 `lib/profile_manifest.py` 通过 manifest + sha256 驱动，仅把声明过且校验通过的文件单向复制到各项目的 `.claude/`，运行时从项目侧加载；直接改项目侧文件不会生效且会被下次同步覆盖
 
 Skill 的创建、评估和维护流程参考 `/skill-creator` skill。
 

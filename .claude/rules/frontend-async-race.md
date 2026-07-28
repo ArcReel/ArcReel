@@ -22,6 +22,6 @@ paths:
 
 ## 跨入口共享的刷新：store action 在途合并
 
-同一份数据有多个入口触发刷新时，刷新逻辑收敛为单个 store action，在 action 内做在途合并（已有刷新在途则排队合并为「结束后再执行一轮」，各调用方各自 resolve），调用方不各自发请求。先例：`frontend/src/stores/projects-store.ts` 的 `refreshProject`。
+同一份数据有多个入口触发刷新时，刷新逻辑收敛为单个 store action，在 action 内做在途合并（已有刷新在途则排队合并为「结束后再执行一轮」，各调用方各自 resolve；排队目标被后续不同目标覆盖时，被覆盖的调用方立即以 cancelled 结算，不共享新目标的结果），调用方不各自发请求。先例：`frontend/src/stores/projects-store.ts` 的 `refreshProject`。
 
 适用边界：这是「多入口写同一份数据」的互斥问题，与上节的「过期响应作废」互补——前者保证并发刷新不交错，后者保证已离开的上下文不回写。取消一份数据的加载用 AbortSignal；合并多入口对同一份数据的刷新用 store action。
