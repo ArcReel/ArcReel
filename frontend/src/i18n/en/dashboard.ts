@@ -841,6 +841,7 @@ export default {
   'duration_incompatible_reference_warning': 'Selected {{value}}s is unavailable in Reference-to-Video mode — available: [{{supported}}]',
   'duration_seconds_value_text': '{{value}}s',
   'duration_no_options': 'Current model has no configured durations — cannot change',
+  'duration_locked_generating': 'This shot is generating — duration cannot be changed right now',
   'add_model_manually': 'Add model manually',
   'discover_or_add_hint': 'Click "Discover Models" to auto-discover, or',
   'test_connection': 'Test Connection',

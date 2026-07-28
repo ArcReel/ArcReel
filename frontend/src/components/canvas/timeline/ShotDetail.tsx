@@ -155,6 +155,8 @@ interface DurationPillProps {
   durationOptions: number[];
   durationWarningReason?: ShotDetailProps["durationWarningReason"];
   onUpdatePrompt?: ShotDetailProps["onUpdatePrompt"];
+  /** 该镜头有分镜 / 视频任务在跑；置真时禁止改时长（在跑的任务已捕获旧值，改了两边就不一致）。 */
+  busy?: boolean;
 }
 
 function DurationPill({
@@ -163,6 +165,7 @@ function DurationPill({
   durationOptions,
   durationWarningReason,
   onUpdatePrompt,
+  busy = false,
 }: DurationPillProps) {
   const { t } = useTranslation("dashboard");
   const [open, setOpen] = useState(false);
@@ -171,17 +174,27 @@ function DurationPill({
   // 拖动 slider 期间用本地 state 跟随；松手 / 失焦 / 键盘抬起时再提交一次
   // 避免 onChange 每像素一次 onUpdatePrompt 产生并发写请求 + 乱序落库
   const [draftSeconds, setDraftSeconds] = useState<number | null>(null);
-  const displaySeconds = draftSeconds ?? seconds;
+  // 占用中一律回落到上游值：拖到一半任务才启动时，草稿不该继续顶替真实时长显示。
+  const displaySeconds = (busy ? null : draftSeconds) ?? seconds;
   const commitDraft = useCallback(() => {
     if (draftSeconds == null) return;
+    // 提交时刻复核占用态：面板打开后任务可能才启动，只查打开时刻会留一个竞态窗口。
+    if (busy) {
+      setDraftSeconds(null);
+      return;
+    }
     if (draftSeconds !== seconds) {
       void onUpdatePrompt?.(segmentId, "duration_seconds", draftSeconds);
     }
     setDraftSeconds(null);
-  }, [draftSeconds, seconds, segmentId, onUpdatePrompt]);
+  }, [draftSeconds, seconds, segmentId, onUpdatePrompt, busy]);
 
   const editable = !!onUpdatePrompt;
   const noOptions = durationOptions.length === 0;
+  const locked = noOptions || busy;
+  // 面板开合是派生态而非独立状态：打开后任务才启动时它自动收起，不必在 effect 里同步 setState。
+  // 少了这一道，面板会停在「可选」状态而提交被下面的 busy 复核静默丢弃。
+  const panelOpen = open && !locked;
   const isIncompatible =
     durationOptions.length > 0 && !durationOptions.includes(seconds);
   // 越界文案按成因分开：模型全集就不含该值才是「模型不支持」，被分辨率 / 参考图路径的联动约束
@@ -232,10 +245,16 @@ function DurationPill({
       <button
         ref={ref}
         type="button"
-        onClick={() => !noOptions && setOpen((o) => !o)}
-        disabled={noOptions}
-        aria-disabled={noOptions || undefined}
-        title={noOptions ? t("duration_no_options") : undefined}
+        onClick={() => !locked && setOpen((o) => !o)}
+        disabled={locked}
+        aria-disabled={locked || undefined}
+        title={
+          busy
+            ? t("duration_locked_generating")
+            : noOptions
+              ? t("duration_no_options")
+              : undefined
+        }
         className={`${baseClass} transition-colors disabled:cursor-not-allowed disabled:opacity-60`}
         style={baseStyle}
       >
@@ -250,7 +269,7 @@ function DurationPill({
         )}
       </button>
       <Popover
-        open={open}
+        open={panelOpen}
         onClose={() => setOpen(false)}
         anchorRef={ref}
         width="w-auto"
@@ -317,6 +336,11 @@ function DurationPill({
                   type="button"
                   aria-checked={checked}
                   onClick={() => {
+                    // 与 commitDraft 同口径：提交时刻再复核一次，不吃面板打开后才启动的任务。
+                    if (busy) {
+                      setOpen(false);
+                      return;
+                    }
                     void onUpdatePrompt(segmentId, "duration_seconds", d);
                     setOpen(false);
                   }}
@@ -958,6 +982,7 @@ export function ShotDetail({
           durationOptions={durationOptions}
           durationWarningReason={durationWarningReason}
           onUpdatePrompt={onUpdatePrompt}
+          busy={!!generatingStoryboard || !!generatingVideo}
         />
         <StatusBadge status={status} />
         <span className="flex-1" />

@@ -841,6 +841,7 @@ export default {
   'duration_incompatible_reference_warning': '当前秒数 {{value}} 在参考生视频模式下不可用，可选 [{{supported}}]',
   'duration_seconds_value_text': '{{value}} 秒',
   'duration_no_options': '当前模型未配置可用时长，无法修改',
+  'duration_locked_generating': '该镜头正在生成中，暂不能修改时长',
   'add_model_manually': '手动添加模型',
   'discover_or_add_hint': '点击「获取模型列表」自动发现，或',
   'test_connection': '测试连接',

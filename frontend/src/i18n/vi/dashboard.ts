@@ -818,6 +818,7 @@ export default {
   'duration_incompatible_reference_warning': '{{value}}s đã chọn không khả dụng ở chế độ Reference-to-Video — khả dụng: [{{supported}}]',
   'duration_seconds_value_text': '{{value}}s',
   'duration_no_options': 'Mô hình hiện tại không có thời lượng cấu hình — không thể thay đổi',
+  'duration_locked_generating': 'Cảnh này đang được tạo — hiện chưa thể thay đổi thời lượng',
   'add_model_manually': 'Thêm mô hình thủ công',
   'discover_or_add_hint': 'Nhấn "Phát hiện mô hình" để tự phát hiện, hoặc',
   'test_connection': 'Kiểm tra kết nối',

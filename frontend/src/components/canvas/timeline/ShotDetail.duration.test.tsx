@@ -102,3 +102,62 @@ describe("ShotDetail 时长候选与越界提示", () => {
     expect(warningLabel()).toContain("模型支持范围");
   });
 });
+
+/**
+ * 占用感知型控件三项检查：在跑的任务已捕获旧时长，此时改时长会让任务产物与剧本存值不一致。
+ * 兄弟控件（重生成分镜 / 视频）本就按同一对占用态接线，此处覆盖打开时与提交时两道校验。
+ */
+describe("ShotDetail 时长编辑的占用态门控", () => {
+  it("该镜头生成中时禁用时长 pill 并说明原因", () => {
+    for (const busyProp of ["generatingStoryboard", "generatingVideo"] as const) {
+      const { unmount } = renderDetail({ [busyProp]: true }, 8);
+      const pill = screen.getByRole("button", { name: /8 秒/ });
+      expect(pill).toBeDisabled();
+      expect(pill).toHaveAttribute("title", "该镜头正在生成中，暂不能修改时长");
+      unmount();
+    }
+  });
+
+  it("面板打开后任务才启动时收起面板，且提交被拒不写回", () => {
+    const onUpdatePrompt = vi.fn();
+    const { rerender } = render(
+      <ShotDetail
+        segment={makeScene(4)}
+        segmentId="E1S01"
+        contentMode="drama"
+        aspectRatio="9:16"
+        projectName="demo"
+        scriptFile="episode_1.json"
+        selectedIndex={0}
+        totalCount={1}
+        onPrev={() => {}}
+        onNext={() => {}}
+        onUpdatePrompt={onUpdatePrompt}
+        durationOptions={[8]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
+    expect(screen.getAllByRole("radio")).toHaveLength(1);
+
+    // 面板已打开，此刻该镜头的视频任务启动：只查打开时刻的实现会在这里放过写入
+    rerender(
+      <ShotDetail
+        segment={makeScene(4)}
+        segmentId="E1S01"
+        contentMode="drama"
+        aspectRatio="9:16"
+        projectName="demo"
+        scriptFile="episode_1.json"
+        selectedIndex={0}
+        totalCount={1}
+        onPrev={() => {}}
+        onNext={() => {}}
+        onUpdatePrompt={onUpdatePrompt}
+        durationOptions={[8]}
+        generatingVideo
+      />,
+    );
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(onUpdatePrompt).not.toHaveBeenCalled();
+  });
+});
