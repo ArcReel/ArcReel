@@ -242,7 +242,8 @@ def test_generate_unit_missing_returns_404(client: TestClient):
 def _patch_supported_durations(monkeypatch: pytest.MonkeyPatch, durations: list[int]) -> None:
     from server.services import reference_video_tasks as rvt
 
-    monkeypatch.setattr(rvt, "resolve_project_supported_durations", AsyncMock(return_value=durations))
+    ctx = rvt.ProjectDurationContext(supported_durations=durations, resolution=None, provider_id="", model_name=None)
+    monkeypatch.setattr(rvt, "resolve_project_duration_context", AsyncMock(return_value=ctx))
 
 
 def _precheck(client: TestClient, unit_id: str):
