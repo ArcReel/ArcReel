@@ -100,6 +100,27 @@ describe("useModelCapabilities 时长维度", () => {
     await waitFor(() => expect(result.current.supportedDurations).toEqual([5, 10]));
   });
 
+  it("目录查不到但服务端结果描述的正是所问后端时，采信服务端时长", async () => {
+    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps());
+    const { result } = renderHook(() =>
+      // providers 为空模拟目录请求失败降级；后端与服务端解析结果同一模型。
+      useModelCapabilities({ projectName: PROJECT, videoBackend: BACKEND, providers: [] }),
+    );
+    await waitFor(() => expect(result.current.supportedDurations).toEqual([5, 10]));
+  });
+
+  it("服务端结果描述的是另一个模型时不采信，时长按未知处理", async () => {
+    const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps());
+    const { result } = renderHook(() =>
+      // 设置页切到未保存的候选后端 + 目录请求失败：服务端返回的仍是已保存模型的时长，
+      // 采信会把旧模型时长摆成新候选的选项。
+      useModelCapabilities({ projectName: PROJECT, videoBackend: "ark/other-model", providers: [] }),
+    );
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(result.current.rawDurations).toBeNull();
+    expect(result.current.supportedDurations).toBeNull();
+  });
+
   it("无项目名（项目尚不存在）时只走目录，不发请求", () => {
     const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps());
     const { result } = renderHook(() =>

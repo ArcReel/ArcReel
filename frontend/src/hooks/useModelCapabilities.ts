@@ -20,8 +20,8 @@ import type { CustomProviderInfo, ProviderInfo, VideoCapabilities } from "@/type
 //                             不落项目字段），只有服务端能给出「系统判定 ⊕ 用户覆盖」的结果。
 //   durations               → 静态目录的 supported_durations，再经分辨率 / 参考图两条联动
 //                             约束收窄。约束只声明在目录里、服务端不返回，故以目录为准；
-//                             目录解析不出候选模型时（后端留空 → 服务端 auto 解析，或存值
-//                             已不在目录中）退回服务端解析出的 supported_durations。
+//                             目录解析不出候选模型时退回服务端解析出的 supported_durations，
+//                             但仅限该结果确实描述所问后端时（判据见 rawDurations）。
 //   durationConstraints     → 目录。纯联动声明，无覆盖语义。
 //
 // 目录侧同步可得，故时长在首帧即有值、不闪加载态；服务端只在目录缺项时才影响结果。
@@ -172,7 +172,14 @@ export function useModelCapabilities({
       ? lookupSupportedDurations(providers, videoBackend, customProviders)
       : undefined;
     if (fromCatalog?.length) return fromCatalog;
-    return caps?.supported_durations?.length ? caps.supported_durations : null;
+    if (!caps?.supported_durations?.length) return null;
+    // 服务端按已落盘的 project.json 解析，未必与传入的后端同一个模型：设置页传的是编辑中的
+    // 未保存值，而目录请求失败降级为空数组时（providers 与可选后端列表来自两个端点，前者失败
+    // 不影响后者），任意候选模型都解析不出目录。此时采信会把旧模型的时长摆成新候选的选项，
+    // 用户能存下新模型不支持的值——宁可返回未知，由消费方按未知降级。
+    // 后端留空是例外：那本就是「交给服务端 auto 解析」，解析结果即答案，无可比对象。
+    if (videoBackend && `${caps.provider_id}/${caps.model}` !== videoBackend) return null;
+    return caps.supported_durations;
   }, [enabled, providers, customProviders, videoBackend, caps]);
 
   const supportedDurations = useMemo<number[] | null>(
