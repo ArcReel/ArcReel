@@ -412,32 +412,34 @@ class TestProjectEventService:
         service = ProjectEventService(tmp_path, poll_interval=30.0)
         await service.start()
 
-        async with service.stream_events("demo", idle_timeout=0.1) as stream:
-            event_name, _snapshot = await anext(stream)
-            assert event_name == "snapshot"
+        try:
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                event_name, _snapshot = await anext(stream)
+                assert event_name == "snapshot"
 
-            # 直接落盘、不发 hint：模拟变更早于本次重建读盘抵达磁盘
-            script["segments"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
-            script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
-            script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+                # 直接落盘、不发 hint：模拟变更早于本次重建读盘抵达磁盘
+                script["segments"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
+                script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+                script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-            emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
+                emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
 
-            # 本批自身的终态事件独占一条 payload（正常路径的时序与结构不受补扫影响）
-            event_name, payload = await _next_event(stream, timeout=2.0)
-            assert event_name == "changes"
-            assert [change["action"] for change in payload["changes"]] == ["task_succeeded"]
-            assert payload["source"] == "worker"
+                # 本批自身的终态事件独占一条 payload（正常路径的时序与结构不受补扫影响）
+                event_name, payload = await _next_event(stream, timeout=2.0)
+                assert event_name == "changes"
+                assert [change["action"] for change in payload["changes"]] == ["task_succeeded"]
+                assert payload["source"] == "worker"
 
-            # 捎带进来的变更随后单独广播，来源按自己的 hint 标记解析
-            event_name, swept = await _next_event(stream, timeout=2.0)
-            assert event_name == "changes"
-            assert any(
-                change["action"] == "storyboard_ready" and change["entity_id"] == "E1S01" for change in swept["changes"]
-            )
-            assert swept["source"] == "filesystem"
-
-        await service.shutdown()
+                # 捎带进来的变更随后单独广播，来源按自己的 hint 标记解析
+                event_name, swept = await _next_event(stream, timeout=2.0)
+                assert event_name == "changes"
+                assert any(
+                    change["action"] == "storyboard_ready" and change["entity_id"] == "E1S01"
+                    for change in swept["changes"]
+                )
+                assert swept["source"] == "filesystem"
+        finally:
+            await service.shutdown()
 
     @pytest.mark.asyncio
     async def test_emitted_batch_does_not_duplicate_change_it_already_describes(self, tmp_path):
@@ -469,42 +471,43 @@ class TestProjectEventService:
         service = ProjectEventService(tmp_path, poll_interval=30.0)
         await service.start()
 
-        async with service.stream_events("demo", idle_timeout=0.1) as stream:
-            event_name, _snapshot = await anext(stream)
-            assert event_name == "snapshot"
+        try:
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                event_name, _snapshot = await anext(stream)
+                assert event_name == "snapshot"
 
-            # worker 次序：先落盘资产，再发对应的完成事件
-            script["segments"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
-            script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
-            script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+                # worker 次序：先落盘资产，再发对应的完成事件
+                script["segments"][0]["generated_assets"]["storyboard_image"] = "storyboards/E1S01.png"
+                script_path = pm.get_project_path("demo") / "scripts" / "episode_1.json"
+                script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-            emit_project_change_batch(
-                "demo",
-                [
-                    {
-                        "entity_type": "segment",
-                        "action": "storyboard_ready",
-                        "entity_id": "E1S01",
-                        "label": "分镜「E1S01」",
-                        "focus": None,
-                        "important": True,
-                        "script_file": "episode_1.json",
-                        "episode": 1,
-                    }
-                ],
-                source="worker",
-            )
+                emit_project_change_batch(
+                    "demo",
+                    [
+                        {
+                            "entity_type": "segment",
+                            "action": "storyboard_ready",
+                            "entity_id": "E1S01",
+                            "label": "分镜「E1S01」",
+                            "focus": None,
+                            "important": True,
+                            "script_file": "episode_1.json",
+                            "episode": 1,
+                        }
+                    ],
+                    source="worker",
+                )
 
-            event_name, payload = await _next_event(stream, timeout=2.0)
-            assert event_name == "changes"
-            ready = [
-                change
-                for change in payload["changes"]
-                if change["action"] == "storyboard_ready" and change["entity_id"] == "E1S01"
-            ]
-            assert len(ready) == 1
-
-        await service.shutdown()
+                event_name, payload = await _next_event(stream, timeout=2.0)
+                assert event_name == "changes"
+                ready = [
+                    change
+                    for change in payload["changes"]
+                    if change["action"] == "storyboard_ready" and change["entity_id"] == "E1S01"
+                ]
+                assert len(ready) == 1
+        finally:
+            await service.shutdown()
 
     def test_change_identity_normalizes_equivalent_ready_actions(self):
         """参考视频完成在发布方与快照差分两侧的 action 命名不同，但去重身份相同。
@@ -622,8 +625,8 @@ class TestProjectEventService:
                     if change["action"] == "storyboard_ready" and change["entity_id"] == "E1S01"
                 ]
                 assert len(ready) == 1
-                # 广播它的是 B 自己那一批：补扫的副本不带 asset_fingerprints
-                assert "script_file" in ready[0]
+                # 广播它的是 B 自己那一批：B 批显式传 focus=None，补扫副本的 focus 由差分构造
+                assert ready[0]["focus"] is None
         finally:
             release_first.set()
             await service.shutdown()
@@ -700,47 +703,48 @@ class TestProjectEventService:
         service = ProjectEventService(tmp_path, poll_interval=0.05)
         await service.start()
 
-        async with service.stream_events("demo", idle_timeout=0.1) as stream:
-            event_name, _snapshot = await anext(stream)
-            assert event_name == "snapshot"
+        try:
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                event_name, _snapshot = await anext(stream)
+                assert event_name == "snapshot"
 
-            original_rebuild = service._rebuild_snapshot
-            armed = False
+                original_rebuild = service._rebuild_snapshot
+                armed = False
 
-            def _rebuild_then_land(project_name: str):
-                nonlocal armed
-                result = original_rebuild(project_name)
-                if armed:
-                    armed = False
-                    script_path = pm.get_project_path("demo") / "scripts" / "episode_2.json"
-                    script_path.write_text(
-                        json.dumps(
-                            {"episode": 2, "title": "第二集", "content_mode": "narration", "segments": []},
-                            ensure_ascii=False,
-                        ),
-                        encoding="utf-8",
-                    )
-                return result
+                def _rebuild_then_land(project_name: str):
+                    nonlocal armed
+                    result = original_rebuild(project_name)
+                    if armed:
+                        armed = False
+                        script_path = pm.get_project_path("demo") / "scripts" / "episode_2.json"
+                        script_path.write_text(
+                            json.dumps(
+                                {"episode": 2, "title": "第二集", "content_mode": "narration", "segments": []},
+                                ensure_ascii=False,
+                            ),
+                            encoding="utf-8",
+                        )
+                    return result
 
-            monkeypatch.setattr(service, "_rebuild_snapshot", _rebuild_then_land)
-            armed = True
+                monkeypatch.setattr(service, "_rebuild_snapshot", _rebuild_then_land)
+                armed = True
 
-            emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
+                emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
 
-            # 窗口内落盘的变更最终仍要广播（本次重建未覆盖它，兜底扫描须补上）
-            deadline = 3.0
-            for _ in range(10):
-                event_name, payload = await _next_event(stream, timeout=deadline)
-                assert event_name == "changes"
-                if any(
-                    change["entity_type"] == "episode" and change["action"] == "created" and change["episode"] == 2
-                    for change in payload["changes"]
-                ):
-                    break
-            else:
-                raise AssertionError("窗口内落盘的 episode 2 变更从未广播")
-
-        await service.shutdown()
+                # 窗口内落盘的变更最终仍要广播（本次重建未覆盖它，兜底扫描须补上）
+                deadline = 3.0
+                for _ in range(10):
+                    event_name, payload = await _next_event(stream, timeout=deadline)
+                    assert event_name == "changes"
+                    if any(
+                        change["entity_type"] == "episode" and change["action"] == "created" and change["episode"] == 2
+                        for change in payload["changes"]
+                    ):
+                        break
+                else:
+                    raise AssertionError("窗口内落盘的 episode 2 变更从未广播")
+        finally:
+            await service.shutdown()
 
     @pytest.mark.asyncio
     async def test_subscribe_cancellation_cleans_up_subscriber(self, tmp_path, monkeypatch):
