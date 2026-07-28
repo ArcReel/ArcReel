@@ -243,7 +243,7 @@ def constrain_durations(
         allowed = [d for d in allowed if d in by_resolution]
     if not allowed:
         logger.warning(
-            "duration constraints for %s/%s are mutually contradictory "
+            "duration constraints for %s/%s have no overlap with candidate durations "
             "(resolution=%r, uses_reference_images=%r), falling back to unconstrained candidates %r",
             provider_id,
             model_id,
