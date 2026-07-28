@@ -1007,13 +1007,14 @@ class ProjectManager:
                     scene["audio"][key] = template["audio"][key]
 
         # 补全 generated_assets 字段
-        if "generated_assets" not in scene:
-            scene["generated_assets"] = self.create_generated_assets()
-        else:
-            assets_template = self.create_generated_assets()
-            for key in assets_template:
-                if key not in scene["generated_assets"]:
-                    scene["generated_assets"][key] = assets_template[key]
+        # generated_assets 来自磁盘剧本 JSON，外部编辑可能损坏成非 dict（None/字符串等）；
+        # 先经 get_generated_assets 归一化，避免下面的成员检查/赋值抛 TypeError。
+        assets = get_generated_assets(scene)
+        assets_template = self.create_generated_assets()
+        for key in assets_template:
+            if key not in assets:
+                assets[key] = assets_template[key]
+        scene["generated_assets"] = assets
 
         # 补全其他顶层字段
         top_level_defaults = {
