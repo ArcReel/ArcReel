@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.config.registry import PROVIDER_REGISTRY
@@ -38,6 +38,7 @@ from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     AdEpisodeScript,
     DramaEpisodeScript,
+    DramaSceneContent,
     DramaVisualScript,
     NarrationEpisodeScript,
     NarrationStep1Draft,
@@ -57,6 +58,11 @@ from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
 
 logger = logging.getLogger(__name__)
+
+# drama step1 时长的归一化口径：与 DramaSceneContent.duration_seconds（非 strict int）同一套，
+# 避免校验侧与落盘侧对 "4" / 4.0 这类取值判断不一致。默认值也取字段声明，不另写字面量。
+_DURATION_ADAPTER = TypeAdapter(int)
+_DRAMA_DEFAULT_DURATION = DramaSceneContent.model_fields["duration_seconds"].default
 
 # 集号前缀正则：仅匹配 `E{数字}` + 紧随 S/U（segment/scene 用 S，video_unit 用 U），
 # 保留后缀（如 `E1S03_2` → `E2S03_2`）。设计契约见 lib/script_models.py。
@@ -302,17 +308,24 @@ class ScriptGenerator:
         对称：drama 的时长同样由 step1 定稿、step2 只出视觉层并原样透传，而落盘前的静态校验只
         要求正整数。缺这道校验时，step1 在某个分辨率下拆好、随后项目切到约束更严的分辨率再跑
         step2，越界时长会一路存进剧本，直到视频入队才被拒。
+
+        取值按**最终 schema 的归一化口径**（``TypeAdapter(int)``，即 ``DramaSceneContent``
+        的非 strict ``int`` 字段所用的那套）而非 ``isinstance(..., int)``：后者会把 ``"4"``
+        与 ``4.0`` 整个跳过，而它们会被归一成 4 存进剧本，等于给越界值开了一条绕路。缺键同理
+        取该字段的声明默认值——不填不代表不校验，落盘时补的正是这个默认值。归一化失败（如
+        ``"abc"``）不在此报错，交给落盘前的静态校验统一 fail-loud。
         """
         supported = self._resolve_supported_durations(await self._fetch_video_capabilities(), gen_mode=gen_mode)
         allowed = {int(d) for d in supported}
-        bad = sorted(
-            {
-                int(scene["duration_seconds"])
-                for scene in content_scenes
-                if isinstance(scene, dict) and isinstance(scene.get("duration_seconds"), int)
-            }
-            - allowed
-        )
+        seen: set[int] = set()
+        for scene in content_scenes:
+            if not isinstance(scene, dict):
+                continue
+            try:
+                seen.add(_DURATION_ADAPTER.validate_python(scene.get("duration_seconds", _DRAMA_DEFAULT_DURATION)))
+            except ValidationError:
+                continue
+        bad = sorted(seen - allowed)
         if bad:
             raise ValueError(
                 f"step1 已定场景时长非法（不在 {sorted(allowed)} 内）: {bad}；"

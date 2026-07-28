@@ -322,6 +322,56 @@ class TestScriptGenerator:
             await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
 
     @pytest.mark.integration
+    @pytest.mark.parametrize(
+        "raw",
+        ["4", 4.0],
+        ids=["numeric-string", "integral-float"],
+    )
+    async def test_drama_step2_rejects_out_of_range_duration_in_coercible_form(self, tmp_path, raw):
+        """手编的 `"4"` / `4.0` 同样拦下：它们会被最终 schema 归一成 4 落盘，不能绕过校验。
+
+        校验若按 `isinstance(..., int)` 判定就会整个跳过这两种形态，等于给越界值开一条绕路。
+        """
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+        project["video_backend"] = "gemini-aistudio/veo-3.1-generate-preview"
+        project["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}
+        _write_json(project_path / "project.json", project)
+
+        content = _drama_step1_content()
+        content["scenes"][0]["duration_seconds"] = raw
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+
+    @pytest.mark.integration
+    async def test_drama_step2_checks_declared_default_when_duration_absent(self, tmp_path):
+        """缺 duration_seconds 键时按字段声明默认值校验——不填不代表不校验，落盘补的正是该默认值。
+
+        海螺 1080p 只接受 6 秒，而 DramaSceneContent 的默认是 8 秒，故该场景须被拦下。
+        """
+        project_path = tmp_path / "demo"
+        _write_drama_ledger_project(
+            project_path,
+            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        )
+        project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+        project["video_backend"] = "minimax/MiniMax-Hailuo-2.3"
+        project["model_settings"] = {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}}
+        project["_supported_durations"] = [6, 10]
+        _write_json(project_path / "project.json", project)
+
+        content = _drama_step1_content()
+        del content["scenes"][0]["duration_seconds"]
+        generator = ScriptGenerator(project_path)
+        with pytest.raises(ValueError, match="step1 已定场景时长非法"):
+            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+
+    @pytest.mark.integration
     async def test_drama_step2_accepts_step1_duration_within_constrained_set(self, tmp_path):
         """同一 1080p 项目下 8 秒仍合法——收窄后集合的成员不得被这道校验误拒。"""
         project_path = tmp_path / "demo"
