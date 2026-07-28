@@ -102,6 +102,8 @@ def _apply_provider_constraints(
     supported_durations: Sequence[int],
     references: list[Path],
     duration_seconds: int,
+    registry_provider_id: str = "",
+    resolution: str | None = None,
 ) -> tuple[list[Path], int, list[dict]]:
     """按供应商能力取时长档位、裁剪 references；回传 warnings（i18n key + 参数）。
 
@@ -109,17 +111,17 @@ def _apply_provider_constraints(
     （model 粒度，单一真相源）；`max_refs` 为 None 表示不裁参考图，`supported_durations`
     为空表示能力不可解析、时长原样透传。
 
+    档位全集先按本次调用的条件收窄再取档（见 :func:`effective_reference_durations`）：参考图
+    约束只在裁剪后**确实带图**时施加——通用单元允许空 references、ad 缺图会退化为纯文本，
+    而 backend 同样只在 ``reference_images`` 非空时施加该约束。收窄用的是规范 registry
+    provider id 而非 ``provider``（后者是 backend 族名，如 ark-agent-plan 族用 Ark backend，
+    不是 registry key），与 ``supported_durations`` 的查询身份保持一致。
+
     时长按容量语义取档（见 :func:`resolve_duration_slot`）：申请能装下总时长的最小档位，
     成片不裁剪。取档偏移了剧本编排时记 warning——入队前的用户确认按项目当前配置近似
     判断，实际档位以此处执行时解析的 model 能力为准。
     """
     warnings: list[dict] = []
-
-    slot = resolve_duration_slot(duration_seconds, supported_durations)
-    new_duration = slot.seconds
-    slot_warning = slot.warning(model=model or provider)
-    if slot_warning is not None:
-        warnings.append(slot_warning)
 
     new_refs = list(references)
     if max_refs is not None and len(references) > max_refs:
@@ -139,6 +141,21 @@ def _apply_provider_constraints(
                 }
             )
 
+    slot = resolve_duration_slot(
+        duration_seconds,
+        effective_reference_durations(
+            registry_provider_id,
+            model,
+            list(supported_durations),
+            resolution,
+            with_reference_images=bool(new_refs),
+        ),
+    )
+    new_duration = slot.seconds
+    slot_warning = slot.warning(model=model or provider)
+    if slot_warning is not None:
+        warnings.append(slot_warning)
+
     return new_refs, new_duration, warnings
 
 
@@ -154,19 +171,30 @@ def unit_script_duration(unit: dict, ad_shots: list[dict] | None) -> int:
 
 
 def effective_reference_durations(
-    provider: str, model: str | None, durations: list[int], resolution: str | None
+    provider: str,
+    model: str | None,
+    durations: list[int],
+    resolution: str | None,
+    *,
+    with_reference_images: bool,
 ) -> list[int]:
-    """参考视频路径实际可申请的时长档位：全集与两条调用条件的约束求交。
+    """参考视频路径实际可申请的时长档位：全集与本次调用条件的约束求交。
 
-    参考视频恒带参考图（unit 的资产图即 ``reference_images``），且按项目配置的分辨率下发，
-    而型号可能对这两个条件各自声明更窄的时长档位。按全集取档会选中执行期必然被拒的秒数
-    （如 Veo 3.1 带参考图只接受 8 秒，5 秒剧本按全集取档得 6 秒），预检也会向用户展示
-    这个申请不到的秒数。取档与预检因此都要先收窄再取档。
+    型号可能对「带参考图」与「按某分辨率下发」各自声明更窄的时长档位。按全集取档会选中
+    执行期必然被拒的秒数（如 Veo 3.1 带参考图只接受 8 秒，5 秒剧本按全集取档得 6 秒），
+    预检也会向用户展示这个申请不到的秒数。取档与预检因此都要先收窄再取档。
 
-    两条约束都遵循「无声明或交集为空时不收窄」的降级口径（见各自实现），故本函数在能力
-    声明缺位时退化为原全集，不比收窄前更严。
+    ``with_reference_images`` 为 false 时不施加参考图约束：通用单元允许空 references、ad
+    缺图会退化为纯文本，backend 同样只在 ``reference_images`` 非空时施加该约束——无图单元
+    套用它会把 720p 下本可申请的 4 秒错误抬到 8 秒。
+
+    ``provider`` 必须是规范 registry provider id（backend 族名不是 registry key）。两条约束
+    都遵循「无声明或交集为空时不收窄」的降级口径（见各自实现），故本函数在能力声明缺位时
+    退化为原全集，不比收窄前更严。
     """
-    narrowed = constrain_durations_by_reference_images(provider, model, durations)
+    narrowed = (
+        constrain_durations_by_reference_images(provider, model, durations) if with_reference_images else durations
+    )
     return constrain_durations_by_resolution(provider, model, narrowed, resolution)
 
 
@@ -175,10 +203,14 @@ async def precheck_unit_duration_slot(project: dict, unit: dict, ad_shots: list[
 
     provider 按 ADR-0001 在执行时才解析，故这里只是近似：能力解析失败按空档位处理
     （沿用现状放行，不弹确认），实际档位以执行时的 model 能力为准。
+
+    「是否带参考图」按 unit 声明的 references 近似——执行层按解析后的实际图判定，而 ad 路径
+    的资产缺图退化为纯文本要读盘才知道。近似方向保守：声明了参考却缺图的异常单元会多收窄
+    一档、至多多问一次确认，不会漏掉需要确认的情形。
     """
     return resolve_duration_slot(
         unit_script_duration(unit, ad_shots),
-        await resolve_project_supported_durations(project),
+        await resolve_project_supported_durations(project, with_reference_images=bool(unit.get("references"))),
     )
 
 
@@ -195,12 +227,12 @@ async def _project_video_caps(project: dict, *, degraded_to: str) -> dict:
         return {}
 
 
-async def resolve_project_supported_durations(project: dict) -> list[int]:
+async def resolve_project_supported_durations(project: dict, *, with_reference_images: bool) -> list[int]:
     """解析项目视频后端在参考视频路径下可申请的时长档位集。
 
-    档位已按参考图与分辨率两条调用条件收窄（见 :func:`effective_reference_durations`），
-    与执行层取档同口径——否则预检展示的申请秒数会是执行期拿不到的值。解析失败返回空列表
-    （与执行层空集放行同口径）。
+    档位已按本次调用的条件收窄（见 :func:`effective_reference_durations`），与执行层取档
+    同口径——否则预检展示的申请秒数会是执行期拿不到的值。解析失败返回空列表（与执行层
+    空集放行同口径）。
     """
     caps = await _project_video_caps(project, degraded_to="时长取档不施加档位约束")
     durations = [int(d) for d in caps.get("supported_durations") or []]
@@ -210,7 +242,11 @@ async def resolve_project_supported_durations(project: dict) -> list[int]:
     model = caps.get("model")
     model_name = str(model) if model else None
     return effective_reference_durations(
-        provider_id, model_name, durations, await _project_video_resolution(project, provider_id, model_name)
+        provider_id,
+        model_name,
+        durations,
+        await _project_video_resolution(project, provider_id, model_name),
+        with_reference_images=with_reference_images,
     )
 
 
@@ -404,15 +440,15 @@ async def execute_reference_video_task(
     #    上限，把决策推给 backend，与 ScriptGenerator._fetch_video_capabilities 的口径一致。
     max_refs = video.max_reference_images
 
+    supported_durations = list(video.supported_durations)
+
     # 参考视频是唯一需要非空 resolution 档位的调用方：lane 已按 registry provider_id
     # 兜底（resolution 命中空档位时取 provider fallback），executor 直接取非空档位。
     resolution = video.resolution_or_fallback
 
-    # 档位全集先按本次调用的条件（恒带参考图 + 上述分辨率）收窄再取档，取档结果才是执行期
-    # 拿得到的秒数；预检走同一函数，用户确认的秒数与实际申请一致。
-    supported_durations = effective_reference_durations(
-        provider_name, model_name, list(video.supported_durations), resolution
-    )
+    # 条件档位收窄读 registry 声明，查询键必须是规范 registry provider_id：backend_name 是
+    # 族名（ark-agent-plan 族复用 Ark backend），拿它查表会静默落空、收窄失效。
+    registry_provider_id = video.provider_model.provider_id
 
     # 5. Provider 特判：裁 refs + 取时长档位。ad 的参考裁剪走专用口径（产品 sheet
     #    跨产品稳定前置存活），时长取档与通用路径共用。
@@ -428,6 +464,8 @@ async def execute_reference_video_task(
             supported_durations=supported_durations,
             references=[e["image"] for e in ad_entries],
             duration_seconds=base_duration,
+            registry_provider_id=registry_provider_id,
+            resolution=resolution,
         )
         warnings = [*ad_warnings, *clamp_warnings, *duration_warnings]
     else:
@@ -438,6 +476,8 @@ async def execute_reference_video_task(
             supported_durations=supported_durations,
             references=source_refs,
             duration_seconds=base_duration,
+            registry_provider_id=registry_provider_id,
+            resolution=resolution,
         )
 
     # 6. 渲染 prompt。ad：镜头文本 + 裁剪后参考的 [图N] 对照表 + 保真/反向尾词。

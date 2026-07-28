@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from contextlib import asynccontextmanager, contextmanager
+from functools import partial
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -12,6 +14,7 @@ from server.services.reference_video_tasks import (
     _apply_provider_constraints,
     _render_unit_prompt,
     _resolve_unit_references,
+    effective_reference_durations,
 )
 
 
@@ -235,27 +238,45 @@ def test_apply_provider_constraints_between_slots_rounds_up():
 
 
 @pytest.mark.unit
-def test_effective_reference_durations_narrows_by_reference_images_and_resolution():
-    """档位全集先按参考图与分辨率两条调用条件收窄，取档才落在执行期拿得到的秒数上。
+def test_effective_reference_durations_applies_reference_constraint_only_when_images_sent():
+    """参考图约束只在确实带图时施加：backend 同样只在 reference_images 非空时施加它。"""
+    narrow = partial(effective_reference_durations, "gemini-aistudio", "veo-3.1-generate-preview", [4, 6, 8], "720p")
+    # Veo 3.1 全局支持 [4, 6, 8]，带参考图时只接受 8 秒
+    assert narrow(with_reference_images=True) == [8]
+    # 无图单元（通用路径允许空 references、ad 缺图退化为纯文本）：720p 纯文本路径仍是全集
+    assert narrow(with_reference_images=False) == [4, 6, 8]
+    # 未登记型号（中转站 / 自定义供应商包装）无声明可依：退回原全集，不比收窄前更严
+    assert effective_reference_durations(
+        "gemini-aistudio", "veo-3.1-via-relay", [4, 6, 8], "720p", with_reference_images=True
+    ) == [4, 6, 8]
 
-    Veo 3.1 全局支持 [4, 6, 8]，带参考图时只接受 8 秒：按全集取档，5 秒剧本会得到执行期
-    必然被 backend 拒绝的 6 秒。
-    """
-    from server.services.reference_video_tasks import effective_reference_durations
 
-    narrowed = effective_reference_durations("gemini-aistudio", "veo-3.1-generate-preview", [4, 6, 8], "720p")
-    assert narrowed == [8]
-    _, new_duration, _ = _apply_provider_constraints(
-        provider="gemini-aistudio",
+@pytest.mark.unit
+def test_apply_provider_constraints_narrows_by_call_conditions():
+    """执行层取档前按本次调用条件收窄：带图 5 秒取 8（而非执行期必被拒的 6），无图仍取 6。"""
+    ref = Path(tempfile.gettempdir()) / "ref0.png"
+    _, with_images, _ = _apply_provider_constraints(
+        provider="gemini",
         model="veo-3.1-generate-preview",
         max_refs=3,
-        supported_durations=narrowed,
-        references=[Path("/tmp/ref0.png")],
+        supported_durations=[4, 6, 8],
+        references=[ref],
         duration_seconds=5,
+        registry_provider_id="gemini-aistudio",
+        resolution="720p",
     )
-    assert new_duration == 8
-    # 未登记型号（中转站 / 自定义供应商包装）无声明可依：退回原全集，不比收窄前更严
-    assert effective_reference_durations("gemini-aistudio", "veo-3.1-via-relay", [4, 6, 8], "720p") == [4, 6, 8]
+    assert with_images == 8
+    _, without_images, _ = _apply_provider_constraints(
+        provider="gemini",
+        model="veo-3.1-generate-preview",
+        max_refs=3,
+        supported_durations=[4, 6, 8],
+        references=[],
+        duration_seconds=5,
+        registry_provider_id="gemini-aistudio",
+        resolution="720p",
+    )
+    assert without_images == 6
 
 
 def test_apply_provider_constraints_sora_single_ref():
