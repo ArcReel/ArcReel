@@ -36,6 +36,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from lib.project_manager import ProjectManager
+from lib.script_models import get_generated_assets
 
 FFMPEG_TOOLS_HINT = "需要 ffmpeg 和 ffprobe 同时可用，并且都在 PATH 中"
 
@@ -626,7 +627,7 @@ def compose_video(
     transitions = []
 
     for scene in script["scenes"]:
-        video_clip = scene.get("generated_assets", {}).get("video_clip")
+        video_clip = get_generated_assets(scene).get("video_clip")
         if not video_clip:
             raise ValueError(f"场景 {scene['scene_id']} 缺少视频片段")
 

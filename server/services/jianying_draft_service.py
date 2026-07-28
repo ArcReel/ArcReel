@@ -52,10 +52,9 @@ _SPAN_SUBTITLE_MODES: frozenset[str] = frozenset({"drama"})
 from lib.path_safety import PathTraversalError, safe_join, safe_resolve
 from lib.project_manager import ProjectManager, effective_mode
 from lib.reference_video.ad_units import ad_shots_by_id
-from lib.script_models import ad_shot_duration_seconds
+from lib.script_models import ad_shot_duration_seconds, get_generated_assets
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.speech_rate import estimate_spoken_seconds
-from lib.storyboard_sequence import get_generated_assets
 
 logger = logging.getLogger(__name__)
 

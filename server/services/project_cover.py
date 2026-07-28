@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from lib.storyboard_sequence import get_generated_assets
+from lib.script_models import get_generated_assets
 
 if TYPE_CHECKING:
     from lib.project_manager import ProjectManager

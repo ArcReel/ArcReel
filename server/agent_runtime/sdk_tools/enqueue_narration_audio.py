@@ -15,7 +15,8 @@ from lib.generation_queue_client import (
     batch_enqueue_and_wait,
 )
 from lib.resource_paths import resource_relative_path
-from lib.storyboard_sequence import get_generated_assets, get_storyboard_items
+from lib.script_models import get_generated_assets
+from lib.storyboard_sequence import get_storyboard_items
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 
 

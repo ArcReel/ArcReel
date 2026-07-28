@@ -189,6 +189,18 @@ class GeneratedAssets(BaseModel):
     status: Literal["pending", "storyboard_ready", "completed"] = Field(default="pending", description="生成状态")
 
 
+def get_generated_assets(item: dict) -> dict:
+    """归一化访问 item 的 ``generated_assets`` 容器。
+
+    该字段来自磁盘上的剧本 JSON，不可信任：外部编辑可能把它损坏成非 dict（如
+    list/字符串）。归一化为空 dict 而非抛错，让调用方走各自「该资产未生成」的
+    既有分支（单条跳过 / 可读拒绝），不会在批量入队时因为一条脏数据抛未捕获
+    ``AttributeError`` 中断整批。
+    """
+    assets = item.get("generated_assets")
+    return assets if isinstance(assets, dict) else {}
+
+
 # ============ 说书模式（Narration） ============
 
 
