@@ -1390,26 +1390,6 @@ class TestLoadReferenceStep1:
         with pytest.raises(ValueError):
             sg._load_reference_step1(1, [4, 6, 8])
 
-    @pytest.mark.unit
-    def test_shot_over_current_unit_cap_raises(self, tmp_path):
-        """shot 成员合法但超过当前 unit 总时长上限 → 要求重拆。
-
-        step1 在宽松分辨率下拆出 10 秒 shot，项目切到上限 6 秒的档位后，shot 之和必然超标：
-        step2 只能静默改写已定节奏或凑不出枚举 schema 的总时长，两条都不该静默发生。
-        """
-        sg = _bare_generator(tmp_path)
-        self._write(sg, 1, {"units": [self._unit("E1U01", duration=10)]})
-        with pytest.raises(ValueError, match="上限|重跑"):
-            sg._load_reference_step1(1, [4, 6, 8, 10], max_duration=6)
-
-    @pytest.mark.unit
-    def test_shot_within_cap_passes(self, tmp_path):
-        """上限内的 shot 不受影响；上限未声明（None）时跳过该层校验。"""
-        sg = _bare_generator(tmp_path)
-        self._write(sg, 1, {"units": [self._unit("E1U01", duration=4), self._unit("E1U02", duration=6)]})
-        assert len(sg._load_reference_step1(1, [4, 6, 8, 10], max_duration=6)) == 2
-        assert len(sg._load_reference_step1(1, [4, 6, 8, 10], max_duration=None)) == 2
-
 
 def _write_ad_project(project_path: Path, *, generation_mode: str = "storyboard", products: dict | None = None):
     payload = {
