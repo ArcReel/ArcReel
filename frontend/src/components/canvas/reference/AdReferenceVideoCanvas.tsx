@@ -259,10 +259,18 @@ export function AdReferenceVideoCanvas({
     [projectName, episode, isUnitBusy, liveSavingUnitIds, t],
   );
 
-  const enqueueSerially = useCallback(
-    async (unitIds: string[]) => {
-      // 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
-      for (const id of unitIds) await enqueueUnit(id);
+  /**
+   * 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
+   *
+   * 每次 POST 前都用本次入口的判定复核一遍：循环里每个请求之间都是一段等待窗口，靠后的
+   * 分组可能在此期间由别处生成完成，只在循环开始前过滤一次拦不住它。
+   */
+  const makeEnqueueSerially = useCallback(
+    (canEnqueue: (unitId: string) => boolean) => async (unitIds: string[]) => {
+      for (const id of unitIds) {
+        if (!canEnqueue(id)) continue;
+        await enqueueUnit(id);
+      }
     },
     [enqueueUnit],
   );
@@ -273,9 +281,9 @@ export function AdReferenceVideoCanvas({
         useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
         return;
       }
-      await durationGate.run([unitId], enqueueSerially, canEnqueueUnit);
+      await durationGate.run([unitId], makeEnqueueSerially(canEnqueueUnit), canEnqueueUnit);
     },
-    [durationGate, enqueueSerially, isUnitBusy, liveSavingUnitIds, canEnqueueUnit, t],
+    [durationGate, makeEnqueueSerially, isUnitBusy, liveSavingUnitIds, canEnqueueUnit, t],
   );
 
   // 编辑期间该 unit 若已被其他入口占用，放弃这次写入而非与生成中的任务乱序落库
@@ -325,8 +333,8 @@ export function AdReferenceVideoCanvas({
     if (targets.length === 0) return;
     // 整批走一次闸门而非逐个：闸门在需确认时只挂起弹窗即返回，逐个调用会让后一个 unit
     // 覆盖前一个尚未确认的弹窗，除最后一个外的分组既不入队也无提示。
-    await durationGate.run(targets, enqueueSerially, canEnqueueBatchUnit);
-  }, [derive, durationGate, enqueueSerially, isUnitBusy, liveSavingUnitIds, canEnqueueBatchUnit]);
+    await durationGate.run(targets, makeEnqueueSerially(canEnqueueBatchUnit), canEnqueueBatchUnit);
+  }, [derive, durationGate, makeEnqueueSerially, isUnitBusy, liveSavingUnitIds, canEnqueueBatchUnit]);
 
   const hasUnits = hydrated.length > 0;
   // 任一分组仍有活跃任务（含取消中）或镜头字段写入未落库时禁止重新派生：派生会按

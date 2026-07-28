@@ -627,6 +627,47 @@ describe("ReferenceVideoCanvas", () => {
       expect(genSpy).toHaveBeenCalledTimes(1);
     });
 
+    // 串行入队的每个请求之间也是一段等待窗口：只在循环开始前过滤一次，靠后的单元在等
+    // 前几个请求时完成的话照样会被提交。
+    it("串行入队途中完成的单元不再入队", async () => {
+      const [u1, u2] = [mkUnit("E1U1"), mkUnit("E1U2")];
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [u1, u2] });
+      const genSpy = vi
+        .spyOn(API, "generateReferenceVideoUnit")
+        .mockImplementation(async (_p, _e, unitId) => {
+          // 第一个单元的请求飞行期间，E1U2 由别处生成完成并落库
+          if (unitId === "E1U1") {
+            act(() => {
+              useReferenceVideoStore.setState({
+                unitsByEpisode: {
+                  [referenceVideoCacheKey("proj", 1)]: [
+                    u1,
+                    { ...u2, generated_assets: { ...u2.generated_assets, video_clip: "videos/E1U2.mp4" } },
+                  ],
+                },
+              } as never);
+            });
+          }
+          return { task_id: "t9", deduped: false } as never;
+        });
+      stubPrecheck({
+        needs_confirmation: true,
+        script_duration: 3,
+        request_duration: 4,
+        adjustment: "up",
+      });
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+      const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
+      await waitFor(() => expect(batch).not.toBeDisabled());
+      fireEvent.click(batch);
+      fireEvent.click(await screen.findByRole("button", { name: CONFIRM_CTA }));
+
+      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
+      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U2");
+      expect(genSpy).toHaveBeenCalledTimes(1);
+    });
+
     // 反向：单元入口的「重新生成」本就要覆盖已有成片，不能被同一条复核挡掉。
     it("单元入口对已有成片的单元仍可重新生成", async () => {
       const ready = mkUnit("E1U1");

@@ -267,10 +267,18 @@ export function ReferenceVideoCanvas({
     [projectName, episode, isUnitLocked, t],
   );
 
-  const enqueueSerially = useCallback(
-    async (unitIds: string[]) => {
-      // 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
-      for (const id of unitIds) await enqueue(id);
+  /**
+   * 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
+   *
+   * 每次 POST 前都用本次入口的判定复核一遍：循环里每个请求之间都是一段等待窗口，靠后的
+   * 单元可能在此期间由别处生成完成，只在循环开始前过滤一次拦不住它。
+   */
+  const makeEnqueueSerially = useCallback(
+    (canEnqueue: (unitId: string) => boolean) => async (unitIds: string[]) => {
+      for (const id of unitIds) {
+        if (!canEnqueue(id)) continue;
+        await enqueue(id);
+      }
     },
     [enqueue],
   );
@@ -282,9 +290,9 @@ export function ReferenceVideoCanvas({
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
       }
-      await durationGate.run([unitId], enqueueSerially, canEnqueueUnit);
+      await durationGate.run([unitId], makeEnqueueSerially(canEnqueueUnit), canEnqueueUnit);
     },
-    [durationGate, enqueueSerially, isUnitLocked, canEnqueueUnit, t],
+    [durationGate, makeEnqueueSerially, isUnitLocked, canEnqueueUnit, t],
   );
 
   const handleUploadVideo = useCallback(
@@ -343,8 +351,8 @@ export function ReferenceVideoCanvas({
     const targets = batchTargets.map((u) => u.unit_id).filter((id) => !isUnitLocked(id));
     if (targets.length === 0) return;
     // 与单元入口共用同一条闸门：需确认的单元聚合成一次确认，否则批量按钮会成为绕过确认的旁路
-    await durationGate.run(targets, enqueueSerially, canEnqueueBatchUnit);
-  }, [batchTargets, durationGate, enqueueSerially, isUnitLocked, canEnqueueBatchUnit, t]);
+    await durationGate.run(targets, makeEnqueueSerially(canEnqueueBatchUnit), canEnqueueBatchUnit);
+  }, [batchTargets, durationGate, makeEnqueueSerially, isUnitLocked, canEnqueueBatchUnit, t]);
 
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
