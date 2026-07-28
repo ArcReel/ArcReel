@@ -199,15 +199,15 @@ def test_render_unit_prompt_replaces_mentions_in_order():
     assert "Shot 2 (5s):" in rendered
 
 
-def test_apply_provider_constraints_veo_clamps_duration_and_refs():
+def test_apply_provider_constraints_over_largest_slot_requests_largest_and_clamps_refs():
     # caps 由调用方从 GenerationContext 的 video lane 取得；
-    # 这里直接提供 model 级上限模拟已 resolve 的结果。
+    # 这里直接提供 model 级档位集模拟已 resolve 的结果。
     refs = [Path(f"/tmp/ref{i}.png") for i in range(5)]
     new_refs, new_duration, warnings = _apply_provider_constraints(
         provider="gemini",
         model="veo-3.1-generate-preview",
         max_refs=3,
-        max_duration=8,
+        supported_durations=[4, 6, 8],
         references=refs,
         duration_seconds=12,
     )
@@ -217,13 +217,28 @@ def test_apply_provider_constraints_veo_clamps_duration_and_refs():
     assert any("ref_too_many_images" in w["key"] for w in warnings)
 
 
+def test_apply_provider_constraints_between_slots_rounds_up():
+    """区间内的非成员总时长按容量语义向上取档，不再抛 VideoCapabilityError。"""
+    refs = [Path("/tmp/ref0.png")]
+    _, new_duration, warnings = _apply_provider_constraints(
+        provider="gemini",
+        model="veo-3.1-generate-preview",
+        max_refs=3,
+        supported_durations=[4, 8, 12],
+        references=refs,
+        duration_seconds=5,
+    )
+    assert new_duration == 8
+    assert [w["key"] for w in warnings] == ["ref_duration_rounded_up"]
+
+
 def test_apply_provider_constraints_sora_single_ref():
     refs = [Path(f"/tmp/ref{i}.png") for i in range(3)]
     new_refs, _, warnings = _apply_provider_constraints(
         provider="openai",
         model="sora-2",
         max_refs=1,
-        max_duration=12,
+        supported_durations=[4, 8, 12],
         references=refs,
         duration_seconds=8,
     )
@@ -237,7 +252,7 @@ def test_apply_provider_constraints_ark_keeps_nine():
         provider="ark",
         model="doubao-seedance-2-0-260128",
         max_refs=9,
-        max_duration=15,
+        supported_durations=list(range(1, 16)),
         references=refs,
         duration_seconds=12,
     )
@@ -247,14 +262,14 @@ def test_apply_provider_constraints_ark_keeps_nine():
 
 
 def test_apply_provider_constraints_none_caps_skip_clamp():
-    """当 ConfigResolver 解析失败（例如无 DB 的 CI 环境），调用方传 None →
-    不裁剪任何维度，把决策推到 backend 自己去报错。"""
+    """当 ConfigResolver 解析失败（例如无 DB 的 CI 环境），调用方传 None / 空档位集 →
+    不裁剪任何维度、时长原样透传，把决策推到 backend 自己去报错。"""
     refs = [Path(f"/tmp/ref{i}.png") for i in range(5)]
     new_refs, new_duration, warnings = _apply_provider_constraints(
         provider="grok",
         model="grok-imagine-video",
         max_refs=None,
-        max_duration=None,
+        supported_durations=[],
         references=refs,
         duration_seconds=30,
     )
@@ -264,15 +279,14 @@ def test_apply_provider_constraints_none_caps_skip_clamp():
 
 
 def test_apply_provider_constraints_custom_provider_model_granular():
-    """Custom provider 场景：max_duration 由自定义 model.supported_durations 决定，
-    无需 PROVIDER_MAX_DURATION 常量查表。用 max_duration=10 模拟 `supported_durations=[4,8,10]`
-    的 custom model，传入 duration=18 应被裁到 10。"""
+    """Custom provider 场景：档位集由自定义 model.supported_durations 决定，
+    无需 PROVIDER_MAX_DURATION 常量查表。传入 duration=18 超过最大档位 → 按 10 申请。"""
     refs = [Path(f"/tmp/ref{i}.png") for i in range(2)]
     new_refs, new_duration, warnings = _apply_provider_constraints(
         provider="custom-openai",
         model="my-custom-video",
         max_refs=9,
-        max_duration=10,
+        supported_durations=[4, 8, 10],
         references=refs,
         duration_seconds=18,
     )
@@ -820,19 +834,17 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
 
 
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_rejects_unsupported_duration(
+async def test_execute_reference_video_task_rounds_up_non_member_duration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """执行层能力守卫：unit 总时长不在 supported_durations 内（且 ≤max 不会被 clamp 修正）时，
-    必须抛 VideoCapabilityError 本地失败，而非把非成员时长漏给供应商 API 报 400。
+    """执行层取档：unit 总时长落在区间内但不是档位成员时，按能装下它的最小档位申请生成，
+    不再抛 VideoCapabilityError；成片不裁剪，取档结果记入任务 warning。
     """
-    from lib.video_backends.base import VideoCapabilityError
-
     proj_dir = _write_project(tmp_path)
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    # 5 ≤ max(12) 不会被 clamp，但不是 [4,8,12] 成员 → 守卫必须拒
+    # 5 不是 [4,8,12] 成员 → 按 8 秒申请
     script["video_units"][0]["shots"] = [{"duration": 5, "text": "Shot 1 (5s): @张三 推门"}]
     script["video_units"][0]["duration_seconds"] = 5
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
@@ -846,7 +858,10 @@ async def test_execute_reference_video_task_rejects_unsupported_duration(
     _wire_locked_script(fake_pm)
     monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
 
+    captured: dict = {}
+
     async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(b"\x00")
@@ -865,15 +880,16 @@ async def test_execute_reference_video_task_rejects_unsupported_duration(
         supported_durations=(4, 8, 12),
     )
 
-    with pytest.raises(VideoCapabilityError):
-        await rvt.execute_reference_video_task(
-            "demo",
-            "E1U1",
-            {"script_file": "scripts/episode_1.json"},
-            user_id="u1",
-        )
-    # 守卫在调用 backend 前拦下：generate_video_async 不应被调用
-    fake_generator.generate_video_async.assert_not_called()
+    result = await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+    assert captured["duration_seconds"] == 8
+    warnings = result["warnings"]
+    assert [w["key"] for w in warnings] == ["ref_duration_rounded_up"]
+    assert warnings[0]["params"] == {"total": 5, "duration": 8, "model": "sora-2"}
 
 
 def test_apply_unit_video_assets_distinguishes_failures():

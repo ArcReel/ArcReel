@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from lib.reference_video.ad_units import (
     render_reference_legend,
     resolve_ad_unit_shots,
 )
+from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.errors import MissingReferenceError
 from lib.script_editor import ScriptEditError
 from lib.script_models import ReferenceResource, ad_script_total_duration
@@ -31,7 +33,6 @@ from lib.thumbnail import extract_video_thumbnail
 from lib.version_manager import VersionManager
 from server.services.generation_context import VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
-    assert_duration_supported,
     collect_product_references_for_names,
     get_project_manager,
 )
@@ -96,30 +97,27 @@ def _apply_provider_constraints(
     provider: str,
     model: str | None,
     max_refs: int | None,
-    max_duration: int | None,
+    supported_durations: Sequence[int],
     references: list[Path],
     duration_seconds: int,
 ) -> tuple[list[Path], int, list[dict]]:
-    """按供应商上限裁剪 references / duration；回传 warnings（i18n key + 参数）。
+    """按供应商能力取时长档位、裁剪 references；回传 warnings（i18n key + 参数）。
 
-    `max_refs` / `max_duration` 由调用方从 GenerationContext 的 video lane 取得（model 粒度，
-    单一真相源）；任意一项为 None 表示不做对应裁剪。
+    `max_refs` / `supported_durations` 由调用方从 GenerationContext 的 video lane 取得
+    （model 粒度，单一真相源）；`max_refs` 为 None 表示不裁参考图，`supported_durations`
+    为空表示能力不可解析、时长原样透传。
+
+    时长按容量语义取档（见 :func:`resolve_duration_slot`）：申请能装下总时长的最小档位，
+    成片不裁剪。取档偏移了剧本编排时记 warning——入队前的用户确认按项目当前配置近似
+    判断，实际档位以此处执行时解析的 model 能力为准。
     """
     warnings: list[dict] = []
 
-    new_duration = duration_seconds
-    if max_duration is not None and duration_seconds > max_duration:
-        new_duration = max_duration
-        warnings.append(
-            {
-                "key": "ref_duration_exceeded",
-                "params": {
-                    "duration": duration_seconds,
-                    "model": model or provider,
-                    "max_duration": max_duration,
-                },
-            }
-        )
+    slot = resolve_duration_slot(duration_seconds, supported_durations)
+    new_duration = slot.seconds
+    slot_warning = slot.warning(model=model or provider)
+    if slot_warning is not None:
+        warnings.append(slot_warning)
 
     new_refs = list(references)
     if max_refs is not None and len(references) > max_refs:
@@ -140,6 +138,40 @@ def _apply_provider_constraints(
             )
 
     return new_refs, new_duration, warnings
+
+
+def unit_script_duration(unit: dict, ad_shots: list[dict] | None) -> int:
+    """unit 的剧本编排时长（秒）。ad 取成员镜头求和，narration/drama 取 unit 字段。
+
+    执行层取档与入队前预检共用此口径（含缺值兜底 8 秒），避免用户确认的秒数与实际
+    申请的秒数因两处各自兜底而不一致。
+    """
+    if ad_shots is not None:
+        return ad_script_total_duration(ad_shots) or 8
+    return int(unit.get("duration_seconds") or 8)
+
+
+async def precheck_unit_duration_slot(project: dict, unit: dict, ad_shots: list[dict] | None) -> DurationSlot:
+    """入队前按项目当前配置近似取档，供 Web 在生成入口确认「将按与剧本不一致的时长生成」。
+
+    provider 按 ADR-0001 在执行时才解析，故这里只是近似：能力解析失败按空档位处理
+    （沿用现状放行，不弹确认），实际档位以执行时的 model 能力为准。
+    """
+    return resolve_duration_slot(
+        unit_script_duration(unit, ad_shots),
+        await resolve_project_supported_durations(project),
+    )
+
+
+async def resolve_project_supported_durations(project: dict) -> list[int]:
+    """解析项目视频后端的时长档位集；解析失败返回空列表（与执行层空集放行同口径）。"""
+    try:
+        resolver = ConfigResolver(async_session_factory)
+        caps = await resolver.video_capabilities_for_project(project)
+        return [int(d) for d in caps.get("supported_durations") or []]
+    except (ValueError, SQLAlchemyError) as exc:
+        logger.info("无法解析 video_capabilities，时长取档不施加档位约束：%s", exc)
+        return []
 
 
 async def resolve_max_unit_duration(project: dict) -> int | None:
@@ -325,13 +357,12 @@ async def execute_reference_video_task(
     #    随之消解。查询失败时 lane 已把能力降级为空值/None——守卫遇空集放行、clamp 不施加
     #    上限，把决策推给 backend，与 ScriptGenerator._fetch_video_capabilities 的口径一致。
     max_refs = video.max_reference_images
-    max_duration = video.max_duration
     supported_durations = list(video.supported_durations)
 
-    # 5. Provider 特判：裁 refs + duration。ad 的参考裁剪走专用口径（产品 sheet
-    #    跨产品稳定前置存活），时长裁剪与通用路径共用。
+    # 5. Provider 特判：裁 refs + 取时长档位。ad 的参考裁剪走专用口径（产品 sheet
+    #    跨产品稳定前置存活），时长取档与通用路径共用。
+    base_duration = unit_script_duration(unit, ad_shots)
     if is_ad:
-        base_duration = ad_script_total_duration(ad_shots) or 8
         ad_entries, clamp_warnings = _clamp_ad_reference_entries(
             ad_entries, max_refs, provider=provider_name, model=model_name
         )
@@ -339,25 +370,20 @@ async def execute_reference_video_task(
             provider=provider_name,
             model=model_name,
             max_refs=None,
-            max_duration=max_duration,
+            supported_durations=supported_durations,
             references=[e["image"] for e in ad_entries],
             duration_seconds=base_duration,
         )
         warnings = [*ad_warnings, *clamp_warnings, *duration_warnings]
     else:
-        base_duration = int(unit.get("duration_seconds") or 8)
         constrained_refs, effective_duration, warnings = _apply_provider_constraints(
             provider=provider_name,
             model=model_name,
             max_refs=max_refs,
-            max_duration=max_duration,
+            supported_durations=supported_durations,
             references=source_refs,
             duration_seconds=base_duration,
         )
-
-    # duration 能力守卫：clamp 只裁"超上限"，区间内的非成员总时长（如模型支持 [4,8,12] 而总和=5）
-    # 它不修正、会漏给 backend 报 400；这里与普通视频路径对称地本地拦下（VideoCapabilityError）。
-    assert_duration_supported(effective_duration, supported_durations)
 
     # 参考视频是唯一需要非空 resolution 档位的调用方：lane 已按 registry provider_id
     # 兜底（resolution 命中空档位时取 provider fallback），executor 直接取非空档位。

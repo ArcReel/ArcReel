@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -236,6 +237,68 @@ def test_generate_unit_rejects_blank_prompt(client: TestClient, tmp_path: Path):
 def test_generate_unit_missing_returns_404(client: TestClient):
     resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9/generate")
     assert resp.status_code == 404
+
+
+def _patch_supported_durations(monkeypatch: pytest.MonkeyPatch, durations: list[int]) -> None:
+    from server.services import reference_video_tasks as rvt
+
+    monkeypatch.setattr(rvt, "resolve_project_supported_durations", AsyncMock(return_value=durations))
+
+
+def _precheck(client: TestClient, unit_id: str):
+    return client.get(f"/api/v1/projects/demo/reference-videos/episodes/1/units/{unit_id}/duration-precheck")
+
+
+def test_precheck_slot_member_needs_no_confirmation(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """总时长本身是档位成员 → 直接入队，无确认。"""
+    uid = _seed_unit(client)  # shots 求和 = 3s
+    _patch_supported_durations(monkeypatch, [3, 6, 9])
+
+    body = _precheck(client, uid).json()
+    assert body == {
+        "needs_confirmation": False,
+        "script_duration": 3,
+        "request_duration": 3,
+        "adjustment": "exact",
+    }
+
+
+def test_precheck_rounds_up_and_needs_confirmation(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """总时长非档位成员且有档位能装下 → 需确认，申请能装下它的最小档位。"""
+    uid = _seed_unit(client)  # 3s
+    _patch_supported_durations(monkeypatch, [4, 8, 12])
+
+    body = _precheck(client, uid).json()
+    assert body["needs_confirmation"] is True
+    assert body["script_duration"] == 3
+    assert body["request_duration"] == 4
+    assert body["adjustment"] == "up"
+
+
+def test_precheck_over_largest_slot_reports_shorter_clip(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """总时长超过最大档位 → 需确认，按最大档位申请（成片短于剧本编排）。"""
+    uid = _seed_unit(client)  # 3s
+    _patch_supported_durations(monkeypatch, [1, 2])
+
+    body = _precheck(client, uid).json()
+    assert body["needs_confirmation"] is True
+    assert body["request_duration"] == 2
+    assert body["adjustment"] == "down"
+
+
+def test_precheck_unresolvable_capability_passes_through(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """能力不可解析（档位集为空）→ 沿用现状放行，无确认。"""
+    uid = _seed_unit(client)
+    _patch_supported_durations(monkeypatch, [])
+
+    body = _precheck(client, uid).json()
+    assert body["needs_confirmation"] is False
+    assert body["adjustment"] == "unconstrained"
+    assert body["request_duration"] == 3
+
+
+def test_precheck_missing_unit_returns_404(client: TestClient):
+    assert _precheck(client, "E9U9").status_code == 404
 
 
 def test_add_unit_stale_script_file_returns_404(client: TestClient, tmp_path: Path):
