@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 
@@ -318,6 +319,7 @@ class TestProjectEventService:
                 original_rebuild = service._rebuild_snapshot
                 calls = 0
                 first_read_done = asyncio.Event()
+                second_read_done = asyncio.Event()
                 loop = asyncio.get_running_loop()
 
                 def _rebuild_holding_first(project_name: str):
@@ -329,6 +331,8 @@ class TestProjectEventService:
                         # 首次读盘已完成但尚未结算：交还控制权，等编排放行
                         loop.call_soon_threadsafe(first_read_done.set)
                         asyncio.run_coroutine_threadsafe(release_first.wait(), loop).result(timeout=5)
+                    else:
+                        loop.call_soon_threadsafe(second_read_done.set)
                     return result
 
                 monkeypatch.setattr(service, "_rebuild_snapshot", _rebuild_holding_first)
@@ -342,9 +346,12 @@ class TestProjectEventService:
                 data.setdefault("characters", {})["新角色"] = {"name": "新角色", "description": "d"}
                 project_json.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
-                # 第二次重建：留出窗口让它抢先读盘并结算（无锁时它会先于首次广播）
+                # 第二次重建：无锁时它能在此期间读到新盘并抢先结算，等它的读盘完成信号，
+                # 不用固定 sleep（调度慢于 sleep 时第二次重建还没开始，摘掉锁也测不出回归）。
+                # 有锁时它被挡在锁外、信号必然等不到，这时超时本身就是锁生效的证据。
                 emit_project_change_batch("demo", [_terminal_task_change("task-2")], source="worker")
-                await asyncio.sleep(0.2)
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(second_read_done.wait(), timeout=1.0)
                 release_first.set()
 
                 # 两次重建各自的批次广播与可能的补扫广播都要收齐，再看角色变更的全貌
@@ -441,6 +448,7 @@ class TestProjectEventService:
         finally:
             await service.shutdown()
 
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_emitted_batch_does_not_duplicate_change_it_already_describes(self, tmp_path):
         """资产已落盘再发本批事件（worker 成功路径的真实次序）时，补扫不重复广播同一条变更。"""
@@ -509,6 +517,7 @@ class TestProjectEventService:
         finally:
             await service.shutdown()
 
+    @pytest.mark.unit
     def test_change_identity_normalizes_equivalent_ready_actions(self):
         """参考视频完成在发布方与快照差分两侧的 action 命名不同，但去重身份相同。
 
