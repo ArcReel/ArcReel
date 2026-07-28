@@ -302,39 +302,6 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             return await repo.get_stats(project_name=project_name)
 
-    async def get_recent_tasks_snapshot(
-        self,
-        *,
-        project_name: str | None = None,
-        limit: int = 200,
-    ) -> list[dict[str, Any]]:
-
-        async with self._task_repo() as repo:
-            return await repo.get_recent_tasks_snapshot(
-                project_name=project_name,
-                limit=limit,
-            )
-
-    async def get_events_since(
-        self,
-        *,
-        last_event_id: int,
-        project_name: str | None = None,
-        limit: int = 200,
-    ) -> list[dict[str, Any]]:
-
-        async with self._task_repo() as repo:
-            return await repo.get_events_since(
-                last_event_id=last_event_id,
-                project_name=project_name,
-                limit=limit,
-            )
-
-    async def get_latest_event_id(self, *, project_name: str | None = None) -> int:
-
-        async with self._task_repo() as repo:
-            return await repo.get_latest_event_id(project_name=project_name)
-
     async def acquire_or_renew_worker_lease(
         self,
         *,

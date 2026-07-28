@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import DateTime, Float, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, UserOwnedMixin
@@ -55,20 +55,6 @@ class Task(UserOwnedMixin, Base):
             postgresql_where=text("status IN ('queued', 'running', 'cancelling')"),
         ),
     )
-
-
-class TaskEvent(Base):
-    __tablename__ = "task_events"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    task_id: Mapped[str] = mapped_column(String, ForeignKey("tasks.task_id", ondelete="CASCADE"), nullable=False)
-    project_name: Mapped[str] = mapped_column(String, nullable=False)
-    event_type: Mapped[str] = mapped_column(String, nullable=False)
-    status: Mapped[str] = mapped_column(String, nullable=False)
-    data_json: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-    __table_args__ = (Index("idx_task_events_project_id", "project_name", "id"),)
 
 
 class WorkerLease(Base):

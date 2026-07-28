@@ -2,7 +2,7 @@
 """One-time migration script: copy data from old hand-written SQLite DBs to new ORM DB.
 
 Old files:
-  projects/.task_queue.db       → tasks, task_events, worker_lease tables
+  projects/.task_queue.db       → tasks, worker_lease tables
   projects/.api_usage.db        → api_calls table
   projects/.agent_data/sessions.db → agent_sessions table
 
@@ -40,7 +40,7 @@ sys.modules.setdefault("lib", lib_stub)
 from lib.app_data_dir import app_data_dir  # noqa: E402
 from lib.db import init_db  # noqa: E402
 from lib.db.engine import async_session_factory  # noqa: E402
-from lib.db.models import AgentSession, ApiCall, Task, TaskEvent, WorkerLease  # noqa: E402
+from lib.db.models import AgentSession, ApiCall, Task, WorkerLease  # noqa: E402
 
 PROJECTS_DIR = app_data_dir()
 OLD_TASK_DB = PROJECTS_DIR / ".task_queue.db"
@@ -48,20 +48,17 @@ OLD_USAGE_DB = PROJECTS_DIR / ".api_usage.db"
 OLD_SESSIONS_DB = PROJECTS_DIR / ".agent_data" / "sessions.db"
 
 
-def _read_old_tasks(conn: sqlite3.Connection) -> tuple[list, list, list]:
+def _read_old_tasks(conn: sqlite3.Connection) -> tuple[list, list]:
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
     cur.execute("SELECT * FROM tasks")
     tasks = [dict(r) for r in cur.fetchall()]
 
-    cur.execute("SELECT * FROM task_events")
-    events = [dict(r) for r in cur.fetchall()]
-
     cur.execute("SELECT * FROM worker_lease")
     leases = [dict(r) for r in cur.fetchall()]
 
-    return tasks, events, leases
+    return tasks, leases
 
 
 def _read_old_usage(conn: sqlite3.Connection) -> list:
@@ -82,11 +79,11 @@ async def _migrate(dry_run: bool) -> dict[str, int]:
     stats: dict[str, int] = {}
 
     # --- Read old data ---
-    tasks, events, leases = [], [], []
+    tasks, leases = [], []
     if OLD_TASK_DB.exists():
         with sqlite3.connect(OLD_TASK_DB) as conn:
-            tasks, events, leases = _read_old_tasks(conn)
-        print(f"  读取旧任务队列: tasks={len(tasks)}, events={len(events)}, leases={len(leases)}")
+            tasks, leases = _read_old_tasks(conn)
+        print(f"  读取旧任务队列: tasks={len(tasks)}, leases={len(leases)}")
     else:
         print(f"  跳过（不存在）: {OLD_TASK_DB}")
 
@@ -110,7 +107,6 @@ async def _migrate(dry_run: bool) -> dict[str, int]:
         print("\n[DRY RUN] 不写入数据库，不重命名旧文件。")
         return {
             "tasks": len(tasks),
-            "events": len(events),
             "leases": len(leases),
             "api_calls": len(api_calls),
             "sessions": len(sessions),
@@ -142,19 +138,6 @@ async def _migrate(dry_run: bool) -> dict[str, int]:
                     started_at=row.get("started_at"),
                     finished_at=row.get("finished_at"),
                     updated_at=row["updated_at"],
-                )
-            )
-
-        # Task events
-        for row in events:
-            session.add(
-                TaskEvent(
-                    task_id=row["task_id"],
-                    project_name=row["project_name"],
-                    event_type=row["event_type"],
-                    status=row["status"],
-                    data_json=row.get("data_json"),
-                    created_at=row["created_at"],
                 )
             )
 
@@ -211,7 +194,6 @@ async def _migrate(dry_run: bool) -> dict[str, int]:
 
     stats = {
         "tasks": len(tasks),
-        "task_events": len(events),
         "worker_leases": len(leases),
         "api_calls": len(api_calls),
         "agent_sessions": len(sessions),

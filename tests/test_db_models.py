@@ -32,7 +32,6 @@ class TestModelsCreateTables:
         async with engine.connect() as conn:
             table_names = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
         assert "tasks" in table_names
-        assert "task_events" in table_names
         assert "worker_lease" in table_names
         assert "api_calls" in table_names
         assert "agent_sessions" in table_names
@@ -162,14 +161,6 @@ class TestMixinApplicationToModels:
         assert "created_at" in columns
         assert "updated_at" in columns
         assert "user_id" in columns
-
-    async def test_task_event_no_user_id(self, engine):
-        """TaskEvent should NOT have user_id — it was not given UserOwnedMixin."""
-        async with engine.connect() as conn:
-            columns = await conn.run_sync(
-                lambda sync_conn: {c["name"] for c in inspect(sync_conn).get_columns("task_events")}
-            )
-        assert "user_id" not in columns
 
     async def test_worker_lease_no_user_id(self, engine):
         """WorkerLease should NOT have user_id — it was not given UserOwnedMixin."""
