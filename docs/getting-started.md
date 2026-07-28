@@ -267,7 +267,7 @@ AI 根据剧本生成每个场景的静态图片，自动引用角色和线索�
 
 恭喜你完成了入门教程！接下来你可以：
 
-- 💰 查看 [Google GenAI 费用说明](google-genai-docs/Google视频&图片生成费用参考.md) 和 [火山方舟费用说明](ark-docs/火山方舟费用参考.md) 了解详细定价
+- 💰 查看 [Google GenAI 费用说明](google-genai-docs/pricing.md) 和 [火山方舟费用说明](ark-docs/火山方舟费用参考.md) 了解详细定价
 - 🐛 遇到问题？提交 [Issue](https://github.com/ArcReel/ArcReel/issues) 反馈
 - 💬 扫码加入飞书交流群，获取帮助和最新动态：
 
