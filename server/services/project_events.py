@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import uuid
+from collections import Counter
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -55,11 +56,38 @@ def _fingerprint(value: Any) -> str:
     return hashlib.sha1(_stable_json(value).encode("utf-8")).hexdigest()
 
 
+# 同一件事在发布方与快照差分两侧的 action 命名差异：参考视频任务完成时，发布方按 task_type
+# 映射为 ``reference_video_ready``（见 generation_tasks._SKELETON_DRIVEN_TASK_ACTIONS），而同一次
+# 落盘在 ``_diff_reference_units`` 里表示为 ``video_ready``。两侧 entity_type/entity_id 相同，
+# 只有 action 不同，不归一会让同一次完成广播成两条。
+_EQUIVALENT_ACTIONS: dict[str, str] = {"reference_video_ready": "video_ready"}
+
+
+def _change_identity(change: dict[str, Any]) -> tuple[Any, Any, Any]:
+    """变更去重身份。
+
+    只取 entity_type/action/entity_id：script_file 与 episode 由发布方按 task_type 选择性
+    附带，纳入身份会让同一件事因一侧为 None 而判成两条。action 经 ``_EQUIVALENT_ACTIONS``
+    归一，抹平发布方与快照差分对同一件事的命名差异。
+    """
+    action = change.get("action")
+    if isinstance(action, str):
+        action = _EQUIVALENT_ACTIONS.get(action, action)
+    return (change.get("entity_type"), action, change.get("entity_id"))
+
+
 @dataclass
 class _ProjectChannel:
     sse: SseChannel
     ready_event: asyncio.Event = field(default_factory=asyncio.Event)
     scan_now: asyncio.Event = field(default_factory=asyncio.Event)
+    # 串行化「读盘 → 结算基线 → 广播」这段读-改-写：轮询扫描与显式重建并发时，读盘耗时
+    # 不同会让先读到旧盘的一方后结算，把陈旧快照写回基线并 diff 出反向变更（实际存在的
+    # 实体被广播成 deleted）。不重置该锁——重建 task 可能跨 watch task 重启仍持有它。
+    rebuild_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # 已发布、尚未广播的显式批次各自描述的变更身份。重建读盘会捎带其它批次已落盘的产物，
+    # 补扫需把它们让给自己那一批去广播，否则同一件事先被补扫发一次、再被本批发一次。
+    inflight_batch_identities: Counter[tuple[Any, Any, Any]] = field(default_factory=Counter)
     pending_sources: set[ProjectChangeSource] = field(default_factory=set)
     task: asyncio.Task | None = None
     snapshot: dict[str, Any] | None = None
@@ -298,9 +326,13 @@ class ProjectEventService:
 
         channel.scan_now.clear()
 
+        # 在册时机必须早于本批重建读盘，其它批次的补扫才让得掉这些身份
+        identities = Counter(_change_identity(change) for change in changes)
+        channel.inflight_batch_identities.update(identities)
+
         # 文件 I/O 下沉到线程池，状态更新和广播留在事件循环
         task = asyncio.create_task(
-            self._async_rebuild_and_broadcast(project_name, channel, source, changes),
+            self._async_rebuild_and_broadcast(project_name, channel, source, changes, identities),
             name=f"batch-rebuild-{project_name}",
         )
         self._pending_batch_tasks.add(task)
@@ -312,33 +344,98 @@ class ProjectEventService:
         channel: _ProjectChannel,
         source: ProjectChangeSource,
         changes: tuple[ProjectChangeBatch, ...],
+        identities: Counter[tuple[Any, Any, Any]],
     ) -> None:
         """文件 I/O 在线程中执行，状态更新和广播在事件循环线程中执行。"""
         try:
-            snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
-        except FileNotFoundError:
-            await self._handle_scan_file_not_found(
-                project_name, channel, log_message="构建显式项目事件快照失败 project=%s"
-            )
-            return
-        except Exception:
-            logger.exception("构建显式项目事件快照失败 project=%s", project_name)
-            return
+            async with channel.rebuild_lock:
+                # 读盘前在册的来源标记整体换出：读盘期间新增的 hint 落进新集合，留给下一轮扫描
+                # 结算。若改为读盘后减去旧集合，同一来源在窗口内重复到达会被一并减掉，那条新
+                # 变更会在下一轮扫描被 _resolve_batch_source 误标成 filesystem。
+                covered_sources = channel.pending_sources
+                channel.pending_sources = set()
+                try:
+                    snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
+                except FileNotFoundError:
+                    channel.pending_sources |= covered_sources
+                    await self._handle_scan_file_not_found(
+                        project_name, channel, log_message="构建显式项目事件快照失败 project=%s"
+                    )
+                    return
+                except Exception:
+                    channel.pending_sources |= covered_sources
+                    logger.exception("构建显式项目事件快照失败 project=%s", project_name)
+                    return
 
-        # 以下在事件循环线程中执行，线程安全
-        channel.snapshot = snapshot
-        channel.fingerprint = fingerprint
-        channel.pending_sources.clear()
+                # 以下在事件循环线程中执行，线程安全
+                previous = channel.snapshot
+                channel.snapshot = snapshot
+                channel.fingerprint = fingerprint
 
+                self._broadcast_changes(
+                    project_name,
+                    channel,
+                    fingerprint=fingerprint,
+                    source=source,
+                    changes=[dict(change) for change in changes],
+                )
+
+                swept = self._sweep_uncovered_changes(previous, snapshot, channel.inflight_batch_identities)
+                if swept:
+                    # 补扫的变更不属于本批，来源按自己的 hint 标记解析，与轮询扫描同一口径：
+                    # 沿用本批 source 会让 WebUI 自身的编辑被标成 worker（前端据此弹通知并自动
+                    # 导航），或反之漏掉 worker 产物的通知。
+                    self._broadcast_changes(
+                        project_name,
+                        channel,
+                        fingerprint=fingerprint,
+                        source=self._resolve_batch_source(covered_sources),
+                        changes=swept,
+                    )
+        finally:
+            channel.inflight_batch_identities -= identities
+
+    def _broadcast_changes(
+        self,
+        project_name: str,
+        channel: _ProjectChannel,
+        *,
+        fingerprint: str,
+        source: ProjectChangeSource,
+        changes: list[dict[str, Any]],
+    ) -> None:
+        """向订阅者广播一批变更（轮询扫描与显式重建两条路径共用同一 payload 形状）。"""
         payload = {
             "project_name": project_name,
             "batch_id": uuid.uuid4().hex,
             "fingerprint": fingerprint,
             "generated_at": _utc_now_iso(),
             "source": source,
-            "changes": [dict(change) for change in changes],
+            "changes": changes,
         }
         channel.sse.broadcast(("changes", payload))
+
+    def _sweep_uncovered_changes(
+        self,
+        previous: dict[str, Any] | None,
+        snapshot: dict[str, Any],
+        covered: Counter[tuple[Any, Any, Any]],
+    ) -> list[dict[str, Any]]:
+        """新快照相对基线多出、而任何在途显式批次都未描述的变更。
+
+        重建读盘会捎带任何已落盘的变更，而本批 changes 只描述发布方自己那一件事。
+        新快照被无条件写回基线，捎带进来的变更若不在本次广播里，后续扫描与基线已无
+        差异，就再没有任何机制为它补发——故在此对基线做一次 diff 补发未覆盖的部分。
+
+        ``covered`` 是在途批次身份登记表（含本批自己），这些身份让给各自那一批广播，
+        免得同一件事被补扫先发一次、再被它自己的批次发一次。残留窗口：某批次的产物已
+        落盘、而它的 emit 调用晚于本次读盘返回，此时该身份尚未在册，仍会重复一次。
+        """
+        if previous is None:
+            return []
+        return [
+            change for change in self._diff_snapshots(previous, snapshot) if _change_identity(change) not in covered
+        ]
 
     def _rebuild_snapshot(self, project_name: str) -> tuple[dict[str, Any], str]:
         """同步方法（在线程池中执行）：重建快照并返回 (snapshot, fingerprint)。"""
@@ -397,10 +494,11 @@ class ProjectEventService:
         try:
             while channel.sse.has_subscribers:
                 try:
-                    # 仅文件 I/O 在线程中执行
-                    snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
-                    # 状态更新和广播在事件循环线程中执行（线程安全）
-                    self._apply_scan_result(project_name, channel, snapshot, fingerprint)
+                    async with channel.rebuild_lock:
+                        # 仅文件 I/O 在线程中执行
+                        snapshot, fingerprint = await asyncio.to_thread(self._rebuild_snapshot, project_name)
+                        # 状态更新和广播在事件循环线程中执行（线程安全）
+                        self._apply_scan_result(project_name, channel, snapshot, fingerprint)
                 except asyncio.CancelledError:
                     raise
                 except FileNotFoundError:
@@ -448,15 +546,13 @@ class ProjectEventService:
         if not changes:
             return
 
-        payload = {
-            "project_name": project_name,
-            "batch_id": uuid.uuid4().hex,
-            "fingerprint": fingerprint,
-            "generated_at": _utc_now_iso(),
-            "source": source,
-            "changes": changes,
-        }
-        channel.sse.broadcast(("changes", payload))
+        self._broadcast_changes(
+            project_name,
+            channel,
+            fingerprint=fingerprint,
+            source=source,
+            changes=changes,
+        )
 
     def _build_snapshot_payload(
         self,
