@@ -655,9 +655,7 @@ class ProjectEventService:
             item_id = str(item.get(skeleton.id_field) or "")
             if not item_id:
                 continue
-            assets = item.get("generated_assets")
-            if not isinstance(assets, dict):
-                assets = {}
+            assets = get_generated_assets(item)
             characters, scenes, props = self._item_entities(item, skeleton.chars_field)
             items[item_id] = {
                 "duration_seconds": item.get("duration_seconds"),
@@ -711,9 +709,7 @@ class ProjectEventService:
             unit_id = str(unit.get("unit_id") or "")
             if not unit_id:
                 continue
-            assets = unit.get("generated_assets")
-            if not isinstance(assets, dict):
-                assets = {}
+            assets = get_generated_assets(unit)
             units[unit_id] = {"video_clip": str(assets.get("video_clip") or "")}
         return units
 
