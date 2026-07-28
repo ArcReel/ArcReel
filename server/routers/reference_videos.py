@@ -38,8 +38,9 @@ from server.routers._reorder import full_permutation_error
 from server.services.generation_tasks import emit_generation_success_batch
 from server.services.reference_video_tasks import (
     _finalize_reference_video_unit,
-    precheck_unit_duration_slot,
+    precheck_unit,
     resolve_max_unit_duration,
+    resolve_project_duration_context,
 )
 from server.services.upload_finalize import (
     UploadValidationError,
@@ -428,7 +429,7 @@ async def precheck_unit_duration(
         unit = _find_unit(script, unit_id, _t)
         ad_shots = None
 
-    slot = await precheck_unit_duration_slot(project, unit, ad_shots)
+    slot = precheck_unit(await resolve_project_duration_context(project), unit, ad_shots)
     return {
         "needs_confirmation": slot.needs_confirmation,
         "script_duration": slot.total_seconds,

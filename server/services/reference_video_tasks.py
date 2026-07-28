@@ -204,7 +204,7 @@ class ProjectDurationContext:
     unit 反复调用而不重新触发 DB IO——批量预检 N 个 unit 时项目能力/分辨率解析各只发生一次。
     """
 
-    supported_durations: list[int]
+    supported_durations: tuple[int, ...]
     resolution: str | None
     provider_id: str
     model_name: str | None
@@ -217,7 +217,7 @@ async def resolve_project_duration_context(project: dict) -> ProjectDurationCont
     空档位下分辨率约束无意义。
     """
     caps = await _project_video_caps(project, degraded_to="时长取档不施加档位约束")
-    durations = [int(d) for d in caps.get("supported_durations") or []]
+    durations = tuple(int(d) for d in caps.get("supported_durations") or [])
     provider_id = str(caps.get("provider_id") or "")
     model = caps.get("model")
     model_name = str(model) if model else None
@@ -235,7 +235,7 @@ def precheck_unit(ctx: ProjectDurationContext, unit: dict, ad_shots: list[dict] 
     :func:`resolve_project_duration_context` 后对每个 unit 反复调用，不重复 DB 往返。
 
     provider 按 ADR-0001 在执行时才解析，故 ``ctx`` 只是近似：实际档位以执行时的 model
-    能力为准（见 :func:`precheck_unit_duration_slot` 的等价单 unit 用法）。
+    能力为准。
 
     「是否带参考图」按 unit 声明的 references 近似——执行层按解析后的实际图判定，而 ad 路径
     的资产缺图退化为纯文本要读盘才知道。近似方向保守：声明了参考却缺图的异常单元会多收窄
@@ -245,7 +245,7 @@ def precheck_unit(ctx: ProjectDurationContext, unit: dict, ad_shots: list[dict] 
         effective_reference_durations(
             ctx.provider_id,
             ctx.model_name,
-            ctx.supported_durations,
+            list(ctx.supported_durations),
             ctx.resolution,
             with_reference_images=bool(unit.get("references")),
         )
@@ -253,16 +253,6 @@ def precheck_unit(ctx: ProjectDurationContext, unit: dict, ad_shots: list[dict] 
         else []
     )
     return resolve_duration_slot(unit_script_duration(unit, ad_shots), durations)
-
-
-async def precheck_unit_duration_slot(project: dict, unit: dict, ad_shots: list[dict] | None) -> DurationSlot:
-    """单 unit 入队前取档：解析项目能力 + 取档合并成一次调用，供只需查一个 unit 的调用方使用。
-
-    批量场景改用 :func:`resolve_project_duration_context` 一次性解析 + :func:`precheck_unit`
-    逐 unit 纯计算，避免每 unit 重复 IO。
-    """
-    ctx = await resolve_project_duration_context(project)
-    return precheck_unit(ctx, unit, ad_shots)
 
 
 async def _project_video_caps(project: dict, *, degraded_to: str) -> dict:

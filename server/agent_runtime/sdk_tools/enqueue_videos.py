@@ -35,6 +35,7 @@ from server.agent_runtime.sdk_tools._context import (
     validate_script_filename,
 )
 from server.services.reference_video_tasks import (
+    ProjectDurationContext,
     precheck_unit,
     resolve_max_unit_duration,
     resolve_project_duration_context,
@@ -82,16 +83,16 @@ async def _pending_duration_confirmations(
 ) -> list[dict[str, Any]]:
     """收集本批将入队的 unit 中，申请时长与剧本编排不一致的清单。
 
-    项目视频能力（档位 + 分辨率）只解析一次（:func:`resolve_project_duration_context`），
+    项目视频能力（档位 + 分辨率）至多解析一次（:func:`resolve_project_duration_context`），
     批内逐 unit 取档改用纯函数 :func:`precheck_unit`——避免整批 N 个 unit 各自触发一轮
-    DB 往返。
+    DB 往返。解析推迟到第一个真正需要取档的 unit：整批都已完成或都被跳过时不触发任何 IO。
 
     悬空索引 / 结构异常的 unit 在此静默跳过（留给 ``build_specs`` 阶段捕获并记 log），
     不在预检阶段重复报错；没有 shots 的 unit 同样跳过——``build_specs`` 会以同一理由
     拒绝它，若仍纳入确认清单，会让批次卡在一个注定不会入队的 unit 上，且申请时长的
     转述本身就是失实的（该 unit 根本不会被生成）。
     """
-    ctx = await resolve_project_duration_context(project)
+    ctx: ProjectDurationContext | None = None
     items: list[dict[str, Any]] = []
     for unit in units:
         unit_id = str(unit.get("unit_id") or "")
@@ -99,8 +100,14 @@ async def _pending_duration_confirmations(
             continue
         try:
             ad_shots = ad_shots_for(unit) if ad_shots_for else None
-            if not (ad_shots if ad_shots_for else unit.get("shots")):
-                continue
+            has_shots = bool(ad_shots if ad_shots_for else unit.get("shots"))
+        except ValueError:
+            continue
+        if not has_shots:
+            continue
+        if ctx is None:
+            ctx = await resolve_project_duration_context(project)
+        try:
             slot = precheck_unit(ctx, unit, ad_shots)
         except ValueError:
             continue

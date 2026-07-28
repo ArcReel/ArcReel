@@ -303,7 +303,7 @@ async def test_resolve_project_duration_context_resolves_caps_and_resolution_onc
     assert caps_calls == 1
     assert resolution_calls == 1
     assert ctx == ProjectDurationContext(
-        supported_durations=[4, 6, 8],
+        supported_durations=(4, 6, 8),
         resolution="720p",
         provider_id="gemini-aistudio",
         model_name="veo-3.1-generate-preview",
@@ -331,7 +331,7 @@ async def test_resolve_project_duration_context_skips_resolution_when_no_duratio
     ctx = await rvt.resolve_project_duration_context({})
 
     assert resolution_calls == 0
-    assert ctx.supported_durations == []
+    assert ctx.supported_durations == ()
     assert ctx.resolution is None
 
 
@@ -352,7 +352,7 @@ def test_precheck_unit_is_pure_and_matches_slot_semantics(
     条件档位求交（Veo 3.1 720p 带图仅 8 秒、不带图仍是全集）与容量语义（exact/up/down）
     行为与重构前一致。"""
     ctx = ProjectDurationContext(
-        supported_durations=[4, 6, 8],
+        supported_durations=(4, 6, 8),
         resolution="720p",
         provider_id="gemini-aistudio",
         model_name="veo-3.1-generate-preview",
@@ -369,7 +369,7 @@ def test_precheck_unit_is_pure_and_matches_slot_semantics(
 @pytest.mark.unit
 def test_precheck_unit_unconstrained_when_context_has_no_durations():
     """能力不可解析（ctx.supported_durations 为空）时原样透传，沿用现状放行不弹确认。"""
-    ctx = ProjectDurationContext(supported_durations=[], resolution=None, provider_id="", model_name=None)
+    ctx = ProjectDurationContext(supported_durations=(), resolution=None, provider_id="", model_name=None)
     unit = {"duration_seconds": 7, "references": []}
     slot = precheck_unit(ctx, unit, None)
     assert slot.seconds == 7

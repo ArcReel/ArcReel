@@ -1201,8 +1201,8 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
     （``resolve_project_supported_durations``）；重构后项目级 IO 收口到批次开始时的
     一次 ``resolve_project_duration_context`` 调用，逐 unit 只做纯计算。
     """
-    from lib.reference_video.duration_slots import UP, DurationSlot
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
+    from server.services.reference_video_tasks import ProjectDurationContext
 
     script = _reference_video_script()
     script["video_units"].append(
@@ -1219,10 +1219,7 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
 
     async def fake_duration_context(project):
         context_calls.append(project)
-        return None
-
-    def fake_precheck(ctx, unit, ad_shots):
-        return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
+        return ProjectDurationContext(supported_durations=(4, 8, 12), resolution=None, provider_id="", model_name=None)
 
     enqueued: list[Any] = []
 
@@ -1231,15 +1228,46 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
         return [], []
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
-    monkeypatch.setattr(mod, "precheck_unit", fake_precheck)
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
 
     tool_obj = generate_video_episode_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
 
+    # 两个 unit 均 5 秒、档位无 5 → 都需确认，本批不入队；解析只发生一次。
     assert out.get("is_error") is not True, out
     assert len(context_calls) == 1
     assert enqueued == []
+
+
+@pytest.mark.integration
+async def test_generate_video_episode_reference_skips_duration_context_when_nothing_to_precheck(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """整批都没有可预检的 unit 时不解析项目能力——解析推迟到第一个真正要取档的 unit，
+    重构不能让「全部已完成/全部被跳过」的批次凭空多付一轮 DB 往返。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    script = _reference_video_script()
+    for unit in script["video_units"]:
+        unit["shots"] = []
+    fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
+
+    context_calls: list[dict[str, Any]] = []
+
+    async def fake_duration_context(project):
+        context_calls.append(project)
+        raise AssertionError("无可预检 unit 时不应解析项目视频能力")
+
+    async def fake_batch(*, project_name, specs, on_success=None, on_failure=None):
+        return [], []
+
+    monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
+    monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
+
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert context_calls == []
 
 
 @pytest.mark.integration
