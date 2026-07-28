@@ -951,6 +951,14 @@ def test_resolve_max_duration_tracks_narrowed_set(tmp_path):
     # 1080p 下海螺只接受 6 秒：上限必须跟着降，否则 step1 会拆出 10 秒的 unit 而 step2 判非法
     assert hailuo._resolve_max_duration(hailuo_caps, gen_mode="storyboard") == 6
 
+    # rv 模式是 max_duration 真正当 unit 总时长上限用的分支：上限一旦退回 caps["max_duration"]
+    # （Veo 全集 8、海螺全集 10），step1 会按全集上限拆 unit、step2 的枚举再判非法。
+    # 两侧都钉死具体值，同时钉住「上限 == max(枚举集合)」这条不变量。
+    for sg_case, caps_case, expected in ((sg, caps, 8), (hailuo, hailuo_caps, 6)):
+        durations = sg_case._resolve_supported_durations(caps_case, gen_mode="reference_video")
+        assert durations == [expected]
+        assert sg_case._resolve_max_duration(caps_case, gen_mode="reference_video") == expected == max(durations)
+
 
 def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> ScriptGenerator:
     """构造跳过 backend 初始化的 narration ScriptGenerator（用于直接测内部方法）。"""
