@@ -202,4 +202,35 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     fireEvent.click(screen.getByRole("radio", { name: /8 秒/ }));
     expect(onUpdatePrompt).not.toHaveBeenCalled();
   });
+
+  it("任务结束后旧面板不自行重现", () => {
+    // 只派生可见性（open && !locked）会在 locked 回落时让旧面板连同未提交草稿一起回来。
+    // 转入锁定态必须真正清掉 open 与 draftSeconds。
+    const onUpdatePrompt = vi.fn();
+    const props = {
+      segment: makeScene(4),
+      segmentId: "E1S01",
+      contentMode: "drama" as const,
+      aspectRatio: "9:16" as const,
+      projectName: "demo",
+      scriptFile: "episode_1.json",
+      selectedIndex: 0,
+      totalCount: 1,
+      onPrev: () => {},
+      onNext: () => {},
+      onUpdatePrompt,
+      durationOptions: [8],
+    };
+    const { rerender } = render(<ShotDetail {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
+    expect(screen.getAllByRole("radio")).toHaveLength(1);
+
+    rerender(<ShotDetail {...props} generatingVideo />);
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+
+    // 任务结束：面板须保持关闭，等用户自己再点开
+    rerender(<ShotDetail {...props} />);
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(onUpdatePrompt).not.toHaveBeenCalled();
+  });
 });

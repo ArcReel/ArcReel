@@ -177,8 +177,7 @@ function DurationPill({
   // 拖动 slider 期间用本地 state 跟随；松手 / 失焦 / 键盘抬起时再提交一次
   // 避免 onChange 每像素一次 onUpdatePrompt 产生并发写请求 + 乱序落库
   const [draftSeconds, setDraftSeconds] = useState<number | null>(null);
-  // 占用中一律回落到上游值：拖到一半任务才启动时，草稿不该继续顶替真实时长显示。
-  const displaySeconds = (busy ? null : draftSeconds) ?? seconds;
+  const displaySeconds = draftSeconds ?? seconds;
   // 提交时刻复核占用态：面板打开后任务可能才启动，只查打开/渲染时刻会留一个竞态窗口。
   // 走 tasks-store 的 isResourceBusy 新鲜读而非 busy prop——prop 反映的是上次渲染，
   // store 更新到重渲染提交之间用户仍可能点下去。命中则拒绝并给可见反馈（与立绘上传的
@@ -208,9 +207,19 @@ function DurationPill({
   const editable = !!onUpdatePrompt;
   const noOptions = durationOptions.length === 0;
   const locked = noOptions || busy;
-  // 面板开合是派生态而非独立状态：打开后任务才启动时它自动收起，不必在 effect 里同步 setState。
-  // 少了这一道，面板会停在「可选」状态而提交被下面的 busy 复核静默丢弃。
-  const panelOpen = open && !locked;
+
+  // 转入锁定态时真正清掉面板与草稿，而不只是遮蔽：只派生可见性的话，任务结束、locked 回到
+  // false 时旧面板会自行重现，未提交的 slider 草稿也一起回来、可能被误写回。
+  // 用「prop 变化时于渲染期调整 state」这一 React 官方模式，而不是 effect——后者多一个渲染
+  // 周期，且踩 react-hooks/set-state-in-effect。
+  const [prevLocked, setPrevLocked] = useState(locked);
+  if (locked !== prevLocked) {
+    setPrevLocked(locked);
+    if (locked) {
+      setOpen(false);
+      setDraftSeconds(null);
+    }
+  }
   const isIncompatible =
     durationOptions.length > 0 && !durationOptions.includes(seconds);
   // 越界文案按成因分开：模型全集就不含该值才是「模型不支持」，被分辨率 / 参考图路径的联动约束
@@ -285,7 +294,7 @@ function DurationPill({
         )}
       </button>
       <Popover
-        open={panelOpen}
+        open={open}
         onClose={() => setOpen(false)}
         anchorRef={ref}
         width="w-auto"
