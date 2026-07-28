@@ -225,7 +225,28 @@ export function ReferenceVideoCanvas({
   const [stackTab, setStackTab] = useState<"editor" | "preview">("editor");
 
   // 时长取档闸门：申请秒数与剧本编排不一致时先确认，取消则一个都不入队
-  const durationGate = useReferenceDurationGate({ projectName, episode, isLocked: isUnitLocked });
+  /** 单元入口的复核：只看占用。「重新生成」本就要覆盖已有成片，不能按有无成片拦。 */
+  const canEnqueueUnit = useCallback((unitId: string) => !isUnitLocked(unitId), [isUnitLocked]);
+
+  /**
+   * 批量入口的复核：占用之外还要求尚无成片——批量的作用对象就是「还没有成片的单元」。
+   *
+   * 任务完成后该 unit 不再 busy，而队列去重只看 queued/running/cancelling，确认弹窗停留
+   * 期间完成的单元若原样提交，会再跑一次生成、重复计费并覆盖刚出的成片。实时读 store
+   * 而非渲染期 units 快照。
+   */
+  const canEnqueueBatchUnit = useCallback(
+    (unitId: string) => {
+      if (isUnitLocked(unitId)) return false;
+      const fresh = useReferenceVideoStore
+        .getState()
+        .unitsByEpisode[referenceVideoCacheKey(projectName, episode)]?.find((u) => u.unit_id === unitId);
+      return !fresh?.generated_assets?.video_clip;
+    },
+    [isUnitLocked, projectName, episode],
+  );
+
+  const durationGate = useReferenceDurationGate({ projectName, episode });
 
   const enqueue = useCallback(
     async (unitId: string) => {
@@ -261,9 +282,9 @@ export function ReferenceVideoCanvas({
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
       }
-      await durationGate.run([unitId], enqueueSerially);
+      await durationGate.run([unitId], enqueueSerially, canEnqueueUnit);
     },
-    [durationGate, enqueueSerially, isUnitLocked, t],
+    [durationGate, enqueueSerially, isUnitLocked, canEnqueueUnit, t],
   );
 
   const handleUploadVideo = useCallback(
@@ -322,8 +343,8 @@ export function ReferenceVideoCanvas({
     const targets = batchTargets.map((u) => u.unit_id).filter((id) => !isUnitLocked(id));
     if (targets.length === 0) return;
     // 与单元入口共用同一条闸门：需确认的单元聚合成一次确认，否则批量按钮会成为绕过确认的旁路
-    await durationGate.run(targets, enqueueSerially);
-  }, [batchTargets, durationGate, enqueueSerially, isUnitLocked, t]);
+    await durationGate.run(targets, enqueueSerially, canEnqueueBatchUnit);
+  }, [batchTargets, durationGate, enqueueSerially, isUnitLocked, canEnqueueBatchUnit, t]);
 
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);

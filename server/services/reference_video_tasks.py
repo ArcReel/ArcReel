@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, get_provider_fallback
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists
@@ -251,14 +251,21 @@ async def resolve_project_supported_durations(project: dict, *, with_reference_i
 
 
 async def _project_video_resolution(project: dict, provider_id: str, model_id: str | None) -> str | None:
-    """项目视频后端的下发分辨率；解析失败返回 None（该条约束随之不收窄）。"""
+    """项目视频后端实际下发的分辨率；解析失败返回 None（该条约束随之不收窄）。
+
+    未显式配置时取 provider fallback，与执行层的 ``resolution_or_fallback`` 同源：预检若在
+    这里停在 None，就会漏掉「按 fallback 分辨率才生效」的档位约束——Veo 未配分辨率时执行层
+    按 1080p 下发、只接受 8 秒，预检却按全集判 6 秒为档位成员而不弹确认，生成出来的成片比
+    剧本长且用户从未被问过。
+    """
     if not provider_id or not model_id:
         return None
     try:
-        return await ConfigResolver(async_session_factory).resolve_resolution(project, provider_id, model_id)
+        resolution = await ConfigResolver(async_session_factory).resolve_resolution(project, provider_id, model_id)
     except (ValueError, SQLAlchemyError) as exc:
         logger.info("无法解析 video resolution，时长取档不施加分辨率约束：%s", exc)
         return None
+    return resolution or get_provider_fallback(provider_id)
 
 
 async def resolve_max_unit_duration(project: dict) -> int | None:

@@ -256,6 +256,25 @@ def test_effective_reference_durations_applies_reference_constraint_only_when_im
 
 
 @pytest.mark.unit
+async def test_project_video_resolution_falls_back_like_executor(monkeypatch: pytest.MonkeyPatch):
+    """未显式配置分辨率时预检取 provider fallback，与执行层的 resolution_or_fallback 同源。
+
+    停在 None 会漏掉「按 fallback 分辨率才生效」的档位约束：Veo 未配分辨率时执行层按 1080p
+    下发、只接受 8 秒，预检却按全集判 6 秒为档位成员而不弹确认——成片比剧本长且没问过用户。
+    """
+    from server.services import reference_video_tasks as rvt
+
+    class _FakeResolver:
+        def __init__(self, *_a, **_kw): ...
+
+        async def resolve_resolution(self, *_a, **_kw):
+            return None
+
+    monkeypatch.setattr(rvt, "ConfigResolver", _FakeResolver)
+    assert await rvt._project_video_resolution({}, "gemini-aistudio", "veo-3.1-generate-preview") == "1080p"
+
+
+@pytest.mark.unit
 def test_apply_provider_constraints_narrows_by_call_conditions():
     """执行层取档前按本次调用条件收窄：带图 5 秒取 8（而非执行期必被拒的 6），无图仍取 6。"""
     ref = Path(tempfile.gettempdir()) / "ref0.png"

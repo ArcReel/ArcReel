@@ -89,7 +89,14 @@ export function AdReferenceVideoCanvas({
   onUpdatePrompt,
 }: AdReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
-  const [units, setUnits] = useState<AdReferenceUnit[] | null>(null);
+  // ref 与 state 同步维护，动机同 savingUnitIdsRef：确认弹窗停留期间某个分组可能已生成
+  // 完成，闭包捕获的 units 看不到，须在提交时刻新鲜读。
+  const unitsRef = useRef<AdReferenceUnit[] | null>(null);
+  const [units, setUnitsState] = useState<AdReferenceUnit[] | null>(null);
+  const setUnits = useCallback((next: AdReferenceUnit[] | null) => {
+    unitsRef.current = next;
+    setUnitsState(next);
+  }, []);
   const [deriving, setDeriving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 该 unit 存在未落库的镜头字段写入时，阻止同 unit 的生成入队——PATCH 与生成请求
@@ -134,7 +141,7 @@ export function AdReferenceVideoCanvas({
         if (!controller.signal.aborted) setError(errMsg(err));
       });
     return () => controller.abort();
-  }, [projectName, episode, hasScript, unitsRevision]);
+  }, [projectName, episode, hasScript, unitsRevision, setUnits]);
 
   const shotById = useMemo(() => new Map(shots.map((s) => [s.shot_id, s])), [shots]);
 
@@ -211,16 +218,28 @@ export function AdReferenceVideoCanvas({
     } finally {
       setDeriving(false);
     }
-  }, [projectName, episode, hydrated, isUnitBusy, liveSavingUnitIds, t]);
+  }, [projectName, episode, hydrated, isUnitBusy, liveSavingUnitIds, setUnits, t]);
 
-  /** 该 unit 是否被任一写入路径占用：生成（tasks-store 占用集）或镜头字段保存。 */
-  const isUnitLocked = useCallback(
-    (unitId: string) => isUnitBusy(unitId) || liveSavingUnitIds().has(unitId),
+  /** 单元入口的复核：只看占用（生成中或镜头字段保存中）。重新生成本就要覆盖已有成片。 */
+  const canEnqueueUnit = useCallback(
+    (unitId: string) => !isUnitBusy(unitId) && !liveSavingUnitIds().has(unitId),
     [isUnitBusy, liveSavingUnitIds],
   );
 
+  /**
+   * 批量入口的复核：占用之外还要求尚无成片——generateAll 的作用对象就是无成片的分组。
+   *
+   * 任务完成后该 unit 不再 busy，而队列去重只看 queued/running/cancelling，确认弹窗停留
+   * 期间完成的分组若原样提交，会再跑一次生成、重复计费并覆盖刚出的成片。
+   */
+  const canEnqueueBatchUnit = useCallback(
+    (unitId: string) =>
+      canEnqueueUnit(unitId) && !unitsRef.current?.find((u) => u.unit_id === unitId)?.generated_assets?.video_clip,
+    [canEnqueueUnit],
+  );
+
   // 时长取档闸门：申请秒数与剧本编排不一致时先确认，取消则不入队
-  const durationGate = useReferenceDurationGate({ projectName, episode, isLocked: isUnitLocked });
+  const durationGate = useReferenceDurationGate({ projectName, episode });
 
   // 错误清空只在触发入口做：enqueueUnit 自身不清，避免批量循环中
   // 后一个 unit 的调用抹掉前一个 unit 的失败信息
@@ -254,9 +273,9 @@ export function AdReferenceVideoCanvas({
         useAppStore.getState().pushToast(t("ad_ref_busy"), "error");
         return;
       }
-      await durationGate.run([unitId], enqueueSerially);
+      await durationGate.run([unitId], enqueueSerially, canEnqueueUnit);
     },
-    [durationGate, enqueueSerially, isUnitBusy, liveSavingUnitIds, t],
+    [durationGate, enqueueSerially, isUnitBusy, liveSavingUnitIds, canEnqueueUnit, t],
   );
 
   // 编辑期间该 unit 若已被其他入口占用，放弃这次写入而非与生成中的任务乱序落库
@@ -306,8 +325,8 @@ export function AdReferenceVideoCanvas({
     if (targets.length === 0) return;
     // 整批走一次闸门而非逐个：闸门在需确认时只挂起弹窗即返回，逐个调用会让后一个 unit
     // 覆盖前一个尚未确认的弹窗，除最后一个外的分组既不入队也无提示。
-    await durationGate.run(targets, enqueueSerially);
-  }, [derive, durationGate, enqueueSerially, isUnitBusy, liveSavingUnitIds]);
+    await durationGate.run(targets, enqueueSerially, canEnqueueBatchUnit);
+  }, [derive, durationGate, enqueueSerially, isUnitBusy, liveSavingUnitIds, canEnqueueBatchUnit]);
 
   const hasUnits = hydrated.length > 0;
   // 任一分组仍有活跃任务（含取消中）或镜头字段写入未落库时禁止重新派生：派生会按

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, act, within } from "@testing-library/react";
 import { ReferenceVideoCanvas } from "./ReferenceVideoCanvas";
-import { useReferenceVideoStore } from "@/stores/reference-video-store";
+import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/reference-video-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
@@ -583,6 +583,70 @@ describe("ReferenceVideoCanvas", () => {
 
       fireEvent.click(confirm);
       await waitFor(() => expect(genSpy).toHaveBeenCalledTimes(2));
+    });
+
+    // 弹窗停留时长由用户决定，可以很长：其间别处完成的单元若按冻结清单原样提交，队列
+    // 去重（只看 queued/running/cancelling）拦不住，会重跑一次生成、重复计费并覆盖成片。
+    it("批量确认停留期间已完成的单元不再入队", async () => {
+      const u1 = mkUnit("E1U1");
+      const u2 = mkUnit("E1U2");
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [u1, u2] });
+      const genSpy = vi
+        .spyOn(API, "generateReferenceVideoUnit")
+        .mockResolvedValue({ task_id: "t9", deduped: false } as never);
+      stubPrecheck({
+        needs_confirmation: true,
+        script_duration: 3,
+        request_duration: 4,
+        adjustment: "up",
+      });
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+      const batch = await screen.findByRole("button", { name: /Batch generate videos|批量生成视频/ });
+      await waitFor(() => expect(batch).not.toBeDisabled());
+      fireEvent.click(batch);
+      const confirm = await screen.findByRole("button", { name: CONFIRM_CTA });
+
+      // 弹窗停留期间 E1U1 由别处（Agent / 另一标签页）生成完成并落库
+      act(() => {
+        useReferenceVideoStore.setState({
+          unitsByEpisode: {
+            [referenceVideoCacheKey("proj", 1)]: [
+              { ...u1, generated_assets: { ...u1.generated_assets, video_clip: "videos/E1U1.mp4" } },
+              u2,
+            ],
+          },
+        } as never);
+      });
+
+      fireEvent.click(confirm);
+      // 先等清单里最后一个单元入队完毕，再断言已完成的那个自始至终没被提交——
+      // 直接 waitFor 调用次数为 1 会在第一次调用时就满足，捕获不到多出来的那次。
+      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U2"));
+      expect(genSpy).not.toHaveBeenCalledWith("proj", 1, "E1U1");
+      expect(genSpy).toHaveBeenCalledTimes(1);
+    });
+
+    // 反向：单元入口的「重新生成」本就要覆盖已有成片，不能被同一条复核挡掉。
+    it("单元入口对已有成片的单元仍可重新生成", async () => {
+      const ready = mkUnit("E1U1");
+      ready.generated_assets.video_clip = "videos/E1U1.mp4";
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [ready] });
+      const genSpy = vi
+        .spyOn(API, "generateReferenceVideoUnit")
+        .mockResolvedValue({ task_id: "t1", deduped: false } as never);
+      stubPrecheck({
+        needs_confirmation: true,
+        script_duration: 5,
+        request_duration: 8,
+        adjustment: "up",
+      });
+
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+      fireEvent.click(await screen.findByRole("button", { name: /Regenerate|重新生成/ }));
+
+      fireEvent.click(await screen.findByRole("button", { name: CONFIRM_CTA }));
+      await waitFor(() => expect(genSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
     });
 
     // 预检是一段 await 窗口：其间被别处占用的 unit 若仍列进确认清单，就是请用户为一件
