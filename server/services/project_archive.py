@@ -914,17 +914,7 @@ class ProjectArchiveService:
         """补全 item.generated_assets 的缺失字段，返回 (assets, changed)。"""
         assets = item.get("generated_assets")
         changed = False
-        if assets is None:
-            item["generated_assets"] = self.project_manager.create_generated_assets(content_mode)
-            changed = True
-            diagnostics.add(
-                "auto_fixed",
-                "missing_generated_assets",
-                f"{label}[{index}]: 补全缺失字段 generated_assets",
-                location=f"{location_prefix}.generated_assets",
-            )
-            assets = item["generated_assets"]
-        elif isinstance(assets, dict):
+        if isinstance(assets, dict):
             template = self.project_manager.create_generated_assets(content_mode)
             missing_keys = [key for key in template if key not in assets]
             if missing_keys:
@@ -940,6 +930,24 @@ class ProjectArchiveService:
                         (f"{label}[{index}].generated_assets: 补全默认字段 {', '.join(non_null_keys)}"),
                         location=f"{location_prefix}.generated_assets",
                     )
+        else:
+            # None = 字段缺失，其余非 dict = 外部编辑损坏（list/str 等）；两者同样重置为模板结构，
+            # 只在诊断上区分，让导入方知道是补齐还是丢弃了脏数据。
+            if assets is None:
+                code = "missing_generated_assets"
+                message = f"{label}[{index}]: 补全缺失字段 generated_assets"
+            else:
+                code = "invalid_generated_assets"
+                message = f"{label}[{index}]: generated_assets 形态异常（{type(assets).__name__}），已重置为默认结构"
+            item["generated_assets"] = self.project_manager.create_generated_assets(content_mode)
+            changed = True
+            diagnostics.add(
+                "auto_fixed",
+                code,
+                message,
+                location=f"{location_prefix}.generated_assets",
+            )
+            assets = item["generated_assets"]
         return assets, changed
 
     def _add_placeholder_character(

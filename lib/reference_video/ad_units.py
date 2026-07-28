@@ -10,7 +10,7 @@ ad 剧本骨架唯一（shots 是内容唯一真相，见 docs/adr/0033）；ref
 
 from __future__ import annotations
 
-from lib.script_models import GeneratedAssets, ad_shot_duration_seconds
+from lib.script_models import GeneratedAssets, ad_shot_duration_seconds, get_generated_assets
 
 #: 单个 video_unit 最多容纳的镜头数，与 ``ReferenceVideoUnit.shots`` 的
 #: ``max_length=4`` 同口径（一个 unit 是一次视频生成调用的最小粒度）。
@@ -123,9 +123,9 @@ def merge_ad_reference_units(existing: object, derived: list[dict]) -> list[dict
             isinstance(prev, dict)
             and prev.get("shot_ids") == unit["shot_ids"]
             and prev.get("references") == unit["references"]
-            and isinstance(prev.get("generated_assets"), dict)
         ):
-            assets = dict(prev["generated_assets"])
+            # 损坏值经 get_generated_assets 归一化为空 dict，与下面的 `assets or 模板` 汇合到同一结果。
+            assets = dict(get_generated_assets(prev))
         merged.append({**unit, "generated_assets": assets or GeneratedAssets().model_dump()})
     return merged
 

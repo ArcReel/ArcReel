@@ -19,6 +19,7 @@ from lib.asset_types import ASSET_SPECS
 from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists
 from lib.resource_paths import resource_relative_path
+from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.services.generation_context import ImageLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
@@ -59,8 +60,7 @@ def resolve_current_image_rel(
         resolved = find_storyboard_item(items, id_field, resource_id)
         if resolved is None:
             raise KeyError(f"segment not found: {resource_id}")
-        assets = resolved[0].get("generated_assets") or {}
-        pointer = assets.get("storyboard_image") if isinstance(assets, dict) else None
+        pointer = get_generated_assets(resolved[0]).get("storyboard_image")
         if isinstance(pointer, str) and pointer:
             return pointer
         return resource_relative_path("storyboards", resource_id)
