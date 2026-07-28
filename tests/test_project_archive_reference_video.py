@@ -236,6 +236,31 @@ class TestProjectArchiveReferenceVideo:
         assert assets["status"] == "pending"
         assert any(item["code"] == "invalid_generated_assets" for item in result.diagnostics["auto_fixed"])
 
+    def test_export_resets_invalid_generated_assets(self, tmp_path):
+        # 导出与导入共用 _repair_project_tree，但导出修的是快照副本：包内是干净结构，
+        # 源项目磁盘上的脏值保持原样（导出不改用户数据）。
+        pm = ProjectManager(tmp_path / "projects")
+        unit = _build_unit(video_clip=None, generated_assets="corrupted-value")
+        project_dir = _create_reference_video_project(pm, unit=unit, write_clip=False, write_thumbnail=False)
+        service = ProjectArchiveService(pm)
+
+        diagnostics = service.get_export_diagnostics("refdemo")
+        assert any(item["code"] == "invalid_generated_assets" for item in diagnostics["auto_fixed"])
+
+        archive_path, _ = service.export_project("refdemo")
+        try:
+            with zipfile.ZipFile(archive_path) as archive:
+                exported = json.loads(archive.read("refdemo/scripts/episode_1.json").decode("utf-8"))
+        finally:
+            archive_path.unlink(missing_ok=True)
+
+        assets = exported["video_units"][0]["generated_assets"]
+        assert isinstance(assets, dict)
+        assert assets["status"] == "pending"
+
+        on_disk = json.loads((project_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+        assert on_disk["video_units"][0]["generated_assets"] == "corrupted-value"
+
     def test_import_adds_placeholder_for_missing_character_reference(self, tmp_path):
         # 与 narration/drama 对齐：references 引用了 project.json 缺失的角色 → 自动补占位定义
         pm = ProjectManager(tmp_path / "projects")
