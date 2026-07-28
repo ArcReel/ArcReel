@@ -100,25 +100,66 @@ describe("useModelCapabilities 时长维度", () => {
     await waitFor(() => expect(result.current.supportedDurations).toEqual([5, 10]));
   });
 
-  it("目录查不到但服务端结果描述的正是所问后端时，采信服务端时长", async () => {
+  it("已保存后端解析不出目录时，采信服务端为实际执行模型解析出的时长", async () => {
+    // 存值指向已被删除 / 禁用的自定义模型：目录查不到，服务端按执行层规则回退到默认模型，
+    // 返回的正是实际会执行的模型的能力。
     vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps());
     const { result } = renderHook(() =>
-      // providers 为空模拟目录请求失败降级；后端与服务端解析结果同一模型。
-      useModelCapabilities({ projectName: PROJECT, videoBackend: BACKEND, providers: [] }),
+      useModelCapabilities({
+        projectName: PROJECT,
+        videoBackend: "custom/removed-model",
+        providers: provider(),
+      }),
     );
     await waitFor(() => expect(result.current.supportedDurations).toEqual([5, 10]));
   });
 
-  it("服务端结果描述的是另一个模型时不采信，时长按未知处理", async () => {
+  it("走服务端回退时按服务端返回的模型查联动约束，不用传入的后端", async () => {
+    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps());
+    const { result } = renderHook(() =>
+      useModelCapabilities({
+        projectName: PROJECT,
+        videoBackend: "custom/removed-model",
+        providers: provider({ duration_resolution_constraints: { "1080p": [10] } }),
+        videoResolution: "1080p",
+      }),
+    );
+    // 约束出自服务端解析到的 gemini/veo-3，故 5 秒被 1080p 约束收窄掉。
+    await waitFor(() => expect(result.current.supportedDurations).toEqual([10]));
+    expect(result.current.rawDurations).toEqual([5, 10]);
+  });
+
+  it("unsavedBackend 时不采用服务端回退，时长按未知处理", async () => {
+    // 表单里 backend 是未保存候选：服务端返回的仍是已保存模型的时长，采信会把它摆成新候选
+    // 的选项，用户能存下新模型不支持的值。
     const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps());
     const { result } = renderHook(() =>
-      // 设置页切到未保存的候选后端 + 目录请求失败：服务端返回的仍是已保存模型的时长，
-      // 采信会把旧模型时长摆成新候选的选项。
-      useModelCapabilities({ projectName: PROJECT, videoBackend: "ark/other-model", providers: [] }),
+      useModelCapabilities({
+        projectName: PROJECT,
+        videoBackend: "ark/other-model",
+        unsavedBackend: true,
+        providers: [],
+      }),
     );
     await waitFor(() => expect(spy).toHaveBeenCalled());
     expect(result.current.rawDurations).toBeNull();
     expect(result.current.supportedDurations).toBeNull();
+  });
+
+  it("请求 key 用元组编码，字段内含分隔符也不碰撞", async () => {
+    const spy = vi
+      .spyOn(API, "getVideoCapabilities")
+      .mockResolvedValue(caps({ supported_durations: [7] }));
+    const { result, rerender } = renderHook(
+      (props: { projectName: string; videoBackend: string }) => useModelCapabilities(props),
+      { initialProps: { projectName: "a b", videoBackend: "c" } },
+    );
+    await waitFor(() => expect(result.current.rawDurations).toEqual([7]));
+    spy.mockReturnValue(new Promise(() => {}));
+    rerender({ projectName: "a", videoBackend: "b c" });
+    // 拼接 key 下两组会撞成 "a b c"，前一组结果被当作本组已落地。
+    expect(result.current.rawDurations).toBeNull();
+    expect(result.current.loading).toBe(true);
   });
 
   it("无项目名（项目尚不存在）时只走目录，不发请求", () => {

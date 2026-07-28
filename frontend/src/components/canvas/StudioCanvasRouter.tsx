@@ -18,6 +18,7 @@ import { isDemoProject } from "@/onboarding/demo-project";
 import { DemoEpisodePlaceholder } from "@/onboarding/DemoEpisodePlaceholder";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./OverviewCanvas";
@@ -99,6 +100,10 @@ export function StudioCanvasRouter() {
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [globalVideoBackend, setGlobalVideoBackend] = useState("");
 
+  // 目录侧与服务端侧听同一个失效信号：本组件跨路由原地复用，改完全局默认后端 / 自定义供应商
+  // 回到工作台不会重挂载，只重取服务端能力而留着旧目录的话，时长仍按旧配置解析。
+  const capabilitiesRevision = useCapabilitiesStore((s) => s.revision);
+
   useEffect(() => {
     // 这三份数据只服务视频时长选项。演示态的时长是虚构的静态展示，唯一还会用到选项的
     // 是「时长与后端不兼容」的橙色标记——对虚构数据那是伪告警，不值得为它发三个全局请求。
@@ -113,7 +118,7 @@ export function StudioCanvasRouter() {
       },
     ).catch(() => {});
     return () => { disposed = true; };
-  }, [demoMode]);
+  }, [demoMode, capabilitiesRevision]);
 
   // 演示态即便 state 里还留着上一个真实项目的 providers/backend（同一组件实例原地切入演示
   // 路由，effect 提前 return 不会清掉旧值），也不参与解析——否则真实后端的时长限制会继续套用

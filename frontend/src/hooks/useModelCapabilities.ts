@@ -20,9 +20,11 @@ import type { CustomProviderInfo, ProviderInfo, VideoCapabilities } from "@/type
 //                             不落项目字段），只有服务端能给出「系统判定 ⊕ 用户覆盖」的结果。
 //   durations               → 静态目录的 supported_durations，再经分辨率 / 参考图两条联动
 //                             约束收窄。约束只声明在目录里、服务端不返回，故以目录为准；
-//                             目录解析不出候选模型时退回服务端解析出的 supported_durations，
-//                             但仅限该结果确实描述所问后端时（判据见 rawDurations）。
-//   durationConstraints     → 目录。纯联动声明，无覆盖语义。
+//                             目录解析不出候选模型时（后端留空 → 服务端 auto 解析，或存值已不
+//                             在目录中 → resolver 按执行层规则回退到默认模型）退回服务端解析
+//                             出的 supported_durations，`unsavedBackend` 为例外（见该字段）。
+//   durationConstraints     → 目录。纯联动声明，无覆盖语义。按时长的实际来源模型查——走服务端
+//                             回退时模型身份以服务端返回的为准，否则约束与时长会各描述一个模型。
 //
 // 目录侧同步可得，故时长在首帧即有值、不闪加载态；服务端只在目录缺项时才影响结果。
 // ---------------------------------------------------------------------------
@@ -48,6 +50,14 @@ export interface ModelCapabilitiesInput extends DurationContext {
    * 保存的**后端。传入编辑中的未保存值（设置页）时这两维不作数，调用方不得消费。
    */
   videoBackend?: string | null;
+  /**
+   * `videoBackend` 是表单里编辑中的未保存候选值时置 true。
+   *
+   * 服务端一律按已落盘的 project.json 解析，其结果描述的是项目**当前保存的**后端，对候选值
+   * 不作数：时长不采用服务端回退（否则目录查不到候选模型时会把已保存模型的时长摆成新候选的
+   * 选项，用户能存下新模型不支持的值），`firstFrame` / `lastFrame` 同样不得消费。
+   */
+  unsavedBackend?: boolean;
   providers?: ProviderInfo[];
   customProviders?: CustomProviderInfo[];
   /** 置 false 时既不查服务端也不查目录（演示态等）。 */
@@ -115,7 +125,9 @@ function useResolvedCapabilities(
 
   // 演示项目后端不存在，直接返回空能力而不发请求。
   const active = enabled && !!projectName && !isDemoProject(projectName);
-  const key = active ? `${projectName} ${videoBackend ?? ""}` : null;
+  // 元组编码而非拼接：拼接的分隔符可能出现在字段内，("a b", "c") 与 ("a", "b c") 会撞成同一 key，
+  // 切换时把前一组的结果当作本组已落地。
+  const key = active ? JSON.stringify([projectName, videoBackend ?? ""]) : null;
 
   useEffect(() => {
     // 接管方轮换 controller：新一轮先作废前任，避免慢响应回写覆盖新值。
@@ -150,6 +162,7 @@ function useResolvedCapabilities(
 export function useModelCapabilities({
   projectName,
   videoBackend,
+  unsavedBackend = false,
   providers = EMPTY_PROVIDERS,
   customProviders = EMPTY_CUSTOM_PROVIDERS,
   videoResolution,
@@ -158,29 +171,26 @@ export function useModelCapabilities({
 }: ModelCapabilitiesInput): ModelCapabilities {
   const { caps, loading } = useResolvedCapabilities(projectName, videoBackend, enabled);
 
+  // 时长连同它出自哪个模型一起解析：联动约束要按同一个模型查，否则走服务端回退时会拿传入的
+  // 后端（留空，或已不在目录中的存值）去查约束，得到空约束、把未收窄的时长当作可选项。
+  const durationSource = useMemo<{ raw: number[]; backend: string } | null>(() => {
+    if (!enabled) return null;
+    if (videoBackend) {
+      const fromCatalog = lookupSupportedDurations(providers, videoBackend, customProviders);
+      if (fromCatalog?.length) return { raw: fromCatalog, backend: videoBackend };
+    }
+    if (unsavedBackend) return null;
+    if (!caps?.supported_durations?.length) return null;
+    return { raw: caps.supported_durations, backend: `${caps.provider_id}/${caps.model}` };
+  }, [enabled, providers, customProviders, videoBackend, unsavedBackend, caps]);
+
+  const rawDurations = durationSource?.raw ?? null;
+
   const durationConstraints = useMemo(
     () =>
-      enabled && videoBackend
-        ? lookupDurationConstraints(providers, videoBackend)
-        : EMPTY_CONSTRAINTS,
-    [enabled, providers, videoBackend],
+      durationSource ? lookupDurationConstraints(providers, durationSource.backend) : EMPTY_CONSTRAINTS,
+    [providers, durationSource],
   );
-
-  const rawDurations = useMemo<number[] | null>(() => {
-    if (!enabled) return null;
-    const fromCatalog = videoBackend
-      ? lookupSupportedDurations(providers, videoBackend, customProviders)
-      : undefined;
-    if (fromCatalog?.length) return fromCatalog;
-    if (!caps?.supported_durations?.length) return null;
-    // 服务端按已落盘的 project.json 解析，未必与传入的后端同一个模型：设置页传的是编辑中的
-    // 未保存值，而目录请求失败降级为空数组时（providers 与可选后端列表来自两个端点，前者失败
-    // 不影响后者），任意候选模型都解析不出目录。此时采信会把旧模型的时长摆成新候选的选项，
-    // 用户能存下新模型不支持的值——宁可返回未知，由消费方按未知降级。
-    // 后端留空是例外：那本就是「交给服务端 auto 解析」，解析结果即答案，无可比对象。
-    if (videoBackend && `${caps.provider_id}/${caps.model}` !== videoBackend) return null;
-    return caps.supported_durations;
-  }, [enabled, providers, customProviders, videoBackend, caps]);
 
   const supportedDurations = useMemo<number[] | null>(
     () =>

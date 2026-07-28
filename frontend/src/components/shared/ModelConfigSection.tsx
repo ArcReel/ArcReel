@@ -125,6 +125,8 @@ export function ModelConfigSection({
   const { rawDurations, supportedDurations, durationConstraints } = useModelCapabilities({
     projectName,
     videoBackend: effectiveVideoBackend,
+    // 本组件是表单：backend 是编辑中的未保存候选，服务端按已落盘配置解析出的能力对它不作数。
+    unsavedBackend: true,
     providers,
     customProviders,
     videoResolution: value.videoResolution,
