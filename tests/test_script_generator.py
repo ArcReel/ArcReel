@@ -67,6 +67,31 @@ def _write_drama_ledger_project(project_path: Path, episodes: list[dict], charac
     )
 
 
+def _drama_project_with_backend(
+    tmp_path,
+    *,
+    backend: str,
+    resolution: str,
+    supported_durations: list[int] | None = None,
+):
+    """造一个指定视频后端 + 分辨率的最小 drama 项目，返回项目路径。
+
+    四个 step2 时长校验用例只在这三项上不同，其余装配逐字相同。
+    """
+    project_path = tmp_path / "demo"
+    _write_drama_ledger_project(
+        project_path,
+        [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+    )
+    project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
+    project["video_backend"] = backend
+    project["model_settings"] = {backend: {"resolution": resolution}}
+    if supported_durations is not None:
+        project["_supported_durations"] = supported_durations
+    _write_json(project_path / "project.json", project)
+    return project_path
+
+
 def _drama_step1_content() -> dict:
     """drama step1 结构化内容：含 utterances + source_text + scene_description（视觉改编）。"""
     return {
@@ -305,15 +330,9 @@ class TestScriptGenerator:
         step2 原样透传 step1 时长，落盘前的静态校验只要求正整数；缺这道校验时越界值会一路存进
         剧本，直到视频入队才被拒。与 narration / reference_video 的 step1 读回校验对称。
         """
-        project_path = tmp_path / "demo"
-        _write_drama_ledger_project(
-            project_path,
-            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        project_path = _drama_project_with_backend(
+            tmp_path, backend="gemini-aistudio/veo-3.1-generate-preview", resolution="1080p"
         )
-        project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
-        project["video_backend"] = "gemini-aistudio/veo-3.1-generate-preview"
-        project["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}
-        _write_json(project_path / "project.json", project)
 
         content = _drama_step1_content()
         content["scenes"][0]["duration_seconds"] = 4
@@ -332,15 +351,9 @@ class TestScriptGenerator:
 
         校验若按 `isinstance(..., int)` 判定就会整个跳过这两种形态，等于给越界值开一条绕路。
         """
-        project_path = tmp_path / "demo"
-        _write_drama_ledger_project(
-            project_path,
-            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        project_path = _drama_project_with_backend(
+            tmp_path, backend="gemini-aistudio/veo-3.1-generate-preview", resolution="1080p"
         )
-        project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
-        project["video_backend"] = "gemini-aistudio/veo-3.1-generate-preview"
-        project["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}
-        _write_json(project_path / "project.json", project)
 
         content = _drama_step1_content()
         content["scenes"][0]["duration_seconds"] = raw
@@ -354,16 +367,9 @@ class TestScriptGenerator:
 
         海螺 1080p 只接受 6 秒，而 DramaSceneContent 的默认是 8 秒，故该场景须被拦下。
         """
-        project_path = tmp_path / "demo"
-        _write_drama_ledger_project(
-            project_path,
-            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        project_path = _drama_project_with_backend(
+            tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p", supported_durations=[6, 10]
         )
-        project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
-        project["video_backend"] = "minimax/MiniMax-Hailuo-2.3"
-        project["model_settings"] = {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}}
-        project["_supported_durations"] = [6, 10]
-        _write_json(project_path / "project.json", project)
 
         content = _drama_step1_content()
         del content["scenes"][0]["duration_seconds"]
@@ -374,15 +380,9 @@ class TestScriptGenerator:
     @pytest.mark.integration
     async def test_drama_step2_accepts_step1_duration_within_constrained_set(self, tmp_path):
         """同一 1080p 项目下 8 秒仍合法——收窄后集合的成员不得被这道校验误拒。"""
-        project_path = tmp_path / "demo"
-        _write_drama_ledger_project(
-            project_path,
-            [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        project_path = _drama_project_with_backend(
+            tmp_path, backend="gemini-aistudio/veo-3.1-generate-preview", resolution="1080p"
         )
-        project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
-        project["video_backend"] = "gemini-aistudio/veo-3.1-generate-preview"
-        project["model_settings"] = {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}
-        _write_json(project_path / "project.json", project)
 
         generator = ScriptGenerator(project_path)
         await generator._assert_drama_step1_durations(_drama_step1_content()["scenes"], gen_mode="storyboard")
