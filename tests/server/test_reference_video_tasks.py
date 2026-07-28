@@ -92,6 +92,7 @@ def _wire_context(
     *,
     backend_name: str,
     backend_model: str,
+    registry_provider_id: str | None = None,
     resolution_or_fallback: str = "1080p",
     resolution: str | None = None,
     max_refs: int | None = None,
@@ -104,12 +105,15 @@ def _wire_context(
     provider/backend 身份、能力上限、resolution 均由 GenerationContext 的 video lane 提供。
     能力上限与 resolution 的解析逻辑本身在 tests/server/test_generation_context.py 覆盖，此处
     只需喂入 lane 值验证 executor 的下游 clamp / 守卫 / 透传行为。
+
+    ``registry_provider_id`` 缺省与 ``backend_name`` 相同（多数供应商如此）；族别名供应商
+    （如 ark-agent-plan 族复用 Ark backend）两者不同，需显式区分以覆盖 registry 查表路径。
     """
     from lib.config.resolver import ProviderModel
     from server.services.generation_context import GenerationContext, VideoLaneResult
 
     lane = VideoLaneResult(
-        provider_model=ProviderModel(provider_id=backend_name, model_id=backend_model),
+        provider_model=ProviderModel(provider_id=registry_provider_id or backend_name, model_id=backend_model),
         backend_name=backend_name,
         backend_model=backend_model,
         resolution=resolution,
@@ -518,6 +522,69 @@ async def test_execute_reference_video_task_grok_uses_provider_default_resolutio
         f"Grok executor 必须显式传 720p，否则 MediaGenerator 默认 1080p 会被 xai_sdk 拒绝。"
         f"实际收到: {captured.get('resolution')!r}"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_execute_reference_video_task_narrows_durations_by_registry_provider_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """条件档位收窄按规范 registry provider_id 查表，不按 backend 报告的族名。
+
+    族别名供应商（如 ark-agent-plan 族复用 Ark backend）的 backend_name 不是 registry key：
+    拿它查 ModelInfo 会静默落空，收窄整个失效——3 秒剧本会取到 4 秒，而 Veo 3.1 带参考图
+    只接受 8 秒，执行期必然被 backend 拒绝。
+    """
+    proj_dir = _write_project(tmp_path)
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    captured: dict = {}
+
+    async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-21T22:00:00"}]}
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="ark-agent-plan",
+        registry_provider_id="gemini-aistudio",
+        backend_model="veo-3.1-generate-preview",
+        resolution_or_fallback="720p",
+        supported_durations=(4, 6, 8),
+    )
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    # 3 秒剧本 + 带参考图：按 registry 声明收窄到 [8]。落空则取全集首个能装下的 4 秒。
+    assert captured.get("duration_seconds") == 8
 
 
 @pytest.mark.asyncio
