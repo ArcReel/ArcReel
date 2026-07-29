@@ -158,6 +158,7 @@ def _build_generator(tmp_path: Path) -> MediaGenerator:
     return gen
 
 
+@pytest.mark.unit
 class TestSegmentIdFor:
     """segment_id_for 是 image/video/audio 三条记账路径共用的单点判定函数。"""
 
@@ -188,6 +189,11 @@ class TestSegmentIdFor:
     )
     def test_audio_unconditional(self, resource_type):
         assert segment_id_for("audio", resource_type, "E1S01") == "E1S01"
+
+    def test_unknown_call_type_raises(self):
+        # 未接入记账白名单的通道显式报错，避免 segment_id 静默丢失。
+        with pytest.raises(ValueError, match="unknown ledger channel"):
+            segment_id_for("text", "storyboards", "E1S01")
 
 
 class TestMediaGenerator:

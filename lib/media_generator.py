@@ -31,7 +31,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import RateLimiter
 from lib.ledger import Ledger
 from lib.path_safety import PathTraversalError, safe_join
-from lib.providers import require_provider_pair
+from lib.providers import CallType, require_provider_pair
 from lib.resource_paths import resource_relative_path
 from lib.version_manager import VersionManager
 
@@ -65,18 +65,20 @@ def _is_413(exc: BaseException) -> bool:
 
 # 记账 segment_id 判定：resource_id 可否作 segment_id 按 call_type 各自的 resource_type
 # 白名单收敛于此单点，image/video/audio 三条记账路径均经由它。
-_SEGMENT_ID_ALLOWED_RESOURCE_TYPES: dict[str, frozenset[str]] = {
+_SEGMENT_ID_ALLOWED_RESOURCE_TYPES: dict[CallType, frozenset[str]] = {
     "image": frozenset({"storyboards", "videos", "grids"}),
     "video": frozenset({"storyboards", "videos", "reference_videos"}),
 }
 
 
-def segment_id_for(call_type: str, resource_type: str, resource_id: str) -> str | None:
+def segment_id_for(call_type: CallType, resource_type: str, resource_id: str) -> str | None:
     """按记账调用类型与资源类型判定 segment_id；audio 无白名单，无条件透传。"""
     if call_type == "audio":
         return resource_id
     allowed = _SEGMENT_ID_ALLOWED_RESOURCE_TYPES.get(call_type)
-    return resource_id if allowed is not None and resource_type in allowed else None
+    if allowed is None:
+        raise ValueError(f"unknown ledger channel: {call_type!r}")
+    return resource_id if resource_type in allowed else None
 
 
 class MediaGenerator:
