@@ -249,6 +249,15 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             max_reference_images=caps.max_reference_images,
         )
 
+    @staticmethod
+    def effective_generate_audio_for_model(model: str) -> bool:
+        """无逐请求档位上下文时，返回默认执行档真正生效的音频计价参数。
+
+        可灵默认档为 std，而官方仅 kling-v2-6 pro 能产出人声，因此这条供预估使用的
+        无上下文接口对所有 model 都返回 False；执行期仍由 ``_effective_audio`` 按请求档决定。
+        """
+        return False
+
     @property
     def video_capabilities(self) -> VideoCapabilities:
         return self.video_capabilities_for_model(self._model)

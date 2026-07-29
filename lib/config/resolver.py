@@ -36,6 +36,9 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project_manager import get_project_manager
 from lib.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
+from lib.video_backends.registry import (
+    effective_generate_audio_for_model as builtin_effective_generate_audio_for_model,
+)
 from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 
 logger = logging.getLogger(__name__)
@@ -168,6 +171,21 @@ def get_provider_fallback(provider_id: str | None, default: str = "1080p") -> st
         return PROVIDER_FALLBACK_RESOLUTION[provider_id]
     short = provider_id.split("-", 1)[0]
     return PROVIDER_FALLBACK_RESOLUTION.get(short, default)
+
+
+#: 请求里不下发 ``generate_audio`` 开关、供应商恒按含音档出账的 video provider。
+_VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS = frozenset({"gemini-aistudio"})
+
+
+def _video_audio_always_billed(provider_id: str) -> bool:
+    """该 provider 是否无视请求值恒按含音档出账。
+
+    AI Studio 的 Veo 请求不下发 ``generate_audio``（该开关仅存在于 Vertex 定价页，AI Studio
+    定价页无 audio-off 档），``GeminiVideoBackend`` 结算时对 ``backend_type != "vertex"`` 强制
+    True；这是 provider 级出账规则，registry 名 ``gemini`` 同时映射 aistudio / vertex，故按
+    provider_id 而非 backend 静态接口判定。
+    """
+    return provider_id in _VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS
 
 
 def _safe_dict(value: object, *, field: str) -> dict:
@@ -527,6 +545,7 @@ class ConfigResolver:
               "max_reference_images": int,         # registry: model.max_reference_images；custom: 合成后的生效值
               "first_frame": bool,                 # 生效值（系统判定 ⊕ 用户覆盖），与执行层同源
               "last_frame": bool,                  # 同上
+              "generate_audio": bool,              # backend 默认执行档生效后的计价参数
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
               "content_mode": str | None,
@@ -559,6 +578,30 @@ class ConfigResolver:
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_caps_for_model(svc, session, provider_id, model_id, project)
+
+    async def video_pricing_generate_audio(
+        self,
+        provider_id: str,
+        model_id: str,
+        project: dict | None = None,
+    ) -> bool:
+        """费用预估用的有效 ``generate_audio``：读能力接口，解析不出时降级，绝不抛错。
+
+        能力解析会对注册表里已下线的 model id 抛错，而价目查询对同一 id 仍会回落到该 provider
+        的默认模型出价（见 ``lib/pricing/lookup.py``）——此时估算仍要出数，且不能丢掉恒含音
+        出账的 provider 级规则，否则这些 provider 的历史 model 会被按静音档低估。
+        """
+        try:
+            caps = await self.video_capabilities_for_model(provider_id, model_id, project)
+        except Exception as exc:
+            logger.info(
+                "视频能力解析失败（%s/%s），计价 generate_audio 降级到 provider 级规则：%s",
+                provider_id,
+                model_id,
+                exc,
+            )
+            return _video_audio_always_billed(provider_id)
+        return bool(caps["generate_audio"])
 
     async def default_image_backend_t2i(self) -> tuple[str, str]:
         """返回 (provider_id, model_id)，T2I 默认。"""
@@ -603,11 +646,18 @@ class ConfigResolver:
         svc: ConfigService,
         project_name: str | None,
     ) -> bool:
+        project = get_project_manager().load_project(project_name) if project_name else None
+        return await self._resolve_video_generate_audio_from_project(svc, project)
+
+    async def _resolve_video_generate_audio_from_project(
+        self,
+        svc: ConfigService,
+        project: dict | None,
+    ) -> bool:
         raw = await svc.get_setting("video_generate_audio", "")
         value = _parse_bool(raw) if raw else self._DEFAULT_VIDEO_GENERATE_AUDIO
 
-        if project_name:
-            project = get_project_manager().load_project(project_name)
+        if project is not None:
             override = project.get("video_generate_audio")
             if override is not None:
                 if isinstance(override, str):
@@ -693,6 +743,7 @@ class ConfigResolver:
         ``video_provider_settings.model``）的排空。payload provider 须是已知 provider（见
         ``_trusted_payload_provider``），否则不予信任、回退 project/global。
         """
+        selected: ProviderModel | None = None
         if payload:
             provider_id = _trusted_payload_provider(payload.get("video_provider"))
             if provider_id is not None:
@@ -700,9 +751,48 @@ class ConfigResolver:
                 settings_model = settings.get("model") if isinstance(settings, dict) else None
                 model = _payload_model_or_default(payload.get("video_model") or settings_model, provider_id, "video")
                 if model is not None:
-                    return ProviderModel(provider_id, model)
-        provider_id, model_id = await self._resolve_video_backend_from_project(svc, session, project)
-        return ProviderModel(provider_id, model_id)
+                    selected = ProviderModel(provider_id, model)
+        if selected is None:
+            provider_id, model_id = await self._resolve_video_backend_from_project(svc, session, project)
+            selected = ProviderModel(provider_id, model_id)
+        return await self._resolve_effective_video_provider_model(session, selected)
+
+    async def _resolve_effective_video_provider_model(
+        self,
+        session: AsyncSession,
+        selected: ProviderModel,
+    ) -> ProviderModel:
+        """把选择身份收敛为 backend 构造时会实际使用的视频身份。
+
+        内置 provider 的 registry 身份已是有效身份；自定义 provider 需与 loader 共用同一规则：
+        model 不存在、禁用或 endpoint 已改成其它 media_type 时，回退到默认启用 video model。
+        """
+        if not is_custom_provider(selected.provider_id):
+            return selected
+
+        # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
+        # 而该符号所在的装配层反过来依赖 lib.config，模块级导入会成环；内置分支不用它，
+        # 也就不必为此拉起整个装配层。
+        from lib.custom_provider.endpoints import endpoint_to_media_type
+
+        try:
+            db_pid = parse_provider_id(selected.provider_id)
+        except ValueError as exc:
+            raise ValueError(f"invalid custom provider_id: {selected.provider_id}") from exc
+        repo = CustomProviderRepository(session)
+        model = await repo.get_model_by_ids(db_pid, selected.model_id)
+        if model is not None and model.is_enabled and endpoint_to_media_type(model.endpoint) == "video":
+            return selected
+
+        logger.warning(
+            "自定义模型 %s/%s 已不存在 / 已禁用 / 媒体类型不符（期望 video），身份解析回退到默认模型",
+            selected.provider_id,
+            selected.model_id,
+        )
+        default_model = await repo.get_default_model(db_pid, "video")
+        if default_model is None:
+            raise ValueError(f"custom model not found: {selected.provider_id}/{selected.model_id}")
+        return ProviderModel(selected.provider_id, default_model.model_id)
 
     async def _resolve_default_audio_backend(self, svc: ConfigService, session: AsyncSession) -> tuple[str, str]:
         raw = await svc.get_setting("default_audio_backend", "")
@@ -759,6 +849,8 @@ class ConfigResolver:
         session: AsyncSession,
         project: dict | None,
     ) -> dict:
+        # 只传选择身份：有效身份收敛由 `_resolve_video_caps_for_model` 统一做，
+        # 在此先做一遍会让自定义 provider 多跑一轮 model 查询。
         provider_id, model_id = await self._resolve_video_backend_from_project(svc, session, project)
         return await self._resolve_video_caps_for_model(svc, session, provider_id, model_id, project)
 
@@ -770,12 +862,13 @@ class ConfigResolver:
         model_id: str,
         project: dict | None,
     ) -> dict:
+        effective = await self._resolve_effective_video_provider_model(session, ProviderModel(provider_id, model_id))
+        provider_id, model_id = effective.provider_id, effective.model_id
         if is_custom_provider(provider_id):
             # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
-            # 而这两个符号所在的装配层反过来依赖 lib.config，模块级导入会成环；注册表分支不用
-            # 它们，也就不必为此拉起整个装配层。
+            # 而该符号所在的装配层反过来依赖 lib.config，模块级导入会成环；注册表分支不用它，
+            # 也就不必为此拉起整个装配层。
             from lib.custom_provider.capabilities import synthesize_video_capabilities
-            from lib.custom_provider.endpoints import endpoint_to_media_type
 
             source = "custom"
             try:
@@ -784,19 +877,8 @@ class ConfigResolver:
                 raise ValueError(f"invalid custom provider_id: {provider_id}") from exc
             repo = CustomProviderRepository(session)
             model = await repo.get_model_by_ids(db_pid, model_id)
-            if model is not None and (not model.is_enabled or endpoint_to_media_type(model.endpoint) != "video"):
-                # 与 loader.load_custom_backend 同一条回退规则：请求 model 已禁用或 endpoint 媒体
-                # 类型不再是 video（用户在设置里改了该模型的 endpoint）时执行层改派默认启用 model，
-                # 展示的能力必须与执行层一致，否则这里要么按已失效的 model 合成能力，要么直接报错，
-                # 而执行层其实静默回退成功了。
-                logger.warning("自定义模型 %s/%s 已禁用或媒体类型不符，能力解析回退到默认模型", provider_id, model_id)
-                model = None
             if model is None:
-                default_model = await repo.get_default_model(db_pid, "video")
-                if default_model is None:
-                    raise ValueError(f"custom model not found: {provider_id}/{model_id}")
-                model = default_model
-                model_id = default_model.model_id
+                raise ValueError(f"custom model not found after identity resolution: {provider_id}/{model_id}")
 
             # 生效能力（系统判定 ⊕ 用户覆盖）只此一个合成点：工厂给执行层注入的也是它的返回值，
             # 展示层与执行层因此严格同源，不在此处自行合并覆盖或重算系统判定。纯函数不查
@@ -813,6 +895,9 @@ class ConfigResolver:
             max_reference_images = caps.max_reference_images
             first_frame = caps.first_frame
             last_frame = caps.last_frame
+            # 自定义供应商按声明单价计费（`CustomProviderPrice` 无音频维度），计价参数不因
+            # 默认执行档收窄，故沿用项目请求值。
+            default_tier_generates_audio = True
             raw_durations = model.supported_durations
             supported_durations: list[int] = []
             if raw_durations:
@@ -843,11 +928,28 @@ class ConfigResolver:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
             first_frame = builtin_caps.first_frame
             last_frame = builtin_caps.last_frame
+            try:
+                default_tier_generates_audio = builtin_effective_generate_audio_for_model(
+                    spec.registry_backend, model_id
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"cannot resolve video pricing capabilities for {provider_id}/{model_id}: {exc}"
+                ) from exc
 
         if not supported_durations:
             raise ValueError(f"supported_durations is empty for {provider_id}/{model_id}; cannot derive capabilities")
 
         max_duration = max(supported_durations)
+
+        requested_generate_audio = await self._resolve_video_generate_audio_from_project(svc, project)
+        # 恒含音出账的 provider 无视请求值；其余 backend 只有在项目请求开启、且无上下文能力
+        # 接口确认默认执行档会产出人声时，计价参数才为 True。
+        generate_audio = (
+            True
+            if _video_audio_always_billed(provider_id)
+            else requested_generate_audio and default_tier_generates_audio
+        )
 
         default_duration: int | None = None
         content_mode: str | None = None
@@ -873,6 +975,7 @@ class ConfigResolver:
             "max_reference_images": max_reference_images,
             "first_frame": first_frame,
             "last_frame": last_frame,
+            "generate_audio": generate_audio,
             "source": source,
             "default_duration": default_duration,
             "content_mode": content_mode,

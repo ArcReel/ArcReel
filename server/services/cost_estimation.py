@@ -158,16 +158,8 @@ class CostEstimationService:
             except Exception:
                 video_provider, video_model = "unknown", "unknown"
 
-            try:
-                generate_audio = await r.video_generate_audio(project_name)
-            except Exception:
-                generate_audio = False
-            # AI Studio 的 Veo 请求不下发 generate_audio 参数（该开关仅存在于 Vertex 定价页，
-            # AI Studio 定价页无 audio-off 档），供应商恒按含音价出账；真实生成时
-            # GeminiVideoBackend 已按此结算实际用量（backend_type != "vertex" 强制 True，见
-            # lib/video_backends/gemini.py），此处对齐纯预估路径，避免二者口径分叉。
-            if video_provider == "gemini-aistudio":
-                generate_audio = True
+            # 有效 generate_audio 是 backend 实现内知识，此处只消费解析结果、不自行推断。
+            generate_audio = await r.video_pricing_generate_audio(video_provider, video_model, project_data)
 
             # 旁白配音（TTS）模型：project 覆盖 > 全局默认 > auto-resolve；
             # 未配置任何 audio 供应商时回落 unknown，该维度预估为空

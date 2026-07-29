@@ -1487,18 +1487,12 @@ class TestCostEstimationService:
         ],
     )
     async def test_video_estimate_generate_audio_by_provider(
-        self, db_factory, monkeypatch, video_backend, configured_generate_audio, expected_usd
+        self, db_factory, video_backend, configured_generate_audio, expected_usd
     ):
         """费用预估在所有 (provider, audio 开关) 组合下与供应商实际出账口径一致。
 
-        经 ``ConfigResolver.video_generate_audio`` 直接 monkeypatch 配置开关的解析结果，
-        绕开该方法内部对项目文件是否存在于磁盘的依赖（预估路径本不该受此约束）。
+        直接在已加载 project dict 中给出项目开关，验证能力解析不二次依赖磁盘项目文件。
         """
-
-        async def _fake_video_generate_audio(self, project_name=None):
-            return configured_generate_audio
-
-        monkeypatch.setattr(ConfigResolver, "video_generate_audio", _fake_video_generate_audio)
 
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -1507,6 +1501,7 @@ class TestCostEstimationService:
             "title": "Test",
             "content_mode": "narration",
             "video_backend": video_backend,
+            "video_generate_audio": configured_generate_audio,
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_script(1, ["E1S001"], [1])}
@@ -1515,6 +1510,75 @@ class TestCostEstimationService:
 
         seg = result["episodes"][0]["segments"][0]
         assert seg["estimate"]["video"]["USD"] == pytest.approx(expected_usd)
+
+    @pytest.mark.integration
+    async def test_kling_reference_model_estimate_uses_effective_silent_tier(self, db_factory):
+        """参考能力 model 不产出人声；即使项目开关为真，预估也应与 backend 结算的静音档一致。"""
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "video_backend": "kling/kling-video-o1",
+            "video_generate_audio": True,
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+
+        result = await service.compute(
+            project_data, {"ep1.json": _make_script(1, ["E1S001"], [5])}, project_name="test"
+        )
+
+        # kling-video-o1 默认 std：静音 ¥0.6/s；错误沿用项目开关会走有声 ¥0.8/s。
+        assert result["episodes"][0]["segments"][0]["estimate"]["video"]["CNY"] == pytest.approx(3.0)
+
+    @pytest.mark.integration
+    async def test_disabled_custom_video_model_estimate_uses_runtime_fallback_price(self, db_factory):
+        """估算模型身份与 backend 构造一致：禁用项目模型后按默认启用模型的价格估算。"""
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        async with db_factory() as session:
+            await CustomProviderRepository(session).create_provider(
+                display_name="Custom",
+                discovery_format="openai",
+                base_url="https://api.example.com",
+                api_key="k",
+                models=[
+                    {
+                        "model_id": "disabled",
+                        "display_name": "Disabled",
+                        "endpoint": "openai-video",
+                        "is_enabled": False,
+                        "price_unit": "second",
+                        "price_input": 9.0,
+                        "currency": "USD",
+                    },
+                    {
+                        "model_id": "runtime",
+                        "display_name": "Runtime",
+                        "endpoint": "openai-video",
+                        "is_enabled": True,
+                        "is_default": True,
+                        "price_unit": "second",
+                        "price_input": 0.1,
+                        "currency": "USD",
+                    },
+                ],
+            )
+            await session.commit()
+
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "video_backend": "custom-1/disabled",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+
+        result = await service.compute(
+            project_data, {"ep1.json": _make_script(1, ["E1S001"], [6])}, project_name="test-custom-fallback"
+        )
+
+        assert result["models"]["video"] == {"provider": "custom-1", "model": "runtime"}
+        assert result["episodes"][0]["segments"][0]["estimate"]["video"]["USD"] == pytest.approx(0.6)
 
     async def test_custom_provider_estimates_use_db_prices(self, db_factory):
         """自定义供应商预估：image/video/audio 单价来自 DB（与实际记账同源），估值按配置价格非零。"""

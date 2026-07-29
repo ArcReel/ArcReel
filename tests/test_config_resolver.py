@@ -768,6 +768,33 @@ class TestVideoCapabilities:
         assert caps["last_frame"] is False
 
 
+class TestVideoPricingGenerateAudio:
+    """video_pricing_generate_audio：能力接口解析不出时的计价降级口径。"""
+
+    @pytest.mark.integration
+    async def test_falls_back_to_provider_rule_for_registry_unknown_model(self):
+        """注册表已下线的 veo model id 仍按含音档出价，不因能力解析失败被低估为静音档。"""
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            # veo-3.1-generate-001 只留在 gemini-vertex 注册表：能力查询抛错，而价目查询
+            # 仍会回落到 Gemini 家族费率出价。
+            result = await resolver.video_pricing_generate_audio("gemini-aistudio", "veo-3.1-generate-001")
+        finally:
+            await engine.dispose()
+        assert result is True
+
+    @pytest.mark.integration
+    async def test_falls_back_to_false_for_unknown_provider(self):
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            result = await resolver.video_pricing_generate_audio("unknown", "unknown")
+        finally:
+            await engine.dispose()
+        assert result is False
+
+
 class TestResolveImageBackend:
     """resolve_image_backend：payload > project > 全局默认，capability=t2i/i2i 各覆盖。"""
 
@@ -872,6 +899,52 @@ class TestResolveVideoBackend:
         project = {"video_backend": "ark/seedance-1-0-pro"}
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, {})
         assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
+
+    @pytest.mark.integration
+    async def test_disabled_custom_model_resolves_to_runtime_default(self):
+        """身份解析直接交付执行层会实际调用的 model，不把禁用身份留给后续构造层修正。"""
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                provider = CustomProvider(
+                    display_name="Custom Fallback",
+                    discovery_format="openai",
+                    base_url="https://example.com",
+                    api_key="xxx",
+                )
+                session.add(provider)
+                await session.flush()
+                session.add_all(
+                    [
+                        CustomProviderModel(
+                            provider_id=provider.id,
+                            model_id="disabled-model",
+                            display_name="Disabled",
+                            endpoint="openai-video",
+                            is_enabled=False,
+                        ),
+                        CustomProviderModel(
+                            provider_id=provider.id,
+                            model_id="runtime-model",
+                            display_name="Runtime",
+                            endpoint="openai-video",
+                            is_enabled=True,
+                            is_default=True,
+                        ),
+                    ]
+                )
+                await session.commit()
+
+                resolver = ConfigResolver(factory)
+                resolved = await resolver.resolve_video_backend(
+                    {"video_backend": f"custom-{provider.id}/disabled-model"}, None
+                )
+        finally:
+            await engine.dispose()
+
+        assert (resolved.provider_id, resolved.model_id) == (f"custom-{provider.id}", "runtime-model")
 
     async def test_falls_through_to_global_default(self):
         resolver = ConfigResolver.__new__(ConfigResolver)
