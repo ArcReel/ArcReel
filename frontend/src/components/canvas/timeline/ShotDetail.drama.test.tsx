@@ -20,7 +20,7 @@ function makeScene(overrides: Partial<DramaScene> = {}): DramaScene {
       scene: "重逢",
       composition: { shot_type: "Medium Shot", lighting: "暖光", ambiance: "怀旧" },
     },
-    video_prompt: { action: "推门而入", camera_motion: "Static", ambiance_audio: "风声", dialogue: [] },
+    video_prompt: { action: "推门而入", ambiance_audio: "风声", dialogue: [] },
     utterances: sampleUtterances,
     transition_to_next: "cut",
     ...overrides,

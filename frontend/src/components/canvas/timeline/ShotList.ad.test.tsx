@@ -24,7 +24,6 @@ function makeShot(overrides: Partial<AdShot> = {}): AdShot {
     },
     video_prompt: {
       action: "水珠滑落",
-      camera_motion: "Static",
       ambiance_audio: "水声",
       dialogue: [],
     },

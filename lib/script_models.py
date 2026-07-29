@@ -7,7 +7,7 @@ script_models.py - 剧本数据模型
 """
 
 import logging
-from typing import Annotated, ClassVar, Literal, get_args
+from typing import Annotated, Any, ClassVar, Literal, get_args
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, create_model, model_validator
 from pydantic.json_schema import SkipJsonSchema
@@ -140,13 +140,24 @@ class ImagePrompt(BaseModel):
 
 
 class _VideoPromptCore(BaseModel):
-    """video_prompt 的画面层公共字段（动作 / 运镜 / 环境音）；dialogue 由具体变体决定是否携带。"""
+    """video_prompt 的画面层公共字段（动作 / 环境音）；dialogue 由具体变体决定是否携带。
+
+    camera_motion 已废弃：运镜描述融入 action（自然语言，支持复合运镜），
+    不再作为独立枚举字段。存量剧本 JSON 中残留的 camera_motion 在验证前自动 pop。
+    """
 
     model_config = _STRICT_CONFIG
 
-    action: str = Field(description="该镜头时长内的动作描述；镜头运动由 camera_motion 承载")
-    camera_motion: Annotated[CameraMotion, BeforeValidator(_normalize_camera_motion)] = Field(description="镜头运动")
+    action: str = Field(description="该镜头时长内的动作与运镜描述（自然语言，可包含环绕/推进/拉远等复合运动）")
     ambiance_audio: str = Field(description="环境音效（画内音）")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _deprecate_camera_motion(cls, data: Any) -> Any:
+        """存量剧本 JSON 仍含 camera_motion 字段，在 extra="forbid" 拒绝前 pop 掉。"""
+        if isinstance(data, dict):
+            data.pop("camera_motion", None)
+        return data
 
 
 class VideoPrompt(_VideoPromptCore):

@@ -33,46 +33,6 @@ export const SHOT_TYPE_I18N_KEYS: Record<ShotType, string> = {
   "Point-of-view": "shot_type_point_of_view",
 };
 
-export const CAMERA_MOTIONS = [
-  "Static",
-  "Pan Left",
-  "Pan Right",
-  "Tilt Up",
-  "Tilt Down",
-  "Zoom In",
-  "Zoom Out",
-  "Push In",
-  "Pull Out",
-  "Truck Left",
-  "Truck Right",
-  "Pedestal Up",
-  "Pedestal Down",
-  "Orbit",
-  "Tracking Shot",
-  "Shake",
-] as const;
-
-export type CameraMotion = (typeof CAMERA_MOTIONS)[number];
-
-export const CAMERA_MOTION_I18N_KEYS: Record<CameraMotion, string> = {
-  Static: "camera_motion_static",
-  "Pan Left": "camera_motion_pan_left",
-  "Pan Right": "camera_motion_pan_right",
-  "Tilt Up": "camera_motion_tilt_up",
-  "Tilt Down": "camera_motion_tilt_down",
-  "Zoom In": "camera_motion_zoom_in",
-  "Zoom Out": "camera_motion_zoom_out",
-  "Push In": "camera_motion_push_in",
-  "Pull Out": "camera_motion_pull_out",
-  "Truck Left": "camera_motion_truck_left",
-  "Truck Right": "camera_motion_truck_right",
-  "Pedestal Up": "camera_motion_pedestal_up",
-  "Pedestal Down": "camera_motion_pedestal_down",
-  Orbit: "camera_motion_orbit",
-  "Tracking Shot": "camera_motion_tracking_shot",
-  Shake: "camera_motion_shake",
-};
-
 export type TransitionType = "cut" | "fade" | "dissolve";
 export type DurationSeconds = number;
 export type AssetStatus = "pending" | "storyboard_ready" | "completed";
@@ -177,7 +137,6 @@ export interface ImagePrompt {
 
 export interface VideoPrompt {
   action: string;
-  camera_motion: CameraMotion;
   ambiance_audio: string;
   dialogue: Dialogue[];
 }

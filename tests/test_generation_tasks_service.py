@@ -308,12 +308,13 @@ class TestGenerationTasks:
         video_yaml = generation_tasks._normalize_video_prompt(
             {
                 "action": "行走",
-                "camera_motion": "",
                 "ambiance_audio": "风声",
                 "dialogue": [{"speaker": "Alice", "line": "hello"}],
             }
         )
-        assert "Camera_Motion" in video_yaml
+        # camera_motion 已废弃：运镜描述融入 action，YAML 不再输出独立 Camera_Motion 字段
+        assert "Camera_Motion" not in video_yaml
+        assert "Action: 行走" in video_yaml
 
         with pytest.raises(ValueError):
             generation_tasks._normalize_video_prompt({"action": ""})

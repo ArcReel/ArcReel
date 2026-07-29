@@ -64,23 +64,25 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
     """
     将 videoPrompt 结构转换为 YAML 格式字符串
 
+    Action 已融合运镜描述（由 LLM/用户自然语言描述，支持复合运镜），
+    不再输出独立的 Camera_Motion 字段——避免单选枚举限制模型理解
+    连贯的镜头运动。
+
     Args:
         video_prompt: segment 中的 video_prompt 对象，结构为：
             {
-                "action": "动作描述",
-                "camera_motion": "摄像机运动",
+                "action": "动作与运镜描述（自然语言，可包含复合运动）",
                 "ambiance_audio": "环境音效描述",
                 "dialogue": [{"speaker": "角色名", "line": "台词"}]
             }
 
     Returns:
-        YAML 格式字符串，用于 Veo API 调用
+        YAML 格式字符串，用于视频 AI 模型调用
     """
     dialogue = [{"Speaker": d["speaker"], "Line": d["line"]} for d in video_prompt.get("dialogue", [])]
 
     ordered = {
         "Action": video_prompt["action"],
-        "Camera_Motion": video_prompt["camera_motion"],
         "Ambiance_Audio": video_prompt.get("ambiance_audio", ""),
     }
 

@@ -42,14 +42,14 @@ export function isStructuredImagePrompt(value: unknown): value is ImagePrompt {
 }
 
 /**
- * 严格守卫：VideoPrompt 必须含 action + camera_motion + ambiance_audio；dialogue 可省略，
+ * 严格守卫：VideoPrompt 必须含 action + ambiance_audio；dialogue 可省略，
  * 但若提供必须是 {speaker, line} 数组。
+ * camera_motion 已废弃：运镜描述融入 action（自然语言，支持复合运镜）。
  */
 export function isStructuredVideoPrompt(value: unknown): value is VideoPrompt {
   if (
     !isRecord(value) ||
     typeof value.action !== "string" ||
-    typeof value.camera_motion !== "string" ||
     typeof value.ambiance_audio !== "string"
   ) {
     return false;

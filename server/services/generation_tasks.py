@@ -104,7 +104,10 @@ def _normalize_storyboard_prompt(prompt: str | dict, style: str) -> str:
 
 
 def _normalize_video_prompt(prompt: str | dict) -> str:
-    """归一化视频 prompt 并在末尾追加统一文本化的反向提示词。"""
+    """归一化视频 prompt 并在末尾追加统一文本化的反向提示词。
+
+    Action 已融合运镜描述（自然语言，支持复合运镜），
+    不再输出独立的 Camera_Motion 字段。"""
     from lib.prompt_builders import append_video_negative_tail
 
     if isinstance(prompt, str):
@@ -116,7 +119,7 @@ def _normalize_video_prompt(prompt: str | dict) -> str:
         raise ValueError("prompt must be a string or object")
 
     if not is_structured_video_prompt(prompt):
-        raise ValueError("prompt must be a string or include action/camera_motion")
+        raise ValueError("prompt must be a string or include action")
 
     action_text = str(prompt.get("action", "")).strip()
     if not action_text:
@@ -139,7 +142,6 @@ def _normalize_video_prompt(prompt: str | dict) -> str:
 
     normalized_prompt: dict[str, Any] = {
         "action": action_text,
-        "camera_motion": str(prompt.get("camera_motion", "") or "") or "Static",
         "ambiance_audio": str(prompt.get("ambiance_audio", "") or ""),
         "dialogue": normalized_dialogue,
     }

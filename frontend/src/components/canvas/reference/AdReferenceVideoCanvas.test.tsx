@@ -48,7 +48,7 @@ function makeShot(shotId: string, duration: number): AdShot {
       scene: "画面",
       composition: { shot_type: "Close-up", lighting: "顶光", ambiance: "清爽" },
     },
-    video_prompt: { action: "动作", camera_motion: "Static", ambiance_audio: "", dialogue: [] },
+    video_prompt: { action: "动作", ambiance_audio: "", dialogue: [] },
     transition_to_next: "cut",
   };
 }

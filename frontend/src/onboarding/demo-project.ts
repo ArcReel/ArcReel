@@ -13,7 +13,6 @@
 
 import type { TFunction } from "i18next";
 import type {
-  CameraMotion,
   Character,
   EpisodeMeta,
   NarrationEpisodeScript,
@@ -80,7 +79,6 @@ const SEGMENT_SKELETONS: {
   scenes: number[];
   props: number[];
   shotType: ShotType;
-  cameraMotion: CameraMotion;
   hasStoryboard: boolean;
 }[] = [
   {
@@ -269,7 +267,6 @@ export function buildDemoScripts(t: DemoT): Record<string, NarrationEpisodeScrip
       },
       video_prompt: {
         action: t(`demo_shot_${n}_video`),
-        camera_motion: skeleton.cameraMotion,
         ambiance_audio: t(`demo_shot_${n}_audio`),
         dialogue: [],
       },
