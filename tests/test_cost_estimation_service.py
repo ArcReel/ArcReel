@@ -130,6 +130,32 @@ def _make_ad_script(shot_ids: list[str], durations: list[int]) -> dict:
     }
 
 
+def _make_reference_video_script(episode: int, content_mode: str, unit_specs: list[tuple[str, int]]) -> dict:
+    """Helper to create a narration/drama + reference_video episode script dict (video_units[])."""
+    units = []
+    for unit_id, duration in unit_specs:
+        units.append(
+            {
+                "unit_id": unit_id,
+                "shots": [{"duration": duration, "text": "t"}],
+                "references": [],
+                "duration_seconds": duration,
+                "duration_override": False,
+                "transition_to_next": "cut",
+                "generated_assets": {"video_clip": None, "status": "pending"},
+            }
+        )
+    return {
+        "episode": episode,
+        "title": f"Episode {episode}",
+        "content_mode": content_mode,
+        "generation_mode": "reference_video",
+        "duration_seconds": sum(d for _, d in unit_specs),
+        "novel": {"title": "t", "chapter": "c"},
+        "video_units": units,
+    }
+
+
 class TestCostEstimationService:
     async def test_estimate_single_episode(self, db_factory):
         resolver = ConfigResolver(db_factory)
@@ -736,6 +762,112 @@ class TestCostEstimationService:
         per_unit = segments[0]["estimate"]["video"][currency]
         assert [seg["estimate"]["video"][currency] for seg in segments] == [per_unit] * 3
         assert result["episodes"][0]["totals"]["estimate"]["video"][currency] == round(per_unit * 3, 6)
+
+    async def test_narration_reference_video_produces_nonzero_video_estimate(self, db_factory):
+        """narration + reference_video 集的视频估值不应恒为 0（`get_storyboard_items` 对该
+        generation_mode 恒返回空列表，之前的估算循环遍历它，等于永远算不出视频费用）。
+
+        unit 本身就是展示颗粒度（``Shot`` 无独立 ID），故 segment_id 直接是 unit_id，
+        不像 ad 路径那样需要摊回成员镜头。
+        """
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 6), ("E1U2", 8)])}
+
+        result = await service.compute(project_data, scripts, project_name="narration-ref")
+
+        segments = result["episodes"][0]["segments"]
+        assert [seg["segment_id"] for seg in segments] == ["E1U1", "E1U2"]
+        assert [seg["duration_seconds"] for seg in segments] == [6, 8]
+        for seg in segments:
+            assert seg["estimate"]["image"] == {}
+            assert seg["estimate"]["audio"] == {}
+            assert seg["estimate"]["video"]
+        assert result["project_totals"]["estimate"].get("image", {}) == {}
+        assert result["project_totals"]["estimate"]["video"]
+
+    async def test_drama_reference_video_actual_cost_matches_unit_id(self, db_factory):
+        """actual 侧直接按 unit_id 匹配，不需要摊分（依赖 #1470 把 reference_videos 记账
+        纳入 segment_id 白名单：resource_id 即 unit_id）。
+        """
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        await _seed_call(
+            db_factory,
+            "drama-ref-actual",
+            "video",
+            "veo-3.1",
+            provider="veo",
+            segment_id="E1U1",
+            cost_amount=0.8,
+            currency="USD",
+        )
+
+        project_data = {
+            "title": "Drama",
+            "content_mode": "drama",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "drama", [("E1U1", 8)])}
+
+        result = await service.compute(project_data, scripts, project_name="drama-ref-actual")
+
+        segments = result["episodes"][0]["segments"]
+        assert segments[0]["segment_id"] == "E1U1"
+        assert segments[0]["actual"]["video"]["USD"] == pytest.approx(0.8)
+        assert result["episodes"][0]["totals"]["actual"]["video"]["USD"] == pytest.approx(0.8)
+        assert result["project_totals"]["actual"]["video"]["USD"] == pytest.approx(0.8)
+
+    async def test_narration_reference_video_estimate_uses_rounded_up_unit_duration(self, db_factory, monkeypatch):
+        """取档向上的 unit：预估金额按取档后的秒数（8s）计，而非剧本原始总时长（5s）。"""
+        from server.services import cost_estimation as cost_estimation_module
+        from server.services.reference_video_tasks import ProjectDurationContext
+
+        def _patch_ctx(durations: tuple[int, ...]):
+            async def _fake_ctx(project):
+                return ProjectDurationContext(
+                    supported_durations=durations, resolution=None, provider_id="veo", model_name="veo-3.1"
+                )
+
+            monkeypatch.setattr(cost_estimation_module, "resolve_project_duration_context", _fake_ctx)
+
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
+
+        _patch_ctx((8,))
+        rounded = await service.compute(project_data, scripts, project_name="narration-ref-round")
+        _patch_ctx(())
+        unconstrained = await service.compute(project_data, scripts, project_name="narration-ref-round")
+
+        seg = rounded["episodes"][0]["segments"][0]
+        base_seg = unconstrained["episodes"][0]["segments"][0]
+        assert seg["segment_id"] == "E1U1"
+        assert seg["duration_seconds"] == 5
+        assert base_seg["duration_seconds"] == 5
+        assert seg["estimate"]["video"]
+        assert base_seg["estimate"]["video"]
+        assert sum(seg["estimate"]["video"].values()) > sum(base_seg["estimate"]["video"].values())
+        assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
 
     async def test_empty_episodes(self, db_factory):
         resolver = ConfigResolver(db_factory)
