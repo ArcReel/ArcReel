@@ -385,12 +385,11 @@ class CostEstimationService:
         算出的 unit 费用再均摊回成员镜头输出，与 grid 模式「按 grid 计费、分摊到 scene
         展示」的口径同构：前端按镜头 ID 索引 segment（``frontend/src/stores/cost-store.ts``），
         输出 unit ID 会让镜头面板查不到费用。除不尽的余数补给末镜，保证分摊后的合计与
-        unit 原值分文不差。视频实付按 unit 分摊（读 ``actual_by_segment[unit_id]``——注：
-        ``lib/media_generator.py`` 目前只对 ``resource_type in ("storyboards", "videos")``
-        写入 usage 的 segment_id，``reference_videos`` 调用不在其中，故这一读取现状恒空，
-        是独立于本函数的既有缺口，不在本次改动范围内），与 shot_id 记账的历史视频实付
-        合并而非互相替换：项目若曾在 storyboard 模式为该镜头生成过视频、之后切到
-        reference_video，这笔旧支出与新 unit 的分摊额都要计入。图片/音频实付同样按
+        unit 原值分文不差。视频实付按 unit 分摊（读 ``actual_by_segment[unit_id]``，
+        ``lib/media_generator.py`` 对 ``resource_type == "reference_videos"`` 的记账
+        以 unit_id 写入 usage 的 segment_id，与本函数的分摊口径一致），与 shot_id 记账的
+        历史视频实付合并而非互相替换：项目若曾在 storyboard 模式为该镜头生成过视频、之后
+        切到 reference_video，这笔旧支出与新 unit 的分摊额都要计入。图片/音频实付同样按
         shot_id 原样回填（不受 unit 分摊影响）：切换模式前产生的镜头图/配音费用仍需展示。
 
         分组优先读剧本已持久化的 ``reference_units``（与执行时同一份索引，见

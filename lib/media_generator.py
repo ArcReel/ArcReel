@@ -621,7 +621,7 @@ class MediaGenerator:
             # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
             provider=cast(str, self._video_provider_id),
             user_id=self._user_id,
-            segment_id=resource_id if resource_type in ("storyboards", "videos") else None,
+            segment_id=resource_id if resource_type in ("storyboards", "videos", "reference_videos") else None,
             service_tier=version_metadata.get("service_tier", "default"),
             output_path=str(output_path),
         ) as call:
