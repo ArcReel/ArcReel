@@ -44,3 +44,21 @@ def video_capabilities_for_model(name: str, model_id: str) -> VideoCapabilities:
     if not isinstance(caps, VideoCapabilities):
         raise ValueError(f"video backend {name!r} video_capabilities_for_model returned {type(caps).__name__}")
     return caps
+
+
+def effective_generate_audio_for_model(name: str, model_id: str) -> bool:
+    """读 backend 对默认执行档声明的有效 ``generate_audio`` 计价参数。
+
+    未声明专属规则的 backend 沿用请求值；需要按 model / 默认档收窄的 backend 通过同名
+    静态方法提供纯查询，避免估算侧复制执行实现。
+    """
+    factory = _BACKEND_FACTORIES.get(name)
+    if factory is None:
+        raise ValueError(f"Unknown video backend: {name}")
+    effective_fn = getattr(factory, "effective_generate_audio_for_model", None)
+    if effective_fn is None:
+        return True
+    result = effective_fn(model_id)
+    if not isinstance(result, bool):
+        raise ValueError(f"video backend {name!r} effective_generate_audio_for_model returned {type(result).__name__}")
+    return result

@@ -15,6 +15,7 @@ import pytest
 from lib.providers import PROVIDER_KLING
 from lib.video_backends.base import VideoCapability, VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.kling import KlingVideoBackend
+from lib.video_backends.registry import effective_generate_audio_for_model
 
 _SECRET = "s" * 40
 
@@ -168,6 +169,14 @@ class TestPerModelCapabilities:
         vc = b.video_capabilities
         assert vc.last_frame is True
         assert vc.reference_images is True and vc.max_reference_images == 4
+
+    def test_video_o1_pricing_audio_matches_effective_request(self, tmp_path):
+        """预估消费的 backend 能力接口与真实请求的 `_effective_audio` 对参考模型给出同一静音档。"""
+        backend = _jwt_backend("kling-video-o1")
+        request = _request(tmp_path, generate_audio=True)
+
+        assert effective_generate_audio_for_model("kling", "kling-video-o1") is False
+        assert backend._effective_audio(request) is False
 
     def test_unknown_model_falls_back_to_default_caps(self):
         # bearer 透传原生 model_name：未登记 → 保守默认（t2v+i2v、尾帧仅 pro 档，声明按 std 档保守

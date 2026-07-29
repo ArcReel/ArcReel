@@ -15,7 +15,7 @@ from lib.generation_queue_client import (
     batch_enqueue_and_wait,
 )
 from lib.resource_paths import resource_relative_path
-from lib.script_models import get_generated_assets
+from lib.script_models import get_generated_assets, is_reference_script
 from lib.storyboard_sequence import get_storyboard_items
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 
@@ -72,7 +72,7 @@ def generate_narration_audio_tool(ctx: ToolContext):
             if not items:
                 # reference_video 模式 get_storyboard_items 硬返回空列表；空剧本同样
                 # 无可配音项。两者都不能落进"✨ 已全部生成"的假成功分支。
-                if script.get("generation_mode") == "reference_video":
+                if is_reference_script(script):
                     raise ValueError("参考生视频（reference_video）模式剧本没有 segments，不适用旁白配音")
                 raise ValueError("剧本没有可配音的片段")
 
