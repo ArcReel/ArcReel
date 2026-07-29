@@ -50,7 +50,8 @@ ENV TZ=Asia/Shanghai
 
 # 先复制依赖和包元数据文件，利用缓存
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --no-dev --no-install-project
+# RUN uv sync --no-dev --no-install-project
+RUN uv sync 
 
 # 复制应用代码
 COPY lib/ lib/
