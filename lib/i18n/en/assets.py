@@ -9,4 +9,8 @@ MESSAGES = {
     "asset_load_project_failed": "failed to load target project",
     "asset_invalid_conflict_policy": "conflict_policy must be skip / overwrite / rename",
     "asset_invalid_name": "Asset name '{name}' is invalid: characters like / \\ : * ? \" < > |, control characters, .., a trailing dot, or Windows reserved names (e.g. CON) are not allowed",
+    "asset_type_character": "character",
+    "asset_type_scene": "scene",
+    "asset_type_prop": "prop",
+    "asset_type_product": "product",
 }

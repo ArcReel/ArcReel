@@ -73,6 +73,28 @@ class TestWarningRendering:
         assert rendered[0].startswith("Sora")
         assert "小美" in rendered[1]
 
+    def test_asset_type_in_skipped_reference_warning_is_localized(self):
+        task = _task(
+            result={"warnings": [{"key": "ref_ad_reference_skipped", "params": {"type": "product", "name": "小美"}}]}
+        )
+
+        zh = _localize_task(task, _translator("zh"))["result"]["warnings"][0]
+        en = _localize_task(task, _translator("en"))["result"]["warnings"][0]
+        vi = _localize_task(task, _translator("vi"))["result"]["warnings"][0]
+
+        assert "产品" in zh and "product" not in zh
+        assert "product" in en
+        assert "sản phẩm" in vi
+
+    def test_unregistered_asset_type_falls_through_unmapped(self):
+        task = _task(
+            result={"warnings": [{"key": "ref_ad_reference_skipped", "params": {"type": "widget", "name": "小美"}}]}
+        )
+
+        rendered = _localize_task(task, _translator("zh"))["result"]["warnings"][0]
+
+        assert "widget" in rendered
+
     def test_input_task_is_not_mutated(self):
         warnings = [{"key": "ref_sora_single_ref", "params": {}}]
         task = _task(result={"warnings": warnings})
