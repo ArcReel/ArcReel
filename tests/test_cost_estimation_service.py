@@ -1047,16 +1047,17 @@ class TestCostEstimationService:
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
-        script = _make_reference_video_script(1, "narration", [("E1U1", 6), ("E1U2", 8)])
+        script = _make_reference_video_script(1, "narration", [("E1U1", 6), ("E1U2", 8), ("E1U3", 8)])
         script["video_units"][0]["duration_seconds"] = "bad"
         script["video_units"][1]["duration_seconds"] = ["not", "a", "number"]
 
         result = await service.compute(project_data, {"ep1.json": script}, project_name="narration-bad-duration")
 
         segments = result["episodes"][0]["segments"]
-        assert [seg["segment_id"] for seg in segments] == ["E1U1", "E1U2"]
+        assert [seg["segment_id"] for seg in segments] == ["E1U1", "E1U2", "E1U3"]
         assert segments[0]["estimate"]["video"] == {}
         assert segments[1]["estimate"]["video"] == {}
+        assert segments[2]["estimate"]["video"]
 
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_skips_unit_with_non_list_shots(self, db_factory):
