@@ -207,5 +207,3 @@ BREAKING CHANGE: /api/v1/api-keys 的返回结构改为 { items: [...] }，
 - 将版本号 bump 为 major；当前版本 <1.0.0 时受 `bump-minor-pre-major` 配置约束，只 bump minor
 - 在 changelog 顶部插入独立的 **⚠️ BREAKING CHANGES** 区块，把每条破坏性变更的描述汇总展示
 - 在对应 type section（如 `✨ 新功能`）下保留该 commit 的常规条目
-
-> 本项目前后端同仓同发布，后端 API 的唯一消费者是自家前端，接口删改随版本原子生效，不构成对外契约变更。此类改动按 `fix`/`refactor` 正常分类，不加 `!` 或 `BREAKING CHANGE:` footer。
