@@ -200,6 +200,7 @@ class TestFinalizePendingByCallId:
         calls = await repo.get_calls(project_name="demo")
         assert calls["items"][0]["usage_tokens"] == 12345, "usage_tokens 必须 UPDATE 写回 ApiCall 行"
 
+    @pytest.mark.integration
     async def test_settlement_does_not_approximate_missing_usage_tokens(self, db_session):
         """provider 成功响应但漏报 usage（``usage_tokens`` 为 None）时，实付结算必须如实按
         0 计费，不能借费用预估侧的 token 近似换算兜底把估算近似值当成真实支出记录——

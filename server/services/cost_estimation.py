@@ -567,10 +567,13 @@ class CostEstimationService:
         与本函数的输出 identity 一致。切换模式前按分镜 ID（``E1S1`` 等）记的历史支出不在此
         呈现：unit 与分镜之间没有映射关系，无处归属。
 
-        跳过没有 shots 或拼接文本为空的 unit：这类 unit 不可入队（``enqueue_videos.py::_reference_unit_spec``
+        没有 shots 或拼接文本为空的 unit 不产生预估：这类 unit 不可入队（``enqueue_videos.py::_reference_unit_spec``
         对没有 shots 的 unit 直接拒绝、``TaskSpec.from_request`` 对空提示词同样拒绝），估值给出
         非零金额会展示一笔查无实据的费用；判空标准与入队侧同一份 ``assemble_shots_text``，
-        不能自行另起一套字符串处理否则两处会漂移。
+        不能自行另起一套字符串处理否则两处会漂移。但该 unit 仍要整条保留、纳入汇总——不可入队
+        只影响能否产生新预估，不影响该 unit 是否曾经成功生成过（``actual_by_segment[unit_id]``
+        记的是历史实付，与 unit 当前编辑状态无关）：unit 曾成功生成、随后剧本被编辑成空 shots，
+        其历史支出不能因此从段级/集级/项目级合计里消失。
         """
         segments_result: list[dict[str, Any]] = []
         ep_est: dict[str, CostBreakdown] = {}
@@ -582,21 +585,22 @@ class CostEstimationService:
             unit_id = str(unit.get("unit_id") or "")
             if not unit_id:
                 continue
+
             shots = unit.get("shots")
-            if not shots or not assemble_shots_text(shots).strip():
-                continue
+            enqueueable = bool(shots) and bool(assemble_shots_text(shots).strip())
 
-            slot = precheck_unit(duration_ctx, unit, None)
-
-            est_video = _estimate_unit_video_cost(
-                unit_id=unit_id,
-                duration_seconds=slot.seconds,
-                video_provider=video_provider,
-                video_model=video_model,
-                video_resolution=video_resolution,
-                generate_audio=generate_audio,
-                video_price=video_price,
-            )
+            est_video: CostBreakdown = {}
+            if enqueueable:
+                slot = precheck_unit(duration_ctx, unit, None)
+                est_video = _estimate_unit_video_cost(
+                    unit_id=unit_id,
+                    duration_seconds=slot.seconds,
+                    video_provider=video_provider,
+                    video_model=video_model,
+                    video_resolution=video_resolution,
+                    generate_audio=generate_audio,
+                    video_price=video_price,
+                )
 
             unit_actual = actual_by_segment.get(unit_id, {})
             act_image: CostBreakdown = unit_actual.get("image", {})

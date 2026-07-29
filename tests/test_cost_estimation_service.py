@@ -971,8 +971,10 @@ class TestCostEstimationService:
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_skips_unenqueueable_units(self, db_factory):
         """没有 shots 或拼接文本为空的 unit 不可入队（``enqueue_videos.py::_reference_unit_spec``
-        对没有 shots 的 unit 直接拒绝，``TaskSpec.from_request`` 对空提示词同样拒绝），估算须
-        跳过这类 unit，不展示一笔查无实据的费用。
+        对没有 shots 的 unit 直接拒绝，``TaskSpec.from_request`` 对空提示词同样拒绝），这类 unit
+        不产生新预估——但 unit 整条仍要保留在结果里、纳入汇总：不可入队只影响能否产生新预估，
+        不影响该 unit 是否曾经成功生成过。已有实付的 unit（曾成功生成、之后被编辑成空 shots）
+        其历史支出不能因此从合计里消失。
         """
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -1008,11 +1010,25 @@ class TestCostEstimationService:
             }
         )
         scripts = {"ep1.json": script}
+        await _seed_call(
+            db_factory,
+            "narration-unenqueueable-units",
+            "video",
+            "veo-3.1-lite-generate-preview",
+            segment_id="E1U2",
+            cost_amount=1.23,
+            currency="USD",
+        )
 
         result = await service.compute(project_data, scripts, project_name="narration-unenqueueable-units")
 
         segments = result["episodes"][0]["segments"]
-        assert [seg["segment_id"] for seg in segments] == ["E1U1"]
+        assert [seg["segment_id"] for seg in segments] == ["E1U1", "E1U2", "E1U3"]
+        by_id = {seg["segment_id"]: seg for seg in segments}
+        assert by_id["E1U2"]["estimate"]["video"] == {}
+        assert by_id["E1U2"]["actual"]["video"] == {"USD": 1.23}
+        assert by_id["E1U3"]["estimate"]["video"] == {}
+        assert result["project_totals"]["actual"]["video"] == {"USD": 1.23}
 
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_handles_token_priced_video_model(self, db_factory):
