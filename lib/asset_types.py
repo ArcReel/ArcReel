@@ -6,6 +6,9 @@
 
 旧常量 ASSET_TYPES / BUCKET_KEY / SHEET_KEY 保留为 ASSET_SPECS 的派生，现有 18 处
 引用零修改。
+
+面向用户的显示名不落在 spec 里：``localize_asset_type`` 以注入的 translate 把类型标识
+映射到 ``lib/i18n`` 的 ``asset_type_*`` key，本模块因而不反向依赖 i18n。
 """
 
 from __future__ import annotations

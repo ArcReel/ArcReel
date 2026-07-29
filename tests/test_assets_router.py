@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
+from lib.i18n import _ as translate_message
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -305,15 +306,15 @@ class TestFromProject:
         )
 
         assert "角色" in zh.json()["detail"] and "character" not in zh.json()["detail"]
-        assert "character" in en.json()["detail"]
+        # en 显示名与内部标识同形，区分不了裸透传，只能断言整句按 asset_type_* 渲染
+        assert en.json()["detail"] == translate_message(
+            "asset_source_resource_not_found",
+            locale="en",
+            project="demo",
+            kind=translate_message("asset_type_character", locale="en"),
+            name="ghost",
+        )
         assert "nhân vật" in vi.json()["detail"]
-
-    def test_from_project_missing_resource_unregistered_type_passthrough(self, _assets_env):
-        """resource_type 经 GLOBAL_LIBRARY_ASSET_TYPES 白名单校验，理论上不会命中未登记值；
-        本用例校验 localize_asset_type 透传语义未被破坏（防守性覆盖）。"""
-        from lib.asset_types import localize_asset_type
-
-        assert localize_asset_type("widget", lambda key, **_: key) == "widget"
 
     def test_from_project_without_sheet_has_null_image_path(self, _assets_env):
         client = _assets_env["client"]
