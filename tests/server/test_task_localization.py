@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from lib.asset_types import ASSET_SPECS
 from lib.i18n import _ as translate_message
 from lib.task_failure import encode_failure
 from server.routers.tasks import _localize_task
@@ -83,8 +84,17 @@ class TestWarningRendering:
         vi = _localize_task(task, _translator("vi"))["result"]["warnings"][0]
 
         assert "产品" in zh and "product" not in zh
-        assert "product" in en
+        # en 显示名与内部标识同形，只能断言整句渲染结果，不能靠 "product" 是否出现区分
+        assert en == translate_message("ref_ad_reference_skipped", locale="en", name="小美", type="product")
         assert "sản phẩm" in vi
+
+    @pytest.mark.parametrize("asset_type", sorted(ASSET_SPECS))
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
+    def test_every_asset_type_has_a_display_name(self, asset_type: str, locale: str):
+        """新增资产类型时若漏加 ``asset_type_*``，i18n 会回落成 key 本身，比原样透传更糟。"""
+        rendered = translate_message(f"asset_type_{asset_type}", locale=locale)
+
+        assert rendered != f"asset_type_{asset_type}"
 
     def test_unregistered_asset_type_falls_through_unmapped(self):
         task = _task(
@@ -94,6 +104,16 @@ class TestWarningRendering:
         rendered = _localize_task(task, _translator("zh"))["result"]["warnings"][0]
 
         assert "widget" in rendered
+
+    def test_malformed_asset_type_value_does_not_raise(self):
+        """畸形持久化值（非字符串）不该让整个任务列表 500，与本模块其余容错口径一致。"""
+        task = _task(
+            result={"warnings": [{"key": "ref_ad_reference_skipped", "params": {"type": ["product"], "name": "小美"}}]}
+        )
+
+        rendered = _localize_task(task, _translator("zh"))["result"]["warnings"][0]
+
+        assert "product" in rendered
 
     def test_input_task_is_not_mutated(self):
         warnings = [{"key": "ref_sora_single_ref", "params": {}}]

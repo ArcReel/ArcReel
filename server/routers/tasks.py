@@ -24,19 +24,23 @@ def get_task_queue():
 
 
 # warning key -> 其 params 中需要把内部资产类型标识替换为本地化显示名的字段名。
-_WARNING_ASSET_TYPE_PARAMS: dict[str, str] = {"ref_ad_reference_skipped": "type"}
+_ASSET_TYPE_PARAM_BY_WARNING: dict[str, str] = {"ref_ad_reference_skipped": "type"}
 
 
 def _localize_warning_params(key: str, params: dict[str, Any], translate: Callable[..., str]) -> dict[str, Any]:
     """把 params 中裸的资产类型标识（如 ``"product"``）替换为当前语言显示名。
 
-    只处理已登记 warning key 的已知字段；未登记的类型值（不在 ``ASSET_SPECS`` 中）
-    原样透传，不做语义映射。
+    只处理已登记 warning key 的已知字段；未登记的类型值（非字符串，或不在
+    ``ASSET_SPECS`` 中）原样透传，不做语义映射——``isinstance`` 守卫同时挡住
+    畸形持久化值（如 list）落进 ``in ASSET_SPECS`` 抛 ``TypeError``。
     """
-    field = _WARNING_ASSET_TYPE_PARAMS.get(key)
-    if field is None or params.get(field) not in ASSET_SPECS:
+    field = _ASSET_TYPE_PARAM_BY_WARNING.get(key)
+    if field is None:
         return params
-    return {**params, field: translate(f"asset_type_{params[field]}")}
+    value = params.get(field)
+    if not isinstance(value, str) or value not in ASSET_SPECS:
+        return params
+    return {**params, field: translate(f"asset_type_{value}")}
 
 
 def _render_warnings(warnings: Any, translate: Callable[..., str]) -> list[str]:

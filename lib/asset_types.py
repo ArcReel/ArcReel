@@ -29,6 +29,9 @@ class AssetSpec:
 
     ``in_global_library`` 控制该类型是否进入跨项目全局资产库（assets 表）：库的
     单图列模型只兼容「一资产一图」的类型，多图列表型资产（product）暂不进入。
+
+    ``label_zh`` 服务 logger 与 agent 侧字符串（两者按 i18n 规范豁免翻译）；
+    面向用户的资产类型显示名走 ``lib/i18n`` 的 ``asset_type_*`` key，不复用此字段。
     """
 
     asset_type: str
