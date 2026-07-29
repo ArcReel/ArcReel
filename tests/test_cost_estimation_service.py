@@ -1031,6 +1031,31 @@ class TestCostEstimationService:
         assert result["project_totals"]["actual"]["video"] == {"USD": 1.23}
 
     @pytest.mark.integration
+    async def test_narration_reference_video_estimate_skips_unit_with_malformed_duration(self, db_factory):
+        """agent/外部编辑过的剧本可能写入非数值 ``duration_seconds``（如 ``"bad"``）。
+        SDK 侧入队预检（``enqueue_videos.py``）对每个 unit 单独 catch ``ValueError`` 跳过，
+        估算须跟随同一容错口径——一个 unit 的脏时长不能让整个项目估算 500，拖累其余正常集。
+        """
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        script = _make_reference_video_script(1, "narration", [("E1U1", 6)])
+        script["video_units"][0]["duration_seconds"] = "bad"
+
+        result = await service.compute(project_data, {"ep1.json": script}, project_name="narration-bad-duration")
+
+        segments = result["episodes"][0]["segments"]
+        assert [seg["segment_id"] for seg in segments] == ["E1U1"]
+        assert segments[0]["estimate"]["video"] == {}
+
+    @pytest.mark.integration
     async def test_narration_reference_video_estimate_handles_token_priced_video_model(self, db_factory):
         """按 token 计费的视频模型（Ark/Seedance）也要能算出非零视频预估。
 

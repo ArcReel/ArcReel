@@ -591,16 +591,25 @@ class CostEstimationService:
 
             est_video: CostBreakdown = {}
             if enqueueable:
-                slot = precheck_unit(duration_ctx, unit, None)
-                est_video = _estimate_unit_video_cost(
-                    unit_id=unit_id,
-                    duration_seconds=slot.seconds,
-                    video_provider=video_provider,
-                    video_model=video_model,
-                    video_resolution=video_resolution,
-                    generate_audio=generate_audio,
-                    video_price=video_price,
-                )
+                # agent/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"）；
+                # SDK 侧入队预检（enqueue_videos.py）对每个 unit 单独 catch ValueError 跳过，
+                # 此处须跟随同一容错口径——否则一个 unit 的脏时长会让整个项目估算 500，
+                # 拖累其余正常集。
+                try:
+                    slot = precheck_unit(duration_ctx, unit, None)
+                except ValueError:
+                    logger.warning("费用估算跳过时长非法的 unit %s", unit_id, exc_info=True)
+                    slot = None
+                if slot is not None:
+                    est_video = _estimate_unit_video_cost(
+                        unit_id=unit_id,
+                        duration_seconds=slot.seconds,
+                        video_provider=video_provider,
+                        video_model=video_model,
+                        video_resolution=video_resolution,
+                        generate_audio=generate_audio,
+                        video_price=video_price,
+                    )
 
             unit_actual = actual_by_segment.get(unit_id, {})
             act_image: CostBreakdown = unit_actual.get("image", {})
