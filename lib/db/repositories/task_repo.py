@@ -658,37 +658,54 @@ class TaskRepository(BaseRepository):
         )
         await self.session.commit()
 
-    async def persist_api_call_id(self, task_id: str, call_id: int) -> None:
-        """将 ApiCall.id 写入 task.payload["api_call_id"]，供 resume 路径精准翻 pending。
+    async def _merge_payload_field(self, task_id: str, key: str, value: Any, *, raise_if_missing: bool = True) -> None:
+        """把单个字段并入 task.payload 并提交；``raise_if_missing`` 决定 task 缺失时的处置。
 
-        Task.payload_json 是 TEXT 列存 JSON 字符串（非 native JSONB），用 read-modify-write
-        模式更新；并发安全前提：本方法**仅**由 media_generator 在 start_call 拿到 call_id
-        后立即调一次（与 ``persist_provider_job_id`` 同一时序），不与其它路径竞争写 payload。
-        如果未来引入并发写 payload 的路径，需要外层加 ``SELECT ... FOR UPDATE`` 或单事务串行化。
-
-        Raises:
-            ValueError: task_id 不存在或 UPDATE 命中 0 行——避免静默 commit 让上层
-                以为"已持久化"但 payload["api_call_id"] 实际未写入，resume 时只能退回兜底。
+        Task.payload_json 是 TEXT 列存 JSON 字符串（非 native JSONB），故用 read-modify-write
+        模式更新。并发安全前提：写 payload 的路径在同一 task 的执行协程内串行——
+        ``persist_effective_duration`` 在向 provider 提交前写一次，``persist_api_call_id`` 由
+        media_generator 在其后拿到 call_id 时写一次，两者不并发。如果未来引入真正并发写
+        payload 的路径，需要外层加 ``SELECT ... FOR UPDATE`` 或单事务串行化。
         """
-        now = utc_now()
         # 用 .first() 而非 scalar_one_or_none()：Task.payload_json 允许 NULL（迁移历史/
         # 旧任务存在 payload_json IS NULL 行），scalar_one_or_none 会把"行存在但
         # payload_json=NULL"误判成"无行"。Row 解构 row[0] 后 None 由 _json_loads 兜底为 {}。
         result = await self.session.execute(select(Task.payload_json).where(Task.task_id == task_id))
         row = result.first()
         if row is None:
-            raise ValueError(f"task not found: {task_id}")
-        raw = row[0]
-        data = _json_loads(raw, {})
+            if raise_if_missing:
+                raise ValueError(f"task not found: {task_id}")
+            return
+        data = _json_loads(row[0], {})
         if not isinstance(data, dict):
             data = {}
-        data["api_call_id"] = call_id
+        data[key] = value
         update_result = await self.session.execute(
-            update(Task).where(Task.task_id == task_id).values(payload_json=_json_dumps(data), updated_at=now)
+            update(Task).where(Task.task_id == task_id).values(payload_json=_json_dumps(data), updated_at=utc_now())
         )
-        if rowcount(update_result) == 0:
+        if raise_if_missing and rowcount(update_result) == 0:
             raise ValueError(f"task not found: {task_id}")
         await self.session.commit()
+
+    async def persist_api_call_id(self, task_id: str, call_id: int) -> None:
+        """将 ApiCall.id 写入 task.payload["api_call_id"]，供 resume 路径精准翻 pending。
+
+        Raises:
+            ValueError: task_id 不存在或 UPDATE 命中 0 行——避免静默 commit 让上层
+                以为"已持久化"但 payload["api_call_id"] 实际未写入，resume 时只能退回兜底。
+        """
+        await self._merge_payload_field(task_id, "api_call_id", call_id)
+
+    async def persist_effective_duration(self, task_id: str, duration_seconds: int) -> None:
+        """把取档后实际申请的秒数写回 ``task.payload["duration_seconds"]``。
+
+        参考视频执行层按 model 能力取档后申请的秒数可能偏离入队时的剧本原值；
+        resume 路径读的正是这个字段（见 ``server.services.resume_executor``），
+        不写回会让 resume 时按剧本原值重新申请，与本次执行实际申请的秒数不一致。
+        task 不存在时静默跳过（不影响本次生成结果，仅是 resume 元数据，不必 fail-fast
+        阻断执行）。
+        """
+        await self._merge_payload_field(task_id, "duration_seconds", duration_seconds, raise_if_missing=False)
 
     async def list_orphan_tasks_on_start(self) -> list[dict[str, Any]]:
         """返回 running + cancelling 状态任务用于重启自愈（ADR 0007）。"""

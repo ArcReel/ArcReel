@@ -186,6 +186,10 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             await repo.persist_api_call_id(task_id, call_id)
 
+    async def persist_effective_duration(self, task_id: str, duration_seconds: int) -> None:
+        async with self._task_repo() as repo:
+            await repo.persist_effective_duration(task_id, duration_seconds)
+
     async def mark_task_succeeded(self, task_id: str, result: dict[str, Any] | None) -> int:
         """Returns rows_affected (0 = 已被外部翻成非 running 终/中间态，worker 走 0-rows-cancelled 协议)."""
         async with self._task_repo() as repo:

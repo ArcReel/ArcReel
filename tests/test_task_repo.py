@@ -554,6 +554,49 @@ class TestPersistApiCallId:
         assert task["payload"] == {"api_call_id": 99}
 
 
+class TestPersistEffectiveDuration:
+    """persist_effective_duration：read-modify-write 写入 task.payload["duration_seconds"]。"""
+
+    async def _enqueue(self, repo: TaskRepository, *, payload=None) -> str:
+        if payload is None:
+            payload = {"duration_seconds": 5}
+        result = await repo.enqueue(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload=payload,
+            script_file="ep1.json",
+        )
+        return result["task_id"]
+
+    async def test_persist_overwrites_duration_seconds_in_payload(self, db_session):
+        repo = TaskRepository(db_session)
+        task_id = await self._enqueue(repo, payload={"duration_seconds": 5, "prompt": "p"})
+
+        await repo.persist_effective_duration(task_id, 8)
+
+        task = await repo.get(task_id)
+        assert task is not None
+        assert task["payload"]["duration_seconds"] == 8
+        assert task["payload"]["prompt"] == "p", "其它 payload 字段不应被覆盖"
+
+    async def test_persist_handles_empty_payload(self, db_session):
+        repo = TaskRepository(db_session)
+        task_id = await self._enqueue(repo, payload={})
+
+        await repo.persist_effective_duration(task_id, 8)
+
+        task = await repo.get(task_id)
+        assert task is not None
+        assert task["payload"] == {"duration_seconds": 8}
+
+    async def test_persist_silently_skips_when_task_not_found(self, db_session):
+        """metadata-only 写回：task 不存在时静默跳过，不 fail-fast（与 persist_api_call_id 不同）。"""
+        repo = TaskRepository(db_session)
+        await repo.persist_effective_duration("nonexistent-task-id", 8)
+
+
 class TestCancelCascadeAcrossCancelling:
     """fix #647 #4：cancel 级联跨过 cancelling 节点，A(running)→B(queued)→C(queued)
     在 A 落 cancelled 时通过 finalize_cancelled 自动级联到 B/C。"""

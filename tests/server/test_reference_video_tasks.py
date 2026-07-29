@@ -1129,6 +1129,116 @@ async def test_execute_reference_video_task_rounds_up_non_member_duration(
     assert warnings[0]["params"] == {"total": 5, "duration": 8, "model": "sora-2"}
 
 
+async def test_execute_reference_video_task_persists_effective_duration_when_rounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """取档偏移剧本编排（adjustment != exact）时，effective_duration 写回 task payload，
+    供 resume 路径（``server.services.resume_executor``）读到与本次实际申请一致的秒数。
+    """
+    proj_dir = _write_project(tmp_path)
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["shots"] = [{"duration": 5, "text": "Shot 1 (5s): @张三 推门"}]
+    script["video_units"][0]["duration_seconds"] = 5
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**kwargs):
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="openai",
+        backend_model="sora-2",
+        max_refs=9,
+        max_duration=12,
+        supported_durations=(4, 8, 12),
+    )
+
+    fake_queue = MagicMock()
+    fake_queue.persist_effective_duration = AsyncMock()
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+        task_id="task-1",
+    )
+
+    fake_queue.persist_effective_duration.assert_awaited_once_with("task-1", 8)
+
+
+async def test_execute_reference_video_task_persists_duration_when_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """未偏移（adjustment == exact）时同样要写回：入队 payload 从不携带 duration_seconds，
+    不写回会让 resume 回退到 project.default_duration 而非该 unit 自己的时长。"""
+    proj_dir = _write_project(tmp_path)
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**kwargs):
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="openai",
+        backend_model="sora-2",
+        max_refs=9,
+        max_duration=12,
+        supported_durations=(3, 8, 12),
+    )
+
+    fake_queue = MagicMock()
+    fake_queue.persist_effective_duration = AsyncMock()
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+        task_id="task-1",
+    )
+
+    fake_queue.persist_effective_duration.assert_awaited_once_with("task-1", 3)
+
+
 def test_apply_unit_video_assets_distinguishes_failures():
     """结构损坏与 unit 不存在抛不同异常：还原侧据此区分「脏脚本告警」与「正常跳过」。
 
