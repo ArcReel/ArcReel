@@ -1032,9 +1032,10 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_skips_unit_with_malformed_duration(self, db_factory):
-        """agent/外部编辑过的剧本可能写入非数值 ``duration_seconds``（如 ``"bad"``）。
+        """agent/外部编辑过的剧本可能写入非数值 ``duration_seconds``（字符串、list、dict 等）。
         SDK 侧入队预检（``enqueue_videos.py``）对每个 unit 单独 catch ``ValueError`` 跳过，
-        估算须跟随同一容错口径——一个 unit 的脏时长不能让整个项目估算 500，拖累其余正常集。
+        估算须跟随同一容错口径——一个 unit 的脏时长不能让整个项目估算 500，拖累其余正常集，
+        其余正常 unit 仍要继续产生预估。
         """
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -1046,14 +1047,42 @@ class TestCostEstimationService:
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
-        script = _make_reference_video_script(1, "narration", [("E1U1", 6)])
+        script = _make_reference_video_script(1, "narration", [("E1U1", 6), ("E1U2", 8)])
         script["video_units"][0]["duration_seconds"] = "bad"
+        script["video_units"][1]["duration_seconds"] = ["not", "a", "number"]
 
         result = await service.compute(project_data, {"ep1.json": script}, project_name="narration-bad-duration")
 
         segments = result["episodes"][0]["segments"]
-        assert [seg["segment_id"] for seg in segments] == ["E1U1"]
+        assert [seg["segment_id"] for seg in segments] == ["E1U1", "E1U2"]
         assert segments[0]["estimate"]["video"] == {}
+        assert segments[1]["estimate"]["video"] == {}
+
+    @pytest.mark.integration
+    async def test_narration_reference_video_estimate_skips_unit_with_non_list_shots(self, db_factory):
+        """agent/外部编辑过的剧本可能把 ``shots`` 裸写成非 list 的 truthy 值（如 ``true``/``1``）。
+        ``assemble_shots_text`` 对非 list 输入遍历会抛 ``TypeError``，该异常发生在时长解析
+        之前，必须在拼接前先做类型检查，否则同样会让整个项目估算 500。
+        """
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        script = _make_reference_video_script(1, "narration", [("E1U1", 6), ("E1U2", 8)])
+        script["video_units"][0]["shots"] = True
+
+        result = await service.compute(project_data, {"ep1.json": script}, project_name="narration-non-list-shots")
+
+        segments = result["episodes"][0]["segments"]
+        assert [seg["segment_id"] for seg in segments] == ["E1U1", "E1U2"]
+        assert segments[0]["estimate"]["video"] == {}
+        assert segments[1]["estimate"]["video"]
 
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_handles_token_priced_video_model(self, db_factory):

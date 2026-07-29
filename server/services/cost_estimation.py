@@ -586,18 +586,22 @@ class CostEstimationService:
             if not unit_id:
                 continue
 
+            # shots 非 list（如裸写 "shots": true/1）会让 assemble_shots_text 的遍历抛
+            # TypeError；先做类型检查再拼接，与下方 duration 解析同样不能让单条脏数据中断
+            # 整次估算。
             shots = unit.get("shots")
-            enqueueable = bool(shots) and bool(assemble_shots_text(shots).strip())
+            enqueueable = isinstance(shots, list) and bool(shots) and bool(assemble_shots_text(shots).strip())
 
             est_video: CostBreakdown = {}
             if enqueueable:
-                # agent/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"）；
+                # agent/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"/列表/字典）；
                 # SDK 侧入队预检（enqueue_videos.py）对每个 unit 单独 catch ValueError 跳过，
                 # 此处须跟随同一容错口径——否则一个 unit 的脏时长会让整个项目估算 500，
-                # 拖累其余正常集。
+                # 拖累其余正常集。int() 转换对非数值字符串抛 ValueError，对 list/dict 抛
+                # TypeError，两者都要接住。
                 try:
                     slot = precheck_unit(duration_ctx, unit, None)
-                except ValueError:
+                except (ValueError, TypeError):
                     logger.warning("费用估算跳过时长非法的 unit %s", unit_id, exc_info=True)
                     slot = None
                 if slot is not None:
