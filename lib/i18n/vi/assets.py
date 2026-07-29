@@ -9,4 +9,8 @@ MESSAGES = {
     "asset_load_project_failed": "Không tải được dự án đích",
     "asset_invalid_conflict_policy": "conflict_policy phải là skip / overwrite / rename",
     "asset_invalid_name": "Tên tài nguyên '{name}' không hợp lệ: không cho phép các ký tự như / \\ : * ? \" < > |, ký tự điều khiển, .., dấu chấm ở cuối hoặc tên dành riêng của Windows (ví dụ CON)",
+    "asset_type_character": "nhân vật",
+    "asset_type_scene": "cảnh",
+    "asset_type_prop": "đạo cụ",
+    "asset_type_product": "sản phẩm",
 }
