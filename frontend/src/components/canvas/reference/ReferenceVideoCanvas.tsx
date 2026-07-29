@@ -600,23 +600,6 @@ export function ReferenceVideoCanvas({
         <button
           type="button"
           role="tab"
-          aria-selected={tab === "units"}
-          onClick={() => setTab("units")}
-          className={`focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium ${
-            tab === "units" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
-          }`}
-        >
-          {t("reference_tab_units")}
-          {tab === "units" && (
-            <span
-              aria-hidden="true"
-              className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
-            />
-          )}
-        </button>
-        <button
-          type="button"
-          role="tab"
           aria-selected={tab === "preproc"}
           onClick={() => setTab("preproc")}
           className={`focus-ring relative inline-flex items-center gap-1.5 px-3.5 py-2.5 text-[12.5px] font-medium ${
@@ -633,6 +616,23 @@ export function ReferenceVideoCanvas({
             />
           )}
           {tab === "preproc" && (
+            <span
+              aria-hidden="true"
+              className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
+            />
+          )}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "units"}
+          onClick={() => setTab("units")}
+          className={`focus-ring relative px-3.5 py-2.5 text-[12.5px] font-medium ${
+            tab === "units" ? "text-[var(--color-text)]" : "text-[var(--color-text-3)]"
+          }`}
+        >
+          {t("reference_tab_units")}
+          {tab === "units" && (
             <span
               aria-hidden="true"
               className="absolute -bottom-px left-2.5 right-2.5 h-0.5 rounded bg-[var(--color-accent)]"
