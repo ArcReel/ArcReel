@@ -19,7 +19,7 @@ from lib.project_manager import effective_mode
 from lib.reference_video import assemble_shots_text
 from lib.reference_video.ad_units import derive_ad_reference_units, resolve_ad_unit_shots
 from lib.script_editor import ScriptEditError
-from lib.script_models import get_generated_assets
+from lib.script_models import get_generated_assets, is_reference_script
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.services.reference_video_tasks import (
     ProjectDurationContext,
@@ -263,7 +263,7 @@ class CostEstimationService:
             #
             # ad 骨架唯一、shots 不打 generation_mode 戳，生成路径以项目级/集级戳为真相源，故
             # 只按 ``effective_mode`` 判定；narration/drama 的生成侧只认剧本自身的 generation_mode
-            # 戳（``server/agent_runtime/sdk_tools/enqueue_videos.py::_is_reference_script``），从不
+            # 戳（``lib.script_models.is_reference_script``），从不
             # 读 ``effective_mode``，估算须跟同一口径——项目/集事后经 PATCH 把 effective_mode 改回
             # storyboard、但该集剧本仍保留切换前的 reference_video 戳时，实际入队仍按剧本戳走 unit
             # 路径，估算若再叠加 ``effective_mode`` 门槛会误判回落分镜，与实际生成对不上。
@@ -273,7 +273,7 @@ class CostEstimationService:
             if content_mode == "ad":
                 estimate_by_unit = is_reference_video
             else:
-                estimate_by_unit = script.get("generation_mode") == "reference_video"
+                estimate_by_unit = is_reference_script(script)
 
             if estimate_by_unit:
                 if duration_ctx is None:

@@ -27,7 +27,7 @@ from lib.reference_video.ad_units import (
     resolve_ad_unit_shots,
     sync_ad_reference_units,
 )
-from lib.script_models import get_generated_assets
+from lib.script_models import get_generated_assets, is_reference_script
 from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
@@ -143,10 +143,6 @@ def _get_video_prompt(item: dict[str, Any]) -> str:
         item_id = item.get("segment_id") or item.get("scene_id")
         raise TypeError(f"片段/场景 video_prompt 类型无效（期望 str 或 dict）: {item_id}")
     return prompt
-
-
-def _is_reference_script(script: dict[str, Any]) -> bool:
-    return script.get("generation_mode") == "reference_video"
 
 
 def _is_ad_reference(ctx: ToolContext, script: dict[str, Any]) -> bool:
@@ -533,7 +529,7 @@ async def _run_reference_episode(
     """Run reference_video-mode generation and format the tool response.
 
     All 4 video handlers fall through to whole-episode reference generation
-    when ``_is_reference_script`` returns True; this captures the shared tail
+    when ``is_reference_script`` returns True; this captures the shared tail
     (resolve episode → generate units → header + log).
     """
     episode = ProjectManager.resolve_episode_from_script(script, script_filename)
@@ -646,7 +642,7 @@ def generate_video_episode_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if _is_reference_script(script):
+            if is_reference_script(script):
                 return await _run_reference_episode(
                     ctx=ctx,
                     script=script,
@@ -746,7 +742,7 @@ def generate_video_scene_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if _is_reference_script(script):
+            if is_reference_script(script):
                 log: list[str] = [
                     f"⚠️  reference_video 模式暂不支持单 unit 精确选择；scene_id={scene_id} 被忽略，转整集生成。"
                 ]
@@ -849,7 +845,7 @@ def generate_video_all_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if _is_reference_script(script):
+            if is_reference_script(script):
                 return await _run_reference_episode(
                     ctx=ctx,
                     script=script,
@@ -938,7 +934,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if _is_reference_script(script):
+            if is_reference_script(script):
                 log.append(
                     f"⚠️  reference_video 模式暂不支持多 unit 精确选择；scene_ids={','.join(scene_ids)} 被忽略，转整集生成。"
                 )
