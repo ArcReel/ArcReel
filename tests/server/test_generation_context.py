@@ -255,7 +255,8 @@ class TestActualIdentityQueries:
             "demo", None, project={"video_backend": f"{provider_id}/m-dead"}, video=VideoLaneRequest()
         )
 
-        assert ctx.video.provider_model == ProviderModel(provider_id, "m-dead")
+        # 身份解析链本身已收敛到运行时有效 model，不再把 m-dead 留给构造层二次修正。
+        assert ctx.video.provider_model == ProviderModel(provider_id, "m-live")
         assert ctx.video.backend_model == "m-live"
         # resolution 命中 m-live（实际身份）的 DB 默认，而非按解析意图 m-dead 落空
         assert ctx.video.resolution == "540p"
