@@ -795,8 +795,8 @@ class TestCostEstimationService:
         assert result["project_totals"]["estimate"]["video"]
 
     async def test_drama_reference_video_actual_cost_matches_unit_id(self, db_factory):
-        """actual 侧直接按 unit_id 匹配，不需要摊分（依赖 #1470 把 reference_videos 记账
-        纳入 segment_id 白名单：resource_id 即 unit_id）。
+        """actual 侧直接按 unit_id 匹配，不需要摊分——reference_videos 的记账 resource_id
+        即 unit_id，与本路径输出的 segment_id 同一 identity。
         """
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -868,6 +868,43 @@ class TestCostEstimationService:
         assert base_seg["estimate"]["video"]
         assert sum(seg["estimate"]["video"].values()) > sum(base_seg["estimate"]["video"].values())
         assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
+
+    async def test_narration_reference_video_falls_back_when_script_still_storyboard(self, db_factory):
+        """项目已切到 reference_video、该集剧本还是分镜骨架时，估算沿用分镜路径而非归零。
+
+        narration/drama 的生成侧按剧本自身的 generation_mode 戳判定，此状态下实际入队的
+        仍是分镜任务；若估算只看项目级戳就会找不到 video_units 而给出一份全零预估。
+        """
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {
+            "ep1.json": {
+                "episode": 1,
+                "title": "Episode 1",
+                "content_mode": "narration",
+                "duration_seconds": 10,
+                "novel": {"title": "t", "chapter": "c"},
+                "segments": [
+                    {"segment_id": "E1S1", "duration": 5, "narration": "n1", "visual_prompt": "v1"},
+                    {"segment_id": "E1S2", "duration": 5, "narration": "n2", "visual_prompt": "v2"},
+                ],
+            }
+        }
+
+        result = await service.compute(project_data, scripts, project_name="narration-transitional")
+
+        segments = result["episodes"][0]["segments"]
+        assert [seg["segment_id"] for seg in segments] == ["E1S1", "E1S2"]
+        assert result["project_totals"]["estimate"]["image"]
+        assert result["project_totals"]["estimate"]["video"]
 
     async def test_empty_episodes(self, db_factory):
         resolver = ConfigResolver(db_factory)

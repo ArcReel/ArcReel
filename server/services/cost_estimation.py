@@ -60,6 +60,42 @@ def _split_cost_across(cost: CostBreakdown, parts: int) -> list[CostBreakdown]:
     return split
 
 
+def _estimate_unit_video_cost(
+    *,
+    unit_id: str,
+    duration_seconds: int,
+    video_provider: str,
+    video_model: str | None,
+    video_resolution: str | None,
+    generate_audio: bool,
+    video_price: Any,
+) -> CostBreakdown:
+    """一个参考视频 unit 取档后秒数的视频估值。计价失败返回空 breakdown（该 unit 不计费）。
+
+    两条参考视频估算路径（ad 摊回镜头、narration/drama 按 unit 展示）的展示颗粒度不同，
+    但「按取档后秒数向 provider 询价」这一步与颗粒度无关，共用同一实现避免两处漂移。
+    """
+    est_video: CostBreakdown = {}
+    try:
+        amount, currency = cost_calculator.calculate_cost(
+            video_provider,
+            PricingParams(
+                call_type="video",
+                model=video_model,
+                resolution=video_resolution,
+                duration_seconds=duration_seconds,
+                generate_audio=generate_audio,
+            ),
+            custom_price_input=video_price.price_input,
+            custom_price_output=video_price.price_output,
+            custom_currency=video_price.currency,
+        )
+        _add_cost(est_video, amount, currency)
+    except Exception:
+        logger.debug("无法计算 video 预估 for %s", unit_id, exc_info=True)
+    return est_video
+
+
 class CostEstimationService:
     def __init__(self, resolver: ConfigResolver, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._resolver = resolver
@@ -166,7 +202,7 @@ class CostEstimationService:
         proj_act: dict[str, CostBreakdown] = {}
 
         content_mode = project_data.get("content_mode", "narration")
-        # 惰性解析：只有项目里真出现 ad + reference_video 集时才触发这次额外 IO
+        # 惰性解析：只有项目里真出现按 unit 计费的参考视频集时才触发这次额外 IO
         # （见 :func:`server.services.reference_video_tasks.resolve_project_duration_context`）。
         duration_ctx: ProjectDurationContext | None = None
 
@@ -195,13 +231,23 @@ class CostEstimationService:
             if not script:
                 continue
 
-            # ad 参考生视频路径跳过分镜步骤（剧本骨架唯一，shots 不打 generation_mode 戳，
-            # 不能像 narration/drama 那样靠剧本戳清空条目），分镜图维度按路径显式跳过；
-            # 视频估值按实际计费颗粒度（reference_unit，而非镜头）计算，见
-            # ``_estimate_ad_reference_video_episode``。
+            # 参考生视频路径跳过分镜步骤，分镜图维度按路径显式跳过；视频估值按实际计费颗粒度
+            # （reference_unit，而非镜头）计算。两条子路径的展示颗粒度不同：ad 的 unit 只是
+            # 镜头分组索引，费用要摊回自带 ``shot_id`` 的成员镜头（``_estimate_ad_reference_video_episode``）；
+            # narration/drama 的 unit 自带 ``unit_id`` 且成员 shot 无独立 ID，unit 本身即展示
+            # 颗粒度（``_estimate_unit_reference_video_episode``）。
+            #
+            # ad 骨架唯一、shots 不打 generation_mode 戳，生成路径以项目级/集级戳为真相源，故
+            # 只按 ``effective_mode`` 判定；narration/drama 的生成侧按剧本戳判定（见
+            # ``server/agent_runtime/sdk_tools/enqueue_videos.py``），项目已切到 reference_video
+            # 但该集剧本仍是分镜骨架时实际入队的还是分镜任务，估算随之沿用分镜路径，不按尚不
+            # 存在的 units 归零。
             is_reference_video = effective_mode(project=project_data, episode=ep_meta) == "reference_video"
+            raw_units = script.get("video_units")
+            video_units: list[Any] = raw_units if isinstance(raw_units, list) else []
+            estimate_by_unit = is_reference_video and (content_mode == "ad" or bool(video_units))
 
-            if is_reference_video:
+            if estimate_by_unit:
                 if duration_ctx is None:
                     duration_ctx = await resolve_project_duration_context(project_data)
                 if content_mode == "ad":
@@ -217,8 +263,8 @@ class CostEstimationService:
                         actual_by_segment=actual_by_segment,
                     )
                 else:
-                    segments_result, ep_est, ep_act = self._estimate_reference_video_episode(
-                        script=script,
+                    segments_result, ep_est, ep_act = self._estimate_unit_reference_video_episode(
+                        units=video_units,
                         duration_ctx=duration_ctx,
                         video_provider=video_provider,
                         video_model=video_model,
@@ -439,24 +485,15 @@ class CostEstimationService:
 
             slot = precheck_unit(duration_ctx, unit, ad_shots)
 
-            est_video: CostBreakdown = {}
-            try:
-                vid_amount, vid_currency = cost_calculator.calculate_cost(
-                    video_provider,
-                    PricingParams(
-                        call_type="video",
-                        model=video_model,
-                        resolution=video_resolution,
-                        duration_seconds=slot.seconds,
-                        generate_audio=generate_audio,
-                    ),
-                    custom_price_input=video_price.price_input,
-                    custom_price_output=video_price.price_output,
-                    custom_currency=video_price.currency,
-                )
-                _add_cost(est_video, vid_amount, vid_currency)
-            except Exception:
-                logger.debug("无法计算 video 预估 for %s", unit_id, exc_info=True)
+            est_video = _estimate_unit_video_cost(
+                unit_id=unit_id,
+                duration_seconds=slot.seconds,
+                video_provider=video_provider,
+                video_model=video_model,
+                video_resolution=video_resolution,
+                generate_audio=generate_audio,
+                video_price=video_price,
+            )
 
             act_video: CostBreakdown = actual_by_segment.get(unit_id, {}).get("video", {})
             est_by_shot = _split_cost_across(est_video, len(ad_shots))
@@ -492,10 +529,10 @@ class CostEstimationService:
 
         return segments_result, ep_est, ep_act
 
-    def _estimate_reference_video_episode(
+    def _estimate_unit_reference_video_episode(
         self,
         *,
-        script: dict[str, Any],
+        units: list[Any],
         duration_ctx: ProjectDurationContext,
         video_provider: str,
         video_model: str | None,
@@ -519,13 +556,11 @@ class CostEstimationService:
 
         无图片/音频估值维度：该模式跳过分镜步骤（无分镜图），``Shot`` 没有独立的旁白/口播
         文案字段可供计价，同 ad 参考视频口径（见 ``_estimate_ad_reference_video_episode``
-        docstring）。实付维度不受此限——直接透传 ``actual_by_segment[unit_id]`` 的三个维度，
-        供切换模式前留下的历史支出（若曾按其它 ID 记账）与本次分辨。
+        docstring）。实付按 ``actual_by_segment[unit_id]`` 三个维度原样透传——``lib/media_generator.py``
+        对 ``resource_type == "reference_videos"`` 的记账以 unit_id 写入 usage 的 segment_id，
+        与本函数的输出 identity 一致。切换模式前按分镜 ID（``E1S1`` 等）记的历史支出不在此
+        呈现：unit 与分镜之间没有映射关系，无处归属。
         """
-        units = script.get("video_units")
-        if not isinstance(units, list):
-            units = []
-
         segments_result: list[dict[str, Any]] = []
         ep_est: dict[str, CostBreakdown] = {}
         ep_act: dict[str, CostBreakdown] = {}
@@ -539,24 +574,15 @@ class CostEstimationService:
 
             slot = precheck_unit(duration_ctx, unit, None)
 
-            est_video: CostBreakdown = {}
-            try:
-                vid_amount, vid_currency = cost_calculator.calculate_cost(
-                    video_provider,
-                    PricingParams(
-                        call_type="video",
-                        model=video_model,
-                        resolution=video_resolution,
-                        duration_seconds=slot.seconds,
-                        generate_audio=generate_audio,
-                    ),
-                    custom_price_input=video_price.price_input,
-                    custom_price_output=video_price.price_output,
-                    custom_currency=video_price.currency,
-                )
-                _add_cost(est_video, vid_amount, vid_currency)
-            except Exception:
-                logger.debug("无法计算 video 预估 for %s", unit_id, exc_info=True)
+            est_video = _estimate_unit_video_cost(
+                unit_id=unit_id,
+                duration_seconds=slot.seconds,
+                video_provider=video_provider,
+                video_model=video_model,
+                video_resolution=video_resolution,
+                generate_audio=generate_audio,
+                video_price=video_price,
+            )
 
             unit_actual = actual_by_segment.get(unit_id, {})
             act_image: CostBreakdown = unit_actual.get("image", {})
