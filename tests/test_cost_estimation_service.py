@@ -205,6 +205,98 @@ class TestCostEstimationService:
 
         seg = result["episodes"][0]["segments"][0]
         assert seg["actual"]["image"]["USD"] == pytest.approx(0.067)
+        assert "unassigned" not in result["episodes"][0]["totals"]["actual"]
+        assert "unassigned" not in result["project_totals"]["actual"]
+
+    async def test_duplicate_unit_id_does_not_double_count_actual_cost(self, db_factory):
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+        await _seed_call(
+            db_factory,
+            "duplicate-unit",
+            "video",
+            "veo-3.1",
+            provider="veo",
+            segment_id="E1U1",
+            cost_amount=1.25,
+            currency="USD",
+        )
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {
+            "ep1.json": _make_reference_video_script(
+                1,
+                "narration",
+                [("E1U1", 5), ("E1U1", 5)],
+            )
+        }
+
+        result = await service.compute(project_data, scripts, project_name="duplicate-unit")
+
+        assert result["episodes"][0]["totals"]["actual"]["video"]["USD"] == pytest.approx(1.25)
+        assert result["project_totals"]["actual"]["video"]["USD"] == pytest.approx(1.25)
+
+    async def test_deleted_unit_actual_cost_is_reconciled_as_unassigned(self, db_factory):
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+        await _seed_call(
+            db_factory,
+            "deleted-unit",
+            "video",
+            "veo-3.1",
+            provider="veo",
+            segment_id="E1U1",
+            cost_amount=1.25,
+            currency="USD",
+        )
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U2", 5)])}
+
+        result = await service.compute(project_data, scripts, project_name="deleted-unit")
+
+        episode = result["episodes"][0]
+        assert episode["totals"]["actual"]["unassigned"]["USD"] == pytest.approx(1.25)
+        assert result["project_totals"]["actual"]["unassigned"]["USD"] == pytest.approx(1.25)
+
+    async def test_replaced_script_reconciles_all_historical_actual_costs(self, db_factory):
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+        for unit_id, amount, call_type in (
+            ("E1U1", 0.4, "image"),
+            ("E1U2", 1.6, "video"),
+            ("E1U3", 0.2, "audio"),
+        ):
+            await _seed_call(
+                db_factory,
+                "replaced-script",
+                call_type,
+                "historical-model",
+                segment_id=unit_id,
+                cost_amount=amount,
+                currency="USD",
+            )
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U9", 5)])}
+
+        result = await service.compute(project_data, scripts, project_name="replaced-script")
+
+        episode = result["episodes"][0]
+        assert episode["totals"]["actual"]["unassigned"]["USD"] == pytest.approx(2.2)
+        assert result["project_totals"]["actual"]["unassigned"]["USD"] == pytest.approx(2.2)
 
     async def test_grid_actual_costs_apportioned_to_scenes(self, db_factory):
         """Grid actual cost should be split evenly among scenes sharing the grid_id."""

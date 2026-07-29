@@ -705,6 +705,14 @@ export function OverviewCanvas({
                           };
                         })
                         .filter((r): r is { label: string; value: string } => r !== null),
+                      ...(costEntries(projectTotals.actual.unassigned).length > 0
+                        ? [
+                            {
+                              label: t("actual_unassigned_history"),
+                              value: formatCost(projectTotals.actual.unassigned),
+                            },
+                          ]
+                        : []),
                     ]}
                     total={formatCost(totalBreakdown(projectTotals.actual))}
                     totalLabel={t("cost_total_short")}

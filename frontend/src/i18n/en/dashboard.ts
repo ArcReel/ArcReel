@@ -508,6 +508,7 @@ export default {
   'actual_scenes': 'Scenes',
   'actual_props': 'Props',
   'actual_products': 'Products',
+  'actual_unassigned_history': 'Historical spend (not assigned to the current script)',
   'regenerate_failed': 'Regeneration failed: {{message}}',
   'upload_failed': 'Upload failed: {{message}}',
   'delete_failed': 'Delete failed: {{message}}',

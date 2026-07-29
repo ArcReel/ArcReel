@@ -965,6 +965,7 @@ class DataValidator:
             "scene": project_scenes,
             "prop": project_props,
         }
+        seen_unit_ids: set[str] = set()
 
         for index, unit in enumerate(video_units):
             prefix = f"video_units[{index}]"
@@ -972,8 +973,13 @@ class DataValidator:
                 errors.append(f"{prefix}: 必须是对象")
                 continue
 
-            if not unit.get("unit_id"):
+            unit_id = unit.get("unit_id")
+            if not unit_id or not isinstance(unit_id, str):
                 errors.append(f"{prefix}: 缺少 unit_id")
+            else:
+                if unit_id in seen_unit_ids:
+                    errors.append(f"{prefix}: unit_id 重复 '{unit_id}'")
+                seen_unit_ids.add(unit_id)
 
             shots = unit.get("shots")
             if not isinstance(shots, list) or not shots:
@@ -1042,6 +1048,7 @@ class DataValidator:
             return
 
         shot_ids = {s.get("shot_id") for s in shots if isinstance(s, dict)} if isinstance(shots, list) else set()
+        seen_unit_ids: set[str] = set()
         for index, unit in enumerate(units):
             prefix = f"reference_units[{index}]"
             if not isinstance(unit, dict):
@@ -1051,6 +1058,10 @@ class DataValidator:
             unit_id = unit.get("unit_id")
             if not unit_id or not isinstance(unit_id, str):
                 errors.append(f"{prefix}: 缺少必填字段 unit_id")
+            else:
+                if unit_id in seen_unit_ids:
+                    errors.append(f"{prefix}: unit_id 重复 '{unit_id}'")
+                seen_unit_ids.add(unit_id)
 
             ids = unit.get("shot_ids")
             if not isinstance(ids, list) or not ids:

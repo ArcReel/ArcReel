@@ -498,6 +498,7 @@ export default {
   'actual_scenes': 'Cảnh',
   'actual_props': 'Đạo cụ',
   'actual_products': 'Sản phẩm',
+  'actual_unassigned_history': 'Chi phí trước đây (không thuộc kịch bản hiện tại)',
   'regenerate_failed': 'Tạo lại thất bại: {{message}}',
   'upload_failed': 'Tải lên thất bại: {{message}}',
   'delete_failed': 'Xóa thất bại: {{message}}',

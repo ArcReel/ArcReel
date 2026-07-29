@@ -407,6 +407,25 @@ describe("OverviewCanvas", () => {
     expect(getCostEstimateSpy).not.toHaveBeenCalled();
   });
 
+  it("shows historical spend that no longer belongs to the current script", () => {
+    useCostStore.setState({
+      costData: {
+        project_name: "real-project",
+        models: { image: { provider: "p", model: "m" }, video: { provider: "p", model: "m" } },
+        episodes: [],
+        project_totals: {
+          estimate: {},
+          actual: { unassigned: { USD: 1.25 } },
+        },
+      },
+    });
+
+    render(<OverviewCanvas projectName="real-project" projectData={makeProjectData()} />);
+
+    expect(screen.getByText("历史支出（未归属当前剧本）")).toBeInTheDocument();
+    expect(screen.getAllByText("$1.25").length).toBeGreaterThanOrEqual(2);
+  });
+
   it("cancels a real project's queued cost request when switching to the read-only demo project", async () => {
     vi.useFakeTimers();
     const getCostEstimateSpy = vi.spyOn(API, "getCostEstimate");

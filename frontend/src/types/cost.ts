@@ -10,6 +10,7 @@ export interface CostByType {
   scenes?: CostBreakdown;
   props?: CostBreakdown;
   products?: CostBreakdown;
+  unassigned?: CostBreakdown;
 }
 
 /** 单个 segment 的费用 */
