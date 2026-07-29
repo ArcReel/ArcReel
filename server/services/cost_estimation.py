@@ -440,22 +440,46 @@ class CostEstimationService:
         # 当前剧本没有认领到的历史记账仍是真实支出。规范 segment/unit ID 自带 E{n}
         # 前缀，可回填对应集；无法识别或对应集已不存在的记录仍纳入项目合计。
         episodes_by_number = {ep["episode"]: ep for ep in episodes_result}
+        # 剧本文件缺失或尚未生成的集不进入估算结果，但它的历史支出仍属于这一集。按需补一条
+        # 只含实付的集结果，让这笔钱显示在集行上，而不是静默退到项目合计。
+        meta_by_number = {ep_meta.get("episode"): ep_meta for ep_meta in episodes_meta}
+
+        def _attribution_target(episode_number: int) -> dict[str, Any] | None:
+            existing = episodes_by_number.get(episode_number)
+            if existing is not None:
+                return existing
+            ep_meta = meta_by_number.get(episode_number)
+            if ep_meta is None:
+                return None
+            created: dict[str, Any] = {
+                "episode": episode_number,
+                "title": ep_meta.get("title", ""),
+                "segments": [],
+                "totals": {"estimate": {}, "actual": {}},
+            }
+            episodes_result.append(created)
+            episodes_by_number[episode_number] = created
+            return created
+
         for segment_id, actual_by_type in actual_by_segment.items():
             if segment_id == PROJECT_LEVEL_SEGMENT_KEY:
                 continue
             match = re.match(r"^E(\d+)(?:S|U)", segment_id)
-            episode_result = episodes_by_number.get(int(match.group(1))) if match else None
             for cost_type in ACTUAL_COST_TYPES:
                 amounts = actual_by_type.get(cost_type, {})
                 if not amounts or (segment_id, cost_type) in claimed_actual:
                     continue
                 proj_act["unassigned"] = _merge_breakdowns(proj_act.get("unassigned", {}), amounts)
+                episode_result = _attribution_target(int(match.group(1))) if match else None
                 if episode_result is not None:
                     episode_actual = episode_result["totals"]["actual"]
                     episode_actual["unassigned"] = _merge_breakdowns(
                         episode_actual.get("unassigned", {}),
                         amounts,
                     )
+        # 补出来的集结果追加在末尾，重排回 project.json 的集顺序，让费用页集行不跳序。
+        meta_order = {ep_meta.get("episode"): i for i, ep_meta in enumerate(episodes_meta)}
+        episodes_result.sort(key=lambda ep: meta_order.get(ep["episode"], len(meta_order)))
 
         # Project-level actual costs (characters/scenes/props/products 资产图 —— segment_id is null)
         async with self._session_factory() as session:
@@ -464,6 +488,17 @@ class CostEstimationService:
             bucket = project_image_by_type.get(asset_type)
             if bucket:
                 proj_act[asset_type] = bucket
+        # segment_id 为空的记账里，资产图已按类型单列，剩下的仍是真实支出：无法按 output_path
+        # 归类的图，以及 segment_id 列回填前的历史 video/audio 行。它们没有集归属线索，只并入
+        # 项目级「未归属」。
+        project_level_actual = actual_by_segment.get(PROJECT_LEVEL_SEGMENT_KEY, {})
+        for amounts in (
+            project_image_by_type.get("other", {}),
+            project_level_actual.get("video", {}),
+            project_level_actual.get("audio", {}),
+        ):
+            if amounts:
+                proj_act["unassigned"] = _merge_breakdowns(proj_act.get("unassigned", {}), amounts)
 
         return {
             "project_name": project_name,
