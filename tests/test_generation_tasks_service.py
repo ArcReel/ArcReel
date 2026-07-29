@@ -312,7 +312,7 @@ class TestGenerationTasks:
                 "dialogue": [{"speaker": "Alice", "line": "hello"}],
             }
         )
-        # camera_motion 已废弃：运镜描述融入 action，YAML 不再输出独立 Camera_Motion 字段
+        # camera_motion 为空时 YAML 不输出独立的 Camera_Motion 字段
         assert "Camera_Motion" not in video_yaml
         assert "Action: 行走" in video_yaml
 

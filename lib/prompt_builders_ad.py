@@ -260,6 +260,7 @@ def build_ad_prompt(
 ## 视频提示词（video_prompt）——切换到「动作设计师」视角
 
 - **video_prompt.action**：{_ACTION_WRITING_GUIDE}
+- **video_prompt.camera_motion**：用自然语言描述本镜头的摄像机运动（可包含环绕/推进/拉远/摇移等复合运镜），无特殊运镜则留空。
 - **video_prompt.ambiance_audio**：{_AMBIANCE_AUDIO_WRITING_GUIDE}
 - **video_prompt.dialogue**：仅当镜头内有出镜人物开口说话时填写（口播旁白写在 voiceover_text，不要重复进 dialogue）；speaker 必须出现在 characters_in_shot。"""
 

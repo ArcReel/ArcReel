@@ -137,6 +137,8 @@ export interface ImagePrompt {
 
 export interface VideoPrompt {
   action: string;
+  /** 镜头运动自然语言描述（可包含环绕/推进/拉远/摇移等复合运镜）。 */
+  camera_motion: string;
   ambiance_audio: string;
   dialogue: Dialogue[];
 }

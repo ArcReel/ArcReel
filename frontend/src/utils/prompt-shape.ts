@@ -43,14 +43,20 @@ export function isStructuredImagePrompt(value: unknown): value is ImagePrompt {
 
 /**
  * 严格守卫：VideoPrompt 必须含 action + ambiance_audio；dialogue 可省略，
- * 但若提供必须是 {speaker, line} 数组。
- * camera_motion 已废弃：运镜描述融入 action（自然语言，支持复合运镜）。
+ * 但若提供必须是 {speaker, line} 数组。camera_motion 为自然语言字符串或缺失（存量兼容）。
  */
 export function isStructuredVideoPrompt(value: unknown): value is VideoPrompt {
   if (
     !isRecord(value) ||
     typeof value.action !== "string" ||
     typeof value.ambiance_audio !== "string"
+  ) {
+    return false;
+  }
+  // camera_motion: 缺失兼容存量数据，存在则必须为字符串
+  if (
+    value.camera_motion !== undefined &&
+    typeof value.camera_motion !== "string"
   ) {
     return false;
   }

@@ -142,6 +142,7 @@ def _normalize_video_prompt(prompt: str | dict) -> str:
 
     normalized_prompt: dict[str, Any] = {
         "action": action_text,
+        "camera_motion": str(prompt.get("camera_motion", "") or ""),
         "ambiance_audio": str(prompt.get("ambiance_audio", "") or ""),
         "dialogue": normalized_dialogue,
     }

@@ -10,7 +10,7 @@ interface VideoPromptEditorProps {
   readOnly?: boolean;
 }
 
-/** Structured editor for VideoPrompt — action 已融合运镜描述，不再有独立 Camera_Motion 字段。 */
+/** Structured editor for VideoPrompt — action 写主体/环境运动，camera_motion 独立承载镜头运镜（自然语言）。 */
 export function VideoPromptEditor({
   prompt,
   onUpdate,
@@ -25,6 +25,14 @@ export function VideoPromptEditor({
         onChange={(v) => onUpdate({ action: v })}
         readOnly={readOnly}
         placeholder={t("video_prompt_placeholder")}
+      />
+
+      <CompactInput
+        label={t("camera_motion_label")}
+        value={prompt.camera_motion}
+        onChange={(v) => onUpdate({ camera_motion: v })}
+        readOnly={readOnly}
+        placeholder={t("camera_motion_placeholder")}
       />
 
       <CompactInput

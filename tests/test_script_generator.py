@@ -1711,11 +1711,13 @@ class TestAdParseResponseDriftRecovery:
         assert parsed["title"] == "第1集"
         first, second = parsed["shots"]
         assert first["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
-        assert first["video_prompt"]["camera_motion"] == "Zoom Out"
+        # camera_motion 现为自由文本字符串，不做枚举归一，原始值原样保留
+        assert first["video_prompt"]["camera_motion"] == "ZOOM_OUT"
         assert first["video_prompt"]["dialogue"] == []
-        # 词表外值（wide_shot / dolly_in）不做语义映射，降级为中性默认值
+        # 词表外值（wide_shot）不做语义映射，降级为中性默认值；
+        # camera_motion 已是自由文本，dolly_in 原样保留不降级
         assert second["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
-        assert second["video_prompt"]["camera_motion"] == "Static"
+        assert second["video_prompt"]["camera_motion"] == "dolly_in"
 
     def test_parse_response_keeps_model_title_when_present(self, tmp_path):
         project_path = tmp_path / "demo"

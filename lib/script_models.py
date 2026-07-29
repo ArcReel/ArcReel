@@ -140,24 +140,20 @@ class ImagePrompt(BaseModel):
 
 
 class _VideoPromptCore(BaseModel):
-    """video_prompt 的画面层公共字段（动作 / 环境音）；dialogue 由具体变体决定是否携带。
+    """video_prompt 的画面层公共字段（动作 / 运镜 / 环境音）；dialogue 由具体变体决定是否携带。
 
-    camera_motion 已废弃：运镜描述融入 action（自然语言，支持复合运镜），
-    不再作为独立枚举字段。存量剧本 JSON 中残留的 camera_motion 在验证前自动 pop。
+    camera_motion 为自然语言镜头运动描述（支持环绕/推进/拉远等复合运镜），
+    取代旧 CameraMotion 枚举——存量剧本 JSON 中的枚举值作为普通字符串保留。
     """
 
     model_config = _STRICT_CONFIG
 
-    action: str = Field(description="该镜头时长内的动作与运镜描述（自然语言，可包含环绕/推进/拉远等复合运动）")
+    action: str = Field(description="该镜头时长内的主体动作与场景动态描述")
+    camera_motion: str = Field(
+        default="",
+        description="镜头运动描述（自然语言，可包含环绕/推进/拉远/摇移等复合运动），无特殊运镜则留空",
+    )
     ambiance_audio: str = Field(description="环境音效（画内音）")
-
-    @model_validator(mode="before")
-    @classmethod
-    def _deprecate_camera_motion(cls, data: Any) -> Any:
-        """存量剧本 JSON 仍含 camera_motion 字段，在 extra="forbid" 拒绝前 pop 掉。"""
-        if isinstance(data, dict):
-            data.pop("camera_motion", None)
-        return data
 
 
 class VideoPrompt(_VideoPromptCore):

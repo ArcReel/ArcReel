@@ -64,14 +64,14 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
     """
     将 videoPrompt 结构转换为 YAML 格式字符串
 
-    Action 已融合运镜描述（由 LLM/用户自然语言描述，支持复合运镜），
-    不再输出独立的 Camera_Motion 字段——避免单选枚举限制模型理解
-    连贯的镜头运动。
+    action 描述主体与环境的运动，camera_motion 为独立的自然语言镜头运动描述
+    （支持环绕/推进/拉远等复合运镜）。Dialogue 仅在有对话时输出。
 
     Args:
         video_prompt: segment 中的 video_prompt 对象，结构为：
             {
-                "action": "动作与运镜描述（自然语言，可包含复合运动）",
+                "action": "主体与环境动作描述",
+                "camera_motion": "镜头运动自然语言描述（可选）",
                 "ambiance_audio": "环境音效描述",
                 "dialogue": [{"speaker": "角色名", "line": "台词"}]
             }
@@ -81,10 +81,15 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
     """
     dialogue = [{"Speaker": d["speaker"], "Line": d["line"]} for d in video_prompt.get("dialogue", [])]
 
-    ordered = {
+    ordered: dict[str, str | list[dict[str, str]]] = {
         "Action": video_prompt["action"],
-        "Ambiance_Audio": video_prompt.get("ambiance_audio", ""),
     }
+
+    camera_motion = video_prompt.get("camera_motion", "")
+    if camera_motion:
+        ordered["Camera_Motion"] = camera_motion
+
+    ordered["Ambiance_Audio"] = video_prompt.get("ambiance_audio", "")
 
     # 仅在有对话时添加 Dialogue 字段
     if dialogue:

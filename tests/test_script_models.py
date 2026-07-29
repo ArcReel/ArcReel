@@ -477,11 +477,16 @@ class TestEnumDriftNormalization:
         assert comp.shot_type == "Medium Shot"
         assert drifted in caplog.text
 
-    def test_camera_motion_is_deprecated_and_silently_popped(self):
-        """camera_motion 已废弃，存量数据中的字段被 model_validator pop 掉。"""
-        vp = VideoPrompt.model_validate({"action": "旋转", "camera_motion": "Static", "ambiance_audio": "风声"})
-        assert not hasattr(vp, "camera_motion")
+    def test_camera_motion_is_preserved_as_natural_language_string(self):
+        """camera_motion 从枚举恢复为自然语言字符串字段，存量枚举值作为普通字符串保留。"""
+        vp = VideoPrompt.model_validate({"action": "旋转", "camera_motion": "镜头环绕推进", "ambiance_audio": "风声"})
+        assert vp.camera_motion == "镜头环绕推进"
         assert vp.action == "旋转"
+
+    def test_camera_motion_defaults_to_empty_string(self):
+        """camera_motion 缺失时默认为空字符串。"""
+        vp = VideoPrompt.model_validate({"action": "旋转", "ambiance_audio": "风声"})
+        assert vp.camera_motion == ""
 
     def test_canonical_values_pass_through_unchanged(self):
         comp = Composition.model_validate(self._composition("Over-the-shoulder"))
