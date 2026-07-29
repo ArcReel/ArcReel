@@ -284,6 +284,7 @@ class TestFromProject:
         )
         assert r.status_code == 404
 
+    @pytest.mark.integration
     def test_from_project_missing_resource_error_localizes_kind(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
@@ -293,6 +294,7 @@ class TestFromProject:
         zh = client.post(
             "/api/v1/assets/from-project",
             json={"project_name": "demo", "resource_type": "character", "resource_id": "ghost"},
+            headers={"Accept-Language": "zh"},
         )
         en = client.post(
             "/api/v1/assets/from-project",
@@ -314,7 +316,7 @@ class TestFromProject:
             kind=translate_message("asset_type_character", locale="en"),
             name="ghost",
         )
-        assert "nhân vật" in vi.json()["detail"]
+        assert "nhân vật" in vi.json()["detail"] and "character" not in vi.json()["detail"]
 
     def test_from_project_without_sheet_has_null_image_path(self, _assets_env):
         client = _assets_env["client"]
