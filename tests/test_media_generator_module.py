@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from lib.image_backends.base import ImageCapability, ImageGenerationResult
-from lib.media_generator import MediaGenerator
+from lib.media_generator import MediaGenerator, segment_id_for
 
 
 class _FakeImageBackend:
@@ -156,6 +156,44 @@ def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen.versions = _FakeVersions()
     gen.ledger = _FakeLedger()
     return gen
+
+
+@pytest.mark.unit
+class TestSegmentIdFor:
+    """segment_id_for 是 image/video/audio 三条记账路径共用的单点判定函数。"""
+
+    @pytest.mark.parametrize(
+        "resource_type",
+        ["storyboards", "videos", "grids"],
+    )
+    def test_image_whitelist_hit(self, resource_type):
+        assert segment_id_for("image", resource_type, "E1S01") == "E1S01"
+
+    def test_image_whitelist_miss(self):
+        assert segment_id_for("image", "characters", "Alice") is None
+
+    @pytest.mark.parametrize(
+        "resource_type",
+        ["storyboards", "videos", "reference_videos"],
+    )
+    def test_video_whitelist_hit(self, resource_type):
+        assert segment_id_for("video", resource_type, "E1S01") == "E1S01"
+
+    def test_video_whitelist_miss(self):
+        # grids 只在图片记账白名单内，视频记账应落 None。
+        assert segment_id_for("video", "grids", "E1G1") is None
+
+    @pytest.mark.parametrize(
+        "resource_type",
+        ["audio", "storyboards", "characters"],
+    )
+    def test_audio_unconditional(self, resource_type):
+        assert segment_id_for("audio", resource_type, "E1S01") == "E1S01"
+
+    def test_unknown_call_type_raises(self):
+        # 未接入记账白名单的通道显式报错，避免 segment_id 静默丢失。
+        with pytest.raises(ValueError, match="unknown ledger channel"):
+            segment_id_for("text", "storyboards", "E1S01")
 
 
 class TestMediaGenerator:
