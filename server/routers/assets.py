@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from lib.api_errors import NotFoundError
-from lib.asset_types import BUCKET_KEY, GLOBAL_LIBRARY_ASSET_TYPES, SHEET_KEY, validate_asset_name
+from lib.asset_types import BUCKET_KEY, GLOBAL_LIBRARY_ASSET_TYPES, SHEET_KEY, localize_asset_type, validate_asset_name
 from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.i18n import Translator
@@ -272,7 +272,7 @@ async def from_project(
             detail=_t(
                 "asset_source_resource_not_found",
                 project=req.project_name,
-                kind=req.resource_type,
+                kind=localize_asset_type(req.resource_type, _t),
                 name=req.resource_id,
             ),
         )

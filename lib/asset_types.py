@@ -6,10 +6,14 @@
 
 旧常量 ASSET_TYPES / BUCKET_KEY / SHEET_KEY 保留为 ASSET_SPECS 的派生，现有 18 处
 引用零修改。
+
+面向用户的显示名不落在 spec 里：``localize_asset_type`` 以注入的 translate 把类型标识
+映射到 ``lib/i18n`` 的 ``asset_type_*`` key，本模块因而不反向依赖 i18n。
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 
@@ -108,6 +112,16 @@ ILLEGAL_ASSET_NAME_CHARS: tuple[str, ...] = ("/", "\\", "\0", ":", "*", "?", '"'
 WINDOWS_RESERVED_BASENAMES: frozenset[str] = frozenset(
     {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 )
+
+
+def localize_asset_type(value: str, translate: Callable[..., str]) -> str:
+    """把资产类型内部标识（如 ``"product"``）替换为当前语言显示名。
+
+    未登记的类型值（不在 ``ASSET_SPECS`` 中）原样透传，不做语义映射。
+    """
+    if value not in ASSET_SPECS:
+        return value
+    return translate(f"asset_type_{value}")
 
 
 def validate_asset_name(name: object) -> str:

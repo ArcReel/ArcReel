@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.db.base import Base
+from lib.i18n import _ as translate_message
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
@@ -282,6 +283,40 @@ class TestFromProject:
             },
         )
         assert r.status_code == 404
+
+    @pytest.mark.integration
+    def test_from_project_missing_resource_error_localizes_kind(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+
+        zh = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "demo", "resource_type": "character", "resource_id": "ghost"},
+            headers={"Accept-Language": "zh"},
+        )
+        en = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "demo", "resource_type": "character", "resource_id": "ghost"},
+            headers={"Accept-Language": "en"},
+        )
+        vi = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "demo", "resource_type": "character", "resource_id": "ghost"},
+            headers={"Accept-Language": "vi"},
+        )
+
+        assert "角色" in zh.json()["detail"] and "character" not in zh.json()["detail"]
+        # en 显示名与内部标识同形，区分不了裸透传，只能断言整句按 asset_type_* 渲染
+        assert en.json()["detail"] == translate_message(
+            "asset_source_resource_not_found",
+            locale="en",
+            project="demo",
+            kind=translate_message("asset_type_character", locale="en"),
+            name="ghost",
+        )
+        assert "nhân vật" in vi.json()["detail"] and "character" not in vi.json()["detail"]
 
     def test_from_project_without_sheet_has_null_image_path(self, _assets_env):
         client = _assets_env["client"]
