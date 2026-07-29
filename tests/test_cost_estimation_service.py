@@ -1086,6 +1086,32 @@ class TestCostEstimationService:
         assert segments[1]["estimate"]["video"]
 
     @pytest.mark.integration
+    async def test_narration_reference_video_estimate_rejects_non_string_unit_id(self, db_factory):
+        """agent/外部编辑过的剧本可能把 ``unit_id`` 裸写成非字符串 truthy 值（如数字/布尔）。
+        入队执行时（``execute_reference_video_task``）按字符串 resource_id 与剧本原始
+        （未转型）值比较定位 unit，类型不等会导致 "unit not found"；估算侧若把该值
+        str() 强转后正常计费，会展示一笔实际跑不起来的费用，必须原本就是字符串才计价。
+        """
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        script = _make_reference_video_script(1, "narration", [("E1U1", 6), ("E1U2", 8)])
+        script["video_units"][0]["unit_id"] = 1
+
+        result = await service.compute(project_data, {"ep1.json": script}, project_name="narration-non-str-unit-id")
+
+        segments = result["episodes"][0]["segments"]
+        assert [seg["segment_id"] for seg in segments] == ["E1U2"]
+        assert segments[0]["estimate"]["video"]
+
+    @pytest.mark.integration
     async def test_narration_reference_video_estimate_handles_token_priced_video_model(self, db_factory):
         """按 token 计费的视频模型（Ark/Seedance）也要能算出非零视频预估。
 

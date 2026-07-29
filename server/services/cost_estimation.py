@@ -477,6 +477,9 @@ class CostEstimationService:
         for unit in units:
             if not isinstance(unit, dict):
                 continue
+            # ad 的 unit_id 由 derive_ad_reference_units 内部拼接（f"E{episode}U{n}"），
+            # 恒为字符串，不是 agent/外部可裸写的剧本字段，无需像 narration/drama 路径那样
+            # 防非字符串 unit_id（见 _estimate_unit_reference_video_episode 同名判断的说明）。
             unit_id = str(unit.get("unit_id") or "")
             try:
                 ad_shots = resolve_ad_unit_shots(script, unit)
@@ -582,9 +585,13 @@ class CostEstimationService:
         for unit in units:
             if not isinstance(unit, dict):
                 continue
-            unit_id = str(unit.get("unit_id") or "")
-            if not unit_id:
+            # unit_id 必须原本就是字符串：入队执行时按该字符串与剧本原始（未转型）值比较定位
+            # unit（``execute_reference_video_task``），数字/布尔等裸写 truthy 值 str() 后能通过
+            # 这里的估算，但执行时永远因类型不等找不到 unit——估算不能展示一笔实际跑不起来的费用。
+            raw_unit_id = unit.get("unit_id")
+            if not isinstance(raw_unit_id, str) or not raw_unit_id:
                 continue
+            unit_id = raw_unit_id
 
             # shots 非 list（如裸写 "shots": true/1）会让 assemble_shots_text 的遍历抛
             # TypeError；先做类型检查再拼接，与下方 duration 解析同样不能让单条脏数据中断
