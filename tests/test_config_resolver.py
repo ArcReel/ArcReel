@@ -785,11 +785,40 @@ class TestVideoPricingGenerateAudio:
         assert result is True
 
     @pytest.mark.integration
-    async def test_falls_back_to_false_for_unknown_provider(self):
+    async def test_falls_back_to_requested_value_for_unknown_provider(self):
+        """非恒含音 provider 解析不出能力时保留请求值——价目仍回落 Gemini 家族的含音费率。"""
         factory, engine = await _make_session()
         try:
             resolver = ConfigResolver(factory)
             result = await resolver.video_pricing_generate_audio("unknown", "unknown")
+        finally:
+            await engine.dispose()
+        assert result is True
+
+    @pytest.mark.integration
+    async def test_keeps_requested_audio_for_vertex_unknown_model(self):
+        """gemini-vertex 上注册表没有的 model：backend 照请求值下发并结算，估算不得降为静音档。"""
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            # lite 只登记在 gemini-aistudio：把 backend 切到 vertex 却留着旧 model id 时，
+            # 能力查询抛 model not found，而价目查询仍按 Gemini 家族含音费率出价。
+            result = await resolver.video_pricing_generate_audio("gemini-vertex", "veo-3.1-lite-generate-preview")
+        finally:
+            await engine.dispose()
+        assert result is True
+
+    @pytest.mark.integration
+    async def test_project_audio_off_survives_capability_failure(self):
+        """项目关掉音频时降级路径同样按静音档出价，不凭空补成含音。"""
+        factory, engine = await _make_session()
+        try:
+            resolver = ConfigResolver(factory)
+            result = await resolver.video_pricing_generate_audio(
+                "gemini-vertex",
+                "veo-3.1-lite-generate-preview",
+                {"video_generate_audio": False},
+            )
         finally:
             await engine.dispose()
         assert result is False

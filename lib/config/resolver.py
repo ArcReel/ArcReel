@@ -417,6 +417,9 @@ class ConfigResolver:
 
         优先级：项目级 `project.json.video_backend` > 系统设置 `default_video_backend` >
         系统默认 `_DEFAULT_VIDEO_BACKEND` > auto-resolve（按 registry 顺序挑第一个 ready）。
+
+        返回字面配置结果，不做自定义 provider 的身份收敛——供配置展示与「当前选的是哪个」类
+        判断使用；要拿运行时实际执行的身份请用 ``resolve_video_backend()``。
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_backend(svc, session, project_name)
@@ -444,7 +447,12 @@ class ConfigResolver:
         """解析视频任务应使用的 ProviderModel。
 
         优先级：payload（历史任务携带的 ``video_provider``）> project（``video_backend``）> 全局默认。
-        视频任务无 capability 维度。不做任何 provider 归一化。
+        视频任务无 capability 维度；provider id 不做归一化。
+
+        返回的是**运行时有效身份**：自定义 provider 的 model 不存在、已禁用或 endpoint 的
+        media_type 不是 video 时，收敛到该 provider 默认启用的 video model，无可用默认则抛
+        ``ValueError``。能力查询与价格查询因此拿到同一身份。只要字面配置结果（不经收敛）
+        请改用 ``video_backend()``。
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_provider_model(svc, session, project, payload)
@@ -575,6 +583,9 @@ class ConfigResolver:
         要调用的 ProviderModel（含历史任务 payload 覆盖），用此变体取能力可保证 duration
         守卫所依据的 supported_durations 与实际调用的 model 一致，避免「按项目默认 model
         的能力去校验 payload 解析出的 model」的错配。
+
+        入参身份仍会再收敛一次（口径同 ``resolve_video_backend``），因此直接传字面配置也能
+        拿到有效身份的能力；自定义 provider 无可用默认 model 时抛 ``ValueError``。
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_caps_for_model(svc, session, provider_id, model_id, project)
@@ -588,19 +599,24 @@ class ConfigResolver:
         """费用预估用的有效 ``generate_audio``：读能力接口，解析不出时降级，绝不抛错。
 
         能力解析会对注册表里已下线的 model id 抛错，而价目查询对同一 id 仍会回落到该 provider
-        的默认模型出价（见 ``lib/pricing/lookup.py``）——此时估算仍要出数，且不能丢掉恒含音
-        出账的 provider 级规则，否则这些 provider 的历史 model 会被按静音档低估。
+        的默认模型出价（见 ``lib/pricing/lookup.py``）——此时估算仍要出数。降级口径分两层：
+        恒含音出账的 provider 按 provider 级规则取 True；其余 provider 没有默认执行档的信息，
+        只能回到请求值（backend 也正是照请求值下发并结算），若一律取 False，这些历史 model
+        会被按静音档低估。
         """
         try:
             caps = await self.video_capabilities_for_model(provider_id, model_id, project)
         except Exception as exc:
             logger.info(
-                "视频能力解析失败（%s/%s），计价 generate_audio 降级到 provider 级规则：%s",
+                "视频能力解析失败（%s/%s），计价 generate_audio 降级到 provider 级规则与请求值：%s",
                 provider_id,
                 model_id,
                 exc,
             )
-            return _video_audio_always_billed(provider_id)
+            if _video_audio_always_billed(provider_id):
+                return True
+            async with self._open_session() as (_session, svc):
+                return await self._resolve_video_generate_audio_from_project(svc, project)
         return bool(caps["generate_audio"])
 
     async def default_image_backend_t2i(self) -> tuple[str, str]:
