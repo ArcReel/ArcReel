@@ -594,6 +594,57 @@ class TestCostEstimationService:
         assert result["episodes"][0]["totals"]["actual"]["video"]["USD"] == pytest.approx(1.6)
         assert result["project_totals"]["actual"]["video"]["USD"] == pytest.approx(1.6)
 
+    async def test_ad_reference_video_merges_shot_level_legacy_video_actual(self, db_factory):
+        """切换到 reference_video 前，某镜头已在 storyboard 模式产生过视频实付（按 shot_id
+        记账），切换后与 unit 分摊额是两笔独立支出，须相加而非互相替换。
+
+        只对其中一个镜头（E1S2）播历史视频费用，断言只有它的 actual.video 比其余镜头
+        多出这一截，其余镜头仍只有 unit 分摊份额——防止实现退化成「谁覆盖谁」。
+        """
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        await _seed_call(
+            db_factory,
+            "ad-ref-legacy-video",
+            "video",
+            "veo-3.1",
+            provider="veo",
+            segment_id="E1U1",
+            cost_amount=1.5,
+            currency="USD",
+        )
+        await _seed_call(
+            db_factory,
+            "ad-ref-legacy-video",
+            "video",
+            "sora-2",
+            provider="openai",
+            segment_id="E1S2",
+            cost_amount=0.4,
+            currency="USD",
+        )
+
+        project_data = {
+            "title": "Ad",
+            "content_mode": "ad",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_ad_script(["E1S1", "E1S2", "E1S3"], [2, 2, 2])}
+
+        result = await service.compute(project_data, scripts, project_name="ad-ref-legacy-video")
+
+        segments = {seg["segment_id"]: seg for seg in result["episodes"][0]["segments"]}
+        apportioned_share = segments["E1S1"]["actual"]["video"]["USD"]
+        assert segments["E1S3"]["actual"]["video"]["USD"] == pytest.approx(apportioned_share)
+        assert segments["E1S2"]["actual"]["video"]["USD"] == pytest.approx(apportioned_share + 0.4)
+        # 集/项目合计须把这笔历史支出也算进去，不能因为它挂在 shot_id 下就被漏计
+        ep_total = result["episodes"][0]["totals"]["actual"]["video"]["USD"]
+        assert ep_total == pytest.approx(1.5 + 0.4)
+        assert result["project_totals"]["actual"]["video"]["USD"] == pytest.approx(1.5 + 0.4)
+
     async def test_ad_reference_video_estimate_uses_rounded_up_unit_duration(self, db_factory, monkeypatch):
         """取档向上的 unit：预估金额按取档后的秒数（8s）计，而非剧本原始总时长（5s）。
 
