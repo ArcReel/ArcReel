@@ -95,11 +95,11 @@ Windows 原生无 bwrap，会自动降级：
 
 ## 智能体运行环境
 
-智能体专用配置的源目录是 `agent_runtime_profile/`，与开发态 `.claude/` 物理分离：
+ArcReel 内嵌基于 Claude Agent SDK 的智能体（Harness 即上文的 Agent Runtime），其专属配置的源目录是 `agent_runtime_profile/`，与开发态 `.claude/` 物理分离：
 
 - `agent_runtime_profile/.claude/skills/`、`agent_runtime_profile/.claude/agents/` — Skill 与 Subagent 定义
 - `agent_runtime_profile/CLAUDE.*.md` — 按 `content_mode` 拆分的系统 prompt 变体，运行时按项目内容模式动态注入
-- profile 同步由 `lib/profile_manifest.py` 通过 manifest + sha256 驱动，仅把声明过且校验通过的文件复制到各项目的 `.claude/` 与 CLAUDE.md，避免本地临时改动污染项目；新增文件须在 manifest 中声明
+- `lib/profile_manifest.py` 把上述配置同步到各用户项目的 `.claude/` 与 CLAUDE.md，智能体从项目侧加载；同步以 manifest + sha256 识别用户改过的项目侧文件并保留，不覆盖
 
 Skill 的创建、评估和维护流程参考 `/skill-creator` skill。
 
