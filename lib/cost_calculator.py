@@ -33,11 +33,17 @@ class CostCalculator:
         custom_price_input: float | None = None,
         custom_price_output: float | None = None,
         custom_currency: str | None = None,
+        estimate_only: bool = False,
     ) -> tuple[float, str]:
         """统一费用计算入口。调用方直接构造 ``PricingParams`` 传入，返回 ``(amount, currency)``。
 
         自定义供应商的价格信息通过 ``custom_price_*`` 参数传入（调用方需预先查询 DB）；
         它们是 DB 侧的价格来源、非定价形状维度，故不并入 ``PricingParams``。
+
+        ``estimate_only``：调用方明确只是预估（非真实调用结算）时置 True，允许对缺失的
+        ``usage_tokens`` 做近似换算兜底。真实调用的费用结算（``UsageRepository._settle``）
+        必须保持默认 False——provider 成功响应但漏报 usage 是真实的数据缺陷，结算侧应如实
+        按 0 处理，不能用估算近似值掩盖，否则会把预估口径的近似值悄悄写成实际支出记录。
         """
         if is_custom_provider(provider):
             return self._calculate_custom_cost(
@@ -60,9 +66,15 @@ class CostCalculator:
         # estimate_reference_video_cost，传真实累计时长（可为 0），不经此默认。
         if isinstance(pricing, (PerSecondMatrix, PerSecondTiered)) and not params.duration_seconds:
             params = replace(params, duration_seconds=8)
-        # 按 token 计费的视频（Ark/Seedance）：调用方只传了时长、未预先换算 token 时按估算
-        # 近似值换算，否则该模型的预估恒为 0（实际调用仍由生成回调覆盖为真实 token 用量）。
-        if isinstance(pricing, PerTokenVideo) and params.usage_tokens is None and params.duration_seconds:
+        # 按 token 计费的视频（Ark/Seedance）：仅预估场景下，调用方只传了时长、未预先换算
+        # token 时按估算近似值换算，否则该模型的预估恒为 0。真实结算场景不做这层兜底，见
+        # ``estimate_only`` 参数说明。
+        if (
+            estimate_only
+            and isinstance(pricing, PerTokenVideo)
+            and params.usage_tokens is None
+            and params.duration_seconds
+        ):
             params = replace(params, usage_tokens=params.duration_seconds * self._ARK_TOKENS_PER_SECOND_ESTIMATE)
         return calculate_pricing(pricing, params)
 

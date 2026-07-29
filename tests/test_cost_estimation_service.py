@@ -969,6 +969,52 @@ class TestCostEstimationService:
         assert result["project_totals"]["estimate"]["video"]
 
     @pytest.mark.integration
+    async def test_narration_reference_video_estimate_skips_unenqueueable_units(self, db_factory):
+        """没有 shots 或拼接文本为空的 unit 不可入队（``enqueue_videos.py::_reference_unit_spec``
+        对没有 shots 的 unit 直接拒绝，``TaskSpec.from_request`` 对空提示词同样拒绝），估算须
+        跳过这类 unit，不展示一笔查无实据的费用。
+        """
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        script = _make_reference_video_script(1, "narration", [("E1U1", 6)])
+        script["video_units"].append(
+            {
+                "unit_id": "E1U2",
+                "shots": [],
+                "references": [],
+                "duration_seconds": 5,
+                "duration_override": False,
+                "transition_to_next": "cut",
+                "generated_assets": {"video_clip": None, "status": "pending"},
+            }
+        )
+        script["video_units"].append(
+            {
+                "unit_id": "E1U3",
+                "shots": [{"duration": 5, "text": "   "}],
+                "references": [],
+                "duration_seconds": 5,
+                "duration_override": False,
+                "transition_to_next": "cut",
+                "generated_assets": {"video_clip": None, "status": "pending"},
+            }
+        )
+        scripts = {"ep1.json": script}
+
+        result = await service.compute(project_data, scripts, project_name="narration-unenqueueable-units")
+
+        segments = result["episodes"][0]["segments"]
+        assert [seg["segment_id"] for seg in segments] == ["E1U1"]
+
+    @pytest.mark.integration
     async def test_narration_reference_video_estimate_handles_token_priced_video_model(self, db_factory):
         """按 token 计费的视频模型（Ark/Seedance）也要能算出非零视频预估。
 

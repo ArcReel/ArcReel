@@ -15,6 +15,7 @@ from lib.db.repositories.usage_repo import UsageRepository
 from lib.grid.layout import calculate_grid_layout
 from lib.pricing.strategies import PricingParams
 from lib.project_manager import effective_mode
+from lib.reference_video import assemble_shots_text
 from lib.reference_video.ad_units import derive_ad_reference_units, resolve_ad_unit_shots
 from lib.script_editor import ScriptEditError
 from lib.script_models import get_generated_assets
@@ -89,6 +90,7 @@ def _estimate_unit_video_cost(
             custom_price_input=video_price.price_input,
             custom_price_output=video_price.price_output,
             custom_currency=video_price.currency,
+            estimate_only=True,
         )
         _add_cost(est_video, amount, currency)
     except Exception:
@@ -564,6 +566,11 @@ class CostEstimationService:
         对 ``resource_type == "reference_videos"`` 的记账以 unit_id 写入 usage 的 segment_id，
         与本函数的输出 identity 一致。切换模式前按分镜 ID（``E1S1`` 等）记的历史支出不在此
         呈现：unit 与分镜之间没有映射关系，无处归属。
+
+        跳过没有 shots 或拼接文本为空的 unit：这类 unit 不可入队（``enqueue_videos.py::_reference_unit_spec``
+        对没有 shots 的 unit 直接拒绝、``TaskSpec.from_request`` 对空提示词同样拒绝），估值给出
+        非零金额会展示一笔查无实据的费用；判空标准与入队侧同一份 ``assemble_shots_text``，
+        不能自行另起一套字符串处理否则两处会漂移。
         """
         segments_result: list[dict[str, Any]] = []
         ep_est: dict[str, CostBreakdown] = {}
@@ -574,6 +581,9 @@ class CostEstimationService:
                 continue
             unit_id = str(unit.get("unit_id") or "")
             if not unit_id:
+                continue
+            shots = unit.get("shots")
+            if not shots or not assemble_shots_text(shots).strip():
                 continue
 
             slot = precheck_unit(duration_ctx, unit, None)
