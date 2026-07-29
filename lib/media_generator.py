@@ -63,6 +63,22 @@ def _is_413(exc: BaseException) -> bool:
     return "request entity too large" in msg or "payload too large" in msg
 
 
+# 记账 segment_id 判定：resource_id 可否作 segment_id 按 call_type 各自的 resource_type
+# 白名单收敛于此单点，image/video/audio 三条记账路径均经由它。
+_SEGMENT_ID_ALLOWED_RESOURCE_TYPES: dict[str, frozenset[str]] = {
+    "image": frozenset({"storyboards", "videos", "grids"}),
+    "video": frozenset({"storyboards", "videos", "reference_videos"}),
+}
+
+
+def segment_id_for(call_type: str, resource_type: str, resource_id: str) -> str | None:
+    """按记账调用类型与资源类型判定 segment_id；audio 无白名单，无条件透传。"""
+    if call_type == "audio":
+        return resource_id
+    allowed = _SEGMENT_ID_ALLOWED_RESOURCE_TYPES.get(call_type)
+    return resource_id if allowed is not None and resource_type in allowed else None
+
+
 class MediaGenerator:
     """
     媒体生成器中间层
@@ -342,7 +358,7 @@ class MediaGenerator:
             # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
             provider=cast(str, self._image_provider_id),
             user_id=self._user_id,
-            segment_id=resource_id if resource_type in ("storyboards", "videos", "grids") else None,
+            segment_id=segment_id_for("image", resource_type, resource_id),
             output_path=str(output_path),
         ) as call:
             from lib.reference_compression import ReferenceSpec, RefRole
@@ -436,7 +452,7 @@ class MediaGenerator:
             # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
             provider=cast(str, self._audio_provider_id),
             user_id=self._user_id,
-            segment_id=resource_id,
+            segment_id=segment_id_for("audio", resource_type, resource_id),
             output_path=str(output_path),
         ) as call:
             request = AudioSynthesisRequest(
@@ -621,7 +637,7 @@ class MediaGenerator:
             # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
             provider=cast(str, self._video_provider_id),
             user_id=self._user_id,
-            segment_id=resource_id if resource_type in ("storyboards", "videos", "reference_videos") else None,
+            segment_id=segment_id_for("video", resource_type, resource_id),
             service_tier=version_metadata.get("service_tier", "default"),
             output_path=str(output_path),
         ) as call:
