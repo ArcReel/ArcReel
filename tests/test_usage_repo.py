@@ -200,6 +200,28 @@ class TestFinalizePendingByCallId:
         calls = await repo.get_calls(project_name="demo")
         assert calls["items"][0]["usage_tokens"] == 12345, "usage_tokens 必须 UPDATE 写回 ApiCall 行"
 
+    @pytest.mark.integration
+    async def test_settlement_does_not_approximate_missing_usage_tokens(self, db_session):
+        """provider 成功响应但漏报 usage（``usage_tokens`` 为 None）时，实付结算必须如实按
+        0 计费，不能借费用预估侧的 token 近似换算兜底把估算近似值当成真实支出记录——
+        该兜底只应在 ``CostCalculator.calculate_cost(estimate_only=True)`` 时生效
+        （见 ``server/services/cost_estimation.py::_estimate_unit_video_cost``），
+        ``UsageRepository._settle`` 走真实结算，不传 ``estimate_only``。"""
+        repo = UsageRepository(db_session)
+        call_id = await repo.start_call(
+            project_name="demo",
+            call_type="video",
+            model="doubao-seedance-1-0-pro",
+            duration_seconds=8,
+            provider="ark",
+        )
+
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput())
+        assert affected == 1
+
+        calls = await repo.get_calls(project_name="demo")
+        assert calls["items"][0]["cost_amount"] == 0.0, "usage_tokens 缺失时实付结算不得伪造近似金额"
+
     async def test_billed_duration_passed_to_cost_calculator_and_ledger(self, db_session, monkeypatch):
         """provider 回报的实际计费时长必须透传到 cost_calculator 并回写 ApiCall.duration_seconds，
         与 finish_call 的 billed_duration_seconds 覆盖语义一致（resume 路径不分叉）。"""
