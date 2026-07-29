@@ -219,6 +219,17 @@ class TestMediaGenerator:
         assert gen.ledger.started[-1]["call_type"] == "video"
 
     @pytest.mark.asyncio
+    async def test_generate_video_async_segment_id_by_resource_type(self, tmp_path):
+        """视频记账 segment_id 白名单覆盖 storyboards/videos/reference_videos，其余落 None。"""
+        gen = _build_generator(tmp_path)
+
+        await gen.generate_video_async(prompt="p", resource_type="videos", resource_id="E1S01")
+        assert gen.ledger.started[-1]["segment_id"] == "E1S01"
+
+        await gen.generate_video_async(prompt="p", resource_type="reference_videos", resource_id="E1U1")
+        assert gen.ledger.started[-1]["segment_id"] == "E1U1"
+
+    @pytest.mark.asyncio
     async def test_video_billed_duration_passed_to_finish_call(self, tmp_path):
         """backend 返回与请求不同的实际计费时长时，视频路径透传给 finish_call。"""
         gen = _build_generator(tmp_path)
