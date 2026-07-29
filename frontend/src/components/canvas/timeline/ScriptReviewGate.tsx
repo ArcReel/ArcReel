@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/darkroom-tokens";
 import { assetColor } from "@/components/canvas/reference/asset-colors";
 import { UtteranceListEditor } from "./UtteranceListEditor";
+// PROTOTYPE（wayfinder #1481）：`?variant=` 时以 mock 原型替换 reference_video 分支，随原型分支一并丢弃。
+import { Step1PreviewPrototype, currentPrototypeVariant } from "./prototype-step1-preview";
 
 interface ScriptReviewGateProps {
   projectName: string;
@@ -273,6 +275,14 @@ function isDirty(draft: unknown, serverContent: unknown): boolean {
  * （novel_text）与 reference_video（units → shots）共用本面板。
  */
 export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptReviewGateProps) {
+  // PROTOTYPE（wayfinder #1481）：绕过后端拉取，直接渲染 mock 驱动的新格式面板变体。
+  if (contentMode === "reference_video" && currentPrototypeVariant() !== null) {
+    return <Step1PreviewPrototype />;
+  }
+  return <ScriptReviewGateImpl projectName={projectName} episode={episode} contentMode={contentMode} />;
+}
+
+function ScriptReviewGateImpl({ projectName, episode, contentMode }: ScriptReviewGateProps) {
   const { t } = useTranslation("dashboard");
   const pushToast = useAppStore((s) => s.pushToast);
   const draftRevision = useAppStore((s) => s.getEntityRevision(`draft:episode_${episode}_step1`));
