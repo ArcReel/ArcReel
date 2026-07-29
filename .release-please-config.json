@@ -4,6 +4,7 @@
   "bootstrap-sha": "dc19732ece340d651d55fd7c93d2674ba1f1e155",
   "include-component-in-tag": false,
   "include-v-in-tag": true,
+  "bump-minor-pre-major": true,
   "packages": {
     ".": {
       "package-name": "arcreel",
