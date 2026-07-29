@@ -167,7 +167,7 @@ chore: 构建/工具变更
 |-------------|---------|-----------|
 | `feat`      | minor   | ✨ 新功能 |
 | `fix`       | patch   | 🐛 Bug 修复 |
-| `feat!` / 任意 type + `!` / footer 含 `BREAKING CHANGE:` | **major** | ⚠️ BREAKING CHANGES（changelog 置顶） |
+| `feat!` / 任意 type + `!` / footer 含 `BREAKING CHANGE:` | **major**（版本 <1.0.0 时为 minor） | ⚠️ BREAKING CHANGES（changelog 置顶） |
 | `perf` / `refactor` / `docs` / `revert` | 不步进 | 显示（⚡ / ♻️ / 📚 / ↩️） |
 | `chore` / `ci` / `build` / `test` / `style` | 不步进 | 隐藏 |
 
@@ -190,7 +190,7 @@ feat(grid): 支持 grid_12 布局
 将宫格系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
-**破坏性变更**有两种等价写法，release-please 均会自动 bump 到 major：
+**破坏性变更**有两种等价写法：
 
 ```
 # 写法 1：type 后加 !
@@ -204,6 +204,6 @@ BREAKING CHANGE: /api/v1/api-keys 的返回结构改为 { items: [...] }，
 ```
 
 两种写法 release-please 都会：
-- 将版本号 bump 为 major
+- 将版本号 bump 为 major；当前版本 <1.0.0 时受 `bump-minor-pre-major` 配置约束，只 bump minor
 - 在 changelog 顶部插入独立的 **⚠️ BREAKING CHANGES** 区块，把每条破坏性变更的描述汇总展示
 - 在对应 type section（如 `✨ 新功能`）下保留该 commit 的常规条目
