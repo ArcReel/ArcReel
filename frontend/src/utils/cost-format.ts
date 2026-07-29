@@ -81,6 +81,18 @@ export function formatCostOrZero(breakdown: CostBreakdown | undefined): string {
   return formatCost(breakdown);
 }
 
+/**
+ * 当前剧本口径的合计：排除「历史支出（未归属当前剧本）」。
+ *
+ * 该项是已删改条目留下的真实支出，不对应当前剧本的任何工作量。算「剩余」时若把它当作
+ * 已完成部分从预估里扣掉，剩余会凭空变少——预估 $10、历史支出 $10 时会显示已无待付。
+ */
+export function currentScriptBreakdown(byType: CostByType): CostBreakdown {
+  const withoutHistory: CostByType = { ...byType };
+  delete withoutHistory.unassigned;
+  return totalBreakdown(withoutHistory);
+}
+
 export function totalBreakdown(byType: CostByType): CostBreakdown {
   const result: CostBreakdown = {};
   for (const costs of Object.values(byType) as (CostBreakdown | undefined)[]) {

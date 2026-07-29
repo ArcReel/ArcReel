@@ -395,6 +395,34 @@ class TestCostEstimationService:
         assert project_actual["unassigned"]["USD"] == pytest.approx(2.8)
         assert "unassigned" not in result["episodes"][0]["totals"]["actual"]
 
+    @pytest.mark.integration
+    async def test_unit_id_named_like_project_sentinel_is_not_double_counted(self, db_factory):
+        """剧本用哨兵键字面量作 unit_id 时，它的支出只算一次（哨兵键不与真实 ID 共用取值）。"""
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+        await _seed_call(
+            db_factory,
+            "sentinel-unit",
+            "video",
+            "historical-model",
+            segment_id="__project__",
+            cost_amount=3.0,
+            currency="USD",
+        )
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("__project__", 5)])}
+
+        result = await service.compute(project_data, scripts, project_name="sentinel-unit")
+
+        project_actual = result["project_totals"]["actual"]
+        assert project_actual["video"]["USD"] == pytest.approx(3.0)
+        assert "unassigned" not in project_actual
+
     async def test_grid_actual_costs_apportioned_to_scenes(self, db_factory):
         """Grid actual cost should be split evenly among scenes sharing the grid_id."""
         resolver = ConfigResolver(db_factory)

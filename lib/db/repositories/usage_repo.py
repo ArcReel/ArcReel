@@ -23,8 +23,10 @@ from lib.providers import PROVIDER_GEMINI, CallType
 MAX_BILLED_DURATION_SECONDS = 86400
 
 # segment_id 为 NULL（资产图、文本调用等非分镜维度）的记账在按 segment 汇总时归入的哨兵键。
-# 消费方按此键把项目级支出与分镜级支出分开，故键名在生产/消费两侧共用同一常量。
-PROJECT_LEVEL_SEGMENT_KEY = "__project__"
+# 消费方按此键把项目级支出与分镜级支出分开，故键名在生产/消费两侧共用同一常量。前导 NUL 保证
+# 它撞不上任何真实 segment_id——后者取自 resource_id（分镜/单元 ID、资产名），不含控制字符。
+# 撞键会让剧本里同名的那个单元的支出既算进集合计、又作为项目级支出再算一次。
+PROJECT_LEVEL_SEGMENT_KEY = "\x00__project__"
 
 # 存量裸 provider 值的报表显示兜底：身份反转前，文本 gemini 调用以 backend.name 落账为裸
 # "gemini"（图像/视频侧已是 "gemini-aistudio"）。这些历史行不迁移，仅在分组报表按此表补一个

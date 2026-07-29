@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { EditableEpisodeTitle } from "@/components/canvas/EditableEpisodeTitle";
 import type { EpisodeMeta } from "@/types";
 import type { EpisodeCost } from "@/types";
-import { totalBreakdown, formatCost } from "@/utils/cost-format";
+import { totalBreakdown, currentScriptBreakdown, formatCost } from "@/utils/cost-format";
 
 interface EpisodeHeaderProps {
   ep: EpisodeMeta;
@@ -31,12 +31,14 @@ export function EpisodeHeader({
       ? Math.round((ep.videos.completed / ep.scenes_count) * 100)
       : 0;
 
-  // 费用：取 estimate / actual 总和（按货币聚合）
+  // 费用：取 estimate / actual 总和（按货币聚合）。「已花」含历史支出，「剩余」只对当前剧本
+  // 结算，故按当前剧本口径扣减。
   const estimateBreakdown = episodeCost ? totalBreakdown(episodeCost.totals.estimate) : {};
   const actualBreakdown = episodeCost ? totalBreakdown(episodeCost.totals.actual) : {};
+  const currentScriptActual = episodeCost ? currentScriptBreakdown(episodeCost.totals.actual) : {};
   const remainingBreakdown: Record<string, number> = {};
   for (const [c, v] of Object.entries(estimateBreakdown)) {
-    remainingBreakdown[c] = Math.max(0, v - (actualBreakdown[c] ?? 0));
+    remainingBreakdown[c] = Math.max(0, v - (currentScriptActual[c] ?? 0));
   }
 
   return (
