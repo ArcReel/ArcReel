@@ -509,6 +509,7 @@ export default {
   'actual_props': '道具',
   'actual_products': '产品',
   'actual_unassigned_history': '历史支出（未归属当前剧本）',
+  'actual_unassigned_history_short': '历史支出',
   'regenerate_failed': '重新生成失败: {{message}}',
   'upload_failed': '上传失败: {{message}}',
   'delete_failed': '删除失败: {{message}}',

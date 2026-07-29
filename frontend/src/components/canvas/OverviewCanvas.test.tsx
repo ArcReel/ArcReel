@@ -426,6 +426,37 @@ describe("OverviewCanvas", () => {
     expect(screen.getAllByText("$1.25").length).toBeGreaterThanOrEqual(2);
   });
 
+  // 集级合计（totalBreakdown）会把 unassigned 一起算进去，明细必须同步列出这一项，
+  // 否则集行上会出现「各项相加 ≠ 合计」的无标签差额。
+  it("shows an episode-level historical spend row so its total stays explainable", () => {
+    const episodeCost = {
+      episode: 1,
+      title: "EP1",
+      segments: [],
+      totals: {
+        estimate: {},
+        actual: { video: { USD: 2 }, unassigned: { USD: 1.25 } },
+      },
+    };
+    useCostStore.setState({
+      costData: {
+        project_name: "real-project",
+        models: { image: { provider: "p", model: "m" }, video: { provider: "p", model: "m" } },
+        episodes: [episodeCost],
+        project_totals: {
+          estimate: {},
+          actual: { video: { USD: 2 }, unassigned: { USD: 1.25 } },
+        },
+      },
+      _episodeIndex: new Map([[1, episodeCost]]),
+    });
+
+    render(<OverviewCanvas projectName="real-project" projectData={makeProjectData()} />);
+
+    expect(screen.getAllByText("历史支出").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("$3.25").length).toBeGreaterThanOrEqual(1);
+  });
+
   it("cancels a real project's queued cost request when switching to the read-only demo project", async () => {
     vi.useFakeTimers();
     const getCostEstimateSpy = vi.spyOn(API, "getCostEstimate");

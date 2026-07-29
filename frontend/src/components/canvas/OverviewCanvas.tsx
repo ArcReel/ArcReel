@@ -821,6 +821,12 @@ export function OverviewCanvas({
                                   ? formatCost(epCost.totals.actual.audio)
                                   : undefined
                               }
+                              unassignedLabel={t("actual_unassigned_history_short")}
+                              unassignedValue={
+                                costEntries(epCost.totals.actual.unassigned).length > 0
+                                  ? formatCost(epCost.totals.actual.unassigned)
+                                  : undefined
+                              }
                               total={formatCost(totalBreakdown(epCost.totals.actual))}
                               totalLabel={t("total")}
                               accent="good"
@@ -941,6 +947,8 @@ function CostInline({
   videoValue,
   audioLabel,
   audioValue,
+  unassignedLabel,
+  unassignedValue,
   total,
   totalLabel,
   accent,
@@ -952,6 +960,8 @@ function CostInline({
   videoValue: string;
   audioLabel?: string;
   audioValue?: string;
+  unassignedLabel?: string;
+  unassignedValue?: string;
   total: string;
   totalLabel: string;
   accent: "warm" | "good";
@@ -973,6 +983,14 @@ function CostInline({
             {audioLabel}{" "}
           </span>
           <span style={{ color: "var(--color-text-2)" }}>{audioValue}</span>
+        </>
+      )}
+      {unassignedLabel != null && unassignedValue != null && (
+        <>
+          <span className="ml-2" style={{ color: "var(--color-text-4)" }}>
+            {unassignedLabel}{" "}
+          </span>
+          <span style={{ color: "var(--color-text-2)" }}>{unassignedValue}</span>
         </>
       )}
       <span className="ml-2" style={{ color: "var(--color-text-4)" }}>

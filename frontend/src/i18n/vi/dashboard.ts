@@ -499,6 +499,7 @@ export default {
   'actual_props': 'Đạo cụ',
   'actual_products': 'Sản phẩm',
   'actual_unassigned_history': 'Chi phí trước đây (không thuộc kịch bản hiện tại)',
+  'actual_unassigned_history_short': 'Chi phí trước đây',
   'regenerate_failed': 'Tạo lại thất bại: {{message}}',
   'upload_failed': 'Tải lên thất bại: {{message}}',
   'delete_failed': 'Xóa thất bại: {{message}}',

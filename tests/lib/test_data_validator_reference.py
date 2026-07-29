@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from lib.data_validator import DataValidator
 
 
@@ -124,6 +126,7 @@ def test_validator_rejects_invalid_shot_duration(tmp_path: Path):
     assert any("duration 必须是 1-15" in e for e in result.errors)
 
 
+@pytest.mark.integration
 def test_validator_rejects_duplicate_reference_video_unit_ids(tmp_path: Path):
     project = _reference_project()
     script = _valid_reference_script()
@@ -137,6 +140,7 @@ def test_validator_rejects_duplicate_reference_video_unit_ids(tmp_path: Path):
     assert any("unit_id 重复 'E1U1'" in error for error in result.errors)
 
 
+@pytest.mark.integration
 def test_validator_rejects_duplicate_ad_reference_unit_ids(tmp_path: Path):
     project = _reference_project()
     project.update({"content_mode": "ad", "target_duration": 10})
