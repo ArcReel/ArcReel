@@ -99,7 +99,7 @@ Windows 原生无 bwrap，会自动降级：
 
 - `agent_runtime_profile/.claude/skills/`、`agent_runtime_profile/.claude/agents/` — Skill 与 Subagent 定义
 - `agent_runtime_profile/CLAUDE.*.md` — 按 `content_mode` 拆分的系统 prompt 变体，运行时按项目内容模式动态注入
-- profile 同步由 `lib/profile_manifest.py` 通过 manifest + sha256 驱动，仅把声明过且校验通过的文件复制到各项目的 `.claude/` 与 CLAUDE.md，运行时从项目侧加载。同步不覆盖用户改过的项目侧文件（此后也不再随 profile 升级），因此修改这些配置应改 `agent_runtime_profile/` 下的源文件，而非项目内的副本
+- profile 同步由 `lib/profile_manifest.py` 通过 manifest + sha256 驱动，仅把声明过且校验通过的文件复制到各项目的 `.claude/` 与 CLAUDE.md，避免本地临时改动污染项目；新增文件须在 manifest 中声明
 
 Skill 的创建、评估和维护流程参考 `/skill-creator` skill。
 
