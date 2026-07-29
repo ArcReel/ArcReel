@@ -43,11 +43,11 @@ def _image_prompt() -> ImagePrompt:
 
 
 def _video_prompt() -> VideoPrompt:
-    return VideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声")
+    return VideoPrompt(action="转身", ambiance_audio="风声")
 
 
 def _drama_video_prompt() -> DramaVideoPrompt:
-    return DramaVideoPrompt(action="转身", camera_motion="Static", ambiance_audio="风声")
+    return DramaVideoPrompt(action="转身", ambiance_audio="风声")
 
 
 class TestScriptModels:
@@ -69,7 +69,6 @@ class TestScriptModels:
             ),
             video_prompt=VideoPrompt(
                 action="转身",
-                camera_motion="Static",
                 ambiance_audio="风声",
                 dialogue=[Dialogue(speaker="姜月茴", line="等等")],
             ),
@@ -452,8 +451,8 @@ class TestEnumDriftNormalization:
         return {"shot_type": shot_type, "lighting": "夕阳侧光", "ambiance": "广场人群环绕"}
 
     @staticmethod
-    def _video_prompt(camera_motion: str, **extra: object) -> dict:
-        return {"action": "旋转舞动", "camera_motion": camera_motion, "ambiance_audio": "广场音乐", **extra}
+    def _video_prompt(**extra: object) -> dict:
+        return {"action": "旋转舞动", "ambiance_audio": "广场音乐", **extra}
 
     @pytest.mark.parametrize(
         ("drifted", "expected"),
@@ -470,24 +469,6 @@ class TestEnumDriftNormalization:
         comp = Composition.model_validate(self._composition(drifted))
         assert comp.shot_type == expected
 
-    @pytest.mark.parametrize(
-        ("drifted", "expected"),
-        [
-            ("ZOOM_OUT", "Zoom Out"),
-            ("static", "Static"),
-            ("TILT_UP", "Tilt Up"),
-            ("pan_right", "Pan Right"),
-            ("tracking shot", "Tracking Shot"),
-            ("PUSH_IN", "Push In"),
-            ("truck-left", "Truck Left"),
-            ("pedestal_down", "Pedestal Down"),
-            ("orbit", "Orbit"),
-        ],
-    )
-    def test_camera_motion_normalizes_case_and_separators(self, drifted: str, expected: str):
-        vp = VideoPrompt.model_validate(self._video_prompt(drifted))
-        assert vp.camera_motion == expected
-
     @pytest.mark.parametrize("drifted", ["WIDE_SHOT", "第一视角特写"])
     def test_out_of_vocab_shot_type_falls_back_to_default_with_warning(self, caplog, drifted: str):
         """词表外值不做语义近义映射（穷举不全），一律降级默认并 warn 保留原值。"""
@@ -496,27 +477,22 @@ class TestEnumDriftNormalization:
         assert comp.shot_type == "Medium Shot"
         assert drifted in caplog.text
 
-    @pytest.mark.parametrize("drifted", ["dolly_in", "crane_up_spiral"])
-    def test_out_of_vocab_camera_motion_falls_back_to_default_with_warning(self, caplog, drifted: str):
-        with caplog.at_level("WARNING", logger="lib.script_models"):
-            vp = VideoPrompt.model_validate(self._video_prompt(drifted))
-        assert vp.camera_motion == "Static"
-        assert drifted in caplog.text
+    def test_camera_motion_is_deprecated_and_silently_popped(self):
+        """camera_motion 已废弃，存量数据中的字段被 model_validator pop 掉。"""
+        vp = VideoPrompt.model_validate({"action": "旋转", "camera_motion": "Static", "ambiance_audio": "风声"})
+        assert not hasattr(vp, "camera_motion")
+        assert vp.action == "旋转"
 
     def test_canonical_values_pass_through_unchanged(self):
         comp = Composition.model_validate(self._composition("Over-the-shoulder"))
         assert comp.shot_type == "Over-the-shoulder"
-        vp = VideoPrompt.model_validate(self._video_prompt("Pan Left"))
-        assert vp.camera_motion == "Pan Left"
 
     def test_non_string_enum_still_rejected(self):
         with pytest.raises(ValidationError):
             Composition.model_validate(self._composition(123))  # type: ignore[arg-type]
-        with pytest.raises(ValidationError):
-            VideoPrompt.model_validate(self._video_prompt(None))  # type: ignore[arg-type]
 
     def test_dialogue_null_coerces_to_empty_list(self):
-        vp = VideoPrompt.model_validate(self._video_prompt("Static", dialogue=None))
+        vp = VideoPrompt.model_validate({"action": "旋转", "ambiance_audio": "风声", "dialogue": None})
         assert vp.dialogue == []
 
     def test_llm_schema_still_declares_enum(self):
@@ -532,25 +508,6 @@ class TestEnumDriftNormalization:
             "Extreme Long Shot",
             "Over-the-shoulder",
             "Point-of-view",
-        ]
-        vp_schema = VideoPrompt.model_json_schema()
-        assert vp_schema["properties"]["camera_motion"]["enum"] == [
-            "Static",
-            "Pan Left",
-            "Pan Right",
-            "Tilt Up",
-            "Tilt Down",
-            "Zoom In",
-            "Zoom Out",
-            "Push In",
-            "Pull Out",
-            "Truck Left",
-            "Truck Right",
-            "Pedestal Up",
-            "Pedestal Down",
-            "Orbit",
-            "Tracking Shot",
-            "Shake",
         ]
 
 

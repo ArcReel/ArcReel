@@ -88,7 +88,6 @@ const SEGMENT_SKELETONS: {
     scenes: [0],
     props: [],
     shotType: "Long Shot",
-    cameraMotion: "Pan Right",
     hasStoryboard: true,
   },
   {
@@ -98,7 +97,6 @@ const SEGMENT_SKELETONS: {
     scenes: [0],
     props: [0],
     shotType: "Medium Shot",
-    cameraMotion: "Tracking Shot",
     hasStoryboard: true,
   },
   {
@@ -108,7 +106,6 @@ const SEGMENT_SKELETONS: {
     scenes: [0],
     props: [0],
     shotType: "Medium Long Shot",
-    cameraMotion: "Push In",
     hasStoryboard: true,
   },
   {
@@ -118,7 +115,6 @@ const SEGMENT_SKELETONS: {
     scenes: [1],
     props: [],
     shotType: "Extreme Long Shot",
-    cameraMotion: "Pedestal Down",
     hasStoryboard: true,
   },
   {
@@ -128,7 +124,6 @@ const SEGMENT_SKELETONS: {
     scenes: [1],
     props: [1],
     shotType: "Close-up",
-    cameraMotion: "Static",
     hasStoryboard: false,
   },
   {
@@ -138,7 +133,6 @@ const SEGMENT_SKELETONS: {
     scenes: [1],
     props: [1],
     shotType: "Medium Close-up",
-    cameraMotion: "Zoom Out",
     hasStoryboard: false,
   },
 ];

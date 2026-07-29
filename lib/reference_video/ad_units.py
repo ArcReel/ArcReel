@@ -203,8 +203,6 @@ def _shot_prompt_text(shot: dict) -> str:
         parts.append(scene)
     if action := _text(video_prompt.get("action")):
         parts.append(action)
-    if camera := _text(video_prompt.get("camera_motion")):
-        parts.append(f"运镜：{camera}")
     if audio := _text(video_prompt.get("ambiance_audio")):
         parts.append(f"环境音：{audio}")
     dialogue = video_prompt.get("dialogue")
