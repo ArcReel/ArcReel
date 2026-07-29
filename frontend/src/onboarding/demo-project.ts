@@ -261,6 +261,7 @@ export function buildDemoScripts(t: DemoT): Record<string, NarrationEpisodeScrip
       },
       video_prompt: {
         action: t(`demo_shot_${n}_video`),
+        camera_motion: "",
         ambiance_audio: t(`demo_shot_${n}_audio`),
         dialogue: [],
       },

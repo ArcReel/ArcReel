@@ -21,7 +21,7 @@ function makeScene(durationSeconds: number): DramaScene {
       scene: "重逢",
       composition: { shot_type: "Medium Shot", lighting: "暖光", ambiance: "怀旧" },
     },
-    video_prompt: { action: "推门而入", ambiance_audio: "", dialogue: [] },
+    video_prompt: { action: "推门而入", camera_motion: "", ambiance_audio: "", dialogue: [] },
     utterances: [],
     transition_to_next: "cut",
   };
