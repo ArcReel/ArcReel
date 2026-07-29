@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from lib.data_validator import DataValidator
 
 
@@ -122,6 +124,51 @@ def test_validator_rejects_invalid_shot_duration(tmp_path: Path):
     result = v.validate_project_tree(tmp_path)
     assert not result.valid
     assert any("duration 必须是 1-15" in e for e in result.errors)
+
+
+@pytest.mark.integration
+def test_validator_rejects_duplicate_reference_video_unit_ids(tmp_path: Path):
+    project = _reference_project()
+    script = _valid_reference_script()
+    script["video_units"].append({**script["video_units"][0]})
+    _write(tmp_path, "project.json", project)
+    _write(tmp_path, "scripts/episode_1.json", script)
+
+    result = DataValidator().validate_project_tree(tmp_path)
+
+    assert not result.valid
+    assert any("unit_id 重复 'E1U1'" in error for error in result.errors)
+
+
+@pytest.mark.integration
+def test_validator_rejects_duplicate_ad_reference_unit_ids(tmp_path: Path):
+    project = _reference_project()
+    project.update({"content_mode": "ad", "target_duration": 10})
+    script = {
+        "episode": 1,
+        "title": "Ad",
+        "content_mode": "ad",
+        "shots": [
+            {
+                "shot_id": "E1S1",
+                "duration_seconds": 10,
+                "voiceover_text": "",
+                "image_prompt": "image",
+                "video_prompt": "video",
+            }
+        ],
+        "reference_units": [
+            {"unit_id": "E1U1", "shot_ids": ["E1S1"], "references": []},
+            {"unit_id": "E1U1", "shot_ids": ["E1S1"], "references": []},
+        ],
+    }
+    _write(tmp_path, "project.json", project)
+    _write(tmp_path, "scripts/episode_1.json", script)
+
+    result = DataValidator().validate_project_tree(tmp_path)
+
+    assert not result.valid
+    assert any("unit_id 重复 'E1U1'" in error for error in result.errors)
 
 
 def test_validator_rejects_reference_video_in_content_mode(tmp_path: Path):

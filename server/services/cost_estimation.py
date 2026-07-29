@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from lib.config.resolver import ConfigResolver, get_provider_fallback
 from lib.cost_calculator import cost_calculator
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.db.repositories.usage_repo import UsageRepository
+from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
 from lib.grid.layout import calculate_grid_layout
 from lib.pricing.strategies import PricingParams
 from lib.project_manager import effective_mode
@@ -29,6 +30,9 @@ from server.services.reference_video_tasks import (
 logger = logging.getLogger(__name__)
 
 CostBreakdown = dict[str, float]
+ActualBySegment = dict[str, dict[str, CostBreakdown]]
+# 费用页展示的记账类型；text 类调用不写 segment_id，只会落在项目级汇总里。
+ACTUAL_COST_TYPES = ("image", "video", "audio")
 
 
 def _add_cost(target: CostBreakdown, amount: float, currency: str) -> None:
@@ -42,6 +46,31 @@ def _merge_breakdowns(a: CostBreakdown, b: CostBreakdown) -> CostBreakdown:
     for cur, amt in b.items():
         merged[cur] = round(merged.get(cur, 0) + amt, 6)
     return merged
+
+
+def _claim_actual(
+    actual_by_segment: ActualBySegment,
+    claimed: set[tuple[str, str]],
+    segment_id: str,
+    cost_types: tuple[str, ...] = ACTUAL_COST_TYPES,
+) -> dict[str, CostBreakdown]:
+    """认领一份 segment 实付；同一 (记账 key, 类型) 在一次估算中最多返回一次。
+
+    认领粒度到类型而非整条 key：调用方只消费其中一部分类型时，剩下的仍是未认领状态，
+    由兜底聚合收进「未归属」，不会被整条认领吞掉。
+    """
+    if not segment_id:
+        return {}
+    actual = actual_by_segment.get(segment_id, {})
+    claimed_now: dict[str, CostBreakdown] = {}
+    for cost_type in cost_types:
+        if (segment_id, cost_type) in claimed:
+            continue
+        claimed.add((segment_id, cost_type))
+        amounts = actual.get(cost_type)
+        if amounts:
+            claimed_now[cost_type] = amounts
+    return claimed_now
 
 
 def _split_cost_across(cost: CostBreakdown, parts: int) -> list[CostBreakdown]:
@@ -202,6 +231,7 @@ class CostEstimationService:
         episodes_result = []
         proj_est: dict[str, CostBreakdown] = {}
         proj_act: dict[str, CostBreakdown] = {}
+        claimed_actual: set[tuple[str, str]] = set()
 
         content_mode = project_data.get("content_mode", "narration")
         # 惰性解析：只有项目里真出现按 unit 计费的参考视频集时才触发这次额外 IO
@@ -267,6 +297,7 @@ class CostEstimationService:
                         generate_audio=generate_audio,
                         video_price=video_price,
                         actual_by_segment=actual_by_segment,
+                        claimed_actual=claimed_actual,
                     )
                 else:
                     segments_result, ep_est, ep_act = self._estimate_unit_reference_video_episode(
@@ -278,6 +309,7 @@ class CostEstimationService:
                         generate_audio=generate_audio,
                         video_price=video_price,
                         actual_by_segment=actual_by_segment,
+                        claimed_actual=claimed_actual,
                     )
                 _accumulate_episode(ep_meta, segments_result, ep_est, ep_act)
                 continue
@@ -316,7 +348,7 @@ class CostEstimationService:
             # Compute per-scene share of each grid's actual cost
             grid_actual_per_scene: dict[str, CostBreakdown] = {}
             for gid, sids in grid_to_scenes.items():
-                grid_cost = actual_by_segment.get(gid, {}).get("image", {})
+                grid_cost = _claim_actual(actual_by_segment, claimed_actual, gid, ("image",)).get("image", {})
                 if grid_cost:
                     n = len(sids)
                     per_scene: CostBreakdown = {cur: round(amt / n, 6) for cur, amt in grid_cost.items()}
@@ -375,7 +407,7 @@ class CostEstimationService:
                     except Exception:
                         logger.debug("无法计算 audio 预估 for %s", seg_id, exc_info=True)
 
-                seg_actual = actual_by_segment.get(seg_id, {})
+                seg_actual = _claim_actual(actual_by_segment, claimed_actual, seg_id)
                 act_image: CostBreakdown = seg_actual.get("image", {})
                 if seg_id in grid_actual_per_scene:
                     act_image = _merge_breakdowns(act_image, grid_actual_per_scene[seg_id])
@@ -405,6 +437,50 @@ class CostEstimationService:
 
             _accumulate_episode(ep_meta, segments_result, ep_est, ep_act)
 
+        # 当前剧本没有认领到的历史记账仍是真实支出。规范 segment/unit ID 自带 E{n}
+        # 前缀，可回填对应集；无法识别或对应集已不存在的记录仍纳入项目合计。
+        episodes_by_number = {ep["episode"]: ep for ep in episodes_result}
+        # 剧本文件缺失或尚未生成的集不进入估算结果，但它的历史支出仍属于这一集。按需补一条
+        # 只含实付的集结果，让这笔钱显示在集行上，而不是静默退到项目合计。
+        meta_by_number = {ep_meta.get("episode"): ep_meta for ep_meta in episodes_meta}
+
+        def _attribution_target(episode_number: int) -> dict[str, Any] | None:
+            existing = episodes_by_number.get(episode_number)
+            if existing is not None:
+                return existing
+            ep_meta = meta_by_number.get(episode_number)
+            if ep_meta is None:
+                return None
+            created: dict[str, Any] = {
+                "episode": episode_number,
+                "title": ep_meta.get("title", ""),
+                "segments": [],
+                "totals": {"estimate": {}, "actual": {}},
+            }
+            episodes_result.append(created)
+            episodes_by_number[episode_number] = created
+            return created
+
+        for segment_id, actual_by_type in actual_by_segment.items():
+            if segment_id == PROJECT_LEVEL_SEGMENT_KEY:
+                continue
+            match = re.match(r"^E(\d+)(?:S|U)", segment_id)
+            for cost_type in ACTUAL_COST_TYPES:
+                amounts = actual_by_type.get(cost_type, {})
+                if not amounts or (segment_id, cost_type) in claimed_actual:
+                    continue
+                proj_act["unassigned"] = _merge_breakdowns(proj_act.get("unassigned", {}), amounts)
+                episode_result = _attribution_target(int(match.group(1))) if match else None
+                if episode_result is not None:
+                    episode_actual = episode_result["totals"]["actual"]
+                    episode_actual["unassigned"] = _merge_breakdowns(
+                        episode_actual.get("unassigned", {}),
+                        amounts,
+                    )
+        # 补出来的集结果追加在末尾，重排回 project.json 的集顺序，让费用页集行不跳序。
+        meta_order = {ep_meta.get("episode"): i for i, ep_meta in enumerate(episodes_meta)}
+        episodes_result.sort(key=lambda ep: meta_order.get(ep["episode"], len(meta_order)))
+
         # Project-level actual costs (characters/scenes/props/products 资产图 —— segment_id is null)
         async with self._session_factory() as session:
             project_image_by_type = await UsageRepository(session).get_project_image_costs_by_asset_type(project_name)
@@ -412,6 +488,17 @@ class CostEstimationService:
             bucket = project_image_by_type.get(asset_type)
             if bucket:
                 proj_act[asset_type] = bucket
+        # segment_id 为空的记账里，资产图已按类型单列，剩下的仍是真实支出：无法按 output_path
+        # 归类的图，以及 segment_id 列回填前的历史 video/audio 行。它们没有集归属线索，只并入
+        # 项目级「未归属」。
+        project_level_actual = actual_by_segment.get(PROJECT_LEVEL_SEGMENT_KEY, {})
+        for amounts in (
+            project_image_by_type.get("other", {}),
+            project_level_actual.get("video", {}),
+            project_level_actual.get("audio", {}),
+        ):
+            if amounts:
+                proj_act["unassigned"] = _merge_breakdowns(proj_act.get("unassigned", {}), amounts)
 
         return {
             "project_name": project_name,
@@ -435,7 +522,8 @@ class CostEstimationService:
         video_resolution: str | None,
         generate_audio: bool,
         video_price: Any,
-        actual_by_segment: dict[str, dict[str, CostBreakdown]],
+        actual_by_segment: ActualBySegment,
+        claimed_actual: set[tuple[str, str]],
     ) -> tuple[list[dict[str, Any]], dict[str, CostBreakdown], dict[str, CostBreakdown]]:
         """ad + reference_video 集的估值：计费颗粒度是 unit，展示颗粒度是 shot。
 
@@ -504,7 +592,12 @@ class CostEstimationService:
                 video_price=video_price,
             )
 
-            act_video: CostBreakdown = actual_by_segment.get(unit_id, {}).get("video", {})
+            act_video: CostBreakdown = _claim_actual(
+                actual_by_segment,
+                claimed_actual,
+                unit_id,
+                ("video",),
+            ).get("video", {})
             est_by_shot = _split_cost_across(est_video, len(ad_shots))
             act_by_shot = _split_cost_across(act_video, len(ad_shots))
 
@@ -515,7 +608,7 @@ class CostEstimationService:
                 # 不因当前是 reference_video 模式而清空——那是用户已经花掉的真实费用。video
                 # 维度与 unit 分摊额合并而非互相替换：同一镜头可能既有切换前的历史视频调用
                 # （shot_id 记账），也有切换后的 unit 调用（unit_id 分摊），两者都是真实支出。
-                shot_actual = actual_by_segment.get(shot_id, {})
+                shot_actual = _claim_actual(actual_by_segment, claimed_actual, shot_id)
                 shot_act_image = shot_actual.get("image", {})
                 shot_act_audio = shot_actual.get("audio", {})
                 shot_act_video = _merge_breakdowns(act_by_shot[idx], shot_actual.get("video", {}))
@@ -548,7 +641,8 @@ class CostEstimationService:
         video_resolution: str | None,
         generate_audio: bool,
         video_price: Any,
-        actual_by_segment: dict[str, dict[str, CostBreakdown]],
+        actual_by_segment: ActualBySegment,
+        claimed_actual: set[tuple[str, str]],
     ) -> tuple[list[dict[str, Any]], dict[str, CostBreakdown], dict[str, CostBreakdown]]:
         """narration/drama + reference_video 集的估值：unit 本身就是展示颗粒度，无需分摊。
 
@@ -622,7 +716,7 @@ class CostEstimationService:
                         video_price=video_price,
                     )
 
-            unit_actual = actual_by_segment.get(unit_id, {})
+            unit_actual = _claim_actual(actual_by_segment, claimed_actual, unit_id)
             act_image: CostBreakdown = unit_actual.get("image", {})
             act_video: CostBreakdown = unit_actual.get("video", {})
             act_audio: CostBreakdown = unit_actual.get("audio", {})

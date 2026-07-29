@@ -5,6 +5,7 @@ import {
   formatCostOrZero,
   formatCurrencyAmount,
   totalBreakdown,
+  currentScriptBreakdown,
 } from "./cost-format";
 
 describe("cost-format", () => {
@@ -50,5 +51,12 @@ describe("cost-format", () => {
         video: { CNY: 3 },
       }),
     ).toEqual({ CNY: 4.1112, USD: 2 });
+  });
+
+  it("excludes unassigned history from the current-script total", () => {
+    const actual = { video: { USD: 2 }, unassigned: { USD: 10 } };
+    expect(totalBreakdown(actual)).toEqual({ USD: 12 });
+    expect(currentScriptBreakdown(actual)).toEqual({ USD: 2 });
+    expect(currentScriptBreakdown({ unassigned: { USD: 10 } })).toEqual({});
   });
 });

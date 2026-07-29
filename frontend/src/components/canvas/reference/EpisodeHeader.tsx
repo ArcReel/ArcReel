@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { EditableEpisodeTitle } from "@/components/canvas/EditableEpisodeTitle";
 import { useCostStore } from "@/stores/cost-store";
-import { formatCost } from "@/utils/cost-format";
+import { formatCost, totalBreakdown } from "@/utils/cost-format";
 
 /**
  * 头部统计只需要时长与成片两项，故按结构约束而非绑定具体单元类型：
@@ -35,8 +35,10 @@ export function EpisodeHeader({ episode, title, units, onSaveTitle, canEditTitle
       ready,
       totalDur,
       percent,
-      estimated: formatCost(epCost?.totals.estimate.video),
-      actual: formatCost(epCost?.totals.actual.video),
+      // 按全部费用类型聚合，而不是只取 video：参考视频集也会有旁白音频，以及已删改单元
+      // 留下的历史支出，只看 video 桶会让这一集显示得比实际花的少。
+      estimated: formatCost(totalBreakdown(epCost?.totals.estimate ?? {})),
+      actual: formatCost(totalBreakdown(epCost?.totals.actual ?? {})),
     };
   }, [units, epCost]);
 

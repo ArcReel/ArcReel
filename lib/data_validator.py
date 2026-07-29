@@ -944,6 +944,26 @@ class DataValidator:
                 f"超过 {AD_TARGET_DURATION_DRIFT_THRESHOLD:.0%} 观察阈值（仅提示，不阻塞保存）"
             )
 
+    @staticmethod
+    def _check_unit_id_unique(
+        unit_id: Any,
+        seen_unit_ids: set[str],
+        prefix: str,
+        errors: list[str],
+        *,
+        missing_message: str,
+    ) -> None:
+        """校验单个 unit_id 的存在性与唯一性。
+
+        video_units 与 reference_units 两处判重规则一致，共用此实现，避免规则调整时漏改一处。
+        """
+        if not unit_id or not isinstance(unit_id, str):
+            errors.append(f"{prefix}: {missing_message}")
+            return
+        if unit_id in seen_unit_ids:
+            errors.append(f"{prefix}: unit_id 重复 '{unit_id}'")
+        seen_unit_ids.add(unit_id)
+
     def _validate_reference_video_script(
         self,
         video_units: list[dict[str, Any]] | Any,
@@ -965,6 +985,7 @@ class DataValidator:
             "scene": project_scenes,
             "prop": project_props,
         }
+        seen_unit_ids: set[str] = set()
 
         for index, unit in enumerate(video_units):
             prefix = f"video_units[{index}]"
@@ -972,8 +993,13 @@ class DataValidator:
                 errors.append(f"{prefix}: 必须是对象")
                 continue
 
-            if not unit.get("unit_id"):
-                errors.append(f"{prefix}: 缺少 unit_id")
+            self._check_unit_id_unique(
+                unit.get("unit_id"),
+                seen_unit_ids,
+                prefix,
+                errors,
+                missing_message="缺少 unit_id",
+            )
 
             shots = unit.get("shots")
             if not isinstance(shots, list) or not shots:
@@ -1042,15 +1068,20 @@ class DataValidator:
             return
 
         shot_ids = {s.get("shot_id") for s in shots if isinstance(s, dict)} if isinstance(shots, list) else set()
+        seen_unit_ids: set[str] = set()
         for index, unit in enumerate(units):
             prefix = f"reference_units[{index}]"
             if not isinstance(unit, dict):
                 errors.append(f"{prefix}: 必须是对象")
                 continue
 
-            unit_id = unit.get("unit_id")
-            if not unit_id or not isinstance(unit_id, str):
-                errors.append(f"{prefix}: 缺少必填字段 unit_id")
+            self._check_unit_id_unique(
+                unit.get("unit_id"),
+                seen_unit_ids,
+                prefix,
+                errors,
+                missing_message="缺少必填字段 unit_id",
+            )
 
             ids = unit.get("shot_ids")
             if not isinstance(ids, list) or not ids:
