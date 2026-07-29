@@ -238,14 +238,19 @@ class CostEstimationService:
             # 颗粒度（``_estimate_unit_reference_video_episode``）。
             #
             # ad 骨架唯一、shots 不打 generation_mode 戳，生成路径以项目级/集级戳为真相源，故
-            # 只按 ``effective_mode`` 判定；narration/drama 的生成侧按剧本戳判定（见
-            # ``server/agent_runtime/sdk_tools/enqueue_videos.py``），项目已切到 reference_video
-            # 但该集剧本仍是分镜骨架时实际入队的还是分镜任务，估算随之沿用分镜路径，不按尚不
-            # 存在的 units 归零。
+            # 只按 ``effective_mode`` 判定；narration/drama 的生成侧按剧本自身的 generation_mode
+            # 戳判定（``server/agent_runtime/sdk_tools/enqueue_videos.py::_is_reference_script``），
+            # 项目已切到 reference_video 但该集剧本仍是分镜骨架（戳缺失/非 reference_video）时
+            # 实际入队的还是分镜任务，估算须按同一戳回落分镜路径——不能只看 video_units 是否
+            # 非空：剧本可能残留切换前/迁移中间态的 video_units，戳仍是分镜骨架时那份数据不是
+            # 真相源，若照旧估值会与实际入队的分镜任务对不上。
             is_reference_video = effective_mode(project=project_data, episode=ep_meta) == "reference_video"
             raw_units = script.get("video_units")
             video_units: list[Any] = raw_units if isinstance(raw_units, list) else []
-            estimate_by_unit = is_reference_video and (content_mode == "ad" or bool(video_units))
+            if content_mode == "ad":
+                estimate_by_unit = is_reference_video
+            else:
+                estimate_by_unit = is_reference_video and script.get("generation_mode") == "reference_video"
 
             if estimate_by_unit:
                 if duration_ctx is None:

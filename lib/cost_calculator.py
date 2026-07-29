@@ -60,6 +60,10 @@ class CostCalculator:
         # estimate_reference_video_cost，传真实累计时长（可为 0），不经此默认。
         if isinstance(pricing, (PerSecondMatrix, PerSecondTiered)) and not params.duration_seconds:
             params = replace(params, duration_seconds=8)
+        # 按 token 计费的视频（Ark/Seedance）：调用方只传了时长、未预先换算 token 时按估算
+        # 近似值换算，否则该模型的预估恒为 0（实际调用仍由生成回调覆盖为真实 token 用量）。
+        if isinstance(pricing, PerTokenVideo) and params.usage_tokens is None and params.duration_seconds:
+            params = replace(params, usage_tokens=params.duration_seconds * self._ARK_TOKENS_PER_SECOND_ESTIMATE)
         return calculate_pricing(pricing, params)
 
     def estimate_reference_video_cost(

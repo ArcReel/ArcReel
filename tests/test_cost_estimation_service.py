@@ -763,6 +763,7 @@ class TestCostEstimationService:
         assert [seg["estimate"]["video"][currency] for seg in segments] == [per_unit] * 3
         assert result["episodes"][0]["totals"]["estimate"]["video"][currency] == round(per_unit * 3, 6)
 
+    @pytest.mark.integration
     async def test_narration_reference_video_produces_nonzero_video_estimate(self, db_factory):
         """narration + reference_video 集的视频估值不应恒为 0（`get_storyboard_items` 对该
         generation_mode 恒返回空列表，之前的估算循环遍历它，等于永远算不出视频费用）。
@@ -794,6 +795,7 @@ class TestCostEstimationService:
         assert result["project_totals"]["estimate"].get("image", {}) == {}
         assert result["project_totals"]["estimate"]["video"]
 
+    @pytest.mark.integration
     async def test_drama_reference_video_actual_cost_matches_unit_id(self, db_factory):
         """actual 侧直接按 unit_id 匹配，不需要摊分——reference_videos 的记账 resource_id
         即 unit_id，与本路径输出的 segment_id 同一 identity。
@@ -829,6 +831,7 @@ class TestCostEstimationService:
         assert result["episodes"][0]["totals"]["actual"]["video"]["USD"] == pytest.approx(0.8)
         assert result["project_totals"]["actual"]["video"]["USD"] == pytest.approx(0.8)
 
+    @pytest.mark.integration
     async def test_narration_reference_video_estimate_uses_rounded_up_unit_duration(self, db_factory, monkeypatch):
         """取档向上的 unit：预估金额按取档后的秒数（8s）计，而非剧本原始总时长（5s）。"""
         from server.services import cost_estimation as cost_estimation_module
@@ -869,6 +872,7 @@ class TestCostEstimationService:
         assert sum(seg["estimate"]["video"].values()) > sum(base_seg["estimate"]["video"].values())
         assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
 
+    @pytest.mark.integration
     async def test_narration_reference_video_falls_back_when_script_still_storyboard(self, db_factory):
         """项目已切到 reference_video、该集剧本还是分镜骨架时，估算沿用分镜路径而非归零。
 
@@ -904,6 +908,66 @@ class TestCostEstimationService:
         segments = result["episodes"][0]["segments"]
         assert [seg["segment_id"] for seg in segments] == ["E1S1", "E1S2"]
         assert result["project_totals"]["estimate"]["image"]
+        assert result["project_totals"]["estimate"]["video"]
+
+    @pytest.mark.integration
+    async def test_narration_reference_video_falls_back_when_video_units_stale(self, db_factory):
+        """剧本残留切换前/迁移中间态的 ``video_units``、自身戳非 reference_video 时，
+        估算仍按分镜路径走，不因 units 非空而误判为 unit 路径。
+
+        与 ``test_narration_reference_video_falls_back_when_script_still_storyboard`` 的区别：
+        该用例的剧本没有 video_units；本用例剧本残留了非空 video_units，验证判定看的是剧本
+        自身的 ``generation_mode`` 戳而非 ``bool(video_units)``。
+        """
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        script = _make_reference_video_script(1, "narration", [("E1U1", 6)])
+        script.pop("generation_mode")
+        script["segments"] = [
+            {"segment_id": "E1S1", "duration_seconds": 5, "narration": "n1", "visual_prompt": "v1"},
+        ]
+        scripts = {"ep1.json": script}
+
+        result = await service.compute(project_data, scripts, project_name="narration-stale-units")
+
+        segments = result["episodes"][0]["segments"]
+        assert [seg["segment_id"] for seg in segments] == ["E1S1"]
+        assert result["project_totals"]["estimate"]["image"]
+        assert result["project_totals"]["estimate"]["video"]
+
+    @pytest.mark.integration
+    async def test_narration_reference_video_estimate_handles_token_priced_video_model(self, db_factory):
+        """按 token 计费的视频模型（Ark/Seedance）也要能算出非零视频预估。
+
+        ``_estimate_unit_video_cost`` 只传 ``duration_seconds``，若不换算 usage_tokens，
+        ``PerTokenVideo`` 定价形状会因 ``usage_tokens`` 缺失恒算出 0。
+        """
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "video_backend": "ark",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 6)])}
+
+        result = await service.compute(project_data, scripts, project_name="narration-ark-token")
+
+        segments = result["episodes"][0]["segments"]
+        assert segments[0]["segment_id"] == "E1U1"
+        assert segments[0]["estimate"]["video"]
         assert result["project_totals"]["estimate"]["video"]
 
     async def test_empty_episodes(self, db_factory):
