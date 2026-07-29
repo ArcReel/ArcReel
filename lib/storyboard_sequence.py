@@ -10,6 +10,7 @@ from pathlib import Path
 
 from lib.path_safety import safe_join, try_safe_join
 from lib.script_editor import resolve_items
+from lib.script_models import is_reference_script
 from lib.script_skeleton import SKELETONS
 
 
@@ -45,7 +46,7 @@ def get_storyboard_items(script: dict) -> tuple[list[dict], str, str | None, str
     ``ScriptEditError``——读取侧的调用方（``cost_estimation`` / 路由 / enqueue 工具）应让
     异常上冒，避免脏数据被静默吞成 ``TypeError: 'NoneType' is not iterable``。
     """
-    if script.get("generation_mode") == "reference_video":
+    if is_reference_script(script):
         unit = SKELETONS["video_units"]
         return ([], unit.id_field, unit.chars_field, "scenes", "props")
 
