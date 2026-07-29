@@ -385,8 +385,12 @@ class CostEstimationService:
         算出的 unit 费用再均摊回成员镜头输出，与 grid 模式「按 grid 计费、分摊到 scene
         展示」的口径同构：前端按镜头 ID 索引 segment（``frontend/src/stores/cost-store.ts``），
         输出 unit ID 会让镜头面板查不到费用。除不尽的余数补给末镜，保证分摊后的合计与
-        unit 原值分文不差。实际费用同样按 unit 分摊——usage 记录的 segment_id 就是 unit ID
-        （执行层把 unit ID 作为 ``resource_id`` 传给 ``generate_video_async``）。
+        unit 原值分文不差。视频实付按 unit 分摊，读的是 ``actual_by_segment[unit_id]``
+        ——注：``lib/media_generator.py`` 目前只对 ``resource_type in ("storyboards",
+        "videos")`` 写入 usage 的 segment_id，``reference_videos`` 调用不在其中，故这一读取
+        现状恒空，是独立于本函数的既有缺口，不在本次改动范围内。图片/音频实付按 shot_id
+        原样回填（不受 unit 分摊影响）：项目若曾在 storyboard 模式生成过分镜图、之后切到
+        reference_video，这些已发生的镜头图费用仍需展示。
 
         分组优先读剧本已持久化的 ``reference_units``（与执行时同一份索引，见
         ``lib.reference_video.ad_units.sync_ad_reference_units``）；用户尚未打开过参考
@@ -394,8 +398,9 @@ class CostEstimationService:
         时长上限取自 ``duration_ctx``（与执行侧派生同一份能力解析，不额外触发 IO），
         分组结果因此与真实派生同约束，真实分组仍以执行时派生结果为准。
 
-        无图片/音频维度：ad 参考视频不产生分镜图（跳过分镜步骤）、镜头口播文案不产生
+        无图片/音频估值维度：ad 参考视频不产生分镜图（跳过分镜步骤）、镜头口播文案不产生
         旁白配音估值（同 storyboard 模式口径，见 ``test_ad_voiceover_does_not_produce_audio_estimate``）。
+        实付维度不受此限——见上段。
         """
         units = script.get("reference_units")
         if not isinstance(units, list) or not units:
@@ -450,16 +455,23 @@ class CostEstimationService:
             for idx, shot in enumerate(ad_shots):
                 shot_est = est_by_shot[idx]
                 shot_act = act_by_shot[idx]
+                shot_id = shot.get("shot_id", "")
+                # 模式切换前（storyboard 阶段）按 shot_id 记的镜头图/音频实付仍要展示，
+                # 不因当前是 reference_video 模式而清空——那是用户已经花掉的真实费用。
+                shot_actual = actual_by_segment.get(shot_id, {})
+                shot_act_image = shot_actual.get("image", {})
+                shot_act_audio = shot_actual.get("audio", {})
                 segments_result.append(
                     {
-                        "segment_id": shot.get("shot_id", ""),
+                        "segment_id": shot_id,
                         # 展示镜头自身的编排时长：取档发生在 unit 级，摊不回单个镜头
                         "duration_seconds": shot.get("duration_seconds", 8),
                         "estimate": {"image": {}, "video": shot_est, "audio": {}},
-                        "actual": {"image": {}, "video": shot_act, "audio": {}},
+                        "actual": {"image": shot_act_image, "video": shot_act, "audio": shot_act_audio},
                     }
                 )
                 ep_est["video"] = _merge_breakdowns(ep_est.get("video", {}), shot_est)
-                ep_act["video"] = _merge_breakdowns(ep_act.get("video", {}), shot_act)
+                for cost_type, amounts in (("image", shot_act_image), ("video", shot_act), ("audio", shot_act_audio)):
+                    ep_act[cost_type] = _merge_breakdowns(ep_act.get(cost_type, {}), amounts)
 
         return segments_result, ep_est, ep_act

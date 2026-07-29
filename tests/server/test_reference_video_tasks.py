@@ -1186,11 +1186,12 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     fake_queue.persist_effective_duration.assert_awaited_once_with("task-1", 8)
 
 
-async def test_execute_reference_video_task_skips_persisting_duration_when_unchanged(
+async def test_execute_reference_video_task_persists_duration_when_unchanged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """未偏移（adjustment == exact）时不必写回，省一次 DB 往返。"""
+    """未偏移（adjustment == exact）时同样要写回：入队 payload 从不携带 duration_seconds，
+    不写回会让 resume 回退到 project.default_duration 而非该 unit 自己的时长。"""
     proj_dir = _write_project(tmp_path)
 
     from server.services import reference_video_tasks as rvt
@@ -1235,7 +1236,7 @@ async def test_execute_reference_video_task_skips_persisting_duration_when_uncha
         task_id="task-1",
     )
 
-    fake_queue.persist_effective_duration.assert_not_awaited()
+    fake_queue.persist_effective_duration.assert_awaited_once_with("task-1", 3)
 
 
 def test_apply_unit_video_assets_distinguishes_failures():

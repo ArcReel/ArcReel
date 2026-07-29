@@ -31,8 +31,14 @@ async def _seed_call(
     segment_id: str | None = None,
     output_path: str | None = None,
     usage_tokens: int | None = None,
+    cost_amount: float | None = None,
+    currency: str | None = None,
 ) -> None:
-    """直连 UsageRepository 写入一条已完成调用记录（等价于旧 UsageTracker 的种子写法）。"""
+    """直连 UsageRepository 写入一条已完成调用记录（等价于旧 UsageTracker 的种子写法）。
+
+    ``cost_amount`` 非空时绕过按 model 定价表的自动计算，直接结算为该值——用于不依赖
+    具体供应商定价配置、只关心分摊/聚合逻辑的用例（如 unit 费用按镜头摊回）。
+    """
     async with db_factory() as session:
         repo = UsageRepository(session)
         cid = await repo.start_call(
@@ -46,7 +52,7 @@ async def _seed_call(
         await repo.finish_call(
             cid,
             status="success",
-            settlement=SettlementInput(usage_tokens=usage_tokens),
+            settlement=SettlementInput(usage_tokens=usage_tokens, cost_amount=cost_amount, currency=currency),
             output_path=output_path,
         )
 
@@ -548,6 +554,45 @@ class TestCostEstimationService:
         ep_total = result["episodes"][0]["totals"]["estimate"]["video"][currency]
         assert round(sum(shares), 6) == ep_total
         assert ep_total == result["project_totals"]["estimate"]["video"][currency]
+
+    async def test_ad_reference_video_apportions_actual_cost_across_shots(self, db_factory):
+        """实际费用同样按 unit 分摊：usage 记录的 segment_id 是 unit ID，不是镜头 ID。
+
+        ``act_by_shot`` 这条链路此前零覆盖——只断言 estimate 侧无法区分「actual 按 unit
+        正确分摊」与「actual_by_segment.get(unit_id) 查询本身有误、恒为空」。
+        """
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        await _seed_call(
+            db_factory,
+            "ad-ref-actual",
+            "video",
+            "veo-3.1",
+            provider="veo",
+            segment_id="E1U1",
+            cost_amount=1.6,
+            currency="USD",
+        )
+
+        project_data = {
+            "title": "Ad",
+            "content_mode": "ad",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_ad_script(["E1S1", "E1S2", "E1S3"], [2, 2, 2])}
+
+        result = await service.compute(project_data, scripts, project_name="ad-ref-actual")
+
+        segments = result["episodes"][0]["segments"]
+        assert [seg["segment_id"] for seg in segments] == ["E1S1", "E1S2", "E1S3"]
+        shares = [seg["actual"]["video"]["USD"] for seg in segments]
+        assert all(shares), "actual_by_segment.get(unit_id) 查不到时分摊结果会全是空 dict"
+        assert round(sum(shares), 6) == 1.6
+        assert result["episodes"][0]["totals"]["actual"]["video"]["USD"] == pytest.approx(1.6)
+        assert result["project_totals"]["actual"]["video"]["USD"] == pytest.approx(1.6)
 
     async def test_ad_reference_video_estimate_uses_rounded_up_unit_duration(self, db_factory, monkeypatch):
         """取档向上的 unit：预估金额按取档后的秒数（8s）计，而非剧本原始总时长（5s）。

@@ -522,12 +522,14 @@ async def execute_reference_video_task(
             resolution=resolution,
         )
 
-    # 取档偏移了剧本编排（adjustment != exact）时，把实际申请的秒数写回 task payload：
-    # resume 路径（server.services.resume_executor）读 payload["duration_seconds"] 重建
-    # 申请参数，不写回会在重启续传时按剧本原值而非本次实际申请的秒数记录版本元数据。
-    # 未偏移时两值相等，写回无意义，跳过省一次 DB 往返。持久化失败只降级为 resume 元数据
-    # 不够精确（仍回退到剧本原值，与本次改动前行为一致），不影响本次生成结果，不 fail-fast。
-    if task_id is not None and effective_duration != base_duration:
+    # 把实际申请的秒数写回 task payload：resume 路径（server.services.resume_executor）
+    # 读 payload["duration_seconds"] 重建申请参数，回退顺序是 payload > project.default_duration
+    # > 8。入队时（reference_videos 路由 / SDK 工具）payload 从不携带 duration_seconds，
+    # 不写回时回退到的是 project 默认时长，而非该 unit 自己的时长——二者不相等是常态，
+    # 不能仅在「取档偏移了剧本编排（adjustment != exact）」时才写回，未取档但仍偏离项目
+    # 默认值的 unit 同样需要。持久化失败只降级为 resume 元数据不够精确（回退到项目默认
+    # 时长，与本次改动前行为一致），不影响本次生成结果，不 fail-fast。
+    if task_id is not None:
         await _persist_effective_duration(task_id, effective_duration)
 
     # 6. 渲染 prompt。ad：镜头文本 + 裁剪后参考的 [图N] 对照表 + 保真/反向尾词。
