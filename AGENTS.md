@@ -95,11 +95,11 @@ Windows 原生无 bwrap，会自动降级：
 
 ## 智能体运行环境
 
-智能体专用配置的源目录是 `agent_runtime_profile/`，与开发态 `.claude/` 物理分离，其下：
+智能体专用配置的源目录是 `agent_runtime_profile/`，与开发态 `.claude/` 物理分离：
 
-- `.claude/skills/` `.claude/agents/` — Skill 与 Subagent 定义
-- `CLAUDE.*.md` — 按 `content_mode` 拆分的系统 prompt 变体，运行时按项目内容模式动态注入
-- profile 同步由 `lib/profile_manifest.py` 通过 manifest + sha256 驱动，仅把声明过且校验通过的文件单向复制到各项目的 `.claude/`，运行时从项目侧加载；直接改项目侧文件不会生效且会被下次同步覆盖
+- `agent_runtime_profile/.claude/skills/`、`agent_runtime_profile/.claude/agents/` — Skill 与 Subagent 定义
+- `agent_runtime_profile/CLAUDE.*.md` — 按 `content_mode` 拆分的系统 prompt 变体，运行时按项目内容模式动态注入
+- profile 同步由 `lib/profile_manifest.py` 通过 manifest + sha256 驱动，仅把声明过且校验通过的文件复制到各项目的 `.claude/` 与 CLAUDE.md，运行时从项目侧加载。同步会跳过用户改过的项目侧文件（保留定制，但该文件从此不再接收 profile 升级），共享配置的修改一律落在源目录
 
 Skill 的创建、评估和维护流程参考 `/skill-creator` skill。
 
