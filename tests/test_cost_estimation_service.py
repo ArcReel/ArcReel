@@ -944,6 +944,31 @@ class TestCostEstimationService:
         assert result["project_totals"]["estimate"]["video"]
 
     @pytest.mark.integration
+    async def test_narration_reference_video_estimate_follows_script_stamp_over_effective_mode(self, db_factory):
+        """项目级 ``generation_mode`` 事后回退到 storyboard，但该集剧本仍保留切换前的
+        ``reference_video`` 戳时，估算须跟随剧本戳走 unit 路径，不因项目级戳回退而误判回落
+        分镜——实际入队（``_is_reference_script``）只认剧本自身的戳，从不读 ``effective_mode``。
+        """
+        resolver = ConfigResolver(db_factory)
+        service = CostEstimationService(resolver, db_factory)
+
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "target_duration": 30,
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 6)])}
+
+        result = await service.compute(project_data, scripts, project_name="narration-reverted-project-mode")
+
+        segments = result["episodes"][0]["segments"]
+        assert segments[0]["segment_id"] == "E1U1"
+        assert segments[0]["estimate"]["video"]
+        assert result["project_totals"]["estimate"]["video"]
+
+    @pytest.mark.integration
     async def test_narration_reference_video_estimate_handles_token_priced_video_model(self, db_factory):
         """按 token 计费的视频模型（Ark/Seedance）也要能算出非零视频预估。
 
