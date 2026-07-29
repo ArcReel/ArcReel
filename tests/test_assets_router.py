@@ -283,6 +283,38 @@ class TestFromProject:
         )
         assert r.status_code == 404
 
+    def test_from_project_missing_resource_error_localizes_kind(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+
+        zh = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "demo", "resource_type": "character", "resource_id": "ghost"},
+        )
+        en = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "demo", "resource_type": "character", "resource_id": "ghost"},
+            headers={"Accept-Language": "en"},
+        )
+        vi = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "demo", "resource_type": "character", "resource_id": "ghost"},
+            headers={"Accept-Language": "vi"},
+        )
+
+        assert "角色" in zh.json()["detail"] and "character" not in zh.json()["detail"]
+        assert "character" in en.json()["detail"]
+        assert "nhân vật" in vi.json()["detail"]
+
+    def test_from_project_missing_resource_unregistered_type_passthrough(self, _assets_env):
+        """resource_type 经 GLOBAL_LIBRARY_ASSET_TYPES 白名单校验，理论上不会命中未登记值；
+        本用例校验 localize_asset_type 透传语义未被破坏（防守性覆盖）。"""
+        from lib.asset_types import localize_asset_type
+
+        assert localize_asset_type("widget", lambda key, **_: key) == "widget"
+
     def test_from_project_without_sheet_has_null_image_path(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]

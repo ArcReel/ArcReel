@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 
@@ -108,6 +109,16 @@ ILLEGAL_ASSET_NAME_CHARS: tuple[str, ...] = ("/", "\\", "\0", ":", "*", "?", '"'
 WINDOWS_RESERVED_BASENAMES: frozenset[str] = frozenset(
     {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 )
+
+
+def localize_asset_type(value: str, translate: Callable[..., str]) -> str:
+    """把资产类型内部标识（如 ``"product"``）替换为当前语言显示名。
+
+    未登记的类型值（不在 ``ASSET_SPECS`` 中）原样透传，不做语义映射。
+    """
+    if value not in ASSET_SPECS:
+        return value
+    return translate(f"asset_type_{value}")
 
 
 def validate_asset_name(name: object) -> str:
