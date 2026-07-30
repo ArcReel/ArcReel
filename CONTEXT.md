@@ -168,6 +168,10 @@ _Avoid_: 把它与上传保存时压缩（`normalize_uploaded_image`，针对用
 一次 API 调用完成时（`ApiCall` 从 `pending` 转 `success`），由 `CostCalculator` 按**当时**的模型与计费参数算出金额，**冻结写入该调用记录的 `cost_amount` + `currency`**。所有用量与费用聚合一律 `SUM(cost_amount)` 读这个冻结值，**不在读时重算**。两条推论：① 调整定价只影响**之后**的新调用，不会追溯改变历史记录；② 下线模型的过往花费已锁定，定价数据无需为历史计费保留旧费率。
 _Avoid_: 实时计费、读时重算成本。
 
+**费用归属（cost attribution）**：
+把一笔成本快照归到集与剧本条目的过程。强证据是记账时冻结的 key（调用记录的 `segment_id`），每个 (记账 key, 费用类型) 在一次估算内只认领一次；剧本认领不到的历史记账按 ID 前缀集号兜底摊回集、解析失败归项目级，统一以「未归属（unassigned）」单列。segment/unit ID 不保证唯一、不保证与所在集一致，属已知限制（见 `docs/adr/0053`）。
+_Avoid_: 按 ID 唯一性/前缀一致性校验后归属（会把真实支出误判为未归属）。
+
 ### 媒体类型与配音（TTS）
 
 **media_type / call_type**：
