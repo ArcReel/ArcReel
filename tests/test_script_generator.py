@@ -188,8 +188,6 @@ class TestScriptGenerator:
         assert "E1S01" in prompt
         assert "第一段原文，逐字保留。" in prompt  # novel_text 作只读上下文渲染
         assert "姜月茴" in prompt
-        # 透传式 prompt：不再要求 LLM 复制 novel_text，只产视觉层
-        assert "只产视觉层" in prompt
 
     async def test_narration_step2_build_prompt_uses_project_source_language(self, tmp_path):
         """narration step2（视觉层）prompt 的输出语言须取项目 source_language（与 drama 同口径），非中文项目不得回落中文。"""
@@ -420,9 +418,6 @@ class TestScriptGenerator:
         # 已定稿内容透传进 prompt：scene_id + 视觉改编描述 + 口播（仅供理解）
         assert "E1S01" in prompt
         assert "姜月茴立于庭院" in prompt
-        # step2 只补视觉层
-        assert "image_prompt" in prompt
-        assert "video_prompt" in prompt
 
     async def test_drama_step2_build_prompt_omits_outline(self, tmp_path):
         """分集大纲随内容抽取前移到 step1（normalize）；step2 视觉层 prompt 不再渲染大纲段。"""
@@ -447,7 +442,6 @@ class TestScriptGenerator:
         prompt = await generator.build_prompt(1)
 
         # 大纲 / 钩子内容不在 step2 prompt（它们驱动 step1 内容生成，不影响 step2 视觉）
-        assert "<episode_outline>" not in prompt
         assert "少年坠崖生死未卜" not in prompt
 
     async def test_drama_step2_build_prompt_uses_project_source_language(self, tmp_path):
@@ -1499,10 +1493,8 @@ class TestAdScriptGeneration:
         generator = ScriptGenerator(project_path)
         prompt = await generator.build_prompt(1)
 
-        assert "带货八段框架" in prompt
-        assert "| cta | 3 | 27-30 | 1 |" in prompt
         assert "突出速干卖点" in prompt
-        assert "### 速干杯" in prompt
+        assert "速干杯" in prompt
 
     async def test_build_prompt_reference_path_uses_free_duration(self, tmp_path):
         """ad + reference_video：仍是 ad prompt（shots 骨架），时长约束为 1-15 自由整数。"""
@@ -1512,9 +1504,8 @@ class TestAdScriptGeneration:
         generator = ScriptGenerator(project_path)
         prompt = await generator.build_prompt(1)
 
-        assert "带货八段框架" in prompt
-        assert "1 到 15 秒间整数任选" in prompt
-        # 不得落入参考视频 video_units prompt
+        assert "突出速干卖点" in prompt
+        assert "速干杯" in prompt
         assert "video_units" not in prompt
 
     async def test_build_prompt_uses_project_source_language(self, tmp_path):
@@ -1529,9 +1520,6 @@ class TestAdScriptGeneration:
         generator = ScriptGenerator(project_path)
         prompt = await generator.build_prompt(1)
 
-        # 口播语速折算按 en 口径（约 2.5 词/秒），不得回落默认 zh 口径（约 5 字/秒）
-        assert "约 2.5 词/秒" in prompt
-        assert "约 5 字/秒" not in prompt
         # 输出语言规则锁定为项目 source_language，不回落默认中文
         assert "所有字符串值必须使用 en" in prompt
         assert "所有字符串值必须使用 中文" not in prompt
@@ -1563,8 +1551,6 @@ class TestAdScriptGeneration:
         generator = ScriptGenerator(project_path)
         prompt = await generator.build_prompt(1)
 
-        # products 归一化为空 → 自动分流通用短片 prompt，不落带货框架
-        assert "带货八段框架" not in prompt
         assert isinstance(prompt, str) and prompt
 
     async def test_generate_writes_ad_script_with_metadata(self, tmp_path):

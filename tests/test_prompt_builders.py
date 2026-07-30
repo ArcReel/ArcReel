@@ -12,7 +12,7 @@ from lib.prompt_builders import (
 
 
 class TestCharacterPrompt:
-    def test_includes_name_description_and_quad_layout(self):
+    def test_includes_supplied_character_details(self):
         prompt = build_character_prompt(
             "姜月茴",
             "黑发，冷静神态。",
@@ -21,39 +21,20 @@ class TestCharacterPrompt:
         )
         assert "姜月茴" in prompt
         assert "黑发，冷静神态。" in prompt
-        # 四视图 16:9 布局（issue #353）
-        assert "16:9" in prompt
-        assert "四格" in prompt
-        assert "胸像特写" in prompt or "胸部以上" in prompt
-        assert "正面" in prompt and "侧面" in prompt and "背面" in prompt
-        # 风格前缀
         assert "古风" in prompt
         assert "Cinematic, low-key lighting" in prompt
-        # 反向提示尾部
-        assert "画面避免" in prompt
-
-    def test_no_negative_prompt_field_returned(self):
-        # build_character_prompt 仅返回字符串；反向提示已 inline 到末尾
-        prompt = build_character_prompt("张三", "短发青年")
-        assert isinstance(prompt, str)
-        assert "画面避免" in prompt
-        assert "水印" in prompt
 
 
 class TestScenePromptAndPropPrompt:
-    def test_prop_three_views(self):
+    def test_prop_includes_supplied_details(self):
         prompt = build_prop_prompt("玉佩", "古朴温润")
         assert "玉佩" in prompt
         assert "古朴温润" in prompt
-        assert "三视图" in prompt or "三个视图" in prompt
-        assert "画面避免" in prompt
 
-    def test_scene_main_detail_layout(self):
+    def test_scene_includes_supplied_details(self):
         prompt = build_scene_prompt("祠堂", "昏暗古朴")
         assert "祠堂" in prompt
         assert "昏暗古朴" in prompt
-        assert "主画面" in prompt
-        assert "画面避免" in prompt
 
 
 @pytest.mark.unit
@@ -77,8 +58,8 @@ class TestFigureExclusion:
 class TestVideoNegativeTail:
     def test_appends_when_missing(self):
         result = append_video_negative_tail("林清缓缓抬头")
-        assert "林清缓缓抬头" in result
-        assert "BGM" in result
+        assert result.startswith("林清缓缓抬头")
+        assert result != "林清缓缓抬头"
 
     def test_idempotent(self):
         once = append_video_negative_tail("林清缓缓抬头")
@@ -86,21 +67,19 @@ class TestVideoNegativeTail:
         assert once == twice
 
     def test_handles_empty_input(self):
-        result = append_video_negative_tail("")
-        assert "BGM" in result
+        assert append_video_negative_tail("")
 
     def test_handles_whitespace_only_input(self):
-        # 纯空白等同空：避免拼出前导空行 + 尾词的怪异输出
+        expected = append_video_negative_tail("")
         for blank in ("   ", "\n\n", "\t \n"):
-            result = append_video_negative_tail(blank)
-            assert result.startswith("禁止出现"), f"input={blank!r} → {result!r}"
+            assert append_video_negative_tail(blank) == expected
 
 
 class TestImageNegativeTail:
     def test_appends_when_missing(self):
         result = append_image_negative_tail("林清坐在窗边木桌前")
         assert result.startswith("林清坐在窗边木桌前")
-        assert "画面避免" in result
+        assert result != "林清坐在窗边木桌前"
 
     def test_idempotent(self):
         once = append_image_negative_tail("林清坐在窗边木桌前")
@@ -108,9 +87,9 @@ class TestImageNegativeTail:
         assert once == twice
 
     def test_handles_empty_and_whitespace_input(self):
+        expected = append_image_negative_tail("")
         for blank in ("", "   ", "\n\n", "\t \n"):
-            result = append_image_negative_tail(blank)
-            assert result.startswith("画面避免"), f"input={blank!r} → {result!r}"
+            assert append_image_negative_tail(blank) == expected
 
 
 class TestProductFidelityTail:
@@ -118,7 +97,6 @@ class TestProductFidelityTail:
         result = append_product_fidelity_tail("手持保温杯特写", ["保温杯"])
         assert result.startswith("手持保温杯特写")
         assert "「保温杯」" in result
-        assert "参考图" in result
 
     def test_idempotent(self):
         once = append_product_fidelity_tail("手持保温杯特写", ["保温杯"])

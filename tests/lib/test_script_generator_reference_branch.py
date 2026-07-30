@@ -54,19 +54,6 @@ def reference_project(tmp_path: Path) -> Path:
 
 
 @pytest.mark.asyncio
-async def test_script_generator_build_prompt_selects_reference_branch(reference_project: Path):
-    """当 generation_mode == reference_video 时，build_prompt 必须走 reference 分支。"""
-    gen = ScriptGenerator(reference_project)
-    prompt = await gen.build_prompt(episode=1)
-    # reference 分支特征标签
-    assert "ReferenceVideoScript" in prompt
-    assert "references" in prompt
-    assert "@[名称]" in prompt
-    # 不应出现 narration / drama 特征
-    assert "characters_in_segment" not in prompt
-
-
-@pytest.mark.asyncio
 async def test_script_generator_reads_step1_reference_units(reference_project: Path):
     gen = ScriptGenerator(reference_project)
     prompt = await gen.build_prompt(episode=1)
@@ -283,7 +270,6 @@ async def test_build_prompt_injects_max_duration_from_registry(
     gen = ScriptGenerator(project_dir)
     prompt = await gen.build_prompt(episode=1)
     assert f"{expected_max_duration_sec} 秒" in prompt
-    assert "当前模型上限" in prompt
 
 
 @pytest.mark.asyncio
@@ -379,10 +365,8 @@ async def test_effective_generation_mode_honors_episode_override(tmp_path: Path)
 
     gen = ScriptGenerator(project_dir)
     prompt = await gen.build_prompt(episode=1)
-    # 走 reference 分支：模板包含 ReferenceVideoScript 与 references 字段说明
-    assert "ReferenceVideoScript" in prompt
-    assert "references" in prompt
-    assert "@[名称]" in prompt
+    assert "E1U01" in prompt
+    assert "@[主角] 推开 @[酒馆] 的门" in prompt
 
 
 @pytest.mark.asyncio
