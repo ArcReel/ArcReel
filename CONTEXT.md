@@ -169,7 +169,7 @@ _Avoid_: 把它与上传保存时压缩（`normalize_uploaded_image`，针对用
 _Avoid_: 实时计费、读时重算成本。
 
 **费用归属（cost attribution）**：
-把一笔 image / video / audio 成本快照归到集与剧本条目的过程（text 类调用不写记账 key，不参与归属，只进用量统计）。强证据是记账时冻结在调用记录 `segment_id` 列上的剧本条目 ID（随骨架为 `segment_id` / `scene_id` / `shot_id` / `unit_id`），每个 (记账 key, 费用类型) 在一次估算内只认领一次；剧本认领不到的历史记账按 ID 前缀集号兜底摊回集、解析失败归项目级，统一以「未归属（unassigned）」单列。这些 ID 不保证唯一、不保证与所在集一致，属已知限制（见 `docs/adr/0053`）。
+把一笔 image / video / audio 成本快照归到集与剧本条目的过程（text 类调用不写记账 key，不参与归属，只进用量统计）。强证据是记账时冻结在调用记录 `segment_id` 列上的剧本条目 ID（随骨架为 `segment_id` / `scene_id` / `shot_id` / `unit_id`）。同一 (记账 key, 费用类型) 下的多条成本快照先汇总为一个金额，该金额在一次估算内只被认领一次（去重防重复计入，不丢记录）；剧本认领不到的历史记账按 ID 前缀集号兜底摊回集、解析失败归项目级，统一以「未归属（unassigned）」单列。这些 ID 不保证唯一、不保证与所在集一致，属已知限制（见 `docs/adr/0053`）。
 _Avoid_: 按 ID 唯一性/前缀一致性校验后归属（会把真实支出误判为未归属）。
 
 ### 媒体类型与配音（TTS）
