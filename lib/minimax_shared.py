@@ -69,6 +69,11 @@ def minimax_video_base_url(configured: str | None = None) -> str:
     return f"{_minimax_host(configured)}{_V1_SUFFIX}"
 
 
+def minimax_music_base_url(configured: str | None = None) -> str:
+    """原生音乐生成端点 base：{host}/v1。与文本/视频共用单一 /v1 base，仅命名区分用途。"""
+    return f"{_minimax_host(configured)}{_V1_SUFFIX}"
+
+
 def minimax_headers(api_key: str) -> dict[str, str]:
     """Bearer 鉴权头。"""
     return {
@@ -132,6 +137,50 @@ def minimax_failure_reason(payload: object) -> str | None:
     if status is not None and status != 0:
         msg = base.get("status_msg") or ""
         return f"MiniMax 图像生成失败 status_code={status}: {msg}".strip()
+    return None
+
+
+# ── 单步 music_generation 响应工具 ────────────────────────────────────────────
+
+# music_generation 响应 data.status：1=生成中，2=已完成。单步端点无 task_id / 查询接口，
+# 完成即从 data.audio 取结果（output_format=url 为链接，hex 为十六进制音频）。
+
+
+def minimax_music_status(payload: object) -> int | None:
+    """music_generation 响应 data.status（1=生成中，2=已完成）；缺失/非整数返回 None。
+
+    顶层 / data 非 dict、字段缺失或非整数一律回 None，由 caller 决定是否放行（部分成功响应
+    可能省略 status 但携带 data.audio）。bool 是 int 子类，故显式排除 True/False。
+    """
+    status = _as_dict(_as_dict(payload).get("data")).get("status")
+    if isinstance(status, bool):
+        return None
+    return status if isinstance(status, int) else None
+
+
+def extract_music_audio(payload: object) -> str | None:
+    """从 music_generation 响应 data.audio 取音频（output_format=url 为链接，hex 为十六进制音频）。
+
+    无可用音频（顶层 / data 非 dict、字段缺失、空串）返回 None，由 caller 报错。
+    """
+    audio = _as_dict(_as_dict(payload).get("data")).get("audio")
+    if isinstance(audio, str) and audio:
+        return audio
+    return None
+
+
+def minimax_music_failure_reason(payload: object) -> str | None:
+    """base_resp.status_code 非零时返回错误描述；成功（0）或缺失 base_resp 返回 None。
+
+    与 minimax_failure_reason 对称：MiniMax 业务错误以 HTTP 200 + base_resp.status_code 非零
+    承载（鉴权失败等可能另走 4xx，由 submit_post/raise_for_status 兜住），故同步音乐响应须先查
+    base_resp 再取音频。
+    """
+    base = _as_dict(_as_dict(payload).get("base_resp"))
+    status = base.get("status_code")
+    if status is not None and status != 0:
+        msg = base.get("status_msg") or ""
+        return f"MiniMax 音乐生成失败 status_code={status}: {msg}".strip()
     return None
 
 

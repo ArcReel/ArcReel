@@ -85,7 +85,7 @@ exclude_lines = [
 root_packages = ["lib"]
 
 # lib.config < lib.*_backends < lib.custom_provider：config 是配置解析的基础层，backends
-# 在其上组装出各供应商实现，custom_provider 再在 backends 之上拼装自定义供应商。四个 backend
+# 在其上组装出各供应商实现，custom_provider 再在 backends 之上拼装自定义供应商。五个 backend
 # 包为同层 sibling（`:` 分隔），彼此复用 video_backends.base 的工具不算方向违规。
 # ignore_imports 是存量违规的 baseline，逐条掐的是**违规链的终端边**而非首跳，这样中间模块
 # （project_manager / cost_calculator / usage_repo 等）后续新增的反向依赖仍会被契约拦下。
@@ -95,7 +95,7 @@ name = "lib.config / lib.*_backends / lib.custom_provider 分层契约"
 type = "layers"
 layers = [
     "custom_provider",
-    "image_backends : video_backends : audio_backends : text_backends",
+    "image_backends : video_backends : audio_backends : text_backends : music_backends",
     "config",
 ]
 containers = ["lib"]

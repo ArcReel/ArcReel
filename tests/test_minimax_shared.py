@@ -16,10 +16,14 @@ from lib.minimax_shared import (
     extract_minimax_download_url,
     extract_minimax_file_id,
     extract_minimax_video_task_id,
+    extract_music_audio,
     image_to_data_uri,
     is_minimax_video_terminal,
     minimax_failure_reason,
     minimax_headers,
+    minimax_music_base_url,
+    minimax_music_failure_reason,
+    minimax_music_status,
     minimax_text_base_url,
     minimax_video_base_url,
     minimax_video_failure_reason,
@@ -254,3 +258,72 @@ class TestImageToDataUri:
         img = tmp_path / "x.jpg"
         img.write_bytes(b"\xff\xd8\xff")
         assert image_to_data_uri(img).startswith("data:image/jpeg;base64,")
+
+
+class TestMusicBaseUrl:
+    def test_shares_v1_base_with_text(self):
+        assert minimax_music_base_url() == MINIMAX_BASE_URL
+        assert minimax_music_base_url("https://api.minimax.io") == MINIMAX_INTL_BASE_URL
+
+    def test_host_only_gets_v1_suffix(self):
+        assert minimax_music_base_url("https://api.minimaxi.com") == "https://api.minimaxi.com/v1"
+
+    def test_full_v1_base_is_idempotent(self):
+        assert minimax_music_base_url("https://api.minimax.io/v1") == "https://api.minimax.io/v1"
+
+
+class TestMusicStatus:
+    def test_completed_status_returned(self):
+        assert minimax_music_status({"data": {"status": 2, "audio": "x"}}) == 2
+
+    def test_in_progress_status_returned(self):
+        assert minimax_music_status({"data": {"status": 1}}) == 1
+
+    def test_missing_status_returns_none(self):
+        assert minimax_music_status({"data": {"audio": "x"}}) is None
+
+    def test_non_int_status_returns_none(self):
+        assert minimax_music_status({"data": {"status": "done"}}) is None
+
+    def test_bool_status_returns_none(self):
+        # bool 是 int 子类，显式排除避免 True 被当成 status=1
+        assert minimax_music_status({"data": {"status": True}}) is None
+
+    def test_non_dict_payload_tolerated(self):
+        assert minimax_music_status(None) is None
+        assert minimax_music_status([]) is None
+
+
+class TestExtractMusicAudio:
+    def test_url_audio(self):
+        assert extract_music_audio({"data": {"audio": "https://x/o.mp3"}}) == "https://x/o.mp3"
+
+    def test_hex_audio(self):
+        assert extract_music_audio({"data": {"audio": "deadbeef"}}) == "deadbeef"
+
+    def test_missing_returns_none(self):
+        assert extract_music_audio({"data": {}}) is None
+
+    def test_empty_string_returns_none(self):
+        assert extract_music_audio({"data": {"audio": ""}}) is None
+
+    def test_non_dict_payload_tolerated(self):
+        assert extract_music_audio(None) is None
+        assert extract_music_audio({"data": "oops"}) is None
+
+
+class TestMusicFailureReason:
+    def test_success_status_zero_returns_none(self):
+        assert minimax_music_failure_reason({"base_resp": {"status_code": 0}}) is None
+
+    def test_missing_base_resp_returns_none(self):
+        assert minimax_music_failure_reason({"data": {"audio": "x"}}) is None
+
+    def test_non_dict_payload_returns_none(self):
+        assert minimax_music_failure_reason(None) is None
+
+    def test_nonzero_status_returns_reason(self):
+        reason = minimax_music_failure_reason({"base_resp": {"status_code": 1004, "status_msg": "bad key"}})
+        assert reason is not None
+        assert "1004" in reason
+        assert "bad key" in reason
