@@ -74,7 +74,7 @@ pnpm build       # 生产构建，含 typecheck
 
 ### 供应商能力数据
 
-能力数字（时长、参考图上限、分辨率约束）、默认 model、文档链接等供应商数据的单一真相源是 `lib/config/registry.py` 的 `PROVIDER_REGISTRY`。自定义供应商（`custom-` 前缀）不纳入注册表，无逐模型能力事实，校验交由供应商 API 把关（见 `server/routers/_validators.py`）。prompt 模板与 agent 文档不硬编码具体数值，用占位符由编排层动态注入；配置界面的此类字段不预填。
+生成模型供应商（图像/视频/音频/文本档位）的能力数字（时长、参考图上限、分辨率约束）、默认 model 等数据的单一真相源是 `lib/config/registry.py` 的 `PROVIDER_REGISTRY`。自定义供应商（`custom-` 前缀）不纳入注册表，无逐模型能力事实，校验交由供应商 API 把关（见 `server/routers/_validators.py`）；智能体供应商的预设（`default_model` / `docs_url`）维护在 `lib/agent_provider_catalog.py` 的 `PRESET_PROVIDERS`，不在此注册表。prompt 模板与 agent 文档不硬编码具体数值，用占位符由编排层动态注入；配置界面的此类字段不预填。
 
 ### 内容模式 (content_mode) 与生成模式 (generation_mode)
 

@@ -101,7 +101,7 @@ GitHub code scanning 两家(quality / security)的评论并入同一批,处置�
 
 - **某家 reviewer(含 CodeQL 分析)超过 25 分钟未响应**:bot 可能服务异常或配额已满,暂停说明现状。Gemini fix-up 顺延导致的"未审"不算无响应——那是设计内跳过
 - **bot 报错**(如 "Internal error"、"Token limit exceeded"):贴出错误内容,按 reviewers.md 该家的触发约束询问是否重跑
-- **`quota_alerts` 非空**:bot 留下了 quota / rate limit 报错,贴出 `body_head`,询问停用该家继续其他家,还是等 quota 恢复后再 push
+- **`quota_alerts` 非空**:reviewers.md 对该家定义了专项配额处置的(如 CodeRabbit「配额」段)按其规则自行处置,不暂停;其余家贴出 `body_head`,询问停用该家继续其他家,还是等 quota 恢复后再 push
 - **`codeql_checks.failing` 非空**(失败态集合见 poll.sh header `checks_failing` 条):分析失败,alerts 数据停留在上次成功分析,不能做终核;询问是否重跑失败的 workflow
 - **`security_alerts.available == false`**:贴出 `unavailable_hint`,按 reviewers.md「仓库未接入」段判别权限问题与未接入——两种情形都需用户确认,不得自动跳过 security 门槛
 - **`gh` 401/403**:请用户运行 `gh auth refresh -s repo`
