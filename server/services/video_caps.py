@@ -1,7 +1,7 @@
 """项目级视频能力解析的共享出口。
 
 按「项目当前配置的视频后端」解析 model 粒度能力，供入队前的预检使用（时长取档、
-Voice_Profiles 注入判定）。入队时机尚未 resolve 本次任务实际的 provider/model——该解析
+Voice_Profiles 注入判定）。入队时机尚未 resolve 任务实际的 provider/model——该解析
 延后到 worker 执行时（见 ADR-0001），执行层请改用
 ``server.services.generation_context.resolve_generation_context`` 的精确结果。
 """

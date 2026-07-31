@@ -32,6 +32,7 @@ from lib.prompt_builders import (
 )
 from lib.prompt_utils import (
     build_drama_video_prompt,
+    build_drama_video_prompt_from_legacy_dialogue,
     image_prompt_to_yaml,
     is_structured_image_prompt,
     is_structured_video_prompt,
@@ -895,9 +896,9 @@ async def execute_video_task(
         _items, _id_field, _, _, _ = get_storyboard_items(_script)
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
         _item = _resolved[0] if _resolved else {}
-        return _project, _project_path, _item
+        return _project, _project_path, _item, _script.get("content_mode", "narration")
 
-    project, project_path, item = await asyncio.to_thread(_load)
+    project, project_path, item, content_mode = await asyncio.to_thread(_load)
     ctx = await resolve_generation_context(
         project_name,
         payload,
@@ -927,14 +928,16 @@ async def execute_video_task(
     # drama 口型台词单一真相源在场景级有序 utterances：从 dialogue-kind 条目取台词注入 video YAML
     # 的 dialogue 出口（覆盖 payload 里 drama 已不再携带的 video_prompt.dialogue）。narration / ad
     # 的 item 无 utterances 字段，payload.dialogue 原样透传；SDK 路径 prompt 已是渲染好的字符串、跳过。
-    if isinstance(item, dict) and "utterances" in item and isinstance(prompt, dict):
+    if isinstance(item, dict) and isinstance(prompt, dict) and content_mode == "drama":
         # C 类（真无声）模型传 characters=None 即不注入 Voice_Profiles；有音轨模型（含恒有声、
         # 开关不可控的 gemini-aistudio/grok）机械派生角色声音风格，口径与 voice_consistency 同源。
-        prompt = build_drama_video_prompt(
-            prompt,
-            item.get("utterances"),
-            characters=(project.get("characters") or {}) if ctx.video.voice_consistency != "none" else None,
-        )
+        voice_characters = (project.get("characters") or {}) if ctx.video.voice_consistency != "none" else None
+        if "utterances" in item:
+            prompt = build_drama_video_prompt(prompt, item.get("utterances"), characters=voice_characters)
+        else:
+            # utterances 迁移前的存量剧本：load_script 按原始 JSON 读盘不过 pydantic，不会
+            # 被 DramaScene._migrate_legacy 自动补齐，台词仍留在 video_prompt.dialogue。
+            prompt = build_drama_video_prompt_from_legacy_dialogue(prompt, characters=voice_characters)
 
     prompt_text = _normalize_video_prompt(prompt)
     aspect_ratio = get_aspect_ratio(project, "videos")

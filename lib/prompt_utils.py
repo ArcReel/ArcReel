@@ -122,12 +122,39 @@ def build_drama_video_prompt(
     worker 执行路径与 SDK 入队路径共用本函数，两处注入点的产出同构由此在结构上成立，而非
     各写一份靠约定对齐。
 
-    ``characters`` 为 ``None`` 表示本次不注入 Voice_Profiles（C 类真无声模型）。无论注入
+    ``characters`` 为 ``None`` 表示不注入 Voice_Profiles（C 类真无声模型）。无论注入
     与否都先剥离入参自带的 ``voice_profiles``：该声明段由编排层从角色资产机械派生，剧本
     JSON 不承载它，剧本中的残留值不得绕过 C 类门控进入 YAML。
     """
     prompt = strip_voice_profiles(video_prompt)
     dialogue = utterances_to_dialogue(utterances)
+    return _attach_voice_profiles(prompt, dialogue, characters=characters)
+
+
+def build_drama_video_prompt_from_legacy_dialogue(
+    video_prompt: dict[str, Any],
+    *,
+    characters: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """legacy drama 场景（utterances 迁移前的旧剧本，台词仍留在 ``video_prompt.dialogue``、
+    无场景级 ``utterances`` 字段）的 Voice_Profiles 注入出口。
+
+    ``load_script`` 按原始 JSON 读盘、不过 pydantic，这类存量剧本不会被
+    ``DramaScene._migrate_legacy`` 自动补齐 ``utterances``；调用方须按 ``"utterances" not
+    in item`` 识别后改走本函数，而非 :func:`build_drama_video_prompt`——旧结构的
+    ``dialogue`` 已是 ``{speaker, line}`` 目标形态，无需 :func:`utterances_to_dialogue`
+    转换，直接派生 Voice_Profiles。
+    """
+    prompt = strip_voice_profiles(video_prompt)
+    dialogue = prompt.get("dialogue")
+    if not isinstance(dialogue, list):
+        dialogue = []
+    return _attach_voice_profiles(prompt, dialogue, characters=characters)
+
+
+def _attach_voice_profiles(
+    prompt: dict[str, Any], dialogue: list[dict[str, str]], *, characters: dict[str, Any] | None
+) -> dict[str, Any]:
     prompt["dialogue"] = dialogue
     if characters is not None:
         voice_profiles = _build_voice_profiles(dialogue, characters)

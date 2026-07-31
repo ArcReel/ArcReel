@@ -1666,7 +1666,7 @@ def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
             {"kind": "dialogue", "speaker": "王", "text": "你来了。"},
         ],
     }
-    parsed = yaml.safe_load(_get_video_prompt(drama_item))
+    parsed = yaml.safe_load(_get_video_prompt(drama_item, content_mode="drama"))
     assert parsed["Dialogue"] == [{"Speaker": "王", "Line": "你来了。"}]
 
     narration_item = {
@@ -1678,7 +1678,7 @@ def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
             "dialogue": [{"speaker": "Alice", "line": "hello"}],
         },
     }
-    parsed_narr = yaml.safe_load(_get_video_prompt(narration_item))
+    parsed_narr = yaml.safe_load(_get_video_prompt(narration_item, content_mode="narration"))
     assert parsed_narr["Dialogue"] == [{"Speaker": "Alice", "Line": "hello"}]
 
 
@@ -1696,14 +1696,39 @@ def test_get_video_prompt_injects_voice_profiles_when_characters_given() -> None
     }
     characters = {"王": {"voice_style": "低沉沙哑"}}
 
-    parsed = yaml.safe_load(_get_video_prompt(drama_item, voice_characters=characters))
+    parsed = yaml.safe_load(_get_video_prompt(drama_item, content_mode="drama", voice_characters=characters))
     assert parsed["Voice_Profiles"] == [{"Speaker": "王", "Voice_Style": "低沉沙哑"}]
 
-    parsed_default = yaml.safe_load(_get_video_prompt(drama_item))
+    parsed_default = yaml.safe_load(_get_video_prompt(drama_item, content_mode="drama"))
     assert "Voice_Profiles" not in parsed_default
 
-    parsed_no_style = yaml.safe_load(_get_video_prompt(drama_item, voice_characters={"王": {"voice_style": ""}}))
+    parsed_no_style = yaml.safe_load(
+        _get_video_prompt(drama_item, content_mode="drama", voice_characters={"王": {"voice_style": ""}})
+    )
     assert "Voice_Profiles" not in parsed_no_style
+
+
+def test_get_video_prompt_injects_voice_profiles_from_legacy_dialogue() -> None:
+    """utterances 迁移前的存量 drama 剧本（无 utterances 字段，台词仍在
+    video_prompt.dialogue）：改走 legacy 出口派生 Voice_Profiles，不因缺 utterances 静默丢失。"""
+    import yaml
+
+    from server.agent_runtime.sdk_tools.enqueue_videos import _get_video_prompt
+
+    legacy_drama_item = {
+        "scene_id": "E1S01",
+        "video_prompt": {
+            "action": "起身",
+            "camera_motion": "Static",
+            "ambiance_audio": "风声",
+            "dialogue": [{"speaker": "王", "line": "你来了。"}],
+        },
+    }
+    characters = {"王": {"voice_style": "低沉沙哑"}}
+
+    parsed = yaml.safe_load(_get_video_prompt(legacy_drama_item, content_mode="drama", voice_characters=characters))
+    assert parsed["Voice_Profiles"] == [{"Speaker": "王", "Voice_Style": "低沉沙哑"}]
+    assert parsed["Dialogue"] == [{"Speaker": "王", "Line": "你来了。"}]
 
 
 def test_get_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() -> None:
@@ -1723,7 +1748,7 @@ def test_get_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() 
             "voice_profiles": [{"Speaker": "赝品", "Voice_Style": "越权"}],
         },
     }
-    parsed = yaml.safe_load(_get_video_prompt(narration_item))
+    parsed = yaml.safe_load(_get_video_prompt(narration_item, content_mode="narration"))
     assert "Voice_Profiles" not in parsed
 
 
