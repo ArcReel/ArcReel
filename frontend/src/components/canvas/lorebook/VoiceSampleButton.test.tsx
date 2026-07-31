@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VoiceSampleButton } from "./VoiceSampleButton";
 import { API } from "@/api";
+import * as generationActions from "@/actions/generation";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useTasksStore } from "@/stores/tasks-store";
 
@@ -61,5 +62,60 @@ describe("VoiceSampleButton", () => {
       <VoiceSampleButton projectName="demo" characterName="艾莉" busy onSaved={vi.fn()} />,
     );
     expect(screen.getByRole("button", { name: /用 TTS 生成参考音频/ })).toBeDisabled();
+  });
+
+  it("resets the stuck pause icon when regenerating after playing a preview", async () => {
+    setAudioConfigured(true);
+    vi.spyOn(API, "getAudioBackendVoices").mockResolvedValue({
+      configured: true,
+      provider_id: "dashscope",
+      model: "qwen3-tts-flash",
+      voices: [{ id: "Cherry", label: "芊悦 · 阳光正向的自然年轻女声" }],
+    });
+    vi.spyOn(generationActions, "enqueueCharacterVoiceSample").mockResolvedValue({
+      taskIds: ["task-1"],
+      deduped: false,
+    });
+
+    render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+    });
+
+    // 点击「生成」提交样本 A，taskId 落定为 task-1。
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => {
+      expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalled();
+    });
+
+    // 样本 A 成功，播放它——isPreviewPlaying 置 true。
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "task-1",
+          project_name: "demo",
+          task_type: "voice_sample",
+          resource_id: "艾莉",
+          status: "succeeded",
+          result: { file_path: "audio/voice_sample__艾莉__task-1.wav" },
+          updated_at: "2026-07-31T00:00:00Z",
+        } as never,
+      ],
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "播放" })).toBeInTheDocument();
+    });
+    fireEvent.play(document.querySelector("audio") as HTMLAudioElement);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "暂停" })).toBeInTheDocument();
+    });
+
+    // 点击「重新生成」：taskId 清空、旧 <audio> 卸载，isPreviewPlaying 须同步复位，
+    // 否则新样本挂载后仍显示「暂停」，用户无法播放它。
+    fireEvent.click(screen.getByRole("button", { name: /重新生成/ }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "暂停" })).not.toBeInTheDocument();
+    });
   });
 });

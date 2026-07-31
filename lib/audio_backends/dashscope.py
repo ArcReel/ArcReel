@@ -44,26 +44,31 @@ _TTS_ENDPOINT = "/services/aigc/multimodal-generation/generation"
 # https://help.aliyun.com/zh/model-studio/qwen-tts 官方文档 + 百炼控制台模型市场）。
 # 未列出的其余预设音色不在此暴露——该文档明确标注为「ArcReel 场景最相关的音色子集」，
 # 完整 48 音色列表见官方文档，未逐一核实中文名/描述不收录，避免编造。
+#
+# label 存的是 lib/i18n 翻译 key（``voice_label_dashscope_*``，见 lib/i18n/{zh,en,vi}/assets.py），
+# 不是直出文案——端点固定硬编码中文会让 en/vi 用户在下拉里看到中文描述，与「后端面向用户的
+# 文本经 _t: Translator 注入」的项目惯例不符。真正的本地化文案由 get_audio_backend_voices
+# 路由层用请求 locale 对应的 Translator 渲染。
 _VOICE_CATALOG: tuple[VoiceOption, ...] = (
-    VoiceOption(id="Cherry", label="芊悦 · 阳光正向的自然年轻女声"),
-    VoiceOption(id="Serena", label="苏瑶 · 温柔的年轻女声"),
-    VoiceOption(id="Ethan", label="晨煦 · 标准普通话，阳光温暖的年轻男声"),
-    VoiceOption(id="Chelsie", label="千雪 · 二次元虚拟女友"),
-    VoiceOption(id="Nofish", label="不吃鱼 · 平翘舌不分的设计师男声"),
-    VoiceOption(id="Jennifer", label="詹妮弗 · 品牌级电影质感美式女声"),
-    VoiceOption(id="Ryan", label="甜茶 · 充满张力的戏剧男声"),
-    VoiceOption(id="Bellona", label="燕铮莺 · 强大的叙事者女声"),
-    VoiceOption(id="Neil", label="阿闻 · 专业新闻主播男声"),
-    VoiceOption(id="Elias", label="墨讲师 · 学术讲师女声"),
-    VoiceOption(id="Momo", label="茉兔 · 俏皮可爱（女）"),
-    VoiceOption(id="Vivian", label="十三 · 酷飒微辣（女）"),
-    VoiceOption(id="Moon", label="月白 · 潇洒帅气（男）"),
-    VoiceOption(id="Maia", label="四月 · 知性温柔（女）"),
-    VoiceOption(id="Kai", label="凯 · 治愈系男声"),
-    VoiceOption(id="Katerina", label="卡捷琳娜 · 成熟有气场的女声"),
-    VoiceOption(id="Bella", label="萌宝 · 可爱小女孩"),
-    VoiceOption(id="Eldric Sage", label="沧明子 · 智慧长者（男）"),
-    VoiceOption(id="Vincent", label="田叔 · 沙哑老练（男）"),
+    VoiceOption(id="Cherry", label="voice_label_dashscope_cherry"),
+    VoiceOption(id="Serena", label="voice_label_dashscope_serena"),
+    VoiceOption(id="Ethan", label="voice_label_dashscope_ethan"),
+    VoiceOption(id="Chelsie", label="voice_label_dashscope_chelsie"),
+    VoiceOption(id="Nofish", label="voice_label_dashscope_nofish"),
+    VoiceOption(id="Jennifer", label="voice_label_dashscope_jennifer"),
+    VoiceOption(id="Ryan", label="voice_label_dashscope_ryan"),
+    VoiceOption(id="Bellona", label="voice_label_dashscope_bellona"),
+    VoiceOption(id="Neil", label="voice_label_dashscope_neil"),
+    VoiceOption(id="Elias", label="voice_label_dashscope_elias"),
+    VoiceOption(id="Momo", label="voice_label_dashscope_momo"),
+    VoiceOption(id="Vivian", label="voice_label_dashscope_vivian"),
+    VoiceOption(id="Moon", label="voice_label_dashscope_moon"),
+    VoiceOption(id="Maia", label="voice_label_dashscope_maia"),
+    VoiceOption(id="Kai", label="voice_label_dashscope_kai"),
+    VoiceOption(id="Katerina", label="voice_label_dashscope_katerina"),
+    VoiceOption(id="Bella", label="voice_label_dashscope_bella"),
+    VoiceOption(id="Eldric Sage", label="voice_label_dashscope_eldric_sage"),
+    VoiceOption(id="Vincent", label="voice_label_dashscope_vincent"),
 )
 
 

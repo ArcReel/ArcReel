@@ -389,7 +389,7 @@ VOICE_SAMPLE_TEXT_MAX_LENGTH = 200
 
 
 @router.get("/projects/{project_name}/audio-backend/voices")
-async def get_audio_backend_voices(project_name: str, _user: CurrentUser):
+async def get_audio_backend_voices(project_name: str, _user: CurrentUser, _t: Translator):
     """返回当前项目实际生效的 audio backend 音色枚举，供 TTS 试听弹窗选择音色。
 
     未配置任何 audio 供应商时返回 configured=false + 空列表，不 400——前端据此禁用
@@ -408,11 +408,14 @@ async def get_audio_backend_voices(project_name: str, _user: CurrentUser):
         audio=AudioLaneRequest(),
     )
     audio = ctx.audio
+    # backend 的 VoiceOption.label 对 DashScope 等携带描述性文案的供应商存的是 lib/i18n
+    # 翻译 key（不是直出文案），本层按请求 locale 渲染；无描述信息、label 本就等于 id
+    # 的供应商（如 OpenAI）_t() 找不到对应 key 时原样返回原字符串，无副作用。
     return {
         "configured": True,
         "provider_id": audio.provider_model.provider_id,
         "model": audio.backend_model,
-        "voices": [{"id": v.id, "label": v.label} for v in audio.voices],
+        "voices": [{"id": v.id, "label": _t(v.label)} for v in audio.voices],
     }
 
 

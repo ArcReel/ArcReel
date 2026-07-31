@@ -81,11 +81,8 @@ class TestAudioBackendVoices:
         body = res.json()
         assert body == {"configured": False, "provider_id": None, "model": None, "voices": []}
 
-    def test_configured_returns_backend_catalog(self, tmp_path, monkeypatch):
-        fake_pm = _FakePM(tmp_path / "projects" / "demo")
-        client = _client(monkeypatch, fake_pm, _FakeQueue())
-
-        ctx = GenerationContext(
+    def _voices_ctx(self):
+        return GenerationContext(
             generator=object(),
             audio_lane=AudioLaneResult(
                 provider_model=ProviderModel("dashscope", "qwen3-tts-flash"),
@@ -93,9 +90,16 @@ class TestAudioBackendVoices:
                 backend_model="qwen3-tts-flash",
                 narration_voice="Cherry",
                 narration_speed=None,
-                voices=(VoiceOption(id="Cherry", label="芊悦 · 阳光正向的自然年轻女声"),),
+                # 生产口径：label 是 lib/i18n 翻译 key，不是直出文案（见
+                # lib/audio_backends/dashscope.py 的 _VOICE_CATALOG 注释）。
+                voices=(VoiceOption(id="Cherry", label="voice_label_dashscope_cherry"),),
             ),
         )
+
+    def test_configured_returns_backend_catalog(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        client = _client(monkeypatch, fake_pm, _FakeQueue())
+        ctx = self._voices_ctx()
 
         async def _resolve_ctx(*args, **kwargs):
             return ctx
@@ -110,7 +114,30 @@ class TestAudioBackendVoices:
         assert body["configured"] is True
         assert body["provider_id"] == "dashscope"
         assert body["model"] == "qwen3-tts-flash"
+        # 未带 Accept-Language 时按 DEFAULT_LOCALE（zh）渲染。
         assert body["voices"] == [{"id": "Cherry", "label": "芊悦 · 阳光正向的自然年轻女声"}]
+
+    def test_configured_localizes_label_by_accept_language(self, tmp_path, monkeypatch):
+        # DashScope 的 label 是翻译 key，未随请求 locale 渲染就是本条要防住的回归——
+        # en/vi 用户看到的下拉会是硬编码中文描述而非本地化文案。
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        client = _client(monkeypatch, fake_pm, _FakeQueue())
+        ctx = self._voices_ctx()
+
+        async def _resolve_ctx(*args, **kwargs):
+            return ctx
+
+        monkeypatch.setattr(generate, "resolve_generation_context", _resolve_ctx)
+
+        with client:
+            res = client.get(
+                "/api/v1/projects/demo/audio-backend/voices",
+                headers={"Accept-Language": "en"},
+            )
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["voices"] == [{"id": "Cherry", "label": "Cherry — Warm, upbeat natural young female voice"}]
 
 
 class TestGenerateCharacterVoiceSample:

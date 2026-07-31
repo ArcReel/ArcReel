@@ -52,6 +52,11 @@ _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     )
 )
 
+# legacy 模型（tts-1 / tts-1-hd）不支持的音色子集，出处同上文档：这四个音色仅
+# gpt-4o-mini-tts 支持。legacy 模型下若仍暴露它们，用户选中即会在合成阶段确定性失败。
+_LEGACY_MODELS = frozenset({"tts-1", "tts-1-hd"})
+_LEGACY_UNSUPPORTED_VOICE_IDS = frozenset({"ballad", "verse", "marin", "cedar"})
+
 
 def _response_format_for(output_path: Path) -> str:
     """按落盘扩展名选输出格式，保证文件内容与扩展名一致（资源路径约定 .wav）。"""
@@ -89,6 +94,8 @@ class OpenAIAudioBackend:
         return {AudioCapability.TEXT_TO_SPEECH}
 
     def list_voices(self) -> list[VoiceOption]:
+        if self._model in _LEGACY_MODELS:
+            return [v for v in _VOICE_CATALOG if v.id not in _LEGACY_UNSUPPORTED_VOICE_IDS]
         return list(_VOICE_CATALOG)
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:

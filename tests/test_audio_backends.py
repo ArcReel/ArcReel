@@ -329,6 +329,25 @@ class TestOpenAIAudioBackend:
             assert {"alloy", "marin", "cedar"} <= ids
             assert len(ids) == len(voices)
 
+    def test_list_voices_excludes_unsupported_ids_for_legacy_models(self):
+        with patch("lib.openai_shared.AsyncOpenAI"):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            for legacy_model in ("tts-1", "tts-1-hd"):
+                b = OpenAIAudioBackend(api_key="sk", model=legacy_model)
+                ids = {v.id for v in b.list_voices()}
+                assert ids.isdisjoint({"ballad", "verse", "marin", "cedar"})
+                assert "alloy" in ids
+
+    def test_list_voices_returns_full_catalog_for_custom_openai_tts_endpoint(self):
+        """自定义 openai-tts endpoint 未落入官方 legacy 集合时不额外收窄，保持既有兼容口径。"""
+        with patch("lib.openai_shared.AsyncOpenAI"):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", model="fish-audio-v1", provider_name="custom-7")
+            ids = {v.id for v in b.list_voices()}
+            assert {"ballad", "verse", "marin", "cedar"} <= ids
+
     async def test_speed_passthrough_and_omitted_when_none(self, tmp_path: Path):
         mock_client = _mock_speech_client()
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):

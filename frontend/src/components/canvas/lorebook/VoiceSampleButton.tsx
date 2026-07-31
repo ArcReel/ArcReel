@@ -115,6 +115,11 @@ export function VoiceSampleButton({
     }
     setLocalSubmitting(true);
     setTaskId(null);
+    // 上一条预览的 <audio> 元素随 taskId 清空即刻卸载，但 isPreviewPlaying 是独立 state，
+    // 不会跟着卸载自动复位——不重置的话，新样本挂载的全新（未播放）<audio> 元素会因这个
+    // 陈旧的 true 值渲染成「暂停」图标，点击对一个已暂停的元素调 pause() 不产生新事件，
+    // 播放态就此卡死，永远进不了播放。
+    setIsPreviewPlaying(false);
     try {
       const res = await enqueueCharacterVoiceSample(projectName, characterName, trimmed, selectedVoice);
       setTaskId(res.taskIds[0] ?? null);

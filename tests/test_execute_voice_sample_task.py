@@ -84,46 +84,69 @@ class TestExecuteCharacterVoiceSampleTask:
     async def test_success(self, voice_sample_env):
         pm, gen = voice_sample_env
         result = await generation_tasks.execute_character_voice_sample_task(
-            "demo", "艾莉", {"prompt": "你好，这是一段声音示例。", "voice": "Cherry"}
+            "demo", "艾莉", {"prompt": "你好，这是一段声音示例。", "voice": "Cherry"}, task_id="task-1"
         )
 
         assert gen.audio_calls == [
             {
                 "text": "你好，这是一段声音示例。",
-                "resource_id": "voice_sample__艾莉",
+                "resource_id": "voice_sample__艾莉__task-1",
                 "voice": "Cherry",
                 "speed": None,
             }
         ]
         assert result["resource_type"] == "audio"
-        assert result["resource_id"] == "voice_sample__艾莉"
+        assert result["resource_id"] == "voice_sample__艾莉__task-1"
         assert result["character_name"] == "艾莉"
         assert result["voice"] == "Cherry"
         assert result["duration_seconds"] == 5.0
-        assert result["file_path"] == resource_relative_path("audio", "voice_sample__艾莉")
+        assert result["file_path"] == resource_relative_path("audio", "voice_sample__艾莉__task-1")
 
     async def test_resource_id_namespaced_away_from_narration_segments(self, voice_sample_env):
         # 旁白 segment id 与角色名可能撞字面量；voice_sample_resource_id 前缀确保命名空间隔离。
         pm, gen = voice_sample_env
         await generation_tasks.execute_character_voice_sample_task(
-            "demo", "E1S01", {"prompt": "文本", "voice": "Ethan"}
+            "demo", "E1S01", {"prompt": "文本", "voice": "Ethan"}, task_id="task-1"
         )
-        assert gen.audio_calls[0]["resource_id"] == "voice_sample__E1S01"
+        assert gen.audio_calls[0]["resource_id"] == "voice_sample__E1S01__task-1"
         assert gen.audio_calls[0]["resource_id"] != "E1S01"
+
+    async def test_distinct_tasks_get_distinct_files(self, voice_sample_env):
+        # 前一次成功样本未确认时重新生成会开新任务：资源 id 必须随 task_id 变化，
+        # 否则新任务落盘会原地覆盖前一任务 result.file_path 仍指向的文件。
+        pm, gen = voice_sample_env
+        await generation_tasks.execute_character_voice_sample_task(
+            "demo", "艾莉", {"prompt": "文本 A", "voice": "Cherry"}, task_id="task-A"
+        )
+        await generation_tasks.execute_character_voice_sample_task(
+            "demo", "艾莉", {"prompt": "文本 B", "voice": "Cherry"}, task_id="task-B"
+        )
+        resource_ids = {call["resource_id"] for call in gen.audio_calls}
+        assert resource_ids == {"voice_sample__艾莉__task-A", "voice_sample__艾莉__task-B"}
+
+    async def test_missing_task_id_raises(self, voice_sample_env):
+        with pytest.raises(ValueError, match="task_id"):
+            await generation_tasks.execute_character_voice_sample_task(
+                "demo", "艾莉", {"prompt": "你好", "voice": "Cherry"}
+            )
 
     async def test_missing_text_raises(self, voice_sample_env):
         with pytest.raises(ValueError, match="prompt"):
-            await generation_tasks.execute_character_voice_sample_task("demo", "艾莉", {"voice": "Cherry"})
+            await generation_tasks.execute_character_voice_sample_task(
+                "demo", "艾莉", {"voice": "Cherry"}, task_id="task-1"
+            )
 
     async def test_blank_text_raises(self, voice_sample_env):
         with pytest.raises(ValueError, match="prompt"):
             await generation_tasks.execute_character_voice_sample_task(
-                "demo", "艾莉", {"prompt": "   ", "voice": "Cherry"}
+                "demo", "艾莉", {"prompt": "   ", "voice": "Cherry"}, task_id="task-1"
             )
 
     async def test_missing_voice_raises(self, voice_sample_env):
         with pytest.raises(ValueError, match="voice"):
-            await generation_tasks.execute_character_voice_sample_task("demo", "艾莉", {"prompt": "你好"})
+            await generation_tasks.execute_character_voice_sample_task(
+                "demo", "艾莉", {"prompt": "你好"}, task_id="task-1"
+            )
 
     async def test_duration_out_of_range_raises(self, voice_sample_env, monkeypatch):
         async def _too_long(content, suffix):
@@ -132,7 +155,7 @@ class TestExecuteCharacterVoiceSampleTask:
         monkeypatch.setattr(generation_tasks, "probe_audio_duration_seconds", _too_long)
         with pytest.raises(ValueError, match="时长"):
             await generation_tasks.execute_character_voice_sample_task(
-                "demo", "艾莉", {"prompt": "你好", "voice": "Cherry"}
+                "demo", "艾莉", {"prompt": "你好", "voice": "Cherry"}, task_id="task-1"
             )
 
     async def test_duration_none_skips_validation(self, voice_sample_env, monkeypatch):
@@ -142,7 +165,7 @@ class TestExecuteCharacterVoiceSampleTask:
 
         monkeypatch.setattr(generation_tasks, "probe_audio_duration_seconds", _unavailable)
         result = await generation_tasks.execute_character_voice_sample_task(
-            "demo", "艾莉", {"prompt": "你好", "voice": "Cherry"}
+            "demo", "艾莉", {"prompt": "你好", "voice": "Cherry"}, task_id="task-1"
         )
         assert result["duration_seconds"] is None
 
@@ -150,11 +173,11 @@ class TestExecuteCharacterVoiceSampleTask:
         monkeypatch.setattr(generation_tasks, "AUDIO_REFERENCE_MAX_BYTES", 4)
         with pytest.raises(ValueError, match="MB"):
             await generation_tasks.execute_character_voice_sample_task(
-                "demo", "艾莉", {"prompt": "你好", "voice": "Cherry"}
+                "demo", "艾莉", {"prompt": "你好", "voice": "Cherry"}, task_id="task-1"
             )
 
     def test_registered_in_task_executors(self):
         assert generation_tasks._TASK_EXECUTORS["voice_sample"] is generation_tasks.execute_character_voice_sample_task
 
     def test_voice_sample_resource_id_deterministic(self):
-        assert generation_tasks.voice_sample_resource_id("艾莉") == "voice_sample__艾莉"
+        assert generation_tasks.voice_sample_resource_id("艾莉", "task-1") == "voice_sample__艾莉__task-1"

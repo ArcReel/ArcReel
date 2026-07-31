@@ -758,13 +758,19 @@ async def execute_tts_task(
     }
 
 
-def voice_sample_resource_id(character_name: str) -> str:
+def voice_sample_resource_id(character_name: str, task_id: str) -> str:
     """角色 TTS 试听样本在 ``audio/`` 下的资源 id（区别于旁白 segment id 命名空间）。
 
     生成产物只是待确认的预览件，落盘位置与旁白共用 ``audio/`` 目录但用固定前缀隔离，
     不会与说书模式的 segment id 冲突；只有 confirm 步骤才把音频提升为角色 reference_audio。
+
+    带 ``task_id`` 而非只用角色名：同一角色前一次成功样本尚未确认时发起重新生成会产生
+    新任务，若资源 id 只按角色名固定，新任务落盘会原地覆盖前一个已成功任务引用的文件——
+    旧任务的 ``result.file_path`` 字段不变，但物理内容已变成新任务的（甚至是校验失败前
+    写入的）字节；若前一个任务的 task_id 仍被别处持有（如另一浏览器标签页）并调用 confirm，
+    会把错误内容误落为角色参考音频。每次生成用任务专属文件名，杜绝跨任务覆盖。
     """
-    return f"voice_sample__{character_name}"
+    return f"voice_sample__{character_name}__{task_id}"
 
 
 async def execute_character_voice_sample_task(
@@ -789,6 +795,10 @@ async def execute_character_voice_sample_task(
         raise ValueError("voice sample 任务需要非空 payload.prompt（待合成文本）")
     if not isinstance(voice, str) or not voice.strip():
         raise ValueError("voice sample 任务需要 payload.voice（音色 id）")
+    if not task_id:
+        # 恒由 worker 经 execute_generation_task 传入队列任务自身 id；缺失说明调用方绕过了
+        # 常规队列执行路径（如误从别处直接调用），而 sample_id 的跨任务隔离依赖它，fail-fast。
+        raise ValueError("voice sample 任务需要 task_id")
 
     project = await asyncio.to_thread(get_project_manager().load_project, project_name)
     ctx = await resolve_generation_context(
@@ -800,7 +810,7 @@ async def execute_character_voice_sample_task(
     )
     generator = ctx.generator
 
-    sample_id = voice_sample_resource_id(character_name)
+    sample_id = voice_sample_resource_id(character_name, task_id)
     _, version = await generator.generate_audio_async(
         text=text.strip(),
         resource_id=sample_id,
