@@ -279,7 +279,7 @@ def sync_all() -> None:
 
     _run_mutation_parts(parts)
 
-    # auto-add 或事件同步失败会让 open issue 缺席看板，对账时补入
+    # auto-add 或事件同步失败时 open issue 可能不在看板上，对账时补入
     missing = _open_issue_numbers() - board_numbers
     for number in sorted(missing):
         sync_issue(number)
