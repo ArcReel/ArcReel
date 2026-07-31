@@ -74,7 +74,7 @@ export function AssetLibraryPage() {
 
   const setActiveTab = useCallback((next: AssetType) => writeQuery({ tab: next }), [writeQuery]);
 
-  // WAI-ARIA tablist 键盘导航（issue #488）：roving tabindex + 方向键 + Home/End。
+  // WAI-ARIA tablist 键盘导航：roving tabindex + 方向键 + Home/End。
   // 切换后用 requestAnimationFrame 把焦点搬到新激活 tab，避免与 React commit 抢时序。
   const tabRefs = useRef<Map<AssetType, HTMLButtonElement>>(new Map());
   const moveTabFocus = useCallback(

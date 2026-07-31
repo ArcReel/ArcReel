@@ -1215,8 +1215,8 @@ class TestAdReferenceUnitsValidation:
 
     def test_unparseable_video_generated_at_rejected(self, tmp_path):
         # 外部编辑/导入把 video_generated_at 写成不可解析的字符串时不会被类型校验拦下，
-        # 但前端 `new Date(iso).getTime()` 解析得到 NaN，参与比较恒为 false——存量过渡
-        # 横幅因此静默漏判而非报错，须单独校验值本身能否被解析。
+        # 但前端 `new Date(iso).getTime()` 解析得到 NaN，参与比较恒为 false，判定因此
+        # 静默失效而非报错，须单独校验值本身能否被解析。
         units = [
             {
                 "unit_id": "E1U1",

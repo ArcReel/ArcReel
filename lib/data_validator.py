@@ -568,9 +568,9 @@ class DataValidator:
             default_dir="audio",
         )
 
-        # video_generated_at 是存量过渡横幅的判定基准；外部编辑/导入写入非字符串或不可
-        # 解析的字符串会在前端 computeVoiceLegacyNotice 的日期解析处静默产生 NaN，NaN
-        # 参与比较恒为 false，横幅因此静默失效而非报错。
+        # video_generated_at 是前端 computeVoiceLegacyNotice 按时刻比较视频生成时间与
+        # 角色声音更新时间的依据；非字符串或不可解析的字符串会在该处日期解析得到 NaN，
+        # NaN 参与的比较恒为 false，判定因此静默失效而非报错。
         video_generated_at = assets.get("video_generated_at")
         if video_generated_at is not None and not isinstance(video_generated_at, str):
             errors.append(
@@ -1158,8 +1158,8 @@ class DataValidator:
             assets = unit.get("generated_assets")
             if isinstance(assets, dict):
                 # ad + reference_video 的完成态 unit 与 narration/drama 的 video_units 共用
-                # video_generated_at 判定存量过渡横幅——本索引此前未校验该字段，外部编辑/
-                # 导入写入不可解析的字符串会在前端日期解析处静默产生 NaN。
+                # video_generated_at 字段做时刻比较；外部编辑/导入写入不可解析的字符串会
+                # 在前端日期解析处静默产生 NaN。
                 video_generated_at = assets.get("video_generated_at")
                 if video_generated_at is not None and not isinstance(video_generated_at, str):
                     errors.append(
