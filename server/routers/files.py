@@ -460,10 +460,13 @@ async def delete_character_reference_audio(project_name: str, name: str, _user: 
             stale_path = (
                 _resolve_audio_ref_path(project_dir, audio_refs_dir, old_audio) if isinstance(old_audio, str) else None
             )
-            with project_change_source("webui"):
-                manager.update_character_reference_audio(project_name, name, "")
+            # 先删文件、后清字段：权限/IO 错误（含 Windows 文件被占用的共享冲突）导致
+            # unlink 失败时,字段仍指向该文件,可重试删除;顺序反过来会在物理删除失败时
+            # 留下「字段已清空但文件仍在」的孤儿,且没有指针可供重试发现它。
             if stale_path is not None:
                 stale_path.unlink(missing_ok=True)
+            with project_change_source("webui"):
+                manager.update_character_reference_audio(project_name, name, "")
 
             return {"success": True}
 

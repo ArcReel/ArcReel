@@ -1,6 +1,7 @@
 import json
 import shutil
 from io import BytesIO
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -311,6 +312,35 @@ class TestFilesRouter:
             assert delete.status_code == 200
             assert not audio_path.exists()
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio") == ""
+
+    def test_delete_character_reference_audio_preserves_pointer_on_unlink_failure(self, tmp_path, monkeypatch):
+        """物理删除失败（权限/IO 错误，含 Windows 文件占用）时保留字段指针，允许重试发现并清理该文件。"""
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            upload = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                files={"file": ("alice_voice.wav", _wav_bytes(3), "audio/wav")},
+            )
+            assert upload.status_code == 200
+            project_dir = pm.get_project_path("demo")
+            audio_path = project_dir / "characters" / "refs_audio" / "Alice.wav"
+            assert audio_path.exists()
+
+            original_unlink = Path.unlink
+
+            def _boom(self, *args, **kwargs):
+                if self == audio_path:
+                    raise PermissionError("simulated unlink failure")
+                return original_unlink(self, *args, **kwargs)
+
+            monkeypatch.setattr(Path, "unlink", _boom)
+
+            resp = client.delete("/api/v1/projects/demo/characters/Alice/reference-audio")
+            assert resp.status_code == 500
+            assert (
+                pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == "characters/refs_audio/Alice.wav"
+            )
+            assert audio_path.exists()
 
     def test_delete_character_reference_audio_unknown_character_404(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
