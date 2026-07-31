@@ -7,6 +7,7 @@
 - **本轮新评论**:索引中 `is_new == true` 的条目(inline 走 `inline_new_by_user`,评论走 `comments_new`)。口径与陷阱见 poll.sh PITFALL 2
 - **Acknowledgment 例外**:`is_ack == true` 的条目是 reviewer 对上一次修复或 inline 回复的确认,一律**不算** actionable;review state 为 `APPROVED` 也不算
 - **flag 以正文为准**:索引 flags(`is_ack` / `cr_markers` / `has_pass_marker` / `severity_alt`)是脚本解析结果,预览观感与 flag 冲突时用 `query.sh details` 取全文核实,以正文为准
+- **unacked 兜底假阳性**:终核 unacked 非空时逐条核对,对应修复已落地或回复为在案 pushback 的不算遗漏。快照不含非 bot 的 inline 回复,核对回复串用 `gh api --paginate repos/<owner>/<repo>/pulls/<pr>/comments` 按 `in_reply_to_id` 关联
 - **fix-up 顺延(仅 Gemini)**:Gemini 对上一已审 HEAD 已通过,且其后的 push 全为 fix-up 形状(nit、format、typo、单字段调整、小 bug 修复)时,沿用该通过结论参与目标判定,不触发重审;CodeRabbit 与 Codex 均以实际审过最终 HEAD 为目标状态。**「上一已审 HEAD」指 Gemini 最近一次实际审过的 commit,不是最近一次通过的 commit**——若最近审的 HEAD 未通过,或 `query.sh unacked gemini-code-assist[bot]` 仍有未解决评论,均不得顺延
 - **触发去重**:同一 HEAD 上每种触发命令只发一次。在 `own_trigger_comments` 中按 `command` 字段取该命令最大 `createdAt`,晚于 `last_push_at` 即视为本轮已触发,跳过(`@coderabbitai resume` 例外:以 CodeRabbit 节的 `updated_at` 口径为准)。发触发命令时只写命令本身,且命令必须在评论最开头(匹配细则见 poll.sh PITFALL 4)
 - **纯指标类 bot 不纳入循环**:`codecov[bot]` 等纯指标类 bot 没有意见可实施,也没有等待或重审的概念
@@ -38,13 +39,17 @@
 
 **outside diff range 意见**:CodeRabbit 对 diff 之外代码的建议内嵌在 review body(`coderabbit.reviews` 一行,source `coderabbit_review`)里,没有独立 inline comment id。索引只给出这条 review 的存在与 `is_new`、不含正文,`unacked coderabbitai[bot]` 兜底只扫 `inline_*_by_user`,同样看不见它——只靠 inline 口径会漏。发现靠 `query.sh <PR> history`(按 400 字 head 扫出该 review),全文用 `query.sh <PR> details <该 review 的 id>` 取;因无 inline 锚点,回复只能走 PR 顶层评论,不能回 inline。
 
+**配额**:本仓库使用 CodeRabbit 免费开源方案,配额/限流受阻时等待自恢复并手动 `@coderabbitai review` 重试一次;仍失败则本 PR 停用该家,记入退出汇报。全程不询问用户,也不提议付费扩容。
+
 ## Gemini Code Assist
+
+**现状**:Gemini Code Assist 消费者版已停止服务,PR 上会出现官方 CAUTION 通知(「The consumer version of Gemini Code Assist on GitHub has been sunset.」)。命中该通知即按 SKILL.md 能力证伪自裁决处理,无需另行查证;通知出现前已收集的 actionable 评论仍按目标状态处置。以下规则在其服务可用时适用。
 
 **触发**(按 `pr_created_at` 与 `gemini.reviews` 判别,均受触发去重约束):
 
 - `gemini.reviews` 完全为空,`pr_created_at` 距今**不足 5 分钟** → cold-start 窗口内,等待——此时抢跑触发既耗 quota,也容易引入第一次未提及的边缘建议
 - `gemini.reviews` 完全为空,`pr_created_at` 距今**已超 5 分钟** → cold-start fallback:自动 review 未在窗口内出现(可能失败或被跳过),发送 `/gemini review`。**此行不受 fix-up 顺延限制**——否则 Gemini 永远不会审本 PR。阈值宽松不必精确——误发代价只是一次受去重约束的额外触发
-- `gemini.reviews` 非空但无 `is_new == true` 条目 → 发送 `/gemini review`(受 fix-up 顺延限制)
+- `gemini.reviews` 非空但无 `is_new == true` 条目 → 先用 `query.sh gemini-latest-body` 核对最新 review 正文,含停服通知则按上方「现状」段处理;否则发送 `/gemini review`(受 fix-up 顺延限制)——停服通知可能包裹在带 pass marker 的历史 review 里,索引不暴露正文
 
 **已审当前 HEAD**:`gemini.reviews` 至少一条 `is_new == true`。
 
