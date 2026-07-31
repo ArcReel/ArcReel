@@ -1,6 +1,7 @@
 import yaml
 
 from lib.prompt_utils import (
+    build_voice_profiles,
     image_prompt_to_yaml,
     is_structured_image_prompt,
     is_structured_video_prompt,
@@ -77,6 +78,54 @@ class TestPromptUtils:
         assert not is_structured_image_prompt("text")
         assert is_structured_video_prompt({"action": "x"})
         assert not is_structured_video_prompt([])
+
+    def test_video_prompt_to_yaml_voice_profiles_leads_and_is_conditional(self):
+        # Voice_Profiles 是顶部集中声明段：须先于 Action 出现；无声明时不出现该字段
+        with_profiles = {
+            "action": "抬头观察",
+            "camera_motion": "Static",
+            "ambiance_audio": "雨声",
+            "dialogue": [{"speaker": "姜月茴", "line": "有人吗"}],
+            "voice_profiles": [{"Speaker": "姜月茴", "Voice_Style": "清冷"}],
+        }
+        text = video_prompt_to_yaml(with_profiles)
+        parsed = yaml.safe_load(text)
+        assert parsed["Voice_Profiles"] == [{"Speaker": "姜月茴", "Voice_Style": "清冷"}]
+        assert text.index("Voice_Profiles") < text.index("Action")
+
+        without_profiles = {"action": "快步前进", "camera_motion": "Pan Left", "ambiance_audio": "脚步声"}
+        assert "Voice_Profiles" not in yaml.safe_load(video_prompt_to_yaml(without_profiles))
+
+
+class TestBuildVoiceProfiles:
+    def test_one_entry_per_speaker_deduped_in_order(self):
+        dialogue = [
+            {"speaker": "姜月茴", "line": "有人吗"},
+            {"speaker": "王", "line": "嗯"},
+            {"speaker": "姜月茴", "line": "走吧"},
+        ]
+        characters = {
+            "姜月茴": {"voice_style": "清冷"},
+            "王": {"voice_style": "低沉"},
+        }
+        assert build_voice_profiles(dialogue, characters) == [
+            {"Speaker": "姜月茴", "Voice_Style": "清冷"},
+            {"Speaker": "王", "Voice_Style": "低沉"},
+        ]
+
+    def test_speaker_without_matching_character_skipped_silently(self):
+        dialogue = [{"speaker": "路人甲", "line": "喂"}]
+        assert build_voice_profiles(dialogue, {}) == []
+
+    def test_character_with_empty_voice_style_skipped(self):
+        dialogue = [{"speaker": "王", "line": "嗯"}]
+        assert build_voice_profiles(dialogue, {"王": {"voice_style": ""}}) == []
+
+    def test_robust_to_dirty_data(self):
+        assert build_voice_profiles([], {}) == []
+        assert build_voice_profiles([{"speaker": None, "line": "x"}], {}) == []
+        assert build_voice_profiles([{"speaker": "王", "line": "x"}], {"王": "not-a-dict"}) == []
+        assert build_voice_profiles([{"speaker": "王", "line": "x"}], "not-a-dict") == []
 
 
 class TestUtterancesToDialogue:

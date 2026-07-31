@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY
-from lib.config.resolver import ConfigResolver, constrain_durations, get_provider_fallback
+from lib.config.resolver import ConfigResolver, VoiceConsistency, constrain_durations, get_provider_fallback
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import get_generation_queue
@@ -283,6 +283,16 @@ async def _project_video_caps(project: dict, *, degraded_to: str) -> dict:
     except (ValueError, SQLAlchemyError) as exc:
         logger.info("无法解析 video_capabilities，%s：%s", degraded_to, exc)
         return {}
+
+
+async def resolve_project_voice_consistency(project: dict) -> VoiceConsistency:
+    """项目当前视频后端的声音一致性档位，供 drama Voice_Profiles 注入前的 C 类（真无声）判定。
+
+    解析失败按既有「无信号不判定为真无声」口径退化为 ``soft``（同 ``derive_voice_consistency``
+    对自定义供应商缺失 ``generate_audio`` 声明时的处理）。
+    """
+    caps = await _project_video_caps(project, degraded_to="Voice_Profiles 按 soft 兜底注入")
+    return caps.get("voice_consistency") or "soft"
 
 
 async def _project_video_resolution(project: dict, provider_id: str, model_id: str | None) -> str | None:

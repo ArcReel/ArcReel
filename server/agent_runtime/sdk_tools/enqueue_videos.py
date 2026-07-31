@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,7 +21,12 @@ from lib.generation_queue_client import (
     enqueue_and_wait,
 )
 from lib.project_manager import ProjectManager, is_reference_video_episode
-from lib.prompt_utils import is_structured_video_prompt, utterances_to_dialogue, video_prompt_to_yaml
+from lib.prompt_utils import (
+    build_voice_profiles,
+    is_structured_video_prompt,
+    utterances_to_dialogue,
+    video_prompt_to_yaml,
+)
 from lib.reference_video import assemble_shots_text
 from lib.reference_video.ad_units import (
     render_ad_unit_prompt,
@@ -39,7 +45,10 @@ from server.services.reference_video_tasks import (
     precheck_unit,
     resolve_max_unit_duration,
     resolve_project_duration_context,
+    resolve_project_voice_consistency,
 )
+
+logger = logging.getLogger(__name__)
 
 _CONFIRM_DURATION_SCHEMA_PROPERTY = {
     "type": "boolean",
@@ -125,7 +134,12 @@ async def _pending_duration_confirmations(
     return items
 
 
-def _get_video_prompt(item: dict[str, Any]) -> str:
+def _get_video_prompt(
+    item: dict[str, Any],
+    *,
+    characters: dict[str, Any] | None = None,
+    inject_voice_profiles: bool = False,
+) -> str:
     prompt = item.get("video_prompt")
     if not prompt:
         item_id = item.get("segment_id") or item.get("scene_id")
@@ -134,7 +148,14 @@ def _get_video_prompt(item: dict[str, Any]) -> str:
         # drama 口型台词单一真相源在场景级有序 utterances：取 dialogue-kind 注入 video YAML 的
         # dialogue 出口（drama video_prompt 已不带 dialogue）。narration / ad 无 utterances 字段、原样渲染。
         if "utterances" in item:
-            prompt = {**prompt, "dialogue": utterances_to_dialogue(item.get("utterances"))}
+            dialogue = utterances_to_dialogue(item.get("utterances"))
+            prompt = {**prompt, "dialogue": dialogue}
+            # C 类（真无声）模型不注入 Voice_Profiles；口径与 worker 执行路径同源
+            # （见 server.services.generation_tasks.execute_video_task）。
+            if inject_voice_profiles:
+                voice_profiles = build_voice_profiles(dialogue, characters or {})
+                if voice_profiles:
+                    prompt = {**prompt, "voice_profiles": voice_profiles}
         return video_prompt_to_yaml(prompt)
     if isinstance(prompt, dict):
         item_id = item.get("segment_id") or item.get("scene_id")
@@ -143,6 +164,16 @@ def _get_video_prompt(item: dict[str, Any]) -> str:
         item_id = item.get("segment_id") or item.get("scene_id")
         raise TypeError(f"片段/场景 video_prompt 类型无效（期望 str 或 dict）: {item_id}")
     return prompt
+
+
+async def _resolve_voice_injection(ctx: ToolContext, content_mode: str) -> tuple[dict[str, Any] | None, bool]:
+    """drama 项目解析角色资产与声音一致性档位，供 Voice_Profiles 注入判定；非 drama 直接跳过
+    （无需为 narration/ad 项目多付一次项目视频能力解析）。"""
+    if content_mode != "drama":
+        return None, False
+    project = ctx.pm.load_project(ctx.project_name)
+    voice_consistency = await resolve_project_voice_consistency(project)
+    return project.get("characters") or {}, voice_consistency != "none"
 
 
 def _is_ad_reference(ctx: ToolContext, script: dict[str, Any]) -> bool:
@@ -199,6 +230,8 @@ def _build_video_specs(
     project_dir: Path,
     skip_ids: list[str] | None,
     log: list[str],
+    characters: dict[str, Any] | None = None,
+    inject_voice_profiles: bool = False,
 ) -> tuple[list[TaskSpec], dict[str, int]]:
     item_type = "片段" if content_mode == "narration" else "场景"
     skip_set = set(skip_ids or [])
@@ -227,7 +260,7 @@ def _build_video_specs(
             continue
 
         try:
-            prompt = _get_video_prompt(item)
+            prompt = _get_video_prompt(item, characters=characters, inject_voice_profiles=inject_voice_profiles)
         except Exception as exc:  # noqa: BLE001
             log.append(f"⚠️  {item_type} {item_id} 的 video_prompt 无效，跳过: {exc}")
             continue
@@ -678,6 +711,7 @@ def generate_video_episode_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(items, id_field, completed, videos_dir)
+            characters, inject_voice_profiles = await _resolve_voice_injection(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=items,
                 id_field=id_field,
@@ -686,6 +720,8 @@ def generate_video_episode_tool(ctx: ToolContext):
                 project_dir=project_dir,
                 skip_ids=already_done,
                 log=log,
+                characters=characters,
+                inject_voice_profiles=inject_voice_profiles,
             )
 
             if not specs and not any(ordered_paths):
@@ -785,7 +821,9 @@ def generate_video_scene_tool(ctx: ToolContext):
             if not storyboard_path.is_file():
                 raise FileNotFoundError(f"分镜图不存在: {storyboard_path}")
 
-            prompt = _get_video_prompt(item)
+            content_mode = script.get("content_mode", "narration")
+            characters, inject_voice_profiles = await _resolve_voice_injection(ctx, content_mode)
+            prompt = _get_video_prompt(item, characters=characters, inject_voice_profiles=inject_voice_profiles)
             # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
             # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
             # 本应被执行层拒绝的非法值静默修正）。缺省由执行层按 caps 收口默认。
@@ -869,6 +907,7 @@ def generate_video_all_tool(ctx: ToolContext):
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
 
+            characters, inject_voice_profiles = await _resolve_voice_injection(ctx, content_mode)
             specs, _order_map = _build_video_specs(
                 items=pending,
                 id_field=id_field,
@@ -877,6 +916,8 @@ def generate_video_all_tool(ctx: ToolContext):
                 project_dir=project_dir,
                 skip_ids=None,
                 log=log,
+                characters=characters,
+                inject_voice_profiles=inject_voice_profiles,
             )
             if not specs:
                 return {"content": [{"type": "text", "text": "\n".join([*log, "⚠️  没有任何可生成的视频任务"])}]}
@@ -1003,6 +1044,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(selected, id_field, completed, videos_dir)
+            characters, inject_voice_profiles = await _resolve_voice_injection(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=selected,
                 id_field=id_field,
@@ -1011,6 +1053,8 @@ def generate_video_selected_tool(ctx: ToolContext):
                 project_dir=project_dir,
                 skip_ids=already_done,
                 log=log,
+                characters=characters,
+                inject_voice_profiles=inject_voice_profiles,
             )
 
             # ``_build_video_specs`` 可能把所有 selected 都过滤掉（缺分镜图 /

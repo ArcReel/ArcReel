@@ -4,12 +4,15 @@ Prompt 工具函数
 提供结构化 Prompt 到 YAML 格式的转换功能。
 """
 
+import logging
 import re
-from typing import get_args
+from typing import Any, get_args
 
 import yaml
 
 from lib.script_models import CameraMotion, ShotType
+
+logger = logging.getLogger(__name__)
 
 # 风格值开头的「画风：」前缀（全角/半角冒号）。新版风格模版已去前缀，此处兼容存量 project.json。
 _STYLE_PREFIX_RE = re.compile(r"^画风[：:]\s*")
@@ -70,25 +73,58 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
                 "action": "动作描述",
                 "camera_motion": "摄像机运动",
                 "ambiance_audio": "环境音效描述",
-                "dialogue": [{"speaker": "角色名", "line": "台词"}]
+                "dialogue": [{"speaker": "角色名", "line": "台词"}],
+                "voice_profiles": [{"Speaker": "角色名", "Voice_Style": "声音风格"}]
             }
 
     Returns:
         YAML 格式字符串，用于 Veo API 调用
     """
     dialogue = [{"Speaker": d["speaker"], "Line": d["line"]} for d in video_prompt.get("dialogue", [])]
+    voice_profiles = video_prompt.get("voice_profiles") or []
 
-    ordered = {
-        "Action": video_prompt["action"],
-        "Camera_Motion": video_prompt["camera_motion"],
-        "Ambiance_Audio": video_prompt.get("ambiance_audio", ""),
-    }
+    ordered: dict[str, Any] = {}
+    # Voice_Profiles 是集中声明段，须在顶部：调用方已按 dialogue speaker ∩ 非空 voice_style
+    # 角色资产派生好列表，此处只负责按序注入，不做二次过滤。
+    if voice_profiles:
+        ordered["Voice_Profiles"] = voice_profiles
+    ordered["Action"] = video_prompt["action"]
+    ordered["Camera_Motion"] = video_prompt["camera_motion"]
+    ordered["Ambiance_Audio"] = video_prompt.get("ambiance_audio", "")
 
     # 仅在有对话时添加 Dialogue 字段
     if dialogue:
         ordered["Dialogue"] = dialogue
 
     return yaml.dump(ordered, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+
+def build_voice_profiles(dialogue: list[dict[str, str]], characters: dict) -> list[dict[str, str]]:
+    """从 dialogue speakers 与角色资产派生 Voice_Profiles 声明段。
+
+    仅收录角色资产存在且 ``voice_style`` 非空者，一个 speaker 一条（按 dialogue 中首次
+    出现的顺序去重）；speaker 未命中角色资产或资产 ``voice_style`` 为空，静默跳过
+    （不建面向用户的提示通道，调用方按需记 logger）。
+    """
+    if not isinstance(characters, dict):
+        return []
+    seen: set[str] = set()
+    profiles: list[dict[str, str]] = []
+    for entry in dialogue:
+        speaker = entry.get("speaker") if isinstance(entry, dict) else None
+        if not isinstance(speaker, str) or not speaker or speaker in seen:
+            continue
+        seen.add(speaker)
+        character = characters.get(speaker)
+        if not isinstance(character, dict):
+            logger.debug("Voice_Profiles 跳过：speaker %r 未命中角色资产", speaker)
+            continue
+        voice_style = character.get("voice_style")
+        if isinstance(voice_style, str) and voice_style.strip():
+            profiles.append({"Speaker": speaker, "Voice_Style": voice_style.strip()})
+        else:
+            logger.debug("Voice_Profiles 跳过：角色 %r 的 voice_style 为空", speaker)
+    return profiles
 
 
 def utterances_to_dialogue(utterances: object) -> list[dict[str, str]]:
