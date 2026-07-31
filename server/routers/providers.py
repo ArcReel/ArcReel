@@ -20,8 +20,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
 from lib.app_data_dir import app_data_dir
-from lib.config.registry import PROVIDER_REGISTRY
+from lib.backend_assembly.specs import get_provider_spec
+from lib.config.registry import PROVIDER_REGISTRY, model_has_audio_track
 from lib.config.repository import mask_secret
+from lib.config.resolver import VoiceConsistency, derive_voice_consistency
 from lib.config.service import ConfigService, ProviderConfigValueError
 from lib.config.url_utils import normalize_base_url
 from lib.db import get_async_session
@@ -29,6 +31,7 @@ from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.gemini_shared import VERTEX_SCOPES
 from lib.i18n import Translator
+from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 from server.dependencies import get_config_service
 
 if TYPE_CHECKING:
@@ -76,6 +79,14 @@ class ModelInfoResponse(BaseModel):
     duration_resolution_constraints: dict[str, list[int]] = {}
     reference_image_durations: list[int] = []
     resolutions: list[str] = []
+    # 视频 model 是否带音轨（非视频 model 恒 False）。不等于「音轨开关可控」——generate_audio
+    # token 语义见 lib.config.registry.model_has_audio_track。供前端下拉选项的能力线渲染。
+    has_audio_track: bool = False
+    # 无项目上下文（全局设置「模型选择」）下的声音一致性档位：generation_mode 未知，故按非参考
+    # 生视频路径派生，native 恒降格。派生走 lib.config.resolver.derive_voice_consistency 这唯一
+    # 一处公式，前端只读枚举。有项目上下文时改用 /projects/{name}/video-capabilities（同一函数、
+    # 带真实 generation_mode），本字段不参与。
+    voice_consistency: VoiceConsistency = "none"
 
 
 class ProviderSummary(BaseModel):
@@ -331,6 +342,21 @@ def _build_field(
 # ---------------------------------------------------------------------------
 
 
+def _video_reference_audio_mode(provider_id: str, model_id: str) -> str:
+    """该视频 model 的参考音频运输形态；非视频 provider / 未声明一律 "none"。
+
+    `VideoCapabilities` 是 backend 侧声明（唯一真相源），registry `ModelInfo` 不复制第二份——
+    与 `lib/config/resolver.py::_resolve_video_caps_for_model` 的做法一致。router 层（非
+    lib 包）不受 lib.config 分层契约约束，可直接读 backend 声明。
+    """
+    try:
+        spec = get_provider_spec(provider_id, "video")
+        caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+    except ValueError:
+        return "none"
+    return caps.reference_audio_mode.value
+
+
 @router.get("", response_model=ProvidersListResponse)
 async def list_providers(
     _t: Translator,
@@ -338,20 +364,39 @@ async def list_providers(
 ) -> ProvidersListResponse:
     """返回所有供应商及其状态。"""
     statuses = await svc.get_all_providers_status()
-    providers = [
-        ProviderSummary(
-            id=s.name,
-            display_name=_t(f"provider_name_{s.name}"),
-            description=_t(f"provider_desc_{s.name}"),
-            status=s.status,
-            media_types=s.media_types,
-            capabilities=s.capabilities,
-            configured_keys=s.configured_keys,
-            missing_keys=s.missing_keys,
-            models={mid: ModelInfoResponse(**minfo) for mid, minfo in (s.models or {}).items()},
+    providers = []
+    for s in statuses:
+        meta = PROVIDER_REGISTRY.get(s.name)
+        models: dict[str, ModelInfoResponse] = {}
+        for mid, minfo in (s.models or {}).items():
+            model_info = meta.models.get(mid) if meta is not None else None
+            has_audio_track = model_has_audio_track(s.name, model_info) if model_info is not None else False
+            reference_audio_mode = (
+                _video_reference_audio_mode(s.name, mid) if minfo.get("media_type") == "video" else "none"
+            )
+            models[mid] = ModelInfoResponse(
+                **minfo,
+                has_audio_track=has_audio_track,
+                # generation_mode=None：目录端点无项目上下文，按非参考生视频路径派生。
+                voice_consistency=derive_voice_consistency(
+                    reference_audio_mode=reference_audio_mode,
+                    generation_mode=None,
+                    has_audio=has_audio_track,
+                ),
+            )
+        providers.append(
+            ProviderSummary(
+                id=s.name,
+                display_name=_t(f"provider_name_{s.name}"),
+                description=_t(f"provider_desc_{s.name}"),
+                status=s.status,
+                media_types=s.media_types,
+                capabilities=s.capabilities,
+                configured_keys=s.configured_keys,
+                missing_keys=s.missing_keys,
+                models=models,
+            )
         )
-        for s in statuses
-    ]
     return ProvidersListResponse(providers=providers)
 
 

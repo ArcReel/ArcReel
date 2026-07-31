@@ -34,6 +34,12 @@ interface ProviderModelSelectProps {
   searchable?: boolean;
   /** Minimum option count to actually render the search input. Defaults to 6. */
   searchThreshold?: number;
+  /**
+   * 每个选项行下方的补充信息（如视频模型的能力线：时长/分辨率/音轨）。
+   * 传入 `fullValue`（"provider/model"），返回值为 null 时不渲染该行——组件本身对内容
+   * 不作视频/图像/文本假设，具体展示逻辑由调用方决定。
+   */
+  renderOptionMeta?: (fullValue: string) => React.ReactNode;
 }
 
 interface FlatOption {
@@ -68,6 +74,7 @@ export function ProviderModelSelect({
   "aria-label": ariaLabel,
   searchable = true,
   searchThreshold = 6,
+  renderOptionMeta,
 }: ProviderModelSelectProps) {
   const { t } = useTranslation("dashboard");
   const resolvedPlaceholder = placeholder ?? t("select_model_placeholder");
@@ -423,6 +430,7 @@ export function ProviderModelSelect({
                   const fullValue = `${providerId}/${model}`;
                   const isSelected = fullValue === value;
                   const isActive = currentFlatIdx === activeIndex;
+                  const meta = renderOptionMeta?.(fullValue);
                   return (
                     <button
                       key={fullValue}
@@ -436,18 +444,25 @@ export function ProviderModelSelect({
                       type="button"
                       onClick={() => selectOption(fullValue)}
                       onMouseEnter={() => setActiveIndex(currentFlatIdx)}
-                      className={`flex w-full items-center gap-1.5 px-3 py-2 pl-6 text-left text-[12.5px] transition-colors ${
+                      className={`flex w-full items-start gap-1.5 px-3 py-2 pl-6 text-left text-[12.5px] transition-colors ${
                         isActive
                           ? "bg-accent-dim text-text"
                           : "text-text-2 hover:bg-bg-grad-a/45"
                       }`}
                     >
                       {isSelected ? (
-                        <Check className="h-3.5 w-3.5 shrink-0 text-accent-2" />
+                        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent-2" />
                       ) : (
-                        <span className="h-3.5 w-3.5 shrink-0" />
+                        <span className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                       )}
-                      <span className="truncate">{model}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{model}</span>
+                        {meta && (
+                          <span className="mt-0.5 block truncate font-mono text-[10px] tabular-nums text-text-4">
+                            {meta}
+                          </span>
+                        )}
+                      </span>
                     </button>
                   );
                 })}

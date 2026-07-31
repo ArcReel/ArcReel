@@ -768,6 +768,159 @@ class TestVideoCapabilities:
         assert caps["last_frame"] is False
 
 
+@pytest.mark.integration
+class TestVoiceConsistency:
+    """voice_consistency 二维派生（模型能力 × generation_mode）。全员经 `_make_session()` 落真实
+    in-memory DB，按 CONTRIBUTING.md 的 pytest markers 纪律归 integration。"""
+
+    async def _caps(self, project: dict) -> dict:
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                    mock_pm.return_value.load_project.return_value = project
+                    return await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        finally:
+            await engine.dispose()
+
+    async def test_seedance_2_reference_video_is_native(self):
+        """reference_audio_mode=direct 且 generation_mode=reference_video → native。"""
+        caps = await self._caps(
+            {
+                "video_backend": "ark/doubao-seedance-2-0-260128",
+                "generation_mode": "reference_video",
+            }
+        )
+        assert caps["voice_consistency"] == "native"
+
+    async def test_seedance_2_non_reference_mode_downgrades_to_soft(self):
+        """同一模型非参考生视频路径：native 蕴含有音轨，降格恒落 soft，不落 none。"""
+        caps = await self._caps(
+            {
+                "video_backend": "ark/doubao-seedance-2-0-260128",
+                "generation_mode": "storyboard",
+            }
+        )
+        assert caps["voice_consistency"] == "soft"
+
+    async def test_seedance_2_missing_generation_mode_downgrades_to_soft(self):
+        """generation_mode 缺省（非 reference_video）同样降格 soft。"""
+        caps = await self._caps({"video_backend": "ark/doubao-seedance-2-0-260128"})
+        assert caps["voice_consistency"] == "soft"
+
+    async def test_aistudio_veo_always_soft_regardless_of_generation_mode(self):
+        """AI Studio Veo 无参考音频通道，即便走参考生视频路径也只能 soft（恒有声不推 none）。"""
+        caps = await self._caps(
+            {
+                "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+                "generation_mode": "reference_video",
+            }
+        )
+        assert caps["voice_consistency"] == "soft"
+
+    async def test_grok_imagine_soft(self):
+        """Grok Imagine：恒有声、无参考音频通道 → soft。"""
+        caps = await self._caps({"video_backend": "grok/grok-imagine-video"})
+        assert caps["voice_consistency"] == "soft"
+
+    async def test_sora_2_soft_after_token_correction(self):
+        """Sora 2 目录补 generate_audio 后派生 soft（不再因缺 token 误判 none）。"""
+        caps = await self._caps({"video_backend": "openai/sora-2"})
+        assert caps["voice_consistency"] == "soft"
+
+    async def test_minimax_true_silent_is_none(self):
+        """MiniMax 真无声模型 → none。"""
+        caps = await self._caps({"video_backend": "minimax/MiniMax-Hailuo-2.3"})
+        assert caps["voice_consistency"] == "none"
+
+    async def test_agnes_true_silent_is_none(self):
+        """Agnes 真无声模型 → none。"""
+        caps = await self._caps({"video_backend": "agnes/agnes-video-v2.0"})
+        assert caps["voice_consistency"] == "none"
+
+    async def test_custom_provider_without_overrides_defaults_to_soft(self):
+        """自定义供应商无 generate_audio 目录声明：与 default_tier_generates_audio 同口径，
+        无信号时假定有声，不凭空判定为真无声模型。"""
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                provider = CustomProvider(
+                    display_name="Custom Voice",
+                    discovery_format="openai",
+                    base_url="https://example.com",
+                    api_key="xxx",
+                )
+                session.add(provider)
+                await session.flush()
+                model = CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="sora-like",
+                    display_name="Sora-like",
+                    endpoint="openai-video",
+                    supported_durations="[4, 8]",
+                )
+                session.add(model)
+                await session.flush()
+
+                project_backend = f"custom-{provider.id}/sora-like"
+                with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                    mock_pm.return_value.load_project.return_value = {
+                        "video_backend": project_backend,
+                        "generation_mode": "reference_video",
+                    }
+                    caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        finally:
+            await engine.dispose()
+        # openai-video endpoint 不带 reference_audio_capable，覆盖无法宣称 direct，故非 native；
+        # 无音轨目录声明时假定有声 → soft，不落 none。
+        assert caps["voice_consistency"] == "soft"
+
+    async def test_custom_provider_with_direct_override_and_reference_video_is_native(self):
+        """自定义供应商覆盖 reference_audio_mode=direct + 上限 > 0，且走参考生视频路径 → native。"""
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                provider = CustomProvider(
+                    display_name="Custom Seedance",
+                    discovery_format="openai",
+                    base_url="https://example.com",
+                    api_key="xxx",
+                )
+                session.add(provider)
+                await session.flush()
+                model = CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="seedance-like",
+                    display_name="Seedance-like",
+                    endpoint="ark-seedance",
+                    supported_durations="[4, 8]",
+                    capability_overrides={"reference_audio_mode": "direct", "max_reference_audio_count": 2},
+                )
+                session.add(model)
+                await session.flush()
+
+                project_backend = f"custom-{provider.id}/seedance-like"
+                with patch("lib.config.resolver.get_project_manager") as mock_pm:
+                    mock_pm.return_value.load_project.return_value = {
+                        "video_backend": project_backend,
+                        "generation_mode": "reference_video",
+                    }
+                    caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+        finally:
+            await engine.dispose()
+        assert caps["voice_consistency"] == "native"
+
+
 class TestVideoPricingGenerateAudio:
     """video_pricing_generate_audio：能力接口解析不出时的计价降级口径。"""
 

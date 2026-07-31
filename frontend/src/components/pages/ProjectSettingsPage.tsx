@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { getProviderModels, getCustomProviderModels } from "@/utils/provider-models";
 import { ModelConfigSection } from "@/components/shared/ModelConfigSection";
@@ -425,6 +426,9 @@ export function ProjectSettingsPage() {
         aspectRatio, generationMode, defaultDuration,
         videoResolution, imageResolution,
       };
+      // generation_mode / video_backend 落盘后，/video-capabilities 按已存值解析——查询 key 未变
+      // 不会自动重取，需显式失效（同 MediaModelSection 保存流程）。
+      useCapabilitiesStore.getState().invalidate();
       useAppStore.getState().pushToast(t("saved"), "success");
     } catch (e: unknown) {
       useAppStore.getState().pushToast(t("save_failed", { message: errMsg(e) }), "error");

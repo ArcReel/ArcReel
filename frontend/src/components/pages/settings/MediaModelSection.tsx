@@ -9,13 +9,22 @@ import type { CustomProviderInfo } from "@/types/custom-provider";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { ImageModelDualSelect } from "@/components/shared/ImageModelDualSelect";
 import { TextTierFields } from "@/components/shared/TextTierFields";
+import { VideoModelSpecBar, videoOptionMetaRenderer } from "@/components/shared/VideoModelSpecBar";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
+import { catalogDurations } from "@/hooks/useModelCapabilities";
 import { errMsg } from "@/utils/async";
-import { getCustomProviderModels } from "@/utils/provider-models";
+import {
+  getCustomProviderModels,
+  getProviderModels,
+  lookupCatalogVideoAudio,
+  lookupResolutions,
+} from "@/utils/provider-models";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE } from "@/components/ui/darkroom-tokens";
+import type { ProviderInfo } from "@/types/provider";
 
 interface CardProps {
   kicker: string;
@@ -51,6 +60,7 @@ export function MediaModelSection() {
 
   const [settings, setSettings] = useState<SystemConfigSettings | null>(null);
   const [options, setOptions] = useState<SystemConfigOptions | null>(null);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [draft, setDraft] = useState<SystemConfigPatch>({});
   const [saving, setSaving] = useState(false);
@@ -58,18 +68,26 @@ export function MediaModelSection() {
   const isDirty = Object.keys(draft).length > 0;
   useWarnUnsaved(isDirty);
 
+  const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
+  const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
+  useEffect(() => {
+    if (customProviders.length > 0) void fetchEndpointCatalog();
+  }, [customProviders.length, fetchEndpointCatalog]);
+
   const allProviderNames = useMemo(
     () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
     [options],
   );
 
   const fetchConfig = useCallback(async () => {
-    const [res, custom] = await Promise.all([
+    const [res, catalog, custom] = await Promise.all([
       API.getSystemConfig(),
+      getProviderModels().catch(() => [] as ProviderInfo[]),
       getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
     ]);
     setSettings(res.settings);
     setOptions(res.options);
+    setProviders(catalog);
     setCustomProviders(custom);
     setDraft({});
   }, []);
@@ -126,6 +144,18 @@ export function MediaModelSection() {
     settings.default_image_backend ??
     "";
   const currentAudio = draft.video_generate_audio ?? settings.video_generate_audio ?? false;
+
+  // 全局设置页无项目上下文，档位读目录端点的服务端派生值（generation_mode 未知，native 恒降格），
+  // 不打 /video-capabilities——该端点按项目解析。
+  const videoSpecTier = currentVideo
+    ? (lookupCatalogVideoAudio(providers, currentVideo)?.voiceConsistency ?? null)
+    : null;
+  const videoSpecDurations = currentVideo ? catalogDurations(providers, customProviders, currentVideo) : null;
+  const videoSpecResolutions = currentVideo
+    ? lookupResolutions(providers, currentVideo, customProviders, endpointToMediaType).options
+    : [];
+
+  const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
   const currentAudioBackend = draft.default_audio_backend ?? settings.default_audio_backend ?? "";
   const currentNarrationVoice = draft.narration_voice ?? settings.narration_voice ?? "";
   const currentNarrationSpeed =
@@ -171,15 +201,25 @@ export function MediaModelSection() {
       {/* Video */}
       <SectionCard kicker="Video Channel" title={t("default_video_model")}>
         {videoBackends.length > 0 ? (
-          <ProviderModelSelect
-            value={currentVideo}
-            options={videoBackends}
-            providerNames={allProviderNames}
-            onChange={(v) => setDraft((prev) => ({ ...prev, default_video_backend: v }))}
-            allowDefault
-            defaultLabel={t("auto_select")}
-            defaultHint={t("auto")}
-          />
+          <>
+            <ProviderModelSelect
+              value={currentVideo}
+              options={videoBackends}
+              providerNames={allProviderNames}
+              onChange={(v) => setDraft((prev) => ({ ...prev, default_video_backend: v }))}
+              allowDefault
+              defaultLabel={t("auto_select")}
+              defaultHint={t("auto")}
+              renderOptionMeta={renderVideoOptionMeta}
+            />
+            {currentVideo && (
+              <VideoModelSpecBar
+                durations={videoSpecDurations}
+                resolutions={videoSpecResolutions}
+                tier={videoSpecTier}
+              />
+            )}
+          </>
         ) : (
           emptyHint(t("no_video_providers_hint"))
         )}

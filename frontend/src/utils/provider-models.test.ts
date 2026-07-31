@@ -5,6 +5,7 @@ import {
   constrainDurations,
   getCustomProviderModels,
   getProviderModels,
+  lookupCatalogVideoAudio,
   lookupDurationConstraints,
   lookupProjectVideoResolution,
 } from "./provider-models";
@@ -56,6 +57,8 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         duration_resolution_constraints: { "1080p": [8], "4k": [8] },
         reference_image_durations: [8],
         resolutions: ["720p", "1080p", "4k"],
+        has_audio_track: true,
+        voice_consistency: "soft",
       },
       "seedance-like": {
         display_name: "无约束模型",
@@ -65,6 +68,8 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         supported_durations: [5, 8, 10],
         duration_resolution_constraints: {},
         resolutions: ["720p", "1080p"],
+        has_audio_track: true,
+        voice_consistency: "soft",
       },
     },
   },
@@ -94,6 +99,30 @@ describe("lookupDurationConstraints", () => {
     expect(lookupDurationConstraints(VEO_PROVIDERS, "no-slash")).toEqual({
       byResolution: {},
       withReferenceImages: [],
+    });
+  });
+});
+
+describe("lookupCatalogVideoAudio", () => {
+  it("reads has_audio_track / voice_consistency off the model declaration", () => {
+    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "gemini-aistudio/veo-3.1-generate-preview")).toEqual({
+      hasAudioTrack: true,
+      voiceConsistency: "soft",
+    });
+  });
+
+  it("returns null for unknown model, unknown provider and malformed strings", () => {
+    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "gemini-aistudio/unknown")).toBeNull();
+    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "bogus-provider/whatever")).toBeNull();
+    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "no-slash")).toBeNull();
+  });
+
+  // 自定义供应商目录无逐模型声明，与服务端 `_resolve_video_caps_for_model` 同口径固定假定
+  // 有声（soft）——不是「未知」，故不返回 null。
+  it("assumes audible/soft for custom backends (no per-model declaration, same default as the server)", () => {
+    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "custom-3/my-model")).toEqual({
+      hasAudioTrack: true,
+      voiceConsistency: "soft",
     });
   });
 });

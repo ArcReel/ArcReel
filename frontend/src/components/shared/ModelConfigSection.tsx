@@ -7,14 +7,15 @@ import {
   durationOutOfRangeReason,
   useModelCapabilities,
 } from "@/hooks/useModelCapabilities";
-import { lookupResolutions } from "@/utils/provider-models";
+import { lookupCatalogVideoAudio, lookupResolutions } from "@/utils/provider-models";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
 import { ImageModelDualSelect } from "./ImageModelDualSelect";
 import { TextTierFields } from "./TextTierFields";
+import { VideoModelSpecBar, videoOptionMetaRenderer } from "./VideoModelSpecBar";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
-import type { ProviderInfo } from "@/types/provider";
+import type { ProviderInfo, VoiceConsistencyTier } from "@/types/provider";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 
 const EMPTY_CUSTOM_PROVIDERS: CustomProviderInfo[] = [];
@@ -126,7 +127,7 @@ export function ModelConfigSection({
   const effectiveVideoBackend = value.videoBackend || globalDefaults.video || "";
 
   // 能力统一经 useModelCapabilities 取得（见该模块的真相源规则），本组件不自行查表。
-  const { rawDurations, supportedDurations, durationConstraints } = useModelCapabilities({
+  const { rawDurations, supportedDurations, durationConstraints, voiceConsistency } = useModelCapabilities({
     projectName,
     videoBackend: effectiveVideoBackend,
     // 本组件是表单：backend 是编辑中的未保存候选，服务端按已落盘配置解析出的能力对它不作数。
@@ -136,6 +137,22 @@ export function ModelConfigSection({
     videoResolution: value.videoResolution,
     usesReferenceImages,
   });
+
+  // 声音一致性档位：有项目上下文时服务端按「候选模型 × 本项目 generation_mode」派生（能力查询
+  // 已带上 videoBackend，故编辑中未保存的选择也对得上）；无项目上下文时读目录端点的同名字段，
+  // 同样由服务端派生，前端两条路径都不含派生公式。
+  const videoSpecTier: VoiceConsistencyTier | null = projectName
+    ? voiceConsistency
+    : (lookupCatalogVideoAudio(providers, effectiveVideoBackend)?.voiceConsistency ?? null);
+
+  const videoResolutionOptions = lookupResolutions(
+    providers,
+    effectiveVideoBackend,
+    customProviders,
+    endpointToMediaType,
+  ).options;
+
+  const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
 
   const handleVideoChange = (next: string) => {
     const effectiveNext = next || globalDefaults.video || "";
@@ -228,7 +245,16 @@ export function ModelConfigSection({
             }
             fallbackValue={globalDefaults.video || undefined}
             aria-label={t("model_video")}
+            renderOptionMeta={renderVideoOptionMeta}
           />
+
+          {effectiveVideoBackend && (
+            <VideoModelSpecBar
+              durations={rawDurations}
+              resolutions={videoResolutionOptions}
+              tier={videoSpecTier}
+            />
+          )}
 
           {renderResolutionField(effectiveVideoBackend, value.videoResolution, (v) =>
             onChange({ ...value, videoResolution: v }),

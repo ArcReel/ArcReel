@@ -23,6 +23,8 @@ const PROVIDERS: ProviderInfo[] = [
         supported_durations: [4, 6, 8],
         duration_resolution_constraints: {},
         resolutions: [],
+        has_audio_track: true,
+        voice_consistency: "soft",
       },
     },
   },
@@ -44,6 +46,8 @@ const PROVIDERS: ProviderInfo[] = [
         supported_durations: [5, 8, 10],
         duration_resolution_constraints: {},
         resolutions: [],
+        has_audio_track: true,
+        voice_consistency: "soft",
       },
     },
   },
@@ -181,6 +185,37 @@ describe("ModelConfigSection", () => {
     );
   });
 
+  it("renders the spec bar with a catalog-derived voice consistency tier when no project context is given", () => {
+    render(
+      <ModelConfigSection
+        value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3" }}
+        onChange={() => {}}
+        providers={PROVIDERS}
+        options={OPTIONS}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+      />,
+    );
+    // 无 projectName（全局设置场景）：档位直接取目录端点的服务端派生值，前端不再自行推导。
+    expect(screen.getByText("有声")).toBeInTheDocument();
+    expect(screen.getByText("软约束")).toBeInTheDocument();
+  });
+
+  it("shows a duration/audio capability line under each option in the video dropdown", async () => {
+    const user = userEvent.setup();
+    render(
+      <ModelConfigSection
+        value={EMPTY_VALUE}
+        onChange={() => {}}
+        providers={PROVIDERS}
+        options={OPTIONS}
+        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+      />,
+    );
+    const videoTrigger = screen.getByRole("combobox", { name: /视频模型/ });
+    await user.click(videoTrigger);
+    expect(screen.getByText("5, 8, 10s · 有声")).toBeInTheDocument();
+  });
+
   it("respects enable.video=false to hide the video card", () => {
     render(
       <ModelConfigSection
@@ -260,6 +295,8 @@ describe("ModelConfigSection", () => {
             supported_durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
             duration_resolution_constraints: {},
             resolutions: [],
+            has_audio_track: true,
+            voice_consistency: "soft",
           },
         },
       },
@@ -407,6 +444,8 @@ describe("ModelConfigSection", () => {
             supported_durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
             duration_resolution_constraints: {},
             resolutions: [],
+            has_audio_track: true,
+            voice_consistency: "soft",
           },
         },
       },
@@ -456,6 +495,8 @@ describe("ModelConfigSection", () => {
           duration_resolution_constraints: { "1080p": [8], "4k": [8] },
           reference_image_durations: [8],
           resolutions: ["720p", "1080p", "4k"],
+          has_audio_track: true,
+          voice_consistency: "soft",
         },
       },
     },

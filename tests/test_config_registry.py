@@ -1,6 +1,6 @@
 import pytest
 
-from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta
+from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta, model_has_audio_track
 
 
 def test_all_providers_registered():
@@ -237,3 +237,49 @@ class TestFullyCoveredCredentialGroups:
     def test_nothing_submitted(self):
         meta = self._kling_meta()
         assert meta.fully_covered_credential_groups({}) == []
+
+
+@pytest.mark.unit
+class TestModelHasAudioTrack:
+    """model_has_audio_track —— voice_consistency 派生所依据的音轨判定。"""
+
+    def _model(self, provider_id: str, model_id: str) -> ModelInfo:
+        return PROVIDER_REGISTRY[provider_id].models[model_id]
+
+    def test_ark_seedance_declares_token(self):
+        """声明了 generate_audio token 的模型直接判定有音轨。"""
+        assert model_has_audio_track("ark", self._model("ark", "doubao-seedance-2-0-260128")) is True
+
+    def test_aistudio_veo_always_audible_without_token(self):
+        """AI Studio Veo 恒有声但请求参数不可控，未声明 token 也须判定有音轨（不得直推无声）。"""
+        model = self._model("gemini-aistudio", "veo-3.1-generate-preview")
+        assert "generate_audio" not in model.capabilities
+        assert model_has_audio_track("gemini-aistudio", model) is True
+
+    def test_grok_imagine_always_audible_without_token(self):
+        """Grok Imagine 同 AI Studio Veo：恒有声、开关不可控、不补 token，仍判定有音轨。"""
+        model = self._model("grok", "grok-imagine-video")
+        assert "generate_audio" not in model.capabilities
+        assert model_has_audio_track("grok", model) is True
+
+    def test_sora_2_declares_token(self):
+        """Sora 2 声明修正随本票落地：目录已补 generate_audio（官方原生含对话音轨）。"""
+        model = self._model("openai", "sora-2")
+        assert "generate_audio" in model.capabilities
+        assert model_has_audio_track("openai", model) is True
+
+    def test_minimax_true_silent(self):
+        """MiniMax 未声明 token 且不在恒有声例外表内——真无声模型。"""
+        model = self._model("minimax", "MiniMax-Hailuo-2.3")
+        assert model_has_audio_track("minimax", model) is False
+
+    def test_agnes_true_silent(self):
+        """Agnes 同 MiniMax：真无声模型。"""
+        model = self._model("agnes", "agnes-video-v2.0")
+        assert model_has_audio_track("agnes", model) is False
+
+    def test_non_video_model_always_false(self):
+        """非视频 model（如文本模型）音轨判定无意义，恒 False，即便所属 provider 在恒有声例外表内。"""
+        model = self._model("gemini-aistudio", "gemini-3-flash-preview")
+        assert model.media_type != "video"
+        assert model_has_audio_track("gemini-aistudio", model) is False

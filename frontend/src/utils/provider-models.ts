@@ -1,5 +1,5 @@
 import { API } from "@/api";
-import type { CustomProviderInfo, MediaType, ProviderInfo } from "@/types";
+import type { CustomProviderInfo, MediaType, ProviderInfo, VoiceConsistencyTier } from "@/types";
 
 const CUSTOM_PREFIX = "custom-";
 
@@ -58,6 +58,35 @@ export function lookupSupportedDurations(
   return model?.supported_durations?.length
     ? model.supported_durations
     : undefined;
+}
+
+/** 目录（非自定义供应商）里的视频音频能力：音轨是否存在 + 服务端派生的声音一致性档位。 */
+export interface CatalogVideoAudio {
+  hasAudioTrack: boolean;
+  /** 无项目上下文下的档位，服务端派生。有项目上下文时改用能力查询结果，不读此值。 */
+  voiceConsistency: VoiceConsistencyTier;
+}
+
+/**
+ * 给定 "provider/model"，查目录里的音频相关声明——下拉能力线（音轨）与全局设置页的档位
+ * 徽章共用同一份查表。自定义供应商目录无逐模型声明，与服务端 `_resolve_video_caps_for_model`
+ * 同口径固定假定有声（soft）——无信号时判定为有声但保证降级，比误判为无声更不易误导。
+ */
+export function lookupCatalogVideoAudio(
+  providers: ProviderInfo[],
+  videoBackend: string,
+): CatalogVideoAudio | null {
+  const slashIdx = videoBackend.indexOf("/");
+  if (slashIdx === -1) return null;
+  const providerId = videoBackend.slice(0, slashIdx);
+  const modelId = videoBackend.slice(slashIdx + 1);
+
+  if (providerId.startsWith(CUSTOM_PREFIX)) return { hasAudioTrack: true, voiceConsistency: "soft" };
+
+  const provider = providers.find((p) => p.id === providerId);
+  const model = provider?.models?.[modelId];
+  if (!model) return null;
+  return { hasAudioTrack: model.has_audio_track, voiceConsistency: model.voice_consistency };
 }
 
 // ---------------------------------------------------------------------------
