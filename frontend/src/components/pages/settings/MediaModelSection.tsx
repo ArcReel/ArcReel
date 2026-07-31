@@ -1,7 +1,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, RefreshCw, RotateCcw } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { API } from "@/api";
 import type { SystemConfigSettings, SystemConfigOptions, SystemConfigPatch } from "@/types/system";
@@ -236,14 +236,6 @@ export function MediaModelSection() {
     complex: draft.text_reasoning_effort_complex ?? settings.text_reasoning_effort_complex ?? "",
   };
 
-  const promptDefaults = options.asset_prompt_defaults ?? { character: "", scene: "", prop: "" };
-  const assetPrompts = {
-    character:
-      (draft.asset_prompt_character ?? settings.asset_prompt_character) || promptDefaults.character,
-    scene: (draft.asset_prompt_scene ?? settings.asset_prompt_scene) || promptDefaults.scene,
-    prop: (draft.asset_prompt_prop ?? settings.asset_prompt_prop) || promptDefaults.prop,
-  };
-
   const emptyHint = (msg: string) => (
     <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-3 py-2.5 text-[12px] text-text-3">
       {msg}
@@ -399,52 +391,6 @@ export function MediaModelSection() {
         ) : (
           emptyHint(t("no_text_providers_hint"))
         )}
-      </SectionCard>
-
-      {/* Asset prompt templates */}
-      <SectionCard
-        kicker="Prompt Templates"
-        title={t("asset_prompts_title")}
-        description={t("asset_prompts_desc")}
-      >
-        <div className="space-y-4">
-          {(
-            [
-              ["character", "asset_prompt_character_label", "asset_prompt_character"] as const,
-              ["scene", "asset_prompt_scene_label", "asset_prompt_scene"] as const,
-              ["prop", "asset_prompt_prop_label", "asset_prompt_prop"] as const,
-            ]
-          ).map(([kind, labelKey, settingKey]) => (
-            <div key={kind}>
-              <div className="mb-1.5 flex items-center justify-between gap-3">
-                <label
-                  htmlFor={`asset-prompt-${kind}`}
-                  className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
-                >
-                  {t(labelKey)}
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setDraft((prev) => ({ ...prev, [settingKey]: "" }))}
-                  className="inline-flex items-center gap-1 text-[10.5px] text-text-4 transition-colors hover:text-text-2"
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  {t("asset_prompt_restore_default")}
-                </button>
-              </div>
-              <textarea
-                id={`asset-prompt-${kind}`}
-                rows={5}
-                value={assetPrompts[kind]}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, [settingKey]: event.target.value }))
-                }
-                className="w-full resize-y rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2.5 text-[12.5px] leading-[1.6] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              />
-              <p className="mt-1 text-[11px] text-text-4">{t("asset_prompt_merge_hint")}</p>
-            </div>
-          ))}
-        </div>
       </SectionCard>
 
       {/* Audio (narration TTS) */}
