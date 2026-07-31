@@ -769,7 +769,7 @@ class TestVideoCapabilities:
 
 
 class TestVoiceConsistency:
-    """voice_consistency 二维派生（模型能力 × generation_mode），Spec #1486 第 2/15 条。"""
+    """voice_consistency 二维派生（模型能力 × generation_mode）。"""
 
     async def _caps(self, project: dict) -> dict:
         resolver = ConfigResolver.__new__(ConfigResolver)

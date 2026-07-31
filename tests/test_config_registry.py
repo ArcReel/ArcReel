@@ -240,7 +240,7 @@ class TestFullyCoveredCredentialGroups:
 
 
 class TestModelHasAudioTrack:
-    """model_has_audio_track —— voice_consistency 派生的音轨判定，Spec #1486 第 2/3 条口径。"""
+    """model_has_audio_track —— voice_consistency 派生所依据的音轨判定。"""
 
     def _model(self, provider_id: str, model_id: str) -> ModelInfo:
         return PROVIDER_REGISTRY[provider_id].models[model_id]
