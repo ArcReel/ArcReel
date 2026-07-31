@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -191,6 +192,12 @@ def build_asset_router(
                             # 远未来时间戳，永久压制存量过渡横幅。
                             if field == "voice_notice_dismissed_at" and req[field] != entry.get("voice_updated_at"):
                                 raise _InvalidFieldValue(field)
+                            # reference_audio 本应只经 update_character_reference_audio 写入
+                            # （该入口机械戳 voice_updated_at），但字段本身仍在通用 PATCH 的
+                            # 可写集合内（历史行为）；此处补戳，防止经这条路径改声音时
+                            # voice_updated_at 不动，导致横幅感知不到变化或已关闭后不再重现。
+                            if field == "reference_audio" and req[field] != entry.get("reference_audio"):
+                                entry["voice_updated_at"] = datetime.now(UTC).isoformat()
                             entry[field] = req[field]
                     result.update(entry)
 

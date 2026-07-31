@@ -368,6 +368,14 @@ class DataValidator:
                     val = char_data.get(field_name)
                     if val is not None and not isinstance(val, str):
                         errors.append(f"角色 '{char_name}'.{field_name} 必须是字符串，当前为 {type(val).__name__}")
+                # voice_updated_at 不在 extra_string_fields 里（系统专用戳字段，故意不开放
+                # 通用 PATCH 覆写），但仍需校验类型：外部编辑/导入的 project.json 若把它写成
+                # 非字符串，会在前端 computeVoiceLegacyNotice 的日期解析处静默产生 NaN。
+                voice_updated_at = char_data.get("voice_updated_at")
+                if voice_updated_at is not None and not isinstance(voice_updated_at, str):
+                    errors.append(
+                        f"角色 '{char_name}'.voice_updated_at 必须是字符串，当前为 {type(voice_updated_at).__name__}"
+                    )
 
         if project.get("clues") is not None:
             errors.append("project.json 含已废弃字段 clues，请等待自动迁移或手动重启服务")

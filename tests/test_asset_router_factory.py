@@ -137,6 +137,46 @@ class TestAssetRouterFactory:
             # entry 未被污染
             assert fake_pm.projects["demo"]["characters"]["Alice"]["reference_image"] == ""
 
+    def test_character_patch_reference_audio_stamps_voice_updated_at(self, monkeypatch):
+        """reference_audio 本应只经 update_character_reference_audio 写入，但该字段仍在通用
+        PATCH 可写集合内（历史行为）；经这条路径改声音时也须补戳 voice_updated_at，否则
+        存量过渡横幅感知不到变化。"""
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Alice"] = {
+            "description": "old",
+            "character_sheet": "",
+            "voice_style": "",
+            "reference_image": "",
+            "reference_audio": "",
+        }
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/demo/characters/Alice",
+                json={"reference_audio": "characters/refs_audio/Alice.wav"},
+            )
+            assert resp.status_code == 200
+            entry = fake_pm.projects["demo"]["characters"]["Alice"]
+            assert entry["reference_audio"] == "characters/refs_audio/Alice.wav"
+            assert isinstance(entry.get("voice_updated_at"), str) and entry["voice_updated_at"]
+
+    def test_character_patch_reference_audio_unchanged_does_not_stamp(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Alice"] = {
+            "description": "old",
+            "character_sheet": "",
+            "voice_style": "",
+            "reference_image": "",
+            "reference_audio": "characters/refs_audio/Alice.wav",
+        }
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/demo/characters/Alice",
+                json={"reference_audio": "characters/refs_audio/Alice.wav", "description": "new"},
+            )
+            assert resp.status_code == 200
+            entry = fake_pm.projects["demo"]["characters"]["Alice"]
+            assert "voice_updated_at" not in entry
+
     def test_character_patch_accepts_dismissed_at_matching_current_voice_updated_at(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         fake_pm.projects["demo"]["characters"]["Alice"] = {

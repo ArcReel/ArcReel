@@ -102,6 +102,19 @@ class TestDataValidator:
         assert result.valid
         assert not any("title" in error for error in result.errors)
 
+    def test_validate_project_rejects_non_string_voice_updated_at(self, tmp_path):
+        # voice_updated_at 不在 extra_string_fields 里（系统专用戳字段，不开放通用 PATCH），
+        # 但仍须校验类型：外部编辑/导入把它写成非字符串会在前端时间戳比较处静默产生 NaN。
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _project_payload()
+        payload["characters"]["姜月茴"]["voice_updated_at"] = 12345
+        _write_json(project_dir / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+        assert not result.valid
+        assert any("voice_updated_at 必须是字符串" in error for error in result.errors)
+
     def test_validate_episode_narration_success_with_warnings(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
