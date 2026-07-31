@@ -261,6 +261,9 @@ export default {
   'voice_sample_task_submitted_toast': 'Voice sample generation for "{{name}}" submitted',
   'voice_sample_resource_busy': 'This character is currently busy with another task, please try again later',
 
+  'voice_legacy_banner_message':
+    "The character's reference audio was updated. {{count}} clips were generated before this change and may sound different from newly generated ones; regenerate them to match the current voice.",
+  'voice_legacy_banner_dismiss': 'Got it',
   'generate_design': 'Generate Design',
   'regenerate_design': 'Regenerate Design',
 

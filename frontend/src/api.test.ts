@@ -996,6 +996,7 @@ describe("API.referenceVideos", () => {
       video_clip: null,
       video_uri: null,
       status: "pending",
+      video_generated_at: null,
     },
   });
 

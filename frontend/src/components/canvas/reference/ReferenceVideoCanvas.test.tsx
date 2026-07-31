@@ -45,6 +45,7 @@ function mkUnit(id: string, shotText = "x"): ReferenceVideoUnit {
       video_clip: null,
       video_uri: null,
       status: "pending",
+      video_generated_at: null,
     },
   };
 }

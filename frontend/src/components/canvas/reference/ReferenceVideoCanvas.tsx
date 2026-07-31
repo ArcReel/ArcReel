@@ -17,6 +17,7 @@ import { deriveUnitStatus } from "./unit-status";
 import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
+import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { ScriptReviewGate } from "@/components/canvas/timeline/ScriptReviewGate";
 import { API } from "@/api";
@@ -123,6 +124,20 @@ export function ReferenceVideoCanvas({
   const error = useReferenceVideoStore((s) => s.error);
   const loading = useReferenceVideoStore((s) => s.loading);
   const project = useProjectsStore((s) => s.currentProjectData);
+
+  const voiceLegacyNotice = useMemo(
+    () => computeVoiceLegacyNotice(units, project?.characters ?? {}),
+    [units, project],
+  );
+  const handleDismissVoiceLegacyNotice = useCallback(async () => {
+    const dismissedAt = new Date().toISOString();
+    await Promise.all(
+      voiceLegacyNotice.characterNames.map((name) =>
+        API.updateCharacter(projectName, name, { voice_notice_dismissed_at: dismissedAt }),
+      ),
+    );
+    await useProjectsStore.getState().refreshProject(projectName);
+  }, [projectName, voiceLegacyNotice.characterNames]);
 
   // Drafts persist across unit switches; entry is dropped when text matches server value.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -652,6 +667,14 @@ export function ReferenceVideoCanvas({
           </button>
         )}
       </div>
+
+      {tab === "units" && voiceLegacyNotice.count > 0 && (
+        <VoiceLegacyBanner
+          message={t("voice_legacy_banner_message", { count: voiceLegacyNotice.count })}
+          dismissLabel={t("voice_legacy_banner_dismiss")}
+          onDismiss={() => void handleDismissVoiceLegacyNotice()}
+        />
+      )}
 
       {error && tab === "units" && (
         <p

@@ -20,6 +20,7 @@ function mkUnit(id: string, overrides: Partial<ReferenceVideoUnit> = {}): Refere
       video_clip: null,
       video_uri: null,
       status: "pending",
+      video_generated_at: null,
     },
     ...overrides,
   };

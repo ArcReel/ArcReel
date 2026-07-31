@@ -264,6 +264,9 @@ export default {
   'voice_sample_task_submitted_toast': 'Đã gửi tác vụ tạo mẫu giọng đọc thử cho "{{name}}"',
   'voice_sample_resource_busy': 'Nhân vật này đang bận với tác vụ khác, vui lòng thử lại sau',
 
+  'voice_legacy_banner_message':
+    'Âm thanh tham chiếu của nhân vật vừa được cập nhật. {{count}} đoạn đã tạo trước thay đổi này có thể khác giọng so với các đoạn mới; hãy tạo lại để khớp giọng hiện tại.',
+  'voice_legacy_banner_dismiss': 'Đã hiểu',
   'generate_design': 'Tạo thiết kế',
   'regenerate_design': 'Tạo lại thiết kế',
 
