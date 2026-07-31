@@ -1027,6 +1027,34 @@ describe("useProjectEventsSSE", () => {
       expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(0);
     });
 
+    it.each(["task_failed" as const, "task_cancelled" as const])(
+      "voice_sample 任务落 %s 终态时仍刷新成本（合成成功后计费，校验/取消发生在计费之后）",
+      async (action) => {
+        const options = openStream();
+        vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+        const debouncedFetchSpy = vi.spyOn(useCostStore.getState(), "debouncedFetch");
+
+        renderHarness("/");
+        emit(options(), [taskChange({ action, task_type: "voice_sample" })]);
+
+        expect(debouncedFetchSpy).toHaveBeenCalledWith("demo");
+      },
+    );
+
+    it("其它类型任务失败/取消不触发成本刷新（未计费或已由 voice_sample_ready 覆盖）", async () => {
+      const options = openStream();
+      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+      const debouncedFetchSpy = vi.spyOn(useCostStore.getState(), "debouncedFetch");
+
+      renderHarness("/");
+      emit(options(), [
+        taskChange({ action: "task_failed", task_type: "video" }),
+        taskChange({ entity_id: "task-2", action: "task_cancelled", task_type: "storyboard" }),
+      ]);
+
+      expect(debouncedFetchSpy).not.toHaveBeenCalled();
+    });
+
     it("其它类型任务成功不触发参考生视频画布重拉", async () => {
       const options = openStream();
       vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);

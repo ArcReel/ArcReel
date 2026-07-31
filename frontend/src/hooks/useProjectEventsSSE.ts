@@ -346,14 +346,17 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           const hasGenerationEvent = entityChanges.some((c) =>
             GENERATION_ACTIONS.has(c.action),
           );
-          // voice_sample 的计费发生在合成成功之后、时长/大小校验之前：校验不通过时任务落
-          // failed，不会触发上面的 voice_sample_ready（只在 emit_generation_success_batch
-          // 里跟着执行器成功返回一起发），但供应商费用已经产生——终态任务事件本身不区分
-          // 成功/失败都要刷新成本，否则用户会看到一个已经真实花费但成本面板未更新的任务。
-          const hasBilledVoiceSampleFailure = taskChanges.some(
-            (c) => c.action === "task_failed" && c.task_type === "voice_sample",
+          // voice_sample 的计费发生在合成成功之后、时长/大小校验（或用户取消）之前：
+          // 校验不通过落 failed、执行期间被取消落 cancelled，两种情形都不会触发上面的
+          // voice_sample_ready（只在 emit_generation_success_batch 里跟着执行器成功返回
+          // 一起发），但供应商费用已经产生——非成功终态同样要刷新成本，否则用户会看到
+          // 一个已经真实花费但成本面板未更新的任务。
+          const hasBilledVoiceSampleTerminal = taskChanges.some(
+            (c) =>
+              (c.action === "task_failed" || c.action === "task_cancelled") &&
+              c.task_type === "voice_sample",
           );
-          if ((hasGenerationEvent || hasBilledVoiceSampleFailure) && projectName) {
+          if ((hasGenerationEvent || hasBilledVoiceSampleTerminal) && projectName) {
             useCostStore.getState().debouncedFetch(projectName);
           }
 
