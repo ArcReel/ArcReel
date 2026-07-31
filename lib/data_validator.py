@@ -568,6 +568,19 @@ class DataValidator:
             default_dir="audio",
         )
 
+        # video_generated_at 是存量过渡横幅的判定基准；外部编辑/导入写入非字符串或不可
+        # 解析的字符串会在前端 computeVoiceLegacyNotice 的日期解析处静默产生 NaN，NaN
+        # 参与比较恒为 false，横幅因此静默失效而非报错。
+        video_generated_at = assets.get("video_generated_at")
+        if video_generated_at is not None and not isinstance(video_generated_at, str):
+            errors.append(
+                f"{prefix}.generated_assets.video_generated_at 必须是字符串，当前为 {type(video_generated_at).__name__}"
+            )
+        elif video_generated_at and not _is_parseable_iso_timestamp(video_generated_at):
+            errors.append(
+                f"{prefix}.generated_assets.video_generated_at 不是合法的 ISO8601 时间戳: {video_generated_at!r}"
+            )
+
     def _validate_end_frame_image(
         self,
         project_dir: Path,
@@ -1141,6 +1154,23 @@ class DataValidator:
                     continue
                 if rname not in registered_names[rtype]:
                     warnings.append(f"{prefix}.references[{ri}]: 引用的{rtype}「{rname}」未注册，需重新派生分组")
+
+            assets = unit.get("generated_assets")
+            if isinstance(assets, dict):
+                # ad + reference_video 的完成态 unit 与 narration/drama 的 video_units 共用
+                # video_generated_at 判定存量过渡横幅——本索引此前未校验该字段，外部编辑/
+                # 导入写入不可解析的字符串会在前端日期解析处静默产生 NaN。
+                video_generated_at = assets.get("video_generated_at")
+                if video_generated_at is not None and not isinstance(video_generated_at, str):
+                    errors.append(
+                        f"{prefix}.generated_assets.video_generated_at 必须是字符串，"
+                        f"当前为 {type(video_generated_at).__name__}"
+                    )
+                elif video_generated_at and not _is_parseable_iso_timestamp(video_generated_at):
+                    errors.append(
+                        f"{prefix}.generated_assets.video_generated_at 不是合法的 ISO8601 时间戳: "
+                        f"{video_generated_at!r}"
+                    )
 
     def _validate_episode_payload(
         self,

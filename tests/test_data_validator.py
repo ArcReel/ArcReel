@@ -1213,6 +1213,22 @@ class TestAdReferenceUnitsValidation:
         result = self._validate(tmp_path, [self._ad_shot()], None)
         assert result.valid, result.errors
 
+    def test_unparseable_video_generated_at_rejected(self, tmp_path):
+        # 外部编辑/导入把 video_generated_at 写成不可解析的字符串时不会被类型校验拦下，
+        # 但前端 `new Date(iso).getTime()` 解析得到 NaN，参与比较恒为 false——存量过渡
+        # 横幅因此静默漏判而非报错，须单独校验值本身能否被解析。
+        units = [
+            {
+                "unit_id": "E1U1",
+                "shot_ids": ["E1S01"],
+                "references": [{"type": "character", "name": "主播"}],
+                "generated_assets": {"status": "completed", "video_generated_at": "not-a-date"},
+            }
+        ]
+        result = self._validate(tmp_path, [self._ad_shot()], units)
+        assert not result.valid
+        assert any("video_generated_at 不是合法的 ISO8601 时间戳" in error for error in result.errors)
+
     def test_dangling_shot_id_warns_not_errors(self, tmp_path):
         """镜头删除后索引短暂悬空是合法中间态（重新派生即愈）：warn 不 error。"""
         units = [{"unit_id": "E1U1", "shot_ids": ["E1S01", "E1S99"], "references": []}]
