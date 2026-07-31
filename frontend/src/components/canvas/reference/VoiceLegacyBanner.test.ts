@@ -98,6 +98,17 @@ describe("computeVoiceLegacyNotice", () => {
     expect(computeVoiceLegacyNotice([u], characters)).toEqual({ count: 0, characterNames: [] });
   });
 
+  it("does not throw when a unit has no references field (校验层允许的合法缺省状态)", () => {
+    const u = unit("E1U1", "王", ga({ video_generated_at: null }));
+    // 模拟外部编辑/导入的存量数据缺失 references 字段——校验层视为合法缺省状态，
+    // 但 ReferenceVideoUnit 类型本身仍要求该字段必填，故此处需要类型断言绕过。
+    // @ts-expect-error 有意构造类型不允许但校验层放行的运行时缺省状态
+    u.references = undefined;
+    const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
+    expect(() => computeVoiceLegacyNotice([u], characters)).not.toThrow();
+    expect(computeVoiceLegacyNotice([u], characters)).toEqual({ count: 0, characterNames: [] });
+  });
+
   it("compares timestamps as parsed instants across differing ISO precision/format", () => {
     // 还原历史版本的 video_generated_at 是秒级 "Z" 格式；正常声音更新是微秒级 "+00:00"。
     // 同一秒内，字符串比较会把 "...10Z" 误判为晚于 "...10.500000+00:00"，导致漏判 stale。

@@ -10,8 +10,8 @@
  * 关闭态落在 Character.voice_notice_dismissed_at（时间戳而非布尔位）：语义是「已确认
  * 到的声音版本」，关闭时写回该角色当时的 voice_updated_at 原值（两侧同源于后端时钟，
  * 不受客户端时钟偏差与 ISO 格式差异影响）。voice_updated_at 晚于它即视为「新变更后
- * 重新出现」，无需额外重置逻辑。横幅按画布（本集 units）聚合展示，关闭时对本轮实际
- * 贡献计数的每个角色分别写回。
+ * 重新出现」，无需额外重置逻辑。横幅按画布（本集 units）聚合展示，关闭时对实际贡献
+ * 计数的每个角色分别写回。
  */
 import { History, X } from "lucide-react";
 import type { Character } from "@/types/project";
@@ -24,14 +24,14 @@ import type { Character } from "@/types/project";
  */
 export interface VoiceNoticeUnit {
   unit_id: string;
-  references: readonly { type: string; name: string }[];
+  references?: readonly { type: string; name: string }[] | null;
   generated_assets?: { status?: string | null; video_generated_at?: string | null } | null;
 }
 
 export interface VoiceLegacyNotice {
   /** 生成于设置之前、且当前未被关闭覆盖的片段数 */
   count: number;
-  /** 本轮计数实际涉及的角色名——关闭时需要分别写回这些角色的 dismissed_at */
+  /** 计数实际涉及的角色名——关闭时需要分别写回这些角色的 dismissed_at */
   characterNames: string[];
 }
 
@@ -54,7 +54,9 @@ export function computeVoiceLegacyNotice(
     if (unit.generated_assets?.status !== "completed") continue;
     const videoGeneratedAt = unit.generated_assets?.video_generated_at;
 
-    for (const ref of unit.references) {
+    // references 缺省是校验层允许的合法状态（外部编辑/导入的存量数据可能没有该字段），
+    // 不能当作数组直接迭代，否则整个参考生视频画布会因这一个 unit 崩溃。
+    for (const ref of unit.references ?? []) {
       if (ref.type !== "character") continue;
       const character = characters[ref.name];
       const voiceUpdatedAt = character?.voice_updated_at;
