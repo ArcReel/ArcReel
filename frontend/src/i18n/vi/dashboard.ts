@@ -264,6 +264,12 @@ export default {
   'voice_sample_task_submitted_toast': 'Đã gửi tác vụ tạo mẫu giọng đọc thử cho "{{name}}"',
   'voice_sample_resource_busy': 'Nhân vật này đang bận với tác vụ khác, vui lòng thử lại sau',
 
+  'voice_legacy_banner_message_one':
+    'Âm thanh tham chiếu của nhân vật vừa được cập nhật. {{count}} đoạn đã tạo trước thay đổi này có thể khác giọng so với các đoạn mới; hãy tạo lại để khớp giọng hiện tại.',
+  'voice_legacy_banner_message_other':
+    'Âm thanh tham chiếu của nhân vật vừa được cập nhật. {{count}} đoạn đã tạo trước thay đổi này có thể khác giọng so với các đoạn mới; hãy tạo lại để khớp giọng hiện tại.',
+  'voice_legacy_banner_dismiss': 'Đã hiểu',
+  'voice_legacy_banner_dismiss_failed': 'Không thể đóng thông báo: {{error}}',
   'generate_design': 'Tạo thiết kế',
   'regenerate_design': 'Tạo lại thiết kế',
 
@@ -703,7 +709,7 @@ export default {
   'episode_mode_switch_keep_data': "Chuyển chế độ sẽ không xóa các đơn vị / cảnh hiện có — bạn có thể chuyển lại bất cứ lúc nào.",
   'episode_mode_switch_to_reference': 'Đã chuyển sang reference-to-video. Dữ liệu phân cảnh/lưới được giữ nguyên và sẽ hiện lại khi bạn chuyển về.',
   'episode_mode_switch_from_reference': 'Đã chuyển về phân cảnh/lưới. Các video_units chế độ tham chiếu được giữ lại để dùng sau.',
-  // ========== PR5 reference-video editor ==========
+  // ========== reference-video editor ==========
   'reference_editor_placeholder': 'Nhập prompt. Dùng dấu "Shot 1 (3s): ..." và @mentions cho nhân vật/cảnh/đạo cụ.',
   'reference_editor_aria_name': 'Prompt đơn vị',
   'reference_editor_unknown_mentions_label': 'Mention chưa đăng ký',

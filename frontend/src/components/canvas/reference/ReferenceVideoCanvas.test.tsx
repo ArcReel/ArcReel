@@ -45,6 +45,7 @@ function mkUnit(id: string, shotText = "x"): ReferenceVideoUnit {
       video_clip: null,
       video_uri: null,
       status: "pending",
+      video_generated_at: null,
     },
   };
 }
@@ -874,5 +875,80 @@ describe("ReferenceVideoCanvas", () => {
     });
 
     await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
+  });
+
+  describe("存量声音过渡横幅", () => {
+    const VOICE_UPDATED_AT = "2026-06-01T00:00:00+00:00";
+
+    /** 一个已完成、且生成于当前声音设置之前的片段 */
+    function staleUnit(): ReferenceVideoUnit {
+      const u = mkUnit("E1U1");
+      u.references = [{ type: "character", name: "王" }];
+      u.generated_assets = { ...u.generated_assets, status: "completed", video_generated_at: null };
+      return u;
+    }
+
+    function mountWithStaleClip() {
+      useProjectsStore.setState({
+        currentProjectName: "proj",
+        currentProjectData: {
+          ...STUB_PROJECT,
+          characters: { 王: { description: "", voice_updated_at: VOICE_UPDATED_AT } },
+        },
+        refreshProject: vi.fn().mockResolvedValue({ status: "ok" }),
+      } as never);
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [staleUnit()] });
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    }
+
+    it("关闭时写回角色自己的 voice_updated_at，而不是本机当前时间", async () => {
+      // 客户端时钟可能落后于服务端；写本机时间会让「关闭后不再出现」在偏差下永久失效。
+      const patch = vi.spyOn(API, "updateCharacter").mockResolvedValue({} as never);
+      mountWithStaleClip();
+
+      const dismiss = await screen.findByRole("button", { name: /Got it|知道了/ });
+      fireEvent.click(dismiss);
+
+      await waitFor(() =>
+        expect(patch).toHaveBeenCalledWith("proj", "王", { voice_notice_dismissed_at: VOICE_UPDATED_AT }),
+      );
+    });
+
+    it("关闭请求失败时提示用户，不静默留下未关闭的横幅", async () => {
+      vi.spyOn(API, "updateCharacter").mockRejectedValue(new Error("boom"));
+      mountWithStaleClip();
+
+      const dismiss = await screen.findByRole("button", { name: /Got it|知道了/ });
+      fireEvent.click(dismiss);
+
+      await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("error"));
+    });
+
+    it("PATCH 成功但 refreshProject 失败时仍提示用户，不静默吞掉", async () => {
+      // refreshProject 失败时 resolve "failed" 而非 reject——只 await 不检查结果/传
+      // onError 会让这次失败在 UI 上完全无感知。
+      vi.spyOn(API, "updateCharacter").mockResolvedValue({} as never);
+      const refreshProject = vi.fn(
+        (_name: string, options?: { onError?: (err: unknown) => void }): Promise<string> => {
+          options?.onError?.(new Error("network down"));
+          return Promise.resolve("failed");
+        },
+      );
+      useProjectsStore.setState({
+        currentProjectName: "proj",
+        currentProjectData: {
+          ...STUB_PROJECT,
+          characters: { 王: { description: "", voice_updated_at: VOICE_UPDATED_AT } },
+        },
+        refreshProject,
+      } as never);
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [staleUnit()] });
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+      const dismiss = await screen.findByRole("button", { name: /Got it|知道了/ });
+      fireEvent.click(dismiss);
+
+      await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("error"));
+    });
   });
 });

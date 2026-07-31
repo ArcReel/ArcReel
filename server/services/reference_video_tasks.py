@@ -9,6 +9,7 @@ import asyncio
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -576,7 +577,14 @@ async def execute_reference_video_task(
     )
 
 
-def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | None, thumb_rel: str | None) -> None:
+def apply_unit_video_assets(
+    script: dict,
+    resource_id: str,
+    *,
+    video_uri: str | None,
+    thumb_rel: str | None,
+    generated_at: str | None = None,
+) -> None:
     """在剧本 dict 上写回 unit.generated_assets（video_clip / video_uri / video_thumbnail / status）。
 
     生成 finalize 与版本还原共用，保证两条路径写出的字段口径一致。unit 在
@@ -586,6 +594,9 @@ def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | 
     已删除文件。写回失败必须让调用方可见、finalize 不能在剧本未更新时静默成功，
     且两种失败要可区分：unit 不存在抛 KeyError（还原侧跨集同步把它当正常跳过），
     unit 列表结构损坏抛 ScriptEditError（还原侧按脏脚本 warning 降级）。
+
+    ``generated_at`` 缺省戳当前时间（生成 finalize）；版本还原传入被还原版本的入库时间，
+    使「片段是否早于当前参考音频设置」按还原回来的旧内容成立，而不是被还原动作洗成最新。
     """
     unit_lists = [script.get(key) for key in ("video_units", "reference_units")]
     candidates = [units for units in unit_lists if isinstance(units, list)]
@@ -599,6 +610,7 @@ def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | 
             if not isinstance(ga, dict):
                 raise ScriptEditError("generated_assets 必须是 dict", key="script_edit_generated_assets_invalid")
             ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
+            ga["video_generated_at"] = generated_at or datetime.now(UTC).isoformat()
             if video_uri:
                 ga["video_uri"] = video_uri
             else:

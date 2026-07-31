@@ -941,6 +941,7 @@ class ProjectManager:
             "grid_id": None,
             "grid_cell_index": None,
             "status": "pending",
+            "video_generated_at": None,
         }
 
     @staticmethod
@@ -1958,6 +1959,14 @@ class ProjectManager:
         """
         更新角色的参考音频路径（空串表示清空）
 
+        同时机械戳 ``voice_updated_at``（覆盖上传/清空两条路径），用于跟已生成片段的
+        ``generated_assets.video_generated_at`` 比较，判定片段是否早于当前声音设置——
+        无需额外「已关闭」布尔位，关闭态用 ``voice_notice_dismissed_at`` 时间戳与本字段
+        比较即可自然表达「新版本」。
+
+        另一处戳点在 ``server/routers/assets.py::apply_to_project``：全局资产库批量导入
+        在单次 update_project 内一并写 characters，走不通本方法，故就地戳同一字段。
+
         Args:
             project_name: 项目名称
             char_name: 角色名称
@@ -1971,6 +1980,7 @@ class ProjectManager:
             if "characters" not in project or char_name not in project["characters"]:
                 raise KeyError(f"角色 '{char_name}' 不存在")
             project["characters"][char_name]["reference_audio"] = ref_path
+            project["characters"][char_name]["voice_updated_at"] = datetime.now(UTC).isoformat()
 
         return self.update_project(project_name, _mutate)
 

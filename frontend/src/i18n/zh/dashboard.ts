@@ -261,6 +261,12 @@ export default {
   'voice_sample_task_submitted_toast': '「{{name}}」的语音试听样本生成任务已提交',
   'voice_sample_resource_busy': '该角色刚被其他任务占用，请稍后再试',
 
+  'voice_legacy_banner_message_one':
+    '角色参考音频已更新。{{count}} 个片段生成于设置之前，声音可能与新生成的片段不一致；需要对齐时重新生成对应片段即可。',
+  'voice_legacy_banner_message_other':
+    '角色参考音频已更新。{{count}} 个片段生成于设置之前，声音可能与新生成的片段不一致；需要对齐时重新生成对应片段即可。',
+  'voice_legacy_banner_dismiss': '知道了',
+  'voice_legacy_banner_dismiss_failed': '关闭提示失败：{{error}}',
   'generate_design': '生成设计图',
   'regenerate_design': '重新生成设计图',
 
@@ -723,7 +729,7 @@ export default {
   'episode_mode_switch_keep_data': '切换模式不会删除已生成的 units / scenes，可随时切回原模式继续。',
   'episode_mode_switch_to_reference': '切换到参考生视频：Timeline 中的分镜/宫格数据仍然保留，在下次切回时自动恢复。',
   'episode_mode_switch_from_reference': '切换回图生/宫格生视频：参考模式的 video_units 保留，切回时可继续生成。',
-  // ========== PR5 reference-video editor ==========
+  // ========== 参考生视频编辑器 ==========
   'reference_editor_placeholder': '输入 prompt，支持 "Shot 1 (3s): ..."，用 @ 引用角色/场景/道具',
   'reference_editor_aria_name': 'Unit 提示词',
   'reference_editor_unknown_mentions_label': '未注册提及',

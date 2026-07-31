@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -56,6 +57,14 @@ _I18N_KEYS: dict[str, dict[str, str]] = {
 
 def _is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+class _InvalidFieldValue(Exception):
+    """PATCH 请求体中某字段的值未通过业务校验（区别于类型校验，类型错误已在边界 422）。"""
+
+    def __init__(self, field: str):
+        self.field = field
+        super().__init__(field)
 
 
 class _CreateRequest(BaseModel):
@@ -116,6 +125,13 @@ def build_asset_router(
                 extras.pop(field, None)
             elif not isinstance(value, str):
                 raise HTTPException(status_code=422, detail=f"field '{field}' must be a string")
+            elif field == "voice_notice_dismissed_at":
+                # 新建角色尚无 voice_updated_at，PATCH 侧「必须等于当前 voice_updated_at」的
+                # 校验在此处恒不成立（值不存在）；直接拒绝创建时携带该字段，防止绕过
+                # PATCH 的等值校验写入远未来时间戳，永久压制存量过渡横幅。真实用户可能
+                # 触发（如把已有角色的序列化结果整体复制进创建请求体），与 PATCH 侧的
+                # 同名校验一样须走翻译。
+                raise HTTPException(status_code=422, detail=_t("asset_voice_notice_dismissed_at_stale"))
         for field in spec.extra_list_fields:
             value = extras.get(field)
             if value is not None and not _is_string_list(value):
@@ -127,6 +143,11 @@ def build_asset_router(
                 entry: dict[str, Any] = {"description": req.description, spec.sheet_field: ""}
                 for field in spec.extra_string_fields:
                     entry[field] = extras.get(field, "")
+                # 创建即携带 reference_audio 时同样须机械戳 voice_updated_at：与 PATCH 侧
+                # 同一字段的同一补戳理由一致，否则该角色的存量片段横幅永远感知不到这次
+                # 「设置了声音」。
+                if entry.get("reference_audio"):
+                    entry["voice_updated_at"] = datetime.now(UTC).isoformat()
                 for field in spec.extra_list_fields:
                     entry[field] = list(extras.get(field) or [])
                 with project_change_source("webui"):
@@ -178,6 +199,16 @@ def build_asset_router(
                     entry = bucket[entry_name]
                     for field in (*update_fields, *update_list_fields):
                         if req.get(field) is not None:
+                            # voice_notice_dismissed_at 语义是「已确认到的声音版本」，必须原样
+                            # 回填角色自己的 voice_updated_at；放行任意字符串会让客户端写入
+                            # 远未来时间戳，永久压制存量过渡横幅。
+                            if field == "voice_notice_dismissed_at" and req[field] != entry.get("voice_updated_at"):
+                                raise _InvalidFieldValue(field)
+                            # reference_audio 经通用 PATCH 修改时必须同步刷新 voice_updated_at：
+                            # 该字段仍在此处的可写集合内，若不补戳，经这条路径改声音会让
+                            # 存量过渡横幅感知不到变化，或已关闭后不再重现。
+                            if field == "reference_audio" and req[field] != entry.get("reference_audio"):
+                                entry["voice_updated_at"] = datetime.now(UTC).isoformat()
                             entry[field] = req[field]
                     result.update(entry)
 
@@ -188,6 +219,13 @@ def build_asset_router(
             return await asyncio.to_thread(_sync)
         except KeyError:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
+        except _InvalidFieldValue as exc:
+            # 与相邻的类型校验 422（"field ... must be a string"）不同：这条路径不需要
+            # 客户端主动构造非法请求即可触发——横幅渲染后声音被再次更新、用户随后才点击
+            # 关闭即会触发，是真实用户可能看到的错误，须走翻译。
+            if exc.field == "voice_notice_dismissed_at":
+                raise HTTPException(status_code=422, detail=_t("asset_voice_notice_dismissed_at_stale"))
+            raise HTTPException(status_code=422, detail=f"field '{exc.field}' has an invalid value")
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
         except HTTPException:

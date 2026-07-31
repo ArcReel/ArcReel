@@ -645,6 +645,8 @@ class ProjectEventService:
                 "character_sheet": str(data.get("character_sheet") or ""),
                 "reference_image": str(data.get("reference_image") or ""),
                 "reference_audio": str(data.get("reference_audio") or ""),
+                "voice_updated_at": str(data.get("voice_updated_at") or ""),
+                "voice_notice_dismissed_at": str(data.get("voice_notice_dismissed_at") or ""),
             }
             for name, data in sorted(project.get("characters", {}).items())
             if isinstance(data, dict)

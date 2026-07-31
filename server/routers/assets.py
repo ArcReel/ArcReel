@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -44,6 +46,7 @@ def _serialize(asset) -> dict:
         "description": asset.description,
         "voice_style": asset.voice_style,
         "image_path": asset.image_path,
+        "audio_path": asset.audio_path,
         "source_project": asset.source_project,
         "updated_at": asset.updated_at.isoformat() if asset.updated_at else None,
     }
@@ -193,6 +196,8 @@ async def delete_asset(asset_id: str, _user: CurrentUser, _t: Translator):
         if a:
             if a.image_path:
                 _delete_global_asset_file(a.image_path)
+            if a.audio_path:
+                _delete_global_asset_file(a.audio_path)
             await repo.delete(asset_id)
             await s.commit()
     return None
@@ -294,6 +299,29 @@ async def from_project(
             # 非法路径或项目丢失：视作无源图继续流程
             source_sheet_path = None
 
+    # 音频只有 character 类型有意义（reference_audio，不是 sheet 概念）；缺失/路径非法同图片一样
+    # 静默降级为「无源音频」，不中断入库流程。
+    audio_rel = resource.get("reference_audio") or "" if req.resource_type == "character" else ""
+    source_audio_path: Path | None = None
+    if audio_rel:
+        try:
+            project_dir = get_project_manager().get_project_path(req.project_name)
+            ProjectManager._safe_subpath(project_dir, audio_rel)
+            candidate = project_dir / audio_rel
+            # reference_audio 可经通用角色 PATCH 被写成项目内任意字符串（extra_string_fields
+            # 只做类型校验），仅 _safe_subpath 防越界不足以防止把 project.json 等其它项目
+            # 文件当作音频复制进全局库；额外校验父目录命中 characters/refs_audio，与
+            # server/routers/files.py::_resolve_audio_ref_path 同一口径。
+            audio_refs_dir = project_dir / "characters" / "refs_audio"
+            if (
+                candidate.exists()
+                and candidate.is_file()
+                and os.path.realpath(candidate.parent) == os.path.realpath(audio_refs_dir)
+            ):
+                source_audio_path = candidate
+        except (ValueError, FileNotFoundError):
+            source_audio_path = None
+
     # 4) DB 预检查（orphan-safe：先查再拷贝文件）
     async with async_session_factory() as s:
         repo = AssetRepository(s)
@@ -308,15 +336,32 @@ async def from_project(
             },
         )
 
-    # 5) 拷贝源 sheet 到 _global_assets/{type}/{uuid}.{ext}
+    # 5) 拷贝源 sheet / 参考音频到 _global_assets/{type}/{uuid}.{ext}
+    # 两次拷贝共用一个失败边界：任一失败都清理已落盘的另一个文件，不留孤儿。
     new_image_path: str | None = None
-    if source_sheet_path is not None:
-        ext = source_sheet_path.suffix.lower() or ".png"
-        root = get_project_manager().get_global_assets_root() / req.resource_type
-        uid = uuid.uuid4().hex
-        target = root / f"{uid}{ext}"
-        await asyncio.to_thread(shutil.copyfile, source_sheet_path, target)
-        new_image_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
+    new_audio_path: str | None = None
+    try:
+        if source_sheet_path is not None:
+            ext = source_sheet_path.suffix.lower() or ".png"
+            root = get_project_manager().get_global_assets_root() / req.resource_type
+            uid = uuid.uuid4().hex
+            target = root / f"{uid}{ext}"
+            await asyncio.to_thread(shutil.copyfile, source_sheet_path, target)
+            new_image_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
+
+        if source_audio_path is not None:
+            ext = source_audio_path.suffix.lower() or ".wav"
+            root = get_project_manager().get_global_assets_root() / req.resource_type
+            uid = uuid.uuid4().hex
+            target = root / f"{uid}{ext}"
+            await asyncio.to_thread(shutil.copyfile, source_audio_path, target)
+            new_audio_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
+    except Exception:
+        if new_image_path:
+            _delete_global_asset_file(new_image_path)
+        if new_audio_path:
+            _delete_global_asset_file(new_audio_path)
+        raise
 
     # 6) 写 DB：失败路径清理拷贝文件
     try:
@@ -327,17 +372,23 @@ async def from_project(
                 old_image = (
                     existing.image_path if existing.image_path and existing.image_path != new_image_path else None
                 )
+                old_audio = (
+                    existing.audio_path if existing.audio_path and existing.audio_path != new_audio_path else None
+                )
                 a = await repo.update(
                     existing.id,
                     description=description,
                     voice_style=voice_style,
                     image_path=new_image_path,
+                    audio_path=new_audio_path,
                     source_project=req.project_name,
                 )
                 await s.commit()
                 await s.refresh(a)
                 if old_image:
                     _delete_global_asset_file(old_image)
+                if old_audio:
+                    _delete_global_asset_file(old_audio)
             else:
                 try:
                     a = await repo.create(
@@ -346,6 +397,7 @@ async def from_project(
                         description=description,
                         voice_style=voice_style,
                         image_path=new_image_path,
+                        audio_path=new_audio_path,
                         source_project=req.project_name,
                     )
                     await s.commit()
@@ -354,6 +406,8 @@ async def from_project(
                     await s.rollback()
                     if new_image_path:
                         _delete_global_asset_file(new_image_path)
+                    if new_audio_path:
+                        _delete_global_asset_file(new_audio_path)
                     raise HTTPException(
                         status_code=409,
                         detail=_t("asset_already_exists", name=asset_name),
@@ -363,6 +417,8 @@ async def from_project(
     except Exception:
         if new_image_path:
             _delete_global_asset_file(new_image_path)
+        if new_audio_path:
+            _delete_global_asset_file(new_audio_path)
         raise
 
     return {"asset": _serialize(a)}
@@ -461,6 +517,32 @@ async def apply_to_project(
                 failed.append({"id": a.id, "reason": "image_missing"})
                 continue
 
+        # 规划参考音频拷贝：与图片同口径（缺失即整条 failed，不中断整批）；只有 character 有意义
+        target_audio: str | None = None
+        copy_audio_src: Path | None = None
+        copy_audio_dst: Path | None = None
+        if a.type == "character" and a.audio_path:
+            audio_src = project_manager.projects_root / a.audio_path
+            if audio_src.exists() and audio_src.is_file():
+                audio_ext = audio_src.suffix.lower() or ".wav"
+                rel_audio = f"characters/refs_audio/{desired_name}{audio_ext}"
+                try:
+                    ProjectManager._safe_subpath(project_dir, rel_audio)
+                except ValueError:
+                    failed.append({"id": a.id, "reason": "invalid_name"})
+                    continue
+                target_audio = rel_audio
+                copy_audio_src = audio_src
+                copy_audio_dst = project_dir / rel_audio
+            else:
+                logger.warning(
+                    "apply_to_project: asset %s audio file missing on disk: %s",
+                    a.id,
+                    a.audio_path,
+                )
+                failed.append({"id": a.id, "reason": "audio_missing"})
+                continue
+
         names.add(desired_name)
         plans.append(
             {
@@ -471,18 +553,22 @@ async def apply_to_project(
                 "target_sheet": target_sheet,
                 "copy_src": copy_src,
                 "copy_dst": copy_dst,
+                "target_audio": target_audio,
+                "copy_audio_src": copy_audio_src,
+                "copy_audio_dst": copy_audio_dst,
             }
         )
 
     # 5) 执行文件拷贝（off event loop）
     def _copy_all() -> None:
         for plan in plans:
-            src = plan["copy_src"]
-            dst = plan["copy_dst"]
-            if src is None or dst is None:
-                continue
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(src, dst)
+            for src_key, dst_key in (("copy_src", "copy_dst"), ("copy_audio_src", "copy_audio_dst")):
+                src = plan[src_key]
+                dst = plan[dst_key]
+                if src is None or dst is None:
+                    continue
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dst)
 
     if plans:
         await asyncio.to_thread(_copy_all)
@@ -495,9 +581,14 @@ async def apply_to_project(
             sk = plan["sheet_key"]
             name_ = plan["desired_name"]
             ts = plan["target_sheet"]
+            ta = plan["target_audio"]
             payload: dict = {"description": a_.description or ""}
             if a_.type == "character":
                 payload["voice_style"] = a_.voice_style or ""
+                if ta:
+                    payload["reference_audio"] = ta
+                    # 资产即开关：导入即等效「设置了这个声音」，存量过渡横幅计数须能感知
+                    payload["voice_updated_at"] = datetime.now(UTC).isoformat()
             if ts:
                 payload[sk] = ts
             if bk not in data or not isinstance(data.get(bk), dict):

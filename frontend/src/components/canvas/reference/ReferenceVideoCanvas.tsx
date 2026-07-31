@@ -17,6 +17,7 @@ import { deriveUnitStatus } from "./unit-status";
 import { ReferencePanel } from "./ReferencePanel";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
+import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { ScriptReviewGate } from "@/components/canvas/timeline/ScriptReviewGate";
 import { API } from "@/api";
@@ -123,6 +124,35 @@ export function ReferenceVideoCanvas({
   const error = useReferenceVideoStore((s) => s.error);
   const loading = useReferenceVideoStore((s) => s.loading);
   const project = useProjectsStore((s) => s.currentProjectData);
+
+  const voiceLegacyNotice = useMemo(
+    () => computeVoiceLegacyNotice(units, project?.characters ?? {}),
+    [units, project],
+  );
+  // 关闭 = 「已确认到该角色当前这一版声音」，故写回该角色自己的 voice_updated_at 而非
+  // 本机当前时间：两侧都由后端戳出，比较不受客户端时钟偏差影响（时钟落后会让关闭永不生效），
+  // 也不受 ISO 格式差异影响。下一次声音更新使 voice_updated_at 前移，横幅自然重新出现。
+  const handleDismissVoiceLegacyNotice = useCallback(async () => {
+    // 提交时刻新鲜读：横幅渲染后声音可能又被更新，须确认到最新那一版。
+    const characters = useProjectsStore.getState().currentProjectData?.characters ?? {};
+    try {
+      await Promise.all(
+        voiceLegacyNotice.characterNames.map((name) => {
+          const acknowledgedAt = characters[name]?.voice_updated_at;
+          if (!acknowledgedAt) return Promise.resolve();
+          return API.updateCharacter(projectName, name, { voice_notice_dismissed_at: acknowledgedAt });
+        }),
+      );
+      // refreshProject 失败时 resolve "failed" 而非 reject，须传 onError，否则 PATCH 已成功
+      // 但本地 store 未同步时会静默吞掉，横幅带着旧数据留在页面上却不提示用户。
+      await useProjectsStore.getState().refreshProject(projectName, {
+        onError: (err) => toastError(err, (msg) => t("voice_legacy_banner_dismiss_failed", { error: msg })),
+      });
+    } catch (e) {
+      // 静默失败会让横幅原样留在页面上而用户以为已关闭，必须可见。
+      toastError(e, (msg) => t("voice_legacy_banner_dismiss_failed", { error: msg }));
+    }
+  }, [projectName, t, voiceLegacyNotice.characterNames]);
 
   // Drafts persist across unit switches; entry is dropped when text matches server value.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -652,6 +682,14 @@ export function ReferenceVideoCanvas({
           </button>
         )}
       </div>
+
+      {tab === "units" && voiceLegacyNotice.count > 0 && (
+        <VoiceLegacyBanner
+          message={t("voice_legacy_banner_message", { count: voiceLegacyNotice.count })}
+          dismissLabel={t("voice_legacy_banner_dismiss")}
+          onDismiss={() => void handleDismissVoiceLegacyNotice()}
+        />
+      )}
 
       {error && tab === "units" && (
         <p

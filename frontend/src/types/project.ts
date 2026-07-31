@@ -23,6 +23,11 @@ export interface Character {
   voice_style?: string;
   reference_image?: string;
   reference_audio?: string;
+  /** reference_audio 当前生效版本的设置/更新时间（ISO8601），由后端在写入时机械戳。 */
+  voice_updated_at?: string;
+  /** 已确认到的声音版本（ISO8601，取关闭时的 voice_updated_at 原值）；
+   *  voice_updated_at 晚于此值即视为新版本。 */
+  voice_notice_dismissed_at?: string;
 }
 
 export interface Scene {

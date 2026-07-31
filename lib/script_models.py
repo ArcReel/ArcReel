@@ -187,6 +187,10 @@ class GeneratedAssets(BaseModel):
     # 显式声明使其通过 extra="forbid" + 「不更坏」守卫；仅说书 segment 写入，drama/refvideo 恒 None。
     narration_audio: str | None = Field(default=None, description="旁白音频路径")
     status: Literal["pending", "storyboard_ready", "completed"] = Field(default="pending", description="生成状态")
+    # video_clip 写回时（apply_unit_video_assets 单一写点）机械戳生成时间；用于跟角色
+    # `voice_updated_at` 比较，判定该片段是否生成于当前参考音频设置之前。
+    # 缺省视为早于任何设置，落在「生成于设置之前」语义内。对 LLM 隐藏。
+    video_generated_at: SkipJsonSchema[str | None] = Field(default=None, description="视频生成完成时间（ISO8601 UTC）")
 
 
 def get_generated_assets(item: dict) -> dict:

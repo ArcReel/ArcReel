@@ -41,6 +41,9 @@ class _FakeVM:
             "versions": [{"version": 1, "file": f"versions/{resource_type}/{resource_id}.png"}],
         }
 
+    def get_version_created_at(self, resource_type, resource_id, version):
+        return "2026-01-01T00:00:00+00:00"
+
     def restore_version(self, resource_type, resource_id, version, current_file):
         if version == 404:
             raise FileNotFoundError("missing")

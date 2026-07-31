@@ -102,6 +102,61 @@ class TestDataValidator:
         assert result.valid
         assert not any("title" in error for error in result.errors)
 
+    @pytest.mark.integration
+    def test_validate_project_rejects_non_string_voice_updated_at(self, tmp_path):
+        # voice_updated_at 不在 extra_string_fields 里（系统专用戳字段，不开放通用 PATCH），
+        # 但仍须校验类型：外部编辑/导入把它写成非字符串会在前端时间戳比较处静默产生 NaN。
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _project_payload()
+        payload["characters"]["姜月茴"]["voice_updated_at"] = 12345
+        _write_json(project_dir / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+        assert not result.valid
+        assert any("voice_updated_at 必须是字符串" in error for error in result.errors)
+
+    @pytest.mark.integration
+    def test_validate_project_rejects_unparseable_voice_updated_at(self, tmp_path):
+        # 类型是字符串但不是合法 ISO8601 时不会被上面的类型校验拦下，但前端
+        # `new Date(iso).getTime()` 解析会得到 NaN，参与比较恒为 false——横幅因此静默
+        # 失效而非报错，比类型错误更隐蔽，须单独校验值本身能否被解析。
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _project_payload()
+        payload["characters"]["姜月茴"]["voice_updated_at"] = "not-a-date"
+        _write_json(project_dir / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+        assert not result.valid
+        assert any("voice_updated_at 不是合法的 ISO8601 时间戳" in error for error in result.errors)
+
+    @pytest.mark.integration
+    def test_validate_project_rejects_unparseable_voice_notice_dismissed_at(self, tmp_path):
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _project_payload()
+        payload["characters"]["姜月茴"]["voice_notice_dismissed_at"] = "not-a-date"
+        _write_json(project_dir / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+        assert not result.valid
+        assert any("voice_notice_dismissed_at 不是合法的 ISO8601 时间戳" in error for error in result.errors)
+
+    @pytest.mark.integration
+    def test_validate_project_accepts_z_and_offset_voice_timestamps(self, tmp_path):
+        # 仓库内两种实际写出的格式都须放行：秒级 Z 后缀（版本还原）与微秒级 +00:00 偏移
+        # （datetime.now(UTC).isoformat()）。
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _project_payload()
+        payload["characters"]["姜月茴"]["voice_updated_at"] = "2026-01-02T00:00:00.500000+00:00"
+        payload["characters"]["姜月茴"]["voice_notice_dismissed_at"] = "2026-01-02T00:00:00Z"
+        _write_json(project_dir / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+        assert result.valid
+
     def test_validate_episode_narration_success_with_warnings(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
@@ -1161,6 +1216,23 @@ class TestAdReferenceUnitsValidation:
     def test_missing_index_is_legal(self, tmp_path):
         result = self._validate(tmp_path, [self._ad_shot()], None)
         assert result.valid, result.errors
+
+    @pytest.mark.integration
+    def test_unparseable_video_generated_at_rejected(self, tmp_path):
+        # 外部编辑/导入把 video_generated_at 写成不可解析的字符串时不会被类型校验拦下，
+        # 但前端 `new Date(iso).getTime()` 解析得到 NaN，参与比较恒为 false，判定因此
+        # 静默失效而非报错，须单独校验值本身能否被解析。
+        units = [
+            {
+                "unit_id": "E1U1",
+                "shot_ids": ["E1S01"],
+                "references": [{"type": "character", "name": "主播"}],
+                "generated_assets": {"status": "completed", "video_generated_at": "not-a-date"},
+            }
+        ]
+        result = self._validate(tmp_path, [self._ad_shot()], units)
+        assert not result.valid
+        assert any("video_generated_at 不是合法的 ISO8601 时间戳" in error for error in result.errors)
 
     def test_dangling_shot_id_warns_not_errors(self, tmp_path):
         """镜头删除后索引短暂悬空是合法中间态（重新派生即愈）：warn 不 error。"""

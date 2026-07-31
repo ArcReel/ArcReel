@@ -20,8 +20,8 @@ vi.mock("react-i18next", () => ({
 }));
 
 const fixtures = [
-  { id: "1", type: "character" as const, name: "王小明", description: "", voice_style: "", image_path: null, source_project: null, updated_at: null },
-  { id: "2", type: "character" as const, name: "小师妹", description: "", voice_style: "", image_path: null, source_project: null, updated_at: null },
+  { id: "1", type: "character" as const, name: "王小明", description: "", voice_style: "", image_path: null, audio_path: null, source_project: null, updated_at: null },
+  { id: "2", type: "character" as const, name: "小师妹", description: "", voice_style: "", image_path: null, audio_path: null, source_project: null, updated_at: null },
 ];
 
 describe("AssetPickerModal", () => {
