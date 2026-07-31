@@ -129,15 +129,26 @@ export function ReferenceVideoCanvas({
     () => computeVoiceLegacyNotice(units, project?.characters ?? {}),
     [units, project],
   );
+  // 关闭 = 「已确认到该角色当前这一版声音」，故写回该角色自己的 voice_updated_at 而非
+  // 本机当前时间：两侧都由后端戳出，比较不受客户端时钟偏差影响（时钟落后会让关闭永不生效），
+  // 也不受 ISO 格式差异影响。下一次声音更新使 voice_updated_at 前移，横幅自然重新出现。
   const handleDismissVoiceLegacyNotice = useCallback(async () => {
-    const dismissedAt = new Date().toISOString();
-    await Promise.all(
-      voiceLegacyNotice.characterNames.map((name) =>
-        API.updateCharacter(projectName, name, { voice_notice_dismissed_at: dismissedAt }),
-      ),
-    );
-    await useProjectsStore.getState().refreshProject(projectName);
-  }, [projectName, voiceLegacyNotice.characterNames]);
+    // 提交时刻新鲜读：横幅渲染后声音可能又被更新，须确认到最新那一版。
+    const characters = useProjectsStore.getState().currentProjectData?.characters ?? {};
+    try {
+      await Promise.all(
+        voiceLegacyNotice.characterNames.map((name) => {
+          const acknowledgedAt = characters[name]?.voice_updated_at;
+          if (!acknowledgedAt) return Promise.resolve();
+          return API.updateCharacter(projectName, name, { voice_notice_dismissed_at: acknowledgedAt });
+        }),
+      );
+      await useProjectsStore.getState().refreshProject(projectName);
+    } catch (e) {
+      // 静默失败会让横幅原样留在页面上而用户以为已关闭，必须可见。
+      toastError(e, (msg) => t("voice_legacy_banner_dismiss_failed", { error: msg }));
+    }
+  }, [projectName, t, voiceLegacyNotice.characterNames]);
 
   // Drafts persist across unit switches; entry is dropped when text matches server value.
   const [drafts, setDrafts] = useState<Record<string, string>>({});

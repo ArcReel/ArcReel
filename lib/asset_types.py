@@ -62,8 +62,9 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         # update_character_reference_image / update_character_reference_audio。
         # voice_notice_dismissed_at 是存量过渡横幅的关闭时间戳（#1492），由前端「关闭」
         # 动作通过本通用 PATCH 写入；agent 不该也无需感知横幅 UI 状态，不进白名单。
-        # 与之比较的 voice_updated_at 不在此列——只能由 update_character_reference_audio
-        # 机械戳写，不开放任意 PATCH 覆写（否则横幅计数可被绕过）。
+        # 与之比较的 voice_updated_at 不在此列——只由系统在 reference_audio 实际变更时机械戳写
+        # （update_character_reference_audio 与全局资产库导入），不开放任意 PATCH 覆写
+        # （否则横幅计数可被绕过）。
         agent_editable_extra_fields=("voice_style",),
     ),
     "scene": AssetSpec(

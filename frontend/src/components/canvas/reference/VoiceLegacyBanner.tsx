@@ -7,10 +7,11 @@
  * - GeneratedAssets.video_generated_at：视频生成完成时戳，缺省（存量片段）视为
  *   早于任何设置
  *
- * 关闭态落在 Character.voice_notice_dismissed_at（时间戳而非布尔位）：
- * voice_updated_at 晚于该角色的 dismissed_at 即视为「新变更后重新出现」，无需
- * 额外重置逻辑。横幅按画布（本集 units）聚合展示，关闭时对本轮实际贡献计数的
- * 每个角色分别写回 dismissed_at。
+ * 关闭态落在 Character.voice_notice_dismissed_at（时间戳而非布尔位）：语义是「已确认
+ * 到的声音版本」，关闭时写回该角色当时的 voice_updated_at 原值（两侧同源于后端时钟，
+ * 不受客户端时钟偏差与 ISO 格式差异影响）。voice_updated_at 晚于它即视为「新变更后
+ * 重新出现」，无需额外重置逻辑。横幅按画布（本集 units）聚合展示，关闭时对本轮实际
+ * 贡献计数的每个角色分别写回。
  */
 import { History, X } from "lucide-react";
 import type { Character } from "@/types/project";

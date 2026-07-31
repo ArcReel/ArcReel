@@ -339,6 +339,27 @@ class VersionManager:
                 return v.get("prompt")
         return None
 
+    def get_version_created_at(self, resource_type: str, resource_id: str, version: int) -> str | None:
+        """
+        获取指定版本的入库时间（ISO8601）
+
+        还原历史版本时用于把该版本的原始生成时间写回 generated_assets，而不是戳成
+        「现在」——还原回来的是旧内容，声音等派生判定须按旧时间成立。
+
+        Args:
+            resource_type: 资源类型
+            resource_id: 资源 ID
+            version: 版本号
+
+        Returns:
+            ISO8601 时间戳，不存在时返回 None
+        """
+        info = self.get_versions(resource_type, resource_id)
+        for v in info["versions"]:
+            if v["version"] == version:
+                return v.get("created_at")
+        return None
+
     def has_versions(self, resource_type: str, resource_id: str) -> bool:
         """
         检查资源是否有版本记录

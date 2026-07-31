@@ -261,9 +261,12 @@ export default {
   'voice_sample_task_submitted_toast': '「{{name}}」的语音试听样本生成任务已提交',
   'voice_sample_resource_busy': '该角色刚被其他任务占用，请稍后再试',
 
-  'voice_legacy_banner_message':
+  'voice_legacy_banner_message_one':
+    '角色参考音频已更新。{{count}} 个片段生成于设置之前，声音可能与新生成的片段不一致；需要对齐时重新生成对应片段即可。',
+  'voice_legacy_banner_message_other':
     '角色参考音频已更新。{{count}} 个片段生成于设置之前，声音可能与新生成的片段不一致；需要对齐时重新生成对应片段即可。',
   'voice_legacy_banner_dismiss': '知道了',
+  'voice_legacy_banner_dismiss_failed': '关闭提示失败：{{error}}',
   'generate_design': '生成设计图',
   'regenerate_design': '重新生成设计图',
 
