@@ -98,6 +98,18 @@ class TestDashScopeAudioBackend:
         b = DashScopeAudioBackend(api_key="sk")
         assert b.model == "qwen3-tts-flash"
 
+    def test_list_voices_returns_nonempty_catalog_with_unique_ids(self):
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
+
+        b = DashScopeAudioBackend(api_key="sk")
+        voices = b.list_voices()
+        assert voices
+        ids = [v.id for v in voices]
+        assert len(ids) == len(set(ids))
+        assert all(v.label for v in voices)
+        # 调用方（voices 端点）依赖每次返回独立列表，不能是同一份可变共享对象
+        assert voices is not b.list_voices()
+
     async def test_synthesize_request_and_download(self, tmp_path: Path):
         client = _mock_client(_synth_response(), _download_response(b"RIFFwavbytes"))
         with patch("httpx.AsyncClient", return_value=client):
@@ -306,6 +318,16 @@ class TestOpenAIAudioBackend:
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1", provider_name="custom-7")
             assert b.name == "custom-7"
+
+    def test_list_voices_returns_official_catalog(self):
+        with patch("lib.openai_shared.AsyncOpenAI"):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", model="gpt-4o-mini-tts")
+            voices = b.list_voices()
+            ids = {v.id for v in voices}
+            assert {"alloy", "marin", "cedar"} <= ids
+            assert len(ids) == len(voices)
 
     async def test_speed_passthrough_and_omitted_when_none(self, tmp_path: Path):
         mock_client = _mock_speech_client()

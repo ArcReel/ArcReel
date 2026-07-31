@@ -7,7 +7,6 @@
 import asyncio
 import json
 import logging
-import os
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -20,7 +19,21 @@ from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib.api_errors import NotFoundError
 from lib.asset_types import GLOBAL_LIBRARY_ASSET_TYPES
-from lib.audio_utils import probe_audio_duration_seconds
+from lib.audio_utils import (
+    AUDIO_REFERENCE_MAX_BYTES as _AUDIO_MAX_BYTES,
+)
+from lib.audio_utils import (
+    AUDIO_REFERENCE_MAX_SECONDS as _AUDIO_MAX_SECONDS,
+)
+from lib.audio_utils import (
+    AUDIO_REFERENCE_MIN_SECONDS as _AUDIO_MIN_SECONDS,
+)
+from lib.audio_utils import (
+    probe_audio_duration_seconds,
+)
+from lib.audio_utils import (
+    resolve_audio_ref_path as _resolve_audio_ref_path,
+)
 from lib.config.resolver import VisionCapabilityError
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
@@ -31,7 +44,7 @@ from lib.episode_paths import (
 )
 from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
-from lib.path_safety import PathTraversalError, safe_join, safe_resolve
+from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import effective_mode, get_project_manager
 from lib.source_loader import (
@@ -55,21 +68,6 @@ def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:
     return file.filename
 
 
-def _resolve_audio_ref_path(project_dir: Path, audio_refs_dir: Path, rel_path: str | None) -> Path | None:
-    """解析 reference_audio 字段值，仅当其确实落在 characters/refs_audio 内才返回。
-
-    该字段可经资产 PATCH 被写成项目内任意字符串（extra_string_fields 只做类型校验），
-    单靠 safe_resolve 只保证不越界出项目目录，还不足以防止被诱导删除 project.json
-    等项目内其它文件，故额外校验父目录命中 refs_audio。
-    """
-    resolved = safe_resolve(project_dir, rel_path)
-    if resolved is None:
-        return None
-    if os.path.realpath(resolved.parent) != os.path.realpath(audio_refs_dir):
-        return None
-    return resolved
-
-
 # 允许的文件类型
 ALLOWED_EXTENSIONS = {
     "source": [".txt", ".md", ".docx", ".epub", ".pdf"],
@@ -81,11 +79,6 @@ ALLOWED_EXTENSIONS = {
     "product": [".png", ".jpg", ".jpeg", ".webp"],
     "product_ref": [".png", ".jpg", ".jpeg", ".webp"],
 }
-
-# 参考音频约束：wav/mp3、2-10 秒、≤15MB
-_AUDIO_MAX_BYTES = 15 * 1024 * 1024
-_AUDIO_MIN_SECONDS = 2.0
-_AUDIO_MAX_SECONDS = 10.0
 
 
 @router.get("/files/{project_name}/{path:path}")

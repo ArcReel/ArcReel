@@ -14,6 +14,15 @@ class AudioCapability(StrEnum):
     TEXT_TO_SPEECH = "text_to_speech"
 
 
+@dataclass(frozen=True)
+class VoiceOption:
+    """音色目录条目。``id`` 是合成请求携带的 ``voice`` 参数值。"""
+
+    id: str
+    label: str
+    gender: str | None = None
+
+
 @dataclass
 class AudioSynthesisRequest:
     """通用语音合成请求。各 Backend 忽略不支持的字段。"""
@@ -48,5 +57,7 @@ class AudioBackend(Protocol):
 
     @property
     def capabilities(self) -> set[AudioCapability]: ...
+
+    def list_voices(self) -> list[VoiceOption]: ...
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult: ...

@@ -1,0 +1,320 @@
+"""角色 TTS 参考音频试听样本端点测试：音色列表 / 生成入队 / confirm 落资产。"""
+
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from lib.audio_backends.base import VoiceOption
+from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.resource_paths import resource_relative_path
+from server.auth import CurrentUserInfo, get_current_user
+from server.error_handlers import register_error_handlers
+from server.routers import generate
+from server.services.generation_context import AudioLaneResult, GenerationContext
+
+
+class _FakeQueue:
+    def __init__(self, tasks: dict[str, dict] | None = None):
+        self.calls = []
+        self._tasks = tasks or {}
+
+    async def enqueue_task(self, **kwargs):
+        self.calls.append(kwargs)
+        return {"task_id": f"task-{len(self.calls)}", "deduped": False}
+
+    async def get_task(self, task_id):
+        return self._tasks.get(task_id)
+
+
+class _FakePM:
+    def __init__(self, project_path: Path):
+        self.project_path = project_path
+        self.project = {"characters": {"艾莉": {"description": "x"}}}
+        self.updated_audio_refs = []
+
+    def load_project(self, project_name):
+        return self.project
+
+    def get_project_path(self, project_name):
+        return self.project_path
+
+    def update_character_reference_audio(self, project_name, char_name, ref_path):
+        if char_name not in self.project["characters"]:
+            raise KeyError(char_name)
+        self.project["characters"][char_name]["reference_audio"] = ref_path
+        self.updated_audio_refs.append((char_name, ref_path))
+        return self.project
+
+
+class _FakeAudioBackend:
+    def __init__(self, voices):
+        self._voices = voices
+
+    def list_voices(self):
+        return self._voices
+
+
+def _app(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True):
+    monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
+    monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
+
+    async def _resolve(self, project, payload):
+        if not audio_provider_ready:
+            raise ValueError("未找到可用的 audio 供应商")
+        return ProviderModel("dashscope", "qwen3-tts-flash")
+
+    monkeypatch.setattr(ConfigResolver, "resolve_audio_backend", _resolve)
+
+    app = FastAPI()
+    register_error_handlers(app)
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+    app.include_router(generate.router, prefix="/api/v1")
+    return app
+
+
+def _client(monkeypatch, fake_pm, fake_queue, **kwargs):
+    return TestClient(_app(monkeypatch, fake_pm, fake_queue, **kwargs), raise_server_exceptions=False)
+
+
+class TestAudioBackendVoices:
+    def test_not_configured_returns_empty(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        client = _client(monkeypatch, fake_pm, _FakeQueue(), audio_provider_ready=False)
+
+        with client:
+            res = client.get("/api/v1/projects/demo/audio-backend/voices")
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body == {"configured": False, "provider_id": None, "model": None, "voices": []}
+
+    def test_configured_returns_backend_catalog(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        client = _client(monkeypatch, fake_pm, _FakeQueue())
+
+        backend = _FakeAudioBackend([VoiceOption(id="Cherry", label="芊悦", gender="female")])
+
+        class _FakeGenerator:
+            audio_backend = backend
+
+        ctx = GenerationContext(
+            generator=_FakeGenerator(),
+            audio_lane=AudioLaneResult(
+                provider_model=ProviderModel("dashscope", "qwen3-tts-flash"),
+                backend_name="dashscope",
+                backend_model="qwen3-tts-flash",
+                narration_voice="Cherry",
+                narration_speed=None,
+            ),
+        )
+
+        async def _resolve_ctx(*args, **kwargs):
+            return ctx
+
+        monkeypatch.setattr(generate, "resolve_generation_context", _resolve_ctx)
+
+        with client:
+            res = client.get("/api/v1/projects/demo/audio-backend/voices")
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["configured"] is True
+        assert body["provider_id"] == "dashscope"
+        assert body["model"] == "qwen3-tts-flash"
+        assert body["voices"] == [{"id": "Cherry", "label": "芊悦", "gender": "female"}]
+
+
+class TestGenerateCharacterVoiceSample:
+    def test_enqueue_success(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/艾莉/voice-sample",
+                json={"text": "你好，这是一段声音示例。", "voice": "Cherry"},
+            )
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["success"] is True
+        assert body["task_id"] == "task-1"
+        assert len(fake_queue.calls) == 1
+        call = fake_queue.calls[0]
+        assert call["task_type"] == "voice_sample"
+        assert call["media_type"] == "audio"
+        assert call["resource_id"] == "艾莉"
+        assert call["payload"]["prompt"] == "你好，这是一段声音示例。"
+        assert call["payload"]["voice"] == "Cherry"
+
+    def test_character_not_found(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        client = _client(monkeypatch, fake_pm, _FakeQueue())
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/不存在/voice-sample",
+                json={"text": "你好", "voice": "Cherry"},
+            )
+
+        assert res.status_code == 404
+
+    def test_audio_provider_not_configured(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        client = _client(monkeypatch, fake_pm, _FakeQueue(), audio_provider_ready=False)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/艾莉/voice-sample",
+                json={"text": "你好", "voice": "Cherry"},
+            )
+
+        assert res.status_code == 400
+
+    def test_empty_text_rejected(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        client = _client(monkeypatch, fake_pm, _FakeQueue())
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/艾莉/voice-sample",
+                json={"text": "   ", "voice": "Cherry"},
+            )
+
+        assert res.status_code == 400
+
+    def test_empty_voice_rejected(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        client = _client(monkeypatch, fake_pm, _FakeQueue())
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/艾莉/voice-sample",
+                json={"text": "你好", "voice": "  "},
+            )
+
+        assert res.status_code == 400
+
+
+class TestConfirmCharacterVoiceSample:
+    def _write_sample(self, project_path: Path, char_name: str, content: bytes = b"fake-wav") -> str:
+        rel = resource_relative_path("audio", f"voice_sample__{char_name}")
+        abs_path = project_path / rel
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        abs_path.write_bytes(content)
+        return rel
+
+    def test_confirm_success_writes_reference_audio(self, tmp_path, monkeypatch):
+        project_path = tmp_path / "projects" / "demo"
+        fake_pm = _FakePM(project_path)
+        rel = self._write_sample(project_path, "艾莉")
+        fake_queue = _FakeQueue(
+            {
+                "task-1": {
+                    "project_name": "demo",
+                    "task_type": "voice_sample",
+                    "resource_id": "艾莉",
+                    "status": "succeeded",
+                    "result": {"file_path": rel},
+                }
+            }
+        )
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/艾莉/voice-sample/confirm",
+                json={"task_id": "task-1"},
+            )
+
+        assert res.status_code == 200
+        body = res.json()
+        assert body["success"] is True
+        assert body["path"] == "characters/refs_audio/艾莉.wav"
+        assert fake_pm.updated_audio_refs == [("艾莉", "characters/refs_audio/艾莉.wav")]
+        assert (project_path / "characters" / "refs_audio" / "艾莉.wav").read_bytes() == b"fake-wav"
+
+    def test_confirm_unknown_task_404(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        client = _client(monkeypatch, fake_pm, _FakeQueue())
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/艾莉/voice-sample/confirm",
+                json={"task_id": "missing"},
+            )
+
+        assert res.status_code == 404
+
+    def test_confirm_task_for_different_character_404(self, tmp_path, monkeypatch):
+        project_path = tmp_path / "projects" / "demo"
+        fake_pm = _FakePM(project_path)
+        rel = self._write_sample(project_path, "另一个")
+        fake_queue = _FakeQueue(
+            {
+                "task-1": {
+                    "project_name": "demo",
+                    "task_type": "voice_sample",
+                    "resource_id": "另一个",
+                    "status": "succeeded",
+                    "result": {"file_path": rel},
+                }
+            }
+        )
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/艾莉/voice-sample/confirm",
+                json={"task_id": "task-1"},
+            )
+
+        assert res.status_code == 404
+
+    def test_confirm_not_succeeded_400(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_queue = _FakeQueue(
+            {
+                "task-1": {
+                    "project_name": "demo",
+                    "task_type": "voice_sample",
+                    "resource_id": "艾莉",
+                    "status": "running",
+                    "result": None,
+                }
+            }
+        )
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/艾莉/voice-sample/confirm",
+                json={"task_id": "task-1"},
+            )
+
+        assert res.status_code == 400
+
+    def test_confirm_missing_result_file_path_400(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_queue = _FakeQueue(
+            {
+                "task-1": {
+                    "project_name": "demo",
+                    "task_type": "voice_sample",
+                    "resource_id": "艾莉",
+                    "status": "succeeded",
+                    "result": {},
+                }
+            }
+        )
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/艾莉/voice-sample/confirm",
+                json={"task_id": "task-1"},
+            )
+
+        assert res.status_code == 400

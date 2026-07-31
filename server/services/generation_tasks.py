@@ -10,7 +10,13 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from lib.asset_types import ASSET_SPECS
+from lib.asset_types import ASSET_SPECS, validate_asset_name
+from lib.audio_utils import (
+    AUDIO_REFERENCE_MAX_BYTES,
+    AUDIO_REFERENCE_MAX_SECONDS,
+    AUDIO_REFERENCE_MIN_SECONDS,
+    probe_audio_duration_seconds,
+)
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import constrain_durations
 from lib.db.base import DEFAULT_USER_ID
@@ -752,6 +758,84 @@ async def execute_tts_task(
     }
 
 
+def voice_sample_resource_id(character_name: str) -> str:
+    """角色 TTS 试听样本在 ``audio/`` 下的资源 id（区别于旁白 segment id 命名空间）。
+
+    生成产物只是待确认的预览件，落盘位置与旁白共用 ``audio/`` 目录但用固定前缀隔离，
+    不会与说书模式的 segment id 冲突；只有 confirm 步骤才把音频提升为角色 reference_audio。
+    """
+    return f"voice_sample__{character_name}"
+
+
+async def execute_character_voice_sample_task(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """为角色参考音频候选生成一段 TTS 试听样本（预览用，不写入角色资产）。
+
+    ``resource_id`` 是角色名；文本与音色显式来自 payload（``prompt`` = 待合成文本，
+    ``voice`` = 用户选定的音色 id），不回落任何全局旁白配置。生成产物须满足与
+    参考音频上传同口径的校验（格式经落盘扩展名固定为 wav、时长 2-10 秒、≤15MB）；
+    校验失败直接抛错让任务落 failed，不静默放行不合规样本。
+    """
+    character_name = validate_asset_name(resource_id)
+    text = payload.get("prompt")
+    voice = payload.get("voice")
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("voice sample 任务需要非空 payload.prompt（待合成文本）")
+    if not isinstance(voice, str) or not voice.strip():
+        raise ValueError("voice sample 任务需要 payload.voice（音色 id）")
+
+    project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+    ctx = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        audio=AudioLaneRequest(),
+    )
+    generator = ctx.generator
+
+    sample_id = voice_sample_resource_id(character_name)
+    _, version = await generator.generate_audio_async(
+        text=text.strip(),
+        resource_id=sample_id,
+        voice=voice.strip(),
+        speed=None,
+    )
+
+    audio_rel = resource_relative_path("audio", sample_id)
+    audio_abs = get_project_manager().get_project_path(project_name) / audio_rel
+
+    def _read_bytes() -> bytes:
+        return audio_abs.read_bytes()
+
+    content = await asyncio.to_thread(_read_bytes)
+    if len(content) > AUDIO_REFERENCE_MAX_BYTES:
+        raise ValueError(f"生成的语音样本超过 {AUDIO_REFERENCE_MAX_BYTES // (1024 * 1024)}MB 限制")
+
+    duration = await probe_audio_duration_seconds(content, audio_abs.suffix)
+    if duration is not None and not (AUDIO_REFERENCE_MIN_SECONDS <= duration <= AUDIO_REFERENCE_MAX_SECONDS):
+        raise ValueError(
+            f"生成的语音样本时长 {duration:.1f}s 超出 "
+            f"{AUDIO_REFERENCE_MIN_SECONDS:.0f}-{AUDIO_REFERENCE_MAX_SECONDS:.0f} 秒范围"
+        )
+
+    return {
+        "version": version,
+        "file_path": audio_rel,
+        "resource_type": "audio",
+        "resource_id": sample_id,
+        "character_name": character_name,
+        "voice": voice.strip(),
+        "duration_seconds": duration,
+    }
+
+
 async def execute_video_task(
     project_name: str,
     resource_id: str,
@@ -1485,6 +1569,7 @@ _TASK_EXECUTORS = {
     "storyboard": execute_storyboard_task,
     "video": execute_video_task,
     "tts": execute_tts_task,
+    "voice_sample": execute_character_voice_sample_task,
     "character": execute_character_task,
     "scene": execute_scene_task,
     "prop": execute_prop_task,

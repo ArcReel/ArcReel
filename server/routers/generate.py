@@ -10,17 +10,21 @@
 """
 
 import asyncio
+import logging
+from pathlib import Path
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from lib.api_errors import BadRequestError, NotFoundError
-from lib.asset_types import ASSET_SPECS
+from lib.asset_types import ASSET_SPECS, validate_asset_name
+from lib.audio_utils import resolve_audio_ref_path
 from lib.config.resolver import ConfigResolver
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec
 from lib.i18n import Translator
-from lib.path_safety import safe_exists
+from lib.path_safety import safe_exists, safe_join
+from lib.project_change_hints import project_change_source
 from lib.project_manager import get_project_manager
 from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import (
@@ -29,7 +33,10 @@ from lib.storyboard_sequence import (
     resolve_storyboard_image_ref,
 )
 from server.auth import CurrentUser
+from server.services.generation_context import AudioLaneRequest, resolve_generation_context
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -50,6 +57,15 @@ class GenerateVideoRequest(BaseModel):
 
 class GenerateTtsRequest(BaseModel):
     script_file: str
+
+
+class GenerateVoiceSampleRequest(BaseModel):
+    text: str
+    voice: str
+
+
+class ConfirmVoiceSampleRequest(BaseModel):
+    task_id: str
 
 
 class GenerateCharacterRequest(BaseModel):
@@ -365,6 +381,177 @@ async def generate_tts_batch(
         "task_ids": task_ids,
         "deduped": bool(task_ids) and all(deduped_flags),
         "message": message,
+    }
+
+
+# ==================== 角色参考音频：TTS 试听样本 ====================
+
+
+@router.get("/projects/{project_name}/audio-backend/voices")
+async def get_audio_backend_voices(project_name: str, _user: CurrentUser):
+    """返回当前项目实际生效的 audio backend 音色枚举，供 TTS 试听弹窗选择音色。
+
+    未配置任何 audio 供应商时返回 configured=false + 空列表，不 400——前端据此禁用
+    生成入口而非报错，与角色卡「audio_backend 未配置该入口不可用」的口径一致。
+    """
+    project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+    try:
+        await _require_audio_provider_configured(project)
+    except BadRequestError:
+        return {"configured": False, "provider_id": None, "model": None, "voices": []}
+
+    ctx = await resolve_generation_context(
+        project_name,
+        None,
+        project=project,
+        audio=AudioLaneRequest(),
+    )
+    backend = ctx.generator.audio_backend
+    voices = backend.list_voices() if backend is not None else []
+    return {
+        "configured": True,
+        "provider_id": ctx.audio.provider_model.provider_id,
+        "model": ctx.audio.backend_model,
+        "voices": [{"id": v.id, "label": v.label, "gender": v.gender} for v in voices],
+    }
+
+
+@router.post("/projects/{project_name}/characters/{name}/voice-sample")
+async def generate_character_voice_sample(
+    project_name: str,
+    name: str,
+    req: GenerateVoiceSampleRequest,
+    _user: CurrentUser,
+    _t: Translator,
+):
+    """提交角色 TTS 试听样本生成任务：文本/音色显式传入，不落回全局旁白配置。
+
+    生成产物是预览件，仅在 confirm 端点被显式提升为角色 reference_audio；本端点
+    只负责入队，走既有 audio 生成通道（并发/限速/记账与旁白 TTS 完全同一套）。
+    """
+    text = req.text.strip()
+    voice = req.voice.strip()
+    if not text:
+        raise BadRequestError("prompt_text_empty")
+    if not voice:
+        raise BadRequestError("voice_sample_voice_required")
+
+    def _sync() -> tuple[dict, str]:
+        pm_local = get_project_manager()
+        project = pm_local.load_project(project_name)
+        char_name = validate_asset_name(name)
+        if char_name not in (project.get("characters") or {}):
+            raise NotFoundError("character_not_found", name=char_name)
+        return project, char_name
+
+    project, char_name = await asyncio.to_thread(_sync)
+    provider_id = await _require_audio_provider_configured(project)
+
+    spec = TaskSpec.from_request(
+        task_type="voice_sample",
+        media_type="audio",
+        resource_id=char_name,
+        prompt=text,
+        extra_payload={"voice": voice},
+        source="webui",
+    )
+    queue = get_generation_queue()
+    result = await queue.enqueue_task(
+        project_name=project_name,
+        task_type=spec.task_type,
+        media_type=spec.media_type,
+        resource_id=spec.resource_id,
+        payload=spec.payload,
+        source="webui",
+        user_id=_user.id,
+        provider_id=provider_id,
+    )
+    return {
+        "success": True,
+        "task_id": result["task_id"],
+        "deduped": result.get("deduped", False),
+        "message": _t("voice_sample_task_submitted", name=char_name),
+    }
+
+
+@router.post("/projects/{project_name}/characters/{name}/voice-sample/confirm")
+async def confirm_character_voice_sample(
+    project_name: str,
+    name: str,
+    req: ConfirmVoiceSampleRequest,
+    _user: CurrentUser,
+    _t: Translator,
+):
+    """把已生成、已试听的 TTS 样本提升为角色 reference_audio；不确认不落资产。
+
+    只信一个 task_id 指向的 voice_sample 任务结果，不接受客户端直传文件路径——
+    产物已在执行层过一遍与上传同口径的格式/时长/大小校验（见
+    ``execute_character_voice_sample_task``），此处只做「任务确属本角色、已成功」
+    的归属校验后原样落盘，不重复校验。
+    """
+    char_name = validate_asset_name(name)
+    queue = get_generation_queue()
+    task = await queue.get_task(req.task_id)
+    if (
+        task is None
+        or task.get("project_name") != project_name
+        or task.get("task_type") != "voice_sample"
+        or task.get("resource_id") != char_name
+    ):
+        raise NotFoundError("task_not_found", id=req.task_id)
+    if task.get("status") != "succeeded":
+        raise BadRequestError("voice_sample_not_ready")
+
+    result = task.get("result") or {}
+    sample_rel = result.get("file_path")
+    if not isinstance(sample_rel, str) or not sample_rel:
+        raise BadRequestError("voice_sample_not_ready")
+
+    def _sync() -> dict:
+        pm_local = get_project_manager()
+        project = pm_local.load_project(project_name)
+        if char_name not in (project.get("characters") or {}):
+            raise NotFoundError("character_not_found", name=char_name)
+
+        project_dir = pm_local.get_project_path(project_name)
+        if not safe_exists(project_dir, sample_rel):
+            raise NotFoundError("voice_sample_file_missing")
+        sample_abs = safe_join(project_dir, sample_rel)
+        content = sample_abs.read_bytes()
+
+        refs_audio_dir = project_dir / "characters" / "refs_audio"
+        refs_audio_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{char_name}.wav"
+        target_path = refs_audio_dir / filename
+
+        old_audio = ((project.get("characters") or {}).get(char_name) or {}).get("reference_audio")
+        stale_audio_path: Path | None = None
+        if isinstance(old_audio, str) and old_audio:
+            resolved_old = resolve_audio_ref_path(project_dir, refs_audio_dir, old_audio)
+            if resolved_old is not None and not (target_path.exists() and resolved_old.samefile(target_path)):
+                stale_audio_path = resolved_old
+
+        target_path.write_bytes(content)
+
+        try:
+            with project_change_source("webui"):
+                pm_local.update_character_reference_audio(project_name, char_name, f"characters/refs_audio/{filename}")
+        except KeyError:
+            raise NotFoundError("character_not_found", name=char_name)
+
+        if stale_audio_path is not None:
+            try:
+                stale_audio_path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("旧参考音频物理删除失败，可能残留孤儿文件：%s", stale_audio_path, exc_info=True)
+
+        return {"path": f"characters/refs_audio/{filename}"}
+
+    saved = await asyncio.to_thread(_sync)
+    return {
+        "success": True,
+        "path": saved["path"],
+        "url": f"/api/v1/files/{project_name}/{saved['path']}",
     }
 
 

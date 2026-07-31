@@ -170,6 +170,23 @@ export async function enqueueCharacter(
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
 
+export async function enqueueCharacterVoiceSample(
+  projectName: string,
+  name: string,
+  text: string,
+  voice: string,
+): Promise<EnqueueResult> {
+  // 音色试听样本与该角色的设计图生成/编辑共用同一资源槽（kind "character"）：
+  // 二者互斥可接受——试听样本本就该在角色卡其它生成任务空闲时才发起。
+  const res = await submit(
+    [markResource(projectName, "character", name, "voice_sample")],
+    () => API.generateCharacterVoiceSample(projectName, name, text, voice),
+    oneTaskId,
+  );
+  notifyEnqueued(res.deduped, i18n.t("dashboard:voice_sample_task_submitted_toast", { name }));
+  return { taskIds: [res.task_id], deduped: res.deduped };
+}
+
 export async function enqueueScene(
   projectName: string,
   name: string,

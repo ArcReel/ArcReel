@@ -1,0 +1,340 @@
+import { useEffect, useId, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Mic, Pause, Play } from "lucide-react";
+import { enqueueCharacterVoiceSample } from "@/actions/generation";
+import { API } from "@/api";
+import { GlassModal } from "@/components/ui/GlassModal";
+import { useAppStore } from "@/stores/app-store";
+import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import { errMsg } from "@/utils/async";
+
+interface VoiceOption {
+  id: string;
+  label: string;
+  gender: string | null;
+}
+
+interface VoiceSampleButtonProps {
+  projectName: string;
+  characterName: string;
+  /** 角色卡上其它生成/编辑任务占用中：禁用入口 */
+  busy?: boolean;
+  /** 确认保存成功后触发，供调用方重新加载角色资产 */
+  onSaved: () => Promise<unknown> | void;
+}
+
+/**
+ * 角色卡「声音」分组的 TTS 试听样本入口：选音色 → 编辑默认文案 → 生成 → 试听 → 确认落资产。
+ * 取消/关闭弹窗不落资产——只有点击「确认并保存」才把已生成样本提升为角色 reference_audio。
+ */
+export function VoiceSampleButton({
+  projectName,
+  characterName,
+  busy = false,
+  onSaved,
+}: VoiceSampleButtonProps) {
+  const { t } = useTranslation("dashboard");
+  const [open, setOpen] = useState(false);
+  const [voicesLoading, setVoicesLoading] = useState(false);
+  const [voicesConfigured, setVoicesConfigured] = useState(true);
+  const [voices, setVoices] = useState<VoiceOption[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState("");
+  const [text, setText] = useState("");
+  const [taskId, setTaskId] = useState<string | null>(null);
+  const [localSubmitting, setLocalSubmitting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const titleId = useId();
+  const descId = useId();
+  const voiceFieldId = useId();
+  const textFieldId = useId();
+
+  const task = useTasksStore((s) => (taskId ? s.tasks.find((item) => item.task_id === taskId) : undefined));
+  const generating = localSubmitting || (task != null && (task.status === "queued" || task.status === "running"));
+  const failed = task?.status === "failed";
+  const succeeded = task?.status === "succeeded";
+  const previewFilePath =
+    succeeded && task?.result && typeof task.result.file_path === "string" ? task.result.file_path : null;
+  const previewUrl = previewFilePath ? API.getFileUrl(projectName, previewFilePath, taskId) : null;
+
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    API.getAudioBackendVoices(projectName, { signal: controller.signal })
+      .then((res) => {
+        setVoicesConfigured(res.configured);
+        setVoices(res.voices);
+        setSelectedVoice((prev) => prev || res.voices[0]?.id || "");
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        useAppStore.getState().pushToast(errMsg(err), "error");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setVoicesLoading(false);
+      });
+    return () => controller.abort();
+  }, [open, projectName]);
+
+  const disabled = busy;
+
+  const openModal = () => {
+    if (disabled) return;
+    setText(t("voice_sample_text_default"));
+    setSelectedVoice("");
+    setTaskId(null);
+    // 弹窗打开这一事件处理器内同步置位（非 effect 内），紧随其后的 effect 据此拉取音色列表。
+    setVoicesLoading(true);
+    setOpen(true);
+  };
+
+  const close = () => {
+    if (generating || confirming) return;
+    setOpen(false);
+  };
+
+  const handleGenerate = async () => {
+    const trimmed = text.trim();
+    if (!trimmed || !selectedVoice || generating || confirming) return;
+    // 弹窗打开期间 busy 态可能已变化，提交前用 store 新鲜读复核（frontend-ui-conventions 纪律）。
+    if (isResourceBusy("character", projectName, characterName)) {
+      useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
+      return;
+    }
+    setLocalSubmitting(true);
+    setTaskId(null);
+    try {
+      const res = await enqueueCharacterVoiceSample(projectName, characterName, trimmed, selectedVoice);
+      setTaskId(res.taskIds[0] ?? null);
+    } catch (err) {
+      useAppStore.getState().pushToast(errMsg(err), "error");
+    } finally {
+      setLocalSubmitting(false);
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (!taskId || !succeeded || confirming) return;
+    setConfirming(true);
+    try {
+      await API.confirmCharacterVoiceSample(projectName, characterName, taskId);
+      useAppStore.getState().pushToast(t("voice_sample_confirm_success_toast"), "success");
+      setOpen(false);
+      setTaskId(null);
+      await onSaved();
+    } catch (err) {
+      useAppStore.getState().pushToast(errMsg(err), "error");
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={openModal}
+        disabled={disabled}
+        title={t("voice_sample_action")}
+        aria-label={t("voice_sample_action")}
+        className="focus-ring inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
+        style={{ color: "var(--color-text-3)" }}
+      >
+        <Mic className="h-3 w-3" aria-hidden="true" />
+      </button>
+
+      <GlassModal
+        open={open}
+        onClose={close}
+        labelledBy={titleId}
+        describedBy={descId}
+        closeOnBackdrop={!generating && !confirming}
+        closeOnEscape={!generating && !confirming}
+      >
+        <div className="p-5">
+          <h2
+            id={titleId}
+            className="display-serif text-[17px] font-semibold tracking-tight"
+            style={{ color: "var(--color-text)" }}
+          >
+            {t("voice_sample_modal_title")}
+          </h2>
+          <p id={descId} className="mt-1.5 text-[12.5px] leading-[1.55]" style={{ color: "var(--color-text-3)" }}>
+            {t("voice_sample_modal_desc", { name: characterName })}
+          </p>
+
+          {!voicesLoading && !voicesConfigured ? (
+            <p
+              className="mt-4 rounded-lg px-3 py-2 text-[12.5px]"
+              style={{ background: "oklch(0.22 0.012 265 / 0.5)", color: "var(--color-text-3)" }}
+            >
+              {t("voice_sample_not_configured_hint")}
+            </p>
+          ) : (
+            <>
+              <label
+                htmlFor={voiceFieldId}
+                className="mt-4 block text-[10px] font-semibold uppercase tracking-[0.12em]"
+                style={{ color: "var(--color-text-4)" }}
+              >
+                {t("voice_sample_voice_label")}
+              </label>
+              <select
+                id={voiceFieldId}
+                value={selectedVoice}
+                onChange={(e) => setSelectedVoice(e.target.value)}
+                disabled={voicesLoading || voices.length === 0}
+                className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-[border-color,box-shadow] disabled:cursor-not-allowed disabled:opacity-60"
+                style={{
+                  background: "oklch(0.20 0.011 265 / 0.6)",
+                  border: "1px solid var(--color-hairline)",
+                  color: "var(--color-text)",
+                }}
+              >
+                {voicesLoading ? (
+                  <option value="">{t("voice_sample_voice_loading")}</option>
+                ) : voices.length === 0 ? (
+                  <option value="">{t("voice_sample_no_voices")}</option>
+                ) : (
+                  <>
+                    <option value="" disabled>
+                      {t("voice_sample_voice_placeholder")}
+                    </option>
+                    {voices.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.label}
+                      </option>
+                    ))}
+                  </>
+                )}
+              </select>
+
+              <label
+                htmlFor={textFieldId}
+                className="mt-4 block text-[10px] font-semibold uppercase tracking-[0.12em]"
+                style={{ color: "var(--color-text-4)" }}
+              >
+                {t("voice_sample_text_label")}
+              </label>
+              <textarea
+                id={textFieldId}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={3}
+                className="focus-ring mt-1.5 w-full resize-none rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow]"
+                style={{
+                  background: "oklch(0.20 0.011 265 / 0.6)",
+                  border: "1px solid var(--color-hairline)",
+                  color: "var(--color-text)",
+                }}
+              />
+
+              {failed && (
+                <p className="mt-3 text-[12px]" style={{ color: "var(--color-danger, #e5484d)" }}>
+                  {task?.error_message ?? t("voice_sample_task_failed")}
+                </p>
+              )}
+
+              {previewUrl && (
+                <div
+                  className="mt-3 flex items-center gap-2 rounded-lg px-2.5 py-1.5"
+                  style={{
+                    background: "oklch(0.20 0.011 265 / 0.6)",
+                    border: "1px solid var(--color-hairline)",
+                  }}
+                >
+                  {/* eslint-disable-next-line jsx-a11y/media-has-caption -- TTS 试听样本，无对白内容，无字幕源 */}
+                  <audio
+                    src={previewUrl}
+                    id={`${textFieldId}-preview`}
+                    className="hidden"
+                    onPlay={() => setIsPreviewPlaying(true)}
+                    onPause={() => setIsPreviewPlaying(false)}
+                    onEnded={() => setIsPreviewPlaying(false)}
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      const audioEl = e.currentTarget.parentElement?.querySelector("audio");
+                      if (!audioEl) return;
+                      if (isPreviewPlaying) audioEl.pause();
+                      else void audioEl.play();
+                    }}
+                    aria-label={isPreviewPlaying ? t("pause_audio_sample") : t("play_audio_sample")}
+                    className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors"
+                    style={{
+                      background: "var(--color-accent-dim)",
+                      border: "1px solid var(--color-accent-soft)",
+                      color: "var(--color-accent-2)",
+                    }}
+                  >
+                    {isPreviewPlaying ? (
+                      <Pause className="h-3.5 w-3.5" />
+                    ) : (
+                      <Play className="h-3.5 w-3.5 translate-x-px" />
+                    )}
+                  </button>
+                  <span className="text-[11px]" style={{ color: "var(--color-text-3)" }}>
+                    {t("voice_sample_preview_label")}
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+
+          <div className="mt-4 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={close}
+              disabled={generating || confirming}
+              className="focus-ring rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ color: "var(--color-text-2)" }}
+            >
+              {t("common:cancel")}
+            </button>
+            {succeeded && (
+              <button
+                type="button"
+                onClick={() => void handleConfirm()}
+                disabled={confirming}
+                className="focus-ring rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                style={{
+                  color: "var(--color-text)",
+                  background: "oklch(1 0 0 / 0.08)",
+                  border: "1px solid var(--color-hairline)",
+                }}
+              >
+                {confirming ? t("voice_sample_confirming") : t("voice_sample_confirm")}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void handleGenerate()}
+              disabled={
+                generating ||
+                confirming ||
+                !voicesConfigured ||
+                !selectedVoice ||
+                text.trim().length === 0
+              }
+              className="focus-ring inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium transition-transform disabled:cursor-not-allowed disabled:opacity-50"
+              style={{
+                color: "oklch(0.14 0 0)",
+                background: "linear-gradient(135deg, var(--color-accent-2), var(--color-accent))",
+                boxShadow:
+                  "inset 0 1px 0 oklch(1 0 0 / 0.35), 0 6px 18px -4px var(--color-accent-glow), 0 0 0 1px var(--color-accent-soft)",
+              }}
+            >
+              <Mic className="h-3.5 w-3.5" aria-hidden="true" />
+              {generating
+                ? t("voice_sample_generating")
+                : succeeded || failed
+                  ? t("voice_sample_regenerate")
+                  : t("voice_sample_generate")}
+            </button>
+          </div>
+        </div>
+      </GlassModal>
+    </>
+  );
+}

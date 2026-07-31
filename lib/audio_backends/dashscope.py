@@ -18,6 +18,7 @@ from lib.audio_backends.base import (
     AudioCapability,
     AudioSynthesisRequest,
     AudioSynthesisResult,
+    VoiceOption,
 )
 from lib.dashscope_shared import (
     dashscope_headers,
@@ -36,6 +37,34 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "qwen3-tts-flash"
 
 _TTS_ENDPOINT = "/services/aigc/multimodal-generation/generation"
+
+
+# Qwen3-TTS 系统预设音色（``voice`` 参数取值）子集，出处见 docs/dashscope-docs/语音合成-TTS模型.md
+# 「三、系统预设音色」表格（截至 2026-06-02 核实，来源：
+# https://help.aliyun.com/zh/model-studio/qwen-tts 官方文档 + 百炼控制台模型市场）。
+# 未列出的其余预设音色不在此暴露——该文档明确标注为「ArcReel 场景最相关的音色子集」，
+# 完整 48 音色列表见官方文档，未逐一核实中文名/描述不收录，避免编造。
+_VOICE_CATALOG: tuple[VoiceOption, ...] = (
+    VoiceOption(id="Cherry", label="芊悦 · 阳光正向的自然年轻女声", gender="female"),
+    VoiceOption(id="Serena", label="苏瑶 · 温柔的年轻女声", gender="female"),
+    VoiceOption(id="Ethan", label="晨煦 · 标准普通话，阳光温暖的年轻男声", gender="male"),
+    VoiceOption(id="Chelsie", label="千雪 · 二次元虚拟女友", gender="female"),
+    VoiceOption(id="Nofish", label="不吃鱼 · 平翘舌不分的设计师男声", gender="male"),
+    VoiceOption(id="Jennifer", label="詹妮弗 · 品牌级电影质感美式女声", gender="female"),
+    VoiceOption(id="Ryan", label="甜茶 · 充满张力的戏剧男声", gender="male"),
+    VoiceOption(id="Bellona", label="燕铮莺 · 强大的叙事者女声", gender="female"),
+    VoiceOption(id="Neil", label="阿闻 · 专业新闻主播男声", gender="male"),
+    VoiceOption(id="Elias", label="墨讲师 · 学术讲师女声", gender="female"),
+    VoiceOption(id="Momo", label="茉兔 · 俏皮可爱", gender="female"),
+    VoiceOption(id="Vivian", label="十三 · 酷飒微辣", gender="female"),
+    VoiceOption(id="Moon", label="月白 · 潇洒帅气", gender="male"),
+    VoiceOption(id="Maia", label="四月 · 知性温柔", gender="female"),
+    VoiceOption(id="Kai", label="凯 · 治愈系男声", gender="male"),
+    VoiceOption(id="Katerina", label="卡捷琳娜 · 成熟有气场的女声", gender="female"),
+    VoiceOption(id="Bella", label="萌宝 · 可爱小女孩", gender="female"),
+    VoiceOption(id="Eldric Sage", label="沧明子 · 智慧长者", gender="male"),
+    VoiceOption(id="Vincent", label="田叔 · 沙哑老练", gender="male"),
+)
 
 
 class _EmptyDownloadError(RuntimeError):
@@ -69,6 +98,9 @@ class DashScopeAudioBackend:
     @property
     def capabilities(self) -> set[AudioCapability]:
         return {AudioCapability.TEXT_TO_SPEECH}
+
+    def list_voices(self) -> list[VoiceOption]:
+        return list(_VOICE_CATALOG)
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
         if request.speed is not None:

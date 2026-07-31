@@ -139,6 +139,11 @@ class MediaGenerator:
         # 初始化记账账本（使用全局 async session factory）
         self.ledger = Ledger()
 
+    @property
+    def audio_backend(self) -> Optional["AudioBackend"]:
+        """已解析的 audio backend 实例（未声明 audio lane 时为 None）。"""
+        return self._audio_backend
+
     @staticmethod
     def _sync(coro):
         """Run an async coroutine from synchronous code (e.g. inside to_thread)."""

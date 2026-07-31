@@ -5,11 +5,20 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
+import os
 import shutil
 import tempfile
 from pathlib import Path
 
+from lib.path_safety import safe_resolve
+
 logger = logging.getLogger(__name__)
+
+# 角色参考音频约束（上传与 TTS 生成样本同口径）：wav/mp3、2-10 秒、≤15MB。
+# 出处见 lib/audio_backends/dashscope.py 与 server/routers/files.py 引用处。
+AUDIO_REFERENCE_MAX_BYTES = 15 * 1024 * 1024
+AUDIO_REFERENCE_MIN_SECONDS = 2.0
+AUDIO_REFERENCE_MAX_SECONDS = 10.0
 
 _FFPROBE_TIMEOUT_SECONDS = 10.0
 
@@ -20,6 +29,22 @@ _CONTAINER_FORMAT_TOKENS = {
     ".wav": {"wav"},
     ".mp3": {"mp3"},
 }
+
+
+def resolve_audio_ref_path(project_dir: Path, audio_refs_dir: Path, rel_path: str | None) -> Path | None:
+    """解析 reference_audio 字段值，仅当其确实落在 characters/refs_audio 内才返回。
+
+    该字段可经资产 PATCH 被写成项目内任意字符串（extra_string_fields 只做类型校验），
+    单靠 safe_resolve 只保证不越界出项目目录，还不足以防止被诱导删除 project.json
+    等项目内其它文件，故额外校验父目录命中 refs_audio。上传替换（files.py）与 TTS
+    生成样本确认落盘（generate.py）共用同一份判定。
+    """
+    resolved = safe_resolve(project_dir, rel_path)
+    if resolved is None:
+        return None
+    if os.path.realpath(resolved.parent) != os.path.realpath(audio_refs_dir):
+        return None
+    return resolved
 
 
 @functools.cache

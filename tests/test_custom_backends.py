@@ -289,6 +289,17 @@ class TestCustomAudioBackend:
         assert result is expected_result
         delegate.synthesize.assert_awaited_once_with(request)
 
+    def test_list_voices_delegates(self):
+        from lib.audio_backends.base import VoiceOption
+
+        expected_voices = [VoiceOption(id="alloy", label="alloy")]
+        delegate = AsyncMock()
+        delegate.list_voices = MagicMock(return_value=expected_voices)
+        backend = CustomAudioBackend(provider_id="custom-9", delegate=delegate, model="tts-1")
+
+        assert backend.list_voices() is expected_voices
+        delegate.list_voices.assert_called_once_with()
+
     async def test_synthesize_passes_request_unchanged(self, tmp_path: Path):
         output_path = tmp_path / "seg.wav"
         delegate = AsyncMock()

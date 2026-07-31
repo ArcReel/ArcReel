@@ -236,6 +236,30 @@ export default {
   'play_audio_sample': 'Play',
   'pause_audio_sample': 'Pause',
   'delete_audio_sample': 'Delete audio sample',
+
+  // TTS-generated reference audio sample
+  'voice_sample_action': 'Generate with TTS',
+  'voice_sample_not_configured_hint': 'Configure an audio provider in settings first',
+  'voice_sample_modal_title': 'Generate voice reference sample',
+  'voice_sample_modal_desc': 'Pick a voice for "{{name}}" and generate a sample. Confirm to save it as the character’s reference audio.',
+  'voice_sample_voice_label': 'Voice',
+  'voice_sample_voice_placeholder': 'Select a voice',
+  'voice_sample_voice_loading': 'Loading voices…',
+  'voice_sample_no_voices': 'The current audio provider has no selectable voices',
+  'voice_sample_text_label': 'Sample text',
+  'voice_sample_text_default':
+    "Hello, this is a voice sample that will be used as the character's reference audio to help keep the voice consistent.",
+  'voice_sample_generate': 'Generate',
+  'voice_sample_generating': 'Generating…',
+  'voice_sample_regenerate': 'Regenerate',
+  'voice_sample_preview_label': 'Preview',
+  'voice_sample_confirm': 'Confirm & save',
+  'voice_sample_confirming': 'Saving…',
+  'voice_sample_confirm_success_toast': 'Voice reference sample saved',
+  'voice_sample_task_failed': 'Generation failed, please try again',
+  'voice_sample_task_submitted_toast': 'Voice sample generation for "{{name}}" submitted',
+  'voice_sample_resource_busy': 'This character is currently busy with another task, please try again later',
+
   'generate_design': 'Generate Design',
   'regenerate_design': 'Regenerate Design',
 

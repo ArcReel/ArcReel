@@ -15,6 +15,7 @@ from lib.audio_backends.base import (
     AudioCapability,
     AudioSynthesisRequest,
     AudioSynthesisResult,
+    VoiceOption,
 )
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
@@ -25,6 +26,30 @@ logger = logging.getLogger(__name__)
 # /v1/audio/speech 支持的输出格式（官方 schema），用于按落盘扩展名选 response_format。
 _SUPPORTED_RESPONSE_FORMATS = frozenset({"mp3", "opus", "aac", "flac", "wav", "pcm"})
 _FALLBACK_RESPONSE_FORMAT = "wav"
+
+# 官方内置音色（gpt-4o-mini-tts，含 tts-1/tts-1-hd legacy 子集），出处：
+# https://developers.openai.com/api/docs/guides/text-to-speech （核实于 2026-07-31）。
+# 官方文档未给出性别/描述信息，故 label 仅取 id 本身、gender 留空——不编造。
+# 供第三方 OpenAI 兼容 TTS 代理（自定义供应商 openai-tts endpoint）参考用途时，实际
+# 支持的音色集合可能不同，前端据此仍需允许自由文本输入。
+_VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
+    VoiceOption(id=voice_id, label=voice_id)
+    for voice_id in (
+        "alloy",
+        "ash",
+        "ballad",
+        "coral",
+        "echo",
+        "fable",
+        "nova",
+        "onyx",
+        "sage",
+        "shimmer",
+        "verse",
+        "marin",
+        "cedar",
+    )
+)
 
 
 def _response_format_for(output_path: Path) -> str:
@@ -61,6 +86,9 @@ class OpenAIAudioBackend:
     @property
     def capabilities(self) -> set[AudioCapability]:
         return {AudioCapability.TEXT_TO_SPEECH}
+
+    def list_voices(self) -> list[VoiceOption]:
+        return list(_VOICE_CATALOG)
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
         # language_type 是 DashScope 特有字段，/v1/audio/speech 无对应参数（语种随输入文本），不发送。
