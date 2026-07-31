@@ -725,6 +725,7 @@ export default {
   'follow_global_default': 'Theo mặc định toàn cục',
   'enabled_label': 'Đã bật',
   'disabled_label': 'Đã tắt',
+  'video_spec_duration_label': 'Thời lượng hỗ trợ',
   'video_spec_audio_label': 'Âm thanh',
   'video_spec_audio_has': 'Có âm thanh',
   'video_spec_audio_none': 'Không âm thanh',

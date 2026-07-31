@@ -58,7 +58,7 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         reference_image_durations: [8],
         resolutions: ["720p", "1080p", "4k"],
         has_audio_track: true,
-        reference_audio_mode: "none",
+        voice_consistency: "soft",
       },
       "seedance-like": {
         display_name: "无约束模型",
@@ -69,7 +69,7 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         duration_resolution_constraints: {},
         resolutions: ["720p", "1080p"],
         has_audio_track: true,
-        reference_audio_mode: "none",
+        voice_consistency: "soft",
       },
     },
   },
@@ -104,10 +104,10 @@ describe("lookupDurationConstraints", () => {
 });
 
 describe("lookupCatalogVideoAudio", () => {
-  it("reads has_audio_track / reference_audio_mode off the model declaration", () => {
+  it("reads has_audio_track / voice_consistency off the model declaration", () => {
     expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "gemini-aistudio/veo-3.1-generate-preview")).toEqual({
       hasAudioTrack: true,
-      referenceAudioMode: "none",
+      voiceConsistency: "soft",
     });
   });
 

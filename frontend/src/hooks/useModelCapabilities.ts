@@ -8,7 +8,7 @@ import {
   lookupSupportedDurations,
   type DurationConstraints,
 } from "@/utils/provider-models";
-import type { CustomProviderInfo, ProviderInfo, VideoCapabilities } from "@/types";
+import type { CustomProviderInfo, ProviderInfo, VideoCapabilities, VoiceConsistencyTier } from "@/types";
 
 // ---------------------------------------------------------------------------
 // 视频模型能力：前端唯一的能力消费入口。
@@ -18,6 +18,8 @@ import type { CustomProviderInfo, ProviderInfo, VideoCapabilities } from "@/type
 //
 //   firstFrame / lastFrame  → 服务端生效值。这两维带用户覆盖语义（覆盖存在供应商配置上、
 //                             不落项目字段），只有服务端能给出「系统判定 ⊕ 用户覆盖」的结果。
+//   voiceConsistency        → 服务端派生值。二维派生（模型能力 × 项目 generation_mode）只在
+//                             服务端一处，前端不复制公式；无项目上下文时读目录端点的同名字段。
 //   durations               → 静态目录的 supported_durations，再经分辨率 / 参考图两条联动
 //                             约束收窄。约束只声明在目录里、服务端不返回，故以目录为准；
 //                             目录解析不出候选模型时（后端留空 → 服务端 auto 解析，或存值已不
@@ -28,24 +30,6 @@ import type { CustomProviderInfo, ProviderInfo, VideoCapabilities } from "@/type
 //
 // 目录侧同步可得，故时长在首帧即有值、不闪加载态；服务端只在目录缺项时才影响结果。
 // ---------------------------------------------------------------------------
-
-export type VoiceConsistencyTier = "native" | "soft" | "none";
-
-/**
- * 纯函数镜像 `lib/config/resolver.py::_derive_voice_consistency`：全局设置页（模型选择「默认模型」）
- * 无项目上下文、generation_mode 恒未知，故不能打 `/video-capabilities`（该端点按项目解析）。
- * 用同一份二维派生公式对目录数据（`ModelInfoResponse.has_audio_track` / `reference_audio_mode`）
- * 近似求值——generation_mode 缺省时公式本身即降格 soft，与「非参考生视频路径恒降格」的口径一致。
- * 有项目上下文的调用点一律改用服务端 `VideoCapabilities.voice_consistency`（更精确，见下方 hook）。
- */
-export function deriveVoiceConsistencyFromCatalog(
-  referenceAudioMode: "none" | "direct",
-  generationMode: string | null | undefined,
-  hasAudioTrack: boolean,
-): VoiceConsistencyTier {
-  if (referenceAudioMode === "direct" && generationMode === "reference_video") return "native";
-  return hasAudioTrack ? "soft" : "none";
-}
 
 const EMPTY_PROVIDERS: ProviderInfo[] = [];
 const EMPTY_CUSTOM_PROVIDERS: CustomProviderInfo[] = [];
@@ -63,17 +47,15 @@ export interface ModelCapabilitiesInput extends DurationContext {
   /**
    * 视频后端 "provider/model"；空表示跟随全局默认，由服务端解析。
    *
-   * 目录侧按它查表，故任意候选模型都问得动。服务端侧只拿它当缓存 key：端点不收该参数、
-   * 一律按已落盘的 project.json 解析，因此 `firstFrame` / `lastFrame` 描述的是**项目当前
-   * 保存的**后端。传入编辑中的未保存值（设置页）时这两维不作数，调用方不得消费。
+   * 目录侧按它查表，服务端侧也会收到它（作为 `video_backend` 查询参数），故 `firstFrame` /
+   * `lastFrame` / `voiceConsistency` 描述的都是这个候选模型，编辑中的未保存值同样对得上。
    */
   videoBackend?: string | null;
   /**
    * `videoBackend` 是表单里编辑中的未保存候选值时置 true。
    *
-   * 服务端一律按已落盘的 project.json 解析，其结果描述的是项目**当前保存的**后端，对候选值
-   * 不作数：时长不采用服务端回退（否则目录查不到候选模型时会把已保存模型的时长摆成新候选的
-   * 选项，用户能存下新模型不支持的值），`firstFrame` / `lastFrame` 同样不得消费。
+   * 只影响时长：目录查不到该候选模型时不回退到服务端解析结果，否则会把服务端解析出的另一个
+   * 模型的时长摆成本候选的选项，用户能存下新模型不支持的值。
    */
   unsavedBackend?: boolean;
   providers?: ProviderInfo[];
@@ -101,8 +83,8 @@ export interface ModelCapabilities {
   lastFrame: boolean | null;
   /**
    * 声音一致性三级标识（服务端二维派生：模型能力 × 项目 generation_mode），与 firstFrame 同源
-   * 同口径——尚未查到或查询失败时为 null（未知）。无项目上下文（全局设置页）时改用
-   * `deriveVoiceConsistencyFromCatalog` 对目录数据近似求值，不消费本字段。
+   * 同口径——尚未查到或查询失败时为 null（未知）。查询带上 videoBackend，故编辑中的未保存候选
+   * 模型也会得到它自己的档位。无项目上下文（全局设置页）时改读目录端点的同名字段。
    */
   voiceConsistency: VoiceConsistencyTier | null;
   /** 服务端能力查询在途。目录侧不受影响，时长仍即时可用。 */
@@ -206,7 +188,9 @@ function useResolvedCapabilities(
     const controller = new AbortController();
     abortRef.current = controller;
     const { signal } = controller;
-    API.getVideoCapabilities(projectName, { signal })
+    // 带上 videoBackend：表单里编辑中的候选模型也要拿到它自己的能力，否则服务端按已落盘
+    // 配置解析，档位等二维派生值会停留在上一次保存的模型上。
+    API.getVideoCapabilities(projectName, { signal, videoBackend: videoBackend || undefined })
       .then((next) => {
         // 网络 await 之后的写 state 断点：abort 可能发生在响应已 resolve 之后。
         if (signal.aborted) return;
@@ -220,7 +204,8 @@ function useResolvedCapabilities(
     return () => {
       controller.abort();
     };
-  }, [key, projectName, revision]);
+    // videoBackend 已编码进 key，列出只为满足 exhaustive-deps，不引入额外请求。
+  }, [key, projectName, videoBackend, revision]);
 
   const settled = key !== null && result?.key === key;
   return { caps: settled ? result.caps : null, loading: key !== null && !settled };

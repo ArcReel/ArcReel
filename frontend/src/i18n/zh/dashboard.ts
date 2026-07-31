@@ -748,6 +748,7 @@ export default {
   'follow_global_default': '跟随全局默认',
   'enabled_label': '开启',
   'disabled_label': '关闭',
+  'video_spec_duration_label': '支持时长',
   'video_spec_audio_label': '音轨',
   'video_spec_audio_has': '有声',
   'video_spec_audio_none': '无声',

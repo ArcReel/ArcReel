@@ -748,6 +748,7 @@ export default {
   'follow_global_default': 'Follow global default',
   'enabled_label': 'Enabled',
   'disabled_label': 'Disabled',
+  'video_spec_duration_label': 'Durations',
   'video_spec_audio_label': 'Audio',
   'video_spec_audio_has': 'Has audio',
   'video_spec_audio_none': 'Silent',

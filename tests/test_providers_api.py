@@ -188,7 +188,7 @@ class TestListProviders:
             resp = client.get("/api/v1/providers")
         models = resp.json()["providers"][0]["models"]
         assert models["imagen-4.0-generate-001"]["has_audio_track"] is False
-        assert models["imagen-4.0-generate-001"]["reference_audio_mode"] == "none"
+        assert models["imagen-4.0-generate-001"]["voice_consistency"] == "none"
 
     def test_unknown_mocked_model_id_defaults_safely(self):
         """mock 里的 model_id 若不在真实 PROVIDER_REGISTRY 中（如本测试的 imagen-4.0-generate-001），
@@ -197,8 +197,12 @@ class TestListProviders:
             resp = client.get("/api/v1/providers")
         assert resp.status_code == 200
 
-    def test_ark_seedance_2_reference_audio_mode_direct(self):
-        """ark 的 seedance 2.0 已验证型号：reference_audio_mode 从 backend 声明读出 direct。"""
+    def test_ark_seedance_2_catalog_voice_consistency_degrades_to_soft(self):
+        """目录端点无项目上下文：即便模型支持参考音频直传，generation_mode 未知也只能给 soft。
+
+        native 需要「参考音频直传 × 参考生视频路径」二者同时成立，后者是项目属性；目录端点
+        按非参考路径派生，避免在全局设置页许诺一个当前项目未必成立的档位。
+        """
         svc = MagicMock(spec=ConfigService)
         svc.get_all_providers_status = AsyncMock(
             return_value=[
@@ -230,7 +234,7 @@ class TestListProviders:
             resp = client.get("/api/v1/providers")
         model = resp.json()["providers"][0]["models"]["doubao-seedance-2-0-260128"]
         assert model["has_audio_track"] is True
-        assert model["reference_audio_mode"] == "direct"
+        assert model["voice_consistency"] == "soft"
 
 
 # ---------------------------------------------------------------------------

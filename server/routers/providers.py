@@ -23,6 +23,7 @@ from lib.app_data_dir import app_data_dir
 from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import PROVIDER_REGISTRY, model_has_audio_track
 from lib.config.repository import mask_secret
+from lib.config.resolver import VoiceConsistency, derive_voice_consistency
 from lib.config.service import ConfigService, ProviderConfigValueError
 from lib.config.url_utils import normalize_base_url
 from lib.db import get_async_session
@@ -79,12 +80,13 @@ class ModelInfoResponse(BaseModel):
     reference_image_durations: list[int] = []
     resolutions: list[str] = []
     # 视频 model 是否带音轨（非视频 model 恒 False）。不等于「音轨开关可控」——generate_audio
-    # token 语义见 lib.config.registry.model_has_audio_track；供前端下拉能力线与设置页无项目
-    # 上下文（全局默认模型）时派生 voice_consistency 使用，不必每次都打服务端能力查询接口。
+    # token 语义见 lib.config.registry.model_has_audio_track。供前端下拉选项的能力线渲染。
     has_audio_track: bool = False
-    # 视频 model 的参考音频运输形态（"none" | "direct"），来自 backend 的 VideoCapabilities 声明
-    # （非视频 model 恒 "none"）。同上，供前端项目外场景派生 voice_consistency。
-    reference_audio_mode: str = "none"
+    # 无项目上下文（全局设置「模型选择」）下的声音一致性档位：generation_mode 未知，故按非参考
+    # 生视频路径派生，native 恒降格。派生走 lib.config.resolver.derive_voice_consistency 这唯一
+    # 一处公式，前端只读枚举。有项目上下文时改用 /projects/{name}/video-capabilities（同一函数、
+    # 带真实 generation_mode），本字段不参与。
+    voice_consistency: VoiceConsistency = "none"
 
 
 class ProviderSummary(BaseModel):
@@ -375,7 +377,12 @@ async def list_providers(
             models[mid] = ModelInfoResponse(
                 **minfo,
                 has_audio_track=has_audio_track,
-                reference_audio_mode=reference_audio_mode,
+                # generation_mode=None：目录端点无项目上下文，按非参考生视频路径派生。
+                voice_consistency=derive_voice_consistency(
+                    reference_audio_mode=reference_audio_mode,
+                    generation_mode=None,
+                    has_audio=has_audio_track,
+                ),
             )
         providers.append(
             ProviderSummary(

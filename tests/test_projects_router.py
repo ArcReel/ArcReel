@@ -1487,6 +1487,40 @@ class TestGetVideoCapabilities:
             assert resp.status_code == 200
             assert resp.json() == fake_caps
 
+    def test_video_backend_param_resolves_candidate_model(self, tmp_path, monkeypatch):
+        """带 video_backend 时按候选模型解析，而不是按已落盘配置。
+
+        设置表单里用户改了下拉但尚未保存，若仍按落盘配置解析，voice_consistency 等二维派生值
+        会停留在上一次保存的模型上，界面显示的档位与用户当前选择不符。
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        resolver_instance = MagicMock()
+        resolver_instance.video_capabilities = AsyncMock(return_value={"model": "saved-model"})
+        resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.get(
+                "/api/v1/projects/ready/video-capabilities",
+                params={"video_backend": "openai/sora-2"},
+            )
+        assert resp.status_code == 200
+        assert resp.json() == {"model": "candidate"}
+        resolver_instance.video_capabilities.assert_not_awaited()
+        assert resolver_instance.video_capabilities_for_model.await_args.args[:2] == ("openai", "sora-2")
+
+    def test_malformed_video_backend_returns_400(self, tmp_path, monkeypatch):
+        self._patch_resolver(monkeypatch, return_value={})
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.get(
+                "/api/v1/projects/ready/video-capabilities",
+                params={"video_backend": "no-slash"},
+            )
+        assert resp.status_code == 400
+
     def test_unknown_project_returns_404(self, tmp_path, monkeypatch):
         self._patch_resolver(monkeypatch, side_effect=FileNotFoundError("项目 'nonexistent' 不存在"))
         client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())

@@ -868,8 +868,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 ),
             ),
             # --- video ---
-            # generate_audio：官方文档明确 Sora 2 原生含对话音轨（voice_consistency 派生的
-            # B 类判定依据，见 issue #1489）。
+            # generate_audio：官方文档明确 Sora 2 原生含对话音轨。
             "sora-2": ModelInfo(
                 display_name="Sora 2",
                 media_type="video",

@@ -193,21 +193,28 @@ def _video_audio_always_billed(provider_id: str) -> bool:
     return provider_id in _VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS
 
 
-def _derive_voice_consistency(
+#: 声音一致性三级标识。前端 `VoiceConsistencyTier` 与之一一对应，档位增减须两侧同步。
+VoiceConsistency = Literal["native", "soft", "none"]
+
+
+def derive_voice_consistency(
     *,
     reference_audio_mode: str,
     generation_mode: str | None,
     has_audio: bool,
-) -> str:
+) -> VoiceConsistency:
     """三级声音一致性标识派生（native / soft / none），模型能力 × 项目 generation_mode 二维。
+
+    全仓库唯一派生点：项目内场景经 `_resolve_video_caps_for_model` 走这里，无项目上下文的
+    目录场景由 `server/routers/providers.py` 以 ``generation_mode=None`` 调同一函数，前端不
+    复制第二份公式。
 
     ``reference_audio_mode`` 按字面量比较（``ReferenceAudioMode`` 是 ``StrEnum``，两者可
     直接 ``==``），不在 lib.config 层导入 lib.video_backends（分层契约，config 是最底层）。
 
-    native 蕴含有音轨：generation_mode 非参考生视频时一律降格 soft，不降到 none（Spec #1486
-    第 15 条）。soft/none 之分不看 ``generate_audio`` token 是否声明——该 token 语义是「开关
-    可控」而非「有无音轨」，恒有声但开关不可控的 provider（AI Studio Veo、Grok）经
-    ``model_has_audio_track`` 单独识别为有音轨（Spec 第 2 条）。
+    native 蕴含有音轨：generation_mode 非参考生视频时一律降格 soft，不降到 none。soft/none
+    之分不看 ``generate_audio`` token 是否声明——该 token 语义是「开关可控」而非「有无音轨」，
+    恒有声但开关不可控的 provider 经 ``model_has_audio_track`` 单独识别为有音轨。
     """
     if reference_audio_mode == "direct" and generation_mode == "reference_video":
         return "native"
@@ -1016,7 +1023,7 @@ class ConfigResolver:
             if isinstance(gm, str) and gm:
                 generation_mode = gm
 
-        voice_consistency = _derive_voice_consistency(
+        voice_consistency = derive_voice_consistency(
             reference_audio_mode=reference_audio_mode,
             generation_mode=generation_mode,
             has_audio=has_audio,

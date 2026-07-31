@@ -9,12 +9,12 @@ import type { CustomProviderInfo } from "@/types/custom-provider";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { ImageModelDualSelect } from "@/components/shared/ImageModelDualSelect";
 import { TextTierFields } from "@/components/shared/TextTierFields";
-import { VideoModelSpecBar } from "@/components/shared/VideoModelSpecBar";
+import { VideoModelSpecBar, videoOptionMetaRenderer } from "@/components/shared/VideoModelSpecBar";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import { catalogDurations, deriveVoiceConsistencyFromCatalog } from "@/hooks/useModelCapabilities";
+import { catalogDurations } from "@/hooks/useModelCapabilities";
 import { errMsg } from "@/utils/async";
 import {
   getCustomProviderModels,
@@ -22,7 +22,6 @@ import {
   lookupCatalogVideoAudio,
   lookupResolutions,
 } from "@/utils/provider-models";
-import { formatDurationsLabel } from "@/utils/duration_format";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { ProviderInfo } from "@/types/provider";
 
@@ -139,27 +138,17 @@ export function MediaModelSection() {
     "";
   const currentAudio = draft.video_generate_audio ?? settings.video_generate_audio ?? false;
 
-  // 全局设置页无项目上下文（generation_mode 恒未知），voice_consistency 走目录数据近似派生，
-  // 不打 /video-capabilities（该端点按项目解析，见 useModelCapabilities 模块顶部说明）。
-  const videoCatalogAudio = currentVideo ? lookupCatalogVideoAudio(providers, currentVideo) : null;
-  const videoSpecTier = videoCatalogAudio
-    ? deriveVoiceConsistencyFromCatalog(videoCatalogAudio.referenceAudioMode, null, videoCatalogAudio.hasAudioTrack)
+  // 全局设置页无项目上下文，档位读目录端点的服务端派生值（generation_mode 未知，native 恒降格），
+  // 不打 /video-capabilities——该端点按项目解析。
+  const videoSpecTier = currentVideo
+    ? (lookupCatalogVideoAudio(providers, currentVideo)?.voiceConsistency ?? null)
     : null;
   const videoSpecDurations = currentVideo ? catalogDurations(providers, customProviders, currentVideo) : null;
   const videoSpecResolutions = currentVideo
     ? lookupResolutions(providers, currentVideo, customProviders).options
     : [];
 
-  const renderVideoOptionMeta = (fullValue: string) => {
-    const durations = catalogDurations(providers, customProviders, fullValue);
-    const resolutions = lookupResolutions(providers, fullValue, customProviders).options;
-    const audio = lookupCatalogVideoAudio(providers, fullValue);
-    const parts: string[] = [];
-    if (durations?.length) parts.push(formatDurationsLabel(durations));
-    if (resolutions.length) parts.push(resolutions.join(" / "));
-    if (audio) parts.push(t(audio.hasAudioTrack ? "video_spec_audio_has" : "video_spec_audio_none"));
-    return parts.length > 0 ? parts.join(" · ") : t("video_option_caps_unknown");
-  };
+  const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders });
   const currentAudioBackend = draft.default_audio_backend ?? settings.default_audio_backend ?? "";
   const currentNarrationVoice = draft.narration_voice ?? settings.narration_voice ?? "";
   const currentNarrationSpeed =

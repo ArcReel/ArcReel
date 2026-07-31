@@ -4,20 +4,18 @@ import { InlineWarning } from "@/components/ui/InlineWarning";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import {
   catalogDurations,
-  deriveVoiceConsistencyFromCatalog,
   durationOutOfRangeReason,
   useModelCapabilities,
-  type VoiceConsistencyTier,
 } from "@/hooks/useModelCapabilities";
 import { lookupCatalogVideoAudio, lookupResolutions } from "@/utils/provider-models";
-import { formatDurationsLabel, isContinuousIntegerRange } from "@/utils/duration_format";
+import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
 import { ImageModelDualSelect } from "./ImageModelDualSelect";
 import { TextTierFields } from "./TextTierFields";
-import { VideoModelSpecBar } from "./VideoModelSpecBar";
+import { VideoModelSpecBar, videoOptionMetaRenderer } from "./VideoModelSpecBar";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
-import type { ProviderInfo } from "@/types/provider";
+import type { ProviderInfo, VoiceConsistencyTier } from "@/types/provider";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 
 const EMPTY_CUSTOM_PROVIDERS: CustomProviderInfo[] = [];
@@ -140,18 +138,12 @@ export function ModelConfigSection({
     usesReferenceImages,
   });
 
-  // 声音一致性档位：有项目上下文（projectName）时服务端已按真实 generation_mode 二维派生，
-  // 直接采信；无项目上下文（全局设置「模型选择」页）时该端点不可用，改用目录数据镜像同一份
-  // 派生公式近似求值——generation_mode 未知时公式恒不落 native，语义上仍正确（见 useModelCapabilities
-  // 模块顶部的 deriveVoiceConsistencyFromCatalog 说明）。
+  // 声音一致性档位：有项目上下文时服务端按「候选模型 × 本项目 generation_mode」派生（能力查询
+  // 已带上 videoBackend，故编辑中未保存的选择也对得上）；无项目上下文时读目录端点的同名字段，
+  // 同样由服务端派生，前端两条路径都不含派生公式。
   const videoSpecTier: VoiceConsistencyTier | null = projectName
     ? voiceConsistency
-    : (() => {
-        const catalogAudio = lookupCatalogVideoAudio(providers, effectiveVideoBackend);
-        return catalogAudio
-          ? deriveVoiceConsistencyFromCatalog(catalogAudio.referenceAudioMode, null, catalogAudio.hasAudioTrack)
-          : null;
-      })();
+    : (lookupCatalogVideoAudio(providers, effectiveVideoBackend)?.voiceConsistency ?? null);
 
   const videoResolutionOptions = lookupResolutions(
     providers,
@@ -160,16 +152,7 @@ export function ModelConfigSection({
     endpointToMediaType,
   ).options;
 
-  const renderVideoOptionMeta = (fullValue: string) => {
-    const durations = catalogDurations(providers, customProviders, fullValue);
-    const resolutions = lookupResolutions(providers, fullValue, customProviders, endpointToMediaType).options;
-    const audio = lookupCatalogVideoAudio(providers, fullValue);
-    const parts: string[] = [];
-    if (durations?.length) parts.push(formatDurationsLabel(durations));
-    if (resolutions.length) parts.push(resolutions.join(" / "));
-    if (audio) parts.push(t(audio.hasAudioTrack ? "dashboard:video_spec_audio_has" : "dashboard:video_spec_audio_none"));
-    return parts.length > 0 ? parts.join(" · ") : t("dashboard:video_option_caps_unknown");
-  };
+  const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
 
   const handleVideoChange = (next: string) => {
     const effectiveNext = next || globalDefaults.video || "";

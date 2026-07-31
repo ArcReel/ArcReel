@@ -1,10 +1,14 @@
 import { Mic, Quote, VolumeX } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { formatDurationsLabel } from "@/utils/duration_format";
-import type { VoiceConsistencyTier } from "@/hooks/useModelCapabilities";
+import { catalogDurations } from "@/hooks/useModelCapabilities";
+import { lookupCatalogVideoAudio, lookupResolutions } from "@/utils/provider-models";
+import type { CustomProviderInfo } from "@/types/custom-provider";
+import type { MediaType, ProviderInfo, VoiceConsistencyTier } from "@/types";
 
 // ---------------------------------------------------------------------------
-// 声音一致性档位元数据（Spec #1486 第 37 条「规格条」）。
+// 声音一致性档位元数据。
 //
 // 档位含义只在此处声明一次：颜色/图标/文案随档位联动，避免各调用点各拼一份判断。
 // ---------------------------------------------------------------------------
@@ -38,16 +42,58 @@ export function VoiceConsistencyBadge({ tier }: { tier: VoiceConsistencyTier }) 
   const { t } = useTranslation("dashboard");
   const Icon = TIER_ICON[tier];
   const color = TIER_COLOR[tier];
+  const label = t(`voice_consistency_${tier}_label`);
+  const desc = t(`voice_consistency_${tier}_desc`);
   return (
+    // 降级口径只挂 title 的话读屏用户读不到；补 role="note" + aria-label 让它进无障碍树。
     <span
-      title={t(`voice_consistency_${tier}_desc`)}
+      role="note"
+      title={desc}
+      aria-label={`${label}: ${desc}`}
       className="inline-flex cursor-help items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium"
       style={{ color: color.fg, background: color.bg, border: `1px solid ${color.border}` }}
     >
       <Icon className="h-3 w-3" aria-hidden />
-      {t(`voice_consistency_${tier}_label`)}
+      {label}
     </span>
   );
+}
+
+/**
+ * 下拉选项行的能力线渲染器（时长 / 分辨率 / 音轨），交给 `ProviderModelSelect.renderOptionMeta`。
+ * 项目设置页与全局设置页同一份拼装：两处只有 `endpointToMediaType` 有无之别，不各写一份。
+ *
+ * 刻意不是 hook——调用方可能在早退分支之后才构造渲染器，内部再调 `useTranslation` 会违反
+ * hooks 调用顺序规则；`t` 由调用方传入，key 一律带 `dashboard:` 前缀以免受调用方默认命名空间影响。
+ */
+export function videoOptionMetaRenderer({
+  t,
+  providers,
+  customProviders,
+  endpointToMediaType,
+}: {
+  t: TFunction;
+  providers: ProviderInfo[];
+  customProviders: CustomProviderInfo[];
+  endpointToMediaType?: Record<string, MediaType>;
+}) {
+  return (fullValue: string) => {
+    const durations = catalogDurations(providers, customProviders, fullValue);
+    const resolutions = lookupResolutions(
+      providers,
+      fullValue,
+      customProviders,
+      endpointToMediaType,
+    ).options;
+    const audio = lookupCatalogVideoAudio(providers, fullValue);
+    const parts: string[] = [];
+    if (durations?.length) parts.push(formatDurationsLabel(durations));
+    if (resolutions.length) parts.push(resolutions.join(" / "));
+    if (audio) {
+      parts.push(t(audio.hasAudioTrack ? "dashboard:video_spec_audio_has" : "dashboard:video_spec_audio_none"));
+    }
+    return parts.length > 0 ? parts.join(" · ") : t("dashboard:video_option_caps_unknown");
+  };
 }
 
 export interface VideoModelSpecBarProps {
@@ -60,11 +106,12 @@ export interface VideoModelSpecBarProps {
 
 /** 选择器下方的规格条：时长 / 分辨率 / 音轨 / 声音一致性，四格集中展示当前选中模型的能力。 */
 export function VideoModelSpecBar({ durations, resolutions, tier }: VideoModelSpecBarProps) {
-  const { t } = useTranslation(["templates", "dashboard"]);
+  const { t } = useTranslation("dashboard");
 
   const cells: { label: string; content: React.ReactNode }[] = [
     {
-      label: t("duration_label"),
+      // 规格条展示的是模型支持的时长全集，不是 templates:duration_label（「默认时长」，用户偏好）。
+      label: t("video_spec_duration_label"),
       content:
         durations && durations.length > 0 ? (
           <span className="font-mono text-[11.5px] tabular-nums text-text-2">
@@ -84,18 +131,18 @@ export function VideoModelSpecBar({ durations, resolutions, tier }: VideoModelSp
         ),
     },
     {
-      label: t("dashboard:video_spec_audio_label"),
+      label: t("video_spec_audio_label"),
       content:
         tier !== null ? (
           <span className="text-[11.5px] text-text-2">
-            {t(tier === "none" ? "dashboard:video_spec_audio_none" : "dashboard:video_spec_audio_has")}
+            {t(tier === "none" ? "video_spec_audio_none" : "video_spec_audio_has")}
           </span>
         ) : (
           <span className="text-[11.5px] text-text-4">—</span>
         ),
     },
     {
-      label: t("dashboard:voice_consistency_label"),
+      label: t("voice_consistency_label"),
       content: tier !== null ? <VoiceConsistencyBadge tier={tier} /> : <span className="text-[11.5px] text-text-4">—</span>,
     },
   ];

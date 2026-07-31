@@ -7,6 +7,8 @@
  * - server/routers/projects.py (ProjectSummary list response)
  */
 
+import type { VoiceConsistencyTier } from "@/types/provider";
+
 export interface ProjectOverview {
   synopsis: string;
   genre: string;
@@ -235,5 +237,5 @@ export interface VideoCapabilities {
   content_mode?: string | null;
   generation_mode?: string | null;
   /** 声音一致性三级标识（模型能力 × generation_mode 二维派生），服务端唯一派生点。 */
-  voice_consistency: "native" | "soft" | "none";
+  voice_consistency: VoiceConsistencyTier;
 }

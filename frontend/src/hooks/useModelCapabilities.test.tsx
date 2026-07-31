@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import {
   catalogDurations,
-  deriveVoiceConsistencyFromCatalog,
   durationOutOfRangeReason,
   narrowDurations,
   useModelCapabilities,
@@ -35,7 +34,7 @@ function provider(overrides: Partial<ProviderInfo["models"][string]> = {}): Prov
           duration_resolution_constraints: {},
           resolutions: ["720p", "1080p"],
           has_audio_track: true,
-          reference_audio_mode: "none",
+          voice_consistency: "soft",
           ...overrides,
         },
       },
@@ -278,24 +277,21 @@ describe("useModelCapabilities voiceConsistency 维度", () => {
   });
 });
 
-describe("deriveVoiceConsistencyFromCatalog", () => {
-  it("reference_audio_mode=direct 且 generationMode=reference_video → native", () => {
-    expect(deriveVoiceConsistencyFromCatalog("direct", "reference_video", true)).toBe("native");
+describe("能力查询带上候选模型", () => {
+  it("把编辑中的 videoBackend 作为 video_backend 传给服务端，档位不停留在已保存模型上", async () => {
+    const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps({}));
+    renderHook(() =>
+      useModelCapabilities({ projectName: PROJECT, videoBackend: "openai/sora-2", unsavedBackend: true }),
+    );
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0]?.[1]).toMatchObject({ videoBackend: "openai/sora-2" });
   });
 
-  it("非 reference_video 路径：native 蕴含有音轨，降格恒落 soft 而非 none", () => {
-    expect(deriveVoiceConsistencyFromCatalog("direct", "storyboard", true)).toBe("soft");
-    expect(deriveVoiceConsistencyFromCatalog("direct", null, true)).toBe("soft");
-    expect(deriveVoiceConsistencyFromCatalog("direct", undefined, true)).toBe("soft");
-  });
-
-  it("reference_audio_mode=none 且有音轨 → soft", () => {
-    expect(deriveVoiceConsistencyFromCatalog("none", "reference_video", true)).toBe("soft");
-  });
-
-  it("无音轨 → none，即便 reference_audio_mode=direct（该组合不构成有效 native 前提之外恒判 none）", () => {
-    expect(deriveVoiceConsistencyFromCatalog("none", "reference_video", false)).toBe("none");
-    expect(deriveVoiceConsistencyFromCatalog("none", null, false)).toBe("none");
+  it("videoBackend 为空时不传该参数，服务端按已落盘配置解析", async () => {
+    const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps({}));
+    renderHook(() => useModelCapabilities({ projectName: PROJECT, videoBackend: "" }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0]?.[1]?.videoBackend).toBeUndefined();
   });
 });
 

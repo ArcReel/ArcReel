@@ -24,7 +24,7 @@ const PROVIDERS: ProviderInfo[] = [
         duration_resolution_constraints: {},
         resolutions: [],
         has_audio_track: true,
-        reference_audio_mode: "none",
+        voice_consistency: "soft",
       },
     },
   },
@@ -47,7 +47,7 @@ const PROVIDERS: ProviderInfo[] = [
         duration_resolution_constraints: {},
         resolutions: [],
         has_audio_track: true,
-        reference_audio_mode: "none",
+        voice_consistency: "soft",
       },
     },
   },
@@ -195,8 +195,7 @@ describe("ModelConfigSection", () => {
         globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
       />,
     );
-    // 无 projectName（全局设置场景）：generation_mode 未知，reference_audio_mode="none" 的目录
-    // 声明 + has_audio_track=true → 派生 soft，不会误判 native 或 none。
+    // 无 projectName（全局设置场景）：档位直接取目录端点的服务端派生值，前端不再自行推导。
     expect(screen.getByText("有声")).toBeInTheDocument();
     expect(screen.getByText("软约束")).toBeInTheDocument();
   });
@@ -297,7 +296,7 @@ describe("ModelConfigSection", () => {
             duration_resolution_constraints: {},
             resolutions: [],
             has_audio_track: true,
-            reference_audio_mode: "none",
+            voice_consistency: "soft",
           },
         },
       },
@@ -446,7 +445,7 @@ describe("ModelConfigSection", () => {
             duration_resolution_constraints: {},
             resolutions: [],
             has_audio_track: true,
-            reference_audio_mode: "none",
+            voice_consistency: "soft",
           },
         },
       },
@@ -497,7 +496,7 @@ describe("ModelConfigSection", () => {
           reference_image_durations: [8],
           resolutions: ["720p", "1080p", "4k"],
           has_audio_track: true,
-          reference_audio_mode: "none",
+          voice_consistency: "soft",
         },
       },
     },

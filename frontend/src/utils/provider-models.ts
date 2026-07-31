@@ -1,5 +1,5 @@
 import { API } from "@/api";
-import type { CustomProviderInfo, MediaType, ProviderInfo } from "@/types";
+import type { CustomProviderInfo, MediaType, ProviderInfo, VoiceConsistencyTier } from "@/types";
 
 const CUSTOM_PREFIX = "custom-";
 
@@ -60,16 +60,16 @@ export function lookupSupportedDurations(
     : undefined;
 }
 
-/** 目录（非自定义供应商）里的视频音频能力：音轨是否存在 + 参考音频运输形态。 */
+/** 目录（非自定义供应商）里的视频音频能力：音轨是否存在 + 服务端派生的声音一致性档位。 */
 export interface CatalogVideoAudio {
   hasAudioTrack: boolean;
-  referenceAudioMode: "none" | "direct";
+  /** 无项目上下文下的档位，服务端派生。有项目上下文时改用能力查询结果，不读此值。 */
+  voiceConsistency: VoiceConsistencyTier;
 }
 
 /**
- * 给定 "provider/model"，查目录里的音频相关声明——下拉能力线（音轨）与全局设置页无项目
- * 上下文时的 voice_consistency 近似派生共用同一份查表。自定义供应商目录无该声明，返回 null
- * （未知，不得凭空判定为无声）。
+ * 给定 "provider/model"，查目录里的音频相关声明——下拉能力线（音轨）与全局设置页的档位
+ * 徽章共用同一份查表。自定义供应商目录无该声明，返回 null（未知，不得凭空判定为无声）。
  */
 export function lookupCatalogVideoAudio(
   providers: ProviderInfo[],
@@ -85,7 +85,7 @@ export function lookupCatalogVideoAudio(
   const provider = providers.find((p) => p.id === providerId);
   const model = provider?.models?.[modelId];
   if (!model) return null;
-  return { hasAudioTrack: model.has_audio_track, referenceAudioMode: model.reference_audio_mode };
+  return { hasAudioTrack: model.has_audio_track, voiceConsistency: model.voice_consistency };
 }
 
 // ---------------------------------------------------------------------------

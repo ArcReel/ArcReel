@@ -4,6 +4,7 @@ MESSAGES = {
     "overview_ai_response_invalid": "AI 返回内容无法解析为项目概述，请重试或更换模型/供应商",
     "overview_generation_failed": "概述生成失败，请稍后重试或更换模型/供应商",
     "video_capabilities_unresolved": "无法解析项目 '{name}' 的视频模型能力，请检查供应商配置",
+    "video_backend_malformed": "视频模型标识 '{value}' 格式无效，应为「供应商/模型」",
     "scope_invalid": "scope 必须为 full 或 current",
     "download_expired": "下载链接已过期，请重新导出",
     "download_token_mismatch": "下载 token 与目标项目不匹配",

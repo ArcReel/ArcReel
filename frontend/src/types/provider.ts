@@ -1,3 +1,9 @@
+/**
+ * 声音一致性三级标识，与 `lib/config/resolver.py::VoiceConsistency` 一一对应。
+ * 档位值全部由服务端派生，前端只做渲染映射，不复制派生公式。
+ */
+export type VoiceConsistencyTier = "native" | "soft" | "none";
+
 export interface ModelInfoResponse {
   display_name: string;
   media_type: string;
@@ -11,8 +17,9 @@ export interface ModelInfoResponse {
   // 视频 model 是否带音轨（非视频 model 恒 false）。不等于「音轨开关可控」——AI Studio Veo /
   // Grok Imagine 恒有声但未声明 generate_audio token，仍为 true（见 capabilities 语义注）。
   has_audio_track: boolean;
-  // 视频 model 的参考音频运输形态；非视频 model 恒 "none"。
-  reference_audio_mode: "none" | "direct";
+  // 无项目上下文时的声音一致性档位，服务端派生（generation_mode 未知，native 恒降格）。
+  // 有项目上下文的页面改用 /projects/{name}/video-capabilities 的同名字段，不读这里。
+  voice_consistency: VoiceConsistencyTier;
 }
 
 export interface ProviderInfo {
