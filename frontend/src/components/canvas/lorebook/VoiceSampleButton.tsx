@@ -7,6 +7,7 @@ import { GlassModal } from "@/components/ui/GlassModal";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import type { TaskItem } from "@/types";
 import { errMsg } from "@/utils/async";
 
 /** 样本文案长度上限（与后端 VOICE_SAMPLE_TEXT_MAX_LENGTH 同值）。
@@ -60,31 +61,33 @@ export function VoiceSampleButton({
   // 预取音色列表——入口在未配置时即禁用，符合「audio_backend 未配置该入口不可用」的口径。
   const audioConfigured = useConfigStatusStore((s) => s.availableMediaTypes.includes("audio"));
 
-  const task = useTasksStore((s) => (taskId ? s.tasks.find((item) => item.task_id === taskId) : undefined));
+  const liveTask = useTasksStore((s) => (taskId ? s.tasks.find((item) => item.task_id === taskId) : undefined));
 
-  // tasks-store 只保留最新 TASKS_PAGE_SIZE(200) 行快照：taskId 落定后任务行尚未出现在
-  // store 里，与「任务行曾经出现过、但后来被更多新任务挤出快照」是两种不同的空窗——前者
-  // 该按生成中处理，后者继续判生成中会让弹窗永久锁死（Cancel/Escape/重新生成全部禁用，
-  // 且再也等不到它「完成」）。记录「当前 taskId 曾经落地过」：与其存布尔值再在 taskId
-  // 变化时手动复位，不如直接存「最近一次落地的 taskId」，与当前 taskId 比对天然复位。
-  const [landedTaskId, setLandedTaskId] = useState<string | null>(null);
+  // tasks-store 只保留最新 TASKS_PAGE_SIZE(200) 行快照：任务行可能在到达终态之前就被更多
+  // 新任务挤出快照。把「尚未落地」（generating 该继续按占用处理）与「落地过、还在
+  // running/queued 时被挤出」（同样该继续按占用处理——它很可能仍在服务端跑，只是客户端看
+  // 不到了；一旦在这个状态下放行关闭/编辑/重新生成，会丢失一个仍在计费任务的追踪，或让
+  // 新提交被 dedupe 误合并进这个隐形任务）两者都保守地当作占用中；只有明确观察到过
+  // succeeded/failed 终态后再消失，才不再继续锁定。缓存「最近一次观察到的该 taskId 任务行」
+  // 而非单纯的布尔标记，让这个判断能落到具体状态而不是「有没有出现过」。
+  const [lastSeenTask, setLastSeenTask] = useState<TaskItem | null>(null);
   useEffect(() => {
     if (taskId == null) return;
-    const markIfLanded = (tasks: { task_id: string }[]) => {
-      if (tasks.some((item) => item.task_id === taskId)) setLandedTaskId(taskId);
+    const captureIfPresent = (tasks: TaskItem[]) => {
+      const found = tasks.find((item) => item.task_id === taskId);
+      if (found) setLastSeenTask(found);
     };
     // 订阅回调里 setState 是响应外部 store 变化，不是效应体内的同步 setState；首次挂载时
     // store 里可能已经有这一行，延后到微任务里查一次初始值，避免在订阅建立期间嵌套 dispatch。
-    const unsubscribe = useTasksStore.subscribe((state) => markIfLanded(state.tasks));
-    void Promise.resolve().then(() => markIfLanded(useTasksStore.getState().tasks));
+    const unsubscribe = useTasksStore.subscribe((state) => captureIfPresent(state.tasks));
+    void Promise.resolve().then(() => captureIfPresent(useTasksStore.getState().tasks));
     return unsubscribe;
   }, [taskId]);
-  const everLanded = landedTaskId === taskId;
+  const task = liveTask ?? (lastSeenTask?.task_id === taskId ? lastSeenTask : undefined);
 
   const generating =
     localSubmitting ||
-    (taskId != null &&
-      (task == null ? !everLanded : task.status === "queued" || task.status === "running"));
+    (taskId != null && (task == null || task.status === "queued" || task.status === "running"));
   const failed = task?.status === "failed";
   const succeeded = task?.status === "succeeded";
   const previewFilePath =

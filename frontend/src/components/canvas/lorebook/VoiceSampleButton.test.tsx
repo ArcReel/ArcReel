@@ -323,7 +323,7 @@ describe("VoiceSampleButton", () => {
     });
   });
 
-  it("stays interactive after the task row is evicted from the tasks-store snapshot post-landing", async () => {
+  it("keeps the modal locked when the running task row is evicted from the tasks-store snapshot", async () => {
     setAudioConfigured(true);
     vi.spyOn(API, "getAudioBackendVoices").mockResolvedValue({
       configured: true,
@@ -347,7 +347,7 @@ describe("VoiceSampleButton", () => {
       expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalled();
     });
 
-    // 任务行先落地（running）——everLanded 应记为 true。
+    // 任务行先落地为 running。
     useTasksStore.setState({
       tasks: [
         {
@@ -365,11 +365,60 @@ describe("VoiceSampleButton", () => {
       expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
     });
 
-    // 大量新任务把这一行挤出 tasks-store 的最新 200 条快照——不是「尚未落地」的短暂空窗，
-    // 是「落地过又消失」，不该继续锁死弹窗。
+    // 大量新任务把这一行挤出 tasks-store 的最新 200 条快照——最后一次观察到的状态仍是
+    // running，很可能服务端仍在跑，须继续按占用处理；放行会丢失一个仍在计费任务的追踪，
+    // 或让随后的新提交被 dedupe 误合并进这个客户端已经看不到的任务。
     useTasksStore.setState({ tasks: [] });
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "取消" })).not.toBeDisabled();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+  });
+
+  it("keeps showing confirm from cached data after the succeeded task row is evicted", async () => {
+    setAudioConfigured(true);
+    vi.spyOn(API, "getAudioBackendVoices").mockResolvedValue({
+      configured: true,
+      provider_id: "dashscope",
+      model: "qwen3-tts-flash",
+      voices: [{ id: "Cherry", label: "芊悦 · 阳光正向的自然年轻女声" }],
     });
+    vi.spyOn(generationActions, "enqueueCharacterVoiceSample").mockResolvedValue({
+      taskIds: ["task-1"],
+      deduped: false,
+    });
+
+    render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => {
+      expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalled();
+    });
+
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "task-1",
+          project_name: "demo",
+          task_type: "voice_sample",
+          resource_id: "艾莉",
+          status: "succeeded",
+          result: { file_path: "audio/voice_sample__艾莉__task-1.wav" },
+          updated_at: "2026-07-31T00:00:00Z",
+        } as never,
+      ],
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "确认并保存" })).toBeInTheDocument();
+    });
+
+    // 成功后被挤出快照：已到终态，缓存的最后一次观察结果仍然有效，不应变回锁死态，
+    // Confirm 依旧可点（复用已校验过的产物，不因快照裁剪而丢失）。
+    useTasksStore.setState({ tasks: [] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByRole("button", { name: "确认并保存" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "取消" })).not.toBeDisabled();
   });
 });
