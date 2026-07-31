@@ -5,21 +5,24 @@ name: project-status-sync
 on:
   issues:
     types: [opened, reopened, closed, labeled, unlabeled, assigned, unassigned]
-  pull_request:
+  # 用 pull_request_target 而非 pull_request：workflow 与脚本都取 base 分支版本执行，
+  # PR 分支的代码接触不到 PROJECT_STATUS_SYNC_TOKEN
+  pull_request_target:
     types: [opened, closed, reopened, ready_for_review, edited]
   schedule:
     - cron: "30 21 * * *" # 北京时间 05:30 全量对账
   workflow_dispatch:
 
 concurrency:
-  group: project-status-sync-${{ github.event.issue.number || github.event.pull_request.number || 'all' }}
+  # issue 与 PR 编号各自独立，group 含事件类型避免同号跨类型互相取消
+  group: project-status-sync-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number || 'all' }}
   cancel-in-progress: true
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    # fork PR 拿不到 secrets；本仓库 PR 均为同仓分支
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Dependabot 触发的运行拿不到仓库 Actions secrets
+    if: github.actor != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@v7
       - name: Sync project status
@@ -28,6 +31,12 @@ jobs:
         run: |
           case "${{ github.event_name }}" in
             issues) python3 scripts/project_status_sync.py --issue "${{ github.event.issue.number }}" ;;
-            pull_request) python3 scripts/project_status_sync.py --pr "${{ github.event.pull_request.number }}" ;;
+            pull_request_target)
+              # body 编辑可能移除 closing reference，当前引用列表看不到被移除的 issue，改跑全量对账
+              if [ "${{ github.event.action }}" = "edited" ]; then
+                python3 scripts/project_status_sync.py --all
+              else
+                python3 scripts/project_status_sync.py --pr "${{ github.event.pull_request.number }}"
+              fi ;;
             *) python3 scripts/project_status_sync.py --all ;;
           esac

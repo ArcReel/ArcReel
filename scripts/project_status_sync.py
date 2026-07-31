@@ -111,7 +111,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
       id state
       labels(first: 50) { nodes { name } }
       assignees(first: 1) { totalCount }
-      closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { state } }
+      closedByPullRequestsReferences(first: 20) { nodes { state } }
       projectItems(first: 10, includeArchived: true) {
         nodes {
           id isArchived
@@ -195,9 +195,13 @@ query($org: String!, $projectNumber: Int!, $cursor: String) {
           content {
             ... on Issue {
               number state
+              repository { nameWithOwner }
               labels(first: 50) { nodes { name } }
               assignees(first: 1) { totalCount }
-              closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { state } }
+              closedByPullRequestsReferences(first: 20) { nodes { state } }
+            }
+            ... on PullRequest {
+              repository { nameWithOwner }
             }
           }
         }
@@ -206,6 +210,31 @@ query($org: String!, $projectNumber: Int!, $cursor: String) {
   }
 }
 """
+
+
+OPEN_ISSUES_QUERY = """
+query($owner: String!, $repo: String!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    issues(states: OPEN, first: 100, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes { number }
+    }
+  }
+}
+"""
+
+
+def _open_issue_numbers() -> set[int]:
+    numbers: set[int] = set()
+    cursor: str | None = None
+    while True:
+        data = gql(OPEN_ISSUES_QUERY, {"owner": OWNER, "repo": REPO, "cursor": cursor})
+        page = data["repository"]["issues"]
+        numbers.update(n["number"] for n in page["nodes"])
+        if not page["pageInfo"]["hasNextPage"]:
+            break
+        cursor = page["pageInfo"]["endCursor"]
+    return numbers
 
 
 def sync_all() -> None:
@@ -219,9 +248,15 @@ def sync_all() -> None:
             break
         cursor = page["pageInfo"]["endCursor"]
 
+    repo_full = f"{OWNER}/{REPO}"
+    board_numbers: set[int] = set()
     parts: list[str] = []
     changed = deleted = 0
     for item in items:
+        content = item.get("content") or {}
+        # 本仓库之外的 item（含 DraftIssue）不做投影也不清除
+        if (content.get("repository") or {}).get("nameWithOwner") != repo_full:
+            continue
         if item["type"] == "PULL_REQUEST":
             # 看板不收 PR item，对账时清除误入项
             parts.append(
@@ -230,18 +265,24 @@ def sync_all() -> None:
             )
             deleted += 1
             continue
-        if item["type"] != "ISSUE":
-            continue
-        state, labels, has_assignee, has_open_pr = _issue_signals(item["content"])
+        board_numbers.add(content["number"])
+        state, labels, has_assignee, has_open_pr = _issue_signals(content)
         desired = derive_status(state, labels, has_assignee, has_open_pr)
         current = (item.get("status") or {}).get("name")
         if current != desired:
             parts.append(_set_status_part(item["id"], desired))
             changed += 1
-            print(f"#{item['content']['number']}: {current} -> {desired}")
+            print(f"#{content['number']}: {current} -> {desired}")
 
     _run_mutation_parts(parts)
-    print(f"对账完成：{len(items)} 个 item，纠正 {changed} 个 Status，清除 {deleted} 个 PR item")
+
+    # auto-add 或事件同步失败会让 open issue 缺席看板，对账时补入
+    missing = _open_issue_numbers() - board_numbers
+    for number in sorted(missing):
+        sync_issue(number)
+    print(
+        f"对账完成：{len(items)} 个 item，纠正 {changed} 个 Status，清除 {deleted} 个 PR item，补入 {len(missing)} 个 issue"
+    )
 
 
 def main() -> None:
