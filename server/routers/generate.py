@@ -565,6 +565,7 @@ async def confirm_character_voice_sample(
                         "asset_fingerprints": {ref_audio_rel: target_path.stat().st_mtime_ns},
                     }
                 ],
+                source="webui",
             )
         except Exception:
             logger.exception(

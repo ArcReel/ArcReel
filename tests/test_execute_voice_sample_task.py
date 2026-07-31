@@ -193,6 +193,12 @@ class TestExecuteCharacterVoiceSampleTask:
     def test_voice_sample_resource_id_truncates_multibyte_names_without_corrupting_encoding(self):
         long_name = "艾" * 100
         resource_id = generation_tasks.voice_sample_resource_id(long_name, "task-1")
-        # 按字节裁剪落在多字节字符中间时须整字符丢弃，不产生非法 UTF-8 / 半个字符。
-        resource_id.encode("utf-8").decode("utf-8")
-        assert resource_id.endswith("__task-1")
+        prefix = "voice_sample__"
+        suffix = "__task-1"
+        safe_name = resource_id[len(prefix) : -len(suffix)]
+        # 按字节裁剪落在多字节字符中间时须整字符丢弃，断言实际裁剪到的字符数（而不只是
+        # 验证能重新编解码）——错误的上限或过度裁剪不会被单纯的 encode/decode 校验发现。
+        expected_chars = generation_tasks._SAMPLE_ID_NAME_MAX_BYTES // len("艾".encode())
+        assert safe_name == "艾" * expected_chars
+        assert len(safe_name.encode("utf-8")) <= generation_tasks._SAMPLE_ID_NAME_MAX_BYTES
+        assert resource_id.endswith(suffix)
