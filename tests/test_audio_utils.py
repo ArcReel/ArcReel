@@ -9,7 +9,6 @@ from unittest.mock import patch
 import pytest
 
 import lib.audio_utils as audio_utils_module
-from lib.audio_utils import probe_audio_duration_seconds
 
 
 @pytest.fixture(autouse=True)
@@ -33,7 +32,7 @@ class TestFfprobeUnavailable:
     async def test_returns_none_without_spawning(self):
         with patch("lib.audio_utils.shutil.which", return_value=None):
             with patch("lib.audio_utils.asyncio.create_subprocess_exec") as spawn:
-                result = await probe_audio_duration_seconds(_wav_bytes(3), ".wav")
+                result = await audio_utils_module.probe_audio_duration_seconds(_wav_bytes(3), ".wav")
         assert result is None
         spawn.assert_not_called()
 
@@ -47,10 +46,10 @@ class TestFfprobeAvailable:
             pytest.skip("ffprobe not available")
 
     async def test_probes_real_duration(self):
-        duration = await probe_audio_duration_seconds(_wav_bytes(3), ".wav")
+        duration = await audio_utils_module.probe_audio_duration_seconds(_wav_bytes(3), ".wav")
         assert duration is not None
         assert 2.5 < duration < 3.5
 
     async def test_invalid_bytes_raise_value_error(self):
         with pytest.raises(ValueError):
-            await probe_audio_duration_seconds(b"not audio at all", ".wav")
+            await audio_utils_module.probe_audio_duration_seconds(b"not audio at all", ".wav")
