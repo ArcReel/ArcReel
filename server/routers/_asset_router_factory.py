@@ -125,6 +125,11 @@ def build_asset_router(
                 extras.pop(field, None)
             elif not isinstance(value, str):
                 raise HTTPException(status_code=422, detail=f"field '{field}' must be a string")
+            elif field == "voice_notice_dismissed_at":
+                # 新建角色尚无 voice_updated_at，PATCH 侧「必须等于当前 voice_updated_at」的
+                # 校验在此处恒不成立（值不存在）；直接拒绝创建时携带该字段，防止绕过
+                # PATCH 的等值校验写入远未来时间戳，永久压制存量过渡横幅。
+                raise HTTPException(status_code=422, detail=f"field '{field}' has an invalid value")
         for field in spec.extra_list_fields:
             value = extras.get(field)
             if value is not None and not _is_string_list(value):

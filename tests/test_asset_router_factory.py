@@ -69,6 +69,18 @@ class TestAssetRouterFactory:
             # reference_image 是 character 的 extra 字段，create 时未传则默认 ""
             assert entry["reference_image"] == ""
 
+    def test_character_post_rejects_dismissed_at(self, monkeypatch):
+        """新建角色尚无 voice_updated_at，PATCH 侧的等值校验在创建时恒不成立；创建
+        端点直接拒绝携带该字段，防止绕过 PATCH 校验写入远未来时间戳。"""
+        client, fake_pm = _client(monkeypatch)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/characters",
+                json={"name": "Bob", "description": "hero", "voice_notice_dismissed_at": "9999-12-31T00:00:00+00:00"},
+            )
+            assert resp.status_code == 422
+            assert "Bob" not in fake_pm.projects["demo"]["characters"]
+
     def test_character_post_400_on_path_unsafe_name(self, monkeypatch):
         """名字含路径分隔符须在 HTTP 边界拒绝：这类名字会让生成（嵌套文件路径）
         与后续单段路由（PATCH/DELETE/{name}）全部失效。"""
