@@ -115,6 +115,44 @@ class TestDataValidator:
         assert not result.valid
         assert any("voice_updated_at 必须是字符串" in error for error in result.errors)
 
+    def test_validate_project_rejects_unparseable_voice_updated_at(self, tmp_path):
+        # 类型是字符串但不是合法 ISO8601 时不会被上面的类型校验拦下，但前端
+        # `new Date(iso).getTime()` 解析会得到 NaN，参与比较恒为 false——横幅因此静默
+        # 失效而非报错，比类型错误更隐蔽，须单独校验值本身能否被解析。
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _project_payload()
+        payload["characters"]["姜月茴"]["voice_updated_at"] = "not-a-date"
+        _write_json(project_dir / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+        assert not result.valid
+        assert any("voice_updated_at 不是合法的 ISO8601 时间戳" in error for error in result.errors)
+
+    def test_validate_project_rejects_unparseable_voice_notice_dismissed_at(self, tmp_path):
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _project_payload()
+        payload["characters"]["姜月茴"]["voice_notice_dismissed_at"] = "not-a-date"
+        _write_json(project_dir / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+        assert not result.valid
+        assert any("voice_notice_dismissed_at 不是合法的 ISO8601 时间戳" in error for error in result.errors)
+
+    def test_validate_project_accepts_z_and_offset_voice_timestamps(self, tmp_path):
+        # 仓库内两种实际写出的格式都须放行：秒级 Z 后缀（版本还原）与微秒级 +00:00 偏移
+        # （datetime.now(UTC).isoformat()）。
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _project_payload()
+        payload["characters"]["姜月茴"]["voice_updated_at"] = "2026-01-02T00:00:00.500000+00:00"
+        payload["characters"]["姜月茴"]["voice_notice_dismissed_at"] = "2026-01-02T00:00:00Z"
+        _write_json(project_dir / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+        assert result.valid
+
     def test_validate_episode_narration_success_with_warnings(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))

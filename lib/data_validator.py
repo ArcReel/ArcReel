@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,20 @@ class ValidationResult:
 def _pydantic_error_summary(exc: ValidationError) -> str:
     """把 ValidationError 压成单行 ``字段: 原因`` 摘要，供 errors 列表内嵌。"""
     return "; ".join(f"{'.'.join(str(part) for part in err['loc']) or '<root>'}: {err['msg']}" for err in exc.errors())
+
+
+def _is_parseable_iso_timestamp(value: str) -> bool:
+    """校验字符串能否被解析为 ISO8601 时间点，而不仅仅是「是字符串」。
+
+    前端 ``computeVoiceLegacyNotice`` 用 ``new Date(iso).getTime()`` 解析这类字段做时刻
+    比较，解析失败得到 ``NaN``——NaN 参与的比较恒为 false，会让横幅静默失效而非报错，
+    比字段类型错误更隐蔽，值本身合法性因此也须校验。
+    """
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
 
 
 class DataValidator:
@@ -368,13 +383,20 @@ class DataValidator:
                     val = char_data.get(field_name)
                     if val is not None and not isinstance(val, str):
                         errors.append(f"角色 '{char_name}'.{field_name} 必须是字符串，当前为 {type(val).__name__}")
+                    elif field_name == "voice_notice_dismissed_at" and val and not _is_parseable_iso_timestamp(val):
+                        errors.append(f"角色 '{char_name}'.{field_name} 不是合法的 ISO8601 时间戳: {val!r}")
                 # voice_updated_at 不在 extra_string_fields 里（系统专用戳字段，故意不开放
-                # 通用 PATCH 覆写），但仍需校验类型：外部编辑/导入的 project.json 若把它写成
-                # 非字符串，会在前端 computeVoiceLegacyNotice 的日期解析处静默产生 NaN。
+                # 通用 PATCH 覆写），但仍需校验类型与值：外部编辑/导入的 project.json 若把它写成
+                # 非字符串或不可解析的字符串，会在前端 computeVoiceLegacyNotice 的日期解析处
+                # 静默产生 NaN。
                 voice_updated_at = char_data.get("voice_updated_at")
                 if voice_updated_at is not None and not isinstance(voice_updated_at, str):
                     errors.append(
                         f"角色 '{char_name}'.voice_updated_at 必须是字符串，当前为 {type(voice_updated_at).__name__}"
+                    )
+                elif voice_updated_at and not _is_parseable_iso_timestamp(voice_updated_at):
+                    errors.append(
+                        f"角色 '{char_name}'.voice_updated_at 不是合法的 ISO8601 时间戳: {voice_updated_at!r}"
                     )
 
         if project.get("clues") is not None:

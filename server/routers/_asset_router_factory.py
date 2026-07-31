@@ -213,6 +213,11 @@ def build_asset_router(
         except KeyError:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
         except _InvalidFieldValue as exc:
+            # 与相邻的类型校验 422（"field ... must be a string"）不同：这条路径不需要
+            # 客户端主动构造非法请求即可触发——横幅渲染后声音被再次更新、用户随后才点击
+            # 关闭即会触发，是真实用户可能看到的错误，须走翻译。
+            if exc.field == "voice_notice_dismissed_at":
+                raise HTTPException(status_code=422, detail=_t("asset_voice_notice_dismissed_at_stale"))
             raise HTTPException(status_code=422, detail=f"field '{exc.field}' has an invalid value")
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
