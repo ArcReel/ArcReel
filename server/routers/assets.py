@@ -327,23 +327,31 @@ async def from_project(
         )
 
     # 5) 拷贝源 sheet / 参考音频到 _global_assets/{type}/{uuid}.{ext}
+    # 两次拷贝共用一个失败边界：任一失败都清理已落盘的另一个文件，不留孤儿。
     new_image_path: str | None = None
-    if source_sheet_path is not None:
-        ext = source_sheet_path.suffix.lower() or ".png"
-        root = get_project_manager().get_global_assets_root() / req.resource_type
-        uid = uuid.uuid4().hex
-        target = root / f"{uid}{ext}"
-        await asyncio.to_thread(shutil.copyfile, source_sheet_path, target)
-        new_image_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
-
     new_audio_path: str | None = None
-    if source_audio_path is not None:
-        ext = source_audio_path.suffix.lower() or ".wav"
-        root = get_project_manager().get_global_assets_root() / req.resource_type
-        uid = uuid.uuid4().hex
-        target = root / f"{uid}{ext}"
-        await asyncio.to_thread(shutil.copyfile, source_audio_path, target)
-        new_audio_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
+    try:
+        if source_sheet_path is not None:
+            ext = source_sheet_path.suffix.lower() or ".png"
+            root = get_project_manager().get_global_assets_root() / req.resource_type
+            uid = uuid.uuid4().hex
+            target = root / f"{uid}{ext}"
+            await asyncio.to_thread(shutil.copyfile, source_sheet_path, target)
+            new_image_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
+
+        if source_audio_path is not None:
+            ext = source_audio_path.suffix.lower() or ".wav"
+            root = get_project_manager().get_global_assets_root() / req.resource_type
+            uid = uuid.uuid4().hex
+            target = root / f"{uid}{ext}"
+            await asyncio.to_thread(shutil.copyfile, source_audio_path, target)
+            new_audio_path = f"_global_assets/{req.resource_type}/{uid}{ext}"
+    except Exception:
+        if new_image_path:
+            _delete_global_asset_file(new_image_path)
+        if new_audio_path:
+            _delete_global_asset_file(new_audio_path)
+        raise
 
     # 6) 写 DB：失败路径清理拷贝文件
     try:

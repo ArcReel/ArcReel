@@ -26,6 +26,11 @@ export interface VoiceLegacyNotice {
 
 const EMPTY_NOTICE: VoiceLegacyNotice = { count: 0, characterNames: [] };
 
+/** 两侧时间戳精度/格式不同源（微秒+offset vs 还原版本的秒级 Z），按解析后的实际时刻比较。 */
+function toEpochMs(iso: string): number {
+  return new Date(iso).getTime();
+}
+
 /** 纯函数，独立可测：不依赖 store/hooks。 */
 export function computeVoiceLegacyNotice(
   units: readonly ReferenceVideoUnit[],
@@ -43,11 +48,12 @@ export function computeVoiceLegacyNotice(
       const character = characters[ref.name];
       const voiceUpdatedAt = character?.voice_updated_at;
       if (!voiceUpdatedAt) continue;
+      const voiceUpdatedMs = toEpochMs(voiceUpdatedAt);
 
       const dismissedAt = character.voice_notice_dismissed_at;
-      if (dismissedAt && dismissedAt >= voiceUpdatedAt) continue;
+      if (dismissedAt && toEpochMs(dismissedAt) >= voiceUpdatedMs) continue;
 
-      const isStale = !videoGeneratedAt || videoGeneratedAt < voiceUpdatedAt;
+      const isStale = !videoGeneratedAt || toEpochMs(videoGeneratedAt) < voiceUpdatedMs;
       if (!isStale) continue;
 
       staleUnitIds.add(unit.unit_id);

@@ -343,6 +343,47 @@ class TestFromProject:
         assert ap and ap.startswith("_global_assets/character/")
         assert (pm.projects_root / ap).read_bytes() == b"audio-bytes"
 
+    def test_from_project_audio_copy_failure_cleans_up_image(self, _assets_env, monkeypatch):
+        """图片拷贝成功后音频拷贝失败：不留孤儿图片文件，异常正常传播。"""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "王", "d", "")
+        sheet_rel = "characters/王.png"
+        (pm.projects_root / "demo" / "characters").mkdir(parents=True, exist_ok=True)
+        (pm.projects_root / "demo" / sheet_rel).write_bytes(b"img")
+        audio_rel = "characters/refs_audio/王.wav"
+        (pm.projects_root / "demo" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
+        (pm.projects_root / "demo" / audio_rel).write_bytes(b"audio-bytes")
+
+        def _set_fields(project):
+            project["characters"]["王"]["character_sheet"] = sheet_rel
+            project["characters"]["王"]["reference_audio"] = audio_rel
+
+        pm.update_project("demo", _set_fields)
+
+        real_copyfile = assets.shutil.copyfile
+        calls = {"n": 0}
+
+        def flaky_copyfile(src, dst):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise OSError("disk full")
+            return real_copyfile(src, dst)
+
+        monkeypatch.setattr(assets.shutil, "copyfile", flaky_copyfile)
+
+        with pytest.raises(OSError):
+            client.post(
+                "/api/v1/assets/from-project",
+                json={"project_name": "demo", "resource_type": "character", "resource_id": "王"},
+            )
+
+        global_character_assets = pm.get_global_assets_root() / "character"
+        leftover = list(global_character_assets.glob("*")) if global_character_assets.exists() else []
+        assert leftover == []
+
     def test_from_project_without_audio_has_null_audio_path(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]

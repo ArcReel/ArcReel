@@ -143,7 +143,11 @@ export function ReferenceVideoCanvas({
           return API.updateCharacter(projectName, name, { voice_notice_dismissed_at: acknowledgedAt });
         }),
       );
-      await useProjectsStore.getState().refreshProject(projectName);
+      // refreshProject 失败时 resolve "failed" 而非 reject，须传 onError，否则 PATCH 已成功
+      // 但本地 store 未同步时会静默吞掉，横幅带着旧数据留在页面上却不提示用户。
+      await useProjectsStore.getState().refreshProject(projectName, {
+        onError: (err) => toastError(err, (msg) => t("voice_legacy_banner_dismiss_failed", { error: msg })),
+      });
     } catch (e) {
       // 静默失败会让横幅原样留在页面上而用户以为已关闭，必须可见。
       toastError(e, (msg) => t("voice_legacy_banner_dismiss_failed", { error: msg }));

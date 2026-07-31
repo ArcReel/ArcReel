@@ -923,5 +923,32 @@ describe("ReferenceVideoCanvas", () => {
 
       await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("error"));
     });
+
+    it("PATCH 成功但 refreshProject 失败时仍提示用户，不静默吞掉", async () => {
+      // refreshProject 失败时 resolve "failed" 而非 reject——只 await 不检查结果/传
+      // onError 会让这次失败在 UI 上完全无感知。
+      vi.spyOn(API, "updateCharacter").mockResolvedValue({} as never);
+      const refreshProject = vi.fn(
+        (_name: string, options?: { onError?: (err: unknown) => void }): Promise<string> => {
+          options?.onError?.(new Error("network down"));
+          return Promise.resolve("failed");
+        },
+      );
+      useProjectsStore.setState({
+        currentProjectName: "proj",
+        currentProjectData: {
+          ...STUB_PROJECT,
+          characters: { 王: { description: "", voice_updated_at: VOICE_UPDATED_AT } },
+        },
+        refreshProject,
+      } as never);
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [staleUnit()] });
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+      const dismiss = await screen.findByRole("button", { name: /Got it|知道了/ });
+      fireEvent.click(dismiss);
+
+      await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("error"));
+    });
   });
 });
