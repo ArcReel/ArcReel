@@ -1959,9 +1959,9 @@ class ProjectManager:
         更新角色的参考音频路径（空串表示清空）
 
         同时机械戳 ``voice_updated_at``（覆盖上传/清空两条路径），用于跟已生成片段的
-        ``generated_assets.video_generated_at`` 比较，驱动存量过渡横幅计数——
+        ``generated_assets.video_generated_at`` 比较，判定片段是否早于当前声音设置——
         无需额外「已关闭」布尔位，关闭态用 ``voice_notice_dismissed_at`` 时间戳与本字段
-        比较即可自然表达「新变更后重新出现」。
+        比较即可自然表达「新版本」。
 
         另一处戳点在 ``server/routers/assets.py::apply_to_project``：全局资产库批量导入
         在单次 update_project 内一并写 characters，走不通本方法，故就地戳同一字段。
