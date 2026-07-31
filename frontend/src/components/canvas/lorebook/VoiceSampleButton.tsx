@@ -115,6 +115,27 @@ export function VoiceSampleButton({
     setOpen(false);
   };
 
+  // 样本已生成成功后，若用户改选音色或改动文案却没有点「重新生成」，Confirm 按钮仍会显示
+  // 且仍指向旧样本——用户看到的是新输入，确认保存的却是旧音色/旧文案合成的字节。只在
+  // succeeded 时清空 taskId 让预览/确认区一并隐藏，逼用户重新生成；不在生成中途清空，
+  // 否则会丢失一个仍在合成、且已计费任务的追踪入口。
+  const invalidateStalePreview = () => {
+    if (succeeded) {
+      setTaskId(null);
+      setIsPreviewPlaying(false);
+    }
+  };
+
+  const handleVoiceChange = (voiceId: string) => {
+    setSelectedVoice(voiceId);
+    invalidateStalePreview();
+  };
+
+  const handleTextChange = (value: string) => {
+    setText(value);
+    invalidateStalePreview();
+  };
+
   const handleGenerate = async () => {
     const trimmed = text.trim();
     if (!trimmed || !selectedVoice || generating || confirming) return;
@@ -209,7 +230,7 @@ export function VoiceSampleButton({
               <select
                 id={voiceFieldId}
                 value={selectedVoice}
-                onChange={(e) => setSelectedVoice(e.target.value)}
+                onChange={(e) => handleVoiceChange(e.target.value)}
                 disabled={voicesLoading || voices.length === 0}
                 className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-[border-color,box-shadow] disabled:cursor-not-allowed disabled:opacity-60"
                 style={{
@@ -246,7 +267,7 @@ export function VoiceSampleButton({
               <textarea
                 id={textFieldId}
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => handleTextChange(e.target.value)}
                 maxLength={VOICE_SAMPLE_TEXT_MAX_LENGTH}
                 rows={3}
                 className="focus-ring mt-1.5 w-full resize-none rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow]"
