@@ -69,6 +69,31 @@ class TestAssetRouterFactory:
             # reference_image 是 character 的 extra 字段，create 时未传则默认 ""
             assert entry["reference_image"] == ""
 
+    def test_character_post_with_reference_audio_stamps_voice_updated_at(self, monkeypatch):
+        """创建即携带 reference_audio 时同样须机械戳 voice_updated_at，与 PATCH/上传/
+        入库导入等其它写点同一口径，否则该角色的存量片段横幅永远感知不到这次设置。"""
+        client, fake_pm = _client(monkeypatch)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/characters",
+                json={"name": "Bob", "description": "hero", "reference_audio": "characters/refs_audio/Bob.wav"},
+            )
+            assert resp.status_code == 200
+            entry = fake_pm.projects["demo"]["characters"]["Bob"]
+            assert entry["reference_audio"] == "characters/refs_audio/Bob.wav"
+            assert isinstance(entry.get("voice_updated_at"), str) and entry["voice_updated_at"]
+
+    def test_character_post_without_reference_audio_does_not_stamp(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/characters",
+                json={"name": "Bob", "description": "hero"},
+            )
+            assert resp.status_code == 200
+            entry = fake_pm.projects["demo"]["characters"]["Bob"]
+            assert "voice_updated_at" not in entry
+
     def test_character_post_rejects_dismissed_at(self, monkeypatch):
         """新建角色尚无 voice_updated_at，PATCH 侧的等值校验在创建时恒不成立；创建
         端点直接拒绝携带该字段，防止绕过 PATCH 校验写入远未来时间戳。"""

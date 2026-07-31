@@ -143,6 +143,11 @@ def build_asset_router(
                 entry: dict[str, Any] = {"description": req.description, spec.sheet_field: ""}
                 for field in spec.extra_string_fields:
                     entry[field] = extras.get(field, "")
+                # 创建即携带 reference_audio 时同样须机械戳 voice_updated_at：与 PATCH 侧
+                # 同一字段的同一补戳理由一致，否则该角色的存量片段横幅永远感知不到这次
+                # 「设置了声音」。
+                if entry.get("reference_audio"):
+                    entry["voice_updated_at"] = datetime.now(UTC).isoformat()
                 for field in spec.extra_list_fields:
                     entry[field] = list(extras.get(field) or [])
                 with project_change_source("webui"):
