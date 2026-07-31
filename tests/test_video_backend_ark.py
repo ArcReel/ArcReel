@@ -1,5 +1,6 @@
 """ArkVideoBackend 单元测试 — mock Ark SDK。"""
 
+import json
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -607,6 +608,28 @@ class TestArkReferenceAudio:
     def _seedance_2_backend():
         with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
             return ArkVideoBackend(api_key="test", model="doubao-seedance-2-0-260128")
+
+    @pytest.mark.unit
+    def test_request_log_view_collapses_media_without_base64(self):
+        """素材不进日志：content 内的图片与音频都是 base64 data URI，原样交给日志格式化
+        只会截断成前缀而非剔除，等于把素材内容（音频还可能带 mp3 的 ID3 元数据）写进 info 日志。
+        prompt 是用户文本、排查生成效果要用，保留。"""
+        from lib.video_backends.ark import _safe_create_params_for_log
+
+        view = _safe_create_params_for_log(
+            {
+                "model": "doubao-seedance-2-0-260128",
+                "content": [
+                    {"type": "text", "text": "两人对话"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                    {"type": "audio_url", "audio_url": {"url": "data:audio/mp3;base64,BBBB"}},
+                ],
+            }
+        )
+
+        assert "base64" not in json.dumps(view, ensure_ascii=False)
+        assert view["content"] == "<1 audio_url, 1 image_url, 1 text>"
+        assert view["prompt"] == "两人对话"
 
     @pytest.mark.unit
     def test_seedance_2_declares_audio_capability(self):

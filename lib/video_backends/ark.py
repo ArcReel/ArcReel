@@ -42,6 +42,33 @@ _SEEDANCE_1_5_MAX_REFERENCE_IMAGES = 9
 _REFERENCE_AUDIO_MIME_TYPES = {".wav": "audio/wav", ".mp3": "audio/mp3"}
 
 
+def _safe_create_params_for_log(create_params: dict[str, Any]) -> dict[str, Any]:
+    """请求参数的安全日志视图：content 数组按条目类型折叠成计数，不展开内嵌素材。
+
+    content 里的图片与音频都是 base64 data URI。``format_kwargs_for_log`` 只截断长字符串、
+    不认识这层结构，直接交给它会把每个素材的 base64 前缀写进 info 日志（音频还可能带上
+    mp3 文件头的 ID3 元数据）。dashscope / vidu / minimax 三家均已各有同名的安全视图并在
+    注释里点明对齐 CodeQL clear-text-logging，Ark 此前是唯一漏网的一家。
+
+    prompt 是用户文本、不是素材，仍按 ``format_kwargs_for_log`` 的既有截断规则输出，
+    以保留排查生成效果时最常用的那一项。
+    """
+    view = {key: value for key, value in create_params.items() if key != "content"}
+    content = create_params.get("content")
+    if isinstance(content, list):
+        counts: dict[str, int] = {}
+        for item in content:
+            kind = item.get("type", "unknown") if isinstance(item, dict) else "unknown"
+            counts[kind] = counts.get(kind, 0) + 1
+        view["content"] = "<" + ", ".join(f"{n} {kind}" for kind, n in sorted(counts.items())) + ">"
+        prompt = next(
+            (item.get("text") for item in content if isinstance(item, dict) and item.get("type") == "text"), None
+        )
+        if isinstance(prompt, str):
+            view["prompt"] = prompt
+    return view
+
+
 def _reference_audio_to_data_uri(path: Path, *, model: str) -> str:
     """参考音频 → base64 data URI；格式不受支持或文件不可读一律抛错。
 
@@ -184,8 +211,12 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                 last_frame=on_verified_allowlist,
                 max_reference_images=9,
                 reference_audio_mode=(ReferenceAudioMode.DIRECT if on_verified_allowlist else ReferenceAudioMode.NONE),
-                # 官方限制：每请求最多 3 段参考音频，且总时长不超过 15 秒。总时长约束由
-                # 资产上传期的单段时长校验（2–10 秒）间接收敛，本层只声明段数上限。
+                # 官方限制：每请求最多 3 段参考音频，单段时长 2–15 秒，且总时长不超过 15 秒。
+                # 本层只声明段数上限——总时长是逐段时长之和，`VideoCapabilities` 没有承载它的
+                # 维度，且判定需要读音频元数据（本层拿到的只是路径）。单段上限也推不出总时长：
+                # 两段各 10 秒都合法，合起来已经超。该约束须在能拿到时长的位置施加，即音频资产
+                # 的上传/选取期，与「哪个角色用哪段音频」的填充同处一层。
+                # 出处：《创建视频生成任务 API》音频信息章节。
                 max_reference_audio_count=_SEEDANCE_2_MAX_REFERENCE_AUDIO if on_verified_allowlist else 0,
             )
         # 非 2.0 系列：DEFAULT_MODEL 1.5 pro 实测正常下发 role="last_frame"（见
@@ -315,7 +346,9 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             create_params["seed"] = request.seed
 
         # 3. Create task (sync SDK call, run in executor)
-        logger.info("调用 %s 视频 SDK kwargs=%s", self.name, format_kwargs_for_log(create_params))
+        logger.info(
+            "调用 %s 视频 SDK kwargs=%s", self.name, format_kwargs_for_log(_safe_create_params_for_log(create_params))
+        )
         create_result = await asyncio.to_thread(
             self._client.content_generation.tasks.create,
             **create_params,
