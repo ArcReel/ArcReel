@@ -7,6 +7,7 @@
 import asyncio
 import json
 import logging
+import os
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -52,6 +53,21 @@ def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:
     if not file.filename:
         raise HTTPException(status_code=400, detail=_t("missing_filename"))
     return file.filename
+
+
+def _resolve_audio_ref_path(project_dir: Path, audio_refs_dir: Path, rel_path: str | None) -> Path | None:
+    """解析 reference_audio 字段值，仅当其确实落在 characters/refs_audio 内才返回。
+
+    该字段可经资产 PATCH 被写成项目内任意字符串（extra_string_fields 只做类型校验），
+    单靠 safe_resolve 只保证不越界出项目目录，还不足以防止被诱导删除 project.json
+    等项目内其它文件，故额外校验父目录命中 refs_audio。
+    """
+    resolved = safe_resolve(project_dir, rel_path)
+    if resolved is None:
+        return None
+    if os.path.realpath(resolved.parent) != os.path.realpath(audio_refs_dir):
+        return None
+    return resolved
 
 
 # 允许的文件类型
@@ -288,15 +304,21 @@ async def upload_file(
             if upload_type == "character_audio_ref" and name:
                 # 音频不像 character_ref 强制统一扩展名，替换时新旧扩展名可能不同，
                 # 旧文件需显式清理避免孤儿（reference_image 分支同名同扩展名，写入即覆盖，无需此步）。
-                # 字段值来自 project.json，可被 PATCH 写成任意字符串，故经 safe_resolve
-                # 确认落在项目目录内才允许删除；实际删除推迟到新文件与字段写入成功之后。
+                # 字段值来自 project.json，可被 PATCH 写成任意字符串，经 _resolve_audio_ref_path
+                # 确认落在 refs_audio 目录内才允许删除；实际删除推迟到新文件与字段写入成功之后。
                 old_audio = (get_project_manager().load_project(project_name).get("characters", {}).get(name, {})).get(
                     "reference_audio"
                 )
                 if isinstance(old_audio, str) and old_audio:
-                    resolved_old = safe_resolve(project_dir, old_audio)
-                    if resolved_old is not None and resolved_old.name != filename:
-                        stale_audio_path = resolved_old
+                    resolved_old = _resolve_audio_ref_path(project_dir, target_dir, old_audio)
+                    if resolved_old is not None:
+                        new_path = target_dir / filename
+                        # 大小写不敏感文件系统上，旧指针与新文件名可能只是大小写不同却指向
+                        # 同一个 inode（如 "Alice.WAV" 与 "Alice.wav"）；此时新内容即将原地
+                        # 覆盖该文件，不能再当孤儿删掉，否则会把刚写入的新样本一并删除。
+                        same_file = new_path.exists() and resolved_old.samefile(new_path)
+                        if not same_file:
+                            stale_audio_path = resolved_old
 
             target_path = target_dir / filename
             with open(target_path, "wb") as f:
@@ -432,9 +454,12 @@ async def delete_character_reference_audio(project_name: str, name: str, _user: 
                 raise HTTPException(status_code=404, detail=_t("character_not_found", name=name))
 
             old_audio = character.get("reference_audio")
-            # 字段值来自 project.json，可被 PATCH 写成任意字符串；经 safe_resolve 确认落在
-            # 项目目录内才允许删除，否则只清字段不碰文件系统
-            stale_path = safe_resolve(project_dir, old_audio) if isinstance(old_audio, str) else None
+            # 字段值来自 project.json，可被 PATCH 写成任意字符串；经 _resolve_audio_ref_path
+            # 确认落在 refs_audio 目录内才允许删除，否则只清字段不碰文件系统
+            audio_refs_dir = project_dir / "characters" / "refs_audio"
+            stale_path = (
+                _resolve_audio_ref_path(project_dir, audio_refs_dir, old_audio) if isinstance(old_audio, str) else None
+            )
             with project_change_source("webui"):
                 manager.update_character_reference_audio(project_name, name, "")
             if stale_path is not None:

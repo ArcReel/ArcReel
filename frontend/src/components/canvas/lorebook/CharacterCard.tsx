@@ -144,14 +144,15 @@ export function CharacterCard({
   }, [referencePreview]);
 
   useEffect(() => {
-    // 上游参考音频变化时清空本地未提交的上传文件 + 释放 blob URL
+    // 上游参考音频变化时清空本地未提交的上传文件 + 释放 blob URL；
+    // 同扩展名替换（如 wav 换 wav）路径字符串不变，靠 audioFp 才能感知内容已更新
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAudioFile(null);
     setAudioPreview((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
-  }, [character.reference_audio]);
+  }, [character.reference_audio, audioFp]);
 
   useEffect(() => {
     return () => {
