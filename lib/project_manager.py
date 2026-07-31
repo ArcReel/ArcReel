@@ -1954,6 +1954,26 @@ class ProjectManager:
 
         return self.update_project(project_name, _mutate)
 
+    def update_character_reference_audio(self, project_name: str, char_name: str, ref_path: str) -> dict:
+        """
+        更新角色的参考音频路径（空串表示清空）
+
+        Args:
+            project_name: 项目名称
+            char_name: 角色名称
+            ref_path: 参考音频相对路径
+
+        Returns:
+            更新后的项目数据
+        """
+
+        def _mutate(project: dict) -> None:
+            if "characters" not in project or char_name not in project["characters"]:
+                raise KeyError(f"角色 '{char_name}' 不存在")
+            project["characters"][char_name]["reference_audio"] = ref_path
+
+        return self.update_project(project_name, _mutate)
+
     def get_project_character(self, project_name: str, name: str) -> dict:
         """获取项目级角色定义"""
         return self._get_asset("character", project_name, name)

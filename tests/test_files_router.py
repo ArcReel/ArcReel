@@ -1,5 +1,6 @@
 import json
 import shutil
+import wave
 from io import BytesIO
 
 from fastapi import FastAPI
@@ -11,6 +12,16 @@ from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files
+
+
+def _wav_bytes(duration_seconds: float, sample_rate: int = 8000) -> bytes:
+    buf = BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(b"\x00\x00" * int(duration_seconds * sample_rate))
+    return buf.getvalue()
 
 
 class _FakeTextBackend:
@@ -211,6 +222,118 @@ class TestFilesRouter:
             assert project["characters"]["Alice"]["character_sheet"] == "characters/Alice.jpg"
             assert project["characters"]["Alice"]["reference_image"] == "characters/refs/Alice.webp"
             assert project["props"]["玉佩"]["prop_sheet"] == "props/玉佩.jpg"
+
+    def test_character_audio_ref_upload_success(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                files={"file": ("alice_voice.wav", _wav_bytes(3), "audio/wav")},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["path"] == "characters/refs_audio/Alice.wav"
+            project = pm.load_project("demo")
+            assert project["characters"]["Alice"]["reference_audio"] == "characters/refs_audio/Alice.wav"
+
+    def test_character_audio_ref_rejects_bad_extension(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                files={"file": ("alice_voice.m4a", b"noop", "audio/mp4")},
+            )
+            assert resp.status_code == 400
+            assert "音频类型" in resp.json()["detail"] or "audio type" in resp.json()["detail"].lower()
+
+    def test_character_audio_ref_rejects_oversized(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        oversized = b"\x00" * (files._AUDIO_MAX_BYTES + 1)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                files={"file": ("alice_voice.wav", oversized, "audio/wav")},
+            )
+            assert resp.status_code == 400
+            assert resp.json()["detail"] == zh_errors.MESSAGES["upload_too_large"].format(max_mb=15)
+
+    def test_character_audio_ref_rejects_duration_out_of_range(self, tmp_path, monkeypatch):
+        import shutil as _shutil
+
+        if _shutil.which("ffprobe") is None:
+            import pytest
+
+            pytest.skip("ffprobe not available")
+
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                files={"file": ("alice_voice.wav", _wav_bytes(1), "audio/wav")},
+            )
+            assert resp.status_code == 400
+            assert resp.json()["detail"] == zh_errors.MESSAGES["audio_duration_out_of_range"].format(
+                min_seconds=2, max_seconds=10
+            )
+            assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio", "") == ""
+
+    def test_character_audio_ref_replace_removes_old_extension(self, tmp_path, monkeypatch):
+        """替换参考音频且新旧扩展名不同（wav -> mp3）时旧文件应被清理，不留孤儿。"""
+        client, pm = _client(monkeypatch, tmp_path)
+
+        async def _fake_duration(content, suffix):
+            return 3.0
+
+        monkeypatch.setattr(files, "probe_audio_duration_seconds", _fake_duration)
+
+        with client:
+            first = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                files={"file": ("v1.wav", b"fake-wav-bytes", "audio/wav")},
+            )
+            assert first.status_code == 200
+            project_dir = pm.get_project_path("demo")
+            old_path = project_dir / "characters" / "refs_audio" / "Alice.wav"
+            assert old_path.exists()
+
+            second = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                files={"file": ("v2.mp3", b"fake-mp3-bytes", "audio/mpeg")},
+            )
+            assert second.status_code == 200
+            assert second.json()["path"] == "characters/refs_audio/Alice.mp3"
+            assert not old_path.exists()
+            new_path = project_dir / "characters" / "refs_audio" / "Alice.mp3"
+            assert new_path.exists()
+
+    def test_delete_character_reference_audio(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            upload = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                files={"file": ("alice_voice.wav", _wav_bytes(3), "audio/wav")},
+            )
+            assert upload.status_code == 200
+            project_dir = pm.get_project_path("demo")
+            audio_path = project_dir / "characters" / "refs_audio" / "Alice.wav"
+            assert audio_path.exists()
+
+            delete = client.delete("/api/v1/projects/demo/characters/Alice/reference-audio")
+            assert delete.status_code == 200
+            assert not audio_path.exists()
+            assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio") == ""
+
+    def test_delete_character_reference_audio_unknown_character_404(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.delete("/api/v1/projects/demo/characters/Ghost/reference-audio")
+            assert resp.status_code == 404
+
+    def test_delete_character_reference_audio_noop_when_no_audio(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.delete("/api/v1/projects/demo/characters/Alice/reference-audio")
+            assert resp.status_code == 200
+            assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio", "") == ""
 
     def test_product_ref_upload_preserves_original_bytes(self, tmp_path, monkeypatch):
         """产品原图是保真验收锚点：保存管线保留原件字节，不做阈值压缩/重编码。"""

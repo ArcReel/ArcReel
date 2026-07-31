@@ -76,6 +76,7 @@ describe("CharacterCard", () => {
         description: "hero desc",
         voiceStyle: "warm",
         referenceFile: file,
+        audioFile: null,
       });
     });
   });
@@ -155,6 +156,139 @@ describe("CharacterCard", () => {
     await waitFor(() => {
       expect(textarea).toHaveStyle({ height: "128px" });
     });
+  });
+
+  it("shows the upload placeholder and format hint when no audio sample exists", () => {
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{ description: "hero desc", voice_style: "warm" }}
+        projectName="demo"
+        onSave={vi.fn()}
+        onGenerate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("上传参考音频")).toBeInTheDocument();
+    expect(screen.getByText("wav / mp3 · 2–10 秒 · ≤15MB")).toBeInTheDocument();
+  });
+
+  it("keeps selected audio file until save and submits it in the payload", async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{ description: "hero desc", voice_style: "warm" }}
+        projectName="demo"
+        onSave={onSave}
+        onGenerate={vi.fn()}
+      />,
+    );
+
+    const audioInput = screen.getByLabelText("上传角色参考音频");
+    const file = new File(["audio"], "hero.wav", { type: "audio/wav" });
+    fireEvent.change(audioInput as HTMLInputElement, { target: { files: [file] } });
+
+    expect(screen.getByText(/待保存音频/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /保存/ }));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith("Hero", {
+        description: "hero desc",
+        voiceStyle: "warm",
+        referenceFile: null,
+        audioFile: file,
+      });
+    });
+  });
+
+  it("cancels a pending audio upload without calling the delete API", () => {
+    const deleteSpy = vi.spyOn(API, "deleteCharacterReferenceAudio");
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{ description: "hero desc", voice_style: "warm" }}
+        projectName="demo"
+        onSave={vi.fn()}
+        onGenerate={vi.fn()}
+      />,
+    );
+
+    const audioInput = screen.getByLabelText("上传角色参考音频");
+    const file = new File(["audio"], "hero.wav", { type: "audio/wav" });
+    fireEvent.change(audioInput as HTMLInputElement, { target: { files: [file] } });
+    expect(screen.getByText(/待保存音频/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "取消待上传" }));
+
+    expect(screen.getByText("上传参考音频")).toBeInTheDocument();
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
+  it("deletes saved reference audio immediately and reloads", async () => {
+    const deleteSpy = vi.spyOn(API, "deleteCharacterReferenceAudio").mockResolvedValue({ success: true } as never);
+    const onReload = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{
+          description: "hero desc",
+          voice_style: "warm",
+          reference_audio: "characters/refs_audio/Hero.wav",
+        }}
+        projectName="demo"
+        onSave={vi.fn()}
+        onGenerate={vi.fn()}
+        onReload={onReload}
+      />,
+    );
+
+    expect(screen.getByText(/已保存音频/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "删除音频样本" }));
+
+    await waitFor(() => {
+      expect(deleteSpy).toHaveBeenCalledWith("demo", "Hero");
+    });
+    expect(onReload).toHaveBeenCalled();
+  });
+
+  it("rejects audio delete submitted after the resource became busy post-open", async () => {
+    const deleteSpy = vi.spyOn(API, "deleteCharacterReferenceAudio").mockResolvedValue({ success: true } as never);
+    const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{
+          description: "hero desc",
+          voice_style: "warm",
+          reference_audio: "characters/refs_audio/Hero.wav",
+        }}
+        projectName="demo"
+        onSave={vi.fn()}
+        onGenerate={vi.fn()}
+      />,
+    );
+
+    useTasksStore.setState({
+      tasks: [
+        makeTask({
+          project_name: "demo",
+          task_type: "character",
+          media_type: "image",
+          resource_id: "Hero",
+          status: "running",
+        }),
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "删除音频样本" }));
+
+    await waitFor(() => {
+      expect(pushToast).toHaveBeenCalledWith("生成或编辑进行中，暂无法上传设计图", "info");
+    });
+    expect(deleteSpy).not.toHaveBeenCalled();
   });
 
   it("renders no write entries when read-only", () => {

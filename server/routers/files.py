@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib.api_errors import NotFoundError
 from lib.asset_types import GLOBAL_LIBRARY_ASSET_TYPES
+from lib.audio_utils import probe_audio_duration_seconds
 from lib.config.resolver import VisionCapabilityError
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
@@ -58,11 +59,17 @@ ALLOWED_EXTENSIONS = {
     "source": [".txt", ".md", ".docx", ".epub", ".pdf"],
     "character": [".png", ".jpg", ".jpeg", ".webp"],
     "character_ref": [".png", ".jpg", ".jpeg", ".webp"],
+    "character_audio_ref": [".wav", ".mp3"],
     "scene": [".png", ".jpg", ".jpeg", ".webp"],
     "prop": [".png", ".jpg", ".jpeg", ".webp"],
     "product": [".png", ".jpg", ".jpeg", ".webp"],
     "product_ref": [".png", ".jpg", ".jpeg", ".webp"],
 }
+
+# 参考音频约束：wav/mp3、2-10 秒、≤15MB
+_AUDIO_MAX_BYTES = 15 * 1024 * 1024
+_AUDIO_MIN_SECONDS = 2.0
+_AUDIO_MAX_SECONDS = 10.0
 
 
 @router.get("/files/{project_name}/{path:path}")
@@ -134,7 +141,7 @@ async def upload_file(
 
     Args:
         project_name: 项目名称
-        upload_type: 上传类型 (source/character/character_ref/scene/prop/product/product_ref)
+        upload_type: 上传类型 (source/character/character_ref/character_audio_ref/scene/prop/product/product_ref)
         file: 上传的文件
         name: 可选，用于角色/场景/道具/产品名称（自动更新元数据）；product_ref 必填；
             分镜/视频上传走 shot_uploads 路由
@@ -148,9 +155,10 @@ async def upload_file(
     # 检查文件扩展名
     ext = Path(original_filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS[upload_type]:
+        error_key = "unsupported_audio_type" if upload_type == "character_audio_ref" else "unsupported_image_type"
         raise HTTPException(
             status_code=400,
-            detail=_t("unsupported_image_type", ext=ext, allowed=", ".join(ALLOWED_EXTENSIONS[upload_type])),
+            detail=_t(error_key, ext=ext, allowed=", ".join(ALLOWED_EXTENSIONS[upload_type])),
         )
 
     # Source 分支早返 — 走 SourceLoader 规范化
@@ -164,6 +172,26 @@ async def upload_file(
 
     try:
         content = await file.read()
+
+        if upload_type == "character_audio_ref":
+            if len(content) > _AUDIO_MAX_BYTES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=_t("upload_too_large", max_mb=_AUDIO_MAX_BYTES // (1024 * 1024)),
+                )
+            try:
+                duration = await probe_audio_duration_seconds(content, ext)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=_t("invalid_audio_file"))
+            if duration is not None and not (_AUDIO_MIN_SECONDS <= duration <= _AUDIO_MAX_SECONDS):
+                raise HTTPException(
+                    status_code=400,
+                    detail=_t(
+                        "audio_duration_out_of_range",
+                        min_seconds=int(_AUDIO_MIN_SECONDS),
+                        max_seconds=int(_AUDIO_MAX_SECONDS),
+                    ),
+                )
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
@@ -192,6 +220,15 @@ async def upload_file(
                     filename = f"{name}.png"
                 else:
                     filename = f"{Path(original_filename).stem}.png"
+            elif upload_type == "character_audio_ref":
+                target_dir = project_dir / "characters" / "refs_audio"
+                # 音频不转码，保留原扩展名（wav/mp3 二选一，替换时新旧扩展名可能不同）；
+                # `ext` 在下方图片分支被重新赋值而变成 `_sync` 的局部变量，此处不能引用外层同名值
+                audio_ext = Path(original_filename).suffix.lower()
+                if name:
+                    filename = f"{name}{audio_ext}"
+                else:
+                    filename = f"{Path(original_filename).stem}{audio_ext}"
             elif upload_type == "scene":
                 target_dir = project_dir / "scenes"
                 if name:
@@ -247,6 +284,17 @@ async def upload_file(
                         seq += 1
                 filename = candidate.name
 
+            if upload_type == "character_audio_ref" and name:
+                # 音频不像 character_ref 强制统一扩展名，替换时新旧扩展名可能不同，
+                # 先清理旧文件避免孤儿（reference_image 分支同名同扩展名，写入即覆盖，无需此步）
+                old_audio = (get_project_manager().load_project(project_name).get("characters", {}).get(name, {})).get(
+                    "reference_audio"
+                )
+                if old_audio:
+                    old_path = project_dir / old_audio
+                    if old_path.name != filename:
+                        old_path.unlink(missing_ok=True)
+
             target_path = target_dir / filename
             with open(target_path, "wb") as f:
                 f.write(content)
@@ -258,6 +306,8 @@ async def upload_file(
                 relative_path = f"characters/{filename}"
             elif upload_type == "character_ref":
                 relative_path = f"characters/refs/{filename}"
+            elif upload_type == "character_audio_ref":
+                relative_path = f"characters/refs_audio/{filename}"
             elif upload_type == "scene":
                 relative_path = f"scenes/{filename}"
             elif upload_type == "prop":
@@ -283,6 +333,15 @@ async def upload_file(
                     with project_change_source("webui"):
                         get_project_manager().update_character_reference_image(
                             project_name, name, f"characters/refs/{filename}"
+                        )
+                except KeyError:
+                    pass  # 角色不存在，忽略
+
+            if upload_type == "character_audio_ref" and name:
+                try:
+                    with project_change_source("webui"):
+                        get_project_manager().update_character_reference_audio(
+                            project_name, name, f"characters/refs_audio/{filename}"
                         )
                 except KeyError:
                     pass  # 角色不存在，忽略
@@ -340,6 +399,38 @@ async def upload_file(
                 "path": relative_path,
                 "url": f"/api/v1/files/{project_name}/{relative_path}",
             }
+
+        return await asyncio.to_thread(_sync)
+
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
+@router.delete("/projects/{project_name}/characters/{name}/reference-audio")
+async def delete_character_reference_audio(project_name: str, name: str, _user: CurrentUser, _t: Translator):
+    """删除角色的参考音频样本：清空 project.json 字段并移除文件。"""
+    try:
+
+        def _sync():
+            manager = get_project_manager()
+            project_dir = manager.get_project_path(project_name)
+            project = manager.load_project(project_name)
+            character = (project.get("characters") or {}).get(name)
+            if character is None:
+                raise HTTPException(status_code=404, detail=_t("character_not_found", name=name))
+
+            old_audio = character.get("reference_audio")
+            with project_change_source("webui"):
+                manager.update_character_reference_audio(project_name, name, "")
+            if old_audio:
+                (project_dir / old_audio).unlink(missing_ok=True)
+
+            return {"success": True}
 
         return await asyncio.to_thread(_sync)
 

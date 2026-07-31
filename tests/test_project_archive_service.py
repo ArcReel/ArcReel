@@ -1007,6 +1007,41 @@ class TestProjectArchiveService:
         assert "clues_in_segment" not in exported_script["segments"][0]
         assert exported_script["segments"][0]["generated_assets"]["video_clip"] == "videos/scene_E1S01.mp4"
 
+    def test_export_includes_reference_audio_file_both_scopes(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["characters"]["Hero"]["reference_audio"] = "characters/refs_audio/Hero.wav"
+        pm.save_project("demo", project)
+        _write_bytes(project_dir / "characters" / "refs_audio" / "Hero.wav", b"wav-bytes")
+
+        service = ProjectArchiveService(pm)
+        for scope in ("full", "current"):
+            archive_path, _ = service.export_project("demo", scope=scope)
+            with zipfile.ZipFile(archive_path) as archive:
+                names = set(archive.namelist())
+            assert "demo/characters/refs_audio/Hero.wav" in names
+
+    def test_export_repairs_reference_audio_canonical_path(self, tmp_path):
+        """reference_audio 不像 reference_image 强制统一扩展名，规范化路径按字段自身的
+        扩展名推导——指针错位（如手工恢复留下的旧路径）但文件已在规范位置时应改写字段。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["characters"]["Hero"]["reference_audio"] = "characters/stray/Hero_old.wav"
+        pm.save_project("demo", project)
+        _write_bytes(project_dir / "characters" / "refs_audio" / "Hero.wav", b"wav-bytes")
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo", scope="full")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            exported_project = json.loads(archive.read("demo/project.json"))
+
+        assert exported_project["characters"]["Hero"]["reference_audio"] == "characters/refs_audio/Hero.wav"
+        assert manifest["export_diagnostics"]["auto_fixed"]
+
 
 class TestExportScope:
     def _create_project_with_versions(self, pm: ProjectManager) -> Path:

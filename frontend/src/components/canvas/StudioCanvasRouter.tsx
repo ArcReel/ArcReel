@@ -338,6 +338,7 @@ export function StudioCanvasRouter() {
       description: string;
       voiceStyle: string;
       referenceFile?: File | null;
+      audioFile?: File | null;
     },
   ) => {
     if (!currentProjectName) return;
@@ -356,8 +357,17 @@ export function StudioCanvasRouter() {
         );
       }
 
+      if (payload.audioFile) {
+        await API.uploadFile(
+          currentProjectName,
+          "character_audio_ref",
+          payload.audioFile,
+          name,
+        );
+      }
+
       await refreshProject(
-        payload.referenceFile
+        payload.referenceFile || payload.audioFile
           ? [buildEntityRevisionKey("character", name)]
           : [],
       );

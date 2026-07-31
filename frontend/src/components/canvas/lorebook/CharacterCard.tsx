@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ImagePlus, Upload, User } from "lucide-react";
+import { ImagePlus, Pause, Play, Upload, User, X } from "lucide-react";
 import { API } from "@/api";
 import { AddToLibraryButton } from "@/components/assets/AddToLibraryButton";
 import { ImageEditButton } from "@/components/canvas/timeline/ImageEditButton";
@@ -19,6 +19,16 @@ interface CharacterSavePayload {
   description: string;
   voiceStyle: string;
   referenceFile?: File | null;
+  audioFile?: File | null;
+}
+
+/** mm:ss；无法确定时长（尚未加载完 metadata）时占位 --:--。 */
+function formatAudioDuration(seconds: number | null): string {
+  if (seconds == null || !Number.isFinite(seconds)) return "--:--";
+  const total = Math.round(seconds);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 interface CharacterCardProps {
@@ -60,15 +70,26 @@ export function CharacterCard({
   const referenceFp = useProjectsStore(
     (s) => character.reference_image ? s.getAssetFingerprint(character.reference_image) : null,
   );
+  const audioFp = useProjectsStore(
+    (s) => character.reference_audio ? s.getAssetFingerprint(character.reference_audio) : null,
+  );
   const [description, setDescription] = useState(character.description);
   const [voiceStyle, setVoiceStyle] = useState(character.voice_style ?? "");
   const [imgError, setImgError] = useState(false);
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [referencePreview, setReferencePreview] = useState<string | null>(null);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioPreview, setAudioPreview] = useState<string | null>(null);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [audioProgress, setAudioProgress] = useState(0);
+  const [audioDuration, setAudioDuration] = useState<number | null>(null);
+  const [deletingAudio, setDeletingAudio] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingSheet, setUploadingSheet] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+  const audioElRef = useRef<HTMLAudioElement>(null);
   const sheetInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const descId = useId();
@@ -122,6 +143,24 @@ export function CharacterCard({
     };
   }, [referencePreview]);
 
+  useEffect(() => {
+    // 上游参考音频变化时清空本地未提交的上传文件 + 释放 blob URL
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAudioFile(null);
+    setAudioPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }, [character.reference_audio]);
+
+  useEffect(() => {
+    return () => {
+      if (audioPreview) {
+        URL.revokeObjectURL(audioPreview);
+      }
+    };
+  }, [audioPreview]);
+
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
     if (el) {
@@ -137,7 +176,8 @@ export function CharacterCard({
   const isDirty =
     description !== character.description ||
     voiceStyle !== (character.voice_style ?? "") ||
-    referenceFile !== null;
+    referenceFile !== null ||
+    audioFile !== null;
 
   const handleReferenceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -162,6 +202,57 @@ export function CharacterCard({
     }
   };
 
+  const handleAudioChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setAudioFile(file);
+    setAudioPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+    e.target.value = "";
+  };
+
+  const clearPendingAudio = () => {
+    setAudioFile(null);
+    setAudioPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    if (audioInputRef.current) {
+      audioInputRef.current.value = "";
+    }
+  };
+
+  const handleDeleteAudio = async () => {
+    if (audioFile) {
+      clearPendingAudio();
+      return;
+    }
+    if (!character.reference_audio) return;
+    if (rejectIfAssetBusy("character", projectName, name, t)) return;
+    setDeletingAudio(true);
+    try {
+      await API.deleteCharacterReferenceAudio(projectName, name);
+      await onReload?.();
+    } catch (err) {
+      useAppStore.getState().pushToast(errMsg(err), "error");
+    } finally {
+      setDeletingAudio(false);
+    }
+  };
+
+  const toggleAudioPlayback = () => {
+    const el = audioElRef.current;
+    if (!el) return;
+    if (isAudioPlaying) {
+      el.pause();
+    } else {
+      void el.play();
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -169,6 +260,7 @@ export function CharacterCard({
         description,
         voiceStyle,
         referenceFile,
+        audioFile,
       });
     } finally {
       setSaving(false);
@@ -185,6 +277,20 @@ export function CharacterCard({
 
   const displayedReferenceUrl = referencePreview ?? savedReferenceUrl;
   const hasSavedReference = Boolean(savedReferenceUrl) && !referencePreview;
+
+  const savedAudioUrl = character.reference_audio
+    ? API.getFileUrl(projectName, character.reference_audio, audioFp)
+    : null;
+
+  const displayedAudioUrl = audioPreview ?? savedAudioUrl;
+
+  useEffect(() => {
+    // 音源切换（更换/删除/上游变化）时复位播放状态，避免残留上一段的播放进度
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsAudioPlaying(false);
+    setAudioProgress(0);
+    setAudioDuration(null);
+  }, [displayedAudioUrl]);
 
   return (
     <div
@@ -423,7 +529,7 @@ export function CharacterCard({
       />
 
       <div className="mt-3">
-        <CapsLabel htmlFor={voiceId}>{t("voice_style")}</CapsLabel>
+        <CapsLabel htmlFor={voiceId}>{t("voice_section")}</CapsLabel>
         <input
           id={voiceId}
           type="text"
@@ -434,6 +540,122 @@ export function CharacterCard({
           style={FIELD_STYLE}
           placeholder={t("voice_style_example")}
         />
+
+        {readOnly && !displayedAudioUrl ? null : (
+        <div className="mt-1.5">
+          {displayedAudioUrl ? (
+            <div
+              className="flex items-center gap-2 rounded-lg px-2.5 py-1.5"
+              style={FIELD_STYLE}
+            >
+              <button
+                type="button"
+                onClick={toggleAudioPlayback}
+                aria-label={isAudioPlaying ? t("pause_audio_sample") : t("play_audio_sample")}
+                className="focus-ring grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors"
+                style={{
+                  background: "var(--color-accent-dim)",
+                  border: "1px solid var(--color-accent-soft)",
+                  color: "var(--color-accent-2)",
+                }}
+              >
+                {isAudioPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 translate-x-px" />}
+              </button>
+
+              <div
+                className="relative h-1 flex-1 overflow-hidden rounded-full"
+                style={{ background: "var(--color-hairline)" }}
+              >
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full"
+                  style={{
+                    width: `${Math.round(audioProgress * 100)}%`,
+                    background:
+                      "linear-gradient(90deg, var(--color-accent-2), var(--color-accent))",
+                  }}
+                />
+              </div>
+
+              <span className="shrink-0 text-[10px] tabular-nums" style={{ color: "var(--color-text-4)" }}>
+                {formatAudioDuration(audioDuration)}
+              </span>
+
+              <span className="shrink-0 text-[11px]" style={{ color: "var(--color-text-3)" }}>
+                {audioFile ? t("unsaved_audio") : t("saved_audio")}
+              </span>
+
+              {readOnly ? null : (
+              <div className="flex shrink-0 items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => audioInputRef.current?.click()}
+                  title={t("change")}
+                  aria-label={t("upload_character_audio_ref_aria")}
+                  className="focus-ring inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)]"
+                  style={{ color: "var(--color-text-3)" }}
+                >
+                  <Upload className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteAudio()}
+                  disabled={deletingAudio}
+                  title={audioFile ? t("cancel_pending") : t("delete_audio_sample")}
+                  aria-label={audioFile ? t("cancel_pending") : t("delete_audio_sample")}
+                  className="focus-ring inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{ color: "var(--color-text-3)" }}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+              )}
+
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption -- 角色参考音频样本，无对白内容，无字幕源 */}
+              <audio
+                ref={audioElRef}
+                src={displayedAudioUrl}
+                preload="metadata"
+                className="hidden"
+                onPlay={() => setIsAudioPlaying(true)}
+                onPause={() => setIsAudioPlaying(false)}
+                onLoadedMetadata={(e) => setAudioDuration(e.currentTarget.duration)}
+                onTimeUpdate={(e) => {
+                  const el = e.currentTarget;
+                  setAudioProgress(el.duration ? el.currentTime / el.duration : 0);
+                }}
+                onEnded={(e) => {
+                  e.currentTarget.currentTime = 0;
+                  setIsAudioPlaying(false);
+                  setAudioProgress(0);
+                }}
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => audioInputRef.current?.click()}
+              className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-2.5 text-[13px] text-[var(--color-text-4)] transition-colors hover:border-[var(--color-accent-soft)] hover:text-[var(--color-text-2)]"
+              style={{ background: "oklch(0.18 0.010 265 / 0.35)" }}
+            >
+              <Upload className="h-3.5 w-3.5" />
+              {t("upload_reference_audio")}
+            </button>
+          )}
+          {!displayedAudioUrl && (
+            <p className="mt-1 text-[10px]" style={{ color: "var(--color-text-4)" }}>
+              {t("reference_audio_hint")}
+            </p>
+          )}
+          <input
+            ref={audioInputRef}
+            type="file"
+            accept=".wav,.mp3"
+            aria-label={t("upload_character_audio_ref_aria")}
+            onChange={handleAudioChange}
+            className="hidden"
+          />
+        </div>
+        )}
       </div>
 
       {isDirty && !readOnly && (

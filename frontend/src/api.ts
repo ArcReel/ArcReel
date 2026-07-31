@@ -1173,6 +1173,19 @@ class API {
     return response.json() as Promise<SuccessResponse>;
   }
 
+  /**
+   * 删除角色参考音频样本（清空字段并移除文件）
+   */
+  static async deleteCharacterReferenceAudio(
+    projectName: string,
+    characterName: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/characters/${encodeURIComponent(characterName)}/reference-audio`,
+      { method: "DELETE" }
+    );
+  }
+
   // ==================== 草稿文件管理 ====================
 
   /**
