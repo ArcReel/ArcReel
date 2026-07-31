@@ -339,7 +339,9 @@ export function AssetLibraryPage() {
         tone="danger"
         title={
           deleteTarget
-            ? t("delete_confirm", { type: t(`type.${deleteTarget.type}`) })
+            ? t(deleteTarget.audio_path ? "delete_confirm_with_audio" : "delete_confirm", {
+                type: t(`type.${deleteTarget.type}`),
+              })
             : ""
         }
         description={deleteTarget ? <span className="font-mono">「{deleteTarget.name}」</span> : null}

@@ -36,6 +36,7 @@ export default {
   "upload_image_hint": "Kéo thả hoặc nhấn để tải lên",
   "project_count": "{{count}} dự án",
   "delete_confirm": "Xóa {{type}} này? Ảnh đính kèm cũng sẽ bị xóa.",
+  "delete_confirm_with_audio": "Xóa {{type}} này? Ảnh và mẫu giọng nói tham chiếu đính kèm cũng sẽ bị xóa.",
   "from_library": "Từ thư viện",
   "picker_title_character": "Chọn nhân vật từ thư viện",
   "picker_title_scene": "Chọn cảnh từ thư viện",

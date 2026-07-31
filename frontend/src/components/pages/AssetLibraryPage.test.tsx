@@ -4,6 +4,7 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { API } from "@/api";
 import { useAssetsStore } from "@/stores/assets-store";
+import type { Asset } from "@/types/asset";
 import { AssetLibraryPage } from "./AssetLibraryPage";
 
 vi.mock("@/components/assets/AssetFormModal", () => ({
@@ -136,5 +137,51 @@ describe("AssetLibraryPage tablist (issue #488)", () => {
     expect(tabs[0]).toHaveAttribute("aria-selected", "false");
     expect(tabs[1]).toHaveAttribute("aria-selected", "true");
     expect(tabs[2]).toHaveAttribute("aria-selected", "false");
+  });
+});
+
+describe("AssetLibraryPage 删除确认文案", () => {
+  function makeAsset(overrides: Partial<Asset> = {}): Asset {
+    return {
+      id: "a1",
+      type: "character",
+      name: "王",
+      description: "",
+      voice_style: "",
+      image_path: "characters/王.png",
+      audio_path: null,
+      source_project: null,
+      updated_at: null,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    useAssetsStore.setState(useAssetsStore.getInitialState(), true);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("带参考音频的资产删除确认文案同时提及音频，不止图片", async () => {
+    vi.spyOn(API, "listAssets").mockResolvedValue({ items: [makeAsset({ audio_path: "characters/refs_audio/王.wav" })] });
+    renderPage();
+
+    const deleteBtn = await screen.findByRole("button", { name: "删除" });
+    fireEvent.click(deleteBtn);
+
+    expect(await screen.findByText(/图片与参考音频也会被删除/)).toBeInTheDocument();
+  });
+
+  it("不带参考音频的资产删除确认文案维持原样，不提及音频", async () => {
+    vi.spyOn(API, "listAssets").mockResolvedValue({ items: [makeAsset()] });
+    renderPage();
+
+    const deleteBtn = await screen.findByRole("button", { name: "删除" });
+    fireEvent.click(deleteBtn);
+
+    expect(await screen.findByText(/图片也会被删除/)).toBeInTheDocument();
+    expect(screen.queryByText(/参考音频/)).not.toBeInTheDocument();
   });
 });
