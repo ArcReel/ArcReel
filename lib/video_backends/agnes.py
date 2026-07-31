@@ -38,7 +38,6 @@ from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapabilities,
-    VideoCapability,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -204,10 +203,6 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         self._base_url = agnes_base_url(base_url)
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
-        self._capabilities: set[VideoCapability] = {
-            VideoCapability.TEXT_TO_VIDEO,
-            VideoCapability.IMAGE_TO_VIDEO,
-        }
 
     @property
     def name(self) -> str:
@@ -216,10 +211,6 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
     @property
     def model(self) -> str:
         return self._model
-
-    @property
-    def capabilities(self) -> set[VideoCapability]:
-        return self._capabilities
 
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
@@ -232,7 +223,6 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         return VideoCapabilities(
             first_frame=True,
             last_frame=True,
-            reference_images=True,
             max_reference_images=_MAX_REFERENCE_IMAGES,
         )
 

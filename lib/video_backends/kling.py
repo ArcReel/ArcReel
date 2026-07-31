@@ -40,7 +40,6 @@ from lib.retry import (
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     VideoCapabilities,
-    VideoCapability,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -215,17 +214,6 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         # 按 model 取能力位（归一化前缀/大小写后精确命中）；未登记 model（bearer 透传）回落保守默认。
         self._caps = _lookup_video_caps(self._model)
 
-    @property
-    def capabilities(self) -> set[VideoCapability]:
-        caps: set[VideoCapability] = set()
-        if self._caps.text_to_video:
-            caps.add(VideoCapability.TEXT_TO_VIDEO)
-        if self._caps.image_to_video:
-            caps.add(VideoCapability.IMAGE_TO_VIDEO)
-        if self._caps.generate_audio:
-            caps.add(VideoCapability.GENERATE_AUDIO)
-        return caps
-
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         # first_frame 恒真（各档均支持 i2v 首帧）；last_frame / reference_images / 上限按 model 从
@@ -245,7 +233,6 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         return VideoCapabilities(
             first_frame=True,
             last_frame=caps.last_frame and not caps.last_frame_requires_pro,
-            reference_images=caps.reference_images,
             max_reference_images=caps.max_reference_images,
         )
 
@@ -280,7 +267,6 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         return VideoCapabilities(
             first_frame=True,
             last_frame=last_frame,
-            reference_images=caps.reference_images,
             max_reference_images=caps.max_reference_images,
         )
 

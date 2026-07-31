@@ -485,6 +485,7 @@ class MediaGenerator:
         start_image: str | Path | Image.Image | None = None,
         end_image: Path | None = None,
         reference_images: list[Path] | None = None,
+        reference_audio_files: list[Path] | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str | int = "8",
         resolution: str | None = None,
@@ -500,6 +501,7 @@ class MediaGenerator:
             start_image: 起始帧图片（image-to-video 模式）
             end_image: 结束帧图片（first_last 模式）
             reference_images: 参考图片列表（multi-reference 模式）
+            reference_audio_files: 参考音频列表（音色复刻），顺序即 prompt 中「音频N」的指认顺序
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认不传（由 backend/SDK 决定）
@@ -516,6 +518,7 @@ class MediaGenerator:
                 start_image=start_image,
                 end_image=end_image,
                 reference_images=reference_images,
+                reference_audio_files=reference_audio_files,
                 aspect_ratio=aspect_ratio,
                 duration_seconds=duration_seconds,
                 resolution=resolution,
@@ -531,6 +534,7 @@ class MediaGenerator:
         start_image: str | Path | Image.Image | None = None,
         end_image: Path | None = None,
         reference_images: list[Path] | None = None,
+        reference_audio_files: list[Path] | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str | int = "8",
         resolution: str | None = None,
@@ -547,6 +551,7 @@ class MediaGenerator:
             start_image: 起始帧图片（image-to-video 模式）
             end_image: 结束帧图片（first_last 模式）
             reference_images: 参考图片列表（multi-reference 模式）
+            reference_audio_files: 参考音频列表（音色复刻），顺序即 prompt 中「音频N」的指认顺序
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认不传（由 backend/SDK 决定）
@@ -591,25 +596,31 @@ class MediaGenerator:
 
         model_name = self._video_backend.model
 
-        # 能力 gating 与槽位组装先于记账括号：尾帧不被支持时硬失败要"不扣费"，
-        # 在括号内抛虽也不结算，却会留一条 failed ApiCall 行；纯函数无副作用，前置最干净。
-        from lib.video_frame_slots import plan_frame_slots, resolve_video_capabilities
+        # 能力校验与槽位组装先于记账括号：能力不被支持时硬失败要"不扣费"，
+        # 在括号内抛虽也不结算，却会留一条 failed ApiCall 行；两者均无副作用，前置最干净。
+        from lib.video_frame_slots import gate_video_request, plan_frame_slots, resolve_video_capabilities
 
-        # 能力查询保持惰性：不带尾帧的请求不触发 gating，无谓查询只会给无尾帧路径
-        # 新增一层后端属性依赖；未查询即传 None，不伪造一份占位能力声明。
+        # 能力查询保持惰性：三条可选路径都不走的请求不触发校验，无谓查询只会给最常见的
+        # 纯首帧路径新增一层后端属性依赖；未查询即传 None，不伪造一份占位能力声明。
+        needs_caps = end_image is not None or bool(reference_images) or bool(reference_audio_files)
         video_caps = (
             resolve_video_capabilities(
                 self._video_backend,
                 service_tier=version_metadata.get("service_tier", "default"),
                 resolution=resolution,
             )
-            if end_image is not None
+            if needs_caps
             else None
         )
-        slot_plan = plan_frame_slots(
+        gate_video_request(
             caps=video_caps,
             provider=self._video_backend.name,
             model=model_name,
+            end_image=end_image,
+            reference_images=reference_images,
+            reference_audio_files=reference_audio_files,
+        )
+        slot_plan = plan_frame_slots(
             start_image=start_image,
             end_image=end_image,
             reference_images=reference_images,

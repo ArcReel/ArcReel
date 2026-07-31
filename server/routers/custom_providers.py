@@ -38,6 +38,7 @@ from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
 from lib.image_backends.base import ImageCapability
+from lib.video_backends.base import ReferenceAudioMode
 from server.auth import CurrentUser
 
 
@@ -58,7 +59,7 @@ MaxWorkers = Annotated[int | None, Field(default=None, ge=1)]
 
 # 开放给用户覆盖的能力维度。DB 列与合成函数对 VideoCapabilities 全字段通用，写入侧在此收窄：
 # 未列入的维度即便是合法字段名也不落库，扩容只需往这里加键名，无需 DB 迁移或改合成语义。
-CAPABILITY_OVERRIDE_ALLOWLIST = frozenset({"last_frame"})
+CAPABILITY_OVERRIDE_ALLOWLIST = frozenset({"last_frame", "reference_audio_mode", "max_reference_audio_count"})
 
 # 白名单必须是 VideoCapabilities 字段名的子集：值类型校验直接按字段名取期望类型，键名写错
 # 要在导入期炸掉，而不是等到一次真实写入才 KeyError 成 500。
@@ -423,6 +424,20 @@ def _check_capability_overrides(
                 status_code=422,
                 detail=_t(
                     "capability_override_last_frame_unsupported",
+                    model_id=model_id,
+                    endpoint=endpoint,
+                ),
+            )
+        # 同构：把音色模式覆盖成 direct 要求 endpoint 真的会下传 reference_audio_files。
+        if (
+            key == "reference_audio_mode"
+            and value == ReferenceAudioMode.DIRECT.value
+            and not get_endpoint_spec(endpoint).reference_audio_capable
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=_t(
+                    "capability_override_reference_audio_unsupported",
                     model_id=model_id,
                     endpoint=endpoint,
                 ),

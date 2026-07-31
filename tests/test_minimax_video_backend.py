@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from lib.providers import PROVIDER_MINIMAX
-from lib.video_backends.base import VideoCapability, VideoCapabilityError, VideoGenerationRequest
+from lib.video_backends.base import VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.minimax import MiniMaxVideoBackend
 
 
@@ -71,16 +71,6 @@ class TestConstructionAndCapabilities:
         assert b.name == PROVIDER_MINIMAX
         assert b.model == "MiniMax-Hailuo-2.3"
 
-    def test_hailuo_supports_t2v_and_i2v(self):
-        caps = _backend("MiniMax-Hailuo-2.3").capabilities
-        assert VideoCapability.TEXT_TO_VIDEO in caps
-        assert VideoCapability.IMAGE_TO_VIDEO in caps
-
-    def test_fast_supports_only_i2v(self):
-        caps = _backend("MiniMax-Hailuo-2.3-Fast").capabilities
-        assert VideoCapability.TEXT_TO_VIDEO not in caps
-        assert VideoCapability.IMAGE_TO_VIDEO in caps
-
     def test_video_capabilities_first_frame(self):
         assert _backend().video_capabilities.first_frame is True
 
@@ -142,15 +132,9 @@ class TestS2V01SubjectReference:
 
     def test_caps_reference_single_no_first_frame(self):
         caps = _backend("S2V-01").video_capabilities
-        assert caps.reference_images is True
         assert caps.max_reference_images == 1
         # S2V-01 仅 subject_reference 驱动，不接受首帧图。
         assert caps.first_frame is False
-
-    def test_capability_set_excludes_t2v_and_i2v(self):
-        caps = _backend("S2V-01").capabilities
-        assert VideoCapability.TEXT_TO_VIDEO not in caps
-        assert VideoCapability.IMAGE_TO_VIDEO not in caps
 
     def test_payload_maps_reference_to_subject_reference(self, tmp_path):
         face = tmp_path / "face.png"

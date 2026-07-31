@@ -13,7 +13,6 @@ from lib.text_backends.base import TextBackend, TextCapability, TextGenerationRe
 from lib.video_backends.base import (
     VideoBackend,
     VideoCapabilities,
-    VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -139,10 +138,6 @@ class CustomVideoBackend:
     @property
     def model(self) -> str:
         return self._model
-
-    @property
-    def capabilities(self) -> set[VideoCapability]:
-        return self._delegate.capabilities
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

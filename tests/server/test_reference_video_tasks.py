@@ -770,7 +770,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 
         @property
         def video_capabilities(self):
-            return VideoCapabilities(reference_images=True, max_reference_images=9)
+            return VideoCapabilities(max_reference_images=9)
 
         async def generate(self, request):
             captured_requests.append(request)

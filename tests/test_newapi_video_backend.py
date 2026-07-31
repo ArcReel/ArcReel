@@ -10,10 +10,7 @@ import httpx
 import pytest
 
 from lib.providers import PROVIDER_NEWAPI
-from lib.video_backends.base import (
-    VideoCapability,
-    VideoGenerationRequest,
-)
+from lib.video_backends.base import VideoGenerationRequest
 
 
 def _make_response(status_code: int, json_body: dict) -> MagicMock:
@@ -53,9 +50,6 @@ class TestNewAPIVideoBackend:
         from lib.video_backends.newapi import NewAPIVideoBackend
 
         backend = NewAPIVideoBackend(api_key="sk-test", base_url="https://x/v1", model="m")
-        assert VideoCapability.TEXT_TO_VIDEO in backend.capabilities
-        assert VideoCapability.IMAGE_TO_VIDEO in backend.capabilities
-        assert backend.video_capabilities.reference_images is False
         assert backend.video_capabilities.max_reference_images == 0
 
     async def test_text_to_video_happy_path(self, tmp_path: Path):

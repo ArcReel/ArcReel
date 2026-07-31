@@ -376,34 +376,41 @@ class VideoCapabilityError(RuntimeError):
         super().__init__(code)
 
 
+class ReferenceAudioMode(StrEnum):
+    """后端接受参考音频的运输形态。
+
+    ``DIRECT`` 表示随生成请求直传音频文件，模型据其复刻音色（Seedance 2.0 的
+    ``role: reference_audio`` content 条目、Wan2.7 r2v 挂在参考素材项上的
+    ``reference_voice``）。``NONE`` 表示该后端没有音色输入通道——带音频的请求在
+    ``gate_video_request`` 处硬失败，不静默丢弃。
+    """
+
+    NONE = "none"
+    DIRECT = "direct"
+
+
 @dataclass
 class VideoCapabilities:
     """Declares what a video backend supports.
 
     ``first_frame`` / ``last_frame`` 描述图生视频路径的首帧与尾帧槽位。
-    ``reference_images`` / ``max_reference_images`` 描述参考生视频路径：后端接受
-    ``reference_images`` 请求字段及其数量上限。两条路径是否可叠加（同一请求同时带
-    首帧与参考图）因后端而异，不是统一契约：部分后端拒绝叠加（如 Agnes 抛
-    ``VideoCapabilityError``），部分静默叠加（如 v2 中转、Grok、Sora 首帧与参考共享
-    单槽）。调用方不应假设某种统一行为，需按具体后端核实。
+    ``max_reference_images`` 描述参考生视频路径：后端接受 ``reference_images`` 请求字段
+    的数量上限，``> 0`` 即该路径可用（不另设布尔位——两份声明会漂移出「称支持但上限为 0」
+    这类自相矛盾的状态）。两条路径是否可叠加（同一请求同时带首帧与参考图）因后端而异，
+    不是统一契约：部分后端拒绝叠加（如 Agnes 抛 ``VideoCapabilityError``），部分静默叠加
+    （如 v2 中转、Grok、Sora 首帧与参考共享单槽）。调用方不应假设某种统一行为，需按具体
+    后端核实。
+
+    ``reference_audio_mode`` / ``max_reference_audio_count`` 描述参考音频路径，与参考图
+    同构：模式非 ``NONE`` 时后端接受 ``reference_audio_files`` 请求字段，段数受上限约束。
+    上限按 backend 各自的供应商约束声明，不取各家交集。
     """
 
     first_frame: bool = True
     last_frame: bool = False
-    reference_images: bool = False
     max_reference_images: int = 0
-
-
-class VideoCapability(StrEnum):
-    """视频后端支持的能力枚举。"""
-
-    TEXT_TO_VIDEO = "text_to_video"
-    IMAGE_TO_VIDEO = "image_to_video"
-    GENERATE_AUDIO = "generate_audio"
-    NEGATIVE_PROMPT = "negative_prompt"
-    VIDEO_EXTEND = "video_extend"
-    SEED_CONTROL = "seed_control"
-    FLEX_TIER = "flex_tier"
+    reference_audio_mode: ReferenceAudioMode = ReferenceAudioMode.NONE
+    max_reference_audio_count: int = 0
 
 
 @dataclass
@@ -418,6 +425,10 @@ class VideoGenerationRequest:
     start_image: Path | None = None
     end_image: Path | None = None  # For first_last mode
     reference_images: list[Path] | None = None  # For multi-reference mode
+    # 参考音频（音色复刻）。列表顺序即 prompt 中「音频N」的指认契约：编排层按该顺序拼指认
+    # 文本，后端按同一顺序下发，故任何一侧都不得重排或跳过。哪个角色对应哪段音频不进请求
+    # ——绑定由 prompt 文本表达，供应商 API 均无结构化的「角色-音频」字段。
+    reference_audio_files: list[Path] | None = None
     generate_audio: bool = True
 
     # 项目上下文（用于构建文件服务 URL 等）
@@ -457,9 +468,6 @@ class VideoBackend(Protocol):
 
     @property
     def model(self) -> str: ...
-
-    @property
-    def capabilities(self) -> set[VideoCapability]: ...
 
     @property
     def video_capabilities(self) -> VideoCapabilities: ...

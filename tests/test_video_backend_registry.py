@@ -1,6 +1,5 @@
 import pytest
 
-from lib.video_backends.base import VideoCapability
 from lib.video_backends.registry import (
     _BACKEND_FACTORIES,
     create_backend,
@@ -11,7 +10,6 @@ from lib.video_backends.registry import (
 
 class _FakeBackend:
     name = "fake"
-    capabilities = {VideoCapability.TEXT_TO_VIDEO}
 
     def __init__(self, api_key: str = "default"):
         self.api_key = api_key

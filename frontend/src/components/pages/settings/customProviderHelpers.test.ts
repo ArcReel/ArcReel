@@ -308,8 +308,9 @@ describe("capabilityFieldsFor", () => {
   const SYSTEM: VideoCapabilityFlags = {
     first_frame: true,
     last_frame: false,
-    reference_images: false,
     max_reference_images: 0,
+    reference_audio_mode: "none",
+    max_reference_audio_count: 0,
   };
   const snapshot: CapabilitySnapshotRow = {
     original_model_id: "kling-v2",

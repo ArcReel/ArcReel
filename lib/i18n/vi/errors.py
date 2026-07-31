@@ -146,6 +146,10 @@ MESSAGES = {
     "capability_override_invalid_value": (
         "Năng lực {capability} của mô hình {model_id} có kiểu giá trị không hợp lệ; cần {expected}"
     ),
+    "capability_override_reference_audio_unsupported": (
+        "Endpoint {endpoint} của mô hình {model_id} không gửi âm thanh tham chiếu; "
+        "không thể ghi đè reference_audio_mode thành direct"
+    ),
     "capability_override_last_frame_unsupported": (
         "Endpoint {endpoint} của mô hình {model_id} không hỗ trợ tạo khung hình cuối; "
         "không thể ghi đè last_frame thành true"
@@ -249,6 +253,10 @@ MESSAGES = {
     "video_end_image_requires_start_image": "Mô hình {model} không hỗ trợ khung hình cuối độc lập; hãy cung cấp thêm khung hình đầu (chế độ khung đầu+cuối) hoặc bỏ khung hình cuối",
     "video_last_frame_requires_pro": "{provider}/{model} chỉ hỗ trợ khung đầu+cuối ở gói pro; hãy chuyển sang gói pro hoặc bỏ khung hình cuối",
     "video_last_frame_unsupported": "{provider}/{model} không hỗ trợ khung hình cuối với cấu hình hiện tại; đã hủy tạo. Hãy bỏ khung hình cuối của cảnh quay này, hoặc chuyển sang mô hình hoặc gói có hỗ trợ",
+    "video_reference_audio_unsupported": "{provider}/{model} không hỗ trợ âm thanh tham chiếu; đã hủy tạo. Hãy bỏ âm thanh tham chiếu của nhân vật, hoặc chuyển sang mô hình có hỗ trợ tham chiếu giọng nói",
+    "video_reference_audio_exceeded": "Mô hình {model} hỗ trợ tối đa {limit} đoạn âm thanh tham chiếu nhưng nhận được {count}; hãy giảm số nhân vật có âm thanh tham chiếu",
+    "video_reference_audio_unreadable": "Mô hình {model} có âm thanh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn âm thanh tham chiếu",
+    "video_reference_audio_format_unsupported": "Âm thanh tham chiếu {name} có định dạng không được hỗ trợ (chỉ {supported}); hãy dùng tệp âm thanh khác",
     # Agent credentials
     "agent_preset_unknown": "Nhà cung cấp đặt sẵn không xác định: {preset_id}",
     "agent_base_url_required_custom": "Cấu hình tuỳ chỉnh yêu cầu base_url",

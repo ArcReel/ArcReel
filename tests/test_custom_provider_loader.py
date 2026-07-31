@@ -130,8 +130,8 @@ class TestVideoCapabilityOverridesReachExecution:
     @pytest.mark.integration
     @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
     async def test_override_forces_capability_off(self, _mock_cls, session):
-        backend = await self._load_video_backend(session, overrides={"reference_images": False})
-        assert backend.video_capabilities.reference_images is False
+        backend = await self._load_video_backend(session, overrides={"max_reference_images": 0})
+        assert backend.video_capabilities.max_reference_images == 0
         assert backend.video_capabilities.first_frame is True
 
     @pytest.mark.integration

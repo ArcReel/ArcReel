@@ -25,7 +25,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import custom_providers
 
-# 系统判定 last_frame=False、reference_images=True/max=1 —— 覆盖前后差异可断言
+# 系统判定 last_frame=False、max_reference_images=1 —— 覆盖前后差异可断言
 VIDEO_ENDPOINT = "openai-video"
 VIDEO_MODEL = "sora-2"
 
@@ -136,8 +136,9 @@ class TestModelListExposesCapabilities:
         assert models[0]["system_capabilities"] == {
             "first_frame": True,
             "last_frame": False,
-            "reference_images": True,
             "max_reference_images": 1,
+            "reference_audio_mode": "none",
+            "max_reference_audio_count": 0,
         }
         assert models[0]["capability_overrides"] is None
 
@@ -151,8 +152,9 @@ class TestModelListExposesCapabilities:
         assert models[0]["system_capabilities"] == {
             "first_frame": expected.first_frame,
             "last_frame": expected.last_frame,
-            "reference_images": expected.reference_images,
             "max_reference_images": expected.max_reference_images,
+            "reference_audio_mode": expected.reference_audio_mode.value,
+            "max_reference_audio_count": expected.max_reference_audio_count,
         }
 
     @pytest.mark.integration
@@ -404,6 +406,52 @@ class TestSaveValidatesOpenOverrides:
         resp = _post_provider(client, [_video_model(capability_overrides={"last_frame": True})])
         assert resp.status_code == 422
         assert "last_frame" in resp.json()["detail"]
+
+    @pytest.mark.integration
+    def test_reference_audio_direct_rejected_on_endpoint_without_audio_support(self, client: TestClient):
+        """openai-video 的 delegate 不下传 reference_audio_files：开启覆盖只会让 UI 宣称支持
+        音色输入，执行层照旧生成随机音色的视频。"""
+        resp = _post_provider(client, [_video_model(capability_overrides={"reference_audio_mode": "direct"})])
+        assert resp.status_code == 422
+        assert "reference_audio_mode" in resp.json()["detail"]
+
+    @pytest.mark.integration
+    def test_reference_audio_none_accepted_on_endpoint_without_audio_support(self, client: TestClient):
+        """守卫只拦「宣称支持」的方向：关掉音色能力无需运输能力背书。"""
+        pid = _create_provider(client, [_video_model(capability_overrides={"reference_audio_mode": "none"})])
+
+        models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
+        assert models[0]["capability_overrides"] == {"reference_audio_mode": "none"}
+
+    @pytest.mark.integration
+    def test_reference_audio_direct_accepted_on_audio_capable_endpoint(self, client: TestClient):
+        resp = _post_provider(
+            client,
+            [
+                _video_model(
+                    endpoint=LAST_FRAME_ENDPOINT,
+                    model_id=LAST_FRAME_MODEL,
+                    capability_overrides={"reference_audio_mode": "direct", "max_reference_audio_count": 2},
+                )
+            ],
+        )
+        assert resp.status_code == 201
+
+    @pytest.mark.integration
+    @pytest.mark.parametrize("bad_value", ["DIRECT", "native", True, 1, None])
+    def test_invalid_reference_audio_mode_rejected(self, client: TestClient, bad_value):
+        """枚举值两侧同判定：写入侧拒的与合成层忽略的必须是同一集合，否则「界面允许、执行反悔」。"""
+        resp = _post_provider(
+            client,
+            [
+                _video_model(
+                    endpoint=LAST_FRAME_ENDPOINT,
+                    model_id=LAST_FRAME_MODEL,
+                    capability_overrides={"reference_audio_mode": bad_value},
+                )
+            ],
+        )
+        assert resp.status_code == 422
 
     @pytest.mark.integration
     def test_non_video_endpoint_rejected(self, client: TestClient):

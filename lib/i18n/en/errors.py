@@ -150,6 +150,10 @@ MESSAGES = {
         "Endpoint {endpoint} of model {model_id} does not support last-frame generation; "
         "last_frame cannot be overridden to true"
     ),
+    "capability_override_reference_audio_unsupported": (
+        "Endpoint {endpoint} of model {model_id} does not send reference audio; "
+        "reference_audio_mode cannot be overridden to direct"
+    ),
     # Projects
     "unknown_style_template": "Unknown style template: {template_id}",
     "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",
@@ -249,6 +253,10 @@ MESSAGES = {
     "video_end_image_requires_start_image": "Model {model} does not support a standalone last frame; also provide a first frame (first+last keyframes) or remove the last frame",
     "video_last_frame_requires_pro": "{provider}/{model} only supports first+last frame at the pro tier; switch to the pro tier or remove the last frame",
     "video_last_frame_unsupported": "{provider}/{model} does not support a last frame under the current configuration; generation aborted. Remove the shot's last frame, or switch to a model or tier that supports it",
+    "video_reference_audio_unsupported": "{provider}/{model} does not support reference audio; generation aborted. Remove the character's reference audio, or switch to a model that supports voice reference",
+    "video_reference_audio_exceeded": "Model {model} supports at most {limit} reference audio clips but received {count}; reduce the number of characters with reference audio",
+    "video_reference_audio_unreadable": "Model {model} has reference audio that is missing or unreadable; generation aborted: {names}; check the reference audio paths",
+    "video_reference_audio_format_unsupported": "Reference audio {name} has an unsupported format (only {supported}); use a different audio file",
     # Agent credentials
     "agent_preset_unknown": "Unknown preset provider: {preset_id}",
     "agent_base_url_required_custom": "base_url is required for custom configuration",

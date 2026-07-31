@@ -21,7 +21,6 @@ from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapabilities,
-    VideoCapability,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -93,16 +92,6 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
             http_options = {"base_url": effective_base_url} if effective_base_url else None
             self._client = _genai.Client(api_key=api_key, http_options=http_options)  # type: ignore[arg-type]
 
-        # 缓存 capabilities，避免每次访问创建新 set
-        self._capabilities: set[VideoCapability] = {
-            VideoCapability.TEXT_TO_VIDEO,
-            VideoCapability.IMAGE_TO_VIDEO,
-            VideoCapability.NEGATIVE_PROMPT,
-            VideoCapability.VIDEO_EXTEND,
-        }
-        if self._backend_type == "vertex":
-            self._capabilities.add(VideoCapability.GENERATE_AUDIO)
-
     @property
     def name(self) -> str:
         return f"gemini-{self._backend_type}"
@@ -110,10 +99,6 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
     @property
     def model(self) -> str:
         return self._video_model
-
-    @property
-    def capabilities(self) -> set[VideoCapability]:
-        return self._capabilities
 
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
@@ -123,7 +108,7 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         列为并列模式，带参考图时 durationSeconds 必须为 8。当前全系模型能力一致，不按
         model_id 分支；instance property 委托至此，保持 backend 为单一真相源。
         """
-        return VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=3)
+        return VideoCapabilities(last_frame=True, max_reference_images=3)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

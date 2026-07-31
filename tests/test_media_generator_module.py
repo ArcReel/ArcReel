@@ -665,9 +665,14 @@ class TestReferenceCompressionSeam:
     async def test_video_frame_not_resized_array_laddered(self, tmp_path):
         gen = _build_generator(tmp_path)
 
+        from lib.video_backends.base import VideoCapabilities
+
         class _CapturingVideoBackend:
             name = "fake-video"
             model = "video-model"
+            # 带参考图的请求会先过 gate_video_request，替身须声明足够的参考图容量，
+            # 否则请求在触达 generate 之前就被能力校验拒掉。
+            video_capabilities = VideoCapabilities(max_reference_images=9)
 
             def __init__(self):
                 self.start_dims = None

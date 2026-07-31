@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import fields, replace
+from enum import Enum
 from typing import get_type_hints
 
 from lib.custom_provider.endpoints import get_endpoint_spec
-from lib.video_backends.base import VideoCapabilities
+from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +33,8 @@ def system_video_capabilities(*, endpoint: str, model_id: str) -> VideoCapabilit
 
     两条声明形式（注册表不变式保证恰填其一）：
     - ``video_caps_for_model``：backend 的 per-model 纯函数，四字段全量由 backend 声明；
-    - ``video_max_reference_images``：endpoint 维度硬上限，参考图布尔位由上限推出（>0 即
-      支持），首帧/尾帧取 ``VideoCapabilities`` 默认。
+    - ``video_max_reference_images``：endpoint 维度硬上限，其余维度（首帧/尾帧/参考音频）
+      取 ``VideoCapabilities`` 默认。
 
     不构造 SDK client、不查 DB，故 api_key 缺失也可调用。
 
@@ -61,7 +62,7 @@ def system_video_capabilities(*, endpoint: str, model_id: str) -> VideoCapabilit
         )
     if endpoint_cap < 0:
         raise ValueError(f"invalid video_max_reference_images on endpoint {endpoint!r}: {endpoint_cap!r}")
-    return VideoCapabilities(reference_images=endpoint_cap > 0, max_reference_images=endpoint_cap)
+    return VideoCapabilities(max_reference_images=endpoint_cap)
 
 
 def filter_valid_overrides(*, endpoint: str, model_id: str, overrides: object | None) -> dict[str, object]:
@@ -122,6 +123,20 @@ def filter_valid_overrides(*, endpoint: str, model_id: str, overrides: object | 
                     model_id,
                 )
                 continue
+        # 同构于上：endpoint 的 delegate 不会把 reference_audio_files 组装进请求时，把模式
+        # 覆盖成 direct 只会让合成层宣称支持音色输入，执行层照样生成随机音色的视频。
+        if key == "reference_audio_mode" and value == ReferenceAudioMode.DIRECT.value:
+            try:
+                audio_capable = get_endpoint_spec(endpoint).reference_audio_capable
+            except ValueError:
+                audio_capable = False
+            if not audio_capable:
+                logger.warning(
+                    "忽略 %s/%s 的能力覆盖 reference_audio_mode=direct：endpoint 不下传参考音频，该维度回退系统判定",
+                    endpoint,
+                    model_id,
+                )
+                continue
         applied[key] = value
 
     return applied
@@ -173,6 +188,9 @@ def capability_value_matches(value: object, expected: type) -> bool:
     bool 是 int 的子类，两个方向都要显式排除，否则 ``True`` 会被当成 1 张参考图上限、
     ``1`` 会被当成布尔真——这类宽松真值是语义猜测，不做。数值维度另拒负数。
 
+    枚举维度只认该枚举的合法取值字面量（覆盖字典从 JSON 列读出，成员本身不会跨序列化存活），
+    不做大小写归一或近义词映射：词表外的值一律判否、回退系统判定，而不是猜一个最像的成员。
+
     写入侧校验（API 层白名单）与此处的合成必须用同一判定：两边一旦漂移，写入放行的值会被
     合成静默忽略，正是本模块要消灭的「界面允许、执行反悔」。故此函数公开供 API 层复用。
     """
@@ -180,4 +198,6 @@ def capability_value_matches(value: object, expected: type) -> bool:
         return isinstance(value, bool)
     if expected is int:
         return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+    if isinstance(expected, type) and issubclass(expected, Enum):
+        return any(value == member.value for member in expected)
     return isinstance(value, expected)

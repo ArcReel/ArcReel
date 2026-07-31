@@ -10,8 +10,8 @@ import pytest
 
 from lib.providers import PROVIDER_DASHSCOPE
 from lib.video_backends.base import (
+    ReferenceAudioMode,
     ResumeExpiredError,
-    VideoCapability,
     VideoCapabilityError,
     VideoGenerationRequest,
 )
@@ -95,7 +95,7 @@ class TestCapabilities:
 
         b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-r2v")
         vc = b.video_capabilities
-        assert vc.reference_images is True
+        assert vc.max_reference_images > 0
         assert vc.max_reference_images == 9
         assert vc.first_frame is False
 
@@ -111,15 +111,13 @@ class TestCapabilities:
         from lib.video_backends.dashscope import DashScopeVideoBackend
 
         b = DashScopeVideoBackend(api_key="sk", model="happyhorse-1.0-t2v")
-        assert VideoCapability.TEXT_TO_VIDEO in b.capabilities
         assert b.video_capabilities.first_frame is False
-        assert b.video_capabilities.reference_images is False
+        assert b.video_capabilities.max_reference_images == 0
 
     def test_i2v_caps(self):
         from lib.video_backends.dashscope import DashScopeVideoBackend
 
         b = DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v")
-        assert VideoCapability.IMAGE_TO_VIDEO in b.capabilities
         assert b.video_capabilities.first_frame is True
 
     def test_decorated_model_name_resolves_r2v_caps(self):
@@ -135,7 +133,7 @@ class TestCapabilities:
         ):
             # 实例侧（_build_media 据此构造 media）
             b = DashScopeVideoBackend(api_key="sk", model=model)
-            assert b.video_capabilities.reference_images is True
+            assert b.video_capabilities.max_reference_images > 0
             assert b.video_capabilities.max_reference_images == expected_max
             # resolver 侧（纯函数，不构造 backend）
             assert DashScopeVideoBackend.video_capabilities_for_model(model).max_reference_images == expected_max
@@ -145,7 +143,7 @@ class TestCapabilities:
         from lib.video_backends.dashscope import DashScopeVideoBackend
 
         b = DashScopeVideoBackend(api_key="sk", model="happyhorse")
-        assert b.video_capabilities.reference_images is False
+        assert b.video_capabilities.max_reference_images == 0
 
 
 class TestReferenceToVideo:
@@ -593,3 +591,133 @@ class TestRetryStatusGating:
             )
         assert get.call_count == 2
         assert result.task_id == "t-poll"
+
+
+class TestWan27ReferenceVoice:
+    """wan2.7-r2v 的音色不是独立 media 条目，而是挂在参考素材项上的 reference_voice 字段。"""
+
+    @staticmethod
+    def _backend():
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        return DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
+
+    @staticmethod
+    def _refs(tmp_path, count: int) -> list:
+        out = []
+        for i in range(count):
+            p = tmp_path / f"r{i}.png"
+            p.write_bytes(b"\x89PNG\r\n")
+            out.append(p)
+        return out
+
+    @staticmethod
+    def _audio(tmp_path, name: str) -> Path:
+        p = tmp_path / name
+        p.write_bytes(b"riff-audio")
+        return p
+
+    @pytest.mark.unit
+    def test_r2v_declares_audio_capability(self):
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model("wan2.7-r2v")
+        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
+        # 音频逐段挂参考素材项，段数上限即参考素材总数上限
+        assert caps.max_reference_audio_count == 5
+
+    @pytest.mark.unit
+    def test_i2v_declares_no_audio_capability(self):
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        caps = DashScopeVideoBackend.video_capabilities_for_model("wan2.7-i2v")
+        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
+
+    @pytest.mark.unit
+    def test_audio_attached_to_reference_items_in_order(self, tmp_path):
+        payload = self._backend()._build_payload(
+            VideoGenerationRequest(
+                prompt="两人对话",
+                output_path=tmp_path / "o.mp4",
+                reference_images=self._refs(tmp_path, 2),
+                reference_audio_files=[self._audio(tmp_path, "a.mp3"), self._audio(tmp_path, "b.wav")],
+            )
+        )
+
+        refs = [m for m in payload["input"]["media"] if m["type"] == "reference_image"]
+        assert len(refs) == 2
+        assert refs[0]["reference_voice"].startswith("data:audio/mpeg;base64,")
+        assert refs[1]["reference_voice"].startswith("data:audio/wav;base64,")
+
+    @pytest.mark.unit
+    def test_fewer_audios_than_references_leaves_rest_unvoiced(self, tmp_path):
+        payload = self._backend()._build_payload(
+            VideoGenerationRequest(
+                prompt="一人说话",
+                output_path=tmp_path / "o.mp4",
+                reference_images=self._refs(tmp_path, 3),
+                reference_audio_files=[self._audio(tmp_path, "a.mp3")],
+            )
+        )
+
+        refs = [m for m in payload["input"]["media"] if m["type"] == "reference_image"]
+        assert "reference_voice" in refs[0]
+        assert all("reference_voice" not in r for r in refs[1:])
+
+    @pytest.mark.unit
+    def test_no_audio_leaves_reference_items_untouched(self, tmp_path):
+        payload = self._backend()._build_payload(
+            VideoGenerationRequest(
+                prompt="无对白",
+                output_path=tmp_path / "o.mp4",
+                reference_images=self._refs(tmp_path, 2),
+            )
+        )
+
+        refs = [m for m in payload["input"]["media"] if m["type"] == "reference_image"]
+        assert all("reference_voice" not in r for r in refs)
+
+    @pytest.mark.unit
+    def test_more_audios_than_references_raises(self, tmp_path):
+        """挂不上的音频不丢弃：静默丢弃会让某个角色的音色声明无声失效，且照常扣费。"""
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend()._build_payload(
+                VideoGenerationRequest(
+                    prompt="三人对话",
+                    output_path=tmp_path / "o.mp4",
+                    reference_images=self._refs(tmp_path, 1),
+                    reference_audio_files=[self._audio(tmp_path, "a.mp3"), self._audio(tmp_path, "b.mp3")],
+                )
+            )
+
+        assert exc.value.code == "video_reference_audio_exceeded"
+        assert exc.value.params["limit"] == 1
+        assert exc.value.params["count"] == 2
+
+    @pytest.mark.unit
+    def test_missing_audio_file_raises(self, tmp_path):
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend()._build_payload(
+                VideoGenerationRequest(
+                    prompt="x",
+                    output_path=tmp_path / "o.mp4",
+                    reference_images=self._refs(tmp_path, 1),
+                    reference_audio_files=[tmp_path / "missing.mp3"],
+                )
+            )
+
+        assert exc.value.code == "video_reference_audio_unreadable"
+
+    @pytest.mark.unit
+    def test_unsupported_audio_format_raises(self, tmp_path):
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend()._build_payload(
+                VideoGenerationRequest(
+                    prompt="x",
+                    output_path=tmp_path / "o.mp4",
+                    reference_images=self._refs(tmp_path, 1),
+                    reference_audio_files=[self._audio(tmp_path, "a.ogg")],
+                )
+            )
+
+        assert exc.value.code == "video_reference_audio_format_unsupported"

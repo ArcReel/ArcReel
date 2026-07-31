@@ -44,7 +44,6 @@ from lib.text_generator import TextGenerator
 from lib.video_backends.base import (
     ResumeExpiredError,
     VideoCapabilities,
-    VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -288,10 +287,6 @@ class _FakeVideoBackend:
     @property
     def model(self) -> str:
         return self._model
-
-    @property
-    def capabilities(self) -> set[VideoCapability]:
-        return {VideoCapability.TEXT_TO_VIDEO, VideoCapability.IMAGE_TO_VIDEO}
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

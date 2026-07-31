@@ -7,7 +7,8 @@ import pytest
 
 from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import (
-    VideoCapability,
+    ReferenceAudioMode,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -59,15 +60,6 @@ def _mock_httpx_stream(data: bytes = b"fake-mp4-data"):
 class TestArkProperties:
     def test_name(self, backend):
         assert backend.name == "ark"
-
-    def test_capabilities(self, backend):
-        caps = backend.capabilities
-        assert VideoCapability.TEXT_TO_VIDEO in caps
-        assert VideoCapability.IMAGE_TO_VIDEO in caps
-        assert VideoCapability.GENERATE_AUDIO in caps
-        assert VideoCapability.SEED_CONTROL in caps
-        assert VideoCapability.FLEX_TIER in caps
-        assert VideoCapability.NEGATIVE_PROMPT not in caps
 
 
 class TestArkGenerate:
@@ -374,33 +366,6 @@ class TestArkRetryBehavior:
 class TestArkModelCapabilities:
     """测试不同模型的能力映射。"""
 
-    def test_seedance_2_no_flex_tier(self):
-        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
-            b = ArkVideoBackend(api_key="test", model="doubao-seedance-2-0-260128")
-        caps = b.capabilities
-        assert VideoCapability.FLEX_TIER not in caps
-        assert VideoCapability.VIDEO_EXTEND not in caps
-
-    def test_seedance_2_fast_no_flex_tier(self):
-        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
-            b = ArkVideoBackend(api_key="test", model="doubao-seedance-2-0-fast-260128")
-        caps = b.capabilities
-        assert VideoCapability.FLEX_TIER not in caps
-        assert VideoCapability.VIDEO_EXTEND not in caps
-
-    def test_seedance_1_5_has_flex_tier(self):
-        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
-            b = ArkVideoBackend(api_key="test", model="doubao-seedance-1-5-pro-251215")
-        caps = b.capabilities
-        assert VideoCapability.FLEX_TIER in caps
-        assert VideoCapability.VIDEO_EXTEND not in caps
-
-    def test_unknown_model_gets_default_capabilities(self):
-        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
-            b = ArkVideoBackend(api_key="test", model="some-future-model")
-        caps = b.capabilities
-        assert VideoCapability.FLEX_TIER in caps
-
     @pytest.mark.unit
     def test_seedance_1_5_pro_default_model_supports_last_frame(self):
         """DEFAULT_MODEL：能力表标首尾帧 ✅，实测 generate() 正常下发 role=last_frame。"""
@@ -478,35 +443,21 @@ class TestArkModelCapabilities:
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-future")
         assert caps.last_frame is False
 
-    def test_seedance_2_dot_format_no_flex_tier(self):
-        """ark-agent-plan 用 dot 命名（doubao-seedance-2.0），同样不该带 FLEX_TIER。"""
-        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
-            b = ArkVideoBackend(api_key="test", model="doubao-seedance-2.0")
-        assert VideoCapability.FLEX_TIER not in b.capabilities
-
-    def test_seedance_2_fast_dot_format_no_flex_tier(self):
-        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
-            b = ArkVideoBackend(api_key="test", model="doubao-seedance-2.0-fast")
-        assert VideoCapability.FLEX_TIER not in b.capabilities
-
-    def test_seedance_2_dreamina_prefix_no_flex_tier(self):
-        """BytePlus 国际站用 dreamina- 前缀（dreamina-seedance-2-0-260128），同族不该带 FLEX_TIER。"""
-        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
-            b = ArkVideoBackend(api_key="test", model="dreamina-seedance-2-0-260128")
-        assert VideoCapability.FLEX_TIER not in b.capabilities
-
-    def test_seedance_2_dreamina_fast_prefix_no_flex_tier(self):
-        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
-            b = ArkVideoBackend(api_key="test", model="dreamina-seedance-2-0-fast-260128")
-        assert VideoCapability.FLEX_TIER not in b.capabilities
-
 
 class TestArkServiceTierParam:
-    """service_tier 只对声明了 FLEX_TIER 能力的模型传入，否则 API 会报错。"""
+    """service_tier 只对支持该参数的模型传入，否则 API 会报错。"""
 
     @pytest.mark.parametrize(
         "model",
-        ["doubao-seedance-2-0-260128", "dreamina-seedance-2-0-260128"],
+        [
+            "doubao-seedance-2-0-260128",
+            # ark-agent-plan 用点号命名，BytePlus 国际站用 dreamina- 前缀：同族的各种命名
+            # 变体都必须被 _is_seedance_2 识别，漏掉任一种都会让 r2v 请求被上游 400 拒。
+            "doubao-seedance-2.0",
+            "doubao-seedance-2.0-fast",
+            "dreamina-seedance-2-0-260128",
+            "dreamina-seedance-2-0-fast-260128",
+        ],
     )
     async def test_seedance_2_does_not_send_service_tier(self, tmp_path, model):
         """seedance-2 系列（含 dreamina- 前缀的自定义供应商命名）不得发 service_tier，否则 r2v 上游 400。"""
@@ -610,3 +561,108 @@ class TestIsArkNotFound:
         exc = RuntimeError("any")
         exc.status_code = 404  # type: ignore[attr-defined]
         assert _is_ark_not_found(exc) is True
+
+
+class TestArkReferenceAudio:
+    """Seedance 2.0 参考音频：content 数组条目 + 顺序契约。"""
+
+    @staticmethod
+    def _seedance_2_backend():
+        with patch("lib.video_backends.ark.create_ark_client", return_value=MagicMock()):
+            return ArkVideoBackend(api_key="test", model="doubao-seedance-2-0-260128")
+
+    @pytest.mark.unit
+    def test_seedance_2_declares_audio_capability(self):
+        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-260128")
+        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
+        assert caps.max_reference_audio_count == 3
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "model",
+        ["doubao-seedance-2.0-fast", "doubao-seedance-2-0-mini-260615", "dreamina-seedance-2-0-260128"],
+    )
+    def test_seedance_2_variants_declare_audio_capability(self, model):
+        assert ArkVideoBackend.video_capabilities_for_model(model).reference_audio_mode is ReferenceAudioMode.DIRECT
+
+    @pytest.mark.unit
+    def test_unverified_seedance_2_variant_does_not_inherit_audio(self):
+        """未上表的 2.0 变体不得因子串包含关系继承音频参考能力（与尾帧同一白名单口径）。"""
+        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-future")
+        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
+        assert caps.max_reference_audio_count == 0
+
+    @pytest.mark.unit
+    def test_seedance_1_5_declares_no_audio_capability(self):
+        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-5-pro-251215")
+        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
+
+    async def test_reference_audio_sent_as_audio_url_entries(self, tmp_path):
+        """每段音频发一条 type=audio_url + role=reference_audio，且顺序与请求字段一致。"""
+        backend = self._seedance_2_backend()
+        first_audio = tmp_path / "a.mp3"
+        first_audio.write_bytes(b"id3-first")
+        second_audio = tmp_path / "b.wav"
+        second_audio.write_bytes(b"riff-second")
+        ref = tmp_path / "r.png"
+        ref.write_bytes(b"fake-ref")
+
+        backend._client.content_generation.tasks.create = MagicMock(side_effect=RuntimeError("stop"))
+
+        request = VideoGenerationRequest(
+            prompt="两人对话",
+            output_path=tmp_path / "out.mp4",
+            reference_images=[ref],
+            reference_audio_files=[first_audio, second_audio],
+        )
+        with pytest.raises(RuntimeError):
+            await backend._create_task(request)
+
+        content = backend._client.content_generation.tasks.create.call_args.kwargs["content"]
+        audio_items = [c for c in content if c["type"] == "audio_url"]
+        assert len(audio_items) == 2
+        assert [c["role"] for c in audio_items] == ["reference_audio", "reference_audio"]
+        # 顺序即 prompt 中「音频N」的编号：第一段必须是请求里的第一段
+        assert audio_items[0]["audio_url"]["url"].startswith("data:audio/mp3;base64,")
+        assert audio_items[1]["audio_url"]["url"].startswith("data:audio/wav;base64,")
+
+    async def test_no_audio_entries_when_request_has_none(self, tmp_path):
+        backend = self._seedance_2_backend()
+        ref = tmp_path / "r.png"
+        ref.write_bytes(b"fake-ref")
+        backend._client.content_generation.tasks.create = MagicMock(side_effect=RuntimeError("stop"))
+
+        with pytest.raises(RuntimeError):
+            await backend._create_task(
+                VideoGenerationRequest(prompt="x", output_path=tmp_path / "o.mp4", reference_images=[ref])
+            )
+
+        content = backend._client.content_generation.tasks.create.call_args.kwargs["content"]
+        assert not [c for c in content if c["type"] == "audio_url"]
+
+    async def test_unsupported_audio_format_raises(self, tmp_path):
+        """格式不受支持时抛错而非跳过：跳过会让其后所有音频编号整体前移、错绑角色音色。"""
+        backend = self._seedance_2_backend()
+        bad = tmp_path / "a.ogg"
+        bad.write_bytes(b"ogg")
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await backend._create_task(
+                VideoGenerationRequest(prompt="x", output_path=tmp_path / "o.mp4", reference_audio_files=[bad])
+            )
+
+        assert exc.value.code == "video_reference_audio_format_unsupported"
+
+    async def test_missing_audio_file_raises(self, tmp_path):
+        backend = self._seedance_2_backend()
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await backend._create_task(
+                VideoGenerationRequest(
+                    prompt="x",
+                    output_path=tmp_path / "o.mp4",
+                    reference_audio_files=[tmp_path / "missing.mp3"],
+                )
+            )
+
+        assert exc.value.code == "video_reference_audio_unreadable"

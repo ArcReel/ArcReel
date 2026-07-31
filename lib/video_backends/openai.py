@@ -16,7 +16,6 @@ from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapabilities,
-    VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
     poll_with_retry,
@@ -94,10 +93,6 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
     def __init__(self, *, api_key: str | None = None, model: str | None = None, base_url: str | None = None):
         self._client = create_openai_client(api_key=api_key, base_url=base_url)
         self._model = model or DEFAULT_MODEL
-        self._capabilities: set[VideoCapability] = {
-            VideoCapability.TEXT_TO_VIDEO,
-            VideoCapability.IMAGE_TO_VIDEO,
-        }
 
     @property
     def name(self) -> str:
@@ -107,10 +102,6 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
     def model(self) -> str:
         return self._model
 
-    @property
-    def capabilities(self) -> set[VideoCapability]:
-        return self._capabilities
-
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
@@ -119,7 +110,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         当前全系模型能力一致，不按 model_id 分支；instance property 委托至此，
         保持 backend 为单一真相源。
         """
-        return VideoCapabilities(reference_images=True, max_reference_images=1)
+        return VideoCapabilities(max_reference_images=1)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

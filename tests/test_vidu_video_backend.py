@@ -9,7 +9,6 @@ import pytest
 
 from lib.providers import PROVIDER_VIDU
 from lib.video_backends.base import (
-    VideoCapability,
     VideoGenerationRequest,
 )
 from lib.video_backends.vidu import (
@@ -36,14 +35,6 @@ class TestBackendBasics:
         assert backend.name == PROVIDER_VIDU
         assert backend.model == DEFAULT_MODEL == "viduq3-turbo"
 
-    def test_q3_models_have_audio_capability(self):
-        backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
-        assert VideoCapability.GENERATE_AUDIO in backend.capabilities
-
-    def test_non_q3_models_lack_audio_capability(self):
-        backend = ViduVideoBackend(api_key="test-key", model="vidu2.0")
-        assert VideoCapability.GENERATE_AUDIO not in backend.capabilities
-
     def test_max_reference_images_seven(self):
         backend = ViduVideoBackend(api_key="test-key")
         assert backend.video_capabilities.max_reference_images == 7
@@ -57,7 +48,7 @@ class TestBackendBasics:
         caps = backend.video_capabilities
         assert caps.first_frame is True
         assert caps.last_frame is False
-        assert caps.reference_images is False
+        assert caps.max_reference_images == 0
         assert caps.max_reference_images == 0
 
     @pytest.mark.unit
