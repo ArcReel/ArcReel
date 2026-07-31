@@ -14,7 +14,6 @@ import pytest
 from lib.video_backends.base import (
     AmbiguousSubmitError,
     ResumeExpiredError,
-    VideoCapability,
     VideoGenerationRequest,
 )
 from lib.video_backends.v2_video_generations import (
@@ -323,14 +322,12 @@ class TestV2BackendHttp:
     def _backend() -> _V2Backend:
         return _V2Backend(api_key="sk-test", base_url="https://api.aimlapi.com", model="seedance-1.0")
 
-    def test_name_model_capabilities(self):
+    def test_name_model_and_video_capabilities(self):
         b = self._backend()
         assert b.name == PROVIDER_V2_VIDEO
         assert b.model == "seedance-1.0"
-        assert VideoCapability.TEXT_TO_VIDEO in b.capabilities
-        assert VideoCapability.IMAGE_TO_VIDEO in b.capabilities
         caps = b.video_capabilities
-        assert caps.first_frame and caps.last_frame and caps.reference_images
+        assert caps.first_frame and caps.last_frame
         assert caps.max_reference_images == 4
 
     def test_constructor_requires_api_key(self):

@@ -12,7 +12,7 @@ def _make_backend():
     backend = ArkVideoBackend.__new__(ArkVideoBackend)
     backend._client = MagicMock()
     backend._model = "doubao-seedance-1-5-pro-251215"
-    backend._capabilities = set()
+    backend._supports_service_tier = False
     return backend
 
 

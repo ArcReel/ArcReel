@@ -12,7 +12,6 @@ import pytest
 from lib.providers import PROVIDER_AGNES
 from lib.video_backends.base import (
     ResumeExpiredError,
-    VideoCapability,
     VideoCapabilityError,
     VideoGenerationRequest,
 )
@@ -79,16 +78,13 @@ class TestCapabilities:
         backend = AgnesVideoBackend(api_key="sk-test")
         assert backend.model == "agnes-video-v2.0"
 
-    def test_capabilities_and_video_capabilities(self):
+    def test_video_capabilities(self):
         from lib.video_backends.agnes import AgnesVideoBackend
 
         backend = AgnesVideoBackend(api_key="sk-test")
-        assert VideoCapability.TEXT_TO_VIDEO in backend.capabilities
-        assert VideoCapability.IMAGE_TO_VIDEO in backend.capabilities
         caps = backend.video_capabilities
         assert caps.first_frame is True
         assert caps.last_frame is True
-        assert caps.reference_images is True
         assert caps.max_reference_images == 4
 
 

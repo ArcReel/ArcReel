@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.video_backends.base import VideoCapabilities, VideoGenerationRequest
+from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities, VideoGenerationRequest
 
 
 class TestVideoCapabilities:
@@ -10,18 +10,25 @@ class TestVideoCapabilities:
         caps = VideoCapabilities()
         assert caps.first_frame is True
         assert caps.last_frame is False
-        assert caps.reference_images is False
         assert caps.max_reference_images == 0
+        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
+        assert caps.max_reference_audio_count == 0
 
     def test_first_last(self):
         caps = VideoCapabilities(last_frame=True)
         assert caps.last_frame is True
 
     def test_custom_values(self):
-        caps = VideoCapabilities(last_frame=True, reference_images=True, max_reference_images=9)
+        caps = VideoCapabilities(
+            last_frame=True,
+            max_reference_images=9,
+            reference_audio_mode=ReferenceAudioMode.DIRECT,
+            max_reference_audio_count=3,
+        )
         assert caps.last_frame is True
-        assert caps.reference_images is True
         assert caps.max_reference_images == 9
+        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
+        assert caps.max_reference_audio_count == 3
 
 
 class TestVideoGenerationRequestNewFields:
@@ -77,7 +84,7 @@ class TestGrokVideoCapabilities:
 
         with patch("lib.video_backends.grok.create_grok_client"):
             caps = GrokVideoBackend(api_key="test-key").video_capabilities
-        assert caps.reference_images is True
+        assert caps.max_reference_images > 0
         assert caps.max_reference_images == 7
         assert not hasattr(caps, "reference_images_with_start_frame")
 
@@ -93,7 +100,7 @@ class TestVideoCapabilitiesForModel:
         # 不构造实例（即不构造 Ark SDK client、不需 api_key）即可取得 caps
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0")
         assert caps.max_reference_images == 9
-        assert caps.reference_images is True
+        assert caps.max_reference_images > 0
 
     def test_ark_non_seedance_2_returns_zero(self):
         from lib.video_backends.ark import ArkVideoBackend

@@ -13,7 +13,7 @@ import jwt
 import pytest
 
 from lib.providers import PROVIDER_KLING
-from lib.video_backends.base import VideoCapability, VideoCapabilityError, VideoGenerationRequest
+from lib.video_backends.base import VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.registry import effective_generate_audio_for_model
 
@@ -87,18 +87,13 @@ class TestConstructionAndCapabilities:
         with pytest.raises(ValueError):
             KlingVideoBackend(auth_mode="oauth", api_key="k")
 
-    def test_capabilities_t2v_and_i2v(self):
-        caps = _jwt_backend().capabilities
-        assert VideoCapability.TEXT_TO_VIDEO in caps
-        assert VideoCapability.IMAGE_TO_VIDEO in caps
-
     def test_video_capabilities_first_and_last_frame(self):
         caps = _jwt_backend().video_capabilities
         assert caps.first_frame is True
         # turbo 尾帧仅 pro 档生效，声明按默认档保守为 False（std 档提交会被 _build_payload 拒绝）
         assert caps.last_frame is False
         # turbo 不建模参考图（多图主体留 v3-omni/o1）
-        assert caps.reference_images is False
+        assert caps.max_reference_images == 0
         assert caps.max_reference_images == 0
 
 
@@ -144,31 +139,25 @@ class TestVideoCapabilitiesForTier:
 class TestPerModelCapabilities:
     def test_v3_t2v_i2v_no_audio_no_reference(self):
         b = _jwt_backend("kling-v3")
-        assert b.capabilities == {VideoCapability.TEXT_TO_VIDEO, VideoCapability.IMAGE_TO_VIDEO}
         vc = b.video_capabilities
         assert vc.first_frame is True and vc.last_frame is True
-        assert vc.reference_images is False and vc.max_reference_images == 0
+        assert vc.max_reference_images == 0
 
     def test_v3_omni_declares_reference_images(self):
         b = _jwt_backend("kling-v3-omni")
-        assert b.capabilities == {VideoCapability.TEXT_TO_VIDEO, VideoCapability.IMAGE_TO_VIDEO}
         vc = b.video_capabilities
-        assert vc.reference_images is True
         assert vc.max_reference_images == 4  # 保守值，待控制台核对
 
     def test_v2_6_declares_generate_audio_no_reference(self):
         b = _jwt_backend("kling-v2-6")
-        assert VideoCapability.GENERATE_AUDIO in b.capabilities
-        assert VideoCapability.TEXT_TO_VIDEO in b.capabilities
-        assert b.video_capabilities.reference_images is False
+        assert b.video_capabilities.max_reference_images == 0
 
     def test_video_o1_i2v_only_with_reference_images(self):
         b = _jwt_backend("kling-video-o1")
-        # 仅图生（无 t2v），多图主体 R2V
-        assert b.capabilities == {VideoCapability.IMAGE_TO_VIDEO}
+        # 多图主体 R2V
         vc = b.video_capabilities
         assert vc.last_frame is True
-        assert vc.reference_images is True and vc.max_reference_images == 4
+        assert vc.max_reference_images == 4
 
     def test_video_o1_pricing_audio_matches_effective_request(self, tmp_path):
         """预估消费的 backend 能力接口与真实请求的 `_effective_audio` 对参考模型给出同一静音档。"""
@@ -182,24 +171,23 @@ class TestPerModelCapabilities:
         # bearer 透传原生 model_name：未登记 → 保守默认（t2v+i2v、尾帧仅 pro 档，声明按 std 档保守
         # 为 False；无音频/参考）
         b = _bearer_backend("kling-some-passthrough")
-        assert b.capabilities == {VideoCapability.TEXT_TO_VIDEO, VideoCapability.IMAGE_TO_VIDEO}
         vc = b.video_capabilities
         assert vc.last_frame is False
-        assert vc.reference_images is False and vc.max_reference_images == 0
+        assert vc.max_reference_images == 0
 
     def test_prefixed_and_cased_model_normalizes_to_registered_caps(self):
         # 中转 model_id 带厂商前缀（仓库既有约定 / 与 :）+ 非规范大小写/空白：归一化后实例 caps 仍精确命中
         # 已登记档，生成时防御与 resolver 裁剪同源——否则编排层放 4 张参考图、backend 却按默认 0 拒收。
         for model in ("vendor/Kling-V3-Omni", "provider:kling-v3-omni", "  provider:kling-v3-omni  "):
             vc = _bearer_backend(model).video_capabilities
-            assert vc.reference_images is True and vc.max_reference_images == 4
+            assert vc.max_reference_images > 0 and vc.max_reference_images == 4
 
     def test_future_version_does_not_inherit_caps_by_substring(self):
         # kling-v4 含子串 "kling-v3"？不含——但即便形如 kling-v3-omni-pro 也不得被子串误判继承能力；
         # 未登记一律保守默认，不猜未知 model 的参考图上限。
         for model in ("kling-v4", "kling-v3-omni-pro"):
             vc = _bearer_backend(model).video_capabilities
-            assert vc.reference_images is False and vc.max_reference_images == 0
+            assert vc.max_reference_images == 0 and vc.max_reference_images == 0
 
 
 class TestModeAndResolution:

@@ -18,7 +18,6 @@ from lib.image_backends.base import ImageCapability, ImageGenerationRequest, Ima
 from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
 from lib.video_backends.base import (
     VideoCapabilities,
-    VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -147,19 +146,10 @@ class TestCustomImageBackend:
 class TestCustomVideoBackend:
     def test_properties(self):
         delegate = AsyncMock()
-        delegate.capabilities = {VideoCapability.TEXT_TO_VIDEO}
         backend = CustomVideoBackend(provider_id="custom-vid", delegate=delegate, model="wan-pro")
 
         assert backend.name == "custom-vid"
         assert backend.model == "wan-pro"
-        assert backend.capabilities == {VideoCapability.TEXT_TO_VIDEO}
-
-    def test_capabilities_delegated(self):
-        delegate = AsyncMock()
-        delegate.capabilities = {VideoCapability.TEXT_TO_VIDEO, VideoCapability.IMAGE_TO_VIDEO}
-        backend = CustomVideoBackend(provider_id="vid-provider", delegate=delegate, model="kling-v2")
-
-        assert backend.capabilities is delegate.capabilities
 
     async def test_generate_delegates(self, tmp_path: Path):
         output_path = tmp_path / "output.mp4"
@@ -171,7 +161,6 @@ class TestCustomVideoBackend:
         )
         delegate = AsyncMock()
         delegate.generate = AsyncMock(return_value=expected_result)
-        delegate.capabilities = {VideoCapability.TEXT_TO_VIDEO}
 
         backend = CustomVideoBackend(provider_id="custom-vid", delegate=delegate, model="wan-pro")
         request = VideoGenerationRequest(prompt="A flying eagle", output_path=output_path)
@@ -186,7 +175,6 @@ class TestCustomVideoBackend:
         delegate.generate = AsyncMock(
             return_value=VideoGenerationResult(video_path=output_path, provider="x", model="y", duration_seconds=5)
         )
-        delegate.capabilities = set()
 
         backend = CustomVideoBackend(provider_id="p", delegate=delegate, model="m")
         request = VideoGenerationRequest(prompt="test", output_path=output_path, duration_seconds=8)
@@ -195,20 +183,12 @@ class TestCustomVideoBackend:
         call_args = delegate.generate.call_args[0]
         assert call_args[0] is request
 
-    async def test_multiple_capabilities(self):
-        delegate = AsyncMock()
-        all_caps = {VideoCapability.TEXT_TO_VIDEO, VideoCapability.IMAGE_TO_VIDEO, VideoCapability.GENERATE_AUDIO}
-        delegate.capabilities = all_caps
-        backend = CustomVideoBackend(provider_id="full-provider", delegate=delegate, model="veo-3")
-
-        assert backend.capabilities == all_caps
-
     @pytest.mark.unit
     def test_video_capabilities_for_tier_delegates_when_delegate_supports_it(self):
         """delegate 实现 tier-aware 查询（如 Kling）时，按请求档位透传其结果，而不是回落
         context-free 的 video_capabilities——否则 media_generator 的 getattr 探测会命中一个
         总是保守拒绝的空壳方法,起不到收窄效果。"""
-        pro_caps = VideoCapabilities(first_frame=True, last_frame=True, reference_images=False)
+        pro_caps = VideoCapabilities(first_frame=True, last_frame=True)
         delegate = AsyncMock()
         delegate.video_capabilities_for_tier = MagicMock(return_value=pro_caps)
         backend = CustomVideoBackend(provider_id="vid-provider", delegate=delegate, model="kling-v2-5-turbo")
@@ -221,7 +201,7 @@ class TestCustomVideoBackend:
     @pytest.mark.unit
     def test_video_capabilities_for_tier_falls_back_without_tier_support(self):
         """delegate 未实现 tier-aware 查询时,回落到 context-free 的 video_capabilities。"""
-        static_caps = VideoCapabilities(first_frame=True, last_frame=False, reference_images=False)
+        static_caps = VideoCapabilities(first_frame=True, last_frame=False)
         delegate = AsyncMock(spec=["video_capabilities", "capabilities"])
         delegate.video_capabilities = static_caps
         backend = CustomVideoBackend(provider_id="vid-provider", delegate=delegate, model="wan-pro")
@@ -235,8 +215,8 @@ class TestCustomVideoBackend:
         """工厂注入的完整合成能力（`with_video_capabilities` 不带 overrides,如 factory.py 未
         配置用户覆盖时的调用形状）不得短路档位查询——那是 context-free 的系统判定,对 Kling 等
         档位敏感 backend 是保守声明;短路会让本方法在生产环境等价于未实现档位感知。"""
-        static_merged = VideoCapabilities(first_frame=True, last_frame=False, reference_images=False)
-        pro_caps = VideoCapabilities(first_frame=True, last_frame=True, reference_images=False)
+        static_merged = VideoCapabilities(first_frame=True, last_frame=False)
+        pro_caps = VideoCapabilities(first_frame=True, last_frame=True)
         delegate = AsyncMock()
         delegate.video_capabilities_for_tier = MagicMock(return_value=pro_caps)
         backend = CustomVideoBackend(
@@ -253,7 +233,7 @@ class TestCustomVideoBackend:
         """稀疏用户覆盖（`with_video_capabilities` 的 `overrides` 参数）叠加到 delegate 的档位
         感知基底上,未覆盖字段跟随基底——覆盖必须能翻转执行层看到的能力,但不能整体替换基底,
         否则档位切换时未覆盖字段会冻结在覆盖注入时刻的值。"""
-        base_caps = VideoCapabilities(first_frame=True, last_frame=False, reference_images=False)
+        base_caps = VideoCapabilities(first_frame=True, last_frame=False)
         delegate = AsyncMock()
         delegate.video_capabilities_for_tier = MagicMock(return_value=base_caps)
         backend = CustomVideoBackend(
@@ -264,7 +244,7 @@ class TestCustomVideoBackend:
 
         assert result.first_frame is True
         assert result.last_frame is True
-        assert result.reference_images is False
+        assert result.max_reference_images == 0
         delegate.video_capabilities_for_tier.assert_called_once_with("pro", resolution=None)
 
 

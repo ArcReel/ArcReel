@@ -75,6 +75,10 @@ class EndpointSpec:
     # 尾帧约束。仅 video 类有意义；False 时即便系统判定或用户覆盖把 last_frame 置为 True，执行层
     # 也会静默丢弃尾帧、按无约束生成——写入侧 last_frame 覆盖据此收窄可开启的 endpoint 范围。
     end_image_capable: bool = False
+    # 同构于 end_image_capable：该 endpoint 的 delegate.generate() 是否真的读取
+    # VideoGenerationRequest.reference_audio_files 并组装进供应商请求。仅 video 类有意义；
+    # False 时把 reference_audio_mode 覆盖为 direct 只会让能力声明失真，执行层照旧不带音色输入。
+    reference_audio_capable: bool = False
 
 
 # ── 各 endpoint 的 build_backend 闭包 ──────────────────────────────
@@ -333,6 +337,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_ark_seedance,
         video_caps_for_model=ArkVideoBackend.video_capabilities_for_model,
         end_image_capable=True,
+        # _create_task 为 reference_audio_files 逐段组装 audio_url + role: reference_audio
+        reference_audio_capable=True,
     ),
     "vidu-video": EndpointSpec(
         key="vidu-video",
@@ -375,6 +381,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         # 多 model（happyhorse-r2v=9 / wan2.7-r2v=5）容量不同 → endpoint 维度不声明 int cap，
         # 按 model 读 backend caps（不构造 client）。
         video_caps_for_model=DashScopeVideoBackend.video_capabilities_for_model,
+        # _build_media 把 reference_audio_files 逐段挂到参考素材项的 reference_voice 上
+        reference_audio_capable=True,
     ),
     "minimax-image": EndpointSpec(
         key="minimax-image",
@@ -446,6 +454,8 @@ def _validate_video_caps_declarations() -> None:
         if caps_fn is not None and not callable(caps_fn):
             raise ValueError(f"endpoint {key!r} declares non-callable video_caps_for_model: {caps_fn!r}")
         has_fn = callable(caps_fn)
+        if spec.media_type != "video" and spec.reference_audio_capable:
+            raise ValueError(f"non-video endpoint {key!r} must not declare reference_audio_capable")
         if spec.media_type == "video":
             if has_int == has_fn:
                 raise ValueError(

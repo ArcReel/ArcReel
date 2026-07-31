@@ -62,6 +62,7 @@ class TestRegistry:
             # 未声明的 endpoint cap 序列化为 None（resolver fallthrough 到 backend caps）
             "video_max_reference_images": None,
             "end_image_capable": False,
+            "reference_audio_capable": False,
         }
 
     def test_new_video_endpoints_have_unset_cap(self):
@@ -113,7 +114,7 @@ class TestRegistry:
         caps_fn = ENDPOINT_REGISTRY["minimax-video"].video_caps_for_model
         assert caps_fn is not None
         s2v = caps_fn("S2V-01")
-        assert s2v.reference_images is True
+        assert s2v.max_reference_images > 0
         assert s2v.max_reference_images == 1
         hailuo = caps_fn("MiniMax-Hailuo-2.3")
         assert hailuo.first_frame is True
@@ -126,24 +127,24 @@ class TestRegistry:
         caps_fn = ENDPOINT_REGISTRY["kling-video"].video_caps_for_model
         assert caps_fn is not None
         omni = caps_fn("kling-v3-omni")
-        assert omni.reference_images is True
+        assert omni.max_reference_images > 0
         assert omni.max_reference_images == 4
         o1 = caps_fn("kling-video-o1")
-        assert o1.reference_images is True
+        assert o1.max_reference_images > 0
         assert o1.max_reference_images == 4
         turbo = caps_fn("kling-v2-5-turbo")
         assert turbo.first_frame is True
-        assert turbo.reference_images is False
+        assert turbo.max_reference_images == 0
         assert turbo.max_reference_images == 0
         # 中转 model_id 带厂商前缀（仓库既有约定 / 与 :）+ 非规范大小写：归一化后仍能精确命中已登记档
         for prefixed_id in ("vendor/Kling-V3-Omni", "provider:kling-v3-omni"):
             prefixed = caps_fn(prefixed_id)
-            assert prefixed.reference_images is True
+            assert prefixed.max_reference_images > 0
             assert prefixed.max_reference_images == 4
         # 未登记 model（未来版本 kling-v4 / 归一化后仍不匹配的中转自定义 id）→ 保守默认，不按子串猜能力
         for unknown_id in ("kling-v4", "vendor/some-unknown-model"):
             unknown = caps_fn(unknown_id)
-            assert unknown.reference_images is False
+            assert unknown.max_reference_images == 0
             assert unknown.max_reference_images == 0
 
     def test_negative_int_cap_rejected_at_validation(self, monkeypatch: pytest.MonkeyPatch):
@@ -175,6 +176,22 @@ class TestRegistry:
         monkeypatch.setitem(ENDPOINT_REGISTRY, "ark-seedance", bad)
         with pytest.raises(ValueError, match="non-callable video_caps_for_model"):
             _validate_video_caps_declarations()
+
+    def test_non_video_endpoint_declaring_reference_audio_rejected(self, monkeypatch: pytest.MonkeyPatch):
+        """import 期不变式：reference_audio_capable 只对 video 类有意义，非 video 类声明即 misconfig。"""
+        import dataclasses
+
+        from lib.custom_provider.endpoints import _validate_video_caps_declarations
+
+        bad = dataclasses.replace(ENDPOINT_REGISTRY["openai-chat"], reference_audio_capable=True)
+        monkeypatch.setitem(ENDPOINT_REGISTRY, "openai-chat", bad)
+        with pytest.raises(ValueError, match="must not declare reference_audio_capable"):
+            _validate_video_caps_declarations()
+
+    def test_audio_capable_endpoints_match_backends_that_send_audio(self):
+        """运输声明与 backend 实现同步：声明 True 的 endpoint 必须真的组装参考音频。"""
+        audio_capable = {k for k, s in ENDPOINT_REGISTRY.items() if s.reference_audio_capable}
+        assert audio_capable == {"ark-seedance", "dashscope-async-video"}
 
     def test_audio_endpoint_spec(self):
         spec = ENDPOINT_REGISTRY["openai-tts"]

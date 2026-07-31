@@ -21,9 +21,13 @@ from lib.api_errors import BadRequestError
 from lib.config.repository import mask_secret
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.capabilities import (
+    AUDIO_OVERRIDE_KEYS,
     CAPABILITY_OVERRIDE_FIELDS,
+    audio_capability_pair_is_coherent,
     capability_value_matches,
     filter_valid_overrides,
+    resolve_audio_pair,
+    strip_incoherent_audio_overrides,
     system_video_capabilities,
 )
 from lib.custom_provider.endpoints import (
@@ -38,6 +42,7 @@ from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
 from lib.image_backends.base import ImageCapability
+from lib.video_backends.base import ReferenceAudioMode
 from server.auth import CurrentUser
 
 
@@ -58,7 +63,7 @@ MaxWorkers = Annotated[int | None, Field(default=None, ge=1)]
 
 # 开放给用户覆盖的能力维度。DB 列与合成函数对 VideoCapabilities 全字段通用，写入侧在此收窄：
 # 未列入的维度即便是合法字段名也不落库，扩容只需往这里加键名，无需 DB 迁移或改合成语义。
-CAPABILITY_OVERRIDE_ALLOWLIST = frozenset({"last_frame"})
+CAPABILITY_OVERRIDE_ALLOWLIST = frozenset({"last_frame", "reference_audio_mode", "max_reference_audio_count"})
 
 # 白名单必须是 VideoCapabilities 字段名的子集：值类型校验直接按字段名取期望类型，键名写错
 # 要在导入期炸掉，而不是等到一次真实写入才 KeyError 成 500。
@@ -309,8 +314,13 @@ def _effective_overrides_for_response(
     再经 :func:`_narrow_to_allowlist` 收窄：DB 遗留的白名单外键（同样只能来自手工改库）若原样
     回显，与写入落库的键集合不一致，调用方需要额外知道"回显可能含脏键但写回会被剔除"。收窄与
     写入侧走同一个函数，两处集合同源。
+
+    音频两维另经 :func:`strip_incoherent_audio_overrides`：单维合法而合起来无意义的组合
+    （direct ⊕ 上限 0）过得了 :func:`filter_valid_overrides`，执行层却会把它降到 ``none``，
+    回显原值同样落进本函数要消灭的"界面显示已生效、执行其实忽略"。
     """
     filtered = _narrow_to_allowlist(filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides))
+    filtered = strip_incoherent_audio_overrides(filtered, endpoint=endpoint, model_id=model_id)
     return filtered or None
 
 
@@ -426,6 +436,31 @@ def _check_capability_overrides(
                     model_id=model_id,
                     endpoint=endpoint,
                 ),
+            )
+        # 同构：把音色模式覆盖成 direct 要求 endpoint 真的会下传 reference_audio_files。
+        if (
+            key == "reference_audio_mode"
+            and value == ReferenceAudioMode.DIRECT.value
+            and not get_endpoint_spec(endpoint).reference_audio_capable
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=_t(
+                    "capability_override_reference_audio_unsupported",
+                    model_id=model_id,
+                    endpoint=endpoint,
+                ),
+            )
+
+    # 合并后不变式：两维各自合法、合起来无意义的组合（支持音色输入却限 0 段）在这里拒，
+    # 而不是留给执行期静默降级——降级后用户会拿到「最多支持 0 段」这种无从遵循的提示。
+    # 稀疏覆盖只写其中一维也能凑出该组合，故按系统判定补齐未覆盖的那一维再判。
+    if any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
+        mode, count = resolve_audio_pair(overrides, endpoint=endpoint, model_id=model_id)
+        if not audio_capability_pair_is_coherent(mode=mode, count=count):
+            raise HTTPException(
+                status_code=422,
+                detail=_t("capability_override_audio_pair_incoherent", model_id=model_id),
             )
 
 

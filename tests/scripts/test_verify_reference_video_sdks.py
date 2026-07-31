@@ -6,7 +6,6 @@ import pytest
 import scripts.verify_reference_video_sdks as mod
 from lib.video_backends.base import (
     VideoCapabilities,
-    VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -122,8 +121,7 @@ def test_render_report_empty_results_still_emits_header():
 class _FakeBackend:
     name = "fake"
     model = "fake-v1"
-    capabilities = {VideoCapability.TEXT_TO_VIDEO, VideoCapability.IMAGE_TO_VIDEO}
-    video_capabilities = VideoCapabilities(reference_images=True, max_reference_images=9)
+    video_capabilities = VideoCapabilities(max_reference_images=9)
     _calls: list[VideoGenerationRequest] = []
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
@@ -227,7 +225,7 @@ async def test_run_once_failure_captures_error(tmp_path: Path):
 def test_clamp_refs_respects_backend_max():
     from scripts.verify_reference_video_sdks import clamp_refs_for_backend
 
-    caps = VideoCapabilities(reference_images=True, max_reference_images=3)
+    caps = VideoCapabilities(max_reference_images=3)
     clamped, note = clamp_refs_for_backend(requested=7, caps=caps)
     assert clamped == 3
     assert "clamped" in note.lower()
@@ -236,7 +234,7 @@ def test_clamp_refs_respects_backend_max():
 def test_clamp_refs_under_limit_passthrough():
     from scripts.verify_reference_video_sdks import clamp_refs_for_backend
 
-    caps = VideoCapabilities(reference_images=True, max_reference_images=9)
+    caps = VideoCapabilities(max_reference_images=9)
     clamped, note = clamp_refs_for_backend(requested=3, caps=caps)
     assert clamped == 3
     assert note == ""
@@ -245,7 +243,7 @@ def test_clamp_refs_under_limit_passthrough():
 def test_clamp_refs_backend_without_reference_support():
     from scripts.verify_reference_video_sdks import clamp_refs_for_backend
 
-    caps = VideoCapabilities(reference_images=False, max_reference_images=0)
+    caps = VideoCapabilities(max_reference_images=0)
     with pytest.raises(ValueError, match="does not support reference_images"):
         clamp_refs_for_backend(requested=1, caps=caps)
 
@@ -307,7 +305,7 @@ async def test_run_with_backend_returns_2_on_failure(tmp_path: Path, monkeypatch
 class _CappedFakeBackend(_FakeBackend):
     """max_reference_images=2，会触发 clamp note 分支。"""
 
-    video_capabilities = VideoCapabilities(reference_images=True, max_reference_images=2)
+    video_capabilities = VideoCapabilities(max_reference_images=2)
 
 
 @pytest.mark.asyncio

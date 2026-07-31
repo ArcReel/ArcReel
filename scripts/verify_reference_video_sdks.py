@@ -191,7 +191,7 @@ async def run_once(
 
 def clamp_refs_for_backend(*, requested: int, caps: VideoCapabilities) -> tuple[int, str]:
     """把 requested 夹到 backend 上限；若 backend 不支持 reference_images 则直接抛 ValueError。"""
-    if not caps.reference_images:
+    if caps.max_reference_images <= 0:
         raise ValueError("Backend does not support reference_images")
     if requested <= caps.max_reference_images:
         return requested, ""

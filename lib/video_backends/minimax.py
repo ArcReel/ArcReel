@@ -42,7 +42,6 @@ from lib.retry import (
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     VideoCapabilities,
-    VideoCapability,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -71,18 +70,10 @@ _RETRIEVE_ENDPOINT = "/files/retrieve"
 _MIN_POLL_TIMEOUT_SECONDS = 900.0
 _POLL_TIMEOUT_PER_SECOND = 60.0
 
-_TV = VideoCapability.TEXT_TO_VIDEO
-_IV = VideoCapability.IMAGE_TO_VIDEO
-
-# 按 model id 派发能力：Hailuo 2.3 文+图生视频；2.3-Fast 仅图生视频；S2V-01 既非 t2v 也非
-# i2v（subject_reference 驱动，能力经 VideoCapabilities.reference_images 表达），故为空集。
-_MODEL_CAPABILITIES: dict[str, set[VideoCapability]] = {
-    _HAILUO: {_TV, _IV},
-    _HAILUO_FAST: {_IV},
-    _S2V: set(),
-}
-# 未知 model（代理中转自定义命名）按通用文+图生视频处理。
-_DEFAULT_CAPABILITIES: set[VideoCapability] = {_TV, _IV}
+# 无首帧的文生视频不是各档通用：2.3-Fast 仅图生视频；S2V-01 由 subject_reference 驱动
+# （参考图路径经 VideoCapabilities.max_reference_images 表达），两者都不接受纯文本请求。
+# 未登记 model（代理中转自定义命名）按支持处理，与其余能力维度的「未知即通用默认」一致。
+_NO_TEXT_TO_VIDEO_MODELS: frozenset[str] = frozenset({_HAILUO_FAST, _S2V})
 
 # (分辨率小写 → 允许的时长集合)：1080P 仅 6s，768P 支持 6s/10s（两代 Hailuo 同此矩阵）。
 _RESOLUTION_DURATIONS: dict[str, set[int]] = {"768p": {6, 10}, "1080p": {6}}
@@ -91,9 +82,8 @@ _RESOLUTION_DURATIONS: dict[str, set[int]] = {"768p": {6, 10}, "1080p": {6}}
 _SAFE_LOG_KEYS: frozenset[str] = frozenset({"model", "resolution", "duration"})
 
 
-def _capabilities_for_model(model: str | None) -> set[VideoCapability]:
-    normalized = (model or "").strip()
-    return _MODEL_CAPABILITIES.get(normalized, _DEFAULT_CAPABILITIES)
+def _supports_text_to_video(model: str | None) -> bool:
+    return (model or "").strip() not in _NO_TEXT_TO_VIDEO_MODELS
 
 
 def _safe_body_for_log(body: dict) -> dict:
@@ -124,7 +114,7 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         self._base_url = minimax_video_base_url(base_url)
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
-        self._capabilities = _capabilities_for_model(self._model)
+        self._supports_text_to_video = _supports_text_to_video(self._model)
 
     @property
     def name(self) -> str:
@@ -134,19 +124,15 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
     def model(self) -> str:
         return self._model
 
-    @property
-    def capabilities(self) -> set[VideoCapability]:
-        return self._capabilities
-
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         """海螺图生视频走 first_frame_image 首帧；S2V-01 走 subject_reference 单脸参考生视频。
 
-        S2V-01 仅接受单张人脸参考、不接受首帧图，故 first_frame=False + reference_images=True
-        + max_reference_images=1。Hailuo 系列首批不建模尾帧/参考图。
+        S2V-01 仅接受单张人脸参考、不接受首帧图，故 first_frame=False + max_reference_images=1。
+        Hailuo 系列首批不建模尾帧/参考图。
         """
         if model == _S2V:
-            return VideoCapabilities(first_frame=False, reference_images=True, max_reference_images=1)
+            return VideoCapabilities(first_frame=False, max_reference_images=1)
         return VideoCapabilities(first_frame=True)
 
     @property
@@ -184,7 +170,7 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
         has_start_image = isinstance(request.start_image, (str, Path)) and str(request.start_image)
 
         # 无首帧 = 文生视频意图；模型不支持 t2v（如 Fast）即拒绝。
-        if not has_start_image and _TV not in self._capabilities:
+        if not has_start_image and not self._supports_text_to_video:
             raise VideoCapabilityError("video_capability_missing_t2v", provider=self.name, model=self._model)
 
         allowed_durations = _RESOLUTION_DURATIONS.get(resolution, set())

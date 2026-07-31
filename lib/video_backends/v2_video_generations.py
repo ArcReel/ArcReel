@@ -34,7 +34,6 @@ from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapabilities,
-    VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
@@ -269,11 +268,6 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
         self._root = _normalize_root(base_url)
         self._model = model
         self._http_timeout = http_timeout
-        self._capabilities: set[VideoCapability] = {
-            VideoCapability.TEXT_TO_VIDEO,
-            VideoCapability.IMAGE_TO_VIDEO,
-            VideoCapability.SEED_CONTROL,
-        }
 
     @property
     def name(self) -> str:
@@ -283,10 +277,6 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
     def model(self) -> str:
         return self._model
 
-    @property
-    def capabilities(self) -> set[VideoCapability]:
-        return self._capabilities
-
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         """按 model_id 纯计算 caps —— 不构造 client。保留 `model` 形参仅为跨 backend 接口统一，
@@ -295,7 +285,6 @@ class V2VideoGenerationsBackend(ProviderJobIdPersistenceMixin):
         return VideoCapabilities(
             first_frame=True,
             last_frame=True,
-            reference_images=True,
             max_reference_images=_DEFAULT_MAX_REFERENCE_IMAGES,
         )
 

@@ -17,7 +17,6 @@ from lib.providers import PROVIDER_VIDU
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
     VideoCapabilities,
-    VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
@@ -162,15 +161,6 @@ class ViduVideoBackend:
         self._base_url = base_url
         self._model = model or DEFAULT_MODEL
 
-        caps: set[VideoCapability] = {
-            VideoCapability.TEXT_TO_VIDEO,
-            VideoCapability.IMAGE_TO_VIDEO,
-            VideoCapability.SEED_CONTROL,
-        }
-        if self._model in _Q3_MODELS:
-            caps.add(VideoCapability.GENERATE_AUDIO)
-        self._capabilities = caps
-
     @property
     def name(self) -> str:
         return PROVIDER_VIDU
@@ -178,10 +168,6 @@ class ViduVideoBackend:
     @property
     def model(self) -> str:
         return self._model
-
-    @property
-    def capabilities(self) -> set[VideoCapability]:
-        return self._capabilities
 
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
@@ -198,7 +184,6 @@ class ViduVideoBackend:
         return VideoCapabilities(
             first_frame=model in _ENDPOINT_MODELS["/img2video"],
             last_frame=model in _ENDPOINT_MODELS["/start-end2video"],
-            reference_images=reference_images,
             max_reference_images=_MAX_REFERENCE_IMAGES if reference_images else 0,
             # 参考图与首帧在 Vidu 上是互斥模式：_select_endpoint 见参考图即切 /reference2video，
             # start_image 不进请求体（首帧被丢弃）。

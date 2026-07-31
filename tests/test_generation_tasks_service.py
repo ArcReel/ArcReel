@@ -5,7 +5,7 @@ import pytest
 
 from lib.config.resolver import ProviderModel
 from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
-from lib.video_frame_slots import plan_frame_slots
+from lib.video_frame_slots import gate_video_request
 from server.services import generation_tasks
 from server.services.generation_context import GenerationContext, ImageLaneResult, VideoLaneResult
 from server.services.generation_tasks import assert_duration_supported
@@ -1001,7 +1001,7 @@ class TestGenerationTasks:
     async def test_execute_video_task_end_frame_capability_unsupported_propagates(self, monkeypatch, tmp_path):
         """后端不支持尾帧能力时硬失败，不降级为参考图、不静默丢帧。
 
-        替身只替换 provider 调用，能力判定交给生产代码 plan_frame_slots 跑真值（caps
+        替身只替换 provider 调用，能力判定交给生产代码 gate_video_request 跑真值（caps
         last_frame=False）——否则替身按自己的条件抛异常，验的是替身而非接线是否真能触达
         gating。能力组合的各分支另见 tests/test_video_frame_slots.py。"""
         project_path = _prepare_files(tmp_path)
@@ -1015,14 +1015,13 @@ class TestGenerationTasks:
 
         async def _plan_with_real_gating(**kwargs):
             fake_generator.video_calls.append(kwargs)
-            plan_frame_slots(
+            gate_video_request(
                 caps=VideoCapabilities(first_frame=True, last_frame=False),
                 provider="ark",
                 model="seedance",
-                start_image=kwargs.get("start_image"),
                 end_image=kwargs.get("end_image"),
             )
-            raise AssertionError("plan_frame_slots 应在 end_image 非空且 caps.last_frame 为假时硬失败")
+            raise AssertionError("gate_video_request 应在 end_image 非空且 caps.last_frame 为假时硬失败")
 
         fake_generator.generate_video_async = _plan_with_real_gating
 
