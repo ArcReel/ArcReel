@@ -820,6 +820,10 @@ async def execute_character_voice_sample_task(
         raise ValueError("voice sample 任务需要 task_id")
 
     project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+    if character_name not in project.get("characters", {}):
+        # 与 execute_character_task 等其它执行器同口径：入队后、worker 取到任务前角色可能
+        # 已被删除，执行前重新核实存在，避免花钱合成一段没有归属的孤儿预览。
+        raise ValueError(f"character not found: {character_name}")
     ctx = await resolve_generation_context(
         project_name,
         payload,

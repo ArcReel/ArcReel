@@ -275,4 +275,101 @@ describe("VoiceSampleButton", () => {
     fireEvent.change(screen.getByLabelText("音色"), { target: { value: "Serena" } });
     expect(screen.queryByRole("button", { name: "确认并保存" })).not.toBeInTheDocument();
   });
+
+  it("disables the voice and text inputs while a sample is generating", async () => {
+    setAudioConfigured(true);
+    vi.spyOn(API, "getAudioBackendVoices").mockResolvedValue({
+      configured: true,
+      provider_id: "dashscope",
+      model: "qwen3-tts-flash",
+      voices: [{ id: "Cherry", label: "芊悦 · 阳光正向的自然年轻女声" }],
+    });
+    let resolveEnqueue: (value: { taskIds: string[]; deduped: boolean }) => void;
+    const enqueuePromise = new Promise<{ taskIds: string[]; deduped: boolean }>((resolve) => {
+      resolveEnqueue = resolve;
+    });
+    vi.spyOn(generationActions, "enqueueCharacterVoiceSample").mockReturnValue(enqueuePromise);
+
+    render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    // 提交 Cherry/默认文案的合成尚未完成时，音色与文案须锁定，避免用户中途改选后 Confirm
+    // 出现时挂着「界面显示新选择、实际保存的却是旧合成结果」的错配。
+    await waitFor(() => {
+      expect(screen.getByLabelText("音色")).toBeDisabled();
+    });
+    expect(screen.getByLabelText("试听文案")).toBeDisabled();
+
+    resolveEnqueue!({ taskIds: ["task-1"], deduped: false });
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "task-1",
+          project_name: "demo",
+          task_type: "voice_sample",
+          resource_id: "艾莉",
+          status: "succeeded",
+          result: { file_path: "audio/voice_sample__艾莉__task-1.wav" },
+          updated_at: "2026-07-31T00:00:00Z",
+        } as never,
+      ],
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("音色")).not.toBeDisabled();
+    });
+  });
+
+  it("stays interactive after the task row is evicted from the tasks-store snapshot post-landing", async () => {
+    setAudioConfigured(true);
+    vi.spyOn(API, "getAudioBackendVoices").mockResolvedValue({
+      configured: true,
+      provider_id: "dashscope",
+      model: "qwen3-tts-flash",
+      voices: [{ id: "Cherry", label: "芊悦 · 阳光正向的自然年轻女声" }],
+    });
+    vi.spyOn(generationActions, "enqueueCharacterVoiceSample").mockResolvedValue({
+      taskIds: ["task-1"],
+      deduped: false,
+    });
+
+    render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => {
+      expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalled();
+    });
+
+    // 任务行先落地（running）——everLanded 应记为 true。
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "task-1",
+          project_name: "demo",
+          task_type: "voice_sample",
+          resource_id: "艾莉",
+          status: "running",
+          result: null,
+          updated_at: "2026-07-31T00:00:00Z",
+        } as never,
+      ],
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+    });
+
+    // 大量新任务把这一行挤出 tasks-store 的最新 200 条快照——不是「尚未落地」的短暂空窗，
+    // 是「落地过又消失」，不该继续锁死弹窗。
+    useTasksStore.setState({ tasks: [] });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "取消" })).not.toBeDisabled();
+    });
+  });
 });

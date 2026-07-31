@@ -61,12 +61,30 @@ export function VoiceSampleButton({
   const audioConfigured = useConfigStatusStore((s) => s.availableMediaTypes.includes("audio"));
 
   const task = useTasksStore((s) => (taskId ? s.tasks.find((item) => item.task_id === taskId) : undefined));
-  // taskId 落定（enqueue 请求已成功）到该任务行出现在 tasks-store 快照之间有轮询间隔的
-  // 空窗——这段时间 localSubmitting 已经复位，但 task 在 store 里还查不到（非 undefined
-  // 判空会误判为「未在生成」）。taskId 非空且尚未拿到该行时按仍在生成处理，避免这段空窗
-  // 被误判为空闲从而允许关闭弹窗，导致丢失一个仍在合成、且已经计费的任务的追踪入口。
+
+  // tasks-store 只保留最新 TASKS_PAGE_SIZE(200) 行快照：taskId 落定后任务行尚未出现在
+  // store 里，与「任务行曾经出现过、但后来被更多新任务挤出快照」是两种不同的空窗——前者
+  // 该按生成中处理，后者继续判生成中会让弹窗永久锁死（Cancel/Escape/重新生成全部禁用，
+  // 且再也等不到它「完成」）。记录「当前 taskId 曾经落地过」：与其存布尔值再在 taskId
+  // 变化时手动复位，不如直接存「最近一次落地的 taskId」，与当前 taskId 比对天然复位。
+  const [landedTaskId, setLandedTaskId] = useState<string | null>(null);
+  useEffect(() => {
+    if (taskId == null) return;
+    const markIfLanded = (tasks: { task_id: string }[]) => {
+      if (tasks.some((item) => item.task_id === taskId)) setLandedTaskId(taskId);
+    };
+    // 订阅回调里 setState 是响应外部 store 变化，不是效应体内的同步 setState；首次挂载时
+    // store 里可能已经有这一行，延后到微任务里查一次初始值，避免在订阅建立期间嵌套 dispatch。
+    const unsubscribe = useTasksStore.subscribe((state) => markIfLanded(state.tasks));
+    void Promise.resolve().then(() => markIfLanded(useTasksStore.getState().tasks));
+    return unsubscribe;
+  }, [taskId]);
+  const everLanded = landedTaskId === taskId;
+
   const generating =
-    localSubmitting || (taskId != null && (task == null || task.status === "queued" || task.status === "running"));
+    localSubmitting ||
+    (taskId != null &&
+      (task == null ? !everLanded : task.status === "queued" || task.status === "running"));
   const failed = task?.status === "failed";
   const succeeded = task?.status === "succeeded";
   const previewFilePath =
@@ -231,7 +249,7 @@ export function VoiceSampleButton({
                 id={voiceFieldId}
                 value={selectedVoice}
                 onChange={(e) => handleVoiceChange(e.target.value)}
-                disabled={voicesLoading || voices.length === 0}
+                disabled={voicesLoading || voices.length === 0 || generating || confirming}
                 className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-[border-color,box-shadow] disabled:cursor-not-allowed disabled:opacity-60"
                 style={{
                   background: "oklch(0.20 0.011 265 / 0.6)",
@@ -270,7 +288,8 @@ export function VoiceSampleButton({
                 onChange={(e) => handleTextChange(e.target.value)}
                 maxLength={VOICE_SAMPLE_TEXT_MAX_LENGTH}
                 rows={3}
-                className="focus-ring mt-1.5 w-full resize-none rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow]"
+                disabled={generating || confirming}
+                className="focus-ring mt-1.5 w-full resize-none rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow] disabled:cursor-not-allowed disabled:opacity-60"
                 style={{
                   background: "oklch(0.20 0.011 265 / 0.6)",
                   border: "1px solid var(--color-hairline)",

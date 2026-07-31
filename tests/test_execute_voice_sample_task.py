@@ -36,7 +36,7 @@ def _audio_ctx(generator):
 class _FakePM:
     def __init__(self, project_path: Path):
         self._project_path = project_path
-        self.project = {"name": "demo"}
+        self.project = {"name": "demo", "characters": {"艾莉": {}, "E1S01": {}}}
 
     def load_project(self, project_name):
         return self.project
@@ -175,6 +175,16 @@ class TestExecuteCharacterVoiceSampleTask:
             await generation_tasks.execute_character_voice_sample_task(
                 "demo", "艾莉", {"prompt": "你好", "voice": "Cherry"}, task_id="task-1"
             )
+
+    async def test_character_deleted_after_enqueue_raises(self, voice_sample_env):
+        # 入队后、worker 取到任务前角色被删除：不应再花钱调用合成 API 产出孤儿预览。
+        pm, gen = voice_sample_env
+        del pm.project["characters"]["艾莉"]
+        with pytest.raises(ValueError, match="character not found"):
+            await generation_tasks.execute_character_voice_sample_task(
+                "demo", "艾莉", {"prompt": "你好", "voice": "Cherry"}, task_id="task-1"
+            )
+        assert gen.audio_calls == []
 
     def test_registered_in_task_executors(self):
         assert generation_tasks._TASK_EXECUTORS["voice_sample"] is generation_tasks.execute_character_voice_sample_task

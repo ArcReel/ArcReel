@@ -176,6 +176,20 @@ class TestGenerateCharacterVoiceSample:
 
         assert res.status_code == 404
 
+    def test_invalid_character_name_400_not_500(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        client = _client(monkeypatch, fake_pm, _FakeQueue())
+
+        with client:
+            # 冒号是 Windows 保留字符，validate_asset_name 拒绝，但作为单段路径值本身合法，
+            # 不会在到达路由处理函数之前就被 ASGI 路由层拦成 404。
+            res = client.post(
+                "/api/v1/projects/demo/characters/a%3Ab/voice-sample",
+                json={"text": "你好", "voice": "Cherry"},
+            )
+
+        assert res.status_code == 400
+
     def test_audio_provider_not_configured(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
         client = _client(monkeypatch, fake_pm, _FakeQueue(), audio_provider_ready=False)
@@ -265,6 +279,18 @@ class TestConfirmCharacterVoiceSample:
         assert body["path"] == "characters/refs_audio/艾莉.wav"
         assert fake_pm.updated_audio_refs == [("艾莉", "characters/refs_audio/艾莉.wav")]
         assert (project_path / "characters" / "refs_audio" / "艾莉.wav").read_bytes() == b"fake-wav"
+
+    def test_confirm_invalid_character_name_400_not_500(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        client = _client(monkeypatch, fake_pm, _FakeQueue())
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/a%3Ab/voice-sample/confirm",
+                json={"task_id": "task-1"},
+            )
+
+        assert res.status_code == 400
 
     def test_confirm_unknown_task_404(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")

@@ -447,7 +447,10 @@ async def generate_character_voice_sample(
     def _sync() -> tuple[dict, str]:
         pm_local = get_project_manager()
         project = pm_local.load_project(project_name)
-        char_name = validate_asset_name(name)
+        try:
+            char_name = validate_asset_name(name)
+        except ValueError:
+            raise BadRequestError("asset_invalid_name", name=name)
         if char_name not in (project.get("characters") or {}):
             raise NotFoundError("character_not_found", name=char_name)
         return project, char_name
@@ -497,7 +500,10 @@ async def confirm_character_voice_sample(
     ``execute_character_voice_sample_task``），此处只做「任务确属本角色、已成功」
     的归属校验后原样落盘，不重复校验。
     """
-    char_name = validate_asset_name(name)
+    try:
+        char_name = validate_asset_name(name)
+    except ValueError:
+        raise BadRequestError("asset_invalid_name", name=name)
     queue = get_generation_queue()
     task = await queue.get_task(req.task_id)
     if (
