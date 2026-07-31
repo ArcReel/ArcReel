@@ -895,12 +895,18 @@ class ProjectManager:
             剧本字典
         """
         norm = self.normalize_script_filename(filename)
+        # 先无锁读一次：绝大多数剧本早已完成收编，这条路径不取锁、不建 lock 文件，读剧本的
+        # 并发度与文件系统副作用与迁移前一致（剧本不存在也在建锁文件之前就 fail-loud）。
+        script, migrated = self._read_script_unlocked(project_name, norm)
+        if not migrated:
+            return script
         with self._script_lock(project_name, norm):
+            # 锁内重读一次再回写：读-改-写须在同一把剧本锁内完成，否则并发写者在无锁读与回写
+            # 之间落盘的内容会被迁移结果覆盖（同 load_project 的迁移回写）。不走
+            # _write_script_unlocked：迁移只是格式收编，不应刷新 metadata.updated_at、
+            # 不触发 project.json 同步与变更提示。
             script, migrated = self._read_script_unlocked(project_name, norm)
             if migrated:
-                # 读-改-写在同一把剧本锁内完成，避免并发写者在读与写之间落盘后被迁移覆盖
-                # （同 load_project 的迁移回写）。不走 _write_script_unlocked：迁移只是格式
-                # 收编，不应刷新 metadata.updated_at、不触发 project.json 同步与变更提示。
                 real = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
                 atomic_write_json(real, script)
         return script
@@ -908,10 +914,11 @@ class ProjectManager:
     def _read_script_unlocked(self, project_name: str, filename: str) -> tuple[dict, bool]:
         """裸读剧本并就地跑存量迁移，返回 ``(剧本, 是否发生迁移)``；**不取剧本锁**。
 
-        `load_script` 的锁内变体，两类调用方共用：
+        取锁与回写的责任在调用方，三类调用方共用：
         - 已持有 `_script_lock` 的读-改-写（`locked_script` 一族、写盘统一入口的集元数据同步）
           ——它们退出时照常写回，迁移结果随之落盘；此处二次取同一把 flock 会同进程自死锁。
-        - 只读取快照、不关心迁移是否落盘的路径——迁移仍在下一次 `load_script` 时回写。
+        - `load_script` 的无锁探测——未发生迁移就直接返回，不为读剧本引入锁竞争。
+        - `load_script` 取锁后的重读——回写前在锁内重新取一次最新内容。
         """
         project_dir = self.get_project_path(project_name)
         filename = self.normalize_script_filename(filename)

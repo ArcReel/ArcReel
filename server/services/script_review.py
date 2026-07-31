@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -20,8 +21,10 @@ from lib import script_review
 from lib.episode_ledger import discover_episode_files, register_orphan_episode_entries
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
-from lib.reference_video import rederive_unit_references
+from lib.reference_video import migrate_unit_durations, rederive_unit_references
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft, ReferenceStep1Draft
+
+logger = logging.getLogger(__name__)
 
 #: 结构化 step1 中间态的校验模型（按 step1 变体 ``script_review.step1_kind``）。编辑保存按此做结构校验：
 #: drama 为内容层 DramaNormalizedScript（utterances / source_text / scene_description），
@@ -101,6 +104,45 @@ class ScriptReviewService:
 
         return self.pm.update_project(project_name, _mutate)
 
+    def _read_step1_migrated(
+        self, project_name: str, project: dict[str, Any], episode: int, path: Path
+    ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        """读结构化 step1，并对参考生视频草稿做一次性时长收编迁移；返回 ``(内容, 最新 project)``。
+
+        草稿是 gate 的三个入口（读状态 / 保存 / 确认）唯一的内容来源，而收编后的
+        ``ReferenceStep1Unit`` 要求 unit 级 ``duration_seconds``、``Shot`` 不接受多余字段：
+        存量草稿若不在读时迁移，保存与确认都会撞结构校验，用户在 gate 里既改不了也确认不了。
+        剧集脚本的迁移在 ``ProjectManager.load_script``，草稿的在这里，两处共用同一迁移器。
+
+        gate 侧同样拿不到模型档位（能力解析是 async + DB），故只做结构区间 clamp，档位偏移由
+        step2 的枚举 schema 与执行时取档承担——与剧集脚本加载侧口径一致。
+
+        迁移是机械格式收编、不是内容编辑，但回写会让内容指纹漂移。若该集的确认指纹恰好记的是
+        迁移前的内容，就把它平移到迁移后的值，避免一个早已确认的分集仅因被加载而退回待审；
+        指纹本就对不上（step1 确实改过）时不动，照常按待审处理。
+        """
+        content = _read_json(path)
+        if content is None or script_review.step1_kind(project, episode) != "reference_video":
+            return content, project
+
+        before = script_review.content_fingerprint(path)
+        changed, warnings = migrate_unit_durations(content.get("units"))
+        for message in warnings:
+            logger.warning("step1 草稿 %s 时长收编迁移: %s", path.name, message)
+        if not changed:
+            return content, project
+
+        atomic_write_json(path, content)
+        after = script_review.content_fingerprint(path)
+        if after is None or script_review.stored_review(project, episode).get("fingerprint") != before:
+            return content, project
+
+        def _carry(p: dict[str, Any]) -> None:
+            stored = script_review.stored_review(p, episode)
+            script_review.apply_confirmation(p, episode, after, str(stored.get("confirmed_at") or ""))
+
+        return content, self.pm.update_project(project_name, _carry)
+
     def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
         """返回该集审核状态 + 结构化中间态内容（供 web 渲染）。
 
@@ -114,6 +156,10 @@ class ScriptReviewService:
             # 适用 gate（drama / narration 非 reference_video）才要求分集已登记；
             # not_applicable（ad / reference_video）与分集存在性无关，保持原样返回。
             project = self._require_episode(project_name, project, episode)
+        content: dict[str, Any] | None = None
+        if path is not None:
+            # 迁移可能回写 step1 与确认记录；指纹与状态须在其后取，三者据同一份落盘内容派生。
+            content, project = self._read_step1_migrated(project_name, project, episode, path)
         fingerprint = script_review.content_fingerprint(path) if path is not None else None
         return {
             "episode": episode,
@@ -121,7 +167,7 @@ class ScriptReviewService:
             "status": script_review.review_status(project_path, project, episode),
             "fingerprint": fingerprint,
             "confirmed_at": script_review.stored_review(project, episode).get("confirmed_at"),
-            "content": _read_json(path) if path is not None else None,
+            "content": content,
         }
 
     def save_content(self, project_name: str, episode: int, content: object) -> dict[str, Any]:
@@ -159,6 +205,8 @@ class ScriptReviewService:
         if path is None:
             raise ScriptReviewError("not_applicable")
         project = self._require_episode(project_name, project, episode)
+        # 存量草稿先做时长收编再校验：agent / 直连调用可能不经 get_state 就确认。
+        content, project = self._read_step1_migrated(project_name, project, episode, path)
         fingerprint = script_review.content_fingerprint(path)
         if fingerprint is None:
             raise ScriptReviewError("no_step1")
@@ -166,7 +214,7 @@ class ScriptReviewService:
         # 也会产出哈希，仅凭 fingerprint 非空会把损坏草稿确认放行、拖到 step2 才暴露；此处拒绝。
         kind, model = self._resolve_step1_model(project, episode)
         try:
-            validated = model.model_validate(_read_json(path))
+            validated = model.model_validate(content)
         except ValidationError as exc:
             raise ScriptReviewError("invalid_content", str(exc)) from exc
 

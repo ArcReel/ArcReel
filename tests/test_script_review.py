@@ -308,6 +308,82 @@ class TestReferenceVideoGateFlow:
         ]
 
 
+class TestReferenceVideoStep1Migration:
+    """存量 step1 草稿（per-shot 时长）在 gate 侧的一次性收编迁移。"""
+
+    @staticmethod
+    def _legacy_step1() -> dict:
+        """收编前形状：时长挂在各 shot 上，unit 无 duration_seconds。"""
+        legacy = _rv_step1()
+        del legacy["units"][0]["duration_seconds"]
+        legacy["units"][0]["shots"][0]["duration"] = 5
+        legacy["units"][0]["shots"][1]["duration"] = 3
+        return legacy
+
+    def test_legacy_draft_is_migrated_on_read_and_written_back(self, tmp_path):
+        """读状态即收编：unit 拿到求和时长、shot 不再带时长，且一次落盘、二次读不再改写。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        path = _write_rv_step1(pm, self._legacy_step1())
+
+        unit = svc.get_state("demo", 1)["content"]["units"][0]
+        assert unit["duration_seconds"] == 8
+        assert all("duration" not in s for s in unit["shots"])
+
+        on_disk = json.loads(path.read_text(encoding="utf-8"))
+        assert on_disk["units"][0]["duration_seconds"] == 8
+        assert all("duration" not in s for s in on_disk["units"][0]["shots"])
+
+        # 幂等：二次读不再改写落盘内容。
+        before = path.read_bytes()
+        svc.get_state("demo", 1)
+        assert path.read_bytes() == before
+
+    def test_legacy_draft_can_be_confirmed_and_saved(self, tmp_path):
+        """收编后存量草稿在 gate 里可确认、可保存——迁移前两者都撞结构校验（unit 缺必填时长）。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        _write_rv_step1(pm, self._legacy_step1())
+
+        confirmed = svc.confirm("demo", 1)
+        assert confirmed["status"] == "confirmed"
+
+        edited = confirmed["content"]
+        edited["units"][0]["shots"][0]["text"] = "@[阿离] 收伞。"
+        assert svc.save_content("demo", 1, edited)["status"] == "pending_review"
+
+    def test_confirm_survives_migration_without_reopening_review(self, tmp_path):
+        """迁移是机械收编、不是内容编辑：已确认的分集不因加载被回退到待审。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        legacy = self._legacy_step1()
+        path = _write_rv_step1(pm, legacy)
+
+        # 先在收编前的内容上记录确认指纹（模拟升级前已通过审核的分集）。
+        def _confirm_legacy(p: dict) -> None:
+            script_review.apply_confirmation(p, 1, script_review.content_fingerprint(path), "2026-01-01T00:00:00Z")
+
+        pm.update_project("demo", _confirm_legacy)
+        assert svc.get_state("demo", 1)["status"] == "confirmed"
+
+        state = svc.get_state("demo", 1)
+        assert state["status"] == "confirmed"
+        assert state["confirmed_at"] == "2026-01-01T00:00:00Z"
+        assert state["content"]["units"][0]["duration_seconds"] == 8
+
+    def test_migration_does_not_confirm_an_unconfirmed_episode(self, tmp_path):
+        """指纹本就对不上（step1 确实改过）时不平移确认记录，照常按待审处理。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        _write_rv_step1(pm, self._legacy_step1())
+
+        def _stale_confirm(p: dict) -> None:
+            script_review.apply_confirmation(p, 1, "0" * 64, "2026-01-01T00:00:00Z")
+
+        pm.update_project("demo", _stale_confirm)
+        assert svc.get_state("demo", 1)["status"] == "pending_review"
+
+
 class TestReferenceVideoStep2Enforcement:
     async def test_generate_blocked_then_confirm_tool_unblocks(self, tmp_path):
         """agent 路径：rv 的 step1 未确认时 step2 阻塞，confirm_script_review 工具确认后放行。"""

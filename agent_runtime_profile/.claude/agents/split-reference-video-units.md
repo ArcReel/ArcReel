@@ -32,8 +32,8 @@ mcp__arcreel__get_video_capabilities({})
 ```
 
 解析返回的 JSON，记录：
-- `supported_durations`：单 shot 允许的时长取值集合
-- `max_duration`：unit 总时长上限（各 shot 之和不得超过）
+- `supported_durations`：unit 时长允许的取值集合（档位枚举）
+- `max_duration`：单次生成的时长上限（unit 时长不得超过）
 - `max_reference_images`：单 unit references 上限
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
 
@@ -54,12 +54,12 @@ mcp__arcreel__get_video_capabilities({})
 mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episode_N.txt"})
 ```
 
-> dry_run=true 时仅返回 prompt 不调用模型，便于审查。工具按 response_schema 约束直接产出结构化 unit JSON，并在写盘前校验 unit 总时长上限、references 上限与资产名引用完整性。
+> dry_run=true 时仅返回 prompt 不调用模型，便于审查。工具按 response_schema 约束直接产出结构化 unit JSON，并在写盘前校验 unit 时长上限、references 上限与资产名引用完整性。
 
 **Step 2**: 验证输出
 
 使用 Read 工具读取生成的 `drafts/episode_{N}/step1_reference_units.json`，
-确认为合法 JSON 且每个 unit 含 unit_id / shots（每 shot 含 duration / text）/ references。
+确认为合法 JSON 且每个 unit 含 unit_id / duration_seconds / shots（每 shot 只含 text）/ references。
 
 如果结构有问题，直接用 Edit 工具修复（遵循下方「修改口径」）。
 
@@ -69,7 +69,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 
 使用 Read 工具读取现有 JSON，按修改要求用 Edit 工具直接修改，遵循**修改口径**：
 
-- shot `duration` 必须取 Step 0 查得的 `supported_durations` 中的值；unit 内所有 shot 时长之和不超过 `max_duration`，放不下时把该 unit 按叙事顺序重拆为多个 unit，不得违约时长
+- unit `duration_seconds` 必须取 Step 0 查得的 `supported_durations` 中的值，且不超过 `max_duration`；一个 unit 一个时长，镜头不单独承载时长。内容装不下所选档位时把该 unit 按叙事顺序重拆为多个 unit，不得违约时长
 - shot `text` 用 `@[名称]` 引用资产，名称必须逐字取自 `project.json` 三张表（不确定就 Read `project.json` 确认）；不写外貌 / 服装 / 场景细节
 - 修改 shot 文本中的 `@` 引用后，同步更新该 unit 的 `references`：各 shot 引用的并集、按首次出现顺序（顺序决定 [图N] 编号），去重后数量不超过 `max_reference_images`
 - unit_id 保持 `E{集数}U{两位序号}` 格式、全集唯一
@@ -85,9 +85,10 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
   "units": [
     {
       "unit_id": "E<集号>U01",
+      "duration_seconds": <duration>,
       "shots": [
-        {"duration": <duration>, "text": "@[李明] 推开 @[酒馆] 的门，环视四周。"},
-        {"duration": <duration>, "text": "@[李明] 走向柜台，把 @[长剑] 放在桌上。"}
+        {"text": "@[李明] 推开 @[酒馆] 的门，环视四周。"},
+        {"text": "@[李明] 走向柜台，把 @[长剑] 放在桌上。"}
       ],
       "references": [
         {"type": "character", "name": "李明"},
@@ -99,7 +100,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 }
 ```
 
-> 填值规则：`<duration>` 必须取自 Step 0 查得的 `supported_durations`；unit 内 shot 时长之和 ≤ `max_duration` 且宜贴近该值。
+> 填值规则：`<duration>` 必须取自 Step 0 查得的 `supported_durations` 且 ≤ `max_duration`，宜贴近内容实际需要的长度。
 > `<集号>` 由 `mcp__arcreel__split_reference_video_units` 工具在调用时按当前 episode 注入；本示例用占位符避免误把 `E1` 当硬编码值。
 
 ### 返回摘要

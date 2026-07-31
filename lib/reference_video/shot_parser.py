@@ -120,19 +120,6 @@ def parse_prompt(text: str) -> tuple[list[Shot], list[str]]:
     return [Shot(text=t) for t in segments], extract_mentions(text)
 
 
-def render_shots_prompt(shots: list[Any]) -> str:
-    """把 unit.shots 还原为用户在编辑器里书写的 prompt 文本（``parse_prompt`` 的逆）。
-
-    多镜头补 ``镜头N：`` header 使再次解析能切回同样的镜头边界；单镜头直出正文——
-    单镜头 unit 的 header 不携带任何信息，补上只会在往返编辑中凭空长出一行。
-    前端解析预览与后端渲染共用此口径。
-    """
-    texts = [str(s.get("text") or "") if isinstance(s, dict) else "" for s in shots]
-    if len(texts) <= 1:
-        return texts[0] if texts else ""
-    return "\n".join(f"镜头{i}：{text}" for i, text in enumerate(texts, start=1))
-
-
 def extract_mentions(text: str) -> list[str]:
     """提取文本中的 @ 引用名（保持首次出现顺序、去重）。
 

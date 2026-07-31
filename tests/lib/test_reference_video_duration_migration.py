@@ -153,6 +153,24 @@ class TestLoadScriptMigration:
             assert unit["duration_seconds"] == 8
             assert all("duration" not in s for s in unit["shots"])
 
+    def test_already_migrated_load_takes_no_script_lock(self, tmp_path: Path):
+        """收编完成后读剧本回到无锁路径：迁移不应给每次读盘都加上一把排他锁。"""
+        pm, _script = _write_legacy_project(tmp_path)
+        scripts_dir = tmp_path / "projects" / "demo" / "scripts"
+        pm.load_script("demo", "episode_1.json")
+        (scripts_dir / ".episode_1.json.lock").unlink(missing_ok=True)
+
+        pm.load_script("demo", "episode_1.json")
+        assert not (scripts_dir / ".episode_1.json.lock").exists()
+
+    def test_missing_script_fails_before_creating_lock_artifacts(self, tmp_path: Path):
+        """剧本不存在时照旧 fail-loud，且不为一次落空的读盘留下目录与锁文件。"""
+        pm, _script = _write_legacy_project(tmp_path)
+        project_dir = tmp_path / "projects" / "demo"
+        with pytest.raises(FileNotFoundError):
+            pm.load_script("demo", "episode_404.json")
+        assert not (project_dir / "scripts" / ".episode_404.json.lock").exists()
+
 
 @pytest.mark.parametrize("filename", ["episode_1.json", "scripts/episode_1.json"])
 def test_load_script_migration_survives_filename_aliases(tmp_path: Path, filename: str):

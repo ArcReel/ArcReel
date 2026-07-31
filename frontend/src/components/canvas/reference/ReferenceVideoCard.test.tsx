@@ -7,10 +7,9 @@ import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectData } from "@/types";
 import type { ReferenceVideoUnit } from "@/types/reference-video";
 
-// Shapes match backend: parse_prompt strips the `Shot N (Xs):` header when it
-// saves shots[].text, and sets duration_override=true for header-less single
-// shots. Keep test mocks aligned so the Card's header reconstruction runs
-// against realistic data.
+// Shapes match backend: parse_prompt strips the `镜头N：` header when it saves
+// shots[].text, and duration lives on the unit, not the shots. Keep test mocks
+// aligned so the Card's header reconstruction runs against realistic data.
 function mkUnit(overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
   return {
     unit_id: "E1U1",
@@ -92,7 +91,7 @@ describe("ReferenceVideoCard", () => {
     expect(ta.value).toBe("镜头1：line1\n镜头2：line2");
   });
 
-  it("renders raw text (no synthesized header) when duration_override is true", () => {
+  it("renders raw text (no synthesized header) for a single-shot unit", () => {
     const unit = mkUnit({
       shots: [{ text: "plain text with no header" }],
       duration_seconds: 1,

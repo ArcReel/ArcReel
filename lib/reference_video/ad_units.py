@@ -235,9 +235,10 @@ def render_reference_legend(labels: list[str]) -> str:
 def render_ad_unit_prompt(shots: list[dict], *, style: str | None = None) -> str:
     """把 unit 的成员镜头渲染为多镜头视频生成 prompt。
 
-    每个镜头一行 ``Shot {n} ({duration}s): {画面描述}``，显式传达切镜节奏与
-    单镜头时长（与 narration/drama 参考路径 step1 的书写格式同形）；项目风格
-    以 ``Style:`` 头行注入。所有镜头都无画面内容时返回空串，让入队守卫
+    每个镜头一行 ``Shot {n} ({duration}s): {画面描述}``，显式传达切镜节奏与单镜头
+    时长——ad 骨架的时长仍挂在 shot 上（unit 是派生分组，时长取成员求和），与
+    narration/drama 参考路径的 unit 级单时长不同源；项目风格以 ``Style:`` 头行注入。
+    所有镜头都无画面内容时返回空串，让入队守卫
     （``TaskSpec.from_request``）当场拒绝，而非把纯结构头发给供应商。
     """
     from lib.prompt_utils import normalize_style

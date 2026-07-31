@@ -1,7 +1,6 @@
 from lib.reference_video.shot_parser import (
     parse_prompt,
     render_prompt_for_backend,
-    render_shots_prompt,
     resolve_references,
 )
 from lib.script_models import ReferenceResource
@@ -45,17 +44,6 @@ def test_parse_empty_returns_empty_text_as_single_shot():
     shots, _refs = parse_prompt("")
     assert len(shots) == 1
     assert shots[0].text == ""
-
-
-def test_render_shots_prompt_round_trips_multi_shot():
-    text = "镜头1：开场\n镜头2：收尾"
-    shots, _refs = parse_prompt(text)
-    assert render_shots_prompt([s.model_dump() for s in shots]) == text
-
-
-def test_render_shots_prompt_single_shot_has_no_header():
-    assert render_shots_prompt([{"text": "只有一个镜头"}]) == "只有一个镜头"
-    assert render_shots_prompt([]) == ""
 
 
 def test_extract_mentions_ordered_unique():

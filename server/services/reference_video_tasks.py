@@ -278,9 +278,10 @@ def precheck_unit(ctx: ProjectDurationContext, unit: dict, ad_shots: list[dict] 
 def default_unit_duration(ctx: ProjectDurationContext, project: dict) -> int:
     """新建 unit 的默认时长（秒）：项目偏好 > 收窄后的首个档位 > 兜底。
 
-    与执行层解析申请秒数的回退序同源（``project.default_duration`` → 按当前分辨率收窄后的
-    档位首项 → 兜底），使新建单元拿到的秒数与它真正被生成时申请的秒数一致。项目偏好不是
-    当前模型的档位成员时（换模型后配置漂移）不采信，退到档位首项。
+    档位按执行层同一套约束收窄（``effective_reference_durations``），使新建单元拿到的秒数
+    落在它真正被生成时能申请到的档位内。项目偏好不是当前模型的档位成员时（换模型后配置
+    漂移）不采信，退到档位首项；档位不可解析时退到 ``FALLBACK_UNIT_DURATION``，与执行层
+    读不到 unit 时长时的兜底值同源。
     """
     durations = effective_reference_durations(
         ctx.provider_id,
