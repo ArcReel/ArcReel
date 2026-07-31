@@ -120,6 +120,17 @@ class TestProductsRouter:
             # 未被污染：整个非法请求应当被拒绝，不产生 partial 落地
             assert "无线音箱" not in fake_pm.projects["demo"]["products"]
 
+    def test_create_normalizes_null_string_field_to_empty(self, monkeypatch):
+        fake_pm = _FakePM()
+        with _client(monkeypatch, fake_pm) as client:
+            resp = client.post(
+                "/api/v1/projects/demo/products",
+                json={"name": "无线音箱", "description": "", "brand": None},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["product"]["brand"] == ""
+            assert fake_pm.projects["demo"]["products"]["无线音箱"]["brand"] == ""
+
     def test_error_mapping(self, monkeypatch):
         fake_pm = _FakePM()
         with _client(monkeypatch, fake_pm) as client:

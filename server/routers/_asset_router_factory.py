@@ -107,7 +107,14 @@ def build_asset_router(
         # 校验），create 路径此前遗漏，extra="allow" 下调用方可传任意 JSON 类型。
         for field in spec.extra_string_fields:
             value = extras.get(field)
-            if value is not None and not isinstance(value, str):
+            if value is None:
+                # None 视同未提供：不拒绝，但要从 extras 摘除，否则下面
+                # entry[field] = extras.get(field, "") 的默认值不生效
+                # （字段存在但值为 None 时 dict.get 不会回退到默认值），
+                # 写入 project.json 的会是 None 而非空字符串，破坏该字段
+                # 「必为字符串」的持久化契约。
+                extras.pop(field, None)
+            elif not isinstance(value, str):
                 raise HTTPException(status_code=422, detail=f"field '{field}' must be a string")
         for field in spec.extra_list_fields:
             value = extras.get(field)
