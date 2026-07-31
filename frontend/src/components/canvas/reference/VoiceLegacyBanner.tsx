@@ -15,7 +15,18 @@
  */
 import { History, X } from "lucide-react";
 import type { Character } from "@/types/project";
-import type { ReferenceVideoUnit } from "@/types/reference-video";
+
+/**
+ * computeVoiceLegacyNotice 所需的最小 unit 形状——同时兼容 narration/drama 的
+ * `ReferenceVideoUnit` 与 ad+reference_video 的 `AdReferenceUnit`：两者的完成态 unit
+ * 都经同一个 `apply_unit_video_assets` 落盘点戳 `video_generated_at`，横幅判定逻辑
+ * 因此不关心具体画布类型。
+ */
+export interface VoiceNoticeUnit {
+  unit_id: string;
+  references: readonly { type: string; name: string }[];
+  generated_assets?: { status?: string | null; video_generated_at?: string | null } | null;
+}
 
 export interface VoiceLegacyNotice {
   /** 生成于设置之前、且当前未被关闭覆盖的片段数 */
@@ -33,7 +44,7 @@ function toEpochMs(iso: string): number {
 
 /** 纯函数，独立可测：不依赖 store/hooks。 */
 export function computeVoiceLegacyNotice(
-  units: readonly ReferenceVideoUnit[],
+  units: readonly VoiceNoticeUnit[],
   characters: Record<string, Character>,
 ): VoiceLegacyNotice {
   const staleUnitIds = new Set<string>();
@@ -41,7 +52,7 @@ export function computeVoiceLegacyNotice(
 
   for (const unit of units) {
     if (unit.generated_assets?.status !== "completed") continue;
-    const videoGeneratedAt = unit.generated_assets.video_generated_at;
+    const videoGeneratedAt = unit.generated_assets?.video_generated_at;
 
     for (const ref of unit.references) {
       if (ref.type !== "character") continue;
