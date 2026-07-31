@@ -332,6 +332,7 @@ export default {
   'openai_model_sync_action': 'Làm mới mô hình',
   'openai_model_sync_failed': 'Không thể đồng bộ mô hình OpenAI. Danh mục mô hình tích hợp vẫn khả dụng.',
   'no_text_providers_hint': 'Không có nhà cung cấp văn bản khả dụng, vui lòng cấu hình khóa API tại "Nhà cung cấp" trước.',
+  'asset_prompts_kicker': 'Mẫu prompt',
   'asset_prompts_title': 'Prompt',
   'asset_prompts_desc': 'Chỉnh sửa prompt hệ thống cho ảnh thiết kế tài sản. Prompt được hợp nhất sau phong cách dự án, tên tài sản và mô tả của người dùng.',
   'asset_prompt_character_label': 'Prompt thư viện nhân vật',

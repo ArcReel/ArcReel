@@ -18,6 +18,15 @@ OPENAI_GPT_56_REASONING_EFFORTS: tuple[str, ...] = (
     "max",
 )
 
+_OPENAI_GPT_56_REASONING_MODELS = frozenset(
+    {
+        "gpt-5.6",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+    }
+)
+
 _TEXT_MODEL_PREFIXES = ("gpt-", "chatgpt-", "o1", "o3", "o4")
 _NON_CHAT_MODEL_MARKERS = (
     "audio",
@@ -62,7 +71,7 @@ def openai_reasoning_efforts_for_model(model_id: str) -> tuple[str, ...]:
     """Return locally verified reasoning-effort values for an OpenAI model."""
 
     normalized = model_id.strip().lower()
-    if normalized == "gpt-5.6" or normalized.startswith("gpt-5.6-"):
+    if normalized in _OPENAI_GPT_56_REASONING_MODELS:
         return OPENAI_GPT_56_REASONING_EFFORTS
     return ()
 

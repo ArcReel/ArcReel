@@ -31,9 +31,12 @@ def test_chat_text_filter_is_conservative_for_unknown_families():
 
 
 def test_gpt_56_family_exposes_verified_reasoning_efforts():
-    assert openai_reasoning_efforts_for_model("gpt-5.6") == OPENAI_GPT_56_REASONING_EFFORTS
-    assert openai_reasoning_efforts_for_model("gpt-5.6-sol-2026-07-01") == OPENAI_GPT_56_REASONING_EFFORTS
+    for model_id in ("gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
+        assert openai_reasoning_efforts_for_model(model_id) == OPENAI_GPT_56_REASONING_EFFORTS
+
     assert openai_reasoning_efforts_for_model("gpt-5.5") == ()
+    assert openai_reasoning_efforts_for_model("gpt-5.6-codex") == ()
+    assert openai_reasoning_efforts_for_model("gpt-5.6-sol-2026-07-01") == ()
 
 
 def test_reasoning_effort_is_only_applied_to_supported_model():

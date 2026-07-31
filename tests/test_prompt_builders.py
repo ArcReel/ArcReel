@@ -21,7 +21,7 @@ class TestCharacterPrompt:
         )
         assert "姜月茴" in prompt
         assert "黑发，冷静神态。" in prompt
-        # 四视图 16:9 布局（issue #353）
+        # 四视图 16:9 布局
         assert "16:9" in prompt
         assert "四格" in prompt
         assert "胸像特写" in prompt or "胸部以上" in prompt

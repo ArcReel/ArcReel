@@ -329,6 +329,7 @@ export default {
   'openai_model_sync_action': 'Refresh models',
   'openai_model_sync_failed': 'OpenAI models could not be synced. The built-in model catalog remains available.',
   'no_text_providers_hint': 'No text providers available, please configure API keys in "Providers" first.',
+  'asset_prompts_kicker': 'Prompt Templates',
   'asset_prompts_title': 'Prompts',
   'asset_prompts_desc': 'Edit the system prompts for asset design images. They are merged after project style, asset name, and the user description.',
   'asset_prompt_character_label': 'Character library prompt',

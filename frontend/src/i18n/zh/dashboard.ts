@@ -329,6 +329,7 @@ export default {
   'openai_model_sync_action': '刷新模型',
   'openai_model_sync_failed': '暂时无法同步 OpenAI 模型，当前仍可使用内置模型目录。',
   'no_text_providers_hint': '暂无可用文本供应商，请先在「供应商」页面配置 API 密钥',
+  'asset_prompts_kicker': '提示词模板',
   'asset_prompts_title': '提示词',
   'asset_prompts_desc': '编辑资产设计图的系统提示词；生成时会在项目画风、资产名称和用户描述之后合并。',
   'asset_prompt_character_label': '角色集提示词',

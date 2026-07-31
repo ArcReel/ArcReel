@@ -20,7 +20,7 @@ from collections.abc import Sequence
 # 内部常量：防崩 / 反向 / 布局 / 风格前缀
 # ---------------------------------------------------------------------------
 
-# 角色图采用 issue #353 的四视图 16:9 布局。
+# 角色图采用四视图 16:9 布局。
 _CHARACTER_LAYOUT = (
     "横版 16:9 四格布局，纯白 (#FFFFFF) 背景：左侧约 40% 宽为胸像特写（清晰展示面部、发型、配饰、上装），"
     "右侧三个等宽面板分别为正面 / 四分之三侧面 / 背面的 A-Pose 全身视图。"
@@ -100,7 +100,7 @@ def build_character_prompt(
     style_description: str = "",
     system_prompt: str | None = None,
 ) -> str:
-    """角色设计图 prompt（issue #353 四视图 16:9）。"""
+    """角色设计图 prompt（四视图 16:9）。"""
     style_block = _style_prefix(style, style_description)
     instructions = _asset_prompt_instructions(system_prompt, DEFAULT_CHARACTER_ASSET_PROMPT)
     return f"{style_block}角色「{name}」的设计参考图。\n\n{description}\n\n{instructions}"

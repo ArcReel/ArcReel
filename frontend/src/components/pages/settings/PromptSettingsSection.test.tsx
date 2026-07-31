@@ -50,6 +50,7 @@ describe("PromptSettingsSection", () => {
   it("shows stored prompts and built-in fallbacks", async () => {
     render(<PromptSettingsSection />);
 
+    expect(await screen.findByText("提示词模板")).toBeInTheDocument();
     expect(await screen.findByLabelText("角色集提示词")).toHaveValue("默认角色规则");
     expect(screen.getByLabelText("场景库提示词")).toHaveValue("自定义场景规则");
     expect(screen.getByLabelText("道具库提示词")).toHaveValue("默认道具规则");

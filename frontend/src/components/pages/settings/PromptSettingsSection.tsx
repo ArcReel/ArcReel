@@ -82,7 +82,7 @@ export function PromptSettingsSection() {
     <div className="space-y-7">
       <div>
         <div className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-accent-2">
-          Prompt Templates
+          {t("asset_prompts_kicker")}
         </div>
         <h3
           className="font-editorial mt-1"
