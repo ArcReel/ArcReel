@@ -1272,3 +1272,18 @@ def test_apply_unit_video_assets_distinguishes_failures():
     assert "video_uri" not in ga
     assert ga["video_thumbnail"] == "reference_videos/thumbnails/E1U1.jpg"
     assert ga["status"] == "completed"
+
+
+def test_apply_unit_video_assets_stamps_video_generated_at():
+    """每次写回 video_clip 都机械戳 video_generated_at（#1492 存量过渡横幅计数依据）。"""
+    from server.services.reference_video_tasks import apply_unit_video_assets
+
+    script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {}}]}
+    apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
+    first_stamp = script["video_units"][0]["generated_assets"]["video_generated_at"]
+    assert isinstance(first_stamp, str) and first_stamp
+
+    # 重新生成（第二次写回）必须刷新时间戳，不能沿用旧值
+    apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
+    second_stamp = script["video_units"][0]["generated_assets"]["video_generated_at"]
+    assert isinstance(second_stamp, str) and second_stamp

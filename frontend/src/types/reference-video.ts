@@ -59,6 +59,8 @@ export interface UnitGeneratedAssets {
   video_uri: string | null;
   /** Raw backend status — use `UnitStatus` for UI display. */
   status: UnitPersistedStatus;
+  /** ISO8601 completion time; null for legacy clips predating this field (treated as "before any voice setting"). */
+  video_generated_at: string | null;
 }
 
 export interface ReferenceVideoUnit {

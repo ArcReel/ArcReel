@@ -1958,6 +1958,11 @@ class ProjectManager:
         """
         更新角色的参考音频路径（空串表示清空）
 
+        同时机械戳 ``voice_updated_at``（单一写点，含上传/清空/from-project 复用此方法的
+        路径），用于跟已生成片段的 ``generated_assets.video_generated_at`` 比较，驱动
+        存量过渡横幅（#1492）计数——无需额外「已关闭」布尔位，关闭态用
+        ``voice_notice_dismissed_at`` 时间戳与本字段比较即可自然表达「新变更后重新出现」。
+
         Args:
             project_name: 项目名称
             char_name: 角色名称
@@ -1971,6 +1976,7 @@ class ProjectManager:
             if "characters" not in project or char_name not in project["characters"]:
                 raise KeyError(f"角色 '{char_name}' 不存在")
             project["characters"][char_name]["reference_audio"] = ref_path
+            project["characters"][char_name]["voice_updated_at"] = datetime.now(UTC).isoformat()
 
         return self.update_project(project_name, _mutate)
 

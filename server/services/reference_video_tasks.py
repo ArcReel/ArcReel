@@ -9,6 +9,7 @@ import asyncio
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -599,6 +600,7 @@ def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | 
             if not isinstance(ga, dict):
                 raise ScriptEditError("generated_assets 必须是 dict", key="script_edit_generated_assets_invalid")
             ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
+            ga["video_generated_at"] = datetime.now(UTC).isoformat()
             if video_uri:
                 ga["video_uri"] = video_uri
             else:

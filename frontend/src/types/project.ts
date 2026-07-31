@@ -23,6 +23,10 @@ export interface Character {
   voice_style?: string;
   reference_image?: string;
   reference_audio?: string;
+  /** reference_audio 最近一次设置/更新的时间（ISO8601），由后端在写入时机械戳。 */
+  voice_updated_at?: string;
+  /** 存量过渡横幅的关闭时间（ISO8601）；voice_updated_at 晚于此值即视为「新变更后重新出现」。 */
+  voice_notice_dismissed_at?: string;
 }
 
 export interface Scene {

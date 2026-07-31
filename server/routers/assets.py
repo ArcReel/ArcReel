@@ -6,6 +6,7 @@ import asyncio
 import logging
 import shutil
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -568,6 +569,8 @@ async def apply_to_project(
                 payload["voice_style"] = a_.voice_style or ""
                 if ta:
                     payload["reference_audio"] = ta
+                    # 资产即开关：导入即等效「设置了这个声音」，横幅计数须能感知（#1492）
+                    payload["voice_updated_at"] = datetime.now(UTC).isoformat()
             if ts:
                 payload[sk] = ts
             if bk not in data or not isinstance(data.get(bk), dict):

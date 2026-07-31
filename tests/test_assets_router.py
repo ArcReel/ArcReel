@@ -656,6 +656,8 @@ class TestApplyToProject:
         assert target_audio.read_bytes() == b"audio-bytes"
         data = pm.load_project("target")
         assert data["characters"]["王"]["reference_audio"] == "characters/refs_audio/王.wav"
+        # 「资产即开关」：导入即视为该项目新设置了这个声音，横幅计数须能感知到（#1492）
+        assert data["characters"]["王"]["voice_updated_at"]
 
     def test_image_copied_to_target_project(self, _assets_env):
         """End-to-end: from-project → asset library → apply-to-project copies the image too."""
