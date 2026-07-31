@@ -338,9 +338,13 @@ export function StudioCanvasRouter() {
       description: string;
       voiceStyle: string;
       referenceFile?: File | null;
+      audioFile?: File | null;
     },
   ) => {
     if (!currentProjectName) return;
+    const invalidateKeys = payload.referenceFile || payload.audioFile
+      ? [buildEntityRevisionKey("character", name)]
+      : [];
     try {
       await API.updateCharacter(currentProjectName, name, {
         description: payload.description,
@@ -356,14 +360,22 @@ export function StudioCanvasRouter() {
         );
       }
 
-      await refreshProject(
-        payload.referenceFile
-          ? [buildEntityRevisionKey("character", name)]
-          : [],
-      );
+      if (payload.audioFile) {
+        await API.uploadFile(
+          currentProjectName,
+          "character_audio_ref",
+          payload.audioFile,
+          name,
+        );
+      }
+
       useAppStore.getState().pushToast(tRef.current("character_updated_toast", { name }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("update_character_failed", { message: errMsg(err) }), "error");
+    } finally {
+      // 三步写操作顺序执行，任一步失败时前面已持久化的变更（描述/参考图）也要反映到本地
+      // store，否则用户会误以为整个保存失败而重复提交
+      await refreshProject(invalidateKeys);
     }
   }, [currentProjectName, refreshProject]);
 

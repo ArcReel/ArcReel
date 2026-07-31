@@ -577,6 +577,38 @@ class TestPatchProject:
         assert char["character_sheet"] == "characters/li_bai.png"  # 系统字段未被 agent 覆写
         assert "random_extra_field" not in char  # spec 外字段不入库
 
+    async def test_upsert_strips_reference_audio(self, ctx: ToolContext) -> None:
+        """reference_audio 与 reference_image 同性质（用户上传路径），不进
+        agent_editable_extra_fields，agent 尝试写入应被静默丢弃。"""
+        ctx.pm.update_project(
+            "demo",
+            lambda p: p["characters"].update(
+                {
+                    "李白": {
+                        "description": "白衣剑客",
+                        "voice_style": "豪放",
+                        "reference_audio": "characters/refs_audio/李白.wav",
+                    }
+                }
+            ),
+        )
+
+        out = await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "characters",
+                "entries": {
+                    "李白": {
+                        "description": "改后描述",
+                        "reference_audio": "fake/agent_overwrite.wav",  # 应被丢弃
+                    }
+                },
+            },
+        )
+        assert out.get("is_error") is not True
+        char = ctx.pm.load_project("demo")["characters"]["李白"]
+        assert char["reference_audio"] == "characters/refs_audio/李白.wav"  # 未被 agent 覆写
+
     async def test_non_string_description_rejected(self, ctx: ToolContext) -> None:
         """description 必须是非空字符串：agent 误传数字（如 LLM 把"1"输出成 int）
         会让原 truthy 校验放行、错误数据作为合法资产落盘——守卫点须 fail-loud。"""

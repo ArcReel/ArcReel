@@ -56,9 +56,10 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         sheet_field="character_sheet",
         subdir="characters",
         label_zh="角色",
-        extra_string_fields=("voice_style", "reference_image"),
-        # voice_style 是 LLM 生成的角色配音风格，agent 可改；reference_image 是用户上传
-        # 的文件路径（系统级），不进 agent 白名单——更新走 update_character_reference_image。
+        extra_string_fields=("voice_style", "reference_image", "reference_audio"),
+        # voice_style 是 LLM 生成的角色配音风格，agent 可改；reference_image / reference_audio
+        # 是用户上传的文件路径（系统级），不进 agent 白名单——更新分别走
+        # update_character_reference_image / update_character_reference_audio。
         agent_editable_extra_fields=("voice_style",),
     ),
     "scene": AssetSpec(

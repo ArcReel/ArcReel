@@ -1313,6 +1313,13 @@ class DataValidator:
                     f"characters[{char_name}].reference_image",
                     default_dir="characters/refs",
                 )
+                self._validate_local_reference(
+                    project_dir,
+                    char_data.get("reference_audio"),
+                    errors,
+                    f"characters[{char_name}].reference_audio",
+                    default_dir="characters/refs_audio",
+                )
 
         scenes_dict = project.get("scenes", {})
         if isinstance(scenes_dict, dict):

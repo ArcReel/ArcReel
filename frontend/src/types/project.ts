@@ -20,6 +20,7 @@ export interface Character {
   character_sheet?: string;
   voice_style?: string;
   reference_image?: string;
+  reference_audio?: string;
 }
 
 export interface Scene {

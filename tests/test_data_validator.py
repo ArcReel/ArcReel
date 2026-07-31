@@ -789,6 +789,48 @@ class TestEpisodeLedgerFields:
         )
         assert any("越界" in e for e in result.errors)
 
+    def test_tree_validation_reference_audio_missing_field_is_valid(self, tmp_path):
+        """reference_audio 是可选字段：角色没有该字段/为空串时不应报错。"""
+        payload = _project_payload()
+        _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+            tmp_path / "projects" / "demo"
+        )
+        assert not any("reference_audio" in e for e in result.errors)
+
+    def test_tree_validation_reference_audio_accepts_existing_file(self, tmp_path):
+        payload = _project_payload()
+        payload["characters"]["姜月茴"]["reference_audio"] = "characters/refs_audio/姜月茴.wav"
+        _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
+        audio_path = tmp_path / "projects" / "demo" / "characters" / "refs_audio" / "姜月茴.wav"
+        audio_path.parent.mkdir(parents=True, exist_ok=True)
+        audio_path.write_bytes(b"fake-wav-bytes")
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+            tmp_path / "projects" / "demo"
+        )
+        assert not any("reference_audio" in e for e in result.errors)
+
+    def test_tree_validation_reference_audio_missing_file_rejected(self, tmp_path):
+        payload = _project_payload()
+        payload["characters"]["姜月茴"]["reference_audio"] = "characters/refs_audio/姜月茴.wav"
+        _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+            tmp_path / "projects" / "demo"
+        )
+        assert any("reference_audio" in e for e in result.errors)
+
+    def test_tree_validation_reference_audio_rejects_path_traversal(self, tmp_path):
+        payload = _project_payload()
+        payload["characters"]["姜月茴"]["reference_audio"] = "../outside.wav"
+        _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_project_tree(
+            tmp_path / "projects" / "demo"
+        )
+        assert any("reference_audio" in e and "越界" in e for e in result.errors)
+
 
 def _ad_project_payload(**overrides) -> dict:
     payload = {

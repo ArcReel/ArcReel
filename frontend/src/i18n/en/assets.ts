@@ -47,6 +47,7 @@ export default {
   "add_to_library_success": "\"{{name}}\" added to library",
   "add_to_library_busy_hint": "Generation or editing in progress — cannot add to library",
   "upload_sheet_busy_hint": "Generation or editing in progress — cannot upload a design sheet",
+  "delete_audio_busy_hint": "Generation or editing in progress — cannot delete the audio sample",
   "upload_sheet_short": "Upload",
   "edit": "Edit",
   "delete": "Delete",

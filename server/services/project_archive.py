@@ -553,6 +553,19 @@ class ProjectArchiveService:
                     diagnostics=diagnostics,
                 ):
                     project_changed = True
+                # reference_audio 不像 reference_image 强制统一扩展名（不转码），扩展名从
+                # 现有字段值推导，与上传落盘约定（characters/refs_audio/{name}<ext>）一致
+                audio_raw = char_data.get("reference_audio")
+                audio_ext = Path(audio_raw).suffix if isinstance(audio_raw, str) and audio_raw.strip() else ""
+                if self._repair_path_to_canonical(
+                    project_dir,
+                    char_data,
+                    field_name="reference_audio",
+                    canonical_rel=f"characters/refs_audio/{char_name}{audio_ext}",
+                    location=f"characters[{char_name}].reference_audio",
+                    diagnostics=diagnostics,
+                ):
+                    project_changed = True
 
         scenes = project.get("scenes")
         if isinstance(scenes, dict):
