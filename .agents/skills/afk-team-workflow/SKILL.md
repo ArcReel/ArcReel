@@ -35,7 +35,7 @@ batch-poll 只产出 gh/git 事实与机械汇总，不做语义判断。取得�
 
 TeamCreate 建团队。并发上限指同时进行的 issue 数（处于任一阶段都算）：并发越高，每次合并引发的重审与并发请示越多。
 
-issue 的启动条件：全部 blocker 已合入 main。worktree 一律从最新 main 创建，不做跨分支依赖；blocker 被搁置时下游不启动，归入收尾清单。
+issue 的启动条件：全部 blocker 已合入 main。启动时将 issue assign 给自己作为认领标记（`gh issue edit <N> --add-assignee @me`）。worktree 一律从最新 main 创建，不做跨分支依赖；blocker 被搁置时下游不启动，归入收尾清单。
 
 每个 issue 由三个阶段接力，每个阶段使用干净上下文（实现阶段可由 codex 后台任务而非 teammate 承担，见「实现路线与模型」）：
 
@@ -84,7 +84,7 @@ teammate 的一切暂停请示先到你这里。分四类处置：
 1. **故障类**（bot 报错、quota 耗尽、长时间无响应）：自行裁决，不升级用户。按 /pr-ai-review-loop 故障节的建议重试一次；仍失败则本 PR 停用该 reviewer 并记录，收尾前可做一次补审尝试。即时 append 账本 `fault`（崩溃恢复需据此 replay），并纳入收尾汇报
 2. **已答复又被重复提出的意见**：同一主题已有 pushback 在案、又被同一 reviewer 重复提出——不算真冲突、不搁置：裁决维持 pushback，令 looper 回评引用在案结论后继续循环；浮现出值得升级 ADR 的原则则记入收尾转呈，不当场写 ADR
 3. **收敛类**（`round_estimate` ≥ 5 且每轮都是新出现的小意见、没有单一争点；或 looper 报连续 2 轮无实质收益）：先判断成因再选处置——①收益递减：剩余意见确无实质收益时，令 looper 逐条驳回留痕后走终核，超范围项记入 handoff 的 follow-up 候选；仍有实质意见则令其继续；②注意力漂移：令 looper 把本轮修复交由子代理在干净上下文中执行，自己继续负责轮询；③防御堆积：令 looper 从严执行可达性门槛——指不出触发路径的防御类意见一律驳回，指得出的照常修复；驳回项按 follow-up 候选记入 handoff，交清尾轮分拣；④issue 拆分过粗：按 needs-human 搁置并转呈。裁决 append 账本 `decision`
-4. **reviewer 真实冲突 / 业务取舍**：不选边，按 needs-human 搁置：PR 转 draft（draft 下 CodeRabbit 不审，冻结循环消除重审噪音）、issue 改 `ready-for-human`、PR 评论写明争点与双方立场、teammate 退役并清理 worktree（分支与 PR 留在远端待人工接手）、append 账本 `shelve`（含争点）并归入收尾清单
+4. **reviewer 真实冲突 / 业务取舍**：不选边，按 needs-human 搁置：PR 转 draft（draft 下 CodeRabbit 不审，冻结循环消除重审噪音）、issue 改 `ready-for-human` 并移除 assignee（取消认领，交还人工）、PR 评论写明争点与双方立场、teammate 退役并清理 worktree（分支与 PR 留在远端待人工接手）、append 账本 `shelve`（含争点）并归入收尾清单
 
 ## 健康检查与替补
 

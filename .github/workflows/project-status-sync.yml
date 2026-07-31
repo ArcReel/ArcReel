@@ -1,7 +1,7 @@
 name: project-status-sync
 
-# org Project 看板 Status 单向派生：labels/assignee/linked PR/closed → Status。
-# 事件驱动单 issue 投影 + 每日全量对账兜底；规则见 docs/agents/triage-labels.md。
+# 同步 org Project 看板的 Status 字段：由 triage 标签、assignee、关联 PR、开闭状态单向派生。
+# issue/PR 事件触发单 issue 同步，每日定时全量对账；规则实现在 scripts/project_status_sync.py。
 on:
   issues:
     types: [opened, reopened, closed, labeled, unlabeled, assigned, unassigned]

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""org Project 看板 Status 单向同步。
+"""同步 org Project 看板的 Status 字段。
 
-真相源在 repo 侧（triage labels、assignee、linked PR、closed 状态），看板 Status 只是投影；
-板上拖卡不作数，由本脚本在事件触发或全量对账时纠正。派生规则见 docs/agents/triage-labels.md。
+Status 由 repo 侧状态（triage 标签、assignee、关联 PR、开闭状态）单向派生，
+派生规则见 derive_status。看板上的手动改动不保留，同步时按派生结果覆盖。
 
 用法：
     GH_TOKEN=<org Projects RW token> python3 scripts/project_status_sync.py --issue 123 [456 ...]
@@ -36,7 +36,7 @@ STATUS_OPTIONS = {
     "Done": "98236657",
 }
 
-# 不占列的 issue：上板但 Status 清空，主视图靠 filter 排除
+# 带这些标签的 issue 不参与状态流转：Status 置空，视图用 filter 排除
 OFF_BOARD_LABELS = {"Spec", "parked"}
 
 MUTATION_BATCH = 20
@@ -60,7 +60,7 @@ def gql(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def derive_status(state: str, labels: set[str], has_assignee: bool, has_open_closing_pr: bool) -> str | None:
-    """按优先级派生 Status；返回 None 表示清空（Spec/parked 不占列）。"""
+    """按优先级派生 Status；返回 None 表示置空。"""
     if labels & OFF_BOARD_LABELS:
         return None
     if state == "CLOSED":
@@ -138,7 +138,7 @@ def sync_issue(number: int) -> None:
         if state != "OPEN":
             print(f"#{number}: 已关闭且不在板上，跳过")
             return
-        # 内置 auto-add 有延迟/漏网时兜底补录
+        # 内置 auto-add 未覆盖时补充添加
         added = gql(
             "mutation($pid: ID!, $cid: ID!) {"
             " addProjectV2ItemById(input: {projectId: $pid, contentId: $cid}) { item { id } } }",
@@ -223,7 +223,7 @@ def sync_all() -> None:
     changed = deleted = 0
     for item in items:
         if item["type"] == "PULL_REQUEST":
-            # PR 不上板；auto-add 过滤外的漏网在对账时清除
+            # 看板不收 PR item，对账时清除误入项
             parts.append(
                 f'deleteProjectV2Item(input: {{projectId: "{PROJECT_ID}", itemId: "{item["id"]}"}})'
                 " { clientMutationId }"
