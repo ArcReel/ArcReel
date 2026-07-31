@@ -296,6 +296,48 @@ class TestFilesRouter:
             new_path = project_dir / "characters" / "refs_audio" / "Alice.mp3"
             assert new_path.exists()
 
+    def test_character_audio_ref_replace_succeeds_when_stale_cleanup_fails(self, tmp_path, monkeypatch):
+        """替换成功但旧文件物理删除失败（权限/IO 错误）时，请求仍应成功——新文件与字段已提交，
+        不应因清理失败误报整次替换失败并诱导重试（重试时旧文件已找不到指针，成为孤儿）。"""
+        client, pm = _client(monkeypatch, tmp_path)
+
+        async def _fake_duration(content, suffix):
+            return 3.0
+
+        monkeypatch.setattr(files, "probe_audio_duration_seconds", _fake_duration)
+
+        with client:
+            first = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                files={"file": ("v1.wav", b"fake-wav-bytes", "audio/wav")},
+            )
+            assert first.status_code == 200
+            project_dir = pm.get_project_path("demo")
+            old_path = project_dir / "characters" / "refs_audio" / "Alice.wav"
+            assert old_path.exists()
+
+            original_unlink = Path.unlink
+
+            def _boom(self, *args, **kwargs):
+                if self == old_path:
+                    raise PermissionError("simulated unlink failure")
+                return original_unlink(self, *args, **kwargs)
+
+            monkeypatch.setattr(Path, "unlink", _boom)
+
+            second = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                files={"file": ("v2.mp3", b"fake-mp3-bytes", "audio/mpeg")},
+            )
+            assert second.status_code == 200
+            assert second.json()["path"] == "characters/refs_audio/Alice.mp3"
+            new_path = project_dir / "characters" / "refs_audio" / "Alice.mp3"
+            assert new_path.exists()
+            assert old_path.exists()  # 清理失败，旧文件残留（已记告警日志），但不影响本次请求成功
+            assert (
+                pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == "characters/refs_audio/Alice.mp3"
+            )
+
     def test_delete_character_reference_audio(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:

@@ -371,9 +371,17 @@ async def upload_file(
                 except KeyError:
                     pass  # 角色不存在，忽略
                 else:
-                    # 新样本已落盘且字段已指向它，此时删旧文件才不会留下「字段指向已删文件」的中间态
+                    # 新样本已落盘且字段已指向它，此时删旧文件才不会留下「字段指向已删文件」的中间态；
+                    # 旧文件物理删除失败（权限/IO 错误，含 Windows 文件占用）不应让本次替换报错——
+                    # 新文件与字段都已成功提交，此时再抛异常会让调用方误以为整次替换失败并重试，
+                    # 而重试时 old_audio 已指向新文件，旧文件反而成为找不到指针的孤儿。仅记录告警。
                     if stale_audio_path is not None:
-                        stale_audio_path.unlink(missing_ok=True)
+                        try:
+                            stale_audio_path.unlink(missing_ok=True)
+                        except OSError:
+                            logger.warning(
+                                "旧参考音频物理删除失败，可能残留孤儿文件：%s", stale_audio_path, exc_info=True
+                            )
 
             if upload_type == "scene" and name:
                 try:
