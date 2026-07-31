@@ -102,6 +102,7 @@ class TestDataValidator:
         assert result.valid
         assert not any("title" in error for error in result.errors)
 
+    @pytest.mark.integration
     def test_validate_project_rejects_non_string_voice_updated_at(self, tmp_path):
         # voice_updated_at 不在 extra_string_fields 里（系统专用戳字段，不开放通用 PATCH），
         # 但仍须校验类型：外部编辑/导入把它写成非字符串会在前端时间戳比较处静默产生 NaN。
@@ -115,6 +116,7 @@ class TestDataValidator:
         assert not result.valid
         assert any("voice_updated_at 必须是字符串" in error for error in result.errors)
 
+    @pytest.mark.integration
     def test_validate_project_rejects_unparseable_voice_updated_at(self, tmp_path):
         # 类型是字符串但不是合法 ISO8601 时不会被上面的类型校验拦下，但前端
         # `new Date(iso).getTime()` 解析会得到 NaN，参与比较恒为 false——横幅因此静默
@@ -129,6 +131,7 @@ class TestDataValidator:
         assert not result.valid
         assert any("voice_updated_at 不是合法的 ISO8601 时间戳" in error for error in result.errors)
 
+    @pytest.mark.integration
     def test_validate_project_rejects_unparseable_voice_notice_dismissed_at(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         payload = _project_payload()
@@ -140,6 +143,7 @@ class TestDataValidator:
         assert not result.valid
         assert any("voice_notice_dismissed_at 不是合法的 ISO8601 时间戳" in error for error in result.errors)
 
+    @pytest.mark.integration
     def test_validate_project_accepts_z_and_offset_voice_timestamps(self, tmp_path):
         # 仓库内两种实际写出的格式都须放行：秒级 Z 后缀（版本还原）与微秒级 +00:00 偏移
         # （datetime.now(UTC).isoformat()）。
@@ -1213,6 +1217,7 @@ class TestAdReferenceUnitsValidation:
         result = self._validate(tmp_path, [self._ad_shot()], None)
         assert result.valid, result.errors
 
+    @pytest.mark.integration
     def test_unparseable_video_generated_at_rejected(self, tmp_path):
         # 外部编辑/导入把 video_generated_at 写成不可解析的字符串时不会被类型校验拦下，
         # 但前端 `new Date(iso).getTime()` 解析得到 NaN，参与比较恒为 false，判定因此

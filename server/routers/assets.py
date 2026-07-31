@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import uuid
 from datetime import UTC, datetime
@@ -307,7 +308,16 @@ async def from_project(
             project_dir = get_project_manager().get_project_path(req.project_name)
             ProjectManager._safe_subpath(project_dir, audio_rel)
             candidate = project_dir / audio_rel
-            if candidate.exists() and candidate.is_file():
+            # reference_audio 可经通用角色 PATCH 被写成项目内任意字符串（extra_string_fields
+            # 只做类型校验），仅 _safe_subpath 防越界不足以防止把 project.json 等其它项目
+            # 文件当作音频复制进全局库；额外校验父目录命中 characters/refs_audio，与
+            # server/routers/files.py::_resolve_audio_ref_path 同一口径。
+            audio_refs_dir = project_dir / "characters" / "refs_audio"
+            if (
+                candidate.exists()
+                and candidate.is_file()
+                and os.path.realpath(candidate.parent) == os.path.realpath(audio_refs_dir)
+            ):
                 source_audio_path = candidate
         except (ValueError, FileNotFoundError):
             source_audio_path = None

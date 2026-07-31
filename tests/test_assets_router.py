@@ -343,6 +343,7 @@ class TestFromProject:
         assert ap and ap.startswith("_global_assets/character/")
         assert (pm.projects_root / ap).read_bytes() == b"audio-bytes"
 
+    @pytest.mark.integration
     def test_from_project_audio_copy_failure_cleans_up_image(self, _assets_env, monkeypatch):
         """图片拷贝成功后音频拷贝失败：不留孤儿图片文件，异常正常传播。"""
         client = _assets_env["client"]
@@ -383,6 +384,31 @@ class TestFromProject:
         global_character_assets = pm.get_global_assets_root() / "character"
         leftover = list(global_character_assets.glob("*")) if global_character_assets.exists() else []
         assert leftover == []
+
+    @pytest.mark.integration
+    def test_from_project_ignores_reference_audio_outside_refs_audio_dir(self, _assets_env):
+        """reference_audio 可经通用角色 PATCH 被写成项目内任意字符串；仅路径不越界
+        不足以防止把 project.json 等其它项目文件当作音频复制进全局库，须额外确认
+        父目录命中 characters/refs_audio（与 files.py::_resolve_audio_ref_path 同口径）。"""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "王", "d", "")
+
+        def _set_fields(project):
+            # 项目内真实存在、但不在 characters/refs_audio 下的文件——模拟经通用 PATCH
+            # 写入的越权路径。
+            project["characters"]["王"]["reference_audio"] = "project.json"
+
+        pm.update_project("demo", _set_fields)
+
+        r = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "demo", "resource_type": "character", "resource_id": "王"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["asset"]["audio_path"] is None
 
     def test_from_project_without_audio_has_null_audio_path(self, _assets_env):
         client = _assets_env["client"]
