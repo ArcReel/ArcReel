@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Mic, Pause, Play } from "lucide-react";
 import { enqueueCharacterVoiceSample } from "@/actions/generation";
@@ -50,6 +50,7 @@ export function VoiceSampleButton({
   const [localSubmitting, setLocalSubmitting] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const previewAudioRef = useRef<HTMLAudioElement>(null);
   const titleId = useId();
   const descId = useId();
   const voiceFieldId = useId();
@@ -275,8 +276,8 @@ export function VoiceSampleButton({
                 >
                   {/* eslint-disable-next-line jsx-a11y/media-has-caption -- TTS 试听样本，无对白内容，无字幕源 */}
                   <audio
+                    ref={previewAudioRef}
                     src={previewUrl}
-                    id={`${textFieldId}-preview`}
                     className="hidden"
                     onPlay={() => setIsPreviewPlaying(true)}
                     onPause={() => setIsPreviewPlaying(false)}
@@ -284,8 +285,8 @@ export function VoiceSampleButton({
                   />
                   <button
                     type="button"
-                    onClick={(e) => {
-                      const audioEl = e.currentTarget.parentElement?.querySelector("audio");
+                    onClick={() => {
+                      const audioEl = previewAudioRef.current;
                       if (!audioEl) return;
                       if (isPreviewPlaying) audioEl.pause();
                       else void audioEl.play();

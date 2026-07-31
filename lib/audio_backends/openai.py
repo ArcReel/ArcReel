@@ -94,7 +94,10 @@ class OpenAIAudioBackend:
         return {AudioCapability.TEXT_TO_SPEECH}
 
     def list_voices(self) -> list[VoiceOption]:
-        if self._model in _LEGACY_MODELS:
+        # legacy 收窄只对官方 OpenAI 生效：自定义 openai-tts 供应商（provider_name 被覆盖）即使
+        # 模型名恰好也叫 tts-1/tts-1-hd，也无法确定其是否真的继承官方同名模型的音色限制——
+        # 维持全量目录是既有、已声明的兼容策略（见文件顶部注释与 _build_openai_tts 调用点）。
+        if self._provider_name == PROVIDER_OPENAI and self._model in _LEGACY_MODELS:
             return [v for v in _VOICE_CATALOG if v.id not in _LEGACY_UNSUPPORTED_VOICE_IDS]
         return list(_VOICE_CATALOG)
 

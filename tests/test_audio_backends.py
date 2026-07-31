@@ -348,6 +348,17 @@ class TestOpenAIAudioBackend:
             ids = {v.id for v in b.list_voices()}
             assert {"ballad", "verse", "marin", "cedar"} <= ids
 
+    def test_list_voices_legacy_narrowing_only_applies_to_official_openai(self):
+        """自定义供应商即使模型名恰好也叫 tts-1/tts-1-hd，也无法确定其继承官方同名模型的
+        音色限制——legacy 收窄只对 provider_name 为官方 openai 时生效，避免对无法验证的
+        第三方 endpoint 误收窄。"""
+        with patch("lib.openai_shared.AsyncOpenAI"):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", model="tts-1", provider_name="custom-7")
+            ids = {v.id for v in b.list_voices()}
+            assert {"ballad", "verse", "marin", "cedar"} <= ids
+
     async def test_speed_passthrough_and_omitted_when_none(self, tmp_path: Path):
         mock_client = _mock_speech_client()
         with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):

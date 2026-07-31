@@ -348,3 +348,61 @@ class TestConfirmCharacterVoiceSample:
             )
 
         assert res.status_code == 400
+
+    def test_confirm_missing_sample_file_404(self, tmp_path, monkeypatch):
+        """任务已 succeeded 且 result.file_path 非空，但样本文件在磁盘上不存在。"""
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_queue = _FakeQueue(
+            {
+                "task-1": {
+                    "project_name": "demo",
+                    "task_type": "voice_sample",
+                    "resource_id": "艾莉",
+                    "status": "succeeded",
+                    "result": {"file_path": "audio/voice_sample__艾莉__task-1.wav"},
+                }
+            }
+        )
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/艾莉/voice-sample/confirm",
+                json={"task_id": "task-1"},
+            )
+
+        assert res.status_code == 404
+
+    def test_confirm_replaces_stale_reference_audio_with_different_extension(self, tmp_path, monkeypatch):
+        """角色已有 reference_audio 指向不同扩展名的旧文件：确认后新文件写入且旧文件被清理。"""
+        project_path = tmp_path / "projects" / "demo"
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"]["艾莉"]["reference_audio"] = "characters/refs_audio/艾莉.mp3"
+        old_audio_path = project_path / "characters" / "refs_audio" / "艾莉.mp3"
+        old_audio_path.parent.mkdir(parents=True, exist_ok=True)
+        old_audio_path.write_bytes(b"old-mp3-bytes")
+
+        rel = self._write_sample(project_path, "艾莉")
+        fake_queue = _FakeQueue(
+            {
+                "task-1": {
+                    "project_name": "demo",
+                    "task_type": "voice_sample",
+                    "resource_id": "艾莉",
+                    "status": "succeeded",
+                    "result": {"file_path": rel},
+                }
+            }
+        )
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/艾莉/voice-sample/confirm",
+                json={"task_id": "task-1"},
+            )
+
+        assert res.status_code == 200
+        assert (project_path / "characters" / "refs_audio" / "艾莉.wav").exists()
+        assert not old_audio_path.exists()
+        assert fake_pm.updated_audio_refs == [("艾莉", "characters/refs_audio/艾莉.wav")]
