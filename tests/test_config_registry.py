@@ -239,6 +239,7 @@ class TestFullyCoveredCredentialGroups:
         assert meta.fully_covered_credential_groups({}) == []
 
 
+@pytest.mark.unit
 class TestModelHasAudioTrack:
     """model_has_audio_track —— voice_consistency 派生所依据的音轨判定。"""
 

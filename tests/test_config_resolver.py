@@ -768,8 +768,10 @@ class TestVideoCapabilities:
         assert caps["last_frame"] is False
 
 
+@pytest.mark.integration
 class TestVoiceConsistency:
-    """voice_consistency 二维派生（模型能力 × generation_mode）。"""
+    """voice_consistency 二维派生（模型能力 × generation_mode）。全员经 `_make_session()` 落真实
+    in-memory DB，按 CONTRIBUTING.md 的 pytest markers 纪律归 integration。"""
 
     async def _caps(self, project: dict) -> dict:
         resolver = ConfigResolver.__new__(ConfigResolver)
@@ -838,7 +840,6 @@ class TestVoiceConsistency:
         caps = await self._caps({"video_backend": "agnes/agnes-video-v2.0"})
         assert caps["voice_consistency"] == "none"
 
-    @pytest.mark.integration
     async def test_custom_provider_without_overrides_defaults_to_soft(self):
         """自定义供应商无 generate_audio 目录声明：与 default_tier_generates_audio 同口径，
         无信号时假定有声，不凭空判定为真无声模型。"""
@@ -880,7 +881,6 @@ class TestVoiceConsistency:
         # 无音轨目录声明时假定有声 → soft，不落 none。
         assert caps["voice_consistency"] == "soft"
 
-    @pytest.mark.integration
     async def test_custom_provider_with_direct_override_and_reference_video_is_native(self):
         """自定义供应商覆盖 reference_audio_mode=direct + 上限 > 0，且走参考生视频路径 → native。"""
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel

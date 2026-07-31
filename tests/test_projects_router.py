@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
@@ -1487,6 +1488,7 @@ class TestGetVideoCapabilities:
             assert resp.status_code == 200
             assert resp.json() == fake_caps
 
+    @pytest.mark.integration
     def test_video_backend_param_resolves_candidate_model(self, tmp_path, monkeypatch):
         """带 video_backend 时按候选模型解析，而不是按已落盘配置。
 
@@ -1511,6 +1513,7 @@ class TestGetVideoCapabilities:
         resolver_instance.video_capabilities.assert_not_awaited()
         assert resolver_instance.video_capabilities_for_model.await_args.args[:2] == ("openai", "sora-2")
 
+    @pytest.mark.integration
     def test_malformed_video_backend_returns_400(self, tmp_path, monkeypatch):
         self._patch_resolver(monkeypatch, return_value={})
         client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
@@ -1520,6 +1523,31 @@ class TestGetVideoCapabilities:
                 params={"video_backend": "no-slash"},
             )
         assert resp.status_code == 400
+
+    @pytest.mark.integration
+    def test_bare_provider_video_backend_resolves_default_model(self, tmp_path, monkeypatch):
+        """裸 provider（无 "/"）按 registry 默认视频 model 补全，不再被判定为格式错误。
+
+        存量项目的 video_backend 可以是裸 provider 覆盖（见 `_parse_project_provider`），设置
+        表单未改选时原样带上，回归会让这类项目的能力查询恒 400。
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        resolver_instance = MagicMock()
+        resolver_instance.video_capabilities_for_model = AsyncMock(return_value={"model": "candidate"})
+        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
+
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.get(
+                "/api/v1/projects/ready/video-capabilities",
+                params={"video_backend": "openai"},
+            )
+        assert resp.status_code == 200
+        assert resp.json() == {"model": "candidate"}
+        provider_id, model_id = resolver_instance.video_capabilities_for_model.await_args.args[:2]
+        assert provider_id == "openai"
+        assert model_id
 
     def test_unknown_project_returns_404(self, tmp_path, monkeypatch):
         self._patch_resolver(monkeypatch, side_effect=FileNotFoundError("项目 'nonexistent' 不存在"))

@@ -111,11 +111,19 @@ describe("lookupCatalogVideoAudio", () => {
     });
   });
 
-  it("returns null for unknown model, unknown provider, custom backends and malformed strings", () => {
+  it("returns null for unknown model, unknown provider and malformed strings", () => {
     expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "gemini-aistudio/unknown")).toBeNull();
     expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "bogus-provider/whatever")).toBeNull();
-    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "custom-3/my-model")).toBeNull();
     expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "no-slash")).toBeNull();
+  });
+
+  // 自定义供应商目录无逐模型声明，与服务端 `_resolve_video_caps_for_model` 同口径固定假定
+  // 有声（soft）——不是「未知」，故不返回 null。
+  it("assumes audible/soft for custom backends (no per-model declaration, same default as the server)", () => {
+    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "custom-3/my-model")).toEqual({
+      hasAudioTrack: true,
+      voiceConsistency: "soft",
+    });
   });
 });
 

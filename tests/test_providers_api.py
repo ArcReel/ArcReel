@@ -174,6 +174,7 @@ class TestListProviders:
         assert models["veo-3.1-fast-generate-preview"]["resolutions"] == ["720p", "1080p"]
         assert models["imagen-4.0-generate-001"]["resolutions"] == []
 
+    @pytest.mark.unit
     def test_video_model_exposes_has_audio_track_for_always_audible_exception(self):
         """gemini-aistudio 的 veo-3.1-fast-generate-preview 未声明 generate_audio token，
         但恒有声（开关不可控），has_audio_track 须为 True（不得因缺 token 误判无声）。"""
@@ -182,6 +183,7 @@ class TestListProviders:
         models = resp.json()["providers"][0]["models"]
         assert models["veo-3.1-fast-generate-preview"]["has_audio_track"] is True
 
+    @pytest.mark.unit
     def test_non_video_model_has_audio_track_false(self):
         """image model 的 has_audio_track 恒 False（音轨判定对非视频 model 无意义）。"""
         with _make_client(self._mock_svc_with_models()) as client:
@@ -190,6 +192,7 @@ class TestListProviders:
         assert models["imagen-4.0-generate-001"]["has_audio_track"] is False
         assert models["imagen-4.0-generate-001"]["voice_consistency"] == "none"
 
+    @pytest.mark.unit
     def test_unknown_mocked_model_id_defaults_safely(self):
         """mock 里的 model_id 若不在真实 PROVIDER_REGISTRY 中（如本测试的 imagen-4.0-generate-001），
         两个新字段须安全回落默认值，不抛错。"""
@@ -197,6 +200,7 @@ class TestListProviders:
             resp = client.get("/api/v1/providers")
         assert resp.status_code == 200
 
+    @pytest.mark.unit
     def test_ark_seedance_2_catalog_voice_consistency_degrades_to_soft(self):
         """目录端点无项目上下文：即便模型支持参考音频直传，generation_mode 未知也只能给 soft。
 
