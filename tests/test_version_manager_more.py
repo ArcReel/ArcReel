@@ -45,7 +45,7 @@ class TestVersionManagerMore:
         assert len(info["versions"]) == 2
         assert vm.get_version_file_url("characters", "Alice", 2)
         assert vm.get_version_prompt("characters", "Alice", 2) == "p2"
-        # 还原参考视频时要拿被还原版本的原始入库时间回填 video_generated_at（#1492）
+        # 还原参考视频时要拿被还原版本的原始入库时间回填 video_generated_at
         assert vm.get_version_created_at("characters", "Alice", 1)
         assert vm.get_version_created_at("characters", "Alice", 99) is None
         assert vm.has_versions("characters", "Alice")

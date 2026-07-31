@@ -1275,7 +1275,7 @@ def test_apply_unit_video_assets_distinguishes_failures():
 
 
 def test_apply_unit_video_assets_stamps_video_generated_at():
-    """每次写回 video_clip 都机械戳 video_generated_at（#1492 存量过渡横幅计数依据）。"""
+    """每次写回 video_clip 都机械戳 video_generated_at（存量过渡横幅的计数依据）。"""
     from server.services.reference_video_tasks import apply_unit_video_assets
 
     script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {}}]}

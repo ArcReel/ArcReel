@@ -509,7 +509,7 @@ class TestProjectManagerMore:
         first_stamp = alice["voice_updated_at"]
         assert isinstance(first_stamp, str) and first_stamp
 
-        # 清空参考音频也须刷新 voice_updated_at（存量过渡横幅的单一写点，见 #1492）
+        # 清空参考音频也须刷新 voice_updated_at（存量过渡横幅的判定基准）
         pm.update_character_reference_audio("demo", "Alice", "")
         cleared = pm.get_project_character("demo", "Alice")
         assert cleared["reference_audio"] == ""

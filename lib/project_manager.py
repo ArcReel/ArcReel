@@ -1959,7 +1959,7 @@ class ProjectManager:
         更新角色的参考音频路径（空串表示清空）
 
         同时机械戳 ``voice_updated_at``（覆盖上传/清空两条路径），用于跟已生成片段的
-        ``generated_assets.video_generated_at`` 比较，驱动存量过渡横幅（#1492）计数——
+        ``generated_assets.video_generated_at`` 比较，驱动存量过渡横幅计数——
         无需额外「已关闭」布尔位，关闭态用 ``voice_notice_dismissed_at`` 时间戳与本字段
         比较即可自然表达「新变更后重新出现」。
 

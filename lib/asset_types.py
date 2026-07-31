@@ -60,7 +60,7 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         # voice_style 是 LLM 生成的角色配音风格，agent 可改；reference_image / reference_audio
         # 是用户上传的文件路径（系统级），不进 agent 白名单——更新分别走
         # update_character_reference_image / update_character_reference_audio。
-        # voice_notice_dismissed_at 是存量过渡横幅的关闭时间戳（#1492），由前端「关闭」
+        # voice_notice_dismissed_at 是存量过渡横幅的关闭时间戳，由前端「关闭」
         # 动作通过本通用 PATCH 写入；agent 不该也无需感知横幅 UI 状态，不进白名单。
         # 与之比较的 voice_updated_at 不在此列——只由系统在 reference_audio 实际变更时机械戳写
         # （update_character_reference_audio 与全局资产库导入），不开放任意 PATCH 覆写
