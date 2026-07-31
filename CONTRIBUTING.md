@@ -190,9 +190,9 @@ feat(grid): 支持 grid_12 布局
 将宫格系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
-**本仓库约定：不使用破坏性变更标记。** 前后端同仓一体发布，后端 API 的唯一消费者是自带前端，接口删改不构成对外破坏性变更——按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer。误标的纠正手段是编辑该 PR 正文追加 `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` 块，release-please 会按 override 重算 changelog 与版本号（需 squash 合并，本仓库满足）；0.x 阶段的 `bump-minor-pre-major` 只起限损作用——版本仍会升 minor 而非本应的 patch，changelog 仍出现破坏性变更区块，不能替代 override 纠正。
+**本仓库不使用破坏性变更标记。** 前后端同仓一体发布，后端 API 的唯一消费者是自带前端，接口删改不构成对外破坏性变更，按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer。误标合并后的纠正方式：编辑该 PR 正文追加 `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` 块，release-please 按 override 重算 changelog 与版本号（需 squash 合并，本仓库满足）；0.x 阶段的 `bump-minor-pre-major` 仅把误标的版本跃迁限制为 minor，不修正 changelog。
 
-以下语法说明仅用于识别误标，本仓库不使用这两种写法。**破坏性变更**有两种等价写法：
+以下语法说明仅用于识别误标。**破坏性变更**有两种等价写法：
 
 ```
 # 写法 1：type 后加 !
