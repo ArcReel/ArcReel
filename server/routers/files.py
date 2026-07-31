@@ -7,7 +7,6 @@
 import asyncio
 import json
 import logging
-import os
 import shutil
 import tempfile
 from collections.abc import Callable
@@ -20,7 +19,15 @@ from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib.api_errors import NotFoundError
 from lib.asset_types import GLOBAL_LIBRARY_ASSET_TYPES
-from lib.audio_utils import probe_audio_duration_seconds
+from lib.audio_utils import (
+    AUDIO_REFERENCE_MAX_BYTES,
+    AUDIO_REFERENCE_MAX_SECONDS,
+    AUDIO_REFERENCE_MIN_SECONDS,
+    discard_stale_reference_audio,
+    probe_audio_duration_seconds,
+    resolve_audio_ref_path,
+    resolve_stale_reference_audio,
+)
 from lib.config.resolver import VisionCapabilityError
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
@@ -31,7 +38,7 @@ from lib.episode_paths import (
 )
 from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
-from lib.path_safety import PathTraversalError, safe_join, safe_resolve
+from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import effective_mode, get_project_manager
 from lib.source_loader import (
@@ -55,21 +62,6 @@ def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:
     return file.filename
 
 
-def _resolve_audio_ref_path(project_dir: Path, audio_refs_dir: Path, rel_path: str | None) -> Path | None:
-    """解析 reference_audio 字段值，仅当其确实落在 characters/refs_audio 内才返回。
-
-    该字段可经资产 PATCH 被写成项目内任意字符串（extra_string_fields 只做类型校验），
-    单靠 safe_resolve 只保证不越界出项目目录，还不足以防止被诱导删除 project.json
-    等项目内其它文件，故额外校验父目录命中 refs_audio。
-    """
-    resolved = safe_resolve(project_dir, rel_path)
-    if resolved is None:
-        return None
-    if os.path.realpath(resolved.parent) != os.path.realpath(audio_refs_dir):
-        return None
-    return resolved
-
-
 # 允许的文件类型
 ALLOWED_EXTENSIONS = {
     "source": [".txt", ".md", ".docx", ".epub", ".pdf"],
@@ -81,11 +73,6 @@ ALLOWED_EXTENSIONS = {
     "product": [".png", ".jpg", ".jpeg", ".webp"],
     "product_ref": [".png", ".jpg", ".jpeg", ".webp"],
 }
-
-# 参考音频约束：wav/mp3、2-10 秒、≤15MB
-_AUDIO_MAX_BYTES = 15 * 1024 * 1024
-_AUDIO_MIN_SECONDS = 2.0
-_AUDIO_MAX_SECONDS = 10.0
 
 
 @router.get("/files/{project_name}/{path:path}")
@@ -190,22 +177,22 @@ async def upload_file(
         content = await file.read()
 
         if upload_type == "character_audio_ref":
-            if len(content) > _AUDIO_MAX_BYTES:
+            if len(content) > AUDIO_REFERENCE_MAX_BYTES:
                 raise HTTPException(
                     status_code=400,
-                    detail=_t("upload_too_large", max_mb=_AUDIO_MAX_BYTES // (1024 * 1024)),
+                    detail=_t("upload_too_large", max_mb=AUDIO_REFERENCE_MAX_BYTES // (1024 * 1024)),
                 )
             try:
                 duration = await probe_audio_duration_seconds(content, ext)
             except ValueError:
                 raise HTTPException(status_code=400, detail=_t("invalid_audio_file"))
-            if duration is not None and not (_AUDIO_MIN_SECONDS <= duration <= _AUDIO_MAX_SECONDS):
+            if duration is not None and not (AUDIO_REFERENCE_MIN_SECONDS <= duration <= AUDIO_REFERENCE_MAX_SECONDS):
                 raise HTTPException(
                     status_code=400,
                     detail=_t(
                         "audio_duration_out_of_range",
-                        min_seconds=int(_AUDIO_MIN_SECONDS),
-                        max_seconds=int(_AUDIO_MAX_SECONDS),
+                        min_seconds=int(AUDIO_REFERENCE_MIN_SECONDS),
+                        max_seconds=int(AUDIO_REFERENCE_MAX_SECONDS),
                     ),
                 )
 
@@ -302,23 +289,13 @@ async def upload_file(
 
             stale_audio_path: Path | None = None
             if upload_type == "character_audio_ref" and name:
-                # 音频不像 character_ref 强制统一扩展名，替换时新旧扩展名可能不同，
-                # 旧文件需显式清理避免孤儿（reference_image 分支同名同扩展名，写入即覆盖，无需此步）。
-                # 字段值来自 project.json，可被 PATCH 写成任意字符串，经 _resolve_audio_ref_path
-                # 确认落在 refs_audio 目录内才允许删除；实际删除推迟到新文件与字段写入成功之后。
+                # 实际删除推迟到新文件与字段写入成功之后（见 discard_stale_reference_audio）。
                 old_audio = (get_project_manager().load_project(project_name).get("characters", {}).get(name, {})).get(
                     "reference_audio"
                 )
-                if isinstance(old_audio, str) and old_audio:
-                    resolved_old = _resolve_audio_ref_path(project_dir, target_dir, old_audio)
-                    if resolved_old is not None:
-                        new_path = target_dir / filename
-                        # 大小写不敏感文件系统上，旧指针与新文件名可能只是大小写不同却指向
-                        # 同一个 inode（如 "Alice.WAV" 与 "Alice.wav"）；此时新内容即将原地
-                        # 覆盖该文件，不能再当孤儿删掉，否则会把刚写入的新样本一并删除。
-                        same_file = new_path.exists() and resolved_old.samefile(new_path)
-                        if not same_file:
-                            stale_audio_path = resolved_old
+                stale_audio_path = resolve_stale_reference_audio(
+                    project_dir, target_dir, old_audio, target_dir / filename
+                )
 
             target_path = target_dir / filename
             with open(target_path, "wb") as f:
@@ -371,17 +348,7 @@ async def upload_file(
                 except KeyError:
                     pass  # 角色不存在，忽略
                 else:
-                    # 新样本已落盘且字段已指向它，此时删旧文件才不会留下「字段指向已删文件」的中间态；
-                    # 旧文件物理删除失败（权限/IO 错误，含 Windows 文件占用）不应让本次替换报错——
-                    # 新文件与字段都已成功提交，此时再抛异常会让调用方误以为整次替换失败并重试，
-                    # 而重试时 old_audio 已指向新文件，旧文件反而成为找不到指针的孤儿。仅记录告警。
-                    if stale_audio_path is not None:
-                        try:
-                            stale_audio_path.unlink(missing_ok=True)
-                        except OSError:
-                            logger.warning(
-                                "旧参考音频物理删除失败，可能残留孤儿文件：%s", stale_audio_path, exc_info=True
-                            )
+                    discard_stale_reference_audio(stale_audio_path)
 
             if upload_type == "scene" and name:
                 try:
@@ -462,11 +429,11 @@ async def delete_character_reference_audio(project_name: str, name: str, _user: 
                 raise HTTPException(status_code=404, detail=_t("character_not_found", name=name))
 
             old_audio = character.get("reference_audio")
-            # 字段值来自 project.json，可被 PATCH 写成任意字符串；经 _resolve_audio_ref_path
+            # 字段值来自 project.json，可被 PATCH 写成任意字符串；经 resolve_audio_ref_path
             # 确认落在 refs_audio 目录内才允许删除，否则只清字段不碰文件系统
             audio_refs_dir = project_dir / "characters" / "refs_audio"
             stale_path = (
-                _resolve_audio_ref_path(project_dir, audio_refs_dir, old_audio) if isinstance(old_audio, str) else None
+                resolve_audio_ref_path(project_dir, audio_refs_dir, old_audio) if isinstance(old_audio, str) else None
             )
             # 先删文件、后清字段：权限/IO 错误（含 Windows 文件被占用的共享冲突）导致
             # unlink 失败时,字段仍指向该文件,可重试删除;顺序反过来会在物理删除失败时

@@ -18,6 +18,7 @@ from lib.audio_backends.base import (
     AudioCapability,
     AudioSynthesisRequest,
     AudioSynthesisResult,
+    VoiceOption,
 )
 from lib.dashscope_shared import (
     dashscope_headers,
@@ -36,6 +37,39 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "qwen3-tts-flash"
 
 _TTS_ENDPOINT = "/services/aigc/multimodal-generation/generation"
+
+
+# Qwen3-TTS 系统预设音色（``voice`` 参数取值）子集，出处见 docs/dashscope-docs/语音合成-TTS模型.md
+# 「三、系统预设音色」表格（截至 2026-06-02 核实，来源：
+# https://help.aliyun.com/zh/model-studio/qwen-tts 官方文档 + 百炼控制台模型市场）。
+# 未列出的其余预设音色不在此暴露——该文档明确标注为「ArcReel 场景最相关的音色子集」，
+# 完整 48 音色列表见官方文档，未逐一核实中文名/描述不收录，避免编造。
+#
+# label 存的是 lib/i18n 翻译 key（``voice_label_dashscope_*``，见 lib/i18n/{zh,en,vi}/assets.py），
+# 不是直出文案——端点固定硬编码中文会让 en/vi 用户在下拉里看到中文描述，与「后端面向用户的
+# 文本经 _t: Translator 注入」的项目惯例不符。真正的本地化文案由 get_audio_backend_voices
+# 路由层用请求 locale 对应的 Translator 渲染。
+_VOICE_CATALOG: tuple[VoiceOption, ...] = (
+    VoiceOption(id="Cherry", label="voice_label_dashscope_cherry"),
+    VoiceOption(id="Serena", label="voice_label_dashscope_serena"),
+    VoiceOption(id="Ethan", label="voice_label_dashscope_ethan"),
+    VoiceOption(id="Chelsie", label="voice_label_dashscope_chelsie"),
+    VoiceOption(id="Nofish", label="voice_label_dashscope_nofish"),
+    VoiceOption(id="Jennifer", label="voice_label_dashscope_jennifer"),
+    VoiceOption(id="Ryan", label="voice_label_dashscope_ryan"),
+    VoiceOption(id="Bellona", label="voice_label_dashscope_bellona"),
+    VoiceOption(id="Neil", label="voice_label_dashscope_neil"),
+    VoiceOption(id="Elias", label="voice_label_dashscope_elias"),
+    VoiceOption(id="Momo", label="voice_label_dashscope_momo"),
+    VoiceOption(id="Vivian", label="voice_label_dashscope_vivian"),
+    VoiceOption(id="Moon", label="voice_label_dashscope_moon"),
+    VoiceOption(id="Maia", label="voice_label_dashscope_maia"),
+    VoiceOption(id="Kai", label="voice_label_dashscope_kai"),
+    VoiceOption(id="Katerina", label="voice_label_dashscope_katerina"),
+    VoiceOption(id="Bella", label="voice_label_dashscope_bella"),
+    VoiceOption(id="Eldric Sage", label="voice_label_dashscope_eldric_sage"),
+    VoiceOption(id="Vincent", label="voice_label_dashscope_vincent"),
+)
 
 
 class _EmptyDownloadError(RuntimeError):
@@ -69,6 +103,9 @@ class DashScopeAudioBackend:
     @property
     def capabilities(self) -> set[AudioCapability]:
         return {AudioCapability.TEXT_TO_SPEECH}
+
+    def list_voices(self) -> list[VoiceOption]:
+        return list(_VOICE_CATALOG)
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
         if request.speed is not None:

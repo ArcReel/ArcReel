@@ -13,6 +13,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
+import { VoiceSampleButton } from "./VoiceSampleButton";
 import type { Character } from "@/types";
 
 interface CharacterSavePayload {
@@ -590,6 +591,12 @@ export function CharacterCard({
 
               {readOnly ? null : (
               <div className="flex shrink-0 items-center gap-0.5">
+                <VoiceSampleButton
+                  projectName={projectName}
+                  characterName={name}
+                  busy={generating || deletingAudio || Boolean(audioFile)}
+                  onSaved={() => onReload?.()}
+                />
                 <button
                   type="button"
                   onClick={() => audioInputRef.current?.click()}
@@ -635,15 +642,25 @@ export function CharacterCard({
               />
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => audioInputRef.current?.click()}
-              className="focus-ring flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-2.5 text-[13px] text-[var(--color-text-4)] transition-colors hover:border-[var(--color-accent-soft)] hover:text-[var(--color-text-2)]"
-              style={{ background: "oklch(0.18 0.010 265 / 0.35)" }}
-            >
-              <Upload className="h-3.5 w-3.5" />
-              {t("upload_reference_audio")}
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => audioInputRef.current?.click()}
+                className="focus-ring flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-hairline)] px-3 py-2.5 text-[13px] text-[var(--color-text-4)] transition-colors hover:border-[var(--color-accent-soft)] hover:text-[var(--color-text-2)]"
+                style={{ background: "oklch(0.18 0.010 265 / 0.35)" }}
+              >
+                <Upload className="h-3.5 w-3.5" />
+                {t("upload_reference_audio")}
+              </button>
+              {readOnly ? null : (
+                <VoiceSampleButton
+                  projectName={projectName}
+                  characterName={name}
+                  busy={generating || deletingAudio || Boolean(audioFile)}
+                  onSaved={() => onReload?.()}
+                />
+              )}
+            </div>
           )}
           {!displayedAudioUrl && (
             <p className="mt-1 text-[10px]" style={{ color: "var(--color-text-4)" }}>

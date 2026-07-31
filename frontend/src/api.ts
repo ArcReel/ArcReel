@@ -1372,6 +1372,67 @@ class API {
   }
 
   /**
+   * 读取当前项目实际生效的 audio backend 音色枚举，供 TTS 试听弹窗选择音色。
+   * configured=false 表示未配置任何 audio 供应商，前端据此禁用生成入口。
+   * @param projectName - 项目名称
+   */
+  static async getAudioBackendVoices(
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<{
+    configured: boolean;
+    provider_id: string | null;
+    model: string | null;
+    voices: { id: string; label: string }[];
+  }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/audio-backend/voices`, {
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * 提交角色 TTS 试听样本生成任务（预览用，需再调用 confirmCharacterVoiceSample 才落资产）
+   * @param projectName - 项目名称
+   * @param charName - 角色名称
+   * @param text - 待合成文本
+   * @param voice - 音色 id
+   */
+  static async generateCharacterVoiceSample(
+    projectName: string,
+    charName: string,
+    text: string,
+    voice: string
+  ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/characters/${encodeURIComponent(charName)}/voice-sample`,
+      {
+        method: "POST",
+        body: JSON.stringify({ text, voice }),
+      }
+    );
+  }
+
+  /**
+   * 把已生成、已试听的 TTS 样本提升为角色 reference_audio
+   * @param projectName - 项目名称
+   * @param charName - 角色名称
+   * @param taskId - generateCharacterVoiceSample 返回的 task_id
+   */
+  static async confirmCharacterVoiceSample(
+    projectName: string,
+    charName: string,
+    taskId: string
+  ): Promise<{ success: boolean; path: string; url: string }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/characters/${encodeURIComponent(charName)}/voice-sample/confirm`,
+      {
+        method: "POST",
+        body: JSON.stringify({ task_id: taskId }),
+      }
+    );
+  }
+
+  /**
    * 生成角色设计图
    * @param projectName - 项目名称
    * @param charName - 角色名称

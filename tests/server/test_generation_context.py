@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from lib.audio_backends.base import VoiceOption
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver, ProviderModel, get_provider_fallback
 from lib.custom_provider import make_provider_id
@@ -46,6 +47,11 @@ def _registry_video_model(provider_id: str) -> str:
 class _FakeBackend:
     name: str
     model: str
+    voices: list = field(default_factory=list)
+
+    def list_voices(self):
+        """audio backend 协议的一部分：audio lane 解析时会取音色目录快照。"""
+        return self.voices
 
 
 @pytest.fixture
@@ -285,6 +291,21 @@ class TestAudioLane:
         assert isinstance(ctx.audio.narration_voice, str) and ctx.audio.narration_voice
         assert ctx.audio.narration_speed is None
 
+    async def test_voice_catalog_snapshot_passed_through(self, session_factory, project_env, monkeypatch):
+        """ctx.audio.voices 须是 backend.list_voices() 的真实快照，而非默认的空元组——
+        断言字段存在不够，须证明 resolve_generation_context 确实转发了 backend 的音色目录。
+        """
+
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+            return _FakeBackend(
+                name=provider_id, model=model_id or "default-model", voices=[VoiceOption(id="Cherry", label="Cherry")]
+            )
+
+        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        project = {"audio_backend": "dashscope/tts-model-x"}
+        ctx = await resolve_generation_context("demo", None, project=project, audio=AudioLaneRequest())
+        assert tuple(v.id for v in ctx.audio.voices) == ("Cherry",)
+
 
 class TestAtomicFailure:
     async def test_declared_lane_construction_failure_fails_whole_call(self, session_factory, project_env, monkeypatch):
@@ -459,5 +480,6 @@ class TestValueObjectAssembly:
             backend_model="tts",
             narration_voice="Cherry",
             narration_speed=None,
+            voices=(),
         )
         assert lane.narration_voice == "Cherry"

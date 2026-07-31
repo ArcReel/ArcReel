@@ -10,7 +10,13 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from lib.asset_types import ASSET_SPECS
+from lib.asset_types import ASSET_SPECS, validate_asset_name
+from lib.audio_utils import (
+    AUDIO_REFERENCE_MAX_BYTES,
+    AUDIO_REFERENCE_MAX_SECONDS,
+    AUDIO_REFERENCE_MIN_SECONDS,
+    probe_audio_duration_seconds,
+)
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import constrain_durations
 from lib.db.base import DEFAULT_USER_ID
@@ -484,6 +490,7 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
     "tts": ("segment", "tts_ready", "旁白「{}」", True),
     "grid": ("grid", "grid_ready", "宫格「{}」", True),
+    "voice_sample": ("character", "voice_sample_ready", "「{}」试听样本", False),
     **{atype: (atype, "updated", f"{spec.label_zh}「{{}}」设计图", False) for atype, spec in ASSET_SPECS.items()},
 }
 
@@ -749,6 +756,116 @@ async def execute_tts_task(
         "created_at": created_at,
         "resource_type": "audio",
         "resource_id": resource_id,
+    }
+
+
+# character_name 经 validate_asset_name 校验合法字符，但不限长度；task_id 固定是 uuid4().hex
+# （32 字节 ASCII）。若不裁剪，超长角色名 + 前缀/分隔符/task_id 拼出的 resource_id，
+# 再叠加 VersionManager.add_version 的 "_v{n}_{timestamp}{ext}" 版本文件名后缀，
+# 可能在 255 字节 NAME_MAX 的文件系统上让落盘/建版本失败。留出足够余量后裁剪角色名部分——
+# resource_id 本身不需要人工从文件名反解角色名（仅内部拼接，无解析方），裁剪不影响正确性，
+# 唯一性完全靠 task_id 保证。
+_SAMPLE_ID_NAME_MAX_BYTES = 80
+
+
+def _truncate_name_bytes(name: str, max_bytes: int) -> str:
+    """按 UTF-8 字节数裁剪，裁剪点落在多字节字符中间时丢弃残缺字符而非产生非法编码。"""
+    encoded = name.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return name
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
+
+
+def voice_sample_resource_id(character_name: str, task_id: str) -> str:
+    """角色 TTS 试听样本在 ``audio/`` 下的资源 id（区别于旁白 segment id 命名空间）。
+
+    生成产物只是待确认的预览件，落盘位置与旁白共用 ``audio/`` 目录但用固定前缀隔离，
+    不会与说书模式的 segment id 冲突；只有 confirm 步骤才把音频提升为角色 reference_audio。
+
+    带 ``task_id`` 而非只用角色名：同一角色前一次成功样本尚未确认时发起重新生成会产生
+    新任务，若资源 id 只按角色名固定，新任务落盘会原地覆盖前一个已成功任务引用的文件——
+    旧任务的 ``result.file_path`` 字段不变，但物理内容已变成新任务的（甚至是校验失败前
+    写入的）字节；若前一个任务的 task_id 仍被别处持有（如另一浏览器标签页）并调用 confirm，
+    会把错误内容误落为角色参考音频。每次生成用任务专属文件名，杜绝跨任务覆盖。
+    """
+    safe_name = _truncate_name_bytes(character_name, _SAMPLE_ID_NAME_MAX_BYTES)
+    return f"voice_sample__{safe_name}__{task_id}"
+
+
+async def execute_character_voice_sample_task(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """为角色参考音频候选生成一段 TTS 试听样本（预览用，不写入角色资产）。
+
+    ``resource_id`` 是角色名；文本与音色显式来自 payload（``prompt`` = 待合成文本，
+    ``voice`` = 用户选定的音色 id），不回落任何全局旁白配置。生成产物须满足与
+    参考音频上传同口径的校验（格式经落盘扩展名固定为 wav、时长 2-10 秒、≤15MB）；
+    校验失败直接抛错让任务落 failed，不静默放行不合规样本。
+    """
+    character_name = validate_asset_name(resource_id)
+    text = payload.get("prompt")
+    voice = payload.get("voice")
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("voice sample 任务需要非空 payload.prompt（待合成文本）")
+    if not isinstance(voice, str) or not voice.strip():
+        raise ValueError("voice sample 任务需要 payload.voice（音色 id）")
+    if not task_id:
+        # 恒由 worker 经 execute_generation_task 传入队列任务自身 id；缺失说明调用方绕过了
+        # 常规队列执行路径（如误从别处直接调用），而 sample_id 的跨任务隔离依赖它，fail-fast。
+        raise ValueError("voice sample 任务需要 task_id")
+
+    project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+    if character_name not in project.get("characters", {}):
+        # 与 execute_character_task 等其它执行器同口径：入队后、worker 取到任务前角色可能
+        # 已被删除，执行前重新核实存在，避免花钱合成一段没有归属的孤儿预览。
+        raise ValueError(f"character not found: {character_name}")
+    ctx = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        audio=AudioLaneRequest(),
+    )
+    generator = ctx.generator
+
+    sample_id = voice_sample_resource_id(character_name, task_id)
+    _, version = await generator.generate_audio_async(
+        text=text.strip(),
+        resource_id=sample_id,
+        voice=voice.strip(),
+        speed=None,
+    )
+
+    audio_rel = resource_relative_path("audio", sample_id)
+    audio_abs = get_project_manager().get_project_path(project_name) / audio_rel
+
+    def _read_bytes() -> bytes:
+        return audio_abs.read_bytes()
+
+    content = await asyncio.to_thread(_read_bytes)
+    if len(content) > AUDIO_REFERENCE_MAX_BYTES:
+        raise ValueError(f"生成的语音样本超过 {AUDIO_REFERENCE_MAX_BYTES // (1024 * 1024)}MB 限制")
+
+    duration = await probe_audio_duration_seconds(content, audio_abs.suffix)
+    if duration is not None and not (AUDIO_REFERENCE_MIN_SECONDS <= duration <= AUDIO_REFERENCE_MAX_SECONDS):
+        raise ValueError(
+            f"生成的语音样本时长 {duration:.1f}s 超出 "
+            f"{AUDIO_REFERENCE_MIN_SECONDS:.0f}-{AUDIO_REFERENCE_MAX_SECONDS:.0f} 秒范围"
+        )
+
+    return {
+        "version": version,
+        "file_path": audio_rel,
+        "resource_type": "audio",
+        "resource_id": sample_id,
+        "character_name": character_name,
+        "voice": voice.strip(),
+        "duration_seconds": duration,
     }
 
 
@@ -1485,6 +1602,7 @@ _TASK_EXECUTORS = {
     "storyboard": execute_storyboard_task,
     "video": execute_video_task,
     "tts": execute_tts_task,
+    "voice_sample": execute_character_voice_sample_task,
     "character": execute_character_task,
     "scene": execute_scene_task,
     "prop": execute_prop_task,

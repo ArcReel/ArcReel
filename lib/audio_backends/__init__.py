@@ -5,6 +5,7 @@ from lib.audio_backends.base import (
     AudioCapability,
     AudioSynthesisRequest,
     AudioSynthesisResult,
+    VoiceOption,
 )
 from lib.audio_backends.registry import create_backend, get_registered_backends, register_backend
 
@@ -13,6 +14,7 @@ __all__ = [
     "AudioCapability",
     "AudioSynthesisRequest",
     "AudioSynthesisResult",
+    "VoiceOption",
     "create_backend",
     "get_registered_backends",
     "register_backend",

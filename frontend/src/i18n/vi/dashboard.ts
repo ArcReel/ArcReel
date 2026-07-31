@@ -237,6 +237,33 @@ export default {
   'play_audio_sample': 'Phát',
   'pause_audio_sample': 'Tạm dừng',
   'delete_audio_sample': 'Xóa mẫu âm thanh',
+
+  // Tạo mẫu âm thanh tham chiếu bằng TTS
+  'voice_sample_action': 'Tạo bằng TTS',
+  'voice_sample_not_configured_hint': 'Vui lòng cấu hình nhà cung cấp âm thanh trong cài đặt trước',
+  'voice_sample_modal_title': 'Tạo mẫu giọng đọc tham chiếu',
+  'voice_sample_modal_desc':
+    'Chọn giọng đọc cho "{{name}}" và tạo một mẫu thử. Xác nhận để lưu làm âm thanh tham chiếu của nhân vật.',
+  'voice_sample_voice_label': 'Giọng đọc',
+  'voice_sample_voice_placeholder': 'Chọn giọng đọc',
+  'voice_sample_voice_loading': 'Đang tải danh sách giọng đọc…',
+  'voice_sample_no_voices': 'Nhà cung cấp âm thanh hiện tại không có giọng đọc nào để chọn',
+  'voice_sample_text_label': 'Văn bản mẫu',
+  'voice_sample_text_default':
+    'Xin chào, đây là một đoạn mẫu giọng đọc sẽ được dùng làm âm thanh tham chiếu của nhân vật, giúp giữ giọng nói nhất quán.',
+  'voice_sample_text_hint':
+    'Mẫu âm thanh phải dài 2-10 giây; văn bản quá dài sẽ khiến việc tạo thất bại.',
+  'voice_sample_generate': 'Tạo',
+  'voice_sample_generating': 'Đang tạo…',
+  'voice_sample_regenerate': 'Tạo lại',
+  'voice_sample_preview_label': 'Nghe thử',
+  'voice_sample_confirm': 'Xác nhận & lưu',
+  'voice_sample_confirming': 'Đang lưu…',
+  'voice_sample_confirm_success_toast': 'Đã lưu mẫu giọng đọc tham chiếu',
+  'voice_sample_task_failed': 'Tạo không thành công, vui lòng thử lại',
+  'voice_sample_task_submitted_toast': 'Đã gửi tác vụ tạo mẫu giọng đọc thử cho "{{name}}"',
+  'voice_sample_resource_busy': 'Nhân vật này đang bận với tác vụ khác, vui lòng thử lại sau',
+
   'generate_design': 'Tạo thiết kế',
   'regenerate_design': 'Tạo lại thiết kế',
 
@@ -410,6 +437,7 @@ export default {
   'task_type_video': 'Video',
   'task_type_reference_video': 'Video tham chiếu',
   'task_type_tts': 'Giọng thuyết minh',
+  'task_type_voice_sample': 'Mẫu giọng thử',
   'task_type_grid': 'Lưới',
   'task_type_character': 'Nhân vật',
   'task_type_scene': 'Cảnh',

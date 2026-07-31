@@ -238,7 +238,7 @@ class TestFilesRouter:
 
     def test_character_audio_ref_rejects_oversized(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
-        oversized = b"\x00" * (files._AUDIO_MAX_BYTES + 1)
+        oversized = b"\x00" * (files.AUDIO_REFERENCE_MAX_BYTES + 1)
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",

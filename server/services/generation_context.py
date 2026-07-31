@@ -23,6 +23,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+from lib.audio_backends.base import VoiceOption
 from lib.backend_assembly import assemble_backend
 from lib.config.resolver import ConfigResolver, get_provider_fallback
 from lib.db.base import DEFAULT_USER_ID
@@ -201,13 +202,18 @@ class VideoLaneResult:
 
 @dataclass(frozen=True)
 class AudioLaneResult:
-    """audio lane 解析产物。narration voice/speed 与 backend 解析在同一 session 内交付。"""
+    """audio lane 解析产物。narration voice/speed、音色目录与 backend 解析在同一 session 内交付。
+
+    ``voices`` 是该 backend 的音色枚举快照（值，非 backend 实例）：音色列表端点据此应答，
+    合成任务据此校验请求音色，二者不必再触达 backend 对象。
+    """
 
     provider_model: ProviderModel
     backend_name: str
     backend_model: str
     narration_voice: str
     narration_speed: float | None
+    voices: tuple[VoiceOption, ...]
 
 
 def _lane_not_declared(lane: str, request_hint: str) -> RuntimeError:
@@ -342,6 +348,7 @@ async def resolve_generation_context(
                 backend_model=audio_backend.model,
                 narration_voice=await r.resolve_narration_voice(project),
                 narration_speed=await r.resolve_narration_speed(project),
+                voices=tuple(audio_backend.list_voices()),
             )
 
     generator = MediaGenerator(

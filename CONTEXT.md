@@ -186,6 +186,14 @@ _Avoid_: tts、voice_synthesis。
 对说书模式每个 NarrationSegment 的 `novel_text`（小说原文）生成的一段语音，是 audio 媒体类型在本期的唯一产物。按 segment 一段，落地为音频文件，路径记在该 segment 的 `GeneratedAssets.narration_audio`。
 _Avoid_: dub（易与影视译制混淆）、TTS 音频（太泛）。
 
+**音色（voice）**：
+TTS 供应商内置的一组预设发音人，合成请求以 `voice` 参数携带其 id（如 DashScope 的 `Cherry`、OpenAI 的 `alloy`）。各 audio backend 以 `list_voices()` 交付自己的音色目录，目录内容一律取自供应商官方文档并在 `docs/` 下留有出处快照，不凭印象填写。解析产物随 audio lane 的 `voices` 交付（值，非 backend 实例，见 `docs/adr/0049`）。
+_Avoid_: 用 voice 指代 audio 媒体类型本身；把音色与「声音复刻（voice cloning）」混为一谈——前者选供应商预设，后者用参考音频克隆。
+
+**语音试听样本（voice sample）**：
+创作者手上没有现成音频时，用已配置的 TTS 后端合成的一段短音频，供试听后确认为角色的参考音频。独立 task_type `voice_sample`，落在 `audio/` 目录但用 `voice_sample__` 前缀与旁白 segment 隔离命名空间。它是**预览件**：确认前不写入角色资产，取消或关闭弹窗即不产生任何资产变更。
+_Avoid_: 与「旁白配音」混为一谈——旁白是成片素材，试听样本只是选音色的中间产物。
+
 **"audio" 的三种含义（歧义警示）**：
 - **audio（媒体类型）** = 本表定义的 TTS 维度。
 - **`generate_audio`（能力/字段）** = 视频模型（Veo/Kling 等）**自带音轨**的开关，属 video 维度，与 TTS 无关。

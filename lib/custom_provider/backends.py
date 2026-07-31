@@ -5,7 +5,13 @@
 
 from __future__ import annotations
 
-from lib.audio_backends.base import AudioBackend, AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
+from lib.audio_backends.base import (
+    AudioBackend,
+    AudioCapability,
+    AudioSynthesisRequest,
+    AudioSynthesisResult,
+    VoiceOption,
+)
 from lib.image_backends.base import ImageBackend, ImageCapability, ImageGenerationRequest, ImageGenerationResult
 from lib.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
 from lib.video_backends.base import (
@@ -83,6 +89,9 @@ class CustomAudioBackend:
     @property
     def capabilities(self) -> set[AudioCapability]:
         return self._delegate.capabilities
+
+    def list_voices(self) -> list[VoiceOption]:
+        return self._delegate.list_voices()
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
         return await self._delegate.synthesize(request)

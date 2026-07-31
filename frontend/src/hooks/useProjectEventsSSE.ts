@@ -42,6 +42,7 @@ const CHANGE_PRIORITY: Record<string, number> = {
   grid_ready: 9,
   reference_video_ready: 10,
   tts_ready: 11,
+  voice_sample_ready: 12,
 };
 
 /** 任务终态变更（刷新信号，非项目实体变更）。 */
@@ -345,7 +346,17 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           const hasGenerationEvent = entityChanges.some((c) =>
             GENERATION_ACTIONS.has(c.action),
           );
-          if (hasGenerationEvent && projectName) {
+          // voice_sample 的计费发生在合成成功之后、时长/大小校验（或用户取消）之前：
+          // 校验不通过落 failed、执行期间被取消落 cancelled，两种情形都不会触发上面的
+          // voice_sample_ready（只在 emit_generation_success_batch 里跟着执行器成功返回
+          // 一起发），但供应商费用已经产生——非成功终态同样要刷新成本，否则用户会看到
+          // 一个已经真实花费但成本面板未更新的任务。
+          const hasBilledVoiceSampleTerminal = taskChanges.some(
+            (c) =>
+              (c.action === "task_failed" || c.action === "task_cancelled") &&
+              c.task_type === "voice_sample",
+          );
+          if ((hasGenerationEvent || hasBilledVoiceSampleTerminal) && projectName) {
             useCostStore.getState().debouncedFetch(projectName);
           }
 
