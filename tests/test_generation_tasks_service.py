@@ -1285,6 +1285,58 @@ class TestGenerationTasks:
         assert "低沉沙哑" in prompt_yaml
         assert "你来了。" in prompt_yaml
 
+    async def test_execute_video_task_content_mode_falls_back_to_project_when_episode_omits_it(
+        self, monkeypatch, tmp_path
+    ):
+        """存量 episode 剧本省略顶层 content_mode 时回退到 project.json 的 content_mode
+        （与 lib.data_validator 已校验通过的既定口径一致），不因回退缺失而被误判为
+        narration、静默跳过 dialogue 重建与 Voice_Profiles 注入。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["content_mode"] = "drama"
+        fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
+        fake_generator = _FakeGenerator()
+        fake_pm.script = {
+            # 顶层无 content_mode：存量 episode 省略该字段，真相源退到 project.json。
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 8,
+                    "segment_break": False,
+                    "characters_in_scene": ["王"],
+                    "scenes": [],
+                    "props": [],
+                    "image_prompt": "首镜头",
+                    "video_prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                    "utterances": [
+                        {"kind": "dialogue", "speaker": "王", "text": "你来了。"},
+                    ],
+                }
+            ],
+        }
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator, voice_consistency="soft")
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                "duration_seconds": 8,
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" in prompt_yaml
+        assert "低沉沙哑" in prompt_yaml
+        assert "你来了。" in prompt_yaml
+
     async def test_execute_video_task_default_duration_from_caps(self, monkeypatch, tmp_path):
         """无显式 duration 时，默认值由 caps 收口（取 supported_durations[0]），且必然合法。"""
         project_path = _prepare_files(tmp_path)

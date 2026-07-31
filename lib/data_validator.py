@@ -31,6 +31,7 @@ from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     REFERENCE_SHOT_DURATION_RANGE,
     ad_script_total_duration,
+    resolve_content_mode,
 )
 from lib.script_skeleton import resolve_declared_kind
 from lib.speech_rate import estimate_spoken_seconds
@@ -1130,10 +1131,7 @@ class DataValidator:
         if not episode.get("title"):
             errors.append("缺少必填字段: title")
 
-        content_mode = episode.get(
-            "content_mode",
-            project.get("content_mode", "narration"),
-        )
+        content_mode = resolve_content_mode(episode, project)
 
         characters_in_episode = episode.get("characters_in_episode")
         if characters_in_episode is not None:

@@ -33,7 +33,7 @@ from lib.reference_video.ad_units import (
     resolve_ad_unit_shots,
     sync_ad_reference_units,
 )
-from lib.script_models import get_generated_assets, is_reference_script
+from lib.script_models import get_generated_assets, is_reference_script, resolve_content_mode
 from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
@@ -695,7 +695,7 @@ def generate_video_episode_tool(ctx: ToolContext):
 
             episode = ProjectManager.resolve_episode_from_script(script, script_filename)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            content_mode = script.get("content_mode", "narration")
+            content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
             if not items:
                 raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
 
@@ -820,7 +820,7 @@ def generate_video_scene_tool(ctx: ToolContext):
             if not storyboard_path.is_file():
                 raise FileNotFoundError(f"分镜图不存在: {storyboard_path}")
 
-            content_mode = script.get("content_mode", "narration")
+            content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
             voice_characters = await _resolve_voice_characters(ctx, content_mode)
             prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
             # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
@@ -901,7 +901,7 @@ def generate_video_all_tool(ctx: ToolContext):
                 )
 
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            content_mode = script.get("content_mode", "narration")
+            content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
             pending = [it for it in items if not get_generated_assets(it).get("video_clip")]
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
@@ -998,7 +998,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                 )
 
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            content_mode = script.get("content_mode", "narration")
+            content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
 
             items_by_id: dict[str, dict[str, Any]] = {}
             for item in items:

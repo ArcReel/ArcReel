@@ -40,7 +40,7 @@ from lib.prompt_utils import (
     video_prompt_to_yaml,
 )
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
-from lib.script_models import get_generated_assets
+from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
@@ -896,7 +896,7 @@ async def execute_video_task(
         _items, _id_field, _, _, _ = get_storyboard_items(_script)
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
         _item = _resolved[0] if _resolved else {}
-        return _project, _project_path, _item, _script.get("content_mode", "narration")
+        return _project, _project_path, _item, resolve_content_mode(_script, _project)
 
     project, project_path, item, content_mode = await asyncio.to_thread(_load)
     ctx = await resolve_generation_context(

@@ -17,6 +17,7 @@ from lib.script_models import (
     VideoPrompt,
     get_generated_assets,
     item_duration,
+    resolve_content_mode,
     script_duration_total,
 )
 
@@ -814,3 +815,17 @@ class TestGeneratedAssetsTemplateContract:
                 "status": "completed",
             }
         )
+
+
+class TestResolveContentMode:
+    """episode/剧本级 content_mode 缺失时回退到项目级配置，与
+    lib.data_validator._validate_episode_payload 已校验通过的既定口径一致。"""
+
+    def test_episode_level_wins_when_present(self):
+        assert resolve_content_mode({"content_mode": "drama"}, {"content_mode": "narration"}) == "drama"
+
+    def test_falls_back_to_project_when_episode_omits_it(self):
+        assert resolve_content_mode({}, {"content_mode": "drama"}) == "drama"
+
+    def test_falls_back_to_narration_when_both_omit_it(self):
+        assert resolve_content_mode({}, {}) == "narration"
