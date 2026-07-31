@@ -679,7 +679,11 @@ class TestWan27ReferenceVoice:
 
     @pytest.mark.unit
     def test_more_audios_than_references_raises(self, tmp_path):
-        """挂不上的音频不丢弃：静默丢弃会让某个角色的音色声明无声失效，且照常扣费。"""
+        """挂不上的音频不丢弃：静默丢弃会让某个角色的音色声明无声失效，且照常扣费。
+
+        卡点是"可挂载的参考素材不够"，与 gate 的"超出模型能力上限"是两回事，故各用一个
+        code：两者的处置建议相反（补参考图 vs 减角色），共用会给出与实际卡点不符的提示。
+        """
         with pytest.raises(VideoCapabilityError) as exc:
             self._backend()._build_payload(
                 VideoGenerationRequest(
@@ -690,8 +694,8 @@ class TestWan27ReferenceVoice:
                 )
             )
 
-        assert exc.value.code == "video_reference_audio_exceeded"
-        assert exc.value.params["limit"] == 1
+        assert exc.value.code == "video_reference_audio_slots_insufficient"
+        assert exc.value.params["slots"] == 1
         assert exc.value.params["count"] == 2
 
     @pytest.mark.unit

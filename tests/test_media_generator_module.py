@@ -705,3 +705,50 @@ class TestReferenceCompressionSeam:
 
         assert backend.start_dims == (3000, 2000)  # FRAME 尺寸保持
         assert max(backend.ref_dims[0]) == 2048  # ARRAY 缩到长边 2048
+
+    async def test_reference_audio_reaches_backend_unreordered(self, tmp_path):
+        """参考音频原样透传到请求：gate 放行后若不下传，音频会在校验之后被静默丢弃。
+
+        音频不进压缩器（specs 只收图片），故也不能跟着压缩结果重排——顺序即 prompt 里
+        「音频N」的指认顺序，重排会把 A 角色的音色安到 B 角色头上。
+        """
+        gen = _build_generator(tmp_path)
+
+        from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
+
+        class _AudioCapturingVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(
+                max_reference_images=9,
+                reference_audio_mode=ReferenceAudioMode.DIRECT,
+                max_reference_audio_count=3,
+            )
+
+            def __init__(self):
+                self.received_audio: list[Path] | None = None
+
+            async def generate(self, request):
+                self.received_audio = request.reference_audio_files
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"v")
+                return _FakeVideoResult()
+
+        backend = _AudioCapturingVideoBackend()
+        gen._video_backend = backend
+
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
+        first = tmp_path / "alice.wav"
+        second = tmp_path / "bob.wav"
+        first.write_bytes(b"a")
+        second.write_bytes(b"b")
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            reference_images=[ref],
+            reference_audio_files=[first, second],
+        )
+
+        assert backend.received_audio == [first, second]

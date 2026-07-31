@@ -259,3 +259,42 @@ class TestReferenceAudioOverrideGuards:
 
         assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT  # 系统判定本身即 direct
         assert "reference_audio_mode" in caplog.text
+
+    @pytest.mark.unit
+    def test_direct_without_positive_count_falls_back_to_none(self, caplog: pytest.LogCaptureFixture):
+        """稀疏覆盖只写模式：合并后是 direct ⊕ 上限 0，两维各自合法而合起来无意义。
+
+        不修正就会让 gate 先过模式判定再撞上限 0，把「不支持参考音频」报成「最多支持 0 段」，
+        用户按提示减角色数量减到零段也过不了。
+        """
+        with caplog.at_level(logging.WARNING, logger="lib.custom_provider.capabilities"):
+            caps = synthesize_video_capabilities(
+                endpoint="ark-seedance",
+                model_id="doubao-seedance-1-0-pro-fast-251015",
+                overrides={"reference_audio_mode": "direct"},
+            )
+
+        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
+        assert caps.max_reference_audio_count == 0
+        assert "max_reference_audio_count" in caplog.text
+
+    @pytest.mark.unit
+    def test_zero_count_override_disables_audio_on_capable_model(self):
+        """反向凑法同样收敛：系统判定 direct，用户把上限压成 0，模式随之降到 none。"""
+        caps = synthesize_video_capabilities(
+            endpoint="ark-seedance",
+            model_id="doubao-seedance-2-0-260128",
+            overrides={"max_reference_audio_count": 0},
+        )
+        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
+
+    @pytest.mark.unit
+    def test_none_mode_with_positive_count_is_not_a_violation(self):
+        """反向组合不算违约：模式为 none 时上限不参与判定，判违约反会把用户关掉的能力顶回开启。"""
+        caps = synthesize_video_capabilities(
+            endpoint="ark-seedance",
+            model_id="doubao-seedance-2-0-260128",
+            overrides={"reference_audio_mode": "none"},
+        )
+        assert caps.reference_audio_mode is ReferenceAudioMode.NONE
+        assert caps.max_reference_audio_count == 3  # 系统判定原样保留，不被连坐清零

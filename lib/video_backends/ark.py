@@ -34,6 +34,8 @@ _SEEDANCE_2_MAX_REFERENCE_AUDIO = 3
 
 # 参考音频的 data URI MIME：官方接受 wav / mp3 两种格式，要求 `data:audio/<格式>;base64,<内容>`
 # 且格式小写。资产上传期已按同一组格式收窄，此处按扩展名回填，未知扩展名不猜测直接拒绝。
+# 与 dashscope 侧的同名表刻意各存一份：mp3 在这里按官方示例写 audio/mp3，dashscope 走标准
+# 的 audio/mpeg——供应商各自的接受口径，合并成一张共享表会让其中一家收到没验证过的 MIME。
 _REFERENCE_AUDIO_MIME_TYPES = {".wav": "audio/wav", ".mp3": "audio/mp3"}
 
 
@@ -165,16 +167,16 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             # 族群识别（供 service_tier 剔除复用），未验证的 2.0 系列未来变体不应继承这两项
             # 能力。两者当前覆盖同一组已上表型号（2.0 / 2.0-fast / 2.0-mini 三档官方均声明
             # 支持音频参考），故共用同一份白名单常量而非维护两份同内容清单。
-            verified = ArkVideoBackend._matches_known_model(
+            on_verified_allowlist = ArkVideoBackend._matches_known_model(
                 model.lower(), ArkVideoBackend._SEEDANCE_2_LAST_FRAME_ALLOW_SUBSTRINGS
             )
             return VideoCapabilities(
-                last_frame=verified,
+                last_frame=on_verified_allowlist,
                 max_reference_images=9,
-                reference_audio_mode=(ReferenceAudioMode.DIRECT if verified else ReferenceAudioMode.NONE),
+                reference_audio_mode=(ReferenceAudioMode.DIRECT if on_verified_allowlist else ReferenceAudioMode.NONE),
                 # 官方限制：每请求最多 3 段参考音频，且总时长不超过 15 秒。总时长约束由
                 # 资产上传期的单段时长校验（2–10 秒）间接收敛，本层只声明段数上限。
-                max_reference_audio_count=_SEEDANCE_2_MAX_REFERENCE_AUDIO if verified else 0,
+                max_reference_audio_count=_SEEDANCE_2_MAX_REFERENCE_AUDIO if on_verified_allowlist else 0,
             )
         # 非 2.0 系列：DEFAULT_MODEL 1.5 pro 实测正常下发 role="last_frame"（见
         # test_first_last_frame_role_fields），此前统一按 VideoCapabilities() 默认

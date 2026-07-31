@@ -438,6 +438,26 @@ class TestSaveValidatesOpenOverrides:
         assert resp.status_code == 201
 
     @pytest.mark.integration
+    def test_direct_without_positive_count_rejected(self, client: TestClient):
+        """合并后不变式：宣称支持音色输入却限 0 段的组合在写入侧就拒。
+
+        放行则执行期只能静默降级，用户拿到的是「最多支持 0 段」这种无从遵循的提示。
+        该 endpoint 的系统判定上限为 0，只覆盖模式即凑出该组合。
+        """
+        resp = _post_provider(
+            client,
+            [
+                _video_model(
+                    endpoint=LAST_FRAME_ENDPOINT,
+                    model_id=LAST_FRAME_MODEL,
+                    capability_overrides={"reference_audio_mode": "direct"},
+                )
+            ],
+        )
+        assert resp.status_code == 422
+        assert "max_reference_audio_count" in resp.json()["detail"]
+
+    @pytest.mark.integration
     @pytest.mark.parametrize("bad_value", ["DIRECT", "native", True, 1, None])
     def test_invalid_reference_audio_mode_rejected(self, client: TestClient, bad_value):
         """枚举值两侧同判定：写入侧拒的与合成层忽略的必须是同一集合，否则「界面允许、执行反悔」。"""

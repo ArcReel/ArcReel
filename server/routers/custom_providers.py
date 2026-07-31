@@ -11,7 +11,7 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import asdict
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AfterValidator, BaseModel, Field, field_validator
@@ -22,6 +22,7 @@ from lib.config.repository import mask_secret
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.capabilities import (
     CAPABILITY_OVERRIDE_FIELDS,
+    audio_capability_pair_is_coherent,
     capability_value_matches,
     filter_valid_overrides,
     system_video_capabilities,
@@ -441,6 +442,28 @@ def _check_capability_overrides(
                     model_id=model_id,
                     endpoint=endpoint,
                 ),
+            )
+
+    # 合并后不变式：两维各自合法、合起来无意义的组合（支持音色输入却限 0 段）在这里拒，
+    # 而不是留给执行期静默降级——降级后用户会拿到「最多支持 0 段」这种无从遵循的提示。
+    # 稀疏覆盖只写其中一维也能凑出该组合，故按系统判定补齐未覆盖的那一维再判。
+    if "reference_audio_mode" in overrides or "max_reference_audio_count" in overrides:
+        try:
+            system_caps = system_video_capabilities(endpoint=endpoint, model_id=model_id)
+        except ValueError:
+            system_caps = None
+        mode = overrides.get(
+            "reference_audio_mode",
+            system_caps.reference_audio_mode if system_caps is not None else ReferenceAudioMode.NONE,
+        )
+        count = overrides.get(
+            "max_reference_audio_count",
+            system_caps.max_reference_audio_count if system_caps is not None else 0,
+        )
+        if not audio_capability_pair_is_coherent(mode=mode, count=cast(int, count)):
+            raise HTTPException(
+                status_code=422,
+                detail=_t("capability_override_audio_pair_incoherent", model_id=model_id),
             )
 
 

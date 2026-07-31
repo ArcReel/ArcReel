@@ -178,8 +178,64 @@ def synthesize_video_capabilities_with_overrides(
     """
     caps = system_video_capabilities(endpoint=endpoint, model_id=model_id)
     applied = filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides)
-    merged = replace(caps, **applied) if applied else caps
-    return merged, applied
+    merged = merge_overrides(caps, applied)
+    return enforce_audio_capability_invariant(merged, endpoint=endpoint, model_id=model_id), applied
+
+
+def merge_overrides(caps: VideoCapabilities, applied: dict[str, object]) -> VideoCapabilities:
+    """把稀疏覆盖并进能力对象，枚举维度还原成枚举成员。
+
+    覆盖字典从 JSON 列读出，枚举维度到这里还是字面量字符串；直接 ``replace`` 会让声明为
+    枚举类型的字段实际持有 ``str``。当前枚举都是 ``StrEnum``，``==`` 侥幸仍成立，但
+    ``is`` 比较与 ``.value`` 取值会分别静默判否和抛 ``AttributeError``——差别只在调用方
+    碰巧用了哪种写法。还原是纯机械的：值已由 :func:`capability_value_matches` 按精确字面量
+    校验过，这里不做任何二次判定。
+    """
+    if not applied:
+        return caps
+    coerced: dict[str, object] = {}
+    for key, value in applied.items():
+        expected = CAPABILITY_OVERRIDE_FIELDS.get(key)
+        if isinstance(expected, type) and issubclass(expected, Enum) and not isinstance(value, expected):
+            coerced[key] = expected(value)
+        else:
+            coerced[key] = value
+    return replace(caps, **coerced)
+
+
+def audio_capability_pair_is_coherent(*, mode: object, count: int) -> bool:
+    """音频两维的合并后不变式：声明支持音色输入就必须给出正的段数上限。
+
+    两维各自合法、合起来无意义的组合只有这一种（``direct`` ⊕ 上限 0）：稀疏覆盖只写其中
+    一维就能凑出——覆盖 ``reference_audio_mode=direct`` 而不动系统判定的 0，或反过来把
+    ``max_reference_audio_count`` 压成 0 而模式仍是系统判定的 ``direct``。反向组合
+    （``none`` ⊕ 正上限）不算违约：模式为 ``none`` 时上限本就不参与判定，且"关掉音色输入"
+    是正当意图，判违约反会把用户明确关掉的能力顶回开启。
+
+    不修正这组的后果是 ``gate_video_request`` 先过模式判定、再撞上限 0，把"该模型不支持
+    参考音频"报成"最多支持 0 段参考音频"——用户按提示去减角色数量，减到零段也过不了。
+
+    写入侧（``server/routers/custom_providers.py``）与合成侧共用此判定，两边不得各写一份。
+    """
+    return mode == ReferenceAudioMode.NONE.value or mode == ReferenceAudioMode.NONE or count > 0
+
+
+def enforce_audio_capability_invariant(caps: VideoCapabilities, *, endpoint: str, model_id: str) -> VideoCapabilities:
+    """把违反 :func:`audio_capability_pair_is_coherent` 的合并结果降到 ``none``。
+
+    写入侧已挡住新配置，这里兜住存量行与非 API 写入路径。降级方向取"不支持"而非"补一个
+    上限"：上限该是多少属供应商事实，系统无从替用户猜。
+    """
+    if audio_capability_pair_is_coherent(mode=caps.reference_audio_mode, count=caps.max_reference_audio_count):
+        return caps
+    logger.warning(
+        "%s/%s 的合并能力 reference_audio_mode=%s 但 max_reference_audio_count=%d，按不支持参考音频处理",
+        endpoint,
+        model_id,
+        caps.reference_audio_mode.value,
+        caps.max_reference_audio_count,
+    )
+    return replace(caps, reference_audio_mode=ReferenceAudioMode.NONE)
 
 
 def capability_value_matches(value: object, expected: type) -> bool:

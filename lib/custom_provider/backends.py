@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from lib.audio_backends.base import AudioBackend, AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
 from lib.image_backends.base import ImageBackend, ImageCapability, ImageGenerationRequest, ImageGenerationResult
 from lib.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
@@ -162,7 +160,15 @@ class CustomVideoBackend:
             else self._delegate.video_capabilities
         )
         if self._capability_overrides:
-            return replace(base, **self._capability_overrides)
+            # 合并后不变式与 synthesize 同口径：本路径也是一次「基底 ⊕ 稀疏覆盖」合并，
+            # 漏掉就会让档位查询产出 direct ⊕ 上限 0 这种合成侧已挡住的组合。
+            from lib.custom_provider.capabilities import enforce_audio_capability_invariant, merge_overrides
+
+            return enforce_audio_capability_invariant(
+                merge_overrides(base, self._capability_overrides),
+                endpoint=self._delegate.name,
+                model_id=self._model,
+            )
         return base
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:

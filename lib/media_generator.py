@@ -691,6 +691,9 @@ class MediaGenerator:
                         start_image=start_arg,
                         end_image=end_arg,
                         reference_images=ref_arg,
+                        # 音频不进压缩器（specs 只收图片），故直接透传原列表：顺序即 prompt
+                        # 「音频N」的指认顺序，任何重排都会把 A 角色的音色安到 B 角色头上。
+                        reference_audio_files=reference_audio_files,
                         generate_audio=effective_generate_audio,
                         project_name=self.project_name,
                         task_id=task_id,

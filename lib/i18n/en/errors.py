@@ -154,6 +154,10 @@ MESSAGES = {
         "Endpoint {endpoint} of model {model_id} does not send reference audio; "
         "reference_audio_mode cannot be overridden to direct"
     ),
+    "capability_override_audio_pair_incoherent": (
+        "Model {model_id} must have max_reference_audio_count greater than 0 when reference audio is supported; "
+        "override reference_audio_mode to none to turn voice reference off"
+    ),
     # Projects
     "unknown_style_template": "Unknown style template: {template_id}",
     "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",
@@ -255,6 +259,7 @@ MESSAGES = {
     "video_last_frame_unsupported": "{provider}/{model} does not support a last frame under the current configuration; generation aborted. Remove the shot's last frame, or switch to a model or tier that supports it",
     "video_reference_audio_unsupported": "{provider}/{model} does not support reference audio; generation aborted. Remove the character's reference audio, or switch to a model that supports voice reference",
     "video_reference_audio_exceeded": "Model {model} supports at most {limit} reference audio clips but received {count}; reduce the number of characters with reference audio",
+    "video_reference_audio_slots_insufficient": "Model {model} attaches each reference audio clip to a reference asset, but only {slots} reference assets are available for {count} clips; add reference images for those characters, or reduce the number of characters with reference audio",
     "video_reference_audio_unreadable": "Model {model} has reference audio that is missing or unreadable; generation aborted: {names}; check the reference audio paths",
     "video_reference_audio_format_unsupported": "Reference audio {name} has an unsupported format (only {supported}); use a different audio file",
     # Agent credentials
