@@ -15,7 +15,9 @@ from lib.script_models import ReferenceResource, Shot
 #: 镜头行 header：``镜头N：``（中英冒号均可）。时长已收编到 unit 级，header 不带秒数——
 #: 旧格式 ``Shot N (Xs):`` / ``镜头N (Xs)：`` 不再解析，按普通描述行处理（不留容忍：
 #: 存量落盘由加载时的一次性迁移改写，解析器只认新格式）。
-_SHOT_HEADER_RE = re.compile(r"""^镜头\s*\d+\s*[:：]\s*(.*)$""")
+#: 冒号后不用 ``\s*(.*)$`` ——``\s`` 与 ``.`` 字符类重叠，对不可信输入（prompt 是用户输入）
+#: 是多项式 ReDoS（CodeQL py/polynomial-redos）；改为裸捕获，调用侧 ``lstrip()`` 去首空白。
+_SHOT_HEADER_RE = re.compile(r"""^镜头\s*\d+\s*[:：](.*)$""")
 
 
 def _is_ascii_word_char(ch: str) -> bool:
@@ -99,13 +101,14 @@ def parse_prompt(text: str) -> tuple[list[Shot], list[str]]:
     for line in lines:
         m = _SHOT_HEADER_RE.match(line.strip())
         if m:
+            header_rest = m.group(1).lstrip()
             if started:
                 segments.append("\n".join(current_buf).strip())
-                current_buf = [m.group(1)]
+                current_buf = [header_rest]
             else:
                 # 首个 header 之前的非空文本保留，前置到首镜头 text
                 pre_header = "\n".join(current_buf).strip()
-                current_buf = [pre_header, m.group(1)] if pre_header else [m.group(1)]
+                current_buf = [pre_header, header_rest] if pre_header else [header_rest]
                 started = True
         else:
             current_buf.append(line)
