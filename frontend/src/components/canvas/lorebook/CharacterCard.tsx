@@ -231,7 +231,7 @@ export function CharacterCard({
       return;
     }
     if (!character.reference_audio) return;
-    if (rejectIfAssetBusy("character", projectName, name, t)) return;
+    if (rejectIfAssetBusy("character", projectName, name, t, "assets:delete_audio_busy_hint")) return;
     setDeletingAudio(true);
     try {
       await API.deleteCharacterReferenceAudio(projectName, name);
@@ -529,12 +529,15 @@ export function CharacterCard({
       />
 
       <div className="mt-3">
-        <CapsLabel htmlFor={voiceId}>{t("voice_section")}</CapsLabel>
+        {/* 「声音」是描述输入 + 音频样本共用的分组标题，不单独绑定输入框；
+            输入框自带 aria-label 保留「声音风格」这一字段身份 */}
+        <CapsLabel>{t("voice_section")}</CapsLabel>
         <input
           id={voiceId}
           type="text"
           value={voiceStyle}
           readOnly={readOnly}
+          aria-label={t("voice_style")}
           onChange={(e) => setVoiceStyle(e.target.value)}
           className="focus-ring mt-1.5 w-full rounded-lg px-3 py-2 text-[13px] outline-none transition-[border-color,box-shadow]"
           style={FIELD_STYLE}

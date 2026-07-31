@@ -30,7 +30,7 @@ from lib.episode_paths import (
 )
 from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
-from lib.path_safety import PathTraversalError, safe_join
+from lib.path_safety import PathTraversalError, safe_join, safe_resolve
 from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import effective_mode, get_project_manager
 from lib.source_loader import (
@@ -284,16 +284,19 @@ async def upload_file(
                         seq += 1
                 filename = candidate.name
 
+            stale_audio_path: Path | None = None
             if upload_type == "character_audio_ref" and name:
                 # 音频不像 character_ref 强制统一扩展名，替换时新旧扩展名可能不同，
-                # 先清理旧文件避免孤儿（reference_image 分支同名同扩展名，写入即覆盖，无需此步）
+                # 旧文件需显式清理避免孤儿（reference_image 分支同名同扩展名，写入即覆盖，无需此步）。
+                # 字段值来自 project.json，可被 PATCH 写成任意字符串，故经 safe_resolve
+                # 确认落在项目目录内才允许删除；实际删除推迟到新文件与字段写入成功之后。
                 old_audio = (get_project_manager().load_project(project_name).get("characters", {}).get(name, {})).get(
                     "reference_audio"
                 )
-                if old_audio:
-                    old_path = project_dir / old_audio
-                    if old_path.name != filename:
-                        old_path.unlink(missing_ok=True)
+                if isinstance(old_audio, str) and old_audio:
+                    resolved_old = safe_resolve(project_dir, old_audio)
+                    if resolved_old is not None and resolved_old.name != filename:
+                        stale_audio_path = resolved_old
 
             target_path = target_dir / filename
             with open(target_path, "wb") as f:
@@ -345,6 +348,10 @@ async def upload_file(
                         )
                 except KeyError:
                     pass  # 角色不存在，忽略
+                else:
+                    # 新样本已落盘且字段已指向它，此时删旧文件才不会留下「字段指向已删文件」的中间态
+                    if stale_audio_path is not None:
+                        stale_audio_path.unlink(missing_ok=True)
 
             if upload_type == "scene" and name:
                 try:
@@ -425,10 +432,13 @@ async def delete_character_reference_audio(project_name: str, name: str, _user: 
                 raise HTTPException(status_code=404, detail=_t("character_not_found", name=name))
 
             old_audio = character.get("reference_audio")
+            # 字段值来自 project.json，可被 PATCH 写成任意字符串；经 safe_resolve 确认落在
+            # 项目目录内才允许删除，否则只清字段不碰文件系统
+            stale_path = safe_resolve(project_dir, old_audio) if isinstance(old_audio, str) else None
             with project_change_source("webui"):
                 manager.update_character_reference_audio(project_name, name, "")
-            if old_audio:
-                (project_dir / old_audio).unlink(missing_ok=True)
+            if stale_path is not None:
+                stale_path.unlink(missing_ok=True)
 
             return {"success": True}
 

@@ -124,6 +124,36 @@ class TestProjectEventService:
         # narration 分镜走时间线画布：锚点类型恒为 segment（回归守卫，不得漂移）。
         assert all(c["focus"]["anchor_type"] == "segment" for c in segment_updated)
 
+    def test_diff_snapshots_reports_reference_audio_change(self, tmp_path):
+        """挂载/更换参考音频要推项目事件，否则其他会话的角色卡停留在旧样本。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        project = pm.load_project("demo")
+        project["characters"]["Hero"] = {
+            "description": "主角",
+            "voice_style": "冷静",
+            "character_sheet": "",
+            "reference_image": "",
+            "reference_audio": "",
+        }
+        with project_change_source("filesystem"):
+            pm.save_project("demo", project)
+
+        service = ProjectEventService(tmp_path)
+        previous = service._build_snapshot("demo")
+
+        project = pm.load_project("demo")
+        project["characters"]["Hero"]["reference_audio"] = "characters/refs_audio/Hero.wav"
+        with project_change_source("filesystem"):
+            pm.save_project("demo", project)
+
+        current = service._build_snapshot("demo")
+        changes = service._diff_snapshots(previous, current)
+
+        assert any(change["entity_type"] == "character" and change["action"] == "updated" for change in changes)
+
     def test_build_snapshot_survives_null_episodes(self, tmp_path):
         # project.json 的 episodes 显式为 null 时快照构建不崩:load_project 直接回读磁盘
         # JSON、不规范化 episodes,读侧按 fail-soft 用 ``or []`` 兜底而非 ``get(..., [])``。

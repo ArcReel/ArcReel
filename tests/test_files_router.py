@@ -335,6 +335,42 @@ class TestFilesRouter:
             assert resp.status_code == 200
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio", "") == ""
 
+    def test_delete_character_reference_audio_ignores_out_of_project_path(self, tmp_path, monkeypatch):
+        """reference_audio 可经资产 PATCH 写成任意字符串；越界路径只清字段，不得删项目外文件。"""
+        client, pm = _client(monkeypatch, tmp_path)
+        outsider = tmp_path / "outsider.wav"
+        outsider.write_bytes(b"do-not-delete")
+        pm.update_character_reference_audio("demo", "Alice", f"../../{outsider.name}")
+
+        with client:
+            resp = client.delete("/api/v1/projects/demo/characters/Alice/reference-audio")
+            assert resp.status_code == 200
+            assert outsider.exists()
+            assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio") == ""
+
+    def test_character_audio_ref_replace_ignores_out_of_project_old_path(self, tmp_path, monkeypatch):
+        """替换时的旧文件清理同样受项目目录约束，越界的存量值不触发删除。"""
+        client, pm = _client(monkeypatch, tmp_path)
+        outsider = tmp_path / "outsider.wav"
+        outsider.write_bytes(b"do-not-delete")
+        pm.update_character_reference_audio("demo", "Alice", f"../../{outsider.name}")
+
+        async def _fake_duration(content, suffix):
+            return 3.0
+
+        monkeypatch.setattr(files, "probe_audio_duration_seconds", _fake_duration)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                files={"file": ("v2.mp3", b"fake-mp3-bytes", "audio/mpeg")},
+            )
+            assert resp.status_code == 200
+            assert outsider.exists()
+            assert (
+                pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == "characters/refs_audio/Alice.mp3"
+            )
+
     def test_product_ref_upload_preserves_original_bytes(self, tmp_path, monkeypatch):
         """产品原图是保真验收锚点：保存管线保留原件字节，不做阈值压缩/重编码。"""
         client, pm = _client(monkeypatch, tmp_path)

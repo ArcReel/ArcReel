@@ -49,6 +49,21 @@ describe("CharacterCard", () => {
     );
   });
 
+  it("keeps the voice style field addressable under the grouped 声音 heading", () => {
+    render(
+      <CharacterCard
+        name="Hero"
+        character={{ description: "hero desc", voice_style: "warm" }}
+        projectName="demo"
+        onSave={vi.fn()}
+        onGenerate={vi.fn()}
+      />,
+    );
+
+    // 「声音」是描述 + 音频样本共用的分组标题，不能吃掉描述输入自身的字段身份
+    expect(screen.getByLabelText("声音风格")).toHaveValue("warm");
+  });
+
   it("keeps selected reference file until save and submits it in the payload", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(
@@ -286,7 +301,7 @@ describe("CharacterCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "删除音频样本" }));
 
     await waitFor(() => {
-      expect(pushToast).toHaveBeenCalledWith("生成或编辑进行中，暂无法上传设计图", "info");
+      expect(pushToast).toHaveBeenCalledWith("生成或编辑进行中，暂无法删除音频样本", "info");
     });
     expect(deleteSpy).not.toHaveBeenCalled();
   });
