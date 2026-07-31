@@ -26,15 +26,14 @@ def _valid_reference_script(episode: int = 1) -> dict:
             {
                 "unit_id": f"E{episode}U1",
                 "shots": [
-                    {"duration": 3, "text": "Shot 1 (3s): @张三 推门"},
-                    {"duration": 5, "text": "Shot 2 (5s): @酒馆 全景"},
+                    {"text": "Shot 1 (3s): @张三 推门"},
+                    {"text": "Shot 2 (5s): @酒馆 全景"},
                 ],
                 "references": [
                     {"type": "character", "name": "张三"},
                     {"type": "scene", "name": "酒馆"},
                 ],
                 "duration_seconds": 8,
-                "duration_override": False,
                 "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {
@@ -113,17 +112,17 @@ def test_validator_rejects_non_string_reference_name(tmp_path: Path):
     assert any("reference.name 必须是非空字符串" in e for e in result.errors)
 
 
-def test_validator_rejects_invalid_shot_duration(tmp_path: Path):
+def test_validator_rejects_invalid_unit_duration(tmp_path: Path):
     project = _reference_project()
     script = _valid_reference_script()
-    script["video_units"][0]["shots"][0]["duration"] = 99  # 超出 [1,15]
+    script["video_units"][0]["duration_seconds"] = 99  # 超出结构合理性区间 [1,60]
     _write(tmp_path, "project.json", project)
     _write(tmp_path, "scripts/episode_1.json", script)
 
     v = DataValidator()
     result = v.validate_project_tree(tmp_path)
     assert not result.valid
-    assert any("duration 必须是 1-15" in e for e in result.errors)
+    assert any("duration_seconds 必须是 1-60" in e for e in result.errors)
 
 
 @pytest.mark.integration

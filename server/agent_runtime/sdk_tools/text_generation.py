@@ -37,7 +37,6 @@ from lib.prompt_builders_script import build_narration_split_prompt, build_norma
 from lib.reference_video.shot_parser import extract_mentions, resolve_references
 from lib.script_generator import ScriptGenerator
 from lib.script_models import (
-    REFERENCE_SHOT_DURATION_RANGE,
     NarrationStep1Draft,
     build_drama_normalized_script_model,
     build_reference_units_step1_model,
@@ -467,21 +466,12 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> tuple[
     """解析 rv 拆分所需的视频能力：``(default_duration, supported_durations, max_duration, max_refs)``。
 
     与 ``_fetch_caps_with_fallback`` 同口径 best-effort：resolver 故障时回退
-    ``duration_presets.DEFAULT_FALLBACK``、``max_refs`` 视为未声明。返回的
-    ``supported_durations`` 已与 ``REFERENCE_SHOT_DURATION_RANGE`` 求交集——部分供应商
-    （如 vidu/agnes）的单 shot 时长上限超过该静态区间，未过滤会让 step1 产出的 shot 时长在
-    step2 读回校验（复用同一静态区间）时 fail-loud。``default_duration`` 非过滤后集合成员
-    （用户配置漂移）按 None 处理，避免 prompt 构建自相矛盾。
+    ``duration_presets.DEFAULT_FALLBACK``、``max_refs`` 视为未声明。
 
-    ``max_duration`` 是 unit 总时长上限，也就是真正发给供应商的那个值，故取**经时长联动约束
-    收窄后**集合的最大值：不收窄的话（海螺 1080p 只接受 6 秒）step1 会按全集上限拆出总时长
-    超标的 unit，step2 的枚举 schema 再把它判非法。
-
-    单 shot 时长**不按收窄后集合取成员**——shot 是同一段 clip 内的时间编排、不单独发给供应商，
-    受约束的是它们的和，按成员收窄会让合法编排（如总时长 8 = 4+4）凑不出来。但超过
-    ``max_duration`` 的候选必须剔除：单 shot 时长必然计入 unit 总和，海螺 1080p 下总时长上限为
-    6 而单 shot 枚举仍留 10，会让 prompt 同时要求「默认 10 秒」与「总时长不超过 6 秒」、schema
-    也放行 10，``_derive_and_validate_reference_units`` 再把含该值的 unit 全判非法。
+    unit 是一次生成调用的单元，拆分阶段定的时长就是真正发给供应商的那个值，故档位取**经时长
+    联动约束收窄后**的集合：不收窄的话（海螺 1080p 只接受 6 秒）step1 会按全集拆出超标的 unit，
+    step2 的枚举 schema 再把它判非法。``max_duration`` 随之是该集合的最大值。
+    ``default_duration`` 非收窄后集合成员（用户配置漂移）按 None 处理，避免 prompt 自相矛盾。
     """
     try:
         caps = await resolve_video_caps(project)
@@ -495,13 +485,11 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> tuple[
     max_duration = max(unit_durations)
     raw_refs = caps.get("max_reference_images")
     max_refs = int(raw_refs) if isinstance(raw_refs, int | float) else None
-    low, high = REFERENCE_SHOT_DURATION_RANGE
-    shot_durations = [d for d in durations if low <= d <= min(high, max_duration)]
     raw_default = caps.get("default_duration")
     default = int(raw_default) if isinstance(raw_default, int | float) else None
-    if default is not None and default not in shot_durations:
+    if default is not None and default not in unit_durations:
         default = None
-    return default, shot_durations, max_duration, max_refs
+    return default, unit_durations, max_duration, max_refs
 
 
 def _derive_and_validate_reference_units(
@@ -513,8 +501,8 @@ def _derive_and_validate_reference_units(
 ) -> None:
     """按拆分规则做后校验并就地派生各 unit 的 references。
 
-    schema 已卡死单 shot 时长枚举与 1-4 shot 结构；此处补依赖运行时能力值 / 项目登记表的约束：
-    unit_id 唯一、unit 总时长 ≤ max_duration、shot 文本 ``@`` 引用的资产名已登记（引用完整性）、
+    schema 已卡死 unit 时长枚举与 1-4 shot 结构；此处补依赖运行时能力值 / 项目登记表的约束：
+    unit_id 唯一、unit 时长 ≤ max_duration、shot 文本 ``@`` 引用的资产名已登记（引用完整性）、
     派生 references（各 shot 引用的并集、首现顺序，顺序即 [图N] 编号）数量 ≤ max_refs。
     任一违约 fail-loud 抛 ValueError，不把违规拆分当成功产物写盘。
     """
@@ -525,11 +513,9 @@ def _derive_and_validate_reference_units(
     for unit in units:
         uid = unit.get("unit_id")
         shots = unit.get("shots") or []
-        total = sum(int(s.get("duration") or 0) for s in shots)
-        if total > max_duration:
-            raise ValueError(
-                f"unit {uid} 总时长 {total}s 超过单次生成上限 {max_duration}s；请把该 unit 重拆为多个 unit"
-            )
+        duration = int(unit.get("duration_seconds") or 0)
+        if duration > max_duration:
+            raise ValueError(f"unit {uid} 时长 {duration}s 超过单次生成上限 {max_duration}s；请改取更短的档位")
         names = extract_mentions("\n".join(str(s.get("text") or "") for s in shots))
         refs, missing = resolve_references(names, project)
         if missing:
@@ -544,7 +530,7 @@ def _derive_and_validate_reference_units(
 def split_reference_video_units_tool(ctx: ToolContext):
     @tool(
         "split_reference_video_units",
-        "把本集小说原文拆分为参考生视频 video_unit 表（unit → shots 叙事文本 + 时长 + references），"
+        "把本集小说原文拆分为参考生视频 video_unit 表（unit → 时长 + shots 叙事文本 + references），"
         "保存到 drafts/episode_N/step1_reference_units.json，供 generate_episode_script"
         "（reference_video 模式）消费。references 由工具从 shot 文本的 @[名称] 引用自动派生。"
         "dry_run=true 时仅返回 prompt。",
@@ -610,8 +596,8 @@ def split_reference_video_units_tool(ctx: ToolContext):
                     ]
                 }
 
-            # 结构化输出：response_schema 按 supported_durations 卡死单 shot 时长枚举，直接产出
-            # unit → shots 叙事文本 + 时长；references 不进 LLM 输出、由下方机械派生。
+            # 结构化输出：response_schema 按 supported_durations 卡死 unit 时长枚举，直接产出
+            # unit → 时长 + shots 叙事文本；references 不进 LLM 输出、由下方机械派生。
             schema = build_reference_units_step1_model(supported_durations)
             generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=ctx.project_name)
             result = await generator.generate(
@@ -636,7 +622,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
             atomic_write_json(step1_path, content)
 
             shot_count = sum(len(u.get("shots") or []) for u in raw_units)
-            total_seconds = sum(int(s.get("duration") or 0) for u in raw_units for s in (u.get("shots") or []))
+            total_seconds = sum(int(u.get("duration_seconds") or 0) for u in raw_units)
             max_unit_refs = max(len(u.get("references") or []) for u in raw_units)
             return {
                 "content": [

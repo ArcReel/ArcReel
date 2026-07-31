@@ -137,10 +137,9 @@ def _make_reference_video_script(episode: int, content_mode: str, unit_specs: li
         units.append(
             {
                 "unit_id": unit_id,
-                "shots": [{"duration": duration, "text": "t"}],
+                "shots": [{"text": "t"}],
                 "references": [],
                 "duration_seconds": duration,
-                "duration_override": False,
                 "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
             }
@@ -1252,7 +1251,6 @@ class TestCostEstimationService:
                 "shots": [],
                 "references": [],
                 "duration_seconds": 5,
-                "duration_override": False,
                 "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
             }
@@ -1260,10 +1258,9 @@ class TestCostEstimationService:
         script["video_units"].append(
             {
                 "unit_id": "E1U3",
-                "shots": [{"duration": 5, "text": "   "}],
+                "shots": [{"text": "   "}],
                 "references": [],
                 "duration_seconds": 5,
-                "duration_override": False,
                 "transition_to_next": "cut",
                 "generated_assets": {"video_clip": None, "status": "pending"},
             }

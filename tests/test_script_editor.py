@@ -72,12 +72,12 @@ def _drama(scenes: list[dict] | None = None) -> dict:
 
 
 def _unit(unit_id: str = "E1U1", shots: list[dict] | None = None) -> dict:
-    shots = shots if shots is not None else [{"duration": 3, "text": "镜头1"}, {"duration": 4, "text": "镜头2"}]
+    shots = shots if shots is not None else [{"text": "镜头1"}, {"text": "镜头2"}]
     return {
         "unit_id": unit_id,
         "shots": shots,
         "references": [],
-        "duration_seconds": sum(s["duration"] for s in shots),
+        "duration_seconds": 8,
         "transition_to_next": "cut",  # 对齐 Pydantic 默认；剧本经 model_dump 后该字段总会出现
         "generated_assets": {"video_clip": "scripts/z.mp4"},
     }

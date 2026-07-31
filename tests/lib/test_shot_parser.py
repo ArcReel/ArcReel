@@ -1,67 +1,83 @@
 from lib.reference_video.shot_parser import (
-    compute_duration_from_shots,
     parse_prompt,
     render_prompt_for_backend,
+    render_shots_prompt,
     resolve_references,
 )
-from lib.script_models import ReferenceResource, Shot
+from lib.script_models import ReferenceResource
 
 
 def test_parse_single_shot_no_header():
-    shots, refs, override = parse_prompt("中景，主角走进房间。")
+    shots, refs = parse_prompt("中景，主角走进房间。")
     assert len(shots) == 1
     assert shots[0].text == "中景，主角走进房间。"
-    assert override is True  # 无 header → 单镜头，override 模式
     assert refs == []
 
 
 def test_parse_multi_shot():
-    text = "Shot 1 (3s): 中远景，主角推门进酒馆。\nShot 2 (5s): 近景，对面的张三抬眼。\n"
-    shots, refs, override = parse_prompt(text)
-    assert len(shots) == 2
-    assert shots[0].duration == 3
-    assert shots[0].text == "中远景，主角推门进酒馆。"
-    assert shots[1].duration == 5
-    assert shots[1].text == "近景，对面的张三抬眼。"
-    assert override is False  # 有 header → 派生模式
+    text = "镜头1：中远景，主角推门进酒馆。\n镜头2：近景，对面的张三抬眼。\n"
+    shots, _refs = parse_prompt(text)
+    assert [s.text for s in shots] == ["中远景，主角推门进酒馆。", "近景，对面的张三抬眼。"]
 
 
-def test_parse_three_shots_mixed_whitespace():
-    text = """Shot 1 (2s):  开场
-Shot 2 (4s):   中段
-Shot 3 (3s): 收尾"""
-    shots, _refs, _ = parse_prompt(text)
-    durations = [s.duration for s in shots]
-    assert durations == [2, 4, 3]
+def test_parse_accepts_ascii_colon_and_spacing():
+    text = "镜头 1: 开场\n镜头2 ：中段\n镜头3：收尾"
+    shots, _refs = parse_prompt(text)
+    assert [s.text for s in shots] == ["开场", "中段", "收尾"]
+
+
+def test_parse_legacy_header_is_not_recognized():
+    """时长收编后旧 header 彻底退出：整段按无 header 的单镜头处理、文本逐字保留。"""
+    text = "Shot 1 (3s): 开场\nShot 2 (5s): 收尾"
+    shots, _refs = parse_prompt(text)
+    assert len(shots) == 1
+    assert shots[0].text == text
+
+
+def test_parse_legacy_chinese_header_with_duration_is_not_recognized():
+    text = "镜头1 (3s)：开场"
+    shots, _refs = parse_prompt(text)
+    assert len(shots) == 1
+    assert shots[0].text == text
 
 
 def test_parse_empty_returns_empty_text_as_single_shot():
-    shots, refs, override = parse_prompt("")
+    shots, _refs = parse_prompt("")
     assert len(shots) == 1
     assert shots[0].text == ""
-    assert override is True
+
+
+def test_render_shots_prompt_round_trips_multi_shot():
+    text = "镜头1：开场\n镜头2：收尾"
+    shots, _refs = parse_prompt(text)
+    assert render_shots_prompt([s.model_dump() for s in shots]) == text
+
+
+def test_render_shots_prompt_single_shot_has_no_header():
+    assert render_shots_prompt([{"text": "只有一个镜头"}]) == "只有一个镜头"
+    assert render_shots_prompt([]) == ""
 
 
 def test_extract_mentions_ordered_unique():
-    text = "Shot 1 (3s): @张三 看向 @酒馆\nShot 2 (5s): @张三 拔剑 @长剑"
-    _shots, refs, _ = parse_prompt(text)
+    text = "镜头1：@张三 看向 @酒馆\n镜头2：@张三 拔剑 @长剑"
+    _shots, refs = parse_prompt(text)
     assert refs == ["张三", "酒馆", "长剑"]
 
 
 def test_extract_mentions_supports_wrapped_names():
-    text = "Shot 1 (8s): @[角色甲（成年）] 引导@[角色乙]靠近@[载具甲]区域，使用@[道具甲]完成动作"
-    _shots, refs, _ = parse_prompt(text)
+    text = "镜头1：@[角色甲（成年）] 引导@[角色乙]靠近@[载具甲]区域，使用@[道具甲]完成动作"
+    _shots, refs = parse_prompt(text)
     assert refs == ["角色甲（成年）", "角色乙", "载具甲", "道具甲"]
 
 
 def test_extract_mentions_supports_punctuation_in_wrapped_scene_name():
-    text = "Shot 1 (8s): @[载具甲]移动到@[地点甲·版本A]"
-    _shots, refs, _ = parse_prompt(text)
+    text = "镜头1：@[载具甲]移动到@[地点甲·版本A]"
+    _shots, refs = parse_prompt(text)
     assert refs == ["载具甲", "地点甲·版本A"]
 
 
 def test_extract_mentions_empty_prompt():
-    _shots, refs, _ = parse_prompt("没有任何提及")
+    _shots, refs = parse_prompt("没有任何提及")
     assert refs == []
 
 
@@ -109,24 +125,11 @@ def test_render_prompt_unknown_mention_kept():
 
 
 def test_render_prompt_multi_shot_text():
-    text = "Shot 1 (3s): @张三 推门\nShot 2 (5s): @张三 坐下"
+    text = "镜头1：@张三 推门\n镜头2：@张三 坐下"
     refs = [ReferenceResource(type="character", name="张三")]
     rendered = render_prompt_for_backend(text, refs)
     assert rendered.count("[图1]") == 2
-    assert "Shot 1 (3s):" in rendered  # header 保留
-
-
-def test_compute_duration_sums_shots():
-    shots = [Shot(duration=3, text="a"), Shot(duration=5, text="b"), Shot(duration=2, text="c")]
-    assert compute_duration_from_shots(shots) == 10
-
-
-def test_compute_duration_single_shot():
-    assert compute_duration_from_shots([Shot(duration=7, text="x")]) == 7
-
-
-def test_compute_duration_empty_list():
-    assert compute_duration_from_shots([]) == 0
+    assert "镜头1：" in rendered  # header 保留
 
 
 def _proj(characters=None, scenes=None, props=None):
@@ -173,14 +176,9 @@ def test_resolve_references_empty_input():
 
 
 def test_parse_multi_shot_preserves_pre_header_text():
-    text = (
-        "开场说明：这段剧本的整体基调偏紧张。\n"
-        "Shot 1 (3s): 中远景，主角推门进酒馆。\n"
-        "Shot 2 (5s): 近景，对面的张三抬眼。\n"
-    )
-    shots, _refs, override = parse_prompt(text)
+    text = "开场说明：这段剧本的整体基调偏紧张。\n镜头1：中远景，主角推门进酒馆。\n镜头2：近景，对面的张三抬眼。\n"
+    shots, _refs = parse_prompt(text)
     assert len(shots) == 2
-    assert override is False
     # Pre-header text 前置到首 shot
     assert "开场说明" in shots[0].text
     assert "中远景" in shots[0].text
@@ -216,7 +214,7 @@ def test_mention_accepts_whitespace_and_line_start():
 
     assert extract_mentions("@张三") == ["张三"]
     assert extract_mentions("之后 @张三 回头") == ["张三"]
-    assert extract_mentions("Shot 1 (3s):\n@张三 开门") == ["张三"]
+    assert extract_mentions("镜头1：\n@张三 开门") == ["张三"]
     assert extract_mentions("台词：@张三 起身") == ["张三"]
 
 

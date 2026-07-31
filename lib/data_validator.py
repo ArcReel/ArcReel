@@ -31,6 +31,7 @@ from lib.project_manager import effective_mode
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     REFERENCE_SHOT_DURATION_RANGE,
+    REFERENCE_UNIT_DURATION_RANGE,
     ad_script_total_duration,
     resolve_content_mode,
 )
@@ -98,9 +99,12 @@ class DataValidator:
     # 源文件性质（novel / screenplay）合法集，真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。缺省 novel：缺失字段不报错，仅拦截非法值（如 screen_play）。
     VALID_SOURCE_KINDS = set(_VALID_SOURCE_KINDS)
-    # 参考生视频路径下单镜头时长区间，真相源在 lib.script_models（与 Shot.duration /
-    # ad reference 路径的剧本模型同口径），避免两处枚举漂移。
+    # ad 路径下单镜头时长区间，真相源在 lib.script_models（与 ad reference 路径的剧本模型
+    # 同口径），避免两处枚举漂移。
     VALID_SHOT_DURATION_RANGE = REFERENCE_SHOT_DURATION_RANGE
+    # 参考生视频 unit 时长的结构合理性区间，真相源同上（档位成员校验依赖运行时模型能力，
+    # 不在归档层做）。
+    VALID_UNIT_DURATION_RANGE = REFERENCE_UNIT_DURATION_RANGE
     ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
     ALLOWED_ROOT_ENTRIES = {
@@ -1045,6 +1049,11 @@ class DataValidator:
                 missing_message="缺少 unit_id",
             )
 
+            duration = unit.get("duration_seconds")
+            low, high = self.VALID_UNIT_DURATION_RANGE
+            if not isinstance(duration, int) or isinstance(duration, bool) or duration < low or duration > high:
+                errors.append(f"{prefix}: duration_seconds 必须是 {low}-{high} 之间的整数")
+
             shots = unit.get("shots")
             if not isinstance(shots, list) or not shots:
                 errors.append(f"{prefix}: shots 必须是非空数组")
@@ -1054,10 +1063,6 @@ class DataValidator:
                     if not isinstance(shot, dict):
                         errors.append(f"{sp}: 必须是对象")
                         continue
-                    duration = shot.get("duration")
-                    low, high = self.VALID_SHOT_DURATION_RANGE
-                    if not isinstance(duration, int) or duration < low or duration > high:
-                        errors.append(f"{sp}: duration 必须是 {low}-{high} 之间的整数")
                     if not isinstance(shot.get("text"), str):
                         errors.append(f"{sp}: text 必须是字符串")
 

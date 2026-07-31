@@ -14,10 +14,9 @@ import type { ReferenceVideoUnit } from "@/types/reference-video";
 function mkUnit(overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
   return {
     unit_id: "E1U1",
-    shots: [{ duration: 3, text: "hi" }],
+    shots: [{ text: "hi" }],
     references: [],
     duration_seconds: 3,
-    duration_override: false,
     transition_to_next: "cut",
     note: null,
     generated_assets: {
@@ -80,25 +79,23 @@ afterEach(() => {
 });
 
 describe("ReferenceVideoCard", () => {
-  it("reconstructs `Shot N (Xs):` headers around each shot's stored text", () => {
+  it("reconstructs `镜头N：` headers around each shot's stored text", () => {
     const unit = mkUnit({
       shots: [
-        { duration: 3, text: "line1" },
-        { duration: 5, text: "line2" },
+        { text: "line1" },
+        { text: "line2" },
       ],
       duration_seconds: 8,
-      duration_override: false,
     });
     render(<ControlledCard unit={unit} />);
     const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
-    expect(ta.value).toBe("Shot 1 (3s): line1\nShot 2 (5s): line2");
+    expect(ta.value).toBe("镜头1：line1\n镜头2：line2");
   });
 
   it("renders raw text (no synthesized header) when duration_override is true", () => {
     const unit = mkUnit({
-      shots: [{ duration: 1, text: "plain text with no header" }],
+      shots: [{ text: "plain text with no header" }],
       duration_seconds: 1,
-      duration_override: true,
     });
     render(<ControlledCard unit={unit} />);
     const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
@@ -123,7 +120,7 @@ describe("ReferenceVideoCard", () => {
   it("does not open the picker when cursor sits after a punctuation following an orphan '@'", async () => {
     const user = userEvent.setup();
     render(
-      <ControlledCard unit={mkUnit({ shots: [{ duration: 1, text: "" }] })} />,
+      <ControlledCard unit={mkUnit({ shots: [{ text: "" }] })} />,
     );
     const ta = screen.getByRole("combobox");
     await user.clear(ta);
@@ -171,7 +168,7 @@ describe("ReferenceVideoCard", () => {
     const user = userEvent.setup();
     render(
       <ControlledCard
-        unit={mkUnit({ shots: [{ duration: 1, text: "" }] })}
+        unit={mkUnit({ shots: [{ text: "" }] })}
         onChange={onChange}
       />,
     );
@@ -204,8 +201,7 @@ describe("ReferenceVideoCard", () => {
   it("first Backspace next to a mention selects it; second deletes the whole chip", async () => {
     const user = userEvent.setup();
     const unit = mkUnit({
-      shots: [{ duration: 3, text: "hi @主角" }],
-      duration_override: false,
+      shots: [{ text: "hi @主角" }],
     });
     render(<ControlledCard unit={unit} />);
     const ta = screen.getByRole("combobox") as HTMLTextAreaElement;
@@ -231,9 +227,8 @@ describe("ReferenceVideoCard", () => {
     render(
       <ControlledCard
         unit={mkUnit({
-          shots: [{ duration: 3, text: "@路人" }],
+          shots: [{ text: "@路人" }],
           duration_seconds: 3,
-          duration_override: false,
         })}
       />,
     );
@@ -273,8 +268,7 @@ describe("ReferenceVideoCard combobox ARIA", () => {
 
   it("wires aria-describedby to unknown-mentions live region", () => {
     const unit = mkUnit({
-      shots: [{ duration: 3, text: "@未知人 出现" }],
-      duration_override: false,
+      shots: [{ text: "@未知人 出现" }],
     });
     renderCard(unit);
     const ta = screen.getByRole("combobox");

@@ -62,7 +62,7 @@ def _build_unit(
         }
     unit: dict = {
         "unit_id": "E1U1",
-        "shots": [{"duration": 4, "text": "镜头一"}],
+        "shots": [{"text": "镜头一"}],
         "references": references if references is not None else [],
         "duration_seconds": 4,
         "transition_to_next": "cut",

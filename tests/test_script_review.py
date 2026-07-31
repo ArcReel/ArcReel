@@ -66,13 +66,14 @@ def _rv_step1() -> dict:
             {
                 "unit_id": "E1U01",
                 "shots": [
-                    {"duration": 4, "text": "@[阿离] 立于屋檐下，望向雨幕。"},
-                    {"duration": 6, "text": "@[裴与] 策马自远方而来。"},
+                    {"text": "@[阿离] 立于屋檐下，望向雨幕。"},
+                    {"text": "@[裴与] 策马自远方而来。"},
                 ],
                 "references": [
                     {"type": "character", "name": "阿离"},
                     {"type": "character", "name": "裴与"},
                 ],
+                "duration_seconds": 8,
             }
         ],
     }
@@ -271,12 +272,12 @@ class TestReferenceVideoGateFlow:
         refs = state["content"]["units"][0]["references"]
         assert [(r["type"], r["name"]) for r in refs] == [("character", "阿离"), ("scene", "屋檐")]
 
-    def test_confirm_rejects_shot_duration_out_of_range(self, tmp_path):
-        """损坏的 step1（shot 时长越界）→ 确认被结构校验拒绝，不放行 step2。"""
+    def test_confirm_rejects_unit_duration_out_of_range(self, tmp_path):
+        """损坏的 step1（unit 时长越界）→ 确认被结构校验拒绝，不放行 step2。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         bad = _rv_step1()
-        bad["units"][0]["shots"][0]["duration"] = 99  # 超出 Shot.duration [1, 15]
+        bad["units"][0]["duration_seconds"] = 99  # 超出 unit 时长结构区间 [1, 60]
         _write_rv_step1(pm, bad)
         with pytest.raises(ScriptReviewError) as exc:
             svc.confirm("demo", 1)

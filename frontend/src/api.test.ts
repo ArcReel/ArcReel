@@ -982,10 +982,9 @@ describe("API.referenceVideos", () => {
 
   const mkUnit = (id: string): ReferenceVideoUnit => ({
     unit_id: id,
-    shots: [{ duration: 3, text: "Shot 1 (3s): test" }],
+    shots: [{ text: "镜头1：test" }],
     references: [],
     duration_seconds: 3,
-    duration_override: false,
     transition_to_next: "cut",
     note: null,
     generated_assets: {
@@ -1013,12 +1012,12 @@ describe("API.referenceVideos", () => {
   it("addReferenceVideoUnit posts the prompt payload", async () => {
     const unit = mkUnit("E1U2");
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ unit }), { status: 201 }));
-    const res = await API.addReferenceVideoUnit("proj", 1, { prompt: "Shot 1 (3s): hi", references: [] });
+    const res = await API.addReferenceVideoUnit("proj", 1, { prompt: "镜头1：hi", references: [] });
     expect(res.unit.unit_id).toBe("E1U2");
     const [, init] = fetchMock.mock.calls[0]!;
     expect(init!.method).toBe("POST");
     const body = JSON.parse(init!.body as string) as { prompt: string };
-    expect(body.prompt).toBe("Shot 1 (3s): hi");
+    expect(body.prompt).toBe("镜头1：hi");
   });
 
   it("reorderReferenceVideoUnits sends ordered ids", async () => {

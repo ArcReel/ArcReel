@@ -208,7 +208,6 @@ function ShotEditor({
     <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/30 p-2.5">
       <div className="mb-1.5 flex items-center gap-2">
         <span className="font-mono text-[11px] text-text-3">{t("review_shot_label", { index: index + 1 })}</span>
-        <span className="text-[11px] text-text-4">{shot.duration}s</span>
       </div>
       <AutoTextarea
         value={shot.text}
@@ -232,13 +231,13 @@ function ReferenceUnitCard({
   onShotChange: (shotIndex: number, patch: Partial<Shot>) => void;
 }) {
   const { t } = useTranslation("dashboard");
-  const totalSeconds = unit.shots.reduce((sum, s) => sum + s.duration, 0);
+
   return (
     <article className="rounded-[10px] border border-hairline p-3.5" style={CARD_STYLE}>
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{unit.unit_id}</span>
-          <span className="text-[11px] text-text-4">{totalSeconds}s</span>
+          <span className="text-[11px] text-text-4">{unit.duration_seconds}s</span>
         </div>
         <ReferenceChips references={unit.references} />
       </div>

@@ -7,10 +7,9 @@ import type { ReferenceVideoUnit } from "@/types";
 function mkUnit(id: string, overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
   return {
     unit_id: id,
-    shots: [{ duration: 3, text: "Shot 1 (3s): x" }],
+    shots: [{ text: "镜头1：x" }],
     references: [],
     duration_seconds: 3,
-    duration_override: false,
     transition_to_next: "cut",
     note: null,
     generated_assets: {
@@ -143,7 +142,7 @@ describe("reference-video-store", () => {
 
     await act(async () => {
       await useReferenceVideoStore.getState().addUnit("proj", 1, {
-        prompt: "Shot 1 (3s): new",
+        prompt: "镜头1：new",
         references: [],
       });
     });

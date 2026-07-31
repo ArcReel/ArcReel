@@ -736,6 +736,8 @@ export function StudioCanvasRouter() {
                     onSaveTitle={(title) => handleUpdateEpisodeTitle(epNum, title)}
                     canEditTitle={Boolean(episode?.script_file)}
                     hasScript={Boolean(script)}
+                    // unit 时长档位随所选模型能力变化（已按本集参考图路径收窄）
+                    durationOptions={durationOptions}
                   />
                 ) : mode === "grid" ? (
                   <GridImageToVideoCanvas

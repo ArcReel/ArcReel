@@ -1405,7 +1405,7 @@ class TestLoadReferenceStep1:
 
     @staticmethod
     def _unit(unit_id: str, *, duration: int = 6) -> dict:
-        return {"unit_id": unit_id, "shots": [{"text": "甲走进屋子", "duration": duration}]}
+        return {"unit_id": unit_id, "shots": [{"text": "甲走进屋子"}], "duration_seconds": duration}
 
     def test_loads_structured_units_verbatim(self, tmp_path):
         sg = _bare_generator(tmp_path)
@@ -1434,8 +1434,48 @@ class TestLoadReferenceStep1:
     def test_duration_outside_supported_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"units": [self._unit("E1U01", duration=5)]})  # 5 ∉ [4,6,8]
-        with pytest.raises(ValueError, match="duration"):
+        with pytest.raises(ValueError, match="时长非法"):
             sg._load_reference_step1(1, [4, 6, 8])
+
+    def test_migrates_legacy_per_shot_durations_and_persists(self, tmp_path):
+        """存量草稿的 per-shot 时长求和收编为 unit 时长，就地回写；二次加载不再触发。"""
+        sg = _bare_generator(tmp_path)
+        self._write(
+            sg,
+            1,
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "shots": [{"duration": 2, "text": "甲起身"}, {"duration": 2, "text": "甲出门"}],
+                    }
+                ]
+            },
+        )
+        units = sg._load_reference_step1(1, [4, 6, 8])
+        assert units[0]["duration_seconds"] == 4
+        assert units[0]["shots"] == [{"text": "甲起身"}, {"text": "甲出门"}]
+
+        on_disk = json.loads(self._step1_path(sg, 1).read_text(encoding="utf-8"))
+        assert on_disk["units"][0]["duration_seconds"] == 4
+        assert "duration" not in on_disk["units"][0]["shots"][0]
+
+    def test_migration_clamps_sum_to_supported_slot(self, tmp_path):
+        """求和落在档位之外 → 按容量语义取档后落盘（此处 4+3=7 → 8）。"""
+        sg = _bare_generator(tmp_path)
+        self._write(
+            sg,
+            1,
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "shots": [{"duration": 4, "text": "甲起身"}, {"duration": 3, "text": "甲出门"}],
+                    }
+                ]
+            },
+        )
+        assert sg._load_reference_step1(1, [4, 6, 8])[0]["duration_seconds"] == 8
 
     def test_empty_units_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)

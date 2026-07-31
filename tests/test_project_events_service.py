@@ -1074,7 +1074,7 @@ class TestProjectEventService:
                         {
                             "unit_id": "E1U01",
                             "duration_seconds": 8,
-                            "shots": [{"duration": 4, "text": "@[Hero] 登场"}],
+                            "shots": [{"text": "@[Hero] 登场"}],
                             "references": [
                                 {"type": "character", "name": "Hero"},
                                 {"type": "scene", "name": "街道"},
@@ -1101,7 +1101,7 @@ class TestProjectEventService:
             {
                 "unit_id": "E1U02",
                 "duration_seconds": 6,
-                "shots": [{"duration": 6, "text": "空镜"}],
+                "shots": [{"text": "空镜"}],
                 "references": [],
                 "generated_assets": _pending_assets(),
             }
@@ -1153,7 +1153,7 @@ class TestProjectEventService:
                         {
                             "unit_id": "E1U01",
                             "duration_seconds": 8,
-                            "shots": [{"duration": 4, "text": "@[Hero] 登场"}],
+                            "shots": [{"text": "@[Hero] 登场"}],
                             "references": [{"type": "character", "name": "Hero"}],
                             "generated_assets": _pending_assets(),
                         }
@@ -1172,9 +1172,7 @@ class TestProjectEventService:
         with project_change_source("filesystem"):
             pm.save_script("ref-edit", script, "episode_1.json", validate=False)
         after_text = service._build_snapshot("ref-edit")
-        assert after_text["scripts"]["episode_1.json"]["items"]["E1U01"]["shots"] == [
-            {"text": "@[Hero] 转身离去", "duration": 4}
-        ]
+        assert after_text["scripts"]["episode_1.json"]["items"]["E1U01"]["shots"] == [{"text": "@[Hero] 转身离去"}]
         text_changes = service._diff_snapshots(previous, after_text)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in text_changes)
 

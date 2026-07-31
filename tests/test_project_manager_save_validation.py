@@ -193,12 +193,12 @@ class TestUtterancesEditGuard:
 
 
 def _unit(unit_id: str = "E1U1") -> dict:
-    shots = [{"duration": 3, "text": "镜头1"}, {"duration": 4, "text": "镜头2"}]
+    shots = [{"text": "镜头1"}, {"text": "镜头2"}]
     return {
         "unit_id": unit_id,
         "shots": shots,
         "references": [],
-        "duration_seconds": sum(s["duration"] for s in shots),
+        "duration_seconds": 8,
     }
 
 
@@ -223,7 +223,7 @@ class TestMetadataRecompute:
 
         saved = pm.load_script("demo", "episode_1.json")
         assert saved["metadata"]["total_scenes"] == 2
-        assert saved["metadata"]["estimated_duration_seconds"] == 14
+        assert saved["metadata"]["estimated_duration_seconds"] == 16
 
     def test_narration_metadata_unchanged(self, tmp_path: Path):
         pm = _pm(tmp_path)

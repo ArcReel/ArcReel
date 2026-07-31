@@ -846,18 +846,13 @@ class ProjectEventService:
 
     @staticmethod
     def _item_member_shots(shots: Any) -> list[dict[str, Any]]:
-        """video_units 成员镜头的内容体（``text`` / ``duration``），供 ``updated`` 差分捕获镜头
-        文本或时长编辑——这些内容不落在 ``characters`` / ``duration_seconds`` 上，不纳入则单元
-        内容改动无事件。storyboard 骨架（segments/scenes/shots）条目无成员镜头子列表，返回空列表。
+        """video_units 成员镜头的内容体（``text``），供 ``updated`` 差分捕获镜头文本编辑——
+        这些内容不落在 ``characters`` / ``duration_seconds`` 上，不纳入则单元内容改动无事件。
+        storyboard 骨架（segments/scenes/shots）条目无成员镜头子列表，返回空列表。
         """
         if not isinstance(shots, list):
             return []
-        normalized: list[dict[str, Any]] = []
-        for shot in shots:
-            if not isinstance(shot, dict):
-                continue
-            normalized.append({"text": str(shot.get("text") or ""), "duration": shot.get("duration")})
-        return normalized
+        return [{"text": str(shot.get("text") or "")} for shot in shots if isinstance(shot, dict)]
 
     def _diff_snapshots(
         self,

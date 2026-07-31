@@ -11,16 +11,14 @@ from lib.script_models import (
 
 
 def test_shot_valid():
-    s = Shot(duration=5, text="中远景，主角推门进酒馆")
-    assert s.duration == 5
+    s = Shot(text="中远景，主角推门进酒馆")
     assert "酒馆" in s.text
 
 
-def test_shot_duration_range():
+def test_shot_rejects_duration_field():
+    """时长收编到 unit 级：镜头不再承载时长，写入即被 strict 模型拒绝。"""
     with pytest.raises(ValidationError):
-        Shot(duration=0, text="x")
-    with pytest.raises(ValidationError):
-        Shot(duration=16, text="x")
+        Shot(duration=5, text="x")  # pyright: ignore[reportCallIssue]
 
 
 def test_reference_resource_valid_types():
@@ -37,7 +35,7 @@ def test_reference_resource_rejects_clue():
 def _make_unit(**overrides):
     defaults = dict(
         unit_id="E1U1",
-        shots=[Shot(duration=3, text="Shot 1"), Shot(duration=5, text="Shot 2")],
+        shots=[Shot(text="镜头一"), Shot(text="镜头二")],
         references=[ReferenceResource(type="character", name="张三")],
         duration_seconds=8,
     )
@@ -50,18 +48,12 @@ def test_reference_video_unit_minimal():
     assert u.unit_id == "E1U1"
     assert len(u.shots) == 2
     assert u.duration_seconds == 8
-    assert u.duration_override is False
     assert u.transition_to_next == "cut"
 
 
 def test_reference_video_unit_requires_at_least_one_shot():
     with pytest.raises(ValidationError):
         _make_unit(shots=[])
-
-
-def test_reference_video_unit_duration_override_flag():
-    u = _make_unit(duration_override=True)
-    assert u.duration_override is True
 
 
 def test_reference_video_unit_transition_enum():
@@ -106,16 +98,18 @@ def test_reference_video_script_rejects_legacy_reference_video_content_mode():
 
 
 def test_reference_video_unit_rejects_more_than_four_shots():
-    many_shots = [Shot(duration=1, text=f"s{i}") for i in range(5)]
+    many_shots = [Shot(text=f"s{i}") for i in range(5)]
     with pytest.raises(ValidationError):
         _make_unit(shots=many_shots)
 
 
-def test_reference_video_unit_rejects_duration_mismatch():
+def test_reference_video_unit_duration_is_independent_of_shots():
+    """unit 时长是唯一真相：不再与镜头数 / 镜头内容挂钩，取值只受结构区间约束。"""
+    assert _make_unit(duration_seconds=12).duration_seconds == 12
+
+
+def test_reference_video_unit_rejects_duration_out_of_structural_range():
     with pytest.raises(ValidationError):
-        _make_unit(duration_seconds=99)  # shots 3+5=8, 99 ≠ 8
-
-
-def test_reference_video_unit_allows_mismatch_with_override():
-    u = _make_unit(duration_seconds=99, duration_override=True)
-    assert u.duration_seconds == 99
+        _make_unit(duration_seconds=0)
+    with pytest.raises(ValidationError):
+        _make_unit(duration_seconds=61)

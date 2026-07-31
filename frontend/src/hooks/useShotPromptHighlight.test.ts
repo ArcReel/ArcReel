@@ -18,15 +18,15 @@ function kinds(tokens: Token[]): string[] {
 
 describe("tokenizePrompt", () => {
   it("splits a shot header and plain text", () => {
-    const t = tokenizePrompt("Shot 1 (3s): hello world", LOOKUP);
+    const t = tokenizePrompt("镜头1：hello world", LOOKUP);
     expect(kinds(t)).toEqual(["shot_header", "text"]);
-    expect(t[0].text).toBe("Shot 1 (3s): ");
+    expect(t[0].text).toBe("镜头1：");
     expect(t[1].text).toBe("hello world");
   });
 
   it("resolves mentions against lookup (three types)", () => {
     const t = tokenizePrompt(
-      "Shot 1 (3s): @主角 in @酒馆 with @长剑",
+      "镜头1：@主角 in @酒馆 with @长剑",
       LOOKUP,
     );
     expect(kinds(t)).toEqual([
@@ -40,7 +40,7 @@ describe("tokenizePrompt", () => {
   });
 
   it("marks unknown names as 'unknown'", () => {
-    const t = tokenizePrompt("Shot 1 (3s): talk to @路人", LOOKUP);
+    const t = tokenizePrompt("镜头1：talk to @路人", LOOKUP);
     const mention = t.find((x) => x.kind === "mention");
     expect(mention?.assetKind).toBe("unknown");
     expect(mention?.text).toBe("@路人");
@@ -48,7 +48,7 @@ describe("tokenizePrompt", () => {
 
   it("resolves wrapped mentions with punctuation", () => {
     const t = tokenizePrompt(
-      "Shot 1 (8s): @[角色甲（成年）]引导@[角色乙]靠近@[载具甲]区域，移动到@[地点甲·版本A]",
+      "镜头1：@[角色甲（成年）]引导@[角色乙]靠近@[载具甲]区域，移动到@[地点甲·版本A]",
       LOOKUP,
     );
     const mentions = t.filter((x) => x.kind === "mention");
@@ -67,7 +67,7 @@ describe("tokenizePrompt", () => {
   });
 
   it("treats curly-brace wrapped text as plain text", () => {
-    const t = tokenizePrompt("Shot 1 (3s): @{载具甲} 靠近 @[角色甲（成年）]", LOOKUP);
+    const t = tokenizePrompt("镜头1：@{载具甲} 靠近 @[角色甲（成年）]", LOOKUP);
     const mentions = t.filter((x) => x.kind === "mention");
     expect(mentions.map((x) => (x.kind === "mention" ? x.name : ""))).toEqual(["角色甲（成年）"]);
     expect(t.some((x) => x.kind === "text" && x.text.includes("@{载具甲}"))).toBe(true);
@@ -75,13 +75,19 @@ describe("tokenizePrompt", () => {
 
   it("handles multi-line with multiple shot headers", () => {
     const t = tokenizePrompt(
-      "Shot 1 (3s): line1\nShot 2 (5s): line2 @主角",
+      "镜头1：line1\n镜头2：line2 @主角",
       LOOKUP,
     );
     const shotHeaders = t.filter((x) => x.kind === "shot_header");
     expect(shotHeaders).toHaveLength(2);
-    expect(shotHeaders[0].text.startsWith("Shot 1")).toBe(true);
-    expect(shotHeaders[1].text.startsWith("Shot 2")).toBe(true);
+    expect(shotHeaders[0].text.startsWith("镜头1")).toBe(true);
+    expect(shotHeaders[1].text.startsWith("镜头2")).toBe(true);
+  });
+
+  // 时长收编到 unit 级后旧 header 退出解析：`Shot N (Xs):` 不再高亮为 header，按普通描述行处理
+  it("no longer treats the legacy `Shot N (Xs):` header as a header", () => {
+    const t = tokenizePrompt("Shot 1 (3s): hello world", LOOKUP);
+    expect(t.some((x) => x.kind === "shot_header")).toBe(false);
   });
 
   it("no shot header → entire text becomes text + mention tokens", () => {

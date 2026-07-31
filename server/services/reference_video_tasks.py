@@ -173,15 +173,16 @@ def _apply_provider_constraints(
     return new_refs, new_duration, warnings
 
 
-def unit_script_duration(unit: dict, ad_shots: list[dict] | None) -> int:
-    """unit 的剧本编排时长（秒）。ad 取成员镜头求和，narration/drama 取 unit 字段。
+#: unit 时长缺值时的兜底秒数。执行层取档、入队前预检与新建 unit 的默认时长共用此口径，
+#: 避免用户确认的秒数与实际申请的秒数因各处各自兜底而不一致。
+FALLBACK_UNIT_DURATION = 8
 
-    执行层取档与入队前预检共用此口径（含缺值兜底 8 秒），避免用户确认的秒数与实际
-    申请的秒数因两处各自兜底而不一致。
-    """
+
+def unit_script_duration(unit: dict, ad_shots: list[dict] | None) -> int:
+    """unit 的剧本编排时长（秒）。ad 取成员镜头求和，narration/drama 取 unit 字段。"""
     if ad_shots is not None:
-        return ad_script_total_duration(ad_shots) or 8
-    return int(unit.get("duration_seconds") or 8)
+        return ad_script_total_duration(ad_shots) or FALLBACK_UNIT_DURATION
+    return int(unit.get("duration_seconds") or FALLBACK_UNIT_DURATION)
 
 
 def effective_reference_durations(
@@ -272,6 +273,27 @@ def precheck_unit(ctx: ProjectDurationContext, unit: dict, ad_shots: list[dict] 
         else []
     )
     return resolve_duration_slot(unit_script_duration(unit, ad_shots), durations)
+
+
+def default_unit_duration(ctx: ProjectDurationContext, project: dict) -> int:
+    """新建 unit 的默认时长（秒）：项目偏好 > 收窄后的首个档位 > 兜底。
+
+    与执行层解析申请秒数的回退序同源（``project.default_duration`` → 按当前分辨率收窄后的
+    档位首项 → 兜底），使新建单元拿到的秒数与它真正被生成时申请的秒数一致。项目偏好不是
+    当前模型的档位成员时（换模型后配置漂移）不采信，退到档位首项。
+    """
+    durations = effective_reference_durations(
+        ctx.provider_id,
+        ctx.model_name,
+        list(ctx.supported_durations),
+        ctx.resolution,
+        with_reference_images=False,
+    )
+    preferred = project.get("default_duration")
+    if isinstance(preferred, int) and not isinstance(preferred, bool) and preferred > 0:
+        if not durations or preferred in durations:
+            return preferred
+    return durations[0] if durations else FALLBACK_UNIT_DURATION
 
 
 async def _project_video_resolution(project: dict, provider_id: str, model_id: str | None) -> str | None:

@@ -370,10 +370,12 @@ def _inject_concurrent_takeover_before_nth_load(monkeypatch, key, target: Path, 
     所以这里不能只改文件字节，还要推进该镜头的代次，否则复现不出代次判定要拦截的场景。
     `content=None` 表示并发的那一次是清除（文件被删）；否则表示并发的那一次是设置。
 
-    补偿回滚会再发起一次 `locked_script`，其 `load_script` 调用即回滚临界区的起点——在其
-    第 n 次被调用时执行这次「并发接管」，相当于恰好在回滚拿到锁之前完成。
+    补偿回滚会再发起一次 `locked_script`，其剧本读取即回滚临界区的起点——在其第 n 次被
+    调用时执行这次「并发接管」，相当于恰好在回滚拿到锁之前完成。挂钩点取底层的
+    `_read_script_unlocked`：锁外的 `load_script` 与锁内的读-改-写都经它读盘，计数才覆盖
+    两类临界区起点。
     """
-    original = ProjectManager.load_script
+    original = ProjectManager._read_script_unlocked
     calls = {"n": 0}
 
     def _load_with_race(self, *args, **kwargs):
@@ -386,7 +388,7 @@ def _inject_concurrent_takeover_before_nth_load(monkeypatch, key, target: Path, 
                 target.write_bytes(content)
         return original(self, *args, **kwargs)
 
-    monkeypatch.setattr(ProjectManager, "load_script", _load_with_race)
+    monkeypatch.setattr(ProjectManager, "_read_script_unlocked", _load_with_race)
 
 
 class TestPersistFailureRestoresSnapshot:
@@ -517,18 +519,18 @@ class TestPersistFailureRestoresSnapshot:
         _upload(c, _img_bytes("PNG", size=(8, 8)))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
 
-        original_load_script = ProjectManager.load_script
+        original_read_script = ProjectManager._read_script_unlocked
         calls = {"n": 0}
         content_at_critical_section_entry = _img_bytes("PNG", size=(56, 56))
 
         def _load_with_rewrite(self, *args, **kwargs):
             calls["n"] += 1
-            # load 序列：_locate_shot(1) → 本次失败操作自己的 locked_script(2)
+            # 读盘序列：_locate_shot(1) → 本次失败操作自己的 locked_script(2)
             if calls["n"] == 2:
                 snapshot.write_bytes(content_at_critical_section_entry)
-            return original_load_script(self, *args, **kwargs)
+            return original_read_script(self, *args, **kwargs)
 
-        monkeypatch.setattr(ProjectManager, "load_script", _load_with_rewrite)
+        monkeypatch.setattr(ProjectManager, "_read_script_unlocked", _load_with_rewrite)
         _fail_first_persist(monkeypatch)
 
         resp = _upload(c, _img_bytes("PNG", size=(16, 16)))

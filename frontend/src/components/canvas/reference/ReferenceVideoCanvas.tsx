@@ -50,6 +50,11 @@ export interface ReferenceVideoCanvasProps {
   canEditTitle?: boolean;
   /** step2 剧本（scripts/episode_N.json）是否已生成——决定默认 tab（镜像 GridImageToVideoCanvas 的 hasScript 判定）。 */
   hasScript?: boolean;
+  /**
+   * unit 时长下拉的档位，来自模型能力声明（已按本集参考图路径与分辨率收窄）。
+   * 能力不可解析时为 undefined——此时不渲染下拉，只读展示当前秒数，不编造档位。
+   */
+  durationOptions?: number[];
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
@@ -109,6 +114,7 @@ export function ReferenceVideoCanvas({
   onSaveTitle,
   canEditTitle,
   hasScript = true,
+  durationOptions,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
 
@@ -385,6 +391,19 @@ export function ReferenceVideoCanvas({
   }, [batchTargets, durationGate, makeEnqueueSerially, isUnitLocked, canEnqueueBatchUnit, t]);
 
   const onAdd = useCallback(() => void handleAdd(), [handleAdd]);
+
+  // 时长与正文分开提交：时长不是文本的一部分，改档位立即落盘，不牵连未保存的正文草稿。
+  const handleDurationChange = useCallback(
+    (unitId: string, seconds: number) => {
+      // 渲染期的禁用态未必最新（SSE / Agent 入队可能刚占用），提交时刻再复核一次
+      if (isUnitBusy(projectName, unitId)) {
+        useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
+        return;
+      }
+      void patchUnit(projectName, episode, unitId, { duration_seconds: seconds }).catch(toastError);
+    },
+    [patchUnit, projectName, episode, t],
+  );
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
 
   const handlePromptChange = useCallback(
@@ -751,7 +770,34 @@ export function ReferenceVideoCanvas({
                     </span>
                     <span className="inline-flex items-center gap-1 rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-2 py-0.5 text-[11.5px] text-[var(--color-text-2)]">
                       <Clock className="h-3 w-3" aria-hidden="true" />
-                      <span className="font-mono tabular-nums">{selected.duration_seconds}s</span>
+                      {durationOptions && durationOptions.length > 0 ? (
+                        <select
+                          aria-label={t("duration_selector_aria")}
+                          value={selected.duration_seconds}
+                          disabled={isUnitLocked(selected.unit_id)}
+                          title={
+                            isUnitLocked(selected.unit_id) ? t("duration_locked_generating") : undefined
+                          }
+                          onChange={(e) =>
+                            handleDurationChange(selected.unit_id, Number(e.target.value))
+                          }
+                          className="focus-ring cursor-pointer bg-transparent font-mono tabular-nums text-[var(--color-text-2)] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {/* 已保存的越界值（换模型后档位收窄）留一项，避免下拉把它静默改写成别的秒数 */}
+                          {(durationOptions.includes(selected.duration_seconds)
+                            ? durationOptions
+                            : [...durationOptions, selected.duration_seconds].sort((a, b) => a - b)
+                          ).map((seconds) => (
+                            <option key={seconds} value={seconds}>
+                              {t("duration_seconds_value_text", { value: seconds })}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="font-mono tabular-nums" title={t("duration_no_options")}>
+                          {selected.duration_seconds}s
+                        </span>
+                      )}
                     </span>
                     <span className="inline-flex items-center gap-1 rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-2 py-0.5 text-[11.5px] text-[var(--color-text-2)]">
                       <Scissors className="h-3 w-3" aria-hidden="true" />

@@ -22,10 +22,9 @@ def _mk_reference_script(units_total: int, units_done: int) -> dict:
         units.append(
             {
                 "unit_id": f"E1U{i + 1}",
-                "shots": [{"duration": 3, "text": f"Shot 1 (3s): u{i}"}],
+                "shots": [{"text": f"Shot 1 (3s): u{i}"}],
                 "references": [],
                 "duration_seconds": 3,
-                "duration_override": False,
                 "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {
@@ -103,13 +102,12 @@ def test_enrich_script_reference_video_aggregates_references(pm: ProjectManager)
         "video_units": [
             {
                 "unit_id": "E1U1",
-                "shots": [{"duration": 3, "text": "Shot 1 (3s): x"}],
+                "shots": [{"text": "Shot 1 (3s): x"}],
                 "references": [
                     {"type": "character", "name": "张三"},
                     {"type": "scene", "name": "酒馆"},
                 ],
                 "duration_seconds": 3,
-                "duration_override": False,
                 "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {
@@ -124,13 +122,12 @@ def test_enrich_script_reference_video_aggregates_references(pm: ProjectManager)
             },
             {
                 "unit_id": "E1U2",
-                "shots": [{"duration": 5, "text": "Shot 1 (5s): y"}],
+                "shots": [{"text": "Shot 1 (5s): y"}],
                 "references": [
                     {"type": "character", "name": "张三"},  # duplicate — should dedupe
                     {"type": "prop", "name": "长剑"},
                 ],
                 "duration_seconds": 5,
-                "duration_override": False,
                 "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {

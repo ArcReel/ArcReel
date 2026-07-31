@@ -49,13 +49,12 @@ def _write_project(tmp_path: Path) -> Path:
         "video_units": [
             {
                 "unit_id": "E1U1",
-                "shots": [{"duration": 3, "text": "Shot 1 (3s): @张三 推门"}],
+                "shots": [{"text": "Shot 1 (3s): @张三 推门"}],
                 "references": [
                     {"type": "character", "name": "张三"},
                     {"type": "scene", "name": "酒馆"},
                 ],
                 "duration_seconds": 3,
-                "duration_override": False,
                 "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {
@@ -179,8 +178,8 @@ def test_render_unit_prompt_rejects_empty_shots():
     被当成有效 prompt 提交给付费 backend。"""
     unit = {
         "shots": [
-            {"duration": 3, "text": ""},
-            {"duration": 2, "text": "   "},
+            {"text": ""},
+            {"text": "   "},
         ],
         "references": [{"type": "character", "name": "张三"}],
     }
@@ -191,8 +190,8 @@ def test_render_unit_prompt_rejects_empty_shots():
 def test_render_unit_prompt_replaces_mentions_in_order():
     unit = {
         "shots": [
-            {"duration": 3, "text": "Shot 1 (3s): @张三 推门"},
-            {"duration": 5, "text": "Shot 2 (5s): 对面的 @张三 抬眼，背景是 @酒馆"},
+            {"text": "Shot 1 (3s): @张三 推门"},
+            {"text": "Shot 2 (5s): 对面的 @张三 抬眼，背景是 @酒馆"},
         ],
         "references": [
             {"type": "character", "name": "张三"},
@@ -1005,7 +1004,7 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     # 时长取 sora supported_durations 成员（4），避免触发执行层 duration 能力守卫；本测试聚焦 refs 裁剪。
-    script["video_units"][0]["shots"] = [{"duration": 4, "text": "Shot 1 (4s): @张三 在 @酒馆 拿起 @瓶子"}]
+    script["video_units"][0]["shots"] = [{"text": "Shot 1 (4s): @张三 在 @酒馆 拿起 @瓶子"}]
     script["video_units"][0]["duration_seconds"] = 4
     script["video_units"][0]["references"] = [
         {"type": "character", "name": "张三"},
@@ -1082,7 +1081,7 @@ async def test_execute_reference_video_task_rounds_up_non_member_duration(
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     # 5 不是 [4,8,12] 成员 → 按 8 秒申请
-    script["video_units"][0]["shots"] = [{"duration": 5, "text": "Shot 1 (5s): @张三 推门"}]
+    script["video_units"][0]["shots"] = [{"text": "Shot 1 (5s): @张三 推门"}]
     script["video_units"][0]["duration_seconds"] = 5
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
@@ -1139,7 +1138,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     proj_dir = _write_project(tmp_path)
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["shots"] = [{"duration": 5, "text": "Shot 1 (5s): @张三 推门"}]
+    script["video_units"][0]["shots"] = [{"text": "Shot 1 (5s): @张三 推门"}]
     script["video_units"][0]["duration_seconds"] = 5
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 

@@ -90,18 +90,17 @@ export interface ReferenceVideoCardProps {
 /**
  * Reconstruct the textarea-visible prompt for a unit from persisted shots.
  *
- * Backend `parse_prompt` strips `Shot N (Xs):` headers when persisting
- * `shots[].text`, so editing the raw stored text would re-parse as a
- * header-less single shot and collapse multi-shot units. We re-synthesize the
- * headers unless the unit was saved in header-less mode (duration_override).
+ * Backend `parse_prompt` strips `镜头N：` headers when persisting `shots[].text`,
+ * so editing the raw stored text would re-parse as a header-less single shot and
+ * collapse multi-shot units. We re-synthesize the headers; a single-shot unit needs
+ * none (its header carries no information). Mirrors
+ * lib/reference_video/shot_parser.py:render_shots_prompt.
  */
 export function unitPromptText(unit: ReferenceVideoUnit): string {
-  if (unit.duration_override) {
+  if (unit.shots.length <= 1) {
     return unit.shots[0]?.text ?? "";
   }
-  return unit.shots
-    .map((s, i) => `Shot ${i + 1} (${s.duration}s): ${s.text}`)
-    .join("\n");
+  return unit.shots.map((s, i) => `镜头${i + 1}：${s.text}`).join("\n");
 }
 
 export function ReferenceVideoCard({

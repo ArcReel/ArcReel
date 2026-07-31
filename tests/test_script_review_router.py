@@ -41,7 +41,8 @@ def _rv_step1() -> dict:
         "units": [
             {
                 "unit_id": "E1U01",
-                "shots": [{"duration": 4, "text": "@[阿离] 立于屋檐下。"}],
+                "shots": [{"text": "@[阿离] 立于屋檐下。"}],
+                "duration_seconds": 4,
                 "references": [{"type": "character", "name": "阿离"}],
             }
         ],

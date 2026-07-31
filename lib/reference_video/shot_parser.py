@@ -12,10 +12,10 @@ from typing import Any
 from lib.asset_types import BUCKET_KEY
 from lib.script_models import ReferenceResource, Shot
 
-_SHOT_HEADER_RE = re.compile(
-    r"""^Shot\s+\d+\s*\(\s*(\d+)\s*s\s*\)\s*:\s*(.*)$""",
-    re.IGNORECASE,
-)
+#: 镜头行 header：``镜头N：``（中英冒号均可）。时长已收编到 unit 级，header 不带秒数——
+#: 旧格式 ``Shot N (Xs):`` / ``镜头N (Xs)：`` 不再解析，按普通描述行处理（不留容忍：
+#: 存量落盘由加载时的一次性迁移改写，解析器只认新格式）。
+_SHOT_HEADER_RE = re.compile(r"""^镜头\s*\d+\s*[:：]\s*(.*)$""")
 
 
 def _is_ascii_word_char(ch: str) -> bool:
@@ -79,48 +79,58 @@ def _iter_mentions(text: str) -> Iterator[tuple[int, int, str]]:
         i += 1
 
 
-def parse_prompt(text: str) -> tuple[list[Shot], list[str], bool]:
-    """把用户书写的 prompt 文本拆为 (shots, mention_names, duration_override)。
+def parse_prompt(text: str) -> tuple[list[Shot], list[str]]:
+    """把用户书写的 prompt 文本拆为 (shots, mention_names)。
 
     返回的第二项是 prompt 中出现的名字列表（保持首次出现的顺序、去重），
     由 caller 结合 project.json 分派成 ReferenceResource（本函数不区分 type）。
 
-    - 有 `Shot N (Xs):` header → 按 header 切分；override=False
-    - 无 header → 整段视为单镜头、duration 由 caller 指定；override=True
+    - 有 `镜头N：` header → 按 header 切分
+    - 无 header → 整段视为单镜头
 
-    Raises:
-        pydantic.ValidationError: 当 header 中的 duration 超出 Shot.duration 的 [1, 15]
-            范围时由 Shot 构造抛出；调用方（PR3 executor）须捕获并映射为用户友好错误。
+    时长不从文本解析：它是 unit 级字段，由 caller 从请求 / 剧本读取（见
+    ``ReferenceVideoUnit.duration_seconds``）。
     """
     lines = text.splitlines()
-    segments: list[tuple[int, str]] = []
-    current_duration: int | None = None
+    segments: list[str] = []
+    started = False
     current_buf: list[str] = []
 
     for line in lines:
         m = _SHOT_HEADER_RE.match(line.strip())
         if m:
-            if current_duration is not None:
-                segments.append((current_duration, "\n".join(current_buf).strip()))
-                current_buf = [m.group(2)]
+            if started:
+                segments.append("\n".join(current_buf).strip())
+                current_buf = [m.group(1)]
             else:
                 # 首个 header 之前的非空文本保留，前置到首镜头 text
                 pre_header = "\n".join(current_buf).strip()
-                current_buf = [pre_header, m.group(2)] if pre_header else [m.group(2)]
-            current_duration = int(m.group(1))
+                current_buf = [pre_header, m.group(1)] if pre_header else [m.group(1)]
+                started = True
         else:
             current_buf.append(line)
 
-    if current_duration is not None:
-        segments.append((current_duration, "\n".join(current_buf).strip()))
+    if started:
+        segments.append("\n".join(current_buf).strip())
 
     if not segments:
         # 无 header → 单镜头
-        return [Shot(duration=1, text=text.strip())], extract_mentions(text), True
+        return [Shot(text=text.strip())], extract_mentions(text)
 
-    shots = [Shot(duration=d, text=t) for d, t in segments]
-    mentions = extract_mentions(text)
-    return shots, mentions, False
+    return [Shot(text=t) for t in segments], extract_mentions(text)
+
+
+def render_shots_prompt(shots: list[Any]) -> str:
+    """把 unit.shots 还原为用户在编辑器里书写的 prompt 文本（``parse_prompt`` 的逆）。
+
+    多镜头补 ``镜头N：`` header 使再次解析能切回同样的镜头边界；单镜头直出正文——
+    单镜头 unit 的 header 不携带任何信息，补上只会在往返编辑中凭空长出一行。
+    前端解析预览与后端渲染共用此口径。
+    """
+    texts = [str(s.get("text") or "") if isinstance(s, dict) else "" for s in shots]
+    if len(texts) <= 1:
+        return texts[0] if texts else ""
+    return "\n".join(f"镜头{i}：{text}" for i, text in enumerate(texts, start=1))
 
 
 def extract_mentions(text: str) -> list[str]:
@@ -193,11 +203,6 @@ def assemble_shots_text(shots: list[Any]) -> str:
         text = s.get("text")
         parts.append(text if isinstance(text, str) else "")
     return "\n".join(parts)
-
-
-def compute_duration_from_shots(shots: list[Shot]) -> int:
-    """把 shots 时长求和，返回整数秒。"""
-    return sum(s.duration for s in shots)
 
 
 def resolve_references(

@@ -31,10 +31,9 @@ vi.mock("@/stores/tasks-store", async () => {
 function mkUnit(id: string, shotText = "x"): ReferenceVideoUnit {
   return {
     unit_id: id,
-    shots: [{ duration: 3, text: shotText }],
+    shots: [{ text: shotText }],
     references: [],
     duration_seconds: 3,
-    duration_override: false,
     transition_to_next: "cut",
     note: null,
     generated_assets: {
@@ -120,7 +119,39 @@ describe("ReferenceVideoCanvas", () => {
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const ta = await screen.findByRole("combobox");
-    expect((ta as HTMLTextAreaElement).value).toContain("Shot 1 (3s): x");
+    expect((ta as HTMLTextAreaElement).value).toContain("x");
+  });
+
+  // 时长是 unit 级单一真相：下拉档位来自模型能力声明，选中即单独 PATCH（不牵连正文草稿）
+  it("renders the unit duration dropdown from the model's declared slots and patches on change", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValue({ unit: { ...mkUnit("E1U1"), duration_seconds: 8 } });
+    render(
+      <ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[3, 8]} />,
+    );
+    const select = (await screen.findByRole("combobox", {
+      name: /Duration|时长/,
+    })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "8"]);
+    fireEvent.change(select, { target: { value: "8" } });
+    await waitFor(() =>
+      expect(patchSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_seconds: 8 }),
+    );
+  });
+
+  // 换模型后档位收窄，已保存的越界秒数仍要留在选项里，否则下拉会把它静默改写
+  it("keeps an out-of-slot saved duration as an option", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    render(
+      <ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[4, 8]} />,
+    );
+    const select = (await screen.findByRole("combobox", {
+      name: /Duration|时长/,
+    })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "4", "8"]);
+    expect(select.value).toBe("3");
   });
 
   it("remounts the card so textarea shows the new unit's prompt when selection changes", async () => {
@@ -202,7 +233,7 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
-      content: { units: [{ unit_id: "E1U1", shots: [{ duration: 3, text: "shot text" }], references: [] }] },
+      content: { units: [{ unit_id: "E1U1", shots: [{ text: "shot text" }], references: [], duration_seconds: 5 }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
@@ -224,7 +255,7 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
-      content: { units: [{ unit_id: "E1U1", shots: [{ duration: 3, text: "shot text" }], references: [] }] },
+      content: { units: [{ unit_id: "E1U1", shots: [{ text: "shot text" }], references: [], duration_seconds: 5 }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
     const preprocTab = await screen.findByRole("tab", { name: /Splitting preprocess|拆分预处理/ });

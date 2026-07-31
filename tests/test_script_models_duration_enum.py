@@ -184,43 +184,42 @@ class TestConstrainedValidation:
 
 
 class TestReferenceVideoModel:
-    """参考视频模式：约束的是 unit 总时长（各 shot 之和），不是单个 shot。"""
+    """参考视频模式：约束的是 unit 时长——一次生成调用一个时长，镜头不承载时长。"""
 
-    def _unit_payload(self, *, shots: list[int], total: int) -> dict:
+    def _unit_payload(self, *, shot_count: int, total: int) -> dict:
         return {
             "title": "第一集",
             "video_units": [
                 {
                     "unit_id": "E1U01",
-                    "shots": [{"duration": d, "text": f"@甲 动作 {i}"} for i, d in enumerate(shots)],
+                    "shots": [{"text": f"@甲 动作 {i}"} for i in range(shot_count)],
                     "references": [{"type": "character", "name": "甲"}],
                     "duration_seconds": total,
                 }
             ],
         }
 
-    def test_unit_total_rendered_as_enum(self):
+    def test_unit_duration_rendered_as_enum(self):
         model = build_reference_video_script_model([4, 6, 8])
         schema = model.model_json_schema()
         unit_def = next(d for d in schema["$defs"].values() if "shots" in d.get("properties", {}))
         assert unit_def["properties"]["duration_seconds"].get("enum") == [4, 6, 8]
 
-    def test_sum_in_set_accepted(self):
+    def test_member_duration_accepted(self):
         model = build_reference_video_script_model([4, 6, 8])
-        validated = model.model_validate(self._unit_payload(shots=[4, 4], total=8))
+        validated = model.model_validate(self._unit_payload(shot_count=2, total=8))
         assert validated.video_units[0].duration_seconds == 8
 
-    def test_sum_out_of_set_rejected(self):
-        """各 shot（3+4=7）合法（1-15），但和 7 不是 supported 成员——必须拒。"""
+    def test_out_of_set_duration_rejected(self):
         model = build_reference_video_script_model([4, 6, 8])
         with pytest.raises(ValidationError):
-            model.model_validate(self._unit_payload(shots=[3, 4], total=7))
+            model.model_validate(self._unit_payload(shot_count=2, total=7))
 
-    def test_total_must_equal_shot_sum_preserved(self):
-        """既有一致性校验保留：total=8 但 shots 之和=6 仍拒（即便 8 是 supported 成员）。"""
+    def test_duration_independent_of_shot_count(self):
+        """镜头数不再影响 unit 时长：单镜头也能取任一档位。"""
         model = build_reference_video_script_model([4, 6, 8])
-        with pytest.raises(ValidationError):
-            model.model_validate(self._unit_payload(shots=[6], total=8))
+        validated = model.model_validate(self._unit_payload(shot_count=1, total=8))
+        assert validated.video_units[0].duration_seconds == 8
 
     def test_empty_supported_durations_raises(self):
         with pytest.raises(ValueError):
@@ -273,40 +272,45 @@ class TestAdReferenceModel:
 
 
 class TestReferenceUnitsStep1Model:
-    """build_reference_units_step1_model：单 shot 时长枚举硬约束 + references 对 LLM 隐藏。"""
+    """build_reference_units_step1_model：unit 时长枚举硬约束 + references 对 LLM 隐藏。"""
 
     def _model(self):
         from lib.script_models import build_reference_units_step1_model
 
         return build_reference_units_step1_model([4, 6, 8])
 
-    def test_shot_duration_rendered_as_enum_and_references_hidden(self):
+    def test_unit_duration_rendered_as_enum_and_references_hidden(self):
         schema = self._model().model_json_schema()
         defs = schema.get("$defs", {})
-        shot_def = next(d for d in defs.values() if "duration" in d.get("properties", {}))
-        assert shot_def["properties"]["duration"]["enum"] == [4, 6, 8]
         unit_def = next(d for d in defs.values() if "shots" in d.get("properties", {}))
+        assert unit_def["properties"]["duration_seconds"]["enum"] == [4, 6, 8]
         # references 由拆分工具机械派生，不进 LLM 输出 schema
         assert "references" not in unit_def["properties"]
+        # 镜头不承载时长
+        shot_def = next(d for d in defs.values() if "text" in d.get("properties", {}))
+        assert "duration" not in shot_def["properties"]
 
     def test_member_duration_accepted_and_defaults_filled(self):
         draft = self._model().model_validate(
-            {"units": [{"unit_id": "E1U01", "shots": [{"duration": 4, "text": "@[甲] 起身"}]}]}
+            {"units": [{"unit_id": "E1U01", "shots": [{"text": "@[甲] 起身"}], "duration_seconds": 6}]}
         )
         dumped = draft.model_dump()
         assert dumped["units"][0]["references"] == []
+        assert dumped["units"][0]["duration_seconds"] == 6
 
     def test_out_of_set_duration_rejected(self):
         import pytest as _pytest
         from pydantic import ValidationError as _VE
 
         with _pytest.raises(_VE):
-            self._model().model_validate({"units": [{"unit_id": "E1U01", "shots": [{"duration": 5, "text": "x"}]}]})
+            self._model().model_validate(
+                {"units": [{"unit_id": "E1U01", "shots": [{"text": "x"}], "duration_seconds": 5}]}
+            )
 
     def test_more_than_four_shots_rejected(self):
         import pytest as _pytest
         from pydantic import ValidationError as _VE
 
-        shots = [{"duration": 4, "text": f"s{i}"} for i in range(5)]
+        shots = [{"text": f"s{i}"} for i in range(5)]
         with _pytest.raises(_VE):
-            self._model().model_validate({"units": [{"unit_id": "E1U01", "shots": shots}]})
+            self._model().model_validate({"units": [{"unit_id": "E1U01", "shots": shots, "duration_seconds": 4}]})

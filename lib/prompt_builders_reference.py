@@ -32,18 +32,18 @@ def build_reference_units_split_prompt(
     episode: int,
     target_language: str = "中文",
 ) -> str:
-    """Step-1 video_unit 拆分 prompt：源文 → 结构化 unit 表（shots 叙事文本 + 时长）。
+    """Step-1 video_unit 拆分 prompt：源文 → 结构化 unit 表（unit 时长 + shots 叙事文本）。
 
     由 ``split_reference_video_units`` MCP tool 消费。输出受 response_schema
-    （``build_reference_units_step1_model``，单 shot 时长枚举硬约束）约束为结构化 JSON；
-    unit 总时长上限与 references 上限依赖运行时能力值，在 prompt 给出指引、由工具后校验。
+    （``build_reference_units_step1_model``，unit 时长枚举硬约束）约束为结构化 JSON；
+    references 上限依赖运行时能力值，在 prompt 给出指引、由工具后校验。
     references 不进 LLM 输出，由工具从 shot 文本的 ``@[名称]`` 引用机械派生。
 
     Args:
-        supported_durations: 单 shot 允许的时长取值集合（秒）。
-        max_duration: unit 总时长上限（秒），即单次视频生成上限。
+        supported_durations: unit 允许的时长取值集合（秒），即模型档位。
+        max_duration: 单次视频生成的时长上限（秒），即档位最大值。
         max_reference_images: 单 unit 参考图上限；None 时不写入硬性数量约束。
-        default_duration: 用户项目偏好的默认单 shot 秒数；须为 supported_durations 成员或 None。
+        default_duration: 用户项目偏好的默认秒数；须为 supported_durations 成员或 None。
     """
     normalized_durations = sorted({int(d) for d in supported_durations})
     if not normalized_durations:
@@ -53,7 +53,7 @@ def build_reference_units_split_prompt(
 
     durations_str = ", ".join(str(d) for d in normalized_durations)
     default_rule = (
-        f"单 shot 默认取 {default_duration} 秒，叙事需要更长时可取更长档（偏好可被内容需要覆盖，硬约束不可）"
+        f"unit 默认取 {default_duration} 秒，叙事需要更长时可取更长档（偏好可被内容需要覆盖，硬约束不可）"
         if default_duration is not None
         else "按叙事需要从档位中取值，不强制默认值"
     )
@@ -113,10 +113,10 @@ def build_reference_units_split_prompt(
   时间 / 空间 / 情节重大切换点开新 unit。
 - **unit_id**：`E{episode}U{{两位序号}}` 格式（如 E{episode}U01），按顺序递增，不得用其他集号前缀。
 - **时长决策序**（自上而下，高优先级是硬边界，低优先级在其内做优化）：
-  1. 硬约束：单 shot 时长必须取支持档位（{durations_str}）中的值；unit 内所有 shot 时长之和不超过 {max_duration} 秒。
-     叙事需要的总时长放不下时，把该 unit 按叙事顺序重拆为多个 unit，**不得违约时长**。
+  1. 硬约束：`duration_seconds` 是 unit 时长（一次生成调用一个时长），必须取支持档位（{durations_str}）中的值。
+     叙事需要的时长放不下时，把该 unit 按叙事顺序重拆为多个 unit，**不得违约时长**。
   2. 默认偏好：{default_rule}。
-  3. 打包效率：在 1、2 之内组合 shot，使 unit 总时长贴近 {max_duration} 秒；不要默认选最短 / 保守值。{max_refs_rule}
+  3. 打包效率：在 1、2 之内组织镜头，使 unit 时长贴近 {max_duration} 秒；不要默认选最短 / 保守值。{max_refs_rule}
 
 # shot 文本写作指引
 
@@ -137,21 +137,20 @@ def build_reference_units_split_prompt(
 def render_reference_units_for_step2(units: list[dict]) -> str:
     """把结构化 step1 units 渲染为 step2 prompt 的输入文本。
 
-    机械渲染、无 LLM 参与：unit_id + 各 shot 时长与叙事文本 + references 表。
+    机械渲染、无 LLM 参与：unit_id + unit 时长 + 各镜头叙事文本 + references 表。
     step2 以此为唯一基底做视觉扩写（见 ADR 0041）。
     """
     blocks: list[str] = []
     for unit in units:
         shots = unit.get("shots") or []
-        total = sum(int(s.get("duration") or 0) for s in shots if isinstance(s, dict))
+        duration = int(unit.get("duration_seconds") or 0)
         refs = unit.get("references") or []
         refs_line = ", ".join(f"{r.get('type')}:{r.get('name')}" for r in refs if isinstance(r, dict)) or "（无）"
-        lines = [f"#### {unit.get('unit_id')}（预估总时长 {total}s）", f"references: {refs_line}"]
+        lines = [f"#### {unit.get('unit_id')}（时长 {duration}s）", f"references: {refs_line}"]
         for idx, shot in enumerate(shots, start=1):
             if not isinstance(shot, dict):
                 continue
-            duration = shot.get("duration")
-            lines.append(f"Shot {idx} ({duration if duration is not None else 0}s): {shot.get('text', '')}")
+            lines.append(f"镜头{idx}：{shot.get('text', '')}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
@@ -198,7 +197,7 @@ def build_reference_video_prompt(
         else ""
     )
     duration_guide_line = (
-        f"\n    - `duration`：unit 内所有 Shot `duration` 之和应贴近 step1 预估时长；预估缺失或超过 "
+        f"\n    - `duration_seconds`：沿用 step1_units 表给出的 unit 时长；表内缺失或超过 "
         f"{max_duration} 秒（当前模型上限）时，以 {max_duration} 秒为目标。不要默认选最短值。"
         if max_duration is not None
         else ""
@@ -253,12 +252,12 @@ def build_reference_video_prompt(
 
 对每个 video_unit，按下列要求填写字段：
 
-a. **shots**：{duration_guide_line}
+a. **shots**：
     - `text`：这段文字将直接驱动该镜头的视频生成（语言遵循上方"输出语言"约束）。按「景别 → 构图 → 运镜 → 画面内容」四要素依次组织，写足画面信息、宁详勿略：
         - 景别：大全景 / 全景 / 中景 / 近景 / 特写，及拍摄角度（俯拍 / 仰拍 / 平视）。
         - 构图：主体在画面中的位置、前景与背景的关系（如中心构图、对角线构图、以公路 / 廊柱作引导线）。
         - 运镜：机位与镜头运动（固定机位 / 跟随 / 推近 / 拉远 / 摇移），含镜头内焦点主体的变更。
-        - 画面内容：占篇幅大头——镜头时长内发生的全部可见运动：每个出场主体各自的动作链（肢体 / 手势 / 神态过渡）、物件互动、背景与环境动态（人群、天气、衣摆、光影移动），可带运动质感（如动态模糊），末尾用一句点明氛围基调。动作量与 `duration` 匹配：短镜头完成一个连贯动作 + 一个细节互动，更长的镜头随时长递增动作段数。
+        - 画面内容：占篇幅大头——镜头时长内发生的全部可见运动：每个出场主体各自的动作链（肢体 / 手势 / 神态过渡）、物件互动、背景与环境动态（人群、天气、衣摆、光影移动），可带运动质感（如动态模糊），末尾用一句点明氛围基调。动作量与 unit 时长匹配：镜头多则每镜完成一个连贯动作 + 一个细节互动，镜头少则随时长递增动作段数。
         - 角色 / 场景 / 道具仅用 `@[名称]` 引用——外貌、服装、场景陈设等静态外观由参考图承担，**不要**在文本里描写；动作、姿态、互动与环境动态则写得越具体越好。动词应描述物理可观察动作（伸手 / 转身 / 摩挲 / 投向 / 收紧），避免「陷入 / 回忆 / 意识到 / 决定」等内心动词。
         - 正例：「景别：中景，轻微仰拍。构图：@[角色A] 居画面中心，@[场景A] 的窗棂与案几为前景。运镜：固定机位，缓慢推近。画面内容：@[角色A] 在 @[场景A] 中缓步走向窗前，抬手推开木窗，衣摆随穿堂风轻扬；随后低头凝视手中的 @[道具A]，指尖缓缓收紧，呼吸放缓，目光从 @[道具A] 缓慢抬起投向窗外；烛焰随风明灭，光影在面部缓慢移动，渲染压抑而克制的氛围。」
         - 反例（过短）：「@[角色A] 站在 @[场景A] 里。」——没有景别 / 构图 / 运镜，也没有动作过程与环境动态，生成的视频会近乎静止。
@@ -270,7 +269,7 @@ b. **references**：每个 shot `text` 中出现的 `@[名称]` 都要在 refere
         - scene: {", ".join(scene_names) or "（暂无）"}
         - prop: {", ".join(prop_names) or "（暂无）"}{max_refs_line}
 
-c. **duration_seconds**：请编排各 shot 时长，使其相加正好落在支持集合（{durations_desc}）内。
+c. **duration_seconds**：unit 时长（秒），必须取支持集合（{durations_desc}）中的值。{duration_guide_line}
 
 请按 step1_units 顺序逐 unit 产出。
 """

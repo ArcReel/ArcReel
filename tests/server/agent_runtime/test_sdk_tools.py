@@ -968,7 +968,7 @@ def _reference_video_script(**overrides: Any) -> dict[str, Any]:
         "video_units": [
             {
                 "unit_id": "E1U1",
-                "shots": [{"duration": 5, "text": "@张三 推门"}],
+                "shots": [{"text": "@张三 推门"}],
                 "references": [{"type": "character", "name": "张三"}],
                 "duration_seconds": 5,
             }
@@ -1208,7 +1208,7 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
     script["video_units"].append(
         {
             "unit_id": "E1U2",
-            "shots": [{"duration": 5, "text": "@张三 转身"}],
+            "shots": [{"text": "@张三 转身"}],
             "references": [{"type": "character", "name": "张三"}],
             "duration_seconds": 5,
         }
@@ -1280,7 +1280,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_prom
 
     script = _reference_video_script()
     for unit in script["video_units"]:
-        unit["shots"] = [{"duration": 3, "text": "   "}]
+        unit["shots"] = [{"text": "   "}]
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
 
     context_calls: list[dict[str, Any]] = []
@@ -1788,7 +1788,7 @@ def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
     units = [
         {
             "unit_id": "E1U1",
-            "shots": [{"duration": 3, "text": "@张三 推门"}],
+            "shots": [{"text": "@张三 推门"}],
             "references": [{"type": "character", "name": "张三"}],
         }
     ]
@@ -1807,8 +1807,8 @@ def test_build_reference_specs_skips_blank_prompt(tmp_path) -> None:
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
 
     units = [
-        {"unit_id": "E1U1", "shots": [{"duration": 3, "text": "   "}, {"duration": 2, "text": ""}]},
-        {"unit_id": "E1U2", "shots": [{"duration": 3, "text": "@李四 转身"}]},
+        {"unit_id": "E1U1", "shots": [{"text": "   "}, {"text": ""}]},
+        {"unit_id": "E1U2", "shots": [{"text": "@李四 转身"}]},
     ]
     log: list[str] = []
     specs, order_map = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None, log=log)
@@ -1822,9 +1822,9 @@ def test_build_reference_specs_skips_bad_unit_id_without_aborting_batch(tmp_path
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
 
     units = [
-        {"unit_id": "", "shots": [{"duration": 3, "text": "@张三 推门"}]},  # 空串
-        {"shots": [{"duration": 3, "text": "@王五 起身"}]},  # 缺 unit_id 键 → 不应抛 KeyError
-        {"unit_id": "E1U2", "shots": [{"duration": 3, "text": "@李四 转身"}]},
+        {"unit_id": "", "shots": [{"text": "@张三 推门"}]},  # 空串
+        {"shots": [{"text": "@王五 起身"}]},  # 缺 unit_id 键 → 不应抛 KeyError
+        {"unit_id": "E1U2", "shots": [{"text": "@李四 转身"}]},
     ]
     log: list[str] = []
     specs, _ = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None, log=log)
@@ -1837,8 +1837,8 @@ def test_build_reference_specs_handles_malformed_shots(tmp_path) -> None:
 
     units = [
         # text 显式 null + 一个非 dict 元素 → 拼接后为空 → 被守卫点判空跳过（不注入 'None'）。
-        {"unit_id": "E1U1", "shots": [{"duration": 3, "text": None}, "garbage"]},
-        {"unit_id": "E1U2", "shots": [{"duration": 3, "text": "@李四 转身"}]},
+        {"unit_id": "E1U1", "shots": [{"text": None}, "garbage"]},
+        {"unit_id": "E1U2", "shots": [{"text": "@李四 转身"}]},
     ]
     log: list[str] = []
     specs, _ = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None, log=log)
@@ -2893,10 +2893,8 @@ def _rv_caps(default=4, durations=(4, 6, 8), max_duration=12, max_refs=3):
     return fake_caps
 
 
-async def test_fetch_reference_caps_with_fallback_clips_shot_durations_to_static_range(monkeypatch) -> None:
-    """resolver 声明的 supported_durations 含 >15 的值时（如 vidu Q3 系列达 16、agnes 达 18），
-    返回的单 shot 时长集合须与 REFERENCE_SHOT_DURATION_RANGE 求交集——否则 step1 允许 LLM 选中
-    的 shot 时长会在 step2 读回校验（复用同一静态区间的 Shot 模型）时 fail-loud。"""
+async def test_fetch_reference_caps_with_fallback_returns_declared_slots(monkeypatch) -> None:
+    """unit 时长就是发给供应商的那个值，档位原样取自模型声明（不与任何静态区间求交）。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def _fake_caps(_project):
@@ -2906,21 +2904,17 @@ async def test_fetch_reference_caps_with_fallback_clips_shot_durations_to_static
 
     default, durations, max_duration, max_refs = await mod._fetch_reference_caps_with_fallback({})
 
-    assert durations == [1, 8]
-    # 单 unit 总时长上限取收窄后集合的最大值；该型号身份不可解析（无联动约束可查），
-    # 收窄是恒等变换，故仍是原始声明的 18，不受单 shot 过滤影响。
+    assert durations == [1, 8, 16, 18]
     assert max_duration == 18
-    assert default is None  # 16 已被过滤掉，非法 default 归 None
+    assert default == 16  # 是档位成员，照常采信
     assert max_refs is None
 
 
 @pytest.mark.unit
 async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monkeypatch) -> None:
-    """unit 总时长上限随联动约束收窄：海螺在 1080p 下只接受 6 秒，全集上限是 10 秒。
+    """档位随联动约束收窄：海螺在 1080p 下只接受 6 秒，全集是 [6, 10]。
 
     不收窄的话 step1 会按 10 秒拆出 unit，step2 的枚举 schema 再把它判非法。
-    单 shot 枚举同步剔除超过该上限的候选：shot 时长必然计入 unit 总和，留着 10 秒会让 prompt
-    同时要求「可选 10 秒」与「总时长不超过 6 秒」，schema 也放行必被后校验判非法的取值。
     """
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -2936,18 +2930,14 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monk
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
     project = {"model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}}}
-    _default, shot_durations, max_duration, _max_refs = await mod._fetch_reference_caps_with_fallback(project)
-    assert shot_durations == [6]
+    _default, unit_durations, max_duration, _max_refs = await mod._fetch_reference_caps_with_fallback(project)
+    assert unit_durations == [6]
     assert max_duration == 6
 
 
 @pytest.mark.unit
-async def test_fetch_reference_caps_with_fallback_keeps_sub_cap_shot_durations(monkeypatch) -> None:
-    """剔除超上限候选不等于按成员集收窄：Veo 1080p 下总时长须为 8，单 shot 仍保留 4/6。
-
-    否则每个 shot 都得是 8 秒，凑不出 4+4 这类合法编排，clip 内的节奏被一并卡死，而约束
-    只要求各 shot 之和落在支持集合内。
-    """
+async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution(monkeypatch) -> None:
+    """分辨率联动约束同样收窄 unit 档位：Veo 1080p 下只接受 8 秒。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def _fake_caps(_project):
@@ -2962,8 +2952,8 @@ async def test_fetch_reference_caps_with_fallback_keeps_sub_cap_shot_durations(m
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
-    _default, shot_durations, max_duration, _max_refs = await mod._fetch_reference_caps_with_fallback(project)
-    assert shot_durations == [4, 6, 8]
+    _default, unit_durations, max_duration, _max_refs = await mod._fetch_reference_caps_with_fallback(project)
+    assert unit_durations == [8]
     assert max_duration == 8
 
 
@@ -3038,9 +3028,10 @@ async def test_split_reference_video_units_happy_derives_references(fake_ctx: To
     units = [
         {
             "unit_id": "E1U01",
+            "duration_seconds": 8,
             "shots": [
-                {"duration": 4, "text": "@[张三] 走向 @[村口]"},
-                {"duration": 6, "text": "@[张三] 停下脚步"},
+                {"text": "@[张三] 走向 @[村口]"},
+                {"text": "@[张三] 停下脚步"},
             ],
         }
     ]
@@ -3068,7 +3059,7 @@ async def test_split_reference_video_units_rejects_unregistered_asset(fake_ctx: 
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _rv_source(fake_ctx)
-    units = [{"unit_id": "E1U01", "shots": [{"duration": 4, "text": "@[不存在的人] 出场"}]}]
+    units = [{"unit_id": "E1U01", "duration_seconds": 4, "shots": [{"text": "@[不存在的人] 出场"}]}]
     monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))
 
@@ -3083,7 +3074,7 @@ async def test_split_reference_video_units_rejects_over_max_refs(fake_ctx: ToolC
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _rv_source(fake_ctx)
-    units = [{"unit_id": "E1U01", "shots": [{"duration": 4, "text": "@[张三] 与 @[李四] 在 @[村口]"}]}]
+    units = [{"unit_id": "E1U01", "duration_seconds": 4, "shots": [{"text": "@[张三] 与 @[李四] 在 @[村口]"}]}]
     monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps(max_refs=2))
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))
 
@@ -3095,31 +3086,32 @@ async def test_split_reference_video_units_rejects_over_max_refs(fake_ctx: ToolC
 
 
 async def test_split_reference_video_units_rejects_over_max_duration(fake_ctx: ToolContext, monkeypatch) -> None:
-    """单 shot 时长合法（枚举成员）但 unit 总时长超上限 → 工具后校验 fail-loud。"""
+    """unit 时长是枚举成员但超单次生成上限（能力声明与联动约束不一致时）→ 工具后校验 fail-loud。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _rv_source(fake_ctx)
     units = [
         {
             "unit_id": "E1U01",
-            "shots": [{"duration": 6, "text": "@[张三] 起身"}, {"duration": 6, "text": "@[张三] 出门"}],
+            "duration_seconds": 8,
+            "shots": [{"text": "@[张三] 起身"}, {"text": "@[张三] 出门"}],
         }
     ]
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps(max_duration=8))
+    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps(max_duration=6))
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))
 
     tool_obj = split_reference_video_units_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
-    assert "总时长" in out["content"][0]["text"]
+    assert "超过单次生成上限" in out["content"][0]["text"]
 
 
 async def test_split_reference_video_units_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:
-    """本地校验复用动态 schema：超出 supported_durations 的 shot 时长被拦截，不落盘。"""
+    """本地校验复用动态 schema：超出 supported_durations 的 unit 时长被拦截，不落盘。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _rv_source(fake_ctx)
-    units = [{"unit_id": "E1U01", "shots": [{"duration": 5, "text": "@[张三] 起身"}]}]
+    units = [{"unit_id": "E1U01", "duration_seconds": 5, "shots": [{"text": "@[张三] 起身"}]}]
     monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))
 
@@ -3147,7 +3139,7 @@ async def test_split_reference_video_units_rejects_duplicate_unit_ids(fake_ctx: 
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _rv_source(fake_ctx)
-    unit = {"unit_id": "E1U01", "shots": [{"duration": 4, "text": "@[张三] 起身"}]}
+    unit = {"unit_id": "E1U01", "duration_seconds": 4, "shots": [{"text": "@[张三] 起身"}]}
     monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning([unit, dict(unit)]))
 

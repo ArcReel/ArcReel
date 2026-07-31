@@ -38,6 +38,7 @@ from server.routers._reorder import full_permutation_error
 from server.services.generation_tasks import emit_generation_success_batch
 from server.services.reference_video_tasks import (
     _finalize_reference_video_unit,
+    default_unit_duration,
     precheck_unit,
     resolve_max_unit_duration,
     resolve_project_duration_context,
@@ -193,20 +194,16 @@ def _build_unit_dict(
     unit_id: str,
     prompt: str,
     references: list[dict],
-    duration_override: int | None,
+    duration_seconds: int,
     transition: str,
     note: str | None,
 ) -> dict:
-    shots, _names, override = parse_prompt(prompt)
-    if override and duration_override is not None:
-        shots[0].duration = max(1, int(duration_override))
-    duration_total = sum(s.duration for s in shots)
+    shots, _names = parse_prompt(prompt)
     return {
         "unit_id": unit_id,
         "shots": [s.model_dump() for s in shots],
         "references": references,
-        "duration_seconds": duration_total,
-        "duration_override": override,
+        "duration_seconds": duration_seconds,
         "transition_to_next": transition,
         "note": note,
         "generated_assets": {
@@ -266,6 +263,12 @@ async def add_unit(
 ) -> dict[str, Any]:
     refs = [r.model_dump() for r in req.references]
 
+    # 时长是 unit 级单一真相：请求未给出时按项目能力解析默认档位（异步 IO 不进项目锁临界区）
+    duration_seconds = req.duration_seconds
+    if duration_seconds is None:
+        project, _script, _sf = _load_episode_script(project_name, episode, _t)
+        duration_seconds = default_unit_duration(await resolve_project_duration_context(project), project)
+
     with _locked_episode_script(
         project_name, _episode_script_resolver(episode, _t, refs, require_ad=False), _t
     ) as script:
@@ -274,7 +277,7 @@ async def add_unit(
             unit_id=_next_unit_id(script, episode),
             prompt=req.prompt,
             references=refs,
-            duration_override=req.duration_seconds,
+            duration_seconds=max(1, int(duration_seconds)),
             transition=req.transition_to_next,
             note=req.note,
         )
@@ -335,16 +338,11 @@ async def patch_unit(
             unit["references"] = refs
 
         if req.prompt is not None:
-            shots, _mentions, override = parse_prompt(req.prompt)
-            if override and req.duration_seconds is not None:
-                shots[0].duration = max(1, int(req.duration_seconds))
+            shots, _mentions = parse_prompt(req.prompt)
             unit["shots"] = [s.model_dump() for s in shots]
-            unit["duration_seconds"] = sum(s.duration for s in shots)
-            unit["duration_override"] = override
-        elif req.duration_seconds is not None and unit.get("duration_override"):
+        # 时长与正文互不牵连：镜头不承载时长，改文案不改时长、改时长不动镜头
+        if req.duration_seconds is not None:
             unit["duration_seconds"] = max(1, int(req.duration_seconds))
-            if unit.get("shots"):
-                unit["shots"][0]["duration"] = unit["duration_seconds"]
 
         if req.transition_to_next is not None:
             unit["transition_to_next"] = req.transition_to_next

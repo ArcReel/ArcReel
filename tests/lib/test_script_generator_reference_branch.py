@@ -14,7 +14,8 @@ STEP1_UNITS_JSON = _json.dumps(
         "units": [
             {
                 "unit_id": "E1U01",
-                "shots": [{"duration": 4, "text": "@[主角] 推开 @[酒馆] 的门"}],
+                "shots": [{"text": "@[主角] 推开 @[酒馆] 的门"}],
+                "duration_seconds": 4,
                 "references": [
                     {"type": "character", "name": "主角"},
                     {"type": "scene", "name": "酒馆"},
@@ -89,9 +90,9 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
                 '{"episode":1,"title":"t",'
                 '"summary":"s","novel":{"title":"t","chapter":"1"},'
                 '"video_units":[{"unit_id":"E1U1",'
-                '"shots":[{"duration":4,"text":"@主角 推门"}],'
+                '"shots":[{"text":"@主角 推门"}],'
                 '"references":[{"type":"character","name":"主角"}],'
-                '"duration_seconds":4,"duration_override":false,"transition_to_next":"cut"}]}'
+                '"duration_seconds":4,"transition_to_next":"cut"}]}'
             )
         )
     )
@@ -154,9 +155,9 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
                 '{"episode":1,"title":"t",'
                 '"summary":"s","novel":{"title":"t","chapter":"1"},'
                 '"video_units":[{"unit_id":"E1U1",'
-                '"shots":[{"duration":4,"text":"@主角 推门"}],'
+                '"shots":[{"text":"@主角 推门"}],'
                 '"references":[{"type":"character","name":"主角"}],'
-                '"duration_seconds":4,"duration_override":false,"transition_to_next":"cut"}]}'
+                '"duration_seconds":4,"transition_to_next":"cut"}]}'
             )
         )
     )
@@ -409,10 +410,10 @@ async def test_reference_step1_missing_raises(reference_project: Path):
 
 @pytest.mark.asyncio
 async def test_reference_step1_rejects_out_of_enum_duration(reference_project: Path):
-    """读取侧复验 shot duration ∈ supported_durations，防手工编辑漂移出非法时长。"""
+    """读取侧复验 unit 时长 ∈ supported_durations，防手工编辑漂移出非法时长。"""
     drafts = reference_project / "drafts" / "episode_1"
     (drafts / "step1_reference_units.json").write_text(
-        _json.dumps({"units": [{"unit_id": "E1U01", "shots": [{"duration": 5, "text": "@[主角] 转身"}]}]}),
+        _json.dumps({"units": [{"unit_id": "E1U01", "shots": [{"text": "@[主角] 转身"}], "duration_seconds": 5}]}),
         encoding="utf-8",
     )
 
@@ -422,14 +423,14 @@ async def test_reference_step1_rejects_out_of_enum_duration(reference_project: P
         "lib.script_generator.ScriptGenerator._fetch_video_capabilities",
         new=AsyncMock(return_value=None),
     ):
-        with pytest.raises(ValueError, match="duration 非法"):
+        with pytest.raises(ValueError, match="时长非法"):
             await gen.build_prompt(episode=1)
 
 
 @pytest.mark.asyncio
 async def test_reference_step1_rejects_duplicate_unit_ids(reference_project: Path):
     drafts = reference_project / "drafts" / "episode_1"
-    unit = {"unit_id": "E1U01", "shots": [{"duration": 4, "text": "@[主角] 转身"}]}
+    unit = {"unit_id": "E1U01", "shots": [{"text": "@[主角] 转身"}], "duration_seconds": 4}
     (drafts / "step1_reference_units.json").write_text(_json.dumps({"units": [unit, dict(unit)]}), encoding="utf-8")
 
     gen = ScriptGenerator(reference_project)

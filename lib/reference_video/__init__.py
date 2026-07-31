@@ -12,10 +12,10 @@ from lib.reference_video.errors import (
 )
 from lib.reference_video.shot_parser import (
     assemble_shots_text,
-    compute_duration_from_shots,
     parse_prompt,
     rederive_unit_references,
     render_prompt_for_backend,
+    render_shots_prompt,
     resolve_references,
 )
 
@@ -24,13 +24,13 @@ __all__ = [
     "MissingReferenceError",
     "ProviderUnsupportedFeatureError",
     "assemble_shots_text",
-    "compute_duration_from_shots",
     "derive_ad_reference_units",
     "merge_ad_reference_units",
     "parse_prompt",
     "rederive_unit_references",
     "render_ad_unit_prompt",
     "render_prompt_for_backend",
+    "render_shots_prompt",
     "resolve_ad_unit_shots",
     "resolve_references",
     "sync_ad_reference_units",

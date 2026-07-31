@@ -26,6 +26,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
     episode_script_filename,
 )
+from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager, effective_mode
 from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
@@ -34,6 +35,7 @@ from lib.prompt_builders_script import (
     build_narration_prompt,
     render_drama_content_for_step2,
 )
+from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     AdEpisodeScript,
@@ -748,6 +750,15 @@ class ScriptGenerator:
         except json.JSONDecodeError as e:
             raise ValueError(f"step1_reference_units.json 解析失败: {e}")
 
+        # 存量草稿的 per-shot 时长一次性收编到 unit 级并回写落盘（二次加载不再触发）。
+        # 此处持有模型档位，收编结果可直接取档，与 step2 的枚举校验对齐。
+        if isinstance(raw, dict):
+            migrated, warnings = migrate_unit_durations(raw.get("units"), supported_durations=supported_durations)
+            for message in warnings:
+                logger.warning("step1_reference_units.json 时长收编迁移: %s", message)
+            if migrated:
+                atomic_write_json(step1_json, raw)
+
         try:
             draft = ReferenceStep1Draft.model_validate(raw)
         except ValidationError as e:
@@ -771,9 +782,9 @@ class ScriptGenerator:
             raise ValueError(f"step1_reference_units.json unit_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
 
         allowed = {int(d) for d in supported_durations}
-        bad = sorted({s["duration"] for u in units for s in u["shots"] if s["duration"] not in allowed})
+        bad = sorted({u["duration_seconds"] for u in units if u["duration_seconds"] not in allowed})
         if bad:
-            raise ValueError(f"step1_reference_units.json shot duration 非法（不在 {sorted(allowed)} 内）: {bad}")
+            raise ValueError(f"step1_reference_units.json unit 时长非法（不在 {sorted(allowed)} 内）: {bad}")
 
         return units
 

@@ -43,6 +43,7 @@ from lib.profile_manifest import (
     force_resync_profile as _force_resync_profile,
 )
 from lib.project_change_hints import emit_project_change_hint
+from lib.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
 from lib.script_models import get_generated_assets, script_duration_total
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
@@ -707,7 +708,8 @@ class ProjectManager:
         """
         norm = self.normalize_script_filename(script_filename)
         with self._script_lock(project_name, norm):
-            script = self.load_script(project_name, norm)
+            # 已持锁，走 unlocked 变体取剧本（迁移结果随本次写回落盘）
+            script, _migrated = self._read_script_unlocked(project_name, norm)
             before = copy.deepcopy(script) if validate else None
             yield script
             self._write_script_unlocked(project_name, script, norm, validate=validate, before=before)
@@ -746,7 +748,7 @@ class ProjectManager:
                 cur_norm = self.normalize_script_filename(current)
                 if cur_norm != norm:
                     raise EpisodeScriptReboundError(f"episode script binding changed: {norm} -> {cur_norm}")
-                script = self.load_script(project_name, norm)
+                script, _migrated = self._read_script_unlocked(project_name, norm)
                 before = copy.deepcopy(script) if validate else None
                 yield script
                 self._write_script_unlocked(
@@ -842,7 +844,9 @@ class ProjectManager:
                 避免错误的脚本数据覆盖真实集号条目（例如 episode_10.json 内部
                 错写为 episode=1，会覆盖第 1 集）。
         """
-        script = self.load_script(project_name, script_filename)
+        # 走 unlocked 变体：本方法被写盘统一入口在持有 `_script_lock` 时调用，
+        # `load_script` 的迁移回写会二次取同一把锁而自死锁。
+        script, _migrated = self._read_script_unlocked(project_name, script_filename)
         return self.update_project(
             project_name, lambda project: self._apply_episode_sync(project, script, script_filename)
         )
@@ -881,7 +885,7 @@ class ProjectManager:
 
     def load_script(self, project_name: str, filename: str) -> dict:
         """
-        加载分镜剧本
+        加载分镜剧本（含存量迁移，迁移结果在剧本锁内回写落盘）
 
         Args:
             project_name: 项目名称
@@ -889,6 +893,25 @@ class ProjectManager:
 
         Returns:
             剧本字典
+        """
+        norm = self.normalize_script_filename(filename)
+        with self._script_lock(project_name, norm):
+            script, migrated = self._read_script_unlocked(project_name, norm)
+            if migrated:
+                # 读-改-写在同一把剧本锁内完成，避免并发写者在读与写之间落盘后被迁移覆盖
+                # （同 load_project 的迁移回写）。不走 _write_script_unlocked：迁移只是格式
+                # 收编，不应刷新 metadata.updated_at、不触发 project.json 同步与变更提示。
+                real = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
+                atomic_write_json(real, script)
+        return script
+
+    def _read_script_unlocked(self, project_name: str, filename: str) -> tuple[dict, bool]:
+        """裸读剧本并就地跑存量迁移，返回 ``(剧本, 是否发生迁移)``；**不取剧本锁**。
+
+        `load_script` 的锁内变体，两类调用方共用：
+        - 已持有 `_script_lock` 的读-改-写（`locked_script` 一族、写盘统一入口的集元数据同步）
+          ——它们退出时照常写回，迁移结果随之落盘；此处二次取同一把 flock 会同进程自死锁。
+        - 只读取快照、不关心迁移是否落盘的路径——迁移仍在下一次 `load_script` 时回写。
         """
         project_dir = self.get_project_path(project_name)
         filename = self.normalize_script_filename(filename)
@@ -898,7 +921,12 @@ class ProjectManager:
             raise FileNotFoundError(f"剧本文件不存在: {real}")
 
         with open(real, encoding="utf-8") as f:  # noqa: PTH123
-            return json.load(f)
+            script = json.load(f)
+
+        migrated, warnings = migrate_script_unit_durations(script)
+        for message in warnings:
+            logger.warning("剧本 %s 时长收编迁移: %s", real.name, message)
+        return script, migrated
 
     def list_scripts(self, project_name: str) -> list[str]:
         """列出项目中的所有剧本"""

@@ -6,7 +6,7 @@ import { MENTION_RE, mentionNameFromMatch } from "@/utils/reference-mentions";
  * Shot/@mention tokenizer for the reference-video prompt editor.
  *
  * Regex mirrors lib/reference_video/shot_parser.py:
- * - _SHOT_HEADER_RE: `^Shot\s+\d+\s*\(\s*(\d+)\s*s\s*\)\s*:` (per-line, case-insensitive)
+ * - _SHOT_HEADER_RE: `^镜头\s*\d+\s*[:：]` (per-line; duration lives on the unit, not the header)
  * - _MENTION_RE:     shared via reference-mentions.MENTION_RE
  *
  * Output tokens are non-overlapping and concatenate back to the original text.
@@ -19,7 +19,7 @@ export type Token =
   | { kind: "shot_header"; text: string }
   | { kind: "mention"; text: string; name: string; assetKind: MentionKind };
 
-const SHOT_HEADER_RE = /^Shot\s+\d+\s*\(\s*\d+\s*s\s*\)\s*:\s*/i;
+const SHOT_HEADER_RE = /^镜头\s*\d+\s*[:：]\s*/;
 
 export function tokenizePrompt(text: string, lookup: MentionLookup): Token[] {
   if (text.length === 0) return [];
