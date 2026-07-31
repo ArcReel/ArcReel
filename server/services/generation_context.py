@@ -320,7 +320,7 @@ async def resolve_generation_context(
                 supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
                 max_duration = caps.get("max_duration")
                 max_reference_images = caps.get("max_reference_images")
-                voice_consistency = caps.get("voice_consistency", "soft")
+                voice_consistency = caps.get("voice_consistency") or "soft"
             except Exception as exc:
                 logger.info(
                     "无法解析 video capabilities（%s/%s），能力值降级为空：%s",

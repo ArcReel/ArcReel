@@ -1,7 +1,7 @@
 import yaml
 
 from lib.prompt_utils import (
-    build_voice_profiles,
+    build_drama_video_prompt,
     image_prompt_to_yaml,
     is_structured_image_prompt,
     is_structured_video_prompt,
@@ -97,35 +97,65 @@ class TestPromptUtils:
         assert "Voice_Profiles" not in yaml.safe_load(video_prompt_to_yaml(without_profiles))
 
 
-class TestBuildVoiceProfiles:
+def _utterance(speaker: str | None, text: str) -> dict[str, object]:
+    return {"kind": "dialogue", "speaker": speaker, "text": text}
+
+
+_BASE_PROMPT = {"action": "抬头观察", "camera_motion": "Static", "ambiance_audio": "雨声"}
+
+
+class TestBuildDramaVideoPrompt:
+    """两注入点共用的 drama dialogue + Voice_Profiles 出口。"""
+
     def test_one_entry_per_speaker_deduped_in_order(self):
-        dialogue = [
-            {"speaker": "姜月茴", "line": "有人吗"},
-            {"speaker": "王", "line": "嗯"},
-            {"speaker": "姜月茴", "line": "走吧"},
-        ]
-        characters = {
-            "姜月茴": {"voice_style": "清冷"},
-            "王": {"voice_style": "低沉"},
-        }
-        assert build_voice_profiles(dialogue, characters) == [
+        utterances = [_utterance("姜月茴", "有人吗"), _utterance("王", "嗯"), _utterance("姜月茴", "走吧")]
+        characters = {"姜月茴": {"voice_style": "清冷"}, "王": {"voice_style": "低沉"}}
+        prompt = build_drama_video_prompt(_BASE_PROMPT, utterances, characters=characters)
+        assert prompt["voice_profiles"] == [
             {"Speaker": "姜月茴", "Voice_Style": "清冷"},
             {"Speaker": "王", "Voice_Style": "低沉"},
         ]
+        # dialogue 逐条保序，不因 Voice_Profiles 去重而合并
+        assert [d["speaker"] for d in prompt["dialogue"]] == ["姜月茴", "王", "姜月茴"]
+
+    def test_characters_none_means_no_injection(self):
+        utterances = [_utterance("姜月茴", "有人吗")]
+        prompt = build_drama_video_prompt(_BASE_PROMPT, utterances, characters={"姜月茴": {"voice_style": "清冷"}})
+        assert "voice_profiles" in prompt
+        gated = build_drama_video_prompt(_BASE_PROMPT, utterances, characters=None)
+        assert "voice_profiles" not in gated
+
+    def test_script_carried_voice_profiles_never_survive(self):
+        # 声明段唯一来源是编排层：剧本残留值一律剥离，否则会绕过 C 类（characters=None）门控
+        carried = {**_BASE_PROMPT, "voice_profiles": [{"Speaker": "赝品", "Voice_Style": "越权"}]}
+        assert "voice_profiles" not in build_drama_video_prompt(carried, [], characters=None)
+        prompt = build_drama_video_prompt(carried, [_utterance("王", "嗯")], characters={"王": {"voice_style": "低沉"}})
+        assert prompt["voice_profiles"] == [{"Speaker": "王", "Voice_Style": "低沉"}]
 
     def test_speaker_without_matching_character_skipped_silently(self):
-        dialogue = [{"speaker": "路人甲", "line": "喂"}]
-        assert build_voice_profiles(dialogue, {}) == []
+        prompt = build_drama_video_prompt(_BASE_PROMPT, [_utterance("路人甲", "喂")], characters={})
+        assert "voice_profiles" not in prompt
 
     def test_character_with_empty_voice_style_skipped(self):
-        dialogue = [{"speaker": "王", "line": "嗯"}]
-        assert build_voice_profiles(dialogue, {"王": {"voice_style": ""}}) == []
+        prompt = build_drama_video_prompt(
+            _BASE_PROMPT, [_utterance("王", "嗯")], characters={"王": {"voice_style": ""}}
+        )
+        assert "voice_profiles" not in prompt
 
     def test_robust_to_dirty_data(self):
-        assert build_voice_profiles([], {}) == []
-        assert build_voice_profiles([{"speaker": None, "line": "x"}], {}) == []
-        assert build_voice_profiles([{"speaker": "王", "line": "x"}], {"王": "not-a-dict"}) == []
-        assert build_voice_profiles([{"speaker": "王", "line": "x"}], "not-a-dict") == []
+        for utterances, characters in (
+            ([], {}),
+            ([_utterance(None, "x")], {}),
+            ([_utterance("王", "x")], {"王": "not-a-dict"}),
+            ([_utterance("王", "x")], "not-a-dict"),
+        ):
+            prompt = build_drama_video_prompt(_BASE_PROMPT, utterances, characters=characters)  # type: ignore[arg-type]
+            assert "voice_profiles" not in prompt
+
+    def test_does_not_mutate_caller_prompt(self):
+        source = {**_BASE_PROMPT}
+        build_drama_video_prompt(source, [_utterance("王", "嗯")], characters={"王": {"voice_style": "低沉"}})
+        assert source == _BASE_PROMPT
 
 
 class TestUtterancesToDialogue:

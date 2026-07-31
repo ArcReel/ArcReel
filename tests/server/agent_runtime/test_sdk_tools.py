@@ -1682,9 +1682,9 @@ def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
     assert parsed_narr["Dialogue"] == [{"Speaker": "Alice", "Line": "hello"}]
 
 
-def test_get_video_prompt_injects_voice_profiles_when_requested() -> None:
-    """drama：inject_voice_profiles=True 且角色资产带非空 voice_style 时，YAML 顶部出现
-    Voice_Profiles；缺省（inject_voice_profiles=False，既有调用点行为）不注入。"""
+def test_get_video_prompt_injects_voice_profiles_when_characters_given() -> None:
+    """drama：传入带非空 voice_style 的角色资产时 YAML 顶部出现 Voice_Profiles；
+    voice_characters 缺省（既有调用点行为）不注入。"""
     import yaml
 
     from server.agent_runtime.sdk_tools.enqueue_videos import _get_video_prompt
@@ -1696,47 +1696,41 @@ def test_get_video_prompt_injects_voice_profiles_when_requested() -> None:
     }
     characters = {"王": {"voice_style": "低沉沙哑"}}
 
-    parsed = yaml.safe_load(_get_video_prompt(drama_item, characters=characters, inject_voice_profiles=True))
+    parsed = yaml.safe_load(_get_video_prompt(drama_item, voice_characters=characters))
     assert parsed["Voice_Profiles"] == [{"Speaker": "王", "Voice_Style": "低沉沙哑"}]
 
-    parsed_default = yaml.safe_load(_get_video_prompt(drama_item, characters=characters))
+    parsed_default = yaml.safe_load(_get_video_prompt(drama_item))
     assert "Voice_Profiles" not in parsed_default
 
-    parsed_no_style = yaml.safe_load(
-        _get_video_prompt(drama_item, characters={"王": {"voice_style": ""}}, inject_voice_profiles=True)
-    )
+    parsed_no_style = yaml.safe_load(_get_video_prompt(drama_item, voice_characters={"王": {"voice_style": ""}}))
     assert "Voice_Profiles" not in parsed_no_style
 
 
-async def test_resolve_voice_injection_skips_non_drama(fake_ctx: ToolContext) -> None:
+async def test_resolve_voice_characters_skips_non_drama(fake_ctx: ToolContext) -> None:
     """narration/ad：不解析 voice_consistency，直接跳过（无 drama dialogue speaker 概念）。"""
-    from server.agent_runtime.sdk_tools.enqueue_videos import _resolve_voice_injection
+    from server.agent_runtime.sdk_tools.enqueue_videos import _resolve_voice_characters
 
-    characters, inject = await _resolve_voice_injection(fake_ctx, "narration")
-    assert characters is None
-    assert inject is False
+    assert await _resolve_voice_characters(fake_ctx, "narration") is None
 
 
-async def test_resolve_voice_injection_drama_reads_project_characters_and_gate(
+async def test_resolve_voice_characters_drama_reads_project_characters_and_gate(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """drama：读项目角色资产，按 voice_consistency 是否为 none 决定注入开关。"""
+    """drama：读项目角色资产，voice_consistency 为 none（C 类真无声）时退回不注入。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     async def fake_voice_consistency(_project):
         return "soft"
 
     monkeypatch.setattr(mod, "resolve_project_voice_consistency", fake_voice_consistency)
-    characters, inject = await mod._resolve_voice_injection(fake_ctx, "drama")
+    characters = await mod._resolve_voice_characters(fake_ctx, "drama")
     assert characters == fake_ctx.pm.project_payload["characters"]  # type: ignore[attr-defined]
-    assert inject is True
 
     async def fake_voice_consistency_none(_project):
         return "none"
 
     monkeypatch.setattr(mod, "resolve_project_voice_consistency", fake_voice_consistency_none)
-    _characters, inject_none = await mod._resolve_voice_injection(fake_ctx, "drama")
-    assert inject_none is False
+    assert await mod._resolve_voice_characters(fake_ctx, "drama") is None
 
 
 def test_build_reference_specs_routes_through_guard(tmp_path) -> None:

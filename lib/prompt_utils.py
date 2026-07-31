@@ -99,12 +99,40 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
     return yaml.dump(ordered, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
-def build_voice_profiles(dialogue: list[dict[str, str]], characters: dict) -> list[dict[str, str]]:
+def build_drama_video_prompt(
+    video_prompt: dict[str, Any],
+    utterances: object,
+    *,
+    characters: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """drama video_prompt 的 dialogue 与 Voice_Profiles 唯一注入出口。
+
+    worker 执行路径与 SDK 入队路径共用本函数，两处注入点的产出同构由此在结构上成立，而非
+    各写一份靠约定对齐。
+
+    ``characters`` 为 ``None`` 表示本次不注入 Voice_Profiles（C 类真无声模型）。无论注入
+    与否都先剥离入参自带的 ``voice_profiles``：该声明段由编排层从角色资产机械派生，剧本
+    JSON 不承载它，剧本中的残留值不得绕过 C 类门控进入 YAML。
+    """
+    prompt = {k: v for k, v in video_prompt.items() if k != "voice_profiles"}
+    dialogue = utterances_to_dialogue(utterances)
+    prompt["dialogue"] = dialogue
+    if characters is not None:
+        voice_profiles = _build_voice_profiles(dialogue, characters)
+        if voice_profiles:
+            prompt["voice_profiles"] = voice_profiles
+    return prompt
+
+
+def _build_voice_profiles(dialogue: list[dict[str, str]], characters: dict[str, Any]) -> list[dict[str, str]]:
     """从 dialogue speakers 与角色资产派生 Voice_Profiles 声明段。
 
     仅收录角色资产存在且 ``voice_style`` 非空者，一个 speaker 一条（按 dialogue 中首次
     出现的顺序去重）；speaker 未命中角色资产或资产 ``voice_style`` 为空，静默跳过
     （不建面向用户的提示通道，调用方按需记 logger）。
+
+    ``characters`` 来自明文 project.json，用户手编或外部脚本可能写成非 dict，逐层做类型
+    收窄而非直接下标（同 ``lib.config.resolver._safe_dict`` 的取向）。
     """
     if not isinstance(characters, dict):
         return []

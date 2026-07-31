@@ -31,11 +31,10 @@ from lib.prompt_builders import (
     build_scene_prompt,
 )
 from lib.prompt_utils import (
-    build_voice_profiles,
+    build_drama_video_prompt,
     image_prompt_to_yaml,
     is_structured_image_prompt,
     is_structured_video_prompt,
-    utterances_to_dialogue,
     video_prompt_to_yaml,
 )
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
@@ -922,14 +921,13 @@ async def execute_video_task(
     # 的 dialogue 出口（覆盖 payload 里 drama 已不再携带的 video_prompt.dialogue）。narration / ad
     # 的 item 无 utterances 字段，payload.dialogue 原样透传；SDK 路径 prompt 已是渲染好的字符串、跳过。
     if isinstance(item, dict) and "utterances" in item and isinstance(prompt, dict):
-        dialogue = utterances_to_dialogue(item.get("utterances"))
-        prompt = {**prompt, "dialogue": dialogue}
-        # C 类（真无声）模型不注入 Voice_Profiles；有音轨模型（含恒有声、开关不可控的
-        # gemini-aistudio/grok）机械派生角色声音风格声明段，口径与 voice_consistency 同源。
-        if ctx.video.voice_consistency != "none":
-            voice_profiles = build_voice_profiles(dialogue, project.get("characters") or {})
-            if voice_profiles:
-                prompt = {**prompt, "voice_profiles": voice_profiles}
+        # C 类（真无声）模型传 characters=None 即不注入 Voice_Profiles；有音轨模型（含恒有声、
+        # 开关不可控的 gemini-aistudio/grok）机械派生角色声音风格，口径与 voice_consistency 同源。
+        prompt = build_drama_video_prompt(
+            prompt,
+            item.get("utterances"),
+            characters=(project.get("characters") or {}) if ctx.video.voice_consistency != "none" else None,
+        )
 
     prompt_text = _normalize_video_prompt(prompt)
     aspect_ratio = get_aspect_ratio(project, "videos")
