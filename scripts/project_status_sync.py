@@ -52,7 +52,7 @@ def gql(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
         data=payload,
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=30) as resp:
         body: dict[str, Any] = json.load(resp)
     if body.get("errors"):
         raise RuntimeError(f"GraphQL 错误: {json.dumps(body['errors'], ensure_ascii=False)}")
@@ -81,7 +81,10 @@ def derive_status(state: str, labels: set[str], has_assignee: bool, has_open_clo
 def _issue_signals(issue: dict[str, Any]) -> tuple[str, set[str], bool, bool]:
     labels = {n["name"] for n in issue["labels"]["nodes"]}
     has_assignee = issue["assignees"]["totalCount"] > 0
-    has_open_pr = any(n["state"] == "OPEN" for n in issue["closedByPullRequestsReferences"]["nodes"])
+    # draft PR 尚未进入审阅，不计入 In review 信号
+    has_open_pr = any(
+        n["state"] == "OPEN" and not n["isDraft"] for n in issue["closedByPullRequestsReferences"]["nodes"]
+    )
     return issue["state"], labels, has_assignee, has_open_pr
 
 
@@ -111,7 +114,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
       id state
       labels(first: 50) { nodes { name } }
       assignees(first: 1) { totalCount }
-      closedByPullRequestsReferences(first: 20) { nodes { state } }
+      closedByPullRequestsReferences(first: 20) { nodes { state isDraft } }
       projectItems(first: 10, includeArchived: true) {
         nodes {
           id isArchived
@@ -198,7 +201,7 @@ query($org: String!, $projectNumber: Int!, $cursor: String) {
               repository { nameWithOwner }
               labels(first: 50) { nodes { name } }
               assignees(first: 1) { totalCount }
-              closedByPullRequestsReferences(first: 20) { nodes { state } }
+              closedByPullRequestsReferences(first: 20) { nodes { state isDraft } }
             }
             ... on PullRequest {
               repository { nameWithOwner }
