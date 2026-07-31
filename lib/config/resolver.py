@@ -21,7 +21,12 @@ if TYPE_CHECKING:
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.backend_assembly.specs import get_provider_spec
-from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider, model_info_for
+from lib.config.registry import (
+    PROVIDER_REGISTRY,
+    default_model_for_provider,
+    model_has_audio_track,
+    model_info_for,
+)
 from lib.config.service import (
     _DEFAULT_AUDIO_BACKEND,
     _DEFAULT_IMAGE_BACKEND,
@@ -186,6 +191,27 @@ def _video_audio_always_billed(provider_id: str) -> bool:
     provider_id 而非 backend 静态接口判定。
     """
     return provider_id in _VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS
+
+
+def _derive_voice_consistency(
+    *,
+    reference_audio_mode: str,
+    generation_mode: str | None,
+    has_audio: bool,
+) -> str:
+    """三级声音一致性标识派生（native / soft / none），模型能力 × 项目 generation_mode 二维。
+
+    ``reference_audio_mode`` 按字面量比较（``ReferenceAudioMode`` 是 ``StrEnum``，两者可
+    直接 ``==``），不在 lib.config 层导入 lib.video_backends（分层契约，config 是最底层）。
+
+    native 蕴含有音轨：generation_mode 非参考生视频时一律降格 soft，不降到 none（Spec #1486
+    第 15 条）。soft/none 之分不看 ``generate_audio`` token 是否声明——该 token 语义是「开关
+    可控」而非「有无音轨」，恒有声但开关不可控的 provider（AI Studio Veo、Grok）经
+    ``model_has_audio_track`` 单独识别为有音轨（Spec 第 2 条）。
+    """
+    if reference_audio_mode == "direct" and generation_mode == "reference_video":
+        return "native"
+    return "soft" if has_audio else "none"
 
 
 def _safe_dict(value: object, *, field: str) -> dict:
@@ -558,6 +584,7 @@ class ConfigResolver:
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
               "content_mode": str | None,
               "generation_mode": str | None,
+              "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode 二维派生
             }
 
         Raises:
@@ -911,9 +938,13 @@ class ConfigResolver:
             max_reference_images = caps.max_reference_images
             first_frame = caps.first_frame
             last_frame = caps.last_frame
+            reference_audio_mode = caps.reference_audio_mode
             # 自定义供应商按声明单价计费（`CustomProviderPrice` 无音频维度），计价参数不因
             # 默认执行档收窄，故沿用项目请求值。
             default_tier_generates_audio = True
+            # 自定义供应商无 generate_audio 目录声明，与上一行 default_tier_generates_audio
+            # 同口径：无信号时假定有声，不凭空判定为真无声模型。
+            has_audio = True
             raw_durations = model.supported_durations
             supported_durations: list[int] = []
             if raw_durations:
@@ -944,6 +975,8 @@ class ConfigResolver:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
             first_frame = builtin_caps.first_frame
             last_frame = builtin_caps.last_frame
+            reference_audio_mode = builtin_caps.reference_audio_mode
+            has_audio = model_has_audio_track(provider_id, model_info)
             try:
                 default_tier_generates_audio = builtin_effective_generate_audio_for_model(
                     spec.registry_backend, model_id
@@ -983,6 +1016,12 @@ class ConfigResolver:
             if isinstance(gm, str) and gm:
                 generation_mode = gm
 
+        voice_consistency = _derive_voice_consistency(
+            reference_audio_mode=reference_audio_mode,
+            generation_mode=generation_mode,
+            has_audio=has_audio,
+        )
+
         return {
             "provider_id": provider_id,
             "model": model_id,
@@ -996,6 +1035,7 @@ class ConfigResolver:
             "default_duration": default_duration,
             "content_mode": content_mode,
             "generation_mode": generation_mode,
+            "voice_consistency": voice_consistency,
         }
 
     async def _resolve_default_image_backend(

@@ -29,6 +29,24 @@ import type { CustomProviderInfo, ProviderInfo, VideoCapabilities } from "@/type
 // 目录侧同步可得，故时长在首帧即有值、不闪加载态；服务端只在目录缺项时才影响结果。
 // ---------------------------------------------------------------------------
 
+export type VoiceConsistencyTier = "native" | "soft" | "none";
+
+/**
+ * 纯函数镜像 `lib/config/resolver.py::_derive_voice_consistency`：全局设置页（模型选择「默认模型」）
+ * 无项目上下文、generation_mode 恒未知，故不能打 `/video-capabilities`（该端点按项目解析）。
+ * 用同一份二维派生公式对目录数据（`ModelInfoResponse.has_audio_track` / `reference_audio_mode`）
+ * 近似求值——generation_mode 缺省时公式本身即降格 soft，与「非参考生视频路径恒降格」的口径一致。
+ * 有项目上下文的调用点一律改用服务端 `VideoCapabilities.voice_consistency`（更精确，见下方 hook）。
+ */
+export function deriveVoiceConsistencyFromCatalog(
+  referenceAudioMode: "none" | "direct",
+  generationMode: string | null | undefined,
+  hasAudioTrack: boolean,
+): VoiceConsistencyTier {
+  if (referenceAudioMode === "direct" && generationMode === "reference_video") return "native";
+  return hasAudioTrack ? "soft" : "none";
+}
+
 const EMPTY_PROVIDERS: ProviderInfo[] = [];
 const EMPTY_CUSTOM_PROVIDERS: CustomProviderInfo[] = [];
 const EMPTY_CONSTRAINTS: DurationConstraints = { byResolution: {}, withReferenceImages: [] };
@@ -81,6 +99,12 @@ export interface ModelCapabilities {
   /** 首帧 / 尾帧生效值（含用户覆盖）；尚未查到或查询失败时为 null（未知），不谎报不支持。 */
   firstFrame: boolean | null;
   lastFrame: boolean | null;
+  /**
+   * 声音一致性三级标识（服务端二维派生：模型能力 × 项目 generation_mode），与 firstFrame 同源
+   * 同口径——尚未查到或查询失败时为 null（未知）。无项目上下文（全局设置页）时改用
+   * `deriveVoiceConsistencyFromCatalog` 对目录数据近似求值，不消费本字段。
+   */
+  voiceConsistency: VoiceConsistencyTier | null;
   /** 服务端能力查询在途。目录侧不受影响，时长仍即时可用。 */
   loading: boolean;
 }
@@ -250,6 +274,7 @@ export function useModelCapabilities({
     resolvedVideoBackend: durationSource?.backend ?? null,
     firstFrame: caps ? caps.first_frame : null,
     lastFrame: caps ? caps.last_frame : null,
+    voiceConsistency: caps ? caps.voice_consistency : null,
     loading,
   };
 }

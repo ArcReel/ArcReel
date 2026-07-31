@@ -47,6 +47,20 @@ class ModelInfo:
     api_model_name: str | None = None
 
 
+#: `generate_audio` token 语义是「音轨开关可控」，不是「有无音轨」——AI Studio 的 Veo 与
+#: Grok Imagine 恒有声但请求参数无法关闭该开关，故 registry 不为其声明该 token（声明了会
+#: 误导调用方以为开关生效）。`model_has_audio_track` 据此在 token 判定之外单列这两家例外，
+#: 供 voice_consistency 派生与前端能力线渲染共用，防止两处各自维护一份漂移的判断。
+_ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS = frozenset({"gemini-aistudio", "grok"})
+
+
+def model_has_audio_track(provider_id: str, model_info: ModelInfo) -> bool:
+    """该视频 model 生成的成片是否带音轨（不等于「音轨开关可控」，见上方 token 语义注）。"""
+    if model_info.media_type != "video":
+        return False
+    return "generate_audio" in model_info.capabilities or provider_id in _ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS
+
+
 # 合法并发 lane 名，与 CapacityTable 的 image/video/audio 三条容量通道对齐。
 _VALID_LANES = frozenset({"image", "video", "audio"})
 
@@ -854,10 +868,12 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 ),
             ),
             # --- video ---
+            # generate_audio：官方文档明确 Sora 2 原生含对话音轨（voice_consistency 派生的
+            # B 类判定依据，见 issue #1489）。
             "sora-2": ModelInfo(
                 display_name="Sora 2",
                 media_type="video",
-                capabilities=["text_to_video", "image_to_video"],
+                capabilities=["text_to_video", "image_to_video", "generate_audio"],
                 default=True,
                 supported_durations=[4, 8, 12],
                 resolutions=["720p"],
@@ -867,7 +883,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "sora-2-pro": ModelInfo(
                 display_name="Sora 2 Pro",
                 media_type="video",
-                capabilities=["text_to_video", "image_to_video"],
+                capabilities=["text_to_video", "image_to_video", "generate_audio"],
                 supported_durations=[4, 8, 12],
                 resolutions=["720p", "1080p"],
                 max_reference_images=1,

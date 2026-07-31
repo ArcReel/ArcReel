@@ -4,14 +4,17 @@ import { InlineWarning } from "@/components/ui/InlineWarning";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import {
   catalogDurations,
+  deriveVoiceConsistencyFromCatalog,
   durationOutOfRangeReason,
   useModelCapabilities,
+  type VoiceConsistencyTier,
 } from "@/hooks/useModelCapabilities";
-import { lookupResolutions } from "@/utils/provider-models";
-import { isContinuousIntegerRange } from "@/utils/duration_format";
+import { lookupCatalogVideoAudio, lookupResolutions } from "@/utils/provider-models";
+import { formatDurationsLabel, isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
 import { ImageModelDualSelect } from "./ImageModelDualSelect";
 import { TextTierFields } from "./TextTierFields";
+import { VideoModelSpecBar } from "./VideoModelSpecBar";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { CARD_STYLE } from "@/components/ui/darkroom-tokens";
 import type { ProviderInfo } from "@/types/provider";
@@ -126,7 +129,7 @@ export function ModelConfigSection({
   const effectiveVideoBackend = value.videoBackend || globalDefaults.video || "";
 
   // 能力统一经 useModelCapabilities 取得（见该模块的真相源规则），本组件不自行查表。
-  const { rawDurations, supportedDurations, durationConstraints } = useModelCapabilities({
+  const { rawDurations, supportedDurations, durationConstraints, voiceConsistency } = useModelCapabilities({
     projectName,
     videoBackend: effectiveVideoBackend,
     // 本组件是表单：backend 是编辑中的未保存候选，服务端按已落盘配置解析出的能力对它不作数。
@@ -136,6 +139,37 @@ export function ModelConfigSection({
     videoResolution: value.videoResolution,
     usesReferenceImages,
   });
+
+  // 声音一致性档位：有项目上下文（projectName）时服务端已按真实 generation_mode 二维派生，
+  // 直接采信；无项目上下文（全局设置「模型选择」页）时该端点不可用，改用目录数据镜像同一份
+  // 派生公式近似求值——generation_mode 未知时公式恒不落 native，语义上仍正确（见 useModelCapabilities
+  // 模块顶部的 deriveVoiceConsistencyFromCatalog 说明）。
+  const videoSpecTier: VoiceConsistencyTier | null = projectName
+    ? voiceConsistency
+    : (() => {
+        const catalogAudio = lookupCatalogVideoAudio(providers, effectiveVideoBackend);
+        return catalogAudio
+          ? deriveVoiceConsistencyFromCatalog(catalogAudio.referenceAudioMode, null, catalogAudio.hasAudioTrack)
+          : null;
+      })();
+
+  const videoResolutionOptions = lookupResolutions(
+    providers,
+    effectiveVideoBackend,
+    customProviders,
+    endpointToMediaType,
+  ).options;
+
+  const renderVideoOptionMeta = (fullValue: string) => {
+    const durations = catalogDurations(providers, customProviders, fullValue);
+    const resolutions = lookupResolutions(providers, fullValue, customProviders, endpointToMediaType).options;
+    const audio = lookupCatalogVideoAudio(providers, fullValue);
+    const parts: string[] = [];
+    if (durations?.length) parts.push(formatDurationsLabel(durations));
+    if (resolutions.length) parts.push(resolutions.join(" / "));
+    if (audio) parts.push(t(audio.hasAudioTrack ? "dashboard:video_spec_audio_has" : "dashboard:video_spec_audio_none"));
+    return parts.length > 0 ? parts.join(" · ") : t("dashboard:video_option_caps_unknown");
+  };
 
   const handleVideoChange = (next: string) => {
     const effectiveNext = next || globalDefaults.video || "";
@@ -228,7 +262,16 @@ export function ModelConfigSection({
             }
             fallbackValue={globalDefaults.video || undefined}
             aria-label={t("model_video")}
+            renderOptionMeta={renderVideoOptionMeta}
           />
+
+          {effectiveVideoBackend && (
+            <VideoModelSpecBar
+              durations={rawDurations}
+              resolutions={videoResolutionOptions}
+              tier={videoSpecTier}
+            />
+          )}
 
           {renderResolutionField(effectiveVideoBackend, value.videoResolution, (v) =>
             onChange({ ...value, videoResolution: v }),

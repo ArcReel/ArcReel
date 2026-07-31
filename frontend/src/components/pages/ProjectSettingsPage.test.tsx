@@ -307,6 +307,8 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
             supported_durations: [5, 8],
             duration_resolution_constraints: {},
             resolutions: ["720p", "1080p"],
+            has_audio_track: true,
+            reference_audio_mode: "none",
           },
           "nano-banana": {
             display_name: "Nano Banana",
@@ -316,6 +318,8 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
             supported_durations: [],
             duration_resolution_constraints: {},
             resolutions: ["720p", "1080p"],
+            has_audio_track: false,
+            reference_audio_mode: "none",
           },
         },
       },

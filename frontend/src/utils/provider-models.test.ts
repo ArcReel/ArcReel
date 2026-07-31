@@ -5,6 +5,7 @@ import {
   constrainDurations,
   getCustomProviderModels,
   getProviderModels,
+  lookupCatalogVideoAudio,
   lookupDurationConstraints,
   lookupProjectVideoResolution,
 } from "./provider-models";
@@ -56,6 +57,8 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         duration_resolution_constraints: { "1080p": [8], "4k": [8] },
         reference_image_durations: [8],
         resolutions: ["720p", "1080p", "4k"],
+        has_audio_track: true,
+        reference_audio_mode: "none",
       },
       "seedance-like": {
         display_name: "无约束模型",
@@ -65,6 +68,8 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         supported_durations: [5, 8, 10],
         duration_resolution_constraints: {},
         resolutions: ["720p", "1080p"],
+        has_audio_track: true,
+        reference_audio_mode: "none",
       },
     },
   },
@@ -95,6 +100,22 @@ describe("lookupDurationConstraints", () => {
       byResolution: {},
       withReferenceImages: [],
     });
+  });
+});
+
+describe("lookupCatalogVideoAudio", () => {
+  it("reads has_audio_track / reference_audio_mode off the model declaration", () => {
+    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "gemini-aistudio/veo-3.1-generate-preview")).toEqual({
+      hasAudioTrack: true,
+      referenceAudioMode: "none",
+    });
+  });
+
+  it("returns null for unknown model, unknown provider, custom backends and malformed strings", () => {
+    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "gemini-aistudio/unknown")).toBeNull();
+    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "bogus-provider/whatever")).toBeNull();
+    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "custom-3/my-model")).toBeNull();
+    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "no-slash")).toBeNull();
   });
 });
 

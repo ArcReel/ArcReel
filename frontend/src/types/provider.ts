@@ -8,6 +8,11 @@ export interface ModelInfoResponse {
   // 使用参考图时允许的时长；空 = 参考图路径不额外约束时长。
   reference_image_durations?: number[];
   resolutions: string[];
+  // 视频 model 是否带音轨（非视频 model 恒 false）。不等于「音轨开关可控」——AI Studio Veo /
+  // Grok Imagine 恒有声但未声明 generate_audio token，仍为 true（见 capabilities 语义注）。
+  has_audio_track: boolean;
+  // 视频 model 的参考音频运输形态；非视频 model 恒 "none"。
+  reference_audio_mode: "none" | "direct";
 }
 
 export interface ProviderInfo {

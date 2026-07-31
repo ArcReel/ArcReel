@@ -9,13 +9,22 @@ import type { CustomProviderInfo } from "@/types/custom-provider";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { ImageModelDualSelect } from "@/components/shared/ImageModelDualSelect";
 import { TextTierFields } from "@/components/shared/TextTierFields";
+import { VideoModelSpecBar } from "@/components/shared/VideoModelSpecBar";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { catalogDurations, deriveVoiceConsistencyFromCatalog } from "@/hooks/useModelCapabilities";
 import { errMsg } from "@/utils/async";
-import { getCustomProviderModels } from "@/utils/provider-models";
+import {
+  getCustomProviderModels,
+  getProviderModels,
+  lookupCatalogVideoAudio,
+  lookupResolutions,
+} from "@/utils/provider-models";
+import { formatDurationsLabel } from "@/utils/duration_format";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE } from "@/components/ui/darkroom-tokens";
+import type { ProviderInfo } from "@/types/provider";
 
 interface CardProps {
   kicker: string;
@@ -51,6 +60,7 @@ export function MediaModelSection() {
 
   const [settings, setSettings] = useState<SystemConfigSettings | null>(null);
   const [options, setOptions] = useState<SystemConfigOptions | null>(null);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [draft, setDraft] = useState<SystemConfigPatch>({});
   const [saving, setSaving] = useState(false);
@@ -64,12 +74,14 @@ export function MediaModelSection() {
   );
 
   const fetchConfig = useCallback(async () => {
-    const [res, custom] = await Promise.all([
+    const [res, catalog, custom] = await Promise.all([
       API.getSystemConfig(),
+      getProviderModels().catch(() => [] as ProviderInfo[]),
       getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
     ]);
     setSettings(res.settings);
     setOptions(res.options);
+    setProviders(catalog);
     setCustomProviders(custom);
     setDraft({});
   }, []);
@@ -126,6 +138,28 @@ export function MediaModelSection() {
     settings.default_image_backend ??
     "";
   const currentAudio = draft.video_generate_audio ?? settings.video_generate_audio ?? false;
+
+  // 全局设置页无项目上下文（generation_mode 恒未知），voice_consistency 走目录数据近似派生，
+  // 不打 /video-capabilities（该端点按项目解析，见 useModelCapabilities 模块顶部说明）。
+  const videoCatalogAudio = currentVideo ? lookupCatalogVideoAudio(providers, currentVideo) : null;
+  const videoSpecTier = videoCatalogAudio
+    ? deriveVoiceConsistencyFromCatalog(videoCatalogAudio.referenceAudioMode, null, videoCatalogAudio.hasAudioTrack)
+    : null;
+  const videoSpecDurations = currentVideo ? catalogDurations(providers, customProviders, currentVideo) : null;
+  const videoSpecResolutions = currentVideo
+    ? lookupResolutions(providers, currentVideo, customProviders).options
+    : [];
+
+  const renderVideoOptionMeta = (fullValue: string) => {
+    const durations = catalogDurations(providers, customProviders, fullValue);
+    const resolutions = lookupResolutions(providers, fullValue, customProviders).options;
+    const audio = lookupCatalogVideoAudio(providers, fullValue);
+    const parts: string[] = [];
+    if (durations?.length) parts.push(formatDurationsLabel(durations));
+    if (resolutions.length) parts.push(resolutions.join(" / "));
+    if (audio) parts.push(t(audio.hasAudioTrack ? "video_spec_audio_has" : "video_spec_audio_none"));
+    return parts.length > 0 ? parts.join(" · ") : t("video_option_caps_unknown");
+  };
   const currentAudioBackend = draft.default_audio_backend ?? settings.default_audio_backend ?? "";
   const currentNarrationVoice = draft.narration_voice ?? settings.narration_voice ?? "";
   const currentNarrationSpeed =
@@ -171,15 +205,25 @@ export function MediaModelSection() {
       {/* Video */}
       <SectionCard kicker="Video Channel" title={t("default_video_model")}>
         {videoBackends.length > 0 ? (
-          <ProviderModelSelect
-            value={currentVideo}
-            options={videoBackends}
-            providerNames={allProviderNames}
-            onChange={(v) => setDraft((prev) => ({ ...prev, default_video_backend: v }))}
-            allowDefault
-            defaultLabel={t("auto_select")}
-            defaultHint={t("auto")}
-          />
+          <>
+            <ProviderModelSelect
+              value={currentVideo}
+              options={videoBackends}
+              providerNames={allProviderNames}
+              onChange={(v) => setDraft((prev) => ({ ...prev, default_video_backend: v }))}
+              allowDefault
+              defaultLabel={t("auto_select")}
+              defaultHint={t("auto")}
+              renderOptionMeta={renderVideoOptionMeta}
+            />
+            {currentVideo && (
+              <VideoModelSpecBar
+                durations={videoSpecDurations}
+                resolutions={videoSpecResolutions}
+                tier={videoSpecTier}
+              />
+            )}
+          </>
         ) : (
           emptyHint(t("no_video_providers_hint"))
         )}

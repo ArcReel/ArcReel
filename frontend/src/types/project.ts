@@ -234,4 +234,6 @@ export interface VideoCapabilities {
   default_duration?: number | null;
   content_mode?: string | null;
   generation_mode?: string | null;
+  /** 声音一致性三级标识（模型能力 × generation_mode 二维派生），服务端唯一派生点。 */
+  voice_consistency: "native" | "soft" | "none";
 }
