@@ -6,14 +6,13 @@ import asyncio
 import shutil
 import subprocess
 import tempfile
-import wave
-from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 import lib.audio_utils as audio_utils_module
+from tests.conftest import _wav_bytes
 
 
 @pytest.fixture(autouse=True)
@@ -21,16 +20,6 @@ def _reset_ffprobe_cache():
     audio_utils_module._reset_for_tests()
     yield
     audio_utils_module._reset_for_tests()
-
-
-def _wav_bytes(duration_seconds: float, sample_rate: int = 8000) -> bytes:
-    buf = BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(b"\x00\x00" * int(duration_seconds * sample_rate))
-    return buf.getvalue()
 
 
 def _video_only_mp4_bytes(duration_seconds: float = 1.0) -> bytes:

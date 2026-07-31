@@ -1,6 +1,5 @@
 import json
 import shutil
-import wave
 from io import BytesIO
 
 from fastapi import FastAPI
@@ -12,16 +11,7 @@ from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files
-
-
-def _wav_bytes(duration_seconds: float, sample_rate: int = 8000) -> bytes:
-    buf = BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(b"\x00\x00" * int(duration_seconds * sample_rate))
-    return buf.getvalue()
+from tests.conftest import _wav_bytes
 
 
 class _FakeTextBackend:

@@ -824,6 +824,12 @@ describe("StudioCanvasRouter", () => {
 
     fireEvent.click(screen.getByText("update-character-with-audio"));
     await waitFor(() => {
+      expect(API.uploadFile).toHaveBeenCalledWith(
+        "demo",
+        "character_audio_ref",
+        expect.any(File),
+        expect.any(String),
+      );
       // description/voice_style 已持久化成功，仅音频上传失败：即便整体 catch 到错误，
       // 也要刷新 store 让已保存的部分反映到 UI，而不是让用户误以为整个保存都没生效
       expect(API.getProject).toHaveBeenCalled();

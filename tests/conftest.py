@@ -17,6 +17,8 @@ def make_translator(locale: str = "zh") -> Callable[..., str]:
 
 import os
 import subprocess
+import wave
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -30,6 +32,17 @@ from server.agent_runtime.session_store import SessionMetaStore
 # ---------------------------------------------------------------------------
 # General utilities
 # ---------------------------------------------------------------------------
+
+
+def _wav_bytes(duration_seconds: float, sample_rate: int = 8000) -> bytes:
+    """纯 stdlib 生成 wav 字节（不依赖 ffmpeg），供不要求真实音频编解码的用例使用。"""
+    buf = BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(b"\x00\x00" * int(duration_seconds * sample_rate))
+    return buf.getvalue()
 
 
 def make_test_video(path: Path, *, duration_sec: float = 1.0, fps: int = 30) -> None:
