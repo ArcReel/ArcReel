@@ -26,7 +26,7 @@ batch-poll 只产出 gh/git 事实与机械汇总，不做语义判断。取得�
 ## 第二步：制定计划，主动请求一次前置授权
 
 1. 依赖顺序按 batch-poll 的 `blocked_by` / `ready_to_start` 排；并发槽位优先给改动域互不相交的 issue，同域或足迹重叠者靠依赖序或补位串行——冲突事前避而非事后解；`stage_hint` 已起的 issue（恢复场景）按 [references/recovery.md](references/recovery.md) 处置
-2. 分流：`ready-for-agent` 进批次；`ready-for-human` 跳过——它与下游被阻塞链都不启动；无标签的读正文判断归类（batch-poll 的 `ready_to_start` 只算依赖与未起，triage 由你定）
+2. 分流：`ready-for-agent` 进批次；`ready-for-human` 跳过——它与下游被阻塞链都不启动；已被他人 assign 的 issue 视为已认领，同样跳过（batch-poll 不含 assignee，用 `gh issue view <N> --json assignees` 核对）；无标签的读正文判断归类（batch-poll 的 `ready_to_start` 只算依赖与未起，triage 由你定）
 3. 向用户展示批次计划：成员清单、依赖顺序、每个 issue 的实现路线与模型（**各附一句选择理由**，见第三步「实现路线与模型」）、跳过项及连带不启动的下游、并发上限（默认 3，用户可覆盖）
 4. **主动请求一次性前置授权**：向用户明确提出两项预批——本批所有 PR 的合并（含清尾轮立项的 PR）；清尾立项权限（对满足收尾节判据的缺陷类 follow-up，team-lead 可自行 /to-tickets 立项并在清尾轮跑到合并，被拒则清尾降级为收尾转呈）。连同流程将自动执行的动作边界（修改 triage 标签、PR 转 draft、在 Spec 发 QA 验收 comment；清尾授权之外不创建新 issue，gap 立项仍须用户中途指令）。这是本流程唯一的同步确认点；前置授权在此落入 team-lead 的 transcript，后续不再逐笔请示
 5. 用户确认后建账本（首条 append，记录计划裁决与所得授权，见「账本」），进入无人值守执行，不再中途请示
@@ -35,7 +35,7 @@ batch-poll 只产出 gh/git 事实与机械汇总，不做语义判断。取得�
 
 TeamCreate 建团队。并发上限指同时进行的 issue 数（处于任一阶段都算）：并发越高，每次合并引发的重审与并发请示越多。
 
-issue 的启动条件：全部 blocker 已合入 main。worktree 一律从最新 main 创建，不做跨分支依赖；blocker 被搁置时下游不启动，归入收尾清单。
+issue 的启动条件：全部 blocker 已合入 main。启动时将 issue assign 给自己（`gh issue edit <N> --add-assignee @me`）。worktree 一律从最新 main 创建，不做跨分支依赖；blocker 被搁置时下游不启动，归入收尾清单。
 
 每个 issue 由三个阶段接力，每个阶段使用干净上下文（实现阶段可由 codex 后台任务而非 teammate 承担，见「实现路线与模型」）：
 
@@ -67,7 +67,7 @@ spawn 时按 [references/spawn-prompts.md](references/spawn-prompts.md) 的模�
 
    分拣结果 append 账本 `decision`；`--issues` 批次扩员后补一条带 scope 的行。轮中新增的候选转呈
 2. **在 Spec issue 发人工 QA 验收清单 comment，不关闭 Spec 本体**。清单按已合并子 issue（含清尾轮）组织：每项给 PR 链接与面向用户可感知行为的验收步骤（实际操作路径，不复读技术验收标准）；末尾列 needs-human 搁置项、跳过与未启动项、发现的缺口。纯 issue 列表批次没有共同 Spec 时，清单并入收尾汇报
-3. 解散团队，删除全部 worktree 与本地分支（远端分支合并后自动删除）
+3. 解散团队，移除已合并 issue 的 assignee（避免 reopen 后仍显示为处理中），删除全部 worktree 与本地分支（远端分支合并后自动删除）
 4. 向用户汇报三份清单：已合并（issue 与 PR 对照）、needs-human 搁置（含争点）、跳过与未启动（含原因）；另附转呈事项：缺口立项建议、故障裁决记录、清尾分拣中转呈的候选，以及**聚合复盘**——从账本 `retrospective` 行与 handoff 目录聚合四类复盘候选（ADR / CONTEXT.md / CLAUDE.md / follow-up），一次性呈用户裁决。多数批次干净收敛，四类候选常为空；空是预期结果，照实呈报，无需为"没有候选"补叙
 5. 账本 append 一条 `closed` 收尾行（`bash .agents/skills/afk-team-workflow/scripts/ledger.sh <batch-id> closed`）——账本不删除，留作复盘源与审计，并供下次触发时的恢复探测器据此判定本批次已终态。批准后的复盘落地方式（写 ADR / 改 CONTEXT.md / 补 CLAUDE.md / 立 follow-up issue）不在此指定，由用户与后续会话决定
 
@@ -83,8 +83,8 @@ teammate 的一切暂停请示先到你这里。分四类处置：
 
 1. **故障类**（bot 报错、quota 耗尽、长时间无响应）：自行裁决，不升级用户。按 /pr-ai-review-loop 故障节的建议重试一次；仍失败则本 PR 停用该 reviewer 并记录，收尾前可做一次补审尝试。即时 append 账本 `fault`（崩溃恢复需据此 replay），并纳入收尾汇报
 2. **已答复又被重复提出的意见**：同一主题已有 pushback 在案、又被同一 reviewer 重复提出——不算真冲突、不搁置：裁决维持 pushback，令 looper 回评引用在案结论后继续循环；浮现出值得升级 ADR 的原则则记入收尾转呈，不当场写 ADR
-3. **收敛类**（`round_estimate` ≥ 5 且每轮都是新出现的小意见、没有单一争点；或 looper 报连续 2 轮无实质收益）：先判断成因再选处置——①收益递减：剩余意见确无实质收益时，令 looper 逐条驳回留痕后走终核，超范围项记入 handoff 的 follow-up 候选；仍有实质意见则令其继续；②注意力漂移：令 looper 把本轮修复交由子代理在干净上下文中执行，自己继续负责轮询；③防御堆积：令 looper 从严执行可达性门槛——指不出触发路径的防御类意见一律驳回，指得出的照常修复；驳回项按 follow-up 候选记入 handoff，交清尾轮分拣；④issue 拆分过粗：按 needs-human 搁置并转呈。裁决 append 账本 `decision`
-4. **reviewer 真实冲突 / 业务取舍**：不选边，按 needs-human 搁置：PR 转 draft（draft 下 CodeRabbit 不审，冻结循环消除重审噪音）、issue 改 `ready-for-human`、PR 评论写明争点与双方立场、teammate 退役并清理 worktree（分支与 PR 留在远端待人工接手）、append 账本 `shelve`（含争点）并归入收尾清单
+3. **收敛类**（`round_estimate` ≥ 5 且每轮都是新出现的小意见、没有单一争点；或 looper 报连续 2 轮无实质收益）：先判断成因再选处置——①收益递减：剩余意见确无实质收益时，令 looper 逐条驳回留痕后走终核，超范围项记入 handoff 的 follow-up 候选；仍有实质意见则令其继续；②注意力漂移：令 looper 把本轮修复交由子代理在干净上下文中执行，自己继续负责轮询；③防御堆积：令 looper 从严执行可达性门槛——指不出触发路径的防御类意见一律驳回，指得出的照常修复；驳回项按 follow-up 候选记入 handoff，交清尾轮分拣；④issue 拆分过粗：按第 4 类的搁置流程处置并转呈。裁决 append 账本 `decision`
+4. **reviewer 真实冲突 / 业务取舍**：不选边，按 needs-human 搁置：PR 转 draft（draft 下 CodeRabbit 不审，冻结循环消除重审噪音）、issue 改 `ready-for-human` 并移除 assignee、PR 评论写明争点与双方立场、teammate 退役并清理 worktree（分支与 PR 留在远端待人工接手）、append 账本 `shelve`（含争点）并归入收尾清单
 
 ## 健康检查与替补
 

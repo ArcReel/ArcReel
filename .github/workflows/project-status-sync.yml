@@ -1,0 +1,52 @@
+name: project-status-sync
+
+# 同步 org Project 看板的 Status 字段：由 triage 标签、assignee、关联 PR、开闭状态单向派生。
+# issue/PR 事件触发单 issue 同步，每日定时全量对账；规则实现在 scripts/project_status_sync.py。
+on:
+  issues:
+    types: [opened, reopened, closed, labeled, unlabeled, assigned, unassigned]
+  # 用 pull_request_target 而非 pull_request：workflow 与脚本都取 base 分支版本执行，
+  # PR 分支的代码接触不到 PROJECT_STATUS_SYNC_TOKEN
+  pull_request_target:
+    types: [opened, closed, reopened, ready_for_review, converted_to_draft, edited]
+  schedule:
+    - cron: "30 21 * * *" # 北京时间 05:30 全量对账
+  workflow_dispatch:
+
+concurrency:
+  # 全量对账（schedule / dispatch / PR body 编辑）共用一个 group 串行；
+  # 单实体运行按事件类型+编号分组，issue 与 PR 同号互不取消
+  group: project-status-sync-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event.action == 'edited') && 'all' || format('{0}-{1}', github.event_name, github.event.issue.number || github.event.pull_request.number) }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Dependabot 触发的运行拿不到仓库 Actions secrets
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      # pull_request_target 的默认 checkout 是 PR 的 base 分支，而 base 可以是任意分支；
+      # 固定为默认分支，避免在持有 token 的环境中执行其他分支的脚本
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Sync project status
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_STATUS_SYNC_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          case "$EVENT_NAME" in
+            issues) python3 scripts/project_status_sync.py --issue "$ISSUE_NUMBER" ;;
+            pull_request_target)
+              # body 编辑可能移除 closing reference，当前引用列表看不到被移除的 issue，改跑全量对账
+              if [ "$EVENT_ACTION" = "edited" ]; then
+                python3 scripts/project_status_sync.py --all
+              else
+                python3 scripts/project_status_sync.py --pr "$PR_NUMBER"
+              fi ;;
+            *) python3 scripts/project_status_sync.py --all ;;
+          esac
