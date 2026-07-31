@@ -74,7 +74,7 @@ pnpm build       # 生产构建，含 typecheck
 
 ### 供应商能力数据
 
-生成模型供应商的能力数字（时长、参考图上限、分辨率约束）与默认 model，以 `lib/config/registry.py` 的 `PROVIDER_REGISTRY` 为单一真相源。自定义供应商（`custom-` 前缀）与智能体供应商预设（`lib/agent_provider_catalog.py::PRESET_PROVIDERS`）不在其内。prompt 模板与智能体运行配置（`agent_runtime_profile/`）不硬编码具体数值，用占位符由编排层动态注入；供应商 API 文档镜像（如 `docs/vidu-docs/`）保留原始数值，不受此约束。配置界面的此类字段不预填。
+生成模型供应商的能力数字（时长、参考图上限、分辨率约束）与默认 model，以 `lib/config/registry.py` 的 `PROVIDER_REGISTRY` 为单一真相源。自定义供应商（`custom-` 前缀）与智能体供应商预设（`lib/agent_provider_catalog.py::PRESET_PROVIDERS`）不在其内。新增或修改 prompt 模板与智能体运行配置（`agent_runtime_profile/`）时不硬编码具体数值，用占位符由编排层动态注入；供应商 API 文档镜像（如 `docs/vidu-docs/`）保留原始数值，不受此约束。配置界面的此类字段不预填。
 
 ### 内容模式 (content_mode) 与生成模式 (generation_mode)
 
