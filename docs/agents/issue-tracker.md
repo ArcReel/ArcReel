@@ -37,6 +37,12 @@ gh api repos/{owner}/{repo}/issues/<父编号>/sub_issues -F sub_issue_id=$sub_i
 
 `to-tickets` 拆分 Spec 时，每个 issue 创建后都要补这两步（标题尾缀在创建时直接写入标题）。
 
+## 派活（dispatch）
+
+- 派活时 assign 给自己：`gh issue edit <n> --add-assignee @me`；`ready-for-*` 标签保留不摘
+- 挑活查询加 `no:assignee` 防重复派活：`gh issue list --label ready-for-agent --state open --search "no:assignee"`
+- assignee 是看板 In progress 列的判定信号；PR 开出后该 issue 自动进 In review，合并关闭后进 Done（派生规则见 `triage-labels.md`）
+
 ## When a skill says "publish to the issue tracker"
 
 Create a GitHub issue.

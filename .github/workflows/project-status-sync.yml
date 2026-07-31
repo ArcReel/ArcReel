@@ -1,0 +1,33 @@
+name: project-status-sync
+
+# org Project 看板 Status 单向派生：labels/assignee/linked PR/closed → Status。
+# 事件驱动单 issue 投影 + 每日全量对账兜底；规则见 docs/agents/triage-labels.md。
+on:
+  issues:
+    types: [opened, reopened, closed, labeled, unlabeled, assigned, unassigned]
+  pull_request:
+    types: [opened, closed, reopened, ready_for_review, edited]
+  schedule:
+    - cron: "30 21 * * *" # 北京时间 05:30 全量对账
+  workflow_dispatch:
+
+concurrency:
+  group: project-status-sync-${{ github.event.issue.number || github.event.pull_request.number || 'all' }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # fork PR 拿不到 secrets；本仓库 PR 均为同仓分支
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v7
+      - name: Sync project status
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_STATUS_SYNC_TOKEN }}
+        run: |
+          case "${{ github.event_name }}" in
+            issues) python3 scripts/project_status_sync.py --issue "${{ github.event.issue.number }}" ;;
+            pull_request) python3 scripts/project_status_sync.py --pr "${{ github.event.pull_request.number }}" ;;
+            *) python3 scripts/project_status_sync.py --all ;;
+          esac
