@@ -74,7 +74,7 @@ pnpm build       # 生产构建，含 typecheck
 
 ### 供应商能力数据
 
-生成模型供应商的能力数字（时长、参考图上限、分辨率约束）与默认 model，以 `lib/config/registry.py` 的 `PROVIDER_REGISTRY` 为单一真相源。自定义供应商（`custom-` 前缀）与智能体供应商预设（`lib/agent_provider_catalog.py::PRESET_PROVIDERS`）不在其内，自定义供应商的能力校验交由供应商 API。prompt 模板与 agent 文档不硬编码具体数值，用占位符由编排层动态注入；配置界面的此类字段不预填。
+生成模型供应商的能力数字（时长、参考图上限、分辨率约束）与默认 model，以 `lib/config/registry.py` 的 `PROVIDER_REGISTRY` 为单一真相源。自定义供应商（`custom-` 前缀）与智能体供应商预设（`lib/agent_provider_catalog.py::PRESET_PROVIDERS`）不在其内。prompt 模板与智能体运行配置（`agent_runtime_profile/`）不硬编码具体数值，用占位符由编排层动态注入；供应商 API 文档镜像（如 `docs/vidu-docs/`）保留原始数值，不受此约束。配置界面的此类字段不预填。
 
 ### 内容模式 (content_mode) 与生成模式 (generation_mode)
 
@@ -140,7 +140,7 @@ API Key、后端选择、模型配置等通过 WebUI 配置页（`/settings`）�
 - **pytest**：`asyncio_mode = "auto"`，CI 覆盖率 ≥80%，共用 fixtures 在 `tests/conftest.py`
 - **依赖管理**：前后端新增/升级依赖一律用 `uv add` / `pnpm add`（不手写版本号到 pyproject.toml / package.json）；新增依赖后同步 `.github/dependabot.yml` 的 patterns 归入对应分组
 - **注释**：代码与测试注释只描述当下行为与约束，不写 issue/PR/Spec 编号，也不用时间性措辞（「最近」「本次」「实测」）——这些信息写在 commit message / PR 描述；修改文件时顺带清除已有的此类引用。`docs/` 下专门文档之间互引 spec 不受此限
-- **提交与 PR**：标题遵循 Conventional Commits（`type(scope): 摘要`，type 取值与 changelog 分类见 `CONTRIBUTING.md` / `.release-please-config.json`）。squash 合并下标题即 changelog 条目——写用户可感知的收益、范围词用产品术语，不写实现术语（status_code、内部类名等）且如实限定范围。前后端同仓一体发布，后端 API 无外部消费者：接口删改按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer
+- **提交与 PR**：标题遵循 Conventional Commits（`type(scope): 摘要`，type 取值与 changelog 分类见 `CONTRIBUTING.md` / `.release-please-config.json`）。squash 合并下标题即 changelog 条目——写用户可感知的收益、范围词用产品术语，不写实现术语（status_code、内部类名等）且如实限定范围。前后端同仓一体发布，后端 API 不做版本化对外承诺（外部集成经 `/skill.md` 运行时拉取契约，删改 `public/skill.md.template` 引用的端点时同步更新该模板）：接口删改按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer
 
 ## Agent skills
 
