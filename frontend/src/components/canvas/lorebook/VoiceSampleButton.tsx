@@ -60,7 +60,12 @@ export function VoiceSampleButton({
   const audioConfigured = useConfigStatusStore((s) => s.availableMediaTypes.includes("audio"));
 
   const task = useTasksStore((s) => (taskId ? s.tasks.find((item) => item.task_id === taskId) : undefined));
-  const generating = localSubmitting || (task != null && (task.status === "queued" || task.status === "running"));
+  // taskId 落定（enqueue 请求已成功）到该任务行出现在 tasks-store 快照之间有轮询间隔的
+  // 空窗——这段时间 localSubmitting 已经复位，但 task 在 store 里还查不到（非 undefined
+  // 判空会误判为「未在生成」）。taskId 非空且尚未拿到该行时按仍在生成处理，避免这段空窗
+  // 被误判为空闲从而允许关闭弹窗，导致丢失一个仍在合成、且已经计费的任务的追踪入口。
+  const generating =
+    localSubmitting || (taskId != null && (task == null || task.status === "queued" || task.status === "running"));
   const failed = task?.status === "failed";
   const succeeded = task?.status === "succeeded";
   const previewFilePath =

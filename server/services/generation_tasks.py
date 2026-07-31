@@ -759,6 +759,23 @@ async def execute_tts_task(
     }
 
 
+# character_name 经 validate_asset_name 校验合法字符，但不限长度；task_id 固定是 uuid4().hex
+# （32 字节 ASCII）。若不裁剪，超长角色名 + 前缀/分隔符/task_id 拼出的 resource_id，
+# 再叠加 VersionManager.add_version 的 "_v{n}_{timestamp}{ext}" 版本文件名后缀，
+# 可能在 255 字节 NAME_MAX 的文件系统上让落盘/建版本失败。留出足够余量后裁剪角色名部分——
+# resource_id 本身不需要人工从文件名反解角色名（仅内部拼接，无解析方），裁剪不影响正确性，
+# 唯一性完全靠 task_id 保证。
+_SAMPLE_ID_NAME_MAX_BYTES = 80
+
+
+def _truncate_name_bytes(name: str, max_bytes: int) -> str:
+    """按 UTF-8 字节数裁剪，裁剪点落在多字节字符中间时丢弃残缺字符而非产生非法编码。"""
+    encoded = name.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return name
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
+
+
 def voice_sample_resource_id(character_name: str, task_id: str) -> str:
     """角色 TTS 试听样本在 ``audio/`` 下的资源 id（区别于旁白 segment id 命名空间）。
 
@@ -771,7 +788,8 @@ def voice_sample_resource_id(character_name: str, task_id: str) -> str:
     写入的）字节；若前一个任务的 task_id 仍被别处持有（如另一浏览器标签页）并调用 confirm，
     会把错误内容误落为角色参考音频。每次生成用任务专属文件名，杜绝跨任务覆盖。
     """
-    return f"voice_sample__{character_name}__{task_id}"
+    safe_name = _truncate_name_bytes(character_name, _SAMPLE_ID_NAME_MAX_BYTES)
+    return f"voice_sample__{safe_name}__{task_id}"
 
 
 async def execute_character_voice_sample_task(

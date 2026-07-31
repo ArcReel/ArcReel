@@ -181,3 +181,18 @@ class TestExecuteCharacterVoiceSampleTask:
 
     def test_voice_sample_resource_id_deterministic(self):
         assert generation_tasks.voice_sample_resource_id("艾莉", "task-1") == "voice_sample__艾莉__task-1"
+
+    def test_voice_sample_resource_id_truncates_long_character_names(self):
+        long_name = "A" * 200
+        resource_id = generation_tasks.voice_sample_resource_id(long_name, "task-1")
+        # 裁剪后的角色名部分不超过 _SAMPLE_ID_NAME_MAX_BYTES，任务专属后缀完整保留，
+        # 整体长度留足余量给 VersionManager 的版本文件名后缀，避免 NAME_MAX 溢出。
+        assert resource_id.endswith("__task-1")
+        assert len(resource_id.encode("utf-8")) < 128
+
+    def test_voice_sample_resource_id_truncates_multibyte_names_without_corrupting_encoding(self):
+        long_name = "艾" * 100
+        resource_id = generation_tasks.voice_sample_resource_id(long_name, "task-1")
+        # 按字节裁剪落在多字节字符中间时须整字符丢弃，不产生非法 UTF-8 / 半个字符。
+        resource_id.encode("utf-8").decode("utf-8")
+        assert resource_id.endswith("__task-1")

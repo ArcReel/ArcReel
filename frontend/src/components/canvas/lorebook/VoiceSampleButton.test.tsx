@@ -172,4 +172,57 @@ describe("VoiceSampleButton", () => {
       expect(screen.queryByRole("button", { name: "暂停" })).not.toBeInTheDocument();
     });
   });
+
+  it("keeps cancel disabled after the enqueue request resolves but before the task row lands in the store", async () => {
+    setAudioConfigured(true);
+    vi.spyOn(API, "getAudioBackendVoices").mockResolvedValue({
+      configured: true,
+      provider_id: "dashscope",
+      model: "qwen3-tts-flash",
+      voices: [{ id: "Cherry", label: "芊悦 · 阳光正向的自然年轻女声" }],
+    });
+    // 手动控制 resolve 时机：模拟 enqueue 请求已成功返回、但下一次轮询把真实任务行
+    // 写进 tasks-store 之前的那段空窗。
+    let resolveEnqueue: (value: { taskIds: string[]; deduped: boolean }) => void;
+    const enqueuePromise = new Promise<{ taskIds: string[]; deduped: boolean }>((resolve) => {
+      resolveEnqueue = resolve;
+    });
+    vi.spyOn(generationActions, "enqueueCharacterVoiceSample").mockReturnValue(enqueuePromise);
+
+    render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+    });
+
+    // enqueue 请求 resolve：taskId 落定为 task-1，但 tasks-store 里还没有这一行——
+    // 空窗期间「取消」仍须保持禁用，否则用户可以关闭弹窗、丢失一个仍在合成且已计费
+    // 任务的追踪入口。
+    resolveEnqueue!({ taskIds: ["task-1"], deduped: false });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "task-1",
+          project_name: "demo",
+          task_type: "voice_sample",
+          resource_id: "艾莉",
+          status: "succeeded",
+          result: { file_path: "audio/voice_sample__艾莉__task-1.wav" },
+          updated_at: "2026-07-31T00:00:00Z",
+        } as never,
+      ],
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "取消" })).not.toBeDisabled();
+    });
+  });
 });

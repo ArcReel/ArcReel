@@ -10,6 +10,7 @@
 """
 
 import asyncio
+import logging
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -22,7 +23,7 @@ from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec
 from lib.i18n import Translator
 from lib.path_safety import safe_exists, safe_join
-from lib.project_change_hints import project_change_source
+from lib.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project_manager import get_project_manager
 from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import (
@@ -33,6 +34,8 @@ from lib.storyboard_sequence import (
 from server.auth import CurrentUser
 from server.services.generation_context import AudioLaneRequest, resolve_generation_context
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -534,15 +537,43 @@ async def confirm_character_voice_sample(
 
         target_path.write_bytes(content)
 
+        ref_audio_rel = f"characters/refs_audio/{filename}"
         try:
             with project_change_source("webui"):
-                pm_local.update_character_reference_audio(project_name, char_name, f"characters/refs_audio/{filename}")
+                pm_local.update_character_reference_audio(project_name, char_name, ref_audio_rel)
         except KeyError:
             raise NotFoundError("character_not_found", name=char_name)
 
         discard_stale_reference_audio(stale_audio_path)
 
-        return {"path": f"characters/refs_audio/{filename}"}
+        # 目标文件名固定为 {char_name}.wav：重新生成后再次确认时 reference_audio 字段值
+        # 不变（同一路径字符串），project.json 的字段级 diff 因此检测不到变化、不会自动
+        # 广播刷新事件——但落盘字节确实已替换。显式带上新 mtime 指纹的 character:updated
+        # 事件，让其它已打开该项目的客户端也能对该音频文件 cache-bust，不必等到无关的
+        # 下一次项目刷新才碰巧同步。
+        try:
+            emit_project_change_batch(
+                project_name,
+                [
+                    {
+                        "entity_type": "character",
+                        "action": "updated",
+                        "entity_id": char_name,
+                        "label": f"角色「{char_name}」参考音频",
+                        "focus": None,
+                        "important": False,
+                        "asset_fingerprints": {ref_audio_rel: target_path.stat().st_mtime_ns},
+                    }
+                ],
+            )
+        except Exception:
+            logger.exception(
+                "发送试听样本确认项目事件失败 project=%s character=%s",
+                project_name,
+                char_name,
+            )
+
+        return {"path": ref_audio_rel}
 
     saved = await asyncio.to_thread(_sync)
     return {
