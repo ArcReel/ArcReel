@@ -163,7 +163,7 @@ vi.mock("./lorebook/CharacterCard", () => ({
     name: string;
     onSave: (
       name: string,
-      payload: { description: string; voiceStyle: string; referenceFile?: File | null },
+      payload: { description: string; voiceStyle: string; referenceFile?: File | null; audioFile?: File | null },
     ) => Promise<void>;
     onGenerate: (name: string) => void;
   }) => (
@@ -178,6 +178,17 @@ vi.mock("./lorebook/CharacterCard", () => ({
         }
       >
         update-character
+      </button>
+      <button
+        onClick={() =>
+          void onSave(name, {
+            description: "new desc",
+            voiceStyle: "new voice",
+            audioFile: new File(["audio"], "hero.wav", { type: "audio/wav" }),
+          })
+        }
+      >
+        update-character-with-audio
       </button>
       <button onClick={() => onGenerate(name)}>generate-character</button>
     </div>
@@ -793,6 +804,32 @@ describe("StudioCanvasRouter", () => {
     // Test add character flow: click "add" button is not directly accessible in CharacterCard mock;
     // instead, we test the AddCharacterForm path by navigating with the form already showing.
     // The add-character button is on CharactersPage which is not directly exposed; we test the form submit instead.
+  });
+
+  it("refreshes the project even when the audio upload step fails partway through save", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: makeProjectData(),
+      currentScripts: { "episode_1.json": makeScript() },
+    });
+
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: makeProjectData(),
+      scripts: { "episode_1.json": makeScript() },
+    });
+    vi.spyOn(API, "updateCharacter").mockResolvedValue({ success: true });
+    vi.spyOn(API, "uploadFile").mockRejectedValue(new Error("audio_duration_out_of_range"));
+
+    renderAt("/characters");
+
+    fireEvent.click(screen.getByText("update-character-with-audio"));
+    await waitFor(() => {
+      // description/voice_style 已持久化成功，仅音频上传失败：即便整体 catch 到错误，
+      // 也要刷新 store 让已保存的部分反映到 UI，而不是让用户误以为整个保存都没生效
+      expect(API.getProject).toHaveBeenCalled();
+      expect(useAppStore.getState().toast?.text).toContain("更新角色失败");
+      expect(useAppStore.getState().toast?.tone).toBe("error");
+    });
   });
 
   it("runs scene callbacks and reports API failures with toast", async () => {
