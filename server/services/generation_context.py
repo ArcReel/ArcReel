@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from lib.audio_backends.base import VoiceOption
 from lib.backend_assembly import assemble_backend
-from lib.config.resolver import ConfigResolver, get_provider_fallback
+from lib.config.resolver import ConfigResolver, VoiceConsistency, get_provider_fallback
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import get_shared_rate_limiter
 from lib.media_generator import MediaGenerator
@@ -198,6 +198,9 @@ class VideoLaneResult:
     supported_durations: tuple[int, ...]
     max_duration: int | None
     max_reference_images: int | None
+    # 能力查询失败时降级为 "soft"（有信号才判定为真无声，与既有「无信号不落 none」口径一致，
+    # 见 lib.config.resolver.derive_voice_consistency）。
+    voice_consistency: VoiceConsistency = "soft"
 
 
 @dataclass(frozen=True)
@@ -311,11 +314,13 @@ async def resolve_generation_context(
             supported_durations: tuple[int, ...] = ()
             max_duration: int | None = None
             max_reference_images: int | None = None
+            voice_consistency: VoiceConsistency = "soft"
             try:
                 caps = await r.video_capabilities_for_model(resolved.provider_id, actual_model, project)
                 supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
                 max_duration = caps.get("max_duration")
                 max_reference_images = caps.get("max_reference_images")
+                voice_consistency = caps.get("voice_consistency") or "soft"
             except Exception as exc:
                 logger.info(
                     "无法解析 video capabilities（%s/%s），能力值降级为空：%s",
@@ -332,6 +337,7 @@ async def resolve_generation_context(
                 supported_durations=supported_durations,
                 max_duration=max_duration,
                 max_reference_images=max_reference_images,
+                voice_consistency=voice_consistency,
             )
 
         if audio is not None:

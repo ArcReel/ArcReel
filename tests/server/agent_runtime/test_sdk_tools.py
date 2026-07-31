@@ -1666,7 +1666,7 @@ def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
             {"kind": "dialogue", "speaker": "王", "text": "你来了。"},
         ],
     }
-    parsed = yaml.safe_load(_get_video_prompt(drama_item))
+    parsed = yaml.safe_load(_get_video_prompt(drama_item, content_mode="drama"))
     assert parsed["Dialogue"] == [{"Speaker": "王", "Line": "你来了。"}]
 
     narration_item = {
@@ -1678,8 +1678,105 @@ def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
             "dialogue": [{"speaker": "Alice", "line": "hello"}],
         },
     }
-    parsed_narr = yaml.safe_load(_get_video_prompt(narration_item))
+    parsed_narr = yaml.safe_load(_get_video_prompt(narration_item, content_mode="narration"))
     assert parsed_narr["Dialogue"] == [{"Speaker": "Alice", "Line": "hello"}]
+
+
+def test_get_video_prompt_injects_voice_profiles_when_characters_given() -> None:
+    """drama：传入带非空 voice_style 的角色资产时 YAML 顶部出现 Voice_Profiles；
+    voice_characters 缺省（既有调用点行为）不注入。"""
+    import yaml
+
+    from server.agent_runtime.sdk_tools.enqueue_videos import _get_video_prompt
+
+    drama_item = {
+        "scene_id": "E1S01",
+        "video_prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+        "utterances": [{"kind": "dialogue", "speaker": "王", "text": "你来了。"}],
+    }
+    characters = {"王": {"voice_style": "低沉沙哑"}}
+
+    parsed = yaml.safe_load(_get_video_prompt(drama_item, content_mode="drama", voice_characters=characters))
+    assert parsed["Voice_Profiles"] == [{"Speaker": "王", "Voice_Style": "低沉沙哑"}]
+
+    parsed_default = yaml.safe_load(_get_video_prompt(drama_item, content_mode="drama"))
+    assert "Voice_Profiles" not in parsed_default
+
+    parsed_no_style = yaml.safe_load(
+        _get_video_prompt(drama_item, content_mode="drama", voice_characters={"王": {"voice_style": ""}})
+    )
+    assert "Voice_Profiles" not in parsed_no_style
+
+
+def test_get_video_prompt_injects_voice_profiles_from_legacy_dialogue() -> None:
+    """utterances 迁移前的存量 drama 剧本（无 utterances 字段，台词仍在
+    video_prompt.dialogue）：改走 legacy 出口派生 Voice_Profiles，不因缺 utterances 静默丢失。"""
+    import yaml
+
+    from server.agent_runtime.sdk_tools.enqueue_videos import _get_video_prompt
+
+    legacy_drama_item = {
+        "scene_id": "E1S01",
+        "video_prompt": {
+            "action": "起身",
+            "camera_motion": "Static",
+            "ambiance_audio": "风声",
+            "dialogue": [{"speaker": "王", "line": "你来了。"}],
+        },
+    }
+    characters = {"王": {"voice_style": "低沉沙哑"}}
+
+    parsed = yaml.safe_load(_get_video_prompt(legacy_drama_item, content_mode="drama", voice_characters=characters))
+    assert parsed["Voice_Profiles"] == [{"Speaker": "王", "Voice_Style": "低沉沙哑"}]
+    assert parsed["Dialogue"] == [{"Speaker": "王", "Line": "你来了。"}]
+
+
+def test_get_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() -> None:
+    """narration/ad（item 无 utterances 字段）剧本 video_prompt 自带 voice_profiles 时一律剥离：
+    该声明段唯一来源是 build_drama_video_prompt 的机械派生，剧本残留值不得越权、绕过 C 类
+    （真无声）门控直达 YAML。"""
+    import yaml
+
+    from server.agent_runtime.sdk_tools.enqueue_videos import _get_video_prompt
+
+    narration_item = {
+        "segment_id": "E1S01",
+        "video_prompt": {
+            "action": "走",
+            "camera_motion": "Static",
+            "ambiance_audio": "脚步声",
+            "voice_profiles": [{"Speaker": "赝品", "Voice_Style": "越权"}],
+        },
+    }
+    parsed = yaml.safe_load(_get_video_prompt(narration_item, content_mode="narration"))
+    assert "Voice_Profiles" not in parsed
+
+
+async def test_resolve_voice_characters_skips_non_drama(fake_ctx: ToolContext) -> None:
+    """narration/ad：不解析 voice_consistency，直接跳过（无 drama dialogue speaker 概念）。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import _resolve_voice_characters
+
+    assert await _resolve_voice_characters(fake_ctx, "narration") is None
+
+
+async def test_resolve_voice_characters_drama_reads_project_characters_and_gate(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """drama：读项目角色资产，voice_consistency 为 none（C 类真无声）时退回不注入。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    async def fake_voice_consistency(_project):
+        return "soft"
+
+    monkeypatch.setattr(mod, "resolve_project_voice_consistency", fake_voice_consistency)
+    characters = await mod._resolve_voice_characters(fake_ctx, "drama")
+    assert characters == fake_ctx.pm.project_payload["characters"]  # type: ignore[attr-defined]
+
+    async def fake_voice_consistency_none(_project):
+        return "none"
+
+    monkeypatch.setattr(mod, "resolve_project_voice_consistency", fake_voice_consistency_none)
+    assert await mod._resolve_voice_characters(fake_ctx, "drama") is None
 
 
 def test_build_reference_specs_routes_through_guard(tmp_path) -> None:

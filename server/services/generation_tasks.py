@@ -31,14 +31,16 @@ from lib.prompt_builders import (
     build_scene_prompt,
 )
 from lib.prompt_utils import (
+    build_drama_video_prompt,
+    build_drama_video_prompt_from_legacy_dialogue,
     image_prompt_to_yaml,
     is_structured_image_prompt,
     is_structured_video_prompt,
-    utterances_to_dialogue,
+    strip_voice_profiles,
     video_prompt_to_yaml,
 )
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
-from lib.script_models import get_generated_assets
+from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
@@ -148,6 +150,7 @@ def _normalize_video_prompt(prompt: str | dict) -> str:
         "camera_motion": str(prompt.get("camera_motion", "") or "") or "Static",
         "ambiance_audio": str(prompt.get("ambiance_audio", "") or ""),
         "dialogue": normalized_dialogue,
+        "voice_profiles": prompt.get("voice_profiles") or [],
     }
     return append_video_negative_tail(video_prompt_to_yaml(normalized_prompt))
 
@@ -893,9 +896,9 @@ async def execute_video_task(
         _items, _id_field, _, _, _ = get_storyboard_items(_script)
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
         _item = _resolved[0] if _resolved else {}
-        return _project, _project_path, _item
+        return _project, _project_path, _item, resolve_content_mode(_script, _project)
 
-    project, project_path, item = await asyncio.to_thread(_load)
+    project, project_path, item, content_mode = await asyncio.to_thread(_load)
     ctx = await resolve_generation_context(
         project_name,
         payload,
@@ -916,11 +919,25 @@ async def execute_video_task(
     if not storyboard_file.is_file():
         raise ValueError(f"storyboard not found: {storyboard_file.name}")
 
+    # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 的机械派生：调用方（WebUI
+    # 请求体 / 剧本 JSON 残留）自带的 voice_profiles 一律先剥离，不因 utterances 门控不触发
+    # （narration/ad、或 drama 无 utterances 的条目）而绕过 C 类（真无声）门控直达 YAML。
+    if isinstance(prompt, dict):
+        prompt = strip_voice_profiles(prompt)
+
     # drama 口型台词单一真相源在场景级有序 utterances：从 dialogue-kind 条目取台词注入 video YAML
     # 的 dialogue 出口（覆盖 payload 里 drama 已不再携带的 video_prompt.dialogue）。narration / ad
     # 的 item 无 utterances 字段，payload.dialogue 原样透传；SDK 路径 prompt 已是渲染好的字符串、跳过。
-    if isinstance(item, dict) and "utterances" in item and isinstance(prompt, dict):
-        prompt = {**prompt, "dialogue": utterances_to_dialogue(item.get("utterances"))}
+    if isinstance(item, dict) and isinstance(prompt, dict) and content_mode == "drama":
+        # C 类（真无声）模型传 characters=None 即不注入 Voice_Profiles；有音轨模型（含恒有声、
+        # 开关不可控的 gemini-aistudio/grok）机械派生角色声音风格，口径与 voice_consistency 同源。
+        voice_characters = (project.get("characters") or {}) if ctx.video.voice_consistency != "none" else None
+        if "utterances" in item:
+            prompt = build_drama_video_prompt(prompt, item.get("utterances"), characters=voice_characters)
+        else:
+            # utterances 迁移前的存量剧本：load_script 按原始 JSON 读盘不过 pydantic，不会
+            # 被 DramaScene._migrate_legacy 自动补齐，台词仍留在 video_prompt.dialogue。
+            prompt = build_drama_video_prompt_from_legacy_dialogue(prompt, characters=voice_characters)
 
     prompt_text = _normalize_video_prompt(prompt)
     aspect_ratio = get_aspect_ratio(project, "videos")

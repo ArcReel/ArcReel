@@ -295,7 +295,7 @@ async def test_resolve_project_duration_context_resolves_caps_and_resolution_onc
         resolution_calls += 1
         return "720p"
 
-    monkeypatch.setattr(rvt, "_project_video_caps", fake_caps)
+    monkeypatch.setattr(rvt, "project_video_caps", fake_caps)
     monkeypatch.setattr(rvt, "_project_video_resolution", fake_resolution)
 
     ctx = await rvt.resolve_project_duration_context({})
@@ -325,7 +325,7 @@ async def test_resolve_project_duration_context_skips_resolution_when_no_duratio
         resolution_calls += 1
         return "720p"
 
-    monkeypatch.setattr(rvt, "_project_video_caps", fake_caps)
+    monkeypatch.setattr(rvt, "project_video_caps", fake_caps)
     monkeypatch.setattr(rvt, "_project_video_resolution", fake_resolution)
 
     ctx = await rvt.resolve_project_duration_context({})

@@ -39,6 +39,7 @@ from server.services.generation_tasks import (
     collect_product_references_for_names,
     get_project_manager,
 )
+from server.services.video_caps import project_video_caps
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +233,7 @@ async def resolve_project_duration_context(project: dict) -> ProjectDurationCont
     空档位下分辨率约束无意义。``max_duration`` 与 :func:`resolve_max_unit_duration`
     取自同一份能力解析结果，供需要现推分组的调用方复用而不再触发一次 IO。
     """
-    caps = await _project_video_caps(project, degraded_to="时长取档不施加档位约束")
+    caps = await project_video_caps(project, degraded_to="时长取档不施加档位约束")
     durations = tuple(int(d) for d in caps.get("supported_durations") or [])
     provider_id = str(caps.get("provider_id") or "")
     model = caps.get("model")
@@ -273,19 +274,6 @@ def precheck_unit(ctx: ProjectDurationContext, unit: dict, ad_shots: list[dict] 
     return resolve_duration_slot(unit_script_duration(unit, ad_shots), durations)
 
 
-async def _project_video_caps(project: dict, *, degraded_to: str) -> dict:
-    """项目视频后端的 model 粒度能力；解析失败返回空 dict，由调用方各自降级。
-
-    ``degraded_to`` 只用于日志，说明这次解析失败会让调用方退化成什么行为。
-    """
-    try:
-        resolver = ConfigResolver(async_session_factory)
-        return await resolver.video_capabilities_for_project(project)
-    except (ValueError, SQLAlchemyError) as exc:
-        logger.info("无法解析 video_capabilities，%s：%s", degraded_to, exc)
-        return {}
-
-
 async def _project_video_resolution(project: dict, provider_id: str, model_id: str | None) -> str | None:
     """项目视频后端实际下发的分辨率；解析失败返回 None（该条约束随之不收窄）。
 
@@ -311,7 +299,7 @@ async def resolve_max_unit_duration(project: dict) -> int | None:
     model 粒度 ``max_duration``）；解析失败返回 None——分组退化为仅按镜头数
     切分，超长 unit 交由执行层取档 + warning 兜底，不阻塞派生。
     """
-    caps = await _project_video_caps(project, degraded_to="派生分组不施加时长上限")
+    caps = await project_video_caps(project, degraded_to="派生分组不施加时长上限")
     max_duration = caps.get("max_duration")
     return int(max_duration) if max_duration else None
 

@@ -92,6 +92,7 @@ def _fake_resolve_ctx(
     video_provider=("ark", "seedance"),
     video_resolution="720p",
     supported_durations=(4, 6, 8),
+    voice_consistency="soft",
     seen_lane_requests=None,
 ):
     """lane 感知的假 resolve_generation_context：按调用方声明的 lane 拼装 frozen dataclass 产物。
@@ -124,6 +125,7 @@ def _fake_resolve_ctx(
                 supported_durations=tuple(supported_durations),
                 max_duration=None,
                 max_reference_images=None,
+                voice_consistency=voice_consistency,
             )
         return GenerationContext(generator=generator, image_lane=image_lane, video_lane=video_lane)
 
@@ -1119,6 +1121,221 @@ class TestGenerationTasks:
         assert "你来了。" in prompt_yaml
         assert "王" in prompt_yaml
         assert "那是命运的开端。" not in prompt_yaml
+
+    def _drama_script(self):
+        return {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 8,
+                    "segment_break": False,
+                    "characters_in_scene": ["王"],
+                    "scenes": [],
+                    "props": [],
+                    "image_prompt": "首镜头",
+                    "video_prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                    "utterances": [
+                        {"kind": "dialogue", "speaker": "王", "text": "你来了。"},
+                    ],
+                }
+            ],
+        }
+
+    async def test_execute_video_task_injects_voice_profiles_for_audible_model(self, monkeypatch, tmp_path):
+        """有音轨模型（voice_consistency != none）：dialogue speaker 命中的角色资产
+        非空 voice_style 机械派生进 Voice_Profiles 顶部声明段。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
+        fake_generator = _FakeGenerator()
+        fake_pm.script = self._drama_script()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator, voice_consistency="soft")
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                "duration_seconds": 8,
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" in prompt_yaml
+        assert "低沉沙哑" in prompt_yaml
+        # 顶部集中声明段须先于 Action 出现
+        assert prompt_yaml.index("Voice_Profiles") < prompt_yaml.index("Action")
+
+    async def test_execute_video_task_skips_voice_profiles_for_silent_model(self, monkeypatch, tmp_path):
+        """C 类（真无声，voice_consistency == none）模型不注入 Voice_Profiles。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
+        fake_generator = _FakeGenerator()
+        fake_pm.script = self._drama_script()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator, voice_consistency="none")
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                "duration_seconds": 8,
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" not in prompt_yaml
+        assert "低沉沙哑" not in prompt_yaml
+
+    async def test_execute_video_task_strips_caller_supplied_voice_profiles_for_non_drama(self, monkeypatch, tmp_path):
+        """narration/ad（item 无 utterances 字段）请求体自带 voice_profiles 时一律剥离：
+        该声明段唯一来源是 build_drama_video_prompt 的机械派生，调用方不得越权注入、绕过
+        C 类（真无声）门控。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {
+                    "action": "起身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                    "voice_profiles": [{"Speaker": "赝品", "Voice_Style": "越权"}],
+                },
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" not in prompt_yaml
+        assert "越权" not in prompt_yaml
+
+    async def test_execute_video_task_injects_voice_profiles_from_legacy_dialogue(self, monkeypatch, tmp_path):
+        """utterances 迁移前的存量 drama 剧本（scene 无 utterances 字段，台词仍在
+        video_prompt.dialogue）：load_script 按原始 JSON 读盘不过 pydantic 迁移，改走 legacy
+        出口派生 Voice_Profiles，不因缺 utterances 静默丢失。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
+        fake_generator = _FakeGenerator()
+        fake_pm.script = {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 8,
+                    "segment_break": False,
+                    "characters_in_scene": ["王"],
+                    "scenes": [],
+                    "props": [],
+                    "image_prompt": "首镜头",
+                    "video_prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                }
+            ],
+        }
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator, voice_consistency="soft")
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {
+                    "action": "起身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                    "dialogue": [{"speaker": "王", "line": "你来了。"}],
+                },
+                "duration_seconds": 8,
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" in prompt_yaml
+        assert "低沉沙哑" in prompt_yaml
+        assert "你来了。" in prompt_yaml
+
+    async def test_execute_video_task_content_mode_falls_back_to_project_when_episode_omits_it(
+        self, monkeypatch, tmp_path
+    ):
+        """存量 episode 剧本省略顶层 content_mode 时回退到 project.json 的 content_mode
+        （与 lib.data_validator 已校验通过的既定口径一致），不因回退缺失而被误判为
+        narration、静默跳过 dialogue 重建与 Voice_Profiles 注入。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["content_mode"] = "drama"
+        fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
+        fake_generator = _FakeGenerator()
+        fake_pm.script = {
+            # 顶层无 content_mode：存量 episode 省略该字段，真相源退到 project.json。
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 8,
+                    "segment_break": False,
+                    "characters_in_scene": ["王"],
+                    "scenes": [],
+                    "props": [],
+                    "image_prompt": "首镜头",
+                    "video_prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                    "utterances": [
+                        {"kind": "dialogue", "speaker": "王", "text": "你来了。"},
+                    ],
+                }
+            ],
+        }
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator, voice_consistency="soft")
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                "duration_seconds": 8,
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" in prompt_yaml
+        assert "低沉沙哑" in prompt_yaml
+        assert "你来了。" in prompt_yaml
 
     async def test_execute_video_task_default_duration_from_caps(self, monkeypatch, tmp_path):
         """无显式 duration 时，默认值由 caps 收口（取 supported_durations[0]），且必然合法。"""
