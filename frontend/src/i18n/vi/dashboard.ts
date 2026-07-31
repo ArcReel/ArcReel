@@ -437,6 +437,7 @@ export default {
   'task_type_video': 'Video',
   'task_type_reference_video': 'Video tham chiếu',
   'task_type_tts': 'Giọng thuyết minh',
+  'task_type_voice_sample': 'Mẫu giọng thử',
   'task_type_grid': 'Lưới',
   'task_type_character': 'Nhân vật',
   'task_type_scene': 'Cảnh',

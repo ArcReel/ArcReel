@@ -445,6 +445,7 @@ export default {
   'task_type_video': 'Video',
   'task_type_reference_video': 'Reference Video',
   'task_type_tts': 'Voiceover',
+  'task_type_voice_sample': 'Voice Sample',
   'task_type_grid': 'Grid',
   'task_type_character': 'Character',
   'task_type_scene': 'Scene',

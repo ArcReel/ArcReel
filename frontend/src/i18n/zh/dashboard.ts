@@ -444,6 +444,7 @@ export default {
   'task_type_video': '视频',
   'task_type_reference_video': '参考视频',
   'task_type_tts': '配音',
+  'task_type_voice_sample': '试听样本',
   'task_type_grid': '宫格图',
   'task_type_character': '角色',
   'task_type_scene': '场景',

@@ -39,6 +39,7 @@ FIXED_TASK_TYPES = frozenset(
         "video",
         "reference_video",
         "tts",
+        "voice_sample",
         "grid",
     }
 )

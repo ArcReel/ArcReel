@@ -42,6 +42,7 @@ const CHANGE_PRIORITY: Record<string, number> = {
   grid_ready: 9,
   reference_video_ready: 10,
   tts_ready: 11,
+  voice_sample_ready: 12,
 };
 
 /** 任务终态变更（刷新信号，非项目实体变更）。 */

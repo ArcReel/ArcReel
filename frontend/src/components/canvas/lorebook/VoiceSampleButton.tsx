@@ -95,6 +95,10 @@ export function VoiceSampleButton({
     setText(t("voice_sample_text_default"));
     setSelectedVoice("");
     setTaskId(null);
+    // 复位播放态：上一次打开期间播放过的样本，其 <audio> 元素随 taskId 清空已卸载，
+    // 但 isPreviewPlaying 独立于 taskId,不会跟着卸载自动复位——不重置的话，本次新样本
+    // 挂载的全新（未播放）<audio> 元素会因这个陈旧的 true 值渲染成「暂停」图标。
+    setIsPreviewPlaying(false);
     // 弹窗打开这一事件处理器内同步置位（非 effect 内），紧随其后的 effect 据此拉取音色列表。
     setVoicesLoading(true);
     setOpen(true);

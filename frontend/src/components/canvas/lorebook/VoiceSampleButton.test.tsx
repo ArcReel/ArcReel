@@ -118,4 +118,58 @@ describe("VoiceSampleButton", () => {
       expect(screen.queryByRole("button", { name: "暂停" })).not.toBeInTheDocument();
     });
   });
+
+  it("resets the stuck pause icon when closing the modal after playing and reopening it", async () => {
+    setAudioConfigured(true);
+    vi.spyOn(API, "getAudioBackendVoices").mockResolvedValue({
+      configured: true,
+      provider_id: "dashscope",
+      model: "qwen3-tts-flash",
+      voices: [{ id: "Cherry", label: "芊悦 · 阳光正向的自然年轻女声" }],
+    });
+    vi.spyOn(generationActions, "enqueueCharacterVoiceSample").mockResolvedValue({
+      taskIds: ["task-1"],
+      deduped: false,
+    });
+
+    render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("option", { name: "芊悦 · 阳光正向的自然年轻女声" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => {
+      expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalled();
+    });
+
+    useTasksStore.setState({
+      tasks: [
+        {
+          task_id: "task-1",
+          project_name: "demo",
+          task_type: "voice_sample",
+          resource_id: "艾莉",
+          status: "succeeded",
+          result: { file_path: "audio/voice_sample__艾莉__task-1.wav" },
+          updated_at: "2026-07-31T00:00:00Z",
+        } as never,
+      ],
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "播放" })).toBeInTheDocument();
+    });
+    fireEvent.play(document.querySelector("audio") as HTMLAudioElement);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "暂停" })).toBeInTheDocument();
+    });
+
+    // 关闭弹窗(不经「重新生成」)再重新打开:isPreviewPlaying 须同样复位,否则重开后
+    // 尚未播放的新会话会因这个陈旧的 true 值渲染成「暂停」。
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
+    fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "暂停" })).not.toBeInTheDocument();
+    });
+  });
 });
