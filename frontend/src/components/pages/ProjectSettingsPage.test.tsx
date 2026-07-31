@@ -319,7 +319,7 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
             duration_resolution_constraints: {},
             resolutions: ["720p", "1080p"],
             has_audio_track: false,
-            voice_consistency: "soft",
+            voice_consistency: "none",
           },
         },
       },

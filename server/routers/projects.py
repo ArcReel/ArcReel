@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 from lib.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.asset_fingerprints import compute_asset_fingerprints
+from lib.config.registry import default_model_for_provider
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.i18n import Translator
@@ -573,12 +574,15 @@ async def get_video_capabilities(
 
     `video_backend`（"provider/model"）用于设置表单里尚未保存的候选模型：不带该参数时按已
     落盘配置解析，带上则按候选模型 × 本项目的 generation_mode 解析，使 voice_consistency 等
-    二维派生值对应用户当前选中的模型而非上一次保存的模型。
+    二维派生值对应用户当前选中的模型而非上一次保存的模型。裸 provider（无 "/"）按其 registry
+    默认视频 model 补全，与 project.json 存量裸 provider 覆盖同口径（见 `_parse_project_provider`）。
     """
     resolver = ConfigResolver(async_session_factory)
     try:
         if video_backend:
-            provider_id, _, model_id = video_backend.partition("/")
+            provider_id, sep, model_id = video_backend.partition("/")
+            if not sep:
+                provider_id, model_id = video_backend, default_model_for_provider(video_backend, "video") or ""
             if not provider_id or not model_id:
                 raise BadRequestError("video_backend_malformed", value=video_backend)
             project = get_project_manager().load_project(name)

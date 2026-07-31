@@ -547,7 +547,7 @@ describe("StudioCanvasRouter", () => {
               duration_resolution_constraints: {},
               resolutions: [],
               has_audio_track: false,
-              voice_consistency: "soft",
+              voice_consistency: "none",
             },
           },
         },

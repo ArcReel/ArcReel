@@ -14,6 +14,7 @@ import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { catalogDurations } from "@/hooks/useModelCapabilities";
 import { errMsg } from "@/utils/async";
 import {
@@ -66,6 +67,12 @@ export function MediaModelSection() {
 
   const isDirty = Object.keys(draft).length > 0;
   useWarnUnsaved(isDirty);
+
+  const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
+  const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
+  useEffect(() => {
+    if (customProviders.length > 0) void fetchEndpointCatalog();
+  }, [customProviders.length, fetchEndpointCatalog]);
 
   const allProviderNames = useMemo(
     () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
@@ -145,10 +152,10 @@ export function MediaModelSection() {
     : null;
   const videoSpecDurations = currentVideo ? catalogDurations(providers, customProviders, currentVideo) : null;
   const videoSpecResolutions = currentVideo
-    ? lookupResolutions(providers, currentVideo, customProviders).options
+    ? lookupResolutions(providers, currentVideo, customProviders, endpointToMediaType).options
     : [];
 
-  const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders });
+  const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
   const currentAudioBackend = draft.default_audio_backend ?? settings.default_audio_backend ?? "";
   const currentNarrationVoice = draft.narration_voice ?? settings.narration_voice ?? "";
   const currentNarrationSpeed =
