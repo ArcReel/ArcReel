@@ -6,6 +6,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import pytest
 from openai import BadRequestError
 from pydantic import BaseModel
 
@@ -82,6 +83,24 @@ class TestOpenAITextBackend:
         assert len(call_kwargs["messages"]) == 1
         assert call_kwargs["messages"][0]["role"] == "user"
         assert call_kwargs["messages"][0]["content"] == "Say hello"
+
+    @pytest.mark.unit
+    async def test_generate_passes_reasoning_effort(self):
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response("Done"))
+
+        with patch("lib.openai_shared.AsyncOpenAI", return_value=mock_client):
+            from lib.text_backends.openai import OpenAITextBackend
+
+            backend = OpenAITextBackend(
+                api_key="test-key",
+                model="gpt-5.6-sol",
+                reasoning_effort="high",
+            )
+            await backend.generate(TextGenerationRequest(prompt="Plan this"))
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["reasoning_effort"] == "high"
 
     async def test_generate_with_system_prompt(self):
         mock_client = AsyncMock()

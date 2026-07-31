@@ -290,6 +290,9 @@ def _build_text_openai_compat(
         "api_key": config.credentials.get("api_key"),
         "base_url": derive_base_url(user_base_url) if derive_base_url else user_base_url,
     }
+    reasoning_effort = config.runtime_options.get("reasoning_effort")
+    if provider_name is None and isinstance(reasoning_effort, str) and reasoning_effort:
+        kwargs["reasoning_effort"] = reasoning_effort
     if provider_name:
         kwargs["provider_name"] = provider_name
     return _media_create_backend("text")(_TEXT_OPENAI_COMPAT_REGISTRY_BACKEND, **kwargs)

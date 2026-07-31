@@ -18,7 +18,12 @@ if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver
 
 
-async def _load_builtin_config(resolver: ConfigResolver, provider_id: str, rate_limiter: Any | None) -> LoadedConfig:
+async def _load_builtin_config(
+    resolver: ConfigResolver,
+    provider_id: str,
+    rate_limiter: Any | None,
+    runtime_options: dict[str, Any] | None = None,
+) -> LoadedConfig:
     """内置侧 async 装载段：查 DB/config 产出 LoadedConfig 信封。
 
     凭证 overlay 来自 db_config（resolver.provider_config）；registry meta 提供 default_base_url /
@@ -30,6 +35,7 @@ async def _load_builtin_config(resolver: ConfigResolver, provider_id: str, rate_
         credentials=dict(db_config),
         provider_meta=PROVIDER_REGISTRY.get(provider_id),
         rate_limiter=rate_limiter,
+        runtime_options=dict(runtime_options or {}),
     )
 
 
@@ -40,6 +46,7 @@ async def assemble_backend(
     model_id: str | None,
     resolver: ConfigResolver,
     rate_limiter: Any | None = None,
+    runtime_options: dict[str, Any] | None = None,
 ) -> Any:
     """统一构造入口。按 provider_id 是否自定义分流；未登记的内置 provider × media fail-loud。"""
     if is_custom_provider(provider_id):
@@ -52,5 +59,5 @@ async def assemble_backend(
                 session=session, provider_id=provider_id, model_id=model_id, media_type=media_type
             )
     spec = get_provider_spec(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
-    config = await _load_builtin_config(resolver, provider_id, rate_limiter)
+    config = await _load_builtin_config(resolver, provider_id, rate_limiter, runtime_options)
     return spec.build_backend(config, model_id)

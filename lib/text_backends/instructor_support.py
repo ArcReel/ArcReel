@@ -78,6 +78,7 @@ async def generate_structured_via_instructor_async(
     max_tokens: int | None = None,
     token_param: TokenParam = "max_tokens",
     provider: str = "",
+    reasoning_effort: str | None = None,
 ) -> tuple[str, int | None, int | None]:
     """通过 Instructor 生成结构化输出（异步版，供 OpenAI AsyncOpenAI 使用）。
 
@@ -93,6 +94,8 @@ async def generate_structured_via_instructor_async(
             "请传入 openai.OpenAI 或 openai.AsyncOpenAI 实例"
         )
     extra: dict = {token_param: max_tokens} if max_tokens is not None else {}
+    if reasoning_effort:
+        extra["reasoning_effort"] = reasoning_effort
     try:
         result, completion = await patched.chat.completions.create_with_completion(  # type: ignore[misc]
             model=model,
@@ -209,6 +212,7 @@ async def instructor_fallback_async(
     provider: str,
     max_tokens: int | None = None,
     token_param: TokenParam = "max_tokens",
+    reasoning_effort: str | None = None,
 ):
     """异步 Instructor 降级路径。
 
@@ -229,6 +233,7 @@ async def instructor_fallback_async(
             max_tokens=max_tokens,
             token_param=token_param,
             provider=provider,
+            reasoning_effort=reasoning_effort,
         )
         return TextGenerationResult(
             text=json_text,
@@ -247,6 +252,8 @@ async def instructor_fallback_async(
     }
     if max_tokens is not None:
         create_kwargs[token_param] = max_tokens
+    if reasoning_effort:
+        create_kwargs["reasoning_effort"] = reasoning_effort
     response = await client.chat.completions.create(**create_kwargs)
     usage = getattr(response, "usage", None)
     choice = response.choices[0]

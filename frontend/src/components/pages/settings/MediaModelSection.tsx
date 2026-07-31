@@ -1,11 +1,12 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw, RotateCcw } from "lucide-react";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { API } from "@/api";
 import type { SystemConfigSettings, SystemConfigOptions, SystemConfigPatch } from "@/types/system";
 import type { CustomProviderInfo } from "@/types/custom-provider";
+import type { AvailableProviderModel } from "@/types/provider";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { ImageModelDualSelect } from "@/components/shared/ImageModelDualSelect";
 import { TextTierFields } from "@/components/shared/TextTierFields";
@@ -62,6 +63,10 @@ export function MediaModelSection() {
   const [options, setOptions] = useState<SystemConfigOptions | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
+  const [openAIModels, setOpenAIModels] = useState<AvailableProviderModel[]>([]);
+  const [openAIModelsLoaded, setOpenAIModelsLoaded] = useState(false);
+  const [modelSyncing, setModelSyncing] = useState(false);
+  const [modelSyncFailed, setModelSyncFailed] = useState(false);
   const [draft, setDraft] = useState<SystemConfigPatch>({});
   const [saving, setSaving] = useState(false);
 
@@ -85,11 +90,42 @@ export function MediaModelSection() {
       getProviderModels().catch(() => [] as ProviderInfo[]),
       getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
     ]);
+    const openAIReady = catalog.some((provider) => provider.id === "openai" && provider.status === "ready");
+    let discoveredModels: AvailableProviderModel[] = [];
+    let discoveredModelsLoaded = false;
+    let discoveryFailed = false;
+    if (openAIReady) {
+      setModelSyncing(true);
+      try {
+        discoveredModels = (await API.getOpenAIModels()).models;
+        discoveredModelsLoaded = true;
+      } catch {
+        discoveryFailed = true;
+      } finally {
+        setModelSyncing(false);
+      }
+    }
     setSettings(res.settings);
     setOptions(res.options);
     setProviders(catalog);
     setCustomProviders(custom);
+    setOpenAIModels(discoveredModels);
+    setOpenAIModelsLoaded(discoveredModelsLoaded);
+    setModelSyncFailed(discoveryFailed);
     setDraft({});
+  }, []);
+
+  const refreshOpenAIModels = useCallback(async () => {
+    setModelSyncing(true);
+    setModelSyncFailed(false);
+    try {
+      setOpenAIModels((await API.getOpenAIModels()).models);
+      setOpenAIModelsLoaded(true);
+    } catch {
+      setModelSyncFailed(true);
+    } finally {
+      setModelSyncing(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -129,8 +165,35 @@ export function MediaModelSection() {
 
   const videoBackends: string[] = options.video_backends ?? [];
   const imageBackends: string[] = options.image_backends ?? [];
-  const textBackends: string[] = options.text_backends ?? [];
+  const selectedTextBackends = [
+    draft.default_text_backend ?? settings.default_text_backend ?? "",
+    draft.text_backend_simple ?? settings.text_backend_simple ?? "",
+    draft.text_backend_complex ?? settings.text_backend_complex ?? "",
+  ].filter((backend) => backend.startsWith("openai/"));
+  const configuredTextBackends = openAIModelsLoaded
+    ? (options.text_backends ?? []).filter((backend) => !backend.startsWith("openai/"))
+    : (options.text_backends ?? []);
+  const textBackends = Array.from(
+    new Set([
+      ...configuredTextBackends,
+      ...openAIModels.filter((model) => model.media_type === "text").map((model) => `openai/${model.id}`),
+      ...selectedTextBackends,
+    ]),
+  );
   const audioBackends: string[] = options.audio_backends ?? [];
+  const openAIReady = providers.some((provider) => provider.id === "openai" && provider.status === "ready");
+  const reasoningEffortsByModel: Record<string, string[]> = {};
+  const openAIProvider = providers.find((provider) => provider.id === "openai");
+  for (const [modelId, model] of Object.entries(openAIProvider?.models ?? {})) {
+    if (model.reasoning_efforts?.length) {
+      reasoningEffortsByModel[`openai/${modelId}`] = model.reasoning_efforts;
+    }
+  }
+  for (const model of openAIModels) {
+    if (model.reasoning_efforts.length) {
+      reasoningEffortsByModel[`openai/${model.id}`] = model.reasoning_efforts;
+    }
+  }
 
   const currentVideo = draft.default_video_backend ?? settings.default_video_backend ?? "";
   const currentImageT2I =
@@ -166,6 +229,19 @@ export function MediaModelSection() {
     default: draft.default_text_backend ?? settings.default_text_backend ?? "",
     simple: draft.text_backend_simple ?? settings.text_backend_simple ?? "",
     complex: draft.text_backend_complex ?? settings.text_backend_complex ?? "",
+  };
+  const textReasoningValue = {
+    default: draft.default_text_reasoning_effort ?? settings.default_text_reasoning_effort ?? "",
+    simple: draft.text_reasoning_effort_simple ?? settings.text_reasoning_effort_simple ?? "",
+    complex: draft.text_reasoning_effort_complex ?? settings.text_reasoning_effort_complex ?? "",
+  };
+
+  const promptDefaults = options.asset_prompt_defaults ?? { character: "", scene: "", prop: "" };
+  const assetPrompts = {
+    character:
+      (draft.asset_prompt_character ?? settings.asset_prompt_character) || promptDefaults.character,
+    scene: (draft.asset_prompt_scene ?? settings.asset_prompt_scene) || promptDefaults.scene,
+    prop: (draft.asset_prompt_prop ?? settings.asset_prompt_prop) || promptDefaults.prop,
   };
 
   const emptyHint = (msg: string) => (
@@ -272,24 +348,103 @@ export function MediaModelSection() {
       {/* Text */}
       <SectionCard kicker="Text Channel" title={t("text_models")} description={t("text_models_desc")}>
         {textBackends.length > 0 ? (
-          <TextTierFields
-            value={textTierValue}
-            onChange={(next) =>
-              setDraft((prev) => ({
-                ...prev,
-                default_text_backend: next.default,
-                text_backend_simple: next.simple,
-                text_backend_complex: next.complex,
-              }))
-            }
-            options={textBackends}
-            providerNames={allProviderNames}
-            defaultLabel={t("auto_select")}
-            hints={{ default: t("auto"), simple: t("auto"), complex: t("auto") }}
-          />
+          <>
+            {openAIReady && (
+              <div className="mb-3 rounded-[8px] border border-hairline-soft bg-bg-grad-a/35 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] text-text-3">
+                    {t("openai_model_sync_status", { count: openAIModels.length })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void refreshOpenAIModels()}
+                    disabled={modelSyncing}
+                    className="inline-flex items-center gap-1.5 rounded-[6px] border border-hairline px-2.5 py-1.5 text-[11px] text-text-2 transition-colors hover:bg-bg-grad-a disabled:cursor-wait disabled:opacity-60"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${modelSyncing ? "motion-safe:animate-spin" : ""}`} />
+                    {t("openai_model_sync_action")}
+                  </button>
+                </div>
+                {modelSyncFailed && (
+                  <p className="mt-1.5 text-[11px] text-warm-bright">{t("openai_model_sync_failed")}</p>
+                )}
+              </div>
+            )}
+            <TextTierFields
+              value={textTierValue}
+              onChange={(next) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  default_text_backend: next.default,
+                  text_backend_simple: next.simple,
+                  text_backend_complex: next.complex,
+                }))
+              }
+              reasoning={textReasoningValue}
+              onReasoningChange={(next) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  default_text_reasoning_effort: next.default,
+                  text_reasoning_effort_simple: next.simple,
+                  text_reasoning_effort_complex: next.complex,
+                }))
+              }
+              reasoningEffortsByModel={reasoningEffortsByModel}
+              options={textBackends}
+              providerNames={allProviderNames}
+              defaultLabel={t("auto_select")}
+              hints={{ default: t("auto"), simple: t("auto"), complex: t("auto") }}
+            />
+          </>
         ) : (
           emptyHint(t("no_text_providers_hint"))
         )}
+      </SectionCard>
+
+      {/* Asset prompt templates */}
+      <SectionCard
+        kicker="Prompt Templates"
+        title={t("asset_prompts_title")}
+        description={t("asset_prompts_desc")}
+      >
+        <div className="space-y-4">
+          {(
+            [
+              ["character", "asset_prompt_character_label", "asset_prompt_character"] as const,
+              ["scene", "asset_prompt_scene_label", "asset_prompt_scene"] as const,
+              ["prop", "asset_prompt_prop_label", "asset_prompt_prop"] as const,
+            ]
+          ).map(([kind, labelKey, settingKey]) => (
+            <div key={kind}>
+              <div className="mb-1.5 flex items-center justify-between gap-3">
+                <label
+                  htmlFor={`asset-prompt-${kind}`}
+                  className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-4"
+                >
+                  {t(labelKey)}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setDraft((prev) => ({ ...prev, [settingKey]: "" }))}
+                  className="inline-flex items-center gap-1 text-[10.5px] text-text-4 transition-colors hover:text-text-2"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  {t("asset_prompt_restore_default")}
+                </button>
+              </div>
+              <textarea
+                id={`asset-prompt-${kind}`}
+                rows={5}
+                value={assetPrompts[kind]}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, [settingKey]: event.target.value }))
+                }
+                className="w-full resize-y rounded-[8px] border border-hairline bg-bg-grad-a/55 px-3 py-2.5 text-[12.5px] leading-[1.6] text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              />
+              <p className="mt-1 text-[11px] text-text-4">{t("asset_prompt_merge_hint")}</p>
+            </div>
+          ))}
+        </div>
       </SectionCard>
 
       {/* Audio (narration TTS) */}

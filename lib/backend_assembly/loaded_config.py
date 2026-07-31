@@ -10,7 +10,7 @@ base_url 等，键名即列名，承 ADR 0037「registry key 名 = 列名 = 构�
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -26,3 +26,4 @@ class LoadedConfig:
     # 简单族 _build_simple 不消费 rate_limiter（与迁移前 _fill_simple_provider_kwargs 一致：限流由
     # 简单后端各自的 httpx 客户端内建）；信封预留此槽供后续迁入的特例族 build 闭包（如 gemini 媒体）读取。
     rate_limiter: Any | None
+    runtime_options: dict[str, Any] = field(default_factory=dict)

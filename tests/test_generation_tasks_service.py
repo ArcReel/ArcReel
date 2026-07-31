@@ -466,6 +466,39 @@ class TestGenerationTasks:
         await generation_tasks.execute_product_task("demo", "保温杯", {"prompt": "保温杯"})
         assert fake_generator.image_calls[0]["reference_images"] is None
 
+    @pytest.mark.parametrize(
+        ("execute", "resource_id", "user_prompt", "system_prompt"),
+        [
+            (generation_tasks.execute_character_task, "Alice", "角色描述", "自定义角色规则"),
+            (generation_tasks.execute_scene_task, "祠堂", "场景描述", "自定义场景规则"),
+            (generation_tasks.execute_prop_task, "玉佩", "道具描述", "自定义道具规则"),
+        ],
+    )
+    @pytest.mark.unit
+    async def test_asset_task_merges_global_prompt_after_user_prompt(
+        self,
+        execute,
+        resource_id,
+        user_prompt,
+        system_prompt,
+        tmp_path,
+        monkeypatch,
+    ):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "_load_asset_system_prompt", _async_return(system_prompt))
+
+        await execute("demo", resource_id, {"prompt": user_prompt})
+
+        merged = fake_generator.image_calls[0]["prompt"]
+        assert user_prompt in merged
+        assert system_prompt in merged
+        assert merged.index(user_prompt) < merged.index(system_prompt)
+
     def test_collect_product_reference_images_rejects_path_escape(self, tmp_path):
         """reference_images 中的绝对路径与 `..` 穿越值不得越出项目目录读取宿主机文件；目录路径同样跳过。"""
         project_path = _prepare_files(tmp_path)

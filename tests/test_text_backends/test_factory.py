@@ -8,6 +8,8 @@ provider/model，构造经统一缝下沉到 ProviderSpec 表。这些测试 moc
 import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from lib.text_backends.base import TextTaskType
 from lib.text_backends.factory import create_text_backend_for_task
 
@@ -15,6 +17,7 @@ from lib.text_backends.factory import create_text_backend_for_task
 def _make_mock_resolver(**async_methods):
     """创建带 session() 上下文管理器的 mock resolver。"""
     mock = MagicMock()
+    mock.text_reasoning_effort_for_task = AsyncMock(return_value=None)
     for name, return_value in async_methods.items():
         setattr(mock, name, AsyncMock(return_value=return_value))
 
@@ -178,6 +181,28 @@ async def test_creates_openai_backend_passes_user_base_url():
             model="gpt-5",
             api_key="oa-key",
             base_url="https://relay.example.com/v1",
+        )
+
+
+@pytest.mark.unit
+async def test_creates_gpt_56_backend_with_configured_reasoning_effort():
+    mock_resolver = _make_mock_resolver(
+        text_backend_for_task=("openai", "gpt-5.6-sol"),
+        text_reasoning_effort_for_task="high",
+        provider_config={"api_key": "oa-key", "base_url": ""},
+    )
+
+    with (
+        patch("lib.text_backends.factory.ConfigResolver", return_value=mock_resolver),
+        patch("lib.text_backends.registry.create_backend") as mock_create,
+    ):
+        await create_text_backend_for_task(TextTaskType.SCRIPT)
+        mock_create.assert_called_once_with(
+            "openai",
+            model="gpt-5.6-sol",
+            api_key="oa-key",
+            base_url="",
+            reasoning_effort="high",
         )
 
 

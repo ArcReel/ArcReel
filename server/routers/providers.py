@@ -31,6 +31,7 @@ from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.gemini_shared import VERTEX_SCOPES
 from lib.i18n import Translator
+from lib.openai_model_catalog import filter_openai_chat_text_models, openai_reasoning_efforts_for_model
 from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 from server.dependencies import get_config_service
 
@@ -74,6 +75,7 @@ class ModelInfoResponse(BaseModel):
     display_name: str
     media_type: str
     capabilities: list[str]
+    reasoning_efforts: list[str] = []
     default: bool
     supported_durations: list[int] = []
     duration_resolution_constraints: dict[str, list[int]] = {}
@@ -150,6 +152,17 @@ class ConnectionTestResponse(BaseModel):
     success: bool
     available_models: list[str]
     message: str
+
+
+class AvailableProviderModel(BaseModel):
+    id: str
+    media_type: str
+    reasoning_efforts: list[str] = []
+
+
+class ProviderModelsResponse(BaseModel):
+    provider_id: str
+    models: list[AvailableProviderModel]
 
 
 class CredentialResponse(BaseModel):
@@ -398,6 +411,49 @@ async def list_providers(
             )
         )
     return ProvidersListResponse(providers=providers)
+
+
+@router.get("/openai/models", response_model=ProviderModelsResponse)
+async def list_openai_models(
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> ProviderModelsResponse:
+    """Discover text models available to the active OpenAI credential."""
+
+    repo = CredentialRepository(session)
+    cred = await repo.get_active("openai")
+    if cred is None:
+        raise HTTPException(status_code=400, detail=_t("missing_credentials"))
+
+    svc = ConfigService(session)
+    config = await svc.get_provider_config("openai")
+    cred.overlay_config(config)
+
+    try:
+        model_ids = await asyncio.wait_for(
+            asyncio.to_thread(_list_openai_model_ids, config),
+            timeout=_CONNECTION_TEST_TIMEOUT,
+        )
+    except TimeoutError as exc:
+        raise HTTPException(status_code=504, detail=_t("connection_timeout")) from exc
+    except Exception as exc:
+        err_msg = str(exc)
+        if len(err_msg) > 200:
+            err_msg = err_msg[:200] + "..."
+        logger.warning("OpenAI model discovery failed: %s", err_msg)
+        raise HTTPException(status_code=502, detail=_t("connection_failed", err_msg=err_msg)) from exc
+
+    return ProviderModelsResponse(
+        provider_id="openai",
+        models=[
+            AvailableProviderModel(
+                id=model_id,
+                media_type="text",
+                reasoning_efforts=list(openai_reasoning_efforts_for_model(model_id)),
+            )
+            for model_id in filter_openai_chat_text_models(model_ids)
+        ],
+    )
 
 
 @router.get("/{provider_id}/config", response_model=ProviderConfigResponse)
@@ -787,8 +843,9 @@ def _test_grok(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTest
 _OPENAI_MODEL_KEYWORDS = ("gpt", "sora", "dall", "o1", "o3", "o4")
 
 
-def _test_openai(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
-    """通过 models.list() 验证 OpenAI API Key。"""
+def _list_openai_model_ids(config: dict[str, str]) -> list[str]:
+    """Return model IDs from the OpenAI-compatible Models API."""
+
     from openai import OpenAI
 
     kwargs: dict = {"api_key": config["api_key"]}
@@ -797,7 +854,15 @@ def _test_openai(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTe
         kwargs["base_url"] = base_url
     client = OpenAI(**kwargs)
     models = client.models.list()
-    available = sorted(m.id for m in models.data if any(k in m.id.lower() for k in _OPENAI_MODEL_KEYWORDS))
+    return [model.id for model in models.data if model.id]
+
+
+def _test_openai(config: dict[str, str], _t: Callable[..., str]) -> ConnectionTestResponse:
+    """通过 models.list() 验证 OpenAI API Key。"""
+    model_ids = _list_openai_model_ids(config)
+    available = sorted(
+        model_id for model_id in model_ids if any(keyword in model_id.lower() for keyword in _OPENAI_MODEL_KEYWORDS)
+    )
     return ConnectionTestResponse(
         success=True,
         available_models=available,

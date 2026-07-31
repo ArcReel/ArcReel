@@ -14,7 +14,7 @@ import tomllib
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 from fastapi import APIRouter, Depends, HTTPException
 from packaging.version import InvalidVersion, Version
@@ -28,6 +28,11 @@ from lib.config.service import ConfigService
 from lib.db import get_async_session
 from lib.httpx_shared import get_http_client
 from lib.i18n import Translator
+from lib.prompt_builders import (
+    DEFAULT_CHARACTER_ASSET_PROMPT,
+    DEFAULT_PROP_ASSET_PROMPT,
+    DEFAULT_SCENE_ASSET_PROMPT,
+)
 from server.auth import CurrentUser
 from server.dependencies import get_config_service
 from server.routers._validators import validate_backend_value
@@ -57,6 +62,7 @@ class _OptionsDict(TypedDict):
     text_backends: list[str]
     audio_backends: list[str]
     provider_names: dict[str, str]
+    asset_prompt_defaults: dict[str, str]
 
 
 @lru_cache(maxsize=1)
@@ -173,7 +179,15 @@ async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsD
     except Exception:
         pass  # Non-fatal: custom providers unavailable shouldn't break the options endpoint
 
-    return {**buckets, "provider_names": provider_names}  # type: ignore[return-value]
+    return {
+        **buckets,
+        "provider_names": provider_names,
+        "asset_prompt_defaults": {
+            "character": DEFAULT_CHARACTER_ASSET_PROMPT,
+            "scene": DEFAULT_SCENE_ASSET_PROMPT,
+            "prop": DEFAULT_PROP_ASSET_PROMPT,
+        },
+    }  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +218,12 @@ class SystemConfigPatchRequest(BaseModel):
     # 各档未设置回退 default_text_backend。
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
+    default_text_reasoning_effort: Literal["", "none", "low", "medium", "high", "xhigh", "max"] | None = None
+    text_reasoning_effort_simple: Literal["", "none", "low", "medium", "high", "xhigh", "max"] | None = None
+    text_reasoning_effort_complex: Literal["", "none", "low", "medium", "high", "xhigh", "max"] | None = None
+    asset_prompt_character: str | None = None
+    asset_prompt_scene: str | None = None
+    asset_prompt_prop: str | None = None
 
 
 # Setting keys that map directly to string DB settings
@@ -219,6 +239,9 @@ _STRING_SETTINGS = (
     "anthropic_default_opus_model",
     "anthropic_default_sonnet_model",
     "claude_code_subagent_model",
+    "asset_prompt_character",
+    "asset_prompt_scene",
+    "asset_prompt_prop",
 )
 
 
@@ -278,6 +301,12 @@ async def get_system_config(
         "agent_max_concurrent_sessions": int(all_s.get("agent_max_concurrent_sessions") or "5"),
         "text_backend_simple": all_s.get("text_backend_simple") or "",
         "text_backend_complex": all_s.get("text_backend_complex") or "",
+        "default_text_reasoning_effort": all_s.get("default_text_reasoning_effort") or "",
+        "text_reasoning_effort_simple": all_s.get("text_reasoning_effort_simple") or "",
+        "text_reasoning_effort_complex": all_s.get("text_reasoning_effort_complex") or "",
+        "asset_prompt_character": all_s.get("asset_prompt_character") or "",
+        "asset_prompt_scene": all_s.get("asset_prompt_scene") or "",
+        "asset_prompt_prop": all_s.get("asset_prompt_prop") or "",
     }
 
     options = await _build_options(svc, session)
@@ -352,6 +381,14 @@ async def patch_system_config(
             if value:
                 validate_backend_value(value, backend_key, _t)
             await svc.set_setting(backend_key, value)
+
+    for reasoning_key in (
+        "default_text_reasoning_effort",
+        "text_reasoning_effort_simple",
+        "text_reasoning_effort_complex",
+    ):
+        if reasoning_key in patch:
+            await svc.set_setting(reasoning_key, str(patch[reasoning_key] or "").strip())
 
     # 旁白音色：可配置字符串 id（照供应商文档填），空串 = 清除回落服务默认
     if "narration_voice" in patch:

@@ -158,6 +158,12 @@ class TestGetSystemConfig:
             "default_audio_backend",
             "narration_voice",
             "narration_speed",
+            "default_text_reasoning_effort",
+            "text_reasoning_effort_simple",
+            "text_reasoning_effort_complex",
+            "asset_prompt_character",
+            "asset_prompt_scene",
+            "asset_prompt_prop",
         }
         assert set(settings.keys()) == expected_keys
 
@@ -227,6 +233,16 @@ class TestGetSystemConfig:
             res = client.get("/api/v1/system/config")
         options = res.json()["options"]
         assert "dashscope/qwen3-tts-flash" in options["audio_backends"]
+
+    @pytest.mark.integration
+    def test_options_include_builtin_asset_prompt_defaults(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
+            res = client.get("/api/v1/system/config")
+        defaults = res.json()["options"]["asset_prompt_defaults"]
+        assert "四格" in defaults["character"]
+        assert "关键细节" in defaults["scene"]
+        assert "三视图" in defaults["prop"]
 
     def test_audio_settings_reflect_stored_values(self):
         mock_svc = _make_mock_svc(
@@ -485,6 +501,40 @@ class TestPatchSystemConfig:
                 json={"text_backend_simple": "gemini-aistudio/veo-3.1-generate-preview"},
             )
         assert res.status_code == 400
+
+    @pytest.mark.integration
+    def test_patch_sets_reasoning_efforts_and_asset_prompts(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={
+                    "default_text_reasoning_effort": "medium",
+                    "text_reasoning_effort_simple": "low",
+                    "text_reasoning_effort_complex": "max",
+                    "asset_prompt_character": "自定义角色规则",
+                    "asset_prompt_scene": "自定义场景规则",
+                    "asset_prompt_prop": "自定义道具规则",
+                },
+            )
+        assert res.status_code == 200
+        settings = res.json()["settings"]
+        assert settings["default_text_reasoning_effort"] == "medium"
+        assert settings["text_reasoning_effort_simple"] == "low"
+        assert settings["text_reasoning_effort_complex"] == "max"
+        assert settings["asset_prompt_character"] == "自定义角色规则"
+        assert settings["asset_prompt_scene"] == "自定义场景规则"
+        assert settings["asset_prompt_prop"] == "自定义道具规则"
+
+    @pytest.mark.integration
+    def test_patch_rejects_unknown_reasoning_effort(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"default_text_reasoning_effort": "ultra"},
+            )
+        assert res.status_code == 422
 
     def test_patch_ignores_legacy_text_task_keys(self):
         """旧任务级键已从请求模型移除，提交后既不落库也不出现在响应里。"""
