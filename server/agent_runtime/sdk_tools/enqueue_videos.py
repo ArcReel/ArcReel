@@ -23,6 +23,7 @@ from lib.project_manager import ProjectManager, is_reference_video_episode
 from lib.prompt_utils import (
     build_drama_video_prompt,
     is_structured_video_prompt,
+    strip_voice_profiles,
     video_prompt_to_yaml,
 )
 from lib.reference_video import assemble_shots_text
@@ -136,6 +137,10 @@ def _get_video_prompt(item: dict[str, Any], *, voice_characters: dict[str, Any] 
         item_id = item.get("segment_id") or item.get("scene_id")
         raise ValueError(f"片段/场景缺少 video_prompt 字段: {item_id}")
     if is_structured_video_prompt(prompt):
+        # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 的机械派生：剧本 JSON
+        # 里残留的 voice_profiles 一律先剥离，不因 utterances 门控不触发（narration/ad、或
+        # drama 无 utterances 的条目）而绕过 C 类（真无声）门控直达 YAML。
+        prompt = strip_voice_profiles(prompt)
         # drama 口型台词单一真相源在场景级有序 utterances：取 dialogue-kind 注入 video YAML 的
         # dialogue 出口（drama video_prompt 已不带 dialogue）。narration / ad 无 utterances 字段、原样渲染。
         if "utterances" in item:

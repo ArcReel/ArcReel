@@ -35,6 +35,7 @@ from lib.prompt_utils import (
     image_prompt_to_yaml,
     is_structured_image_prompt,
     is_structured_video_prompt,
+    strip_voice_profiles,
     video_prompt_to_yaml,
 )
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
@@ -916,6 +917,12 @@ async def execute_video_task(
     # True，目录会被当作 start_image 传给视频后端，在编码阶段才失败且原因不可读。
     if not storyboard_file.is_file():
         raise ValueError(f"storyboard not found: {storyboard_file.name}")
+
+    # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 的机械派生：调用方（WebUI
+    # 请求体 / 剧本 JSON 残留）自带的 voice_profiles 一律先剥离，不因 utterances 门控不触发
+    # （narration/ad、或 drama 无 utterances 的条目）而绕过 C 类（真无声）门控直达 YAML。
+    if isinstance(prompt, dict):
+        prompt = strip_voice_profiles(prompt)
 
     # drama 口型台词单一真相源在场景级有序 utterances：从 dialogue-kind 条目取台词注入 video YAML
     # 的 dialogue 出口（覆盖 payload 里 drama 已不再携带的 video_prompt.dialogue）。narration / ad

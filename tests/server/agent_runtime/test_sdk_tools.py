@@ -1706,6 +1706,27 @@ def test_get_video_prompt_injects_voice_profiles_when_characters_given() -> None
     assert "Voice_Profiles" not in parsed_no_style
 
 
+def test_get_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() -> None:
+    """narration/ad（item 无 utterances 字段）剧本 video_prompt 自带 voice_profiles 时一律剥离：
+    该声明段唯一来源是 build_drama_video_prompt 的机械派生，剧本残留值不得越权、绕过 C 类
+    （真无声）门控直达 YAML。"""
+    import yaml
+
+    from server.agent_runtime.sdk_tools.enqueue_videos import _get_video_prompt
+
+    narration_item = {
+        "segment_id": "E1S01",
+        "video_prompt": {
+            "action": "走",
+            "camera_motion": "Static",
+            "ambiance_audio": "脚步声",
+            "voice_profiles": [{"Speaker": "赝品", "Voice_Style": "越权"}],
+        },
+    }
+    parsed = yaml.safe_load(_get_video_prompt(narration_item))
+    assert "Voice_Profiles" not in parsed
+
+
 async def test_resolve_voice_characters_skips_non_drama(fake_ctx: ToolContext) -> None:
     """narration/ad：不解析 voice_consistency，直接跳过（无 drama dialogue speaker 概念）。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _resolve_voice_characters

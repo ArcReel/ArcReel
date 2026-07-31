@@ -1203,6 +1203,37 @@ class TestGenerationTasks:
         assert "Voice_Profiles" not in prompt_yaml
         assert "低沉沙哑" not in prompt_yaml
 
+    async def test_execute_video_task_strips_caller_supplied_voice_profiles_for_non_drama(self, monkeypatch, tmp_path):
+        """narration/ad（item 无 utterances 字段）请求体自带 voice_profiles 时一律剥离：
+        该声明段唯一来源是 build_drama_video_prompt 的机械派生，调用方不得越权注入、绕过
+        C 类（真无声）门控。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {
+                    "action": "起身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                    "voice_profiles": [{"Speaker": "赝品", "Voice_Style": "越权"}],
+                },
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" not in prompt_yaml
+        assert "越权" not in prompt_yaml
+
     async def test_execute_video_task_default_duration_from_caps(self, monkeypatch, tmp_path):
         """无显式 duration 时，默认值由 caps 收口（取 supported_durations[0]），且必然合法。"""
         project_path = _prepare_files(tmp_path)

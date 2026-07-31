@@ -99,6 +99,18 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
     return yaml.dump(ordered, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
 
+def strip_voice_profiles(video_prompt: dict[str, Any]) -> dict[str, Any]:
+    """剥离入参自带的 ``voice_profiles`` 键。
+
+    ``Voice_Profiles`` 声明段由编排层从角色资产机械派生，剧本 JSON / 调用方请求体均不
+    承载它——两处注入点（worker 执行路径、SDK 入队路径）在决定是否调用
+    :func:`build_drama_video_prompt` 之前都须先过一遍本函数，drama 之外的 content_mode
+    或缺 ``utterances`` 的条目才不会让调用方自带（或剧本残留）的 ``voice_profiles`` 绕过
+    C 类（真无声）门控直接进入 YAML。
+    """
+    return {k: v for k, v in video_prompt.items() if k != "voice_profiles"}
+
+
 def build_drama_video_prompt(
     video_prompt: dict[str, Any],
     utterances: object,
@@ -114,7 +126,7 @@ def build_drama_video_prompt(
     与否都先剥离入参自带的 ``voice_profiles``：该声明段由编排层从角色资产机械派生，剧本
     JSON 不承载它，剧本中的残留值不得绕过 C 类门控进入 YAML。
     """
-    prompt = {k: v for k, v in video_prompt.items() if k != "voice_profiles"}
+    prompt = strip_voice_profiles(video_prompt)
     dialogue = utterances_to_dialogue(utterances)
     prompt["dialogue"] = dialogue
     if characters is not None:
