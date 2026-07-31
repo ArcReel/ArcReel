@@ -941,6 +941,7 @@ class ProjectManager:
             "grid_id": None,
             "grid_cell_index": None,
             "status": "pending",
+            "video_generated_at": None,
         }
 
     @staticmethod
