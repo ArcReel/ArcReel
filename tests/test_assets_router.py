@@ -318,6 +318,70 @@ class TestFromProject:
         )
         assert "nhân vật" in vi.json()["detail"] and "character" not in vi.json()["detail"]
 
+    def test_from_project_copies_audio(self, _assets_env):
+        """character 的 reference_audio 随 character_sheet 一起复制到全局资产库。"""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "王", "d", "")
+        audio_rel = "characters/refs_audio/王.wav"
+        (pm.projects_root / "demo" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
+        (pm.projects_root / "demo" / audio_rel).write_bytes(b"audio-bytes")
+        pm.update_character_reference_audio("demo", "王", audio_rel)
+
+        r = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+            },
+        )
+        assert r.status_code == 200, r.text
+        ap = r.json()["asset"]["audio_path"]
+        assert ap and ap.startswith("_global_assets/character/")
+        assert (pm.projects_root / ap).read_bytes() == b"audio-bytes"
+
+    def test_from_project_without_audio_has_null_audio_path(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "王", "d", "")
+        # No reference_audio set
+
+        r = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()["asset"]["audio_path"] is None
+
+    def test_from_project_missing_audio_file_degrades_quietly(self, _assets_env):
+        """reference_audio 字段指向不存在的文件时静默降级为无音频，不中断入库。"""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "王", "d", "")
+        pm.update_character_reference_audio("demo", "王", "characters/refs_audio/ghost.wav")
+
+        r = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["asset"]["audio_path"] is None
+
     def test_from_project_without_sheet_has_null_image_path(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
@@ -515,6 +579,83 @@ class TestApplyToProject:
         # project.json should NOT contain the entry
         data = pm.load_project("target")
         assert "A" not in (data.get("scenes") or {})
+
+    def test_audio_missing_adds_to_failed(self, _assets_env):
+        """asset.audio_path 有值但磁盘文件缺失时记 failed，不中断整批（与 image_path 同口径）。"""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("source")
+        pm.create_project_metadata("source", "Source")
+        pm.add_project_character("source", "王", "d", "")
+        audio_rel = "characters/refs_audio/王.wav"
+        (pm.projects_root / "source" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
+        (pm.projects_root / "source" / audio_rel).write_bytes(b"audio-bytes")
+        pm.update_character_reference_audio("source", "王", audio_rel)
+
+        r0 = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        )
+        aid = r0.json()["asset"]["id"]
+        ap = r0.json()["asset"]["audio_path"]
+
+        # Simulate external deletion of the global audio file
+        (pm.projects_root / ap).unlink()
+
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+
+        r = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [aid],
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body["failed"]) == 1
+        assert body["failed"][0]["id"] == aid
+        assert body["failed"][0]["reason"] == "audio_missing"
+        data = pm.load_project("target")
+        assert "王" not in (data.get("characters") or {})
+
+    def test_audio_copied_to_target_project(self, _assets_env):
+        """端到端：from-project → 资产库 → apply-to-project 把音频也随图一起复制回项目。"""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("source")
+        pm.create_project_metadata("source", "Source")
+        pm.add_project_character("source", "王", "d", "")
+        audio_rel = "characters/refs_audio/王.wav"
+        (pm.projects_root / "source" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
+        (pm.projects_root / "source" / audio_rel).write_bytes(b"audio-bytes")
+        pm.update_character_reference_audio("source", "王", audio_rel)
+
+        r0 = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        )
+        aid = r0.json()["asset"]["id"]
+
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+
+        r = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [aid],
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
+        assert r.status_code == 200, r.text
+        target_audio = pm.projects_root / "target" / "characters" / "refs_audio" / "王.wav"
+        assert target_audio.exists()
+        assert target_audio.read_bytes() == b"audio-bytes"
+        data = pm.load_project("target")
+        assert data["characters"]["王"]["reference_audio"] == "characters/refs_audio/王.wav"
 
     def test_image_copied_to_target_project(self, _assets_env):
         """End-to-end: from-project → asset library → apply-to-project copies the image too."""
