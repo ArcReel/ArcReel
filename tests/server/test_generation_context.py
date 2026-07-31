@@ -47,6 +47,10 @@ class _FakeBackend:
     name: str
     model: str
 
+    def list_voices(self):
+        """audio backend 协议的一部分：audio lane 解析时会取音色目录快照。"""
+        return []
+
 
 @pytest.fixture
 async def session_factory(monkeypatch):
@@ -459,5 +463,6 @@ class TestValueObjectAssembly:
             backend_model="tts",
             narration_voice="Cherry",
             narration_speed=None,
+            voices=(),
         )
         assert lane.narration_voice == "Cherry"

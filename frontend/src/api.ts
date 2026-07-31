@@ -1375,7 +1375,7 @@ class API {
     configured: boolean;
     provider_id: string | null;
     model: string | null;
-    voices: { id: string; label: string; gender: string | null }[];
+    voices: { id: string; label: string }[];
   }> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/audio-backend/voices`, {
       signal: options.signal,

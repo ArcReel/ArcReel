@@ -70,6 +70,7 @@ MESSAGES = {
     "character_not_found": "Character '{name}' does not exist",
     "character_task_submitted": "Character design generation task for '{name}' submitted",
     "voice_sample_voice_required": "Please select a voice first",
+    "voice_sample_text_too_long": "Sample text cannot exceed {max_length} characters",
     "voice_sample_task_submitted": "Voice sample generation task for character '{name}' submitted",
     "voice_sample_not_ready": "The voice sample has not finished generating successfully; cannot confirm yet",
     "voice_sample_file_missing": "The voice sample file no longer exists; please regenerate it",

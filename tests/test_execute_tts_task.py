@@ -24,6 +24,7 @@ def _audio_ctx(generator, *, voice="Cherry", speed=None):
             backend_model="qwen3-tts-flash",
             narration_voice=voice,
             narration_speed=speed,
+            voices=(),
         ),
     )
 

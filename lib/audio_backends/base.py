@@ -16,11 +16,10 @@ class AudioCapability(StrEnum):
 
 @dataclass(frozen=True)
 class VoiceOption:
-    """音色目录条目。``id`` 是合成请求携带的 ``voice`` 参数值。"""
+    """音色目录条目。``id`` 是合成请求携带的 ``voice`` 参数值，``label`` 是给人看的展示名。"""
 
     id: str
     label: str
-    gender: str | None = None
 
 
 @dataclass

@@ -10,15 +10,13 @@
 """
 
 import asyncio
-import logging
-from pathlib import Path
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.asset_types import ASSET_SPECS, validate_asset_name
-from lib.audio_utils import resolve_audio_ref_path
+from lib.audio_utils import discard_stale_reference_audio, resolve_stale_reference_audio
 from lib.config.resolver import ConfigResolver
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec
@@ -35,8 +33,6 @@ from lib.storyboard_sequence import (
 from server.auth import CurrentUser
 from server.services.generation_context import AudioLaneRequest, resolve_generation_context
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -386,6 +382,11 @@ async def generate_tts_batch(
 
 # ==================== 角色参考音频：TTS 试听样本 ====================
 
+# 试听文案长度粗护栏（与前端 VOICE_SAMPLE_TEXT_MAX_LENGTH 同值）。参考音频要求 2-10 秒，
+# 而「多少字合成出几秒」随语种与音色而变、提交前无法精确判定；此处只挡住整段粘贴导致的
+# 必然失败与无谓计费，真正的时长判定仍在执行层落盘后做。
+VOICE_SAMPLE_TEXT_MAX_LENGTH = 200
+
 
 @router.get("/projects/{project_name}/audio-backend/voices")
 async def get_audio_backend_voices(project_name: str, _user: CurrentUser):
@@ -406,13 +407,12 @@ async def get_audio_backend_voices(project_name: str, _user: CurrentUser):
         project=project,
         audio=AudioLaneRequest(),
     )
-    backend = ctx.generator.audio_backend
-    voices = backend.list_voices() if backend is not None else []
+    audio = ctx.audio
     return {
         "configured": True,
-        "provider_id": ctx.audio.provider_model.provider_id,
-        "model": ctx.audio.backend_model,
-        "voices": [{"id": v.id, "label": v.label, "gender": v.gender} for v in voices],
+        "provider_id": audio.provider_model.provider_id,
+        "model": audio.backend_model,
+        "voices": [{"id": v.id, "label": v.label} for v in audio.voices],
     }
 
 
@@ -433,6 +433,8 @@ async def generate_character_voice_sample(
     voice = req.voice.strip()
     if not text:
         raise BadRequestError("prompt_text_empty")
+    if len(text) > VOICE_SAMPLE_TEXT_MAX_LENGTH:
+        raise BadRequestError("voice_sample_text_too_long", max_length=VOICE_SAMPLE_TEXT_MAX_LENGTH)
     if not voice:
         raise BadRequestError("voice_sample_voice_required")
 
@@ -525,11 +527,7 @@ async def confirm_character_voice_sample(
         target_path = refs_audio_dir / filename
 
         old_audio = ((project.get("characters") or {}).get(char_name) or {}).get("reference_audio")
-        stale_audio_path: Path | None = None
-        if isinstance(old_audio, str) and old_audio:
-            resolved_old = resolve_audio_ref_path(project_dir, refs_audio_dir, old_audio)
-            if resolved_old is not None and not (target_path.exists() and resolved_old.samefile(target_path)):
-                stale_audio_path = resolved_old
+        stale_audio_path = resolve_stale_reference_audio(project_dir, refs_audio_dir, old_audio, target_path)
 
         target_path.write_bytes(content)
 
@@ -539,11 +537,7 @@ async def confirm_character_voice_sample(
         except KeyError:
             raise NotFoundError("character_not_found", name=char_name)
 
-        if stale_audio_path is not None:
-            try:
-                stale_audio_path.unlink(missing_ok=True)
-            except OSError:
-                logger.warning("旧参考音频物理删除失败，可能残留孤儿文件：%s", stale_audio_path, exc_info=True)
+        discard_stale_reference_audio(stale_audio_path)
 
         return {"path": f"characters/refs_audio/{filename}"}
 

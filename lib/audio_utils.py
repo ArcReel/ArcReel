@@ -47,6 +47,43 @@ def resolve_audio_ref_path(project_dir: Path, audio_refs_dir: Path, rel_path: st
     return resolved
 
 
+def resolve_stale_reference_audio(
+    project_dir: Path, audio_refs_dir: Path, old_audio: str | None, new_path: Path
+) -> Path | None:
+    """替换角色参考音频时，识别出「换掉后就没有指针指向」的旧文件。
+
+    音频不像参考图强制统一扩展名，替换时新旧扩展名可能不同，旧文件需显式清理避免孤儿。
+    返回 None 表示无需清理：旧指针为空、指向 refs_audio 之外（见
+    :func:`resolve_audio_ref_path`），或大小写不敏感文件系统上旧指针与新文件名只是大小写
+    不同却指向同一 inode（如 ``Alice.WAV`` 与 ``Alice.wav``）——此时新内容即将原地覆盖该
+    文件，不能再当孤儿删掉，否则会把刚写入的新样本一并删除。
+    """
+    if not isinstance(old_audio, str) or not old_audio:
+        return None
+    resolved_old = resolve_audio_ref_path(project_dir, audio_refs_dir, old_audio)
+    if resolved_old is None:
+        return None
+    if new_path.exists() and resolved_old.samefile(new_path):
+        return None
+    return resolved_old
+
+
+def discard_stale_reference_audio(stale_path: Path | None) -> None:
+    """删除已无指针指向的旧参考音频；删除失败只告警不抛。
+
+    调用点必须在新文件已落盘且角色字段已指向它之后——此时删旧文件才不会留下「字段指向
+    已删文件」的中间态。物理删除失败（权限/IO 错误，含 Windows 文件占用）不应让本次替换
+    报错：新文件与字段都已成功提交，此时再抛异常会让调用方误以为整次替换失败并重试，而
+    重试时旧指针已指向新文件，旧文件反而成为找不到指针的孤儿。
+    """
+    if stale_path is None:
+        return
+    try:
+        stale_path.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("旧参考音频物理删除失败，可能残留孤儿文件：%s", stale_path, exc_info=True)
+
+
 @functools.cache
 def _ffprobe_available() -> bool:
     """ffprobe 可执行文件是否在 PATH 中（结果缓存，避免每次调用重复 shutil.which）。"""

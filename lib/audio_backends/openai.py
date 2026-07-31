@@ -27,11 +27,12 @@ logger = logging.getLogger(__name__)
 _SUPPORTED_RESPONSE_FORMATS = frozenset({"mp3", "opus", "aac", "flac", "wav", "pcm"})
 _FALLBACK_RESPONSE_FORMAT = "wav"
 
-# 官方内置音色（gpt-4o-mini-tts，含 tts-1/tts-1-hd legacy 子集），出处：
-# https://developers.openai.com/api/docs/guides/text-to-speech （核实于 2026-07-31）。
-# 官方文档未给出性别/描述信息，故 label 仅取 id 本身、gender 留空——不编造。
-# 供第三方 OpenAI 兼容 TTS 代理（自定义供应商 openai-tts endpoint）参考用途时，实际
-# 支持的音色集合可能不同，前端据此仍需允许自由文本输入。
+# 官方内置音色（gpt-4o-mini-tts，含 tts-1/tts-1-hd legacy 子集），出处见
+# docs/openai-docs/文本转语音-TTS.md（2026-07-31 核实快照，来源：
+# https://developers.openai.com/api/docs/guides/text-to-speech）。
+# 官方文档未给出性别/描述信息，故 label 仅取 id 本身——不编造。
+# 经自定义供应商 openai-tts endpoint 接入的第三方兼容服务音色集合可能与本目录不同，
+# 边界说明见上述文档。
 _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     VoiceOption(id=voice_id, label=voice_id)
     for voice_id in (

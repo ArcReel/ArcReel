@@ -47,14 +47,6 @@ class _FakePM:
         return self.project
 
 
-class _FakeAudioBackend:
-    def __init__(self, voices):
-        self._voices = voices
-
-    def list_voices(self):
-        return self._voices
-
-
 def _app(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True):
     monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
@@ -93,19 +85,15 @@ class TestAudioBackendVoices:
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
         client = _client(monkeypatch, fake_pm, _FakeQueue())
 
-        backend = _FakeAudioBackend([VoiceOption(id="Cherry", label="芊悦", gender="female")])
-
-        class _FakeGenerator:
-            audio_backend = backend
-
         ctx = GenerationContext(
-            generator=_FakeGenerator(),
+            generator=object(),
             audio_lane=AudioLaneResult(
                 provider_model=ProviderModel("dashscope", "qwen3-tts-flash"),
                 backend_name="dashscope",
                 backend_model="qwen3-tts-flash",
                 narration_voice="Cherry",
                 narration_speed=None,
+                voices=(VoiceOption(id="Cherry", label="芊悦 · 阳光正向的自然年轻女声"),),
             ),
         )
 
@@ -122,7 +110,7 @@ class TestAudioBackendVoices:
         assert body["configured"] is True
         assert body["provider_id"] == "dashscope"
         assert body["model"] == "qwen3-tts-flash"
-        assert body["voices"] == [{"id": "Cherry", "label": "芊悦", "gender": "female"}]
+        assert body["voices"] == [{"id": "Cherry", "label": "芊悦 · 阳光正向的自然年轻女声"}]
 
 
 class TestGenerateCharacterVoiceSample:
@@ -184,6 +172,21 @@ class TestGenerateCharacterVoiceSample:
             )
 
         assert res.status_code == 400
+
+    def test_overlong_text_rejected(self, tmp_path, monkeypatch):
+        """整段粘贴的长文案在入队前就被挡住，不产生「先计费合成、再因超时长落 failed」。"""
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/艾莉/voice-sample",
+                json={"text": "长" * (generate.VOICE_SAMPLE_TEXT_MAX_LENGTH + 1), "voice": "Cherry"},
+            )
+
+        assert res.status_code == 400
+        assert fake_queue.calls == []
 
     def test_empty_voice_rejected(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")

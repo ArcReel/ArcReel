@@ -70,6 +70,7 @@ MESSAGES = {
     "character_not_found": "角色「{name}」不存在",
     "character_task_submitted": "角色「{name}」设计图生成任务已提交",
     "voice_sample_voice_required": "请先选择音色",
+    "voice_sample_text_too_long": "试听文案不能超过 {max_length} 个字符",
     "voice_sample_task_submitted": "角色「{name}」的语音试听样本生成任务已提交",
     "voice_sample_not_ready": "语音试听样本尚未生成成功，无法确认保存",
     "voice_sample_file_missing": "语音试听样本文件不存在，请重新生成",

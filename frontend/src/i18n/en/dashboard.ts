@@ -249,6 +249,7 @@ export default {
   'voice_sample_text_label': 'Sample text',
   'voice_sample_text_default':
     "Hello, this is a voice sample that will be used as the character's reference audio to help keep the voice consistent.",
+  'voice_sample_text_hint': 'The sample must be 2-10 seconds; text that is too long will fail to generate.',
   'voice_sample_generate': 'Generate',
   'voice_sample_generating': 'Generating…',
   'voice_sample_regenerate': 'Regenerate',

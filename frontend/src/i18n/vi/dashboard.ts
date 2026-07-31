@@ -251,6 +251,8 @@ export default {
   'voice_sample_text_label': 'Văn bản mẫu',
   'voice_sample_text_default':
     'Xin chào, đây là một đoạn mẫu giọng đọc sẽ được dùng làm âm thanh tham chiếu của nhân vật, giúp giữ giọng nói nhất quán.',
+  'voice_sample_text_hint':
+    'Mẫu âm thanh phải dài 2-10 giây; văn bản quá dài sẽ khiến việc tạo thất bại.',
   'voice_sample_generate': 'Tạo',
   'voice_sample_generating': 'Đang tạo…',
   'voice_sample_regenerate': 'Tạo lại',

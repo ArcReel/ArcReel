@@ -70,6 +70,7 @@ MESSAGES = {
     "character_not_found": "Nhân vật '{name}' không tồn tại",
     "character_task_submitted": "Đã gửi tác vụ tạo thiết kế nhân vật cho '{name}'",
     "voice_sample_voice_required": "Vui lòng chọn giọng đọc trước",
+    "voice_sample_text_too_long": "Văn bản mẫu không được vượt quá {max_length} ký tự",
     "voice_sample_task_submitted": "Đã gửi tác vụ tạo mẫu giọng đọc thử cho nhân vật '{name}'",
     "voice_sample_not_ready": "Mẫu giọng đọc thử chưa tạo thành công, chưa thể xác nhận",
     "voice_sample_file_missing": "Tệp mẫu giọng đọc thử không còn tồn tại, vui lòng tạo lại",

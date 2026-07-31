@@ -249,6 +249,7 @@ export default {
   'voice_sample_no_voices': '当前音频供应商未提供可选音色',
   'voice_sample_text_label': '试听文案',
   'voice_sample_text_default': '你好，这是一段声音示例，将作为角色的参考音频，帮助保持声音一致。',
+  'voice_sample_text_hint': '样本音频需为 2-10 秒，文案过长会导致生成失败。',
   'voice_sample_generate': '生成',
   'voice_sample_generating': '生成中…',
   'voice_sample_regenerate': '重新生成',

@@ -22,6 +22,7 @@ def _audio_ctx(generator):
             backend_model="qwen3-tts-flash",
             narration_voice="Cherry",
             narration_speed=None,
+            voices=(),
         ),
     )
 

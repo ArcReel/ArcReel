@@ -5,13 +5,19 @@ import { enqueueCharacterVoiceSample } from "@/actions/generation";
 import { API } from "@/api";
 import { GlassModal } from "@/components/ui/GlassModal";
 import { useAppStore } from "@/stores/app-store";
+import { useConfigStatusStore } from "@/stores/config-status-store";
 import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import { errMsg } from "@/utils/async";
+
+/** 样本文案长度上限（与后端 VOICE_SAMPLE_TEXT_MAX_LENGTH 同值）。
+ *  参考音频要求 2-10 秒，而「多少字合成出几秒」随语种与音色而变，无法在提交前精确判定；
+ *  此处只作粗护栏挡住整段粘贴——真正的时长判定仍在执行层落盘后做。三语默认文案约 120 字符，
+ *  上限取 200 以留出编辑余量。 */
+const VOICE_SAMPLE_TEXT_MAX_LENGTH = 200;
 
 interface VoiceOption {
   id: string;
   label: string;
-  gender: string | null;
 }
 
 interface VoiceSampleButtonProps {
@@ -49,6 +55,10 @@ export function VoiceSampleButton({
   const voiceFieldId = useId();
   const textFieldId = useId();
 
+  // audio 供应商可用性走全局 config-status-store（路由启动时已拉取一次），不为每张角色卡
+  // 预取音色列表——入口在未配置时即禁用，符合「audio_backend 未配置该入口不可用」的口径。
+  const audioConfigured = useConfigStatusStore((s) => s.availableMediaTypes.includes("audio"));
+
   const task = useTasksStore((s) => (taskId ? s.tasks.find((item) => item.task_id === taskId) : undefined));
   const generating = localSubmitting || (task != null && (task.status === "queued" || task.status === "running"));
   const failed = task?.status === "failed";
@@ -62,6 +72,8 @@ export function VoiceSampleButton({
     const controller = new AbortController();
     API.getAudioBackendVoices(projectName, { signal: controller.signal })
       .then((res) => {
+        // 响应已 resolve 之后才发生的 abort 也要拦住，别把过期结果写进组件状态。
+        if (controller.signal.aborted) return;
         setVoicesConfigured(res.configured);
         setVoices(res.voices);
         setSelectedVoice((prev) => prev || res.voices[0]?.id || "");
@@ -76,7 +88,7 @@ export function VoiceSampleButton({
     return () => controller.abort();
   }, [open, projectName]);
 
-  const disabled = busy;
+  const disabled = busy || !audioConfigured;
 
   const openModal = () => {
     if (disabled) return;
@@ -135,8 +147,8 @@ export function VoiceSampleButton({
         type="button"
         onClick={openModal}
         disabled={disabled}
-        title={t("voice_sample_action")}
-        aria-label={t("voice_sample_action")}
+        title={audioConfigured ? t("voice_sample_action") : t("voice_sample_not_configured_hint")}
+        aria-label={audioConfigured ? t("voice_sample_action") : t("voice_sample_not_configured_hint")}
         className="focus-ring inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-[oklch(1_0_0_/_0.05)] disabled:cursor-not-allowed disabled:opacity-40"
         style={{ color: "var(--color-text-3)" }}
       >
@@ -220,6 +232,7 @@ export function VoiceSampleButton({
                 id={textFieldId}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
+                maxLength={VOICE_SAMPLE_TEXT_MAX_LENGTH}
                 rows={3}
                 className="focus-ring mt-1.5 w-full resize-none rounded-lg px-3 py-2 text-[13px] leading-[1.55] outline-none transition-[border-color,box-shadow]"
                 style={{
@@ -228,6 +241,9 @@ export function VoiceSampleButton({
                   color: "var(--color-text)",
                 }}
               />
+              <p className="mt-1 text-[10.5px]" style={{ color: "var(--color-text-4)" }}>
+                {t("voice_sample_text_hint")}
+              </p>
 
               {failed && (
                 <p className="mt-3 text-[12px]" style={{ color: "var(--color-danger, #e5484d)" }}>
