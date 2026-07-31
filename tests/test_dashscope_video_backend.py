@@ -699,6 +699,28 @@ class TestWan27ReferenceVoice:
         assert exc.value.params["count"] == 2
 
     @pytest.mark.unit
+    def test_model_without_reference_images_rejects_audio_instead_of_dropping(self, tmp_path):
+        """无参考图能力的 model 收到音频要报错，不静默丢弃。
+
+        可达路径：自定义供应商把 endpoint 级的 reference_audio_mode 覆盖成 direct（该 endpoint
+        的 delegate 确实会下传音频），但具体 model 走 wan2.7-i2v 这类无参考素材的档位——
+        音频无处挂载。丢弃会生成一段音色随机的视频并照常扣费。
+        """
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v")._build_payload(
+                VideoGenerationRequest(
+                    prompt="独白",
+                    output_path=tmp_path / "o.mp4",
+                    start_image=self._refs(tmp_path, 1)[0],
+                    reference_audio_files=[self._audio(tmp_path, "a.mp3")],
+                )
+            )
+
+        assert exc.value.code == "video_reference_audio_unsupported"
+
+    @pytest.mark.unit
     def test_missing_audio_file_raises(self, tmp_path):
         with pytest.raises(VideoCapabilityError) as exc:
             self._backend()._build_payload(

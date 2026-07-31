@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 # Seedance 2.0 系列每请求最多 3 段参考音频（官方《创建视频生成任务 API》音频信息章节）。
 _SEEDANCE_2_MAX_REFERENCE_AUDIO = 3
 
+# Seedance 1.5 pro 的参考图上限，与 lib/config/registry.py 的同名 ModelInfo 字段同值。
+_SEEDANCE_1_5_MAX_REFERENCE_IMAGES = 9
+
 # 参考音频的 data URI MIME：官方接受 wav / mp3 两种格式，要求 `data:audio/<格式>;base64,<内容>`
 # 且格式小写。资产上传期已按同一组格式收窄，此处按扩展名回填，未知扩展名不猜测直接拒绝。
 # 与 dashscope 侧的同名表刻意各存一份：mp3 在这里按官方示例写 audio/mp3，dashscope 走标准
@@ -129,6 +132,13 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     # 被误判为继承已验证型号的尾帧能力，绕过本模块新增的硬拒绝。
     _KNOWN_MODEL_SUFFIX_RE = re.compile(r"^(-\d+)?$")
 
+    # 非 2.0 系列里支持参考生视频的型号：1.5 pro 的参考图上限与 registry ModelInfo 声明
+    # （doubao-seedance-1-5-pro-251215 / doubao-seedance-1.5-pro 均为 9）一致。两处必须同值——
+    # 编排层按 registry 决定给一个 unit 派几张参考图，请求期按本声明校验，声明低于 registry
+    # 会让编排层正常派图的请求在 gate 上被拒。守卫见 tests/test_video_backend_ark.py 的
+    # registry 一致性用例。
+    _REFERENCE_IMAGE_ALLOW_SUBSTRINGS = ("seedance-1-5-pro", "seedance-1.5-pro")
+
     # Seedance 2.0 系列已验证支持首尾帧的三个变体（lib/config/registry.py 内建型号：
     # doubao-seedance-2-0-260128 / -2-0-fast-260128 / -2-0-mini-260615，及无日期戳的
     # doubao-seedance-2.0 / -2.0-fast / -2.0-mini）。同样走边界匹配，未知后缀（如
@@ -188,8 +198,17 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             model_lower, ArkVideoBackend._LAST_FRAME_ALLOW_SUBSTRINGS
         )
         denied_last_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_LAST_FRAME_SUBSTRINGS)
+        # _create_task 对任何 model 都会把 reference_images 序列化成 role="reference_image"，
+        # 参考生视频在 1.5 pro 上是既有可用路径；此处不声明容量会让 gate_video_request 把编排层
+        # 按 registry 正常派好参考图的请求整批拒掉。未上表的型号仍保守判 0。
         return VideoCapabilities(
-            first_frame=not no_first_frame, last_frame=allowed_last_frame and not denied_last_frame
+            first_frame=not no_first_frame,
+            last_frame=allowed_last_frame and not denied_last_frame,
+            max_reference_images=(
+                _SEEDANCE_1_5_MAX_REFERENCE_IMAGES
+                if ArkVideoBackend._matches_known_model(model_lower, ArkVideoBackend._REFERENCE_IMAGE_ALLOW_SUBSTRINGS)
+                else 0
+            ),
         )
 
     @property

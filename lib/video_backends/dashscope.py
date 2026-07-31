@@ -237,6 +237,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             if uri is None:
                 raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=p.name)
             media.append({"type": "first_frame", "url": uri})
+        reference_items: list[dict] = []
         if caps.max_reference_images > 0:
             # r2v 必须有参考图。fail-loud：未提供 → required；任一声明的参考图缺失/不可读（is_file 不过
             # 或 read_bytes 抛 OSError）→ 报错列出文件名中止。不静默退化为无参考/子集生成（会产出错误
@@ -267,8 +268,12 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
                 )
                 data_uris = data_uris[:limit]
             reference_items = [{"type": "reference_image", "url": uri} for uri in data_uris]
-            self._attach_reference_voices(reference_items, request)
-            media.extend(reference_items)
+        # 音频挂载在参考素材循环之外：无参考素材可挂时也要走一遍判定，否则 wan2.7-i2v 这类
+        # 无参考图能力的 model 收到音频会静默丢弃、照常扣费——正是本 issue 第 4 条要堵的路径。
+        # 自定义供应商可把 endpoint 级的 reference_audio_mode 覆盖成 direct，而 delegate 的
+        # model profile 仍是真相源，故这条路径实际可达。
+        self._attach_reference_voices(reference_items, request)
+        media.extend(reference_items)
         return media
 
     def _attach_reference_voices(self, reference_items: list[dict], request: VideoGenerationRequest) -> None:

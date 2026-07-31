@@ -203,6 +203,49 @@ def merge_overrides(caps: VideoCapabilities, applied: dict[str, object]) -> Vide
     return replace(caps, **coerced)
 
 
+AUDIO_OVERRIDE_KEYS = ("reference_audio_mode", "max_reference_audio_count")
+
+
+def resolve_audio_pair(overrides: dict[str, object], *, endpoint: str, model_id: str) -> tuple[object, int]:
+    """把稀疏的音频覆盖补齐成完整的（模式, 段数上限）二元组，未覆盖的维度取系统判定。
+
+    不变式判定要的是合并后的两维，而覆盖字典只带用户显式改过的那些键；写入侧与回显侧都需要
+    这一步补齐，故收在一处而不是各写一份 ``overrides.get(..., system_caps...)`` 级联。
+    endpoint / model_id 不可解析时按最保守的"不支持音色输入"补齐。
+    """
+    try:
+        system_caps = system_video_capabilities(endpoint=endpoint, model_id=model_id)
+    except ValueError:
+        system_caps = None
+    mode = overrides.get(
+        "reference_audio_mode",
+        system_caps.reference_audio_mode if system_caps is not None else ReferenceAudioMode.NONE,
+    )
+    count = overrides.get(
+        "max_reference_audio_count",
+        system_caps.max_reference_audio_count if system_caps is not None else 0,
+    )
+    return mode, int(count) if isinstance(count, int) else 0
+
+
+def strip_incoherent_audio_overrides(
+    overrides: dict[str, object], *, endpoint: str, model_id: str
+) -> dict[str, object]:
+    """剔除合并后违反音频两维不变式的覆盖键。
+
+    :func:`enforce_audio_capability_invariant` 只把执行期能力降到 ``none``，覆盖字典本身仍
+    留着被降级的值。存量行或手工改库留下的 ``direct`` ⊕ 上限 0 若原样回显，界面会显示"直传
+    音色已生效"而生成其实不带音色输入；客户端把它随一次与音频无关的编辑原样回传，还会撞上
+    写入侧的同一条不变式，把整次保存拒成 422。两处后果与 ``last_frame`` 的既有过滤同源。
+    """
+    if not any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
+        return overrides
+    mode, count = resolve_audio_pair(overrides, endpoint=endpoint, model_id=model_id)
+    if audio_capability_pair_is_coherent(mode=mode, count=count):
+        return overrides
+    return {key: value for key, value in overrides.items() if key not in AUDIO_OVERRIDE_KEYS}
+
+
 def audio_capability_pair_is_coherent(*, mode: object, count: int) -> bool:
     """音频两维的合并后不变式：声明支持音色输入就必须给出正的段数上限。
 

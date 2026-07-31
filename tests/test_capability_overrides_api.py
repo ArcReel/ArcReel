@@ -207,6 +207,32 @@ class TestModelListExposesCapabilities:
         assert models[0]["capability_overrides"] is None
 
     @pytest.mark.integration
+    async def test_stale_incoherent_audio_override_filtered_from_response(self, client: TestClient, session_factory):
+        """存量行的 direct ⊕ 上限 0：两维各自合法，故过得了逐键过滤，但执行层会降级到 none。
+
+        原样回显有两个后果，与 last_frame 那条同源：界面显示"直传音色已生效"而生成其实不带
+        音色输入；客户端把它随一次与音频无关的编辑原样回传，会撞上写入侧的同一条不变式，
+        把整次保存拒成 422。
+        """
+        pid = await _seed_provider_with_raw_models(
+            session_factory,
+            [
+                {
+                    "model_id": LAST_FRAME_MODEL,
+                    "display_name": "Seedance",
+                    "endpoint": LAST_FRAME_ENDPOINT,
+                    "is_enabled": True,
+                    "is_default": True,
+                    "capability_overrides": {"last_frame": True, "reference_audio_mode": "direct"},
+                }
+            ],
+        )
+
+        models = client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
+        # 音频两维整组剔除，与音频无关的 last_frame 覆盖原样保留
+        assert models[0]["capability_overrides"] == {"last_frame": True}
+
+    @pytest.mark.integration
     async def test_corrupted_non_dict_override_does_not_500_response(self, client: TestClient, session_factory):
         """存量行 / 手工 SQL 可能让 JSON 列存了非字典值（字符串、列表等）：执行层的
         synthesize_video_capabilities 按容错设计忽略它，响应边界须同样容错，不能把原值

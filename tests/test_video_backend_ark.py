@@ -407,6 +407,43 @@ class TestArkModelCapabilities:
         assert caps.last_frame is False
 
     @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "model", ["doubao-seedance-1-5-pro-251215", "doubao-seedance-1.5-pro", "dreamina-seedance-1-5-pro"]
+    )
+    def test_seedance_1_5_pro_declares_reference_images(self, model: str):
+        """1.5 pro 是既有的参考生视频可用路径：_create_task 对任何 model 都序列化 role=reference_image，
+        编排层按 registry 的 9 张派图。此处声明 0 会让 gate_video_request 把这些请求整批拒掉。"""
+        caps = ArkVideoBackend.video_capabilities_for_model(model)
+        assert caps.max_reference_images == 9
+
+    @pytest.mark.unit
+    def test_unknown_model_declares_no_reference_images(self):
+        """未上表型号保守判 0：与尾帧同口径，不为未知型号假设参考图容量。"""
+        assert (
+            ArkVideoBackend.video_capabilities_for_model("doubao-seedance-9-9-ultra-future").max_reference_images == 0
+        )
+        assert ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-5-pro-future").max_reference_images == 0
+
+    @pytest.mark.unit
+    def test_backend_reference_capacity_matches_registry(self):
+        """registry 与 backend 的参考图上限必须同值。
+
+        编排层按 registry.ModelInfo.max_reference_images 决定给一个 unit 派几张参考图，
+        gate_video_request 按 backend 声明校验；backend 声明低于 registry 时，编排层正常派好
+        图的请求会在 gate 上被拒——两侧漂移没有别的守卫能发现。
+        """
+        from lib.config.registry import PROVIDER_REGISTRY
+
+        for provider_id in ("ark", "ark-agent-plan"):
+            for model_id, info in PROVIDER_REGISTRY[provider_id].models.items():
+                if info.media_type != "video":
+                    continue
+                declared = ArkVideoBackend.video_capabilities_for_model(model_id).max_reference_images
+                assert declared == info.max_reference_images, (
+                    f"{provider_id}/{model_id}: registry={info.max_reference_images} backend={declared}"
+                )
+
+    @pytest.mark.unit
     def test_seedance_1_0_lite_t2v_no_last_frame(self):
         """纯文生视频型号，能力表「图生视频-首帧」「图生视频-首尾帧」均标 "-"，不接受任何图片输入。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0-lite-t2v-250428")

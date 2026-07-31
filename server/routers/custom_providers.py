@@ -11,7 +11,7 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import asdict
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AfterValidator, BaseModel, Field, field_validator
@@ -21,10 +21,13 @@ from lib.api_errors import BadRequestError
 from lib.config.repository import mask_secret
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.capabilities import (
+    AUDIO_OVERRIDE_KEYS,
     CAPABILITY_OVERRIDE_FIELDS,
     audio_capability_pair_is_coherent,
     capability_value_matches,
     filter_valid_overrides,
+    resolve_audio_pair,
+    strip_incoherent_audio_overrides,
     system_video_capabilities,
 )
 from lib.custom_provider.endpoints import (
@@ -311,8 +314,13 @@ def _effective_overrides_for_response(
     再经 :func:`_narrow_to_allowlist` 收窄：DB 遗留的白名单外键（同样只能来自手工改库）若原样
     回显，与写入落库的键集合不一致，调用方需要额外知道"回显可能含脏键但写回会被剔除"。收窄与
     写入侧走同一个函数，两处集合同源。
+
+    音频两维另经 :func:`strip_incoherent_audio_overrides`：单维合法而合起来无意义的组合
+    （direct ⊕ 上限 0）过得了 :func:`filter_valid_overrides`，执行层却会把它降到 ``none``，
+    回显原值同样落进本函数要消灭的"界面显示已生效、执行其实忽略"。
     """
     filtered = _narrow_to_allowlist(filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides))
+    filtered = strip_incoherent_audio_overrides(filtered, endpoint=endpoint, model_id=model_id)
     return filtered or None
 
 
@@ -447,20 +455,9 @@ def _check_capability_overrides(
     # 合并后不变式：两维各自合法、合起来无意义的组合（支持音色输入却限 0 段）在这里拒，
     # 而不是留给执行期静默降级——降级后用户会拿到「最多支持 0 段」这种无从遵循的提示。
     # 稀疏覆盖只写其中一维也能凑出该组合，故按系统判定补齐未覆盖的那一维再判。
-    if "reference_audio_mode" in overrides or "max_reference_audio_count" in overrides:
-        try:
-            system_caps = system_video_capabilities(endpoint=endpoint, model_id=model_id)
-        except ValueError:
-            system_caps = None
-        mode = overrides.get(
-            "reference_audio_mode",
-            system_caps.reference_audio_mode if system_caps is not None else ReferenceAudioMode.NONE,
-        )
-        count = overrides.get(
-            "max_reference_audio_count",
-            system_caps.max_reference_audio_count if system_caps is not None else 0,
-        )
-        if not audio_capability_pair_is_coherent(mode=mode, count=cast(int, count)):
+    if any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
+        mode, count = resolve_audio_pair(overrides, endpoint=endpoint, model_id=model_id)
+        if not audio_capability_pair_is_coherent(mode=mode, count=count):
             raise HTTPException(
                 status_code=422,
                 detail=_t("capability_override_audio_pair_incoherent", model_id=model_id),
