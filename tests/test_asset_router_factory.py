@@ -137,6 +137,46 @@ class TestAssetRouterFactory:
             # entry 未被污染
             assert fake_pm.projects["demo"]["characters"]["Alice"]["reference_image"] == ""
 
+    def test_character_patch_accepts_dismissed_at_matching_current_voice_updated_at(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Alice"] = {
+            "description": "old",
+            "character_sheet": "",
+            "voice_style": "",
+            "reference_image": "",
+            "reference_audio": "characters/refs_audio/Alice.wav",
+            "voice_updated_at": "2026-01-01T00:00:00+00:00",
+        }
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/demo/characters/Alice",
+                json={"voice_notice_dismissed_at": "2026-01-01T00:00:00+00:00"},
+            )
+            assert resp.status_code == 200
+            entry = fake_pm.projects["demo"]["characters"]["Alice"]
+            assert entry["voice_notice_dismissed_at"] == "2026-01-01T00:00:00+00:00"
+
+    def test_character_patch_rejects_dismissed_at_not_matching_voice_updated_at(self, monkeypatch):
+        """voice_notice_dismissed_at 只能确认到角色当前实际的 voice_updated_at，不接受任意
+        字符串——否则客户端可写入远未来时间戳，永久压制存量过渡横幅。"""
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Alice"] = {
+            "description": "old",
+            "character_sheet": "",
+            "voice_style": "",
+            "reference_image": "",
+            "reference_audio": "characters/refs_audio/Alice.wav",
+            "voice_updated_at": "2026-01-01T00:00:00+00:00",
+        }
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/demo/characters/Alice",
+                json={"voice_notice_dismissed_at": "9999-12-31T00:00:00+00:00"},
+            )
+            assert resp.status_code == 422
+            # entry 未被污染
+            assert "voice_notice_dismissed_at" not in fake_pm.projects["demo"]["characters"]["Alice"]
+
     def test_unknown_asset_type_raises(self):
         from server.routers._asset_router_factory import build_asset_router
 

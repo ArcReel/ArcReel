@@ -58,6 +58,14 @@ def _is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
+class _InvalidFieldValue(Exception):
+    """PATCH 请求体中某字段的值未通过业务校验（区别于类型校验，类型错误已在边界 422）。"""
+
+    def __init__(self, field: str):
+        self.field = field
+        super().__init__(field)
+
+
 class _CreateRequest(BaseModel):
     """通用 create 请求体；额外字段（如 voice_style）通过 extra='allow' 透传。"""
 
@@ -178,6 +186,11 @@ def build_asset_router(
                     entry = bucket[entry_name]
                     for field in (*update_fields, *update_list_fields):
                         if req.get(field) is not None:
+                            # voice_notice_dismissed_at 语义是「已确认到的声音版本」，必须原样
+                            # 回填角色自己的 voice_updated_at；放行任意字符串会让客户端写入
+                            # 远未来时间戳，永久压制存量过渡横幅。
+                            if field == "voice_notice_dismissed_at" and req[field] != entry.get("voice_updated_at"):
+                                raise _InvalidFieldValue(field)
                             entry[field] = req[field]
                     result.update(entry)
 
@@ -188,6 +201,8 @@ def build_asset_router(
             return await asyncio.to_thread(_sync)
         except KeyError:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name))
+        except _InvalidFieldValue as exc:
+            raise HTTPException(status_code=422, detail=f"field '{exc.field}' has an invalid value")
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
         except HTTPException:

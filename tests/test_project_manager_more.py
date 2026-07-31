@@ -513,7 +513,9 @@ class TestProjectManagerMore:
         pm.update_character_reference_audio("demo", "Alice", "")
         cleared = pm.get_project_character("demo", "Alice")
         assert cleared["reference_audio"] == ""
-        assert isinstance(cleared["voice_updated_at"], str) and cleared["voice_updated_at"]
+        second_stamp = cleared["voice_updated_at"]
+        assert isinstance(second_stamp, str) and second_stamp
+        assert second_stamp != first_stamp
 
         # scene lifecycle
         pm.add_scenes_batch("demo", {"客厅": {"description": "宽敞的客厅"}})

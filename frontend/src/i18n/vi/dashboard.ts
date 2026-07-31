@@ -709,7 +709,7 @@ export default {
   'episode_mode_switch_keep_data': "Chuyển chế độ sẽ không xóa các đơn vị / cảnh hiện có — bạn có thể chuyển lại bất cứ lúc nào.",
   'episode_mode_switch_to_reference': 'Đã chuyển sang reference-to-video. Dữ liệu phân cảnh/lưới được giữ nguyên và sẽ hiện lại khi bạn chuyển về.',
   'episode_mode_switch_from_reference': 'Đã chuyển về phân cảnh/lưới. Các video_units chế độ tham chiếu được giữ lại để dùng sau.',
-  // ========== PR5 reference-video editor ==========
+  // ========== reference-video editor ==========
   'reference_editor_placeholder': 'Nhập prompt. Dùng dấu "Shot 1 (3s): ..." và @mentions cho nhân vật/cảnh/đạo cụ.',
   'reference_editor_aria_name': 'Prompt đơn vị',
   'reference_editor_unknown_mentions_label': 'Mention chưa đăng ký',

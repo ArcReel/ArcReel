@@ -729,7 +729,7 @@ export default {
   'episode_mode_switch_keep_data': '切换模式不会删除已生成的 units / scenes，可随时切回原模式继续。',
   'episode_mode_switch_to_reference': '切换到参考生视频：Timeline 中的分镜/宫格数据仍然保留，在下次切回时自动恢复。',
   'episode_mode_switch_from_reference': '切换回图生/宫格生视频：参考模式的 video_units 保留，切回时可继续生成。',
-  // ========== PR5 reference-video editor ==========
+  // ========== 参考生视频编辑器 ==========
   'reference_editor_placeholder': '输入 prompt，支持 "Shot 1 (3s): ..."，用 @ 引用角色/场景/道具',
   'reference_editor_aria_name': 'Unit 提示词',
   'reference_editor_unknown_mentions_label': '未注册提及',

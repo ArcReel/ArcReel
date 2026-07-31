@@ -730,7 +730,7 @@ export default {
   'episode_mode_switch_keep_data': "Switching mode won't remove existing units / scenes — you can switch back anytime.",
   'episode_mode_switch_to_reference': 'Switched to reference-to-video. Existing storyboard/grid data is preserved and will reappear when you switch back.',
   'episode_mode_switch_from_reference': 'Switched back to storyboard/grid. Reference-mode video_units are preserved for later.',
-  // ========== PR5 reference-video editor ==========
+  // ========== reference-video editor ==========
   'reference_editor_placeholder': 'Type a prompt. Use "Shot 1 (3s): ..." markers and @mentions for characters/scenes/props.',
   'reference_editor_aria_name': 'Unit prompt',
   'reference_editor_unknown_mentions_label': 'Unregistered mentions',
