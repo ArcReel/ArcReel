@@ -72,6 +72,10 @@ pnpm build       # 生产构建，含 typecheck
 
 `lib/data_validator.py` 验证 `project.json` 和剧集 JSON 的结构与引用完整性。
 
+### 供应商能力数据
+
+能力数字（时长、参考图上限、分辨率约束）、默认 model、文档链接等供应商数据的单一真相源是 `lib/config/registry.py` 的 `PROVIDER_REGISTRY`。prompt 模板与 agent 文档不硬编码具体数值，用占位符由编排层动态注入；配置界面的此类字段不预填。
+
 ### 内容模式 (content_mode) 与生成模式 (generation_mode)
 
 两个独立维度，分别承载"内容类型"与"视频来源"：
@@ -135,7 +139,8 @@ API Key、后端选择、模型配置等通过 WebUI 配置页（`/settings`）�
 - **basedpyright**：standard 模式 + `reportMissingTypeStubs = false`，CI 强制 0 error，pre-push hook 跑全量扫描；本地可随时执行 `uv run basedpyright` 校验。tests/ 内 `reportOptional*` 和 `unknown*` 系列降级为 warning，避免大量使用 mock 的测试产生噪声；第三方 untyped 库（ffmpeg-python、pyJianYingDraft、volcenginesdkarkruntime、xai_sdk.chat、docx2txt/mammoth/ebooklib）通过行级 `# pyright: ignore[...]` 处理
 - **pytest**：`asyncio_mode = "auto"`，CI 覆盖率 ≥80%，共用 fixtures 在 `tests/conftest.py`
 - **依赖管理**：前后端新增/升级依赖一律用 `uv add` / `pnpm add`（不手写版本号到 pyproject.toml / package.json）；新增依赖后同步 `.github/dependabot.yml` 的 patterns 归入对应分组
-- **提交与 PR**：标题遵循 Conventional Commits（`type(scope): 摘要`，type 取值与 changelog 分类见 `CONTRIBUTING.md` / `.release-please-config.json`）。squash 合并下标题即 changelog 条目——写用户可感知的收益、范围词用产品术语，不写实现术语（status_code、内部类名等）且如实限定范围
+- **注释**：代码与测试注释只描述当下行为与约束，不写 issue/PR/Spec 编号，也不用时间性措辞（「最近」「本次」「实测」）——这些信息写在 commit message / PR 描述；修改文件时顺带清除已有的此类引用。`docs/` 下专门文档之间互引 spec 不受此限
+- **提交与 PR**：标题遵循 Conventional Commits（`type(scope): 摘要`，type 取值与 changelog 分类见 `CONTRIBUTING.md` / `.release-please-config.json`）。squash 合并下标题即 changelog 条目——写用户可感知的收益、范围词用产品术语，不写实现术语（status_code、内部类名等）且如实限定范围。前后端同仓一体发布，后端 API 无外部消费者：接口删改按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer
 
 ## Agent skills
 

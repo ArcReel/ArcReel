@@ -190,7 +190,9 @@ feat(grid): 支持 grid_12 布局
 将宫格系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
-**破坏性变更**有两种等价写法：
+**本仓库约定：不使用破坏性变更标记。** 前后端同仓一体发布，后端 API 的唯一消费者是自带前端，接口删改不构成对外破坏性变更——按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer。误标时有两道补救：0.x 阶段 `bump-minor-pre-major` 约束版本只升 minor；已合并的误标可编辑该 PR 正文追加 `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` 块，release-please 会按 override 重算 changelog 与版本号（需 squash 合并，本仓库满足）。
+
+以下为该机制的通用说明。**破坏性变更**有两种等价写法：
 
 ```
 # 写法 1：type 后加 !
