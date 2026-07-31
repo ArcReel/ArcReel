@@ -101,8 +101,14 @@ def build_asset_router(
         except ValueError:
             raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=req.name))
         extras = req.model_extra or {}
-        # 列表字段（reference_images / selling_points 等）在创建时即校验为字符串列表，
-        # 非法类型 422 在边界拦截，避免污染 project.json。
+        # 字符串字段（voice_style / reference_image / reference_audio 等）与列表字段
+        # （reference_images / selling_points 等）在创建时即校验类型，非法类型 422 在
+        # 边界拦截，避免污染 project.json——PATCH 路径已做同等校验（见 update_fields
+        # 校验），create 路径此前遗漏，extra="allow" 下调用方可传任意 JSON 类型。
+        for field in spec.extra_string_fields:
+            value = extras.get(field)
+            if value is not None and not isinstance(value, str):
+                raise HTTPException(status_code=422, detail=f"field '{field}' must be a string")
         for field in spec.extra_list_fields:
             value = extras.get(field)
             if value is not None and not _is_string_list(value):
