@@ -1,7 +1,4 @@
-"""参考生视频 executor。
-
-Spec: docs/superpowers/specs/2026-04-15-reference-to-video-mode-design.md §5.2
-"""
+"""参考生视频 executor。"""
 
 from __future__ import annotations
 

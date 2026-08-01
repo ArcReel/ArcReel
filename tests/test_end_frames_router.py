@@ -470,8 +470,8 @@ class TestPersistFailureRestoresSnapshot:
         assert snapshot.read_bytes() == concurrent_bytes
 
     def test_clear_failure_skips_restore_when_concurrent_clear_wins(self, client, monkeypatch):
-        """CodeRabbit 指出的退化值场景：清除失败后文件已被删（期望内容与「无人接手」的
-        期望值同为 None），并发的另一次清除随后也成功完成，结果同样是文件不存在——若
+        """退化值场景：清除失败后文件已被删（期望内容与「无人接手」的期望值同为 None），
+        并发的另一次清除随后也成功完成，结果同样是文件不存在——若
         仅比对文件内容将无法区分两者，误判为无人接手并把旧快照字节回滚出孤儿文件。
         代次判定下，并发清除会推进代次，回滚据此正确跳过。"""
         c, pm = client

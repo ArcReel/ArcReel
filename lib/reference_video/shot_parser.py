@@ -1,7 +1,4 @@
-"""参考视频 prompt 解析器：prompt ↔ Shot[]/references 双向转换。
-
-Spec: docs/superpowers/specs/2026-04-15-reference-to-video-mode-design.md §4.3
-"""
+"""参考视频 prompt 解析器：prompt ↔ Shot[]/references 双向转换。"""
 
 from __future__ import annotations
 
@@ -16,7 +13,7 @@ from lib.script_models import ReferenceResource, Shot
 #: 旧格式 ``Shot N (Xs):`` / ``镜头N (Xs)：`` 不再解析，按普通描述行处理（不留容忍：
 #: 存量落盘由加载时的一次性迁移改写，解析器只认新格式）。
 #: 冒号后不用 ``\s*(.*)$`` ——``\s`` 与 ``.`` 字符类重叠，对不可信输入（prompt 是用户输入）
-#: 是多项式 ReDoS（CodeQL py/polynomial-redos）；改为裸捕获，调用侧 ``lstrip()`` 去首空白。
+#: 构成多项式 ReDoS；改为裸捕获，调用侧 ``lstrip()`` 去首空白。
 _SHOT_HEADER_RE = re.compile(r"""^镜头\s*\d+\s*[:：](.*)$""")
 
 
