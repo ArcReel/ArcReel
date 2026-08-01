@@ -5,10 +5,13 @@
 改写：求和写进 unit 字段、剥掉镜头上的时长与随之退役的 ``duration_override`` 标记。
 
 迁移器是纯函数（就地改写传入的 dict、返回是否变更 + warning 列表），由加载侧在锁内做
-read-modify-write 回写——迁移一次落盘，二次加载不再触发。剧集脚本与 step1 草稿共用本模块：
-草稿加载侧持有模型档位，可一并把求和结果 clamp 到档位；剧集脚本加载侧是同步无 IO 路径、
-拿不到档位，只做结构区间 clamp，档位偏移仍由预检 / 执行时的取档（``resolve_duration_slot``）
-承担并记 warning，与迁移前语义一致。
+read-modify-write 回写——迁移一次落盘、谁先跑谁定终局，二次加载不再触发。正因如此，各入口的
+``supported_durations`` 必须同源：草稿的三个入口（step2 生成、web 审阅门、归档导入）都经
+``resolve_raw_supported_durations`` 取同一份档位表，落盘秒数因而必是档位成员。
+
+``supported_durations`` 为 None 的两种情形只做结构区间 clamp：项目尚未配置可解析的视频型号，
+以及 ``migrate_script_unit_durations`` 这条剧集脚本同步加载链。此时档位偏移仍由预检 / 执行时的
+取档（``resolve_duration_slot``）承担并记 warning，与迁移前语义一致。
 """
 
 from __future__ import annotations

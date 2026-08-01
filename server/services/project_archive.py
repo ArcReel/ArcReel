@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from lib.config.resolver import resolve_raw_supported_durations
 from lib.data_validator import DataValidator, ValidationResult
 from lib.episode_ledger import parse_positive_episode_num
 from lib.json_io import load_json
@@ -1019,7 +1020,12 @@ class ProjectArchiveService:
         # 下游的结构校验（DataValidator）要求 unit 级 duration_seconds 落在结构区间内，
         # 修复须先跑这道迁移再校验——本方法在 validate_project_tree 之前执行、写回结果
         # 由调用方按 script_changed 落盘，与其它字段修复共用同一次写盘。
-        migrated, migration_warnings = migrate_unit_durations(raw_units)
+        # 档位表取归档自带的 project.json（同步回退链，无 DB 访问——导入跑在 to_thread 里），
+        # 与生成侧、审阅门同源：迁移一次落盘，三处口径不一致会让先跑的把非档位秒数固化。
+        # 归档未声明视频型号时为 None，退回结构区间 clamp。
+        migrated, migration_warnings = migrate_unit_durations(
+            raw_units, supported_durations=resolve_raw_supported_durations(project_payload)
+        )
         changed = migrated
         for message in migration_warnings:
             diagnostics.add(

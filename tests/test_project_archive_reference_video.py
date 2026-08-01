@@ -92,6 +92,7 @@ def _create_reference_video_project(
     unit: dict | None = None,
     write_clip: bool = True,
     write_thumbnail: bool = True,
+    supported_durations: list[int] | None = None,
 ) -> Path:
     pm.create_project(name)
     pm.create_project_metadata(name, "RefDemo", "Anime", "narration")
@@ -99,6 +100,8 @@ def _create_reference_video_project(
     project_dir = pm.get_project_path(name)
     project = pm.load_project(name)
     project["generation_mode"] = "reference_video"
+    if supported_durations is not None:
+        project["_supported_durations"] = supported_durations
     project["style_image"] = "style_reference.png"
     project["episodes"] = [
         {
@@ -185,6 +188,42 @@ class TestProjectArchiveReferenceVideo:
         unit = imported["video_units"][0]
         assert unit["duration_seconds"] == 4
         assert "duration" not in unit["shots"][0]
+
+    def test_import_takes_slot_from_archived_supported_durations(self, tmp_path):
+        """归档导入的迁移与生成侧、审阅门取同一份档位表（此处经归档自带 project.json 的
+        同步回退链）：迁移一次落盘，口径不一致会让导入把非档位秒数固化进剧本。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        legacy_unit = {
+            "unit_id": "E1U1",
+            # 求和 10s：落在结构区间内、不是档位成员，只做结构 clamp 时会原样固化。
+            "shots": [{"duration": 6, "text": "镜头一"}, {"duration": 4, "text": "镜头二"}],
+            "references": [],
+            "transition_to_next": "cut",
+            "generated_assets": {
+                "storyboard_image": None,
+                "storyboard_last_image": None,
+                "video_clip": "reference_videos/E1U1.mp4",
+                "video_thumbnail": "reference_videos/thumbnails/E1U1.jpg",
+                "video_uri": REMOTE_VIDEO_URI,
+                "grid_id": None,
+                "grid_cell_index": None,
+                "status": "completed",
+            },
+        }
+        project_dir = _create_reference_video_project(pm, unit=legacy_unit, supported_durations=[4, 8, 12])
+        service = ProjectArchiveService(pm)
+
+        archive_path = tmp_path / "legacy-slot.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="legacy-slot.zip")
+
+        imported = json.loads(
+            (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+        )
+        assert imported["video_units"][0]["duration_seconds"] == 12
 
     def test_import_restores_video_clip_from_version(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

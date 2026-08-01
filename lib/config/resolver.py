@@ -335,6 +335,32 @@ def _resolution_for_constraints(
     return get_provider_fallback(provider_id)
 
 
+def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> list[int] | None:
+    """收窄前的时长全集：caps → project.json ``_supported_durations`` → registry 三级解析。
+
+    三级都取不到时返回 None，表示「该项目尚未配置可解析的视频型号」。同步可用是本函数的存在
+    理由：存量时长迁移的三个入口里只有 step2 生成是 async 且已持有 caps，审阅门与归档导入都在
+    同步路径上，靠后两级回退拿到同一份档位表——迁移是幂等一次性的，谁先跑谁定终局，入口之间
+    传参不一致就会让先跑的那个把非档位秒数固化到盘上。
+
+    返回值不含「分辨率↔时长」「参考图↔时长」联动约束，收窄见 ``constrain_durations_for_project``。
+    """
+    if caps and caps.get("supported_durations"):
+        return list(caps["supported_durations"])
+    durations = project.get("_supported_durations")
+    if durations and isinstance(durations, list):
+        return list(durations)
+    video_backend = project.get("video_backend")
+    if video_backend and isinstance(video_backend, str) and "/" in video_backend:
+        provider_id, model_id = video_backend.split("/", 1)
+        provider_meta = PROVIDER_REGISTRY.get(provider_id)
+        if provider_meta:
+            model_info = provider_meta.models.get(model_id)
+            if model_info and model_info.supported_durations:
+                return list(model_info.supported_durations)
+    return None
+
+
 def constrain_durations_for_project(
     project: dict,
     durations: list[int],

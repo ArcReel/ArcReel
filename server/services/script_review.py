@@ -18,6 +18,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from lib import script_review
+from lib.config.resolver import resolve_raw_supported_durations
 from lib.episode_ledger import discover_episode_files, register_orphan_episode_entries
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
@@ -114,8 +115,11 @@ class ScriptReviewService:
         存量草稿若不在读时迁移，保存与确认都会撞结构校验，用户在 gate 里既改不了也确认不了。
         剧集脚本的迁移在 ``ProjectManager.load_script``，草稿的在这里，两处共用同一迁移器。
 
-        gate 侧拿不到模型档位（能力解析是 async + DB），故只做结构区间 clamp，档位偏移由
-        step2 的枚举 schema 与执行时取档承担——与剧集脚本加载侧口径一致。
+        档位表走 ``resolve_raw_supported_durations`` 的同步回退链（project.json → registry），
+        与 step2 生成侧同源：迁移幂等一次性、谁先跑谁定终局，两侧口径不一致时先跑的审阅门会
+        把落在结构区间内但非档位成员的秒数固化到盘上，step2 的枚举 schema 随后硬拒，用户在
+        gate 里既看不出问题也改不动。解析不到（项目未配置视频型号）时传 None 退回结构区间
+        clamp——缺配置不该阻断草稿加载，档位偏移仍由执行时取档兜底。
 
         调用方须已持有 ``self.pm.file_lock(path)``——本函数只做读改写，不自行加锁，避免与
         调用方（如 ``confirm``）已持有的同一把锁发生同线程二次获取的死锁。
@@ -129,6 +133,7 @@ class ScriptReviewService:
             content,
             episode=episode,
             update_project=lambda mutate: self.pm.update_project(project_name, mutate),
+            supported_durations=resolve_raw_supported_durations(project),
         )
         return content, updated or project
 

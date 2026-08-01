@@ -16,7 +16,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import ConfigResolver, constrain_durations_for_project
+from lib.config.resolver import ConfigResolver, constrain_durations_for_project, resolve_raw_supported_durations
 from lib.db import async_session_factory
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
@@ -654,23 +654,18 @@ class ScriptGenerator:
         )
 
     def _resolve_raw_supported_durations(self, caps: dict | None) -> list[int]:
-        """收窄前的时长全集：caps → project.json → registry 三级解析；都拿不到抛 ValueError。"""
-        if caps and caps.get("supported_durations"):
-            return list(caps["supported_durations"])
-        durations = self.project_json.get("_supported_durations")
-        if durations and isinstance(durations, list):
-            return list(durations)
-        video_backend = self.project_json.get("video_backend")
-        if video_backend and isinstance(video_backend, str) and "/" in video_backend:
-            provider_id, model_id = video_backend.split("/", 1)
-            provider_meta = PROVIDER_REGISTRY.get(provider_id)
-            if provider_meta:
-                model_info = provider_meta.models.get(model_id)
-                if model_info and model_info.supported_durations:
-                    return list(model_info.supported_durations)
-        raise ValueError(
-            f"supported_durations 无法解析：caps={bool(caps)}, video_backend={video_backend!r}；请确保 model 配置完整"
-        )
+        """收窄前的时长全集：委托共享解析器，取不到时抛 ValueError。
+
+        本路径的下游是 prompt 与动态枚举 schema，缺档位就无从生成，故把解析器的 None 提升为
+        异常；同步入口（审阅门 / 归档导入）对 None 的处置是退回结构 clamp，不共用这道提升。
+        """
+        durations = resolve_raw_supported_durations(self.project_json, caps)
+        if durations is None:
+            raise ValueError(
+                f"supported_durations 无法解析：caps={bool(caps)}, "
+                f"video_backend={self.project_json.get('video_backend')!r}；请确保 model 配置完整"
+            )
+        return durations
 
     def _resolve_max_duration(
         self, caps: dict | None = None, *, gen_mode: str, uses_reference_images: bool | None = None

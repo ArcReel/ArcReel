@@ -79,17 +79,27 @@ def _rv_step1() -> dict:
     }
 
 
-def _make_project(tmp_path: Path, content_mode: str, *, generation_mode: str | None = None) -> ProjectManager:
+def _make_project(
+    tmp_path: Path,
+    content_mode: str,
+    *,
+    generation_mode: str | None = None,
+    supported_durations: list[int] | None = None,
+) -> ProjectManager:
+    """建测试项目；``supported_durations`` 落到 ``_supported_durations``，供审阅门的档位解析取用。"""
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
     pm.add_character("demo", "阿离", "少女")
     pm.add_character("demo", "裴与", "将军")
     pm.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
-    if generation_mode is not None:
+    if generation_mode is not None or supported_durations is not None:
 
         def _set_mode(p: dict) -> None:
-            p["generation_mode"] = generation_mode
+            if generation_mode is not None:
+                p["generation_mode"] = generation_mode
+            if supported_durations is not None:
+                p["_supported_durations"] = supported_durations
 
         pm.update_project("demo", _set_mode)
     return pm
@@ -289,7 +299,7 @@ class TestReferenceVideoGateFlow:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
         bad = _rv_step1()
-        bad["units"][0]["duration_seconds"] = 99  # 超出 unit 时长结构区间 [1, 60]
+        bad["units"][0]["duration_seconds"] = 9999  # 超出 unit 时长的结构合理性区间
         _write_rv_step1(pm, bad)
         with pytest.raises(ScriptReviewError) as exc:
             svc.confirm("demo", 1)
@@ -333,6 +343,35 @@ class TestReferenceVideoStep1Migration:
         legacy["units"][0]["shots"][0]["duration"] = 5
         legacy["units"][0]["shots"][1]["duration"] = 3
         return legacy
+
+    def test_migration_takes_slot_so_step2_never_sees_a_non_member_duration(self, tmp_path):
+        """审阅门迁移落盘的秒数必是档位成员，不能只是「落在结构区间内」。
+
+        迁移幂等一次性、谁先跑谁定终局，而正常产品流程是先开审阅门再生成：审阅门若按结构
+        区间落一个非档位秒数，step2 的枚举 schema 随后硬拒，用户在 gate 里看不出问题也改不动。
+        故审阅门与生成侧取同一份档位表。
+        """
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video", supported_durations=[4, 8, 12])
+        svc = ScriptReviewService(pm)
+        legacy = self._legacy_step1()
+        # 求和 10s：落在结构区间内，但不是档位成员——只做结构 clamp 时会原样固化。
+        legacy["units"][0]["shots"][0]["duration"] = 6
+        legacy["units"][0]["shots"][1]["duration"] = 4
+        path = _write_rv_step1(pm, legacy)
+
+        assert svc.get_state("demo", 1)["content"]["units"][0]["duration_seconds"] == 12
+        assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["duration_seconds"] == 12
+
+    def test_migration_falls_back_to_structural_clamp_without_video_backend(self, tmp_path):
+        """项目未配置可解析的视频型号：档位表取不到，退回结构区间 clamp 而非阻断草稿加载。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        legacy = self._legacy_step1()
+        legacy["units"][0]["shots"][0]["duration"] = 6
+        legacy["units"][0]["shots"][1]["duration"] = 4
+
+        _write_rv_step1(pm, legacy)
+        assert svc.get_state("demo", 1)["content"]["units"][0]["duration_seconds"] == 10
 
     def test_legacy_draft_is_migrated_on_read_and_written_back(self, tmp_path):
         """读状态即收编：unit 拿到求和时长、shot 不再带时长，且一次落盘、二次读不再改写。"""
@@ -389,10 +428,10 @@ class TestReferenceVideoStep1Migration:
         """迁移带 warnings（时长被 clamp 改写）不是纯格式收编：已确认分集须退回待审，
         不能像纯结构收编那样平移确认——clamp 后的秒数不是用户确认时看到的值。
         """
-        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video", supported_durations=[4, 8, 12])
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
-        # 求和 90s 超出 REFERENCE_UNIT_DURATION_RANGE 上限（60s），迁移会 clamp 并记 warning。
+        # 求和 90s 超出最大档位（12s），迁移会取档改写并记 warning。
         legacy["units"][0]["shots"][0]["duration"] = 60
         legacy["units"][0]["shots"][1]["duration"] = 30
         path = _write_rv_step1(pm, legacy)
@@ -404,14 +443,14 @@ class TestReferenceVideoStep1Migration:
 
         state = svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
-        assert state["content"]["units"][0]["duration_seconds"] == 60
+        assert state["content"]["units"][0]["duration_seconds"] == 12
 
     def test_clamping_migration_reopens_review_for_grandfathered_episode(self, tmp_path):
         """从未存过确认指纹、靠 grandfather 判据（step2 已存在）放行的存量集：迁移 clamp
         改写时长后须退回待审——迁移幂等落盘，重试不再产生 warnings，不落失配标记的话
         后续生成会静默采用用户从未过目的取值。
         """
-        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video", supported_durations=[4, 8, 12])
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
         legacy["units"][0]["shots"][0]["duration"] = 60
@@ -430,7 +469,7 @@ class TestReferenceVideoStep1Migration:
         草稿先落盘则重试判 changed=False、标记再也补不上，grandfather 存量集会带着被 clamp
         的时长停在 confirmed；标记先落盘时草稿仍是迁移前内容，重试重跑迁移即自愈。
         """
-        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video", supported_durations=[4, 8, 12])
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
         legacy["units"][0]["shots"][0]["duration"] = 60
@@ -459,7 +498,7 @@ class TestReferenceVideoStep1Migration:
         """agent / API 可能绕过 get_state 直接调用 confirm：迁移在 confirm 内部触发并 clamp
         时（枚举外 clamp + warning 的宽容口径），confirm 按迁移后的落盘内容确认放行。
         """
-        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video", supported_durations=[4, 8, 12])
         svc = ScriptReviewService(pm)
         legacy = self._legacy_step1()
         legacy["units"][0]["shots"][0]["duration"] = 60
@@ -468,7 +507,7 @@ class TestReferenceVideoStep1Migration:
 
         state = svc.confirm("demo", 1)
         assert state["status"] == "confirmed"
-        assert state["content"]["units"][0]["duration_seconds"] == 60
+        assert state["content"]["units"][0]["duration_seconds"] == 12
 
     def test_confirmation_carry_uses_written_content_not_post_write_reread(self, tmp_path, monkeypatch):
         """迁移写回后平移确认指纹须用刚写入的内容直接算，不能再读一次磁盘——写回与该次读取
