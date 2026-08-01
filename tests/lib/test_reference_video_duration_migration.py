@@ -55,7 +55,7 @@ class TestMigrateUnitDurations:
         assert any("合理区间" in w for w in warnings)
 
     def test_keeps_durations_longer_than_four_shots_worth(self):
-        """时长收编到 unit 级后，合法性由档位判定：镜头数推导出的旧上界不再拦截长档位。"""
+        """unit 时长的合法性由档位判定，与镜头数无关：档位成员即便远大于各镜头之和也原样保留。"""
         unit = _legacy_unit(shots=[15, 15], duration_seconds=120)
         _changed, warnings = migrate_unit_durations([unit], supported_durations=[8, 120])
         assert unit["duration_seconds"] == 120
