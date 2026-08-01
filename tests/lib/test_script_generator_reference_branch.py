@@ -156,6 +156,9 @@ async def test_script_generator_rejects_confirmed_duration_outside_effective_tie
     """step1 校验用未收窄的 raw 档位（此处 [4,8]），但本集实际按参考图收窄到 [8]：确认时
     合法的 4 秒不再是收窄后的合法值。这种情况下不能静默取档改写落盘——用户审阅通过的
     时长/费用会被换成一个从未过目的值，须 fail-loud 要求重新审阅确认。
+
+    拦截须发生在 TextBackend 调用之前：step1 自身的 references 状态已足以判定该 unit 出局，
+    放到输出解析阶段才拦，用户已经为这次必然失败的生成付了费。
     """
     fake_generator = MagicMock()
     fake_generator.model = "mock"
@@ -181,6 +184,7 @@ async def test_script_generator_rejects_confirmed_duration_outside_effective_tie
     ):
         with pytest.raises(ValueError, match="不在当前生效档位"):
             await gen.generate(episode=1)
+    fake_generator.generate.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -293,6 +293,16 @@ class ScriptGenerator:
         # _add_metadata，按落地后的最终 references 逐 unit 重算。
         reference_unit_durations = None
         if step1_units is not None:
+            # 必然失败的已确认时长在付费调用之前拦下：step1 加载用的是未收窄的档位全集，
+            # 联动约束收窄后它可能已出局。放到 _add_metadata 才拦，TextBackend 的费用已经产生。
+            for unit in step1_units:
+                off_tiers = self._unit_duration_off_every_tier(unit["duration_seconds"], caps=caps, gen_mode=gen_mode)
+                if off_tiers is not None:
+                    raise ValueError(
+                        f"unit {unit['unit_id']} 已确认时长 {unit['duration_seconds']}s 不在当前生效档位 "
+                        f"{sorted(set(off_tiers))} 内；通常是模型或分辨率配置变化让档位收窄导致，"
+                        "请调整配置回原档位，或重新拆分该集 step1 并重新审阅确认"
+                    )
             reference_unit_durations = {
                 str(_rewrite_episode_prefix(u["unit_id"], episode)): u["duration_seconds"] for u in step1_units
             }
@@ -652,6 +662,32 @@ class ScriptGenerator:
             generation_mode=gen_mode,
             uses_reference_images=uses_reference_images,
         )
+
+    def _unit_duration_off_every_tier(self, duration: int, *, caps: dict | None, gen_mode: str) -> list[int] | None:
+        """时长在带图与不带图两种档位下都出局时返回带图档位，任一合法则返回 None。
+
+        step2 可以给 unit 增删 references，只在其中一种状态下出局的时长仍可能落地合法——
+        提前判死会拦掉本会成功的生成。两种状态都出局才是与 references 无关的必然失败
+        （模型或分辨率配置变化所致），可以在付费调用前拦下。
+        """
+        for has_references in (True, False):
+            tiers = self._unit_duration_off_tier(duration, has_references=has_references, caps=caps, gen_mode=gen_mode)
+            if tiers is None:
+                return None
+        return self._resolve_supported_durations(caps, gen_mode=gen_mode, uses_reference_images=True)
+
+    def _unit_duration_off_tier(
+        self, duration: int, *, has_references: bool, caps: dict | None, gen_mode: str
+    ) -> list[int] | None:
+        """时长落在该 unit 生效档位之外时返回该档位集，落在内则返回 None。
+
+        生效档位逐 unit 算：分辨率与参考图两条联动约束都只对实际带图的 unit 生效，整集一刀切
+        会收掉无引用 unit 本可申请的档位。档位不可解析时按无约束处理，交执行期 backend 兜底。
+        """
+        tiers = self._resolve_supported_durations(caps, gen_mode=gen_mode, uses_reference_images=has_references)
+        if not tiers:
+            return None
+        return None if resolve_duration_slot(duration, tiers).seconds == duration else tiers
 
     def _resolve_raw_supported_durations(self, caps: dict | None) -> list[int]:
         """收窄前的时长全集：委托共享解析器，取不到时抛 ValueError。
@@ -1083,20 +1119,18 @@ class ScriptGenerator:
                 # references 由 LLM 在 step2 输出时决定，可能与 step1 机械派生的不同（见
                 # generate() 内的构造处注释）。caps 为 None 也不短路——
                 # _resolve_supported_durations 自带 caps → project.json → registry 三级回退。
-                unit_tiers = self._resolve_supported_durations(
-                    caps, gen_mode=gen_mode, uses_reference_images=bool(s.get("references"))
+                unit_tiers = self._unit_duration_off_tier(
+                    target_duration, has_references=bool(s.get("references")), caps=caps, gen_mode=gen_mode
                 )
-                if unit_tiers:
-                    slot = resolve_duration_slot(target_duration, unit_tiers)
-                    if slot.seconds != target_duration:
-                        # 生效档位收窄到已确认值之外：fail-loud，不静默取档改写——用户审阅
-                        # 通过的时长/费用不被换成从未过目的值落盘。报错文案说明成因与出路。
-                        raise ValueError(
-                            f"unit {s[id_field]} 已确认时长 {target_duration}s 不在当前生效档位 "
-                            f"{sorted(set(unit_tiers))} 内；通常是该次生成给该 unit 新增/去掉了引用"
-                            "导致，可重新生成再试；若重试后仍失败，说明模型能力已变化，需要重新拆分"
-                            "该集 step1"
-                        )
+                if unit_tiers is not None:
+                    # 生效档位收窄到已确认值之外：fail-loud，不静默取档改写——用户审阅
+                    # 通过的时长/费用不被换成从未过目的值落盘。报错文案说明成因与出路。
+                    raise ValueError(
+                        f"unit {s[id_field]} 已确认时长 {target_duration}s 不在当前生效档位 "
+                        f"{sorted(set(unit_tiers))} 内；通常是该次生成给该 unit 新增/去掉了引用"
+                        "导致，可重新生成再试；若重试后仍失败，说明模型能力已变化，需要重新拆分"
+                        "该集 step1"
+                    )
                 if s.get("duration_seconds") != target_duration:
                     logger.warning(
                         "unit %s 时长与 step1 确认值不一致（LLM 输出 %s，已按 step1 确认值 %s 覆盖）",
