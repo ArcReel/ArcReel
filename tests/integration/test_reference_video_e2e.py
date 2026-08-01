@@ -1,4 +1,4 @@
-"""参考生视频完整端到端集成测试（PR7 M6）。
+"""参考生视频完整端到端集成测试。
 
 覆盖：
   1. 路由 POST /reference-videos/episodes/{ep}/units → unit 创建

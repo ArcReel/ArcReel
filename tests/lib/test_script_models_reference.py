@@ -18,7 +18,7 @@ def test_shot_valid():
 def test_shot_rejects_duration_field():
     """时长收编到 unit 级：镜头不再承载时长，写入即被 strict 模型拒绝。"""
     with pytest.raises(ValidationError):
-        Shot(duration=5, text="x")  # pyright: ignore[reportCallIssue]
+        Shot.model_validate({"duration": 5, "text": "x"})
 
 
 def test_reference_resource_valid_types():

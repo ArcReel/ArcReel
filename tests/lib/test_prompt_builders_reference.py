@@ -1,7 +1,4 @@
-"""reference_video prompt builder 单元测试。
-
-Spec §7.3、§4.2/4.3。
-"""
+"""reference_video prompt builder 单元测试。"""
 
 from lib.prompt_builders_reference import build_reference_video_prompt
 
@@ -68,7 +65,7 @@ def test_build_reference_video_prompt_contains_required_sections():
 
 
 def test_build_reference_video_prompt_emphasizes_no_appearance_description():
-    """spec §7.3 规则 3：描述里用包裹 mention，不描述外貌。"""
+    """描述里用包裹 mention，不描述外貌。"""
     prompt = build_reference_video_prompt(
         project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
         style="style",
@@ -139,9 +136,9 @@ def test_build_reference_video_prompt_max_duration_none_skips_segment():
 
 
 def test_build_reference_video_prompt_constrains_unit_duration_to_supported():
-    """unit 总时长（各 shot 之和）∈ supported 的硬约束由动态 schema 枚举承担；
+    """unit 总时长 ∈ supported 的硬约束由动态 schema 枚举承担；
 
-    prompt 只保留编排策略：给出支持集合，引导各 shot 时长相加正好落在集合内。
+    prompt 只保留编排策略：给出支持集合，引导模型直接把 unit 时长取值落在集合内。
     """
     prompt = build_reference_video_prompt(
         project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},

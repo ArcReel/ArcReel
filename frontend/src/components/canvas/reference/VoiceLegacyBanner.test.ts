@@ -20,10 +20,9 @@ function ga(overrides: Partial<UnitGeneratedAssets>): UnitGeneratedAssets {
 function unit(id: string, characterName: string, generatedAssets: UnitGeneratedAssets): ReferenceVideoUnit {
   return {
     unit_id: id,
-    shots: [{ duration: 5, text: "" }],
+    shots: [{ text: "" }],
     references: [{ type: "character", name: characterName }],
     duration_seconds: 5,
-    duration_override: false,
     transition_to_next: "cut",
     note: null,
     generated_assets: generatedAssets,

@@ -27,7 +27,7 @@ function versionMachineBusy(): boolean {
 function mkUnit(overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
   return {
     unit_id: "E1U1",
-    shots: [{ text: "Shot 1 (3s): x" }],
+    shots: [{ text: "x" }],
     references: [],
     duration_seconds: 3,
     transition_to_next: "cut",

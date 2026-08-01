@@ -1123,7 +1123,7 @@ def build_reference_video_script_model(supported_durations: list[int]) -> type[B
     unit = _constrained_duration_item(
         ReferenceVideoUnit,
         _duration_literal(supported_durations),
-        "所有 shot 时长之和，必须取 supported_durations 中的值",
+        "该 unit 的时长（秒），必须取 supported_durations 中的值",
     )
     return create_model(
         "ReferenceVideoScript",

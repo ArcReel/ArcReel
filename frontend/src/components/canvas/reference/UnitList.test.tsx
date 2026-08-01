@@ -6,7 +6,7 @@ import type { ReferenceVideoUnit } from "@/types";
 function mkUnit(id: string, overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
   return {
     unit_id: id,
-    shots: [{ text: "Shot 1 (3s): enter the pub" }],
+    shots: [{ text: "enter the pub" }],
     references: [{ type: "character", name: "张三" }],
     duration_seconds: 3,
     transition_to_next: "cut",

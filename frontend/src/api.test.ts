@@ -982,7 +982,7 @@ describe("API.referenceVideos", () => {
 
   const mkUnit = (id: string): ReferenceVideoUnit => ({
     unit_id: id,
-    shots: [{ text: "镜头1：test" }],
+    shots: [{ text: "test" }],
     references: [],
     duration_seconds: 3,
     transition_to_next: "cut",
