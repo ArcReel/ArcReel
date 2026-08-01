@@ -417,7 +417,7 @@ class DramaScene(BaseModel):
     # 已废弃但存量 JSON 里可能残留的字段:在 extra="forbid" 拒绝之前显式 pop 掉,
     # 与「未知字段(typo / hallucination)一律拒」并存——前者是已知 deprecated,
     # 后者才是 forbid 想挡的真问题。新增 deprecate 字段时把名字加到这个集合。
-    # - scene_type:main #644 删的场景类型字段
+    # - scene_type:已删除的场景类型字段
     # - clues_in_scene:v0→v1 migration 删的线索字段(同 NarrationSegment.clues_in_segment)
     LEGACY_DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset({"scene_type", "clues_in_scene"})
 

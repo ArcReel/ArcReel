@@ -53,7 +53,7 @@ from lib.script_models import (
     merge_drama_visual_into_scenes,
     script_duration_total,
 )
-from lib.script_review import migrate_step1_draft_in_place
+from lib.script_review import gate_blocks_step2, migrate_step1_draft_in_place
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
@@ -772,6 +772,9 @@ class ScriptGenerator:
             )
 
         pm = ProjectManager(str(self.project_path.parent))
+        # 审阅 gate 的判定在本次调用更早处（step2 工具入口）已做过，迁移可能在放行之后改写
+        # 时长；先记下迁移前的放行状态，迁移后据此判断本次调用是否已失去放行依据。
+        gate_passed_before = not gate_blocks_step2(self.project_path, pm.load_project(self.project_path.name), episode)
         # 与 server.services.script_review / save_content 共享同一把 per-path 锁：
         # 迁移的读改写与 Web 端保存、重拆分写盘相互互斥。
         with pm.file_lock(step1_json):
@@ -782,13 +785,25 @@ class ScriptGenerator:
 
             # 存量草稿的 per-shot 时长一次性收编到 unit 级并回写落盘（二次加载不再触发）。
             # 此处持有模型档位，收编结果直接取档，与下方的枚举校验对齐。
-            migrate_step1_draft_in_place(
+            migrated_project, migration_warnings = migrate_step1_draft_in_place(
                 step1_json,
                 raw,
                 episode=episode,
                 update_project=lambda mutate: pm.update_project(self.project_path.name, mutate),
                 supported_durations=supported_durations,
             )
+
+        # 迁移带 warnings 说明 clamp 改写了实际秒数，那是内容变更、审阅确认随之失效。gate
+        # 放行用的是迁移前的状态，改写发生在放行之后：不在这里补判，本次调用就会拿着用户从未
+        # 过目的秒数走完付费的 step2，落盘之后才在下次加载被拦下。
+        if migration_warnings and migrated_project is not None and gate_passed_before:
+            if gate_blocks_step2(self.project_path, migrated_project, episode):
+                raise ValueError(
+                    f"第 {episode} 集 step1 时长已按当前模型档位收编改写（"
+                    + "；".join(migration_warnings)
+                    + "），改写后的内容尚未经审阅确认，step2 生成已中止；"
+                    "请在 Web 端审阅确认本集 step1 后重新生成"
+                )
 
         try:
             draft = ReferenceStep1Draft.model_validate(raw)

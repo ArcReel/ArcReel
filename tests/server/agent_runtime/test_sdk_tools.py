@@ -2150,7 +2150,7 @@ async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext
 
 
 async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: ToolContext, monkeypatch) -> None:
-    """工具必须把 episode 注入 build_normalize_prompt，避免 LLM 写错 E\\d+ 前缀（#574）。"""
+    """工具必须把 episode 注入 build_normalize_prompt，避免 LLM 写错 E\\d+ 前缀。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     project_path = fake_ctx.project_path

@@ -706,7 +706,7 @@ class TestScriptGenerator:
 
 
 class TestAddMetadataRewritesEpisodePrefix:
-    """_add_metadata 兜底改写 segment/scene/unit ID 的 E\\d+ 前缀（#574）。"""
+    """_add_metadata 兜底改写 segment/scene/unit ID 的 E\\d+ 前缀。"""
 
     @staticmethod
     def _make_generator(tmp_path: Path, content_mode: str = "narration") -> ScriptGenerator:
@@ -1498,6 +1498,33 @@ class TestLoadReferenceStep1:
         assert on_disk["units"][0]["duration_seconds"] == 8
         assert "duration" not in on_disk["units"][0]["shots"][0]
         assert "duration" not in on_disk["units"][0]["shots"][1]
+
+    @pytest.mark.integration
+    def test_clamping_migration_aborts_generation_that_gate_already_let_through(self, tmp_path):
+        """靠 grandfather 判据（step2 已存在、无确认指纹）放行的存量集：迁移 clamp 改写秒数后
+        本次调用须中止。gate 判的是迁移前状态，改写发生在放行之后——不在此拦下，付费的 step2
+        就会按用户从未过目的秒数生成，落盘后才在下次加载被拦。
+        """
+        sg = _bare_generator(
+            tmp_path,
+            {"generation_mode": "reference_video", "episodes": [{"episode": 1}]},
+        )
+        (sg.project_path / "scripts").mkdir(parents=True, exist_ok=True)
+        (sg.project_path / "scripts" / "episode_1.json").write_text("{}", encoding="utf-8")
+        self._write(
+            sg,
+            1,
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "shots": [{"duration": 4, "text": "甲起身"}, {"duration": 3, "text": "甲出门"}],
+                    }
+                ]
+            },
+        )
+        with pytest.raises(ValueError, match="尚未经审阅确认"):
+            sg._load_reference_step1(1, [4, 6, 8])
 
     def test_empty_units_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)

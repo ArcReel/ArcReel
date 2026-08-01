@@ -777,6 +777,9 @@ def test_reference_step1_migration_carries_confirmation_confirmed_after_construc
 def test_reference_step1_migration_does_not_carry_confirmation_when_duration_is_clamped(reference_project: Path):
     """迁移带 warnings（求和时长不在模型档位内，被取档改写）不是纯格式收编：已确认分集
     须退回待审，不能平移确认——取档后的秒数不是用户确认时看到的值。
+
+    退回待审的同时本次调用也须中止：审阅 gate 判的是迁移前状态、已按「已确认」放行，
+    改写发生在放行之后，继续下去就会按用户从未过目的秒数走完付费的 step2。
     """
     drafts = reference_project / "drafts" / "episode_1"
     legacy = {"units": [{"unit_id": "E1U01", "shots": [{"duration": 4, "text": "@[主角] 转身"}]}]}
@@ -791,8 +794,11 @@ def test_reference_step1_migration_does_not_carry_confirmation_when_duration_is_
 
     gen = ScriptGenerator(reference_project)
     # 求和 4s 不是模型档位成员，取档改写为 8s——这一步产生 warning。
-    units = gen._load_reference_step1(episode=1, supported_durations=[8])
-    assert units[0]["duration_seconds"] == 8
+    with pytest.raises(ValueError, match="尚未经审阅确认"):
+        gen._load_reference_step1(episode=1, supported_durations=[8])
+
+    # 迁移本身已幂等落盘（中止的是本次生成，不是迁移）。
+    assert _json.loads(step1_path.read_text(encoding="utf-8"))["units"][0]["duration_seconds"] == 8
 
     after_project = _json.loads(project_path.read_text(encoding="utf-8"))
     review = after_project["episodes"][0]["step1_review"]

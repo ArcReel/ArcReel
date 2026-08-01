@@ -1374,7 +1374,7 @@ class ProjectManager:
         migrated = False
         with self._project_lock(project_name):
             # 读-改-写放在同一把锁内，避免并发 save_project 在读与写之间完成
-            # 更新后，迁移写回又把更新覆盖掉（Codex #304 P2）。
+            # 更新后，迁移写回又把更新覆盖掉。
             with open(project_file, encoding="utf-8") as f:
                 project = json.load(f)
             if self._migrate_legacy_style(project):
