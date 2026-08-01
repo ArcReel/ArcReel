@@ -281,7 +281,7 @@ describe("ReferenceVideoCanvas", () => {
   });
 
   // step2 剧本未生成时（仅 segmented）units 端点无脚本可拆、会 404：默认落 preproc tab
-  // 且不发起 units 请求，避免用户先看到一个报错的 Unit 面板（回归 Codex P2）。
+  // 且不发起 units 请求，避免用户先看到一个报错的 Unit 面板。
   it("defaults to preproc tab and skips loadUnits when hasScript is false", async () => {
     const listSpy = vi.spyOn(API, "listReferenceVideoUnits");
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
@@ -380,7 +380,7 @@ describe("ReferenceVideoCanvas", () => {
       expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled();
     });
     // 旧任务行仍是 failed，statusMap 未变；预览区不能同时叠出「生成中」占位与
-    // 旧失败覆盖层——inFlight 应压过 failed 的展示（回归 Codex P2）。
+    // 旧失败覆盖层——inFlight 应压过 failed 的展示。
     expect(screen.queryByText(/Generation failed|生成失败/)).not.toBeInTheDocument();
     resolveGen({ task_id: "t2", deduped: false });
 
