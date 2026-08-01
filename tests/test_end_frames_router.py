@@ -371,7 +371,7 @@ def _inject_concurrent_takeover_before_nth_load(monkeypatch, key, target: Path, 
     `content=None` 表示并发的那一次是清除（文件被删）；否则表示并发的那一次是设置。
 
     补偿回滚会再发起一次 `locked_script`，其剧本读取即回滚临界区的起点——在其第 n 次被
-    调用时执行这次「并发接管」，相当于恰好在回滚拿到锁之前完成。挂钩点取底层的
+    调用时执行注入的「并发接管」，相当于恰好在回滚拿到锁之前完成。挂钩点取底层的
     `_read_script_unlocked`：锁外的 `load_script` 与锁内的读-改-写都经它读盘，计数才覆盖
     两类临界区起点。
     """
@@ -525,7 +525,7 @@ class TestPersistFailureRestoresSnapshot:
 
         def _load_with_rewrite(self, *args, **kwargs):
             calls["n"] += 1
-            # 读盘序列：_locate_shot(1) → 本次失败操作自己的 locked_script(2)
+            # 读盘序列：_locate_shot(1) → 失败操作自身的 locked_script(2)
             if calls["n"] == 2:
                 snapshot.write_bytes(content_at_critical_section_entry)
             return original_read_script(self, *args, **kwargs)

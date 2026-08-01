@@ -424,6 +424,37 @@ class TestReferenceVideoStep1Migration:
         # 幂等重读不会把状态放回 grandfather 放行：失配标记已持久化。
         assert svc.get_state("demo", 1)["status"] == "pending_review"
 
+    def test_clamping_migration_marker_survives_interrupted_project_write(self, tmp_path, monkeypatch):
+        """迁移是「project 失配标记 + 草稿」两次写：project 那次失败后重试仍须收敛到待审。
+
+        草稿先落盘则重试判 changed=False、标记再也补不上，grandfather 存量集会带着被 clamp
+        的时长停在 confirmed；标记先落盘时草稿仍是迁移前内容，重试重跑迁移即自愈。
+        """
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        legacy = self._legacy_step1()
+        legacy["units"][0]["shots"][0]["duration"] = 60
+        legacy["units"][0]["shots"][1]["duration"] = 30
+        _write_rv_step1(pm, legacy)
+        _write_step2(pm)
+
+        original_update = pm.update_project
+        failed: list[int] = []
+
+        def _fail_first_project_write(*args, **kwargs):
+            if not failed:
+                failed.append(1)
+                raise OSError("project write interrupted")
+            return original_update(*args, **kwargs)
+
+        monkeypatch.setattr(pm, "update_project", _fail_first_project_write)
+
+        with pytest.raises(OSError):
+            svc.get_state("demo", 1)
+
+        monkeypatch.setattr(pm, "update_project", original_update)
+        assert svc.get_state("demo", 1)["status"] == "pending_review"
+
     def test_confirm_direct_call_confirms_migrated_content(self, tmp_path):
         """agent / API 可能绕过 get_state 直接调用 confirm：迁移在 confirm 内部触发并 clamp
         时（枚举外 clamp + warning 的宽容口径），confirm 按迁移后的落盘内容确认放行。

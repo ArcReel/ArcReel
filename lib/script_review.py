@@ -218,6 +218,10 @@ def migrate_step1_draft_in_place(
     该标记的持久化不区分 dry-run 与真实生成：迁移幂等落盘后重试不再产生 warnings，只有落盘
     的标记能保证后续生成仍被审阅门拦下。
 
+    project 侧的确认标记先落盘、草稿后落盘：两次写之间中断时草稿仍是迁移前内容，下次加载
+    重跑迁移即自愈。反序则草稿已丢失旧字段、重跑判 ``changed=False``，标记永久缺失——靠
+    grandfather 判据放行的存量集会带着被 clamp 的时长停在 confirmed，绕过审阅门。
+
     ``supported_durations`` 给定时（step2 加载侧持有模型档位）收编结果直接取档；缺省
     （web gate 侧，能力解析是 async + DB、同步拿不到档位）只做结构区间 clamp。
 
@@ -232,7 +236,7 @@ def migrate_step1_draft_in_place(
         logger.warning("step1 草稿 %s 时长收编迁移: %s", path.name, message)
     if not changed:
         return None, []
-    atomic_write_json(path, content)
+
     if warnings:
 
         def _invalidate_grandfathered(p: dict[str, Any]) -> None:
@@ -242,10 +246,14 @@ def migrate_step1_draft_in_place(
             if not stored.get("fingerprint"):
                 apply_confirmation(p, episode, before, str(stored.get("confirmed_at") or ""))
 
-        return update_project(_invalidate_grandfathered), warnings
-    after = content_fingerprint_of_data(content)
+        updated = update_project(_invalidate_grandfathered)
+    else:
+        after = content_fingerprint_of_data(content)
 
-    def _carry(p: dict[str, Any]) -> None:
-        carry_confirmation_through_migration(p, episode, before, after)
+        def _carry(p: dict[str, Any]) -> None:
+            carry_confirmation_through_migration(p, episode, before, after)
 
-    return update_project(_carry), warnings
+        updated = update_project(_carry)
+
+    atomic_write_json(path, content)
+    return updated, warnings

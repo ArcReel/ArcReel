@@ -146,15 +146,20 @@ class ScriptReviewService:
             # not_applicable（ad / reference_video）与分集存在性无关，保持原样返回。
             project = self._require_episode(project_name, project, episode)
         content: dict[str, Any] | None = None
+        fingerprint: str | None = None
         if path is not None:
-            # 迁移可能回写 step1 与确认记录；指纹与状态须在其后取，三者据同一份落盘内容派生。
+            # 迁移可能回写 step1 与确认记录；指纹与状态在同一把锁内、迁移之后取，三者才据
+            # 同一份落盘内容派生——锁外取则并发 save_content 会让指纹描述另一份内容。
             with self.pm.file_lock(path):
                 content, project = self._read_step1_migrated(project_name, project, episode, path)
-        fingerprint = script_review.content_fingerprint(path) if path is not None else None
+                fingerprint = script_review.content_fingerprint(path)
+                status = script_review.review_status(project_path, project, episode)
+        else:
+            status = script_review.review_status(project_path, project, episode)
         return {
             "episode": episode,
             "content_mode": project.get("content_mode"),
-            "status": script_review.review_status(project_path, project, episode),
+            "status": status,
             "fingerprint": fingerprint,
             "confirmed_at": script_review.stored_review(project, episode).get("confirmed_at"),
             "content": content,

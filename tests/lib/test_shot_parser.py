@@ -30,7 +30,7 @@ def test_parse_accepts_ascii_colon_and_spacing():
 
 
 def test_parse_legacy_header_is_not_recognized():
-    """时长收编后旧 header 彻底退出：整段按无 header 的单镜头处理、文本逐字保留。"""
+    """`Shot N (Xs):` 不是受支持的 header：整段按无 header 的单镜头处理、文本逐字保留。"""
     text = "Shot 1 (3s): 开场\nShot 2 (5s): 收尾"
     shots, _refs = parse_prompt(text)
     assert len(shots) == 1
