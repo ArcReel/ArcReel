@@ -443,7 +443,8 @@ class ScriptGenerator:
         step1 已定结构（novel_text 等透传）；否则走单段解析（reference/drama/ad）。
         ``reference_unit_durations`` 非 None 时（reference_video 路径）按 unit_id 机械覆盖
         LLM 输出的 ``duration_seconds``（取档用最终输出的 references 状态重算，见 ``_add_metadata``）；
-        此时 ``caps`` 须同时给出，供 ``_add_metadata`` 解析每个 unit 的生效档位。
+        ``caps`` 可一并传入，为 None 时 ``_add_metadata`` 仍按 caps → project.json → registry
+        三级回退解析每个 unit 的生效档位，不会因此跳过取档校验。
         """
         assert self.generator is not None  # generate() 入口已检查
         # 调用 TextBackend
@@ -1069,7 +1070,8 @@ class ScriptGenerator:
             reference_unit_durations: reference_video 路径按 unit_id（改写后）机械覆盖 LLM
                 输出的 unit 时长——step1 确认的原始值，未经取档；取档按下方逐 unit 重算，
                 见 ``generate`` 内的构造处注释
-            caps: reference_unit_durations 非 None 时须同时给出，供逐 unit 解析生效档位
+            caps: 逐 unit 解析生效档位的能力值；为 None 时按 caps → project.json → registry
+                三级回退解析，不跳过取档校验
 
         Returns:
             补充元数据后的剧本数据
