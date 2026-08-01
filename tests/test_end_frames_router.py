@@ -510,9 +510,9 @@ class TestPersistFailureRestoresSnapshot:
         assert snapshot.read_bytes() == concurrent_bytes
 
     def test_set_failure_restore_uses_bytes_read_inside_critical_section(self, client, monkeypatch):
-        """Codex 指出的陈旧基线问题：`old_bytes` 若在取得剧本锁之前预读，读到的是「进入
-        临界区之前」而非「进入临界区那一刻」的文件内容。这里不推进代次，只在本次操作
-        自己的 `load_script` 调用（进入临界区的时点）直接改写文件——代次检查不会拦截
+        """陈旧基线问题：`old_bytes` 若在取得剧本锁之前预读，读到的是「进入临界区之前」
+        而非「进入临界区那一刻」的文件内容。这里不推进代次，只在本次操作自己的
+        `_read_script_unlocked` 调用（进入临界区的时点）直接改写文件——代次检查不会拦截
         （因为没有别的操作声称接管），能否回滚出这份改写后的内容，才真正区分基线是在
         锁内读还是锁外预读：锁外预读会读到改写前的旧内容，回滚会把改写后的内容覆盖掉。"""
         c, pm = client
