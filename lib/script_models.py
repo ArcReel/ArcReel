@@ -75,7 +75,7 @@ def _canon_enum_key(value: str) -> str:
 
 # schema 的 enum 只有在供应商执行约束解码时才是硬约束；代理网关/OpenAI 兼容通道丢弃
 # wire 级结构化参数时，模型会把枚举写成大写/小写蛇形（MEDIUM_SHOT / medium_shot）
-# 甚至词表外值（wide_shot / dolly_in，均为线上实测值）。机械归一（大小写/
+# 甚至词表外值（如 wide_shot / dolly_in）。机械归一（大小写/
 # 分隔符）把风格漂移拉回词表；词表外值不做语义近义映射（语义映射永远穷举不全），
 # 一律降级为中性默认值并 warn——这两个字段下游只作生成 prompt 的文本插值，
 # 单镜头词汇漂移不值得让整集剧本生成失败。
