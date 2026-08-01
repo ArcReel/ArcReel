@@ -68,7 +68,7 @@ class ReferenceDto(BaseModel):
 class AddUnitRequest(BaseModel):
     prompt: str
     references: list[ReferenceDto] = Field(default_factory=list)
-    duration_seconds: int | None = None
+    duration_seconds: int | None = Field(default=None, ge=1)
     transition_to_next: str = Field(default="cut", pattern=r"^(cut|fade|dissolve)$")
     note: str | None = None
 
@@ -267,7 +267,9 @@ async def add_unit(
     duration_seconds = req.duration_seconds
     if duration_seconds is None:
         project, _script, _sf = _load_episode_script(project_name, episode, _t)
-        duration_seconds = default_unit_duration(await resolve_project_duration_context(project), project)
+        duration_seconds = default_unit_duration(
+            await resolve_project_duration_context(project), project, with_references=bool(refs)
+        )
 
     with _locked_episode_script(
         project_name, _episode_script_resolver(episode, _t, refs, require_ad=False), _t
@@ -277,7 +279,7 @@ async def add_unit(
             unit_id=_next_unit_id(script, episode),
             prompt=req.prompt,
             references=refs,
-            duration_seconds=max(1, int(duration_seconds)),
+            duration_seconds=int(duration_seconds),
             transition=req.transition_to_next,
             note=req.note,
         )
@@ -291,7 +293,7 @@ async def add_unit(
 class PatchUnitRequest(BaseModel):
     prompt: str | None = None
     references: list[ReferenceDto] | None = None
-    duration_seconds: int | None = None
+    duration_seconds: int | None = Field(default=None, ge=1)
     transition_to_next: str | None = Field(default=None, pattern=r"^(cut|fade|dissolve)$")
     note: str | None = None
 
@@ -342,7 +344,7 @@ async def patch_unit(
             unit["shots"] = [s.model_dump() for s in shots]
         # 时长与正文互不牵连：镜头不承载时长，改文案不改时长、改时长不动镜头
         if req.duration_seconds is not None:
-            unit["duration_seconds"] = max(1, int(req.duration_seconds))
+            unit["duration_seconds"] = req.duration_seconds
 
         if req.transition_to_next is not None:
             unit["transition_to_next"] = req.transition_to_next

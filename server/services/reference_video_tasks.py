@@ -275,26 +275,29 @@ def precheck_unit(ctx: ProjectDurationContext, unit: dict, ad_shots: list[dict] 
     return resolve_duration_slot(unit_script_duration(unit, ad_shots), durations)
 
 
-def default_unit_duration(ctx: ProjectDurationContext, project: dict) -> int:
-    """新建 unit 的默认时长（秒）：项目偏好 > 收窄后的首个档位 > 兜底。
+def default_unit_duration(ctx: ProjectDurationContext, project: dict, *, with_references: bool = False) -> int:
+    """新建 unit 的默认时长（秒）：项目偏好 > 收窄后的最短档位 > 兜底。
 
     档位按执行层同一套约束收窄（``effective_reference_durations``），使新建单元拿到的秒数
-    落在它真正被生成时能申请到的档位内。项目偏好不是当前模型的档位成员时（换模型后配置
-    漂移）不采信，退到档位首项；档位不可解析时退到 ``FALLBACK_UNIT_DURATION``，与执行层
-    读不到 unit 时长时的兜底值同源。
+    落在它真正被生成时能申请到的档位内。``with_references`` 须与 ``precheck_unit`` 对同一
+    unit 的判据同源（是否带参考图）。项目偏好不是当前模型的档位成员时（换模型后配置漂移）
+    不采信，退到收窄后档位里的最短值（自定义供应商声明的档位可能不按升序排列）；档位不可
+    解析时无从校验偏好是否可申请，直接退到 ``FALLBACK_UNIT_DURATION``，与执行层读不到
+    unit 时长时的兜底值同源。
     """
     durations = effective_reference_durations(
         ctx.provider_id,
         ctx.model_name,
         list(ctx.supported_durations),
         ctx.resolution,
-        with_reference_images=False,
+        with_reference_images=with_references,
     )
+    if not durations:
+        return FALLBACK_UNIT_DURATION
     preferred = project.get("default_duration")
-    if isinstance(preferred, int) and not isinstance(preferred, bool) and preferred > 0:
-        if not durations or preferred in durations:
-            return preferred
-    return durations[0] if durations else FALLBACK_UNIT_DURATION
+    if isinstance(preferred, int) and not isinstance(preferred, bool) and preferred in durations:
+        return preferred
+    return min(durations)
 
 
 async def _project_video_resolution(project: dict, provider_id: str, model_id: str | None) -> str | None:

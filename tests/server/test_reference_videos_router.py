@@ -94,6 +94,7 @@ def test_add_unit_creates_minimal_entry(client: TestClient):
     assert payload["unit"]["references"] == [{"type": "character", "name": "张三"}]
 
 
+@pytest.mark.integration
 def test_add_unit_without_duration_falls_back_to_model_slot(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     """请求不给时长 → 取项目能力解析出的档位首项（与执行层解析申请秒数的回退序同源）。"""
     _patch_supported_durations(monkeypatch, [6, 9])
@@ -103,6 +104,21 @@ def test_add_unit_without_duration_falls_back_to_model_slot(client: TestClient, 
     )
     assert resp.status_code == 201, resp.text
     assert resp.json()["unit"]["duration_seconds"] == 6
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("duration_seconds", [0, -1])
+def test_add_unit_rejects_non_positive_duration(client: TestClient, duration_seconds: int):
+    """显式非正时长须在请求边界被拒，不静默改写成 1 秒。"""
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={
+            "prompt": "镜头1：@张三 推门",
+            "duration_seconds": duration_seconds,
+            "references": [{"type": "character", "name": "张三"}],
+        },
+    )
+    assert resp.status_code == 422, resp.text
 
 
 def test_add_unit_rejects_unknown_asset_reference(client: TestClient):
@@ -127,6 +143,7 @@ def _seed_unit(client: TestClient) -> str:
     return resp.json()["unit"]["unit_id"]
 
 
+@pytest.mark.integration
 def test_patch_unit_prompt_keeps_duration(client: TestClient):
     """时长与正文互不牵连：改文案不动 unit 时长（镜头不承载时长）。"""
     uid = _seed_unit(client)
@@ -142,6 +159,7 @@ def test_patch_unit_prompt_keeps_duration(client: TestClient):
     assert len(unit["references"]) == 1
 
 
+@pytest.mark.integration
 def test_patch_unit_duration_only(client: TestClient):
     """只改时长：镜头正文原样保留。"""
     uid = _seed_unit(client)
@@ -153,6 +171,18 @@ def test_patch_unit_duration_only(client: TestClient):
     unit = resp.json()["unit"]
     assert unit["duration_seconds"] == 9
     assert unit["shots"] == [{"text": "@张三 推门"}]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("duration_seconds", [0, -1])
+def test_patch_unit_rejects_non_positive_duration(client: TestClient, duration_seconds: int):
+    """显式非正时长须在请求边界被拒，不静默改写成 1 秒。"""
+    uid = _seed_unit(client)
+    resp = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"duration_seconds": duration_seconds},
+    )
+    assert resp.status_code == 422, resp.text
 
 
 def test_patch_unit_references_only(client: TestClient):

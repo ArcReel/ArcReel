@@ -147,6 +147,45 @@ class TestProjectArchiveReferenceVideo:
         assert (project_dir / "reference_videos" / "E1U1.mp4").exists()
         assert (project_dir / "reference_videos" / "thumbnails" / "E1U1.jpg").exists()
 
+    @pytest.mark.integration
+    def test_import_migrates_legacy_per_shot_duration_before_validation(self, tmp_path):
+        """存量归档的 unit 仍是收编前形状（时长挂在 shots 上、无 unit 级 duration_seconds）：
+        结构校验要求 duration_seconds 落在合理区间内，早于迁移执行的话会把这类归档直接拒绝，
+        永远走不到能修复它的迁移器。修复须先于校验跑一次迁移。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        legacy_unit = {
+            "unit_id": "E1U1",
+            "shots": [{"duration": 4, "text": "镜头一"}],
+            "references": [],
+            "transition_to_next": "cut",
+            "generated_assets": {
+                "storyboard_image": None,
+                "storyboard_last_image": None,
+                "video_clip": "reference_videos/E1U1.mp4",
+                "video_thumbnail": "reference_videos/thumbnails/E1U1.jpg",
+                "video_uri": REMOTE_VIDEO_URI,
+                "grid_id": None,
+                "grid_cell_index": None,
+                "status": "completed",
+            },
+        }
+        project_dir = _create_reference_video_project(pm, unit=legacy_unit)
+        service = ProjectArchiveService(pm)
+
+        archive_path = tmp_path / "legacy-duration.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="legacy-duration.zip")
+
+        imported = json.loads(
+            (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+        )
+        unit = imported["video_units"][0]
+        assert unit["duration_seconds"] == 4
+        assert "duration" not in unit["shots"][0]
+
     def test_import_restores_video_clip_from_version(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         # video_clip 指向失效的版本路径，靠 versions.json 回溯物化当前文件

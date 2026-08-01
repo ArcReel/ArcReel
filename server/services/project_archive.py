@@ -20,6 +20,7 @@ from lib.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_hint
 from lib.project_manager import ProjectManager, effective_mode
 from lib.project_migrations.runner import migrate_project_dir
+from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.resource_paths import resource_extension, resource_relative_path
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.source_loader.migration import migrate_project_source_encoding
@@ -1014,7 +1015,19 @@ class ProjectArchiveService:
         if not isinstance(raw_units, list):
             return False, False
 
-        changed = False
+        # 存量归档可能仍是收编前的形状（时长挂在 shots 上、unit 缺 duration_seconds）：
+        # 下游的结构校验（DataValidator）要求 unit 级 duration_seconds 落在结构区间内，
+        # 修复须先跑这道迁移再校验——本方法在 validate_project_tree 之前执行、写回结果
+        # 由调用方按 script_changed 落盘，与其它字段修复共用同一次写盘。
+        migrated, migration_warnings = migrate_unit_durations(raw_units)
+        changed = migrated
+        for message in migration_warnings:
+            diagnostics.add(
+                "warnings",
+                "reference_video_duration_migrated",
+                f"{script_path_rel}: {message}",
+            )
+
         project_changed = False
         for index, unit in enumerate(raw_units):
             if not isinstance(unit, dict):

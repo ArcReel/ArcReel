@@ -129,7 +129,7 @@ describe("ReferenceVideoCanvas", () => {
       .spyOn(API, "patchReferenceVideoUnit")
       .mockResolvedValue({ unit: { ...mkUnit("E1U1"), duration_seconds: 8 } });
     render(
-      <ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[3, 8]} />,
+      <ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[3, 8]} durationOptionsNoReference={[3, 8]} />,
     );
     const select = (await screen.findByRole("combobox", {
       name: /Duration|时长/,
@@ -145,13 +145,48 @@ describe("ReferenceVideoCanvas", () => {
   it("keeps an out-of-slot saved duration as an option", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
     render(
-      <ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[4, 8]} />,
+      <ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[4, 8]} durationOptionsNoReference={[4, 8]} />,
     );
     const select = (await screen.findByRole("combobox", {
       name: /Duration|时长/,
     })) as HTMLSelectElement;
     expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "4", "8"]);
     expect(select.value).toBe("3");
+  });
+
+  // 参考图约束按 unit 生效：不带 references 的 unit 不应因同集内其它带图 unit 而被收窄。
+  it("offers the no-reference tier set for a unit without references", async () => {
+    const unit = mkUnit("E1U1");
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    render(
+      <ReferenceVideoCanvas
+        projectName="proj"
+        episode={1}
+        durationOptions={[8]}
+        durationOptionsNoReference={[4, 8]}
+      />,
+    );
+    const select = (await screen.findByRole("combobox", {
+      name: /Duration|时长/,
+    })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "4", "8"]);
+  });
+
+  it("offers the reference-narrowed tier set for a unit with references", async () => {
+    const unit = { ...mkUnit("E1U1"), references: [{ type: "character" as const, name: "王" }] };
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    render(
+      <ReferenceVideoCanvas
+        projectName="proj"
+        episode={1}
+        durationOptions={[8]}
+        durationOptionsNoReference={[4, 8]}
+      />,
+    );
+    const select = (await screen.findByRole("combobox", {
+      name: /Duration|时长/,
+    })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "8"]);
   });
 
   it("remounts the card so textarea shows the new unit's prompt when selection changes", async () => {

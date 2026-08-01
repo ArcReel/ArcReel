@@ -11,10 +11,12 @@ import pytest
 
 from lib.reference_video.errors import MissingReferenceError
 from server.services.reference_video_tasks import (
+    FALLBACK_UNIT_DURATION,
     ProjectDurationContext,
     _apply_provider_constraints,
     _render_unit_prompt,
     _resolve_unit_references,
+    default_unit_duration,
     effective_reference_durations,
     precheck_unit,
 )
@@ -49,7 +51,7 @@ def _write_project(tmp_path: Path) -> Path:
         "video_units": [
             {
                 "unit_id": "E1U1",
-                "shots": [{"text": "Shot 1 (3s): @张三 推门"}],
+                "shots": [{"text": "@张三 推门"}],
                 "references": [
                     {"type": "character", "name": "张三"},
                     {"type": "scene", "name": "酒馆"},
@@ -363,6 +365,50 @@ def test_precheck_unit_is_pure_and_matches_slot_semantics(
     slot = precheck_unit(ctx, unit, None)
     assert slot.seconds == expected_seconds
     assert slot.adjustment == expected_adjustment
+
+
+@pytest.mark.unit
+def test_default_unit_duration_narrows_by_references_like_precheck_unit():
+    """新建 unit 若已带 references，默认时长要按参考图约束收窄——否则会给出一个立刻被
+    precheck_unit 打回、要求用户确认的默认值——两处判据须保持一致。"""
+    ctx = ProjectDurationContext(
+        supported_durations=(4, 6, 8),
+        resolution="720p",
+        provider_id="gemini-aistudio",
+        model_name="veo-3.1-generate-preview",
+    )
+    project = {}
+    # 不带参考图：720p 纯文本路径仍是全集，首档 4 秒。
+    assert default_unit_duration(ctx, project, with_references=False) == 4
+    # 带参考图：Veo 3.1 720p 带图仅接受 8 秒，默认值须落在这个收窄后的集合内。
+    assert default_unit_duration(ctx, project, with_references=True) == 8
+
+
+@pytest.mark.unit
+def test_default_unit_duration_falls_back_when_tiers_unavailable():
+    """档位解析失败（supported_durations 为空）时直接退到兜底值——档位缺位下无从校验
+    偏好是否可申请，不采信项目偏好。"""
+    ctx = ProjectDurationContext(
+        supported_durations=(),
+        resolution=None,
+        provider_id="gemini-aistudio",
+        model_name=None,
+    )
+    assert default_unit_duration(ctx, {"default_duration": 120}, with_references=False) == FALLBACK_UNIT_DURATION
+    assert default_unit_duration(ctx, {"default_duration": 12}, with_references=False) == FALLBACK_UNIT_DURATION
+
+
+@pytest.mark.unit
+def test_default_unit_duration_takes_min_of_unordered_custom_tiers():
+    """自定义供应商声明的档位可能不按升序排列（如 [8, 4]）：取最小值而非第一项，
+    否则默认值会比前端下拉展示的首选项（升序排序后的最短档位）更贵。"""
+    ctx = ProjectDurationContext(
+        supported_durations=(8, 4),
+        resolution=None,
+        provider_id="gemini-aistudio",
+        model_name="veo-3.1-via-relay",  # 未登记型号：不施加约束，原样传递声明顺序
+    )
+    assert default_unit_duration(ctx, {}, with_references=False) == 4
 
 
 @pytest.mark.unit
@@ -1081,7 +1127,7 @@ async def test_execute_reference_video_task_rounds_up_non_member_duration(
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     # 5 不是 [4,8,12] 成员 → 按 8 秒申请
-    script["video_units"][0]["shots"] = [{"text": "Shot 1 (5s): @张三 推门"}]
+    script["video_units"][0]["shots"] = [{"text": "@张三 推门"}]
     script["video_units"][0]["duration_seconds"] = 5
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
@@ -1138,7 +1184,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     proj_dir = _write_project(tmp_path)
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"][0]["shots"] = [{"text": "Shot 1 (5s): @张三 推门"}]
+    script["video_units"][0]["shots"] = [{"text": "@张三 推门"}]
     script["video_units"][0]["duration_seconds"] = 5
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 

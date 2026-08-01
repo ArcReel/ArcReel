@@ -51,10 +51,15 @@ export interface ReferenceVideoCanvasProps {
   /** step2 剧本（scripts/episode_N.json）是否已生成——决定默认 tab（镜像 GridImageToVideoCanvas 的 hasScript 判定）。 */
   hasScript?: boolean;
   /**
-   * unit 时长下拉的档位，来自模型能力声明（已按本集参考图路径与分辨率收窄）。
-   * 能力不可解析时为 undefined——此时不渲染下拉，只读展示当前秒数，不编造档位。
+   * unit 时长下拉的档位，来自模型能力声明（已按参考图约束与分辨率收窄）。供带 references
+   * 的 unit 使用；能力不可解析时为 undefined——此时不渲染下拉，只读展示当前秒数，不编造档位。
    */
   durationOptions?: number[];
+  /**
+   * 同一模型能力下、不叠加参考图约束的档位（仍按分辨率收窄）。供不带 references 的 unit
+   * 使用——参考图约束按 unit 生效，不能因同集内其它 unit 带图就收窄这类 unit 的可选档位。
+   */
+  durationOptionsNoReference?: number[];
 }
 
 const EMPTY_UNITS: readonly ReferenceVideoUnit[] = Object.freeze([]);
@@ -115,6 +120,7 @@ export function ReferenceVideoCanvas({
   canEditTitle,
   hasScript = true,
   durationOptions,
+  durationOptionsNoReference,
 }: ReferenceVideoCanvasProps) {
   const { t } = useTranslation("dashboard");
 
@@ -182,6 +188,12 @@ export function ReferenceVideoCanvas({
     () => units.find((u) => u.unit_id === selectedUnitId) ?? null,
     [units, selectedUnitId],
   );
+
+  // 参考图约束按 unit 而非按集生效（同 lib.reference_video.precheck_unit 的
+  // bool(unit.references) 判据）：不带 references 的 unit 用不叠加该约束的档位，
+  // 否则同集内其它 unit 带图会连带把它的可选档位收窄到一个它本不受限的子集。
+  const effectiveDurationOptions =
+    selected && selected.references.length === 0 ? durationOptionsNoReference : durationOptions;
 
   // selectedUnitId is a global singleton; validate against current episode's units.
   useEffect(() => {
@@ -770,7 +782,7 @@ export function ReferenceVideoCanvas({
                     </span>
                     <span className="inline-flex items-center gap-1 rounded border border-[var(--color-hairline-soft)] bg-[oklch(0.22_0.011_265_/_0.6)] px-2 py-0.5 text-[11.5px] text-[var(--color-text-2)]">
                       <Clock className="h-3 w-3" aria-hidden="true" />
-                      {durationOptions && durationOptions.length > 0 ? (
+                      {effectiveDurationOptions && effectiveDurationOptions.length > 0 ? (
                         <select
                           aria-label={t("duration_selector_aria")}
                           value={selected.duration_seconds}
@@ -784,9 +796,11 @@ export function ReferenceVideoCanvas({
                           className="focus-ring cursor-pointer bg-transparent font-mono tabular-nums text-[var(--color-text-2)] disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {/* 已保存的越界值（换模型后档位收窄）留一项，避免下拉把它静默改写成别的秒数 */}
-                          {(durationOptions.includes(selected.duration_seconds)
-                            ? durationOptions
-                            : [...durationOptions, selected.duration_seconds].sort((a, b) => a - b)
+                          {(effectiveDurationOptions.includes(selected.duration_seconds)
+                            ? effectiveDurationOptions
+                            : [...effectiveDurationOptions, selected.duration_seconds].sort(
+                                (a, b) => a - b,
+                              )
                           ).map((seconds) => (
                             <option key={seconds} value={seconds}>
                               {t("duration_seconds_value_text", { value: seconds })}
