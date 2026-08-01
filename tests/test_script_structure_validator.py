@@ -184,7 +184,7 @@ class TestInvalidNarration:
 class TestInvalidReferenceVideo:
     def test_duration_out_of_structural_range_rejected(self):
         # unit 时长是唯一真相、与镜头无关，只受结构合理性区间约束
-        result = validate_script_structure(_reference([_unit(duration=99)]))
+        result = validate_script_structure(_reference([_unit(duration=9999)]))
         assert not result.valid
         assert any("duration" in e.lower() for e in result.errors)
 

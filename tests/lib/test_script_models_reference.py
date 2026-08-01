@@ -112,4 +112,9 @@ def test_reference_video_unit_rejects_duration_out_of_structural_range():
     with pytest.raises(ValidationError):
         _make_unit(duration_seconds=0)
     with pytest.raises(ValidationError):
-        _make_unit(duration_seconds=61)
+        _make_unit(duration_seconds=9999)
+
+
+def test_reference_video_unit_accepts_duration_beyond_four_shots_worth():
+    """结构区间只兜脏数据量级：合法性交档位判定，不按镜头数上限推导上界。"""
+    assert _make_unit(duration_seconds=120).duration_seconds == 120

@@ -9,6 +9,7 @@ import pytest
 
 from lib.project_manager import ProjectManager
 from lib.reference_video.duration_migration import migrate_script_unit_durations, migrate_unit_durations
+from lib.script_models import REFERENCE_UNIT_DURATION_RANGE
 
 
 def _legacy_unit(unit_id: str = "E1U1", shots: list[int] | None = None, **extra) -> dict:
@@ -47,10 +48,18 @@ class TestMigrateUnitDurations:
         assert unit["duration_seconds"] == 10
 
     def test_clamps_out_of_range_sum_with_warning(self):
-        unit = _legacy_unit(shots=[15, 15, 15, 15], duration_seconds=120)
+        """结构区间只兜脏数据量级；无档位时它是唯一的上界，超出即 clamp 并记 warning。"""
+        unit = _legacy_unit(shots=[15, 15, 15, 15], duration_seconds=9999)
         _changed, warnings = migrate_unit_durations([unit])
-        assert unit["duration_seconds"] == 60
+        assert unit["duration_seconds"] == REFERENCE_UNIT_DURATION_RANGE[1]
         assert any("合理区间" in w for w in warnings)
+
+    def test_keeps_durations_longer_than_four_shots_worth(self):
+        """时长收编到 unit 级后，合法性由档位判定：镜头数推导出的旧上界不再拦截长档位。"""
+        unit = _legacy_unit(shots=[15, 15], duration_seconds=120)
+        _changed, warnings = migrate_unit_durations([unit], supported_durations=[8, 120])
+        assert unit["duration_seconds"] == 120
+        assert warnings == []
 
     def test_takes_slot_when_supported_durations_given(self):
         unit = _legacy_unit(shots=[3, 5])

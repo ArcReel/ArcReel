@@ -761,10 +761,12 @@ REFERENCE_SHOT_DURATION_RANGE: tuple[int, int] = (1, 15)
 
 #: 参考生视频 unit 时长（``ReferenceVideoUnit.duration_seconds``）的结构合理性区间（秒）。
 #: unit 时长的**取值集**是模型能力声明的档位枚举，随模型而变、不进静态模型；本区间只做
-#: 与模型无关的结构兜底：下界 1 秒，上界取 4 个镜头 × 单镜头上限，即历史 per-shot 求和的
-#: 理论最大值——存量迁移的 clamp 与结构校验共用此真相源。落在区间内但非档位成员的秒数由
-#: ``resolve_duration_slot`` 在预检 / 执行时取档（偏移记 warning）。
-REFERENCE_UNIT_DURATION_RANGE: tuple[int, int] = (1, 4 * REFERENCE_SHOT_DURATION_RANGE[1])
+#: 与模型无关的脏数据兜底：拦住非正整数与量级明显失真的值，合法性判定整体交给档位——取值
+#: 是否合法由 ``resolve_duration_slot`` 取档（偏移记 warning）与动态枚举 schema 承担。
+#: 上界因此取一个宽于任何可预见档位声明的量级，而非由镜头数推导：镜头不再承载时长，按
+#: 「4 镜头 × 单镜头上限」推导会把支持更长档位的模型判非法。存量迁移的结构 clamp 与
+#: ``DataValidator`` 的结构校验共用此真相源。
+REFERENCE_UNIT_DURATION_RANGE: tuple[int, int] = (1, 300)
 
 #: ad 剧本总时长 vs 项目 target_duration 的偏差观察阈值（比例）。供应商时长枚举
 #: （如 [4,6,8]）的量化误差让总和难精确命中目标，阈值放宽只捕明显跑偏；超阈值

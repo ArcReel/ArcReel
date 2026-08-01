@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from lib.data_validator import DataValidator
+from lib.script_models import REFERENCE_UNIT_DURATION_RANGE
 
 
 def _write(dir: Path, path: str, data: dict) -> Path:
@@ -115,14 +116,15 @@ def test_validator_rejects_non_string_reference_name(tmp_path: Path):
 def test_validator_rejects_invalid_unit_duration(tmp_path: Path):
     project = _reference_project()
     script = _valid_reference_script()
-    script["video_units"][0]["duration_seconds"] = 99  # 超出结构合理性区间 [1,60]
+    script["video_units"][0]["duration_seconds"] = 9999  # 超出结构合理性区间
     _write(tmp_path, "project.json", project)
     _write(tmp_path, "scripts/episode_1.json", script)
 
     v = DataValidator()
     result = v.validate_project_tree(tmp_path)
     assert not result.valid
-    assert any("duration_seconds 必须是 1-60" in e for e in result.errors)
+    low, high = REFERENCE_UNIT_DURATION_RANGE
+    assert any(f"duration_seconds 必须是 {low}-{high}" in e for e in result.errors)
 
 
 @pytest.mark.integration
