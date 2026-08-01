@@ -804,12 +804,16 @@ class ScriptGenerator:
             )
 
         pm = ProjectManager(str(self.project_path.parent))
-        # 顺序不变量：审阅 gate 的判定在更早的 step2 工具入口完成，迁移在其后运行且可能改写
-        # 时长。先记下迁移前的放行状态，供迁移后判断放行依据是否已失效。
-        gate_passed_before = not gate_blocks_step2(self.project_path, pm.load_project(self.project_path.name), episode)
         # 与 server.services.script_review / save_content 共享同一把 per-path 锁：
         # 迁移的读改写与 Web 端保存、重拆分写盘相互互斥。
         with pm.file_lock(step1_json):
+            # 顺序不变量：审阅 gate 的判定在更早的 step2 工具入口完成，迁移在其后运行且可能
+            # 改写时长。先记下迁移前的放行状态，供迁移后判断放行依据是否已失效。放行状态与
+            # 草稿在同一临界区内读取，两者才描述同一时刻——锁外读则并发的保存/确认会让它
+            # 描述另一份草稿的审阅结果。
+            gate_passed_before = not gate_blocks_step2(
+                self.project_path, pm.load_project(self.project_path.name), episode
+            )
             try:
                 raw = json.loads(step1_json.read_text(encoding="utf-8"))
             except json.JSONDecodeError as e:
