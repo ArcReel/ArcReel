@@ -767,8 +767,8 @@ class ScriptGenerator:
             )
 
         pm = ProjectManager(str(self.project_path.parent))
-        # 审阅 gate 的判定在本次调用更早处（step2 工具入口）已做过，迁移可能在放行之后改写
-        # 时长；先记下迁移前的放行状态，迁移后据此判断本次调用是否已失去放行依据。
+        # 顺序不变量：审阅 gate 的判定在更早的 step2 工具入口完成，迁移在其后运行且可能改写
+        # 时长。先记下迁移前的放行状态，供迁移后判断放行依据是否已失效。
         gate_passed_before = not gate_blocks_step2(self.project_path, pm.load_project(self.project_path.name), episode)
         # 与 server.services.script_review / save_content 共享同一把 per-path 锁：
         # 迁移的读改写与 Web 端保存、重拆分写盘相互互斥。
@@ -788,9 +788,9 @@ class ScriptGenerator:
                 supported_durations=supported_durations,
             )
 
-        # 迁移带 warnings 说明 clamp 改写了实际秒数，那是内容变更、审阅确认随之失效。gate
-        # 放行用的是迁移前的状态，改写发生在放行之后：不在这里补判，本次调用就会拿着用户从未
-        # 过目的秒数走完付费的 step2，落盘之后才在下次加载被拦下。
+        # 迁移带 warnings 说明 clamp 改写了实际秒数，那是内容变更、审阅确认随之失效。而 gate
+        # 放行据的是改写前的状态：不在此处补判，生成就会拿着用户从未过目的秒数走完付费的
+        # step2，落盘之后才在下次加载被拦下。
         if migration_warnings and migrated_project is not None and gate_passed_before:
             if gate_blocks_step2(self.project_path, migrated_project, episode):
                 raise ValueError(

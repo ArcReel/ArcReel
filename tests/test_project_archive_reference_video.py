@@ -189,6 +189,7 @@ class TestProjectArchiveReferenceVideo:
         assert unit["duration_seconds"] == 4
         assert "duration" not in unit["shots"][0]
 
+    @pytest.mark.integration
     def test_import_takes_slot_from_archived_supported_durations(self, tmp_path):
         """归档导入的迁移与生成侧、审阅门取同一份档位表（此处经归档自带 project.json 的
         同步回退链）：迁移一次落盘，口径不一致会让导入把非档位秒数固化进剧本。
