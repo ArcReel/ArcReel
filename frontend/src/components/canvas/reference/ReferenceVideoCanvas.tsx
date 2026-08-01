@@ -412,7 +412,13 @@ export function ReferenceVideoCanvas({
         useAppStore.getState().pushToast(t("reference_generate_busy"), "error");
         return;
       }
-      void patchUnit(projectName, episode, unitId, { duration_seconds: seconds }).catch(toastError);
+      void patchUnit(projectName, episode, unitId, { duration_seconds: seconds })
+        .then(() => {
+          // 参考视频按申请秒数计价，改档位即改估价。落盘广播的是 reference_unit:updated，
+          // 不在 SSE 的生成动作白名单内、不会触发重拉，费用面板要在此处自行刷新。
+          useCostStore.getState().debouncedFetch(projectName);
+        })
+        .catch(toastError);
     },
     [patchUnit, projectName, episode, t],
   );

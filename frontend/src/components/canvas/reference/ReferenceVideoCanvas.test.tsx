@@ -5,6 +5,7 @@ import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/referen
 import { useProjectsStore } from "@/stores/projects-store";
 import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
+import { useCostStore } from "@/stores/cost-store";
 import { API } from "@/api";
 import type { ReferenceVideoUnit } from "@/types";
 import type { ProjectData } from "@/types";
@@ -139,6 +140,22 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() =>
       expect(patchSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_seconds: 8 }),
     );
+  });
+
+  // 参考视频按申请秒数计价：改档位即改估价，而落盘广播的 reference_unit:updated 不在
+  // SSE 的生成动作白名单内，费用面板只能靠这里主动重拉，否则一直显示旧价。
+  it("refreshes cost estimates after a duration patch succeeds", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    vi.spyOn(API, "patchReferenceVideoUnit").mockResolvedValue({
+      unit: { ...mkUnit("E1U1"), duration_seconds: 8 },
+    });
+    const fetchSpy = vi.spyOn(useCostStore.getState(), "debouncedFetch").mockImplementation(() => {});
+    render(
+      <ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[3, 8]} durationOptionsNoReference={[3, 8]} />,
+    );
+    const select = await screen.findByRole("combobox", { name: /Duration|时长/ });
+    fireEvent.change(select, { target: { value: "8" } });
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith("proj"));
   });
 
   // 换模型后档位收窄，已保存的越界秒数仍要留在选项里，否则下拉会把它静默改写
