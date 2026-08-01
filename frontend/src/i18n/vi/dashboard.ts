@@ -710,7 +710,7 @@ export default {
   'episode_mode_switch_to_reference': 'Đã chuyển sang reference-to-video. Dữ liệu phân cảnh/lưới được giữ nguyên và sẽ hiện lại khi bạn chuyển về.',
   'episode_mode_switch_from_reference': 'Đã chuyển về phân cảnh/lưới. Các video_units chế độ tham chiếu được giữ lại để dùng sau.',
   // ========== reference-video editor ==========
-  'reference_editor_placeholder': 'Nhập prompt. Dùng dấu "Shot 1 (3s): ..." và @mentions cho nhân vật/cảnh/đạo cụ.',
+  'reference_editor_placeholder': 'Nhập prompt. Tách nhiều cảnh bằng dấu "镜头1：..." và @mentions cho nhân vật/cảnh/đạo cụ.',
   'reference_editor_aria_name': 'Prompt đơn vị',
   'reference_editor_unknown_mentions_label': 'Mention chưa đăng ký',
   'reference_editor_unknown_mention': 'Chưa đăng ký: @{{name}} (không có trong nhân vật/cảnh/đạo cụ)',

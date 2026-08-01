@@ -6,10 +6,9 @@ import type { ReferenceVideoUnit } from "@/types";
 function mkUnit(id: string, overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
   return {
     unit_id: id,
-    shots: [{ duration: 3, text: "Shot 1 (3s): enter the pub" }],
+    shots: [{ text: "enter the pub" }],
     references: [{ type: "character", name: "张三" }],
     duration_seconds: 3,
-    duration_override: false,
     transition_to_next: "cut",
     note: null,
     generated_assets: {
@@ -78,7 +77,7 @@ describe("UnitList", () => {
   });
 
   // Regression: 无 min-h-0 时 flex 子元素默认 min-height:auto 会被内容撑高，
-  // overflow-y-auto 失效并撑破页面高度。见 #367 问题 2。
+  // overflow-y-auto 失效并撑破页面高度。
   it("scroll container has min-h-0 to keep overflow-y-auto effective", () => {
     render(
       <UnitList units={[mkUnit("U1")]} selectedId={null} onSelect={vi.fn()} onAdd={vi.fn()} />,

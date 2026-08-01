@@ -1,4 +1,4 @@
-"""参考生视频完整端到端集成测试（PR7 M6）。
+"""参考生视频完整端到端集成测试。
 
 覆盖：
   1. 路由 POST /reference-videos/episodes/{ep}/units → unit 创建
@@ -101,11 +101,12 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
     client, proj_dir, monkeypatch = three_bucket_client
 
     # 1) 新建 unit：混合 3 bucket mention + 多 shot
-    prompt = "Shot 1 (3s): @张三 推门进 @酒馆\nShot 2 (4s): 近景 @张三 握紧 @长剑\n"
+    prompt = "镜头1：@张三 推门进 @酒馆\n镜头2：近景 @张三 握紧 @长剑\n"
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={
             "prompt": prompt,
+            "duration_seconds": 7,
             "references": [
                 {"type": "character", "name": "张三"},
                 {"type": "scene", "name": "酒馆"},
@@ -119,8 +120,6 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
 
     # shot_parser 落地 shots[]
     assert len(unit["shots"]) == 2
-    assert unit["shots"][0]["duration"] == 3
-    assert unit["shots"][1]["duration"] == 4
     assert unit["duration_seconds"] == 7
     ref_names = {r["name"] for r in unit["references"]}
     assert ref_names == {"张三", "酒馆", "长剑"}

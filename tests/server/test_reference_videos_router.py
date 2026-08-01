@@ -81,7 +81,11 @@ def test_list_units_404_for_unknown_project(client: TestClient):
 def test_add_unit_creates_minimal_entry(client: TestClient):
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "Shot 1 (3s): @张三 推门", "references": [{"type": "character", "name": "张三"}]},
+        json={
+            "prompt": "镜头1：@张三 推门",
+            "duration_seconds": 3,
+            "references": [{"type": "character", "name": "张三"}],
+        },
     )
     assert resp.status_code == 201, resp.text
     payload = resp.json()
@@ -90,10 +94,37 @@ def test_add_unit_creates_minimal_entry(client: TestClient):
     assert payload["unit"]["references"] == [{"type": "character", "name": "张三"}]
 
 
+@pytest.mark.integration
+def test_add_unit_without_duration_falls_back_to_model_slot(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """请求不给时长 → 取项目能力解析出的档位首项（与执行层解析申请秒数的回退序同源）。"""
+    _patch_supported_durations(monkeypatch, [6, 9])
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={"prompt": "镜头1：@张三 推门", "references": [{"type": "character", "name": "张三"}]},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["unit"]["duration_seconds"] == 6
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("duration_seconds", [0, -1])
+def test_add_unit_rejects_non_positive_duration(client: TestClient, duration_seconds: int):
+    """显式非正时长须在请求边界被拒，不静默改写成 1 秒。"""
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={
+            "prompt": "镜头1：@张三 推门",
+            "duration_seconds": duration_seconds,
+            "references": [{"type": "character", "name": "张三"}],
+        },
+    )
+    assert resp.status_code == 422, resp.text
+
+
 def test_add_unit_rejects_unknown_asset_reference(client: TestClient):
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "Shot 1 (2s): @未知角色 出现", "references": [{"type": "character", "name": "未知角色"}]},
+        json={"prompt": "镜头1：@未知角色 出现", "references": [{"type": "character", "name": "未知角色"}]},
     )
     assert resp.status_code == 400
     assert "未知角色" in resp.json()["detail"]
@@ -102,23 +133,56 @@ def test_add_unit_rejects_unknown_asset_reference(client: TestClient):
 def _seed_unit(client: TestClient) -> str:
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "Shot 1 (3s): @张三 推门", "references": [{"type": "character", "name": "张三"}]},
+        json={
+            "prompt": "镜头1：@张三 推门",
+            "duration_seconds": 3,
+            "references": [{"type": "character", "name": "张三"}],
+        },
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["unit"]["unit_id"]
 
 
-def test_patch_unit_prompt_recomputes_duration(client: TestClient):
+@pytest.mark.integration
+def test_patch_unit_prompt_keeps_duration(client: TestClient):
+    """时长与正文互不牵连：改文案不动 unit 时长（镜头不承载时长）。"""
     uid = _seed_unit(client)
     resp = client.patch(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
-        json={"prompt": "Shot 1 (4s): @张三 推门\nShot 2 (6s): @酒馆 全景"},
+        json={"prompt": "镜头1：@张三 推门\n镜头2：@酒馆 全景"},
     )
     assert resp.status_code == 200, resp.text
     unit = resp.json()["unit"]
-    assert unit["duration_seconds"] == 10
+    assert len(unit["shots"]) == 2
+    assert unit["duration_seconds"] == 3
     # 注意：prompt 新增的 @酒馆 应由 caller 先 PATCH references 再 PATCH prompt；本端点仅按旧 references 映射
     assert len(unit["references"]) == 1
+
+
+@pytest.mark.integration
+def test_patch_unit_duration_only(client: TestClient):
+    """只改时长：镜头正文原样保留。"""
+    uid = _seed_unit(client)
+    resp = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"duration_seconds": 9},
+    )
+    assert resp.status_code == 200, resp.text
+    unit = resp.json()["unit"]
+    assert unit["duration_seconds"] == 9
+    assert unit["shots"] == [{"text": "@张三 推门"}]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("duration_seconds", [0, -1])
+def test_patch_unit_rejects_non_positive_duration(client: TestClient, duration_seconds: int):
+    """显式非正时长须在请求边界被拒，不静默改写成 1 秒。"""
+    uid = _seed_unit(client)
+    resp = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"duration_seconds": duration_seconds},
+    )
+    assert resp.status_code == 422, resp.text
 
 
 def test_patch_unit_references_only(client: TestClient):
@@ -225,9 +289,7 @@ def test_generate_unit_rejects_blank_prompt(client: TestClient, tmp_path: Path):
     """shots 文本全空白的 unit 在入队时被守卫点拒绝（400），不再漏到执行层失败。"""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["video_units"] = [
-        {"unit_id": "E1U1", "shots": [{"duration": 3, "text": "  "}], "references": [], "duration_seconds": 3}
-    ]
+    script["video_units"] = [{"unit_id": "E1U1", "shots": [{"text": "  "}], "references": [], "duration_seconds": 3}]
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate")
@@ -313,7 +375,7 @@ def test_add_unit_stale_script_file_returns_404(client: TestClient, tmp_path: Pa
     (tmp_path / "projects" / "demo" / "scripts" / "episode_1.json").unlink()
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "Shot 1 (2s): @张三 出现", "references": [{"type": "character", "name": "张三"}]},
+        json={"prompt": "镜头1：@张三 出现", "references": [{"type": "character", "name": "张三"}]},
     )
     assert resp.status_code == 404, resp.text
 
@@ -321,7 +383,7 @@ def test_add_unit_stale_script_file_returns_404(client: TestClient, tmp_path: Pa
 def test_add_unit_unknown_project_returns_404(client: TestClient):
     resp = client.post(
         "/api/v1/projects/missing/reference-videos/episodes/1/units",
-        json={"prompt": "Shot 1 (2s): @张三 出现", "references": []},
+        json={"prompt": "镜头1：@张三 出现", "references": []},
     )
     assert resp.status_code == 404
 
@@ -329,7 +391,7 @@ def test_add_unit_unknown_project_returns_404(client: TestClient):
 def test_add_unit_unknown_episode_returns_404(client: TestClient):
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/99/units",
-        json={"prompt": "Shot 1 (2s): 空镜", "references": []},
+        json={"prompt": "镜头1：空镜", "references": []},
     )
     assert resp.status_code == 404
 
@@ -347,7 +409,7 @@ def test_write_endpoint_rejects_non_reference_video_mode(client: TestClient, tmp
 
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "Shot 1 (2s): 空镜", "references": []},
+        json={"prompt": "镜头1：空镜", "references": []},
     )
     assert resp.status_code == 409
 
@@ -423,6 +485,6 @@ def test_add_unit_concurrent_rebind_returns_409(client: TestClient, monkeypatch:
 
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
-        json={"prompt": "Shot 1 (2s): 空镜", "references": []},
+        json={"prompt": "镜头1：空镜", "references": []},
     )
     assert resp.status_code == 409, resp.text

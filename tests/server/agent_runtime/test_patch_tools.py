@@ -75,12 +75,12 @@ def _drama_script() -> dict[str, Any]:
 
 
 def _unit(unit_id: str) -> dict[str, Any]:
-    shots = [{"duration": 3, "text": "镜头1"}, {"duration": 4, "text": "镜头2"}]
+    shots = [{"text": "镜头1"}, {"text": "镜头2"}]
     return {
         "unit_id": unit_id,
         "shots": shots,
         "references": [],
-        "duration_seconds": sum(s["duration"] for s in shots),
+        "duration_seconds": 8,
     }
 
 

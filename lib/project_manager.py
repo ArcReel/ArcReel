@@ -43,6 +43,7 @@ from lib.profile_manifest import (
     force_resync_profile as _force_resync_profile,
 )
 from lib.project_change_hints import emit_project_change_hint
+from lib.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script_editor import ScriptEditError, resolve_items
 from lib.script_models import get_generated_assets, script_duration_total
 from lib.style_templates import LEGACY_STYLE_MAP, resolve_template_prompt
@@ -707,7 +708,8 @@ class ProjectManager:
         """
         norm = self.normalize_script_filename(script_filename)
         with self._script_lock(project_name, norm):
-            script = self.load_script(project_name, norm)
+            # 已持锁，走 unlocked 变体取剧本（迁移结果随写回落盘）
+            script, _migrated = self._read_script_unlocked(project_name, norm)
             before = copy.deepcopy(script) if validate else None
             yield script
             self._write_script_unlocked(project_name, script, norm, validate=validate, before=before)
@@ -746,7 +748,7 @@ class ProjectManager:
                 cur_norm = self.normalize_script_filename(current)
                 if cur_norm != norm:
                     raise EpisodeScriptReboundError(f"episode script binding changed: {norm} -> {cur_norm}")
-                script = self.load_script(project_name, norm)
+                script, _migrated = self._read_script_unlocked(project_name, norm)
                 before = copy.deepcopy(script) if validate else None
                 yield script
                 self._write_script_unlocked(
@@ -842,7 +844,9 @@ class ProjectManager:
                 避免错误的脚本数据覆盖真实集号条目（例如 episode_10.json 内部
                 错写为 episode=1，会覆盖第 1 集）。
         """
-        script = self.load_script(project_name, script_filename)
+        # 走 unlocked 变体：本方法被写盘统一入口在持有 `_script_lock` 时调用，
+        # `load_script` 的迁移回写会二次取同一把锁而自死锁。
+        script, _migrated = self._read_script_unlocked(project_name, script_filename)
         return self.update_project(
             project_name, lambda project: self._apply_episode_sync(project, script, script_filename)
         )
@@ -881,7 +885,7 @@ class ProjectManager:
 
     def load_script(self, project_name: str, filename: str) -> dict:
         """
-        加载分镜剧本
+        加载分镜剧本（含存量迁移，迁移结果在剧本锁内回写落盘）
 
         Args:
             project_name: 项目名称
@@ -889,6 +893,32 @@ class ProjectManager:
 
         Returns:
             剧本字典
+        """
+        norm = self.normalize_script_filename(filename)
+        # 先无锁读一次：绝大多数剧本早已完成收编，这条路径不取锁、不建 lock 文件，读剧本的
+        # 并发度与文件系统副作用与迁移前一致（剧本不存在也在建锁文件之前就 fail-loud）。
+        script, migrated = self._read_script_unlocked(project_name, norm)
+        if not migrated:
+            return script
+        with self._script_lock(project_name, norm):
+            # 锁内重读一次再回写：读-改-写须在同一把剧本锁内完成，否则并发写者在无锁读与回写
+            # 之间落盘的内容会被迁移结果覆盖（同 load_project 的迁移回写）。不走
+            # _write_script_unlocked：迁移只是格式收编，不应刷新 metadata.updated_at、
+            # 不触发 project.json 同步与变更提示。
+            script, migrated = self._read_script_unlocked(project_name, norm)
+            if migrated:
+                real = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
+                atomic_write_json(real, script)
+        return script
+
+    def _read_script_unlocked(self, project_name: str, filename: str) -> tuple[dict, bool]:
+        """裸读剧本并就地跑存量迁移，返回 ``(剧本, 是否发生迁移)``；**不取剧本锁**。
+
+        取锁与回写的责任在调用方，三类调用方共用：
+        - 已持有 `_script_lock` 的读-改-写（`locked_script` 一族、写盘统一入口的集元数据同步）
+          ——它们退出时照常写回，迁移结果随之落盘；此处二次取同一把 flock 会同进程自死锁。
+        - `load_script` 的无锁探测——未发生迁移就直接返回，不为读剧本引入锁竞争。
+        - `load_script` 取锁后的重读——回写前在锁内重新取一次最新内容。
         """
         project_dir = self.get_project_path(project_name)
         filename = self.normalize_script_filename(filename)
@@ -898,7 +928,12 @@ class ProjectManager:
             raise FileNotFoundError(f"剧本文件不存在: {real}")
 
         with open(real, encoding="utf-8") as f:  # noqa: PTH123
-            return json.load(f)
+            script = json.load(f)
+
+        migrated, warnings = migrate_script_unit_durations(script)
+        for message in warnings:
+            logger.warning("剧本 %s 时长收编迁移: %s", real.name, message)
+        return script, migrated
 
     def list_scripts(self, project_name: str) -> list[str]:
         """列出项目中的所有剧本"""
@@ -1339,7 +1374,7 @@ class ProjectManager:
         migrated = False
         with self._project_lock(project_name):
             # 读-改-写放在同一把锁内，避免并发 save_project 在读与写之间完成
-            # 更新后，迁移写回又把更新覆盖掉（Codex #304 P2）。
+            # 更新后，迁移写回又把更新覆盖掉。
             with open(project_file, encoding="utf-8") as f:
                 project = json.load(f)
             if self._migrate_legacy_style(project):
@@ -1367,12 +1402,24 @@ class ProjectManager:
             yield
 
     @contextmanager
+    def file_lock(self, path: Path):
+        """通过隐藏 lock file 获取任意文件的排他锁，公开供跨模块共享同一把互斥。
+
+        lock 文件命名为 `.{basename}.lock`（以 `.` 开头），位于该文件所在目录，
+        与 `_project_lock` / `_script_lock` 同一约定，自动被目录 glob 过滤排除。
+        供同一份文件存在多个读-改-写入口（如 step1 草稿的迁移写回与正文保存）
+        且需要相互串行化时使用——各入口对同一 real path 取本锁即可互斥，不必
+        知道彼此的存在。
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = path.parent / f".{path.name}.lock"
+        lock_path.touch(exist_ok=True)
+        with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
+            yield
+
+    @contextmanager
     def _script_lock(self, project_name: str, script_filename: str):
         """通过隐藏 lock file 获取剧本文件的排他锁。
-
-        lock 文件命名为 `.{basename}.lock`（以 `.` 开头），位于规范化后剧本的
-        parent 目录下，自动被 `list_scripts()` 的 `*.json` glob 与
-        `project_archive` 的 `name.startswith(".")` 过滤排除。
 
         **关键**：用 `_safe_subpath` 规范化 filename 再派生 lock key，避免
         `./episode_1.json` 与 `episode_1.json` 解析到同一个 real path 却拿到
@@ -1382,10 +1429,7 @@ class ProjectManager:
         scripts_dir.mkdir(parents=True, exist_ok=True)
         script_filename = self.normalize_script_filename(script_filename)
         real = Path(self._safe_subpath(scripts_dir, script_filename))
-        lock_path = real.parent / f".{real.name}.lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_path.touch(exist_ok=True)
-        with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
+        with self.file_lock(real):
             yield
 
     def save_project(self, project_name: str, project: dict) -> Path:

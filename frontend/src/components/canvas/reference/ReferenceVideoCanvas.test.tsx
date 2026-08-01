@@ -5,6 +5,7 @@ import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/referen
 import { useProjectsStore } from "@/stores/projects-store";
 import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
+import { useCostStore } from "@/stores/cost-store";
 import { API } from "@/api";
 import type { ReferenceVideoUnit } from "@/types";
 import type { ProjectData } from "@/types";
@@ -31,10 +32,9 @@ vi.mock("@/stores/tasks-store", async () => {
 function mkUnit(id: string, shotText = "x"): ReferenceVideoUnit {
   return {
     unit_id: id,
-    shots: [{ duration: 3, text: shotText }],
+    shots: [{ text: shotText }],
     references: [],
     duration_seconds: 3,
-    duration_override: false,
     transition_to_next: "cut",
     note: null,
     generated_assets: {
@@ -120,7 +120,90 @@ describe("ReferenceVideoCanvas", () => {
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const ta = await screen.findByRole("combobox");
-    expect((ta as HTMLTextAreaElement).value).toContain("Shot 1 (3s): x");
+    expect((ta as HTMLTextAreaElement).value).toContain("x");
+  });
+
+  // 时长是 unit 级单一真相：下拉档位来自模型能力声明，选中即单独 PATCH（不牵连正文草稿）
+  it("renders the unit duration dropdown from the model's declared slots and patches on change", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValue({ unit: { ...mkUnit("E1U1"), duration_seconds: 8 } });
+    render(
+      <ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[3, 8]} durationOptionsNoReference={[3, 8]} />,
+    );
+    const select = (await screen.findByRole("combobox", {
+      name: /Duration|时长/,
+    })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "8"]);
+    fireEvent.change(select, { target: { value: "8" } });
+    await waitFor(() =>
+      expect(patchSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_seconds: 8 }),
+    );
+  });
+
+  // 参考视频按申请秒数计价：改档位即改估价，而落盘广播的 reference_unit:updated 不在
+  // SSE 的生成动作白名单内，费用面板只能靠这里主动重拉，否则一直显示旧价。
+  it("refreshes cost estimates after a duration patch succeeds", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    vi.spyOn(API, "patchReferenceVideoUnit").mockResolvedValue({
+      unit: { ...mkUnit("E1U1"), duration_seconds: 8 },
+    });
+    const fetchSpy = vi.spyOn(useCostStore.getState(), "debouncedFetch").mockImplementation(() => {});
+    render(
+      <ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[3, 8]} durationOptionsNoReference={[3, 8]} />,
+    );
+    const select = await screen.findByRole("combobox", { name: /Duration|时长/ });
+    fireEvent.change(select, { target: { value: "8" } });
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith("proj"));
+  });
+
+  // 换模型后档位收窄，已保存的越界秒数仍要留在选项里，否则下拉会把它静默改写
+  it("keeps an out-of-slot saved duration as an option", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    render(
+      <ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[4, 8]} durationOptionsNoReference={[4, 8]} />,
+    );
+    const select = (await screen.findByRole("combobox", {
+      name: /Duration|时长/,
+    })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "4", "8"]);
+    expect(select.value).toBe("3");
+  });
+
+  // 参考图约束按 unit 生效：不带 references 的 unit 不应因同集内其它带图 unit 而被收窄。
+  it("offers the no-reference tier set for a unit without references", async () => {
+    const unit = mkUnit("E1U1");
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    render(
+      <ReferenceVideoCanvas
+        projectName="proj"
+        episode={1}
+        durationOptions={[8]}
+        durationOptionsNoReference={[4, 8]}
+      />,
+    );
+    const select = (await screen.findByRole("combobox", {
+      name: /Duration|时长/,
+    })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "4", "8"]);
+  });
+
+  it("offers the reference-narrowed tier set for a unit with references", async () => {
+    const unit = { ...mkUnit("E1U1"), references: [{ type: "character" as const, name: "王" }] };
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    render(
+      <ReferenceVideoCanvas
+        projectName="proj"
+        episode={1}
+        durationOptions={[8]}
+        durationOptionsNoReference={[4, 8]}
+      />,
+    );
+    const select = (await screen.findByRole("combobox", {
+      name: /Duration|时长/,
+    })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "8"]);
   });
 
   it("remounts the card so textarea shows the new unit's prompt when selection changes", async () => {
@@ -202,7 +285,7 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
-      content: { units: [{ unit_id: "E1U1", shots: [{ duration: 3, text: "shot text" }], references: [] }] },
+      content: { units: [{ unit_id: "E1U1", shots: [{ text: "shot text" }], references: [], duration_seconds: 5 }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
@@ -215,7 +298,7 @@ describe("ReferenceVideoCanvas", () => {
   });
 
   // step2 剧本未生成时（仅 segmented）units 端点无脚本可拆、会 404：默认落 preproc tab
-  // 且不发起 units 请求，避免用户先看到一个报错的 Unit 面板（回归 Codex P2）。
+  // 且不发起 units 请求，避免用户先看到一个报错的 Unit 面板。
   it("defaults to preproc tab and skips loadUnits when hasScript is false", async () => {
     const listSpy = vi.spyOn(API, "listReferenceVideoUnits");
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
@@ -224,7 +307,7 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
-      content: { units: [{ unit_id: "E1U1", shots: [{ duration: 3, text: "shot text" }], references: [] }] },
+      content: { units: [{ unit_id: "E1U1", shots: [{ text: "shot text" }], references: [], duration_seconds: 5 }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
     const preprocTab = await screen.findByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
@@ -314,7 +397,7 @@ describe("ReferenceVideoCanvas", () => {
       expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled();
     });
     // 旧任务行仍是 failed，statusMap 未变；预览区不能同时叠出「生成中」占位与
-    // 旧失败覆盖层——inFlight 应压过 failed 的展示（回归 Codex P2）。
+    // 失败覆盖层——inFlight 展示应覆盖 failed 状态。
     expect(screen.queryByText(/Generation failed|生成失败/)).not.toBeInTheDocument();
     resolveGen({ task_id: "t2", deduped: false });
 

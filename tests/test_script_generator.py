@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -705,7 +706,7 @@ class TestScriptGenerator:
 
 
 class TestAddMetadataRewritesEpisodePrefix:
-    """_add_metadata 兜底改写 segment/scene/unit ID 的 E\\d+ 前缀（#574）。"""
+    """_add_metadata 兜底改写 segment/scene/unit ID 的 E\\d+ 前缀。"""
 
     @staticmethod
     def _make_generator(tmp_path: Path, content_mode: str = "narration") -> ScriptGenerator:
@@ -1064,14 +1065,20 @@ def test_resolve_max_duration_tracks_narrowed_set(tmp_path):
 
 
 def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> ScriptGenerator:
-    """构造跳过 backend 初始化的 narration ScriptGenerator（用于直接测内部方法）。"""
+    """构造跳过 backend 初始化的 narration ScriptGenerator（用于直接测内部方法）。
+
+    project.json 落到磁盘（不只是内存字段）：_load_reference_step1 的确认指纹搬移经
+    ProjectManager.update_project 无条件加锁读写该文件（不再靠内存快照短路），缺文件会
+    在那一步 FileNotFoundError。
+    """
     project_dir = tmp_path / "demo"
     project_dir.mkdir(exist_ok=True)
     sg = ScriptGenerator.__new__(ScriptGenerator)
     sg.generator = None
     sg.project_path = project_dir
-    sg.project_json = {"content_mode": "narration", **(project_extra or {})}
+    sg.project_json = {"content_mode": "narration", "episodes": [], **(project_extra or {})}
     sg.content_mode = sg.project_json.get("content_mode", "narration")
+    (project_dir / "project.json").write_text(json.dumps(sg.project_json, ensure_ascii=False), encoding="utf-8")
     return sg
 
 
@@ -1405,7 +1412,7 @@ class TestLoadReferenceStep1:
 
     @staticmethod
     def _unit(unit_id: str, *, duration: int = 6) -> dict:
-        return {"unit_id": unit_id, "shots": [{"text": "甲走进屋子", "duration": duration}]}
+        return {"unit_id": unit_id, "shots": [{"text": "甲走进屋子"}], "duration_seconds": duration}
 
     def test_loads_structured_units_verbatim(self, tmp_path):
         sg = _bare_generator(tmp_path)
@@ -1434,7 +1441,89 @@ class TestLoadReferenceStep1:
     def test_duration_outside_supported_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"units": [self._unit("E1U01", duration=5)]})  # 5 ∉ [4,6,8]
-        with pytest.raises(ValueError, match="duration"):
+        with pytest.raises(ValueError, match="时长非法"):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+    @pytest.mark.integration
+    def test_migrates_legacy_per_shot_durations_and_persists(self, tmp_path):
+        """存量草稿的 per-shot 时长求和收编为 unit 时长，就地回写；二次加载不再触发。"""
+        sg = _bare_generator(tmp_path)
+        self._write(
+            sg,
+            1,
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "shots": [{"duration": 2, "text": "甲起身"}, {"duration": 2, "text": "甲出门"}],
+                    }
+                ]
+            },
+        )
+        units = sg._load_reference_step1(1, [4, 6, 8])
+        assert units[0]["duration_seconds"] == 4
+        assert units[0]["shots"] == [{"text": "甲起身"}, {"text": "甲出门"}]
+
+        on_disk = json.loads(self._step1_path(sg, 1).read_text(encoding="utf-8"))
+        assert on_disk["units"][0]["duration_seconds"] == 4
+        assert "duration" not in on_disk["units"][0]["shots"][0]
+
+        # 幂等：二次加载不再改写落盘内容。
+        before_second_load = self._step1_path(sg, 1).read_bytes()
+        sg._load_reference_step1(1, [4, 6, 8])
+        assert self._step1_path(sg, 1).read_bytes() == before_second_load
+
+    @pytest.mark.integration
+    def test_migration_clamps_sum_to_supported_slot(self, tmp_path, caplog):
+        """求和落在档位之外 → 按容量语义取档后落盘（此处 4+3=7 → 8），并落盘 + 记 warning。"""
+        sg = _bare_generator(tmp_path)
+        self._write(
+            sg,
+            1,
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "shots": [{"duration": 4, "text": "甲起身"}, {"duration": 3, "text": "甲出门"}],
+                    }
+                ]
+            },
+        )
+        with caplog.at_level(logging.WARNING):
+            units = sg._load_reference_step1(1, [4, 6, 8])
+        assert units[0]["duration_seconds"] == 8
+        assert any("时长收编迁移" in r.message for r in caplog.records)
+
+        on_disk = json.loads(self._step1_path(sg, 1).read_text(encoding="utf-8"))
+        assert on_disk["units"][0]["duration_seconds"] == 8
+        assert "duration" not in on_disk["units"][0]["shots"][0]
+        assert "duration" not in on_disk["units"][0]["shots"][1]
+
+    @pytest.mark.integration
+    def test_clamping_migration_aborts_generation_that_gate_already_let_through(self, tmp_path):
+        """靠 grandfather 判据（step2 已存在、无确认指纹）放行的存量集：迁移 clamp 改写秒数
+        即令放行依据失效，生成须中止。gate 判的是迁移前状态、改写发生在放行之后——不在此
+        拦下，付费的 step2 就会按用户从未过目的秒数生成，落盘后才在下次加载被拦。
+        """
+        sg = _bare_generator(
+            tmp_path,
+            {"generation_mode": "reference_video", "episodes": [{"episode": 1}]},
+        )
+        (sg.project_path / "scripts").mkdir(parents=True, exist_ok=True)
+        (sg.project_path / "scripts" / "episode_1.json").write_text("{}", encoding="utf-8")
+        self._write(
+            sg,
+            1,
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "shots": [{"duration": 4, "text": "甲起身"}, {"duration": 3, "text": "甲出门"}],
+                    }
+                ]
+            },
+        )
+        with pytest.raises(ValueError, match="尚未经审阅确认"):
             sg._load_reference_step1(1, [4, 6, 8])
 
     def test_empty_units_raises(self, tmp_path):

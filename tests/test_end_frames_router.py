@@ -370,10 +370,12 @@ def _inject_concurrent_takeover_before_nth_load(monkeypatch, key, target: Path, 
     所以这里不能只改文件字节，还要推进该镜头的代次，否则复现不出代次判定要拦截的场景。
     `content=None` 表示并发的那一次是清除（文件被删）；否则表示并发的那一次是设置。
 
-    补偿回滚会再发起一次 `locked_script`，其 `load_script` 调用即回滚临界区的起点——在其
-    第 n 次被调用时执行这次「并发接管」，相当于恰好在回滚拿到锁之前完成。
+    补偿回滚会再发起一次 `locked_script`，其剧本读取即回滚临界区的起点——在其第 n 次被
+    调用时执行注入的「并发接管」，相当于恰好在回滚拿到锁之前完成。挂钩点取底层的
+    `_read_script_unlocked`：锁外的 `load_script` 与锁内的读-改-写都经它读盘，计数才覆盖
+    两类临界区起点。
     """
-    original = ProjectManager.load_script
+    original = ProjectManager._read_script_unlocked
     calls = {"n": 0}
 
     def _load_with_race(self, *args, **kwargs):
@@ -386,7 +388,7 @@ def _inject_concurrent_takeover_before_nth_load(monkeypatch, key, target: Path, 
                 target.write_bytes(content)
         return original(self, *args, **kwargs)
 
-    monkeypatch.setattr(ProjectManager, "load_script", _load_with_race)
+    monkeypatch.setattr(ProjectManager, "_read_script_unlocked", _load_with_race)
 
 
 class TestPersistFailureRestoresSnapshot:
@@ -468,8 +470,8 @@ class TestPersistFailureRestoresSnapshot:
         assert snapshot.read_bytes() == concurrent_bytes
 
     def test_clear_failure_skips_restore_when_concurrent_clear_wins(self, client, monkeypatch):
-        """CodeRabbit 指出的退化值场景：清除失败后文件已被删（期望内容与「无人接手」的
-        期望值同为 None），并发的另一次清除随后也成功完成，结果同样是文件不存在——若
+        """退化值场景：清除失败后文件已被删（期望内容与「无人接手」的期望值同为 None），
+        并发的另一次清除随后也成功完成，结果同样是文件不存在——若
         仅比对文件内容将无法区分两者，误判为无人接手并把旧快照字节回滚出孤儿文件。
         代次判定下，并发清除会推进代次，回滚据此正确跳过。"""
         c, pm = client
@@ -508,27 +510,27 @@ class TestPersistFailureRestoresSnapshot:
         assert snapshot.read_bytes() == concurrent_bytes
 
     def test_set_failure_restore_uses_bytes_read_inside_critical_section(self, client, monkeypatch):
-        """Codex 指出的陈旧基线问题：`old_bytes` 若在取得剧本锁之前预读，读到的是「进入
-        临界区之前」而非「进入临界区那一刻」的文件内容。这里不推进代次，只在本次操作
-        自己的 `load_script` 调用（进入临界区的时点）直接改写文件——代次检查不会拦截
+        """陈旧基线问题：`old_bytes` 若在取得剧本锁之前预读，读到的是「进入临界区之前」
+        而非「进入临界区那一刻」的文件内容。这里不推进代次，只在本次操作自己的
+        `_read_script_unlocked` 调用（进入临界区的时点）直接改写文件——代次检查不会拦截
         （因为没有别的操作声称接管），能否回滚出这份改写后的内容，才真正区分基线是在
         锁内读还是锁外预读：锁外预读会读到改写前的旧内容，回滚会把改写后的内容覆盖掉。"""
         c, pm = client
         _upload(c, _img_bytes("PNG", size=(8, 8)))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
 
-        original_load_script = ProjectManager.load_script
+        original_read_script = ProjectManager._read_script_unlocked
         calls = {"n": 0}
         content_at_critical_section_entry = _img_bytes("PNG", size=(56, 56))
 
         def _load_with_rewrite(self, *args, **kwargs):
             calls["n"] += 1
-            # load 序列：_locate_shot(1) → 本次失败操作自己的 locked_script(2)
+            # 读盘序列：_locate_shot(1) → 失败操作自身的 locked_script(2)
             if calls["n"] == 2:
                 snapshot.write_bytes(content_at_critical_section_entry)
-            return original_load_script(self, *args, **kwargs)
+            return original_read_script(self, *args, **kwargs)
 
-        monkeypatch.setattr(ProjectManager, "load_script", _load_with_rewrite)
+        monkeypatch.setattr(ProjectManager, "_read_script_unlocked", _load_with_rewrite)
         _fail_first_persist(monkeypatch)
 
         resp = _upload(c, _img_bytes("PNG", size=(16, 16)))

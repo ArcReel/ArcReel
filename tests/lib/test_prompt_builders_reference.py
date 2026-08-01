@@ -1,7 +1,4 @@
-"""reference_video prompt builder 单元测试。
-
-Spec §7.3、§4.2/4.3。
-"""
+"""reference_video prompt builder 单元测试。"""
 
 from lib.prompt_builders_reference import build_reference_video_prompt
 
@@ -20,8 +17,8 @@ def test_build_reference_video_prompt_contains_required_sections():
         {
             "unit_id": "E1U1",
             "shots": [
-                {"duration": 5, "text": "@[主角] 推门走进 @[酒馆]"},
-                {"duration": 5, "text": "@[主角] 按住 @[长剑]"},
+                {"text": "@[主角] 推门走进 @[酒馆]"},
+                {"text": "@[主角] 按住 @[长剑]"},
             ],
             "references": [
                 {"type": "character", "name": "主角"},
@@ -68,7 +65,7 @@ def test_build_reference_video_prompt_contains_required_sections():
 
 
 def test_build_reference_video_prompt_emphasizes_no_appearance_description():
-    """spec §7.3 规则 3：描述里用包裹 mention，不描述外貌。"""
+    """描述里用包裹 mention，不描述外貌。"""
     prompt = build_reference_video_prompt(
         project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
         style="style",
@@ -138,10 +135,10 @@ def test_build_reference_video_prompt_max_duration_none_skips_segment():
     assert "当前模型上限" not in prompt
 
 
-def test_build_reference_video_prompt_constrains_unit_total_to_supported():
-    """unit 总时长（各 shot 之和）∈ supported 的硬约束由动态 schema 枚举承担；
+def test_build_reference_video_prompt_constrains_unit_duration_to_supported():
+    """unit 总时长 ∈ supported 的硬约束由动态 schema 枚举承担；
 
-    prompt 只保留编排策略：给出支持集合，引导各 shot 时长相加正好落在集合内。
+    prompt 只保留编排策略：给出支持集合，引导模型直接把 unit 时长取值落在集合内。
     """
     prompt = build_reference_video_prompt(
         project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
@@ -156,9 +153,9 @@ def test_build_reference_video_prompt_constrains_unit_total_to_supported():
         max_duration=12,
         episode=1,
     )
-    # 支持集合出现，且与编排策略绑定（相加落在集合内）
+    # 支持集合出现，且与 unit 级取值绑定
     assert "4/8/12s" in prompt
-    assert "相加正好落在" in prompt
+    assert "unit 时长（秒），必须取支持集合" in prompt
 
 
 def test_build_reference_video_prompt_injects_episode_constraints():
@@ -251,22 +248,23 @@ def test_build_reference_units_split_prompt_rejects_bad_inputs():
 
 
 def test_render_reference_units_for_step2_mechanical():
-    """渲染是机械变换：unit_id / 总时长 / references / 各 shot 时长与文本逐项出现；畸形项跳过。"""
+    """渲染是机械变换：unit_id / unit 时长 / references / 各镜头文本逐项出现；畸形项跳过。"""
     from lib.prompt_builders_reference import render_reference_units_for_step2
 
     text = render_reference_units_for_step2(
         [
             {
                 "unit_id": "E1U01",
-                "shots": [{"duration": 4, "text": "@[甲] 起身"}, {"duration": 6, "text": "@[甲] 出门"}],
+                "shots": [{"text": "@[甲] 起身"}, {"text": "@[甲] 出门"}],
                 "references": [{"type": "character", "name": "甲"}],
+                "duration_seconds": 10,
             },
-            {"unit_id": "E1U02", "shots": [{"duration": 8, "text": "@[甲] 回头"}], "references": []},
+            {"unit_id": "E1U02", "shots": [{"text": "@[甲] 回头"}], "references": [], "duration_seconds": 8},
         ]
     )
-    assert "#### E1U01（预估总时长 10s）" in text
+    assert "#### E1U01（时长 10s）" in text
     assert "references: character:甲" in text
-    assert "Shot 1 (4s): @[甲] 起身" in text
-    assert "Shot 2 (6s): @[甲] 出门" in text
-    assert "#### E1U02（预估总时长 8s）" in text
+    assert "镜头1：@[甲] 起身" in text
+    assert "镜头2：@[甲] 出门" in text
+    assert "#### E1U02（时长 8s）" in text
     assert "references: （无）" in text

@@ -21,7 +21,7 @@ describe("extractMentions", () => {
   });
 
   it("returns empty list when no mentions", () => {
-    expect(extractMentions("Shot 1 (3s): plain text")).toEqual([]);
+    expect(extractMentions("镜头1：plain text")).toEqual([]);
   });
 
   it("matches CJK characters and underscores", () => {
@@ -74,7 +74,7 @@ describe("mergeReferences", () => {
     const existing: ReferenceResource[] = [
       { type: "character", name: "张三" },
     ];
-    const merged = mergeReferences("Shot 1 (3s): @张三 @主角", existing, project);
+    const merged = mergeReferences("镜头1：@张三 @主角", existing, project);
     expect(merged).toEqual([
       { type: "character", name: "张三" },
       { type: "character", name: "主角" },
@@ -86,17 +86,17 @@ describe("mergeReferences", () => {
       { type: "character", name: "张三" },
       { type: "scene", name: "酒馆" },
     ];
-    const merged = mergeReferences("Shot 1 (3s): @张三", existing, project);
+    const merged = mergeReferences("镜头1：@张三", existing, project);
     expect(merged).toEqual([{ type: "character", name: "张三" }]);
   });
 
   it("skips unknown mentions (not resolvable to any bucket)", () => {
-    const merged = mergeReferences("Shot 1 (3s): @路人 @主角", [], project);
+    const merged = mergeReferences("镜头1：@路人 @主角", [], project);
     expect(merged).toEqual([{ type: "character", name: "主角" }]);
   });
 
   it("deduplicates repeated mentions", () => {
-    const merged = mergeReferences("Shot 1 (3s): @主角 @主角 @主角", [], project);
+    const merged = mergeReferences("镜头1：@主角 @主角 @主角", [], project);
     expect(merged).toEqual([{ type: "character", name: "主角" }]);
   });
 
@@ -110,7 +110,7 @@ describe("mergeReferences", () => {
   });
 
   it("returns empty list when prompt has no valid mentions", () => {
-    expect(mergeReferences("Shot 1 (3s): plain", [], project)).toEqual([]);
+    expect(mergeReferences("镜头1：plain", [], project)).toEqual([]);
   });
 });
 

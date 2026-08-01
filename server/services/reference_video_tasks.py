@@ -1,7 +1,4 @@
-"""参考生视频 executor。
-
-Spec: docs/superpowers/specs/2026-04-15-reference-to-video-mode-design.md §5.2
-"""
+"""参考生视频 executor。"""
 
 from __future__ import annotations
 
@@ -125,7 +122,7 @@ def _apply_provider_constraints(
     （model 粒度，单一真相源）；`max_refs` 为 None 表示不裁参考图，`supported_durations`
     为空表示能力不可解析、时长原样透传。
 
-    档位全集先按本次调用的条件收窄再取档（见 :func:`effective_reference_durations`）：参考图
+    档位全集先按该请求的条件收窄再取档（见 :func:`effective_reference_durations`）：参考图
     约束只在裁剪后**确实带图**时施加——通用单元允许空 references、ad 缺图会退化为纯文本，
     而 backend 同样只在 ``reference_images`` 非空时施加该约束。收窄用的是规范 registry
     provider id 而非 ``provider``（后者是 backend 族名，如 ark-agent-plan 族用 Ark backend，
@@ -173,15 +170,16 @@ def _apply_provider_constraints(
     return new_refs, new_duration, warnings
 
 
-def unit_script_duration(unit: dict, ad_shots: list[dict] | None) -> int:
-    """unit 的剧本编排时长（秒）。ad 取成员镜头求和，narration/drama 取 unit 字段。
+#: unit 时长缺值时的兜底秒数。执行层取档、入队前预检与新建 unit 的默认时长共用此口径，
+#: 避免用户确认的秒数与实际申请的秒数因各处各自兜底而不一致。
+FALLBACK_UNIT_DURATION = 8
 
-    执行层取档与入队前预检共用此口径（含缺值兜底 8 秒），避免用户确认的秒数与实际
-    申请的秒数因两处各自兜底而不一致。
-    """
+
+def unit_script_duration(unit: dict, ad_shots: list[dict] | None) -> int:
+    """unit 的剧本编排时长（秒）。ad 取成员镜头求和，narration/drama 取 unit 字段。"""
     if ad_shots is not None:
-        return ad_script_total_duration(ad_shots) or 8
-    return int(unit.get("duration_seconds") or 8)
+        return ad_script_total_duration(ad_shots) or FALLBACK_UNIT_DURATION
+    return int(unit.get("duration_seconds") or FALLBACK_UNIT_DURATION)
 
 
 def effective_reference_durations(
@@ -192,7 +190,7 @@ def effective_reference_durations(
     *,
     with_reference_images: bool,
 ) -> list[int]:
-    """参考视频路径实际可申请的时长档位：全集与本次调用条件的约束求交。
+    """参考视频路径实际可申请的时长档位：全集与该请求条件的约束求交。
 
     型号可能对「带参考图」与「按某分辨率下发」各自声明更窄的时长档位。按全集取档会选中
     执行期必然被拒的秒数（如 Veo 3.1 带参考图只接受 8 秒，5 秒剧本按全集取档得 6 秒），
@@ -272,6 +270,31 @@ def precheck_unit(ctx: ProjectDurationContext, unit: dict, ad_shots: list[dict] 
         else []
     )
     return resolve_duration_slot(unit_script_duration(unit, ad_shots), durations)
+
+
+def default_unit_duration(ctx: ProjectDurationContext, project: dict, *, with_references: bool = False) -> int:
+    """新建 unit 的默认时长（秒）：项目偏好 > 收窄后的最短档位 > 兜底。
+
+    档位按执行层同一套约束收窄（``effective_reference_durations``），使新建单元拿到的秒数
+    落在它真正被生成时能申请到的档位内。``with_references`` 须与 ``precheck_unit`` 对同一
+    unit 的判据同源（是否带参考图）。项目偏好不是当前模型的档位成员时（换模型后配置漂移）
+    不采信，退到收窄后档位里的最短值（自定义供应商声明的档位可能不按升序排列）；档位不可
+    解析时无从校验偏好是否可申请，直接退到 ``FALLBACK_UNIT_DURATION``，与执行层读不到
+    unit 时长时的兜底值同源。
+    """
+    durations = effective_reference_durations(
+        ctx.provider_id,
+        ctx.model_name,
+        list(ctx.supported_durations),
+        ctx.resolution,
+        with_reference_images=with_references,
+    )
+    if not durations:
+        return FALLBACK_UNIT_DURATION
+    preferred = project.get("default_duration")
+    if isinstance(preferred, int) and not isinstance(preferred, bool) and preferred in durations:
+        return preferred
+    return min(durations)
 
 
 async def _project_video_resolution(project: dict, provider_id: str, model_id: str | None) -> str | None:

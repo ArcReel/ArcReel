@@ -71,9 +71,10 @@ function referenceState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
         {
           unit_id: "E1U1",
           shots: [
-            { duration: 3, text: "阿离撑伞走过长街 @[阿离]" },
-            { duration: 2, text: "镜头拉近雨中石板路 @[长街]" },
+            { text: "阿离撑伞走过长街 @[阿离]" },
+            { text: "镜头拉近雨中石板路 @[长街]" },
           ],
+          duration_seconds: 8,
           references: [
             { type: "character", name: "阿离" },
             { type: "scene", name: "长街" },

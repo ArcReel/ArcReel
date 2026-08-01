@@ -646,7 +646,7 @@ class CostEstimationService:
         ``_split_cost_across`` 这一步。
 
         取档口径与 ad 路径同构：按 ``duration_ctx`` 解析的项目视频能力对 unit 剧本时长
-        （``unit.duration_seconds``，各 shot 之和）取档后计费，而非原始剧本时长——
+        （``unit.duration_seconds``，unit 级单一真相）取档后计费，而非原始剧本时长——
         与 ``execute_reference_video_task`` 实际申请的秒数对齐。
 
         无图片/音频估值维度：该模式跳过分镜步骤（无分镜图），``Shot`` 没有独立的旁白/口播

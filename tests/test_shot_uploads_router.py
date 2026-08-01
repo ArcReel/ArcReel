@@ -340,7 +340,7 @@ def _seed_reference_project(tmp_path) -> ProjectManager:
             "video_units": [
                 {
                     "unit_id": "E1U1",
-                    "shots": [{"duration": 4, "text": "t"}],
+                    "shots": [{"text": "t"}],
                     "references": [],
                     "duration_seconds": 4,
                     "generated_assets": {

@@ -192,13 +192,13 @@ class TestUtterancesEditGuard:
         assert saved == [{"kind": "dialogue", "speaker": "角色A", "text": "你来了。"}]
 
 
-def _unit(unit_id: str = "E1U1") -> dict:
-    shots = [{"duration": 3, "text": "镜头1"}, {"duration": 4, "text": "镜头2"}]
+def _unit(unit_id: str = "E1U1", duration_seconds: int = 8) -> dict:
+    shots = [{"text": "镜头1"}, {"text": "镜头2"}]
     return {
         "unit_id": unit_id,
         "shots": shots,
         "references": [],
-        "duration_seconds": sum(s["duration"] for s in shots),
+        "duration_seconds": duration_seconds,
     }
 
 
@@ -210,7 +210,7 @@ def _reference_script(units: list[dict] | None = None) -> dict:
         "generation_mode": "reference_video",
         "summary": "摘要",
         "novel": {"title": "小说", "chapter": "第一章"},
-        "video_units": units if units is not None else [_unit("E1U1"), _unit("E1U2")],
+        "video_units": units if units is not None else [_unit("E1U1", 6), _unit("E1U2", 8)],
     }
 
 
@@ -223,6 +223,7 @@ class TestMetadataRecompute:
 
         saved = pm.load_script("demo", "episode_1.json")
         assert saved["metadata"]["total_scenes"] == 2
+        # 两个 unit 取不同秒数：等长夹具下「unit 数 × 定值」的错算也会通过。
         assert saved["metadata"]["estimated_duration_seconds"] == 14
 
     def test_narration_metadata_unchanged(self, tmp_path: Path):

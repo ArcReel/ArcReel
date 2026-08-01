@@ -62,6 +62,6 @@ mcp__arcreel__get_video_capabilities({})
 
 **返回**：JSON 文本，含 `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `source` / `default_duration` / `content_mode` / `generation_mode`。
 
-**用途**：所有 generation_mode（storyboard / grid / reference_video）的预处理 subagent 在执行时自查，用于决定单片段 / shot 时长。**决策优先级**（高到低）：硬约束（时长必须取自 `supported_durations`；reference_video 的 unit 总时长 ≤ `max_duration`）> `default_duration` 偏好（非 null 时作默认值）> 打包效率 / 内容需要（reference_video 组合 shot 贴近 `max_duration`；narration / drama 长句、复杂画面可取更长值）。超限时重拆 unit，不违约时长。
+**用途**：所有 generation_mode（storyboard / grid / reference_video）的预处理 subagent 在执行时自查，用于决定单片段 / unit 时长。**决策优先级**（高到低）：硬约束（时长必须取自 `supported_durations`；reference_video 的 unit 时长 ≤ `max_duration`）> `default_duration` 偏好（非 null 时作默认值）> 内容需要（reference_video 按该 unit 内容实际需要的长度取档；narration / drama 长句、复杂画面可取更长值）。装不下时重拆 unit，不违约时长。
 
 **错误**：项目未找到或模型能力无法解析时返回 `is_error: true`，文本中包含原因。

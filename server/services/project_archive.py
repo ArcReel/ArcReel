@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from lib.config.resolver import resolve_raw_supported_durations
 from lib.data_validator import DataValidator, ValidationResult
 from lib.episode_ledger import parse_positive_episode_num
 from lib.json_io import load_json
@@ -20,6 +21,8 @@ from lib.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_hint
 from lib.project_manager import ProjectManager, effective_mode
 from lib.project_migrations.runner import migrate_project_dir
+from lib.project_migrations.v1_to_v2_normalize_providers import migrate_project_dict as normalize_legacy_providers
+from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.resource_paths import resource_extension, resource_relative_path
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.source_loader.migration import migrate_project_source_encoding
@@ -1014,7 +1017,28 @@ class ProjectArchiveService:
         if not isinstance(raw_units, list):
             return False, False
 
-        changed = False
+        # 存量归档可能仍是收编前的形状（时长挂在 shots 上、unit 缺 duration_seconds）：
+        # 下游的结构校验（DataValidator）要求 unit 级 duration_seconds 落在结构区间内，
+        # 修复须先跑这道迁移再校验——本方法在 validate_project_tree 之前执行、写回结果
+        # 由调用方按 script_changed 落盘，与其它字段修复共用同一次写盘。
+        # 档位表取归档自带的 project.json（同步回退链，无 DB 访问——导入跑在 to_thread 里），
+        # 与生成侧、审阅门同源：迁移一次落盘，三处口径不一致会让先跑的把非档位秒数固化。
+        # 归档未声明视频型号时为 None，退回结构区间 clamp。
+        # provider 先在副本上归一化：本方法跑在 migrate_project_dir 之前，存量归档里可能还是
+        # legacy 别名（如 gemini/…），registry 查不到会让档位解析落空，而迁移幂等、归一化之后
+        # 再无机会取档。归一化是纯函数且幂等，不影响随后的正式迁移。
+        normalized_project = normalize_legacy_providers(project_payload)
+        migrated, migration_warnings = migrate_unit_durations(
+            raw_units, supported_durations=resolve_raw_supported_durations(normalized_project)
+        )
+        changed = migrated
+        for message in migration_warnings:
+            diagnostics.add(
+                "warnings",
+                "reference_video_duration_migrated",
+                f"{script_path_rel}: {message}",
+            )
+
         project_changed = False
         for index, unit in enumerate(raw_units):
             if not isinstance(unit, dict):
