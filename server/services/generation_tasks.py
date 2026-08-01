@@ -19,6 +19,8 @@ from lib.audio_utils import (
 )
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import constrain_durations
+from lib.config.service import ConfigService
+from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
@@ -60,6 +62,21 @@ from server.services.generation_context import (
 )
 
 logger = logging.getLogger(__name__)
+
+_ASSET_PROMPT_SETTING_KEYS = {
+    "character": "asset_prompt_character",
+    "scene": "asset_prompt_scene",
+    "prop": "asset_prompt_prop",
+}
+
+
+async def _load_asset_system_prompt(kind: str) -> str | None:
+    setting_key = _ASSET_PROMPT_SETTING_KEYS.get(kind)
+    if setting_key is None:
+        return None
+    async with async_session_factory() as session:
+        value = await ConfigService(session).get_setting(setting_key, "")
+    return value.strip() or None
 
 
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
@@ -1112,6 +1129,7 @@ async def execute_character_task(
     prompt = str(payload.get("prompt", "") or "").strip()
     if not prompt:
         raise ValueError("prompt is required for character task")
+    system_prompt = await _load_asset_system_prompt("character")
 
     def _prepare_char():
         _project = get_project_manager().load_project(project_name)
@@ -1121,7 +1139,7 @@ async def execute_character_task(
         _char_data = _project["characters"][resource_id]
         _style = _project.get("style", "")
         _style_desc = _project.get("style_description", "")
-        _full_prompt = build_character_prompt(resource_id, prompt, _style, _style_desc)
+        _full_prompt = build_character_prompt(resource_id, prompt, _style, _style_desc, system_prompt)
         _ref_images = None
         _ref_path = _char_data.get("reference_image")
         if _ref_path:
@@ -1222,6 +1240,7 @@ async def execute_design_task(
     prompt = str(payload.get("prompt", "") or "").strip()
     if not prompt:
         raise ValueError(f"prompt is required for {kind} task")
+    system_prompt = await _load_asset_system_prompt(kind)
 
     def _prepare():
         project = get_project_manager().load_project(project_name)
@@ -1230,7 +1249,7 @@ async def execute_design_task(
             raise ValueError(f"{kind} not found: {resource_id}")
         style = project.get("style", "")
         style_desc = project.get("style_description", "")
-        full_prompt = prompt_builder(resource_id, prompt, style, style_desc)
+        full_prompt = prompt_builder(resource_id, prompt, style, style_desc, system_prompt)
         refs = reference_collector(project, project_path, resource_id) if reference_collector else None
         return project, full_prompt, refs
 

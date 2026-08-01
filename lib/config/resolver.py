@@ -155,6 +155,11 @@ _TEXT_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
     TextTaskTier.COMPLEX: "text_backend_complex",
 }
 
+_TEXT_REASONING_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
+    TextTaskTier.SIMPLE: "text_reasoning_effort_simple",
+    TextTaskTier.COMPLEX: "text_reasoning_effort_complex",
+}
+
 
 # 当 resolve_resolution 返回 None 时下游的保底分辨率。Grok 即便 registry 声明 1080p
 # 也可能被 xai_sdk 拒收，故按 provider 区分。
@@ -1147,6 +1152,17 @@ class ConfigResolver:
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_text_backend(svc, session, task_type, project_name)
+
+    async def text_reasoning_effort_for_task(self, task_type: TextTaskType) -> str | None:
+        """Resolve the global reasoning effort for a text task tier."""
+
+        tier_key = _TEXT_REASONING_TIER_SETTING_KEYS[TEXT_TASK_TIERS[task_type]]
+        async with self._open_session() as (_, svc):
+            for key in (tier_key, "default_text_reasoning_effort"):
+                value = (await svc.get_setting(key, "")).strip().lower()
+                if value:
+                    return value
+        return None
 
     async def _resolve_text_backend(
         self,

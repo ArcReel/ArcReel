@@ -7,6 +7,7 @@ from lib.agnes_shared import AGNES_BASE_URL
 from lib.ark_shared import ARK_BASE_URL
 from lib.dashscope_shared import DASHSCOPE_BASE_URL
 from lib.minimax_shared import MINIMAX_BASE_URL
+from lib.openai_model_catalog import OPENAI_GPT_56_REASONING_EFFORTS
 from lib.pricing.types import (
     PerCharacter,
     PerImageByResolution,
@@ -27,6 +28,7 @@ class ModelInfo:
     display_name: str
     media_type: str
     capabilities: list[str]
+    reasoning_efforts: list[str] = field(default_factory=list)
     default: bool = False
     supported_durations: list[int] = field(default_factory=list)
     duration_resolution_constraints: dict[str, list[int]] = field(default_factory=dict)
@@ -221,7 +223,7 @@ def _grok_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
     return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="USD")
 
 
-# OpenAI 文本费率（美元/百万 token）。
+# OpenAI 文本费率（美元/百万 token，Standard 短上下文档）。
 def _openai_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
     return PerToken(
         rates={model_id: {"input": input_rate, "output": output_rate}},
@@ -812,6 +814,34 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         secret_keys=["api_key"],
         models={
             # --- text ---
+            "gpt-5.6": ModelInfo(
+                display_name="GPT-5.6",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+                reasoning_efforts=list(OPENAI_GPT_56_REASONING_EFFORTS),
+                pricing=_openai_text_pricing("gpt-5.6", 5.00, 30.00),
+            ),
+            "gpt-5.6-sol": ModelInfo(
+                display_name="GPT-5.6 Sol",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+                reasoning_efforts=list(OPENAI_GPT_56_REASONING_EFFORTS),
+                pricing=_openai_text_pricing("gpt-5.6-sol", 5.00, 30.00),
+            ),
+            "gpt-5.6-terra": ModelInfo(
+                display_name="GPT-5.6 Terra",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+                reasoning_efforts=list(OPENAI_GPT_56_REASONING_EFFORTS),
+                pricing=_openai_text_pricing("gpt-5.6-terra", 2.00, 12.00),
+            ),
+            "gpt-5.6-luna": ModelInfo(
+                display_name="GPT-5.6 Luna",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+                reasoning_efforts=list(OPENAI_GPT_56_REASONING_EFFORTS),
+                pricing=_openai_text_pricing("gpt-5.6-luna", 0.20, 1.20),
+            ),
             "gpt-5.5": ModelInfo(
                 display_name="GPT-5.5",
                 media_type="text",

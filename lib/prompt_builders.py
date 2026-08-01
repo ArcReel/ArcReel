@@ -20,7 +20,7 @@ from collections.abc import Sequence
 # 内部常量：防崩 / 反向 / 布局 / 风格前缀
 # ---------------------------------------------------------------------------
 
-# 角色图采用 issue #353 的四视图 16:9 布局。
+# 角色图采用四视图 16:9 布局。
 _CHARACTER_LAYOUT = (
     "横版 16:9 四格布局，纯白 (#FFFFFF) 背景：左侧约 40% 宽为胸像特写（清晰展示面部、发型、配饰、上装），"
     "右侧三个等宽面板分别为正面 / 四分之三侧面 / 背面的 A-Pose 全身视图。"
@@ -64,6 +64,10 @@ _NEGATIVE_TAIL_PRODUCT = "画面避免：出镜人物、水印、多余文字、
 _NEGATIVE_TAIL_STORYBOARD = "画面避免：水印、多余文字、Logo。"
 _NEGATIVE_TAIL_VIDEO = "禁止出现：BGM、文字字幕、水印。"
 
+DEFAULT_CHARACTER_ASSET_PROMPT = "\n\n".join((_CHARACTER_LAYOUT, _CHARACTER_GUARD, _NEGATIVE_TAIL_CHARACTER))
+DEFAULT_SCENE_ASSET_PROMPT = "\n\n".join((_SCENE_LAYOUT, _SCENE_GUARD, _NEGATIVE_TAIL_SCENE))
+DEFAULT_PROP_ASSET_PROMPT = "\n\n".join((_PROP_LAYOUT, _PROP_GUARD, _NEGATIVE_TAIL_PROP))
+
 
 def _style_prefix(style: str = "", style_description: str = "") -> str:
     """组合视觉风格前缀。两者都为空时返回空串。"""
@@ -77,58 +81,71 @@ def _style_prefix(style: str = "", style_description: str = "") -> str:
     return "\n".join(parts) + "\n\n"
 
 
+def _asset_prompt_instructions(configured: str | None, default: str) -> str:
+    """Use a non-empty global override, otherwise retain the built-in prompt."""
+
+    override = (configured or "").strip()
+    return override or default
+
+
 # ---------------------------------------------------------------------------
 # 资产 prompt（character / scene / prop）
 # ---------------------------------------------------------------------------
 
 
-def build_character_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """角色设计图 prompt（issue #353 四视图 16:9）。"""
+def build_character_prompt(
+    name: str,
+    description: str,
+    style: str = "",
+    style_description: str = "",
+    system_prompt: str | None = None,
+) -> str:
+    """角色设计图 prompt（四视图 16:9）。"""
     style_block = _style_prefix(style, style_description)
-    return (
-        f"{style_block}"
-        f"角色「{name}」的设计参考图。\n\n"
-        f"{description}\n\n"
-        f"{_CHARACTER_LAYOUT}\n\n"
-        f"{_CHARACTER_GUARD}\n\n"
-        f"{_NEGATIVE_TAIL_CHARACTER}"
-    )
+    instructions = _asset_prompt_instructions(system_prompt, DEFAULT_CHARACTER_ASSET_PROMPT)
+    return f"{style_block}角色「{name}」的设计参考图。\n\n{description}\n\n{instructions}"
 
 
-def build_scene_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
+def build_scene_prompt(
+    name: str,
+    description: str,
+    style: str = "",
+    style_description: str = "",
+    system_prompt: str | None = None,
+) -> str:
     """场景设计图 prompt（主+细节）。"""
     style_block = _style_prefix(style, style_description)
-    return (
-        f"{style_block}"
-        f"标志性场景「{name}」的视觉参考。\n\n"
-        f"{description}\n\n"
-        f"{_SCENE_LAYOUT}\n\n"
-        f"{_SCENE_GUARD}\n\n"
-        f"{_NEGATIVE_TAIL_SCENE}"
-    )
+    instructions = _asset_prompt_instructions(system_prompt, DEFAULT_SCENE_ASSET_PROMPT)
+    return f"{style_block}标志性场景「{name}」的视觉参考。\n\n{description}\n\n{instructions}"
 
 
-def build_prop_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
+def build_prop_prompt(
+    name: str,
+    description: str,
+    style: str = "",
+    style_description: str = "",
+    system_prompt: str | None = None,
+) -> str:
     """道具设计图 prompt（三视图）。"""
     style_block = _style_prefix(style, style_description)
-    return (
-        f"{style_block}"
-        f"道具「{name}」的多视角展示。\n\n"
-        f"{description}\n\n"
-        f"{_PROP_LAYOUT}\n\n"
-        f"{_PROP_GUARD}\n\n"
-        f"{_NEGATIVE_TAIL_PROP}"
-    )
+    instructions = _asset_prompt_instructions(system_prompt, DEFAULT_PROP_ASSET_PROMPT)
+    return f"{style_block}道具「{name}」的多视角展示。\n\n{description}\n\n{instructions}"
 
 
-def build_product_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
+def build_product_prompt(
+    name: str,
+    description: str,
+    style: str = "",
+    style_description: str = "",
+    system_prompt: str | None = None,
+) -> str:
     """产品标准参考图（product sheet）prompt（多角度 + 保真守卫）。
 
     产品 sheet 的使命是把用户随手拍的原图整理成标准多角度设计图，产品形象必须
     忠实于真品（原图作为参考注入），不沿用项目画风前缀——画风统一由项目级 style
     机制在分镜阶段承载，产品参考图保持写实中性。
     """
-    del style, style_description  # 与其它 design prompt builder 签名对齐；产品 sheet 不注入画风
+    del style, style_description, system_prompt  # 与其它 design prompt builder 签名对齐；产品 sheet 不注入画风
     return (
         f"产品「{name}」的标准参考图。\n\n"
         f"{description}\n\n"

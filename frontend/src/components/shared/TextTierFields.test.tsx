@@ -1,7 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { TextTierFields, type TextTierValue } from "./TextTierFields";
+import {
+  TextTierFields,
+  type TextReasoningTierValue,
+  type TextTierValue,
+} from "./TextTierFields";
 
 const EMPTY: TextTierValue = { default: "", simple: "", complex: "" };
 const OPTIONS = ["gemini/g25", "ark/qwen"];
@@ -64,5 +68,34 @@ describe("TextTierFields", () => {
     await user.click(screen.getAllByRole("combobox")[1]);
     await user.click(screen.getByRole("option", { name: /g25/ }));
     expect(onChange).toHaveBeenCalledWith({ default: "", simple: "gemini/g25", complex: "" });
+  });
+
+  it("shows supported reasoning levels and updates only the edited tier", async () => {
+    const user = userEvent.setup();
+    const onReasoningChange = vi.fn();
+    const reasoning: TextReasoningTierValue = { default: "medium", simple: "", complex: "max" };
+    render(
+      <TextTierFields
+        value={{ default: "openai/gpt-5.6-sol", simple: "", complex: "" }}
+        onChange={() => {}}
+        reasoning={reasoning}
+        onReasoningChange={onReasoningChange}
+        reasoningEffortsByModel={{
+          "openai/gpt-5.6-sol": ["none", "low", "medium", "high", "xhigh", "max"],
+        }}
+        options={["openai/gpt-5.6-sol"]}
+        providerNames={{ openai: "OpenAI" }}
+        defaultLabel="自动选择"
+      />,
+    );
+
+    const selects = screen.getAllByLabelText("推理强度");
+    expect(selects).toHaveLength(3);
+    await user.selectOptions(selects[1], "high");
+    expect(onReasoningChange).toHaveBeenCalledWith({
+      default: "medium",
+      simple: "high",
+      complex: "max",
+    });
   });
 });

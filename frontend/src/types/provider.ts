@@ -8,6 +8,7 @@ export interface ModelInfoResponse {
   display_name: string;
   media_type: string;
   capabilities: string[];
+  reasoning_efforts?: string[];
   default: boolean;
   supported_durations: number[];
   duration_resolution_constraints: Record<string, number[]>;
@@ -72,6 +73,17 @@ export interface ProviderTestResult {
   success: boolean;
   available_models: string[];
   message: string;
+}
+
+export interface AvailableProviderModel {
+  id: string;
+  media_type: string;
+  reasoning_efforts: string[];
+}
+
+export interface ProviderModelsResponse {
+  provider_id: string;
+  models: AvailableProviderModel[];
 }
 
 export interface ProviderCredential {

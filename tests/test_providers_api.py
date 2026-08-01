@@ -260,6 +260,53 @@ def _make_session_app() -> tuple[FastAPI, AsyncMock]:
     return app, mock_session
 
 
+class TestListOpenAIModels:
+    def _repo(self, credential: ProviderCredential | None):
+        repo = MagicMock(spec=CredentialRepository)
+        repo.get_active = AsyncMock(return_value=credential)
+        return repo
+
+    def _svc(self):
+        svc = MagicMock(spec=ConfigService)
+        svc.get_provider_config = AsyncMock(return_value={})
+        return svc
+
+    @pytest.mark.unit
+    def test_returns_filtered_live_models_with_reasoning_metadata(self):
+        credential = ProviderCredential(provider="openai", name="OpenAI", api_key="sk-test", is_active=True)
+        app, _ = _make_session_app()
+        with (
+            patch("server.routers.providers.CredentialRepository", return_value=self._repo(credential)),
+            patch("server.routers.providers.ConfigService", return_value=self._svc()),
+            patch(
+                "server.routers.providers._list_openai_model_ids",
+                return_value=["gpt-5.6-sol", "gpt-5.6-sol", "text-embedding-3-large", "sora-2"],
+            ),
+        ):
+            with TestClient(app) as client:
+                response = client.get("/api/v1/providers/openai/models")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "provider_id": "openai",
+            "models": [
+                {
+                    "id": "gpt-5.6-sol",
+                    "media_type": "text",
+                    "reasoning_efforts": ["none", "low", "medium", "high", "xhigh", "max"],
+                }
+            ],
+        }
+
+    @pytest.mark.unit
+    def test_requires_active_openai_credential(self):
+        app, _ = _make_session_app()
+        with patch("server.routers.providers.CredentialRepository", return_value=self._repo(None)):
+            with TestClient(app) as client:
+                response = client.get("/api/v1/providers/openai/models")
+        assert response.status_code == 400
+
+
 class TestGetProviderConfig:
     def _mock_svc_ready(self) -> ConfigService:
         svc = MagicMock(spec=ConfigService)

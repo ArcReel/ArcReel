@@ -33,6 +33,7 @@ import type {
   ProviderInfo,
   ProviderConfigDetail,
   ProviderTestResult,
+  ProviderModelsResponse,
   ProviderCredential,
   UsageStatsResponse,
   CustomProviderInfo,
@@ -1965,6 +1966,11 @@ class API {
   /** 获取所有 provider 列表及状态。 */
   static async getProviders(): Promise<{ providers: ProviderInfo[] }> {
     return this.request("/providers");
+  }
+
+  /** Discover text models available to the active OpenAI credential. */
+  static async getOpenAIModels(): Promise<ProviderModelsResponse> {
+    return this.request("/providers/openai/models");
   }
 
   /** 获取指定 provider 的配置详情（含字段列表）。 */

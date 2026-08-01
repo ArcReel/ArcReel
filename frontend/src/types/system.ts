@@ -1,3 +1,5 @@
+export type TextReasoningEffort = "" | "none" | "low" | "medium" | "high" | "xhigh" | "max";
+
 export interface SystemConfigSettings {
   default_video_backend: string;
   default_image_backend: string;
@@ -9,6 +11,12 @@ export interface SystemConfigSettings {
   narration_speed?: number | null;
   text_backend_simple: string;
   text_backend_complex: string;
+  default_text_reasoning_effort: TextReasoningEffort;
+  text_reasoning_effort_simple: TextReasoningEffort;
+  text_reasoning_effort_complex: TextReasoningEffort;
+  asset_prompt_character: string;
+  asset_prompt_scene: string;
+  asset_prompt_prop: string;
   video_generate_audio: boolean;
   anthropic_api_key: { is_set: boolean; masked: string | null };
   anthropic_base_url: string;
@@ -27,6 +35,11 @@ export interface SystemConfigOptions {
   text_backends: string[];
   audio_backends?: string[];
   provider_names?: Record<string, string>;
+  asset_prompt_defaults?: {
+    character: string;
+    scene: string;
+    prop: string;
+  };
 }
 
 export interface GetSystemConfigResponse {
@@ -67,6 +80,12 @@ export interface SystemConfigPatch {
   narration_speed?: number | null;
   text_backend_simple?: string;
   text_backend_complex?: string;
+  default_text_reasoning_effort?: TextReasoningEffort;
+  text_reasoning_effort_simple?: TextReasoningEffort;
+  text_reasoning_effort_complex?: TextReasoningEffort;
+  asset_prompt_character?: string;
+  asset_prompt_scene?: string;
+  asset_prompt_prop?: string;
   video_generate_audio?: boolean;
   anthropic_api_key?: string;
   anthropic_base_url?: string;

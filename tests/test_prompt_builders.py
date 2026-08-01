@@ -21,7 +21,7 @@ class TestCharacterPrompt:
         )
         assert "姜月茴" in prompt
         assert "黑发，冷静神态。" in prompt
-        # 四视图 16:9 布局（issue #353）
+        # 四视图 16:9 布局
         assert "16:9" in prompt
         assert "四格" in prompt
         assert "胸像特写" in prompt or "胸部以上" in prompt
@@ -31,6 +31,14 @@ class TestCharacterPrompt:
         assert "Cinematic, low-key lighting" in prompt
         # 反向提示尾部
         assert "画面避免" in prompt
+
+    @pytest.mark.unit
+    def test_custom_system_prompt_is_merged_after_user_description(self):
+        prompt = build_character_prompt("张三", "短发青年", system_prompt="自定义角色构图规则")
+        assert "短发青年" in prompt
+        assert "自定义角色构图规则" in prompt
+        assert prompt.index("短发青年") < prompt.index("自定义角色构图规则")
+        assert "四格布局" not in prompt
 
     def test_no_negative_prompt_field_returned(self):
         # build_character_prompt 仅返回字符串；反向提示已 inline 到末尾

@@ -36,6 +36,22 @@ class TestRegistryHit:
         pricing = lookup_pricing("openai", "gpt-image-2", "image")
         assert isinstance(pricing, PerImageOpenAIToken)
 
+    @pytest.mark.parametrize(
+        ("model_id", "input_rate", "output_rate"),
+        [
+            ("gpt-5.6", 5.00, 30.00),
+            ("gpt-5.6-sol", 5.00, 30.00),
+            ("gpt-5.6-terra", 2.00, 12.00),
+            ("gpt-5.6-luna", 0.20, 1.20),
+        ],
+    )
+    def test_openai_gpt_56_uses_declared_short_context_pricing(
+        self, model_id: str, input_rate: float, output_rate: float
+    ):
+        pricing = lookup_pricing("openai", model_id, "text")
+        assert isinstance(pricing, PerToken)
+        assert pricing.rates[model_id] == {"input": input_rate, "output": output_rate}
+
     def test_ark_video_per_token(self):
         pricing = lookup_pricing("ark", "doubao-seedance-1-5-pro-251215", "video")
         assert isinstance(pricing, PerTokenVideo)

@@ -10,6 +10,7 @@ import {
   Info,
   KeyRound,
   Languages,
+  MessageSquareText,
   Plug,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -19,6 +20,7 @@ import { AgentConfigTab } from "./AgentConfigTab";
 import { ApiKeysTab } from "./ApiKeysTab";
 import { AboutSection } from "./settings/AboutSection";
 import { MediaModelSection } from "./settings/MediaModelSection";
+import { PromptSettingsSection } from "./settings/PromptSettingsSection";
 import { ProviderSection } from "./ProviderSection";
 import { UsageStatsSection } from "./settings/UsageStatsSection";
 import {
@@ -34,7 +36,7 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-type SettingsSection = "agent" | "providers" | "media" | "usage" | "api-keys" | "about";
+type SettingsSection = "agent" | "providers" | "media" | "prompts" | "usage" | "api-keys" | "about";
 
 /** 引导第 5/6 步指向的侧栏入口——只有这两项挂锚点，其余小节不在当前引导覆盖范围内。 */
 const SECTION_ONBOARDING_ANCHORS: Partial<Record<SettingsSection, string>> = {
@@ -64,6 +66,7 @@ const SECTION_GROUPS: SectionGroup[] = [
       { id: "providers", labelKey: "dashboard:providers", Icon: Plug },
       { id: "agent", labelKey: "dashboard:agents", Icon: Bot },
       { id: "media", labelKey: "dashboard:models", Icon: Film },
+      { id: "prompts", labelKey: "dashboard:prompts", Icon: MessageSquareText },
     ],
   },
   {
@@ -92,6 +95,7 @@ export function SystemConfigPage() {
     const section = new URLSearchParams(search).get("section");
     if (section === "agent") return "agent";
     if (section === "media") return "media";
+    if (section === "prompts") return "prompts";
     if (section === "usage") return "usage";
     if (section === "api-keys") return "api-keys";
     if (section === "about") return "about";
@@ -307,6 +311,7 @@ export function SystemConfigPage() {
 
               {activeSection === "agent" && <AgentConfigTab visible />}
               {activeSection === "media" && <MediaModelSection />}
+              {activeSection === "prompts" && <PromptSettingsSection />}
               {activeSection === "usage" && <UsageStatsSection />}
               {activeSection === "api-keys" && (
                 <div className="p-6">

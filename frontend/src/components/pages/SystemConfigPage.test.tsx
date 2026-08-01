@@ -22,6 +22,12 @@ function makeConfigResponse(
       default_text_backend: "",
       text_backend_simple: "",
       text_backend_complex: "",
+      default_text_reasoning_effort: "",
+      text_reasoning_effort_simple: "",
+      text_reasoning_effort_complex: "",
+      asset_prompt_character: "",
+      asset_prompt_scene: "",
+      asset_prompt_prop: "",
       video_generate_audio: true,
       anthropic_api_key: { is_set: true, masked: "sk-ant-***" },
       anthropic_base_url: "",
@@ -121,11 +127,12 @@ describe("SystemConfigPage", () => {
     expect(screen.getByText("系统配置与 API 访问管理")).toBeInTheDocument();
   });
 
-  it("renders all 6 sidebar sections", () => {
+  it("renders all 7 sidebar sections", () => {
     renderPage();
     expect(screen.getByRole("button", { name: /智能体/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /供应商/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /模型选择/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^提示词$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /用量统计/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /API 令牌/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /关于/ })).toBeInTheDocument();
@@ -153,6 +160,15 @@ describe("SystemConfigPage", () => {
     fireEvent.click(mediaButton);
     await waitFor(() => {
       expect(mediaButton).toHaveAttribute("aria-current", "page");
+    });
+  });
+
+  it("clicking 提示词 makes it the active section", async () => {
+    renderPage();
+    const promptsButton = screen.getByRole("button", { name: /^提示词$/ });
+    fireEvent.click(promptsButton);
+    await waitFor(() => {
+      expect(promptsButton).toHaveAttribute("aria-current", "page");
     });
   });
 

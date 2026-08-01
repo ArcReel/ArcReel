@@ -36,6 +36,7 @@ class OpenAITextBackend:
         model: str | None = None,
         base_url: str | None = None,
         provider_name: str = PROVIDER_OPENAI,
+        reasoning_effort: str | None = None,
     ):
         # 禁用 SDK 内置重试，由本层 generate() 统一管理重试策略
         self._client = create_openai_client(api_key=api_key, base_url=base_url, max_retries=0)
@@ -43,6 +44,7 @@ class OpenAITextBackend:
         # 复用 OpenAI 兼容协议的 provider（如 dashscope）须用真实 provider 记账，
         # 否则计费查表会命中 OpenAI 的 USD 费率而非自身定价。
         self._provider_name = provider_name
+        self._reasoning_effort = reasoning_effort
         # 官方端点已弃用 max_tokens（推理模型直接拒绝），用 max_completion_tokens；
         # 第三方兼容端点（自定义供应商、dashscope 等）不保证支持新参数，保守沿用 max_tokens
         self._max_tokens_param: TokenParam = (
@@ -85,6 +87,7 @@ class OpenAITextBackend:
                 messages,
                 provider=self._provider_name,
                 token_param=self._max_tokens_param,
+                reasoning_effort=self._reasoning_effort,
             )
 
         if request.response_schema:
@@ -101,6 +104,7 @@ class OpenAITextBackend:
                     messages,
                     provider=self._provider_name,
                     token_param=self._max_tokens_param,
+                    reasoning_effort=self._reasoning_effort,
                 )
                 # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果，否则
                 # 记账层会系统性漏记。仅在至少一侧有计量时相加；两侧皆 None
@@ -124,6 +128,8 @@ class OpenAITextBackend:
         白白重试。
         """
         kwargs: dict = {"model": self._model, "messages": messages}
+        if self._reasoning_effort:
+            kwargs["reasoning_effort"] = self._reasoning_effort
         if request.max_output_tokens is not None:
             kwargs[self._max_tokens_param] = request.max_output_tokens
 
@@ -229,6 +235,7 @@ async def _instructor_fallback(
     *,
     provider: str = PROVIDER_OPENAI,
     token_param: TokenParam = "max_tokens",
+    reasoning_effort: str | None = None,
 ) -> TextGenerationResult:
     """Instructor 降级：当原生 response_format 不可用时的备选路径。
 
@@ -245,4 +252,5 @@ async def _instructor_fallback(
         provider=provider,
         max_tokens=request.max_output_tokens,
         token_param=token_param,
+        reasoning_effort=reasoning_effort,
     )

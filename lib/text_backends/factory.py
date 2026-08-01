@@ -10,6 +10,8 @@ from __future__ import annotations
 from lib.backend_assembly import assemble_backend
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
+from lib.openai_model_catalog import effective_openai_reasoning_effort
+from lib.providers import PROVIDER_OPENAI
 from lib.text_backends.base import TextBackend, TextTaskType
 
 
@@ -26,10 +28,15 @@ async def create_text_backend_for_task(
 
     async with resolver.session() as r:
         provider_id, model_id = await r.text_backend_for_task(task_type, project_name)
+        reasoning_effort = None
+        if provider_id == PROVIDER_OPENAI:
+            configured_effort = await r.text_reasoning_effort_for_task(task_type)
+            reasoning_effort = effective_openai_reasoning_effort(model_id, configured_effort)
         backend = await assemble_backend(
             provider_id=provider_id,
             media_type="text",
             model_id=model_id,
             resolver=r,
+            runtime_options={"reasoning_effort": reasoning_effort} if reasoning_effort else None,
         )
     return backend, provider_id
