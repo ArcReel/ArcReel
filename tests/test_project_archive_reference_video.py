@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.config.registry import PROVIDER_REGISTRY
 from lib.project_manager import ProjectManager
 from lib.resource_paths import resource_relative_path
 from server.services.project_archive import ProjectArchiveService, ProjectArchiveValidationError
@@ -225,6 +226,52 @@ class TestProjectArchiveReferenceVideo:
             (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
         )
         assert imported["video_units"][0]["duration_seconds"] == 12
+
+    @pytest.mark.integration
+    def test_import_resolves_tiers_for_legacy_provider_alias(self, tmp_path):
+        """归档修复跑在 provider 归一化之前：video_backend 仍是 legacy 别名时也要解析出档位。
+
+        解析落空会退回结构 clamp 把非档位秒数固化，而迁移幂等——等 migrate_project_dir 把
+        provider 归一化之后，已经没有第二次取档的机会。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        legacy_unit = {
+            "unit_id": "E1U1",
+            "shots": [{"duration": 6, "text": "镜头一"}, {"duration": 4, "text": "镜头二"}],
+            "references": [],
+            "transition_to_next": "cut",
+            "generated_assets": {
+                "storyboard_image": None,
+                "storyboard_last_image": None,
+                "video_clip": "reference_videos/E1U1.mp4",
+                "video_thumbnail": "reference_videos/thumbnails/E1U1.jpg",
+                "video_uri": REMOTE_VIDEO_URI,
+                "grid_id": None,
+                "grid_cell_index": None,
+                "status": "completed",
+            },
+        }
+        project_dir = _create_reference_video_project(pm, unit=legacy_unit)
+        # legacy 别名 + 未落 _supported_durations：档位只能靠归一化后查 registry 得到。
+        project_file = project_dir / "project.json"
+        payload = json.loads(project_file.read_text(encoding="utf-8"))
+        payload["video_backend"] = "gemini/veo-3.1-generate-preview"
+        payload.pop("schema_version", None)
+        project_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+        service = ProjectArchiveService(pm)
+        archive_path = tmp_path / "legacy-alias.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="legacy-alias.zip")
+
+        imported = json.loads(
+            (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+        )
+        # 求和 10s 不是该型号档位成员，取档后落盘的秒数必是成员。
+        veo_tiers = PROVIDER_REGISTRY["gemini-aistudio"].models["veo-3.1-generate-preview"].supported_durations
+        assert imported["video_units"][0]["duration_seconds"] in veo_tiers
 
     def test_import_restores_video_clip_from_version(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

@@ -21,6 +21,7 @@ from lib.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_hint
 from lib.project_manager import ProjectManager, effective_mode
 from lib.project_migrations.runner import migrate_project_dir
+from lib.project_migrations.v1_to_v2_normalize_providers import migrate_project_dict as normalize_legacy_providers
 from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.resource_paths import resource_extension, resource_relative_path
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
@@ -1023,8 +1024,12 @@ class ProjectArchiveService:
         # 档位表取归档自带的 project.json（同步回退链，无 DB 访问——导入跑在 to_thread 里），
         # 与生成侧、审阅门同源：迁移一次落盘，三处口径不一致会让先跑的把非档位秒数固化。
         # 归档未声明视频型号时为 None，退回结构区间 clamp。
+        # provider 先在副本上归一化：本方法跑在 migrate_project_dir 之前，存量归档里可能还是
+        # legacy 别名（如 gemini/…），registry 查不到会让档位解析落空，而迁移幂等、归一化之后
+        # 再无机会取档。归一化是纯函数且幂等，不影响随后的正式迁移。
+        normalized_project = normalize_legacy_providers(project_payload)
         migrated, migration_warnings = migrate_unit_durations(
-            raw_units, supported_durations=resolve_raw_supported_durations(project_payload)
+            raw_units, supported_durations=resolve_raw_supported_durations(normalized_project)
         )
         changed = migrated
         for message in migration_warnings:
