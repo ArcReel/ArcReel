@@ -31,7 +31,7 @@ from lib.episode_paths import (
 )
 from lib.json_io import atomic_write_json
 from lib.path_safety import PathTraversalError, safe_join
-from lib.project_manager import DEFAULT_SOURCE_KIND, effective_mode
+from lib.project_manager import DEFAULT_SOURCE_KIND, ProjectManager, effective_mode
 from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
 from lib.reference_video.shot_parser import extract_mentions, resolve_references
@@ -619,7 +619,11 @@ def split_reference_video_units_tool(ctx: ToolContext):
             drafts_dir.mkdir(parents=True, exist_ok=True)
             step1_path = drafts_dir / REFERENCE_VIDEO_STEP1_FILENAME
             # step1 真相源须原子写入（同 normalize_drama_script）：避免中断 / 并发重跑留下半写 JSON。
-            atomic_write_json(step1_path, content)
+            # 与 ScriptGenerator._load_reference_step1 / ScriptReviewService 共享同一把
+            # per-path 锁：重新拆分的整份覆盖式重写与迁移、Web 端编辑相互串行化。
+            pm = ProjectManager(str(project_path.parent))
+            with pm.file_lock(step1_path):
+                atomic_write_json(step1_path, content)
 
             shot_count = sum(len(u.get("shots") or []) for u in raw_units)
             total_seconds = sum(int(u.get("duration_seconds") or 0) for u in raw_units)

@@ -113,6 +113,18 @@ def _write_rv_step1(pm: ProjectManager, content: dict) -> Path:
     return path
 
 
+@pytest.mark.integration
+def test_content_fingerprint_of_data_matches_path_based_fingerprint(tmp_path: Path):
+    """对同一份内容，从已解析对象取的指纹须与对文件路径取的指纹相同——两者共用同一套
+    规范化逻辑，调用方才能安全地用前者替代"读入内存后再对路径复核一次"的二次读盘。
+    """
+    path = tmp_path / "content.json"
+    data = {"b": 2, "a": 1, "nested": {"z": [3, 2, 1]}}
+    atomic_write_json(path, data)
+
+    assert script_review.content_fingerprint_of_data(data) == script_review.content_fingerprint(path)
+
+
 def _write_step2(pm: ProjectManager) -> Path:
     """写出 step2 产物（生成的剧本 JSON），模拟「已产 step2」。"""
     scripts = pm.get_project_path("demo") / "scripts"
@@ -285,7 +297,7 @@ class TestReferenceVideoGateFlow:
 
     def test_confirm_rederives_references_when_step1_edited_outside_save_content(self, tmp_path):
         """confirm 前直改 step1 文件（绕过 save_content，如 agent Write/Edit 直改 drafts/）→
-        确认时按当前正文重派生 references 并落盘，不放行陈旧引用（回归 Codex P2）。"""
+        确认时按当前正文重派生 references 并落盘，不放行陈旧引用。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         pm.add_scenes_batch("demo", {"屋檐": {"description": "雨夜屋檐"}})
         svc = ScriptReviewService(pm)
@@ -310,6 +322,8 @@ class TestReferenceVideoGateFlow:
 
 class TestReferenceVideoStep1Migration:
     """存量 step1 草稿（per-shot 时长）在 gate 侧的一次性收编迁移。"""
+
+    pytestmark = pytest.mark.integration
 
     @staticmethod
     def _legacy_step1() -> dict:
@@ -370,6 +384,125 @@ class TestReferenceVideoStep1Migration:
         assert state["status"] == "confirmed"
         assert state["confirmed_at"] == "2026-01-01T00:00:00Z"
         assert state["content"]["units"][0]["duration_seconds"] == 8
+
+    def test_confirm_reopens_review_when_migration_clamps_duration(self, tmp_path):
+        """迁移带 warnings（时长被 clamp 改写）不是纯格式收编：已确认分集须退回待审，
+        不能像纯结构收编那样平移确认——clamp 后的秒数不是用户确认时看到的值。
+        """
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        legacy = self._legacy_step1()
+        # 求和 90s 超出 REFERENCE_UNIT_DURATION_RANGE 上限（60s），迁移会 clamp 并记 warning。
+        legacy["units"][0]["shots"][0]["duration"] = 60
+        legacy["units"][0]["shots"][1]["duration"] = 30
+        path = _write_rv_step1(pm, legacy)
+
+        def _confirm_legacy(p: dict) -> None:
+            script_review.apply_confirmation(p, 1, script_review.content_fingerprint(path), "2026-01-01T00:00:00Z")
+
+        pm.update_project("demo", _confirm_legacy)
+
+        state = svc.get_state("demo", 1)
+        assert state["status"] == "pending_review"
+        assert state["content"]["units"][0]["duration_seconds"] == 60
+
+    def test_clamping_migration_reopens_review_for_grandfathered_episode(self, tmp_path):
+        """从未存过确认指纹、靠 grandfather 判据（step2 已存在）放行的存量集：迁移 clamp
+        改写时长后须退回待审——迁移幂等落盘，重试不再产生 warnings，不落失配标记的话
+        后续生成会静默采用用户从未过目的取值。
+        """
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        legacy = self._legacy_step1()
+        legacy["units"][0]["shots"][0]["duration"] = 60
+        legacy["units"][0]["shots"][1]["duration"] = 30
+        _write_rv_step1(pm, legacy)
+        _write_step2(pm)
+
+        state = svc.get_state("demo", 1)
+        assert state["status"] == "pending_review"
+        # 幂等重读不会把状态放回 grandfather 放行：失配标记已持久化。
+        assert svc.get_state("demo", 1)["status"] == "pending_review"
+
+    def test_confirm_direct_call_confirms_migrated_content(self, tmp_path):
+        """agent / API 可能绕过 get_state 直接调用 confirm：迁移在 confirm 内部触发并 clamp
+        时（枚举外 clamp + warning 的宽容口径），confirm 按迁移后的落盘内容确认放行。
+        """
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        legacy = self._legacy_step1()
+        legacy["units"][0]["shots"][0]["duration"] = 60
+        legacy["units"][0]["shots"][1]["duration"] = 30
+        _write_rv_step1(pm, legacy)
+
+        state = svc.confirm("demo", 1)
+        assert state["status"] == "confirmed"
+        assert state["content"]["units"][0]["duration_seconds"] == 60
+
+    def test_confirmation_carry_uses_written_content_not_post_write_reread(self, tmp_path, monkeypatch):
+        """迁移写回后平移确认指纹须用刚写入的内容直接算，不能再读一次磁盘——写回与该次读取
+        之间若有并发编辑落下，读到的会是并发内容的指纹，把确认记录错误地平移到一份未经审阅
+        的内容上。
+        """
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        legacy = self._legacy_step1()
+        path = _write_rv_step1(pm, legacy)
+        before = script_review.content_fingerprint(path)
+
+        def _confirm_legacy(p: dict) -> None:
+            script_review.apply_confirmation(p, 1, before, "2026-01-01T00:00:00Z")
+
+        pm.update_project("demo", _confirm_legacy)
+
+        concurrent_edit = self._legacy_step1()
+        concurrent_edit["units"][0]["shots"][0]["text"] = "并发编辑：紧随迁移写回落盘。"
+
+        written: list[dict] = []
+        original_write = script_review.atomic_write_json
+
+        def _write_then_concurrent_edit(target_path, data):
+            written.append(json.loads(json.dumps(data)))
+            original_write(target_path, data)
+            atomic_write_json(path, concurrent_edit)
+
+        monkeypatch.setattr(script_review, "atomic_write_json", _write_then_concurrent_edit)
+
+        svc.get_state("demo", 1)
+
+        migrated_fingerprint = script_review.content_fingerprint_of_data(written[0])
+        concurrent_fingerprint = script_review.content_fingerprint_of_data(concurrent_edit)
+        stored = script_review.stored_review(pm.load_project("demo"), 1)
+
+        assert stored["confirmed_at"] == "2026-01-01T00:00:00Z"
+        assert stored["fingerprint"] == migrated_fingerprint
+        assert stored["fingerprint"] != concurrent_fingerprint
+
+    def test_migration_carries_confirmation_that_lands_after_project_snapshot_loaded(self, tmp_path, monkeypatch):
+        """get_state 在迁移前加载的 project 快照此后不再刷新：若确认发生在这份快照加载
+        之后、迁移写回完成之前，携带确认的判断不能依赖这份陈旧快照——那样会把刚发生的
+        确认误判成"未确认"而跳过搬移，永久丢失它（迁移幂等，往后重试也补不回来）。
+        """
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        legacy = self._legacy_step1()
+        path = _write_rv_step1(pm, legacy)
+        before = script_review.content_fingerprint(path)
+
+        original_migrate = script_review.migrate_unit_durations
+
+        def _migrate_with_concurrent_confirm(units, **kwargs):
+            # 模拟另一请求的 confirm() 在 get_state 加载 project 快照之后、迁移完成之前落下确认。
+            def _confirm_legacy(p: dict) -> None:
+                script_review.apply_confirmation(p, 1, before, "2026-01-01T00:00:00Z")
+
+            pm.update_project("demo", _confirm_legacy)
+            return original_migrate(units, **kwargs)
+
+        monkeypatch.setattr(script_review, "migrate_unit_durations", _migrate_with_concurrent_confirm)
+
+        state = svc.get_state("demo", 1)
+        assert state["status"] == "confirmed"
 
     def test_migration_does_not_confirm_an_unconfirmed_episode(self, tmp_path):
         """指纹本就对不上（step1 确实改过）时不平移确认记录，照常按待审处理。"""

@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -29,7 +31,11 @@ from lib.episode_paths import (
     episode_drafts_dir,
     episode_script_relpath,
 )
+from lib.json_io import atomic_write_json
 from lib.project_manager import find_episode, is_reference_video_episode
+from lib.reference_video.duration_migration import migrate_unit_durations
+
+logger = logging.getLogger(__name__)
 
 #: 审核状态：not_applicable=该集不走 gate；no_step1=适用但 step1 未产出；
 #: pending_review=step1 已产出但未经确认（或确认后内容又变）→ 阻塞 step2；confirmed=已确认放行。
@@ -72,21 +78,36 @@ def step1_path(project_path: Path, project: dict[str, Any], episode: int) -> Pat
     return episode_drafts_dir(project_path, episode) / filename
 
 
+def content_fingerprint_of_data(data: object) -> str:
+    """已解析 JSON 对象的指纹：规范化 dump（键序 / 空白重排不改指纹）的 sha256。
+
+    供调用方对已读入内存的对象直接取指纹（如迁移前 snapshot），不经二次磁盘读取——指纹须
+    对应调用方手里这份内容本身。与 ``content_fingerprint`` 的 JSON 分支同一套规范化逻辑，
+    仅入参从路径换成已解析对象，故对同一份内容两者取值相同。
+    """
+    canonical = json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def content_fingerprint(path: Path) -> str | None:
     """step1 内容指纹：合法 JSON 取规范化 dump 的 sha256（键序 / 空白重排不改指纹、语义变更才改），
     非 JSON 退化为原始字节 sha256；文件不存在（FileNotFoundError）时 None。
 
     只把「文件不存在」降级为 None（→ no_step1、gate 放行）；权限不足、目录占位、短暂 I/O 等其它
-    OSError 一律向上抛，避免把真实文件系统故障静默当成「step1 未产出」而误放行 step2。"""
+    OSError 一律向上抛，避免把真实文件系统故障静默当成「step1 未产出」而误放行 step2。
+
+    对已读入内存的对象取指纹（如迁移前 snapshot）用 ``content_fingerprint_of_data``，不要对同一
+    文件再调一次本函数——两次独立读取之间的并发写入会被此函数的第二次读取吞掉，见其 docstring。
+    """
     try:
         raw = path.read_bytes()
     except FileNotFoundError:
         return None
     try:
-        canonical = json.dumps(json.loads(raw), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        parsed = json.loads(raw)
     except (ValueError, UnicodeDecodeError):
         return hashlib.sha256(raw).hexdigest()
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return content_fingerprint_of_data(parsed)
 
 
 def stored_review(project: dict[str, Any], episode: int) -> dict[str, Any]:
@@ -152,3 +173,79 @@ def apply_confirmation(project: dict[str, Any], episode: int, fingerprint: str, 
         return False
     ep[REVIEW_FIELD] = {"fingerprint": fingerprint, "confirmed_at": confirmed_at}
     return True
+
+
+def carry_confirmation_through_migration(project: dict[str, Any], episode: int, before: str, after: str) -> bool:
+    """存量 step1 草稿的时长收编迁移是机械格式收编、不是内容编辑，但回写会让内容指纹漂移。
+
+    若该集确认指纹恰好记的是迁移前内容（``before``），就把它平移到迁移后的值（``after``），
+    避免一个早已确认的分集仅因被迁移回写就退回待审；指纹本就对不上（step1 在迁移外确实被
+    改过）时不动，返回 False，照常按待审处理。
+
+    仅适用于迁移无 warnings 的情形（纯格式收编，时长取值未被 clamp 改写）：调用方须在迁移
+    产生 warnings 时跳过本函数，让确认照常失效——那种情形下 ``after`` 携带的时长已不是用户
+    确认时看到的值，平移确认等于替用户默许了一次未经审阅的内容变更。
+
+    供调用方在 ``ProjectManager.update_project`` 的锁内回调中调用（确保比对的是加锁后重读的
+    最新 project）——``server/services/script_review.py`` 与 ``lib/script_generator.py`` 的两处
+    迁移写回入口共用本函数，不各自重复这段判断。
+    """
+    stored = stored_review(project, episode)
+    if stored.get("fingerprint") != before:
+        return False
+    apply_confirmation(project, episode, after, str(stored.get("confirmed_at") or ""))
+    return True
+
+
+def migrate_step1_draft_in_place(
+    path: Path,
+    content: object,
+    *,
+    episode: int,
+    update_project: Callable[[Callable[[dict[str, Any]], None]], dict[str, Any]],
+    supported_durations: Sequence[int] | None = None,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    """对已读入内存的 step1 草稿就地做一次性时长收编迁移并回写；返回 ``(最新 project, warnings)``。
+
+    调用方须已持有该文件的排他锁（``ProjectManager.file_lock``）——迁移回写与 Web 端保存 /
+    重拆分写盘共享同一把 per-path 锁。未发生迁移时不回写，返回 ``(None, [])``。
+
+    迁移多数情况下是机械格式收编，回写会让内容指纹漂移：经 ``update_project`` 在锁内把该集
+    确认指纹平移到迁移后的值（``carry_confirmation_through_migration``），避免已确认分集仅因
+    被加载就退回待审。``warnings`` 非空说明迁移按档位 / 结构区间 clamp 改写了实际时长取值——
+    那是内容变更，不平移确认，已确认分集经指纹比对照常退回待审；从未存过指纹、靠 grandfather
+    判据（step2 产物已存在）放行的存量集则显式记下迁移前内容的指纹，使其同样失配退回待审。
+    该标记的持久化不区分 dry-run 与真实生成：迁移幂等落盘后重试不再产生 warnings，只有落盘
+    的标记能保证后续生成仍被审阅门拦下。
+
+    ``supported_durations`` 给定时（step2 加载侧持有模型档位）收编结果直接取档；缺省
+    （web gate 侧，能力解析是 async + DB、同步拿不到档位）只做结构区间 clamp。
+
+    ``lib.script_generator.ScriptGenerator`` 与 ``server.services.script_review`` 的两处
+    step1 读取入口共用本函数，迁移与确认平移的判断不各自重复。
+    """
+    if not isinstance(content, dict):
+        return None, []
+    before = content_fingerprint_of_data(content)
+    changed, warnings = migrate_unit_durations(content.get("units"), supported_durations=supported_durations)
+    for message in warnings:
+        logger.warning("step1 草稿 %s 时长收编迁移: %s", path.name, message)
+    if not changed:
+        return None, []
+    atomic_write_json(path, content)
+    if warnings:
+
+        def _invalidate_grandfathered(p: dict[str, Any]) -> None:
+            # 已存过指纹的分集不插手：确认的是迁移前内容时指纹已自然失配，确认的是别的
+            # 内容时 review_status 本就判 pending_review。
+            stored = stored_review(p, episode)
+            if not stored.get("fingerprint"):
+                apply_confirmation(p, episode, before, str(stored.get("confirmed_at") or ""))
+
+        return update_project(_invalidate_grandfathered), warnings
+    after = content_fingerprint_of_data(content)
+
+    def _carry(p: dict[str, Any]) -> None:
+        carry_confirmation_through_migration(p, episode, before, after)
+
+    return update_project(_carry), warnings

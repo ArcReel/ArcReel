@@ -871,8 +871,12 @@ async def update_draft_content(
                 ):
                     raise HTTPException(status_code=400, detail=_t("draft_invalid_json"))
 
-            is_new = not draft_path.exists()
-            draft_path.write_text(content, encoding="utf-8")
+            # 与 ScriptGenerator / ScriptReviewService 共享同一把 per-path 锁：
+            # 草稿文件的迁移读改写与 Web 端保存相互串行化。
+            pm = get_project_manager()
+            with pm.file_lock(draft_path):
+                is_new = not draft_path.exists()
+                draft_path.write_text(content, encoding="utf-8")
 
             # 发射 draft 事件通知前端
             action = "created" if is_new else "updated"

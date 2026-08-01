@@ -23,6 +23,7 @@ def _legacy_unit(unit_id: str = "E1U1", shots: list[int] | None = None, **extra)
     return unit
 
 
+@pytest.mark.unit
 class TestMigrateUnitDurations:
     def test_sums_shot_durations_into_unit_and_strips_shot_field(self):
         units = [_legacy_unit(shots=[3, 5])]
@@ -123,6 +124,7 @@ def _write_legacy_project(tmp_path: Path) -> tuple[ProjectManager, dict]:
     return ProjectManager(projects_root), script
 
 
+@pytest.mark.integration
 class TestLoadScriptMigration:
     def test_load_script_migrates_and_persists_once(self, tmp_path: Path):
         pm, _script = _write_legacy_project(tmp_path)
@@ -172,6 +174,7 @@ class TestLoadScriptMigration:
         assert not (project_dir / "scripts" / ".episode_404.json.lock").exists()
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("filename", ["episode_1.json", "scripts/episode_1.json"])
 def test_load_script_migration_survives_filename_aliases(tmp_path: Path, filename: str):
     pm, _script = _write_legacy_project(tmp_path)

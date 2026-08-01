@@ -708,7 +708,7 @@ class ProjectManager:
         """
         norm = self.normalize_script_filename(script_filename)
         with self._script_lock(project_name, norm):
-            # 已持锁，走 unlocked 变体取剧本（迁移结果随本次写回落盘）
+            # 已持锁，走 unlocked 变体取剧本（迁移结果随写回落盘）
             script, _migrated = self._read_script_unlocked(project_name, norm)
             before = copy.deepcopy(script) if validate else None
             yield script
@@ -1402,12 +1402,24 @@ class ProjectManager:
             yield
 
     @contextmanager
+    def file_lock(self, path: Path):
+        """通过隐藏 lock file 获取任意文件的排他锁，公开供跨模块共享同一把互斥。
+
+        lock 文件命名为 `.{basename}.lock`（以 `.` 开头），位于该文件所在目录，
+        与 `_project_lock` / `_script_lock` 同一约定，自动被目录 glob 过滤排除。
+        供同一份文件存在多个读-改-写入口（如 step1 草稿的迁移写回与正文保存）
+        且需要相互串行化时使用——各入口对同一 real path 取本锁即可互斥，不必
+        知道彼此的存在。
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = path.parent / f".{path.name}.lock"
+        lock_path.touch(exist_ok=True)
+        with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
+            yield
+
+    @contextmanager
     def _script_lock(self, project_name: str, script_filename: str):
         """通过隐藏 lock file 获取剧本文件的排他锁。
-
-        lock 文件命名为 `.{basename}.lock`（以 `.` 开头），位于规范化后剧本的
-        parent 目录下，自动被 `list_scripts()` 的 `*.json` glob 与
-        `project_archive` 的 `name.startswith(".")` 过滤排除。
 
         **关键**：用 `_safe_subpath` 规范化 filename 再派生 lock key，避免
         `./episode_1.json` 与 `episode_1.json` 解析到同一个 real path 却拿到
@@ -1417,10 +1429,7 @@ class ProjectManager:
         scripts_dir.mkdir(parents=True, exist_ok=True)
         script_filename = self.normalize_script_filename(script_filename)
         real = Path(self._safe_subpath(scripts_dir, script_filename))
-        lock_path = real.parent / f".{real.name}.lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_path.touch(exist_ok=True)
-        with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
+        with self.file_lock(real):
             yield
 
     def save_project(self, project_name: str, project: dict) -> Path:

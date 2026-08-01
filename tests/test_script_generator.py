@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -1064,14 +1065,20 @@ def test_resolve_max_duration_tracks_narrowed_set(tmp_path):
 
 
 def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> ScriptGenerator:
-    """构造跳过 backend 初始化的 narration ScriptGenerator（用于直接测内部方法）。"""
+    """构造跳过 backend 初始化的 narration ScriptGenerator（用于直接测内部方法）。
+
+    project.json 落到磁盘（不只是内存字段）：_load_reference_step1 的确认指纹搬移经
+    ProjectManager.update_project 无条件加锁读写该文件（不再靠内存快照短路），缺文件会
+    在那一步 FileNotFoundError。
+    """
     project_dir = tmp_path / "demo"
     project_dir.mkdir(exist_ok=True)
     sg = ScriptGenerator.__new__(ScriptGenerator)
     sg.generator = None
     sg.project_path = project_dir
-    sg.project_json = {"content_mode": "narration", **(project_extra or {})}
+    sg.project_json = {"content_mode": "narration", "episodes": [], **(project_extra or {})}
     sg.content_mode = sg.project_json.get("content_mode", "narration")
+    (project_dir / "project.json").write_text(json.dumps(sg.project_json, ensure_ascii=False), encoding="utf-8")
     return sg
 
 
@@ -1437,6 +1444,7 @@ class TestLoadReferenceStep1:
         with pytest.raises(ValueError, match="时长非法"):
             sg._load_reference_step1(1, [4, 6, 8])
 
+    @pytest.mark.integration
     def test_migrates_legacy_per_shot_durations_and_persists(self, tmp_path):
         """存量草稿的 per-shot 时长求和收编为 unit 时长，就地回写；二次加载不再触发。"""
         sg = _bare_generator(tmp_path)
@@ -1460,8 +1468,14 @@ class TestLoadReferenceStep1:
         assert on_disk["units"][0]["duration_seconds"] == 4
         assert "duration" not in on_disk["units"][0]["shots"][0]
 
-    def test_migration_clamps_sum_to_supported_slot(self, tmp_path):
-        """求和落在档位之外 → 按容量语义取档后落盘（此处 4+3=7 → 8）。"""
+        # 幂等：二次加载不再改写落盘内容。
+        before_second_load = self._step1_path(sg, 1).read_bytes()
+        sg._load_reference_step1(1, [4, 6, 8])
+        assert self._step1_path(sg, 1).read_bytes() == before_second_load
+
+    @pytest.mark.integration
+    def test_migration_clamps_sum_to_supported_slot(self, tmp_path, caplog):
+        """求和落在档位之外 → 按容量语义取档后落盘（此处 4+3=7 → 8），并落盘 + 记 warning。"""
         sg = _bare_generator(tmp_path)
         self._write(
             sg,
@@ -1475,7 +1489,15 @@ class TestLoadReferenceStep1:
                 ]
             },
         )
-        assert sg._load_reference_step1(1, [4, 6, 8])[0]["duration_seconds"] == 8
+        with caplog.at_level(logging.WARNING):
+            units = sg._load_reference_step1(1, [4, 6, 8])
+        assert units[0]["duration_seconds"] == 8
+        assert any("时长收编迁移" in r.message for r in caplog.records)
+
+        on_disk = json.loads(self._step1_path(sg, 1).read_text(encoding="utf-8"))
+        assert on_disk["units"][0]["duration_seconds"] == 8
+        assert "duration" not in on_disk["units"][0]["shots"][0]
+        assert "duration" not in on_disk["units"][0]["shots"][1]
 
     def test_empty_units_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)

@@ -1,9 +1,13 @@
+import pytest
+
 from lib.reference_video.shot_parser import (
     parse_prompt,
     render_prompt_for_backend,
     resolve_references,
 )
 from lib.script_models import ReferenceResource
+
+pytestmark = pytest.mark.unit
 
 
 def test_parse_single_shot_no_header():

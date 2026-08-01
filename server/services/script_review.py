@@ -21,7 +21,7 @@ from lib import script_review
 from lib.episode_ledger import discover_episode_files, register_orphan_episode_entries
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
-from lib.reference_video import migrate_unit_durations, rederive_unit_references
+from lib.reference_video import rederive_unit_references
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft, ReferenceStep1Draft
 
 logger = logging.getLogger(__name__)
@@ -114,34 +114,23 @@ class ScriptReviewService:
         存量草稿若不在读时迁移，保存与确认都会撞结构校验，用户在 gate 里既改不了也确认不了。
         剧集脚本的迁移在 ``ProjectManager.load_script``，草稿的在这里，两处共用同一迁移器。
 
-        gate 侧同样拿不到模型档位（能力解析是 async + DB），故只做结构区间 clamp，档位偏移由
+        gate 侧拿不到模型档位（能力解析是 async + DB），故只做结构区间 clamp，档位偏移由
         step2 的枚举 schema 与执行时取档承担——与剧集脚本加载侧口径一致。
 
-        迁移是机械格式收编、不是内容编辑，但回写会让内容指纹漂移。若该集的确认指纹恰好记的是
-        迁移前的内容，就把它平移到迁移后的值，避免一个早已确认的分集仅因被加载而退回待审；
-        指纹本就对不上（step1 确实改过）时不动，照常按待审处理。
+        调用方须已持有 ``self.pm.file_lock(path)``——本函数只做读改写，不自行加锁，避免与
+        调用方（如 ``confirm``）已持有的同一把锁发生同线程二次获取的死锁。
         """
         content = _read_json(path)
         if content is None or script_review.step1_kind(project, episode) != "reference_video":
             return content, project
 
-        before = script_review.content_fingerprint(path)
-        changed, warnings = migrate_unit_durations(content.get("units"))
-        for message in warnings:
-            logger.warning("step1 草稿 %s 时长收编迁移: %s", path.name, message)
-        if not changed:
-            return content, project
-
-        atomic_write_json(path, content)
-        after = script_review.content_fingerprint(path)
-        if after is None or script_review.stored_review(project, episode).get("fingerprint") != before:
-            return content, project
-
-        def _carry(p: dict[str, Any]) -> None:
-            stored = script_review.stored_review(p, episode)
-            script_review.apply_confirmation(p, episode, after, str(stored.get("confirmed_at") or ""))
-
-        return content, self.pm.update_project(project_name, _carry)
+        updated, _warnings = script_review.migrate_step1_draft_in_place(
+            path,
+            content,
+            episode=episode,
+            update_project=lambda mutate: self.pm.update_project(project_name, mutate),
+        )
+        return content, updated or project
 
     def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
         """返回该集审核状态 + 结构化中间态内容（供 web 渲染）。
@@ -159,7 +148,8 @@ class ScriptReviewService:
         content: dict[str, Any] | None = None
         if path is not None:
             # 迁移可能回写 step1 与确认记录；指纹与状态须在其后取，三者据同一份落盘内容派生。
-            content, project = self._read_step1_migrated(project_name, project, episode, path)
+            with self.pm.file_lock(path):
+                content, project = self._read_step1_migrated(project_name, project, episode, path)
         fingerprint = script_review.content_fingerprint(path) if path is not None else None
         return {
             "episode": episode,
@@ -191,7 +181,9 @@ class ScriptReviewService:
             # 漂移（step2 会用陈旧 [图N] 映射生成）。机械变换、不校验能力上限（同 drama / narration 只结构校验）。
             rederive_unit_references(validated["units"], project)
         path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(path, validated)
+        # 与 _read_step1_migrated 共享同一把 per-path 锁：保存与迁移的读改写相互互斥。
+        with self.pm.file_lock(path):
+            atomic_write_json(path, validated)
         return self.get_state(project_name, episode)
 
     def confirm(self, project_name: str, episode: int) -> dict[str, Any]:
@@ -205,30 +197,32 @@ class ScriptReviewService:
         if path is None:
             raise ScriptReviewError("not_applicable")
         project = self._require_episode(project_name, project, episode)
-        # 存量草稿先做时长收编再校验：agent / 直连调用可能不经 get_state 就确认。
-        content, project = self._read_step1_migrated(project_name, project, episode, path)
-        fingerprint = script_review.content_fingerprint(path)
-        if fingerprint is None:
-            raise ScriptReviewError("no_step1")
-        # 确认前按 step1 变体模型校验 step1 结构：content_fingerprint 对非法 JSON / 任意字节
-        # 也会产出哈希，仅凭 fingerprint 非空会把损坏草稿确认放行、拖到 step2 才暴露；此处拒绝。
-        kind, model = self._resolve_step1_model(project, episode)
-        try:
-            validated = model.model_validate(content)
-        except ValidationError as exc:
-            raise ScriptReviewError("invalid_content", str(exc)) from exc
-
-        if kind == "reference_video":
-            # references 是从 shot 正文机械派生的字段（同 save_content）。agent / 人工可能绕过
-            # save_content 直改 step1 文件正文后直接调用本方法确认：若不在此重派生，references
-            # 会带着与新正文不符的陈旧引用被确认放行，step2 仍用旧 [图N] 映射生成。重派生后落盘，
-            # 指纹改按落盘后的内容算，确认记录与实际 step1 内容一致。
-            dumped = validated.model_dump()
-            rederive_unit_references(dumped["units"], project)
-            atomic_write_json(path, dumped)
-            fingerprint = script_review.content_fingerprint(path)
-            if fingerprint is None:
+        # 存量草稿先做时长收编再校验：agent / 直连调用可能不经 get_state 就确认。同一把
+        # per-path 锁覆盖读改写全程（含下方 reference_video 分支自己的落盘），避免中途被
+        # save_content 或迁移的写入插队——_read_step1_migrated 要求调用方已持锁。
+        with self.pm.file_lock(path):
+            content, project = self._read_step1_migrated(project_name, project, episode, path)
+            if content is None and not path.exists():
                 raise ScriptReviewError("no_step1")
+            # 确认前按 step1 变体模型校验 step1 结构：content 为 None（非法 JSON / 非对象）同样会
+            # 在此被 model_validate 拒绝为 invalid_content，不会被仅凭「文件存在」放行。
+            kind, model = self._resolve_step1_model(project, episode)
+            try:
+                validated = model.model_validate(content)
+            except ValidationError as exc:
+                raise ScriptReviewError("invalid_content", str(exc)) from exc
+
+            if kind == "reference_video":
+                # references 是从 shot 正文机械派生的字段（同 save_content）：agent / 人工可能绕过
+                # save_content 直改 step1 正文后直接确认，故确认前重派生并落盘。指纹按刚写盘的
+                # 这份对象直接算，确认记录与实际写入内容一致。
+                dumped = validated.model_dump()
+                rederive_unit_references(dumped["units"], project)
+                atomic_write_json(path, dumped)
+                fingerprint = script_review.content_fingerprint_of_data(dumped)
+            else:
+                # 指纹从校验通过的 content 派生，不二次读盘：确认记录须对应这里校验过的内容。
+                fingerprint = script_review.content_fingerprint_of_data(content)
 
         confirmed_at = datetime.now(UTC).isoformat()
 

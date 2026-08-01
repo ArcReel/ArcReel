@@ -26,7 +26,6 @@ from lib.episode_paths import (
     episode_drafts_dir,
     episode_script_filename,
 )
-from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager, effective_mode
 from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
@@ -35,7 +34,7 @@ from lib.prompt_builders_script import (
     build_narration_prompt,
     render_drama_content_for_step2,
 )
-from lib.reference_video.duration_migration import migrate_unit_durations
+from lib.reference_video.duration_slots import resolve_duration_slot
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     AdEpisodeScript,
@@ -54,6 +53,7 @@ from lib.script_models import (
     merge_drama_visual_into_scenes,
     script_duration_total,
 )
+from lib.script_review import migrate_step1_draft_in_place
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
@@ -225,10 +225,8 @@ class ScriptGenerator:
         props = self.project_json.get("props")
         props = props if isinstance(props, dict) else {}
 
-        # 参考视频路径先读 step1：本集是否真的带参考图决定要不要施加「参考图↔时长」约束。
-        # 单 shot 时长按未收窄的全集校验：shot 是同一段 clip 内的时间编排、不单独发给供应商，
-        # 受联动约束的是它们的和（unit 总时长）。用收窄集合校验 shot 会连 clip 内的节奏一起
-        # 卡死（Veo 1080p 下每个 shot 都得是 8 秒，凑不出 4+4），而约束并不要求这一点。
+        # 参考视频路径先读 step1：本集是否真的带参考图决定要不要施加「参考图↔时长」约束，
+        # 故此处先按未收窄的全集校验 unit 时长，收窄后的集合在下方按引用情况解析。
         step1_units = (
             self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
             if gen_mode == "reference_video"
@@ -286,7 +284,28 @@ class ScriptGenerator:
             # novel_text/时长/break 由 step1 透传，不进 LLM 输出，从工程上根除扩写漂移。
             schema = NarrationVisualEpisodeScript
 
-        return await self._generate_and_save(prompt, schema, episode, output_filename, narration_step1=narration_step1)
+        # unit 时长的单一真相是 step1 审阅确认的值：schema 只把 duration_seconds 枚举约束到
+        # supported_durations 成员，不会把它钉死在某个具体 unit 已确认的档位上，LLM 因而能在
+        # 合法档位间自由改写——按 unit_id 机械传回 step1 确认值，杜绝该字段被 step2 静默漂移。
+        #
+        # 这里只传未取档的原始确认值：取档按哪套档位算取决于「这个 unit 最终是否带参考图」，
+        # 而 references 由 LLM 在 step2 输出时决定、可能与 step1 机械派生的不同。取档统一放在
+        # _add_metadata，按落地后的最终 references 逐 unit 重算。
+        reference_unit_durations = None
+        if step1_units is not None:
+            reference_unit_durations = {
+                str(_rewrite_episode_prefix(u["unit_id"], episode)): u["duration_seconds"] for u in step1_units
+            }
+
+        return await self._generate_and_save(
+            prompt,
+            schema,
+            episode,
+            output_filename,
+            narration_step1=narration_step1,
+            reference_unit_durations=reference_unit_durations,
+            caps=caps if step1_units is not None else None,
+        )
 
     async def _generate_drama_step2(self, episode: int, output_filename: str | None, *, gen_mode: str) -> Path:
         """drama 两段式 step2：读 step1 结构化内容 → LLM 仅出视觉层 → 按 scene_id 合并 → 落盘。
@@ -405,11 +424,16 @@ class ScriptGenerator:
         output_filename: str | None,
         *,
         narration_step1: list[dict] | None = None,
+        reference_unit_durations: dict[str, int] | None = None,
+        caps: dict | None = None,
     ) -> Path:
         """调用 TextBackend → 解析校验 → 补元数据 → 经写盘统一入口保存（各内容模式共用尾段）。
 
         ``narration_step1`` 非 None 时走两段式合并：LLM 输出视觉层，按 segment_id 合并回
         step1 已定结构（novel_text 等透传）；否则走单段解析（reference/drama/ad）。
+        ``reference_unit_durations`` 非 None 时（reference_video 路径）按 unit_id 机械覆盖
+        LLM 输出的 ``duration_seconds``（取档用最终输出的 references 状态重算，见 ``_add_metadata``）；
+        此时 ``caps`` 须同时给出，供 ``_add_metadata`` 解析每个 unit 的生效档位。
         """
         assert self.generator is not None  # generate() 入口已检查
         # 调用 TextBackend
@@ -433,7 +457,9 @@ class ScriptGenerator:
             script_data = self._parse_response(response_text, episode)
 
         # 补充元数据
-        script_data = self._add_metadata(script_data, episode)
+        script_data = self._add_metadata(
+            script_data, episode, reference_unit_durations=reference_unit_durations, caps=caps
+        )
 
         # 经写盘统一入口保存：整集生成无「改前」，按严格结构校验（等价原 response_schema 的
         # Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json
@@ -726,7 +752,7 @@ class ScriptGenerator:
         返回 unit dict 列表（unit_id / shots / references），供 step2 prompt 渲染
         （``render_reference_units_for_step2``）作唯一基底——step2 不解析自由文本。
         校验：结构合法（``ReferenceStep1Draft``）、units 非空、unit_id 唯一、
-        shot ``duration`` ∈ ``supported_durations``（与拆分工具的 response_schema 同口径，
+        unit ``duration_seconds`` ∈ ``supported_durations``（与拆分工具的 response_schema 同口径，
         防手工编辑漂移出非法时长）。仅存在结构化前的旧 ``step1_reference_units.md`` 时给
         明确的「重跑拆分」报错——不写 md→json 迁移器（旧 md 产于结构化中间态引入前，
         与 narration 同决策）。
@@ -745,19 +771,24 @@ class ScriptGenerator:
                 "请先完成 video_unit 拆分"
             )
 
-        try:
-            raw = json.loads(step1_json.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as e:
-            raise ValueError(f"step1_reference_units.json 解析失败: {e}")
+        pm = ProjectManager(str(self.project_path.parent))
+        # 与 server.services.script_review / save_content 共享同一把 per-path 锁：
+        # 迁移的读改写与 Web 端保存、重拆分写盘相互互斥。
+        with pm.file_lock(step1_json):
+            try:
+                raw = json.loads(step1_json.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as e:
+                raise ValueError(f"step1_reference_units.json 解析失败: {e}")
 
-        # 存量草稿的 per-shot 时长一次性收编到 unit 级并回写落盘（二次加载不再触发）。
-        # 此处持有模型档位，收编结果可直接取档，与 step2 的枚举校验对齐。
-        if isinstance(raw, dict):
-            migrated, warnings = migrate_unit_durations(raw.get("units"), supported_durations=supported_durations)
-            for message in warnings:
-                logger.warning("step1_reference_units.json 时长收编迁移: %s", message)
-            if migrated:
-                atomic_write_json(step1_json, raw)
+            # 存量草稿的 per-shot 时长一次性收编到 unit 级并回写落盘（二次加载不再触发）。
+            # 此处持有模型档位，收编结果直接取档，与下方的枚举校验对齐。
+            migrate_step1_draft_in_place(
+                step1_json,
+                raw,
+                episode=episode,
+                update_project=lambda mutate: pm.update_project(self.project_path.name, mutate),
+                supported_durations=supported_durations,
+            )
 
         try:
             draft = ReferenceStep1Draft.model_validate(raw)
@@ -975,13 +1006,24 @@ class ScriptGenerator:
             "segments": merged_segments,
         }
 
-    def _add_metadata(self, script_data: dict, episode: int) -> dict:
+    def _add_metadata(
+        self,
+        script_data: dict,
+        episode: int,
+        *,
+        reference_unit_durations: dict[str, int] | None = None,
+        caps: dict | None = None,
+    ) -> dict:
         """
         补充剧本元数据
 
         Args:
             script_data: 剧本数据
             episode: 剧集编号
+            reference_unit_durations: reference_video 路径按 unit_id（改写后）机械覆盖 LLM
+                输出的 unit 时长——step1 确认的原始值，未经取档；取档按下方逐 unit 重算，
+                见 ``generate`` 内的构造处注释
+            caps: reference_unit_durations 非 None 时须同时给出，供逐 unit 解析生效档位
 
         Returns:
             补充元数据后的剧本数据
@@ -1002,9 +1044,57 @@ class ScriptGenerator:
         # 校验失败降级保存的原始 dict 里该数组可能为非列表脏值（LLM 误写标量），
         # `... or []` 只挡 falsy、挡不住真值标量，isinstance 守卫避免 `for` 迭代崩溃。
         raw_rewrite_items = script_data.get(kind)
+        rewritten_output_ids: list[str] = []
         for s in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
             if isinstance(s, dict) and id_field in s:
                 s[id_field] = _rewrite_episode_prefix(s.get(id_field), ep)
+                if reference_unit_durations is not None:
+                    rewritten_output_ids.append(str(s[id_field]))
+
+        if reference_unit_durations is not None:
+            # unit_id 集合须与 step1 完全一致才覆盖时长：LLM 漏写某个已确认 unit、或输出
+            # step1 之外的陌生 unit_id，都说明输出与 step1 基底脱节，覆盖时长掩盖不了这个
+            # 更根本的问题——与 drama 两段式合并（DramaVisualMergeError）同一套 fail-loud 口径。
+            dupes = sorted(uid for uid, count in Counter(rewritten_output_ids).items() if count > 1)
+            if dupes:
+                raise ValueError(f"reference_video 输出 unit_id 重复: {dupes}")
+            missing = sorted(set(reference_unit_durations) - set(rewritten_output_ids))
+            if missing:
+                raise ValueError(f"reference_video 输出缺少 step1 已确认的 unit_id: {missing}")
+            unknown = sorted(set(rewritten_output_ids) - set(reference_unit_durations))
+            if unknown:
+                raise ValueError(f"reference_video 输出包含 step1 之外的未知 unit_id: {unknown}")
+
+            for s in raw_rewrite_items if isinstance(raw_rewrite_items, list) else []:
+                if not (isinstance(s, dict) and id_field in s):
+                    continue
+                target_duration = reference_unit_durations[s[id_field]]
+                # 取档按这个 unit 最终落地的 references 状态算，不是 step1 拆分时的状态：
+                # references 由 LLM 在 step2 输出时决定，可能与 step1 机械派生的不同（见
+                # generate() 内的构造处注释）。caps 为 None 也不短路——
+                # _resolve_supported_durations 自带 caps → project.json → registry 三级回退。
+                unit_tiers = self._resolve_supported_durations(
+                    caps, gen_mode=gen_mode, uses_reference_images=bool(s.get("references"))
+                )
+                if unit_tiers:
+                    slot = resolve_duration_slot(target_duration, unit_tiers)
+                    if slot.seconds != target_duration:
+                        # 生效档位收窄到已确认值之外：fail-loud，不静默取档改写——用户审阅
+                        # 通过的时长/费用不被换成从未过目的值落盘。报错文案说明成因与出路。
+                        raise ValueError(
+                            f"unit {s[id_field]} 已确认时长 {target_duration}s 不在当前生效档位 "
+                            f"{sorted(set(unit_tiers))} 内；通常是该次生成给该 unit 新增/去掉了引用"
+                            "导致，可重新生成再试；若重试后仍失败，说明模型能力已变化，需要重新拆分"
+                            "该集 step1"
+                        )
+                if s.get("duration_seconds") != target_duration:
+                    logger.warning(
+                        "unit %s 时长与 step1 确认值不一致（LLM 输出 %s，已按 step1 确认值 %s 覆盖）",
+                        s[id_field],
+                        s.get("duration_seconds"),
+                        target_duration,
+                    )
+                s["duration_seconds"] = target_duration
         # content_mode 严格只是"内容类型"（narration/drama）；reference_video 属于
         # "视频来源"维度，由 generation_mode 表达。
         # 参考视频集必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
