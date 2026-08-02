@@ -263,10 +263,15 @@ export function ProjectSettingsPage() {
       const ms = (project.model_settings ?? {}) as Record<string, { resolution: string | null }>;
       const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
       const vModelId = executingVb && executingVb.includes("/") ? executingVb.split("/")[1] : executingVb;
+      // legacy 回退按键是否存在判断，不按值是否为空：`model_settings` 里的 `resolution: null`
+      // 是用户主动选的「自动」，用 ?? / || 串下去会被当成没配过、回落到 legacy 里的旧值，
+      // 界面显示旧值、再保存一次就把它写回去，等于把用户的选择改掉。
       const vRes: string | null =
-        (executingVb ? (ms[executingVb]?.resolution ?? null) : null) ||
-        (vModelId ? (legacyVideo[vModelId]?.resolution ?? null) : null) ||
-        null;
+        executingVb && executingVb in ms
+          ? ms[executingVb].resolution
+          : vModelId && vModelId in legacyVideo
+            ? (legacyVideo[vModelId].resolution ?? null)
+            : null;
       const iRes: string | null = executingIb ? (ms[executingIb]?.resolution ?? null) : null;
       setVideoResolution(vRes);
       setImageResolution(iRes);

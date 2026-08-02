@@ -442,6 +442,43 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     });
   });
 
+  it("keeps an explicit auto resolution instead of falling back to the legacy value", async () => {
+    // model_settings 里的 resolution: null 是用户主动选的「自动」，不是没配过——
+    // 当成缺失去回落 legacy 旧值，保存一次就把用户的选择改回去了
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...FAKE_CONFIG_WITH_DEFAULTS,
+    } as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        video_backend: "gemini/veo-3",
+        model_settings: { "gemini/veo-3": { resolution: null } },
+        video_model_settings: { "veo-3": { resolution: "1080p" } },
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+    await screen.findByRole("radio", { name: /竖屏 9:16/ });
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        "demo",
+        expect.objectContaining({
+          model_settings: expect.objectContaining({ "gemini/veo-3": { resolution: null } }),
+        }),
+      );
+    });
+  });
+
   it("reads and writes the image resolution under the executing text-to-image model", async () => {
     // 项目默认层与文生图槽指向不同模型：后端按执行模型查 model_settings，故读写都挂在
     // 文生图槽那个模型上——挂错 key 时用户选的分辨率会被静默忽略，且重载读回旧值。
