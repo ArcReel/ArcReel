@@ -1,17 +1,21 @@
-"""剧集参考路径的三段论渲染：书写文稿 + 资产表 + 能力档 → 发给视频模型的 prompt。
+"""参考生视频路径的三段论渲染：unit 内容 + 资产表 + 能力档 → 发给视频模型的 prompt。
 
-书写层只写第二段（``镜头N：`` 分镜段，首个 header 之前的开场定调折进镜头 1）；第一段
-（主体绑定 + 声音声明）与第三段（风格锚定 + 画质/稳定/字幕/水印约束包）由本模块在渲染期
-机械生成，不依赖 LLM 自觉。渲染是纯函数、结果不落盘，存量文稿无需迁移即获得新渲染。
+第一段（主体绑定 + 声音声明）与第三段（风格锚定 + 画质/稳定/字幕/水印约束包）由本模块在
+渲染期机械生成，不依赖 LLM 自觉。渲染是纯函数、结果不落盘，存量内容无需迁移即获得新渲染。
 
 三段分工：
 
-- **第一段**：``<X>@图片N`` 简式绑定（图片编号 = ``references`` 顺序）+ 声音声明集中声明区
-  （``<X>的台词音色参考 @音频N，声音特征：…``）。A/B 类均注入声音特征，C 类不注入
-- **第二段**：``镜头N：`` + 描述行（``@[X]`` → ``<X>``）+ 台词行（``<X>说 {台词}`` /
-  ``画外音说 {台词}``）
+- **第一段**：``<X>@图片N`` 简式绑定（图片编号 = 随请求发出的参考图顺序）+ 声音声明集中
+  声明区（``<X>的台词音色参考 @音频N，声音特征：…``）。A/B 类均注入声音特征，C 类不注入
+- **第二段**：镜头分镜段 + 台词行（``<X>说 {台词}`` / ``画外音说 {台词}``）
 - **第三段**：风格锚定 + 画质/稳定/字幕/水印约束包（本路径的反向约束全部由它承担，不另加
   尾词）；两个及以上角色参考图时补双胞胎兜底
+
+narration/drama 与 ad 共用第一、三段与音频接线，第二段各自成文：narration/drama 的输入是
+书写层自由文本，书写层只写第二段（``镜头N：`` 分镜段，首个 header 之前的开场定调折进镜头 1），
+主体绑定经 ``@[X]`` mention 解析派生（:func:`render_unit_prompt`）；ad 的输入是结构化镜头
+字段，主体记号取参考条目的展示 label、台词取 ``video_prompt.dialogue``
+（:func:`render_ad_backend_prompt`）。
 
 发给模型的文本不含绝对秒数（时长走请求字段），参考图指认全部由第一段的 ``<X>@图片N`` 绑定承担，
 无独立对照表。
@@ -27,6 +31,7 @@ from typing import Any
 from lib.asset_types import BUCKET_KEY
 from lib.audio_utils import resolve_audio_ref_path
 from lib.prompt_utils import normalize_style
+from lib.reference_video.ad_units import render_ad_unit_prompt
 from lib.reference_video.script_preview import (
     WARN_UNREGISTERED_MENTION,
     ShotUtterance,
@@ -133,15 +138,14 @@ def render_unit_prompt(
     )
     warnings.extend(bindings.warnings)
 
-    audio_no = {name: i for i, name in enumerate(bindings.audio_speakers, start=1)}
-    audio_speaker_reference_index = [
-        (character_image_no[name] - 1) if name in character_image_no else None for name in bindings.audio_speakers
-    ]
+    audio_no, audio_speaker_reference_index = _number_audio_speakers(bindings.audio_speakers, character_image_no)
 
     segments = [
-        _render_segment_one(references, bindings.speakers, audio_no, characters, voice_consistency),
+        _render_segment_one(
+            [ref.name for ref in references], bindings.speakers, audio_no, characters, voice_consistency
+        ),
         _render_segment_two(shots, subjects, characters),
-        _render_segment_three(references, style),
+        _render_segment_three(sum(1 for ref in references if ref.type == "character"), style),
     ]
     prompt = "\n\n".join(seg for seg in segments if seg)
     return RenderedUnitPrompt(
@@ -183,8 +187,24 @@ def _render_voice_declarations(
     return lines
 
 
+def _number_audio_speakers(
+    audio_speakers: list[str], character_image_no: dict[str, int]
+) -> tuple[dict[str, int], list[int | None]]:
+    """``@音频N`` 编号与「每段音频对应哪张参考图」的下标，两条路径共用同一份派生口径。
+
+    编号即 ``audio_speakers`` 的位置（speaker 首现顺序），也是 ``reference_audio_files``
+    的请求字段顺序；下标列表与之等长同序，无参考图的纯画外 speaker 落 None。两者必须在
+    同一处派生：分开算会让 prompt 文本里的 ``@音频N`` 与请求字段的下标各自漂移。
+    """
+    audio_no = {name: i for i, name in enumerate(audio_speakers, start=1)}
+    reference_index = [
+        (character_image_no[name] - 1) if name in character_image_no else None for name in audio_speakers
+    ]
+    return audio_no, reference_index
+
+
 def _render_segment_one(
-    references: list[ReferenceResource],
+    labels: list[str],
     speakers: list[str],
     audio_no: dict[str, int],
     characters: dict,
@@ -196,12 +216,14 @@ def _render_segment_one(
     集中于此，台词行只留统一句式。声明遍历「有台词的已登记角色」而非参考图列表：纯画外角色
     没有参考图（speaker 位不计入参考图派生），但音色声明照常。
 
-    图号按 ``references`` 的位置直接编号（非名字查表）：不同类型的资产允许同名
-    （见 ``render_unit_prompt`` 的 ``character_image_no`` 注释），名字键的字典会把
-    两个同名条目的图号互相覆盖，位置编号天然不受影响。
+    ``labels`` 是主体记号文本，逐项对应本次随请求发出的参考图（narration/drama 传 mention
+    派生的资产名，ad 传参考条目的展示 label）。图号按位置直接编号（非名字查表）：不同类型
+    的资产允许同名（见 ``render_unit_prompt`` 的 ``character_image_no`` 注释），名字键的字典
+    会把两个同名条目的图号互相覆盖，位置编号天然不受影响；空 label 占位不产出绑定行，编号
+    照样前进，以免后续图号与请求顺序错位。
     """
     lines: list[str] = []
-    bindings = "、".join(f"<{ref.name}>@图片{i}" for i, ref in enumerate(references, start=1))
+    bindings = "、".join(f"<{label}>@图片{i}" for i, label in enumerate(labels, start=1) if label)
     if bindings:
         lines.append(bindings + "。")
     lines.extend(_render_voice_declarations(speakers, audio_no, characters, voice_consistency))
@@ -237,7 +259,7 @@ def _render_segment_two(shots: list[Any], subjects: Collection[str], characters:
     return "\n\n".join(blocks)
 
 
-def _render_segment_three(references: list[ReferenceResource], style: str | None) -> str:
+def _render_segment_three(character_reference_count: int, style: str | None) -> str:
     """风格锚定 + 画质/稳定/字幕/水印约束包；两个及以上角色参考图时补双胞胎兜底。"""
     lines: list[str] = []
     normalized = normalize_style(style)
@@ -245,7 +267,7 @@ def _render_segment_three(references: list[ReferenceResource], style: str | None
         lines.append(f"整体视觉风格：{normalized}。")
     lines.append(_QUALITY_PACK + _STABILITY_PACK)
     lines.append(_SUBTITLE_PACK + _WATERMARK_PACK + _NO_BGM_PACK)
-    if sum(1 for ref in references if ref.type == "character") >= 2:
+    if character_reference_count >= 2:
         lines.append(_TWIN_PACK)
     return "\n".join(lines)
 
@@ -254,7 +276,7 @@ def _derive_ad_utterances(shots: list[dict]) -> list[ShotUtterance]:
     """ad 结构化镜头的台词 utterances：``video_prompt.dialogue`` 已是判别式结构
     （``{"speaker": ..., "line": ...}``），不必像书写文稿一样经 ``parse_prompt`` /
     ``match_dialogue_line`` 正则识别自由文本。``voiceover_text`` 是独立字段、不产出台词行
-    （沿用既有口径，见 ``lib.reference_video.ad_units._shot_prompt_text``）。调用方传入的
+    （与画面 prompt 的口径一致，见 ``lib.reference_video.ad_units._shot_prompt_text``）。调用方传入的
     ``shots`` 已由 ``resolve_ad_unit_shots`` 水合、保证逐项为 dict；脏 ``video_prompt`` /
     dialogue 条目（非 dict、空 speaker 或 line）按跳过处理，不抛。
     """
@@ -274,31 +296,6 @@ def _derive_ad_utterances(shots: list[dict]) -> list[ShotUtterance]:
     return utterances
 
 
-def _render_ad_segment_one(
-    entries: list[dict],
-    speakers: list[str],
-    audio_no: dict[str, int],
-    characters: dict,
-    voice_consistency: str,
-) -> str:
-    """ad 主体绑定 + 声音声明。
-
-    主体记号直接取 ``entries`` 的展示 label（产品区分 sheet / 原图两态，资产统一「设计图」
-    态——即 Spec 所称"三态 label"）做 ``<label>@图片N`` 简式绑定，不引入 mention 语法：ad 镜头
-    字段本就结构化枚举了画面主体（``characters_in_shot`` / ``products_in_shot`` / ...），
-    无需像书写文稿那样从自由文本解析 ``@[X]``。声音声明与剧集路径共用
-    :func:`_render_voice_declarations`。
-    """
-    lines: list[str] = []
-    bindings = "、".join(
-        f"<{label}>@图片{i}" for i, e in enumerate(entries, start=1) if (label := str(e.get("label") or ""))
-    )
-    if bindings:
-        lines.append(bindings + "。")
-    lines.extend(_render_voice_declarations(speakers, audio_no, characters, voice_consistency))
-    return "\n".join(lines)
-
-
 def render_ad_backend_prompt(
     shots: list[dict],
     entries: list[dict],
@@ -312,40 +309,42 @@ def render_ad_backend_prompt(
     audio_requires_reference_image: bool = False,
 ) -> RenderedUnitPrompt:
     """把 ad 派生 unit 的结构化镜头渲染成三段论 backend prompt，与剧集路径
-    （:func:`render_unit_prompt`）共用第一段声音声明与第三段约束包；差异只在输入形态——
-    ad 无书写层自由文本，主体绑定直接取 ``entries`` 展示 label（见
-    :func:`_render_ad_segment_one`），dialogue 是结构化 ``video_prompt.dialogue`` 列表而非
-    ``@[角色]：{台词}`` 文本行，不经 ``parse_prompt``（见 :func:`_derive_ad_utterances`）。
+    （:func:`render_unit_prompt`）共用第一、三段与音频接线；差异只在输入形态——ad 无书写层
+    自由文本，第一段的主体记号直接取 ``entries`` 的展示 label（产品区分 sheet / 原图两态，
+    资产统一「设计图」态）而不引入 mention 语法：ad 镜头字段本就结构化枚举了画面主体
+    （``characters_in_shot`` / ``products_in_shot`` / ...），无需从自由文本解析 ``@[X]``；
+    dialogue 是结构化 ``video_prompt.dialogue`` 列表而非 ``@[角色]：{台词}`` 文本行，不经
+    ``parse_prompt``（见 :func:`_derive_ad_utterances`）。
 
-    ad 骨架的 ``Shot N (Xs): ...`` 镜头段与 per-shot duration 不动，复用既有
-    ``lib.reference_video.ad_units.render_ad_unit_prompt`` 渲染第二段（该函数亦独立服务于
-    入队守卫的空提示词检查，两处调用点风格不变）；本函数只接管第一、三段与音频接线。
+    第二段由 ``lib.reference_video.ad_units.render_ad_unit_prompt`` 渲染（``Shot N (Xs): ...``
+    逐镜头行，时长挂在 shot 上——ad 的 unit 是派生分组，与 narration/drama 的 unit 级单时长
+    不同源）；该函数同时独立服务于入队守卫的空提示词检查。本函数只接管第一、三段与音频接线，
+    风格锚定因此从镜头段头行移到第三段，故此处按 ``style=None`` 调用。
 
     ``entries`` 是本次实际随请求发出的参考条目（已按能力上限裁剪），其顺序即 ``图片N``
     编号——与调用方组装的 ``reference_images`` 严格等长同序。
 
     Raises:
         ValueError: 成员镜头全无画面内容（第二段渲染为空）——同
-            :func:`lib.reference_video.ad_units.render_ad_unit_prompt` 的既有口径，防止机器
-            生成的第一/三段把空提示词撑成非空文本绕过 backend 的空值保护。
+            :func:`lib.reference_video.ad_units.render_ad_unit_prompt` 的口径，防止机器生成的
+            第一/三段把空提示词撑成非空文本绕过 backend 的空值保护。
     """
-    from lib.reference_video.ad_units import render_ad_unit_prompt as _render_ad_shots_body
-
-    body = _render_ad_shots_body(shots, style=None)
+    body = render_ad_unit_prompt(shots, style=None)
     if not body.strip():
         raise ValueError("reference video unit prompt is empty: all member shots have no visual content")
 
     characters: dict = project.get(BUCKET_KEY["character"]) or {}
     utterances = _derive_ad_utterances(shots)
 
-    # 音频只能对齐到「同名且类型也是 character」的图：entries 里 scene/prop 的资产设计图与
-    # 产品参考同样标 kind == "asset"（产品另标 "sheet"/"original"），先按名字是否在角色表
-    # 登记过滤，避免同名场景/道具让 speakers_with_reference_image 误判角色有图（与剧集路径
+    # 音频只能对齐到「同名且类型也是 character」的图：entries 里 character/scene/prop 的设计图
+    # 共用 kind == "asset"，三类资产允许重名，只有 asset_type 能把角色的图与同名场景/道具的图
+    # 分开——按名字判定会让同名场景的图被当成角色的图（并在名字键的字典里互相覆盖），
+    # 使 speakers_with_reference_image 误判、reference_audio_targets 指向错图（与剧集路径
     # `character_image_no` 的同款过滤同一理由，见 `render_unit_prompt`）。
     character_image_no = {
         str(e["name"]): i
         for i, e in enumerate(entries, start=1)
-        if e.get("kind") == "asset" and isinstance(e.get("name"), str) and e["name"] in characters
+        if e.get("asset_type") == "character" and isinstance(e.get("name"), str)
     }
 
     bindings = derive_voice_bindings(
@@ -359,15 +358,18 @@ def render_ad_backend_prompt(
         speakers_with_reference_image=set(character_image_no),
     )
 
-    audio_no = {name: i for i, name in enumerate(bindings.audio_speakers, start=1)}
-    audio_speaker_reference_index = [
-        (character_image_no[name] - 1) if name in character_image_no else None for name in bindings.audio_speakers
-    ]
+    audio_no, audio_speaker_reference_index = _number_audio_speakers(bindings.audio_speakers, character_image_no)
 
     segments = [
-        _render_ad_segment_one(entries, bindings.speakers, audio_no, characters, voice_consistency),
+        _render_segment_one(
+            [str(e.get("label") or "") for e in entries],
+            bindings.speakers,
+            audio_no,
+            characters,
+            voice_consistency,
+        ),
         body,
-        _render_segment_three([ReferenceResource(type="character", name=name) for name in character_image_no], style),
+        _render_segment_three(len(character_image_no), style),
     ]
     prompt = "\n\n".join(seg for seg in segments if seg)
     return RenderedUnitPrompt(

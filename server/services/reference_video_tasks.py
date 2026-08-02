@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Collection, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -103,7 +103,7 @@ def _render_unit_prompt(
     """把 unit 的书写文稿渲染成三段论 backend prompt（见 ``lib.reference_video.prompt_render``）。
 
     画质/字幕/水印约束由渲染的第三段承担，本路径不追加反向尾词（``append_video_negative_tail``
-    只服务图生视频路径；ad 参考直出路径同样已改为三段论渲染，见 ``render_ad_backend_prompt``）。
+    只服务图生视频路径；ad 参考直出路径同走三段论渲染，见 ``render_ad_backend_prompt``）。
 
     空提示词的*结构校验*已上移到入队守卫点（``TaskSpec.from_request``），两条入队路径
     （WebUI / SDK）在入队时即拒绝空提示词。此处保留一道防御性空检查，因为参考生视频的
@@ -373,7 +373,10 @@ def _resolve_ad_unit_reference_entries(
     （sheet 在前、原图压阵）且排在所有其它参考之前；character/scene/prop 注入
     各自 sheet。条目形如 ``{"image": Path, "label": str, "name": str, "kind":
     "sheet"|"original"|"asset"}``，label 供三段论第一段 ``<label>@图片N`` 主体绑定渲染
-    （见 ``lib.reference_video.prompt_render.render_ad_backend_prompt``）。
+    （见 ``lib.reference_video.prompt_render.render_ad_backend_prompt``）；
+    ``kind == "asset"`` 的条目另带 ``"asset_type": "character"|"scene"|"prop"``——
+    三类资产允许重名，只有类型能把「角色的设计图」与同名场景/道具的设计图分开，
+    参考音频的图号对齐依赖该区分（见 ``render_ad_backend_prompt``）。
     """
     warnings: list[dict] = []
     product_names: list[str] = []
@@ -409,6 +412,7 @@ def _resolve_ad_unit_reference_entries(
                     "label": f"{ASSET_SPECS[rtype].label_zh}「{rname}」设计图",
                     "name": rname,
                     "kind": "asset",
+                    "asset_type": rtype,
                 }
             )
         else:
@@ -454,13 +458,12 @@ def _render_ad_unit_prompt_for_backend(
     audio_requires_reference_image: bool,
     style: object,
 ) -> RenderedUnitPrompt:
-    """ad 派生 unit 的最终 backend prompt：三段论渲染（与剧集路径共用管线，见
+    """ad 派生 unit 的最终 backend prompt：三段论渲染（与 narration/drama 共用管线，见
     ``lib.reference_video.prompt_render.render_ad_backend_prompt``）+ 产品高保真尾注。
 
-    ``[图N]`` 对照表与统一反向尾词随三段论对齐废除（第三段机器约束包替代）；高保真指令
-    只点名实际注入了参考的产品，与对齐前的既有口径不变。空提示词防御口径同
-    ``_render_unit_prompt``（提示词源是可变 script，执行期从新读取），由
-    ``render_ad_backend_prompt`` 内部承担。
+    反向约束全部由渲染的第三段承担，本路径不追加统一反向尾词；高保真指令是独立于三段论的
+    产品机制，只点名实际注入了参考的产品。空提示词防御口径同 ``_render_unit_prompt``
+    （提示词源是可变 script，执行期从新读取），由 ``render_ad_backend_prompt`` 内部承担。
     """
     rendered = render_ad_backend_prompt(
         shots,
@@ -474,13 +477,7 @@ def _render_ad_unit_prompt_for_backend(
         audio_requires_reference_image=audio_requires_reference_image,
     )
     product_names = list(dict.fromkeys(e["name"] for e in entries if e.get("kind") in ("sheet", "original")))
-    prompt = append_product_fidelity_tail(rendered.prompt, product_names)
-    return RenderedUnitPrompt(
-        prompt=prompt,
-        audio_speakers=rendered.audio_speakers,
-        audio_speaker_reference_index=rendered.audio_speaker_reference_index,
-        warnings=rendered.warnings,
-    )
+    return replace(rendered, prompt=append_product_fidelity_tail(rendered.prompt, product_names))
 
 
 def _build_reference_audio_wiring(

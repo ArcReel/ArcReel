@@ -215,8 +215,8 @@ def _shot_prompt_text(shot: dict) -> str:
             speaker = _text(entry.get("speaker"))
             line = _text(entry.get("line"))
             if line:
-                # 与剧集参考路径三段论第二段同一句式（<X>说 {台词}），无 speaker 的裸台词行
-                # 归入画外音句式——两条路径的第二段渲染口径统一，见
+                # 台词句式与 narration/drama 参考路径的第二段统一（<X>说 {台词}），无 speaker
+                # 的裸台词行归入画外音句式，见
                 # lib.reference_video.prompt_render.render_ad_backend_prompt。
                 parts.append(f"<{speaker}>说 {{{line}}}" if speaker else f"画外音说 {{{line}}}")
     return "；".join(parts)
