@@ -252,6 +252,54 @@ describe("ModelConfigSection", () => {
       );
     });
 
+    it("revalidates duration and resolution when a sub-field switches the executing model", async () => {
+      // 细分项改动同样换掉执行模型，分辨率没有越界提示兜底，必须在此清掉
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      renderWithCandidates({
+        value: {
+          ...EMPTY_VALUE,
+          videoBackend: "gemini/veo-3",
+          defaultDuration: 4,
+          videoResolution: "1080p",
+        },
+        onChange,
+      });
+      await user.click(screen.getAllByText("按用途指定模型")[0]);
+      await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
+      await user.click(screen.getByRole("option", { name: /seedance/ }));
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          videoProviderR2V: "ark/seedance",
+          // 项目走图生视频路径，r2v 不是执行桶——执行模型没变，两者原样保留
+          defaultDuration: 4,
+          videoResolution: "1080p",
+        }),
+      );
+
+      onChange.mockClear();
+      await user.click(screen.getByRole("combobox", { name: "图生视频" }));
+      await user.click(screen.getByRole("option", { name: /veo-3/ }));
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({ videoProviderI2V: "gemini/veo-3", defaultDuration: 4, videoResolution: "1080p" }),
+      );
+    });
+
+    it("clears the resolution when a sub-field change moves the executing image model", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      renderWithCandidates({
+        value: { ...EMPTY_VALUE, imageBackendDefault: "openai/gpt-image-edit", imageResolution: "1080p" },
+        onChange,
+      });
+      await user.click(screen.getAllByText("按用途指定模型")[1]);
+      await user.click(screen.getByRole("combobox", { name: "文生图" }));
+      await user.click(screen.getByRole("option", { name: /nano-banana/ }));
+      expect(onChange).toHaveBeenCalledWith(
+        expect.objectContaining({ imageBackendT2I: "gemini/nano-banana", imageResolution: null }),
+      );
+    });
+
     it("auto-expands and counts sub-fields that already carry a value", () => {
       const { container } = renderWithCandidates({
         value: { ...EMPTY_VALUE, videoProviderR2V: "ark/seedance" },

@@ -78,6 +78,19 @@ export interface LayeredSubField {
   onChange: (next: string) => void;
 }
 
+/**
+ * 候选拉取失败时的细分区降级：只保留已配置的行、候选只列其当前值。已保存的覆盖在后端仍然
+ * 生效，整块隐藏会让用户既看不出实际执行的是哪个模型，也无从清除；未配置的行没有候选可选，
+ * 仍不渲染，全部未配置即整块折叠区消失。
+ */
+export function degradeSubFieldsToSaved(
+  fields: LayeredSubField[],
+  hasCandidates: boolean,
+): LayeredSubField[] {
+  if (hasCandidates) return fields;
+  return fields.filter((f) => !!f.value).map((f) => ({ ...f, options: [f.value] }));
+}
+
 export interface LayeredModelFieldsProps {
   /** 默认层下拉的无障碍标签；视觉标签由外层卡片标题承担。 */
   defaultLabel: string;

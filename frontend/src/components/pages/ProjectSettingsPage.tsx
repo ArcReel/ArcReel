@@ -191,7 +191,7 @@ export function ProjectSettingsPage() {
         provider_names: configRes.options?.provider_names,
       });
       // 各层原样带入，不在此折叠回退——穿透演算由 ModelConfigSection 按解析链推导。
-      setGlobalDefaults({
+      const nextGlobals = {
         video: configRes.settings?.default_video_backend ?? "",
         videoI2V: configRes.settings?.default_video_backend_i2v ?? "",
         videoR2V: configRes.settings?.default_video_backend_r2v ?? "",
@@ -202,7 +202,8 @@ export function ProjectSettingsPage() {
         textSimple: configRes.settings?.text_backend_simple ?? "",
         textComplex: configRes.settings?.text_backend_complex ?? "",
         audio: configRes.settings?.default_audio_backend ?? "",
-      });
+      };
+      setGlobalDefaults(nextGlobals);
       setProviders(providerList);
       setCustomProviders(customProviderList);
 
@@ -252,19 +253,12 @@ export function ProjectSettingsPage() {
       // model_settings 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与
       // handleSave 一字不差——后端 resolve_resolution 就是按执行模型查这张表，键位对不上
       // 用户选的分辨率会被静默忽略。读侧另有一条兼容回退：视频回落 legacy video_model_settings。
-      const globals = {
-        video: configRes.settings?.default_video_backend ?? "",
-        videoI2V: configRes.settings?.default_video_backend_i2v ?? "",
-        videoR2V: configRes.settings?.default_video_backend_r2v ?? "",
-        image: configRes.settings?.default_image_backend ?? "",
-        imageT2I: configRes.settings?.default_image_backend_t2i ?? "",
-      };
       const executingVb = executingVideoModel(
         { videoBackend: vb, videoProviderI2V: vpi2v, videoProviderR2V: vpr2v },
-        globals,
+        nextGlobals,
         gm === "reference_video",
       );
-      const executingIb = executingImageModel({ imageBackendDefault: ibDefault, imageBackendT2I: ibt2i }, globals);
+      const executingIb = executingImageModel({ imageBackendDefault: ibDefault, imageBackendT2I: ibt2i }, nextGlobals);
       const ms = (project.model_settings ?? {}) as Record<string, { resolution: string | null }>;
       const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
       const vModelId = executingVb && executingVb.includes("/") ? executingVb.split("/")[1] : executingVb;

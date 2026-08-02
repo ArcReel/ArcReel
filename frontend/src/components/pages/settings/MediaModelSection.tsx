@@ -14,6 +14,7 @@ import type { CustomProviderInfo } from "@/types/custom-provider";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import {
   LayeredModelFields,
+  degradeSubFieldsToSaved,
   useCapabilityBucketLabels,
   type LayeredSubField,
 } from "@/components/shared/LayeredModelFields";
@@ -155,13 +156,13 @@ export function MediaModelSection() {
 
   // 全局层是解析链的基准，细分项留空即回退全局默认模型；默认模型也留空时是自动推断，
   // 前端算不出具体模型，故不显示生效值（下拉里显示「自动选择」）。
-  const videoSubFields: LayeredSubField[] | undefined = candidates
-    ? [
+  const videoSubFields: LayeredSubField[] = degradeSubFieldsToSaved(
+    [
         {
           key: "i2v",
           ...bucketLabels.i2v,
           value: currentVideoI2V,
-          options: candidates.video.buckets.i2v ?? [],
+          options: candidates?.video.buckets.i2v ?? [],
           effective: currentVideo || undefined,
           onChange: (v) => setDraft((prev) => ({ ...prev, default_video_backend_i2v: v })),
         },
@@ -169,20 +170,21 @@ export function MediaModelSection() {
           key: "r2v",
           ...bucketLabels.r2v,
           value: currentVideoR2V,
-          options: candidates.video.buckets.r2v ?? [],
+          options: candidates?.video.buckets.r2v ?? [],
           effective: currentVideo || undefined,
           onChange: (v) => setDraft((prev) => ({ ...prev, default_video_backend_r2v: v })),
         },
-      ]
-    : undefined;
+    ],
+    !!candidates,
+  );
 
-  const imageSubFields: LayeredSubField[] | undefined = candidates
-    ? [
+  const imageSubFields: LayeredSubField[] = degradeSubFieldsToSaved(
+    [
         {
           key: "t2i",
           ...bucketLabels.t2i,
           value: currentImageT2I,
-          options: candidates.image.buckets.t2i ?? [],
+          options: candidates?.image.buckets.t2i ?? [],
           effective: currentImage || undefined,
           onChange: (v) => setDraft((prev) => ({ ...prev, default_image_backend_t2i: v })),
         },
@@ -190,12 +192,13 @@ export function MediaModelSection() {
           key: "i2i",
           ...bucketLabels.i2i,
           value: currentImageI2I,
-          options: candidates.image.buckets.i2i ?? [],
+          options: candidates?.image.buckets.i2i ?? [],
           effective: currentImage || undefined,
           onChange: (v) => setDraft((prev) => ({ ...prev, default_image_backend_i2i: v })),
         },
-      ]
-    : undefined;
+    ],
+    !!candidates,
+  );
 
   // 全局设置页无项目上下文，档位读目录端点的服务端派生值（generation_mode 未知，native 恒降格），
   // 不打 /video-capabilities——该端点按项目解析。

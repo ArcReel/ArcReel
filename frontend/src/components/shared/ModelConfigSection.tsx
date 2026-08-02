@@ -11,6 +11,7 @@ import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
 import {
   LayeredModelFields,
+  degradeSubFieldsToSaved,
   effectiveModel,
   executingImageModel,
   executingVideoModel,
@@ -163,21 +164,44 @@ export function ModelConfigSection({
   // 穿透演算（docs/adr/0054，项目优先）：细分项留空 → 项目默认模型 → 全局同名细分 → 全局默认模型。
   const mediaCandidates = showSubFields ? candidates : null;
 
-  // 候选拉取失败时调用方传 null。已保存的细分覆盖此时仍在后端生效，整块隐藏会让用户既看不出
-  // 实际执行的是哪个模型，也无从清除。降级为只保留已配置的行、候选只列其当前值——换模型要等
-  // 候选恢复，但覆盖始终可见可清空。未配置的行没有候选可选，仍不渲染。
-  const degradeToSaved = (fields: LayeredSubField[]): LayeredSubField[] =>
-    mediaCandidates ? fields : fields.filter((f) => !!f.value).map((f) => ({ ...f, options: [f.value] }));
+  // 时长与分辨率都按执行模型取值，故默认层与细分项的任何一次改动都先看执行模型变没变：
+  // 没变（细分项已覆盖时改默认层就是这种）原样写入，变了才清掉不再适用的分辨率、并把落在
+  // 新模型支持集外的时长退回自动。两条路径共用一处，避免只有主下拉做校验、细分项漏做。
+  const applyVideoLayer = (patch: Partial<ModelConfigValue>) => {
+    const next = { ...value, ...patch };
+    const nextExecuting = executingVideoModel(next, globalDefaults, usesReferenceImages);
+    if (nextExecuting === executingVideo) {
+      onChange(next);
+      return;
+    }
+    // 分辨率随模型切换一并重置为 null，故按 null 分辨率算新模型的时长候选。
+    const nextDurations = catalogDurations(providers, customProviders, nextExecuting, {
+      videoResolution: null,
+      usesReferenceImages,
+    });
+    const keepDuration = next.defaultDuration !== null && !!nextDurations?.includes(next.defaultDuration);
+    onChange({
+      ...next,
+      defaultDuration: keepDuration ? next.defaultDuration : null,
+      videoResolution: null,
+    });
+  };
+
+  const applyImageLayer = (patch: Partial<ModelConfigValue>) => {
+    const next = { ...value, ...patch };
+    const nextExecuting = executingImageModel(next, globalDefaults);
+    onChange(nextExecuting === executingImage ? next : { ...next, imageResolution: null });
+  };
 
   const videoSubFields: LayeredSubField[] | undefined = showSubFields
-    ? degradeToSaved([
+    ? degradeSubFieldsToSaved([
         {
           key: "i2v",
           ...bucketLabels.i2v,
           value: value.videoProviderI2V,
           options: mediaCandidates?.video.buckets.i2v ?? [],
           effective: effectiveModel(value.videoBackend, globalDefaults.videoI2V, globalDefaults.video),
-          onChange: (next: string) => onChange({ ...value, videoProviderI2V: next }),
+          onChange: (next: string) => applyVideoLayer({ videoProviderI2V: next }),
         },
         {
           key: "r2v",
@@ -185,20 +209,20 @@ export function ModelConfigSection({
           value: value.videoProviderR2V,
           options: mediaCandidates?.video.buckets.r2v ?? [],
           effective: effectiveModel(value.videoBackend, globalDefaults.videoR2V, globalDefaults.video),
-          onChange: (next: string) => onChange({ ...value, videoProviderR2V: next }),
+          onChange: (next: string) => applyVideoLayer({ videoProviderR2V: next }),
         },
-      ])
+      ], !!mediaCandidates)
     : undefined;
 
   const imageSubFields: LayeredSubField[] | undefined = showSubFields
-    ? degradeToSaved([
+    ? degradeSubFieldsToSaved([
         {
           key: "t2i",
           ...bucketLabels.t2i,
           value: value.imageBackendT2I,
           options: mediaCandidates?.image.buckets.t2i ?? [],
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageT2I, globalDefaults.image),
-          onChange: (next: string) => onChange({ ...value, imageBackendT2I: next }),
+          onChange: (next: string) => applyImageLayer({ imageBackendT2I: next }),
         },
         {
           key: "i2i",
@@ -206,9 +230,9 @@ export function ModelConfigSection({
           value: value.imageBackendI2I,
           options: mediaCandidates?.image.buckets.i2i ?? [],
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageI2I, globalDefaults.image),
-          onChange: (next: string) => onChange({ ...value, imageBackendI2I: next }),
+          onChange: (next: string) => applyImageLayer({ imageBackendI2I: next }),
         },
-      ])
+      ], !!mediaCandidates)
     : undefined;
 
   // 能力统一经 useModelCapabilities 取得（见该模块的真相源规则），本组件不自行查表。
@@ -239,42 +263,9 @@ export function ModelConfigSection({
 
   const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
 
-  // 时长与分辨率跟随执行模型，故按改后的执行模型判断是否重置：细分项已覆盖时改默认层
-  // 换不动执行模型，此时重置反而会平白丢掉用户选好的时长与分辨率。
-  const handleVideoChange = (next: string) => {
-    const nextExecuting = executingVideoModel(
-      { ...value, videoBackend: next },
-      globalDefaults,
-      usesReferenceImages,
-    );
-    if (nextExecuting === executingVideo) {
-      onChange({ ...value, videoBackend: next });
-      return;
-    }
-    // 分辨率随模型切换一并重置为 null，故按 null 分辨率算新模型的时长候选。
-    const nextDurations = catalogDurations(providers, customProviders, nextExecuting, {
-      videoResolution: null,
-      usesReferenceImages,
-    });
-    const shouldReset =
-      value.defaultDuration !== null &&
-      (!nextDurations || !nextDurations.includes(value.defaultDuration));
-    onChange({
-      ...value,
-      videoBackend: next,
-      defaultDuration: shouldReset ? null : value.defaultDuration,
-      videoResolution: null,
-    });
-  };
+  const handleVideoChange = (next: string) => applyVideoLayer({ videoBackend: next });
 
-  const handleImageChange = (next: string) => {
-    const nextExecuting = executingImageModel({ ...value, imageBackendDefault: next }, globalDefaults);
-    onChange({
-      ...value,
-      imageBackendDefault: next,
-      imageResolution: nextExecuting === executingImage ? value.imageResolution : null,
-    });
-  };
+  const handleImageChange = (next: string) => applyImageLayer({ imageBackendDefault: next });
 
   const handleDurationClick = (d: number | null) => {
     onChange({ ...value, defaultDuration: d });

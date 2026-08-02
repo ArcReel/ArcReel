@@ -69,6 +69,17 @@ describe("MediaModelSection", () => {
     expect(container.textContent).not.toMatch(/能力桶|capability bucket/i);
   });
 
+  it("keeps configured global sub-fields visible when the candidate fetch fails", async () => {
+    // 候选接口失败不应让已生效的全局覆盖从界面消失——它在后端仍参与解析，藏起来用户无从察觉
+    mockConfig({ default_video_backend_i2v: "ark/seedance" });
+    vi.spyOn(API, "getModelCandidates").mockRejectedValue(new Error("boom"));
+    render(<MediaModelSection />);
+    const i2v = await screen.findByRole("combobox", { name: "图生视频" });
+    expect(i2v).toHaveTextContent("seedance");
+    // 未配置的细分项没有候选可选，仍不渲染
+    expect(screen.queryByRole("combobox", { name: "参考生视频" })).not.toBeInTheDocument();
+  });
+
   it("filters sub-field candidates by purpose while the default dropdown stays unfiltered", async () => {
     const user = userEvent.setup();
     render(<MediaModelSection />);
