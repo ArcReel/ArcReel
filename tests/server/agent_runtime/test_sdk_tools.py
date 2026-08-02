@@ -3260,7 +3260,9 @@ async def test_split_reference_video_units_rejects_duration_off_reference_tier(
     assert out.get("is_error") is True
     text = out["content"][0]["text"]
     assert "生效档位" in text and "[8]" in text
+    # 与其余违约类同口径落隔离草稿：档位越界同样是 agent 改一改草稿就能修好的内容违约
     assert not _rv_step1_path(fake_ctx).exists()
+    assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["duration_off_tier"]
 
 
 @pytest.mark.integration
@@ -3374,6 +3376,8 @@ async def _promote(fake_ctx: ToolContext, monkeypatch, **caps_kwargs) -> dict:
 #: 拆成描述位（unregistered_asset）与台词行 speaker 位（unregistered_speaker）两条，两处走不同入口，
 #: 合测会漏掉其中一处。逐类断言「落隔离草稿 + 正式文件干净 + 报告按类定位」，而不是只验其中
 #: 一两类——各类共用同一次遍历，漏测哪一类都可能在该类上退回「丢弃重抽」。
+#: ``duration_off_tier``（时长不在该 unit 引用状态的生效档位内）需要另一套 caps 才触发，
+#: 单列在 ``test_split_reference_video_units_rejects_duration_off_reference_tier``。
 _RV_VIOLATION_CASES = [
     ("unclosed_brace", _rv_unit("镜头1：@[张三] 起身，喊了一句 {我来了")),
     ("dialogue_line_syntax", _rv_unit("镜头1：门开了\n@[张三]：我来了。")),
