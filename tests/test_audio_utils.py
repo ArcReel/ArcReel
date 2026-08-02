@@ -127,11 +127,7 @@ class TestFfprobeAvailable:
 
 
 class TestProbeReferenceAudioTotalSeconds:
-    @pytest.fixture(autouse=True)
-    def check_ffprobe(self):
-        if shutil.which("ffprobe") is None:
-            pytest.skip("ffprobe not available")
-
+    @pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe not available")
     async def test_sums_durations_of_existing_files(self, tmp_path):
         path_a = tmp_path / "a.wav"
         path_b = tmp_path / "b.wav"
@@ -147,6 +143,7 @@ class TestProbeReferenceAudioTotalSeconds:
         total = await audio_utils_module.probe_reference_audio_total_seconds([])
         assert total == 0.0
 
+    @pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe not available")
     async def test_unreadable_file_returns_none_not_partial_sum(self, tmp_path):
         """半截总时长比跳过校验更危险：任一文件探测失败就整体判 None，不能只算成功的部分。"""
         path_a = tmp_path / "a.wav"
