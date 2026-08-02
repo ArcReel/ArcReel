@@ -1,6 +1,11 @@
 import { useMemo } from "react";
 import type { MentionKind } from "@/components/canvas/reference/asset-colors";
-import { MENTION_RE, mentionNameFromMatch } from "@/utils/reference-mentions";
+import {
+  MENTION_RE,
+  matchDialogueLine,
+  matchVoiceoverLine,
+  mentionNameFromMatch,
+} from "@/utils/reference-mentions";
 
 /**
  * Shot/@mention tokenizer for the reference-video prompt editor.
@@ -76,4 +81,59 @@ function pushMentionTokens(out: Token[], text: string, lookup: MentionLookup): v
  */
 export function useShotPromptHighlight(text: string, lookup: MentionLookup): Token[] {
   return useMemo(() => tokenizePrompt(text, lookup), [text, lookup]);
+}
+
+/**
+ * Line-level view of the same script, for the read-only parse preview.
+ *
+ * `tokenizePrompt` stays character-exact because the editor overlays it on a
+ * textarea; this one groups by line so the preview can indent dialogue under its
+ * shot and tint the lines the parser actually recognized as utterances.
+ *
+ * `shotIndex` is 1-based and 0 for anything before the first `镜头N：` header —
+ * matching the backend, which folds that lead-in into the first shot's text.
+ */
+export type ScriptLine =
+  | { kind: "shot_header"; shotIndex: number; header: string; tokens: Token[] }
+  | { kind: "dialogue"; shotIndex: number; speaker: string; speakerKind: MentionKind; text: string }
+  | { kind: "voiceover"; shotIndex: number; text: string }
+  | { kind: "text"; shotIndex: number; tokens: Token[] };
+
+export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[] {
+  const lines: ScriptLine[] = [];
+  let shotIndex = 0;
+  for (const raw of text.split("\n")) {
+    const headerMatch = raw.trim().match(SHOT_HEADER_RE);
+    if (headerMatch) {
+      shotIndex += 1;
+      const trimmed = raw.trim();
+      const rest = trimmed.slice(headerMatch[0].length);
+      const tokens: Token[] = [];
+      if (rest.length > 0) pushMentionTokens(tokens, rest, lookup);
+      lines.push({ kind: "shot_header", shotIndex, header: headerMatch[0].trim(), tokens });
+      continue;
+    }
+    const dialogue = matchDialogueLine(raw);
+    if (dialogue) {
+      lines.push({
+        kind: "dialogue",
+        shotIndex,
+        speaker: dialogue.speaker,
+        // Only a registered character can be a speaker — a scene or prop name in the
+        // speaker slot reads as unresolved here, matching the backend's warning.
+        speakerKind: lookup[dialogue.speaker] === "character" ? "character" : "unknown",
+        text: dialogue.text,
+      });
+      continue;
+    }
+    const voiceover = matchVoiceoverLine(raw);
+    if (voiceover !== null) {
+      lines.push({ kind: "voiceover", shotIndex, text: voiceover });
+      continue;
+    }
+    const tokens: Token[] = [];
+    pushMentionTokens(tokens, raw, lookup);
+    lines.push({ kind: "text", shotIndex, tokens });
+  }
+  return lines;
 }

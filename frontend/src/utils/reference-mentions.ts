@@ -25,14 +25,43 @@ export function mentionNameFromMatch(match: RegExpMatchArray): string {
   return match[1] ?? match[2] ?? "";
 }
 
+/**
+ * Normative dialogue line — `@[角色]：{台词}` alone on a line (either colon).
+ * Mirrors `lib/reference_video/shot_parser.py:match_dialogue_line`; keep in sync.
+ */
+const DIALOGUE_LINE_RE = /^\s*@(?:\[([^\]\r\n]+)\]|([\w一-鿿]+))\s*[:：]\s*\{([^{}]*)\}\s*$/;
+
+/** Bare `{台词}` line = voiceover. Mirrors `shot_parser.py:match_voiceover_line`. */
+const VOICEOVER_LINE_RE = /^\s*\{([^{}]*)\}\s*$/;
+
+export function matchDialogueLine(line: string): { speaker: string; text: string } | null {
+  const m = DIALOGUE_LINE_RE.exec(line);
+  if (!m) return null;
+  return { speaker: m[1] ?? m[2] ?? "", text: m[3] };
+}
+
+export function matchVoiceoverLine(line: string): string | null {
+  const m = VOICEOVER_LINE_RE.exec(line);
+  return m ? m[1] : null;
+}
+
+/**
+ * Mention names in first-appearance order, deduplicated — the reference-image
+ * derivation. Mirrors `shot_parser.py:extract_mentions`, including its rule that
+ * **normative dialogue lines are skipped entirely**: attaching a reference image to
+ * a speaker would coax the model into drawing a character who only speaks off-screen.
+ */
 export function extractMentions(text: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const m of text.matchAll(MENTION_RE)) {
-    const name = mentionNameFromMatch(m);
-    if (!seen.has(name)) {
-      seen.add(name);
-      out.push(name);
+  for (const line of text.split("\n")) {
+    if (matchDialogueLine(line)) continue;
+    for (const m of line.matchAll(MENTION_RE)) {
+      const name = mentionNameFromMatch(m);
+      if (!seen.has(name)) {
+        seen.add(name);
+        out.push(name);
+      }
     }
   }
   return out;

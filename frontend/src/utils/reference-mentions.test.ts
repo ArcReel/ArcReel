@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   extractMentions,
+  matchDialogueLine,
+  matchVoiceoverLine,
   resolveMentionType,
   mergeReferences,
 } from "./reference-mentions";
@@ -151,5 +153,41 @@ describe("MENTION_RE prefix boundary", () => {
     } as const;
     const refs = mergeReferences("contact a@张三", [], project as never);
     expect(refs).toEqual([]);
+  });
+});
+
+describe("normative dialogue lines", () => {
+  it("matches `@[角色]：{台词}` with either colon, wrapped or bare", () => {
+    expect(matchDialogueLine("@[张三]：{我来了}")).toEqual({ speaker: "张三", text: "我来了" });
+    expect(matchDialogueLine("@张三:{我来了}")).toEqual({ speaker: "张三", text: "我来了" });
+    expect(matchDialogueLine("  @[角色甲（成年）] ： {我来了} ")).toEqual({
+      speaker: "角色甲（成年）",
+      text: "我来了",
+    });
+  });
+
+  it("rejects dialogue mixed into a description line", () => {
+    expect(matchDialogueLine("中景，@[张三]：{我来了} 说完转身")).toBeNull();
+    expect(matchDialogueLine("他说 @[张三]：{我来了}")).toBeNull();
+    expect(matchDialogueLine("@[张三]：{我来了")).toBeNull();
+  });
+
+  it("reads a bare braces line as voiceover", () => {
+    expect(matchVoiceoverLine("  {那年冬天格外冷}  ")).toBe("那年冬天格外冷");
+    expect(matchVoiceoverLine("旁白：{那年冬天}")).toBeNull();
+  });
+
+  it("keeps speaker slots out of mention extraction", () => {
+    // 与后端 shot_parser.extract_mentions 同口径：给画外说话的角色附参考图会诱导它入画
+    expect(extractMentions("镜头1：@酒馆 内景。\n@张三：{我来了}\n镜头2：@张三 抬眼。")).toEqual([
+      "酒馆",
+      "张三",
+    ]);
+    expect(extractMentions("@张三：{我来了}")).toEqual([]);
+  });
+
+  it("keeps speaker-only characters out of merged references", () => {
+    const refs = mergeReferences("镜头1：@酒馆 内景。\n@张三：{我来了}", [], mkProject());
+    expect(refs).toEqual([{ type: "scene", name: "酒馆" }]);
   });
 });

@@ -88,6 +88,34 @@ export interface ReferenceDurationPrecheck {
   adjustment: "exact" | "up" | "down" | "unconstrained";
 }
 
+/**
+ * 分镜文稿的读时派生结果——编辑器解析预览面板的内容源。
+ *
+ * 文稿是唯一真相：shots / references / utterances 都是机械派生物，不落盘。
+ * `warnings` 已按请求语言渲染成文本（`key` 保留供测试与埋点定位）。
+ */
+export interface ScriptPreviewUtterance {
+  /** 1-based 镜头序号；台词归属镜头级，时序对位由归属给出 */
+  shot_index: number;
+  kind: "dialogue" | "voiceover";
+  /** dialogue 必有说话人；voiceover 恒为 null */
+  speaker: string | null;
+  text: string;
+}
+
+export interface ScriptPreviewWarning {
+  key: string;
+  message: string;
+}
+
+export interface ScriptPreview {
+  shots: { index: number; text: string }[];
+  /** 顺序即参考图编号；规范台词行的 speaker 位不计入 */
+  references: ReferenceResource[];
+  utterances: ScriptPreviewUtterance[];
+  warnings: ScriptPreviewWarning[];
+}
+
 /** ad 派生分组的参考条目：比 ReferenceResource 多 product 类型（产品绝对优先）。 */
 export interface AdUnitReference {
   type: AssetKind | "product";

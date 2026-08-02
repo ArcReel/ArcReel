@@ -52,6 +52,7 @@ import type {
   AdShot,
   AdReferenceUnit,
   ReferenceDurationPrecheck,
+  ScriptPreview,
   ScriptReviewState,
   DramaNormalizedScript,
   NarrationStep1Draft,
@@ -2434,6 +2435,24 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/duration-precheck`,
       { signal: options?.signal },
+    );
+  }
+
+  /**
+   * 分镜文稿的读时派生预览：shots / references / utterances + 降级可见性提示。
+   *
+   * 只读、不落盘——文稿是唯一真相。提示文本由后端按请求语言渲染（含依赖项目当前
+   * 视频模型能力的声音相关几条），前端不再二次翻译。
+   */
+  static async previewReferenceScript(
+    projectName: string,
+    episode: number,
+    prompt: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ScriptPreview> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/script-preview`,
+      { method: "POST", body: JSON.stringify({ prompt }), signal: options?.signal },
     );
   }
 
