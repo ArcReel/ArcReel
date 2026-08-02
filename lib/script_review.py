@@ -34,6 +34,7 @@ from lib.episode_paths import (
 from lib.json_io import atomic_write_json
 from lib.project_manager import find_episode, is_reference_video_episode
 from lib.reference_video.duration_migration import migrate_unit_durations
+from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, quarantine_path
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,28 @@ def step1_path(project_path: Path, project: dict[str, Any], episode: int) -> Pat
         return None
     filename = REFERENCE_VIDEO_STEP1_FILENAME if kind == "reference_video" else STEP1_FILENAMES[kind]
     return episode_drafts_dir(project_path, episode) / filename
+
+
+def step1_quarantine_path(project_path: Path, project: dict[str, Any], episode: int) -> Path | None:
+    """该集 step1 隔离草稿的路径（仅 reference_video 变体有隔离草稿）；不适用时返回 None。
+
+    只回路径、不判存在性——存在性判断在 ``step1_quarantined``，两者分开是为了让调用方在
+    需要报错文案时能拿到路径。
+    """
+    if step1_kind(project, episode) != "reference_video":
+        return None
+    return quarantine_path(project_path, episode, QUARANTINE_KIND_STEP1)
+
+
+def step1_quarantined(project_path: Path, project: dict[str, Any], episode: int) -> bool:
+    """该集 step1 是否有违约产物被隔离——gate 与 step2 的阻塞判据。
+
+    隔离态与「正式 step1 的内容指纹」是两件事：重新拆分违约时正式文件原封不动，指纹照旧
+    等于已确认值，只看指纹会把该集判成 confirmed 并放行 step2——用户看到的是上一版内容，
+    而 agent 手里那份刚产出的正文还躺在隔离草稿里没人处置。故隔离态独立阻塞。
+    """
+    path = step1_quarantine_path(project_path, project, episode)
+    return path is not None and path.exists()
 
 
 def content_fingerprint_of_data(data: object) -> str:
@@ -140,6 +163,11 @@ def review_status(project_path: Path, project: dict[str, Any], episode: int) -> 
     path = step1_path(project_path, project, episode)
     if path is None:
         return "not_applicable"
+    # 隔离草稿在场先于指纹判定：违约产物尚未处置，无论正式文件是缺失、旧版还是已确认，
+    # 该集都还没有一份「可放行」的 step1。判 pending_review 而非新增状态——gate 的消费方
+    # （阻塞 step2、web 状态展示）要的正是「未放行」这一位，加状态会波及全部消费点。
+    if step1_quarantined(project_path, project, episode):
+        return "pending_review"
     live = content_fingerprint(path)
     if live is None:
         return "no_step1"

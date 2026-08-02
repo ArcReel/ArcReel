@@ -49,6 +49,8 @@ mcp__arcreel__generate_episode_script({"episode": {N}})
 
 等待返回。返回 `is_error: true` 时查看错误信息并尝试修复或报告问题。
 
+若错误为 **违约产物待处置**（参考生视频路径，错误文本指向 `drafts/episode_{N}/step1_reference_units.invalid.json` 或 `step2_reference_script.invalid.json`）：这次已付费的产出没有丢，正式文件也没被污染。Read 该草稿，按 `violations[]` 的 unit 定位与违约类用 Edit 改 `content.units[i].text`（step1 草稿还可改 `source_text` / `duration_seconds`），再调用 `mcp__arcreel__validate_and_promote_reference_draft({"episode": N})` 晋升；仍违约则继续改再晋升，无轮次上限。不要重跑生成工具重抽。
+
 若错误为 **web 审核 gate 阻塞**（drama / narration 的 step1 结构化中间态尚未经显式确认，或确认后内容又被改），这不是数据错误：不要反复重试、不要改写中间文件。确认须由用户驱动——回报主 agent，由其在用户于 Web 端审阅确认、或在对话中明确同意后调用 `mcp__arcreel__confirm_script_review({"episode": N})`，确认后再重试本步骤。
 
 ### Step 3: 验证生成结果

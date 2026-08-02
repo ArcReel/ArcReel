@@ -1500,6 +1500,7 @@ export default {
   'tool_name_confirm_script_review': 'Xác nhận duyệt Step 1',
   'tool_name_normalize_drama_script': 'Chuẩn hóa kịch bản',
   'tool_name_split_reference_video_units': 'Tách đơn vị video tham chiếu',
+  'tool_name_validate_and_promote_reference_draft': 'Kiểm tra và thăng cấp bản nháp tham chiếu',
   'tool_name_split_narration_segments': 'Tách phân đoạn thuyết minh',
   'tool_name_get_video_capabilities': 'Truy vấn năng lực mô hình video',
   'tool_name_plan_episodes': 'Lập kế hoạch chia tập',

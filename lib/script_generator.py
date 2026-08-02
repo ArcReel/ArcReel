@@ -36,11 +36,23 @@ from lib.prompt_builders_script import (
 )
 from lib.reference_video.draft_validation import (
     DraftViolation,
+    DraftViolations,
     assert_dialogue_preserved,
     validate_dialogue_load,
     validate_unit_text,
+    violation_items,
 )
 from lib.reference_video.duration_slots import resolve_duration_slot
+from lib.reference_video.quarantine import (
+    PROMOTE_TOOL_NAME,
+    QUARANTINE_KIND_STEP1,
+    QUARANTINE_KIND_STEP2,
+    clear_quarantine,
+    quarantine_path,
+    read_quarantine,
+    render_report,
+    write_quarantine,
+)
 from lib.reference_video.shot_parser import render_shots_text
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
@@ -480,9 +492,15 @@ class ScriptGenerator:
             visual_data = self._parse_narration_visual(response_text, episode)
             script_data = self._merge_narration_visual(narration_step1, visual_data, episode)
         elif reference_step1 is not None:
-            script_data = self._merge_reference_visual(
-                reference_step1, response_text, episode, max_refs=reference_max_refs
-            )
+            # 违约不丢弃：把这次已付费的展开连同逐条报告落隔离草稿，由 agent 修复后经
+            # promote_reference_step2_draft 重判晋升。重抽既烧钱又不收敛——同一个模型对同一份
+            # step1 大概率再犯同一类错。
+            try:
+                script_data = self._merge_reference_visual(
+                    reference_step1, response_text, episode, max_refs=reference_max_refs
+                )
+            except DraftViolation as exc:
+                raise self._quarantine_reference_step2(episode, response_text, exc) from exc
         else:
             script_data = self._parse_response(response_text, episode)
 
@@ -806,6 +824,15 @@ class ScriptGenerator:
         """
         drafts_path = episode_drafts_dir(self.project_path, episode)
         step1_json = drafts_path / REFERENCE_VIDEO_STEP1_FILENAME
+        # 隔离草稿在场时不生成：正式文件此刻仍是上一版（或不存在），拿它跑 step2 等于把一份
+        # 待处置的违约产出静默换成旧内容。审阅 gate 已在工具入口按同一判据阻塞，这里是直连
+        # 调用（脚本 / 测试 / 未来的其它入口）的兜底。
+        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP1)
+        if quarantine.exists():
+            raise ValueError(
+                f"第 {episode} 集 step1 有违约产物待处置（{quarantine}），step2 生成已中止；"
+                f"请先修复该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 step1"
+            )
         if not step1_json.exists():
             legacy_md = drafts_path / REFERENCE_VIDEO_STEP1_LEGACY_FILENAME
             if legacy_md.exists():
@@ -1003,13 +1030,17 @@ class ScriptGenerator:
                     # 数——不在这里拦，这一定是「付完钱才失败」。
                     raise DraftViolation(
                         f"{label} 落盘的 {len(stored_shots)} 个镜头在书写层解析回 {len(parsed_shots)} 个；"
-                        "镜头正文里不能再嵌 `镜头N：` 行，请把它拆成独立镜头"
+                        "镜头正文里不能再嵌 `镜头N：` 行，请把它拆成独立镜头",
+                        code="shot_count_changed",
+                        label=label,
                     )
                 validate_dialogue_load(label, text, int(unit["duration_seconds"]), source_language)
             except DraftViolation as e:
                 raise DraftViolation(
                     f"{e}；这段正文来自 step1（拆分产出或手工编辑），step2 会逐字保留它，"
-                    "请先在 Web 端修正该 unit 的 step1 正文或时长并重新审阅确认"
+                    "请先在 Web 端修正该 unit 的 step1 正文或时长并重新审阅确认",
+                    code=e.code,
+                    label=label,
                 ) from e
 
     def _merge_reference_visual(
@@ -1025,6 +1056,9 @@ class ScriptGenerator:
         保结构 diff 在此落地——unit 数与顺序、台词规范行逐字、每 unit 的镜头数都由 step1 定稿，
         step2 只允许把画面描述写详细。任一项被改动即 fail-loud（``DraftViolation``），不静默
         接受：台词配不上画面时正确的出路是回到 step1 重拆，而不是让 step2 自行改词。
+
+        逐 unit 的违约收齐后一次抛出（``DraftViolations``），供调用方把整份产出连同报告落到
+        隔离草稿——单条抛出会让 agent 每修一个 unit 就要重跑一次付费的展开。
 
         ``unit_id`` / ``duration_seconds`` 直接取 step1 的值，``shots`` / ``references`` 由展开后
         的正文机械派生——LLM 没写这些字段，也就没有对不上的可能。
@@ -1048,20 +1082,34 @@ class ScriptGenerator:
         if len(flat.units) != len(step1_units):
             raise DraftViolation(
                 f"step2 产出的 unit 数（{len(flat.units)}）与 step1 已确认的（{len(step1_units)}）不一致；"
-                "step2 只做视觉展开，不得合并、拆分或增删 unit"
+                "step2 只做视觉展开，不得合并、拆分或增删 unit",
+                code="unit_count_changed",
             )
 
         video_units: list[dict] = []
+        violations: list[DraftViolation] = []
         for step1_unit, flat_unit in zip(step1_units, flat.units, strict=True):
             label = f"unit {step1_unit['unit_id']}"
             step1_text = render_shots_text(step1_unit.get("shots") or [])
-            shots, refs = validate_unit_text(label, flat_unit.text, self.project_json, max_refs=max_refs)
-            assert_dialogue_preserved(label, step1_text, flat_unit.text)
+            # 逐 unit 收集而非首个违约即抛：报告要覆盖所有坏 unit，agent 一轮就能看全要改什么。
+            # 一个 unit 内部仍是首个违约即停——正文解析不出时，保结构 diff 与镜头数对账的结论
+            # 都建立在同一个问题上，报出来只是它的三种说法。
+            try:
+                shots, refs = validate_unit_text(label, flat_unit.text, self.project_json, max_refs=max_refs)
+                assert_dialogue_preserved(label, step1_text, flat_unit.text)
+            except DraftViolation as exc:
+                violations.extend(violation_items(exc))
+                continue
             if len(shots) != len(step1_unit.get("shots") or []):
-                raise DraftViolation(
-                    f"{label} 的镜头数被改动（step1 有 {len(step1_unit.get('shots') or [])} 个，"
-                    f"step2 产出 {len(shots)} 个）；step2 只做视觉展开，镜头数须保持不变"
+                violations.append(
+                    DraftViolation(
+                        f"{label} 的镜头数被改动（step1 有 {len(step1_unit.get('shots') or [])} 个，"
+                        f"step2 产出 {len(shots)} 个）；step2 只做视觉展开，镜头数须保持不变",
+                        code="shot_count_changed",
+                        label=label,
+                    )
                 )
+                continue
             video_units.append(
                 {
                     "unit_id": step1_unit["unit_id"],
@@ -1071,7 +1119,96 @@ class ScriptGenerator:
                 }
             )
 
+        if violations:
+            raise DraftViolations(violations)
         return ReferenceVideoScript.model_validate({"title": flat.title, "video_units": video_units}).model_dump()
+
+    def _step2_flat_content(self, response_text: str, episode: int) -> dict:
+        """把 step2 响应还原成隔离草稿要装的扁平形状 ``{title, units: [{text}]}``。
+
+        与 ``_merge_reference_visual`` 的解析前置（去代码围栏 → title 兜底 → schema 校验）
+        逐步同口径：隔离草稿装的必须是「schema 已过、只是内容违约」的那份产物，否则 agent
+        改的正文与合并时读的正文形状不同。
+        """
+        data = json.loads(strip_json_code_fences(response_text))
+        if isinstance(data, dict):
+            raw_title = data.get("title")
+            if not (isinstance(raw_title, str) and raw_title.strip()):
+                data["title"] = f"第{episode}集"
+        return ReferenceStep2FlatScript.model_validate(data).model_dump()
+
+    def _quarantine_reference_step2(self, episode: int, response_text: str, exc: DraftViolation) -> DraftViolation:
+        """把违约的 step2 产出与报告落隔离草稿，返回携带报告的违约异常（由调用方抛出）。
+
+        返回而不是自己抛：调用点用 ``raise ... from exc`` 保留原始违约链，异常在此被构造却在
+        彼处抛出会让 traceback 指向本函数而非合并逻辑。
+        """
+        violations = violation_items(exc)
+        path = write_quarantine(
+            self.project_path,
+            episode,
+            QUARANTINE_KIND_STEP2,
+            content=self._step2_flat_content(response_text, episode),
+            violations=violations,
+        )
+        return DraftViolation(
+            render_report(path, QUARANTINE_KIND_STEP2, violations, episode=episode),
+            code="quarantined",
+        )
+
+    async def promote_reference_step2_draft(self, episode: int, output_filename: str | None = None) -> Path:
+        """按产出时那套校验器全量重判 step2 隔离草稿，通过则晋升为正式剧本并清除草稿。
+
+        重判用的是 ``_merge_reference_visual`` 本身，不是它的简化副本：晋升口径与产出口径必须
+        同一份代码，否则「晋升时放行、下次生成时被拒」这类分叉会重新出现。step1 一并重读——
+        隔离期间用户可能在 gate 上改过 step1，保结构 diff 要对着现值判。
+
+        仍有违约时刷新草稿里的报告快照后抛出（``DraftViolation``），草稿留在原地供继续修改；
+        无收敛轮次上限。
+        """
+        draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_STEP2)
+        if draft is None:
+            raise FileNotFoundError(
+                f"第 {episode} 集没有可晋升的 step2 隔离草稿"
+                f"（{quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP2)} 缺失或内容不是合法信封）"
+            )
+
+        caps = await self._fetch_video_capabilities()
+        step1_units = self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
+        max_refs = self._resolve_max_refs(caps)
+        try:
+            script_data = self._merge_reference_visual(
+                step1_units, json.dumps(draft.content), episode, max_refs=max_refs
+            )
+        except DraftViolation as exc:
+            violations = violation_items(exc)
+            path = write_quarantine(
+                self.project_path,
+                episode,
+                QUARANTINE_KIND_STEP2,
+                content=draft.content,
+                violations=violations,
+            )
+            raise DraftViolation(
+                render_report(path, QUARANTINE_KIND_STEP2, violations, episode=episode),
+                code="quarantined",
+            ) from exc
+
+        script_data = self._add_metadata(
+            script_data,
+            episode,
+            reference_unit_durations={
+                str(_rewrite_episode_prefix(u["unit_id"], episode)): u["duration_seconds"] for u in step1_units
+            },
+            caps=caps,
+        )
+        filename = output_filename or episode_script_filename(episode)
+        pm = ProjectManager(str(self.project_path.parent))
+        output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
+        # 落盘成功后才清草稿：写盘失败时草稿还在，重试晋升即可，不会两头皆空。
+        clear_quarantine(self.project_path, episode, QUARANTINE_KIND_STEP2)
+        self._quality_probe(script_data, episode)
+        return output_path
 
     def _parse_response(self, response_text: str, episode: int) -> dict:
         """

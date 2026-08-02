@@ -279,6 +279,20 @@ def extract_mentions(text: str) -> list[str]:
     return result
 
 
+def derive_references_from_text(text: str, project: dict) -> tuple[list[ReferenceResource], list[str]]:
+    """书写层正文 → ``(references, missing)`` 的唯一派生入口。
+
+    references 是机械派生物，两条来源共用本函数：机器产物（拆分工具 / step2 合并，经
+    ``lib.reference_video.draft_validation.validate_unit_text``）与人写产物（编辑器审阅回写，
+    经 ``rederive_unit_references``）。两者的**严格度**按「产物来源是否有作者意图可保护」分流
+    ——机器产物对 ``missing`` 与能力上限一律拒，人写产物只静默丢 ``missing``、不判上限——但
+    **派生本身**必须同一套：分成两处各自 ``extract_mentions`` + ``resolve_references`` 时，任一
+    侧的口径调整（如规范台词行不计入参考图）都会让同一份正文在编辑器与生成侧派生出不同的
+    ``[图N]`` 编号。
+    """
+    return resolve_references(extract_mentions(text), project)
+
+
 def rederive_unit_references(units: list[Any], project: dict) -> None:
     """就地按各 unit 的 shot 文本 ``@[名称]`` 引用机械重派生 references（并集、首现顺序，
     顺序即参考图编号）。
@@ -294,7 +308,7 @@ def rederive_unit_references(units: list[Any], project: dict) -> None:
             continue
         shots = unit.get("shots") or []
         text = "\n".join(str(s.get("text") or "") for s in shots if isinstance(s, dict))
-        refs, _missing = resolve_references(extract_mentions(text), project)
+        refs, _missing = derive_references_from_text(text, project)
         unit["references"] = [r.model_dump() for r in refs]
 
 

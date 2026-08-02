@@ -9,6 +9,12 @@ from sqlalchemy.exc import OperationalError
 
 from lib import script_review
 from lib.reference_video.draft_validation import DraftViolation
+from lib.reference_video.quarantine import (
+    QUARANTINE_KIND_STEP1,
+    QUARANTINE_KIND_STEP2,
+    quarantine_path,
+    write_quarantine,
+)
 from lib.script_generator import ScriptGenerator
 
 STEP1_UNITS_JSON = _json.dumps(
@@ -865,3 +871,114 @@ async def test_step2_missing_title_falls_back_instead_of_failing_the_paid_call(r
     out = await gen.generate(episode=1)
 
     assert _json.loads(out.read_text(encoding="utf-8"))["title"] == "第1集"
+
+
+# ---------------------------------------------------------------------------
+# step2 违约的隔离草稿与修复晋升闭环
+# ---------------------------------------------------------------------------
+
+#: 违约的 step2 展开：引用了未登记的资产名（step1 正文里没有的 @[路人甲]）。
+BAD_STEP2_UNIT_TEXT = "镜头1：中景。@[路人甲] 推开 @[酒馆] 的门。"
+
+
+def _step2_quarantine(project: Path):
+    return quarantine_path(project, 1, QUARANTINE_KIND_STEP2)
+
+
+def _script_path(project: Path) -> Path:
+    return project / "scripts" / "episode_1.json"
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_step2_violation_quarantines_instead_of_discarding(reference_project: Path):
+    """step2 违约不丢弃这次已付费的展开：产物落隔离草稿、正式剧本不被写出、报告带处置指引。"""
+    gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(BAD_STEP2_UNIT_TEXT))
+
+    with pytest.raises(DraftViolation) as excinfo:
+        await gen.generate(episode=1)
+
+    report = str(excinfo.value)
+    assert "unregistered_asset" in report
+    assert "validate_and_promote_reference_draft" in report
+    assert not _script_path(reference_project).exists()
+
+    envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
+    assert envelope["kind"] == QUARANTINE_KIND_STEP2
+    assert [v["code"] for v in envelope["violations"]] == ["unregistered_asset"]
+    # 草稿装的是扁平书写层产物（agent 要改的那一层）
+    assert envelope["content"]["units"][0]["text"] == BAD_STEP2_UNIT_TEXT
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_promote_step2_draft_after_repair(reference_project: Path):
+    """修好隔离草稿后晋升：正式剧本落盘、草稿清除，结构仍由 step1 + 正文机械合成。"""
+    gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(BAD_STEP2_UNIT_TEXT))
+    with pytest.raises(DraftViolation):
+        await gen.generate(episode=1)
+
+    path = _step2_quarantine(reference_project)
+    envelope = _json.loads(path.read_text(encoding="utf-8"))
+    envelope["content"]["units"][0]["text"] = STEP2_UNIT_TEXT
+    path.write_text(_json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
+
+    assert out.exists()
+    assert not path.exists()
+    data = _json.loads(out.read_text(encoding="utf-8"))
+    unit = data["video_units"][0]
+    assert unit["unit_id"] == "E1U01"
+    assert unit["duration_seconds"] == 4
+    assert unit["references"] == [
+        {"type": "character", "name": "主角"},
+        {"type": "scene", "name": "酒馆"},
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_promote_step2_draft_reports_again_without_round_limit(reference_project: Path):
+    """再违约则刷新报告、草稿留在原地——可反复晋升，无收敛轮次上限。"""
+    gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(BAD_STEP2_UNIT_TEXT))
+    with pytest.raises(DraftViolation):
+        await gen.generate(episode=1)
+
+    path = _step2_quarantine(reference_project)
+    for _round in range(3):
+        with pytest.raises(DraftViolation, match="unregistered_asset"):
+            await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
+        assert path.exists()
+        assert not _script_path(reference_project).exists()
+
+    envelope = _json.loads(path.read_text(encoding="utf-8"))
+    envelope["content"]["units"][0]["text"] = "镜头1：门开了\n镜头2：@[主角] 跨过门槛"
+    path.write_text(_json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(DraftViolation):
+        await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
+    refreshed = _json.loads(path.read_text(encoding="utf-8"))
+    assert [v["code"] for v in refreshed["violations"]] == ["shot_count_changed"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_promote_step2_draft_without_draft(reference_project: Path):
+    with pytest.raises(FileNotFoundError, match="没有可晋升的 step2 隔离草稿"):
+        await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_step2_refuses_to_run_while_step1_quarantined(reference_project: Path):
+    """step1 还在隔离态时不跑 step2：正式 step1 仍是上一版，拿它生成等于静默换回旧内容。"""
+    write_quarantine(
+        reference_project,
+        1,
+        QUARANTINE_KIND_STEP1,
+        content={"units": []},
+        violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
+    )
+    gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(STEP2_UNIT_TEXT))
+    with pytest.raises(ValueError, match="有违约产物待处置"):
+        await gen.generate(episode=1)

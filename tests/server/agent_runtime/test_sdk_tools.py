@@ -14,6 +14,8 @@ from typing import Any
 
 import pytest
 
+from lib.reference_video.draft_validation import DraftViolation
+from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, quarantine_path, write_quarantine
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.enqueue_assets import (
@@ -36,6 +38,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     normalize_drama_script_tool,
     split_narration_segments_tool,
     split_reference_video_units_tool,
+    validate_and_promote_reference_draft_tool,
 )
 
 # ---------------------------------------------------------------------------
@@ -2936,7 +2939,7 @@ async def test_generate_video_all_ad_reference_falls_through_to_episode(
 # ---------------------------------------------------------------------------
 
 
-def _rv_caps(default=4, durations=(4, 6, 8), reference_durations=None, max_duration=12, max_refs=3):
+def _rv_caps(default=4, durations=(4, 6, 8), reference_durations=None, max_duration=12, max_refs=3, caps=None):
     from server.agent_runtime.sdk_tools.text_generation import ReferenceSplitCaps
 
     async def fake_caps(_p):
@@ -2947,6 +2950,7 @@ def _rv_caps(default=4, durations=(4, 6, 8), reference_durations=None, max_durat
             text_durations=list(durations),
             max_duration=max_duration,
             max_refs=max_refs,
+            raw=dict(caps or {}),
         )
 
     return fake_caps
@@ -3237,7 +3241,7 @@ async def test_split_reference_video_units_rejects_over_max_refs(fake_ctx: ToolC
 async def test_split_reference_video_units_rejects_duration_off_reference_tier(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """带 `@` 引用的 unit 取了只有无引用 unit 才合法的时长 → fail-loud，不写盘。
+    """带 `@` 引用的 unit 取了只有无引用 unit 才合法的时长 → 判违约、不写正式文件。
 
     枚举卡的是两套档位的并集，这类越界过得了 schema；不在此拦，执行期才会申请不到。
     """
@@ -3339,6 +3343,191 @@ async def test_split_reference_video_units_no_source(fake_ctx: ToolContext) -> N
     tool_obj = split_reference_video_units_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
+
+
+# ---------------------------------------------------------------------------
+# 隔离草稿与修复晋升闭环（step1）
+# ---------------------------------------------------------------------------
+
+
+def _rv_quarantine_path(fake_ctx: ToolContext):
+    return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_STEP1)
+
+
+def _read_rv_quarantine(fake_ctx: ToolContext) -> dict:
+    return json.loads(_rv_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
+
+
+async def _promote(fake_ctx: ToolContext, monkeypatch, **caps_kwargs) -> dict:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps(**caps_kwargs))
+    return await _call(validate_and_promote_reference_draft_tool(fake_ctx), {"episode": 1})
+
+
+#: 七类阻断违约各一个最小触发样例（违约类 → 扁平 unit）。逐类断言「落隔离草稿 + 正式文件
+#: 干净 + 报告按类定位」，而不是只验其中一两类——七类共用同一次遍历，漏测哪一类都可能在
+#: 该类上退回「丢弃重抽」。
+_RV_VIOLATION_CASES = [
+    ("unclosed_brace", _rv_unit("镜头1：@[张三] 起身，喊了一句 {我来了")),
+    ("dialogue_line_syntax", _rv_unit("镜头1：门开了\n@[张三]：我来了。")),
+    ("unregistered_asset", _rv_unit("镜头1：@[不存在的人] 出场")),
+    ("unregistered_speaker", _rv_unit("镜头1：门开了\n@[无名氏]：{我来了。}")),
+    ("braces_in_description", _rv_unit("镜头1：@[张三] 说 {我来了}，转身离开")),
+    ("source_text_not_verbatim", _rv_unit("镜头1：@[张三] 起身", source_text="张三在城里等人")),
+    ("too_many_shots", _rv_unit("\n".join(f"镜头{i}：@[张三] 动作 {i}" for i in range(1, 6)))),
+    ("dialogue_overload", _rv_unit("镜头1：@[张三] 起身\n@[张三]：{" + "这是一段非常长的台词" * 6 + "}", duration=4)),
+]
+
+
+@pytest.mark.parametrize(("code", "unit"), _RV_VIOLATION_CASES, ids=[c for c, _ in _RV_VIOLATION_CASES])
+async def test_split_reference_video_units_quarantines_each_violation_class(
+    fake_ctx: ToolContext, monkeypatch, code: str, unit: dict
+) -> None:
+    """七类阻断违约逐类：产物落隔离草稿、正式文件不被写出、报告按违约类逐条定位。"""
+    _rv_source(fake_ctx)
+    out = await _run_rv_split(fake_ctx, monkeypatch, [unit])
+
+    assert out.get("is_error") is True
+    assert not _rv_step1_path(fake_ctx).exists()
+
+    envelope = _read_rv_quarantine(fake_ctx)
+    assert envelope["kind"] == QUARANTINE_KIND_STEP1
+    assert [v["code"] for v in envelope["violations"]] == [code]
+    assert envelope["violations"][0]["label"] == "unit E1U01"
+    # 隔离草稿装的是扁平书写层产物（agent 要改的那一层），不是派生后的落盘形状
+    assert envelope["content"]["units"][0]["text"] == unit["text"]
+    assert "shots" not in envelope["content"]["units"][0]
+
+    report = out["content"][0]["text"]
+    assert f"[{code}]" in report
+    assert "unit E1U01" in report
+    assert str(_rv_quarantine_path(fake_ctx)) in report
+    assert "validate_and_promote_reference_draft" in report
+
+
+async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """报告逐条覆盖所有坏 unit，不停在第一个——否则 agent 每修一处就要再跑一轮付费拆分。"""
+    _rv_source(fake_ctx)
+    units = [
+        _rv_unit("镜头1：@[张三] 起身"),
+        _rv_unit("镜头1：@[不存在的人] 出场"),
+        _rv_unit("镜头1：@[张三] 说 {我来了}"),
+    ]
+    out = await _run_rv_split(fake_ctx, monkeypatch, units)
+
+    assert out.get("is_error") is True
+    envelope = _read_rv_quarantine(fake_ctx)
+    assert [v["label"] for v in envelope["violations"]] == ["unit E1U02", "unit E1U03"]
+    assert [v["code"] for v in envelope["violations"]] == ["unregistered_asset", "braces_in_description"]
+    # 合法的 unit 也原样留在草稿里：agent 只需改坏的那些
+    assert len(envelope["content"]["units"]) == 3
+
+
+async def test_validate_and_promote_reference_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:
+    """agent 修好隔离草稿后晋升：正式 step1 落盘、草稿清除、结构由正文机械派生。"""
+    _rv_source(fake_ctx)
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+
+    envelope = _read_rv_quarantine(fake_ctx)
+    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 在 @[村口] 出场"
+    _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await _promote(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is not True, out
+    assert not _rv_quarantine_path(fake_ctx).exists()
+    saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    assert saved["units"][0]["unit_id"] == "E1U01"
+    assert saved["units"][0]["references"] == [
+        {"type": "character", "name": "张三"},
+        {"type": "scene", "name": "村口"},
+    ]
+
+
+async def test_validate_and_promote_reference_draft_reports_again_without_round_limit(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """再违约则再返回刷新后的报告、草稿留在原地，可反复晋升——无收敛轮次上限。"""
+    _rv_source(fake_ctx)
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+
+    for _round in range(3):
+        out = await _promote(fake_ctx, monkeypatch)
+        assert out.get("is_error") is True
+        assert "unregistered_asset" in out["content"][0]["text"]
+        assert _rv_quarantine_path(fake_ctx).exists()
+        assert not _rv_step1_path(fake_ctx).exists()
+
+    # 改成另一类违约后报告随之刷新，不是上一轮的陈旧快照
+    envelope = _read_rv_quarantine(fake_ctx)
+    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 说 {我来了}"
+    _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    out = await _promote(fake_ctx, monkeypatch)
+    assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["braces_in_description"]
+
+
+async def test_validate_and_promote_reference_draft_without_draft(fake_ctx: ToolContext, monkeypatch) -> None:
+    out = await _promote(fake_ctx, monkeypatch)
+    assert out.get("is_error") is True
+    assert "没有待处置的隔离草稿" in out["content"][0]["text"]
+
+
+async def test_split_reference_video_units_clears_stale_quarantine_on_success(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """重拆分成功即清掉上一轮的隔离草稿——留着会让 gate 与生成侧继续阻塞在已被取代的产物上。"""
+    _rv_source(fake_ctx)
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+    assert _rv_quarantine_path(fake_ctx).exists()
+
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 起身")])
+    assert out.get("is_error") is not True, out
+    assert not _rv_quarantine_path(fake_ctx).exists()
+
+
+async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """三类声音降级 warning 不阻断落盘，但随产物呈现——否则直到生成后才听得出声音打了折。"""
+    _rv_source(fake_ctx)
+    out = await _run_rv_split(
+        fake_ctx,
+        monkeypatch,
+        [_rv_unit("镜头1：@[张三] 起身\n@[张三]：{我来了。}")],
+        caps={"voice_consistency": "native", "max_reference_audio_count": 2, "model": "m"},
+    )
+
+    assert out.get("is_error") is not True, out
+    assert _rv_step1_path(fake_ctx).exists()
+    text = out["content"][0]["text"]
+    assert "声音降级提示" in text
+    assert "未设置参考音频" in text
+
+
+async def test_generate_episode_script_blocked_by_quarantine(fake_ctx: ToolContext) -> None:
+    """隔离草稿在场时 step2 入口阻塞，且给出「改草稿再晋升」而非「去 Web 端确认」的出路。"""
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps({"content_mode": "narration", "generation_mode": "reference_video"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    step1 = _rv_step1_path(fake_ctx)
+    step1.parent.mkdir(parents=True, exist_ok=True)
+    step1.write_text(json.dumps({"units": []}, ensure_ascii=False), encoding="utf-8")
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_STEP1,
+        content={"units": []},
+        violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
+    )
+
+    out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})
+    assert out.get("is_error") is True
+    assert "违约产物待处置" in out["content"][0]["text"]
+    assert "validate_and_promote_reference_draft" in out["content"][0]["text"]
 
 
 # ---------------------------------------------------------------------------

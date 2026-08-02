@@ -14,6 +14,8 @@ import pytest
 from lib import script_review
 from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
+from lib.reference_video.draft_validation import DraftViolation
+from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, clear_quarantine, write_quarantine
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 
@@ -293,6 +295,44 @@ class TestReferenceVideoGateFlow:
         assert state["status"] == "pending_review"
         refs = state["content"]["units"][0]["references"]
         assert [(r["type"], r["name"]) for r in refs] == [("character", "阿离"), ("scene", "屋檐")]
+
+    def test_quarantined_step1_blocks_confirm_and_step2(self, tmp_path):
+        """隔离草稿在场 → 确认被拒、step2 被阻塞，即使正式 step1 早已确认过。
+
+        隔离态与「正式 step1 的内容指纹」是两件事：重拆分违约时正式文件原封不动，只看指纹
+        会把该集判成 confirmed 并放行，用户看到的却是上一版内容。
+        """
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        project_path = pm.get_project_path("demo")
+        _write_rv_step1(pm, _rv_step1())
+        svc.confirm("demo", 1)
+        assert svc.get_state("demo", 1)["status"] == "confirmed"
+
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": []},
+            violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
+        )
+
+        assert svc.get_state("demo", 1)["status"] == "pending_review"
+        assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is True
+        with pytest.raises(ScriptReviewError) as exc:
+            svc.confirm("demo", 1)
+        assert exc.value.code == "quarantined"
+
+        # 草稿清除后回到既有的指纹判定（内容未变，确认仍然有效）
+        clear_quarantine(project_path, 1, QUARANTINE_KIND_STEP1)
+        assert svc.get_state("demo", 1)["status"] == "confirmed"
+
+    def test_quarantine_not_applicable_to_non_reference_paths(self, tmp_path):
+        """drama / narration 无隔离草稿概念：路径解析返回 None，状态判定不受影响。"""
+        pm = _make_project(tmp_path, "drama")
+        project_path = pm.get_project_path("demo")
+        assert script_review.step1_quarantine_path(project_path, pm.load_project("demo"), 1) is None
+        assert script_review.step1_quarantined(project_path, pm.load_project("demo"), 1) is False
 
     def test_confirm_rejects_unit_duration_out_of_range(self, tmp_path):
         """损坏的 step1（unit 时长越界）→ 确认被结构校验拒绝，不放行 step2。"""
