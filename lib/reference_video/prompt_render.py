@@ -62,6 +62,17 @@ _TWIN_PACK = (
 )
 
 
+def _character_bucket(project: dict) -> dict:
+    """项目角色表，非 dict（外部编辑写坏的 project.json）按空处理。
+
+    校验器只在该字段本身是 dict 时才校验内部条目（见 ``lib.data_validator``），字段整体
+    非 dict 的畸形项目不会被拒绝；本模块多处按名字索引角色表，统一在取值处归一化，
+    避免每个调用点各自补一遍 isinstance 判断。
+    """
+    raw = project.get(BUCKET_KEY["character"])
+    return raw if isinstance(raw, dict) else {}
+
+
 @dataclass(frozen=True)
 class RenderedUnitPrompt:
     """一个 unit 的渲染产物。
@@ -125,7 +136,7 @@ def render_unit_prompt(
     # 导致编号指向错误的图。先过滤类型再建 name → 序号映射，从根上避免该覆盖。
     character_image_no = {ref.name: i for i, ref in enumerate(references, start=1) if ref.type == "character"}
 
-    characters: dict = project.get(BUCKET_KEY["character"]) or {}
+    characters = _character_bucket(project)
     bindings = derive_voice_bindings(
         utterances,
         characters,
@@ -347,7 +358,7 @@ def render_ad_backend_prompt(
     if not body.strip():
         raise ValueError("reference video unit prompt is empty: all member shots have no visual content")
 
-    characters: dict = project.get(BUCKET_KEY["character"]) or {}
+    characters = _character_bucket(project)
     utterances = _derive_ad_utterances(shots)
 
     # 音频只能对齐到「同名且类型也是 character」的图：entries 里 character/scene/prop 的设计图
@@ -399,15 +410,11 @@ def resolve_reference_audio_paths(project: dict, project_path: Path) -> dict[str
 
     只收录字段指向 ``characters/refs_audio`` 内且文件确实存在的条目（越界路径由
     :func:`lib.audio_utils.resolve_audio_ref_path` 挡下——该字段可经资产 PATCH 写成项目内
-    任意字符串）。渲染层据此判定绑定，编号与实际发出的音频段数因此严格等长。角色桶非 dict
-    （如外部编辑/迁移写坏的 project.json）按空处理而非硬失败——校验器不拒绝该形态
-    （见 ``lib.data_validator``），executor 不应因它崩溃。
+    任意字符串）。渲染层据此判定绑定，编号与实际发出的音频段数因此严格等长。
     """
     audio_refs_dir = project_path / ASSET_AUDIO_SUBDIR
     resolved: dict[str, Path] = {}
-    raw_characters = project.get(BUCKET_KEY["character"])
-    characters = raw_characters if isinstance(raw_characters, dict) else {}
-    for name, item in characters.items():
+    for name, item in _character_bucket(project).items():
         if not isinstance(item, dict):
             continue
         path = resolve_audio_ref_path(project_path, audio_refs_dir, item.get("reference_audio"))

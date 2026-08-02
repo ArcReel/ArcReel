@@ -138,6 +138,18 @@ def test_malformed_character_record_does_not_crash_voice_declaration():
     assert "声音特征" not in rendered.prompt
 
 
+def test_non_dict_characters_bucket_does_not_crash_voice_binding():
+    # 角色表整字段被写成非 dict（如 int）时，`speaker in characters` 在 dict 上是键存在性
+    # 判断，在非 dict 值上可能直接抛 TypeError；渲染层按空表处理，不崩溃。
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "颈椎终于舒服了"}])]
+    project = _project(characters=1)
+
+    rendered = render_ad_backend_prompt(shots, [], project, voice_consistency="soft")
+
+    assert "<小美>说 {颈椎终于舒服了}" in rendered.prompt
+    assert any(w["key"] == WARN_UNREGISTERED_SPEAKER for w in rendered.warnings)
+
+
 def test_legend_and_negative_tail_are_gone():
     shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "买它"}])]
     entries = [_entry("按摩仪", "产品「按摩仪」标准多角度参考图", kind="sheet")]

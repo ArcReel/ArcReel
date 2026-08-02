@@ -346,7 +346,7 @@ async def test_ad_reference_clamp_keeps_product_sheets_alive(tmp_path: Path, mon
     ref_names = [p.name for p in kwargs["reference_images"]]
     # 两个产品的 sheet 优先存活，原图与角色 sheet 被裁
     assert ref_names == ["按摩仪.png", "精华液.png", "按摩仪_原图.jpg"]
-    # 主体绑定行与裁剪后的实收列表对齐（[图N] 对照表随三段论对齐废除）
+    # 主体绑定行按位置与裁剪后的实收列表对齐
     prompt = kwargs["prompt"]
     assert "<产品「按摩仪」标准多角度参考图>@图片1" in prompt
     assert "<产品「按摩仪」实拍原图（保真锚点）>@图片3" in prompt
