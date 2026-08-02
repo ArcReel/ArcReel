@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import products
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 class _FakePM:
@@ -52,7 +53,7 @@ def _client(monkeypatch, fake_pm):
     monkeypatch.setattr(products, "get_project_manager", lambda: fake_pm)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(products.router, prefix="/api/v1")
+    app.include_router(products.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app)
 
 

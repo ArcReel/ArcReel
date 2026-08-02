@@ -11,6 +11,7 @@ from lib.script_editor import ScriptEditError
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import versions
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 class _FakePM:
@@ -81,7 +82,7 @@ def _client(monkeypatch):
 
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(versions.router, prefix="/api/v1")
+    app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(app)
     return TestClient(app), fake_pm
 
@@ -191,7 +192,7 @@ class TestVersionsRouter:
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(versions.router, prefix="/api/v1")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/versions/reference_videos/E1U1/restore/1")
@@ -250,7 +251,7 @@ class TestVersionsRouter:
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(versions.router, prefix="/api/v1")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/versions/videos/E1S01/restore/1")
@@ -306,7 +307,7 @@ class TestVersionsRouter:
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(versions.router, prefix="/api/v1")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
@@ -338,7 +339,7 @@ class TestVersionsRouter:
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(versions.router, prefix="/api/v1")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
@@ -375,7 +376,7 @@ class TestVersionsRouter:
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(versions.router, prefix="/api/v1")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
@@ -398,7 +399,7 @@ class TestVersionsRouter:
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(versions.router, prefix="/api/v1")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
@@ -419,7 +420,7 @@ class TestVersionsRouter:
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(versions.router, prefix="/api/v1")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.get("/api/v1/projects/demo/versions/characters/Alice")
@@ -438,7 +439,7 @@ class TestVersionsRouter:
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(versions.router, prefix="/api/v1")
+        app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")

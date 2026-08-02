@@ -12,6 +12,7 @@ from lib.db import get_async_session
 from lib.db.base import Base
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import agent_config
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 def _make_app(session_factory) -> FastAPI:
@@ -23,7 +24,8 @@ def _make_app(session_factory) -> FastAPI:
             await session.commit()
 
     app.dependency_overrides[get_async_session] = override_session
-    app.include_router(agent_config.router, prefix="/api/v1")
+    # 认证依赖挂在注册处，mini app 须与 server/app.py 的挂法一致，否则测不到真实的鉴权行为。
+    app.include_router(agent_config.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app
 
 
@@ -47,8 +49,10 @@ async def authed_client(_session_factory):
 
 
 @pytest_asyncio.fixture
-async def unauth_client(_session_factory):
+async def unauth_client(_session_factory, monkeypatch):
     """No dependency override → real auth applies → expects 401/403."""
+    # AUTH_ENABLED=false 时 get_current_user 直接返回匿名 admin，本 fixture 就测不到拒绝。
+    monkeypatch.setenv("AUTH_ENABLED", "true")
     app = _make_app(_session_factory)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

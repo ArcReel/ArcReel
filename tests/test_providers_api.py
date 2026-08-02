@@ -21,6 +21,7 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from lib.i18n import get_translator
 from server.dependencies import get_config_service
 from server.routers import providers
+from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 from tests.conftest import make_translator
 
 # ---------------------------------------------------------------------------
@@ -35,7 +36,8 @@ def _make_app(mock_svc: ConfigService) -> FastAPI:
     # 覆盖 get_config_service，直接注入 mock 服务
     app.dependency_overrides[get_config_service] = lambda: mock_svc
 
-    app.include_router(providers.router, prefix="/api/v1")
+    override_auth(app)
+    app.include_router(providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app
 
 
@@ -256,7 +258,8 @@ def _make_session_app() -> tuple[FastAPI, AsyncMock]:
 
     app.dependency_overrides[get_async_session] = _override_session
     app.dependency_overrides[get_translator] = lambda: make_translator()
-    app.include_router(providers.router, prefix="/api/v1")
+    override_auth(app)
+    app.include_router(providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app, mock_session
 
 
@@ -480,7 +483,8 @@ def _make_patch_app(mock_svc_instance: ConfigService) -> FastAPI:
     app.dependency_overrides[get_async_session] = _override_session
 
     with patch("server.routers.providers.ConfigService", return_value=mock_svc_instance):
-        app.include_router(providers.router, prefix="/api/v1")
+        override_auth(app)
+        app.include_router(providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 
     return app
 
@@ -504,7 +508,8 @@ class TestPatchProviderConfig:
                 yield mock_session
 
             app.dependency_overrides[get_async_session] = _override
-            app.include_router(providers.router, prefix="/api/v1")
+            override_auth(app)
+            app.include_router(providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 
             with TestClient(app) as client:
                 resp = client.patch(
@@ -522,7 +527,8 @@ class TestPatchProviderConfig:
             yield mock_session
 
         app.dependency_overrides[get_async_session] = _override
-        app.include_router(providers.router, prefix="/api/v1")
+        override_auth(app)
+        app.include_router(providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 
         with TestClient(app) as client:
             resp = client.patch(
@@ -542,7 +548,8 @@ class TestPatchProviderConfig:
                 yield mock_session
 
             app.dependency_overrides[get_async_session] = _override
-            app.include_router(providers.router, prefix="/api/v1")
+            override_auth(app)
+            app.include_router(providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 
             with TestClient(app) as client:
                 resp = client.patch(
@@ -564,7 +571,8 @@ class TestPatchProviderConfig:
                 yield mock_session
 
             app.dependency_overrides[get_async_session] = _override
-            app.include_router(providers.router, prefix="/api/v1")
+            override_auth(app)
+            app.include_router(providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 
             with TestClient(app) as client:
                 resp = client.patch(
@@ -612,7 +620,8 @@ class TestPatchProviderConfigMaxWorkersValidation:
 
         app.dependency_overrides[get_async_session] = _override_session
         app.dependency_overrides[get_translator] = lambda: make_translator(locale)
-        app.include_router(providers.router, prefix="/api/v1")
+        override_auth(app)
+        app.include_router(providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         return app
 
     @pytest.mark.parametrize("bad_value", ["", "3.7", "abc", "-1", "0"])

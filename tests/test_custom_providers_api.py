@@ -22,6 +22,7 @@ from lib.db.base import Base
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import custom_providers
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -54,7 +55,7 @@ def app(session_factory) -> FastAPI:
 
     _app.dependency_overrides[get_async_session] = _override_session
     _app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
-    _app.include_router(custom_providers.router, prefix="/api/v1")
+    _app.include_router(custom_providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(_app)
     return _app
 

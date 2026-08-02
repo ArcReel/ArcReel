@@ -80,7 +80,7 @@ async def generate_grid(
     project_name: str,
     episode: int,
     req: GenerateGridRequest,
-    _user: CurrentUser,
+    user: CurrentUser,
     _t: Translator,
 ):
     """
@@ -204,7 +204,7 @@ async def generate_grid(
                 ),
                 script_file=req.script_file,
                 source="webui",
-                user_id=_user.id,
+                user_id=user.id,
             )
             grid_ids.append(grid.id)
             task_ids.append(task["task_id"])
@@ -223,7 +223,7 @@ async def generate_grid(
 
 
 @router.get("/grids")
-async def list_grids(project_name: str, _user: CurrentUser):
+async def list_grids(project_name: str):
     """列出项目下所有宫格图记录。"""
     try:
         project_path = get_project_manager().get_project_path(project_name)
@@ -248,7 +248,7 @@ def _load_grid_or_404(project_path: Path, grid_id: str) -> GridGeneration:
 
 
 @router.get("/grids/{grid_id}")
-async def get_grid(project_name: str, grid_id: str, _user: CurrentUser):
+async def get_grid(project_name: str, grid_id: str):
     """获取单个宫格图记录。"""
     try:
         project_path = get_project_manager().get_project_path(project_name)
@@ -262,7 +262,7 @@ async def get_grid(project_name: str, grid_id: str, _user: CurrentUser):
 
 
 @router.post("/grids/{grid_id}/regenerate")
-async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
+async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     """重置宫格图状态并重新入队生成任务。"""
     # project.json 损坏（JSONDecodeError）不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
     with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
@@ -305,7 +305,7 @@ async def regenerate_grid(project_name: str, grid_id: str, _user: CurrentUser):
         ),
         script_file=grid.script_file,
         source="webui",
-        user_id=_user.id,
+        user_id=user.id,
     )
 
     return {"success": True, "task_id": task["task_id"], "deduped": task.get("deduped", False)}

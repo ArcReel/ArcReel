@@ -23,6 +23,7 @@ class _OverviewProbe(BaseModel):
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import projects
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 class _FakePM:
@@ -259,7 +260,8 @@ def _client(monkeypatch, fake_pm, fake_calc):
 
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(projects.router, prefix="/api/v1")
+    app.include_router(projects.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    app.include_router(projects.self_auth_router, prefix="/api/v1")
     register_error_handlers(app)
     return TestClient(app)
 

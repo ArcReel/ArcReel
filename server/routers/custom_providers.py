@@ -43,7 +43,6 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
 from lib.image_backends.base import ImageCapability
 from lib.video_backends.base import ReferenceAudioMode
-from server.auth import CurrentUser
 
 
 def _validate_endpoint(value: str) -> str:
@@ -576,7 +575,6 @@ async def _invalidate_caches(request: Request) -> None:
 
 @router.get("")
 async def list_providers(
-    _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
 ):
     """列出所有自定义供应商（含模型列表）。"""
@@ -594,7 +592,7 @@ async def list_providers(
 
 # /endpoints 必须先于 /{provider_id} 注册，否则 FastAPI 会把字符串 "endpoints" 当作 provider_id。
 @router.get("/endpoints", response_model=EndpointCatalogResponse)
-async def list_endpoint_catalog(_user: CurrentUser) -> EndpointCatalogResponse:
+async def list_endpoint_catalog() -> EndpointCatalogResponse:
     """暴露 ENDPOINT_REGISTRY 作为前端单一真相源：渲染下拉、显示路径与分组都派生自此返回值。"""
     return EndpointCatalogResponse(
         endpoints=[EndpointDescriptor(**endpoint_spec_to_dict(spec)) for spec in ENDPOINT_REGISTRY.values()],
@@ -605,7 +603,6 @@ async def list_endpoint_catalog(_user: CurrentUser) -> EndpointCatalogResponse:
 async def create_provider(
     body: CreateProviderRequest,
     request: Request,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -636,7 +633,6 @@ async def create_provider(
 @router.get("/{provider_id}")
 async def get_provider(
     provider_id: int,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -652,7 +648,6 @@ async def get_provider(
 @router.get("/{provider_id}/credentials", response_model=CredentialsResponse)
 async def get_provider_credentials(
     provider_id: int,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -676,7 +671,6 @@ async def update_provider(
     provider_id: int,
     body: UpdateProviderRequest,
     request: Request,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -709,7 +703,6 @@ async def full_update_provider(
     provider_id: int,
     body: FullUpdateProviderRequest,
     request: Request,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -744,7 +737,6 @@ async def full_update_provider(
 async def delete_provider(
     provider_id: int,
     request: Request,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -779,7 +771,6 @@ async def replace_models(
     provider_id: int,
     body: ReplaceModelsRequest,
     request: Request,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -826,7 +817,6 @@ async def replace_models(
 @router.post("/discover")
 async def discover_models_endpoint(
     body: ProviderConnectionRequest,
-    _user: CurrentUser,
     _t: Translator,
 ):
     """模型发现：根据 discovery_format + base_url + api_key 查询可用模型。"""
@@ -836,7 +826,6 @@ async def discover_models_endpoint(
 @router.post("/discover-anthropic", response_model=DiscoverResponse)
 async def discover_anthropic_models_endpoint(
     body: DiscoverAnthropicRequest,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -866,7 +855,6 @@ async def discover_anthropic_models_endpoint(
 @router.post("/{provider_id}/discover")
 async def discover_models_by_id(
     provider_id: int,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -881,7 +869,6 @@ async def discover_models_by_id(
 @router.post("/test")
 async def test_connection(
     body: ProviderConnectionRequest,
-    _user: CurrentUser,
     _t: Translator,
 ):
     """连接测试：验证 discovery_format + base_url + api_key 的连通性。"""
@@ -889,9 +876,7 @@ async def test_connection(
 
 
 @router.post("/{provider_id}/test")
-async def test_connection_by_id(
-    provider_id: int, _user: CurrentUser, _t: Translator, session: AsyncSession = Depends(get_async_session)
-):
+async def test_connection_by_id(provider_id: int, _t: Translator, session: AsyncSession = Depends(get_async_session)):
     """使用已存储凭证测试指定供应商的连通性。"""
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)

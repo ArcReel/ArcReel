@@ -8,13 +8,14 @@ from fastapi.testclient import TestClient
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import cost_estimation
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 def _make_app():
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(cost_estimation.router, prefix="/api/v1")
+    app.include_router(cost_estimation.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app
 
 
@@ -63,11 +64,14 @@ class TestCostEstimationRouter:
         assert "episodes" in body
         assert "project_totals" in body
 
-    def test_no_auth_returns_401(self):
+    def test_no_auth_returns_401(self, monkeypatch):
+        # AUTH_ENABLED=false 时 get_current_user 直接返回匿名 admin，这里就测不到拒绝。
+        monkeypatch.setenv("AUTH_ENABLED", "true")
         app = FastAPI()
         register_error_handlers(app)
-        # Do NOT override the auth dependency — real auth should reject
-        app.include_router(cost_estimation.router, prefix="/api/v1")
+        # Do NOT override the auth dependency — real auth should reject.
+        # 认证依赖挂在注册处，这里须与 server/app.py 的挂法一致。
+        app.include_router(cost_estimation.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.get("/api/v1/projects/demo/cost-estimate")
         assert resp.status_code == 401

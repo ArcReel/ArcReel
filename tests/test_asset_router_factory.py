@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import characters
+from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.conftest import make_translator
 
 # 兜底 500 的默认 locale 文案：测试未覆盖 get_translator，端点回落到 DEFAULT_LOCALE("zh")，
@@ -51,7 +52,7 @@ def _client(monkeypatch):
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(characters.router, prefix="/api/v1")
+    app.include_router(characters.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app), fake_pm
 
 
@@ -289,7 +290,7 @@ class TestAssetRouterNoLeak:
         )
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(characters.router, prefix="/api/v1")
+        app.include_router(characters.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/characters", json={"name": "Bob", "description": "x"})
             assert resp.status_code == 500
@@ -304,7 +305,7 @@ class TestAssetRouterNoLeak:
         )
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(characters.router, prefix="/api/v1")
+        app.include_router(characters.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         with TestClient(app) as client:
             resp = client.patch("/api/v1/projects/demo/characters/Alice", json={"description": "new"})
             assert resp.status_code == 500
@@ -319,7 +320,7 @@ class TestAssetRouterNoLeak:
         )
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(characters.router, prefix="/api/v1")
+        app.include_router(characters.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         with TestClient(app) as client:
             resp = client.delete("/api/v1/projects/demo/characters/Alice")
             assert resp.status_code == 500

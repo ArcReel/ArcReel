@@ -43,9 +43,7 @@ class TestUploadRestorePng:
         monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
 
         # Switch back to v1 without creating a synthetic new version.
-        result = await versions_router.restore_version(
-            project_name, "characters", char_name, 1, _user={"sub": "testuser"}
-        )
+        result = await versions_router.restore_version(project_name, "characters", char_name, 1)
 
         assert result["success"]
         assert result["restored_version"] == 1

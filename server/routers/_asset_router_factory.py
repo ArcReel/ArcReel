@@ -26,7 +26,6 @@ from lib.asset_types import ASSET_SPECS, validate_asset_name
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
-from server.auth import CurrentUser
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +99,6 @@ def build_asset_router(
     async def add_entry(
         project_name: str,
         req: _CreateRequest,
-        _user: CurrentUser,
         _t: Translator,
     ):
         # 名称会被拼进文件路径与单段路由参数，路径不安全的名字在边界即拒绝，
@@ -171,7 +169,6 @@ def build_asset_router(
         project_name: str,
         entry_name: str,
         req: dict[str, Any],
-        _user: CurrentUser,
         _t: Translator,
     ):
         # 写入前对所有可写字段做类型校验。req 是 dict[str, Any]，若客户端传入错误类型
@@ -235,7 +232,7 @@ def build_asset_router(
             raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
     @router.delete(f"/projects/{{project_name}}/{spec.subdir}/{{entry_name}}")
-    async def delete_entry(project_name: str, entry_name: str, _user: CurrentUser, _t: Translator):
+    async def delete_entry(project_name: str, entry_name: str, _t: Translator):
         try:
 
             def _sync():

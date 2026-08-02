@@ -24,6 +24,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import end_frames
 from server.services import end_frame as end_frame_service
 from server.services import upload_finalize
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 pytestmark = pytest.mark.integration
 
@@ -75,7 +76,7 @@ def _build_client(pm: ProjectManager, monkeypatch) -> TestClient:
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(end_frames.router, prefix="/api/v1")
+    app.include_router(end_frames.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app)
 
 

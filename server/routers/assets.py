@@ -20,7 +20,6 @@ from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.i18n import Translator
 from lib.project_manager import ProjectManager, get_project_manager
-from server.auth import CurrentUser
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +81,6 @@ def _delete_global_asset_file(rel_path: str) -> None:
 
 @router.get("")
 async def list_assets(
-    _user: CurrentUser,
     _t: Translator,
     type: str | None = None,
     q: str | None = None,
@@ -95,7 +93,7 @@ async def list_assets(
 
 
 @router.get("/{asset_id}")
-async def get_asset(asset_id: str, _user: CurrentUser, _t: Translator):
+async def get_asset(asset_id: str, _t: Translator):
     async with async_session_factory() as s:
         a = await AssetRepository(s).get_by_id(asset_id)
         if not a:
@@ -105,7 +103,6 @@ async def get_asset(asset_id: str, _user: CurrentUser, _t: Translator):
 
 @router.post("")
 async def create_asset(
-    _user: CurrentUser,
     _t: Translator,
     type: str = Form(...),
     name: str = Form(...),
@@ -164,7 +161,6 @@ class UpdateAssetRequest(BaseModel):
 async def update_asset(
     asset_id: str,
     req: UpdateAssetRequest,
-    _user: CurrentUser,
     _t: Translator,
 ):
     patch = {k: v for k, v in req.model_dump().items() if v is not None}
@@ -189,7 +185,7 @@ async def update_asset(
 
 
 @router.delete("/{asset_id}", status_code=204)
-async def delete_asset(asset_id: str, _user: CurrentUser, _t: Translator):
+async def delete_asset(asset_id: str, _t: Translator):
     async with async_session_factory() as s:
         repo = AssetRepository(s)
         a = await repo.get_by_id(asset_id)
@@ -206,7 +202,6 @@ async def delete_asset(asset_id: str, _user: CurrentUser, _t: Translator):
 @router.post("/{asset_id}/image")
 async def replace_image(
     asset_id: str,
-    _user: CurrentUser,
     _t: Translator,
     image: UploadFile = File(...),
 ):
@@ -251,7 +246,6 @@ class FromProjectRequest(BaseModel):
 @router.post("/from-project")
 async def from_project(
     req: FromProjectRequest,
-    _user: CurrentUser,
     _t: Translator,
 ):
     # 1) 类型合法性
@@ -433,7 +427,6 @@ class ApplyToProjectRequest(BaseModel):
 @router.post("/apply-to-project")
 async def apply_to_project(
     req: ApplyToProjectRequest,
-    _user: CurrentUser,
     _t: Translator,
 ):
     # 1) 校验冲突策略（400 先于其它检查）

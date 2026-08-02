@@ -18,6 +18,7 @@ from server.agent_runtime.models import LiveMessage, SubscriptionReady
 from server.agent_runtime.service import AssistantService
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.routers import assistant
+from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.conftest import make_translator
 from tests.factories import make_session_meta
 
@@ -296,7 +297,10 @@ def _build_client(monkeypatch, fake_service) -> TestClient:
     app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
     app.dependency_overrides[get_current_user_flexible] = lambda: _FAKE_USER
     app.dependency_overrides[get_translator] = lambda: make_translator()
-    app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant")
+    app.include_router(
+        assistant.router, prefix="/api/v1/projects/{project_name}/assistant", dependencies=AUTH_DEPENDENCIES
+    )
+    app.include_router(assistant.self_auth_router, prefix="/api/v1/projects/{project_name}/assistant")
     return TestClient(app)
 
 

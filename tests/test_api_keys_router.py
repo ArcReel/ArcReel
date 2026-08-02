@@ -11,12 +11,13 @@ from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import api_keys
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 def _make_client() -> TestClient:
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(api_keys.router, prefix="/api/v1")
+    app.include_router(api_keys.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app)
 
 

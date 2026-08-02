@@ -16,7 +16,6 @@ from server.agent_runtime.models import Heartbeat, LiveMessage
 from server.agent_runtime.result_status import resolve_result_status
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_manager import AgentStartupError, SessionBusyError, SessionCapacityError
-from server.auth import CurrentUser
 from server.routers.assistant import agent_startup_failure_detail, get_assistant_service
 
 logger = logging.getLogger(__name__)
@@ -152,7 +151,6 @@ def _extract_reply_from_entries(entries: list[dict], after_seq: int) -> str:
 async def agent_chat(
     body: AgentChatRequest,
     request: Request,
-    _user: CurrentUser,
     _t: Translator,
 ) -> AgentChatResponse:
     """同步 Agent 对话端点。

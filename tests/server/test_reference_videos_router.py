@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 @pytest.fixture
@@ -65,7 +66,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     app = FastAPI()
     register_error_handlers(app)
-    app.include_router(router_mod.router, prefix="/api/v1")
+    app.include_router(router_mod.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="test", role="admin")
     return TestClient(app)
 

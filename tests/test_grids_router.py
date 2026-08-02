@@ -16,6 +16,7 @@ from lib.grid_manager import GridManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import grids
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 def _narration_script():
@@ -66,7 +67,7 @@ def _client(monkeypatch, **patches):
         monkeypatch.setattr(grids, name, fn)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(grids.router, prefix="/api/v1")
+    app.include_router(grids.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(app)
     # app 级 Exception handler 已把未预期异常收口为 500；关闭 TestClient 的默认重抛，
     # 以便断言收口后的响应体（而非让异常穿透到测试栈）。

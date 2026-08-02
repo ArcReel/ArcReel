@@ -59,7 +59,8 @@ def _client(monkeypatch, tmp_path):
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(files.router, prefix="/api/v1")
+    app.include_router(files.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    app.include_router(files.public_router, prefix="/api/v1")
     return TestClient(app), pm
 
 
@@ -987,6 +988,8 @@ class TestFilesRouter:
 
 import io  # noqa: E402
 
+from tests.auth_deps import AUTH_DEPENDENCIES
+
 
 def _upload_source(client, project_name: str, filename: str, content: bytes, on_conflict: str | None = None):
     url = f"/api/v1/projects/{project_name}/upload/source"
@@ -1133,7 +1136,8 @@ def _client_with_pm_raising(monkeypatch, sentinel: str):
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(files.router, prefix="/api/v1")
+    app.include_router(files.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    app.include_router(files.public_router, prefix="/api/v1")
     return TestClient(app)
 
 

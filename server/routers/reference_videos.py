@@ -229,7 +229,7 @@ def _build_unit_dict(
 
 
 @router.get("/episodes/{episode}/units")
-async def list_units(project_name: str, episode: int, _user: CurrentUser, _t: Translator) -> dict[str, Any]:
+async def list_units(project_name: str, episode: int, _t: Translator) -> dict[str, Any]:
     project, script, _sf = _load_episode_script(project_name, episode, _t)
     # ad 的 unit 是 shots 的派生索引（reference_units），未派生时为空列表；
     # 前端用 shot_ids 对照本地剧本水合展示，索引不复制镜头内容
@@ -242,7 +242,6 @@ async def list_units(project_name: str, episode: int, _user: CurrentUser, _t: Tr
 async def derive_units(
     project_name: str,
     episode: int,
-    _user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     """（重新）派生 ad 项目的 video_unit 分组索引并持久化（仅 ad 开放）。
@@ -265,7 +264,6 @@ async def add_unit(
     project_name: str,
     episode: int,
     req: AddUnitRequest,
-    _user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     refs = [r.model_dump() for r in req.references]
@@ -332,7 +330,6 @@ async def patch_unit(
     episode: int,
     unit_id: str,
     req: PatchUnitRequest,
-    _user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     # references 存在性校验在解析器内、项目锁内进行，失败 raise 400
@@ -366,7 +363,6 @@ async def delete_unit(
     project_name: str,
     episode: int,
     unit_id: str,
-    _user: CurrentUser,
     _t: Translator,
 ) -> Response:
     with _locked_episode_script(project_name, _episode_script_resolver(episode, _t, require_ad=False), _t) as script:
@@ -388,7 +384,6 @@ async def reorder_units(
     project_name: str,
     episode: int,
     req: ReorderRequest,
-    _user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     with _locked_episode_script(project_name, _episode_script_resolver(episode, _t, require_ad=False), _t) as script:
@@ -416,7 +411,6 @@ async def precheck_unit_duration(
     project_name: str,
     episode: int,
     unit_id: str,
-    _user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     """入队前的时长取档预检：申请秒数与剧本编排不一致时前端需先向用户确认。
@@ -450,7 +444,6 @@ async def preview_script(
     project_name: str,
     episode: int,
     req: ScriptPreviewRequest,
-    _user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     """分镜文稿的读时派生预览：shots / references / utterances + 降级可见性 warning。
@@ -494,7 +487,7 @@ async def generate_unit(
     project_name: str,
     episode: int,
     unit_id: str,
-    _user: CurrentUser,
+    user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     project, script, script_file = _load_episode_script(project_name, episode, _t)
@@ -539,7 +532,7 @@ async def generate_unit(
         payload=spec.payload,
         script_file=spec.script_file,
         source="webui",
-        user_id=_user.id,
+        user_id=user.id,
     )
     return {"task_id": result["task_id"], "deduped": result.get("deduped", False)}
 
@@ -549,7 +542,6 @@ async def upload_unit_video(
     project_name: str,
     episode: int,
     unit_id: str,
-    _user: CurrentUser,
     _t: Translator,
     file: UploadFile = File(...),
 ) -> dict[str, Any]:

@@ -24,6 +24,7 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import custom_providers
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 # 系统判定 last_frame=False、max_reference_images=1 —— 覆盖前后差异可断言
 VIDEO_ENDPOINT = "openai-video"
@@ -62,7 +63,7 @@ def app(session_factory) -> FastAPI:
 
     _app.dependency_overrides[get_async_session] = _override_session
     _app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
-    _app.include_router(custom_providers.router, prefix="/api/v1")
+    _app.include_router(custom_providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(_app)
     return _app
 
@@ -974,7 +975,7 @@ class TestVideoCapabilitiesEndpoint:
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="t", sub="t", role="admin")
-        app.include_router(projects_mod.router, prefix="/api/v1")
+        app.include_router(projects_mod.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
         return TestClient(app)
 
