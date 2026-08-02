@@ -308,22 +308,7 @@ class ScriptGenerator:
         # _add_metadata，按落地后的最终 references 逐 unit 重算。
         reference_unit_durations = None
         if step1_units is not None:
-            # 必然失败的已确认时长在付费调用之前拦下：step1 加载用的是未收窄的档位全集，
-            # 联动约束收窄后它可能已出局。放到 _add_metadata 才拦，TextBackend 的费用已经产生。
-            for unit in step1_units:
-                off_tiers = self._unit_duration_off_every_tier(unit["duration_seconds"], caps=caps, gen_mode=gen_mode)
-                if off_tiers is not None:
-                    raise ValueError(
-                        f"unit {unit['unit_id']} 已确认时长 {unit['duration_seconds']}s 不在当前生效档位 "
-                        f"{sorted(set(off_tiers))} 内；通常是模型或分辨率配置变化让档位收窄导致，"
-                        "请调整配置回原档位，或重新拆分该集 step1 并重新审阅确认"
-                    )
-            # step2 的产出是 step1 正文逐字保留 + 画面展开，step1 正文里的语法违约必然原样
-            # 复现在 step2 产出上。编辑器侧保存只做结构校验、语法问题仅出 warning（人写的文本
-            # 有作者意图要保护），因此手工编辑过的 step1 可能带着未登记的 @[名称] 或描述行里的
-            # 花括号进到这里——不在调用前判，就会付完 step2 的钱才失败，且错误指向 step2「改坏了」，
-            # 而真正要改的是 step1。故在此按同一把尺预判 step1 正文，违约时指名 step1。
-            self._assert_reference_step1_text_valid(step1_units, max_refs=self._resolve_max_refs(caps))
+            self._assert_reference_step1_ready(step1_units, caps=caps, gen_mode=gen_mode)
             reference_unit_durations = {
                 str(_rewrite_episode_prefix(u["unit_id"], episode)): u["duration_seconds"] for u in step1_units
             }
@@ -1005,6 +990,29 @@ class ScriptGenerator:
             raise ValueError(f"Step 1 内容文件 scene_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
         return data
 
+    def _assert_reference_step1_ready(self, step1_units: list[dict], *, caps: dict | None, gen_mode: str) -> None:
+        """step2 落盘前对 step1 现值的全部预判：时长档位仍生效 + 正文按机器口径合法。
+
+        产出路径（付费调用前）与晋升路径（隔离草稿重判前）共用这一份：晋升期间用户可能在 Web
+        端改过 step1，两处口径若分叉，就会出现「晋升放行、下次生成被拒」或反过来的死角。
+        """
+        for unit in step1_units:
+            # 必然失败的已确认时长在付费调用之前拦下：step1 加载用的是未收窄的档位全集，
+            # 联动约束收窄后它可能已出局。放到 _add_metadata 才拦，TextBackend 的费用已经产生。
+            off_tiers = self._unit_duration_off_every_tier(unit["duration_seconds"], caps=caps, gen_mode=gen_mode)
+            if off_tiers is not None:
+                raise ValueError(
+                    f"unit {unit['unit_id']} 已确认时长 {unit['duration_seconds']}s 不在当前生效档位 "
+                    f"{sorted(set(off_tiers))} 内；通常是模型或分辨率配置变化让档位收窄导致，"
+                    "请调整配置回原档位，或重新拆分该集 step1 并重新审阅确认"
+                )
+        # step2 的产出是 step1 正文逐字保留 + 画面展开，step1 正文里的语法违约必然原样复现在
+        # step2 产出上。编辑器侧保存只做结构校验、语法问题仅出 warning（人写的文本有作者意图
+        # 要保护），因此手工编辑过的 step1 可能带着未登记的 @[名称] 或描述行里的花括号进到这里
+        # ——不在调用前判，就会付完 step2 的钱才失败，且错误指向 step2「改坏了」，而真正要改的
+        # 是 step1。故在此按同一把尺预判 step1 正文，违约时指名 step1。
+        self._assert_reference_step1_text_valid(step1_units, max_refs=self._resolve_max_refs(caps))
+
     def _assert_reference_step1_text_valid(self, step1_units: list[dict], *, max_refs: int | None) -> None:
         """按机器产物的严格口径预判 step1 各 unit 正文，违约时把定位与出路指回 step1。
 
@@ -1172,6 +1180,9 @@ class ScriptGenerator:
 
         caps = await self._fetch_video_capabilities()
         step1_units = self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
+        # 与产出路径同一份 step1 预判：隔离期间 Web 端可能改过 step1（编辑器对人写正文只出
+        # warning），不复判就会让改短时长后念不完的台词、或未登记的 @[名称] 借晋升一路落盘。
+        self._assert_reference_step1_ready(step1_units, caps=caps, gen_mode="reference_video")
         max_refs = self._resolve_max_refs(caps)
         try:
             script_data = self._merge_reference_visual(
@@ -1185,6 +1196,24 @@ class ScriptGenerator:
                     QUARANTINE_KIND_STEP2,
                     content=draft.content,
                     violations=violation_items(exc),
+                ),
+                code="quarantined",
+            ) from exc
+        except ValueError as exc:
+            # schema 层（DraftViolation 是 ValueError 子类，故须排在前）同样只回报告：这条路上
+            # 内容是 agent 手写的，没有 backend 可重试，与 step1 晋升的 schema_invalid 同口径。
+            raise DraftViolation(
+                quarantine_and_report(
+                    self.project_path,
+                    episode,
+                    QUARANTINE_KIND_STEP2,
+                    content=draft.content,
+                    violations=[
+                        DraftViolation(
+                            f"隔离草稿的 content 不符合 step2 产出结构：{exc}",
+                            code="schema_invalid",
+                        )
+                    ],
                 ),
                 code="quarantined",
             ) from exc

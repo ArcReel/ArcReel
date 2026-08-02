@@ -90,6 +90,17 @@ class TestEnvelope:
         path.write_text(json.dumps({"kind": QUARANTINE_KIND_STEP1, "content": []}), encoding="utf-8")
         assert read_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1) is None
 
+    def test_envelope_with_non_numeric_episode_reads_as_none(self, tmp_path: Path):
+        """episode 被手改成非数字与 content 形状坏同口径：返回 None 而非抛出，exists 仍为真。"""
+        path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1)
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            json.dumps({"kind": QUARANTINE_KIND_STEP1, "episode": "一", "content": {"units": []}}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        assert read_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1) is None
+        assert quarantine_exists(tmp_path, 1, QUARANTINE_KIND_STEP1) is True
+
     def test_clear_is_idempotent(self, tmp_path: Path):
         write_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1, content={"units": []}, violations=[])
         clear_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1)

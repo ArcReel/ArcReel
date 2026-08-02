@@ -204,6 +204,22 @@ def get_video_capabilities_tool(ctx: ToolContext):
 # ---------------------------------------------------------------------------
 
 
+def _is_reference_video_episode(project_data: dict[str, Any], episode: int) -> bool:
+    """本集当前是否走参考生视频路径——隔离草稿只在这条路径上有意义。"""
+    if project_data.get("content_mode", "narration") == "ad":
+        return False
+    return _effective_generation_mode(project_data, episode) == "reference_video"
+
+
+def _effective_generation_mode(project_data: dict[str, Any], episode: int) -> str:
+    """按 episode → project 回退解析本集生效的 generation_mode。"""
+    episode_dict = next(
+        (ep for ep in (project_data.get("episodes") or []) if ep.get("episode") == episode),
+        {},
+    )
+    return effective_mode(project=project_data, episode=episode_dict)
+
+
 def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str, Any]) -> tuple[Path, str] | None:
     """Return (step1_md path, hint text for missing-file error)；ad 一键生成不依赖 step1，返回 None。"""
     content_mode = project_data.get("content_mode", "narration")
@@ -211,11 +227,7 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
         # ad 创作输入是 project.json 的 brief + 产品信息 + target_duration，
         # ScriptGenerator 的 ad 分支不读 drafts/ 中间文件。
         return None
-    episode_dict = next(
-        (ep for ep in (project_data.get("episodes") or []) if ep.get("episode") == episode),
-        {},
-    )
-    generation_mode = effective_mode(project=project_data, episode=episode_dict)
+    generation_mode = _effective_generation_mode(project_data, episode)
     drafts_path = episode_drafts_dir(project_path, episode)
     if generation_mode == "reference_video":
         # reference_video 生成需结构化 step1 JSON；仅存旧版 .md 时给出与
@@ -267,6 +279,28 @@ def generate_episode_script_tool(ctx: ToolContext):
             except (OSError, json.JSONDecodeError):
                 project_data = {}
 
+            # 隔离草稿在场先于「缺 step1」与审核 gate 报出。三者都判「未放行」，但出路各不相同：
+            # 首次拆分就违约时正式 step1 本就不存在，先报缺文件会把 agent 引回重跑拆分——正是本
+            # 机制要避免的「丢弃重抽」；gate 阻塞则要用户去 Web 端确认，agent 自己解决不了。
+            # 只在本集实际走参考路径时判：generation_mode 可改，切走之后这些残留草稿与新路径无关，
+            # 而非参考路径的写入方不会清它们，无条件判会把该集永久卡死。
+            if _is_reference_video_episode(project_data, episode):
+                for kind in (QUARANTINE_KIND_STEP1, QUARANTINE_KIND_STEP2):
+                    if quarantine_exists(project_path, episode, kind):
+                        path = quarantine_path(project_path, episode, kind)
+                        return {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        f"⏸️ 本集有违约产物待处置（{path}），step2 视觉生成已中止。"
+                                        f"请按草稿内 violations 的定位修正 content，再调用 {PROMOTE_TOOL_NAME} 晋升。"
+                                    ),
+                                }
+                            ],
+                            "is_error": True,
+                        }
+
             step1 = _resolve_step1_path(project_path, episode, project_data)
             if step1 is not None:
                 step1_path, hint = step1
@@ -284,25 +318,6 @@ def generate_episode_script_tool(ctx: ToolContext):
                 return {
                     "content": [{"type": "text", "text": f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}"}]
                 }
-
-            # 隔离草稿在场先于审核 gate 报出：两者都判「未放行」，但出路完全不同——隔离态要
-            # agent 改草稿再晋升，而 gate 阻塞要用户去 Web 端确认。共用一条消息会把 agent 引到
-            # 一个它自己解决不了的动作上。
-            for kind in (QUARANTINE_KIND_STEP1, QUARANTINE_KIND_STEP2):
-                if quarantine_exists(project_path, episode, kind):
-                    path = quarantine_path(project_path, episode, kind)
-                    return {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": (
-                                    f"⏸️ 本集有违约产物待处置（{path}），step2 视觉生成已中止。"
-                                    f"请按草稿内 violations 的定位修正 content，再调用 {PROMOTE_TOOL_NAME} 晋升。"
-                                ),
-                            }
-                        ],
-                        "is_error": True,
-                    }
 
             # step1→step2 审核 gate：drama / narration / reference_video 的结构化 step1 中间态须经
             # web 显式确认才放行 step2 视觉生成；未确认（或确认后内容又被改）时阻塞，引导用户先在
@@ -1035,7 +1050,9 @@ def validate_and_promote_reference_draft_tool(ctx: ToolContext):
                 )
 
             if quarantine_exists(project_path, episode, QUARANTINE_KIND_STEP2):
-                generator = ScriptGenerator(project_path)
+                # 用异步工厂而非裸构造：晋升同样经 _add_metadata 落盘，裸构造会把
+                # metadata.generator 记成 "unknown"，与直接生成路径的同一份产物对不上。
+                generator = await ScriptGenerator.create(project_path)
                 result_path = await generator.promote_reference_step2_draft(episode)
                 return {"content": [{"type": "text", "text": f"✅ step2 视觉展开已校验通过并晋升: {result_path}"}]}
 

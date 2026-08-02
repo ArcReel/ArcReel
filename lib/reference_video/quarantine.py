@@ -114,9 +114,14 @@ def read_quarantine(project_path: Path, episode: int, kind: str) -> QuarantinedD
     raw_violations = data.get("violations")
     violations = [v for v in raw_violations if isinstance(v, dict)] if isinstance(raw_violations, list) else []
     raw_meta = data.get("meta")
+    try:
+        parsed_episode = int(data.get("episode") or episode)
+    except (TypeError, ValueError):
+        # episode 被改成非数字同属「信封形状坏」，与上面 content / violations 的降级同口径。
+        return None
     return QuarantinedDraft(
         kind=str(data.get("kind") or kind),
-        episode=int(data.get("episode") or episode),
+        episode=parsed_episode,
         content=content,
         violations=violations,
         meta=raw_meta if isinstance(raw_meta, dict) else {},

@@ -963,6 +963,61 @@ async def test_promote_step2_draft_reports_again_without_round_limit(reference_p
 
 @pytest.mark.asyncio
 @pytest.mark.integration
+async def test_promote_step2_draft_rejects_schema_breach_with_report(reference_project: Path):
+    """草稿的 content 被改坏 schema 层同样只回报告：与 step1 晋升同口径，正式剧本不被污染。
+
+    这条路上没有 backend 可重试（content 是 agent 手写的），走 ValueError 直抛的话草稿里的
+    violations 快照不会刷新，agent 只能从工具文本里看到一段 pydantic 报错。
+    """
+    gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(BAD_STEP2_UNIT_TEXT))
+    with pytest.raises(DraftViolation):
+        await gen.generate(episode=1)
+
+    path = _step2_quarantine(reference_project)
+    envelope = _json.loads(path.read_text(encoding="utf-8"))
+    envelope["content"]["units"][0].pop("text")
+    path.write_text(_json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(DraftViolation, match="schema_invalid"):
+        await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
+
+    assert path.exists()
+    assert not _script_path(reference_project).exists()
+    refreshed = _json.loads(path.read_text(encoding="utf-8"))
+    assert [v["code"] for v in refreshed["violations"]] == ["schema_invalid"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_promote_step2_draft_revalidates_edited_step1(reference_project: Path):
+    """晋升前按产出路径同一份预判重判 step1 现值：隔离期间 Web 端改坏 step1 不能借晋升落盘。
+
+    编辑器对人写正文只出 warning，改出未登记的 @[名称] 能存下去；而保结构 diff 只比对 step2
+    正文与 step1 的镜头/台词结构，不复判 step1 自身的正文合法性。
+    """
+    gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(BAD_STEP2_UNIT_TEXT))
+    with pytest.raises(DraftViolation):
+        await gen.generate(episode=1)
+
+    path = _step2_quarantine(reference_project)
+    envelope = _json.loads(path.read_text(encoding="utf-8"))
+    envelope["content"]["units"][0]["text"] = STEP2_UNIT_TEXT
+    path.write_text(_json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    step1 = reference_project / "drafts" / "episode_1" / "step1_reference_units.json"
+    step1_data = _json.loads(step1.read_text(encoding="utf-8"))
+    step1_data["units"][0]["shots"] = [{"text": "@[路人甲] 推开 @[酒馆] 的门"}]
+    step1.write_text(_json.dumps(step1_data, ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(DraftViolation, match="step1"):
+        await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
+
+    assert path.exists()
+    assert not _script_path(reference_project).exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
 async def test_promote_step2_draft_without_draft(reference_project: Path):
     with pytest.raises(FileNotFoundError, match="没有可晋升的 step2 隔离草稿"):
         await ScriptGenerator(reference_project).promote_reference_step2_draft(episode=1)
