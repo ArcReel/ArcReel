@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.error_handlers import register_error_handlers
 from server.routers import tasks as tasks_router
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 class _FakeQueue:
@@ -22,7 +23,7 @@ class TestTasksRouterMore:
         app.dependency_overrides[get_current_user_flexible] = lambda: CurrentUserInfo(
             id="default", sub="testuser", role="admin"
         )
-        app.include_router(tasks_router.router, prefix="/api/v1")
+        app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
 
         with TestClient(app) as client:
@@ -58,7 +59,7 @@ class TestTaskErrorLocalization:
         app.dependency_overrides[get_current_user_flexible] = lambda: CurrentUserInfo(
             id="default", sub="testuser", role="admin"
         )
-        app.include_router(tasks_router.router, prefix="/api/v1")
+        app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         return TestClient(app)
 
     def test_list_tasks_renders_known_code_per_locale(self, monkeypatch):

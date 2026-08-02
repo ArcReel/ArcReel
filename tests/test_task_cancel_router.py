@@ -14,6 +14,7 @@ from lib.i18n import MESSAGES
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import tasks as tasks_router
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 # ---------------------------------------------------------------------------
 # Fake queue helpers
@@ -70,7 +71,7 @@ def _make_app() -> FastAPI:
     """构建用于测试的最小 FastAPI 应用，注入假用户。"""
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(tasks_router.router, prefix="/api/v1")
+    app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(app)
     return app
 

@@ -8,6 +8,7 @@ from lib.i18n import _ as i18n_message
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 class _FakeQueue:
@@ -122,7 +123,7 @@ def _client(monkeypatch, fake_pm, fake_queue):
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(generate.router, prefix="/api/v1")
+    app.include_router(generate.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     # raise_server_exceptions=False：500 由 app 级 Exception handler 生成响应后
     # Starlette 会 re-raise，默认配置会把它抛进测试而非返回响应
     return TestClient(app, raise_server_exceptions=False)
@@ -575,7 +576,7 @@ class TestUnexpectedErrorMapsTo500:
         app = FastAPI()
         register_error_handlers(app)
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(generate.router, prefix="/api/v1")
+        app.include_router(generate.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         return TestClient(app, raise_server_exceptions=False)
 
     def test_storyboard_unexpected_error_maps_to_500(self, monkeypatch):

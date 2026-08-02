@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import scenes
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 class _FakePM:
@@ -44,7 +45,7 @@ def _client(monkeypatch, fake_pm):
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(scenes.router, prefix="/api/v1")
+    app.include_router(scenes.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app)
 
 
@@ -110,8 +111,8 @@ class TestScenesRouterDoesNotCollideWithProjects:
         register_error_handlers(app)
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         # 与 server/app.py 同序：projects 先 include
-        app.include_router(projects_router.router, prefix="/api/v1")
-        app.include_router(scenes.router, prefix="/api/v1")
+        app.include_router(projects_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        app.include_router(scenes.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 
         with TestClient(app) as client:
             resp = client.patch(

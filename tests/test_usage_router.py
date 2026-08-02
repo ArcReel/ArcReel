@@ -7,6 +7,7 @@ from lib.db.base import Base
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import usage
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 @pytest.fixture
@@ -31,7 +32,7 @@ async def _usage_env(monkeypatch):
 
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(usage.router, prefix="/api/v1")
+    app.include_router(usage.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 
     yield TestClient(app)
     await engine.dispose()

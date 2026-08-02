@@ -20,6 +20,7 @@ from lib.db.base import Base
 from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
 from server.routers import system_config as system_config_router
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -59,7 +60,7 @@ def _make_app_with_mock(mock_svc: ConfigService) -> FastAPI:
             yield session
 
     app.dependency_overrides[get_async_session] = _override_session
-    app.include_router(system_config_router.router, prefix="/api/v1")
+    app.include_router(system_config_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app
 
 
@@ -304,7 +305,7 @@ class TestPatchSystemConfig:
             yield mock_session
 
         app.dependency_overrides[get_async_session] = _override_session
-        app.include_router(system_config_router.router, prefix="/api/v1")
+        app.include_router(system_config_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         return app
 
     def test_patch_returns_200(self):

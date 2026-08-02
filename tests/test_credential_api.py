@@ -12,6 +12,7 @@ from lib.db import get_async_session
 from lib.db.models.credential import ProviderCredential
 from lib.db.repositories.credential_repository import CredentialRepository
 from server.routers import providers
+from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 
 
 def _make_app() -> tuple[FastAPI, MagicMock]:
@@ -23,7 +24,8 @@ def _make_app() -> tuple[FastAPI, MagicMock]:
         yield mock_session
 
     app.dependency_overrides[get_async_session] = _override
-    app.include_router(providers.router, prefix="/api/v1")
+    override_auth(app)
+    app.include_router(providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app, mock_session
 
 
