@@ -128,31 +128,41 @@ def match_dialogue_line(line: str) -> tuple[str, str] | None:
     return speaker, spoken
 
 
-def has_speaker_colon_prefix(line: str) -> bool:
-    """行首是否为 ``@[名称]：`` 形态（只看说话人位与冒号，不判花括号）。
+def leading_mention_before_colon(line: str) -> str | None:
+    """行首为 ``@[名称]：`` 形态时返回该名称，否则返回 ``None``（只看名称与冒号，不判花括号）。
 
     ``match_dialogue_line`` 是「整行合规才算台词」的严判，两者之差即「本想写台词但写坏了」：
     漏花括号、花括号不整体包裹、说话人位空白。机器产物校验据此把这类行判违约，而不是让它
-    以画面描述的身份放行（说话人会被派生成参考图、台词则整句消失）。
+    以画面描述的身份放行（说话人会被派生成参考图、台词则整句消失）。返回名称而不是布尔，
+    是因为这一形态还要看名称是不是角色——场景 / 道具做小标题（``@[酒馆]：木门被风吹开``）
+    是合法的画面描述写法，不能与漏花括号的台词混为一谈。
     """
     stripped = _strip_bom(line).strip()
     if not stripped.startswith("@"):
-        return False
+        return None
     first = next(_iter_mentions(stripped), None)
     if first is None or first[0] != 0:
-        return False
+        return None
     rest = stripped[first[1] :].lstrip()
-    return bool(rest) and rest[0] in "：:"
+    if not rest or rest[0] not in "：:":
+        return None
+    return first[2]
 
 
 def find_malformed_mention(line: str) -> str | None:
     """返回行内首个写坏的 ``@[`` 引用片段（如 ``@[李明`` / ``@[]``）；没有则返回 ``None``。
 
     ``_iter_mentions`` 对这类 token 静默不产出 mention，正文里的坏 token 因此既不进
-    references，又会被 ``render_prompt_for_backend`` 原样带进供应商请求（它只替换认得的
+    references，又会被 ``render_mentions_as_subjects`` 原样带进供应商请求（它只替换认得的
     mention、从不删字）。左侧是 ASCII 词字符时按邮箱 / id 片段跳过，与 ``_iter_mentions`` 同口径。
+
+    全角形（``＠[李明]`` / ``@［李明］``）一并算坏 token：中文输入法下模型很容易写出，而语法只认
+    半角，静默放行的后果同样是那张参考图从视频请求里消失。
     """
     text = _strip_bom(line)
+    for index, char in enumerate(text):
+        if char == "＠" or (char == "@" and text[index + 1 : index + 2] == "［"):
+            return text[index : index + 20]
     starts = {start for start, _end, _name in _iter_mentions(text)}
     for index in range(len(text) - 1):
         if text[index] != "@" or text[index + 1] != "[" or index in starts:
@@ -344,7 +354,7 @@ def assemble_shots_text_for_render(shots: list[Any]) -> str:
         text = s.get("text")
         text = text if isinstance(text, str) else ""
         lines = text.split("\n") if text else [""]
-        lines[0] = _strip_shot_header(lines[0])
+        lines[0] = strip_shot_header(lines[0])
         parts.append(f"镜头{i}：" + "\n".join(lines))
     return "\n".join(parts)
 

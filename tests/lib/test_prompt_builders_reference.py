@@ -9,6 +9,8 @@ from lib.prompt_builders_reference import (
 )
 from lib.reference_video.writing_syntax import WRITING_SYNTAX_SPEC
 
+pytestmark = pytest.mark.unit
+
 
 def _step2_prompt(**overrides) -> str:
     kwargs = dict(

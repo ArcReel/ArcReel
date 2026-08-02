@@ -111,6 +111,18 @@ class TestUnitText:
         with pytest.raises(DraftViolation, match="台词行写法不合法"):
             validate_unit_text("unit E1U01", "镜头1：门开了\n@[李明]：{我来了}，然后转身", PROJECT, max_refs=None)
 
+    def test_non_character_mention_with_colon_is_a_description(self):
+        """场景 / 道具做小标题是合法的画面描述写法，不能按「@[名称]：」形态一概判成写坏的台词。"""
+        _shots, refs = validate_unit_text(
+            "unit E1U01", "镜头1：@[酒馆]：木门被风吹开，灯笼摇晃", PROJECT, max_refs=None
+        )
+        assert [(r.type, r.name) for r in refs] == [("scene", "酒馆")]
+
+    def test_fullwidth_mention_delimiters_rejected(self):
+        """全角 `＠` / `［］` 不被 mention 语法识别：参考图会从视频请求里静默消失。"""
+        with pytest.raises(DraftViolation, match="写坏的资产引用"):
+            validate_unit_text("unit E1U01", "镜头1：@［李明］ 推开门", PROJECT, max_refs=None)
+
     def test_malformed_mention_rejected(self):
         """写坏的 `@[` 既不进 references，又会原样进入供应商请求（渲染只替换认得的 mention）。"""
         with pytest.raises(DraftViolation, match="写坏的资产引用"):

@@ -17,7 +17,7 @@ from typing import Any
 from lib.asset_types import BUCKET_KEY
 from lib.reference_video.shot_parser import (
     find_malformed_mention,
-    has_speaker_colon_prefix,
+    leading_mention_before_colon,
     match_dialogue_line,
     match_voiceover_line,
     parse_prompt,
@@ -87,7 +87,7 @@ def _content_lines(text: str) -> list[str]:
 _FULLWIDTH_BRACES = "｛｝"
 
 
-def _assert_line_syntax(label: str, text: str) -> None:
+def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> None:
     """逐行判书写层语法：花括号用法、写坏的 ``@[`` 引用、缺花括号的台词行。
 
     三类共性是「解析器不报错、但派生结果与作者意图相反」：台词降级成画面描述、说话人反被
@@ -108,7 +108,9 @@ def _assert_line_syntax(label: str, text: str) -> None:
                 "又会原样进入视频请求"
             )
         is_dialogue = match_dialogue_line(line) is not None
-        if not is_dialogue and has_speaker_colon_prefix(line):
+        # 只有登记角色 + 冒号才判成写坏的台词：场景 / 道具做小标题（``@[酒馆]：木门被风吹开``）
+        # 是合法的画面描述写法，按同一形态一概判违约会把正常的 step1 产出拒掉。
+        if not is_dialogue and (leading_mention_before_colon(line) or "") in characters:
             raise DraftViolation(
                 f"{label} 的台词行写法不合法：{line.strip()[:40]!r}；"
                 "台词须写成 `@[角色]：{台词}`——说话人非空、台词由半角花括号整体包裹，"
@@ -184,13 +186,14 @@ def validate_unit_text(
 
     覆盖四类阻断违约：正文为空 / 单镜头正文为空 / 镜头行数超上限、书写层语法误用（花括号、
     写坏的引用、缺花括号的台词行）、``@[名称]`` 未登记（含台词行的说话人位）、references
-    超模型上限。派生结果即落盘值——校验与派生同一次
-    遍历，杜绝「校验看到的文本」与「落盘的 references」出自两套解析。
+    超模型上限。派生结果即落盘值——校验与派生同一次遍历，杜绝「校验看到的文本」与「落盘的
+    references」出自两套解析。
     """
     if not text.strip():
         raise DraftViolation(f"{label} 的正文为空")
 
-    _assert_line_syntax(label, text)
+    characters = project.get(BUCKET_KEY["character"]) or {}
+    _assert_line_syntax(label, text, characters)
 
     shots, mentions = parse_prompt(text)
     # 镜头缺画面描述（``镜头1：`` 后无正文，或该镜头只有台词行 / 画外音行）：整段非空时上面的
@@ -212,7 +215,6 @@ def validate_unit_text(
     if missing:
         raise DraftViolation(f"{label} 引用了未登记的资产名: {missing}；资产名必须逐字取自 project.json 三张表")
 
-    characters = project.get(BUCKET_KEY["character"]) or {}
     bad_speakers = sorted({s for s in dialogue_speakers(text) if s not in characters})
     if bad_speakers:
         raise DraftViolation(
