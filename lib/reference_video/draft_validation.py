@@ -37,6 +37,11 @@ class DraftViolation(ValueError):
     """书写层产出违约。消息含 unit 定位与违约类，供工具错误信封原样回传给 agent。"""
 
 
+def _nfc(text: str) -> str:
+    """Unicode NFC 归一：与 ``lib.episode_ledger.normalize_source_text`` 定义的源文坐标系一致。"""
+    return unicodedata.normalize("NFC", text)
+
+
 def _normalize_for_anchor(text: str) -> str:
     """Unicode NFC 归一后把连续空白折叠为单个空格，只消除编码与空白差异，不删除空白本身。
 
@@ -74,9 +79,20 @@ def _content_lines(text: str) -> list[str]:
     return [strip_shot_header(line) for line in text.splitlines()]
 
 
+#: 全角花括号。语法只认半角，但中文输入法下模型很容易写出全角形；行里出现全角花括号时
+#: ``match_dialogue_line`` 不匹配，该行会被当成画面描述放行——台词静默降级成描述、说话人
+#: 反而被派生成参考图。故在语法判定处显式识别并拒绝，不静默、也不代模型改写。
+_FULLWIDTH_BRACES = "｛｝"
+
+
 def _assert_brace_syntax(label: str, text: str) -> None:
     """逐行判花括号用法：只允许整行包裹的台词行 / 画外音行，其余出现花括号即违约。"""
     for line in _content_lines(text):
+        if any(ch in line for ch in _FULLWIDTH_BRACES):
+            raise DraftViolation(
+                f"{label} 使用了全角花括号：{line.strip()[:40]!r}；"
+                "台词与画外音的花括号必须是半角 `{}`，全角形不会被识别为台词行"
+            )
         if "{" not in line and "}" not in line:
             continue
         if match_dialogue_line(line) is not None or match_voiceover_line(line) is not None:
@@ -109,16 +125,20 @@ def normative_lines(text: str) -> list[tuple[str, str, str]]:
     """按出现顺序取出全部规范发声行：``(kind, speaker, 台词)``，``kind`` 为 dialogue / voiceover。
 
     step2 的保结构 diff 以此为比对项：画面描述可自由展开，发声行必须逐字不变。
+
+    台词与说话人一律归一到 NFC 后返回：源文可能以 NFD 落盘而模型回写 NFC，两种形式肉眼
+    同字，逐字比对却不等；口播时长估算同样要求 NFC（按词计的语种下组合附加符会把一个词
+    拆成多个阅读单位）。归一放在这一处，两个消费方口径天然一致。
     """
     result: list[tuple[str, str, str]] = []
     for line in _content_lines(text):
         dialogue = match_dialogue_line(line)
         if dialogue is not None:
-            result.append(("dialogue", dialogue[0], dialogue[1]))
+            result.append(("dialogue", _nfc(dialogue[0]), _nfc(dialogue[1])))
             continue
         voiceover = match_voiceover_line(line)
         if voiceover is not None:
-            result.append(("voiceover", "", voiceover))
+            result.append(("voiceover", "", _nfc(voiceover)))
     return result
 
 
@@ -171,12 +191,10 @@ def validate_dialogue_load(label: str, text: str, duration_seconds: int, languag
     时长就是计费，unit 时长在 step1 定稿；台词写超了意味着成片必然吞词或抢拍，且这在
     step1 阶段是可改的（重拆 unit 或删台词），拖到生成后才发现只能重来。
     """
-    # 台词逐条先归一到 NFC 再估时长：``count_reading_units`` 的 en / vi 分支按 ``\b\w+\b``
-    # 数词，NFD 形式下组合附加符不算词字符，一个越南语词会被拆成数个单位（9 词的句子计成
-    # 16 个单位），估算随之虚高、把念得完的 unit 判成超载。
-    spoken = sum(
-        estimate_spoken_seconds(unicodedata.normalize("NFC", line[2]), language) for line in normative_lines(text)
-    )
+    # 台词取自 normative_lines，已归一到 NFC：``count_reading_units`` 的 en / vi 分支按
+    # ``\b\w+\b`` 数词，NFD 形式下组合附加符不算词字符，一个越南语词会被拆成数个单位
+    # （9 词的句子计成 16 个），估算随之虚高、把念得完的 unit 判成超载。
+    spoken = sum(estimate_spoken_seconds(line[2], language) for line in normative_lines(text))
     budget = duration_seconds * (1 + SPEECH_OVERFLOW_TOLERANCE)
     if spoken > budget:
         raise DraftViolation(

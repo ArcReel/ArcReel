@@ -97,6 +97,11 @@ class TestUnitText:
         with pytest.raises(DraftViolation, match="超过模型上限"):
             validate_unit_text("unit E1U01", "镜头1：@[李明] 与 @[王五] 在 @[酒馆]", PROJECT, max_refs=2)
 
+    def test_fullwidth_braces_rejected(self):
+        """全角花括号不被台词行语法识别，放行会让台词静默降级成描述、说话人反被派生成参考图。"""
+        with pytest.raises(DraftViolation, match="全角花括号"):
+            validate_unit_text("unit E1U01", "镜头1：门开了\n@[李明]：｛我来了。｝", PROJECT, max_refs=None)
+
     def test_dialogue_written_on_shot_header_line_is_normative(self):
         """写在 ``镜头N：`` 同一行的台词在切分后就是规范行，判定须在剥 header 之后。"""
         _shots, refs = validate_unit_text("unit E1U01", "镜头1：@[李明]：{我来了。}", PROJECT, max_refs=None)
@@ -152,6 +157,13 @@ class TestDialoguePreserved:
             self.STEP1,
             "镜头1：中景，平视。@[李明] 推开 @[酒馆] 的门，跨过门槛\n@[李明]：{我来了。}",
         )
+
+    def test_unicode_form_difference_not_a_rewrite(self):
+        """step1 存 NFD、step2 回写 NFC 是纯编码差异，不该把已付费的展开判成改词。"""
+        line = "Anh ấy mở cửa"
+        step1 = f"镜头1：@[李明] 推门\n@[李明]：{{{unicodedata.normalize('NFD', line)}}}"
+        step2 = f"镜头1：中景。@[李明] 推开木门\n@[李明]：{{{unicodedata.normalize('NFC', line)}}}"
+        assert_dialogue_preserved("unit E1U01", step1, step2)
 
     def test_rewritten_dialogue_rejected(self):
         with pytest.raises(DraftViolation, match="第 1 条台词被改写"):
