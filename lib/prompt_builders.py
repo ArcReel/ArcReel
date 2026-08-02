@@ -150,6 +150,11 @@ def append_product_fidelity_tail(prompt: str, product_names: Sequence[str] | Non
     指令指向"产品参考图"，参考缺席时追加只会误导模型。``product_names`` 为空
     （含 None 脏数据）返回原 prompt；重复调用幂等。误传单个字符串按单产品名处理
     （str 本身满足 Sequence[str]，按字符迭代会拼出逐字括注的畸形指令）。
+
+    显式声明优先于此前反向约束里的文字/Logo 禁止项（``_NEGATIVE_TAIL_*`` /
+    ``_WATERMARK_PACK`` 等通用反向提示词）——那些约束防的是画面里凭空多出的水印/Logo，
+    与「产品参考图本身自带的品牌标识须原样保留」并不矛盾，但两条指令的字面文本在同一
+    prompt 里共存时对模型是冲突信号，需要显式排出优先级。
     """
     if not product_names:
         return prompt
@@ -159,9 +164,10 @@ def append_product_fidelity_tail(prompt: str, product_names: Sequence[str] | Non
     if not names:
         return prompt
     tail = (
-        f"产品高保真还原（最高优先级）：画面中的产品{names}必须与产品参考图完全一致——"
-        f"{_PRODUCT_FIDELITY_CORE}，不得重新设计或美化产品本身；"
-        "项目画风只作用于产品以外的画面元素。"
+        f"产品高保真还原（最高优先级，优先于前述文字/Logo 禁止项）：画面中的产品{names}"
+        f"必须与产品参考图完全一致——{_PRODUCT_FIDELITY_CORE}，不得重新设计或美化产品本身；"
+        "前述文字/Logo 禁止项仅指画面中不得凭空新增文字或 Logo，产品参考图自带的文字与 Logo"
+        "须原样保留；项目画风只作用于产品以外的画面元素。"
     )
     if not prompt or not prompt.strip():
         return tail

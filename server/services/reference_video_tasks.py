@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Collection, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -18,17 +18,14 @@ from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import get_generation_queue
 from lib.path_safety import safe_exists
-from lib.prompt_builders import append_product_fidelity_tail, append_video_negative_tail
+from lib.prompt_builders import append_product_fidelity_tail
 from lib.reference_video import assemble_shots_text, assemble_shots_text_for_render
-from lib.reference_video.ad_units import (
-    render_ad_unit_prompt,
-    render_reference_legend,
-    resolve_ad_unit_shots,
-)
+from lib.reference_video.ad_units import resolve_ad_unit_shots
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.errors import MissingReferenceError
 from lib.reference_video.prompt_render import (
     RenderedUnitPrompt,
+    render_ad_backend_prompt,
     render_unit_prompt,
     resolve_reference_audio_paths,
 )
@@ -106,7 +103,7 @@ def _render_unit_prompt(
     """把 unit 的书写文稿渲染成三段论 backend prompt（见 ``lib.reference_video.prompt_render``）。
 
     画质/字幕/水印约束由渲染的第三段承担，本路径不追加反向尾词（``append_video_negative_tail``
-    只服务 ad 与图生视频路径）。
+    只服务图生视频路径；ad 参考直出路径同走三段论渲染，见 ``render_ad_backend_prompt``）。
 
     空提示词的*结构校验*已上移到入队守卫点（``TaskSpec.from_request``），两条入队路径
     （WebUI / SDK）在入队时即拒绝空提示词。此处保留一道防御性空检查，因为参考生视频的
@@ -375,7 +372,11 @@ def _resolve_ad_unit_reference_entries(
     产品沿用注入二元规则：经 ``collect_product_references_for_names`` 全量装配
     （sheet 在前、原图压阵）且排在所有其它参考之前；character/scene/prop 注入
     各自 sheet。条目形如 ``{"image": Path, "label": str, "name": str, "kind":
-    "sheet"|"original"|"asset"}``，label 供 [图N] 对照表渲染。
+    "sheet"|"original"|"asset"}``，label 供三段论第一段 ``<label>@图片N`` 主体绑定渲染
+    （见 ``lib.reference_video.prompt_render.render_ad_backend_prompt``）；
+    ``kind == "asset"`` 的条目另带 ``"asset_type": "character"|"scene"|"prop"``——
+    三类资产允许重名，只有类型能把「角色的设计图」与同名场景/道具的设计图分开，
+    参考音频的图号对齐依赖该区分（见 ``render_ad_backend_prompt``）。
     """
     warnings: list[dict] = []
     product_names: list[str] = []
@@ -411,6 +412,7 @@ def _resolve_ad_unit_reference_entries(
                     "label": f"{ASSET_SPECS[rtype].label_zh}「{rname}」设计图",
                     "name": rname,
                     "kind": "asset",
+                    "asset_type": rtype,
                 }
             )
         else:
@@ -444,21 +446,63 @@ def _clamp_ad_reference_entries(
     return clamped, [warning]
 
 
-def _render_ad_unit_prompt_for_backend(shots: list[dict], entries: list[dict], *, style: object) -> str:
-    """ad 派生 unit 的最终 backend prompt：镜头文本 + [图N] 对照表 + 保真/反向尾词。
+def _render_ad_unit_prompt_for_backend(
+    shots: list[dict],
+    entries: list[dict],
+    project: dict,
+    *,
+    voice_consistency: str,
+    max_reference_audio: int,
+    model_id: str,
+    audio_ready: Collection[str],
+    audio_requires_reference_image: bool,
+    style: object,
+) -> RenderedUnitPrompt:
+    """ad 派生 unit 的最终 backend prompt：三段论渲染（与 narration/drama 共用管线，见
+    ``lib.reference_video.prompt_render.render_ad_backend_prompt``）+ 产品高保真尾注。
 
-    对照表必须基于裁剪后的 ``entries`` 渲染（[图N] 与 backend 实收顺序对齐）；
-    高保真指令只点名实际注入了参考的产品。空提示词防御口径同
-    ``_render_unit_prompt``（提示词源是可变 script，执行期从新读取）。
+    反向约束全部由渲染的第三段承担，本路径不追加统一反向尾词；高保真指令是独立于三段论的
+    产品机制，只点名实际注入了参考的产品。空提示词防御口径同 ``_render_unit_prompt``
+    （提示词源是可变 script，执行期从新读取），由 ``render_ad_backend_prompt`` 内部承担。
     """
-    body = render_ad_unit_prompt(shots, style=style if isinstance(style, str) else None)
-    if not body.strip():
-        raise ValueError("reference video unit prompt is empty: all member shots have no visual content")
-    legend = render_reference_legend([str(e.get("label") or "") for e in entries])
-    prompt = f"{body}\n\n{legend}" if legend else body
+    rendered = render_ad_backend_prompt(
+        shots,
+        entries,
+        project,
+        voice_consistency=voice_consistency,
+        max_reference_audio=max_reference_audio,
+        model_id=model_id,
+        style=style if isinstance(style, str) else None,
+        audio_ready=audio_ready,
+        audio_requires_reference_image=audio_requires_reference_image,
+    )
     product_names = list(dict.fromkeys(e["name"] for e in entries if e.get("kind") in ("sheet", "original")))
-    prompt = append_product_fidelity_tail(prompt, product_names)
-    return append_video_negative_tail(prompt)
+    return replace(rendered, prompt=append_product_fidelity_tail(rendered.prompt, product_names))
+
+
+def _build_reference_audio_wiring(
+    rendered: RenderedUnitPrompt,
+    audio_paths: dict[str, Path],
+    *,
+    reference_audio_per_image: bool,
+) -> tuple[list[Path], list[int] | None]:
+    """把渲染产物的 ``audio_speakers``（+ 图号对齐下标）组装成请求字段，narration/drama 与 ad
+    共用同一份组装口径。
+
+    ``reference_audio_per_image`` 为 True 时（backend 要求音频逐段挂在具体参考素材项上），
+    渲染层已按 ``audio_requires_reference_image`` 门控排除无参考图的 speaker，
+    ``audio_speaker_reference_index`` 此时不应再有 None——仍按下标同时过滤两个列表而非直接
+    zip 全量，是为了在渲染层与本处口径将来漂移时，两个列表始终等长同序，不会因为其中一个
+    多出未过滤的 None 项而导致音频与参考图下标错位、静默绑错角色。
+    """
+    if reference_audio_per_image:
+        paired = [
+            (audio_paths[name], idx)
+            for name, idx in zip(rendered.audio_speakers, rendered.audio_speaker_reference_index, strict=True)
+            if idx is not None
+        ]
+        return [path for path, _ in paired], [idx for _, idx in paired]
+    return [audio_paths[name] for name in rendered.audio_speakers], None
 
 
 async def execute_reference_video_task(
@@ -577,26 +621,35 @@ async def execute_reference_video_task(
     if task_id is not None:
         await _persist_effective_duration(task_id, effective_duration)
 
-    # 6. 渲染 prompt。ad：镜头文本 + 裁剪后参考的 [图N] 对照表 + 保真/反向尾词。
-    #    narration/drama：三段论渲染（`<X>@图片N` 绑定 + 声音声明 + 分镜段 + 约束包）——
-    #    必须按 `constrained_refs` 的长度裁 `unit.references` 再渲染，保证 `图片N` 的 1-based
-    #    索引与 backend 实际收到的 reference_images 长度严格对齐；否则裁剪后的
-    #    `@clipped_name` 会被绑到指向不存在的图的编号上。
+    # 6. 渲染 prompt：ad 与 narration/drama 共用三段论渲染管线（`<X>@图片N` 绑定 + 声音声明 +
+    #    分镜段 + 约束包），差异只在输入形态（见 `lib.reference_video.prompt_render` 模块
+    #    docstring）。narration/drama 必须按 `constrained_refs` 的长度裁 `unit.references`
+    #    再渲染，保证 `图片N` 的 1-based 索引与 backend 实际收到的 reference_images 长度严格
+    #    对齐；否则裁剪后的 `@clipped_name` 会被绑到指向不存在的图的编号上。ad 的 `ad_entries`
+    #    已在上一步按同一裁剪口径（产品 sheet 优先存活）收窄，无需再裁。
     #    prompt 始终从执行期新读取的剧本重组（脚本可变 + 队列 dedup 不看 payload，
     #    用入队快照会丢失入队后对镜头文本的编辑）；入队 payload 里的 prompt 仅作守卫点的
     #    校验记录，执行期不使用。
-    reference_audio_files: list[Path] = []
-    reference_audio_targets: list[int] | None = None
+    #    参考音频路径先解析再渲染：渲染层按「确实可用」判定绑定，`@音频N` 的编号与随请求
+    #    发出的段数因此严格等长（字段指向已删文件时不会留下指向不存在段的编号）。
+    audio_paths = await asyncio.to_thread(resolve_reference_audio_paths, project, project_path)
     if is_ad:
-        rendered_prompt = _render_ad_unit_prompt_for_backend(ad_shots or [], ad_entries, style=project.get("style"))
+        rendered = _render_ad_unit_prompt_for_backend(
+            ad_shots or [],
+            ad_entries,
+            project,
+            voice_consistency=video.voice_consistency,
+            max_reference_audio=video.max_reference_audio_count,
+            model_id=model_name,
+            audio_ready=audio_paths,
+            audio_requires_reference_image=video.reference_audio_per_image,
+            style=project.get("style"),
+        )
     else:
         unit_for_prompt = unit
         unit_refs = unit.get("references") or []
         if len(constrained_refs) < len(unit_refs):
             unit_for_prompt = {**unit, "references": unit_refs[: len(constrained_refs)]}
-        # 参考音频路径先解析再渲染：渲染层按「确实可用」判定绑定，`@音频N` 的编号与随请求
-        # 发出的段数因此严格等长（字段指向已删文件时不会留下指向不存在段的编号）。
-        audio_paths = await asyncio.to_thread(resolve_reference_audio_paths, project, project_path)
         rendered = _render_unit_prompt(
             unit_for_prompt,
             project,
@@ -606,24 +659,12 @@ async def execute_reference_video_task(
             audio_ready=audio_paths,
             audio_requires_reference_image=video.reference_audio_per_image,
         )
-        rendered_prompt = rendered.prompt
-        if video.reference_audio_per_image:
-            # backend（如 wan2.7-r2v）要求音频逐段挂在具体参考素材项上：渲染层已按
-            # audio_requires_reference_image 门控排除无参考图的 speaker，故
-            # audio_speaker_reference_index 里此时不应再有 None——仍按下标同时过滤两个列表
-            # 而非直接 zip 全量，是为了在渲染层与本处口径将来漂移时，两个列表始终等长同序，
-            # 不会因为其中一个多出未过滤的 None 项而导致音频与参考图下标错位、静默绑错角色。
-            paired = [
-                (audio_paths[name], idx)
-                for name, idx in zip(rendered.audio_speakers, rendered.audio_speaker_reference_index, strict=True)
-                if idx is not None
-            ]
-            reference_audio_files = [path for path, _ in paired]
-            reference_audio_targets = [idx for _, idx in paired]
-        else:
-            reference_audio_files = [audio_paths[name] for name in rendered.audio_speakers]
-        # 解析派生的降级提示与生成结果同屏可见：与解析预览面板同一批 {key, params} 条目。
-        warnings = [*warnings, *rendered.warnings]
+    rendered_prompt = rendered.prompt
+    reference_audio_files, reference_audio_targets = _build_reference_audio_wiring(
+        rendered, audio_paths, reference_audio_per_image=video.reference_audio_per_image
+    )
+    # 解析派生的降级提示与生成结果同屏可见：与解析预览面板同一批 {key, params} 条目。
+    warnings = [*warnings, *rendered.warnings]
 
     # 7. 直接把源路径交给咽喉层 generate_video_async —— 参考上传副本的压缩、降档梯子与 413 兜底
     #    统一由 MediaGenerator 负责（发完即删的临时字节），此处不再预压缩、不再管理临时文件，

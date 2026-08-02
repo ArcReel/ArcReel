@@ -280,3 +280,21 @@ class TestRenderUnitPrompt:
         shots = [_shot("E1S1", image_prompt={"scene": "", "composition": {}}, video_prompt={"action": ""})]
 
         assert render_ad_unit_prompt(shots, style="水彩插画") == ""
+
+    @pytest.mark.unit
+    def test_dialogue_without_speaker_renders_as_voiceover(self):
+        shots = [
+            _shot(
+                "E1S1",
+                video_prompt={
+                    "action": "",
+                    "camera_motion": "",
+                    "ambiance_audio": "",
+                    "dialogue": [{"line": "颈椎终于舒服了"}],
+                },
+            )
+        ]
+
+        prompt = render_ad_unit_prompt(shots)
+
+        assert "画外音说 {颈椎终于舒服了}" in prompt
