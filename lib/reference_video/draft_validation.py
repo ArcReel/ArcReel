@@ -171,7 +171,12 @@ def validate_dialogue_load(label: str, text: str, duration_seconds: int, languag
     时长就是计费，unit 时长在 step1 定稿；台词写超了意味着成片必然吞词或抢拍，且这在
     step1 阶段是可改的（重拆 unit 或删台词），拖到生成后才发现只能重来。
     """
-    spoken = sum(estimate_spoken_seconds(line[2], language) for line in normative_lines(text))
+    # 台词逐条先归一到 NFC 再估时长：``count_reading_units`` 的 en / vi 分支按 ``\b\w+\b``
+    # 数词，NFD 形式下组合附加符不算词字符，一个越南语词会被拆成数个单位（9 词的句子计成
+    # 16 个单位），估算随之虚高、把念得完的 unit 判成超载。
+    spoken = sum(
+        estimate_spoken_seconds(unicodedata.normalize("NFC", line[2]), language) for line in normative_lines(text)
+    )
     budget = duration_seconds * (1 + SPEECH_OVERFLOW_TOLERANCE)
     if spoken > budget:
         raise DraftViolation(

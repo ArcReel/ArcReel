@@ -609,7 +609,7 @@ async def test_effective_generation_mode_honors_episode_override(tmp_path: Path)
 async def test_script_generator_reads_legacy_step1_draft_without_source_text(reference_project: Path):
     """存量 step1 草稿（无 source_text，per-shot 时长已由迁移收编）仍能被新校验器读取并跑完 step2。
 
-    ``source_text`` 是本轮新增的原文锚：拆分工具产出时校验后落盘，但存量草稿产于其前。
+    ``source_text`` 是拆分工具产出时校验后落盘的原文锚，不带该字段的草稿一律视为存量：
     默认空串使读取照常通过，不要求用户重跑拆分。
     """
     saved = _json.loads((reference_project / "drafts" / "episode_1" / "step1_reference_units.json").read_text("utf-8"))
