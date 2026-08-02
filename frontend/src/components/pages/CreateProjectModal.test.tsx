@@ -161,6 +161,52 @@ describe("CreateProjectModal", () => {
     expect(screen.getByRole("textbox")).toHaveValue("demo");
   });
 
+  it("revalidates duration and resolution when step 1 switches the executing video model", async () => {
+    // 全局给两条视频路径指定了不同模型：第二步选完时长再退回改生成模式，就换了执行模型，
+    // 旧时长与分辨率不能跟过去，否则创建时会写到新模型名下
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...mockSysConfig,
+      settings: {
+        ...mockSysConfig.settings,
+        default_video_backend_i2v: "gemini-aistudio/veo-3",
+        default_video_backend_r2v: "ark/seedance",
+      },
+    } as never);
+    vi.spyOn(API, "getProviders").mockResolvedValue({
+      providers: [
+        ...mockProviders.providers,
+        {
+          id: "ark", display_name: "Ark", description: "", status: "ready" as const,
+          media_types: ["video"], capabilities: [], configured_keys: [], missing_keys: [],
+          models: {
+            seedance: {
+              display_name: "seedance", media_type: "video", capabilities: [], default: false,
+              supported_durations: [5, 10], duration_resolution_constraints: {},
+            },
+          },
+        },
+      ],
+    } as never);
+
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    // 第二步按 i2v 执行模型（veo-3）列时长，选 4 秒
+    fireEvent.click(await screen.findByRole("radio", { name: "4 秒" }));
+    fireEvent.click(screen.getByRole("button", { name: /上一步/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /参考生视频/ }));
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
+    // 执行模型换成 seedance，4 秒不在其支持集内——不跟着带进创建载荷
+    await waitFor(() =>
+      expect(API.createProject).toHaveBeenCalledWith(
+        expect.objectContaining({ generation_mode: "reference_video", default_duration: null }),
+      ),
+    );
+  });
+
   it("shows error toast and stays on step 3 when createProject fails", async () => {
     vi.spyOn(API, "createProject").mockRejectedValueOnce(new Error("boom"));
     render(<CreateProjectModal />);

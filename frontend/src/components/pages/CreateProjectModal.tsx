@@ -16,6 +16,7 @@ import { WizardStep1Basics, type WizardStep1Value } from "./create-project/Wizar
 import { WizardStep2Models, type WizardStep2Data } from "./create-project/WizardStep2Models";
 import { WizardStep3Style, type WizardStep3Value } from "./create-project/WizardStep3Style";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
+import { catalogDurations } from "@/hooks/useModelCapabilities";
 import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
 
 // 新建项目对话框 · "Open Reel"
@@ -254,6 +255,29 @@ export function CreateProjectModal() {
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef, true);
 
+  // 第二步选好时长与分辨率后还能退回第一步改生成模式。全局层给两条视频路径指定了不同模型时，
+  // 这一改就换掉了执行模型，旧值必须跟着校验——否则创建时旧分辨率会落到新模型名下。
+  const handleBasicsChange = (next: WizardStep1Value) => {
+    setBasics(next);
+    if (next.generationMode === basics.generationMode) return;
+    const globals = step2Data?.globalDefaults ?? { video: "", videoI2V: "", videoR2V: "" };
+    const before = executingVideoModel(models, globals, basics.generationMode === "reference_video");
+    const after = executingVideoModel(models, globals, next.generationMode === "reference_video");
+    if (before === after) return;
+    const nextDurations = catalogDurations(step2Data?.providers ?? [], step2Data?.customProviders ?? [], after, {
+      videoResolution: null,
+      usesReferenceImages: next.generationMode === "reference_video",
+    });
+    setModels((prev) => ({
+      ...prev,
+      videoResolution: null,
+      defaultDuration:
+        prev.defaultDuration !== null && nextDurations?.includes(prev.defaultDuration)
+          ? prev.defaultDuration
+          : null,
+    }));
+  };
+
   const handleCreate = async () => {
     setCreating(true);
     try {
@@ -402,7 +426,7 @@ export function CreateProjectModal() {
           {step === 1 && (
             <WizardStep1Basics
               value={basics}
-              onChange={setBasics}
+              onChange={handleBasicsChange}
               onNext={() => setStep(2)}
               onCancel={handleClose}
             />
