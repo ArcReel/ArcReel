@@ -48,10 +48,9 @@ from lib.reference_video.quarantine import (
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
     clear_quarantine,
+    quarantine_and_report,
     quarantine_path,
     read_quarantine,
-    render_report,
-    write_quarantine,
 )
 from lib.reference_video.shot_parser import render_shots_text
 from lib.script_models import (
@@ -1143,16 +1142,14 @@ class ScriptGenerator:
         返回而不是自己抛：调用点用 ``raise ... from exc`` 保留原始违约链，异常在此被构造却在
         彼处抛出会让 traceback 指向本函数而非合并逻辑。
         """
-        violations = violation_items(exc)
-        path = write_quarantine(
-            self.project_path,
-            episode,
-            QUARANTINE_KIND_STEP2,
-            content=self._step2_flat_content(response_text, episode),
-            violations=violations,
-        )
         return DraftViolation(
-            render_report(path, QUARANTINE_KIND_STEP2, violations, episode=episode),
+            quarantine_and_report(
+                self.project_path,
+                episode,
+                QUARANTINE_KIND_STEP2,
+                content=self._step2_flat_content(response_text, episode),
+                violations=violation_items(exc),
+            ),
             code="quarantined",
         )
 
@@ -1181,16 +1178,14 @@ class ScriptGenerator:
                 step1_units, json.dumps(draft.content), episode, max_refs=max_refs
             )
         except DraftViolation as exc:
-            violations = violation_items(exc)
-            path = write_quarantine(
-                self.project_path,
-                episode,
-                QUARANTINE_KIND_STEP2,
-                content=draft.content,
-                violations=violations,
-            )
             raise DraftViolation(
-                render_report(path, QUARANTINE_KIND_STEP2, violations, episode=episode),
+                quarantine_and_report(
+                    self.project_path,
+                    episode,
+                    QUARANTINE_KIND_STEP2,
+                    content=draft.content,
+                    violations=violation_items(exc),
+                ),
                 code="quarantined",
             ) from exc
 

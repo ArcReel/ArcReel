@@ -152,12 +152,31 @@ def render_report(draft: Path, kind: str, violations: list[DraftViolation], *, e
     )
 
 
+def quarantine_and_report(
+    project_path: Path,
+    episode: int,
+    kind: str,
+    *,
+    content: dict[str, Any],
+    violations: list[DraftViolation],
+    meta: dict[str, Any] | None = None,
+) -> str:
+    """违约处置的单一出口：落隔离草稿 + 渲染报告，返回回给 agent 的报告文本。
+
+    落盘与报告成对出现——报告要指名草稿路径，路径由落盘决定；两步分开写在各调用点，迟早会
+    出现「报告说去改某个文件、而那个文件没被写出来」的分叉。
+    """
+    path = write_quarantine(project_path, episode, kind, content=content, violations=violations, meta=meta)
+    return render_report(path, kind, violations, episode=episode)
+
+
 __all__ = [
     "PROMOTE_TOOL_NAME",
     "QUARANTINE_KIND_STEP1",
     "QUARANTINE_KIND_STEP2",
     "QuarantinedDraft",
     "clear_quarantine",
+    "quarantine_and_report",
     "quarantine_exists",
     "quarantine_path",
     "read_quarantine",

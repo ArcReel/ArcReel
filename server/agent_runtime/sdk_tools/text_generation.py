@@ -49,11 +49,10 @@ from lib.reference_video.quarantine import (
     QUARANTINE_KIND_STEP2,
     QuarantinedDraft,
     clear_quarantine,
+    quarantine_and_report,
     quarantine_exists,
     quarantine_path,
     read_quarantine,
-    render_report,
-    write_quarantine,
 )
 from lib.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
@@ -630,29 +629,6 @@ def _validate_unit_duration_tier(label: str, duration: int, *, has_references: b
     )
 
 
-def _normalize_reference_flat_units(raw_flat_units: list[Any]) -> list[dict[str, Any]]:
-    """把 LLM / 隔离草稿里的扁平 unit 收成统一形状 ``{duration_seconds, source_text, text}``。
-
-    隔离草稿由 agent 手改，字段可能缺失或类型漂移；在校验之前一律收成这个形状，让校验器面对
-    的永远是同一种输入，而不是在每处判定里各自 ``or ""`` 兜底。
-    """
-    normalized: list[dict[str, Any]] = []
-    for flat in raw_flat_units:
-        item = flat if isinstance(flat, dict) else {}
-        raw_duration = item.get("duration_seconds")
-        duration = (
-            int(raw_duration) if isinstance(raw_duration, int | float) and not isinstance(raw_duration, bool) else 0
-        )
-        normalized.append(
-            {
-                "duration_seconds": duration,
-                "source_text": str(item.get("source_text") or ""),
-                "text": str(item.get("text") or ""),
-            }
-        )
-    return normalized
-
-
 def _collect_reference_flat_violations(
     flat_units: list[dict[str, Any]],
     project: dict[str, Any],
@@ -770,8 +746,11 @@ def _reference_voice_warning_lines(unit_texts: list[str], project: dict[str, Any
     return lines
 
 
-def _reference_result_text(step1_path: Path, units: list[dict], warning_lines: list[str]) -> str:
+def _reference_result_text(step1_path: Path, units: list[dict], warning_lines: list[str], *, action: str) -> str:
     """晋升 / 拆分成功后回给 agent 的摘要：落盘统计 + 三类容忍 warning。
+
+    ``action`` 点明这份正式 step1 是重新拆分还是草稿晋升来的：两条路都写同一个文件，摘要不分
+    的话，agent 修完草稿会收到一句「拆分已保存」，读起来像它的修改被一次重抽覆盖了。
 
     warning 不阻断落盘，但必须随产物呈现——「角色没配参考音频」这类降级只在生成后才听得出来，
     不在产出当时说，agent 与用户都不会知道声音一致性已经打了折。
@@ -780,7 +759,7 @@ def _reference_result_text(step1_path: Path, units: list[dict], warning_lines: l
     total_seconds = sum(int(u.get("duration_seconds") or 0) for u in units)
     max_unit_refs = max(len(u.get("references") or []) for u in units)
     text = (
-        f"✅ 参考视频单元拆分（结构化 step1）已保存: {step1_path}\n"
+        f"✅ 参考视频单元{action}（结构化 step1）已保存: {step1_path}\n"
         f"📊 生成统计: {len(units)} 个 unit / {shot_count} 个 shot，"
         f"总时长 {total_seconds} 秒；单 unit references 最多 {max_unit_refs} 个"
     )
@@ -805,7 +784,33 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
     raw_units = draft.content.get("units")
     if not isinstance(raw_units, list) or not raw_units:
         raise ValueError(f"隔离草稿 {draft.path} 的 content.units 必须是非空的 unit 对象数组")
-    flat_units = _normalize_reference_flat_units(raw_units)
+
+    # 手改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_step1_json 卡住时长
+    # 枚举与字段非空，晋升侧漏掉这一层的话，把 duration_seconds 改成非档位值、或整个删掉（收成
+    # 0 秒）都能一路晋升进正式文件——正是本机制要防的「正式文件被污染」。schema 违约在这条路上
+    # 没有 backend 可重试（内容是 agent 写的），故同样回报告让它继续改。
+    schema = build_reference_units_step1_model(split_caps.durations)
+    try:
+        flat_units = schema.model_validate({"units": raw_units}).model_dump()["units"]
+    except ValidationError as exc:
+        violations = [
+            DraftViolation(
+                f"隔离草稿的 content 不符合 step1 产出结构：{exc}；"
+                f"每个 unit 须有非空 source_text / text，且 duration_seconds 取自模型档位 {split_caps.durations}",
+                code="schema_invalid",
+            )
+        ]
+        # 写回 agent 手里那份原样内容，不做收编：字段被改坏时收编会把它的原稿改形，
+        # 它照着报告回去看反而对不上自己写的东西。
+        report = quarantine_and_report(
+            project_path,
+            episode,
+            QUARANTINE_KIND_STEP1,
+            content=draft.content,
+            violations=violations,
+            meta=draft.meta,
+        )
+        return {"content": [{"type": "text", "text": report}], "is_error": True}
 
     source_language = project.get("source_language")
     violations = _collect_reference_flat_violations(
@@ -817,7 +822,7 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
         source_language=source_language,
     )
     if violations:
-        path = write_quarantine(
+        report = quarantine_and_report(
             project_path,
             episode,
             QUARANTINE_KIND_STEP1,
@@ -825,19 +830,16 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
             violations=violations,
             meta=draft.meta,
         )
-        return {
-            "content": [
-                {"type": "text", "text": render_report(path, QUARANTINE_KIND_STEP1, violations, episode=episode)}
-            ],
-            "is_error": True,
-        }
+        return {"content": [{"type": "text", "text": report}], "is_error": True}
 
     units = _build_reference_units_from_flat(flat_units, project, episode=episode, max_refs=split_caps.max_refs)
     step1_path = _write_reference_step1(project_path, episode, units)
     # 落盘成功后才清草稿：写盘失败时草稿还在，重试晋升即可，不会两头皆空。
     clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
     warning_lines = _reference_voice_warning_lines([f["text"] for f in flat_units], project, split_caps.raw)
-    return {"content": [{"type": "text", "text": _reference_result_text(step1_path, units, warning_lines)}]}
+    return {
+        "content": [{"type": "text", "text": _reference_result_text(step1_path, units, warning_lines, action="晋升")}]
+    }
 
 
 def _write_reference_step1(project_path: Path, episode: int, units: list[dict]) -> Path:
@@ -845,6 +847,9 @@ def _write_reference_step1(project_path: Path, episode: int, units: list[dict]) 
 
     与 ScriptGenerator._load_reference_step1 / ScriptReviewService 共享同一把 per-path 锁：
     重新拆分的整份覆盖式重写与迁移、Web 端编辑相互串行化。
+
+    step1 一变，在场的 step2 隔离草稿就作废：它的保结构 diff 以旧 step1 为基底，留着既永远
+    晋升不了（unit 数与台词都对不上新基底），又会让生成侧一直阻塞在这份没有出路的草稿上。
     """
     drafts_dir = episode_drafts_dir(project_path, episode)
     drafts_dir.mkdir(parents=True, exist_ok=True)
@@ -852,6 +857,7 @@ def _write_reference_step1(project_path: Path, episode: int, units: list[dict]) 
     pm = ProjectManager(str(project_path.parent))
     with pm.file_lock(step1_path):
         atomic_write_json(step1_path, {"units": units})
+    clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
     return step1_path
 
 
@@ -945,10 +951,11 @@ def split_reference_video_units_tool(ctx: ToolContext):
             )
             flat = _parse_step1_json(result.text, schema, label="step1 拆分内容", top_shape="{units}")
 
-            raw_flat_units = flat.get("units")
-            if not isinstance(raw_flat_units, list) or not raw_flat_units:
+            # 已过 schema（_parse_step1_json 用的就是这份 response_schema），units 的字段与类型
+            # 无需再收编；此处只守最外层形状。
+            flat_units = flat.get("units")
+            if not isinstance(flat_units, list) or not flat_units:
                 raise ValueError("step1 拆分内容结构异常：units 必须是非空的 unit 对象数组")
-            flat_units = _normalize_reference_flat_units(raw_flat_units)
 
             violations = _collect_reference_flat_violations(
                 flat_units,
@@ -962,7 +969,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 # 违约不丢弃、也不写正式文件：产物连同报告落隔离草稿，由 agent 修复后经
                 # 晋升工具重判。源文路径进 meta——重判时按整个 source/ 重解析会让原文锚的
                 # 子串判定比产出时更松，一份改写过的锚可能在别集原文里恰好命中。
-                path = write_quarantine(
+                report = quarantine_and_report(
                     project_path,
                     episode,
                     QUARANTINE_KIND_STEP1,
@@ -970,15 +977,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
                     violations=violations,
                     meta={"source": source} if source else {},
                 )
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": render_report(path, QUARANTINE_KIND_STEP1, violations, episode=episode),
-                        }
-                    ],
-                    "is_error": True,
-                }
+                return {"content": [{"type": "text", "text": report}], "is_error": True}
 
             raw_units = _build_reference_units_from_flat(
                 flat_units, project, episode=episode, max_refs=split_caps.max_refs
@@ -988,7 +987,14 @@ def split_reference_video_units_tool(ctx: ToolContext):
             # gate 与生成侧继续阻塞在一份已被取代的违约产物上。
             clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
             warning_lines = _reference_voice_warning_lines([f["text"] for f in flat_units], project, split_caps.raw)
-            return {"content": [{"type": "text", "text": _reference_result_text(step1_path, raw_units, warning_lines)}]}
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": _reference_result_text(step1_path, raw_units, warning_lines, action="拆分"),
+                    }
+                ]
+            }
         except Exception as exc:  # noqa: BLE001
             return tool_error("split_reference_video_units", exc)
 
