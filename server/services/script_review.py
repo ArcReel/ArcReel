@@ -272,8 +272,11 @@ class ScriptReviewService:
         （DB 驱动的能力查询）。caps 若排在 raw 之后解析，自定义供应商项目会在 caps 都没试
         就因 raw 为 None 提前退出，面板退回只读秒数、越档校验也随之失效，即便 caps 原本能
         给出正确答案。
+
+        项目读取同 ``get_quarantine_info`` 卸到线程——本方法同样是 ``async`` 且由请求协程
+        直接 ``await``，同步的 ``project.json`` 读取直接跑在事件循环上会阻塞并发的其它请求。
         """
-        project = self.pm.load_project(project_name)
+        project = await asyncio.to_thread(self.pm.load_project, project_name)
         if script_review.step1_kind(project, episode) != "reference_video":
             return None
         try:

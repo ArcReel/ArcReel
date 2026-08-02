@@ -612,15 +612,17 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
             <span className="text-[11px] text-text-4">
               {quarantined ? (
                 <>
-                  {violatingUnitKeys.map((key) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => scrollToUnit(key)}
-                      className="text-red-300 underline decoration-red-300/40 underline-offset-2 hover:decoration-red-300"
-                    >
-                      {key} · {allViolations.filter((v) => unitKeyFromLabel(v.label) === key).length}
-                    </button>
+                  {violatingUnitKeys.map((key, i) => (
+                    <span key={key}>
+                      {i > 0 && ", "}
+                      <button
+                        type="button"
+                        onClick={() => scrollToUnit(key)}
+                        className="text-red-300 underline decoration-red-300/40 underline-offset-2 hover:decoration-red-300"
+                      >
+                        {key} · {allViolations.filter((v) => unitKeyFromLabel(v.label) === key).length}
+                      </button>
+                    </span>
                   ))}
                   {unassignedViolations.length > 0 && (
                     <span> · {t("reference_step1_unassigned_violations", { count: unassignedViolations.length })}</span>

@@ -401,5 +401,34 @@ describe("ReferenceStep1PreviewPanel", () => {
     const input = useAssistantStore.getState().input;
     expect(input).toContain("validate_and_promote_reference_draft");
     expect(input).not.toContain("1. ");
+    // 禁用判据是隔离草稿文件是否在场，不是重算后的违约数量——违约为空但仍隔离时确认依旧禁用。
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
+  });
+
+  it("separates multiple violating-unit locator links in the status bar", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      ...quarantinedState(),
+      quarantine: {
+        content: {
+          units: [
+            { duration_seconds: 8, source_text: "阿离撑伞走过长街。", text: "镜头1：门开了\n@[阿离]：｛我来了。｝" },
+            { duration_seconds: 4, source_text: "长街空无一人。", text: "镜头1：门开了\n@[长街]：｛静悄悄。｝" },
+          ],
+        },
+        violations: [
+          { code: "fullwidth_braces", label: "unit E1U01", message: "unit E1U01 使用了全角花括号", line: 1 },
+          { code: "fullwidth_braces", label: "unit E1U02", message: "unit E1U02 使用了全角花括号", line: 1 },
+        ],
+      },
+    });
+    const { container } = render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    await screen.findByRole("button", { name: "E1U01 · 1" });
+
+    // 两个按钮之间的可见文本要有分隔符，不能粘连成 "E1U01 · 1E1U02 · 1"——按钮各自的可访问名
+    // 本身不受这个 bug 影响（那是每个元素独立算的），只有渲染出的原始文本会粘连，所以这里
+    // 直接断言状态条的 textContent。
+    const statusBar = container.querySelector("span.text-\\[11px\\].text-text-4");
+    expect(statusBar?.textContent).toMatch(/E1U01 · 1.+E1U02 · 1/);
+    expect(statusBar?.textContent).not.toContain("1E1U02");
   });
 });
