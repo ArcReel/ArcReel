@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { tokenizePrompt, toScriptLines, type MentionLookup, type Token } from "./useShotPromptHighlight";
+import { extractMentions } from "@/utils/reference-mentions";
 
 const LOOKUP: MentionLookup = {
   主角: "character",
@@ -126,5 +127,32 @@ describe("toScriptLines shot attribution", () => {
   it("treats a headerless script as a single shot", () => {
     const lines = toScriptLines("@[张三]：{我来了}", LOOKUP);
     expect(lines.map((l) => l.shotIndex)).toEqual([1]);
+  });
+});
+
+describe("unicode line boundaries", () => {
+  // 后端用 Python str.splitlines() 切行，它认 U+2028/U+2029/\x85 等；前端只按 \n 切会
+  // 把这些分隔符后的规范台词行与上一行粘住，说话人就被算进参考图，两条派生路径分叉。
+  const LS = "\u2028";
+
+  it("splits on the same boundaries the backend does", () => {
+    expect(extractMentions(`镜头1：@酒馆 内景。${LS}@[张三]：{我来了}`)).toEqual(["酒馆"]);
+    expect(extractMentions("镜头1：@酒馆 内景。\u2029@[张三]：{我来了}")).toEqual(["酒馆"]);
+    expect(extractMentions("镜头1：@酒馆 内景。\x85@[张三]：{我来了}")).toEqual(["酒馆"]);
+  });
+
+  it("treats CRLF as one boundary rather than two", () => {
+    const lines = toScriptLines("镜头1：中景\r\n镜头2：近景", LOOKUP);
+    expect(lines.map((l) => l.shotIndex)).toEqual([1, 2]);
+  });
+
+  it("keeps tokenizePrompt output concatenable back to the source text", () => {
+    const text = `镜头1：@主角 在场。${LS}@[张三]：{我来了}\r\n结束`;
+    expect(tokenizePrompt(text, LOOKUP).map((t) => t.text).join("")).toBe(text);
+  });
+
+  it("recognizes a shot header that follows a unicode separator", () => {
+    const lines = toScriptLines(`镜头1：中景${LS}镜头2：近景`, LOOKUP);
+    expect(lines.map((l) => l.shotIndex)).toEqual([1, 2]);
   });
 });

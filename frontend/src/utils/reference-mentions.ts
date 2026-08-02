@@ -37,6 +37,24 @@ function hasSpokenText(text: string): boolean {
 }
 
 /**
+ * Python `str.splitlines()` 的换行集合——后端 `shot_parser` / `script_preview` 都用它切行。
+ * 只按 `\n` 切会把 U+2028 之后的规范台词行与上一行粘在一起（粘贴、agent 产出的文本里会出现），
+ * 前端据此把说话人算进参考图、后端不算，两条派生路径当场分叉。
+ * 带捕获组：`split` 时分隔符原样留在结果里，token 仍可拼回原文。
+ *
+ * The control characters in the class are deliberate: Python counts the file and
+ * group separators as line breaks too, and dropping one reintroduces exactly the
+ * front/back divergence this constant exists to remove.
+ */
+// eslint-disable-next-line no-control-regex
+export const LINE_BREAK_RE = /(\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029])/;
+
+/** 按后端同一套换行边界切行（不保留分隔符）。 */
+export function splitScriptLines(text: string): string[] {
+  return text.split(LINE_BREAK_RE).filter((_, i) => i % 2 === 0);
+}
+
+/**
  * Leading `镜头N：` header. Stripped before the normative-line test so a dialogue
  * written on the header line is judged the way the backend judges it — `parse_prompt`
  * drops the header when it splits shots, so such a line is a normative line in the
@@ -72,7 +90,7 @@ export function matchVoiceoverLine(line: string): string | null {
 export function extractMentions(text: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const line of text.split("\n")) {
+  for (const line of splitScriptLines(text)) {
     if (matchDialogueLine(line.replace(SHOT_HEADER_PREFIX_RE, ""))) continue;
     for (const m of line.matchAll(MENTION_RE)) {
       const name = mentionNameFromMatch(m);

@@ -1,10 +1,12 @@
 import { useMemo } from "react";
 import type { MentionKind } from "@/components/canvas/reference/asset-colors";
 import {
+  LINE_BREAK_RE,
   MENTION_RE,
   matchDialogueLine,
   matchVoiceoverLine,
   mentionNameFromMatch,
+  splitScriptLines,
 } from "@/utils/reference-mentions";
 
 /**
@@ -29,11 +31,13 @@ const SHOT_HEADER_RE = /^镜头\s*\d+\s*[:：]\s*/;
 export function tokenizePrompt(text: string, lookup: MentionLookup): Token[] {
   if (text.length === 0) return [];
   const tokens: Token[] = [];
-  const lines = text.split(/(\n)/); // keep newlines as separate entries
+  // 分隔符随捕获组留在结果里，token 仍可拼回原文；换行集合与后端 splitlines 一致。
+  // 捕获组分割的结果是「正文, 分隔符, 正文, …」，奇数位恒为分隔符，按下标判定即可。
+  const lines = text.split(LINE_BREAK_RE);
 
-  for (const piece of lines) {
-    if (piece === "\n") {
-      tokens.push({ kind: "text", text: "\n" });
+  for (const [i, piece] of lines.entries()) {
+    if (i % 2 === 1) {
+      tokens.push({ kind: "text", text: piece });
       continue;
     }
 
@@ -104,7 +108,7 @@ export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[]
   const lines: ScriptLine[] = [];
   let shotIndex = 0;
   let firstHeaderSeen = false;
-  for (const raw of text.split("\n")) {
+  for (const raw of splitScriptLines(text)) {
     const trimmed = raw.trim();
     const headerMatch = trimmed.match(SHOT_HEADER_RE);
     if (headerMatch) {
