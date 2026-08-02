@@ -466,6 +466,7 @@ async def preview_script(
         voice_consistency=str(caps.get("voice_consistency") or "soft"),
         max_reference_audio=int(caps.get("max_reference_audio_count") or 0),
         model_id=str(caps.get("model") or ""),
+        audio_requires_reference_image=bool(caps.get("reference_audio_per_image") or False),
     )
     return {
         "shots": [{"index": i, "text": s.text} for i, s in enumerate(preview.shots, start=1)],

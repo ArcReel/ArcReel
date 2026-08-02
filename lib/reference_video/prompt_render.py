@@ -114,6 +114,10 @@ def render_unit_prompt(
     subjects = {ref.name for ref in registered}
 
     image_no = {ref.name: i for i, ref in enumerate(references, start=1)}
+    # 音频只能对齐到「同名且类型也是 character」的图：resolve_references 按
+    # character → scene → prop 的优先级分派，故场景/道具可能与某个角色同名——image_no
+    # 是名字键，会把「这个名字有图」误判成「这个角色有图」。speaker 只能是角色，据此收窄。
+    character_image_names = {ref.name for ref in references if ref.type == "character"}
 
     characters: dict = project.get(BUCKET_KEY["character"]) or {}
     bindings = derive_voice_bindings(
@@ -124,13 +128,13 @@ def render_unit_prompt(
         model_id=model_id,
         audio_ready=audio_ready,
         require_reference_image=audio_requires_reference_image,
-        speakers_with_reference_image=image_no.keys(),
+        speakers_with_reference_image=character_image_names,
     )
     warnings.extend(bindings.warnings)
 
     audio_no = {name: i for i, name in enumerate(bindings.audio_speakers, start=1)}
     audio_speaker_reference_index = [
-        (image_no[name] - 1) if name in image_no else None for name in bindings.audio_speakers
+        (image_no[name] - 1) if name in character_image_names else None for name in bindings.audio_speakers
     ]
 
     segments = [

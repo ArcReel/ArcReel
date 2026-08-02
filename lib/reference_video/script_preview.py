@@ -183,8 +183,14 @@ def build_script_preview(
     voice_consistency: str = "soft",
     max_reference_audio: int = 0,
     model_id: str = "",
+    audio_requires_reference_image: bool = False,
 ) -> ScriptPreview:
-    """把书写文稿派生成 shots / references / utterances + 七条降级可见性 warning。"""
+    """把书写文稿派生成 shots / references / utterances + 降级可见性 warning。
+
+    ``audio_requires_reference_image`` 须与执行层（``render_unit_prompt``）传的同一个 backend
+    判定同步——预览不碰文件系统，但这一位不涉及 IO，只是「目标 backend 是否要求音频逐段挂图」
+    的能力声明，遗漏会让预览显示已绑定、执行时才降级，用户直到生成后才发现声音没生效。
+    """
     shots, mentions = parse_prompt(text)
     references, missing = resolve_references(mentions, project)
 
@@ -192,12 +198,18 @@ def build_script_preview(
     utterances, syntax_warnings = derive_utterances(shots)
     warnings.extend(syntax_warnings)
 
+    # 音频只能对齐到「同名且类型也是 character」的图：scene/prop 可能与角色同名，image_no
+    # 若按名字判定会把「这个名字有图」误判成「这个角色有图」。
+    character_image_names = {ref.name for ref in references if ref.type == "character"}
+
     bindings = derive_voice_bindings(
         utterances,
         project.get(BUCKET_KEY["character"]) or {},
         voice_consistency=voice_consistency,
         max_reference_audio=max_reference_audio,
         model_id=model_id,
+        require_reference_image=audio_requires_reference_image,
+        speakers_with_reference_image=character_image_names,
     )
     warnings.extend(bindings.warnings)
 

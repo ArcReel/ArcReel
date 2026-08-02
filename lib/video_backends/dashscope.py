@@ -302,7 +302,13 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
 
         targets = request.reference_audio_targets
         if targets is not None:
-            valid = len(targets) == len(audio_files) and all(0 <= t < len(reference_items) for t in targets)
+            # 重复下标与越界下标同类错配：两段音频指向同一个参考素材项时，逐条赋值会静默
+            # 覆盖前一条绑定，某个角色的音色声明无声丢失——必须硬失败，不能让它悄悄发生。
+            valid = (
+                len(targets) == len(audio_files)
+                and len(set(targets)) == len(targets)
+                and all(0 <= t < len(reference_items) for t in targets)
+            )
         else:
             valid = len(audio_files) <= len(reference_items)
         if not valid:

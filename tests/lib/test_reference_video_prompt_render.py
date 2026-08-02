@@ -275,6 +275,23 @@ def test_audio_requires_reference_image_downgrades_offscreen_speaker_with_warnin
     assert {"key": WARN_SPEAKER_AUDIO_NEEDS_IMAGE, "params": {"name": "李四"}} in rendered.warnings
 
 
+def test_audio_speaker_image_slot_ignores_same_named_scene_or_prop():
+    """场景与角色同名时，音频不能对齐到同名场景的图——speaker 只能是角色，``references``
+    里 type=scene 的「张三」不等于会说话的角色「张三」。"""
+    project = _project(scenes={"张三": {}})
+    text = "镜头1：@[张三] 的餐厅一角。\n@[张三]：{欢迎光临。}"
+    rendered = render_unit_prompt(
+        text,
+        project,
+        _refs(("scene", "张三")),
+        voice_consistency="native",
+        max_reference_audio=3,
+        audio_requires_reference_image=True,
+    )
+    assert rendered.audio_speakers == []
+    assert {"key": WARN_SPEAKER_AUDIO_NEEDS_IMAGE, "params": {"name": "张三"}} in rendered.warnings
+
+
 def test_resolve_reference_audio_paths_only_returns_existing_files_under_refs_audio(tmp_path):
     refs_audio = tmp_path / "characters" / "refs_audio"
     refs_audio.mkdir(parents=True)

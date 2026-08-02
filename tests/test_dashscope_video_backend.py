@@ -687,6 +687,22 @@ class TestWan27ReferenceVoice:
         assert exc.value.code == "video_reference_audio_slots_insufficient"
 
     @pytest.mark.unit
+    def test_reference_audio_targets_duplicate_index_raises_instead_of_silently_overwriting(self, tmp_path):
+        """两段音频指向同一个参考素材项时，逐条赋值会静默覆盖前一条绑定——必须硬失败。"""
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend()._build_payload(
+                VideoGenerationRequest(
+                    prompt="两人对话",
+                    output_path=tmp_path / "o.mp4",
+                    reference_images=self._refs(tmp_path, 2),
+                    reference_audio_files=[self._audio(tmp_path, "a.mp3"), self._audio(tmp_path, "b.wav")],
+                    reference_audio_targets=[0, 0],
+                )
+            )
+
+        assert exc.value.code == "video_reference_audio_slots_insufficient"
+
+    @pytest.mark.unit
     def test_fewer_audios_than_references_leaves_rest_unvoiced(self, tmp_path):
         payload = self._backend()._build_payload(
             VideoGenerationRequest(
