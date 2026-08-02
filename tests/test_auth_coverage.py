@@ -47,7 +47,9 @@ EXEMPT_OPERATIONS = PUBLIC_OPERATIONS | SELF_AUTH_OPERATIONS
 # 依赖数据库等 lifespan 建立的状态，会让这两个用例在干净环境里以 500 失败，掩盖认证结论。
 _PROBE_ENDPOINT = "/api/v1/custom-providers/endpoints"
 
-_HTTP_METHODS = ("get", "post", "put", "patch", "delete")
+# OpenAPI Path Item 的全部操作字段。写全而非只列常用的几个，是为了让「新增路由自动纳入」
+# 这条承诺不留缺口——漏一个方法，该方法的端点就会被静默跳过而不是报错。
+_HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
 _PARAM_RE = re.compile(r"\{([^}]+)\}")
 # 路径参数占位值：认证在参数校验之前执行，取值只需能拼出合法 URL。
 _PARAM_PLACEHOLDERS = {"path": "x/y.png"}
