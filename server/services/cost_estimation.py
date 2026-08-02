@@ -5,11 +5,17 @@ from __future__ import annotations
 import logging
 import math
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from lib.config.resolver import ConfigResolver, get_provider_fallback, video_bucket_for_generation_mode
+from lib.config.resolver import (
+    ConfigResolver,
+    VideoCapability,
+    get_provider_fallback,
+    video_bucket_for_generation_mode,
+)
 from lib.cost_calculator import cost_calculator
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
@@ -33,6 +39,27 @@ CostBreakdown = dict[str, float]
 ActualBySegment = dict[str, dict[str, CostBreakdown]]
 # 费用页展示的记账类型；text 类调用不写 segment_id，只会落在项目级汇总里。
 ACTUAL_COST_TYPES = ("image", "video", "audio")
+
+
+#: 读侧定桶要枚举的全部视频能力桶。两个桶都预解析：同一项目里逐集的生效路径可以不同
+#: （集级 generation_mode 覆盖、或剧本自带 r2v 戳），而解析需要 resolver session，不能推迟到
+#: 已关闭 session 的估算循环里逐集去做。桶只有两个，代价有界。
+_VIDEO_BUCKETS: tuple[VideoCapability, ...] = ("i2v", "r2v")
+
+
+@dataclass(frozen=True)
+class _VideoPricing:
+    """一个能力桶下的视频计价参数——解析出的模型身份、分辨率、有效 generate_audio 与自定义单价。
+
+    五项总是结伴传给三条估算路径，且必须同源于一次解析：分辨率与 generate_audio 都按模型身份
+    求值，混用不同桶的分项会算出任何一个模型都不会产生的价。
+    """
+
+    provider: str
+    model: str | None
+    resolution: str | None
+    generate_audio: bool
+    price: Any
 
 
 def _add_cost(target: CostBreakdown, amount: float, currency: str) -> None:
@@ -94,11 +121,7 @@ def _estimate_unit_video_cost(
     *,
     unit_id: str,
     duration_seconds: int,
-    video_provider: str,
-    video_model: str | None,
-    video_resolution: str | None,
-    generate_audio: bool,
-    video_price: Any,
+    video: _VideoPricing,
 ) -> CostBreakdown:
     """一个参考视频 unit 取档后秒数的视频估值。计价失败返回空 breakdown（该 unit 不计费）。
 
@@ -108,17 +131,17 @@ def _estimate_unit_video_cost(
     est_video: CostBreakdown = {}
     try:
         amount, currency = cost_calculator.calculate_cost(
-            video_provider,
+            video.provider,
             PricingParams(
                 call_type="video",
-                model=video_model,
-                resolution=video_resolution,
+                model=video.model,
+                resolution=video.resolution,
                 duration_seconds=duration_seconds,
-                generate_audio=generate_audio,
+                generate_audio=video.generate_audio,
             ),
-            custom_price_input=video_price.price_input,
-            custom_price_output=video_price.price_output,
-            custom_currency=video_price.currency,
+            custom_price_input=video.price.price_input,
+            custom_price_output=video.price.price_output,
+            custom_currency=video.price.currency,
             estimate_only=True,
         )
         _add_cost(est_video, amount, currency)
@@ -152,20 +175,28 @@ class CostEstimationService:
             except Exception:
                 image_provider, image_model = "unknown", "unknown"
 
-            # 视频按项目 generation_mode 定桶解析（``docs/adr/0054``），与执行扣费同一个模型：
-            # 参考生视频项目算 r2v 桶的价、图生视频 / 宫格算 i2v 桶的价。
-            try:
-                resolved_video = await r.resolve_video_backend(
-                    project_data,
-                    None,
-                    capability=video_bucket_for_generation_mode(project_data.get("generation_mode")),
+            # 视频按能力桶解析（``docs/adr/0054``），与执行扣费同一个模型：参考生视频路径算 r2v
+            # 桶的价、图生视频 / 宫格算 i2v 桶的价。逐集选桶，故两个桶都在这里解析出来（见
+            # ``_VIDEO_BUCKETS``），分辨率与 generate_audio 随各自的模型身份求值。
+            video_identity: dict[VideoCapability, tuple[str, str, str | None, bool]] = {}
+            for capability in _VIDEO_BUCKETS:
+                try:
+                    resolved_video = await r.resolve_video_backend(project_data, None, capability=capability)
+                    bucket_provider, bucket_model = resolved_video.provider_id, resolved_video.model_id
+                except Exception:
+                    bucket_provider, bucket_model = "unknown", "unknown"
+                # 有效 generate_audio 是 backend 实现内知识，此处只消费解析结果、不自行推断。
+                bucket_audio = await r.video_pricing_generate_audio(bucket_provider, bucket_model, project_data)
+                try:
+                    bucket_resolution = await r.resolve_resolution(project_data, bucket_provider, bucket_model or "")
+                except Exception:
+                    bucket_resolution = None
+                video_identity[capability] = (
+                    bucket_provider,
+                    bucket_model,
+                    bucket_resolution or get_provider_fallback(bucket_provider),
+                    bucket_audio,
                 )
-                video_provider, video_model = resolved_video.provider_id, resolved_video.model_id
-            except Exception:
-                video_provider, video_model = "unknown", "unknown"
-
-            # 有效 generate_audio 是 backend 实现内知识，此处只消费解析结果、不自行推断。
-            generate_audio = await r.video_pricing_generate_audio(video_provider, video_model, project_data)
 
             # 旁白配音（TTS）模型：project 覆盖 > 全局默认 > auto-resolve；
             # 未配置任何 audio 供应商时回落 unknown，该维度预估为空
@@ -175,19 +206,38 @@ class CostEstimationService:
             except Exception:
                 audio_provider, audio_model = "unknown", "unknown"
 
-            try:
-                _resolved_resolution = await r.resolve_resolution(project_data, video_provider, video_model or "")
-            except Exception:
-                _resolved_resolution = None
-        video_resolution = _resolved_resolution or get_provider_fallback(video_provider)
-
         # Get actual costs + 自定义供应商价格（缺则预估恒为零，需与实际记账同源预查 DB 单价）
         async with self._session_factory() as session:
             actual_by_segment = await UsageRepository(session).get_actual_costs_by_segment(project_name)
             custom_repo = CustomProviderRepository(session)
             image_price = await custom_repo.resolve_price(image_provider, image_model)
-            video_price = await custom_repo.resolve_price(video_provider, video_model)
             audio_price = await custom_repo.resolve_price(audio_provider, audio_model)
+            # 两个桶常解析到同一个模型，按身份去重后再查单价，不重复打 DB。
+            video_prices: dict[tuple[str, str], Any] = {}
+            for bucket_provider, bucket_model, _, _ in video_identity.values():
+                if (bucket_provider, bucket_model) not in video_prices:
+                    video_prices[(bucket_provider, bucket_model)] = await custom_repo.resolve_price(
+                        bucket_provider, bucket_model
+                    )
+
+        video_pricing: dict[VideoCapability, _VideoPricing] = {
+            capability: _VideoPricing(
+                provider=bucket_provider,
+                model=bucket_model,
+                resolution=bucket_resolution,
+                generate_audio=bucket_audio,
+                price=video_prices[(bucket_provider, bucket_model)],
+            )
+            for capability, (
+                bucket_provider,
+                bucket_model,
+                bucket_resolution,
+                bucket_audio,
+            ) in video_identity.items()
+        }
+        # 项目层展示的视频模型按项目自身 generation_mode 定桶：``models`` 回答的是「当前项目配置」，
+        # 不随某一集的覆盖而变；逐集算价另按该集的生效桶取（见循环内 ``episode_video``）。
+        project_video = video_pricing[video_bucket_for_generation_mode(project_data.get("generation_mode"))]
 
         generation_mode = project_data.get("generation_mode", "single")
         # 规范化 aspect_ratio：可能是 str 或 dict，复用生成任务的解析逻辑
@@ -281,6 +331,11 @@ class CostEstimationService:
             else:
                 estimate_by_unit = is_reference_script(script)
 
+            # 算价的桶跟着上面判出的生效路径走，不另按项目级 generation_mode 定：走 unit 路径的集
+            # 实际入队的是参考视频任务（r2v 桶），项目层仍是 storyboard 时按项目级定桶会拿 i2v 桶
+            # 模型的价目去算 r2v 的量。判定与算价共用同一个谓词，同一函数里就不留第二种口径。
+            episode_video = video_pricing["r2v" if estimate_by_unit else "i2v"]
+
             if estimate_by_unit:
                 if duration_ctx is None:
                     duration_ctx = await resolve_project_duration_context(project_data)
@@ -289,11 +344,7 @@ class CostEstimationService:
                         script=script,
                         episode=ep_meta.get("episode"),
                         duration_ctx=duration_ctx,
-                        video_provider=video_provider,
-                        video_model=video_model,
-                        video_resolution=video_resolution,
-                        generate_audio=generate_audio,
-                        video_price=video_price,
+                        video=episode_video,
                         actual_by_segment=actual_by_segment,
                         claimed_actual=claimed_actual,
                     )
@@ -301,11 +352,7 @@ class CostEstimationService:
                     segments_result, ep_est, ep_act = self._estimate_unit_reference_video_episode(
                         units=video_units,
                         duration_ctx=duration_ctx,
-                        video_provider=video_provider,
-                        video_model=video_model,
-                        video_resolution=video_resolution,
-                        generate_audio=generate_audio,
-                        video_price=video_price,
+                        video=episode_video,
                         actual_by_segment=actual_by_segment,
                         claimed_actual=claimed_actual,
                     )
@@ -373,17 +420,17 @@ class CostEstimationService:
 
                 try:
                     vid_amount, vid_currency = cost_calculator.calculate_cost(
-                        video_provider,
+                        episode_video.provider,
                         PricingParams(
                             call_type="video",
-                            model=video_model,
-                            resolution=video_resolution,
+                            model=episode_video.model,
+                            resolution=episode_video.resolution,
                             duration_seconds=duration,
-                            generate_audio=generate_audio,
+                            generate_audio=episode_video.generate_audio,
                         ),
-                        custom_price_input=video_price.price_input,
-                        custom_price_output=video_price.price_output,
-                        custom_currency=video_price.currency,
+                        custom_price_input=episode_video.price.price_input,
+                        custom_price_output=episode_video.price.price_output,
+                        custom_currency=episode_video.price.currency,
                     )
                     _add_cost(est_video, vid_amount, vid_currency)
                 except Exception:
@@ -502,7 +549,7 @@ class CostEstimationService:
             "project_name": project_name,
             "models": {
                 "image": {"provider": image_provider, "model": image_model},
-                "video": {"provider": video_provider, "model": video_model},
+                "video": {"provider": project_video.provider, "model": project_video.model},
                 "audio": {"provider": audio_provider, "model": audio_model},
             },
             "episodes": episodes_result,
@@ -515,11 +562,7 @@ class CostEstimationService:
         script: dict[str, Any],
         episode: int | None,
         duration_ctx: ProjectDurationContext,
-        video_provider: str,
-        video_model: str | None,
-        video_resolution: str | None,
-        generate_audio: bool,
-        video_price: Any,
+        video: _VideoPricing,
         actual_by_segment: ActualBySegment,
         claimed_actual: set[tuple[str, str]],
     ) -> tuple[list[dict[str, Any]], dict[str, CostBreakdown], dict[str, CostBreakdown]]:
@@ -583,11 +626,7 @@ class CostEstimationService:
             est_video = _estimate_unit_video_cost(
                 unit_id=unit_id,
                 duration_seconds=slot.seconds,
-                video_provider=video_provider,
-                video_model=video_model,
-                video_resolution=video_resolution,
-                generate_audio=generate_audio,
-                video_price=video_price,
+                video=video,
             )
 
             act_video: CostBreakdown = _claim_actual(
@@ -634,11 +673,7 @@ class CostEstimationService:
         *,
         units: list[Any],
         duration_ctx: ProjectDurationContext,
-        video_provider: str,
-        video_model: str | None,
-        video_resolution: str | None,
-        generate_audio: bool,
-        video_price: Any,
+        video: _VideoPricing,
         actual_by_segment: ActualBySegment,
         claimed_actual: set[tuple[str, str]],
     ) -> tuple[list[dict[str, Any]], dict[str, CostBreakdown], dict[str, CostBreakdown]]:
@@ -707,11 +742,7 @@ class CostEstimationService:
                     est_video = _estimate_unit_video_cost(
                         unit_id=unit_id,
                         duration_seconds=slot.seconds,
-                        video_provider=video_provider,
-                        video_model=video_model,
-                        video_resolution=video_resolution,
-                        generate_audio=generate_audio,
-                        video_price=video_price,
+                        video=video,
                     )
 
             unit_actual = _claim_actual(actual_by_segment, claimed_actual, unit_id)
