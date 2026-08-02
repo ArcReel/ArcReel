@@ -35,8 +35,11 @@ const mockData = {
   customProviders: [],
   globalDefaults: {
     video: "gemini-aistudio/veo-3",
-    imageT2I: "gemini-aistudio/nano-banana",
-    imageI2I: "gemini-aistudio/nano-banana",
+    videoI2V: "",
+    videoR2V: "",
+    image: "gemini-aistudio/nano-banana",
+    imageT2I: "",
+    imageI2I: "",
     textDefault: "",
     textSimple: "",
     textComplex: "",
@@ -45,6 +48,9 @@ const mockData = {
 
 const baseValue = {
   videoBackend: "",
+  videoProviderI2V: "",
+  videoProviderR2V: "",
+  imageBackendDefault: "",
   imageBackendT2I: "",
   imageBackendI2I: "",
   textBackendDefault: "",
@@ -84,9 +90,9 @@ describe("WizardStep2Models", () => {
       />,
     );
     expect(screen.queryByText(/loading|加载中/i)).not.toBeInTheDocument();
-    // 5 selectors — image 默认单下拉（仅当模型 caps 单一时才露出第 2 个）：
-    // 1 video + 1 image + 3 text
-    expect(screen.getAllByRole("combobox")).toHaveLength(5);
+    // 向导只暴露默认层：video + image + text 三个主下拉，没有「按用途指定模型」折叠区
+    expect(screen.getAllByRole("combobox")).toHaveLength(3);
+    expect(screen.queryByText("按用途指定模型")).not.toBeInTheDocument();
   });
 
   it("calls onBack when previous button is clicked", () => {

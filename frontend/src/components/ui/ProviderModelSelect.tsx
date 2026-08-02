@@ -28,6 +28,11 @@ interface ProviderModelSelectProps {
   defaultHint?: string; // "当前: gemini-aistudio/veo-3.1-generate-001"
   /** When value is empty, show this "provider/model" as the effective fallback in the trigger */
   fallbackValue?: string;
+  /**
+   * 触发按钮上生效值的前缀措辞（已 t()）。默认「跟随全局默认」；能力桶细分项回退的是同层
+   * 默认模型而非全局层，由调用方改写为「跟随默认」。
+   */
+  fallbackLabel?: string;
   /** Accessible label for the trigger button */
   "aria-label"?: string;
   /** Enable in-dropdown search input. Defaults to true. */
@@ -71,6 +76,7 @@ export function ProviderModelSelect({
   defaultLabel,
   defaultHint,
   fallbackValue,
+  fallbackLabel,
   "aria-label": ariaLabel,
   searchable = true,
   searchThreshold = 6,
@@ -79,7 +85,7 @@ export function ProviderModelSelect({
   const { t } = useTranslation("dashboard");
   const resolvedPlaceholder = placeholder ?? t("select_model_placeholder");
   // Per-instance ARIA id prefix — without this, multiple ProviderModelSelect
-  // instances on the same page (e.g. ImageModelDualSelect's T2I/I2I dual slots)
+  // instances on the same page (e.g. LayeredModelFields' default + sub-field slots)
   // would all share the same listbox/option ids, breaking aria-controls and
   // aria-activedescendant relationships for screen readers.
   const reactId = useId();
@@ -301,19 +307,21 @@ export function ProviderModelSelect({
     [open, flatOptions, activeIndex, selectOption, handleListKeyDown],
   );
 
-  const slashIdx = value ? value.indexOf("/") : -1;
-  const currentProvider = slashIdx !== -1 ? value.slice(0, slashIdx) : "";
-  const currentModel = slashIdx !== -1 ? value.slice(slashIdx + 1) : "";
+  // 配置值也可以是不带 model 的裸 provider id（下游按该供应商默认模型执行）。按 "provider/model"
+  // 硬拆会让它显示成空的「 · 」，故拆不出 model 时整串当作 provider 名呈现。
+  const describe = (fullValue: string) => {
+    const idx = fullValue.indexOf("/");
+    if (idx === -1) return providerNames[fullValue] || fullValue;
+    const provider = fullValue.slice(0, idx);
+    return `${providerNames[provider] || provider} · ${fullValue.slice(idx + 1)}`;
+  };
 
-  const fbSlashIdx = !value && fallbackValue ? fallbackValue.indexOf("/") : -1;
-  const fbProvider = fbSlashIdx !== -1 ? fallbackValue!.slice(0, fbSlashIdx) : "";
-  const fbModel = fbSlashIdx !== -1 ? fallbackValue!.slice(fbSlashIdx + 1) : "";
-  const showFallback = !value && fbSlashIdx !== -1;
+  const showFallback = !value && !!fallbackValue;
 
   const displayText = value
-    ? `${providerNames[currentProvider] || currentProvider} · ${currentModel}`
+    ? describe(value)
     : showFallback
-      ? `${t("follow_global_default")} · ${providerNames[fbProvider] || fbProvider} · ${fbModel}`
+      ? `${fallbackLabel ?? t("follow_global_default")} · ${describe(fallbackValue)}`
       : resolvedPlaceholder;
 
   const activeDescendantId =

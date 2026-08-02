@@ -51,6 +51,22 @@ describe("ProviderModelSelect – trigger display", () => {
     expect(trigger).toHaveTextContent(/veo-3\.1-generate-001/);
   });
 
+  it("shows the provider name for a bare provider id carrying no model", () => {
+    // 后端接受不带 model 的裸 provider id（下游按该供应商默认模型执行）；按 provider/model
+    // 硬拆会把触发按钮显示成空的「 · 」，用户看不出这项其实已配置
+    render(
+      <ProviderModelSelect
+        value="ark"
+        options={OPTIONS}
+        providerNames={PROVIDER_NAMES}
+        onChange={() => {}}
+      />,
+    );
+    const trigger = screen.getByRole("combobox");
+    expect(trigger).toHaveTextContent("Ark");
+    expect(trigger).not.toHaveTextContent("·");
+  });
+
   it("prefers value over fallbackValue when both are provided", () => {
     render(
       <ProviderModelSelect

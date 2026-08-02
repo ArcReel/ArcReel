@@ -9,10 +9,12 @@ import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { getProviderModels, getCustomProviderModels } from "@/utils/provider-models";
 import { ModelConfigSection } from "@/components/shared/ModelConfigSection";
+import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
+import { catalogDurations } from "@/hooks/useModelCapabilities";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
-import type { CustomProviderInfo, ProviderInfo } from "@/types";
+import type { CustomProviderInfo, ModelCandidatesResponse, ProviderInfo } from "@/types";
 import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -100,15 +102,23 @@ export function ProjectSettingsPage() {
     audio_backends: string[];
     provider_names?: Record<string, string>;
   } | null>(null);
+  const [candidates, setCandidates] = useState<ModelCandidatesResponse | null>(null);
   const [globalDefaults, setGlobalDefaults] = useState<{
     video: string;
+    videoI2V: string;
+    videoR2V: string;
+    image: string;
     imageT2I: string;
     imageI2I: string;
     textDefault: string;
     textSimple: string;
     textComplex: string;
     audio: string;
-  }>({ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "", audio: "" });
+  }>({
+    video: "", videoI2V: "", videoR2V: "",
+    image: "", imageT2I: "", imageI2I: "",
+    textDefault: "", textSimple: "", textComplex: "", audio: "",
+  });
 
   const allProviderNames = useMemo(
     () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
@@ -118,6 +128,9 @@ export function ProjectSettingsPage() {
   // Project-level overrides (from project.json)
   // "" means "follow global default"
   const [videoBackend, setVideoBackend] = useState<string>("");
+  const [videoProviderI2V, setVideoProviderI2V] = useState<string>("");
+  const [videoProviderR2V, setVideoProviderR2V] = useState<string>("");
+  const [imageBackendDefault, setImageBackendDefault] = useState<string>("");
   const [imageBackendT2I, setImageBackendT2I] = useState<string>("");
   const [imageBackendI2I, setImageBackendI2I] = useState<string>("");
   const [audioOverride, setAudioOverride] = useState<boolean | null>(null);
@@ -144,7 +157,9 @@ export function ProjectSettingsPage() {
   const [styleValue, setStyleValue] = useState<StylePickerValue | null>(null);
   const [savingStyle, setSavingStyle] = useState(false);
   const initialRef = useRef({
-    videoBackend: "", imageBackendT2I: "", imageBackendI2I: "", audioOverride: null as boolean | null,
+    videoBackend: "", videoProviderI2V: "", videoProviderR2V: "",
+    imageBackendDefault: "", imageBackendT2I: "", imageBackendI2I: "",
+    audioOverride: null as boolean | null,
     audioBackend: "", narrationVoice: "", narrationSpeed: null as number | null,
     textDefault: "", textSimple: "", textComplex: "",
     aspectRatio: "", generationMode: "storyboard",
@@ -160,11 +175,14 @@ export function ProjectSettingsPage() {
 
     voidCall(Promise.all([
       API.getSystemConfig(),
+      API.getModelCandidates().catch(() => null),
       API.getProject(projectName),
       getProviderModels().catch(() => [] as ProviderInfo[]),
       getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
-    ]).then(([configRes, projectRes, providerList, customProviderList]) => {
+    ]).then(([configRes, candidatesRes, projectRes, providerList, customProviderList]) => {
       if (disposed) return;
+
+      setCandidates(candidatesRes);
 
       setOptions({
         video_backends: configRes.options?.video_backends ?? [],
@@ -173,27 +191,28 @@ export function ProjectSettingsPage() {
         audio_backends: configRes.options?.audio_backends ?? [],
         provider_names: configRes.options?.provider_names,
       });
-      setGlobalDefaults({
+      // 各层原样带入，不在此折叠回退——穿透演算由 ModelConfigSection 按解析链推导。
+      const nextGlobals = {
         video: configRes.settings?.default_video_backend ?? "",
-        imageT2I:
-          configRes.settings?.default_image_backend_t2i ??
-          configRes.settings?.default_image_backend ??
-          "",
-        imageI2I:
-          configRes.settings?.default_image_backend_i2i ??
-          configRes.settings?.default_image_backend ??
-          "",
+        videoI2V: configRes.settings?.default_video_backend_i2v ?? "",
+        videoR2V: configRes.settings?.default_video_backend_r2v ?? "",
+        image: configRes.settings?.default_image_backend ?? "",
+        imageT2I: configRes.settings?.default_image_backend_t2i ?? "",
+        imageI2I: configRes.settings?.default_image_backend_i2i ?? "",
         textDefault: configRes.settings?.default_text_backend ?? "",
         textSimple: configRes.settings?.text_backend_simple ?? "",
         textComplex: configRes.settings?.text_backend_complex ?? "",
         audio: configRes.settings?.default_audio_backend ?? "",
-      });
+      };
+      setGlobalDefaults(nextGlobals);
       setProviders(providerList);
       setCustomProviders(customProviderList);
 
       const project = projectRes.project as unknown as Record<string, unknown>;
       const vb = (project.video_backend as string | undefined) ?? "";
-      // Read T2I/I2I split fields; lazy-upgrade in project_manager populates both from legacy image_backend
+      const vpi2v = (project.video_provider_i2v as string | undefined) ?? "";
+      const vpr2v = (project.video_provider_r2v as string | undefined) ?? "";
+      const ibDefault = (project.default_image_backend as string | undefined) ?? "";
       const ibt2i = (project.image_provider_t2i as string | undefined) ?? "";
       const ibi2i = (project.image_provider_i2i as string | undefined) ?? "";
       const rawAudio = project.video_generate_audio;
@@ -214,6 +233,9 @@ export function ProjectSettingsPage() {
       const dd = project.default_duration != null ? (project.default_duration as number) : null;
 
       setVideoBackend(vb);
+      setVideoProviderI2V(vpi2v);
+      setVideoProviderR2V(vpr2v);
+      setImageBackendDefault(ibDefault);
       setImageBackendT2I(ibt2i);
       setImageBackendI2I(ibi2i);
       setAudioOverride(ao);
@@ -229,23 +251,23 @@ export function ProjectSettingsPage() {
       setProjectTitle(typeof project.title === "string" ? project.title : "");
       setContentMode(typeof project.content_mode === "string" ? project.content_mode : "narration");
 
-      // model_settings 的 key 以 effective backend（override ‖ global default）读写，
-      // 与 handleSave 保持一致；legacy video_model_settings 作为旧项目兼容回退。
-      const defaultVideo = configRes.settings?.default_video_backend ?? "";
-      const defaultImageT2I =
-        configRes.settings?.default_image_backend_t2i ||
-        configRes.settings?.default_image_backend ||
-        "";
-      const effectiveVb = vb || defaultVideo;
-      const effectiveIb = ibt2i || defaultImageT2I; // T2I treated as canonical for resolution
+      // model_settings 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与
+      // handleSave 一字不差——后端 resolve_resolution 就是按执行模型查这张表，键位对不上
+      // 用户选的分辨率会被静默忽略。读侧另有一条兼容回退：视频回落 legacy video_model_settings。
+      const executingVb = executingVideoModel(
+        { videoBackend: vb, videoProviderI2V: vpi2v, videoProviderR2V: vpr2v },
+        nextGlobals,
+        gm === "reference_video",
+      );
+      const executingIb = executingImageModel({ imageBackendDefault: ibDefault, imageBackendT2I: ibt2i }, nextGlobals);
       const ms = (project.model_settings ?? {}) as Record<string, { resolution: string | null }>;
       const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
-      const vModelId = effectiveVb && effectiveVb.includes("/") ? effectiveVb.split("/")[1] : effectiveVb;
+      const vModelId = executingVb && executingVb.includes("/") ? executingVb.split("/")[1] : executingVb;
       const vRes: string | null =
-        (effectiveVb ? (ms[effectiveVb]?.resolution ?? null) : null) ||
+        (executingVb ? (ms[executingVb]?.resolution ?? null) : null) ||
         (vModelId ? (legacyVideo[vModelId]?.resolution ?? null) : null) ||
         null;
-      const iRes = effectiveIb ? (ms[effectiveIb]?.resolution ?? null) : null;
+      const iRes: string | null = executingIb ? (ms[executingIb]?.resolution ?? null) : null;
       setVideoResolution(vRes);
       setImageResolution(iRes);
       setModelSettings(ms);
@@ -254,7 +276,9 @@ export function ProjectSettingsPage() {
       setStyleValue(derivedStyle);
       initialStyleRef.current = derivedStyle;
       initialRef.current = {
-        videoBackend: vb, imageBackendT2I: ibt2i, imageBackendI2I: ibi2i, audioOverride: ao,
+        videoBackend: vb, videoProviderI2V: vpi2v, videoProviderR2V: vpr2v,
+        imageBackendDefault: ibDefault, imageBackendT2I: ibt2i, imageBackendI2I: ibi2i,
+        audioOverride: ao,
         audioBackend: ab, narrationVoice: nv, narrationSpeed: ns,
         textDefault: td, textSimple: tsi, textComplex: tcx,
         aspectRatio: ar, generationMode: gm, defaultDuration: dd,
@@ -298,6 +322,9 @@ export function ProjectSettingsPage() {
 
   const isDirty =
     videoBackend !== initialRef.current.videoBackend ||
+    videoProviderI2V !== initialRef.current.videoProviderI2V ||
+    videoProviderR2V !== initialRef.current.videoProviderR2V ||
+    imageBackendDefault !== initialRef.current.imageBackendDefault ||
     imageBackendT2I !== initialRef.current.imageBackendT2I ||
     imageBackendI2I !== initialRef.current.imageBackendI2I ||
     audioOverride !== initialRef.current.audioOverride ||
@@ -373,6 +400,32 @@ export function ProjectSettingsPage() {
     }
   }, [styleValue, projectName, t]);
 
+  // 生成模式决定视频走哪条生成路径，两条路径按用途指定了不同模型时它会换掉执行模型。
+  // 分辨率只由模型决定，模型没换就不动；时长还受参考图路径影响——同一个模型走参考图时
+  // 可选时长可能被收窄到单一取值，故换模式一律重算，不能因为模型没变就跳过。
+  const handleGenerationModeChange = useCallback(
+    (next: GenerationMode) => {
+      setGenerationMode(next);
+      const layers = { videoBackend, videoProviderI2V, videoProviderR2V };
+      const usesReferenceImages = next === "reference_video";
+      const before = executingVideoModel(layers, globalDefaults, generationMode === "reference_video");
+      const after = executingVideoModel(layers, globalDefaults, usesReferenceImages);
+      const modelChanged = before !== after;
+      if (modelChanged) setVideoResolution(null);
+      const nextDurations = catalogDurations(providers, customProviders, after, {
+        videoResolution: modelChanged ? null : videoResolution,
+        usesReferenceImages,
+      });
+      if (defaultDuration !== null && !nextDurations?.includes(defaultDuration)) {
+        setDefaultDuration(null);
+      }
+    },
+    [
+      generationMode, videoBackend, videoProviderI2V, videoProviderR2V,
+      globalDefaults, providers, customProviders, defaultDuration, videoResolution,
+    ],
+  );
+
   const handleClearStyle = useCallback(() => {
     if (!styleValue) return;
     setStyleValue({
@@ -386,22 +439,29 @@ export function ProjectSettingsPage() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      // resolution 的 key 用 effective backend（override ‖ global default），
-      // 否则"跟随全局默认"路径下用户选的分辨率不会被写入。
+      // resolution 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与读侧一致；
+      // 后端按执行模型查这张表，键位对不上分辨率会被静默忽略。
       // 音色与后端 .strip() 对齐：保存时去首尾空白，避免本地基线带空格而磁盘值不带导致 isDirty 误报
       const trimmedVoice = narrationVoice.trim();
-      const effectiveVideo = videoBackend || globalDefaults.video || "";
-      const effectiveImageT2I = imageBackendT2I || globalDefaults.imageT2I || "";
+      const executingVideo = executingVideoModel(
+        { videoBackend, videoProviderI2V, videoProviderR2V },
+        globalDefaults,
+        generationMode === "reference_video",
+      );
+      const executingImage = executingImageModel({ imageBackendDefault, imageBackendT2I }, globalDefaults);
       const newModelSettings: Record<string, { resolution: string | null }> = { ...modelSettings };
-      if (effectiveVideo) {
-        newModelSettings[effectiveVideo] = { resolution: videoResolution };
+      if (executingVideo) {
+        newModelSettings[executingVideo] = { resolution: videoResolution };
       }
-      if (effectiveImageT2I) {
-        newModelSettings[effectiveImageT2I] = { resolution: imageResolution };
+      if (executingImage) {
+        newModelSettings[executingImage] = { resolution: imageResolution };
       }
 
       await API.updateProject(projectName, {
         video_backend: videoBackend || null,
+        video_provider_i2v: videoProviderI2V || null,
+        video_provider_r2v: videoProviderR2V || null,
+        default_image_backend: imageBackendDefault || null,
         image_provider_t2i: imageBackendT2I || null,
         image_provider_i2i: imageBackendI2I || null,
         video_generate_audio: audioOverride,
@@ -420,7 +480,8 @@ export function ProjectSettingsPage() {
       setModelSettings(newModelSettings);
       setNarrationVoice(trimmedVoice);
       initialRef.current = {
-        videoBackend, imageBackendT2I, imageBackendI2I, audioOverride,
+        videoBackend, videoProviderI2V, videoProviderR2V,
+        imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride,
         audioBackend, narrationVoice: trimmedVoice, narrationSpeed,
         textDefault, textSimple, textComplex,
         aspectRatio, generationMode, defaultDuration,
@@ -435,7 +496,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textDefault, textSimple, textComplex, aspectRatio, generationMode, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults.video, globalDefaults.imageT2I]);
+  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textDefault, textSimple, textComplex, aspectRatio, generationMode, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults]);
 
   return (
     <div
@@ -554,6 +615,9 @@ export function ProjectSettingsPage() {
                   projectName={projectName}
                   value={{
                     videoBackend,
+                    videoProviderI2V,
+                    videoProviderR2V,
+                    imageBackendDefault,
                     imageBackendT2I,
                     imageBackendI2I,
                     textBackendDefault: textDefault,
@@ -565,6 +629,9 @@ export function ProjectSettingsPage() {
                   }}
                   onChange={(next) => {
                     setVideoBackend(next.videoBackend);
+                    setVideoProviderI2V(next.videoProviderI2V);
+                    setVideoProviderR2V(next.videoProviderR2V);
+                    setImageBackendDefault(next.imageBackendDefault);
                     setImageBackendT2I(next.imageBackendT2I);
                     setImageBackendI2I(next.imageBackendI2I);
                     setTextDefault(next.textBackendDefault);
@@ -582,13 +649,17 @@ export function ProjectSettingsPage() {
                     textBackends: options.text_backends,
                     providerNames: allProviderNames,
                   }}
+                  candidates={candidates}
                   globalDefaults={{
                     video: globalDefaults.video,
-                    imageT2I: globalDefaults.imageT2I ?? "",
-                    imageI2I: globalDefaults.imageI2I ?? "",
-                    textDefault: globalDefaults.textDefault ?? "",
-                    textSimple: globalDefaults.textSimple ?? "",
-                    textComplex: globalDefaults.textComplex ?? "",
+                    videoI2V: globalDefaults.videoI2V,
+                    videoR2V: globalDefaults.videoR2V,
+                    image: globalDefaults.image,
+                    imageT2I: globalDefaults.imageT2I,
+                    imageI2I: globalDefaults.imageI2I,
+                    textDefault: globalDefaults.textDefault,
+                    textSimple: globalDefaults.textSimple,
+                    textComplex: globalDefaults.textComplex,
                   }}
                   videoGenerateAudio={audioOverride}
                   onVideoGenerateAudioChange={setAudioOverride}
@@ -649,7 +720,7 @@ export function ProjectSettingsPage() {
                   </legend>
                   <GenerationModeSelector
                     value={generationMode}
-                    onChange={setGenerationMode}
+                    onChange={handleGenerationModeChange}
                     disabledModes={contentMode === "ad" ? ["grid"] : undefined}
                   />
                 </fieldset>

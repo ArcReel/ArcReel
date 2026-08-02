@@ -141,8 +141,7 @@ describe("CreateProjectModal", () => {
         generation_mode: "storyboard",
         style_template_id: "live_premium_drama",
         video_backend: null,
-        image_provider_t2i: null,
-        image_provider_i2i: null,
+        default_image_backend: null,
         default_duration: null,
       })
     );
@@ -160,6 +159,66 @@ describe("CreateProjectModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /上一步/ }));
     // Back on step 1, title preserved
     expect(screen.getByRole("textbox")).toHaveValue("demo");
+  });
+
+  it("revalidates duration and resolution when step 1 switches the executing video model", async () => {
+    // 全局给两条视频路径指定了不同模型时，改生成模式即换执行模型：时长与分辨率都是按前一个
+    // 模型选的，不清掉会被写到新模型名下
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...mockSysConfig,
+      settings: {
+        ...mockSysConfig.settings,
+        default_video_backend_i2v: "gemini-aistudio/veo-3",
+        default_video_backend_r2v: "ark/seedance",
+      },
+    } as never);
+    vi.spyOn(API, "getProviders").mockResolvedValue({
+      providers: [
+        {
+          id: "gemini-aistudio", display_name: "Gemini AI Studio", description: "", status: "ready" as const,
+          media_types: ["video", "image", "text"], capabilities: [], configured_keys: [], missing_keys: [],
+          models: {
+            "veo-3": {
+              display_name: "veo-3", media_type: "video", capabilities: [], default: false,
+              supported_durations: [4, 6, 8], duration_resolution_constraints: {},
+              resolutions: ["720p", "1080p"],
+            },
+          },
+        },
+        {
+          id: "ark", display_name: "Ark", description: "", status: "ready" as const,
+          media_types: ["video"], capabilities: [], configured_keys: [], missing_keys: [],
+          models: {
+            seedance: {
+              display_name: "seedance", media_type: "video", capabilities: [], default: false,
+              supported_durations: [5, 10], duration_resolution_constraints: {},
+              resolutions: ["720p"],
+            },
+          },
+        },
+      ],
+    } as never);
+
+    render(<CreateProjectModal />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "demo" } });
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    // 第二步按 i2v 执行模型（veo-3）列时长与分辨率
+    fireEvent.click(await screen.findByRole("radio", { name: "4 秒" }));
+    fireEvent.change(screen.getByRole("combobox", { name: /分辨率/ }), { target: { value: "1080p" } });
+    fireEvent.click(screen.getByRole("button", { name: /上一步/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /参考生视频/ }));
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /下一步/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /创建项目/ }));
+    // 执行模型换成 seedance：4 秒不在其支持集内、1080p 也不是它的分辨率，两者都不跟进载荷
+    await waitFor(() =>
+      expect(API.createProject).toHaveBeenCalledWith(
+        expect.objectContaining({ generation_mode: "reference_video", default_duration: null }),
+      ),
+    );
+    const payload = vi.mocked(API.createProject).mock.calls[0][0] as { model_settings?: Record<string, unknown> };
+    expect(payload.model_settings).toBeUndefined();
   });
 
   it("shows error toast and stays on step 3 when createProject fails", async () => {

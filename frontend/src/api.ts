@@ -26,6 +26,7 @@ import type {
   ProjectDeletedPayload,
   GetSystemConfigResponse,
   GetSystemVersionResponse,
+  ModelCandidatesResponse,
   OnboardingStatus,
   SystemConfigPatch,
   ApiKeyInfo,
@@ -227,8 +228,8 @@ export interface CreateProjectPayload {
   style_template_id?: string | null;
   video_backend?: string | null;
   image_backend?: string | null;
-  image_provider_t2i?: string | null;
-  image_provider_i2i?: string | null;
+  /** 项目默认图片模型。创建向导只暴露默认层（docs/adr/0054），能力桶留给项目设置页。 */
+  default_image_backend?: string | null;
   text_backend_simple?: string | null;
   text_backend_complex?: string | null;
   default_text_backend?: string | null;
@@ -436,6 +437,14 @@ class API {
 
   static async getSystemConfig(): Promise<GetSystemConfigResponse> {
     return this.request("/system/config");
+  }
+
+  /**
+   * 能力桶下拉的候选数据源（docs/adr/0054）：默认层全量 + 每个桶按能力过滤后的模型列表。
+   * 与 getSystemConfig 的 options 同口径（同样剔除 hidden 模型），过滤只加在桶层。
+   */
+  static async getModelCandidates(): Promise<ModelCandidatesResponse> {
+    return this.request("/system/config/model-candidates");
   }
 
   static async getSystemVersion(): Promise<GetSystemVersionResponse> {
