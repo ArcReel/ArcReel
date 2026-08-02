@@ -856,11 +856,10 @@ class ConfigResolver:
     ) -> ProviderModel:
         """payload 优先解析图片 ProviderModel，无 payload 时走四级骨架。
 
-        payload 层保留 ``payload>project>global`` 的规范骨架，当前服务于部署时队列里
-        历史任务（携带 ``image_provider_<cap>`` 或旧 ``image_provider``/``image_model``）的排空，
-        并作为未来"单请求显式覆盖"的落点。payload provider 须是已知 provider（见
-        ``_trusted_payload_provider``），否则不予信任、回退骨架（``_resolve_layered_backend``，
-        键位见 ``_IMAGE_LAYERED_KEYS``；图片当前无项目默认层）。
+        payload 层保留 ``payload>project>global`` 的规范骨架，接受 ``image_provider_<cap>``
+        与旧的 ``image_provider`` / ``image_model`` 键——队列里按旧格式序列化的任务据此解析。
+        payload provider 须是已知 provider（见 ``_trusted_payload_provider``），否则不予信任、
+        回退骨架（``_resolve_layered_backend``，键位见 ``_IMAGE_LAYERED_KEYS``；图片无项目默认层）。
         """
         cap_key = f"image_provider_{capability}"
         if payload:

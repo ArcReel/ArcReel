@@ -4,7 +4,7 @@ status: accepted
 
 # 图片 / 视频模型按能力桶配置：单一默认 + 可选能力覆盖
 
-部分视频模型只具备部分能力（仅 i2v、无参考图槽位），单一「视频模型」配置项表达不了这一约束，选错模型的项目要到参考生视频路径执行期才失败。决定图片与视频统一为「**单一默认模型 + 按 capability 的可选覆盖桶**」：图片 t2i / i2i、视频 i2v / r2v，解析顺序与文本档位（`docs/adr/0051`）同构、项目优先——项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断，空桶回退默认层。桶与调用点的映射固定在代码里：图片按执行时请求形态归桶（见 `docs/adr/0001`），视频按生效 generation_mode 归桶（剧集覆盖优先于项目，同 `project_manager.effective_mode`）——图生视频 / 宫格 → i2v；参考生视频 → r2v，**含无参考图的退化镜头**。图片两槽的配置形态由本 ADR 收敛，`docs/adr/0015` 的端点三拆与运行时 gating 不受影响。
+部分视频模型只具备部分能力（仅 i2v、无参考图槽位），单一「视频模型」配置项表达不了这一约束，选错模型的项目要到参考生视频路径执行期才失败。决定图片与视频统一为「**单一默认模型 + 按 capability 的可选覆盖桶**」：图片 t2i / i2i、视频 i2v / r2v，解析顺序与文本档位（`docs/adr/0051`）同构、项目优先——项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断，空桶回退默认层。桶与调用点的映射固定在代码里：图片按执行时请求形态归桶（见 `docs/adr/0001`），视频按实际执行路径归桶，与生成侧同口径：ad 剧本不打 generation_mode 戳，取生效 generation_mode（剧集覆盖优先于项目，同 `project_manager.effective_mode`）；narration / drama 取剧本自身的 generation_mode 戳（`script_models.is_reference_script`），项目 / 集事后改回 storyboard 而剧本仍留 reference_video 戳时按剧本戳走。图生视频 / 宫格 → i2v；参考生视频 → r2v，**含无参考图的退化镜头**。图片两槽的配置形态由本 ADR 收敛，`docs/adr/0015` 的端点三拆与运行时 gating 不受影响。
 
 ## 明确不采用
 
@@ -17,6 +17,6 @@ status: accepted
 ## Consequences
 
 - 能力真相源维持既有声明、不新增副本：两桶都取 backend `VideoCapabilities`——i2v 看 `first_frame`（分镜 / 宫格路径由首帧驱动），r2v 看 `max_reference_images > 0`；自定义供应商 = endpoint 系统判定 ⊕ 模型级 `capability_overrides` 合成。registry `ModelInfo.capabilities` 的 `image_to_video` 不区分这两条路径（`happyhorse-1.0-r2v` 声明该位、backend `first_frame=False`），不作桶候选的过滤依据。桶下拉据此预过滤候选；默认层下拉不过滤——默认层不承诺任何能力。
-- 全部读侧（`video_capabilities` 查询与 agent 工具、费用估算、时长 / 分辨率约束收窄）与执行侧同口径：按生效 generation_mode 定桶后走同一解析函数，读侧因此需要能定出生效模式的剧集 / 剧本上下文，不只取项目层字段。切换 generation_mode 可能改变能力查询结果，由既有的生成时校验 / 收窄兜住，不新增机制。
+- 全部读侧（`video_capabilities` 查询与 agent 工具、费用估算、时长 / 分辨率约束收窄）与执行侧同口径：按上述口径定桶后走同一解析函数，读侧因此需要剧集与剧本上下文（费用估算已按同一口径分 ad 与 narration / drama 两支），不只取项目层字段。切换 generation_mode 可能改变能力查询结果，由既有的生成时校验 / 收窄兜住，不新增机制。
 - 图片侧空桶语义是「回退默认层」，不存在「空 = 跟随自动推断」的读法；存量配置的键组合在迁移中穷举处置。
 - 设置 UI 三媒体（文本档位 / 图片桶 / 视频桶）共用同一交互形态：默认主下拉常驻 + 折叠的能力细分区，未配置桶的占位穿透演算到最终生效模型并标注各桶覆盖的调用点（zh / en / vi 同步）；创建向导只暴露默认层。
