@@ -1890,12 +1890,24 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: T
 
 
 @pytest.mark.unit
-async def test_get_video_capabilities_skips_tiers_off_reference_path(fake_ctx: ToolContext, monkeypatch) -> None:
-    """非参考路径项目不补该字段：逐 unit 引用状态在其它路径上没有意义。"""
+@pytest.mark.parametrize(
+    ("generation_mode", "content_mode"),
+    [("storyboard", "drama"), ("reference_video", "ad")],
+)
+async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
+    fake_ctx: ToolContext, monkeypatch, generation_mode: str, content_mode: str
+) -> None:
+    """非剧集参考路径不补该字段：其它路径没有逐 unit 引用状态，ad 镜头时长也不受档位枚举管辖。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def fake_resolve(_project):
-        return {"provider_id": "fake", "supported_durations": [4, 6, 8], "generation_mode": "storyboard"}
+        return {
+            "provider_id": "gemini-aistudio",
+            "model": "veo-3.1-generate-preview",
+            "supported_durations": [4, 6, 8],
+            "generation_mode": generation_mode,
+            "content_mode": content_mode,
+        }
 
     monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
     out = await _call(get_video_capabilities_tool(fake_ctx), {})

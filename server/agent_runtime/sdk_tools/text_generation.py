@@ -132,8 +132,11 @@ def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, A
     ``supported_durations`` 是型号声明的全集，不含「分辨率↔时长」「参考图↔时长」两条联动约束。
     参考路径的 unit 时长就是发给供应商的那个值，手工改 step1 时照全集取值会写出执行期申请不到
     的秒数——故把服务端拆分工具用的同两套档位一并返回，让改写方与生成方对同一份数字。
+
+    ad 例外：该路径的 unit 是从 ``shots[]`` 派生的轻量索引、镜头时长不受档位枚举管辖，返回这
+    两套档位只会诱导按剧集路径的口径去改 ad 镜头。
     """
-    if payload.get("generation_mode") != "reference_video":
+    if payload.get("generation_mode") != "reference_video" or payload.get("content_mode") == "ad":
         return
     durations = [int(d) for d in payload.get("supported_durations") or []]
     if not durations:
