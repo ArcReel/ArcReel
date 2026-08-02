@@ -1628,7 +1628,7 @@ class TestCostEstimationService:
 
         # 取档解析走全局 session factory（真实部署的库），测试库换成 db_factory 后照常做真实
         # 桶解析——被观察的是它拿到哪个模型的档位，不是它怎么连库。
-        async def _caps_from_test_db(project, *, degraded_to):
+        async def _caps_from_test_db(project, *, degraded_to, episode=None):
             return await ConfigResolver(db_factory).video_capabilities_for_project(project)
 
         monkeypatch.setattr(reference_video_tasks, "project_video_caps", _caps_from_test_db)

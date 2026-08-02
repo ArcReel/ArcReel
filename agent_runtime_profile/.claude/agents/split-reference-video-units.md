@@ -35,7 +35,7 @@ description: "参考生视频模式单集视频单元拆分 subagent（reference
 通过 MCP 工具查询：
 
 ```text
-mcp__arcreel__get_video_capabilities({})
+mcp__arcreel__get_video_capabilities({"episode": N})
 ```
 
 解析返回的 JSON，记录：

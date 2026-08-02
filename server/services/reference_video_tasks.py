@@ -18,6 +18,7 @@ from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import get_generation_queue
 from lib.path_safety import safe_exists
+from lib.project_manager import ProjectManager
 from lib.prompt_builders import append_product_fidelity_tail
 from lib.reference_video import assemble_shots_text, assemble_shots_text_for_render
 from lib.reference_video.ad_units import resolve_ad_unit_shots
@@ -254,14 +255,17 @@ class ProjectDurationContext:
     max_duration: int | None = None
 
 
-async def resolve_project_duration_context(project: dict) -> ProjectDurationContext:
-    """一次性解析项目视频能力（档位全集 + 单次生成时长上限 + 分辨率 + provider/model 身份）。
+async def resolve_project_duration_context(project: dict, episode: int | None = None) -> ProjectDurationContext:
+    """一次性解析视频能力（档位全集 + 单次生成时长上限 + 分辨率 + provider/model 身份）。
 
     解析失败按空档位处理（沿用现状放行，不弹确认）；分辨率仅在档位非空时才解析，
     空档位下分辨率约束无意义。``max_duration`` 与 :func:`resolve_max_unit_duration`
     取自同一份能力解析结果，供需要现推分组的调用方复用而不再触发一次 IO。
+
+    ``episode`` 给出集号时按该集生效 ``generation_mode`` 定桶：项目层仍是分镜、该集覆盖为
+    参考生视频时，档位与分辨率取的才是这集实际会执行的那个模型。
     """
-    caps = await project_video_caps(project, degraded_to="时长取档不施加档位约束")
+    caps = await project_video_caps(project, degraded_to="时长取档不施加档位约束", episode=episode)
     durations = tuple(int(d) for d in caps.get("supported_durations") or [])
     provider_id = str(caps.get("provider_id") or "")
     model = caps.get("model")
@@ -345,14 +349,14 @@ async def _project_video_resolution(project: dict, provider_id: str, model_id: s
     return resolution or get_provider_fallback(provider_id)
 
 
-async def resolve_max_unit_duration(project: dict) -> int | None:
-    """解析项目视频后端的单次生成时长上限（秒），供派生分组约束 unit 总长。
+async def resolve_max_unit_duration(project: dict, episode: int | None = None) -> int | None:
+    """解析该集视频后端的单次生成时长上限（秒），供派生分组约束 unit 总长。
 
     单一真相源与 executor 取档同口径（``video_capabilities_for_project`` 的
     model 粒度 ``max_duration``）；解析失败返回 None——分组退化为仅按镜头数
     切分，超长 unit 交由执行层取档 + warning 兜底，不阻塞派生。
     """
-    caps = await project_video_caps(project, degraded_to="派生分组不施加时长上限")
+    caps = await project_video_caps(project, degraded_to="派生分组不施加时长上限", episode=episode)
     max_duration = caps.get("max_duration")
     return int(max_duration) if max_duration else None
 
@@ -536,9 +540,12 @@ async def execute_reference_video_task(
             raise ValueError(f"unit not found: {resource_id}")
         # 索引悬空（镜头被删/改 ID 后未重新派生）在此 fail-loud，提示重新派生
         ad_shots = resolve_ad_unit_shots(script, unit) if is_ad else None
-        return project, project_path, unit, ad_shots
+        # 集号供能力解析按该集生效 generation_mode 取值，与入队侧共用同一份解析（剧本 episode
+        # 字段优先，缺则文件名 episodeN）；两者都解析不出时传 None，能力回落到项目级口径。
+        script_episode = ProjectManager.resolve_episode_from_script_or_none(script, script_file)
+        return project, project_path, unit, ad_shots, script_episode
 
-    project, project_path, unit, ad_shots = await asyncio.to_thread(_load)
+    project, project_path, unit, ad_shots, episode = await asyncio.to_thread(_load)
     is_ad = ad_shots is not None
 
     # 2. 解析 references（narration/drama 缺图直接失败；ad 软口径跳过 + warning）
@@ -557,7 +564,12 @@ async def execute_reference_video_task(
     #    （docs/adr/0049）——executor 不再触碰 MediaGenerator 私有属性、不再手工重建
     #    registry provider_id。
     ctx = await resolve_generation_context(
-        project_name, payload, project=project, user_id=user_id, video=VideoLaneRequest(capability="r2v")
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        episode=episode,
+        video=VideoLaneRequest(capability="r2v"),
     )
     generator = ctx.generator
     video = ctx.video

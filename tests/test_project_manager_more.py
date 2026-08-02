@@ -837,9 +837,27 @@ class TestResolveEpisodeFromScript:
         ep = ProjectManager.resolve_episode_from_script({"episode": "1"}, "episode_9.json")
         assert ep == 9
 
+    def test_ignores_bool_episode_field(self):
+        """bool 是 int 子类：episode: true 当作字段缺失走文件名，不静默算成第 1 集。"""
+        assert ProjectManager.resolve_episode_from_script({"episode": True}, "episode_9.json") == 9
+
     def test_raises_when_unresolvable(self):
         with pytest.raises(ValueError, match="无法确定集号"):
             ProjectManager.resolve_episode_from_script({}, "random_name.json")
+
+
+class TestResolveEpisodeFromScriptOrNone:
+    """能力解析用的软口径：与硬口径共用同一份解析，只把解析不出降为 None。"""
+
+    def test_shares_resolution_with_strict_variant(self):
+        assert ProjectManager.resolve_episode_from_script_or_none({"episode": 7}, "episode_9.json") == 7
+        # 字段缺失回落文件名——只认剧本字段的话，这类剧本会按第 3 集入队却按项目级口径解析能力。
+        assert ProjectManager.resolve_episode_from_script_or_none({}, "episode_3.json") == 3
+        assert ProjectManager.resolve_episode_from_script_or_none({"episode": True}, "episode_3.json") == 3
+
+    def test_returns_none_instead_of_raising(self):
+        """解析不出时能力回落项目级，而不是让一次能力解析打断整条入队 / 执行链路。"""
+        assert ProjectManager.resolve_episode_from_script_or_none({}, "random_name.json") is None
 
 
 class TestScenePropLifecycle:

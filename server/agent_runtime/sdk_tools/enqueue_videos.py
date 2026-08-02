@@ -84,6 +84,7 @@ def _duration_confirmation_response(pending: DurationConfirmationPending, log: l
 async def _pending_duration_confirmations(
     *,
     project: dict[str, Any],
+    episode: int | None,
     units: list[dict[str, Any]],
     skip_ids: set[str],
     spec_for: Callable[[dict[str, Any]], TaskSpec],
@@ -115,7 +116,7 @@ async def _pending_duration_confirmations(
         except ValueError:
             continue
         if ctx is None:
-            ctx = await resolve_project_duration_context(project)
+            ctx = await resolve_project_duration_context(project, episode)
         try:
             slot = precheck_unit(ctx, unit, ad_shots)
         except ValueError:
@@ -163,16 +164,19 @@ def _get_video_prompt(
     return prompt
 
 
-async def _resolve_voice_characters(ctx: ToolContext, content_mode: str) -> dict[str, Any] | None:
+async def _resolve_voice_characters(
+    ctx: ToolContext, content_mode: str, episode: int | None = None
+) -> dict[str, Any] | None:
     """供 Voice_Profiles 注入的角色资产；``None`` 表示不注入。
 
-    非 drama 直接返回 None（无需为 narration/ad 项目多付一次项目视频能力解析），drama 再按
-    声音一致性档位排除 C 类（真无声）模型。
+    非 drama 直接返回 None（无需为 narration/ad 项目多付一次视频能力解析），drama 再按
+    声音一致性档位排除 C 类（真无声）模型。``episode`` 给出集号时按该集生效
+    ``generation_mode`` 解析声音一致性。
     """
     if content_mode != "drama":
         return None
     project = ctx.pm.load_project(ctx.project_name)
-    if await resolve_project_voice_consistency(project) == "none":
+    if await resolve_project_voice_consistency(project, episode) == "none":
         return None
     return project.get("characters") or {}
 
@@ -519,6 +523,7 @@ async def _generate_reference_units(
     if not confirm_duration:
         pending = await _pending_duration_confirmations(
             project=project,
+            episode=episode,
             units=units,
             skip_ids=set(already_done),
             spec_for=spec_for,
@@ -603,7 +608,12 @@ async def _run_ad_reference_episode(
     的 unit 保留 generated_assets，已有产物经磁盘扫描跳过重复入队。
     """
     project = ctx.pm.load_project(ctx.project_name)
-    max_unit_duration = await resolve_max_unit_duration(project)
+    # 集号取剧本自报字段（缺失才回落文件名），与锁内 `_sync` 是同一次 `resolve_episode_from_script`：
+    # 能力解析与分组派生因此不会各拿一个集号，覆盖集的能力不会静默回落项目级。
+    episode_for_caps = ProjectManager.resolve_episode_from_script(
+        ctx.pm.load_script(ctx.project_name, script_filename), script_filename
+    )
+    max_unit_duration = await resolve_max_unit_duration(project, episode_for_caps)
 
     def _sync() -> tuple[dict[str, Any], list[dict[str, Any]], int]:
         with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
@@ -711,7 +721,9 @@ def generate_video_episode_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(items, id_field, completed, videos_dir)
-            voice_characters = await _resolve_voice_characters(ctx, content_mode)
+            voice_characters = await _resolve_voice_characters(
+                ctx, content_mode, ProjectManager.resolve_episode_from_script_or_none(script, script_filename)
+            )
             specs, order_map = _build_video_specs(
                 items=items,
                 id_field=id_field,
@@ -821,7 +833,9 @@ def generate_video_scene_tool(ctx: ToolContext):
                 raise FileNotFoundError(f"分镜图不存在: {storyboard_path}")
 
             content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
-            voice_characters = await _resolve_voice_characters(ctx, content_mode)
+            voice_characters = await _resolve_voice_characters(
+                ctx, content_mode, ProjectManager.resolve_episode_from_script_or_none(script, script_filename)
+            )
             prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
             # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
             # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
@@ -906,7 +920,9 @@ def generate_video_all_tool(ctx: ToolContext):
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
 
-            voice_characters = await _resolve_voice_characters(ctx, content_mode)
+            voice_characters = await _resolve_voice_characters(
+                ctx, content_mode, ProjectManager.resolve_episode_from_script_or_none(script, script_filename)
+            )
             specs, _order_map = _build_video_specs(
                 items=pending,
                 id_field=id_field,
@@ -1042,7 +1058,9 @@ def generate_video_selected_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(selected, id_field, completed, videos_dir)
-            voice_characters = await _resolve_voice_characters(ctx, content_mode)
+            voice_characters = await _resolve_voice_characters(
+                ctx, content_mode, ProjectManager.resolve_episode_from_script_or_none(script, script_filename)
+            )
             specs, order_map = _build_video_specs(
                 items=selected,
                 id_field=id_field,

@@ -382,7 +382,7 @@ class TestReferenceVideoGateFlow:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video", supported_durations=[4, 6, 8])
         svc = ScriptReviewService(pm)
 
-        async def _fake_caps(_project):
+        async def _fake_caps(_project, _episode=None):
             return {
                 "provider_id": "gemini-aistudio",
                 "model": "veo-3.1-generate-preview",
@@ -408,7 +408,7 @@ class TestReferenceVideoGateFlow:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
 
-        async def _raise(_project):
+        async def _raise(_project, _episode=None):
             raise RuntimeError("video_capabilities backend unreachable")
 
         monkeypatch.setattr(mod, "resolve_video_caps", _raise)
@@ -424,7 +424,7 @@ class TestReferenceVideoGateFlow:
         pm = _make_project(tmp_path, "drama")  # generation_mode 缺省，非 reference_video
         svc = ScriptReviewService(pm)
 
-        async def _fake_caps(_project):
+        async def _fake_caps(_project, _episode=None):
             return {"provider_id": "custom-acme", "model": "acme-video", "supported_durations": [5, 10]}
 
         monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
@@ -442,7 +442,7 @@ class TestReferenceVideoGateFlow:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
 
-        async def _fake_caps(_project):
+        async def _fake_caps(_project, _episode=None):
             return {"provider_id": "custom-acme", "model": "acme-video", "supported_durations": [5, 10]}
 
         monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)

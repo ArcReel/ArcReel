@@ -252,7 +252,7 @@ async def derive_units(
     project, _script, _sf = _load_episode_script(project_name, episode, _t)
     _require_ad_project(project, True, _t)
     # 供应商时长上限在锁外解析（异步 I/O 不进项目锁临界区）
-    max_unit_duration = await resolve_max_unit_duration(project)
+    max_unit_duration = await resolve_max_unit_duration(project, episode)
 
     with _locked_episode_script(project_name, _episode_script_resolver(episode, _t, require_ad=True), _t) as script:
         units = sync_ad_reference_units(script, episode=episode, max_unit_duration=max_unit_duration)
@@ -273,7 +273,7 @@ async def add_unit(
     if duration_seconds is None:
         project, _script, _sf = _load_episode_script(project_name, episode, _t)
         duration_seconds = default_unit_duration(
-            await resolve_project_duration_context(project), project, with_references=bool(refs)
+            await resolve_project_duration_context(project, episode), project, with_references=bool(refs)
         )
 
     with _locked_episode_script(
@@ -430,7 +430,7 @@ async def precheck_unit_duration(
         unit = _find_unit(script, unit_id, _t)
         ad_shots = None
 
-    slot = precheck_unit(await resolve_project_duration_context(project), unit, ad_shots)
+    slot = precheck_unit(await resolve_project_duration_context(project, episode), unit, ad_shots)
     return {
         "needs_confirmation": slot.needs_confirmation,
         "script_duration": slot.total_seconds,
@@ -449,11 +449,11 @@ async def preview_script(
     """分镜文稿的读时派生预览：shots / references / utterances + 降级可见性 warning。
 
     只读、不落盘——文稿是唯一真相，utterances 与 references 都是机械派生物。声音相关的
-    三条 warning 依赖项目当前视频后端的能力（``voice_consistency`` 与参考音频段数上限），
+    三条 warning 依赖该集视频后端的能力（``voice_consistency`` 与参考音频段数上限），
     与执行层同一份解析出口；能力解析失败时按 ``soft`` 降级，只是少发这几条提示。
     """
     project, _script, _sf = _load_episode_script(project_name, episode, _t)
-    caps = await project_video_caps(project, degraded_to="解析预览不发声音相关提示")
+    caps = await project_video_caps(project, degraded_to="解析预览不发声音相关提示", episode=episode)
     preview = build_script_preview(
         req.prompt,
         project,

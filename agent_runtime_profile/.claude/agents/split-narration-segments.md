@@ -37,7 +37,7 @@ description: "说书模式单集片段拆分 subagent（narration 模式专用�
 通过 MCP 工具查询：
 
 ```text
-mcp__arcreel__get_video_capabilities({})
+mcp__arcreel__get_video_capabilities({"episode": N})
 ```
 
 解析返回的 JSON，记录：

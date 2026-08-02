@@ -535,15 +535,19 @@ class API {
    * 三级解析（项目 > 系统设置 > 系统默认）后的视频模型能力。
    *
    * `videoBackend`（"provider/model"）用于设置表单里尚未保存的候选模型：不传按已落盘配置
-   * 解析，传了则按该候选模型 × 本项目 generation_mode 解析。
+   * 解析，传了则按该候选模型 × 本项目生效 generation_mode 解析。
+   *
+   * `episode` 用于按集查看的界面：生成模式可被单集覆盖，传集号则能力按该集生效模式解析，
+   * 与执行层同口径；不传只解析到项目级（设置页等无集号上下文的调用）。
    */
   static async getVideoCapabilities(
     name: string,
-    options: { signal?: AbortSignal; videoBackend?: string } = {}
+    options: { signal?: AbortSignal; videoBackend?: string; episode?: number } = {}
   ): Promise<VideoCapabilities> {
-    const qs = options.videoBackend
-      ? `?video_backend=${encodeURIComponent(options.videoBackend)}`
-      : "";
+    const params = new URLSearchParams();
+    if (options.videoBackend) params.set("video_backend", options.videoBackend);
+    if (options.episode !== undefined) params.set("episode", String(options.episode));
+    const qs = params.size > 0 ? `?${params.toString()}` : "";
     return this.request(`/projects/${encodeURIComponent(name)}/video-capabilities${qs}`, {
       signal: options.signal,
     });

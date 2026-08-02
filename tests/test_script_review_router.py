@@ -196,7 +196,7 @@ class TestReferenceVideoRouter:
         (project_path / "source").mkdir(parents=True, exist_ok=True)
         (project_path / "source" / "episode_1.txt").write_text(novel, encoding="utf-8")
 
-        async def _fake_caps(_project):
+        async def _fake_caps(_project, _episode=None):
             return mod.ReferenceSplitCaps(
                 default_duration=4,
                 durations=[4, 6, 8],
@@ -246,7 +246,7 @@ class TestReferenceVideoRouter:
         (project_path / "source").mkdir(parents=True, exist_ok=True)
         (project_path / "source" / "episode_1.txt").write_text("阿离站在屋檐下。", encoding="utf-8")
 
-        async def _fake_caps(_project):
+        async def _fake_caps(_project, _episode=None):
             return mod.ReferenceSplitCaps(
                 default_duration=4,
                 durations=[4, 6, 8],
@@ -431,7 +431,7 @@ class TestReferenceVideoRouter:
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
 
-        async def _fake_caps(_project):
+        async def _fake_caps(_project, _episode=None):
             return {"provider_id": "custom-acme", "model": "acme-video", "supported_durations": [5, 10]}
 
         monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)

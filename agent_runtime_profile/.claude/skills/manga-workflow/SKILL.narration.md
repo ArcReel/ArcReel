@@ -127,7 +127,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 dispatch prompt 通用参数：项目名称、项目路径、集数、本集小说文件路径。
 
 （两个预处理 subagent 会自行读 project.json + 调用
-`mcp__arcreel__get_video_capabilities({})`
+`mcp__arcreel__get_video_capabilities({"episode": N})`
 拿到模型能力与用户偏好；主 agent 不需要预先注入角色/场景/道具列表或
 `supported_durations` / `max_duration` / `max_reference_images` / `default_duration` 等数据。）
 
