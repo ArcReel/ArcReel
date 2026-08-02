@@ -292,6 +292,28 @@ def test_audio_speaker_image_slot_ignores_same_named_scene_or_prop():
     assert {"key": WARN_SPEAKER_AUDIO_NEEDS_IMAGE, "params": {"name": "张三"}} in rendered.warnings
 
 
+def test_audio_speaker_image_slot_and_binding_label_survive_same_named_type_collision():
+    """角色与同名场景/道具的图**都**随请求发出时，两者仍是不同的物理图——name 键的字典若不
+    先按类型过滤，后写入的条目会覆盖先写入的同名条目，导致音频误挂、``<X>@图片N`` 绑定标签
+    也会把两个不同的图误标成同一个编号。"""
+    project = _project(scenes={"张三": {}})
+    text = "镜头1：@[张三] 推门而入。\n@[张三]：{今晚的酒，我请。}"
+    rendered = render_unit_prompt(
+        text,
+        project,
+        # scene「张三」先于 character「张三」出现：若按名字覆盖，name 键会指向 scene 的图 1。
+        _refs(("scene", "张三"), ("character", "张三")),
+        voice_consistency="native",
+        max_reference_audio=3,
+    )
+    assert rendered.audio_speakers == ["张三"]
+    # references[0]=scene 张三, references[1]=character 张三 → 音频须挂 character 的 0-based 下标 1。
+    assert rendered.audio_speaker_reference_index == [1]
+    # 两条绑定标签分别指向各自的位置编号，不因同名互相覆盖。
+    assert "<张三>@图片1" in rendered.prompt
+    assert "<张三>@图片2" in rendered.prompt
+
+
 def test_resolve_reference_audio_paths_only_returns_existing_files_under_refs_audio(tmp_path):
     refs_audio = tmp_path / "characters" / "refs_audio"
     refs_audio.mkdir(parents=True)

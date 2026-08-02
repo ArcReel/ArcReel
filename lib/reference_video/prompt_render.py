@@ -113,11 +113,11 @@ def render_unit_prompt(
     # 只是这次没随请求发图（纯画外角色同理——有主体、无图）。未登记的 mention 才留原文。
     subjects = {ref.name for ref in registered}
 
-    image_no = {ref.name: i for i, ref in enumerate(references, start=1)}
     # 音频只能对齐到「同名且类型也是 character」的图：resolve_references 按
-    # character → scene → prop 的优先级分派，故场景/道具可能与某个角色同名——image_no
-    # 是名字键，会把「这个名字有图」误判成「这个角色有图」。speaker 只能是角色，据此收窄。
-    character_image_names = {ref.name for ref in references if ref.type == "character"}
+    # character → scene → prop 的优先级分派，故场景/道具可能与某个角色同名——名字键的字典
+    # 若不先按类型过滤再建，两个同名的不同类型条目会互相覆盖（dict 同键取最后写入的那条），
+    # 导致编号指向错误的图。先过滤类型再建 name → 序号映射，从根上避免该覆盖。
+    character_image_no = {ref.name: i for i, ref in enumerate(references, start=1) if ref.type == "character"}
 
     characters: dict = project.get(BUCKET_KEY["character"]) or {}
     bindings = derive_voice_bindings(
@@ -128,17 +128,17 @@ def render_unit_prompt(
         model_id=model_id,
         audio_ready=audio_ready,
         require_reference_image=audio_requires_reference_image,
-        speakers_with_reference_image=character_image_names,
+        speakers_with_reference_image=set(character_image_no),
     )
     warnings.extend(bindings.warnings)
 
     audio_no = {name: i for i, name in enumerate(bindings.audio_speakers, start=1)}
     audio_speaker_reference_index = [
-        (image_no[name] - 1) if name in character_image_names else None for name in bindings.audio_speakers
+        (character_image_no[name] - 1) if name in character_image_no else None for name in bindings.audio_speakers
     ]
 
     segments = [
-        _render_segment_one(references, image_no, bindings.speakers, audio_no, characters, voice_consistency),
+        _render_segment_one(references, bindings.speakers, audio_no, characters, voice_consistency),
         _render_segment_two(shots, subjects, characters),
         _render_segment_three(references, style),
     ]
@@ -157,7 +157,6 @@ def _warning_unregistered(name: str) -> dict[str, Any]:
 
 def _render_segment_one(
     references: list[ReferenceResource],
-    image_no: dict[str, int],
     speakers: list[str],
     audio_no: dict[str, int],
     characters: dict,
@@ -168,9 +167,13 @@ def _render_segment_one(
     官方三段论第一段即参考来源声明区（人脸 / 运镜 / 音色参考同位），故音色参考与声音特征
     集中于此，台词行只留统一句式。声明遍历「有台词的已登记角色」而非参考图列表：纯画外角色
     没有参考图（speaker 位不计入参考图派生），但音色声明照常。
+
+    图号按 ``references`` 的位置直接编号（非名字查表）：不同类型的资产允许同名
+    （见 ``render_unit_prompt`` 的 ``character_image_no`` 注释），名字键的字典会把
+    两个同名条目的图号互相覆盖，位置编号天然不受影响。
     """
     lines: list[str] = []
-    bindings = "、".join(f"<{ref.name}>@图片{image_no[ref.name]}" for ref in references)
+    bindings = "、".join(f"<{ref.name}>@图片{i}" for i, ref in enumerate(references, start=1))
     if bindings:
         lines.append(bindings + "。")
 
