@@ -1,4 +1,4 @@
-"""分镜文稿台词规范行的派生与七条降级可见性 warning。"""
+"""分镜文稿台词规范行的派生与降级可见性 warning。"""
 
 import pytest
 
@@ -7,8 +7,8 @@ from lib.reference_video.script_preview import (
     WARN_DIALOGUE_INLINE,
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_MODEL,
-    WARN_SPEAKER_AUDIO_FILE_MISSING,
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
+    WARN_SPEAKER_AUDIO_UNAVAILABLE,
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_UNCLOSED_BRACE,
     WARN_UNREGISTERED_MENTION,
@@ -146,7 +146,7 @@ def test_dialogue_on_shot_header_line_derives_utterance_without_reference():
     assert extract_mentions(text) == []
 
 
-# ---------- 七条 warning ----------
+# ---------- 降级可见性 warning ----------
 
 
 def test_warn_unregistered_mention():
@@ -180,9 +180,9 @@ def test_warn_speaker_without_reference_audio_only_on_native():
     assert keys(soft) == []
 
 
-def test_warn_speaker_audio_file_missing_distinguished_from_unset():
-    """``audio_ready`` 非 None 时，字段有值但文件缺失（不在 audio_ready 内）与字段未设置
-    要发不同的 warning：前者该去检查文件，后者该去角色设置里补音频。"""
+def test_warn_speaker_audio_unavailable_distinguished_from_unset():
+    """``audio_ready`` 非 None 时，字段有值但音频不可用（不在 audio_ready 内）与字段未设置
+    要发不同的 warning：前者字段已填好、该去查它指向的音频，后者该去角色设置里补音频。"""
     text = "镜头1：开场。\n@[张三]：{我来了}\n@[李四]：{你迟到了}"
     preview = build_script_preview(text, PROJECT, voice_consistency="native", max_reference_audio=3)
     bindings = derive_voice_bindings(
@@ -190,9 +190,10 @@ def test_warn_speaker_audio_file_missing_distinguished_from_unset():
         PROJECT["characters"],
         voice_consistency="native",
         max_reference_audio=3,
-        audio_ready=set(),  # 两人字段都有值/无值，但文件系统上一段都不可用
+        # 张三字段有值、李四未设置；audio_ready 为空表示执行层一段都没解析出来。
+        audio_ready=set(),
     )
-    assert {"key": WARN_SPEAKER_AUDIO_FILE_MISSING, "params": {"name": "张三"}} in bindings.warnings
+    assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "张三"}} in bindings.warnings
     assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "李四"}} in bindings.warnings
 
 

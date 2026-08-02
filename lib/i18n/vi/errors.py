@@ -256,8 +256,8 @@ MESSAGES = {
     "ref_warn_speaker_without_audio": (
         "Nhân vật '{name}' chưa đặt âm thanh tham chiếu: giọng của lời thoại sẽ do mô hình tự quyết định"
     ),
-    "ref_warn_speaker_audio_file_missing": (
-        "Nhân vật '{name}' đã đặt âm thanh tham chiếu nhưng tệp âm thanh bị thiếu: "
+    "ref_warn_speaker_audio_unavailable": (
+        "Nhân vật '{name}' đã đặt âm thanh tham chiếu nhưng hiện không dùng được: "
         "giọng của lời thoại sẽ do mô hình tự quyết định"
     ),
     "ref_warn_reference_audio_overflow": (
