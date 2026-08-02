@@ -349,7 +349,6 @@ async def get_system_config(
 
 @router.get("/system/config/model-candidates", response_model=ModelCandidatesResponse)
 async def get_model_candidates(
-    _user: CurrentUser,
     svc: Annotated[ConfigService, Depends(get_config_service)],
     session: AsyncSession = Depends(get_async_session),
 ) -> ModelCandidatesResponse:
