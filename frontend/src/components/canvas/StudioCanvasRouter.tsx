@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
-import { Route, Switch, Redirect, useRoute } from "wouter";
+import { Route, Switch, Redirect } from "wouter";
 import {
   WORKSPACE_ROUTE_LOREBOOK,
   WORKSPACE_ROUTE_CLUES,
@@ -9,7 +9,6 @@ import {
   WORKSPACE_ROUTE_SCENES,
   WORKSPACE_ROUTE_PROPS,
   WORKSPACE_ROUTE_PRODUCTS,
-  WORKSPACE_ROUTE_EPISODES,
 } from "@/app-routes";
 import { useTranslation } from "react-i18next";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -20,6 +19,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useActiveResourceIds } from "@/stores/tasks-store";
+import { useCurrentEpisode, EPISODE_ROUTE_PATH } from "@/hooks/useCurrentEpisode";
 import { TimelineCanvas } from "./timeline/TimelineCanvas";
 import { OverviewCanvas } from "./OverviewCanvas";
 import { SourceFileViewer } from "./SourceFileViewer";
@@ -142,13 +142,9 @@ export function StudioCanvasRouter() {
   // 是按集的值，而能力查询只在组件顶层做一次。此处只取不随上下文变化的两项。
   //
   // 服务端侧则把当前集号一并带上：同一个覆盖也让 voiceConsistency / firstFrame 等二维派生值
-  // 按该集生效模式解析，与执行层同口径。集号在顶层从路由取（下方 Route 的同一份 path），
-  // 能力查询因此仍只发生一次、随切集重取。
-  const [, episodeRouteParams] = useRoute<{ episodeId: string }>(
-    `/${WORKSPACE_ROUTE_EPISODES}/:episodeId`,
-  );
-  const routeEpisode = episodeRouteParams ? parseInt(episodeRouteParams.episodeId, 10) : NaN;
-  const currentEpisode = Number.isFinite(routeEpisode) ? routeEpisode : undefined;
+  // 按该集生效模式解析，与执行层同口径。集号在顶层从路由取（`useCurrentEpisode` 与下方 Route
+  // 共用同一份 path），能力查询因此仍只发生一次、随切集重取。
+  const currentEpisode = useCurrentEpisode();
   const effectiveVideoBackend = currentProjectData?.video_backend || globalVideoBackend;
   const { rawDurations, durationConstraints, resolvedVideoBackend } = useModelCapabilities({
     projectName: currentProjectName,
@@ -670,7 +666,7 @@ export function StudioCanvasRouter() {
         }
       </Route>
 
-      <Route path={`/${WORKSPACE_ROUTE_EPISODES}/:episodeId`}>
+      <Route path={EPISODE_ROUTE_PATH}>
         {(params) => {
           const epNum = parseInt(params.episodeId, 10);
           const episode = currentProjectData?.episodes?.find((e) => e.episode === epNum);

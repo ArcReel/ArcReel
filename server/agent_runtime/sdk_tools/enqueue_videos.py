@@ -173,14 +173,6 @@ def _script_episode(script: dict[str, Any]) -> int | None:
     return episode if isinstance(episode, int) else None
 
 
-def _script_filename_episode(script_filename: str) -> int | None:
-    """剧本尚未读入时按文件名解析集号，解析不出返回 None。"""
-    try:
-        return ProjectManager.resolve_episode_from_script({}, script_filename)
-    except ValueError:
-        return None
-
-
 async def _resolve_voice_characters(
     ctx: ToolContext, content_mode: str, episode: int | None = None
 ) -> dict[str, Any] | None:
@@ -625,7 +617,12 @@ async def _run_ad_reference_episode(
     的 unit 保留 generated_assets，已有产物经磁盘扫描跳过重复入队。
     """
     project = ctx.pm.load_project(ctx.project_name)
-    max_unit_duration = await resolve_max_unit_duration(project, _script_filename_episode(script_filename))
+    # 集号取剧本自报字段（缺失才回落文件名），与锁内 `_sync` 是同一次 `resolve_episode_from_script`：
+    # 能力解析与分组派生因此不会各拿一个集号，覆盖集的能力不会静默回落项目级。
+    episode_for_caps = ProjectManager.resolve_episode_from_script(
+        ctx.pm.load_script(ctx.project_name, script_filename), script_filename
+    )
+    max_unit_duration = await resolve_max_unit_duration(project, episode_for_caps)
 
     def _sync() -> tuple[dict[str, Any], list[dict[str, Any]], int]:
         with ctx.pm.locked_script(ctx.project_name, script_filename) as script:

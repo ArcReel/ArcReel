@@ -5,6 +5,7 @@ import { API } from "@/api";
 import { AspectFrame } from "@/components/ui/AspectFrame";
 import { InlineWarning } from "@/components/ui/InlineWarning";
 import { useModelCapabilities } from "@/hooks/useModelCapabilities";
+import { useCurrentEpisode } from "@/hooks/useCurrentEpisode";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -63,7 +64,14 @@ export function EndFrameRow({
   const [submitting, setSubmitting] = useState(false);
   const viewOnly = useDemoWorkbench() || readOnly;
 
-  const { lastFrame, loading: capsLoading } = useModelCapabilities({ projectName, videoBackend });
+  // 带上当前集号：生成模式可被单集覆盖，`lastFrame` 是随 caps 定桶而变的 model 粒度能力，
+  // 不传集号会拿项目级桶的模型去判尾帧支持，与执行层错位（也与工作台顶层的能力查询串成两份口径）。
+  const episode = useCurrentEpisode();
+  const { lastFrame, loading: capsLoading } = useModelCapabilities({
+    projectName,
+    videoBackend,
+    episode,
+  });
   // 未查到能力（加载中 / 失败）时不谎报不支持：仅明确的 false 才门控。
   const unsupported = lastFrame === false;
 

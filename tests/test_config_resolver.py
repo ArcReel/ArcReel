@@ -1866,6 +1866,33 @@ class TestEpisodeEffectiveGenerationMode:
         assert caps_generation_mode({}, None) is None
         assert caps_generation_mode(None, 1) is None
 
+    @pytest.mark.unit
+    def test_caps_generation_mode_normalizes_out_of_table_values(self):
+        """表外脏字符串归一到默认档，不原样外泄给前端与智能体。
+
+        归一后与定桶口径一致（``video_bucket_for_generation_mode`` 对表外值同样落默认桶），
+        载荷里因此不会出现一个「模式说 bogus、能力按 storyboard 算」的自相矛盾快照。
+        """
+        assert caps_generation_mode({"generation_mode": "bogus"}, None) == "storyboard"
+        assert (
+            caps_generation_mode(
+                {"episodes": [{"episode": 1, "generation_mode": "bogus"}]},
+                1,
+            )
+            == "storyboard"
+        )
+        # 集级脏值不吃掉项目级的有效声明
+        assert (
+            caps_generation_mode(
+                {
+                    "generation_mode": "reference_video",
+                    "episodes": [{"episode": 1, "generation_mode": "bogus"}],
+                },
+                1,
+            )
+            == "reference_video"
+        )
+
     @pytest.mark.integration
     async def test_bucket_follows_episode_override(self):
         """项目级分镜、某集覆盖为参考生视频：定桶随该集换到 r2v 桶的模型。"""

@@ -340,7 +340,7 @@ def derive_voice_consistency(
     generation_mode: str | None,
     has_audio: bool,
 ) -> VoiceConsistency:
-    """三级声音一致性标识派生（native / soft / none），模型能力 × 项目 generation_mode 二维。
+    """三级声音一致性标识派生（native / soft / none），模型能力 × 生效 generation_mode 二维。
 
     全仓库唯一派生点：项目内场景经 `_resolve_video_caps_for_model` 走这里，无项目上下文的
     目录场景由 `server/routers/providers.py` 以 ``generation_mode=None`` 调同一函数，前端不
