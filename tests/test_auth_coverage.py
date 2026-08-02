@@ -16,6 +16,9 @@ from fastapi.testclient import TestClient
 
 import server.auth as auth_module
 
+# 走生产 app 的 lifespan（DB 迁移、worker 启动），按 pytest markers 纪律属 integration。
+pytestmark = pytest.mark.integration
+
 # 匿名可达：登录入口是拿 token 的前提；静态媒体经 <img src> / <video src> 加载。
 PUBLIC_OPERATIONS = frozenset(
     {
