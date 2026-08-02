@@ -344,9 +344,11 @@ class TestReferenceVideoRouter:
             assert confirmed.status_code == 409
 
     def test_quarantine_unreadable_message_localized_by_accept_language(self, tmp_path, monkeypatch):
-        """``quarantine_unreadable`` 违约的 message 走 ``_t`` 按 ``Accept-Language`` 本地化，
-        不再是写死的中文——与其它 code 保持的固定中文形态不同，这两条是本 PR 新增、不带
-        插值的静态文案，本地化改造范围就锁定在这两条。"""
+        """``quarantine_unreadable`` 违约的 message 走 ``_t`` 按 ``Accept-Language`` 本地化。
+
+        其它违约 code 的 message 是产出时渲染好插值的中文模板，不做本地化；``quarantine_unreadable``
+        是仅有的两处不带插值的固定字符串（隔离草稿信封损坏 / 重算所需的 meta 缺失损坏），本地化
+        改造范围就锁定在这两条。"""
         from lib import script_review as lib_script_review
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
@@ -383,3 +385,70 @@ class TestReferenceVideoRouter:
 
             confirm_body = client.post(f"{base}/confirm").json()
             assert "duration_tiers" in confirm_body
+
+    def test_duration_tiers_populated_for_custom_provider_despite_null_supported_durations(self, tmp_path, monkeypatch):
+        """自定义供应商项目：``get_state`` 的同步 ``supported_durations`` 恒为 None（DB 能力查询
+        拿不到，只有异步 caps 能给出答案），路由不能拿这个字段短路是否调用
+        ``get_reference_duration_tiers``，否则这类项目永远拿不到收窄后的档位表。"""
+        from server.services import script_review as mod
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+
+        async def _fake_caps(_project):
+            return {"provider_id": "custom-acme", "model": "acme-video", "supported_durations": [5, 10]}
+
+        monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+
+        with client:
+            _write_rv_step1(pm, _rv_step1())
+            body = client.get("/api/v1/projects/demo/episodes/1/script-review").json()
+            assert body["supported_durations"] is None
+            assert body["duration_tiers"] == {"with_references": [5, 10], "without_references": [5, 10]}
+
+    def test_quarantine_with_non_string_meta_source_degrades_gracefully(self, tmp_path, monkeypatch):
+        """隔离草稿信封本身合法，但 ``meta.source`` 被改成非字符串（如数字）：重算链路要把它当作
+        「无法重算」降级，而不是让 ``safe_join`` 内部的 ``TypeError`` 冒穿成未处理的 500——那样
+        用户在最需要看到面板给出修复指引的时刻，看到的反而是一个空白错误页。"""
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
+            violations=[],
+            meta={"source": 12345},
+        )
+
+        with client:
+            resp = client.get("/api/v1/projects/demo/episodes/1/script-review")
+            assert resp.status_code == 200
+            violations = resp.json()["quarantine"]["violations"]
+            assert [v["code"] for v in violations] == ["quarantine_unreadable"]
+
+    @pytest.mark.integration
+    def test_put_response_includes_quarantine_created_during_the_request(self, tmp_path, monkeypatch):
+        """保存作用于正式草稿，隔离草稿是另一份文件——PUT 响应缺 ``quarantine`` 字段的话，
+        面板 ``adopt()`` 会把它当成「无隔离草稿」而放行确认，即使这份隔离草稿在保存前后一直
+        都在（这里用「保存时隔离草稿已存在」模拟，等价于「保存在途时才产出」的时序）。"""
+        from lib.reference_video.draft_validation import DraftViolation
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        _write_rv_step1(pm, _rv_step1())
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
+            violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
+        )
+
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            put_body = client.put(f"{base}/content", json=_rv_step1()).json()
+            assert put_body["quarantine"] is not None
+            assert put_body["quarantine"]["violations"]

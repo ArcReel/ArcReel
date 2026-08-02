@@ -115,7 +115,15 @@ def _load_novel_source(project_path: Path, source: str | None) -> str:
 
     normalize / split 两类 step1 工具共用：路径越界、文件缺失、目录为空、内容为空均 fail-fast，
     调用方把消息包装为工具错误信封。
+
+    ``source`` 除工具自己产出外，也会被 ``revalidate_reference_step1_draft`` 传入隔离草稿的
+    ``meta.source``——那是 agent 可编辑的 JSON 字段，类型标注管不住运行时值。非 str/None 时
+    直接抛 ValueError 而非让它落进 ``safe_join``：那里对非路径类型是 ``TypeError``，本函数
+    的调用方一律只接 ValueError，放行 TypeError 会在 web 审核 gate 的读时重算里变成未处理的
+    500，而不是「无法重算」这个本该有的降级态。
     """
+    if source is not None and not isinstance(source, str):
+        raise ValueError(f"meta.source 类型非法，须为字符串或 null：{source!r}")
     if source:
         try:
             source_path = safe_join(project_path, source)

@@ -46,16 +46,17 @@ def _raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) ->
     raise HTTPException(status_code=status, detail=detail)
 
 
-async def _attach_duration_tiers(service: ScriptReviewService, project_name: str, state: dict) -> dict:
+async def _attach_duration_tiers(service: ScriptReviewService, project_name: str, episode: int, state: dict) -> dict:
     """把收窄后的逐 unit 时长档位挂到 state 上；三个改动 step1 内容的端点（GET/PUT/POST）
     都要走这一步——否则保存 / 确认后 ``adopt()`` 用不带 ``duration_tiers`` 的响应覆盖 GET
     读到的收窄结果，面板退回未收窄的 ``supported_durations``，与 GET 首次加载时的呈现不一致。
+
+    是否调用交给 ``get_reference_duration_tiers`` 自己按 step1_kind 判断，不能靠
+    ``state["supported_durations"] is not None`` 这个同步信号短路——自定义供应商项目的
+    该字段恒为 None（同步路径没有 DB 能力查询可用），靠它短路会让这类项目永远拿不到
+    ``duration_tiers``。
     """
-    state["duration_tiers"] = (
-        await service.get_reference_duration_tiers(project_name)
-        if state.get("supported_durations") is not None
-        else None
-    )
+    state["duration_tiers"] = await service.get_reference_duration_tiers(project_name, episode)
     return state
 
 
@@ -90,7 +91,7 @@ async def get_script_review(project_name: str, episode: int, _t: Translator):
         service = ScriptReviewService(get_project_manager())
         quarantine = await service.get_quarantine_info(project_name, episode)
         state = await asyncio.to_thread(service.get_state, project_name, episode)
-        await _attach_duration_tiers(service, project_name, state)
+        await _attach_duration_tiers(service, project_name, episode, state)
         state["quarantine"] = _localize_quarantine_violations(quarantine, _t)
         return state
     except ScriptReviewError as exc:
@@ -106,11 +107,20 @@ async def update_script_review_content(
     _t: Translator,
     content: dict = Body(...),
 ):
-    """保存手动 / agent 编辑后的结构化中间态，并使该集重新进入待审。"""
+    """保存手动 / agent 编辑后的结构化中间态，并使该集重新进入待审。
+
+    ``quarantine`` 同 GET 一并合并：保存作用于正式草稿，与隔离草稿是两份独立文件，保存在途时
+    agent 可能已经另外产出一份新的隔离草稿——响应缺这个字段的话 ``adopt()`` 会把它当作
+    「无隔离草稿」，面板显示干净态、放行确认，而 confirm() 仍会按隔离文件存在性 409。
+    """
     try:
         service = ScriptReviewService(get_project_manager())
         state = await asyncio.to_thread(service.save_content, project_name, episode, content)
-        return await _attach_duration_tiers(service, project_name, state)
+        await _attach_duration_tiers(service, project_name, episode, state)
+        state["quarantine"] = _localize_quarantine_violations(
+            await service.get_quarantine_info(project_name, episode), _t
+        )
+        return state
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:
@@ -123,7 +133,7 @@ async def confirm_script_review(project_name: str, episode: int, _t: Translator)
     try:
         service = ScriptReviewService(get_project_manager())
         state = await asyncio.to_thread(service.confirm, project_name, episode)
-        return await _attach_duration_tiers(service, project_name, state)
+        return await _attach_duration_tiers(service, project_name, episode, state)
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:

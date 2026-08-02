@@ -244,7 +244,7 @@ class ScriptReviewService:
         content = draft.content if revalidation.schema_failed else {"units": revalidation.flat_units}
         return {"content": content, "violations": violation_entries(revalidation.violations)}
 
-    async def get_reference_duration_tiers(self, project_name: str) -> dict[str, list[int]] | None:
+    async def get_reference_duration_tiers(self, project_name: str, episode: int) -> dict[str, list[int]] | None:
         """reference_video 变体逐 unit 生效时长档位：``{with_references, without_references}``。
 
         与 ``get_state.supported_durations``（``resolve_raw_supported_durations`` 的结构区间
@@ -255,14 +255,21 @@ class ScriptReviewService:
         ``reference_unit_duration_tiers``（拆分工具校验用的同一份）。无法解析到型号时返回
         None，呈现层退回未收窄的 ``supported_durations``。
 
+        非 reference_video 变体直接返回 None，不做 caps 解析——调用方（router）按此方法自身
+        的 step1_kind 判断决定是否调用，不再依赖 ``get_state.supported_durations`` 是否非
+        None 这个同步信号：那个信号在自定义供应商（``custom-`` 前缀，caps 是唯一档位来源，
+        同步路径拿不到）下恒为 None，会让本方法永远没机会跑，越档校验随之失效。
+
         caps 先解析：``resolve_raw_supported_durations`` 的三级回退链（caps → project.json
-        ``_supported_durations`` → registry）里，registry 那一级查不到自定义供应商（``custom-``
-        前缀不在 ``PROVIDER_REGISTRY``），存量项目也不落 ``_supported_durations``——caps 是
-        自定义供应商唯一能拿到时长表的来源（DB 驱动的能力查询）。caps 若排在 raw 之后解析，
-        自定义供应商项目会在 caps 都没试就因 raw 为 None 提前退出，面板退回只读秒数、越档
-        校验也随之失效，即便 caps 原本能给出正确答案。
+        ``_supported_durations`` → registry）里，registry 那一级查不到自定义供应商，存量
+        项目也不落 ``_supported_durations``——caps 是自定义供应商唯一能拿到时长表的来源
+        （DB 驱动的能力查询）。caps 若排在 raw 之后解析，自定义供应商项目会在 caps 都没试
+        就因 raw 为 None 提前退出，面板退回只读秒数、越档校验也随之失效，即便 caps 原本能
+        给出正确答案。
         """
         project = self.pm.load_project(project_name)
+        if script_review.step1_kind(project, episode) != "reference_video":
+            return None
         try:
             caps = await resolve_video_caps(project)
         except Exception as exc:  # noqa: BLE001 - best-effort：解析失败时收窄回退为不收窄，不阻塞面板

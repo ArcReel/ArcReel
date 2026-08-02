@@ -390,7 +390,7 @@ class TestReferenceVideoGateFlow:
             }
 
         monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
-        tiers = await svc.get_reference_duration_tiers("demo")
+        tiers = await svc.get_reference_duration_tiers("demo", 1)
         assert tiers == {"with_references": [8], "without_references": [8]}
 
     @pytest.mark.integration
@@ -412,7 +412,23 @@ class TestReferenceVideoGateFlow:
             raise RuntimeError("video_capabilities backend unreachable")
 
         monkeypatch.setattr(mod, "resolve_video_caps", _raise)
-        assert await svc.get_reference_duration_tiers("demo") is None
+        assert await svc.get_reference_duration_tiers("demo", 1) is None
+
+    @pytest.mark.integration
+    async def test_reference_duration_tiers_none_for_non_reference_video_episode(self, tmp_path, monkeypatch):
+        """非 reference_video 变体不做 caps 解析、直接 None——判据是方法自身的
+        step1_kind，不能靠调用方按 get_state.supported_durations 是否非 None 短路
+        （那个信号对自定义供应商项目恒为 None，会让方法永远没机会跑）。"""
+        from server.services import script_review as mod
+
+        pm = _make_project(tmp_path, "drama")  # generation_mode 缺省，非 reference_video
+        svc = ScriptReviewService(pm)
+
+        async def _fake_caps(_project):
+            return {"provider_id": "custom-acme", "model": "acme-video", "supported_durations": [5, 10]}
+
+        monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+        assert await svc.get_reference_duration_tiers("demo", 1) is None
 
     @pytest.mark.integration
     async def test_reference_duration_tiers_uses_caps_for_custom_provider(self, tmp_path, monkeypatch):
@@ -430,7 +446,7 @@ class TestReferenceVideoGateFlow:
             return {"provider_id": "custom-acme", "model": "acme-video", "supported_durations": [5, 10]}
 
         monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
-        tiers = await svc.get_reference_duration_tiers("demo")
+        tiers = await svc.get_reference_duration_tiers("demo", 1)
         # 自定义供应商不在 registry，reference_unit_duration_tiers 查不到联动约束，两套档位
         # 都退回 caps 给出的原始集合。
         assert tiers == {"with_references": [5, 10], "without_references": [5, 10]}
