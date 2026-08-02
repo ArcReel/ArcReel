@@ -3528,6 +3528,41 @@ async def test_validate_and_promote_reference_draft_rejects_schema_breach(
     assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["schema_invalid"]
 
 
+@pytest.mark.parametrize(
+    "mutate_content",
+    [
+        lambda c: c.pop("units"),
+        lambda c: c.update(units={}),
+        lambda c: c.update(units=[]),
+    ],
+    ids=["units_removed", "units_not_a_list", "units_emptied"],
+)
+async def test_validate_and_promote_reference_draft_reports_broken_outer_shape(
+    fake_ctx: ToolContext, monkeypatch, mutate_content
+) -> None:
+    """外层形状被改坏同样刷新报告，而不是抛一句裸错误。
+
+    units 整个删掉 / 改成非数组 / 清空都是 agent 编辑草稿时会犯的错。只有逐 unit 的字段违约
+    刷新报告的话，这几种就被甩出了「按报告改完再晋升」的循环。
+    """
+    _rv_source(fake_ctx)
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+
+    envelope = _read_rv_quarantine(fake_ctx)
+    mutate_content(envelope["content"])
+    _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await _promote(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is True
+    assert "content.units" in out["content"][0]["text"]
+    assert not _rv_step1_path(fake_ctx).exists()
+    refreshed = _read_rv_quarantine(fake_ctx)
+    assert [v["code"] for v in refreshed["violations"]] == ["schema_invalid"]
+    # 草稿留在原地且保留 agent 写的那份内容，改完可再次晋升
+    assert _rv_quarantine_path(fake_ctx).exists()
+
+
 async def test_validate_and_promote_reference_draft_reports_promotion_not_split(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:

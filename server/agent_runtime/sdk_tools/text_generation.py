@@ -796,25 +796,36 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
     novel_text = _load_novel_source(project_path, draft.meta.get("source"))
     split_caps = await _fetch_reference_caps_with_fallback(project)
 
-    raw_units = draft.content.get("units")
-    if not isinstance(raw_units, list) or not raw_units:
-        raise ValueError(f"隔离草稿 {draft.path} 的 content.units 必须是非空的 unit 对象数组")
-
     # 手改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_step1_json 卡住时长
     # 枚举与字段非空，晋升侧漏掉这一层的话，把 duration_seconds 改成非档位值、或整个删掉（收成
     # 0 秒）都能一路晋升进正式文件——正是本机制要防的「正式文件被污染」。schema 违约在这条路上
     # 没有 backend 可重试（内容是 agent 写的），故同样回报告让它继续改。
+    #
+    # 外层形状（units 缺失 / 不是数组 / 空数组）与逐 unit 的字段违约走同一条报告路径：两者都是
+    # agent 编辑草稿时会犯的错，只有后者刷新报告的话，前者就把它甩出了「改完再晋升」的循环。
+    raw_units = draft.content.get("units")
     schema = build_reference_units_step1_model(split_caps.durations)
-    try:
-        flat_units = schema.model_validate({"units": raw_units}).model_dump()["units"]
-    except ValidationError as exc:
+    violations: list[DraftViolation] = []
+    flat_units: list[dict[str, Any]] = []
+    if not isinstance(raw_units, list) or not raw_units:
         violations = [
             DraftViolation(
-                f"隔离草稿的 content 不符合 step1 产出结构：{exc}；"
-                f"每个 unit 须有非空 source_text / text，且 duration_seconds 取自模型档位 {split_caps.durations}",
+                f"隔离草稿的 content.units 必须是非空的 unit 对象数组（当前为 {type(raw_units).__name__}）",
                 code="schema_invalid",
             )
         ]
+    else:
+        try:
+            flat_units = schema.model_validate({"units": raw_units}).model_dump()["units"]
+        except ValidationError as exc:
+            violations = [
+                DraftViolation(
+                    f"隔离草稿的 content 不符合 step1 产出结构：{exc}；"
+                    f"每个 unit 须有非空 source_text / text，且 duration_seconds 取自模型档位 {split_caps.durations}",
+                    code="schema_invalid",
+                )
+            ]
+    if violations:
         # 写回 agent 手里那份原样内容，不做收编：字段被改坏时收编会把它的原稿改形，
         # 它照着报告回去看反而对不上自己写的东西。
         report = quarantine_and_report(
