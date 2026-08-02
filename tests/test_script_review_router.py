@@ -343,6 +343,42 @@ class TestReferenceVideoRouter:
             confirmed = client.post(f"{base}/confirm")
             assert confirmed.status_code == 409
 
+    @pytest.mark.integration
+    def test_quarantine_cleared_between_existence_check_and_read_is_not_reported_as_corrupted(
+        self, tmp_path, monkeypatch
+    ):
+        """存在性检查通过之后、``read_quarantine`` 真正读取之前，晋升工具把隔离文件清掉了
+        （正式内容已写入、隔离态合法结束）：这不是信封损坏，这次读跨越了「清除」那一刻，应
+        按「无隔离草稿」处理，不能误报成损坏——那会让刚晋升完成的集看起来还卡在隔离态。"""
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from server.services import script_review as mod
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        _write_rv_step1(pm, _rv_step1())
+        quarantine_path = write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
+            violations=[],
+        )
+
+        real_read_quarantine = mod.read_quarantine
+
+        def _read_after_concurrent_clear(*args, **kwargs):
+            # 模拟：本请求的存在性检查已经通过，但真正读取发生前，另一个请求（晋升工具）
+            # 把文件清掉了。
+            quarantine_path.unlink()
+            return real_read_quarantine(*args, **kwargs)
+
+        monkeypatch.setattr(mod, "read_quarantine", _read_after_concurrent_clear)
+
+        with client:
+            body = client.get("/api/v1/projects/demo/episodes/1/script-review").json()
+            assert body["quarantine"] is None
+
+    @pytest.mark.integration
     def test_quarantine_unreadable_message_localized_by_accept_language(self, tmp_path, monkeypatch):
         """``quarantine_unreadable`` 违约的 message 走 ``_t`` 按 ``Accept-Language`` 本地化。
 
@@ -386,6 +422,7 @@ class TestReferenceVideoRouter:
             confirm_body = client.post(f"{base}/confirm").json()
             assert "duration_tiers" in confirm_body
 
+    @pytest.mark.integration
     def test_duration_tiers_populated_for_custom_provider_despite_null_supported_durations(self, tmp_path, monkeypatch):
         """自定义供应商项目：``get_state`` 的同步 ``supported_durations`` 恒为 None（DB 能力查询
         拿不到，只有异步 caps 能给出答案），路由不能拿这个字段短路是否调用
@@ -405,6 +442,7 @@ class TestReferenceVideoRouter:
             assert body["supported_durations"] is None
             assert body["duration_tiers"] == {"with_references": [5, 10], "without_references": [5, 10]}
 
+    @pytest.mark.integration
     def test_quarantine_with_non_string_meta_source_degrades_gracefully(self, tmp_path, monkeypatch):
         """隔离草稿信封本身合法，但 ``meta.source`` 被改成非字符串（如数字）：重算链路要把它当作
         「无法重算」降级，而不是让 ``safe_join`` 内部的 ``TypeError`` 冒穿成未处理的 500——那样
@@ -428,6 +466,7 @@ class TestReferenceVideoRouter:
             violations = resp.json()["quarantine"]["violations"]
             assert [v["code"] for v in violations] == ["quarantine_unreadable"]
 
+    @pytest.mark.integration
     def test_quarantine_with_directory_valued_meta_source_degrades_gracefully(self, tmp_path, monkeypatch):
         """``meta.source`` 类型正确（字符串）但指向一个目录：``Path.exists()`` 对目录同样为
         True，直接 ``read_text()`` 会抛 ``IsADirectoryError``——同样要降级成 quarantine_unreadable，

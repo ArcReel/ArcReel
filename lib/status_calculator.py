@@ -9,6 +9,7 @@ import logging
 
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
+    REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
     STEP1_FILENAMES,
     STEP1_LEGACY_FILENAMES,
     episode_drafts_dir,
@@ -44,11 +45,16 @@ def _draft_candidates(content_mode: str, generation_mode: str | None = None) -> 
     ``step1_reference_units.json`` 永远探测不到，script_status 停留 none，web 路由卡在源文审阅页
     进不了 ``ScriptReviewGate``。旧版自由文本别名仅供读取 / 浏览层兼认（见 episode_paths 注释），
     生成侧遇到会拒绝并提示重跑拆分，此处不纳入——避免误报「已分段」掩盖需要重跑的存量草稿。
+
+    ``REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME`` 同样纳入探测：首次拆分若未过校验，只会
+    产出隔离草稿、正式文件从未写过，只探正式文件名会让 script_status 停在 none、web 路由
+    落到 ``EpisodeSourceReview`` 而不是挂着隔离态预览面板的 ``ScriptReviewGate``——用户见不到
+    违约详情与修复入口，恰是隔离草稿最常见的产出路径（首轮拆分失败）。
     """
     if content_mode == "ad":
         return ()
     if generation_mode == "reference_video":
-        return (REFERENCE_VIDEO_STEP1_FILENAME,)
+        return (REFERENCE_VIDEO_STEP1_FILENAME, REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME)
     primary = STEP1_FILENAMES.get(content_mode) or STEP1_FILENAMES["drama"]
     legacy = STEP1_LEGACY_FILENAMES.get(content_mode, ()) if content_mode in _SEGMENTED_LEGACY_MODES else ()
     return (primary, *legacy)

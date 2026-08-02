@@ -211,6 +211,11 @@ class ScriptReviewService:
             return None
         draft = await asyncio.to_thread(read_quarantine, project_path, episode, QUARANTINE_KIND_STEP1)
         if draft is None:
+            if not quarantine_path.exists():
+                # 存在性检查与读取之间的窗口内，agent 的晋升/重拆分工具把文件清掉了（正式内容
+                # 已写入、隔离态合法结束）：不是信封损坏，是这次读跨越了「清除」那一刻，按「无
+                # 隔离草稿」处理，不误报损坏。
+                return None
             # 文件存在但信封形状坏（非法 JSON / 顶层非对象 / content 非对象）：`read_quarantine`
             # 按「无隔离草稿」返回 None 是它自己的读取口径（供 confirm 的存在性判断照常阻塞），
             # 但呈现层不能照单全收——那会让面板看起来「干净」，实际隔离草稿仍在阻塞确认。

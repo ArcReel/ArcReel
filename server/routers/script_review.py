@@ -112,14 +112,19 @@ async def update_script_review_content(
     ``quarantine`` 同 GET 一并合并：保存作用于正式草稿，与隔离草稿是两份独立文件，保存在途时
     agent 可能已经另外产出一份新的隔离草稿——响应缺这个字段的话 ``adopt()`` 会把它当作
     「无隔离草稿」，面板显示干净态、放行确认，而 confirm() 仍会按隔离文件存在性 409。
+
+    保存完成后立即取 ``quarantine``，早于 ``_attach_duration_tiers`` 那次 await（视频能力
+    解析）：晋升工具若恰好在这条 await 期间把隔离草稿清掉，越晚读 quarantine 越可能读到
+    「已清除」而不是晋升前那份，响应就会落在「本次保存的内容 + quarantine: null」这一侧，
+    使用户没看过的、晋升后的内容被当作可放行确认——同 GET 端点的顺序取舍，先取的一侧读到
+    的是相对更旧但更保守的快照，读时序错位只会让确认被多余地拦一轮，不会误放行。
     """
     try:
         service = ScriptReviewService(get_project_manager())
         state = await asyncio.to_thread(service.save_content, project_name, episode, content)
+        quarantine = await service.get_quarantine_info(project_name, episode)
         await _attach_duration_tiers(service, project_name, episode, state)
-        state["quarantine"] = _localize_quarantine_violations(
-            await service.get_quarantine_info(project_name, episode), _t
-        )
+        state["quarantine"] = _localize_quarantine_violations(quarantine, _t)
         return state
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)

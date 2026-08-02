@@ -92,12 +92,18 @@ def test_gate_only_json_status_and_web_also_md():
 def test_draft_candidates_reference_video_across_content_modes():
     """rv 是跨 content_mode 的 generation_mode 维度：narration/drama 项目挂 rv 后，状态计算的
     草稿探测都应改落 rv 专属结构化文件名，而非各自 content_mode 对应名（回归：此前遗漏 generation_mode
-    参数，rv 项目的 step1_reference_units.json 永远探测不到，script_status 停留 none）。"""
+    参数，rv 项目的 step1_reference_units.json 永远探测不到，script_status 停留 none）。
+
+    候选名同时含正式文件与隔离草稿文件：首次拆分未过校验时只产出隔离草稿、正式文件从未写过，
+    只探正式文件名会让 script_status 停在 none，web 路由落到没有隔离态预览面板的旧视图。
+    """
     assert status_calculator._draft_candidates("narration", "reference_video") == (
         episode_paths.REFERENCE_VIDEO_STEP1_FILENAME,
+        episode_paths.REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
     )
     assert status_calculator._draft_candidates("drama", "reference_video") == (
         episode_paths.REFERENCE_VIDEO_STEP1_FILENAME,
+        episode_paths.REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME,
     )
     # 未传 generation_mode（向后兼容）沿用 content_mode 既有候选，不受影响
     assert status_calculator._draft_candidates("narration") == status_calculator._draft_candidates("narration", None)
