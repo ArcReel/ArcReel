@@ -476,6 +476,17 @@ export function ReferenceVideoCanvas({
 
   const hasAnyDraft = Object.keys(drafts).length > 0;
 
+  // 草稿已落盘 → 丢弃本地草稿。若这期间用户又敲了字（草稿值已变），保留新草稿不动，
+  // 否则落盘响应回来时会把用户刚输入的内容抹掉。
+  const clearFlushedDraft = useCallback((key: string, flushed: string) => {
+    setDrafts((d) => {
+      if (d[key] !== flushed) return d;
+      const copy = { ...d };
+      delete copy[key];
+      return copy;
+    });
+  }, []);
+
   const handleSave = useCallback(async () => {
     if (!selected) return;
     const unitId = selected.unit_id;
@@ -489,18 +500,13 @@ export function ReferenceVideoCanvas({
         prompt: draftText,
         references: nextRefs,
       });
-      setDrafts((d) => {
-        if (d[key] !== draftText) return d;
-        const copy = { ...d };
-        delete copy[key];
-        return copy;
-      });
+      clearFlushedDraft(key, draftText);
     } catch (e) {
       toastError(e);
     } finally {
       setSaving(false);
     }
-  }, [selected, drafts, project, patchUnit, projectName, episode]);
+  }, [selected, drafts, project, patchUnit, projectName, episode, clearFlushedDraft]);
 
   // Reference reorder/add/remove flushes immediately, carrying any pending prompt draft.
   const patchReferencesAtomic = useCallback(
@@ -513,27 +519,18 @@ export function ReferenceVideoCanvas({
       // draftText 未落盘时，chip 操作请求的 nextRefs 仍基于旧 prompt 状态；按新 draftText
       // 重新派生，同时把 nextRefs 作为 mergeReferences 的 existing 基准——保留本次 chip
       // 操作请求的顺序（拖拽结果），只补丢弃/新增仅由文本变化引起的部分。
-      const finalRefs = hasDraft
-        ? mergeReferences(draftText, nextRefs, project ?? null)
-        : nextRefs;
       const body: { prompt?: string; references: ReferenceResource[] } = hasDraft
-        ? { prompt: draftText, references: finalRefs }
+        ? { prompt: draftText, references: mergeReferences(draftText, nextRefs, project ?? null) }
         : { references: nextRefs };
       void patchUnit(projectName, episode, unitId, body)
         .then(() => {
-          if (!hasDraft) return;
-          setDrafts((d) => {
-            if (d[key] !== draftText) return d;
-            const copy = { ...d };
-            delete copy[key];
-            return copy;
-          });
+          if (hasDraft) clearFlushedDraft(key, draftText);
         })
         .catch((e) => {
           toastError(e);
         });
     },
-    [drafts, units, patchUnit, projectName, episode, project],
+    [drafts, units, patchUnit, projectName, episode, project, clearFlushedDraft],
   );
 
   const handleReorderRefs = useCallback(

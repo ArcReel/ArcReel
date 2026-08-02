@@ -278,7 +278,7 @@ describe("ReferenceVideoCanvas", () => {
     });
 
     // 交错的 chip 操作：移除与说话人变更无关的王五 chip。移除请求本身不涉及张三——
-    // 若原子 flush 不按新草稿重新派生，张三会残留在落盘 references 里（本 issue 的缺陷）；
+    // 不按新草稿重新派生的话，张三会残留在落盘 references 里；
     // 重新派生后张三应被剔除，王五因仍被文本提及而补回，且顺序沿用 chip 侧剩余顺序
     // （李四、王五），而非文本中的提及顺序（王五、李四）。
     fireEvent.click(
