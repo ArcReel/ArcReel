@@ -1,4 +1,4 @@
-"""分镜文稿台词规范行的派生与七条降级可见性 warning。"""
+"""分镜文稿台词规范行的派生与降级可见性 warning。"""
 
 import pytest
 
@@ -8,11 +8,13 @@ from lib.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_MODEL,
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
+    WARN_SPEAKER_AUDIO_UNAVAILABLE,
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_UNCLOSED_BRACE,
     WARN_UNREGISTERED_MENTION,
     WARN_UNREGISTERED_SPEAKER,
     build_script_preview,
+    derive_voice_bindings,
 )
 from lib.reference_video.shot_parser import (
     extract_mentions,
@@ -144,7 +146,7 @@ def test_dialogue_on_shot_header_line_derives_utterance_without_reference():
     assert extract_mentions(text) == []
 
 
-# ---------- 七条 warning ----------
+# ---------- 降级可见性 warning ----------
 
 
 def test_warn_unregistered_mention():
@@ -176,6 +178,40 @@ def test_warn_speaker_without_reference_audio_only_on_native():
     assert keys(native) == [WARN_SPEAKER_WITHOUT_AUDIO]
     soft = build_script_preview(text, PROJECT, voice_consistency="soft")
     assert keys(soft) == []
+
+
+def test_warn_speaker_audio_unavailable_distinguished_from_unset():
+    """``audio_ready`` 非 None 时，字段有值但音频不可用（不在 audio_ready 内）与字段未设置
+    要发不同的 warning：前者字段已填好、该去查它指向的音频，后者该去角色设置里补音频。"""
+    text = "镜头1：开场。\n@[张三]：{我来了}\n@[李四]：{你迟到了}"
+    preview = build_script_preview(text, PROJECT, voice_consistency="native", max_reference_audio=3)
+    bindings = derive_voice_bindings(
+        preview.utterances,
+        PROJECT["characters"],
+        voice_consistency="native",
+        max_reference_audio=3,
+        # 张三字段有值、李四未设置；audio_ready 为空表示执行层一段都没解析出来。
+        audio_ready=set(),
+    )
+    assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "张三"}} in bindings.warnings
+    assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} not in bindings.warnings
+    assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "李四"}} in bindings.warnings
+    assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "李四"}} not in bindings.warnings
+
+
+def test_derive_voice_bindings_degrades_on_malformed_character_entry():
+    """执行层传入 ``audio_ready`` 时，角色条目非 dict（外部写坏 project.json）不得崩溃——
+    只是 audio_field_set 判定不到值，按「未设置」降级，而不是让 ``.get`` 抛 AttributeError。"""
+    text = "镜头1：开场。\n@[张三]：{我来了}"
+    preview = build_script_preview(text, {"characters": {"张三": "bad"}}, voice_consistency="native")
+    bindings = derive_voice_bindings(
+        preview.utterances,
+        {"张三": "bad"},
+        voice_consistency="native",
+        max_reference_audio=3,
+        audio_ready=set(),
+    )
+    assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} in bindings.warnings
 
 
 def test_warn_speaker_audio_needs_image_when_backend_requires_per_image_attachment():

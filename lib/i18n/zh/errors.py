@@ -230,6 +230,7 @@ MESSAGES = {
     ),
     "ref_warn_unregistered_speaker": "@[{name}] 未在角色中登记：无法确认说话人，该行按原文发送",
     "ref_warn_speaker_without_audio": "角色「{name}」未设置参考音频：台词声音将由模型自行决定",
+    "ref_warn_speaker_audio_unavailable": "角色「{name}」已设置参考音频，但该音频当前不可用：台词声音将由模型自行决定",
     "ref_warn_reference_audio_overflow": "参考音频最多 {limit} 段：角色「{name}」的台词声音将由模型自行决定",
     "ref_warn_speaker_audio_needs_image": "角色「{name}」没有参考图（纯画外）：当前视频模型要求参考音频逐段挂在参考图上，该角色的台词声音将由模型自行决定",
     "ref_warn_silent_model": "当前视频模型「{model}」不生成音频，台词仅用于提示词参考",

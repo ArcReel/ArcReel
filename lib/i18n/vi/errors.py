@@ -256,6 +256,10 @@ MESSAGES = {
     "ref_warn_speaker_without_audio": (
         "Nhân vật '{name}' chưa đặt âm thanh tham chiếu: giọng của lời thoại sẽ do mô hình tự quyết định"
     ),
+    "ref_warn_speaker_audio_unavailable": (
+        "Nhân vật '{name}' đã đặt âm thanh tham chiếu nhưng hiện không dùng được: "
+        "giọng của lời thoại sẽ do mô hình tự quyết định"
+    ),
     "ref_warn_reference_audio_overflow": (
         "Tối đa {limit} đoạn âm thanh tham chiếu: giọng lời thoại của nhân vật '{name}' sẽ do mô hình tự quyết định"
     ),

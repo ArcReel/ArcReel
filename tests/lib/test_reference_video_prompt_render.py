@@ -12,6 +12,7 @@ from lib.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_MODEL,
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
+    WARN_SPEAKER_AUDIO_UNAVAILABLE,
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_UNCLOSED_BRACE,
     WARN_UNREGISTERED_MENTION,
@@ -227,7 +228,8 @@ def test_legacy_script_without_dialogue_still_renders_three_segments():
 
 
 def test_audio_ready_overrides_field_presence(tmp_path):
-    """字段指向已删文件时不绑定：编号与实际发出的音频段数严格等长。"""
+    """字段指向已删文件时不绑定：编号与实际发出的音频段数严格等长，且降级 warning 指向
+    「音频不可用」而非「未设置」——张三字段有值，只是不在 audio_ready 内。"""
     rendered = render_unit_prompt(
         _TEXT,
         _project(),
@@ -238,7 +240,8 @@ def test_audio_ready_overrides_field_presence(tmp_path):
     )
     assert rendered.audio_speakers == ["李四"]
     assert "<李四>的台词音色参考 @音频1" in rendered.prompt
-    assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} in rendered.warnings
+    assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "张三"}} in rendered.warnings
+    assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} not in rendered.warnings
 
 
 def test_audio_speaker_reference_index_tracks_image_slot_by_name_not_position():
@@ -330,6 +333,32 @@ def test_resolve_reference_audio_paths_only_returns_existing_files_under_refs_au
     resolved = resolve_reference_audio_paths(project, tmp_path)
     assert set(resolved) == {"张三"}
     assert resolved["张三"] == refs_audio / "张三.wav"
+
+
+def test_out_of_bounds_audio_path_also_degrades_as_unavailable(tmp_path):
+    """字段指到 ``refs_audio`` 之外时文件本身可能好端端存在，只是路径不合法——同样被
+    ``resolve_reference_audio_paths`` 排除。这条 warning 因此只说「不可用」，不能断言是
+    文件缺失，否则又把用户导向错误的排查方向。"""
+    refs_audio = tmp_path / "characters" / "refs_audio"
+    refs_audio.mkdir(parents=True)
+    (tmp_path / "project.json").write_text("{}", encoding="utf-8")
+    project = _project(characters={"张三": {"reference_audio": "project.json"}})
+
+    audio_ready = resolve_reference_audio_paths(project, tmp_path)
+    assert audio_ready == {}
+
+    rendered = render_unit_prompt(
+        "镜头1：开场。\n@[张三]：{我来了}",
+        project,
+        _refs(("character", "张三")),
+        voice_consistency="native",
+        max_reference_audio=3,
+        model_id="doubao-seedance-2-0",
+        audio_ready=set(audio_ready),
+    )
+    assert rendered.audio_speakers == []
+    assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "张三"}} in rendered.warnings
+    assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} not in rendered.warnings
 
 
 def test_resolve_reference_audio_paths_ignores_non_dict_characters_bucket(tmp_path):

@@ -37,6 +37,7 @@ WARN_UNCLOSED_BRACE = "ref_warn_unclosed_brace"
 WARN_DIALOGUE_INLINE = "ref_warn_dialogue_inline"
 WARN_UNREGISTERED_SPEAKER = "ref_warn_unregistered_speaker"
 WARN_SPEAKER_WITHOUT_AUDIO = "ref_warn_speaker_without_audio"
+WARN_SPEAKER_AUDIO_UNAVAILABLE = "ref_warn_speaker_audio_unavailable"
 WARN_REFERENCE_AUDIO_OVERFLOW = "ref_warn_reference_audio_overflow"
 WARN_SILENT_MODEL = "ref_warn_silent_model"
 WARN_SPEAKER_AUDIO_NEEDS_IMAGE = "ref_warn_speaker_audio_needs_image"
@@ -128,6 +129,13 @@ def derive_voice_bindings(
     资产的 ``reference_audio`` 字段非空判定；执行层传入已解析且确实存在的文件对应的角色名，
     让编号与实际随请求发出的音频段数严格等长——字段指向已删文件时编号若不同步，``@音频N``
     会指向不存在的段。两条路径共用本函数，避免预览承诺的绑定与生成实际发出的绑定分叉。
+    ``audio_ready`` 非 None 时降级原因区分两种：角色 ``reference_audio`` 字段未设置发
+    ``WARN_SPEAKER_WITHOUT_AUDIO``；字段有值但不在 ``audio_ready`` 内发
+    ``WARN_SPEAKER_AUDIO_UNAVAILABLE``——前者该去角色设置里补音频，后者字段已填好，该去查
+    它指向的音频本身，排查方向不同，不能合并成一条 warning。后者的成因不止一种（文件被删、
+    字段值指到 ``characters/refs_audio`` 之外都会被
+    :func:`lib.reference_video.prompt_render.resolve_reference_audio_paths` 排除），故文案
+    只说「不可用」，不断言具体是哪一种。
 
     ``require_reference_image``：目标 backend 的音频必须逐段挂在具体参考素材项上（如
     wan2.7-r2v）时传 True，此时纯画外（无参考图）speaker 即使有可用音频也不绑定——绑定后
@@ -156,13 +164,14 @@ def derive_voice_bindings(
         image_names = speakers_with_reference_image or ()
         # 音频编号 = dialogue speaker 首现顺序，受 max_reference_audio 上限截断。
         for speaker in registered:
-            has_audio = (
-                speaker in audio_ready
-                if audio_ready is not None
-                else bool((characters.get(speaker) or {}).get("reference_audio"))
-            )
+            char_data = characters.get(speaker)
+            audio_field_set = bool(char_data.get("reference_audio")) if isinstance(char_data, dict) else False
+            has_audio = speaker in audio_ready if audio_ready is not None else audio_field_set
             if not has_audio:
-                warnings.append(_warning(WARN_SPEAKER_WITHOUT_AUDIO, name=speaker))
+                if audio_ready is not None and audio_field_set:
+                    warnings.append(_warning(WARN_SPEAKER_AUDIO_UNAVAILABLE, name=speaker))
+                else:
+                    warnings.append(_warning(WARN_SPEAKER_WITHOUT_AUDIO, name=speaker))
             elif require_reference_image and speaker not in image_names:
                 warnings.append(_warning(WARN_SPEAKER_AUDIO_NEEDS_IMAGE, name=speaker))
             elif len(audio_speakers) >= max_reference_audio:

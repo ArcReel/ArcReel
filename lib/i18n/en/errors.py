@@ -255,6 +255,10 @@ MESSAGES = {
     "ref_warn_speaker_without_audio": (
         "Character '{name}' has no reference audio: the model decides the dialogue voice"
     ),
+    "ref_warn_speaker_audio_unavailable": (
+        "Character '{name}' has reference audio set, but it is currently unavailable: "
+        "the model decides the dialogue voice"
+    ),
     "ref_warn_reference_audio_overflow": (
         "At most {limit} reference audio clips: the model decides the dialogue voice for character '{name}'"
     ),
