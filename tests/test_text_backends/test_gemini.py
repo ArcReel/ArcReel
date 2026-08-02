@@ -213,7 +213,7 @@ class TestGenerate:
             build_ad_reference_episode_script_model,
             build_drama_normalized_script_model,
             build_episode_script_model,
-            build_reference_video_script_model,
+            build_reference_units_step1_model,
         )
 
         schemas = [
@@ -225,7 +225,7 @@ class TestGenerate:
             build_ad_reference_episode_script_model(),
             build_drama_normalized_script_model([4, 6, 8]),
             build_drama_normalized_script_model([8]),
-            build_reference_video_script_model([4, 6, 8]),
+            build_reference_units_step1_model([4, 6, 8]),
         ]
         for schema in schemas:
             config = backend._build_config(schema, None)

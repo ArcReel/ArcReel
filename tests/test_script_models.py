@@ -661,7 +661,6 @@ class TestLLMSchemaExclusion:
             NarrationEpisodeScript,
             ReferenceVideoScript,
             build_episode_script_model,
-            build_reference_video_script_model,
         )
 
         models = (
@@ -670,7 +669,6 @@ class TestLLMSchemaExclusion:
             ReferenceVideoScript,
             build_episode_script_model("narration", [4, 6, 8]),
             build_episode_script_model("drama", [4, 6, 8]),
-            build_reference_video_script_model([4, 8]),
         )
         for model in models:
             top_props = set(model.model_json_schema()["properties"].keys())

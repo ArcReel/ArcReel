@@ -17,9 +17,16 @@ description: "参考生视频模式单集视频单元拆分 subagent（reference
 
 ## 核心原则
 
-1. **首次生成调工具**：首次生成时调用 `mcp__arcreel__split_reference_video_units`（项目配置的文本模型，产出结构化 unit JSON，`references` 由工具从 shot 文本的 `@[名称]` 引用自动派生），后续修改由 subagent 直接编辑 JSON
-2. **参考图驱动**：shot 文本只用 `@[名称]` 引用**已注册**的资产名；不写外貌 / 服装 / 场景细节（由参考图承担视觉一致性）
-3. **完成即返回**：独立完成全部工作后返回，不在中间步骤等待用户确认
+1. **首次生成调工具**：首次生成时调用 `mcp__arcreel__split_reference_video_units`（项目配置的文本模型），后续修改由 subagent 直接编辑 JSON
+2. **结构由机器派生**：模型只写「时长 + 原文锚 + 书写层正文」，`unit_id` / `shots` / `references` 一律由工具从正文派生并落盘；正文语法、资产引用、原文锚、台词量均由工具机械校验，违约不写盘
+3. **参考图驱动**：正文只用 `@[名称]` 引用**已注册**的资产名；不写外貌 / 服装 / 场景细节（由参考图承担视觉一致性）
+4. **完成即返回**：独立完成全部工作后返回，不在中间步骤等待用户确认
+
+## 书写层语法（概览）
+
+正文按行书写，只有三种行：`镜头N：` 开头的镜头行（每 unit 最多 4 个）、`@[角色名]：{台词}` 独立成行的台词行、`{台词}` 独立成行的画外音行。资产统一写 `@[名称]`，花括号只用于台词 / 画外音行。
+
+> 完整语法规范由服务端在两级 prompt 中注入，真相源是 `lib/reference_video/writing_syntax.py`；本文件只留概览，不复制全文。
 
 ## 工作流程
 
@@ -59,7 +66,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 **Step 2**: 验证输出
 
 使用 Read 工具读取生成的 `drafts/episode_{N}/step1_reference_units.json`，
-确认为合法 JSON 且每个 unit 含 unit_id / duration_seconds / shots（每 shot 只含 text）/ references。
+确认为合法 JSON 且每个 unit 含 unit_id / duration_seconds / source_text / shots（每 shot 只含 text）/ references。
 
 如果结构有问题，直接用 Edit 工具修复（遵循下方「修改口径」）。
 
@@ -69,10 +76,11 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 
 使用 Read 工具读取现有 JSON，按修改要求用 Edit 工具直接修改，遵循**修改口径**：
 
-- unit `duration_seconds` 必须取 Step 0 查得的 `supported_durations` 中的值，且不超过 `max_duration`；一个 unit 一个时长，镜头不单独承载时长。内容装不下所选档位时把该 unit 按叙事顺序重拆为多个 unit，不得违约时长
+- unit `duration_seconds` 必须取 Step 0 查得的 `supported_durations` 中的值，且不超过 `max_duration`；一个 unit 一个时长，镜头不单独承载时长。内容装不下所选档位时把该 unit 按叙事顺序重拆为多个 unit，不得违约时长；台词念不完所选档位时同样重拆，不压进短档
 - shot `text` 用 `@[名称]` 引用资产，名称必须逐字取自 `project.json` 三张表（不确定就 Read `project.json` 确认）；不写外貌 / 服装 / 场景细节
-- 修改 shot 文本中的 `@` 引用后，同步更新该 unit 的 `references`：各 shot 引用的并集、按首次出现顺序（顺序决定 [图N] 编号），去重后数量不超过 `max_reference_images`
-- unit_id 保持 `E{集数}U{两位序号}` 格式、全集唯一
+- `source_text` 必须是本集源文的逐字片段（可截断首尾，中间不得删改）；改动 unit 边界时同步改锚
+- 修改 shot 文本中的 `@` 引用后，同步更新该 unit 的 `references`：各 shot 引用的并集、按首次出现顺序（顺序决定参考图编号），去重后数量不超过 `max_reference_images`；规范台词行的说话人位不计入参考图
+- unit_id 保持 `E{集数}U{两位序号}` 格式、按顺序递增、全集唯一
 
 **修改必重生 JSON 剧本**：拆分修改完成后，若 `scripts/episode_{N}.json` 已存在，旧剧本 **不会自动跟随更新**——主 agent 必须紧接着重新 dispatch `create-episode-script` 重生剧本 JSON，否则留下「新拆分 + 旧剧本」的陈旧组合。在返回摘要中明确提示这一点。
 
@@ -86,8 +94,9 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
     {
       "unit_id": "E<集号>U01",
       "duration_seconds": <duration>,
+      "source_text": "<本 unit 所依据的源文逐字片段>",
       "shots": [
-        {"text": "@[李明] 推开 @[酒馆] 的门，环视四周。"},
+        {"text": "@[李明] 推开 @[酒馆] 的门，环视四周。\n@[李明]：{这地方比我想的还热闹。}"},
         {"text": "@[李明] 走向柜台，把 @[长剑] 放在桌上。"}
       ],
       "references": [

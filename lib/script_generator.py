@@ -34,7 +34,13 @@ from lib.prompt_builders_script import (
     build_narration_prompt,
     render_drama_content_for_step2,
 )
+from lib.reference_video.draft_validation import (
+    DraftViolation,
+    assert_dialogue_preserved,
+    validate_unit_text,
+)
 from lib.reference_video.duration_slots import resolve_duration_slot
+from lib.reference_video.shot_parser import render_shots_text
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     AdEpisodeScript,
@@ -45,11 +51,11 @@ from lib.script_models import (
     NarrationStep1Draft,
     NarrationVisualEpisodeScript,
     ReferenceStep1Draft,
+    ReferenceStep2FlatScript,
     ReferenceVideoScript,
     ad_script_total_duration,
     build_ad_reference_episode_script_model,
     build_episode_script_model,
-    build_reference_video_script_model,
     merge_drama_visual_into_scenes,
     script_duration_total,
 )
@@ -252,17 +258,14 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 step1_units=step1_units,
-                supported_durations=supported_durations,
                 max_refs=self._resolve_max_refs(caps),
-                max_duration=self._resolve_max_duration(
-                    caps, gen_mode=gen_mode, uses_reference_images=_units_use_references(step1_units)
-                ),
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
+                target_language=self.project_json.get("source_language") or "中文",
             )
-            # unit 总时长（duration_seconds = 各 shot 之和）枚举约束到 supported_durations：
-            # 发给 API 的就是这个总和，源头杜绝非成员值漏到供应商报错。
-            schema: type = build_reference_video_script_model(supported_durations)
+            # step2 只产书写层正文：unit_id / 时长 / references 全部机械沿用 step1 或从正文派生，
+            # 不进 LLM 输出——没让模型写的字段就没有漂移可校验，故此处无需按能力收窄的动态 schema。
+            schema: type = ReferenceStep2FlatScript
         else:
             # narration 两段式：step1 透传内容层（novel_text 等），step2 仅产视觉层、按 segment_id 合并回 step1。
             # drama 已在前面经 _generate_drama_step2 早返回；reference 走上面分支，故此 else 必为 narration。
@@ -313,6 +316,8 @@ class ScriptGenerator:
             episode,
             output_filename,
             narration_step1=narration_step1,
+            reference_step1=step1_units,
+            reference_max_refs=self._resolve_max_refs(caps) if step1_units is not None else None,
             reference_unit_durations=reference_unit_durations,
             caps=caps if step1_units is not None else None,
         )
@@ -434,15 +439,18 @@ class ScriptGenerator:
         output_filename: str | None,
         *,
         narration_step1: list[dict] | None = None,
+        reference_step1: list[dict] | None = None,
+        reference_max_refs: int | None = None,
         reference_unit_durations: dict[str, int] | None = None,
         caps: dict | None = None,
     ) -> Path:
         """调用 TextBackend → 解析校验 → 补元数据 → 经写盘统一入口保存（各内容模式共用尾段）。
 
         ``narration_step1`` 非 None 时走两段式合并：LLM 输出视觉层，按 segment_id 合并回
-        step1 已定结构（novel_text 等透传）；否则走单段解析（reference/drama/ad）。
-        ``reference_unit_durations`` 非 None 时（reference_video 路径）按 unit_id 机械覆盖
-        LLM 输出的 ``duration_seconds``（取档用最终输出的 references 状态重算，见 ``_add_metadata``）；
+        step1 已定结构（novel_text 等透传）；``reference_step1`` 非 None 时走参考路径的保结构
+        合并（LLM 只出书写层正文，见 ``_merge_reference_visual``）；两者皆 None 时走单段解析
+        （drama/ad）。``reference_unit_durations`` 非 None 时（reference_video 路径）按 unit_id
+        机械覆盖 ``duration_seconds``（取档用最终输出的 references 状态重算，见 ``_add_metadata``）；
         ``caps`` 可一并传入，为 None 时 ``_add_metadata`` 仍按 caps → project.json → registry
         三级回退解析每个 unit 的生效档位，不会因此跳过取档校验。
         """
@@ -464,6 +472,10 @@ class ScriptGenerator:
         if narration_step1 is not None:
             visual_data = self._parse_narration_visual(response_text, episode)
             script_data = self._merge_narration_visual(narration_step1, visual_data, episode)
+        elif reference_step1 is not None:
+            script_data = self._merge_reference_visual(
+                reference_step1, response_text, episode, max_refs=reference_max_refs
+            )
         else:
             script_data = self._parse_response(response_text, episode)
 
@@ -572,12 +584,9 @@ class ScriptGenerator:
         props = props if isinstance(props, dict) else {}
 
         if gen_mode == "reference_video":
-            # 单 shot 按全集校验、参考图约束按本集实际引用判定（见 generate() 同位置说明）。
+            # unit 时长按全集校验（见 generate() 同位置说明）；step2 不产出时长，prompt 里
+            # 不再需要档位与上限，只需参考图上限。
             step1_units = self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
-            uses_refs = _units_use_references(step1_units)
-            supported_durations = self._resolve_supported_durations(
-                caps, gen_mode=gen_mode, uses_reference_images=uses_refs
-            )
             return build_reference_video_prompt(
                 project_overview=self.project_json.get("overview", {}),
                 style=self.project_json.get("style", ""),
@@ -586,11 +595,10 @@ class ScriptGenerator:
                 scenes=scenes,
                 props=props,
                 step1_units=step1_units,
-                supported_durations=supported_durations,
                 max_refs=self._resolve_max_refs(caps),
-                max_duration=self._resolve_max_duration(caps, gen_mode=gen_mode, uses_reference_images=uses_refs),
                 aspect_ratio=self._resolve_aspect_ratio(),
                 episode=episode,
+                target_language=self.project_json.get("source_language") or "中文",
             )
         # narration 两段式：step1 透传内容层（novel_text 等），step2 仅产视觉层。
         # drama / ad 已在前面早返回，reference 走上面分支，故此处必为 narration。
@@ -963,6 +971,62 @@ class ScriptGenerator:
         if rewritten_dupes:
             raise ValueError(f"Step 1 内容文件 scene_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
         return data
+
+    def _merge_reference_visual(
+        self,
+        step1_units: list[dict],
+        response_text: str,
+        episode: int,
+        *,
+        max_refs: int | None,
+    ) -> dict:
+        """参考路径 step2 合并：LLM 只出书写层正文，其余字段机械沿用 step1 / 从正文派生。
+
+        保结构 diff 在此落地——unit 数与顺序、台词规范行逐字、每 unit 的镜头数都由 step1 定稿，
+        step2 只允许把画面描述写详细。任一项被改动即 fail-loud（``DraftViolation``），不静默
+        接受：台词配不上画面时正确的出路是回到 step1 重拆，而不是让 step2 自行改词。
+
+        ``unit_id`` / ``duration_seconds`` 直接取 step1 的值，``shots`` / ``references`` 由展开后
+        的正文机械派生——LLM 没写这些字段，也就没有对不上的可能。
+        """
+        text = strip_json_code_fences(response_text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"JSON 解析失败: {e}")
+        try:
+            flat = ReferenceStep2FlatScript.model_validate(data)
+        except ValidationError as e:
+            raise ValueError(f"step2 视觉展开结构校验失败: {e}") from e
+
+        if len(flat.units) != len(step1_units):
+            raise DraftViolation(
+                f"step2 产出的 unit 数（{len(flat.units)}）与 step1 已确认的（{len(step1_units)}）不一致；"
+                "step2 只做视觉展开，不得合并、拆分或增删 unit"
+            )
+
+        video_units: list[dict] = []
+        for step1_unit, flat_unit in zip(step1_units, flat.units, strict=True):
+            label = f"unit {step1_unit['unit_id']}"
+            step1_text = render_shots_text(step1_unit.get("shots") or [])
+            shots, refs = validate_unit_text(label, flat_unit.text, self.project_json, max_refs=max_refs)
+            assert_dialogue_preserved(label, step1_text, flat_unit.text)
+            if len(shots) != len(step1_unit.get("shots") or []):
+                raise DraftViolation(
+                    f"{label} 的镜头数被改动（step1 有 {len(step1_unit.get('shots') or [])} 个，"
+                    f"step2 产出 {len(shots)} 个）；step2 只做视觉展开，镜头数须保持不变"
+                )
+            video_units.append(
+                {
+                    "unit_id": step1_unit["unit_id"],
+                    "shots": [s.model_dump() for s in shots],
+                    "references": [r.model_dump() for r in refs],
+                    "duration_seconds": step1_unit["duration_seconds"],
+                }
+            )
+
+        title = flat.title if flat.title.strip() else f"第{episode}集"
+        return ReferenceVideoScript.model_validate({"title": title, "video_units": video_units}).model_dump()
 
     def _parse_response(self, response_text: str, episode: int) -> dict:
         """

@@ -34,7 +34,11 @@ from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import DEFAULT_SOURCE_KIND, ProjectManager, effective_mode
 from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
-from lib.reference_video.shot_parser import extract_mentions, resolve_references
+from lib.reference_video.draft_validation import (
+    validate_dialogue_load,
+    validate_source_text_anchor,
+    validate_unit_text,
+)
 from lib.script_generator import ScriptGenerator
 from lib.script_models import (
     NarrationStep1Draft,
@@ -492,48 +496,58 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> tuple[
     return default, unit_durations, max_duration, max_refs
 
 
-def _derive_and_validate_reference_units(
-    units: list[dict],
+def _build_reference_units_from_flat(
+    flat_units: list[dict],
     project: dict[str, Any],
     *,
+    episode: int,
+    novel_text: str,
     max_duration: int,
     max_refs: int | None,
-) -> None:
-    """按拆分规则做后校验并就地派生各 unit 的 references。
+    source_language: str | None,
+) -> list[dict]:
+    """把 LLM 的扁平产出（时长 + 原文锚 + 书写层正文）校验并派生为落盘的结构化 unit 表。
 
-    schema 已卡死 unit 时长枚举与 1-4 shot 结构；此处补依赖运行时能力值 / 项目登记表的约束：
-    unit_id 唯一、unit 时长 ≤ max_duration、shot 文本 ``@`` 引用的资产名已登记（引用完整性）、
-    派生 references（各 shot 引用的并集、首现顺序，顺序即 [图N] 编号）数量 ≤ max_refs。
-    任一违约 fail-loud 抛 ValueError，不把违规拆分当成功产物写盘。
+    LLM 只写内容，机器写结构：``unit_id`` 按数组序号编号、``shots`` 由 ``镜头N：`` 切分、
+    ``references`` 由 ``@[名称]`` 派生（首现顺序即参考图编号），三者都没有让模型写错的余地。
+    schema 已卡死时长枚举与外层形状；此处补依赖运行时能力值 / 项目登记表 / 源文的约束——
+    时长 ≤ max_duration、原文锚是源文逐字子串、正文语法与资产引用合法、台词量念得完。
+    任一违约 fail-loud 抛错，不把违规拆分当成功产物写盘。
     """
-    ids = [u.get("unit_id") for u in units]
-    dupes = sorted(str(uid) for uid, count in Counter(ids).items() if count > 1)
-    if dupes:
-        raise ValueError(f"step1 拆分内容 unit_id 重复: {dupes}")
-    for unit in units:
-        uid = unit.get("unit_id")
-        shots = unit.get("shots") or []
-        duration = int(unit.get("duration_seconds") or 0)
+    units: list[dict] = []
+    for index, flat in enumerate(flat_units, start=1):
+        unit_id = f"E{episode}U{index:02d}"
+        label = f"unit {unit_id}"
+        duration = int(flat.get("duration_seconds") or 0)
         if duration > max_duration:
-            raise ValueError(f"unit {uid} 时长 {duration}s 超过单次生成上限 {max_duration}s；请改取更短的档位")
-        names = extract_mentions("\n".join(str(s.get("text") or "") for s in shots))
-        refs, missing = resolve_references(names, project)
-        if missing:
-            raise ValueError(f"unit {uid} 引用了未登记的资产名: {missing}；资产名必须逐字取自 project.json 三张表")
-        if max_refs is not None and len(refs) > max_refs:
-            raise ValueError(
-                f"unit {uid} 的 references 数 {len(refs)} 超过模型上限 {max_refs}；请把次要角色融入背景描述"
-            )
-        unit["references"] = [r.model_dump() for r in refs]
+            raise ValueError(f"{label} 时长 {duration}s 超过单次生成上限 {max_duration}s；请改取更短的档位")
+
+        source_text = str(flat.get("source_text") or "")
+        validate_source_text_anchor(label, source_text, novel_text)
+
+        text = str(flat.get("text") or "")
+        shots, refs = validate_unit_text(label, text, project, max_refs=max_refs)
+        validate_dialogue_load(label, text, duration, source_language)
+
+        units.append(
+            {
+                "unit_id": unit_id,
+                "shots": [s.model_dump() for s in shots],
+                "duration_seconds": duration,
+                "references": [r.model_dump() for r in refs],
+                "source_text": source_text,
+            }
+        )
+    return units
 
 
 def split_reference_video_units_tool(ctx: ToolContext):
     @tool(
         "split_reference_video_units",
-        "把本集小说原文拆分为参考生视频 video_unit 表（unit → 时长 + shots 叙事文本 + references），"
+        "把本集小说原文拆分为参考生视频 video_unit 表（unit → 时长 + 原文锚 + 书写层正文），"
         "保存到 drafts/episode_N/step1_reference_units.json，供 generate_episode_script"
-        "（reference_video 模式）消费。references 由工具从 shot 文本的 @[名称] 引用自动派生。"
-        "dry_run=true 时仅返回 prompt。",
+        "（reference_video 模式）消费。unit_id / shots / references 由工具从正文机械派生，"
+        "并校验原文锚、正文语法、资产引用与台词量。dry_run=true 时仅返回 prompt。",
         {
             "type": "object",
             "properties": {
@@ -571,6 +585,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
             default_duration, supported_durations, max_duration, max_refs = await _fetch_reference_caps_with_fallback(
                 project
             )
+            episode_outline, next_episode_outline = episode_outline_context(project, episode)
             prompt = build_reference_units_split_prompt(
                 novel_text=novel_text,
                 project_overview=project.get("overview", {}),
@@ -584,6 +599,11 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 episode=episode,
                 # 输出语言取项目 source_language（生成内容语言的唯一真相源），与 normalize 同口径。
                 target_language=project.get("source_language") or "中文",
+                # source_language（zh / en / vi 或 None）另供台词口播时长下界取语速，与后校验同一把尺。
+                source_language=project.get("source_language"),
+                # 分集大纲约束本集内容边界，同 drama step1。
+                episode_outline=episode_outline,
+                next_episode_outline=next_episode_outline,
             )
 
             if dry_run:
@@ -596,8 +616,9 @@ def split_reference_video_units_tool(ctx: ToolContext):
                     ]
                 }
 
-            # 结构化输出：response_schema 按 supported_durations 卡死 unit 时长枚举，直接产出
-            # unit → 时长 + shots 叙事文本；references 不进 LLM 输出、由下方机械派生。
+            # 结构化输出：response_schema 按 supported_durations 卡死 unit 时长枚举，产出扁平
+            # unit → 时长 + 原文锚 + 书写层正文；unit_id / shots / references 不进 LLM 输出、
+            # 由下方机械派生（正文内的语法则由 parser 后校验兜底，schema 管不到）。
             schema = build_reference_units_step1_model(supported_durations)
             generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=ctx.project_name)
             result = await generator.generate(
@@ -608,12 +629,21 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 ),
                 project_name=ctx.project_name,
             )
-            content = _parse_step1_json(result.text, schema, label="step1 拆分内容", top_shape="{units}")
+            flat = _parse_step1_json(result.text, schema, label="step1 拆分内容", top_shape="{units}")
 
-            raw_units = content.get("units")
-            if not isinstance(raw_units, list) or not raw_units:
+            raw_flat_units = flat.get("units")
+            if not isinstance(raw_flat_units, list) or not raw_flat_units:
                 raise ValueError("step1 拆分内容结构异常：units 必须是非空的 unit 对象数组")
-            _derive_and_validate_reference_units(raw_units, project, max_duration=max_duration, max_refs=max_refs)
+            raw_units = _build_reference_units_from_flat(
+                raw_flat_units,
+                project,
+                episode=episode,
+                novel_text=novel_text,
+                max_duration=max_duration,
+                max_refs=max_refs,
+                source_language=project.get("source_language"),
+            )
+            content = {"units": raw_units}
 
             drafts_dir = episode_drafts_dir(project_path, episode)
             drafts_dir.mkdir(parents=True, exist_ok=True)

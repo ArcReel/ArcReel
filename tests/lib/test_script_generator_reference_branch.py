@@ -28,6 +28,22 @@ STEP1_UNITS_JSON = _json.dumps(
 )
 
 
+def _step2_response(*texts: str, title: str = "t") -> str:
+    """step2 的 LLM 产出：扁平 ``{title, units: [{text}]}``——unit_id / 时长 / references 不进输出。"""
+    return _json.dumps({"title": title, "units": [{"text": t} for t in texts]}, ensure_ascii=False)
+
+
+def _fake_step2_generator(*texts: str) -> MagicMock:
+    generator = MagicMock()
+    generator.model = "mock"
+    generator.generate = AsyncMock(return_value=MagicMock(text=_step2_response(*texts)))
+    return generator
+
+
+#: 与 ``STEP1_UNITS_JSON`` 单 unit 对应的合法视觉展开：镜头数不变、无台词行可改。
+STEP2_UNIT_TEXT = "镜头1：中景，平视。@[主角] 推开 @[酒馆] 的门，侧身跨过门槛。"
+
+
 @pytest.fixture
 def reference_project(tmp_path: Path) -> Path:
     """造一个 reference_video 模式的最小项目。"""
@@ -61,8 +77,8 @@ async def test_script_generator_build_prompt_selects_reference_branch(reference_
     gen = ScriptGenerator(reference_project)
     prompt = await gen.build_prompt(episode=1)
     # reference 分支特征标签
-    assert "ReferenceVideoScript" in prompt
-    assert "references" in prompt
+    assert "视觉展开" in prompt
+    assert "<step1_units>" in prompt
     assert "@[名称]" in prompt
     # 不应出现 narration / drama 特征
     assert "characters_in_segment" not in prompt
@@ -72,31 +88,19 @@ async def test_script_generator_build_prompt_selects_reference_branch(reference_
 async def test_script_generator_reads_step1_reference_units(reference_project: Path):
     gen = ScriptGenerator(reference_project)
     prompt = await gen.build_prompt(episode=1)
-    # 结构化 step1 的 unit 须经机械渲染进入 prompt（unit_id / shot 文本 / references）
-    assert "E1U01" in prompt
-    assert "@[主角] 推开 @[酒馆] 的门" in prompt
-    assert "character:主角" in prompt
+    # step1 正文须经机械渲染进入 prompt（带 镜头N： header 的书写层文本 + unit 时长）
+    assert "镜头1：@[主角] 推开 @[酒馆] 的门" in prompt
+    assert "（时长 4s）" in prompt
+    # unit_id 由序号机械派生，不下发给 step2
+    assert "E1U01" not in prompt
 
 
 @pytest.mark.asyncio
 async def test_script_generator_uses_reference_schema_on_generate(reference_project: Path):
-    """_parse_response 在 reference 模式下用 ReferenceVideoScript 校验。"""
-    from lib.script_models import ReferenceVideoScript
+    """step2 用扁平 schema 出正文，落盘结构由 step1 + 正文机械合成。"""
+    from lib.script_models import ReferenceStep2FlatScript
 
-    fake_generator = MagicMock()
-    fake_generator.model = "mock"
-    fake_generator.generate = AsyncMock(
-        return_value=MagicMock(
-            text=(
-                '{"episode":1,"title":"t",'
-                '"summary":"s","novel":{"title":"t","chapter":"1"},'
-                '"video_units":[{"unit_id":"E1U01",'
-                '"shots":[{"text":"@主角 推门"}],'
-                '"references":[{"type":"character","name":"主角"}],'
-                '"duration_seconds":4,"transition_to_next":"cut"}]}'
-            )
-        )
-    )
+    fake_generator = _fake_step2_generator(STEP2_UNIT_TEXT)
 
     gen = ScriptGenerator(reference_project, generator=fake_generator)
 
@@ -110,43 +114,33 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     assert data["content_mode"] == "narration"
     assert data["generation_mode"] == "reference_video"
     assert len(data["video_units"]) == 1
+    unit = data["video_units"][0]
+    # unit_id / 时长沿用 step1；shots / references 由正文机械派生
+    assert unit["unit_id"] == "E1U01"
+    assert unit["duration_seconds"] == 4
+    assert unit["shots"][0]["text"].startswith("中景，平视。")
+    assert unit["references"] == [
+        {"type": "character", "name": "主角"},
+        {"type": "scene", "name": "酒馆"},
+    ]
 
-    # 确认生成时用了 duration 枚举硬约束的 ReferenceVideoScript 子类（unit 总时长被收紧为 enum）
+    # step2 的 response_schema 是扁平形状，且不含 duration_seconds——时长没让 LLM 写
     schema = fake_generator.generate.await_args.args[0].response_schema
-    assert isinstance(schema, type) and issubclass(schema, ReferenceVideoScript)
-    unit_def = next(
-        d for d in schema.model_json_schema().get("$defs", {}).values() if "shots" in d.get("properties", {})
-    )
-    assert "enum" in unit_def["properties"]["duration_seconds"]
+    assert schema is ReferenceStep2FlatScript
+    assert "duration_seconds" not in _json.dumps(schema.model_json_schema())
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_script_generator_overrides_llm_duration_with_step1_confirmed_value(reference_project: Path):
-    """unit 时长的单一真相是 step1 审阅确认的值：schema 只把它约束到 supported_durations
-    枚举成员、不钉死具体 unit，LLM 可能在合法档位间改写；保存时须按 unit_id 机械覆盖回
-    step1 确认值，不采信 LLM 输出（否则时长/费用/生成长度会随 LLM 静默漂移）。
+    """unit 时长的单一真相是 step1 审阅确认的值：step2 根本不产出该字段，落盘值机械取自
+    step1（时长即计费，不给 LLM 留任何改写入口）。
     """
-    fake_generator = MagicMock()
-    fake_generator.model = "mock"
-    fake_generator.generate = AsyncMock(
-        return_value=MagicMock(
-            text=(
-                '{"episode":1,"title":"t",'
-                '"summary":"s","novel":{"title":"t","chapter":"1"},'
-                '"video_units":[{"unit_id":"E1U01",'
-                '"shots":[{"text":"@主角 推门"}],'
-                '"references":[{"type":"character","name":"主角"}],'
-                '"duration_seconds":8,"transition_to_next":"cut"}]}'
-            )
-        )
-    )
-
-    gen = ScriptGenerator(reference_project, generator=fake_generator)
+    gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(STEP2_UNIT_TEXT))
     out = await gen.generate(episode=1)
 
     data = _json.loads(out.read_text(encoding="utf-8"))
-    assert data["video_units"][0]["duration_seconds"] == 4  # step1 确认值，非 LLM 的 8
+    assert data["video_units"][0]["duration_seconds"] == 4  # step1 确认值
     assert data["duration_seconds"] == 4
 
 
@@ -218,25 +212,7 @@ async def test_script_generator_narrows_duration_tiers_per_unit_not_episode_wide
         encoding="utf-8",
     )
 
-    fake_generator = MagicMock()
-    fake_generator.model = "mock"
-    fake_generator.generate = AsyncMock(
-        return_value=MagicMock(
-            text=(
-                '{"episode":1,"title":"t",'
-                '"summary":"s","novel":{"title":"t","chapter":"1"},'
-                '"video_units":['
-                '{"unit_id":"E1U01","shots":[{"text":"@主角 推门"}],'
-                '"references":[{"type":"character","name":"主角"}],'
-                '"duration_seconds":8,"transition_to_next":"cut"},'
-                '{"unit_id":"E1U02","shots":[{"text":"空镜"}],'
-                '"references":[],'
-                # schema 是 episode 级枚举 [8]：LLM 只能选 8，text-only unit 也被迫写 8。
-                '"duration_seconds":8,"transition_to_next":"cut"}'
-                "]}"
-            )
-        )
-    )
+    fake_generator = _fake_step2_generator("镜头1：中景。@[主角] 推门", "镜头1：空镜，风吹过门廊")
 
     def _fake_supported_durations(self, caps=None, *, gen_mode, uses_reference_images=None):
         return [8] if uses_reference_images else [4, 8]
@@ -278,21 +254,7 @@ async def test_script_generator_takes_duration_tier_from_final_output_references
         encoding="utf-8",
     )
 
-    fake_generator = MagicMock()
-    fake_generator.model = "mock"
-    fake_generator.generate = AsyncMock(
-        return_value=MagicMock(
-            text=(
-                '{"episode":1,"title":"t",'
-                '"summary":"s","novel":{"title":"t","chapter":"1"},'
-                '"video_units":['
-                '{"unit_id":"E1U01","shots":[{"text":"空镜"}],'
-                '"references":[],'
-                '"duration_seconds":4,"transition_to_next":"cut"}'
-                "]}"
-            )
-        )
-    )
+    fake_generator = _fake_step2_generator("镜头1：空镜，门廊在风里轻响")
 
     def _fake_supported_durations(self, caps=None, *, gen_mode, uses_reference_images=None):
         return [8] if uses_reference_images else [4, 8]
@@ -353,50 +315,81 @@ async def test_script_generator_reclamps_duration_even_when_caps_unavailable(ref
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_script_generator_rejects_output_missing_a_confirmed_step1_unit(reference_project: Path):
-    """LLM 漏写某个 step1 已确认的 unit：覆盖时长掩盖不了输出与 step1 基底脱节这个更根本
-    的问题，须 fail-loud：覆盖前先核对 unit_id 集合完全一致。
-    """
-    fake_generator = MagicMock()
-    fake_generator.model = "mock"
-    fake_generator.generate = AsyncMock(
-        return_value=MagicMock(
-            text='{"episode":1,"title":"t","summary":"s","novel":{"title":"t","chapter":"1"},"video_units":[]}'
-        )
-    )
-
-    gen = ScriptGenerator(reference_project, generator=fake_generator)
-    with pytest.raises(ValueError, match="缺少 step1 已确认的 unit_id"):
+async def test_script_generator_rejects_step2_unit_count_change(reference_project: Path):
+    """step2 合并 / 拆分 / 增删 unit：unit 数是 step1 已确认的内容契约，改动即响亮失败。"""
+    gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(STEP2_UNIT_TEXT, "镜头1：多出来的一段"))
+    with pytest.raises(ValueError, match="unit 数"):
         await gen.generate(episode=1)
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_script_generator_rejects_output_with_unknown_unit_id(reference_project: Path):
-    """LLM 输出 step1 之外的陌生 unit_id：同上，须 fail-loud 而非静默放行一个没有
-    对应确认时长的 unit。
-    """
-    fake_generator = MagicMock()
-    fake_generator.model = "mock"
-    fake_generator.generate = AsyncMock(
-        return_value=MagicMock(
-            text=(
-                '{"episode":1,"title":"t",'
-                '"summary":"s","novel":{"title":"t","chapter":"1"},'
-                '"video_units":[{"unit_id":"E1U01",'
-                '"shots":[{"text":"@主角 推门"}],'
-                '"references":[{"type":"character","name":"主角"}],'
-                '"duration_seconds":4,"transition_to_next":"cut"},'
-                '{"unit_id":"E1U99",'
-                '"shots":[{"text":"@主角 关门"}],'
-                '"references":[{"type":"character","name":"主角"}],'
-                '"duration_seconds":4,"transition_to_next":"cut"}]}'
-            )
-        )
+async def test_script_generator_rejects_step2_dialogue_rewrite(reference_project: Path):
+    """台词规范行逐字不变：step2 改词即失败，不静默接受被改成「好配画面」的台词。"""
+    drafts = reference_project / "drafts" / "episode_1"
+    (drafts / "step1_reference_units.json").write_text(
+        _json.dumps(
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "shots": [{"text": "@[主角] 推门\n@[主角]：{我来了。}"}],
+                        "duration_seconds": 4,
+                        "references": [{"type": "character", "name": "主角"}],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
     )
+    gen = ScriptGenerator(
+        reference_project,
+        generator=_fake_step2_generator("镜头1：中景。@[主角] 推门跨入\n@[主角]：{我到了。}"),
+    )
+    with pytest.raises(ValueError, match="台词"):
+        await gen.generate(episode=1)
 
-    gen = ScriptGenerator(reference_project, generator=fake_generator)
-    with pytest.raises(ValueError, match="未知 unit_id"):
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_script_generator_accepts_step2_expansion_keeping_dialogue(reference_project: Path):
+    """描述行自由展开、台词行逐字保留 → 放行，并把台词说话人排除在参考图之外。"""
+    drafts = reference_project / "drafts" / "episode_1"
+    (drafts / "step1_reference_units.json").write_text(
+        _json.dumps(
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "shots": [{"text": "@[主角] 推门\n@[主角]：{我来了。}"}],
+                        "duration_seconds": 4,
+                        "references": [{"type": "character", "name": "主角"}],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    gen = ScriptGenerator(
+        reference_project,
+        generator=_fake_step2_generator("镜头1：中景，平视。@[主角] 推开 @[酒馆] 的门，跨过门槛\n@[主角]：{我来了。}"),
+    )
+    out = await gen.generate(episode=1)
+    unit = _json.loads(out.read_text(encoding="utf-8"))["video_units"][0]
+    assert unit["references"] == [
+        {"type": "character", "name": "主角"},
+        {"type": "scene", "name": "酒馆"},
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_script_generator_rejects_step2_unregistered_mention(reference_project: Path):
+    """step2 新增的 mention 同样过登记校验：未登记资产名不得混进正文。"""
+    gen = ScriptGenerator(reference_project, generator=_fake_step2_generator("镜头1：@[主角] 与 @[路人乙] 对视"))
+    with pytest.raises(ValueError, match="未登记"):
         await gen.generate(episode=1)
 
 
@@ -428,22 +421,7 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
     drafts.mkdir(parents=True)
     (drafts / "step1_reference_units.json").write_text(STEP1_UNITS_JSON, encoding="utf-8")
 
-    fake_generator = MagicMock()
-    fake_generator.model = "mock"
-    fake_generator.generate = AsyncMock(
-        return_value=MagicMock(
-            text=(
-                '{"episode":1,"title":"t",'
-                '"summary":"s","novel":{"title":"t","chapter":"1"},'
-                '"video_units":[{"unit_id":"E1U01",'
-                '"shots":[{"text":"@主角 推门"}],'
-                '"references":[{"type":"character","name":"主角"}],'
-                '"duration_seconds":4,"transition_to_next":"cut"}]}'
-            )
-        )
-    )
-
-    gen = ScriptGenerator(project_dir, generator=fake_generator)
+    gen = ScriptGenerator(project_dir, generator=_fake_step2_generator("镜头1：中景。@[主角] 推门"))
     out = await gen.generate(episode=1)
 
     import json as _j
@@ -521,51 +499,6 @@ def test_resolve_max_refs_from_registry_fallback(tmp_path: Path, video_backend, 
 
     gen = ScriptGenerator(project_dir)
     assert gen._resolve_max_refs(None) == expected
-
-
-@pytest.mark.parametrize(
-    "video_backend, expected_max_duration_sec",
-    [
-        ("grok/grok-imagine-video", "15"),
-        ("gemini-aistudio/veo-3.1-generate-preview", "8"),
-        ("ark/doubao-seedance-2-0-260128", "15"),
-    ],
-)
-@pytest.mark.asyncio
-async def test_build_prompt_injects_max_duration_from_registry(
-    tmp_path: Path, video_backend: str, expected_max_duration_sec: str
-):
-    """build_prompt 的 reference 分支应基于 project.json.video_backend 的 model 能力派生 max_duration。"""
-    project_dir = tmp_path / "proj"
-    project_dir.mkdir()
-    import json as _j
-
-    (project_dir / "project.json").write_text(
-        _j.dumps(
-            {
-                "title": "t",
-                "content_mode": "narration",
-                "generation_mode": "reference_video",
-                "video_backend": video_backend,
-                "overview": {"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
-                "style": "s",
-                "style_description": "d",
-                "characters": {},
-                "scenes": {},
-                "props": {},
-                "episodes": [{"episode": 1, "generation_mode": "reference_video"}],
-            }
-        ),
-        encoding="utf-8",
-    )
-    drafts = project_dir / "drafts" / "episode_1"
-    drafts.mkdir(parents=True)
-    (drafts / "step1_reference_units.json").write_text(STEP1_UNITS_JSON, encoding="utf-8")
-
-    gen = ScriptGenerator(project_dir)
-    prompt = await gen.build_prompt(episode=1)
-    assert f"{expected_max_duration_sec} 秒" in prompt
-    assert "当前模型上限" in prompt
 
 
 @pytest.mark.asyncio
@@ -661,10 +594,26 @@ async def test_effective_generation_mode_honors_episode_override(tmp_path: Path)
 
     gen = ScriptGenerator(project_dir)
     prompt = await gen.build_prompt(episode=1)
-    # 走 reference 分支：模板包含 ReferenceVideoScript 与 references 字段说明
-    assert "ReferenceVideoScript" in prompt
-    assert "references" in prompt
+    # 走 reference 分支：step2 视觉展开模板
+    assert "视觉展开" in prompt
+    assert "<step1_units>" in prompt
     assert "@[名称]" in prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_script_generator_reads_legacy_step1_draft_without_source_text(reference_project: Path):
+    """存量 step1 草稿（无 source_text，per-shot 时长已由迁移收编）仍能被新校验器读取并跑完 step2。
+
+    ``source_text`` 是本轮新增的原文锚：拆分工具产出时校验后落盘，但存量草稿产于其前。
+    默认空串使读取照常通过，不要求用户重跑拆分。
+    """
+    saved = _json.loads((reference_project / "drafts" / "episode_1" / "step1_reference_units.json").read_text("utf-8"))
+    assert "source_text" not in saved["units"][0]
+
+    gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(STEP2_UNIT_TEXT))
+    out = await gen.generate(episode=1)
+    assert _json.loads(out.read_text(encoding="utf-8"))["video_units"][0]["unit_id"] == "E1U01"
 
 
 @pytest.mark.asyncio

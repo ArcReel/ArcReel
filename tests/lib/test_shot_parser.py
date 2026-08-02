@@ -235,3 +235,21 @@ def test_mention_underscore_prefix_is_rejected():
     from lib.reference_video.shot_parser import extract_mentions
 
     assert extract_mentions("prefix_@张三") == []
+
+
+def test_render_shots_text_round_trips_parse_prompt():
+    """``render_shots_text`` 是 ``parse_prompt`` 的逆向：header 复原，再解析回同一组 shots。"""
+    from lib.reference_video.shot_parser import parse_prompt, render_shots_text
+
+    text = "镜头1：@[甲] 起身\n@[甲]：{走了。}\n镜头2：@[甲] 出门"
+    shots, _mentions = parse_prompt(text)
+    rendered = render_shots_text([s.model_dump() for s in shots])
+    assert rendered == text
+    assert [s.text for s in parse_prompt(rendered)[0]] == [s.text for s in shots]
+
+
+def test_render_shots_text_normalizes_dirty_entries():
+    """Agent 可裸写 JSON：非 dict 条目 / 缺失 text 按空正文渲染，不注入 "None" 字面量。"""
+    from lib.reference_video.shot_parser import render_shots_text
+
+    assert render_shots_text([{"text": None}, "x", {}]) == "镜头1：\n镜头2：\n镜头3："
