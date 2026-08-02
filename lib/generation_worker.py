@@ -383,13 +383,11 @@ async def _extract_provider(task: dict[str, Any]) -> str:
 
             project = await asyncio.to_thread(get_project_manager().load_project, project_name)
 
-        from lib.config.resolver import ConfigResolver
+        from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE, ConfigResolver
         from lib.db import async_session_factory
 
         resolver = ConfigResolver(async_session_factory)
         if is_video:
-            from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE
-
             resolved = await resolver.resolve_video_backend(
                 project, payload, capability=VIDEO_BUCKET_BY_TASK_TYPE.get(task.get("task_type", ""))
             )

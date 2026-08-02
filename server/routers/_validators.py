@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Literal
 
 from fastapi import HTTPException
 
 from lib.api_errors import BadRequestError
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
+from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, VideoCapability
 from lib.i18n import _ as _default_translate
 
 
-async def require_video_bucket_capability(project: dict, capability: Literal["i2v", "r2v"]) -> None:
+async def require_video_bucket_capability(project: dict, capability: VideoCapability) -> None:
     """视频生成入口预检：按能力桶解析全局 + 项目配置并过解析闸（``docs/adr/0054``）。
 
     解析出的模型缺该桶所需能力、或配置引用已不可用（模型被删 / 能力被改 / 供应商被删）时抛

@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from lib.audio_backends.base import VoiceOption
 from lib.backend_assembly import assemble_backend
-from lib.config.resolver import ConfigResolver, VoiceConsistency, get_provider_fallback
+from lib.config.resolver import ConfigResolver, VideoCapability, VoiceConsistency, get_provider_fallback
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import get_shared_rate_limiter
 from lib.media_generator import MediaGenerator
@@ -163,7 +163,7 @@ class VideoLaneRequest:
     供 resume 等按 payload 排空、不承诺能力的路径使用。
     """
 
-    capability: Literal["i2v", "r2v"] | None = None
+    capability: VideoCapability | None = None
 
 
 @dataclass(frozen=True)

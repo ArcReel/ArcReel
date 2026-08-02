@@ -37,7 +37,7 @@ async def _derive_provider_id_for_enqueue(
     is_video = media_type == "video" or task_type in ("video", "reference_video")
     is_audio = media_type == "audio" or task_type == "tts"
     try:
-        from lib.config.resolver import ConfigResolver, get_project_manager
+        from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE, ConfigResolver, get_project_manager
         from lib.db import async_session_factory
 
         project: dict | None = None
@@ -46,8 +46,6 @@ async def _derive_provider_id_for_enqueue(
 
         resolver = ConfigResolver(async_session_factory)
         if is_video:
-            from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE
-
             resolved = await resolver.resolve_video_backend(
                 project, payload or {}, capability=VIDEO_BUCKET_BY_TASK_TYPE.get(task_type)
             )

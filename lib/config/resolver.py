@@ -214,6 +214,17 @@ VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoCapability] = {
 }
 
 
+def video_capability_satisfied(*, capability: VideoCapability, first_frame: bool, max_reference_images: int) -> bool:
+    """一组视频能力声明是否满足某个桶——桶归属判定的唯一口径。
+
+    解析闸（``_ensure_video_bucket_capability``）与桶候选下拉（``lib.capability_buckets``）共用本
+    函数，不各写一份布尔式：下拉挡掉的组合解析层必然也挡，反之亦然。取标量参数而非
+    ``VideoCapabilities``，一是不在 lib.config 层导入 lib.video_backends.base（分层契约），二是让
+    内置（backend 声明）与自定义供应商（endpoint ⊕ 模型级覆盖的合成）两条来源都能直接喂进来。
+    """
+    return first_frame if capability == "i2v" else max_reference_images > 0
+
+
 # 档位 → 设置键。全局（system_settings）与项目级（project.json）同名同构。
 _TEXT_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
     TextTaskTier.SIMPLE: "text_backend_simple",
@@ -1009,9 +1020,9 @@ class ConfigResolver:
     ) -> None:
         """能力闸：校验解析出的模型具备该桶所需能力，不满足直接报错、不静默换模型。
 
-        判定口径与 ``lib.capability_buckets``（桶候选下拉的过滤依据）一致：i2v 取 backend
-        ``VideoCapabilities.first_frame``、r2v 取 ``max_reference_images > 0``，两维都以 backend
-        声明为准（与请求构造同源），不读 registry ``ModelInfo`` 的并行声明。悬空引用（模型被删 /
+        判定经 ``video_capability_satisfied`` 与桶候选下拉（``lib.capability_buckets``）共用一份
+        口径：内置模型两维都取 backend ``VideoCapabilities``（与请求构造同源），不读 registry
+        ``ModelInfo`` 的并行声明。悬空引用（模型被删 /
         能力被事后修改 / 供应商被删 / endpoint 变更）在此统一报错兜底，写入侧不拦截、不级联清理
         （``docs/adr/0054``）。
         """
@@ -1052,7 +1063,11 @@ class ConfigResolver:
                 caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
             except ValueError as exc:
                 raise _video_bucket_reference_unavailable(capability, provider_id, model_id) from exc
-        satisfied = caps.first_frame if capability == "i2v" else caps.max_reference_images > 0
+        satisfied = video_capability_satisfied(
+            capability=capability,
+            first_frame=caps.first_frame,
+            max_reference_images=caps.max_reference_images,
+        )
         if not satisfied:
             raise _video_bucket_capability_missing(capability, provider_id, model_id)
 
