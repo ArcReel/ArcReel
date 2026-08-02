@@ -95,6 +95,11 @@ def _reset_for_tests() -> None:
     _ffprobe_available.cache_clear()
 
 
+# 只取时长的 ffprobe 参数，字节输入版与已落盘文件版共用一份——两处各写一份会漂移出
+# 「同一个文件两条路径量出不同时长」的口径分裂。末尾追加目标路径即可。
+_DURATION_PROBE_ARGS = ["-show_entries", "format=duration", "-of", "csv=p=0"]
+
+
 async def _run_ffprobe(extra_args: list[str]) -> bytes:
     """执行一次 ffprobe 子进程，返回 stdout；超时/非零退出统一按不可解析处理。
 
@@ -166,7 +171,7 @@ async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | N
             if not detected_tokens & expected_tokens:
                 raise ValueError("音频文件无法解析")
 
-        duration_out = await _run_ffprobe(["-show_entries", "format=duration", "-of", "csv=p=0", str(tmp_path)])
+        duration_out = await _run_ffprobe([*_DURATION_PROBE_ARGS, str(tmp_path)])
     except (FileNotFoundError, OSError):
         logger.info("ffprobe 调用失败，跳过音频时长探测")
         return None
@@ -189,7 +194,7 @@ async def _probe_existing_audio_duration_seconds(path: Path) -> float | None:
     if not _ffprobe_available():
         return None
     try:
-        duration_out = await _run_ffprobe(["-show_entries", "format=duration", "-of", "csv=p=0", str(path)])
+        duration_out = await _run_ffprobe([*_DURATION_PROBE_ARGS, str(path)])
     except (FileNotFoundError, OSError, ValueError):
         return None
     try:

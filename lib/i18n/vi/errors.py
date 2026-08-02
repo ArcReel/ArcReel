@@ -311,7 +311,7 @@ MESSAGES = {
     "video_last_frame_unsupported": "{provider}/{model} không hỗ trợ khung hình cuối với cấu hình hiện tại; đã hủy tạo. Hãy bỏ khung hình cuối của cảnh quay này, hoặc chuyển sang mô hình hoặc gói có hỗ trợ",
     "video_reference_audio_unsupported": "{provider}/{model} không hỗ trợ âm thanh tham chiếu; đã hủy tạo. Hãy bỏ âm thanh tham chiếu của nhân vật, hoặc chuyển sang mô hình có hỗ trợ tham chiếu giọng nói",
     "video_reference_audio_exceeded": "Mô hình {model} hỗ trợ tối đa {limit} đoạn âm thanh tham chiếu nhưng nhận được {count}; hãy giảm số nhân vật có âm thanh tham chiếu",
-    "video_reference_audio_duration_exceeded": "Mô hình {model} hỗ trợ tổng thời lượng âm thanh tham chiếu tối đa {limit} giây nhưng nhận được {total:.1f} giây; hãy giảm số đoạn âm thanh tham chiếu hoặc dùng đoạn ngắn hơn",
+    "video_reference_audio_duration_exceeded": "Mô hình {model} hỗ trợ tổng thời lượng âm thanh tham chiếu tối đa {limit:g} giây nhưng nhận được {total:.1f} giây; hãy giảm số đoạn âm thanh tham chiếu hoặc dùng đoạn ngắn hơn",
     "video_reference_audio_slots_insufficient": "Mô hình {model} gắn mỗi đoạn âm thanh tham chiếu vào một tư liệu tham chiếu, nhưng chỉ có {slots} tư liệu cho {count} đoạn; hãy bổ sung ảnh tham chiếu cho các nhân vật đó, hoặc giảm số nhân vật có âm thanh tham chiếu",
     "video_reference_audio_unreadable": "Mô hình {model} có âm thanh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn âm thanh tham chiếu",
     "video_reference_audio_format_unsupported": "Âm thanh tham chiếu {name} có định dạng không được hỗ trợ (chỉ {supported}); hãy dùng tệp âm thanh khác",

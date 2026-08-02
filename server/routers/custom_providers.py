@@ -24,6 +24,7 @@ from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
     CAPABILITY_OVERRIDE_FIELDS,
     audio_capability_pair_is_coherent,
+    capability_type_name,
     capability_value_matches,
     filter_valid_overrides,
     resolve_audio_pair,
@@ -459,7 +460,7 @@ def _check_capability_overrides(
                     "capability_override_invalid_value",
                     model_id=model_id,
                     capability=key,
-                    expected=expected.__name__,
+                    expected=capability_type_name(expected),
                 ),
             )
         # last_frame 覆盖为 True 时，endpoint 的 delegate.generate() 必须真的会读取

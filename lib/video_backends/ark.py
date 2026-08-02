@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 # Seedance 2.0 系列每请求最多 3 段参考音频，且总时长不超过 15 秒（官方《创建视频生成任务
 # API》音频信息章节）。
 _SEEDANCE_2_MAX_REFERENCE_AUDIO = 3
+# 两个参考音频维度都留在 backend 侧而不进 lib/config/registry.py：PROVIDER_REGISTRY 是配置面
+# 与计费面的能力真相源（supported_durations 指的是生成时长档位，与参考音频输入无关），其
+# ModelInfo 至今没有任何 reference_audio 维度；请求期硬拒绝的判定一律读 VideoCapabilities。
 _SEEDANCE_2_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 15.0
 
 # Seedance 1.5 pro 的参考图上限，与 lib/config/registry.py 的同名 ModelInfo 字段同值。

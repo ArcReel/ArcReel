@@ -802,3 +802,47 @@ class TestReferenceCompressionSeam:
 
         assert exc.value.code == "video_reference_audio_duration_exceeded"
         assert backend.called is False
+
+    async def test_total_duration_not_probed_when_backend_declares_no_limit(self, tmp_path, monkeypatch):
+        """未声明总时长约束的后端不该为每个请求多付一轮 ffprobe——探测按能力声明惰性触发。"""
+        from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+
+        class _NoDurationLimitVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(
+                max_reference_images=9,
+                reference_audio_mode=ReferenceAudioMode.DIRECT,
+                max_reference_audio_count=3,
+            )
+
+            async def generate(self, request):
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"v")
+                return _FakeVideoResult()
+
+        gen._video_backend = _NoDurationLimitVideoBackend()
+
+        probe_calls: list[list[Path]] = []
+
+        async def _recording_probe(paths):
+            probe_calls.append(list(paths))
+            return 0.0
+
+        monkeypatch.setattr("lib.media_generator.probe_reference_audio_total_seconds", _recording_probe)
+
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
+        audio = tmp_path / "alice.wav"
+        audio.write_bytes(b"a")
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            reference_images=[ref],
+            reference_audio_files=[audio],
+        )
+
+        assert probe_calls == []
