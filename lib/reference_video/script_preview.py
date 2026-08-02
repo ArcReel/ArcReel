@@ -184,12 +184,20 @@ def build_script_preview(
     max_reference_audio: int = 0,
     model_id: str = "",
     audio_requires_reference_image: bool = False,
+    max_reference_images: int | None = None,
 ) -> ScriptPreview:
     """把书写文稿派生成 shots / references / utterances + 降级可见性 warning。
 
     ``audio_requires_reference_image`` 须与执行层（``render_unit_prompt``）传的同一个 backend
     判定同步——预览不碰文件系统，但这一位不涉及 IO，只是「目标 backend 是否要求音频逐段挂图」
     的能力声明，遗漏会让预览显示已绑定、执行时才降级，用户直到生成后才发现声音没生效。
+
+    ``max_reference_images`` 须同步执行层的能力上限（``VideoLaneResult.max_reference_images``）：
+    执行期会把 ``unit.references`` 先按此上限裁剪、再渲染（保证 ``图片N`` 编号与实际发出的
+    参考图严格等长，见 ``_render_unit_prompt`` docstring）。预览若按未裁剪的全量 references
+    判定 ``character_image_names``，纯画外降级会在裁剪线之外才生效——超限角色的图被裁掉后，
+    预览仍显示音频已绑定，执行时才补发 warning。``None`` 表示不裁（能力不可解析时的降级口径，
+    与 ``_apply_provider_constraints`` 的 ``max_refs=None`` 一致）。
     """
     shots, mentions = parse_prompt(text)
     references, missing = resolve_references(mentions, project)
@@ -199,8 +207,10 @@ def build_script_preview(
     warnings.extend(syntax_warnings)
 
     # 音频只能对齐到「同名且类型也是 character」的图：scene/prop 可能与角色同名，image_no
-    # 若按名字判定会把「这个名字有图」误判成「这个角色有图」。
-    character_image_names = {ref.name for ref in references if ref.type == "character"}
+    # 若按名字判定会把「这个名字有图」误判成「这个角色有图」。同时按能力上限裁剪后再判定，
+    # 与执行层「先裁 references 再渲染」的口径对齐。
+    clipped_references = references[:max_reference_images] if max_reference_images is not None else references
+    character_image_names = {ref.name for ref in clipped_references if ref.type == "character"}
 
     bindings = derive_voice_bindings(
         utterances,
