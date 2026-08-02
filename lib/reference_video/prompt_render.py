@@ -29,6 +29,7 @@ from lib.audio_utils import resolve_audio_ref_path
 from lib.prompt_utils import normalize_style
 from lib.reference_video.script_preview import (
     WARN_UNREGISTERED_MENTION,
+    ShotUtterance,
     derive_utterances,
     derive_voice_bindings,
 )
@@ -39,7 +40,7 @@ from lib.reference_video.shot_parser import (
     render_mentions_as_subjects,
     resolve_references,
 )
-from lib.script_models import ReferenceResource
+from lib.script_models import ReferenceResource, Utterance
 
 #: 角色参考音频的项目内固定目录（与上传 / TTS 样本落盘口径一致）。
 ASSET_AUDIO_SUBDIR = "characters/refs_audio"
@@ -155,6 +156,33 @@ def _warning_unregistered(name: str) -> dict[str, Any]:
     return {"key": WARN_UNREGISTERED_MENTION, "params": {"name": name}}
 
 
+def _render_voice_declarations(
+    speakers: list[str],
+    audio_no: dict[str, int],
+    characters: dict,
+    voice_consistency: str,
+) -> list[str]:
+    """声音声明行：``<X>的台词音色参考 @音频N，声音特征：…``。剧集与 ad 路径共用——两者的
+    主体绑定行输入形态不同（前者是 mention 派生的 ``ReferenceResource``、后者是 ad 参考条目
+    的展示 label），但声音声明只认「已登记的 dialogue speaker」，与主体绑定行解耦，可整段复用。
+
+    C 类（真无声）不注入声音声明；A/B 类均注入声音特征——官方建议音色还原不佳时补描述。
+    """
+    if voice_consistency == "none":
+        return []
+    lines: list[str] = []
+    for name in speakers:
+        parts: list[str] = []
+        if name in audio_no:
+            parts.append(f"台词音色参考 @音频{audio_no[name]}")
+        voice_style = str((characters.get(name) or {}).get("voice_style") or "").strip()
+        if voice_style:
+            parts.append(f"声音特征：{voice_style}")
+        if parts:
+            lines.append(f"<{name}>的" + "，".join(parts) + "。")
+    return lines
+
+
 def _render_segment_one(
     references: list[ReferenceResource],
     speakers: list[str],
@@ -176,20 +204,7 @@ def _render_segment_one(
     bindings = "、".join(f"<{ref.name}>@图片{i}" for i, ref in enumerate(references, start=1))
     if bindings:
         lines.append(bindings + "。")
-
-    # C 类（真无声）不注入声音声明；A/B 类均注入声音特征——官方建议音色还原不佳时补描述。
-    if voice_consistency == "none":
-        return "\n".join(lines)
-
-    for name in speakers:
-        parts: list[str] = []
-        if name in audio_no:
-            parts.append(f"台词音色参考 @音频{audio_no[name]}")
-        voice_style = str((characters.get(name) or {}).get("voice_style") or "").strip()
-        if voice_style:
-            parts.append(f"声音特征：{voice_style}")
-        if parts:
-            lines.append(f"<{name}>的" + "，".join(parts) + "。")
+    lines.extend(_render_voice_declarations(speakers, audio_no, characters, voice_consistency))
     return "\n".join(lines)
 
 
@@ -233,6 +248,134 @@ def _render_segment_three(references: list[ReferenceResource], style: str | None
     if sum(1 for ref in references if ref.type == "character") >= 2:
         lines.append(_TWIN_PACK)
     return "\n".join(lines)
+
+
+def _derive_ad_utterances(shots: list[dict]) -> list[ShotUtterance]:
+    """ad 结构化镜头的台词 utterances：``video_prompt.dialogue`` 已是判别式结构
+    （``{"speaker": ..., "line": ...}``），不必像书写文稿一样经 ``parse_prompt`` /
+    ``match_dialogue_line`` 正则识别自由文本。``voiceover_text`` 是独立字段、不产出台词行
+    （沿用既有口径，见 ``lib.reference_video.ad_units._shot_prompt_text``）。调用方传入的
+    ``shots`` 已由 ``resolve_ad_unit_shots`` 水合、保证逐项为 dict；脏 ``video_prompt`` /
+    dialogue 条目（非 dict、空 speaker 或 line）按跳过处理，不抛。
+    """
+    utterances: list[ShotUtterance] = []
+    for index, shot in enumerate(shots, start=1):
+        video_prompt = shot.get("video_prompt")
+        dialogue = video_prompt.get("dialogue") if isinstance(video_prompt, dict) else None
+        if not isinstance(dialogue, list):
+            continue
+        for entry in dialogue:
+            if not isinstance(entry, dict):
+                continue
+            speaker = str(entry.get("speaker") or "").strip()
+            text = str(entry.get("line") or "").strip()
+            if speaker and text:
+                utterances.append(ShotUtterance(index, Utterance(kind="dialogue", speaker=speaker, text=text)))
+    return utterances
+
+
+def _render_ad_segment_one(
+    entries: list[dict],
+    speakers: list[str],
+    audio_no: dict[str, int],
+    characters: dict,
+    voice_consistency: str,
+) -> str:
+    """ad 主体绑定 + 声音声明。
+
+    主体记号直接取 ``entries`` 的展示 label（产品区分 sheet / 原图两态，资产统一「设计图」
+    态——即 Spec 所称"三态 label"）做 ``<label>@图片N`` 简式绑定，不引入 mention 语法：ad 镜头
+    字段本就结构化枚举了画面主体（``characters_in_shot`` / ``products_in_shot`` / ...），
+    无需像书写文稿那样从自由文本解析 ``@[X]``。声音声明与剧集路径共用
+    :func:`_render_voice_declarations`。
+    """
+    lines: list[str] = []
+    bindings = "、".join(
+        f"<{label}>@图片{i}" for i, e in enumerate(entries, start=1) if (label := str(e.get("label") or ""))
+    )
+    if bindings:
+        lines.append(bindings + "。")
+    lines.extend(_render_voice_declarations(speakers, audio_no, characters, voice_consistency))
+    return "\n".join(lines)
+
+
+def render_ad_backend_prompt(
+    shots: list[dict],
+    entries: list[dict],
+    project: dict,
+    *,
+    voice_consistency: str = "soft",
+    max_reference_audio: int = 0,
+    model_id: str = "",
+    style: str | None = None,
+    audio_ready: Collection[str] | None = None,
+    audio_requires_reference_image: bool = False,
+) -> RenderedUnitPrompt:
+    """把 ad 派生 unit 的结构化镜头渲染成三段论 backend prompt，与剧集路径
+    （:func:`render_unit_prompt`）共用第一段声音声明与第三段约束包；差异只在输入形态——
+    ad 无书写层自由文本，主体绑定直接取 ``entries`` 展示 label（见
+    :func:`_render_ad_segment_one`），dialogue 是结构化 ``video_prompt.dialogue`` 列表而非
+    ``@[角色]：{台词}`` 文本行，不经 ``parse_prompt``（见 :func:`_derive_ad_utterances`）。
+
+    ad 骨架的 ``Shot N (Xs): ...`` 镜头段与 per-shot duration 不动，复用既有
+    ``lib.reference_video.ad_units.render_ad_unit_prompt`` 渲染第二段（该函数亦独立服务于
+    入队守卫的空提示词检查，两处调用点风格不变）；本函数只接管第一、三段与音频接线。
+
+    ``entries`` 是本次实际随请求发出的参考条目（已按能力上限裁剪），其顺序即 ``图片N``
+    编号——与调用方组装的 ``reference_images`` 严格等长同序。
+
+    Raises:
+        ValueError: 成员镜头全无画面内容（第二段渲染为空）——同
+            :func:`lib.reference_video.ad_units.render_ad_unit_prompt` 的既有口径，防止机器
+            生成的第一/三段把空提示词撑成非空文本绕过 backend 的空值保护。
+    """
+    from lib.reference_video.ad_units import render_ad_unit_prompt as _render_ad_shots_body
+
+    body = _render_ad_shots_body(shots, style=None)
+    if not body.strip():
+        raise ValueError("reference video unit prompt is empty: all member shots have no visual content")
+
+    characters: dict = project.get(BUCKET_KEY["character"]) or {}
+    utterances = _derive_ad_utterances(shots)
+
+    # 音频只能对齐到「同名且类型也是 character」的图：entries 里 scene/prop 的资产设计图与
+    # 产品参考同样标 kind == "asset"（产品另标 "sheet"/"original"），先按名字是否在角色表
+    # 登记过滤，避免同名场景/道具让 speakers_with_reference_image 误判角色有图（与剧集路径
+    # `character_image_no` 的同款过滤同一理由，见 `render_unit_prompt`）。
+    character_image_no = {
+        str(e["name"]): i
+        for i, e in enumerate(entries, start=1)
+        if e.get("kind") == "asset" and isinstance(e.get("name"), str) and e["name"] in characters
+    }
+
+    bindings = derive_voice_bindings(
+        utterances,
+        characters,
+        voice_consistency=voice_consistency,
+        max_reference_audio=max_reference_audio,
+        model_id=model_id,
+        audio_ready=audio_ready,
+        require_reference_image=audio_requires_reference_image,
+        speakers_with_reference_image=set(character_image_no),
+    )
+
+    audio_no = {name: i for i, name in enumerate(bindings.audio_speakers, start=1)}
+    audio_speaker_reference_index = [
+        (character_image_no[name] - 1) if name in character_image_no else None for name in bindings.audio_speakers
+    ]
+
+    segments = [
+        _render_ad_segment_one(entries, bindings.speakers, audio_no, characters, voice_consistency),
+        body,
+        _render_segment_three([ReferenceResource(type="character", name=name) for name in character_image_no], style),
+    ]
+    prompt = "\n\n".join(seg for seg in segments if seg)
+    return RenderedUnitPrompt(
+        prompt=prompt,
+        audio_speakers=list(bindings.audio_speakers),
+        audio_speaker_reference_index=audio_speaker_reference_index,
+        warnings=list(bindings.warnings),
+    )
 
 
 def resolve_reference_audio_paths(project: dict, project_path: Path) -> dict[str, Path]:

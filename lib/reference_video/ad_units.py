@@ -215,21 +215,11 @@ def _shot_prompt_text(shot: dict) -> str:
             speaker = _text(entry.get("speaker"))
             line = _text(entry.get("line"))
             if line:
-                parts.append(f"台词 {speaker}：「{line}」" if speaker else f"台词：「{line}」")
+                # 与剧集参考路径三段论第二段同一句式（<X>说 {台词}），无 speaker 的裸台词行
+                # 归入画外音句式——两条路径的第二段渲染口径统一，见
+                # lib.reference_video.prompt_render.render_ad_backend_prompt。
+                parts.append(f"<{speaker}>说 {{{line}}}" if speaker else f"画外音说 {{{line}}}")
     return "；".join(parts)
-
-
-def render_reference_legend(labels: list[str]) -> str:
-    """把最终注入的参考图标签渲染成 ``[图N]`` 对照表（N 与 backend 实收顺序严格对齐）。
-
-    ad 派生 unit 的 prompt 不写 @mention，参考与画面的绑定靠此对照表传达；
-    必须在参考裁剪**之后**调用，否则 [图N] 会指向不存在的图。
-    """
-    if not labels:
-        return ""
-    lines = ["参考图对照："]
-    lines.extend(f"[图{n}] {label}" for n, label in enumerate(labels, start=1))
-    return "\n".join(lines)
 
 
 def render_ad_unit_prompt(shots: list[dict], *, style: str | None = None) -> str:
