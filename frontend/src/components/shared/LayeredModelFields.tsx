@@ -24,6 +24,32 @@ export function effectiveModel(...layers: (string | null | undefined)[]): string
   return layers.find((layer) => !!layer) || undefined;
 }
 
+/**
+ * 当前配置下真正会执行的视频模型。参考生视频走 r2v 桶、其余生成模式走 i2v，与后端
+ * `VIDEO_BUCKET_BY_GENERATION_MODE` 同口径；桶被覆盖时它与默认层不是同一个模型，
+ * 故时长 / 分辨率 / 声音档位这些按模型查的能力，以及 model_settings 的分辨率键，都问它。
+ */
+export function executingVideoModel(
+  value: { videoBackend: string; videoProviderI2V: string; videoProviderR2V: string },
+  globals: { video: string; videoI2V: string; videoR2V: string },
+  usesReferenceImages?: boolean,
+): string {
+  const bucket = usesReferenceImages ? value.videoProviderR2V : value.videoProviderI2V;
+  const globalBucket = usesReferenceImages ? globals.videoR2V : globals.videoI2V;
+  return effectiveModel(bucket, value.videoBackend, globalBucket, globals.video) ?? "";
+}
+
+/**
+ * 文生图路径真正会执行的图片模型——分镜图与资产图都走该路径，图片分辨率按它存取。
+ * 图生图另有自己的执行模型，两者不同时后端查不到该键、回落供应商默认档位。
+ */
+export function executingImageModel(
+  value: { imageBackendDefault: string; imageBackendT2I: string },
+  globals: { image: string; imageT2I: string },
+): string {
+  return effectiveModel(value.imageBackendT2I, value.imageBackendDefault, globals.imageT2I, globals.image) ?? "";
+}
+
 /** 能力桶的界面标签与覆盖说明，图片 / 视频两处调用点共用一份文案。 */
 export function useCapabilityBucketLabels(): Record<CapabilityBucket, { label: string; caption: string }> {
   const { t } = useTranslation("templates");
@@ -108,6 +134,9 @@ export function LayeredModelFields({
         allowDefault
         defaultLabel={emptyLabel}
         defaultHint={emptyHint}
+        // 全层皆空时演算不出具体模型，触发按钮落到 placeholder。这里给的是空值语义本身
+        // （「自动选择」/「使用全局默认」），否则通用的「选择模型」会读成这项必须选。
+        placeholder={emptyLabel}
         fallbackValue={defaultEffective}
         aria-label={defaultLabel}
         renderOptionMeta={renderOptionMeta}
@@ -146,6 +175,7 @@ export function LayeredModelFields({
                   onChange={field.onChange}
                   allowDefault
                   defaultLabel={t("follow_model_default")}
+                  placeholder={t("follow_model_default")}
                   fallbackValue={field.effective}
                   fallbackLabel={t("follow_model_default")}
                   aria-label={field.label}

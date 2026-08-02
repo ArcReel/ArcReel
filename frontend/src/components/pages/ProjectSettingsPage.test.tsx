@@ -377,9 +377,9 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     });
   });
 
-  it("reads and writes the image resolution under the same default-layer key", async () => {
-    // 项目默认层与 T2I 槽指向不同模型：分辨率挂在默认层模型上，读写须同 key，
-    // 否则用户改完保存、重载后读回的仍是旧值。
+  it("reads and writes the image resolution under the executing text-to-image model", async () => {
+    // 项目默认层与文生图槽指向不同模型：后端按执行模型查 model_settings，故读写都挂在
+    // 文生图槽那个模型上——挂错 key 时用户选的分辨率会被静默忽略，且重载读回旧值。
     vi.spyOn(API, "getSystemConfig").mockResolvedValue({
       ...FAKE_CONFIG_WITH_DEFAULTS,
     } as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
@@ -413,8 +413,8 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
         "demo",
         expect.objectContaining({
           model_settings: expect.objectContaining({
-            // 读到的是默认层模型的 1080p，写回的也是同一个 key
-            "gemini/nano-banana": expect.objectContaining({ resolution: "1080p" }),
+            // 读到的是文生图执行模型的 720p，写回的也是同一个 key
+            "openai/gpt-image": expect.objectContaining({ resolution: "720p" }),
           }),
         }),
       );

@@ -12,6 +12,8 @@ import { ResolutionPicker } from "./ResolutionPicker";
 import {
   LayeredModelFields,
   effectiveModel,
+  executingImageModel,
+  executingVideoModel,
   useCapabilityBucketLabels,
   type LayeredSubField,
 } from "./LayeredModelFields";
@@ -153,8 +155,10 @@ export function ModelConfigSection({
 
   const bucketLabels = useCapabilityBucketLabels();
 
-  const effectiveVideoBackend = value.videoBackend || globalDefaults.video || "";
-  const effectiveImageBackend = value.imageBackendDefault || globalDefaults.image || "";
+  // 时长 / 分辨率 / 声音档位按模型查能力，问的必须是当前配置真正会执行的模型：细分项被覆盖时
+  // 它不是默认层那个模型，拿默认层去查会把用户引到执行时并不支持的时长与分辨率上。
+  const executingVideo = executingVideoModel(value, globalDefaults, usesReferenceImages);
+  const executingImage = executingImageModel(value, globalDefaults);
 
   // 穿透演算（docs/adr/0054，项目优先）：细分项留空 → 项目默认模型 → 全局同名细分 → 全局默认模型。
   const mediaCandidates = showSubFields ? candidates : null;
@@ -210,7 +214,7 @@ export function ModelConfigSection({
   // 能力统一经 useModelCapabilities 取得（见该模块的真相源规则），本组件不自行查表。
   const { rawDurations, supportedDurations, durationConstraints, voiceConsistency } = useModelCapabilities({
     projectName,
-    videoBackend: effectiveVideoBackend,
+    videoBackend: executingVideo,
     // 本组件是表单：backend 是编辑中的未保存候选，服务端按已落盘配置解析出的能力对它不作数。
     unsavedBackend: true,
     providers,
@@ -224,21 +228,31 @@ export function ModelConfigSection({
   // 同样由服务端派生，前端两条路径都不含派生公式。
   const videoSpecTier: VoiceConsistencyTier | null = projectName
     ? voiceConsistency
-    : (lookupCatalogVideoAudio(providers, effectiveVideoBackend)?.voiceConsistency ?? null);
+    : (lookupCatalogVideoAudio(providers, executingVideo)?.voiceConsistency ?? null);
 
   const videoResolutionOptions = lookupResolutions(
     providers,
-    effectiveVideoBackend,
+    executingVideo,
     customProviders,
     endpointToMediaType,
   ).options;
 
   const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
 
+  // 时长与分辨率跟随执行模型，故按改后的执行模型判断是否重置：细分项已覆盖时改默认层
+  // 换不动执行模型，此时重置反而会平白丢掉用户选好的时长与分辨率。
   const handleVideoChange = (next: string) => {
-    const effectiveNext = next || globalDefaults.video || "";
+    const nextExecuting = executingVideoModel(
+      { ...value, videoBackend: next },
+      globalDefaults,
+      usesReferenceImages,
+    );
+    if (nextExecuting === executingVideo) {
+      onChange({ ...value, videoBackend: next });
+      return;
+    }
     // 分辨率随模型切换一并重置为 null，故按 null 分辨率算新模型的时长候选。
-    const nextDurations = catalogDurations(providers, customProviders, effectiveNext, {
+    const nextDurations = catalogDurations(providers, customProviders, nextExecuting, {
       videoResolution: null,
       usesReferenceImages,
     });
@@ -253,13 +267,12 @@ export function ModelConfigSection({
     });
   };
 
-  // 分辨率按生效的默认图片模型取值，故默认层换模型时一并重置。
   const handleImageChange = (next: string) => {
-    const nextEffective = next || globalDefaults.image || "";
+    const nextExecuting = executingImageModel({ ...value, imageBackendDefault: next }, globalDefaults);
     onChange({
       ...value,
       imageBackendDefault: next,
-      imageResolution: nextEffective === effectiveImageBackend ? value.imageResolution : null,
+      imageResolution: nextExecuting === executingImage ? value.imageResolution : null,
     });
   };
 
@@ -338,7 +351,7 @@ export function ModelConfigSection({
             renderOptionMeta={renderVideoOptionMeta}
             subFields={videoSubFields}
           >
-          {effectiveVideoBackend && (
+          {executingVideo && (
             <VideoModelSpecBar
               durations={rawDurations}
               resolutions={videoResolutionOptions}
@@ -346,7 +359,7 @@ export function ModelConfigSection({
             />
           )}
 
-          {renderResolutionField(effectiveVideoBackend, value.videoResolution, (v) =>
+          {renderResolutionField(executingVideo, value.videoResolution, (v) =>
             onChange({ ...value, videoResolution: v }),
           )}
 
@@ -437,7 +450,7 @@ export function ModelConfigSection({
             providerNames={options.providerNames}
             subFields={imageSubFields}
           >
-            {renderResolutionField(effectiveImageBackend, value.imageResolution, (v) =>
+            {renderResolutionField(executingImage, value.imageResolution, (v) =>
               onChange({ ...value, imageResolution: v }),
             )}
           </LayeredModelFields>

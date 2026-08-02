@@ -16,6 +16,7 @@ import { WizardStep1Basics, type WizardStep1Value } from "./create-project/Wizar
 import { WizardStep2Models, type WizardStep2Data } from "./create-project/WizardStep2Models";
 import { WizardStep3Style, type WizardStep3Value } from "./create-project/WizardStep3Style";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
+import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
 
 // 新建项目对话框 · "Open Reel"
 // 仪式感来自项目大厅的 Darkroom 美学：editorial 衬线 + mono 标尺线 + sprocket 胶片孔。
@@ -256,16 +257,17 @@ export function CreateProjectModal() {
   const handleCreate = async () => {
     setCreating(true);
     try {
-      // resolution 的 model_settings key 用 effective backend（项目覆盖 ‖ 全局默认），
-      // 否则用户在"跟随全局默认"路径下选的分辨率会丢失。
-      const effectiveVideo = models.videoBackend || step2Data?.globalDefaults.video || "";
-      const effectiveImageT2I = models.imageBackendDefault || step2Data?.globalDefaults.image || "";
+      // resolution 的 model_settings key 用执行模型：后端按执行模型查这张表，向导只暴露默认层，
+      // 但全局细分层若指向别的模型，执行的就不是默认层那个——键位对不上分辨率会被静默忽略。
+      const globals = step2Data?.globalDefaults ?? { video: "", videoI2V: "", videoR2V: "", image: "", imageT2I: "" };
+      const executingVideo = executingVideoModel(models, globals, basics.generationMode === "reference_video");
+      const executingImage = executingImageModel(models, globals);
       const modelSettings: Record<string, { resolution: string }> = {};
-      if (effectiveVideo && models.videoResolution) {
-        modelSettings[effectiveVideo] = { resolution: models.videoResolution };
+      if (executingVideo && models.videoResolution) {
+        modelSettings[executingVideo] = { resolution: models.videoResolution };
       }
-      if (effectiveImageT2I && models.imageResolution) {
-        modelSettings[effectiveImageT2I] = { resolution: models.imageResolution };
+      if (executingImage && models.imageResolution) {
+        modelSettings[executingImage] = { resolution: models.imageResolution };
       }
 
       const isAd = basics.contentMode === "ad";

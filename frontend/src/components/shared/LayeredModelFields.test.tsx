@@ -54,6 +54,15 @@ describe("LayeredModelFields", () => {
     expect(screen.queryByText(/已指定/)).not.toBeInTheDocument();
   });
 
+  it("reads as following the default rather than requiring a pick when the whole chain is empty", async () => {
+    // 全层皆空时演算不出具体模型：触发按钮上必须仍是空值语义，通用的「选择模型」会读成必填
+    const user = userEvent.setup();
+    renderFields();
+    expect(screen.getByRole("combobox", { name: "默认视频模型" })).toHaveTextContent("自动选择");
+    await user.click(screen.getByText("按用途指定模型"));
+    expect(screen.getByRole("combobox", { name: "图生视频" })).toHaveTextContent("跟随默认");
+  });
+
   it("does not render the disclosure at all when no sub-fields are supplied", () => {
     const { container } = renderFields({ subFields: undefined });
     expect(container.querySelector("details")).toBeNull();

@@ -292,6 +292,62 @@ describe("ModelConfigSection", () => {
     expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
   });
 
+  it("derives duration options from the bucket that the project actually executes", () => {
+    // 默认层 veo-3（4/6/8），但图生视频桶覆盖成 seedance（5/8/10）——执行的是后者，
+    // 按默认层列时长会让用户存下执行时被拒的取值
+    const { rerender } = render(
+      <ModelConfigSection
+        value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3", videoProviderI2V: "ark/seedance" }}
+        onChange={() => {}}
+        providers={PROVIDERS}
+        options={OPTIONS}
+        globalDefaults={EMPTY_GLOBALS}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: "10 秒" })).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
+
+    // 参考生视频项目改走 r2v 桶，i2v 的覆盖对它不作数
+    rerender(
+      <ModelConfigSection
+        usesReferenceImages
+        value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3", videoProviderI2V: "ark/seedance" }}
+        onChange={() => {}}
+        providers={PROVIDERS}
+        options={OPTIONS}
+        globalDefaults={EMPTY_GLOBALS}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: "4 秒" })).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "10 秒" })).not.toBeInTheDocument();
+  });
+
+  it("keeps duration and resolution when the default layer changes but the bucket still wins", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <ModelConfigSection
+        value={{
+          ...EMPTY_VALUE,
+          videoBackend: "gemini/veo-3",
+          videoProviderI2V: "ark/seedance",
+          defaultDuration: 10,
+          videoResolution: "1080p",
+        }}
+        onChange={onChange}
+        providers={PROVIDERS}
+        options={OPTIONS}
+        globalDefaults={EMPTY_GLOBALS}
+      />,
+    );
+    await user.click(screen.getByRole("combobox", { name: "默认视频模型" }));
+    await user.click(screen.getByRole("option", { name: /seedance/ }));
+    // 执行模型没变（桶仍指向 seedance），时长与分辨率不该被重置
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ videoBackend: "ark/seedance", defaultDuration: 10, videoResolution: "1080p" }),
+    );
+  });
+
   it("resets defaultDuration to null when video backend change drops current duration", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

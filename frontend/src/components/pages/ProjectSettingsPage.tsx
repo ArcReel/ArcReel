@@ -9,6 +9,7 @@ import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { getProviderModels, getCustomProviderModels } from "@/utils/provider-models";
 import { ModelConfigSection } from "@/components/shared/ModelConfigSection";
+import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
@@ -248,28 +249,30 @@ export function ProjectSettingsPage() {
       setProjectTitle(typeof project.title === "string" ? project.title : "");
       setContentMode(typeof project.content_mode === "string" ? project.content_mode : "narration");
 
-      // model_settings 的 key 以默认层 effective backend（项目默认 ‖ 全局默认）读写，与
-      // handleSave 一字不差——界面上分辨率就挂在默认主下拉之下。读侧另有两条兼容回退：
-      // 图片回落到旧的 T2I 槽 key，视频回落到 legacy video_model_settings，
-      // 覆盖默认层落库前存量项目按细分槽模型存过分辨率的情形。
-      const defaultVideo = configRes.settings?.default_video_backend ?? "";
-      const defaultImage = configRes.settings?.default_image_backend ?? "";
-      const legacyDefaultImageT2I =
-        configRes.settings?.default_image_backend_t2i || configRes.settings?.default_image_backend || "";
-      const effectiveVb = vb || defaultVideo;
-      const effectiveIb = ibDefault || defaultImage;
-      const legacyIb = ibt2i || legacyDefaultImageT2I;
+      // model_settings 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与
+      // handleSave 一字不差——后端 resolve_resolution 就是按执行模型查这张表，键位对不上
+      // 用户选的分辨率会被静默忽略。读侧另有一条兼容回退：视频回落 legacy video_model_settings。
+      const globals = {
+        video: configRes.settings?.default_video_backend ?? "",
+        videoI2V: configRes.settings?.default_video_backend_i2v ?? "",
+        videoR2V: configRes.settings?.default_video_backend_r2v ?? "",
+        image: configRes.settings?.default_image_backend ?? "",
+        imageT2I: configRes.settings?.default_image_backend_t2i ?? "",
+      };
+      const executingVb = executingVideoModel(
+        { videoBackend: vb, videoProviderI2V: vpi2v, videoProviderR2V: vpr2v },
+        globals,
+        gm === "reference_video",
+      );
+      const executingIb = executingImageModel({ imageBackendDefault: ibDefault, imageBackendT2I: ibt2i }, globals);
       const ms = (project.model_settings ?? {}) as Record<string, { resolution: string | null }>;
       const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
-      const vModelId = effectiveVb && effectiveVb.includes("/") ? effectiveVb.split("/")[1] : effectiveVb;
+      const vModelId = executingVb && executingVb.includes("/") ? executingVb.split("/")[1] : executingVb;
       const vRes: string | null =
-        (effectiveVb ? (ms[effectiveVb]?.resolution ?? null) : null) ||
+        (executingVb ? (ms[executingVb]?.resolution ?? null) : null) ||
         (vModelId ? (legacyVideo[vModelId]?.resolution ?? null) : null) ||
         null;
-      const iRes: string | null =
-        (effectiveIb ? (ms[effectiveIb]?.resolution ?? null) : null) ||
-        (legacyIb ? (ms[legacyIb]?.resolution ?? null) : null) ||
-        null;
+      const iRes: string | null = executingIb ? (ms[executingIb]?.resolution ?? null) : null;
       setVideoResolution(vRes);
       setImageResolution(iRes);
       setModelSettings(ms);
@@ -415,19 +418,22 @@ export function ProjectSettingsPage() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      // resolution 的 key 用 effective backend（override ‖ global default），
-      // 否则"跟随全局默认"路径下用户选的分辨率不会被写入。
+      // resolution 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与读侧一致；
+      // 后端按执行模型查这张表，键位对不上分辨率会被静默忽略。
       // 音色与后端 .strip() 对齐：保存时去首尾空白，避免本地基线带空格而磁盘值不带导致 isDirty 误报
       const trimmedVoice = narrationVoice.trim();
-      const effectiveVideo = videoBackend || globalDefaults.video || "";
-      // 分辨率跟随默认层的图片模型——界面上分辨率就挂在默认主下拉之下。
-      const effectiveImageDefault = imageBackendDefault || globalDefaults.image || "";
+      const executingVideo = executingVideoModel(
+        { videoBackend, videoProviderI2V, videoProviderR2V },
+        globalDefaults,
+        generationMode === "reference_video",
+      );
+      const executingImage = executingImageModel({ imageBackendDefault, imageBackendT2I }, globalDefaults);
       const newModelSettings: Record<string, { resolution: string | null }> = { ...modelSettings };
-      if (effectiveVideo) {
-        newModelSettings[effectiveVideo] = { resolution: videoResolution };
+      if (executingVideo) {
+        newModelSettings[executingVideo] = { resolution: videoResolution };
       }
-      if (effectiveImageDefault) {
-        newModelSettings[effectiveImageDefault] = { resolution: imageResolution };
+      if (executingImage) {
+        newModelSettings[executingImage] = { resolution: imageResolution };
       }
 
       await API.updateProject(projectName, {
@@ -469,7 +475,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textDefault, textSimple, textComplex, aspectRatio, generationMode, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults.video, globalDefaults.image]);
+  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textDefault, textSimple, textComplex, aspectRatio, generationMode, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults]);
 
   return (
     <div
