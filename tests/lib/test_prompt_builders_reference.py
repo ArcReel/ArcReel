@@ -243,7 +243,12 @@ def test_build_reference_units_split_prompt_scopes_default_to_its_tier():
 
 def test_build_reference_units_split_prompt_omits_linkage_when_tiers_equal():
     """多数型号未声明「参考图↔时长」约束：两套档位相同时不写这条，避免无效约束占注意力。"""
-    for reference_durations, text_durations in (([4, 6, 8], [4, 6, 8]), (None, None), ([4, 6, 8], None)):
+    for reference_durations, text_durations in (
+        ([4, 6, 8], [4, 6, 8]),
+        (None, None),
+        ([4, 6, 8], None),
+        (None, [4, 6, 8]),
+    ):
         prompt = _split_prompt(
             supported_durations=[4, 6, 8],
             reference_supported_durations=reference_durations,
