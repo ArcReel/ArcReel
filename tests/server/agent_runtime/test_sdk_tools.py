@@ -3646,6 +3646,24 @@ async def test_open_reference_step1_for_edit_keeps_malformed_duration_verbatim(f
     assert _read_rv_quarantine(fake_ctx)["content"]["units"][0]["duration_seconds"] == 8.0
 
 
+async def test_open_reference_step1_for_edit_keeps_malformed_non_dict_unit_slot(fake_ctx: ToolContext) -> None:
+    """盘上 units 混入非 dict 元素（存量项目被裸 Edit 改坏过）时不能直接丢弃：跳过会让草稿
+    数组比正式文件短一个，若剩余 unit 都能过校验，晋升会悄悄覆盖正式文件、丢失这个 unit 而
+    无人知晓。留空占位在原数组位置，让晋升侧 schema 判它结构非法、逐条报出。"""
+    _rv_source(fake_ctx)
+    good_unit = _rv_saved_unit(["@[张三] 起身"])
+    path = _rv_step1_path(fake_ctx)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"units": [good_unit, "不是对象"]}, ensure_ascii=False), encoding="utf-8")
+
+    out = await _open_for_edit(fake_ctx)
+
+    assert out.get("is_error") is not True, out
+    units = _read_rv_quarantine(fake_ctx)["content"]["units"]
+    assert len(units) == 2
+    assert units[1] == {"duration_seconds": None, "source_text": "", "text": ""}
+
+
 async def test_open_reference_step1_for_edit_rejects_non_reference_episode(fake_ctx: ToolContext) -> None:
     """切走参考路径的集不给编辑：盘上的 step1 与该集此刻的生成路径无关。与晋升工具同一判据。"""
     _rv_source(fake_ctx)
@@ -3781,6 +3799,31 @@ async def test_writing_reference_step1_clears_stale_step2_quarantine(fake_ctx: T
 
     assert out.get("is_error") is not True, out
     assert not step2_path.exists()
+
+
+async def test_promote_reference_step1_preserves_step2_draft_when_content_unchanged(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """情况 B 中途放弃、原样晋升：取回草稿未改动即晋升，写回的 step1 与盘上原值逐字相同，
+    此时不该清在场的 step2 隔离草稿——它的保结构 diff 仍然对得上这份没变的基底，agent
+    放弃 step1 修改不该连带销毁一份仍然有效的 step2 修复草稿。"""
+    _rv_source(fake_ctx)
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_STEP2,
+        content={"title": "第1集", "units": [{"text": "镜头1：@[张三] 起身"}]},
+        violations=[],
+    )
+    step2_path = quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_STEP2)
+    assert step2_path.exists()
+
+    await _open_for_edit(fake_ctx, source="source/episode_1.txt")
+    out = await _promote(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is not True, out
+    assert step2_path.exists()
 
 
 async def test_validate_and_promote_reference_draft_step2_uses_async_factory(

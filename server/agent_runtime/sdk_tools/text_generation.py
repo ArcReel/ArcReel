@@ -932,16 +932,21 @@ def _write_reference_step1(project_path: Path, episode: int, units: list[dict]) 
     ——它经 ``open_reference_step1_for_edit`` 取回草稿、改完走晋升，写盘只发生在本函数，
     沙箱内取不到锁的 Write/Edit 直改由 ``AgentAccessPolicy`` 拒绝。
 
-    step1 一变，在场的 step2 隔离草稿就作废：它的保结构 diff 以旧 step1 为基底，留着既永远
-    晋升不了（unit 数与台词都对不上新基底），又会让生成侧一直阻塞在这份没有出路的草稿上。
+    step1 真的变了，在场的 step2 隔离草稿才作废：它的保结构 diff 以旧 step1 为基底，留着既
+    永远晋升不了（unit 数与台词都对不上新基底），又会让生成侧一直阻塞在这份没有出路的草稿
+    上。取回编辑后中途放弃、原样晋升（``units`` 与盘上原值逐字相同）时内容并未变化，此时
+    不清——agent 放弃 step1 修改不该连带销毁一份内容仍对得上基底的 step2 修复草稿。
     """
     drafts_dir = episode_drafts_dir(project_path, episode)
     drafts_dir.mkdir(parents=True, exist_ok=True)
     step1_path = drafts_dir / REFERENCE_VIDEO_STEP1_FILENAME
     pm = ProjectManager(str(project_path.parent))
     with pm.file_lock(step1_path):
+        previous = load_json_or_none(step1_path)
+        changed = not (isinstance(previous, dict) and previous.get("units") == units)
         atomic_write_json(step1_path, {"units": units})
-    clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
+    if changed:
+        clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
     return step1_path
 
 
@@ -954,14 +959,17 @@ def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
     ``text`` 经 ``render_shots_text`` 还原 ``镜头N：`` header——落盘的 ``shots[*].text`` 不带
     header，裸拼接后晋升时 ``parse_prompt`` 找不到 header，整个 unit 会塌成一个镜头。
 
-    盘上 unit 不合形状时不 fail-loud：非 dict 的 unit 跳过，字段缺失或类型不符时**原样带过**
-    （缺失填 None / 空串），交由晋升侧的 schema 重判逐条报告给 agent。原样带过而非归一化成
-    合法值：``8.0`` 被改写成 ``0`` 后，agent 从草稿里看到的是一个它没写过的时长，报告说
-    「时长不在档位内」也对不上盘上的原值——保留原值，让它自己看见错在哪。
+    盘上 unit 不合形状时不 fail-loud：字段缺失或类型不符时**原样带过**（缺失填 None / 空串），
+    交由晋升侧的 schema 重判逐条报告给 agent。原样带过而非归一化成合法值：``8.0`` 被改写成
+    ``0`` 后，agent 从草稿里看到的是一个它没写过的时长，报告说「时长不在档位内」也对不上盘
+    上的原值——保留原值，让它自己看见错在哪。非 dict 的 unit 同样不丢弃：填空占位保留在数组
+    对应位置，让晋升侧 schema 判它「结构非法」逐条报出——直接跳过会让数组变短，若剩余 unit
+    恰好都能过校验，晋升会悄悄覆盖正式文件、丢失这个 unit 而无人知晓。
     """
     flat: list[dict[str, Any]] = []
     for unit in units:
         if not isinstance(unit, dict):
+            flat.append({"duration_seconds": None, "source_text": "", "text": ""})
             continue
         flat.append(
             {
