@@ -17,8 +17,9 @@ narration/drama 与 ad 共用第一、三段与音频接线，第二段各自成
 字段，主体记号取参考条目的展示 label、台词取 ``video_prompt.dialogue``
 （:func:`render_ad_backend_prompt`）。
 
-发给模型的文本不含绝对秒数（时长走请求字段），参考图指认全部由第一段的 ``<X>@图片N`` 绑定承担，
-无独立对照表。
+narration/drama 的文本不含绝对秒数（时长走请求字段）；ad 的第二段例外，``Shot N (Xs)`` 逐镜头
+秒数保留在文本里，供剪映导出与字幕对齐消费，不随本模块的渲染折叠进请求字段。参考图指认全部由
+第一段的 ``<X>@图片N`` 绑定承担，无独立对照表。
 """
 
 from __future__ import annotations
