@@ -164,7 +164,8 @@ def derive_voice_bindings(
         image_names = speakers_with_reference_image or ()
         # 音频编号 = dialogue speaker 首现顺序，受 max_reference_audio 上限截断。
         for speaker in registered:
-            audio_field_set = bool((characters.get(speaker) or {}).get("reference_audio"))
+            char_data = characters.get(speaker)
+            audio_field_set = bool(char_data.get("reference_audio")) if isinstance(char_data, dict) else False
             has_audio = speaker in audio_ready if audio_ready is not None else audio_field_set
             if not has_audio:
                 if audio_ready is not None and audio_field_set:

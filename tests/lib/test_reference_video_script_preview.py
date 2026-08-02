@@ -194,7 +194,24 @@ def test_warn_speaker_audio_unavailable_distinguished_from_unset():
         audio_ready=set(),
     )
     assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "张三"}} in bindings.warnings
+    assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} not in bindings.warnings
     assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "李四"}} in bindings.warnings
+    assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "李四"}} not in bindings.warnings
+
+
+def test_derive_voice_bindings_degrades_on_malformed_character_entry():
+    """执行层传入 ``audio_ready`` 时，角色条目非 dict（外部写坏 project.json）不得崩溃——
+    只是 audio_field_set 判定不到值，按「未设置」降级，而不是让 ``.get`` 抛 AttributeError。"""
+    text = "镜头1：开场。\n@[张三]：{我来了}"
+    preview = build_script_preview(text, {"characters": {"张三": "bad"}}, voice_consistency="native")
+    bindings = derive_voice_bindings(
+        preview.utterances,
+        {"张三": "bad"},
+        voice_consistency="native",
+        max_reference_audio=3,
+        audio_ready=set(),
+    )
+    assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} in bindings.warnings
 
 
 def test_warn_speaker_audio_needs_image_when_backend_requires_per_image_attachment():

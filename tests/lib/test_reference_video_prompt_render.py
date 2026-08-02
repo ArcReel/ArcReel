@@ -229,7 +229,7 @@ def test_legacy_script_without_dialogue_still_renders_three_segments():
 
 def test_audio_ready_overrides_field_presence(tmp_path):
     """字段指向已删文件时不绑定：编号与实际发出的音频段数严格等长，且降级 warning 指向
-    「文件缺失」而非「未设置」——张三字段有值，只是不在 audio_ready 内。"""
+    「音频不可用」而非「未设置」——张三字段有值，只是不在 audio_ready 内。"""
     rendered = render_unit_prompt(
         _TEXT,
         _project(),
@@ -241,6 +241,7 @@ def test_audio_ready_overrides_field_presence(tmp_path):
     assert rendered.audio_speakers == ["李四"]
     assert "<李四>的台词音色参考 @音频1" in rendered.prompt
     assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "张三"}} in rendered.warnings
+    assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} not in rendered.warnings
 
 
 def test_audio_speaker_reference_index_tracks_image_slot_by_name_not_position():
@@ -356,6 +357,7 @@ def test_out_of_bounds_audio_path_also_degrades_as_unavailable(tmp_path):
         audio_ready=set(audio_ready),
     )
     assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "张三"}} in rendered.warnings
+    assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} not in rendered.warnings
 
 
 def test_resolve_reference_audio_paths_ignores_non_dict_characters_bucket(tmp_path):
