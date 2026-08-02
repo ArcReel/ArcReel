@@ -58,6 +58,11 @@ export interface ModelCapabilitiesInput extends DurationContext {
    * 模型的时长摆成本候选的选项，用户能存下新模型不支持的值。
    */
   unsavedBackend?: boolean;
+  /**
+   * 当前查看的集号；生成模式可被单集覆盖，传了服务端才按该集生效模式解析
+   * `voiceConsistency` / `firstFrame` 等二维派生值。设置页等无集号上下文的调用不传。
+   */
+  episode?: number | null;
   providers?: ProviderInfo[];
   customProviders?: CustomProviderInfo[];
   /** 置 false 时既不查服务端也不查目录（演示态等）。 */
@@ -164,6 +169,7 @@ export function durationOutOfRangeReason(
 function useResolvedCapabilities(
   projectName: string | undefined | null,
   videoBackend: string | undefined | null,
+  episode: number | undefined | null,
   enabled: boolean,
 ): { caps: VideoCapabilities | null; loading: boolean } {
   const revision = useCapabilitiesStore((s) => s.revision);
@@ -176,7 +182,7 @@ function useResolvedCapabilities(
   const active = enabled && !!projectName && !isDemoProject(projectName);
   // 元组编码而非拼接：拼接的分隔符可能出现在字段内，("a b", "c") 与 ("a", "b c") 会撞成同一 key，
   // 切换时把前一组的结果当作本组已落地。
-  const key = active ? JSON.stringify([projectName, videoBackend ?? ""]) : null;
+  const key = active ? JSON.stringify([projectName, videoBackend ?? "", episode ?? null]) : null;
 
   useEffect(() => {
     // 接管方轮换 controller：新一轮先作废前任，避免慢响应回写覆盖新值。
@@ -190,7 +196,11 @@ function useResolvedCapabilities(
     const { signal } = controller;
     // 带上 videoBackend：表单里编辑中的候选模型也要拿到它自己的能力，否则服务端按已落盘
     // 配置解析，档位等二维派生值会停留在上一次保存的模型上。
-    API.getVideoCapabilities(projectName, { signal, videoBackend: videoBackend || undefined })
+    API.getVideoCapabilities(projectName, {
+      signal,
+      videoBackend: videoBackend || undefined,
+      episode: episode ?? undefined,
+    })
       .then((next) => {
         // 网络 await 之后的写 state 断点：abort 可能发生在响应已 resolve 之后。
         if (signal.aborted) return;
@@ -204,8 +214,8 @@ function useResolvedCapabilities(
     return () => {
       controller.abort();
     };
-    // videoBackend 已编码进 key，列出只为满足 exhaustive-deps，不引入额外请求。
-  }, [key, projectName, videoBackend, revision]);
+    // videoBackend / episode 已编码进 key，列出只为满足 exhaustive-deps，不引入额外请求。
+  }, [key, projectName, videoBackend, episode, revision]);
 
   const settled = key !== null && result?.key === key;
   return { caps: settled ? result.caps : null, loading: key !== null && !settled };
@@ -215,13 +225,14 @@ export function useModelCapabilities({
   projectName,
   videoBackend,
   unsavedBackend = false,
+  episode,
   providers = EMPTY_PROVIDERS,
   customProviders = EMPTY_CUSTOM_PROVIDERS,
   videoResolution,
   usesReferenceImages,
   enabled = true,
 }: ModelCapabilitiesInput): ModelCapabilities {
-  const { caps, loading } = useResolvedCapabilities(projectName, videoBackend, enabled);
+  const { caps, loading } = useResolvedCapabilities(projectName, videoBackend, episode, enabled);
 
   // 时长连同它出自哪个模型一起解析：联动约束要按同一个模型查，否则走服务端回退时会拿传入的
   // 后端（留空，或已不在目录中的存值）去查约束，得到空约束、把未收窄的时长当作可选项。

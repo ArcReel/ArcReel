@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.config.resolver import (
     ConfigResolver,
     VideoBucketCapabilityError,
+    caps_generation_mode,
     constrain_durations_for_project,
     video_bucket_for_generation_mode,
 )
@@ -1833,3 +1834,73 @@ class TestStyleAnalysisVisionGuard:
         )
         result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.SCRIPT, None)
         assert result == ("gemini-aistudio", "gemini-3.1-flash-lite-preview")
+
+
+class TestEpisodeEffectiveGenerationMode:
+    """能力解析按剧集生效 generation_mode 收敛：生成模式可被单集覆盖，能力须跟着该集走。"""
+
+    async def _caps(self, project: dict, episode: int | None) -> dict:
+        factory, engine = await _make_session()
+        try:
+            with patch("lib.config.resolver.get_project_manager"):
+                return await ConfigResolver(factory).video_capabilities_for_project(project, episode)
+        finally:
+            await engine.dispose()
+
+    @pytest.mark.unit
+    def test_caps_generation_mode_prefers_episode_override(self):
+        project = {
+            "generation_mode": "storyboard",
+            "episodes": [{"episode": 1}, {"episode": 2, "generation_mode": "reference_video"}],
+        }
+        assert caps_generation_mode(project, 2) == "reference_video"
+        # 未覆盖的集、无集号上下文、以及集号不存在时都回落项目级
+        assert caps_generation_mode(project, 1) == "storyboard"
+        assert caps_generation_mode(project, None) == "storyboard"
+        assert caps_generation_mode(project, 99) == "storyboard"
+
+    @pytest.mark.unit
+    def test_caps_generation_mode_none_when_nothing_declared(self):
+        """两级都未声明时为 None（未声明 ≠ 显式选了 storyboard），与无项目上下文同口径。"""
+        assert caps_generation_mode({"episodes": [{"episode": 1}]}, 1) is None
+        assert caps_generation_mode({}, None) is None
+        assert caps_generation_mode(None, 1) is None
+
+    @pytest.mark.integration
+    async def test_bucket_follows_episode_override(self):
+        """项目级分镜、某集覆盖为参考生视频：定桶随该集换到 r2v 桶的模型。"""
+        project = {
+            "generation_mode": "storyboard",
+            "video_provider_i2v": "kling/kling-v3",
+            "video_provider_r2v": "minimax/S2V-01",
+            "episodes": [{"episode": 1}, {"episode": 2, "generation_mode": "reference_video"}],
+        }
+        assert (await self._caps(project, 1))["model"] == "kling-v3"
+        assert (await self._caps(project, 2))["model"] == "S2V-01"
+
+    @pytest.mark.integration
+    async def test_voice_consistency_follows_episode_override(self):
+        """覆盖集的声音一致性按该集解析为 native——按项目级会降格 soft，该集将永远不发参考音频。"""
+        project = {
+            "generation_mode": "storyboard",
+            "video_provider_r2v": "ark/doubao-seedance-2-0-260128",
+            "video_backend": "ark/doubao-seedance-2-0-260128",
+            "episodes": [{"episode": 1}, {"episode": 2, "generation_mode": "reference_video"}],
+        }
+        assert (await self._caps(project, 2))["voice_consistency"] == "native"
+        assert (await self._caps(project, 2))["generation_mode"] == "reference_video"
+        # 未覆盖的集与不带集号的查询保持项目级口径
+        assert (await self._caps(project, 1))["voice_consistency"] == "soft"
+        assert (await self._caps(project, None))["voice_consistency"] == "soft"
+
+    @pytest.mark.integration
+    async def test_uses_reference_images_constraint_follows_episode_override(self):
+        """caps 的 generation_mode 是下游时长约束的入参，覆盖集据此施加「参考图↔时长」约束。"""
+        project = {
+            "generation_mode": "storyboard",
+            "video_provider_r2v": "minimax/S2V-01",
+            "episodes": [{"episode": 2, "generation_mode": "reference_video"}],
+        }
+        caps = await self._caps(project, 2)
+        assert caps["generation_mode"] == "reference_video"
+        assert caps["max_reference_images"] == 1
