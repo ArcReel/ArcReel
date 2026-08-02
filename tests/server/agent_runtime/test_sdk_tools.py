@@ -3126,7 +3126,21 @@ def _rv_generator_returning(units: list[dict], captured: dict[str, Any] | None =
 _RV_NOVEL = "张三在村口等人"
 
 
+def _rv_project(fake_ctx: ToolContext, generation_mode: str = "reference_video") -> None:
+    """把项目声明成参考生视频路径——隔离草稿的拆分 / 晋升 / 阻塞判定都以此为前提。
+
+    盘上的 project.json 与 pm 的内存视图同步：生成入口从盘上读，晋升工具经 ``pm.load_project`` 读。
+    """
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps({"content_mode": "narration", "generation_mode": generation_mode}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    fake_ctx.pm.project_payload["content_mode"] = "narration"  # pyright: ignore[reportAttributeAccessIssue]
+    fake_ctx.pm.project_payload["generation_mode"] = generation_mode  # pyright: ignore[reportAttributeAccessIssue]
+
+
 def _rv_source(fake_ctx: ToolContext) -> None:
+    _rv_project(fake_ctx)
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text(_RV_NOVEL, encoding="utf-8")
@@ -3368,6 +3382,8 @@ def _read_rv_quarantine(fake_ctx: ToolContext) -> dict:
 async def _promote(fake_ctx: ToolContext, monkeypatch, **caps_kwargs) -> dict:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
+    if not (fake_ctx.project_path / "project.json").exists():
+        _rv_project(fake_ctx)
     monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps(**caps_kwargs))
     return await _call(validate_and_promote_reference_draft_tool(fake_ctx), {"episode": 1})
 
@@ -3581,6 +3597,52 @@ async def test_validate_and_promote_reference_draft_step2_uses_async_factory(
     assert "episode_1.json" in out["content"][0]["text"]
 
 
+async def test_validate_and_promote_reference_draft_refuses_after_mode_switch(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """切走参考路径后不再晋升残留草稿：晋升会按参考路径的形状覆盖该集正式剧本。"""
+    _rv_project(fake_ctx, generation_mode="storyboard")
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_STEP2,
+        content={"title": "第1集", "units": [{"text": "镜头1：@[张三] 起身"}]},
+        violations=[],
+    )
+
+    out = await _promote(fake_ctx, monkeypatch)
+    assert out.get("is_error") is True
+    assert "不走参考生视频路径" in out["content"][0]["text"]
+
+
+async def test_validate_and_promote_reference_draft_step2_blocked_by_review_gate(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """step1 未经确认时 step2 草稿不晋升：常规生成路径在工具入口就被 gate 拦，两条路不该分叉。
+
+    隔离期间用户在 Web 端改过 step1 会让确认指纹失效，该集回到 pending_review——此时晋升等于
+    拿一份用户没确认过的 step1 合成正式剧本。
+    """
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    _rv_project(fake_ctx)
+    step1 = _rv_step1_path(fake_ctx)
+    step1.parent.mkdir(parents=True, exist_ok=True)
+    step1.write_text(json.dumps({"units": []}, ensure_ascii=False), encoding="utf-8")
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_STEP2,
+        content={"title": "第1集", "units": [{"text": "镜头1：@[张三] 起身"}]},
+        violations=[],
+    )
+    monkeypatch.setattr(mod.script_review, "gate_blocks_step2", lambda *_args, **_kw: True)
+
+    out = await _promote(fake_ctx, monkeypatch)
+    assert out.get("is_error") is True
+    assert "尚未经 web 审核确认" in out["content"][0]["text"]
+
+
 async def test_validate_and_promote_reference_draft_without_draft(fake_ctx: ToolContext, monkeypatch) -> None:
     out = await _promote(fake_ctx, monkeypatch)
     assert out.get("is_error") is True
@@ -3619,13 +3681,6 @@ async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
     assert "未设置参考音频" in text
 
 
-def _rv_project_json(fake_ctx: ToolContext, generation_mode: str = "reference_video") -> None:
-    (fake_ctx.project_path / "project.json").write_text(
-        json.dumps({"content_mode": "narration", "generation_mode": generation_mode}, ensure_ascii=False),
-        encoding="utf-8",
-    )
-
-
 def _write_rv_quarantine(fake_ctx: ToolContext) -> None:
     write_quarantine(
         fake_ctx.project_path,
@@ -3638,7 +3693,7 @@ def _write_rv_quarantine(fake_ctx: ToolContext) -> None:
 
 async def test_generate_episode_script_blocked_by_quarantine(fake_ctx: ToolContext) -> None:
     """隔离草稿在场时 step2 入口阻塞，且给出「改草稿再晋升」而非「去 Web 端确认」的出路。"""
-    _rv_project_json(fake_ctx)
+    _rv_project(fake_ctx)
     step1 = _rv_step1_path(fake_ctx)
     step1.parent.mkdir(parents=True, exist_ok=True)
     step1.write_text(json.dumps({"units": []}, ensure_ascii=False), encoding="utf-8")
@@ -3652,7 +3707,7 @@ async def test_generate_episode_script_blocked_by_quarantine(fake_ctx: ToolConte
 
 async def test_generate_episode_script_quarantine_precedes_missing_step1(fake_ctx: ToolContext) -> None:
     """首次拆分就违约时正式 step1 本就不存在——先报缺文件会把 agent 引回重跑拆分（丢弃重抽）。"""
-    _rv_project_json(fake_ctx)
+    _rv_project(fake_ctx)
     _write_rv_quarantine(fake_ctx)
     assert not _rv_step1_path(fake_ctx).exists()
 
@@ -3665,7 +3720,7 @@ async def test_generate_episode_script_quarantine_precedes_missing_step1(fake_ct
 
 async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake_ctx: ToolContext) -> None:
     """切走参考路径后残留的隔离草稿与新路径无关：非参考路径不清它们，仍判会把该集永久卡死。"""
-    _rv_project_json(fake_ctx, generation_mode="storyboard")
+    _rv_project(fake_ctx, generation_mode="storyboard")
     _write_rv_quarantine(fake_ctx)
 
     out = await _call(generate_episode_script_tool(fake_ctx), {"episode": 1})

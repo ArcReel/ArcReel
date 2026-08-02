@@ -987,6 +987,39 @@ async def test_promote_step2_draft_rejects_schema_breach_with_report(reference_p
     assert [v["code"] for v in refreshed["violations"]] == ["schema_invalid"]
 
 
+def _tiers_by_reference_state(with_refs: list[int], without_refs: list[int]):
+    """按 uses_reference_images 分流的 _resolve_supported_durations 替身。"""
+
+    def _resolve(_self, _caps=None, *, gen_mode, uses_reference_images=None):  # noqa: ANN001
+        return with_refs if uses_reference_images else without_refs
+
+    return _resolve
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_step2_duration_off_tier_after_merge_quarantines(reference_project: Path):
+    """合并之后才判出的档位越界同样落隔离草稿——这份展开已经付过费了。
+
+    step2 可以给 unit 增删 `@` 引用，生效档位随之换一套：step1 那个 4 秒的带图 unit 在展开时
+    丢掉了引用，档位就从 [4] 变成 [8]。这一判在 `_add_metadata` 里、在保结构 diff 之后，
+    不接住的话产物只存在于内存里，错误却让调用方重新生成。
+    """
+    no_reference_text = "镜头1：中景，平视。他推开门，侧身跨过门槛。"
+    gen = ScriptGenerator(reference_project, generator=_fake_step2_generator(no_reference_text))
+
+    with patch.object(ScriptGenerator, "_resolve_supported_durations", _tiers_by_reference_state([4], [8])):
+        with pytest.raises(DraftViolation) as excinfo:
+            await gen.generate(episode=1)
+
+    assert "生效档位" in str(excinfo.value)
+    assert not _script_path(reference_project).exists()
+    envelope = _json.loads(_step2_quarantine(reference_project).read_text(encoding="utf-8"))
+    assert [v["code"] for v in envelope["violations"]] == ["duration_off_tier"]
+    # 草稿装的仍是 agent 要改的那一层正文，改回 `@` 引用即可重新晋升
+    assert envelope["content"]["units"][0]["text"] == no_reference_text
+
+
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_promote_step2_draft_revalidates_edited_step1(reference_project: Path):

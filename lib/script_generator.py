@@ -488,10 +488,17 @@ class ScriptGenerator:
         else:
             script_data = self._parse_response(response_text, episode)
 
-        # 补充元数据
-        script_data = self._add_metadata(
-            script_data, episode, reference_unit_durations=reference_unit_durations, caps=caps
-        )
+        # 补充元数据。reference 路径同样纳入隔离：_add_metadata 按落地后的最终 references 重算
+        # 生效档位，一个新增 / 去掉了 `@` 引用的 unit 要到合并之后才判出档——不接住的话，这份
+        # 已付费产出只存在于内存里，错误却让调用方重新生成。
+        try:
+            script_data = self._add_metadata(
+                script_data, episode, reference_unit_durations=reference_unit_durations, caps=caps
+            )
+        except DraftViolation as exc:
+            if reference_step1 is None:
+                raise
+            raise self._quarantine_reference_step2(episode, response_text, exc) from exc
 
         # 经写盘统一入口保存：整集生成无「改前」，按严格结构校验（等价原 response_schema 的
         # Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json
@@ -1188,6 +1195,17 @@ class ScriptGenerator:
             script_data = self._merge_reference_visual(
                 step1_units, json.dumps(draft.content), episode, max_refs=max_refs
             )
+            # _add_metadata 一并纳入：它按落地后的最终 references 重算生效档位，草稿里新增 /
+            # 去掉一个 `@` 引用就会在合并之后才判出档，留在 try 之外会让晋升在这一类上退回
+            # 「报错但草稿不刷新」。
+            script_data = self._add_metadata(
+                script_data,
+                episode,
+                reference_unit_durations={
+                    str(_rewrite_episode_prefix(u["unit_id"], episode)): u["duration_seconds"] for u in step1_units
+                },
+                caps=caps,
+            )
         except DraftViolation as exc:
             raise DraftViolation(
                 quarantine_and_report(
@@ -1218,14 +1236,6 @@ class ScriptGenerator:
                 code="quarantined",
             ) from exc
 
-        script_data = self._add_metadata(
-            script_data,
-            episode,
-            reference_unit_durations={
-                str(_rewrite_episode_prefix(u["unit_id"], episode)): u["duration_seconds"] for u in step1_units
-            },
-            caps=caps,
-        )
         filename = output_filename or episode_script_filename(episode)
         pm = ProjectManager(str(self.project_path.parent))
         output_path = pm.save_script(self.project_path.name, script_data, filename, validate=True)
@@ -1399,13 +1409,17 @@ class ScriptGenerator:
                     target_duration, has_references=bool(s.get("references")), caps=caps, gen_mode=gen_mode
                 )
                 if unit_tiers is not None:
-                    # 生效档位收窄到已确认值之外：fail-loud，不静默取档改写——用户审阅
-                    # 通过的时长/费用不被换成从未过目的值落盘。报错文案说明成因与出路。
-                    raise ValueError(
+                    # 生效档位收窄到已确认值之外：不静默取档改写——用户审阅通过的时长/费用不被
+                    # 换成从未过目的值落盘。抛内容违约（而非裸 ValueError）让 reference 路径把这
+                    # 份已付费产出落隔离草稿：成因通常是该次生成给这个 unit 新增/去掉了 `@` 引用，
+                    # 改一改草稿正文的引用即可修好，不该退回丢弃重抽。
+                    raise DraftViolation(
                         f"unit {s[id_field]} 已确认时长 {target_duration}s 不在当前生效档位 "
                         f"{sorted(set(unit_tiers))} 内；通常是该次生成给该 unit 新增/去掉了引用"
-                        "导致，可重新生成再试；若重试后仍失败，说明模型能力已变化，需要重新拆分"
-                        "该集 step1"
+                        "导致，请调整该 unit 正文里的 `@` 引用使其回到该档位；若引用本就该是这样，"
+                        "说明模型能力已变化，需要重新拆分该集 step1",
+                        code="duration_off_tier",
+                        label=f"unit {s[id_field]}",
                     )
                 if s.get("duration_seconds") != target_duration:
                     logger.warning(

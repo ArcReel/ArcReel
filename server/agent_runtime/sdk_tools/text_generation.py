@@ -1037,6 +1037,23 @@ def validate_and_promote_reference_draft_tool(ctx: ToolContext):
         try:
             episode = int(args["episode"])
             project_path = ctx.project_path
+            project_data = ctx.pm.load_project(ctx.project_name)
+
+            # 切走参考路径后残留的草稿不再晋升：晋升会按参考路径的形状覆盖 scripts/episode_N.json，
+            # 而该集此刻走的是别的生成路径。与 generate_episode_script 忽略这些残留同一判据。
+            if not _is_reference_video_episode(project_data, episode):
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                f"❌ 第 {episode} 集当前不走参考生视频路径，"
+                                "盘上的参考路径隔离草稿已与该集无关，不作晋升"
+                            ),
+                        }
+                    ],
+                    "is_error": True,
+                }
 
             # step1 优先：step2 的保结构 diff 以正式 step1 为基底，step1 还在隔离态时判 step2
             # 只会拿旧基底得出误导性的结论。
@@ -1050,6 +1067,22 @@ def validate_and_promote_reference_draft_tool(ctx: ToolContext):
                 )
 
             if quarantine_exists(project_path, episode, QUARANTINE_KIND_STEP2):
+                # 晋升同样受 step1 审核 gate 约束：隔离期间用户在 Web 端改过 step1 会让确认指纹
+                # 失效、该集回到 pending_review，此时晋升等于拿一份用户没确认过的 step1 合成正式
+                # 剧本——常规生成路径在工具入口就被 gate 拦下，两条路不该在这一位上分叉。
+                if script_review.gate_blocks_step2(project_path, project_data, episode):
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "⏸️ 本集 step1 尚未经 web 审核确认（或确认后内容又被改），step2 草稿暂不晋升。"
+                                    "请在 Web 端审阅并确认本集 step1 内容后再调用本工具。"
+                                ),
+                            }
+                        ],
+                        "is_error": True,
+                    }
                 # 用异步工厂而非裸构造：晋升同样经 _add_metadata 落盘，裸构造会把
                 # metadata.generator 记成 "unknown"，与直接生成路径的同一份产物对不上。
                 generator = await ScriptGenerator.create(project_path)
