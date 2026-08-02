@@ -8,6 +8,7 @@ behavior without hitting the real queue or providers.
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Any
@@ -3550,6 +3551,7 @@ async def test_validate_and_promote_reference_draft_reports_broken_outer_shape(
 
     envelope = _read_rv_quarantine(fake_ctx)
     mutate_content(envelope["content"])
+    edited_content = copy.deepcopy(envelope["content"])
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
     out = await _promote(fake_ctx, monkeypatch)
@@ -3559,8 +3561,10 @@ async def test_validate_and_promote_reference_draft_reports_broken_outer_shape(
     assert not _rv_step1_path(fake_ctx).exists()
     refreshed = _read_rv_quarantine(fake_ctx)
     assert [v["code"] for v in refreshed["violations"]] == ["schema_invalid"]
-    # 草稿留在原地且保留 agent 写的那份内容，改完可再次晋升
+    # 草稿留在原地且原样保留 agent 写的那份内容：做收编会把它的原稿改形，它照着报告回看时
+    # 反而对不上自己写的东西，改完再晋升这条路就断了
     assert _rv_quarantine_path(fake_ctx).exists()
+    assert refreshed["content"] == edited_content
 
 
 async def test_validate_and_promote_reference_draft_requires_source_provenance(
