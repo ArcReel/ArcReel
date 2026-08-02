@@ -63,7 +63,8 @@ export interface ModelConfigSectionProps {
    */
   showSubFields?: boolean;
   /**
-   * 媒体细分项的候选（docs/adr/0054）。缺席即渲染不出细分下拉，故连折叠区一并不渲染。
+   * 媒体细分项的候选（docs/adr/0054）。缺席（拉取失败）时细分区降级：只保留已配置的细分项、
+   * 候选只列其当前值，未配置项不渲染；全部未配置即整块折叠区不渲染。
    */
   candidates?: ModelCandidatesResponse | null;
   providers: ProviderInfo[];
@@ -157,13 +158,20 @@ export function ModelConfigSection({
 
   // 穿透演算（docs/adr/0054，项目优先）：细分项留空 → 项目默认模型 → 全局同名细分 → 全局默认模型。
   const mediaCandidates = showSubFields ? candidates : null;
-  const videoSubFields: LayeredSubField[] | undefined = mediaCandidates
-    ? [
+
+  // 候选拉取失败时调用方传 null。已保存的细分覆盖此时仍在后端生效，整块隐藏会让用户既看不出
+  // 实际执行的是哪个模型，也无从清除。降级为只保留已配置的行、候选只列其当前值——换模型要等
+  // 候选恢复，但覆盖始终可见可清空。未配置的行没有候选可选，仍不渲染。
+  const degradeToSaved = (fields: LayeredSubField[]): LayeredSubField[] =>
+    mediaCandidates ? fields : fields.filter((f) => !!f.value).map((f) => ({ ...f, options: [f.value] }));
+
+  const videoSubFields: LayeredSubField[] | undefined = showSubFields
+    ? degradeToSaved([
         {
           key: "i2v",
           ...bucketLabels.i2v,
           value: value.videoProviderI2V,
-          options: mediaCandidates.video.buckets.i2v ?? [],
+          options: mediaCandidates?.video.buckets.i2v ?? [],
           effective: effectiveModel(value.videoBackend, globalDefaults.videoI2V, globalDefaults.video),
           onChange: (next: string) => onChange({ ...value, videoProviderI2V: next }),
         },
@@ -171,20 +179,20 @@ export function ModelConfigSection({
           key: "r2v",
           ...bucketLabels.r2v,
           value: value.videoProviderR2V,
-          options: mediaCandidates.video.buckets.r2v ?? [],
+          options: mediaCandidates?.video.buckets.r2v ?? [],
           effective: effectiveModel(value.videoBackend, globalDefaults.videoR2V, globalDefaults.video),
           onChange: (next: string) => onChange({ ...value, videoProviderR2V: next }),
         },
-      ]
+      ])
     : undefined;
 
-  const imageSubFields: LayeredSubField[] | undefined = mediaCandidates
-    ? [
+  const imageSubFields: LayeredSubField[] | undefined = showSubFields
+    ? degradeToSaved([
         {
           key: "t2i",
           ...bucketLabels.t2i,
           value: value.imageBackendT2I,
-          options: mediaCandidates.image.buckets.t2i ?? [],
+          options: mediaCandidates?.image.buckets.t2i ?? [],
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageT2I, globalDefaults.image),
           onChange: (next: string) => onChange({ ...value, imageBackendT2I: next }),
         },
@@ -192,11 +200,11 @@ export function ModelConfigSection({
           key: "i2i",
           ...bucketLabels.i2i,
           value: value.imageBackendI2I,
-          options: mediaCandidates.image.buckets.i2i ?? [],
+          options: mediaCandidates?.image.buckets.i2i ?? [],
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageI2I, globalDefaults.image),
           onChange: (next: string) => onChange({ ...value, imageBackendI2I: next }),
         },
-      ]
+      ])
     : undefined;
 
   // 能力统一经 useModelCapabilities 取得（见该模块的真相源规则），本组件不自行查表。

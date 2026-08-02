@@ -132,6 +132,32 @@ describe("ModelConfigSection", () => {
     expect(container.querySelectorAll("details")).toHaveLength(1);
   });
 
+  it("keeps configured sub-fields visible and clearable when candidates are unavailable", async () => {
+    // 候选拉取失败不应把已保存的覆盖藏起来——它在后端仍生效，藏起来用户既看不见也无法清除
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <ModelConfigSection
+        candidates={null}
+        value={{ ...EMPTY_VALUE, imageBackendT2I: "gemini/nano-banana" }}
+        onChange={onChange}
+        providers={PROVIDERS}
+        options={OPTIONS}
+        globalDefaults={EMPTY_GLOBALS}
+      />,
+    );
+
+    // 已配置的「文生图」仍在，且展示的是已保存值；未配置的「图生图」无候选可选，不渲染
+    const t2i = screen.getByRole("combobox", { name: "文生图" });
+    expect(t2i).toHaveTextContent("nano-banana");
+    expect(screen.queryByRole("combobox", { name: "图生图" })).not.toBeInTheDocument();
+
+    // 清空这条覆盖不依赖候选数据
+    await user.click(t2i);
+    await user.click(screen.getByRole("option", { name: /跟随默认/ }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ imageBackendT2I: "" }));
+  });
+
   describe("按用途指定模型（项目层）", () => {
     const CANDIDATES = {
       image: {

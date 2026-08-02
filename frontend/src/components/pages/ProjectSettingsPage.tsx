@@ -421,13 +421,13 @@ export function ProjectSettingsPage() {
       const trimmedVoice = narrationVoice.trim();
       const effectiveVideo = videoBackend || globalDefaults.video || "";
       // 分辨率跟随默认层的图片模型——界面上分辨率就挂在默认主下拉之下。
-      const effectiveImageT2I = imageBackendDefault || globalDefaults.image || "";
+      const effectiveImageDefault = imageBackendDefault || globalDefaults.image || "";
       const newModelSettings: Record<string, { resolution: string | null }> = { ...modelSettings };
       if (effectiveVideo) {
         newModelSettings[effectiveVideo] = { resolution: videoResolution };
       }
-      if (effectiveImageT2I) {
-        newModelSettings[effectiveImageT2I] = { resolution: imageResolution };
+      if (effectiveImageDefault) {
+        newModelSettings[effectiveImageDefault] = { resolution: imageResolution };
       }
 
       await API.updateProject(projectName, {
