@@ -356,6 +356,7 @@ def test_out_of_bounds_audio_path_also_degrades_as_unavailable(tmp_path):
         model_id="doubao-seedance-2-0",
         audio_ready=set(audio_ready),
     )
+    assert rendered.audio_speakers == []
     assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "张三"}} in rendered.warnings
     assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} not in rendered.warnings
 
