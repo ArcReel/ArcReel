@@ -17,6 +17,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
+from lib.episode_paths import REFERENCE_VIDEO_STEP1_FILENAME
+from lib.reference_video.quarantine import PROMOTE_TOOL_NAME, STEP1_EDIT_TOOL_NAME
+
 logger = logging.getLogger(__name__)
 
 
@@ -255,11 +258,11 @@ class AgentAccessPolicy:
           Bash 工具改走 ``is_bash_command_whitelisted`` 代码白名单。
         - ``filesystem.denyRead``：内核级文件读拒绝（macOS Seatbelt / Linux
           bwrap profile），对 sandbox 内所有子进程生效。
-        - ``filesystem.denyWrite``：内核级文件写拒绝，覆盖 ``scripts/`` 目录与
-          ``project.json``——这两类项目 JSON 的写入只能走 in-process MCP 工具
-          （``patch_episode_script`` / ``patch_project`` 等，跑在主进程不受 sandbox 约束），
-          堵死 Bash（``echo>`` / ``sed`` / ``python -c``）旁路。OS 级对 sandbox 内所有
-          子进程生效。sandbox 内已无合法 Bash 写这两类文件（compose 写视频输出、
+        - ``filesystem.denyWrite``：内核级文件写拒绝，覆盖 ``scripts/`` 目录、
+          ``project.json`` 与 ``drafts/`` 目录——这几类文件的写入只能走 in-process MCP 工具
+          （``patch_episode_script`` / ``patch_project`` / 参考拆分的取回与晋升等，跑在主进程
+          不受 sandbox 约束），堵死 Bash（``echo>`` / ``sed`` / ``python -c``）旁路。OS 级对
+          sandbox 内所有子进程生效。sandbox 内已无合法 Bash 写这三类路径（compose 写视频输出、
           split 写 ``source/``，均不碰），故不误伤。
         - ``allowUnsandboxedCommands=False``：禁止 agent 在 sandbox 失败时
           请求"重试 unsandboxed"，对红线场景不可接受。
@@ -274,17 +277,24 @@ class AgentAccessPolicy:
             "enableWeakerNestedSandbox": bool(self.in_docker),
             "filesystem": {
                 "denyRead": self._build_sensitive_abs_paths(),
-                "denyWrite": self._build_protected_json_abs_paths(project_cwd),
+                "denyWrite": self._build_protected_write_abs_paths(project_cwd),
             },
         }
 
     @classmethod
-    def _build_protected_json_abs_paths(cls, project_cwd: Path) -> list[str]:
-        """项目 JSON 写禁清单（绝对路径）：``scripts/`` 目录子树 + ``project.json``。
+    def _build_protected_write_abs_paths(cls, project_cwd: Path) -> list[str]:
+        """Bash 子进程写禁清单（绝对路径）：``scripts/`` 目录子树 + ``project.json`` + ``drafts/`` 目录子树。
 
-        与 ``_check_write_access`` 的内置 Write/Edit 拒绝同源（同两类路径），二者构成双层：
-        sandbox denyWrite 管 Bash 子进程（内核级），``_check_write_access`` hook 管内置
-        Write/Edit（权限系统，全平台）。
+        与 ``_check_write_access`` 的内置 Write/Edit 拒绝构成双层（ADR 0026）：sandbox denyWrite
+        管 Bash 子进程（内核级），``_check_write_access`` hook 管内置 Write/Edit（权限系统，全平台）
+        ——内置文件工具在主进程内执行、不经 Bash，内核沙箱覆盖不到，反之亦然。
+
+        ``drafts/`` 按整目录 deny 而非枚举 ``drafts/episode_*/step1_reference_units.json``：
+        清单在会话装配期一次性构造，而集是运行时增删的——「同一会话内先拆分出第 N 集、再改它」
+        恰是主流程，逐文件枚举在这条路上必然落空。两层因此在 ``drafts/`` 上刻意不对称：Bash
+        整目录拒（本就没有合法的 Bash 写入者——中间文件由 in-process MCP 工具写、由内置 Edit
+        改），hook 层只拒参考生视频正式 step1（见 ``_is_protected_reference_step1``；隔离草稿
+        正是留给内置 Edit 的编辑工位，不能拒）。
 
         base 经 ``_enumerate_cwd_bases`` 同时枚举 raw + resolved 两种形式（与
         ``_check_write_access`` 同口径）：sandbox 实现若按字符串路径比对而非 inode，
@@ -293,7 +303,7 @@ class AgentAccessPolicy:
         """
         paths: list[str] = []
         for base in cls._enumerate_cwd_bases(project_cwd):
-            for target in (base / "scripts", base / "project.json"):
+            for target in (base / "scripts", base / "project.json", base / "drafts"):
                 target_s = str(target)
                 if target_s not in paths:
                     paths.append(target_s)
@@ -532,7 +542,9 @@ class AgentAccessPolicy:
 
     def _check_write_access(self, resolved: Path, project_cwd: Path, *, logical_norm: Path) -> tuple[bool, str | None]:
         """Write/Edit 的写入约束：cwd 外一律拒，cwd 内代码扩展名拒（agent 不写代码），
-        且 ``scripts/*.json`` 与 ``project.json`` 一律拒——只能走收归后的 MCP 工具。
+        且 ``scripts/*.json``、``project.json`` 与参考生视频正式 step1 一律拒——只能走收归后的
+        MCP 工具。前两类是「写入口收归」，step1 是「写入口持锁」：它另有三条持同一把 per-path
+        锁的写入路径，沙箱内的 Write/Edit 取不到锁，直改即丢失更新窗口。
 
         所有 cwd-relative 判定（cwd 内外、protected 区命中）都按 **base 同时枚举 raw + resolved**
         两种形式与 target 比对：caller 传入的 ``resolved`` 已展开 symlink，但 ``project_cwd`` 可能
@@ -555,6 +567,15 @@ class AgentAccessPolicy:
                 "角色/场景/道具走 mcp__arcreel__patch_project。"
             )
 
+        if any(self._is_protected_reference_step1(target, bases) for target in (resolved, logical_norm)):
+            return False, (
+                f"访问被拒绝：参考生视频的 {REFERENCE_VIDEO_STEP1_FILENAME} 不可用 Write/Edit 直改。"
+                "该文件与 Web 端保存、迁移读改写、重拆分共享一把文件锁，而 Write/Edit 取不到这把锁，"
+                "直改会与并发的保存互相丢失更新。"
+                f'请改用 MCP 工具——mcp__arcreel__{STEP1_EDIT_TOOL_NAME}({{"episode": N}}) 取回可编辑草稿，'
+                f"改草稿的 content.units[i]，再用 mcp__arcreel__{PROMOTE_TOOL_NAME} 校验并晋升回正式文件。"
+            )
+
         ext = resolved.suffix.lower()
         if ext in self._CODE_EXTENSIONS_FORBIDDEN:
             return False, (
@@ -571,7 +592,7 @@ class AgentAccessPolicy:
 
         ``project_cwd`` 可能是 symlink 入口（macOS ``/var↔/private/var``、Linux
         symlinked 项目根），仅用 raw 形式拼路径与已 resolve 的 target 比对会失配。
-        ``_check_write_access``（hook 层）与 ``_build_protected_json_abs_paths``
+        ``_check_write_access``（hook 层）与 ``_build_protected_write_abs_paths``
         （sandbox denyWrite）共用此枚举，保证两层路径基同口径。
 
         resolve 失败时 fail-closed：bases 仅含 raw（hook 层 target 不在 raw 下时
@@ -643,5 +664,32 @@ class AgentAccessPolicy:
             # 同时显式覆盖目录路径本身（target == scripts_dir）：agent 把目录名当文件路径 Write 时
             # 文件系统会拒，但 hook 层 fail-fast 优先，不依赖 OS 兜底。
             if target_s == scripts_dir or target_s.startswith(scripts_dir + os.sep):
+                return True
+        return False
+
+    @classmethod
+    def _is_protected_reference_step1(cls, target: Path, bases: list[Path]) -> bool:
+        """命中参考生视频的正式 step1（``drafts/episode_N/step1_reference_units.json``）。
+
+        与 ``scripts/*.json`` / ``project.json`` 同一条理由收进写禁：这份文件有四条写入路径
+        （迁移读改写、Web 端保存、重拆分 / 晋升写盘、agent 修改），前三条都持
+        ``ProjectManager.file_lock`` 的同一把 per-path 锁；agent 的 Write/Edit 跑在沙箱里、
+        取不到这把锁，直改与并发的 Web 端保存之间就是一个丢失更新窗口。改走
+        ``open_reference_step1_for_edit`` → 改草稿 → 晋升，写盘只发生在持锁的晋升侧。
+
+        只拦正式文件，不拦同目录的 ``.invalid.json`` 隔离草稿：草稿本就是给 agent 用文件工具
+        改的编辑工位，且没有第二条写入路径（Web 端草稿保存只写正式文件名），无并发可言。
+
+        ``bases`` 与 target 的 raw/resolved 双形式口径同 ``_is_protected_project_json``。
+        集号不枚举、按 ``episode_*`` 目录名匹配：写禁在会话装配前就要成立，而集是运行时增删的。
+        """
+        target_s = cls._normalize_path_for_protected_compare(target)
+        filename = cls._normalize_path_for_protected_compare(Path(REFERENCE_VIDEO_STEP1_FILENAME))
+        for base in bases:
+            drafts_dir = cls._normalize_path_for_protected_compare(base / "drafts")
+            if not target_s.startswith(drafts_dir + os.sep):
+                continue
+            parts = target_s[len(drafts_dir) + 1 :].split(os.sep)
+            if len(parts) == 2 and parts[0].startswith("episode_") and parts[1] == filename:
                 return True
         return False

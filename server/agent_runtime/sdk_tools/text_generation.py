@@ -32,7 +32,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
 )
 from lib.i18n import _ as translate
-from lib.json_io import atomic_write_json
+from lib.json_io import atomic_write_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_manager import DEFAULT_SOURCE_KIND, ProjectManager, effective_mode
 from lib.prompt_builders_reference import build_reference_units_split_prompt
@@ -48,12 +48,14 @@ from lib.reference_video.quarantine import (
     PROMOTE_TOOL_NAME,
     QUARANTINE_KIND_STEP1,
     QUARANTINE_KIND_STEP2,
+    STEP1_EDIT_TOOL_NAME,
     QuarantinedDraft,
     clear_quarantine,
     quarantine_and_report,
     quarantine_exists,
     quarantine_path,
     read_quarantine,
+    write_quarantine,
 )
 from lib.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
@@ -62,7 +64,7 @@ from lib.reference_video.script_preview import (
     derive_utterances,
     derive_voice_bindings,
 )
-from lib.reference_video.shot_parser import parse_prompt
+from lib.reference_video.shot_parser import parse_prompt, render_shots_text
 from lib.script_generator import ScriptGenerator
 from lib.script_models import (
     NarrationStep1Draft,
@@ -937,19 +939,199 @@ def _write_reference_step1(project_path: Path, episode: int, units: list[dict]) 
     """把结构化 step1 原子写入正式文件（拆分与晋升共用的唯一写盘出口）。
 
     与 ScriptGenerator._load_reference_step1 / ScriptReviewService 共享同一把 per-path 锁：
-    重新拆分的整份覆盖式重写与迁移、Web 端编辑相互串行化。
+    重新拆分的整份覆盖式重写与迁移、Web 端编辑相互串行化。agent 对已有拆分的修改也汇入这里
+    ——它经 ``open_reference_step1_for_edit`` 取回草稿、改完走晋升，写盘只发生在本函数，
+    沙箱内取不到锁的 Write/Edit 直改由 ``AgentAccessPolicy`` 拒绝。
 
-    step1 一变，在场的 step2 隔离草稿就作废：它的保结构 diff 以旧 step1 为基底，留着既永远
-    晋升不了（unit 数与台词都对不上新基底），又会让生成侧一直阻塞在这份没有出路的草稿上。
+    step1 真的变了，在场的 step2 隔离草稿才作废：它的保结构 diff 以旧 step1 为基底，留着既
+    永远晋升不了（unit 数与台词都对不上新基底），又会让生成侧一直阻塞在这份没有出路的草稿
+    上。取回编辑后中途放弃、原样晋升（``units`` 与盘上原值逐字相同）时内容并未变化，此时
+    不清——agent 放弃 step1 修改不该连带销毁一份内容仍对得上基底的 step2 修复草稿。
     """
     drafts_dir = episode_drafts_dir(project_path, episode)
     drafts_dir.mkdir(parents=True, exist_ok=True)
     step1_path = drafts_dir / REFERENCE_VIDEO_STEP1_FILENAME
     pm = ProjectManager(str(project_path.parent))
     with pm.file_lock(step1_path):
+        previous = load_json_or_none(step1_path)
+        changed = not (isinstance(previous, dict) and previous.get("units") == units)
         atomic_write_json(step1_path, {"units": units})
-    clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
+    if changed:
+        clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
     return step1_path
+
+
+def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
+    """正式 step1 的结构化 unit 表 → 隔离草稿装的扁平书写层（``_build_reference_units_from_flat`` 的逆向）。
+
+    ``unit_id`` / ``shots`` / ``references`` 不进草稿：它们是机器派生物，草稿是给 agent 改的那
+    一层，带上派生字段等于给漂移开口子（改了 references、晋升时又按正文重新派生覆盖）。
+
+    ``text`` 经 ``render_shots_text`` 还原 ``镜头N：`` header——落盘的 ``shots[*].text`` 不带
+    header，裸拼接后晋升时 ``parse_prompt`` 找不到 header，整个 unit 会塌成一个镜头。
+
+    盘上 unit 不合形状时不 fail-loud：字段缺失或类型不符时**原样带过**（缺失填 None / 空串），
+    交由晋升侧的 schema 重判逐条报告给 agent。原样带过而非归一化成合法值：``8.0`` 被改写成
+    ``0`` 后，agent 从草稿里看到的是一个它没写过的时长，报告说「时长不在档位内」也对不上盘
+    上的原值——保留原值，让它自己看见错在哪。非 dict 的 unit 同样不丢弃：填空占位保留在数组
+    对应位置，让晋升侧 schema 判它「结构非法」逐条报出——直接跳过会让数组变短，若剩余 unit
+    恰好都能过校验，晋升会悄悄覆盖正式文件、丢失这个 unit 而无人知晓。
+
+    render 后用 ``parse_prompt`` 重新解析校验分镜数不变：某个 shot 自身内容里若恰好有一行
+    形如「镜头N：」（旧数据经 Web 端保存，字段本身不禁止这种文本），加了 header 的首行会跟
+    这行撞在一起，解析回去时会被误判成新的镜头边界，一个 shot 悄悄拆成两个——agent 明明没
+    编辑这个 unit，原样晋升也会带着错位的分镜覆盖正式文件。分镜数对不上时同样清空为占位，
+    交给 schema 判非法。
+    """
+    flat: list[dict[str, Any]] = []
+    for unit in units:
+        if not isinstance(unit, dict):
+            flat.append({"duration_seconds": None, "source_text": "", "text": ""})
+            continue
+        shots = unit.get("shots")
+        shots_list = shots if isinstance(shots, list) else []
+        text = render_shots_text(shots_list)
+        if len(parse_prompt(text)[0]) != len(shots_list):
+            text = ""
+        flat.append(
+            {
+                "duration_seconds": unit.get("duration_seconds"),
+                "source_text": unit.get("source_text", ""),
+                "text": text,
+            }
+        )
+    return flat
+
+
+def open_reference_step1_for_edit_tool(ctx: ToolContext):
+    @tool(
+        STEP1_EDIT_TOOL_NAME,
+        "把本集已落盘的参考生视频 step1 拆分取回可编辑的隔离草稿（扁平书写层：时长 + 原文锚 + 正文），"
+        f"用于修改已有拆分。改完调用 {PROMOTE_TOOL_NAME} 全量校验并晋升回正式文件。"
+        "正式 step1 不可用 Write/Edit 直改——它与 Web 端保存、迁移、重拆分共享一把文件锁，"
+        "只能经工具写盘。",
+        {
+            "type": "object",
+            "properties": {
+                "episode": {"type": "integer", "description": "剧集编号"},
+                "source": {
+                    "type": "string",
+                    "description": (
+                        "本集小说源文件路径（相对项目目录，如 source/episode_1.txt）；"
+                        "晋升时按它重判原文锚，不传则按整个 source/ 目录重解析（判定更松）"
+                    ),
+                },
+            },
+            "required": ["episode"],
+        },
+    )
+    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            episode = int(args["episode"])
+            source = args.get("source")
+            project_path = ctx.project_path
+            project_data = ctx.pm.load_project(ctx.project_name)
+
+            # 与晋升工具同一判据：切走参考路径后，盘上的 step1 与该集此刻的生成路径无关，
+            # 取回来编辑只会诱导 agent 改一份不会被消费的文件。
+            if not _is_reference_video_episode(project_data, episode):
+                return {
+                    "content": [
+                        {"type": "text", "text": f"❌ 第 {episode} 集当前不走参考生视频路径，无 step1 拆分可编辑"}
+                    ],
+                    "is_error": True,
+                }
+
+            # source 在写草稿前校验：草稿一旦落盘就把它记进 meta.source 供晋升重判用，若此刻
+            # 是个缺失/改名/写错的路径，晋升会在 _load_novel_source 上反复报错，而草稿已在场
+            # 又挡住重新取回改正 source——agent 会卡在一个自己改不动的死角。校验失败时不落盘，
+            # 无效参数不留持久副作用。
+            if source is not None:
+                try:
+                    _load_novel_source(project_path, source)
+                except ValueError as exc:
+                    return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
+
+            step1_path = episode_drafts_dir(project_path, episode) / REFERENCE_VIDEO_STEP1_FILENAME
+            pm = ProjectManager(str(project_path.parent))
+            # 草稿有无的检查、正式文件的读取、草稿的写入须在同一把锁的临界区内完成：拆开在锁外
+            # 各做一次的话，同一集的两个并发取回请求可能都先看到「无草稿」，再都各自写入草稿，
+            # 后写者悄悄覆盖前者的 content 与 meta.source。锁与 Web 端保存、迁移同一把，读也持锁
+            # 避免取回一份写到一半的 step1。
+            with pm.file_lock(step1_path):
+                # 已有草稿在场时不覆盖：那份草稿要么是违约产物、要么是上一轮取回后 agent 已改了
+                # 一半，拿正式文件盖过去等于抹掉它手上的修改。两种情况的出路相同——继续改那份
+                # 草稿再晋升。
+                if quarantine_exists(project_path, episode, QUARANTINE_KIND_STEP1):
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    f"❌ 第 {episode} 集已有 step1 隔离草稿在场："
+                                    f"{quarantine_path(project_path, episode, QUARANTINE_KIND_STEP1)}\n"
+                                    "不覆盖它（可能已含未晋升的修改）；请直接编辑该草稿的 content.units[i]，"
+                                    f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 晋升。'
+                                ),
+                            }
+                        ],
+                        "is_error": True,
+                    }
+
+                data = load_json_or_none(step1_path)
+                if not isinstance(data, dict):
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    f"❌ 第 {episode} 集没有可编辑的正式 step1（{step1_path} 不存在或不是合法 "
+                                    "JSON）；首次生成请调用 split_reference_video_units"
+                                ),
+                            }
+                        ],
+                        "is_error": True,
+                    }
+                raw_units = data.get("units")
+                if not isinstance(raw_units, list) or not raw_units:
+                    return {
+                        "content": [{"type": "text", "text": f"❌ {step1_path} 的 units 不是非空数组，无法取回编辑"}],
+                        "is_error": True,
+                    }
+
+                draft_path = write_quarantine(
+                    project_path,
+                    episode,
+                    QUARANTINE_KIND_STEP1,
+                    content={"units": _flatten_reference_step1_units(raw_units)},
+                    # 取回时无违约可报：草稿在这条路上是「编辑工位」而非「违约产物」，报告为空即可，
+                    # 晋升时照常全量重判。
+                    violations=[],
+                    # source 键一律写出（未指定时为 null），与拆分侧同口径：晋升侧据此区分「本就按
+                    # 整个 source/ 判锚」与「meta 被改坏」。
+                    meta={"source": source or None},
+                )
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            f"✅ 第 {episode} 集 step1 已取回可编辑草稿：{draft_path}\n"
+                            f"📊 {len(raw_units)} 个 unit（正式文件 {step1_path} 保持原样，未改动）\n\n"
+                            "编辑口径：改 content.units[i] 的 text / source_text / duration_seconds；"
+                            "unit_id / shots / references 是派生物，不在草稿里、也不要手写。"
+                            "增删 unit 即增删数组元素，unit_id 按新顺序重编。\n"
+                            f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 全量校验并晋升回正式文件；'
+                            "违约时返回逐条报告，继续改再晋升，无轮次上限。\n"
+                            "草稿在场期间审阅门与 step2 生成被阻塞；放弃修改就原样晋升（内容未变即等于回写原稿）。"
+                        ),
+                    }
+                ]
+            }
+        except Exception as exc:  # noqa: BLE001
+            return tool_error(STEP1_EDIT_TOOL_NAME, exc)
+
+    return _handler
 
 
 def split_reference_video_units_tool(ctx: ToolContext):
