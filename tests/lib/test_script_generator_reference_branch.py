@@ -61,7 +61,7 @@ def reference_project(tmp_path: Path) -> Path:
           "title": "t",
           "content_mode": "narration",
           "generation_mode": "reference_video",
-          "_supported_durations": [4, 8],
+          "video_backend": "vidu/vidu2.0",
           "overview": {"synopsis": "s", "genre": "g", "theme": "th", "world_setting": "w"},
           "style": "国漫",
           "style_description": "水墨",
@@ -288,13 +288,13 @@ async def test_script_generator_takes_duration_tier_from_final_output_references
 @pytest.mark.integration
 async def test_script_generator_reclamps_duration_even_when_caps_unavailable(reference_project: Path):
     """caps 解析失败（``_fetch_video_capabilities`` 按其文档在这种情况下返回 None）不代表
-    取不到任何档位——``_resolve_supported_durations`` 自带 caps → project.json → registry
-    三级回退，project.json 的 ``_supported_durations`` 仍能兜底。回填逻辑须无条件取档，
+    取不到任何档位——``_resolve_supported_durations`` 自带 caps → registry 两级回退，
+    project.json 自报的模型身份仍能兜底。回填逻辑须无条件取档，
     不能因为 caps 是 None 就保留一个未经取档的值。
 
     与其它同类测试一样另 mock ``_resolve_supported_durations`` 本身（而非验证真实回退链
-    ——那是 config resolver 层的测试范畴）：本 fixture 未注册模型，caps=None 时的回退结果
-    与 caps 非 None 时一样都是 project.json 全量声明的 [4, 8]，raw 值只要合法就不会触发
+    ——那是 config resolver 层的测试范畴）：caps=None 时的回退结果与 caps 非 None 时一样
+    都是 registry 声明的 [4, 8]，raw 值只要合法就不会触发
     任何取档，测不出「取档有没有被跳过」这个真正要验证的行为；只有固定取档结果本身，
     才能构造出「已确认值不在生效档位内」的场景来证明重取档确实执行了——如今这种不合法
     直接 fail-loud，执行了就必抛错，不执行就会静默用未取档的 4 落盘成功。
@@ -418,7 +418,7 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
           "title": "t",
           "content_mode": "drama",
           "generation_mode": "reference_video",
-          "_supported_durations": [4, 8],
+          "video_backend": "vidu/vidu2.0",
           "overview": {"synopsis": "s", "genre": "g", "theme": "th", "world_setting": "w"},
           "style": "国漫", "style_description": "水墨",
           "characters": {"主角": {"description": "d"}},
@@ -513,9 +513,9 @@ def test_resolve_max_refs_from_registry_fallback(tmp_path: Path, video_backend, 
 
 @pytest.mark.asyncio
 async def test_build_prompt_no_video_backend_raises_value_error(tmp_path: Path):
-    """project.json 缺 video_backend 且无 _supported_durations 且 caps 不可解析时，build_prompt 应抛 ValueError。
+    """project.json 缺 video_backend 且 caps 不可解析时，build_prompt 应抛 ValueError。
 
-    设计意图：supported_durations 是单一真相源，必须由 caps（DB 全局默认）或 project.json 显式声明提供；
+    设计意图：supported_durations 是单一真相源，必须由 caps（DB 全局默认）或 project.json 自报身份查 registry 提供；
     都拿不到才 fail loud，避免向 LLM 注入兜底 [4, 8] 误导生成。
     用 mock 把 _fetch_video_capabilities 强制返 None，模拟无任何 model 配置的环境。
     """
@@ -584,7 +584,7 @@ async def test_effective_generation_mode_honors_episode_override(tmp_path: Path)
                 "title": "t",
                 "content_mode": "narration",
                 "generation_mode": "storyboard",  # 项目级是 storyboard
-                "_supported_durations": [4, 8],
+                "video_backend": "vidu/vidu2.0",
                 "overview": {"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
                 "style": "s",
                 "style_description": "d",
@@ -658,7 +658,7 @@ async def test_reference_step1_rejects_out_of_enum_duration(reference_project: P
     )
 
     gen = ScriptGenerator(reference_project)
-    # 固定能力来源为 project.json 的 _supported_durations=[4,8]，隔离 DB 全局默认干扰
+    # 固定能力来源为 project.json 自报身份查 registry（vidu2.0 → [4, 8]），隔离 DB 全局默认干扰
     with patch(
         "lib.script_generator.ScriptGenerator._fetch_video_capabilities",
         new=AsyncMock(return_value=None),

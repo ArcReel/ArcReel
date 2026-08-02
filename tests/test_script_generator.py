@@ -63,7 +63,6 @@ def _write_drama_ledger_project(project_path: Path, episodes: list[dict], charac
             "characters": characters or {},
             "style": "古风",
             "style_description": "cinematic",
-            "_supported_durations": [4, 6, 8],
             "episodes": episodes,
         },
     )
@@ -74,7 +73,6 @@ def _drama_project_with_backend(
     *,
     backend: str,
     resolution: str,
-    supported_durations: list[int] | None = None,
 ):
     """造一个指定视频后端 + 分辨率的最小 drama 项目，返回项目路径。
 
@@ -88,8 +86,6 @@ def _drama_project_with_backend(
     project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
     project["video_backend"] = backend
     project["model_settings"] = {backend: {"resolution": resolution}}
-    if supported_durations is not None:
-        project["_supported_durations"] = supported_durations
     _write_json(project_path / "project.json", project)
     return project_path
 
@@ -179,7 +175,6 @@ class TestScriptGenerator:
                 "clues": {"玉佩": {}},
                 "style": "古风",
                 "style_description": "cinematic",
-                "_supported_durations": [4, 6, 8],
             },
         )
         _write_step1_json(project_path, 1, [_step1_seg("E1S01", "第一段原文，逐字保留。", duration=4)])
@@ -206,7 +201,6 @@ class TestScriptGenerator:
                 "style": "古风",
                 "style_description": "cinematic",
                 "source_language": "English",
-                "_supported_durations": [4, 6, 8],
             },
         )
         _write_step1_json(project_path, 1, [_step1_seg("E1S01", "verbatim source line.", duration=4)])
@@ -369,9 +363,7 @@ class TestScriptGenerator:
 
         海螺 1080p 只接受 6 秒，而 DramaSceneContent 的默认是 8 秒，故该场景须被拦下。
         """
-        project_path = _drama_project_with_backend(
-            tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p", supported_durations=[6, 10]
-        )
+        project_path = _drama_project_with_backend(tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p")
 
         content = _drama_step1_content()
         del content["scenes"][0]["duration_seconds"]
@@ -386,9 +378,7 @@ class TestScriptGenerator:
         `dict.get` 的默认值只在缺键时生效，显式 null 会取到 None；不特判的话该场景跳过校验，
         要等 step2 跑完、落盘时才被 Pydantic 拒，白耗一次完整的剧本生成调用。
         """
-        project_path = _drama_project_with_backend(
-            tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p", supported_durations=[6, 10]
-        )
+        project_path = _drama_project_with_backend(tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p")
 
         content = _drama_step1_content()
         content["scenes"][0]["duration_seconds"] = None
@@ -505,7 +495,6 @@ class TestScriptGenerator:
                 "clues": {"玉佩": {}},
                 "style": "古风",
                 "style_description": "cinematic",
-                "_supported_durations": [4, 6, 8],
             },
         )
         _write_step1_json(
@@ -579,7 +568,6 @@ class TestScriptGenerator:
                 "characters": {"姜月茴": {}},
                 "style": "古风",
                 "style_description": "cinematic",
-                "_supported_durations": [4, 6, 8],
                 "episodes": [
                     {"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"},
                 ],
@@ -611,7 +599,6 @@ class TestScriptGenerator:
                 "clues": {"玉佩": {}},
                 "style": "古风",
                 "style_description": "cinematic",
-                "_supported_durations": [4, 6, 8],
             },
         )
         # step1 误写集号前缀 E1（应为 E10）
@@ -719,7 +706,6 @@ class TestAddMetadataRewritesEpisodePrefix:
             {
                 "title": "项目",
                 "content_mode": content_mode,
-                "_supported_durations": [4, 6, 8],
             },
         )
         return ScriptGenerator(project_path)
@@ -757,7 +743,6 @@ class TestAddMetadataRewritesEpisodePrefix:
                 "title": "项目",
                 "content_mode": "narration",
                 "generation_mode": "reference_video",
-                "_supported_durations": [8],
             },
         )
         sg = ScriptGenerator(project_path)
@@ -803,7 +788,6 @@ class TestAddMetadataInjectsHiddenFields:
             {
                 "title": "项目标题",
                 "content_mode": content_mode,
-                "_supported_durations": [4, 6, 8],
             },
         )
         return ScriptGenerator(project_path)
@@ -1619,7 +1603,6 @@ def _write_ad_project(project_path: Path, *, generation_mode: str = "storyboard"
         "style": "实拍",
         "style_description": "真实质感",
         "aspect_ratio": "9:16",
-        "_supported_durations": [4, 6, 8],
         "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
     }
     _write_json(project_path / "project.json", payload)
@@ -1713,7 +1696,6 @@ class TestAdScriptGeneration:
                 "style": None,
                 "style_description": None,
                 "aspect_ratio": "9:16",
-                "_supported_durations": [4, 6, 8],
                 "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
             },
         )

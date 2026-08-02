@@ -462,8 +462,8 @@ class ScriptGenerator:
         合并（LLM 只出书写层正文，见 ``_merge_reference_visual``）；两者皆 None 时走单段解析
         （drama/ad）。``reference_unit_durations`` 非 None 时（reference_video 路径）按 unit_id
         机械覆盖 ``duration_seconds``（取档用最终输出的 references 状态重算，见 ``_add_metadata``）；
-        ``caps`` 可一并传入，为 None 时 ``_add_metadata`` 仍按 caps → project.json → registry
-        三级回退解析每个 unit 的生效档位，不会因此跳过取档校验。
+        ``caps`` 可一并传入，为 None 时 ``_add_metadata`` 仍按 caps → registry 两级回退解析每个
+        unit 的生效档位，不会因此跳过取档校验。
         """
         assert self.generator is not None  # generate() 入口已检查
         # 调用 TextBackend
@@ -681,7 +681,7 @@ class ScriptGenerator:
     def _resolve_supported_durations(
         self, caps: dict | None = None, *, gen_mode: str, uses_reference_images: bool | None = None
     ) -> list[int]:
-        """从 caps → project.json → registry 三级解析，再按联动约束收窄；都拿不到抛 ValueError。
+        """从 caps → registry 两级解析，再按联动约束收窄；都拿不到抛 ValueError。
 
         收窄发生在交给 prompt / 动态 schema 之前：``supported_durations`` 是型号的时长全集，
         不含「分辨率↔时长」「参考图↔时长」两条联动约束。不收窄的话 Veo 项目（兜底分辨率即
@@ -731,7 +731,7 @@ class ScriptGenerator:
         """收窄前的时长全集：委托共享解析器，取不到时抛 ValueError。
 
         本路径的下游是 prompt 与动态枚举 schema，缺档位就无从生成，故把解析器的 None 提升为
-        异常；同步入口（审阅门 / 归档导入）对 None 的处置是退回结构 clamp，不共用这道提升。
+        异常；其余入口（审阅门 / 归档导入）对 None 的处置是退回结构 clamp，不共用这道提升。
         """
         durations = resolve_raw_supported_durations(self.project_json, caps)
         if durations is None:
@@ -1376,8 +1376,8 @@ class ScriptGenerator:
             reference_unit_durations: reference_video 路径按 unit_id（改写后）机械覆盖 LLM
                 输出的 unit 时长——step1 确认的原始值，未经取档；取档按下方逐 unit 重算，
                 见 ``generate`` 内的构造处注释
-            caps: 逐 unit 解析生效档位的能力值；为 None 时按 caps → project.json → registry
-                三级回退解析，不跳过取档校验
+            caps: 逐 unit 解析生效档位的能力值；为 None 时按 caps → registry 两级回退解析，
+                不跳过取档校验
 
         Returns:
             补充元数据后的剧本数据
@@ -1426,7 +1426,7 @@ class ScriptGenerator:
                 # 取档按这个 unit 最终落地的 references 状态算，不是 step1 拆分时的状态：
                 # references 由 LLM 在 step2 输出时决定，可能与 step1 机械派生的不同（见
                 # generate() 内的构造处注释）。caps 为 None 也不短路——
-                # _resolve_supported_durations 自带 caps → project.json → registry 三级回退。
+                # _resolve_supported_durations 自带 caps → registry 两级回退。
                 unit_tiers = self._unit_duration_off_tier(
                     target_duration, has_references=bool(s.get("references")), caps=caps, gen_mode=gen_mode
                 )

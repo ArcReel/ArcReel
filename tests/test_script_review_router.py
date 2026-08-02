@@ -423,10 +423,13 @@ class TestReferenceVideoRouter:
             assert "duration_tiers" in confirm_body
 
     @pytest.mark.integration
-    def test_duration_tiers_populated_for_custom_provider_despite_null_supported_durations(self, tmp_path, monkeypatch):
-        """自定义供应商项目：``get_state`` 的同步 ``supported_durations`` 恒为 None（DB 能力查询
-        拿不到，只有异步 caps 能给出答案），路由不能拿这个字段短路是否调用
-        ``get_reference_duration_tiers``，否则这类项目永远拿不到收窄后的档位表。"""
+    def test_duration_tiers_and_supported_durations_resolved_for_custom_provider(self, tmp_path, monkeypatch):
+        """自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``：caps 是它唯一的档位来源。
+
+        ``supported_durations``（未收窄全集，供存量草稿的读时收编 clamp）与 ``duration_tiers``
+        （收窄后的逐 unit 可选项）都要经 caps 解析出真实档位，否则这类项目的审阅门只能退回
+        结构区间 clamp，读时迁移的收编对其整体失效。
+        """
         from server.services import script_review as mod
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
@@ -439,7 +442,7 @@ class TestReferenceVideoRouter:
         with client:
             _write_rv_step1(pm, _rv_step1())
             body = client.get("/api/v1/projects/demo/episodes/1/script-review").json()
-            assert body["supported_durations"] is None
+            assert body["supported_durations"] == [5, 10]
             assert body["duration_tiers"] == {"with_references": [5, 10], "without_references": [5, 10]}
 
     @pytest.mark.integration

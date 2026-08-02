@@ -473,23 +473,20 @@ def _resolution_for_constraints(
 
 
 def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> list[int] | None:
-    """收窄前的时长全集：caps → project.json ``_supported_durations`` → registry 三级解析。
+    """收窄前的时长全集：caps → registry 两级解析。
 
-    三级都取不到时返回 None，表示「该项目尚未配置可解析的视频型号」。同步可用是本函数的存在
-    理由：存量时长迁移的三个入口里只有 step2 生成是 async 且已持有 caps，审阅门与归档导入都在
-    同步路径上，靠后两级回退拿到同一份档位表——迁移是幂等一次性的，谁先跑谁定终局，入口之间
-    传参不一致就会让先跑的那个把非档位秒数固化到盘上。
+    两级都取不到时返回 None，表示「该项目尚未配置可解析的视频型号」。``caps`` 是自定义供应商
+    （``custom-`` 前缀）唯一的档位来源——registry 只收录内建供应商，故能 await 的调用方都应
+    先解析 caps 再调本函数，不带 caps 调用对这类项目恒为 None。本函数本身保持同步，供仍在
+    同步路径上的调用方（归档导入）复用同一份 registry 解析。
 
-    最后一级的项目自报身份按 generation_mode 定桶取（``project_video_backend_ids``），不直取
+    registry 级的项目自报身份按 generation_mode 定桶取（``project_video_backend_ids``），不直取
     项目默认层——降级掉的只是 DB，桶键就在同一个 project.json 里。
 
     返回值不含「分辨率↔时长」「参考图↔时长」联动约束，收窄见 ``constrain_durations_for_project``。
     """
     if caps and caps.get("supported_durations"):
         return list(caps["supported_durations"])
-    durations = project.get("_supported_durations")
-    if durations and isinstance(durations, list):
-        return list(durations)
     ids = project_video_backend_ids(project)
     if ids is not None:
         provider_meta = PROVIDER_REGISTRY.get(ids[0])
