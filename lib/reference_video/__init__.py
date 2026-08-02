@@ -29,6 +29,7 @@ from lib.reference_video.script_preview import (
 )
 from lib.reference_video.shot_parser import (
     assemble_shots_text,
+    assemble_shots_text_for_render,
     match_dialogue_line,
     match_voiceover_line,
     parse_prompt,
@@ -46,6 +47,7 @@ __all__ = [
     "ShotUtterance",
     "VoiceBindings",
     "assemble_shots_text",
+    "assemble_shots_text_for_render",
     "build_script_preview",
     "derive_ad_reference_units",
     "derive_utterances",

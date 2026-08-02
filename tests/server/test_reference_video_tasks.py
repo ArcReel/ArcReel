@@ -103,6 +103,7 @@ def _wire_context(
     supported_durations: tuple[int, ...] = (),
     voice_consistency: str = "soft",
     max_reference_audio_count: int = 0,
+    reference_audio_per_image: bool = False,
 ) -> None:
     """把 fake generator + video lane 值包成 GenerationContext，替换 resolve_generation_context 单点。
 
@@ -128,6 +129,7 @@ def _wire_context(
         max_reference_images=max_refs,
         voice_consistency=voice_consistency,  # type: ignore[arg-type]
         max_reference_audio_count=max_reference_audio_count,
+        reference_audio_per_image=reference_audio_per_image,
     )
     ctx = GenerationContext(generator=fake_generator, video_lane=lane)
 
@@ -224,6 +226,31 @@ def test_render_unit_prompt_binds_subjects_in_reference_order():
     assert "@张三" not in rendered.prompt
     # [图N] 对照表已废除
     assert "[图1]" not in rendered.prompt
+
+
+def test_render_unit_prompt_preserves_shot_boundaries_when_shots_lack_headers():
+    """经解析预览面板编辑回写的 unit，``shots[*].text`` 不带 ``镜头N：`` header——
+    渲染仍须按数组结构切成对应数量的镜头，不能因裸拼接后找不到 header 被折叠成一镜头。"""
+    unit = {
+        "shots": [
+            {"text": "@张三 推门而入。"},
+            {"text": "他环顾四周。"},
+            {"text": "他坐下。"},
+        ],
+        "references": [{"type": "character", "name": "张三"}],
+    }
+    project = {"characters": {"张三": {}}}
+    rendered = _render_unit_prompt(
+        unit,
+        project,
+        voice_consistency="soft",
+        max_reference_audio=0,
+        model_id="m",
+        audio_ready=set(),
+    )
+    assert "镜头1：\n<张三> 推门而入。" in rendered.prompt
+    assert "镜头2：\n他环顾四周。" in rendered.prompt
+    assert "镜头3：\n他坐下。" in rendered.prompt
 
 
 @pytest.mark.unit
@@ -655,6 +682,87 @@ async def test_execute_reference_video_task_sends_reference_audio_in_prompt_orde
     # speaker 位不产生参考图：李四没有 @图片N 绑定
     assert "<张三>@图片1。" in prompt
     assert "<李四>@图片" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_aligns_reference_audio_targets_for_per_image_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """backend 要求音频逐段挂参考图（如 wan2.7-r2v）时，reference_audio_targets 须按名字
+    对齐到正确的参考图下标，纯画外角色（李四）降级不绑定——不能假设两个列表天然同序。"""
+    proj_dir = _write_project(tmp_path)
+
+    project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    project["characters"]["张三"]["voice_style"] = "低沉沙哑的男声"
+    project["characters"]["张三"]["reference_audio"] = "characters/refs_audio/张三.wav"
+    project["characters"]["李四"] = {
+        "description": "x",
+        "character_sheet": "characters/张三.png",
+        "voice_style": "清亮少女音",
+        "reference_audio": "characters/refs_audio/李四.mp3",
+    }
+    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    refs_audio = proj_dir / "characters" / "refs_audio"
+    refs_audio.mkdir(parents=True)
+    (refs_audio / "张三.wav").write_bytes(b"RIFF")
+    (refs_audio / "李四.mp3").write_bytes(b"ID3")
+
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["shots"] = [
+        {"text": "@[张三] 推门而入。\n@[李四]：{你终于来了。}\n@[张三]：{今晚的酒，我请。}"}
+    ]
+    # 场景排在张三之前：references[0]=酒馆（下标0），references[1]=张三（下标1）——
+    # 音频顺序（李四先开口→张三）与图片顺序不同序，位置对齐会把音频错挂到酒馆图上。
+    script["video_units"][0]["references"] = [
+        {"type": "scene", "name": "酒馆"},
+        {"type": "character", "name": "张三"},
+    ]
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = project
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda _n, _f: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    captured: dict = {}
+
+    async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="dashscope",
+        backend_model="wan2.7-r2v",
+        voice_consistency="native",
+        max_reference_audio_count=5,
+        reference_audio_per_image=True,
+    )
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
+
+    # 李四没有参考图（纯画外），降级不绑定：只剩张三一段音频
+    assert [p.name for p in captured["reference_audio_files"]] == ["张三.wav"]
+    # 张三在 references 里的 0-based 下标是 1（酒馆占 0）
+    assert captured["reference_audio_targets"] == [1]
 
 
 @pytest.mark.asyncio

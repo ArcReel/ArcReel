@@ -11,6 +11,7 @@ from lib.reference_video.prompt_render import (
 from lib.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_MODEL,
+    WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_UNCLOSED_BRACE,
     WARN_UNREGISTERED_MENTION,
@@ -238,6 +239,40 @@ def test_audio_ready_overrides_field_presence(tmp_path):
     assert rendered.audio_speakers == ["李四"]
     assert "<李四>的台词音色参考 @音频1" in rendered.prompt
     assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} in rendered.warnings
+
+
+def test_audio_speaker_reference_index_tracks_image_slot_by_name_not_position():
+    """参考音频顺序（台词 speaker 首现）与参考图顺序（mention 首现）独立派生：references 里
+    场景先于张三出现，但张三先开口——``audio_speaker_reference_index`` 须按名字取图 1（0-based）
+    的下标，不能按位置假设第 1 段音频配第 1 张图。"""
+    rendered = render_unit_prompt(
+        _TEXT,
+        _project(),
+        _refs(("scene", "酒馆"), ("character", "张三")),
+        voice_consistency="native",
+        max_reference_audio=3,
+    )
+    assert rendered.audio_speakers == ["张三", "李四"]
+    # references[0]=酒馆, references[1]=张三 → 张三的 0-based 下标是 1；李四未随请求发图
+    assert rendered.audio_speaker_reference_index == [1, None]
+
+
+def test_audio_requires_reference_image_downgrades_offscreen_speaker_with_warning():
+    """backend 要求音频逐段挂图（如 wan2.7-r2v）时，纯画外 speaker（无参考图）不绑定音频，
+    编号与 warning 都在渲染期同步产生，避免 @音频N 承诺一段实际不会发出的绑定。"""
+    rendered = render_unit_prompt(
+        _TEXT,
+        _project(),
+        _refs(("scene", "酒馆"), ("character", "张三")),
+        voice_consistency="native",
+        max_reference_audio=3,
+        audio_requires_reference_image=True,
+    )
+    # 李四没有参考图（纯画外），即使有可用音频也不绑定
+    assert rendered.audio_speakers == ["张三"]
+    assert rendered.audio_speaker_reference_index == [1]
+    assert "<李四>的台词音色参考" not in rendered.prompt
+    assert {"key": WARN_SPEAKER_AUDIO_NEEDS_IMAGE, "params": {"name": "李四"}} in rendered.warnings
 
 
 def test_resolve_reference_audio_paths_only_returns_existing_files_under_refs_audio(tmp_path):

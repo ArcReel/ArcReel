@@ -253,6 +253,11 @@ MESSAGES = {
     "ref_warn_reference_audio_overflow": (
         "Tối đa {limit} đoạn âm thanh tham chiếu: giọng lời thoại của nhân vật '{name}' sẽ do mô hình tự quyết định"
     ),
+    "ref_warn_speaker_audio_needs_image": (
+        "Nhân vật '{name}' không có ảnh tham chiếu (chỉ xuất hiện ngoài hình): mô hình video hiện tại yêu cầu "
+        "âm thanh tham chiếu phải gắn theo từng ảnh tham chiếu, giọng lời thoại của nhân vật này sẽ do mô hình "
+        "tự quyết định"
+    ),
     "ref_warn_silent_model": (
         "Mô hình video hiện tại '{model}' không tạo âm thanh, lời thoại chỉ dùng làm gợi ý cho prompt"
     ),

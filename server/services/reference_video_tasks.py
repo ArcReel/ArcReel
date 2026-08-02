@@ -19,7 +19,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import get_generation_queue
 from lib.path_safety import safe_exists
 from lib.prompt_builders import append_product_fidelity_tail, append_video_negative_tail
-from lib.reference_video import assemble_shots_text
+from lib.reference_video import assemble_shots_text, assemble_shots_text_for_render
 from lib.reference_video.ad_units import (
     render_ad_unit_prompt,
     render_reference_legend,
@@ -101,6 +101,7 @@ def _render_unit_prompt(
     max_reference_audio: int,
     model_id: str,
     audio_ready: Collection[str],
+    audio_requires_reference_image: bool = False,
 ) -> RenderedUnitPrompt:
     """把 unit 的书写文稿渲染成三段论 backend prompt（见 ``lib.reference_video.prompt_render``）。
 
@@ -113,13 +114,19 @@ def _render_unit_prompt(
     快照兜底）：若提示词在入队后被改空、或在途遗留任务漏过守卫，这道检查避免空提示词被
     机器生成的第一/三段撑成非空文本绕过 backend 的空值保护、白白消耗付费配额。检查落在
     *书写层文本*而非渲染结果上——三段论渲染恒产出非空第三段，渲染后已无从判别。
+
+    空检查用 ``assemble_shots_text``（不注入 header，空 shots 拼接结果仍为空）；渲染用
+    ``assemble_shots_text_for_render``（按数组位置重新注入规范 header），因为
+    ``parse_prompt`` 只认文本里的 header 切分镜头，而经解析预览面板编辑回写的 unit，
+    其 ``shots[*].text`` 普遍已不带 header——两个以上镜头裸拼接后会被重新解析成一个镜头，
+    丢失第二段的分镜结构。
     """
-    raw = assemble_shots_text(unit.get("shots") or [])
-    if not raw.strip():
+    shots = unit.get("shots") or []
+    if not assemble_shots_text(shots).strip():
         raise ValueError("reference video unit prompt is empty: all shots[*].text are blank")
     references = [ReferenceResource(type=r["type"], name=r["name"]) for r in (unit.get("references") or [])]
     return render_unit_prompt(
-        raw,
+        assemble_shots_text_for_render(shots),
         project,
         references,
         voice_consistency=voice_consistency,
@@ -127,6 +134,7 @@ def _render_unit_prompt(
         model_id=model_id,
         style=project.get("style"),
         audio_ready=audio_ready,
+        audio_requires_reference_image=audio_requires_reference_image,
     )
 
 
@@ -578,6 +586,7 @@ async def execute_reference_video_task(
     #    用入队快照会丢失入队后对镜头文本的编辑）；入队 payload 里的 prompt 仅作守卫点的
     #    校验记录，执行期不使用。
     reference_audio_files: list[Path] = []
+    reference_audio_targets: list[int] | None = None
     if is_ad:
         rendered_prompt = _render_ad_unit_prompt_for_backend(ad_shots or [], ad_entries, style=project.get("style"))
     else:
@@ -595,9 +604,16 @@ async def execute_reference_video_task(
             max_reference_audio=video.max_reference_audio_count,
             model_id=model_name,
             audio_ready=audio_paths,
+            audio_requires_reference_image=video.reference_audio_per_image,
         )
         rendered_prompt = rendered.prompt
         reference_audio_files = [audio_paths[name] for name in rendered.audio_speakers]
+        if video.reference_audio_per_image:
+            # backend（如 wan2.7-r2v）要求音频逐段挂在具体参考素材项上：渲染层已按
+            # audio_requires_reference_image 门控排除无参考图的 speaker，故这里的下标
+            # 保证非 None——仍用 filter 而非直接 cast，避免渲染层与本处口径将来漂移时
+            # 静默发出一份错位的 targets。
+            reference_audio_targets = [idx for idx in rendered.audio_speaker_reference_index if idx is not None]
         # 解析派生的降级提示与生成结果同屏可见：与解析预览面板同一批 {key, params} 条目。
         warnings = [*warnings, *rendered.warnings]
 
@@ -610,6 +626,7 @@ async def execute_reference_video_task(
         resource_id=resource_id,
         reference_images=constrained_refs,
         reference_audio_files=reference_audio_files or None,
+        reference_audio_targets=reference_audio_targets,
         aspect_ratio=project.get("aspect_ratio", "9:16"),
         duration_seconds=effective_duration,
         resolution=resolution,

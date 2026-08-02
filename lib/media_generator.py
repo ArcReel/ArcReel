@@ -486,6 +486,7 @@ class MediaGenerator:
         end_image: Path | None = None,
         reference_images: list[Path] | None = None,
         reference_audio_files: list[Path] | None = None,
+        reference_audio_targets: list[int] | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str | int = "8",
         resolution: str | None = None,
@@ -502,6 +503,9 @@ class MediaGenerator:
             end_image: 结束帧图片（first_last 模式）
             reference_images: 参考图片列表（multi-reference 模式）
             reference_audio_files: 参考音频列表（音色复刻），顺序即 prompt 中「音频N」的指认顺序
+            reference_audio_targets: 与 reference_audio_files 等长同序，第 i 项是该段音频对应
+                reference_images 的下标（0-based）；仅 backend 声明 reference_audio_per_image
+                时读取，见 VideoGenerationRequest.reference_audio_targets
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认不传（由 backend/SDK 决定）
@@ -519,6 +523,7 @@ class MediaGenerator:
                 end_image=end_image,
                 reference_images=reference_images,
                 reference_audio_files=reference_audio_files,
+                reference_audio_targets=reference_audio_targets,
                 aspect_ratio=aspect_ratio,
                 duration_seconds=duration_seconds,
                 resolution=resolution,
@@ -535,6 +540,7 @@ class MediaGenerator:
         end_image: Path | None = None,
         reference_images: list[Path] | None = None,
         reference_audio_files: list[Path] | None = None,
+        reference_audio_targets: list[int] | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str | int = "8",
         resolution: str | None = None,
@@ -552,6 +558,9 @@ class MediaGenerator:
             end_image: 结束帧图片（first_last 模式）
             reference_images: 参考图片列表（multi-reference 模式）
             reference_audio_files: 参考音频列表（音色复刻），顺序即 prompt 中「音频N」的指认顺序
+            reference_audio_targets: 与 reference_audio_files 等长同序，第 i 项是该段音频对应
+                reference_images 的下标（0-based）；仅 backend 声明 reference_audio_per_image
+                时读取，见 VideoGenerationRequest.reference_audio_targets
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认不传（由 backend/SDK 决定）
@@ -694,6 +703,9 @@ class MediaGenerator:
                         # 音频不进压缩器（specs 只收图片），故直接透传原列表：顺序即 prompt
                         # 「音频N」的指认顺序，任何重排都会把 A 角色的音色安到 B 角色头上。
                         reference_audio_files=reference_audio_files,
+                        # 数组参考图压缩保序（不改数量、不重排），故调用方按未压缩的
+                        # reference_images 下标算出的 targets 对压缩后的 ref_arg 同样有效。
+                        reference_audio_targets=reference_audio_targets,
                         generate_audio=effective_generate_audio,
                         project_name=self.project_name,
                         task_id=task_id,

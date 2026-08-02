@@ -275,6 +275,29 @@ def assemble_shots_text(shots: list[Any]) -> str:
     return "\n".join(parts)
 
 
+def assemble_shots_text_for_render(shots: list[Any]) -> str:
+    """把 ``unit.shots[*].text`` 拼接为供 :func:`render_unit_prompt` 二次解析的书写层文本。
+
+    与 :func:`assemble_shots_text` 的区别：本函数按数组位置重新注入规范 ``镜头N：`` header
+    （先剥掉每个 shot 首行可能残留的旧 header，避免重复）。``parse_prompt`` 只认文本里的
+    header 切分镜头，而 ``shots[*].text`` 本身在多条路径下并不带 header——``parse_prompt``
+    构造 ``Shot`` 时就会把 header 剥掉，经解析预览面板编辑回写的 unit 因此普遍不带 header；
+    不重新注入的话，两个以上镜头拼接后会因为找不到任何 header 被重新解析成一个镜头，
+    第二段的分镜结构丢失。空提示词的结构校验用 :func:`assemble_shots_text`（不注入 header，
+    保留「空 shots 拼接结果为空」的判定），本函数不作此用途。
+    """
+    parts: list[str] = []
+    for i, s in enumerate(shots, start=1):
+        if not isinstance(s, dict):
+            continue
+        text = s.get("text")
+        text = text if isinstance(text, str) else ""
+        lines = text.split("\n") if text else [""]
+        lines[0] = _strip_shot_header(lines[0])
+        parts.append(f"镜头{i}：" + "\n".join(lines))
+    return "\n".join(parts)
+
+
 def resolve_references(
     names: list[str],
     project: dict,

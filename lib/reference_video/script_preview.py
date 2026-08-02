@@ -39,6 +39,7 @@ WARN_UNREGISTERED_SPEAKER = "ref_warn_unregistered_speaker"
 WARN_SPEAKER_WITHOUT_AUDIO = "ref_warn_speaker_without_audio"
 WARN_REFERENCE_AUDIO_OVERFLOW = "ref_warn_reference_audio_overflow"
 WARN_SILENT_MODEL = "ref_warn_silent_model"
+WARN_SPEAKER_AUDIO_NEEDS_IMAGE = "ref_warn_speaker_audio_needs_image"
 
 
 @dataclass(frozen=True)
@@ -114,8 +115,10 @@ def derive_voice_bindings(
     max_reference_audio: int = 0,
     model_id: str = "",
     audio_ready: Collection[str] | None = None,
+    require_reference_image: bool = False,
+    speakers_with_reference_image: Collection[str] | None = None,
 ) -> VoiceBindings:
-    """从 utterances 机械派生声音绑定：说话人顺序、参考音频编号与三条降级 warning。
+    """从 utterances 机械派生声音绑定：说话人顺序、参考音频编号与降级 warning。
 
     ``voice_consistency`` 是服务端派生的三级标识（``native`` / ``soft`` / ``none``）：只有
     ``native``（A 类·原生音频参考）才谈得上参考音频的绑定与上限，故「未设参考音频」「超出
@@ -125,6 +128,13 @@ def derive_voice_bindings(
     资产的 ``reference_audio`` 字段非空判定；执行层传入已解析且确实存在的文件对应的角色名，
     让编号与实际随请求发出的音频段数严格等长——字段指向已删文件时编号若不同步，``@音频N``
     会指向不存在的段。两条路径共用本函数，避免预览承诺的绑定与生成实际发出的绑定分叉。
+
+    ``require_reference_image``：目标 backend 的音频必须逐段挂在具体参考素材项上（如
+    wan2.7-r2v）时传 True，此时纯画外（无参考图）speaker 即使有可用音频也不绑定——绑定后
+    该角色的音频段数会算进 ``max_reference_audio``，但 backend 没有素材项可挂，要么错配给
+    别的角色/场景要么硬失败。降级发一条独立 warning（而非复用「未设参考音频」，原因不同：
+    这里音频确实可用，只是没有画面可挂）。``speakers_with_reference_image`` 是本次实际随
+    请求发出的参考图对应的角色名集合，仅在 ``require_reference_image`` 为 True 时读取。
     """
     warnings: list[dict[str, Any]] = []
 
@@ -143,6 +153,7 @@ def derive_voice_bindings(
 
     audio_speakers: list[str] = []
     if voice_consistency == "native":
+        image_names = speakers_with_reference_image or ()
         # 音频编号 = dialogue speaker 首现顺序，受 max_reference_audio 上限截断。
         for speaker in registered:
             has_audio = (
@@ -152,6 +163,8 @@ def derive_voice_bindings(
             )
             if not has_audio:
                 warnings.append(_warning(WARN_SPEAKER_WITHOUT_AUDIO, name=speaker))
+            elif require_reference_image and speaker not in image_names:
+                warnings.append(_warning(WARN_SPEAKER_AUDIO_NEEDS_IMAGE, name=speaker))
             elif len(audio_speakers) >= max_reference_audio:
                 warnings.append(_warning(WARN_REFERENCE_AUDIO_OVERFLOW, limit=max_reference_audio, name=speaker))
             else:

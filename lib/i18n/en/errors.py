@@ -252,6 +252,10 @@ MESSAGES = {
     "ref_warn_reference_audio_overflow": (
         "At most {limit} reference audio clips: the model decides the dialogue voice for character '{name}'"
     ),
+    "ref_warn_speaker_audio_needs_image": (
+        "Character '{name}' has no reference image (off-screen only): the current video model requires "
+        "reference audio to be attached per reference image, so the model decides this character's dialogue voice"
+    ),
     "ref_warn_silent_model": (
         "The current video model '{model}' generates no audio; dialogue is used only as prompt context"
     ),

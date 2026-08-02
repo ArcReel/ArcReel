@@ -63,10 +63,18 @@ class RenderedUnitPrompt:
     ``audio_speakers`` 的顺序即 ``@音频N`` 编号，调用方须按同一顺序组装
     ``VideoGenerationRequest.reference_audio_files``——这是 prompt 文本与请求字段之间唯一的
     绑定契约（哪个角色对应哪段音频不进请求）。
+
+    ``audio_speaker_reference_index`` 与 ``audio_speakers`` 等长同序：第 i 项是该 speaker
+    对应的 ``reference_images`` 下标（0-based），没有参考图（纯画外角色）时为 None。参考音频
+    的顺序（台词 speaker 首现顺序）与参考图的顺序（mention 首现顺序）各自独立派生，backend
+    若要求音频逐段挂在具体参考素材项上（``VideoCapabilities.reference_audio_per_image``），
+    调用方须按本字段组装 ``VideoGenerationRequest.reference_audio_targets``，不能假设两个
+    列表天然同序。
     """
 
     prompt: str
     audio_speakers: list[str]
+    audio_speaker_reference_index: list[int | None] = field(default_factory=list)
     warnings: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -80,6 +88,7 @@ def render_unit_prompt(
     model_id: str = "",
     style: str | None = None,
     audio_ready: Collection[str] | None = None,
+    audio_requires_reference_image: bool = False,
 ) -> RenderedUnitPrompt:
     """把一个 unit 的书写文稿渲染成三段论 backend prompt。
 
@@ -87,6 +96,11 @@ def render_unit_prompt(
     ``图片N`` 编号——与 ``reference_images`` 严格等长同序，被裁掉的名字退化为原文不产生
     悬空绑定。文稿派生出的参考图顺序（``@mention`` 首现、规范台词行的 speaker 位不计入）
     由上游持久化，本函数只消费不重算。
+
+    ``audio_requires_reference_image`` 为 True 时（backend 要求音频逐段挂在具体参考素材项
+    上），纯画外 speaker 不绑定音频（降级 + warning）——绑定后 ``@音频N`` 编号会写进 prompt
+    文本，若随后才在 backend 层过滤会让文本承诺的绑定与实际发出的 ``reference_audio_files``
+    分叉，必须在编号生成前就排除。
 
     warning 与解析预览面板同一批 ``{key, params}`` 条目，由调用方并入任务 ``result.warnings``。
     """
@@ -99,6 +113,8 @@ def render_unit_prompt(
     # 只是这次没随请求发图（纯画外角色同理——有主体、无图）。未登记的 mention 才留原文。
     subjects = {ref.name for ref in registered}
 
+    image_no = {ref.name: i for i, ref in enumerate(references, start=1)}
+
     characters: dict = project.get(BUCKET_KEY["character"]) or {}
     bindings = derive_voice_bindings(
         utterances,
@@ -107,11 +123,15 @@ def render_unit_prompt(
         max_reference_audio=max_reference_audio,
         model_id=model_id,
         audio_ready=audio_ready,
+        require_reference_image=audio_requires_reference_image,
+        speakers_with_reference_image=image_no.keys(),
     )
     warnings.extend(bindings.warnings)
 
-    image_no = {ref.name: i for i, ref in enumerate(references, start=1)}
     audio_no = {name: i for i, name in enumerate(bindings.audio_speakers, start=1)}
+    audio_speaker_reference_index = [
+        (image_no[name] - 1) if name in image_no else None for name in bindings.audio_speakers
+    ]
 
     segments = [
         _render_segment_one(references, image_no, bindings.speakers, audio_no, characters, voice_consistency),
@@ -119,7 +139,12 @@ def render_unit_prompt(
         _render_segment_three(references, style),
     ]
     prompt = "\n\n".join(seg for seg in segments if seg)
-    return RenderedUnitPrompt(prompt=prompt, audio_speakers=list(bindings.audio_speakers), warnings=warnings)
+    return RenderedUnitPrompt(
+        prompt=prompt,
+        audio_speakers=list(bindings.audio_speakers),
+        audio_speaker_reference_index=audio_speaker_reference_index,
+        warnings=warnings,
+    )
 
 
 def _warning_unregistered(name: str) -> dict[str, Any]:
