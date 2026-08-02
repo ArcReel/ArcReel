@@ -753,6 +753,7 @@ class TestReferenceCompressionSeam:
 
         assert backend.received_audio == [first, second]
 
+    @pytest.mark.integration
     async def test_reference_audio_total_duration_exceeded_raises_before_backend_call(self, tmp_path):
         """caps 声明了总时长上限时，超限须在调 backend.generate（即付费请求）之前被拦截。"""
         import shutil
@@ -803,6 +804,7 @@ class TestReferenceCompressionSeam:
         assert exc.value.code == "video_reference_audio_duration_exceeded"
         assert backend.called is False
 
+    @pytest.mark.unit
     async def test_total_duration_not_probed_when_backend_declares_no_limit(self, tmp_path, monkeypatch):
         """未声明总时长约束的后端不该为每个请求多付一轮 ffprobe——探测按能力声明惰性触发。"""
         from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
