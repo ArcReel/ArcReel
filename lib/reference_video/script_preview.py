@@ -16,6 +16,7 @@ warning 是 locale-neutral 的 ``{"key", "params"}`` 条目（同 ``result.warni
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -91,6 +92,77 @@ def derive_utterances(shots: list[Shot]) -> tuple[list[ShotUtterance], list[dict
     return utterances, warnings
 
 
+@dataclass(frozen=True)
+class VoiceBindings:
+    """一份文稿的声音派生结果：谁在说话、谁绑到了第几段参考音频。
+
+    ``speakers`` 是已登记的 dialogue speaker（首现顺序）——第一段声音特征声明按此顺序逐条发出。
+    ``audio_speakers`` 是其中真正绑上参考音频的子集，**顺序即 ``@音频N`` 编号与
+    ``VideoGenerationRequest.reference_audio_files`` 的字段顺序**（两者同一份派生，不各自重算）。
+    """
+
+    speakers: list[str]
+    audio_speakers: list[str]
+    warnings: list[dict[str, Any]]
+
+
+def derive_voice_bindings(
+    utterances: list[ShotUtterance],
+    characters: dict,
+    *,
+    voice_consistency: str = "soft",
+    max_reference_audio: int = 0,
+    model_id: str = "",
+    audio_ready: Collection[str] | None = None,
+) -> VoiceBindings:
+    """从 utterances 机械派生声音绑定：说话人顺序、参考音频编号与三条降级 warning。
+
+    ``voice_consistency`` 是服务端派生的三级标识（``native`` / ``soft`` / ``none``）：只有
+    ``native``（A 类·原生音频参考）才谈得上参考音频的绑定与上限，故「未设参考音频」「超出
+    段数上限」两条只在该档发出；``none``（真无声）时改发一条无声知会。
+
+    ``audio_ready`` 是「音频确实可用」的角色名集合：解析预览不碰文件系统，传 None 时按角色
+    资产的 ``reference_audio`` 字段非空判定；执行层传入已解析且确实存在的文件对应的角色名，
+    让编号与实际随请求发出的音频段数严格等长——字段指向已删文件时编号若不同步，``@音频N``
+    会指向不存在的段。两条路径共用本函数，避免预览承诺的绑定与生成实际发出的绑定分叉。
+    """
+    warnings: list[dict[str, Any]] = []
+
+    seen: list[str] = []
+    for entry in utterances:
+        speaker = entry.utterance.speaker
+        if speaker and speaker not in seen:
+            seen.append(speaker)
+
+    registered: list[str] = []
+    for speaker in seen:
+        if speaker in characters:
+            registered.append(speaker)
+        else:
+            warnings.append(_warning(WARN_UNREGISTERED_SPEAKER, name=speaker))
+
+    audio_speakers: list[str] = []
+    if voice_consistency == "native":
+        # 音频编号 = dialogue speaker 首现顺序，受 max_reference_audio 上限截断。
+        for speaker in registered:
+            has_audio = (
+                speaker in audio_ready
+                if audio_ready is not None
+                else bool((characters.get(speaker) or {}).get("reference_audio"))
+            )
+            if not has_audio:
+                warnings.append(_warning(WARN_SPEAKER_WITHOUT_AUDIO, name=speaker))
+            elif len(audio_speakers) >= max_reference_audio:
+                warnings.append(_warning(WARN_REFERENCE_AUDIO_OVERFLOW, limit=max_reference_audio, name=speaker))
+            else:
+                audio_speakers.append(speaker)
+    elif voice_consistency == "none" and utterances:
+        # 只要有台词就知会：画外音同样要渲染，纯画外的文稿在无声模型上也听不到声音。
+        warnings.append(_warning(WARN_SILENT_MODEL, model=model_id))
+
+    return VoiceBindings(speakers=registered, audio_speakers=audio_speakers, warnings=warnings)
+
+
 def build_script_preview(
     text: str,
     project: dict,
@@ -99,12 +171,7 @@ def build_script_preview(
     max_reference_audio: int = 0,
     model_id: str = "",
 ) -> ScriptPreview:
-    """把书写文稿派生成 shots / references / utterances + 七条降级可见性 warning。
-
-    ``voice_consistency`` 是服务端派生的三级标识（``native`` / ``soft`` / ``none``）：只有
-    ``native``（A 类·原生音频参考）才谈得上参考音频的绑定与上限，故「未设参考音频」「超出
-    段数上限」两条只在该档发出；``none``（真无声）时改发一条无声知会。
-    """
+    """把书写文稿派生成 shots / references / utterances + 七条降级可见性 warning。"""
     shots, mentions = parse_prompt(text)
     references, missing = resolve_references(mentions, project)
 
@@ -112,33 +179,13 @@ def build_script_preview(
     utterances, syntax_warnings = derive_utterances(shots)
     warnings.extend(syntax_warnings)
 
-    characters: dict = project.get(BUCKET_KEY["character"]) or {}
-    speakers: list[str] = []
-    for entry in utterances:
-        speaker = entry.utterance.speaker
-        if speaker and speaker not in speakers:
-            speakers.append(speaker)
-
-    registered: list[str] = []
-    for speaker in speakers:
-        if speaker in characters:
-            registered.append(speaker)
-        else:
-            warnings.append(_warning(WARN_UNREGISTERED_SPEAKER, name=speaker))
-
-    if voice_consistency == "native":
-        # 音频编号 = dialogue speaker 首现顺序，受 max_reference_audio 上限截断；
-        # 与 reference_audio_files 的请求字段顺序同一口径。
-        bound = 0
-        for speaker in registered:
-            if not (characters.get(speaker) or {}).get("reference_audio"):
-                warnings.append(_warning(WARN_SPEAKER_WITHOUT_AUDIO, name=speaker))
-            elif bound >= max_reference_audio:
-                warnings.append(_warning(WARN_REFERENCE_AUDIO_OVERFLOW, limit=max_reference_audio, name=speaker))
-            else:
-                bound += 1
-    elif voice_consistency == "none" and utterances:
-        # 只要有台词就知会：画外音同样要渲染，纯画外的文稿在无声模型上也听不到声音。
-        warnings.append(_warning(WARN_SILENT_MODEL, model=model_id))
+    bindings = derive_voice_bindings(
+        utterances,
+        project.get(BUCKET_KEY["character"]) or {},
+        voice_consistency=voice_consistency,
+        max_reference_audio=max_reference_audio,
+        model_id=model_id,
+    )
+    warnings.extend(bindings.warnings)
 
     return ScriptPreview(shots=shots, references=references, utterances=utterances, warnings=warnings)

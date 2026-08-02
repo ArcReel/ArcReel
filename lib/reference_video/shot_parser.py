@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from typing import Any
 
 from lib.asset_types import BUCKET_KEY
@@ -220,10 +220,10 @@ def extract_mentions(text: str) -> list[str]:
 
 def rederive_unit_references(units: list[Any], project: dict) -> None:
     """就地按各 unit 的 shot 文本 ``@[名称]`` 引用机械重派生 references（并集、首现顺序，
-    顺序即 [图N] 编号）。
+    顺序即参考图编号）。
 
     web 审阅编辑 shot 文本后回写时调用：references 是从正文机械派生的字段（拆分工具产出时即如此），
-    若不随编辑重派生，正文改了引用而 references 停留旧值，step2 会以陈旧 [图N] 映射生成——正是
+    若不随编辑重派生，正文改了引用而 references 停留旧值，step2 会以陈旧的参考图映射生成——正是
     结构化 step1 要从工程上消除的不一致类。只做机械派生，不校验能力上限 / 引用完整性（未登记的
     名称静默落入 missing、不进 references，正文 @mention 渲染时原样保留）——与 web 审阅对 drama /
     narration 只做结构校验、把越限留待 step2 读回 / 供应商侧同口径。
@@ -237,18 +237,17 @@ def rederive_unit_references(units: list[Any], project: dict) -> None:
         unit["references"] = [r.model_dump() for r in refs]
 
 
-def render_prompt_for_backend(text: str, references: list[ReferenceResource]) -> str:
-    """把 prompt 中的 @mention 替换为 [图N]，其中 N 是 references 列表中 1-based 序号。"""
-    index_by_name: dict[str, int] = {}
-    for i, ref in enumerate(references, start=1):
-        index_by_name[ref.name] = i
+def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
+    """把 prompt 中的 ``@[X]`` / ``@X`` 替换为三段论的主体记号 ``<X>``。
 
+    ``names`` 是本次渲染中确实有对应参考图的名字；不在其中的 mention 原样保留、从不删字
+    （据此「拼接文本去空白后为空」等价于「渲染后为空」，空提示词校验可在入队侧无损完成）。
+    """
     parts: list[str] = []
     last = 0
     for start, end, name in _iter_mentions(text):
-        idx = index_by_name.get(name)
         parts.append(text[last:start])
-        parts.append(f"[图{idx}]" if idx else text[start:end])  # 未注册 → 保留原样
+        parts.append(f"<{name}>" if name in names else text[start:end])
         last = end
 
     parts.append(text[last:])
@@ -256,11 +255,11 @@ def render_prompt_for_backend(text: str, references: list[ReferenceResource]) ->
 
 
 def assemble_shots_text(shots: list[Any]) -> str:
-    """把 unit.shots[*].text 拼接为单一原始 prompt（渲染、@→[图N] 替换之前）。
+    """把 unit.shots[*].text 拼接为单一原始 prompt（三段论渲染之前的书写层文本）。
 
-    供入队守卫点对参考生视频做空提示词结构校验：``render_prompt_for_backend`` 对未注册
-    的 @mention 保留原文、从不删字，故「拼接文本去空白后为空」等价于「渲染后为空」，
-    空检查可无损地在入队侧完成。
+    供入队守卫点对参考生视频做空提示词结构校验：三段论渲染恒产出非空的机器段（第一/三段），
+    渲染后已无从判别书写层是否为空，故空检查落在本函数的拼接结果上——`@mention` 替换从不
+    删字，「拼接文本去空白后为空」等价于「书写层为空」。
 
     对畸形数据做防御性归一化（Agent 可裸写 script JSON，绕过 ProjectManager 校验）：
     非 dict 的 shot 元素跳过；``text`` 缺失或非字符串（含显式 ``null``）按空串处理——

@@ -2,10 +2,9 @@ import pytest
 
 from lib.reference_video.shot_parser import (
     parse_prompt,
-    render_prompt_for_backend,
+    render_mentions_as_subjects,
     resolve_references,
 )
-from lib.script_models import ReferenceResource
 
 pytestmark = pytest.mark.unit
 
@@ -73,27 +72,16 @@ def test_extract_mentions_empty_prompt():
     assert refs == []
 
 
-def test_render_prompt_replaces_mentions():
+def test_render_mentions_replaces_mentions():
     text = "中景，@张三 走进 @酒馆 找 @长剑。"
-    refs = [
-        ReferenceResource(type="character", name="张三"),
-        ReferenceResource(type="scene", name="酒馆"),
-        ReferenceResource(type="prop", name="长剑"),
-    ]
-    rendered = render_prompt_for_backend(text, refs)
-    assert rendered == "中景，[图1] 走进 [图2] 找 [图3]。"
+    rendered = render_mentions_as_subjects(text, {"张三", "酒馆", "长剑"})
+    assert rendered == "中景，<张三> 走进 <酒馆> 找 <长剑>。"
 
 
-def test_render_prompt_replaces_wrapped_mentions_without_spacing():
+def test_render_mentions_replaces_wrapped_mentions_without_spacing():
     text = "@[角色甲（成年）]引导@[角色乙]靠近@[载具甲]区域，使用@[道具甲]完成动作。"
-    refs = [
-        ReferenceResource(type="character", name="角色甲（成年）"),
-        ReferenceResource(type="character", name="角色乙"),
-        ReferenceResource(type="prop", name="载具甲"),
-        ReferenceResource(type="prop", name="道具甲"),
-    ]
-    rendered = render_prompt_for_backend(text, refs)
-    assert rendered == "[图1]引导[图2]靠近[图3]区域，使用[图4]完成动作。"
+    rendered = render_mentions_as_subjects(text, {"角色甲（成年）", "角色乙", "载具甲", "道具甲"})
+    assert rendered == "<角色甲（成年）>引导<角色乙>靠近<载具甲>区域，使用<道具甲>完成动作。"
 
 
 def test_extract_mentions_rejects_non_ascii_legacy_letters():
@@ -142,19 +130,17 @@ def test_bom_stripped_from_shot_text():
     assert "﻿" not in shots[0].text
 
 
-def test_render_prompt_unknown_mention_kept():
+def test_render_mentions_unknown_mention_kept():
     text = "@张三 和 @未知 对话"
-    refs = [ReferenceResource(type="character", name="张三")]
-    rendered = render_prompt_for_backend(text, refs)
-    assert "[图1]" in rendered
+    rendered = render_mentions_as_subjects(text, {"张三"})
+    assert "<张三>" in rendered
     assert "@未知" in rendered  # 未注册保留
 
 
-def test_render_prompt_multi_shot_text():
+def test_render_mentions_multi_shot_text():
     text = "镜头1：@张三 推门\n镜头2：@张三 坐下"
-    refs = [ReferenceResource(type="character", name="张三")]
-    rendered = render_prompt_for_backend(text, refs)
-    assert rendered.count("[图1]") == 2
+    rendered = render_mentions_as_subjects(text, {"张三"})
+    assert rendered.count("<张三>") == 2
     assert "镜头1：" in rendered  # header 保留
 
 
