@@ -7,12 +7,14 @@ from lib.reference_video.script_preview import (
     WARN_DIALOGUE_INLINE,
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_MODEL,
+    WARN_SPEAKER_AUDIO_FILE_MISSING,
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_UNCLOSED_BRACE,
     WARN_UNREGISTERED_MENTION,
     WARN_UNREGISTERED_SPEAKER,
     build_script_preview,
+    derive_voice_bindings,
 )
 from lib.reference_video.shot_parser import (
     extract_mentions,
@@ -176,6 +178,22 @@ def test_warn_speaker_without_reference_audio_only_on_native():
     assert keys(native) == [WARN_SPEAKER_WITHOUT_AUDIO]
     soft = build_script_preview(text, PROJECT, voice_consistency="soft")
     assert keys(soft) == []
+
+
+def test_warn_speaker_audio_file_missing_distinguished_from_unset():
+    """``audio_ready`` 非 None 时，字段有值但文件缺失（不在 audio_ready 内）与字段未设置
+    要发不同的 warning：前者该去检查文件，后者该去角色设置里补音频。"""
+    text = "镜头1：开场。\n@[张三]：{我来了}\n@[李四]：{你迟到了}"
+    preview = build_script_preview(text, PROJECT, voice_consistency="native", max_reference_audio=3)
+    bindings = derive_voice_bindings(
+        preview.utterances,
+        PROJECT["characters"],
+        voice_consistency="native",
+        max_reference_audio=3,
+        audio_ready=set(),  # 两人字段都有值/无值，但文件系统上一段都不可用
+    )
+    assert {"key": WARN_SPEAKER_AUDIO_FILE_MISSING, "params": {"name": "张三"}} in bindings.warnings
+    assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "李四"}} in bindings.warnings
 
 
 def test_warn_speaker_audio_needs_image_when_backend_requires_per_image_attachment():

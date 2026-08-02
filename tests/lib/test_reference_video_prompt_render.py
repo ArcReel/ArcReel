@@ -11,6 +11,7 @@ from lib.reference_video.prompt_render import (
 from lib.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_MODEL,
+    WARN_SPEAKER_AUDIO_FILE_MISSING,
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_UNCLOSED_BRACE,
@@ -227,7 +228,8 @@ def test_legacy_script_without_dialogue_still_renders_three_segments():
 
 
 def test_audio_ready_overrides_field_presence(tmp_path):
-    """字段指向已删文件时不绑定：编号与实际发出的音频段数严格等长。"""
+    """字段指向已删文件时不绑定：编号与实际发出的音频段数严格等长，且降级 warning 指向
+    「文件缺失」而非「未设置」——张三字段有值，只是不在 audio_ready 内。"""
     rendered = render_unit_prompt(
         _TEXT,
         _project(),
@@ -238,7 +240,7 @@ def test_audio_ready_overrides_field_presence(tmp_path):
     )
     assert rendered.audio_speakers == ["李四"]
     assert "<李四>的台词音色参考 @音频1" in rendered.prompt
-    assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} in rendered.warnings
+    assert {"key": WARN_SPEAKER_AUDIO_FILE_MISSING, "params": {"name": "张三"}} in rendered.warnings
 
 
 def test_audio_speaker_reference_index_tracks_image_slot_by_name_not_position():
