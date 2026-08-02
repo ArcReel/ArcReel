@@ -64,8 +64,8 @@ def quarantine_path(project_path: Path, episode: int, kind: str) -> Path:
 
 
 def violation_entries(violations: list[DraftViolation]) -> list[dict[str, Any]]:
-    """违约异常 → 落盘 / 呈现用的结构化条目（违约类 + unit 定位 + 消息）。"""
-    return [{"code": v.code, "label": v.label, "message": str(v)} for v in violations]
+    """违约异常 → 落盘 / 呈现用的结构化条目（违约类 + unit 定位 + 消息 + 可选行号）。"""
+    return [{"code": v.code, "label": v.label, "message": str(v), "line": v.line} for v in violations]
 
 
 def write_quarantine(

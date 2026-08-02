@@ -48,10 +48,16 @@ def _raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) ->
 
 @router.get("/projects/{project_name}/episodes/{episode}/script-review")
 async def get_script_review(project_name: str, episode: int, _t: Translator):
-    """读取该集 step1 结构化中间态 + 审核状态（供 web 渲染与编辑）。"""
+    """读取该集 step1 结构化中间态 + 审核状态（供 web 渲染与编辑）。
+
+    ``quarantine`` 字段单独合并（reference_video 变体、隔离草稿在场时才非 None）：它要 await
+    视频能力解析做读时重算，不能挂在 ``get_state`` 那个纯同步的 ``asyncio.to_thread`` 调用上。
+    """
     try:
         service = ScriptReviewService(get_project_manager())
-        return await asyncio.to_thread(service.get_state, project_name, episode)
+        state = await asyncio.to_thread(service.get_state, project_name, episode)
+        state["quarantine"] = await service.get_quarantine_info(project_name, episode)
+        return state
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:

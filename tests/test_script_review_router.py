@@ -159,12 +159,15 @@ class TestReferenceVideoRouter:
         with client:
             base = "/api/v1/projects/demo/episodes/1/script-review"
 
-            assert client.get(base).json()["status"] == "no_step1"
+            no_step1_body = client.get(base).json()
+            assert no_step1_body["status"] == "no_step1"
+            assert no_step1_body["quarantine"] is None
 
             _write_rv_step1(pm, _rv_step1())
             body = client.get(base).json()
             assert body["status"] == "pending_review"
             assert body["content"]["units"][0]["unit_id"] == "E1U01"
+            assert body["quarantine"] is None
             assert script_review.gate_blocks_step2(pm.get_project_path("demo"), pm.load_project("demo"), 1) is True
 
             # 编辑 shot 文本 → 重新待审
@@ -178,3 +181,54 @@ class TestReferenceVideoRouter:
             assert confirmed.status_code == 200
             assert confirmed.json()["status"] == "confirmed"
             assert script_review.gate_blocks_step2(pm.get_project_path("demo"), pm.load_project("demo"), 1) is False
+
+    def test_quarantine_surfaced_with_recomputed_line_anchored_violations(self, tmp_path, monkeypatch):
+        """隔离草稿在场时 GET 附带 ``quarantine`` 字段：违约按产出时那套校验器读时重算，
+        不信任草稿里上一轮的快照（这里把快照消息故意写成 "stale" 来验证）。"""
+        from lib.reference_video.draft_validation import DraftViolation
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from server.agent_runtime.sdk_tools import text_generation as mod
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        novel = "阿离站在屋檐下。"
+        (project_path / "source").mkdir(parents=True, exist_ok=True)
+        (project_path / "source" / "episode_1.txt").write_text(novel, encoding="utf-8")
+
+        async def _fake_caps(_project):
+            return mod.ReferenceSplitCaps(
+                default_duration=4,
+                durations=[4, 6, 8],
+                reference_durations=[4, 6, 8],
+                text_durations=[4, 6, 8],
+                max_duration=8,
+                max_refs=3,
+                raw={},
+            )
+
+        monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _fake_caps)
+
+        flat_units = [{"duration_seconds": 4, "source_text": novel, "text": "镜头1：门开了\n@[阿离]：｛我来了。｝"}]
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": flat_units},
+            violations=[DraftViolation("stale", code="fullwidth_braces", label="unit E1U01", line=1)],
+            meta={"source": "source/episode_1.txt"},
+        )
+
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            body = client.get(base).json()
+            assert body["status"] == "pending_review"
+            assert body["quarantine"] is not None
+            violations = body["quarantine"]["violations"]
+            assert len(violations) == 1
+            assert violations[0]["code"] == "fullwidth_braces"
+            assert violations[0]["line"] == 1
+            assert violations[0]["message"] != "stale"
+
+            # 隔离草稿在场时确认被拒：正式 step1 还没有一份可放行的内容。
+            confirmed = client.post(f"{base}/confirm")
+            assert confirmed.status_code == 409

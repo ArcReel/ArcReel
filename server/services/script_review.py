@@ -23,6 +23,7 @@ from lib.episode_ledger import discover_episode_files, register_orphan_episode_e
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
 from lib.reference_video import rederive_unit_references
+from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, read_quarantine, violation_entries
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft, ReferenceStep1Draft
 
 logger = logging.getLogger(__name__)
@@ -169,6 +170,40 @@ class ScriptReviewService:
             "confirmed_at": script_review.stored_review(project, episode).get("confirmed_at"),
             "content": content,
         }
+
+    async def get_quarantine_info(self, project_name: str, episode: int) -> dict[str, Any] | None:
+        """reference_video 变体的隔离草稿信息（供 web 审核 gate 呈现违约行内锚定），不适用 /
+        无隔离草稿时 None。
+
+        读时按产出时那套校验器全量重算（``revalidate_reference_step1_draft``，晋升工具同一份
+        代码），不信任草稿里 ``violations`` 的上一轮快照——隔离期间源文或模型配置可能已变，
+        报告要对现值负责。``get_state`` 保持同步（无需 await 视频能力解析），故本方法独立于
+        它，由 router 在同一次请求内合并两者的返回。
+
+        ``content`` 校验通过时返回收编后的扁平产出（时长已按当前档位收编），未通过（仍有
+        违约）或 meta 被改坏（无法重算）时返回草稿原样内容 + 对应违约列表，供呈现层原样展示
+        agent 手改的那份文本。
+        """
+        project = self.pm.load_project(project_name)
+        if script_review.step1_kind(project, episode) != "reference_video":
+            return None
+        project_path = self.pm.get_project_path(project_name)
+        draft = read_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+        if draft is None:
+            return None
+        # 延迟导入避免模块级循环依赖：text_generation.py 内部已对本模块做同样的函数级延迟导入
+        # （构造 ScriptReviewService 供 quarantine 相关工具复用），两处顶层互相导入会成环。
+        from server.agent_runtime.sdk_tools.text_generation import revalidate_reference_step1_draft
+
+        try:
+            violations, flat_units, _caps = await revalidate_reference_step1_draft(
+                project_path, project, episode, draft
+            )
+        except ValueError:
+            # meta.source 缺失等草稿被改坏的情形：呈现原样内容 + 上一轮报告快照，而非让 gate 崩掉。
+            return {"content": draft.content, "violations": draft.violations}
+        content = {"units": flat_units} if flat_units else draft.content
+        return {"content": content, "violations": violation_entries(violations)}
 
     def save_content(self, project_name: str, episode: int, content: object) -> dict[str, Any]:
         """校验并落盘编辑后的结构化中间态（手动或 agent 编辑后回写），返回最新状态（重新待审）。

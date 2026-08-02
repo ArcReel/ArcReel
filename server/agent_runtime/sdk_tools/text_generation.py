@@ -783,16 +783,24 @@ def _reference_result_text(step1_path: Path, units: list[dict], warning_lines: l
     return text
 
 
-async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: QuarantinedDraft) -> dict[str, Any]:
-    """按产出时那套校验器全量重判 step1 隔离草稿，通过则晋升为正式 step1 并清除草稿。
+async def revalidate_reference_step1_draft(
+    project_path: Path, project: dict[str, Any], episode: int, draft: QuarantinedDraft
+) -> tuple[list[DraftViolation], list[dict[str, Any]], ReferenceSplitCaps]:
+    """按产出时那套校验器全量重判 step1 隔离草稿，只读、不写盘、不清草稿。
 
-    重判走的是拆分工具用的同一对函数（``_collect_reference_flat_violations`` +
-    ``_build_reference_units_from_flat``），不是它们的简化副本：晋升口径与产出口径必须同一份
-    代码，否则「晋升时放行、下次生成时被拒」这类分叉会重新出现。能力与源文都重新解析——隔离
-    期间用户可能改过模型配置或源文，重判要对着现值判。
+    重判走的是拆分工具用的同一个函数（``_collect_reference_flat_violations``），不是它的简化
+    副本：晋升口径、web 审核 gate 的读时重算与产出口径必须同一份代码，否则「这里放行、下次
+    生成时被拒」这类分叉会重新出现。能力与源文都重新解析——隔离期间用户可能改过模型配置或
+    源文，重判要对着现值判。
+
+    不依赖 ``ToolContext``（``project_path`` / ``project`` 由调用方传入而非从 ctx 派生）：
+    web 审核 gate 的读时重算（``server/services/script_review.py``）没有 agent 工具的 ctx，
+    只有 ``ProjectManager``；两处共用本函数而不各自加载 project，调用方各自加载一次即可。
+
+    返回 ``(violations, flat_units, split_caps)``：``flat_units`` 是过完 schema 校验后的扁平
+    产出（供调用方在无违约时接着派生落盘结构，或在呈现层替换 ``draft.content`` 展示收编后的
+    数值）；有违约时为空列表，调用方按 ``draft.content`` 原样呈现即可。
     """
-    project_path = ctx.project_path
-    project = ctx.pm.load_project(ctx.project_name)
     # meta.source 记的是产出时的源文范围。缺键说明 meta 被改坏了：不能默默按整个 source/ 重解析
     # ——那比产出时更松，一份从别集抄来的原文锚会恰好命中而被放行。
     if "source" not in draft.meta:
@@ -833,17 +841,7 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
                 )
             ]
     if violations:
-        # 写回 agent 手里那份原样内容，不做收编：字段被改坏时收编会把它的原稿改形，
-        # 它照着报告回去看反而对不上自己写的东西。
-        report = quarantine_and_report(
-            project_path,
-            episode,
-            QUARANTINE_KIND_STEP1,
-            content=draft.content,
-            violations=violations,
-            meta=draft.meta,
-        )
-        return {"content": [{"type": "text", "text": report}], "is_error": True}
+        return violations, [], split_caps
 
     source_language = project.get("source_language")
     violations = _collect_reference_flat_violations(
@@ -854,6 +852,26 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
         caps=split_caps,
         source_language=source_language,
     )
+    return violations, flat_units, split_caps
+
+
+async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: QuarantinedDraft) -> dict[str, Any]:
+    """按产出时那套校验器全量重判 step1 隔离草稿，通过则晋升为正式 step1 并清除草稿。"""
+    project_path = ctx.project_path
+    project = ctx.pm.load_project(ctx.project_name)
+    violations, flat_units, split_caps = await revalidate_reference_step1_draft(project_path, project, episode, draft)
+    if violations and not flat_units:
+        # schema 违约：写回 agent 手里那份原样内容，不做收编——字段被改坏时收编会把它的原稿
+        # 改形，它照着报告回去看反而对不上自己写的东西。
+        report = quarantine_and_report(
+            project_path,
+            episode,
+            QUARANTINE_KIND_STEP1,
+            content=draft.content,
+            violations=violations,
+            meta=draft.meta,
+        )
+        return {"content": [{"type": "text", "text": report}], "is_error": True}
     if violations:
         report = quarantine_and_report(
             project_path,

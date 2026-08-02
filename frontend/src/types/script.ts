@@ -5,7 +5,7 @@
  * - lib/script_models.py (NarrationSegment, DramaScene, ImagePrompt, VideoPrompt, etc.)
  */
 
-import type { ReferenceStep1Draft } from "./reference-video";
+import type { ReferenceStep1Draft, ScriptReviewQuarantine } from "./reference-video";
 
 export const SHOT_TYPES = [
   "Extreme Close-up",
@@ -154,7 +154,7 @@ export type ScriptReviewStatus =
   | "pending_review"
   | "confirmed";
 
-/** step1→step2 审核 gate 状态（后端 server/services/script_review.py 的 get_state 响应）。 */
+/** step1→step2 审核 gate 状态（后端 server/routers/script_review.py 的 GET 响应）。 */
 export interface ScriptReviewState {
   episode: number;
   content_mode: string | null;
@@ -162,6 +162,8 @@ export interface ScriptReviewState {
   fingerprint: string | null;
   confirmed_at: string | null;
   content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft | null;
+  /** reference_video 变体、隔离草稿在场时非 null；其余变体恒为 null。 */
+  quarantine: ScriptReviewQuarantine | null;
 }
 
 export interface Composition {
