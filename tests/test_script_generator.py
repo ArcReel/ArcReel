@@ -180,6 +180,7 @@ class TestScriptGenerator:
         _write_step1_json(project_path, 1, [_step1_seg("E1S01", "第一段原文，逐字保留。", duration=4)])
 
         generator = ScriptGenerator(project_path)  # 无 client
+        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         assert "E1S01" in prompt
@@ -206,6 +207,7 @@ class TestScriptGenerator:
         _write_step1_json(project_path, 1, [_step1_seg("E1S01", "verbatim source line.", duration=4)])
 
         generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         # 输出语言锁定为项目 source_language，不回落默认中文
@@ -545,6 +547,7 @@ class TestScriptGenerator:
         # drama 两段式：step2 LLM 只出视觉层，后端按 scene_id 合并回 step1 内容
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
         output = await generator.generate(1)
 
         payload = json.loads(output.read_text(encoding="utf-8"))
@@ -629,6 +632,7 @@ class TestScriptGenerator:
 
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
         await generator.generate(1)
 
         schema = fake.backend.last_request.response_schema
@@ -655,6 +659,7 @@ class TestScriptGenerator:
         # 空视觉响应 → 合并时 step1 场景缺视觉，fail-loud；但模型调用已发生，仍可断言请求参数
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
         with pytest.raises(DramaVisualMergeError):
             await generator.generate(1)
 
@@ -1638,6 +1643,7 @@ class TestAdScriptGeneration:
         _write_ad_project(project_path)
 
         generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         assert "带货八段框架" in prompt
@@ -1668,6 +1674,7 @@ class TestAdScriptGeneration:
         _write_json(project_json_path, payload)
 
         generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         # 口播语速折算按 en 口径（约 2.5 词/秒），不得回落默认 zh 口径（约 5 字/秒）
@@ -1701,6 +1708,7 @@ class TestAdScriptGeneration:
         )
 
         generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         # products 归一化为空 → 自动分流通用短片 prompt，不落带货框架
