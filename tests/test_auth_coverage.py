@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 import server.auth as auth_module
 
-# 走生产 app 的 lifespan（DB 迁移、worker 启动），按 pytest markers 纪律属 integration。
+# 穿过生产 app 的完整路由与认证栈，不是隔离单元，按 pytest markers 纪律属 integration。
 pytestmark = pytest.mark.integration
 
 # 匿名可达：登录入口是拿 token 的前提；静态媒体经 <img src> / <video src> 加载。
@@ -49,7 +49,7 @@ _PARAM_RE = re.compile(r"\{([^}]+)\}")
 _PARAM_PLACEHOLDERS = {"path": "x/y.png"}
 
 
-# module 级复用：每个用例重建 app 会把 lifespan（DB 迁移、worker 启动）反复跑一遍。
+# module 级：整个文件共用一套认证环境；私有缓存在进出时清空，不污染其它测试模块。
 @pytest.fixture(scope="module", autouse=True)
 def _auth_env():
     auth_module._cached_token_secret = None
@@ -72,13 +72,10 @@ def _auth_env():
 def client():
     from server.app import app
 
-    # conftest 的沙箱 stub 是 function 级，晚于本 fixture 实例化，进 lifespan 时还没生效，
-    # 于是跑的是真实 bwrap probe——Linux CI runner 上必然失败。这里自行桩掉。
-    with (
-        patch("server.app.check_sandbox_available", lambda: True),
-        TestClient(app, raise_server_exceptions=False) as c,
-    ):
-        yield c
+    # 不进 lifespan（不用 with）：认证依赖只读环境变量与 JWT，路由和 openapi 在 import 时即就绪。
+    # 跑 lifespan 会把 DB 迁移、worker 启动、沙箱探测一并拖进来，与本文件要验证的东西无关，
+    # 还会让测试结果取决于 host 能否创建非特权 user namespace。
+    return TestClient(app, raise_server_exceptions=False)
 
 
 def _fill(path: str) -> str:
