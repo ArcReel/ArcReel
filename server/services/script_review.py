@@ -24,8 +24,8 @@ from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
 from lib.reference_video import rederive_unit_references
 from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, read_quarantine, violation_entries
-from server.agent_runtime.sdk_tools._context import reference_unit_duration_tiers, resolve_video_caps
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft, ReferenceStep1Draft
+from server.agent_runtime.sdk_tools._context import reference_unit_duration_tiers, resolve_video_caps
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +211,12 @@ class ScriptReviewService:
             return {
                 "content": None,
                 "violations": [
-                    {"code": "quarantine_unreadable", "label": "", "message": "隔离草稿文件已损坏或格式不符，无法解析", "line": None}
+                    {
+                        "code": "quarantine_unreadable",
+                        "label": "",
+                        "message": "隔离草稿文件已损坏或格式不符，无法解析",
+                        "line": None,
+                    }
                 ],
             }
         # 延迟导入避免模块级循环依赖：text_generation.py 内部已对本模块做同样的函数级延迟导入
@@ -228,7 +233,12 @@ class ScriptReviewService:
             return {
                 "content": draft.content,
                 "violations": [
-                    {"code": "quarantine_unreadable", "label": "", "message": "隔离草稿的产出上下文缺失或损坏，无法重新校验", "line": None}
+                    {
+                        "code": "quarantine_unreadable",
+                        "label": "",
+                        "message": "隔离草稿的产出上下文缺失或损坏，无法重新校验",
+                        "line": None,
+                    }
                 ],
             }
         content = draft.content if revalidation.schema_failed else {"units": revalidation.flat_units}
