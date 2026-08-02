@@ -143,6 +143,11 @@ class ScriptReviewService:
 
         ``content`` 为解析后的结构化 step1（drama: {title, scenes[]}；narration: {segments[]}；
         reference_video: {units[]}）；不适用 gate 或 step1 缺失 / 损坏时为 None。
+
+        ``supported_durations`` 只在 reference_video 变体下非 None：unit 时长是档位枚举而非
+        自由秒数，web 侧要按它渲染选择项。取值走与读时迁移同一个 ``resolve_raw_supported_durations``
+        （project.json → registry 同步回退链），两处不同源的话，gate 里能选的档位会与迁移
+        收编到的档位不一致。项目未配置视频型号而解析不到时为 None，呈现层退回只读秒数。
         """
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
@@ -169,6 +174,11 @@ class ScriptReviewService:
             "fingerprint": fingerprint,
             "confirmed_at": script_review.stored_review(project, episode).get("confirmed_at"),
             "content": content,
+            "supported_durations": (
+                resolve_raw_supported_durations(project)
+                if script_review.step1_kind(project, episode) == "reference_video"
+                else None
+            ),
         }
 
     async def get_quarantine_info(self, project_name: str, episode: int) -> dict[str, Any] | None:
@@ -180,9 +190,10 @@ class ScriptReviewService:
         报告要对现值负责。``get_state`` 保持同步（无需 await 视频能力解析），故本方法独立于
         它，由 router 在同一次请求内合并两者的返回。
 
-        ``content`` 校验通过时返回收编后的扁平产出（时长已按当前档位收编），未通过（仍有
-        违约）或 meta 被改坏（无法重算）时返回草稿原样内容 + 对应违约列表，供呈现层原样展示
-        agent 手改的那份文本。
+        ``content`` 校验通过时返回收编后的扁平产出（时长已按当前档位收编），未通过时返回草稿
+        原样内容 + 违约列表，供呈现层原样展示 agent 手改的那份文本。meta 被改坏以致无从重算
+        时，把「无法重算」本身作为一条违约返回，而不是退回草稿里那份上一轮快照——报告一律
+        对现值负责，读时重算失败也是现值的一部分。
         """
         project = self.pm.load_project(project_name)
         if script_review.step1_kind(project, episode) != "reference_video":
@@ -196,14 +207,16 @@ class ScriptReviewService:
         from server.agent_runtime.sdk_tools.text_generation import revalidate_reference_step1_draft
 
         try:
-            violations, flat_units, _caps = await revalidate_reference_step1_draft(
-                project_path, project, episode, draft
-            )
-        except ValueError:
-            # meta.source 缺失等草稿被改坏的情形：呈现原样内容 + 上一轮报告快照，而非让 gate 崩掉。
-            return {"content": draft.content, "violations": draft.violations}
-        content = {"units": flat_units} if flat_units else draft.content
-        return {"content": content, "violations": violation_entries(violations)}
+            revalidation = await revalidate_reference_step1_draft(project_path, project, episode, draft)
+        except ValueError as exc:
+            # meta.source 缺失等草稿被改坏的情形：把重算失败本身报成一条无 unit 归属的违约，
+            # 呈现层落聚合区。gate 不崩，用户也不会看到一份与现值脱钩的旧报告。
+            return {
+                "content": draft.content,
+                "violations": [{"code": "quarantine_unreadable", "label": "", "message": str(exc), "line": None}],
+            }
+        content = draft.content if revalidation.schema_failed else {"units": revalidation.flat_units}
+        return {"content": content, "violations": violation_entries(revalidation.violations)}
 
     def save_content(self, project_name: str, episode: int, content: object) -> dict[str, Any]:
         """校验并落盘编辑后的结构化中间态（手动或 agent 编辑后回写），返回最新状态（重新待审）。

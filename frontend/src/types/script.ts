@@ -164,6 +164,11 @@ export interface ScriptReviewState {
   content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft | null;
   /** reference_video 变体、隔离草稿在场时非 null；其余变体恒为 null。 */
   quarantine: ScriptReviewQuarantine | null;
+  /**
+   * unit 时长可选档位，reference_video 变体才非 null（项目未配置视频型号而解析不到时也为
+   * null，呈现层退回只读秒数）。与后端读时迁移收编所用的是同一份档位表。
+   */
+  supported_durations: number[] | null;
 }
 
 export interface Composition {

@@ -783,9 +783,24 @@ def _reference_result_text(step1_path: Path, units: list[dict], warning_lines: l
     return text
 
 
+class ReferenceDraftRevalidation(NamedTuple):
+    """step1 隔离草稿读时重判的结果。
+
+    ``schema_failed`` 显式区分两个阶段：True 表示草稿连产出时的 schema 都没过（``flat_units``
+    必为空，调用方只能按 ``draft.content`` 原样呈现）；False 时 ``flat_units`` 是收编后的扁平
+    产出，``violations`` 为空即可晋升。两者的处置不同（原样 vs 收编），故不靠 ``flat_units``
+    是否为空来反推。
+    """
+
+    violations: list[DraftViolation]
+    flat_units: list[dict[str, Any]]
+    caps: ReferenceSplitCaps
+    schema_failed: bool
+
+
 async def revalidate_reference_step1_draft(
     project_path: Path, project: dict[str, Any], episode: int, draft: QuarantinedDraft
-) -> tuple[list[DraftViolation], list[dict[str, Any]], ReferenceSplitCaps]:
+) -> ReferenceDraftRevalidation:
     """按产出时那套校验器全量重判 step1 隔离草稿，只读、不写盘、不清草稿。
 
     重判走的是拆分工具用的同一个函数（``_collect_reference_flat_violations``），不是它的简化
@@ -797,9 +812,7 @@ async def revalidate_reference_step1_draft(
     web 审核 gate 的读时重算（``server/services/script_review.py``）没有 agent 工具的 ctx，
     只有 ``ProjectManager``；两处共用本函数而不各自加载 project，调用方各自加载一次即可。
 
-    返回 ``(violations, flat_units, split_caps)``：``flat_units`` 是过完 schema 校验后的扁平
-    产出（供调用方在无违约时接着派生落盘结构，或在呈现层替换 ``draft.content`` 展示收编后的
-    数值）；有违约时为空列表，调用方按 ``draft.content`` 原样呈现即可。
+    ``meta.source`` 缺失（草稿被改坏、无从重判）时抛 ``ValueError``。
     """
     # meta.source 记的是产出时的源文范围。缺键说明 meta 被改坏了：不能默默按整个 source/ 重解析
     # ——那比产出时更松，一份从别集抄来的原文锚会恰好命中而被放行。
@@ -841,7 +854,7 @@ async def revalidate_reference_step1_draft(
                 )
             ]
     if violations:
-        return violations, [], split_caps
+        return ReferenceDraftRevalidation(violations, [], split_caps, schema_failed=True)
 
     source_language = project.get("source_language")
     violations = _collect_reference_flat_violations(
@@ -852,15 +865,16 @@ async def revalidate_reference_step1_draft(
         caps=split_caps,
         source_language=source_language,
     )
-    return violations, flat_units, split_caps
+    return ReferenceDraftRevalidation(violations, flat_units, split_caps, schema_failed=False)
 
 
 async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: QuarantinedDraft) -> dict[str, Any]:
     """按产出时那套校验器全量重判 step1 隔离草稿，通过则晋升为正式 step1 并清除草稿。"""
     project_path = ctx.project_path
     project = ctx.pm.load_project(ctx.project_name)
-    violations, flat_units, split_caps = await revalidate_reference_step1_draft(project_path, project, episode, draft)
-    if violations and not flat_units:
+    revalidation = await revalidate_reference_step1_draft(project_path, project, episode, draft)
+    violations, flat_units, split_caps = revalidation.violations, revalidation.flat_units, revalidation.caps
+    if revalidation.schema_failed:
         # schema 违约：写回 agent 手里那份原样内容，不做收编——字段被改坏时收编会把它的原稿
         # 改形，它照着报告回去看反而对不上自己写的东西。
         report = quarantine_and_report(

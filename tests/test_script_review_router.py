@@ -232,3 +232,80 @@ class TestReferenceVideoRouter:
             # 隔离草稿在场时确认被拒：正式 step1 还没有一份可放行的内容。
             confirmed = client.post(f"{base}/confirm")
             assert confirmed.status_code == 409
+
+    def test_quarantine_schema_invalid_keeps_raw_content(self, tmp_path, monkeypatch):
+        """草稿 units 被改成非数组：违约报 schema_invalid，``content`` 原样回传（不做收编），
+        呈现层据此退回原始文本视图而非当作 units 列表遍历。"""
+        from lib.reference_video.draft_validation import DraftViolation
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from server.agent_runtime.sdk_tools import text_generation as mod
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        (project_path / "source").mkdir(parents=True, exist_ok=True)
+        (project_path / "source" / "episode_1.txt").write_text("阿离站在屋檐下。", encoding="utf-8")
+
+        async def _fake_caps(_project):
+            return mod.ReferenceSplitCaps(
+                default_duration=4,
+                durations=[4, 6, 8],
+                reference_durations=[4, 6, 8],
+                text_durations=[4, 6, 8],
+                max_duration=8,
+                max_refs=3,
+                raw={},
+            )
+
+        monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _fake_caps)
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": "被改坏了"},
+            violations=[DraftViolation("stale", code="schema_invalid")],
+            meta={"source": "source/episode_1.txt"},
+        )
+
+        with client:
+            body = client.get("/api/v1/projects/demo/episodes/1/script-review").json()
+            quarantine = body["quarantine"]
+            assert quarantine["content"] == {"units": "被改坏了"}
+            assert [v["code"] for v in quarantine["violations"]] == ["schema_invalid"]
+            assert quarantine["violations"][0]["message"] != "stale"
+
+    def test_quarantine_meta_broken_reports_recompute_failure_not_snapshot(self, tmp_path, monkeypatch):
+        """``meta.source`` 缺失 → 无从重算：报「无法重算」本身，而不是退回草稿里那份上一轮
+        快照——报告一律对现值负责。"""
+        from lib.reference_video.draft_validation import DraftViolation
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        write_quarantine(
+            pm.get_project_path("demo"),
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": [{"duration_seconds": 4, "source_text": "原文", "text": "镜头1：门开了"}]},
+            violations=[DraftViolation("stale", code="fullwidth_braces", label="unit E1U01", line=1)],
+            meta={},
+        )
+
+        with client:
+            body = client.get("/api/v1/projects/demo/episodes/1/script-review").json()
+            violations = body["quarantine"]["violations"]
+            assert [v["code"] for v in violations] == ["quarantine_unreadable"]
+            assert "stale" not in violations[0]["message"]
+            assert violations[0]["label"] == ""
+
+    def test_supported_durations_exposed_for_reference_video_only(self, tmp_path, monkeypatch):
+        """rv 变体的 GET 带出档位表供 web 渲染时长选择；drama 变体下为 None。"""
+        rv_client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        with rv_client:
+            _write_rv_step1(pm, _rv_step1())
+            durations = rv_client.get("/api/v1/projects/demo/episodes/1/script-review").json()["supported_durations"]
+            assert durations is None or (isinstance(durations, list) and all(isinstance(d, int) for d in durations))
+
+        drama_client, drama_pm = _client(monkeypatch, tmp_path / "drama")
+        with drama_client:
+            _write_step1(drama_pm, _drama_step1())
+            body = drama_client.get("/api/v1/projects/demo/episodes/1/script-review").json()
+            assert body["supported_durations"] is None

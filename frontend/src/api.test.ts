@@ -518,7 +518,9 @@ describe("API", () => {
       await API.saveScriptReviewContent("a b", 2, content);
       await API.confirmScriptReview("a b", 3);
 
-      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/1/script-review");
+      expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/1/script-review", {
+        signal: undefined,
+      });
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/2/script-review/content", {
         method: "PUT",
         body: JSON.stringify(content),

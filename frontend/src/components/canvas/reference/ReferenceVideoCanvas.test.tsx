@@ -406,6 +406,7 @@ describe("ReferenceVideoCanvas", () => {
       fingerprint: "fp",
       confirmed_at: null,
       quarantine: null,
+      supported_durations: null,
       content: { units: [{ unit_id: "E1U1", shots: [{ text: "shot text" }], references: [], duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
@@ -429,6 +430,7 @@ describe("ReferenceVideoCanvas", () => {
       fingerprint: "fp",
       confirmed_at: null,
       quarantine: null,
+      supported_durations: null,
       content: { units: [{ unit_id: "E1U1", shots: [{ text: "shot text" }], references: [], duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
@@ -447,6 +449,7 @@ describe("ReferenceVideoCanvas", () => {
       fingerprint: "fp",
       confirmed_at: null,
       quarantine: null,
+      supported_durations: null,
       content: { units: [] },
     });
     const { rerender } = render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);

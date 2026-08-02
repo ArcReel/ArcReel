@@ -5,7 +5,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { ReferenceStep1PreviewPanel } from "./ReferenceStep1PreviewPanel";
 import type { MentionLookup } from "@/hooks/useShotPromptHighlight";
-import type { ScriptReviewState } from "@/types";
+import type { ReferenceStep1Draft, ScriptReviewState } from "@/types";
 
 const LOOKUP: MentionLookup = { 阿离: "character", 长街: "scene" };
 
@@ -17,6 +17,7 @@ function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewS
     fingerprint: "fp1",
     confirmed_at: null,
     quarantine: null,
+    supported_durations: [4, 8],
     content: {
       units: [
         {
@@ -42,6 +43,7 @@ function quarantinedState(): ScriptReviewState {
     status: "pending_review",
     fingerprint: null,
     confirmed_at: null,
+    supported_durations: [4, 8],
     content: null,
     quarantine: {
       content: {
@@ -129,6 +131,7 @@ describe("ReferenceStep1PreviewPanel", () => {
       confirmed_at: null,
       content: null,
       quarantine: null,
+      supported_durations: null,
     });
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     await waitFor(() => expect(screen.getByText("暂无预处理内容")).toBeInTheDocument());
@@ -153,5 +156,72 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect(savedContent).toMatchObject({
       units: [{ unit_id: "E1U01", shots: [{ text: "@[阿离] 缓步走过 @[长街]" }] }],
     });
+  });
+
+  it("renders shot / spoken-line counts in the unit header", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(quarantinedState());
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    // 草稿正文一个镜头行 + 一行全角花括号「台词」：统计与正文高亮同一套切分口径，全角花括号
+    // 不被解析器认作台词（这正是该草稿的 fullwidth_braces 违约），故台词数为 0。
+    await waitFor(() => expect(screen.getByText("1 镜头 · 0 台词")).toBeInTheDocument());
+  });
+
+  it("counts a well-formed dialogue line as a spoken line", async () => {
+    const withDialogue = pendingState();
+    (withDialogue.content as ReferenceStep1Draft).units[0].shots = [
+      { text: "@[阿离] 撑伞走过 @[长街]" },
+      { text: "@[阿离]：{我来了。}" },
+    ];
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(withDialogue);
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("2 镜头 · 1 台词")).toBeInTheDocument());
+  });
+
+  it("picks a duration from the supported tiers and saves it on the unit", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(pendingState());
+
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    const select = await screen.findByRole("combobox", { name: "E1U01 时长" });
+    fireEvent.change(select, { target: { value: "4" } });
+
+    fireEvent.click(await screen.findByText("保存"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][2]).toMatchObject({ units: [{ duration_seconds: 4 }] });
+  });
+
+  it("falls back to a read-only duration when no tier list is available", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ supported_durations: null }));
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("8 秒")).toBeInTheDocument());
+    expect(screen.queryByRole("combobox", { name: "E1U01 时长" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the duration select on a stored value that is no longer a supported tier", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ supported_durations: [4, 6] }));
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+    expect(select.value).toBe("8");
+  });
+
+  it("surfaces unit-less violations and the raw draft when the quarantined content has no usable units", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      ...quarantinedState(),
+      quarantine: {
+        // schema 违约：后端原样回传 agent 手改的内容，`units` 根本不是数组。
+        content: { units: "被改坏了" } as never,
+        violations: [{ code: "schema_invalid", label: "", message: "隔离草稿的 content.units 必须是非空数组", line: null }],
+      },
+    });
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("无法锚定的违约")).toBeInTheDocument());
+    expect(screen.getByText("隔离草稿的 content.units 必须是非空数组")).toBeInTheDocument();
+    expect(screen.getByText(/被改坏了/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
   });
 });

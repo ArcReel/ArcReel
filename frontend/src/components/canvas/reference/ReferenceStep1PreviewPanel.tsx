@@ -5,6 +5,8 @@ import { API } from "@/api";
 import type {
   ReferenceResource,
   ReferenceStep1Draft,
+  ReferenceStep1FlatDraft,
+  ReferenceStep1FlatUnit,
   ScriptReviewState,
   ScriptReviewViolation,
   Shot,
@@ -16,7 +18,8 @@ import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import { assetColor } from "@/components/canvas/reference/asset-colors";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
-import { tokenizePrompt, type MentionLookup } from "@/hooks/useShotPromptHighlight";
+import { toScriptLines, tokenizePrompt, type MentionLookup } from "@/hooks/useShotPromptHighlight";
+import { formatShotHeader } from "@/utils/reference-mentions";
 
 interface ReferenceStep1PreviewPanelProps {
   projectName: string;
@@ -45,7 +48,16 @@ interface DisplayUnit {
 }
 
 function shotsToScriptText(shots: Shot[]): string {
-  return shots.map((s, i) => `镜头${i + 1}：${s.text}`).join("\n");
+  return shots.map((s, i) => `${formatShotHeader(i + 1)}${s.text}`).join("\n");
+}
+
+/** 头部统计：镜头数 + 被解析器认作台词的行数，与正文高亮同一套切分口径。 */
+function unitStats(scriptText: string, lookup: MentionLookup): { shots: number; utterances: number } {
+  const lines = toScriptLines(scriptText, lookup);
+  return {
+    shots: lines.reduce((max, l) => Math.max(max, l.shotIndex), 0),
+    utterances: lines.filter((l) => l.kind === "dialogue" || l.kind === "voiceover").length,
+  };
 }
 
 function structuredDisplayUnits(draft: ReferenceStep1Draft): DisplayUnit[] {
@@ -76,19 +88,29 @@ function deriveDisplayReferences(text: string, lookup: MentionLookup): Reference
   return out;
 }
 
-function quarantinedDisplayUnits(
-  flatUnits: { duration_seconds: number; source_text: string; text: string }[],
-  episode: number,
-  lookup: MentionLookup,
-): DisplayUnit[] {
-  return flatUnits.map((u, i) => ({
-    key: `E${episode}U${String(i + 1).padStart(2, "0")}`,
-    durationSeconds: u.duration_seconds,
-    sourceText: u.source_text,
-    scriptText: u.text,
-    references: deriveDisplayReferences(u.text, lookup),
-    shots: null,
-  }));
+/**
+ * 隔离草稿 → unit 卡。schema 违约时后端原样回传 agent 手改的那份 content（不做收编），`units`
+ * 可能不是数组、逐 unit 字段也可能缺失或类型不对：这里逐项收窄而非信任类型声明——渲染崩掉
+ * 恰好发生在用户最需要看到面板的时候。收不成 unit 卡的内容由调用方作原始文本兜底呈现。
+ */
+function quarantinedDisplayUnits(content: ReferenceStep1FlatDraft, episode: number, lookup: MentionLookup): DisplayUnit[] {
+  const units: unknown = content.units;
+  if (!Array.isArray(units)) return [];
+  return units.flatMap((raw: unknown, i) => {
+    if (raw == null || typeof raw !== "object") return [];
+    const u = raw as Partial<ReferenceStep1FlatUnit>;
+    const text = typeof u.text === "string" ? u.text : "";
+    return [
+      {
+        key: `E${episode}U${String(i + 1).padStart(2, "0")}`,
+        durationSeconds: typeof u.duration_seconds === "number" ? u.duration_seconds : 0,
+        sourceText: typeof u.source_text === "string" ? u.source_text : "",
+        scriptText: text,
+        references: deriveDisplayReferences(text, lookup),
+        shots: null,
+      },
+    ];
+  });
 }
 
 interface UnitViolations {
@@ -169,6 +191,8 @@ function UnitCard({
   editing,
   onToggleEdit,
   onShotTextChange,
+  supportedDurations,
+  onDurationChange,
 }: {
   unit: DisplayUnit;
   violations: UnitViolations;
@@ -178,10 +202,16 @@ function UnitCard({
   editing: boolean;
   onToggleEdit: () => void;
   onShotTextChange: ((shotIndex: number, text: string) => void) | null;
+  supportedDurations: number[] | null;
+  onDurationChange: ((seconds: number) => void) | null;
 }) {
   const { t } = useTranslation("dashboard");
   const hasViolation = violations.anchorSource.length + violations.byLine.size + violations.aggregate.length > 0;
   const anchorBroken = violations.anchorSource.length > 0;
+  const stats = useMemo(() => unitStats(unit.scriptText, lookup), [unit.scriptText, lookup]);
+  // 档位表解析不到、或内容不可编辑（隔离草稿）时退回只读秒数：能选的档位必须是保存后
+  // 后端收编不会再改的那一档，拿不到权威档位表就不提供会被静默改掉的选择。
+  const durationOptions = onDurationChange && supportedDurations?.length ? supportedDurations : null;
 
   return (
     <article
@@ -191,7 +221,30 @@ function UnitCard({
     >
       <div className="flex items-center gap-2">
         <span className="rounded bg-bg-grad-a/70 px-1.5 py-0.5 font-mono text-[11px] text-text-2">{unit.key}</span>
-        <span className="text-[11px] text-text-4">{unit.durationSeconds}s</span>
+        {durationOptions && onDurationChange ? (
+          <select
+            value={unit.durationSeconds}
+            onChange={(e) => onDurationChange(Number(e.target.value))}
+            aria-label={t("reference_step1_duration_label", { unit: unit.key })}
+            className="rounded-[6px] border border-hairline bg-bg-grad-a/40 px-1 py-0.5 text-[11px] text-text-3 hover:text-text"
+          >
+            {/* 存量草稿的秒数可能已不在当前档位表内：补一个当前值选项，否则 select 会静默
+                跳到首档，用户看到的秒数与盘上的对不上。 */}
+            {(durationOptions.includes(unit.durationSeconds)
+              ? durationOptions
+              : [unit.durationSeconds, ...durationOptions]
+            ).map((d) => (
+              <option key={d} value={d}>
+                {t("reference_step1_duration_option", { seconds: d })}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-[11px] text-text-4">{t("reference_step1_duration_option", { seconds: unit.durationSeconds })}</span>
+        )}
+        <span className="text-[11px] text-text-4">
+          {t("reference_step1_unit_stats", { shots: stats.shots, utterances: stats.utterances })}
+        </span>
         <span className="flex-1" />
         {onShotTextChange && (
           <button
@@ -280,9 +333,7 @@ function isDirty(draft: unknown, serverContent: unknown): boolean {
  * 专属 reference_video 变体的审核 gate 面板——文稿流布局（unit 卡：头部 + 原文 + 高亮文稿 +
  * 参考图），隔离草稿态把违约行内锚定到出问题的行，干净态仅需确认放行 step2。
  *
- * `time 档下拉` 未实现（暂以只读秒数呈现）：档位是否生效依赖运行时视频能力解析，当前
- * 没有面向 web 的能力查询端点，强做会是无根据的占位（原型本身也把它标注为 mock）——留作
- * follow-up。unit 正文编辑复用既有的 `saveScriptReviewContent` 端点，故只在已晋升（非隔离
+ * unit 正文与时长的编辑复用既有的 `saveScriptReviewContent` 端点，故只在已晋升（非隔离
  * 草稿）内容上开放；隔离草稿的修复走 agent 文件工具 + 晋升工具的既有闭环，本面板只读呈现。
  */
 export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: ReferenceStep1PreviewPanelProps) {
@@ -321,14 +372,16 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+    const { signal } = controller;
     const hadResponse = state != null;
     const hasContent = draft != null;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!hadResponse) setLoading(true);
-    API.getScriptReview(projectName, episode)
+    API.getScriptReview(projectName, episode, { signal })
       .then((next) => {
-        if (cancelled) return;
+        // 响应已 resolve 之后才 abort 的窗口：写 state 前复核，避免离场的这轮回写。
+        if (signal.aborted) return;
         setLoadError(null);
         setState(next);
         if (!dirtyRef.current) {
@@ -337,14 +390,15 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         }
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (signal.aborted) return;
         if (!hasContent) setLoadError({ message: errorMessage(err) });
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        // 收尾让位给接管方：已作废就不碰 loading，否则会打断新一轮加载态。
+        if (!signal.aborted) setLoading(false);
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- state/draft 仅用于决定加载态与错误态分支，加入 deps 会在每次刷新后重新拉取造成循环
   }, [projectName, episode, draftRevision, reloadNonce]);
@@ -357,6 +411,16 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         units: prev.units.map((u, i) =>
           i === unitIndex ? { ...u, shots: u.shots.map((s, j) => (j === shotIndex ? { ...s, text } : s)) } : u,
         ),
+      };
+    });
+  }, []);
+
+  const updateDuration = useCallback((unitIndex: number, seconds: number) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        units: prev.units.map((u, i) => (i === unitIndex ? { ...u, duration_seconds: seconds } : u)),
       };
     });
   }, []);
@@ -442,7 +506,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
   const quarantined = quarantine != null;
   const confirmed = status === "confirmed" && !dirty && !quarantined;
   const displayUnits: DisplayUnit[] = quarantined
-    ? quarantinedDisplayUnits(quarantine.content.units, episode, lookup)
+    ? quarantinedDisplayUnits(quarantine.content, episode, lookup)
     : draft
       ? structuredDisplayUnits(draft)
       : [];
@@ -450,6 +514,9 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
   const unitKeys = new Set(displayUnits.map((u) => u.key));
   const unassignedViolations = allViolations.filter((v) => !unitKeys.has(unitKeyFromLabel(v.label) ?? ""));
   const violatingUnitKeys = [...new Set(allViolations.map((v) => unitKeyFromLabel(v.label)).filter((k): k is string => k != null))];
+  // schema 违约会让草稿收不成任何 unit 卡（units 不是数组 / 条目不是对象）：原样摊开 agent
+  // 手里那份内容，否则用户只看得到一条「结构不符」而看不到自己要改的是什么。
+  const rawFallback = quarantined && displayUnits.length === 0 ? JSON.stringify(quarantine.content, null, 2) : null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -542,9 +609,25 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
             editing={!quarantined && editingUnitKey === unit.key}
             onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
             onShotTextChange={quarantined ? null : (shotIndex, text) => updateShotText(i, shotIndex, text)}
+            supportedDurations={state?.supported_durations ?? null}
+            onDurationChange={quarantined ? null : (seconds) => updateDuration(i, seconds)}
           />
         ))}
       </div>
+
+      {(unassignedViolations.length > 0 || rawFallback) && (
+        <section className="rounded-[10px] border border-red-500/45 p-4" style={CARD_STYLE}>
+          <h3 className="font-mono text-[10px] tracking-[0.08em] text-text-4">
+            {t("reference_step1_unanchored_section")}
+          </h3>
+          <InlineViolations violations={unassignedViolations} />
+          {rawFallback && (
+            <pre className="mt-2 max-h-64 overflow-auto rounded-[6px] bg-bg-grad-a/40 p-2.5 font-mono text-[10.5px] leading-relaxed text-text-4">
+              {rawFallback}
+            </pre>
+          )}
+        </section>
+      )}
     </div>
   );
 }

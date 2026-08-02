@@ -862,10 +862,12 @@ class API {
   /** 读取该集 step1 结构化中间态 + 审核状态（供 web 渲染与编辑）。 */
   static async getScriptReview(
     projectName: string,
-    episode: number
+    episode: number,
+    options: { signal?: AbortSignal } = {}
   ): Promise<ScriptReviewState> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review`
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review`,
+      { signal: options.signal }
     );
   }
 
