@@ -962,6 +962,9 @@ class ReferenceStep1Unit(BaseModel):
         default_factory=list,
         description="参考图引用，从 shots 文本的 @ 引用派生（首现顺序，决定 [图N] 编号）",
     )
+    # 逐字原文锚：拆分工具校验其为源文子串后原样落盘，供 gate 对照与失真定位。
+    # 默认空串：不带该字段的存量草稿照常通过校验。
+    source_text: SkipJsonSchema[str] = Field(default="", description="该 unit 所依据的逐字原文摘录（追溯锚）")
 
 
 class ReferenceStep1Draft(BaseModel):
@@ -973,6 +976,60 @@ class ReferenceStep1Draft(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     units: list[ReferenceStep1Unit] = Field(description="video_unit 列表")
+
+
+# ---------------------------------------------------------------------------
+# 书写层扁平文本：两级 LLM 产出的形状
+# ---------------------------------------------------------------------------
+#
+# step1 / step2 的 LLM 产出与人在编辑器里写的是同一种格式（见 lib/reference_video/
+# writing_syntax.py），故 schema 退化为一层扁平：正文是一段文本，unit_id / shots /
+# references / utterances / 音频编号一律机器派生，不让 LLM 写。schema 只承担「枚举与
+# 外层结构」这一层约束（backend 的约束解码重试也只保得住这一层），文本内的语法交
+# parser 后校验（lib/reference_video/draft_validation.py）。
+
+
+class ReferenceStep1FlatUnit(BaseModel):
+    """step1 的 LLM 产出单元：时长 + 原文锚 + 书写层正文。"""
+
+    model_config = _STRICT_CONFIG
+
+    duration_seconds: int = Field(
+        ge=REFERENCE_UNIT_DURATION_RANGE[0],
+        le=REFERENCE_UNIT_DURATION_RANGE[1],
+        description="该单元时长（秒）",
+    )
+    source_text: str = Field(min_length=1, description="该单元所依据的小说原文逐字摘录（不转述、不翻译）")
+    text: str = Field(min_length=1, description="该单元的书写层正文：镜头行 / 台词行 / 画外音行")
+
+
+class ReferenceStep1FlatDraft(BaseModel):
+    """step1 的 LLM 产出顶层形状。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    units: list[ReferenceStep1FlatUnit] = Field(min_length=1, description="按叙事顺序排列的 unit 列表")
+
+
+class ReferenceStep2FlatUnit(BaseModel):
+    """step2 的 LLM 产出单元：只有展开后的书写层正文。
+
+    时长与 unit 顺序是 step1 已定稿、用户已在审阅 gate 上确认的内容契约，不进 step2 输出——
+    不给 LLM 写的字段就没有漂移可校验。
+    """
+
+    model_config = _STRICT_CONFIG
+
+    text: str = Field(min_length=1, description="视觉展开后的书写层正文：镜头行 / 台词行 / 画外音行")
+
+
+class ReferenceStep2FlatScript(BaseModel):
+    """step2 的 LLM 产出顶层形状：标题 + 与 step1 等长、同序的 unit 正文列表。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(description="剧集标题")
+    units: list[ReferenceStep2FlatUnit] = Field(min_length=1, description="与 step1 units 一一对应、顺序不变")
 
 
 # ============ duration 枚举硬约束（按视频模型能力动态构造剧本 schema） ============
@@ -1096,39 +1153,23 @@ def build_ad_reference_episode_script_model() -> type[BaseModel]:
 
 
 def build_reference_units_step1_model(supported_durations: list[int]) -> type[BaseModel]:
-    """构造 unit 时长被 ``supported_durations`` 枚举硬约束的参考生视频 step1 模型。
+    """构造 unit 时长被 ``supported_durations`` 枚举硬约束的参考生视频 step1 模型（扁平形状）。
 
     unit 是一次生成调用的单元，拆分阶段决定的就是发给供应商的那个秒数，故枚举约束加在
-    ``ReferenceStep1Unit.duration_seconds`` 上（response_schema 渲染为 enum / const，LLM
+    ``ReferenceStep1FlatUnit.duration_seconds`` 上（response_schema 渲染为 enum / const，LLM
     生成层即被卡死），与 step2 同口径衔接：step2 沿用 step1 的 unit 时长，只做视觉展开。
-    references 上限依赖运行时能力值、不进 schema，由拆分工具后校验。
+    references 上限与文本内语法依赖运行时能力值 / 项目登记表，不进 schema，由拆分工具后校验。
+
+    step2 无对应工厂：它不产出时长，没有需要按能力收窄的枚举字段，直接用静态
+    ``ReferenceStep2FlatScript``。
     """
     unit = _constrained_duration_item(
-        ReferenceStep1Unit,
+        ReferenceStep1FlatUnit,
         _duration_literal(supported_durations),
         "该单元时长（秒），必须取 supported_durations 中的值",
     )
     return create_model(
-        "ReferenceStep1Draft",
-        __base__=ReferenceStep1Draft,
-        units=(list[unit], Field(description="video_unit 列表")),
-    )
-
-
-def build_reference_video_script_model(supported_durations: list[int]) -> type[BaseModel]:
-    """构造 unit 时长被 ``supported_durations`` 枚举硬约束的参考视频剧集模型。
-
-    参考视频模式发给供应商 API 的是 ``unit.duration_seconds``——unit 是一次生成调用的单元，
-    成员 shot 只是同一段 clip 内的画面编排、不承载时长。约束加在该字段上：
-    ``Literal[*supported_durations]`` 在 response_schema 里渲染为 ``enum``（单值时为 ``const``，LLM 可见）。
-    """
-    unit = _constrained_duration_item(
-        ReferenceVideoUnit,
-        _duration_literal(supported_durations),
-        "该 unit 的时长（秒），必须取 supported_durations 中的值",
-    )
-    return create_model(
-        "ReferenceVideoScript",
-        __base__=ReferenceVideoScript,
-        video_units=(list[unit], Field(description="视频单元列表")),
+        "ReferenceStep1FlatDraft",
+        __base__=ReferenceStep1FlatDraft,
+        units=(list[unit], Field(min_length=1, description="按叙事顺序排列的 unit 列表")),
     )

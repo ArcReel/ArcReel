@@ -2974,7 +2974,7 @@ async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monke
 
 
 def _rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = None):
-    """构造返回指定 units JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
+    """构造返回指定扁平 units JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
 
     class _FakeGenerator:
         async def generate(self, _request, project_name=None):
@@ -2995,10 +2995,30 @@ def _rv_generator_returning(units: list[dict], captured: dict[str, Any] | None =
     return fake_create
 
 
+_RV_NOVEL = "张三在村口等人"
+
+
 def _rv_source(fake_ctx: ToolContext) -> None:
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
-    (src / "episode_1.txt").write_text("张三在村口等人", encoding="utf-8")
+    (src / "episode_1.txt").write_text(_RV_NOVEL, encoding="utf-8")
+
+
+def _rv_unit(text: str, *, duration: int = 8, source_text: str = _RV_NOVEL) -> dict:
+    """step1 的 LLM 产出形状：一层扁平（时长 + 原文锚 + 书写层正文）。"""
+    return {"duration_seconds": duration, "source_text": source_text, "text": text}
+
+
+def _rv_step1_path(fake_ctx: ToolContext):
+    return fake_ctx.project_path / "drafts" / "episode_1" / "step1_reference_units.json"
+
+
+async def _run_rv_split(fake_ctx: ToolContext, monkeypatch, units: list[dict], **caps_kwargs) -> dict:
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps(**caps_kwargs))
+    monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))
+    return await _call(split_reference_video_units_tool(fake_ctx), {"episode": 1})
 
 
 async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -3012,141 +3032,158 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext, monkey
     assert out.get("is_error") is not True, out
     prompt_text = out["content"][0]["text"]
     assert "DRY RUN" in prompt_text
-    # episode 注入 unit_id 前缀、资产候选与能力约束进 prompt
-    assert "E1U" in prompt_text
+    # 集号、资产候选与能力约束进 prompt；书写层语法规范随之注入
+    assert "第 1 集" in prompt_text
     assert "张三" in prompt_text
     assert "12 秒" in prompt_text
+    assert "镜头N：" in prompt_text
 
 
-async def test_split_reference_video_units_happy_derives_references(fake_ctx: ToolContext, monkeypatch) -> None:
-    """happy path：结构化 step1 落盘，references 从 shot 文本 @ 引用机械派生（并集、首现顺序）；
-    模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
+async def test_split_reference_video_units_happy_derives_structure(fake_ctx: ToolContext, monkeypatch) -> None:
+    """happy path：LLM 只写扁平正文，unit_id / shots / references 全部由工具机械派生后落盘。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _rv_source(fake_ctx)
     captured: dict[str, Any] = {}
-    units = [
-        {
-            "unit_id": "E1U01",
-            "duration_seconds": 8,
-            "shots": [
-                {"text": "@[张三] 走向 @[村口]"},
-                {"text": "@[张三] 停下脚步"},
-            ],
-        }
-    ]
+    units = [_rv_unit("镜头1：@[张三] 走向 @[村口]\n镜头2：@[张三] 停下脚步")]
     monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps())
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units, captured))
 
-    tool_obj = split_reference_video_units_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1})
+    out = await _call(split_reference_video_units_tool(fake_ctx), {"episode": 1})
     assert out.get("is_error") is not True, out
 
-    step1_path = fake_ctx.project_path / "drafts" / "episode_1" / "step1_reference_units.json"
-    assert step1_path.exists()
-    saved = json.loads(step1_path.read_text(encoding="utf-8"))
-    assert saved["units"][0]["references"] == [
+    saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    unit = saved["units"][0]
+    assert unit["unit_id"] == "E1U01"
+    assert [s["text"] for s in unit["shots"]] == ["@[张三] 走向 @[村口]", "@[张三] 停下脚步"]
+    assert unit["references"] == [
         {"type": "character", "name": "张三"},
         {"type": "scene", "name": "村口"},
     ]
+    assert unit["source_text"] == _RV_NOVEL
     assert captured["task_type"] is mod.TextTaskType.SCRIPT
     assert captured["create_project_name"] == "demo"
     assert captured["generate_project_name"] == "demo"
 
 
-async def test_split_reference_video_units_rejects_unregistered_asset(fake_ctx: ToolContext, monkeypatch) -> None:
-    """shot 文本引用未登记资产名 → fail-loud，不写盘（资产名引用完整性）。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
+async def test_split_reference_video_units_numbers_unit_ids_by_order(fake_ctx: ToolContext, monkeypatch) -> None:
+    """unit_id 按数组序号机械编号：LLM 不写 id，也就不存在重复 / 错集号可写。"""
     _rv_source(fake_ctx)
-    units = [{"unit_id": "E1U01", "duration_seconds": 4, "shots": [{"text": "@[不存在的人] 出场"}]}]
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps())
-    monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))
+    units = [_rv_unit("镜头1：@[张三] 起身"), _rv_unit("镜头1：@[张三] 出门")]
+    out = await _run_rv_split(fake_ctx, monkeypatch, units)
+    assert out.get("is_error") is not True, out
+    saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    assert [u["unit_id"] for u in saved["units"]] == ["E1U01", "E1U02"]
 
-    tool_obj = split_reference_video_units_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1})
+
+async def test_split_reference_video_units_derives_dialogue_without_reference_image(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """规范台词行的说话人位不进参考图（画外说话的角色附参考图会诱导入画）。"""
+    _rv_source(fake_ctx)
+    units = [_rv_unit("镜头1：门开了\n@[张三]：{我来了。}")]
+    out = await _run_rv_split(fake_ctx, monkeypatch, units)
+    assert out.get("is_error") is not True, out
+    saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    assert saved["units"][0]["references"] == []
+
+
+async def test_split_reference_video_units_rejects_unregistered_asset(fake_ctx: ToolContext, monkeypatch) -> None:
+    """正文引用未登记资产名 → fail-loud，不写盘（资产名引用完整性）。"""
+    _rv_source(fake_ctx)
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
     assert out.get("is_error") is True
     assert "未登记" in out["content"][0]["text"]
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_reference_units.json").exists()
+    assert not _rv_step1_path(fake_ctx).exists()
+
+
+async def test_split_reference_video_units_rejects_unregistered_speaker(fake_ctx: ToolContext, monkeypatch) -> None:
+    """说话人位未登记同样阻断：说话人决定该句台词绑哪段参考音频。"""
+    _rv_source(fake_ctx)
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：门开了\n@[无名氏]：{我来了。}")])
+    assert out.get("is_error") is True
+    assert "说话人未登记" in out["content"][0]["text"]
+    assert not _rv_step1_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_rejects_over_max_refs(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
     _rv_source(fake_ctx)
-    units = [{"unit_id": "E1U01", "duration_seconds": 4, "shots": [{"text": "@[张三] 与 @[李四] 在 @[村口]"}]}]
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps(max_refs=2))
-    monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))
-
-    tool_obj = split_reference_video_units_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1})
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 与 @[李四] 在 @[村口]")], max_refs=2)
     assert out.get("is_error") is True
     assert "references" in out["content"][0]["text"]
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_reference_units.json").exists()
+    assert not _rv_step1_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_rejects_over_max_duration(fake_ctx: ToolContext, monkeypatch) -> None:
     """unit 时长是枚举成员但超单次生成上限（能力声明与联动约束不一致时）→ 工具后校验 fail-loud。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
     _rv_source(fake_ctx)
-    units = [
-        {
-            "unit_id": "E1U01",
-            "duration_seconds": 8,
-            "shots": [{"text": "@[张三] 起身"}, {"text": "@[张三] 出门"}],
-        }
-    ]
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps(max_duration=6))
-    monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))
-
-    tool_obj = split_reference_video_units_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1})
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 起身")], max_duration=6)
     assert out.get("is_error") is True
     assert "超过单次生成上限" in out["content"][0]["text"]
+    assert not _rv_step1_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:
     """本地校验复用动态 schema：超出 supported_durations 的 unit 时长被拦截，不落盘。"""
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
     _rv_source(fake_ctx)
-    units = [{"unit_id": "E1U01", "duration_seconds": 5, "shots": [{"text": "@[张三] 起身"}]}]
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps())
-    monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))
-
-    tool_obj = split_reference_video_units_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1})
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 起身", duration=5)])
     assert out.get("is_error") is True
     assert "step1 拆分内容结构校验失败" in out["content"][0]["text"]
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_reference_units.json").exists()
+    assert not _rv_step1_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_rejects_empty_units(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
     _rv_source(fake_ctx)
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps())
-    monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning([]))
-
-    tool_obj = split_reference_video_units_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1})
+    out = await _run_rv_split(fake_ctx, monkeypatch, [])
     assert out.get("is_error") is True
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_reference_units.json").exists()
+    assert not _rv_step1_path(fake_ctx).exists()
 
 
-async def test_split_reference_video_units_rejects_duplicate_unit_ids(fake_ctx: ToolContext, monkeypatch) -> None:
-    from server.agent_runtime.sdk_tools import text_generation as mod
-
+async def test_split_reference_video_units_rejects_non_verbatim_source_text(fake_ctx: ToolContext, monkeypatch) -> None:
+    """source_text 非源文逐字子串 → 响亮失败（模型转述 / 杜撰原文）。"""
     _rv_source(fake_ctx)
-    unit = {"unit_id": "E1U01", "duration_seconds": 4, "shots": [{"text": "@[张三] 起身"}]}
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps())
-    monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning([unit, dict(unit)]))
-
-    tool_obj = split_reference_video_units_tool(fake_ctx)
-    out = await _call(tool_obj, {"episode": 1})
+    units = [_rv_unit("镜头1：@[张三] 起身", source_text="张三在城里等人")]
+    out = await _run_rv_split(fake_ctx, monkeypatch, units)
     assert out.get("is_error") is True
-    assert "unit_id 重复" in out["content"][0]["text"]
+    assert "不是小说原文的逐字片段" in out["content"][0]["text"]
+    assert not _rv_step1_path(fake_ctx).exists()
+
+
+async def test_split_reference_video_units_accepts_source_text_substring(fake_ctx: ToolContext, monkeypatch) -> None:
+    """锚只需是源文子串：unit 是画面单元，不必覆盖整段原文。"""
+    _rv_source(fake_ctx)
+    units = [_rv_unit("镜头1：@[张三] 起身", source_text="张三在村口")]
+    out = await _run_rv_split(fake_ctx, monkeypatch, units)
+    assert out.get("is_error") is not True, out
+
+
+async def test_split_reference_video_units_rejects_dialogue_overload(fake_ctx: ToolContext, monkeypatch) -> None:
+    """台词量按语速估算超过 unit 时长（宽容系数外）→ 阻断。"""
+    _rv_source(fake_ctx)
+    long_line = "这是一段非常长的台词" * 6  # 60 字，zh 语速 5 字/秒 → 约 12 秒
+    units = [_rv_unit(f"镜头1：@[张三] 起身\n@[张三]：{{{long_line}}}", duration=4)]
+    out = await _run_rv_split(fake_ctx, monkeypatch, units)
+    assert out.get("is_error") is True
+    assert "超过该 unit" in out["content"][0]["text"]
+    assert not _rv_step1_path(fake_ctx).exists()
+
+
+async def test_split_reference_video_units_rejects_braces_in_description(fake_ctx: ToolContext, monkeypatch) -> None:
+    """描述行误用花括号保留语法 → 阻断（写在描述行里的台词不会被识别，须响亮失败）。"""
+    _rv_source(fake_ctx)
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 说 {我来了}，转身离开")])
+    assert out.get("is_error") is True
+    assert "花括号" in out["content"][0]["text"]
+    assert not _rv_step1_path(fake_ctx).exists()
+
+
+async def test_split_reference_video_units_rejects_too_many_shots(fake_ctx: ToolContext, monkeypatch) -> None:
+    _rv_source(fake_ctx)
+    text = "\n".join(f"镜头{i}：@[张三] 动作 {i}" for i in range(1, 6))
+    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit(text)])
+    assert out.get("is_error") is True
+    assert "超过单 unit 上限" in out["content"][0]["text"]
+    assert not _rv_step1_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_no_source(fake_ctx: ToolContext) -> None:

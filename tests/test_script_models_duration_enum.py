@@ -10,7 +10,6 @@ from pydantic import BaseModel, ValidationError
 from lib.script_models import (
     build_ad_reference_episode_script_model,
     build_episode_script_model,
-    build_reference_video_script_model,
 )
 
 
@@ -183,49 +182,6 @@ class TestConstrainedValidation:
         assert validated.shots[0].duration_seconds == 6
 
 
-class TestReferenceVideoModel:
-    """参考视频模式：约束的是 unit 时长——一次生成调用一个时长，镜头不承载时长。"""
-
-    def _unit_payload(self, *, shot_count: int, total: int) -> dict:
-        return {
-            "title": "第一集",
-            "video_units": [
-                {
-                    "unit_id": "E1U01",
-                    "shots": [{"text": f"@甲 动作 {i}"} for i in range(shot_count)],
-                    "references": [{"type": "character", "name": "甲"}],
-                    "duration_seconds": total,
-                }
-            ],
-        }
-
-    def test_unit_duration_rendered_as_enum(self):
-        model = build_reference_video_script_model([4, 6, 8])
-        schema = model.model_json_schema()
-        unit_def = next(d for d in schema["$defs"].values() if "shots" in d.get("properties", {}))
-        assert unit_def["properties"]["duration_seconds"].get("enum") == [4, 6, 8]
-
-    def test_member_duration_accepted(self):
-        model = build_reference_video_script_model([4, 6, 8])
-        validated = model.model_validate(self._unit_payload(shot_count=2, total=8))
-        assert validated.video_units[0].duration_seconds == 8
-
-    def test_out_of_set_duration_rejected(self):
-        model = build_reference_video_script_model([4, 6, 8])
-        with pytest.raises(ValidationError):
-            model.model_validate(self._unit_payload(shot_count=2, total=7))
-
-    def test_duration_independent_of_shot_count(self):
-        """镜头数不再影响 unit 时长：单镜头也能取任一档位。"""
-        model = build_reference_video_script_model([4, 6, 8])
-        validated = model.model_validate(self._unit_payload(shot_count=1, total=8))
-        assert validated.video_units[0].duration_seconds == 8
-
-    def test_empty_supported_durations_raises(self):
-        with pytest.raises(ValueError):
-            build_reference_video_script_model([])
-
-
 class TestAdReferenceModel:
     """ad + reference_video 路径：镜头时长 1-15 自由整数（非 supported_durations 枚举）。"""
 
@@ -272,45 +228,39 @@ class TestAdReferenceModel:
 
 
 class TestReferenceUnitsStep1Model:
-    """build_reference_units_step1_model：unit 时长枚举硬约束 + references 对 LLM 隐藏。"""
+    """build_reference_units_step1_model：扁平产出 + unit 时长枚举硬约束。"""
 
     def _model(self):
         from lib.script_models import build_reference_units_step1_model
 
         return build_reference_units_step1_model([4, 6, 8])
 
-    def test_unit_duration_rendered_as_enum_and_references_hidden(self):
-        schema = self._model().model_json_schema()
-        defs = schema.get("$defs", {})
-        unit_def = next(d for d in defs.values() if "shots" in d.get("properties", {}))
-        assert unit_def["properties"]["duration_seconds"]["enum"] == [4, 6, 8]
-        # references 由拆分工具机械派生，不进 LLM 输出 schema
-        assert "references" not in unit_def["properties"]
-        # 镜头不承载时长
-        shot_def = next(d for d in defs.values() if "text" in d.get("properties", {}))
-        assert "duration" not in shot_def["properties"]
+    def _unit(self, **overrides) -> dict:
+        unit = {"duration_seconds": 6, "source_text": "他起身。", "text": "镜头1：@[甲] 起身"}
+        unit.update(overrides)
+        return unit
 
-    def test_member_duration_accepted_and_defaults_filled(self):
-        draft = self._model().model_validate(
-            {"units": [{"unit_id": "E1U01", "shots": [{"text": "@[甲] 起身"}], "duration_seconds": 6}]}
-        )
-        dumped = draft.model_dump()
-        assert dumped["units"][0]["references"] == []
-        assert dumped["units"][0]["duration_seconds"] == 6
+    def test_flat_shape_with_duration_enum(self):
+        schema = self._model().model_json_schema()
+        unit_def = next(d for d in schema.get("$defs", {}).values() if "text" in d.get("properties", {}))
+        assert unit_def["properties"]["duration_seconds"]["enum"] == [4, 6, 8]
+        # 机械可派生的字段一律不进 LLM 输出 schema
+        assert set(unit_def["properties"]) == {"duration_seconds", "source_text", "text"}
+
+    def test_member_duration_accepted(self):
+        draft = self._model().model_validate({"units": [self._unit()]})
+        assert draft.model_dump()["units"][0]["duration_seconds"] == 6
 
     def test_out_of_set_duration_rejected(self):
-        import pytest as _pytest
-        from pydantic import ValidationError as _VE
+        with pytest.raises(ValidationError):
+            self._model().model_validate({"units": [self._unit(duration_seconds=5)]})
 
-        with _pytest.raises(_VE):
-            self._model().model_validate(
-                {"units": [{"unit_id": "E1U01", "shots": [{"text": "x"}], "duration_seconds": 5}]}
-            )
+    def test_empty_units_rejected(self):
+        with pytest.raises(ValidationError):
+            self._model().model_validate({"units": []})
 
-    def test_more_than_four_shots_rejected(self):
-        import pytest as _pytest
-        from pydantic import ValidationError as _VE
-
-        shots = [{"text": f"s{i}"} for i in range(5)]
-        with _pytest.raises(_VE):
-            self._model().model_validate({"units": [{"unit_id": "E1U01", "shots": shots, "duration_seconds": 4}]})
+    def test_blank_required_text_rejected(self):
+        with pytest.raises(ValidationError):
+            self._model().model_validate({"units": [self._unit(text="")]})
+        with pytest.raises(ValidationError):
+            self._model().model_validate({"units": [self._unit(source_text="")]})

@@ -28,7 +28,7 @@ def _strip_bom(text: str) -> str:
     """去掉文本中全部 U+FEFF。
 
     不止文档开头：粘贴拼接会把 BOM 带到任意行首，而分叉是按行发生的。故归一落在三个
-    行级原语（``_strip_shot_header`` / ``match_dialogue_line`` / ``match_voiceover_line``）
+    行级原语（``strip_shot_header`` / ``match_dialogue_line`` / ``match_voiceover_line``）
     上——它们各自与前端同名函数互为镜像，单独调用时也须同判；``parse_prompt`` 另做一次
     整体归一，让派生出的 shot 文本本身不带 BOM（它会进预览显示与后端渲染）。
     """
@@ -96,7 +96,7 @@ def _iter_mentions(text: str) -> Iterator[tuple[int, int, str]]:
         i += 1
 
 
-def _strip_shot_header(line: str) -> str:
+def strip_shot_header(line: str) -> str:
     """去掉行首的 ``镜头N：`` header，返回 header 之后的正文；无 header 时原样返回。"""
     m = _SHOT_HEADER_RE.match(_strip_bom(line).strip())
     return m.group(1).lstrip() if m else line
@@ -126,6 +126,51 @@ def match_dialogue_line(line: str) -> tuple[str, str] | None:
     if spoken is None or not speaker.strip():
         return None
     return speaker, spoken
+
+
+def leading_mention_before_colon(line: str) -> str | None:
+    """行首为 ``@[名称]：`` 形态时返回该名称，否则返回 ``None``（只看名称与冒号，不判花括号）。
+
+    ``match_dialogue_line`` 是「整行合规才算台词」的严判，两者之差即「本想写台词但写坏了」：
+    漏花括号、花括号不整体包裹、说话人位空白。机器产物校验据此把这类行判违约，而不是让它
+    以画面描述的身份放行（说话人会被派生成参考图、台词则整句消失）。返回名称而不是布尔，
+    是因为这一形态还要看名称是不是角色——场景 / 道具做小标题（``@[酒馆]：木门被风吹开``）
+    是合法的画面描述写法，不能与漏花括号的台词混为一谈。
+    """
+    stripped = _strip_bom(line).strip()
+    if not stripped.startswith("@"):
+        return None
+    first = next(_iter_mentions(stripped), None)
+    if first is None or first[0] != 0:
+        return None
+    rest = stripped[first[1] :].lstrip()
+    if not rest or rest[0] not in "：:":
+        return None
+    return first[2]
+
+
+def find_malformed_mention(line: str) -> str | None:
+    """返回行内首个写坏的 ``@[`` 引用片段（如 ``@[李明`` / ``@[]``）；没有则返回 ``None``。
+
+    ``_iter_mentions`` 对这类 token 静默不产出 mention，正文里的坏 token 因此既不进
+    references，又会被 ``render_mentions_as_subjects`` 原样带进供应商请求（它只替换认得的
+    mention、从不删字）。左侧是 ASCII 词字符时按邮箱 / id 片段跳过，与 ``_iter_mentions`` 同口径。
+
+    全角形（``＠[李明]`` / ``@［李明］``）一并算坏 token：中文输入法下模型很容易写出，而语法只认
+    半角，静默放行的后果同样是那张参考图从视频请求里消失。
+    """
+    text = _strip_bom(line)
+    for index, char in enumerate(text):
+        if char == "＠" or (char == "@" and text[index + 1 : index + 2] == "［"):
+            return text[index : index + 20]
+    starts = {start for start, _end, _name in _iter_mentions(text)}
+    for index in range(len(text) - 1):
+        if text[index] != "@" or text[index + 1] != "[" or index in starts:
+            continue
+        if index > 0 and _is_ascii_word_char(text[index - 1]):
+            continue
+        return text[index : index + 20]
+    return None
 
 
 def match_voiceover_line(line: str) -> str | None:
@@ -192,6 +237,22 @@ def parse_prompt(text: str) -> tuple[list[Shot], list[str]]:
     return [Shot(text=t) for t in segments], extract_mentions(text)
 
 
+def render_shots_text(shots: list[Any]) -> str:
+    """``parse_prompt`` 的逆向：把 shots 还原为带 ``镜头N：`` header 的书写层正文。
+
+    落盘的 step1 / 剧本只存切分后的 shots，而 step2 的 prompt 输入、保结构 diff 的比对项
+    都是书写层正文；缺这个逆向，``assemble_shots_text`` 的裸拼接会丢掉 header，再解析回来
+    整个 unit 塌成一个镜头。镜头正文可跨多行（台词行在描述行之下），故 header 只加在首行。
+    """
+    blocks: list[str] = []
+    for index, shot in enumerate(shots, start=1):
+        text = shot.get("text") if isinstance(shot, dict) else getattr(shot, "text", None)
+        body = text if isinstance(text, str) else ""
+        head, _, rest = body.partition("\n")
+        blocks.append(f"镜头{index}：{head}" + (f"\n{rest}" if rest else ""))
+    return "\n".join(blocks)
+
+
 def extract_mentions(text: str) -> list[str]:
     """提取文本中的 @ 引用名（保持首次出现顺序、去重）。
 
@@ -209,7 +270,7 @@ def extract_mentions(text: str) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
     for line in text.splitlines():
-        if match_dialogue_line(_strip_shot_header(line)) is not None:
+        if match_dialogue_line(strip_shot_header(line)) is not None:
             continue
         for _start, _end, name in _iter_mentions(line):
             if name not in seen:
@@ -293,7 +354,7 @@ def assemble_shots_text_for_render(shots: list[Any]) -> str:
         text = s.get("text")
         text = text if isinstance(text, str) else ""
         lines = text.split("\n") if text else [""]
-        lines[0] = _strip_shot_header(lines[0])
+        lines[0] = strip_shot_header(lines[0])
         parts.append(f"镜头{i}：" + "\n".join(lines))
     return "\n".join(parts)
 
