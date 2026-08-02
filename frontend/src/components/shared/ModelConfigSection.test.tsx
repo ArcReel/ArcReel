@@ -87,6 +87,7 @@ describe("ModelConfigSection", () => {
     const user = userEvent.setup();
     render(
       <ModelConfigSection
+        showSubFields={false}
         value={EMPTY_VALUE}
         onChange={() => {}}
         providers={PROVIDERS}
@@ -101,7 +102,7 @@ describe("ModelConfigSection", () => {
         }}
       />,
     );
-    // 不传 candidates（创建向导路径）时只剩三个默认层主下拉：video + image + text
+    // 创建向导路径只剩三个默认层主下拉：video + image + text
     const comboboxes = screen.getAllByRole("combobox");
     expect(comboboxes).toHaveLength(3);
     expect(screen.queryByText("按用途指定模型")).not.toBeInTheDocument();
@@ -111,6 +112,24 @@ describe("ModelConfigSection", () => {
     expect(screen.getByRole("option", { name: /使用全局默认/ })).toBeInTheDocument();
     // Close by clicking again
     await user.click(comboboxes[0]);
+  });
+
+  it("keeps text tiers when media candidates are unavailable", () => {
+    // 候选接口失败时调用方传入 candidates=null；文本档位不取用该数据，不应随之消失
+    const { container } = render(
+      <ModelConfigSection
+        candidates={null}
+        value={EMPTY_VALUE}
+        onChange={() => {}}
+        providers={PROVIDERS}
+        options={OPTIONS}
+        globalDefaults={{ ...EMPTY_GLOBALS, textDefault: "gemini/g25" }}
+      />,
+    );
+    expect(screen.getByRole("combobox", { name: "简单任务" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "复杂任务" })).toBeInTheDocument();
+    // 只剩文本这一个折叠区，视频/图片细分因无候选数据而不渲染
+    expect(container.querySelectorAll("details")).toHaveLength(1);
   });
 
   describe("按用途指定模型（项目层）", () => {

@@ -377,6 +377,50 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     });
   });
 
+  it("reads and writes the image resolution under the same default-layer key", async () => {
+    // 项目默认层与 T2I 槽指向不同模型：分辨率挂在默认层模型上，读写须同 key，
+    // 否则用户改完保存、重载后读回的仍是旧值。
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...FAKE_CONFIG_WITH_DEFAULTS,
+    } as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        video_backend: "gemini/veo-3",
+        default_image_backend: "gemini/nano-banana",
+        image_provider_t2i: "openai/gpt-image",
+        model_settings: {
+          "gemini/nano-banana": { resolution: "1080p" },
+          "openai/gpt-image": { resolution: "720p" },
+        },
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+    await screen.findByRole("radio", { name: /竖屏 9:16/ });
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        "demo",
+        expect.objectContaining({
+          model_settings: expect.objectContaining({
+            // 读到的是默认层模型的 1080p，写回的也是同一个 key
+            "gemini/nano-banana": expect.objectContaining({ resolution: "1080p" }),
+          }),
+        }),
+      );
+    });
+  });
+
   it("saves resolution changes via updateProject with model_settings", async () => {
     vi.spyOn(API, "getSystemConfig").mockResolvedValue({
       ...FAKE_CONFIG_WITH_DEFAULTS,

@@ -248,15 +248,17 @@ export function ProjectSettingsPage() {
       setProjectTitle(typeof project.title === "string" ? project.title : "");
       setContentMode(typeof project.content_mode === "string" ? project.content_mode : "narration");
 
-      // model_settings 的 key 以 effective backend（override ‖ global default）读写，
-      // 与 handleSave 保持一致；legacy video_model_settings 作为旧项目兼容回退。
+      // model_settings 的 key 以默认层 effective backend（项目默认 ‖ 全局默认）读写，与
+      // handleSave 一字不差——界面上分辨率就挂在默认主下拉之下。读侧另有两条兼容回退：
+      // 图片回落到旧的 T2I 槽 key，视频回落到 legacy video_model_settings，
+      // 覆盖默认层落库前存量项目按细分槽模型存过分辨率的情形。
       const defaultVideo = configRes.settings?.default_video_backend ?? "";
-      const defaultImageT2I =
-        configRes.settings?.default_image_backend_t2i ||
-        configRes.settings?.default_image_backend ||
-        "";
+      const defaultImage = configRes.settings?.default_image_backend ?? "";
+      const legacyDefaultImageT2I =
+        configRes.settings?.default_image_backend_t2i || configRes.settings?.default_image_backend || "";
       const effectiveVb = vb || defaultVideo;
-      const effectiveIb = ibt2i || defaultImageT2I; // T2I treated as canonical for resolution
+      const effectiveIb = ibDefault || defaultImage;
+      const legacyIb = ibt2i || legacyDefaultImageT2I;
       const ms = (project.model_settings ?? {}) as Record<string, { resolution: string | null }>;
       const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
       const vModelId = effectiveVb && effectiveVb.includes("/") ? effectiveVb.split("/")[1] : effectiveVb;
@@ -264,7 +266,10 @@ export function ProjectSettingsPage() {
         (effectiveVb ? (ms[effectiveVb]?.resolution ?? null) : null) ||
         (vModelId ? (legacyVideo[vModelId]?.resolution ?? null) : null) ||
         null;
-      const iRes = effectiveIb ? (ms[effectiveIb]?.resolution ?? null) : null;
+      const iRes: string | null =
+        (effectiveIb ? (ms[effectiveIb]?.resolution ?? null) : null) ||
+        (legacyIb ? (ms[legacyIb]?.resolution ?? null) : null) ||
+        null;
       setVideoResolution(vRes);
       setImageResolution(iRes);
       setModelSettings(ms);

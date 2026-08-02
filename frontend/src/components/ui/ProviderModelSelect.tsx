@@ -85,7 +85,7 @@ export function ProviderModelSelect({
   const { t } = useTranslation("dashboard");
   const resolvedPlaceholder = placeholder ?? t("select_model_placeholder");
   // Per-instance ARIA id prefix — without this, multiple ProviderModelSelect
-  // instances on the same page (e.g. ImageModelDualSelect's T2I/I2I dual slots)
+  // instances on the same page (e.g. LayeredModelFields' default + sub-field slots)
   // would all share the same listbox/option ids, breaking aria-controls and
   // aria-activedescendant relationships for screen readers.
   const reactId = useId();

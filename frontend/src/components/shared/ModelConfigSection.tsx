@@ -57,8 +57,13 @@ export interface ModelConfigSectionProps {
     providerNames: Record<string, string>;
   };
   /**
-   * 按用途细分项的候选（docs/adr/0054）。省略即不渲染「按用途指定模型」折叠区——
-   * 创建向导只暴露默认层，故不传。
+   * 是否呈现「按用途指定模型」这一层（媒体细分下拉与文本档位）。false 即只留默认层，
+   * 创建向导用它。与 candidates 分工：这里表达意图，candidates 只提供媒体细分的候选数据，
+   * 后者拉取失败时文本档位不受影响。
+   */
+  showSubFields?: boolean;
+  /**
+   * 媒体细分项的候选（docs/adr/0054）。缺席即渲染不出细分下拉，故连折叠区一并不渲染。
    */
   candidates?: ModelCandidatesResponse | null;
   providers: ProviderInfo[];
@@ -120,6 +125,7 @@ export function ModelConfigSection({
   onChange,
   projectName,
   options,
+  showSubFields = true,
   candidates,
   providers,
   customProviders = EMPTY_CUSTOM_PROVIDERS,
@@ -150,14 +156,14 @@ export function ModelConfigSection({
   const effectiveImageBackend = value.imageBackendDefault || globalDefaults.image || "";
 
   // 穿透演算（docs/adr/0054，项目优先）：细分项留空 → 项目默认模型 → 全局同名细分 → 全局默认模型。
-  // 候选缺席即创建向导，不渲染细分区。
-  const videoSubFields: LayeredSubField[] | undefined = candidates
+  const mediaCandidates = showSubFields ? candidates : null;
+  const videoSubFields: LayeredSubField[] | undefined = mediaCandidates
     ? [
         {
           key: "i2v",
           ...bucketLabels.i2v,
           value: value.videoProviderI2V,
-          options: candidates.video.buckets.i2v ?? [],
+          options: mediaCandidates.video.buckets.i2v ?? [],
           effective: effectiveModel(value.videoBackend, globalDefaults.videoI2V, globalDefaults.video),
           onChange: (next: string) => onChange({ ...value, videoProviderI2V: next }),
         },
@@ -165,20 +171,20 @@ export function ModelConfigSection({
           key: "r2v",
           ...bucketLabels.r2v,
           value: value.videoProviderR2V,
-          options: candidates.video.buckets.r2v ?? [],
+          options: mediaCandidates.video.buckets.r2v ?? [],
           effective: effectiveModel(value.videoBackend, globalDefaults.videoR2V, globalDefaults.video),
           onChange: (next: string) => onChange({ ...value, videoProviderR2V: next }),
         },
       ]
     : undefined;
 
-  const imageSubFields: LayeredSubField[] | undefined = candidates
+  const imageSubFields: LayeredSubField[] | undefined = mediaCandidates
     ? [
         {
           key: "t2i",
           ...bucketLabels.t2i,
           value: value.imageBackendT2I,
-          options: candidates.image.buckets.t2i ?? [],
+          options: mediaCandidates.image.buckets.t2i ?? [],
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageT2I, globalDefaults.image),
           onChange: (next: string) => onChange({ ...value, imageBackendT2I: next }),
         },
@@ -186,7 +192,7 @@ export function ModelConfigSection({
           key: "i2i",
           ...bucketLabels.i2i,
           value: value.imageBackendI2I,
-          options: candidates.image.buckets.i2i ?? [],
+          options: mediaCandidates.image.buckets.i2i ?? [],
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageI2I, globalDefaults.image),
           onChange: (next: string) => onChange({ ...value, imageBackendI2I: next }),
         },
@@ -465,7 +471,7 @@ export function ModelConfigSection({
                 globalDefaults.textDefault,
               ),
             }}
-            showTiers={!!candidates}
+            showTiers={showSubFields}
           />
         </ChannelCard>
       )}

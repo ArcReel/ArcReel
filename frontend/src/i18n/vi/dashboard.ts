@@ -322,8 +322,6 @@ export default {
   'generate_audio': 'Tạo âm thanh',
   'audio_support_hint': '(Chỉ một số nhà cung cấp hỗ trợ)',
   'default_image_model': 'Mô hình ảnh mặc định',
-  'image_model_t2i': 'Text-to-Image (T2I)',
-  'image_model_i2i': 'Image-to-Image (I2I)',
   'no_image_providers_hint': 'Không có nhà cung cấp ảnh khả dụng, vui lòng cấu hình khóa API tại "Nhà cung cấp" trước.',
   'text_models': 'Mô hình văn bản',
   'text_models_desc': 'Cấu hình mô hình văn bản theo bậc tác vụ; để trống để quay về mô hình mặc định.',
