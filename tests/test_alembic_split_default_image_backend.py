@@ -12,6 +12,9 @@ from alembic import command
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+# 本文件只覆盖拆分迁移本身，停在该 revision——后续 revision 会把两桶重新收敛回默认层。
+_SPLIT_REVISION = "5b87accc10dd"
+
 
 @pytest.fixture
 def alembic_cfg(tmp_path, monkeypatch):
@@ -49,7 +52,7 @@ def test_upgrade_copies_legacy_setting_to_two_new_keys(alembic_cfg):
             )
         )
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, _SPLIT_REVISION)
 
     with engine.connect() as conn:
         rows = conn.execute(
@@ -79,7 +82,7 @@ def test_upgrade_preserves_already_set_new_keys(alembic_cfg):
             )
         )
 
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, _SPLIT_REVISION)
 
     with engine.connect() as conn:
         rows = conn.execute(
@@ -98,7 +101,7 @@ def test_upgrade_preserves_already_set_new_keys(alembic_cfg):
 def test_upgrade_no_op_when_no_legacy(alembic_cfg):
     """前置：未写入旧 default_image_backend；迁移应无副作用。"""
     cfg, db_path = alembic_cfg
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, _SPLIT_REVISION)
 
     engine = _sync_engine(db_path)
     with engine.connect() as conn:
@@ -113,7 +116,7 @@ def test_upgrade_no_op_when_no_legacy(alembic_cfg):
 
 def test_downgrade_drops_only_new_keys(alembic_cfg):
     cfg, db_path = alembic_cfg
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, _SPLIT_REVISION)
 
     engine = _sync_engine(db_path)
     with engine.begin() as conn:

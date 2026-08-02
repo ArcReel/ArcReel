@@ -52,9 +52,6 @@ class _FakeConfigService:
     async def get_default_video_backend(self) -> tuple[str, str]:
         return ("gemini-aistudio", "veo-3.1-fast-generate-preview")
 
-    async def get_default_image_backend(self) -> tuple[str, str]:
-        return ("gemini-aistudio", "gemini-3.1-flash-image-preview")
-
     async def get_provider_config(self, provider: str) -> dict[str, str]:
         return {"api_key": f"key-{provider}"}
 
@@ -204,8 +201,9 @@ class TestDefaultBackends:
         finally:
             await engine.dispose()
 
-    async def test_default_image_backend_t2i_reads_dedicated_setting(self):
-        """新 setting key default_image_backend_t2i 优先于旧 default_image_backend。"""
+    @pytest.mark.unit
+    async def test_default_image_backend_t2i_bucket_overrides_default_layer(self):
+        """全局桶 default_image_backend_t2i 覆盖全局默认层 default_image_backend。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(
             settings={
@@ -216,8 +214,9 @@ class TestDefaultBackends:
         result = await resolver._resolve_default_image_backend(fake_svc, None, "t2i")
         assert result == ("ark", "stable-diffusion-3")
 
-    async def test_default_image_backend_t2i_falls_back_to_legacy(self):
-        """只设旧 default_image_backend，新 _t2i 未设时回退到旧值。"""
+    @pytest.mark.unit
+    async def test_default_image_backend_t2i_falls_back_to_default_layer(self):
+        """只设默认层 default_image_backend、t2i 桶未配时回退到默认层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(
             settings={"default_image_backend": "grok/grok-2-image"},
@@ -225,8 +224,9 @@ class TestDefaultBackends:
         result = await resolver._resolve_default_image_backend(fake_svc, None, "t2i")
         assert result == ("grok", "grok-2-image")
 
-    async def test_default_image_backend_i2i_reads_dedicated_setting(self):
-        """对称测试 i2i：新 key default_image_backend_i2i 优先于旧 default_image_backend。"""
+    @pytest.mark.unit
+    async def test_default_image_backend_i2i_bucket_overrides_default_layer(self):
+        """对称测试 i2i：全局桶覆盖全局默认层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(
             settings={
@@ -237,8 +237,9 @@ class TestDefaultBackends:
         result = await resolver._resolve_default_image_backend(fake_svc, None, "i2i")
         assert result == ("ark", "kolors-img2img")
 
-    async def test_default_image_backend_i2i_falls_back_to_legacy(self):
-        """只设旧 default_image_backend，_i2i 未设时回退到旧值。"""
+    @pytest.mark.unit
+    async def test_default_image_backend_i2i_falls_back_to_default_layer(self):
+        """只设默认层 default_image_backend、i2i 桶未配时回退到默认层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(
             settings={"default_image_backend": "grok/grok-2-image"},
@@ -246,12 +247,13 @@ class TestDefaultBackends:
         result = await resolver._resolve_default_image_backend(fake_svc, None, "i2i")
         assert result == ("grok", "grok-2-image")
 
-    async def test_default_image_backend_t2i_explicit_empty_does_not_fall_back(self):
-        """split key 显式置为空字符串时，不应回退到 legacy default_image_backend。
+    @pytest.mark.unit
+    @pytest.mark.parametrize("capability", ["t2i", "i2i"])
+    async def test_default_image_backend_empty_bucket_falls_back_to_default_layer(self, capability: str):
+        """桶键为空字符串时回退默认层（docs/adr/0054）。
 
-        语义锁：用户主动把 default_image_backend_t2i="" 表示「不设默认 / 自动选择」，
-        必须走 _auto_resolve_backend；这里 ready_providers=[] 让 auto 路径抛错，
-        以此区分"走了 auto 路径"（期望）和"被 legacy 静默回退"（被锁住的 bug）。
+        语义锁：桶是可选覆盖，空值不再表示「不设默认 / 自动选择」。ready_providers=[] 让
+        自动推断路径抛错，以此区分「回退到默认层」（期望）与「跳到自动推断」。
         """
         factory, engine = await _make_session()
         try:
@@ -259,33 +261,24 @@ class TestDefaultBackends:
             fake_svc = _FakeConfigService(
                 settings={
                     "default_image_backend": "grok/grok-2-image",
-                    "default_image_backend_t2i": "",
+                    f"default_image_backend_{capability}": "",
                 },
                 ready_providers=[],
             )
             async with factory() as session:
-                with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
-                    await resolver._resolve_default_image_backend(fake_svc, session, "t2i")
+                result = await resolver._resolve_default_image_backend(fake_svc, session, capability)
+            assert result == ("grok", "grok-2-image")
         finally:
             await engine.dispose()
 
-    async def test_default_image_backend_i2i_explicit_empty_does_not_fall_back(self):
-        """对称：default_image_backend_i2i="" 不应回退到 legacy。"""
-        factory, engine = await _make_session()
-        try:
-            resolver = ConfigResolver.__new__(ConfigResolver)
-            fake_svc = _FakeConfigService(
-                settings={
-                    "default_image_backend": "grok/grok-2-image",
-                    "default_image_backend_i2i": "",
-                },
-                ready_providers=[],
-            )
-            async with factory() as session:
-                with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
-                    await resolver._resolve_default_image_backend(fake_svc, session, "i2i")
-        finally:
-            await engine.dispose()
+    @pytest.mark.unit
+    @pytest.mark.parametrize("capability", ["t2i", "i2i"])
+    async def test_default_image_backend_only_default_layer_covers_all_buckets(self, capability: str):
+        """只配 default_image_backend、两个桶都不配时，全部图片路径解析到该默认模型。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend": "grok/grok-2-image"})
+        result = await resolver._resolve_default_image_backend(fake_svc, None, capability)
+        assert result == ("grok", "grok-2-image")
 
 
 class TestProviderConfig:
@@ -978,7 +971,7 @@ class TestVideoPricingGenerateAudio:
 
 
 class TestResolveImageBackend:
-    """resolve_image_backend：payload > project > 全局默认，capability=t2i/i2i 各覆盖。"""
+    """resolve_image_backend：payload > 项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。"""
 
     async def test_payload_capability_slot_wins(self):
         resolver = ConfigResolver.__new__(ConfigResolver)
@@ -1006,8 +999,50 @@ class TestResolveImageBackend:
         assert (t2i.provider_id, t2i.model_id) == ("ark", "proj-t2i")
         assert (i2i.provider_id, i2i.model_id) == ("ark", "proj-i2i")
 
+    @pytest.mark.unit
+    async def test_project_bucket_wins_over_project_default(self):
+        """项目桶优先于项目默认（default_image_backend）。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"image_provider_t2i": "ark/proj-t2i", "default_image_backend": "openai/proj-default"}
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "t2i")
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "proj-t2i")
+
+    @pytest.mark.unit
+    async def test_project_default_wins_over_global_layers(self):
+        """项目桶未配时落项目默认，遮蔽全局桶与全局默认。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={
+                "default_image_backend_t2i": "grok/global-t2i",
+                "default_image_backend": "grok/global-default",
+            }
+        )
+        project = {"default_image_backend": "openai/proj-default"}
+        for capability in ("t2i", "i2i"):
+            resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, capability)
+            assert (resolved.provider_id, resolved.model_id) == ("openai", "proj-default")
+
+    @pytest.mark.unit
+    async def test_empty_project_bucket_falls_through_to_project_default(self):
+        """项目桶为空字符串 → 回退项目默认，不跳过默认层。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"image_provider_i2i": "", "default_image_backend": "openai/proj-default"}
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, {}, "i2i")
+        assert (resolved.provider_id, resolved.model_id) == ("openai", "proj-default")
+
+    @pytest.mark.unit
+    async def test_only_global_default_covers_both_capabilities(self):
+        """只配全局默认层、两桶皆空 → t2i / i2i 都解析到该模型。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_image_backend": "grok/grok-2-image"})
+        for capability in ("t2i", "i2i"):
+            resolved = await resolver._resolve_image_provider_model(fake_svc, None, None, None, capability)
+            assert (resolved.provider_id, resolved.model_id) == ("grok", "grok-2-image")
+
     async def test_falls_through_to_global_default(self):
-        """payload/project 都缺 → 落到全局默认（显式 default_image_backend_t2i）。"""
+        """payload/project 都缺 → 落到全局桶（显式 default_image_backend_t2i）。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
         resolved = await resolver._resolve_image_provider_model(fake_svc, None, None, None, "t2i")
@@ -1068,8 +1103,8 @@ class TestResolveImageBackend:
 class TestLayeredBackendSkeleton:
     """「默认 + 能力桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
 
-    用带全部四层键位的合成声明直测骨架契约——图片键位不声明项目默认层，该层的行为
-    由此处锁定；媒体桶接入只补键位声明、不改骨架本身。
+    用带全部四层键位的合成声明直测骨架契约，与各媒体的具体键位无关；媒体桶接入只补
+    键位声明、不改骨架本身。
     """
 
     @staticmethod
@@ -1127,20 +1162,13 @@ class TestLayeredBackendSkeleton:
         result = await resolver._resolve_layered_backend(fake_svc, None, project, keys)
         assert result == ("g-def", "m")
 
-    async def test_empty_global_bucket_follows_default_when_enabled(self):
-        """开关为 True 时：全局桶键存在但为空 → 回退全局默认层。"""
+    @pytest.mark.unit
+    async def test_empty_global_bucket_follows_default(self):
+        """全局桶键存在但无有效值 → 回退全局默认层（docs/adr/0054）。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"global_bucket": "", "global_default": "g-def/m"})
         result = await resolver._resolve_layered_backend(fake_svc, None, None, self._keys())
         assert result == ("g-def", "m")
-
-    async def test_empty_global_bucket_authoritative_when_disabled(self):
-        """开关为 False 时：全局桶键存在但为空 = 显式清空 → 跳过全局默认直达自动推断。"""
-        resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={"global_bucket": "", "global_default": "g-def/m"})
-        keys = self._keys(empty_global_bucket_follows_default=False)
-        result = await resolver._resolve_layered_backend(fake_svc, None, None, keys)
-        assert result[0] == "gemini-aistudio"
 
     async def test_project_bare_provider_supported(self):
         """项目层兼容裸 provider 覆盖（补该 provider 默认 model），与既有图片/视频项目字段语义一致。"""
