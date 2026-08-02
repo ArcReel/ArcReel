@@ -752,3 +752,53 @@ class TestReferenceCompressionSeam:
         )
 
         assert backend.received_audio == [first, second]
+
+    async def test_reference_audio_total_duration_exceeded_raises_before_backend_call(self, tmp_path):
+        """caps 声明了总时长上限时，超限须在调 backend.generate（即付费请求）之前被拦截。"""
+        import shutil
+
+        if shutil.which("ffprobe") is None:
+            pytest.skip("ffprobe not available")
+
+        from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities, VideoCapabilityError
+        from tests.conftest import _wav_bytes
+
+        gen = _build_generator(tmp_path)
+
+        class _AudioDurationLimitedVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(
+                max_reference_images=9,
+                reference_audio_mode=ReferenceAudioMode.DIRECT,
+                max_reference_audio_count=3,
+                max_reference_audio_total_seconds=15.0,
+            )
+
+            def __init__(self):
+                self.called = False
+
+            async def generate(self, request):
+                self.called = True
+                raise AssertionError("超限请求不应到达 backend.generate")
+
+        backend = _AudioDurationLimitedVideoBackend()
+        gen._video_backend = backend
+
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
+        first = tmp_path / "alice.wav"
+        second = tmp_path / "bob.wav"
+        first.write_bytes(_wav_bytes(10))
+        second.write_bytes(_wav_bytes(10))
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="videos",
+                resource_id="E1S01",
+                reference_images=[ref],
+                reference_audio_files=[first, second],
+            )
+
+        assert exc.value.code == "video_reference_audio_duration_exceeded"
+        assert backend.called is False

@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from lib.image_backends.base import ImageBackend
     from lib.reference_compression import CompressedRef, PayloadLimits, ReferenceSpec
 
+from lib.audio_utils import probe_reference_audio_total_seconds
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import RateLimiter
 from lib.ledger import Ledger
@@ -621,6 +622,17 @@ class MediaGenerator:
             if needs_caps
             else None
         )
+        # 总时长校验需要读音频元数据，只能在这层（拿得到文件路径）探测好再传给纯函数的
+        # gate_video_request；探测失败（ffprobe 不可用等）按 None 传入，由其按既有降级口径跳过
+        # 该项校验，不阻断请求。仅当 caps 声明了总时长约束才探测——同一份「能力查询保持惰性」
+        # 原则，未声明该约束的后端（如 wan2.7）不必为每个请求多付一轮 ffprobe 子进程开销。
+        reference_audio_total_seconds = (
+            await probe_reference_audio_total_seconds(reference_audio_files)
+            if reference_audio_files
+            and video_caps is not None
+            and video_caps.max_reference_audio_total_seconds is not None
+            else None
+        )
         gate_video_request(
             caps=video_caps,
             provider=self._video_backend.name,
@@ -628,6 +640,7 @@ class MediaGenerator:
             end_image=end_image,
             reference_images=reference_images,
             reference_audio_files=reference_audio_files,
+            reference_audio_total_seconds=reference_audio_total_seconds,
         )
         slot_plan = plan_frame_slots(
             start_image=start_image,

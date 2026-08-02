@@ -82,6 +82,7 @@ def gate_video_request(
     end_image: Path | None = None,
     reference_images: "list[Path] | None" = None,
     reference_audio_files: "list[Path] | None" = None,
+    reference_audio_total_seconds: float | None = None,
 ) -> None:
     """统一的请求期能力前置校验：违约抛 ``VideoCapabilityError``，通过则静默返回。
 
@@ -93,6 +94,12 @@ def gate_video_request(
     ``caps`` 为 None 表示调用方未查询后端能力——三条路径都不走时能力声明不影响任何结果，
     调用方可省去这次查询。传 None 却带任一路径的输入一律按不支持拒绝，而不是放行：占位一份
     "支持"的假能力会让未经能力核实的请求下发出去，正是本函数要堵的降级。
+
+    ``reference_audio_total_seconds`` 是调用方前置探测好的多段参考音频总时长（秒），本函数
+    不做 I/O、不自行探测——探测需要读音频元数据，只能在能拿到文件的组装前置校验处完成
+    （见 :func:`lib.media_generator.MediaGenerator.generate_video_async`）。传 None 表示总时长
+    未知（探测失败/环境不支持），此时跳过总时长校验而不是当作超限拒绝——与本仓库 ffprobe
+    不可用时降级放行的既有口径一致。
 
     与 :func:`plan_frame_slots` 分离是有意的：校验会抛、组装是纯函数，两者调用时机不同——
     校验须先于记账括号（硬失败要不扣费、不留 failed ApiCall 行），组装则可在其后按需进行。
@@ -127,6 +134,20 @@ def gate_video_request(
                 model=model,
                 limit=audio_limit,
                 count=len(reference_audio_files),
+            )
+
+        total_limit = None if caps is None else caps.max_reference_audio_total_seconds
+        if (
+            total_limit is not None
+            and reference_audio_total_seconds is not None
+            and reference_audio_total_seconds > total_limit
+        ):
+            raise VideoCapabilityError(
+                "video_reference_audio_duration_exceeded",
+                provider=provider,
+                model=model,
+                limit=total_limit,
+                total=reference_audio_total_seconds,
             )
 
 

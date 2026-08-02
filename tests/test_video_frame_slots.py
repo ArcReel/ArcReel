@@ -18,6 +18,13 @@ CAPS_WITH_AUDIO = VideoCapabilities(
     reference_audio_mode=ReferenceAudioMode.DIRECT,
     max_reference_audio_count=3,
 )
+CAPS_WITH_AUDIO_DURATION_LIMIT = VideoCapabilities(
+    first_frame=True,
+    max_reference_images=4,
+    reference_audio_mode=ReferenceAudioMode.DIRECT,
+    max_reference_audio_count=3,
+    max_reference_audio_total_seconds=15.0,
+)
 
 
 def _gate(caps: VideoCapabilities | None, **kwargs):
@@ -208,6 +215,49 @@ class TestReferenceAudioGating:
     def test_empty_audio_list_passes_on_incapable_model(self):
         """空列表与 None 同义：没有音频诉求就不该被音频能力挡住。"""
         _gate(CAPS_WITH_LAST_FRAME, reference_audio_files=[])
+
+
+class TestReferenceAudioDurationGating:
+    def test_total_within_limit_passes(self):
+        _gate(
+            CAPS_WITH_AUDIO_DURATION_LIMIT,
+            reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+            reference_audio_total_seconds=14.9,
+        )
+
+    def test_total_at_limit_passes(self):
+        _gate(
+            CAPS_WITH_AUDIO_DURATION_LIMIT,
+            reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+            reference_audio_total_seconds=15.0,
+        )
+
+    def test_total_beyond_limit_raises(self):
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(
+                CAPS_WITH_AUDIO_DURATION_LIMIT,
+                reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+                reference_audio_total_seconds=15.1,
+            )
+
+        assert exc.value.code == "video_reference_audio_duration_exceeded"
+        assert exc.value.params == {"provider": "acme", "model": "acme-v1", "limit": 15.0, "total": 15.1}
+
+    def test_unknown_total_skips_check_even_when_limit_declared(self):
+        """探测失败（total=None）按仓库既有降级口径跳过校验，不当作超限拒绝。"""
+        _gate(
+            CAPS_WITH_AUDIO_DURATION_LIMIT,
+            reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+            reference_audio_total_seconds=None,
+        )
+
+    def test_no_declared_limit_skips_check_regardless_of_total(self):
+        """caps 未声明总时长约束（None）：即便传了很大的 total 也不拦——该维度对这个后端不适用。"""
+        _gate(
+            CAPS_WITH_AUDIO,
+            reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+            reference_audio_total_seconds=1000.0,
+        )
 
 
 class TestGateAndAssemblySeparation:
