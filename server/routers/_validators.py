@@ -3,17 +3,45 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Literal
 
 from fastapi import HTTPException
 
+from lib.api_errors import BadRequestError
 from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 from lib.i18n import _ as _default_translate
+
+
+async def require_video_bucket_capability(project: dict, capability: Literal["i2v", "r2v"]) -> None:
+    """视频生成入口预检：按能力桶解析全局 + 项目配置并过解析闸（``docs/adr/0054``）。
+
+    解析出的模型缺该桶所需能力、或配置引用已不可用（模型被删 / 能力被改 / 供应商被删）时抛
+    ``BadRequestError``（app 级 handler 本地化为 400），让用户在提交入口即看到修复指引，而不是
+    任务面板里的异步失败。worker 执行时仍经同一解析闸独立校验，预检失效不放行执行。其余解析
+    失败（如未配置任何供应商）沿用既有行为，留给 worker 在任务面板暴露。
+    """
+    from lib.db import async_session_factory
+
+    try:
+        await ConfigResolver(async_session_factory).resolve_video_backend(project, None, capability=capability)
+    except VideoBucketCapabilityError as exc:
+        raise BadRequestError(exc.code, **exc.params) from exc
+    except ValueError:
+        # 未配置任何供应商等其余解析失败：放行入队，由 worker 在任务面板暴露（与图片 / 视频
+        # 生成入口的既有行为一致，不把非能力类失败升级为提交期拒绝）
+        return
+
 
 # backend 字段名 → 期望 media_type，驱动 validate_backend_value 的档位/模型能力匹配校验。
 # 未登记的字段名视为不做该项校验（新增字段忘记登记时静默放行，而非误报）。
 _FIELD_MEDIA_TYPES: dict[str, str] = {
     "video_backend": "video",
+    "video_provider_i2v": "video",
+    "video_provider_r2v": "video",
     "default_video_backend": "video",
+    "default_video_backend_i2v": "video",
+    "default_video_backend_r2v": "video",
     "image_provider_t2i": "image",
     "image_provider_i2i": "image",
     "default_image_backend": "image",

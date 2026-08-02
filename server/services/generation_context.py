@@ -156,7 +156,14 @@ class ImageLaneRequest:
 
 @dataclass(frozen=True)
 class VideoLaneRequest:
-    """声明本次任务需要 video lane。"""
+    """声明本次任务需要 video lane。
+
+    ``capability`` 决定 i2v / r2v 能力桶（``docs/adr/0054``）：图生视频 / 宫格 → i2v，
+    参考生视频（含无参考图退化镜头）→ r2v。None = 不定桶，走旧三级解析且不过能力闸——
+    供 resume 等按 payload 排空、不承诺能力的路径使用。
+    """
+
+    capability: Literal["i2v", "r2v"] | None = None
 
 
 @dataclass(frozen=True)
@@ -310,7 +317,7 @@ async def resolve_generation_context(
             )
 
         if video is not None:
-            resolved = await r.resolve_video_backend(project, payload)
+            resolved = await r.resolve_video_backend(project, payload, capability=video.capability)
             video_backend = await _get_or_create_video_backend(
                 resolved.provider_id,
                 {},

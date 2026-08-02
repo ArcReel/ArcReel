@@ -59,6 +59,9 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     custom_pm = ProjectManager(projects_root)
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
+    # 视频桶预检需要 DB（system_settings）；router 单测无 DB，能力闸行为由
+    # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
+    monkeypatch.setattr(router_mod, "require_video_bucket_capability", AsyncMock(return_value=None))
 
     app = FastAPI()
     register_error_handlers(app)
@@ -283,6 +286,38 @@ def test_generate_unit_enqueues_task(client: TestClient, monkeypatch: pytest.Mon
     # 经统一守卫点构造：shots[*].text 拼接出的 prompt 随 payload 入队（见 ADR-0001）。
     # parse_prompt 已剥离 `Shot N (Xs):` header，存盘的 shot text 仅余正文。
     assert enqueued[0]["payload"]["prompt"] == "@张三 推门"
+
+
+@pytest.mark.unit
+def test_generate_unit_bucket_capability_error_returns_400(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """r2v 桶预检失败（如默认模型缺参考图能力）→ 提交入口 400 + 修复指引，不入队。"""
+    from lib.api_errors import BadRequestError
+    from lib.i18n import _ as i18n_message
+
+    uid = _seed_unit(client)
+    enqueued: list[dict] = []
+
+    class _FakeQueue:
+        async def enqueue_task(self, **kwargs):
+            enqueued.append(kwargs)
+            return {"task_id": "task-xyz", "deduped": False}
+
+    from server.routers import reference_videos as router_mod
+
+    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: _FakeQueue())
+
+    async def _reject(project, capability):
+        assert capability == "r2v"
+        raise BadRequestError("video_capability_missing_r2v", provider="minimax", model="MiniMax-Hailuo-2.3")
+
+    monkeypatch.setattr(router_mod, "require_video_bucket_capability", _reject)
+
+    resp = client.post(f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate")
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == i18n_message(
+        "video_capability_missing_r2v", provider="minimax", model="MiniMax-Hailuo-2.3"
+    )
+    assert enqueued == []
 
 
 def test_generate_unit_rejects_blank_prompt(client: TestClient, tmp_path: Path):

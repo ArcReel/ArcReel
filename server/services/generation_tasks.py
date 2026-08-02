@@ -904,7 +904,7 @@ async def execute_video_task(
         payload,
         project=project,
         user_id=user_id,
-        video=VideoLaneRequest(),
+        video=VideoLaneRequest(capability="i2v"),
     )
     generator = ctx.generator
 

@@ -139,6 +139,8 @@ class TestGetSystemConfig:
         settings = res.json()["settings"]
         expected_keys = {
             "default_video_backend",
+            "default_video_backend_i2v",
+            "default_video_backend_r2v",
             "default_image_backend",
             "default_image_backend_t2i",
             "default_image_backend_i2i",
@@ -326,6 +328,44 @@ class TestPatchSystemConfig:
         assert res.status_code == 200
         settings = res.json()["settings"]
         assert settings["default_video_backend"] == "ark/doubao-seedance-1-5-pro-251215"
+
+    @pytest.mark.unit
+    def test_patch_sets_video_bucket_backends(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={
+                    "default_video_backend_i2v": "minimax/MiniMax-Hailuo-2.3",
+                    "default_video_backend_r2v": "minimax/S2V-01",
+                },
+            )
+        assert res.status_code == 200
+        settings = res.json()["settings"]
+        assert settings["default_video_backend_i2v"] == "minimax/MiniMax-Hailuo-2.3"
+        assert settings["default_video_backend_r2v"] == "minimax/S2V-01"
+
+    @pytest.mark.unit
+    def test_patch_clears_video_bucket_backend(self):
+        """空串 = 清空桶键；解析层按空桶回退默认层处理（docs/adr/0054）。"""
+        mock_svc = _make_mock_svc(settings={"default_video_backend_r2v": "minimax/S2V-01"})
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"default_video_backend_r2v": ""},
+            )
+        assert res.status_code == 200
+        assert res.json()["settings"]["default_video_backend_r2v"] == ""
+
+    @pytest.mark.unit
+    def test_patch_rejects_non_video_model_in_video_bucket(self):
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"default_video_backend_i2v": "gemini-aistudio/gemini-3.1-flash-image-preview"},
+            )
+        assert res.status_code == 400
 
     def test_patch_rejects_invalid_backend_format(self):
         mock_svc = _make_mock_svc()

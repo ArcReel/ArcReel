@@ -36,6 +36,7 @@ from lib.version_manager import VersionManager
 from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
 from server.routers._reorder import full_permutation_error
+from server.routers._validators import require_video_bucket_capability
 from server.services.generation_tasks import emit_generation_success_batch
 from server.services.reference_video_tasks import (
     _finalize_reference_video_unit,
@@ -524,6 +525,10 @@ async def generate_unit(
         )
     except TaskSpecValidationError as exc:
         raise HTTPException(status_code=400, detail=_t(exc.code, **exc.params)) from exc
+
+    # 参考生视频路径全部镜头（含无参考图退化镜头）归 r2v 桶（docs/adr/0054）：解析闸预检
+    # 让能力缺失 / 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
+    await require_video_bucket_capability(project, "r2v")
 
     queue = get_generation_queue()
     result = await queue.enqueue_task(

@@ -1248,6 +1248,203 @@ class TestResolveVideoBackend:
         assert resolved.model_id == "doubao-seedance-2-0-mini-260615"  # 补 ark 默认 video model
 
 
+@pytest.mark.unit
+class TestResolveVideoBackendBuckets:
+    """capability 给定时的视频四级解析（项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断）与能力闸。
+
+    能力闸样本取 backend 声明的真实能力位：vidu/viduq3-pro 仅 i2v、dashscope/happyhorse-1.0-r2v
+    仅 r2v、ark 全系两桶齐备（见 lib/capability_buckets.py 的判定口径）。
+    """
+
+    async def test_project_bucket_wins_over_project_default(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_provider_i2v": "vidu/viduq3-pro", "video_backend": "grok/grok-imagine-video"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, None, "i2v")
+        assert (resolved.provider_id, resolved.model_id) == ("vidu", "viduq3-pro")
+
+    async def test_project_default_wins_over_global_bucket(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_video_backend_i2v": "grok/grok-imagine-video"})
+        project = {"video_backend": "ark/doubao-seedance-2-0-mini-260615"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, None, "i2v")
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-2-0-mini-260615")
+
+    async def test_global_bucket_wins_over_global_default(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={
+                "default_video_backend_r2v": "minimax/S2V-01",
+                "default_video_backend": "grok/grok-imagine-video",
+            }
+        )
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, None, "r2v")
+        assert (resolved.provider_id, resolved.model_id) == ("minimax", "S2V-01")
+
+    async def test_empty_global_bucket_falls_back_to_global_default(self):
+        """视频空桶语义（docs/adr/0054）：桶键存在但为空 → 回退全局默认层，不直达自动推断。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={
+                "default_video_backend_r2v": "",
+                "default_video_backend": "grok/grok-imagine-video",
+            }
+        )
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, None, "r2v")
+        assert (resolved.provider_id, resolved.model_id) == ("grok", "grok-imagine-video")
+
+    async def test_auto_resolve_when_nothing_configured(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, None, "i2v")
+        assert resolved.provider_id == "gemini-aistudio"
+
+    async def test_payload_wins_and_skips_capability_gate(self):
+        """已入队任务按 payload 照常执行：payload 命中不过能力闸，r2v 桶下仍放行仅 i2v 的模型。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        payload = {"video_provider": "vidu", "video_model": "viduq3-pro"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, payload, "r2v")
+        assert (resolved.provider_id, resolved.model_id) == ("vidu", "viduq3-pro")
+
+    async def test_missing_i2v_capability_raises_structured_error(self):
+        from lib.config.resolver import VideoBucketCapabilityError
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_video_backend": "dashscope/happyhorse-1.0-r2v"})
+        with pytest.raises(VideoBucketCapabilityError) as exc_info:
+            await resolver._resolve_video_provider_model(fake_svc, None, None, None, "i2v")
+        exc = exc_info.value
+        assert exc.code == "video_capability_missing_i2v"
+        assert exc.capability == "i2v"
+        assert exc.params == {"provider": "dashscope", "model": "happyhorse-1.0-r2v"}
+
+    async def test_missing_r2v_capability_raises_structured_error(self):
+        from lib.config.resolver import VideoBucketCapabilityError
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_video_backend": "minimax/MiniMax-Hailuo-2.3"})
+        with pytest.raises(VideoBucketCapabilityError) as exc_info:
+            await resolver._resolve_video_provider_model(fake_svc, None, None, None, "r2v")
+        assert exc_info.value.code == "video_capability_missing_r2v"
+
+    async def test_bucket_reference_to_unknown_model_raises_unavailable(self):
+        """悬空引用（注册表已无该 model）由同一解析闸报错兜底，不静默换模型。"""
+        from lib.config.resolver import VideoBucketCapabilityError
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_video_backend_i2v": "ark/removed-model"})
+        with pytest.raises(VideoBucketCapabilityError) as exc_info:
+            await resolver._resolve_video_provider_model(fake_svc, None, None, None, "i2v")
+        assert exc_info.value.code == "video_capability_reference_unavailable"
+        assert exc_info.value.params == {"provider": "ark", "model": "removed-model"}
+
+    async def test_capability_none_keeps_legacy_resolution_without_gate(self):
+        """不定桶调用（费用估算、限流路由兜底）保持旧三级解析，不读桶键、不过能力闸。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={
+                "default_video_backend_i2v": "ark/doubao-seedance-2-0-mini-260615",
+                "default_video_backend": "dashscope/happyhorse-1.0-r2v",
+            }
+        )
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, None, None)
+        assert (resolved.provider_id, resolved.model_id) == ("dashscope", "happyhorse-1.0-r2v")
+
+
+@pytest.mark.integration
+class TestVideoBucketCapabilityGateCustomProvider:
+    """自定义供应商的能力闸：悬空引用报错而非收敛到默认模型；有效模型正常放行。"""
+
+    async def _seed_provider(self, factory, *, models):
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        async with factory() as session:
+            provider = CustomProvider(
+                display_name="Custom Video",
+                discovery_format="openai",
+                base_url="https://example.com",
+                api_key="xxx",
+            )
+            session.add(provider)
+            await session.flush()
+            for m in models:
+                session.add(CustomProviderModel(provider_id=provider.id, **m))
+            await session.commit()
+            return provider.id
+
+    async def test_bucket_reference_to_missing_custom_model_raises(self):
+        from lib.config.resolver import VideoBucketCapabilityError
+
+        factory, engine = await _make_session()
+        try:
+            provider_id = await self._seed_provider(factory, models=[])
+            resolver = ConfigResolver(factory)
+            with pytest.raises(VideoBucketCapabilityError) as exc_info:
+                await resolver.resolve_video_backend(
+                    {"video_provider_r2v": f"custom-{provider_id}/ghost-model"}, None, capability="r2v"
+                )
+        finally:
+            await engine.dispose()
+        assert exc_info.value.code == "video_capability_reference_unavailable"
+
+    async def test_disabled_custom_model_raises_instead_of_converging(self):
+        """桶解析路径不做有效身份收敛：禁用模型直接报悬空，而非静默换成该供应商默认模型。"""
+        from lib.config.resolver import VideoBucketCapabilityError
+
+        factory, engine = await _make_session()
+        try:
+            provider_id = await self._seed_provider(
+                factory,
+                models=[
+                    {
+                        "model_id": "disabled-model",
+                        "display_name": "Disabled",
+                        "endpoint": "openai-video",
+                        "is_enabled": False,
+                    },
+                    {
+                        "model_id": "runtime-model",
+                        "display_name": "Runtime",
+                        "endpoint": "openai-video",
+                        "is_enabled": True,
+                        "is_default": True,
+                    },
+                ],
+            )
+            resolver = ConfigResolver(factory)
+            with pytest.raises(VideoBucketCapabilityError) as exc_info:
+                await resolver.resolve_video_backend(
+                    {"video_backend": f"custom-{provider_id}/disabled-model"}, None, capability="i2v"
+                )
+        finally:
+            await engine.dispose()
+        assert exc_info.value.code == "video_capability_reference_unavailable"
+
+    async def test_enabled_custom_video_model_passes_gate(self):
+        factory, engine = await _make_session()
+        try:
+            provider_id = await self._seed_provider(
+                factory,
+                models=[
+                    {
+                        "model_id": "live-model",
+                        "display_name": "Live",
+                        "endpoint": "openai-video",
+                        "is_enabled": True,
+                        "is_default": True,
+                    }
+                ],
+            )
+            resolver = ConfigResolver(factory)
+            resolved = await resolver.resolve_video_backend(
+                {"video_provider_i2v": f"custom-{provider_id}/live-model"}, None, capability="i2v"
+            )
+        finally:
+            await engine.dispose()
+        assert (resolved.provider_id, resolved.model_id) == (f"custom-{provider_id}", "live-model")
+
+
 def test_parse_int_variants():
     from lib.config.resolver import _parse_int
 

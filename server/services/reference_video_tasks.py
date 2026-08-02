@@ -513,7 +513,7 @@ async def execute_reference_video_task(
     #    （docs/adr/0049）——executor 不再触碰 MediaGenerator 私有属性、不再手工重建
     #    registry provider_id。
     ctx = await resolve_generation_context(
-        project_name, payload, project=project, user_id=user_id, video=VideoLaneRequest()
+        project_name, payload, project=project, user_id=user_id, video=VideoLaneRequest(capability="r2v")
     )
     generator = ctx.generator
     video = ctx.video

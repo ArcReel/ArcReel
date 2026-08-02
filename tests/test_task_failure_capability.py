@@ -389,6 +389,41 @@ def test_encode_covers_every_capability_exception_type():
         assert render_failure(stored, _translator("en")) != stored
 
 
+def test_encode_video_bucket_capability_error_renders_per_locale():
+    """视频解析闸异常（VideoBucketCapabilityError）同走结构化编码，读侧三语渲染。"""
+    from lib.config.resolver import VideoBucketCapabilityError
+
+    exc = VideoBucketCapabilityError(
+        code="video_capability_missing_r2v",
+        capability="r2v",
+        provider_id="minimax",
+        model_id="MiniMax-Hailuo-2.3",
+        message="lacks r2v",
+    )
+    stored = _encode_task_failure_message(exc)
+    assert stored.startswith("[video_capability_missing_r2v]")
+    for locale in ("zh", "en", "vi"):
+        expected = MESSAGES[locale]["video_capability_missing_r2v"].format(
+            provider="minimax", model="MiniMax-Hailuo-2.3"
+        )
+        assert render_failure(stored, _translator(locale)) == expected
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "video_capability_missing_i2v",
+        "video_capability_missing_r2v",
+        "video_capability_reference_unavailable",
+    ],
+)
+def test_video_bucket_codes_registered_with_all_three_locales(code):
+    """解析闸的 code 是 errors 目录 key 的 identity 映射，三语模板齐备。"""
+    assert FAILURE_CODE_KEYS[code] == code
+    for locale in ("zh", "en", "vi"):
+        assert code in MESSAGES[locale], f"{locale} 缺少 {code}"
+
+
 def test_encode_stringifies_non_json_params():
     """params 值不是 JSON 原生类型时降级为字符串，编码不得在失败路径里抛错。
 
