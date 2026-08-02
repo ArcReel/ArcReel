@@ -12,7 +12,7 @@ import logging
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from claude_agent_sdk import tool
 from pydantic import BaseModel, ValidationError
@@ -50,8 +50,8 @@ from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
-    constrained_caps_durations,
     fetch_video_caps,
+    reference_unit_duration_tiers,
     resolve_video_caps,
     tool_error,
 )
@@ -126,15 +126,39 @@ async def _resolve_video_capabilities(project_name: str) -> dict[str, Any]:
     return await resolver.video_capabilities(project_name)
 
 
+def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, Any]) -> None:
+    """就地补上参考视频路径逐 unit 的两套生效档位（非该路径的项目不补）。
+
+    ``supported_durations`` 是型号声明的全集，不含「分辨率↔时长」「参考图↔时长」两条联动约束。
+    参考路径的 unit 时长就是发给供应商的那个值，手工改 step1 时照全集取值会写出执行期申请不到
+    的秒数——故把服务端拆分工具用的同两套档位一并返回，让改写方与生成方对同一份数字。
+
+    ad 例外：该路径的 unit 是从 ``shots[]`` 派生的轻量索引、镜头时长不受档位枚举管辖，返回这
+    两套档位只会诱导按剧集路径的口径去改 ad 镜头。
+    """
+    if payload.get("generation_mode") != "reference_video" or payload.get("content_mode") == "ad":
+        return
+    durations = [int(d) for d in payload.get("supported_durations") or []]
+    if not durations:
+        return
+    with_refs, without_refs = reference_unit_duration_tiers(project, payload, durations)
+    payload["reference_unit_durations"] = {
+        "with_references": with_refs,
+        "without_references": without_refs,
+    }
+
+
 def get_video_capabilities_tool(ctx: ToolContext):
     @tool(
         "get_video_capabilities",
-        "查当前项目的视频模型能力（model 粒度）+ 用户项目偏好。返回 JSON。",
+        "查当前项目的视频模型能力（model 粒度）+ 用户项目偏好。返回 JSON；"
+        "参考生视频项目另含 reference_unit_durations（按 unit 有无 @ 引用分开的两套生效档位）。",
         {"type": "object", "properties": {}},
     )
     async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
         try:
             payload = await _resolve_video_capabilities(ctx.project_name)
+            _annotate_reference_unit_tiers(payload, ctx.pm.load_project(ctx.project_name))
             return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)}]}
         except FileNotFoundError as exc:
             return {
@@ -466,16 +490,43 @@ def normalize_drama_script_tool(ctx: ToolContext):
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> tuple[int | None, list[int], int, int | None]:
-    """解析 rv 拆分所需的视频能力：``(default_duration, supported_durations, max_duration, max_refs)``。
+class ReferenceSplitCaps(NamedTuple):
+    """rv 拆分用的视频能力：两套逐 unit 档位 + 派生上限 + 用户偏好。
+
+    ``reference_durations`` / ``text_durations`` 是带 / 不带 ``@`` 引用的 unit 各自的生效档位，
+    ``durations`` 是二者的并集——schema 枚举与 prompt 候选集合取并集，因为落在任一套内的时长都
+    可能合法；归属哪一套要等正文派生出 references 才知道。三者相等即该型号在当前分辨率下未声明
+    生效的「参考图↔时长」联动约束，多数型号如此。
+    """
+
+    default_duration: int | None
+    durations: list[int]
+    reference_durations: list[int]
+    text_durations: list[int]
+    max_duration: int
+    max_refs: int | None
+
+    def tiers_for(self, *, has_references: bool) -> list[int]:
+        """该引用状态下的生效档位。"""
+        return self.reference_durations if has_references else self.text_durations
+
+
+async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> ReferenceSplitCaps:
+    """解析 rv 拆分所需的视频能力（见 ``ReferenceSplitCaps``）。
 
     与 ``_fetch_caps_with_fallback`` 同口径 best-effort：resolver 故障时回退
     ``duration_presets.DEFAULT_FALLBACK``、``max_refs`` 视为未声明。
 
     unit 是一次生成调用的单元，拆分阶段定的时长就是真正发给供应商的那个值，故档位取**经时长
     联动约束收窄后**的集合：不收窄的话（海螺 1080p 只接受 6 秒）step1 会按全集拆出超标的 unit，
-    step2 的枚举 schema 再把它判非法。``max_duration`` 随之是该集合的最大值。
-    ``default_duration`` 非收窄后集合成员（用户配置漂移）按 None 处理，避免 prompt 自相矛盾。
+    step2 的枚举 schema 再把它判非法。
+
+    收窄逐 unit 分两套（``reference_unit_duration_tiers``）：「参考图↔时长」约束只对真的带参考图
+    的请求生效，整集一律按带图收窄会把无引用 unit 本可申请的短档也收掉。schema 枚举与 prompt
+    候选取两套的并集——落在任一套内的时长都可能合法，具体归属由该 unit 的 references 决定，
+    在正文派生出 references 之后逐 unit 判（见 ``_build_reference_units_from_flat``）。
+    ``max_duration`` 随之是并集的最大值。
+    ``default_duration`` 非并集成员（用户配置漂移）按 None 处理，避免 prompt 自相矛盾。
     """
     try:
         caps = await resolve_video_caps(project)
@@ -485,7 +536,8 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> tuple[
     durations = [int(d) for d in caps.get("supported_durations") or []]
     if not durations:
         durations = list(DEFAULT_FALLBACK)
-    unit_durations = constrained_caps_durations(project, caps, durations, generation_mode="reference_video")
+    with_refs, without_refs = reference_unit_duration_tiers(project, caps, durations)
+    unit_durations = sorted(set(with_refs) | set(without_refs))
     max_duration = max(unit_durations)
     raw_refs = caps.get("max_reference_images")
     max_refs = int(raw_refs) if isinstance(raw_refs, int | float) else None
@@ -493,7 +545,33 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> tuple[
     default = int(raw_default) if isinstance(raw_default, int | float) else None
     if default is not None and default not in unit_durations:
         default = None
-    return default, unit_durations, max_duration, max_refs
+    return ReferenceSplitCaps(
+        default_duration=default,
+        durations=unit_durations,
+        reference_durations=sorted(set(with_refs)),
+        text_durations=sorted(set(without_refs)),
+        max_duration=max_duration,
+        max_refs=max_refs,
+    )
+
+
+def _validate_unit_duration_tier(label: str, duration: int, *, has_references: bool, caps: ReferenceSplitCaps) -> None:
+    """按该 unit 的引用状态判时长是否落在生效档位内，出档 fail-loud。
+
+    schema 的枚举卡的是两套档位的并集，一个带引用的 unit 因此仍可能取到只有无引用 unit 才
+    合法的秒数——那样的 unit 执行期申请不到，等到入队才失败已无统一纠正入口。错误消息给出
+    两条出路（换档位 / 去引用），与 prompt 里的教学同一口径。
+    """
+    tiers = caps.tiers_for(has_references=has_references)
+    if duration in tiers:
+        return
+    state = "带 `@` 资产引用" if has_references else "无 `@` 资产引用"
+    remedy = (
+        "；请改取该档位内的时长，或把次要资产融入描述文字、不用 `@` 引用"
+        if has_references
+        else "；请改取该档位内的时长"
+    )
+    raise ValueError(f"{label} 时长 {duration}s 不在{state}的 unit 的生效档位 {tiers} 内{remedy}")
 
 
 def _build_reference_units_from_flat(
@@ -502,8 +580,7 @@ def _build_reference_units_from_flat(
     *,
     episode: int,
     novel_text: str,
-    max_duration: int,
-    max_refs: int | None,
+    caps: ReferenceSplitCaps,
     source_language: str | None,
 ) -> list[dict]:
     """把 LLM 的扁平产出（时长 + 原文锚 + 书写层正文）校验并派生为落盘的结构化 unit 表。
@@ -511,22 +588,24 @@ def _build_reference_units_from_flat(
     LLM 只写内容，机器写结构：``unit_id`` 按数组序号编号、``shots`` 由 ``镜头N：`` 切分、
     ``references`` 由 ``@[名称]`` 派生（首现顺序即参考图编号），三者都没有让模型写错的余地。
     schema 已卡死时长枚举与外层形状；此处补依赖运行时能力值 / 项目登记表 / 源文的约束——
-    时长 ≤ max_duration、原文锚是源文逐字子串、正文语法与资产引用合法、台词量念得完。
-    任一违约 fail-loud 抛错，不把违规拆分当成功产物写盘。
+    时长落在该 unit 引用状态对应的生效档位内、原文锚是源文逐字子串、正文语法与资产引用合法、
+    台词量念得完。任一违约 fail-loud 抛错，不把违规拆分当成功产物写盘。
+
+    时长判在 ``validate_unit_text`` **之后**：适用哪套档位取决于该 unit 有没有 references，
+    而 references 正是从正文机械派生的——模型没有直接写它的余地，也就无从提前判定。
     """
     units: list[dict] = []
     for index, flat in enumerate(flat_units, start=1):
         unit_id = f"E{episode}U{index:02d}"
         label = f"unit {unit_id}"
         duration = int(flat.get("duration_seconds") or 0)
-        if duration > max_duration:
-            raise ValueError(f"{label} 时长 {duration}s 超过单次生成上限 {max_duration}s；请改取更短的档位")
 
         source_text = str(flat.get("source_text") or "")
         validate_source_text_anchor(label, source_text, novel_text)
 
         text = str(flat.get("text") or "")
-        shots, refs = validate_unit_text(label, text, project, max_refs=max_refs)
+        shots, refs = validate_unit_text(label, text, project, max_refs=caps.max_refs)
+        _validate_unit_duration_tier(label, duration, has_references=bool(refs), caps=caps)
         validate_dialogue_load(label, text, duration, source_language)
 
         units.append(
@@ -582,9 +661,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
             props = project.get("props")
             props = props if isinstance(props, dict) else {}
 
-            default_duration, supported_durations, max_duration, max_refs = await _fetch_reference_caps_with_fallback(
-                project
-            )
+            split_caps = await _fetch_reference_caps_with_fallback(project)
             episode_outline, next_episode_outline = episode_outline_context(project, episode)
             prompt = build_reference_units_split_prompt(
                 novel_text=novel_text,
@@ -592,10 +669,12 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 characters=characters,
                 scenes=scenes,
                 props=props,
-                supported_durations=supported_durations,
-                max_duration=max_duration,
-                max_reference_images=max_refs,
-                default_duration=default_duration,
+                supported_durations=split_caps.durations,
+                reference_supported_durations=split_caps.reference_durations,
+                text_supported_durations=split_caps.text_durations,
+                max_duration=split_caps.max_duration,
+                max_reference_images=split_caps.max_refs,
+                default_duration=split_caps.default_duration,
                 episode=episode,
                 # 输出语言取项目 source_language（生成内容语言的唯一真相源），与 normalize 同口径。
                 target_language=project.get("source_language") or "中文",
@@ -619,7 +698,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
             # 结构化输出：response_schema 按 supported_durations 卡死 unit 时长枚举，产出扁平
             # unit → 时长 + 原文锚 + 书写层正文；unit_id / shots / references 不进 LLM 输出、
             # 由下方机械派生（正文内的语法则由 parser 后校验兜底，schema 管不到）。
-            schema = build_reference_units_step1_model(supported_durations)
+            schema = build_reference_units_step1_model(split_caps.durations)
             generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name=ctx.project_name)
             result = await generator.generate(
                 TextGenerationRequest(
@@ -639,8 +718,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 project,
                 episode=episode,
                 novel_text=novel_text,
-                max_duration=max_duration,
-                max_refs=max_refs,
+                caps=split_caps,
                 source_language=project.get("source_language"),
             )
             content = {"units": raw_units}
