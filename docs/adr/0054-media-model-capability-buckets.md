@@ -16,7 +16,7 @@ status: accepted
 
 ## Consequences
 
-- 能力真相源维持既有声明、不新增副本：i2v 取 registry `ModelInfo.capabilities`，r2v 取 backend `VideoCapabilities`（自定义供应商 = endpoint 系统判定 ⊕ 模型级 `capability_overrides` 合成）。桶下拉据此预过滤候选；默认层下拉不过滤——默认层不承诺任何能力。
+- 能力真相源维持既有声明、不新增副本：两桶都取 backend `VideoCapabilities`——i2v 看 `first_frame`（分镜 / 宫格路径由首帧驱动），r2v 看 `max_reference_images > 0`；自定义供应商 = endpoint 系统判定 ⊕ 模型级 `capability_overrides` 合成。registry `ModelInfo.capabilities` 的 `image_to_video` 不区分这两条路径（`happyhorse-1.0-r2v` 声明该位、backend `first_frame=False`），不作桶候选的过滤依据。桶下拉据此预过滤候选；默认层下拉不过滤——默认层不承诺任何能力。
 - 全部读侧（`video_capabilities` 查询与 agent 工具、费用估算、时长 / 分辨率约束收窄）与执行侧同口径：按生效 generation_mode 定桶后走同一解析函数，读侧因此需要能定出生效模式的剧集 / 剧本上下文，不只取项目层字段。切换 generation_mode 可能改变能力查询结果，由既有的生成时校验 / 收窄兜住，不新增机制。
 - 图片侧空桶语义是「回退默认层」，不存在「空 = 跟随自动推断」的读法；存量配置的键组合在迁移中穷举处置。
 - 设置 UI 三媒体（文本档位 / 图片桶 / 视频桶）共用同一交互形态：默认主下拉常驻 + 折叠的能力细分区，未配置桶的占位穿透演算到最终生效模型并标注各桶覆盖的调用点（zh / en / vi 同步）；创建向导只暴露默认层。
