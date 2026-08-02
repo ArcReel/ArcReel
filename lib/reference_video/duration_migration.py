@@ -12,6 +12,16 @@ read-modify-write 回写——迁移一次落盘、谁先跑谁定终局，二�
 ``supported_durations`` 为 None 的两种情形只做结构区间 clamp：项目尚未配置可解析的视频型号，
 以及 ``migrate_script_unit_durations`` 这条剧集脚本同步加载链。此时档位偏移仍由预检 / 执行时的
 取档（``resolve_duration_slot``）承担并记 warning，与迁移前语义一致。
+
+**剧集脚本侧不做档位收敛（enforcement 回写），这是终局分工，不是待补的缺口**：
+
+- 落盘时刻已必然在档——``ScriptGenerator._add_metadata`` 按最终 references 逐 unit 取档，出档直接
+  报错。偏移只可能来自事后改模型 / 改分辨率。
+- 偏移后也没有脏值能到供应商——预检（``precheck_unit``）与执行（``_apply_provider_constraints``）
+  都会重新取档并出 warning，执行期实际申请的秒数写回 task payload 供 resume 读取，脚本本身不动。
+- 回写会与全仓策略冲突：出档一律「fail-loud 或 warning + 引导重选」，从不静默改写用户编排真相；
+  且预检是 GET 读路径，在其上写盘不可接受，执行期写盘则会与用户编辑竞争。
+- 加载期回写另有硬阻：``load_script`` 是同步调用、无 DB 会话，拿不到档位表。
 """
 
 from __future__ import annotations
