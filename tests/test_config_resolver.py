@@ -1127,14 +1127,14 @@ class TestLayeredBackendSkeleton:
         assert result == ("g-def", "m")
 
     async def test_empty_global_bucket_follows_default_when_enabled(self):
-        """目标语义（docs/adr/0054）：全局桶键存在但为空 → 回退全局默认层。"""
+        """开关为 True 时：全局桶键存在但为空 → 回退全局默认层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"global_bucket": "", "global_default": "g-def/m"})
         result = await resolver._resolve_layered_backend(fake_svc, None, None, self._keys())
         assert result == ("g-def", "m")
 
     async def test_empty_global_bucket_authoritative_when_disabled(self):
-        """迁移前语义（图片侧）：全局桶键存在但为空 = 显式清空 → 跳过全局默认直达自动推断。"""
+        """开关为 False 时：全局桶键存在但为空 = 显式清空 → 跳过全局默认直达自动推断。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"global_bucket": "", "global_default": "g-def/m"})
         keys = self._keys(empty_global_bucket_follows_default=False)
