@@ -65,7 +65,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 ```
 
 > dry_run=true 时仅返回 prompt 不调用模型，便于审查。模型只产出「时长 + 原文锚 + 书写层正文」，`unit_id` / `shots` / `references` 由工具从正文派生；写盘前校验正文语法、资产名引用完整性、原文锚是否为源文逐字子串与台词量是否念得完。任一违约时**正式文件不写**，产出连同逐条违约报告落到 `drafts/episode_{N}/step1_reference_units.invalid.json`——不要重跑工具重抽，按情况 C 修复后晋升。
-
+>
 > 工具成功时可能附带「声音降级提示」（角色未设参考音频 / 参考音频段数超上限 / 当前视频模型不生成音频）。这些不阻断落盘，原样转述给主 agent 即可，不要为它们改拆分。
 
 **Step 2**: 验证输出
