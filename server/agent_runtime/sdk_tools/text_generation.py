@@ -965,17 +965,28 @@ def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
     上的原值——保留原值，让它自己看见错在哪。非 dict 的 unit 同样不丢弃：填空占位保留在数组
     对应位置，让晋升侧 schema 判它「结构非法」逐条报出——直接跳过会让数组变短，若剩余 unit
     恰好都能过校验，晋升会悄悄覆盖正式文件、丢失这个 unit 而无人知晓。
+
+    render 后用 ``parse_prompt`` 重新解析校验分镜数不变：某个 shot 自身内容里若恰好有一行
+    形如「镜头N：」（旧数据经 Web 端保存，字段本身不禁止这种文本），加了 header 的首行会跟
+    这行撞在一起，解析回去时会被误判成新的镜头边界，一个 shot 悄悄拆成两个——agent 明明没
+    编辑这个 unit，原样晋升也会带着错位的分镜覆盖正式文件。分镜数对不上时同样清空为占位，
+    交给 schema 判非法。
     """
     flat: list[dict[str, Any]] = []
     for unit in units:
         if not isinstance(unit, dict):
             flat.append({"duration_seconds": None, "source_text": "", "text": ""})
             continue
+        shots = unit.get("shots")
+        shots_list = shots if isinstance(shots, list) else []
+        text = render_shots_text(shots_list)
+        if len(parse_prompt(text)[0]) != len(shots_list):
+            text = ""
         flat.append(
             {
                 "duration_seconds": unit.get("duration_seconds"),
                 "source_text": unit.get("source_text", ""),
-                "text": render_shots_text(shots if isinstance(shots := unit.get("shots"), list) else []),
+                "text": text,
             }
         )
     return flat

@@ -3664,6 +3664,22 @@ async def test_open_reference_step1_for_edit_keeps_malformed_non_dict_unit_slot(
     assert units[1] == {"duration_seconds": None, "source_text": "", "text": ""}
 
 
+async def test_open_reference_step1_for_edit_blanks_shot_with_embedded_fake_header(fake_ctx: ToolContext) -> None:
+    """盘上 shot 自身文本里恰好有一行形如「镜头N：」（旧数据经 Web 端保存，字段不禁止这种
+    文本）时，render 后重新解析会把这一个 shot 误判成两个——原样晋升也会带着错位的分镜覆盖
+    正式文件。清空为占位交给 schema 判非法，而不是悄悄晋升一份分镜数对不上的内容。"""
+    _rv_source(fake_ctx)
+    unit = _rv_saved_unit(["描述行\n镜头2：这是台词内容"])
+    path = _rv_step1_path(fake_ctx)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"units": [unit]}, ensure_ascii=False), encoding="utf-8")
+
+    out = await _open_for_edit(fake_ctx)
+
+    assert out.get("is_error") is not True, out
+    assert _read_rv_quarantine(fake_ctx)["content"]["units"][0]["text"] == ""
+
+
 async def test_open_reference_step1_for_edit_rejects_missing_source_without_side_effect(
     fake_ctx: ToolContext,
 ) -> None:
