@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Generator
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -882,7 +883,7 @@ class TestReplaceModelsCleansStaleRefs:
 
 
 class TestGlobalBucketRefsHint:
-    """回归: 能力编辑响应应非阻塞地提示模型正被哪些全局桶键引用（issue #1513）。"""
+    """回归: 能力编辑响应应非阻塞地提示模型正被哪些全局桶键引用。"""
 
     async def test_referenced_model_lists_global_keys(self, client: TestClient, session: AsyncSession):
         resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
@@ -934,6 +935,15 @@ class TestGlobalBucketRefsHint:
             )
         assert replace_resp.status_code == 200
         assert replace_resp.json()[0]["global_bucket_refs"] == ["default_video_backend_i2v"]
+
+    def test_global_bucket_keys_have_i18n_labels(self):
+        """每个提示键都须有三语文案：前端按 `global_bucket_label_<key>` 动态取词，缺文案会把
+        原始 key 渲染给用户，而 zh/en/vi 三语一致性检查只比对彼此、看不见后端新增的键。"""
+        i18n_dir = Path(__file__).resolve().parents[1] / "frontend" / "src" / "i18n"
+        for locale in ("zh", "en", "vi"):
+            content = (i18n_dir / locale / "dashboard.ts").read_text(encoding="utf-8")
+            for key in custom_providers._GLOBAL_BUCKET_REFERENCE_KEYS:
+                assert f"'global_bucket_label_{key}'" in content, f"{locale} 缺 global_bucket_label_{key} 文案"
 
 
 class TestEmptyModelIdRejected:

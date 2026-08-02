@@ -109,9 +109,10 @@ _PROJECT_BACKEND_KEYS = (
     "default_text_backend",
 )
 
-# 供「能力编辑时提示全局引用」只读展示用（docs/adr/0054：桶引用不做写入侧拦截/级联清理，
-# 本查询不受该约束）。比 _BACKEND_SETTING_KEYS 多两个视频桶键——该常量仍只服务删除时的级联
-# 清理语义，按 ADR 0054 视频桶不在其列，此处提示需求与之无关，单独维护。
+# 全局 DB settings 中可能引用自定义模型的全部键，供能力编辑界面只读提示影响面用（`docs/adr/0054`：
+# 提示不拦截保存）。与 _BACKEND_SETTING_KEYS 分开维护：后者界定删除时的级联清理范围，视频桶键按
+# ADR 0054 不在清理之列，但仍需提示。每个键须在 frontend/src/i18n/*/dashboard.ts 有
+# global_bucket_label_<key> 文案，由 test_global_bucket_keys_have_i18n_labels 守住。
 _GLOBAL_BUCKET_REFERENCE_KEYS = (
     *_BACKEND_SETTING_KEYS,
     "default_video_backend_i2v",

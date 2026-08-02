@@ -22,6 +22,7 @@ import {
   mergeDiscoveredModels,
   withLastFrameOverride,
   capabilityFieldsFor,
+  globalBucketRefsFor,
   type DiscoveryFormat,
 } from "./customProviderHelpers";
 import { EndpointSelect } from "./EndpointSelect";
@@ -86,6 +87,7 @@ interface ModelRow {
   original_endpoint: EndpointKey;
   original_capability_overrides: CapabilityOverrides | null;
   original_system_capabilities: VideoCapabilityFlags | null;
+  original_global_bucket_refs: string[];
 }
 
 function newModelRow(partial?: Partial<ModelRow>): ModelRow {
@@ -113,6 +115,7 @@ function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     original_endpoint: base.endpoint,
     original_capability_overrides: base.capability_overrides,
     original_system_capabilities: base.system_capabilities,
+    original_global_bucket_refs: base.global_bucket_refs,
   };
 }
 
@@ -705,6 +708,8 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                             model_id: nextId,
                             // 覆盖与判定都随 (endpoint, model_id) 作废/恢复，见 capabilityFieldsFor
                             ...capabilityFieldsFor(m, nextId, m.endpoint),
+                            // 引用事实只绑 model_id，见 globalBucketRefsFor
+                            global_bucket_refs: globalBucketRefsFor(m, nextId),
                           });
                         }}
                         placeholder="model-id…"
