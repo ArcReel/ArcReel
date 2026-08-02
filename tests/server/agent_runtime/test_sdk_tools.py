@@ -3664,6 +3664,21 @@ async def test_open_reference_step1_for_edit_keeps_malformed_non_dict_unit_slot(
     assert units[1] == {"duration_seconds": None, "source_text": "", "text": ""}
 
 
+async def test_open_reference_step1_for_edit_rejects_missing_source_without_side_effect(
+    fake_ctx: ToolContext,
+) -> None:
+    """`source` 指向不存在的文件时不落盘草稿：草稿一旦创建就把这个坏路径记进 meta.source，
+    晋升时 `_load_novel_source` 会反复报错，而草稿在场又挡住重新取回改正 source，agent
+    会卡在一个自己改不动的死角。校验失败时不产生持久副作用，agent 改对参数重试即可。"""
+    _rv_source(fake_ctx)
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+
+    out = await _open_for_edit(fake_ctx, source="source/episode_不存在.txt")
+
+    assert out.get("is_error") is True
+    assert not _rv_quarantine_path(fake_ctx).exists()
+
+
 async def test_open_reference_step1_for_edit_rejects_non_reference_episode(fake_ctx: ToolContext) -> None:
     """切走参考路径的集不给编辑：盘上的 step1 与该集此刻的生成路径无关。与晋升工具同一判据。"""
     _rv_source(fake_ctx)

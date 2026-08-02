@@ -1020,6 +1020,16 @@ def open_reference_step1_for_edit_tool(ctx: ToolContext):
                     "is_error": True,
                 }
 
+            # source 在写草稿前校验：草稿一旦落盘就把它记进 meta.source 供晋升重判用，若此刻
+            # 是个缺失/改名/写错的路径，晋升会在 _load_novel_source 上反复报错，而草稿已在场
+            # 又挡住重新取回改正 source——agent 会卡在一个自己改不动的死角。校验失败时不落盘，
+            # 无效参数不留持久副作用。
+            if source is not None:
+                try:
+                    _load_novel_source(project_path, source)
+                except ValueError as exc:
+                    return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
+
             step1_path = episode_drafts_dir(project_path, episode) / REFERENCE_VIDEO_STEP1_FILENAME
             pm = ProjectManager(str(project_path.parent))
             # 草稿有无的检查、正式文件的读取、草稿的写入须在同一把锁的临界区内完成：拆开在锁外
