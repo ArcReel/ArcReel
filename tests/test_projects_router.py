@@ -1042,6 +1042,53 @@ class TestProjectsRouter:
             )
             assert rejected.status_code == 400
 
+    @pytest.mark.unit
+    def test_video_bucket_fields_create_patch_and_clear(self, tmp_path, monkeypatch):
+        """项目级视频桶键（video_provider_i2v/r2v）可创建时写入、PATCH 设置；空值 = 清除、回退默认层。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            created = client.post(
+                "/api/v1/projects",
+                json={
+                    "title": "视频桶项目",
+                    "name": "vb-1",
+                    "video_provider_i2v": "minimax/MiniMax-Hailuo-2.3",
+                    "video_provider_r2v": "minimax/S2V-01",
+                },
+            )
+            assert created.status_code == 200
+            data = fake_pm.project_data["vb-1"]
+            assert data["video_provider_i2v"] == "minimax/MiniMax-Hailuo-2.3"
+            assert data["video_provider_r2v"] == "minimax/S2V-01"
+
+            updated = client.patch(
+                "/api/v1/projects/ready",
+                json={"video_provider_r2v": "openai/sora-2"},
+            )
+            assert updated.status_code == 200
+            assert fake_pm.project_data["ready"]["video_provider_r2v"] == "openai/sora-2"
+
+            cleared = client.patch(
+                "/api/v1/projects/ready",
+                json={"video_provider_r2v": ""},
+            )
+            assert cleared.status_code == 200
+            assert "video_provider_r2v" not in fake_pm.project_data["ready"]
+
+    @pytest.mark.unit
+    def test_video_bucket_field_rejects_non_video_model(self, tmp_path, monkeypatch):
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            rejected = client.patch(
+                "/api/v1/projects/ready",
+                json={"video_provider_i2v": "gemini-aistudio/gemini-3.1-flash-image-preview"},
+            )
+            assert rejected.status_code == 400
+
     def test_create_project_rejects_legacy_image_backend(self, tmp_path, monkeypatch):
         """退役的 image_backend 字段在写路径被直接 400 拒绝，避免静默错配（应改用 image_provider_t2i/i2i）。"""
         fake_pm = _FakePM(tmp_path)

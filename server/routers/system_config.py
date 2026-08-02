@@ -247,6 +247,9 @@ class ModelCandidatesResponse(BaseModel):
 
 class SystemConfigPatchRequest(BaseModel):
     default_video_backend: str | None = None
+    # 视频能力桶（docs/adr/0054）：i2v = 图生视频 / 宫格，r2v = 参考生视频；空值 = 回退默认层
+    default_video_backend_i2v: str | None = None
+    default_video_backend_r2v: str | None = None
     default_image_backend: str | None = None
     default_image_backend_t2i: str | None = None
     default_image_backend_i2i: str | None = None
@@ -320,6 +323,8 @@ async def get_system_config(
 
     settings: dict[str, Any] = {
         "default_video_backend": all_s.get("default_video_backend", ""),
+        "default_video_backend_i2v": all_s.get("default_video_backend_i2v", ""),
+        "default_video_backend_r2v": all_s.get("default_video_backend_r2v", ""),
         "default_image_backend": all_s.get("default_image_backend", ""),
         "default_image_backend_t2i": all_s.get("default_image_backend_t2i", ""),
         "default_image_backend_i2i": all_s.get("default_image_backend_i2i", ""),
@@ -431,6 +436,8 @@ async def patch_system_config(
     # Validate backend references (empty string = auto-resolve)
     for backend_key in (
         "default_video_backend",
+        "default_video_backend_i2v",
+        "default_video_backend_r2v",
         "default_image_backend",
         "default_image_backend_t2i",
         "default_image_backend_i2i",

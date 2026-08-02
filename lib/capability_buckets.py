@@ -11,9 +11,8 @@
 内置视频两个维度都取 backend 而不取 registry ``ModelInfo``：backend 的能力声明与请求构造同源
 （例如 ``vidu`` 按端点白名单算 caps，白名单外的 model 提交首帧会在构造请求时报错），而 registry
 的 ``image_to_video`` token 与 ``max_reference_images`` 是另一份并行声明，两者在若干 model 上已
-实际漂移。桶承诺的是「选中的组合执行得了」，故以执行期同源的那一份为准。这与 ``lib.config.resolver``
-不同——解析层的 ``max_reference_images`` 仍读 ``ModelInfo``（布尔能力位才读 backend），两处口径
-统一之前，下拉挡掉的组合解析层可能仍放行。
+实际漂移。桶承诺的是「选中的组合执行得了」，故以执行期同源的那一份为准。视频两维的判定式本身由
+``lib.config.resolver.video_capability_satisfied`` 提供，与解析层的能力闸共用同一份，两处不会漂。
 
 判定不出（endpoint 已下线、backend 未声明能力函数）时返回空集而非全集：候选列表宁缺勿滥，
 配进去的组合执行期一样必败，不如不出现在下拉里。
@@ -25,6 +24,7 @@ from typing import Literal
 
 from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import ModelInfo
+from lib.config.resolver import video_capability_satisfied
 from lib.custom_provider.capabilities import synthesize_video_capabilities
 from lib.custom_provider.endpoints import endpoint_to_image_capabilities, endpoint_to_media_type
 from lib.image_backends.base import ImageCapability
@@ -49,12 +49,11 @@ def _image_buckets_from_capabilities(has_t2i: bool, has_i2i: bool) -> frozenset[
 
 
 def _video_buckets(has_i2v: bool, max_reference_images: int) -> frozenset[CapabilityBucket]:
-    buckets: set[CapabilityBucket] = set()
-    if has_i2v:
-        buckets.add("i2v")
-    if max_reference_images > 0:
-        buckets.add("r2v")
-    return frozenset(buckets)
+    return frozenset(
+        cap
+        for cap in ("i2v", "r2v")
+        if video_capability_satisfied(capability=cap, first_frame=has_i2v, max_reference_images=max_reference_images)
+    )
 
 
 def builtin_model_buckets(provider_id: str, model_id: str, model_info: ModelInfo) -> frozenset[CapabilityBucket]:

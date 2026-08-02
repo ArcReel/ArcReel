@@ -32,6 +32,7 @@ from lib.storyboard_sequence import (
     resolve_storyboard_image_ref,
 )
 from server.auth import CurrentUser
+from server.routers._validators import require_video_bucket_capability
 from server.services.generation_context import AudioLaneRequest, resolve_generation_context
 from server.services.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_current_image_rel
 
@@ -165,9 +166,9 @@ async def generate_video(
     需要先有分镜图作为起始帧。生成由 GenerationWorker 异步执行。
     """
 
-    def _sync():
+    def _sync() -> dict:
         pm_local = get_project_manager()
-        pm_local.load_project(project_name)
+        project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
 
         # 与 worker 一致：优先读取 generated_assets.storyboard_image，回退默认路径。
@@ -194,8 +195,13 @@ async def generate_video(
             storyboard_file = project_path / "storyboards" / f"scene_{segment_id}.png"
         if not storyboard_file.is_file():
             raise BadRequestError("generate_storyboard_first", segment_id=segment_id)
+        return project
 
-    await asyncio.to_thread(_sync)
+    project = await asyncio.to_thread(_sync)
+
+    # 图生视频路径归 i2v 桶（docs/adr/0054）：解析闸预检让能力缺失 / 悬空引用在提交入口
+    # 即返回修复指引，而非任务面板里的异步失败。
+    await require_video_bucket_capability(project, "i2v")
 
     # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）。
     # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）。

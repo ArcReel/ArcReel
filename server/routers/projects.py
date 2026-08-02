@@ -85,6 +85,10 @@ class CreateProjectRequest(BaseModel):
     # ===== 新增 =====
     style_template_id: str | None = None
     video_backend: str | None = None
+    # 视频能力桶（docs/adr/0054）项目级覆盖：i2v = 图生视频 / 宫格，r2v = 参考生视频；
+    # 空值 = 回退项目默认（video_backend）与全局层
+    video_provider_i2v: str | None = None
+    video_provider_r2v: str | None = None
     image_backend: str | None = None
     image_provider_t2i: str | None = None
     image_provider_i2i: str | None = None
@@ -122,6 +126,8 @@ class UpdateProjectRequest(BaseModel):
     brief: str | None = None
     generation_mode: str | None = None
     video_backend: str | None = None
+    video_provider_i2v: str | None = None
+    video_provider_r2v: str | None = None
     image_backend: str | None = None
     image_provider_t2i: str | None = None
     image_provider_i2i: str | None = None
@@ -500,6 +506,8 @@ async def create_project(
             # 与 update 路径对称：校验所有 backend 字段
             for field_name in (
                 "video_backend",
+                "video_provider_i2v",
+                "video_provider_r2v",
                 "image_provider_t2i",
                 "image_provider_i2i",
                 "text_backend_simple",
@@ -518,6 +526,8 @@ async def create_project(
                 field: value
                 for field in (
                     "video_backend",
+                    "video_provider_i2v",
+                    "video_provider_r2v",
                     "image_provider_t2i",
                     "image_provider_i2i",
                     "text_backend_simple",
@@ -688,6 +698,8 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     project["style"] = req.style
                 for field in (
                     "video_backend",
+                    "video_provider_i2v",
+                    "video_provider_r2v",
                     "image_provider_t2i",
                     "image_provider_i2i",
                     "audio_backend",

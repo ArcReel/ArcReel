@@ -135,7 +135,7 @@ class TestExtractProvider:
 
     async def test_project_level_video_backend(self, monkeypatch):
         """项目级 video_backend 优先于全局默认。"""
-        _patch_pm(monkeypatch, {"video_backend": "ark/seedance-1-0-pro"})
+        _patch_pm(monkeypatch, {"video_backend": "ark/doubao-seedance-1-5-pro-251215"})
         task = {"payload": {}, "project_name": "demo", "task_type": "video"}
         assert await _extract_provider(task) == "ark"
 
@@ -156,12 +156,25 @@ class TestExtractProvider:
         _patch_pm(
             monkeypatch,
             {
-                "video_backend": "ark/seedance-1-0-pro",
+                "video_backend": "ark/doubao-seedance-1-5-pro-251215",
                 "image_provider_t2i": "gemini-vertex/imagen-3",
             },
         )
         task = {"payload": {}, "project_name": "demo", "task_type": "reference_video"}
         assert await _extract_provider(task) == "ark"
+
+    @pytest.mark.unit
+    async def test_reference_video_prefers_r2v_bucket_provider(self, monkeypatch):
+        """配置 r2v 桶后，reference_video 的认领期投影随桶内 provider，与执行层定桶解析同源。"""
+        _patch_pm(
+            monkeypatch,
+            {
+                "video_backend": "ark/doubao-seedance-1-5-pro-251215",
+                "video_provider_r2v": "minimax/S2V-01",
+            },
+        )
+        task = {"payload": {}, "project_name": "demo", "task_type": "reference_video"}
+        assert await _extract_provider(task) == "minimax"
 
     async def test_payload_provider_takes_precedence_over_project(self, monkeypatch):
         """payload 历史 provider 优先于项目级。"""
@@ -203,12 +216,12 @@ class TestExtractProviderAlignsWithExecution:
         from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
 
-        project = {"video_backend": "ark/seedance-1-0-pro"}
+        project = {"video_backend": "ark/doubao-seedance-1-5-pro-251215"}
         _patch_pm(monkeypatch, project)
         task = {"payload": {}, "project_name": "demo", "task_type": "video"}
 
         worker_provider = await _extract_provider(task)
-        resolved = await ConfigResolver(async_session_factory).resolve_video_backend(project, {})
+        resolved = await ConfigResolver(async_session_factory).resolve_video_backend(project, {}, capability="i2v")
         assert worker_provider == resolved.provider_id == "ark"
 
 

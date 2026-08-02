@@ -89,6 +89,9 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
     monkeypatch.setattr(gt_mod, "get_project_manager", lambda: custom_pm)
     monkeypatch.setattr(rvt_mod, "get_project_manager", lambda: custom_pm)
+    # 视频桶预检需要 DB（system_settings）；本用例无 DB，能力闸行为由
+    # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
+    monkeypatch.setattr(router_mod, "require_video_bucket_capability", AsyncMock(return_value=None))
 
     app = FastAPI()
     app.include_router(router_mod.router, prefix="/api/v1")

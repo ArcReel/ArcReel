@@ -185,6 +185,46 @@ _IMAGE_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
 }
 
 
+# 视频桶（i2v / r2v）键位。空桶回退默认层（docs/adr/0054 语义）。默认层零迁移：项目默认层
+# 复用既有 video_backend 字段，全局默认层复用 default_video_backend 键。
+_VIDEO_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
+    cap: _LayeredBackendKeys(
+        media_type="video",
+        parse_fallback=_DEFAULT_VIDEO_BACKEND,
+        project_bucket_key=f"video_provider_{cap}",
+        project_default_key="video_backend",
+        global_bucket_key=f"default_video_backend_{cap}",
+        global_default_key="default_video_backend",
+    )
+    for cap in ("i2v", "r2v")
+}
+
+#: 视频能力桶：i2v（图生视频 / 宫格，由首帧驱动）、r2v（参考生视频，含无参考图退化镜头）。
+#: t2v 不设桶（docs/adr/0054）。
+VideoCapability = Literal["i2v", "r2v"]
+
+#: 视频任务类型 → 能力桶。执行路径与桶的映射固定在代码里（docs/adr/0054）：图生视频 /
+#: 宫格生视频（task_type ``video``）→ i2v，参考生视频（含无参考图退化镜头）→ r2v。
+#: 表外任务类型无视频桶，调用方按「不定桶」处理。定义在本模块（而非 lib.capability_buckets）
+#: 是分层约束：队列 / worker 的入队与认领路径处于 lib.video_backends 的依赖闭包内，不得经
+#: 桶判定模块间接引入 lib.custom_provider。
+VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoCapability] = {
+    "video": "i2v",
+    "reference_video": "r2v",
+}
+
+
+def video_capability_satisfied(*, capability: VideoCapability, first_frame: bool, max_reference_images: int) -> bool:
+    """一组视频能力声明是否满足某个桶——桶归属判定的唯一口径。
+
+    解析闸（``_ensure_video_bucket_capability``）与桶候选下拉（``lib.capability_buckets``）共用本
+    函数，不各写一份布尔式：下拉挡掉的组合解析层必然也挡，反之亦然。取标量参数而非
+    ``VideoCapabilities``，一是不在 lib.config 层导入 lib.video_backends.base（分层契约），二是让
+    内置（backend 声明）与自定义供应商（endpoint ⊕ 模型级覆盖的合成）两条来源都能直接喂进来。
+    """
+    return first_frame if capability == "i2v" else max_reference_images > 0
+
+
 # 档位 → 设置键。全局（system_settings）与项目级（project.json）同名同构。
 _TEXT_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
     TextTaskTier.SIMPLE: "text_backend_simple",
@@ -438,6 +478,54 @@ class VisionCapabilityError(ValueError):
         )
 
 
+class VideoBucketCapabilityError(ValueError):
+    """视频解析闸报错：解析出的模型缺所属能力桶要求的能力，或配置引用已不可用。
+
+    ``code`` 是 errors 目录 key、``params`` 是其渲染参数：router 可直接
+    ``_t(exc.code, **exc.params)`` 本地化，worker 落库经 ``lib.task_failure.encode_failure``
+    结构化编码。``str(exc)`` 是英文技术消息，供 log / 非用户可见路径直接使用。"""
+
+    def __init__(
+        self,
+        *,
+        code: str,
+        capability: VideoCapability,
+        provider_id: str,
+        model_id: str,
+        message: str,
+    ):
+        self.code = code
+        self.capability = capability
+        self.provider_id = provider_id
+        self.model_id = model_id
+        self.params: dict[str, str] = {"provider": provider_id, "model": model_id}
+        super().__init__(message)
+
+
+def _video_bucket_capability_missing(
+    capability: VideoCapability, provider_id: str, model_id: str
+) -> VideoBucketCapabilityError:
+    return VideoBucketCapabilityError(
+        code=f"video_capability_missing_{capability}",
+        capability=capability,
+        provider_id=provider_id,
+        model_id=model_id,
+        message=f"video model {provider_id}/{model_id} lacks the capability required by the {capability} bucket",
+    )
+
+
+def _video_bucket_reference_unavailable(
+    capability: VideoCapability, provider_id: str, model_id: str
+) -> VideoBucketCapabilityError:
+    return VideoBucketCapabilityError(
+        code="video_capability_reference_unavailable",
+        capability=capability,
+        provider_id=provider_id,
+        model_id=model_id,
+        message=f"configured video model {provider_id}/{model_id} is no longer resolvable for the {capability} bucket",
+    )
+
+
 def _ensure_text_model_vision_capable(task_type: TextTaskType, provider_id: str, model_id: str) -> None:
     """校验解析出的模型支持图像输入；不满足直接报错，不静默换模型。
 
@@ -540,19 +628,29 @@ class ConfigResolver:
         self,
         project: dict | None,
         payload: dict | None,
+        *,
+        capability: VideoCapability | None = None,
     ) -> ProviderModel:
         """解析视频任务应使用的 ProviderModel。
 
-        优先级：payload（历史任务携带的 ``video_provider``）> project（``video_backend``）> 全局默认。
-        视频任务无 capability 维度；provider id 不做归一化。
+        payload（历史任务携带的 ``video_provider``）恒为最高优先级。其后按 ``capability``
+        分两条路径（``docs/adr/0054``）：
 
-        返回的是**运行时有效身份**：自定义 provider 的 model 不存在、已禁用或 endpoint 的
-        media_type 不是 video 时，收敛到该 provider 默认启用的 video model，无可用默认则抛
-        ``ValueError``。能力查询与价格查询因此拿到同一身份。只要字面配置结果（不经收敛）
-        请改用 ``video_backend()``。
+        - ``capability`` 给定（``"i2v"`` / ``"r2v"``）：走四级骨架 项目桶（``video_provider_<cap>``）
+          > 项目默认（``video_backend``）> 全局桶（``default_video_backend_<cap>``）> 全局默认
+          （``default_video_backend``）> 自动推断，空桶回退默认层。解析结果过能力闸：模型缺该桶
+          所需能力、或配置引用已不可用（模型被删 / 能力被改 / 供应商被删）时抛
+          ``VideoBucketCapabilityError``，不静默换模型。payload 命中时跳过能力闸——已入队任务
+          按 payload 照常执行，不回头补校验。
+        - ``capability`` 为 None：project（``video_backend``）> 全局默认 的旧三级路径，无能力闸；
+          自定义 provider 的 model 不存在、已禁用或 endpoint 的 media_type 不是 video 时，收敛到
+          该 provider 默认启用的 video model（**运行时有效身份**），无可用默认则抛 ``ValueError``。
+          供不承诺能力的调用方（费用估算、限流路由兜底）使用。
+
+        provider id 不做归一化。只要字面配置结果（不经收敛）请改用 ``video_backend()``。
         """
         async with self._open_session() as (session, svc):
-            return await self._resolve_video_provider_model(svc, session, project, payload)
+            return await self._resolve_video_provider_model(svc, session, project, payload, capability)
 
     async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str | None:
         """按 project.model_settings → legacy video_model_settings → 自定义供应商默认 → None。
@@ -885,14 +983,15 @@ class ConfigResolver:
         session: AsyncSession,
         project: dict | None,
         payload: dict | None,
+        capability: VideoCapability | None = None,
     ) -> ProviderModel:
-        """payload > project > 全局默认 三级解析视频 ProviderModel。
+        """payload 优先解析视频 ProviderModel；无 payload 时按 ``capability`` 走桶骨架或旧三级。
 
         payload 层服务于历史任务（携带 ``video_provider`` + ``video_model`` /
-        ``video_provider_settings.model``）的排空。payload provider 须是已知 provider（见
-        ``_trusted_payload_provider``），否则不予信任、回退 project/global。
+        ``video_provider_settings.model``）的排空，不过能力闸、仍做有效身份收敛。payload
+        provider 须是已知 provider（见 ``_trusted_payload_provider``），否则不予信任、回退
+        配置层。各层语义见 ``resolve_video_backend`` docstring。
         """
-        selected: ProviderModel | None = None
         if payload:
             provider_id = _trusted_payload_provider(payload.get("video_provider"))
             if provider_id is not None:
@@ -900,11 +999,80 @@ class ConfigResolver:
                 settings_model = settings.get("model") if isinstance(settings, dict) else None
                 model = _payload_model_or_default(payload.get("video_model") or settings_model, provider_id, "video")
                 if model is not None:
-                    selected = ProviderModel(provider_id, model)
-        if selected is None:
+                    return await self._resolve_effective_video_provider_model(
+                        session, ProviderModel(provider_id, model)
+                    )
+        if capability is None:
             provider_id, model_id = await self._resolve_video_backend_from_project(svc, session, project)
-            selected = ProviderModel(provider_id, model_id)
-        return await self._resolve_effective_video_provider_model(session, selected)
+            return await self._resolve_effective_video_provider_model(session, ProviderModel(provider_id, model_id))
+        provider_id, model_id = await self._resolve_layered_backend(
+            svc, session, project, _VIDEO_LAYERED_KEYS[capability]
+        )
+        selected = ProviderModel(provider_id, model_id)
+        await self._ensure_video_bucket_capability(session, selected, capability)
+        return selected
+
+    async def _ensure_video_bucket_capability(
+        self,
+        session: AsyncSession,
+        selected: ProviderModel,
+        capability: VideoCapability,
+    ) -> None:
+        """能力闸：校验解析出的模型具备该桶所需能力，不满足直接报错、不静默换模型。
+
+        判定经 ``video_capability_satisfied`` 与桶候选下拉（``lib.capability_buckets``）共用一份
+        口径：内置模型两维都取 backend ``VideoCapabilities``（与请求构造同源），不读 registry
+        ``ModelInfo`` 的并行声明。悬空引用（模型被删 /
+        能力被事后修改 / 供应商被删 / endpoint 变更）在此统一报错兜底，写入侧不拦截、不级联清理
+        （``docs/adr/0054``）。
+        """
+        provider_id, model_id = selected.provider_id, selected.model_id
+        if is_custom_provider(provider_id):
+            # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
+            # 该符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
+            from lib.custom_provider.capabilities import synthesize_video_capabilities
+            from lib.custom_provider.endpoints import endpoint_to_media_type
+
+            try:
+                db_pid = parse_provider_id(provider_id)
+            except ValueError as exc:
+                raise _video_bucket_reference_unavailable(capability, provider_id, model_id) from exc
+            repo = CustomProviderRepository(session)
+            model = await repo.get_model_by_ids(db_pid, model_id)
+            if model is None or not model.is_enabled:
+                raise _video_bucket_reference_unavailable(capability, provider_id, model_id)
+            try:
+                media_type = endpoint_to_media_type(model.endpoint)
+                caps = synthesize_video_capabilities(
+                    endpoint=model.endpoint,
+                    model_id=model_id,
+                    overrides=model.capability_overrides,
+                )
+            except ValueError as exc:
+                raise _video_bucket_reference_unavailable(capability, provider_id, model_id) from exc
+            if media_type != "video":
+                raise _video_bucket_reference_unavailable(capability, provider_id, model_id)
+        else:
+            # backend caps 函数不都校验 model 存在性、也不都校验 media_type（部分 provider 对任意
+            # model id 返回静态能力，同一 provider 的图片模型也会拿到 first_frame=True），注册表
+            # 身份单独判：模型被注册表升级删除、或所引模型压根不是视频模型，都是悬空引用。
+            # 判的是注册表身份而非能力声明——能力两维仍只取 backend，与桶候选下拉同源。
+            provider_meta = PROVIDER_REGISTRY.get(provider_id)
+            model_info = provider_meta.models.get(model_id) if provider_meta else None
+            if model_info is None or model_info.media_type != "video":
+                raise _video_bucket_reference_unavailable(capability, provider_id, model_id)
+            try:
+                spec = get_provider_spec(provider_id, "video")
+                caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+            except ValueError as exc:
+                raise _video_bucket_reference_unavailable(capability, provider_id, model_id) from exc
+        satisfied = video_capability_satisfied(
+            capability=capability,
+            first_frame=caps.first_frame,
+            max_reference_images=caps.max_reference_images,
+        )
+        if not satisfied:
+            raise _video_bucket_capability_missing(capability, provider_id, model_id)
 
     async def _resolve_effective_video_provider_model(
         self,
