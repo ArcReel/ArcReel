@@ -953,7 +953,7 @@ export function ReferenceVideoCanvas({
                               role="tab"
                               id={`reference-editor-view-tab-${view}`}
                               aria-selected={editorView === view}
-                              aria-controls="reference-editor-view-panel"
+                              aria-controls={`reference-editor-view-panel-${view}`}
                               // 未选中的 tab 退出 Tab 序列，左右方向键在两者间移动：
                               // tablist 的键盘约定是「Tab 进出控件组、方向键在组内切换」。
                               tabIndex={editorView === view ? 0 : -1}
@@ -979,7 +979,7 @@ export function ReferenceVideoCanvas({
                         </div>
                         {editorView === "script" ? (
                           <div
-                            id="reference-editor-view-panel"
+                            id="reference-editor-view-panel-script"
                             role="tabpanel"
                             aria-labelledby="reference-editor-view-tab-script"
                             className="flex min-h-0 flex-1 flex-col overflow-hidden p-3"
@@ -995,7 +995,7 @@ export function ReferenceVideoCanvas({
                           </div>
                         ) : (
                           <div
-                            id="reference-editor-view-panel"
+                            id="reference-editor-view-panel-parse"
                             role="tabpanel"
                             aria-labelledby="reference-editor-view-tab-parse"
                             className="flex min-h-0 flex-1 flex-col overflow-hidden"

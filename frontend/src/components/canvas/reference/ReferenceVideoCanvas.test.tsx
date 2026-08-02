@@ -138,6 +138,37 @@ describe("ReferenceVideoCanvas", () => {
     expect(await screen.findByRole("combobox")).toBeInTheDocument();
   });
 
+  // 两个 tabpanel 同时刻只挂载一个，共用静态 id 会让未选中 tab 的 aria-controls
+  // 指向当前激活面板——而该面板的 aria-labelledby 归属对方 tab，读屏播报错位。
+  it("points each editor-view tab at its own panel", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "镜头1：中景。")],
+    });
+    vi.spyOn(API, "previewReferenceScript").mockResolvedValue({
+      shots: [{ index: 1, text: "中景。" }],
+      references: [],
+      utterances: [],
+      warnings: [],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const scriptTab = await screen.findByRole("tab", { name: /^(Script|文稿)$/ });
+    const parseTab = screen.getByRole("tab", { name: /Parse preview|解析预览/ });
+    const scriptControls = scriptTab.getAttribute("aria-controls");
+    const parseControls = parseTab.getAttribute("aria-controls");
+    expect(scriptControls).not.toBe(parseControls);
+
+    // 每个 tab 指向的面板，其 aria-labelledby 必须指回该 tab 自身
+    const scriptPanel = screen.getByRole("tabpanel");
+    expect(scriptPanel.id).toBe(scriptControls);
+    expect(scriptPanel.getAttribute("aria-labelledby")).toBe(scriptTab.id);
+
+    fireEvent.click(parseTab);
+    const parsePanel = await screen.findByRole("tabpanel");
+    expect(parsePanel.id).toBe(parseControls);
+    expect(parsePanel.getAttribute("aria-labelledby")).toBe(parseTab.id);
+  });
+
   // 同名同时落在 characters 与 props 时，后端 resolve_references 判 character；
   // 预览着色若反着来，规范台词行的说话人会被标成未登记角色。
   it("resolves a name shared by two asset buckets the way the backend does", async () => {
