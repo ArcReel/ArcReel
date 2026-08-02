@@ -13,7 +13,7 @@ user-invocable: false
 | 工具 | 功能 | 调用者 |
 |------|------|--------|
 | `mcp__arcreel__patch_project`（SDK tool） | 新增/修改 project.json 的角色/场景/道具（按 table+name upsert）、顶层 settings 字段或项目概述（overview 分支） | subagent / 主 agent |
-| `mcp__arcreel__get_video_capabilities`（SDK tool） | 查当前项目视频模型能力（model 粒度，所有生成模式通用） | **subagent**（执行任务时自行查询） |
+| `mcp__arcreel__get_video_capabilities`（SDK tool） | 查视频模型能力（model 粒度，所有生成模式通用；带 `episode` 按该集生效模式解析） | **subagent**（执行任务时自行查询） |
 
 > 分集规划（拆集/调整）由服务端工具 `mcp__arcreel__plan_episodes` / `mcp__arcreel__reset_episode_planning` 完成，调整已规划内容走「重置 + 重新规划」，流程见 manga-workflow 阶段 2。
 
@@ -57,8 +57,11 @@ description）时不落盘并返回 `is_error: true`。
 通过 MCP 工具查询（项目名由 session 绑定，无需传参）：
 
 ```text
-mcp__arcreel__get_video_capabilities({})
+mcp__arcreel__get_video_capabilities({"episode": N})
 ```
+
+`episode` 必传于按集查询：生成模式可被单集覆盖，省略集号拿到的是项目级口径，
+与该集实际执行的模型可能不是同一个。项目整体设置层面的查询才可省略。
 
 **返回**：JSON 文本，含 `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `source` / `default_duration` / `content_mode` / `generation_mode`。
 

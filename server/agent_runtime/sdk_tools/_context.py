@@ -36,16 +36,19 @@ def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> d
     return {"content": [{"type": "text", "text": text}], "is_error": True}
 
 
-async def resolve_video_caps(project: dict[str, Any]) -> dict[str, Any]:
+async def resolve_video_caps(project: dict[str, Any], episode: int | None = None) -> dict[str, Any]:
     """Resolve the full video capability dict for an MCP tool call.
 
     Single source of truth for video model capability lookup across SDK MCP
     tools. Callers that only need durations should use :func:`fetch_video_caps`;
     this variant exposes the model identity so the caller can evaluate the
     duration linkage constraints declared on it.
+
+    ``episode`` 给出集号时按该集生效 ``generation_mode`` 解析——生成模式可被单集覆盖，
+    智能体拿到的能力须与该集执行层同口径。
     """
     resolver = ConfigResolver(async_session_factory)
-    return await resolver.video_capabilities_for_project(project)
+    return await resolver.video_capabilities_for_project(project, episode)
 
 
 def constrained_caps_durations(
@@ -100,7 +103,7 @@ def reference_unit_duration_tiers(
 
 
 async def fetch_video_caps(
-    project: dict[str, Any], *, generation_mode: str | None = None
+    project: dict[str, Any], *, episode: int | None = None, generation_mode: str | None = None
 ) -> tuple[int | None, list[int]]:
     """Resolve ``(default_duration, supported_durations)`` for an MCP tool call.
 
@@ -110,7 +113,7 @@ async def fetch_video_caps(
     Callers decide whether an empty result is a hard error (video generation) or
     a soft fallback (script normalization).
     """
-    caps = await resolve_video_caps(project)
+    caps = await resolve_video_caps(project, episode)
     durations = [int(d) for d in caps.get("supported_durations") or []]
     durations = constrained_caps_durations(project, caps, durations, generation_mode=generation_mode)
     default = caps.get("default_duration")

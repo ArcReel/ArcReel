@@ -101,7 +101,9 @@ def _fake_resolve_ctx(
     自己用到的 lane。
     """
 
-    async def _resolve(project_name, payload, *, project, user_id="default", image=None, video=None, audio=None):
+    async def _resolve(
+        project_name, payload, *, project, user_id="default", episode=None, image=None, video=None, audio=None
+    ):
         if seen_lane_requests is not None:
             seen_lane_requests.append({"image": image, "video": video, "audio": audio})
         image_lane = None

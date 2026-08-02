@@ -18,24 +18,25 @@ from lib.db import async_session_factory
 logger = logging.getLogger(__name__)
 
 
-async def project_video_caps(project: dict, *, degraded_to: str) -> dict:
+async def project_video_caps(project: dict, *, degraded_to: str, episode: int | None = None) -> dict:
     """项目视频后端的 model 粒度能力；解析失败返回空 dict，由调用方各自降级。
 
     ``degraded_to`` 只用于日志，说明这次解析失败会让调用方退化成什么行为。
+    ``episode`` 给出集号时按该集生效 ``generation_mode`` 解析（生成模式可被单集覆盖）。
     """
     try:
         resolver = ConfigResolver(async_session_factory)
-        return await resolver.video_capabilities_for_project(project)
+        return await resolver.video_capabilities_for_project(project, episode)
     except (ValueError, SQLAlchemyError) as exc:
         logger.info("无法解析 video_capabilities，%s：%s", degraded_to, exc)
         return {}
 
 
-async def resolve_project_voice_consistency(project: dict) -> VoiceConsistency:
-    """项目当前视频后端的声音一致性档位，供 drama Voice_Profiles 注入前的 C 类（真无声）判定。
+async def resolve_project_voice_consistency(project: dict, episode: int | None = None) -> VoiceConsistency:
+    """该集视频后端的声音一致性档位，供 drama Voice_Profiles 注入前的 C 类（真无声）判定。
 
     解析失败按既有「无信号不判定为真无声」口径退化为 ``soft``（同 ``derive_voice_consistency``
     对自定义供应商缺失 ``generate_audio`` 声明时的处理）。
     """
-    caps = await project_video_caps(project, degraded_to="Voice_Profiles 按 soft 兜底注入")
+    caps = await project_video_caps(project, degraded_to="Voice_Profiles 按 soft 兜底注入", episode=episode)
     return caps.get("voice_consistency") or "soft"

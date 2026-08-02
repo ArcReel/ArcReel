@@ -1004,7 +1004,7 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
         enqueued.extend(specs)
         return [], []
 
-    async def fake_duration_context(_project):
+    async def fake_duration_context(_project, _episode=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1050,7 +1050,7 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
                 )
         return [], []
 
-    async def fake_duration_context(_project):
+    async def fake_duration_context(_project, _episode=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1083,7 +1083,7 @@ async def test_generate_video_episode_reference_duration_repeat_without_confirm_
         enqueued.extend(specs)
         return [], []
 
-    async def fake_duration_context(_project):
+    async def fake_duration_context(_project, _episode=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1129,7 +1129,7 @@ async def test_generate_video_episode_reference_duration_exact_enqueues_directly
                 )
         return [], []
 
-    async def fake_duration_context(_project):
+    async def fake_duration_context(_project, _episode=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1184,7 +1184,7 @@ async def test_generate_video_episode_reference_duration_skips_unit_without_shot
                 )
         return [], []
 
-    async def fake_duration_context(_project):
+    async def fake_duration_context(_project, _episode=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1226,7 +1226,7 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
 
     context_calls: list[dict[str, Any]] = []
 
-    async def fake_duration_context(project):
+    async def fake_duration_context(project, _episode=None):
         context_calls.append(project)
         return ProjectDurationContext(supported_durations=(4, 8, 12), resolution=None, provider_id="", model_name=None)
 
@@ -1263,7 +1263,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_noth
 
     context_calls: list[dict[str, Any]] = []
 
-    async def fake_duration_context(project):
+    async def fake_duration_context(project, _episode=None):
         context_calls.append(project)
         raise AssertionError("无可预检 unit 时不应解析项目视频能力")
 
@@ -1294,7 +1294,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_prom
 
     context_calls: list[dict[str, Any]] = []
 
-    async def fake_duration_context(project):
+    async def fake_duration_context(project, _episode=None):
         context_calls.append(project)
         raise AssertionError("整批提示词均空白时不应解析项目视频能力")
 
@@ -1331,7 +1331,7 @@ async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
         enqueued.extend(specs)
         return [], []
 
-    async def fake_duration_context(_project):
+    async def fake_duration_context(_project, _episode=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1389,7 +1389,7 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
                 )
         return [], []
 
-    async def fake_duration_context(_project):
+    async def fake_duration_context(_project, _episode=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1774,14 +1774,14 @@ async def test_resolve_voice_characters_drama_reads_project_characters_and_gate(
     """drama：读项目角色资产，voice_consistency 为 none（C 类真无声）时退回不注入。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    async def fake_voice_consistency(_project):
+    async def fake_voice_consistency(_project, _episode=None):
         return "soft"
 
     monkeypatch.setattr(mod, "resolve_project_voice_consistency", fake_voice_consistency)
     characters = await mod._resolve_voice_characters(fake_ctx, "drama")
     assert characters == fake_ctx.pm.project_payload["characters"]  # type: ignore[attr-defined]
 
-    async def fake_voice_consistency_none(_project):
+    async def fake_voice_consistency_none(_project, _episode=None):
         return "none"
 
     monkeypatch.setattr(mod, "resolve_project_voice_consistency", fake_voice_consistency_none)
@@ -1863,7 +1863,7 @@ def test_build_reference_specs_handles_malformed_shots(tmp_path) -> None:
 async def test_get_video_capabilities_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def fake_resolve(_project):
+    async def fake_resolve(_project, _episode=None):
         return {"provider_id": "fake", "supported_durations": [4, 6, 8]}
 
     monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
@@ -1878,7 +1878,7 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: T
     """参考路径项目另返回两套逐 unit 生效档位，供手工改 step1 时与生成侧对同一份数字。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def fake_resolve(_project):
+    async def fake_resolve(_project, _episode=None):
         return {
             "provider_id": "gemini-aistudio",
             "model": "veo-3.1-generate-preview",
@@ -1909,7 +1909,7 @@ async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
     """非剧集参考路径不补该字段：其它路径没有逐 unit 引用状态，ad 镜头时长也不受档位枚举管辖。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def fake_resolve(_project):
+    async def fake_resolve(_project, _episode=None):
         return {
             "provider_id": "gemini-aistudio",
             "model": "veo-3.1-generate-preview",
@@ -1933,7 +1933,7 @@ async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: Too
 
     seen: list[str] = []
 
-    async def fake_video_capabilities(_self, project_name=None):
+    async def fake_video_capabilities(_self, project_name=None, episode=None):
         seen.append(project_name)
         return {"provider_id": "kling", "model": "kling-v3-omni", "supported_durations": [5]}
 
@@ -1947,7 +1947,7 @@ async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: Too
 async def test_get_video_capabilities_error(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def fake_resolve(_project):
+    async def fake_resolve(_project, _episode=None):
         raise FileNotFoundError("missing project.json")
 
     monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
@@ -2082,11 +2082,11 @@ async def test_fetch_caps_with_fallback_uses_write_layer_default(monkeypatch) ->
     from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def raising_caps(_p, *, generation_mode=None):
+    async def raising_caps(_p, *, episode=None, generation_mode=None):
         raise ValueError("no provider configured")
 
     monkeypatch.setattr(mod, "fetch_video_caps", raising_caps)
-    default, durations = await mod._fetch_caps_with_fallback({})
+    default, durations = await mod._fetch_caps_with_fallback({}, 1)
     assert default is None
     assert durations == DEFAULT_FALLBACK
 
@@ -2100,19 +2100,19 @@ async def test_fetch_caps_with_fallback_drops_out_of_range_default(monkeypatch) 
     """
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def _narrowed_caps(_p, *, generation_mode=None):
+    async def _narrowed_caps(_p, *, episode=None, generation_mode=None):
         return 4, [8]
 
     monkeypatch.setattr(mod, "fetch_video_caps", _narrowed_caps)
-    default, durations = await mod._fetch_caps_with_fallback({})
+    default, durations = await mod._fetch_caps_with_fallback({}, 1)
     assert default is None
     assert durations == [8]
 
-    async def _in_range_caps(_p, *, generation_mode=None):
+    async def _in_range_caps(_p, *, episode=None, generation_mode=None):
         return 8, [4, 6, 8]
 
     monkeypatch.setattr(mod, "fetch_video_caps", _in_range_caps)
-    default, durations = await mod._fetch_caps_with_fallback({})
+    default, durations = await mod._fetch_caps_with_fallback({}, 1)
     assert default == 8
     assert durations == [4, 6, 8]
 
@@ -2126,7 +2126,7 @@ async def test_fetch_video_caps_narrows_durations_by_constraints(monkeypatch) ->
     """
     from server.agent_runtime.sdk_tools import _context as ctx_mod
 
-    async def _fake_caps(_project):
+    async def _fake_caps(_project, _episode=None):
         return {
             "provider_id": "gemini-aistudio",
             "model": "veo-3.1-generate-preview",
@@ -2165,7 +2165,7 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch
     src.mkdir(parents=True)
     (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
 
-    async def fake_caps(_p):
+    async def fake_caps(_p, _episode=None):
         return 4, [4, 6, 8]
 
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
@@ -2187,7 +2187,7 @@ async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContex
     src.mkdir(parents=True)
     (src / "chapter1.txt").write_text("once upon a time", encoding="utf-8")
 
-    async def fake_caps(_p):
+    async def fake_caps(_p, _episode=None):
         return 4, [4, 6, 8]
 
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
@@ -2206,7 +2206,7 @@ async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext
     src.mkdir(parents=True)
     (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
 
-    async def fake_caps(_p):
+    async def fake_caps(_p, _episode=None):
         return 4, [4, 6, 8]
 
     class _EmptyGenerator:
@@ -2238,7 +2238,7 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
     src.mkdir(parents=True)
     (src / "chapter2.txt").write_text("第二集开场", encoding="utf-8")
 
-    async def fake_caps(_p):
+    async def fake_caps(_p, _episode=None):
         return 4, [4, 6, 8]
 
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
@@ -2268,7 +2268,7 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolCont
         }
     ]
 
-    async def fake_caps(_p):
+    async def fake_caps(_p, _episode=None):
         return 4, [4, 6, 8]
 
     monkeypatch.setattr(mod, "_fetch_caps_with_fallback", fake_caps)
@@ -2290,7 +2290,7 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
     src.mkdir(parents=True)
     (src / "chapter1.txt").write_text("从前有座山", encoding="utf-8")
 
-    async def fake_caps(_p):
+    async def fake_caps(_p, _episode=None):
         return 4, [4, 6, 8]
 
     captured: dict[str, Any] = {}
@@ -2804,7 +2804,7 @@ def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> 
 
     pm.locked_script = _locked  # type: ignore[attr-defined]
 
-    async def _fake_max_duration(_project: dict[str, Any]) -> int | None:
+    async def _fake_max_duration(_project: dict[str, Any], _episode: int | None = None) -> int | None:
         return 15
 
     monkeypatch.setattr(mod, "resolve_max_unit_duration", _fake_max_duration)
@@ -2969,7 +2969,7 @@ async def test_generate_video_all_ad_reference_falls_through_to_episode(
 def _rv_caps(default=4, durations=(4, 6, 8), reference_durations=None, max_duration=12, max_refs=3, caps=None):
     from server.agent_runtime.sdk_tools.text_generation import ReferenceSplitCaps
 
-    async def fake_caps(_p):
+    async def fake_caps(_p, _episode=None):
         return ReferenceSplitCaps(
             default_duration=default,
             durations=list(durations),
@@ -2987,12 +2987,12 @@ async def test_fetch_reference_caps_with_fallback_returns_declared_slots(monkeyp
     """unit 时长就是发给供应商的那个值，档位原样取自模型声明（不与任何静态区间求交）。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def _fake_caps(_project):
+    async def _fake_caps(_project, _episode=None):
         return {"supported_durations": [1, 8, 16, 18], "max_duration": 18, "default_duration": 16}
 
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
-    caps = await mod._fetch_reference_caps_with_fallback({})
+    caps = await mod._fetch_reference_caps_with_fallback({}, 1)
 
     assert caps.durations == [1, 8, 16, 18]
     assert caps.reference_durations == [1, 8, 16, 18]
@@ -3010,7 +3010,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monk
     """
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def _fake_caps(_project):
+    async def _fake_caps(_project, _episode=None):
         return {
             "provider_id": "minimax",
             "model": "MiniMax-Hailuo-2.3",
@@ -3022,7 +3022,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monk
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
     project = {"model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}}}
-    caps = await mod._fetch_reference_caps_with_fallback(project)
+    caps = await mod._fetch_reference_caps_with_fallback(project, 1)
     assert caps.durations == [6]
     assert caps.max_duration == 6
 
@@ -3032,7 +3032,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution(mo
     """分辨率联动约束同样收窄 unit 档位：Veo 1080p 下只接受 8 秒。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def _fake_caps(_project):
+    async def _fake_caps(_project, _episode=None):
         return {
             "provider_id": "gemini-aistudio",
             "model": "veo-3.1-generate-preview",
@@ -3044,7 +3044,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution(mo
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
-    caps = await mod._fetch_reference_caps_with_fallback(project)
+    caps = await mod._fetch_reference_caps_with_fallback(project, 1)
     assert caps.durations == [8]
     assert caps.max_duration == 8
 
@@ -3086,7 +3086,7 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
     """
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def _fake_caps(_project):
+    async def _fake_caps(_project, _episode=None):
         return {
             "provider_id": "gemini-aistudio",
             "model": "veo-3.1-generate-preview",
@@ -3098,7 +3098,7 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}}
-    caps = await mod._fetch_reference_caps_with_fallback(project)
+    caps = await mod._fetch_reference_caps_with_fallback(project, 1)
     assert caps.reference_durations == [8]
     assert caps.text_durations == [4, 6, 8]
     assert caps.durations == [4, 6, 8]
@@ -3116,7 +3116,7 @@ async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monke
         raise ValueError("no provider configured")
 
     monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
-    caps = await mod._fetch_reference_caps_with_fallback({})
+    caps = await mod._fetch_reference_caps_with_fallback({}, 1)
     assert caps.default_duration is None
     assert caps.durations == DEFAULT_FALLBACK
     assert caps.max_duration == max(DEFAULT_FALLBACK)
@@ -3814,7 +3814,7 @@ async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake
 
 
 def _nr_caps(default=4, durations=(4, 6, 8)):
-    async def fake_caps(_p):
+    async def fake_caps(_p, _episode=None):
         return default, list(durations)
 
     return fake_caps

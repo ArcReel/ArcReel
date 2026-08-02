@@ -37,7 +37,7 @@ description: "剧集动画模式单集规范化剧本 subagent（drama 模式专
 通过 MCP 工具查询：
 
 ```text
-mcp__arcreel__get_video_capabilities({})
+mcp__arcreel__get_video_capabilities({"episode": N})
 ```
 
 解析返回的 JSON，记录：

@@ -896,14 +896,24 @@ async def execute_video_task(
         _items, _id_field, _, _, _ = get_storyboard_items(_script)
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
         _item = _resolved[0] if _resolved else {}
-        return _project, _project_path, _item, resolve_content_mode(_script, _project)
+        # 集号供能力解析按该集生效 generation_mode 取值；剧本缺 episode 字段（脏数据）时
+        # 传 None，能力回落到项目级口径。
+        _episode = _script.get("episode")
+        return (
+            _project,
+            _project_path,
+            _item,
+            resolve_content_mode(_script, _project),
+            _episode if isinstance(_episode, int) else None,
+        )
 
-    project, project_path, item, content_mode = await asyncio.to_thread(_load)
+    project, project_path, item, content_mode, episode = await asyncio.to_thread(_load)
     ctx = await resolve_generation_context(
         project_name,
         payload,
         project=project,
         user_id=user_id,
+        episode=episode,
         video=VideoLaneRequest(capability="i2v"),
     )
     generator = ctx.generator

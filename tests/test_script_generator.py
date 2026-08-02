@@ -340,7 +340,7 @@ class TestScriptGenerator:
         content["scenes"][0]["duration_seconds"] = 4
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="step1 已定场景时长非法"):
-            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+            await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
@@ -361,7 +361,7 @@ class TestScriptGenerator:
         content["scenes"][0]["duration_seconds"] = raw
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="step1 已定场景时长非法"):
-            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+            await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
     async def test_drama_step2_checks_declared_default_when_duration_absent(self, tmp_path):
@@ -377,7 +377,7 @@ class TestScriptGenerator:
         del content["scenes"][0]["duration_seconds"]
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="step1 已定场景时长非法"):
-            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+            await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
     async def test_drama_step2_checks_declared_default_when_duration_null(self, tmp_path):
@@ -394,7 +394,7 @@ class TestScriptGenerator:
         content["scenes"][0]["duration_seconds"] = None
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="step1 已定场景时长非法"):
-            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+            await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
     async def test_drama_step2_accepts_step1_duration_within_constrained_set(self, tmp_path):
@@ -404,7 +404,9 @@ class TestScriptGenerator:
         )
 
         generator = ScriptGenerator(project_path)
-        await generator._assert_drama_step1_durations(_drama_step1_content()["scenes"], gen_mode="storyboard")
+        await generator._assert_drama_step1_durations(
+            _drama_step1_content()["scenes"], episode=1, gen_mode="storyboard"
+        )
 
     async def test_drama_step2_build_prompt_renders_step1_content(self, tmp_path):
         """drama step2（视觉层）build_prompt 须把 step1 已定稿内容渲染入 prompt，仅求视觉字段。"""
@@ -932,7 +934,7 @@ class TestFetchVideoCapabilitiesErrorHandling:
         上限写剧本，写出来的镜头执行期照样被同一道闸拒掉。"""
         from lib.config.resolver import VideoBucketCapabilityError
 
-        async def _raise(_self, _project):
+        async def _raise(_self, _project, _episode=None):
             raise VideoBucketCapabilityError(
                 code="video_capability_missing_r2v",
                 capability="r2v",
@@ -950,7 +952,7 @@ class TestFetchVideoCapabilitiesErrorHandling:
     async def test_other_resolution_failures_still_fall_back(self, tmp_path, monkeypatch):
         """DB 未 migration / 缺能力元数据等环境故障仍走 fallback，裸环境下 generate() 照常跑通。"""
 
-        async def _raise(_self, _project):
+        async def _raise(_self, _project, _episode=None):
             raise ValueError("no video provider configured")
 
         monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _raise)
@@ -1297,7 +1299,7 @@ def _narration_visual_response(segment_ids: list[str], *, title: str = "第一�
     return {"title": title, "segments": [_visual_seg(sid) for sid in segment_ids]}
 
 
-async def _fixed_caps_468() -> dict:
+async def _fixed_caps_468(_episode=None) -> dict:
     return {"supported_durations": [4, 6, 8]}
 
 
@@ -1738,7 +1740,7 @@ class TestAdScriptGeneration:
         fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        async def _fixed_caps():
+        async def _fixed_caps(_episode=None):
             return {"supported_durations": [4, 6, 8]}
 
         generator._fetch_video_capabilities = _fixed_caps
@@ -1762,7 +1764,7 @@ class TestAdScriptGeneration:
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        async def _fixed_caps():
+        async def _fixed_caps(_episode=None):
             return {"supported_durations": [4, 6, 8]}
 
         generator._fetch_video_capabilities = _fixed_caps
@@ -1811,7 +1813,7 @@ class TestAdScriptGeneration:
         fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        async def _fixed_caps():
+        async def _fixed_caps(_episode=None):
             return {"supported_durations": [4, 6, 8]}
 
         generator._fetch_video_capabilities = _fixed_caps
@@ -1934,7 +1936,7 @@ class TestAdQualityProbe:
         fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        async def _fixed_caps():
+        async def _fixed_caps(_episode=None):
             return {"supported_durations": [4, 6, 8]}
 
         generator._fetch_video_capabilities = _fixed_caps

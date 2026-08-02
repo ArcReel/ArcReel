@@ -156,9 +156,9 @@ def _load_novel_source(project_path: Path, source: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_video_capabilities(project_name: str) -> dict[str, Any]:
+async def _resolve_video_capabilities(project_name: str, episode: int | None) -> dict[str, Any]:
     resolver = ConfigResolver(async_session_factory)
-    return await resolver.video_capabilities(project_name)
+    return await resolver.video_capabilities(project_name, episode)
 
 
 def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, Any]) -> None:
@@ -186,13 +186,24 @@ def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, A
 def get_video_capabilities_tool(ctx: ToolContext):
     @tool(
         "get_video_capabilities",
-        "查当前项目的视频模型能力（model 粒度）+ 用户项目偏好。返回 JSON；"
-        "参考生视频项目另含 reference_unit_durations（按 unit 有无 @ 引用分开的两套生效档位）。",
-        {"type": "object", "properties": {}},
+        "查视频模型能力（model 粒度）+ 用户项目偏好。返回 JSON；"
+        "参考生视频项目另含 reference_unit_durations（按 unit 有无 @ 引用分开的两套生效档位）。"
+        "生成模式可被单集覆盖，为某一集取能力时必须带 episode，否则拿到的是项目级口径。",
+        {
+            "type": "object",
+            "properties": {
+                "episode": {
+                    "type": "integer",
+                    "description": "剧集编号；省略则按项目级生成模式解析",
+                }
+            },
+        },
     )
-    async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            payload = await _resolve_video_capabilities(ctx.project_name)
+            raw_episode = args.get("episode")
+            episode = int(raw_episode) if raw_episode is not None else None
+            payload = await _resolve_video_capabilities(ctx.project_name, episode)
             _annotate_reference_unit_tiers(payload, ctx.pm.load_project(ctx.project_name))
             return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)}]}
         except FileNotFoundError as exc:
@@ -412,7 +423,7 @@ def confirm_script_review_tool(ctx: ToolContext):
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_caps_with_fallback(project: dict[str, Any]) -> tuple[int | None, list[int]]:
+async def _fetch_caps_with_fallback(project: dict[str, Any], episode: int) -> tuple[int | None, list[int]]:
     """Script normalization is best-effort: prompt生成 不该被能力查询失败堵住。
 
     Soft-fallbacks to ``duration_presets.DEFAULT_FALLBACK`` so the LLM still
@@ -429,7 +440,7 @@ async def _fetch_caps_with_fallback(project: dict[str, Any]) -> tuple[int | None
     越界默认时长」变成整个工具的硬失败。与 ``_fetch_reference_caps_with_fallback`` 同口径。
     """
     try:
-        default_int, durations = await fetch_video_caps(project, generation_mode=None)
+        default_int, durations = await fetch_video_caps(project, episode=episode, generation_mode=None)
     except (FileNotFoundError, ValueError) as exc:
         logger.info("video_capabilities 不可解析，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         return None, list(DEFAULT_FALLBACK)
@@ -477,7 +488,7 @@ def normalize_drama_script_tool(ctx: ToolContext):
             except ValueError as exc:
                 return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
-            default_duration, supported_durations = await _fetch_caps_with_fallback(project)
+            default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
             # 分集大纲（故事节点 / 钩子）随内容抽取前移到 step1，驱动内容覆盖与末场落地（见 ADR 0041）。
             episode_outline, next_episode_outline = episode_outline_context(project, episode)
             prompt = build_normalize_prompt(
@@ -585,7 +596,7 @@ class ReferenceSplitCaps(NamedTuple):
         return self.reference_durations if has_references else self.text_durations
 
 
-async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> ReferenceSplitCaps:
+async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: int) -> ReferenceSplitCaps:
     """解析 rv 拆分所需的视频能力（见 ``ReferenceSplitCaps``）。
 
     与 ``_fetch_caps_with_fallback`` 同口径 best-effort：resolver 故障时回退
@@ -603,7 +614,7 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any]) -> Refere
     ``default_duration`` 非并集成员（用户配置漂移）按 None 处理，避免 prompt 自相矛盾。
     """
     try:
-        caps = await resolve_video_caps(project)
+        caps = await resolve_video_caps(project, episode)
     except Exception as exc:  # noqa: BLE001
         logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         caps = {}
@@ -837,7 +848,7 @@ async def revalidate_reference_step1_draft(
     # 事件循环——晋升工具走的是独立会话线程不敏感，但 web 审核 gate 的读时重算（同一份代码）
     # 在请求协程里跑，卸到线程避免拖慢并发的其它请求。
     novel_text = await asyncio.to_thread(_load_novel_source, project_path, draft.meta["source"])
-    split_caps = await _fetch_reference_caps_with_fallback(project)
+    split_caps = await _fetch_reference_caps_with_fallback(project, episode)
 
     # 手改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_step1_json 卡住时长
     # 枚举与字段非空，晋升侧漏掉这一层的话，把 duration_seconds 改成非档位值、或整个删掉（收成
@@ -982,7 +993,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
             props = project.get("props")
             props = props if isinstance(props, dict) else {}
 
-            split_caps = await _fetch_reference_caps_with_fallback(project)
+            split_caps = await _fetch_reference_caps_with_fallback(project, episode)
             episode_outline, next_episode_outline = episode_outline_context(project, episode)
             prompt = build_reference_units_split_prompt(
                 novel_text=novel_text,
@@ -1288,7 +1299,7 @@ def split_narration_segments_tool(ctx: ToolContext):
 
             # narration 仅需 (default_duration, supported_durations)：无 unit 总时长 / references 概念，
             # 复用与 drama normalize 同口径的 best-effort 能力查询（resolver 故障软回退 [4,6,8]）。
-            default_duration, supported_durations = await _fetch_caps_with_fallback(project)
+            default_duration, supported_durations = await _fetch_caps_with_fallback(project, episode)
             prompt = build_narration_split_prompt(
                 novel_text=novel_text,
                 project_overview=project.get("overview", {}),

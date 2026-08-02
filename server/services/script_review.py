@@ -285,7 +285,7 @@ class ScriptReviewService:
         if script_review.step1_kind(project, episode) != "reference_video":
             return None
         try:
-            caps = await resolve_video_caps(project)
+            caps = await resolve_video_caps(project, episode)
         except Exception as exc:  # noqa: BLE001 - best-effort：解析失败时收窄回退为不收窄，不阻塞面板
             logger.warning("video_capabilities 解析异常，时长档下拉退回未收窄集合 project=%s：%s", project_name, exc)
             caps = {}

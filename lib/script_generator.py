@@ -242,7 +242,7 @@ class ScriptGenerator:
         if gen_mode != "reference_video" and self.content_mode != "narration":
             return await self._generate_drama_step2(episode, output_filename, gen_mode=gen_mode)
 
-        caps = await self._fetch_video_capabilities()
+        caps = await self._fetch_video_capabilities(episode)
 
         characters = self.project_json.get("characters")
         characters = characters if isinstance(characters, dict) else {}
@@ -344,7 +344,7 @@ class ScriptGenerator:
         content = self._load_drama_step1_content(episode)
         raw_scenes = content.get("scenes")
         content_scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
-        await self._assert_drama_step1_durations(content_scenes, gen_mode=gen_mode)
+        await self._assert_drama_step1_durations(content_scenes, episode=episode, gen_mode=gen_mode)
 
         logger.info("正在生成第 %d 集剧本（drama step2 视觉层）...", episode)
         result = await self.generator.generate(
@@ -370,7 +370,7 @@ class ScriptGenerator:
         logger.info("剧本已保存至 %s", output_path)
         return output_path
 
-    async def _assert_drama_step1_durations(self, content_scenes: list, *, gen_mode: str) -> None:
+    async def _assert_drama_step1_durations(self, content_scenes: list, *, episode: int, gen_mode: str) -> None:
         """校验 drama step1 已定场景时长在当前能力集合内，越界 fail-loud。
 
         与 narration（``_load_narration_step1``）、reference_video（``_load_reference_step1``）
@@ -384,7 +384,7 @@ class ScriptGenerator:
         ``null`` 同取该字段的声明默认值——不填不代表不校验，落盘时补的正是这个默认值。归一化
         失败（如 ``"abc"``）不在此报错，交给落盘前的静态校验统一 fail-loud。
         """
-        supported = self._resolve_supported_durations(await self._fetch_video_capabilities(), gen_mode=gen_mode)
+        supported = self._resolve_supported_durations(await self._fetch_video_capabilities(episode), gen_mode=gen_mode)
         allowed = {int(d) for d in supported}
         seen: set[int] = set()
         for scene in content_scenes:
@@ -530,7 +530,7 @@ class ScriptGenerator:
             supported = None
             schema: type = build_ad_reference_episode_script_model()
         else:
-            caps = await self._fetch_video_capabilities()
+            caps = await self._fetch_video_capabilities(episode)
             supported = self._resolve_supported_durations(caps, gen_mode=gen_mode)
             schema = build_episode_script_model("ad", supported)
         return self._build_ad_prompt(episode, gen_mode, supported), schema
@@ -599,7 +599,7 @@ class ScriptGenerator:
             content_scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
             return self._build_drama_step2_prompt(content_scenes, episode)
 
-        caps = await self._fetch_video_capabilities()
+        caps = await self._fetch_video_capabilities(episode)
         characters = self.project_json.get("characters")
         characters = characters if isinstance(characters, dict) else {}
         scenes = self.project_json.get("scenes")
@@ -641,12 +641,13 @@ class ScriptGenerator:
             target_language=self.project_json.get("source_language") or "中文",
         )
 
-    async def _fetch_video_capabilities(self) -> dict | None:
+    async def _fetch_video_capabilities(self, episode: int | None = None) -> dict | None:
         """从 ConfigResolver 解析视频模型能力；失败时返 None，由 _resolve_* fallback 到 project.json 直读。
 
         使用 `video_capabilities_for_project` 传入已加载的 project.json，不再按 `self.project_path.name`
         重新全局加载——避免 ScriptGenerator 在非标准路径（如测试 tmp_path）实例化时目录名与
-        全局项目碰撞读到错误能力。
+        全局项目碰撞读到错误能力。``episode`` 给出集号时按该集生效 ``generation_mode`` 定桶，
+        与 ``_resolve_supported_durations`` 收窄所用的 ``gen_mode`` 同口径。
 
         宽松捕获：除 ValueError 外，DB 未 migration / 连接失败等 SQLAlchemy 异常也走 fallback，
         保证在缺能力元数据的环境（如裸 CI 测试容器）中 generate() 仍能跑通。
@@ -657,7 +658,7 @@ class ScriptGenerator:
         """
         resolver = ConfigResolver(async_session_factory)
         try:
-            return await resolver.video_capabilities_for_project(self.project_json)
+            return await resolver.video_capabilities_for_project(self.project_json, episode)
         except VideoBucketCapabilityError:
             raise
         except (ValueError, SQLAlchemyError) as exc:
@@ -1206,7 +1207,7 @@ class ScriptGenerator:
                 f"（{quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP2)} 缺失或内容不是合法信封）"
             )
 
-        caps = await self._fetch_video_capabilities()
+        caps = await self._fetch_video_capabilities(episode)
         step1_units = self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
         # 与产出路径同一份 step1 预判：隔离期间 Web 端可能改过 step1（编辑器对人写正文只出
         # warning），不复判就会让改短时长后念不完的台词、或未登记的 @[名称] 借晋升一路落盘。
