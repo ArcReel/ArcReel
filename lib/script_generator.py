@@ -37,6 +37,7 @@ from lib.prompt_builders_script import (
 from lib.reference_video.draft_validation import (
     DraftViolation,
     assert_dialogue_preserved,
+    validate_dialogue_load,
     validate_unit_text,
 )
 from lib.reference_video.duration_slots import resolve_duration_slot
@@ -984,17 +985,22 @@ class ScriptGenerator:
         与 ``_merge_reference_visual`` 用的是同一个 ``validate_unit_text``：同一把尺量两处，
         避免「step1 放行、step2 必拒」的死角。此处只判、不取派生结果——落盘的 shots /
         references 仍由 step2 展开后的正文派生。
+
+        台词口播时长同样在此复判：拆分工具只在产出当时判过一次，审阅 gate 上改短 unit 时长或
+        补写台词都能绕开它，而 step2 逐字保留台词、之后再无口播量校验——不复判就会让念不完的
+        unit 一路落盘。
         """
+        source_language = self.project_json.get("source_language")
         for unit in step1_units:
             label = f"step1 的 unit {unit['unit_id']}"
+            text = render_shots_text(unit.get("shots") or [])
             try:
-                validate_unit_text(
-                    label, render_shots_text(unit.get("shots") or []), self.project_json, max_refs=max_refs
-                )
+                validate_unit_text(label, text, self.project_json, max_refs=max_refs)
+                validate_dialogue_load(label, text, int(unit["duration_seconds"]), source_language)
             except DraftViolation as e:
                 raise DraftViolation(
                     f"{e}；这段正文来自 step1（拆分产出或手工编辑），step2 会逐字保留它，"
-                    "请先在 Web 端修正该 unit 的 step1 正文并重新审阅确认"
+                    "请先在 Web 端修正该 unit 的 step1 正文或时长并重新审阅确认"
                 ) from e
 
     def _merge_reference_visual(
@@ -1019,6 +1025,12 @@ class ScriptGenerator:
             data = json.loads(text)
         except json.JSONDecodeError as e:
             raise ValueError(f"JSON 解析失败: {e}")
+        # title 缺失/空白兜底须在校验之前：title 仅展示用、用户可改，非约束解码通道下模型
+        # 整字段漏写不该让一次已付费的展开失败（与 _parse_response 的兜底同口径）。
+        if isinstance(data, dict):
+            raw_title = data.get("title")
+            if not (isinstance(raw_title, str) and raw_title.strip()):
+                data["title"] = f"第{episode}集"
         try:
             flat = ReferenceStep2FlatScript.model_validate(data)
         except ValidationError as e:
@@ -1050,8 +1062,7 @@ class ScriptGenerator:
                 }
             )
 
-        title = flat.title if flat.title.strip() else f"第{episode}集"
-        return ReferenceVideoScript.model_validate({"title": title, "video_units": video_units}).model_dump()
+        return ReferenceVideoScript.model_validate({"title": flat.title, "video_units": video_units}).model_dump()
 
     def _parse_response(self, response_text: str, episode: int) -> dict:
         """

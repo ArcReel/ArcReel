@@ -11,6 +11,7 @@ LLM 产出与人在编辑器写的是同一种格式，校验因此也落在同�
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 from lib.asset_types import BUCKET_KEY
@@ -37,12 +38,14 @@ class DraftViolation(ValueError):
 
 
 def _normalize_for_anchor(text: str) -> str:
-    """把连续空白折叠为单个空格，只消除空白的类型 / 数量差异，不删除空白本身。
+    """Unicode NFC 归一后把连续空白折叠为单个空格，只消除编码与空白差异，不删除空白本身。
 
     与 narration 覆盖校验的 ``_normalize_for_coverage`` 同一口径：模型复制原文时换行与
-    缩进的还原不可靠，但删字改字必须被抓住。
+    缩进的还原不可靠，但删字改字必须被抓住。NFC 与 ``lib.episode_ledger.normalize_source_text``
+    定义的源文坐标系一致——带组合附加符的语种（如 vi）源文可能以 NFD 落盘、模型回写 NFC，
+    纯编码形式差异不该被判成改写。
     """
-    return re.sub(r"\s+", " ", text).strip()
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
 
 
 def validate_source_text_anchor(label: str, source_text: str, novel_text: str) -> None:

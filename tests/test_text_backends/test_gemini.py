@@ -210,6 +210,7 @@ class TestGenerate:
         from google.genai import types as gtypes
 
         from lib.script_models import (
+            ReferenceStep2FlatScript,
             build_ad_reference_episode_script_model,
             build_drama_normalized_script_model,
             build_episode_script_model,
@@ -226,6 +227,10 @@ class TestGenerate:
             build_drama_normalized_script_model([4, 6, 8]),
             build_drama_normalized_script_model([8]),
             build_reference_units_step1_model([4, 6, 8]),
+            # 单值档位渲染为 const，与多值 enum 走不同归一路径
+            build_reference_units_step1_model([8]),
+            # step2 的实际 response_schema（静态，无枚举收窄）同样过这条通道
+            ReferenceStep2FlatScript,
         ]
         for schema in schemas:
             config = backend._build_config(schema, None)

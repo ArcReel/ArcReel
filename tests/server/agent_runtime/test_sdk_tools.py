@@ -3120,6 +3120,7 @@ async def test_split_reference_video_units_rejects_over_max_duration(fake_ctx: T
     out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 起身")], max_duration=6)
     assert out.get("is_error") is True
     assert "超过单次生成上限" in out["content"][0]["text"]
+    assert not _rv_step1_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:

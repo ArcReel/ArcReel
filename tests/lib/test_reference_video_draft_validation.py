@@ -1,5 +1,7 @@
 """书写层扁平文本的机械校验（step1 / step2 共用）。"""
 
+import unicodedata
+
 import pytest
 
 from lib.reference_video.draft_validation import (
@@ -28,6 +30,12 @@ class TestSourceTextAnchor:
     def test_whitespace_differences_tolerated(self):
         """空白折叠后比对：换行 / 缩进的还原不可靠，但删字改字必须被抓住。"""
         validate_source_text_anchor("unit E1U01", "李明推开\n  酒馆的门", "李明推开 酒馆的门，环视四周。")
+
+    def test_unicode_form_differences_tolerated(self):
+        """源文以 NFD 落盘、模型回写 NFC（组合附加符语种常见）不算改写：两侧先归一到 NFC。"""
+        novel = unicodedata.normalize("NFD", "Anh ấy mở cửa quán rượu.")
+        anchor = unicodedata.normalize("NFC", "Anh ấy mở cửa")
+        validate_source_text_anchor("unit E1U01", anchor, novel)
 
     def test_rewritten_text_rejected(self):
         with pytest.raises(DraftViolation, match="不是小说原文的逐字片段"):

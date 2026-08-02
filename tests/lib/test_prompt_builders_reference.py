@@ -75,7 +75,8 @@ def test_build_reference_video_prompt_contains_required_sections():
     assert "镜头1：@[主角] 推门走进 @[酒馆]" in prompt
     assert "镜头2：@[主角] 按住 @[长剑]" in prompt
     assert "（时长 8s）" in prompt
-    assert "9" in prompt  # max_refs
+    # 断言完整约束句：单看 "9" 会被默认 aspect_ratio "9:16" 满足，max_refs 未注入也能通过
+    assert "不超过 9 个（模型上限）" in prompt
 
 
 def test_build_reference_video_prompt_emphasizes_no_appearance_description():

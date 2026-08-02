@@ -61,7 +61,7 @@ mcp__arcreel__get_video_capabilities({})
 mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episode_N.txt"})
 ```
 
-> dry_run=true 时仅返回 prompt 不调用模型，便于审查。工具按 response_schema 约束直接产出结构化 unit JSON，并在写盘前校验 unit 时长上限、references 上限与资产名引用完整性。
+> dry_run=true 时仅返回 prompt 不调用模型，便于审查。模型只产出「时长 + 原文锚 + 书写层正文」，`unit_id` / `shots` / `references` 由工具从正文派生；写盘前校验正文语法、资产名引用完整性、原文锚是否为源文逐字子串与台词量是否念得完，任一违约不写盘。
 
 **Step 2**: 验证输出
 

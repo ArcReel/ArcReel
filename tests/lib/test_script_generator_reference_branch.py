@@ -785,3 +785,52 @@ async def test_step1_text_violation_is_caught_before_the_paid_step2_call(referen
     with pytest.raises(DraftViolation, match="来自 step1"):
         await gen.generate(episode=1)
     fake_generator.generate.assert_not_awaited()
+
+
+@pytest.mark.integration
+async def test_step1_dialogue_overload_is_caught_before_the_paid_step2_call(reference_project: Path):
+    """审阅 gate 上改短时长 / 补写台词绕开了拆分时的口播量校验，生成前复判把它拦下。
+
+    step2 逐字保留台词、之后再无口播量校验：不在这里复判，念不完的 unit 会一路落盘成片。
+    """
+    drafts = reference_project / "drafts" / "episode_1"
+    long_line = "他站在门口足足看了半晌才缓缓开口说出这句迟到了整整十年的道歉与告别" * 2
+    (drafts / "step1_reference_units.json").write_text(
+        _json.dumps(
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "duration_seconds": 4,
+                        "shots": [{"text": f"@[主角] 推开 @[酒馆] 的门\n@[主角]：{{{long_line}}}"}],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    fake_generator = _fake_step2_generator(STEP2_UNIT_TEXT)
+
+    gen = ScriptGenerator(reference_project, generator=fake_generator)
+
+    with pytest.raises(DraftViolation, match="台词念完约需"):
+        await gen.generate(episode=1)
+    fake_generator.generate.assert_not_awaited()
+
+
+@pytest.mark.integration
+async def test_step2_missing_title_falls_back_instead_of_failing_the_paid_call(reference_project: Path):
+    """非约束解码通道漏写 title 时兜底为「第N集」：title 仅展示用，不值得让已付费的展开失败。"""
+    drafts = reference_project / "drafts" / "episode_1"
+    (drafts / "step1_reference_units.json").write_text(STEP1_UNITS_JSON, encoding="utf-8")
+    generator = MagicMock()
+    generator.model = "mock"
+    generator.generate = AsyncMock(
+        return_value=MagicMock(text=_json.dumps({"units": [{"text": STEP2_UNIT_TEXT}]}, ensure_ascii=False))
+    )
+
+    gen = ScriptGenerator(reference_project, generator=generator)
+    out = await gen.generate(episode=1)
+
+    assert _json.loads(out.read_text(encoding="utf-8"))["title"] == "第1集"
