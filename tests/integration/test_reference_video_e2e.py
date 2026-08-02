@@ -199,14 +199,14 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
         }
     )
 
-    # 5) 断言 prompt 渲染：@张三 → [图1]、@酒馆 → [图2]、@长剑 → [图3]
+    # 5) 断言三段论渲染：第一段按 references 顺序绑定，正文 @mention 全部替成 <X>
     rendered = captured_backend_kwargs["prompt"]
-    assert "[图1]" in rendered  # 张三
-    assert "[图2]" in rendered  # 酒馆
-    assert "[图3]" in rendered  # 长剑
+    assert rendered.startswith("<张三>@图片1、<酒馆>@图片2、<长剑>@图片3。")
     assert "@张三" not in rendered  # 所有 @ 已替换
     assert "@酒馆" not in rendered
     assert "@长剑" not in rendered
+    assert "[图" not in rendered  # 对照表编号已废除
+    assert "保持无字幕" in rendered  # 第三段约束包
 
     # 6) 断言 reference_images 传了 3 个临时文件
     ref_images = captured_backend_kwargs["reference_images"]

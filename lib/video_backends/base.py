@@ -404,6 +404,13 @@ class VideoCapabilities:
     ``reference_audio_mode`` / ``max_reference_audio_count`` 描述参考音频路径，与参考图
     同构：模式非 ``NONE`` 时后端接受 ``reference_audio_files`` 请求字段，段数受上限约束。
     上限按 backend 各自的供应商约束声明，不取各家交集。
+
+    ``reference_audio_per_image``：音频是否必须逐段挂在某个具体的参考素材项上（如 wan2.7-r2v
+    的 ``reference_voice`` 字段），而非作为独立的音色输入通道（如 Seedance 2.0 的
+    ``role: reference_audio`` content 条目）。为 True 时调用方须随 ``reference_audio_files``
+    一并提供 ``VideoGenerationRequest.reference_audio_targets``，显式声明每段音频对应哪个
+    参考素材项，不能假设两个列表天然同序——参考音频的编排顺序是台词 speaker 首现顺序，
+    参考图的编排顺序是 mention 首现顺序，两者独立派生，位置对齐纯属巧合。
     """
 
     first_frame: bool = True
@@ -411,6 +418,7 @@ class VideoCapabilities:
     max_reference_images: int = 0
     reference_audio_mode: ReferenceAudioMode = ReferenceAudioMode.NONE
     max_reference_audio_count: int = 0
+    reference_audio_per_image: bool = False
 
 
 @dataclass
@@ -429,6 +437,12 @@ class VideoGenerationRequest:
     # 文本，后端按同一顺序下发，故任何一侧都不得重排或跳过。哪个角色对应哪段音频不进请求
     # ——绑定由 prompt 文本表达，供应商 API 均无结构化的「角色-音频」字段。
     reference_audio_files: list[Path] | None = None
+    # 仅 ``VideoCapabilities.reference_audio_per_image`` 为 True 的 backend（如 wan2.7-r2v）
+    # 读取：与 ``reference_audio_files`` 等长同序，第 i 项是该段音频对应的
+    # ``reference_images`` 下标（0-based）。为 None 时这类 backend 按位置回退对齐，仅用于
+    # 未经编排层填充的调用方（如手写测试）——参考音频与参考图各自独立派生顺序，位置对齐
+    # 不构成契约，编排层（reference_video 渲染管线）必须显式提供。
+    reference_audio_targets: list[int] | None = None
     generate_audio: bool = True
 
     # 项目上下文（用于构建文件服务 URL 等）

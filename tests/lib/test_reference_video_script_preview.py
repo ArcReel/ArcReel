@@ -7,6 +7,7 @@ from lib.reference_video.script_preview import (
     WARN_DIALOGUE_INLINE,
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_MODEL,
+    WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_UNCLOSED_BRACE,
     WARN_UNREGISTERED_MENTION,
@@ -177,6 +178,37 @@ def test_warn_speaker_without_reference_audio_only_on_native():
     assert keys(soft) == []
 
 
+def test_warn_speaker_audio_needs_image_when_backend_requires_per_image_attachment():
+    """纯画外 speaker（台词行 speaker 位不产生参考图）遇到要求逐图挂载音频的 backend
+    （如 wan2.7-r2v）时须与执行层同一份判定：预览不能显示已绑定，执行时才降级。"""
+    text = "@[张三]：{我来了}"
+    preview = build_script_preview(
+        text,
+        PROJECT,
+        voice_consistency="native",
+        max_reference_audio=3,
+        audio_requires_reference_image=True,
+    )
+    assert keys(preview) == [WARN_SPEAKER_AUDIO_NEEDS_IMAGE]
+    assert preview.warnings[0]["params"] == {"name": "张三"}
+
+
+def test_warn_speaker_audio_needs_image_when_image_clipped_by_reference_limit():
+    """执行层会先把 references 裁到能力上限再渲染（图片N 编号与实际发出的参考图严格等长），
+    预览须按同一条裁剪线判定，否则超限角色的图被裁掉后预览仍显示音频已绑定，执行时才降级。"""
+    text = "镜头1：@[酒馆] 内景。\n@[张三]：{我来了}"
+    preview = build_script_preview(
+        text,
+        PROJECT,
+        voice_consistency="native",
+        max_reference_audio=3,
+        audio_requires_reference_image=True,
+        max_reference_images=1,  # 只留 @[酒馆]，张三的图被裁掉
+    )
+    assert keys(preview) == [WARN_SPEAKER_AUDIO_NEEDS_IMAGE]
+    assert preview.warnings[0]["params"] == {"name": "张三"}
+
+
 def test_warn_reference_audio_overflow():
     text = "镜头1：开场。\n@[张三]：{我来了}\n@[旁白者]：{我也在}"
     preview = build_script_preview(text, PROJECT, voice_consistency="native", max_reference_audio=1)
@@ -214,6 +246,7 @@ WARNING_KEYS = [
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_MODEL,
+    WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
 ]
 
 WARNING_PARAMS = {
@@ -224,6 +257,7 @@ WARNING_PARAMS = {
     WARN_SPEAKER_WITHOUT_AUDIO: {"name": "李四"},
     WARN_REFERENCE_AUDIO_OVERFLOW: {"limit": 3, "name": "李四"},
     WARN_SILENT_MODEL: {"model": "minimax-01"},
+    WARN_SPEAKER_AUDIO_NEEDS_IMAGE: {"name": "李四"},
 }
 
 

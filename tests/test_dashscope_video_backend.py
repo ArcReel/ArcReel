@@ -650,6 +650,59 @@ class TestWan27ReferenceVoice:
         assert refs[1]["reference_voice"].startswith("data:audio/wav;base64,")
 
     @pytest.mark.unit
+    def test_reference_audio_targets_align_by_explicit_index_not_position(self, tmp_path):
+        """参考音频顺序（台词 speaker 首现）与参考图顺序（mention 首现）独立派生，不天然同序。
+
+        场景：references = [场景, 张三]（图0=场景，图1=张三），audio_speakers = [张三]（唯一
+        开口的角色）。若按位置对齐会把张三的声音错挂到场景图上；targets=[1] 显式声明张三的
+        声音配图 1，须对齐到正确的 reference_items[1]。
+        """
+        payload = self._backend()._build_payload(
+            VideoGenerationRequest(
+                prompt="场景先出现，张三说话",
+                output_path=tmp_path / "o.mp4",
+                reference_images=self._refs(tmp_path, 2),
+                reference_audio_files=[self._audio(tmp_path, "zhangsan.mp3")],
+                reference_audio_targets=[1],
+            )
+        )
+
+        refs = [m for m in payload["input"]["media"] if m["type"] == "reference_image"]
+        assert "reference_voice" not in refs[0]
+        assert refs[1]["reference_voice"].startswith("data:audio/mpeg;base64,")
+
+    @pytest.mark.unit
+    def test_reference_audio_targets_out_of_range_raises_slots_insufficient(self, tmp_path):
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend()._build_payload(
+                VideoGenerationRequest(
+                    prompt="x",
+                    output_path=tmp_path / "o.mp4",
+                    reference_images=self._refs(tmp_path, 1),
+                    reference_audio_files=[self._audio(tmp_path, "a.mp3")],
+                    reference_audio_targets=[5],
+                )
+            )
+
+        assert exc.value.code == "video_reference_audio_slots_insufficient"
+
+    @pytest.mark.unit
+    def test_reference_audio_targets_duplicate_index_raises_instead_of_silently_overwriting(self, tmp_path):
+        """两段音频指向同一个参考素材项时，逐条赋值会静默覆盖前一条绑定——必须硬失败。"""
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend()._build_payload(
+                VideoGenerationRequest(
+                    prompt="两人对话",
+                    output_path=tmp_path / "o.mp4",
+                    reference_images=self._refs(tmp_path, 2),
+                    reference_audio_files=[self._audio(tmp_path, "a.mp3"), self._audio(tmp_path, "b.wav")],
+                    reference_audio_targets=[0, 0],
+                )
+            )
+
+        assert exc.value.code == "video_reference_audio_slots_insufficient"
+
+    @pytest.mark.unit
     def test_fewer_audios_than_references_leaves_rest_unvoiced(self, tmp_path):
         payload = self._backend()._build_payload(
             VideoGenerationRequest(

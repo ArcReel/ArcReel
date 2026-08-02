@@ -201,6 +201,14 @@ class VideoLaneResult:
     # 能力查询失败时降级为 "soft"（有信号才判定为真无声，与既有「无信号不落 none」口径一致，
     # 见 lib.config.resolver.derive_voice_consistency）。
     voice_consistency: VoiceConsistency = "soft"
+    # 每请求可携带的参考音频段数上限。降级为 0 = 不绑定任何参考音频：绑定数超上限会被
+    # gate_video_request 当场拒绝，能力不明时宁可退到 B 类软约束也不赌一个上限值。
+    max_reference_audio_count: int = 0
+    # 音频是否须逐段挂在具体参考素材项上（如 wan2.7-r2v 的 reference_voice 字段）。为 True
+    # 时渲染层派生的音频顺序（台词 speaker 首现顺序）不能假设与参考图顺序（mention 首现顺序）
+    # 天然对齐，调用方须显式算出「谁的声音配哪张图」再随请求下发。能力查询失败降级为 False——
+    # 与其余能力字段同口径，不明时不额外收紧。
+    reference_audio_per_image: bool = False
 
 
 @dataclass(frozen=True)
@@ -315,12 +323,16 @@ async def resolve_generation_context(
             max_duration: int | None = None
             max_reference_images: int | None = None
             voice_consistency: VoiceConsistency = "soft"
+            max_reference_audio_count = 0
+            reference_audio_per_image = False
             try:
                 caps = await r.video_capabilities_for_model(resolved.provider_id, actual_model, project)
                 supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
                 max_duration = caps.get("max_duration")
                 max_reference_images = caps.get("max_reference_images")
                 voice_consistency = caps.get("voice_consistency") or "soft"
+                max_reference_audio_count = int(caps.get("max_reference_audio_count") or 0)
+                reference_audio_per_image = bool(caps.get("reference_audio_per_image") or False)
             except Exception as exc:
                 logger.info(
                     "无法解析 video capabilities（%s/%s），能力值降级为空：%s",
@@ -338,6 +350,8 @@ async def resolve_generation_context(
                 max_duration=max_duration,
                 max_reference_images=max_reference_images,
                 voice_consistency=voice_consistency,
+                max_reference_audio_count=max_reference_audio_count,
+                reference_audio_per_image=reference_audio_per_image,
             )
 
         if audio is not None:

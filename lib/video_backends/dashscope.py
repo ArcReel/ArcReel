@@ -112,6 +112,9 @@ _MODEL_PROFILES: dict[str, VideoCapabilities] = {
         max_reference_images=_WAN27_R2V_MAX_REFERENCE,
         reference_audio_mode=ReferenceAudioMode.DIRECT,
         max_reference_audio_count=_WAN27_R2V_MAX_REFERENCE,
+        # 音色挂在具体参考素材项上（_attach_reference_voices），不是独立的音色输入通道，
+        # 编排层必须显式给出「谁的声音配哪张图」的映射，不能假设与 reference_audio_files 同序。
+        reference_audio_per_image=True,
     ),
 }
 
@@ -279,19 +282,36 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
     def _attach_reference_voices(self, reference_items: list[dict], request: VideoGenerationRequest) -> None:
         """把参考音频逐段挂到参考素材项的 ``reference_voice`` 字段上（就地修改）。
 
-        wan2.7 的音色不是独立的 media 条目，而是某个参考素材（角色）身上的一个属性，故第 N 段
-        音频挂到第 N 个参考素材上——这与 ``reference_audio_files`` 的顺序契约（顺序即编排层拼
-        指认文本的顺序）是同一个序，两侧不得各自重排。
+        对齐优先用 ``request.reference_audio_targets``（第 i 段音频对应 ``reference_items``
+        的哪个下标）——参考音频的顺序是台词 speaker 首现顺序，参考图的顺序是 mention 首现
+        顺序，两者独立派生，编排层（``reference_video`` 渲染管线）已算出「谁的声音配哪张图」
+        的映射，此处不得自行按位置重新猜测。``reference_audio_targets`` 为 ``None`` 时回退
+        按位置对齐（第 N 段音频挂第 N 个参考素材）——两侧同序本身不是契约，回退仅服务未经
+        编排层填充的调用方（如手写测试）。
 
         音频段数多于可挂载的参考素材时硬失败而非丢弃多余段：丢弃会让某个角色的音色声明无声
-        失效，用户直到成片才发现该角色声音仍是随机的，且已照常扣费。
+        失效，用户直到成片才发现该角色声音仍是随机的，且已照常扣费。``reference_audio_targets``
+        携带越界下标同样按此硬失败——那意味着编排层算出的映射与实际随请求发出的参考图对不上，
+        必须暴露而非静默吞掉。
         """
         audio_files = list(request.reference_audio_files or [])
         if not audio_files:
             return
         if self._video_capabilities.reference_audio_mode == ReferenceAudioMode.NONE:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
-        if len(audio_files) > len(reference_items):
+
+        targets = request.reference_audio_targets
+        if targets is not None:
+            # 重复下标与越界下标同类错配：两段音频指向同一个参考素材项时，逐条赋值会静默
+            # 覆盖前一条绑定，某个角色的音色声明无声丢失——必须硬失败，不能让它悄悄发生。
+            valid = (
+                len(targets) == len(audio_files)
+                and len(set(targets)) == len(targets)
+                and all(0 <= t < len(reference_items) for t in targets)
+            )
+        else:
+            valid = len(audio_files) <= len(reference_items)
+        if not valid:
             # 与 gate 的 video_reference_audio_exceeded 分成两个 code：那条的 limit 是模型的
             # 能力上限（减角色数就能过），这条的上限是本次请求实际有几个可挂载的参考素材
             # （加参考图也能过）。共用一个 code 会让文案给出与实际卡点不符的处置建议。
@@ -321,8 +341,12 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             raise VideoCapabilityError(
                 "video_reference_audio_unreadable", model=self._model, names=", ".join(unreadable)
             )
-        for item, uri in zip(reference_items, uris, strict=False):
-            item["reference_voice"] = uri
+        if targets is not None:
+            for idx, uri in zip(targets, uris, strict=True):
+                reference_items[idx]["reference_voice"] = uri
+        else:
+            for item, uri in zip(reference_items, uris, strict=False):
+                item["reference_voice"] = uri
 
     # ── HTTP submit / poll / download ───────────────────────────────────
 
