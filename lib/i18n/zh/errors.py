@@ -220,6 +220,16 @@ MESSAGES = {
     "ref_derive_ad_only": "仅广告/短片项目支持派生分组",
     "ref_ad_stale_index": "分组索引与镜头不一致，请重新派生分组",
     "ref_ad_reference_skipped": "「{name}」（{type}）缺少可用参考图，本次生成已跳过该参考",
+    # 分镜文稿解析预览的降级可见性提示
+    "ref_warn_unregistered_mention": "@[{name}] 未在角色/场景/道具中登记：不会附带参考图，请检查名称或先创建资产",
+    "ref_warn_unclosed_brace": "镜头{shot}：台词花括号未闭合，未识别为台词，该行文本将原样发送：{excerpt}…",
+    "ref_warn_dialogue_inline": (
+        "镜头{shot}：台词与描述写在同一行，未识别为台词；如需声音参考请将台词单独成行（@[角色]：{{台词}}）"
+    ),
+    "ref_warn_unregistered_speaker": "@[{name}] 未在角色中登记：无法确认说话人，该行按原文发送",
+    "ref_warn_speaker_without_audio": "角色「{name}」未设置参考音频：台词声音将由模型自行决定",
+    "ref_warn_reference_audio_overflow": "参考音频最多 {limit} 段：角色「{name}」的台词声音将由模型自行决定",
+    "ref_warn_silent_model": "当前视频模型「{model}」不生成音频，台词仅用于提示词参考",
     # Episode meta
     "episode_not_found": "第 {episode} 集不存在或尚无剧本文件",
     "episode_title_empty": "分集标题不能为空",

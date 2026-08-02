@@ -613,6 +613,7 @@ class ConfigResolver:
               "first_frame": bool,                 # 生效值（系统判定 ⊕ 用户覆盖），与执行层同源
               "last_frame": bool,                  # 同上
               "generate_audio": bool,              # backend 默认执行档生效后的计价参数
+              "max_reference_audio_count": int,    # 每请求可携带的参考音频段数上限（backend 声明）
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
               "content_mode": str | None,
@@ -972,6 +973,7 @@ class ConfigResolver:
             first_frame = caps.first_frame
             last_frame = caps.last_frame
             reference_audio_mode = caps.reference_audio_mode
+            max_reference_audio_count = caps.max_reference_audio_count
             # 自定义供应商按声明单价计费（`CustomProviderPrice` 无音频维度），计价参数不因
             # 默认执行档收窄，故沿用项目请求值。
             default_tier_generates_audio = True
@@ -1009,6 +1011,7 @@ class ConfigResolver:
             first_frame = builtin_caps.first_frame
             last_frame = builtin_caps.last_frame
             reference_audio_mode = builtin_caps.reference_audio_mode
+            max_reference_audio_count = builtin_caps.max_reference_audio_count
             has_audio = model_has_audio_track(provider_id, model_info)
             try:
                 default_tier_generates_audio = builtin_effective_generate_audio_for_model(
@@ -1064,6 +1067,7 @@ class ConfigResolver:
             "first_frame": first_frame,
             "last_frame": last_frame,
             "generate_audio": generate_audio,
+            "max_reference_audio_count": max_reference_audio_count,
             "source": source,
             "default_duration": default_duration,
             "content_mode": content_mode,

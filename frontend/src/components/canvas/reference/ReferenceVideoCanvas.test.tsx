@@ -114,6 +114,126 @@ describe("ReferenceVideoCanvas", () => {
     });
   });
 
+  // 解析预览与文稿共用编辑器列：切到解析视图时 textarea 让位给只读派生视图
+  it("switches the editor column between the script and its parse preview", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "镜头1：中景。")],
+    });
+    const previewSpy = vi.spyOn(API, "previewReferenceScript").mockResolvedValue({
+      shots: [{ index: 1, text: "中景。" }],
+      references: [],
+      utterances: [],
+      warnings: [{ key: "ref_warn_unregistered_mention", message: "@[王五] 未在角色/场景/道具中登记" }],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    await screen.findByRole("combobox");
+    fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
+
+    expect(screen.queryByRole("combobox")).toBeNull();
+    await waitFor(() => expect(previewSpy).toHaveBeenCalledWith("proj", 1, "镜头1：中景。", expect.anything()));
+    expect(await screen.findByText("@[王五] 未在角色/场景/道具中登记")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /^(Script|文稿)$/ }));
+    expect(await screen.findByRole("combobox")).toBeInTheDocument();
+  });
+
+  // 两个 tabpanel 同时刻只挂载一个，共用静态 id 会让未选中 tab 的 aria-controls
+  // 指向当前激活面板——而该面板的 aria-labelledby 归属对方 tab，读屏播报错位。
+  it("points each editor-view tab at its own panel", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "镜头1：中景。")],
+    });
+    vi.spyOn(API, "previewReferenceScript").mockResolvedValue({
+      shots: [{ index: 1, text: "中景。" }],
+      references: [],
+      utterances: [],
+      warnings: [],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const scriptTab = await screen.findByRole("tab", { name: /^(Script|文稿)$/ });
+    const parseTab = screen.getByRole("tab", { name: /Parse preview|解析预览/ });
+    const scriptControls = scriptTab.getAttribute("aria-controls");
+    const parseControls = parseTab.getAttribute("aria-controls");
+    expect(scriptControls).not.toBe(parseControls);
+
+    // 每个 tab 指向的面板，其 aria-labelledby 必须指回该 tab 自身
+    const scriptPanel = screen.getByRole("tabpanel");
+    expect(scriptPanel.id).toBe(scriptControls);
+    expect(scriptPanel.getAttribute("aria-labelledby")).toBe(scriptTab.id);
+
+    fireEvent.click(parseTab);
+    const parsePanel = await screen.findByRole("tabpanel");
+    expect(parsePanel.id).toBe(parseControls);
+    expect(parsePanel.getAttribute("aria-labelledby")).toBe(parseTab.id);
+    // 解析预览只读、无可聚焦后代：面板自身须能接焦点，否则键盘用户翻不到折线以下的内容
+    expect(parsePanel).toHaveAttribute("tabindex", "0");
+  });
+
+  // 同名同时落在 characters 与 props 时，后端 resolve_references 判 character；
+  // 预览着色若反着来，规范台词行的说话人会被标成未登记角色。
+  it("resolves a name shared by two asset buckets the way the backend does", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...STUB_PROJECT,
+        characters: { 张三: { description: "" } },
+        props: { 张三: { description: "" } },
+      } as ProjectData,
+    });
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "@[张三]：{我来了}")],
+    });
+    vi.spyOn(API, "previewReferenceScript").mockResolvedValue({
+      shots: [{ index: 1, text: "@[张三]：{我来了}" }],
+      references: [],
+      utterances: [{ shot_index: 1, kind: "dialogue", speaker: "张三", text: "我来了" }],
+      warnings: [],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    await screen.findByRole("combobox");
+    fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
+
+    const speaker = (await screen.findAllByText("张三"))[0];
+    // character = sky；被 props 覆盖会渲染成 amber，被判未登记会渲染成 red
+    expect(speaker.className).toContain("sky");
+  });
+
+  // `out["__proto__"] = kind` 在普通对象上走继承的 setter、不落自有属性，
+  // 登记过的 `__proto__` 角色会在高亮里显示成未登记（后端照常解析）
+  it("resolves an asset named __proto__ in the highlight lookup", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...STUB_PROJECT,
+        // 计算键：字面量里的 `__proto__:` 是设原型的特例，不会建自有属性
+        characters: { ["__proto__"]: { description: "" } },
+      } as ProjectData,
+    });
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "镜头1：@[__proto__] 出场。")],
+    });
+    vi.spyOn(API, "previewReferenceScript").mockResolvedValue({
+      shots: [{ index: 1, text: "@[__proto__] 出场。" }],
+      references: [{ type: "character", name: "__proto__" }],
+      utterances: [],
+      warnings: [],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    await screen.findByRole("combobox");
+    fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
+
+    // 只看解析预览面板内的高亮，避开单元列表卡片里的同名文本
+    const panel = await screen.findByRole("tabpanel");
+    const mention = (await within(panel).findAllByText(/__proto__/)).find((el) =>
+      el.className.includes("sky"),
+    );
+    expect(mention).toBeDefined();
+  });
+
   it("renders the ReferenceVideoCard textarea once auto-selected", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1")],

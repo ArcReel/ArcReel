@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { tokenizePrompt, type MentionLookup, type Token } from "./useShotPromptHighlight";
+import { tokenizePrompt, toScriptLines, type MentionLookup, type Token } from "./useShotPromptHighlight";
+import { extractMentions } from "@/utils/reference-mentions";
 
 const LOOKUP: MentionLookup = {
   主角: "character",
@@ -90,6 +91,28 @@ describe("tokenizePrompt", () => {
     expect(t.some((x) => x.kind === "shot_header")).toBe(false);
   });
 
+  // 后端 `\d` 是 Unicode-aware，全角数字的 header 照样成立；高亮不认会导致同一行两侧判定不同
+  it("highlights a shot header written with non-ASCII digits", () => {
+    const t = tokenizePrompt("镜头１：line1", LOOKUP);
+    expect(t.filter((x) => x.kind === "shot_header")).toHaveLength(1);
+  });
+
+  // 后端 `_strip_shot_header` 先 strip 再匹配，缩进的 header 照样成立
+  it("highlights an indented shot header and still round-trips to the source text", () => {
+    const src = "  镜头１：内景 @主角";
+    const t = tokenizePrompt(src, LOOKUP);
+    expect(t.filter((x) => x.kind === "shot_header")).toHaveLength(1);
+    expect(t.map((x) => x.text).join("")).toBe(src);
+  });
+
+  // 未登记的 `toString` 走原型链会取到 Object.prototype.toString，被当成已解析的类型
+  it("treats prototype-chain names absent from the lookup as unresolved", () => {
+    const t = tokenizePrompt("@toString 出场", LOOKUP);
+    const mention = t.find((x) => x.kind === "mention");
+    expect(mention).toBeDefined();
+    expect(mention && "assetKind" in mention && mention.assetKind).toBe("unknown");
+  });
+
   it("no shot header → entire text becomes text + mention tokens", () => {
     const t = tokenizePrompt("hello @主角 world", LOOKUP);
     expect(kinds(t)).toEqual(["text", "mention:character", "text"]);
@@ -107,5 +130,51 @@ describe("tokenizePrompt", () => {
     const t = tokenizePrompt("price@5, email a@b", LOOKUP);
     const mentions = t.filter((x) => x.kind === "mention");
     expect(mentions).toHaveLength(0);
+  });
+});
+
+describe("toScriptLines shot attribution", () => {
+  // parse_prompt 把首个 `镜头N：` 之前的引子折进第一个镜头，不另开一镜。
+  // 预览若把引子记成「第 0 镜」，就与服务端派生台词列表里的 shot_index 对不上。
+  it("attributes a lead-in written before the first header to shot 1", () => {
+    const lines = toScriptLines("@[张三]：{先说}\n镜头1：中景\n镜头2：近景", LOOKUP);
+    expect(lines.map((l) => l.shotIndex)).toEqual([1, 1, 2]);
+  });
+
+  it("starts at shot 1 when the script opens with a header", () => {
+    const lines = toScriptLines("镜头1：中景\n镜头2：近景", LOOKUP);
+    expect(lines.map((l) => l.shotIndex)).toEqual([1, 2]);
+  });
+
+  it("treats a headerless script as a single shot", () => {
+    const lines = toScriptLines("@[张三]：{我来了}", LOOKUP);
+    expect(lines.map((l) => l.shotIndex)).toEqual([1]);
+  });
+});
+
+describe("unicode line boundaries", () => {
+  // 后端用 Python str.splitlines() 切行，它认 U+2028/U+2029/\x85 等；前端只按 \n 切会
+  // 把这些分隔符后的规范台词行与上一行粘住，说话人就被算进参考图，两条派生路径分叉。
+  const LS = "\u2028";
+
+  it("splits on the same boundaries the backend does", () => {
+    expect(extractMentions(`镜头1：@酒馆 内景。${LS}@[张三]：{我来了}`)).toEqual(["酒馆"]);
+    expect(extractMentions("镜头1：@酒馆 内景。\u2029@[张三]：{我来了}")).toEqual(["酒馆"]);
+    expect(extractMentions("镜头1：@酒馆 内景。\x85@[张三]：{我来了}")).toEqual(["酒馆"]);
+  });
+
+  it("treats CRLF as one boundary rather than two", () => {
+    const lines = toScriptLines("镜头1：中景\r\n镜头2：近景", LOOKUP);
+    expect(lines.map((l) => l.shotIndex)).toEqual([1, 2]);
+  });
+
+  it("keeps tokenizePrompt output concatenable back to the source text", () => {
+    const text = `镜头1：@主角 在场。${LS}@[张三]：{我来了}\r\n结束`;
+    expect(tokenizePrompt(text, LOOKUP).map((t) => t.text).join("")).toBe(text);
+  });
+
+  it("recognizes a shot header that follows a unicode separator", () => {
+    const lines = toScriptLines(`镜头1：中景${LS}镜头2：近景`, LOOKUP);
+    expect(lines.map((l) => l.shotIndex)).toEqual([1, 2]);
   });
 });

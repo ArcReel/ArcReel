@@ -17,6 +17,24 @@ from lib.script_models import ReferenceResource, Shot
 _SHOT_HEADER_RE = re.compile(r"""^镜头\s*\d+\s*[:：](.*)$""")
 
 
+#: BOM / ZWNBSP。前端按 JS 的 ``\s`` 判行首空白，U+FEFF 属之；Python 的 ``str.strip()``
+#: 不认它（``"﻿".isspace()`` 为 False）。不归一会让带 BOM 的行在前端算规范台词行、
+#: 在后端算描述行——说话人是否进参考图两侧结论相反，而 references 落盘取决于哪侧先跑。
+#: BOM 在正文里没有语义，解析入口一次性去掉，两条派生路径回到同一口径。
+_BOM = "﻿"
+
+
+def _strip_bom(text: str) -> str:
+    """去掉文本中全部 U+FEFF。
+
+    不止文档开头：粘贴拼接会把 BOM 带到任意行首，而分叉是按行发生的。故归一落在三个
+    行级原语（``_strip_shot_header`` / ``match_dialogue_line`` / ``match_voiceover_line``）
+    上——它们各自与前端同名函数互为镜像，单独调用时也须同判；``parse_prompt`` 另做一次
+    整体归一，让派生出的 shot 文本本身不带 BOM（它会进预览显示与后端渲染）。
+    """
+    return text.replace(_BOM, "") if _BOM in text else text
+
+
 def _is_ascii_word_char(ch: str) -> bool:
     return ch == "_" or (ch.isascii() and ch.isalnum())
 
@@ -78,6 +96,59 @@ def _iter_mentions(text: str) -> Iterator[tuple[int, int, str]]:
         i += 1
 
 
+def _strip_shot_header(line: str) -> str:
+    """去掉行首的 ``镜头N：`` header，返回 header 之后的正文；无 header 时原样返回。"""
+    m = _SHOT_HEADER_RE.match(_strip_bom(line).strip())
+    return m.group(1).lstrip() if m else line
+
+
+def match_dialogue_line(line: str) -> tuple[str, str] | None:
+    """规范台词行 ``@[角色]：{台词}``（中英冒号均可）→ ``(speaker, text)``；不匹配返回 ``None``。
+
+    整行仅此结构才算规范行：台词与描述混写在同一行时不匹配（由调用侧出 warning），
+    杜绝「行内最近 mention 猜 speaker」式启发式——推断错误会把台词静默绑到错误角色的
+    参考音频上。speaker 位复用 :func:`_iter_mentions`，与 mention 语法同一份真相。
+
+    speaker 位全为空白（``@[ ]：{台词}``）不算规范行：``Utterance`` 要求 dialogue 带非空
+    speaker，放行会让只读派生抛校验错；判为非规范后走既有「台词混写描述行」warning 路径。
+    """
+    stripped = _strip_bom(line).strip()
+    if not stripped.startswith("@"):
+        return None
+    first = next(_iter_mentions(stripped), None)
+    if first is None or first[0] != 0:
+        return None
+    rest = stripped[first[1] :].lstrip()
+    if not rest or rest[0] not in "：:":
+        return None
+    spoken = _unwrap_braces(rest[1:])
+    speaker = first[2]
+    if spoken is None or not speaker.strip():
+        return None
+    return speaker, spoken
+
+
+def match_voiceover_line(line: str) -> str | None:
+    """裸 ``{台词}`` 行 = 画外音 → 台词正文；不匹配返回 ``None``。"""
+    return _unwrap_braces(_strip_bom(line))
+
+
+def _unwrap_braces(text: str) -> str | None:
+    """``{…}`` 整体包裹判定：去空白后须以 ``{`` 开头、``}`` 结尾且内部无花括号。
+
+    空台词（``{}`` / ``{   }``）不算：``Utterance`` 与 ``DataValidator._validate_utterances``
+    都要求 text 非空，派生出空台词会既进不了校验、又在预览里凭空多出一条没有内容的发声。
+    判为非规范后走既有 warning 路径，作者能看见这行没被认成台词。
+    """
+    body = text.strip()
+    if len(body) < 2 or body[0] != "{" or body[-1] != "}":
+        return None
+    inner = body[1:-1]
+    if "{" in inner or "}" in inner or not inner.strip():
+        return None
+    return inner
+
+
 def parse_prompt(text: str) -> tuple[list[Shot], list[str]]:
     """把用户书写的 prompt 文本拆为 (shots, mention_names)。
 
@@ -90,6 +161,7 @@ def parse_prompt(text: str) -> tuple[list[Shot], list[str]]:
     时长不从文本解析：它是 unit 级字段，由 caller 从请求 / 剧本读取（见
     ``ReferenceVideoUnit.duration_seconds``）。
     """
+    text = _strip_bom(text)
     lines = text.splitlines()
     segments: list[str] = []
     started = False
@@ -124,14 +196,25 @@ def extract_mentions(text: str) -> list[str]:
     """提取文本中的 @ 引用名（保持首次出现顺序、去重）。
 
     与 ``parse_prompt`` 的 mention 口径同源；参考生视频 step1 拆分工具据此从
-    shot 文本机械派生 unit 的 references 列表（顺序即 [图N] 编号）。
+    shot 文本机械派生 unit 的 references 列表（顺序即参考图编号）。
+
+    **规范台词行整行不计入**：给画外说话的角色附参考图会诱导模型把他画进画面，故
+    ``@[角色]：{台词}`` 行的 speaker 位只驱动音色声明与 utterance 派生，不进参考图。
+    纯画外角色因此没有参考图条目，但台词与音色声明照常。
+
+    规范行判定在剥掉 ``镜头N：`` header 之后进行：``parse_prompt`` 切分镜头时会把 header
+    去掉，写在 header 同一行的台词在 shot 文本里就是规范行、照常派生 utterance——此处若按
+    原始行判定，同一行会既派生 utterance 又留下参考图，两处口径分叉。
     """
     seen: set[str] = set()
     result: list[str] = []
-    for _start, _end, name in _iter_mentions(text):
-        if name not in seen:
-            seen.add(name)
-            result.append(name)
+    for line in text.splitlines():
+        if match_dialogue_line(_strip_shot_header(line)) is not None:
+            continue
+        for _start, _end, name in _iter_mentions(line):
+            if name not in seen:
+                seen.add(name)
+                result.append(name)
     return result
 
 

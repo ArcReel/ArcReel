@@ -108,6 +108,40 @@ def test_extract_mentions_rejects_curly_wrapped_form():
     assert extract_mentions("@[角色甲（成年）] 与 @{道具甲}") == ["角色甲（成年）"]
 
 
+def test_bom_prefixed_dialogue_line_is_normative():
+    """BOM 开头的规范台词行两侧同判：说话人不进参考图。
+
+    JS 的 ``\\s`` 认 U+FEFF、Python 的 ``str.strip()`` 不认；不归一时前端判规范行、
+    后端判描述行，说话人是否落进 references 取决于哪侧先跑。
+    """
+    from lib.reference_video.shot_parser import extract_mentions, match_dialogue_line
+
+    assert match_dialogue_line("﻿@[张三]：{我来了}") == ("张三", "我来了")
+    assert extract_mentions("﻿@[张三]：{我来了}") == []
+
+
+def test_bom_on_a_later_line_is_normalized_too():
+    """BOM 不止出现在文档开头——粘贴拼接会把它带到任意行首，而分叉是按行发生的。"""
+    from lib.reference_video.shot_parser import extract_mentions
+
+    assert extract_mentions("镜头1：@酒馆 内景。\n﻿@[张三]：{我来了}") == ["酒馆"]
+
+
+def test_bom_prefixed_shot_header_still_splits():
+    from lib.reference_video.shot_parser import parse_prompt
+
+    shots, _ = parse_prompt("﻿镜头1：内景。\n镜头2：外景。")
+    assert [s.text for s in shots] == ["内景。", "外景。"]
+
+
+def test_bom_stripped_from_shot_text():
+    """派生出的 shot 文本不带 BOM：它会进预览显示与后端渲染。"""
+    from lib.reference_video.shot_parser import parse_prompt
+
+    shots, _ = parse_prompt("﻿镜头1：@张三 站着。")
+    assert "﻿" not in shots[0].text
+
+
 def test_render_prompt_unknown_mention_kept():
     text = "@张三 和 @未知 对话"
     refs = [ReferenceResource(type="character", name="张三")]

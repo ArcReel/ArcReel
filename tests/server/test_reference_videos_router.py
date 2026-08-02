@@ -488,3 +488,60 @@ def test_add_unit_concurrent_rebind_returns_409(client: TestClient, monkeypatch:
         json={"prompt": "镜头1：空镜", "references": []},
     )
     assert resp.status_code == 409, resp.text
+
+
+# ============ 解析预览 ============
+
+
+def _patch_video_caps(monkeypatch: pytest.MonkeyPatch, caps: dict) -> None:
+    from server.routers import reference_videos as router_mod
+
+    monkeypatch.setattr(router_mod, "project_video_caps", AsyncMock(return_value=caps))
+
+
+def _preview(client: TestClient, prompt: str):
+    return client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/script-preview",
+        json={"prompt": prompt},
+    )
+
+
+@pytest.mark.integration
+def test_script_preview_derives_shots_references_and_utterances(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    _patch_video_caps(monkeypatch, {})
+    body = _preview(client, "镜头1：@[酒馆] 内景。\n@[张三]：{我来了}\n{那年冬天格外冷}").json()
+
+    assert [s["index"] for s in body["shots"]] == [1]
+    # speaker 位不计入参考图
+    assert body["references"] == [{"type": "scene", "name": "酒馆"}]
+    assert body["utterances"] == [
+        {"shot_index": 1, "kind": "dialogue", "speaker": "张三", "text": "我来了"},
+        {"shot_index": 1, "kind": "voiceover", "speaker": None, "text": "那年冬天格外冷"},
+    ]
+    assert body["warnings"] == []
+
+
+@pytest.mark.integration
+def test_script_preview_returns_localized_warnings(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    _patch_video_caps(monkeypatch, {})
+    body = _preview(client, "镜头1：@[王五] 推门。").json()
+    assert [w["key"] for w in body["warnings"]] == ["ref_warn_unregistered_mention"]
+    assert "王五" in body["warnings"][0]["message"]
+
+
+@pytest.mark.integration
+def test_script_preview_uses_project_voice_capabilities(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    _patch_video_caps(monkeypatch, {"voice_consistency": "none", "model": "silent-01"})
+    body = _preview(client, "镜头1：开场。\n@[张三]：{我来了}").json()
+    assert [w["key"] for w in body["warnings"]] == ["ref_warn_silent_model"]
+    assert "silent-01" in body["warnings"][0]["message"]
+
+
+@pytest.mark.integration
+def test_script_preview_404_for_unknown_episode(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    _patch_video_caps(monkeypatch, {})
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/9/script-preview",
+        json={"prompt": "镜头1：开场。"},
+    )
+    assert resp.status_code == 404

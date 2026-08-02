@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   extractMentions,
+  matchDialogueLine,
+  matchVoiceoverLine,
   resolveMentionType,
   mergeReferences,
+  splitScriptLines,
 } from "./reference-mentions";
 import type { ProjectData } from "@/types";
 import type { ReferenceResource } from "@/types/reference-video";
@@ -64,6 +67,19 @@ describe("resolveMentionType", () => {
 
   it("returns undefined for unknown names", () => {
     expect(resolveMentionType(project, "路人")).toBeUndefined();
+  });
+
+  // toString / constructor / __proto__ 都通得过 validate_asset_name，用 `in` 查会命中
+  // 原型链，把没登记的名字判成已登记
+  it("does not resolve prototype-chain property names as registered assets", () => {
+    for (const name of ["toString", "constructor", "hasOwnProperty", "__proto__"]) {
+      expect(resolveMentionType(project, name)).toBeUndefined();
+    }
+  });
+
+  it("resolves an asset actually named like a prototype property", () => {
+    const withOddName = { characters: { toString: { description: "" } }, scenes: {}, props: {} };
+    expect(resolveMentionType(withOddName as never, "toString")).toBe("character");
   });
 });
 
@@ -151,5 +167,84 @@ describe("MENTION_RE prefix boundary", () => {
     } as const;
     const refs = mergeReferences("contact a@张三", [], project as never);
     expect(refs).toEqual([]);
+  });
+});
+
+describe("normative dialogue lines", () => {
+  it("matches `@[角色]：{台词}` with either colon, wrapped or bare", () => {
+    expect(matchDialogueLine("@[张三]：{我来了}")).toEqual({ speaker: "张三", text: "我来了" });
+    expect(matchDialogueLine("@张三:{我来了}")).toEqual({ speaker: "张三", text: "我来了" });
+    expect(matchDialogueLine("  @[角色甲（成年）] ： {我来了} ")).toEqual({
+      speaker: "角色甲（成年）",
+      text: "我来了",
+    });
+  });
+
+  it("rejects dialogue mixed into a description line", () => {
+    expect(matchDialogueLine("中景，@[张三]：{我来了} 说完转身")).toBeNull();
+    expect(matchDialogueLine("他说 @[张三]：{我来了}")).toBeNull();
+    expect(matchDialogueLine("@[张三]：{我来了")).toBeNull();
+  });
+
+  it("reads a bare braces line as voiceover", () => {
+    expect(matchVoiceoverLine("  {那年冬天格外冷}  ")).toBe("那年冬天格外冷");
+    expect(matchVoiceoverLine("旁白：{那年冬天}")).toBeNull();
+  });
+
+  it("keeps speaker slots out of mention extraction", () => {
+    // 与后端 shot_parser.extract_mentions 同口径：给画外说话的角色附参考图会诱导它入画
+    expect(extractMentions("镜头1：@酒馆 内景。\n@张三：{我来了}\n镜头2：@张三 抬眼。")).toEqual([
+      "酒馆",
+      "张三",
+    ]);
+    expect(extractMentions("@张三：{我来了}")).toEqual([]);
+  });
+
+  it("keeps a speaker slot written on the shot header line out of mentions", () => {
+    // 后端切分镜头时剥掉 header，这行在 shot 文本里就是规范行 —— 两侧须同判
+    expect(extractMentions("镜头1：@[张三]：{我来了}")).toEqual([]);
+    expect(extractMentions("镜头1：@酒馆 内景。\n镜头2：@张三：{我来了}")).toEqual(["酒馆"]);
+  });
+
+  it("strips a shot header written with non-ASCII digits", () => {
+    // Python `\d` 认全角/阿拉伯-印度数字，后端会剥掉 header 并把这行判成台词；
+    // JS `\d` 只认 ASCII，若不对齐，前端会把说话人当成参考图留下来
+    expect(extractMentions("镜头１：@[张三]：{我来了}")).toEqual([]);
+    expect(extractMentions("镜头٣：@[张三]：{我来了}")).toEqual([]);
+    expect(extractMentions("镜头１：@酒馆 内景。")).toEqual(["酒馆"]);
+  });
+
+  it("does not treat a blank speaker slot as a normative line", () => {
+    // 同后端 match_dialogue_line：speaker 位全为空白不算规范行，否则会派生出非法 utterance
+    expect(matchDialogueLine("@[ ]：{我来了}")).toBeNull();
+    expect(extractMentions("@[ ]：{我来了}")).toEqual([" "]);
+  });
+
+  it("does not treat blank braces as an utterance", () => {
+    // 同后端：utterance 的 text 必须非空，空台词不派生
+    expect(matchVoiceoverLine("{}")).toBeNull();
+    expect(matchVoiceoverLine("{   }")).toBeNull();
+    expect(matchDialogueLine("@[张三]：{}")).toBeNull();
+  });
+
+  it("keeps speaker-only characters out of merged references", () => {
+    const refs = mergeReferences("镜头1：@酒馆 内景。\n@张三：{我来了}", [], mkProject());
+    expect(refs).toEqual([{ type: "scene", name: "酒馆" }]);
+  });
+});
+
+describe("splitScriptLines", () => {
+  // 与 Python str.splitlines() 逐例对齐：末尾换行不多出空行，行中间的空行照常保留
+  it.each([
+    ["", []],
+    ["a", ["a"]],
+    ["a\n", ["a"]],
+    ["a\n\n", ["a", ""]],
+    ["a\n\nb", ["a", "", "b"]],
+    ["\n", [""]],
+    ["镜头1：中景\r\n", ["镜头1：中景"]],
+    ["镜头1：中景 ", ["镜头1：中景"]],
+  ])("splits %j the way splitlines() does", (input, expected) => {
+    expect(splitScriptLines(input)).toEqual(expected);
   });
 });

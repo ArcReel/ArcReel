@@ -38,6 +38,10 @@ export default defineConfig({
         "src/components/canvas/EpisodeSourceReview.tsx",
         "src/components/canvas/timeline/TimelineCanvas.tsx",
         "src/components/copilot/AgentCopilot.tsx",
+        "src/components/canvas/reference/ScriptPreviewPanel.tsx",
+        "src/components/shared/ScriptHighlight.tsx",
+        "src/hooks/useShotPromptHighlight.ts",
+        "src/utils/reference-mentions.ts",
       ],
       reporter: ["text", "json-summary", "lcov"],
       thresholds: {

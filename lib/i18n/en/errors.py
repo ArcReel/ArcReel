@@ -231,6 +231,30 @@ MESSAGES = {
     "ref_derive_ad_only": "Deriving video unit groups is only available for ad/short-video projects",
     "ref_ad_stale_index": "The unit grouping index no longer matches the shots, please re-derive the grouping",
     "ref_ad_reference_skipped": "'{name}' ({type}) has no usable reference image and was skipped for this generation",
+    # Shot-script parse preview: degradation visibility
+    "ref_warn_unregistered_mention": (
+        "@[{name}] is not registered as a character, scene, or prop: no reference image will be "
+        "attached. Check the name or create the asset first"
+    ),
+    "ref_warn_unclosed_brace": (
+        "Shot {shot}: unclosed dialogue braces, not recognized as dialogue. The line is sent verbatim: {excerpt}…"
+    ),
+    "ref_warn_dialogue_inline": (
+        "Shot {shot}: dialogue and description are on the same line, so it is not recognized as "
+        "dialogue. For voice reference, put the dialogue on its own line (@[character]: {{dialogue}})"
+    ),
+    "ref_warn_unregistered_speaker": (
+        "@[{name}] is not registered as a character: the speaker cannot be confirmed, so the line is sent verbatim"
+    ),
+    "ref_warn_speaker_without_audio": (
+        "Character '{name}' has no reference audio: the model decides the dialogue voice"
+    ),
+    "ref_warn_reference_audio_overflow": (
+        "At most {limit} reference audio clips: the model decides the dialogue voice for character '{name}'"
+    ),
+    "ref_warn_silent_model": (
+        "The current video model '{model}' generates no audio; dialogue is used only as prompt context"
+    ),
     # Episode meta
     "episode_not_found": "Episode {episode} not found or has no script file yet",
     "episode_title_empty": "Episode title cannot be empty",

@@ -1,0 +1,114 @@
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { assetColor } from "@/components/canvas/reference/asset-colors";
+import {
+  toScriptLines,
+  type MentionLookup,
+  type ScriptLine,
+  type Token,
+} from "@/hooks/useShotPromptHighlight";
+
+/**
+ * Read-only rendering of a shot script, laid out the way the parser reads it.
+ *
+ * Indentation is information, not decoration: shot headers sit flush left, every
+ * line that belongs to a shot is indented under it, and the lines the parser
+ * recognized as utterances carry a tinted rule in the speaker's asset color.
+ * A writer can therefore see at a glance which of their lines became dialogue and
+ * which stayed plain description.
+ *
+ * It takes only text plus the asset lookup: strictness lives upstream in whoever
+ * parses and validates the script, never in how the script is drawn, so any caller
+ * holding a script and an asset table can render it.
+ */
+export interface ScriptHighlightProps {
+  text: string;
+  /** Asset name → kind, for mention coloring. Memoize to keep tokenization stable. */
+  lookup: MentionLookup;
+  className?: string;
+}
+
+function renderTokens(tokens: Token[], keyPrefix: string) {
+  return tokens.map((tk, i) => {
+    if (tk.kind === "mention") {
+      const palette = assetColor(tk.assetKind);
+      return (
+        <span key={`${keyPrefix}-${i}`} className={`rounded-sm ${palette.textClass} ${palette.bgClass}`}>
+          {tk.text}
+        </span>
+      );
+    }
+    if (tk.kind === "shot_header") {
+      return (
+        <span key={`${keyPrefix}-${i}`} className="font-semibold text-indigo-300">
+          {tk.text}
+        </span>
+      );
+    }
+    return <span key={`${keyPrefix}-${i}`}>{tk.text}</span>;
+  });
+}
+
+function LineRow({ line, index }: { line: ScriptLine; index: number }) {
+  const { t } = useTranslation("dashboard");
+
+  if (line.kind === "shot_header") {
+    return (
+      <div className="mt-2.5 flex items-baseline gap-2 first:mt-0">
+        <span
+          translate="no"
+          className="shrink-0 font-semibold text-indigo-300"
+        >
+          {line.header}
+        </span>
+        <span className="min-w-0 flex-1 break-words">{renderTokens(line.tokens, `h${index}`)}</span>
+      </div>
+    );
+  }
+
+  if (line.kind === "dialogue") {
+    const palette = assetColor(line.speakerKind);
+    return (
+      <div
+        className={`ml-4 flex items-baseline gap-2 border-l-2 py-0.5 pl-2.5 ${palette.borderClass} bg-[oklch(1_0_0_/_0.03)]`}
+      >
+        <span
+          translate="no"
+          className={`shrink-0 rounded-sm px-1 ${palette.textClass} ${palette.bgClass}`}
+        >
+          {line.speaker}
+        </span>
+        <span className="min-w-0 flex-1 break-words text-[var(--color-text)]">{line.text}</span>
+      </div>
+    );
+  }
+
+  if (line.kind === "voiceover") {
+    return (
+      <div className="ml-4 flex items-baseline gap-2 border-l-2 border-[var(--color-hairline)] bg-[oklch(1_0_0_/_0.03)] py-0.5 pl-2.5">
+        <span className="shrink-0 rounded-sm bg-[oklch(1_0_0_/_0.06)] px-1 text-[var(--color-text-3)]">
+          {t("script_highlight_voiceover")}
+        </span>
+        <span className="min-w-0 flex-1 break-words text-[var(--color-text)]">{line.text}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="ml-4 break-words pl-2.5 text-[var(--color-text-2)]">
+      {line.tokens.length > 0 ? renderTokens(line.tokens, `t${index}`) : " "}
+    </div>
+  );
+}
+
+export function ScriptHighlight({ text, lookup, className }: ScriptHighlightProps) {
+  const lines = useMemo(() => toScriptLines(text, lookup), [text, lookup]);
+
+  return (
+    <div className={`font-mono text-[12.5px] leading-6 ${className ?? ""}`}>
+      {lines.map((line, i) => (
+        <LineRow key={i} line={line} index={i} />
+      ))}
+    </div>
+  );
+}

@@ -118,14 +118,21 @@ def test_format_placeholders_consistent():
     import re
 
     placeholder_re = re.compile(r"\{(\w+)\}")
+    # `str.format` 的转义花括号 `{{…}}` 是字面文本（如语法示例 `@[角色]：{台词}`），
+    # 不是占位符：先剔除，否则各语言的示例用词会被误判为占位符不一致。
+    escaped_re = re.compile(r"\{\{.*?\}\}")
+
+    def placeholders(msg: str) -> set[str]:
+        return set(placeholder_re.findall(escaped_re.sub("", msg)))
+
     base_locale = SUPPORTED_LOCALES[0]
 
     for key in MESSAGES[base_locale]:
-        base_placeholders = set(placeholder_re.findall(MESSAGES[base_locale][key]))
+        base_placeholders = placeholders(MESSAGES[base_locale][key])
         for locale in SUPPORTED_LOCALES[1:]:
             if key not in MESSAGES[locale]:
                 continue
-            locale_placeholders = set(placeholder_re.findall(MESSAGES[locale][key]))
+            locale_placeholders = placeholders(MESSAGES[locale][key])
             assert base_placeholders == locale_placeholders, (
                 f"Key '{key}': {base_locale} uses {base_placeholders} but {locale} uses {locale_placeholders}"
             )
