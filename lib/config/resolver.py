@@ -213,6 +213,48 @@ VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoCapability] = {
     "reference_video": "r2v",
 }
 
+#: 生成模式 → 能力桶。与 ``VIDEO_BUCKET_BY_TASK_TYPE`` 描述同一套映射的两个入口：执行路径按
+#: 已成形任务的 task_type 定桶，读侧（能力查询 / 费用估算 / 时长约束收窄）在任务成形前只有项目
+#: 的 generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。
+VIDEO_BUCKET_BY_GENERATION_MODE: dict[str, VideoCapability] = {
+    "storyboard": "i2v",
+    "grid": "i2v",
+    "reference_video": "r2v",
+}
+
+#: 表外 generation_mode（含缺省与脏数据）落的桶。与 ``lib.project_manager.effective_mode``
+#: 对未知模式回退 ``storyboard`` 的口径一致。
+_DEFAULT_VIDEO_BUCKET: VideoCapability = "i2v"
+
+
+def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoCapability:
+    """项目 / 剧集的 generation_mode 归到哪个视频能力桶——读侧定桶的唯一入口。
+
+    project.json 是明文文件，``generation_mode`` 可能被写成非字符串，一并落默认桶。
+    """
+    if not isinstance(generation_mode, str):
+        return _DEFAULT_VIDEO_BUCKET
+    return VIDEO_BUCKET_BY_GENERATION_MODE.get(generation_mode, _DEFAULT_VIDEO_BUCKET)
+
+
+def project_video_backend_ids(project: dict) -> tuple[str, str] | None:
+    """project.json 自报的视频模型身份：按 generation_mode 定桶取桶键，缺则取项目默认键。
+
+    纯读 project.json、不查 DB，供 caps 解析失败（DB / migration 故障等）时的降级路径复用：
+    桶键与默认键都在同一个明文文件里，降级只该丢掉 DB 那部分，不该顺带把桶口径也降成项目
+    默认层——否则配了 ``video_provider_r2v`` 的参考视频项目会拿 ``video_backend`` 的档位与
+    参考图上限写剧本。层内取值口径与 ``_resolve_layered_backend`` 的项目层一致（含裸 provider
+    覆盖）。
+    """
+    keys = _VIDEO_LAYERED_KEYS[video_bucket_for_generation_mode(project.get("generation_mode"))]
+    for key in (keys.project_bucket_key, keys.project_default_key):
+        if key is None:
+            continue
+        parsed = _parse_project_provider(project.get(key), "video")
+        if parsed is not None:
+            return parsed
+    return None
+
 
 def video_capability_satisfied(*, capability: VideoCapability, first_frame: bool, max_reference_images: int) -> bool:
     """一组视频能力声明是否满足某个桶——桶归属判定的唯一口径。
@@ -419,6 +461,9 @@ def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> 
     同步路径上，靠后两级回退拿到同一份档位表——迁移是幂等一次性的，谁先跑谁定终局，入口之间
     传参不一致就会让先跑的那个把非档位秒数固化到盘上。
 
+    最后一级的项目自报身份按 generation_mode 定桶取（``project_video_backend_ids``），不直取
+    项目默认层——降级掉的只是 DB，桶键就在同一个 project.json 里。
+
     返回值不含「分辨率↔时长」「参考图↔时长」联动约束，收窄见 ``constrain_durations_for_project``。
     """
     if caps and caps.get("supported_durations"):
@@ -426,12 +471,11 @@ def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> 
     durations = project.get("_supported_durations")
     if durations and isinstance(durations, list):
         return list(durations)
-    video_backend = project.get("video_backend")
-    if video_backend and isinstance(video_backend, str) and "/" in video_backend:
-        provider_id, model_id = video_backend.split("/", 1)
-        provider_meta = PROVIDER_REGISTRY.get(provider_id)
+    ids = project_video_backend_ids(project)
+    if ids is not None:
+        provider_meta = PROVIDER_REGISTRY.get(ids[0])
         if provider_meta:
-            model_info = provider_meta.models.get(model_id)
+            model_info = provider_meta.models.get(ids[1])
             if model_info and model_info.supported_durations:
                 return list(model_info.supported_durations)
     return None
@@ -739,13 +783,17 @@ class ConfigResolver:
     async def video_capabilities(self, project_name: str | None = None) -> dict:
         """解析当前项目视频 model 的综合能力 + 用户项目偏好。
 
+        model 按项目 ``generation_mode`` 定桶（图生视频 / 宫格 → i2v，参考生视频 → r2v）后走与
+        执行相同的解析入口，回答的始终是「当前配置真正会执行的那个模型」；切换 generation_mode
+        后返回值随桶变化（``docs/adr/0054``）。
+
         Returns:
             {
               "provider_id": str,
               "model": str,
               "supported_durations": list[int],    # 来自 model (单一真相源)
               "max_duration": int,                 # max(supported_durations) 派生
-              "max_reference_images": int,         # registry: model.max_reference_images；custom: 合成后的生效值
+              "max_reference_images": int,         # backend 声明；custom: 合成后的生效值
               "first_frame": bool,                 # 生效值（系统判定 ⊕ 用户覆盖），与执行层同源
               "last_frame": bool,                  # 同上
               "generate_audio": bool,              # backend 默认执行档生效后的计价参数
@@ -760,6 +808,8 @@ class ConfigResolver:
 
         Raises:
             ValueError: 当 video_backend 解析失败 / model 找不到 / supported_durations 为空。
+            VideoBucketCapabilityError: （ValueError 子类）解析出的模型缺该桶所需能力，或配置
+                引用已不可用。
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_capabilities(svc, session, project_name)
@@ -1166,10 +1216,18 @@ class ConfigResolver:
         session: AsyncSession,
         project: dict | None,
     ) -> dict:
-        # 只传选择身份：有效身份收敛由 `_resolve_video_caps_for_model` 统一做，
-        # 在此先做一遍会让自定义 provider 多跑一轮 model 查询。
-        provider_id, model_id = await self._resolve_video_backend_from_project(svc, session, project)
-        return await self._resolve_video_caps_for_model(svc, session, provider_id, model_id, project)
+        """按项目 generation_mode 定桶解析出会执行的那个模型，再读它的能力。
+
+        与执行路径共用 ``_resolve_video_provider_model``（含能力闸），读侧不留第二种口径：切换
+        generation_mode 后能力查询随桶变化，模型缺该桶所需能力或引用已失效时报错、不静默换模型
+        （``docs/adr/0054``）。payload 传 None——能力查询回答的是当前配置，不排空历史任务。
+
+        只传选择身份：有效身份收敛由 ``_resolve_video_caps_for_model`` 统一做，在此先做一遍会让
+        自定义 provider 多跑一轮 model 查询。
+        """
+        capability = video_bucket_for_generation_mode(project.get("generation_mode") if project else None)
+        selected = await self._resolve_video_provider_model(svc, session, project, None, capability)
+        return await self._resolve_video_caps_for_model(svc, session, selected.provider_id, selected.model_id, project)
 
     async def _resolve_video_caps_for_model(
         self,
@@ -1241,14 +1299,15 @@ class ConfigResolver:
             if model_info is None:
                 raise ValueError(f"model not found in registry: {provider_id}/{model_id}")
             supported_durations = list(model_info.supported_durations or [])
-            max_reference_images = model_info.max_reference_images
-            # 布尔能力位读 backend 声明，不复制进 ModelInfo：backend 是这几位的唯一真相源。
-            # max_reference_images 维持读 ModelInfo（注册表按 model 分档，backend 侧不区分）。
+            # 能力位一律读 backend 声明，不读 ModelInfo 的并行声明：backend 是执行期真正构造
+            # 请求的一方，也是能力闸（`_ensure_video_bucket_capability`）与桶候选下拉
+            # （`lib.capability_buckets`）的口径，展示层与执行层因此严格同源。
             try:
                 spec = get_provider_spec(provider_id, "video")
                 builtin_caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
             except ValueError as exc:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
+            max_reference_images = builtin_caps.max_reference_images
             first_frame = builtin_caps.first_frame
             last_frame = builtin_caps.last_frame
             reference_audio_mode = builtin_caps.reference_audio_mode

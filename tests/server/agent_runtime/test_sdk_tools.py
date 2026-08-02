@@ -1923,6 +1923,27 @@ async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
     assert "reference_unit_durations" not in json.loads(out["content"][0]["text"])
 
 
+@pytest.mark.unit
+async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: ToolContext, monkeypatch) -> None:
+    """agent 工具与 REST 能力查询走同一个解析入口 ``ConfigResolver.video_capabilities``。
+
+    两侧各自解析会让 agent 写剧本时看到的时长 / 参考图上限与界面显示的不是同一个模型。
+    """
+    from lib.config.resolver import ConfigResolver
+
+    seen: list[str] = []
+
+    async def fake_video_capabilities(_self, project_name=None):
+        seen.append(project_name)
+        return {"provider_id": "kling", "model": "kling-v3-omni", "supported_durations": [5]}
+
+    monkeypatch.setattr(ConfigResolver, "video_capabilities", fake_video_capabilities)
+    out = await _call(get_video_capabilities_tool(fake_ctx), {})
+    assert out.get("is_error") is not True, out
+    assert json.loads(out["content"][0]["text"])["model"] == "kling-v3-omni"
+    assert seen == [fake_ctx.project_name]
+
+
 async def test_get_video_capabilities_error(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 

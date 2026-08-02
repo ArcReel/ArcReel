@@ -206,7 +206,7 @@ class MiniMaxVideoBackend(ProviderJobIdPersistenceMixin):
     def _build_s2v_payload(self, request: VideoGenerationRequest) -> dict:
         """S2V-01：把 reference_images[0] 映射成单脸 subject_reference。
 
-        编排层已按 registry max_reference_images=1 裁剪，此处防御性仅取首张人脸图。
+        编排层已按本 backend 声明的 max_reference_images=1 裁剪，此处防御性仅取首张人脸图。
         fail-loud：未提供参考图 → required；声明的参考图缺失/不可读 → unreadable，
         不静默退化为无参考生成（会产出错误结果且照常计费）。
         """

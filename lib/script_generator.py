@@ -15,8 +15,15 @@ from typing import Optional
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
+from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import ConfigResolver, constrain_durations_for_project, resolve_raw_supported_durations
+from lib.config.resolver import (
+    ConfigResolver,
+    VideoBucketCapabilityError,
+    constrain_durations_for_project,
+    project_video_backend_ids,
+    resolve_raw_supported_durations,
+)
 from lib.db import async_session_factory
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
@@ -76,6 +83,7 @@ from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
+from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -642,28 +650,32 @@ class ScriptGenerator:
 
         宽松捕获：除 ValueError 外，DB 未 migration / 连接失败等 SQLAlchemy 异常也走 fallback，
         保证在缺能力元数据的环境（如裸 CI 测试容器）中 generate() 仍能跑通。
+
+        能力桶解析闸的报错例外，原样上抛：那是配置指向的模型缺该桶所需能力或引用已失效
+        （``docs/adr/0054``），fallback 会拿项目默认模型的档位去写剧本，写出来的时长 / 参考图
+        数量执行期照样被拒。报错带 code 与修复指引，比先写一份必败的剧本更省事。
         """
         resolver = ConfigResolver(async_session_factory)
         try:
             return await resolver.video_capabilities_for_project(self.project_json)
+        except VideoBucketCapabilityError:
+            raise
         except (ValueError, SQLAlchemyError) as exc:
             logger.info("video_capabilities 解析失败，将走 project.json fallback：%s", exc)
             return None
 
     def _resolve_backend_ids(self, caps: dict | None) -> tuple[str | None, str | None]:
-        """当前视频模型身份：caps → project.json.video_backend；都拿不到为 (None, None)。
+        """当前视频模型身份：caps → project.json 自报身份；都拿不到为 (None, None)。
 
         联动约束按型号声明查，故身份要与时长的来源同一个模型：caps 在手时以它为准
         （后端留空走全局默认、或存值已不在注册表被 resolver 回退时，实际生效的是 caps 里的），
-        否则退到 project.json 自报的 ``video_backend``（与时长的 fallback 链同一层）。
+        否则退到 project.json 按 generation_mode 定桶取的身份（``project_video_backend_ids``，
+        与时长的 fallback 链同一层）。
         """
         if caps and caps.get("provider_id") and caps.get("model"):
             return str(caps["provider_id"]), str(caps["model"])
-        video_backend = self.project_json.get("video_backend")
-        if video_backend and isinstance(video_backend, str) and "/" in video_backend:
-            provider_id, model_id = video_backend.split("/", 1)
-            return provider_id, model_id
-        return None, None
+        ids = project_video_backend_ids(self.project_json)
+        return ids if ids is not None else (None, None)
 
     def _resolve_supported_durations(
         self, caps: dict | None = None, *, gen_mode: str, uses_reference_images: bool | None = None
@@ -752,26 +764,35 @@ class ScriptGenerator:
         return "9:16" if self.content_mode in ("narration", "ad") else "16:9"
 
     def _resolve_max_refs(self, caps: dict | None = None) -> int | None:
-        """解析当前视频模型的最大参考图数；caps → project.json.video_backend → registry 两级回退。
+        """解析当前视频模型的最大参考图数；caps → project.json 自报身份 → registry 两级回退。
 
         语义约定：仅 None 视为「未声明上限」（上层不在 prompt 写硬性数量约束，且 executor 跳过裁剪）；
         caps 来源的 0 是显式上限（如不接受参考图的 endpoint），会原样下传触发裁剪为 0 张。
-        caps 解析失败（DB/migration 故障等）时退到 registry 的 ModelInfo.max_reference_images——
-        与 _resolve_supported_durations 同构，避免丢失上限导致后端按多张参考图发出而被上游拒。
-        registry 里 0 是字段默认值（图像/文本模型或视频模型未声明），用 truthy 守卫当作未声明跳过。
+        caps 解析失败（DB/migration 故障等）时退到 project.json 按 generation_mode 定桶取的身份
+        （``project_video_backend_ids``）直查 backend 声明——与 _resolve_supported_durations
+        同构，避免丢失上限导致后端按多张参考图发出而被上游拒。
+        取 backend 而非 registry ModelInfo 的并行声明：两者在若干 model 上已漂移，而 backend 是
+        执行期构造请求的一方。注册表身份仍要查——backend 的 caps 函数不都校验 model 存在性与
+        media_type，对任意 id 返回静态能力。0 在这条降级路径上按未声明处理（下传 0 会把降级前
+        本可申请的参考图整批裁掉，而执行期仍有 backend 校验兜底）。
         """
         if caps:
             cached = caps.get("max_reference_images")
             if cached is not None:
                 return int(cached)
-        video_backend = self.project_json.get("video_backend")
-        if video_backend and isinstance(video_backend, str) and "/" in video_backend:
-            provider_id, model_id = video_backend.split("/", 1)
+        ids = project_video_backend_ids(self.project_json)
+        if ids is not None:
+            provider_id, model_id = ids
             provider_meta = PROVIDER_REGISTRY.get(provider_id)
-            if provider_meta:
-                model_info = provider_meta.models.get(model_id)
-                if model_info and model_info.max_reference_images:
-                    return int(model_info.max_reference_images)
+            model_info = provider_meta.models.get(model_id) if provider_meta else None
+            if model_info is not None and model_info.media_type == "video":
+                try:
+                    spec = get_provider_spec(provider_id, "video")
+                    backend_caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+                except ValueError:
+                    return None
+                if backend_caps.max_reference_images:
+                    return int(backend_caps.max_reference_images)
         return None
 
     def _load_project_json(self) -> dict:

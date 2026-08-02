@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 from lib.api_errors import ApiError, BadRequestError, NotFoundError
 from lib.asset_fingerprints import compute_asset_fingerprints
 from lib.config.registry import default_model_for_provider
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 from lib.db import async_session_factory
 from lib.i18n import Translator
 from lib.json_io import domain_error_on_value_error
@@ -600,6 +600,10 @@ async def get_video_capabilities(
         return await resolver.video_capabilities(name)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
+    except VideoBucketCapabilityError as exc:
+        # 能力桶解析闸的报错自带 errors 目录 key 与渲染参数，转成结构化 400 让用户看到修复指引，
+        # 不被下面的通用 422 文案吞掉（ValueError 子类，须先于其捕获）
+        raise BadRequestError(exc.code, **exc.params) from exc
     except ValueError as exc:
         # 异常原文只进日志：str(exc) 混英文技术细节，直接插进翻译文案会让 en/vi 界面混入未译原文
         logger.warning("项目 '%s' 视频模型能力解析失败: %s", name, exc)
