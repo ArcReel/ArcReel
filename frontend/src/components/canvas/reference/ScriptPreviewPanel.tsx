@@ -35,6 +35,15 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
   const [preview, setPreview] = useState<ScriptPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 手上这份 preview 是按哪套输入派生的。与当前输入不一致 = 面板过期（节流等待 +
+  // 请求在途的窗口）。此时不清空——边打字边清会让整块反复闪空——改为标记过期：
+  // 降透明度并置 aria-busy，读者不会把旧的镜头数 / 参考图 / 台词当成当前正文的结果。
+  const [appliedFor, setAppliedFor] = useState<{
+    projectName: string;
+    episode: number;
+    text: string;
+    lookup: MentionLookup;
+  } | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -47,6 +56,7 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
           if (controller.signal.aborted) return;
           setPreview(result);
           setError(null);
+          setAppliedFor({ projectName, episode, text, lookup });
         })
         .catch((e: unknown) => {
           if (controller.signal.aborted) return;
@@ -54,6 +64,7 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
           // 展示对不上当前正文的镜头 / 参考图 / 台词。
           setPreview(null);
           setError(errMsg(e));
+          setAppliedFor(null);
         })
         .finally(() => {
           if (controller.signal.aborted) return;
@@ -78,13 +89,19 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
   );
 
   const warnings = preview?.warnings ?? [];
+  const stale =
+    appliedFor !== null &&
+    (appliedFor.projectName !== projectName ||
+      appliedFor.episode !== episode ||
+      appliedFor.text !== text ||
+      appliedFor.lookup !== lookup);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
       <div className="mb-2 flex items-center gap-2 text-[11px] text-[var(--color-text-4)]">
         <span>{t("script_preview_hint")}</span>
         <span className="flex-1" />
-        {loading && (
+        {(stale || loading) && (
           <span role="status" className="inline-flex items-center">
             <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" aria-hidden="true" />
             <span className="sr-only">{t("script_preview_loading")}</span>
@@ -102,7 +119,10 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
         <ul
           aria-label={t("script_preview_warnings_label")}
           aria-live="polite"
-          className="mb-3 flex flex-col gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 p-2"
+          aria-busy={stale || undefined}
+          className={`mb-3 flex flex-col gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 ${
+            stale ? "opacity-45" : ""
+          }`}
         >
           {warnings.map((w, i) => (
             <li key={`${w.key}-${i}`} className="flex gap-1.5 text-[11.5px] leading-relaxed text-amber-200">
@@ -119,7 +139,12 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
         className="rounded-md border border-[var(--color-hairline-soft)] bg-[oklch(0.16_0.010_265_/_0.6)] p-3"
       />
 
-      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-2 border-t border-[var(--color-hairline-soft)] pt-3 text-[11.5px]">
+      <dl
+        aria-busy={stale || undefined}
+        className={`mt-3 grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-2 border-t border-[var(--color-hairline-soft)] pt-3 text-[11.5px] ${
+          stale ? "opacity-45" : ""
+        }`}
+      >
         <dt className="text-[var(--color-text-4)]">{t("script_preview_shots")}</dt>
         <dd className="font-mono tabular-nums text-[var(--color-text-2)]">
           {preview?.shots.length ?? 0}
@@ -157,7 +182,10 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
 
       {/* 服务端派生出的逐条台词：与上方本地高亮互为对照，解析口径若有出入在此显形。 */}
       {utterances.length > 0 && (
-        <ul className="mt-2 flex flex-col gap-1 text-[11.5px]">
+        <ul
+          aria-busy={stale || undefined}
+          className={`mt-2 flex flex-col gap-1 text-[11.5px] ${stale ? "opacity-45" : ""}`}
+        >
           {utterances.map((u, i) => {
             const palette = assetColor(u.kind === "dialogue" ? "character" : "unknown");
             return (

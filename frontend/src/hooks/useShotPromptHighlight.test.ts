@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tokenizePrompt, type MentionLookup, type Token } from "./useShotPromptHighlight";
+import { tokenizePrompt, toScriptLines, type MentionLookup, type Token } from "./useShotPromptHighlight";
 
 const LOOKUP: MentionLookup = {
   主角: "character",
@@ -107,5 +107,24 @@ describe("tokenizePrompt", () => {
     const t = tokenizePrompt("price@5, email a@b", LOOKUP);
     const mentions = t.filter((x) => x.kind === "mention");
     expect(mentions).toHaveLength(0);
+  });
+});
+
+describe("toScriptLines shot attribution", () => {
+  // parse_prompt 把首个 `镜头N：` 之前的引子折进第一个镜头，不另开一镜。
+  // 预览若把引子记成「第 0 镜」，就与服务端派生台词列表里的 shot_index 对不上。
+  it("attributes a lead-in written before the first header to shot 1", () => {
+    const lines = toScriptLines("@[张三]：{先说}\n镜头1：中景\n镜头2：近景", LOOKUP);
+    expect(lines.map((l) => l.shotIndex)).toEqual([1, 1, 2]);
+  });
+
+  it("starts at shot 1 when the script opens with a header", () => {
+    const lines = toScriptLines("镜头1：中景\n镜头2：近景", LOOKUP);
+    expect(lines.map((l) => l.shotIndex)).toEqual([1, 2]);
+  });
+
+  it("treats a headerless script as a single shot", () => {
+    const lines = toScriptLines("@[张三]：{我来了}", LOOKUP);
+    expect(lines.map((l) => l.shotIndex)).toEqual([1]);
   });
 });

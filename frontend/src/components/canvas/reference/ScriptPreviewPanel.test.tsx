@@ -106,6 +106,24 @@ describe("ScriptPreviewPanel", () => {
     expect(signals[0]?.aborted).toBe(true);
   });
 
+  it("marks the derived panel stale while it catches up with an edit", async () => {
+    vi.spyOn(API, "previewReferenceScript").mockResolvedValue(
+      mkPreview({ warnings: [{ key: "ref_warn_silent_model", message: "当前模型不发声" }] }),
+    );
+    const { rerender } = renderPanel("镜头1：中景。");
+    await vi.advanceTimersByTimeAsync(500);
+    const warnList = await screen.findByRole("list", { name: /解析提示|Parse notices/ });
+    expect(warnList.getAttribute("aria-busy")).toBeNull();
+
+    // 编辑后旧派生还在屏上，但必须标成过期——否则会被当成当前正文的解析结果
+    rerender(<ScriptPreviewPanel projectName="demo" episode={1} text="镜头1：中景，改了" lookup={LOOKUP} />);
+    expect(warnList.getAttribute("aria-busy")).toBe("true");
+    expect(screen.getByText("当前模型不发声")).toBeTruthy();
+
+    await vi.advanceTimersByTimeAsync(500);
+    await waitFor(() => expect(warnList.getAttribute("aria-busy")).toBeNull());
+  });
+
   it("refetches when the project assets behind the warnings change", async () => {
     const spy = vi.spyOn(API, "previewReferenceScript").mockResolvedValue(mkPreview());
     const { rerender } = renderPanel("镜头1：@酒馆 内景。");

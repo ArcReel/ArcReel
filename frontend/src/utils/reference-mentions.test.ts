@@ -198,6 +198,13 @@ describe("normative dialogue lines", () => {
     expect(extractMentions("@[ ]：{我来了}")).toEqual([" "]);
   });
 
+  it("does not treat blank braces as an utterance", () => {
+    // 同后端：utterance 的 text 必须非空，空台词不派生
+    expect(matchVoiceoverLine("{}")).toBeNull();
+    expect(matchVoiceoverLine("{   }")).toBeNull();
+    expect(matchDialogueLine("@[张三]：{}")).toBeNull();
+  });
+
   it("keeps speaker-only characters out of merged references", () => {
     const refs = mergeReferences("镜头1：@酒馆 内景。\n@张三：{我来了}", [], mkProject());
     expect(refs).toEqual([{ type: "scene", name: "酒馆" }]);

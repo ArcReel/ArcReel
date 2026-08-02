@@ -31,6 +31,11 @@ export function mentionNameFromMatch(match: RegExpMatchArray): string {
  */
 const DIALOGUE_LINE_RE = /^\s*@(?:\[([^\]\r\n]+)\]|([\w一-鿿]+))\s*[:：]\s*\{([^{}]*)\}\s*$/;
 
+/** 空台词（`{}` / `{   }`）不算规范行——同后端：utterance 的 text 必须非空。 */
+function hasSpokenText(text: string): boolean {
+  return text.trim().length > 0;
+}
+
 /**
  * Leading `镜头N：` header. Stripped before the normative-line test so a dialogue
  * written on the header line is judged the way the backend judges it — `parse_prompt`
@@ -48,13 +53,14 @@ export function matchDialogueLine(line: string): { speaker: string; text: string
   if (!m) return null;
   const speaker = m[1] ?? m[2] ?? "";
   // speaker 位全为空白不算规范行（同 shot_parser.py：dialogue utterance 必须带非空 speaker）。
-  if (!speaker.trim()) return null;
+  if (!speaker.trim() || !hasSpokenText(m[3])) return null;
   return { speaker, text: m[3] };
 }
 
 export function matchVoiceoverLine(line: string): string | null {
   const m = VOICEOVER_LINE_RE.exec(line);
-  return m ? m[1] : null;
+  if (!m || !hasSpokenText(m[1])) return null;
+  return m[1];
 }
 
 /**

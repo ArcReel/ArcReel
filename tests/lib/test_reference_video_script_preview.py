@@ -56,6 +56,8 @@ def test_dialogue_line_accepts_wrapped_bare_and_both_colons(line: str):
         "他说 @[张三]：{我来了}",  # 行首不是 mention
         "@[张三]{我来了}",  # 缺冒号
         "@[ ]：{我来了}",  # speaker 位全为空白
+        "@[张三]：{}",  # 空台词
+        "@[张三]：{   }",  # 台词只有空白
     ],
 )
 def test_dialogue_line_rejects_non_normative(line: str):
@@ -73,6 +75,18 @@ def test_blank_speaker_degrades_to_warning_instead_of_raising():
 def test_voiceover_line_is_bare_braces():
     assert match_voiceover_line("  {那年冬天格外冷}  ") == "那年冬天格外冷"
     assert match_voiceover_line("旁白：{那年冬天}") is None
+
+
+@pytest.mark.parametrize("line", ["{}", "{   }"])
+def test_blank_braces_are_not_utterances(line: str):
+    """空台词不派生：``Utterance`` 与 DataValidator 都要求 text 非空。"""
+    assert match_voiceover_line(line) is None
+
+
+def test_blank_braces_degrade_to_warning():
+    preview = build_script_preview("镜头1：中景。\n@[张三]：{}\n{   }", PROJECT)
+    assert preview.utterances == []
+    assert keys(preview) == [WARN_DIALOGUE_INLINE, WARN_DIALOGUE_INLINE]
 
 
 # ---------- 派生 ----------

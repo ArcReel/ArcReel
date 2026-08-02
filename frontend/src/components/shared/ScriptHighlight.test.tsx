@@ -67,6 +67,12 @@ describe("ScriptHighlight", () => {
     expect(screen.getByText(/\{我来了\}/)).toBeTruthy();
   });
 
+  it("leaves blank braces as plain text instead of an empty utterance", () => {
+    renderScript("镜头1：中景。\n{}");
+    expect(screen.getByText("{}")).toBeTruthy();
+    expect(screen.queryByText("画外音")).toBeNull();
+  });
+
   it("leaves a line mixing dialogue into description as plain text", () => {
     renderScript("镜头1：@张三 笑着说 {我来了}。");
     expect(screen.getByText(/\{我来了\}/)).toBeTruthy();

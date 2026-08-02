@@ -90,8 +90,9 @@ export function useShotPromptHighlight(text: string, lookup: MentionLookup): Tok
  * textarea; this one groups by line so the preview can indent dialogue under its
  * shot and tint the lines the parser actually recognized as utterances.
  *
- * `shotIndex` is 1-based and 0 for anything before the first `镜头N：` header —
- * matching the backend, which folds that lead-in into the first shot's text.
+ * `shotIndex` is 1-based throughout: `parse_prompt` folds any lead-in written before
+ * the first `镜头N：` header into shot 1 rather than opening a shot of its own, so
+ * those lines carry index 1 here too and the first header does not advance past it.
  */
 export type ScriptLine =
   | { kind: "shot_header"; shotIndex: number; header: string; tokens: Token[] }
@@ -102,10 +103,18 @@ export type ScriptLine =
 export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[] {
   const lines: ScriptLine[] = [];
   let shotIndex = 0;
+  let firstHeaderSeen = false;
   for (const raw of text.split("\n")) {
     const trimmed = raw.trim();
     const headerMatch = trimmed.match(SHOT_HEADER_RE);
-    if (headerMatch) shotIndex += 1;
+    if (headerMatch) {
+      // 首个 header 与它之前的引子同属 shot 1（后端把引子折进第一个镜头），
+      // 之后每个 header 各开一镜。
+      shotIndex = firstHeaderSeen ? shotIndex + 1 : Math.max(shotIndex, 1);
+      firstHeaderSeen = true;
+    } else if (shotIndex === 0) {
+      shotIndex = 1;
+    }
     // 先剥 header 再判规范行：`parse_prompt` 切分镜头时也丢掉 header，故
     // `镜头1：@[张三]：{我来了}` 在后端是台词行。不剥就会把它渲染成描述行，
     // 与同屏的服务端派生台词列表自相矛盾。

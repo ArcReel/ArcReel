@@ -116,12 +116,17 @@ def match_voiceover_line(line: str) -> str | None:
 
 
 def _unwrap_braces(text: str) -> str | None:
-    """``{…}`` 整体包裹判定：去空白后须以 ``{`` 开头、``}`` 结尾且内部无花括号。"""
+    """``{…}`` 整体包裹判定：去空白后须以 ``{`` 开头、``}`` 结尾且内部无花括号。
+
+    空台词（``{}`` / ``{   }``）不算：``Utterance`` 与 ``DataValidator._validate_utterances``
+    都要求 text 非空，派生出空台词会既进不了校验、又在预览里凭空多出一条没有内容的发声。
+    判为非规范后走既有 warning 路径，作者能看见这行没被认成台词。
+    """
     body = text.strip()
     if len(body) < 2 or body[0] != "{" or body[-1] != "}":
         return None
     inner = body[1:-1]
-    if "{" in inner or "}" in inner:
+    if "{" in inner or "}" in inner or not inner.strip():
         return None
     return inner
 
