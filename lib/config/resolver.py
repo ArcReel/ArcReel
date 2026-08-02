@@ -165,14 +165,14 @@ class _LayeredBackendKeys:
     project_default_key: str | None = None
     global_bucket_key: str | None = None
     global_default_key: str | None = None
-    # True（目标语义，docs/adr/0054）：全局桶键存在但无有效值时回退全局默认层。
+    # True（docs/adr/0054 描述的语义）：全局桶键存在但无有效值时回退全局默认层。
     # False：全局桶键存在即权威——值无效（含显式清空）直接跳到自动推断，不读全局默认键。
-    # 仅图片侧迁移前语义需要 False。
     empty_global_bucket_follows_default: bool = True
 
 
-# 图片桶（t2i / i2i）键位。全局桶键存在但值为空 = 用户显式清空 = 跟随自动推断、
-# 不回退 legacy 默认键（迁移前语义，与 docs/adr/0054 的「空桶回退默认层」目标语义不同）。
+# 图片桶（t2i / i2i）键位。图片的空桶语义是「用户显式清空 → 跟随自动推断」，不回退 legacy
+# 默认键，故 empty_global_bucket_follows_default 取 False——与 docs/adr/0054 的「空桶回退
+# 默认层」不同，该差异以存量配置键组合的穷举处置为前提，与图片桶迁移一并收敛。
 _IMAGE_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
     cap: _LayeredBackendKeys(
         media_type="image",
@@ -1152,7 +1152,7 @@ class ConfigResolver:
         """仅全局层解析图片默认 backend：全局桶 > 全局默认（legacy 键）> 自动推断。
 
         走四级骨架但不带项目（project=None 跳过项目层）。全局桶键存在但值为空 = 用户显式
-        清空 = 跟随自动选择，不再回退 legacy（``_IMAGE_LAYERED_KEYS`` 的迁移前语义开关）。
+        清空 = 跟随自动选择，不回退 legacy 键（由 ``_IMAGE_LAYERED_KEYS`` 的键位声明决定）。
         """
         return await self._resolve_layered_backend(svc, session, None, _IMAGE_LAYERED_KEYS[capability])
 
