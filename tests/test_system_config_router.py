@@ -180,6 +180,22 @@ class TestGetSystemConfig:
         assert options["image_backends"] == []
         assert options["audio_backends"] == []
 
+    def test_options_exclude_hidden_models(self):
+        """registry 的 hidden 语义是「从下拉剔除、条目保留供算价」，options 是那个下拉。"""
+        from dataclasses import replace
+        from unittest.mock import patch
+
+        from lib.config.registry import PROVIDER_REGISTRY
+
+        meta = PROVIDER_REGISTRY["gemini-aistudio"]
+        hidden_id = "veo-3.1-generate-preview"
+        patched = {**meta.models, hidden_id: replace(meta.models[hidden_id], hidden=True)}
+        mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio"])
+        with patch.dict(meta.models, patched, clear=True), TestClient(_make_app_with_mock(mock_svc)) as client:
+            options = client.get("/api/v1/system/config").json()["options"]
+        assert "gemini-aistudio/veo-3.1-generate-preview" not in options["video_backends"]
+        assert "gemini-aistudio/veo-3.1-fast-generate-preview" in options["video_backends"]
+
     def test_options_include_multiple_ready_providers(self):
         mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio", "ark"])
         with TestClient(_make_app_with_mock(mock_svc)) as client:

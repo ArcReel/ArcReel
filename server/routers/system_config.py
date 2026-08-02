@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import math
 import tomllib
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -21,6 +22,12 @@ from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.config.capability_buckets import (
+    BUCKETS_BY_MEDIA_TYPE,
+    CapabilityBucket,
+    builtin_model_buckets,
+    custom_model_buckets,
+)
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
@@ -57,6 +64,14 @@ class _OptionsDict(TypedDict):
     text_backends: list[str]
     audio_backends: list[str]
     provider_names: dict[str, str]
+
+
+_MEDIA_TO_OPTION_LIST = {
+    "video": "video_backends",
+    "image": "image_backends",
+    "text": "text_backends",
+    "audio": "audio_backends",
+}
 
 
 @lru_cache(maxsize=1)
@@ -126,32 +141,42 @@ async def _get_latest_release() -> tuple[dict[str, str], datetime]:
     return payload, now
 
 
-async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsDict:
-    """Compute available backends from ready providers."""
+@dataclass(frozen=True)
+class _ModelCandidate:
+    """一个可选模型及其能力桶归属，供不过滤的默认层与按桶过滤的细分层共用。"""
+
+    option: str  # "provider_id/model_id"
+    media_type: str
+    buckets: frozenset[CapabilityBucket]
+
+
+async def _enumerate_candidates(
+    svc: ConfigService, session: AsyncSession
+) -> tuple[list[_ModelCandidate], dict[str, str]]:
+    """列出所有可选模型（内置 ready 供应商 + 已启用的自定义模型），并附能力桶归属。
+
+    hidden 模型在这里统一剔除：registry 声明 hidden 的语义就是「从 UI 下拉剔除、条目仍保留
+    供算价」，默认层与能力桶层同受此约束（能力过滤只加在桶层）。
+    """
     statuses = await svc.get_all_providers_status()
     ready_providers = {s.name for s in statuses if s.status == "ready"}
 
-    buckets: dict[str, list[str]] = {
-        "video_backends": [],
-        "image_backends": [],
-        "text_backends": [],
-        "audio_backends": [],
-    }
+    candidates: list[_ModelCandidate] = []
     provider_names: dict[str, str] = {}
-    _MEDIA_TO_BUCKET = {
-        "video": "video_backends",
-        "image": "image_backends",
-        "text": "text_backends",
-        "audio": "audio_backends",
-    }
 
     for provider_id, meta in PROVIDER_REGISTRY.items():
         if provider_id not in ready_providers:
             continue
         for model_id, model_info in meta.models.items():
-            bucket = _MEDIA_TO_BUCKET.get(model_info.media_type)
-            if bucket:
-                buckets[bucket].append(f"{provider_id}/{model_id}")
+            if model_info.hidden:
+                continue
+            candidates.append(
+                _ModelCandidate(
+                    option=f"{provider_id}/{model_id}",
+                    media_type=model_info.media_type,
+                    buckets=builtin_model_buckets(provider_id, model_id, model_info),
+                )
+            )
 
     from lib.custom_provider import make_provider_id
     from lib.custom_provider.endpoints import endpoint_to_media_type
@@ -164,21 +189,60 @@ async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsD
         enabled_models = await repo.list_all_enabled_models()
         for model in enabled_models:
             pid = make_provider_id(model.provider_id)
-            media_type = endpoint_to_media_type(model.endpoint)
-            bucket = _MEDIA_TO_BUCKET.get(media_type)
-            if bucket:
-                buckets[bucket].append(f"{pid}/{model.model_id}")
+            candidates.append(
+                _ModelCandidate(
+                    option=f"{pid}/{model.model_id}",
+                    media_type=endpoint_to_media_type(model.endpoint),
+                    buckets=custom_model_buckets(
+                        endpoint=model.endpoint,
+                        model_id=model.model_id,
+                        capability_overrides=model.capability_overrides,
+                    ),
+                )
+            )
             if pid not in provider_names and model.provider_id in provider_name_map:
                 provider_names[pid] = provider_name_map[model.provider_id]
     except Exception:
         pass  # Non-fatal: custom providers unavailable shouldn't break the options endpoint
 
-    return {**buckets, "provider_names": provider_names}  # type: ignore[return-value]
+    return candidates, provider_names
+
+
+async def _build_options(svc: ConfigService, session: AsyncSession) -> _OptionsDict:
+    """Compute available backends from ready providers."""
+    candidates, provider_names = await _enumerate_candidates(svc, session)
+
+    by_media: dict[str, list[str]] = {
+        "video_backends": [],
+        "image_backends": [],
+        "text_backends": [],
+        "audio_backends": [],
+    }
+    for candidate in candidates:
+        key = _MEDIA_TO_OPTION_LIST.get(candidate.media_type)
+        if key:
+            by_media[key].append(candidate.option)
+
+    return {**by_media, "provider_names": provider_names}  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
+
+
+class MediaCandidates(BaseModel):
+    """单一 media_type 的候选：默认层全量 + 各能力桶过滤后的子集。"""
+
+    default: list[str]
+    buckets: dict[CapabilityBucket, list[str]]
+
+
+class ModelCandidatesResponse(BaseModel):
+    image: MediaCandidates
+    video: MediaCandidates
+    # 仅含自定义供应商的显示名（内置供应商名由前端按 provider_id 本地化），与 options 同口径。
+    provider_names: dict[str, str]
 
 
 class SystemConfigPatchRequest(BaseModel):
@@ -283,6 +347,34 @@ async def get_system_config(
     options = await _build_options(svc, session)
 
     return {"settings": settings, "options": options}
+
+
+@router.get("/system/config/model-candidates", response_model=ModelCandidatesResponse)
+async def get_model_candidates(
+    _user: CurrentUser,
+    svc: Annotated[ConfigService, Depends(get_config_service)],
+    session: AsyncSession = Depends(get_async_session),
+) -> ModelCandidatesResponse:
+    """能力桶下拉的候选数据源：默认层全量 + 每个能力桶按能力过滤后的模型列表。
+
+    默认层不过滤 —— 默认层不承诺能力，能力不满足由解析闸报错兜底；只有桶层承诺「配进去的
+    组合执行得了」，故按桶过滤。
+    """
+    candidates, provider_names = await _enumerate_candidates(svc, session)
+
+    media: dict[str, MediaCandidates] = {}
+    for media_type, buckets in BUCKETS_BY_MEDIA_TYPE.items():
+        same_media = [c for c in candidates if c.media_type == media_type]
+        media[media_type] = MediaCandidates(
+            default=[c.option for c in same_media],
+            buckets={bucket: [c.option for c in same_media if bucket in c.buckets] for bucket in buckets},
+        )
+
+    return ModelCandidatesResponse(
+        image=media["image"],
+        video=media["video"],
+        provider_names=provider_names,
+    )
 
 
 @router.get("/system/version")
