@@ -803,6 +803,50 @@ class TestReferenceCompressionSeam:
 
         assert exc.value.code == "video_reference_audio_duration_exceeded"
         assert backend.called is False
+        assert gen.ledger.outcomes == []
+
+    @pytest.mark.unit
+    async def test_total_duration_exceeded_check_skipped_when_probe_fails(self, tmp_path, monkeypatch):
+        """caps 声明了总时长上限，但探测失败（ffprobe 不可用等）返回 None 时，按既有降级口径放行而非阻断。"""
+        from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+
+        class _AudioDurationLimitedVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(
+                max_reference_images=9,
+                reference_audio_mode=ReferenceAudioMode.DIRECT,
+                max_reference_audio_count=3,
+                max_reference_audio_total_seconds=15.0,
+            )
+
+            async def generate(self, request):
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"v")
+                return _FakeVideoResult()
+
+        gen._video_backend = _AudioDurationLimitedVideoBackend()
+
+        async def _failing_probe(paths):
+            return None
+
+        monkeypatch.setattr("lib.media_generator.probe_reference_audio_total_seconds", _failing_probe)
+
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
+        audio = tmp_path / "alice.wav"
+        audio.write_bytes(b"a")
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            reference_images=[ref],
+            reference_audio_files=[audio],
+        )
+
+        assert gen.ledger.outcomes, "探测失败时应放行请求，不阻断到 backend"
 
     @pytest.mark.unit
     async def test_total_duration_not_probed_when_backend_declares_no_limit(self, tmp_path, monkeypatch):
