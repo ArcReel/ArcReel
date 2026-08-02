@@ -52,11 +52,22 @@ async def get_script_review(project_name: str, episode: int, _t: Translator):
 
     ``quarantine`` 字段单独合并（reference_video 变体、隔离草稿在场时才非 None）：它要 await
     视频能力解析做读时重算，不能挂在 ``get_state`` 那个纯同步的 ``asyncio.to_thread`` 调用上。
+    先取 ``quarantine`` 再取 ``state``：agent 的晋升工具在两次读之间把隔离草稿清掉、正式
+    step1 写成新内容时，这个顺序让响应落在「content 已是新的、quarantine 却还带着晋升前的
+    违约报告」这一侧——面板会误判成仍在隔离态、阻塞确认，下一轮轮询自然纠正；反过来的顺序会
+    让响应落在「content 仍是旧的、quarantine 已经是 None」这一侧，面板会误判成干净态放行确认，
+    用户点下确认时实际晋升的是他从未看过的那份新内容。
     """
     try:
         service = ScriptReviewService(get_project_manager())
+        quarantine = await service.get_quarantine_info(project_name, episode)
         state = await asyncio.to_thread(service.get_state, project_name, episode)
-        state["quarantine"] = await service.get_quarantine_info(project_name, episode)
+        state["duration_tiers"] = (
+            await service.get_reference_duration_tiers(project_name)
+            if state.get("supported_durations") is not None
+            else None
+        )
+        state["quarantine"] = quarantine
         return state
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)

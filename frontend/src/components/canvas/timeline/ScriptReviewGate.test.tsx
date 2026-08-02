@@ -14,6 +14,7 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
     confirmed_at: null,
     quarantine: null,
     supported_durations: null,
+    duration_tiers: null,
     content: {
       title: "第一集",
       scenes: [
@@ -46,6 +47,7 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
     confirmed_at: null,
     quarantine: null,
     supported_durations: null,
+    duration_tiers: null,
     content: {
       segments: [
         {

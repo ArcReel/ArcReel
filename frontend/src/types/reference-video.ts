@@ -187,7 +187,8 @@ export interface ScriptReviewViolation {
  * 呈现 agent 手改的文本）；`violations` 同样是读时重算的结果，不是草稿里上一轮的报告快照。
  */
 export interface ScriptReviewQuarantine {
-  content: ReferenceStep1FlatDraft;
+  /** null 仅在隔离草稿文件已损坏、无法解析信封形状时出现——`violations` 会带一条说明。 */
+  content: ReferenceStep1FlatDraft | null;
   violations: ScriptReviewViolation[];
 }
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -18,6 +18,7 @@ function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewS
     confirmed_at: null,
     quarantine: null,
     supported_durations: [4, 8],
+    duration_tiers: null,
     content: {
       units: [
         {
@@ -44,6 +45,7 @@ function quarantinedState(): ScriptReviewState {
     fingerprint: null,
     confirmed_at: null,
     supported_durations: [4, 8],
+    duration_tiers: null,
     content: null,
     quarantine: {
       content: {
@@ -132,6 +134,7 @@ describe("ReferenceStep1PreviewPanel", () => {
       content: null,
       quarantine: null,
       supported_durations: null,
+      duration_tiers: null,
     });
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     await waitFor(() => expect(screen.getByText("暂无预处理内容")).toBeInTheDocument());
@@ -223,5 +226,69 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect(screen.getByText("隔离草稿的 content.units 必须是非空数组")).toBeInTheDocument();
     expect(screen.getByText(/被改坏了/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
+  });
+
+  it("excludes a dialogue-only speaker from the quarantined preview's reference pills", async () => {
+    // 阿离只出现在规范台词行（`@[阿离]：{...}`）里——同后端 extract_mentions，说话人不产参考图；
+    // 长街出现在镜头描述行里，正常产出参考图 pill。
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      ...quarantinedState(),
+      quarantine: {
+        content: {
+          units: [
+            {
+              duration_seconds: 8,
+              source_text: "阿离撑伞走过长街。",
+              text: "镜头1：门开了\n@[阿离]：{我来了。}\n镜头2：@[长街] 空无一人。",
+            },
+          ],
+        },
+        violations: [],
+      },
+    });
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
+    const referencesRow = screen.getByText("参考图").closest("div") as HTMLElement;
+    expect(within(referencesRow).getByText("长街")).toBeInTheDocument();
+    expect(within(referencesRow).queryByText("阿离")).not.toBeInTheDocument();
+  });
+
+  it("disables the duration select and shot textarea while a save is in flight", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    let resolveSave: (value: ScriptReviewState) => void = () => {};
+    vi.spyOn(API, "saveScriptReviewContent").mockReturnValue(
+      new Promise((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
+    const textarea = await screen.findByDisplayValue("@[阿离] 撑伞走过 @[长街]");
+    fireEvent.change(textarea, { target: { value: "@[阿离] 缓步走过 @[长街]" } });
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+
+    fireEvent.click(await screen.findByText("保存"));
+
+    await waitFor(() => expect(textarea).toBeDisabled());
+    expect(select).toBeDisabled();
+
+    resolveSave(pendingState());
+    await waitFor(() => expect(textarea).not.toBeDisabled());
+  });
+
+  it("picks the with-references duration tier for a unit that carries references", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      pendingState({
+        supported_durations: [4, 6, 8],
+        duration_tiers: { with_references: [8], without_references: [4, 6, 8] },
+      }),
+    );
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    // unit 带 @[阿离]/@[长街] 引用：按 with_references 档位收窄，4/6 秒不再可选。
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+    expect([...select.options].map((o) => o.value)).toEqual(["8"]);
   });
 });

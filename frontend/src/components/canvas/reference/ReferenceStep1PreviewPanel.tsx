@@ -18,8 +18,8 @@ import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
 import { assetColor } from "@/components/canvas/reference/asset-colors";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
-import { toScriptLines, tokenizePrompt, type MentionLookup } from "@/hooks/useShotPromptHighlight";
-import { formatShotHeader } from "@/utils/reference-mentions";
+import { toScriptLines, type MentionLookup } from "@/hooks/useShotPromptHighlight";
+import { extractMentions, formatShotHeader } from "@/utils/reference-mentions";
 
 interface ReferenceStep1PreviewPanelProps {
   projectName: string;
@@ -78,12 +78,13 @@ function structuredDisplayUnits(draft: ReferenceStep1Draft): DisplayUnit[] {
  * 权威派生一份落盘，这里的派生不作为任何写入依据。
  */
 function deriveDisplayReferences(text: string, lookup: MentionLookup): ReferenceResource[] {
-  const seen = new Set<string>();
   const out: ReferenceResource[] = [];
-  for (const token of tokenizePrompt(text, lookup)) {
-    if (token.kind !== "mention" || token.assetKind === "unknown" || seen.has(token.name)) continue;
-    seen.add(token.name);
-    out.push({ type: token.assetKind, name: token.name });
+  // extractMentions（非 tokenizePrompt）：规范台词行里的说话人不产参考图，与后端
+  // extract_mentions 同口径——tokenizePrompt 是给高亮用的，不做这条跳过。
+  for (const name of extractMentions(text)) {
+    const assetKind = lookup[name];
+    if (!assetKind) continue;
+    out.push({ type: assetKind, name });
   }
   return out;
 }
@@ -93,8 +94,13 @@ function deriveDisplayReferences(text: string, lookup: MentionLookup): Reference
  * 可能不是数组、逐 unit 字段也可能缺失或类型不对：这里逐项收窄而非信任类型声明——渲染崩掉
  * 恰好发生在用户最需要看到面板的时候。收不成 unit 卡的内容由调用方作原始文本兜底呈现。
  */
-function quarantinedDisplayUnits(content: ReferenceStep1FlatDraft, episode: number, lookup: MentionLookup): DisplayUnit[] {
-  const units: unknown = content.units;
+function quarantinedDisplayUnits(
+  content: ReferenceStep1FlatDraft | null,
+  episode: number,
+  lookup: MentionLookup,
+): DisplayUnit[] {
+  // content 为 null：隔离草稿文件本身损坏无法解析（信封形状坏），不是「schema 违约但仍可读」。
+  const units: unknown = content?.units;
   if (!Array.isArray(units)) return [];
   return units.flatMap((raw: unknown, i) => {
     if (raw == null || typeof raw !== "object") return [];
@@ -193,6 +199,7 @@ function UnitCard({
   onShotTextChange,
   supportedDurations,
   onDurationChange,
+  busy,
 }: {
   unit: DisplayUnit;
   violations: UnitViolations;
@@ -204,6 +211,8 @@ function UnitCard({
   onShotTextChange: ((shotIndex: number, text: string) => void) | null;
   supportedDurations: number[] | null;
   onDurationChange: ((seconds: number) => void) | null;
+  /** 保存 / 确认请求在途：锁住时长下拉与镜头正文，避免 adopt() 用服务端回显覆盖请求发出后的新编辑。 */
+  busy: boolean;
 }) {
   const { t } = useTranslation("dashboard");
   const hasViolation = violations.anchorSource.length + violations.byLine.size + violations.aggregate.length > 0;
@@ -225,8 +234,9 @@ function UnitCard({
           <select
             value={unit.durationSeconds}
             onChange={(e) => onDurationChange(Number(e.target.value))}
+            disabled={busy}
             aria-label={t("reference_step1_duration_label", { unit: unit.key })}
-            className="rounded-[6px] border border-hairline bg-bg-grad-a/40 px-1 py-0.5 text-[11px] text-text-3 hover:text-text"
+            className="rounded-[6px] border border-hairline bg-bg-grad-a/40 px-1 py-0.5 text-[11px] text-text-3 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
           >
             {/* 存量草稿的秒数可能已不在当前档位表内：补一个当前值选项，否则 select 会静默
                 跳到首档，用户看到的秒数与盘上的对不上。 */}
@@ -289,6 +299,7 @@ function UnitCard({
                 <AutoTextarea
                   value={shot.text}
                   onChange={(text) => onShotTextChange(i, text)}
+                  disabled={busy}
                   aria-label={t("review_shot_label", { index: i + 1 })}
                   className="text-text-3"
                 />
@@ -358,6 +369,16 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
   useEffect(() => {
     dirtyRef.current = dirty;
   }, [dirty]);
+
+  // 组件整个生命周期的取消信号：确认动作的 await 断点跨越保存 + 确认两次请求，用户可能在
+  // 途中切走项目 / 剧集（组件卸载）。卸载后不再写全局 assistant 输入框 —— 否则残留的续写
+  // 消息会写进用户切换到的新项目/会话的输入框。用 state（非 ref）持有：事件处理器闭包读取
+  // ref.current 会被 react-hooks/refs 判定为「可能在渲染期读取」，state 值本身不受此限制，
+  // 且这里只需要它在挂载期内保持同一个实例，不需要写路径绕过渲染的能力。
+  const [lifecycleAbort] = useState(() => new AbortController());
+  useEffect(() => {
+    return () => lifecycleAbort.abort();
+  }, [lifecycleAbort]);
 
   const adopt = useCallback((next: ScriptReviewState) => {
     setState(next);
@@ -445,6 +466,9 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         adopt(await API.saveScriptReviewContent(projectName, episode, draft));
       }
       adopt(await API.confirmScriptReview(projectName, episode));
+      // 两次 await 期间用户可能已切走项目/剧集（本组件已卸载）：不再写全局 assistant 输入框，
+      // 那会把这条续写消息写进用户切换到的新上下文里。
+      if (lifecycleAbort.signal.aborted) return;
       pushToast(t("dashboard:review_confirmed"), "success");
       // 确认放行 + 预填继续消息到会话输入框——只填不发送，用户自行核对后发送。
       useAssistantStore.getState().setInput(t("reference_step1_confirm_continue_prefill", { episode }));
@@ -454,7 +478,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     } finally {
       setConfirming(false);
     }
-  }, [dirty, draft, projectName, episode, adopt, pushToast, t]);
+  }, [dirty, draft, projectName, episode, adopt, pushToast, t, lifecycleAbort]);
 
   const handleRequestFix = useCallback(() => {
     const violations = state?.quarantine?.violations ?? [];
@@ -515,8 +539,12 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
   const unassignedViolations = allViolations.filter((v) => !unitKeys.has(unitKeyFromLabel(v.label) ?? ""));
   const violatingUnitKeys = [...new Set(allViolations.map((v) => unitKeyFromLabel(v.label)).filter((k): k is string => k != null))];
   // schema 违约会让草稿收不成任何 unit 卡（units 不是数组 / 条目不是对象）：原样摊开 agent
-  // 手里那份内容，否则用户只看得到一条「结构不符」而看不到自己要改的是什么。
-  const rawFallback = quarantined && displayUnits.length === 0 ? JSON.stringify(quarantine.content, null, 2) : null;
+  // 手里那份内容，否则用户只看得到一条「结构不符」而看不到自己要改的是什么。content 为 null
+  // （信封本身损坏）时没有可摊的内容，聚合区的 quarantine_unreadable 违约已经说明情况。
+  const rawFallback =
+    quarantined && displayUnits.length === 0 && quarantine.content != null
+      ? JSON.stringify(quarantine.content, null, 2)
+      : null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -609,8 +637,15 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
             editing={!quarantined && editingUnitKey === unit.key}
             onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
             onShotTextChange={quarantined ? null : (shotIndex, text) => updateShotText(i, shotIndex, text)}
-            supportedDurations={state?.supported_durations ?? null}
+            supportedDurations={
+              state?.duration_tiers
+                ? unit.references.length > 0
+                  ? state.duration_tiers.with_references
+                  : state.duration_tiers.without_references
+                : (state?.supported_durations ?? null)
+            }
             onDurationChange={quarantined ? null : (seconds) => updateDuration(i, seconds)}
+            busy={busy}
           />
         ))}
       </div>

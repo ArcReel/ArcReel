@@ -369,6 +369,37 @@ class TestReferenceVideoGateFlow:
             ("scene", "屋檐"),
         ]
 
+    async def test_reference_duration_tiers_narrows_raw_set_by_resolution_constraint(self, tmp_path, monkeypatch):
+        """gate 下拉的档位须按分辨率联动约束收窄，与 step2 落盘前的校验同一把尺。
+
+        Veo 3.1 项目未配置分辨率时按兜底档位（1080p）算，该档位只接受 8 秒；不收窄的话
+        get_state 暴露的档位表会让用户选中 4/6 秒，save + confirm 都不拦，直到 step2
+        ``_assert_reference_step1_ready`` 才硬拒——用户已确认过的内容变成付完钱才失败。
+        """
+        from server.services import script_review as mod
+
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video", supported_durations=[4, 6, 8])
+        svc = ScriptReviewService(pm)
+
+        async def _fake_caps(_project):
+            return {
+                "provider_id": "gemini-aistudio",
+                "model": "veo-3.1-generate-preview",
+                "supported_durations": [4, 6, 8],
+            }
+
+        monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+        tiers = await svc.get_reference_duration_tiers("demo")
+        assert tiers == {"with_references": [8], "without_references": [8]}
+
+    async def test_reference_duration_tiers_none_when_model_unresolved(self, tmp_path):
+        """项目未配置可解析的档位表来源（既无 ``_supported_durations`` 也无注册表身份）时为
+        None，呈现层退回未收窄的 ``supported_durations``（同 clamp 的回退口径）。
+        """
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        assert await svc.get_reference_duration_tiers("demo") is None
+
 
 class TestReferenceVideoStep1Migration:
     """存量 step1 草稿（per-shot 时长）在 gate 侧的一次性收编迁移。"""

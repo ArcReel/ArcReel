@@ -301,11 +301,42 @@ class TestReferenceVideoRouter:
         rv_client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         with rv_client:
             _write_rv_step1(pm, _rv_step1())
-            durations = rv_client.get("/api/v1/projects/demo/episodes/1/script-review").json()["supported_durations"]
+            body = rv_client.get("/api/v1/projects/demo/episodes/1/script-review").json()
+            durations = body["supported_durations"]
             assert durations is None or (isinstance(durations, list) and all(isinstance(d, int) for d in durations))
+            # duration_tiers 字段始终存在（未收窄或无法解析型号时为 None），供前端区分「未收窄
+            # 全集」与「收窄后的逐 unit 生效档位」——不能靠 KeyError 兜底。
+            assert "duration_tiers" in body
 
         drama_client, drama_pm = _client(monkeypatch, tmp_path / "drama")
         with drama_client:
             _write_step1(drama_pm, _drama_step1())
             body = drama_client.get("/api/v1/projects/demo/episodes/1/script-review").json()
             assert body["supported_durations"] is None
+            assert body["duration_tiers"] is None
+
+    def test_quarantine_corrupted_envelope_reported_not_treated_as_clean(self, tmp_path, monkeypatch):
+        """隔离草稿文件存在但信封本身损坏（非法 JSON）：``read_quarantine`` 按其自身读取口径
+        返回 None，但 GET 响应不能把这等同于「无隔离草稿」——那会让面板显示干净态、放行确认，
+        而 confirm() 仍会按文件存在性 409（用户点确认却总是失败，且看不到任何解释）。
+        """
+        from lib import script_review as lib_script_review
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        _write_rv_step1(pm, _rv_step1())
+
+        quarantine_path = lib_script_review.step1_quarantine_path(project_path, pm.load_project("demo"), 1)
+        quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+        quarantine_path.write_text("{ 这不是合法 JSON", encoding="utf-8")
+
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            body = client.get(base).json()
+            quarantine = body["quarantine"]
+            assert quarantine is not None
+            assert quarantine["content"] is None
+            assert [v["code"] for v in quarantine["violations"]] == ["quarantine_unreadable"]
+
+            confirmed = client.post(f"{base}/confirm")
+            assert confirmed.status_code == 409

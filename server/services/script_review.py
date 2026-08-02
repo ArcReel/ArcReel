@@ -24,6 +24,7 @@ from lib.json_io import atomic_write_json, load_json_or_none
 from lib.project_manager import ProjectManager
 from lib.reference_video import rederive_unit_references
 from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, read_quarantine, violation_entries
+from server.agent_runtime.sdk_tools._context import reference_unit_duration_tiers, resolve_video_caps
 from lib.script_models import DramaNormalizedScript, NarrationStep1Draft, ReferenceStep1Draft
 
 logger = logging.getLogger(__name__)
@@ -199,9 +200,20 @@ class ScriptReviewService:
         if script_review.step1_kind(project, episode) != "reference_video":
             return None
         project_path = self.pm.get_project_path(project_name)
+        quarantine_path = script_review.step1_quarantine_path(project_path, project, episode)
+        if quarantine_path is None or not quarantine_path.exists():
+            return None
         draft = read_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
         if draft is None:
-            return None
+            # 文件存在但信封形状坏（非法 JSON / 顶层非对象 / content 非对象）：`read_quarantine`
+            # 按「无隔离草稿」返回 None 是它自己的读取口径（供 confirm 的存在性判断照常阻塞），
+            # 但呈现层不能照单全收——那会让面板看起来「干净」，实际隔离草稿仍在阻塞确认。
+            return {
+                "content": None,
+                "violations": [
+                    {"code": "quarantine_unreadable", "label": "", "message": "隔离草稿文件已损坏或格式不符，无法解析", "line": None}
+                ],
+            }
         # 延迟导入避免模块级循环依赖：text_generation.py 内部已对本模块做同样的函数级延迟导入
         # （构造 ScriptReviewService 供 quarantine 相关工具复用），两处顶层互相导入会成环。
         from server.agent_runtime.sdk_tools.text_generation import revalidate_reference_step1_draft
@@ -210,13 +222,40 @@ class ScriptReviewService:
             revalidation = await revalidate_reference_step1_draft(project_path, project, episode, draft)
         except ValueError as exc:
             # meta.source 缺失等草稿被改坏的情形：把重算失败本身报成一条无 unit 归属的违约，
-            # 呈现层落聚合区。gate 不崩，用户也不会看到一份与现值脱钩的旧报告。
+            # 呈现层落聚合区。gate 不崩，用户也不会看到一份与现值脱钩的旧报告。异常文本含
+            # draft.path，只记日志、不回传给调用方——面向用户的 message 不能带内部路径。
+            logger.warning("隔离草稿重算失败 project=%s episode=%s：%s", project_name, episode, exc)
             return {
                 "content": draft.content,
-                "violations": [{"code": "quarantine_unreadable", "label": "", "message": str(exc), "line": None}],
+                "violations": [
+                    {"code": "quarantine_unreadable", "label": "", "message": "隔离草稿的产出上下文缺失或损坏，无法重新校验", "line": None}
+                ],
             }
         content = draft.content if revalidation.schema_failed else {"units": revalidation.flat_units}
         return {"content": content, "violations": violation_entries(revalidation.violations)}
+
+    async def get_reference_duration_tiers(self, project_name: str) -> dict[str, list[int]] | None:
+        """reference_video 变体逐 unit 生效时长档位：``{with_references, without_references}``。
+
+        与 ``get_state.supported_durations``（``resolve_raw_supported_durations`` 的结构区间
+        全集，供 ``_read_step1_migrated`` 的存量草稿 clamp）不同源：那个决定「这个秒数结构上
+        合不合法」，这个决定「现在选它，``_assert_reference_step1_ready`` 会不会接受」——分辨率
+        / 参考图联动约束只影响后者。clamp 保持用全集，避免收窄后把结构合法但当前档位表之外
+        的存量秒数误判非法；这里单独给下拉提供收窄后的可选项，同一把尺来自
+        ``reference_unit_duration_tiers``（拆分工具校验用的同一份）。无法解析到型号时返回
+        None，呈现层退回未收窄的 ``supported_durations``。
+        """
+        project = self.pm.load_project(project_name)
+        raw = resolve_raw_supported_durations(project)
+        if raw is None:
+            return None
+        try:
+            caps = await resolve_video_caps(project)
+        except Exception as exc:  # noqa: BLE001 - best-effort：解析失败时收窄回退为不收窄，不阻塞面板
+            logger.warning("video_capabilities 解析异常，时长档下拉退回未收窄集合 project=%s：%s", project_name, exc)
+            caps = {}
+        with_refs, without_refs = reference_unit_duration_tiers(project, caps, raw)
+        return {"with_references": sorted(set(with_refs)), "without_references": sorted(set(without_refs))}
 
     def save_content(self, project_name: str, episode: int, content: object) -> dict[str, Any]:
         """校验并落盘编辑后的结构化中间态（手动或 agent 编辑后回写），返回最新状态（重新待审）。
