@@ -343,8 +343,8 @@ def render_ad_backend_prompt(
 
     第二段由 ``lib.reference_video.ad_units.render_ad_unit_prompt`` 渲染（``Shot N (Xs): ...``
     逐镜头行，时长挂在 shot 上——ad 的 unit 是派生分组，与 narration/drama 的 unit 级单时长
-    不同源）；该函数同时独立服务于入队守卫的空提示词检查。本函数只接管第一、三段与音频接线，
-    风格锚定因此从镜头段头行移到第三段，故此处按 ``style=None`` 调用。
+    不同源）；该函数同时独立服务于入队守卫的空提示词检查。风格锚定统一由第三段承担，本函数
+    只接管第一、三段与音频接线，故调用 ``render_ad_unit_prompt`` 时传 ``style=None``。
 
     ``entries`` 是本次实际随请求发出的参考条目（已按能力上限裁剪），其顺序即 ``图片N``
     编号——与调用方组装的 ``reference_images`` 严格等长同序。
