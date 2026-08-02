@@ -276,9 +276,13 @@ def _derive_ad_utterances(shots: list[dict]) -> list[ShotUtterance]:
     """ad 结构化镜头的台词 utterances：``video_prompt.dialogue`` 已是判别式结构
     （``{"speaker": ..., "line": ...}``），不必像书写文稿一样经 ``parse_prompt`` /
     ``match_dialogue_line`` 正则识别自由文本。``voiceover_text`` 是独立字段、不产出台词行
-    （与画面 prompt 的口径一致，见 ``lib.reference_video.ad_units._shot_prompt_text``）。调用方传入的
-    ``shots`` 已由 ``resolve_ad_unit_shots`` 水合、保证逐项为 dict；脏 ``video_prompt`` /
-    dialogue 条目（非 dict、空 speaker 或 line）按跳过处理，不抛。
+    （与画面 prompt 的口径一致，见 ``lib.reference_video.ad_units._shot_prompt_text``）。有
+    speaker 派生 ``dialogue`` utterance,无 speaker 的裸台词派生 ``voiceover`` utterance——与
+    该镜头在画面 prompt 里渲染的 ``画外音说 {台词}`` 句式对应,使 ``derive_voice_bindings`` 的
+    无声知会（``voice_consistency == "none"``）同样覆盖纯画外的 ad 台词。调用方传入的 ``shots``
+    已由 ``resolve_ad_unit_shots`` 水合、保证逐项为 dict；脏 ``video_prompt`` / dialogue 条目
+    （非 dict、非字符串 speaker 或 line）按空处理，与 ``_shot_prompt_text`` 的字符串专一
+    强制口径一致，避免同一条脏数据在两处产生不一致的渲染结果。
     """
     utterances: list[ShotUtterance] = []
     for index, shot in enumerate(shots, start=1):
@@ -289,10 +293,16 @@ def _derive_ad_utterances(shots: list[dict]) -> list[ShotUtterance]:
         for entry in dialogue:
             if not isinstance(entry, dict):
                 continue
-            speaker = str(entry.get("speaker") or "").strip()
-            text = str(entry.get("line") or "").strip()
-            if speaker and text:
+            raw_speaker = entry.get("speaker")
+            raw_text = entry.get("line")
+            speaker = raw_speaker.strip() if isinstance(raw_speaker, str) else ""
+            text = raw_text.strip() if isinstance(raw_text, str) else ""
+            if not text:
+                continue
+            if speaker:
                 utterances.append(ShotUtterance(index, Utterance(kind="dialogue", speaker=speaker, text=text)))
+            else:
+                utterances.append(ShotUtterance(index, Utterance(kind="voiceover", text=text)))
     return utterances
 
 
@@ -385,11 +395,15 @@ def resolve_reference_audio_paths(project: dict, project_path: Path) -> dict[str
 
     只收录字段指向 ``characters/refs_audio`` 内且文件确实存在的条目（越界路径由
     :func:`lib.audio_utils.resolve_audio_ref_path` 挡下——该字段可经资产 PATCH 写成项目内
-    任意字符串）。渲染层据此判定绑定，编号与实际发出的音频段数因此严格等长。
+    任意字符串）。渲染层据此判定绑定，编号与实际发出的音频段数因此严格等长。角色桶非 dict
+    （如外部编辑/迁移写坏的 project.json）按空处理而非硬失败——校验器不拒绝该形态
+    （见 ``lib.data_validator``），executor 不应因它崩溃。
     """
     audio_refs_dir = project_path / ASSET_AUDIO_SUBDIR
     resolved: dict[str, Path] = {}
-    for name, item in (project.get(BUCKET_KEY["character"]) or {}).items():
+    raw_characters = project.get(BUCKET_KEY["character"])
+    characters = raw_characters if isinstance(raw_characters, dict) else {}
+    for name, item in characters.items():
         if not isinstance(item, dict):
             continue
         path = resolve_audio_ref_path(project_path, audio_refs_dir, item.get("reference_audio"))

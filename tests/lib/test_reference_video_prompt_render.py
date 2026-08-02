@@ -330,3 +330,12 @@ def test_resolve_reference_audio_paths_only_returns_existing_files_under_refs_au
     resolved = resolve_reference_audio_paths(project, tmp_path)
     assert set(resolved) == {"张三"}
     assert resolved["张三"] == refs_audio / "张三.wav"
+
+
+def test_resolve_reference_audio_paths_ignores_non_dict_characters_bucket(tmp_path):
+    (tmp_path / "project.json").write_text("{}", encoding="utf-8")
+    project = {"characters": [{}]}  # 校验器不拒绝非 dict 桶（data_validator 只在 dict 时才校验）
+
+    resolved = resolve_reference_audio_paths(project, tmp_path)
+
+    assert resolved == {}

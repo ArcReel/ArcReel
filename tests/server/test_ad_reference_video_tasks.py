@@ -224,6 +224,7 @@ async def test_ad_unit_generates_video_with_inherited_references(tmp_path: Path,
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 async def test_ad_dialogue_speaker_binds_reference_audio_for_native_tier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -259,7 +260,7 @@ async def test_ad_dialogue_speaker_binds_reference_audio_for_native_tier(
     assert "<小美>说 {颈椎终于舒服了}" in prompt
     assert "<小美>的台词音色参考 @音频1，声音特征：清亮少女音。" in prompt
     assert [p.name for p in kwargs["reference_audio_files"]] == ["小美.wav"]
-    # legend/负面尾词已随三段论对齐废除
+    # 三段论 prompt 不含 [图N] 对照表与统一负面尾词
     assert "[图" not in prompt
     assert "禁止出现：BGM、文字字幕、水印。" not in prompt
 

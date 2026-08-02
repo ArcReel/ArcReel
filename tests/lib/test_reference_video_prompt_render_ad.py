@@ -9,6 +9,7 @@ import pytest
 from lib.reference_video.prompt_render import render_ad_backend_prompt
 from lib.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
+    WARN_SILENT_MODEL,
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_UNREGISTERED_SPEAKER,
@@ -93,6 +94,36 @@ def test_voiceover_text_excluded_ambiance_kept_as_prose():
 
     assert "口播文案" not in rendered.prompt
     assert "环境音：环境音" in rendered.prompt
+
+
+def test_speakerless_dialogue_warns_on_silent_model():
+    # 无 speaker 的裸台词渲染为「画外音说」，无声模型下仍需知会——与剧集路径的
+    # voiceover utterance 同一口径（derive_voice_bindings 只要有台词即知会）。
+    shots = [_shot("E1S1", dialogue=[{"line": "颈椎终于舒服了"}])]
+
+    rendered = render_ad_backend_prompt(shots, [], _project(), voice_consistency="none")
+
+    assert "画外音说 {颈椎终于舒服了}" in rendered.prompt
+    assert any(w["key"] == WARN_SILENT_MODEL for w in rendered.warnings)
+
+
+def test_non_string_dialogue_line_produces_no_utterance():
+    # 脏数据（line 非字符串）在画面 prompt 里按空处理（_shot_prompt_text 的字符串专一口径），
+    # utterance 派生须与其一致，否则台词行为空但仍占用音频编号、绑走参考音频。
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": 123}])]
+    entries = [_entry("小美", "角色「小美」设计图")]
+
+    rendered = render_ad_backend_prompt(
+        shots,
+        entries,
+        _project(),
+        voice_consistency="native",
+        max_reference_audio=2,
+        audio_ready={"小美"},
+    )
+
+    assert rendered.audio_speakers == []
+    assert "<小美>说" not in rendered.prompt
 
 
 def test_legend_and_negative_tail_are_gone():
