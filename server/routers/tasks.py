@@ -14,7 +14,6 @@ from lib.asset_types import localize_asset_type
 from lib.generation_queue import get_generation_queue
 from lib.i18n import Translator
 from lib.task_failure import render_failure
-from server.auth import CurrentUser
 
 router = APIRouter()
 
@@ -97,7 +96,7 @@ def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[
 
 
 @router.get("/tasks/stats")
-async def get_task_stats(_user: CurrentUser, project_name: str | None = None):
+async def get_task_stats(project_name: str | None = None):
     queue = get_task_queue()
     stats = await queue.get_task_stats(project_name=project_name)
     return {"stats": stats}
@@ -105,7 +104,6 @@ async def get_task_stats(_user: CurrentUser, project_name: str | None = None):
 
 @router.get("/tasks")
 async def list_tasks(
-    _user: CurrentUser,
     _t: Translator,
     project_name: str | None = None,
     status: str | None = None,
@@ -130,7 +128,6 @@ async def list_tasks(
 @router.get("/projects/{project_name}/tasks")
 async def list_project_tasks(
     project_name: str,
-    _user: CurrentUser,
     _t: Translator,
     status: str | None = None,
     task_type: str | None = None,
@@ -152,7 +149,7 @@ async def list_project_tasks(
 
 
 @router.get("/tasks/{task_id}/cancel-preview")
-async def cancel_preview(task_id: str, _user: CurrentUser):
+async def cancel_preview(task_id: str):
     queue = get_task_queue()
     try:
         preview = await queue.get_cancel_preview(task_id)
@@ -162,7 +159,7 @@ async def cancel_preview(task_id: str, _user: CurrentUser):
 
 
 @router.post("/tasks/{task_id}/cancel")
-async def cancel_task(task_id: str, _user: CurrentUser, _t: Translator):
+async def cancel_task(task_id: str, _t: Translator):
     queue = get_task_queue()
     try:
         result = await queue.cancel_task(task_id)
@@ -176,14 +173,14 @@ async def cancel_task(task_id: str, _user: CurrentUser, _t: Translator):
 
 
 @router.get("/projects/{project_name}/tasks/cancel-all-preview")
-async def cancel_all_preview(project_name: str, _user: CurrentUser):
+async def cancel_all_preview(project_name: str):
     queue = get_task_queue()
     queued_count = await queue.get_cancel_all_preview(project_name)
     return {"queued_count": queued_count}
 
 
 @router.post("/projects/{project_name}/tasks/cancel-all")
-async def cancel_all_queued(project_name: str, _user: CurrentUser):
+async def cancel_all_queued(project_name: str):
     queue = get_task_queue()
     result = await queue.cancel_all_queued(project_name)
     return result
@@ -192,7 +189,6 @@ async def cancel_all_queued(project_name: str, _user: CurrentUser):
 @router.get("/tasks/{task_id}")
 async def get_task(
     task_id: str,
-    _user: CurrentUser,
     _t: Translator,
 ):
     queue = get_task_queue()

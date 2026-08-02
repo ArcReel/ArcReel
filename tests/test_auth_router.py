@@ -30,6 +30,7 @@ def client():
     ):
         app = FastAPI()
         app.include_router(auth_router.router, prefix="/api/v1")
+        app.include_router(auth_router.public_router, prefix="/api/v1")
         with TestClient(app) as c:
             yield c
 

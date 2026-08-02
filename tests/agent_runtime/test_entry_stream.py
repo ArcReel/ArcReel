@@ -297,6 +297,7 @@ def _build_client(monkeypatch, fake_service) -> TestClient:
     app.dependency_overrides[get_current_user_flexible] = lambda: _FAKE_USER
     app.dependency_overrides[get_translator] = lambda: make_translator()
     app.include_router(assistant.router, prefix="/api/v1/projects/{project_name}/assistant")
+    app.include_router(assistant.self_auth_router, prefix="/api/v1/projects/{project_name}/assistant")
     return TestClient(app)
 
 

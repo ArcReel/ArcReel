@@ -20,7 +20,6 @@ from pydantic import BaseModel
 from lib.api_errors import ApiError, NotFoundError
 from lib.i18n import Translator
 from lib.script_editor import ScriptEditError
-from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
 from server.services.end_frame import (
     EndFrameError,
@@ -69,7 +68,6 @@ async def upload_end_frame(
     project_name: str,
     shot_id: str,
     script_file: str,
-    _user: CurrentUser,
     _t: Translator,
     file: UploadFile = File(...),
 ):
@@ -95,7 +93,6 @@ async def select_end_frame(
     project_name: str,
     shot_id: str,
     req: SelectEndFrameRequest,
-    _user: CurrentUser,
     _t: Translator,
 ):
     """指定项目内已有图片的相对路径作为该镜头的尾帧（快照复制，不建立引用）。"""
@@ -114,7 +111,6 @@ async def delete_end_frame(
     project_name: str,
     shot_id: str,
     script_file: str,
-    _user: CurrentUser,
     _t: Translator,
 ):
     """清除该镜头的尾帧：删快照文件并把字段置空。"""

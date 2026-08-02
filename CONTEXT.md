@@ -368,6 +368,14 @@ _Avoid_: 把开场白生产塞进组件——缓冲回放与扫描快照无一�
 项目导出专用的短时效（约 5 分钟）、绑定项目名的一次性 JWT（`purpose=download`），作为导出端点的 query param 唯一认证方式——端点自校验、不读 Authorization header，让浏览器原生下载的 URL 里不出现长效凭证。
 _Avoid_: 与长效会话 JWT、API Key 混为一谈；把登录 JWT 放进下载 URL。
 
+**浏览器直发请求（browser-initiated request）**：
+由浏览器自身发起、无法携带 `Authorization` header 的请求——`<img>` / `<video>` 的 src 加载、`EventSource` 订阅、原生下载导航。ArcReel 对这三处各有各的答案：SSE 用 query param 传长效会话 JWT，导出用下载 token，静态媒体不设防。
+_Avoid_: 按"哪个端点"给这类请求分类——分类依据是**谁发起的请求**；把三种现状当作有意的分级设计。
+
+**自带认证端点（self-authenticated endpoint）**：
+不走 router 级 Bearer 依赖、在端点内部自行校验凭证的端点，成因一律是浏览器直发请求。注册时挂在 `self_auth_router` 上，与匿名可达的公开端点写法相同但性质不同。
+_Avoid_: 与公开端点混为一谈——自带认证端点拦得住匿名请求，公开端点拦不住。
+
 ## 示例对话
 
 > **Dev**：worker 认领一个图片任务时，怎么知道用哪个 provider 限流？

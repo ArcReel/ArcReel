@@ -11,14 +11,12 @@ from fastapi import APIRouter, Query
 from lib.db import async_session_factory
 from lib.db.repositories.usage_repo import UsageRepository
 from lib.providers import CallType
-from server.auth import CurrentUser
 
 router = APIRouter()
 
 
 @router.get("/usage/stats")
 async def get_stats(
-    _user: CurrentUser,
     project_name: str | None = Query(None, description="项目名称（可选）"),
     provider: str | None = Query(None, description="按供应商筛选"),
     start_date: str | None = Query(None, description="开始日期 (YYYY-MM-DD)"),
@@ -49,7 +47,6 @@ async def get_stats(
 
 @router.get("/usage/calls")
 async def get_calls(
-    _user: CurrentUser,
     project_name: str | None = Query(None, description="项目名称"),
     call_type: CallType | None = Query(None, description="调用类型 (image/video/text)"),
     status: str | None = Query(None, description="状态 (success/failed)"),
@@ -75,7 +72,7 @@ async def get_calls(
 
 
 @router.get("/usage/projects")
-async def get_projects_list(_user: CurrentUser):
+async def get_projects_list():
     async with async_session_factory() as session:
         projects = await UsageRepository(session).get_projects_list()
     return {"projects": projects}

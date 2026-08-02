@@ -52,6 +52,10 @@ from server.services.project_cover import resolve_project_cover
 
 router = APIRouter()
 
+# 自带认证端点：浏览器原生下载导航带不了 Authorization header，
+# 端点内 verify_download_token 校验短时效下载 token，注册时不挂 Bearer 依赖。
+self_auth_router = APIRouter()
+
 # episode 字段白名单：只允许持久化合法的 on-disk 字段。
 # StatusCalculator 注入的统计字段（scenes_count / status / storyboards / videos 等）
 # 是读时计算值，禁止写回 project.json。title 不在白名单：它以剧本顶层 title 为唯一真相源，
@@ -153,7 +157,6 @@ def _cleanup_temp_dir(dir_path: str) -> None:
 
 @router.post("/projects/import")
 async def import_project_archive(
-    _user: CurrentUser,
     _t: Translator,
     file: UploadFile = File(...),
     conflict_policy: str = Form("prompt"),
@@ -253,7 +256,7 @@ async def create_export_token(
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
-@router.get("/projects/{name}/export")
+@self_auth_router.get("/projects/{name}/export")
 async def export_project_archive(
     name: str,
     _t: Translator,
@@ -315,7 +318,7 @@ def _validate_draft_path(draft_path: str, _t: Callable[..., str]) -> str:
     return draft_path.strip()
 
 
-@router.get("/projects/{name}/export/jianying-draft")
+@self_auth_router.get("/projects/{name}/export/jianying-draft")
 def export_jianying_draft(
     name: str,
     _t: Translator,
@@ -375,7 +378,7 @@ def export_jianying_draft(
 
 
 @router.get("/projects")
-async def list_projects(_user: CurrentUser):
+async def list_projects():
     """列出所有项目"""
 
     def _sync():
@@ -455,7 +458,6 @@ async def list_projects(_user: CurrentUser):
 @router.post("/projects")
 async def create_project(
     req: CreateProjectRequest,
-    _user: CurrentUser,
     _t: Translator,
 ):
     """创建新项目"""
@@ -562,7 +564,6 @@ async def create_project(
 @router.get("/projects/{name}/video-capabilities")
 async def get_video_capabilities(
     name: str,
-    _user: CurrentUser,
     _t: Translator,
     video_backend: Annotated[str | None, Query()] = None,
 ):
@@ -602,7 +603,6 @@ async def get_video_capabilities(
 @router.get("/projects/{name}")
 async def get_project(
     name: str,
-    _user: CurrentUser,
     _t: Translator,
 ):
     """获取项目详情（含实时计算字段）"""
@@ -657,7 +657,7 @@ async def get_project(
 
 
 @router.patch("/projects/{name}")
-async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUser, _t: Translator):
+async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
     """更新项目元数据"""
     try:
 
@@ -832,7 +832,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
 
 
 @router.delete("/projects/{name}")
-async def delete_project(name: str, _user: CurrentUser, _t: Translator):
+async def delete_project(name: str, _t: Translator):
     """删除项目"""
     try:
 
@@ -851,7 +851,7 @@ async def delete_project(name: str, _user: CurrentUser, _t: Translator):
 
 
 @router.get("/projects/{name}/scripts/{script_file}")
-async def get_script(name: str, script_file: str, _user: CurrentUser, _t: Translator):
+async def get_script(name: str, script_file: str, _t: Translator):
     """获取剧本内容"""
     try:
         script = await asyncio.to_thread(get_project_manager().load_script, name, script_file)
@@ -871,7 +871,7 @@ class UpdateSceneRequest(BaseModel):
 
 
 @router.patch("/projects/{name}/script-scenes/{scene_id}")
-async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _user: CurrentUser, _t: Translator):
+async def update_scene(name: str, scene_id: str, req: UpdateSceneRequest, _t: Translator):
     """更新 drama 模式剧本中的单个场景镜头（按 scene_id 定位）。
 
     路径与项目场景资产 CRUD（``/projects/{name}/scenes/{entry_name}``）做明确区分，
@@ -977,7 +977,7 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
 
 
 @router.patch("/projects/{name}/script-shots/{shot_id}")
-async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _user: CurrentUser, _t: Translator):
+async def update_shot(name: str, shot_id: str, req: UpdateShotRequest, _t: Translator):
     """更新 ad 模式剧本中的单个镜头（按 shot_id 定位）。
 
     路径风格与 ``script-scenes`` 对齐；口播文案 / section / 时长 / 引用列表等
@@ -1030,7 +1030,7 @@ class ReorderShotsRequest(BaseModel):
 
 
 @router.post("/projects/{name}/script-shots/reorder")
-async def reorder_shots(name: str, req: ReorderShotsRequest, _user: CurrentUser, _t: Translator):
+async def reorder_shots(name: str, req: ReorderShotsRequest, _t: Translator):
     """按给定全排列重排 ad 剧本的 shots 顺序（与参考视频 units/reorder 同语义）。"""
     try:
 
@@ -1097,7 +1097,7 @@ class UpdateEpisodeRequest(BaseModel):
 
 
 @router.patch("/projects/{name}/segments/{segment_id}")
-async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _user: CurrentUser, _t: Translator):
+async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, _t: Translator):
     """更新说书模式片段"""
     try:
 
@@ -1155,7 +1155,7 @@ async def update_segment(name: str, segment_id: str, req: UpdateSegmentRequest, 
 
 
 @router.patch("/projects/{name}/episodes/{episode}")
-async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _user: CurrentUser, _t: Translator):
+async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t: Translator):
     """更新分集顶层元数据（当前仅标题）。
 
     以剧本 scripts/*.json 顶层 title 为唯一真相源：走 locked_episode_script 在
@@ -1218,7 +1218,6 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _us
 @router.post("/projects/{name}/source")
 async def set_project_source(
     name: Annotated[str, FastAPIPath(pattern=r"^[a-zA-Z0-9_-]+$")],
-    _user: CurrentUser,
     _t: Translator,
     generate_overview: Annotated[bool, Form()] = True,
     content: Annotated[str | None, Form()] = None,
@@ -1316,7 +1315,7 @@ async def set_project_source(
 
 
 @router.post("/projects/{name}/generate-overview")
-async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
+async def generate_overview(name: str, _t: Translator):
     """使用 AI 生成项目概述"""
     try:
         get_project_manager().get_project_path(name)
@@ -1369,7 +1368,7 @@ async def generate_overview(name: str, _user: CurrentUser, _t: Translator):
 
 
 @router.patch("/projects/{name}/overview")
-async def update_overview(name: str, req: UpdateOverviewRequest, _user: CurrentUser, _t: Translator):
+async def update_overview(name: str, req: UpdateOverviewRequest, _t: Translator):
     """更新项目概述（手动编辑）"""
     try:
 

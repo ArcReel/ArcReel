@@ -293,7 +293,6 @@ _STRING_SETTINGS = (
 
 @router.get("/system/config")
 async def get_system_config(
-    _user: CurrentUser,
     svc: Annotated[ConfigService, Depends(get_config_service)],
     session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
@@ -379,7 +378,6 @@ async def get_model_candidates(
 
 @router.get("/system/version")
 async def get_system_version(
-    _user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     try:
@@ -419,7 +417,7 @@ async def get_system_version(
 @router.patch("/system/config")
 async def patch_system_config(
     req: SystemConfigPatchRequest,
-    _user: CurrentUser,
+    user: CurrentUser,
     svc: Annotated[ConfigService, Depends(get_config_service)],
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
@@ -496,4 +494,4 @@ async def patch_system_config(
     await session.commit()
 
     # Return updated config
-    return await get_system_config(_user=_user, svc=svc, session=session)
+    return await get_system_config(svc=svc, session=session)

@@ -17,7 +17,9 @@ from server.services.project_events import ProjectEventService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+# 自带认证端点：本 router 只有项目事件 SSE，EventSource 是浏览器直发请求，
+# 带不了 Authorization header，端点内声明 CurrentUserFlexible 收 ?token=。
+self_auth_router = APIRouter()
 
 PROJECT_EVENTS_SSE_POLL_SECONDS = 1.0
 
@@ -46,7 +48,7 @@ async def _project_events_service(
     return service
 
 
-@router.get(
+@self_auth_router.get(
     "/projects/{project_name}/events/stream",
     response_class=EventSourceResponse,
 )

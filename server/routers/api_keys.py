@@ -71,11 +71,11 @@ class ApiKeyInfo(BaseModel):
 @router.post("/api-keys", status_code=201)
 async def create_api_key(
     body: CreateApiKeyRequest,
-    _user: CurrentUser,
+    user: CurrentUser,
     _t: Translator,
 ) -> CreateApiKeyResponse:
     """创建新 API Key。完整 key 仅在响应中出现一次，之后无法再查看。"""
-    _require_jwt_auth(_user, _t)
+    _require_jwt_auth(user, _t)
     key = _generate_api_key()
     key_hash = _hash_api_key(key)
     key_prefix = key[:8]  # e.g. "arc-abcd"
@@ -112,11 +112,11 @@ async def create_api_key(
 
 @router.get("/api-keys")
 async def list_api_keys(
-    _user: CurrentUser,
+    user: CurrentUser,
     _t: Translator,
 ) -> list[ApiKeyInfo]:
     """查询所有 API Key 的元数据（不含完整 key）。"""
-    _require_jwt_auth(_user, _t)
+    _require_jwt_auth(user, _t)
     async with async_session_factory() as session:
         async with session.begin():
             repo = ApiKeyRepository(session)
@@ -128,11 +128,11 @@ async def list_api_keys(
 @router.delete("/api-keys/{key_id}", status_code=204)
 async def delete_api_key(
     key_id: int,
-    _user: CurrentUser,
+    user: CurrentUser,
     _t: Translator,
 ) -> None:
     """删除（吊销）指定 API Key，并立即清除内存缓存。"""
-    _require_jwt_auth(_user, _t)
+    _require_jwt_auth(user, _t)
     async with async_session_factory() as session:
         async with session.begin():
             repo = ApiKeyRepository(session)

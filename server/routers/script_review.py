@@ -13,7 +13,6 @@ from fastapi import APIRouter, Body, HTTPException
 from lib.api_errors import NotFoundError
 from lib.i18n import Translator
 from lib.project_manager import get_project_manager
-from server.auth import CurrentUser
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 logger = logging.getLogger(__name__)
@@ -46,7 +45,7 @@ def _raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) ->
 
 
 @router.get("/projects/{project_name}/episodes/{episode}/script-review")
-async def get_script_review(project_name: str, episode: int, _user: CurrentUser, _t: Translator):
+async def get_script_review(project_name: str, episode: int, _t: Translator):
     """读取该集 step1 结构化中间态 + 审核状态（供 web 渲染与编辑）。"""
     try:
         service = ScriptReviewService(get_project_manager())
@@ -61,7 +60,6 @@ async def get_script_review(project_name: str, episode: int, _user: CurrentUser,
 async def update_script_review_content(
     project_name: str,
     episode: int,
-    _user: CurrentUser,
     _t: Translator,
     content: dict = Body(...),
 ):
@@ -76,7 +74,7 @@ async def update_script_review_content(
 
 
 @router.post("/projects/{project_name}/episodes/{episode}/script-review/confirm")
-async def confirm_script_review(project_name: str, episode: int, _user: CurrentUser, _t: Translator):
+async def confirm_script_review(project_name: str, episode: int, _t: Translator):
     """用户显式确认 step1 内容，放行 step2 视觉生成。"""
     try:
         service = ScriptReviewService(get_project_manager())

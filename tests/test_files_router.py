@@ -60,6 +60,7 @@ def _client(monkeypatch, tmp_path):
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(files.router, prefix="/api/v1")
+    app.include_router(files.public_router, prefix="/api/v1")
     return TestClient(app), pm
 
 
@@ -1134,6 +1135,7 @@ def _client_with_pm_raising(monkeypatch, sentinel: str):
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(files.router, prefix="/api/v1")
+    app.include_router(files.public_router, prefix="/api/v1")
     return TestClient(app)
 
 

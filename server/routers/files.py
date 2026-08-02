@@ -51,9 +51,12 @@ from lib.source_loader import (
     SourceLoader,
     UnsupportedFormatError,
 )
-from server.auth import CurrentUser
 
 router = APIRouter()
+
+# 公开端点：前端经 <img src> / <video src> 加载，浏览器直发请求带不了 Authorization header。
+# 两者都有 safe_join 路径穿越防护，但内容本身对未认证请求可读。
+public_router = APIRouter()
 
 
 def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:
@@ -75,7 +78,7 @@ ALLOWED_EXTENSIONS = {
 }
 
 
-@router.get("/files/{project_name}/{path:path}")
+@public_router.get("/files/{project_name}/{path:path}")
 async def serve_project_file(project_name: str, path: str, request: Request, _t: Translator):
     """服务项目内的静态文件（图片/视频）"""
     try:
@@ -107,7 +110,7 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
         raise NotFoundError("project_not_found", name=project_name) from exc
 
 
-@router.get("/global-assets/{asset_type}/{filename}")
+@public_router.get("/global-assets/{asset_type}/{filename}")
 async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
     """服务 _global_assets 下的全局资产图片（仅全局库类型：character/scene/prop）"""
     if asset_type not in GLOBAL_LIBRARY_ASSET_TYPES:
@@ -133,7 +136,6 @@ async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
 async def upload_file(
     project_name: str,
     upload_type: str,
-    _user: CurrentUser,
     _t: Translator,
     file: UploadFile = File(...),
     name: str | None = None,
@@ -416,7 +418,7 @@ async def upload_file(
 
 
 @router.delete("/projects/{project_name}/characters/{name}/reference-audio")
-async def delete_character_reference_audio(project_name: str, name: str, _user: CurrentUser, _t: Translator):
+async def delete_character_reference_audio(project_name: str, name: str, _t: Translator):
     """删除角色的参考音频样本：清空 project.json 字段并移除文件。"""
     try:
 
@@ -560,7 +562,7 @@ async def _handle_source_upload(
 
 
 @router.get("/projects/{project_name}/files")
-async def list_project_files(project_name: str, _user: CurrentUser, _t: Translator):
+async def list_project_files(project_name: str, _t: Translator):
     """列出项目中的所有文件"""
     try:
 
@@ -616,7 +618,7 @@ async def list_project_files(project_name: str, _user: CurrentUser, _t: Translat
 
 
 @router.get("/projects/{project_name}/source/{filename}")
-async def get_source_file(project_name: str, filename: str, _user: CurrentUser, _t: Translator):
+async def get_source_file(project_name: str, filename: str, _t: Translator):
     """获取 source 文件的文本内容"""
     try:
 
@@ -652,7 +654,6 @@ async def get_source_file(project_name: str, filename: str, _user: CurrentUser, 
 async def update_source_file(
     project_name: str,
     filename: str,
-    _user: CurrentUser,
     _t: Translator,
     content: str = Body(..., media_type="text/plain"),
 ):
@@ -685,7 +686,7 @@ async def update_source_file(
 
 
 @router.delete("/projects/{project_name}/source/{filename}")
-async def delete_source_file(project_name: str, filename: str, _user: CurrentUser, _t: Translator):
+async def delete_source_file(project_name: str, filename: str, _t: Translator):
     """删除 source 文件"""
     try:
 
@@ -795,7 +796,7 @@ def _resolve_step1_path(drafts_dir: Path, step_num: int, primary: Path) -> Path:
 
 
 @router.get("/projects/{project_name}/drafts/{episode}/step{step_num}")
-async def get_draft_content(project_name: str, episode: int, step_num: int, _user: CurrentUser, _t: Translator):
+async def get_draft_content(project_name: str, episode: int, step_num: int, _t: Translator):
     """获取特定步骤的草稿内容"""
     try:
 
@@ -827,7 +828,6 @@ async def update_draft_content(
     project_name: str,
     episode: int,
     step_num: int,
-    _user: CurrentUser,
     _t: Translator,
     content: str = Body(..., media_type="text/plain"),
 ):
@@ -907,7 +907,7 @@ async def update_draft_content(
 
 
 @router.delete("/projects/{project_name}/drafts/{episode}/step{step_num}")
-async def delete_draft(project_name: str, episode: int, step_num: int, _user: CurrentUser, _t: Translator):
+async def delete_draft(project_name: str, episode: int, step_num: int, _t: Translator):
     """删除草稿文件"""
     try:
 
@@ -938,7 +938,7 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _user: Cu
 
 
 @router.post("/projects/{project_name}/style-image")
-async def upload_style_image(project_name: str, _user: CurrentUser, _t: Translator, file: UploadFile = File(...)):
+async def upload_style_image(project_name: str, _t: Translator, file: UploadFile = File(...)):
     """
     上传风格参考图并分析风格
 

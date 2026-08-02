@@ -20,7 +20,6 @@ from lib.project_manager import get_project_manager
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
-from server.auth import CurrentUser
 from server.services.reference_video_tasks import apply_unit_video_assets
 
 router = APIRouter()
@@ -194,7 +193,6 @@ async def get_versions(
     project_name: str,
     resource_type: str,
     resource_id: str,
-    _user: CurrentUser,
 ):
     """
     获取资源的所有版本列表
@@ -228,7 +226,6 @@ async def restore_version(
     resource_type: str,
     resource_id: str,
     version: int,
-    _user: CurrentUser,
 ):
     """
     切换到指定版本

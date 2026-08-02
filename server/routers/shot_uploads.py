@@ -26,7 +26,6 @@ from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from lib.version_manager import VersionManager
-from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
 from server.services.generation_tasks import emit_generation_success_batch
 from server.services.upload_finalize import (
@@ -51,7 +50,6 @@ async def upload_shot_media(
     shot_id: str,
     kind: Literal["storyboard", "video"],
     script_file: str,
-    _user: CurrentUser,
     _t: Translator,
     file: UploadFile = File(...),
 ):

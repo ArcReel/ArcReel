@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 import pytest_asyncio
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -24,7 +24,8 @@ def _make_app(session_factory) -> FastAPI:
             await session.commit()
 
     app.dependency_overrides[get_async_session] = override_session
-    app.include_router(onboarding.router, prefix="/api/v1")
+    # 认证依赖挂在注册处，mini app 须与 server/app.py 的挂法一致，否则测不到真实的鉴权行为。
+    app.include_router(onboarding.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
     return app
 
 
