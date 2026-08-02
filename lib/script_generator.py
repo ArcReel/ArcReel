@@ -306,6 +306,12 @@ class ScriptGenerator:
                         f"{sorted(set(off_tiers))} 内；通常是模型或分辨率配置变化让档位收窄导致，"
                         "请调整配置回原档位，或重新拆分该集 step1 并重新审阅确认"
                     )
+            # step2 的产出是 step1 正文逐字保留 + 画面展开，step1 正文里的语法违约必然原样
+            # 复现在 step2 产出上。编辑器侧保存只做结构校验、语法问题仅出 warning（人写的文本
+            # 有作者意图要保护），因此手工编辑过的 step1 可能带着未登记的 @[名称] 或描述行里的
+            # 花括号进到这里——不在调用前判，就会付完 step2 的钱才失败，且错误指向 step2「改坏了」，
+            # 而真正要改的是 step1。故在此按同一把尺预判 step1 正文，违约时指名 step1。
+            self._assert_reference_step1_text_valid(step1_units, max_refs=self._resolve_max_refs(caps))
             reference_unit_durations = {
                 str(_rewrite_episode_prefix(u["unit_id"], episode)): u["duration_seconds"] for u in step1_units
             }
@@ -971,6 +977,25 @@ class ScriptGenerator:
         if rewritten_dupes:
             raise ValueError(f"Step 1 内容文件 scene_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
         return data
+
+    def _assert_reference_step1_text_valid(self, step1_units: list[dict], *, max_refs: int | None) -> None:
+        """按机器产物的严格口径预判 step1 各 unit 正文，违约时把定位与出路指回 step1。
+
+        与 ``_merge_reference_visual`` 用的是同一个 ``validate_unit_text``：同一把尺量两处，
+        避免「step1 放行、step2 必拒」的死角。此处只判、不取派生结果——落盘的 shots /
+        references 仍由 step2 展开后的正文派生。
+        """
+        for unit in step1_units:
+            label = f"step1 的 unit {unit['unit_id']}"
+            try:
+                validate_unit_text(
+                    label, render_shots_text(unit.get("shots") or []), self.project_json, max_refs=max_refs
+                )
+            except DraftViolation as e:
+                raise DraftViolation(
+                    f"{e}；这段正文来自 step1（拆分产出或手工编辑），step2 会逐字保留它，"
+                    "请先在 Web 端修正该 unit 的 step1 正文并重新审阅确认"
+                ) from e
 
     def _merge_reference_visual(
         self,

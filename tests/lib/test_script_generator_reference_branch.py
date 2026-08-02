@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.exc import OperationalError
 
 from lib import script_review
+from lib.reference_video.draft_validation import DraftViolation
 from lib.script_generator import ScriptGenerator
 
 STEP1_UNITS_JSON = _json.dumps(
@@ -72,6 +73,7 @@ def reference_project(tmp_path: Path) -> Path:
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 async def test_script_generator_build_prompt_selects_reference_branch(reference_project: Path):
     """当 generation_mode == reference_video 时，build_prompt 必须走 reference 分支。"""
     gen = ScriptGenerator(reference_project)
@@ -85,6 +87,7 @@ async def test_script_generator_build_prompt_selects_reference_branch(reference_
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 async def test_script_generator_reads_step1_reference_units(reference_project: Path):
     gen = ScriptGenerator(reference_project)
     prompt = await gen.build_prompt(episode=1)
@@ -96,6 +99,7 @@ async def test_script_generator_reads_step1_reference_units(reference_project: P
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 async def test_script_generator_uses_reference_schema_on_generate(reference_project: Path):
     """step2 用扁平 schema 出正文，落盘结构由 step1 + 正文机械合成。"""
     from lib.script_models import ReferenceStep2FlatScript
@@ -412,7 +416,7 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
           "overview": {"synopsis": "s", "genre": "g", "theme": "th", "world_setting": "w"},
           "style": "国漫", "style_description": "水墨",
           "characters": {"主角": {"description": "d"}},
-          "scenes": {}, "props": {},
+          "scenes": {"酒馆": {"description": "d"}}, "props": {},
           "episodes": [{"episode": 1, "title": "t1", "generation_mode": "reference_video"}]
         }""",
         encoding="utf-8",
@@ -756,3 +760,28 @@ def test_reference_step1_migration_does_not_carry_confirmation_when_duration_is_
     after_project = _json.loads(project_path.read_text(encoding="utf-8"))
     review = after_project["episodes"][0]["step1_review"]
     assert review["fingerprint"] == before  # 未被平移，仍是迁移前的旧指纹——照常判定为待审
+
+
+@pytest.mark.integration
+async def test_step1_text_violation_is_caught_before_the_paid_step2_call(reference_project: Path):
+    """step1 正文的语法违约在调用文本模型之前就被拦下，且错误指名 step1。
+
+    编辑器侧保存只做结构校验（人写的文本有作者意图要保护，语法问题仅出 warning），手工编辑
+    过的 step1 因而可能带着未登记的 `@[名称]` 进到生成。step2 会逐字保留这段正文，违约必然
+    原样复现——不在调用前判，就要付完 step2 的钱才失败，且错误指向 step2「改坏了」。
+    """
+    drafts = reference_project / "drafts" / "episode_1"
+    (drafts / "step1_reference_units.json").write_text(
+        _json.dumps(
+            {"units": [{"unit_id": "E1U01", "duration_seconds": 4, "shots": [{"text": "@[查无此人} 推门"}]}]},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    fake_generator = _fake_step2_generator(STEP2_UNIT_TEXT)
+
+    gen = ScriptGenerator(reference_project, generator=fake_generator)
+
+    with pytest.raises(DraftViolation, match="来自 step1"):
+        await gen.generate(episode=1)
+    fake_generator.generate.assert_not_awaited()

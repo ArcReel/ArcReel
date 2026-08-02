@@ -12,6 +12,8 @@ from lib.reference_video.draft_validation import (
     validate_unit_text,
 )
 
+pytestmark = pytest.mark.unit
+
 PROJECT = {
     "characters": {"李明": {}, "王五": {}},
     "scenes": {"酒馆": {}},

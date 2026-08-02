@@ -963,7 +963,7 @@ class ReferenceStep1Unit(BaseModel):
         description="参考图引用，从 shots 文本的 @ 引用派生（首现顺序，决定 [图N] 编号）",
     )
     # 逐字原文锚：拆分工具校验其为源文子串后原样落盘，供 gate 对照与失真定位。
-    # 默认空串使结构化中间态引入之初的存量草稿照常通过校验（那时 LLM 还不产出该字段）。
+    # 默认空串：不带该字段的存量草稿照常通过校验。
     source_text: SkipJsonSchema[str] = Field(default="", description="该 unit 所依据的逐字原文摘录（追溯锚）")
 
 
