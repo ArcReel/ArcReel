@@ -5,7 +5,6 @@ step2 视觉生成（step2 由 agent 的 generate_episode_script 执行，读时
 drama（utterances + source_text）与 narration（结构化 novel_text）共用本机制。
 """
 
-import asyncio
 import logging
 
 from fastapi import APIRouter, Body, HTTPException
@@ -51,10 +50,9 @@ async def _attach_duration_tiers(service: ScriptReviewService, project_name: str
     都要走这一步——否则保存 / 确认后 ``adopt()`` 用不带 ``duration_tiers`` 的响应覆盖 GET
     读到的收窄结果，面板退回未收窄的 ``supported_durations``，与 GET 首次加载时的呈现不一致。
 
-    是否调用交给 ``get_reference_duration_tiers`` 自己按 step1_kind 判断，不能靠
-    ``state["supported_durations"] is not None`` 这个同步信号短路——自定义供应商项目的
-    该字段恒为 None（同步路径没有 DB 能力查询可用），靠它短路会让这类项目永远拿不到
-    ``duration_tiers``。
+    是否调用交给 ``get_reference_duration_tiers`` 自己按 step1_kind 判断，不靠
+    ``state["supported_durations"] is not None`` 短路——那是另一个方法的返回值，型号解析
+    不到时同样为 None，靠它短路会让这类项目连未收窄的档位都拿不到。
     """
     state["duration_tiers"] = await service.get_reference_duration_tiers(project_name, episode)
     return state
@@ -79,8 +77,8 @@ def _localize_quarantine_violations(quarantine: dict | None, _t: Translator) -> 
 async def get_script_review(project_name: str, episode: int, _t: Translator):
     """读取该集 step1 结构化中间态 + 审核状态（供 web 渲染与编辑）。
 
-    ``quarantine`` 字段单独合并（reference_video 变体、隔离草稿在场时才非 None）：它要 await
-    视频能力解析做读时重算，不能挂在 ``get_state`` 那个纯同步的 ``asyncio.to_thread`` 调用上。
+    ``quarantine`` 字段单独合并（reference_video 变体、隔离草稿在场时才非 None）：它按产出时
+    那套校验器做读时重算，与 ``get_state`` 的落盘读写彼此独立。
     先取 ``quarantine`` 再取 ``state``：agent 的晋升工具在两次读之间把隔离草稿清掉、正式
     step1 写成新内容时，这个顺序让响应落在「content 已是新的、quarantine 却还带着晋升前的
     违约报告」这一侧——面板会误判成仍在隔离态、阻塞确认，下一轮轮询自然纠正；反过来的顺序会
@@ -90,7 +88,7 @@ async def get_script_review(project_name: str, episode: int, _t: Translator):
     try:
         service = ScriptReviewService(get_project_manager())
         quarantine = await service.get_quarantine_info(project_name, episode)
-        state = await asyncio.to_thread(service.get_state, project_name, episode)
+        state = await service.get_state(project_name, episode)
         await _attach_duration_tiers(service, project_name, episode, state)
         state["quarantine"] = _localize_quarantine_violations(quarantine, _t)
         return state
@@ -121,7 +119,7 @@ async def update_script_review_content(
     """
     try:
         service = ScriptReviewService(get_project_manager())
-        state = await asyncio.to_thread(service.save_content, project_name, episode, content)
+        state = await service.save_content(project_name, episode, content)
         quarantine = await service.get_quarantine_info(project_name, episode)
         await _attach_duration_tiers(service, project_name, episode, state)
         state["quarantine"] = _localize_quarantine_violations(quarantine, _t)
@@ -142,7 +140,7 @@ async def confirm_script_review(project_name: str, episode: int, _t: Translator)
     """
     try:
         service = ScriptReviewService(get_project_manager())
-        state = await asyncio.to_thread(service.confirm, project_name, episode)
+        state = await service.confirm(project_name, episode)
         await _attach_duration_tiers(service, project_name, episode, state)
         state["quarantine"] = _localize_quarantine_violations(
             await service.get_quarantine_info(project_name, episode), _t

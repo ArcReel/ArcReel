@@ -9,6 +9,7 @@ from lib.config.resolver import (
     VideoBucketCapabilityError,
     caps_generation_mode,
     constrain_durations_for_project,
+    resolve_raw_supported_durations,
     video_bucket_for_generation_mode,
 )
 from lib.config.service import ProviderStatus
@@ -1931,3 +1932,40 @@ class TestEpisodeEffectiveGenerationMode:
         caps = await self._caps(project, 2)
         assert caps["generation_mode"] == "reference_video"
         assert caps["max_reference_images"] == 1
+
+
+class TestResolveRawSupportedDurations:
+    """收窄前的时长全集：caps → registry 两级解析。"""
+
+    _VEO_PROJECT = {"video_backend": "gemini-aistudio/veo-3.1-generate-preview"}
+
+    @pytest.mark.unit
+    def test_caps_take_precedence_over_registry(self):
+        """caps 是 DB 驱动的当下真相，压过 project.json 自报身份查到的静态声明。"""
+        caps = {"supported_durations": [5, 10]}
+        assert resolve_raw_supported_durations(dict(self._VEO_PROJECT), caps) == [5, 10]
+
+    @pytest.mark.unit
+    def test_falls_back_to_registry_identity_without_caps(self):
+        assert resolve_raw_supported_durations(dict(self._VEO_PROJECT)) == [4, 6, 8]
+
+    @pytest.mark.unit
+    def test_custom_provider_resolves_only_through_caps(self):
+        """``custom-`` 前缀不在 registry：不带 caps 时无从解析，带 caps 时取 caps 的档位表。
+
+        这条是审阅门必须先解析 caps 的原因——同步两级链对自定义供应商恒为 None。
+        """
+        project = {"video_backend": "custom-7/acme-video"}
+        assert resolve_raw_supported_durations(project) is None
+        assert resolve_raw_supported_durations(project, {"supported_durations": [5, 10]}) == [5, 10]
+
+    @pytest.mark.unit
+    def test_project_json_duration_field_is_not_a_source(self):
+        """project.json 不是档位来源：无生产写入者的字段不得再被当作一级回退读取，
+        否则伪造 / 陈旧的项目字段会盖过 registry 的真实声明。"""
+        project = dict(self._VEO_PROJECT) | {"_supported_durations": [99]}
+        assert resolve_raw_supported_durations(project) == [4, 6, 8]
+
+    @pytest.mark.unit
+    def test_none_when_no_resolvable_model(self):
+        assert resolve_raw_supported_durations({}) is None

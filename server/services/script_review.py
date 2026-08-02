@@ -108,8 +108,46 @@ class ScriptReviewService:
 
         return self.pm.update_project(project_name, _mutate)
 
+    async def _resolve_caps_best_effort(self, project_name: str, project: dict[str, Any], episode: int) -> dict:
+        """视频能力查询，解析失败时退回空 caps 而非冒穿。
+
+        缺 caps 只是让下游退到 registry / 不收窄这两个既有降级口径，而解析异常直接冒穿会让用户
+        连草稿都加载不了。档位表与档位收窄两条链共用本方法，降级语义因此不会在两处各自漂移。
+        """
+        try:
+            return await resolve_video_caps(project, episode)
+        except Exception as exc:  # noqa: BLE001 - best-effort：解析失败退回空 caps，不阻断 gate
+            logger.warning("video_capabilities 解析异常，审阅门退回不带 caps 的解析 project=%s：%s", project_name, exc)
+            return {}
+
+    async def _resolve_supported_durations(
+        self, project_name: str, project: dict[str, Any], episode: int
+    ) -> list[int] | None:
+        """该集收窄前的时长档位全集；非 reference_video 变体或解析不到型号时 None。
+
+        caps 先解析、再交 ``resolve_raw_supported_durations``：registry 那一级只收录内建供应商，
+        自定义供应商（``custom-`` 前缀）的档位表只有 caps（DB 驱动的能力查询）给得出。不带 caps
+        调用会让这类项目恒为 None——读时迁移退回结构区间 clamp、gate 面板也拿不到可选档位，
+        存量草稿的收编对其整体失效。
+
+        caps 解析失败（DB / 迁移故障）时退回不带 caps 的 registry 解析，不阻断 gate（降级见
+        ``_resolve_caps_best_effort``）：缺档位表只是回到结构区间 clamp。
+
+        调用方须在取 ``self.pm.file_lock`` **之前** await 本方法：那把锁是阻塞式文件锁，跨
+        await 持有会连带把事件循环上的其它协程挡在锁外。
+        """
+        if script_review.step1_kind(project, episode) != "reference_video":
+            return None
+        caps = await self._resolve_caps_best_effort(project_name, project, episode)
+        return resolve_raw_supported_durations(project, caps)
+
     def _read_step1_migrated(
-        self, project_name: str, project: dict[str, Any], episode: int, path: Path
+        self,
+        project_name: str,
+        project: dict[str, Any],
+        episode: int,
+        path: Path,
+        supported_durations: list[int] | None,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         """读结构化 step1，并对参考生视频草稿做一次性时长收编迁移；返回 ``(内容, 最新 project)``。
 
@@ -118,11 +156,11 @@ class ScriptReviewService:
         存量草稿若不在读时迁移，保存与确认都会撞结构校验，用户在 gate 里既改不了也确认不了。
         剧集脚本的迁移在 ``ProjectManager.load_script``，草稿的在这里，两处共用同一迁移器。
 
-        档位表走 ``resolve_raw_supported_durations`` 的同步回退链（project.json → registry），
-        与 step2 生成侧同源：迁移幂等一次性、谁先跑谁定终局，两侧口径不一致时先跑的审阅门会
-        把落在结构区间内但非档位成员的秒数固化到盘上，step2 的枚举 schema 随后硬拒，用户在
-        gate 里既看不出问题也改不动。解析不到（项目未配置视频型号）时传 None 退回结构区间
-        clamp——缺配置不该阻断草稿加载，档位偏移仍由执行时取档兜底。
+        ``supported_durations`` 由调用方经 ``_resolve_supported_durations`` 解析后传入（本函数
+        跑在锁内，不能自行 await），与 step2 生成侧同源：迁移幂等一次性、谁先跑谁定终局，两侧
+        口径不一致时先跑的审阅门会把落在结构区间内但非档位成员的秒数固化到盘上，step2 的枚举
+        schema 随后硬拒，用户在 gate 里既看不出问题也改不动。为 None（项目未配置视频型号）时
+        退回结构区间 clamp——缺配置不该阻断草稿加载，档位偏移仍由执行时取档兜底。
 
         调用方须已持有 ``self.pm.file_lock(path)``——本函数只做读改写，不自行加锁，避免与
         调用方（如 ``confirm``）已持有的同一把锁发生同线程二次获取的死锁。
@@ -136,22 +174,40 @@ class ScriptReviewService:
             content,
             episode=episode,
             update_project=lambda mutate: self.pm.update_project(project_name, mutate),
-            supported_durations=resolve_raw_supported_durations(project),
+            supported_durations=supported_durations,
         )
         return content, updated or project
 
-    def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
+    async def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
         """返回该集审核状态 + 结构化中间态内容（供 web 渲染）。
 
         ``content`` 为解析后的结构化 step1（drama: {title, scenes[]}；narration: {segments[]}；
         reference_video: {units[]}）；不适用 gate 或 step1 缺失 / 损坏时为 None。
 
         ``supported_durations`` 只在 reference_video 变体下非 None：unit 时长是档位枚举而非
-        自由秒数，web 侧要按它渲染选择项。取值走与读时迁移同一个 ``resolve_raw_supported_durations``
-        （project.json → registry 同步回退链），两处不同源的话，gate 里能选的档位会与迁移
-        收编到的档位不一致。项目未配置视频型号而解析不到时为 None，呈现层退回只读秒数。
+        自由秒数，web 侧要按它渲染选择项。取值与读时迁移同源（同一次
+        ``_resolve_supported_durations``），两处不同源的话，gate 里能选的档位会与迁移收编到的
+        档位不一致。项目未配置视频型号而解析不到时为 None，呈现层退回只读秒数。
+
+        档位解析先于落盘读写完成，其余同步 I/O 整段卸到线程：``file_lock`` 是阻塞式文件锁，
+        不能跨 await 持有，而档位解析本身要 await 视频能力查询。
         """
-        project = self.pm.load_project(project_name)
+        project = await asyncio.to_thread(self.pm.load_project, project_name)
+        supported_durations = await self._resolve_supported_durations(project_name, project, episode)
+        return await asyncio.to_thread(self._get_state_sync, project_name, project, episode, supported_durations)
+
+    def _get_state_sync(
+        self,
+        project_name: str,
+        project: dict[str, Any],
+        episode: int,
+        supported_durations: list[int] | None,
+    ) -> dict[str, Any]:
+        """``get_state`` 的同步主体：分集自愈、读时迁移、状态与指纹派生，全部在一个线程内完成。
+
+        ``project`` 与 ``supported_durations`` 由 ``get_state`` 预先取好传入——迁移不改动视频
+        型号配置，档位表在迁移前后描述的是同一件事，无需在锁内重算。
+        """
         project_path = self.pm.get_project_path(project_name)
         path = script_review.step1_path(project_path, project, episode)
         if path is not None:
@@ -164,7 +220,7 @@ class ScriptReviewService:
             # 迁移可能回写 step1 与确认记录；指纹与状态在同一把锁内、迁移之后取，三者才据
             # 同一份落盘内容派生——锁外取则并发 save_content 会让指纹描述另一份内容。
             with self.pm.file_lock(path):
-                content, project = self._read_step1_migrated(project_name, project, episode, path)
+                content, project = self._read_step1_migrated(project_name, project, episode, path, supported_durations)
                 fingerprint = script_review.content_fingerprint(path)
                 status = script_review.review_status(project_path, project, episode)
         else:
@@ -176,11 +232,7 @@ class ScriptReviewService:
             "fingerprint": fingerprint,
             "confirmed_at": script_review.stored_review(project, episode).get("confirmed_at"),
             "content": content,
-            "supported_durations": (
-                resolve_raw_supported_durations(project)
-                if script_review.step1_kind(project, episode) == "reference_video"
-                else None
-            ),
+            "supported_durations": supported_durations,
         }
 
     async def get_quarantine_info(self, project_name: str, episode: int) -> dict[str, Any] | None:
@@ -189,8 +241,8 @@ class ScriptReviewService:
 
         读时按产出时那套校验器全量重算（``revalidate_reference_step1_draft``，晋升工具同一份
         代码），不信任草稿里 ``violations`` 的上一轮快照——隔离期间源文或模型配置可能已变，
-        报告要对现值负责。``get_state`` 保持同步（无需 await 视频能力解析），故本方法独立于
-        它，由 router 在同一次请求内合并两者的返回。
+        报告要对现值负责。本方法与 ``get_state`` 各自读盘、互不依赖，由 router 在同一次请求内
+        合并两者的返回。
 
         ``content`` 校验通过时返回收编后的扁平产出（时长已按当前档位收编），未通过时返回草稿
         原样内容 + 违约列表，供呈现层原样展示 agent 手改的那份文本。meta 被改坏以致无从重算
@@ -199,8 +251,8 @@ class ScriptReviewService:
 
         项目 / 隔离草稿的同步文件读取经 ``asyncio.to_thread`` 卸到线程——本方法整体是
         ``async``（内部要 ``await`` 重算里的能力解析），若前半截同步 I/O 直接跑在事件循环上，
-        源文越大越占用循环时间，拖慢并发的其它请求；GET 端点已经把 ``get_state`` 包了
-        ``asyncio.to_thread``，这里保持同一纪律。
+        源文越大越占用循环时间，拖慢并发的其它请求；``get_state`` 把同步主体整段卸到线程，
+        这里保持同一纪律。
         """
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         if script_review.step1_kind(project, episode) != "reference_video":
@@ -258,25 +310,21 @@ class ScriptReviewService:
     async def get_reference_duration_tiers(self, project_name: str, episode: int) -> dict[str, list[int]] | None:
         """reference_video 变体逐 unit 生效时长档位：``{with_references, without_references}``。
 
-        与 ``get_state.supported_durations``（``resolve_raw_supported_durations`` 的结构区间
-        全集，供 ``_read_step1_migrated`` 的存量草稿 clamp）不同源：那个决定「这个秒数结构上
-        合不合法」，这个决定「现在选它，``_assert_reference_step1_ready`` 会不会接受」——分辨率
-        / 参考图联动约束只影响后者。clamp 保持用全集，避免收窄后把结构合法但当前档位表之外
-        的存量秒数误判非法；这里单独给下拉提供收窄后的可选项，同一把尺来自
-        ``reference_unit_duration_tiers``（拆分工具校验用的同一份）。无法解析到型号时返回
+        与 ``get_state.supported_durations``（收窄前的结构区间全集，供 ``_read_step1_migrated``
+        的存量草稿 clamp）取自同一份 ``resolve_raw_supported_durations`` 结果，但用途不同源：
+        那个决定「这个秒数结构上合不合法」，这个决定「现在选它，``_assert_reference_step1_ready``
+        会不会接受」——分辨率 / 参考图联动约束只影响后者。clamp 保持用全集，避免收窄后把结构
+        合法但当前档位表之外的存量秒数误判非法；这里单独给下拉提供收窄后的可选项，同一把尺
+        来自 ``reference_unit_duration_tiers``（拆分工具校验用的同一份）。无法解析到型号时返回
         None，呈现层退回未收窄的 ``supported_durations``。
 
         非 reference_video 变体直接返回 None，不做 caps 解析——调用方（router）按此方法自身
-        的 step1_kind 判断决定是否调用，不再依赖 ``get_state.supported_durations`` 是否非
-        None 这个同步信号：那个信号在自定义供应商（``custom-`` 前缀，caps 是唯一档位来源，
-        同步路径拿不到）下恒为 None，会让本方法永远没机会跑，越档校验随之失效。
+        的 step1_kind 判断决定是否调用，不拿 ``get_state.supported_durations`` 是否非 None
+        当短路条件：那是另一个方法的返回值，两者各自判 step1_kind，不互相依赖。
 
-        caps 先解析：``resolve_raw_supported_durations`` 的三级回退链（caps → project.json
-        ``_supported_durations`` → registry）里，registry 那一级查不到自定义供应商，存量
-        项目也不落 ``_supported_durations``——caps 是自定义供应商唯一能拿到时长表的来源
-        （DB 驱动的能力查询）。caps 若排在 raw 之后解析，自定义供应商项目会在 caps 都没试
-        就因 raw 为 None 提前退出，面板退回只读秒数、越档校验也随之失效，即便 caps 原本能
-        给出正确答案。
+        caps 与收窄用的模型身份在本方法内单独解析：``reference_unit_duration_tiers`` 要按
+        caps 里的 provider/model 求联动约束，光有档位表不够；解析失败的降级与档位表那条链
+        共用 ``_resolve_caps_best_effort``，缺 caps 时收窄回退为不收窄。
 
         项目读取同 ``get_quarantine_info`` 卸到线程——本方法同样是 ``async`` 且由请求协程
         直接 ``await``，同步的 ``project.json`` 读取直接跑在事件循环上会阻塞并发的其它请求。
@@ -284,22 +332,26 @@ class ScriptReviewService:
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         if script_review.step1_kind(project, episode) != "reference_video":
             return None
-        try:
-            caps = await resolve_video_caps(project, episode)
-        except Exception as exc:  # noqa: BLE001 - best-effort：解析失败时收窄回退为不收窄，不阻塞面板
-            logger.warning("video_capabilities 解析异常，时长档下拉退回未收窄集合 project=%s：%s", project_name, exc)
-            caps = {}
+        caps = await self._resolve_caps_best_effort(project_name, project, episode)
         raw = resolve_raw_supported_durations(project, caps)
         if raw is None:
             return None
         with_refs, without_refs = reference_unit_duration_tiers(project, caps, raw)
         return {"with_references": sorted(set(with_refs)), "without_references": sorted(set(without_refs))}
 
-    def save_content(self, project_name: str, episode: int, content: object) -> dict[str, Any]:
+    async def save_content(self, project_name: str, episode: int, content: object) -> dict[str, Any]:
         """校验并落盘编辑后的结构化中间态（手动或 agent 编辑后回写），返回最新状态（重新待审）。
 
         内容变更使指纹漂移，``get_state`` 据此自动回到 pending_review——保存即重新需要确认。
+
+        落盘本身全同步（不做时长收编，无需档位表），整段卸到线程；随后的 ``get_state`` 自行
+        解析档位表，保存的响应与 GET 首次加载因此同源。
         """
+        await asyncio.to_thread(self._save_content_sync, project_name, episode, content)
+        return await self.get_state(project_name, episode)
+
+    def _save_content_sync(self, project_name: str, episode: int, content: object) -> None:
+        """``save_content`` 的同步主体：结构校验、references 重派生、落盘。"""
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
         path = script_review.step1_path(project_path, project, episode)
@@ -319,15 +371,29 @@ class ScriptReviewService:
         # 与 _read_step1_migrated 共享同一把 per-path 锁：保存与迁移的读改写相互互斥。
         with self.pm.file_lock(path):
             atomic_write_json(path, validated)
-        return self.get_state(project_name, episode)
 
-    def confirm(self, project_name: str, episode: int) -> dict[str, Any]:
+    async def confirm(self, project_name: str, episode: int) -> dict[str, Any]:
         """把该集审核状态翻到 confirmed（记录当前 step1 内容指纹），放行 step2。
 
         无 step1 / 不适用 / 集条目缺失 / step1 内容结构非法 / 有违约产物待处置（隔离草稿在场）时
         抛 ScriptReviewError，由 router 映射 4xx。
+
+        档位表先于加锁解析（同 ``get_state``）：确认路径同样要对存量草稿做一次读时收编，收编
+        用的档位表须与 gate 面板呈现的那份同源，否则确认会把面板上选不到的秒数固化到盘上。
         """
-        project = self.pm.load_project(project_name)
+        project = await asyncio.to_thread(self.pm.load_project, project_name)
+        supported_durations = await self._resolve_supported_durations(project_name, project, episode)
+        await asyncio.to_thread(self._confirm_sync, project_name, project, episode, supported_durations)
+        return await self.get_state(project_name, episode)
+
+    def _confirm_sync(
+        self,
+        project_name: str,
+        project: dict[str, Any],
+        episode: int,
+        supported_durations: list[int] | None,
+    ) -> None:
+        """``confirm`` 的同步主体：隔离态校验、读时收编、结构校验、指纹落盘。"""
         project_path = self.pm.get_project_path(project_name)
         path = script_review.step1_path(project_path, project, episode)
         if path is None:
@@ -343,7 +409,7 @@ class ScriptReviewService:
         # per-path 锁覆盖读改写全程（含下方 reference_video 分支自己的落盘），避免中途被
         # save_content 或迁移的写入插队——_read_step1_migrated 要求调用方已持锁。
         with self.pm.file_lock(path):
-            content, project = self._read_step1_migrated(project_name, project, episode, path)
+            content, project = self._read_step1_migrated(project_name, project, episode, path, supported_durations)
             if content is None and not path.exists():
                 raise ScriptReviewError("no_step1")
             # 确认前按 step1 变体模型校验 step1 结构：content 为 None（非法 JSON / 非对象）同样会
@@ -373,7 +439,6 @@ class ScriptReviewService:
                 raise ScriptReviewError("episode_not_found")
 
         self.pm.update_project(project_name, _mutate)
-        return self.get_state(project_name, episode)
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:

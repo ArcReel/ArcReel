@@ -398,7 +398,7 @@ def confirm_script_review_tool(ctx: ToolContext):
 
             service = ScriptReviewService(ctx.pm)
             try:
-                state = service.confirm(ctx.project_name, episode)
+                state = await service.confirm(ctx.project_name, episode)
             except ScriptReviewError as exc:
                 return {
                     "content": [
