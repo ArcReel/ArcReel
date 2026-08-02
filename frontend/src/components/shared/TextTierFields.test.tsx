@@ -7,8 +7,14 @@ const EMPTY: TextTierValue = { default: "", simple: "", complex: "" };
 const OPTIONS = ["gemini/g25", "ark/qwen"];
 const PROVIDER_NAMES = { gemini: "Gemini", ark: "Ark" };
 
+/** 细分档收在折叠区内，测试前先展开。 */
+async function expandTiers(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByText("按用途指定模型"));
+}
+
 describe("TextTierFields", () => {
-  it("renders three tier dropdowns with labels, captions, and the agent-provider boundary note", () => {
+  it("keeps the default model dropdown resident and collapses the two tiers behind 按用途指定模型", async () => {
+    const user = userEvent.setup();
     render(
       <TextTierFields
         value={EMPTY}
@@ -18,20 +24,21 @@ describe("TextTierFields", () => {
         defaultLabel="自动选择"
       />,
     );
-    // 默认 / 简单 / 复杂 三档下拉
-    expect(screen.getAllByRole("combobox")).toHaveLength(3);
-    expect(screen.getByText("默认模型")).toBeInTheDocument();
-    expect(screen.getByText("简单任务")).toBeInTheDocument();
-    expect(screen.getByText("复杂任务")).toBeInTheDocument();
-    // 简单档 caption 注明需图像输入
-    expect(screen.getByText(/图像输入/)).toBeInTheDocument();
-    // 复杂档 caption 列出覆盖调用点
-    expect(screen.getByText(/剧本生成/)).toBeInTheDocument();
-    // 卡片底部 Agent 供应商边界说明
+    // 默认模型主下拉常驻
+    expect(screen.getByRole("combobox", { name: "默认模型" })).toBeInTheDocument();
+    // Agent 供应商边界说明在折叠区之外常驻
     expect(screen.getByText(/智能体供应商/)).toBeInTheDocument();
+
+    await expandTiers(user);
+    expect(screen.getByRole("combobox", { name: "简单任务" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "复杂任务" })).toBeInTheDocument();
+    // 简单档 caption 注明需图像输入，复杂档 caption 列出覆盖调用点
+    expect(screen.getByText(/图像输入/)).toBeInTheDocument();
+    expect(screen.getByText(/剧本生成/)).toBeInTheDocument();
   });
 
-  it("shows the resolved fallback value inside each empty tier (project-priority chain)", () => {
+  it("shows the resolved fallback value inside each empty tier (project-priority chain)", async () => {
+    const user = userEvent.setup();
     render(
       <TextTierFields
         value={EMPTY}
@@ -42,10 +49,45 @@ describe("TextTierFields", () => {
         fallbacks={{ default: "gemini/g25", simple: "gemini/g25", complex: "gemini/g25" }}
       />,
     );
-    // 三档均留空 → 每档触发按钮以「跟随全局默认 · 生效值」呈现继承结果
-    const followers = screen.getAllByText(/跟随全局默认/);
-    expect(followers).toHaveLength(3);
-    expect(followers[0].textContent).toMatch(/Gemini.*g25/);
+    // 默认档留空 → 生效值来自全局层
+    expect(screen.getByRole("combobox", { name: "默认模型" })).toHaveTextContent(
+      /跟随全局默认 · Gemini · g25/,
+    );
+
+    await expandTiers(user);
+    // 细分档回退的是同层默认模型，措辞为「跟随默认」
+    for (const name of ["简单任务", "复杂任务"]) {
+      expect(screen.getByRole("combobox", { name })).toHaveTextContent(/跟随默认 · Gemini · g25/);
+    }
+  });
+
+  it("auto-expands the tier section when a tier is already set", () => {
+    render(
+      <TextTierFields
+        value={{ ...EMPTY, complex: "ark/qwen" }}
+        onChange={() => {}}
+        options={OPTIONS}
+        providerNames={PROVIDER_NAMES}
+        defaultLabel="使用全局默认"
+      />,
+    );
+    expect(screen.getByRole("combobox", { name: "复杂任务" })).toHaveTextContent(/qwen/);
+    expect(screen.getByText("已指定 1 项")).toBeInTheDocument();
+  });
+
+  it("renders only the default model when showTiers is false (creation wizard)", () => {
+    render(
+      <TextTierFields
+        value={EMPTY}
+        onChange={() => {}}
+        options={OPTIONS}
+        providerNames={PROVIDER_NAMES}
+        defaultLabel="使用全局默认"
+        showTiers={false}
+      />,
+    );
+    expect(screen.getAllByRole("combobox")).toHaveLength(1);
+    expect(screen.queryByText("按用途指定模型")).not.toBeInTheDocument();
   });
 
   it("calls onChange writing only the edited tier key", async () => {
@@ -60,8 +102,8 @@ describe("TextTierFields", () => {
         defaultLabel="自动选择"
       />,
     );
-    // 第二个下拉是「简单任务」
-    await user.click(screen.getAllByRole("combobox")[1]);
+    await expandTiers(user);
+    await user.click(screen.getByRole("combobox", { name: "简单任务" }));
     await user.click(screen.getByRole("option", { name: /g25/ }));
     expect(onChange).toHaveBeenCalledWith({ default: "", simple: "gemini/g25", complex: "" });
   });

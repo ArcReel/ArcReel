@@ -28,6 +28,11 @@ interface ProviderModelSelectProps {
   defaultHint?: string; // "当前: gemini-aistudio/veo-3.1-generate-001"
   /** When value is empty, show this "provider/model" as the effective fallback in the trigger */
   fallbackValue?: string;
+  /**
+   * 触发按钮上生效值的前缀措辞（已 t()）。默认「跟随全局默认」；能力桶细分项回退的是同层
+   * 默认模型而非全局层，由调用方改写为「跟随默认」。
+   */
+  fallbackLabel?: string;
   /** Accessible label for the trigger button */
   "aria-label"?: string;
   /** Enable in-dropdown search input. Defaults to true. */
@@ -71,6 +76,7 @@ export function ProviderModelSelect({
   defaultLabel,
   defaultHint,
   fallbackValue,
+  fallbackLabel,
   "aria-label": ariaLabel,
   searchable = true,
   searchThreshold = 6,
@@ -313,7 +319,7 @@ export function ProviderModelSelect({
   const displayText = value
     ? `${providerNames[currentProvider] || currentProvider} · ${currentModel}`
     : showFallback
-      ? `${t("follow_global_default")} · ${providerNames[fbProvider] || fbProvider} · ${fbModel}`
+      ? `${fallbackLabel ?? t("follow_global_default")} · ${providerNames[fbProvider] || fbProvider} · ${fbModel}`
       : resolvedPlaceholder;
 
   const activeDescendantId =

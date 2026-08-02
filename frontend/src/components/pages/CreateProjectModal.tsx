@@ -155,6 +155,9 @@ export function CreateProjectModal() {
 
   const [models, setModels] = useState<ModelConfigValue>({
     videoBackend: "",
+    videoProviderI2V: "",
+    videoProviderR2V: "",
+    imageBackendDefault: "",
     imageBackendT2I: "",
     imageBackendI2I: "",
     textBackendDefault: "",
@@ -201,14 +204,11 @@ export function CreateProjectModal() {
           customProviders: customRes.providers,
           globalDefaults: {
             video: sysConfig.settings.default_video_backend ?? "",
-            imageT2I:
-              sysConfig.settings.default_image_backend_t2i ??
-              sysConfig.settings.default_image_backend ??
-              "",
-            imageI2I:
-              sysConfig.settings.default_image_backend_i2i ??
-              sysConfig.settings.default_image_backend ??
-              "",
+            videoI2V: sysConfig.settings.default_video_backend_i2v ?? "",
+            videoR2V: sysConfig.settings.default_video_backend_r2v ?? "",
+            image: sysConfig.settings.default_image_backend ?? "",
+            imageT2I: sysConfig.settings.default_image_backend_t2i ?? "",
+            imageI2I: sysConfig.settings.default_image_backend_i2i ?? "",
             textDefault: sysConfig.settings.default_text_backend ?? "",
             textSimple: sysConfig.settings.text_backend_simple ?? "",
             textComplex: sysConfig.settings.text_backend_complex ?? "",
@@ -259,7 +259,7 @@ export function CreateProjectModal() {
       // resolution 的 model_settings key 用 effective backend（项目覆盖 ‖ 全局默认），
       // 否则用户在"跟随全局默认"路径下选的分辨率会丢失。
       const effectiveVideo = models.videoBackend || step2Data?.globalDefaults.video || "";
-      const effectiveImageT2I = models.imageBackendT2I || step2Data?.globalDefaults.imageT2I || "";
+      const effectiveImageT2I = models.imageBackendDefault || step2Data?.globalDefaults.image || "";
       const modelSettings: Record<string, { resolution: string }> = {};
       if (effectiveVideo && models.videoResolution) {
         modelSettings[effectiveVideo] = { resolution: models.videoResolution };
@@ -282,8 +282,7 @@ export function CreateProjectModal() {
           : { default_duration: models.defaultDuration }),
         style_template_id: style.mode === "template" ? style.templateId : null,
         video_backend: models.videoBackend || null,
-        image_provider_t2i: models.imageBackendT2I || null,
-        image_provider_i2i: models.imageBackendI2I || null,
+        default_image_backend: models.imageBackendDefault || null,
         default_text_backend: models.textBackendDefault || null,
         text_backend_simple: models.textBackendSimple || null,
         text_backend_complex: models.textBackendComplex || null,

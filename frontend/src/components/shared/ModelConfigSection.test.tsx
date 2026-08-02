@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
+import type { ComponentProps } from "react";
 import userEvent from "@testing-library/user-event";
 import { ModelConfigSection } from "./ModelConfigSection";
 import type { ProviderInfo } from "@/types";
@@ -62,6 +63,9 @@ const OPTIONS = {
 
 const EMPTY_VALUE = {
   videoBackend: "",
+  videoProviderI2V: "",
+  videoProviderR2V: "",
+  imageBackendDefault: "",
   imageBackendT2I: "",
   imageBackendI2I: "",
   textBackendDefault: "",
@@ -72,8 +76,14 @@ const EMPTY_VALUE = {
   imageResolution: null,
 } as const;
 
+const EMPTY_GLOBALS = {
+  video: "", videoI2V: "", videoR2V: "",
+  image: "", imageT2I: "", imageI2I: "",
+  textDefault: "", textSimple: "", textComplex: "",
+} as const;
+
 describe("ModelConfigSection", () => {
-  it("renders 5 model selectors and shows '使用全局默认' inside each dropdown when all backends are empty", async () => {
+  it("renders only the three default-layer selectors when no candidates are supplied", async () => {
     const user = userEvent.setup();
     render(
       <ModelConfigSection
@@ -82,25 +92,129 @@ describe("ModelConfigSection", () => {
         providers={PROVIDERS}
         options={OPTIONS}
         globalDefaults={{
+          ...EMPTY_GLOBALS,
           video: "gemini/veo-3",
-          imageT2I: "gemini/nano-banana",
-          imageI2I: "gemini/nano-banana",
+          image: "gemini/nano-banana",
           textDefault: "gemini/g25",
           textSimple: "gemini/g25",
           textComplex: "gemini/g25",
         }}
       />,
     );
-    // 5 combobox triggers — 单下拉模式下 image 只渲染 1 个（spec: 默认渲染单下拉，
-    // 仅当所选模型 caps 单一时才露出第二个槽位）：1 video + 1 image + 3 text
+    // 不传 candidates（创建向导路径）时只剩三个默认层主下拉：video + image + text
     const comboboxes = screen.getAllByRole("combobox");
-    expect(comboboxes).toHaveLength(5);
+    expect(comboboxes).toHaveLength(3);
+    expect(screen.queryByText("按用途指定模型")).not.toBeInTheDocument();
 
     // Opening each dropdown should reveal "使用全局默认" as the default option
     await user.click(comboboxes[0]);
     expect(screen.getByRole("option", { name: /使用全局默认/ })).toBeInTheDocument();
     // Close by clicking again
     await user.click(comboboxes[0]);
+  });
+
+  describe("按用途指定模型（项目层）", () => {
+    const CANDIDATES = {
+      image: {
+        default: ["gemini/nano-banana", "openai/gpt-image-edit"],
+        buckets: {
+          t2i: ["gemini/nano-banana"],
+          i2i: ["gemini/nano-banana", "openai/gpt-image-edit"],
+        },
+      },
+      video: {
+        default: ["gemini/veo-3", "ark/seedance"],
+        buckets: { i2v: ["gemini/veo-3"], r2v: ["ark/seedance"] },
+      },
+      provider_names: {},
+    };
+
+    function renderWithCandidates(
+      overrides: Partial<ComponentProps<typeof ModelConfigSection>> = {},
+    ) {
+      return render(
+        <ModelConfigSection
+          value={EMPTY_VALUE}
+          onChange={() => {}}
+          providers={PROVIDERS}
+          options={OPTIONS}
+          candidates={CANDIDATES}
+          globalDefaults={EMPTY_GLOBALS}
+          {...overrides}
+        />,
+      );
+    }
+
+    it("collapses the sub-fields by default and names each row after its generation path", async () => {
+      const user = userEvent.setup();
+      const { container } = renderWithCandidates();
+      // 三个媒体各一个折叠区，初始收起
+      const sections = Array.from(container.querySelectorAll("details"));
+      expect(sections).toHaveLength(3);
+      expect(sections.every((d) => !d.open)).toBe(true);
+
+      for (const summary of screen.getAllByText("按用途指定模型")) {
+        await user.click(summary);
+      }
+      for (const name of ["图生视频", "参考生视频", "文生图", "图生图", "简单任务", "复杂任务"]) {
+        expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
+      }
+      // 界面文案不出现内部术语
+      expect(container.textContent).not.toMatch(/能力桶|capability bucket/i);
+    });
+
+    it("feeds each sub-field from its own filtered candidate list while the default layer stays unfiltered", async () => {
+      const user = userEvent.setup();
+      renderWithCandidates();
+      await user.click(screen.getAllByText("按用途指定模型")[0]);
+
+      // 默认层不过滤：两个视频模型都在
+      await user.click(screen.getByRole("combobox", { name: "默认视频模型" }));
+      expect(screen.getByRole("option", { name: /veo-3/ })).toBeInTheDocument();
+      expect(screen.getByRole("option", { name: /seedance/ })).toBeInTheDocument();
+      await user.keyboard("{Escape}");
+
+      // 图生视频桶只列 i2v 候选
+      await user.click(screen.getByRole("combobox", { name: "图生视频" }));
+      expect(screen.getByRole("option", { name: /veo-3/ })).toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: /seedance/ })).not.toBeInTheDocument();
+    });
+
+    it("lets the project default model win over every global layer in the placeholder", async () => {
+      const user = userEvent.setup();
+      renderWithCandidates({
+        value: { ...EMPTY_VALUE, videoBackend: "gemini/veo-3" },
+        globalDefaults: { ...EMPTY_GLOBALS, video: "ark/seedance", videoR2V: "ark/seedance" },
+      });
+      await user.click(screen.getAllByText("按用途指定模型")[0]);
+      expect(screen.getByRole("combobox", { name: "图生视频" })).toHaveTextContent(
+        /跟随默认 · Gemini · veo-3/,
+      );
+    });
+
+    it("falls through to the global bucket, then the global default, when the project layer is empty", async () => {
+      const user = userEvent.setup();
+      renderWithCandidates({
+        globalDefaults: { ...EMPTY_GLOBALS, video: "gemini/veo-3", videoR2V: "ark/seedance" },
+      });
+      await user.click(screen.getAllByText("按用途指定模型")[0]);
+      // r2v 有全局桶 → 用桶值；i2v 无 → 落到全局默认模型
+      expect(screen.getByRole("combobox", { name: "参考生视频" })).toHaveTextContent(
+        /跟随默认 · Ark · seedance/,
+      );
+      expect(screen.getByRole("combobox", { name: "图生视频" })).toHaveTextContent(
+        /跟随默认 · Gemini · veo-3/,
+      );
+    });
+
+    it("auto-expands and counts sub-fields that already carry a value", () => {
+      const { container } = renderWithCandidates({
+        value: { ...EMPTY_VALUE, videoProviderR2V: "ark/seedance" },
+      });
+      const videoSection = container.querySelector("details");
+      expect(videoSection?.open).toBe(true);
+      expect(screen.getByText("已指定 1 项")).toBeInTheDocument();
+    });
   });
 
   it("renders duration buttons based on supported_durations of current video backend", () => {
@@ -110,7 +224,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     expect(screen.getByRole("radio", { name: "4 秒" })).toBeInTheDocument();
@@ -124,7 +238,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     expect(screen.getByRole("radio", { name: "5 秒" })).toBeInTheDocument();
@@ -142,7 +256,7 @@ describe("ModelConfigSection", () => {
         onChange={onChange}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     // Open the video backend dropdown
@@ -169,7 +283,7 @@ describe("ModelConfigSection", () => {
         onChange={onChange}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     const videoTrigger = screen.getByRole("combobox", { name: /视频模型/ });
@@ -192,7 +306,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     // 无 projectName（全局设置场景）：档位直接取目录端点的服务端派生值，前端不再自行推导。
@@ -208,7 +322,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     const videoTrigger = screen.getByRole("combobox", { name: /视频模型/ });
@@ -223,14 +337,13 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
         enable={{ video: false }}
       />,
     );
     // No combobox for video model should be visible
     expect(screen.queryByRole("combobox", { name: /视频模型/ })).not.toBeInTheDocument();
-    // 单下拉模式下 image card 主下拉 label 是「图片模型」（不是「文生图」/「图生图」）
-    expect(screen.getByRole("combobox", { name: /^图片模型$/ })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /^默认图片模型$/ })).toBeInTheDocument();
   });
 
   it("falls back to globalDefaults.video supported_durations when videoBackend is empty (bug repro)", () => {
@@ -240,14 +353,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{
-          video: "ark/seedance",
-          imageT2I: "",
-          imageI2I: "",
-          textDefault: "",
-          textSimple: "",
-          textComplex: "",
-        }}
+        globalDefaults={{ ...EMPTY_GLOBALS, video: "ark/seedance" }}
       />,
     );
     // Should reflect ark/seedance's supported_durations [5, 8, 10]
@@ -266,7 +372,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     // 不再 fallback 到 [4,6,8] —— 整个时长卡片不渲染
@@ -307,7 +413,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={continuousProviders}
         options={{ ...OPTIONS, videoBackends: ["ark/seedance"] }}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     // 连续区间 → slider，不再有按钮组（除 auto + slider 自身的 radio）
@@ -322,7 +428,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={{ ...OPTIONS, videoBackends: ["unknown/no-such"] }}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     expect(screen.queryByRole("slider")).not.toBeInTheDocument();
@@ -336,7 +442,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     expect(screen.getByRole("radio", { name: "auto" })).toHaveAttribute("aria-checked", "true");
@@ -349,7 +455,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     expect(screen.getByRole("radio", { name: "6 秒" })).toHaveAttribute("aria-checked", "true");
@@ -365,7 +471,7 @@ describe("ModelConfigSection", () => {
         onChange={onChange}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     await user.click(screen.getByRole("radio", { name: "6 秒" }));
@@ -379,7 +485,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     // 越界提示含失效秒数（10 不在 gemini/veo-3 的 [4,6,8] 内）
@@ -403,7 +509,7 @@ describe("ModelConfigSection", () => {
         onChange={onChange}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     await user.click(screen.getByRole("button", { name: "回退到 auto" }));
@@ -417,7 +523,7 @@ describe("ModelConfigSection", () => {
         onChange={() => {}}
         providers={PROVIDERS}
         options={OPTIONS}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     expect(screen.queryByText(/不再受当前模型支持/)).not.toBeInTheDocument();
@@ -458,7 +564,7 @@ describe("ModelConfigSection", () => {
         onChange={onChange}
         providers={continuousProviders}
         options={{ ...OPTIONS, videoBackends: ["ark/seedance"] }}
-        globalDefaults={{ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "" }}
+        globalDefaults={EMPTY_GLOBALS}
       />,
     );
     // slider 分支：20 不在 [3..15] 内
@@ -509,14 +615,7 @@ describe("ModelConfigSection", () => {
     providerNames: { "gemini-aistudio": "AI Studio" },
   };
 
-  const NO_GLOBAL_DEFAULTS = {
-    video: "",
-    imageT2I: "",
-    imageI2I: "",
-    textDefault: "",
-    textSimple: "",
-    textComplex: "",
-  };
+  const NO_GLOBAL_DEFAULTS = EMPTY_GLOBALS;
 
   function renderVeo(
     overrides: Partial<React.ComponentProps<typeof ModelConfigSection>> & {

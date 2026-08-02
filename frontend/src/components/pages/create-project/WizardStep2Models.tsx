@@ -16,6 +16,9 @@ export interface WizardStep2Data {
   customProviders: CustomProviderInfo[];
   globalDefaults: {
     video: string;
+    videoI2V: string;
+    videoR2V: string;
+    image: string;
     imageT2I: string;
     imageI2I: string;
     textDefault: string;
@@ -69,6 +72,7 @@ export function WizardStep2Models({
           <p className="mt-1.5 text-[12.5px] text-text-2">{error}</p>
         </div>
       )}
+      {/* 不传 candidates：创建向导只暴露默认层（docs/adr/0054），按用途细分留给项目设置页 */}
       {data && (
         <ModelConfigSection
           value={value}

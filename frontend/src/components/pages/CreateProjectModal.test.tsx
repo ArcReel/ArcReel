@@ -141,8 +141,7 @@ describe("CreateProjectModal", () => {
         generation_mode: "storyboard",
         style_template_id: "live_premium_drama",
         video_backend: null,
-        image_provider_t2i: null,
-        image_provider_i2i: null,
+        default_image_backend: null,
         default_duration: null,
       })
     );
