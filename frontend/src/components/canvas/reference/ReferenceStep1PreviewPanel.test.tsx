@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { ReferenceStep1PreviewPanel } from "./ReferenceStep1PreviewPanel";
 import type { MentionLookup } from "@/hooks/useShotPromptHighlight";
 import type { ReferenceStep1Draft, ScriptReviewState } from "@/types";
@@ -69,6 +70,9 @@ describe("ReferenceStep1PreviewPanel", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
+    // 确认后的全局副作用（toast + 预填）只在「用户仍在看这个项目」时才生效，测试渲染面板时
+    // 用的 projectName="p"，需要同步告诉 store 当前正在看的就是它。
+    useProjectsStore.setState({ currentProjectName: "p" });
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -95,6 +99,53 @@ describe("ReferenceStep1PreviewPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /确认拆分，继续生成/ }));
 
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1));
+    await waitFor(() => expect(useAssistantStore.getState().input).toContain("第 1 集"));
+    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+  });
+
+  it("suppresses the confirm toast/prefill if the user has switched to a different project mid-request", async () => {
+    useAppStore.setState({ assistantPanelOpen: false });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    let resolveConfirm: (value: ScriptReviewState) => void = () => {};
+    vi.spyOn(API, "confirmScriptReview").mockReturnValue(
+      new Promise((resolve) => {
+        resolveConfirm = resolve;
+      }),
+    );
+
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    fireEvent.click(await screen.findByRole("button", { name: /确认拆分，继续生成/ }));
+
+    // 确认请求在途时用户切到了另一个项目（本组件所在的 tab 可能因此被卸载，但即使还挂载着
+    // 也不该再写全局副作用）。
+    useProjectsStore.setState({ currentProjectName: "other-project" });
+    resolveConfirm(pendingState({ status: "confirmed", quarantine: null }));
+
+    // adopt() 运行在守卫之前，确认本身已生效——用按钮态的变化确认异步流程真的跑完了，
+    // 而不是靠一个从始至终都为空的断言碰巧「通过」。
+    await waitFor(() => expect(screen.getByRole("button", { name: "已确认" })).toBeDisabled());
+    expect(useAssistantStore.getState().input).toBe("");
+    expect(useAppStore.getState().toast).toBeNull();
+    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
+  });
+
+  it("still shows the confirm toast/prefill after switching tabs within the same project", async () => {
+    // 同项目内切 tab（本组件会被卸载，但 useProjectsStore.currentProjectName 不变）不该被
+    // 当成「切走了」而抑制全局副作用——预填文案本身带着具体集号，写进全局输入框依然准确。
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    let resolveConfirm: (value: ScriptReviewState) => void = () => {};
+    vi.spyOn(API, "confirmScriptReview").mockReturnValue(
+      new Promise((resolve) => {
+        resolveConfirm = resolve;
+      }),
+    );
+
+    const { unmount } = render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    fireEvent.click(await screen.findByRole("button", { name: /确认拆分，继续生成/ }));
+
+    unmount();
+    resolveConfirm(pendingState({ status: "confirmed", quarantine: null }));
+
     await waitFor(() => expect(useAssistantStore.getState().input).toContain("第 1 集"));
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
   });

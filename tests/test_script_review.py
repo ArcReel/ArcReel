@@ -394,13 +394,46 @@ class TestReferenceVideoGateFlow:
         assert tiers == {"with_references": [8], "without_references": [8]}
 
     @pytest.mark.integration
-    async def test_reference_duration_tiers_none_when_model_unresolved(self, tmp_path):
-        """项目未配置可解析的档位表来源（既无 ``_supported_durations`` 也无注册表身份）时为
-        None，呈现层退回未收窄的 ``supported_durations``（同 clamp 的回退口径）。
+    async def test_reference_duration_tiers_none_when_caps_and_raw_both_unresolved(self, tmp_path, monkeypatch):
+        """caps 解析失败、且 ``_supported_durations`` 与 registry 身份都拿不到时为 None，
+        呈现层退回未收窄的 ``supported_durations``（同 clamp 的回退口径）。
+
+        项目完全未配置视频型号也不代表 caps 会失败——``resolve_video_caps`` 内部的
+        ``ConfigResolver`` 有自己的系统级默认模型回退，多数「未配置」项目其实仍解析得到
+        caps（见 ``test_reference_duration_tiers_uses_caps_for_custom_provider`` 的姊妹场景）。
+        这里显式让 caps 解析异常，模拟两条来源都失效的真正拿不到档位表的情形。
         """
+        from server.services import script_review as mod
+
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
+
+        async def _raise(_project):
+            raise RuntimeError("video_capabilities backend unreachable")
+
+        monkeypatch.setattr(mod, "resolve_video_caps", _raise)
         assert await svc.get_reference_duration_tiers("demo") is None
+
+    @pytest.mark.integration
+    async def test_reference_duration_tiers_uses_caps_for_custom_provider(self, tmp_path, monkeypatch):
+        """自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``、也不落
+        ``_supported_durations``：档位表唯一来源是 caps（DB 驱动的能力查询）。caps 必须先于
+        ``resolve_raw_supported_durations`` 解析，否则 raw 会因取不到而提前返回 None，
+        永远不会用上 caps 本能给出的答案。
+        """
+        from server.services import script_review as mod
+
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+
+        async def _fake_caps(_project):
+            return {"provider_id": "custom-acme", "model": "acme-video", "supported_durations": [5, 10]}
+
+        monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+        tiers = await svc.get_reference_duration_tiers("demo")
+        # 自定义供应商不在 registry，reference_unit_duration_tiers 查不到联动约束，两套档位
+        # 都退回 caps 给出的原始集合。
+        assert tiers == {"with_references": [5, 10], "without_references": [5, 10]}
 
 
 class TestReferenceVideoStep1Migration:

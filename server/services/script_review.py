@@ -254,16 +254,23 @@ class ScriptReviewService:
         的存量秒数误判非法；这里单独给下拉提供收窄后的可选项，同一把尺来自
         ``reference_unit_duration_tiers``（拆分工具校验用的同一份）。无法解析到型号时返回
         None，呈现层退回未收窄的 ``supported_durations``。
+
+        caps 先解析：``resolve_raw_supported_durations`` 的三级回退链（caps → project.json
+        ``_supported_durations`` → registry）里，registry 那一级查不到自定义供应商（``custom-``
+        前缀不在 ``PROVIDER_REGISTRY``），存量项目也不落 ``_supported_durations``——caps 是
+        自定义供应商唯一能拿到时长表的来源（DB 驱动的能力查询）。caps 若排在 raw 之后解析，
+        自定义供应商项目会在 caps 都没试就因 raw 为 None 提前退出，面板退回只读秒数、越档
+        校验也随之失效，即便 caps 原本能给出正确答案。
         """
         project = self.pm.load_project(project_name)
-        raw = resolve_raw_supported_durations(project)
-        if raw is None:
-            return None
         try:
             caps = await resolve_video_caps(project)
         except Exception as exc:  # noqa: BLE001 - best-effort：解析失败时收窄回退为不收窄，不阻塞面板
             logger.warning("video_capabilities 解析异常，时长档下拉退回未收窄集合 project=%s：%s", project_name, exc)
             caps = {}
+        raw = resolve_raw_supported_durations(project, caps)
+        if raw is None:
+            return None
         with_refs, without_refs = reference_unit_duration_tiers(project, caps, raw)
         return {"with_references": sorted(set(with_refs)), "without_references": sorted(set(without_refs))}
 

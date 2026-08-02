@@ -13,6 +13,7 @@ import type {
 } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { voidPromise } from "@/utils/async";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
@@ -239,6 +240,9 @@ function UnitCard({
   const hasViolation = violations.anchorSource.length + violations.byLine.size + violations.aggregate.length > 0;
   const anchorBroken = violations.anchorSource.length > 0;
   const stats = useMemo(() => unitStats(unit.scriptText, lookup), [unit.scriptText, lookup]);
+  // 参考图 pills 按当前正文实时派生，不用 unit.references——那是服务端上一次落盘时派生的，
+  // 编辑期加/删/改 @[名称] 引用后要保存才更新，用户在改的当下会看到一份对不上正文的旧列表。
+  const references = useMemo(() => deriveDisplayReferences(unit.scriptText, lookup), [unit.scriptText, lookup]);
   // 档位表解析不到、或内容不可编辑（隔离草稿）时退回只读秒数：能选的档位必须是保存后
   // 后端收编不会再改的那一档，拿不到权威档位表就不提供会被静默改掉的选择。
   const durationOptions = onDurationChange && supportedDurations?.length ? supportedDurations : null;
@@ -345,7 +349,7 @@ function UnitCard({
 
       <div className="mt-3 flex items-center gap-2 border-t border-hairline-soft pt-2.5">
         <span className="font-mono text-[10px] tracking-[0.08em] text-text-4">{t("reference_step1_references_label")}</span>
-        <ReferencePills references={unit.references} />
+        <ReferencePills references={references} />
       </div>
 
       {quarantined && hasViolation && (
@@ -396,15 +400,6 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     dirtyRef.current = dirty;
   }, [dirty]);
 
-  // 组件整个生命周期的取消信号：确认动作的 await 断点跨越保存 + 确认两次请求，用户可能在
-  // 途中切走项目 / 剧集（组件卸载）。卸载后不再写全局 assistant 输入框 —— 否则残留的续写
-  // 消息会写进用户切换到的新项目/会话的输入框。用 state（非 ref）持有：事件处理器闭包读取
-  // ref.current 会被 react-hooks/refs 判定为「可能在渲染期读取」，state 值本身不受此限制，
-  // 且这里只需要它在挂载期内保持同一个实例，不需要写路径绕过渲染的能力。
-  const [lifecycleAbort] = useState(() => new AbortController());
-  useEffect(() => {
-    return () => lifecycleAbort.abort();
-  }, [lifecycleAbort]);
 
   const adopt = useCallback((next: ScriptReviewState) => {
     setState(next);
@@ -492,9 +487,11 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         adopt(await API.saveScriptReviewContent(projectName, episode, draft));
       }
       adopt(await API.confirmScriptReview(projectName, episode));
-      // 两次 await 期间用户可能已切走项目/剧集（本组件已卸载）：不再写全局 assistant 输入框，
-      // 那会把这条续写消息写进用户切换到的新上下文里。
-      if (lifecycleAbort.signal.aborted) return;
+      // 两次 await 期间用户可能已切走项目（本组件所在的 tab 可能因此被卸载）：只在项目本身
+      // 变了才抑制全局副作用，否则会把续写消息写进用户切换到的别的项目/会话。同项目内切
+      // tab（如切到「视频单元」，本面板同样会被卸载）不属于这种情况——预填文案本身带着具体
+      // 集号，写进全局 assistant 输入框依然准确，不该被同一份卸载信号误伤。
+      if (useProjectsStore.getState().currentProjectName !== projectName) return;
       pushToast(t("dashboard:review_confirmed"), "success");
       // 确认放行 + 预填继续消息到会话输入框——只填不发送，用户自行核对后发送。
       useAssistantStore.getState().setInput(t("reference_step1_confirm_continue_prefill", { episode }));
@@ -504,7 +501,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     } finally {
       setConfirming(false);
     }
-  }, [dirty, draft, projectName, episode, adopt, pushToast, t, lifecycleAbort]);
+  }, [dirty, draft, projectName, episode, adopt, pushToast, t]);
 
   const handleRequestFix = useCallback(() => {
     const violations = state?.quarantine?.violations ?? [];
