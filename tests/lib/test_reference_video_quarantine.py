@@ -57,7 +57,12 @@ class TestEnvelope:
         assert draft.episode == 3
         assert draft.content == {"units": [{"text": "镜头1：门开了"}]}
         assert draft.violations == [
-            {"code": "unregistered_asset", "label": "unit E1U01", "message": "unit E1U01 引用了未登记的资产名"}
+            {
+                "code": "unregistered_asset",
+                "label": "unit E1U01",
+                "message": "unit E1U01 引用了未登记的资产名",
+                "line": None,
+            }
         ]
         assert draft.meta == {"source": "source/episode_3.txt"}
 
@@ -153,7 +158,7 @@ class TestReport:
 
     def test_entries_carry_class_and_locator(self):
         assert violation_entries([_violation("blank_shot", "unit E2U07")]) == [
-            {"code": "blank_shot", "label": "unit E2U07", "message": "unit E2U07 引用了未登记的资产名"}
+            {"code": "blank_shot", "label": "unit E2U07", "message": "unit E2U07 引用了未登记的资产名", "line": None}
         ]
 
 

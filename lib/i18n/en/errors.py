@@ -103,6 +103,9 @@ MESSAGES = {
         "This episode has a rejected Step 1 draft awaiting repair; let the agent fix and promote it before confirming"
     ),
     "script_review_invalid_content": "Step 1 draft structure validation failed: {details}",
+    "script_review_quarantine_unreadable": (
+        "The quarantined draft file is corrupted or malformed and can't be read; ask the agent to re-split this episode"
+    ),
     "draft_event_label": "Episode {episode} {label_prefix}",
     "normalized_script": "Normalized Script",
     "segment_splitting": "Segment Splitting",

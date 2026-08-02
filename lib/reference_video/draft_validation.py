@@ -46,12 +46,18 @@ class DraftViolation(ValueError):
     ``code`` 是违约类的机读标识，``label`` 是 unit 定位（``unit E1U02`` 一类的前缀）：消息本身
     面向 agent、措辞可改，报告的分组与测试的按类断言不该挂在措辞上。两者均可为空——异常在
     模块外被构造时（如生成侧对镜头数对账的补充判定）只有消息。
+
+    ``line`` 是该 unit 正文内 0-based 的原始行号（``text.splitlines()`` 坐标系，与前端
+    ``toScriptLines`` 的 ``sourceLine`` 同一坐标系），仅在校验发生于具体某一行时才有意义
+    （如语法误用）；unit 级、无自然行归属的违约（缺台词量超载、引用未登记等）留空，供
+    呈现层区分「行内锚定」与「落卡内聚合区」两条路径。
     """
 
-    def __init__(self, message: str, *, code: str = "", label: str = ""):
+    def __init__(self, message: str, *, code: str = "", label: str = "", line: int | None = None):
         super().__init__(message)
         self.code = code
         self.label = label
+        self.line = line
 
 
 class DraftViolations(DraftViolation):
@@ -160,13 +166,14 @@ def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> No
     派生成参考图、坏 token 原样进供应商请求。机器产物没有作者意图可保护，一律在语法判定处
     响亮拒绝，不静默、也不代模型改写。
     """
-    for line in _content_lines(text):
+    for idx, line in enumerate(_content_lines(text)):
         if any(ch in line for ch in _FULLWIDTH_BRACES):
             raise DraftViolation(
                 f"{label} 使用了全角花括号：{line.strip()[:40]!r}；"
                 "台词与画外音的花括号必须是半角 `{}`，全角形不会被识别为台词行",
                 code="fullwidth_braces",
                 label=label,
+                line=idx,
             )
         malformed = find_malformed_mention(line)
         if malformed is not None:
@@ -176,6 +183,7 @@ def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> No
                 "又会原样进入视频请求",
                 code="malformed_mention",
                 label=label,
+                line=idx,
             )
         is_dialogue = match_dialogue_line(line) is not None
         # 只有登记角色 + 冒号才判成写坏的台词：场景 / 道具做小标题（``@[酒馆]：木门被风吹开``）
@@ -187,6 +195,7 @@ def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> No
                 "否则这行会被当成画面描述、台词整句丢失",
                 code="dialogue_line_syntax",
                 label=label,
+                line=idx,
             )
         if "{" not in line and "}" not in line:
             continue
@@ -194,12 +203,13 @@ def _assert_line_syntax(label: str, text: str, characters: dict[str, Any]) -> No
             continue
         excerpt = line.strip()[:40]
         if line.count("{") != line.count("}"):
-            raise DraftViolation(f"{label} 有未闭合的花括号：{excerpt!r}", code="unclosed_brace", label=label)
+            raise DraftViolation(f"{label} 有未闭合的花括号：{excerpt!r}", code="unclosed_brace", label=label, line=idx)
         raise DraftViolation(
             f"{label} 在画面描述行里使用了花括号：{excerpt!r}；"
             "花括号是台词保留语法，台词须独立成行写作 `@[角色]：{台词}` 或 `{画外音}`",
             code="braces_in_description",
             label=label,
+            line=idx,
         )
 
 

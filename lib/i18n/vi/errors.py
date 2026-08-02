@@ -103,6 +103,9 @@ MESSAGES = {
         "Tập này có bản nháp Step 1 vi phạm đang chờ xử lý; hãy để tác nhân sửa và thăng cấp trước khi xác nhận"
     ),
     "script_review_invalid_content": "Xác thực cấu trúc bản nháp Step 1 thất bại: {details}",
+    "script_review_quarantine_unreadable": (
+        "Tệp bản nháp bị cách ly đã hỏng hoặc sai định dạng, không thể đọc được; hãy để tác nhân chia lại tập này"
+    ),
     "draft_event_label": "Tập {episode} {label_prefix}",
     "normalized_script": "Kịch bản đã chuẩn hóa",
     "segment_splitting": "Chia đoạn",

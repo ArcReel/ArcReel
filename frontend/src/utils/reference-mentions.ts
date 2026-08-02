@@ -76,6 +76,14 @@ export const SHOT_HEADER_PREFIX_RE = /^\s*镜头\s*\p{Nd}+\s*[:：]\s*/u;
 /** 同上，但不吃行首空白——高亮分词按原样切 token，缩进须留在 text token 里才能拼回原文。 */
 export const SHOT_HEADER_RE = /^镜头\s*\p{Nd}+\s*[:：]\s*/u;
 
+/**
+ * 结构化 `shots[]` 拼回可显示脚本时的 header 写法（`shotIndex` 1-based）。与上面两个 RE
+ * 同处，免得 header 语法在识别侧与生成侧各写一份而漂移。这是文稿语法而非界面文案，不 i18n。
+ */
+export function formatShotHeader(shotIndex: number): string {
+  return `镜头${shotIndex}：`;
+}
+
 /** Bare `{台词}` line = voiceover. Mirrors `shot_parser.py:match_voiceover_line`. */
 const VOICEOVER_LINE_RE = /^\s*\{([^{}]*)\}\s*$/;
 

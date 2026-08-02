@@ -394,8 +394,8 @@ describe("ReferenceVideoCanvas", () => {
   });
 
   // preproc 入口从二级页面跳转改为主 tab 切换；切到拆分预处理 tab 后 UnitList 被隐藏，
-  // step1 审核 gate（ScriptReviewGate，contentMode=reference_video）inline 渲染。
-  it("inline-renders the step1 review gate via the main tab", async () => {
+  // step1 按集预览面板（ReferenceStep1PreviewPanel）inline 渲染。
+  it("inline-renders the step1 preview panel via the main tab", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1"), mkUnit("E1U2")],
     });
@@ -405,16 +405,19 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
-      content: { units: [{ unit_id: "E1U1", shots: [{ text: "shot text" }], references: [], duration_seconds: 5 }] },
+      quarantine: null,
+      supported_durations: null,
+      duration_tiers: null,
+      content: { units: [{ unit_id: "E1U1", shots: [{ text: "shot text" }], references: [], duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
     const preprocTab = screen.getByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
     fireEvent.click(preprocTab);
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
-    // UnitList 被隐藏，改由 gate 渲染 step1 结构化中间态（shot 文本进入可编辑 textarea）
+    // UnitList 被隐藏，改由预览面板渲染 step1 结构化中间态（只读高亮文稿）
     expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByDisplayValue("shot text")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("shot text")).toBeInTheDocument());
   });
 
   // step2 剧本未生成时（仅 segmented）units 端点无脚本可拆、会 404：默认落 preproc tab
@@ -427,12 +430,15 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
-      content: { units: [{ unit_id: "E1U1", shots: [{ text: "shot text" }], references: [], duration_seconds: 5 }] },
+      quarantine: null,
+      supported_durations: null,
+      duration_tiers: null,
+      content: { units: [{ unit_id: "E1U1", shots: [{ text: "shot text" }], references: [], duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
     const preprocTab = await screen.findByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
-    await waitFor(() => expect(screen.getByDisplayValue("shot text")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("shot text")).toBeInTheDocument());
     expect(listSpy).not.toHaveBeenCalled();
   });
 
@@ -444,6 +450,9 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
+      quarantine: null,
+      supported_durations: null,
+      duration_tiers: null,
       content: { units: [] },
     });
     const { rerender } = render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);

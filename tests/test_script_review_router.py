@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -159,12 +160,15 @@ class TestReferenceVideoRouter:
         with client:
             base = "/api/v1/projects/demo/episodes/1/script-review"
 
-            assert client.get(base).json()["status"] == "no_step1"
+            no_step1_body = client.get(base).json()
+            assert no_step1_body["status"] == "no_step1"
+            assert no_step1_body["quarantine"] is None
 
             _write_rv_step1(pm, _rv_step1())
             body = client.get(base).json()
             assert body["status"] == "pending_review"
             assert body["content"]["units"][0]["unit_id"] == "E1U01"
+            assert body["quarantine"] is None
             assert script_review.gate_blocks_step2(pm.get_project_path("demo"), pm.load_project("demo"), 1) is True
 
             # 编辑 shot 文本 → 重新待审
@@ -178,3 +182,342 @@ class TestReferenceVideoRouter:
             assert confirmed.status_code == 200
             assert confirmed.json()["status"] == "confirmed"
             assert script_review.gate_blocks_step2(pm.get_project_path("demo"), pm.load_project("demo"), 1) is False
+
+    def test_quarantine_surfaced_with_recomputed_line_anchored_violations(self, tmp_path, monkeypatch):
+        """隔离草稿在场时 GET 附带 ``quarantine`` 字段：违约按产出时那套校验器读时重算，
+        不信任草稿里上一轮的快照（这里把快照消息故意写成 "stale" 来验证）。"""
+        from lib.reference_video.draft_validation import DraftViolation
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from server.agent_runtime.sdk_tools import text_generation as mod
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        novel = "阿离站在屋檐下。"
+        (project_path / "source").mkdir(parents=True, exist_ok=True)
+        (project_path / "source" / "episode_1.txt").write_text(novel, encoding="utf-8")
+
+        async def _fake_caps(_project):
+            return mod.ReferenceSplitCaps(
+                default_duration=4,
+                durations=[4, 6, 8],
+                reference_durations=[4, 6, 8],
+                text_durations=[4, 6, 8],
+                max_duration=8,
+                max_refs=3,
+                raw={},
+            )
+
+        monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _fake_caps)
+
+        flat_units = [{"duration_seconds": 4, "source_text": novel, "text": "镜头1：门开了\n@[阿离]：｛我来了。｝"}]
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": flat_units},
+            violations=[DraftViolation("stale", code="fullwidth_braces", label="unit E1U01", line=1)],
+            meta={"source": "source/episode_1.txt"},
+        )
+
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            body = client.get(base).json()
+            assert body["status"] == "pending_review"
+            assert body["quarantine"] is not None
+            violations = body["quarantine"]["violations"]
+            assert len(violations) == 1
+            assert violations[0]["code"] == "fullwidth_braces"
+            assert violations[0]["line"] == 1
+            assert violations[0]["message"] != "stale"
+
+            # 隔离草稿在场时确认被拒：正式 step1 还没有一份可放行的内容。
+            confirmed = client.post(f"{base}/confirm")
+            assert confirmed.status_code == 409
+
+    def test_quarantine_schema_invalid_keeps_raw_content(self, tmp_path, monkeypatch):
+        """草稿 units 被改成非数组：违约报 schema_invalid，``content`` 原样回传（不做收编），
+        呈现层据此退回原始文本视图而非当作 units 列表遍历。"""
+        from lib.reference_video.draft_validation import DraftViolation
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from server.agent_runtime.sdk_tools import text_generation as mod
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        (project_path / "source").mkdir(parents=True, exist_ok=True)
+        (project_path / "source" / "episode_1.txt").write_text("阿离站在屋檐下。", encoding="utf-8")
+
+        async def _fake_caps(_project):
+            return mod.ReferenceSplitCaps(
+                default_duration=4,
+                durations=[4, 6, 8],
+                reference_durations=[4, 6, 8],
+                text_durations=[4, 6, 8],
+                max_duration=8,
+                max_refs=3,
+                raw={},
+            )
+
+        monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _fake_caps)
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": "被改坏了"},
+            violations=[DraftViolation("stale", code="schema_invalid")],
+            meta={"source": "source/episode_1.txt"},
+        )
+
+        with client:
+            body = client.get("/api/v1/projects/demo/episodes/1/script-review").json()
+            quarantine = body["quarantine"]
+            assert quarantine["content"] == {"units": "被改坏了"}
+            assert [v["code"] for v in quarantine["violations"]] == ["schema_invalid"]
+            assert quarantine["violations"][0]["message"] != "stale"
+
+    def test_quarantine_meta_broken_reports_recompute_failure_not_snapshot(self, tmp_path, monkeypatch):
+        """``meta.source`` 缺失 → 无从重算：报「无法重算」本身，而不是退回草稿里那份上一轮
+        快照——报告一律对现值负责。"""
+        from lib.reference_video.draft_validation import DraftViolation
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        write_quarantine(
+            pm.get_project_path("demo"),
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": [{"duration_seconds": 4, "source_text": "原文", "text": "镜头1：门开了"}]},
+            violations=[DraftViolation("stale", code="fullwidth_braces", label="unit E1U01", line=1)],
+            meta={},
+        )
+
+        with client:
+            body = client.get("/api/v1/projects/demo/episodes/1/script-review").json()
+            violations = body["quarantine"]["violations"]
+            assert [v["code"] for v in violations] == ["quarantine_unreadable"]
+            assert "stale" not in violations[0]["message"]
+            assert violations[0]["label"] == ""
+
+    def test_supported_durations_exposed_for_reference_video_only(self, tmp_path, monkeypatch):
+        """rv 变体的 GET 带出档位表供 web 渲染时长选择；drama 变体下为 None。"""
+        rv_client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        with rv_client:
+            _write_rv_step1(pm, _rv_step1())
+            body = rv_client.get("/api/v1/projects/demo/episodes/1/script-review").json()
+            durations = body["supported_durations"]
+            assert durations is None or (isinstance(durations, list) and all(isinstance(d, int) for d in durations))
+            # duration_tiers 字段始终存在（未收窄或无法解析型号时为 None），供前端区分「未收窄
+            # 全集」与「收窄后的逐 unit 生效档位」——不能靠 KeyError 兜底。
+            assert "duration_tiers" in body
+
+        drama_client, drama_pm = _client(monkeypatch, tmp_path / "drama")
+        with drama_client:
+            _write_step1(drama_pm, _drama_step1())
+            body = drama_client.get("/api/v1/projects/demo/episodes/1/script-review").json()
+            assert body["supported_durations"] is None
+            assert body["duration_tiers"] is None
+
+    @pytest.mark.integration
+    def test_quarantine_corrupted_envelope_reported_not_treated_as_clean(self, tmp_path, monkeypatch):
+        """隔离草稿文件存在但信封本身损坏（非法 JSON）：``read_quarantine`` 按其自身读取口径
+        返回 None，但 GET 响应不能把这等同于「无隔离草稿」——那会让面板显示干净态、放行确认，
+        而 confirm() 仍会按文件存在性 409（用户点确认却总是失败，且看不到任何解释）。
+        """
+        from lib import script_review as lib_script_review
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        _write_rv_step1(pm, _rv_step1())
+
+        quarantine_path = lib_script_review.step1_quarantine_path(project_path, pm.load_project("demo"), 1)
+        quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+        quarantine_path.write_text("{ 这不是合法 JSON", encoding="utf-8")
+
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            body = client.get(base).json()
+            quarantine = body["quarantine"]
+            assert quarantine is not None
+            assert quarantine["content"] is None
+            assert [v["code"] for v in quarantine["violations"]] == ["quarantine_unreadable"]
+
+            confirmed = client.post(f"{base}/confirm")
+            assert confirmed.status_code == 409
+
+    @pytest.mark.integration
+    def test_quarantine_cleared_between_existence_check_and_read_is_not_reported_as_corrupted(
+        self, tmp_path, monkeypatch
+    ):
+        """存在性检查通过之后、``read_quarantine`` 真正读取之前，晋升工具把隔离文件清掉了
+        （正式内容已写入、隔离态合法结束）：这不是信封损坏，这次读跨越了「清除」那一刻，应
+        按「无隔离草稿」处理，不能误报成损坏——那会让刚晋升完成的集看起来还卡在隔离态。"""
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+        from server.services import script_review as mod
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        _write_rv_step1(pm, _rv_step1())
+        quarantine_path = write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
+            violations=[],
+        )
+
+        real_read_quarantine = mod.read_quarantine
+
+        def _read_after_concurrent_clear(*args, **kwargs):
+            # 模拟：本请求的存在性检查已经通过，但真正读取发生前，另一个请求（晋升工具）
+            # 把文件清掉了。
+            quarantine_path.unlink()
+            return real_read_quarantine(*args, **kwargs)
+
+        monkeypatch.setattr(mod, "read_quarantine", _read_after_concurrent_clear)
+
+        with client:
+            body = client.get("/api/v1/projects/demo/episodes/1/script-review").json()
+            assert body["quarantine"] is None
+
+    @pytest.mark.integration
+    def test_quarantine_unreadable_message_localized_by_accept_language(self, tmp_path, monkeypatch):
+        """``quarantine_unreadable`` 违约的 message 走 ``_t`` 按 ``Accept-Language`` 本地化。
+
+        其它违约 code 的 message 是产出时渲染好插值的中文模板，不做本地化；``quarantine_unreadable``
+        是仅有的两处不带插值的固定字符串（隔离草稿信封损坏 / 重算所需的 meta 缺失损坏），本地化
+        改造范围就锁定在这两条。"""
+        from lib import script_review as lib_script_review
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        _write_rv_step1(pm, _rv_step1())
+
+        quarantine_path = lib_script_review.step1_quarantine_path(project_path, pm.load_project("demo"), 1)
+        quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+        quarantine_path.write_text("{ not valid json", encoding="utf-8")
+
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            body = client.get(base, headers={"Accept-Language": "en"}).json()
+            message = body["quarantine"]["violations"][0]["message"]
+            assert message == (
+                "The quarantined draft file is corrupted or malformed and can't be read; "
+                "ask the agent to re-split this episode"
+            )
+
+    @pytest.mark.integration
+    def test_duration_tiers_survive_save_and_confirm_responses(self, tmp_path, monkeypatch):
+        """PUT / confirm 的响应同样带 ``duration_tiers``——它们各自独立调用 ``get_state``，
+        不经过 GET 那次合并；不带的话前端 ``adopt()`` 用保存后的响应覆盖 GET 读到的收窄结果，
+        退回未收窄的 ``supported_durations``，与刚加载时的呈现不一致。"""
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        with client:
+            _write_rv_step1(pm, _rv_step1())
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            get_body = client.get(base).json()
+            assert "duration_tiers" in get_body
+
+            put_body = client.put(f"{base}/content", json=_rv_step1()).json()
+            assert "duration_tiers" in put_body
+
+            confirm_body = client.post(f"{base}/confirm").json()
+            assert "duration_tiers" in confirm_body
+
+    @pytest.mark.integration
+    def test_duration_tiers_populated_for_custom_provider_despite_null_supported_durations(self, tmp_path, monkeypatch):
+        """自定义供应商项目：``get_state`` 的同步 ``supported_durations`` 恒为 None（DB 能力查询
+        拿不到，只有异步 caps 能给出答案），路由不能拿这个字段短路是否调用
+        ``get_reference_duration_tiers``，否则这类项目永远拿不到收窄后的档位表。"""
+        from server.services import script_review as mod
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+
+        async def _fake_caps(_project):
+            return {"provider_id": "custom-acme", "model": "acme-video", "supported_durations": [5, 10]}
+
+        monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+
+        with client:
+            _write_rv_step1(pm, _rv_step1())
+            body = client.get("/api/v1/projects/demo/episodes/1/script-review").json()
+            assert body["supported_durations"] is None
+            assert body["duration_tiers"] == {"with_references": [5, 10], "without_references": [5, 10]}
+
+    @pytest.mark.integration
+    def test_quarantine_with_non_string_meta_source_degrades_gracefully(self, tmp_path, monkeypatch):
+        """隔离草稿信封本身合法，但 ``meta.source`` 被改成非字符串（如数字）：重算链路要把它当作
+        「无法重算」降级，而不是让 ``safe_join`` 内部的 ``TypeError`` 冒穿成未处理的 500——那样
+        用户在最需要看到面板给出修复指引的时刻，看到的反而是一个空白错误页。"""
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
+            violations=[],
+            meta={"source": 12345},
+        )
+
+        with client:
+            resp = client.get("/api/v1/projects/demo/episodes/1/script-review")
+            assert resp.status_code == 200
+            violations = resp.json()["quarantine"]["violations"]
+            assert [v["code"] for v in violations] == ["quarantine_unreadable"]
+
+    @pytest.mark.integration
+    def test_quarantine_with_directory_valued_meta_source_degrades_gracefully(self, tmp_path, monkeypatch):
+        """``meta.source`` 类型正确（字符串）但指向一个目录：``Path.exists()`` 对目录同样为
+        True，直接 ``read_text()`` 会抛 ``IsADirectoryError``——同样要降级成 quarantine_unreadable，
+        不能让这个既不是 ValueError 也不是类型错误的 OSError 子类冒穿成 500。"""
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        (project_path / "source").mkdir(parents=True, exist_ok=True)
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
+            violations=[],
+            meta={"source": "source"},
+        )
+
+        with client:
+            resp = client.get("/api/v1/projects/demo/episodes/1/script-review")
+            assert resp.status_code == 200
+            violations = resp.json()["quarantine"]["violations"]
+            assert [v["code"] for v in violations] == ["quarantine_unreadable"]
+
+    @pytest.mark.integration
+    def test_put_response_includes_quarantine_created_during_the_request(self, tmp_path, monkeypatch):
+        """保存作用于正式草稿，隔离草稿是另一份文件——PUT 响应缺 ``quarantine`` 字段的话，
+        面板 ``adopt()`` 会把它当成「无隔离草稿」而放行确认，即使这份隔离草稿在保存前后一直
+        都在（这里用「保存时隔离草稿已存在」模拟，等价于「保存在途时才产出」的时序）。"""
+        from lib.reference_video.draft_validation import DraftViolation
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        (project_path / "source").mkdir(parents=True, exist_ok=True)
+        (project_path / "source" / "episode_1.txt").write_text("阿离站在屋檐下。", encoding="utf-8")
+        _write_rv_step1(pm, _rv_step1())
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
+            violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
+            meta={"source": "source/episode_1.txt"},
+        )
+
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            put_body = client.put(f"{base}/content", json=_rv_step1()).json()
+            assert put_body["quarantine"] is not None
+            # meta.source 完整、重算能正常跑：断言到的是重算算出的真实违约，不是
+            # meta 缺失时降级出的 quarantine_unreadable 兜底条目。
+            codes = [v["code"] for v in put_body["quarantine"]["violations"]]
+            assert codes and "quarantine_unreadable" not in codes

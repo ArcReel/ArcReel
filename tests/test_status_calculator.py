@@ -158,6 +158,20 @@ class TestStatusCalculator:
         assert status6 == "none"
         assert script6 is None
 
+        # Case 7：reference_video 首次拆分未过校验，只产出隔离草稿、正式 step1_reference_units.json
+        # 从未写过 → 仍要判 ("segmented", None)，否则 web 路由会把这一集送进 EpisodeSourceReview
+        # 而不是挂着隔离态预览面板的 ScriptReviewGate，用户看不到违约详情与修复入口——这恰是隔离
+        # 草稿最常见的产出路径（首轮拆分失败），不能因为「正式文件还没写过」就当没有草稿。
+        draft_dir_rv_quarantine = project_path / "drafts" / "episode_8"
+        draft_dir_rv_quarantine.mkdir(parents=True)
+        (draft_dir_rv_quarantine / "step1_reference_units.invalid.json").write_text('{"units":[]}')
+        calc7 = StatusCalculator(_FakePM(project_root, {}, {}))
+        status7, script7 = calc7._load_episode_script(
+            "demo", 8, "scripts/episode_8.json", generation_mode="reference_video"
+        )
+        assert status7 == "segmented"
+        assert script7 is None
+
     def test_calculate_current_phase_setup(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         project_no_overview = {}

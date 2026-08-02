@@ -5,7 +5,7 @@
  * - lib/script_models.py (NarrationSegment, DramaScene, ImagePrompt, VideoPrompt, etc.)
  */
 
-import type { ReferenceStep1Draft } from "./reference-video";
+import type { ReferenceStep1Draft, ScriptReviewQuarantine } from "./reference-video";
 
 export const SHOT_TYPES = [
   "Extreme Close-up",
@@ -154,7 +154,7 @@ export type ScriptReviewStatus =
   | "pending_review"
   | "confirmed";
 
-/** step1→step2 审核 gate 状态（后端 server/services/script_review.py 的 get_state 响应）。 */
+/** step1→step2 审核 gate 状态（后端 server/routers/script_review.py 的 GET 响应）。 */
 export interface ScriptReviewState {
   episode: number;
   content_mode: string | null;
@@ -162,6 +162,19 @@ export interface ScriptReviewState {
   fingerprint: string | null;
   confirmed_at: string | null;
   content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft | null;
+  /** reference_video 变体、隔离草稿在场时非 null；其余变体恒为 null。 */
+  quarantine: ScriptReviewQuarantine | null;
+  /**
+   * unit 时长可选档位，reference_video 变体才非 null（项目未配置视频型号而解析不到时也为
+   * null，呈现层退回只读秒数）。与后端读时迁移收编所用的是同一份档位表——结构区间全集，不
+   * 含分辨率 / 参考图联动约束。
+   */
+  supported_durations: number[] | null;
+  /**
+   * 按「是否带参考图」收窄后的逐 unit 生效档位，与 step2 落盘前的校验同一把尺；无法解析型号
+   * 时为 null，呈现层退回 `supported_durations` 的未收窄全集。
+   */
+  duration_tiers: { with_references: number[]; without_references: number[] } | null;
 }
 
 export interface Composition {

@@ -77,4 +77,22 @@ describe("ScriptHighlight", () => {
     renderScript("镜头1：@张三 笑着说 {我来了}。");
     expect(screen.getByText(/\{我来了\}/)).toBeTruthy();
   });
+
+  it("calls renderAfterLine once per source line, after the last ScriptLine sharing it", () => {
+    // "镜头1：@[张三]：{我来了}" 是同一物理行、两个 ScriptLine（shot_header + dialogue）；
+    // 回调只应在 sourceLine 0 触发一次，不能在 header 那一行提前触发。
+    const calls: number[] = [];
+    const text = "镜头1：@[张三]：{我来了}\n镜头2：中景。";
+    render(
+      <ScriptHighlight
+        text={text}
+        lookup={LOOKUP}
+        renderAfterLine={(sourceLine) => {
+          calls.push(sourceLine);
+          return null;
+        }}
+      />,
+    );
+    expect(calls).toEqual([0, 1]);
+  });
 });

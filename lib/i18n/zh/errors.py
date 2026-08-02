@@ -101,6 +101,7 @@ MESSAGES = {
     "script_review_no_step1": "尚无 step1 结构化中间态可确认，请先完成预处理",
     "script_review_quarantined": "本集 step1 有违约产物待处置，请让智能体修复并晋升后再确认",
     "script_review_invalid_content": "step1 中间态结构校验失败：{details}",
+    "script_review_quarantine_unreadable": "隔离草稿文件已损坏或格式不符，无法读取，请让智能体重新拆分该集",
     "draft_event_label": "第 {episode} 集{label_prefix}",
     "normalized_script": "规范化剧本",
     "segment_splitting": "片段拆分",

@@ -105,18 +105,24 @@ export function useShotPromptHighlight(text: string, lookup: MentionLookup): Tok
  * `shotIndex` is 1-based throughout: `parse_prompt` folds any lead-in written before
  * the first `镜头N：` header into shot 1 rather than opening a shot of its own, so
  * those lines carry index 1 here too and the first header does not advance past it.
+ *
+ * `sourceLine` is the 0-based raw line index (`splitScriptLines` order — one entry per
+ * physical line), the same coordinate system as the backend's `DraftViolation.line`
+ * (`lib/reference_video/draft_validation.py::_content_lines`). A header line written with
+ * dialogue on the same physical line yields two `ScriptLine`s sharing one `sourceLine` —
+ * callers anchoring a violation to a line should match on `sourceLine`, not array index.
  */
 export type ScriptLine =
-  | { kind: "shot_header"; shotIndex: number; header: string; tokens: Token[] }
-  | { kind: "dialogue"; shotIndex: number; speaker: string; speakerKind: MentionKind; text: string }
-  | { kind: "voiceover"; shotIndex: number; text: string }
-  | { kind: "text"; shotIndex: number; tokens: Token[] };
+  | { kind: "shot_header"; shotIndex: number; sourceLine: number; header: string; tokens: Token[] }
+  | { kind: "dialogue"; shotIndex: number; sourceLine: number; speaker: string; speakerKind: MentionKind; text: string }
+  | { kind: "voiceover"; shotIndex: number; sourceLine: number; text: string }
+  | { kind: "text"; shotIndex: number; sourceLine: number; tokens: Token[] };
 
 export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[] {
   const lines: ScriptLine[] = [];
   let shotIndex = 0;
   let firstHeaderSeen = false;
-  for (const raw of splitScriptLines(text)) {
+  for (const [sourceLine, raw] of splitScriptLines(text).entries()) {
     const trimmed = raw.trim();
     const headerMatch = trimmed.match(SHOT_HEADER_RE);
     if (headerMatch) {
@@ -143,7 +149,7 @@ export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[]
       if (!isUtterance && afterHeader && afterHeader.length > 0) {
         pushMentionTokens(tokens, afterHeader, lookup);
       }
-      lines.push({ kind: "shot_header", shotIndex, header: headerMatch[0].trim(), tokens });
+      lines.push({ kind: "shot_header", shotIndex, sourceLine, header: headerMatch[0].trim(), tokens });
       if (!isUtterance) continue;
     }
 
@@ -151,6 +157,7 @@ export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[]
       lines.push({
         kind: "dialogue",
         shotIndex,
+        sourceLine,
         speaker: dialogue.speaker,
         // Only a registered character can be a speaker — a scene or prop name in the
         // speaker slot reads as unresolved here, matching the backend's warning.
@@ -160,12 +167,12 @@ export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[]
       continue;
     }
     if (voiceover !== null) {
-      lines.push({ kind: "voiceover", shotIndex, text: voiceover });
+      lines.push({ kind: "voiceover", shotIndex, sourceLine, text: voiceover });
       continue;
     }
     const tokens: Token[] = [];
     pushMentionTokens(tokens, raw, lookup);
-    lines.push({ kind: "text", shotIndex, tokens });
+    lines.push({ kind: "text", shotIndex, sourceLine, tokens });
   }
   return lines;
 }

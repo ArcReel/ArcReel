@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { Fragment, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { assetColor } from "@/components/canvas/reference/asset-colors";
 import {
@@ -26,6 +26,15 @@ export interface ScriptHighlightProps {
   /** Asset name → kind, for mention coloring. Memoize to keep tokenization stable. */
   lookup: MentionLookup;
   className?: string;
+  /**
+   * Optional per-line annotation slot (e.g. inline violation callouts). Called once per
+   * raw source line, after the last rendered `ScriptLine` sharing that `sourceLine` — a
+   * shot-header-plus-dialogue physical line yields two `ScriptLine`s, so the callback
+   * fires after the second, not the first, to avoid splitting one physical line in two.
+   * Stays domain-agnostic: this component knows nothing about "violations", only where
+   * source lines end.
+   */
+  renderAfterLine?: (sourceLine: number) => ReactNode;
 }
 
 function renderTokens(tokens: Token[], keyPrefix: string) {
@@ -101,14 +110,20 @@ function LineRow({ line, index }: { line: ScriptLine; index: number }) {
   );
 }
 
-export function ScriptHighlight({ text, lookup, className }: ScriptHighlightProps) {
+export function ScriptHighlight({ text, lookup, className, renderAfterLine }: ScriptHighlightProps) {
   const lines = useMemo(() => toScriptLines(text, lookup), [text, lookup]);
 
   return (
     <div className={`font-mono text-[12.5px] leading-6 ${className ?? ""}`}>
-      {lines.map((line, i) => (
-        <LineRow key={i} line={line} index={i} />
-      ))}
+      {lines.map((line, i) => {
+        const isLastOfSourceLine = i === lines.length - 1 || lines[i + 1].sourceLine !== line.sourceLine;
+        return (
+          <Fragment key={i}>
+            <LineRow line={line} index={i} />
+            {isLastOfSourceLine ? renderAfterLine?.(line.sourceLine) : null}
+          </Fragment>
+        );
+      })}
     </div>
   );
 }

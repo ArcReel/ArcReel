@@ -78,8 +78,14 @@ class TestUnitText:
             validate_unit_text("unit E1U01", text, PROJECT, max_refs=None)
 
     def test_unclosed_brace_rejected(self):
-        with pytest.raises(DraftViolation, match="未闭合的花括号"):
+        with pytest.raises(DraftViolation, match="未闭合的花括号") as exc_info:
             validate_unit_text("unit E1U01", "镜头1：@[李明] 说 {我来了", PROJECT, max_refs=None)
+        assert exc_info.value.line == 0
+
+    def test_fullwidth_braces_rejected_carries_line(self):
+        with pytest.raises(DraftViolation, match="全角花括号") as exc_info:
+            validate_unit_text("unit E1U01", "镜头1：门开了\n@[李明]：｛我来了。｝", PROJECT, max_refs=None)
+        assert exc_info.value.line == 1
 
     def test_brace_in_description_line_rejected(self):
         with pytest.raises(DraftViolation, match="画面描述行里使用了花括号"):

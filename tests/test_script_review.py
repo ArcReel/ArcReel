@@ -369,6 +369,88 @@ class TestReferenceVideoGateFlow:
             ("scene", "屋檐"),
         ]
 
+    @pytest.mark.integration
+    async def test_reference_duration_tiers_narrows_raw_set_by_resolution_constraint(self, tmp_path, monkeypatch):
+        """gate 下拉的档位须按分辨率联动约束收窄，与 step2 落盘前的校验同一把尺。
+
+        Veo 3.1 项目未配置分辨率时按兜底档位（1080p）算，该档位只接受 8 秒；不收窄的话
+        get_state 暴露的档位表会让用户选中 4/6 秒，save + confirm 都不拦，直到 step2
+        ``_assert_reference_step1_ready`` 才硬拒——用户已确认过的内容变成付完钱才失败。
+        """
+        from server.services import script_review as mod
+
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video", supported_durations=[4, 6, 8])
+        svc = ScriptReviewService(pm)
+
+        async def _fake_caps(_project):
+            return {
+                "provider_id": "gemini-aistudio",
+                "model": "veo-3.1-generate-preview",
+                "supported_durations": [4, 6, 8],
+            }
+
+        monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+        tiers = await svc.get_reference_duration_tiers("demo", 1)
+        assert tiers == {"with_references": [8], "without_references": [8]}
+
+    @pytest.mark.integration
+    async def test_reference_duration_tiers_none_when_caps_and_raw_both_unresolved(self, tmp_path, monkeypatch):
+        """caps 解析失败、且 ``_supported_durations`` 与 registry 身份都拿不到时为 None，
+        呈现层退回未收窄的 ``supported_durations``（同 clamp 的回退口径）。
+
+        项目完全未配置视频型号也不代表 caps 会失败——``resolve_video_caps`` 内部的
+        ``ConfigResolver`` 有自己的系统级默认模型回退，多数「未配置」项目其实仍解析得到
+        caps（见 ``test_reference_duration_tiers_uses_caps_for_custom_provider`` 的姊妹场景）。
+        这里显式让 caps 解析异常，模拟两条来源都失效的真正拿不到档位表的情形。
+        """
+        from server.services import script_review as mod
+
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+
+        async def _raise(_project):
+            raise RuntimeError("video_capabilities backend unreachable")
+
+        monkeypatch.setattr(mod, "resolve_video_caps", _raise)
+        assert await svc.get_reference_duration_tiers("demo", 1) is None
+
+    @pytest.mark.integration
+    async def test_reference_duration_tiers_none_for_non_reference_video_episode(self, tmp_path, monkeypatch):
+        """非 reference_video 变体不做 caps 解析、直接 None——判据是方法自身的
+        step1_kind，不能靠调用方按 get_state.supported_durations 是否非 None 短路
+        （那个信号对自定义供应商项目恒为 None，会让方法永远没机会跑）。"""
+        from server.services import script_review as mod
+
+        pm = _make_project(tmp_path, "drama")  # generation_mode 缺省，非 reference_video
+        svc = ScriptReviewService(pm)
+
+        async def _fake_caps(_project):
+            return {"provider_id": "custom-acme", "model": "acme-video", "supported_durations": [5, 10]}
+
+        monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+        assert await svc.get_reference_duration_tiers("demo", 1) is None
+
+    @pytest.mark.integration
+    async def test_reference_duration_tiers_uses_caps_for_custom_provider(self, tmp_path, monkeypatch):
+        """自定义供应商（``custom-`` 前缀）不在 ``PROVIDER_REGISTRY``、也不落
+        ``_supported_durations``：档位表唯一来源是 caps（DB 驱动的能力查询）。caps 必须先于
+        ``resolve_raw_supported_durations`` 解析，否则 raw 会因取不到而提前返回 None，
+        永远不会用上 caps 本能给出的答案。
+        """
+        from server.services import script_review as mod
+
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+
+        async def _fake_caps(_project):
+            return {"provider_id": "custom-acme", "model": "acme-video", "supported_durations": [5, 10]}
+
+        monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+        tiers = await svc.get_reference_duration_tiers("demo", 1)
+        # 自定义供应商不在 registry，reference_unit_duration_tiers 查不到联动约束，两套档位
+        # 都退回 caps 给出的原始集合。
+        assert tiers == {"with_references": [5, 10], "without_references": [5, 10]}
+
 
 class TestReferenceVideoStep1Migration:
     """存量 step1 草稿（per-shot 时长）在 gate 侧的一次性收编迁移。"""
