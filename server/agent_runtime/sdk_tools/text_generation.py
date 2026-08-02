@@ -495,8 +495,8 @@ class ReferenceSplitCaps(NamedTuple):
 
     ``reference_durations`` / ``text_durations`` 是带 / 不带 ``@`` 引用的 unit 各自的生效档位，
     ``durations`` 是二者的并集——schema 枚举与 prompt 候选集合取并集，因为落在任一套内的时长都
-    可能合法；归属哪一套要等正文派生出 references 才知道。三者相等即该型号未声明「参考图↔时长」
-    联动约束（注册表现状即如此，除 Veo 3.1 系列在 720p 下之外）。
+    可能合法；归属哪一套要等正文派生出 references 才知道。三者相等即该型号在当前分辨率下未声明
+    生效的「参考图↔时长」联动约束，多数型号如此。
     """
 
     default_duration: int | None
@@ -671,6 +671,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 props=props,
                 supported_durations=split_caps.durations,
                 reference_supported_durations=split_caps.reference_durations,
+                text_supported_durations=split_caps.text_durations,
                 max_duration=split_caps.max_duration,
                 max_reference_images=split_caps.max_refs,
                 default_duration=split_caps.default_duration,
