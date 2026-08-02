@@ -185,6 +185,7 @@ describe("config-status-store", () => {
               resolution: null,
               system_capabilities: null,
               capability_overrides: null,
+              global_bucket_refs: null,
             },
           ],
         },

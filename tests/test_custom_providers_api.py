@@ -881,6 +881,61 @@ class TestReplaceModelsCleansStaleRefs:
         assert await svc.get_setting("default_text_backend", "") == ""
 
 
+class TestGlobalBucketRefsHint:
+    """回归: 能力编辑响应应非阻塞地提示模型正被哪些全局桶键引用（issue #1513）。"""
+
+    async def test_referenced_model_lists_global_keys(self, client: TestClient, session: AsyncSession):
+        resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+        pid = resp.json()["id"]
+
+        svc = ConfigService(session)
+        await svc.set_setting("default_text_backend", f"custom-{pid}/gpt-4o")
+        await svc.set_setting("default_video_backend_i2v", f"custom-{pid}/gpt-4o")
+        await session.commit()
+
+        get_resp = client.get(f"/api/v1/custom-providers/{pid}")
+        assert get_resp.status_code == 200
+        models = {m["model_id"]: m for m in get_resp.json()["models"]}
+        assert set(models["gpt-4o"]["global_bucket_refs"]) == {"default_text_backend", "default_video_backend_i2v"}
+        # 未被引用的模型不带提示
+        assert models["dall-e-3"]["global_bucket_refs"] is None
+
+    async def test_unreferenced_models_have_no_hint(self, client: TestClient):
+        resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+        pid = resp.json()["id"]
+
+        get_resp = client.get(f"/api/v1/custom-providers/{pid}")
+        for m in get_resp.json()["models"]:
+            assert m["global_bucket_refs"] is None
+
+    async def test_save_not_blocked_when_referenced(self, client: TestClient, session: AsyncSession):
+        """提示不阻塞保存：被全局桶引用的模型仍可正常被替换/删除。"""
+        resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+        pid = resp.json()["id"]
+
+        svc = ConfigService(session)
+        await svc.set_setting("default_video_backend_i2v", f"custom-{pid}/gpt-4o")
+        await session.commit()
+
+        with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
+            replace_resp = client.put(
+                f"/api/v1/custom-providers/{pid}/models",
+                json={
+                    "models": [
+                        {
+                            "model_id": "gpt-4o",
+                            "display_name": "GPT-4o",
+                            "endpoint": "openai-chat",
+                            "is_default": True,
+                            "is_enabled": True,
+                        },
+                    ]
+                },
+            )
+        assert replace_resp.status_code == 200
+        assert replace_resp.json()[0]["global_bucket_refs"] == ["default_video_backend_i2v"]
+
+
 class TestEmptyModelIdRejected:
     """回归: 启用模型必须有非空 model_id。"""
 

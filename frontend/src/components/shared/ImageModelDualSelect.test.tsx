@@ -68,6 +68,7 @@ const CUSTOM_PROVIDERS: CustomProviderInfo[] = [
         resolution: null,
         system_capabilities: null,
         capability_overrides: null,
+        global_bucket_refs: null,
       },
       {
         id: 2,
@@ -84,6 +85,7 @@ const CUSTOM_PROVIDERS: CustomProviderInfo[] = [
         resolution: null,
         system_capabilities: null,
         capability_overrides: null,
+        global_bucket_refs: null,
       },
       {
         id: 3,
@@ -100,6 +102,7 @@ const CUSTOM_PROVIDERS: CustomProviderInfo[] = [
         resolution: null,
         system_capabilities: null,
         capability_overrides: null,
+        global_bucket_refs: null,
       },
     ],
   },
