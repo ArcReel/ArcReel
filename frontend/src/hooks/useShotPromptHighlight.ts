@@ -3,6 +3,7 @@ import type { MentionKind } from "@/components/canvas/reference/asset-colors";
 import {
   LINE_BREAK_RE,
   MENTION_RE,
+  SHOT_HEADER_RE,
   matchDialogueLine,
   matchVoiceoverLine,
   mentionNameFromMatch,
@@ -25,8 +26,6 @@ export type Token =
   | { kind: "text"; text: string }
   | { kind: "shot_header"; text: string }
   | { kind: "mention"; text: string; name: string; assetKind: MentionKind };
-
-const SHOT_HEADER_RE = /^镜头\s*\d+\s*[:：]\s*/;
 
 export function tokenizePrompt(text: string, lookup: MentionLookup): Token[] {
   if (text.length === 0) return [];
@@ -65,12 +64,14 @@ function pushMentionTokens(out: Token[], text: string, lookup: MentionLookup): v
       out.push({ kind: "text", text: text.slice(lastIdx, idx) });
     }
     const name = mentionNameFromMatch(m);
-    const resolved = lookup[name];
+    // hasOwn 而非直接下标：`toString` 等原型链属性是合法资产名，未登记时下标会取到
+    // Object.prototype 上的函数并被当成已解析的类型。
+    const resolved = Object.hasOwn(lookup, name) ? lookup[name] : undefined;
     out.push({
       kind: "mention",
       text: m[0],
       name,
-      assetKind: (resolved ?? "unknown") as MentionKind,
+      assetKind: (resolved ?? "unknown"),
     });
     lastIdx = idx + m[0].length;
   }

@@ -66,9 +66,15 @@ export function splitScriptLines(text: string): string[] {
  * written on the header line is judged the way the backend judges it — `parse_prompt`
  * drops the header when it splits shots, so such a line is a normative line in the
  * shot text and must not leave a reference-image entry behind.
- * Mirrors `shot_parser.py:_strip_shot_header`.
+ * Mirrors `shot_parser.py:_strip_shot_header`（其 `line.strip()` 对应此处的前导 `\s*`）。
+ *
+ * 序号用 `\p{Nd}` 而非 `\d`：Python 的 `\d` 是 Unicode-aware，`镜头１：`（全角数字）后端
+ * 照样剥 header 并按台词派生；JS 的 `\d` 只认 ASCII，用它会让这行在前端留下说话人的参考图。
  */
-const SHOT_HEADER_PREFIX_RE = /^\s*镜头\s*\d+\s*[:：]\s*/;
+export const SHOT_HEADER_PREFIX_RE = /^\s*镜头\s*\p{Nd}+\s*[:：]\s*/u;
+
+/** 同上，但不吃行首空白——高亮分词按原样切 token，缩进须留在 text token 里才能拼回原文。 */
+export const SHOT_HEADER_RE = /^镜头\s*\p{Nd}+\s*[:：]\s*/u;
 
 /** Bare `{台词}` line = voiceover. Mirrors `shot_parser.py:match_voiceover_line`. */
 const VOICEOVER_LINE_RE = /^\s*\{([^{}]*)\}\s*$/;
@@ -117,9 +123,12 @@ export function resolveMentionType(
   name: string,
 ): AssetKind | undefined {
   if (!project) return undefined;
-  if (project.characters && name in project.characters) return "character";
-  if (project.scenes && name in project.scenes) return "scene";
-  if (project.props && name in project.props) return "prop";
+  // 用 hasOwn 而非 `in`：`toString` / `constructor` / `__proto__` 都是合法资产名
+  // （`validate_asset_name` 只挡路径分隔符与 Windows 保留字符），`in` 会命中原型链上的
+  // 同名属性，把未登记的名字判成已登记。
+  if (project.characters && Object.hasOwn(project.characters, name)) return "character";
+  if (project.scenes && Object.hasOwn(project.scenes, name)) return "scene";
+  if (project.props && Object.hasOwn(project.props, name)) return "prop";
   return undefined;
 }
 

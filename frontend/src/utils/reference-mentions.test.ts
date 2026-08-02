@@ -68,6 +68,19 @@ describe("resolveMentionType", () => {
   it("returns undefined for unknown names", () => {
     expect(resolveMentionType(project, "路人")).toBeUndefined();
   });
+
+  // toString / constructor / __proto__ 都通得过 validate_asset_name，用 `in` 查会命中
+  // 原型链，把没登记的名字判成已登记
+  it("does not resolve prototype-chain property names as registered assets", () => {
+    for (const name of ["toString", "constructor", "hasOwnProperty", "__proto__"]) {
+      expect(resolveMentionType(project, name)).toBeUndefined();
+    }
+  });
+
+  it("resolves an asset actually named like a prototype property", () => {
+    const withOddName = { characters: { toString: { description: "" } }, scenes: {}, props: {} };
+    expect(resolveMentionType(withOddName as never, "toString")).toBe("character");
+  });
 });
 
 describe("mergeReferences", () => {
@@ -191,6 +204,14 @@ describe("normative dialogue lines", () => {
     // 后端切分镜头时剥掉 header，这行在 shot 文本里就是规范行 —— 两侧须同判
     expect(extractMentions("镜头1：@[张三]：{我来了}")).toEqual([]);
     expect(extractMentions("镜头1：@酒馆 内景。\n镜头2：@张三：{我来了}")).toEqual(["酒馆"]);
+  });
+
+  it("strips a shot header written with non-ASCII digits", () => {
+    // Python `\d` 认全角/阿拉伯-印度数字，后端会剥掉 header 并把这行判成台词；
+    // JS `\d` 只认 ASCII，若不对齐，前端会把说话人当成参考图留下来
+    expect(extractMentions("镜头１：@[张三]：{我来了}")).toEqual([]);
+    expect(extractMentions("镜头٣：@[张三]：{我来了}")).toEqual([]);
+    expect(extractMentions("镜头１：@酒馆 内景。")).toEqual(["酒馆"]);
   });
 
   it("does not treat a blank speaker slot as a normative line", () => {

@@ -91,6 +91,20 @@ describe("tokenizePrompt", () => {
     expect(t.some((x) => x.kind === "shot_header")).toBe(false);
   });
 
+  // 后端 `\d` 是 Unicode-aware，全角数字的 header 照样成立；高亮不认会导致同一行两侧判定不同
+  it("highlights a shot header written with non-ASCII digits", () => {
+    const t = tokenizePrompt("镜头１：line1", LOOKUP);
+    expect(t.filter((x) => x.kind === "shot_header")).toHaveLength(1);
+  });
+
+  // 未登记的 `toString` 走原型链会取到 Object.prototype.toString，被当成已解析的类型
+  it("treats prototype-chain names absent from the lookup as unresolved", () => {
+    const t = tokenizePrompt("@toString 出场", LOOKUP);
+    const mention = t.find((x) => x.kind === "mention");
+    expect(mention).toBeDefined();
+    expect(mention && "assetKind" in mention && mention.assetKind).toBe("unknown");
+  });
+
   it("no shot header → entire text becomes text + mention tokens", () => {
     const t = tokenizePrompt("hello @主角 world", LOOKUP);
     expect(kinds(t)).toEqual(["text", "mention:character", "text"]);

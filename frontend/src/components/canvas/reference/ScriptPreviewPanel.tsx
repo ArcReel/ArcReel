@@ -97,7 +97,7 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
       appliedFor.lookup !== lookup);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+    <div className="flex min-h-0 flex-1 flex-col p-3">
       <div className="mb-2 flex items-center gap-2 text-[11px] text-[var(--color-text-4)]">
         <span>{t("script_preview_hint")}</span>
         <span className="flex-1" />

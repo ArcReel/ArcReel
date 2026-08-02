@@ -459,7 +459,9 @@ export function ReferenceVideoCanvas({
   const mentionLookup = useMemo(() => {
     const out: Record<string, "character" | "scene" | "prop"> = {};
     const claim = (name: string, kind: "character" | "scene" | "prop") => {
-      if (!(name in out)) out[name] = kind;
+      // hasOwn 而非 `in`：`toString` / `constructor` 等是合法资产名，`in` 命中原型链会让
+      // 真正登记的资产拿不到类型，前端高亮判它未登记、后端预览正常解析，两侧当场矛盾。
+      if (!Object.hasOwn(out, name)) out[name] = kind;
     };
     for (const name of Object.keys(project?.characters ?? {})) claim(name, "character");
     for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");
@@ -998,7 +1000,11 @@ export function ReferenceVideoCanvas({
                             id="reference-editor-view-panel-parse"
                             role="tabpanel"
                             aria-labelledby="reference-editor-view-tab-parse"
-                            className="flex min-h-0 flex-1 flex-col overflow-hidden"
+                            // 解析预览是只读的，面板内没有可聚焦后代：滚动容器兼作焦点目标，
+                            // 键盘用户切到这个 tab 后才能用 PageDown / 方向键读到折线以下的内容
+                            // （WAI tabs：tabpanel 无可聚焦内容时自身取 tabindex="0"）。
+                            tabIndex={0}
+                            className="flex min-h-0 flex-1 flex-col overflow-y-auto"
                           >
                             <ScriptPreviewPanel
                               key={selected.unit_id}

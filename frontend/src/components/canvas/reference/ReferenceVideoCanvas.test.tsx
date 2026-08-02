@@ -167,6 +167,8 @@ describe("ReferenceVideoCanvas", () => {
     const parsePanel = await screen.findByRole("tabpanel");
     expect(parsePanel.id).toBe(parseControls);
     expect(parsePanel.getAttribute("aria-labelledby")).toBe(parseTab.id);
+    // 解析预览只读、无可聚焦后代：面板自身须能接焦点，否则键盘用户翻不到折线以下的内容
+    expect(parsePanel).toHaveAttribute("tabindex", "0");
   });
 
   // 同名同时落在 characters 与 props 时，后端 resolve_references 判 character；
