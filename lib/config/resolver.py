@@ -528,7 +528,9 @@ class ConfigResolver:
     ) -> ProviderModel:
         """解析图片任务应使用的 ProviderModel。
 
-        优先级：payload（本次请求/历史任务）> project（``image_provider_<cap>``）> 全局默认。
+        优先级：payload > 项目桶（``image_provider_<cap>``）> 全局桶（``default_image_backend_<cap>``）
+        > 全局默认（``default_image_backend``）> 自动推断。全局桶键存在但值为空 = 显式清空，
+        跳过全局默认直达自动推断。图片无项目默认层。
         capability 决定走 t2i 还是 i2i 槽（见 ``docs/adr/0001``）。不做任何 provider 归一化。
         """
         async with self._open_session() as (session, svc):
