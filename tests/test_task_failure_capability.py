@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from lib import task_failure
+from lib.config.resolver import VideoBucketCapabilityError, VideoCapability
 from lib.db.repositories.task_repo import _encode_bounded_cascade_failure
 from lib.generation_worker import _encode_task_failure_message
 from lib.i18n import MESSAGES
@@ -389,23 +390,31 @@ def test_encode_covers_every_capability_exception_type():
         assert render_failure(stored, _translator("en")) != stored
 
 
-def test_encode_video_bucket_capability_error_renders_per_locale():
-    """视频解析闸异常（VideoBucketCapabilityError）同走结构化编码，读侧三语渲染。"""
-    from lib.config.resolver import VideoBucketCapabilityError
+@pytest.mark.parametrize(
+    ("code", "capability"),
+    [
+        ("video_capability_missing_i2v", "i2v"),
+        ("video_capability_missing_r2v", "r2v"),
+        ("video_capability_reference_unavailable", "r2v"),
+    ],
+)
+def test_encode_video_bucket_capability_error_renders_per_locale(code: str, capability: VideoCapability):
+    """视频解析闸异常（VideoBucketCapabilityError）同走结构化编码，读侧三语渲染。
 
+    三个 code 逐个断言渲染结果：只覆盖其中一个的话，另两条模板的占位符拼错或参数缺失
+    仍会通过 —— key 齐备性由 ``test_video_bucket_codes_registered_with_all_three_locales`` 单独保证。
+    """
     exc = VideoBucketCapabilityError(
-        code="video_capability_missing_r2v",
-        capability="r2v",
+        code=code,
+        capability=capability,
         provider_id="minimax",
         model_id="MiniMax-Hailuo-2.3",
-        message="lacks r2v",
+        message=f"lacks {capability}",
     )
     stored = _encode_task_failure_message(exc)
-    assert stored.startswith("[video_capability_missing_r2v]")
+    assert stored.startswith(f"[{code}]")
     for locale in ("zh", "en", "vi"):
-        expected = MESSAGES[locale]["video_capability_missing_r2v"].format(
-            provider="minimax", model="MiniMax-Hailuo-2.3"
-        )
+        expected = MESSAGES[locale][code].format(provider="minimax", model="MiniMax-Hailuo-2.3")
         assert render_failure(stored, _translator(locale)) == expected
 
 
