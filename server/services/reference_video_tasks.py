@@ -607,13 +607,21 @@ async def execute_reference_video_task(
             audio_requires_reference_image=video.reference_audio_per_image,
         )
         rendered_prompt = rendered.prompt
-        reference_audio_files = [audio_paths[name] for name in rendered.audio_speakers]
         if video.reference_audio_per_image:
             # backend（如 wan2.7-r2v）要求音频逐段挂在具体参考素材项上：渲染层已按
-            # audio_requires_reference_image 门控排除无参考图的 speaker，故这里的下标
-            # 保证非 None——仍用 filter 而非直接 cast，避免渲染层与本处口径将来漂移时
-            # 静默发出一份错位的 targets。
-            reference_audio_targets = [idx for idx in rendered.audio_speaker_reference_index if idx is not None]
+            # audio_requires_reference_image 门控排除无参考图的 speaker，故
+            # audio_speaker_reference_index 里此时不应再有 None——仍按下标同时过滤两个列表
+            # 而非直接 zip 全量，是为了在渲染层与本处口径将来漂移时，两个列表始终等长同序，
+            # 不会因为其中一个多出未过滤的 None 项而导致音频与参考图下标错位、静默绑错角色。
+            paired = [
+                (audio_paths[name], idx)
+                for name, idx in zip(rendered.audio_speakers, rendered.audio_speaker_reference_index, strict=True)
+                if idx is not None
+            ]
+            reference_audio_files = [path for path, _ in paired]
+            reference_audio_targets = [idx for _, idx in paired]
+        else:
+            reference_audio_files = [audio_paths[name] for name in rendered.audio_speakers]
         # 解析派生的降级提示与生成结果同屏可见：与解析预览面板同一批 {key, params} 条目。
         warnings = [*warnings, *rendered.warnings]
 
