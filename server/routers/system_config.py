@@ -22,7 +22,7 @@ from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.config.capability_buckets import (
+from lib.capability_buckets import (
     BUCKETS_BY_MEDIA_TYPE,
     CapabilityBucket,
     builtin_model_buckets,
