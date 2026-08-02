@@ -137,7 +137,8 @@ def build_script_preview(
                 warnings.append(_warning(WARN_REFERENCE_AUDIO_OVERFLOW, limit=max_reference_audio, name=speaker))
             else:
                 bound += 1
-    elif voice_consistency == "none" and speakers:
+    elif voice_consistency == "none" and utterances:
+        # 只要有台词就知会：画外音同样要渲染，纯画外的文稿在无声模型上也听不到声音。
         warnings.append(_warning(WARN_SILENT_MODEL, model=model_id))
 
     return ScriptPreview(shots=shots, references=references, utterances=utterances, warnings=warnings)

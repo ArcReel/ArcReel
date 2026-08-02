@@ -31,6 +31,15 @@ export function mentionNameFromMatch(match: RegExpMatchArray): string {
  */
 const DIALOGUE_LINE_RE = /^\s*@(?:\[([^\]\r\n]+)\]|([\w一-鿿]+))\s*[:：]\s*\{([^{}]*)\}\s*$/;
 
+/**
+ * Leading `镜头N：` header. Stripped before the normative-line test so a dialogue
+ * written on the header line is judged the way the backend judges it — `parse_prompt`
+ * drops the header when it splits shots, so such a line is a normative line in the
+ * shot text and must not leave a reference-image entry behind.
+ * Mirrors `shot_parser.py:_strip_shot_header`.
+ */
+const SHOT_HEADER_PREFIX_RE = /^\s*镜头\s*\d+\s*[:：]\s*/;
+
 /** Bare `{台词}` line = voiceover. Mirrors `shot_parser.py:match_voiceover_line`. */
 const VOICEOVER_LINE_RE = /^\s*\{([^{}]*)\}\s*$/;
 
@@ -55,7 +64,7 @@ export function extractMentions(text: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const line of text.split("\n")) {
-    if (matchDialogueLine(line)) continue;
+    if (matchDialogueLine(line.replace(SHOT_HEADER_PREFIX_RE, ""))) continue;
     for (const m of line.matchAll(MENTION_RE)) {
       const name = mentionNameFromMatch(m);
       if (!seen.has(name)) {

@@ -111,6 +111,15 @@ def test_extract_mentions_skips_speaker_position():
     assert extract_mentions("@[张三]：{我来了}") == []
 
 
+def test_dialogue_on_shot_header_line_derives_utterance_without_reference():
+    """写在 header 同一行的台词：切分后即规范行，参考图与 utterance 两侧口径须一致。"""
+    text = "镜头1：@[张三]：{我来了}"
+    preview = build_script_preview(text, PROJECT)
+    assert preview.references == []
+    assert [(u.utterance.kind, u.utterance.speaker) for u in preview.utterances] == [("dialogue", "张三")]
+    assert extract_mentions(text) == []
+
+
 # ---------- 七条 warning ----------
 
 
@@ -159,7 +168,15 @@ def test_warn_silent_model_notice():
     assert preview.warnings[0]["params"] == {"model": "minimax-01"}
 
 
-def test_silent_model_notice_not_emitted_without_dialogue():
+def test_warn_silent_model_notice_covers_voiceover_only_script():
+    """画外音同样要渲染，纯画外文稿在无声模型上也该知会。"""
+    preview = build_script_preview(
+        "镜头1：开场。\n{那年冬天格外冷}", PROJECT, voice_consistency="none", model_id="minimax-01"
+    )
+    assert keys(preview) == [WARN_SILENT_MODEL]
+
+
+def test_silent_model_notice_not_emitted_without_any_utterance():
     preview = build_script_preview("镜头1：开场。", PROJECT, voice_consistency="none", model_id="m")
     assert preview.warnings == []
 

@@ -17,9 +17,9 @@ import {
  * A writer can therefore see at a glance which of their lines became dialogue and
  * which stayed plain description.
  *
- * Shared by the reference-video editor's parse preview and the step1 per-episode
- * preview — the two differ in how strictly the script is validated upstream, not
- * in how it is drawn, so this component takes only text plus the asset lookup.
+ * It takes only text plus the asset lookup: strictness lives upstream in whoever
+ * parses and validates the script, never in how the script is drawn, so any caller
+ * holding a script and an asset table can render it.
  */
 export interface ScriptHighlightProps {
   text: string;

@@ -48,6 +48,9 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
         })
         .catch((e: unknown) => {
           if (controller.signal.aborted) return;
+          // 同时清空上一次结果：文稿已经改了，留着旧派生会让面板在报错横幅下继续
+          // 展示对不上当前正文的镜头 / 参考图 / 台词。
+          setPreview(null);
           setError(errMsg(e));
         })
         .finally(() => {
@@ -60,13 +63,14 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
-  const counts = useMemo(() => {
-    const utterances = preview?.utterances ?? [];
-    return {
+  const utterances = useMemo(() => preview?.utterances ?? [], [preview]);
+  const counts = useMemo(
+    () => ({
       dialogue: utterances.filter((u) => u.kind === "dialogue").length,
       voiceover: utterances.filter((u) => u.kind === "voiceover").length,
-    };
-  }, [preview]);
+    }),
+    [utterances],
+  );
 
   const warnings = preview?.warnings ?? [];
 
@@ -145,6 +149,29 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
             : <span className="text-[var(--color-text-4)]">{t("script_preview_none")}</span>}
         </dd>
       </dl>
+
+      {/* 服务端派生出的逐条台词：与上方本地高亮互为对照，解析口径若有出入在此显形。 */}
+      {utterances.length > 0 && (
+        <ul className="mt-2 flex flex-col gap-1 text-[11.5px]">
+          {utterances.map((u, i) => {
+            const palette = assetColor(u.kind === "dialogue" ? "character" : "unknown");
+            return (
+              <li key={`${u.shot_index}-${i}`} className="flex items-baseline gap-2">
+                <span className="shrink-0 font-mono tabular-nums text-[var(--color-text-4)]">
+                  {t("script_preview_shot_badge", { index: u.shot_index })}
+                </span>
+                <span
+                  translate="no"
+                  className={`shrink-0 rounded-sm px-1 ${palette.textClass} ${palette.bgClass}`}
+                >
+                  {u.kind === "dialogue" ? u.speaker : t("script_highlight_voiceover")}
+                </span>
+                <span className="min-w-0 flex-1 break-words text-[var(--color-text-2)]">{u.text}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

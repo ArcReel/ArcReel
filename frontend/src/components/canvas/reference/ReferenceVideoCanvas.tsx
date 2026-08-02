@@ -946,8 +946,19 @@ export function ReferenceVideoCanvas({
                               key={view}
                               type="button"
                               role="tab"
+                              id={`reference-editor-view-tab-${view}`}
                               aria-selected={editorView === view}
                               aria-controls="reference-editor-view-panel"
+                              // 未选中的 tab 退出 Tab 序列，左右方向键在两者间移动：
+                              // tablist 的键盘约定是「Tab 进出控件组、方向键在组内切换」。
+                              tabIndex={editorView === view ? 0 : -1}
+                              onKeyDown={(e) => {
+                                if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+                                e.preventDefault();
+                                const next = view === "script" ? "parse" : "script";
+                                setEditorView(next);
+                                document.getElementById(`reference-editor-view-tab-${next}`)?.focus();
+                              }}
                               onClick={() => setEditorView(view)}
                               className={`focus-ring rounded-md border px-2.5 py-1 text-[11.5px] font-medium transition-colors ${
                                 editorView === view
@@ -965,6 +976,7 @@ export function ReferenceVideoCanvas({
                           <div
                             id="reference-editor-view-panel"
                             role="tabpanel"
+                            aria-labelledby="reference-editor-view-tab-script"
                             className="flex min-h-0 flex-1 flex-col overflow-hidden p-3"
                           >
                             <ReferenceVideoCard
@@ -980,6 +992,7 @@ export function ReferenceVideoCanvas({
                           <div
                             id="reference-editor-view-panel"
                             role="tabpanel"
+                            aria-labelledby="reference-editor-view-tab-parse"
                             className="flex min-h-0 flex-1 flex-col overflow-hidden"
                           >
                             <ScriptPreviewPanel

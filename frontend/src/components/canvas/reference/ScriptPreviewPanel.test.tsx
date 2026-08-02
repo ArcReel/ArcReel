@@ -70,12 +70,41 @@ describe("ScriptPreviewPanel", () => {
     expect(spy).toHaveBeenCalledWith("demo", 1, "镜头1：中景。", expect.anything());
   });
 
-  it("surfaces a failed preview request instead of showing stale derivations", async () => {
-    vi.spyOn(API, "previewReferenceScript").mockRejectedValue(new Error("boom"));
-    renderPanel("镜头1：中景。");
+  it("lists the server-derived utterances alongside the local highlight", async () => {
+    vi.spyOn(API, "previewReferenceScript").mockResolvedValue(
+      mkPreview({
+        utterances: [
+          { shot_index: 2, kind: "dialogue", speaker: "张三", text: "我来了" },
+          { shot_index: 2, kind: "voiceover", speaker: null, text: "那年冬天格外冷" },
+        ],
+      }),
+    );
+
+    renderPanel("镜头1：中景。\n镜头2：\n@[张三]：{我来了}\n{那年冬天格外冷}");
     await vi.advanceTimersByTimeAsync(500);
+
+    // 每条 utterance 一行：镜头号 + 说话人（画外音无名） + 正文
+    expect(await screen.findAllByText("镜头 2")).toHaveLength(2);
+    expect(screen.getAllByText("我来了")).toHaveLength(2); // 本地高亮 + 服务端派生行
+    expect(screen.getAllByText("那年冬天格外冷")).toHaveLength(2);
+  });
+
+  it("surfaces a failed preview request instead of showing stale derivations", async () => {
+    const spy = vi
+      .spyOn(API, "previewReferenceScript")
+      .mockResolvedValueOnce(mkPreview())
+      .mockRejectedValue(new Error("boom"));
+    const { rerender } = renderPanel("镜头1：中景。");
+    await vi.advanceTimersByTimeAsync(500);
+    await screen.findByText("酒馆");
+
+    rerender(<ScriptPreviewPanel projectName="demo" episode={1} text="镜头1：中景，改了" lookup={LOOKUP} />);
+    await vi.advanceTimersByTimeAsync(500);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("boom");
+    // 旧派生随之清空，报错横幅下不再留着对不上正文的参考图
+    await waitFor(() => expect(screen.queryByText("酒馆")).toBeNull());
   });
 });

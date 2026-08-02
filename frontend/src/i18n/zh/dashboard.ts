@@ -743,6 +743,7 @@ export default {
   'script_preview_utterances': '台词',
   'script_preview_utterances_value': '{{dialogue}} 句台词 · {{voiceover}} 段画外音',
   'script_preview_none': '无',
+  'script_preview_shot_badge': '镜头 {{index}}',
   'reference_editor_placeholder': '输入 prompt，多镜头用 "镜头1：..." 分隔，用 @ 引用角色/场景/道具',
   'reference_editor_aria_name': 'Unit 提示词',
   'reference_editor_unknown_mentions_label': '未注册提及',

@@ -186,6 +186,12 @@ describe("normative dialogue lines", () => {
     expect(extractMentions("@张三：{我来了}")).toEqual([]);
   });
 
+  it("keeps a speaker slot written on the shot header line out of mentions", () => {
+    // 后端切分镜头时剥掉 header，这行在 shot 文本里就是规范行 —— 两侧须同判
+    expect(extractMentions("镜头1：@[张三]：{我来了}")).toEqual([]);
+    expect(extractMentions("镜头1：@酒馆 内景。\n镜头2：@张三：{我来了}")).toEqual(["酒馆"]);
+  });
+
   it("keeps speaker-only characters out of merged references", () => {
     const refs = mergeReferences("镜头1：@酒馆 内景。\n@张三：{我来了}", [], mkProject());
     expect(refs).toEqual([{ type: "scene", name: "酒馆" }]);

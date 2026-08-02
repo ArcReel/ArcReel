@@ -78,6 +78,12 @@ def _iter_mentions(text: str) -> Iterator[tuple[int, int, str]]:
         i += 1
 
 
+def _strip_shot_header(line: str) -> str:
+    """去掉行首的 ``镜头N：`` header，返回 header 之后的正文；无 header 时原样返回。"""
+    m = _SHOT_HEADER_RE.match(line.strip())
+    return m.group(1).lstrip() if m else line
+
+
 def match_dialogue_line(line: str) -> tuple[str, str] | None:
     """规范台词行 ``@[角色]：{台词}``（中英冒号均可）→ ``(speaker, text)``；不匹配返回 ``None``。
 
@@ -165,11 +171,15 @@ def extract_mentions(text: str) -> list[str]:
     **规范台词行整行不计入**：给画外说话的角色附参考图会诱导模型把他画进画面，故
     ``@[角色]：{台词}`` 行的 speaker 位只驱动音色声明与 utterance 派生，不进参考图。
     纯画外角色因此没有参考图条目，但台词与音色声明照常。
+
+    规范行判定在剥掉 ``镜头N：`` header 之后进行：``parse_prompt`` 切分镜头时会把 header
+    去掉，写在 header 同一行的台词在 shot 文本里就是规范行、照常派生 utterance——此处若按
+    原始行判定，同一行会既派生 utterance 又留下参考图，两处口径分叉。
     """
     seen: set[str] = set()
     result: list[str] = []
     for line in text.splitlines():
-        if match_dialogue_line(line) is not None:
+        if match_dialogue_line(_strip_shot_header(line)) is not None:
             continue
         for _start, _end, name in _iter_mentions(line):
             if name not in seen:

@@ -250,10 +250,11 @@ _Avoid_: 让 ad 落入「非 narration 即 drama」的二值兜底——所有�
 
 **video_unit / shot（参考生视频单元）**：
 参考生视频模式下的生成单元：一个 video_unit 含 1–4 个 shot（子镜头），整 unit 共享一组按顺序编号的参考图（`[图N]`），跳过分镜直接由资产图生成。narration/drama 下剧本用 `video_units[]` 而非 `segments[]` / `scenes[]` 组织（unit 内容自包含）；ad 下骨架不变，unit 是从 `shots[]` **派生分组**的轻量索引（剧本 `reference_units[]`，仅引用 shot_id + 继承的参考集，产品参考绝对优先）——连续镜头、每 unit ≤4 shot、总长受供应商时长上限约束，分组为纯函数（`lib/reference_video/ad_units.py`）、可复现，成员与参考集未变的 unit 重派生时保留产物。**产物口径以 unit 为准**：ad+参考路径的成片（`generated_assets.video_clip` 等）挂在 `reference_units[]` 各 unit 上，`shots` 不承载该路径产物；所有消费方（计分 `StatusCalculator`、剪映导出、项目事件差分）按项目声明的 generation_mode 分派后一律读 unit 产物，不读 shots、不嗅探数据形状（残留索引不得污染 storyboard 路径行为）。
+参考图列表从 shot 正文的 `@mention` 机械派生（首现顺序即 `[图N]` 编号），但规范台词行 `@[角色]：{台词}` 整行不计入：speaker 位只驱动音色声明与 utterance 派生，给画外说话的角色附参考图会诱导模型把他画进画面，故纯画外角色有台词而无参考图。
 _Avoid_: 把 shot 与 segment（说书片段）/ DramaScene（剧集场景）混为一谈；「scene」在参考模式下三义须分辨——场景资产（scene_sheet）、剧本分镜场景（DramaScene）、镜头（shot）；手工增删改 ad 的 reference_units——它是派生物，shots 才是内容唯一真相。
 
 **发声条目（utterance）**：
-drama 场景里「说出来的话」的统一单元——每条要么是角色台词（有说话人），要么是画外音 / 旁白（无说话人）。一个 `DramaScene` 持有一条**有序**发声序列（`utterances`），插入顺序即幕内先后（台词与画外音交错的先后由此表达）。类型决定下游去向：台词进视频生成、由供应商生成口型音轨；画外音不进视频，留给成片字幕与日后 TTS。drama 的口播内容以此为单一真相源；narration 的口播不走 utterances，仍是被朗读的 `novel_text`。
+drama 场景里「说出来的话」的统一单元——每条要么是角色台词（有说话人），要么是画外音 / 旁白（无说话人）。一个 `DramaScene` 持有一条**有序**发声序列（`utterances`），插入顺序即幕内先后（台词与画外音交错的先后由此表达）。类型决定下游去向：台词进视频生成、由供应商生成口型音轨；画外音不进视频，留给成片字幕与日后 TTS。drama 的口播内容以此为单一真相源；narration 的口播不走 utterances，仍是被朗读的 `novel_text`。参考生视频路径复用同一类型但不落盘：分镜文稿是唯一真相，utterances 按行读时派生（规范台词行 → 台词、裸 `{…}` 行 → 画外音、混写在描述行的花括号不派生只出提示），归属镜头级，存量文稿无台词符号时自然为空。
 _Avoid_: 把台词与画外音当两个独立无序字段（先后会丢、下游要拼两源）；把 utterance 与说书 `novel_text` 混为一谈——后者是整段被朗读的原文（基数为一）、前者是场景内逐条发声（基数为多）；把画外音塞给视频供应商音轨——供应商音轨只承载口型台词，画外音走字幕 / TTS。
 
 **场景原文锚（source_text）**：

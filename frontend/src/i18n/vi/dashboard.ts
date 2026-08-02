@@ -723,6 +723,7 @@ export default {
   'script_preview_utterances': 'Lời thoại',
   'script_preview_utterances_value': '{{dialogue}} câu thoại · {{voiceover}} lời dẫn',
   'script_preview_none': 'Không có',
+  'script_preview_shot_badge': 'Cảnh {{index}}',
   'reference_editor_placeholder': 'Nhập prompt. Tách nhiều cảnh bằng dấu "镜头1：..." và @mentions cho nhân vật/cảnh/đạo cụ.',
   'reference_editor_aria_name': 'Prompt đơn vị',
   'reference_editor_unknown_mentions_label': 'Mention chưa đăng ký',

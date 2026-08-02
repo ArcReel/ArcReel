@@ -744,6 +744,7 @@ export default {
   'script_preview_utterances': 'Dialogue',
   'script_preview_utterances_value': '{{dialogue}} lines · {{voiceover}} voiceovers',
   'script_preview_none': 'None',
+  'script_preview_shot_badge': 'Shot {{index}}',
   'reference_editor_placeholder': 'Type a prompt. Separate multiple shots with "镜头1：..." markers and @mentions for characters/scenes/props.',
   'reference_editor_aria_name': 'Unit prompt',
   'reference_editor_unknown_mentions_label': 'Unregistered mentions',
