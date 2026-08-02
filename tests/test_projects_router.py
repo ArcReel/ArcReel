@@ -1614,6 +1614,7 @@ class TestGetVideoCapabilities:
             assert "model not found" not in detail
             assert detail == zh_errors.MESSAGES["video_capabilities_unresolved"].format(name="ready")
 
+    @pytest.mark.integration
     def test_capability_bucket_error_returns_localized_400(self, tmp_path, monkeypatch):
         """能力桶解析闸的报错转成结构化 400，带上修复指引，不被通用 422 文案吞掉。"""
         from lib.config.resolver import VideoBucketCapabilityError

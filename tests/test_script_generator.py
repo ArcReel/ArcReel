@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.config.resolver import ConfigResolver
 from lib.script_generator import ScriptGenerator, _units_use_references
 from lib.script_structure_validator import ScriptStructureValidationError
 
@@ -914,6 +915,46 @@ def test_resolve_supported_durations_raises_when_unset(tmp_path):
 
     with pytest.raises(ValueError, match="supported_durations"):
         sg._resolve_supported_durations(None, gen_mode="storyboard")
+
+
+class TestFetchVideoCapabilitiesErrorHandling:
+    """能力桶解析闸的报错不被 fallback 吞掉——写剧本与执行读同一个模型的档位。"""
+
+    def _sg(self, tmp_path) -> ScriptGenerator:
+        sg = ScriptGenerator.__new__(ScriptGenerator)
+        sg.project_path = tmp_path
+        sg.project_json = {"video_backend": "kling/kling-v3", "generation_mode": "reference_video"}
+        return sg
+
+    @pytest.mark.unit
+    async def test_bucket_capability_error_propagates(self, tmp_path, monkeypatch):
+        """桶模型缺能力 / 引用失效时上抛：退到 project.json 会拿项目默认模型的时长与参考图
+        上限写剧本，写出来的镜头执行期照样被同一道闸拒掉。"""
+        from lib.config.resolver import VideoBucketCapabilityError
+
+        async def _raise(_self, _project):
+            raise VideoBucketCapabilityError(
+                code="video_capability_missing_r2v",
+                capability="r2v",
+                provider_id="kling",
+                model_id="kling-v3",
+                message="video model kling/kling-v3 lacks the capability required by the r2v bucket",
+            )
+
+        monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _raise)
+        with pytest.raises(VideoBucketCapabilityError) as excinfo:
+            await self._sg(tmp_path)._fetch_video_capabilities()
+        assert excinfo.value.code == "video_capability_missing_r2v"
+
+    @pytest.mark.unit
+    async def test_other_resolution_failures_still_fall_back(self, tmp_path, monkeypatch):
+        """DB 未 migration / 缺能力元数据等环境故障仍走 fallback，裸环境下 generate() 照常跑通。"""
+
+        async def _raise(_self, _project):
+            raise ValueError("no video provider configured")
+
+        monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _raise)
+        assert await self._sg(tmp_path)._fetch_video_capabilities() is None
 
 
 def _sg_with_project(tmp_path, project: dict) -> ScriptGenerator:

@@ -1583,6 +1583,7 @@ class TestCostEstimationService:
         assert video_estimate.get("USD") != pytest.approx(0.6)
         assert video_estimate.get("USD") != pytest.approx(54.0)
 
+    @pytest.mark.integration
     @pytest.mark.parametrize(
         ("generation_mode", "expected_model"),
         [("storyboard", "kling-v3"), ("reference_video", "kling-v3-omni")],

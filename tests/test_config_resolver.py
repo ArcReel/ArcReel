@@ -445,6 +445,7 @@ class TestVideoCapabilitiesBucketing:
         finally:
             await engine.dispose()
 
+    @pytest.mark.unit
     def test_generation_mode_maps_to_bucket(self):
         assert video_bucket_for_generation_mode("storyboard") == "i2v"
         assert video_bucket_for_generation_mode("grid") == "i2v"
@@ -454,6 +455,7 @@ class TestVideoCapabilitiesBucketing:
         assert video_bucket_for_generation_mode("bogus") == "i2v"
         assert video_bucket_for_generation_mode(cast(str, ["reference_video"])) == "i2v"
 
+    @pytest.mark.integration
     async def test_i2v_bucket_shadows_project_default(self):
         """图生视频项目读 i2v 桶，遮蔽项目默认层。"""
         caps = await self._caps(
@@ -465,6 +467,7 @@ class TestVideoCapabilitiesBucketing:
         )
         assert (caps["provider_id"], caps["model"]) == ("kling", "kling-v3")
 
+    @pytest.mark.integration
     async def test_r2v_bucket_shadows_project_default(self):
         """参考生视频项目读 r2v 桶，遮蔽项目默认层。"""
         caps = await self._caps(
@@ -476,6 +479,7 @@ class TestVideoCapabilitiesBucketing:
         )
         assert (caps["provider_id"], caps["model"]) == ("minimax", "S2V-01")
 
+    @pytest.mark.integration
     async def test_same_config_follows_generation_mode(self):
         """同一份配置下切 generation_mode，能力查询随桶换到另一个模型。"""
         project = {
@@ -490,6 +494,7 @@ class TestVideoCapabilitiesBucketing:
         assert i2v_caps["max_reference_images"] == 0
         assert r2v_caps["max_reference_images"] == 1
 
+    @pytest.mark.integration
     async def test_reference_video_project_errors_when_model_lacks_reference_support(self):
         """参考生视频项目解析到无参考图能力的模型时报结构化错误，不静默换模型。"""
         with pytest.raises(VideoBucketCapabilityError) as excinfo:
@@ -497,12 +502,14 @@ class TestVideoCapabilitiesBucketing:
         assert excinfo.value.code == "video_capability_missing_r2v"
         assert excinfo.value.params == {"provider": "kling", "model": "kling-v3"}
 
+    @pytest.mark.integration
     async def test_storyboard_project_errors_when_model_lacks_first_frame(self):
         """图生视频项目解析到无首帧能力的模型时同样报错（桶换成 i2v）。"""
         with pytest.raises(VideoBucketCapabilityError) as excinfo:
             await self._caps({"video_backend": "minimax/S2V-01", "generation_mode": "storyboard"})
         assert excinfo.value.code == "video_capability_missing_i2v"
 
+    @pytest.mark.integration
     async def test_duration_constraints_evaluate_on_bucket_model(self):
         """时长收窄按桶生效模型求值：参考生视频项目落 r2v 桶模型声明的「参考图↔时长」约束。"""
         project = {
@@ -522,6 +529,7 @@ class TestVideoCapabilitiesBucketing:
         )
         assert constrained == [8]
 
+    @pytest.mark.integration
     async def test_max_reference_images_follows_backend_declaration(self):
         """viduq3-pro 不在 /reference2video 白名单：能力查询报 0，不报 registry 的并行声明。"""
         caps = await self._caps({"video_backend": "vidu/viduq3-pro", "generation_mode": "storyboard"})

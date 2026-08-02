@@ -1177,7 +1177,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             # S2V-01：单张人脸驱动整段视频角色一致性（subject_reference 单脸 R2V）。固定输出
             # 720P/6s，请求不接受 resolution/duration（MiniMaxVideoBackend 走专门的 subject_reference
             # 路径，忽略这两项）；supported_durations=[6] 仅供编排层时长守卫与档价口径。
-            # max_reference_images=1：编排层解析器读 registry ModelInfo.max_reference_images，据此只取 1 张参考图。
+            # max_reference_images=1：与 MiniMaxVideoBackend 声明同值的并行声明，不参与解析
+            # （编排层裁剪与能力桶判定读 backend 的 VideoCapabilities）。
             # 定价单档约 ¥3（资源包 1.5 积分近似，半核实）；键到 minimax 缺省档 768P/6s 求精确命中，
             # 任意分辨率漂移由 per_video_bucket 最近档回落到唯一档。
             "S2V-01": ModelInfo(

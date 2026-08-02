@@ -17,7 +17,12 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import ConfigResolver, constrain_durations_for_project, resolve_raw_supported_durations
+from lib.config.resolver import (
+    ConfigResolver,
+    VideoBucketCapabilityError,
+    constrain_durations_for_project,
+    resolve_raw_supported_durations,
+)
 from lib.db import async_session_factory
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
@@ -635,10 +640,16 @@ class ScriptGenerator:
 
         宽松捕获：除 ValueError 外，DB 未 migration / 连接失败等 SQLAlchemy 异常也走 fallback，
         保证在缺能力元数据的环境（如裸 CI 测试容器）中 generate() 仍能跑通。
+
+        能力桶解析闸的报错例外，原样上抛：那是配置指向的模型缺该桶所需能力或引用已失效
+        （``docs/adr/0054``），fallback 会拿项目默认模型的档位去写剧本，写出来的时长 / 参考图
+        数量执行期照样被拒。报错带 code 与修复指引，比先写一份必败的剧本更省事。
         """
         resolver = ConfigResolver(async_session_factory)
         try:
             return await resolver.video_capabilities_for_project(self.project_json)
+        except VideoBucketCapabilityError:
+            raise
         except (ValueError, SQLAlchemyError) as exc:
             logger.info("video_capabilities 解析失败，将走 project.json fallback：%s", exc)
             return None
