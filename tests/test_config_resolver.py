@@ -1064,6 +1064,92 @@ class TestResolveImageBackend:
         assert (resolved.provider_id, resolved.model_id) == ("openai", "gpt-image-2")
 
 
+@pytest.mark.unit
+class TestLayeredBackendSkeleton:
+    """「默认 + 能力桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
+
+    用带全部四层键位的合成声明直测骨架契约——图片键位不声明项目默认层，该层的行为
+    由此处锁定；媒体桶接入只补键位声明、不改骨架本身。
+    """
+
+    @staticmethod
+    def _keys(**overrides):
+        from lib.config.resolver import _LayeredBackendKeys
+
+        params = {
+            "media_type": "image",
+            "parse_fallback": "fallback/m",
+            "project_bucket_key": "img_bucket",
+            "project_default_key": "img_default",
+            "global_bucket_key": "global_bucket",
+            "global_default_key": "global_default",
+        }
+        params.update(overrides)
+        return _LayeredBackendKeys(**params)
+
+    @pytest.mark.parametrize("p_bucket", [False, True])
+    @pytest.mark.parametrize("p_def", [False, True])
+    @pytest.mark.parametrize("g_bucket", [False, True])
+    @pytest.mark.parametrize("g_def", [False, True])
+    async def test_four_level_priority_all_combinations(self, p_bucket, p_def, g_bucket, g_def):
+        settings = {}
+        if g_bucket:
+            settings["global_bucket"] = "g-bucket/m"
+        if g_def:
+            settings["global_default"] = "g-def/m"
+        project = {}
+        if p_bucket:
+            project["img_bucket"] = "p-bucket/m"
+        if p_def:
+            project["img_default"] = "p-def/m"
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings=settings)
+        result = await resolver._resolve_layered_backend(fake_svc, None, project, self._keys())
+
+        if p_bucket:
+            assert result == ("p-bucket", "m")
+        elif p_def:
+            assert result == ("p-def", "m")
+        elif g_bucket:
+            assert result == ("g-bucket", "m")
+        elif g_def:
+            assert result == ("g-def", "m")
+        else:
+            assert result[0] == "gemini-aistudio"  # 全层缺失 → 自动推断到 ready provider
+
+    async def test_none_keys_skip_that_level(self):
+        """键位为 None 的层直接跳过——项目默认层未声明时项目里的同名字段不生效。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"global_default": "g-def/m"})
+        project = {"img_default": "p-def/m"}
+        keys = self._keys(project_bucket_key=None, project_default_key=None)
+        result = await resolver._resolve_layered_backend(fake_svc, None, project, keys)
+        assert result == ("g-def", "m")
+
+    async def test_empty_global_bucket_follows_default_when_enabled(self):
+        """开关为 True 时：全局桶键存在但为空 → 回退全局默认层。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"global_bucket": "", "global_default": "g-def/m"})
+        result = await resolver._resolve_layered_backend(fake_svc, None, None, self._keys())
+        assert result == ("g-def", "m")
+
+    async def test_empty_global_bucket_authoritative_when_disabled(self):
+        """开关为 False 时：全局桶键存在但为空 = 显式清空 → 跳过全局默认直达自动推断。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"global_bucket": "", "global_default": "g-def/m"})
+        keys = self._keys(empty_global_bucket_follows_default=False)
+        result = await resolver._resolve_layered_backend(fake_svc, None, None, keys)
+        assert result[0] == "gemini-aistudio"
+
+    async def test_project_bare_provider_supported(self):
+        """项目层兼容裸 provider 覆盖（补该 provider 默认 model），与既有图片/视频项目字段语义一致。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"global_default": "g-def/m"})
+        result = await resolver._resolve_layered_backend(fake_svc, None, {"img_bucket": "openai"}, self._keys())
+        assert result == ("openai", "gpt-image-2")
+
+
 class TestResolveVideoBackend:
     """resolve_video_backend：payload > project > 全局默认。"""
 
