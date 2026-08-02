@@ -71,6 +71,7 @@ def build_reference_units_split_prompt(
     scenes: dict,
     props: dict,
     supported_durations: list[int],
+    reference_supported_durations: list[int] | None = None,
     max_duration: int,
     max_reference_images: int | None,
     default_duration: int | None,
@@ -88,7 +89,10 @@ def build_reference_units_split_prompt(
     枚举硬约束）约束；unit_id / shots / references / utterances 全部机器派生，不进 LLM 输出。
 
     Args:
-        supported_durations: unit 允许的时长取值集合（秒），即模型档位。
+        supported_durations: unit 允许的时长取值集合（秒），即两种引用状态下档位的并集，
+            与 response_schema 的枚举同集合。
+        reference_supported_durations: 带 ``@`` 引用的 unit 才适用的更窄档位；None 或与
+            ``supported_durations`` 等价时不写入该联动约束（多数型号不声明「参考图↔时长」）。
         max_duration: 单次视频生成的时长上限（秒），即档位最大值。
         max_reference_images: 单 unit 参考图上限；None 时不写入硬性数量约束。
         default_duration: 用户项目偏好的默认秒数；须为 supported_durations 成员或 None。
@@ -101,8 +105,25 @@ def build_reference_units_split_prompt(
         raise ValueError("supported_durations 不能为空：必须提供模型支持的秒数集合")
     if default_duration is not None and int(default_duration) not in normalized_durations:
         raise ValueError(f"default_duration={default_duration} 不在 supported_durations={normalized_durations} 内")
+    normalized_reference_durations = sorted({int(d) for d in reference_supported_durations or []})
+    if not set(normalized_reference_durations) <= set(normalized_durations):
+        raise ValueError(
+            f"reference_supported_durations={normalized_reference_durations} 不是 "
+            f"supported_durations={normalized_durations} 的子集"
+        )
 
     durations_str = ", ".join(str(d) for d in normalized_durations)
+    # 「参考图↔时长」联动约束只在型号真的声明它、且两套档位不同时才写进 prompt：多数型号两者
+    # 等价，多写一条无效约束只会挤占模型注意力。约束的落地判定在工具侧按机械派生的 references
+    # 逐 unit 做，prompt 这段是教学，不是唯一防线。
+    reference_rule = (
+        "\n     该 unit 正文里带 `@` 资产引用时，档位进一步收窄为（"
+        + ", ".join(str(d) for d in normalized_reference_durations)
+        + "）——本型号对带参考图的生成另有时长限制。引用与时长两者取其一：要么改取该收窄档位内的值，"
+        "要么把次要资产融入描述文字、不用 `@` 引用，从而适用完整档位。"
+        if normalized_reference_durations and normalized_reference_durations != normalized_durations
+        else ""
+    )
     default_rule = (
         f"unit 默认取 {default_duration} 秒，叙事需要更长时可取更长档（偏好可被内容需要覆盖，硬约束不可）"
         if default_duration is not None
@@ -169,7 +190,7 @@ def build_reference_units_split_prompt(
   它是追溯锚，用于把生成结果对回原文；不逐字复制会被机械校验拒绝。
 - **时长决策序**（自上而下，高优先级是硬边界，低优先级在其内做优化）：
   1. 硬约束：`duration_seconds` 是 unit 时长（一次生成调用一个时长），必须取支持档位（{durations_str}）中的值。
-     叙事需要的时长放不下时，把该 unit 按叙事顺序重拆为多个 unit，**不得违约时长**。
+     叙事需要的时长放不下时，把该 unit 按叙事顺序重拆为多个 unit，**不得违约时长**。{reference_rule}
   2. 台词下界：先估算该 unit 全部台词与画外音念完约需的秒数（口播语速约 {speech_rate:g} {unit_label}/秒），
      取**不低于**这个秒数的档位。这是单向下界——台词永不压进念不完的短档；无台词的 unit 没有此下界。
      台词量超过最长档（{max_duration} 秒）时把该 unit 拆开，不要把台词硬塞进一个 unit。

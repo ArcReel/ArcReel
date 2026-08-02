@@ -174,6 +174,22 @@ def test_build_reference_units_split_prompt_rejects_bad_inputs():
         _split_prompt(supported_durations=[])
     with pytest.raises(ValueError, match="default_duration"):
         _split_prompt(supported_durations=[4, 8], default_duration=5)
+    with pytest.raises(ValueError, match="reference_supported_durations"):
+        _split_prompt(supported_durations=[4, 8], reference_supported_durations=[6])
+
+
+def test_build_reference_units_split_prompt_writes_reference_duration_linkage():
+    """带参考图档位更窄时，prompt 写明联动约束与两条出路（换档位 / 去引用）。"""
+    prompt = _split_prompt(supported_durations=[4, 6, 8], reference_supported_durations=[8], default_duration=None)
+    assert "`@` 资产引用时，档位进一步收窄为（8）" in prompt
+    assert "不用 `@` 引用" in prompt
+
+
+def test_build_reference_units_split_prompt_omits_linkage_when_tiers_equal():
+    """多数型号未声明「参考图↔时长」约束：两套档位相同时不写这条，避免无效约束占注意力。"""
+    for reference_durations in ([4, 6, 8], None):
+        prompt = _split_prompt(supported_durations=[4, 6, 8], reference_supported_durations=reference_durations)
+        assert "档位进一步收窄" not in prompt
 
 
 def test_render_reference_units_for_step2_mechanical():
