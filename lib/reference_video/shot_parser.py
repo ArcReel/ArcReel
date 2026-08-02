@@ -17,6 +17,24 @@ from lib.script_models import ReferenceResource, Shot
 _SHOT_HEADER_RE = re.compile(r"""^镜头\s*\d+\s*[:：](.*)$""")
 
 
+#: BOM / ZWNBSP。前端按 JS 的 ``\s`` 判行首空白，U+FEFF 属之；Python 的 ``str.strip()``
+#: 不认它（``"﻿".isspace()`` 为 False）。不归一会让带 BOM 的行在前端算规范台词行、
+#: 在后端算描述行——说话人是否进参考图两侧结论相反，而 references 落盘取决于哪侧先跑。
+#: BOM 在正文里没有语义，解析入口一次性去掉，两条派生路径回到同一口径。
+_BOM = "﻿"
+
+
+def _strip_bom(text: str) -> str:
+    """去掉文本中全部 U+FEFF。
+
+    不止文档开头：粘贴拼接会把 BOM 带到任意行首，而分叉是按行发生的。故归一落在三个
+    行级原语（``_strip_shot_header`` / ``match_dialogue_line`` / ``match_voiceover_line``）
+    上——它们各自与前端同名函数互为镜像，单独调用时也须同判；``parse_prompt`` 另做一次
+    整体归一，让派生出的 shot 文本本身不带 BOM（它会进预览显示与后端渲染）。
+    """
+    return text.replace(_BOM, "") if _BOM in text else text
+
+
 def _is_ascii_word_char(ch: str) -> bool:
     return ch == "_" or (ch.isascii() and ch.isalnum())
 
@@ -80,7 +98,7 @@ def _iter_mentions(text: str) -> Iterator[tuple[int, int, str]]:
 
 def _strip_shot_header(line: str) -> str:
     """去掉行首的 ``镜头N：`` header，返回 header 之后的正文；无 header 时原样返回。"""
-    m = _SHOT_HEADER_RE.match(line.strip())
+    m = _SHOT_HEADER_RE.match(_strip_bom(line).strip())
     return m.group(1).lstrip() if m else line
 
 
@@ -94,7 +112,7 @@ def match_dialogue_line(line: str) -> tuple[str, str] | None:
     speaker 位全为空白（``@[ ]：{台词}``）不算规范行：``Utterance`` 要求 dialogue 带非空
     speaker，放行会让只读派生抛校验错；判为非规范后走既有「台词混写描述行」warning 路径。
     """
-    stripped = line.strip()
+    stripped = _strip_bom(line).strip()
     if not stripped.startswith("@"):
         return None
     first = next(_iter_mentions(stripped), None)
@@ -112,7 +130,7 @@ def match_dialogue_line(line: str) -> tuple[str, str] | None:
 
 def match_voiceover_line(line: str) -> str | None:
     """裸 ``{台词}`` 行 = 画外音 → 台词正文；不匹配返回 ``None``。"""
-    return _unwrap_braces(line)
+    return _unwrap_braces(_strip_bom(line))
 
 
 def _unwrap_braces(text: str) -> str | None:
@@ -143,6 +161,7 @@ def parse_prompt(text: str) -> tuple[list[Shot], list[str]]:
     时长不从文本解析：它是 unit 级字段，由 caller 从请求 / 剧本读取（见
     ``ReferenceVideoUnit.duration_seconds``）。
     """
+    text = _strip_bom(text)
     lines = text.splitlines()
     segments: list[str] = []
     started = False
