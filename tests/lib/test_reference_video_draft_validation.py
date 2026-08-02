@@ -122,12 +122,19 @@ class TestUnitText:
 
     def test_blank_shot_body_rejected(self):
         """空镜头正文进不了队（视频 prompt 为空），多镜头时还会让 step2 对着空白自行编内容。"""
-        with pytest.raises(DraftViolation, match="正文为空"):
+        with pytest.raises(DraftViolation, match="没有画面描述"):
             validate_unit_text("unit E1U01", "镜头1：@[李明] 推门\n镜头2：", PROJECT, max_refs=None)
+
+    def test_dialogue_only_shot_rejected(self):
+        """只有台词行的镜头同样没有可生成的画面：画面是 unit 要产出的东西，不能只有声音。"""
+        with pytest.raises(DraftViolation, match="没有画面描述"):
+            validate_unit_text("unit E1U01", "镜头1：\n@[李明]：{我来了。}", PROJECT, max_refs=None)
 
     def test_dialogue_written_on_shot_header_line_is_normative(self):
         """写在 ``镜头N：`` 同一行的台词在切分后就是规范行，判定须在剥 header 之后。"""
-        _shots, refs = validate_unit_text("unit E1U01", "镜头1：@[李明]：{我来了。}", PROJECT, max_refs=None)
+        _shots, refs = validate_unit_text(
+            "unit E1U01", "镜头1：@[李明]：{我来了。}\n门在风里晃动", PROJECT, max_refs=None
+        )
         assert refs == []
 
 

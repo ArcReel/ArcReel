@@ -127,6 +127,16 @@ def _assert_line_syntax(label: str, text: str) -> None:
         )
 
 
+def _has_description_line(shot_text: str) -> bool:
+    """该镜头是否有画面描述行：非空、且既不是规范台词行也不是画外音行。"""
+    for line in _content_lines(shot_text):
+        if not line.strip():
+            continue
+        if match_dialogue_line(line) is None and match_voiceover_line(line) is None:
+            return True
+    return False
+
+
 def dialogue_speakers(text: str) -> list[str]:
     """按出现顺序取出规范台词行的说话人（去重）——音色声明与登记校验共用同一口径。"""
     seen: set[str] = set()
@@ -183,12 +193,15 @@ def validate_unit_text(
     _assert_line_syntax(label, text)
 
     shots, mentions = parse_prompt(text)
-    # 空镜头正文（``镜头1：`` 后无描述）派生出 ``Shot(text="")``：整段非空时上面的空正文检查
-    # 放不住它。单镜头 unit 因此落盘后进不了队（视频 prompt 为空），多镜头 unit 则让 step2
-    # 对着空白镜头自行编内容。
-    blank_shots = [index for index, shot in enumerate(shots, start=1) if not shot.text.strip()]
+    # 镜头缺画面描述（``镜头1：`` 后无正文，或该镜头只有台词行 / 画外音行）：整段非空时上面的
+    # 空正文检查放不住它，而画面正是 unit 要生成的东西。单镜头 unit 因此落盘后进不了队（视频
+    # prompt 为空），多镜头 unit 则让 step2 对着空白镜头自行编内容。
+    blank_shots = [index for index, shot in enumerate(shots, start=1) if not _has_description_line(shot.text)]
     if blank_shots:
-        raise DraftViolation(f"{label} 的镜头 {blank_shots} 正文为空；每个 `镜头N：` 后都要写该镜头的画面描述")
+        raise DraftViolation(
+            f"{label} 的镜头 {blank_shots} 没有画面描述；"
+            "每个 `镜头N：` 都要写该镜头拍什么，只有台词行 / 画外音行的镜头没有可生成的画面"
+        )
     if len(shots) > MAX_SHOTS_PER_UNIT:
         raise DraftViolation(
             f"{label} 有 {len(shots)} 个镜头行，超过单 unit 上限 {MAX_SHOTS_PER_UNIT}；"
