@@ -29,6 +29,7 @@ from lib.reference_video.ad_units import (
     resolve_ad_unit_shots,
     sync_ad_reference_units,
 )
+from lib.reference_video.script_preview import build_script_preview
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
@@ -49,6 +50,7 @@ from server.services.upload_finalize import (
     save_uploaded_video_stream,
     validate_upload,
 )
+from server.services.video_caps import project_video_caps
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,10 @@ router = APIRouter(
 class ReferenceDto(BaseModel):
     type: str = Field(pattern=r"^(character|scene|prop)$")
     name: str
+
+
+class ScriptPreviewRequest(BaseModel):
+    prompt: str = ""
 
 
 class AddUnitRequest(BaseModel):
@@ -435,6 +441,45 @@ async def precheck_unit_duration(
         "script_duration": slot.total_seconds,
         "request_duration": slot.seconds,
         "adjustment": slot.adjustment,
+    }
+
+
+@router.post("/episodes/{episode}/script-preview")
+async def preview_script(
+    project_name: str,
+    episode: int,
+    req: ScriptPreviewRequest,
+    _user: CurrentUser,
+    _t: Translator,
+) -> dict[str, Any]:
+    """分镜文稿的读时派生预览：shots / references / utterances + 降级可见性 warning。
+
+    只读、不落盘——文稿是唯一真相，utterances 与 references 都是机械派生物。声音相关的
+    三条 warning 依赖项目当前视频后端的能力（``voice_consistency`` 与参考音频段数上限），
+    与执行层同一份解析出口；能力解析失败时按 ``soft`` 降级，只是少发这几条提示。
+    """
+    project, _script, _sf = _load_episode_script(project_name, episode, _t)
+    caps = await project_video_caps(project, degraded_to="解析预览不发声音相关提示")
+    preview = build_script_preview(
+        req.prompt,
+        project,
+        voice_consistency=str(caps.get("voice_consistency") or "soft"),
+        max_reference_audio=int(caps.get("max_reference_audio_count") or 0),
+        model_id=str(caps.get("model") or ""),
+    )
+    return {
+        "shots": [{"index": i, "text": s.text} for i, s in enumerate(preview.shots, start=1)],
+        "references": [r.model_dump() for r in preview.references],
+        "utterances": [
+            {
+                "shot_index": u.shot_index,
+                "kind": u.utterance.kind,
+                "speaker": u.utterance.speaker,
+                "text": u.utterance.text,
+            }
+            for u in preview.utterances
+        ],
+        "warnings": [{"key": w["key"], "message": _t(w["key"], **w["params"])} for w in preview.warnings],
     }
 
 

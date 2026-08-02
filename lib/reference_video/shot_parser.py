@@ -78,6 +78,42 @@ def _iter_mentions(text: str) -> Iterator[tuple[int, int, str]]:
         i += 1
 
 
+def match_dialogue_line(line: str) -> tuple[str, str] | None:
+    """规范台词行 ``@[角色]：{台词}``（中英冒号均可）→ ``(speaker, text)``；不匹配返回 ``None``。
+
+    整行仅此结构才算规范行：台词与描述混写在同一行时不匹配（由调用侧出 warning），
+    杜绝「行内最近 mention 猜 speaker」式启发式——推断错误会把台词静默绑到错误角色的
+    参考音频上。speaker 位复用 :func:`_iter_mentions`，与 mention 语法同一份真相。
+    """
+    stripped = line.strip()
+    if not stripped.startswith("@"):
+        return None
+    first = next(_iter_mentions(stripped), None)
+    if first is None or first[0] != 0:
+        return None
+    rest = stripped[first[1] :].lstrip()
+    if not rest or rest[0] not in "：:":
+        return None
+    spoken = _unwrap_braces(rest[1:])
+    return None if spoken is None else (first[2], spoken)
+
+
+def match_voiceover_line(line: str) -> str | None:
+    """裸 ``{台词}`` 行 = 画外音 → 台词正文；不匹配返回 ``None``。"""
+    return _unwrap_braces(line)
+
+
+def _unwrap_braces(text: str) -> str | None:
+    """``{…}`` 整体包裹判定：去空白后须以 ``{`` 开头、``}`` 结尾且内部无花括号。"""
+    body = text.strip()
+    if len(body) < 2 or body[0] != "{" or body[-1] != "}":
+        return None
+    inner = body[1:-1]
+    if "{" in inner or "}" in inner:
+        return None
+    return inner
+
+
 def parse_prompt(text: str) -> tuple[list[Shot], list[str]]:
     """把用户书写的 prompt 文本拆为 (shots, mention_names)。
 
@@ -124,14 +160,21 @@ def extract_mentions(text: str) -> list[str]:
     """提取文本中的 @ 引用名（保持首次出现顺序、去重）。
 
     与 ``parse_prompt`` 的 mention 口径同源；参考生视频 step1 拆分工具据此从
-    shot 文本机械派生 unit 的 references 列表（顺序即 [图N] 编号）。
+    shot 文本机械派生 unit 的 references 列表（顺序即参考图编号）。
+
+    **规范台词行整行不计入**：给画外说话的角色附参考图会诱导模型把他画进画面，故
+    ``@[角色]：{台词}`` 行的 speaker 位只驱动音色声明与 utterance 派生，不进参考图。
+    纯画外角色因此没有参考图条目，但台词与音色声明照常。
     """
     seen: set[str] = set()
     result: list[str] = []
-    for _start, _end, name in _iter_mentions(text):
-        if name not in seen:
-            seen.add(name)
-            result.append(name)
+    for line in text.splitlines():
+        if match_dialogue_line(line) is not None:
+            continue
+        for _start, _end, name in _iter_mentions(line):
+            if name not in seen:
+                seen.add(name)
+                result.append(name)
     return result
 
 

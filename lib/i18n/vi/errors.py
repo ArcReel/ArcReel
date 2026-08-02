@@ -231,6 +231,31 @@ MESSAGES = {
     "ref_derive_ad_only": "Chỉ dự án quảng cáo/video ngắn mới hỗ trợ suy ra nhóm đơn vị video",
     "ref_ad_stale_index": "Chỉ mục nhóm không còn khớp với các cảnh quay, vui lòng suy ra lại nhóm",
     "ref_ad_reference_skipped": "'{name}' ({type}) không có ảnh tham chiếu khả dụng, đã bỏ qua tham chiếu này trong lần tạo này",
+    # Xem trước phân tích kịch bản phân cảnh: hiển thị các trường hợp giảm cấp
+    "ref_warn_unregistered_mention": (
+        "@[{name}] chưa được đăng ký trong nhân vật/bối cảnh/đạo cụ: sẽ không kèm ảnh tham chiếu, "
+        "hãy kiểm tra tên hoặc tạo tài sản trước"
+    ),
+    "ref_warn_unclosed_brace": (
+        "Cảnh {shot}: dấu ngoặc nhọn của lời thoại chưa đóng nên không được nhận là lời thoại, "
+        "dòng này sẽ được gửi nguyên văn: {excerpt}…"
+    ),
+    "ref_warn_dialogue_inline": (
+        "Cảnh {shot}: lời thoại và mô tả nằm cùng một dòng nên không được nhận là lời thoại; "
+        "nếu cần tham chiếu giọng nói, hãy để lời thoại thành dòng riêng (@[nhân vật]: {{lời thoại}})"
+    ),
+    "ref_warn_unregistered_speaker": (
+        "@[{name}] chưa được đăng ký trong nhân vật: không xác định được người nói, dòng này sẽ được gửi nguyên văn"
+    ),
+    "ref_warn_speaker_without_audio": (
+        "Nhân vật '{name}' chưa đặt âm thanh tham chiếu: giọng của lời thoại sẽ do mô hình tự quyết định"
+    ),
+    "ref_warn_reference_audio_overflow": (
+        "Tối đa {limit} đoạn âm thanh tham chiếu: giọng lời thoại của nhân vật '{name}' sẽ do mô hình tự quyết định"
+    ),
+    "ref_warn_silent_model": (
+        "Mô hình video hiện tại '{model}' không tạo âm thanh, lời thoại chỉ dùng làm gợi ý cho prompt"
+    ),
     # Episode meta
     "episode_not_found": "Không tìm thấy tập {episode} hoặc tập chưa có tệp kịch bản",
     "episode_title_empty": "Tiêu đề tập không được để trống",
