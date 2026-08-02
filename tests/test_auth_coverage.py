@@ -69,7 +69,12 @@ def _auth_env():
 def client():
     from server.app import app
 
-    with TestClient(app, raise_server_exceptions=False) as c:
+    # conftest 的沙箱 stub 是 function 级，晚于本 fixture 实例化，进 lifespan 时还没生效，
+    # 于是跑的是真实 bwrap probe——Linux CI runner 上必然失败。这里自行桩掉。
+    with (
+        patch("server.app.check_sandbox_available", lambda: True),
+        TestClient(app, raise_server_exceptions=False) as c,
+    ):
         yield c
 
 
