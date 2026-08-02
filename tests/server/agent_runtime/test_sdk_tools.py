@@ -3647,9 +3647,9 @@ async def test_open_reference_step1_for_edit_keeps_malformed_duration_verbatim(f
 
 
 async def test_open_reference_step1_for_edit_keeps_malformed_non_dict_unit_slot(fake_ctx: ToolContext) -> None:
-    """盘上 units 混入非 dict 元素（存量项目被裸 Edit 改坏过）时不能直接丢弃：跳过会让草稿
-    数组比正式文件短一个，若剩余 unit 都能过校验，晋升会悄悄覆盖正式文件、丢失这个 unit 而
-    无人知晓。留空占位在原数组位置，让晋升侧 schema 判它结构非法、逐条报出。"""
+    """盘上 units 混入非 dict 元素时不能直接丢弃：跳过会让草稿数组比正式文件短一个，若剩余
+    unit 都能过校验，晋升会悄悄覆盖正式文件、丢失这个 unit 而无人知晓。留空占位在原数组
+    位置，让晋升侧 schema 判它结构非法、逐条报出。"""
     _rv_source(fake_ctx)
     good_unit = _rv_saved_unit(["@[张三] 起身"])
     path = _rv_step1_path(fake_ctx)

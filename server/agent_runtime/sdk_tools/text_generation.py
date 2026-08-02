@@ -985,7 +985,7 @@ def open_reference_step1_for_edit_tool(ctx: ToolContext):
     @tool(
         STEP1_EDIT_TOOL_NAME,
         "把本集已落盘的参考生视频 step1 拆分取回可编辑的隔离草稿（扁平书写层：时长 + 原文锚 + 正文），"
-        "用于修改已有拆分。改完调用 validate_and_promote_reference_draft 全量校验并晋升回正式文件。"
+        f"用于修改已有拆分。改完调用 {PROMOTE_TOOL_NAME} 全量校验并晋升回正式文件。"
         "正式 step1 不可用 Write/Edit 直改——它与 Web 端保存、迁移、重拆分共享一把文件锁，"
         "只能经工具写盘。",
         {
@@ -1020,61 +1020,65 @@ def open_reference_step1_for_edit_tool(ctx: ToolContext):
                     "is_error": True,
                 }
 
-            # 已有草稿在场时不覆盖：那份草稿要么是违约产物、要么是上一轮取回后 agent 已改了一半，
-            # 拿正式文件盖过去等于抹掉它手上的修改。两种情况的出路相同——继续改那份草稿再晋升。
-            if quarantine_exists(project_path, episode, QUARANTINE_KIND_STEP1):
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                f"❌ 第 {episode} 集已有 step1 隔离草稿在场："
-                                f"{quarantine_path(project_path, episode, QUARANTINE_KIND_STEP1)}\n"
-                                "不覆盖它（可能已含未晋升的修改）；请直接编辑该草稿的 content.units[i]，"
-                                f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 晋升。'
-                            ),
-                        }
-                    ],
-                    "is_error": True,
-                }
-
             step1_path = episode_drafts_dir(project_path, episode) / REFERENCE_VIDEO_STEP1_FILENAME
             pm = ProjectManager(str(project_path.parent))
-            # 读也持锁：与 Web 端保存、迁移的读改写互斥，避免取回一份写到一半的 step1。
+            # 草稿有无的检查、正式文件的读取、草稿的写入须在同一把锁的临界区内完成：拆开在锁外
+            # 各做一次的话，同一集的两个并发取回请求可能都先看到「无草稿」，再都各自写入草稿，
+            # 后写者悄悄覆盖前者的 content 与 meta.source。锁与 Web 端保存、迁移同一把，读也持锁
+            # 避免取回一份写到一半的 step1。
             with pm.file_lock(step1_path):
-                data = load_json_or_none(step1_path)
-            if not isinstance(data, dict):
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                f"❌ 第 {episode} 集没有可编辑的正式 step1（{step1_path} 不存在或不是合法 JSON）；"
-                                "首次生成请调用 split_reference_video_units"
-                            ),
-                        }
-                    ],
-                    "is_error": True,
-                }
-            raw_units = data.get("units")
-            if not isinstance(raw_units, list) or not raw_units:
-                return {
-                    "content": [{"type": "text", "text": f"❌ {step1_path} 的 units 不是非空数组，无法取回编辑"}],
-                    "is_error": True,
-                }
+                # 已有草稿在场时不覆盖：那份草稿要么是违约产物、要么是上一轮取回后 agent 已改了
+                # 一半，拿正式文件盖过去等于抹掉它手上的修改。两种情况的出路相同——继续改那份
+                # 草稿再晋升。
+                if quarantine_exists(project_path, episode, QUARANTINE_KIND_STEP1):
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    f"❌ 第 {episode} 集已有 step1 隔离草稿在场："
+                                    f"{quarantine_path(project_path, episode, QUARANTINE_KIND_STEP1)}\n"
+                                    "不覆盖它（可能已含未晋升的修改）；请直接编辑该草稿的 content.units[i]，"
+                                    f'改完调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 晋升。'
+                                ),
+                            }
+                        ],
+                        "is_error": True,
+                    }
 
-            draft_path = write_quarantine(
-                project_path,
-                episode,
-                QUARANTINE_KIND_STEP1,
-                content={"units": _flatten_reference_step1_units(raw_units)},
-                # 取回时无违约可报：草稿在这条路上是「编辑工位」而非「违约产物」，报告为空即可，
-                # 晋升时照常全量重判。
-                violations=[],
-                # source 键一律写出（未指定时为 null），与拆分侧同口径：晋升侧据此区分「本就按
-                # 整个 source/ 判锚」与「meta 被改坏」。
-                meta={"source": source or None},
-            )
+                data = load_json_or_none(step1_path)
+                if not isinstance(data, dict):
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    f"❌ 第 {episode} 集没有可编辑的正式 step1（{step1_path} 不存在或不是合法 "
+                                    "JSON）；首次生成请调用 split_reference_video_units"
+                                ),
+                            }
+                        ],
+                        "is_error": True,
+                    }
+                raw_units = data.get("units")
+                if not isinstance(raw_units, list) or not raw_units:
+                    return {
+                        "content": [{"type": "text", "text": f"❌ {step1_path} 的 units 不是非空数组，无法取回编辑"}],
+                        "is_error": True,
+                    }
+
+                draft_path = write_quarantine(
+                    project_path,
+                    episode,
+                    QUARANTINE_KIND_STEP1,
+                    content={"units": _flatten_reference_step1_units(raw_units)},
+                    # 取回时无违约可报：草稿在这条路上是「编辑工位」而非「违约产物」，报告为空即可，
+                    # 晋升时照常全量重判。
+                    violations=[],
+                    # source 键一律写出（未指定时为 null），与拆分侧同口径：晋升侧据此区分「本就按
+                    # 整个 source/ 判锚」与「meta 被改坏」。
+                    meta={"source": source or None},
+                )
             return {
                 "content": [
                     {
