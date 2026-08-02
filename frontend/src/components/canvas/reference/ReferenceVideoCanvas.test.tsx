@@ -201,6 +201,39 @@ describe("ReferenceVideoCanvas", () => {
     expect(speaker.className).toContain("sky");
   });
 
+  // `out["__proto__"] = kind` 在普通对象上走继承的 setter、不落自有属性，
+  // 登记过的 `__proto__` 角色会在高亮里显示成未登记（后端照常解析）
+  it("resolves an asset named __proto__ in the highlight lookup", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...STUB_PROJECT,
+        // 计算键：字面量里的 `__proto__:` 是设原型的特例，不会建自有属性
+        characters: { ["__proto__"]: { description: "" } },
+      } as ProjectData,
+    });
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "镜头1：@[__proto__] 出场。")],
+    });
+    vi.spyOn(API, "previewReferenceScript").mockResolvedValue({
+      shots: [{ index: 1, text: "@[__proto__] 出场。" }],
+      references: [{ type: "character", name: "__proto__" }],
+      utterances: [],
+      warnings: [],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    await screen.findByRole("combobox");
+    fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
+
+    // 只看解析预览面板内的高亮，避开单元列表卡片里的同名文本
+    const panel = await screen.findByRole("tabpanel");
+    const mention = (await within(panel).findAllByText(/__proto__/)).find((el) =>
+      el.className.includes("sky"),
+    );
+    expect(mention).toBeDefined();
+  });
+
   it("renders the ReferenceVideoCard textarea once auto-selected", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1")],

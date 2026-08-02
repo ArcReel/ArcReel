@@ -29,6 +29,10 @@ export interface ScriptPreviewPanelProps {
  *
  * 派生结果还取决于项目资产表（未登记 mention / speaker 未登记 / 角色未设参考音频三条
  * warning 都读它），故 `lookup` 变化同样重新拉取——否则资产改完面板仍报旧提示。
+ *
+ * 滚动与键盘焦点由调用方的 tabpanel 承担（面板只读、无可聚焦后代，WAI tabs 惯例是
+ * tabpanel 自身取 `tabindex="0"`）。换处复用时父容器须带 `overflow-y-auto` +
+ * `tabIndex={0}`，否则长文稿溢出且键盘够不到折线以下。
  */
 export function ScriptPreviewPanel({ projectName, episode, text, lookup }: ScriptPreviewPanelProps) {
   const { t } = useTranslation("dashboard");

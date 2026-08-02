@@ -40,11 +40,18 @@ export function tokenizePrompt(text: string, lookup: MentionLookup): Token[] {
       continue;
     }
 
-    const shotMatch = piece.match(SHOT_HEADER_RE);
+    // 后端 `_strip_shot_header` 先 strip 再匹配，缩进的 `  镜头1：` 同样算 header；
+    // 缩进单独留成 text token，header 才能既被认出、又拼得回原文。
+    const indent = /^\s*/u.exec(piece)?.[0] ?? "";
+    const line = piece.slice(indent.length);
+    const shotMatch = line.match(SHOT_HEADER_RE);
     if (shotMatch) {
+      if (indent.length > 0) {
+        tokens.push({ kind: "text", text: indent });
+      }
       const header = shotMatch[0];
       tokens.push({ kind: "shot_header", text: header });
-      const rest = piece.slice(header.length);
+      const rest = line.slice(header.length);
       if (rest.length > 0) {
         pushMentionTokens(tokens, rest, lookup);
       }

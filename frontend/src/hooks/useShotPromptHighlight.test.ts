@@ -97,6 +97,14 @@ describe("tokenizePrompt", () => {
     expect(t.filter((x) => x.kind === "shot_header")).toHaveLength(1);
   });
 
+  // 后端 `_strip_shot_header` 先 strip 再匹配，缩进的 header 照样成立
+  it("highlights an indented shot header and still round-trips to the source text", () => {
+    const src = "  镜头１：内景 @主角";
+    const t = tokenizePrompt(src, LOOKUP);
+    expect(t.filter((x) => x.kind === "shot_header")).toHaveLength(1);
+    expect(t.map((x) => x.text).join("")).toBe(src);
+  });
+
   // 未登记的 `toString` 走原型链会取到 Object.prototype.toString，被当成已解析的类型
   it("treats prototype-chain names absent from the lookup as unresolved", () => {
     const t = tokenizePrompt("@toString 出场", LOOKUP);

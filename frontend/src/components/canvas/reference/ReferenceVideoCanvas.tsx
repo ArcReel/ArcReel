@@ -457,7 +457,12 @@ export function ReferenceVideoCanvas({
   // 同名可以同时落在多个 bucket；优先级与后端 `resolve_references` 一致
   // （character → scene → prop），先到先得、后面的不覆盖。
   const mentionLookup = useMemo(() => {
-    const out: Record<string, "character" | "scene" | "prop"> = {};
+    // 无原型字典：`out["__proto__"] = kind` 在普通对象上会走继承的 setter、不落自有属性，
+    // 登记过的 `__proto__` 资产因此在高亮里显示为未登记，而后端照常解析。
+    const out: Record<string, "character" | "scene" | "prop"> = Object.create(null) as Record<
+      string,
+      "character" | "scene" | "prop"
+    >;
     const claim = (name: string, kind: "character" | "scene" | "prop") => {
       // hasOwn 而非 `in`：`toString` / `constructor` 等是合法资产名，`in` 命中原型链会让
       // 真正登记的资产拿不到类型，前端高亮判它未登记、后端预览正常解析，两侧当场矛盾。
