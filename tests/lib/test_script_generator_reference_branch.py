@@ -820,6 +820,37 @@ async def test_step1_dialogue_overload_is_caught_before_the_paid_step2_call(refe
 
 
 @pytest.mark.integration
+async def test_shot_embedded_header_is_caught_before_the_paid_step2_call(reference_project: Path):
+    """落盘 shot 正文里嵌了 `镜头N：`（Agent 可裸写剧本 JSON）：解析回来会多切一个镜头。
+
+    step2 按多出来的镜头数展开，合并时却比对落盘的 shots 数——不在生成前拦，必然是付完钱才失败。
+    """
+    drafts = reference_project / "drafts" / "episode_1"
+    (drafts / "step1_reference_units.json").write_text(
+        _json.dumps(
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "duration_seconds": 4,
+                        "shots": [{"text": "@[主角] 推开 @[酒馆] 的门\n镜头2：@[主角] 走进去"}],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    fake_generator = _fake_step2_generator(STEP2_UNIT_TEXT)
+
+    gen = ScriptGenerator(reference_project, generator=fake_generator)
+
+    with pytest.raises(DraftViolation, match="解析回"):
+        await gen.generate(episode=1)
+    fake_generator.generate.assert_not_awaited()
+
+
+@pytest.mark.integration
 async def test_step2_missing_title_falls_back_instead_of_failing_the_paid_call(reference_project: Path):
     """非约束解码通道漏写 title 时兜底为「第N集」：title 仅展示用，不值得让已付费的展开失败。"""
     drafts = reference_project / "drafts" / "episode_1"

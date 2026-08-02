@@ -714,7 +714,7 @@ def _validate_narration_asset_references(
     props: dict[str, Any],
 ) -> None:
     """校验片段登记的角色 / 场景 / 道具已在 project.json 对应表注册，与 rv 侧
-    ``_derive_and_validate_reference_units`` 对资产引用的校验同口径：只信登记过的资产名，
+    ``_build_reference_units_from_flat`` 对资产引用的校验同口径：只信登记过的资产名，
     不允许模型发明或拼错的名称被当真值写盘、被 step2 视觉层只读消费。
     """
     missing: dict[str, list[str]] = {}

@@ -993,9 +993,18 @@ class ScriptGenerator:
         source_language = self.project_json.get("source_language")
         for unit in step1_units:
             label = f"step1 的 unit {unit['unit_id']}"
-            text = render_shots_text(unit.get("shots") or [])
+            stored_shots = unit.get("shots") or []
+            text = render_shots_text(stored_shots)
             try:
-                validate_unit_text(label, text, self.project_json, max_refs=max_refs)
+                parsed_shots, _refs = validate_unit_text(label, text, self.project_json, max_refs=max_refs)
+                if len(parsed_shots) != len(stored_shots):
+                    # 落盘的单个 shot 正文里又嵌了 `镜头N：`（Agent 可裸写剧本 JSON）：渲染回书写层
+                    # 再解析会多切出镜头，step2 按多出来的镜头数展开，而合并时比对的是落盘的 shots
+                    # 数——不在这里拦，这一定是「付完钱才失败」。
+                    raise DraftViolation(
+                        f"{label} 落盘的 {len(stored_shots)} 个镜头在书写层解析回 {len(parsed_shots)} 个；"
+                        "镜头正文里不能再嵌 `镜头N：` 行，请把它拆成独立镜头"
+                    )
                 validate_dialogue_load(label, text, int(unit["duration_seconds"]), source_language)
             except DraftViolation as e:
                 raise DraftViolation(

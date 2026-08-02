@@ -128,6 +128,41 @@ def match_dialogue_line(line: str) -> tuple[str, str] | None:
     return speaker, spoken
 
 
+def has_speaker_colon_prefix(line: str) -> bool:
+    """行首是否为 ``@[名称]：`` 形态（只看说话人位与冒号，不判花括号）。
+
+    ``match_dialogue_line`` 是「整行合规才算台词」的严判，两者之差即「本想写台词但写坏了」：
+    漏花括号、花括号不整体包裹、说话人位空白。机器产物校验据此把这类行判违约，而不是让它
+    以画面描述的身份放行（说话人会被派生成参考图、台词则整句消失）。
+    """
+    stripped = _strip_bom(line).strip()
+    if not stripped.startswith("@"):
+        return False
+    first = next(_iter_mentions(stripped), None)
+    if first is None or first[0] != 0:
+        return False
+    rest = stripped[first[1] :].lstrip()
+    return bool(rest) and rest[0] in "：:"
+
+
+def find_malformed_mention(line: str) -> str | None:
+    """返回行内首个写坏的 ``@[`` 引用片段（如 ``@[李明`` / ``@[]``）；没有则返回 ``None``。
+
+    ``_iter_mentions`` 对这类 token 静默不产出 mention，正文里的坏 token 因此既不进
+    references，又会被 ``render_prompt_for_backend`` 原样带进供应商请求（它只替换认得的
+    mention、从不删字）。左侧是 ASCII 词字符时按邮箱 / id 片段跳过，与 ``_iter_mentions`` 同口径。
+    """
+    text = _strip_bom(line)
+    starts = {start for start, _end, _name in _iter_mentions(text)}
+    for index in range(len(text) - 1):
+        if text[index] != "@" or text[index + 1] != "[" or index in starts:
+            continue
+        if index > 0 and _is_ascii_word_char(text[index - 1]):
+            continue
+        return text[index : index + 20]
+    return None
+
+
 def match_voiceover_line(line: str) -> str | None:
     """裸 ``{台词}`` 行 = 画外音 → 台词正文；不匹配返回 ``None``。"""
     return _unwrap_braces(_strip_bom(line))

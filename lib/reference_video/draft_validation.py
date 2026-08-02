@@ -16,6 +16,8 @@ from typing import Any
 
 from lib.asset_types import BUCKET_KEY
 from lib.reference_video.shot_parser import (
+    find_malformed_mention,
+    has_speaker_colon_prefix,
     match_dialogue_line,
     match_voiceover_line,
     parse_prompt,
@@ -85,17 +87,36 @@ def _content_lines(text: str) -> list[str]:
 _FULLWIDTH_BRACES = "｛｝"
 
 
-def _assert_brace_syntax(label: str, text: str) -> None:
-    """逐行判花括号用法：只允许整行包裹的台词行 / 画外音行，其余出现花括号即违约。"""
+def _assert_line_syntax(label: str, text: str) -> None:
+    """逐行判书写层语法：花括号用法、写坏的 ``@[`` 引用、缺花括号的台词行。
+
+    三类共性是「解析器不报错、但派生结果与作者意图相反」：台词降级成画面描述、说话人反被
+    派生成参考图、坏 token 原样进供应商请求。机器产物没有作者意图可保护，一律在语法判定处
+    响亮拒绝，不静默、也不代模型改写。
+    """
     for line in _content_lines(text):
         if any(ch in line for ch in _FULLWIDTH_BRACES):
             raise DraftViolation(
                 f"{label} 使用了全角花括号：{line.strip()[:40]!r}；"
                 "台词与画外音的花括号必须是半角 `{}`，全角形不会被识别为台词行"
             )
+        malformed = find_malformed_mention(line)
+        if malformed is not None:
+            raise DraftViolation(
+                f"{label} 有写坏的资产引用：{malformed!r}；"
+                "引用须写成 `@[资产名]`，方括号要成对闭合、名称非空，否则既不进 references，"
+                "又会原样进入视频请求"
+            )
+        is_dialogue = match_dialogue_line(line) is not None
+        if not is_dialogue and has_speaker_colon_prefix(line):
+            raise DraftViolation(
+                f"{label} 的台词行写法不合法：{line.strip()[:40]!r}；"
+                "台词须写成 `@[角色]：{台词}`——说话人非空、台词由半角花括号整体包裹，"
+                "否则这行会被当成画面描述、台词整句丢失"
+            )
         if "{" not in line and "}" not in line:
             continue
-        if match_dialogue_line(line) is not None or match_voiceover_line(line) is not None:
+        if is_dialogue or match_voiceover_line(line) is not None:
             continue
         excerpt = line.strip()[:40]
         if line.count("{") != line.count("}"):
@@ -151,16 +172,23 @@ def validate_unit_text(
 ) -> tuple[list[Shot], list[ReferenceResource]]:
     """校验一个 unit 的正文并机械派生 ``(shots, references)``。
 
-    覆盖四类阻断违约：正文为空 / 镜头行数超上限、花括号语法误用、``@[名称]`` 未登记
-    （含台词行的说话人位）、references 超模型上限。派生结果即落盘值——校验与派生同一次
+    覆盖四类阻断违约：正文为空 / 单镜头正文为空 / 镜头行数超上限、书写层语法误用（花括号、
+    写坏的引用、缺花括号的台词行）、``@[名称]`` 未登记（含台词行的说话人位）、references
+    超模型上限。派生结果即落盘值——校验与派生同一次
     遍历，杜绝「校验看到的文本」与「落盘的 references」出自两套解析。
     """
     if not text.strip():
         raise DraftViolation(f"{label} 的正文为空")
 
-    _assert_brace_syntax(label, text)
+    _assert_line_syntax(label, text)
 
     shots, mentions = parse_prompt(text)
+    # 空镜头正文（``镜头1：`` 后无描述）派生出 ``Shot(text="")``：整段非空时上面的空正文检查
+    # 放不住它。单镜头 unit 因此落盘后进不了队（视频 prompt 为空），多镜头 unit 则让 step2
+    # 对着空白镜头自行编内容。
+    blank_shots = [index for index, shot in enumerate(shots, start=1) if not shot.text.strip()]
+    if blank_shots:
+        raise DraftViolation(f"{label} 的镜头 {blank_shots} 正文为空；每个 `镜头N：` 后都要写该镜头的画面描述")
     if len(shots) > MAX_SHOTS_PER_UNIT:
         raise DraftViolation(
             f"{label} 有 {len(shots)} 个镜头行，超过单 unit 上限 {MAX_SHOTS_PER_UNIT}；"
@@ -191,6 +219,10 @@ def validate_dialogue_load(label: str, text: str, duration_seconds: int, languag
     时长就是计费，unit 时长在 step1 定稿；台词写超了意味着成片必然吞词或抢拍，且这在
     step1 阶段是可改的（重拆 unit 或删台词），拖到生成后才发现只能重来。
     """
+    # language 取自 project.json，可能是非字符串脏数据；非字符串回退 None（按默认语速估算），
+    # 与 prompt 构造侧同口径——否则 ``count_reading_units`` 的 ``language.strip()`` 会在一次
+    # 已付费的调用之后抛 AttributeError，草稿一并丢失。
+    language = language if isinstance(language, str) else None
     # 台词取自 normative_lines，已归一到 NFC：``count_reading_units`` 的 en / vi 分支按
     # ``\b\w+\b`` 数词，NFD 形式下组合附加符不算词字符，一个越南语词会被拆成数个单位
     # （9 词的句子计成 16 个），估算随之虚高、把念得完的 unit 判成超载。

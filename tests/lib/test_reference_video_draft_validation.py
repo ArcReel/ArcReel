@@ -102,6 +102,29 @@ class TestUnitText:
         with pytest.raises(DraftViolation, match="全角花括号"):
             validate_unit_text("unit E1U01", "镜头1：门开了\n@[李明]：｛我来了。｝", PROJECT, max_refs=None)
 
+    def test_dialogue_without_braces_rejected(self):
+        """漏花括号的台词行会被当成画面描述：台词整句消失、说话人反被派生成参考图。"""
+        with pytest.raises(DraftViolation, match="台词行写法不合法"):
+            validate_unit_text("unit E1U01", "镜头1：门开了\n@[李明]：我来了。", PROJECT, max_refs=None)
+
+    def test_dialogue_with_partial_brace_wrapping_rejected(self):
+        with pytest.raises(DraftViolation, match="台词行写法不合法"):
+            validate_unit_text("unit E1U01", "镜头1：门开了\n@[李明]：{我来了}，然后转身", PROJECT, max_refs=None)
+
+    def test_malformed_mention_rejected(self):
+        """写坏的 `@[` 既不进 references，又会原样进入供应商请求（渲染只替换认得的 mention）。"""
+        with pytest.raises(DraftViolation, match="写坏的资产引用"):
+            validate_unit_text("unit E1U01", "镜头1：@[李明 推开门", PROJECT, max_refs=None)
+
+    def test_empty_mention_rejected(self):
+        with pytest.raises(DraftViolation, match="写坏的资产引用"):
+            validate_unit_text("unit E1U01", "镜头1：@[] 推开门", PROJECT, max_refs=None)
+
+    def test_blank_shot_body_rejected(self):
+        """空镜头正文进不了队（视频 prompt 为空），多镜头时还会让 step2 对着空白自行编内容。"""
+        with pytest.raises(DraftViolation, match="正文为空"):
+            validate_unit_text("unit E1U01", "镜头1：@[李明] 推门\n镜头2：", PROJECT, max_refs=None)
+
     def test_dialogue_written_on_shot_header_line_is_normative(self):
         """写在 ``镜头N：`` 同一行的台词在切分后就是规范行，判定须在剥 header 之后。"""
         _shots, refs = validate_unit_text("unit E1U01", "镜头1：@[李明]：{我来了。}", PROJECT, max_refs=None)
@@ -127,6 +150,10 @@ class TestDialogueLoad:
         long_line = "画外音很长很长的一段" * 6
         with pytest.raises(DraftViolation, match="超过该 unit"):
             validate_dialogue_load("unit E1U01", f"镜头1：空镜\n{{{long_line}}}", 4, "zh")
+
+    def test_non_string_language_falls_back_to_default_rate(self):
+        """project.json 的 source_language 可能是脏数据：估算按默认语速走，不抛 AttributeError。"""
+        validate_dialogue_load("unit E1U01", "@[李明]：{我来了。}", 4, 123)  # pyright: ignore[reportArgumentType]
 
     def test_normalizes_unicode_before_estimating(self):
         """NFD 台词先归一再估：组合附加符会被词计数拆成多个单位，不归一会把念得完的 unit 判超载。"""
