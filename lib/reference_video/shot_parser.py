@@ -240,8 +240,9 @@ def rederive_unit_references(units: list[Any], project: dict) -> None:
 def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
     """把 prompt 中的 ``@[X]`` / ``@X`` 替换为三段论的主体记号 ``<X>``。
 
-    ``names`` 是本次渲染中确实有对应参考图的名字；不在其中的 mention 原样保留、从不删字
-    （据此「拼接文本去空白后为空」等价于「渲染后为空」，空提示词校验可在入队侧无损完成）。
+    ``names`` 是资产表里已登记的名字——``<X>`` 是画面主体记号、不指向参考图编号，故不随
+    能力上限裁剪收窄。不在其中的 mention 原样保留、从不删字（据此「拼接文本去空白后为空」
+    等价于「渲染后为空」，空提示词校验可在入队侧无损完成）。
     """
     parts: list[str] = []
     last = 0

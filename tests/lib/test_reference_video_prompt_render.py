@@ -159,6 +159,17 @@ def test_unregistered_speaker_line_is_sent_verbatim_with_warning():
     assert {"key": WARN_UNREGISTERED_SPEAKER, "params": {"name": "路人"}} in rendered.warnings
 
 
+def test_clipped_reference_still_renders_as_subject():
+    """被能力上限裁掉参考图的已登记名字仍是画面主体：渲染 <X>，不把编辑器语法发给模型。"""
+    rendered = render_unit_prompt(_TEXT, _project(), _refs(("scene", "酒馆")))
+    assert "@[张三]" not in rendered.prompt
+    assert "@[长剑]" not in rendered.prompt
+    assert "<张三> 推门而入，手按 <长剑>。" in rendered.prompt
+    # 主体记号与图号解耦：只有随请求发出的那张图才有绑定行
+    assert rendered.prompt.startswith("<酒馆>@图片1。")
+    assert "<张三>@图片" not in rendered.prompt
+
+
 def test_unregistered_mention_kept_verbatim_with_warning():
     rendered = render_unit_prompt("镜头1：@[未知资产] 出现。", _project(), [])
     assert "@[未知资产]" in rendered.prompt

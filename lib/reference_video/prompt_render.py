@@ -93,8 +93,11 @@ def render_unit_prompt(
     shots, mentions = parse_prompt(text)
     utterances, warnings = derive_utterances(shots)
 
-    _refs, missing = resolve_references(mentions, project)
+    registered, missing = resolve_references(mentions, project)
     warnings = [_warning_unregistered(name) for name in missing] + warnings
+    # 主体记号按**资产表登记**判定，与参考图编号解耦：被能力上限裁掉的名字仍是画面主体，
+    # 只是这次没随请求发图（纯画外角色同理——有主体、无图）。未登记的 mention 才留原文。
+    subjects = {ref.name for ref in registered}
 
     characters: dict = project.get(BUCKET_KEY["character"]) or {}
     bindings = derive_voice_bindings(
@@ -112,7 +115,7 @@ def render_unit_prompt(
 
     segments = [
         _render_segment_one(references, image_no, bindings.speakers, audio_no, characters, voice_consistency),
-        _render_segment_two(shots, image_no, characters),
+        _render_segment_two(shots, subjects, characters),
         _render_segment_three(references, style),
     ]
     prompt = "\n\n".join(seg for seg in segments if seg)
@@ -158,8 +161,12 @@ def _render_segment_one(
     return "\n".join(lines)
 
 
-def _render_segment_two(shots: list[Any], image_no: dict[str, int], characters: dict) -> str:
+def _render_segment_two(shots: list[Any], subjects: Collection[str], characters: dict) -> str:
     """镜头分镜段：描述行做 mention 替换，规范台词行重组为官方句式。
+
+    ``subjects`` 是已登记的 mention 名（未经能力上限裁剪）——主体记号 ``<X>`` 表达「画面里的
+    这个人 / 物」，不指向图号，故与参考图编号解耦：裁掉图的名字照样是主体，只有未登记的
+    mention 才留编辑器原文（配 ``ref_warn_unregistered_mention``）。
 
     台词行的说话人按**资产表**判定而非参考图列表：纯画外角色无参考图，台词行照常重组。
     未登记的说话人按原文发送（warning 已由 :func:`derive_voice_bindings` 发出），
@@ -177,7 +184,7 @@ def _render_segment_two(shots: list[Any], image_no: dict[str, int], characters: 
             if voiceover is not None:
                 body.append(f"画外音说 {{{voiceover}}}")
                 continue
-            body.append(render_mentions_as_subjects(line, image_no))
+            body.append(render_mentions_as_subjects(line, subjects))
         text = "\n".join(ln for ln in body if ln.strip())
         blocks.append(f"镜头{index}：\n{text}" if text else f"镜头{index}：")
     return "\n\n".join(blocks)
