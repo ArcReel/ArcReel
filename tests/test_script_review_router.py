@@ -438,6 +438,8 @@ class TestReferenceVideoRouter:
 
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
         project_path = pm.get_project_path("demo")
+        (project_path / "source").mkdir(parents=True, exist_ok=True)
+        (project_path / "source" / "episode_1.txt").write_text("阿离站在屋檐下。", encoding="utf-8")
         _write_rv_step1(pm, _rv_step1())
         write_quarantine(
             project_path,
@@ -445,10 +447,14 @@ class TestReferenceVideoRouter:
             QUARANTINE_KIND_STEP1,
             content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
             violations=[DraftViolation("坏", code="empty_text", label="unit E1U01")],
+            meta={"source": "source/episode_1.txt"},
         )
 
         with client:
             base = "/api/v1/projects/demo/episodes/1/script-review"
             put_body = client.put(f"{base}/content", json=_rv_step1()).json()
             assert put_body["quarantine"] is not None
-            assert put_body["quarantine"]["violations"]
+            # meta.source 完整、重算能正常跑：断言到的是重算算出的真实违约，不是
+            # meta 缺失时降级出的 quarantine_unreadable 兜底条目。
+            codes = [v["code"] for v in put_body["quarantine"]["violations"]]
+            assert codes and "quarantine_unreadable" not in codes

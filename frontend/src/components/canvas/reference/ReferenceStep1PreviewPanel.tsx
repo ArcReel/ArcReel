@@ -267,7 +267,7 @@ function UnitCard({
                 跳到首档，用户看到的秒数与盘上的对不上。 */}
             {(durationOptions.includes(unit.durationSeconds)
               ? durationOptions
-              : [unit.durationSeconds, ...durationOptions]
+              : [...durationOptions, unit.durationSeconds].sort((a, b) => a - b)
             ).map((d) => (
               <option key={d} value={d}>
                 {t("reference_step1_duration_option", { seconds: d })}

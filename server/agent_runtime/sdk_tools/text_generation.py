@@ -7,6 +7,7 @@ keeping them together avoids a one-tool stub file.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -829,7 +830,10 @@ async def revalidate_reference_step1_draft(
             f"隔离草稿 {draft.path} 的 meta.source 缺失（产出时记录的源文范围）；"
             "请恢复该字段（指定源文时为其相对路径，按整个 source/ 产出时为 null）后重试"
         )
-    novel_text = _load_novel_source(project_path, draft.meta["source"])
+    # 源文可能达数百 KB（整个 source/ 目录拼接），同步读盘直接放在这个 async 函数体里会占用
+    # 事件循环——晋升工具走的是独立会话线程不敏感，但 web 审核 gate 的读时重算（同一份代码）
+    # 在请求协程里跑，卸到线程避免拖慢并发的其它请求。
+    novel_text = await asyncio.to_thread(_load_novel_source, project_path, draft.meta["source"])
     split_caps = await _fetch_reference_caps_with_fallback(project)
 
     # 手改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_step1_json 卡住时长

@@ -254,12 +254,15 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect(screen.queryByRole("combobox", { name: "E1U01 时长" })).not.toBeInTheDocument();
   });
 
-  it("keeps the duration select on a stored value that is no longer a supported tier", async () => {
+  it("keeps the duration select on a stored value that is no longer a supported tier, sorted into place", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ supported_durations: [4, 6] }));
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
     expect(select.value).toBe("8");
+    // 越档兜底项插入 options 时按数值排序，不是简单地把当前值塞到最前面（那样 8/4/6 的
+    // 显示顺序会乱）。
+    expect([...select.options].map((o) => o.value)).toEqual(["4", "6", "8"]);
   });
 
   it("surfaces unit-less violations and the raw draft when the quarantined content has no usable units", async () => {

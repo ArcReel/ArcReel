@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
@@ -195,15 +196,20 @@ class ScriptReviewService:
         原样内容 + 违约列表，供呈现层原样展示 agent 手改的那份文本。meta 被改坏以致无从重算
         时，把「无法重算」本身作为一条违约返回，而不是退回草稿里那份上一轮快照——报告一律
         对现值负责，读时重算失败也是现值的一部分。
+
+        项目 / 隔离草稿的同步文件读取经 ``asyncio.to_thread`` 卸到线程——本方法整体是
+        ``async``（内部要 ``await`` 重算里的能力解析），若前半截同步 I/O 直接跑在事件循环上，
+        源文越大越占用循环时间，拖慢并发的其它请求；GET 端点已经把 ``get_state`` 包了
+        ``asyncio.to_thread``，这里保持同一纪律。
         """
-        project = self.pm.load_project(project_name)
+        project = await asyncio.to_thread(self.pm.load_project, project_name)
         if script_review.step1_kind(project, episode) != "reference_video":
             return None
         project_path = self.pm.get_project_path(project_name)
         quarantine_path = script_review.step1_quarantine_path(project_path, project, episode)
         if quarantine_path is None or not quarantine_path.exists():
             return None
-        draft = read_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+        draft = await asyncio.to_thread(read_quarantine, project_path, episode, QUARANTINE_KIND_STEP1)
         if draft is None:
             # 文件存在但信封形状坏（非法 JSON / 顶层非对象 / content 非对象）：`read_quarantine`
             # 按「无隔离草稿」返回 None 是它自己的读取口径（供 confirm 的存在性判断照常阻塞），

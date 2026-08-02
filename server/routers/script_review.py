@@ -129,11 +129,20 @@ async def update_script_review_content(
 
 @router.post("/projects/{project_name}/episodes/{episode}/script-review/confirm")
 async def confirm_script_review(project_name: str, episode: int, _t: Translator):
-    """用户显式确认 step1 内容，放行 step2 视觉生成。"""
+    """用户显式确认 step1 内容，放行 step2 视觉生成。
+
+    ``quarantine`` 同 GET / PUT 一并合并，保持三个端点响应形状一致——``confirm()`` 内部虽已
+    按隔离文件存在性拒绝确认，但响应仍应如实反映确认完成那一刻的隔离态，而不是让这个字段在
+    三个端点里时有时无。
+    """
     try:
         service = ScriptReviewService(get_project_manager())
         state = await asyncio.to_thread(service.confirm, project_name, episode)
-        return await _attach_duration_tiers(service, project_name, episode, state)
+        await _attach_duration_tiers(service, project_name, episode, state)
+        state["quarantine"] = _localize_quarantine_violations(
+            await service.get_quarantine_info(project_name, episode), _t
+        )
+        return state
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:
