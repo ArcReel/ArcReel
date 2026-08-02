@@ -99,6 +99,7 @@ MESSAGES = {
     "draft_invalid_json": "step1 草稿必须是包含非空 scenes 数组的合法 JSON 对象，且每个场景都是带非空 scene_id 的对象",
     "script_review_not_applicable": "该集不适用 step1 审核确认（该模式无结构化 step1 中间态）",
     "script_review_no_step1": "尚无 step1 结构化中间态可确认，请先完成预处理",
+    "script_review_quarantined": "本集 step1 有违约产物待处置，请让智能体修复并晋升后再确认",
     "script_review_invalid_content": "step1 中间态结构校验失败：{details}",
     "draft_event_label": "第 {episode} 集{label_prefix}",
     "normalized_script": "规范化剧本",

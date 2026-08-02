@@ -1378,6 +1378,7 @@ export default {
   'tool_name_confirm_script_review': 'Confirm step 1 review',
   'tool_name_normalize_drama_script': 'Normalize drama script',
   'tool_name_split_reference_video_units': 'Split reference video units',
+  'tool_name_validate_and_promote_reference_draft': 'Validate and promote reference draft',
   'tool_name_split_narration_segments': 'Split narration segments',
   'tool_name_get_video_capabilities': 'Query video model capabilities',
   'tool_name_plan_episodes': 'Plan episodes',

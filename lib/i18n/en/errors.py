@@ -99,6 +99,9 @@ MESSAGES = {
     "draft_invalid_json": "Step 1 draft must be a valid JSON object with a non-empty scenes array, where each scene is an object with a non-empty scene_id",
     "script_review_not_applicable": "Step 1 review does not apply to this episode (this mode has no structured Step 1 intermediate)",
     "script_review_no_step1": "No Step 1 structured draft to confirm yet; please finish preprocessing first",
+    "script_review_quarantined": (
+        "This episode has a rejected Step 1 draft awaiting repair; let the agent fix and promote it before confirming"
+    ),
     "script_review_invalid_content": "Step 1 draft structure validation failed: {details}",
     "draft_event_label": "Episode {episode} {label_prefix}",
     "normalized_script": "Normalized Script",

@@ -8,12 +8,16 @@ from lib.reference_video.ad_units import (
 )
 from lib.reference_video.draft_validation import (
     DraftViolation,
+    DraftViolations,
     assert_dialogue_preserved,
+    collect_violations,
     dialogue_speakers,
     normative_lines,
+    render_violation_report,
     validate_dialogue_load,
     validate_source_text_anchor,
     validate_unit_text,
+    violation_items,
 )
 from lib.reference_video.duration_migration import (
     migrate_script_unit_durations,
@@ -39,6 +43,7 @@ from lib.reference_video.script_preview import (
 from lib.reference_video.shot_parser import (
     assemble_shots_text,
     assemble_shots_text_for_render,
+    derive_references_from_text,
     match_dialogue_line,
     match_voiceover_line,
     parse_prompt,
@@ -55,6 +60,7 @@ __all__ = [
     "MAX_SHOTS_PER_UNIT",
     "WRITING_SYNTAX_SPEC",
     "DraftViolation",
+    "DraftViolations",
     "MissingReferenceError",
     "ProviderUnsupportedFeatureError",
     "RenderedUnitPrompt",
@@ -65,7 +71,9 @@ __all__ = [
     "assemble_shots_text_for_render",
     "assert_dialogue_preserved",
     "build_script_preview",
+    "collect_violations",
     "derive_ad_reference_units",
+    "derive_references_from_text",
     "derive_utterances",
     "derive_voice_bindings",
     "dialogue_speakers",
@@ -81,6 +89,7 @@ __all__ = [
     "render_mentions_as_subjects",
     "render_shots_text",
     "render_unit_prompt",
+    "render_violation_report",
     "resolve_ad_unit_shots",
     "resolve_reference_audio_paths",
     "resolve_references",
@@ -89,4 +98,5 @@ __all__ = [
     "validate_dialogue_load",
     "validate_source_text_anchor",
     "validate_unit_text",
+    "violation_items",
 ]

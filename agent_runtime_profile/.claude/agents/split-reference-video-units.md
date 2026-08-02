@@ -50,7 +50,7 @@ mcp__arcreel__get_video_capabilities({})
 情况 A（首次生成）时由 `mcp__arcreel__split_reference_video_units` 自行查询并注入 prompt，subagent 可不直接使用；
 情况 B（修改已有拆分）需参考这些值决定新值。
 
-工具返回 `is_error: true` 时，停止并把错误文本报告给主 agent。
+工具返回 `is_error: true` 时：若错误文本里出现「已隔离到草稿」，按下方「情况 C：处置隔离草稿」处理；其余错误停止并把错误文本报告给主 agent。
 
 ### 情况 A：首次生成拆分
 
@@ -64,7 +64,9 @@ mcp__arcreel__get_video_capabilities({})
 mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episode_N.txt"})
 ```
 
-> dry_run=true 时仅返回 prompt 不调用模型，便于审查。模型只产出「时长 + 原文锚 + 书写层正文」，`unit_id` / `shots` / `references` 由工具从正文派生；写盘前校验正文语法、资产名引用完整性、原文锚是否为源文逐字子串与台词量是否念得完，任一违约不写盘。
+> dry_run=true 时仅返回 prompt 不调用模型，便于审查。模型只产出「时长 + 原文锚 + 书写层正文」，`unit_id` / `shots` / `references` 由工具从正文派生；写盘前校验正文语法、资产名引用完整性、原文锚是否为源文逐字子串与台词量是否念得完。任一违约时**正式文件不写**，产出连同逐条违约报告落到 `drafts/episode_{N}/step1_reference_units.invalid.json`——不要重跑工具重抽，按情况 C 修复后晋升。
+>
+> 工具成功时可能附带「声音降级提示」（角色未设参考音频 / 参考音频段数超上限 / 当前视频模型不生成音频）。这些不阻断落盘，原样转述给主 agent 即可，不要为它们改拆分。
 
 **Step 2**: 验证输出
 
@@ -72,6 +74,19 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 确认为合法 JSON 且每个 unit 含 unit_id / duration_seconds / source_text / shots（每 shot 只含 text）/ references。
 
 如果结构有问题，直接用 Edit 工具修复（遵循下方「修改口径」）。
+
+### 情况 C：处置隔离草稿
+
+**触发**：`drafts/episode_{N}/step1_reference_units.invalid.json` 存在（拆分或晋升返回了违约报告）。
+
+隔离草稿装的是**扁平书写层产出**（`content.units[]` 只有 `duration_seconds` / `source_text` / `text`），结构字段一律由工具派生，不要在草稿里手写 `unit_id` / `shots` / `references`。
+
+1. Read 该草稿，按 `violations[]` 的 `label`（unit 定位）与 `code`（违约类）逐条定位
+2. 用 Edit 直接改 `content.units[i]` 的 `text` / `source_text` / `duration_seconds`，遵循下方「修改口径」；`code` 为资产名未登记时，也可改为在 `project.json` 登记该资产、或改用已登记的名称
+3. 调用 `mcp__arcreel__validate_and_promote_reference_draft({"episode": N})` 重新全量校验并晋升
+4. 仍返回违约报告则回到第 1 步继续改——可反复晋升，无轮次上限；不要退回重跑拆分工具
+
+晋升成功后正式 `step1_reference_units.json` 落盘、隔离草稿自动清除。隔离草稿在场期间审阅门与 step2 生成都被阻塞，处置完才能继续。
 
 ### 情况 B：修改已有拆分
 
