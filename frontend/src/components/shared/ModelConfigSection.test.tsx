@@ -264,6 +264,11 @@ describe("ModelConfigSection", () => {
           videoResolution: "1080p",
         },
         onChange,
+        // i2v 桶另放一个模型，才能走到「执行桶换模型」这条分支
+        candidates: {
+          ...CANDIDATES,
+          video: { ...CANDIDATES.video, buckets: { i2v: ["gemini/veo-3", "ark/seedance"], r2v: ["ark/seedance"] } },
+        },
       });
       await user.click(screen.getAllByText("按用途指定模型")[0]);
       await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
@@ -277,11 +282,16 @@ describe("ModelConfigSection", () => {
         }),
       );
 
+      // 换的是执行桶：分辨率清空，4 秒不在 seedance 的支持集里，时长退回自动
       onChange.mockClear();
       await user.click(screen.getByRole("combobox", { name: "图生视频" }));
-      await user.click(screen.getByRole("option", { name: /veo-3/ }));
+      await user.click(screen.getByRole("option", { name: /seedance/ }));
       expect(onChange).toHaveBeenCalledWith(
-        expect.objectContaining({ videoProviderI2V: "gemini/veo-3", defaultDuration: 4, videoResolution: "1080p" }),
+        expect.objectContaining({
+          videoProviderI2V: "ark/seedance",
+          defaultDuration: null,
+          videoResolution: null,
+        }),
       );
     });
 
