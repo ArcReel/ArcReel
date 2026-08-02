@@ -1528,8 +1528,9 @@ class TestCostEstimationService:
         assert result["episodes"][0]["segments"][0]["estimate"]["video"]["CNY"] == pytest.approx(3.0)
 
     @pytest.mark.integration
-    async def test_disabled_custom_video_model_estimate_uses_runtime_fallback_price(self, db_factory):
-        """估算模型身份与 backend 构造一致：禁用项目模型后按默认启用模型的价格估算。"""
+    async def test_disabled_custom_video_model_estimate_reports_unknown(self, db_factory):
+        """估算模型身份与执行同口径：项目模型被禁用后按能力桶解析闸算悬空引用，不改按该供应商
+        默认启用模型出价——那个模型用户没选过，执行期也不会用它（``docs/adr/0054``）。"""
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
         async with db_factory() as session:
@@ -1574,8 +1575,34 @@ class TestCostEstimationService:
             project_data, {"ep1.json": _make_script(1, ["E1S001"], [6])}, project_name="test-custom-fallback"
         )
 
-        assert result["models"]["video"] == {"provider": "custom-1", "model": "runtime"}
-        assert result["episodes"][0]["segments"][0]["estimate"]["video"]["USD"] == pytest.approx(0.6)
+        assert result["models"]["video"] == {"provider": "unknown", "model": "unknown"}
+        # 身份解析不出时退到通用目录价，既不按被禁用模型（9.0/s → 54.0）也不按该供应商默认
+        # 启用模型（0.1/s → 0.6）的 DB 单价出数
+        video_estimate = result["episodes"][0]["segments"][0]["estimate"]["video"]
+        assert video_estimate.get("USD") != pytest.approx(0.6)
+        assert video_estimate.get("USD") != pytest.approx(54.0)
+
+    @pytest.mark.parametrize(
+        ("generation_mode", "expected_model"),
+        [("storyboard", "kling-v3"), ("reference_video", "kling-v3-omni")],
+    )
+    async def test_estimate_resolves_video_model_by_generation_mode_bucket(
+        self, db_factory, generation_mode, expected_model
+    ):
+        """估算按 generation_mode 定桶取模型，与执行扣费同源：切模式即换到另一个桶的价目。"""
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": generation_mode,
+            "video_provider_i2v": "kling/kling-v3",
+            "video_provider_r2v": "kling/kling-v3-omni",
+            "episodes": [],
+        }
+
+        result = await service.compute(project_data, {}, project_name="test-video-bucket")
+
+        assert result["models"]["video"] == {"provider": "kling", "model": expected_model}
 
     async def test_custom_provider_estimates_use_db_prices(self, db_factory):
         """自定义供应商预估：image/video/audio 单价来自 DB（与实际记账同源），估值按配置价格非零。"""

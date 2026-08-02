@@ -1614,6 +1614,28 @@ class TestGetVideoCapabilities:
             assert "model not found" not in detail
             assert detail == zh_errors.MESSAGES["video_capabilities_unresolved"].format(name="ready")
 
+    def test_capability_bucket_error_returns_localized_400(self, tmp_path, monkeypatch):
+        """能力桶解析闸的报错转成结构化 400，带上修复指引，不被通用 422 文案吞掉。"""
+        from lib.config.resolver import VideoBucketCapabilityError
+
+        self._patch_resolver(
+            monkeypatch,
+            side_effect=VideoBucketCapabilityError(
+                code="video_capability_missing_r2v",
+                capability="r2v",
+                provider_id="kling",
+                model_id="kling-v3",
+                message="video model kling/kling-v3 lacks the capability required by the r2v bucket",
+            ),
+        )
+        client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
+        with client:
+            resp = client.get("/api/v1/projects/ready/video-capabilities")
+            assert resp.status_code == 400
+            assert resp.json()["detail"] == zh_errors.MESSAGES["video_capability_missing_r2v"].format(
+                provider="kling", model="kling-v3"
+            )
+
 
 class TestModelSettingsApi:
     def test_create_project_with_model_settings(self, tmp_path, monkeypatch):

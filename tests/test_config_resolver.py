@@ -1,9 +1,15 @@
+from typing import cast
 from unittest.mock import patch
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import (
+    ConfigResolver,
+    VideoBucketCapabilityError,
+    constrain_durations_for_project,
+    video_bucket_for_generation_mode,
+)
 from lib.config.service import ProviderStatus
 from lib.db.base import Base
 
@@ -428,6 +434,100 @@ class TestVideoBackendThreeLevelPriority:
         assert result == ("ark", "doubao-seedance-2-0-260128")
 
 
+class TestVideoCapabilitiesBucketing:
+    """读侧按 generation_mode 定桶：能力查询回答的是当前配置真正会执行的那个模型。"""
+
+    async def _caps(self, project: dict) -> dict:
+        factory, engine = await _make_session()
+        try:
+            with patch("lib.config.resolver.get_project_manager"):
+                return await ConfigResolver(factory).video_capabilities_for_project(project)
+        finally:
+            await engine.dispose()
+
+    def test_generation_mode_maps_to_bucket(self):
+        assert video_bucket_for_generation_mode("storyboard") == "i2v"
+        assert video_bucket_for_generation_mode("grid") == "i2v"
+        assert video_bucket_for_generation_mode("reference_video") == "r2v"
+        # 缺省、未知值与非字符串脏数据一律落默认桶
+        assert video_bucket_for_generation_mode(None) == "i2v"
+        assert video_bucket_for_generation_mode("bogus") == "i2v"
+        assert video_bucket_for_generation_mode(cast(str, ["reference_video"])) == "i2v"
+
+    async def test_i2v_bucket_shadows_project_default(self):
+        """图生视频项目读 i2v 桶，遮蔽项目默认层。"""
+        caps = await self._caps(
+            {
+                "video_backend": "grok/grok-imagine-video",
+                "video_provider_i2v": "kling/kling-v3",
+                "generation_mode": "storyboard",
+            }
+        )
+        assert (caps["provider_id"], caps["model"]) == ("kling", "kling-v3")
+
+    async def test_r2v_bucket_shadows_project_default(self):
+        """参考生视频项目读 r2v 桶，遮蔽项目默认层。"""
+        caps = await self._caps(
+            {
+                "video_backend": "grok/grok-imagine-video",
+                "video_provider_r2v": "minimax/S2V-01",
+                "generation_mode": "reference_video",
+            }
+        )
+        assert (caps["provider_id"], caps["model"]) == ("minimax", "S2V-01")
+
+    async def test_same_config_follows_generation_mode(self):
+        """同一份配置下切 generation_mode，能力查询随桶换到另一个模型。"""
+        project = {
+            "video_provider_i2v": "kling/kling-v3",
+            "video_provider_r2v": "minimax/S2V-01",
+        }
+        i2v_caps = await self._caps({**project, "generation_mode": "storyboard"})
+        r2v_caps = await self._caps({**project, "generation_mode": "reference_video"})
+        assert i2v_caps["model"] == "kling-v3"
+        assert r2v_caps["model"] == "S2V-01"
+        # 能力字典本身随之变：i2v 桶的型号不接受参考图
+        assert i2v_caps["max_reference_images"] == 0
+        assert r2v_caps["max_reference_images"] == 1
+
+    async def test_reference_video_project_errors_when_model_lacks_reference_support(self):
+        """参考生视频项目解析到无参考图能力的模型时报结构化错误，不静默换模型。"""
+        with pytest.raises(VideoBucketCapabilityError) as excinfo:
+            await self._caps({"video_backend": "kling/kling-v3", "generation_mode": "reference_video"})
+        assert excinfo.value.code == "video_capability_missing_r2v"
+        assert excinfo.value.params == {"provider": "kling", "model": "kling-v3"}
+
+    async def test_storyboard_project_errors_when_model_lacks_first_frame(self):
+        """图生视频项目解析到无首帧能力的模型时同样报错（桶换成 i2v）。"""
+        with pytest.raises(VideoBucketCapabilityError) as excinfo:
+            await self._caps({"video_backend": "minimax/S2V-01", "generation_mode": "storyboard"})
+        assert excinfo.value.code == "video_capability_missing_i2v"
+
+    async def test_duration_constraints_evaluate_on_bucket_model(self):
+        """时长收窄按桶生效模型求值：参考生视频项目落 r2v 桶模型声明的「参考图↔时长」约束。"""
+        project = {
+            "video_provider_i2v": "kling/kling-v3",
+            "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
+            "generation_mode": "reference_video",
+        }
+        caps = await self._caps(project)
+        assert caps["model"] == "veo-3.1-generate-preview"
+        assert caps["supported_durations"] == [4, 6, 8]
+        constrained = constrain_durations_for_project(
+            project,
+            list(caps["supported_durations"]),
+            provider_id=caps["provider_id"],
+            model_id=caps["model"],
+            generation_mode="reference_video",
+        )
+        assert constrained == [8]
+
+    async def test_max_reference_images_follows_backend_declaration(self):
+        """viduq3-pro 不在 /reference2video 白名单：能力查询报 0，不报 registry 的并行声明。"""
+        caps = await self._caps({"video_backend": "vidu/viduq3-pro", "generation_mode": "storyboard"})
+        assert caps["max_reference_images"] == 0
+
+
 class TestVideoCapabilities:
     """验证 video_capabilities：第一步模型选择 + 第二步 model 能力查询。"""
 
@@ -469,7 +569,7 @@ class TestVideoCapabilities:
         assert caps["source"] == "registry"
         assert caps["supported_durations"] == [4, 6, 8]
         assert caps["max_duration"] == 8
-        # max_reference_images 来源：registry 中该 veo 视频模型的 ModelInfo.max_reference_images
+        # max_reference_images 来源：backend 的 VideoCapabilities 声明（与执行层同源）
         assert caps["max_reference_images"] == 3
 
     async def test_reads_project_default_duration_and_modes(self):
@@ -508,6 +608,7 @@ class TestVideoCapabilities:
         assert caps["default_duration"] is None
 
     async def test_unknown_model_raises(self):
+        """悬空模型引用在能力桶解析闸即报错，携带可本地化的 code。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         factory, engine = await _make_session()
@@ -517,10 +618,12 @@ class TestVideoCapabilities:
                     mock_pm.return_value.load_project.return_value = {
                         "video_backend": "grok/nonexistent-model",
                     }
-                    with pytest.raises(ValueError, match="model not found"):
+                    with pytest.raises(VideoBucketCapabilityError) as excinfo:
                         await resolver._resolve_video_capabilities(fake_svc, session, "demo")
         finally:
             await engine.dispose()
+        assert excinfo.value.code == "video_capability_reference_unavailable"
+        assert excinfo.value.capability == "i2v"
 
     async def test_unknown_provider_raises(self):
         resolver = ConfigResolver.__new__(ConfigResolver)
@@ -532,7 +635,7 @@ class TestVideoCapabilities:
                     mock_pm.return_value.load_project.return_value = {
                         "video_backend": "bogus-provider/some-model",
                     }
-                    with pytest.raises(ValueError, match="provider not in PROVIDER_REGISTRY"):
+                    with pytest.raises(VideoBucketCapabilityError):
                         await resolver._resolve_video_capabilities(fake_svc, session, "demo")
         finally:
             await engine.dispose()
@@ -572,22 +675,25 @@ class TestVideoCapabilities:
             await engine.dispose()
         assert caps["max_reference_images"] == 1
 
-    async def test_max_reference_images_reads_model_info_for_minimax_s2v(self):
-        """minimax S2V-01 的 max_reference_images 来自 registry ModelInfo（=1）；
+    async def test_max_reference_images_reads_backend_caps_for_minimax_s2v(self):
+        """minimax S2V-01 的 max_reference_images 来自 backend 声明（=1）；
 
-        编排层据此只取 1 张参考图，不会向只吃单脸的 S2V-01 拼多张。
+        编排层据此只取 1 张参考图，不会向只吃单脸的 S2V-01 拼多张。S2V-01 不支持首帧，
+        项目须是参考生视频模式才落进它所属的 r2v 桶。
         """
         factory, engine = await _make_session()
         try:
             resolver = ConfigResolver(factory)
             with patch("lib.config.resolver.get_project_manager"):
-                caps = await resolver.video_capabilities_for_project({"video_backend": "minimax/S2V-01"})
+                caps = await resolver.video_capabilities_for_project(
+                    {"video_backend": "minimax/S2V-01", "generation_mode": "reference_video"}
+                )
         finally:
             await engine.dispose()
         assert caps["max_reference_images"] == 1
 
-    async def test_max_reference_images_reads_model_info_for_ark_seedance(self):
-        """ark seedance 的 max_reference_images 来自 registry ModelInfo（=9）。"""
+    async def test_max_reference_images_reads_backend_caps_for_ark_seedance(self):
+        """ark seedance 的 max_reference_images 来自 backend 声明（=9）。"""
         factory, engine = await _make_session()
         try:
             resolver = ConfigResolver(factory)
@@ -599,10 +705,10 @@ class TestVideoCapabilities:
             await engine.dispose()
         assert caps["max_reference_images"] == 9
 
-    async def test_max_reference_images_reads_model_info_for_kling_v3_omni(self):
-        """kling-v3-omni（多图主体 R2V）的 max_reference_images 来自 registry ModelInfo（=4，保守值）；
+    async def test_max_reference_images_reads_backend_caps_for_kling_v3_omni(self):
+        """kling-v3-omni（多图主体 R2V）的 max_reference_images 来自 backend 声明（=4，保守值）；
 
-        编排层据此裁剪参考图数量——内置 provider 经此值而非 backend caps 拿到上限。
+        编排层据此裁剪参考图数量，与执行期 gate_video_request 依据的是同一个数。
         """
         factory, engine = await _make_session()
         try:
@@ -613,8 +719,8 @@ class TestVideoCapabilities:
             await engine.dispose()
         assert caps["max_reference_images"] == 4
 
-    async def test_max_reference_images_reads_model_info_for_kling_video_o1(self):
-        """kling-video-o1（多图主体 R2V）的 max_reference_images 来自 registry ModelInfo（=4，保守值）。"""
+    async def test_max_reference_images_reads_backend_caps_for_kling_video_o1(self):
+        """kling-video-o1（多图主体 R2V）的 max_reference_images 来自 backend 声明（=4，保守值）。"""
         factory, engine = await _make_session()
         try:
             resolver = ConfigResolver(factory)
@@ -715,9 +821,11 @@ class TestVideoCapabilities:
         assert caps["max_reference_images"] == 1
 
     @pytest.mark.integration
-    async def test_custom_disabled_model_falls_back_to_default_like_execution_layer(self):
-        """project 仍指向已禁用的 model 时，能力解析须与 loader.load_custom_backend 同一条回退
-        规则改读默认启用 model——否则会宣称执行层实际不会兑现的 first_frame/last_frame。"""
+    async def test_custom_disabled_model_errors_like_execution_layer(self):
+        """project 仍指向已禁用的 model 时，能力解析与执行路径同样在能力桶解析闸报悬空引用。
+
+        不静默换成该供应商的默认启用 model（``docs/adr/0054``）：宣称一个用户没选过的模型的能力，
+        与执行期直接报错的行为对不上。"""
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 
         resolver = ConfigResolver.__new__(ConfigResolver)
@@ -759,13 +867,11 @@ class TestVideoCapabilities:
                     mock_pm.return_value.load_project.return_value = {
                         "video_backend": project_backend,
                     }
-                    caps = await resolver._resolve_video_capabilities(fake_svc, session, "demo")
+                    with pytest.raises(VideoBucketCapabilityError) as excinfo:
+                        await resolver._resolve_video_capabilities(fake_svc, session, "demo")
         finally:
             await engine.dispose()
-        assert caps["model"] == "default-model"
-        assert caps["supported_durations"] == [5, 10]
-        # newapi-video 不接受尾帧覆盖；已禁用 model 的 last_frame=True 覆盖不应残留
-        assert caps["last_frame"] is False
+        assert excinfo.value.code == "video_capability_reference_unavailable"
 
 
 @pytest.mark.integration
@@ -904,7 +1010,13 @@ class TestVoiceConsistency:
                     display_name="Seedance-like",
                     endpoint="ark-seedance",
                     supported_durations="[4, 8]",
-                    capability_overrides={"reference_audio_mode": "direct", "max_reference_audio_count": 2},
+                    # max_reference_images 覆盖是让该 model 落进 r2v 桶的前提：参考生视频项目按
+                    # r2v 定桶解析，ark-seedance 对未上表型号保守判 0，不覆盖会被解析闸挡在能力查询前
+                    capability_overrides={
+                        "reference_audio_mode": "direct",
+                        "max_reference_audio_count": 2,
+                        "max_reference_images": 4,
+                    },
                 )
                 session.add(model)
                 await session.flush()

@@ -66,8 +66,9 @@ _MAX_NUM_FRAMES = 441
 _MIN_DURATION_SECONDS = 1
 _MAX_DURATION_SECONDS = 18
 
-# 参考图（多图主体）上限——保守值，与 registry ModelInfo.max_reference_images 同值（编排层裁剪读
-# registry、backend 生成时防御读此处）。待 Agnes console / 实测核对，不硬编当既成事实。
+# 参考图（多图主体）上限——保守值，编排层裁剪与 backend 生成时防御同读此处（registry
+# ModelInfo.max_reference_images 另有一份同值的并行声明，不再被读取）。待 Agnes console / 实测
+# 核对，不硬编当既成事实。
 _MAX_REFERENCE_IMAGES = 4
 
 # 尺寸约束：长宽被 8 整除、长边收口 1920（保守值，覆盖上游 480p/720p/1080p 三档标准化）。

@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from lib.config.resolver import ConfigResolver, get_provider_fallback
+from lib.config.resolver import ConfigResolver, get_provider_fallback, video_bucket_for_generation_mode
 from lib.cost_calculator import cost_calculator
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
@@ -152,8 +152,14 @@ class CostEstimationService:
             except Exception:
                 image_provider, image_model = "unknown", "unknown"
 
+            # 视频按项目 generation_mode 定桶解析（``docs/adr/0054``），与执行扣费同一个模型：
+            # 参考生视频项目算 r2v 桶的价、图生视频 / 宫格算 i2v 桶的价。
             try:
-                resolved_video = await r.resolve_video_backend(project_data, None)
+                resolved_video = await r.resolve_video_backend(
+                    project_data,
+                    None,
+                    capability=video_bucket_for_generation_mode(project_data.get("generation_mode")),
+                )
                 video_provider, video_model = resolved_video.provider_id, resolved_video.model_id
             except Exception:
                 video_provider, video_model = "unknown", "unknown"

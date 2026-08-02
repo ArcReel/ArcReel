@@ -15,6 +15,7 @@ from typing import Optional
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
+from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver, constrain_durations_for_project, resolve_raw_supported_durations
 from lib.db import async_session_factory
@@ -65,6 +66,7 @@ from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGenerationRequest, TextTaskType
 from lib.text_generator import TextGenerator
 from lib.text_utils import strip_json_code_fences
+from lib.video_backends.registry import video_capabilities_for_model as builtin_video_capabilities_for_model
 
 logger = logging.getLogger(__name__)
 
@@ -747,9 +749,12 @@ class ScriptGenerator:
 
         语义约定：仅 None 视为「未声明上限」（上层不在 prompt 写硬性数量约束，且 executor 跳过裁剪）；
         caps 来源的 0 是显式上限（如不接受参考图的 endpoint），会原样下传触发裁剪为 0 张。
-        caps 解析失败（DB/migration 故障等）时退到 registry 的 ModelInfo.max_reference_images——
+        caps 解析失败（DB/migration 故障等）时退到项目配置的 video_backend 直查 backend 声明——
         与 _resolve_supported_durations 同构，避免丢失上限导致后端按多张参考图发出而被上游拒。
-        registry 里 0 是字段默认值（图像/文本模型或视频模型未声明），用 truthy 守卫当作未声明跳过。
+        取 backend 而非 registry ModelInfo 的并行声明：两者在若干 model 上已漂移，而 backend 是
+        执行期构造请求的一方。注册表身份仍要查——backend 的 caps 函数不都校验 model 存在性与
+        media_type，对任意 id 返回静态能力。0 在这条降级路径上按未声明处理（下传 0 会把降级前
+        本可申请的参考图整批裁掉，而执行期仍有 backend 校验兜底）。
         """
         if caps:
             cached = caps.get("max_reference_images")
@@ -759,10 +764,15 @@ class ScriptGenerator:
         if video_backend and isinstance(video_backend, str) and "/" in video_backend:
             provider_id, model_id = video_backend.split("/", 1)
             provider_meta = PROVIDER_REGISTRY.get(provider_id)
-            if provider_meta:
-                model_info = provider_meta.models.get(model_id)
-                if model_info and model_info.max_reference_images:
-                    return int(model_info.max_reference_images)
+            model_info = provider_meta.models.get(model_id) if provider_meta else None
+            if model_info is not None and model_info.media_type == "video":
+                try:
+                    spec = get_provider_spec(provider_id, "video")
+                    backend_caps = builtin_video_capabilities_for_model(spec.registry_backend, model_id)
+                except ValueError:
+                    return None
+                if backend_caps.max_reference_images:
+                    return int(backend_caps.max_reference_images)
         return None
 
     def _load_project_json(self) -> dict:
