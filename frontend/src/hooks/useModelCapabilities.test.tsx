@@ -8,7 +8,8 @@ import {
   useModelCapabilities,
 } from "@/hooks/useModelCapabilities";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
-import type { ProviderInfo, VideoCapabilities } from "@/types";
+import { useProjectsStore } from "@/stores/projects-store";
+import type { ProjectData, ProviderInfo, VideoCapabilities } from "@/types";
 
 const PROJECT = "demo-project";
 const BACKEND = "gemini/veo-3";
@@ -57,8 +58,17 @@ function caps(overrides: Partial<VideoCapabilities> = {}): VideoCapabilities {
   };
 }
 
+/** 只含能力 key 关心的字段：集级 generation_mode 覆盖与其回退到的项目级值。 */
+function projectData(episodeMode: string | null): ProjectData {
+  return {
+    generation_mode: "storyboard",
+    episodes: [{ episode: 1, ...(episodeMode ? { generation_mode: episodeMode } : {}) }],
+  } as ProjectData;
+}
+
 beforeEach(() => {
   useCapabilitiesStore.setState({ revision: 0 });
+  useProjectsStore.setState({ currentProjectName: null, currentProjectData: null });
 });
 
 afterEach(() => {
@@ -305,6 +315,20 @@ describe("useModelCapabilities 失效时机", () => {
 
     spy.mockResolvedValue(caps({ last_frame: false }));
     act(() => useCapabilitiesStore.getState().invalidate());
+    await waitFor(() => expect(result.current.lastFrame).toBe(false));
+  });
+
+  it("集级 generation_mode 覆盖变更后自动重取，不等切集或重新挂载", async () => {
+    // 覆盖经 PATCH /projects/{name} 写入、项目事件 SSE 刷进 store：集号没变，能力却已换桶。
+    useProjectsStore.setState({ currentProjectName: PROJECT, currentProjectData: projectData(null) });
+    const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps({ last_frame: true }));
+    const { result } = renderHook(() =>
+      useModelCapabilities({ projectName: PROJECT, videoBackend: BACKEND, episode: 1 }),
+    );
+    await waitFor(() => expect(result.current.lastFrame).toBe(true));
+
+    spy.mockResolvedValue(caps({ last_frame: false }));
+    act(() => useProjectsStore.setState({ currentProjectData: projectData("reference_video") }));
     await waitFor(() => expect(result.current.lastFrame).toBe(false));
   });
 

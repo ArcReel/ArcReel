@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { API } from "@/api";
 import { isDemoProject } from "@/onboarding/demo-project";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
+import { useProjectsStore } from "@/stores/projects-store";
+import { effectiveMode, type GenerationMode } from "@/utils/generation-mode";
 import {
   constrainDurations,
   lookupDurationConstraints,
@@ -157,11 +159,30 @@ export function durationOutOfRangeReason(
 }
 
 /**
+ * 该集生效 generation_mode；无集号上下文（设置页等）或项目数据未加载时为 null。
+ *
+ * 只参与请求 key，不进请求参数——服务端已按集号自行解析。集级覆盖经
+ * `PATCH /projects/{name}` 写入、再由项目事件 SSE 刷进 store，工作台挂载期间就会变；
+ * 而集号本身不变，key 不含模式的话该覆盖变了也不重取，能力停在上一模式。
+ */
+function useEpisodeGenerationMode(
+  projectName: string | undefined | null,
+  episode: number | undefined | null,
+): GenerationMode | null {
+  const project = useProjectsStore((s) =>
+    projectName && s.currentProjectName === projectName ? s.currentProjectData : null,
+  );
+  if (episode === null || episode === undefined || !project) return null;
+  return effectiveMode(project, project.episodes?.find((e) => e.episode === episode));
+}
+
+/**
  * 服务端能力查询。
  *
- * 请求 key 只含「决定结果是否仍可用」的上下文：项目与后端。项目 / 后端一变必须立刻丢弃旧
- * 能力，避免按过期值门控；revision 则单独驱动重取而不进 key——能力覆盖改的是供应商配置，
- * 旧值在新值到达前仍是当前最优估计，进 key 会让每次覆盖变更都闪一次加载态、短暂灰掉控件。
+ * 请求 key 只含「决定结果是否仍可用」的上下文：项目、后端、集号与该集生效模式。这几项一变
+ * 必须立刻丢弃旧能力，避免按过期值门控；revision 则单独驱动重取而不进 key——能力覆盖改的是
+ * 供应商配置，旧值在新值到达前仍是当前最优估计，进 key 会让每次覆盖变更都闪一次加载态、
+ * 短暂灰掉控件。
  *
  * 加载态由「已落地结果的 key 是否等于当前 key」派生，而非 effect 内同步 setState：
  * 后者会触发级联渲染（react-hooks/set-state-in-effect）。
@@ -182,7 +203,10 @@ function useResolvedCapabilities(
   const active = enabled && !!projectName && !isDemoProject(projectName);
   // 元组编码而非拼接：拼接的分隔符可能出现在字段内，("a b", "c") 与 ("a", "b c") 会撞成同一 key，
   // 切换时把前一组的结果当作本组已落地。
-  const key = active ? JSON.stringify([projectName, videoBackend ?? "", episode ?? null]) : null;
+  const episodeMode = useEpisodeGenerationMode(projectName, episode);
+  const key = active
+    ? JSON.stringify([projectName, videoBackend ?? "", episode ?? null, episodeMode])
+    : null;
 
   useEffect(() => {
     // 接管方轮换 controller：新一轮先作废前任，避免慢响应回写覆盖新值。
