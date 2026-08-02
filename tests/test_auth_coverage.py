@@ -43,6 +43,10 @@ SELF_AUTH_OPERATIONS = frozenset(
 
 EXEMPT_OPERATIONS = PUBLIC_OPERATIONS | SELF_AUTH_OPERATIONS
 
+# 验证「放行」的探针端点：受保护，且处理函数只读进程内常量。换端点时要保持这个性质——
+# 依赖数据库等 lifespan 建立的状态，会让这两个用例在干净环境里以 500 失败，掩盖认证结论。
+_PROBE_ENDPOINT = "/api/v1/custom-providers/endpoints"
+
 _HTTP_METHODS = ("get", "post", "put", "patch", "delete")
 _PARAM_RE = re.compile(r"\{([^}]+)\}")
 # 路径参数占位值：认证在参数校验之前执行，取值只需能拼出合法 URL。
@@ -164,10 +168,10 @@ def test_authenticated_request_passes(client):
         "/api/v1/auth/token",
         data={"username": "testuser", "password": "testpass"},
     ).json()["access_token"]
-    assert client.get("/api/v1/providers", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+    assert client.get(_PROBE_ENDPOINT, headers={"Authorization": f"Bearer {token}"}).status_code == 200
 
 
 def test_auth_disabled_bypasses_enforcement(client):
     """AUTH_ENABLED=false 时不拦截，保持本地无认证部署可用。"""
     with patch.dict(os.environ, {"AUTH_ENABLED": "false"}):
-        assert client.get("/api/v1/providers").status_code == 200
+        assert client.get(_PROBE_ENDPOINT).status_code == 200
