@@ -377,6 +377,71 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     });
   });
 
+  it("revalidates duration and resolution when the generation mode switches the executing model", async () => {
+    // 图生视频与参考生视频指定了不同模型时，换生成模式就换了执行模型：旧模型的分辨率与时长
+    // 不能原样留着，否则会被写到新模型名下、生成阶段才暴露
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...FAKE_CONFIG_WITH_DEFAULTS,
+    } as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+      {
+        id: "gemini", display_name: "Gemini", description: "", status: "ready",
+        media_types: ["video"], capabilities: [], configured_keys: [], missing_keys: [],
+        models: {
+          "veo-3": {
+            display_name: "Veo 3", media_type: "video", capabilities: [], default: true,
+            supported_durations: [4, 8], duration_resolution_constraints: {},
+            resolutions: ["720p", "1080p"], has_audio_track: true, voice_consistency: "soft",
+          },
+        },
+      },
+      {
+        id: "ark", display_name: "Ark", description: "", status: "ready",
+        media_types: ["video"], capabilities: [], configured_keys: [], missing_keys: [],
+        models: {
+          seedance: {
+            display_name: "Seedance", media_type: "video", capabilities: [], default: true,
+            supported_durations: [5, 10], duration_resolution_constraints: {},
+            resolutions: ["720p"], has_audio_track: true, voice_consistency: "soft",
+          },
+        },
+      },
+    ] as Awaited<ReturnType<typeof providerModels.getProviderModels>>);
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        generation_mode: "storyboard",
+        video_provider_i2v: "gemini/veo-3",
+        video_provider_r2v: "ark/seedance",
+        default_duration: 4,
+        model_settings: { "gemini/veo-3": { resolution: "1080p" } },
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+    fireEvent.click(await screen.findByRole("radio", { name: /参考生视频/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        "demo",
+        expect.objectContaining({
+          // 执行模型换成 seedance：veo-3 的 1080p 不跟过去，4 秒不在其支持集内也退回自动
+          model_settings: expect.objectContaining({ "ark/seedance": { resolution: null } }),
+          default_duration: null,
+        }),
+      );
+    });
+  });
+
   it("reads and writes the image resolution under the executing text-to-image model", async () => {
     // 项目默认层与文生图槽指向不同模型：后端按执行模型查 model_settings，故读写都挂在
     // 文生图槽那个模型上——挂错 key 时用户选的分辨率会被静默忽略，且重载读回旧值。

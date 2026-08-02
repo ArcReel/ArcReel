@@ -10,6 +10,7 @@ import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { getProviderModels, getCustomProviderModels } from "@/utils/provider-models";
 import { ModelConfigSection } from "@/components/shared/ModelConfigSection";
 import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
+import { catalogDurations } from "@/hooks/useModelCapabilities";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
@@ -399,6 +400,30 @@ export function ProjectSettingsPage() {
     }
   }, [styleValue, projectName, t]);
 
+  // 生成模式决定视频走哪条生成路径，按用途指定的模型不同时它会换掉执行模型——时长与分辨率
+  // 都是按执行模型选的，换了就得跟着校验，否则保存时旧分辨率会落到新模型名下。
+  const handleGenerationModeChange = useCallback(
+    (next: GenerationMode) => {
+      setGenerationMode(next);
+      const layers = { videoBackend, videoProviderI2V, videoProviderR2V };
+      const before = executingVideoModel(layers, globalDefaults, generationMode === "reference_video");
+      const after = executingVideoModel(layers, globalDefaults, next === "reference_video");
+      if (before === after) return;
+      setVideoResolution(null);
+      const nextDurations = catalogDurations(providers, customProviders, after, {
+        videoResolution: null,
+        usesReferenceImages: next === "reference_video",
+      });
+      if (defaultDuration !== null && !nextDurations?.includes(defaultDuration)) {
+        setDefaultDuration(null);
+      }
+    },
+    [
+      generationMode, videoBackend, videoProviderI2V, videoProviderR2V,
+      globalDefaults, providers, customProviders, defaultDuration,
+    ],
+  );
+
   const handleClearStyle = useCallback(() => {
     if (!styleValue) return;
     setStyleValue({
@@ -693,7 +718,7 @@ export function ProjectSettingsPage() {
                   </legend>
                   <GenerationModeSelector
                     value={generationMode}
-                    onChange={setGenerationMode}
+                    onChange={handleGenerationModeChange}
                     disabledModes={contentMode === "ad" ? ["grid"] : undefined}
                   />
                 </fieldset>
