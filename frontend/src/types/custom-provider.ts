@@ -51,6 +51,8 @@ export interface CustomProviderModelInfo {
   system_capabilities: VideoCapabilityFlags | null;
   /** 用户覆盖（稀疏），与 system_capabilities 合并即为生效值；无覆盖为 null。 */
   capability_overrides: CapabilityOverrides | null;
+  /** 正在引用该模型的全局 system_settings 键名（如 default_video_backend_i2v）；未被引用为 null。 */
+  global_bucket_refs: string[] | null;
 }
 
 /** 后端接受参考音频的运输形态；none 表示该模型没有音色输入通道。 */

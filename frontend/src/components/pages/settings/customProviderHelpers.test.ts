@@ -7,6 +7,7 @@ import {
   mergeDiscoveredModels,
   withLastFrameOverride,
   capabilityFieldsFor,
+  globalBucketRefsFor,
   type CapabilitySnapshotRow,
 } from "./customProviderHelpers";
 
@@ -317,6 +318,7 @@ describe("capabilityFieldsFor", () => {
     original_endpoint: "newapi-video",
     original_capability_overrides: { last_frame: true },
     original_system_capabilities: SYSTEM,
+    original_global_bucket_refs: ["default_video_backend_i2v"],
   };
 
   it("两个维度都等于快照时原样取回覆盖与判定", () => {
@@ -350,6 +352,21 @@ describe("capabilityFieldsFor", () => {
     expect(capabilityFieldsFor(snapshot, "kling-v", "newapi-video").capability_overrides).toBeNull();
     expect(capabilityFieldsFor(snapshot, "kling-v2", "newapi-video").capability_overrides).toEqual({
       last_frame: true,
+    });
+  });
+
+  describe("globalBucketRefsFor", () => {
+    it("model_id 等于快照时原样取回引用", () => {
+      expect(globalBucketRefsFor(snapshot, "kling-v2")).toEqual(["default_video_backend_i2v"]);
+    });
+
+    it("model_id 偏离快照时引用作废——新 model 是否被引用要后端算", () => {
+      expect(globalBucketRefsFor(snapshot, "kling-v2-pro")).toEqual([]);
+    });
+
+    it("逐字符改回原 model_id 后能取回引用", () => {
+      expect(globalBucketRefsFor(snapshot, "kling-v")).toEqual([]);
+      expect(globalBucketRefsFor(snapshot, "kling-v2")).toEqual(["default_video_backend_i2v"]);
     });
   });
 });

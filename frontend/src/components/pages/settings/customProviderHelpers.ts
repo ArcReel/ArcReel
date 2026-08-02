@@ -164,12 +164,13 @@ export function mergeDiscoveredModels<T extends MergeRow>(
 // 能力覆盖（模型级，首批仅 last_frame）
 // ---------------------------------------------------------------------------
 
-/** 覆盖与系统判定的行内快照：加载时拍一次，之后不变。 */
+/** 覆盖、系统判定与全局桶引用的行内快照：加载时拍一次，之后不变。 */
 export interface CapabilitySnapshotRow {
   original_model_id: string;
   original_endpoint: EndpointKey;
   original_capability_overrides: CapabilityOverrides | null;
   original_system_capabilities: VideoCapabilityFlags | null;
+  original_global_bucket_refs: string[];
 }
 
 /** 稀疏覆盖字典的唯一写入点：next === undefined 表示回到「跟随判定」，此时把该键从字典移除
@@ -204,4 +205,11 @@ export function capabilityFieldsFor(
         system_capabilities: row.original_system_capabilities,
       }
     : { capability_overrides: null, system_capabilities: null };
+}
+
+/** 全局桶引用只绑定 model_id：桶值形如 `custom-<id>/<model_id>`，与 endpoint 无关，切换 endpoint
+ *  不改变引用事实。model_id 偏离加载时的快照即作废——改后的 model 是否被引用要后端算，前端不猜，
+ *  留着旧提示会让新 model_id 顶着上一个模型的影响面；改回快照值原样取回。 */
+export function globalBucketRefsFor(row: CapabilitySnapshotRow, nextModelId: string): string[] {
+  return nextModelId === row.original_model_id ? row.original_global_bucket_refs : [];
 }

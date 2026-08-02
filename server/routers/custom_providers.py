@@ -109,6 +109,16 @@ _PROJECT_BACKEND_KEYS = (
     "default_text_backend",
 )
 
+# 全局 DB settings 中可能引用自定义模型的全部键，供能力编辑界面只读提示影响面用（`docs/adr/0054`：
+# 提示不拦截保存）。与 _BACKEND_SETTING_KEYS 分开维护：后者界定删除时的级联清理范围，视频桶键按
+# ADR 0054 不在清理之列，但仍需提示。每个键须在 frontend/src/i18n/*/dashboard.ts 有
+# global_bucket_label_<key> 文案，由 test_global_bucket_keys_have_i18n_labels 守住。
+_GLOBAL_BUCKET_REFERENCE_KEYS = (
+    *_BACKEND_SETTING_KEYS,
+    "default_video_backend_i2v",
+    "default_video_backend_r2v",
+)
+
 # ---------------------------------------------------------------------------
 # Pydantic 模型
 # ---------------------------------------------------------------------------
@@ -228,6 +238,9 @@ class ModelResponse(BaseModel):
     system_capabilities: dict[str, object] | None = None
     # 用户覆盖（稀疏字典），与 system_capabilities 平凡合并即为生效值。
     capability_overrides: dict[str, object] | None = None
+    # 正在引用该模型的全局 system_settings 键名（如 default_video_backend_i2v）；未被引用为
+    # None。只查 DB 全局配置，不扫描项目文件（`docs/adr/0054`）；前端据此渲染非阻塞提示。
+    global_bucket_refs: list[str] | None = None
 
 
 class ProviderResponse(BaseModel):
@@ -324,7 +337,25 @@ def _effective_overrides_for_response(
     return filtered or None
 
 
-def _model_to_response(m) -> ModelResponse:
+def _extract_global_bucket_refs(all_settings: dict[str, str], provider_id: int) -> dict[str, list[str]]:
+    """从一次性拉取的全局 settings 中挑出引用该 provider 模型的键，按 model_id 分组。"""
+    prefix = f"{make_provider_id(provider_id)}/"
+    refs: dict[str, list[str]] = {}
+    for key in _GLOBAL_BUCKET_REFERENCE_KEYS:
+        val = all_settings.get(key, "")
+        if val and val.startswith(prefix):
+            refs.setdefault(val[len(prefix) :], []).append(key)
+    return refs
+
+
+async def _global_bucket_refs_for_provider(session: AsyncSession, provider_id: int) -> dict[str, list[str]]:
+    from lib.config.service import ConfigService
+
+    all_settings = await ConfigService(session).get_all_settings()
+    return _extract_global_bucket_refs(all_settings, provider_id)
+
+
+def _model_to_response(m, global_bucket_refs: list[str] | None = None) -> ModelResponse:
     durations = json.loads(m.supported_durations) if m.supported_durations else None
     return ModelResponse(
         system_capabilities=_system_capabilities_for(m.endpoint, m.model_id),
@@ -341,17 +372,19 @@ def _model_to_response(m) -> ModelResponse:
         currency=m.currency,
         supported_durations=durations,
         resolution=m.resolution,
+        global_bucket_refs=global_bucket_refs or None,
     )
 
 
-def _provider_to_response(provider, models) -> ProviderResponse:
+def _provider_to_response(provider, models, global_bucket_refs: dict[str, list[str]] | None = None) -> ProviderResponse:
+    refs = global_bucket_refs or {}
     return ProviderResponse(
         id=provider.id,
         display_name=provider.display_name,
         discovery_format=provider.discovery_format,
         base_url=provider.base_url,
         api_key_masked=mask_secret(provider.api_key),
-        models=[_model_to_response(m) for m in models],
+        models=[_model_to_response(m, refs.get(m.model_id)) for m in models],
         created_at=dt_to_iso(provider.created_at),
         image_max_workers=provider.image_max_workers,
         video_max_workers=provider.video_max_workers,
@@ -545,7 +578,14 @@ async def list_providers(
     """列出所有自定义供应商（含模型列表）。"""
     repo = CustomProviderRepository(session)
     pairs = await repo.list_providers_with_models()
-    return {"providers": [_provider_to_response(p, models) for p, models in pairs]}
+    from lib.config.service import ConfigService
+
+    all_settings = await ConfigService(session).get_all_settings()
+    return {
+        "providers": [
+            _provider_to_response(p, models, _extract_global_bucket_refs(all_settings, p.id)) for p, models in pairs
+        ]
+    }
 
 
 # /endpoints 必须先于 /{provider_id} 注册，否则 FastAPI 会把字符串 "endpoints" 当作 provider_id。
@@ -586,7 +626,7 @@ async def create_provider(
     await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider.id)
-    return _provider_to_response(provider, models)
+    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider.id))
 
 
 @router.get("/{provider_id}")
@@ -602,7 +642,7 @@ async def get_provider(
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     models = await repo.list_models(provider_id)
-    return _provider_to_response(provider, models)
+    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider_id))
 
 
 @router.get("/{provider_id}/credentials", response_model=CredentialsResponse)
@@ -657,7 +697,7 @@ async def update_provider(
     await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider_id)
-    return _provider_to_response(provider, models)
+    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider_id))
 
 
 @router.put("/{provider_id}")
@@ -693,7 +733,7 @@ async def full_update_provider(
     await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider_id)
-    return _provider_to_response(provider, models)
+    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider_id))
 
 
 @router.delete("/{provider_id}", status_code=204)
@@ -770,7 +810,8 @@ async def replace_models(
 
     await session.commit()
     await _invalidate_caches(request)
-    return [_model_to_response(m) for m in new_models]
+    refs = await _global_bucket_refs_for_provider(session, provider_id)
+    return [_model_to_response(m, refs.get(m.model_id)) for m in new_models]
 
 
 # ---------------------------------------------------------------------------

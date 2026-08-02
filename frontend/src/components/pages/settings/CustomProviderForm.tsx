@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle, Search } from "lucide-react";
+import { Loader2, Plus, Trash2, Eye, EyeOff, CheckCircle2, XCircle, Search, Link2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
@@ -22,6 +22,7 @@ import {
   mergeDiscoveredModels,
   withLastFrameOverride,
   capabilityFieldsFor,
+  globalBucketRefsFor,
   type DiscoveryFormat,
 } from "./customProviderHelpers";
 import { EndpointSelect } from "./EndpointSelect";
@@ -77,6 +78,8 @@ interface ModelRow {
   // 系统按 (endpoint, model_id) 判定的能力，只读展示用；null = 非视频模型，或该行尚未落库
   // （新增/改过 model_id 的行判定要后端算，前端不猜），此时控件只显示「待判定」。
   system_capabilities: VideoCapabilityFlags | null;
+  // 正在引用该模型的全局 system_settings 键名，只读展示用；新增/未落库的行恒为空数组。
+  global_bucket_refs: string[];
   // 行创建时的快照，之后不再变化：model_id/endpoint 的清除判断须对齐这份原始值而非上一次
   // 的中间态——逐字符编辑 model_id 时若拿"上一次的值"作基准，第一次改动即清空覆盖，之后就
   // 算把输入改回原值也已丢失、无法通过继续编辑恢复；改回原值时应从这份快照原样取回覆盖。
@@ -84,6 +87,7 @@ interface ModelRow {
   original_endpoint: EndpointKey;
   original_capability_overrides: CapabilityOverrides | null;
   original_system_capabilities: VideoCapabilityFlags | null;
+  original_global_bucket_refs: string[];
 }
 
 function newModelRow(partial?: Partial<ModelRow>): ModelRow {
@@ -102,6 +106,7 @@ function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     supported_durations_text: "",
     capability_overrides: null,
     system_capabilities: null,
+    global_bucket_refs: [],
     ...partial,
   };
   return {
@@ -110,6 +115,7 @@ function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     original_endpoint: base.endpoint,
     original_capability_overrides: base.capability_overrides,
     original_system_capabilities: base.system_capabilities,
+    original_global_bucket_refs: base.global_bucket_refs,
   };
 }
 
@@ -138,6 +144,7 @@ function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
     supported_durations_text: m.supported_durations ? compactRangeFormat(m.supported_durations) : "",
     capability_overrides: m.capability_overrides,
     system_capabilities: m.system_capabilities,
+    global_bucket_refs: m.global_bucket_refs ?? [],
   });
 }
 
@@ -701,6 +708,8 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                             model_id: nextId,
                             // 覆盖与判定都随 (endpoint, model_id) 作废/恢复，见 capabilityFieldsFor
                             ...capabilityFieldsFor(m, nextId, m.endpoint),
+                            // 引用事实只绑 model_id，见 globalBucketRefsFor
+                            global_bucket_refs: globalBucketRefsFor(m, nextId),
                           });
                         }}
                         placeholder="model-id…"
@@ -761,6 +770,16 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
+
+                    {/* 全局桶引用提示（非阻塞展示，不影响保存） */}
+                    {m.global_bucket_refs.length > 0 && (
+                      <p className="mt-2 flex items-center gap-1.5 pl-6 text-[11px] text-text-4">
+                        <Link2 className="h-3 w-3 shrink-0" />
+                        {t("global_bucket_ref_hint", {
+                          buckets: m.global_bucket_refs.map((key) => t(`global_bucket_label_${key}`)).join(t("global_bucket_ref_separator")),
+                        })}
+                      </p>
+                    )}
 
                     {/* Pricing row */}
                     <div className="mt-2 flex flex-wrap items-center gap-2 pl-6 text-[11px] text-text-4">
