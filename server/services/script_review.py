@@ -108,7 +108,21 @@ class ScriptReviewService:
 
         return self.pm.update_project(project_name, _mutate)
 
-    async def _resolve_supported_durations(self, project: dict[str, Any], episode: int) -> list[int] | None:
+    async def _resolve_caps_best_effort(self, project_name: str, project: dict[str, Any], episode: int) -> dict:
+        """视频能力查询，解析失败时退回空 caps 而非冒穿。
+
+        缺 caps 只是让下游退到 registry / 不收窄这两个既有降级口径，而解析异常直接冒穿会让用户
+        连草稿都加载不了。档位表与档位收窄两条链共用本方法，降级语义因此不会在两处各自漂移。
+        """
+        try:
+            return await resolve_video_caps(project, episode)
+        except Exception as exc:  # noqa: BLE001 - best-effort：解析失败退回空 caps，不阻断 gate
+            logger.warning("video_capabilities 解析异常，审阅门退回不带 caps 的解析 project=%s：%s", project_name, exc)
+            return {}
+
+    async def _resolve_supported_durations(
+        self, project_name: str, project: dict[str, Any], episode: int
+    ) -> list[int] | None:
         """该集收窄前的时长档位全集；非 reference_video 变体或解析不到型号时 None。
 
         caps 先解析、再交 ``resolve_raw_supported_durations``：registry 那一级只收录内建供应商，
@@ -116,19 +130,15 @@ class ScriptReviewService:
         调用会让这类项目恒为 None——读时迁移退回结构区间 clamp、gate 面板也拿不到可选档位，
         存量草稿的收编对其整体失效。
 
-        caps 解析失败（DB / 迁移故障）时退回不带 caps 的 registry 解析，不阻断 gate：缺档位表
-        只是回到结构区间 clamp，而解析异常直接冒穿会让用户连草稿都加载不了。
+        caps 解析失败（DB / 迁移故障）时退回不带 caps 的 registry 解析，不阻断 gate（降级见
+        ``_resolve_caps_best_effort``）：缺档位表只是回到结构区间 clamp。
 
         调用方须在取 ``self.pm.file_lock`` **之前** await 本方法：那把锁是阻塞式文件锁，跨
         await 持有会连带把事件循环上的其它协程挡在锁外。
         """
         if script_review.step1_kind(project, episode) != "reference_video":
             return None
-        try:
-            caps = await resolve_video_caps(project, episode)
-        except Exception as exc:  # noqa: BLE001 - best-effort：解析失败退回 registry 解析，不阻断 gate
-            logger.warning("video_capabilities 解析异常，审阅门档位表退回 registry 解析：%s", exc)
-            caps = {}
+        caps = await self._resolve_caps_best_effort(project_name, project, episode)
         return resolve_raw_supported_durations(project, caps)
 
     def _read_step1_migrated(
@@ -183,7 +193,7 @@ class ScriptReviewService:
         不能跨 await 持有，而档位解析本身要 await 视频能力查询。
         """
         project = await asyncio.to_thread(self.pm.load_project, project_name)
-        supported_durations = await self._resolve_supported_durations(project, episode)
+        supported_durations = await self._resolve_supported_durations(project_name, project, episode)
         return await asyncio.to_thread(self._get_state_sync, project_name, project, episode, supported_durations)
 
     def _get_state_sync(
@@ -231,8 +241,8 @@ class ScriptReviewService:
 
         读时按产出时那套校验器全量重算（``revalidate_reference_step1_draft``，晋升工具同一份
         代码），不信任草稿里 ``violations`` 的上一轮快照——隔离期间源文或模型配置可能已变，
-        报告要对现值负责。``get_state`` 保持同步（无需 await 视频能力解析），故本方法独立于
-        它，由 router 在同一次请求内合并两者的返回。
+        报告要对现值负责。本方法与 ``get_state`` 各自读盘、互不依赖，由 router 在同一次请求内
+        合并两者的返回。
 
         ``content`` 校验通过时返回收编后的扁平产出（时长已按当前档位收编），未通过时返回草稿
         原样内容 + 违约列表，供呈现层原样展示 agent 手改的那份文本。meta 被改坏以致无从重算
@@ -241,8 +251,8 @@ class ScriptReviewService:
 
         项目 / 隔离草稿的同步文件读取经 ``asyncio.to_thread`` 卸到线程——本方法整体是
         ``async``（内部要 ``await`` 重算里的能力解析），若前半截同步 I/O 直接跑在事件循环上，
-        源文越大越占用循环时间，拖慢并发的其它请求；GET 端点已经把 ``get_state`` 包了
-        ``asyncio.to_thread``，这里保持同一纪律。
+        源文越大越占用循环时间，拖慢并发的其它请求；``get_state`` 把同步主体整段卸到线程，
+        这里保持同一纪律。
         """
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         if script_review.step1_kind(project, episode) != "reference_video":
@@ -313,7 +323,8 @@ class ScriptReviewService:
         当短路条件：那是另一个方法的返回值，两者各自判 step1_kind，不互相依赖。
 
         caps 与收窄用的模型身份在本方法内单独解析：``reference_unit_duration_tiers`` 要按
-        caps 里的 provider/model 求联动约束，光有档位表不够。
+        caps 里的 provider/model 求联动约束，光有档位表不够；解析失败的降级与档位表那条链
+        共用 ``_resolve_caps_best_effort``，缺 caps 时收窄回退为不收窄。
 
         项目读取同 ``get_quarantine_info`` 卸到线程——本方法同样是 ``async`` 且由请求协程
         直接 ``await``，同步的 ``project.json`` 读取直接跑在事件循环上会阻塞并发的其它请求。
@@ -321,11 +332,7 @@ class ScriptReviewService:
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         if script_review.step1_kind(project, episode) != "reference_video":
             return None
-        try:
-            caps = await resolve_video_caps(project, episode)
-        except Exception as exc:  # noqa: BLE001 - best-effort：解析失败时收窄回退为不收窄，不阻塞面板
-            logger.warning("video_capabilities 解析异常，时长档下拉退回未收窄集合 project=%s：%s", project_name, exc)
-            caps = {}
+        caps = await self._resolve_caps_best_effort(project_name, project, episode)
         raw = resolve_raw_supported_durations(project, caps)
         if raw is None:
             return None
@@ -375,7 +382,7 @@ class ScriptReviewService:
         用的档位表须与 gate 面板呈现的那份同源，否则确认会把面板上选不到的秒数固化到盘上。
         """
         project = await asyncio.to_thread(self.pm.load_project, project_name)
-        supported_durations = await self._resolve_supported_durations(project, episode)
+        supported_durations = await self._resolve_supported_durations(project_name, project, episode)
         await asyncio.to_thread(self._confirm_sync, project_name, project, episode, supported_durations)
         return await self.get_state(project_name, episode)
 
