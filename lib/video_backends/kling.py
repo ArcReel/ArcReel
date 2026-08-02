@@ -219,7 +219,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         # first_frame 恒真（各档均支持 i2v 首帧）；last_frame / reference_images / 上限按 model 从
         # _KLING_VIDEO_CAPS 读（_lookup_video_caps 归一化前缀/大小写后精确命中，未登记回落保守默认）。
         # max_reference_images 以此处为准（编排层裁剪与生成时防御同读它；registry ModelInfo 另有一份
-        # 并行声明，不再被读取），取保守值、待 app.klingai.com 控制台核对。纯函数（不构造 client /
+        # 并行声明，不参与解析），取保守值、未经 app.klingai.com 控制台核对。纯函数（不构造 client /
         # 不需 api_key），供 custom endpoint resolver 按 model_id 读上限复用。
         #
         # last_frame_requires_pro 为真的 model（kling-v2-5-turbo、kling-v2-6）：该位不按 service_tier

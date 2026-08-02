@@ -67,7 +67,7 @@ _MIN_DURATION_SECONDS = 1
 _MAX_DURATION_SECONDS = 18
 
 # 参考图（多图主体）上限——保守值，编排层裁剪与 backend 生成时防御同读此处（registry
-# ModelInfo.max_reference_images 另有一份同值的并行声明，不再被读取）。待 Agnes console / 实测
+# ModelInfo.max_reference_images 另有一份同值的并行声明，不参与解析）。取值未经 Agnes console
 # 核对，不硬编当既成事实。
 _MAX_REFERENCE_IMAGES = 4
 
