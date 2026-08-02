@@ -164,13 +164,21 @@ def _get_video_prompt(
     return prompt
 
 
-def _script_episode(script: dict[str, Any]) -> int | None:
-    """剧本自报的集号，供能力解析按该集生效 ``generation_mode`` 取值。
+def _script_episode(script: dict[str, Any], script_filename: str) -> int | None:
+    """剧本归属的集号，供能力解析按该集生效 ``generation_mode`` 取值。
 
-    缺 ``episode`` 字段（脏数据）时返回 None，能力回落到项目级口径。
+    与入队 / checkpoint / UI header 用的 ``resolve_episode_from_script`` 是同一份解析（剧本
+    ``episode`` 字段优先，缺则文件名 ``episodeN``），本文件不留第二份集号口径——只靠剧本字段
+    的话，集号出自文件名的剧本会一边按第 N 集入队、一边按项目级口径解析能力，被单集覆盖的
+    那一集又静默丢回项目级模式。
+
+    唯一差别是集号确实解析不出（既无字段也无文件名模式）时返回 None 让能力回落项目级，而不是
+    让一次能力解析把整个入队打断。
     """
-    episode = script.get("episode")
-    return episode if isinstance(episode, int) else None
+    try:
+        return ProjectManager.resolve_episode_from_script(script, script_filename)
+    except ValueError:
+        return None
 
 
 async def _resolve_voice_characters(
@@ -730,7 +738,9 @@ def generate_video_episode_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(items, id_field, completed, videos_dir)
-            voice_characters = await _resolve_voice_characters(ctx, content_mode, _script_episode(script))
+            voice_characters = await _resolve_voice_characters(
+                ctx, content_mode, _script_episode(script, script_filename)
+            )
             specs, order_map = _build_video_specs(
                 items=items,
                 id_field=id_field,
@@ -840,7 +850,9 @@ def generate_video_scene_tool(ctx: ToolContext):
                 raise FileNotFoundError(f"分镜图不存在: {storyboard_path}")
 
             content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
-            voice_characters = await _resolve_voice_characters(ctx, content_mode, _script_episode(script))
+            voice_characters = await _resolve_voice_characters(
+                ctx, content_mode, _script_episode(script, script_filename)
+            )
             prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
             # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
             # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
@@ -925,7 +937,9 @@ def generate_video_all_tool(ctx: ToolContext):
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
 
-            voice_characters = await _resolve_voice_characters(ctx, content_mode, _script_episode(script))
+            voice_characters = await _resolve_voice_characters(
+                ctx, content_mode, _script_episode(script, script_filename)
+            )
             specs, _order_map = _build_video_specs(
                 items=pending,
                 id_field=id_field,
@@ -1061,7 +1075,9 @@ def generate_video_selected_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(selected, id_field, completed, videos_dir)
-            voice_characters = await _resolve_voice_characters(ctx, content_mode, _script_episode(script))
+            voice_characters = await _resolve_voice_characters(
+                ctx, content_mode, _script_episode(script, script_filename)
+            )
             specs, order_map = _build_video_specs(
                 items=selected,
                 id_field=id_field,
