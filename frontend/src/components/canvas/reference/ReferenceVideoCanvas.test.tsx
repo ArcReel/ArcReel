@@ -243,6 +243,58 @@ describe("ReferenceVideoCanvas", () => {
     expect((ta as HTMLTextAreaElement).value).toContain("x");
   });
 
+  // chip 操作（拖拽/移除/新增）与未保存文本编辑交错时，原子 flush 按新草稿重新派生
+  // references：仅作说话人的角色被剔除，其余条目沿用 chip 操作请求的顺序而非按
+  // 文本中的提及顺序重排。
+  it("re-derives references from the pending draft on a chip flush, keeping the chip-requested order", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...STUB_PROJECT,
+        characters: { 张三: { description: "" }, 李四: { description: "" }, 王五: { description: "" } },
+      } as ProjectData,
+    });
+    const unit: ReferenceVideoUnit = {
+      ...mkUnit("E1U1", "@[张三] 和 @[李四] 和 @[王五] 出现。"),
+      // 保存时的 chip 顺序刻意与文本中的提及顺序（张三→李四→王五）相反，
+      // 用来区分「保留 chip 顺序」与「按提及顺序重排」两种可能实现。
+      references: [
+        { type: "character", name: "王五" },
+        { type: "character", name: "李四" },
+        { type: "character", name: "张三" },
+      ],
+    };
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValue({ unit: { ...unit, references: [] } });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    const ta = await screen.findByRole("combobox");
+
+    // 未保存的文本编辑：张三改为仅作说话人（规范台词行），派生规则下不应再进 references。
+    fireEvent.change(ta, {
+      target: { value: "@[李四] 和 @[王五] 在场。\n@[张三]：{你好}" },
+    });
+
+    // 交错的 chip 操作：移除与说话人变更无关的王五 chip。移除请求本身不涉及张三——
+    // 若原子 flush 不按新草稿重新派生，张三会残留在落盘 references 里（本 issue 的缺陷）；
+    // 重新派生后张三应被剔除，王五因仍被文本提及而补回，且顺序沿用 chip 侧剩余顺序
+    // （李四、王五），而非文本中的提及顺序（王五、李四）。
+    fireEvent.click(
+      screen.getByRole("button", { name: /Remove reference @王五|移除引用 @王五/ }),
+    );
+
+    await waitFor(() => expect(patchSpy).toHaveBeenCalled());
+    expect(patchSpy).toHaveBeenCalledWith("proj", 1, "E1U1", {
+      prompt: "@[李四] 和 @[王五] 在场。\n@[张三]：{你好}",
+      references: [
+        { type: "character", name: "李四" },
+        { type: "character", name: "王五" },
+      ],
+    });
+  });
+
   // 时长是 unit 级单一真相：下拉档位来自模型能力声明，选中即单独 PATCH（不牵连正文草稿）
   it("renders the unit duration dropdown from the model's declared slots and patches on change", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });

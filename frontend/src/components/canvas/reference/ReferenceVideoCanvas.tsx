@@ -510,8 +510,14 @@ export function ReferenceVideoCanvas({
       const unit = units.find((u) => u.unit_id === unitId);
       const hasDraft =
         draftText !== undefined && unit !== undefined && draftText !== unitPromptText(unit);
+      // draftText 未落盘时，chip 操作请求的 nextRefs 仍基于旧 prompt 状态；按新 draftText
+      // 重新派生，同时把 nextRefs 作为 mergeReferences 的 existing 基准——保留本次 chip
+      // 操作请求的顺序（拖拽结果），只补丢弃/新增仅由文本变化引起的部分。
+      const finalRefs = hasDraft
+        ? mergeReferences(draftText, nextRefs, project ?? null)
+        : nextRefs;
       const body: { prompt?: string; references: ReferenceResource[] } = hasDraft
-        ? { prompt: draftText, references: nextRefs }
+        ? { prompt: draftText, references: finalRefs }
         : { references: nextRefs };
       void patchUnit(projectName, episode, unitId, body)
         .then(() => {
@@ -527,7 +533,7 @@ export function ReferenceVideoCanvas({
           toastError(e);
         });
     },
-    [drafts, units, patchUnit, projectName, episode],
+    [drafts, units, patchUnit, projectName, episode, project],
   );
 
   const handleReorderRefs = useCallback(
