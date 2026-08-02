@@ -1339,6 +1339,20 @@ class TestResolveVideoBackendBuckets:
         assert exc_info.value.code == "video_capability_reference_unavailable"
         assert exc_info.value.params == {"provider": "ark", "model": "removed-model"}
 
+    async def test_bucket_reference_to_non_video_model_raises_unavailable(self):
+        """所引模型不是视频模型同属悬空引用：backend caps 函数对同 provider 的图片模型也返回
+        静态能力（``gemini-aistudio/gemini-3.1-flash-image-preview`` 会拿到 first_frame=True），
+        只判成员资格会放行，落到执行层才炸。"""
+        from lib.config.resolver import VideoBucketCapabilityError
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(
+            settings={"default_video_backend_i2v": "gemini-aistudio/gemini-3.1-flash-image-preview"}
+        )
+        with pytest.raises(VideoBucketCapabilityError) as exc_info:
+            await resolver._resolve_video_provider_model(fake_svc, None, None, None, "i2v")
+        assert exc_info.value.code == "video_capability_reference_unavailable"
+
     async def test_capability_none_keeps_legacy_resolution_without_gate(self):
         """不定桶调用（费用估算、限流路由兜底）保持旧三级解析，不读桶键、不过能力闸。"""
         resolver = ConfigResolver.__new__(ConfigResolver)

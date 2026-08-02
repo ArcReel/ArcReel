@@ -1053,10 +1053,13 @@ class ConfigResolver:
             if media_type != "video":
                 raise _video_bucket_reference_unavailable(capability, provider_id, model_id)
         else:
-            # backend caps 函数不都校验 model 存在性（部分 provider 返回静态能力），注册表
-            # 成员资格单独判：模型被注册表升级删除的悬空引用在此报错
+            # backend caps 函数不都校验 model 存在性、也不都校验 media_type（部分 provider 对任意
+            # model id 返回静态能力，同一 provider 的图片模型也会拿到 first_frame=True），注册表
+            # 身份单独判：模型被注册表升级删除、或所引模型压根不是视频模型，都是悬空引用。
+            # 判的是注册表身份而非能力声明——能力两维仍只取 backend，与桶候选下拉同源。
             provider_meta = PROVIDER_REGISTRY.get(provider_id)
-            if provider_meta is None or model_id not in provider_meta.models:
+            model_info = provider_meta.models.get(model_id) if provider_meta else None
+            if model_info is None or model_info.media_type != "video":
                 raise _video_bucket_reference_unavailable(capability, provider_id, model_id)
             try:
                 spec = get_provider_spec(provider_id, "video")
