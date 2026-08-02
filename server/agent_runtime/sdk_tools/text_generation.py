@@ -130,7 +130,10 @@ def _load_novel_source(project_path: Path, source: str | None) -> str:
             source_path = safe_join(project_path, source)
         except PathTraversalError as exc:
             raise ValueError(f"路径超出项目目录: {source}") from exc
-        if not source_path.exists():
+        if not source_path.is_file():
+            # 存在但不是文件（如指向目录）同样按「未找到源文件」处理：直接 read_text() 对目录
+            # 会抛 IsADirectoryError，落进本函数调用方一律只接的 ValueError 之外，在 web 审核
+            # gate 的读时重算里会变成未处理的 500。
             raise ValueError(f"未找到源文件: {source_path}")
         novel_text = source_path.read_text(encoding="utf-8")
     else:

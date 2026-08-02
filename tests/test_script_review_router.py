@@ -428,6 +428,30 @@ class TestReferenceVideoRouter:
             violations = resp.json()["quarantine"]["violations"]
             assert [v["code"] for v in violations] == ["quarantine_unreadable"]
 
+    def test_quarantine_with_directory_valued_meta_source_degrades_gracefully(self, tmp_path, monkeypatch):
+        """``meta.source`` 类型正确（字符串）但指向一个目录：``Path.exists()`` 对目录同样为
+        True，直接 ``read_text()`` 会抛 ``IsADirectoryError``——同样要降级成 quarantine_unreadable，
+        不能让这个既不是 ValueError 也不是类型错误的 OSError 子类冒穿成 500。"""
+        from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, write_quarantine
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        (project_path / "source").mkdir(parents=True, exist_ok=True)
+        write_quarantine(
+            project_path,
+            1,
+            QUARANTINE_KIND_STEP1,
+            content={"units": [{"duration_seconds": 4, "source_text": "x", "text": "镜头1：门开了"}]},
+            violations=[],
+            meta={"source": "source"},
+        )
+
+        with client:
+            resp = client.get("/api/v1/projects/demo/episodes/1/script-review")
+            assert resp.status_code == 200
+            violations = resp.json()["quarantine"]["violations"]
+            assert [v["code"] for v in violations] == ["quarantine_unreadable"]
+
     @pytest.mark.integration
     def test_put_response_includes_quarantine_created_during_the_request(self, tmp_path, monkeypatch):
         """保存作用于正式草稿，隔离草稿是另一份文件——PUT 响应缺 ``quarantine`` 字段的话，
