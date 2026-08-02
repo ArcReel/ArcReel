@@ -5,6 +5,7 @@ import {
   matchVoiceoverLine,
   resolveMentionType,
   mergeReferences,
+  splitScriptLines,
 } from "./reference-mentions";
 import type { ProjectData } from "@/types";
 import type { ReferenceResource } from "@/types/reference-video";
@@ -208,5 +209,21 @@ describe("normative dialogue lines", () => {
   it("keeps speaker-only characters out of merged references", () => {
     const refs = mergeReferences("镜头1：@酒馆 内景。\n@张三：{我来了}", [], mkProject());
     expect(refs).toEqual([{ type: "scene", name: "酒馆" }]);
+  });
+});
+
+describe("splitScriptLines", () => {
+  // 与 Python str.splitlines() 逐例对齐：末尾换行不多出空行，行中间的空行照常保留
+  it.each([
+    ["", []],
+    ["a", ["a"]],
+    ["a\n", ["a"]],
+    ["a\n\n", ["a", ""]],
+    ["a\n\nb", ["a", "", "b"]],
+    ["\n", [""]],
+    ["镜头1：中景\r\n", ["镜头1：中景"]],
+    ["镜头1：中景 ", ["镜头1：中景"]],
+  ])("splits %j the way splitlines() does", (input, expected) => {
+    expect(splitScriptLines(input)).toEqual(expected);
   });
 });

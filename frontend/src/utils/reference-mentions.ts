@@ -49,9 +49,16 @@ function hasSpokenText(text: string): boolean {
 // eslint-disable-next-line no-control-regex
 export const LINE_BREAK_RE = /(\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029])/;
 
-/** 按后端同一套换行边界切行（不保留分隔符）。 */
+/**
+ * 按后端同一套换行边界切行（不保留分隔符）。
+ *
+ * 末尾换行不产生空行、空串切出空数组——都与 `splitlines()` 一致；行中间的空行照常保留。
+ */
 export function splitScriptLines(text: string): string[] {
-  return text.split(LINE_BREAK_RE).filter((_, i) => i % 2 === 0);
+  if (text.length === 0) return [];
+  const lines = text.split(LINE_BREAK_RE).filter((_, i) => i % 2 === 0);
+  if (lines[lines.length - 1] === "") lines.pop();
+  return lines;
 }
 
 /**
