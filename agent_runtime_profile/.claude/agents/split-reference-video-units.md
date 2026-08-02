@@ -39,8 +39,11 @@ mcp__arcreel__get_video_capabilities({})
 ```
 
 解析返回的 JSON，记录：
-- `supported_durations`：unit 时长允许的取值集合（档位枚举）
-- `max_duration`：单次生成的时长上限（unit 时长不得超过）
+- `reference_unit_durations`：按 unit 有无 `@` 引用分开的两套**生效**档位，形如
+  `{"with_references": [...], "without_references": [...]}`。unit 时长必须取自其引用状态对应的那套——
+  部分型号对带参考图的生成另有时长限制，无引用的 unit 不受此限
+- `supported_durations`：型号声明的时长全集，**未**施加「分辨率↔时长」「参考图↔时长」联动约束；
+  仅作参考，取值一律以 `reference_unit_durations` 为准
 - `max_reference_images`：单 unit references 上限
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
 
@@ -76,7 +79,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 
 使用 Read 工具读取现有 JSON，按修改要求用 Edit 工具直接修改，遵循**修改口径**：
 
-- unit `duration_seconds` 必须取 Step 0 查得的 `supported_durations` 中的值，且不超过 `max_duration`；一个 unit 一个时长，镜头不单独承载时长。内容装不下所选档位时把该 unit 按叙事顺序重拆为多个 unit，不得违约时长；台词念不完所选档位时同样重拆，不压进短档
+- unit `duration_seconds` 必须取 Step 0 查得的 `reference_unit_durations` 中**该 unit 引用状态对应**的那套：镜头描述行含 `@` 引用取 `with_references`，不含则取 `without_references`（规范台词行 `@[角色]：{台词}` 的说话人位不计入——它不生成参考图，只驱动音色声明，判据与下方 `references` 派生口径同源）。一个 unit 一个时长，镜头不单独承载时长。内容装不下所选档位时把该 unit 按叙事顺序重拆为多个 unit，不得违约时长；台词念不完所选档位时同样重拆，不压进短档。两套档位不同、且想要的时长不在该 unit 当前引用状态对应的档位内时，两条出路二选一：改取该状态档位内的值，或调整引用状态使其落入另一档位——两套档位之间不假定包含关系，调整方向（去引用变宽还是变窄）以该型号实际两套档位为准，不预设「去引用」必然更宽
 - shot `text` 用 `@[名称]` 引用资产，名称必须逐字取自 `project.json` 三张表（不确定就 Read `project.json` 确认）；不写外貌 / 服装 / 场景细节
 - `source_text` 必须是本集源文的逐字片段（可截断首尾，中间不得删改）；改动 unit 边界时同步改锚
 - 修改 shot 文本中的 `@` 引用后，同步更新该 unit 的 `references`：各 shot 引用的并集、按首次出现顺序（顺序决定参考图编号），去重后数量不超过 `max_reference_images`；规范台词行的说话人位不计入参考图
@@ -109,7 +112,7 @@ mcp__arcreel__split_reference_video_units({"episode": N, "source": "source/episo
 }
 ```
 
-> 填值规则：`<duration>` 必须取自 Step 0 查得的 `supported_durations` 且 ≤ `max_duration`，宜贴近内容实际需要的长度。
+> 填值规则：`<duration>` 必须取自 Step 0 查得的 `reference_unit_durations` 中该 unit 引用状态对应的那套，宜贴近内容实际需要的长度。
 > `<集号>` 由 `mcp__arcreel__split_reference_video_units` 工具在调用时按当前 episode 注入；本示例用占位符避免误把 `E1` 当硬编码值。
 
 ### 返回摘要

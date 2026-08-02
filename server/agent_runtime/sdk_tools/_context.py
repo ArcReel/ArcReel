@@ -54,11 +54,15 @@ def constrained_caps_durations(
     durations: list[int],
     *,
     generation_mode: str | None,
+    uses_reference_images: bool | None = None,
 ) -> list[int]:
     """按 caps 里的模型身份对 ``durations`` 施加时长联动约束（见 ``constrain_durations_for_project``）。
 
     ``durations`` 单独传入而非从 caps 取：调用方对该集合做过自己的软回退 / 过滤，收窄要作用在
     那个结果上，不能绕回 caps 的原始集合。
+
+    ``uses_reference_images`` 缺省时按生成模式近似判定；调用方能区分「这次求的是带参考图还是
+    不带参考图的档位」时应显式传入。
     """
     return constrain_durations_for_project(
         project,
@@ -66,7 +70,33 @@ def constrained_caps_durations(
         provider_id=caps.get("provider_id"),
         model_id=caps.get("model"),
         generation_mode=generation_mode,
+        uses_reference_images=uses_reference_images,
     )
+
+
+def reference_unit_duration_tiers(
+    project: dict[str, Any],
+    caps: dict[str, Any],
+    durations: list[int],
+) -> tuple[list[int], list[int]]:
+    """参考视频路径逐 unit 的两套生效档位：``(带参考图, 不带参考图)``。
+
+    「参考图↔时长」约束只对实际带参考图的请求生效（执行层 ``effective_reference_durations``
+    与 backend 同此判据），故 unit 的生效档位取决于该 unit 正文里有没有 ``@[名称]`` 引用。
+    整集按其中一套一刀切都有代价：一律按带图算会收掉无引用 unit 本可申请的短档，一律按不带图
+    算则会让带引用的 unit 拆出执行期申请不到的时长。
+
+    两套集合之间**不假定包含关系**：``constrain_durations`` 在交集为空时回退到未收窄的候选，
+    带图集因而可能反过来比不带图集宽（型号同时声明「带图仅 8s」与「1080p 仅 6s」即是）。
+    需要「任一状态下合法」的并集时由调用方对两个返回值取并，不要拿其中一个当上界。
+    """
+    with_references = constrained_caps_durations(
+        project, caps, durations, generation_mode="reference_video", uses_reference_images=True
+    )
+    without_references = constrained_caps_durations(
+        project, caps, durations, generation_mode="reference_video", uses_reference_images=False
+    )
+    return with_references, without_references
 
 
 async def fetch_video_caps(

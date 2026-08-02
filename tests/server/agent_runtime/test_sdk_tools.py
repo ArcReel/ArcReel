@@ -1864,6 +1864,56 @@ async def test_get_video_capabilities_happy(fake_ctx: ToolContext, monkeypatch) 
     assert json.loads(out["content"][0]["text"])["provider_id"] == "fake"
 
 
+@pytest.mark.unit
+async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: ToolContext, monkeypatch) -> None:
+    """参考路径项目另返回两套逐 unit 生效档位，供手工改 step1 时与生成侧对同一份数字。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def fake_resolve(_project):
+        return {
+            "provider_id": "gemini-aistudio",
+            "model": "veo-3.1-generate-preview",
+            "supported_durations": [4, 6, 8],
+            "generation_mode": "reference_video",
+        }
+
+    fake_ctx.pm.project_payload["model_settings"] = {  # type: ignore[attr-defined]
+        "gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}
+    }
+    monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
+    out = await _call(get_video_capabilities_tool(fake_ctx), {})
+    assert out.get("is_error") is not True, out
+    payload = json.loads(out["content"][0]["text"])
+    assert payload["reference_unit_durations"] == {"with_references": [8], "without_references": [4, 6, 8]}
+    # 全集原样保留：它是型号声明，不是生效档位
+    assert payload["supported_durations"] == [4, 6, 8]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("generation_mode", "content_mode"),
+    [("storyboard", "drama"), ("reference_video", "ad")],
+)
+async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
+    fake_ctx: ToolContext, monkeypatch, generation_mode: str, content_mode: str
+) -> None:
+    """非剧集参考路径不补该字段：其它路径没有逐 unit 引用状态，ad 镜头时长也不受档位枚举管辖。"""
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def fake_resolve(_project):
+        return {
+            "provider_id": "gemini-aistudio",
+            "model": "veo-3.1-generate-preview",
+            "supported_durations": [4, 6, 8],
+            "generation_mode": generation_mode,
+            "content_mode": content_mode,
+        }
+
+    monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
+    out = await _call(get_video_capabilities_tool(fake_ctx), {})
+    assert "reference_unit_durations" not in json.loads(out["content"][0]["text"])
+
+
 async def test_get_video_capabilities_error(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -2886,9 +2936,18 @@ async def test_generate_video_all_ad_reference_falls_through_to_episode(
 # ---------------------------------------------------------------------------
 
 
-def _rv_caps(default=4, durations=(4, 6, 8), max_duration=12, max_refs=3):
+def _rv_caps(default=4, durations=(4, 6, 8), reference_durations=None, max_duration=12, max_refs=3):
+    from server.agent_runtime.sdk_tools.text_generation import ReferenceSplitCaps
+
     async def fake_caps(_p):
-        return default, list(durations), max_duration, max_refs
+        return ReferenceSplitCaps(
+            default_duration=default,
+            durations=list(durations),
+            reference_durations=list(durations if reference_durations is None else reference_durations),
+            text_durations=list(durations),
+            max_duration=max_duration,
+            max_refs=max_refs,
+        )
 
     return fake_caps
 
@@ -2902,12 +2961,14 @@ async def test_fetch_reference_caps_with_fallback_returns_declared_slots(monkeyp
 
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
-    default, durations, max_duration, max_refs = await mod._fetch_reference_caps_with_fallback({})
+    caps = await mod._fetch_reference_caps_with_fallback({})
 
-    assert durations == [1, 8, 16, 18]
-    assert max_duration == 18
-    assert default == 16  # 是档位成员，照常采信
-    assert max_refs is None
+    assert caps.durations == [1, 8, 16, 18]
+    assert caps.reference_durations == [1, 8, 16, 18]
+    assert caps.text_durations == [1, 8, 16, 18]
+    assert caps.max_duration == 18
+    assert caps.default_duration == 16  # 是档位成员，照常采信
+    assert caps.max_refs is None
 
 
 @pytest.mark.unit
@@ -2930,9 +2991,9 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monk
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
     project = {"model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}}}
-    _default, unit_durations, max_duration, _max_refs = await mod._fetch_reference_caps_with_fallback(project)
-    assert unit_durations == [6]
-    assert max_duration == 6
+    caps = await mod._fetch_reference_caps_with_fallback(project)
+    assert caps.durations == [6]
+    assert caps.max_duration == 6
 
 
 @pytest.mark.unit
@@ -2952,9 +3013,67 @@ async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution(mo
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
-    _default, unit_durations, max_duration, _max_refs = await mod._fetch_reference_caps_with_fallback(project)
-    assert unit_durations == [8]
-    assert max_duration == 8
+    caps = await mod._fetch_reference_caps_with_fallback(project)
+    assert caps.durations == [8]
+    assert caps.max_duration == 8
+
+
+@pytest.mark.unit
+def test_reference_unit_duration_tiers_does_not_assume_containment(monkeypatch) -> None:
+    """两套档位之间无包含关系可假定：两条约束自相矛盾时带图那套反而更宽。
+
+    ``constrain_durations`` 在交集为空时回退到未收窄候选，故型号同时声明「带图仅 8s」与
+    「1080p 仅 6s」时，带图集回退成全集、不带图集收成 [6]。调用方须显式取并集当枚举。
+    """
+    from lib.config import resolver as resolver_mod
+    from lib.config.registry import ModelInfo
+    from server.agent_runtime.sdk_tools._context import reference_unit_duration_tiers
+
+    contradictory = ModelInfo(
+        display_name="contradictory",
+        media_type="video",
+        capabilities=[],
+        supported_durations=[4, 6, 8],
+        duration_resolution_constraints={"1080p": [6]},
+        reference_image_durations=[8],
+    )
+    monkeypatch.setattr(resolver_mod, "model_info_for", lambda *_args: contradictory)
+
+    project = {"model_settings": {"p/m": {"resolution": "1080p"}}}
+    with_refs, without_refs = reference_unit_duration_tiers(project, {"provider_id": "p", "model": "m"}, [4, 6, 8])
+
+    assert with_refs == [4, 6, 8]
+    assert without_refs == [6]
+    assert not set(with_refs) <= set(without_refs)
+
+
+@pytest.mark.unit
+async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_state(monkeypatch) -> None:
+    """「参考图↔时长」约束逐 unit 生效：Veo 720p 下带引用只剩 8 秒，无引用仍有 4/6/8。
+
+    枚举与 prompt 候选取并集——一律按带图收窄会把无引用 unit 本可申请的短档也收掉。
+    """
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def _fake_caps(_project):
+        return {
+            "provider_id": "gemini-aistudio",
+            "model": "veo-3.1-generate-preview",
+            "supported_durations": [4, 6, 8],
+            "max_duration": 8,
+            "default_duration": None,
+        }
+
+    monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+
+    project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}}
+    caps = await mod._fetch_reference_caps_with_fallback(project)
+    assert caps.reference_durations == [8]
+    assert caps.text_durations == [4, 6, 8]
+    assert caps.durations == [4, 6, 8]
+    assert caps.max_duration == 8
+    assert caps.tiers_for(has_references=True) == [8]
+    assert caps.tiers_for(has_references=False) == [4, 6, 8]
 
 
 async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monkeypatch) -> None:
@@ -2966,11 +3085,11 @@ async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monke
         raise ValueError("no provider configured")
 
     monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
-    default, durations, max_duration, max_refs = await mod._fetch_reference_caps_with_fallback({})
-    assert default is None
-    assert durations == DEFAULT_FALLBACK
-    assert max_duration == max(DEFAULT_FALLBACK)
-    assert max_refs is None
+    caps = await mod._fetch_reference_caps_with_fallback({})
+    assert caps.default_duration is None
+    assert caps.durations == DEFAULT_FALLBACK
+    assert caps.max_duration == max(DEFAULT_FALLBACK)
+    assert caps.max_refs is None
 
 
 def _rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = None):
@@ -3114,13 +3233,43 @@ async def test_split_reference_video_units_rejects_over_max_refs(fake_ctx: ToolC
     assert not _rv_step1_path(fake_ctx).exists()
 
 
-async def test_split_reference_video_units_rejects_over_max_duration(fake_ctx: ToolContext, monkeypatch) -> None:
-    """unit 时长是枚举成员但超单次生成上限（能力声明与联动约束不一致时）→ 工具后校验 fail-loud。"""
+@pytest.mark.integration
+async def test_split_reference_video_units_rejects_duration_off_reference_tier(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """带 `@` 引用的 unit 取了只有无引用 unit 才合法的时长 → fail-loud，不写盘。
+
+    枚举卡的是两套档位的并集，这类越界过得了 schema；不在此拦，执行期才会申请不到。
+    """
     _rv_source(fake_ctx)
-    out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 起身")], max_duration=6)
+    out = await _run_rv_split(
+        fake_ctx,
+        monkeypatch,
+        [_rv_unit("镜头1：@[张三] 起身", duration=4)],
+        reference_durations=(8,),
+    )
     assert out.get("is_error") is True
-    assert "超过单次生成上限" in out["content"][0]["text"]
+    text = out["content"][0]["text"]
+    assert "生效档位" in text and "[8]" in text
     assert not _rv_step1_path(fake_ctx).exists()
+
+
+@pytest.mark.integration
+async def test_split_reference_video_units_accepts_wide_tier_without_references(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """无 `@` 引用的 unit 不受「参考图↔时长」约束，仍可取更短的档位。"""
+    _rv_source(fake_ctx)
+    out = await _run_rv_split(
+        fake_ctx,
+        monkeypatch,
+        [_rv_unit("镜头1：门被风吹开", duration=4)],
+        reference_durations=(8,),
+    )
+    assert out.get("is_error") is not True, out
+    saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    assert saved["units"][0]["duration_seconds"] == 4
+    assert saved["units"][0]["references"] == []
 
 
 async def test_split_reference_video_units_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:

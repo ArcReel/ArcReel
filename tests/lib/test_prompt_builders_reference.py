@@ -174,6 +174,87 @@ def test_build_reference_units_split_prompt_rejects_bad_inputs():
         _split_prompt(supported_durations=[])
     with pytest.raises(ValueError, match="default_duration"):
         _split_prompt(supported_durations=[4, 8], default_duration=5)
+    with pytest.raises(ValueError, match="reference_supported_durations"):
+        _split_prompt(supported_durations=[4, 8], reference_supported_durations=[6])
+    with pytest.raises(ValueError, match="text_supported_durations"):
+        _split_prompt(supported_durations=[4, 8], text_supported_durations=[6])
+
+
+def test_build_reference_units_split_prompt_writes_reference_duration_linkage():
+    """两套档位不同时，prompt 写明各自的档位与两条出路（换档位 / 去引用）。"""
+    prompt = _split_prompt(
+        supported_durations=[4, 6, 8],
+        reference_supported_durations=[8],
+        text_supported_durations=[4, 6, 8],
+        default_duration=None,
+    )
+    assert "带 `@` 引用取（8）" in prompt
+    assert "不带取（4, 6, 8）" in prompt
+    assert "不用 `@` 引用" in prompt
+
+
+def test_build_reference_units_split_prompt_states_both_tiers_without_containment():
+    """带图档位反而更宽时，被收窄的是无引用 unit——prompt 必须照样写全，不能只讲带图那套。
+
+    `constrain_durations` 在交集为空时回退到未收窄候选，故两套档位之间不假定包含关系
+    （与 `_context.reference_unit_duration_tiers` 同一判据）。只讲带图会让无引用 unit
+    照并集取到自己申请不到的档位。
+    """
+    prompt = _split_prompt(
+        supported_durations=[4, 6, 8],
+        reference_supported_durations=[4, 6, 8],
+        text_supported_durations=[6],
+        default_duration=None,
+    )
+    assert "带 `@` 引用取（4, 6, 8）" in prompt
+    assert "不带取（6）" in prompt
+
+
+def test_build_reference_units_split_prompt_excludes_dialogue_speaker_from_reference_rule():
+    """联动约束按镜头描述行判定，台词行 `@[角色]：{台词}` 的说话人不计入。
+
+    ``extract_mentions`` 派生 references 时整行剔除规范台词行的说话人（画外说话不生成参考图，
+    见 shot_parser 同函数 docstring）；prompt 若只说「正文里有没有 `@`」，模型会把只在台词行
+    出现说话人的 unit 误判为「带引用」、选进更窄的档位——落盘派生时 references 却是空，
+    与模型的选择依据不一致。
+    """
+    prompt = _split_prompt(
+        supported_durations=[4, 6, 8],
+        reference_supported_durations=[8],
+        text_supported_durations=[4, 6, 8],
+        default_duration=None,
+    )
+    assert "台词行 `@[角色]：{台词}` 的说话人不计入" in prompt
+
+
+def test_build_reference_units_split_prompt_scopes_default_to_its_tier():
+    """默认值只对一种引用状态合法时点明适用范围，免得模型把它套到另一种状态的 unit 上。"""
+    prompt = _split_prompt(
+        supported_durations=[4, 6, 8],
+        reference_supported_durations=[8],
+        text_supported_durations=[4, 6, 8],
+        default_duration=4,
+    )
+    assert "unit 默认取 4 秒（该默认值只落在不带 `@` 引用的 unit 的档位内" in prompt
+    # 两套档位都含该默认值时不加这段限定，避免无效措辞。
+    plain = _split_prompt(supported_durations=[4, 6, 8], default_duration=4)
+    assert "该默认值只落在" not in plain
+
+
+def test_build_reference_units_split_prompt_omits_linkage_when_tiers_equal():
+    """多数型号未声明「参考图↔时长」约束：两套档位相同时不写这条，避免无效约束占注意力。"""
+    for reference_durations, text_durations in (
+        ([4, 6, 8], [4, 6, 8]),
+        (None, None),
+        ([4, 6, 8], None),
+        (None, [4, 6, 8]),
+    ):
+        prompt = _split_prompt(
+            supported_durations=[4, 6, 8],
+            reference_supported_durations=reference_durations,
+            text_supported_durations=text_durations,
+        )
+        assert "按该 unit **镜头描述行里有没有 `@` 资产引用**取用" not in prompt
 
 
 def test_render_reference_units_for_step2_mechanical():

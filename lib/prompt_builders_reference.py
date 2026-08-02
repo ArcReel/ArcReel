@@ -71,6 +71,8 @@ def build_reference_units_split_prompt(
     scenes: dict,
     props: dict,
     supported_durations: list[int],
+    reference_supported_durations: list[int] | None = None,
+    text_supported_durations: list[int] | None = None,
     max_duration: int,
     max_reference_images: int | None,
     default_duration: int | None,
@@ -88,7 +90,12 @@ def build_reference_units_split_prompt(
     枚举硬约束）约束；unit_id / shots / references / utterances 全部机器派生，不进 LLM 输出。
 
     Args:
-        supported_durations: unit 允许的时长取值集合（秒），即模型档位。
+        supported_durations: unit 允许的时长取值集合（秒），即两种引用状态下档位的并集，
+            与 response_schema 的枚举同集合。
+        reference_supported_durations: 带 ``@`` 引用的 unit 适用的档位。
+        text_supported_durations: 不带 ``@`` 引用的 unit 适用的档位。两套档位相同（或任一为
+            None）时不写入该联动约束——多数型号不声明「参考图↔时长」，多写一条无效约束只挤占
+            注意力；两套不同时**两套都写**，不假定谁包含谁。
         max_duration: 单次视频生成的时长上限（秒），即档位最大值。
         max_reference_images: 单 unit 参考图上限；None 时不写入硬性数量约束。
         default_duration: 用户项目偏好的默认秒数；须为 supported_durations 成员或 None。
@@ -101,10 +108,48 @@ def build_reference_units_split_prompt(
         raise ValueError("supported_durations 不能为空：必须提供模型支持的秒数集合")
     if default_duration is not None and int(default_duration) not in normalized_durations:
         raise ValueError(f"default_duration={default_duration} 不在 supported_durations={normalized_durations} 内")
+    normalized_reference_durations = sorted({int(d) for d in reference_supported_durations or []})
+    normalized_text_durations = sorted({int(d) for d in text_supported_durations or []})
+    for name, tier in (
+        ("reference_supported_durations", normalized_reference_durations),
+        ("text_supported_durations", normalized_text_durations),
+    ):
+        if not set(tier) <= set(normalized_durations):
+            raise ValueError(f"{name}={tier} 不是 supported_durations={normalized_durations} 的子集")
 
     durations_str = ", ".join(str(d) for d in normalized_durations)
+    # 「参考图↔时长」联动约束只在型号真的声明它、且两套档位不同时才写进 prompt：多数型号两者
+    # 等价，多写一条无效约束只会挤占模型注意力。两套不同时两套都写全，不写成「并集 + 带图收窄」
+    # ——`constrain_durations` 在交集为空时回退到未收窄候选，带图那套反而可能更宽，此时无引用
+    # unit 才是被收窄的一方，只讲带图会让它照并集取到自己申请不到的档位。
+    # 约束的落地判定在工具侧按机械派生的 references 逐 unit 做，prompt 这段是教学，不是唯一防线。
+    tiers_differ = (
+        bool(normalized_reference_durations and normalized_text_durations)
+        and normalized_reference_durations != normalized_text_durations
+    )
+    reference_rule = (
+        "\n     本型号下该档位还随「有无参考图」分两套，按该 unit **镜头描述行里有没有 `@` 资产引用**"
+        "取用（台词行 `@[角色]：{台词}` 的说话人不计入——它不生成参考图，只驱动音色声明）："
+        f"带 `@` 引用取（{', '.join(str(d) for d in normalized_reference_durations)}），"
+        f"不带取（{', '.join(str(d) for d in normalized_text_durations)}）。"
+        "两者取其一：要么改取该 unit 引用状态对应档位内的值，要么调整引用——"
+        "把次要资产融入描述文字、不用 `@` 引用，从而适用不带引用的那套档位。"
+        if tiers_differ
+        else ""
+    )
+    # 默认偏好只是第 3 优先级、在第 1 条硬约束内做优化，但两套档位不同时它可能只对其中一种
+    # 引用状态合法（Veo 3.1 在 720p 下带图仅 8s，而项目默认可能是 4s）。此时点明它的适用范围，
+    # 免得模型把「默认 4 秒」套到带引用的 unit 上、拆出执行期申请不到的时长。
+    default_scope = ""
+    if default_duration is not None and tiers_differ:
+        in_reference = int(default_duration) in normalized_reference_durations
+        in_text = int(default_duration) in normalized_text_durations
+        if in_reference != in_text:
+            applies = "带 `@` 引用的" if in_reference else "不带 `@` 引用的"
+            default_scope = f"（该默认值只落在{applies} unit 的档位内，另一种状态的 unit 按上面的硬约束取值）"
     default_rule = (
-        f"unit 默认取 {default_duration} 秒，叙事需要更长时可取更长档（偏好可被内容需要覆盖，硬约束不可）"
+        f"unit 默认取 {default_duration} 秒{default_scope}，"
+        "叙事需要更长时可取更长档（偏好可被内容需要覆盖，硬约束不可）"
         if default_duration is not None
         else "按叙事需要从档位中取值，不强制默认值"
     )
@@ -169,7 +214,7 @@ def build_reference_units_split_prompt(
   它是追溯锚，用于把生成结果对回原文；不逐字复制会被机械校验拒绝。
 - **时长决策序**（自上而下，高优先级是硬边界，低优先级在其内做优化）：
   1. 硬约束：`duration_seconds` 是 unit 时长（一次生成调用一个时长），必须取支持档位（{durations_str}）中的值。
-     叙事需要的时长放不下时，把该 unit 按叙事顺序重拆为多个 unit，**不得违约时长**。
+     叙事需要的时长放不下时，把该 unit 按叙事顺序重拆为多个 unit，**不得违约时长**。{reference_rule}
   2. 台词下界：先估算该 unit 全部台词与画外音念完约需的秒数（口播语速约 {speech_rate:g} {unit_label}/秒），
      取**不低于**这个秒数的档位。这是单向下界——台词永不压进念不完的短档；无台词的 unit 没有此下界。
      台词量超过最长档（{max_duration} 秒）时把该 unit 拆开，不要把台词硬塞进一个 unit。
