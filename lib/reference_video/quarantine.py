@@ -45,6 +45,11 @@ _QUARANTINE_FILENAMES: dict[str, str] = {
 #: 晋升工具名。报告里的处置指引要指名它，写死在这里而非各调用点各写一遍。
 PROMOTE_TOOL_NAME = "validate_and_promote_reference_draft"
 
+#: 取回正式 step1 供编辑的工具名。正式 step1 与 Web 端保存、迁移、重拆分共享一把 per-path 锁，
+#: agent 的 Write/Edit 在沙箱内跑、取不到这把锁，故对它的修改一律改走「取回草稿 → 改 → 晋升」：
+#: 写盘只发生在晋升侧，与另三条路径同一把锁。写禁策略的拒绝消息也要指名它，故同样收在这里。
+STEP1_EDIT_TOOL_NAME = "open_reference_step1_for_edit"
+
 
 @dataclass(frozen=True)
 class QuarantinedDraft:
@@ -185,6 +190,7 @@ __all__ = [
     "PROMOTE_TOOL_NAME",
     "QUARANTINE_KIND_STEP1",
     "QUARANTINE_KIND_STEP2",
+    "STEP1_EDIT_TOOL_NAME",
     "QuarantinedDraft",
     "clear_quarantine",
     "quarantine_and_report",
