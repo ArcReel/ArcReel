@@ -18,6 +18,7 @@ from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import get_generation_queue
 from lib.path_safety import safe_exists
+from lib.project_manager import ProjectManager
 from lib.prompt_builders import append_product_fidelity_tail
 from lib.reference_video import assemble_shots_text, assemble_shots_text_for_render
 from lib.reference_video.ad_units import resolve_ad_unit_shots
@@ -539,10 +540,10 @@ async def execute_reference_video_task(
             raise ValueError(f"unit not found: {resource_id}")
         # 索引悬空（镜头被删/改 ID 后未重新派生）在此 fail-loud，提示重新派生
         ad_shots = resolve_ad_unit_shots(script, unit) if is_ad else None
-        # 集号供能力解析按该集生效 generation_mode 取值；剧本缺 episode 字段（脏数据）时
-        # 传 None，能力回落到项目级口径。
-        script_episode = script.get("episode")
-        return project, project_path, unit, ad_shots, script_episode if isinstance(script_episode, int) else None
+        # 集号供能力解析按该集生效 generation_mode 取值，与入队侧共用同一份解析（剧本 episode
+        # 字段优先，缺则文件名 episodeN）；两者都解析不出时传 None，能力回落到项目级口径。
+        script_episode = ProjectManager.resolve_episode_from_script_or_none(script, script_file)
+        return project, project_path, unit, ad_shots, script_episode
 
     project, project_path, unit, ad_shots, episode = await asyncio.to_thread(_load)
     is_ad = ad_shots is not None

@@ -817,14 +817,31 @@ class ProjectManager:
         `episode[-_\\s]*(\\d+)`（支持下划线/空格/连字符分隔）；两者都无则抛 ValueError。
 
         用于替代调用方重复传入 `--episode` CLI 参数造成的错配风险。
+
+        `bool` 是 `int` 的子类，故显式排除：剧本 `episode: true`（脏数据）当作字段缺失走文件名，
+        不静默当成第 1 集。
         """
         ep = script.get("episode")
-        if isinstance(ep, int):
+        if isinstance(ep, int) and not isinstance(ep, bool):
             return ep
         match = re.search(r"episode[-_\s]*(\d+)", script_filename, re.IGNORECASE)
         if match:
             return int(match.group(1))
         raise ValueError(f"无法确定集号：剧本缺少 episode 字段且文件名 {script_filename} 不含 episodeN 模式")
+
+    @staticmethod
+    def resolve_episode_from_script_or_none(script: dict, script_filename: str) -> int | None:
+        """同 `resolve_episode_from_script`，解析不出时返回 None 而非抛错。
+
+        供能力解析用：集号只决定按哪一集的生效 `generation_mode` 取能力，解析不出时回落项目级
+        口径即可，不该让一次能力解析打断整条入队 / 执行链路。与硬口径共用同一份解析，调用方
+        不各写一份「只认剧本字段」的简化版——那会让集号出自文件名的剧本一边按第 N 集入队、
+        一边按项目级口径解析能力。
+        """
+        try:
+            return ProjectManager.resolve_episode_from_script(script, script_filename)
+        except ValueError:
+            return None
 
     def sync_episode_from_script(self, project_name: str, script_filename: str) -> dict:
         """

@@ -1367,7 +1367,8 @@ class TestGenerationTasks:
     async def test_execute_video_task_passes_script_episode_to_context(self, monkeypatch, tmp_path):
         """执行层把剧本集号交给能力解析：生成模式可被单集覆盖，按项目级解析会漏掉该覆盖。
 
-        剧本缺 episode 字段（脏数据）时传 None，能力回落项目级口径。
+        集号与入队侧共用一份解析：剧本 episode 字段优先，缺字段（存量脏数据）时回落文件名，
+        两者都解析不出才传 None 让能力回落项目级口径。
         """
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -1392,7 +1393,9 @@ class TestGenerationTasks:
         await generation_tasks.execute_video_task("demo", "E1S01", payload)
         fake_pm.script.pop("episode")
         await generation_tasks.execute_video_task("demo", "E1S01", payload)
-        assert seen == [2, None]
+        payload_unresolvable = {**payload, "script_file": "draft.json"}
+        await generation_tasks.execute_video_task("demo", "E1S01", payload_unresolvable)
+        assert seen == [2, 1, None]
 
     async def test_execute_video_task_default_duration_respects_resolution_constraint(self, monkeypatch, tmp_path):
         """Auto（无显式 duration）在受约束分辨率下取约束内的时长，而非 supported_durations 首项。

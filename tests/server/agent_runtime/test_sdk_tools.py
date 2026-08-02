@@ -1788,20 +1788,6 @@ async def test_resolve_voice_characters_drama_reads_project_characters_and_gate(
     assert await mod._resolve_voice_characters(fake_ctx, "drama") is None
 
 
-def test_script_episode_matches_enqueue_episode_resolution() -> None:
-    """能力解析的集号与入队 / checkpoint 用的是同一份解析，不各拿一个集号。
-
-    剧本字段优先；字段缺失（存量脏数据）时同样回落文件名，否则集号出自文件名的剧本会按第 N 集
-    入队、却按项目级口径解析能力，被单集覆盖的那一集静默丢回项目级模式。
-    """
-    from server.agent_runtime.sdk_tools.enqueue_videos import _script_episode
-
-    assert _script_episode({"episode": 2}, "episode_7.json") == 2
-    assert _script_episode({}, "episode_3.json") == 3
-    # 既无字段也无文件名模式：能力回落项目级，而不是让一次能力解析打断整个入队。
-    assert _script_episode({}, "draft.json") is None
-
-
 def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
     """参考生视频入队经统一守卫点：prompt 由 shots 拼接后随 payload 入队（见 ADR-0001）。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
