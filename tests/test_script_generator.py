@@ -957,6 +957,32 @@ class TestFetchVideoCapabilitiesErrorHandling:
         assert await self._sg(tmp_path)._fetch_video_capabilities() is None
 
 
+class TestDegradedResolutionKeepsBucket:
+    """caps 解析失败后的降级路径仍按 generation_mode 定桶读 project.json，只丢 DB 那一层。"""
+
+    _PROJECT = {
+        "video_backend": "kling/kling-v3",
+        "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
+        "generation_mode": "reference_video",
+    }
+
+    @pytest.mark.unit
+    def test_backend_ids_fall_back_to_bucket_key(self, tmp_path):
+        sg = _sg_with_project(tmp_path, dict(self._PROJECT))
+        assert sg._resolve_backend_ids(None) == ("gemini-aistudio", "veo-3.1-generate-preview")
+
+    @pytest.mark.unit
+    def test_max_refs_falls_back_to_bucket_model(self, tmp_path):
+        """参考视频项目降级后仍按 r2v 桶模型报上限；取项目默认层会拿到不接受参考图的 kling-v3。"""
+        sg = _sg_with_project(tmp_path, dict(self._PROJECT))
+        assert sg._resolve_max_refs(None) == 3
+
+    @pytest.mark.unit
+    def test_supported_durations_fall_back_to_bucket_model(self, tmp_path):
+        sg = _sg_with_project(tmp_path, dict(self._PROJECT))
+        assert sg._resolve_raw_supported_durations(None) == [4, 6, 8]
+
+
 def _sg_with_project(tmp_path, project: dict) -> ScriptGenerator:
     """只为 _resolve_* 系列造一个不走 __init__ 的 ScriptGenerator（不需要 TextGenerator）。"""
     project_dir = tmp_path / "p"

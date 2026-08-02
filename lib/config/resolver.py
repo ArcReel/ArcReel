@@ -237,6 +237,25 @@ def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoCapabi
     return VIDEO_BUCKET_BY_GENERATION_MODE.get(generation_mode, _DEFAULT_VIDEO_BUCKET)
 
 
+def project_video_backend_ids(project: dict) -> tuple[str, str] | None:
+    """project.json 自报的视频模型身份：按 generation_mode 定桶取桶键，缺则取项目默认键。
+
+    纯读 project.json、不查 DB，供 caps 解析失败（DB / migration 故障等）时的降级路径复用：
+    桶键与默认键都在同一个明文文件里，降级只该丢掉 DB 那部分，不该顺带把桶口径也降成项目
+    默认层——否则配了 ``video_provider_r2v`` 的参考视频项目会拿 ``video_backend`` 的档位与
+    参考图上限写剧本。层内取值口径与 ``_resolve_layered_backend`` 的项目层一致（含裸 provider
+    覆盖）。
+    """
+    keys = _VIDEO_LAYERED_KEYS[video_bucket_for_generation_mode(project.get("generation_mode"))]
+    for key in (keys.project_bucket_key, keys.project_default_key):
+        if key is None:
+            continue
+        parsed = _parse_project_provider(project.get(key), "video")
+        if parsed is not None:
+            return parsed
+    return None
+
+
 def video_capability_satisfied(*, capability: VideoCapability, first_frame: bool, max_reference_images: int) -> bool:
     """一组视频能力声明是否满足某个桶——桶归属判定的唯一口径。
 
@@ -442,6 +461,9 @@ def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> 
     同步路径上，靠后两级回退拿到同一份档位表——迁移是幂等一次性的，谁先跑谁定终局，入口之间
     传参不一致就会让先跑的那个把非档位秒数固化到盘上。
 
+    最后一级的项目自报身份按 generation_mode 定桶取（``project_video_backend_ids``），不直取
+    项目默认层——降级掉的只是 DB，桶键就在同一个 project.json 里。
+
     返回值不含「分辨率↔时长」「参考图↔时长」联动约束，收窄见 ``constrain_durations_for_project``。
     """
     if caps and caps.get("supported_durations"):
@@ -449,12 +471,11 @@ def resolve_raw_supported_durations(project: dict, caps: dict | None = None) -> 
     durations = project.get("_supported_durations")
     if durations and isinstance(durations, list):
         return list(durations)
-    video_backend = project.get("video_backend")
-    if video_backend and isinstance(video_backend, str) and "/" in video_backend:
-        provider_id, model_id = video_backend.split("/", 1)
-        provider_meta = PROVIDER_REGISTRY.get(provider_id)
+    ids = project_video_backend_ids(project)
+    if ids is not None:
+        provider_meta = PROVIDER_REGISTRY.get(ids[0])
         if provider_meta:
-            model_info = provider_meta.models.get(model_id)
+            model_info = provider_meta.models.get(ids[1])
             if model_info and model_info.supported_durations:
                 return list(model_info.supported_durations)
     return None

@@ -21,6 +21,7 @@ from lib.config.resolver import (
     ConfigResolver,
     VideoBucketCapabilityError,
     constrain_durations_for_project,
+    project_video_backend_ids,
     resolve_raw_supported_durations,
 )
 from lib.db import async_session_factory
@@ -655,19 +656,17 @@ class ScriptGenerator:
             return None
 
     def _resolve_backend_ids(self, caps: dict | None) -> tuple[str | None, str | None]:
-        """当前视频模型身份：caps → project.json.video_backend；都拿不到为 (None, None)。
+        """当前视频模型身份：caps → project.json 自报身份；都拿不到为 (None, None)。
 
         联动约束按型号声明查，故身份要与时长的来源同一个模型：caps 在手时以它为准
         （后端留空走全局默认、或存值已不在注册表被 resolver 回退时，实际生效的是 caps 里的），
-        否则退到 project.json 自报的 ``video_backend``（与时长的 fallback 链同一层）。
+        否则退到 project.json 按 generation_mode 定桶取的身份（``project_video_backend_ids``，
+        与时长的 fallback 链同一层）。
         """
         if caps and caps.get("provider_id") and caps.get("model"):
             return str(caps["provider_id"]), str(caps["model"])
-        video_backend = self.project_json.get("video_backend")
-        if video_backend and isinstance(video_backend, str) and "/" in video_backend:
-            provider_id, model_id = video_backend.split("/", 1)
-            return provider_id, model_id
-        return None, None
+        ids = project_video_backend_ids(self.project_json)
+        return ids if ids is not None else (None, None)
 
     def _resolve_supported_durations(
         self, caps: dict | None = None, *, gen_mode: str, uses_reference_images: bool | None = None
@@ -756,12 +755,13 @@ class ScriptGenerator:
         return "9:16" if self.content_mode in ("narration", "ad") else "16:9"
 
     def _resolve_max_refs(self, caps: dict | None = None) -> int | None:
-        """解析当前视频模型的最大参考图数；caps → project.json.video_backend → registry 两级回退。
+        """解析当前视频模型的最大参考图数；caps → project.json 自报身份 → registry 两级回退。
 
         语义约定：仅 None 视为「未声明上限」（上层不在 prompt 写硬性数量约束，且 executor 跳过裁剪）；
         caps 来源的 0 是显式上限（如不接受参考图的 endpoint），会原样下传触发裁剪为 0 张。
-        caps 解析失败（DB/migration 故障等）时退到项目配置的 video_backend 直查 backend 声明——
-        与 _resolve_supported_durations 同构，避免丢失上限导致后端按多张参考图发出而被上游拒。
+        caps 解析失败（DB/migration 故障等）时退到 project.json 按 generation_mode 定桶取的身份
+        （``project_video_backend_ids``）直查 backend 声明——与 _resolve_supported_durations
+        同构，避免丢失上限导致后端按多张参考图发出而被上游拒。
         取 backend 而非 registry ModelInfo 的并行声明：两者在若干 model 上已漂移，而 backend 是
         执行期构造请求的一方。注册表身份仍要查——backend 的 caps 函数不都校验 model 存在性与
         media_type，对任意 id 返回静态能力。0 在这条降级路径上按未声明处理（下传 0 会把降级前
@@ -771,9 +771,9 @@ class ScriptGenerator:
             cached = caps.get("max_reference_images")
             if cached is not None:
                 return int(cached)
-        video_backend = self.project_json.get("video_backend")
-        if video_backend and isinstance(video_backend, str) and "/" in video_backend:
-            provider_id, model_id = video_backend.split("/", 1)
+        ids = project_video_backend_ids(self.project_json)
+        if ids is not None:
+            provider_id, model_id = ids
             provider_meta = PROVIDER_REGISTRY.get(provider_id)
             model_info = provider_meta.models.get(model_id) if provider_meta else None
             if model_info is not None and model_info.media_type == "video":
