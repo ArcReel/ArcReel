@@ -55,10 +55,19 @@ def test_dialogue_line_accepts_wrapped_bare_and_both_colons(line: str):
         "@[张三]：{我来了",  # 未闭合
         "他说 @[张三]：{我来了}",  # 行首不是 mention
         "@[张三]{我来了}",  # 缺冒号
+        "@[ ]：{我来了}",  # speaker 位全为空白
     ],
 )
 def test_dialogue_line_rejects_non_normative(line: str):
     assert match_dialogue_line(line) is None
+
+
+def test_blank_speaker_degrades_to_warning_instead_of_raising():
+    """speaker 位空白不得构造非法 Utterance——只读派生要出 warning，不能抛校验错。"""
+    preview = build_script_preview("镜头1：中景。\n@[ ]：{我来了}", PROJECT)
+    assert preview.utterances == []
+    # 非规范行 → 台词混写 warning；空白名同时作为未登记 mention 被点名。
+    assert keys(preview) == [WARN_UNREGISTERED_MENTION, WARN_DIALOGUE_INLINE]
 
 
 def test_voiceover_line_is_bare_braces():

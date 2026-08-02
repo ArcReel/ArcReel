@@ -89,6 +89,43 @@ describe("ScriptPreviewPanel", () => {
     expect(screen.getAllByText("那年冬天格外冷")).toHaveLength(2);
   });
 
+  it("aborts an in-flight request as soon as the script changes", async () => {
+    const signals: (AbortSignal | undefined)[] = [];
+    vi.spyOn(API, "previewReferenceScript").mockImplementation((_p, _e, _t, opts) => {
+      signals.push(opts?.signal);
+      return new Promise(() => {});
+    });
+
+    const { rerender } = renderPanel("镜头1：中景。");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(false);
+
+    // 编辑发生在下一次 debounce 到点之前：在途请求须立刻作废，不能等 400ms
+    rerender(<ScriptPreviewPanel projectName="demo" episode={1} text="镜头1：中景，改了" lookup={LOOKUP} />);
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it("refetches when the project assets behind the warnings change", async () => {
+    const spy = vi.spyOn(API, "previewReferenceScript").mockResolvedValue(mkPreview());
+    const { rerender } = renderPanel("镜头1：@酒馆 内景。");
+    await vi.advanceTimersByTimeAsync(500);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+
+    // 资产登记后 lookup 换新：未登记 mention / 未设参考音频等 warning 读的是项目资产表，
+    // 不重拉就会一直挂着已经不成立的提示。
+    rerender(
+      <ScriptPreviewPanel
+        projectName="demo"
+        episode={1}
+        text="镜头1：@酒馆 内景。"
+        lookup={{ ...LOOKUP, 王五: "character" }}
+      />,
+    );
+    await vi.advanceTimersByTimeAsync(500);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+  });
+
   it("surfaces a failed preview request instead of showing stale derivations", async () => {
     const spy = vi
       .spyOn(API, "previewReferenceScript")

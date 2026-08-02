@@ -44,6 +44,29 @@ describe("ScriptHighlight", () => {
     expect(dialogue?.className).toContain("ml-4");
   });
 
+  it("parses a dialogue written on the shot header line, keeping the header its own row", () => {
+    // 后端切分镜头时剥掉 header，这行在 shot 文本里就是规范台词行；预览若按描述行渲染，
+    // 会与同屏的服务端派生台词列表自相矛盾。
+    const container = renderScript("镜头1：@[张三]：{我来了}");
+    expect(screen.getByText("张三")).toBeTruthy();
+    expect(screen.getByText("我来了")).toBeTruthy();
+    expect(screen.queryByText(/\{我来了\}/)).toBeNull();
+    const rows = [...container.querySelectorAll<HTMLElement>(":scope > div > div")];
+    expect(rows.find((r) => r.textContent?.trim() === "镜头1：")).toBeTruthy();
+  });
+
+  it("parses a voiceover written on the shot header line", () => {
+    renderScript("镜头1：{那年冬天格外冷}");
+    expect(screen.getByText("画外音")).toBeTruthy();
+    expect(screen.getByText("那年冬天格外冷")).toBeTruthy();
+  });
+
+  it("leaves a blank speaker slot as plain text instead of a dialogue row", () => {
+    // speaker 位空白不构成规范行（同后端：dialogue utterance 必须带非空 speaker）
+    renderScript("镜头1：中景。\n@[ ]：{我来了}");
+    expect(screen.getByText(/\{我来了\}/)).toBeTruthy();
+  });
+
   it("leaves a line mixing dialogue into description as plain text", () => {
     renderScript("镜头1：@张三 笑着说 {我来了}。");
     expect(screen.getByText(/\{我来了\}/)).toBeTruthy();

@@ -192,6 +192,12 @@ describe("normative dialogue lines", () => {
     expect(extractMentions("镜头1：@酒馆 内景。\n镜头2：@张三：{我来了}")).toEqual(["酒馆"]);
   });
 
+  it("does not treat a blank speaker slot as a normative line", () => {
+    // 同后端 match_dialogue_line：speaker 位全为空白不算规范行，否则会派生出非法 utterance
+    expect(matchDialogueLine("@[ ]：{我来了}")).toBeNull();
+    expect(extractMentions("@[ ]：{我来了}")).toEqual([" "]);
+  });
+
   it("keeps speaker-only characters out of merged references", () => {
     const refs = mergeReferences("镜头1：@酒馆 内景。\n@张三：{我来了}", [], mkProject());
     expect(refs).toEqual([{ type: "scene", name: "酒馆" }]);

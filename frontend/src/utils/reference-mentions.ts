@@ -46,7 +46,10 @@ const VOICEOVER_LINE_RE = /^\s*\{([^{}]*)\}\s*$/;
 export function matchDialogueLine(line: string): { speaker: string; text: string } | null {
   const m = DIALOGUE_LINE_RE.exec(line);
   if (!m) return null;
-  return { speaker: m[1] ?? m[2] ?? "", text: m[3] };
+  const speaker = m[1] ?? m[2] ?? "";
+  // speaker 位全为空白不算规范行（同 shot_parser.py：dialogue utterance 必须带非空 speaker）。
+  if (!speaker.trim()) return null;
+  return { speaker, text: m[3] };
 }
 
 export function matchVoiceoverLine(line: string): string | null {

@@ -103,17 +103,29 @@ export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[]
   const lines: ScriptLine[] = [];
   let shotIndex = 0;
   for (const raw of text.split("\n")) {
-    const headerMatch = raw.trim().match(SHOT_HEADER_RE);
+    const trimmed = raw.trim();
+    const headerMatch = trimmed.match(SHOT_HEADER_RE);
+    if (headerMatch) shotIndex += 1;
+    // 先剥 header 再判规范行：`parse_prompt` 切分镜头时也丢掉 header，故
+    // `镜头1：@[张三]：{我来了}` 在后端是台词行。不剥就会把它渲染成描述行，
+    // 与同屏的服务端派生台词列表自相矛盾。
+    const afterHeader = headerMatch ? trimmed.slice(headerMatch[0].length) : null;
+    const body = afterHeader ?? raw;
+    const dialogue = matchDialogueLine(body);
+    const voiceover = dialogue ? null : matchVoiceoverLine(body);
+    const isUtterance = dialogue !== null || voiceover !== null;
+
     if (headerMatch) {
-      shotIndex += 1;
-      const trimmed = raw.trim();
-      const rest = trimmed.slice(headerMatch[0].length);
+      // 台词写在 header 行时，header 单独占一行（正文归入下面的 utterance 行），
+      // 镜头结构在预览里仍然顶格可见。
       const tokens: Token[] = [];
-      if (rest.length > 0) pushMentionTokens(tokens, rest, lookup);
+      if (!isUtterance && afterHeader && afterHeader.length > 0) {
+        pushMentionTokens(tokens, afterHeader, lookup);
+      }
       lines.push({ kind: "shot_header", shotIndex, header: headerMatch[0].trim(), tokens });
-      continue;
+      if (!isUtterance) continue;
     }
-    const dialogue = matchDialogueLine(raw);
+
     if (dialogue) {
       lines.push({
         kind: "dialogue",
@@ -126,7 +138,6 @@ export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[]
       });
       continue;
     }
-    const voiceover = matchVoiceoverLine(raw);
     if (voiceover !== null) {
       lines.push({ kind: "voiceover", shotIndex, text: voiceover });
       continue;

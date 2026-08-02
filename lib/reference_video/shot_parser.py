@@ -90,6 +90,9 @@ def match_dialogue_line(line: str) -> tuple[str, str] | None:
     整行仅此结构才算规范行：台词与描述混写在同一行时不匹配（由调用侧出 warning），
     杜绝「行内最近 mention 猜 speaker」式启发式——推断错误会把台词静默绑到错误角色的
     参考音频上。speaker 位复用 :func:`_iter_mentions`，与 mention 语法同一份真相。
+
+    speaker 位全为空白（``@[ ]：{台词}``）不算规范行：``Utterance`` 要求 dialogue 带非空
+    speaker，放行会让只读派生抛校验错；判为非规范后走既有「台词混写描述行」warning 路径。
     """
     stripped = line.strip()
     if not stripped.startswith("@"):
@@ -101,7 +104,10 @@ def match_dialogue_line(line: str) -> tuple[str, str] | None:
     if not rest or rest[0] not in "：:":
         return None
     spoken = _unwrap_braces(rest[1:])
-    return None if spoken is None else (first[2], spoken)
+    speaker = first[2]
+    if spoken is None or not speaker.strip():
+        return None
+    return speaker, spoken
 
 
 def match_voiceover_line(line: str) -> str | None:

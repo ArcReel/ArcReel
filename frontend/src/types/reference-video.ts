@@ -94,14 +94,10 @@ export interface ReferenceDurationPrecheck {
  * 文稿是唯一真相：shots / references / utterances 都是机械派生物，不落盘。
  * `warnings` 已按请求语言渲染成文本（`key` 保留供测试与埋点定位）。
  */
-export interface ScriptPreviewUtterance {
-  /** 1-based 镜头序号；台词归属镜头级，时序对位由归属给出 */
-  shot_index: number;
-  kind: "dialogue" | "voiceover";
-  /** dialogue 必有说话人；voiceover 恒为 null */
-  speaker: string | null;
-  text: string;
-}
+/** 1-based 镜头序号；台词归属镜头级，时序对位由归属给出。 */
+export type ScriptPreviewUtterance =
+  | { shot_index: number; kind: "dialogue"; speaker: string; text: string }
+  | { shot_index: number; kind: "voiceover"; speaker: null; text: string };
 
 export interface ScriptPreviewWarning {
   key: string;

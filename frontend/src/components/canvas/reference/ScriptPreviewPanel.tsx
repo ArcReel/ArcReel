@@ -25,7 +25,10 @@ export interface ScriptPreviewPanelProps {
  *
  * 分工——高亮文稿在本地即时渲染，跟得上打字；派生出的参考图、台词与降级提示由后端
  * 解析接口给出（声音相关的几条依赖项目当前视频模型能力，前端无从判断），停止输入后
- * 才发一次请求。前一次请求随下一次输入作废（AbortSignal），慢响应不会盖住新结果。
+ * 才发一次请求。前一次请求随下一次输入立即作废（AbortSignal），慢响应不会盖住新结果。
+ *
+ * 派生结果还取决于项目资产表（未登记 mention / speaker 未登记 / 角色未设参考音频三条
+ * warning 都读它），故 `lookup` 变化同样重新拉取——否则资产改完面板仍报旧提示。
  */
 export function ScriptPreviewPanel({ projectName, episode, text, lookup }: ScriptPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
@@ -36,7 +39,6 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      controllerRef.current?.abort();
       const controller = new AbortController();
       controllerRef.current = controller;
       setLoading(true);
@@ -58,10 +60,13 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
           setLoading(false);
         });
     }, DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [projectName, episode, text]);
-
-  useEffect(() => () => controllerRef.current?.abort(), []);
+    // 文稿一改就作废在途请求，而不是等下一个 debounce 到点才换 controller——否则
+    // 旧请求可能在这 400ms 里返回，把对不上正文的派生结果写进面板。
+    return () => {
+      clearTimeout(timer);
+      controllerRef.current?.abort();
+    };
+  }, [projectName, episode, text, lookup]);
 
   const utterances = useMemo(() => preview?.utterances ?? [], [preview]);
   const counts = useMemo(

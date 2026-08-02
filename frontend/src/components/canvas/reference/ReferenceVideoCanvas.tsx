@@ -454,11 +454,16 @@ export function ReferenceVideoCanvas({
   // 编辑器列内的两种视图：写文稿 / 看解析结果。解析预览是只读派生视图，与正文同一份
   // 文本，故共用编辑器列的空间而非再占一栏（右栏留给成片预览）。
   const [editorView, setEditorView] = useState<"script" | "parse">("script");
+  // 同名可以同时落在多个 bucket；优先级与后端 `resolve_references` 一致
+  // （character → scene → prop），先到先得、后面的不覆盖。
   const mentionLookup = useMemo(() => {
     const out: Record<string, "character" | "scene" | "prop"> = {};
-    for (const name of Object.keys(project?.characters ?? {})) out[name] = "character";
-    for (const name of Object.keys(project?.scenes ?? {})) out[name] = "scene";
-    for (const name of Object.keys(project?.props ?? {})) out[name] = "prop";
+    const claim = (name: string, kind: "character" | "scene" | "prop") => {
+      if (!(name in out)) out[name] = kind;
+    };
+    for (const name of Object.keys(project?.characters ?? {})) claim(name, "character");
+    for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");
+    for (const name of Object.keys(project?.props ?? {})) claim(name, "prop");
     return out;
   }, [project?.characters, project?.scenes, project?.props]);
 
