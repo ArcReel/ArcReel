@@ -101,6 +101,28 @@ class TestEnvelope:
         assert read_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1) is None
         assert quarantine_exists(tmp_path, 1, QUARANTINE_KIND_STEP1) is True
 
+    @pytest.mark.parametrize(
+        "envelope",
+        [
+            {"kind": QUARANTINE_KIND_STEP2, "episode": 1, "content": {"units": []}},
+            {"kind": QUARANTINE_KIND_STEP1, "episode": 2, "content": {"units": []}},
+            {"episode": 1, "content": {"units": []}},
+            {"kind": QUARANTINE_KIND_STEP1, "content": {"units": []}},
+        ],
+        ids=["kind_mismatch", "episode_mismatch", "kind_missing", "episode_missing"],
+    )
+    def test_envelope_identity_must_match_requested_draft(self, tmp_path: Path, envelope: dict):
+        """kind / episode 对不上或缺失按形状坏处理，不退回请求值。
+
+        不校验就等于把这两个字段解析出来又丢掉：一份从别集拷过来的信封会带着它自己的
+        meta.source 过原文锚校验，再按本集的 unit_id 重建、覆盖本集的正式 step1。
+        """
+        path = quarantine_path(tmp_path, 1, QUARANTINE_KIND_STEP1)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+        assert read_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1) is None
+        assert quarantine_exists(tmp_path, 1, QUARANTINE_KIND_STEP1) is True
+
     def test_clear_is_idempotent(self, tmp_path: Path):
         write_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1, content={"units": []}, violations=[])
         clear_quarantine(tmp_path, 1, QUARANTINE_KIND_STEP1)

@@ -103,6 +103,10 @@ def read_quarantine(project_path: Path, episode: int, kind: str) -> QuarantinedD
     形状坏按「无隔离草稿」处理而非抛错：这份文件正是给 agent 手改的，改坏 JSON 是可预期的
     中间态。调用方据此给出「重新拆分」而非内部错误——但 ``exists`` 仍为真，gate 与生成侧照常
     阻塞，坏掉的隔离草稿不会被当成「没有隔离草稿」而放行。
+
+    ``kind`` / ``episode`` 须与所请求的这份草稿一致，缺失或对不上同样按形状坏处理：不校验就
+    等于把这两个字段解析出来又丢掉，一份从别集拷过来的信封会带着它自己的 ``meta.source``
+    过锚校验，再按本集的 unit_id 重建、覆盖本集的正式 step1。
     """
     path = quarantine_path(project_path, episode, kind)
     data = load_json_or_none(path)
@@ -111,17 +115,19 @@ def read_quarantine(project_path: Path, episode: int, kind: str) -> QuarantinedD
     content = data.get("content")
     if not isinstance(content, dict):
         return None
+    if data.get("kind") != kind:
+        return None
+    try:
+        if int(data["episode"]) != episode:
+            return None
+    except (KeyError, TypeError, ValueError):
+        return None
     raw_violations = data.get("violations")
     violations = [v for v in raw_violations if isinstance(v, dict)] if isinstance(raw_violations, list) else []
     raw_meta = data.get("meta")
-    try:
-        parsed_episode = int(data.get("episode") or episode)
-    except (TypeError, ValueError):
-        # episode 被改成非数字同属「信封形状坏」，与上面 content / violations 的降级同口径。
-        return None
     return QuarantinedDraft(
-        kind=str(data.get("kind") or kind),
-        episode=parsed_episode,
+        kind=kind,
+        episode=episode,
         content=content,
         violations=violations,
         meta=raw_meta if isinstance(raw_meta, dict) else {},

@@ -3563,6 +3563,25 @@ async def test_validate_and_promote_reference_draft_reports_broken_outer_shape(
     assert _rv_quarantine_path(fake_ctx).exists()
 
 
+async def test_validate_and_promote_reference_draft_requires_source_provenance(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """meta.source 被改掉后不晋升：按整个 source/ 重解析比产出时更松，别集的原文锚会恰好命中。"""
+    _rv_source(fake_ctx)
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+
+    envelope = _read_rv_quarantine(fake_ctx)
+    assert "source" in envelope["meta"], "拆分侧须一律写出 source 键（未指定源文时为 null）"
+    envelope["meta"] = {}
+    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 起身"
+    _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await _promote(fake_ctx, monkeypatch)
+    assert out.get("is_error") is True
+    assert "meta.source 缺失" in out["content"][0]["text"]
+    assert not _rv_step1_path(fake_ctx).exists()
+
+
 async def test_validate_and_promote_reference_draft_reports_promotion_not_split(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:

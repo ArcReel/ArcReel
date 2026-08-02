@@ -793,7 +793,14 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
     """
     project_path = ctx.project_path
     project = ctx.pm.load_project(ctx.project_name)
-    novel_text = _load_novel_source(project_path, draft.meta.get("source"))
+    # meta.source 记的是产出时的源文范围。缺键说明 meta 被改坏了：不能默默按整个 source/ 重解析
+    # ——那比产出时更松，一份从别集抄来的原文锚会恰好命中而被放行。
+    if "source" not in draft.meta:
+        raise ValueError(
+            f"隔离草稿 {draft.path} 的 meta.source 缺失（产出时记录的源文范围）；"
+            "请恢复该字段（指定源文时为其相对路径，按整个 source/ 产出时为 null）后重试"
+        )
+    novel_text = _load_novel_source(project_path, draft.meta["source"])
     split_caps = await _fetch_reference_caps_with_fallback(project)
 
     # 手改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_step1_json 卡住时长
@@ -1001,7 +1008,9 @@ def split_reference_video_units_tool(ctx: ToolContext):
                     QUARANTINE_KIND_STEP1,
                     content={"units": flat_units},
                     violations=violations,
-                    meta={"source": source} if source else {},
+                    # source 键一律写出（未指定源文时为 null）：晋升侧据此区分「原本就按整个
+                    # source/ 产出」与「meta 被改坏」，缺键时不能默默退回更松的全目录解析。
+                    meta={"source": source or None},
                 )
                 return {"content": [{"type": "text", "text": report}], "is_error": True}
 
