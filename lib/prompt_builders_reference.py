@@ -128,7 +128,8 @@ def build_reference_units_split_prompt(
         and normalized_reference_durations != normalized_text_durations
     )
     reference_rule = (
-        "\n     本型号下该档位还随「有无参考图」分两套，按该 unit **正文里有没有 `@` 资产引用**取用："
+        "\n     本型号下该档位还随「有无参考图」分两套，按该 unit **镜头描述行里有没有 `@` 资产引用**"
+        "取用（台词行 `@[角色]：{台词}` 的说话人不计入——它不生成参考图，只驱动音色声明）："
         f"带 `@` 引用取（{', '.join(str(d) for d in normalized_reference_durations)}），"
         f"不带取（{', '.join(str(d) for d in normalized_text_durations)}）。"
         "两者取其一：要么改取该 unit 引用状态对应档位内的值，要么调整引用——"

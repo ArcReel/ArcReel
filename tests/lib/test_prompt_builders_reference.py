@@ -210,6 +210,23 @@ def test_build_reference_units_split_prompt_states_both_tiers_without_containmen
     assert "不带取（6）" in prompt
 
 
+def test_build_reference_units_split_prompt_excludes_dialogue_speaker_from_reference_rule():
+    """联动约束按镜头描述行判定，台词行 `@[角色]：{台词}` 的说话人不计入。
+
+    ``extract_mentions`` 派生 references 时整行剔除规范台词行的说话人（画外说话不生成参考图，
+    见 shot_parser 同函数 docstring）；prompt 若只说「正文里有没有 `@`」，模型会把只在台词行
+    出现说话人的 unit 误判为「带引用」、选进更窄的档位——落盘派生时 references 却是空，
+    与模型的选择依据不一致。
+    """
+    prompt = _split_prompt(
+        supported_durations=[4, 6, 8],
+        reference_supported_durations=[8],
+        text_supported_durations=[4, 6, 8],
+        default_duration=None,
+    )
+    assert "台词行 `@[角色]：{台词}` 的说话人不计入" in prompt
+
+
 def test_build_reference_units_split_prompt_scopes_default_to_its_tier():
     """默认值只对一种引用状态合法时点明适用范围，免得模型把它套到另一种状态的 unit 上。"""
     prompt = _split_prompt(
@@ -232,7 +249,7 @@ def test_build_reference_units_split_prompt_omits_linkage_when_tiers_equal():
             reference_supported_durations=reference_durations,
             text_supported_durations=text_durations,
         )
-        assert "按该 unit **正文里有没有 `@` 资产引用**取用" not in prompt
+        assert "按该 unit **镜头描述行里有没有 `@` 资产引用**取用" not in prompt
 
 
 def test_render_reference_units_for_step2_mechanical():
