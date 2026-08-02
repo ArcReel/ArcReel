@@ -752,3 +752,143 @@ class TestReferenceCompressionSeam:
         )
 
         assert backend.received_audio == [first, second]
+
+    @pytest.mark.integration
+    async def test_reference_audio_total_duration_exceeded_raises_before_backend_call(self, tmp_path):
+        """caps 声明了总时长上限时，超限须在调 backend.generate（即付费请求）之前被拦截。"""
+        import shutil
+
+        if shutil.which("ffprobe") is None:
+            pytest.skip("ffprobe not available")
+
+        from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities, VideoCapabilityError
+        from tests.conftest import _wav_bytes
+
+        gen = _build_generator(tmp_path)
+
+        class _AudioDurationLimitedVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(
+                max_reference_images=9,
+                reference_audio_mode=ReferenceAudioMode.DIRECT,
+                max_reference_audio_count=3,
+                max_reference_audio_total_seconds=15.0,
+            )
+
+            def __init__(self):
+                self.called = False
+
+            async def generate(self, request):
+                self.called = True
+                raise AssertionError("超限请求不应到达 backend.generate")
+
+        backend = _AudioDurationLimitedVideoBackend()
+        gen._video_backend = backend
+
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
+        first = tmp_path / "alice.wav"
+        second = tmp_path / "bob.wav"
+        first.write_bytes(_wav_bytes(10))
+        second.write_bytes(_wav_bytes(10))
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="videos",
+                resource_id="E1S01",
+                reference_images=[ref],
+                reference_audio_files=[first, second],
+            )
+
+        assert exc.value.code == "video_reference_audio_duration_exceeded"
+        assert backend.called is False
+        assert gen.ledger.outcomes == []
+
+    @pytest.mark.unit
+    async def test_total_duration_exceeded_check_skipped_when_probe_fails(self, tmp_path, monkeypatch):
+        """caps 声明了总时长上限，但探测失败（ffprobe 不可用等）返回 None 时，按既有降级口径放行而非阻断。"""
+        from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+
+        class _AudioDurationLimitedVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(
+                max_reference_images=9,
+                reference_audio_mode=ReferenceAudioMode.DIRECT,
+                max_reference_audio_count=3,
+                max_reference_audio_total_seconds=15.0,
+            )
+
+            async def generate(self, request):
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"v")
+                return _FakeVideoResult()
+
+        gen._video_backend = _AudioDurationLimitedVideoBackend()
+
+        async def _failing_probe(paths):
+            return None
+
+        monkeypatch.setattr("lib.media_generator.probe_reference_audio_total_seconds", _failing_probe)
+
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
+        audio = tmp_path / "alice.wav"
+        audio.write_bytes(b"a")
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            reference_images=[ref],
+            reference_audio_files=[audio],
+        )
+
+        assert gen.ledger.outcomes, "探测失败时应放行请求，不阻断到 backend"
+
+    @pytest.mark.unit
+    async def test_total_duration_not_probed_when_backend_declares_no_limit(self, tmp_path, monkeypatch):
+        """未声明总时长约束的后端不该为每个请求多付一轮 ffprobe——探测按能力声明惰性触发。"""
+        from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+
+        class _NoDurationLimitVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(
+                max_reference_images=9,
+                reference_audio_mode=ReferenceAudioMode.DIRECT,
+                max_reference_audio_count=3,
+            )
+
+            async def generate(self, request):
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"v")
+                return _FakeVideoResult()
+
+        gen._video_backend = _NoDurationLimitVideoBackend()
+
+        probe_calls: list[list[Path]] = []
+
+        async def _recording_probe(paths):
+            probe_calls.append(list(paths))
+            return 0.0
+
+        monkeypatch.setattr("lib.media_generator.probe_reference_audio_total_seconds", _recording_probe)
+
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
+        audio = tmp_path / "alice.wav"
+        audio.write_bytes(b"a")
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            reference_images=[ref],
+            reference_audio_files=[audio],
+        )
+
+        assert probe_calls == []

@@ -411,6 +411,11 @@ class VideoCapabilities:
     一并提供 ``VideoGenerationRequest.reference_audio_targets``，显式声明每段音频对应哪个
     参考素材项，不能假设两个列表天然同序——参考音频的编排顺序是台词 speaker 首现顺序，
     参考图的编排顺序是 mention 首现顺序，两者独立派生，位置对齐纯属巧合。
+
+    ``max_reference_audio_total_seconds``：多段参考音频叠加的总时长上限（None = 该后端未声明
+    聚合约束，仅按 ``max_reference_audio_count`` 卡段数）。段数上限推不出总时长——两段各处于
+    单段合法区间的音频，合计仍可能超出供应商总时长上限，故需独立声明。判定需要读音频元数据，
+    调用方在 :func:`lib.video_frame_slots.gate_video_request` 前置探测好总时长再传入。
     """
 
     first_frame: bool = True
@@ -418,6 +423,7 @@ class VideoCapabilities:
     max_reference_images: int = 0
     reference_audio_mode: ReferenceAudioMode = ReferenceAudioMode.NONE
     max_reference_audio_count: int = 0
+    max_reference_audio_total_seconds: float | None = None
     reference_audio_per_image: bool = False
 
 

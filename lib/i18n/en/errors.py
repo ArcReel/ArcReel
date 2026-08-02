@@ -309,6 +309,7 @@ MESSAGES = {
     "video_last_frame_unsupported": "{provider}/{model} does not support a last frame under the current configuration; generation aborted. Remove the shot's last frame, or switch to a model or tier that supports it",
     "video_reference_audio_unsupported": "{provider}/{model} does not support reference audio; generation aborted. Remove the character's reference audio, or switch to a model that supports voice reference",
     "video_reference_audio_exceeded": "Model {model} supports at most {limit} reference audio clips but received {count}; reduce the number of characters with reference audio",
+    "video_reference_audio_duration_exceeded": "Model {model} supports at most {limit:g} seconds of combined reference audio but received {total:.1f} seconds; use fewer reference audio clips or shorter clips",
     "video_reference_audio_slots_insufficient": "Model {model} attaches each reference audio clip to a reference asset, but only {slots} reference assets are available for {count} clips; add reference images for those characters, or reduce the number of characters with reference audio",
     "video_reference_audio_unreadable": "Model {model} has reference audio that is missing or unreadable; generation aborted: {names}; check the reference audio paths",
     "video_reference_audio_format_unsupported": "Reference audio {name} has an unsupported format (only {supported}); use a different audio file",

@@ -11,7 +11,8 @@ from __future__ import annotations
 import logging
 from dataclasses import fields, replace
 from enum import Enum
-from typing import get_type_hints
+from types import UnionType
+from typing import get_args, get_type_hints
 
 from lib.custom_provider.endpoints import get_endpoint_spec
 from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
@@ -23,9 +24,36 @@ logger = logging.getLogger(__name__)
 # schema，无需 DB 迁移，也不存在手写副本与 dataclass 漂移的可能。
 # 走 get_type_hints 而非 field.type：base.py 启用 PEP 563，后者只给注解字符串。
 _CAPABILITY_TYPE_HINTS = get_type_hints(VideoCapabilities)
-CAPABILITY_OVERRIDE_FIELDS: dict[str, type] = {
+CAPABILITY_OVERRIDE_FIELDS: dict[str, object] = {
     f.name: _CAPABILITY_TYPE_HINTS[f.name] for f in fields(VideoCapabilities)
 }
+
+
+def _unwrap_optional(expected: object) -> tuple[object, bool]:
+    """把 ``T | None`` 拆成 ``(T, True)``，非可选注解原样返回 ``(expected, False)``。
+
+    覆盖 schema 直接从 dataclass 反射派生，字段一旦声明为可选（如
+    ``max_reference_audio_total_seconds: float | None``），拿到的注解就是 ``types.UnionType``
+    而非 ``type``——它没有 ``__name__``，也不能交给按具体类型分派的判定。所有消费 schema 的
+    地方都先过这里，新增可选维度才不必逐处改判定。
+    """
+    if not isinstance(expected, UnionType):
+        return expected, False
+    members = [arg for arg in get_args(expected) if arg is not type(None)]
+    if len(members) != 1:
+        return expected, True
+    return members[0], True
+
+
+def capability_type_name(expected: object) -> str:
+    """能力维度类型的展示名，供校验失败的日志与 422 文案使用。
+
+    ``types.UnionType`` 没有 ``__name__``，直接取属性会让「值不合法」的提示路径本身抛
+    ``AttributeError``——校验降级的分支不该比被校验的值更脆。
+    """
+    inner, optional = _unwrap_optional(expected)
+    name = getattr(inner, "__name__", None) or str(inner)
+    return f"{name} | None" if optional else name
 
 
 def system_video_capabilities(*, endpoint: str, model_id: str) -> VideoCapabilities:
@@ -103,7 +131,7 @@ def filter_valid_overrides(*, endpoint: str, model_id: str, overrides: object | 
                 model_id,
                 key,
                 value,
-                expected.__name__,
+                capability_type_name(expected),
             )
             continue
         # 与写入侧同一判定（见 server/routers/custom_providers.py::_check_capability_overrides）：
@@ -183,7 +211,7 @@ def synthesize_video_capabilities_with_overrides(
 
 
 def merge_overrides(caps: VideoCapabilities, applied: dict[str, object]) -> VideoCapabilities:
-    """把稀疏覆盖并进能力对象，枚举维度还原成枚举成员。
+    """把稀疏覆盖并进能力对象，枚举维度还原成枚举成员、浮点维度的整数字面量还原成 float。
 
     覆盖字典从 JSON 列读出，枚举维度到这里还是字面量字符串；直接 ``replace`` 会让声明为
     枚举类型的字段实际持有 ``str``。当前枚举都是 ``StrEnum``，``==`` 侥幸仍成立，但
@@ -195,9 +223,11 @@ def merge_overrides(caps: VideoCapabilities, applied: dict[str, object]) -> Vide
         return caps
     coerced: dict[str, object] = {}
     for key, value in applied.items():
-        expected = CAPABILITY_OVERRIDE_FIELDS.get(key)
-        if isinstance(expected, type) and issubclass(expected, Enum) and not isinstance(value, expected):
-            coerced[key] = expected(value)
+        inner, _optional = _unwrap_optional(CAPABILITY_OVERRIDE_FIELDS.get(key))
+        if isinstance(inner, type) and issubclass(inner, Enum) and not isinstance(value, inner):
+            coerced[key] = inner(value)
+        elif inner is float and isinstance(value, int) and not isinstance(value, bool):
+            coerced[key] = float(value)
         else:
             coerced[key] = value
     return replace(caps, **coerced)
@@ -281,11 +311,15 @@ def enforce_audio_capability_invariant(caps: VideoCapabilities, *, endpoint: str
     return replace(caps, reference_audio_mode=ReferenceAudioMode.NONE)
 
 
-def capability_value_matches(value: object, expected: type) -> bool:
+def capability_value_matches(value: object, expected: object) -> bool:
     """覆盖值是否可直接落入该能力维度。
 
     bool 是 int 的子类，两个方向都要显式排除，否则 ``True`` 会被当成 1 张参考图上限、
     ``1`` 会被当成布尔真——这类宽松真值是语义猜测，不做。数值维度另拒负数。
+
+    可选维度（``T | None``）额外接受 ``None``，语义是「该后端不声明这项约束」，与字段默认值
+    同义；其余取值按内层类型判定。浮点维度接受整数字面量——JSON 的 ``15`` 与 ``15.0`` 是同一
+    个数，拒收前者只会让配置踩坑，与 bool/int 那种语义不同的类型混淆不是一回事。
 
     枚举维度只认该枚举的合法取值字面量（覆盖字典从 JSON 列读出，成员本身不会跨序列化存活），
     不做大小写归一或近义词映射：词表外的值一律判否、回退系统判定，而不是猜一个最像的成员。
@@ -293,10 +327,15 @@ def capability_value_matches(value: object, expected: type) -> bool:
     写入侧校验（API 层白名单）与此处的合成必须用同一判定：两边一旦漂移，写入放行的值会被
     合成静默忽略，正是本模块要消灭的「界面允许、执行反悔」。故此函数公开供 API 层复用。
     """
-    if expected is bool:
+    inner, optional = _unwrap_optional(expected)
+    if value is None:
+        return optional
+    if inner is bool:
         return isinstance(value, bool)
-    if expected is int:
+    if inner is int:
         return isinstance(value, int) and not isinstance(value, bool) and value >= 0
-    if isinstance(expected, type) and issubclass(expected, Enum):
-        return any(value == member.value for member in expected)
-    return isinstance(value, expected)
+    if inner is float:
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
+    if isinstance(inner, type) and issubclass(inner, Enum):
+        return any(value == member.value for member in inner)
+    return isinstance(value, inner) if isinstance(inner, type) else False

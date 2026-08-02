@@ -29,8 +29,13 @@ from lib.video_backends.base import (
 
 logger = logging.getLogger(__name__)
 
-# Seedance 2.0 系列每请求最多 3 段参考音频（官方《创建视频生成任务 API》音频信息章节）。
+# Seedance 2.0 系列每请求最多 3 段参考音频，且总时长不超过 15 秒（官方《创建视频生成任务
+# API》音频信息章节）。
 _SEEDANCE_2_MAX_REFERENCE_AUDIO = 3
+# 两个参考音频维度都留在 backend 侧而不进 lib/config/registry.py：PROVIDER_REGISTRY 是配置面
+# 与计费面的能力真相源（supported_durations 指的是生成时长档位，与参考音频输入无关），其
+# ModelInfo 至今没有任何 reference_audio 维度；请求期硬拒绝的判定一律读 VideoCapabilities。
+_SEEDANCE_2_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 15.0
 
 # Seedance 1.5 pro 的参考图上限，与 lib/config/registry.py 的同名 ModelInfo 字段同值。
 _SEEDANCE_1_5_MAX_REFERENCE_IMAGES = 9
@@ -212,12 +217,13 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                 max_reference_images=9,
                 reference_audio_mode=(ReferenceAudioMode.DIRECT if on_verified_allowlist else ReferenceAudioMode.NONE),
                 # 官方限制：每请求最多 3 段参考音频，单段时长 2–15 秒，且总时长不超过 15 秒。
-                # 本层只声明段数上限——总时长是逐段时长之和，`VideoCapabilities` 没有承载它的
-                # 维度，且判定需要读音频元数据（本层拿到的只是路径）。单段上限也推不出总时长：
-                # 两段各 10 秒都合法，合起来已经超。该约束须在能拿到时长的位置施加，即音频资产
-                # 的上传/选取期，与「哪个角色用哪段音频」的填充同处一层。
-                # 出处：《创建视频生成任务 API》音频信息章节。
+                # 单段上限推不出总时长——两段各 10 秒都合法，合起来已经超；段数与总时长两个
+                # 维度独立声明，由 gate_video_request 分别校验。出处：《创建视频生成任务 API》
+                # 音频信息章节。
                 max_reference_audio_count=_SEEDANCE_2_MAX_REFERENCE_AUDIO if on_verified_allowlist else 0,
+                max_reference_audio_total_seconds=(
+                    _SEEDANCE_2_MAX_REFERENCE_AUDIO_TOTAL_SECONDS if on_verified_allowlist else None
+                ),
             )
         # 非 2.0 系列：DEFAULT_MODEL 1.5 pro 实测正常下发 role="last_frame"（见
         # test_first_last_frame_role_fields），此前统一按 VideoCapabilities() 默认

@@ -8,6 +8,7 @@ import pytest
 
 from lib.custom_provider.capabilities import (
     CAPABILITY_OVERRIDE_FIELDS,
+    capability_type_name,
     capability_value_matches,
     filter_valid_overrides,
     synthesize_video_capabilities,
@@ -26,13 +27,63 @@ class TestOverrideFieldSchema:
             "max_reference_images",
             "reference_audio_mode",
             "max_reference_audio_count",
+            "max_reference_audio_total_seconds",
             "reference_audio_per_image",
         }
         assert CAPABILITY_OVERRIDE_FIELDS["last_frame"] is bool
         assert CAPABILITY_OVERRIDE_FIELDS["max_reference_images"] is int
         assert CAPABILITY_OVERRIDE_FIELDS["reference_audio_mode"] is ReferenceAudioMode
         assert CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_count"] is int
+        assert CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_total_seconds"] == (float | None)
         assert CAPABILITY_OVERRIDE_FIELDS["reference_audio_per_image"] is bool
+
+
+class TestOptionalDimensionSchema:
+    """可选维度（``T | None``）的注解不是 ``type``，消费 schema 的各处都不能假设它是。"""
+
+    @pytest.mark.unit
+    def test_type_name_renders_optional_annotation_without_crashing(self):
+        """展示名对 types.UnionType 也要给得出——校验失败分支不该比被校验的值更脆。"""
+        assert capability_type_name(CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_count"]) == "int"
+        assert capability_type_name(CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_total_seconds"]) == "float | None"
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("value", [15.0, 15, 0, None])
+    def test_optional_float_accepts_none_and_non_negative_numbers(self, value):
+        """None 表示「该后端不声明这项约束」；JSON 的 15 与 15.0 是同一个数，都收。"""
+        assert capability_value_matches(value, CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_total_seconds"])
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("value", [-1.0, True, "15", [15]])
+    def test_optional_float_rejects_negative_bool_and_non_numeric(self, value):
+        assert not capability_value_matches(value, CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_total_seconds"])
+
+    @pytest.mark.unit
+    def test_none_rejected_on_non_optional_dimension(self):
+        assert not capability_value_matches(None, CAPABILITY_OVERRIDE_FIELDS["max_reference_audio_count"])
+
+    @pytest.mark.unit
+    def test_invalid_optional_float_override_is_dropped_with_warning(self, caplog):
+        """存量脏行 / 非 API 写入路径的坏值走降级日志，不抛 AttributeError。"""
+        with caplog.at_level(logging.WARNING):
+            applied = filter_valid_overrides(
+                endpoint="vidu-video",
+                model_id="viduq3",
+                overrides={"max_reference_audio_total_seconds": "15"},
+            )
+        assert applied == {}
+        assert "float | None" in caplog.text
+
+    @pytest.mark.unit
+    def test_integer_override_is_coerced_to_float_on_merge(self):
+        """校验放行整数字面量后，合并须还原成 float，字段不留 int。"""
+        caps = synthesize_video_capabilities(
+            endpoint="vidu-video",
+            model_id="viduq3",
+            overrides={"max_reference_audio_total_seconds": 12},
+        )
+        assert caps.max_reference_audio_total_seconds == 12.0
+        assert isinstance(caps.max_reference_audio_total_seconds, float)
 
 
 class TestSystemCapabilities:

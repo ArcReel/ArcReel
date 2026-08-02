@@ -95,6 +95,11 @@ def _reset_for_tests() -> None:
     _ffprobe_available.cache_clear()
 
 
+# 只取时长的 ffprobe 参数，字节输入版与已落盘文件版共用一份——两处各写一份会漂移出
+# 「同一个文件两条路径量出不同时长」的口径分裂。末尾追加目标路径即可。
+_DURATION_PROBE_ARGS = ["-show_entries", "format=duration", "-of", "csv=p=0"]
+
+
 async def _run_ffprobe(extra_args: list[str]) -> bytes:
     """执行一次 ffprobe 子进程，返回 stdout；超时/非零退出统一按不可解析处理。
 
@@ -166,7 +171,7 @@ async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | N
             if not detected_tokens & expected_tokens:
                 raise ValueError("音频文件无法解析")
 
-        duration_out = await _run_ffprobe(["-show_entries", "format=duration", "-of", "csv=p=0", str(tmp_path)])
+        duration_out = await _run_ffprobe([*_DURATION_PROBE_ARGS, str(tmp_path)])
     except (FileNotFoundError, OSError):
         logger.info("ffprobe 调用失败，跳过音频时长探测")
         return None
@@ -177,3 +182,37 @@ async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | N
         return float(duration_out.decode().strip())
     except ValueError:
         raise ValueError("音频文件无法解析") from None
+
+
+async def _probe_existing_audio_duration_seconds(path: Path) -> float | None:
+    """探测磁盘上已落盘参考音频文件的时长（秒）。
+
+    与 :func:`probe_audio_duration_seconds` 的字节输入版本不同：本函数直接对已存在文件探测，
+    不写临时文件、不做容器/音轨校验——这些文件已在上传期完成过格式校验，此处只需要时长数字。
+    ffprobe 不可用或探测失败时返回 None，与仓库既有降级口径一致（跳过校验，不阻断）。
+    """
+    if not _ffprobe_available():
+        return None
+    try:
+        duration_out = await _run_ffprobe([*_DURATION_PROBE_ARGS, str(path)])
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+    try:
+        return float(duration_out.decode().strip())
+    except ValueError:
+        return None
+
+
+async def probe_reference_audio_total_seconds(paths: list[Path]) -> float | None:
+    """探测多段参考音频文件的总时长（秒），供请求期总时长能力校验使用。
+
+    任一文件时长探测失败（ffprobe 不可用、文件损坏）都返回 None 而非部分求和：半截总时长会
+    让调用方误判「未超限」而放行本该拦截的请求，比跳过校验更危险。
+    """
+    total = 0.0
+    for path in paths:
+        duration = await _probe_existing_audio_duration_seconds(path)
+        if duration is None:
+            return None
+        total += duration
+    return total

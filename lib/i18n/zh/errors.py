@@ -274,6 +274,7 @@ MESSAGES = {
     "video_last_frame_unsupported": "{provider}/{model} 当前配置不支持尾帧，已中止生成；请移除该镜头的尾帧，或改用支持尾帧的模型/档位",
     "video_reference_audio_unsupported": "{provider}/{model} 不支持参考音频，已中止生成；请移除角色的参考音频，或改用支持音色参考的模型",
     "video_reference_audio_exceeded": "模型 {model} 最多支持 {limit} 段参考音频，收到 {count} 段；请减少带参考音频的角色数量",
+    "video_reference_audio_duration_exceeded": "模型 {model} 参考音频总时长最多 {limit:g} 秒，当前合计 {total:.1f} 秒；请减少参考音频段数或换用更短的音频",
     "video_reference_audio_slots_insufficient": "模型 {model} 的参考音频需逐段挂在参考素材上，当前只有 {slots} 个参考素材却收到 {count} 段音频；请为这些角色补齐参考图，或减少带参考音频的角色数量",
     "video_reference_audio_unreadable": "模型 {model} 有参考音频缺失或无法读取，已中止生成：{names}；请检查参考音频路径",
     "video_reference_audio_format_unsupported": "参考音频 {name} 的格式不受支持（仅支持 {supported}）；请更换音频文件",

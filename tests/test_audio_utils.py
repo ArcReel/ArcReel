@@ -124,3 +124,43 @@ class TestFfprobeAvailable:
         for call_args in calls:
             assert "-protocol_whitelist" in call_args
             assert call_args[call_args.index("-protocol_whitelist") + 1] == "file"
+
+
+class TestProbeReferenceAudioTotalSeconds:
+    @pytest.mark.integration
+    @pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe not available")
+    async def test_sums_durations_of_existing_files(self, tmp_path):
+        path_a = tmp_path / "a.wav"
+        path_b = tmp_path / "b.wav"
+        path_a.write_bytes(_wav_bytes(3))
+        path_b.write_bytes(_wav_bytes(5))
+
+        total = await audio_utils_module.probe_reference_audio_total_seconds([path_a, path_b])
+
+        assert total is not None
+        assert 7.5 < total < 8.5
+
+    @pytest.mark.unit
+    async def test_empty_list_returns_zero(self):
+        total = await audio_utils_module.probe_reference_audio_total_seconds([])
+        assert total == 0.0
+
+    @pytest.mark.integration
+    @pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe not available")
+    async def test_unreadable_file_returns_none_not_partial_sum(self, tmp_path):
+        """半截总时长比跳过校验更危险：任一文件探测失败就整体判 None，不能只算成功的部分。"""
+        path_a = tmp_path / "a.wav"
+        path_missing = tmp_path / "missing.wav"
+        path_a.write_bytes(_wav_bytes(3))
+
+        total = await audio_utils_module.probe_reference_audio_total_seconds([path_a, path_missing])
+
+        assert total is None
+
+    @pytest.mark.unit
+    async def test_ffprobe_unavailable_returns_none(self, tmp_path):
+        path_a = tmp_path / "a.wav"
+        path_a.write_bytes(_wav_bytes(3))
+        with patch("lib.audio_utils.shutil.which", return_value=None):
+            total = await audio_utils_module.probe_reference_audio_total_seconds([path_a])
+        assert total is None
