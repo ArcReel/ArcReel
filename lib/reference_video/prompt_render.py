@@ -171,6 +171,9 @@ def _render_voice_declarations(
     的展示 label），但声音声明只认「已登记的 dialogue speaker」，与主体绑定行解耦，可整段复用。
 
     C 类（真无声）不注入声音声明；A/B 类均注入声音特征——官方建议音色还原不佳时补描述。
+    角色记录非 dict（外部编辑写坏的 project.json）按无声音特征处理，不索引脏值——ad 参考
+    解析（``_resolve_ad_unit_reference_entries``）对同一形态的脏数据已按软跳过处理，本函数
+    保持同一降级口径而非崩溃。
     """
     if voice_consistency == "none":
         return []
@@ -179,7 +182,8 @@ def _render_voice_declarations(
         parts: list[str] = []
         if name in audio_no:
             parts.append(f"台词音色参考 @音频{audio_no[name]}")
-        voice_style = str((characters.get(name) or {}).get("voice_style") or "").strip()
+        char_data = characters.get(name)
+        voice_style = str((char_data.get("voice_style") if isinstance(char_data, dict) else None) or "").strip()
         if voice_style:
             parts.append(f"声音特征：{voice_style}")
         if parts:

@@ -281,6 +281,7 @@ class TestRenderUnitPrompt:
 
         assert render_ad_unit_prompt(shots, style="水彩插画") == ""
 
+    @pytest.mark.unit
     def test_dialogue_without_speaker_renders_as_voiceover(self):
         shots = [
             _shot(

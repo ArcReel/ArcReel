@@ -126,6 +126,18 @@ def test_non_string_dialogue_line_produces_no_utterance():
     assert "<小美>说" not in rendered.prompt
 
 
+def test_malformed_character_record_does_not_crash_voice_declaration():
+    # 外部编辑写坏的 project.json 可能把角色记录写成非 dict；ad 参考解析对同一形态的脏数据
+    # 已软跳过，声音声明须同一降级口径，不因 .get("voice_style") 崩溃。
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "颈椎终于舒服了"}])]
+    project = _project(characters={"小美": "bad"})
+
+    rendered = render_ad_backend_prompt(shots, [], project, voice_consistency="soft")
+
+    assert "<小美>说 {颈椎终于舒服了}" in rendered.prompt
+    assert "声音特征" not in rendered.prompt
+
+
 def test_legend_and_negative_tail_are_gone():
     shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "买它"}])]
     entries = [_entry("按摩仪", "产品「按摩仪」标准多角度参考图", kind="sheet")]
