@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -315,6 +316,7 @@ class TestReferenceVideoRouter:
             assert body["supported_durations"] is None
             assert body["duration_tiers"] is None
 
+    @pytest.mark.integration
     def test_quarantine_corrupted_envelope_reported_not_treated_as_clean(self, tmp_path, monkeypatch):
         """隔离草稿文件存在但信封本身损坏（非法 JSON）：``read_quarantine`` 按其自身读取口径
         返回 None，但 GET 响应不能把这等同于「无隔离草稿」——那会让面板显示干净态、放行确认，
@@ -340,3 +342,44 @@ class TestReferenceVideoRouter:
 
             confirmed = client.post(f"{base}/confirm")
             assert confirmed.status_code == 409
+
+    def test_quarantine_unreadable_message_localized_by_accept_language(self, tmp_path, monkeypatch):
+        """``quarantine_unreadable`` 违约的 message 走 ``_t`` 按 ``Accept-Language`` 本地化，
+        不再是写死的中文——与其它 code 保持的固定中文形态不同，这两条是本 PR 新增、不带
+        插值的静态文案，本地化改造范围就锁定在这两条。"""
+        from lib import script_review as lib_script_review
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        project_path = pm.get_project_path("demo")
+        _write_rv_step1(pm, _rv_step1())
+
+        quarantine_path = lib_script_review.step1_quarantine_path(project_path, pm.load_project("demo"), 1)
+        quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+        quarantine_path.write_text("{ not valid json", encoding="utf-8")
+
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            body = client.get(base, headers={"Accept-Language": "en"}).json()
+            message = body["quarantine"]["violations"][0]["message"]
+            assert message == (
+                "The quarantined draft file is corrupted or malformed and can't be read; "
+                "ask the agent to re-split this episode"
+            )
+
+    @pytest.mark.integration
+    def test_duration_tiers_survive_save_and_confirm_responses(self, tmp_path, monkeypatch):
+        """PUT / confirm 的响应同样带 ``duration_tiers``——它们各自独立调用 ``get_state``，
+        不经过 GET 那次合并；不带的话前端 ``adopt()`` 用保存后的响应覆盖 GET 读到的收窄结果，
+        退回未收窄的 ``supported_durations``，与刚加载时的呈现不一致。"""
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        with client:
+            _write_rv_step1(pm, _rv_step1())
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            get_body = client.get(base).json()
+            assert "duration_tiers" in get_body
+
+            put_body = client.put(f"{base}/content", json=_rv_step1()).json()
+            assert "duration_tiers" in put_body
+
+            confirm_body = client.post(f"{base}/confirm").json()
+            assert "duration_tiers" in confirm_body

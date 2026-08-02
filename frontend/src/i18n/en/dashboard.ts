@@ -1274,9 +1274,13 @@ export default {
   'reference_step1_request_fix': 'Ask the assistant to fix it',
   'reference_step1_confirm_continue': 'Confirm split, continue generating',
   'reference_step1_confirm_blocked_hint': 'Blocking violations are present — confirm once they are fixed and promoted',
-  'reference_step1_confirm_continue_prefill': 'Episode {{episode}}’s split is confirmed — please continue generating storyboards and video.',
+  'reference_step1_duration_out_of_tier': 'Tier no longer valid',
+  'reference_step1_duration_out_of_tier_hint': 'One or more units have a duration outside the currently valid tiers — pick a new value before confirming',
+  'reference_step1_confirm_continue_prefill': 'Episode {{episode}}’s split is confirmed — please continue generating the script and reference videos.',
   'reference_step1_fix_request_prefill_header':
     'Episode {{episode}}’s reference-video step1 split draft has {{count}} violation(s) to fix — please edit the quarantined draft directly to correct them:',
+  'reference_step1_fix_request_promote_prefill':
+    'Episode {{episode}}’s reference-video step1 split draft now revalidates with no violations but is still quarantined — please call validate_and_promote_reference_draft to promote it.',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 

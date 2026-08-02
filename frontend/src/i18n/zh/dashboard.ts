@@ -1273,9 +1273,13 @@ export default {
   'reference_step1_request_fix': '让助手修复',
   'reference_step1_confirm_continue': '确认拆分，继续生成',
   'reference_step1_confirm_blocked_hint': '存在阻断违约，修复晋升后才能确认',
-  'reference_step1_confirm_continue_prefill': '第 {{episode}} 集的拆分已确认，请继续生成分镜与视频。',
+  'reference_step1_duration_out_of_tier': '档位已失效',
+  'reference_step1_duration_out_of_tier_hint': '有 unit 的时长已不在当前生效档位内，请重新选择后再确认',
+  'reference_step1_confirm_continue_prefill': '第 {{episode}} 集的拆分已确认，请继续生成剧本与参考视频。',
   'reference_step1_fix_request_prefill_header':
     '第 {{episode}} 集的参考视频 step1 拆分草稿有 {{count}} 处违约待修复，请直接编辑隔离草稿修正：',
+  'reference_step1_fix_request_promote_prefill':
+    '第 {{episode}} 集的参考视频 step1 拆分草稿重新校验已无违约，仍处于隔离态待处置，请调用 validate_and_promote_reference_draft 晋升为正式内容。',
   'image_prompt_placeholder': '分镜图描述...',
   'video_prompt_placeholder': '视频动作描述...',
 

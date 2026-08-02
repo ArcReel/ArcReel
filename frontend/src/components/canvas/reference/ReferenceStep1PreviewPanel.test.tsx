@@ -291,4 +291,61 @@ describe("ReferenceStep1PreviewPanel", () => {
     const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
     expect([...select.options].map((o) => o.value)).toEqual(["8"]);
   });
+
+  it("blocks confirmation and flags a unit whose stored duration has fallen out of the effective tier", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      pendingState({
+        supported_durations: [4, 6, 8],
+        // unit 带引用，生效档位收窄到 4/6 秒——已存盘的 8 秒不再合法，但仍要照旧展示（不静默跳档）。
+        duration_tiers: { with_references: [4, 6], without_references: [4, 6, 8] },
+      }),
+    );
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+    expect(select.value).toBe("8");
+    expect(screen.getByText("档位已失效")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
+  });
+
+  it("recomputes the tier choice from live-edited text rather than the stale saved references", async () => {
+    const withoutReferences = pendingState({
+      supported_durations: [4, 6, 8],
+      // 8 秒是两套档位共有的值，保证初始展示不触发「越档补首值」分支，让第二次断言干净地
+      // 反映档位切换本身，而不是与该兜底行为的展示叠在一起。
+      duration_tiers: { with_references: [8], without_references: [4, 6, 8] },
+    });
+    (withoutReferences.content as ReferenceStep1Draft).units[0].shots = [{ text: "门开了" }];
+    (withoutReferences.content as ReferenceStep1Draft).units[0].references = [];
+    (withoutReferences.content as ReferenceStep1Draft).units[0].duration_seconds = 8;
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(withoutReferences);
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    // 初始无引用：按 without_references 档位，4/6/8 全可选。
+    let select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+    expect([...select.options].map((o) => o.value).sort()).toEqual(["4", "6", "8"]);
+
+    // 编辑正文新增 @[阿离] 引用（尚未保存，unit.references 仍是旧的空数组）：档位应立即按
+    // with_references 收窄到仅 8 秒，而不是继续沿用编辑前的 references 判定。
+    fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
+    const textarea = await screen.findByDisplayValue("门开了");
+    fireEvent.change(textarea, { target: { value: "@[阿离] 推门而入。" } });
+
+    select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+    expect([...select.options].map((o) => o.value)).toEqual(["8"]);
+  });
+
+  it("asks the assistant to promote instead of reporting violations when the quarantine has none", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      ...quarantinedState(),
+      quarantine: { content: quarantinedState().quarantine!.content, violations: [] },
+    });
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "让助手修复" }));
+
+    const input = useAssistantStore.getState().input;
+    expect(input).toContain("validate_and_promote_reference_draft");
+    expect(input).not.toContain("1. ");
+  });
 });

@@ -369,6 +369,7 @@ class TestReferenceVideoGateFlow:
             ("scene", "屋檐"),
         ]
 
+    @pytest.mark.integration
     async def test_reference_duration_tiers_narrows_raw_set_by_resolution_constraint(self, tmp_path, monkeypatch):
         """gate 下拉的档位须按分辨率联动约束收窄，与 step2 落盘前的校验同一把尺。
 
@@ -392,6 +393,7 @@ class TestReferenceVideoGateFlow:
         tiers = await svc.get_reference_duration_tiers("demo")
         assert tiers == {"with_references": [8], "without_references": [8]}
 
+    @pytest.mark.integration
     async def test_reference_duration_tiers_none_when_model_unresolved(self, tmp_path):
         """项目未配置可解析的档位表来源（既无 ``_supported_durations`` 也无注册表身份）时为
         None，呈现层退回未收窄的 ``supported_durations``（同 clamp 的回退口径）。

@@ -46,6 +46,34 @@ def _raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) ->
     raise HTTPException(status_code=status, detail=detail)
 
 
+async def _attach_duration_tiers(service: ScriptReviewService, project_name: str, state: dict) -> dict:
+    """把收窄后的逐 unit 时长档位挂到 state 上；三个改动 step1 内容的端点（GET/PUT/POST）
+    都要走这一步——否则保存 / 确认后 ``adopt()`` 用不带 ``duration_tiers`` 的响应覆盖 GET
+    读到的收窄结果，面板退回未收窄的 ``supported_durations``，与 GET 首次加载时的呈现不一致。
+    """
+    state["duration_tiers"] = (
+        await service.get_reference_duration_tiers(project_name)
+        if state.get("supported_durations") is not None
+        else None
+    )
+    return state
+
+
+def _localize_quarantine_violations(quarantine: dict | None, _t: Translator) -> dict | None:
+    """把 ``quarantine_unreadable`` 违约的固定中文文案换成按 ``_t`` 渲染的本地化文本。
+
+    该 code 只由两处产出（隔离草稿信封本身损坏 / 重算所需的 meta 缺失损坏），两处都是不带
+    插值的固定字符串，不涉及 ``lib.reference_video.draft_validation`` 里其余违约类型那种
+    产出时已渲染好插值的模板——本地化改造范围限定在这两条，不牵动其余违约消息的展示形态。
+    """
+    if quarantine is None:
+        return None
+    for violation in quarantine["violations"]:
+        if violation["code"] == "quarantine_unreadable":
+            violation["message"] = _t("script_review_quarantine_unreadable")
+    return quarantine
+
+
 @router.get("/projects/{project_name}/episodes/{episode}/script-review")
 async def get_script_review(project_name: str, episode: int, _t: Translator):
     """读取该集 step1 结构化中间态 + 审核状态（供 web 渲染与编辑）。
@@ -62,12 +90,8 @@ async def get_script_review(project_name: str, episode: int, _t: Translator):
         service = ScriptReviewService(get_project_manager())
         quarantine = await service.get_quarantine_info(project_name, episode)
         state = await asyncio.to_thread(service.get_state, project_name, episode)
-        state["duration_tiers"] = (
-            await service.get_reference_duration_tiers(project_name)
-            if state.get("supported_durations") is not None
-            else None
-        )
-        state["quarantine"] = quarantine
+        await _attach_duration_tiers(service, project_name, state)
+        state["quarantine"] = _localize_quarantine_violations(quarantine, _t)
         return state
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
@@ -85,7 +109,8 @@ async def update_script_review_content(
     """保存手动 / agent 编辑后的结构化中间态，并使该集重新进入待审。"""
     try:
         service = ScriptReviewService(get_project_manager())
-        return await asyncio.to_thread(service.save_content, project_name, episode, content)
+        state = await asyncio.to_thread(service.save_content, project_name, episode, content)
+        return await _attach_duration_tiers(service, project_name, state)
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:
@@ -97,7 +122,8 @@ async def confirm_script_review(project_name: str, episode: int, _t: Translator)
     """用户显式确认 step1 内容，放行 step2 视觉生成。"""
     try:
         service = ScriptReviewService(get_project_manager())
-        return await asyncio.to_thread(service.confirm, project_name, episode)
+        state = await asyncio.to_thread(service.confirm, project_name, episode)
+        return await _attach_duration_tiers(service, project_name, state)
     except ScriptReviewError as exc:
         _raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:

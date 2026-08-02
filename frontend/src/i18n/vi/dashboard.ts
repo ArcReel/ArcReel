@@ -1247,9 +1247,13 @@ export default {
   'reference_step1_request_fix': 'Nhờ trợ lý sửa',
   'reference_step1_confirm_continue': 'Xác nhận chia, tiếp tục tạo',
   'reference_step1_confirm_blocked_hint': 'Còn vi phạm chặn — chỉ xác nhận được sau khi sửa và thăng cấp',
-  'reference_step1_confirm_continue_prefill': 'Đã xác nhận việc chia tập {{episode}}, hãy tiếp tục tạo phân cảnh và video.',
+  'reference_step1_duration_out_of_tier': 'Mức thời lượng không còn hợp lệ',
+  'reference_step1_duration_out_of_tier_hint': 'Có unit có thời lượng nằm ngoài các mức hiện hợp lệ — hãy chọn lại trước khi xác nhận',
+  'reference_step1_confirm_continue_prefill': 'Đã xác nhận việc chia tập {{episode}}, hãy tiếp tục tạo kịch bản và video tham chiếu.',
   'reference_step1_fix_request_prefill_header':
     'Bản nháp chia step1 video tham chiếu của tập {{episode}} có {{count}} vi phạm cần sửa, hãy chỉnh sửa trực tiếp bản nháp bị cách ly để khắc phục:',
+  'reference_step1_fix_request_promote_prefill':
+    'Bản nháp chia step1 video tham chiếu của tập {{episode}} khi xác thực lại không còn vi phạm nhưng vẫn đang bị cách ly — hãy gọi validate_and_promote_reference_draft để thăng cấp nó.',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 

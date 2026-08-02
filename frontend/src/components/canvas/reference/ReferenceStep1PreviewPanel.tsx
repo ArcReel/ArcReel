@@ -147,6 +147,24 @@ function partitionViolations(violations: ScriptReviewViolation[], unitKey: strin
   return { anchorSource, byLine, aggregate };
 }
 
+/**
+ * unit 当前生效的时长档位（按是否带参考图收窄）；解析不到收窄表时返回 null，由调用方退回
+ * 未收窄的 `supported_durations`。
+ *
+ * 有无引用按当前正文（`extractMentions`，非 `unit.references`）判——`updateShotText` 只改
+ * `shots`，`references` 要保存后服务端重派生才更新；编辑期新增/删除的 `@[名称]` 若仍按旧
+ * `references` 选档位，用户在编辑框里加了引用之后，下拉仍按无引用的宽档位显示可选项。
+ */
+function unitDurationTiers(
+  unit: DisplayUnit,
+  lookup: MentionLookup,
+  tiers: NonNullable<ScriptReviewState["duration_tiers"]> | null,
+): number[] | null {
+  if (!tiers) return null;
+  const hasReferences = extractMentions(unit.scriptText).some((name) => Boolean(lookup[name]));
+  return hasReferences ? tiers.with_references : tiers.without_references;
+}
+
 function ReferencePills({ references }: { references: ReferenceResource[] }) {
   const { t } = useTranslation("dashboard");
   if (!references.length) {
@@ -198,6 +216,7 @@ function UnitCard({
   onToggleEdit,
   onShotTextChange,
   supportedDurations,
+  outOfTier,
   onDurationChange,
   busy,
 }: {
@@ -210,6 +229,8 @@ function UnitCard({
   onToggleEdit: () => void;
   onShotTextChange: ((shotIndex: number, text: string) => void) | null;
   supportedDurations: number[] | null;
+  /** unit 当前存盘时长已不在收窄后的档位表内——展示照旧，但阻断确认（父组件按此禁用确认按钮）。 */
+  outOfTier: boolean;
   onDurationChange: ((seconds: number) => void) | null;
   /** 保存 / 确认请求在途：锁住时长下拉与镜头正文，避免 adopt() 用服务端回显覆盖请求发出后的新编辑。 */
   busy: boolean;
@@ -251,6 +272,11 @@ function UnitCard({
           </select>
         ) : (
           <span className="text-[11px] text-text-4">{t("reference_step1_duration_option", { seconds: unit.durationSeconds })}</span>
+        )}
+        {outOfTier && (
+          <span className="rounded bg-red-500/15 px-1 py-px text-[10px] text-red-300">
+            {t("reference_step1_duration_out_of_tier")}
+          </span>
         )}
         <span className="text-[11px] text-text-4">
           {t("reference_step1_unit_stats", { shots: stats.shots, utterances: stats.utterances })}
@@ -482,10 +508,15 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
 
   const handleRequestFix = useCallback(() => {
     const violations = state?.quarantine?.violations ?? [];
-    const report = [
-      t("reference_step1_fix_request_prefill_header", { episode, count: violations.length }),
-      ...violations.map((v, i) => `${i + 1}. ${v.message}`),
-    ].join("\n");
+    // 重算已无违约、但隔离草稿仍在场（agent 已改对内容、尚未调晋升工具）：不能报「0 处违约
+    // 待修复」再让用户去改一份已经没问题的东西，正确的下一步是请 agent 直接晋升。
+    const report =
+      violations.length === 0
+        ? t("reference_step1_fix_request_promote_prefill", { episode })
+        : [
+            t("reference_step1_fix_request_prefill_header", { episode, count: violations.length }),
+            ...violations.map((v, i) => `${i + 1}. ${v.message}`),
+          ].join("\n");
     useAssistantStore.getState().setInput(report);
     useAppStore.getState().setAssistantPanelOpen(true);
   }, [state, episode, t]);
@@ -534,6 +565,19 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     : draft
       ? structuredDisplayUnits(draft)
       : [];
+  // 收窄后的档位表若已不再包含某 unit 存量存盘的时长（模型 / 分辨率 / 参考图配置变化所致），
+  // 该值仍保留展示（避免 select 静默跳首档），但不能放行确认——_assert_reference_step1_ready
+  // 会在 step2 落盘前硬拒同一个越档值，此处先一步拦下，而不是让用户确认后才在别处失败。
+  const outOfTierUnitKeys = quarantined
+    ? new Set<string>()
+    : new Set(
+        displayUnits
+          .filter((u) => {
+            const tiers = unitDurationTiers(u, lookup, state?.duration_tiers ?? null);
+            return tiers != null && !tiers.includes(u.durationSeconds);
+          })
+          .map((u) => u.key),
+      );
   const allViolations = quarantine?.violations ?? [];
   const unitKeys = new Set(displayUnits.map((u) => u.key));
   const unassignedViolations = allViolations.filter((v) => !unitKeys.has(unitKeyFromLabel(v.label) ?? ""));
@@ -610,10 +654,16 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
           <button
             type="button"
             onClick={voidPromise(handleConfirm)}
-            disabled={busy || confirmed || quarantined}
+            disabled={busy || confirmed || quarantined || outOfTierUnitKeys.size > 0}
             className={ACCENT_BTN_CLS}
             style={ACCENT_BUTTON_STYLE}
-            title={quarantined ? t("reference_step1_confirm_blocked_hint") : undefined}
+            title={
+              quarantined
+                ? t("reference_step1_confirm_blocked_hint")
+                : outOfTierUnitKeys.size > 0
+                  ? t("reference_step1_duration_out_of_tier_hint")
+                  : undefined
+            }
           >
             {quarantined || confirmed ? <Lock className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
             {confirming
@@ -637,13 +687,8 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
             editing={!quarantined && editingUnitKey === unit.key}
             onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
             onShotTextChange={quarantined ? null : (shotIndex, text) => updateShotText(i, shotIndex, text)}
-            supportedDurations={
-              state?.duration_tiers
-                ? unit.references.length > 0
-                  ? state.duration_tiers.with_references
-                  : state.duration_tiers.without_references
-                : (state?.supported_durations ?? null)
-            }
+            supportedDurations={unitDurationTiers(unit, lookup, state?.duration_tiers ?? null) ?? (state?.supported_durations ?? null)}
+            outOfTier={outOfTierUnitKeys.has(unit.key)}
             onDurationChange={quarantined ? null : (seconds) => updateDuration(i, seconds)}
             busy={busy}
           />
