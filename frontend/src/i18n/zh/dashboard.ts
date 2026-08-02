@@ -1403,6 +1403,7 @@ export default {
   'tool_name_confirm_script_review': '确认 step1 审核',
   'tool_name_normalize_drama_script': '规范化剧本',
   'tool_name_split_reference_video_units': '拆分参考视频单元',
+  'tool_name_open_reference_step1_for_edit': '取回参考视频拆分供编辑',
   'tool_name_validate_and_promote_reference_draft': '校验并晋升参考视频草稿',
   'tool_name_split_narration_segments': '拆分说书片段',
   'tool_name_get_video_capabilities': '查询视频模型能力',

@@ -42,6 +42,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     generate_episode_script_tool,
     get_video_capabilities_tool,
     normalize_drama_script_tool,
+    open_reference_step1_for_edit_tool,
     split_narration_segments_tool,
     split_reference_video_units_tool,
     validate_and_promote_reference_draft_tool,
@@ -3515,6 +3516,146 @@ async def test_validate_and_promote_reference_draft_reports_again_without_round_
     _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
     await _promote(fake_ctx, monkeypatch)
     assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["braces_in_description"]
+
+
+# ---------------------------------------------------------------------------
+# open_reference_step1_for_edit
+# ---------------------------------------------------------------------------
+
+
+def _write_rv_step1(fake_ctx: ToolContext, units: list[dict]) -> None:
+    """直接铺一份正式 step1（模拟上一轮拆分的落盘产物）。"""
+    path = _rv_step1_path(fake_ctx)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"units": units}, ensure_ascii=False), encoding="utf-8")
+
+
+def _rv_saved_unit(shots: list[str], *, unit_id: str = "E1U01", duration: int = 8) -> dict:
+    """正式 step1 的落盘形状（含机器派生的 unit_id / shots / references）。"""
+    return {
+        "unit_id": unit_id,
+        "shots": [{"text": t} for t in shots],
+        "duration_seconds": duration,
+        "references": [{"type": "character", "name": "张三"}],
+        "source_text": _RV_NOVEL,
+    }
+
+
+async def _open_for_edit(fake_ctx: ToolContext, **args) -> dict:
+    if not (fake_ctx.project_path / "project.json").exists():
+        _rv_project(fake_ctx)
+    return await _call(open_reference_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
+
+
+async def test_open_reference_step1_for_edit_returns_flat_writing_layer(fake_ctx: ToolContext) -> None:
+    """取回的草稿装扁平书写层，不装派生物：agent 改的是正文 / 锚 / 时长，
+    unit_id / shots / references 由晋升时按正文重新派生，放进草稿等于给漂移开口子。"""
+    _rv_source(fake_ctx)
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身", "@[张三] 走向 @[村口]"])])
+
+    out = await _open_for_edit(fake_ctx, source="source/episode_1.txt")
+
+    assert out.get("is_error") is not True, out
+    envelope = _read_rv_quarantine(fake_ctx)
+    assert envelope["kind"] == QUARANTINE_KIND_STEP1
+    assert envelope["violations"] == []
+    assert envelope["meta"]["source"] == "source/episode_1.txt"
+    unit = envelope["content"]["units"][0]
+    assert set(unit) == {"duration_seconds", "source_text", "text"}
+    assert unit["duration_seconds"] == 8
+    assert unit["source_text"] == _RV_NOVEL
+    # 多镜头 unit 的 text 必须带回 `镜头N：` header：落盘的 shots[*].text 不带 header，
+    # 裸拼接后晋升时会被 parse_prompt 重新解析成一个镜头，分镜结构静默丢失。
+    assert unit["text"] == "镜头1：@[张三] 起身\n镜头2：@[张三] 走向 @[村口]"
+
+
+async def test_open_reference_step1_for_edit_leaves_official_file_untouched(fake_ctx: ToolContext) -> None:
+    """取回只是开编辑工位，正式文件一步不动——改动落回正式文件只发生在持锁的晋升侧。"""
+    _rv_source(fake_ctx)
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    before = _rv_step1_path(fake_ctx).read_text(encoding="utf-8")
+
+    await _open_for_edit(fake_ctx)
+
+    assert _rv_step1_path(fake_ctx).read_text(encoding="utf-8") == before
+
+
+async def test_open_reference_step1_for_edit_round_trips_through_promote(fake_ctx: ToolContext, monkeypatch) -> None:
+    """情况 B 的完整闭环：取回 → 改草稿 → 晋升。改动经晋升侧的持锁写盘落回正式文件，
+    结构字段按新正文重新派生（references 跟着正文里的 @ 引用走）。"""
+    _rv_source(fake_ctx)
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+
+    await _open_for_edit(fake_ctx, source="source/episode_1.txt")
+    envelope = _read_rv_quarantine(fake_ctx)
+    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 在 @[村口] 出场"
+    _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await _promote(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is not True, out
+    assert not _rv_quarantine_path(fake_ctx).exists()
+    saved = json.loads(_rv_step1_path(fake_ctx).read_text(encoding="utf-8"))
+    assert saved["units"][0]["shots"] == [{"text": "@[张三] 在 @[村口] 出场"}]
+    assert saved["units"][0]["references"] == [
+        {"type": "character", "name": "张三"},
+        {"type": "scene", "name": "村口"},
+    ]
+
+
+async def test_open_reference_step1_for_edit_refuses_to_clobber_existing_draft(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """已有隔离草稿在场时不覆盖：那份草稿可能已含 agent 未晋升的修改（或是待处置的违约产物），
+    拿正式文件盖过去等于抹掉它手上的工作。"""
+    _rv_source(fake_ctx)
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+    before = _rv_quarantine_path(fake_ctx).read_text(encoding="utf-8")
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+
+    out = await _open_for_edit(fake_ctx)
+
+    assert out.get("is_error") is True
+    assert _rv_quarantine_path(fake_ctx).read_text(encoding="utf-8") == before
+    assert "validate_and_promote_reference_draft" in out["content"][0]["text"]
+
+
+async def test_open_reference_step1_for_edit_without_official_file(fake_ctx: ToolContext) -> None:
+    """没有正式 step1 时指回首次拆分工具，而不是开一份空草稿让 agent 手写整集。"""
+    _rv_source(fake_ctx)
+
+    out = await _open_for_edit(fake_ctx)
+
+    assert out.get("is_error") is True
+    assert "split_reference_video_units" in out["content"][0]["text"]
+    assert not _rv_quarantine_path(fake_ctx).exists()
+
+
+async def test_open_reference_step1_for_edit_keeps_malformed_duration_verbatim(fake_ctx: ToolContext) -> None:
+    """盘上 unit 的字段类型不符时原样带进草稿，不归一化成合法值：``8.0`` 被改写成 ``0``
+    后，agent 从草稿里看到的是一个它没写过的时长，晋升报告说「时长不在档位内」也对不上
+    盘上的原值。原样带过则由晋升侧 schema 逐条报告，agent 看得见错在哪。"""
+    _rv_source(fake_ctx)
+    unit = _rv_saved_unit(["@[张三] 起身"])
+    unit["duration_seconds"] = 8.0
+    _write_rv_step1(fake_ctx, [unit])
+
+    out = await _open_for_edit(fake_ctx)
+
+    assert out.get("is_error") is not True, out
+    assert _read_rv_quarantine(fake_ctx)["content"]["units"][0]["duration_seconds"] == 8.0
+
+
+async def test_open_reference_step1_for_edit_rejects_non_reference_episode(fake_ctx: ToolContext) -> None:
+    """切走参考路径的集不给编辑：盘上的 step1 与该集此刻的生成路径无关。与晋升工具同一判据。"""
+    _rv_source(fake_ctx)
+    _rv_project(fake_ctx, generation_mode="image_to_video")
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+
+    out = await _open_for_edit(fake_ctx)
+
+    assert out.get("is_error") is True
+    assert not _rv_quarantine_path(fake_ctx).exists()
 
 
 @pytest.mark.parametrize(
