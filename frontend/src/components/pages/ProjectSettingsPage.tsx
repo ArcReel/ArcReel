@@ -400,19 +400,21 @@ export function ProjectSettingsPage() {
     }
   }, [styleValue, projectName, t]);
 
-  // 生成模式决定视频走哪条生成路径，按用途指定的模型不同时它会换掉执行模型——时长与分辨率
-  // 都是按执行模型选的，换了就得跟着校验，否则保存时旧分辨率会落到新模型名下。
+  // 生成模式决定视频走哪条生成路径，两条路径按用途指定了不同模型时它会换掉执行模型。
+  // 分辨率只由模型决定，模型没换就不动；时长还受参考图路径影响——同一个模型走参考图时
+  // 可选时长可能被收窄到单一取值，故换模式一律重算，不能因为模型没变就跳过。
   const handleGenerationModeChange = useCallback(
     (next: GenerationMode) => {
       setGenerationMode(next);
       const layers = { videoBackend, videoProviderI2V, videoProviderR2V };
+      const usesReferenceImages = next === "reference_video";
       const before = executingVideoModel(layers, globalDefaults, generationMode === "reference_video");
-      const after = executingVideoModel(layers, globalDefaults, next === "reference_video");
-      if (before === after) return;
-      setVideoResolution(null);
+      const after = executingVideoModel(layers, globalDefaults, usesReferenceImages);
+      const modelChanged = before !== after;
+      if (modelChanged) setVideoResolution(null);
       const nextDurations = catalogDurations(providers, customProviders, after, {
-        videoResolution: null,
-        usesReferenceImages: next === "reference_video",
+        videoResolution: modelChanged ? null : videoResolution,
+        usesReferenceImages,
       });
       if (defaultDuration !== null && !nextDurations?.includes(defaultDuration)) {
         setDefaultDuration(null);
@@ -420,7 +422,7 @@ export function ProjectSettingsPage() {
     },
     [
       generationMode, videoBackend, videoProviderI2V, videoProviderR2V,
-      globalDefaults, providers, customProviders, defaultDuration,
+      globalDefaults, providers, customProviders, defaultDuration, videoResolution,
     ],
   );
 

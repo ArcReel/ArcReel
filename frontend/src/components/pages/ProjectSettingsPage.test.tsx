@@ -442,6 +442,56 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     });
   });
 
+  it("revalidates duration on mode switch even when the executing model stays the same", async () => {
+    // 同一个模型在参考图路径下可选时长会被收窄：只比模型身份就会放过这种情形，
+    // 用户带着模型不支持的时长保存，要到生成阶段才被拒
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...FAKE_CONFIG_WITH_DEFAULTS,
+    } as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+      {
+        id: "gemini", display_name: "Gemini", description: "", status: "ready",
+        media_types: ["video"], capabilities: [], configured_keys: [], missing_keys: [],
+        models: {
+          "veo-3": {
+            display_name: "Veo 3", media_type: "video", capabilities: [], default: true,
+            supported_durations: [4, 6, 8], duration_resolution_constraints: {},
+            reference_image_durations: [8],
+            resolutions: [], has_audio_track: true, voice_consistency: "soft",
+          },
+        },
+      },
+    ] as Awaited<ReturnType<typeof providerModels.getProviderModels>>);
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        generation_mode: "storyboard",
+        video_backend: "gemini/veo-3",
+        default_duration: 4,
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+    fireEvent.click(await screen.findByRole("radio", { name: /参考生视频/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+
+    await waitFor(() => {
+      // 执行模型没变，但参考图路径只剩 8 秒——4 秒必须退回自动
+      expect(updateSpy).toHaveBeenCalledWith(
+        "demo",
+        expect.objectContaining({ generation_mode: "reference_video", default_duration: null }),
+      );
+    });
+  });
+
   it("reads and writes the image resolution under the executing text-to-image model", async () => {
     // 项目默认层与文生图槽指向不同模型：后端按执行模型查 model_settings，故读写都挂在
     // 文生图槽那个模型上——挂错 key 时用户选的分辨率会被静默忽略，且重载读回旧值。

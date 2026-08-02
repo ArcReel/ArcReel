@@ -255,22 +255,23 @@ export function CreateProjectModal() {
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef, true);
 
-  // 第二步选好时长与分辨率后还能退回第一步改生成模式。全局层给两条视频路径指定了不同模型时，
-  // 这一改就换掉了执行模型，旧值必须跟着校验——否则创建时旧分辨率会落到新模型名下。
+  // 第二步选好时长与分辨率后还能退回第一步改生成模式。分辨率只由执行模型决定，模型没换就不动；
+  // 时长还受参考图路径影响——同一个模型走参考图时可选时长可能被收窄，故换模式一律重算。
   const handleBasicsChange = (next: WizardStep1Value) => {
     setBasics(next);
     if (next.generationMode === basics.generationMode) return;
     const globals = step2Data?.globalDefaults ?? { video: "", videoI2V: "", videoR2V: "" };
+    const usesReferenceImages = next.generationMode === "reference_video";
     const before = executingVideoModel(models, globals, basics.generationMode === "reference_video");
-    const after = executingVideoModel(models, globals, next.generationMode === "reference_video");
-    if (before === after) return;
+    const after = executingVideoModel(models, globals, usesReferenceImages);
+    const modelChanged = before !== after;
     const nextDurations = catalogDurations(step2Data?.providers ?? [], step2Data?.customProviders ?? [], after, {
-      videoResolution: null,
-      usesReferenceImages: next.generationMode === "reference_video",
+      videoResolution: modelChanged ? null : models.videoResolution,
+      usesReferenceImages,
     });
     setModels((prev) => ({
       ...prev,
-      videoResolution: null,
+      videoResolution: modelChanged ? null : prev.videoResolution,
       defaultDuration:
         prev.defaultDuration !== null && nextDurations?.includes(prev.defaultDuration)
           ? prev.defaultDuration
