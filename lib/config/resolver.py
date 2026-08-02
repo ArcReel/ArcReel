@@ -165,21 +165,19 @@ class _LayeredBackendKeys:
     project_default_key: str | None = None
     global_bucket_key: str | None = None
     global_default_key: str | None = None
-    # True（docs/adr/0054 描述的语义）：全局桶键存在但无有效值时回退全局默认层。
-    # False：全局桶键存在即权威——值无效（含显式清空）直接跳到自动推断，不读全局默认键。
-    empty_global_bucket_follows_default: bool = True
 
 
-# 图片桶（t2i / i2i）键位。图片的空桶语义是「用户显式清空 → 跟随自动推断」，故
-# empty_global_bucket_follows_default 取 False，与 docs/adr/0054 的「空桶回退默认层」不同。
+# 图片桶（t2i / i2i）键位。桶为可选覆盖，空桶回退默认层：项目默认层用 project.json 的
+# default_image_backend 字段（与文本档位的 default_text_backend 同名同位），全局默认层用
+# default_image_backend 设置键。
 _IMAGE_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
     cap: _LayeredBackendKeys(
         media_type="image",
         parse_fallback=_DEFAULT_IMAGE_BACKEND,
         project_bucket_key=f"image_provider_{cap}",
+        project_default_key="default_image_backend",
         global_bucket_key=f"default_image_backend_{cap}",
         global_default_key="default_image_backend",
-        empty_global_bucket_follows_default=False,
     )
     for cap in ("t2i", "i2i")
 }
@@ -660,9 +658,9 @@ class ConfigResolver:
     ) -> ProviderModel:
         """解析图片任务应使用的 ProviderModel。
 
-        优先级：payload > 项目桶（``image_provider_<cap>``）> 全局桶（``default_image_backend_<cap>``）
-        > 全局默认（``default_image_backend``）> 自动推断。全局桶键存在但值为空 = 显式清空，
-        跳过全局默认直达自动推断。图片无项目默认层。
+        优先级：payload > 项目桶（``image_provider_<cap>``）> 项目默认（``default_image_backend``）
+        > 全局桶（``default_image_backend_<cap>``）> 全局默认（``default_image_backend``）> 自动推断。
+        桶是可选覆盖，无值（含显式清空）回退默认层（``docs/adr/0054``）。
         capability 决定走 t2i 还是 i2i 槽（见 ``docs/adr/0001``）。不做任何 provider 归一化。
         """
         async with self._open_session() as (session, svc):
@@ -984,13 +982,10 @@ class ConfigResolver:
                 if parsed is not None:
                     return parsed
         settings = await svc.get_all_settings()
-        if keys.global_bucket_key is not None and keys.global_bucket_key in settings:
-            raw = settings[keys.global_bucket_key]
+        if keys.global_bucket_key is not None:
+            raw = settings.get(keys.global_bucket_key, "")
             if "/" in raw:
                 return ConfigService._parse_backend(raw, keys.parse_fallback)
-            if not keys.empty_global_bucket_follows_default:
-                # 桶键存在但无有效值 = 显式清空 = 跟随自动推断，不读全局默认键
-                return await self._auto_resolve_backend(svc, session, keys.media_type)
         if keys.global_default_key is not None:
             raw = settings.get(keys.global_default_key, "")
             if "/" in raw:
@@ -1010,7 +1005,7 @@ class ConfigResolver:
         payload 层保留 ``payload>project>global`` 的规范骨架，接受 ``image_provider_<cap>``
         与旧的 ``image_provider`` / ``image_model`` 键——队列里按旧格式序列化的任务据此解析。
         payload provider 须是已知 provider（见 ``_trusted_payload_provider``），否则不予信任、
-        回退骨架（``_resolve_layered_backend``，键位见 ``_IMAGE_LAYERED_KEYS``；图片无项目默认层）。
+        回退骨架（``_resolve_layered_backend``，键位见 ``_IMAGE_LAYERED_KEYS``）。
         """
         cap_key = f"image_provider_{capability}"
         if payload:
@@ -1382,8 +1377,7 @@ class ConfigResolver:
     ) -> tuple[str, str]:
         """仅全局层解析图片默认 backend：全局桶 > 全局默认键 > 自动推断。
 
-        走四级骨架但不带项目（project=None 跳过项目层）。全局桶键存在但值为空 = 用户显式
-        清空 = 跟随自动选择，不回退全局默认键（由 ``_IMAGE_LAYERED_KEYS`` 的键位声明决定）。
+        走四级骨架但不带项目（project=None 跳过项目层）。全局桶无值时回退全局默认键。
         """
         return await self._resolve_layered_backend(svc, session, None, _IMAGE_LAYERED_KEYS[capability])
 

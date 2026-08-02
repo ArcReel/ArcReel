@@ -1006,6 +1006,53 @@ class TestProjectsRouter:
             assert data["default_text_backend"] == "gemini-aistudio/gemini-2.5"
             assert data["default_duration"] == 8
 
+    @pytest.mark.unit
+    def test_create_project_with_image_default_layer(self, tmp_path, monkeypatch):
+        """项目默认图片模型（default_image_backend）可在创建时写入，不必配桶。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects",
+                json={
+                    "title": "只配默认",
+                    "name": "img-default",
+                    "default_image_backend": "gemini-aistudio/nano-banana",
+                },
+            )
+            assert resp.status_code == 200
+            data = fake_pm.project_data["img-default"]
+            assert data["default_image_backend"] == "gemini-aistudio/nano-banana"
+            assert "image_provider_t2i" not in data
+            assert "image_provider_i2i" not in data
+
+    @pytest.mark.unit
+    def test_patch_image_default_layer_set_and_clear(self, tmp_path, monkeypatch):
+        """项目默认图片模型可设置 / 清除；格式非法与非图片模型均 400。"""
+        fake_pm = _FakePM(tmp_path)
+        client = _client(monkeypatch, fake_pm, _FakeCalc())
+        with client:
+            updated = client.patch(
+                "/api/v1/projects/ready",
+                json={"default_image_backend": "gemini-aistudio/nano-banana"},
+            )
+            assert updated.status_code == 200
+            assert fake_pm.project_data["ready"]["default_image_backend"] == "gemini-aistudio/nano-banana"
+
+            cleared = client.patch("/api/v1/projects/ready", json={"default_image_backend": ""})
+            assert cleared.status_code == 200
+            assert "default_image_backend" not in fake_pm.project_data["ready"]
+
+            rejected = client.patch("/api/v1/projects/ready", json={"default_image_backend": "no-slash"})
+            assert rejected.status_code == 400
+
+            wrong_media = client.patch(
+                "/api/v1/projects/ready",
+                json={"default_image_backend": "gemini-aistudio/veo-3.1-generate-preview"},
+            )
+            assert wrong_media.status_code == 400
+
     def test_patch_text_tier_fields_set_and_clear(self, tmp_path, monkeypatch):
         """项目级档位 / 默认模型三字段可设置；空值 = 清除、继承全局。"""
         fake_pm = _FakePM(tmp_path)

@@ -67,6 +67,21 @@ def get_archive_service() -> ProjectArchiveService:
     return ProjectArchiveService(get_project_manager())
 
 
+# 项目级模型字段：创建时逐一校验并写入 project.json，PATCH 时另加 audio_backend。
+# 值形如 provider/model 或裸 provider，空值 = 清除该层、回退下一层。
+_PROJECT_BACKEND_FIELDS = (
+    "video_backend",
+    "video_provider_i2v",
+    "video_provider_r2v",
+    "image_provider_t2i",
+    "image_provider_i2i",
+    "default_image_backend",
+    "text_backend_simple",
+    "text_backend_complex",
+    "default_text_backend",
+)
+
+
 class CreateProjectRequest(BaseModel):
     name: str | None = None
     title: str | None = None
@@ -90,8 +105,11 @@ class CreateProjectRequest(BaseModel):
     video_provider_i2v: str | None = None
     video_provider_r2v: str | None = None
     image_backend: str | None = None
+    # 图片能力桶（docs/adr/0054）项目级覆盖 + 项目默认模型：t2i = 文生图，i2i = 图生图；
+    # 桶为空 = 回退项目默认（default_image_backend）与全局层
     image_provider_t2i: str | None = None
     image_provider_i2i: str | None = None
+    default_image_backend: str | None = None
     # 文本任务档位（docs/adr/0051）项目级覆盖 + 项目默认模型；空值 = 继承全局
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
@@ -131,6 +149,7 @@ class UpdateProjectRequest(BaseModel):
     image_backend: str | None = None
     image_provider_t2i: str | None = None
     image_provider_i2i: str | None = None
+    default_image_backend: str | None = None
     video_generate_audio: bool | None = None
     # 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速；留空 = 跟随全局默认
     audio_backend: str | None = None
@@ -504,16 +523,7 @@ async def create_project(
                     raise HTTPException(status_code=400, detail=_t("ad_only_field", field="brief"))
 
             # 与 update 路径对称：校验所有 backend 字段
-            for field_name in (
-                "video_backend",
-                "video_provider_i2v",
-                "video_provider_r2v",
-                "image_provider_t2i",
-                "image_provider_i2i",
-                "text_backend_simple",
-                "text_backend_complex",
-                "default_text_backend",
-            ):
+            for field_name in _PROJECT_BACKEND_FIELDS:
                 value = getattr(req, field_name)
                 if value:
                     validate_backend_value(value, field_name, _t)
@@ -522,20 +532,7 @@ async def create_project(
                 manager.create_project(project_name, content_mode=req.content_mode or "narration")
             except FileExistsError:
                 raise HTTPException(status_code=400, detail=_t("project_exists", name=project_name))
-            extras = {
-                field: value
-                for field in (
-                    "video_backend",
-                    "video_provider_i2v",
-                    "video_provider_r2v",
-                    "image_provider_t2i",
-                    "image_provider_i2i",
-                    "text_backend_simple",
-                    "text_backend_complex",
-                    "default_text_backend",
-                )
-                if (value := getattr(req, field))
-            }
+            extras = {field: value for field in _PROJECT_BACKEND_FIELDS if (value := getattr(req, field))}
             if req.model_settings is not None:
                 extras["model_settings"] = req.model_settings
             # generation_mode 并入 extras 一次性写入，避免 create 后再 load-save 的额外 RMW
@@ -700,17 +697,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _user: CurrentUse
                     project["title"] = req.title
                 if req.style is not None:
                     project["style"] = req.style
-                for field in (
-                    "video_backend",
-                    "video_provider_i2v",
-                    "video_provider_r2v",
-                    "image_provider_t2i",
-                    "image_provider_i2i",
-                    "audio_backend",
-                    "text_backend_simple",
-                    "text_backend_complex",
-                    "default_text_backend",
-                ):
+                for field in (*_PROJECT_BACKEND_FIELDS, "audio_backend"):
                     if field in req.model_fields_set:
                         value = getattr(req, field)
                         if value:

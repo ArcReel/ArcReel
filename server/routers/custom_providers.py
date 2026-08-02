@@ -98,12 +98,16 @@ _BACKEND_SETTING_KEYS = (
 )
 
 # project.json 中的项目级覆盖键（与全局键名不同：resolver 按媒体读 video_backend /
-# audio_backend / image_provider_*，文本档位键与项目默认模型键与全局同名），清理项目悬空引用时用此集合
+# audio_backend / image_provider_*，文本档位键与项目默认模型键与全局同名），清理项目悬空引用时用此集合。
+# 刻意不含视频桶键（video_provider_i2v / video_provider_r2v）：视频桶的悬空引用由解析闸
+# _ensure_video_bucket_capability 报错兜底，写入侧不级联清理（docs/adr/0054）；图片桶无对应能力闸，
+# 故仍在此清理
 _PROJECT_BACKEND_KEYS = (
     "video_backend",
     "audio_backend",
     "image_provider_t2i",
     "image_provider_i2i",
+    "default_image_backend",
     "text_backend_simple",
     "text_backend_complex",
     "default_text_backend",
