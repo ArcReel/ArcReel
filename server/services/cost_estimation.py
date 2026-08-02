@@ -284,7 +284,11 @@ class CostEstimationService:
         content_mode = project_data.get("content_mode", "narration")
         # 惰性解析：只有项目里真出现按 unit 计费的参考视频集时才触发这次额外 IO
         # （见 :func:`server.services.reference_video_tasks.resolve_project_duration_context`）。
+        # 走 unit 路径的集按定义落 r2v 桶（入队的是参考视频任务），取档要与算价读同一个模型，
+        # 故按 reference_video 视图解析：项目层是 storyboard 时直接用 project_data 会拿 i2v 桶
+        # 模型的档位取整，再按 r2v 桶模型的单价算钱，估算与实际扣费对不上。
         duration_ctx: ProjectDurationContext | None = None
+        r2v_project_view = {**project_data, "generation_mode": "reference_video"}
 
         def _accumulate_episode(
             ep_meta: dict[str, Any],
@@ -338,7 +342,7 @@ class CostEstimationService:
 
             if estimate_by_unit:
                 if duration_ctx is None:
-                    duration_ctx = await resolve_project_duration_context(project_data)
+                    duration_ctx = await resolve_project_duration_context(r2v_project_view)
                 if content_mode == "ad":
                     segments_result, ep_est, ep_act = self._estimate_ad_reference_video_episode(
                         script=script,

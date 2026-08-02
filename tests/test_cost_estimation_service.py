@@ -8,6 +8,7 @@ from lib.cost_calculator import cost_calculator
 from lib.db.base import Base
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.providers import PROVIDER_GEMINI
+from server.services import reference_video_tasks
 from server.services.cost_estimation import CostEstimationService
 
 
@@ -1605,6 +1606,48 @@ class TestCostEstimationService:
         result = await service.compute(project_data, {}, project_name="test-video-bucket")
 
         assert result["models"]["video"] == {"provider": "kling", "model": expected_model}
+
+    @pytest.mark.integration
+    async def test_unit_duration_slots_come_from_the_r2v_bucket_model(self, db_factory, monkeypatch):
+        """unit 取档与算价读同一个模型：档位来自 r2v 桶，不来自项目级 generation_mode 定的桶。
+
+        项目层是 storyboard、某集剧本仍带 reference_video 戳时，该集按 unit 计费（入队参考视频
+        任务）。若取档沿用项目级视图，5 秒的 unit 会按 i2v 桶 kling 的 [5, 10] 停在 5 秒，再按
+        r2v 桶 Veo 的单价算钱；而执行期按 Veo 的档位（未配分辨率走 1080p 兜底，只接受 8 秒）
+        申请 8 秒——估算量与扣费量对不上。
+        """
+        priced: list[tuple[str | None, int | None]] = []
+        original = cost_calculator.calculate_cost
+
+        def _spy(provider, params, **kwargs):
+            if params.call_type == "video":
+                priced.append((params.model, params.duration_seconds))
+            return original(provider, params, **kwargs)
+
+        monkeypatch.setattr(cost_calculator, "calculate_cost", _spy)
+
+        # 取档解析走全局 session factory（真实部署的库），测试库换成 db_factory 后照常做真实
+        # 桶解析——被观察的是它拿到哪个模型的档位，不是它怎么连库。
+        async def _caps_from_test_db(project, *, degraded_to):
+            return await ConfigResolver(db_factory).video_capabilities_for_project(project)
+
+        monkeypatch.setattr(reference_video_tasks, "project_video_caps", _caps_from_test_db)
+
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "target_duration": 30,
+            "video_provider_i2v": "kling/kling-v3",
+            "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
+
+        await service.compute(project_data, scripts, project_name="r2v-duration-slots")
+
+        assert priced == [("veo-3.1-generate-preview", 8)]
 
     @pytest.mark.integration
     async def test_episode_priced_by_its_own_effective_bucket(self, db_factory, monkeypatch):
