@@ -1064,6 +1064,7 @@ class TestResolveImageBackend:
         assert (resolved.provider_id, resolved.model_id) == ("openai", "gpt-image-2")
 
 
+@pytest.mark.unit
 class TestLayeredBackendSkeleton:
     """「默认 + 能力桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
 
