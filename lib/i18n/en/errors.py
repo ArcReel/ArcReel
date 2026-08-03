@@ -272,7 +272,8 @@ MESSAGES = {
     ),
     "ref_warn_silent_episode": (
         "Reference audio is disabled for this episode: no reference audio is uploaded and voice "
-        "consistency does not apply; dialogue is used only as prompt context"
+        "consistency does not apply; dialogue is used only as prompt context. Whether the rendered "
+        "video actually has sound depends on the selected model"
     ),
     # Episode meta
     "episode_not_found": "Episode {episode} not found or has no script file yet",

@@ -824,6 +824,7 @@ class ConfigResolver:
               "first_frame": bool,                 # 生效值（系统判定 ⊕ 用户覆盖），与执行层同源
               "last_frame": bool,                  # 同上
               "generate_audio": bool,              # backend 默认执行档生效后的计价参数
+              "requested_generate_audio": bool,    # 用户在 project.json/全局设置里的无声意图请求值，非计价口径
               "max_reference_audio_count": int,    # 每请求可携带的参考音频段数上限（backend 声明）
               "reference_audio_per_image": bool,   # 音频是否须逐段挂在具体参考素材项上（backend 声明）
               "source": "registry" | "custom",

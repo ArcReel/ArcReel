@@ -3160,7 +3160,7 @@ async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_fai
     它不依赖能力接口独立解析（同 generation_context.py），否则声音提示层会漏发
     WARN_SILENT_EPISODE，误导用户以为本集仍会尝试组装参考音频。独立解析本身照原样
     mock 掉（不经 async_session_factory 打真实 DB）：这条测不验证 DB 读取，只验证
-    双路失败下 caps 字典的组装口径，打真 DB 只会让结果依赖本机是否已初始化好应用库。
+    能力查询失败下 caps 字典的组装口径，打真 DB 只会让结果依赖本机是否已初始化好应用库。
     """
     from lib.config.resolver import ConfigResolver
     from server.agent_runtime.sdk_tools import text_generation as mod

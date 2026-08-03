@@ -19,10 +19,12 @@ logger = logging.getLogger(__name__)
 
 
 async def project_video_caps(project: dict, *, degraded_to: str, episode: int | None = None) -> dict:
-    """项目视频后端的 model 粒度能力；解析失败返回空 dict，由调用方各自降级。
+    """项目视频后端的 model 粒度能力；解析失败返回部分 dict（可能仅含 ``requested_generate_audio``），
+    由调用方各自降级。
 
     ``degraded_to`` 只用于日志，说明这次解析失败会让调用方退化成什么行为。
     ``episode`` 给出集号时按该集生效 ``generation_mode`` 解析（生成模式可被单集覆盖）。
+    ``requested_generate_audio`` 独立于能力接口解析（见下方实现注释），双重失败时该键为 ``False``。
     """
     resolver = ConfigResolver(async_session_factory)
     try:
