@@ -18,7 +18,7 @@ from lib.audio_utils import (
     probe_audio_duration_seconds,
 )
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import constrain_durations
+from lib.config.resolver import constrain_durations, video_bucket_for_generation_mode
 from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
@@ -912,12 +912,14 @@ async def execute_video_task(
         )
 
     project, project_path, item, content_mode = await asyncio.to_thread(_load)
+    # lane 归桶按项目路线求值，与提交入口（``generate_video``）同源：入口挡掉参考路线后
+    # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免路线口径分叉。
     ctx = await resolve_generation_context(
         project_name,
         payload,
         project=project,
         user_id=user_id,
-        video=VideoLaneRequest(capability="i2v"),
+        video=VideoLaneRequest(capability=video_bucket_for_generation_mode(project.get("generation_mode"))),
     )
     generator = ctx.generator
 

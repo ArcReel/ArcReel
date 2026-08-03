@@ -694,6 +694,77 @@ class TestUnexpectedErrorMapsTo500:
             assert "LEAK_product" not in resp.text
 
 
+class TestVideoRouteGate:
+    """逐条视频生成端点按项目生成路线定轴：参考路线在提交入口即拒绝。"""
+
+    def _reference_pm(self, project_path: Path) -> _FakePM:
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["generation_mode"] = "reference_video"
+        fake_pm.script = {
+            "content_mode": "narration",
+            "video_units": [{"unit_id": "E1U01", "prompt": "镜头1：奔跑"}],
+        }
+        return fake_pm
+
+    def test_reference_route_rejected_with_route_guidance(self, tmp_path, monkeypatch):
+        """参考路线：拒绝并指引走参考生视频流程，而非「先生成分镜图」。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = self._reference_pm(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/video/E1U01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == i18n_message("video_route_is_reference_video")
+        assert fake_queue.calls == []
+
+    def test_reference_route_rejected_even_with_leftover_storyboard(self, tmp_path, monkeypatch):
+        """残留分镜图不改变判定：路线以 project.json 为唯一真相源，不按磁盘产物换路径。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = self._reference_pm(project_path)
+        # 换路线前留下的分镜族剧本与分镜图产物（scene_E1S01.png 由 _prepare_files 写入）
+        fake_pm.script = _FakePM(project_path).script
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == i18n_message("video_route_is_reference_video")
+        assert fake_queue.calls == []
+
+    def test_storyboard_route_enqueues_with_i2v_bucket(self, tmp_path, monkeypatch):
+        """分镜路线：行为不变，桶预检仍按 i2v。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["generation_mode"] = "storyboard"
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        seen: list[str] = []
+
+        async def _record(project, capability):
+            seen.append(capability)
+
+        monkeypatch.setattr(generate, "require_video_bucket_capability", _record)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+        assert resp.status_code == 200
+        assert seen == ["i2v"]
+        assert fake_queue.calls[0]["task_type"] == "video"
+
+
 class TestAdStoryboardRegeneration:
     """ad 剧本（平铺 shots[]）沿用既有分镜生成/重生成端点——人工审核后重生成同一入口。"""
 
