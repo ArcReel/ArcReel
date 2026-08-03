@@ -5,6 +5,8 @@
 共享模块，两个 router 各自从这里取，同一个错误码在不同端点上不会给出不同的状态码或文案。
 """
 
+from typing import NoReturn
+
 from fastapi import HTTPException
 
 from lib.i18n import Translator
@@ -28,7 +30,7 @@ _ERROR_I18N: dict[str, str] = {
 }
 
 
-def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> None:
+def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> NoReturn:
     """把 ``ScriptReviewError`` 抛成对应的 ``HTTPException``；未登记的错误码落 400。"""
     status = _ERROR_STATUS.get(exc.code, 400)
     if exc.code == "invalid_content":

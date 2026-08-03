@@ -965,13 +965,16 @@ def _render_step1_conflict_report(
         latest_block = f"当前正式 step1 的最新内容（扁平书写层，与草稿 content 同形）：\n{latest}"
     else:
         latest_block = "当前正式文件不存在或不是合法的 step1 JSON，无法附上最新内容；请自行读取该文件确认。"
+    # 指纹按 JSON 字面量给：正式文件已被删除时现值是 null，写成 "None" 会让 agent 把这串字符
+    # 当基线填回 meta，之后每次重晋升都比对不上、拿到同一份报告，冲突再也解不掉。
+    actual_literal = json.dumps(conflict.actual)
     return (
         "❌ 晋升中止（并发冲突）：正式 step1 在本草稿产出后已被其他写入方（如 Web 端保存）修改，"
         "直接晋升会覆盖对方的修改，本次未写盘、草稿仍在场。\n"
-        f"草稿基线指纹: {conflict.expected}；盘上现值指纹: {conflict.actual}\n\n"
+        f"草稿基线指纹: {json.dumps(conflict.expected)}；盘上现值指纹: {actual_literal}\n\n"
         f"{latest_block}\n\n"
         f"处置：对照上方最新内容与草稿 {draft.path} 的 content.units，把对方的修改合并进草稿；"
-        f'合并完成后把草稿 meta.base_fingerprint 更新为 "{conflict.actual}"，'
+        f"合并完成后把草稿 meta.base_fingerprint 更新为 {actual_literal}，"
         f'再调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 重新晋升。'
     )
 

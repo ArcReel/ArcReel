@@ -984,6 +984,16 @@ class TestErrors:
         await svc.save_content("demo", 1, edited)
         assert not step2_q.exists()
 
+    async def test_confirm_corrupt_step1_rejected(self, tmp_path):
+        """step1 文件损坏（非法 JSON，但 content_fingerprint 仍产哈希）→ 确认被结构校验拒绝。"""
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        path = _write_step1(pm, "drama", _drama_step1())
+        path.write_bytes(b"\x00\x01 not json at all {")
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.confirm("demo", 1)
+        assert exc.value.code == "invalid_content"
+
 
 # ---------------------------------------------------------------------------
 # 单一写盘出口（lib.script_review.write_step1_locked）
@@ -1053,16 +1063,6 @@ class TestStep1WriteStore:
         with script_review.step1_write_lock(project_path, 1):
             script_review.write_step1_locked(project_path, 1, {"units": [{"v": 3}]}, clear_step2_quarantine=False)
         assert step2_q.exists()
-
-    async def test_confirm_corrupt_step1_rejected(self, tmp_path):
-        """step1 文件损坏（非法 JSON，但 content_fingerprint 仍产哈希）→ 确认被结构校验拒绝。"""
-        pm = _make_project(tmp_path, "drama")
-        svc = ScriptReviewService(pm)
-        path = _write_step1(pm, "drama", _drama_step1())
-        path.write_bytes(b"\x00\x01 not json at all {")
-        with pytest.raises(ScriptReviewError) as exc:
-            await svc.confirm("demo", 1)
-        assert exc.value.code == "invalid_content"
 
 
 # ---------------------------------------------------------------------------

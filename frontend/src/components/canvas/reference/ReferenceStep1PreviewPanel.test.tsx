@@ -212,6 +212,33 @@ describe("ReferenceStep1PreviewPanel", () => {
     });
   });
 
+  it("saves with the fingerprint of the content the draft was based on, not the refreshed one", async () => {
+    const agentEdited = pendingState({ fingerprint: "fp2" });
+    (agentEdited.content as ReferenceStep1Draft).units[0].shots[0].text = "@[阿离] agent 改写的镜头";
+    const get = vi
+      .spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(pendingState())
+      .mockResolvedValueOnce(agentEdited);
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(pendingState());
+
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
+    const textarea = await screen.findByDisplayValue("@[阿离] 撑伞走过 @[长街]");
+    fireEvent.change(textarea, { target: { value: "@[阿离] 我的本地编辑" } });
+    await screen.findByText("保存");
+
+    // agent 改了 step1 → 外部刷新把 state 换成新版，但用户草稿仍基于旧版
+    useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(screen.getByText("保存"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    // 提交草稿所基于的 fp1，服务端才能判出冲突；提交刷新后的 fp2 会让 OCC 放行、静默覆盖 agent 的修改
+    expect(save.mock.calls[0][3]).toBe("fp1");
+  });
+
   it("renders shot / spoken-line counts in the unit header", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(quarantinedState());
     render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);

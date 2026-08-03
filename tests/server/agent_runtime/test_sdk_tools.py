@@ -3968,6 +3968,31 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     assert not _rv_quarantine_path(fake_ctx).exists()
 
 
+async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """取回后正式文件被删除：现值指纹是 null，报告须按 JSON 字面量给出而非字符串 "None"。
+    照报告把 meta.base_fingerprint 设为 null 后重晋升即放行——写成字符串则永远比对不上、冲突解不掉。"""
+    _rv_source(fake_ctx)
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    await _open_for_edit(fake_ctx, source="source/episode_1.txt")
+    _rv_step1_path(fake_ctx).unlink()
+
+    out = await _promote(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is True
+    report = out["content"][0]["text"]
+    assert "null" in report
+    assert "None" not in report
+
+    envelope = _read_rv_quarantine(fake_ctx)
+    envelope["meta"]["base_fingerprint"] = None
+    _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    out = await _promote(fake_ctx, monkeypatch)
+    assert out.get("is_error") is not True, out
+    assert not _rv_quarantine_path(fake_ctx).exists()
+
+
 async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx: ToolContext, monkeypatch) -> None:
     """基线机制引入前产出的存量草稿缺 meta.base_fingerprint 键：按无基线晋升，不被新校验卡死。"""
     _rv_source(fake_ctx)
