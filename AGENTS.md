@@ -75,7 +75,7 @@ pnpm build       # 生产构建，含 typecheck
 
 ### 供应商能力数据
 
-生成模型供应商的能力数据按字段划分真相源：视频能力位与参考图上限（i2v / r2v 判定、`max_reference_images`）以各 backend 的 `VideoCapabilities` 声明为准——与请求构造同源（见 `docs/adr/0054`）；其余能力数字（时长、分辨率约束）与默认 model 以 `lib/config/registry.py` 的 `PROVIDER_REGISTRY` 为准。自定义供应商（`custom-` 前缀）与智能体供应商预设（`lib/agent_provider_catalog.py::PRESET_PROVIDERS`）不在其内。新增或修改 prompt 模板与智能体运行配置（`agent_runtime_profile/`）时不硬编码具体数值，用占位符由编排层动态注入；供应商 API 文档镜像（如 `docs/vidu-docs/`）保留原始数值，不受此约束。配置界面的此类字段不预填。
+生成模型供应商的能力数据按字段划分真相源：视频能力位、参考图上限与参考音频限制（i2v / r2v 判定、`max_reference_images`、`max_reference_audio_count`、`max_reference_audio_total_seconds`）以各 backend 的 `VideoCapabilities` 声明为准——与请求构造同源（见 `docs/adr/0054`）；其余能力数字（时长、分辨率约束）与默认 model，已登记于 `lib/config/registry.py` 的 `PROVIDER_REGISTRY` 的型号以其为准，未登记型号（中转站、自定义供应商包装、已下线型号等）以对应 backend 的模块级 fallback 常量为准。自定义供应商（`custom-` 前缀）与智能体供应商预设（`lib/agent_provider_catalog.py::PRESET_PROVIDERS`）不在其内。新增或修改 prompt 模板与智能体运行配置（`agent_runtime_profile/`）时不硬编码具体数值，用占位符由编排层动态注入；供应商 API 文档镜像（如 `docs/vidu-docs/`）保留原始数值，不受此约束。配置界面的此类字段不预填。
 
 ### 内容模式 (content_mode) 与生成模式 (generation_mode)
 
