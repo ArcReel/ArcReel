@@ -10,8 +10,10 @@
   不提供假字段名使 ``get()`` 返回空值。
 - 规范解析 ``resolve_declared_kind(content_mode, generation_mode)``：服务只有项目配置在手
   的消费方，输入为项目级已过校验的 content_mode 与项目声明的 generation_mode。**fail-loud**——未知/缺失 content_mode 抛 ``ValueError``，不静默兜底。
-- 取证解析 ``resolve_script_kind(script)``：服务手持剧本数据的消费方，保留数据形状优先的
-  容忍阶梯（partial migration 中间态下编辑能力不可丢失）。
+- 取证解析 ``resolve_script_kind(script)``：服务手持剧本数据的消费方（编辑 / 查看 / 导出），
+  数据形状优先——回答的是「这份剧本现在长什么样」，与项目声明无关。
+- 路线闸门 ``ensure_route_skeleton(script, content_mode, generation_mode)``：生成入口用，
+  剧本实际骨架与项目路线要求的骨架不属同一族时拒绝，并给出重拆指引。
 
 行为不进表：validate 钩子、Pydantic 模型映射、编辑白名单不入注册表，留各消费方本地。
 
@@ -124,12 +126,12 @@ def resolve_script_kind(script: dict[str, Any]) -> str:
 
     返回 ``"video_units"`` / ``"scenes"`` / ``"segments"`` / ``"shots"``。
 
-    **数据形状优先，``generation_mode`` 不参与路由**：配置改了 reference 但数据还在
-    ``segments`` 的 partial migration 中间态下，若让 ``generation_mode`` 单向赢，整集脚本
-    通过所有 MCP 编辑工具完全不可触达（``resolve_items`` 返回空列表、按 id 编辑都报"未找到"），
-    agent 看到错误也无法定位是配置/数据冲突。数据形状优先让 agent 能拿到真实存在的列表继续
-    编辑；``generation_mode`` 改为信息字段，具体生成路径由 caller（``enqueue_videos`` 等）按
-    它自己的 ``generation_mode`` 分流决定。
+    **只看数据形状**：本解析回答的是取证提问「这份剧本现在长什么样」，服务于编辑 / 查看 /
+    导出——这些能力对任何一份磁盘上的剧本都必须成立，包括骨架与项目路线不符的失配剧本。
+    若改由项目路线单向定夺，失配集通过所有 MCP 编辑工具
+    完全不可触达（``resolve_items`` 返回空列表、按 id 编辑都报"未找到"），agent 看到错误也
+    无法定位成因。生成路径不走本解析：由生成入口按项目路线分派，失配由 ``ensure_route_skeleton``
+    显式拒绝。
 
     判别顺序：
     1. ``video_units`` 在场且 ``segments`` / ``scenes`` / ``shots`` 都不在 → reference（避免
@@ -159,3 +161,81 @@ def resolve_script_kind(script: dict[str, Any]) -> str:
     if "shots" in script and "segments" not in script:
         return "shots"
     return "segments"
+
+
+# 路线要求的骨架族：参考生视频路线（非 ad）要 ``video_units``，其余路线要分镜族骨架
+# （``segments`` / ``scenes`` / ``shots``）。族内差异（如 narration 数据落 ``scenes`` 键的历史
+# 形态）不构成失配，只有跨族才是——跨族意味着生成侧要读的数组根本不在剧本里。
+_REFERENCE_ROUTE_SKELETON = "video_units"
+_STORYBOARD_ROUTE_SKELETONS = ("segments", "scenes", "shots")
+
+
+class SkeletonRouteMismatchError(ValueError):
+    """剧本骨架与项目生成路线不属同一族——生成被拒。
+
+    失配剧本的唯一出路是重拆重生成：路线创建时锁定，剧本不可就地换族。查看 / 编辑 /
+    导出不经本闸门，失配剧本仍可读可改可导出。
+
+    ``actual`` 为 ``None`` 表示剧本一个骨架数组都没有（畸形或半成品剧本），与「有数组但
+    属另一族」分开措辞——后者要重拆换族，前者要先拆出内容。
+    """
+
+    def __init__(self, *, expected: str, actual: str | None, generation_mode: str | None) -> None:
+        self.expected = expected
+        self.actual = actual
+        route = (
+            "参考生视频（reference_video）" if generation_mode == "reference_video" else "分镜图生视频（storyboard）"
+        )
+        if expected == _REFERENCE_ROUTE_SKELETON:
+            guidance = "请重跑 split-reference-video-units 重新拆分该集，再重新生成剧本"
+        else:
+            guidance = "请重跑分集拆分（step1）重新拆分该集，再重新生成剧本"
+        current = (
+            f"当前剧本是 {actual}（{SKELETON_ITEM_NOUNS[actual]}）骨架"
+            if actual is not None
+            else "当前剧本没有任何骨架数组"
+        )
+        super().__init__(
+            f"剧本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}"
+            f"（{SKELETON_ITEM_NOUNS[expected]}）骨架，{current}。{guidance}。该剧本仍可查看、编辑与导出。"
+        )
+
+
+def ensure_route_skeleton(script: dict[str, Any], content_mode: str | None, generation_mode: str | None) -> str:
+    """生成入口的路线闸门：确认剧本骨架属于项目路线要求的族，返回剧本实际骨架种类。
+
+    生成分派一律按项目路线（``resolve_declared_kind``），剧本自身不携带路线信息。骨架与路线
+    失配的剧本，按路线生成时要读的数组不存在，静默降档与悄悄换路径都不可接受——此处显式拒绝
+    并给出重拆指引。
+
+    判据是「路线要读的那个数组在不在」，不是「取证解析的答案等不等于声明值」，两个方向对称按
+    键在场性判定：
+
+    - 参考路线只问 ``video_units`` 键在不在。剧本同时残留分镜族数组时取证解析会按形状优先答
+      ``segments``，但参考路线的生成侧读的就是 ``video_units``，残留数组不参与投票（费用估算
+      同此口径：``is_reference_video_project`` 定路径，形状不投票）。
+    - 分镜路线只问 ``segments`` / ``scenes`` / ``shots`` 有没有一个在场。族内的历史形态差异
+      （narration 数据落 ``scenes`` 键）照实放行并原样返回取证解析的答案，闸门只管跨族；而
+      三个键全缺时不能放行——``resolve_script_kind`` 会按 ``content_mode`` 合成一个族内答案，
+      顺着走下去分镜图入队会落进"✨ 所有片段的分镜图都已生成"的假成功。
+
+    两个分支都只问键在不在、不问值的类型：``"video_units": {}`` 这类脏数据是类型错误、不是
+    路线失配，报错权归下游的「必须是数组」校验，闸门不越俎代庖（否则会报出「要求 video_units、
+    当前 video_units」的自相矛盾文案）。
+
+    Raises:
+        SkeletonRouteMismatchError: 剧本骨架与路线要求的骨架不属同一族，或剧本没有任何骨架数组。
+        ValueError: content_mode 未知或缺失（由 ``resolve_declared_kind`` fail-loud）。
+    """
+    expected = resolve_declared_kind(content_mode, generation_mode)
+    has_reference = _REFERENCE_ROUTE_SKELETON in script
+    has_storyboard = any(key in script for key in _STORYBOARD_ROUTE_SKELETONS)
+    if expected == _REFERENCE_ROUTE_SKELETON:
+        if has_reference:
+            return _REFERENCE_ROUTE_SKELETON
+        actual = resolve_script_kind(script) if has_storyboard else None
+    else:
+        if has_storyboard:
+            return resolve_script_kind(script)
+        actual = _REFERENCE_ROUTE_SKELETON if has_reference else None
+    raise SkeletonRouteMismatchError(expected=expected, actual=actual, generation_mode=generation_mode)

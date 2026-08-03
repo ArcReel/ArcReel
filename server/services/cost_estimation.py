@@ -25,7 +25,7 @@ from lib.project_manager import grid_storyboard_enabled, is_reference_video_proj
 from lib.reference_video import assemble_shots_text
 from lib.reference_video.ad_units import derive_ad_reference_units, resolve_ad_unit_shots
 from lib.script_editor import ScriptEditError
-from lib.script_models import get_generated_assets, is_reference_script
+from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.services.reference_video_tasks import (
     ProjectDurationContext,
@@ -284,11 +284,7 @@ class CostEstimationService:
         content_mode = project_data.get("content_mode", "narration")
         # 惰性解析：只有项目里真出现按 unit 计费的参考视频集时才触发这次额外 IO
         # （见 :func:`server.services.reference_video_tasks.resolve_project_duration_context`）。
-        # 走 unit 路径的集按定义落 r2v 桶（入队的是参考视频任务），取档要与算价读同一个模型，
-        # 故按 reference_video 视图解析：项目层是 storyboard 时直接用 project_data 会拿 i2v 桶
-        # 模型的档位取整，再按 r2v 桶模型的单价算钱，估算与实际扣费对不上。
         duration_ctx: ProjectDurationContext | None = None
-        r2v_project_view = {**project_data, "generation_mode": "reference_video"}
 
         def _accumulate_episode(
             ep_meta: dict[str, Any],
@@ -315,10 +311,8 @@ class CostEstimationService:
         # narration/drama 的 unit 自带 ``unit_id`` 且成员 shot 无独立 ID，unit 本身即展示
         # 颗粒度（``_estimate_unit_reference_video_episode``）。
         #
-        # ad 骨架唯一、shots 不打 generation_mode 戳，生成路径以项目路线为真相源，整个项目同一
-        # 条路线、逐集不变；narration/drama 的生成侧只认剧本自身的 generation_mode 戳
-        # （``lib.script_models.is_reference_script``），估算须跟同一口径——存量剧本仍可能
-        # 携带与项目路线不符的戳，实际入队按戳走 unit 路径，估算叠加路线门槛会误判回落分镜。
+        # 生成路径以项目路线为唯一真相源，整个项目同一条路线、逐集不变（剧本不携带路线信息），
+        # 估算与执行因此天然同轴。
         is_reference_video = is_reference_video_project(project_data)
 
         for ep_meta in episodes_meta:
@@ -329,19 +323,14 @@ class CostEstimationService:
 
             raw_units = script.get("video_units")
             video_units: list[Any] = raw_units if isinstance(raw_units, list) else []
-            if content_mode == "ad":
-                estimate_by_unit = is_reference_video
-            else:
-                estimate_by_unit = is_reference_script(script)
+            estimate_by_unit = is_reference_video
 
-            # 算价的桶跟着上面判出的生效路径走，不另按项目级 generation_mode 定：走 unit 路径的集
-            # 实际入队的是参考视频任务（r2v 桶），项目层仍是 storyboard 时按项目级定桶会拿 i2v 桶
-            # 模型的价目去算 r2v 的量。判定与算价共用同一个谓词，同一函数里就不留第二种口径。
+            # 算价的桶与判定同源：unit 路径入队的是参考视频任务（r2v 桶），分镜路径是 i2v 桶。
             episode_video = video_pricing["r2v" if estimate_by_unit else "i2v"]
 
             if estimate_by_unit:
                 if duration_ctx is None:
-                    duration_ctx = await resolve_project_duration_context(r2v_project_view)
+                    duration_ctx = await resolve_project_duration_context(project_data)
                 if content_mode == "ad":
                     segments_result, ep_est, ep_act = self._estimate_ad_reference_video_episode(
                         script=script,

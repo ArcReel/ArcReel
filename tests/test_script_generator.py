@@ -811,6 +811,15 @@ class TestAddMetadataInjectsHiddenFields:
         assert out["content_mode"] == "narration"
         assert out["novel"]["chapter"] == "第1集"
 
+    @pytest.mark.unit
+    def test_strips_legacy_generation_mode_stamp(self, tmp_path: Path) -> None:
+        """路线真相源是 project.json，剧本不留戳：存量剧本重生成、或校验失败降级保存的
+        原始后端 dict 里带的 generation_mode，必须在写盘前剥离。"""
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        data = {"title": "第一集", "generation_mode": "reference_video", "scenes": [{"scene_id": "E1S01"}]}
+        out = sg._add_metadata(data, episode=1)
+        assert "generation_mode" not in out
+
     def test_setdefault_does_not_overwrite_existing_values(self, tmp_path: Path) -> None:
         """LLM 若主动填了 content_mode / novel(理论上不会,但兜底要稳),setdefault 不应覆盖。"""
         sg = self._make_generator(tmp_path, content_mode="drama")

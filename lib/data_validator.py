@@ -35,7 +35,7 @@ from lib.script_models import (
     ad_script_total_duration,
     resolve_content_mode,
 )
-from lib.script_skeleton import resolve_declared_kind
+from lib.script_skeleton import SkeletonRouteMismatchError, ensure_route_skeleton, resolve_declared_kind
 from lib.speech_rate import estimate_spoken_seconds
 
 #: drama 场景说话量（台词 + 画外音）对场景时长的单向上界容差（比例）。语速估算
@@ -1262,10 +1262,10 @@ class DataValidator:
         source_language = project.get("source_language")
         scene_language = source_language if isinstance(source_language, str) else None
 
-        # "视频来源"维度由 generation_mode 表达；骨架种类经规范解析统一判别，不再自建
-        # (content_mode, generation_mode) 轴交互的四路 if-elif。ad 剧本骨架唯一、不随生成
-        # 路径更换（见 docs/adr/0033），resolve_declared_kind 已内置该恒定映射。四个 validator
-        # 函数及各自签名（products / reference_mode / language）保留，校验行为不变。
+        # "视频来源"维度是项目级事实（generation_mode），剧本不携带；骨架种类经规范解析统一
+        # 判别，不再自建 (content_mode, generation_mode) 轴交互的四路 if-elif。ad 剧本骨架唯一、
+        # 不随生成路径更换（见 docs/adr/0033），resolve_declared_kind 已内置该恒定映射。四个
+        # validator 函数及各自签名（products / reference_mode / language）保留，校验行为不变。
         gen_mode = project.get("generation_mode")
         try:
             kind = resolve_declared_kind(content_mode, gen_mode)
@@ -1274,6 +1274,16 @@ class DataValidator:
             # 抛错，但 validator 的契约是把脏数据报告成结构化错误而非让异常传播出去。跳过依赖
             # 骨架种类的后续检查——没有合法 kind 就无从判断该读 segments/scenes/shots 中哪个。
             errors.append(f"content_mode 值无效: '{content_mode}'，必须是 {self.VALID_CONTENT_MODES}")
+            return
+        try:
+            # 闸门放行族内历史形态（narration 数据落 scenes 键）并返回剧本的实际骨架，后续按
+            # 该实际种类分派——用声明种类会让这类剧本按不存在的 segments 空读，数据一条都不校验。
+            kind = ensure_route_skeleton(episode, content_mode, gen_mode)
+        except SkeletonRouteMismatchError as exc:
+            # 失配剧本（骨架与项目路线跨族）：按路线该读的数组根本不在剧本里，
+            # 逐字段报"缺少 segments"会把成因埋掉——直接给结构结论与重拆指引，并跳过后续
+            # 按骨架的检查。同一闸门在生成入口拒绝生成，此处只是把同一事实报告出来。
+            errors.append(str(exc))
             return
         if kind == "video_units":
             self._validate_reference_video_script(

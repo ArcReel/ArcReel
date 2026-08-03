@@ -1456,17 +1456,13 @@ class ScriptGenerator:
                         target_duration,
                     )
                 s["duration_seconds"] = target_duration
-        # content_mode 严格只是"内容类型"（narration/drama）；reference_video 属于
-        # "视频来源"维度，由 generation_mode 表达。
+        # content_mode 严格只是"内容类型"（narration/drama）；"视频来源"维度是项目级事实，
+        # 剧本不落盘任何路线戳——生成分派一律读项目路线。
         # 参考视频集必须强制覆盖：ReferenceVideoScript.content_mode 有 Pydantic 默认值
         # "narration"，setdefault 拿不到项目级真值；非参考集 LLM 已在 schema 中产出
         # narration/drama，setdefault 仅作 fallback。
-        # ad 剧本骨架唯一、不携带"视频来源"维度：不打 generation_mode 戳——按剧本级
-        # generation_mode 分派的消费方（StatusCalculator / enqueue 判别等）会被该戳
-        # 误导去找不存在的 video_units。
         if self.content_mode != "ad" and gen_mode == "reference_video":
             script_data["content_mode"] = self.content_mode
-            script_data["generation_mode"] = "reference_video"
         else:
             script_data.setdefault("content_mode", self.content_mode)
 
@@ -1492,6 +1488,11 @@ class ScriptGenerator:
         novel = script_data.get("novel")
         if isinstance(novel, dict):
             novel.pop("source_file", None)
+
+        # 剥离剧本级 generation_mode：路线的真相源是 project.json，剧本不留戳。
+        # 校验失败时 script_data 是后端原样返回的 dict（未经模型过滤），存量剧本重生成也会
+        # 把旧值带进来——不在此处删就会随写盘回到磁盘上。
+        script_data.pop("generation_mode", None)
 
         # 添加时间戳
         now = datetime.now(UTC).isoformat()

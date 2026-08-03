@@ -119,10 +119,10 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     import json as _j
 
     data = _j.loads(out.read_text(encoding="utf-8"))
-    # 参考视频集 content_mode 继承项目级 narration/drama；生成模式由独立的
-    # generation_mode 字段表达。
+    # 参考视频集 content_mode 继承项目级 narration/drama；生成路线是项目级事实，
+    # 剧本不落盘任何路线戳。
     assert data["content_mode"] == "narration"
-    assert data["generation_mode"] == "reference_video"
+    assert "generation_mode" not in data
     assert len(data["video_units"]) == 1
     unit = data["video_units"][0]
     # unit_id / 时长沿用 step1；shots / references 由正文机械派生
@@ -438,7 +438,7 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
 
     data = _j.loads(out.read_text(encoding="utf-8"))
     assert data["content_mode"] == "drama"
-    assert data["generation_mode"] == "reference_video"
+    assert "generation_mode" not in data
 
 
 @pytest.mark.parametrize(

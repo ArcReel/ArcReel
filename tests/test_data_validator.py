@@ -1570,6 +1570,81 @@ class TestSkeletonEntryTypeGuards:
         assert any(array_key in error and "数组" in error for error in result.errors), result.errors
 
 
+class TestRouteSkeletonMismatchValidation:
+    """存量失配剧本（集级路线覆盖时代的混排集）：报结构结论 + 重拆指引，不逐字段报缺失。"""
+
+    def test_unit_script_under_storyboard_route_is_rejected(self, tmp_path):
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload())
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {"episode": 1, "title": "第一集", "content_mode": "narration", "video_units": []},
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        assert not result.valid
+        assert any("骨架" in error and "重新拆分" in error for error in result.errors), result.errors
+        # 只报路线结论，不再叠一份"缺少 segments"之类的下游噪声。
+        assert len(result.errors) == 1, result.errors
+
+    def test_storyboard_script_under_reference_route_is_rejected(self, tmp_path):
+        payload = _project_payload()
+        payload["generation_mode"] = "reference_video"
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", payload)
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {"episode": 1, "title": "第一集", "content_mode": "narration", "segments": []},
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        assert not result.valid
+        assert any("split-reference-video-units" in error for error in result.errors), result.errors
+
+    def test_reference_route_script_with_residual_segments_is_not_a_mismatch(self, tmp_path):
+        """参考路线剧本残留分镜数组不算失配：video_units 在场即按 units 校验，导入不被阻断。"""
+        payload = _project_payload()
+        payload["generation_mode"] = "reference_video"
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", payload)
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "video_units": [],
+                "segments": [{"segment_id": "E1S1"}],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        assert not any("骨架" in error for error in result.errors), result.errors
+
+    def test_residual_route_stamp_is_ignored(self, tmp_path):
+        """存量剧本残留的 generation_mode 戳是未知字段：不参与判别，也不让校验失败。"""
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload())
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "generation_mode": "reference_video",
+                "segments": [],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        # 仍按 segments 骨架校验（空数组另有其错），不因残留戳被判成失配。
+        assert not any("骨架" in error for error in result.errors), result.errors
+
+
 class TestInvalidContentModeEpisodeValidation:
     """content_mode 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud 抛 ValueError，
     但剧集级校验的契约是把脏数据报告成结构化错误，不让异常向外传播。"""
@@ -1684,12 +1759,30 @@ class TestDataValidatorSkeletonExhaustiveness:
             monkeypatch.setattr(DataValidator, name, lambda *a, _n=name, **k: called.append(_n))
 
         project = {"content_mode": content_mode, "products": {}}
-        episode = {"episode": 1, "title": "第一集", "content_mode": content_mode}
+        # 剧本不携带路线戳；骨架数组照 kind 摆出来，否则会先被路线闸门按失配拒掉。
+        episode = {"episode": 1, "title": "第一集", "content_mode": content_mode, kind: []}
         if gen_mode:
             project["generation_mode"] = gen_mode
-            episode["generation_mode"] = gen_mode
 
         validator = DataValidator(projects_root=str(tmp_path / "projects"))
         validator._validate_episode_payload(tmp_path, project, episode, [], [])
 
         assert _KIND_TO_VALIDATOR[kind] in called
+
+    @pytest.mark.integration
+    def test_narration_data_in_scenes_key_is_validated_as_scenes(self, tmp_path, monkeypatch):
+        """族内历史形态（narration 数据落 scenes 键）被闸门放行后，按剧本实际骨架校验。
+
+        按声明的 segments 分派会去读不存在的数组，scenes 里的数据一条都不受校验。
+        """
+        called: list[str] = []
+        for name in _KIND_TO_VALIDATOR.values():
+            monkeypatch.setattr(DataValidator, name, lambda *a, _n=name, **k: called.append(_n))
+
+        project = {"content_mode": "narration", "products": {}}
+        episode = {"episode": 1, "title": "第一集", "content_mode": "narration", "scenes": []}
+
+        validator = DataValidator(projects_root=str(tmp_path / "projects"))
+        validator._validate_episode_payload(tmp_path, project, episode, [], [])
+
+        assert called == ["_validate_scenes"]

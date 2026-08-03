@@ -249,7 +249,7 @@ class _FakeCalc:
         project["status"] = self.calculate_project_status(name, project)
         return project
 
-    def enrich_script(self, script):
+    def enrich_script(self, script, *, generation_mode=None):
         script = dict(script)
         script["metadata"] = {"total_scenes": 1, "estimated_duration_seconds": 8}
         return script

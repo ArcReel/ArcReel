@@ -645,7 +645,7 @@ async def get_project(
                 if script_file:
                     try:
                         script = manager.load_script(name, script_file)
-                        script = calculator.enrich_script(script)
+                        script = calculator.enrich_script(script, generation_mode=project.get("generation_mode"))
                         key = (
                             script_file.replace("scripts/", "", 1)
                             if script_file.startswith("scripts/")
