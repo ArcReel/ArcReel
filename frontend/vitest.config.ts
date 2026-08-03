@@ -25,7 +25,6 @@ export default defineConfig({
     testTimeout: 15_000,
     coverage: {
       provider: "v8",
-      all: true,
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["src/test/**", "src/__mocks__/**", "src/main.tsx", "src/vite-env.d.ts"],
       reporter: ["text", "json-summary", "lcov"],
