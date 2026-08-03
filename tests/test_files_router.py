@@ -644,10 +644,20 @@ class TestFilesRouter:
     @pytest.mark.integration
     def test_upload_rejects_unsafe_name_for_every_type(self, tmp_path, monkeypatch):
         """name 会被拼进落盘路径：含分隔符 / .. / 控制字符的名字在所有上传类型下都应被 400 拒绝。"""
-        client, pm = _client(monkeypatch, tmp_path)
-        projects_root = pm.get_project_path("demo").parent
-        before = sorted(p for p in projects_root.rglob("*") if p.is_file())
-        unsafe_names = ["../../evil", "sub/dir", "back\\slash", "..", "trailing.", "CON", "ctrl\x01char"]
+        client, _ = _client(monkeypatch, tmp_path)
+        # 快照范围取 tmp_path 而非 projects 根：越界名的目标本就在 projects 之外，只扫项目内看不见
+        before = sorted(p for p in tmp_path.rglob("*") if p.is_file())
+        unsafe_names = [
+            "../../evil",
+            "../../../evil",
+            str(tmp_path / "absolute-escape"),
+            "sub/dir",
+            "back\\slash",
+            "..",
+            "trailing.",
+            "CON",
+            "ctrl\x01char",
+        ]
         payloads = {
             "character_audio_ref": ("v.wav", _wav_bytes(3), "audio/wav"),
             # source 不使用 name，但校验在其早返分支之前，同样应拒
@@ -667,7 +677,7 @@ class TestFilesRouter:
                     assert resp.json()["detail"] == zh_assets.MESSAGES["asset_invalid_name"].format(name=unsafe)
 
             # 越界名字不得留下任何落盘产物（项目内与项目外都不得新增文件）
-            assert sorted(p for p in projects_root.rglob("*") if p.is_file()) == before
+            assert sorted(p for p in tmp_path.rglob("*") if p.is_file()) == before
 
     @pytest.mark.integration
     def test_upload_unsafe_name_message_is_localized(self, tmp_path, monkeypatch):
@@ -702,6 +712,19 @@ class TestFilesRouter:
             assert resp.status_code == 200
             assert resp.json()["path"] == "characters/Alice.jpg"
             assert pm.load_project("demo")["characters"]["Alice"]["character_sheet"] == "characters/Alice.jpg"
+
+    @pytest.mark.integration
+    def test_upload_empty_name_falls_back_to_filename(self, tmp_path, monkeypatch):
+        """空串 name 等同未提供：校验只对真值生效，落盘仍回退到原文件名 stem。"""
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/character",
+                params={"name": ""},
+                files={"file": ("x.jpg", _img_bytes("JPEG"), "image/jpeg")},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["path"] == "characters/x.jpg"
 
     @pytest.mark.unit
     def test_upload_spec_table_drives_extensions(self):
