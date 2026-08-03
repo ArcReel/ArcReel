@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY
+from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY, normalize_asset_bucket, normalize_asset_name
 from lib.config.resolver import ConfigResolver, constrain_durations, get_provider_fallback
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -73,8 +73,8 @@ def _resolve_unit_references(
         if rtype not in BUCKET_KEY:
             missing.append((str(rtype), str(rname)))
             continue
-        bucket = project.get(BUCKET_KEY[rtype]) or {}
-        item = bucket.get(rname)
+        bucket = normalize_asset_bucket(project.get(BUCKET_KEY[rtype]))
+        item = bucket.get(normalize_asset_name(str(rname)))
         sheet_rel = item.get(SHEET_KEY[rtype]) if isinstance(item, dict) else None
         if not sheet_rel:
             missing.append((rtype, rname))
@@ -403,9 +403,8 @@ def _resolve_ad_unit_reference_entries(
             warnings.append({"key": "ref_ad_reference_skipped", "params": {"type": "product", "name": name}})
 
     for rtype, rname in asset_refs:
-        raw_bucket = project.get(BUCKET_KEY[rtype])
-        bucket = raw_bucket if isinstance(raw_bucket, dict) else {}
-        item = bucket.get(rname)
+        bucket = normalize_asset_bucket(project.get(BUCKET_KEY[rtype]))
+        item = bucket.get(normalize_asset_name(rname))
         sheet_rel = item.get(SHEET_KEY[rtype]) if isinstance(item, dict) else None
         if sheet_rel and safe_exists(project_path, sheet_rel):
             entries.append(

@@ -182,6 +182,25 @@ def test_resolve_unit_references_unknown_name_raises(tmp_path: Path):
     assert ("prop", "不存在的道具") in excinfo.value.missing
 
 
+def test_resolve_unit_references_resolves_nfd_registered_name_by_nfc_reference(tmp_path: Path):
+    """资产以 NFD key 登记、unit.references 存的是解析器归一后的 NFC name：解析必须仍能命中，
+    否则 draft 校验放行（判「已登记」）而执行层查不到，会晚至生成时才响 MissingReferenceError。"""
+    import unicodedata
+
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    assert name_nfc != name_nfd
+
+    proj_dir = _write_project(tmp_path)
+    project, _ = _load_project_and_unit(proj_dir, "E1U1")
+    project["characters"][name_nfd] = {"description": "x", "character_sheet": "characters/hieu.png"}
+    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    refs = [{"type": "character", "name": name_nfc}]
+    resolved = _resolve_unit_references(project, proj_dir, refs)
+    assert [p.name for p in resolved] == ["hieu.png"]
+
+
 def test_render_unit_prompt_rejects_empty_shots():
     """执行层保留一道防御性空检查：提示词源是可变 script、执行期重读，结构校验上移到
     入队守卫点后仍需挡住「入队后被改空 / 在途遗留任务」漏过的空提示词，避免尾词追加后
