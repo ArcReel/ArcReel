@@ -217,7 +217,7 @@ class ViduVideoBackend:
         return self.video_capabilities_for_model(self._model)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # Vidu 不支持 resume：poll 完全内联在 generate，接续需先把它抽成独立的轮询入口。
+        # Vidu 不支持 resume：poll 完全内联在 generate，没有可供接续的独立轮询入口。
         # orphan handler 据 NotImplementedError 标 [resume_unsupported]
         raise NotImplementedError("ViduVideoBackend 暂不支持 resume_video")
 
