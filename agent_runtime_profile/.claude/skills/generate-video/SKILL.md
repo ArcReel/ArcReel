@@ -58,8 +58,11 @@ ad 剧本骨架唯一（平铺 `shots[]`，不存在 `video_units`）。项目 `
 
 ### reference_video 模式的时长确认
 
-`video_units` / ad 派生 unit 的申请时长按模型支持的档位取整（容量语义：申请能装下
-剧本总时长的最小档位，成片不裁剪；超过最大档位时按最大档位申请）。申请秒数与剧本
+`video_units` / ad 派生 unit 的申请时长按档位取整（容量语义：申请能装下剧本总时长的最小
+档位，成片不裁剪；超过最大档位时按最大档位申请）。取档用的是该 unit **引用状态对应**的那套
+生效档位——带 `@` 引用与不带引用可能不同（narration / drama 见 `get_video_capabilities` 的
+`reference_unit_durations.with_references` / `.without_references`；ad 的镜头时长为自由整数，
+不走档位枚举），不是型号声明的 `supported_durations` 全集。申请秒数与剧本
 编排的总时长不一致时，`generate_video_episode` / `generate_video_scene` /
 `generate_video_all` / `generate_video_selected` 四个工具在 reference_video 路径下
 **首次调用不会入队任何任务**，只返回待确认清单（每个 unit 的剧本总时长、将申请的
