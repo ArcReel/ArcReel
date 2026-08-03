@@ -1,39 +1,31 @@
 import { describe, it, expect } from "vitest";
-import { effectiveMode, normalizeMode, type GenerationMode } from "./generation-mode";
+import { gridStoryboardEnabled, normalizeRoute, type GenerationRoute } from "./generation-mode";
 
-describe("normalizeMode", () => {
-  it("maps legacy 'single' to 'storyboard'", () => {
-    expect(normalizeMode("single")).toBe("storyboard");
-  });
-  it("keeps canonical values", () => {
-    for (const m of ["storyboard", "grid", "reference_video"] as GenerationMode[]) {
-      expect(normalizeMode(m)).toBe(m);
+describe("normalizeRoute", () => {
+  it("keeps both routes", () => {
+    for (const r of ["storyboard", "reference_video"] as GenerationRoute[]) {
+      expect(normalizeRoute(r)).toBe(r);
     }
   });
-  it("returns 'storyboard' for undefined/null/unknown", () => {
-    expect(normalizeMode(undefined)).toBe("storyboard");
-    expect(normalizeMode(null)).toBe("storyboard");
-    expect(normalizeMode("weird")).toBe("storyboard");
+  it("falls back to 'storyboard' for missing or unknown values", () => {
+    expect(normalizeRoute(undefined)).toBe("storyboard");
+    expect(normalizeRoute(null)).toBe("storyboard");
+    expect(normalizeRoute("grid")).toBe("storyboard");
+    expect(normalizeRoute(42)).toBe("storyboard");
   });
 });
 
-describe("effectiveMode", () => {
-  it("prefers episode.generation_mode over project.generation_mode", () => {
-    expect(effectiveMode({ generation_mode: "grid" }, { generation_mode: "reference_video" }))
-      .toBe("reference_video");
+describe("gridStoryboardEnabled", () => {
+  it("requires the storyboard route with the toggle on", () => {
+    expect(gridStoryboardEnabled({ generation_mode: "storyboard", grid_storyboard: true })).toBe(true);
+    expect(gridStoryboardEnabled({ generation_mode: "storyboard", grid_storyboard: false })).toBe(false);
+    expect(gridStoryboardEnabled({ generation_mode: "storyboard" })).toBe(false);
   });
-  it("falls back to project mode if episode has none", () => {
-    expect(effectiveMode({ generation_mode: "reference_video" }, {})).toBe("reference_video");
+  it("stays off on the reference route even with a leftover toggle", () => {
+    expect(gridStoryboardEnabled({ generation_mode: "reference_video", grid_storyboard: true })).toBe(false);
   });
-  it("falls back to 'storyboard' when both missing", () => {
-    expect(effectiveMode({}, {})).toBe("storyboard");
-  });
-  it("normalizes legacy 'single' on both levels", () => {
-    expect(effectiveMode({ generation_mode: "single" }, {})).toBe("storyboard");
-    expect(effectiveMode({}, { generation_mode: "single" })).toBe("storyboard");
-  });
-  it("returns 'storyboard' when both arguments are null or undefined", () => {
-    expect(effectiveMode(null, null)).toBe("storyboard");
-    expect(effectiveMode(undefined, undefined)).toBe("storyboard");
+  it("handles missing project data", () => {
+    expect(gridStoryboardEnabled(null)).toBe(false);
+    expect(gridStoryboardEnabled(undefined)).toBe(false);
   });
 });

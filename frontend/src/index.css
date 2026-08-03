@@ -144,6 +144,18 @@ body {
     50.01%, 100% { opacity: 0; }
 }
 
+/* 条件呈现的从属条滑入 — 表达「随上方选择展开」的从属关系 */
+@keyframes arc-slide-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: none; }
+}
+
+@utility arc-slide-in {
+    @media (prefers-reduced-motion: no-preference) {
+        animation: arc-slide-in 0.25s ease-out;
+    }
+}
+
 /* === Modal / Glass panel chrome — 收拢 11 处弹窗 chrome 复制（issue #470 / #487） === */
 
 /* 玻璃面板 — GlassModal / GlassPopover 的内容容器样式 */

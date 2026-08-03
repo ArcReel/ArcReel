@@ -197,11 +197,9 @@ export interface ReferenceVideoScript {
   title: string;
   /**
    * 内容类型——参考视频集继承项目级 narration/drama，决定画面比例等次级配置；
-   * "视频来源"维度由 generation_mode 表达。
+   * "视频来源"维度由项目的生成路线表达，不落在剧本上。
    */
   content_mode?: "narration" | "drama";
-  /** 参考视频集固定 "reference_video"；由后端 ScriptGenerator 注入。 */
-  generation_mode?: "reference_video";
   duration_seconds: number;
   schema_version?: number;
   novel: { title: string; chapter: string };

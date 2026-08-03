@@ -8,6 +8,7 @@
  */
 
 import type { VoiceConsistencyTier } from "@/types/provider";
+import type { GenerationRoute } from "@/utils/generation-mode";
 
 export interface ProjectOverview {
   synopsis: string;
@@ -114,13 +115,8 @@ export interface EpisodeMeta {
   storyboards?: ProgressCategory;
   /** Injected by StatusCalculator at read time */
   videos?: ProgressCategory;
-  /** Injected by StatusCalculator at read time (reference_video mode only) */
+  /** Injected by StatusCalculator at read time (reference_video route only) */
   units_count?: number;
-  /**
-   * Optional episode-level override; falls back to project.generation_mode.
-   * Never "single" — legacy value only exists at project level.
-   */
-  generation_mode?: "storyboard" | "grid" | "reference_video";
 }
 
 export interface ModelSettingEntry {
@@ -161,8 +157,10 @@ export interface ProjectData {
   default_image_backend?: string | null;
   image_provider_t2i?: string | null;
   image_provider_i2i?: string | null;
-  /** Canonical values: storyboard | grid | reference_video. "single" is legacy-only. */
-  generation_mode?: "storyboard" | "grid" | "reference_video" | "single";
+  /** 生成路线，创建时锁定、之后不可更改。 */
+  generation_mode?: GenerationRoute;
+  /** 分镜板（宫格）装配开关；仅分镜路线有意义，随时可切。 */
+  grid_storyboard?: boolean;
   video_generate_audio?: boolean | null;
   /** 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速，留空即跟随全局默认 */
   audio_backend?: string | null;

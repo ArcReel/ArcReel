@@ -8,9 +8,12 @@ const baseValue = {
   contentMode: "narration" as const,
   sourceKind: "novel" as const,
   aspectRatio: "9:16" as const,
-  generationMode: "storyboard" as const,
+  generationRoute: "storyboard" as const,
+  gridStoryboard: false,
   targetDuration: 60,
 };
+
+const GRID_BAR_NAME = /分镜板（宫格）生视频/;
 
 describe("WizardStep1Basics", () => {
   it("disables Next button when title is empty", () => {
@@ -114,20 +117,45 @@ describe("WizardStep1Basics", () => {
     );
   });
 
-  it("emits onChange when generation mode changes", () => {
+  it("keeps Next disabled until a generation route is chosen", () => {
+    render(
+      <WizardStep1Basics
+        value={{ ...baseValue, title: "demo", generationRoute: null }}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /下一步/ })).toBeDisabled();
+  });
+
+  it("renders the route cards with no preselection", () => {
+    render(
+      <WizardStep1Basics
+        value={{ ...baseValue, generationRoute: null }}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    for (const radio of screen.getAllByRole("radio", { name: /分镜图生视频|参考生视频/ })) {
+      expect(radio).not.toBeChecked();
+    }
+  });
+
+  it("emits onChange when the storyboard route is picked", () => {
     const onChange = vi.fn();
     render(
       <WizardStep1Basics
-        value={baseValue}
+        value={{ ...baseValue, generationRoute: null }}
         onChange={onChange}
         onNext={() => {}}
         onCancel={() => {}}
       />,
     );
-    // click 宫格生视频 / Grid-to-Video
-    fireEvent.click(screen.getByText(/Grid-to-Video|宫格生视频/));
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ generationMode: "grid" }),
+    fireEvent.click(screen.getByRole("radio", { name: /分镜图生视频/ }));
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ generationRoute: "storyboard" }),
     );
   });
 
@@ -189,18 +217,56 @@ describe("WizardStep1Basics", () => {
     ).toBeInTheDocument();
   });
 
-  it("switches generation mode to reference_video", () => {
+  it("switches to the reference route and clears the grid toggle", () => {
     const onChange = vi.fn();
     render(
       <WizardStep1Basics
-        value={{ ...baseValue, title: "t" }}
+        value={{ ...baseValue, title: "t", gridStoryboard: true }}
         onChange={onChange}
         onNext={() => {}}
         onCancel={() => {}}
       />,
     );
-    fireEvent.click(screen.getByRole("radio", { name: /Reference-to-Video|参考生视频/ }));
-    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ generationMode: "reference_video" }));
+    fireEvent.click(screen.getByRole("radio", { name: /参考生视频/ }));
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ generationRoute: "reference_video", gridStoryboard: false }),
+    );
+  });
+
+  it("shows the grid assembly bar only on the storyboard route", () => {
+    const { rerender } = render(
+      <WizardStep1Basics
+        value={baseValue}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.getByRole("switch", { name: GRID_BAR_NAME })).toBeInTheDocument();
+
+    rerender(
+      <WizardStep1Basics
+        value={{ ...baseValue, generationRoute: "reference_video" as const }}
+        onChange={() => {}}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(screen.queryByRole("switch", { name: GRID_BAR_NAME })).not.toBeInTheDocument();
+  });
+
+  it("emits onChange when the grid toggle is switched on", () => {
+    const onChange = vi.fn();
+    render(
+      <WizardStep1Basics
+        value={baseValue}
+        onChange={onChange}
+        onNext={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("switch", { name: GRID_BAR_NAME }));
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ gridStoryboard: true }));
   });
 
   it("emits onChange with ad content mode", () => {
@@ -219,11 +285,11 @@ describe("WizardStep1Basics", () => {
     );
   });
 
-  it("switching to ad resets grid generation mode to storyboard", () => {
+  it("switching to ad clears the grid toggle", () => {
     const onChange = vi.fn();
     render(
       <WizardStep1Basics
-        value={{ ...baseValue, generationMode: "grid" as const }}
+        value={{ ...baseValue, gridStoryboard: true }}
         onChange={onChange}
         onNext={() => {}}
         onCancel={() => {}}
@@ -231,7 +297,7 @@ describe("WizardStep1Basics", () => {
     );
     fireEvent.click(screen.getByText(/广告\/短片|Ad \/ Short Video/));
     expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ contentMode: "ad", generationMode: "storyboard" }),
+      expect.objectContaining({ contentMode: "ad", gridStoryboard: false }),
     );
   });
 
@@ -278,7 +344,7 @@ describe("WizardStep1Basics", () => {
     );
   });
 
-  it("disables grid generation mode for ad", () => {
+  it("hides the grid assembly bar for ad projects", () => {
     render(
       <WizardStep1Basics
         value={{ ...baseValue, contentMode: "ad" as const }}
@@ -287,6 +353,6 @@ describe("WizardStep1Basics", () => {
         onCancel={() => {}}
       />,
     );
-    expect(screen.getByRole("radio", { name: /Grid-to-Video|宫格生视频/ })).toBeDisabled();
+    expect(screen.queryByRole("switch", { name: GRID_BAR_NAME })).not.toBeInTheDocument();
   });
 });
