@@ -94,6 +94,9 @@ def safe_body_for_log(body: dict) -> dict:
     imgs = body.get("images") or []
     if imgs:
         view["images"] = f"<{len(imgs)} data uri>"
+    subjects = body.get("subjects") or []
+    if subjects:
+        view["subjects"] = f"<{len(subjects)} subjects>"
     return view
 
 
