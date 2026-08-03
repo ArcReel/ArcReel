@@ -7,7 +7,7 @@
 ```text
 你是 afk-team-workflow 批次中 issue #<N> 的实现者。先读 <主仓库绝对路径>/.agents/skills/afk-team-workflow/references/implementer.md，按契约工作。
 变量：issue=#<N>；handoff=<主仓库绝对路径>/.afk/<batch-id>/handoff-<N>.md。
-Read/Edit/Write 按绝对路径字面执行、不随 EnterWorktree 切换：除契约与 handoff 文件外，一切文件读写用 worktree 内的绝对路径，主仓库路径写得进去、误写即破坏隔离。
+Read/Edit/Write 按绝对路径字面执行、不随 EnterWorktree 切换：除契约与 handoff 文件外，一切文件读写用 worktree 内的绝对路径，主仓库路径写得进去、误写即破坏隔离。契约文件的例外只覆盖「读取当前生效契约」；本批次任务恰是修改 implementer.md / local-reviewer.md / review-looper.md 这几份契约本身时，改动仍须走 worktree、经分支与 PR，不得字面套用此例外直接写主仓库路径。
 交付或遇到契约规定的请示场景时，SendMessage 给 team-lead（to 一律填 team-lead，不要用 main）。
 ```
 
@@ -40,7 +40,7 @@ task 文本模板（启动命令与前置的 worktree 建法见 SKILL.md「实�
 ```text
 你是 afk-team-workflow 批次中 issue #<N> 的本地审查者。先读 <主仓库绝对路径>/.agents/skills/afk-team-workflow/references/local-reviewer.md，按契约工作。
 变量：issue=#<N>；worktree=<路径>；分支=issue/<N>；handoff=<主仓库绝对路径>/.afk/<batch-id>/handoff-<N>.md。
-Read/Edit/Write 按绝对路径字面执行、不随 EnterWorktree 切换：除契约与 handoff 文件外，一切文件读写用 worktree 内的绝对路径，主仓库路径写得进去、误写即破坏隔离。
+Read/Edit/Write 按绝对路径字面执行、不随 EnterWorktree 切换：除契约与 handoff 文件外，一切文件读写用 worktree 内的绝对路径，主仓库路径写得进去、误写即破坏隔离。契约文件的例外只覆盖「读取当前生效契约」；本批次任务恰是修改 implementer.md / local-reviewer.md / review-looper.md 这几份契约本身时，改动仍须走 worktree、经分支与 PR，不得字面套用此例外直接写主仓库路径。
 交付或遇到契约规定的请示场景时，SendMessage 给 team-lead（to 一律填 team-lead，不要用 main）。
 ```
 
@@ -51,7 +51,7 @@ Read/Edit/Write 按绝对路径字面执行、不随 EnterWorktree 切换：除�
 ```text
 你是 afk-team-workflow 批次中 issue #<N> 的审查循环负责人。先读 <主仓库绝对路径>/.agents/skills/afk-team-workflow/references/review-looper.md，按契约工作。
 变量：issue=#<N>；PR=#<M>；worktree=<路径>；handoff=<主仓库绝对路径>/.afk/<batch-id>/handoff-<N>.md。
-Read/Edit/Write 按绝对路径字面执行、不随 EnterWorktree 切换：除契约与 handoff 文件外，一切文件读写用 worktree 内的绝对路径，主仓库路径写得进去、误写即破坏隔离。
+Read/Edit/Write 按绝对路径字面执行、不随 EnterWorktree 切换：除契约与 handoff 文件外，一切文件读写用 worktree 内的绝对路径，主仓库路径写得进去、误写即破坏隔离。契约文件的例外只覆盖「读取当前生效契约」；本批次任务恰是修改 implementer.md / local-reviewer.md / review-looper.md 这几份契约本身时，改动仍须走 worktree、经分支与 PR，不得字面套用此例外直接写主仓库路径。
 达标或遇到契约规定的请示场景时，SendMessage 给 team-lead（to 一律填 team-lead，不要用 main）。
 ```
 
