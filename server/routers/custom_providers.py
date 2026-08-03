@@ -18,6 +18,13 @@ from pydantic import AfterValidator, BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.api_errors import BadRequestError
+from lib.comfyui_workflow import (
+    COMFYUI_ENDPOINT,
+    ComfyUIWorkflowConfigError,
+    comfyui_headers,
+    normalize_comfyui_base_url,
+    validate_comfyui_endpoint_config,
+)
 from lib.config.repository import mask_secret
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.capabilities import (
@@ -56,7 +63,7 @@ def _validate_endpoint(value: str) -> str:
 # 写入路径上的 endpoint 字段统一走运行时校验，键集合自动跟随 ENDPOINT_REGISTRY；
 # 响应路径不需校验，直接 str。
 EndpointType = Annotated[str, AfterValidator(_validate_endpoint)]
-DiscoveryFormatLiteral = Literal["openai", "google"]
+DiscoveryFormatLiteral = Literal["openai", "google", "comfyui"]
 
 # 并发上限定型字段：可空正整数（≥1）；None = 未设置 → 容量装载回退全局默认。
 MaxWorkers = Annotated[int | None, Field(default=None, ge=1)]
@@ -143,6 +150,9 @@ class ModelInput(BaseModel):
     # 稀疏覆盖字典，键名对齐 VideoCapabilities 字段名；None 或键缺席 = 跟随系统判定。
     # 保存模型列表是整体替换语义，本字段必须随列表回传，否则存量覆盖被清空。
     capability_overrides: dict[str, object] | None = None
+    # Endpoint-specific persisted execution data.  For ComfyUI this is the sanitized API-format
+    # workflow and its detected bindings; ordinary models keep it null.
+    endpoint_config: dict[str, object] | None = None
 
     @field_validator("capability_overrides")
     @classmethod
@@ -181,6 +191,10 @@ class ModelInput(BaseModel):
             # endpoint 经 EndpointType 校验，值必在 ENDPOINT_REGISTRY 内，无需 ValueError 兜底
             durations = infer_supported_durations(self.model_id)
         d["supported_durations"] = json.dumps(durations) if durations is not None else None
+        if self.endpoint == COMFYUI_ENDPOINT:
+            d["endpoint_config"] = validate_comfyui_endpoint_config(self.endpoint_config)
+        else:
+            d["endpoint_config"] = None
         return d
 
 
@@ -242,6 +256,7 @@ class ModelResponse(BaseModel):
     system_capabilities: dict[str, object] | None = None
     # 用户覆盖（稀疏字典），与 system_capabilities 平凡合并即为生效值。
     capability_overrides: dict[str, object] | None = None
+    endpoint_config: dict[str, object] | None = None
     # 正在引用该模型的全局 system_settings 键名（如 default_video_backend_i2v）；未被引用为
     # None。只查 DB 全局配置，不扫描项目文件（`docs/adr/0054`）；前端据此渲染非阻塞提示。
     global_bucket_refs: list[str] | None = None
@@ -359,7 +374,12 @@ async def _global_bucket_refs_for_provider(session: AsyncSession, provider_id: i
     return _extract_global_bucket_refs(all_settings, provider_id)
 
 
-def _model_to_response(m, global_bucket_refs: list[str] | None = None) -> ModelResponse:
+def _model_to_response(
+    m,
+    global_bucket_refs: list[str] | None = None,
+    *,
+    include_endpoint_config: bool = True,
+) -> ModelResponse:
     durations = json.loads(m.supported_durations) if m.supported_durations else None
     return ModelResponse(
         system_capabilities=_system_capabilities_for(m.endpoint, m.model_id),
@@ -376,11 +396,18 @@ def _model_to_response(m, global_bucket_refs: list[str] | None = None) -> ModelR
         currency=m.currency,
         supported_durations=durations,
         resolution=m.resolution,
+        endpoint_config=m.endpoint_config if include_endpoint_config else None,
         global_bucket_refs=global_bucket_refs or None,
     )
 
 
-def _provider_to_response(provider, models, global_bucket_refs: dict[str, list[str]] | None = None) -> ProviderResponse:
+def _provider_to_response(
+    provider,
+    models,
+    global_bucket_refs: dict[str, list[str]] | None = None,
+    *,
+    include_endpoint_config: bool = True,
+) -> ProviderResponse:
     refs = global_bucket_refs or {}
     return ProviderResponse(
         id=provider.id,
@@ -388,7 +415,14 @@ def _provider_to_response(provider, models, global_bucket_refs: dict[str, list[s
         discovery_format=provider.discovery_format,
         base_url=provider.base_url,
         api_key_masked=mask_secret(provider.api_key),
-        models=[_model_to_response(m, refs.get(m.model_id)) for m in models],
+        models=[
+            _model_to_response(
+                m,
+                refs.get(m.model_id),
+                include_endpoint_config=include_endpoint_config,
+            )
+            for m in models
+        ],
         created_at=dt_to_iso(provider.created_at),
         image_max_workers=provider.image_max_workers,
         video_max_workers=provider.video_max_workers,
@@ -429,6 +463,20 @@ def _check_duplicate_model_ids(models: list[ModelInput], _t: Callable[..., str])
             raise HTTPException(status_code=422, detail=_t("duplicate_model_id", model_id=m.model_id))
         if m.model_id:
             seen.add(m.model_id)
+
+
+def _check_model_endpoint_configs(models: list[ModelInput], _t: Callable[..., str]) -> None:
+    """Validate per-endpoint execution templates before opening a write transaction."""
+    for model in models:
+        if model.endpoint != COMFYUI_ENDPOINT:
+            continue
+        try:
+            validate_comfyui_endpoint_config(model.endpoint_config)
+        except ComfyUIWorkflowConfigError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=_t("comfyui_workflow_invalid", model_id=model.model_id, error=str(exc)),
+            ) from exc
 
 
 def _check_capability_overrides(
@@ -586,7 +634,13 @@ async def list_providers(
     all_settings = await ConfigService(session).get_all_settings()
     return {
         "providers": [
-            _provider_to_response(p, models, _extract_global_bucket_refs(all_settings, p.id)) for p, models in pairs
+            _provider_to_response(
+                p,
+                models,
+                _extract_global_bucket_refs(all_settings, p.id),
+                include_endpoint_config=False,
+            )
+            for p, models in pairs
         ]
     }
 
@@ -612,6 +666,7 @@ async def create_provider(
         _check_duplicate_model_ids(body.models, _t)
         _check_unique_defaults(body.models, _t)
         _check_model_capability_overrides(body.models, _t)
+        _check_model_endpoint_configs(body.models, _t)
     repo = CustomProviderRepository(session)
     model_dicts = [m.to_db_dict() for m in body.models] if body.models else None
     provider = await repo.create_provider(
@@ -711,6 +766,7 @@ async def full_update_provider(
     _check_duplicate_model_ids(body.models, _t)
     _check_unique_defaults(body.models, _t)
     _check_model_capability_overrides(body.models, _t)
+    _check_model_endpoint_configs(body.models, _t)
     repo = CustomProviderRepository(session)
     kwargs: dict = {
         "display_name": body.display_name,
@@ -779,6 +835,7 @@ async def replace_models(
     _check_duplicate_model_ids(body.models, _t)
     _check_unique_defaults(body.models, _t)
     _check_model_capability_overrides(body.models, _t)
+    _check_model_endpoint_configs(body.models, _t)
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
     if provider is None:
@@ -924,6 +981,11 @@ async def _run_connection_test(
                 asyncio.to_thread(_test_google, base_url, api_key, _t),
                 timeout=_CONNECTION_TEST_TIMEOUT,
             )
+        elif discovery_format == "comfyui":
+            result = await asyncio.wait_for(
+                _test_comfyui(base_url, api_key, _t),
+                timeout=_CONNECTION_TEST_TIMEOUT,
+            )
         else:
             return ConnectionTestResponse(
                 success=False,
@@ -976,5 +1038,28 @@ def _test_google(base_url: str, api_key: str, _t: Callable[..., str]) -> Connect
     return ConnectionTestResponse(
         success=True,
         message=_t("connection_success"),
+        model_count=count,
+    )
+
+
+async def _test_comfyui(base_url: str, api_key: str, _t: Callable[..., str]) -> ConnectionTestResponse:
+    """Verify ComfyUI's native HTTP API and report the visible execution devices."""
+    from lib.httpx_shared import get_http_client
+
+    root = normalize_comfyui_base_url(base_url)
+    response = await get_http_client().get(
+        f"{root}/system_stats",
+        headers=comfyui_headers(api_key),
+        timeout=_CONNECTION_TEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError("ComfyUI system_stats response is not an object")
+    devices = payload.get("devices")
+    count = len(devices) if isinstance(devices, list) else 0
+    return ConnectionTestResponse(
+        success=True,
+        message=_t("comfyui_connection_success", count=count),
         model_count=count,
     )

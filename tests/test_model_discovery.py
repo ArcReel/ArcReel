@@ -373,6 +373,59 @@ class TestUnknownFormat:
             )
 
 
+class TestDiscoverModelsComfyUI:
+    @patch("lib.custom_provider.discovery.get_http_client")
+    async def test_imports_and_deduplicates_successful_video_workflows(self, mock_get_client):
+        from unittest.mock import AsyncMock
+
+        workflow = {
+            "10": {
+                "class_type": "MiniMaxH3ImageToVideo",
+                "inputs": {"prompt": "move", "first_frame": ["20", 0]},
+            },
+            "20": {"class_type": "LoadImage", "inputs": {"image": "frame.png"}},
+            "90": {
+                "class_type": "SaveVideo",
+                "inputs": {"filename_prefix": "MiniMax_H3", "video": ["10", 0]},
+            },
+        }
+        history_response = MagicMock()
+        history_response.json.return_value = {
+            "failed": {"status": {"completed": True, "status_str": "error"}, "prompt": [0, "x", workflow]},
+            "ok-1": {
+                "status": {"completed": True, "status_str": "success"},
+                "outputs": {"90": {"gifs": [{"filename": "one.mp4"}]}},
+                "prompt": [1, "ok-1", workflow],
+            },
+            "ok-2": {
+                "status": {"completed": True, "status_str": "success"},
+                "outputs": {"90": {"gifs": [{"filename": "two.mp4"}]}},
+                "prompt": [2, "ok-2", workflow],
+            },
+        }
+        object_info_response = MagicMock()
+        object_info_response.json.return_value = {}
+        client = MagicMock()
+        client.get = AsyncMock(side_effect=[history_response, object_info_response])
+        mock_get_client.return_value = client
+
+        from lib.custom_provider.discovery import discover_models
+
+        result = await discover_models(
+            discovery_format="comfyui",
+            base_url="http://comfy.local:8188/",
+            api_key="tailnet-token",
+        )
+
+        assert len(result) == 1
+        assert result[0]["endpoint"] == "comfyui-workflow"
+        assert result[0]["is_default"] is True
+        assert result[0]["endpoint_config"]["bindings"]["start_image"]["mode"] == "loader"
+        assert client.get.await_args_list[0].kwargs["headers"] == {
+            "Authorization": "Bearer tailnet-token"
+        }
+
+
 # ---------------------------------------------------------------------------
 # discover_models — Anthropic format
 # ---------------------------------------------------------------------------

@@ -26,6 +26,7 @@ class TestRegistry:
             "openai-video",
             "newapi-video",
             "v2-video-generations",
+            "comfyui-workflow",
             "ark-seedance",
             "vidu-video",
             "dashscope-image",
@@ -41,7 +42,18 @@ class TestRegistry:
         for key, spec in ENDPOINT_REGISTRY.items():
             assert spec.key == key
             assert spec.media_type in {"text", "image", "video", "audio"}
-            assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu", "dashscope", "minimax", "kling"}
+            assert spec.family in {
+                "openai",
+                "google",
+                "newapi",
+                "v2",
+                "ark",
+                "vidu",
+                "dashscope",
+                "minimax",
+                "kling",
+                "comfyui",
+            }
             assert spec.display_name_key.startswith("endpoint_")
             assert callable(spec.build_backend)
             assert spec.request_method == "POST"
@@ -69,6 +81,7 @@ class TestRegistry:
         """v2/ark/vidu/dashscope/minimax/kling 不在 endpoint 维度声明上限，由 resolver 调 backend 纯 caps 函数读取。"""
         for key in (
             "v2-video-generations",
+            "comfyui-workflow",
             "ark-seedance",
             "vidu-video",
             "dashscope-async-video",
@@ -223,6 +236,7 @@ class TestRegistry:
             "openai-video",
             "newapi-video",
             "v2-video-generations",
+            "comfyui-workflow",
             "ark-seedance",
             "vidu-video",
             "dashscope-async-video",

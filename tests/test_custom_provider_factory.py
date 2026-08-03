@@ -84,6 +84,27 @@ class TestEndpointDispatch:
             api_key="sk-test", base_url="https://api.aimlapi.com", model="bytedance/seedance-1-0-lite-i2v"
         )
 
+    @patch("lib.custom_provider.endpoints.ComfyUIVideoBackend")
+    def test_comfyui_workflow_receives_model_endpoint_config(self, mock_cls):
+        provider = _make_provider(base_url="http://comfy.local:8188", api_key="tailnet-token")
+        config = {"version": 1, "workflow": {"10": {"inputs": {}}}, "bindings": {}}
+
+        result = create_custom_backend(
+            provider=provider,
+            model_id="comfy-profile",
+            endpoint="comfyui-workflow",
+            endpoint_config=config,
+        )
+
+        assert isinstance(result, CustomVideoBackend)
+        mock_cls.assert_called_once_with(
+            base_url="http://comfy.local:8188",
+            api_key="tailnet-token",
+            model="comfy-profile",
+            endpoint_config=config,
+            provider_name="custom-42",
+        )
+
     @patch("lib.custom_provider.endpoints.ArkVideoBackend")
     def test_ark_seedance(self, mock_cls):
         provider = _make_provider(base_url="https://relay.example.com")

@@ -59,6 +59,7 @@ const COMPACT_INPUT_CLS =
 const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] = [
   { value: "openai", labelKey: "discovery_format_openai" },
   { value: "google", labelKey: "discovery_format_google" },
+  { value: "comfyui", labelKey: "discovery_format_comfyui" },
 ];
 
 interface ModelRow {
@@ -75,6 +76,7 @@ interface ModelRow {
   resolution: string; // 空串 = null
   supported_durations_text: string; // 用户原始文本，提交前 parse；空串 = 让后端按 preset 兜底
   capability_overrides: CapabilityOverrides | null;
+  endpoint_config: Record<string, unknown> | null;
   // 系统按 (endpoint, model_id) 判定的能力，只读展示用；null = 非视频模型，或该行尚未落库
   // （新增/改过 model_id 的行判定要后端算，前端不猜），此时控件只显示「待判定」。
   system_capabilities: VideoCapabilityFlags | null;
@@ -105,6 +107,7 @@ function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     resolution: "",
     supported_durations_text: "",
     capability_overrides: null,
+    endpoint_config: null,
     system_capabilities: null,
     global_bucket_refs: [],
     ...partial,
@@ -126,6 +129,9 @@ function discoveredToRow(m: DiscoveredModel): ModelRow {
     endpoint: m.endpoint,
     is_default: m.is_default,
     is_enabled: m.is_enabled,
+    supported_durations_text: m.supported_durations ? compactRangeFormat(m.supported_durations) : "",
+    capability_overrides: m.capability_overrides ?? null,
+    endpoint_config: m.endpoint_config ?? null,
   });
 }
 
@@ -143,6 +149,7 @@ function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
     resolution: m.resolution ?? "",
     supported_durations_text: m.supported_durations ? compactRangeFormat(m.supported_durations) : "",
     capability_overrides: m.capability_overrides,
+    endpoint_config: m.endpoint_config,
     system_capabilities: m.system_capabilities,
     global_bucket_refs: m.global_bucket_refs ?? [],
   });
@@ -167,6 +174,7 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
     ...(r.resolution ? { resolution: r.resolution } : { resolution: null }),
     ...(supported_durations ? { supported_durations } : { supported_durations: null }),
     capability_overrides: r.capability_overrides,
+    endpoint_config: r.endpoint_config,
   };
 }
 
@@ -318,7 +326,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     existing ? existing.models.map(existingToRow) : [],
   );
   const [imageMaxWorkers, setImageMaxWorkers] = useState(workersToStr(existing?.image_max_workers));
-  const [videoMaxWorkers, setVideoMaxWorkers] = useState(workersToStr(existing?.video_max_workers));
+  const [videoMaxWorkers, setVideoMaxWorkers] = useState(
+    workersToStr(existing?.video_max_workers) || (existing?.discovery_format === "comfyui" ? "1" : ""),
+  );
   const [audioMaxWorkers, setAudioMaxWorkers] = useState(workersToStr(existing?.audio_max_workers));
 
   // --- Loading / status ---
@@ -343,6 +353,8 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
   // base_url 相对存储值是否变更：变更后必须用 UI 上的新地址 + 新 key 走明文路径，
   // 否则 by-id 端点会用 DB 中的旧 base_url，与保存的新地址错位。
   const baseUrlChanged = !!existing && baseUrl.trim() !== existing.base_url.trim();
+  const isComfyUI = discoveryFormat === "comfyui";
+  const requiresApiKey = !isComfyUI;
   // 编辑模式下若用户未输入新 key 且 base_url 未变更，则用已存储凭证（by-id 端点）；
   // 创建模式或 base_url 变更时必须明文 api_key。发现模型与测试连接共用此判断。
   const useStoredCredential = !!existing && !apiKey && !baseUrlChanged;
@@ -353,7 +365,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       showError(t("fill_base_url_first"));
       return;
     }
-    if (!useStoredCredential && !apiKey) {
+    if (requiresApiKey && !useStoredCredential && !apiKey) {
       showError(t(baseUrlChanged ? "base_url_changed_reenter_key" : "fill_api_key_first"));
       return;
     }
@@ -375,7 +387,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     } finally {
       setDiscovering(false);
     }
-  }, [discoveryFormat, baseUrl, apiKey, useStoredCredential, baseUrlChanged, existing, showError, t]);
+  }, [discoveryFormat, baseUrl, apiKey, useStoredCredential, baseUrlChanged, requiresApiKey, existing, showError, t]);
 
   // --- Test connection ---
   const handleTest = useCallback(async () => {
@@ -385,7 +397,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       showError(t("fill_base_url_first"));
       return;
     }
-    if (!useStoredCredential && !apiKey) {
+    if (requiresApiKey && !useStoredCredential && !apiKey) {
       showError(t(baseUrlChanged ? "base_url_changed_reenter_key" : "fill_api_key_first"));
       return;
     }
@@ -400,7 +412,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     } finally {
       setTesting(false);
     }
-  }, [discoveryFormat, baseUrl, apiKey, useStoredCredential, baseUrlChanged, existing, showError, t]);
+  }, [discoveryFormat, baseUrl, apiKey, useStoredCredential, baseUrlChanged, requiresApiKey, existing, showError, t]);
 
   // --- Save ---
   const handleSave = useCallback(async () => {
@@ -413,7 +425,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
       showError(t("fill_base_url"));
       return;
     }
-    if (!isEdit && !apiKey.trim()) {
+    if (!isEdit && requiresApiKey && !apiKey.trim()) {
       showError(t("fill_api_key"));
       return;
     }
@@ -493,6 +505,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
     videoMaxWorkers,
     audioMaxWorkers,
     isEdit,
+    requiresApiKey,
     existing,
     onSaved,
     showError,
@@ -577,7 +590,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
 
         {/* API Key */}
         <div>
-          <FieldLabel htmlFor="cp-key" required={!isEdit}>
+          <FieldLabel htmlFor="cp-key" required={!isEdit && requiresApiKey}>
             {t("api_key_label")}
           </FieldLabel>
           <div className="relative">
@@ -599,6 +612,7 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
               {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
             </button>
           </div>
+          {isComfyUI && <p className="mt-1.5 text-[11px] text-text-4">{t("comfyui_api_key_optional")}</p>}
         </div>
 
         {/* Discovery format (de-emphasized) */}
@@ -612,7 +626,11 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
           <select
             id="cp-discovery"
             value={discoveryFormat}
-            onChange={(e) => setDiscoveryFormat(e.target.value as DiscoveryFormat)}
+            onChange={(e) => {
+              const next = e.target.value as DiscoveryFormat;
+              setDiscoveryFormat(next);
+              if (next === "comfyui" && !videoMaxWorkers.trim()) setVideoMaxWorkers("1");
+            }}
             disabled={isEdit}
             className="rounded-[6px] border border-hairline bg-bg-grad-a/55 px-2 py-1 text-[11.5px] text-text-2 hover:border-hairline-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
           >
@@ -620,7 +638,9 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
               <option key={o.value} value={o.value}>{t(o.labelKey)}</option>
             ))}
           </select>
-          <span className="font-mono text-[10.5px] text-text-4">{t("discovery_format_help")}</span>
+          <span className="font-mono text-[10.5px] text-text-4">
+            {t(isComfyUI ? "comfyui_discovery_help" : "discovery_format_help")}
+          </span>
         </div>
 
         {/* Discover button */}
@@ -634,10 +654,10 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             {discovering ? (
               <>
                 <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
-                {t("discovering_models")}
+                {t(isComfyUI ? "importing_workflows" : "discovering_models")}
               </>
             ) : (
-              t("discover_models")
+              t(isComfyUI ? "import_recent_workflows" : "discover_models")
             )}
           </button>
         </div>
@@ -863,28 +883,28 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
             </div>
 
             {/* Add manual model */}
-            <button
+            {!isComfyUI && <button
               type="button"
               onClick={addManualModel}
               className="mt-2 flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-text-3 transition-colors hover:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <Plus className="h-3.5 w-3.5" />
               {t("add_model_manually")}
-            </button>
+            </button>}
           </div>
         )}
 
         {/* Empty model hint */}
         {models.length === 0 && (
           <div className="rounded-[10px] border border-dashed border-hairline-strong bg-bg-grad-a/45 p-4 text-center text-[12.5px] text-text-3">
-            {t("discover_or_add_hint")}
-            <button
+            {t(isComfyUI ? "comfyui_discovery_empty_hint" : "discover_or_add_hint")}
+            {!isComfyUI && <button
               type="button"
               onClick={addManualModel}
               className="ml-1 font-mono text-[10.5px] font-bold uppercase tracking-[0.14em] text-accent-2 transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               {t("add_model_manually")}
-            </button>
+            </button>}
           </div>
         )}
 

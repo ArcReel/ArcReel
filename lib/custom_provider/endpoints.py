@@ -32,6 +32,7 @@ from lib.text_backends.gemini import GeminiTextBackend
 from lib.text_backends.openai import OpenAITextBackend
 from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import VideoCapabilities
+from lib.video_backends.comfyui import ComfyUIVideoBackend
 from lib.video_backends.dashscope import DashScopeVideoBackend
 from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.minimax import MiniMaxVideoBackend
@@ -61,6 +62,12 @@ class EndpointSpec:
         [CustomProvider, str],
         CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend,
     ]
+    # A small number of endpoints need per-model persisted execution data in addition to the
+    # provider credential.  Keeping this separate preserves every existing two-argument builder.
+    build_configured_backend: Callable[
+        [CustomProvider, str, object | None],
+        CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend,
+    ] | None = None
     image_capabilities: frozenset[ImageCapability] | None = None  # image 类才填，非 image 类省略
     # 参考生视频单镜头参考图上限；仅 video 类有意义。
     # 显式 int：原样下传作为硬约束（0 表示不接受参考图，executor 据此将 references 裁剪为 0 张）。
@@ -231,6 +238,22 @@ def _build_kling_video(provider, model_id: str) -> CustomVideoBackend:
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_comfyui_unconfigured(provider, model_id: str) -> CustomVideoBackend:
+    del provider, model_id
+    raise ValueError("ComfyUI 工作流模型缺少 endpoint_config")
+
+
+def _build_comfyui_video(provider, model_id: str, endpoint_config: object | None) -> CustomVideoBackend:
+    delegate = ComfyUIVideoBackend(
+        base_url=provider.base_url,
+        api_key=provider.api_key,
+        model=model_id,
+        endpoint_config=endpoint_config,
+        provider_name=provider.provider_id,
+    )
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 # ── ENDPOINT_REGISTRY 注册表 ───────────────────────────────────────
 
 
@@ -325,6 +348,18 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_v2_video_generations,
         # 多 model 共享端点、容量不同 → endpoint 维度不声明，按 model 读 backend caps（不构造 client）
         video_caps_for_model=V2VideoGenerationsBackend.video_capabilities_for_model,
+        end_image_capable=True,
+    ),
+    "comfyui-workflow": EndpointSpec(
+        key="comfyui-workflow",
+        media_type="video",
+        family="comfyui",
+        display_name_key="endpoint_comfyui_workflow_display",
+        request_method="POST",
+        request_path_template="/prompt",
+        build_backend=_build_comfyui_unconfigured,
+        build_configured_backend=_build_comfyui_video,
+        video_caps_for_model=ComfyUIVideoBackend.video_capabilities_for_model,
         end_image_capable=True,
     ),
     "ark-seedance": EndpointSpec(
@@ -509,6 +544,7 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     """把 EndpointSpec 转成可序列化的纯数据 dict（剥掉不可 JSON 化的 build_backend 闭包）。"""
     data = asdict(spec)
     data.pop("build_backend", None)
+    data.pop("build_configured_backend", None)
     data.pop("video_caps_for_model", None)  # 同 build_backend：callable 不可 JSON 化，剥掉
     if spec.image_capabilities is not None:
         data["image_capabilities"] = sorted(c.value for c in spec.image_capabilities)

@@ -23,6 +23,7 @@ def create_custom_backend(
     model_id: str,
     endpoint: str,
     capability_overrides: object | None = None,
+    endpoint_config: object | None = None,
 ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend:
     """按 endpoint 查 ENDPOINT_REGISTRY 并构造 Backend。
 
@@ -39,7 +40,11 @@ def create_custom_backend(
         ValueError: endpoint 不在 ENDPOINT_REGISTRY 中
     """
     spec = get_endpoint_spec(endpoint)
-    backend = spec.build_backend(provider, model_id)
+    backend = (
+        spec.build_configured_backend(provider, model_id, endpoint_config)
+        if spec.build_configured_backend is not None
+        else spec.build_backend(provider, model_id)
+    )
     if isinstance(backend, CustomVideoBackend):
         merged, applied = synthesize_video_capabilities_with_overrides(
             endpoint=endpoint, model_id=model_id, overrides=capability_overrides

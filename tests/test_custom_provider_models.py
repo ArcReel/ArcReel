@@ -115,6 +115,7 @@ class TestCustomProviderModelTable:
             "supported_durations",
             "resolution",
             "capability_overrides",
+            "endpoint_config",
             "created_at",
             "updated_at",
         }

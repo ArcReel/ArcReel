@@ -169,7 +169,7 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
                 </span>
               </div>
               <p className="mt-1.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-text-4">
-                {provider.discovery_format === "openai" ? "OPENAI" : "GOOGLE"} ·{" "}
+                {provider.discovery_format.toUpperCase()} ·{" "}
                 <span className="normal-case tracking-normal">{provider.base_url}</span>
               </p>
             </div>
@@ -184,7 +184,11 @@ export function CustomProviderDetail({ providerId, onDeleted, onSaved }: CustomP
               <div className="flex justify-between gap-4">
                 <span className="text-text-3">{t("discovery_format_label")}</span>
                 <span className="text-text">
-                  {provider.discovery_format === "openai" ? "OpenAI" : "Google"}
+                  {provider.discovery_format === "comfyui"
+                    ? "ComfyUI"
+                    : provider.discovery_format === "openai"
+                      ? "OpenAI"
+                      : "Google"}
                 </span>
               </div>
               <div className="flex justify-between gap-4">

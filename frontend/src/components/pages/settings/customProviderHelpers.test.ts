@@ -78,6 +78,11 @@ describe("urlPreviewFor", () => {
       "https://generativelanguage.googleapis.com/v1beta/models",
     );
   });
+  it("comfyui uses /system_stats", () => {
+    expect(urlPreviewFor("comfyui", "http://comfy.local:8188/")).toBe(
+      "http://comfy.local:8188/system_stats",
+    );
+  });
   it("empty base_url returns null", () => {
     expect(urlPreviewFor("openai", "")).toBeNull();
     expect(urlPreviewFor("google", "  ")).toBeNull();
