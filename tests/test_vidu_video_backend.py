@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
+from lib.config.registry import PROVIDER_REGISTRY
 from lib.providers import PROVIDER_VIDU
 from lib.video_backends.base import (
     VideoCapabilityError,
@@ -353,6 +354,33 @@ class TestDurationRulesSpec:
 
     def test_q3_turbo_text2video_full_range(self):
         assert _DURATION_RULES[("viduq3-turbo", "/text2video")] == list(range(1, 17))
+
+
+class TestRegistryBackendConsistency:
+    """registry 的 vidu2.0 声明与 backend 执行期白名单须无分歧（两侧同一份官方文档核实）。"""
+
+    def _vidu2_model_info(self):
+        return PROVIDER_REGISTRY["vidu"].models["vidu2.0"]
+
+    def test_reference_image_durations_matches_reference2video_rule(self):
+        model_info = self._vidu2_model_info()
+        assert model_info.reference_image_durations == _DURATION_RULES[("vidu2.0", "/reference2video")]
+
+    def test_supported_durations_covers_img2video_and_start_end2video(self):
+        model_info = self._vidu2_model_info()
+        expected_durations = set(_DURATION_RULES[("vidu2.0", "/img2video")]) | set(
+            _DURATION_RULES[("vidu2.0", "/start-end2video")]
+        )
+        assert set(model_info.supported_durations) == expected_durations
+
+    def test_duration_resolution_constraints_confines_non_720p_to_4s(self):
+        """8 秒档只出 720p——360p / 1080p 须声明仅 4 秒可选，UI 才不会给出无效的时长×分辨率组合。"""
+        model_info = self._vidu2_model_info()
+        assert model_info.duration_resolution_constraints == {"360p": [4], "1080p": [4]}
+
+    def test_resolutions_matches_backend_whitelist(self):
+        model_info = self._vidu2_model_info()
+        assert set(model_info.resolutions) == set(_RESOLUTION_WHITELIST["vidu2.0"])
 
 
 class TestCreateTask413:
