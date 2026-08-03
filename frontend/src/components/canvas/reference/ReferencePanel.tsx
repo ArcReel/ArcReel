@@ -114,19 +114,15 @@ export function ReferencePanel({
   );
 
   // baseIds 可能重复：PATCH 接口只校验 references 逐条已登记，不校验数组内互相去重，
-  // 一个 unit 的 references 里可能同时留有同一资产的 NFC/NFD 两条历史记录。sortableIds
-  // 给重复的 base id 追加序号，保证 React key 与 dnd-kit sortable id 互不相同；
-  // existingKeys（供候选过滤用）仍用未加序号的 baseIds，语义是「已存在该资产」而非「已存在该 id」。
+  // 一个 unit 的 references 里可能同时留有同一资产的 NFC/NFD 两条历史记录。existingKeys（供
+  // 候选过滤用）用 baseIds，语义是「已存在该资产」，与下面 sortableIds 的「拖拽身份」无关。
   const baseIds = useMemo(() => references.map(refId), [references]);
   const existingKeys = useMemo(() => new Set(baseIds), [baseIds]);
-  const sortableIds = useMemo(() => {
-    const seen = new Map<string, number>();
-    return baseIds.map((base) => {
-      const n = seen.get(base) ?? 0;
-      seen.set(base, n + 1);
-      return n === 0 ? base : `${base}#${n}`;
-    });
-  }, [baseIds]);
+  // sortableIds 用数组下标：位置在同一次渲染内天然唯一，不依赖字符串拼接方案去猜「不会与
+  // 合法资产名撞车」的分隔符（曾用 `#` 分隔，但 `#` 本身是合法资产名字符，回归过一次真实撞车）。
+  // reorder 只在 dragEnd 提交（onReorder 才更新 references），拖拽过程中 items 顺序不变，
+  // 下标身份在一次拖拽内是稳定的。
+  const sortableIds = useMemo(() => references.map((_, i) => String(i)), [references]);
 
   const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
     const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {

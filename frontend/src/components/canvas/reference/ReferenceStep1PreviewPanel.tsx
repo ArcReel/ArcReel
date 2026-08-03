@@ -82,10 +82,15 @@ function deriveDisplayReferences(text: string, lookup: MentionLookup): Reference
   const out: ReferenceResource[] = [];
   // extractMentions（非 tokenizePrompt）：规范台词行里的说话人不产参考图，与后端
   // extract_mentions 同口径——tokenizePrompt 是给高亮用的，不做这条跳过。
+  // extractMentions 按裸字符串去重，同一资产以 NFC/NFD 两种编码各出现一次时会各产一条；
+  // 后端归一后落盘只保留一条，这里须同口径按归一形式去重，否则预览多显示一张图/一个图号。
+  const seen = new Set<string>();
   for (const name of extractMentions(text)) {
-    const assetKind = lookup[normalizeAssetName(name)];
-    if (!assetKind) continue;
-    out.push({ type: assetKind, name });
+    const canonical = normalizeAssetName(name);
+    const assetKind = lookup[canonical];
+    if (!assetKind || seen.has(canonical)) continue;
+    seen.add(canonical);
+    out.push({ type: assetKind, name: canonical });
   }
   return out;
 }

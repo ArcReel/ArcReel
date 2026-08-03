@@ -308,6 +308,35 @@ describe("ReferenceStep1PreviewPanel", () => {
     expect(within(referencesRow).queryByText("阿离")).not.toBeInTheDocument();
   });
 
+  it("dedupes a reference pill when the same asset is mentioned once in NFC and once in NFD", async () => {
+    // extractMentions 按裸字符串去重，同一资产以两种编码各出现一次会各产一条；deriveDisplayReferences
+    // 须在归一后再去重，否则预览会重复渲染同一资产的 pill / 图号，与后端落盘的单条引用不一致。
+    const nameNfc = "Hiếu".normalize("NFC");
+    const nameNfd = "Hiếu".normalize("NFD");
+    expect(nameNfc).not.toBe(nameNfd);
+    const lookup: MentionLookup = { [nameNfc]: "character" };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      ...quarantinedState(),
+      quarantine: {
+        content: {
+          units: [
+            {
+              duration_seconds: 8,
+              source_text: "x",
+              text: `镜头1：@[${nameNfc}] 登场\n镜头2：@[${nameNfd}] 转身`,
+            },
+          ],
+        },
+        violations: [],
+      },
+    });
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={lookup} />);
+
+    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
+    const referencesRow = screen.getByText("参考图").closest("div") as HTMLElement;
+    expect(within(referencesRow).getAllByText(nameNfc)).toHaveLength(1);
+  });
+
   it("disables the duration select and shot textarea while a save is in flight", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     let resolveSave: (value: ScriptReviewState) => void = () => {};
