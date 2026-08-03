@@ -16,6 +16,15 @@ const ROUTE_FRAME_STYLE: CSSProperties = {
   background: "linear-gradient(180deg, oklch(0.19 0.011 268 / 0.6), oklch(0.15 0.010 262 / 0.6))",
 };
 
+/**
+ * 路线的文案与输入契约标签。向导二卡与设置页只读展示共用同一份，
+ * 避免两处各自维护「路线 → 名称 / 描述 / I2V-R2V」的对应关系而漂移。
+ */
+export const ROUTE_META: Record<GenerationRoute, { nameKey: string; descKey: string; tag: string }> = {
+  storyboard: { nameKey: "route_storyboard", descKey: "route_storyboard_desc", tag: "I2V" },
+  reference_video: { nameKey: "route_reference_video", descKey: "route_reference_video_desc", tag: "R2V" },
+};
+
 /** 「创建后不可更改」琥珀锁形徽章。与区块标题同行，设置页只读展示复用。 */
 export function RouteLockBadge() {
   const { t } = useTranslation("dashboard");
@@ -95,6 +104,12 @@ function ReferenceDiagram({ active }: { active: boolean }) {
   );
 }
 
+/** 左右两半的呈现顺序：分镜路线在左（默认路径），参考路线在右。 */
+const ROUTE_CARDS: readonly { route: GenerationRoute; Diagram: (props: { active: boolean }) => ReactNode }[] = [
+  { route: "storyboard", Diagram: StoryboardDiagram },
+  { route: "reference_video", Diagram: ReferenceDiagram },
+];
+
 export interface GenerationRouteCardsProps {
   /** null = 未选。必选：未选时向导不放行。 */
   value: GenerationRoute | null;
@@ -106,7 +121,6 @@ export interface GenerationRouteCardsProps {
 export function GenerationRouteCards({ value, onChange, children }: GenerationRouteCardsProps) {
   const { t } = useTranslation("dashboard");
   const sb = value === "storyboard";
-  const rv = value === "reference_video";
   const halfCls = (selected: boolean) =>
     `relative flex cursor-pointer flex-col items-center gap-2.5 px-4 py-5 text-center transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent ${
       selected ? "bg-accent-dim" : "hover:bg-bg-grad-a/60"
@@ -146,35 +160,26 @@ export function GenerationRouteCards({ value, onChange, children }: GenerationRo
           />
         ) : null}
 
-        <label className={halfCls(sb)}>
-          <input
-            type="radio"
-            name="generationRoute"
-            value="storyboard"
-            checked={sb}
-            onChange={() => onChange("storyboard")}
-            className="sr-only"
-          />
-          <span className={tagCls(sb)}>I2V</span>
-          <StoryboardDiagram active={sb} />
-          <span className="text-[14.5px] font-semibold text-text">{t("route_storyboard")}</span>
-          <span className="text-[11.5px] leading-[1.55] text-text-3">{t("route_storyboard_desc")}</span>
-        </label>
-
-        <label className={halfCls(rv)}>
-          <input
-            type="radio"
-            name="generationRoute"
-            value="reference_video"
-            checked={rv}
-            onChange={() => onChange("reference_video")}
-            className="sr-only"
-          />
-          <span className={tagCls(rv)}>R2V</span>
-          <ReferenceDiagram active={rv} />
-          <span className="text-[14.5px] font-semibold text-text">{t("route_reference_video")}</span>
-          <span className="text-[11.5px] leading-[1.55] text-text-3">{t("route_reference_video_desc")}</span>
-        </label>
+        {ROUTE_CARDS.map(({ route, Diagram }) => {
+          const selected = value === route;
+          const meta = ROUTE_META[route];
+          return (
+            <label key={route} className={halfCls(selected)}>
+              <input
+                type="radio"
+                name="generationRoute"
+                value={route}
+                checked={selected}
+                onChange={() => onChange(route)}
+                className="sr-only"
+              />
+              <span className={tagCls(selected)}>{meta.tag}</span>
+              <Diagram active={selected} />
+              <span className="text-[14.5px] font-semibold text-text">{t(meta.nameKey)}</span>
+              <span className="text-[11.5px] leading-[1.55] text-text-3">{t(meta.descKey)}</span>
+            </label>
+          );
+        })}
       </div>
 
       {children}

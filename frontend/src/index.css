@@ -156,7 +156,7 @@ body {
     }
 }
 
-/* === Modal / Glass panel chrome — 收拢 11 处弹窗 chrome 复制（issue #470 / #487） === */
+/* === Modal / Glass panel chrome — 收拢弹窗 chrome 的重复样式 === */
 
 /* 玻璃面板 — GlassModal / GlassPopover 的内容容器样式 */
 .arc-glass-panel {

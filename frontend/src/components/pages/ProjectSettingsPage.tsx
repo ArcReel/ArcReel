@@ -14,7 +14,7 @@ import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
 import type { CustomProviderInfo, ModelCandidatesResponse, ProviderInfo } from "@/types";
-import { RouteLockBadge } from "@/components/shared/GenerationRouteCards";
+import { ROUTE_META, RouteLockBadge } from "@/components/shared/GenerationRouteCards";
 import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -414,6 +414,9 @@ export function ProjectSettingsPage() {
     });
   }, [styleValue]);
 
+  // 宫格是分镜路线内的装配选项；参考路线与不支持宫格的 ad 项目下既不呈现也不参与保存
+  const gridToggleVisible = generationRoute === "storyboard" && contentMode !== "ad";
+
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
@@ -450,8 +453,9 @@ export function ProjectSettingsPage() {
         text_backend_simple: textSimple || null,
         text_backend_complex: textComplex || null,
         aspect_ratio: aspectRatio || undefined,
-        // 路线不在 PATCH 面上（创建后不可更改）；宫格装配开关随时可写
-        grid_storyboard: gridStoryboard,
+        // 路线不在 PATCH 面上（创建后不可更改）；宫格装配开关随时可写，
+        // 但只在开关可见时写——参考路线与 ad 项目下该键与项目无关，ad 更会对 true 返回 400
+        ...(gridToggleVisible ? { grid_storyboard: gridStoryboard } : {}),
         // ad 项目禁写 default_duration（后端对字段出现本身返回 400），省略该键
         ...(contentMode === "ad" ? {} : { default_duration: defaultDuration }),
         model_settings: newModelSettings,
@@ -475,7 +479,7 @@ export function ProjectSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults]);
+  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults]);
 
   return (
     <div
@@ -703,22 +707,17 @@ export function ProjectSettingsPage() {
                   <div className="rounded-[9px] border border-hairline-soft bg-bg-grad-a/50 px-3.5 py-2.5">
                     <div className="flex items-baseline gap-2">
                       <span className="text-[13px] font-semibold text-text">
-                        {generationRoute === "reference_video"
-                          ? t("route_reference_video")
-                          : t("route_storyboard")}
+                        {t(ROUTE_META[generationRoute].nameKey)}
                       </span>
                       <span className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-text-4">
-                        {generationRoute === "reference_video" ? "R2V" : "I2V"}
+                        {ROUTE_META[generationRoute].tag}
                       </span>
                     </div>
                     <p className="mt-0.5 text-[11.5px] leading-[1.5] text-text-3">
-                      {generationRoute === "reference_video"
-                        ? t("route_reference_video_desc")
-                        : t("route_storyboard_desc")}
+                      {t(ROUTE_META[generationRoute].descKey)}
                     </p>
                   </div>
-                  {/* 宫格是分镜路线内的装配选项；参考路线与不支持宫格的 ad 项目下不呈现 */}
-                  {generationRoute === "storyboard" && contentMode !== "ad" ? (
+                  {gridToggleVisible ? (
                     <GridStoryboardBar checked={gridStoryboard} onToggle={setGridStoryboard} />
                   ) : null}
                 </div>

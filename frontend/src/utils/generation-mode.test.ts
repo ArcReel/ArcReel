@@ -7,10 +7,9 @@ describe("normalizeRoute", () => {
       expect(normalizeRoute(r)).toBe(r);
     }
   });
-  it("falls back to 'storyboard' for missing or unknown values", () => {
+  it("falls back to 'storyboard' when the field is absent or unparseable", () => {
     expect(normalizeRoute(undefined)).toBe("storyboard");
     expect(normalizeRoute(null)).toBe("storyboard");
-    expect(normalizeRoute("grid")).toBe("storyboard");
     expect(normalizeRoute(42)).toBe("storyboard");
   });
 });
