@@ -868,8 +868,8 @@ class TestReferenceVideoRejection:
         assert resp.status_code == 200, resp.text
         assert pm.load_script("demo", "episode_1.json")["segments"][0]["end_frame_image"] == END_FRAME_REL
 
-    def test_unresolvable_episode_falls_back_to_project_mode(self, tmp_path, monkeypatch):
-        # 集号既不在剧本里也不在文件名里：回退项目级判定照常拒绝，不落到 500。
+    def test_script_without_episode_number_rejected_by_project_route(self, tmp_path, monkeypatch):
+        # 剧本与文件名都不含集号：判定只需项目路线，照常拒绝且不落到 500。
         script = {
             "title": "E1",
             "content_mode": "narration",
