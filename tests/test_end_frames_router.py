@@ -349,15 +349,20 @@ def _interleave_across_critical_section(
     monkeypatch.setattr(ProjectManager, "_write_script_unlocked", _gated_persist)
 
     results: dict[str, httpx.Response] = {}
+    errors: dict[str, BaseException] = {}
 
     def _run(key: str, call: Callable[[], httpx.Response]) -> threading.Thread:
         def _target() -> None:
-            results[key] = call()
+            try:
+                results[key] = call()
+            except BaseException as exc:  # noqa: BLE001 — 主线程复述，不能只打印到 stderr
+                errors[key] = exc
 
         thread = threading.Thread(target=_target)
         thread.start()
         return thread
 
+    t_second: threading.Thread | None = None
     t_first = _run("first", first)
     try:
         assert entered_section.wait(timeout=10), "先到的请求没能进入剧本锁临界区"
@@ -369,9 +374,11 @@ def _interleave_across_critical_section(
     finally:
         resume.set()
     t_first.join(timeout=10)
-    t_second.join(timeout=10)
+    if t_second is not None:
+        t_second.join(timeout=10)
     assert not t_first.is_alive(), "先到的请求未在超时内结束"
-    assert not t_second.is_alive(), "后到的请求未在超时内结束"
+    assert t_second is not None and not t_second.is_alive(), "后到的请求未在超时内结束"
+    assert not errors, f"请求线程内抛出异常：{errors}"
     return _InterleavedResponses(first=results["first"], second=results["second"])
 
 
