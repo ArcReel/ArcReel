@@ -654,7 +654,7 @@ async def execute_reference_video_task(
     # 不写回时回退到的是 project 默认时长，而非该 unit 自己的时长——二者不相等是常态，
     # 不能仅在「取档偏移了剧本编排（adjustment != exact）」时才写回，未取档但仍偏离项目
     # 默认值的 unit 同样需要。持久化失败只降级为 resume 元数据不够精确（回退到项目默认
-    # 时长，与本次改动前行为一致），不影响本次生成结果，不 fail-fast。
+    # 时长，即回退路径本身的行为），不影响当前生成结果，不 fail-fast。
     if task_id is not None:
         await _persist_effective_duration(task_id, effective_duration)
 
