@@ -10,7 +10,9 @@ import logging
 import shutil
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +20,7 @@ from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib.api_errors import NotFoundError
-from lib.asset_types import GLOBAL_LIBRARY_ASSET_TYPES
+from lib.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, validate_asset_name
 from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
     AUDIO_REFERENCE_MAX_SECONDS,
@@ -40,7 +42,7 @@ from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
-from lib.project_manager import effective_mode, get_project_manager
+from lib.project_manager import ProjectManager, effective_mode, get_project_manager
 from lib.source_loader import (
     ConflictError,
     CorruptFileError,
@@ -65,17 +67,116 @@ def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:
     return file.filename
 
 
-# 允许的文件类型
-ALLOWED_EXTENSIONS = {
-    "source": [".txt", ".md", ".docx", ".epub", ".pdf"],
-    "character": [".png", ".jpg", ".jpeg", ".webp"],
-    "character_ref": [".png", ".jpg", ".jpeg", ".webp"],
-    "character_audio_ref": [".wav", ".mp3"],
-    "scene": [".png", ".jpg", ".jpeg", ".webp"],
-    "prop": [".png", ".jpg", ".jpeg", ".webp"],
-    "product": [".png", ".jpg", ".jpeg", ".webp"],
-    "product_ref": [".png", ".jpg", ".jpeg", ".webp"],
+_IMAGE_EXTS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".webp")
+
+# 落盘文件名策略
+#   stable_png — 稳定单图名 `{name}.png`（实际后缀由图片归一化结果决定）
+#   keep_ext   — 稳定单图名，保留上传的原扩展名（音频不转码）
+#   sequenced  — 多图累积，按序号取唯一名
+#   original   — 原样保留上传文件名
+Naming = Literal["stable_png", "keep_ext", "sequenced", "original"]
+
+# 落盘前的内容处理
+#   normalize_image — 校验并按阈值压缩，可能改写扩展名
+#   validate_image  — 仅校验可解码，保留原件字节
+#   audio           — 校验体积与时长，不转码
+#   none            — 不处理，由专用分支接管
+ContentCheck = Literal["normalize_image", "validate_image", "audio", "none"]
+
+MetadataSetter = Callable[[ProjectManager, str, str, str], object]
+
+
+@dataclass(frozen=True)
+class UploadSpec:
+    """单个 upload_type 的落盘规则：目标目录、扩展名白名单、体积上限、后处理与元数据回写。
+
+    新增上传类型只在 ``UPLOAD_SPECS`` 登记表项，不复制分支逻辑。``source`` 是唯一例外：
+    它由 ``_handle_source_upload`` 全权接管，表项只提供类型校验与扩展名白名单。
+    """
+
+    allowed_exts: tuple[str, ...]
+    subdir: tuple[str, ...]
+    naming: Naming
+    content_check: ContentCheck
+    unsupported_ext_key: str = "unsupported_image_type"
+    max_bytes: int | None = None
+    metadata_setter: MetadataSetter | None = None
+    # 非空表示文件挂在宿主资产的字段下、该字段是文件的唯一指针：宿主不存在就拒收
+    # （含并发删除的窗口期），避免落下界面上不可见的孤儿文件。单图类型路径确定、
+    # 可容忍资产后建，不设此约束。
+    host_bucket: str | None = None
+    host_not_found_key: str = ""
+    # 替换参考音频时先解析旧文件路径，等新文件与字段写入成功后再删除
+    tracks_stale_audio: bool = False
+
+
+UPLOAD_SPECS: dict[str, UploadSpec] = {
+    "source": UploadSpec(
+        allowed_exts=(".txt", ".md", ".docx", ".epub", ".pdf"),
+        subdir=("source",),
+        naming="original",
+        content_check="none",
+    ),
+    "character": UploadSpec(
+        allowed_exts=_IMAGE_EXTS,
+        subdir=(ASSET_SPECS["character"].subdir,),
+        naming="stable_png",
+        content_check="normalize_image",
+        metadata_setter=ProjectManager.update_project_character_sheet,
+    ),
+    "character_ref": UploadSpec(
+        allowed_exts=_IMAGE_EXTS,
+        subdir=(ASSET_SPECS["character"].subdir, "refs"),
+        naming="stable_png",
+        content_check="normalize_image",
+        metadata_setter=ProjectManager.update_character_reference_image,
+    ),
+    "character_audio_ref": UploadSpec(
+        allowed_exts=(".wav", ".mp3"),
+        subdir=(ASSET_SPECS["character"].subdir, "refs_audio"),
+        naming="keep_ext",
+        content_check="audio",
+        unsupported_ext_key="unsupported_audio_type",
+        max_bytes=AUDIO_REFERENCE_MAX_BYTES,
+        metadata_setter=ProjectManager.update_character_reference_audio,
+        tracks_stale_audio=True,
+    ),
+    "scene": UploadSpec(
+        allowed_exts=_IMAGE_EXTS,
+        subdir=(ASSET_SPECS["scene"].subdir,),
+        naming="stable_png",
+        content_check="normalize_image",
+        metadata_setter=ProjectManager.update_scene_sheet,
+    ),
+    "prop": UploadSpec(
+        allowed_exts=_IMAGE_EXTS,
+        subdir=(ASSET_SPECS["prop"].subdir,),
+        naming="stable_png",
+        content_check="normalize_image",
+        metadata_setter=ProjectManager.update_prop_sheet,
+    ),
+    "product": UploadSpec(
+        allowed_exts=_IMAGE_EXTS,
+        subdir=(ASSET_SPECS["product"].subdir,),
+        naming="stable_png",
+        content_check="normalize_image",
+        metadata_setter=ProjectManager.update_product_sheet,
+    ),
+    "product_ref": UploadSpec(
+        allowed_exts=_IMAGE_EXTS,
+        subdir=(ASSET_SPECS["product"].subdir, "refs"),
+        naming="sequenced",
+        # 产品原图是保真验收锚点（ADR 0034）：仅校验可解码，保留原件字节与扩展名，
+        # 不做阈值压缩/重编码。请求体上限由生成发送前的参考压缩环节独立保障。
+        content_check="validate_image",
+        metadata_setter=ProjectManager.add_product_reference_image,
+        host_bucket=ASSET_SPECS["product"].bucket_key,
+        host_not_found_key="product_not_found",
+    ),
 }
+
+# 允许的文件类型（前端 frontend/src/utils/source-files.ts 镜像了 source 一项）
+ALLOWED_EXTENSIONS = {upload_type: list(spec.allowed_exts) for upload_type, spec in UPLOAD_SPECS.items()}
 
 
 @public_router.get("/files/{project_name}/{path:path}")
@@ -152,19 +253,27 @@ async def upload_file(
             分镜/视频上传走 shot_uploads 路由
         on_conflict: source 类型独有 — fail / replace / rename
     """
-    if upload_type not in ALLOWED_EXTENSIONS:
+    spec = UPLOAD_SPECS.get(upload_type)
+    if spec is None:
         raise HTTPException(status_code=400, detail=_t("invalid_upload_type", upload_type=upload_type))
 
     original_filename = _require_filename(file, _t)
 
     # 检查文件扩展名
     ext = Path(original_filename).suffix.lower()
-    if ext not in ALLOWED_EXTENSIONS[upload_type]:
-        error_key = "unsupported_audio_type" if upload_type == "character_audio_ref" else "unsupported_image_type"
+    if ext not in spec.allowed_exts:
         raise HTTPException(
             status_code=400,
-            detail=_t(error_key, ext=ext, allowed=", ".join(ALLOWED_EXTENSIONS[upload_type])),
+            detail=_t(spec.unsupported_ext_key, ext=ext, allowed=", ".join(spec.allowed_exts)),
         )
+
+    # name 会被拼进落盘路径，路径不安全的名字（分隔符 / .. / 控制字符）在边界即拒绝；
+    # 未提供时按原文件名 stem 回落，不做校验。
+    if name:
+        try:
+            name = validate_asset_name(name)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=name))
 
     # Source 分支早返 — 走 SourceLoader 规范化
     if upload_type == "source":
@@ -178,11 +287,11 @@ async def upload_file(
     try:
         content = await file.read()
 
-        if upload_type == "character_audio_ref":
-            if len(content) > AUDIO_REFERENCE_MAX_BYTES:
+        if spec.content_check == "audio":
+            if spec.max_bytes is not None and len(content) > spec.max_bytes:
                 raise HTTPException(
                     status_code=400,
-                    detail=_t("upload_too_large", max_mb=AUDIO_REFERENCE_MAX_BYTES // (1024 * 1024)),
+                    detail=_t("upload_too_large", max_mb=spec.max_bytes // (1024 * 1024)),
                 )
             try:
                 duration = await probe_audio_duration_seconds(content, ext)
@@ -199,89 +308,41 @@ async def upload_file(
                 )
 
         def _sync():
-            project_dir = get_project_manager().get_project_path(project_name)
+            manager = get_project_manager()
+            project_dir = manager.get_project_path(project_name)
 
-            # 产品原图列表是这些文件的唯一指针：产品不存在就拒收，避免落下不可见的孤儿文件
-            # （character_ref 等单图类型路径确定、可容忍资产后建，不受此约束）。
-            if upload_type == "product_ref":
-                products = get_project_manager().load_project(project_name).get("products") or {}
-                if not name or name not in products:
-                    raise HTTPException(status_code=404, detail=_t("product_not_found", name=name or ""))
+            if spec.host_bucket is not None:
+                hosts = manager.load_project(project_name).get(spec.host_bucket) or {}
+                if not name or name not in hosts:
+                    raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name or ""))
 
-            # 确定目标目录
-            if upload_type == "source":
-                target_dir = project_dir / "source"
-                filename = original_filename
-            elif upload_type == "character":
-                target_dir = project_dir / "characters"
-                # 统一保存为 PNG，且使用稳定文件名（避免 jpg/png 不一致导致版本还原/引用异常）
-                if name:
-                    filename = f"{name}.png"
-                else:
-                    filename = f"{Path(original_filename).stem}.png"
-            elif upload_type == "character_ref":
-                target_dir = project_dir / "characters" / "refs"
-                if name:
-                    filename = f"{name}.png"
-                else:
-                    filename = f"{Path(original_filename).stem}.png"
-            elif upload_type == "character_audio_ref":
-                target_dir = project_dir / "characters" / "refs_audio"
-                # 音频不转码，保留原扩展名（wav/mp3 二选一，替换时新旧扩展名可能不同）；
-                # `ext` 在下方图片分支被重新赋值而变成 `_sync` 的局部变量，此处不能引用外层同名值
-                audio_ext = Path(original_filename).suffix.lower()
-                if name:
-                    filename = f"{name}{audio_ext}"
-                else:
-                    filename = f"{Path(original_filename).stem}{audio_ext}"
-            elif upload_type == "scene":
-                target_dir = project_dir / "scenes"
-                if name:
-                    filename = f"{name}.png"
-                else:
-                    filename = f"{Path(original_filename).stem}.png"
-            elif upload_type == "prop":
-                target_dir = project_dir / "props"
-                if name:
-                    filename = f"{name}.png"
-                else:
-                    filename = f"{Path(original_filename).stem}.png"
-            elif upload_type == "product":
-                target_dir = project_dir / "products"
-                if name:
-                    filename = f"{name}.png"
-                else:
-                    filename = f"{Path(original_filename).stem}.png"
-            elif upload_type == "product_ref":
-                target_dir = project_dir / "products" / "refs"
-                filename = ""  # 多图累积，唯一文件名在目录就绪后按序号计算
-            else:
-                target_dir = project_dir / upload_type
-                filename = original_filename
+            target_dir = project_dir.joinpath(*spec.subdir)
+            # 稳定文件名（避免 jpg/png 不一致导致版本还原/引用异常）；未指定 name 时用原文件名主干
+            stem = name or Path(original_filename).stem
+            filename = f"{stem}.png" if spec.naming == "stable_png" else f"{stem}{ext}"
 
             target_dir.mkdir(parents=True, exist_ok=True)
 
             # 保存文件（大于 2MB 时压缩为 JPEG，否则校验后原样保存）
             nonlocal content
-            if upload_type in ("character", "character_ref", "scene", "prop", "product"):
+            if spec.content_check == "normalize_image":
                 try:
-                    content, ext = normalize_uploaded_image(content, Path(original_filename).suffix.lower())
+                    content, normalized_ext = normalize_uploaded_image(content, ext)
                 except ValueError:
                     raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
-                filename = Path(filename).with_suffix(ext).name
-            elif upload_type == "product_ref":
-                # 产品原图是保真验收锚点（ADR 0034）：仅校验可解码，保留原件字节与扩展名，
-                # 不做阈值压缩/重编码。请求体上限由生成发送前的参考压缩环节独立保障。
+                filename = Path(filename).with_suffix(normalized_ext).name
+            elif spec.content_check == "validate_image":
                 try:
                     validate_image_bytes(content)
                 except ValueError:
                     raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
-                ref_ext = Path(original_filename).suffix.lower() or ".png"
-                # 按序号取唯一文件名，用原子独占创建占位：并发上传同一产品时
+
+            if spec.naming == "sequenced":
+                # 按序号取唯一文件名，用原子独占创建占位：并发上传同一宿主资产时
                 # 两个请求各拿到不同序号，避免静默互相覆盖。
                 seq = 1
                 while True:
-                    candidate = target_dir / f"{name}_{seq}{ref_ext}"
+                    candidate = target_dir / f"{stem}_{seq}{ext or '.png'}"
                     try:
                         candidate.touch(exist_ok=False)
                         break
@@ -290,9 +351,9 @@ async def upload_file(
                 filename = candidate.name
 
             stale_audio_path: Path | None = None
-            if upload_type == "character_audio_ref" and name:
+            if spec.tracks_stale_audio and name:
                 # 实际删除推迟到新文件与字段写入成功之后（见 discard_stale_reference_audio）。
-                old_audio = (get_project_manager().load_project(project_name).get("characters", {}).get(name, {})).get(
+                old_audio = (manager.load_project(project_name).get("characters", {}).get(name, {})).get(
                     "reference_audio"
                 )
                 stale_audio_path = resolve_stale_reference_audio(
@@ -303,101 +364,23 @@ async def upload_file(
             with open(target_path, "wb") as f:
                 f.write(content)
 
+            relative_path = "/".join((*spec.subdir, filename))
+
             # 更新元数据
-            if upload_type == "source":
-                relative_path = f"source/{filename}"
-            elif upload_type == "character":
-                relative_path = f"characters/{filename}"
-            elif upload_type == "character_ref":
-                relative_path = f"characters/refs/{filename}"
-            elif upload_type == "character_audio_ref":
-                relative_path = f"characters/refs_audio/{filename}"
-            elif upload_type == "scene":
-                relative_path = f"scenes/{filename}"
-            elif upload_type == "prop":
-                relative_path = f"props/{filename}"
-            elif upload_type == "product":
-                relative_path = f"products/{filename}"
-            elif upload_type == "product_ref":
-                relative_path = f"products/refs/{filename}"
-            else:
-                relative_path = f"{upload_type}/{filename}"
-
-            if upload_type == "character" and name:
+            if spec.metadata_setter is not None and name:
                 try:
                     with project_change_source("webui"):
-                        get_project_manager().update_project_character_sheet(
-                            project_name, name, f"characters/{filename}"
-                        )
+                        spec.metadata_setter(manager, project_name, name, relative_path)
                 except KeyError:
-                    pass  # 角色不存在，忽略
-
-            if upload_type == "character_ref" and name:
-                try:
-                    with project_change_source("webui"):
-                        get_project_manager().update_character_reference_image(
-                            project_name, name, f"characters/refs/{filename}"
-                        )
-                except KeyError:
-                    pass  # 角色不存在，忽略
-
-            if upload_type == "character_audio_ref" and name:
-                try:
-                    with project_change_source("webui"):
-                        get_project_manager().update_character_reference_audio(
-                            project_name, name, f"characters/refs_audio/{filename}"
-                        )
-                except KeyError:
-                    pass  # 角色不存在，忽略
+                    if spec.host_bucket is not None:
+                        # 入口已校验宿主存在；并发删除导致的窗口期竞态按 404 处理，
+                        # 已落盘的文件一并清理避免孤儿
+                        target_path.unlink(missing_ok=True)
+                        raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
+                    # 单图类型：资产不存在时忽略，文件路径确定，资产后建仍可引用
                 else:
-                    discard_stale_reference_audio(stale_audio_path)
-
-            if upload_type == "scene" and name:
-                try:
-                    with project_change_source("webui"):
-                        get_project_manager().update_scene_sheet(
-                            project_name,
-                            name,
-                            f"scenes/{filename}",
-                        )
-                except KeyError:
-                    pass  # 场景不存在，忽略
-
-            if upload_type == "prop" and name:
-                try:
-                    with project_change_source("webui"):
-                        get_project_manager().update_prop_sheet(
-                            project_name,
-                            name,
-                            f"props/{filename}",
-                        )
-                except KeyError:
-                    pass  # 道具不存在，忽略
-
-            if upload_type == "product" and name:
-                try:
-                    with project_change_source("webui"):
-                        get_project_manager().update_product_sheet(
-                            project_name,
-                            name,
-                            f"products/{filename}",
-                        )
-                except KeyError:
-                    pass  # 产品不存在，忽略
-
-            if upload_type == "product_ref" and name:
-                try:
-                    with project_change_source("webui"):
-                        get_project_manager().add_product_reference_image(
-                            project_name,
-                            name,
-                            f"products/refs/{filename}",
-                        )
-                except KeyError:
-                    # 入口已校验产品存在；并发删除导致的窗口期竞态按 404 处理，
-                    # 已落盘的文件一并清理避免孤儿
-                    target_path.unlink(missing_ok=True)
-                    raise HTTPException(status_code=404, detail=_t("product_not_found", name=name))
+                    if spec.tracks_stale_audio:
+                        discard_stale_reference_audio(stale_audio_path)
 
             return {
                 "success": True,

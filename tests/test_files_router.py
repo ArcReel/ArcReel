@@ -7,6 +7,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from lib.i18n.en import assets as en_assets
+from lib.i18n.vi import assets as vi_assets
+from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
@@ -635,6 +638,77 @@ class TestFilesRouter:
             )
             assert character_missing_entity.status_code == 200
             assert character_missing_entity.json()["path"] == "characters/不存在角色.jpg"
+
+    def test_upload_rejects_unsafe_name_for_every_type(self, tmp_path, monkeypatch):
+        """name 会被拼进落盘路径：含分隔符 / .. / 控制字符的名字在所有上传类型下都应被 400 拒绝。"""
+        client, pm = _client(monkeypatch, tmp_path)
+        projects_root = pm.get_project_path("demo").parent
+        before = sorted(p for p in projects_root.rglob("*") if p.is_file())
+        unsafe_names = ["../../evil", "sub/dir", "back\\slash", "..", "trailing.", "CON", "ctrl\x01char"]
+        payloads = {
+            "character_audio_ref": ("v.wav", _wav_bytes(3), "audio/wav"),
+        }
+        default_payload = ("x.jpg", _img_bytes("JPEG"), "image/jpeg")
+
+        with client:
+            for upload_type in (
+                "character",
+                "character_ref",
+                "character_audio_ref",
+                "scene",
+                "prop",
+                "product",
+                "product_ref",
+            ):
+                for unsafe in unsafe_names:
+                    resp = client.post(
+                        f"/api/v1/projects/demo/upload/{upload_type}",
+                        params={"name": unsafe},
+                        files={"file": payloads.get(upload_type, default_payload)},
+                    )
+                    assert resp.status_code == 400, (upload_type, unsafe, resp.status_code)
+                    assert resp.json()["detail"] == zh_assets.MESSAGES["asset_invalid_name"].format(name=unsafe)
+
+            # 越界名字不得留下任何落盘产物（项目内与项目外都不得新增文件）
+            assert sorted(p for p in projects_root.rglob("*") if p.is_file()) == before
+
+    def test_upload_unsafe_name_message_is_localized(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        expected = {
+            "en": en_assets.MESSAGES["asset_invalid_name"],
+            "vi": vi_assets.MESSAGES["asset_invalid_name"],
+            "zh": zh_assets.MESSAGES["asset_invalid_name"],
+        }
+
+        with client:
+            for locale, template in expected.items():
+                resp = client.post(
+                    "/api/v1/projects/demo/upload/character",
+                    params={"name": "../evil"},
+                    files={"file": ("x.jpg", _img_bytes("JPEG"), "image/jpeg")},
+                    headers={"Accept-Language": locale},
+                )
+                assert resp.status_code == 400
+                assert resp.json()["detail"] == template.format(name="../evil")
+
+    def test_upload_name_is_stripped_before_use(self, tmp_path, monkeypatch):
+        """校验谓词会 strip 名字，落盘路径与元数据都应使用规范化后的值。"""
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/character",
+                params={"name": "  Alice  "},
+                files={"file": ("x.jpg", _img_bytes("JPEG"), "image/jpeg")},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["path"] == "characters/Alice.jpg"
+            assert pm.load_project("demo")["characters"]["Alice"]["character_sheet"] == "characters/Alice.jpg"
+
+    def test_upload_spec_table_drives_extensions(self):
+        """ALLOWED_EXTENSIONS 由 UPLOAD_SPECS 派生，两者不得漂移。"""
+        assert set(files.ALLOWED_EXTENSIONS) == set(files.UPLOAD_SPECS)
+        for upload_type, spec in files.UPLOAD_SPECS.items():
+            assert files.ALLOWED_EXTENSIONS[upload_type] == list(spec.allowed_exts)
 
     def test_source_decode_and_draft_mode_helpers(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
