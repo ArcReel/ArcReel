@@ -401,7 +401,7 @@ def _resolve_ad_unit_reference_entries(
     """
     warnings: list[dict] = []
     product_names: list[str] = []
-    asset_refs: list[tuple[str, str]] = []
+    asset_refs: list[tuple[str, str, str]] = []
     seen_products: set[str] = set()
     seen_assets: set[tuple[str, str]] = set()
     for ref in references:
@@ -422,7 +422,7 @@ def _resolve_ad_unit_reference_entries(
             key = (str(rtype), canonical)
             if key not in seen_assets:
                 seen_assets.add(key)
-                asset_refs.append((str(rtype), rname))
+                asset_refs.append((str(rtype), rname, canonical))
 
     entries = collect_product_references_for_names(project, project_path, product_names)
     # entries 的 "name" 字段已被 collect_product_references_for_names 归一为 canonical，
@@ -432,16 +432,21 @@ def _resolve_ad_unit_reference_entries(
         if normalize_asset_name(name) not in injected_products:
             warnings.append({"key": "ref_ad_reference_skipped", "params": {"type": "product", "name": name}})
 
-    for rtype, rname in asset_refs:
+    # 条目的名字写归一形式，与产品条目同口径（``collect_product_references_for_names``
+    # 产出的 "name" 已归一），让 entries 内部不因来源不同而混用两种编码形式。
+    # 这是加固而非替换：按名字判等的消费点（``prompt_render`` 的第一段主体绑定与参考音频
+    # 图号对齐）在读取处各自归一，那道归一仍是它们正确性的依据，不因这里归一而可省。
+    # warning 的 params 仍回显用户输入的原始形式。
+    for rtype, rname, canonical in asset_refs:
         bucket = normalize_asset_bucket(project.get(BUCKET_KEY[rtype]))
-        item = bucket.get(normalize_asset_name(rname))
+        item = bucket.get(canonical)
         sheet_rel = item.get(SHEET_KEY[rtype]) if isinstance(item, dict) else None
         if sheet_rel and safe_exists(project_path, sheet_rel):
             entries.append(
                 {
                     "image": project_path / sheet_rel,
-                    "label": f"{ASSET_SPECS[rtype].label_zh}「{rname}」设计图",
-                    "name": rname,
+                    "label": f"{ASSET_SPECS[rtype].label_zh}「{canonical}」设计图",
+                    "name": canonical,
                     "kind": "asset",
                     "asset_type": rtype,
                 }
