@@ -223,7 +223,7 @@ def dialogue_speakers(text: str) -> list[str]:
 
     说话人取自 ``match_dialogue_line``，已在解析器入口归一到资产名比对坐标系
     （``lib.reference_video.shot_parser`` 的 ``_normalize_source``），与资产表归一后的 key
-    同形；本函数不再各自归一一次。
+    同形，本函数直接使用该结果，不再额外归一。
     """
     seen: set[str] = set()
     speakers: list[str] = []
