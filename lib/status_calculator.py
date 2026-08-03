@@ -60,14 +60,17 @@ def _draft_candidates(content_mode: str, generation_mode: str | None = None) -> 
 
 
 def _unit_items(script: dict) -> list[dict]:
-    """取 ``video_units`` 数组，非数组值（外部编辑 / 归档导入的脏数据）归一为空。
+    """取 ``video_units`` 数组，容器非数组、成员非对象（外部编辑 / 归档导入的脏数据）一律剔除。
 
-    读时计算不抛错、坏数据按未派生计分（与 ``_calculate_ad_reference_stats`` 同口径，
-    数据契约校验归 ``DataValidator``）：不归一的话 ``{"video_units": {...}}`` 会让下游按
-    dict 的键迭代、对 str 调 ``get``，把项目详情读取变成 500，整个项目不可查看。
+    读时计算不抛错、坏数据按未派生计分（与 ``_calculate_ad_reference_stats`` 的
+    ``_wellformed`` 同口径，数据契约校验归 ``DataValidator``）：容器与成员都要归一，
+    ``{"video_units": {...}}`` 会让下游按 dict 的键迭代、``["bad"]`` 会让下游对 str 调
+    ``get``，两者都把项目详情读取变成 500、整个项目不可查看。
     """
     items = script.get("video_units")
-    return items if isinstance(items, list) else []
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
 
 
 class StatusCalculator:
@@ -504,7 +507,15 @@ class StatusCalculator:
 
         if kind == "video_units":
             for item in items:
-                for ref in item.get("references", []):
+                # 容器与条目都按脏数据处理：unit 本身已由 ``_unit_items`` 归一，但 references
+                # 是 unit 内部字段，外部编辑可留下非数组容器或非对象条目，聚合时照样会把项目
+                # 详情读取变成 500。与本模块读时不抛错的口径一致，跳过而不部分计入。
+                refs = item.get("references")
+                if not isinstance(refs, list):
+                    continue
+                for ref in refs:
+                    if not isinstance(ref, dict):
+                        continue
                     ref_type = ref.get("type")
                     name = ref.get("name")
                     if not name:

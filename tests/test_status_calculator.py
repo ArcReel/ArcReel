@@ -674,6 +674,31 @@ class TestAdStatusCalculation:
             assert kind == "video_units"
             assert items == []
 
+    def test_non_object_units_are_dropped_before_scoring(self):
+        """``video_units`` 夹非对象条目：剔除而不是原样下传——下游对 str 调 get 会让
+        项目详情读取变成 500，整个项目不可查看。"""
+        kind, items = StatusCalculator._select_kind_and_items(
+            {"content_mode": "narration", "video_units": ["bad", {"unit_id": "E1U1"}, 7, None]},
+            "reference_video",
+        )
+        assert kind == "video_units"
+        assert items == [{"unit_id": "E1U1"}]
+
+    def test_enrich_script_tolerates_malformed_unit_references(self, tmp_path):
+        """unit 本身合法但 references 容器/条目脏：聚合跳过而非抛 AttributeError。"""
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        script = {
+            "content_mode": "narration",
+            "metadata": {},
+            "video_units": [
+                {"unit_id": "E1U1", "references": "bad"},
+                {"unit_id": "E1U2", "references": ["bad", {"type": "character", "name": "张三"}]},
+                {"unit_id": "E1U3"},
+            ],
+        }
+        enriched = calc.enrich_script(script, generation_mode="reference_video")
+        assert enriched["characters_in_episode"] == ["张三"]
+
     def test_duck_typing_precedence_segments_over_scenes_over_shots(self):
         """缺 content_mode 的老脚本同时残留多种键时，鸭子类型优先级固定为
         segments > scenes > shots（依赖 _LEGACY_DUCK_TYPE_KINDS 顺序，本测试钉住该顺序）。"""
