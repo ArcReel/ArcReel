@@ -9,8 +9,9 @@ import threading
 from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import NamedTuple
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -305,10 +306,17 @@ class TestSnapshotDecoupling:
         assert (pm.get_project_path("demo") / "end_frames/scene_E1S02.png").exists()
 
 
+class _InterleavedResponses(NamedTuple):
+    """`_interleave_across_critical_section` 的两个请求各自的响应。"""
+
+    first: httpx.Response
+    second: httpx.Response
+
+
 def _interleave_across_critical_section(
-    monkeypatch, first: Callable[[], Any], second: Callable[[], Any]
-) -> dict[str, Any]:
-    """让 `first` 停在剧本锁临界区内，确认 `second` 被锁挡在外面后再放行，返回两者的返回值。
+    monkeypatch, first: Callable[[], httpx.Response], second: Callable[[], httpx.Response]
+) -> _InterleavedResponses:
+    """让 `first` 停在剧本锁临界区内，确认 `second` 被锁挡在外面后再放行，返回两者的响应。
 
     交错点由钩子对齐而非靠线程调度碰运气：钩子挂在锁内的剧本持久化上（`locked_script`
     退出前的最后一步），此时先到的一方已经做完自己的文件副作用、字段写回尚未落盘——正是
@@ -319,7 +327,9 @@ def _interleave_across_critical_section(
     `include_router` 的路由展开是首次匹配时惰性构建、且不加锁；同时发出的两个首请求会撞上
     半构建的路由表，随机得到路由级 404。此处第二个请求在第一个请求完成路由之后才发出。
 
-    返回 dict 含 `first` / `second` 两个键，值为各自请求的响应。
+    「后到的一方没能完成」这一断言以固定等待窗口否证，是单向的：互斥若被破坏，慢机上后到
+    的一方也可能因窗口内尚未跑完而漏报；但绝不会反过来把守规矩的实现判成失败，故不引入
+    时序敏感性。不带锁的整条 set/clear 是毫秒级，窗口取值远宽于此。
     """
     original = ProjectManager._write_script_unlocked
     entered_section = threading.Event()
@@ -338,9 +348,9 @@ def _interleave_across_critical_section(
 
     monkeypatch.setattr(ProjectManager, "_write_script_unlocked", _gated_persist)
 
-    results: dict[str, Any] = {}
+    results: dict[str, httpx.Response] = {}
 
-    def _run(key: str, call: Callable[[], Any]) -> threading.Thread:
+    def _run(key: str, call: Callable[[], httpx.Response]) -> threading.Thread:
         def _target() -> None:
             results[key] = call()
 
@@ -360,8 +370,9 @@ def _interleave_across_critical_section(
         resume.set()
     t_first.join(timeout=10)
     t_second.join(timeout=10)
-    assert not t_first.is_alive() and not t_second.is_alive(), "并发请求未在超时内结束"
-    return results
+    assert not t_first.is_alive(), "先到的请求未在超时内结束"
+    assert not t_second.is_alive(), "后到的请求未在超时内结束"
+    return _InterleavedResponses(first=results["first"], second=results["second"])
 
 
 class TestConcurrentSetClear:
@@ -378,8 +389,8 @@ class TestConcurrentSetClear:
             second=lambda: _delete(c),
         )
 
-        assert results["first"].status_code == 200, results["first"].text
-        assert results["second"].status_code == 200, results["second"].text
+        assert results.first.status_code == 200, results.first.text
+        assert results.second.status_code == 200, results.second.text
         # 清除后到、整段落在设置之后：字段置空，快照文件随之删除
         assert _segment(pm).get("end_frame_image") is None
         assert not snapshot.exists()
@@ -396,8 +407,8 @@ class TestConcurrentSetClear:
             second=lambda: _upload(c, _img_bytes("PNG")),
         )
 
-        assert results["first"].status_code == 200, results["first"].text
-        assert results["second"].status_code == 200, results["second"].text
+        assert results.first.status_code == 200, results.first.text
+        assert results.second.status_code == 200, results.second.text
         # 设置后到、整段落在清除之后：字段非空则快照文件必须存在——不允许指向缺失文件的引用
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
         assert snapshot.exists()
@@ -547,7 +558,7 @@ class TestPersistFailureRestoresSnapshot:
         assert not snapshot.exists()
 
     def test_set_failure_skips_restore_when_concurrent_takeover_uses_other_alias(self, client, monkeypatch):
-        """Codex 指出的别名归一问题：本次失败操作用 `scripts/episode_1.json` 这个别名，
+        """别名归一：失败的这次操作用 `scripts/episode_1.json` 这个别名，
         代次键若不归一化会与并发接管（用 `episode_1.json` 归一后的键）各自生成一把代次，
         互相看不见——回滚会误判「无人接手」，用旧字节覆盖对方已成功落盘的内容。"""
         c, pm = client
