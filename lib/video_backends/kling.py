@@ -246,7 +246,8 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
 
         有声受分辨率约束的 model（v2-6 官方限 1080P）无从得知调用方将选哪档分辨率，保守返回
         False；无约束的有声 model（v3 / v3-omni）只要请求要人声就产出，返回 True。执行期仍由
-        ``_effective_audio`` 按请求实际分辨率决定。
+        ``_effective_audio`` 按请求实际分辨率与子路径决定——v3-omni 走多图主体子路径时实际无声，
+        本接口无从得知是否带参考图而返回 True，方向是高估成本（预估偏保守），不会低报。
         """
         caps = _lookup_video_caps(model)
         return caps.generate_audio and not caps.audio_requires_1080p
@@ -294,13 +295,19 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         return self._resolve_mode_from(request.resolution, request.service_tier)
 
     def _effective_audio(self, request: VideoGenerationRequest) -> bool:
-        """实际是否产出视频内人声：请求要 + model 有 generate_audio 能力 + 满足该 model 的分辨率约束。
+        """实际是否产出视频内人声：请求要 + model 有 generate_audio 能力 + 走得到音频开关的子路径
+        + 满足该 model 的分辨率约束。
 
         无能力的 model 恒 False——不被错配有声价（下游 pricing 取 ``result.generate_audio``）。
         受约束的 model 按官方原文绑分辨率（v2-6「生成有声视频时，仅支持生成 1080P」）而非绑 mode：
         mode 是 std/pro/4k 质量档，与官方声明音频约束时用的维度无关。
         """
         if not (request.generate_audio and self._caps.generate_audio):
+            return False
+        # 有参考图 = multi-image2video 子路径，其原生 schema 不含音频开关，``_build_payload`` 不会
+        # 携带 sound（判据与那里的子路径优先级同源）。此处必须一并返回 False：否则 v3-omni 的多图
+        # 主体请求会拿到必然无声的成片，却因该标志进 ledger 而按有声价出账。
+        if self._valid_frames(request.reference_images):
             return False
         if self._caps.audio_requires_1080p:
             return (request.resolution or "").lower() == "1080p"

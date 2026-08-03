@@ -277,8 +277,14 @@ class TestMultiImageSubpath:
         _, payload = _jwt_backend("kling-v3-omni")._build_payload(
             _request(tmp_path, reference_images=refs, resolution="1080p", generate_audio=True)
         )
-        # multi-image2video 原生 schema 不含音频开关
+        # multi-image2video 原生 schema 不含音频开关；有声决策同步归 False，避免按有声价出账
         assert "sound" not in payload
+        assert (
+            _jwt_backend("kling-v3-omni")._effective_audio(
+                _request(tmp_path, reference_images=refs, resolution="1080p", generate_audio=True)
+            )
+            is False
+        )
 
     def test_reference_images_take_precedence_over_start_image(self, tmp_path):
         refs = self._refs(tmp_path, 1)
@@ -663,6 +669,25 @@ class TestAudioGatingResult:
             patch("lib.video_backends.kling.download_video", new=AsyncMock()),
         ):
             result = await _jwt_backend().generate(_request(tmp_path, resolution="1080p", generate_audio=True))
+        assert result.generate_audio is False
+
+    async def test_v3_omni_multi_image_audio_result_false(self, tmp_path):
+        # multi-image2video 子路径不携带 sound（原生 schema 无此字段），成片必然无声：
+        # result.generate_audio 必须同步为 False，否则按有声价出账却拿到无声片
+        ref = tmp_path / "ref0.png"
+        ref.write_bytes(b"\x89PNG\r\n")
+        post = AsyncMock(return_value=_resp(_submit("task-b3")))
+        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
+        client = _client(post=post, get=get)
+        with (
+            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
+        ):
+            result = await _jwt_backend("kling-v3-omni").generate(
+                _request(tmp_path, reference_images=[ref], resolution="1080p", generate_audio=True)
+            )
+        assert post.await_args.args[0].endswith("/videos/multi-image2video")
         assert result.generate_audio is False
 
     async def test_v2_6_persists_audio_bit_in_job_id(self, tmp_path):

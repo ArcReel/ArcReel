@@ -156,7 +156,7 @@ def _serves_only_reference2video(model: str) -> bool:
     窄值改由 ``_build_request`` 按实际端点兜底。
     """
     return model in _ENDPOINT_MODELS["/reference2video"] and not any(
-        model in _ENDPOINT_MODELS[endpoint] for endpoint in ("/text2video", "/img2video", "/start-end2video")
+        model in models for endpoint, models in _ENDPOINT_MODELS.items() if endpoint != "/reference2video"
     )
 
 
@@ -217,7 +217,7 @@ class ViduVideoBackend:
         return self.video_capabilities_for_model(self._model)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 本 PR 暂不实现 Vidu resume（poll 完全内联在 generate，需要先抽 _poll_until_done）；
+        # Vidu 不支持 resume：poll 完全内联在 generate，接续需先把它抽成独立的轮询入口。
         # orphan handler 据 NotImplementedError 标 [resume_unsupported]
         raise NotImplementedError("ViduVideoBackend 暂不支持 resume_video")
 
