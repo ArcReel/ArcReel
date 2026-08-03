@@ -263,7 +263,7 @@ _Avoid_: 把它并进 generation_mode 当第三个取值；交给 agent 改—�
 _Avoid_: 与宫格产出字段 `storyboard_last_image`（运行时产出，已不再作尾帧消费）混为一谈；把整集剧本重生成后字段丢失当 bug——与 note/transition_to_next 同口径，「重生成沿用」仅指视频重生成；用它做全自动场景衔接（正常成片切镜是合理且应该的）。
 
 **广告/短片模式（ad）**：
-content_mode 第三值，产出单个约 `target_duration` 秒的短视频而非多集系列。剧本骨架为平铺 `shots[]`（`shot_id` 格式 E1S{n}），每镜头携带 `section`（带货框架段落标签，八值引导不硬枚举）与一等口播文案 `voiceover_text`；项目恒单集（episodes 恒为第 1 集单条），项目级新字段 `target_duration`（正整数秒）与 `brief`（创作诉求短文本，不走 source_loader），不持有 `default_duration`；两条生成路线都可选，但不支持宫格（`grid_storyboard` 恒拒置真，见 `docs/adr/0033`）。剧本一键生成不走 step1 中间文件：prompt 直接来自 brief + 产品信息（含 selling_points）+ 审定的带货八段框架配比表（15/30/60/90 取最近档位，依据见 `docs/research/arcreel-ad-section-timing-research.md`），products 为空自动分流通用短片 prompt；镜头时长约束随生成路径切换——storyboard 为 supported_durations 硬枚举、reference_video 为 1-15 秒自由整数；剧本总时长偏离 `target_duration` 超阈值仅 warn 不阻塞。
+content_mode 第三值，产出单个约 `target_duration` 秒的短视频而非多集系列。剧本骨架为平铺 `shots[]`（`shot_id` 格式 E1S{n}），每镜头携带 `section`（带货框架段落标签，八值引导不硬枚举）与一等口播文案 `voiceover_text`；项目恒单集（episodes 恒为第 1 集单条），项目级新字段 `target_duration`（正整数秒）与 `brief`（创作诉求短文本，不走 source_loader），不持有 `default_duration`；两条生成路线都可选，但不支持宫格（`grid_storyboard` 恒拒置真，见 `docs/adr/0033`）。剧本一键生成不走 step1 中间文件：prompt 直接来自 brief + 产品信息（含 selling_points）+ 审定的带货八段框架配比表（15/30/60/90 取最近档位，依据见 `docs/research/arcreel-ad-section-timing-research.md`），products 为空自动分流通用短片 prompt；镜头时长约束随生成路线切换——storyboard 为 supported_durations 硬枚举、reference_video 为 1-15 秒自由整数；剧本总时长偏离 `target_duration` 超阈值仅 warn 不阻塞。
 _Avoid_: 让 ad 落入「非 narration 即 drama」的二值兜底——所有按 content_mode 分派的机制必须显式处理第三值；把 AdShot 与 video_unit 内的 shot（参考生视频子镜头）混为一谈——前者是剧本骨架的平铺镜头、后者是 unit 内时间编排；把 ad 未接入 step1→step2 审核 gate 当作待补缺口——单发生成、无 step1 中间态是有意契约，重访条件见 `.out-of-scope/ad-step1-step2-review-gate.md`。
 
 **video_unit / shot（参考生视频单元）**：
