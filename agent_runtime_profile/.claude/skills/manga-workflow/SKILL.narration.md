@@ -53,8 +53,8 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
    本项目 content_mode 固定为 narration（创建后不可变），故只会命中第 1 或第 2 分支，取决于项目的 generation_mode。只认当前组合对应的那一个文件：目录中出现**其他模式的 `step1_*` 文件**属残留，不作为阶段 3 已完成的依据。
 4. scripts/episode_{N}.json 不存在？ → **阶段 4**（另见阶段 4 触发条件：本次会话中阶段 3 中间文件被修改/重拆时，即使 JSON 存在也须重生）
 5. 任一类资产仍有缺 sheet 项（character 缺 character_sheet / scene 缺 scene_sheet / prop 缺 prop_sheet）？ → **阶段 5**（三类并行）
-6. **storyboard 模式**（含 grid_storyboard）：有场景缺少分镜图？ → **阶段 6**（reference_video 模式跳过）
-7. 有场景/unit 缺少视频？ → **阶段 7**
+6. **storyboard 模式**（含 grid_storyboard）：有片段缺少分镜图？ → **阶段 6**（reference_video 模式跳过）
+7. 有片段/unit 缺少视频？ → **阶段 7**
 8. **storyboard 模式**（含 grid_storyboard）：有段缺 `narration_audio`？ → **阶段 8（旁白配音）**（reference_video 模式无 segments，跳过）
 9. 全部完成 → 工作流结束，引导用户在 Web 端导出剪映草稿
 
@@ -214,7 +214,7 @@ dispatch `generate-assets` subagent：
 
 ## 阶段 6：分镜图生成（仅 storyboard 模式，含 grid_storyboard）
 
-**触发**：有场景缺少分镜图；**参考生视频模式跳过此阶段**
+**触发**：有片段缺少分镜图；**参考生视频模式跳过此阶段**
 
 检查项目 `generation_mode` 与 `grid_storyboard`：
 
