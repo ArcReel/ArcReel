@@ -347,14 +347,19 @@ def collect_product_references_for_names(
             references.append(
                 {
                     "image": project_path / sheet,
-                    "label": f"产品「{name}」标准多角度参考图",
-                    "name": name,
+                    "label": f"产品「{canonical}」标准多角度参考图",
+                    "name": canonical,
                     "kind": "sheet",
                 }
             )
-        for original in _collect_product_reference_images(project, project_path, name) or []:
+        for original in _collect_product_reference_images(project, project_path, canonical) or []:
             references.append(
-                {"image": original, "label": f"产品「{name}」实拍原图（保真锚点）", "name": name, "kind": "original"}
+                {
+                    "image": original,
+                    "label": f"产品「{canonical}」实拍原图（保真锚点）",
+                    "name": canonical,
+                    "kind": "original",
+                }
             )
         if len(references) == before:
             logger.warning("产品镜头引用的产品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)

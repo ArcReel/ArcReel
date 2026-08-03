@@ -2015,8 +2015,8 @@ class TestAdProductFidelityStoryboard:
 
     def test_collect_product_references_dedupes_nfc_nfd_pair(self, tmp_path):
         """同一产品的 NFC/NFD 两种编码形式同时出现在 products_in_shot：归一后是同一产品，
-        只应注入一份参考图，不能各自命中同一 bucket 条目各注入一份（回归：分镜图产品收集
-        此前没有 ad 参考直出路径那样的去重，会重复消耗参考位、挤掉真正的角色/场景参考）。"""
+        只应注入一份参考图，不能各自命中同一 bucket 条目各注入一份，否则会重复消耗参考位、
+        挤掉真正的角色/场景参考。"""
         import unicodedata
 
         project_path = _prepare_files(tmp_path)

@@ -558,13 +558,16 @@ export function ReferenceVideoCanvas({
   const handleAddRef = useCallback(
     (ref: ReferenceResource) => {
       if (!selected) return;
+      // 落盘值统一 NFC：PATCH 的 references 写回口径与 mergeReferences 的产出一致，否则
+      // 挑选到的 NFD 名称会绕过归一边界直接落盘。
+      const normalizedRef: ReferenceResource = { ...ref, name: normalizeAssetName(ref.name) };
       if (
         selected.references.some(
-          (r) => r.type === ref.type && normalizeAssetName(r.name) === normalizeAssetName(ref.name),
+          (r) => r.type === normalizedRef.type && normalizeAssetName(r.name) === normalizedRef.name,
         )
       )
         return;
-      const next = [...selected.references, ref];
+      const next = [...selected.references, normalizedRef];
       patchReferencesAtomic(selected.unit_id, next);
     },
     [patchReferencesAtomic, selected],
