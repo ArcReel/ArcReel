@@ -31,7 +31,7 @@ class ModelInfo:
     supported_durations: list[int] = field(default_factory=list)
     duration_resolution_constraints: dict[str, list[int]] = field(default_factory=dict)
     # 使用参考图（参考生视频）时允许的时长；空 = 该模型的参考图路径不额外约束时长。
-    # 与 duration_resolution_constraints 同构的最窄表达：需要表达的条件只有「高分辨率」
+    # 与 duration_resolution_constraints 同构的最窄表达：需要表达的条件只有「指定分辨率」
     # 与「带参考图」两种，故按条件各立一字段，不引入通用「条件→约束」语言。
     reference_image_durations: list[int] = field(default_factory=list)
     resolutions: list[str] = field(default_factory=list)

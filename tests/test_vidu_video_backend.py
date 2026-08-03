@@ -368,8 +368,10 @@ class TestRegistryBackendConsistency:
 
     def test_supported_durations_covers_img2video_and_start_end2video(self):
         model_info = self._vidu2_model_info()
-        assert set(model_info.supported_durations) == set(_DURATION_RULES[("vidu2.0", "/img2video")])
-        assert set(model_info.supported_durations) == set(_DURATION_RULES[("vidu2.0", "/start-end2video")])
+        expected_durations = set(_DURATION_RULES[("vidu2.0", "/img2video")]) | set(
+            _DURATION_RULES[("vidu2.0", "/start-end2video")]
+        )
+        assert set(model_info.supported_durations) == expected_durations
 
     def test_duration_resolution_constraints_confines_non_720p_to_4s(self):
         """8 秒档只出 720p——360p / 1080p 须声明仅 4 秒可选，UI 才不会给出无效的时长×分辨率组合。"""
