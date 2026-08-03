@@ -106,7 +106,12 @@ def render_violation_report(violations: Sequence[DraftViolation]) -> str:
 
 
 def _nfc(text: str) -> str:
-    """Unicode NFC 归一：与 ``lib.episode_ledger.normalize_source_text`` 定义的源文坐标系一致。"""
+    """Unicode NFC 归一：与 ``lib.episode_ledger.normalize_source_text`` 定义的源文坐标系一致。
+
+    全仓口径：资产名（角色/场景/道具）比对前一律先经本函数或等价的 NFC 归一，再判等/判成员——
+    组合字符语种（如 vi）下 NFC/NFD 两种编码肉眼同字、字节不同，逐字比对必须先归一到同一形式。
+    后续新增的资产名比对点沿用该坐标系，不各自发明归一或径直裸比对。
+    """
     return unicodedata.normalize("NFC", text)
 
 
@@ -224,14 +229,20 @@ def _has_description_line(shot_text: str) -> bool:
 
 
 def dialogue_speakers(text: str) -> list[str]:
-    """按出现顺序取出规范台词行的说话人（去重）——音色声明与登记校验共用同一口径。"""
+    """按出现顺序取出规范台词行的说话人（去重）——音色声明与登记校验共用同一口径。
+
+    说话人一律归一到 NFC 后返回：源文可能以 NFD 落盘（如 macOS 文件名系统、部分越南语输入法
+    产出）而 project.json 资产表以 NFC 登记（网页表单常见），两种形式肉眼同字但逐字比对不等。
+    全仓资产名比对一律先 NFC 归一，此为该口径的定义点之一，与 :func:`normative_lines` 及
+    ``lib.episode_ledger.normalize_source_text`` 同坐标系。
+    """
     seen: set[str] = set()
     speakers: list[str] = []
     for line in _content_lines(text):
         matched = match_dialogue_line(line)
         if matched is None:
             continue
-        speaker = matched[0]
+        speaker = _nfc(matched[0])
         if speaker not in seen:
             seen.add(speaker)
             speakers.append(speaker)
@@ -309,7 +320,8 @@ def validate_unit_text(
             label=label,
         )
 
-    bad_speakers = sorted({s for s in dialogue_speakers(text) if s not in characters})
+    registered_characters = {_nfc(name) for name in characters}
+    bad_speakers = sorted({s for s in dialogue_speakers(text) if s not in registered_characters})
     if bad_speakers:
         raise DraftViolation(
             f"{label} 的台词行说话人未登记为角色资产: {bad_speakers}；说话人决定该句台词绑哪段参考音频，必须是登记角色",

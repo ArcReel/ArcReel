@@ -99,6 +99,25 @@ class TestUnitText:
         with pytest.raises(DraftViolation, match="说话人未登记"):
             validate_unit_text("unit E1U01", "镜头1：门开了\n@[无名氏]：{我来了。}", PROJECT, max_refs=None)
 
+    def test_nfd_speaker_matches_nfc_registered_character(self):
+        """角色以 NFC 登记、剧本以 NFD 出场（如越南语组合字符）：肉眼同字，不该误报未登记。"""
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        project = {"characters": {name_nfc: {}}, "scenes": {}, "props": {}}
+        validate_unit_text("unit E1U01", f"镜头1：门开了\n@[{name_nfd}]：{{{'Tôi đến rồi.'}}}", project, max_refs=None)
+
+    def test_nfc_speaker_matches_nfd_registered_character(self):
+        """反向：角色以 NFD 登记（如 macOS 文件名系统产出）、剧本以 NFC 出场，同样不该误报。"""
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        project = {"characters": {name_nfd: {}}, "scenes": {}, "props": {}}
+        validate_unit_text(
+            "unit E1U01",
+            f"镜头1：门开了\n@[{name_nfc}]：{{{'Tôi đến rồi.'}}}",
+            project,
+            max_refs=None,
+        )
+
     def test_over_max_refs_rejected(self):
         with pytest.raises(DraftViolation, match="超过模型上限"):
             validate_unit_text("unit E1U01", "镜头1：@[李明] 与 @[王五] 在 @[酒馆]", PROJECT, max_refs=2)
