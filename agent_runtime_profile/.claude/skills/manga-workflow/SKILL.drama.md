@@ -218,7 +218,7 @@ dispatch `generate-assets` subagent：
 - `generation_mode == "storyboard"` 且 `grid_storyboard` 为 true → dispatch `generate-assets`，调 `mcp__arcreel__generate_grid`
 - `generation_mode == "reference_video"` → 不触发，直接跳到阶段 7
 
-> 本阶段的触发条件是「缺分镜图」，用户在设置页切换 `grid_storyboard` 不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出。用户在已有分镜图的项目上切换开关后要求按新方式出图时，向其确认要重做的场景范围并显式重新生成，不要因为 `storyboard_image` 已存在就跳过本阶段。
+> **切换 `grid_storyboard` 后的重做**：本阶段的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的场景范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"segment_ids": [...]})`（两者省略 ID 时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑阶段 7 对应场景。
 
 ### storyboard 模式（grid_storyboard=false）
 

@@ -849,6 +849,7 @@ class TestPatchProjectSettings:
         assert out.get("is_error") is True
         assert "arbitrary_field" not in ctx.pm.load_project("demo")
 
+    @pytest.mark.integration
     @pytest.mark.parametrize("field,value", [("generation_mode", "reference_video"), ("grid_storyboard", True)])
     async def test_route_fields_not_patchable_via_settings(self, ctx: ToolContext, field: str, value: Any) -> None:
         """generation_mode 创建后不可变、grid_storyboard 只能在设置页操作：两者均不入 settings 白名单。"""

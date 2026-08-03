@@ -7,15 +7,17 @@ description: 为剧本场景生成视频片段。当用户说"生成视频"、"�
 
 ## 模式自动分派
 
-MCP 工具在读取剧本后检测顶层结构，自动路由到对应 executor：
+路由由项目 `generation_mode` × `content_mode` 唯一决定（剧本不携带路线信息）。MCP 工具读 `project.json` 定路线，再校验剧本骨架是否与该路线匹配——失配即拒绝入队，不按骨架改判路线：
 
-| 剧本特征 | 路由 | 输出目录 |
-|---|---|---|
-| `generation_mode == "reference_video"` 或存在 `video_units[]` | `task_type="reference_video"` → `execute_reference_video_task` | `reference_videos/{unit_id}.mp4` |
-| `shots[]` + 项目 `generation_mode == "reference_video"`（ad，参考直出） | 工具自动派生分组后走 `task_type="reference_video"` | `reference_videos/{unit_id}.mp4` |
-| `segments[]`（narration） | `task_type="video"` → `execute_video_task` | `videos/scene_{segment_id}.mp4` |
-| `scenes[]`（drama） | 同上 | `videos/scene_{scene_id}.mp4` |
-| `shots[]`（ad，storyboard 路径） | 同上 | `videos/scene_{shot_id}.mp4` |
+| 项目路线 × 内容模式 | 应有骨架 | 路由 | 输出目录 |
+|---|---|---|---|
+| `reference_video` × narration / drama | `video_units[]` | `task_type="reference_video"` → `execute_reference_video_task` | `reference_videos/{unit_id}.mp4` |
+| `reference_video` × ad | `shots[]`（工具自动派生分组） | 同上 | `reference_videos/{unit_id}.mp4` |
+| `storyboard` × narration | `segments[]` | `task_type="video"` → `execute_video_task` | `videos/scene_{segment_id}.mp4` |
+| `storyboard` × drama | `scenes[]` | 同上 | `videos/scene_{scene_id}.mp4` |
+| `storyboard` × ad | `shots[]` | 同上 | `videos/scene_{shot_id}.mp4` |
+
+骨架失配多见于路线收敛前遗留的旧剧本（例如 `storyboard` 项目里躺着一份 `video_units[]` 剧本）：存量迁移不改剧本文件，正解是按项目当前路线重跑预处理与剧本生成，而不是指望旧剧本被执行。
 
 参考模式跳过分镜图要求，直接把 `{script_file}` 丢给 executor；executor 自行读取 unit.references → 从 characters/scenes/props 三 bucket 解析 sheet 图 → 内存压缩 → 渲染 prompt → 调 VideoBackend。
 
