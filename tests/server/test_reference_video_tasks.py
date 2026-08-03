@@ -1613,6 +1613,92 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_execute_reference_video_task_prompt_matches_deduped_refs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """回归守门：unit.references 携带同一角色的 NFC/NFD 两条记录时，prompt 的 [图N] 索引
+    必须与去重后的 reference_images 对齐，不能让图片列表（已去重）比逻辑引用列表（未去重）
+    短，导致 [图2] 错误绑到与 [图1] 相同的资产、后面一条真正不同的参考丢失编号。"""
+    import unicodedata
+
+    proj_dir = _write_project(tmp_path)
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    assert name_nfc != name_nfd
+
+    project_path = proj_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project["characters"][name_nfc] = {"description": "x", "character_sheet": "characters/hieu.png"}
+    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["shots"] = [{"text": f"Shot 1 (4s): @{name_nfc} 与 @酒馆"}]
+    script["video_units"][0]["duration_seconds"] = 4
+    script["video_units"][0]["references"] = [
+        {"type": "character", "name": name_nfc},
+        {"type": "character", "name": name_nfd},
+        {"type": "scene", "name": "酒馆"},
+    ]
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads(project_path.read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    captured: dict = {}
+
+    async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    # max_refs=None：不做 provider 裁剪，去重本身是本测试唯一验证的效应。
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="grok",
+        backend_model="grok-imagine-video",
+        max_refs=None,
+        max_duration=12,
+        supported_durations=(4, 8, 12),
+    )
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    # 3 条 references（含一对 NFC/NFD 重复）去重后只剩 2 张图，图号必须与之对齐
+    assert len(captured["reference_images"]) == 2
+    prompt = captured["prompt"]
+    assert "@图片1" in prompt
+    assert "@图片2" in prompt
+    assert "@图片3" not in prompt
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_execute_reference_video_task_rounds_up_non_member_duration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

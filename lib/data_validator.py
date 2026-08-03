@@ -499,10 +499,13 @@ class DataValidator:
         kind_label: str,
         normalize: bool = False,
     ) -> None:
-        """``normalize=True`` 时按 NFC 归一比对：ad shots 的参考集直接驱动 reference_video
-        的 unit 派生（见 ``lib.reference_video.ad_units``），project.json 资产 key 与镜头
-        引用编码形式不一致时不能误判未登记。narration/drama 的 segments/scenes 校验路径
-        保持原始比对（``normalize`` 默认 False），不在本次改动范围内。"""
+        """``normalize=True`` 时按 NFC 归一比对：ad + reference_video 的镜头参考集直接驱动
+        reference_video 的 unit 派生（见 ``lib.reference_video.ad_units``），project.json
+        资产 key 与镜头引用编码形式不一致时不能误判未登记。narration/drama 的 segments/scenes
+        校验路径、以及 ad 的 storyboard 生成路径均保持原始比对（``normalize`` 默认 False）——
+        storyboard 路径的图片收集（``server.services.generation_tasks._collect_sheet_references``）
+        仍按原始字符串查找，校验层先归一会让此处判「已登记」放行而收集层实际查不到，
+        生成时静默漏收对应 sheet。"""
         if refs is None:
             warnings.append(f"{prefix}: 缺少 {field_label}，将使用默认空数组")
             return
@@ -954,7 +957,7 @@ class DataValidator:
                 warnings,
                 field_label="characters_in_shot",
                 kind_label="角色",
-                normalize=True,
+                normalize=reference_mode,
             )
             self._validate_segment_refs(
                 prefix,
@@ -964,7 +967,7 @@ class DataValidator:
                 warnings,
                 field_label="scenes",
                 kind_label="场景",
-                normalize=True,
+                normalize=reference_mode,
             )
             self._validate_segment_refs(
                 prefix,
@@ -974,7 +977,7 @@ class DataValidator:
                 warnings,
                 field_label="props",
                 kind_label="道具",
-                normalize=True,
+                normalize=reference_mode,
             )
             self._validate_segment_refs(
                 prefix,
@@ -984,7 +987,7 @@ class DataValidator:
                 warnings,
                 field_label="products_in_shot",
                 kind_label="产品",
-                normalize=True,
+                normalize=reference_mode,
             )
 
             if not shot.get("image_prompt"):

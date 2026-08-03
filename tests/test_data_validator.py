@@ -1111,9 +1111,28 @@ class TestAdEpisodeValidation:
     @pytest.mark.integration
     def test_shot_reference_accepts_nfc_nfd_mismatch_against_registered_asset(self, tmp_path):
         """project.json 角色以 NFD 登记、镜头 characters_in_shot 引用同名的 NFC 形式：
-        必须按归一形式判「已登记」放行，否则 ad 的 reference_video unit 派生
-        （lib.reference_video.ad_units 直接消费 characters_in_shot）会被这层校验先行拒绝，
-        用户永远走不到真实的参考解析阶段。"""
+        generation_mode=reference_video 时必须按归一形式判「已登记」放行，否则 ad 的
+        reference_video unit 派生（lib.reference_video.ad_units 直接消费 characters_in_shot）
+        会被这层校验先行拒绝，用户永远走不到真实的参考解析阶段。归一比对只在
+        reference_mode 下开启（见 storyboard 路径保持原始比对的测试）。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+
+        project = _ad_project_payload(
+            generation_mode="reference_video", characters={name_nfd: {"description": "出镜模特"}}
+        )
+        result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[name_nfc])], project=project)
+        assert result.valid, result.errors
+
+    @pytest.mark.integration
+    def test_shot_reference_storyboard_path_keeps_raw_comparison(self, tmp_path):
+        """storyboard 路径（默认 generation_mode）保持原始字符串比对：该路径的图片收集
+        （server.services.generation_tasks._collect_sheet_references）仍按原始名称查找，
+        校验层若归一放行、收集层实际查不到，会生成时静默漏收对应 sheet——不能让校验层
+        比收集层更宽松。"""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -1122,7 +1141,8 @@ class TestAdEpisodeValidation:
 
         project = _ad_project_payload(characters={name_nfd: {"description": "出镜模特"}})
         result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[name_nfc])], project=project)
-        assert result.valid, result.errors
+        assert not result.valid
+        assert any("characters_in_shot" in e for e in result.errors)
 
     def test_missing_duration_warns_with_default(self, tmp_path):
         shot = self._ad_shot()

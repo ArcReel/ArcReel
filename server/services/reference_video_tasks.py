@@ -55,6 +55,25 @@ async def _persist_effective_duration(task_id: str, duration_seconds: int) -> No
         logger.warning("effective_duration 写回 payload 失败 task_id=%s", task_id, exc_info=True)
 
 
+def _dedupe_typed_references(references: list[dict]) -> list[dict]:
+    """按 (type, 归一名) 去重 reference 字典，保留首次出现顺序。
+
+    PATCH 接口只校验每条 reference 已登记，不校验数组内互相去重：同一资产可能以 NFC/NFD
+    两条等价记录同时留在 unit.references 里。参考图解析（``_resolve_unit_references``）与
+    prompt 渲染前的裁剪必须共用同一份去重结果——否则图片列表与逻辑引用列表长度不一致，
+    ``@图片N`` 的编号会与实际图片错位、按图号绑定的参考音频也会挂到错的图上。
+    """
+    seen: set[tuple[str, str]] = set()
+    deduped: list[dict] = []
+    for ref in references:
+        key = (str(ref.get("type")), normalize_asset_name(str(ref.get("name"))))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(ref)
+    return deduped
+
+
 def _resolve_unit_references(
     project: dict,
     project_path: Path,
@@ -62,26 +81,19 @@ def _resolve_unit_references(
 ) -> list[Path]:
     """把 unit.references 转成绝对路径列表（按 references 顺序，按类型+归一名去重）。
 
-    PATCH 接口只校验每条 reference 已登记，不校验数组内互相去重：同一资产可能以 NFC/NFD
-    两条等价记录同时留在 unit.references 里。两者归一后解析到同一张图，若不去重会被
-    _apply_provider_constraints 计入两个名额，挤掉后面一条真正不同的参考、且给 provider
-    发送重复图片。
-
     Raises:
         MissingReferenceError: 任一 reference 在 project.json 对应 bucket 缺失或 sheet 不存在。
     """
     missing: list[tuple[str, str | None]] = []
     resolved: list[Path] = []
-    seen: set[tuple[str, str]] = set()
-    for ref in references:
+    for ref in _dedupe_typed_references(references):
         rtype = ref.get("type")
         rname = ref.get("name")
         if rtype not in BUCKET_KEY:
             missing.append((str(rtype), str(rname)))
             continue
-        canonical = normalize_asset_name(str(rname))
         bucket = normalize_asset_bucket(project.get(BUCKET_KEY[rtype]))
-        item = bucket.get(canonical)
+        item = bucket.get(normalize_asset_name(str(rname)))
         sheet_rel = item.get(SHEET_KEY[rtype]) if isinstance(item, dict) else None
         if not sheet_rel:
             missing.append((rtype, rname))
@@ -90,10 +102,6 @@ def _resolve_unit_references(
         if not path.exists():
             missing.append((rtype, rname))
             continue
-        key = (rtype, canonical)
-        if key in seen:
-            continue
-        seen.add(key)
         resolved.append(path)
 
     if missing:
@@ -652,10 +660,11 @@ async def execute_reference_video_task(
 
     # 6. 渲染 prompt：ad 与 narration/drama 共用三段论渲染管线（`<X>@图片N` 绑定 + 声音声明 +
     #    分镜段 + 约束包），差异只在输入形态（见 `lib.reference_video.prompt_render` 模块
-    #    docstring）。narration/drama 必须按 `constrained_refs` 的长度裁 `unit.references`
-    #    再渲染，保证 `图片N` 的 1-based 索引与 backend 实际收到的 reference_images 长度严格
-    #    对齐；否则裁剪后的 `@clipped_name` 会被绑到指向不存在的图的编号上。ad 的 `ad_entries`
-    #    已在上一步按同一裁剪口径（产品 sheet 优先存活）收窄，无需再裁。
+    #    docstring）。narration/drama 必须先按 `_dedupe_typed_references` 与 `source_refs`
+    #    同口径去重、再按 `constrained_refs` 的长度裁 `unit.references` 后渲染，保证
+    #    `图片N` 的 1-based 索引与 backend 实际收到的 reference_images 一一对应；跳过去重会
+    #    让逻辑引用列表比图片列表长，编号错位到错误的资产上、按图号绑定的参考音频也会挂错。
+    #    ad 的 `ad_entries` 已在上一步按同一裁剪口径（产品 sheet 优先存活）收窄，无需再裁。
     #    prompt 始终从执行期新读取的剧本重组（脚本可变 + 队列 dedup 不看 payload，
     #    用入队快照会丢失入队后对镜头文本的编辑）；入队 payload 里的 prompt 仅作守卫点的
     #    校验记录，执行期不使用。
@@ -677,9 +686,10 @@ async def execute_reference_video_task(
         )
     else:
         unit_for_prompt = unit
-        unit_refs = unit.get("references") or []
-        if len(constrained_refs) < len(unit_refs):
-            unit_for_prompt = {**unit, "references": unit_refs[: len(constrained_refs)]}
+        raw_unit_refs = unit.get("references") or []
+        prompt_refs = _dedupe_typed_references(raw_unit_refs)[: len(constrained_refs)]
+        if len(prompt_refs) < len(raw_unit_refs):
+            unit_for_prompt = {**unit, "references": prompt_refs}
         rendered = _render_unit_prompt(
             unit_for_prompt,
             project,
