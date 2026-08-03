@@ -1,12 +1,17 @@
+import dataclasses
 import json
 import shutil
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from lib.i18n.en import assets as en_assets
+from lib.i18n.vi import assets as vi_assets
+from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
@@ -635,6 +640,156 @@ class TestFilesRouter:
             )
             assert character_missing_entity.status_code == 200
             assert character_missing_entity.json()["path"] == "characters/不存在角色.jpg"
+
+    @pytest.mark.integration
+    def test_upload_rejects_unsafe_name_for_every_type(self, tmp_path, monkeypatch):
+        """name 会被拼进落盘路径：含分隔符 / .. / 控制字符的名字在所有上传类型下都应被 400 拒绝。"""
+        client, _ = _client(monkeypatch, tmp_path)
+
+        # 快照范围取 tmp_path 而非 projects 根：越界名的目标本就在 projects 之外，只扫项目内看不见。
+        # 连同内容一起快照：越界写入若命中既有文件（如 ../project.json），路径集合不变，只比路径发现不了
+        def _snapshot() -> dict[Path, bytes]:
+            return {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+        # 预置 "../existing" 会解析到的既有文件：没有真实的覆写目标时，内容快照验证不到覆写这一维。
+        # 逐 subdir 铺哨兵——嵌套类型（characters/refs 等）的 ".." 落在 characters/ 而非项目根
+        project_dir = tmp_path / "projects" / "demo"
+        for spec in files.UPLOAD_SPECS.values():
+            parent = project_dir.joinpath(*spec.subdir).parent
+            parent.mkdir(parents=True, exist_ok=True)
+            for ext in (".png", ".jpg", ".wav", ".txt"):
+                (parent / f"existing{ext}").write_bytes(b"original")
+
+        before = _snapshot()
+        unsafe_names = [
+            "../existing",
+            "../../evil",
+            "../../../evil",
+            str(tmp_path / "absolute-escape"),
+            "sub/dir",
+            "back\\slash",
+            "..",
+            "trailing.",
+            "CON",
+            "ctrl\x01char",
+        ]
+        payloads = {
+            "character_audio_ref": ("v.wav", _wav_bytes(3), "audio/wav"),
+            # source 不使用 name，但校验在其早返分支之前，同样应拒
+            "source": ("novel.txt", b"chapter one", "text/plain"),
+        }
+        default_payload = ("x.jpg", _img_bytes("JPEG"), "image/jpeg")
+
+        with client:
+            for upload_type in files.UPLOAD_SPECS:
+                for unsafe in unsafe_names:
+                    resp = client.post(
+                        f"/api/v1/projects/demo/upload/{upload_type}",
+                        params={"name": unsafe},
+                        files={"file": payloads.get(upload_type, default_payload)},
+                    )
+                    assert resp.status_code == 400, (upload_type, unsafe, resp.status_code)
+                    assert resp.json()["detail"] == zh_assets.MESSAGES["asset_invalid_name"].format(name=unsafe)
+
+            # 越界名字不得留下任何落盘产物：项目内外都不得新增文件，既有文件的内容也不得被改写
+            assert _snapshot() == before
+
+    @pytest.mark.integration
+    def test_upload_unsafe_name_message_is_localized(self, tmp_path, monkeypatch):
+        client, _ = _client(monkeypatch, tmp_path)
+        expected = {
+            "en": en_assets.MESSAGES["asset_invalid_name"],
+            "vi": vi_assets.MESSAGES["asset_invalid_name"],
+            "zh": zh_assets.MESSAGES["asset_invalid_name"],
+        }
+
+        with client:
+            for locale, template in expected.items():
+                resp = client.post(
+                    "/api/v1/projects/demo/upload/character",
+                    params={"name": "../evil"},
+                    files={"file": ("x.jpg", _img_bytes("JPEG"), "image/jpeg")},
+                    headers={"Accept-Language": locale},
+                )
+                assert resp.status_code == 400
+                assert resp.json()["detail"] == template.format(name="../evil")
+
+    @pytest.mark.integration
+    def test_upload_name_is_stripped_before_use(self, tmp_path, monkeypatch):
+        """校验谓词会 strip 名字，落盘路径与元数据都应使用规范化后的值。"""
+        client, pm = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/character",
+                params={"name": "  Alice  "},
+                files={"file": ("x.jpg", _img_bytes("JPEG"), "image/jpeg")},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["path"] == "characters/Alice.jpg"
+            assert pm.load_project("demo")["characters"]["Alice"]["character_sheet"] == "characters/Alice.jpg"
+
+    @pytest.mark.integration
+    def test_upload_empty_name_falls_back_to_filename(self, tmp_path, monkeypatch):
+        """空串 name 等同未提供：校验只对真值生效，落盘仍回退到原文件名 stem。"""
+        client, _ = _client(monkeypatch, tmp_path)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/character",
+                params={"name": ""},
+                files={"file": ("x.jpg", _img_bytes("JPEG"), "image/jpeg")},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["path"] == "characters/x.jpg"
+
+    @pytest.mark.unit
+    def test_upload_spec_table_drives_extensions(self):
+        """ALLOWED_EXTENSIONS 由 UPLOAD_SPECS 派生，两者不得漂移。"""
+        assert set(files.ALLOWED_EXTENSIONS) == set(files.UPLOAD_SPECS)
+        for upload_type, spec in files.UPLOAD_SPECS.items():
+            assert files.ALLOWED_EXTENSIONS[upload_type] == list(spec.allowed_exts)
+        # source 一项被 frontend/src/utils/source-files.ts 镜像，取值变动需同步前端
+        assert files.ALLOWED_EXTENSIONS["source"] == [".txt", ".md", ".docx", ".epub", ".pdf"]
+
+    @pytest.mark.unit
+    def test_upload_spec_host_fields_must_be_paired(self):
+        """登记宿主约束却漏配 404 文案时，构造期即失败，而非拒收时取到空翻译 key。"""
+        with pytest.raises(ValueError):
+            files.UploadSpec(
+                allowed_exts=(".png",),
+                subdir=("x",),
+                naming="stable_png",
+                content_check="validate_image",
+                host_bucket="products",
+            )
+        # 反方向同样是配置错误：登记了文案却没有宿主约束，该文案永远取不到
+        with pytest.raises(ValueError):
+            files.UploadSpec(
+                allowed_exts=(".png",),
+                subdir=("x",),
+                naming="stable_png",
+                content_check="validate_image",
+                host_not_found_key="product_not_found",
+            )
+
+    @pytest.mark.integration
+    def test_upload_rejects_oversized_payload_for_any_type(self, tmp_path, monkeypatch):
+        """max_bytes 是通用请求体闸门：登记了上限的类型无论 content_check 为何都应拒收超限请求。"""
+        client, _ = _client(monkeypatch, tmp_path)
+        limit = 1024 * 1024
+        monkeypatch.setitem(
+            files.UPLOAD_SPECS,
+            "prop",
+            dataclasses.replace(files.UPLOAD_SPECS["prop"], max_bytes=limit),
+        )
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/prop",
+                params={"name": "道具"},
+                files={"file": ("x.jpg", b"\x00" * (limit + 1), "image/jpeg")},
+            )
+            assert resp.status_code == 400
+            # 上限取整 MB，文案里的 max_mb 才是对用户有意义的数字
+            assert resp.json()["detail"] == zh_errors.MESSAGES["upload_too_large"].format(max_mb=1)
 
     def test_source_decode_and_draft_mode_helpers(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
