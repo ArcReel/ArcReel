@@ -171,7 +171,7 @@ def assert_duration_supported(duration: int | float | str, supported_durations: 
 
     这是 `duration ↔ supported_durations` 唯一的权威校验家——provider 在执行时才解析
     （见 ADR-0001），故能力校验只能坐在 provider 解析之后。``supported_durations`` 为空时
-    放行（能力不可解析，不更坏：保持既有行为不被本次改动弄坏）。
+    放行（能力不可解析，不更坏：不拒绝一个校验层判断不了的 duration）。
 
     duration 可能来自外部配置（payload / project.json），故安全解析字符串 / 浮点：
     可解析为整数秒（如 ``"6"`` / ``6.0``）的归一化后比较；非整数秒（如 ``4.5``）一律
