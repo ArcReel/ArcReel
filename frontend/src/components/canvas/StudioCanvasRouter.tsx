@@ -55,7 +55,7 @@ import {
   narrowDurations,
   useModelCapabilities,
 } from "@/hooks/useModelCapabilities";
-import { effectiveMode } from "@/utils/generation-mode";
+import { gridStoryboardEnabled, normalizeRoute } from "@/utils/generation-mode";
 import type { Scene, Prop, Product, CustomProviderInfo, ProviderInfo } from "@/types";
 import type { EpisodeScript } from "@/types/script";
 
@@ -138,12 +138,12 @@ export function StudioCanvasRouter() {
   // 已保存的越界值不改写，由 ShotDetail 按成因给警告并引导重选。
   // 后端未配置时能力管线退回服务端解析出的 model（与生成路径同一套规则，避免 FE/BE 漂移）。
   //
-  // 收窄放在下方按集的 Route 渲染里：generation_mode 可被单集覆盖，「是否走参考图路径」因此
-  // 是按集的值，而能力查询只在组件顶层做一次。此处只取不随上下文变化的两项。
+  // 收窄放在下方按集的 Route 渲染里：那里才有本集的分辨率与剧本上下文，而能力查询只在组件
+  // 顶层做一次。此处只取不随上下文变化的两项。
   //
-  // 服务端侧则把当前集号一并带上：同一个覆盖也让 voiceConsistency / firstFrame 等二维派生值
-  // 按该集生效模式解析，与执行层同口径。集号在顶层从路由取（`useCurrentEpisode` 与下方 Route
-  // 共用同一份 path），能力查询因此仍只发生一次、随切集重取。
+  // 服务端侧把当前集号一并带上，让 voiceConsistency / firstFrame 等派生值与执行层同口径。
+  // 集号在顶层从路由取（`useCurrentEpisode` 与下方 Route 共用同一份 path），能力查询因此
+  // 仍只发生一次、随切集重取。
   const currentEpisode = useCurrentEpisode();
   const effectiveVideoBackend = currentProjectData?.video_backend || globalVideoBackend;
   const { rawDurations, durationConstraints, resolvedVideoBackend } = useModelCapabilities({
@@ -672,11 +672,11 @@ export function StudioCanvasRouter() {
           const episode = currentProjectData?.episodes?.find((e) => e.episode === epNum);
           const scriptFile = episode?.script_file?.replace(/^scripts\//, "");
           const script = scriptFile ? (currentScripts[scriptFile] ?? null) : null;
-          const mode = effectiveMode(currentProjectData, episode);
-          // 本集生效模式决定是否走参考图路径，故时长候选按集收窄（见顶层能力查询处说明）。
+          const route = normalizeRoute(currentProjectData?.generation_mode);
+          // 路线决定是否走参考图路径，时长候选据此收窄。
           const durationCtx = {
             videoResolution,
-            usesReferenceImages: mode === "reference_video",
+            usesReferenceImages: route === "reference_video",
           };
           const durationOptions =
             narrowDurations({ rawDurations, durationConstraints }, durationCtx) ?? undefined;
@@ -698,7 +698,7 @@ export function StudioCanvasRouter() {
           // 编辑画布，reference_video 走按派生分组组织的专用画布（不提供分镜图与
           // 逐镜头图生视频——该路径按 ADR 0033 跳过分镜步骤）。
           const isAd = currentProjectData?.content_mode === "ad";
-          const adReference = isAd && mode === "reference_video";
+          const adReference = isAd && route === "reference_video";
 
           // 已选集但剧本未生成：进入切片审阅视图（narration/drama 全部生成路径——
           // reference_video 此时 units 为空，同样没有可展示内容）；ad 恒单集无源文
@@ -735,7 +735,7 @@ export function StudioCanvasRouter() {
                     // demoMode（未提供 onUpdatePrompt 时自行降级为纯文本），故在调用点显式门控。
                     onUpdatePrompt={demoMode ? undefined : handleUpdatePrompt}
                   />
-                ) : mode === "reference_video" ? (
+                ) : route === "reference_video" ? (
                   <ReferenceVideoCanvas
                     // 同一 epNum 跨项目不 remount 会让 optimisticUnitIds / prevTaskStatusRef
                     // 残留上个项目的状态（例如 "E1U1" 长驻 set 里），切到同名 unit 的新项目
@@ -752,7 +752,7 @@ export function StudioCanvasRouter() {
                     durationOptions={durationOptions}
                     durationOptionsNoReference={durationOptionsNoReference}
                   />
-                ) : mode === "grid" ? (
+                ) : gridStoryboardEnabled(currentProjectData) ? (
                   <GridImageToVideoCanvas
                     key={`${currentProjectName}::${epNum}`}
                     projectName={currentProjectName}

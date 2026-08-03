@@ -257,10 +257,64 @@ describe("ProjectSettingsPage – style picker", () => {
     });
   });
 
-  it("switches generation_mode to reference_video and marks the save button enabled", async () => {
+  it("shows the generation route read-only, with no control to change it", async () => {
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {
         title: "Demo",
+        generation_mode: "reference_video",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+
+    renderAt("/app/projects/demo/settings");
+
+    expect(await screen.findByText(/跳过分镜图，直接用角色、场景、道具图作为参考生成视频/)).toBeInTheDocument();
+    expect(screen.getByText(/生成方式创建后不可更改/)).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /参考生视频|分镜图生视频/ })).not.toBeInTheDocument();
+    // 参考路线下不呈现宫格开关
+    expect(screen.queryByRole("switch", { name: /分镜板（宫格）生视频/ })).not.toBeInTheDocument();
+  });
+
+  it("saves the grid assembly toggle on the storyboard route", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        generation_mode: "storyboard",
+        grid_storyboard: false,
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    const toggle = await screen.findByRole("switch", { name: /分镜板（宫格）生视频/ });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith("demo", expect.objectContaining({ grid_storyboard: true }));
+    });
+    // 路线不在 PATCH 面上
+    expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("generation_mode");
+  });
+
+  it("hides the grid toggle for ad projects", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        content_mode: "ad",
         generation_mode: "storyboard",
         episodes: [],
         characters: {},
@@ -268,25 +322,11 @@ describe("ProjectSettingsPage – style picker", () => {
       },
       scripts: {},
     } as unknown as Awaited<ReturnType<typeof API.getProject>>);
-    vi.spyOn(API, "updateProject").mockResolvedValue({
-      success: true,
-      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
-    });
 
     renderAt("/app/projects/demo/settings");
 
-    // Wait for the generation mode selector to appear (3 radios total)
-    const referenceVideoRadio = await screen.findByRole("radio", { name: /参考生视频|Reference-to-Video/i });
-    expect(referenceVideoRadio).not.toBeChecked();
-
-    fireEvent.click(referenceVideoRadio);
-
-    // After switching to reference_video the radio should be checked (dirty state)
-    expect(referenceVideoRadio).toBeChecked();
-
-    // The main save button should be enabled (it is never disabled except while saving)
-    const saveBtn = screen.getByRole("button", { name: /^(保存|Save)$/i });
-    expect(saveBtn).not.toBeDisabled();
+    expect(await screen.findByText(/先为每个场景生成分镜图/)).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /分镜板（宫格）生视频/ })).not.toBeInTheDocument();
   });
 });
 
@@ -374,121 +414,6 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
       const values = resSelects.map((el) => (el as HTMLSelectElement).value);
       expect(values).toContain("1080p");
       expect(values).toContain("720p");
-    });
-  });
-
-  it("revalidates duration and resolution when the generation mode switches the executing model", async () => {
-    // 图生视频与参考生视频指定了不同模型时，换生成模式就换了执行模型：旧模型的分辨率与时长
-    // 不能原样留着，否则会被写到新模型名下、生成阶段才暴露
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
-      ...FAKE_CONFIG_WITH_DEFAULTS,
-    } as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
-    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
-      {
-        id: "gemini", display_name: "Gemini", description: "", status: "ready",
-        media_types: ["video"], capabilities: [], configured_keys: [], missing_keys: [],
-        models: {
-          "veo-3": {
-            display_name: "Veo 3", media_type: "video", capabilities: [], default: true,
-            supported_durations: [4, 8], duration_resolution_constraints: {},
-            resolutions: ["720p", "1080p"], has_audio_track: true, voice_consistency: "soft",
-          },
-        },
-      },
-      {
-        id: "ark", display_name: "Ark", description: "", status: "ready",
-        media_types: ["video"], capabilities: [], configured_keys: [], missing_keys: [],
-        models: {
-          seedance: {
-            display_name: "Seedance", media_type: "video", capabilities: [], default: true,
-            supported_durations: [5, 10], duration_resolution_constraints: {},
-            resolutions: ["720p"], has_audio_track: true, voice_consistency: "soft",
-          },
-        },
-      },
-    ] as Awaited<ReturnType<typeof providerModels.getProviderModels>>);
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: {
-        title: "Demo",
-        generation_mode: "storyboard",
-        video_provider_i2v: "gemini/veo-3",
-        video_provider_r2v: "ark/seedance",
-        default_duration: 4,
-        model_settings: { "gemini/veo-3": { resolution: "1080p" } },
-        episodes: [],
-        characters: {},
-        clues: {},
-      },
-      scripts: {},
-    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
-    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
-      success: true,
-      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
-    });
-
-    renderAt("/app/projects/demo/settings");
-    fireEvent.click(await screen.findByRole("radio", { name: /参考生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
-
-    await waitFor(() => {
-      expect(updateSpy).toHaveBeenCalledWith(
-        "demo",
-        expect.objectContaining({
-          // 执行模型换成 seedance：veo-3 的 1080p 不跟过去，4 秒不在其支持集内也退回自动
-          model_settings: expect.objectContaining({ "ark/seedance": { resolution: null } }),
-          default_duration: null,
-        }),
-      );
-    });
-  });
-
-  it("revalidates duration on mode switch even when the executing model stays the same", async () => {
-    // 同一个模型在参考图路径下可选时长会被收窄：只比模型身份就会放过这种情形，
-    // 用户带着模型不支持的时长保存，要到生成阶段才被拒
-    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
-      ...FAKE_CONFIG_WITH_DEFAULTS,
-    } as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
-    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
-      {
-        id: "gemini", display_name: "Gemini", description: "", status: "ready",
-        media_types: ["video"], capabilities: [], configured_keys: [], missing_keys: [],
-        models: {
-          "veo-3": {
-            display_name: "Veo 3", media_type: "video", capabilities: [], default: true,
-            supported_durations: [4, 6, 8], duration_resolution_constraints: {},
-            reference_image_durations: [8],
-            resolutions: [], has_audio_track: true, voice_consistency: "soft",
-          },
-        },
-      },
-    ] as Awaited<ReturnType<typeof providerModels.getProviderModels>>);
-    vi.spyOn(API, "getProject").mockResolvedValue({
-      project: {
-        title: "Demo",
-        generation_mode: "storyboard",
-        video_backend: "gemini/veo-3",
-        default_duration: 4,
-        episodes: [],
-        characters: {},
-        clues: {},
-      },
-      scripts: {},
-    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
-    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
-      success: true,
-      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
-    });
-
-    renderAt("/app/projects/demo/settings");
-    fireEvent.click(await screen.findByRole("radio", { name: /参考生视频/ }));
-    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
-
-    await waitFor(() => {
-      // 执行模型没变，但参考图路径只剩 8 秒——4 秒必须退回自动
-      expect(updateSpy).toHaveBeenCalledWith(
-        "demo",
-        expect.objectContaining({ generation_mode: "reference_video", default_duration: null }),
-      );
     });
   });
 

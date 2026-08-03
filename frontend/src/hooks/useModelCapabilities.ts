@@ -2,8 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { API } from "@/api";
 import { isDemoProject } from "@/onboarding/demo-project";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
-import { useProjectsStore } from "@/stores/projects-store";
-import { effectiveMode, type GenerationMode } from "@/utils/generation-mode";
 import {
   constrainDurations,
   lookupDurationConstraints,
@@ -20,7 +18,7 @@ import type { CustomProviderInfo, ProviderInfo, VideoCapabilities, VoiceConsiste
 //
 //   firstFrame / lastFrame  → 服务端生效值。这两维带用户覆盖语义（覆盖存在供应商配置上、
 //                             不落项目字段），只有服务端能给出「系统判定 ⊕ 用户覆盖」的结果。
-//   voiceConsistency        → 服务端派生值。二维派生（模型能力 × 项目 generation_mode）只在
+//   voiceConsistency        → 服务端派生值。二维派生（模型能力 × 项目生成路线）只在
 //                             服务端一处，前端不复制公式；无项目上下文时读目录端点的同名字段。
 //   durations               → 静态目录的 supported_durations，再经分辨率 / 参考图两条联动
 //                             约束收窄。约束只声明在目录里、服务端不返回，故以目录为准；
@@ -89,7 +87,7 @@ export interface ModelCapabilities {
   firstFrame: boolean | null;
   lastFrame: boolean | null;
   /**
-   * 声音一致性三级标识（服务端二维派生：模型能力 × 项目 generation_mode），与 firstFrame 同源
+   * 声音一致性三级标识（服务端二维派生：模型能力 × 项目生成路线），与 firstFrame 同源
    * 同口径——尚未查到或查询失败时为 null（未知）。查询带上 videoBackend，故编辑中的未保存候选
    * 模型也会得到它自己的档位。无项目上下文（全局设置页）时改读目录端点的同名字段。
    */
@@ -159,27 +157,9 @@ export function durationOutOfRangeReason(
 }
 
 /**
- * 该集生效 generation_mode；无集号上下文（设置页等）或项目数据未加载时为 null。
- *
- * 只参与请求 key，不进请求参数——服务端已按集号自行解析。集级覆盖经
- * `PATCH /projects/{name}` 写入、再由项目事件 SSE 刷进 store，工作台挂载期间就会变；
- * 而集号本身不变，key 不含模式的话该覆盖变了也不重取，能力停在上一模式。
- */
-function useEpisodeGenerationMode(
-  projectName: string | undefined | null,
-  episode: number | undefined | null,
-): GenerationMode | null {
-  const project = useProjectsStore((s) =>
-    projectName && s.currentProjectName === projectName ? s.currentProjectData : null,
-  );
-  if (episode === null || episode === undefined || !project) return null;
-  return effectiveMode(project, project.episodes?.find((e) => e.episode === episode));
-}
-
-/**
  * 服务端能力查询。
  *
- * 请求 key 只含「决定结果是否仍可用」的上下文：项目、后端、集号与该集生效模式。这几项一变
+ * 请求 key 只含「决定结果是否仍可用」的上下文：项目、后端与集号。这几项一变
  * 必须立刻丢弃旧能力，避免按过期值门控；revision 则单独驱动重取而不进 key——能力覆盖改的是
  * 供应商配置，旧值在新值到达前仍是当前最优估计，进 key 会让每次覆盖变更都闪一次加载态、
  * 短暂灰掉控件。
@@ -203,9 +183,8 @@ function useResolvedCapabilities(
   const active = enabled && !!projectName && !isDemoProject(projectName);
   // 元组编码而非拼接：拼接的分隔符可能出现在字段内，("a b", "c") 与 ("a", "b c") 会撞成同一 key，
   // 切换时把前一组的结果当作本组已落地。
-  const episodeMode = useEpisodeGenerationMode(projectName, episode);
   const key = active
-    ? JSON.stringify([projectName, videoBackend ?? "", episode ?? null, episodeMode])
+    ? JSON.stringify([projectName, videoBackend ?? "", episode ?? null])
     : null;
 
   useEffect(() => {
