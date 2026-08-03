@@ -6,9 +6,12 @@
 
 import asyncio
 import threading
+from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
+from typing import NamedTuple
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -303,47 +306,117 @@ class TestSnapshotDecoupling:
         assert (pm.get_project_path("demo") / "end_frames/scene_E1S02.png").exists()
 
 
+class _InterleavedResponses(NamedTuple):
+    """`_interleave_across_critical_section` 的两个请求各自的响应。"""
+
+    first: httpx.Response
+    second: httpx.Response
+
+
+def _interleave_across_critical_section(
+    monkeypatch, first: Callable[[], httpx.Response], second: Callable[[], httpx.Response]
+) -> _InterleavedResponses:
+    """让 `first` 停在剧本锁临界区内，确认 `second` 被锁挡在外面后再放行，返回两者的响应。
+
+    交错点由钩子对齐而非靠线程调度碰运气：钩子挂在锁内的剧本持久化上（`locked_script`
+    退出前的最后一步），此时先到的一方已经做完自己的文件副作用、字段写回尚未落盘——正是
+    「一方写完文件、对方抢在字段写回前动手」这一悬空引用场景的临界点。后到的一方在此期间
+    必须仍被剧本锁挡住：它若能完成，就说明两段操作没有真正互斥。
+
+    两个请求错开发出还有一层必要性：TestClient 每个请求起独立线程与事件循环，而 FastAPI 对
+    `include_router` 的路由展开是首次匹配时惰性构建、且不加锁；同时发出的两个首请求会撞上
+    半构建的路由表，随机得到路由级 404。此处第二个请求在第一个请求完成路由之后才发出。
+
+    「后到的一方没能完成」这一断言以固定等待窗口否证，是单向的：互斥若被破坏，慢机上后到
+    的一方也可能因窗口内尚未跑完而漏报；但绝不会反过来把守规矩的实现判成失败，故不引入
+    时序敏感性。不带锁的整条 set/clear 是毫秒级，窗口取值远宽于此。
+    """
+    original = ProjectManager._write_script_unlocked
+    entered_section = threading.Event()
+    resume = threading.Event()
+    gate_lock = threading.Lock()
+    gate_open = True
+
+    def _gated_persist(self, *args, **kwargs):
+        nonlocal gate_open
+        with gate_lock:
+            take_gate, gate_open = gate_open, False
+        if take_gate:
+            entered_section.set()
+            assert resume.wait(timeout=10), "主线程未放行临界区"
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(ProjectManager, "_write_script_unlocked", _gated_persist)
+
+    results: dict[str, httpx.Response] = {}
+    errors: dict[str, BaseException] = {}
+
+    def _run(key: str, call: Callable[[], httpx.Response]) -> threading.Thread:
+        def _target() -> None:
+            try:
+                results[key] = call()
+            except Exception as exc:  # 主线程复述，不能只打印到 stderr
+                errors[key] = exc
+
+        thread = threading.Thread(target=_target)
+        thread.start()
+        return thread
+
+    t_first = _run("first", first)
+    try:
+        assert entered_section.wait(timeout=10), "先到的请求没能进入剧本锁临界区"
+
+        t_second = _run("second", second)
+        # 先到的一方还停在临界区内，后到的一方不该有任何完成的可能
+        t_second.join(timeout=0.3)
+        assert "second" not in results, f"后到的请求插进了对方的临界区：{results.get('second')}"
+    finally:
+        resume.set()
+    t_first.join(timeout=10)
+    t_second.join(timeout=10)
+    assert not t_first.is_alive(), "先到的请求未在超时内结束"
+    assert not t_second.is_alive(), "后到的请求未在超时内结束"
+    assert not errors, f"请求线程内抛出异常：{errors}"
+    return _InterleavedResponses(first=results["first"], second=results["second"])
+
+
 class TestConcurrentSetClear:
     """设置与清除并发交错时，字段与快照文件必须同进同退，不留悬空引用。"""
 
-    def test_interleaved_set_and_clear_never_dangles(self, client):
+    def test_clear_blocked_until_set_leaves_critical_section(self, client, monkeypatch):
+        """设置先进临界区：清除被挡到设置整段完成之后，最终状态是「清除赢」且无残留引用。"""
         c, pm = client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
 
-        for _ in range(20):
-            barrier = threading.Barrier(2)
-            results: dict[str, object] = {}
+        results = _interleave_across_critical_section(
+            monkeypatch,
+            first=lambda: _upload(c, _img_bytes("PNG")),
+            second=lambda: _delete(c),
+        )
 
-            def _do_set():
-                barrier.wait()
-                try:
-                    results["set"] = _upload(c, _img_bytes("PNG")).status_code
-                except Exception as exc:  # noqa: BLE001 - 捕获后由主线程断言失败
-                    results["set"] = exc
+        assert results.first.status_code == 200, results.first.text
+        assert results.second.status_code == 200, results.second.text
+        # 清除后到、整段落在设置之后：字段置空，快照文件随之删除
+        assert _segment(pm).get("end_frame_image") is None
+        assert not snapshot.exists()
 
-            def _do_clear():
-                barrier.wait()
-                try:
-                    results["clear"] = _delete(c).status_code
-                except Exception as exc:  # noqa: BLE001
-                    results["clear"] = exc
+    def test_set_blocked_until_clear_leaves_critical_section(self, client, monkeypatch):
+        """清除先进临界区：设置被挡到清除整段完成之后，最终字段非空且快照文件在位。"""
+        c, pm = client
+        snapshot = pm.get_project_path("demo") / END_FRAME_REL
+        assert _upload(c, _img_bytes("PNG")).status_code == 200
 
-            t_set = threading.Thread(target=_do_set)
-            t_clear = threading.Thread(target=_do_clear)
-            t_set.start()
-            t_clear.start()
-            t_set.join()
-            t_clear.join()
+        results = _interleave_across_critical_section(
+            monkeypatch,
+            first=lambda: _delete(c),
+            second=lambda: _upload(c, _img_bytes("PNG")),
+        )
 
-            assert results["set"] == 200, results["set"]
-            assert results["clear"] == 200, results["clear"]
-
-            end_frame_image = _segment(pm).get("end_frame_image")
-            # 设置赢：字段非空则快照文件必须存在——不允许指向缺失文件的引用
-            if end_frame_image is not None:
-                assert end_frame_image == END_FRAME_REL
-                assert snapshot.exists()
-            # 清除赢：字段置空，文件可能已删或残留孤儿（无害），但不检验其存在性
+        assert results.first.status_code == 200, results.first.text
+        assert results.second.status_code == 200, results.second.text
+        # 设置后到、整段落在清除之后：字段非空则快照文件必须存在——不允许指向缺失文件的引用
+        assert _segment(pm)["end_frame_image"] == END_FRAME_REL
+        assert snapshot.exists()
 
 
 def _fail_first_persist(monkeypatch):
@@ -490,7 +563,7 @@ class TestPersistFailureRestoresSnapshot:
         assert not snapshot.exists()
 
     def test_set_failure_skips_restore_when_concurrent_takeover_uses_other_alias(self, client, monkeypatch):
-        """Codex 指出的别名归一问题：本次失败操作用 `scripts/episode_1.json` 这个别名，
+        """别名归一：失败的这次操作用 `scripts/episode_1.json` 这个别名，
         代次键若不归一化会与并发接管（用 `episode_1.json` 归一后的键）各自生成一把代次，
         互相看不见——回滚会误判「无人接手」，用旧字节覆盖对方已成功落盘的内容。"""
         c, pm = client
