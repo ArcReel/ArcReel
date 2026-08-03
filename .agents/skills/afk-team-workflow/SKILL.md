@@ -8,11 +8,9 @@ disable-model-invocation: true
 
 你是 team-lead：组建团队，把一批 issue 无人值守推进到全部合并或明确搁置。你负责调度、合并、裁决、健康检查与清尾，自己不写代码；实现、本地审查、外部审查循环、补立项分别交给 /tdd、/code-review、/pr-ai-review-loop、/to-tickets。
 
-## 触发前先检查未完成批次
-
-开工前检查 `.afk/` 是否存在**末条事件不是 `closed`** 的账本：`for f in .afk/*.jsonl; do [ -f "$f" ] || continue; tail -n1 "$f" | jq -e '.kind == "closed"' >/dev/null 2>&1 || echo "$f"; done`。若有，则上一会话的 team-lead 可能中途终止——读 [references/recovery.md](references/recovery.md) 按接管流程处理，不要当作全新批次直接覆盖。
-
 ## 第一步：确定批次成员
+
+用户显式要求接管或恢复既有批次时，按 [references/recovery.md](references/recovery.md) 处理，不按新批次开工。Spec 批次开工前先检查 `.afk/spec-<N>.jsonl`：该文件已存在且末条事件不是 `closed`，说明此 Spec 尚有未收尾的批次——向用户报告并请其裁决，接管则转入 recovery.md，重开则执行其重开清理后继续本流程。slug 批次的 batch-id 由你命名，建账本时避开既有文件名即可。
 
 先跑 batch-poll 取批次的机械底图：展开 Spec 子 issue、解析依赖图、给出每个 issue 的远端落点（标签、`blocked_by`、分支/PR 状态、`stage_hint`）：
 
@@ -25,7 +23,7 @@ batch-poll 只产出 gh/git 事实与机械汇总，不做语义判断。取得�
 
 ## 第二步：制定计划，主动请求一次前置授权
 
-1. 依赖顺序按 batch-poll 的 `blocked_by` / `ready_to_start` 排；并发槽位优先给改动域互不相交的 issue，同域或足迹重叠者靠依赖序或补位串行——冲突事前避而非事后解；`stage_hint` 已起的 issue（恢复场景）按 [references/recovery.md](references/recovery.md) 处置
+1. 依赖顺序按 batch-poll 的 `blocked_by` / `ready_to_start` 排；并发槽位优先给改动域互不相交的 issue，同域或足迹重叠者靠依赖序或补位串行——冲突事前避而非事后解；`stage_hint` 已起的 issue 在计划中标明现状与接力起点（按第三步阶段表的交付物反推），随计划一并交用户确认
 2. 分流：`ready-for-agent` 进批次；`ready-for-human` 跳过——它与下游被阻塞链都不启动；已被他人 assign 的 issue 视为已认领，同样跳过（batch-poll 不含 assignee，用 `gh issue view <N> --json assignees` 核对）；无标签的读正文判断归类（batch-poll 的 `ready_to_start` 只算依赖与未起，triage 由你定）
 3. 向用户展示批次计划：成员清单、依赖顺序、每个 issue 的实现路线与模型（**各附一句选择理由**，见第三步「实现路线与模型」）、跳过项及连带不启动的下游、并发上限（默认 3，用户可覆盖）
 4. **主动请求一次性前置授权**：向用户明确提出两项预批——本批所有 PR 的合并（含清尾轮立项的 PR）；清尾立项权限（对满足收尾节判据的缺陷类 follow-up，team-lead 可自行 /to-tickets 立项并在清尾轮跑到合并，被拒则清尾降级为收尾转呈）。连同流程将自动执行的动作边界（修改 triage 标签、PR 转 draft、在 Spec 发 QA 验收 comment；清尾授权之外不创建新 issue，gap 立项仍须用户中途指令）。这是本流程唯一的同步确认点；前置授权在此落入 team-lead 的 transcript，后续不再逐笔请示
@@ -69,7 +67,7 @@ spawn 时按 [references/spawn-prompts.md](references/spawn-prompts.md) 的模�
 2. **在 Spec issue 发人工 QA 验收清单 comment，不关闭 Spec 本体**。清单按已合并子 issue（含清尾轮）组织：每项给 PR 链接与面向用户可感知行为的验收步骤（实际操作路径，不复读技术验收标准）；末尾列 needs-human 搁置项、跳过与未启动项、发现的缺口。纯 issue 列表批次没有共同 Spec 时，清单并入收尾汇报
 3. 解散团队，移除已合并 issue 的 assignee（避免 reopen 后仍显示为处理中），删除全部 worktree 与本地分支（远端分支合并后自动删除）
 4. 向用户汇报三份清单：已合并（issue 与 PR 对照）、needs-human 搁置（含争点）、跳过与未启动（含原因）；另附转呈事项：缺口立项建议、故障裁决记录、清尾分拣中转呈的候选，以及**聚合复盘**——从账本 `retrospective` 行与 handoff 目录聚合四类复盘候选（ADR / CONTEXT.md / CLAUDE.md / follow-up），一次性呈用户裁决。多数批次干净收敛，四类候选常为空；空是预期结果，照实呈报，无需为"没有候选"补叙
-5. 账本 append 一条 `closed` 收尾行（`bash .agents/skills/afk-team-workflow/scripts/ledger.sh <batch-id> closed`）——账本不删除，留作复盘源与审计，并供下次触发时的恢复探测器据此判定本批次已终态。批准后的复盘落地方式（写 ADR / 改 CONTEXT.md / 补 CLAUDE.md / 立 follow-up issue）不在此指定，由用户与后续会话决定
+5. 账本 append 一条 `closed` 收尾行（`bash .agents/skills/afk-team-workflow/scripts/ledger.sh <batch-id> closed`）——账本不删除，留作复盘源与审计，并供第一步的同批次检查据此判定本批次已终态。批准后的复盘落地方式（写 ADR / 改 CONTEXT.md / 补 CLAUDE.md / 立 follow-up issue）不在此指定，由用户与后续会话决定
 
 ## 合并纪律
 
