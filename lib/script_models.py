@@ -278,9 +278,11 @@ class NarrationEpisodeScript(BaseModel):
     由 `ScriptGenerator._add_metadata` 写入。不让 AI 生成该字段，避免幻觉写错集号
     进而污染 project.json（曾导致 episode_10.json 内部 episode=1 覆盖第 1 集条目）。
 
-    顶层**不**走 ``extra="forbid"``:``episode`` / ``metadata`` / ``generation_mode`` 等
-    字段由运行时注入(``_add_metadata`` / ``_write_script_unlocked``)而非 schema 内字段,
-    顶层 forbid 会让现有写盘流程崩。typo 防护靠子模型(VideoPrompt / ImagePrompt /
+    顶层**不**走 ``extra="forbid"``:``episode`` / ``metadata`` 等字段由运行时注入
+    (``_add_metadata`` / ``_write_script_unlocked``)而非 schema 内字段,顶层 forbid
+    会让现有写盘流程崩;``generation_mode`` 不在其列——路线的真相源是 project.json,剧本
+    不留戳,生成写盘前由 ``ScriptGenerator._add_metadata`` 剥离,存量在制品里的残留字段按
+    未知字段忽略。typo 防护靠子模型(VideoPrompt / ImagePrompt /
     NarrationSegment 等)的 ``extra="forbid"`` 在嵌套字段路径上挡。
     """
 

@@ -5,8 +5,8 @@
 写上下文里直接写剧本顶层白名单字段，退出时经写盘统一入口 ``_write_script_unlocked``
 （``sync_project=True`` 默认）自动把集元数据镜像到 project.json 的 ``episodes[].title``。
 
-剧本顶层刻意无 ``extra='forbid'``（要容纳运行时注入的 ``episode``/``metadata``/
-``generation_mode``，见 ``lib/script_models.py``），故必须靠显式白名单兜底，防 agent 写任意键。
+剧本顶层刻意无 ``extra='forbid'``（要容纳运行时注入的 ``episode``/``metadata`` 等字段，
+见 ``lib/script_models.py``），故必须靠显式白名单兜底，防 agent 写任意键。
 
 工具返回文本是 agent-facing（免 i18n）；显示名在 ``ARCREEL_MCP_TOOL_IDS`` 注册、补三语。
 """

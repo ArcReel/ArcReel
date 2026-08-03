@@ -41,9 +41,9 @@ ActualBySegment = dict[str, dict[str, CostBreakdown]]
 ACTUAL_COST_TYPES = ("image", "video", "audio")
 
 
-#: 读侧定桶要枚举的全部视频能力桶。两个桶都预解析：同一项目里逐集的生效路径可以不同
-#: （集级 generation_mode 覆盖、或剧本自带 r2v 戳），而解析需要 resolver session，不能推迟到
-#: 已关闭 session 的估算循环里逐集去做。桶只有两个，代价有界。
+#: 读侧定桶要枚举的全部视频能力桶。项目生成路线（generation_mode）唯一决定生效桶、整个
+#: 项目逐集不变；两个桶仍都在这里预解析，省去按路线分支判断该解析哪个桶的复杂度——桶只有
+#: 两个，代价有界。
 _VIDEO_BUCKETS: tuple[VideoCapability, ...] = ("i2v", "r2v")
 
 
@@ -176,8 +176,8 @@ class CostEstimationService:
                 image_provider, image_model = "unknown", "unknown"
 
             # 视频按能力桶解析（``docs/adr/0054``），与执行扣费同一个模型：参考生视频路径算 r2v
-            # 桶的价、图生视频 / 宫格算 i2v 桶的价。逐集选桶，故两个桶都在这里解析出来（见
-            # ``_VIDEO_BUCKETS``），分辨率与 generate_audio 随各自的模型身份求值。
+            # 桶的价、图生视频 / 宫格算 i2v 桶的价，整个项目逐集同一个桶。两个桶仍都在这里解析
+            # 出来（见 ``_VIDEO_BUCKETS``），分辨率与 generate_audio 随各自的模型身份求值。
             video_identity: dict[VideoCapability, tuple[str, str, str | None, bool]] = {}
             for capability in _VIDEO_BUCKETS:
                 try:
@@ -236,7 +236,7 @@ class CostEstimationService:
             ) in video_identity.items()
         }
         # 项目层展示的视频模型按项目 generation_mode 定桶：``models`` 回答的是「当前项目配置」；
-        # 逐集算价另按该集实际入队路径的桶取（见循环内 ``episode_video``）。
+        # 逐集算价由入队路径按同一条项目路线取到同一个桶（见循环内 ``episode_video``）。
         project_video = video_pricing[video_bucket_for_generation_mode(project_data.get("generation_mode"))]
 
         grid_enabled = grid_storyboard_enabled(project_data)

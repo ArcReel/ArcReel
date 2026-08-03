@@ -83,7 +83,7 @@ pnpm build       # 生产构建，含 typecheck
 
 - **content_mode** — `drama`（剧集，内容驱动）/`narration`（说书，旁白驱动） / `ad`（广告/短片）。决定剧本结构与 agent profile 加载哪个 `CLAUDE.*.md` 变体
 - **generation_mode** — 项目级**生成路线**，二值必填：`storyboard`（分镜路线，分镜图驱动，走 i2v）/ `reference_video`（参考路线，无需分镜图步骤，直接使用资产图作为参考图生成视频，见 `lib/reference_video/`）。创建时二选一、创建后不可更改；宫格不是路线，由独立的项目级布尔 `grid_storyboard` 表达（见 `docs/adr/0055`）
-- 两字段对 LLM 隐藏（`SkipJsonSchema`），由编排层自动注入
+- 两字段均对 LLM 隐藏：`content_mode` 是剧本模型上的 `SkipJsonSchema` 字段、由编排层写入；`generation_mode` 只存 project.json，剧本不携带该字段
 
 ## Agent 沙箱
 
