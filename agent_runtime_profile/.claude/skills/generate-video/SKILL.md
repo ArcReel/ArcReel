@@ -77,7 +77,7 @@ mcp__arcreel__generate_video_episode({"script": "episode_1.json", "confirm_durat
 
 ## 工作流程
 
-1. **加载项目和剧本** — storyboard 模式确认所有场景都有 `storyboard_image`；reference_video 模式无分镜图，改为确认各 unit 的引用资产 sheet 图齐备
+1. **加载项目和剧本** — storyboard 模式确认所有场景都有 `storyboard_image`；reference_video 模式无分镜图，改为确认各 unit 的引用资产 sheet 图齐备（narration / drama 按此准备；ad 参考直出缺图不阻断入队，见下方软口径）
 2. **生成视频** — MCP 工具自动构建 Prompt、调用 API、保存 checkpoint
 3. **审核检查点** — 展示结果，用户可重新生成不满意的场景
 4. **更新剧本** — 自动更新 `video_clip` 路径和场景状态
@@ -109,9 +109,10 @@ Prompt 由 MCP 工具内部自动构建，根据 content_mode 选择不同策略
 
 ### reference_video 模式
 
-- [ ] 所有 unit 引用的角色 / 场景 / 道具在 project.json 三 bucket 中已注册且 `*_sheet` 文件存在
 - [ ] 每 unit shots 数 ≤ 4，总时长 ≤ 模型上限
 - [ ] references 数 ≤ 模型 `max_reference_images`
+- [ ] （narration / drama）所有 unit 引用的角色 / 场景 / 道具在 project.json 三 bucket 中已注册且 `*_sheet` 文件存在
+- [ ] （ad）产品原图已上传——缺图不阻断入队，但会让保真注入退化为纯文本
 
 > 参考生视频模式下，输出命名为 `{unit_id}.mp4`，位于 `reference_videos/` 目录。
 > ad 参考直出按软口径处理参考：缺失的 sheet/原图跳过并在任务结果里告警（不像
