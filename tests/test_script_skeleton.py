@@ -192,6 +192,39 @@ class TestRouteSkeletonGate:
         assert exc.value.actual == "segments"
         assert "split-reference-video-units" in str(exc.value)
 
+    def test_storyboard_route_rejects_script_without_any_skeleton_array(self):
+        # 三个分镜键全缺：resolve_script_kind 会按 content_mode 合成 segments，若据此放行，
+        # 分镜图入队会落进"所有片段的分镜图都已生成"的假成功。判据是键在场性，故拒绝。
+        script = {"content_mode": "narration", "title": "第一集"}
+        with pytest.raises(SkeletonRouteMismatchError) as exc:
+            ensure_route_skeleton(script, "narration", "storyboard")
+        assert exc.value.expected == "segments"
+        assert exc.value.actual is None
+        # 无骨架数组与「有数组但属另一族」分开措辞，不报出「要求 segments、当前 segments」。
+        assert "没有任何骨架数组" in str(exc.value)
+        assert "当前剧本是" not in str(exc.value)
+
+    def test_reference_route_rejects_script_without_any_skeleton_array(self):
+        script = {"content_mode": "narration"}
+        with pytest.raises(SkeletonRouteMismatchError) as exc:
+            ensure_route_skeleton(script, "narration", "reference_video")
+        assert exc.value.expected == "video_units"
+        assert exc.value.actual is None
+        assert "没有任何骨架数组" in str(exc.value)
+
+    def test_ad_route_rejects_script_without_any_skeleton_array(self):
+        script = {"content_mode": "ad"}
+        with pytest.raises(SkeletonRouteMismatchError) as exc:
+            ensure_route_skeleton(script, "ad", "reference_video")
+        assert exc.value.expected == "shots"
+        assert exc.value.actual is None
+
+    def test_empty_skeleton_array_is_present_and_passes(self):
+        # 键在场即放行——空数组是"已拆分但没有条目"，与"根本没拆分"不同，不由本闸门拒绝。
+        assert ensure_route_skeleton({"content_mode": "narration", "segments": []}, "narration", "storyboard") == (
+            "segments"
+        )
+
     def test_unknown_content_mode_still_fails_loud(self):
         with pytest.raises(ValueError):
             ensure_route_skeleton({"segments": []}, None, "storyboard")

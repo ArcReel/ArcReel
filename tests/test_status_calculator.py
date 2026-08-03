@@ -656,6 +656,24 @@ class TestAdStatusCalculation:
         assert enriched["scenes_in_episode"] == ["客厅"]
         assert enriched["props_in_episode"] == ["速干杯"]
 
+    def test_legacy_ad_script_on_reference_route_keeps_shots(self):
+        """缺 content_mode 的 ad 剧本落在参考路线项目下：ad 骨架恒 shots（含派生
+        reference_units 索引），legacy 短路不得把计分抢成空 video_units。"""
+        script = {"shots": [{"shot_id": "E1S01"}, {"shot_id": "E1S02"}], "reference_units": []}
+        kind, items = StatusCalculator._select_kind_and_items(script, "reference_video")
+        assert kind == "shots"
+        assert len(items) == 2
+
+    def test_malformed_unit_container_scores_as_empty(self):
+        """``video_units`` 非数组（外部编辑 / 归档导入的脏数据）归一为空而不是原样下传——
+        否则下游按 dict 键迭代、对 str 调 get，项目详情读取变成 500 全不可查看。"""
+        for malformed in ({"unit_a": {}}, "E1U1", 3):
+            kind, items = StatusCalculator._select_kind_and_items(
+                {"content_mode": "narration", "video_units": malformed}, "reference_video"
+            )
+            assert kind == "video_units"
+            assert items == []
+
     def test_duck_typing_precedence_segments_over_scenes_over_shots(self):
         """缺 content_mode 的老脚本同时残留多种键时，鸭子类型优先级固定为
         segments > scenes > shots（依赖 _LEGACY_DUCK_TYPE_KINDS 顺序，本测试钉住该顺序）。"""

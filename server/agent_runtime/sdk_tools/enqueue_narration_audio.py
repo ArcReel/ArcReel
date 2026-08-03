@@ -67,12 +67,17 @@ def generate_narration_audio_tool(ctx: ToolContext):
                 raise ValueError(f"segment_ids 必须是片段 ID 数组，收到: {segment_ids!r}")
 
             script = ctx.pm.load_script(ctx.project_name, script_filename)
-            if script.get("content_mode") == "drama":
+
+            # 内容模式与路线都以项目为兜底真相源，解析一次贯穿适用性判断与骨架闸门：只读剧本
+            # 自身的 content_mode 会让缺该字段的剧本在 drama 项目下绕过模式拒绝，落进
+            # 「0 succeeded, 0 failed」的空转（drama 的 scenes 没有 novel_text）。
+            project = ctx.pm.load_project(ctx.project_name)
+            content_mode = resolve_content_mode(script, project)
+            if content_mode == "drama":
                 raise ValueError("旁白配音仅适用说书（narration）模式剧本；drama 模式的 scenes 没有 novel_text")
 
-            # 路线以项目为唯一真相源；同时把守骨架闸门，失配剧本在此被拒。
-            project = ctx.pm.load_project(ctx.project_name)
-            ensure_route_skeleton(script, resolve_content_mode(script, project), project.get("generation_mode"))
+            # 失配剧本在此被拒。
+            ensure_route_skeleton(script, content_mode, project.get("generation_mode"))
             if is_reference_video_project(project):
                 raise ValueError("参考生视频（reference_video）路线的剧本没有 segments，不适用旁白配音")
 

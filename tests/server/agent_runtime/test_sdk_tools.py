@@ -436,6 +436,22 @@ async def test_generate_narration_audio_rejects_drama_script(fake_ctx: ToolConte
     assert "narration" in out["content"][0]["text"]
 
 
+async def test_generate_narration_audio_rejects_drama_script_without_content_mode(fake_ctx: ToolContext) -> None:
+    """剧本缺 content_mode 时按项目内容模式判适用性：drama 项目下同样拒绝，
+    而不是绕过模式检查落进「0 succeeded, 0 failed」的空转（scenes 没有 novel_text）。"""
+    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+
+    fake_ctx.pm.project_payload["content_mode"] = "drama"  # type: ignore[attr-defined]
+    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+        "episode": 1,
+        "scenes": [{"scene_id": "E1S01", "generated_assets": {}}],
+    }
+    tool_obj = mod.generate_narration_audio_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+    assert out.get("is_error") is True
+    assert "narration" in out["content"][0]["text"]
+
+
 async def test_generate_narration_audio_rejects_reference_route(fake_ctx: ToolContext) -> None:
     """参考生视频路线无 segments，必须显式报错而非假装'已全部生成'。"""
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod

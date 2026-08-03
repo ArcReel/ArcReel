@@ -59,6 +59,17 @@ def _draft_candidates(content_mode: str, generation_mode: str | None = None) -> 
     return (primary, *legacy)
 
 
+def _unit_items(script: dict) -> list[dict]:
+    """取 ``video_units`` 数组，非数组值（外部编辑 / 归档导入的脏数据）归一为空。
+
+    读时计算不抛错、坏数据按未派生计分（与 ``_calculate_ad_reference_stats`` 同口径，
+    数据契约校验归 ``DataValidator``）：不归一的话 ``{"video_units": {...}}`` 会让下游按
+    dict 的键迭代、对 str 调 ``get``，把项目详情读取变成 500，整个项目不可查看。
+    """
+    items = script.get("video_units")
+    return items if isinstance(items, list) else []
+
+
 class StatusCalculator:
     """状态和统计字段的实时计算器"""
 
@@ -89,14 +100,16 @@ class StatusCalculator:
 
         if kind == "video_units":
             # 按声明分派：不回退鸭子类型，残留 segments/scenes 索引不得抢走参考集计分。
-            return "video_units", script.get("video_units") or []
+            return "video_units", _unit_items(script)
         if kind is not None:
             items = script.get(kind)
             if isinstance(items, list):
                 return kind, items
-        elif generation_mode == "reference_video":
+        elif generation_mode == "reference_video" and "video_units" in script:
             # 缺失/未知 content_mode 但项目走参考路线：沿用历史 legacy 容忍，按路线取 video_units。
-            return "video_units", script.get("video_units") or []
+            # 以 video_units 键在场为前提（与 ``ensure_route_skeleton`` 同判据）——ad 剧本恒为
+            # shots 骨架却可落在参考路线项目下，无条件短路会把它的计分抢成空 video_units。
+            return "video_units", _unit_items(script)
 
         for legacy_kind in _LEGACY_DUCK_TYPE_KINDS:
             if isinstance(script.get(legacy_kind), list):
