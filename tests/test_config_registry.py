@@ -268,6 +268,22 @@ class TestModelHasAudioTrack:
         assert "generate_audio" in model.capabilities
         assert model_has_audio_track("openai", model) is True
 
+    def test_kling_audio_capable_models_declare_token(self):
+        """可灵支持音画同出的三档均声明 token；能力地图的「声音控制（人声）」列是指定音色通道，
+        不是音频能力本身，不据此判定音轨。"""
+        for model_id in ("kling-v2-6", "kling-v3", "kling-v3-omni"):
+            model = self._model("kling", model_id)
+            assert "generate_audio" in model.capabilities
+            assert model_has_audio_track("kling", model) is True
+
+    def test_kling_silent_models_omit_token(self):
+        """kling-v2-5-turbo 无音频开关、kling-video-o1 只能保留参考视频原声（ArcReel 不下发参考
+        视频）——两档均不声明 token。"""
+        for model_id in ("kling-v2-5-turbo", "kling-video-o1"):
+            model = self._model("kling", model_id)
+            assert "generate_audio" not in model.capabilities
+            assert model_has_audio_track("kling", model) is False
+
     def test_minimax_true_silent(self):
         """MiniMax 未声明 token 且不在恒有声例外表内——真无声模型。"""
         model = self._model("minimax", "MiniMax-Hailuo-2.3")

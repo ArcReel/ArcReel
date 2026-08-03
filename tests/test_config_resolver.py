@@ -939,6 +939,19 @@ class TestVoiceConsistency:
         caps = await self._caps({"video_backend": "openai/sora-2"})
         assert caps["voice_consistency"] == "soft"
 
+    @pytest.mark.unit
+    async def test_kling_v3_audio_models_are_soft(self):
+        """可灵 v3 系声明音频能力 → soft（注入 Voice_Profiles）。"""
+        for model_id in ("kling-v3", "kling-v3-omni"):
+            caps = await self._caps({"video_backend": f"kling/{model_id}"})
+            assert caps["voice_consistency"] == "soft"
+
+    @pytest.mark.unit
+    async def test_kling_turbo_true_silent_is_none(self):
+        """可灵 v2-5-turbo 无音频开关 → none。"""
+        caps = await self._caps({"video_backend": "kling/kling-v2-5-turbo"})
+        assert caps["voice_consistency"] == "none"
+
     async def test_minimax_true_silent_is_none(self):
         """MiniMax 真无声模型 → none。"""
         caps = await self._caps({"video_backend": "minimax/MiniMax-Hailuo-2.3"})

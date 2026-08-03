@@ -892,3 +892,55 @@ class TestReferenceCompressionSeam:
         )
 
         assert probe_calls == []
+
+    @pytest.mark.unit
+    async def test_prompt_over_limit_raises_before_backend_call(self, tmp_path):
+        """超长 prompt 在调 backend.generate（即付费请求）之前被拦截，不留记账行。"""
+        from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
+
+        gen = _build_generator(tmp_path)
+
+        class _PromptLimitedVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(max_prompt_chars=10)
+
+            def __init__(self):
+                self.called = False
+
+            async def generate(self, request):
+                self.called = True
+                raise AssertionError("超限请求不应到达 backend.generate")
+
+        backend = _PromptLimitedVideoBackend()
+        gen._video_backend = backend
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await gen.generate_video_async(prompt="x" * 11, resource_type="videos", resource_id="E1S01")
+
+        assert exc.value.code == "video_prompt_too_long"
+        assert backend.called is False
+        assert gen.ledger.outcomes == []
+
+    @pytest.mark.unit
+    async def test_prompt_gating_applies_without_optional_paths(self, tmp_path):
+        """prompt 长度对每个请求都适用：纯文生/首帧路径（无尾帧、参考图、参考音频）同样查能力。"""
+        from lib.video_backends.base import VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+
+        class _PromptLimitedVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(max_prompt_chars=10)
+
+            async def generate(self, request):
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"v")
+                return _FakeVideoResult()
+
+        gen._video_backend = _PromptLimitedVideoBackend()
+
+        await gen.generate_video_async(prompt="x" * 10, resource_type="videos", resource_id="E1S01")
+
+        assert gen.ledger.outcomes

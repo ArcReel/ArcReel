@@ -278,6 +278,7 @@ MESSAGES = {
     "video_reference_audio_slots_insufficient": "模型 {model} 的参考音频需逐段挂在参考素材上，当前只有 {slots} 个参考素材却收到 {count} 段音频；请为这些角色补齐参考图，或减少带参考音频的角色数量",
     "video_reference_audio_unreadable": "模型 {model} 有参考音频缺失或无法读取，已中止生成：{names}；请检查参考音频路径",
     "video_reference_audio_format_unsupported": "参考音频 {name} 的格式不受支持（仅支持 {supported}）；请更换音频文件",
+    "video_prompt_too_long": "{provider}/{model} 的提示词最多 {limit} 个字符，当前 {count} 个；超出部分会被供应商静默截断，已中止生成。请缩短提示词",
     # Agent credentials
     "agent_preset_unknown": "未知预设供应商: {preset_id}",
     "agent_base_url_required_custom": "自定义配置需要填写 base_url",

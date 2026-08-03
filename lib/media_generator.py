@@ -610,22 +610,17 @@ class MediaGenerator:
         # 在括号内抛虽也不结算，却会留一条 failed ApiCall 行；两者均无副作用，前置最干净。
         from lib.video_frame_slots import gate_video_request, plan_frame_slots, resolve_video_capabilities
 
-        # 能力查询保持惰性：三条可选路径都不走的请求不触发校验，无谓查询只会给最常见的
-        # 纯首帧路径新增一层后端属性依赖；未查询即传 None，不伪造一份占位能力声明。
-        needs_caps = end_image is not None or bool(reference_images) or bool(reference_audio_files)
-        video_caps = (
-            resolve_video_capabilities(
-                self._video_backend,
-                service_tier=version_metadata.get("service_tier", "default"),
-                resolution=resolution,
-            )
-            if needs_caps
-            else None
+        # prompt 长度校验对每个请求都适用（不像尾帧/参考图/参考音频那样可选），故能力查询不再
+        # 按可选路径惰性触发。查询是纯读后端声明的同步调用，没有 I/O 开销。
+        video_caps = resolve_video_capabilities(
+            self._video_backend,
+            service_tier=version_metadata.get("service_tier", "default"),
+            resolution=resolution,
         )
         # 总时长校验需要读音频元数据，只能在这层（拿得到文件路径）探测好再传给纯函数的
         # gate_video_request；探测失败（ffprobe 不可用等）按 None 传入，由其按既有降级口径跳过
-        # 该项校验，不阻断请求。仅当 caps 声明了总时长约束才探测——同一份「能力查询保持惰性」
-        # 原则，未声明该约束的后端（如 wan2.7）不必为每个请求多付一轮 ffprobe 子进程开销。
+        # 该项校验，不阻断请求。仅当 caps 声明了总时长约束才探测——未声明该约束的后端
+        # （如 wan2.7）不必为每个请求多付一轮 ffprobe 子进程开销。
         reference_audio_total_seconds = (
             await probe_reference_audio_total_seconds(reference_audio_files)
             if reference_audio_files
@@ -637,6 +632,7 @@ class MediaGenerator:
             caps=video_caps,
             provider=self._video_backend.name,
             model=model_name,
+            prompt=prompt,
             end_image=end_image,
             reference_images=reference_images,
             reference_audio_files=reference_audio_files,
