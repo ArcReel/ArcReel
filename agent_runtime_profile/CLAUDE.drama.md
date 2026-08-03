@@ -48,21 +48,20 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 本项目为**剧集动画模式**（drama）。剧本数据结构为 `scenes[]`，每个场景对应一段独立的视觉画面（含对话、动作、情绪）。
 
-> 生成模式（storyboard / grid / reference_video）通过 `project.json` 的 `generation_mode` 字段配置，与内容模式独立。详细规格见 `.claude/references/generation-modes.md`。
+> 生成模式（storyboard / reference_video）由 `project.json` 顶层 `generation_mode` 字段唯一决定，项目创建后不可更改；与内容模式独立。详细规格见 `.claude/references/generation-modes.md`。
 
 ---
 
 ## 生成模式
 
-系统支持三种**生成模式**（`generation_mode`），通过 `project.json` 顶层字段 + 集级 `episodes[i].generation_mode` 指定：
+系统支持两种**生成模式**（`generation_mode`），由 `project.json` 顶层字段唯一表达，创建后不可更改，不存在集级覆盖：
 
 | generation_mode | 名称（UI） | 数据主结构 | 视觉参考来源 |
 |---|---|---|---|
-| `storyboard`（默认） | 图生视频 | `segments[]` 或 `scenes[]` + 分镜图 | 每片段一张分镜图作起始帧 |
-| `grid` | 宫格生视频 | `segments[]` 或 `scenes[]` + 宫格分组 | 宫格图切块 |
+| `storyboard`（默认） | 图生视频 / 宫格生视频 | `segments[]` 或 `scenes[]` + 分镜图 | 每片段一张分镜图作起始帧；`grid_storyboard=true` 时改用宫格图切块 |
 | `reference_video` | 参考生视频 | `video_units[]` | 角色/场景/道具 sheet 图作为参考 |
 
-解析规则：`effective_mode(project, episode) = episode.generation_mode or project.generation_mode or "storyboard"`。
+宫格不是独立生成模式：`grid_storyboard` 是仅在 `generation_mode="storyboard"` 下生效的独立布尔开关，切换宫格 UI 在设置页操作，agent 无法经工具绕过。
 
 > 完整模式矩阵与阶段分支详见 `.claude/references/generation-modes.md`。
 
@@ -129,16 +128,16 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 `/manga-workflow` 编排 skill 按以下阶段自动推进（每个阶段完成后等待用户确认）：
 
-1. **项目设置**：创建项目（创建时确定 `content_mode`，之后不可变）、选择 `generation_mode`、上传小说、生成项目概述
+1. **项目设置**：创建项目（创建时确定 `content_mode` 与 `generation_mode`，之后均不可变）、上传小说、生成项目概述。用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知路线创建后不可更改，无绕过方式；要求改宫格装配（`grid_storyboard`）时指引用户前往设置页操作，agent 无对应写入权限
 2. **全局角色/场景/道具提取** → dispatch `analyze-assets` subagent
 3. **分集规划** → 主 agent 调用 `mcp__arcreel__plan_episodes` 服务端工具规划一批集（账本+派生集文件由工具维护）+ 批级审阅。用户对已规划内容提出调整意见时走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning` 退回到意见中最早受影响的集（保留其前的集），再带调整后的 `instructions` 分批重新调用 `plan_episodes`。用户表达常驻分集偏好（如按章节对齐切分）时，须经 `plan_episodes` 的 `instructions` 传入，并在规划完成前**每一批调用都重复带上**（偏好不持久化）；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
-4. **单集预处理** → 按 `effective_mode` × `content_mode` 三分支选（中间文件统一位于 `drafts/episode_{N}/`）：
+4. **单集预处理** → 按项目 `generation_mode` × `content_mode` 选（中间文件统一位于 `drafts/episode_{N}/`）：
    - reference_video（任一 content_mode）→ `split-reference-video-units`（产出 `step1_reference_units.json`）
-   - storyboard / grid + narration → `split-narration-segments`（产出 `step1_segments.json`）
-   - storyboard / grid + drama → `normalize-drama-script`（产出结构化内容 `step1_normalized_script.json`）
+   - storyboard + narration → `split-narration-segments`（产出 `step1_segments.json`）
+   - storyboard + drama → `normalize-drama-script`（产出结构化内容 `step1_normalized_script.json`）
 5. **JSON 剧本生成** → dispatch `create-episode-script` subagent；中间文件被修改/重拆后必须重新执行本阶段
 6. **资产设计（character/scene/prop 三类并行）** → dispatch `generate-assets` subagent
-7. **分镜图生成**：仅 `storyboard` / `grid` 模式；`reference_video` 跳过 → dispatch `generate-assets` subagent
+7. **分镜图生成**：仅 `storyboard` 模式（`grid_storyboard=true` 时生成宫格图）；`reference_video` 跳过 → dispatch `generate-assets` subagent
 8. **视频生成** → dispatch `generate-assets` subagent（脚本自动按 video_units/segments/scenes 分派）
 
 工作流支持**灵活入口**：状态检测自动定位到第一个未完成的阶段，支持中断后恢复。
@@ -175,9 +174,9 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 ### project.json 核心字段
 
 - `schema_version`：项目数据格式版本（当前 1）
-- `title`、`content_mode`（`narration`/`drama`）、`generation_mode`（`storyboard`/`grid`/`reference_video`）、`style`、`style_description`
+- `title`、`content_mode`（`narration`/`drama`）、`generation_mode`（`storyboard`/`reference_video`，创建后不可更改）、`grid_storyboard`（布尔，仅 `generation_mode="storyboard"` 下生效，由用户在设置页开关）、`style`、`style_description`
 - `overview`：项目概述（synopsis、genre、theme、world_setting）
-- `episodes`：分集账本（单一真相源）：episode、title、script_file、可选 `generation_mode` 覆盖，以及账本字段 `source_range`（原文范围）/ `hook`（集尾钩子）/ `outline`（drama 分集大纲）/ `ledger_status`（planned/consumed/stale）；顶层 `planning_cursor` 标记下一批规划起点。`source/episode_N.txt` 是账本的派生物，由规划工具维护，不要手工编辑或重命名
+- `episodes`：分集账本（单一真相源）：episode、title、script_file，以及账本字段 `source_range`（原文范围）/ `hook`（集尾钩子）/ `outline`（drama 分集大纲）/ `ledger_status`（planned/consumed/stale）；顶层 `planning_cursor` 标记下一批规划起点。`source/episode_N.txt` 是账本的派生物，由规划工具维护，不要手工编辑或重命名
 - `characters`：角色完整定义（description、voice_style、character_sheet）
 - `scenes`：场景完整定义（description、scene_sheet）
 - `props`：道具完整定义（description、prop_sheet）

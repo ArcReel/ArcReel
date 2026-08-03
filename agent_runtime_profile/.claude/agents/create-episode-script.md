@@ -27,13 +27,13 @@ skills:
 
 使用 Read 工具读取 `project.json`（相对 session cwd），确认：
 - content_mode 字段（narration 或 drama）
-- generation_mode 字段（项目顶层，注意目标集的 `episodes[i].generation_mode` 可覆盖；`effective_mode = episode.generation_mode or project.generation_mode or "storyboard"`，其中 `episode` 指 `project.json` 的 `episodes[]` 数组中 `episode == N` 的那一项）
+- generation_mode 字段（项目顶层唯一决定，创建后不可更改，不存在集级覆盖）
 - characters、scenes、props 已有数据
 
-使用 Glob 工具确认中间文件存在，按 `effective_mode` × `content_mode` 三分支检查：
-- effective_mode == reference_video（任一 content_mode）：`drafts/episode_{N}/step1_reference_units.json`（缺失时需先运行 `split-reference-video-units`）
-- effective_mode ∈ {storyboard, grid} 且 content_mode == narration：`drafts/episode_{N}/step1_segments.json`（缺失时需先运行 `split-narration-segments`）
-- effective_mode ∈ {storyboard, grid} 且 content_mode == drama：`drafts/episode_{N}/step1_normalized_script.json`（结构化内容；缺失时需先运行 `normalize-drama-script`。旧项目残留的 `step1_normalized_script.md` 是结构化前的自由文本稿，不算有效 step1，须重跑 normalize 产出 `.json`）
+使用 Glob 工具确认中间文件存在，按项目 `generation_mode` × `content_mode` 检查：
+- generation_mode == reference_video（任一 content_mode）：`drafts/episode_{N}/step1_reference_units.json`（缺失时需先运行 `split-reference-video-units`）
+- generation_mode == storyboard 且 content_mode == narration：`drafts/episode_{N}/step1_segments.json`（缺失时需先运行 `split-narration-segments`）
+- generation_mode == storyboard 且 content_mode == drama：`drafts/episode_{N}/step1_normalized_script.json`（结构化内容；缺失时需先运行 `normalize-drama-script`。旧项目残留的 `step1_normalized_script.md` 是结构化前的自由文本稿，不算有效 step1，须重跑 normalize 产出 `.json`）
 
 只认当前组合对应的那一个文件；目录中其他模式的 `step1_*` 文件属历史残留，不能当作代替输入。如果对应中间文件不存在，报告错误并指明需要先运行的预处理 subagent。
 

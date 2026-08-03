@@ -13,7 +13,7 @@ user-invocable: false
 | 工具 | 功能 | 调用者 |
 |------|------|--------|
 | `mcp__arcreel__patch_project`（SDK tool） | 新增/修改 project.json 的角色/场景/道具（按 table+name upsert）、顶层 settings 字段或项目概述（overview 分支） | subagent / 主 agent |
-| `mcp__arcreel__get_video_capabilities`（SDK tool） | 查视频模型能力（model 粒度，所有生成模式通用；带 `episode` 按该集生效模式解析） | **subagent**（执行任务时自行查询） |
+| `mcp__arcreel__get_video_capabilities`（SDK tool） | 查视频模型能力（model 粒度，按项目唯一 generation_mode 解析，全项目同一口径，无需指定剧集） | **subagent**（执行任务时自行查询） |
 
 > 分集规划（拆集/调整）由服务端工具 `mcp__arcreel__plan_episodes` / `mcp__arcreel__reset_episode_planning` 完成，调整已规划内容走「重置 + 重新规划」，流程见 manga-workflow 阶段 2。
 
@@ -44,6 +44,8 @@ mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与
 - `narration_voice`：非空字符串（音色 id 照供应商文档）设置 / `null` 清除。项目级旁白音色覆盖，优先于全局设置生效，只影响当前项目
 - `narration_speed`：正的有限数值（如 `1.2`）设置 / `null` 清除。项目级旁白语速覆盖，优先于全局设置生效，只影响当前项目
 
+`generation_mode`、`grid_storyboard` 不在白名单内，`patch_project` 会拒绝写入：`generation_mode` 项目创建后不可更改，用户要求改生成方式（storyboard ↔ reference_video）时明确告知不可更改、无绕过方式；`grid_storyboard` 由用户在 Web 设置页开关，用户要求改宫格装配时指引其前往设置页操作。
+
 `overview` 白名单字段：`synopsis` / `genre` / `theme` / `world_setting`，**merge 语义**（只改传入字段、
 概述不存在时创建）。**修订概述需用户显式意图驱动**（避免静默覆盖人工编辑过的字段）。
 
@@ -57,14 +59,13 @@ description）时不落盘并返回 `is_error: true`。
 通过 MCP 工具查询（项目名由 session 绑定，无需传参）：
 
 ```text
-mcp__arcreel__get_video_capabilities({"episode": N})
+mcp__arcreel__get_video_capabilities({})
 ```
 
-`episode` 必传于按集查询：生成模式可被单集覆盖，省略集号拿到的是项目级口径，
-与该集实际执行的模型可能不是同一个。项目整体设置层面的查询才可省略。
+生成路线由项目唯一决定，无集级覆盖，能力查询全项目同一口径，不接受 / 不需要 `episode` 参数。
 
 **返回**：JSON 文本，含 `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `source` / `default_duration` / `content_mode` / `generation_mode`。
 
-**用途**：所有 generation_mode（storyboard / grid / reference_video）的预处理 subagent 在执行时自查，用于决定单片段 / unit 时长。**决策优先级**（高到低）：硬约束（时长必须取自 `supported_durations`；reference_video 的 unit 时长 ≤ `max_duration`）> `default_duration` 偏好（非 null 时作默认值）> 内容需要（reference_video 按该 unit 内容实际需要的长度取档；narration / drama 长句、复杂画面可取更长值）。装不下时重拆 unit，不违约时长。
+**用途**：所有 generation_mode（storyboard / reference_video）的预处理 subagent 在执行时自查，用于决定单片段 / unit 时长。**决策优先级**（高到低）：硬约束（时长必须取自 `supported_durations`；reference_video 的 unit 时长 ≤ `max_duration`）> `default_duration` 偏好（非 null 时作默认值）> 内容需要（reference_video 按该 unit 内容实际需要的长度取档；narration / drama 长句、复杂画面可取更长值）。装不下时重拆 unit，不违约时长。
 
 **错误**：项目未找到或模型能力无法解析时返回 `is_error: true`，文本中包含原因。
