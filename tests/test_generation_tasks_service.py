@@ -1999,6 +1999,20 @@ class TestAdProductFidelityStoryboard:
             assert generation_tasks._collect_shot_product_references(project, project_path, item) == []
         assert generation_tasks._collect_shot_product_references(project, project_path, {"shot_id": "E1S01"}) == []
 
+    def test_collect_product_references_resolves_nfd_registered_name_by_nfc_query(self, tmp_path):
+        """产品以 NFD key 登记、镜头 products_in_shot 传入 NFC 名字：仍须命中，不能因编码
+        形式不同静默跳过（回归 collect_product_references_for_names 的裸 bucket 查找）。"""
+        import unicodedata
+
+        project_path = _prepare_files(tmp_path)
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+        project = {"products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+
+        refs = generation_tasks.collect_product_references_for_names(project, project_path, [name_nfc])
+        assert [r["image"] for r in refs] == [project_path / "products" / "refs" / "保温杯_1.jpg"]
+
 
 def _patch_video_path(monkeypatch, pm, generator):
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)

@@ -213,6 +213,29 @@ def test_patch_unit_rejects_unknown_reference(client: TestClient):
     assert resp.status_code == 400
 
 
+def test_patch_unit_accepts_nfc_reference_for_nfd_registered_name(client: TestClient):
+    """资产以 NFD 形式登记、PATCH 请求携带解析器已归一的 NFC 名字：须仍判「已登记」放行，
+    不能因编码形式不同误判未登记（_validate_references_exist 的裸比对回归）。"""
+    import unicodedata
+
+    from server.routers import reference_videos as router_mod
+
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    assert name_nfd != name_nfc
+    pm = router_mod.get_project_manager()
+    project = pm.load_project("demo")
+    project["characters"][name_nfd] = {"description": "x"}
+    pm.save_project("demo", project)
+
+    uid = _seed_unit(client)
+    resp = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"references": [{"type": "character", "name": name_nfc}]},
+    )
+    assert resp.status_code == 200, resp.text
+
+
 def test_patch_unknown_unit_404(client: TestClient):
     resp = client.patch(
         "/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9",

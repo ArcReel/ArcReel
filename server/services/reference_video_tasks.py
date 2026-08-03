@@ -383,6 +383,8 @@ def _resolve_ad_unit_reference_entries(
     warnings: list[dict] = []
     product_names: list[str] = []
     asset_refs: list[tuple[str, str]] = []
+    seen_products: set[str] = set()
+    seen_assets: set[tuple[str, str]] = set()
     for ref in references:
         if not isinstance(ref, dict):
             continue
@@ -390,11 +392,18 @@ def _resolve_ad_unit_reference_entries(
         rname = ref.get("name")
         if not isinstance(rname, str) or not rname:
             continue
+        # 同一 unit 内两个镜头可能以不同编码形式（NFC/NFD）引用同一资产：按归一形式去重，
+        # 否则下面的归一化查找会把两者解析到同一张图，参考图槽位被同一张图占两份。
+        canonical = normalize_asset_name(rname)
         if rtype == "product":
-            if rname not in product_names:
+            if canonical not in seen_products:
+                seen_products.add(canonical)
                 product_names.append(rname)
         elif rtype in BUCKET_KEY:
-            asset_refs.append((str(rtype), rname))
+            key = (str(rtype), canonical)
+            if key not in seen_assets:
+                seen_assets.add(key)
+                asset_refs.append((str(rtype), rname))
 
     entries = collect_product_references_for_names(project, project_path, product_names)
     injected_products = {e["name"] for e in entries}

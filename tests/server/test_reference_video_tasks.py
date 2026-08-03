@@ -15,6 +15,7 @@ from server.services.reference_video_tasks import (
     ProjectDurationContext,
     _apply_provider_constraints,
     _render_unit_prompt,
+    _resolve_ad_unit_reference_entries,
     _resolve_unit_references,
     default_unit_duration,
     effective_reference_durations,
@@ -199,6 +200,29 @@ def test_resolve_unit_references_resolves_nfd_registered_name_by_nfc_reference(t
     refs = [{"type": "character", "name": name_nfc}]
     resolved = _resolve_unit_references(project, proj_dir, refs)
     assert [p.name for p in resolved] == ["hieu.png"]
+
+
+def test_resolve_ad_unit_reference_entries_dedupes_nfc_nfd_pair(tmp_path: Path):
+    """同一 ad unit 内两个镜头以不同编码形式引用同一角色：归一化查找会把两条都解析到同一张
+    图，须去重为一条，否则同一张参考图占两个槽位（回归 _resolve_ad_unit_reference_entries
+    的裸字符串去重）。"""
+    import unicodedata
+
+    proj_dir = _write_project(tmp_path)
+    project, _ = _load_project_and_unit(proj_dir, "E1U1")
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    assert name_nfc != name_nfd
+    project["characters"][name_nfd] = {"description": "x", "character_sheet": "characters/hieu.png"}
+    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    refs = [
+        {"type": "character", "name": name_nfc},
+        {"type": "character", "name": name_nfd},
+    ]
+    entries, warnings = _resolve_ad_unit_reference_entries(project, proj_dir, refs)
+    assert [e["image"].name for e in entries] == ["hieu.png"]
+    assert warnings == []
 
 
 def test_render_unit_prompt_rejects_empty_shots():

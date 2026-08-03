@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from lib.asset_types import ASSET_SPECS, validate_asset_name
+from lib.asset_types import ASSET_SPECS, normalize_asset_bucket, normalize_asset_name, validate_asset_name
 from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
     AUDIO_REFERENCE_MAX_SECONDS,
@@ -326,15 +326,13 @@ def collect_product_references_for_names(
     按 unit 注入共用此函数，保证两条路径的「sheet 在前、原图压阵」口径一致。
     """
     spec = ASSET_SPECS["product"]
-    products = project.get(spec.bucket_key)
-    if not isinstance(products, dict):
-        products = {}
+    products = normalize_asset_bucket(project.get(spec.bucket_key))
     references: list[dict] = []
     for name in names:
         if not isinstance(name, str):
             logger.warning("products_in_shot 含非字符串条目 %r，产品参考跳过", name)
             continue
-        entry = products.get(name)
+        entry = products.get(normalize_asset_name(name))
         if not isinstance(entry, dict):
             logger.warning("镜头引用的产品 '%s' 不在 project.json products 中，产品参考跳过", name)
             continue
@@ -1189,7 +1187,7 @@ _DESIGN_PROMPT_BUILDERS: dict[str, Any] = {
 
 def _collect_product_reference_images(project: dict, project_path: Path, resource_id: str) -> list[Path] | None:
     """产品原图（保真验收锚点）作为 sheet 标准化整理的参考输入；缺失文件跳过。"""
-    entry = (project.get("products") or {}).get(resource_id) or {}
+    entry = normalize_asset_bucket(project.get("products")).get(normalize_asset_name(resource_id)) or {}
     refs = entry.get("reference_images")
     if not isinstance(refs, list):
         return None
