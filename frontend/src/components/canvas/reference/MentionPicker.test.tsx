@@ -63,6 +63,27 @@ describe("MentionPicker", () => {
     expect(screen.queryByText("Bob")).not.toBeInTheDocument();
   });
 
+  it("matches a candidate whose stored name and typed query differ in NFC/NFD form", () => {
+    const nameNfd = "Hiếu".normalize("NFD");
+    const queryNfc = "Hiếu".normalize("NFC");
+    expect(nameNfd).not.toBe(queryNfc);
+    const altCandidates = {
+      character: [{ name: nameNfd, imagePath: null }],
+      scene: [],
+      prop: [],
+    };
+    render(
+      <MentionPicker
+        open
+        query={queryNfc}
+        candidates={altCandidates}
+        onSelect={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(nameNfd)).toBeInTheDocument();
+  });
+
   it("shows empty state when nothing matches", () => {
     render(
       <MentionPicker

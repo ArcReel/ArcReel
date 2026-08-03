@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lib.asset_types import BUCKET_KEY
+from lib.asset_types import BUCKET_KEY, normalize_asset_bucket, normalize_asset_name
 from lib.audio_utils import resolve_audio_ref_path
 from lib.prompt_utils import normalize_style
 from lib.reference_video.ad_units import render_ad_unit_prompt
@@ -63,15 +63,17 @@ _TWIN_PACK = (
 )
 
 
-def _character_bucket(project: dict) -> dict:
-    """项目角色表，非 dict（外部编辑写坏的 project.json）按空处理。
+def _character_bucket(project: dict) -> dict[str, Any]:
+    """项目角色表，key 已归一到资产名比对坐标系；非 dict（外部编辑写坏的 project.json）按空处理。
 
     校验器只在该字段本身是 dict 时才校验内部条目（见 ``lib.data_validator``），字段整体
     非 dict 的畸形项目不会被拒绝；本模块多处按名字索引角色表，统一在取值处归一化，
     避免每个调用点各自补一遍 isinstance 判断。
+
+    名字侧的归一同理落在这一处（见 :func:`lib.asset_types.normalize_asset_bucket`）：与角色表
+    比对的说话人与 mention 名都出自解析器、已是归一形式，角色表以哪种形式落盘则不可控。
     """
-    raw = project.get(BUCKET_KEY["character"])
-    return raw if isinstance(raw, dict) else {}
+    return normalize_asset_bucket(project.get(BUCKET_KEY["character"]))
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,11 @@ def render_unit_prompt(
     """
     shots, mentions = parse_prompt(text)
     utterances, warnings = derive_utterances(shots)
+
+    # ``references`` 是入参（上游持久化的派生结果），其名字以哪种编码形式落盘不可控；正文一侧
+    # 出自解析器、已归一。两侧同形，主体记号与图号才对得上——不归一时该角色的绑定行会缺位、
+    # 音频也挂不到图上，且全程不报错。
+    references = [ReferenceResource(type=ref.type, name=normalize_asset_name(ref.name)) for ref in references]
 
     registered, missing = resolve_references(mentions, project)
     warnings = [_warning_unregistered(name) for name in missing] + warnings
@@ -378,8 +385,10 @@ def render_ad_backend_prompt(
     # 分开——按名字判定会让同名场景的图被当成角色的图（并在名字键的字典里互相覆盖），
     # 使 speakers_with_reference_image 误判、reference_audio_targets 指向错图（与剧集路径
     # `character_image_no` 的同款过滤同一理由，见 `render_unit_prompt`）。
+    # 名字归一到比对坐标系后再建映射：本映射与 derive_voice_bindings 产出的说话人（出自解析器、
+    # 已归一）判等，entries 的名字则取自资产条目、形式不可控。
     character_image_no = {
-        str(e["name"]): i
+        normalize_asset_name(str(e["name"])): i
         for i, e in enumerate(entries, start=1)
         if e.get("asset_type") == "character" and isinstance(e.get("name"), str)
     }
@@ -424,6 +433,10 @@ def resolve_reference_audio_paths(project: dict, project_path: Path) -> dict[str
     只收录字段指向 ``characters/refs_audio`` 内且文件确实存在的条目（越界路径由
     :func:`lib.audio_utils.resolve_audio_ref_path` 挡下——该字段可经资产 PATCH 写成项目内
     任意字符串）。渲染层据此判定绑定，编号与实际发出的音频段数因此严格等长。
+
+    key 是归一后的角色名（``_character_bucket`` 已归一）：本映射作为 ``audio_ready`` 传给
+    :func:`lib.reference_video.script_preview.derive_voice_bindings` 与说话人判等，两侧同形
+    才不会把「音频确实可用」误判成「不可用」而静默不绑。
     """
     audio_refs_dir = project_path / ASSET_AUDIO_SUBDIR
     resolved: dict[str, Path] = {}

@@ -15,6 +15,7 @@
  */
 import { History, X } from "lucide-react";
 import type { Character } from "@/types/project";
+import { normalizeAssetName } from "@/utils/reference-mentions";
 
 /**
  * computeVoiceLegacyNotice 所需的最小 unit 形状——同时兼容 narration/drama 的
@@ -49,6 +50,13 @@ export function computeVoiceLegacyNotice(
 ): VoiceLegacyNotice {
   const staleUnitIds = new Set<string>();
   const characterNames = new Set<string>();
+  // characters 的 key 与 ref.name 可能是 NFC/NFD 中的任一方，归一后再查（同
+  // `utils/reference-mentions.ts` 的坐标系约定）；采集的 name 用 bucket 的真实 key
+  // （而非 ref.name），因为消费方按此 name 直接索引 `characters[name]` 做关闭态写回。
+  const normalizedCharacters = new Map<string, { key: string; character: Character }>();
+  for (const [key, character] of Object.entries(characters)) {
+    normalizedCharacters.set(normalizeAssetName(key), { key, character });
+  }
 
   for (const unit of units) {
     if (unit.generated_assets?.status !== "completed") continue;
@@ -58,8 +66,10 @@ export function computeVoiceLegacyNotice(
     // 不能当作数组直接迭代，否则整个参考生视频画布会因这一个 unit 崩溃。
     for (const ref of unit.references ?? []) {
       if (ref.type !== "character") continue;
-      const character = characters[ref.name];
-      const voiceUpdatedAt = character?.voice_updated_at;
+      const found = normalizedCharacters.get(normalizeAssetName(ref.name));
+      if (!found) continue;
+      const { key: characterKey, character } = found;
+      const voiceUpdatedAt = character.voice_updated_at;
       if (!voiceUpdatedAt) continue;
       const voiceUpdatedMs = toEpochMs(voiceUpdatedAt);
 
@@ -70,7 +80,7 @@ export function computeVoiceLegacyNotice(
       if (!isStale) continue;
 
       staleUnitIds.add(unit.unit_id);
-      characterNames.add(ref.name);
+      characterNames.add(characterKey);
     }
   }
 

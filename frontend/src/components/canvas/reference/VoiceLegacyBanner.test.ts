@@ -44,6 +44,15 @@ describe("computeVoiceLegacyNotice", () => {
     expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 1, characterNames: ["王"] });
   });
 
+  it("resolves a reference across NFC/NFD encoding mismatch and reports the registered key", () => {
+    const nameNfc = "Hiếu".normalize("NFC");
+    const nameNfd = "Hiếu".normalize("NFD");
+    expect(nameNfc).not.toBe(nameNfd);
+    const units = [unit("E1U1", nameNfc, ga({ video_generated_at: null }))];
+    const characters = { [nameNfd]: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };
+    expect(computeVoiceLegacyNotice(units, characters)).toEqual({ count: 1, characterNames: [nameNfd] });
+  });
+
   it("counts a unit generated before voice_updated_at", () => {
     const units = [unit("E1U1", "王", ga({ video_generated_at: "2026-01-01T00:00:00Z" }))];
     const characters = { 王: character({ voice_updated_at: "2026-01-02T00:00:00Z" }) };

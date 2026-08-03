@@ -15,6 +15,7 @@ from server.services.reference_video_tasks import (
     ProjectDurationContext,
     _apply_provider_constraints,
     _render_unit_prompt,
+    _resolve_ad_unit_reference_entries,
     _resolve_unit_references,
     default_unit_duration,
     effective_reference_durations,
@@ -180,6 +181,95 @@ def test_resolve_unit_references_unknown_name_raises(tmp_path: Path):
     with pytest.raises(MissingReferenceError) as excinfo:
         _resolve_unit_references(project, proj_dir, bad_refs)
     assert ("prop", "不存在的道具") in excinfo.value.missing
+
+
+@pytest.mark.integration
+def test_resolve_unit_references_resolves_nfd_registered_name_by_nfc_reference(tmp_path: Path):
+    """资产以 NFD key 登记、unit.references 存的是解析器归一后的 NFC name：解析必须仍能命中，
+    否则 draft 校验放行（判「已登记」）而执行层查不到，会晚至生成时才响 MissingReferenceError。"""
+    import unicodedata
+
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    assert name_nfc != name_nfd
+
+    proj_dir = _write_project(tmp_path)
+    project, _ = _load_project_and_unit(proj_dir, "E1U1")
+    project["characters"][name_nfd] = {"description": "x", "character_sheet": "characters/hieu.png"}
+    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    refs = [{"type": "character", "name": name_nfc}]
+    resolved = _resolve_unit_references(project, proj_dir, refs)
+    assert [p.name for p in resolved] == ["hieu.png"]
+
+
+@pytest.mark.integration
+def test_resolve_unit_references_dedupes_nfc_nfd_pair(tmp_path: Path):
+    """unit.references 携带同一角色的 NFC/NFD 两条记录（PATCH 不做数组内去重）：解析须按
+    类型+归一名去重为一条，否则 _apply_provider_constraints 把同一张图计入两个参考名额，
+    挤掉后面一条真正不同的参考、且给 provider 发送重复图片。"""
+    import unicodedata
+
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    assert name_nfc != name_nfd
+
+    proj_dir = _write_project(tmp_path)
+    project, _ = _load_project_and_unit(proj_dir, "E1U1")
+    project["characters"][name_nfc] = {"description": "x", "character_sheet": "characters/hieu.png"}
+    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    refs = [{"type": "character", "name": name_nfc}, {"type": "character", "name": name_nfd}]
+    resolved = _resolve_unit_references(project, proj_dir, refs)
+    assert [p.name for p in resolved] == ["hieu.png"]
+
+
+@pytest.mark.integration
+def test_resolve_ad_unit_reference_entries_dedupes_nfc_nfd_pair(tmp_path: Path):
+    """同一 ad unit 内两个镜头以不同编码形式引用同一角色：归一化查找会把两条都解析到同一张
+    图，_resolve_ad_unit_reference_entries 须按归一形式去重为一条，否则同一张参考图占两个
+    槽位。"""
+    import unicodedata
+
+    proj_dir = _write_project(tmp_path)
+    project, _ = _load_project_and_unit(proj_dir, "E1U1")
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    assert name_nfc != name_nfd
+    project["characters"][name_nfd] = {"description": "x", "character_sheet": "characters/hieu.png"}
+    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    refs = [
+        {"type": "character", "name": name_nfc},
+        {"type": "character", "name": name_nfd},
+    ]
+    entries, warnings = _resolve_ad_unit_reference_entries(project, proj_dir, refs)
+    assert [e["image"].name for e in entries] == ["hieu.png"]
+    assert warnings == []
+
+
+@pytest.mark.integration
+def test_resolve_ad_unit_reference_entries_no_false_positive_warning_for_nfd_product(tmp_path: Path):
+    """产品参考在 unit.references 中以 NFD 编码出现且 sheet 存在：collect_product_references_for_names
+    返回的 entries["name"] 已归一为 NFC，membership 检查须同样归一后再比较产品名是否成功注入，
+    否则原始 NFD 名永远命中不了归一后的集合，误报 ref_ad_reference_skipped。"""
+    import unicodedata
+
+    proj_dir = _write_project(tmp_path)
+    project, _ = _load_project_and_unit(proj_dir, "E1U1")
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    project["products"] = {name_nfd: {"description": "x", "product_sheet": "products/hieu.png"}}
+    (proj_dir / "products").mkdir()
+    (proj_dir / "products" / "hieu.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
+        b"\x08\x02\x00\x00\x00&\x93\t)\x00\x00\x00\x13IDATx\x9cc<\x91b\xc4\x00"
+        b"\x03Lp\x16^\x0e\x00E\xf6\x01f\xac\xf5\x15\xfa\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+    refs = [{"type": "product", "name": name_nfd}]
+    entries, warnings = _resolve_ad_unit_reference_entries(project, proj_dir, refs)
+    assert [e["image"].name for e in entries] == ["hieu.png"]
+    assert warnings == []
 
 
 def test_render_unit_prompt_rejects_empty_shots():
@@ -1187,10 +1277,10 @@ async def test_execute_reference_video_task_missing_reference_fails(tmp_path: Pa
 
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """回归守门：executor 必须走真实 MediaGenerator._get_output_path。
+    """executor 必须走真实 MediaGenerator._get_output_path。
 
-    只 mock 最外层的 VideoBackend.generate — 若未来哪次又漏注册新 resource_type
-    到 lib.resource_paths，这条测试会立刻爆 ValueError。
+    只 mock 最外层的 VideoBackend.generate ——resource_type 未注册到
+    lib.resource_paths 时，这条测试会立刻爆 ValueError。
     """
     from lib.media_generator import MediaGenerator
     from lib.version_manager import VersionManager
@@ -1304,8 +1394,8 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """R2V 退场回归：executor 把**源 sheet 路径**直接交给 generate_video_async（单次调用），
-    压缩下沉咽喉层——不再预压缩到临时文件、不再有 R2V 层的二次压缩重试。
+    """executor 把**源 sheet 路径**直接交给 generate_video_async（单次调用），压缩下沉
+    咽喉层——不预压缩到临时文件，不在 R2V 层做二次压缩重试。
     """
     proj_dir = _write_project(tmp_path)
 
@@ -1364,8 +1454,7 @@ async def test_execute_reference_video_task_clamps_via_lane_caps(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """回归守门：executor 的 duration/refs clamp 必须走 video lane 的 model 粒度 caps，
-    不再走老的 PROVIDER_MAX_DURATION provider 级常量。
+    """executor 的 duration/refs clamp 走 video lane 的 model 粒度 caps。
 
     lane 喂入自定义 caps (max_duration=6, max_reference_images=1)，传入
     duration_seconds=15 / 2 张 refs，期望 generate_video_async 实际收到
@@ -1434,10 +1523,9 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """回归守门：prompt 里的 [图N] 索引必须与 backend 收到的 reference_images 对齐。
-
-    原实现用整条 `unit.references` 渲染 prompt，裁剪后 [图N] 会越界（例如 5 张裁到 1 张，
-    prompt 里仍出现 [图5]）。修复后应当按 `constrained_refs` 长度重新 slice references。
+    """prompt 里的 `@图片N` 索引必须与 backend 收到的 reference_images 对齐：references 裁剪后
+    须按 `constrained_refs` 长度重新 slice，用整条 `unit.references` 渲染会让 `@图片N` 越界
+    （例如 5 张裁到 1 张，prompt 里仍出现 `@图片5`）。
     """
     proj_dir = _write_project(tmp_path)
 
@@ -1519,6 +1607,92 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     # 被裁掉的 @酒馆 / @瓶子 仍是画面主体（<X> 与图号解耦），只是没有绑定行、没随请求发图
     assert "<酒馆>" in prompt and "<瓶子>" in prompt
     assert "<酒馆>@图片" not in prompt and "<瓶子>@图片" not in prompt
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_prompt_matches_deduped_refs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """unit.references 携带同一角色的 NFC/NFD 两条记录时，prompt 的 `@图片N` 索引必须与去重后的
+    reference_images 对齐：图片列表与渲染用的逻辑引用列表须按同一去重规则计数，否则 `@图片2`
+    会错误绑到与 `@图片1` 相同的资产、后面一条真正不同的参考丢失编号。"""
+    import unicodedata
+
+    proj_dir = _write_project(tmp_path)
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    assert name_nfc != name_nfd
+
+    project_path = proj_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project["characters"][name_nfc] = {"description": "x", "character_sheet": "characters/hieu.png"}
+    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["shots"] = [{"text": f"Shot 1 (4s): @{name_nfc} 与 @酒馆"}]
+    script["video_units"][0]["duration_seconds"] = 4
+    script["video_units"][0]["references"] = [
+        {"type": "character", "name": name_nfc},
+        {"type": "character", "name": name_nfd},
+        {"type": "scene", "name": "酒馆"},
+    ]
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads(project_path.read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    captured: dict = {}
+
+    async def _fake_generate_video_async(**kwargs):
+        captured.update(kwargs)
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    # max_refs=None：不做 provider 裁剪，去重本身是本测试唯一验证的效应。
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="grok",
+        backend_model="grok-imagine-video",
+        max_refs=None,
+        max_duration=12,
+        supported_durations=(4, 8, 12),
+    )
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    # 3 条 references（含一对 NFC/NFD 重复）去重后只剩 2 张图，图号必须与之对齐
+    assert len(captured["reference_images"]) == 2
+    prompt = captured["prompt"]
+    assert "@图片1" in prompt
+    assert "@图片2" in prompt
+    assert "@图片3" not in prompt
 
 
 @pytest.mark.integration

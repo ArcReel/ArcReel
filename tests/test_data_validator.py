@@ -643,6 +643,38 @@ class TestDataValidator:
         assert any("不存在于 project.json 的场景" in error for error in result.errors)
         assert any("不存在于 project.json 的道具" in error for error in result.errors)
 
+    @pytest.mark.integration
+    def test_validate_episode_malformed_segment_ref_reports_error_not_typeerror(self, tmp_path):
+        """segments[*].scenes 混入 dict 等不可哈希元素时（``_validate_segment_refs`` 的比对分支），
+        须走校验失败分支而非因集合运算崩溃——episode JSON 来自外部文件，脏数据必须报错而不是
+        让 validate_episode 直接抛异常。"""
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload("narration"))
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 5,
+                        "novel_text": "text",
+                        "characters_in_segment": ["姜月茴"],
+                        "scenes": [{"malformed": True}],
+                        "props": [],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                    }
+                ],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        assert not result.valid
+        assert any("不存在于 project.json 的场景" in error for error in result.errors)
+
     def test_legacy_scene_type_field_does_not_block_export(self, tmp_path):
         """存量项目里残留 scene_type='对话'/'动作'/'过渡' 等任意值不该阻断导出。
 
@@ -1108,6 +1140,66 @@ class TestAdEpisodeValidation:
         assert not result.valid
         assert any("products_in_shot" in e for e in result.errors)
 
+    @pytest.mark.integration
+    def test_shot_reference_accepts_nfc_nfd_mismatch_against_registered_asset(self, tmp_path):
+        """project.json 角色以 NFD 登记、镜头 characters_in_shot 引用同名的 NFC 形式：
+        generation_mode=reference_video 时必须按归一形式判「已登记」放行，否则 ad 的
+        reference_video unit 派生（lib.reference_video.ad_units 直接消费 characters_in_shot）
+        会被这层校验先行拒绝，用户永远走不到真实的参考解析阶段。归一比对只在
+        reference_mode 下开启（见 storyboard 路径保持原始比对的测试）。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+
+        project = _ad_project_payload(
+            generation_mode="reference_video", characters={name_nfd: {"description": "出镜模特"}}
+        )
+        result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[name_nfc])], project=project)
+        assert result.valid, result.errors
+
+    @pytest.mark.integration
+    def test_shot_malformed_reference_reports_error_not_typeerror(self, tmp_path):
+        """归一比对分支（reference_mode）下 characters_in_shot 混入不可哈希元素同样须报错而非崩溃。"""
+        project = _ad_project_payload(generation_mode="reference_video")
+        result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[{"malformed": True}])], project=project)
+        assert not result.valid
+        assert any("characters_in_shot" in e for e in result.errors)
+
+    @pytest.mark.integration
+    def test_shot_product_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
+        """products_in_shot 的归一比对不随 generation_mode 切换，始终与其收集器
+        （collect_product_references_for_names，无条件归一）同口径——即使在 storyboard
+        路径（默认 generation_mode）下，NFC/NFD 不一致的合法产品名也必须放行，否则
+        校验层会比实际生成时的收集层更严格，挡下收集层其实能解析的产品。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+
+        project = _ad_project_payload(products={name_nfd: {"description": "主推产品"}})
+        result = self._validate(tmp_path, [self._ad_shot(products_in_shot=[name_nfc])], project=project)
+        assert result.valid, result.errors
+
+    @pytest.mark.integration
+    def test_shot_reference_storyboard_path_keeps_raw_comparison(self, tmp_path):
+        """storyboard 路径（默认 generation_mode）保持原始字符串比对：该路径的图片收集
+        （server.services.generation_tasks._collect_sheet_references）仍按原始名称查找，
+        校验层若归一放行、收集层实际查不到，会生成时静默漏收对应 sheet——不能让校验层
+        比收集层更宽松。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+
+        project = _ad_project_payload(characters={name_nfd: {"description": "出镜模特"}})
+        result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[name_nfc])], project=project)
+        assert not result.valid
+        assert any("characters_in_shot" in e for e in result.errors)
+
     def test_missing_duration_warns_with_default(self, tmp_path):
         shot = self._ad_shot()
         del shot["duration_seconds"]
@@ -1322,6 +1414,31 @@ class TestAdReferenceUnitsValidation:
         result = self._validate(tmp_path, [self._ad_shot()], units)
         assert result.valid, result.errors
         assert any("不存在" in w for w in result.warnings)
+
+    @pytest.mark.integration
+    def test_nfc_reference_accepted_for_nfd_registered_character(self, tmp_path):
+        import unicodedata
+
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        assert name_nfd != name_nfc
+
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _ad_project_payload(generation_mode="reference_video")
+        payload["characters"] = {name_nfd: {"description": "主播"}}
+        _write_json(project_dir / "project.json", payload)
+        units = [{"unit_id": "E1U1", "shot_ids": ["E1S01"], "references": [{"type": "character", "name": name_nfc}]}]
+        script = {
+            "episode": 1,
+            "title": "速干杯带货",
+            "content_mode": "ad",
+            "shots": [self._ad_shot()],
+            "reference_units": units,
+        }
+        _write_json(project_dir / "scripts" / "episode_1.json", script)
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        assert result.valid, result.errors
+        assert not any(name_nfc in w or name_nfd in w for w in result.warnings)
 
 
 class TestSourceKindValidation:

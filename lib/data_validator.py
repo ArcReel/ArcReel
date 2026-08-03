@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from lib.asset_types import ASSET_SPECS, ASSET_TYPES
+from lib.asset_types import ASSET_SPECS, ASSET_TYPES, normalize_asset_name
 from lib.episode_ledger import (
     LEDGER_STATUSES,
     EpisodeOutline,
@@ -497,14 +497,26 @@ class DataValidator:
         *,
         field_label: str,
         kind_label: str,
+        normalize: bool = False,
     ) -> None:
+        """``normalize=True`` 时按 NFC 归一比对：ad + reference_video 的镜头参考集直接驱动
+        reference_video 的 unit 派生（见 ``lib.reference_video.ad_units``），project.json
+        资产 key 与镜头引用编码形式不一致时不能误判未登记。narration/drama 的 segments/scenes
+        校验路径、以及 ad 的 storyboard 生成路径均保持原始比对（``normalize`` 默认 False）——
+        storyboard 路径的图片收集（``server.services.generation_tasks._collect_sheet_references``）
+        仍按原始字符串查找，校验层先归一会让此处判「已登记」放行而收集层实际查不到，
+        生成时静默漏收对应 sheet。"""
         if refs is None:
             warnings.append(f"{prefix}: 缺少 {field_label}，将使用默认空数组")
             return
         if not isinstance(refs, list):
             errors.append(f"{prefix}: {field_label} 必须是数组")
             return
-        invalid = set(refs) - valid_set
+        if normalize:
+            normalized_valid = {normalize_asset_name(v) for v in valid_set}
+            invalid = [r for r in refs if not isinstance(r, str) or normalize_asset_name(r) not in normalized_valid]
+        else:
+            invalid = [r for r in refs if not isinstance(r, str) or r not in valid_set]
         if invalid:
             errors.append(f"{prefix}: {field_label} 引用了不存在于 project.json 的{kind_label}: {invalid}")
 
@@ -899,6 +911,13 @@ class DataValidator:
         镜头时长约束按生成路径动态切换：storyboard 路径的成员校验在生成 schema 层
         （supported_durations 枚举，校验器拿不到供应商能力、只把关正整数）；
         ``reference_mode=True`` 时按 1-15 自由整数区间校验（与参考视频 Shot 同口径）。
+
+        资产引用的归一比对按各自收集器的实际行为对齐：characters_in_shot/scenes/props
+        三个字段的 storyboard 收集器（``_collect_sheet_references``）始终原始比对，校验层
+        随 ``reference_mode`` 切换（见 ``_validate_segment_refs`` 文档）；products_in_shot
+        的收集器（``collect_product_references_for_names``）不区分生成路径、始终归一，
+        校验层因此始终 ``normalize=True``——否则 storyboard 路径下合法的 NFC/NFD 产品名
+        会被校验层拒绝，而收集层其实能正常解析。
         """
         if not isinstance(shots, list) or not shots:
             errors.append("ad 剧本缺少 shots 数组或为空")
@@ -945,6 +964,7 @@ class DataValidator:
                 warnings,
                 field_label="characters_in_shot",
                 kind_label="角色",
+                normalize=reference_mode,
             )
             self._validate_segment_refs(
                 prefix,
@@ -954,6 +974,7 @@ class DataValidator:
                 warnings,
                 field_label="scenes",
                 kind_label="场景",
+                normalize=reference_mode,
             )
             self._validate_segment_refs(
                 prefix,
@@ -963,6 +984,7 @@ class DataValidator:
                 warnings,
                 field_label="props",
                 kind_label="道具",
+                normalize=reference_mode,
             )
             self._validate_segment_refs(
                 prefix,
@@ -972,6 +994,7 @@ class DataValidator:
                 warnings,
                 field_label="products_in_shot",
                 kind_label="产品",
+                normalize=True,
             )
 
             if not shot.get("image_prompt"):
@@ -1044,10 +1067,13 @@ class DataValidator:
             errors.append("reference_video 脚本缺少 video_units 数组或为空")
             return
 
+        # 归一到 NFC 再建集合：project_characters/scenes/props 是落盘原始 key（可能 NFD），
+        # reference.name 已在别处归一到 NFC（见 lib.asset_types.normalize_asset_name），
+        # 裸比对会把已登记的资产误判成不在 bucket 中，产生假阳性 unregistered 报错。
         bucket_by_type = {
-            "character": project_characters,
-            "scene": project_scenes,
-            "prop": project_props,
+            "character": {normalize_asset_name(n) for n in project_characters},
+            "scene": {normalize_asset_name(n) for n in project_scenes},
+            "prop": {normalize_asset_name(n) for n in project_props},
         }
         seen_unit_ids: set[str] = set()
 
@@ -1101,7 +1127,7 @@ class DataValidator:
                     errors.append(f"{prefix}: reference.name 必须是非空字符串: {rname!r}")
                     continue
                 bucket = bucket_by_type.get(rtype, set())
-                if rname not in bucket:
+                if normalize_asset_name(rname) not in bucket:
                     errors.append(f"{prefix}: 引用的{rtype} '{rname}' 不在 project.json 对应 bucket 中")
 
             if project_dir is not None:
@@ -1132,6 +1158,10 @@ class DataValidator:
             errors.append("reference_units 必须是数组")
             return
 
+        # 归一到 NFC 再建集合，理由同 `_validate_reference_video_script`。
+        normalized_registered_names = {
+            rtype: {normalize_asset_name(n) for n in names} for rtype, names in registered_names.items()
+        }
         shot_ids = {s.get("shot_id") for s in shots if isinstance(s, dict)} if isinstance(shots, list) else set()
         seen_unit_ids: set[str] = set()
         for index, unit in enumerate(units):
@@ -1174,7 +1204,7 @@ class DataValidator:
                 if not rname or not isinstance(rname, str):
                     errors.append(f"{prefix}.references[{ri}]: name 必须是非空字符串: {rname!r}")
                     continue
-                if rname not in registered_names[rtype]:
+                if normalize_asset_name(rname) not in normalized_registered_names[rtype]:
                     warnings.append(f"{prefix}.references[{ri}]: 引用的{rtype}「{rname}」未注册，需重新派生分组")
 
             assets = unit.get("generated_assets")

@@ -126,17 +126,33 @@ export function extractMentions(text: string): string[] {
 
 type ProjectBuckets = Pick<ProjectData, "characters" | "scenes" | "props">;
 
+/**
+ * 把资产名归一到比对坐标系（Unicode NFC）。镜像后端
+ * `lib.asset_types.normalize_asset_name`——两侧必须同一坐标系，否则「后端判已登记、
+ * 前端判未登记」（反之亦然），组合字符名（如越南语）在这两侧各自输入法/来源下
+ * 尤其容易产出不同编码形式。
+ */
+export function normalizeAssetName(name: string): string {
+  return name.normalize("NFC");
+}
+
+function bucketHasName(bucket: Record<string, unknown> | undefined, target: string): boolean {
+  if (!bucket) return false;
+  // Object.keys 而非 `in`：`toString` / `constructor` / `__proto__` 都是合法资产名
+  // （`validate_asset_name` 只挡路径分隔符与 Windows 保留字符），`in` 会命中原型链上的
+  // 同名属性，把未登记的名字判成已登记；Object.keys 只返回自有可枚举属性，同样安全。
+  return Object.keys(bucket).some((key) => normalizeAssetName(key) === target);
+}
+
 export function resolveMentionType(
   project: ProjectBuckets | null | undefined,
   name: string,
 ): AssetKind | undefined {
   if (!project) return undefined;
-  // 用 hasOwn 而非 `in`：`toString` / `constructor` / `__proto__` 都是合法资产名
-  // （`validate_asset_name` 只挡路径分隔符与 Windows 保留字符），`in` 会命中原型链上的
-  // 同名属性，把未登记的名字判成已登记。
-  if (project.characters && Object.hasOwn(project.characters, name)) return "character";
-  if (project.scenes && Object.hasOwn(project.scenes, name)) return "scene";
-  if (project.props && Object.hasOwn(project.props, name)) return "prop";
+  const target = normalizeAssetName(name);
+  if (bucketHasName(project.characters, target)) return "character";
+  if (bucketHasName(project.scenes, target)) return "scene";
+  if (bucketHasName(project.props, target)) return "prop";
   return undefined;
 }
 
@@ -155,13 +171,17 @@ export function mergeReferences(
   existing: ReferenceResource[],
   project: ProjectBuckets | null | undefined,
 ): ReferenceResource[] {
-  const mentioned = new Set(extractMentions(prompt));
+  // mention 与既有 references 的名字都归一到比对坐标系再判等/去重——两侧字节形式可能不同
+  // （既有 references 出自后端已归一的落盘值，mention 出自 prompt 文本解析，来源不同）；
+  // 输出的 name 同样落成归一形式，与后端 `resolve_references` 的产出口径一致。
+  const mentioned = new Set(extractMentions(prompt).map(normalizeAssetName));
   const kept: ReferenceResource[] = [];
   const keptNames = new Set<string>();
   for (const ref of existing) {
-    if (mentioned.has(ref.name) && !keptNames.has(ref.name)) {
-      kept.push(ref);
-      keptNames.add(ref.name);
+    const name = normalizeAssetName(ref.name);
+    if (mentioned.has(name) && !keptNames.has(name)) {
+      kept.push({ ...ref, name });
+      keptNames.add(name);
     }
   }
   for (const name of mentioned) {

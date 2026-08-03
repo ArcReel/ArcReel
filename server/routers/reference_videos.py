@@ -16,7 +16,7 @@ from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from lib.api_errors import ApiError, NotFoundError
-from lib.asset_types import BUCKET_KEY
+from lib.asset_types import BUCKET_KEY, normalize_asset_bucket, normalize_asset_name
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
@@ -181,8 +181,8 @@ def _validate_references_exist(project: dict, refs: list[dict], _t: Translator) 
     """确保 references 都在 project.json 对应 bucket 中。"""
     missing: list[str] = []
     for r in refs:
-        bucket = project.get(BUCKET_KEY.get(r["type"], "")) or {}
-        if r["name"] not in bucket:
+        bucket = normalize_asset_bucket(project.get(BUCKET_KEY.get(r["type"], "")))
+        if normalize_asset_name(r["name"]) not in bucket:
             missing.append(f"{r['type']}:{r['name']}")
     if missing:
         raise HTTPException(status_code=400, detail=_t("ref_not_registered", missing=", ".join(missing)))
