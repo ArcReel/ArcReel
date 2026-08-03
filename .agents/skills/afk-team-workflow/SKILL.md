@@ -67,7 +67,7 @@ spawn 时按 [references/spawn-prompts.md](references/spawn-prompts.md) 的模�
 2. **在 Spec issue 发人工 QA 验收清单 comment，不关闭 Spec 本体**。清单按已合并子 issue（含清尾轮）组织：每项给 PR 链接与面向用户可感知行为的验收步骤（实际操作路径，不复读技术验收标准）；末尾列 needs-human 搁置项、跳过与未启动项、发现的缺口。纯 issue 列表批次没有共同 Spec 时，清单并入收尾汇报
 3. 解散团队，移除已合并 issue 的 assignee（避免 reopen 后仍显示为处理中），删除全部 worktree 与本地分支（远端分支合并后自动删除）
 4. 向用户汇报三份清单：已合并（issue 与 PR 对照）、needs-human 搁置（含争点）、跳过与未启动（含原因）；另附转呈事项：缺口立项建议、故障裁决记录、清尾分拣中转呈的候选，以及**聚合复盘**——从账本 `retrospective` 行与 handoff 目录聚合四类复盘候选（ADR / CONTEXT.md / CLAUDE.md / follow-up），一次性呈用户裁决。多数批次干净收敛，四类候选常为空；空是预期结果，照实呈报，无需为"没有候选"补叙
-5. 账本 append 一条 `closed` 收尾行（`bash .agents/skills/afk-team-workflow/scripts/ledger.sh <batch-id> closed`）——账本不删除，留作复盘源与审计，并供第一步的同批次检查据此判定本批次已终态。批准后的复盘落地方式（写 ADR / 改 CONTEXT.md / 补 CLAUDE.md / 立 follow-up issue）不在此指定，由用户与后续会话决定
+5. 账本 append 一条 `closed` 收尾行（`bash .agents/skills/afk-team-workflow/scripts/ledger.sh <batch-id> closed`），并删除该批次的 handoff 目录（复盘候选已于上一步聚合呈报；不删则同 batch-id 再开批时旧段会混入交接）——账本不删除，留作复盘源与审计，并供第一步的同批次检查据此判定本批次已终态。批准后的复盘落地方式（写 ADR / 改 CONTEXT.md / 补 CLAUDE.md / 立 follow-up issue）不在此指定，由用户与后续会话决定
 
 ## 合并纪律
 

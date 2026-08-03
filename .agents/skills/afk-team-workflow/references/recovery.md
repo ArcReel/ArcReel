@@ -1,12 +1,12 @@
 # 接管未收尾批次
 
-用户显式要求接管或恢复某批次，或 SKILL.md 第一步的同批次检查命中且用户裁决接管时，加载本契约。gh/git 是唯一真相：恢复即 replay 账本补回不可从远端重推的事实，再以一次 poll 对账，而非重建状态机。账本文件可能含多段生命周期——`closed` 后同一 batch-id 再开批会续写同一文件——对账与 replay 一律只取最后一条 `closed` 之后的段。
+用户显式要求接管或恢复某批次，或 SKILL.md 第一步的同批次检查命中且用户裁决接管时，加载本契约。gh/git 是唯一真相：恢复即 replay 账本补回不可从远端重推的事实，再以一次 poll 对账，而非重建状态机。账本文件可能含多段生命周期——`closed` 后同一 batch-id 再开批会续写同一文件——对账与 replay 一律只取最后一条 `closed` 之后的段。账本不存在或末条已是 `closed` 时不存在未收尾批次：告知用户并转 SKILL.md 新批次流程，不做恢复。
 
-用户裁决重开而非接管时只执行清理：cancel 在途 codex 任务、删除批次 worktree 与本地分支，随后按 SKILL.md 第一步的新批次流程重来。
+用户裁决重开而非接管时只执行清理：cancel 在途 codex 任务，删除批次 worktree、本地分支与 handoff 目录，账本 append 一条 `closed`（detail 注明重开弃置），随后按 SKILL.md 第一步的新批次流程重来。
 
 ## 1. 对账
 
-对该 batch-id 跑一次 batch-poll：`spec-<N>` 批次直接 `--spec <N>`；slug 批次的成员取账本**最后一条带 `scope` 的行**（清尾扩员会追加 scope 行），据此 `--issues`；无任何 scope 行时由用户指定范围。
+对该 batch-id 跑一次 batch-poll：`spec-<N>` 批次直接 `--spec <N>`；slug 批次的成员取账本**最后一条带 `scope` 的行**（清尾扩员会追加 scope 行），据此 `--issues`；当前段内无 scope 行时由用户指定范围。
 
 所有 issue 的 `stage_hint` 均为 `done` / `shelved` 时，远端已收敛，但前任的本地收尾未必完成：对路线为 codex 的 issue 先在其 worktree 跑 companion `cancel` 停掉仍存活的任务，再按 SKILL.md 收尾节执行完整收尾（含 worktree 清理）并补 `closed` 行。
 
