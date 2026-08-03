@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import unicodedata
+
 import pytest
 
 from lib.reference_video.prompt_render import (
@@ -36,6 +38,11 @@ def _project(**overrides):
     }
     project.update(overrides)
     return project
+
+
+#: 带组合附加符的角色名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
+_NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
+_NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
 
 def _refs(*pairs):
@@ -352,6 +359,56 @@ def test_audio_speaker_image_slot_and_binding_label_survive_same_named_type_coll
     # 两条绑定标签分别指向各自的位置编号，不因同名互相覆盖。
     assert "<张三>@图片1" in rendered.prompt
     assert "<张三>@图片2" in rendered.prompt
+
+
+@pytest.mark.parametrize("registered", [_NAME_NFC, _NAME_NFD], ids=["登记NFC", "登记NFD"])
+@pytest.mark.parametrize("written", [_NAME_NFC, _NAME_NFD], ids=["出场NFC", "出场NFD"])
+def test_combining_char_name_renders_identically_in_every_encoding_pairing(registered: str, written: str):
+    """组合字符角色名的四种 NFC/NFD 配对渲染出完全相同的 prompt 与音频绑定。
+
+    这是链路末端：说话人、mention 主体记号、参考图编号、音色声明四处判定任一漏归一，都不会
+    报错，而是让 ``@[名称]`` 这个书写层记号原样漏进供应商请求、台词不重组成官方句式、或音频
+    不绑——用户拿到的是一条脸和声音都不对的成片。
+    """
+    project = {
+        "style": "写实电影感",
+        "characters": {registered: {"voice_style": "清亮少女音", "reference_audio": "characters/refs_audio/x.wav"}},
+        "scenes": {},
+        "props": {},
+    }
+    text = f"镜头1：夜色下，@[{written}] 推门而入。\n@[{written}]：{{Tôi đến rồi.}}"
+
+    rendered = render_unit_prompt(
+        text,
+        project,
+        _refs(("character", written)),
+        voice_consistency="native",
+        max_reference_audio=3,
+        audio_ready={registered},
+    )
+
+    assert rendered.audio_speakers == [_NAME_NFC]
+    assert rendered.audio_speaker_reference_index == [0]
+    assert rendered.warnings == []
+    assert f"<{_NAME_NFC}>@图片1" in rendered.prompt
+    assert f"<{_NAME_NFC}>的台词音色参考 @音频1，声音特征：清亮少女音。" in rendered.prompt
+    assert f"<{_NAME_NFC}> 推门而入" in rendered.prompt
+    assert f"<{_NAME_NFC}>说 {{Tôi đến rồi.}}" in rendered.prompt
+    # 书写层记号一个都不该漏进供应商请求
+    assert "@[" not in rendered.prompt
+
+
+def test_resolve_reference_audio_paths_keys_are_normalized_for_binding(tmp_path):
+    """``resolve_reference_audio_paths`` 的 key 直接作为 ``audio_ready`` 与说话人判等：
+    资产表以 NFD 落盘时若原样返回，绑定判定两侧不同形，音频会被静默判成不可用。"""
+    refs_audio = tmp_path / "characters" / "refs_audio"
+    refs_audio.mkdir(parents=True)
+    (refs_audio / "x.wav").write_bytes(b"RIFF")
+    project = {"characters": {_NAME_NFD: {"reference_audio": "characters/refs_audio/x.wav"}}}
+
+    resolved = resolve_reference_audio_paths(project, tmp_path)
+
+    assert set(resolved) == {_NAME_NFC}
 
 
 def test_resolve_reference_audio_paths_only_returns_existing_files_under_refs_audio(tmp_path):

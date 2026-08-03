@@ -1,5 +1,7 @@
 """分镜文稿台词规范行的派生与降级可见性 warning。"""
 
+import unicodedata
+
 import pytest
 
 from lib.i18n import MESSAGES, _
@@ -36,6 +38,10 @@ PROJECT = {
     "scenes": {"酒馆": {"description": "x"}},
     "props": {},
 }
+
+#: 带组合附加符的角色名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
+_NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
+_NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
 
 def keys(preview) -> list[str]:
@@ -200,6 +206,37 @@ def test_warn_speaker_audio_unavailable_distinguished_from_unset():
     assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} not in bindings.warnings
     assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "李四"}} in bindings.warnings
     assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "李四"}} not in bindings.warnings
+
+
+@pytest.mark.parametrize("registered", [_NAME_NFC, _NAME_NFD], ids=["登记NFC", "登记NFD"])
+@pytest.mark.parametrize("written", [_NAME_NFC, _NAME_NFD], ids=["出场NFC", "出场NFD"])
+def test_combining_char_speaker_binds_audio_in_every_encoding_pairing(registered: str, written: str):
+    """组合字符角色名的四种 NFC/NFD 配对绑定结果一致：不得因编码形式差异静默降级。
+
+    「未登记」与「无可用音频」两条 warning 都不发——它们不阻断生成，漏发的后果是用户拿到
+    一条没绑上音色的成片，而不是一个能排查的报错。
+    """
+    project = {
+        "characters": {registered: {"reference_audio": "assets/audio/x.wav"}},
+        "scenes": {},
+        "props": {},
+    }
+    text = f"镜头1：开场。\n@[{written}]：{{Tôi đến rồi.}}"
+
+    preview = build_script_preview(text, project, voice_consistency="native", max_reference_audio=3)
+    assert keys(preview) == []
+
+    # 执行层口径：audio_ready 由 resolve_reference_audio_paths 按资产表的 key 建，同样可能是任一形式
+    bindings = derive_voice_bindings(
+        preview.utterances,
+        project["characters"],
+        voice_consistency="native",
+        max_reference_audio=3,
+        audio_ready={registered},
+    )
+    assert bindings.speakers == [_NAME_NFC]
+    assert bindings.audio_speakers == [_NAME_NFC]
+    assert bindings.warnings == []
 
 
 def test_derive_voice_bindings_degrades_on_malformed_character_entry():

@@ -13,8 +13,10 @@
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -128,6 +130,39 @@ def localize_asset_type(value: str, translate: Callable[..., str]) -> str:
     if value not in ASSET_SPECS:
         return value
     return translate(f"asset_type_{value}")
+
+
+def normalize_asset_name(name: str) -> str:
+    """把资产名归一到比对坐标系（Unicode NFC）——资产名判等/判成员的坐标系定义点。
+
+    同一个名字有两种等价编码：NFC（合成形式，网页表单与 project.json 登记侧的主形态）与
+    NFD（分解形式，macOS 文件名系统与部分输入法产出）。两者屏幕显示完全相同、字节不同，
+    ``==`` 与 ``in`` 判不相等；组合附加符高发的语种（如产品三语中的 vi）尤其容易同时出现
+    两种形式。逐字比对因此必须先落到同一形式，否则用户对着两个肉眼一致的名字无从排查。
+
+    口径：资产名（角色/场景/道具）比对前一律先经本函数归一，新增比对点沿用同一坐标系，
+    不各自发明归一或径直裸比对；比对的是「文本里的名字 × 资产表的 key」，两侧都要归一，
+    资产表一侧走 :func:`normalize_asset_bucket`。归一放在读取与解析的入口、不逐个比对点补，
+    参考生视频路径（``lib.reference_video``）已按此收编；其余路径（如 drama 侧按说话人索引
+    角色表）尚是裸比对，新增判定不要沿用那里的写法。
+
+    归一只做编码形式收敛，不改字、不改长度语义，对纯 ASCII 名是恒等变换。
+    """
+    return unicodedata.normalize("NFC", name)
+
+
+def normalize_asset_bucket(bucket: object) -> dict[str, Any]:
+    """把资产桶读成 key 已归一到比对坐标系的字典；非 dict 的畸形值按空桶处理。
+
+    资产名的比对总是「文本里的名字 × 资产表的 key」，两侧都要在同一坐标系里才判得准。
+    读取处归一一次即可覆盖存量数据——落盘的 key 可能是任一形式，而调用点只该关心比对结果。
+
+    同名不同形式的 key 归一后会合并（后写入的胜出）：它们本就指同一个资产名，资产表不应
+    同时存在两条，合并即修复而非丢数据。
+    """
+    if not isinstance(bucket, dict):
+        return {}
+    return {normalize_asset_name(str(name)): item for name, item in bucket.items()}  # pyright: ignore[reportUnknownVariableType]
 
 
 def validate_asset_name(name: object) -> str:

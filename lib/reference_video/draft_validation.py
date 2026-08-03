@@ -19,7 +19,7 @@ import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
-from lib.asset_types import BUCKET_KEY
+from lib.asset_types import BUCKET_KEY, normalize_asset_bucket
 from lib.reference_video.shot_parser import (
     derive_references_from_text,
     find_malformed_mention,
@@ -103,16 +103,6 @@ def render_violation_report(violations: Sequence[DraftViolation]) -> str:
         suffix = f"[{violation.code}] " if violation.code else ""
         lines.append(f"{index}. {suffix}{violation}")
     return "\n".join(lines)
-
-
-def _nfc(text: str) -> str:
-    """Unicode NFC 归一：与 ``lib.episode_ledger.normalize_source_text`` 定义的源文坐标系一致。
-
-    全仓口径：资产名（角色/场景/道具）比对前一律先经本函数或等价的 NFC 归一，再判等/判成员——
-    组合字符语种（如 vi）下 NFC/NFD 两种编码肉眼同字、字节不同，逐字比对必须先归一到同一形式。
-    后续新增的资产名比对点沿用该坐标系，不各自发明归一或径直裸比对。
-    """
-    return unicodedata.normalize("NFC", text)
 
 
 def _normalize_for_anchor(text: str) -> str:
@@ -229,12 +219,11 @@ def _has_description_line(shot_text: str) -> bool:
 
 
 def dialogue_speakers(text: str) -> list[str]:
-    """按出现顺序取出规范台词行的说话人（去重）——音色声明与登记校验共用同一口径。
+    """按出现顺序取出规范台词行的说话人（去重）——登记校验据此判说话人是否为登记角色。
 
-    说话人一律归一到 NFC 后返回：源文可能以 NFD 落盘（如 macOS 文件名系统、部分越南语输入法
-    产出）而 project.json 资产表以 NFC 登记（网页表单常见），两种形式肉眼同字但逐字比对不等。
-    全仓资产名比对一律先 NFC 归一，此为该口径的定义点之一，与 :func:`normative_lines` 及
-    ``lib.episode_ledger.normalize_source_text`` 同坐标系。
+    说话人取自 ``match_dialogue_line``，已在解析器入口归一到资产名比对坐标系
+    （``lib.reference_video.shot_parser`` 的 ``_normalize_source``），与资产表归一后的 key
+    同形；本函数不再各自归一一次。
     """
     seen: set[str] = set()
     speakers: list[str] = []
@@ -242,7 +231,7 @@ def dialogue_speakers(text: str) -> list[str]:
         matched = match_dialogue_line(line)
         if matched is None:
             continue
-        speaker = _nfc(matched[0])
+        speaker = matched[0]
         if speaker not in seen:
             seen.add(speaker)
             speakers.append(speaker)
@@ -254,19 +243,20 @@ def normative_lines(text: str) -> list[tuple[str, str, str]]:
 
     step2 的保结构 diff 以此为比对项：画面描述可自由展开，发声行必须逐字不变。
 
-    台词与说话人一律归一到 NFC 后返回：源文可能以 NFD 落盘而模型回写 NFC，两种形式肉眼
-    同字，逐字比对却不等；口播时长估算同样要求 NFC（按词计的语种下组合附加符会把一个词
-    拆成多个阅读单位）。归一放在这一处，两个消费方口径天然一致。
+    台词与说话人已在解析器入口归一到 NFC（``lib.reference_video.shot_parser`` 的
+    ``_normalize_source``）：源文可能以 NFD 落盘而模型回写 NFC，两种形式肉眼同字、逐字比对
+    却不等，保结构 diff 会把纯编码差异判成改写；口播时长估算同样要求 NFC（按词计的语种下
+    组合附加符会把一个词拆成多个阅读单位）。归一在解析器一处完成，两个消费方口径天然一致。
     """
     result: list[tuple[str, str, str]] = []
     for line in _content_lines(text):
         dialogue = match_dialogue_line(line)
         if dialogue is not None:
-            result.append(("dialogue", _nfc(dialogue[0]), _nfc(dialogue[1])))
+            result.append(("dialogue", dialogue[0], dialogue[1]))
             continue
         voiceover = match_voiceover_line(line)
         if voiceover is not None:
-            result.append(("voiceover", "", _nfc(voiceover)))
+            result.append(("voiceover", "", voiceover))
     return result
 
 
@@ -287,7 +277,8 @@ def validate_unit_text(
     if not text.strip():
         raise DraftViolation(f"{label} 的正文为空", code="empty_text", label=label)
 
-    characters = project.get(BUCKET_KEY["character"]) or {}
+    # 资产表的 key 归一到比对坐标系后再参与判定：正文一侧已由解析器入口归一，两侧同形才判得准。
+    characters = normalize_asset_bucket(project.get(BUCKET_KEY["character"]))
     _assert_line_syntax(label, text, characters)
 
     shots, _mentions = parse_prompt(text)
@@ -320,8 +311,7 @@ def validate_unit_text(
             label=label,
         )
 
-    registered_characters = {_nfc(name) for name in characters}
-    bad_speakers = sorted({s for s in dialogue_speakers(text) if s not in registered_characters})
+    bad_speakers = sorted({s for s in dialogue_speakers(text) if s not in characters})
     if bad_speakers:
         raise DraftViolation(
             f"{label} 的台词行说话人未登记为角色资产: {bad_speakers}；说话人决定该句台词绑哪段参考音频，必须是登记角色",

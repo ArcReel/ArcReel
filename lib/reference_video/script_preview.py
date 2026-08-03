@@ -20,7 +20,7 @@ from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
-from lib.asset_types import BUCKET_KEY
+from lib.asset_types import BUCKET_KEY, normalize_asset_bucket, normalize_asset_name
 from lib.reference_video.shot_parser import (
     match_dialogue_line,
     match_voiceover_line,
@@ -153,12 +153,19 @@ def derive_voice_bindings(
     别的角色/场景要么硬失败。降级发一条独立 warning（而非复用「未设参考音频」，原因不同：
     这里音频确实可用，只是没有画面可挂）。``speakers_with_reference_image`` 是本次实际随
     请求发出的参考图对应的角色名集合，仅在 ``require_reference_image`` 为 True 时读取。
+
+    角色表与两个按名字判定的集合（``audio_ready`` / ``speakers_with_reference_image``）都先归一
+    到资产名比对坐标系（:func:`lib.asset_types.normalize_asset_name`）：说话人一侧出自解析器、
+    已是归一形式，资产表与执行层传入的名字则可能是任一形式。少归一一侧的后果不是报错而是静默
+    降级——该角色被判「未登记」而不发音色声明、或判「无可用音频」而不绑参考音频，用户拿到的是
+    一条声音不对的成片加一条非阻断 warning。
     """
     warnings: list[dict[str, Any]] = []
+    characters = normalize_asset_bucket(characters)
 
     seen: list[str] = []
     for entry in utterances:
-        speaker = entry.utterance.speaker
+        speaker = normalize_asset_name(entry.utterance.speaker or "")
         if speaker and speaker not in seen:
             seen.append(speaker)
 
@@ -174,7 +181,8 @@ def derive_voice_bindings(
         if utterances:
             warnings.append(_warning(WARN_SILENT_EPISODE))
     elif voice_consistency == "native":
-        image_names = speakers_with_reference_image or ()
+        image_names = {normalize_asset_name(name) for name in speakers_with_reference_image or ()}
+        audio_ready = {normalize_asset_name(name) for name in audio_ready} if audio_ready is not None else None
         # 音频编号 = dialogue speaker 首现顺序，受 max_reference_audio 上限截断。
         for speaker in registered:
             char_data = characters.get(speaker)

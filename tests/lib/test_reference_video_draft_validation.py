@@ -22,6 +22,10 @@ PROJECT = {
     "props": {"长剑": {}},
 }
 
+#: 带组合附加符的角色名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
+_NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
+_NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
+
 
 class TestSourceTextAnchor:
     def test_verbatim_substring_accepted(self):
@@ -99,24 +103,27 @@ class TestUnitText:
         with pytest.raises(DraftViolation, match="说话人未登记"):
             validate_unit_text("unit E1U01", "镜头1：门开了\n@[无名氏]：{我来了。}", PROJECT, max_refs=None)
 
-    def test_nfd_speaker_matches_nfc_registered_character(self):
-        """角色以 NFC 登记、剧本以 NFD 出场（如越南语组合字符）：肉眼同字，不该误报未登记。"""
-        name_nfc = unicodedata.normalize("NFC", "Hiếu")
-        name_nfd = unicodedata.normalize("NFD", "Hiếu")
-        project = {"characters": {name_nfc: {}}, "scenes": {}, "props": {}}
-        validate_unit_text("unit E1U01", f"镜头1：门开了\n@[{name_nfd}]：{{{'Tôi đến rồi.'}}}", project, max_refs=None)
+    @pytest.mark.parametrize("registered", [_NAME_NFC, _NAME_NFD], ids=["登记NFC", "登记NFD"])
+    @pytest.mark.parametrize("written", [_NAME_NFC, _NAME_NFD], ids=["出场NFC", "出场NFD"])
+    def test_combining_char_name_passes_in_every_encoding_pairing(self, registered: str, written: str):
+        """组合字符角色名的四种 NFC/NFD 配对判定一致：肉眼同字，不该有任一组合被判未登记。
 
-    def test_nfc_speaker_matches_nfd_registered_character(self):
-        """反向：角色以 NFD 登记（如 macOS 文件名系统产出）、剧本以 NFC 出场，同样不该误报。"""
-        name_nfc = unicodedata.normalize("NFC", "Hiếu")
-        name_nfd = unicodedata.normalize("NFD", "Hiếu")
-        project = {"characters": {name_nfd: {}}, "scenes": {}, "props": {}}
-        validate_unit_text(
-            "unit E1U01",
-            f"镜头1：门开了\n@[{name_nfc}]：{{{'Tôi đến rồi.'}}}",
-            project,
-            max_refs=None,
-        )
+        描述行 mention 与台词行说话人同时出现——两者走不同的比对点（引用派生 / 说话人登记），
+        任一处漏归一都会在这里以不同的违约 code 冒出来。
+        """
+        project = {"characters": {registered: {}}, "scenes": {}, "props": {}}
+        text = f"镜头1：@[{written}] 推门而入\n@[{written}]：{{Tôi đến rồi.}}"
+
+        _shots, refs = validate_unit_text("unit E1U01", text, project, max_refs=None)
+
+        # 派生出的引用一律是归一形式：下游拿它回查资产表、在正文里替换成主体记号，须与此处同形
+        assert [(r.type, r.name) for r in refs] == [("character", _NAME_NFC)]
+
+    def test_unregistered_mention_still_rejected_after_normalization(self):
+        """归一只消除编码形式差异，不放宽登记判定：真没登记的名字照常拒。"""
+        project = {"characters": {_NAME_NFC: {}}, "scenes": {}, "props": {}}
+        with pytest.raises(DraftViolation, match="未登记的资产名"):
+            validate_unit_text("unit E1U01", f"镜头1：@[{_NAME_NFD}Ⅱ] 推门而入", project, max_refs=None)
 
     def test_over_max_refs_rejected(self):
         with pytest.raises(DraftViolation, match="超过模型上限"):
