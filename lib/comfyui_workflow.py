@@ -19,6 +19,7 @@ _SEED_FIELDS = ("noise_seed", "seed")
 _DURATION_FIELDS = ("duration_seconds", "duration", "seconds")
 _FRAME_FIELDS = ("length", "num_frames", "frames", "frame_count")
 _VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".mov", ".mkv", ".avi"})
+_REFERENCE_IMAGE_TOKEN_RE = re.compile(r"@图片(?P<index>\d+)")
 
 
 class ComfyUIWorkflowConfigError(ValueError):
@@ -103,6 +104,19 @@ def validate_comfyui_endpoint_config(value: object) -> dict[str, Any]:
         if mode != "inject_loader" and field not in node["inputs"]:
             raise ComfyUIWorkflowConfigError(f"ComfyUI binding {name!r} points to a missing input")
 
+    reference_images = _binding(normalized, "reference_images")
+    if reference_images is not None:
+        if reference_images.get("mode") != "autogrow":
+            raise ComfyUIWorkflowConfigError("ComfyUI reference_images binding must use autogrow mode")
+        node_id = reference_images.get("node_id")
+        field_prefix = reference_images.get("field_prefix")
+        max_items = reference_images.get("max_items")
+        if not isinstance(node_id, str) or not isinstance(field_prefix, str) or not field_prefix:
+            raise ComfyUIWorkflowConfigError("ComfyUI reference_images binding needs node_id and field_prefix")
+        _node(workflow, node_id)
+        if not isinstance(max_items, int) or isinstance(max_items, bool) or max_items < 1:
+            raise ComfyUIWorkflowConfigError("ComfyUI reference_images binding needs a positive max_items")
+
     return normalized
 
 
@@ -134,6 +148,84 @@ def _enum_options(object_info: Mapping[str, object], class_type: str, field: str
         if isinstance(raw, list) and raw and isinstance(raw[0], list):
             return [str(option) for option in raw[0] if isinstance(option, str)]
     return []
+
+
+def _schema_field_specs(object_info: Mapping[str, object], class_type: str) -> dict[str, object]:
+    info = object_info.get(class_type)
+    if not isinstance(info, dict):
+        return {}
+    input_spec = info.get("input")
+    if not isinstance(input_spec, dict):
+        return {}
+    result: dict[str, object] = {}
+    for group in ("required", "optional"):
+        fields = input_spec.get(group)
+        if isinstance(fields, dict):
+            result.update((str(name), value) for name, value in fields.items())
+    return result
+
+
+def _autogrow_reference_image_binding(
+    workflow: Mapping[str, object],
+    object_info: Mapping[str, object],
+    target_node_id: str,
+) -> dict[str, Any] | None:
+    """Detect ComfyUI V3 autogrow image inputs such as MiniMax H3 ``ref_images``."""
+    target = _node(workflow, target_node_id)
+    class_type = str(target.get("class_type", ""))
+    for field, raw_spec in _schema_field_specs(object_info, class_type).items():
+        if not isinstance(raw_spec, list) or len(raw_spec) < 2 or raw_spec[0] != "COMFY_AUTOGROW_V3":
+            continue
+        options = raw_spec[1]
+        if not isinstance(options, dict):
+            continue
+        template = options.get("template")
+        if not isinstance(template, dict):
+            continue
+        template_input = template.get("input")
+        if not isinstance(template_input, dict):
+            continue
+        template_fields: dict[str, object] = {}
+        for group in ("required", "optional"):
+            values = template_input.get(group)
+            if isinstance(values, dict):
+                template_fields.update((str(name), value) for name, value in values.items())
+        image_field = next(
+            (name for name, spec in template_fields.items() if isinstance(spec, list) and spec and spec[0] == "IMAGE"),
+            None,
+        )
+        if image_field is None or not re.search(r"(?:ref|reference|image|picture)", f"{field}.{image_field}", re.I):
+            continue
+        prefix = template.get("prefix")
+        if not isinstance(prefix, str) or not prefix:
+            prefix = f"{image_field}_"
+        max_items = template.get("max")
+        if not isinstance(max_items, int) or isinstance(max_items, bool) or max_items < 1:
+            continue
+        return {
+            "node_id": target_node_id,
+            "field_prefix": f"{field}.{prefix}",
+            "mode": "autogrow",
+            "max_items": max_items,
+        }
+
+    # Older object_info responses may omit the autogrow schema while the executed API prompt
+    # still contains fields such as ``ref_images.ref_image_0``. Preserve support for the slots
+    # visible in that successful execution, but do not guess unrelated IMAGE inputs.
+    prefixes: dict[str, list[int]] = {}
+    for field in target["inputs"]:
+        match = re.match(r"^(?P<prefix>.*(?:ref|reference).*?(?:image|picture).*?_)(?P<index>\d+)$", field, re.I)
+        if match:
+            prefixes.setdefault(match.group("prefix"), []).append(int(match.group("index")))
+    if prefixes:
+        prefix, indices = max(prefixes.items(), key=lambda item: len(item[1]))
+        return {
+            "node_id": target_node_id,
+            "field_prefix": prefix,
+            "mode": "autogrow",
+            "max_items": max(indices) + 1,
+        }
+    return None
 
 
 def _first_input_field(inputs: Mapping[str, object], names: tuple[str, ...]) -> str | None:
@@ -194,6 +286,8 @@ def _image_binding(
     object_info: Mapping[str, object],
     target_node_id: str,
     field: str,
+    *,
+    allow_inject: bool = True,
 ) -> dict[str, str] | None:
     target = _node(workflow, target_node_id)
     current = target["inputs"].get(field)
@@ -204,7 +298,7 @@ def _image_binding(
             return {"node_id": source_id, "field": "image", "mode": "loader"}
 
     class_type = str(target.get("class_type", ""))
-    if field in _schema_inputs(object_info, class_type):
+    if allow_inject and field in _schema_inputs(object_info, class_type):
         return {"node_id": target_node_id, "field": field, "mode": "inject_loader"}
     return None
 
@@ -261,10 +355,12 @@ def detect_comfyui_endpoint_config(
         if options:
             aspect["options"] = options
         bindings["aspect_ratio"] = aspect
-    if start := _image_binding(workflow, object_info, prompt_node_id, "first_frame"):
+    if start := _image_binding(workflow, object_info, prompt_node_id, "first_frame", allow_inject=False):
         bindings["start_image"] = start
-    if end := _image_binding(workflow, object_info, prompt_node_id, "last_frame"):
-        bindings["end_image"] = end
+        if end := _image_binding(workflow, object_info, prompt_node_id, "last_frame"):
+            bindings["end_image"] = end
+    if reference_images := _autogrow_reference_image_binding(workflow, object_info, prompt_node_id):
+        bindings["reference_images"] = reference_images
 
     # Remove per-run values before persisting a reusable template.  Besides making every queued
     # run independent, this prevents a path from the discovery workstation leaking into ArcReel.
@@ -277,12 +373,37 @@ def detect_comfyui_endpoint_config(
             if image_binding.get("mode") == "loader":
                 _node(workflow, image_binding["node_id"])["inputs"][image_binding["field"]] = ""
 
-    display_name = None
-    if isinstance(original_prefix, str) and original_prefix:
-        display_name = PurePosixPath(original_prefix.replace("\\", "/")).name or None
-    if not display_name:
-        class_name = str(prompt_node.get("class_type", "ComfyUI"))
-        display_name = re.sub(r"(?<!^)(?=[A-Z])", " ", class_name).strip()
+    if reference_binding := bindings.get("reference_images"):
+        field_prefix = str(reference_binding["field_prefix"])
+        for field, value in list(prompt_node["inputs"].items()):
+            if not field.startswith(field_prefix) or not isinstance(value, list) or not value:
+                continue
+            source = workflow.get(str(value[0]))
+            if isinstance(source, dict) and isinstance(source.get("inputs"), dict) and "image" in source["inputs"]:
+                source["inputs"]["image"] = ""
+
+    class_name = str(prompt_node.get("class_type", "ComfyUI"))
+    meta = prompt_node.get("_meta")
+    node_title = str(meta.get("title", "")).strip() if isinstance(meta, dict) else ""
+    explicit_name = re.match(r"^\s*(?:\[?ArcReel\]?\s*[:：-])\s*(.+)$", node_title, re.I)
+    info = object_info.get(class_name)
+    class_display_name = str(info.get("display_name", "")).strip() if isinstance(info, dict) else ""
+    workflow_kind = (
+        "reference_to_video"
+        if "reference_images" in bindings
+        else "image_to_video"
+        if "start_image" in bindings
+        else "text_to_video"
+    )
+    display_name = (
+        explicit_name.group(1).strip()
+        if explicit_name
+        else class_display_name or node_title or re.sub(r"(?<!^)(?=[A-Z])", " ", class_name).strip()
+    )
+    if not display_name and isinstance(original_prefix, str) and original_prefix:
+        display_name = PurePosixPath(original_prefix.replace("\\", "/")).name or "ComfyUI Video"
+    if not explicit_name and workflow_kind == "text_to_video":
+        display_name = re.sub(r"\bImage\s+to\s+Video\b", "Text to Video", display_name, flags=re.I)
 
     duration_default = None
     if duration := bindings.get("duration"):
@@ -297,6 +418,10 @@ def detect_comfyui_endpoint_config(
         "metadata": {
             "display_name": display_name,
             "duration_default_seconds": duration_default,
+            "workflow_kind": workflow_kind,
+            "reference_image_prompt_template": (
+                "<Picture {index}>" if class_name == "MiniMaxH3ReferenceToVideo" else None
+            ),
         },
     }
     return validate_comfyui_endpoint_config(config)
@@ -306,7 +431,16 @@ def workflow_profile_id(config: Mapping[str, object]) -> str:
     """Create a stable short model id from the sanitized workflow template."""
     # Presentation metadata (notably the previous SaveVideo prefix) must not turn identical
     # executions into duplicate profiles across history entries.
-    identity = {key: config.get(key) for key in ("version", "workflow", "bindings")}
+    workflow = copy.deepcopy(config.get("workflow"))
+    if isinstance(workflow, dict):
+        for node in workflow.values():
+            if isinstance(node, dict):
+                node.pop("_meta", None)
+    identity = {
+        "version": config.get("version"),
+        "workflow": workflow,
+        "bindings": config.get("bindings"),
+    }
     payload = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return f"comfy-{hashlib.sha256(payload).hexdigest()[:12]}"
 
@@ -365,6 +499,10 @@ def bind_scalar_inputs(
     prompt_binding = _binding(normalized, "prompt", required=True)
     output_binding = _binding(normalized, "output", required=True)
     assert prompt_binding is not None and output_binding is not None
+    metadata = normalized.get("metadata")
+    template = metadata.get("reference_image_prompt_template") if isinstance(metadata, dict) else None
+    if isinstance(template, str) and "{index}" in template:
+        prompt = _REFERENCE_IMAGE_TOKEN_RE.sub(lambda match: template.format(index=match.group("index")), prompt)
     apply_value_binding(workflow, prompt_binding, prompt)
     apply_value_binding(workflow, output_binding, output_prefix)
 
@@ -415,6 +553,61 @@ def bind_uploaded_image(
         "_meta": {"title": "ArcReel input image"},
     }
     _node(workflow, target_id)["inputs"][field] = [unique_id, 0]
+
+
+def bind_uploaded_reference_images(
+    workflow: dict[str, Any],
+    binding: Mapping[str, object],
+    uploaded_paths: list[str],
+    *,
+    loader_id: str = "arcreel_reference_image",
+) -> None:
+    """Bind an ordered reference-image list to a ComfyUI V3 autogrow input."""
+    if binding.get("mode") != "autogrow":
+        raise ComfyUIWorkflowConfigError("unsupported reference image binding mode")
+    target_id = str(binding["node_id"])
+    field_prefix = str(binding["field_prefix"])
+    max_items = binding.get("max_items")
+    if not isinstance(max_items, int) or isinstance(max_items, bool) or max_items < 1:
+        raise ComfyUIWorkflowConfigError("reference image binding needs a positive max_items")
+    if len(uploaded_paths) > max_items:
+        raise ComfyUIWorkflowConfigError(
+            f"ComfyUI workflow accepts at most {max_items} reference images, got {len(uploaded_paths)}"
+        )
+    target = _node(workflow, target_id)
+    previous_loader_ids: set[str] = set()
+    for field in [name for name in target["inputs"] if name.startswith(field_prefix)]:
+        value = target["inputs"][field]
+        if isinstance(value, list) and value and isinstance(value[0], (str, int)):
+            previous_loader_ids.add(str(value[0]))
+        del target["inputs"][field]
+    for previous_loader_id in previous_loader_ids:
+        previous_loader = workflow.get(previous_loader_id)
+        if not isinstance(previous_loader, dict) or previous_loader.get("class_type") != "LoadImage":
+            continue
+        still_referenced = any(
+            isinstance(node, dict)
+            and isinstance(node.get("inputs"), dict)
+            and any(
+                isinstance(value, list) and value and str(value[0]) == previous_loader_id
+                for value in node["inputs"].values()
+            )
+            for node in workflow.values()
+        )
+        if not still_referenced:
+            del workflow[previous_loader_id]
+    for index, uploaded_path in enumerate(uploaded_paths):
+        unique_id = f"{loader_id}_{index + 1}"
+        suffix = 2
+        while unique_id in workflow:
+            unique_id = f"{loader_id}_{index + 1}_{suffix}"
+            suffix += 1
+        workflow[unique_id] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": uploaded_path},
+            "_meta": {"title": f"ArcReel reference image {index + 1}"},
+        }
+        target["inputs"][f"{field_prefix}{index}"] = [unique_id, 0]
 
 
 def extract_video_output(history_record: object, output_node_id: str) -> dict[str, str]:

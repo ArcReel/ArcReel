@@ -56,8 +56,7 @@ async def discover_models(
         return await _discover_comfyui(base_url, api_key)
     else:
         raise UnsupportedDiscoveryFormatError(
-            f"不支持的 discovery_format: {discovery_format!r}，"
-            "支持: 'openai', 'google', 'anthropic', 'comfyui'"
+            f"不支持的 discovery_format: {discovery_format!r}，支持: 'openai', 'google', 'anthropic', 'comfyui'"
         )
 
 
@@ -181,10 +180,6 @@ async def _discover_comfyui(base_url: str | None, api_key: str) -> list[dict]:
             logger.debug("跳过无法映射的 ComfyUI 历史工作流: %s", exc)
             continue
         bindings = config["bindings"]
-        # ArcReel's current video lane is image-to-video.  Do not advertise a profile that
-        # cannot accept the storyboard frame it will always receive.
-        if "start_image" not in bindings:
-            continue
         model_id = workflow_profile_id(config)
         if model_id in seen:
             continue
@@ -207,7 +202,9 @@ async def _discover_comfyui(base_url: str | None, api_key: str) -> list[dict]:
                 # duration-bound workflow can therefore expose the positive manual slots
                 # without ever sending an invalid literal zero to ComfyUI.
                 "supported_durations": supported_durations,
-                "capability_overrides": {"last_frame": True} if "end_image" in bindings else None,
+                # Capabilities are derived from endpoint_config at read and execution time;
+                # they are workflow facts rather than user overrides.
+                "capability_overrides": None,
                 "endpoint_config": config,
             }
         )

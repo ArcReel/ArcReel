@@ -163,7 +163,7 @@ function rowToInput(r: ModelRow): CustomProviderModelInput {
   const supported_durations = trimmed ? parseDurationInput(trimmed) : null;
   return {
     model_id: r.model_id,
-    display_name: r.display_name || r.model_id,
+    display_name: r.display_name.trim() || r.model_id.trim(),
     endpoint: r.endpoint,
     is_default: r.is_default,
     is_enabled: r.is_enabled,
@@ -789,6 +789,20 @@ export function CustomProviderForm({ existing, onSaved, onCancel }: CustomProvid
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
+                    </div>
+
+                    <div className="mt-2 flex items-center gap-2 pl-6">
+                      <span className="whitespace-nowrap font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+                        {t(isComfyUI ? "workflow_name_label" : "model_display_name_label")}
+                      </span>
+                      <input
+                        type="text"
+                        value={m.display_name}
+                        onChange={(e) => updateModel(m.key, { display_name: e.target.value })}
+                        placeholder={t(isComfyUI ? "workflow_name_placeholder" : "model_display_name_placeholder")}
+                        aria-label={t(isComfyUI ? "workflow_name_label" : "model_display_name_label")}
+                        className={`${COMPACT_INPUT_CLS} min-w-48 flex-1`}
+                      />
                     </div>
 
                     {/* 全局桶引用提示（非阻塞展示，不影响保存） */}

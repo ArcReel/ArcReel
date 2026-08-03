@@ -15,6 +15,7 @@ import httpx
 from lib.comfyui_workflow import (
     bind_scalar_inputs,
     bind_uploaded_image,
+    bind_uploaded_reference_images,
     comfyui_headers,
     extract_video_output,
     normalize_comfyui_base_url,
@@ -76,14 +77,22 @@ class ComfyUIVideoBackend(ProviderJobIdPersistenceMixin):
         # opt-in per discovered workflow through capability_overrides.
         return VideoCapabilities(first_frame=True, last_frame=False, max_reference_images=0)
 
-    @property
-    def video_capabilities(self) -> VideoCapabilities:
-        bindings = self._config["bindings"]
+    @staticmethod
+    def video_capabilities_for_config(endpoint_config: object) -> VideoCapabilities:
+        """Derive workflow-specific capabilities from persisted ComfyUI bindings."""
+        config = validate_comfyui_endpoint_config(endpoint_config)
+        bindings = config["bindings"]
+        reference_images = bindings.get("reference_images")
+        max_reference_images = int(reference_images.get("max_items", 0)) if isinstance(reference_images, dict) else 0
         return VideoCapabilities(
             first_frame="start_image" in bindings,
             last_frame="end_image" in bindings,
-            max_reference_images=0,
+            max_reference_images=max_reference_images,
         )
+
+    @property
+    def video_capabilities(self) -> VideoCapabilities:
+        return self.video_capabilities_for_config(self._config)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         client_id = str(uuid.uuid4())
@@ -130,7 +139,20 @@ class ComfyUIVideoBackend(ProviderJobIdPersistenceMixin):
             uploaded = await self._upload_image(client, Path(request.end_image), request, "end")
             bind_uploaded_image(workflow, binding, uploaded, loader_id="arcreel_end_image")
         if request.reference_images:
-            raise ValueError(f"ComfyUI workflow {self._model} does not expose reference image slots")
+            binding = bindings.get("reference_images")
+            if not isinstance(binding, dict):
+                raise ValueError(f"ComfyUI workflow {self._model} does not expose reference image slots")
+            max_items = int(binding.get("max_items", 0))
+            references = [Path(path) for path in request.reference_images if path]
+            if len(references) > max_items:
+                raise ValueError(
+                    f"ComfyUI workflow {self._model} accepts at most {max_items} reference images, "
+                    f"got {len(references)}"
+                )
+            uploaded_references = []
+            for index, path in enumerate(references, start=1):
+                uploaded_references.append(await self._upload_image(client, path, request, f"reference_{index}"))
+            bind_uploaded_reference_images(workflow, binding, uploaded_references)
 
     async def _upload_image(
         self,

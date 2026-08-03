@@ -51,6 +51,7 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
 from lib.image_backends.base import ImageCapability
 from lib.video_backends.base import ReferenceAudioMode
+from lib.video_backends.comfyui import ComfyUIVideoBackend
 
 
 def _validate_endpoint(value: str) -> str:
@@ -319,7 +320,11 @@ class EndpointCatalogResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _system_capabilities_for(endpoint: str, model_id: str) -> dict[str, object] | None:
+def _system_capabilities_for(
+    endpoint: str,
+    model_id: str,
+    endpoint_config: object | None = None,
+) -> dict[str, object] | None:
     """读该 model 的系统判定能力（四字段全量）；非 video endpoint 返回 None。
 
     判定失败（endpoint 已下线、注册表声明异常）时降级为 None 而非 500：列表端点要能把
@@ -328,8 +333,10 @@ def _system_capabilities_for(endpoint: str, model_id: str) -> dict[str, object] 
     try:
         if endpoint_to_media_type(endpoint) != "video":
             return None
+        if endpoint == COMFYUI_ENDPOINT and endpoint_config is not None:
+            return asdict(ComfyUIVideoBackend.video_capabilities_for_config(endpoint_config))
         return asdict(system_video_capabilities(endpoint=endpoint, model_id=model_id))
-    except ValueError:
+    except (ComfyUIWorkflowConfigError, ValueError):
         logger.warning("无法判定系统能力: endpoint=%r model_id=%r", endpoint, model_id)
         return None
 
@@ -382,7 +389,7 @@ def _model_to_response(
 ) -> ModelResponse:
     durations = json.loads(m.supported_durations) if m.supported_durations else None
     return ModelResponse(
-        system_capabilities=_system_capabilities_for(m.endpoint, m.model_id),
+        system_capabilities=_system_capabilities_for(m.endpoint, m.model_id, m.endpoint_config),
         capability_overrides=_effective_overrides_for_response(m.endpoint, m.model_id, m.capability_overrides),
         id=m.id,
         model_id=m.model_id,

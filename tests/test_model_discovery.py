@@ -427,9 +427,80 @@ class TestDiscoverModelsComfyUI:
         assert result[0]["is_default"] is True
         assert result[0]["supported_durations"] == list(range(1, 16))
         assert result[0]["endpoint_config"]["bindings"]["start_image"]["mode"] == "loader"
-        assert client.get.await_args_list[0].kwargs["headers"] == {
-            "Authorization": "Bearer tailnet-token"
+        assert client.get.await_args_list[0].kwargs["headers"] == {"Authorization": "Bearer tailnet-token"}
+
+    @patch("lib.custom_provider.discovery.get_http_client")
+    async def test_imports_text_and_multi_reference_workflows_with_distinct_names(self, mock_get_client):
+        from unittest.mock import AsyncMock
+
+        text_workflow = {
+            "10": {"class_type": "MiniMaxH3TextToVideo", "inputs": {"prompt": "move"}},
+            "90": {"class_type": "SaveVideo", "inputs": {"filename_prefix": "MiniMax_H3", "video": ["10", 0]}},
         }
+        reference_workflow = {
+            "20": {
+                "class_type": "MiniMaxH3ReferenceToVideo",
+                "inputs": {"prompt": "move", "ref_images.ref_image_0": ["21", 0]},
+            },
+            "21": {"class_type": "LoadImage", "inputs": {"image": "person.png"}},
+            "90": {"class_type": "SaveVideo", "inputs": {"filename_prefix": "MiniMax_H3", "video": ["20", 0]}},
+        }
+        history_response = MagicMock()
+        history_response.json.return_value = {
+            "text": {
+                "status": {"completed": True, "status_str": "success"},
+                "outputs": {"90": {"gifs": [{"filename": "text.mp4"}]}},
+                "prompt": [1, "text", text_workflow],
+            },
+            "reference": {
+                "status": {"completed": True, "status_str": "success"},
+                "outputs": {"90": {"gifs": [{"filename": "reference.mp4"}]}},
+                "prompt": [2, "reference", reference_workflow],
+            },
+        }
+        object_info_response = MagicMock()
+        object_info_response.json.return_value = {
+            "MiniMaxH3TextToVideo": {
+                "display_name": "MiniMax H3 Text to Video",
+                "input": {"required": {"prompt": ["STRING"]}},
+            },
+            "MiniMaxH3ReferenceToVideo": {
+                "display_name": "MiniMax H3 Reference to Video",
+                "input": {
+                    "required": {"prompt": ["STRING"]},
+                    "optional": {
+                        "ref_images": [
+                            "COMFY_AUTOGROW_V3",
+                            {
+                                "template": {
+                                    "input": {"required": {"ref_image": ["IMAGE"]}},
+                                    "prefix": "ref_image_",
+                                    "max": 9,
+                                }
+                            },
+                        ]
+                    },
+                },
+            },
+        }
+        client = MagicMock()
+        client.get = AsyncMock(side_effect=[history_response, object_info_response])
+        mock_get_client.return_value = client
+
+        from lib.custom_provider.discovery import discover_models
+
+        result = await discover_models(
+            discovery_format="comfyui",
+            base_url="http://comfy.local:8188",
+            api_key="",
+        )
+
+        assert {item["display_name"] for item in result} == {
+            "MiniMax H3 Text to Video",
+            "MiniMax H3 Reference to Video",
+        }
+        reference = next(item for item in result if "Reference" in item["display_name"])
+        assert reference["endpoint_config"]["bindings"]["reference_images"]["max_items"] == 9
 
 
 # ---------------------------------------------------------------------------

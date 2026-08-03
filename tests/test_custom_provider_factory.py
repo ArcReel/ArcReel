@@ -13,6 +13,7 @@ from lib.custom_provider.backends import (
     CustomVideoBackend,
 )
 from lib.custom_provider.factory import create_custom_backend
+from lib.video_backends.base import VideoCapabilities
 
 
 def _make_provider(*, base_url: str = "https://api.example.com/v1", api_key: str = "sk-test") -> MagicMock:
@@ -88,6 +89,10 @@ class TestEndpointDispatch:
     def test_comfyui_workflow_receives_model_endpoint_config(self, mock_cls):
         provider = _make_provider(base_url="http://comfy.local:8188", api_key="tailnet-token")
         config = {"version": 1, "workflow": {"10": {"inputs": {}}}, "bindings": {}}
+        mock_cls.return_value.video_capabilities = VideoCapabilities(
+            first_frame=False,
+            max_reference_images=9,
+        )
 
         result = create_custom_backend(
             provider=provider,
@@ -97,6 +102,7 @@ class TestEndpointDispatch:
         )
 
         assert isinstance(result, CustomVideoBackend)
+        assert result.video_capabilities.max_reference_images == 9
         mock_cls.assert_called_once_with(
             base_url="http://comfy.local:8188",
             api_key="tailnet-token",

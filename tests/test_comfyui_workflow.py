@@ -9,6 +9,7 @@ import pytest
 from lib.comfyui_workflow import (
     bind_scalar_inputs,
     bind_uploaded_image,
+    bind_uploaded_reference_images,
     detect_comfyui_endpoint_config,
     extract_video_output,
     workflow_profile_id,
@@ -117,3 +118,93 @@ def test_binding_does_not_mutate_persisted_template() -> None:
     )
 
     assert config == original
+
+
+def test_detects_and_binds_minimax_h3_autogrow_reference_images() -> None:
+    workflow = {
+        "136": {
+            "class_type": "MiniMaxH3ReferenceToVideo",
+            "inputs": {
+                "prompt": "<张三>@图片1、<酒馆>@图片2。",
+                "ref_images.ref_image_0": ["137", 0],
+                "ref_images.ref_image_1": ["139", 0],
+            },
+        },
+        "137": {"class_type": "LoadImage", "inputs": {"image": "private/person.png"}},
+        "139": {"class_type": "LoadImage", "inputs": {"image": "private/scene.png"}},
+        "90": {"class_type": "SaveVideo", "inputs": {"filename_prefix": "MiniMax_H3", "video": ["136", 0]}},
+    }
+    object_info = {
+        "MiniMaxH3ReferenceToVideo": {
+            "display_name": "MiniMax H3 Reference to Video",
+            "input": {
+                "required": {"prompt": ["STRING"]},
+                "optional": {
+                    "ref_images": [
+                        "COMFY_AUTOGROW_V3",
+                        {
+                            "template": {
+                                "input": {"required": {"ref_image": ["IMAGE"]}},
+                                "prefix": "ref_image_",
+                                "min": 0,
+                                "max": 9,
+                            }
+                        },
+                    ]
+                },
+            },
+        }
+    }
+
+    config = detect_comfyui_endpoint_config(workflow, object_info=object_info)
+
+    assert config["metadata"]["display_name"] == "MiniMax H3 Reference to Video"
+    assert config["metadata"]["workflow_kind"] == "reference_to_video"
+    assert config["bindings"]["reference_images"] == {
+        "node_id": "136",
+        "field_prefix": "ref_images.ref_image_",
+        "mode": "autogrow",
+        "max_items": 9,
+    }
+    assert config["workflow"]["137"]["inputs"]["image"] == ""
+    assert config["workflow"]["139"]["inputs"]["image"] == ""
+
+    bound = bind_scalar_inputs(
+        config,
+        prompt="<张三>@图片1、<酒馆>@图片2。",
+        duration_seconds=5,
+        aspect_ratio="16:9",
+        seed=1,
+        output_prefix="arcreel/proj/task",
+    )
+    bind_uploaded_reference_images(
+        bound,
+        config["bindings"]["reference_images"],
+        ["arcreel/proj/person.png", "arcreel/proj/scene.png"],
+    )
+
+    assert bound["136"]["inputs"]["prompt"] == "<张三><Picture 1>、<酒馆><Picture 2>。"
+    assert bound["136"]["inputs"]["ref_images.ref_image_0"] == ["arcreel_reference_image_1", 0]
+    assert bound["136"]["inputs"]["ref_images.ref_image_1"] == ["arcreel_reference_image_2", 0]
+    assert bound["arcreel_reference_image_1"]["inputs"]["image"] == "arcreel/proj/person.png"
+    assert bound["arcreel_reference_image_2"]["inputs"]["image"] == "arcreel/proj/scene.png"
+    assert "137" not in bound
+    assert "139" not in bound
+
+
+def test_uses_explicit_arcreel_node_title_as_workflow_name() -> None:
+    workflow = _workflow()
+    workflow["10"]["_meta"] = {"title": "ArcReel: 主角首尾帧工作流"}
+
+    config = detect_comfyui_endpoint_config(workflow, object_info=_object_info())
+
+    assert config["metadata"]["display_name"] == "主角首尾帧工作流"
+
+
+def test_workflow_profile_id_ignores_node_titles() -> None:
+    first = detect_comfyui_endpoint_config(_workflow(), object_info=_object_info())
+    renamed_workflow = _workflow()
+    renamed_workflow["10"]["_meta"] = {"title": "ArcReel: 自定义工作流名称"}
+    renamed = detect_comfyui_endpoint_config(renamed_workflow, object_info=_object_info())
+
+    assert workflow_profile_id(first) == workflow_profile_id(renamed)

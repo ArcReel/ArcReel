@@ -207,6 +207,8 @@ class TestCreateProvider:
         assert body["discovery_format"] == "comfyui"
         assert body["video_max_workers"] == 1
         assert body["models"][0]["endpoint_config"] == endpoint_config
+        assert body["models"][0]["system_capabilities"]["first_frame"] is True
+        assert body["models"][0]["system_capabilities"]["max_reference_images"] == 0
 
 
 class TestListProviders:
