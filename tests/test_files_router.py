@@ -645,8 +645,13 @@ class TestFilesRouter:
     def test_upload_rejects_unsafe_name_for_every_type(self, tmp_path, monkeypatch):
         """name 会被拼进落盘路径：含分隔符 / .. / 控制字符的名字在所有上传类型下都应被 400 拒绝。"""
         client, _ = _client(monkeypatch, tmp_path)
-        # 快照范围取 tmp_path 而非 projects 根：越界名的目标本就在 projects 之外，只扫项目内看不见
-        before = sorted(p for p in tmp_path.rglob("*") if p.is_file())
+
+        # 快照范围取 tmp_path 而非 projects 根：越界名的目标本就在 projects 之外，只扫项目内看不见。
+        # 连同内容一起快照：越界写入若命中既有文件（如 ../project.json），路径集合不变，只比路径发现不了
+        def _snapshot() -> dict[Path, bytes]:
+            return {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+        before = _snapshot()
         unsafe_names = [
             "../../evil",
             "../../../evil",
@@ -676,8 +681,8 @@ class TestFilesRouter:
                     assert resp.status_code == 400, (upload_type, unsafe, resp.status_code)
                     assert resp.json()["detail"] == zh_assets.MESSAGES["asset_invalid_name"].format(name=unsafe)
 
-            # 越界名字不得留下任何落盘产物（项目内与项目外都不得新增文件）
-            assert sorted(p for p in tmp_path.rglob("*") if p.is_file()) == before
+            # 越界名字不得留下任何落盘产物：项目内外都不得新增文件，既有文件的内容也不得被改写
+            assert _snapshot() == before
 
     @pytest.mark.integration
     def test_upload_unsafe_name_message_is_localized(self, tmp_path, monkeypatch):
