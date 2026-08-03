@@ -1617,9 +1617,9 @@ async def test_execute_reference_video_task_prompt_matches_deduped_refs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """回归守门：unit.references 携带同一角色的 NFC/NFD 两条记录时，prompt 的 [图N] 索引
-    必须与去重后的 reference_images 对齐，不能让图片列表（已去重）比逻辑引用列表（未去重）
-    短，导致 [图2] 错误绑到与 [图1] 相同的资产、后面一条真正不同的参考丢失编号。"""
+    """unit.references 携带同一角色的 NFC/NFD 两条记录时，prompt 的 [图N] 索引必须与去重后的
+    reference_images 对齐：图片列表与渲染用的逻辑引用列表须按同一去重规则计数，否则 [图2]
+    会错误绑到与 [图1] 相同的资产、后面一条真正不同的参考丢失编号。"""
     import unicodedata
 
     proj_dir = _write_project(tmp_path)

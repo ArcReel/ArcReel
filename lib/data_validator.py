@@ -911,6 +911,13 @@ class DataValidator:
         镜头时长约束按生成路径动态切换：storyboard 路径的成员校验在生成 schema 层
         （supported_durations 枚举，校验器拿不到供应商能力、只把关正整数）；
         ``reference_mode=True`` 时按 1-15 自由整数区间校验（与参考视频 Shot 同口径）。
+
+        资产引用的归一比对按各自收集器的实际行为对齐：characters_in_shot/scenes/props
+        三个字段的 storyboard 收集器（``_collect_sheet_references``）始终原始比对，校验层
+        随 ``reference_mode`` 切换（见 ``_validate_segment_refs`` 文档）；products_in_shot
+        的收集器（``collect_product_references_for_names``）不区分生成路径、始终归一，
+        校验层因此始终 ``normalize=True``——否则 storyboard 路径下合法的 NFC/NFD 产品名
+        会被校验层拒绝，而收集层其实能正常解析。
         """
         if not isinstance(shots, list) or not shots:
             errors.append("ad 剧本缺少 shots 数组或为空")
@@ -987,7 +994,7 @@ class DataValidator:
                 warnings,
                 field_label="products_in_shot",
                 kind_label="产品",
-                normalize=reference_mode,
+                normalize=True,
             )
 
             if not shot.get("image_prompt"):

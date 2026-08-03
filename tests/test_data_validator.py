@@ -643,6 +643,7 @@ class TestDataValidator:
         assert any("不存在于 project.json 的场景" in error for error in result.errors)
         assert any("不存在于 project.json 的道具" in error for error in result.errors)
 
+    @pytest.mark.integration
     def test_validate_episode_malformed_segment_ref_reports_error_not_typeerror(self, tmp_path):
         """segments[*].scenes 混入 dict 等不可哈希元素时（``_validate_segment_refs`` 的比对分支），
         须走校验失败分支而非因集合运算崩溃——episode JSON 来自外部文件，脏数据必须报错而不是
@@ -1158,12 +1159,29 @@ class TestAdEpisodeValidation:
         result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[name_nfc])], project=project)
         assert result.valid, result.errors
 
+    @pytest.mark.integration
     def test_shot_malformed_reference_reports_error_not_typeerror(self, tmp_path):
         """归一比对分支（reference_mode）下 characters_in_shot 混入不可哈希元素同样须报错而非崩溃。"""
         project = _ad_project_payload(generation_mode="reference_video")
         result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[{"malformed": True}])], project=project)
         assert not result.valid
         assert any("characters_in_shot" in e for e in result.errors)
+
+    @pytest.mark.integration
+    def test_shot_product_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
+        """products_in_shot 的归一比对不随 generation_mode 切换，始终与其收集器
+        （collect_product_references_for_names，无条件归一）同口径——即使在 storyboard
+        路径（默认 generation_mode）下，NFC/NFD 不一致的合法产品名也必须放行，否则
+        校验层会比实际生成时的收集层更严格，挡下收集层其实能解析的产品。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+
+        project = _ad_project_payload(products={name_nfd: {"description": "主推产品"}})
+        result = self._validate(tmp_path, [self._ad_shot(products_in_shot=[name_nfc])], project=project)
+        assert result.valid, result.errors
 
     @pytest.mark.integration
     def test_shot_reference_storyboard_path_keeps_raw_comparison(self, tmp_path):
