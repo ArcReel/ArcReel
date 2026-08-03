@@ -280,9 +280,9 @@ class NarrationEpisodeScript(BaseModel):
 
     顶层**不**走 ``extra="forbid"``:``episode`` / ``metadata`` 等字段由运行时注入
     (``_add_metadata`` / ``_write_script_unlocked``)而非 schema 内字段,顶层 forbid
-    会让现有写盘流程崩;``generation_mode`` 不在其列——写盘统一入口会剥离剧本级
-    ``generation_mode`` 戳(路线的真相源是 project.json,见 ``ScriptGenerator``),存量
-    在制品中的残留字段按未知字段忽略。typo 防护靠子模型(VideoPrompt / ImagePrompt /
+    会让现有写盘流程崩;``generation_mode`` 不在其列——路线的真相源是 project.json,剧本
+    不留戳,生成写盘前由 ``ScriptGenerator._add_metadata`` 剥离,存量在制品里的残留字段按
+    未知字段忽略。typo 防护靠子模型(VideoPrompt / ImagePrompt /
     NarrationSegment 等)的 ``extra="forbid"`` 在嵌套字段路径上挡。
     """
 

@@ -236,7 +236,7 @@ class CostEstimationService:
             ) in video_identity.items()
         }
         # 项目层展示的视频模型按项目 generation_mode 定桶：``models`` 回答的是「当前项目配置」；
-        # 逐集算价另按该集实际入队路径的桶取（见循环内 ``episode_video``）。
+        # 逐集算价由入队路径按同一条项目路线取到同一个桶（见循环内 ``episode_video``）。
         project_video = video_pricing[video_bucket_for_generation_mode(project_data.get("generation_mode"))]
 
         grid_enabled = grid_storyboard_enabled(project_data)
