@@ -1094,6 +1094,21 @@ def _use_reference_route(fake_ctx: ToolContext) -> None:
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
 
 
+async def test_generate_video_episode_reference_rejects_malformed_unit_container(fake_ctx: ToolContext) -> None:
+    """``video_units`` 非数组：路线闸门只问键在不在，容器校验落在入队侧，
+    须报出可定位的结构错误而不是下传到 unit 迭代抛 TypeError。"""
+    from server.agent_runtime.sdk_tools.enqueue_videos import generate_video_episode_tool
+
+    _use_reference_route(fake_ctx)
+    fake_ctx.pm.script_payload = _reference_video_script(video_units={"E1U1": {"unit_id": "E1U1"}})  # type: ignore[attr-defined]
+    tool_obj = generate_video_episode_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+    assert out.get("is_error") is True
+    text = out["content"][0]["text"]
+    assert "video_units 必须是数组" in text
+    assert "dict" in text
+
+
 @pytest.mark.integration
 async def test_generate_video_episode_reference_duration_needs_confirmation(fake_ctx: ToolContext, monkeypatch) -> None:
     """申请秒数与剧本总时长不一致时，首次调用不入队，返回内容含总时长/申请秒数/差异说明。"""
