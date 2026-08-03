@@ -53,6 +53,8 @@ from lib.source_loader import (
     SourceLoader,
     UnsupportedFormatError,
 )
+from server.routers._script_review_errors import raise_review_error
+from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 router = APIRouter()
 
@@ -818,7 +820,7 @@ async def update_draft_content(
     """更新草稿内容"""
     try:
 
-        def _sync():
+        def _resolve_target() -> tuple[Path, str, Path]:
             project_dir = get_project_manager().get_project_path(project_name)
             content_mode, generation_mode = _load_project_modes(project_name)
             step_files = _get_step_files(content_mode, generation_mode)
@@ -826,68 +828,91 @@ async def update_draft_content(
             if step_num not in step_files:
                 raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
 
-            drafts_dir = episode_drafts_dir(project_dir, episode)
-            drafts_dir.mkdir(parents=True, exist_ok=True)
-
             # 写入始终落到当前模式的目标文件；fallback 仅用于读取/删除（兼容跨模式切换的旧 step1）。
             # 若写入 fallback 到老文件，切模式后后续 subagent 读 step_files[step_num] 仍为空，
             # 导致"前端保存成功但生成报缺少 step1"。
-            draft_path = drafts_dir / step_files[step_num]
+            return project_dir, content_mode, episode_drafts_dir(project_dir, episode) / step_files[step_num]
 
-            # drama step1 落结构化 .json：写入前与 _load_drama_step1_content 的读取契约同口径校验
-            # ——合法 JSON、顶层对象、scenes 为非空且每项为带非空 scene_id 的对象，避免任意文本 / 空剧本 /
-            # 非对象场景项 / 缺失或空 scene_id 写进结构化草稿、拖到生成阶段才解析失败（前端保存成功但生成必然
-            # 失败）。按目标文件名而非 content_mode 触发：_get_step_files 对未知模式回落到 drama 的
-            # 结构化文件名，仅凭 content_mode 判定会让脏值绕过校验把任意文本写成 drama JSON。narration /
-            # reference 的 step1 落各自文件名，不匹配此校验。
-            if draft_path.name == STEP1_FILENAMES["drama"]:
-                try:
-                    parsed = json.loads(content)
-                except json.JSONDecodeError:
-                    raise HTTPException(status_code=400, detail=_t("draft_invalid_json"))
-                scenes = parsed.get("scenes") if isinstance(parsed, dict) else None
-                if (
-                    not isinstance(parsed, dict)
-                    or not isinstance(scenes, list)
-                    or not scenes
-                    or any(not isinstance(scene, dict) for scene in scenes)
-                    or any(not isinstance(scene.get("scene_id"), str) or not scene.get("scene_id") for scene in scenes)
-                ):
-                    raise HTTPException(status_code=400, detail=_t("draft_invalid_json"))
+        project_dir, content_mode, draft_path = await asyncio.to_thread(_resolve_target)
 
-            # 与 ScriptGenerator / ScriptReviewService 共享同一把 per-path 锁：
-            # 草稿文件的迁移读改写与 Web 端保存相互串行化。
-            pm = get_project_manager()
-            with pm.file_lock(draft_path):
-                is_new = not draft_path.exists()
-                draft_path.write_text(content, encoding="utf-8")
-
-            # 发射 draft 事件通知前端
-            action = "created" if is_new else "updated"
-            label_prefix = _t("segment_splitting") if content_mode == "narration" else _t("normalized_script")
-            change = {
-                "entity_type": "draft",
-                "action": action,
-                "entity_id": f"episode_{episode}_step{step_num}",
-                "label": _t("draft_event_label", episode=episode, label_prefix=label_prefix),
-                "episode": episode,
-                "focus": {
-                    "pane": "episode",
-                    "episode": episode,
-                },
-                "important": is_new,
-            }
+        if draft_path.name == REFERENCE_VIDEO_STEP1_FILENAME:
+            # 参考生视频正式 step1 不走本端点的裸文本直写：它的写盘统一收敛在
+            # ScriptReviewService.save_content 的单一出口（结构校验、references 重派生、
+            # per-path 锁与 step2 隔离草稿清理），裸写会成为一条未经校验、绕开写盘语义的旁路。
+            # 本端点无基线指纹可传，不做并发基线比对（同其余无基线的直连调用）。
             try:
-                emit_project_change_batch(project_name, [change], source="worker")
-            except Exception:
-                logger.warning("发送 draft 事件失败 project=%s episode=%s", project_name, episode, exc_info=True)
+                parsed = json.loads(content)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=400, detail=_t("script_review_invalid_content", details=str(exc)))
+            # 存在性探测同其余同步文件 I/O 卸到线程：本函数由请求协程直接 await，
+            # 裸 exists() 会跑在事件循环上阻塞并发请求。
+            is_new = not await asyncio.to_thread(draft_path.exists)
+            try:
+                await ScriptReviewService(get_project_manager()).save_content(project_name, episode, parsed)
+            except ScriptReviewError as exc:
+                raise_review_error(exc, episode, _t)
+        else:
+            is_new = await asyncio.to_thread(_write_plain_draft, draft_path, content, _t)
 
-            return {"success": True, "path": draft_path.relative_to(project_dir).as_posix()}
+        # 发射 draft 事件通知前端
+        action = "created" if is_new else "updated"
+        label_prefix = _t("segment_splitting") if content_mode == "narration" else _t("normalized_script")
+        change = {
+            "entity_type": "draft",
+            "action": action,
+            "entity_id": f"episode_{episode}_step{step_num}",
+            "label": _t("draft_event_label", episode=episode, label_prefix=label_prefix),
+            "episode": episode,
+            "focus": {
+                "pane": "episode",
+                "episode": episode,
+            },
+            "important": is_new,
+        }
+        try:
+            emit_project_change_batch(project_name, [change], source="worker")
+        except Exception:
+            logger.warning("发送 draft 事件失败 project=%s episode=%s", project_name, episode, exc_info=True)
 
-        return await asyncio.to_thread(_sync)
+        return {"success": True, "path": draft_path.relative_to(project_dir).as_posix()}
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
+
+
+def _write_plain_draft(draft_path: Path, content: str, _t: Translator) -> bool:
+    """非参考生视频 step1 的草稿落盘（同步主体），返回是否为新建文件。
+
+    drama step1 落结构化 .json：写入前与 _load_drama_step1_content 的读取契约同口径校验
+    ——合法 JSON、顶层对象、scenes 为非空且每项为带非空 scene_id 的对象，避免任意文本 / 空剧本 /
+    非对象场景项 / 缺失或空 scene_id 写进结构化草稿、拖到生成阶段才解析失败（前端保存成功但生成必然
+    失败）。按目标文件名而非 content_mode 触发：_get_step_files 对未知模式回落到 drama 的
+    结构化文件名，仅凭 content_mode 判定会让脏值绕过校验把任意文本写成 drama JSON。narration
+    的 step1 落自己的文件名，不匹配此校验。
+    """
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
+    if draft_path.name == STEP1_FILENAMES["drama"]:
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail=_t("draft_invalid_json"))
+        scenes = parsed.get("scenes") if isinstance(parsed, dict) else None
+        if (
+            not isinstance(parsed, dict)
+            or not isinstance(scenes, list)
+            or not scenes
+            or any(not isinstance(scene, dict) for scene in scenes)
+            or any(not isinstance(scene.get("scene_id"), str) or not scene.get("scene_id") for scene in scenes)
+        ):
+            raise HTTPException(status_code=400, detail=_t("draft_invalid_json"))
+
+    # 与 ScriptGenerator / ScriptReviewService 共享同一把 per-path 锁：
+    # 草稿文件的迁移读改写与 Web 端保存相互串行化。
+    pm = get_project_manager()
+    with pm.file_lock(draft_path):
+        is_new = not draft_path.exists()
+        draft_path.write_text(content, encoding="utf-8")
+    return is_new
 
 
 @router.delete("/projects/{project_name}/drafts/{episode}/step{step_num}")

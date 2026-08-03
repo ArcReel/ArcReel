@@ -102,6 +102,10 @@ MESSAGES = {
     "script_review_quarantined": (
         "Tập này có bản nháp Step 1 vi phạm đang chờ xử lý; hãy để tác nhân sửa và thăng cấp trước khi xác nhận"
     ),
+    "script_review_conflict": (
+        "Bản nháp Step 1 đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "
+        "Hãy tải lại để xem nội dung mới nhất, hợp nhất thay đổi của bạn rồi lưu lại"
+    ),
     "script_review_invalid_content": "Xác thực cấu trúc bản nháp Step 1 thất bại: {details}",
     "script_review_quarantine_unreadable": (
         "Tệp bản nháp bị cách ly đã hỏng hoặc sai định dạng, không thể đọc được; hãy để tác nhân chia lại tập này"

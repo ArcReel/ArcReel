@@ -34,7 +34,7 @@ from lib.episode_paths import (
 from lib.i18n import _ as translate
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
-from lib.project_manager import DEFAULT_SOURCE_KIND, ProjectManager, is_reference_video_project
+from lib.project_manager import DEFAULT_SOURCE_KIND, is_reference_video_project
 from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
 from lib.reference_video.draft_validation import (
@@ -925,39 +925,58 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
         return {"content": [{"type": "text", "text": report}], "is_error": True}
 
     units = _build_reference_units_from_flat(flat_units, project, episode=episode, max_refs=split_caps.max_refs)
-    step1_path = _write_reference_step1(project_path, episode, units)
-    # 落盘成功后才清草稿：写盘失败时草稿还在，重试晋升即可，不会两头皆空。
-    clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+    # 写盘经单一出口（lib.script_review.write_step1_locked）：锁、基线比对、step2 隔离草稿清理
+    # 只存在那一处。基线指纹取自取回 / 隔离时记进 meta 的 base_fingerprint——正式文件在草稿
+    # 产出后被其他写入方（Web 端保存、另一次拆分）改过时晋升中止、返回冲突报告让 agent 合并，
+    # 不静默覆盖对方的修改。引入基线前产出的存量草稿缺该键，按无基线晋升。
+    expected = (
+        draft.meta["base_fingerprint"] if "base_fingerprint" in draft.meta else script_review.UNCHECKED_FINGERPRINT
+    )
+    try:
+        with script_review.step1_write_lock(project_path, episode) as step1_path:
+            script_review.write_step1_locked(project_path, episode, {"units": units}, expected_fingerprint=expected)
+            # 落盘成功后才清草稿：写盘失败（含冲突）时草稿还在，改完重试晋升即可，不会两头皆空。
+            # 清理与写盘同一临界区：并发的取回请求不会在两步之间看到「正式文件已是新内容、
+            # 草稿却还在场」的中间态。
+            clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+    except script_review.Step1WriteConflict as conflict:
+        return {
+            "content": [{"type": "text", "text": _render_step1_conflict_report(episode, draft, conflict)}],
+            "is_error": True,
+        }
     warning_lines = _reference_voice_warning_lines([f["text"] for f in flat_units], project, split_caps.raw)
     return {
         "content": [{"type": "text", "text": _reference_result_text(step1_path, units, warning_lines, action="晋升")}]
     }
 
 
-def _write_reference_step1(project_path: Path, episode: int, units: list[dict]) -> Path:
-    """把结构化 step1 原子写入正式文件（拆分与晋升共用的唯一写盘出口）。
+def _render_step1_conflict_report(
+    episode: int, draft: QuarantinedDraft, conflict: script_review.Step1WriteConflict
+) -> str:
+    """渲染晋升遇乐观并发冲突时回给 agent 的结构化报告：最新内容 + 合并指引。
 
-    与 ScriptGenerator._load_reference_step1 / ScriptReviewService 共享同一把 per-path 锁：
-    重新拆分的整份覆盖式重写与迁移、Web 端编辑相互串行化。agent 对已有拆分的修改也汇入这里
-    ——它经 ``open_reference_step1_for_edit`` 取回草稿、改完走晋升，写盘只发生在本函数，
-    沙箱内取不到锁的 Write/Edit 直改由 ``AgentAccessPolicy`` 拒绝。
-
-    step1 真的变了，在场的 step2 隔离草稿才作废：它的保结构 diff 以旧 step1 为基底，留着既
-    永远晋升不了（unit 数与台词都对不上新基底），又会让生成侧一直阻塞在这份没有出路的草稿
-    上。取回编辑后中途放弃、原样晋升（``units`` 与盘上原值逐字相同）时内容并未变化，此时
-    不清——agent 放弃 step1 修改不该连带销毁一份内容仍对得上基底的 step2 修复草稿。
+    报告要让编辑方能就地合并：附上盘上现值的扁平书写层（与草稿 ``content`` 同形，可逐 unit
+    对照），并指明确认合并后把 ``meta.base_fingerprint`` 更新为现值指纹——这一步是显式确认
+    「我已看过并合并了对方的修改」，之后重新晋升才会放行；不更新就重试只会拿到同一份报告。
     """
-    drafts_dir = episode_drafts_dir(project_path, episode)
-    drafts_dir.mkdir(parents=True, exist_ok=True)
-    step1_path = drafts_dir / REFERENCE_VIDEO_STEP1_FILENAME
-    pm = ProjectManager(str(project_path.parent))
-    with pm.file_lock(step1_path):
-        previous = load_json_or_none(step1_path)
-        changed = not (isinstance(previous, dict) and previous.get("units") == units)
-        atomic_write_json(step1_path, {"units": units})
-    if changed:
-        clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
-    return step1_path
+    current_units = (conflict.current_content or {}).get("units")
+    if isinstance(current_units, list) and current_units:
+        latest = json.dumps({"units": _flatten_reference_step1_units(current_units)}, ensure_ascii=False, indent=2)
+        latest_block = f"当前正式 step1 的最新内容（扁平书写层，与草稿 content 同形）：\n{latest}"
+    else:
+        latest_block = "当前正式文件不存在或不是合法的 step1 JSON，无法附上最新内容；请自行读取该文件确认。"
+    # 指纹按 JSON 字面量给：正式文件已被删除时现值是 null，写成 "None" 会让 agent 把这串字符
+    # 当基线填回 meta，之后每次重晋升都比对不上、拿到同一份报告，冲突再也解不掉。
+    actual_literal = json.dumps(conflict.actual)
+    return (
+        "❌ 晋升中止（并发冲突）：正式 step1 在本草稿产出后已被其他写入方（如 Web 端保存）修改，"
+        "直接晋升会覆盖对方的修改，本次未写盘、草稿仍在场。\n"
+        f"草稿基线指纹: {json.dumps(conflict.expected)}；盘上现值指纹: {actual_literal}\n\n"
+        f"{latest_block}\n\n"
+        f"处置：对照上方最新内容与草稿 {draft.path} 的 content.units，把对方的修改合并进草稿；"
+        f"合并完成后把草稿 meta.base_fingerprint 更新为 {actual_literal}，"
+        f'再调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 重新晋升。'
+    )
 
 
 def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
@@ -1051,13 +1070,11 @@ def open_reference_step1_for_edit_tool(ctx: ToolContext):
                 except ValueError as exc:
                     return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
-            step1_path = episode_drafts_dir(project_path, episode) / REFERENCE_VIDEO_STEP1_FILENAME
-            pm = ProjectManager(str(project_path.parent))
             # 草稿有无的检查、正式文件的读取、草稿的写入须在同一把锁的临界区内完成：拆开在锁外
             # 各做一次的话，同一集的两个并发取回请求可能都先看到「无草稿」，再都各自写入草稿，
-            # 后写者悄悄覆盖前者的 content 与 meta.source。锁与 Web 端保存、迁移同一把，读也持锁
-            # 避免取回一份写到一半的 step1。
-            with pm.file_lock(step1_path):
+            # 后写者悄悄覆盖前者的 content 与 meta.source。写临界区与 Web 端保存、迁移同一把锁，
+            # 读也持锁避免取回一份写到一半的 step1。
+            with script_review.step1_write_lock(project_path, episode) as step1_path:
                 # 已有草稿在场时不覆盖：那份草稿要么是违约产物、要么是上一轮取回后 agent 已改了
                 # 一半，拿正式文件盖过去等于抹掉它手上的修改。两种情况的出路相同——继续改那份
                 # 草稿再晋升。
@@ -1107,8 +1124,13 @@ def open_reference_step1_for_edit_tool(ctx: ToolContext):
                     # 晋升时照常全量重判。
                     violations=[],
                     # source 键一律写出（未指定时为 null），与拆分侧同口径：晋升侧据此区分「本就按
-                    # 整个 source/ 判锚」与「meta 被改坏」。
-                    meta={"source": source or None},
+                    # 整个 source/ 判锚」与「meta 被改坏」。base_fingerprint 记下此刻正式文件的
+                    # 指纹（与本临界区读到的 data 同一份内容）：晋升前按它做基线比对，取回与晋升
+                    # 之间正式文件被 Web 端保存等并发写入改过时中止晋升、报冲突让 agent 合并。
+                    meta={
+                        "source": source or None,
+                        "base_fingerprint": script_review.content_fingerprint_of_data(data),
+                    },
                 )
             return {
                 "content": [
@@ -1241,25 +1263,35 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 # 违约不丢弃、也不写正式文件：产物连同报告落隔离草稿，由 agent 修复后经
                 # 晋升工具重判。源文路径进 meta——重判时按整个 source/ 重解析会让原文锚的
                 # 子串判定比产出时更松，一份改写过的锚可能在别集原文里恰好命中。
-                report = quarantine_and_report(
-                    project_path,
-                    episode,
-                    QUARANTINE_KIND_STEP1,
-                    content={"units": flat_units},
-                    violations=violations,
-                    # source 键一律写出（未指定源文时为 null）：晋升侧据此区分「原本就按整个
-                    # source/ 产出」与「meta 被改坏」，缺键时不能默默退回更松的全目录解析。
-                    meta={"source": source or None},
-                )
+                # 基线读取与草稿写入在同一写临界区内完成：锁外各做一次的话，记下的基线可能
+                # 描述的是另一份并发写入前的内容。
+                with script_review.step1_write_lock(project_path, episode) as step1_path:
+                    report = quarantine_and_report(
+                        project_path,
+                        episode,
+                        QUARANTINE_KIND_STEP1,
+                        content={"units": flat_units},
+                        violations=violations,
+                        # source 键一律写出（未指定源文时为 null）：晋升侧据此区分「原本就按整个
+                        # source/ 产出」与「meta 被改坏」，缺键时不能默默退回更松的全目录解析。
+                        # base_fingerprint 记下此刻正式文件的指纹（不存在时为 null）：这份草稿
+                        # 修好晋升时若正式文件已被别的写入方改过，按基线比对中止并报冲突。
+                        meta={
+                            "source": source or None,
+                            "base_fingerprint": script_review.content_fingerprint(step1_path),
+                        },
+                    )
                 return {"content": [{"type": "text", "text": report}], "is_error": True}
 
             raw_units = _build_reference_units_from_flat(
                 flat_units, project, episode=episode, max_refs=split_caps.max_refs
             )
-            step1_path = _write_reference_step1(project_path, episode, raw_units)
-            # 重拆分成功即清掉上一轮的隔离草稿：正式文件已是这一份产物，旧草稿留着只会让
-            # gate 与生成侧继续阻塞在一份已被取代的违约产物上。
-            clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+            # 重拆分是刻意的整份重建，无基线可比对；写盘经单一出口。上一轮隔离草稿的清除与
+            # 写盘同一临界区：正式文件已是这一份产物，旧草稿留着只会让 gate 与生成侧继续阻塞
+            # 在一份已被取代的违约产物上。
+            with script_review.step1_write_lock(project_path, episode) as step1_path:
+                script_review.write_step1_locked(project_path, episode, {"units": raw_units})
+                clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
             warning_lines = _reference_voice_warning_lines([f["text"] for f in flat_units], project, split_caps.raw)
             return {
                 "content": [

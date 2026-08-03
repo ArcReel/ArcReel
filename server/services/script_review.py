@@ -145,6 +145,7 @@ class ScriptReviewService:
         project: dict[str, Any],
         episode: int,
         path: Path,
+        project_path: Path,
         supported_durations: list[int] | None,
     ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
         """读结构化 step1，并对参考生视频草稿做一次性时长收编迁移；返回 ``(内容, 最新 project)``。
@@ -168,7 +169,7 @@ class ScriptReviewService:
             return content, project
 
         updated, _warnings = script_review.migrate_step1_draft_in_place(
-            path,
+            project_path,
             content,
             episode=episode,
             update_project=lambda mutate: self.pm.update_project(project_name, mutate),
@@ -218,7 +219,9 @@ class ScriptReviewService:
             # 迁移可能回写 step1 与确认记录；指纹与状态在同一把锁内、迁移之后取，三者才据
             # 同一份落盘内容派生——锁外取则并发 save_content 会让指纹描述另一份内容。
             with self.pm.file_lock(path):
-                content, project = self._read_step1_migrated(project_name, project, episode, path, supported_durations)
+                content, project = self._read_step1_migrated(
+                    project_name, project, episode, path, project_path, supported_durations
+                )
                 fingerprint = script_review.content_fingerprint(path)
                 status = script_review.review_status(project_path, project, episode)
         else:
@@ -337,19 +340,27 @@ class ScriptReviewService:
         with_refs, without_refs = reference_unit_duration_tiers(project, caps, raw)
         return {"with_references": sorted(set(with_refs)), "without_references": sorted(set(without_refs))}
 
-    async def save_content(self, project_name: str, episode: int, content: object) -> dict[str, Any]:
+    async def save_content(
+        self, project_name: str, episode: int, content: object, base_fingerprint: str | None = None
+    ) -> dict[str, Any]:
         """校验并落盘编辑后的结构化中间态（手动或 agent 编辑后回写），返回最新状态（重新待审）。
 
         内容变更使指纹漂移，``get_state`` 据此自动回到 pending_review——保存即重新需要确认。
 
+        ``base_fingerprint`` 是编辑方读取内容（``get_state``）时拿到的指纹：给定时在锁内与盘上
+        现值比对，不一致（编辑期间另一写入方已改过 step1）抛 ``conflict``、不落盘——后写方拿
+        409 冲突提示去刷新合并，先写方的内容不被静默覆盖。``None`` 不比对（无基线的直连调用）。
+
         落盘本身全同步（不做时长收编，无需档位表），整段卸到线程；随后的 ``get_state`` 自行
         解析档位表，保存的响应与 GET 首次加载因此同源。
         """
-        await asyncio.to_thread(self._save_content_sync, project_name, episode, content)
+        await asyncio.to_thread(self._save_content_sync, project_name, episode, content, base_fingerprint)
         return await self.get_state(project_name, episode)
 
-    def _save_content_sync(self, project_name: str, episode: int, content: object) -> None:
-        """``save_content`` 的同步主体：结构校验、references 重派生、落盘。"""
+    def _save_content_sync(
+        self, project_name: str, episode: int, content: object, base_fingerprint: str | None
+    ) -> None:
+        """``save_content`` 的同步主体：结构校验、references 重派生、基线比对、落盘。"""
         project = self.pm.load_project(project_name)
         project_path = self.pm.get_project_path(project_name)
         path = script_review.step1_path(project_path, project, episode)
@@ -361,14 +372,26 @@ class ScriptReviewService:
             validated = model.model_validate(content).model_dump()
         except ValidationError as exc:
             raise ScriptReviewError("invalid_content", str(exc)) from exc
-        if kind == "reference_video":
-            # references 是从 shot 文本机械派生的字段：编辑正文后随之重派生，避免正文与 references
-            # 漂移（step2 会用陈旧 [图N] 映射生成）。机械变换、不校验能力上限（同 drama / narration 只结构校验）。
-            rederive_unit_references(validated["units"], project)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # 与 _read_step1_migrated 共享同一把 per-path 锁：保存与迁移的读改写相互互斥。
-        with self.pm.file_lock(path):
-            atomic_write_json(path, validated)
+        # 入参的 None 表示「调用方无基线、不比对」；比对语义里的 None 另有含义（取基线时文件不存在），
+        # 两者在此一次性转换，三个变体共用同一个 expected。
+        expected = base_fingerprint if base_fingerprint is not None else script_review.UNCHECKED_FINGERPRINT
+        try:
+            if kind == "reference_video":
+                # references 是从 shot 文本机械派生的字段：编辑正文后随之重派生，避免正文与 references
+                # 漂移（step2 会用陈旧 [图N] 映射生成）。机械变换、不校验能力上限（同 drama / narration 只结构校验）。
+                rederive_unit_references(validated["units"], project)
+                # 写盘经单一出口：锁、基线比对、step2 隔离草稿清理都在 write_step1_locked 一处。
+                with script_review.step1_write_lock(project_path, episode):
+                    script_review.write_step1_locked(project_path, episode, validated, expected_fingerprint=expected)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                # 与 _read_step1_migrated 共享同一把 per-path 锁：保存与迁移的读改写相互互斥。
+                # 基线比对同 rv 走 assert_base_fingerprint，两者的冲突判据不分叉。
+                with self.pm.file_lock(path):
+                    script_review.assert_base_fingerprint(path, expected)
+                    atomic_write_json(path, validated)
+        except script_review.Step1WriteConflict as exc:
+            raise ScriptReviewError("conflict", str(exc)) from exc
 
     async def confirm(self, project_name: str, episode: int) -> dict[str, Any]:
         """把该集审核状态翻到 confirmed（记录当前 step1 内容指纹），放行 step2。
@@ -407,7 +430,9 @@ class ScriptReviewService:
         # per-path 锁覆盖读改写全程（含下方 reference_video 分支自己的落盘），避免中途被
         # save_content 或迁移的写入插队——_read_step1_migrated 要求调用方已持锁。
         with self.pm.file_lock(path):
-            content, project = self._read_step1_migrated(project_name, project, episode, path, supported_durations)
+            content, project = self._read_step1_migrated(
+                project_name, project, episode, path, project_path, supported_durations
+            )
             if content is None and not path.exists():
                 raise ScriptReviewError("no_step1")
             # 确认前按 step1 变体模型校验 step1 结构：content 为 None（非法 JSON / 非对象）同样会
@@ -424,7 +449,10 @@ class ScriptReviewService:
                 # 这份对象直接算，确认记录与实际写入内容一致。
                 dumped = validated.model_dump()
                 rederive_unit_references(dumped["units"], project)
-                atomic_write_json(path, dumped)
+                # 单一写盘出口（已持同一把 per-path 锁，不再套 step1_write_lock）；同临界区
+                # 读改写无并发窗口，不做基线比对。重派生真的改了内容时，step2 隔离草稿的基底
+                # 随之失效，由出口按变更清理。
+                script_review.write_step1_locked(project_path, episode, dumped)
                 fingerprint = script_review.content_fingerprint_of_data(dumped)
             else:
                 # 指纹从校验通过的 content 派生，不二次读盘：确认记录须对应这里校验过的内容。

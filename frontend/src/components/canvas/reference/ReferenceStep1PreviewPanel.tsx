@@ -389,6 +389,10 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
 
   const [state, setState] = useState<ScriptReviewState | null>(null);
   const [draft, setDraft] = useState<ReferenceStep1Draft | null>(null);
+  // 保存时提交的基线指纹：绑定在**当前草稿所基于的那份服务端内容**上，只在草稿采用服务端内容时推进。
+  // 不能改用 state.fingerprint——有未保存编辑时的外部刷新会更新 state 却保留旧草稿，届时提交
+  // state.fingerprint 等于拿别人新写的内容当基线，OCC 会放行并静默覆盖对方的修改。
+  const [baseFingerprint, setBaseFingerprint] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<{ message: string } | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -410,6 +414,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     setState(next);
     const content = next.content != null && "units" in next.content ? (next.content) : null;
     setDraft(content ? (JSON.parse(JSON.stringify(content)) as ReferenceStep1Draft) : null);
+    setBaseFingerprint(next.fingerprint);
   }, []);
 
   const handleRetry = useCallback(() => {
@@ -434,6 +439,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         if (!dirtyRef.current) {
           const content = next.content != null && "units" in next.content ? (next.content) : null;
           setDraft(content ? (JSON.parse(JSON.stringify(content)) as ReferenceStep1Draft) : null);
+          setBaseFingerprint(next.fingerprint);
         }
       })
       .catch((err) => {
@@ -476,20 +482,20 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     if (!draft) return;
     setSaving(true);
     try {
-      adopt(await API.saveScriptReviewContent(projectName, episode, draft));
+      adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
       pushToast(t("dashboard:review_saved"), "success");
     } catch (err) {
       pushToast(errorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
     } finally {
       setSaving(false);
     }
-  }, [draft, projectName, episode, adopt, pushToast, t]);
+  }, [draft, baseFingerprint, projectName, episode, adopt, pushToast, t]);
 
   const handleConfirm = useCallback(async () => {
     setConfirming(true);
     try {
       if (dirty && draft) {
-        adopt(await API.saveScriptReviewContent(projectName, episode, draft));
+        adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
       }
       adopt(await API.confirmScriptReview(projectName, episode));
       // 两次 await 期间用户可能已切走项目（本组件所在的 tab 可能因此被卸载）：只在项目本身
@@ -506,7 +512,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     } finally {
       setConfirming(false);
     }
-  }, [dirty, draft, projectName, episode, adopt, pushToast, t]);
+  }, [dirty, draft, baseFingerprint, projectName, episode, adopt, pushToast, t]);
 
   const handleRequestFix = useCallback(() => {
     const violations = state?.quarantine?.violations ?? [];

@@ -524,3 +524,28 @@ class TestReferenceVideoRouter:
             # meta 缺失时降级出的 quarantine_unreadable 兜底条目。
             codes = [v["code"] for v in put_body["quarantine"]["violations"]]
             assert codes and "quarantine_unreadable" not in codes
+
+    def test_put_with_stale_base_fingerprint_conflicts_409(self, tmp_path, monkeypatch):
+        """PUT 携带的 ``base_fingerprint`` 与盘上现值不一致（编辑期间另一方已保存）→ 409、
+        不落盘；拿最新指纹重试放行。缺省不带指纹的调用维持原语义（不比对）。"""
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        _write_rv_step1(pm, _rv_step1())
+
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            stale = client.get(base).json()["fingerprint"]
+
+            other = _rv_step1()
+            other["units"][0]["shots"][0]["text"] = "@[阿离] 转身离开。"
+            assert client.put(f"{base}/content", json=other).status_code == 200
+
+            mine = _rv_step1()
+            resp = client.put(f"{base}/content", params={"base_fingerprint": stale}, json=mine)
+            assert resp.status_code == 409
+            # 冲突未覆盖：盘上仍是另一方保存的内容
+            assert client.get(base).json()["content"]["units"][0]["shots"][0]["text"] == "@[阿离] 转身离开。"
+
+            fresh = client.get(base).json()["fingerprint"]
+            resp = client.put(f"{base}/content", params={"base_fingerprint": fresh}, json=mine)
+            assert resp.status_code == 200
+            assert resp.json()["content"]["units"][0]["shots"][0]["text"] == "@[阿离] 立于屋檐下。"

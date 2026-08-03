@@ -878,14 +878,21 @@ class API {
     );
   }
 
-  /** 保存手动 / agent 编辑后的结构化中间态，返回最新状态（重新待审）。 */
+  /** 保存手动 / agent 编辑后的结构化中间态，返回最新状态（重新待审）。
+   *
+   * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 step1 被另一写入方（如 agent 晋升）
+   * 改过时服务端 409 冲突、不落盘，避免静默覆盖对方的修改；不传则不比对。 */
   static async saveScriptReviewContent(
     projectName: string,
     episode: number,
-    content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft
+    content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft,
+    baseFingerprint?: string | null
   ): Promise<ScriptReviewState> {
+    const query = baseFingerprint
+      ? `?base_fingerprint=${encodeURIComponent(baseFingerprint)}`
+      : "";
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/content`,
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/content${query}`,
       {
         method: "PUT",
         body: JSON.stringify(content),

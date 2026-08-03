@@ -644,3 +644,42 @@ def test_logs_dir_outside_repo_is_sensitive(tmp_path: Path) -> None:
     assert policy.is_sensitive_path(external_logs.resolve())
     # repo/logs 在此场景下不应被默认 deny（避免误覆盖）
     assert not policy.is_sensitive_path((repo / "logs" / "anything.txt").resolve())
+
+
+# ============================================================
+# 受保护写路径规则表：hook 与 sandbox denyWrite 同表投影
+# ============================================================
+
+
+def test_protected_write_rules_project_new_rule_in_both_layers(
+    policy: AgentAccessPolicy, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """新增一类受保护路径只需在 PROTECTED_WRITE_RULES 加一行：hook 拒绝与 sandbox denyWrite
+    都从同一张表投影、随之同步生效——分散声明时漏掉任一处都会留出单层旁路。"""
+    from server.agent_runtime.agent_access_policy import ProtectedWriteRule
+
+    def _matches_meta_lock(target: Path, bases: list[Path]) -> bool:
+        return any(str(target) == str(base / "meta.lock") for base in bases)
+
+    synthetic = ProtectedWriteRule(
+        name="meta_lock",
+        matches=_matches_meta_lock,
+        deny_message="访问被拒绝：meta.lock 不可直改（合成规则）",
+        sandbox_subpaths=("meta.lock",),
+    )
+    monkeypatch.setattr(
+        AgentAccessPolicy, "PROTECTED_WRITE_RULES", (*AgentAccessPolicy.PROTECTED_WRITE_RULES, synthetic)
+    )
+
+    cwd = _cwd(policy)
+    # hook 层：新规则立即生效
+    allowed, reason = policy.check_path_access(str(cwd / "meta.lock"), "Write", cwd)
+    assert not allowed
+    assert reason == synthetic.deny_message
+    # sandbox 层：denyWrite 投影同表同步
+    deny_write = policy.build_sandbox_settings(cwd)["filesystem"]["denyWrite"]
+    assert str(cwd / "meta.lock") in deny_write
+    # 既有规则不受影响
+    assert str(cwd / "project.json") in deny_write
+    assert str(cwd / "scripts") in deny_write
+    assert str(cwd / "drafts") in deny_write
