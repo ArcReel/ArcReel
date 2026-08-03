@@ -127,9 +127,13 @@ TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mkdir -p .afk
 LEDGER_FILE=".afk/${BATCH_ID}.jsonl"
 
-# the first line of a batch must carry scope, else recovery cannot rebuild the member set
-if [[ ! -s "$LEDGER_FILE" && "$SCOPE_JSON" == "null" ]]; then
-  die "first ledger line needs --scope-spec or --scope-issues (recovery rebuilds members from it)"
+# the first line of a batch must carry scope, else recovery cannot rebuild the member set;
+# a batch starts on an empty file or right after a closed line (the file holds one segment
+# per lifecycle and reopening the same batch-id appends a new segment)
+if [[ "$SCOPE_JSON" == "null" ]]; then
+  if [[ ! -s "$LEDGER_FILE" ]] || tail -n1 "$LEDGER_FILE" | jq -e '.kind == "closed"' >/dev/null 2>&1; then
+    die "a batch's first ledger line needs --scope-spec or --scope-issues (recovery rebuilds members from it)"
+  fi
 fi
 
 jq -nc \
