@@ -319,7 +319,7 @@ export function ReferenceVideoCanvas({
   /**
    * 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
    *
-   * 每次 POST 前都用本次入口的判定复核一遍：循环里每个请求之间都是一段等待窗口，靠后的
+   * 每次 POST 前都用入口的判定复核一遍：循环里每个请求之间都是一段等待窗口，靠后的
    * 单元可能在此期间由别处生成完成，只在循环开始前过滤一次拦不住它。
    */
   const makeEnqueueSerially = useCallback(
@@ -380,9 +380,9 @@ export function ReferenceVideoCanvas({
     [loadUnits, projectName, episode],
   );
 
-  // 批量生成的作用对象：全部待生成 unit。按钮禁用与它同一口径——此前只看当前选中
-  // unit 是否在跑，与作用对象无关，选中项空闲时按钮会在没有任何待生成 unit 的情况下
-  // 仍可点击，选中项在跑时又会挡住其余 unit 的批量生成。
+  // 批量生成的作用对象：全部待生成 unit。按钮禁用须与它同一口径——只看当前选中
+  // unit 是否在跑、与作用对象无关的判定会脱节：选中项空闲时按钮会在没有任何待生成
+  // unit 的情况下仍可点击，选中项在跑时又会挡住其余 unit 的批量生成。
   const batchTargets = useMemo(
     () => units.filter((u) => statusMap[u.unit_id] === "pending"),
     [units, statusMap],
@@ -520,8 +520,8 @@ export function ReferenceVideoCanvas({
       const hasDraft =
         draftText !== undefined && unit !== undefined && draftText !== unitPromptText(unit);
       // draftText 未落盘时，chip 操作请求的 nextRefs 仍基于旧 prompt 状态；按新 draftText
-      // 重新派生，同时把 nextRefs 作为 mergeReferences 的 existing 基准——保留本次 chip
-      // 操作请求的顺序（拖拽结果），只补丢弃/新增仅由文本变化引起的部分。
+      // 重新派生，同时把 nextRefs 作为 mergeReferences 的 existing 基准——保留 chip 操作
+      // 请求的顺序（拖拽结果），只补丢弃/新增仅由文本变化引起的部分。
       const body: { prompt?: string; references: ReferenceResource[] } = hasDraft
         ? { prompt: draftText, references: mergeReferences(draftText, nextRefs, project ?? null) }
         : { references: nextRefs };

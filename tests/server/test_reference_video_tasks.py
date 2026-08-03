@@ -1277,10 +1277,10 @@ async def test_execute_reference_video_task_missing_reference_fails(tmp_path: Pa
 
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """回归守门：executor 必须走真实 MediaGenerator._get_output_path。
+    """executor 必须走真实 MediaGenerator._get_output_path。
 
-    只 mock 最外层的 VideoBackend.generate — 若未来哪次又漏注册新 resource_type
-    到 lib.resource_paths，这条测试会立刻爆 ValueError。
+    只 mock 最外层的 VideoBackend.generate ——resource_type 未注册到
+    lib.resource_paths 时，这条测试会立刻爆 ValueError。
     """
     from lib.media_generator import MediaGenerator
     from lib.version_manager import VersionManager
@@ -1394,8 +1394,8 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """R2V 退场回归：executor 把**源 sheet 路径**直接交给 generate_video_async（单次调用），
-    压缩下沉咽喉层——不再预压缩到临时文件、不再有 R2V 层的二次压缩重试。
+    """executor 把**源 sheet 路径**直接交给 generate_video_async（单次调用），压缩下沉
+    咽喉层——不预压缩到临时文件，不在 R2V 层做二次压缩重试。
     """
     proj_dir = _write_project(tmp_path)
 
@@ -1454,8 +1454,7 @@ async def test_execute_reference_video_task_clamps_via_lane_caps(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """回归守门：executor 的 duration/refs clamp 必须走 video lane 的 model 粒度 caps，
-    不再走老的 PROVIDER_MAX_DURATION provider 级常量。
+    """executor 的 duration/refs clamp 走 video lane 的 model 粒度 caps。
 
     lane 喂入自定义 caps (max_duration=6, max_reference_images=1)，传入
     duration_seconds=15 / 2 张 refs，期望 generate_video_async 实际收到
@@ -1524,10 +1523,9 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """回归守门：prompt 里的 [图N] 索引必须与 backend 收到的 reference_images 对齐。
-
-    原实现用整条 `unit.references` 渲染 prompt，裁剪后 [图N] 会越界（例如 5 张裁到 1 张，
-    prompt 里仍出现 [图5]）。修复后应当按 `constrained_refs` 长度重新 slice references。
+    """prompt 里的 [图N] 索引必须与 backend 收到的 reference_images 对齐：references 裁剪后
+    须按 `constrained_refs` 长度重新 slice，用整条 `unit.references` 渲染会让 [图N] 越界
+    （例如 5 张裁到 1 张，prompt 里仍出现 [图5]）。
     """
     proj_dir = _write_project(tmp_path)
 

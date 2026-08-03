@@ -1,8 +1,9 @@
 """归档导入针对 reference_video 模式（video_units）的修复测试。
 
-覆盖 issue：_repair_script_payload 此前只按 content_mode 走 segments/scenes，
-未处理 generation_mode=reference_video 项目剧本里的 video_units，导致导出-导入往返时
-video_units[*].generated_assets 的路径规范化与版本回溯不触发。
+覆盖 _repair_script_payload 对 generation_mode=reference_video 项目剧本里
+video_units 的处理：确保导出-导入往返时 video_units[*].generated_assets
+的路径规范化与版本回溯正常触发（该函数按 content_mode 走 segments/scenes
+的分支不覆盖 video_units，须单独校验）。
 """
 
 import json
