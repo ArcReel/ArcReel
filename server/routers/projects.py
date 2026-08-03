@@ -579,7 +579,6 @@ async def get_video_capabilities(
     name: str,
     _t: Translator,
     video_backend: Annotated[str | None, Query()] = None,
-    episode: Annotated[int | None, Query()] = None,
 ):
     """解析当前项目视频模型能力 + 用户项目偏好。
 
@@ -588,12 +587,11 @@ async def get_video_capabilities(
     两条生成路线（storyboard/reference_video）都可复用。
 
     `video_backend`（"provider/model"）用于设置表单里尚未保存的候选模型：不带该参数时按已
-    落盘配置解析，带上则按候选模型 × 本项目的生效 generation_mode 解析，使 voice_consistency 等
-    二维派生值对应用户当前选中的模型而非上一次保存的模型。裸 provider（无 "/"）按其 registry
+    落盘配置解析，带上则按候选模型 × 本项目的生成路线解析，使 voice_consistency 等二维派生值
+    对应用户当前选中的模型而非上一次保存的模型。裸 provider（无 "/"）按其 registry
     默认视频 model 补全，与 project.json 存量裸 provider 覆盖同口径（见 `_parse_project_provider`）。
 
-    `episode` 用于按集查看的界面：生成模式可被单集覆盖，带上集号时能力按该集生效模式解析，
-    与执行层同口径；不带则只解析到项目级（设置页等无集号上下文的调用）。
+    能力按项目生成路线定轴、全项目同一口径，故无需集号：路线创建即定、之后不可更改。
     """
     resolver = ConfigResolver(async_session_factory)
     try:
@@ -604,8 +602,8 @@ async def get_video_capabilities(
             if not provider_id or not model_id:
                 raise BadRequestError("video_backend_malformed", value=video_backend)
             project = get_project_manager().load_project(name)
-            return await resolver.video_capabilities_for_model(provider_id, model_id, project, episode)
-        return await resolver.video_capabilities(name, episode)
+            return await resolver.video_capabilities_for_model(provider_id, model_id, project)
+        return await resolver.video_capabilities(name)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except VideoBucketCapabilityError as exc:

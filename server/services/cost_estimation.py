@@ -21,7 +21,7 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
 from lib.grid.layout import calculate_grid_layout
 from lib.pricing.strategies import PricingParams
-from lib.project_manager import effective_mode, grid_storyboard_enabled
+from lib.project_manager import grid_storyboard_enabled, is_reference_video_project
 from lib.reference_video import assemble_shots_text
 from lib.reference_video.ad_units import derive_ad_reference_units, resolve_ad_unit_shots
 from lib.script_editor import ScriptEditError
@@ -235,8 +235,8 @@ class CostEstimationService:
                 bucket_audio,
             ) in video_identity.items()
         }
-        # 项目层展示的视频模型按项目自身 generation_mode 定桶：``models`` 回答的是「当前项目配置」，
-        # 不随某一集的覆盖而变；逐集算价另按该集的生效桶取（见循环内 ``episode_video``）。
+        # 项目层展示的视频模型按项目 generation_mode 定桶：``models`` 回答的是「当前项目配置」；
+        # 逐集算价另按该集实际入队路径的桶取（见循环内 ``episode_video``）。
         project_video = video_pricing[video_bucket_for_generation_mode(project_data.get("generation_mode"))]
 
         grid_enabled = grid_storyboard_enabled(project_data)
@@ -321,13 +321,11 @@ class CostEstimationService:
             # narration/drama 的 unit 自带 ``unit_id`` 且成员 shot 无独立 ID，unit 本身即展示
             # 颗粒度（``_estimate_unit_reference_video_episode``）。
             #
-            # ad 骨架唯一、shots 不打 generation_mode 戳，生成路径以项目级/集级戳为真相源，故
-            # 只按 ``effective_mode`` 判定；narration/drama 的生成侧只认剧本自身的 generation_mode
-            # 戳（``lib.script_models.is_reference_script``），从不
-            # 读 ``effective_mode``，估算须跟同一口径——项目/集事后经 PATCH 把 effective_mode 改回
-            # storyboard、但该集剧本仍保留切换前的 reference_video 戳时，实际入队仍按剧本戳走 unit
-            # 路径，估算若再叠加 ``effective_mode`` 门槛会误判回落分镜，与实际生成对不上。
-            is_reference_video = effective_mode(project=project_data, episode=ep_meta) == "reference_video"
+            # ad 骨架唯一、shots 不打 generation_mode 戳，生成路径以项目路线为真相源；
+            # narration/drama 的生成侧只认剧本自身的 generation_mode 戳
+            # （``lib.script_models.is_reference_script``），估算须跟同一口径——存量剧本仍可能
+            # 携带与项目路线不符的戳，实际入队按戳走 unit 路径，估算叠加路线门槛会误判回落分镜。
+            is_reference_video = is_reference_video_project(project_data)
             raw_units = script.get("video_units")
             video_units: list[Any] = raw_units if isinstance(raw_units, list) else []
             if content_mode == "ad":

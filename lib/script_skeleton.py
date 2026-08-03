@@ -9,8 +9,7 @@
   形态存在），表如实声明缺位；消费方拿到 ``None`` 必须显式决策（自行派生或声明不适用），
   不提供假字段名使 ``get()`` 返回空值。
 - 规范解析 ``resolve_declared_kind(content_mode, generation_mode)``：服务只有项目配置在手
-  的消费方，输入为项目级已过校验的 content_mode 与 ``effective_mode`` 解析后的
-  generation_mode。**fail-loud**——未知/缺失 content_mode 抛 ``ValueError``，不静默兜底。
+  的消费方，输入为项目级已过校验的 content_mode 与项目声明的 generation_mode。**fail-loud**——未知/缺失 content_mode 抛 ``ValueError``，不静默兜底。
 - 取证解析 ``resolve_script_kind(script)``：服务手持剧本数据的消费方，保留数据形状优先的
   容忍阶梯（partial migration 中间态下编辑能力不可丢失）。
 
@@ -102,7 +101,7 @@ _validate_registry()
 def resolve_declared_kind(content_mode: str | None, generation_mode: str | None) -> str:
     """规范解析：由项目声明的 ``(content_mode, generation_mode)`` 定骨架种类。
 
-    输入为项目级已过校验的 content_mode 与 ``effective_mode`` 解析后的 generation_mode。
+    输入为项目级已过校验的 content_mode 与项目声明的 generation_mode（``project.json`` 字段）。
 
     - ``ad`` → ``shots``（恒定，不随生成路径变，见 ``docs/adr/0033``）
     - ``narration`` / ``drama`` + ``generation_mode == "reference_video"`` → ``video_units``

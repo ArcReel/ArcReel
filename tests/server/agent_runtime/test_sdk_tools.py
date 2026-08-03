@@ -1885,22 +1885,21 @@ async def test_get_video_capabilities_happy(fake_ctx: ToolContext, monkeypatch) 
 
 
 @pytest.mark.unit
-async def test_get_video_capabilities_passes_episode_through(fake_ctx: ToolContext, monkeypatch) -> None:
-    """带 episode 时集号传到解析入口：生成模式可被单集覆盖，智能体须拿该集口径的能力。"""
+async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext, monkeypatch) -> None:
+    """能力按项目路线解析：工具不收集号，存量 prompt 误传集号也不改变口径。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    seen: list[int | None] = []
+    seen: list[str] = []
 
-    async def fake_resolve(_project, episode=None):
-        seen.append(episode)
+    async def fake_resolve(project_name):
+        seen.append(project_name)
         return {"provider_id": "fake", "supported_durations": [4, 6, 8]}
 
     monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
     tool_obj = get_video_capabilities_tool(fake_ctx)
-    assert (await _call(tool_obj, {"episode": 3})).get("is_error") is not True
-    # 省略集号仍按项目级解析
     assert (await _call(tool_obj, {})).get("is_error") is not True
-    assert seen == [3, None]
+    assert (await _call(tool_obj, {"episode": 3})).get("is_error") is not True
+    assert seen == [fake_ctx.project_name, fake_ctx.project_name]
 
 
 @pytest.mark.unit
@@ -1908,7 +1907,7 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: T
     """参考路径项目另返回两套逐 unit 生效档位，供手工改 step1 时与生成侧对同一份数字。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def fake_resolve(_project, _episode=None):
+    async def fake_resolve(_project):
         return {
             "provider_id": "gemini-aistudio",
             "model": "veo-3.1-generate-preview",
@@ -1939,7 +1938,7 @@ async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
     """非剧集参考路径不补该字段：其它路径没有逐 unit 引用状态，ad 镜头时长也不受档位枚举管辖。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    async def fake_resolve(_project, _episode=None):
+    async def fake_resolve(_project):
         return {
             "provider_id": "gemini-aistudio",
             "model": "veo-3.1-generate-preview",

@@ -22,7 +22,7 @@ from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
-from lib.project_manager import EpisodeScriptReboundError, effective_mode, get_project_manager
+from lib.project_manager import EpisodeScriptReboundError, get_project_manager, is_reference_video_project
 from lib.reference_video import assemble_shots_text, parse_prompt
 from lib.reference_video.ad_units import (
     render_ad_unit_prompt,
@@ -98,7 +98,7 @@ def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tup
         script = get_project_manager().load_script(project_name, script_file)
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=script_file) from exc
-    if effective_mode(project=project, episode=meta) != "reference_video":
+    if not is_reference_video_project(project):
         raise HTTPException(status_code=409, detail=_t("ref_not_reference_video_mode"))
     return project, script, script_file
 
@@ -128,7 +128,7 @@ def _episode_script_resolver(
         meta = next((e for e in episodes if e.get("episode") == episode), None)
         if meta is None or not meta.get("script_file"):
             raise HTTPException(status_code=404, detail=_t("ref_episode_not_found", episode=episode))
-        if effective_mode(project=project, episode=meta) != "reference_video":
+        if not is_reference_video_project(project):
             raise HTTPException(status_code=409, detail=_t("ref_not_reference_video_mode"))
         if refs is not None:
             _validate_references_exist(project, refs, _t)
@@ -252,7 +252,7 @@ async def derive_units(
     project, _script, _sf = _load_episode_script(project_name, episode, _t)
     _require_ad_project(project, True, _t)
     # 供应商时长上限在锁外解析（异步 I/O 不进项目锁临界区）
-    max_unit_duration = await resolve_max_unit_duration(project, episode)
+    max_unit_duration = await resolve_max_unit_duration(project)
 
     with _locked_episode_script(project_name, _episode_script_resolver(episode, _t, require_ad=True), _t) as script:
         units = sync_ad_reference_units(script, episode=episode, max_unit_duration=max_unit_duration)
@@ -273,7 +273,7 @@ async def add_unit(
     if duration_seconds is None:
         project, _script, _sf = _load_episode_script(project_name, episode, _t)
         duration_seconds = default_unit_duration(
-            await resolve_project_duration_context(project, episode), project, with_references=bool(refs)
+            await resolve_project_duration_context(project), project, with_references=bool(refs)
         )
 
     with _locked_episode_script(
@@ -430,7 +430,7 @@ async def precheck_unit_duration(
         unit = _find_unit(script, unit_id, _t)
         ad_shots = None
 
-    slot = precheck_unit(await resolve_project_duration_context(project, episode), unit, ad_shots)
+    slot = precheck_unit(await resolve_project_duration_context(project), unit, ad_shots)
     return {
         "needs_confirmation": slot.needs_confirmation,
         "script_duration": slot.total_seconds,
@@ -453,7 +453,7 @@ async def preview_script(
     开关，与执行层同一份解析出口；能力解析失败时按 ``soft`` 降级，只是少发这几条提示。
     """
     project, _script, _sf = _load_episode_script(project_name, episode, _t)
-    caps = await project_video_caps(project, degraded_to="解析预览不发声音相关提示", episode=episode)
+    caps = await project_video_caps(project, degraded_to="解析预览不发声音相关提示")
     preview = build_script_preview(
         req.prompt,
         project,

@@ -284,7 +284,6 @@ async def resolve_generation_context(
     *,
     project: dict,
     user_id: str = DEFAULT_USER_ID,
-    episode: int | None = None,
     image: ImageLaneRequest | None = None,
     video: VideoLaneRequest | None = None,
     audio: AudioLaneRequest | None = None,
@@ -295,9 +294,8 @@ async def resolve_generation_context(
     的解析或构造失败即原样上抛、整次调用失败——无部分结果、无跨 provider 兜底；仅能力
     查询失败降级空值放行。``project`` 是调用方已加载的项目快照，本函数不读盘。
 
-    ``episode`` 传本次任务所属集号时，video lane 的能力按该集生效 ``generation_mode`` 解析
-    （见 ``lib.config.resolver.caps_generation_mode``）：项目级模式被单集覆盖时，声音一致性
-    等二维派生值跟着该集走，而不是拿项目级口径去判定这一集。
+    video lane 的能力按项目生成路线解析（见 ``lib.config.resolver.caps_generation_mode``）：
+    路线创建即定、整个项目按同一条路径生成，声音一致性等二维派生值因此不需要集号。
     """
     from lib.db import async_session_factory
 
@@ -347,7 +345,7 @@ async def resolve_generation_context(
             # 能力接口，能力解析失败不得连带把它冲回默认值 True（会静默重新允许参考音频上传）。
             requested_generate_audio = await r.video_generate_audio_for_project(project)
             try:
-                caps = await r.video_capabilities_for_model(resolved.provider_id, actual_model, project, episode)
+                caps = await r.video_capabilities_for_model(resolved.provider_id, actual_model, project)
                 supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
                 max_duration = caps.get("max_duration")
                 max_reference_images = caps.get("max_reference_images")

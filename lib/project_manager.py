@@ -74,20 +74,6 @@ class _Unset:
 _UNSET = _Unset()
 
 
-def effective_mode(*, project: dict, episode: dict) -> str:
-    """按 episode → project → 默认 storyboard 回退解析 generation_mode。
-
-    未知值一律回退到默认，兼容脏数据。
-    """
-    ep_mode = episode.get("generation_mode")
-    if ep_mode in VALID_GENERATION_MODES:
-        return ep_mode
-    proj_mode = project.get("generation_mode")
-    if proj_mode in VALID_GENERATION_MODES:
-        return proj_mode
-    return _DEFAULT_GENERATION_MODE
-
-
 def grid_storyboard_enabled(project: dict[str, Any]) -> bool:
     """项目是否按宫格生产分镜图。
 
@@ -100,7 +86,7 @@ def grid_storyboard_enabled(project: dict[str, Any]) -> bool:
 def find_episode(project: dict[str, Any], episode: int | None) -> dict[str, Any] | None:
     """返回 project.json ``episodes[]`` 中 ``episode == N`` 的条目，缺失则 None。
 
-    ``episode`` 为 None（集号未知）时不匹配任何条目，调用方据此回退到项目级配置。
+    ``episode`` 为 None（集号未知）时不匹配任何条目。
     """
     if episode is None:
         return None
@@ -110,13 +96,14 @@ def find_episode(project: dict[str, Any], episode: int | None) -> dict[str, Any]
     return None
 
 
-def is_reference_video_episode(project: dict[str, Any], episode: int | None) -> bool:
-    """该集的生效 generation_mode 是否为 reference_video。
+def is_reference_video_project(project: Mapping[str, Any]) -> bool:
+    """项目是否走参考生视频路线。
 
-    project.json 是该判定的唯一真相源：ad 内容模式的剧本骨架不携带剧本级
-    ``generation_mode`` 戳（见 ``script_generator``），只看剧本判不出参考生视频。
+    project.json 的 ``generation_mode`` 是该判定的唯一真相源：路线创建即定、之后不可变，
+    整个项目按同一条路径生成；ad 内容模式的剧本骨架也不携带剧本级 ``generation_mode`` 戳
+    （见 ``script_generator``），只看剧本判不出参考生视频。
     """
-    return effective_mode(project=project, episode=find_episode(project, episode) or {}) == "reference_video"
+    return project.get("generation_mode") == "reference_video"
 
 
 def resolve_source_kind(project: Mapping[str, Any]) -> SourceKind:
@@ -840,20 +827,6 @@ class ProjectManager:
         if match:
             return int(match.group(1))
         raise ValueError(f"无法确定集号：剧本缺少 episode 字段且文件名 {script_filename} 不含 episodeN 模式")
-
-    @staticmethod
-    def resolve_episode_from_script_or_none(script: dict, script_filename: str) -> int | None:
-        """同 `resolve_episode_from_script`，解析不出时返回 None 而非抛错。
-
-        供能力解析用：集号只决定按哪一集的生效 `generation_mode` 取能力，解析不出时回落项目级
-        口径即可，不该让一次能力解析打断整条入队 / 执行链路。与硬口径共用同一份解析，调用方
-        不各写一份「只认剧本字段」的简化版——那会让集号出自文件名的剧本一边按第 N 集入队、
-        一边按项目级口径解析能力。
-        """
-        try:
-            return ProjectManager.resolve_episode_from_script(script, script_filename)
-        except ValueError:
-            return None
 
     def sync_episode_from_script(self, project_name: str, script_filename: str) -> dict:
         """
@@ -1812,7 +1785,7 @@ class ProjectManager:
         但纯 silent 让 agent 误以为 reference_image / sheet_field 写入成功；返回诊断让工具层
         把忽略原因明示给 agent，避免 agent 重复尝试同样会被丢的字段。
         """
-        # data_validator 在模块级 import 本模块（effective_mode），故惰性 import 破环。
+        # data_validator 在模块级 import 本模块（VALID_GENERATION_MODES），故惰性 import 破环。
         from lib.data_validator import DataValidator
 
         asset_type = self._BUCKET_TO_ASSET_TYPE.get(table)

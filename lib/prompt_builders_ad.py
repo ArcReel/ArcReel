@@ -155,7 +155,7 @@ def _format_products(products: dict) -> str:
     return "\n".join(lines).strip()
 
 
-def _shot_duration_constraint(generation_mode: str, supported_durations: list[int] | None) -> str:
+def _shot_duration_constraint(generation_mode: str | None, supported_durations: list[int] | None) -> str:
     """按 generation_mode 渲染单镜头时长约束文本。
 
     storyboard 路径：供应商 supported_durations 硬枚举（与 response_schema 的
@@ -185,7 +185,7 @@ def build_ad_prompt(
     products: dict,
     brief: str,
     target_duration: int,
-    generation_mode: str,
+    generation_mode: str | None,
     supported_durations: list[int] | None,
     episode: int = 1,
     aspect_ratio: str = "9:16",

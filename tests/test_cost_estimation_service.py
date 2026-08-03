@@ -1697,11 +1697,11 @@ class TestCostEstimationService:
         assert result["models"]["video"] == {"provider": "kling", "model": "kling-v3"}
 
     @pytest.mark.integration
-    async def test_ad_episode_level_mode_override_prices_by_r2v_bucket(self, db_factory, monkeypatch):
-        """ad 集级 ``generation_mode`` 覆盖项目级时按 r2v 桶模型算价。
+    async def test_ad_reference_route_prices_by_r2v_bucket(self, db_factory, monkeypatch):
+        """ad 参考路线项目按 r2v 桶模型算价。
 
-        ad 骨架的镜头不打 generation_mode 戳，生效路径以 ``effective_mode``（集级优先于项目级）
-        为真相源；集级覆盖成 reference_video 的集实际入队参考视频任务，算价须跟着换桶。
+        ad 骨架的镜头不打 generation_mode 戳，生成路径以项目路线为真相源；参考路线的集实际
+        入队参考视频任务，算价须跟着落 r2v 桶。
         """
         priced_models: list[str | None] = []
         original = cost_calculator.calculate_cost
@@ -1717,11 +1717,11 @@ class TestCostEstimationService:
         project_data = {
             "title": "Ad",
             "content_mode": "ad",
-            "generation_mode": "storyboard",
+            "generation_mode": "reference_video",
             "target_duration": 30,
             "video_provider_i2v": "kling/kling-v3",
             "video_provider_r2v": "kling/kling-v3-omni",
-            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json", "generation_mode": "reference_video"}],
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
         scripts = {
             "ep1.json": {
@@ -1732,7 +1732,7 @@ class TestCostEstimationService:
             }
         }
 
-        await service.compute(project_data, scripts, project_name="ad-episode-override-bucket")
+        await service.compute(project_data, scripts, project_name="ad-reference-route-bucket")
 
         assert priced_models == ["kling-v3-omni"]
 

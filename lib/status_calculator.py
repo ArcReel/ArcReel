@@ -15,7 +15,6 @@ from lib.episode_paths import (
     episode_drafts_dir,
 )
 from lib.path_safety import safe_exists
-from lib.project_manager import effective_mode
 from lib.script_models import ad_script_total_duration, get_generated_assets, script_duration_total
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 
@@ -40,7 +39,7 @@ def _draft_candidates(content_mode: str, generation_mode: str | None = None) -> 
     兜底探 drama 结构化草稿名。旧版 .md 仅对 ``_SEGMENTED_LEGACY_MODES`` 内的模式附加。
 
     reference_video 是跨 content_mode 的 generation_mode 维度（与 ``lib.script_review.step1_kind``
-    同口径，effective_mode 优先于 content_mode），命中时探测其专属结构化草稿名
+    同口径，项目路线优先于 content_mode），命中时探测其专属结构化草稿名
     ``REFERENCE_VIDEO_STEP1_FILENAME`` 而非 content_mode 对应名——否则 rv 项目的
     ``step1_reference_units.json`` 永远探测不到，script_status 停留 none，web 路由卡在源文审阅页
     进不了 ``ScriptReviewGate``。旧版自由文本别名仅供读取 / 浏览层兼认（见 episode_paths 注释），
@@ -109,7 +108,7 @@ class StatusCalculator:
     def calculate_episode_stats(self, project_name: str, script: dict, *, generation_mode: str | None = None) -> dict:
         """计算单集的统计信息 — 按骨架种类分派。
 
-        ``generation_mode`` 由调用方按 project.json 解析（``effective_mode``）传入：
+        ``generation_mode`` 由调用方从 project.json 的项目路线字段传入：
         ad 剧本不打 generation_mode 戳（骨架唯一），reference_video 路径的视频
         产物挂在派生索引 ``reference_units`` 的 unit 上而非 shots，计分需按声明的
         生成路径分派而不能嗅探数据形状（残留索引不应污染 storyboard 路径的状态）。
@@ -229,7 +228,7 @@ class StatusCalculator:
 
         若 ``preloaded_scripts`` 提供且 ``script_file`` 命中其 key，则直接复用预加载
         结果，跳过一次 JSON 解析。缺失时回退到 ``pm.load_script``，保持原兜底语义。
-        ``generation_mode`` 传 effective_mode 解析结果，驱动 rv 项目的草稿探测（见 ``_draft_candidates``）。
+        ``generation_mode`` 传项目路线字段，驱动 rv 项目的草稿探测（见 ``_draft_candidates``）。
         """
         if preloaded_scripts is not None and script_file in preloaded_scripts:
             return "generated", preloaded_scripts[script_file]
@@ -342,6 +341,7 @@ class StatusCalculator:
         跳过 pm.load_script；未命中仍走磁盘加载 + 草稿探测的既有兜底路径。
         """
         content_mode = project.get("content_mode", "narration")
+        generation_mode = project.get("generation_mode")
         episodes_stats = []
         for ep in project.get("episodes", []):
             # 账本标 stale 的集（重新规划后原文范围已失效）：读时状态回退为待预处理，
@@ -359,16 +359,14 @@ class StatusCalculator:
                     episode_num,
                     script_file,
                     content_mode=content_mode,
-                    generation_mode=effective_mode(project=project, episode=ep),
+                    generation_mode=generation_mode,
                     preloaded_scripts=preloaded_scripts,
                 )
             else:
                 script_status, script = "none", None
 
             if script_status == "generated" and script is not None:
-                ep_stats = self.calculate_episode_stats(
-                    project_name, script, generation_mode=effective_mode(project=project, episode=ep)
-                )
+                ep_stats = self.calculate_episode_stats(project_name, script, generation_mode=generation_mode)
                 if ep_stats["status"] == "draft":
                     ep_stats["status"] = "scripted"
                 ep_stats["script_status"] = "generated"

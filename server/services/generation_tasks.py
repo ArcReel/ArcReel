@@ -22,7 +22,7 @@ from lib.config.resolver import constrain_durations
 from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
-from lib.project_manager import ProjectManager, get_project_manager
+from lib.project_manager import get_project_manager
 from lib.prompt_builders import (
     append_product_fidelity_tail,
     build_character_prompt,
@@ -896,23 +896,19 @@ async def execute_video_task(
         _items, _id_field, _, _, _ = get_storyboard_items(_script)
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
         _item = _resolved[0] if _resolved else {}
-        # 集号供能力解析按该集生效 generation_mode 取值，与入队侧共用同一份解析（剧本 episode
-        # 字段优先，缺则文件名 episodeN）；两者都解析不出时传 None，能力回落到项目级口径。
         return (
             _project,
             _project_path,
             _item,
             resolve_content_mode(_script, _project),
-            ProjectManager.resolve_episode_from_script_or_none(_script, script_file),
         )
 
-    project, project_path, item, content_mode, episode = await asyncio.to_thread(_load)
+    project, project_path, item, content_mode = await asyncio.to_thread(_load)
     ctx = await resolve_generation_context(
         project_name,
         payload,
         project=project,
         user_id=user_id,
-        episode=episode,
         video=VideoLaneRequest(capability="i2v"),
     )
     generator = ctx.generator

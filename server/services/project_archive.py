@@ -19,7 +19,7 @@ from lib.episode_ledger import parse_positive_episode_num
 from lib.json_io import load_json
 from lib.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_hint
-from lib.project_manager import ProjectManager, effective_mode
+from lib.project_manager import ProjectManager
 from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_project_dict as normalize_legacy_providers
 from lib.reference_video.duration_migration import migrate_unit_durations
@@ -745,7 +745,7 @@ class ProjectArchiveService:
         if not isinstance(raw_content_mode, str):
             raise ValueError(f"未知或缺失 content_mode: {raw_content_mode!r}")
         content_mode = raw_content_mode
-        generation_mode = effective_mode(project=project_payload, episode=script_payload)
+        generation_mode = project_payload.get("generation_mode")
 
         # 修复分流按规范解析的骨架种类走，而非 generation_mode：ad 项目 generation_mode
         # 可为 reference_video 但骨架恒为 shots（不含 video_units），按 generation_mode

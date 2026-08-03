@@ -42,7 +42,7 @@ from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
-from lib.project_manager import ProjectManager, effective_mode, get_project_manager
+from lib.project_manager import ProjectManager, get_project_manager
 from lib.source_loader import (
     ConflictError,
     CorruptFileError,
@@ -751,23 +751,17 @@ _STEP1_CANDIDATES = list(
 )
 
 
-def _load_project_modes(project_name: str, episode: int) -> tuple[str, str | None]:
-    """走 ProjectManager.load_project，派生 (content_mode, generation_mode)。
+def _load_project_modes(project_name: str) -> tuple[str, str | None]:
+    """走 ProjectManager.load_project，读出 (content_mode, generation_mode) 两轴。
 
-    复用 load_project 以获得文件锁和 _migrate_legacy_style 迁移；generation_mode 的
-    episode→project→默认回退复用 lib.project_manager.effective_mode。
-    项目不存在时返回 ("drama", None)，由调用方走 content_mode-only 分支。
+    复用 load_project 以获得文件锁和 _migrate_legacy_style 迁移；两轴都是项目级字段，
+    草稿文件名不随集号变化。项目不存在时返回 ("drama", None)，由调用方走 content_mode-only 分支。
     """
     try:
         data = get_project_manager().load_project(project_name)
     except FileNotFoundError:
         return "drama", None
-    content_mode = data.get("content_mode", "drama")
-    ep_dict = next(
-        (ep for ep in (data.get("episodes") or []) if ep.get("episode") == episode),
-        {},
-    )
-    return content_mode, effective_mode(project=data, episode=ep_dict)
+    return data.get("content_mode", "drama"), data.get("generation_mode")
 
 
 def _resolve_step1_path(drafts_dir: Path, step_num: int, primary: Path) -> Path:
@@ -792,7 +786,7 @@ async def get_draft_content(project_name: str, episode: int, step_num: int, _t: 
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            content_mode, generation_mode = _load_project_modes(project_name, episode)
+            content_mode, generation_mode = _load_project_modes(project_name)
             step_files = _get_step_files(content_mode, generation_mode)
 
             if step_num not in step_files:
@@ -826,7 +820,7 @@ async def update_draft_content(
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            content_mode, generation_mode = _load_project_modes(project_name, episode)
+            content_mode, generation_mode = _load_project_modes(project_name)
             step_files = _get_step_files(content_mode, generation_mode)
 
             if step_num not in step_files:
@@ -903,7 +897,7 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _t: Trans
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            content_mode, generation_mode = _load_project_modes(project_name, episode)
+            content_mode, generation_mode = _load_project_modes(project_name)
             step_files = _get_step_files(content_mode, generation_mode)
 
             if step_num not in step_files:
