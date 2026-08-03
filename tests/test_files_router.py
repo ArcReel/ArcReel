@@ -991,15 +991,14 @@ class TestFilesRouter:
             assert resp.status_code == 200
             assert resp.text == "fallback content"
 
-    def test_draft_content_episode_level_mode_override(self, tmp_path, monkeypatch):
-        """项目级 generation_mode=storyboard 但集级覆盖 reference_video，应按集级路由"""
+    def test_draft_content_routes_by_project_generation_mode(self, tmp_path, monkeypatch):
+        """草稿文件名按项目生成路线路由：参考路线全项目落 step1_reference_units.json。"""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
 
         project_json = project_dir / "project.json"
         payload = json.loads(project_json.read_text(encoding="utf-8"))
-        payload["generation_mode"] = "storyboard"
-        payload["episodes"] = [{"episode": 2, "generation_mode": "reference_video"}]
+        payload["generation_mode"] = "reference_video"
         project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
         drafts_dir = project_dir / "drafts" / "episode_2"
@@ -1015,11 +1014,11 @@ class TestFilesRouter:
             assert update.json()["path"] == "drafts/episode_2/step1_reference_units.json"
 
         # _load_project_modes 走 load_project：不存在项目 → ("drama", None) 回退
-        content_mode, gen_mode = files._load_project_modes("no-such-project", 1)
+        content_mode, gen_mode = files._load_project_modes("no-such-project")
         assert content_mode == "drama"
         assert gen_mode is None
-        # demo 项目 content_mode=narration（fixture 默认），且项目级 storyboard + ep2 覆盖 reference_video
-        content_mode, gen_mode = files._load_project_modes("demo", 2)
+        # demo 项目 content_mode=narration（fixture 默认），生成路线取项目字段
+        content_mode, gen_mode = files._load_project_modes("demo")
         assert content_mode == "narration"
         assert gen_mode == "reference_video"
 

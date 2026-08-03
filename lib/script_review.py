@@ -12,7 +12,7 @@ router / service（结构化中间态审阅 / 编辑 / 确认）。本模块只�
 适用范围（拥有结构化 step1 中间态的三条内容/视觉两段式路径）：
 - drama / narration 的图生 / 宫格路径：step1_normalized_script.json / step1_segments.json；
 - reference_video 路径（跨 narration / drama content_mode）：step1_reference_units.json。
-三者的 step1 变体由 ``step1_kind`` 统一判定（reference_video 按 effective_mode 优先）。ad 无 step1，
+三者的 step1 变体由 ``step1_kind`` 统一判定（reference_video 按项目生成路线优先）。ad 无 step1，
 不纳入 gate。
 """
 
@@ -32,7 +32,7 @@ from lib.episode_paths import (
     episode_script_relpath,
 )
 from lib.json_io import atomic_write_json
-from lib.project_manager import find_episode, is_reference_video_episode
+from lib.project_manager import find_episode, is_reference_video_project
 from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, quarantine_path
 
@@ -45,34 +45,35 @@ ReviewStatus = Literal["not_applicable", "no_step1", "pending_review", "confirme
 #: 确认记录在 episode 条目上的字段名：``{"fingerprint": str, "confirmed_at": ISO8601}``。
 REVIEW_FIELD = "step1_review"
 
-#: step1 变体：drama / narration（按 content_mode）+ reference_video（按 effective_mode，跨 content_mode）。
+#: step1 变体：drama / narration（按 content_mode）+ reference_video（按项目生成路线，跨 content_mode）。
 #: 决定 step1 文件名与结构校验模型；三者共用同一审核 gate。
 Step1Kind = Literal["drama", "narration", "reference_video"]
 
 
-def step1_kind(project: dict[str, Any], episode: int) -> Step1Kind | None:
-    """该集 step1 变体；无结构化 step1 中间态（如 ad）时返回 None。
+def step1_kind(project: dict[str, Any]) -> Step1Kind | None:
+    """项目的 step1 变体；无结构化 step1 中间态（如 ad）时返回 None。
 
-    reference_video 是 generation_mode 维度、跨 content_mode（narration / drama 均可），按
-    effective_mode 优先判定；否则按 content_mode 落 drama / narration。content_mode 非
-    STEP1_FILENAMES 成员（ad）即无 step1，reference_video 亦不适用。
+    reference_video 是 generation_mode 维度、跨 content_mode（narration / drama 均可），按项目
+    生成路线优先判定；否则按 content_mode 落 drama / narration。content_mode 非
+    STEP1_FILENAMES 成员（ad）即无 step1，reference_video 亦不适用。变体由项目两轴唯一决定，
+    不随集号变化。
     """
     content_mode = project.get("content_mode")
     if content_mode not in STEP1_FILENAMES:
         return None
-    if is_reference_video_episode(project, episode):
+    if is_reference_video_project(project):
         return "reference_video"
     return content_mode  # "drama" | "narration"（STEP1_FILENAMES 成员）
 
 
-def is_applicable(project: dict[str, Any], episode: int) -> bool:
-    """gate 是否适用于该集：拥有结构化 step1 变体（drama / narration / reference_video）。"""
-    return step1_kind(project, episode) is not None
+def is_applicable(project: dict[str, Any]) -> bool:
+    """gate 是否适用于该项目：拥有结构化 step1 变体（drama / narration / reference_video）。"""
+    return step1_kind(project) is not None
 
 
 def step1_path(project_path: Path, project: dict[str, Any], episode: int) -> Path | None:
     """该集结构化 step1 中间态文件路径；不适用 gate 时返回 None。"""
-    kind = step1_kind(project, episode)
+    kind = step1_kind(project)
     if kind is None:
         return None
     filename = REFERENCE_VIDEO_STEP1_FILENAME if kind == "reference_video" else STEP1_FILENAMES[kind]
@@ -85,7 +86,7 @@ def step1_quarantine_path(project_path: Path, project: dict[str, Any], episode: 
     只回路径、不判存在性——存在性判断在 ``step1_quarantined``，两者分开是为了让调用方在
     需要报错文案时能拿到路径。
     """
-    if step1_kind(project, episode) != "reference_video":
+    if step1_kind(project) != "reference_video":
         return None
     return quarantine_path(project_path, episode, QUARANTINE_KIND_STEP1)
 

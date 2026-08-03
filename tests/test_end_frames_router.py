@@ -759,10 +759,9 @@ def _client_with_project(
     content_mode,
     script,
     project_generation_mode=None,
-    episode_generation_mode=None,
     grid_storyboard=None,
 ):
-    """构造项目/集级 generation_mode 可控的测试 client，用于覆盖生效 generation_mode 判定。"""
+    """构造项目 generation_mode 可控的测试 client，用于覆盖生成路线准入判定。"""
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo", content_mode=content_mode)
     pm.create_project_metadata("demo", "Demo", "Anime", content_mode)
@@ -772,10 +771,7 @@ def _client_with_project(
         project["generation_mode"] = project_generation_mode
     if grid_storyboard is not None:
         project["grid_storyboard"] = grid_storyboard
-    episode_entry = {"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}
-    if episode_generation_mode is not None:
-        episode_entry["generation_mode"] = episode_generation_mode
-    project["episodes"] = [episode_entry]
+    project["episodes"] = [{"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}]
     pm.save_project("demo", project)
     pm.save_script("demo", script, "episode_1.json", validate=False)
 
@@ -809,7 +805,7 @@ def _ad_script(shot_id="E1S01") -> dict:
 
 
 class TestReferenceVideoRejection:
-    """生效 generation_mode（集级覆盖项目级）为 reference_video 时，尾帧三端点一律拒绝。
+    """项目生成路线为 reference_video 时，尾帧三端点一律拒绝。
 
     判定只看 project.json：ad 剧本骨架不携带剧本级 generation_mode 戳（见 script_generator），
     各内容模式共用这一口径。
@@ -827,31 +823,14 @@ class TestReferenceVideoRejection:
 
         assert pm.load_script("demo", "episode_1.json")["shots"][0].get("end_frame_image") is None
 
-    def test_ad_episode_level_override_reference_video_rejects_all_three_endpoints(self, tmp_path, monkeypatch):
-        # 集级覆盖项目级：项目级未声明（回退 storyboard 默认），集级显式声明 reference_video。
-        c, pm = _client_with_project(
-            tmp_path,
-            monkeypatch,
-            content_mode="ad",
-            script=_ad_script(),
-            episode_generation_mode="reference_video",
-        )
-
-        _assert_reference_video_rejected(_upload(c, _img_bytes("PNG"), shot_id="E1S01"))
-        _assert_reference_video_rejected(_select(c, "storyboards/whatever.png", shot_id="E1S01"))
-        _assert_reference_video_rejected(_delete(c, shot_id="E1S01"))
-
-        assert pm.load_script("demo", "episode_1.json")["shots"][0].get("end_frame_image") is None
-
-    def test_ad_episode_level_storyboard_overrides_project_reference_video(self, tmp_path, monkeypatch):
-        # 集级覆盖项目级的另一半：项目级 reference_video 被集级 storyboard 覆盖时须放行。
+    def test_ad_storyboard_route_allows_end_frame(self, tmp_path, monkeypatch):
+        # 分镜路线的 ad 项目照常放行。
         c, _pm = _client_with_project(
             tmp_path,
             monkeypatch,
             content_mode="ad",
             script=_ad_script(),
-            project_generation_mode="reference_video",
-            episode_generation_mode="storyboard",
+            project_generation_mode="storyboard",
         )
         assert _upload(c, _img_bytes("PNG"), shot_id="E1S01").status_code == 200
 
@@ -889,8 +868,8 @@ class TestReferenceVideoRejection:
         assert resp.status_code == 200, resp.text
         assert pm.load_script("demo", "episode_1.json")["segments"][0]["end_frame_image"] == END_FRAME_REL
 
-    def test_unresolvable_episode_falls_back_to_project_mode(self, tmp_path, monkeypatch):
-        # 集号既不在剧本里也不在文件名里：回退项目级判定照常拒绝，不落到 500。
+    def test_script_without_episode_number_rejected_by_project_route(self, tmp_path, monkeypatch):
+        # 剧本与文件名都不含集号：判定只需项目路线，照常拒绝且不落到 500。
         script = {
             "title": "E1",
             "content_mode": "narration",

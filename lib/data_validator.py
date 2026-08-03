@@ -28,7 +28,6 @@ from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
 from lib.project_manager import VALID_GENERATION_MODES as _VALID_GENERATION_MODES
 from lib.project_manager import VALID_SOURCE_KINDS as _VALID_SOURCE_KINDS
-from lib.project_manager import effective_mode
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     REFERENCE_SHOT_DURATION_RANGE,
@@ -93,8 +92,7 @@ def _is_parseable_iso_timestamp(value: str) -> bool:
 class DataValidator:
     """数据验证器"""
 
-    # content_mode 严格只表达"内容类型"；"视频来源"维度由 generation_mode 字段
-    # 表达，通过 project_manager.effective_mode 解析。
+    # content_mode 严格只表达"内容类型"；"视频来源"维度由项目级 generation_mode 字段表达。
     # 合法集真相源在 lib.profile_manifest，避免两处枚举漂移。
     VALID_CONTENT_MODES = set(_VALID_CONTENT_MODES)
     # 源文件性质（novel / screenplay）合法集，真相源在 lib.project_manager（创建写入方），
@@ -1238,7 +1236,7 @@ class DataValidator:
         # (content_mode, generation_mode) 轴交互的四路 if-elif。ad 剧本骨架唯一、不随生成
         # 路径更换（见 docs/adr/0033），resolve_declared_kind 已内置该恒定映射。四个 validator
         # 函数及各自签名（products / reference_mode / language）保留，校验行为不变。
-        gen_mode = effective_mode(project=project, episode=episode)
+        gen_mode = project.get("generation_mode")
         try:
             kind = resolve_declared_kind(content_mode, gen_mode)
         except ValueError:

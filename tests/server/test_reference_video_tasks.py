@@ -612,59 +612,6 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
 
 
 @pytest.mark.asyncio
-async def test_execute_reference_video_task_resolves_episode_like_enqueue(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """执行层集号与入队侧共用同一份解析：剧本缺 episode 字段时同样回落文件名。
-
-    只认剧本字段的话，这类剧本会在预检 / 派生阶段按第 1 集取能力、执行阶段却回落项目级口径，
-    被单集覆盖的那一集因此拿到另一套档位与模型。
-    """
-    proj_dir = _write_project(tmp_path)
-    from server.services import reference_video_tasks as rvt
-
-    script_path = proj_dir / "scripts" / "episode_1.json"
-    script = json.loads(script_path.read_text(encoding="utf-8"))
-    script.pop("episode")
-    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
-
-    fake_pm = MagicMock()
-    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
-    fake_pm.get_project_path.return_value = proj_dir
-    fake_pm.load_script.side_effect = lambda _n, _f: json.loads(script_path.read_text(encoding="utf-8"))
-    _wire_locked_script(fake_pm)
-    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
-
-    async def _fake_generate_video_async(**_kwargs):
-        out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
-        return out, 1, None, None
-
-    fake_generator = MagicMock()
-    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
-    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
-    _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
-
-    seen: list[int | None] = []
-    inner = rvt.resolve_generation_context
-
-    async def _recording(*args, episode=None, **kwargs):
-        seen.append(episode)
-        return await inner(*args, episode=episode, **kwargs)
-
-    monkeypatch.setattr(rvt, "resolve_generation_context", _recording)
-
-    async def _fake_extract(*_a, **_k):
-        return True
-
-    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
-
-    await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
-    assert seen == [1]
-
-
-@pytest.mark.asyncio
 async def test_execute_reference_video_task_sends_reference_audio_in_prompt_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

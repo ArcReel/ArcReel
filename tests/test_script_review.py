@@ -839,8 +839,8 @@ class TestApplicability:
         """reference_video（跨 content_mode）纳入 gate，step1 变体判为 reference_video。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         project = pm.load_project("demo")
-        assert script_review.step1_kind(project, 1) == "reference_video"
-        assert script_review.is_applicable(project, 1) is True
+        assert script_review.step1_kind(project) == "reference_video"
+        assert script_review.is_applicable(project) is True
         # 未产 step1 → no_step1（区别于 ad 的 not_applicable）。
         assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "no_step1"
 
@@ -849,7 +849,7 @@ class TestApplicability:
         pm.create_project("addemo")
         pm.create_project_metadata("addemo", "Ad", "Anime", "ad")
         svc = ScriptReviewService(pm)
-        assert script_review.step1_kind(svc.pm.load_project("addemo"), 1) is None
+        assert script_review.step1_kind(svc.pm.load_project("addemo")) is None
         assert (await svc.get_state("addemo", 1))["status"] == "not_applicable"
 
 

@@ -52,7 +52,7 @@ from lib.image_utils import normalize_storyboard_upload
 from lib.json_io import domain_error_on_value_error
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
-from lib.project_manager import ProjectManager, get_project_manager, is_reference_video_episode
+from lib.project_manager import ProjectManager, get_project_manager, is_reference_video_project
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.services.upload_finalize import UPLOAD_IMAGE_MAX_BYTES, write_bytes_atomic
@@ -92,14 +92,10 @@ class EndFrameError(Exception):
 def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
     """校验该镜头可设尾帧，返回项目绝对路径；不可设时抛领域错误。
 
-    参考生视频路径无首尾帧概念，一律拒绝。该判定按 project.json 的生效
-    generation_mode（``is_reference_video_episode``，集级覆盖项目级）作出，不看剧本级
-    ``generation_mode`` 戳——ad 内容模式的剧本骨架不携带该戳（见 ``script_generator``），
-    只看剧本会放过「ad + 项目/集级 reference_video」组合，让用户设下一个生成时永不被
-    消费的尾帧。各内容模式共用这一口径。
-
-    集号无法从剧本解析时按「无集级配置」处理，回退到项目级 generation_mode：拿不到集号
-    不构成拒绝理由，此处只做生成模式准入，剧本本身的合法性由上游校验负责。
+    参考生视频路径无首尾帧概念，一律拒绝。该判定按 project.json 的生成路线
+    （``is_reference_video_project``）作出，不看剧本级 ``generation_mode`` 戳——ad 内容模式的
+    剧本骨架不携带该戳（见 ``script_generator``），只看剧本会放过「ad + 参考路线」组合，让用户
+    设下一个生成时永不被消费的尾帧。各内容模式共用这一口径。
     """
     manager = get_project_manager()
     try:
@@ -121,11 +117,7 @@ def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
         project = manager.load_project(project_name)
     except FileNotFoundError as exc:
         raise EndFrameError("project_not_found", status_code=404, name=project_name) from exc
-    try:
-        episode_num = ProjectManager.resolve_episode_from_script(script, script_file)
-    except ValueError:
-        episode_num = None
-    if is_reference_video_episode(project, episode_num):
+    if is_reference_video_project(project):
         raise EndFrameError("end_frame_reference_video_unsupported")
 
     items, id_field, _, _, _ = get_storyboard_items(script)

@@ -34,7 +34,7 @@ from lib.episode_paths import (
 from lib.i18n import _ as translate
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
-from lib.project_manager import DEFAULT_SOURCE_KIND, ProjectManager, effective_mode
+from lib.project_manager import DEFAULT_SOURCE_KIND, ProjectManager, is_reference_video_project
 from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
 from lib.reference_video.draft_validation import (
@@ -159,9 +159,9 @@ def _load_novel_source(project_path: Path, source: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_video_capabilities(project_name: str, episode: int | None) -> dict[str, Any]:
+async def _resolve_video_capabilities(project_name: str) -> dict[str, Any]:
     resolver = ConfigResolver(async_session_factory)
-    return await resolver.video_capabilities(project_name, episode)
+    return await resolver.video_capabilities(project_name)
 
 
 def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, Any]) -> None:
@@ -191,22 +191,12 @@ def get_video_capabilities_tool(ctx: ToolContext):
         "get_video_capabilities",
         "查视频模型能力（model 粒度）+ 用户项目偏好。返回 JSON；"
         "参考生视频项目另含 reference_unit_durations（按 unit 有无 @ 引用分开的两套生效档位）。"
-        "生成模式可被单集覆盖，为某一集取能力时必须带 episode，否则拿到的是项目级口径。",
-        {
-            "type": "object",
-            "properties": {
-                "episode": {
-                    "type": "integer",
-                    "description": "剧集编号；省略则按项目级生成模式解析",
-                }
-            },
-        },
+        "能力按项目生成路线定轴，全项目同一口径，无需指定剧集。",
+        {"type": "object", "properties": {}},
     )
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
         try:
-            raw_episode = args.get("episode")
-            episode = int(raw_episode) if raw_episode is not None else None
-            payload = await _resolve_video_capabilities(ctx.project_name, episode)
+            payload = await _resolve_video_capabilities(ctx.project_name)
             _annotate_reference_unit_tiers(payload, ctx.pm.load_project(ctx.project_name))
             return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)}]}
         except FileNotFoundError as exc:
@@ -230,20 +220,14 @@ def get_video_capabilities_tool(ctx: ToolContext):
 # ---------------------------------------------------------------------------
 
 
-def _is_reference_video_episode(project_data: dict[str, Any], episode: int) -> bool:
-    """本集当前是否走参考生视频路径——隔离草稿只在这条路径上有意义。"""
+def _uses_reference_video_units(project_data: dict[str, Any]) -> bool:
+    """项目是否产出参考视频 unit——隔离草稿只在这条路径上有意义。
+
+    ad 的 unit 是 shots 的派生索引、无 step1 拆分，即使走参考路线也不在此列。
+    """
     if project_data.get("content_mode", "narration") == "ad":
         return False
-    return _effective_generation_mode(project_data, episode) == "reference_video"
-
-
-def _effective_generation_mode(project_data: dict[str, Any], episode: int) -> str:
-    """按 episode → project 回退解析本集生效的 generation_mode。"""
-    episode_dict = next(
-        (ep for ep in (project_data.get("episodes") or []) if ep.get("episode") == episode),
-        {},
-    )
-    return effective_mode(project=project_data, episode=episode_dict)
+    return is_reference_video_project(project_data)
 
 
 def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str, Any]) -> tuple[Path, str] | None:
@@ -253,7 +237,7 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
         # ad 创作输入是 project.json 的 brief + 产品信息 + target_duration，
         # ScriptGenerator 的 ad 分支不读 drafts/ 中间文件。
         return None
-    generation_mode = _effective_generation_mode(project_data, episode)
+    generation_mode = project_data.get("generation_mode")
     drafts_path = episode_drafts_dir(project_path, episode)
     if generation_mode == "reference_video":
         # reference_video 生成需结构化 step1 JSON；仅存旧版 .md 时给出与
@@ -308,9 +292,9 @@ def generate_episode_script_tool(ctx: ToolContext):
             # 隔离草稿在场先于「缺 step1」与审核 gate 报出。三者都判「未放行」，但出路各不相同：
             # 首次拆分就违约时正式 step1 本就不存在，先报缺文件会把 agent 引回重跑拆分——正是本
             # 机制要避免的「丢弃重抽」；gate 阻塞则要用户去 Web 端确认，agent 自己解决不了。
-            # 只在本集实际走参考路径时判：generation_mode 可改，切走之后这些残留草稿与新路径无关，
-            # 而非参考路径的写入方不会清它们，无条件判会把该集永久卡死。
-            if _is_reference_video_episode(project_data, episode):
+            # 只在项目实际走参考路径时判：分镜路线项目上残留的隔离草稿与其生成路径无关，
+            # 非参考路径的写入方不会清它们，无条件判会把该集永久卡死。
+            if _uses_reference_video_units(project_data):
                 for kind in (QUARANTINE_KIND_STEP1, QUARANTINE_KIND_STEP2):
                     if quarantine_exists(project_path, episode, kind):
                         path = quarantine_path(project_path, episode, kind)
@@ -443,7 +427,7 @@ async def _fetch_caps_with_fallback(project: dict[str, Any], episode: int) -> tu
     越界默认时长」变成整个工具的硬失败。与 ``_fetch_reference_caps_with_fallback`` 同口径。
     """
     try:
-        default_int, durations = await fetch_video_caps(project, episode=episode, generation_mode=None)
+        default_int, durations = await fetch_video_caps(project, generation_mode=None)
     except (FileNotFoundError, ValueError) as exc:
         logger.info("video_capabilities 不可解析，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         return None, list(DEFAULT_FALLBACK)
@@ -618,7 +602,7 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
     ``default_duration`` 非并集成员（用户配置漂移）按 None 处理，避免 prompt 自相矛盾。
     """
     try:
-        caps = await resolve_video_caps(project, episode)
+        caps = await resolve_video_caps(project)
     except Exception as exc:  # noqa: BLE001
         logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         caps = {}
@@ -1047,9 +1031,9 @@ def open_reference_step1_for_edit_tool(ctx: ToolContext):
             project_path = ctx.project_path
             project_data = ctx.pm.load_project(ctx.project_name)
 
-            # 与晋升工具同一判据：切走参考路径后，盘上的 step1 与该集此刻的生成路径无关，
+            # 与晋升工具同一判据：分镜路线项目上盘存的 step1 与其生成路径无关，
             # 取回来编辑只会诱导 agent 改一份不会被消费的文件。
-            if not _is_reference_video_episode(project_data, episode):
+            if not _uses_reference_video_units(project_data):
                 return {
                     "content": [
                         {"type": "text", "text": f"❌ 第 {episode} 集当前不走参考生视频路径，无 step1 拆分可编辑"}
@@ -1314,9 +1298,9 @@ def validate_and_promote_reference_draft_tool(ctx: ToolContext):
             project_path = ctx.project_path
             project_data = ctx.pm.load_project(ctx.project_name)
 
-            # 切走参考路径后残留的草稿不再晋升：晋升会按参考路径的形状覆盖 scripts/episode_N.json，
-            # 而该集此刻走的是别的生成路径。与 generate_episode_script 忽略这些残留同一判据。
-            if not _is_reference_video_episode(project_data, episode):
+            # 分镜路线项目上残留的草稿不再晋升：晋升会按参考路径的形状覆盖 scripts/episode_N.json，
+            # 而该项目走的是分镜路径。与 generate_episode_script 忽略这些残留同一判据。
+            if not _uses_reference_video_units(project_data):
                 return {
                     "content": [
                         {

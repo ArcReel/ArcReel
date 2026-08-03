@@ -33,7 +33,7 @@ from lib.episode_paths import (
     episode_drafts_dir,
     episode_script_filename,
 )
-from lib.project_manager import ProjectManager, effective_mode
+from lib.project_manager import ProjectManager
 from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_reference import build_reference_video_prompt
 from lib.prompt_builders_script import (
@@ -167,6 +167,11 @@ class ScriptGenerator:
         self.project_json = self._load_project_json()
         self.content_mode = self.project_json.get("content_mode", "narration")
 
+    @property
+    def generation_mode(self) -> str | None:
+        """项目生成路线（project.json 顶层字段）：创建即定、之后不可变，不随集号变化。"""
+        return self.project_json.get("generation_mode")
+
     def _episode_entry(self, episode: int) -> dict:
         """按集号取 project.json episodes 条目；缺失返回空 dict。"""
         return next(
@@ -177,10 +182,6 @@ class ScriptGenerator:
             ),
             {},
         )
-
-    def _effective_generation_mode(self, episode: int) -> str:
-        """按 episode → project → 默认 storyboard 回退解析 generation_mode。"""
-        return effective_mode(project=self.project_json, episode=self._episode_entry(episode))
 
     @staticmethod
     def _entry_outline(entry: dict) -> dict:
@@ -226,7 +227,7 @@ class ScriptGenerator:
         ):
             raise ValueError(f"output_filename 只接受纯文件名，不允许目录或路径分隔符: {output_filename!r}")
 
-        gen_mode = self._effective_generation_mode(episode)
+        gen_mode = self.generation_mode
 
         # ad 剧本骨架唯一（平铺 shots[]），先于 generation_mode 分派：即使
         # reference_video 路径也消费 ad prompt + AdEpisodeScript，不换 video_units 骨架。
@@ -242,7 +243,7 @@ class ScriptGenerator:
         if gen_mode != "reference_video" and self.content_mode != "narration":
             return await self._generate_drama_step2(episode, output_filename, gen_mode=gen_mode)
 
-        caps = await self._fetch_video_capabilities(episode)
+        caps = await self._fetch_video_capabilities()
 
         characters = self.project_json.get("characters")
         characters = characters if isinstance(characters, dict) else {}
@@ -333,7 +334,7 @@ class ScriptGenerator:
             caps=caps if step1_units is not None else None,
         )
 
-    async def _generate_drama_step2(self, episode: int, output_filename: str | None, *, gen_mode: str) -> Path:
+    async def _generate_drama_step2(self, episode: int, output_filename: str | None, *, gen_mode: str | None) -> Path:
         """drama 两段式 step2：读 step1 结构化内容 → LLM 仅出视觉层 → 按 scene_id 合并 → 落盘。
 
         非视觉字段（utterances / source_text / characters_in_scene / 时长 / 边界）一律取自 step1 内容、
@@ -370,7 +371,7 @@ class ScriptGenerator:
         logger.info("剧本已保存至 %s", output_path)
         return output_path
 
-    async def _assert_drama_step1_durations(self, content_scenes: list, *, episode: int, gen_mode: str) -> None:
+    async def _assert_drama_step1_durations(self, content_scenes: list, *, episode: int, gen_mode: str | None) -> None:
         """校验 drama step1 已定场景时长在当前能力集合内，越界 fail-loud。
 
         与 narration（``_load_narration_step1``）、reference_video（``_load_reference_step1``）
@@ -384,7 +385,7 @@ class ScriptGenerator:
         ``null`` 同取该字段的声明默认值——不填不代表不校验，落盘时补的正是这个默认值。归一化
         失败（如 ``"abc"``）不在此报错，交给落盘前的静态校验统一 fail-loud。
         """
-        supported = self._resolve_supported_durations(await self._fetch_video_capabilities(episode), gen_mode=gen_mode)
+        supported = self._resolve_supported_durations(await self._fetch_video_capabilities(), gen_mode=gen_mode)
         allowed = {int(d) for d in supported}
         seen: set[int] = set()
         for scene in content_scenes:
@@ -520,7 +521,7 @@ class ScriptGenerator:
         logger.info("剧本已保存至 %s", output_path)
         return output_path
 
-    async def _compose_ad(self, episode: int, gen_mode: str) -> tuple[str, type]:
+    async def _compose_ad(self, episode: int, gen_mode: str | None) -> tuple[str, type]:
         """ad 分支的 (prompt, response_schema) 构造，generate/build_prompt 共用。
 
         reference 路径不消费供应商能力（镜头时长为 1-15 自由整数），跳过能力查询；
@@ -530,12 +531,12 @@ class ScriptGenerator:
             supported = None
             schema: type = build_ad_reference_episode_script_model()
         else:
-            caps = await self._fetch_video_capabilities(episode)
+            caps = await self._fetch_video_capabilities()
             supported = self._resolve_supported_durations(caps, gen_mode=gen_mode)
             schema = build_episode_script_model("ad", supported)
         return self._build_ad_prompt(episode, gen_mode, supported), schema
 
-    def _build_ad_prompt(self, episode: int, gen_mode: str, supported: list[int] | None) -> str:
+    def _build_ad_prompt(self, episode: int, gen_mode: str | None, supported: list[int] | None) -> str:
         """构建广告/短片模式 prompt：brief + 产品信息 + 审定配比表，不读 step1 中间文件。
 
         storyboard 路径把 supported_durations 作为单镜头时长枚举写进 prompt（与
@@ -584,7 +585,7 @@ class ScriptGenerator:
         这样当 `project.json` 不显式声明 `video_backend`（用户依赖全局/系统默认时）也能
         正确派生 supported_durations。caps 失败仍 fallback 到 project.json 自身的 sync 链。
         """
-        gen_mode = self._effective_generation_mode(episode)
+        gen_mode = self.generation_mode
 
         # 见 generate() 同位置说明：ad 先于 generation_mode 分派，且不读 step1。
         if self.content_mode == "ad":
@@ -599,7 +600,7 @@ class ScriptGenerator:
             content_scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
             return self._build_drama_step2_prompt(content_scenes, episode)
 
-        caps = await self._fetch_video_capabilities(episode)
+        caps = await self._fetch_video_capabilities()
         characters = self.project_json.get("characters")
         characters = characters if isinstance(characters, dict) else {}
         scenes = self.project_json.get("scenes")
@@ -641,13 +642,13 @@ class ScriptGenerator:
             target_language=self.project_json.get("source_language") or "中文",
         )
 
-    async def _fetch_video_capabilities(self, episode: int | None = None) -> dict | None:
+    async def _fetch_video_capabilities(self) -> dict | None:
         """从 ConfigResolver 解析视频模型能力；失败时返 None，由 _resolve_* fallback 到 project.json 直读。
 
         使用 `video_capabilities_for_project` 传入已加载的 project.json，不再按 `self.project_path.name`
         重新全局加载——避免 ScriptGenerator 在非标准路径（如测试 tmp_path）实例化时目录名与
-        全局项目碰撞读到错误能力。``episode`` 给出集号时按该集生效 ``generation_mode`` 定桶，
-        与 ``_resolve_supported_durations`` 收窄所用的 ``gen_mode`` 同口径。
+        全局项目碰撞读到错误能力。定桶按项目 ``generation_mode``，与 ``_resolve_supported_durations``
+        收窄所用的 ``gen_mode`` 同口径。
 
         宽松捕获：除 ValueError 外，DB 未 migration / 连接失败等 SQLAlchemy 异常也走 fallback，
         保证在缺能力元数据的环境（如裸 CI 测试容器）中 generate() 仍能跑通。
@@ -658,7 +659,7 @@ class ScriptGenerator:
         """
         resolver = ConfigResolver(async_session_factory)
         try:
-            return await resolver.video_capabilities_for_project(self.project_json, episode)
+            return await resolver.video_capabilities_for_project(self.project_json)
         except VideoBucketCapabilityError:
             raise
         except (ValueError, SQLAlchemyError) as exc:
@@ -679,7 +680,7 @@ class ScriptGenerator:
         return ids if ids is not None else (None, None)
 
     def _resolve_supported_durations(
-        self, caps: dict | None = None, *, gen_mode: str, uses_reference_images: bool | None = None
+        self, caps: dict | None = None, *, gen_mode: str | None, uses_reference_images: bool | None = None
     ) -> list[int]:
         """从 caps → registry 两级解析，再按联动约束收窄；都拿不到抛 ValueError。
 
@@ -701,7 +702,9 @@ class ScriptGenerator:
             uses_reference_images=uses_reference_images,
         )
 
-    def _unit_duration_off_every_tier(self, duration: int, *, caps: dict | None, gen_mode: str) -> list[int] | None:
+    def _unit_duration_off_every_tier(
+        self, duration: int, *, caps: dict | None, gen_mode: str | None
+    ) -> list[int] | None:
         """时长在带图与不带图两种档位下都出局时返回带图档位，任一合法则返回 None。
 
         step2 可以给 unit 增删 references，只在其中一种状态下出局的时长仍可能落地合法——
@@ -715,7 +718,7 @@ class ScriptGenerator:
         return self._resolve_supported_durations(caps, gen_mode=gen_mode, uses_reference_images=True)
 
     def _unit_duration_off_tier(
-        self, duration: int, *, has_references: bool, caps: dict | None, gen_mode: str
+        self, duration: int, *, has_references: bool, caps: dict | None, gen_mode: str | None
     ) -> list[int] | None:
         """时长落在该 unit 生效档位之外时返回该档位集，落在内则返回 None。
 
@@ -742,7 +745,7 @@ class ScriptGenerator:
         return durations
 
     def _resolve_max_duration(
-        self, caps: dict | None = None, *, gen_mode: str, uses_reference_images: bool | None = None
+        self, caps: dict | None = None, *, gen_mode: str | None, uses_reference_images: bool | None = None
     ) -> int | None:
         """单次视频生成最长秒数；派生自 max(收窄后的 supported_durations)。
 
@@ -1019,7 +1022,9 @@ class ScriptGenerator:
             raise ValueError(f"Step 1 内容文件 scene_id 改写到 episode={episode} 后重复: {rewritten_dupes}")
         return data
 
-    def _assert_reference_step1_ready(self, step1_units: list[dict], *, caps: dict | None, gen_mode: str) -> None:
+    def _assert_reference_step1_ready(
+        self, step1_units: list[dict], *, caps: dict | None, gen_mode: str | None
+    ) -> None:
         """step2 落盘前对 step1 现值的全部预判：时长档位仍生效 + 正文按机器口径合法。
 
         产出路径（付费调用前）与晋升路径（隔离草稿重判前）共用这一份：晋升期间用户可能在 Web
@@ -1207,7 +1212,7 @@ class ScriptGenerator:
                 f"（{quarantine_path(self.project_path, episode, QUARANTINE_KIND_STEP2)} 缺失或内容不是合法信封）"
             )
 
-        caps = await self._fetch_video_capabilities(episode)
+        caps = await self._fetch_video_capabilities()
         step1_units = self._load_reference_step1(episode, self._resolve_raw_supported_durations(caps))
         # 与产出路径同一份 step1 预判：隔离期间 Web 端可能改过 step1（编辑器对人写正文只出
         # warning），不复判就会让改短时长后念不完的台词、或未登记的 @[名称] 借晋升一路落盘。
@@ -1295,7 +1300,7 @@ class ScriptGenerator:
 
         # 校验模型经规范解析定骨架种类（ad→shots 骨架唯一，reference→video_units），
         # kind→模型映射留本地（模型属上层依赖，不进 SKELETONS 窄表）。
-        kind = resolve_declared_kind(self.content_mode, self._effective_generation_mode(episode))
+        kind = resolve_declared_kind(self.content_mode, self.generation_mode)
         schema = _KIND_PARSE_SCHEMA[kind]
         try:
             return schema.model_validate(data).model_dump()
@@ -1382,7 +1387,7 @@ class ScriptGenerator:
         Returns:
             补充元数据后的剧本数据
         """
-        gen_mode = self._effective_generation_mode(episode)
+        gen_mode = self.generation_mode
         # CLI 参数 --episode 是集号唯一真相源。schema 已从 AI 输出中移除 episode 字段，
         # 这里负责落盘前补上。
         script_data["episode"] = int(episode)
@@ -1525,7 +1530,7 @@ class ScriptGenerator:
             # 骨架经规范解析统一判别、id 字段查 SKELETONS（同 _add_metadata id 改写处置）。
             # video_units 的过短样本落在 unit 内嵌 shots.text，与 narration/drama/ad 平铺条目的
             # image_prompt/video_prompt 探针数据形状不同——结构分支按 kind 显式区分、非骨架分派。
-            kind = resolve_declared_kind(self.content_mode, self._effective_generation_mode(episode))
+            kind = resolve_declared_kind(self.content_mode, self.generation_mode)
             id_key = SKELETONS[kind].id_field
             # 降级保存的原始 dict 里数组可能为非列表脏值；`... or []` 挡不住真值标量，
             # isinstance 守卫避免 `for` 迭代崩溃（外层 try/except 会吞异常但会误跳过整段探针）。

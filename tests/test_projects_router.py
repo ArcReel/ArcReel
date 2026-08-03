@@ -33,6 +33,7 @@ class _FakePM:
             "ready": {
                 "title": "Ready",
                 "style": "Anime",
+                "generation_mode": "storyboard",
                 "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
                 "overview": {"synopsis": "old"},
             },
@@ -1722,8 +1723,8 @@ class TestGetVideoCapabilities:
         assert resolver_instance.video_capabilities_for_model.await_args.args[:2] == ("openai", "sora-2")
 
     @pytest.mark.integration
-    def test_episode_param_reaches_resolver(self, tmp_path, monkeypatch):
-        """带 episode 时集号传到 resolver：生成模式可被单集覆盖，按集查看的界面须同口径。"""
+    def test_capabilities_resolve_by_project_route_without_episode(self, tmp_path, monkeypatch):
+        """能力按项目路线定轴：端点不接受集号，解析只带项目（与候选模型）。"""
         from unittest.mock import AsyncMock, MagicMock
 
         resolver_instance = MagicMock()
@@ -1733,18 +1734,22 @@ class TestGetVideoCapabilities:
 
         client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
         with client:
-            assert client.get("/api/v1/projects/ready/video-capabilities", params={"episode": 3}).status_code == 200
+            assert client.get("/api/v1/projects/ready/video-capabilities").status_code == 200
             resp = client.get(
                 "/api/v1/projects/ready/video-capabilities",
-                params={"video_backend": "openai/sora-2", "episode": 3},
+                params={"video_backend": "openai/sora-2"},
             )
         assert resp.status_code == 200
-        assert resolver_instance.video_capabilities.await_args.args == ("ready", 3)
-        assert resolver_instance.video_capabilities_for_model.await_args.args[3] == 3
+        assert resolver_instance.video_capabilities.await_args.args == ("ready",)
+        # 候选模型解析拿到的第三个入参必须是该项目的已加载数据（含项目路线），只断言参数个数的话
+        # 路由传 None 或传错项目都照样通过。
+        passed_project = resolver_instance.video_capabilities_for_model.await_args.args[2]
+        assert passed_project["title"] == "Ready"
+        assert passed_project["generation_mode"] == "storyboard"
 
     @pytest.mark.integration
-    def test_video_capabilities_without_episode_stays_project_level(self, tmp_path, monkeypatch):
-        """不带 episode 的调用（设置页等无集号上下文）仍按项目级解析。"""
+    def test_stale_episode_query_param_is_ignored(self, tmp_path, monkeypatch):
+        """端点不声明 ``episode`` 查询参数：带上也被忽略，不改变解析口径、不报错。"""
         from unittest.mock import AsyncMock, MagicMock
 
         resolver_instance = MagicMock()
@@ -1753,8 +1758,9 @@ class TestGetVideoCapabilities:
 
         client = _client(monkeypatch, _FakePM(tmp_path), _FakeCalc())
         with client:
-            assert client.get("/api/v1/projects/ready/video-capabilities").status_code == 200
-        assert resolver_instance.video_capabilities.await_args.args == ("ready", None)
+            resp = client.get("/api/v1/projects/ready/video-capabilities", params={"episode": 3})
+        assert resp.status_code == 200
+        assert resolver_instance.video_capabilities.await_args.args == ("ready",)
 
     @pytest.mark.integration
     def test_malformed_video_backend_returns_400(self, tmp_path, monkeypatch):
