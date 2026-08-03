@@ -532,6 +532,34 @@ class TestGenerationTasks:
         assert "video_thumbnail" in asset_types
         assert thumbnail_path.exists()
 
+    @pytest.mark.integration
+    async def test_execute_video_task_lane_bucket_follows_project_route(self, monkeypatch, tmp_path):
+        """lane 归桶按项目路线求值，不再无条件 i2v——与提交入口口径同源。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        seen_lanes: list[dict] = []
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, seen_lane_requests=seen_lanes),
+        )
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        payload = {
+            "script_file": "episode_1.json",
+            "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+        }
+        fake_pm.project["generation_mode"] = "storyboard"
+        await generation_tasks.execute_video_task("demo", "E1S01", payload)
+        assert seen_lanes[-1]["video"].capability == "i2v"
+
+        fake_pm.project["generation_mode"] = "reference_video"
+        await generation_tasks.execute_video_task("demo", "E1S01", payload)
+        assert seen_lanes[-1]["video"].capability == "r2v"
+
     async def test_execute_video_task_rejects_unsupported_duration(self, monkeypatch, tmp_path):
         """执行层在解析出 ProviderModel 后，对越界 duration 以明确错误拒绝。"""
         project_path = _prepare_files(tmp_path)
