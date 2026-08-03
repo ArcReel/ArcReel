@@ -384,6 +384,11 @@ class TestDiscoverModelsComfyUI:
                 "inputs": {"prompt": "move", "first_frame": ["20", 0]},
             },
             "20": {"class_type": "LoadImage", "inputs": {"image": "frame.png"}},
+            "30": {
+                "class_type": "PrimitiveFloat",
+                "inputs": {"value": 5.0},
+                "_meta": {"title": "Float (duration)"},
+            },
             "90": {
                 "class_type": "SaveVideo",
                 "inputs": {"filename_prefix": "MiniMax_H3", "video": ["10", 0]},
@@ -420,6 +425,7 @@ class TestDiscoverModelsComfyUI:
         assert len(result) == 1
         assert result[0]["endpoint"] == "comfyui-workflow"
         assert result[0]["is_default"] is True
+        assert result[0]["supported_durations"] == list(range(1, 16))
         assert result[0]["endpoint_config"]["bindings"]["start_image"]["mode"] == "loader"
         assert client.get.await_args_list[0].kwargs["headers"] == {
             "Authorization": "Bearer tailnet-token"

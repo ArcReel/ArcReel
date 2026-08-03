@@ -25,6 +25,9 @@ from lib.httpx_shared import get_http_client
 
 logger = logging.getLogger(__name__)
 
+_COMFYUI_MIN_DURATION_SECONDS = 1
+_COMFYUI_MAX_DURATION_SECONDS = 15
+
 
 class UnsupportedDiscoveryFormatError(ValueError):
     """discovery_format 取值不在受支持集合内，与 SDK 调用期的凭证/网络类 ValueError 区分。"""
@@ -188,6 +191,11 @@ async def _discover_comfyui(base_url: str | None, api_key: str) -> list[dict]:
         seen.add(model_id)
         metadata = config.get("metadata")
         duration = metadata.get("duration_default_seconds") if isinstance(metadata, dict) else None
+        supported_durations = (
+            list(range(_COMFYUI_MIN_DURATION_SECONDS, _COMFYUI_MAX_DURATION_SECONDS + 1))
+            if "duration" in bindings
+            else ([duration] if isinstance(duration, int) else None)
+        )
         result.append(
             {
                 "model_id": model_id,
@@ -195,7 +203,10 @@ async def _discover_comfyui(base_url: str | None, api_key: str) -> list[dict]:
                 "endpoint": COMFYUI_ENDPOINT,
                 "is_default": len(result) == 0,
                 "is_enabled": True,
-                "supported_durations": [duration] if isinstance(duration, int) else None,
+                # ArcReel uses an empty/default project value as the "auto" choice.  A
+                # duration-bound workflow can therefore expose the positive manual slots
+                # without ever sending an invalid literal zero to ComfyUI.
+                "supported_durations": supported_durations,
                 "capability_overrides": {"last_frame": True} if "end_image" in bindings else None,
                 "endpoint_config": config,
             }
