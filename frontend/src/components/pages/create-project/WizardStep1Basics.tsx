@@ -2,6 +2,10 @@ import { useId, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
+import {
+  GenerationRoutePrototype,
+  useGenerationRouteVariant,
+} from "@/components/pages/create-project/prototype-generation-route/GenerationRoutePrototype";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
 import type { GenerationMode } from "@/utils/generation-mode";
@@ -34,6 +38,8 @@ export function WizardStep1Basics({
   onCancel,
 }: WizardStep1BasicsProps) {
   const { t } = useTranslation(["common", "dashboard", "templates"]);
+  // PROTOTYPE：?variant=A|B|C 时用「生成方式」引导卡原型替换下方原选择器（仅 DEV）
+  const protoVariant = useGenerationRouteVariant();
   const [titleError, setTitleError] = useState("");
   const reactId = useId();
   const titleId = `${reactId}-title`;
@@ -265,14 +271,18 @@ export function WizardStep1Basics({
       </div>
 
       {/* Generation Mode */}
-      <div>
-        <FieldLabel>{t("dashboard:generation_mode")}</FieldLabel>
-        <GenerationModeSelector
-          value={value.generationMode}
-          onChange={(next) => onChange({ ...value, generationMode: next })}
-          disabledModes={value.contentMode === "ad" ? ["grid"] : undefined}
-        />
-      </div>
+      {protoVariant ? (
+        <GenerationRoutePrototype variant={protoVariant} />
+      ) : (
+        <div>
+          <FieldLabel>{t("dashboard:generation_mode")}</FieldLabel>
+          <GenerationModeSelector
+            value={value.generationMode}
+            onChange={(next) => onChange({ ...value, generationMode: next })}
+            disabledModes={value.contentMode === "ad" ? ["grid"] : undefined}
+          />
+        </div>
+      )}
 
       {/* Footer */}
       <div className="mt-7 flex items-center justify-between border-t border-hairline-soft pt-5">
