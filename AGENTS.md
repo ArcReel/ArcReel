@@ -82,7 +82,7 @@ pnpm build       # 生产构建，含 typecheck
 两个独立维度，分别承载"内容类型"与"视频来源"：
 
 - **content_mode** — `drama`（剧集，内容驱动）/`narration`（说书，旁白驱动） / `ad`（广告/短片）。决定剧本结构与 agent profile 加载哪个 `CLAUDE.*.md` 变体
-- **generation_mode** — `reference_video` 等。决定视频生成路径：图生视频（默认，分镜图驱动）/ 宫格生视频（grid_4/6/9）/ 参考生视频（无需分镜图步骤，直接使用资产图作为参考图生成视频，见 `lib/reference_video/`）
+- **generation_mode** — 项目级**生成路线**，二值必填：`storyboard`（分镜路线，分镜图驱动，走 i2v）/ `reference_video`（参考路线，无需分镜图步骤，直接使用资产图作为参考图生成视频，见 `lib/reference_video/`）。创建时二选一、创建后不可更改；宫格不是路线，由独立的项目级布尔 `grid_storyboard` 表达（见 `docs/adr/0055`）
 - 两字段对 LLM 隐藏（`SkipJsonSchema`），由编排层自动注入
 
 ## Agent 沙箱
