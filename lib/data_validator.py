@@ -514,9 +514,9 @@ class DataValidator:
             return
         if normalize:
             normalized_valid = {normalize_asset_name(v) for v in valid_set}
-            invalid = {r for r in refs if not isinstance(r, str) or normalize_asset_name(r) not in normalized_valid}
+            invalid = [r for r in refs if not isinstance(r, str) or normalize_asset_name(r) not in normalized_valid]
         else:
-            invalid = set(refs) - valid_set
+            invalid = [r for r in refs if not isinstance(r, str) or r not in valid_set]
         if invalid:
             errors.append(f"{prefix}: {field_label} 引用了不存在于 project.json 的{kind_label}: {invalid}")
 
