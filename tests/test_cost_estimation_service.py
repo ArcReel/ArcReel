@@ -1207,10 +1207,9 @@ class TestCostEstimationService:
         assert result["project_totals"]["estimate"]["video"]
 
     @pytest.mark.integration
-    async def test_narration_reference_video_estimate_follows_script_stamp_over_effective_mode(self, db_factory):
-        """项目级 ``generation_mode`` 事后回退到 storyboard，但该集剧本仍保留切换前的
-        ``reference_video`` 戳时，估算须跟随剧本戳走 unit 路径，不因项目级戳回退而误判回落
-        分镜——实际入队（``is_reference_script``）只认剧本自身的戳，从不读 ``effective_mode``。
+    async def test_narration_reference_video_estimate_follows_script_stamp_over_project_route(self, db_factory):
+        """分镜路线项目下该集剧本仍带 ``reference_video`` 戳时，估算须跟随剧本戳走 unit 路径，
+        不因项目路线是分镜而误判回落分镜——实际入队（``is_reference_script``）只认剧本自身的戳。
         """
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -1656,9 +1655,9 @@ class TestCostEstimationService:
     async def test_episode_priced_by_its_own_effective_bucket(self, db_factory, monkeypatch):
         """逐集算价按该集实际走的那条路径定桶，不按项目级 generation_mode 一刀切。
 
-        同一项目里两集的生效路径可以不同：项目层是 storyboard，而剧本仍带 reference_video 戳的
-        集实际入队的是参考视频任务（``is_reference_script``，见
-        ``test_narration_reference_video_estimate_follows_script_stamp_over_effective_mode``）。
+        项目路线是 storyboard，而剧本仍带 reference_video 戳的集实际入队的是参考视频任务
+        （``is_reference_script``，见
+        ``test_narration_reference_video_estimate_follows_script_stamp_over_project_route``）。
         按项目级定桶会拿 i2v 桶模型的价目去算 r2v 的量，与执行扣费对不上。
         """
         priced_models: list[str | None] = []

@@ -1268,7 +1268,7 @@ class TestProjectEventService:
         """ad + reference_video：unit 的 video_clip 空→非空发一条 video_ready（实体类型 reference_unit）。
 
         成片写在派生索引 reference_units 各 unit 的 generated_assets，内容骨架 shots 不承载
-        该路径产物；组合按项目声明的 generation_mode 分派（effective_mode），不嗅探剧本形状。
+        该路径产物；组合按项目声明的生成路线分派，不嗅探剧本形状。
         """
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("ad-ref")
@@ -1402,7 +1402,7 @@ class TestProjectEventService:
         """
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("ad-sb")
-        # 不设 generation_mode → effective_mode 回退默认 storyboard。
+        # 不设 generation_mode：非参考路线，unit 级组合不激活。
         pm.create_project_metadata("ad-sb", "AdSb", "Anime", "ad")
 
         with project_change_source("filesystem"):
