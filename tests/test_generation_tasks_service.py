@@ -532,6 +532,7 @@ class TestGenerationTasks:
         assert "video_thumbnail" in asset_types
         assert thumbnail_path.exists()
 
+    @pytest.mark.integration
     async def test_execute_video_task_lane_bucket_follows_project_route(self, monkeypatch, tmp_path):
         """lane 归桶按项目路线求值，不再无条件 i2v——与提交入口口径同源。"""
         project_path = _prepare_files(tmp_path)
