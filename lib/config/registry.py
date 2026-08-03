@@ -31,8 +31,8 @@ class ModelInfo:
     supported_durations: list[int] = field(default_factory=list)
     duration_resolution_constraints: dict[str, list[int]] = field(default_factory=dict)
     # 使用参考图（参考生视频）时允许的时长；空 = 该模型的参考图路径不额外约束时长。
-    # 与 duration_resolution_constraints 同构的最窄表达：目前只有 Veo 一家把「带参考图」
-    # 单独收窄到 8 秒，故按条件各立一字段，不引入通用「条件→约束」语言。
+    # 与 duration_resolution_constraints 同构的最窄表达：需要表达的条件只有「高分辨率」
+    # 与「带参考图」两种，故按条件各立一字段，不引入通用「条件→约束」语言。
     reference_image_durations: list[int] = field(default_factory=list)
     resolutions: list[str] = field(default_factory=list)
     # 参考生视频单镜头参考图上限；0 = 不适用（图像/文本模型，或视频模型未声明）。
@@ -954,8 +954,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="video",
                 capabilities=["image_to_video", "seed_control"],
                 supported_durations=[4, 8],
-                # 图生/首尾帧端点 8 秒档只出 720p，1080p 仅 4 秒档可选。
-                duration_resolution_constraints={"1080p": [4]},
+                # 图生/首尾帧端点 8 秒档只出 720p，360p 与 1080p 均仅 4 秒档可选。
+                duration_resolution_constraints={"360p": [4], "1080p": [4]},
                 # 参考生视频端点时长仅认 4 秒；不收窄会让 r2v 项目的时长下拉出现
                 # 8 秒幽灵档位——选中后被 backend 静默取到 4 秒。
                 reference_image_durations=[4],
