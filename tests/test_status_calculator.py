@@ -699,6 +699,31 @@ class TestAdStatusCalculation:
         enriched = calc.enrich_script(script, generation_mode="reference_video")
         assert enriched["characters_in_episode"] == ["张三"]
 
+    def test_enrich_script_tolerates_non_string_reference_names(self, tmp_path):
+        """``name`` 为 list / dict 会在集合 add 处抛 unhashable，为数字会让 sorted 抛
+        混类型比较错误——两者都让项目详情读取失败，须一并跳过。"""
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        script = {
+            "content_mode": "narration",
+            "metadata": {},
+            "video_units": [
+                {
+                    "unit_id": "E1U1",
+                    "references": [
+                        {"type": "character", "name": ["坏"]},
+                        {"type": "character", "name": {"k": "v"}},
+                        {"type": "scene", "name": 7},
+                        {"type": "prop", "name": ""},
+                        {"type": "character", "name": "张三"},
+                    ],
+                }
+            ],
+        }
+        enriched = calc.enrich_script(script, generation_mode="reference_video")
+        assert enriched["characters_in_episode"] == ["张三"]
+        assert enriched["scenes_in_episode"] == []
+        assert enriched["props_in_episode"] == []
+
     def test_duck_typing_precedence_segments_over_scenes_over_shots(self):
         """缺 content_mode 的老脚本同时残留多种键时，鸭子类型优先级固定为
         segments > scenes > shots（依赖 _LEGACY_DUCK_TYPE_KINDS 顺序，本测试钉住该顺序）。"""

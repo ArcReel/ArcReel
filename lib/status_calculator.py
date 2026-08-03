@@ -518,7 +518,9 @@ class StatusCalculator:
                         continue
                     ref_type = ref.get("type")
                     name = ref.get("name")
-                    if not name:
+                    # 只收非空字符串：list / dict 名会在 add 处抛 unhashable，数字名会让下游
+                    # sorted() 拿混类型集合抛比较错误，两者同样让项目详情读取失败。
+                    if not isinstance(name, str) or not name:
                         continue
                     if ref_type == "character":
                         chars_set.add(name)
