@@ -743,7 +743,7 @@ _STEP1_FAMILY: dict[str, list[str]] = {
 }
 _STEP1_FAMILY[REFERENCE_VIDEO_STEP1_FILENAME] = [REFERENCE_VIDEO_STEP1_FILENAME, REFERENCE_VIDEO_STEP1_LEGACY_FILENAME]
 
-# step1 实际文件候选 —— 主文件不存在时用于 fallback 探测，兼容 episode 级 generation_mode 覆盖。
+# step1 实际文件候选 —— 主文件不存在时用于 fallback 探测。
 # 结构化 .json 与旧 .md 候选均由单一真相源派生；各自保留旧 .md 以便存量在制品仍可浏览。
 # 跨模式遗留回落的探测优先级固定为 reference_video → narration → drama（保持历史 tie-break，
 # 避免收敛后跨模式选到的遗留文件与旧实现不一致）；未登记于此序列的未来 content_mode 附加在后。
