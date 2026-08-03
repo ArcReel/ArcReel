@@ -233,6 +233,8 @@ def test_combining_char_speaker_binds_audio_in_every_encoding_pairing(registered
         voice_consistency="native",
         max_reference_audio=3,
         audio_ready={registered},
+        require_reference_image=True,
+        speakers_with_reference_image={registered},
     )
     assert bindings.speakers == [_NAME_NFC]
     assert bindings.audio_speakers == [_NAME_NFC]
