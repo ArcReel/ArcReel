@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
+from lib.i18n import _ as i18n_message
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import grids
@@ -146,7 +147,56 @@ class _FakePMNarration(_FakePMPathOnly):
     """ProjectManager 替身：额外提供 load_project，用于 regenerate 的项目校验通过场景。"""
 
     def load_project(self, name):
-        return {"content_mode": "narration"}
+        return {"content_mode": "narration", "generation_mode": "storyboard", "grid_storyboard": True}
+
+
+class _FakePMGridDisabled(_FakePMPathOnly):
+    """ProjectManager 替身：路线合法但宫格开关关闭。"""
+
+    def load_project(self, name):
+        return {"content_mode": "narration", "generation_mode": "storyboard", "grid_storyboard": False}
+
+
+class _FakePMReferenceVideo(_FakePMPathOnly):
+    """ProjectManager 替身：参考生视频路线，即使残留 grid_storyboard=true 也不激活宫格。"""
+
+    def load_project(self, name):
+        return {"content_mode": "narration", "generation_mode": "reference_video", "grid_storyboard": True}
+
+
+def _assert_grid_switch_rejected(resp, queue) -> None:
+    """断言响应是宫格开关专属的拒绝，且拒绝发生在入队之前（不产生计费任务）。"""
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == i18n_message("grid_storyboard_not_enabled")
+    assert queue.calls == []
+
+
+@pytest.mark.parametrize("fake_pm", [_FakePMGridDisabled, _FakePMReferenceVideo])
+def test_generate_grid_rejected_when_switch_off(monkeypatch, fake_pm):
+    # 宫格开关是入队闸门：未开宫格的项目直接 400，不产生计费任务
+    fake_queue = _FakeQueue()
+    client = _client(monkeypatch, get_project_manager=fake_pm, get_generation_queue=lambda: fake_queue)
+    with client:
+        resp = client.post(
+            "/api/v1/projects/demo/generate/grid/1",
+            json={"script_file": "episode_1.json"},
+        )
+        _assert_grid_switch_rejected(resp, fake_queue)
+
+
+@pytest.mark.parametrize("fake_pm", [_FakePMGridDisabled, _FakePMReferenceVideo])
+def test_regenerate_grid_rejected_when_switch_off(monkeypatch, fake_pm):
+    # 开关关闭后历史 grid 记录同样不可重新入队
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=fake_pm,
+        GridManager=_FakeGMNotFound,
+        get_generation_queue=lambda: fake_queue,
+    )
+    with client:
+        resp = client.post("/api/v1/projects/demo/grids/grid-123/regenerate")
+        _assert_grid_switch_rejected(resp, fake_queue)
 
 
 def test_get_grid_not_found(monkeypatch):
@@ -265,7 +315,13 @@ class _FakePMInvalidScriptFile:
     """ProjectManager 替身：load_script 模拟非法 script_file（路径穿越）。"""
 
     def load_project(self, name):
-        return {"content_mode": "narration", "aspect_ratio": "9:16", "style": "anime"}
+        return {
+            "content_mode": "narration",
+            "aspect_ratio": "9:16",
+            "style": "anime",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+        }
 
     def load_script(self, name, script_file):
         raise ValueError(f"非法文件名: '{script_file}'")
@@ -292,7 +348,13 @@ class _FakePMGenerate:
         self._project_path = project_path
 
     def load_project(self, name):
-        return {"content_mode": "narration", "aspect_ratio": "9:16", "style": "anime"}
+        return {
+            "content_mode": "narration",
+            "aspect_ratio": "9:16",
+            "style": "anime",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+        }
 
     def load_script(self, name, script_file):
         return _narration_script()
@@ -420,7 +482,12 @@ class _FakePMRegenerate(_FakePMPath):
     """ProjectManager 替身：驱动 regenerate_grid 成功路径。"""
 
     def load_project(self, name):
-        return {"content_mode": "narration", "aspect_ratio": "9:16"}
+        return {
+            "content_mode": "narration",
+            "aspect_ratio": "9:16",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+        }
 
 
 def test_regenerate_grid_success(monkeypatch, tmp_path):

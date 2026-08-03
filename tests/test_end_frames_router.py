@@ -753,7 +753,14 @@ class TestErrorMapping:
 
 
 def _client_with_project(
-    tmp_path, monkeypatch, *, content_mode, script, project_generation_mode=None, episode_generation_mode=None
+    tmp_path,
+    monkeypatch,
+    *,
+    content_mode,
+    script,
+    project_generation_mode=None,
+    episode_generation_mode=None,
+    grid_storyboard=None,
 ):
     """构造项目/集级 generation_mode 可控的测试 client，用于覆盖生效 generation_mode 判定。"""
     pm = ProjectManager(tmp_path / "projects")
@@ -763,6 +770,8 @@ def _client_with_project(
     project = pm.load_project("demo")
     if project_generation_mode is not None:
         project["generation_mode"] = project_generation_mode
+    if grid_storyboard is not None:
+        project["grid_storyboard"] = grid_storyboard
     episode_entry = {"episode": 1, "title": "E1", "script_file": "scripts/episode_1.json"}
     if episode_generation_mode is not None:
         episode_entry["generation_mode"] = episode_generation_mode
@@ -861,7 +870,7 @@ class TestReferenceVideoRejection:
         _assert_reference_video_rejected(_upload(c, _img_bytes("PNG"), shot_id="E1S01"))
 
     def test_grid_mode_no_regression(self, tmp_path, monkeypatch):
-        # 常规宫格生视频路径不受影响，尾帧设置照常放行。
+        # 常规宫格分镜路径（storyboard + grid_storyboard）不受影响，尾帧设置照常放行。
         script = {
             "episode": 1,
             "title": "E1",
@@ -869,7 +878,12 @@ class TestReferenceVideoRejection:
             "segments": [{"segment_id": "E1S01", "novel_text": "t", "duration_seconds": 5}],
         }
         c, pm = _client_with_project(
-            tmp_path, monkeypatch, content_mode="narration", script=script, project_generation_mode="grid"
+            tmp_path,
+            monkeypatch,
+            content_mode="narration",
+            script=script,
+            project_generation_mode="storyboard",
+            grid_storyboard=True,
         )
         resp = _upload(c, _img_bytes("PNG"), shot_id="E1S01")
         assert resp.status_code == 200, resp.text

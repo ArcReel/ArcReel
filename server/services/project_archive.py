@@ -265,6 +265,23 @@ class ProjectArchiveService:
                     )
 
                     diagnostics = self._repair_project_tree(staging_dir)
+                    # 在校验前对 staging 副本跑完整迁移链（归一化 legacy provider 名 / 拆分 image_backend /
+                    # 生成路线重编码）：启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的
+                    # 旧归档需在此补跑，否则解析链不再读 legacy 字段会让该项目静默回退全局默认，且校验器按
+                    # 最新 schema 形态断言（如 generation_mode 必填二值），未迁移的旧归档会被误拒。放在安装
+                    # **前** → 迁移若抛错，staging 临时目录随 TemporaryDirectory 丢弃、不会留下半迁移的脏项目
+                    # 目录，无需回滚已落盘安装。
+                    # 编码迁移先于 schema 迁移：源文一律先归到 UTF-8，之后所有按 UTF-8 读源文的
+                    # 链路才有统一的输入。转换失败 = 文件本身不可解码（任何路径都读不出），浮成
+                    # 导入 warning 而非中止——局部损坏文件不应阻断整个项目导入。
+                    encoding_summary = migrate_project_source_encoding(staging_dir)
+                    for failed_name in encoding_summary.failed:
+                        diagnostics.add(
+                            "warnings",
+                            "source_encoding_unconverted",
+                            f"源文件编码无法识别，未转换为 UTF-8：source/{failed_name}（分集规划无法读取该文件）",
+                        )
+                    migrate_project_dir(staging_dir)
                     diagnostics.extend_validation(self.validator.validate_project_tree(staging_dir))
                     if diagnostics.blocking:
                         raise ProjectArchiveValidationError(
@@ -288,22 +305,6 @@ class ProjectArchiveService:
                     )
 
                     self._ensure_standard_subdirs(staging_dir)
-
-                    # 在安装前对 staging 副本跑完整迁移链（归一化 legacy provider 名 / 拆分 image_backend）：
-                    # 启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的旧归档需在此补跑，
-                    # 否则解析链不再读 legacy 字段会让该项目静默回退全局默认。放在安装**前** → 迁移若抛错，
-                    # staging 临时目录随 TemporaryDirectory 丢弃、不会留下半迁移的脏项目目录，无需回滚已落盘安装。
-                    # 编码迁移先于 schema 迁移：源文一律先归到 UTF-8，之后所有按 UTF-8 读源文的
-                    # 链路才有统一的输入。转换失败 = 文件本身不可解码（任何路径都读不出），浮成
-                    # 导入 warning 而非中止——局部损坏文件不应阻断整个项目导入。
-                    encoding_summary = migrate_project_source_encoding(staging_dir)
-                    for failed_name in encoding_summary.failed:
-                        diagnostics.add(
-                            "warnings",
-                            "source_encoding_unconverted",
-                            f"源文件编码无法识别，未转换为 UTF-8：source/{failed_name}（分集规划无法读取该文件）",
-                        )
-                    migrate_project_dir(staging_dir)
 
                     self._install_project_dir(
                         staging_dir,

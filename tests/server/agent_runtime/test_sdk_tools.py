@@ -884,7 +884,8 @@ async def test_i2i_provider_available_false_on_value_error(monkeypatch) -> None:
 
 
 async def test_generate_grid_list_only(fake_ctx: ToolContext) -> None:
-    fake_ctx.pm.project_payload["generation_mode"] = "grid"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
     # Need enough segments to form a group with valid layout
     fake_ctx.pm.script_payload["segments"] = [  # type: ignore[attr-defined]
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
@@ -896,9 +897,18 @@ async def test_generate_grid_list_only(fake_ctx: ToolContext) -> None:
 
 
 async def test_generate_grid_wrong_mode(fake_ctx: ToolContext) -> None:
-    # project doesn't have generation_mode='grid' → error
+    # 项目未开启 grid_storyboard → error
     tool_obj = generate_grid_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
+    assert out.get("is_error") is True
+
+
+async def test_generate_grid_rejected_on_reference_video_route(fake_ctx: ToolContext) -> None:
+    # reference_video 路线无分镜图步骤：即使残留 grid_storyboard=true 也不适用宫格工具
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
+    fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
+    tool_obj = generate_grid_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json", "list_only": True})
     assert out.get("is_error") is True
 
 

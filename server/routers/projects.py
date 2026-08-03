@@ -60,7 +60,7 @@ self_auth_router = APIRouter()
 # StatusCalculator 注入的统计字段（scenes_count / status / storyboards / videos 等）
 # 是读时计算值，禁止写回 project.json。title 不在白名单：它以剧本顶层 title 为唯一真相源，
 # 经 _apply_episode_sync 单向同步进 episodes[].title，专用端点 PATCH /episodes/{episode} 写入。
-EPISODE_PERSIST_FIELDS = {"script_file", "generation_mode"}
+EPISODE_PERSIST_FIELDS = {"script_file"}
 
 
 def get_status_calculator() -> StatusCalculator:
@@ -100,7 +100,12 @@ class CreateProjectRequest(BaseModel):
     target_duration: int | None = Field(default=None, gt=0)
     # 仅 content_mode=ad：创作诉求短文本（可空，不走 source_loader）
     brief: str | None = None
-    generation_mode: str | None = None
+    # 生成路线：必填二选一、无默认值——缺失或旧三值 grid 由 Pydantic 校验返回 422，
+    # 不再被默认值悄悄锁进某条路线。创建后不可更改（PATCH 模型结构上无此字段）。
+    generation_mode: Literal["storyboard", "reference_video"]
+    # 宫格分镜开关：只改变分镜图的生产方式，不是独立路线；仅 storyboard 路线有意义，
+    # 创建后可经项目 PATCH 随时切换。ad 项目拒绝开启。
+    grid_storyboard: bool = False
     # ===== 新增 =====
     style_template_id: str | None = None
     video_backend: str | None = None
@@ -131,7 +136,6 @@ class EpisodePatch(BaseModel):
     model_config = ConfigDict(extra="ignore")
     episode: int
     script_file: str | None = None
-    generation_mode: Literal["storyboard", "grid", "reference_video"] | None = None
 
 
 class UpdateProjectRequest(BaseModel):
@@ -146,7 +150,8 @@ class UpdateProjectRequest(BaseModel):
     target_duration: int | None = Field(default=None, gt=0)
     # 仅 ad 项目：创作诉求短文本；显式 null 清为空字符串
     brief: str | None = None
-    generation_mode: str | None = None
+    # 生成路线创建即定、不可变，PATCH 结构上无 generation_mode 字段；宫格开关随时可切
+    grid_storyboard: bool | None = None
     video_backend: str | None = None
     video_provider_i2v: str | None = None
     video_provider_r2v: str | None = None
@@ -511,12 +516,12 @@ async def create_project(
                 raise HTTPException(status_code=400, detail=_t("deprecated_image_backend"))
 
             # 模式专属字段互斥：target_duration/brief 仅 ad 可用；
-            # ad 不暴露 default_duration、不开放 grid 生成模式
+            # ad 不暴露 default_duration、不开放宫格分镜
             content_mode = req.content_mode or "narration"
             if content_mode == "ad":
                 if req.default_duration is not None:
                     raise HTTPException(status_code=400, detail=_t("ad_no_default_duration"))
-                if req.generation_mode == "grid":
+                if req.grid_storyboard:
                     raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
             else:
                 if req.target_duration is not None:
@@ -537,9 +542,10 @@ async def create_project(
             extras = {field: value for field in _PROJECT_BACKEND_FIELDS if (value := getattr(req, field))}
             if req.model_settings is not None:
                 extras["model_settings"] = req.model_settings
-            # generation_mode 并入 extras 一次性写入，避免 create 后再 load-save 的额外 RMW
-            if req.generation_mode is not None:
-                extras["generation_mode"] = req.generation_mode
+            # 生成路线与宫格开关并入 extras 一次性写入，避免 create 后再 load-save 的额外 RMW；
+            # 两字段恒写显式值（grid_storyboard 默认 false 也落盘），新项目即 v5 完整形态
+            extras["generation_mode"] = req.generation_mode
+            extras["grid_storyboard"] = req.grid_storyboard
             with project_change_source("webui"):
                 project = manager.create_project_metadata(
                     project_name,
@@ -579,7 +585,7 @@ async def get_video_capabilities(
 
     三级模型选择（项目 > 系统设置 > 系统默认）后，读 model 的 `supported_durations`
     并派生 `max_duration`；同时带回 `project.json.default_duration`（用户偏好）。
-    所有 generation_mode（storyboard/grid/reference_video）都可复用。
+    两条生成路线（storyboard/reference_video）都可复用。
 
     `video_backend`（"provider/model"）用于设置表单里尚未保存的候选模型：不带该参数时按已
     落盘配置解析，带上则按候选模型 × 本项目的生效 generation_mode 解析，使 voice_consistency 等
@@ -733,13 +739,11 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project["narration_speed"] = speed
                 if "aspect_ratio" in req.model_fields_set and req.aspect_ratio is not None:
                     project["aspect_ratio"] = req.aspect_ratio
-                if "generation_mode" in req.model_fields_set:
-                    if is_ad and req.generation_mode == "grid":
+                if "grid_storyboard" in req.model_fields_set:
+                    if is_ad and req.grid_storyboard:
                         raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
-                    if req.generation_mode is None:
-                        project.pop("generation_mode", None)
-                    else:
-                        project["generation_mode"] = req.generation_mode
+                    # null 与 false 同义：宫格关闭态落盘为显式 false，与创建路径同形态
+                    project["grid_storyboard"] = bool(req.grid_storyboard)
                 if "default_duration" in req.model_fields_set:
                     # ad 项目对字段出现本身即拒绝（含 null）：与创建路径"禁写字段"契约一致，
                     # 避免 null 走删除分支静默返回 200
@@ -791,14 +795,11 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                 if "episodes" in req.model_fields_set and req.episodes is not None:
                     # 合并 episodes：保留现有 episode 的完整数据，仅更新请求中显式提供的字段。
                     # 使用 model_fields_set（而非 exclude_none）判断字段是否显式出现，使得
-                    # `generation_mode: null` 可用于清空集级覆盖、回退到项目级模式继承。
-                    # 白名单同时拦截 StatusCalculator 注入的计算字段（scenes_count / status
-                    # / storyboards / videos 等），防止写回 project.json。
+                    # 传 null 可用于清空对应字段。白名单同时拦截 StatusCalculator 注入的计算
+                    # 字段（scenes_count / status / storyboards / videos 等），防止写回 project.json。
                     existing_list = project.get("episodes", [])
                     patch_map: dict[int, EpisodePatch] = {}
                     for ep in req.episodes:
-                        if is_ad and ep.generation_mode == "grid":
-                            raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
                         patch_map[ep.episode] = ep  # 重复编号：后者覆盖前者
 
                     new_episodes: list[dict] = []

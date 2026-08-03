@@ -216,7 +216,6 @@ VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoCapability] = {
 #: 的 generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。
 VIDEO_BUCKET_BY_GENERATION_MODE: dict[str, VideoCapability] = {
     "storyboard": "i2v",
-    "grid": "i2v",
     "reference_video": "r2v",
 }
 
