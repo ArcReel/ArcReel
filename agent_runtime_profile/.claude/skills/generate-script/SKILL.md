@@ -53,7 +53,7 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
    - narration → step2 走两段式：LLM 的 `response_schema` 是 `NarrationVisualEpisodeScript`（仅 `segment_id` + image_prompt + video_prompt），后端按 `segment_id` 把视觉层合并回 step1 的结构化片段（novel_text / 时长 / segment_break / 出场角色 / 场景 / 道具透传），得到完整 `NarrationEpisodeScript`。novel_text 不进 LLM 输出 → 不发生扩写漂移
    - drama（storyboard，含 grid_storyboard）→ **两段式**：LLM 输出 `DramaVisualScript`（仅 `scene_id` + image_prompt + video_prompt），后端按 scene_id 把视觉层合并回 step1 已定稿内容（`step1_normalized_script.json` 的 utterances / source_text / 出场资产 / 时长 / 边界透传不变），合并结果即 `DramaEpisodeScript`。非视觉字段不进 LLM 输出，从工程上杜绝其经 Structured Outputs 漂移（见 ADR 0041）
 6. **补充元数据** — `episode`、`content_mode`、`novel`（项目 title + `第N集`）、统计信息（片段 / 场景 / unit 数、总时长）、时间戳。这些字段对 LLM 隐藏（SkipJsonSchema），由后端从 `project.json` 注入，避免 LLM 幻觉污染下游消费方（compose-video 的 mp4 文件名、剪映草稿等）。
-   - 注：顶层 `generation_mode` 仅在 narration/drama 的参考生视频剧本中写入（值恒为 `reference_video`）；ad 剧本骨架唯一（仅 `shots[]` + `content_mode`），**不写入顶层 `generation_mode`**，消费方不得按该字段对 ad 剧本分派。
+   - 注：**任何骨架的剧本都不写入顶层 `generation_mode`**。生成路线是项目级事实（`project.json` 的 `generation_mode`，创建时锁定），剧本骨架种类本身即路线的体现；消费方一律读 `project.json` 分派，不得从剧本上找该字段。
 
 ## 输出格式
 
@@ -63,8 +63,8 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
 - `episode` / `content_mode` / `novel`（含 title、chapter）：由后端 `_add_metadata` 注入，不依赖 LLM 输出
 - narration 模式：`segments[]`（每个片段含 novel_text、duration_seconds、segment_break、出场角色 / 场景 / 道具 —— 由 step1 透传；image_prompt、video_prompt —— 由 step2 生成）
 - drama 模式：`scenes[]`（每个场景含 image_prompt、video_prompt、duration_seconds，以及 step1 透传的 utterances、source_text、characters_in_scene 等）
-- ad 模式：`shots[]`（每个镜头含 section、voiceover_text、products_in_shot、image_prompt、video_prompt、duration_seconds 等），`metadata.total_shots`；总时长偏离 `target_duration` 超阈值仅日志提醒，不阻塞保存；无论生成路径如何均**不含**顶层 `generation_mode`
-- reference_video 模式：`video_units[]`（每个 unit 含 `shots[]`、`references[]`、`duration_seconds` 等），`metadata.total_units`，并写入顶层 `generation_mode: "reference_video"`
+- ad 模式：`shots[]`（每个镜头含 section、voiceover_text、products_in_shot、image_prompt、video_prompt、duration_seconds 等），`metadata.total_shots`；总时长偏离 `target_duration` 超阈值仅日志提醒，不阻塞保存
+- reference_video 模式：`video_units[]`（每个 unit 含 `shots[]`、`references[]`、`duration_seconds` 等），`metadata.total_units`
 - `metadata`：total_segments / total_scenes、created_at、generator
 - `duration_seconds`：全集总时长（秒），由后端按各分镜时长求和重算
 

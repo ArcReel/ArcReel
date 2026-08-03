@@ -52,27 +52,27 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - 创作输入为 `project.json` 顶层的 `brief`（创作诉求短文本）与 `target_duration`（目标总时长，秒）；不走小说源文件导入流程
 - 剧本总时长应贴近 `target_duration`，偏差过大时提醒用户而非拒绝保存
 
-> 生成模式通过 `project.json` 的 `generation_mode` 字段配置，与内容模式独立。
+> 生成模式（storyboard / reference_video）由 `project.json` 顶层 `generation_mode` 字段唯一决定，项目创建后不可更改；与内容模式独立。详细规格见 `.claude/references/generation-modes.md`。
 
 ---
 
 ## 生成模式
 
-广告/短片模式仅开放两种**生成模式**（`generation_mode`）：
+广告/短片模式的**生成模式**（`generation_mode`）由 `project.json` 顶层字段唯一表达，创建后不可更改，不存在集级覆盖：
 
 | generation_mode | 名称（UI） | 数据主结构 | 视觉参考来源 |
 |---|---|---|---|
-| `storyboard`（默认） | 图生视频 | `shots[]` + 分镜图 | 每镜头一张分镜图作起始帧 |
+| `storyboard` | 图生视频 | `shots[]` + 分镜图 | 每镜头一张分镜图作起始帧 |
 | `reference_video` | 参考生视频 | `shots[]` 派生分组 | 产品参考 + 资产 sheet 图 |
 
-`grid`（宫格生视频）对广告/短片项目**不开放**：宫格单格分辨率与产品高保真目标冲突。
+宫格装配（`grid_storyboard`）对广告/短片项目**不开放**：宫格单格分辨率与产品高保真目标冲突。
 
 ### 参考直出（reference_video）的派生分组
 
 - 剧本骨架不变（仍是平铺 `shots[]`）；`generate_video_*` 工具会自动把**连续镜头**派生分组为 video_unit（每 unit ≤4 个镜头，unit 总时长受供应商单次生成上限约束），按 unit 直出视频到 `reference_videos/{unit_id}.mp4`，跳过分镜步骤
 - 分组索引持久在剧本 `reference_units` 字段（仅引用 shot_id 与参考集）——由工具派生维护，**不要手工编辑**；shots 是内容唯一真相，镜头编辑后再次生成即自动重新派生，未变化的 unit 不重复生成
 - unit 参考集从成员镜头继承：产品参考全量注入且绝对优先（有 sheet 时 sheet + 原图，无 sheet 时原图直注，自动附高保真指令），其后是角色/场景/道具 sheet；口播文案不进画面 prompt
-- **路径中途切换**：`generation_mode` 切换后镜头时长可能不符新路径约束（storyboard 须取 `supported_durations` 成员、reference 须为 1-15 秒整数）；主动列出越界镜头并建议调整，经 `patch_episode_script` 修正后再生成
+- **镜头时长约束**：reference_video 路径下单镜头时长为 1-15 秒自由整数（storyboard 路径则须取视频模型 `supported_durations` 成员）；越界时主动列出并建议调整，经 `patch_episode_script` 修正后再生成
 
 ---
 
@@ -80,7 +80,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 `/manga-workflow` 编排 skill 按以下阶段推进（每个阶段完成后与用户确认再继续）；用户提到做视频、继续项目、查看进度时使用该 skill。涉及尚未落地的环节时如实告知用户，不要用 narration/drama 的小说流程替代：
 
-1. **创作输入确认**：Read `project.json` 检查 `brief`、`products`、`target_duration`、`generation_mode`。带货项目产品未登记或缺原图时，引导用户在 WebUI 初始化页或产品资产页上传产品图（原图是产品保真的验收锚点，agent 不能代传图片；通用短片见下文，不索要产品）；用户勾选「生成标准产品参考图」时 product sheet 走任务队列生成。`brief` 为空时对话补齐创作诉求（产品/主题、目标人群、期望风格），经 `mcp__arcreel__patch_project` 写入
+1. **创作输入确认**：Read `project.json` 检查 `brief`、`products`、`target_duration`、`generation_mode`。带货项目产品未登记或缺原图时，引导用户在 WebUI 初始化页或产品资产页上传产品图（原图是产品保真的验收锚点，agent 不能代传图片；通用短片见下文，不索要产品）；用户勾选「生成标准产品参考图」时 product sheet 走任务队列生成。`brief` 为空时对话补齐创作诉求（产品/主题、目标人群、期望风格），经 `mcp__arcreel__patch_project` 写入。用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知路线创建后不可更改，无绕过方式；宫格装配对 ad 不开放
 2. **卖点起草确认**：产品已登记但 `selling_points` 为空时，从 brief、产品描述与原图起草卖点列表，与用户确认后经 `patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
 3. **资产设计（可选）**：剧本会用到的角色/场景/道具先定义进 `project.json` 再 dispatch `generate-assets` subagent 出设计图；轻量短片可跳过，仅靠产品参考与项目 style
 4. **一键生成剧本**：`mcp__arcreel__generate_episode_script({"episode": 1})`，八段带货框架按 `target_duration` 选档配比；生成后向用户呈现镜头列表与口播文案，按需经 `patch_episode_script` 调整（镜头顺序调整引导用户到 WebUI 剧本页）
@@ -141,7 +141,7 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 ### project.json 核心字段
 
 - `schema_version`：项目数据格式版本
-- `title`、`content_mode`（固定 `ad`）、`generation_mode`（`storyboard`/`reference_video`）、`style`、`style_description`
+- `title`、`content_mode`（固定 `ad`）、`generation_mode`（`storyboard`/`reference_video`，创建后不可更改）、`style`、`style_description`
 - `target_duration`：目标总时长（秒，正整数）
 - `brief`：创作诉求短文本（可为空）
 - `episodes`：恒为第 1 集单条（episode、title、script_file）

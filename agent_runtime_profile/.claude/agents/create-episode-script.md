@@ -60,8 +60,8 @@ mcp__arcreel__generate_episode_script({"episode": {N}})
 - 文件存在且为有效 JSON
 - 包含 episode、content_mode 字段
 - reference_video 模式：video_units 数组不为空
-- storyboard / grid + narration：segments 数组不为空
-- storyboard / grid + drama：scenes 数组不为空
+- storyboard + narration：segments 数组不为空
+- storyboard + drama：scenes 数组不为空
 
 ### Step 4: 返回摘要
 

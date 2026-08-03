@@ -10,7 +10,7 @@
 ### 视频规格
 - **视频比例**：由项目 `aspect_ratio` 配置决定，无需在 prompt 中指定
 - **单片段/场景时长**：由视频模型能力和项目 `default_duration` 配置决定
-  - storyboard / grid 模式：由项目 `default_duration` 决定
+  - storyboard 模式（含 `grid_storyboard=true`）：由项目 `default_duration` 决定
   - reference_video 模式：由所选视频模型的 `supported_durations` 决定；subagent 运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
@@ -58,7 +58,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 | generation_mode | 名称（UI） | 数据主结构 | 视觉参考来源 |
 |---|---|---|---|
-| `storyboard`（默认） | 图生视频 / 宫格生视频 | `segments[]` 或 `scenes[]` + 分镜图 | 每片段一张分镜图作起始帧；`grid_storyboard=true` 时改用宫格图切块 |
+| `storyboard` | 图生视频 / 宫格生视频 | `segments[]` 或 `scenes[]` + 分镜图 | 每片段一张分镜图作起始帧；`grid_storyboard=true` 时改用宫格图切块 |
 | `reference_video` | 参考生视频 | `video_units[]` | 角色/场景/道具 sheet 图作为参考 |
 
 宫格不是独立生成模式：`grid_storyboard` 是仅在 `generation_mode="storyboard"` 下生效的独立布尔开关，切换宫格 UI 在设置页操作，agent 无法经工具绕过。
@@ -116,7 +116,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 | generate-script | — | 调用项目配置的文本模型生成 JSON 剧本（由 subagent 调用） |
 | generate-assets | `/generate-assets` | 统一资产生成：可指定 `type=character\|scene\|prop`，省略则三类并行 |
 | generate-storyboard | `/generate-storyboard` | 生成分镜图片（storyboard 模式） |
-| generate-grid | `/generate-grid` | 生成宫格分镜图（grid 模式：按 segment_break 分组的链式宫格） |
+| generate-grid | `/generate-grid` | 生成宫格分镜图（`grid_storyboard=true` 时：按 segment_break 分组的链式宫格） |
 | generate-video | `/generate-video` | 生成视频 |
 | generate-narration-audio | `/generate-narration-audio` | 生成旁白配音（按段 TTS，只依赖剧本 novel_text） |
 | compose-video | `/compose-video` | 视频后期合成（BGM、片头片尾、多集拼接，ffmpeg） |
@@ -165,9 +165,9 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 ├── characters/        # 角色设计图
 ├── scenes/            # 场景设计图
 ├── props/             # 道具设计图
-├── storyboards/       # 分镜图片（storyboard / grid 模式）
-├── grids/             # 宫格图（grid 模式）
-├── videos/            # 生成的视频片段（storyboard / grid 模式）
+├── storyboards/       # 分镜图片（storyboard 模式；`grid_storyboard=true` 时存宫格切割出的首尾帧）
+├── grids/             # 宫格大图（storyboard 模式且 `grid_storyboard=true`）
+├── videos/            # 生成的视频片段（storyboard 模式）
 ├── reference_videos/  # 生成的 video_unit（reference_video 模式）
 ├── audio/             # 旁白音频（说书模式，首次生成时创建）
 ├── thumbnails/        # 首帧缩略图

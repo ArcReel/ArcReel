@@ -19,7 +19,7 @@ MCP 工具在读取剧本后检测顶层结构，自动路由到对应 executor�
 
 参考模式跳过分镜图要求，直接把 `{script_file}` 丢给 executor；executor 自行读取 unit.references → 从 characters/scenes/props 三 bucket 解析 sheet 图 → 内存压缩 → 渲染 prompt → 调 VideoBackend。
 
-为每个场景/片段/unit 创建视频。storyboard/grid 模式用分镜图作为起始帧；reference_video 模式用角色/场景/道具参考图作为 `reference_images`，跳过分镜环节。
+为每个场景/片段/unit 创建视频。storyboard 模式用分镜图作为起始帧（`grid_storyboard=true` 时起始帧来自宫格切割）；reference_video 模式用角色/场景/道具参考图作为 `reference_images`，跳过分镜环节。
 
 ### ad 参考直出（派生分组）
 

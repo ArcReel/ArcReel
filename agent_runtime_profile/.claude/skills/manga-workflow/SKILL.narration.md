@@ -222,7 +222,7 @@ dispatch `generate-assets` subagent：
 - `generation_mode == "storyboard"` 且 `grid_storyboard` 为 true → dispatch `generate-assets`，调 `mcp__arcreel__generate_grid`
 - `generation_mode == "reference_video"` → 不触发，直接跳到阶段 7
 
-### storyboard 模式（默认，grid_storyboard=false）
+### storyboard 模式（grid_storyboard=false）
 
 **dispatch `generate-assets` subagent**：
 

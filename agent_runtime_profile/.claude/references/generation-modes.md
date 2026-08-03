@@ -68,8 +68,8 @@ Step 8 旁白配音（仅 narration 内容模式）
 
 ```text
 projects/{name}/          # ← session cwd 已在此
-├── storyboards/          # storyboard 模式，grid_storyboard=false（分镜图）
-├── grids/                # storyboard 模式，grid_storyboard=true（宫格图）
+├── storyboards/          # storyboard 模式分镜图（grid_storyboard=true 时存宫格切割出的首尾帧）
+├── grids/                # storyboard 模式且 grid_storyboard=true（宫格大图）
 ├── reference_videos/     # reference_video 模式视频输出
 ├── videos/               # storyboard 模式视频输出
 └── audio/                # 旁白音频（仅 narration 内容模式，首次生成时创建）
