@@ -103,6 +103,8 @@ PR reaction 是当前审查状态:新 push 启动审查时,Codex 会把上一轮
 
 **actionable**:两家所有本轮新 inline 一律算 actionable,与 CodeRabbit / Gemini / Codex 的评论并入同一批处理。pushback(误报、不该提交的产物等)同样按 `receiving-code-review` 的纪律判断,但落点是 PR 评论说明或 dismiss alert,**不是**回 inline。
 
+**已知误报**:`py/path-injection` 告警中,污点值止步于 `ProjectManager.get_project_path()` 的返回路径本身(内部 `safe_join` 消毒过 project_name)时属已知误报家族——核实告警链路的最终污点确实未越过该函数返回值后,处置为 PR 评论说明 + 转呈用户 dismiss(reason: false positive),不重新分析、不为其改代码。`get_project_path()` 之后又拼接了未经 `safe_join` 处理的其他污点片段(如 `get_source_path()` / `_get_asset_path()` 追加的 `filename`)不属该家族,按常规告警核实处置,不得直接 dismiss。dismiss 权限在用户,不得代执行——转呈后按 SKILL.md「故障处理」的暂停询问场景处理,不得把"已转呈、尚待用户 dismiss"当作退出门槛 2 已满足而继续空转轮询。
+
 **退出门槛**(代替"通过",在准备宣布循环结束时核对):
 
 1. **分析完成且成功**:`codeql_checks.all_ok == true`(要求 total > 0 且无 pending、无 failing;失败态集合定义见 poll.sh header `checks_failing` 条,同名重跑已由 poll.sh 归一为每名最新一条)。`total == 0` 只说明分析未注册(继续等待)或仓库未接入(见下),不是通过;`failing` 非空时 alerts 数据停留在上次成功分析,直接核对门槛 2 会漏报新告警——归入故障类暂停。分析超过 25 分钟未完成同样归入故障类暂停
