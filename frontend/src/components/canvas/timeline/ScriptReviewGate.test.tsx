@@ -109,10 +109,12 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(saveBtn);
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
-    const [, , savedContent] = save.mock.calls[0];
+    const [, , savedContent, baseFingerprint] = save.mock.calls[0];
     expect(savedContent).toMatchObject({
       scenes: [{ utterances: [{ text: "三年后。" }, { text: "你怎么才回来。" }] }],
     });
+    // 保存携带 GET 时拿到的内容指纹，供服务端做并发编辑冲突比对
+    expect(baseFingerprint).toBe("fp1");
   });
 
   it("renders narration novel_text as editable", async () => {

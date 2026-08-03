@@ -476,20 +476,20 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     if (!draft) return;
     setSaving(true);
     try {
-      adopt(await API.saveScriptReviewContent(projectName, episode, draft));
+      adopt(await API.saveScriptReviewContent(projectName, episode, draft, state?.fingerprint));
       pushToast(t("dashboard:review_saved"), "success");
     } catch (err) {
       pushToast(errorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
     } finally {
       setSaving(false);
     }
-  }, [draft, projectName, episode, adopt, pushToast, t]);
+  }, [draft, state, projectName, episode, adopt, pushToast, t]);
 
   const handleConfirm = useCallback(async () => {
     setConfirming(true);
     try {
       if (dirty && draft) {
-        adopt(await API.saveScriptReviewContent(projectName, episode, draft));
+        adopt(await API.saveScriptReviewContent(projectName, episode, draft, state?.fingerprint));
       }
       adopt(await API.confirmScriptReview(projectName, episode));
       // 两次 await 期间用户可能已切走项目（本组件所在的 tab 可能因此被卸载）：只在项目本身
@@ -506,7 +506,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     } finally {
       setConfirming(false);
     }
-  }, [dirty, draft, projectName, episode, adopt, pushToast, t]);
+  }, [dirty, draft, state, projectName, episode, adopt, pushToast, t]);
 
   const handleRequestFix = useCallback(() => {
     const violations = state?.quarantine?.violations ?? [];

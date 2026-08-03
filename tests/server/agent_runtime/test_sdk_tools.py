@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from lib import script_review
 from lib.reference_video.draft_validation import DraftViolation
 from lib.reference_video.quarantine import (
     QUARANTINE_KIND_STEP1,
@@ -3915,6 +3916,95 @@ async def test_open_reference_step1_for_edit_rejects_non_reference_episode(fake_
 
     assert out.get("is_error") is True
     assert not _rv_quarantine_path(fake_ctx).exists()
+
+
+# ---------------------------------------------------------------------------
+# step1 乐观并发控制（取回时记基线指纹，晋升前锁内比对）
+# ---------------------------------------------------------------------------
+
+
+async def test_open_reference_step1_for_edit_records_base_fingerprint(fake_ctx: ToolContext) -> None:
+    """取回时把正式文件此刻的内容指纹记进 meta.base_fingerprint，供晋升前基线比对。"""
+    _rv_source(fake_ctx)
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+
+    out = await _open_for_edit(fake_ctx)
+
+    assert out.get("is_error") is not True, out
+    meta = _read_rv_quarantine(fake_ctx)["meta"]
+    assert meta["base_fingerprint"] == script_review.content_fingerprint(_rv_step1_path(fake_ctx))
+
+
+async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: ToolContext, monkeypatch) -> None:
+    """「用户在审阅门编辑 + agent 改隔离草稿并晋升」的双端并发：取回后正式文件被另一写入方
+    改过时，晋升中止并返回冲突报告（含最新内容与合并指引），不静默覆盖对方的修改；草稿
+    留在原地。按报告把 meta.base_fingerprint 更新为现值（显式确认已合并）后方可重新晋升。"""
+    _rv_source(fake_ctx)
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    await _open_for_edit(fake_ctx, source="source/episode_1.txt")
+
+    # 模拟取回之后 Web 端保存改写了正式文件
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 在 @[村口] 等候"])])
+    web_version = _rv_step1_path(fake_ctx).read_text(encoding="utf-8")
+
+    out = await _promote(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is True
+    report = out["content"][0]["text"]
+    assert "并发冲突" in report
+    assert "base_fingerprint" in report
+    # 冲突报告附上盘上现值的扁平书写层，供 agent 对照合并
+    assert "在 @[村口] 等候" in report
+    # 正式文件未被覆盖，草稿仍在场
+    assert _rv_step1_path(fake_ctx).read_text(encoding="utf-8") == web_version
+    assert _rv_quarantine_path(fake_ctx).exists()
+
+    # 按报告指引更新基线指纹（显式确认已合并对方修改）后重新晋升即放行
+    envelope = _read_rv_quarantine(fake_ctx)
+    envelope["meta"]["base_fingerprint"] = script_review.content_fingerprint(_rv_step1_path(fake_ctx))
+    _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    out = await _promote(fake_ctx, monkeypatch)
+    assert out.get("is_error") is not True, out
+    assert not _rv_quarantine_path(fake_ctx).exists()
+
+
+async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx: ToolContext, monkeypatch) -> None:
+    """基线机制引入前产出的存量草稿缺 meta.base_fingerprint 键：按无基线晋升，不被新校验卡死。"""
+    _rv_source(fake_ctx)
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    await _open_for_edit(fake_ctx, source="source/episode_1.txt")
+    envelope = _read_rv_quarantine(fake_ctx)
+    del envelope["meta"]["base_fingerprint"]
+    _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    # 取回后正式文件又被改过——存量草稿无基线可比，照旧覆盖（维持引入前语义）
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 在 @[村口] 等候"])])
+
+    out = await _promote(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is not True, out
+    assert not _rv_quarantine_path(fake_ctx).exists()
+
+
+async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: ToolContext, monkeypatch) -> None:
+    """拆分违约落隔离草稿时同样记基线：修好晋升前正式文件被并发改写的话按基线中止。
+    首拆时正式文件不存在，基线为 null——晋升时若正式文件已被另一次拆分写出，同样判冲突。"""
+    _rv_source(fake_ctx)
+    await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[不存在的人] 出场")])
+
+    meta = _read_rv_quarantine(fake_ctx)["meta"]
+    assert "base_fingerprint" in meta
+    assert meta["base_fingerprint"] is None
+
+    # 草稿在场期间正式文件被写出（另一路径），修好草稿后晋升应报冲突而非覆盖
+    _write_rv_step1(fake_ctx, [_rv_saved_unit(["@[张三] 起身"])])
+    envelope = _read_rv_quarantine(fake_ctx)
+    envelope["content"]["units"][0]["text"] = "镜头1：@[张三] 出场"
+    _rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await _promote(fake_ctx, monkeypatch)
+
+    assert out.get("is_error") is True
+    assert "并发冲突" in out["content"][0]["text"]
 
 
 @pytest.mark.parametrize(

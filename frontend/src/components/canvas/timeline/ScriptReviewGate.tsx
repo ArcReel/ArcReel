@@ -248,20 +248,20 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     if (!draft) return;
     setSaving(true);
     try {
-      adopt(await API.saveScriptReviewContent(projectName, episode, draft));
+      adopt(await API.saveScriptReviewContent(projectName, episode, draft, state?.fingerprint));
       pushToast(t("dashboard:review_saved"), "success");
     } catch (err) {
       pushToast(errorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
     } finally {
       setSaving(false);
     }
-  }, [draft, projectName, episode, adopt, pushToast, t]);
+  }, [draft, state, projectName, episode, adopt, pushToast, t]);
 
   const handleConfirm = useCallback(async () => {
     setConfirming(true);
     try {
       if (dirty && draft) {
-        adopt(await API.saveScriptReviewContent(projectName, episode, draft));
+        adopt(await API.saveScriptReviewContent(projectName, episode, draft, state?.fingerprint));
       }
       adopt(await API.confirmScriptReview(projectName, episode));
       pushToast(t("dashboard:review_confirmed"), "success");
@@ -270,7 +270,7 @@ export function ScriptReviewGate({ projectName, episode, contentMode }: ScriptRe
     } finally {
       setConfirming(false);
     }
-  }, [dirty, draft, projectName, episode, adopt, pushToast, t]);
+  }, [dirty, draft, state, projectName, episode, adopt, pushToast, t]);
 
   const updateDramaScene = (index: number, patch: Partial<DramaSceneContent>) => {
     setDraft((prev) => {

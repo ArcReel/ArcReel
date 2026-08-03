@@ -25,12 +25,14 @@ _ERROR_STATUS: dict[str, int] = {
     "invalid_content": 422,
     "episode_not_found": 404,
     "quarantined": 409,
+    "conflict": 409,
 }
 # 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 _raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
     "not_applicable": "script_review_not_applicable",
     "no_step1": "script_review_no_step1",
     "quarantined": "script_review_quarantined",
+    "conflict": "script_review_conflict",
 }
 
 
@@ -104,8 +106,12 @@ async def update_script_review_content(
     episode: int,
     _t: Translator,
     content: dict = Body(...),
+    base_fingerprint: str | None = None,
 ):
     """保存手动 / agent 编辑后的结构化中间态，并使该集重新进入待审。
+
+    ``base_fingerprint``（query）是编辑方 GET 时拿到的内容指纹：给定时服务端在锁内比对，
+    编辑期间 step1 被另一写入方改过则 409 冲突、不落盘；缺省不比对（无基线的直连调用）。
 
     ``quarantine`` 同 GET 一并合并：保存作用于正式草稿，与隔离草稿是两份独立文件，保存在途时
     agent 可能已经另外产出一份新的隔离草稿——响应缺这个字段的话 ``adopt()`` 会把它当作
@@ -119,7 +125,7 @@ async def update_script_review_content(
     """
     try:
         service = ScriptReviewService(get_project_manager())
-        state = await service.save_content(project_name, episode, content)
+        state = await service.save_content(project_name, episode, content, base_fingerprint)
         quarantine = await service.get_quarantine_info(project_name, episode)
         await _attach_duration_tiers(service, project_name, episode, state)
         state["quarantine"] = _localize_quarantine_violations(quarantine, _t)

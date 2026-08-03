@@ -102,6 +102,10 @@ MESSAGES = {
     "script_review_quarantined": (
         "This episode has a rejected Step 1 draft awaiting repair; let the agent fix and promote it before confirming"
     ),
+    "script_review_conflict": (
+        "The Step 1 draft was modified by another editor while you were editing; your save was not applied. "
+        "Refresh to see the latest content, merge your changes, then save again"
+    ),
     "script_review_invalid_content": "Step 1 draft structure validation failed: {details}",
     "script_review_quarantine_unreadable": (
         "The quarantined draft file is corrupted or malformed and can't be read; ask the agent to re-split this episode"

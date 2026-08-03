@@ -943,7 +943,7 @@ class TestFilesRouter:
 
     def test_draft_content_reference_video_mode(self, tmp_path, monkeypatch):
         """参考生视频模式下读/写 step1_reference_units.json，避免被按 content_mode 错误路由；
-        旧 .md 仅存量兼读，写入落结构化 .json"""
+        旧 .md 仅存量兼读，写入经 ScriptReviewService 单一出口做结构校验后落结构化 .json"""
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
 
@@ -952,6 +952,9 @@ class TestFilesRouter:
         payload = json.loads(project_json.read_text(encoding="utf-8"))
         payload["generation_mode"] = "reference_video"
         project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 分集须可登记（save_content 的写入前置）：派生源文在场即可经孤儿分集自愈补建条目
+        (project_dir / "source").mkdir(parents=True, exist_ok=True)
+        (project_dir / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
 
         drafts_dir = project_dir / "drafts" / "episode_1"
         drafts_dir.mkdir(parents=True, exist_ok=True)
@@ -963,19 +966,35 @@ class TestFilesRouter:
             assert resp.status_code == 200
             assert resp.text == "E1U1 stub"
 
-            # 写入时按 generation_mode 路由到结构化 step1_reference_units.json
+            # 裸文本 / 非法结构不再直写正式 step1（旁路已收敛到单一写盘出口）
+            bad = client.put(
+                "/api/v1/projects/demo/drafts/1/step1",
+                content="raw text",
+                headers={"content-type": "text/plain"},
+            )
+            assert bad.status_code == 400
+            invalid = client.put(
+                "/api/v1/projects/demo/drafts/1/step1",
+                content='{"units": [{"bogus": 1}]}',
+                headers={"content-type": "text/plain"},
+            )
+            assert invalid.status_code == 422
+
+            # 合法结构化内容按 generation_mode 路由到 step1_reference_units.json
+            unit = {"unit_id": "E1U01", "shots": [{"text": "镜头描述"}], "duration_seconds": 8}
             update = client.put(
                 "/api/v1/projects/demo/drafts/1/step1",
-                content='{"units": []}',
+                content=json.dumps({"units": [unit]}, ensure_ascii=False),
                 headers={"content-type": "text/plain"},
             )
             assert update.status_code == 200
             assert update.json()["path"] == "drafts/episode_1/step1_reference_units.json"
 
-            # 结构化 .json 存在后优先于旧 .md
+            # 结构化 .json 存在后优先于旧 .md；落盘的是校验后的结构化内容
             resp = client.get("/api/v1/projects/demo/drafts/1/step1")
             assert resp.status_code == 200
-            assert resp.text == '{"units": []}'
+            saved = json.loads(resp.text)
+            assert saved["units"][0]["unit_id"] == "E1U01"
 
     def test_draft_content_fallback_when_mode_mismatches_file(self, tmp_path, monkeypatch):
         """content_mode=narration 但磁盘上只有 reference_units 文件（集级模式切换/历史项目）也能读到"""
@@ -1003,11 +1022,14 @@ class TestFilesRouter:
 
         drafts_dir = project_dir / "drafts" / "episode_2"
         drafts_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / "source").mkdir(parents=True, exist_ok=True)
+        (project_dir / "source" / "episode_2.txt").write_text("原文", encoding="utf-8")
 
         with client:
+            unit = {"unit_id": "E2U01", "shots": [{"text": "镜头描述"}], "duration_seconds": 8}
             update = client.put(
                 "/api/v1/projects/demo/drafts/2/step1",
-                content="ep2 reference units",
+                content=json.dumps({"units": [unit]}, ensure_ascii=False),
                 headers={"content-type": "text/plain"},
             )
             assert update.status_code == 200

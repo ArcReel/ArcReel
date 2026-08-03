@@ -880,7 +880,7 @@ class ScriptGenerator:
             # 存量草稿的 per-shot 时长一次性收编到 unit 级并回写落盘（二次加载不再触发）。
             # 此处持有模型档位，收编结果直接取档，与下方的枚举校验对齐。
             migrated_project, migration_warnings = migrate_step1_draft_in_place(
-                step1_json,
+                self.project_path,
                 raw,
                 episode=episode,
                 update_project=lambda mutate: pm.update_project(self.project_path.name, mutate),
