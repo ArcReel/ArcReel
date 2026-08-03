@@ -73,15 +73,15 @@ _IMAGE_EXTS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".webp")
 #   stable_png — 稳定单图名 `{name}.png`（实际后缀由图片归一化结果决定）
 #   keep_ext   — 稳定单图名，保留上传的原扩展名（音频不转码）
 #   sequenced  — 多图累积，按序号取唯一名
-#   original   — 原样保留上传文件名
-Naming = Literal["stable_png", "keep_ext", "sequenced", "original"]
+#   delegated  — 主流程不参与命名，由该类型的专用分支决定
+Naming = Literal["stable_png", "keep_ext", "sequenced", "delegated"]
 
 # 落盘前的内容处理
 #   normalize_image — 校验并按阈值压缩，可能改写扩展名
 #   validate_image  — 仅校验可解码，保留原件字节
-#   audio           — 校验体积与时长，不转码
-#   none            — 不处理，由专用分支接管
-ContentCheck = Literal["normalize_image", "validate_image", "audio", "none"]
+#   audio           — 校验时长，不转码（体积由 max_bytes 独立把关）
+#   delegated       — 主流程不处理内容，由该类型的专用分支决定
+ContentCheck = Literal["normalize_image", "validate_image", "audio", "delegated"]
 
 MetadataSetter = Callable[[ProjectManager, str, str, str], object]
 
@@ -99,6 +99,7 @@ class UploadSpec:
     naming: Naming
     content_check: ContentCheck
     unsupported_ext_key: str = "unsupported_image_type"
+    # 请求体上限，None 表示不限；对所有类型生效，与 content_check 无关
     max_bytes: int | None = None
     metadata_setter: MetadataSetter | None = None
     # 非空表示文件挂在宿主资产的字段下、该字段是文件的唯一指针：宿主不存在就拒收
@@ -109,13 +110,18 @@ class UploadSpec:
     # 替换参考音频时先解析旧文件路径，等新文件与字段写入成功后再删除
     tracks_stale_audio: bool = False
 
+    def __post_init__(self) -> None:
+        # 宿主约束与其 404 文案必须成对登记，否则拒收路径会拿空 key 去取翻译
+        if (self.host_bucket is None) != (not self.host_not_found_key):
+            raise ValueError("host_bucket 与 host_not_found_key 必须成对登记")
+
 
 UPLOAD_SPECS: dict[str, UploadSpec] = {
     "source": UploadSpec(
         allowed_exts=(".txt", ".md", ".docx", ".epub", ".pdf"),
         subdir=("source",),
-        naming="original",
-        content_check="none",
+        naming="delegated",
+        content_check="delegated",
     ),
     "character": UploadSpec(
         allowed_exts=_IMAGE_EXTS,
@@ -287,12 +293,13 @@ async def upload_file(
     try:
         content = await file.read()
 
+        if spec.max_bytes is not None and len(content) > spec.max_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail=_t("upload_too_large", max_mb=spec.max_bytes // (1024 * 1024)),
+            )
+
         if spec.content_check == "audio":
-            if spec.max_bytes is not None and len(content) > spec.max_bytes:
-                raise HTTPException(
-                    status_code=400,
-                    detail=_t("upload_too_large", max_mb=spec.max_bytes // (1024 * 1024)),
-                )
             try:
                 duration = await probe_audio_duration_seconds(content, ext)
             except ValueError:
