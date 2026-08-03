@@ -743,6 +743,7 @@ async def test_execute_reference_video_task_sends_reference_audio_in_prompt_orde
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
 async def test_execute_reference_video_task_omits_reference_audio_when_episode_is_silent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

@@ -628,7 +628,10 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
             resolver = ConfigResolver(async_session_factory)
             caps["requested_generate_audio"] = await resolver.video_generate_audio_for_project(project)
         except Exception as inner_exc:  # noqa: BLE001
-            logger.warning("video_generate_audio 独立解析也失败，声音提示按能力字段同口径降级：%s", inner_exc)
+            # 与其余能力字段的「不明时不额外收紧」相反：这里不明时收紧到 False——静默丢掉
+            # 一次声音提示，好过在双重解析失败时把用户的无声意图错读成有声。
+            logger.warning("video_generate_audio 独立解析也失败，声音提示按无声降级：%s", inner_exc)
+            caps["requested_generate_audio"] = False
     durations = [int(d) for d in caps.get("supported_durations") or []]
     if not durations:
         durations = list(DEFAULT_FALLBACK)

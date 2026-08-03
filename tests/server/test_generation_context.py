@@ -234,6 +234,7 @@ class TestVideoLane:
         assert ctx.video.max_reference_images is None
         assert ctx.video.backend_model == "mystery-model"
 
+    @pytest.mark.integration
     async def test_requested_generate_audio_follows_project_override(self, session_factory, project_env, fake_assemble):
         """本集无声开关随 project.json 覆盖进 lane，编排层据此决定要不要组装参考音频。"""
         video_model = _registry_video_model("ark")
@@ -245,6 +246,7 @@ class TestVideoLane:
         )
         assert ctx.video.requested_generate_audio is False
 
+    @pytest.mark.integration
     async def test_requested_generate_audio_survives_capability_failure(
         self, session_factory, project_env, monkeypatch
     ):

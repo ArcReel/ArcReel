@@ -24,12 +24,20 @@ async def project_video_caps(project: dict, *, degraded_to: str, episode: int | 
     ``degraded_to`` 只用于日志，说明这次解析失败会让调用方退化成什么行为。
     ``episode`` 给出集号时按该集生效 ``generation_mode`` 解析（生成模式可被单集覆盖）。
     """
+    resolver = ConfigResolver(async_session_factory)
     try:
-        resolver = ConfigResolver(async_session_factory)
         return await resolver.video_capabilities_for_project(project, episode)
     except (ValueError, SQLAlchemyError) as exc:
         logger.info("无法解析 video_capabilities，%s：%s", degraded_to, exc)
-        return {}
+        caps: dict = {}
+        # requested_generate_audio 不依赖能力接口，独立解析：能力解析失败不能连带把用户的
+        # 无声意图丢回默认值 True，否则预览会漏发 ref_warn_silent_episode、与执行层脱节。
+        try:
+            caps["requested_generate_audio"] = await resolver.video_generate_audio_for_project(project)
+        except (ValueError, SQLAlchemyError) as inner_exc:
+            logger.info("video_generate_audio 独立解析也失败，%s：%s", degraded_to, inner_exc)
+            caps["requested_generate_audio"] = False
+        return caps
 
 
 async def resolve_project_voice_consistency(project: dict, episode: int | None = None) -> VoiceConsistency:
