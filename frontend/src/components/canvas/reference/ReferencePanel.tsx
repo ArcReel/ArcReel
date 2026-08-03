@@ -27,7 +27,7 @@ import { normalizeAssetName } from "@/utils/reference-mentions";
 
 const PICKER_ID = "reference-panel-mention-picker";
 
-// Drag id format: `${type}:${name}`.
+// refId 用于 baseIds/existingKeys（资产存在性判断），不是拖拽身份——拖拽身份见下方 sortableIds。
 const refId = (r: ReferenceResource): string => `${r.type}:${normalizeAssetName(r.name)}`;
 
 type BucketEntry = Partial<Record<"character_sheet" | "scene_sheet" | "prop_sheet", string>>;
@@ -114,7 +114,7 @@ export function ReferencePanel({
   );
 
   // baseIds 可能重复：PATCH 接口只校验 references 逐条已登记，不校验数组内互相去重，
-  // 一个 unit 的 references 里可能同时留有同一资产的 NFC/NFD 两条历史记录。existingKeys（供
+  // 一个 unit 的 references 里可能同时留有同一资产的 NFC/NFD 两条等价记录。existingKeys（供
   // 候选过滤用）用 baseIds，语义是「已存在该资产」，与下面 sortableIds 的「拖拽身份」无关。
   const baseIds = useMemo(() => references.map(refId), [references]);
   const existingKeys = useMemo(() => new Set(baseIds), [baseIds]);
