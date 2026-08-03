@@ -649,6 +649,15 @@ class ConfigResolver:
         async with self._open_session() as (session, svc):
             return await self._resolve_video_generate_audio(svc, project_name)
 
+    async def video_generate_audio_for_project(self, project: dict | None) -> bool:
+        """同 :meth:`video_generate_audio`，但接收调用方已加载的 project 字典，不重复读盘。
+
+        供需要与 video capabilities 解析**独立**判定用户无声意图的调用方使用：能力解析（如
+        ``video_capabilities_for_model``）失败不应连带丢失这个值——它本就不依赖能力接口。
+        """
+        async with self._open_session() as (_session, svc):
+            return await self._resolve_video_generate_audio_from_project(svc, project)
+
     async def default_video_backend(self) -> tuple[str, str]:
         """返回系统级默认 (provider_id, model_id)（不含项目级覆盖）。"""
         async with self._open_session() as (session, svc):
@@ -815,6 +824,7 @@ class ConfigResolver:
               "first_frame": bool,                 # 生效值（系统判定 ⊕ 用户覆盖），与执行层同源
               "last_frame": bool,                  # 同上
               "generate_audio": bool,              # backend 默认执行档生效后的计价参数
+              "requested_generate_audio": bool,    # 用户在 project.json/全局设置里的无声意图请求值，非计价口径
               "max_reference_audio_count": int,    # 每请求可携带的参考音频段数上限（backend 声明）
               "reference_audio_per_image": bool,   # 音频是否须逐段挂在具体参考素材项上（backend 声明）
               "source": "registry" | "custom",
@@ -1358,6 +1368,10 @@ class ConfigResolver:
 
         max_duration = max(supported_durations)
 
+        # requested_generate_audio 是**用户的无声意图**（全局设置 ← project.json 覆盖），与执行层
+        # MediaGenerator 读的 video_generate_audio 同源；下面的 generate_audio 是**计价口径**（叠加了
+        # 恒含音出账与默认执行档判定），两者不等价，故并列透出，消费方按语义各取一个：判「本集要不要
+        # 组装参考音频」只能读前者。
         requested_generate_audio = await self._resolve_video_generate_audio_from_project(svc, project)
         # 恒含音出账的 provider 无视请求值；其余 backend 只有在项目请求开启、且无上下文能力
         # 接口确认默认执行档会产出人声时，计价参数才为 True。
@@ -1395,6 +1409,7 @@ class ConfigResolver:
             "first_frame": first_frame,
             "last_frame": last_frame,
             "generate_audio": generate_audio,
+            "requested_generate_audio": requested_generate_audio,
             "max_reference_audio_count": max_reference_audio_count,
             "reference_audio_per_image": reference_audio_per_image,
             "source": source,

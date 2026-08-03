@@ -87,6 +87,28 @@ def test_dialogue_renders_as_subject_speaks_and_binds_audio_when_native():
     assert rendered.audio_speaker_reference_index == [0]
 
 
+def test_silent_episode_drops_audio_binding_but_keeps_dialogue():
+    """ad 路径与剧集路径同口径：无声视频不带参考音频，台词照发作口型参考。"""
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "太好用了"}])]
+    entries = [_entry("小美", "角色「小美」设计图")]
+
+    rendered = render_ad_backend_prompt(
+        shots,
+        entries,
+        _project(),
+        voice_consistency="native",
+        requested_generate_audio=False,
+        max_reference_audio=2,
+        audio_ready={"小美"},
+    )
+
+    assert rendered.audio_speakers == []
+    assert rendered.audio_speaker_reference_index == []
+    assert "@音频" not in rendered.prompt
+    assert "<小美>说 {太好用了}" in rendered.prompt
+    assert [w["key"] for w in rendered.warnings] == ["ref_warn_silent_episode"]
+
+
 def test_voiceover_text_excluded_ambiance_kept_as_prose():
     shots = [_shot("E1S1")]
 

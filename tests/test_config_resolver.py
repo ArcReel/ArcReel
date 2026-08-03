@@ -904,6 +904,23 @@ class TestVoiceConsistency:
         )
         assert caps["voice_consistency"] == "native"
 
+    async def test_requested_generate_audio_is_exposed_separately_from_pricing_value(self):
+        """caps 并列透出用户无声意图与计价口径：AI Studio Veo 恒按含音出账，但项目关掉音频时
+        编排层必须读到 False（否则无声视频照旧上传参考音频）。"""
+        caps = await self._caps(
+            {
+                "video_backend": "gemini-aistudio/veo-3.1-generate-preview",
+                "generation_mode": "reference_video",
+                "video_generate_audio": False,
+            }
+        )
+        assert caps["requested_generate_audio"] is False
+        assert caps["generate_audio"] is True
+
+    async def test_requested_generate_audio_defaults_to_true(self):
+        caps = await self._caps({"video_backend": "ark/doubao-seedance-2-0-260128"})
+        assert caps["requested_generate_audio"] is True
+
     async def test_seedance_2_non_reference_mode_downgrades_to_soft(self):
         """同一模型非参考生视频路径：native 蕴含有音轨，降格恒落 soft，不落 none。"""
         caps = await self._caps(

@@ -3153,6 +3153,52 @@ async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monke
     assert caps.max_refs is None
 
 
+@pytest.mark.unit
+async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_failure(monkeypatch) -> None:
+    """能力查询失败时，`raw["requested_generate_audio"]` 仍随项目覆盖走，不回退成 True。
+
+    它不依赖能力接口独立解析（同 generation_context.py），否则声音提示层会漏发
+    WARN_SILENT_EPISODE，误导用户以为本集仍会尝试组装参考音频。独立解析本身照原样
+    mock 掉（不经 async_session_factory 打真实 DB）：这条测不验证 DB 读取，只验证
+    能力查询失败下 caps 字典的组装口径，打真 DB 只会让结果依赖本机是否已初始化好应用库。
+    """
+    from lib.config.resolver import ConfigResolver
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def _raising_caps(_project, _episode=None):
+        raise ValueError("no provider configured")
+
+    async def _fake_project_audio(self, project):
+        return bool(project.get("video_generate_audio", True))
+
+    monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
+    monkeypatch.setattr(ConfigResolver, "video_generate_audio_for_project", _fake_project_audio)
+    caps = await mod._fetch_reference_caps_with_fallback({"video_generate_audio": False}, 1)
+    assert caps.raw.get("requested_generate_audio") is False
+
+
+@pytest.mark.unit
+async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_failure(monkeypatch) -> None:
+    """独立解析也失败（双重故障）时收紧到 False，不得落回 True。
+
+    与其余能力字段「不明时不额外收紧」相反：这里不明时假定无声，代价只是少发一条声音
+    提示；假定有声则会让 `derive_voice_bindings` 在派生阶段继续算参考音频，误导排查方向。
+    """
+    from lib.config.resolver import ConfigResolver
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def _raising_caps(_project, _episode=None):
+        raise ValueError("no provider configured")
+
+    async def _raising_project_audio(self, _project):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
+    monkeypatch.setattr(ConfigResolver, "video_generate_audio_for_project", _raising_project_audio)
+    caps = await mod._fetch_reference_caps_with_fallback({"video_generate_audio": False}, 1)
+    assert caps.raw.get("requested_generate_audio") is False
+
+
 def _rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = None):
     """构造返回指定扁平 units JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
 

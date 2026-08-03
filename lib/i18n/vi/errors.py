@@ -272,6 +272,11 @@ MESSAGES = {
     "ref_warn_silent_model": (
         "Mô hình video hiện tại '{model}' không tạo âm thanh, lời thoại chỉ dùng làm gợi ý cho prompt"
     ),
+    "ref_warn_silent_episode": (
+        "Tập này đã tắt âm thanh tham chiếu: không tải lên âm thanh tham chiếu, tính nhất quán giọng nói "
+        "không có hiệu lực, lời thoại chỉ dùng làm gợi ý cho prompt; video hoàn chỉnh có tiếng hay không "
+        "tùy thuộc vào mô hình đã chọn"
+    ),
     # Episode meta
     "episode_not_found": "Không tìm thấy tập {episode} hoặc tập chưa có tệp kịch bản",
     "episode_title_empty": "Tiêu đề tập không được để trống",

@@ -574,6 +574,25 @@ def test_script_preview_uses_project_voice_capabilities(client: TestClient, monk
 
 
 @pytest.mark.integration
+def test_script_preview_warns_when_episode_is_silent(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """本集设为无声视频时，预览面板告知声音一致性不生效（模型仍是 A 类）。"""
+    _patch_video_caps(
+        monkeypatch,
+        {
+            "voice_consistency": "native",
+            "max_reference_audio_count": 3,
+            "requested_generate_audio": False,
+            "model": "doubao-seedance-2-0",
+        },
+    )
+    body = _preview(client, "镜头1：开场。\n@[张三]：{我来了}").json()
+    assert [w["key"] for w in body["warnings"]] == ["ref_warn_silent_episode"]
+    assert body["warnings"][0]["message"] != "ref_warn_silent_episode"
+    # 台词照常派生：无声只影响参考音频，不影响下发给供应商的台词文本
+    assert [u["text"] for u in body["utterances"]] == ["我来了"]
+
+
+@pytest.mark.integration
 def test_script_preview_404_for_unknown_episode(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     _patch_video_caps(monkeypatch, {})
     resp = client.post(

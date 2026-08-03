@@ -59,6 +59,7 @@ from lib.reference_video.quarantine import (
 )
 from lib.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
+    WARN_SILENT_EPISODE,
     WARN_SILENT_MODEL,
     WARN_SPEAKER_WITHOUT_AUDIO,
     derive_utterances,
@@ -580,9 +581,10 @@ class ReferenceSplitCaps(NamedTuple):
     可能合法；归属哪一套要等正文派生出 references 才知道。三者相等即该型号在当前分辨率下未声明
     生效的「参考图↔时长」联动约束，多数型号如此。
 
-    ``raw`` 是解析到的原始能力 dict（故障回退时为空 dict），供声音相关的三条容忍 warning 取
-    ``voice_consistency`` / ``max_reference_audio_count`` / ``model``——它们与时长档位同源于这
-    一次解析，分两次查会让同一份产物的档位与声音提示描述不同时刻的配置。
+    ``raw`` 是解析到的原始能力 dict（故障回退时为空 dict），供声音相关的容忍 warning 取
+    ``voice_consistency`` / ``max_reference_audio_count`` / ``requested_generate_audio`` /
+    ``model``——它们与时长档位同源于这一次解析，分两次查会让同一份产物的档位与声音提示描述
+    不同时刻的配置。
     """
 
     default_duration: int | None
@@ -620,6 +622,16 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
     except Exception as exc:  # noqa: BLE001
         logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         caps = {}
+        # requested_generate_audio 不依赖能力接口（见 generation_context.py 同名字段注释），
+        # 能力解析失败也不能连带丢失，否则本该报的 WARN_SILENT_EPISODE 会静默消失。
+        try:
+            resolver = ConfigResolver(async_session_factory)
+            caps["requested_generate_audio"] = await resolver.video_generate_audio_for_project(project)
+        except Exception as inner_exc:  # noqa: BLE001
+            # 与其余能力字段的「不明时不额外收紧」相反：这里不明时收紧到 False——静默丢掉
+            # 一次声音提示，好过在双重解析失败时把用户的无声意图错读成有声。
+            logger.warning("video_generate_audio 独立解析也失败，声音提示按无声降级：%s", inner_exc)
+            caps["requested_generate_audio"] = False
     durations = [int(d) for d in caps.get("supported_durations") or []]
     if not durations:
         durations = list(DEFAULT_FALLBACK)
@@ -742,17 +754,18 @@ def _build_reference_units_from_flat(
     return units
 
 
-#: 落盘照常、只随产物呈现的三类容忍 warning（声音降级）。其余 warning 键（未登记 mention /
+#: 落盘照常、只随产物呈现的容忍 warning（声音降级）。其余 warning 键（未登记 mention /
 #: 说话人、语法误用）在机器产物这条路上是阻断违约，不走容忍分支。
 _TOLERATED_VOICE_WARNINGS = (
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_MODEL,
+    WARN_SILENT_EPISODE,
 )
 
 
 def _reference_voice_warning_lines(unit_texts: list[str], project: dict[str, Any], caps: dict[str, Any]) -> list[str]:
-    """逐 unit 派生声音绑定，取三类容忍 warning 的渲染文本（跨 unit 去重、保持首现顺序）。
+    """逐 unit 派生声音绑定，取容忍类 warning 的渲染文本（跨 unit 去重、保持首现顺序）。
 
     逐 unit 而非把全集正文拼起来判：unit 就是一次生成调用，参考音频段数上限按调用计——拼起来
     判会把「每个 unit 各两个说话人」误报成超限。与编辑器预览、执行期渲染共用
@@ -761,6 +774,7 @@ def _reference_voice_warning_lines(unit_texts: list[str], project: dict[str, Any
     characters = project.get(BUCKET_KEY["character"]) or {}
     voice_consistency = str(caps.get("voice_consistency") or "soft")
     max_reference_audio = int(caps.get("max_reference_audio_count") or 0)
+    requested_generate_audio = bool(caps.get("requested_generate_audio", True))
     model_id = str(caps.get("model") or "")
     seen: set[tuple[str, str]] = set()
     lines: list[str] = []
@@ -771,6 +785,7 @@ def _reference_voice_warning_lines(unit_texts: list[str], project: dict[str, Any
             utterances,
             characters,
             voice_consistency=voice_consistency,
+            requested_generate_audio=requested_generate_audio,
             max_reference_audio=max_reference_audio,
             model_id=model_id,
         )
