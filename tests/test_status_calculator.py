@@ -656,6 +656,7 @@ class TestAdStatusCalculation:
         assert enriched["scenes_in_episode"] == ["客厅"]
         assert enriched["props_in_episode"] == ["速干杯"]
 
+    @pytest.mark.unit
     def test_legacy_ad_script_on_reference_route_keeps_shots(self):
         """缺 content_mode 的 ad 剧本落在参考路线项目下：ad 骨架恒 shots（含派生
         reference_units 索引），legacy 短路不得把计分抢成空 video_units。"""
@@ -664,6 +665,7 @@ class TestAdStatusCalculation:
         assert kind == "shots"
         assert len(items) == 2
 
+    @pytest.mark.unit
     def test_malformed_unit_container_scores_as_empty(self):
         """``video_units`` 非数组（外部编辑 / 归档导入的脏数据）归一为空而不是原样下传——
         否则下游按 dict 键迭代、对 str 调 get，项目详情读取变成 500 全不可查看。"""
@@ -674,6 +676,7 @@ class TestAdStatusCalculation:
             assert kind == "video_units"
             assert items == []
 
+    @pytest.mark.unit
     def test_non_object_units_are_dropped_before_scoring(self):
         """``video_units`` 夹非对象条目：剔除而不是原样下传——下游对 str 调 get 会让
         项目详情读取变成 500，整个项目不可查看。"""
@@ -684,6 +687,7 @@ class TestAdStatusCalculation:
         assert kind == "video_units"
         assert items == [{"unit_id": "E1U1"}]
 
+    @pytest.mark.unit
     def test_enrich_script_tolerates_malformed_unit_references(self, tmp_path):
         """unit 本身合法但 references 容器/条目脏：聚合跳过而非抛 AttributeError。"""
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
@@ -699,6 +703,7 @@ class TestAdStatusCalculation:
         enriched = calc.enrich_script(script, generation_mode="reference_video")
         assert enriched["characters_in_episode"] == ["张三"]
 
+    @pytest.mark.unit
     def test_enrich_script_tolerates_non_string_reference_names(self, tmp_path):
         """``name`` 为 list / dict 会在集合 add 处抛 unhashable，为数字会让 sorted 抛
         混类型比较错误——两者都让项目详情读取失败，须一并跳过。"""

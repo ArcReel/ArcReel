@@ -1489,6 +1489,11 @@ class ScriptGenerator:
         if isinstance(novel, dict):
             novel.pop("source_file", None)
 
+        # 剥离剧本级 generation_mode：路线的真相源是 project.json，剧本不留戳。
+        # 校验失败时 script_data 是后端原样返回的 dict（未经模型过滤），存量剧本重生成也会
+        # 把旧值带进来——不在此处删就会随写盘回到磁盘上。
+        script_data.pop("generation_mode", None)
+
         # 添加时间戳
         now = datetime.now(UTC).isoformat()
         script_data.setdefault("metadata", {})

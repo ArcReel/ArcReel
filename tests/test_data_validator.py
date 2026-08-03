@@ -1652,6 +1652,7 @@ class TestDataValidatorSkeletonExhaustiveness:
 
         assert _KIND_TO_VALIDATOR[kind] in called
 
+    @pytest.mark.integration
     def test_narration_data_in_scenes_key_is_validated_as_scenes(self, tmp_path, monkeypatch):
         """族内历史形态（narration 数据落 scenes 键）被闸门放行后，按剧本实际骨架校验。
 
