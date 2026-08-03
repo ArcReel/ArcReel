@@ -1,10 +1,11 @@
 """剧本骨架注册表与规范/取证双解析器的集中矩阵测试。
 
-四象限：
+五象限：
 - 表自洽：四行齐全、字段合法、import 期校验触发
 - 规范解析全组合：3 content_mode × storyboard/grid/reference_video（含 ad 骨架恒 shots）
 - 取证阶梯逐台阶
 - fail-loud：未知/缺失 content_mode 抛 ValueError（原「未知落 drama」语义已反转）
+- 路线闸门：跨族失配拒绝、族内差异放行
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from lib import script_skeleton
 from lib.script_skeleton import (
     SKELETONS,
     Skeleton,
+    SkeletonRouteMismatchError,
+    ensure_route_skeleton,
     resolve_declared_kind,
     resolve_script_kind,
 )
@@ -120,9 +123,8 @@ class TestScriptResolver:
         # content_mode=narration 但数据落 scenes 键（无 segments）→ 回退 scenes。
         assert resolve_script_kind({"content_mode": "narration", "scenes": []}) == "scenes"
 
-    def test_generation_mode_ignored_data_shape_wins(self):
-        # partial migration 中间态：generation_mode 已改 reference_video 但数据仍在
-        # segments——取证解析不读 generation_mode，按数据形状返回 segments，编辑能力不丢失。
+    def test_residual_generation_mode_field_is_ignored(self):
+        # 存量剧本残留的路线戳是未知字段：取证解析只看数据形状，按 segments 返回，编辑能力不丢失。
         script = {"content_mode": "narration", "generation_mode": "reference_video", "segments": []}
         assert resolve_script_kind(script) == "segments"
 
@@ -132,3 +134,49 @@ class TestScriptResolver:
 
     def test_final_fallback_segments(self):
         assert resolve_script_kind({}) == "segments"
+
+
+@pytest.mark.unit
+class TestRouteSkeletonGate:
+    """路线闸门：剧本骨架与项目路线跨族即拒，族内差异放行。"""
+
+    def test_matched_reference_route_passes(self):
+        script = {"content_mode": "narration", "video_units": []}
+        assert ensure_route_skeleton(script, "narration", "reference_video") == "video_units"
+
+    def test_matched_storyboard_route_passes(self):
+        script = {"content_mode": "drama", "scenes": []}
+        assert ensure_route_skeleton(script, "drama", "storyboard") == "scenes"
+
+    def test_ad_reference_route_expects_shots_not_units(self):
+        # ad 骨架恒 shots，参考路线也不例外——闸门不能把 ad 参考项目误判成失配。
+        script = {"content_mode": "ad", "shots": []}
+        assert ensure_route_skeleton(script, "ad", "reference_video") == "shots"
+
+    def test_narration_data_in_scenes_key_is_not_a_mismatch(self):
+        # 族内历史形态（narration 数据落 scenes 键）照实返回，不当失配拒绝。
+        script = {"content_mode": "narration", "scenes": []}
+        assert ensure_route_skeleton(script, "narration", "storyboard") == "scenes"
+
+    def test_unit_script_on_storyboard_route_is_rejected(self):
+        script = {"content_mode": "narration", "video_units": []}
+        with pytest.raises(SkeletonRouteMismatchError) as exc:
+            ensure_route_skeleton(script, "narration", "storyboard")
+        assert exc.value.expected == "segments"
+        assert exc.value.actual == "video_units"
+        # 结构报错 + 重拆指引，并说明查看/编辑/导出不受影响。
+        assert "骨架" in str(exc.value)
+        assert "重新拆分" in str(exc.value)
+        assert "查看" in str(exc.value)
+
+    def test_storyboard_script_on_reference_route_is_rejected(self):
+        script = {"content_mode": "narration", "segments": []}
+        with pytest.raises(SkeletonRouteMismatchError) as exc:
+            ensure_route_skeleton(script, "narration", "reference_video")
+        assert exc.value.expected == "video_units"
+        assert exc.value.actual == "segments"
+        assert "split-reference-video-units" in str(exc.value)
+
+    def test_unknown_content_mode_still_fails_loud(self):
+        with pytest.raises(ValueError):
+            ensure_route_skeleton({"segments": []}, None, "storyboard")

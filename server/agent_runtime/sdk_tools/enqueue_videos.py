@@ -33,7 +33,8 @@ from lib.reference_video.ad_units import (
     resolve_ad_unit_shots,
     sync_ad_reference_units,
 )
-from lib.script_models import get_generated_assets, is_reference_script, resolve_content_mode
+from lib.script_models import get_generated_assets, resolve_content_mode
+from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
@@ -178,13 +179,22 @@ async def _resolve_voice_characters(ctx: ToolContext, content_mode: str) -> dict
     return project.get("characters") or {}
 
 
-def _is_ad_reference(ctx: ToolContext) -> bool:
-    """ad + reference_video 判定：ad 剧本骨架唯一、不打 generation_mode 戳，
-    生成路径以 project.json 的项目生成路线为真相源。"""
+def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | None:
+    """定生成路线并把守骨架闸门。
+
+    项目走参考生视频路线时返回子分支（``"ad"`` / ``"episode"``，两者展示与派生颗粒度不同），
+    分镜路线返回 ``None``。路线以 project.json 的 ``generation_mode`` 为唯一真相源——剧本不
+    携带路线信息，同一项目逐集不变。
+
+    Raises:
+        SkeletonRouteMismatchError: 剧本骨架与项目路线失配（存量混排集），生成被拒。
+    """
     project = ctx.pm.load_project(ctx.project_name)
-    if project.get("content_mode") != "ad":
-        return False
-    return is_reference_video_project(project)
+    content_mode = resolve_content_mode(script, project)
+    ensure_route_skeleton(script, content_mode, project.get("generation_mode"))
+    if not is_reference_video_project(project):
+        return None
+    return "ad" if content_mode == "ad" else "episode"
 
 
 # Checkpoint helpers
@@ -564,8 +574,8 @@ async def _run_reference_episode(
     """Run reference_video-mode generation and format the tool response.
 
     All 4 video handlers fall through to whole-episode reference generation
-    when ``is_reference_script`` returns True; this captures the shared tail
-    (resolve episode → generate units → header + log).
+    when ``_resolve_reference_route`` reports the episode branch; this captures
+    the shared tail (resolve episode → generate units → header + log).
     """
     episode = ProjectManager.resolve_episode_from_script(script, script_filename)
     units = script.get("video_units") or []
@@ -677,7 +687,8 @@ def generate_video_episode_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if is_reference_script(script):
+            route = _resolve_reference_route(ctx, script)
+            if route == "episode":
                 return await _run_reference_episode(
                     ctx=ctx,
                     script=script,
@@ -686,7 +697,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx):
+            if route == "ad":
                 return await _run_ad_reference_episode(
                     ctx=ctx,
                     script_filename=script_filename,
@@ -779,7 +790,8 @@ def generate_video_scene_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if is_reference_script(script):
+            route = _resolve_reference_route(ctx, script)
+            if route == "episode":
                 log: list[str] = [
                     f"⚠️  reference_video 模式暂不支持单 unit 精确选择；scene_id={scene_id} 被忽略，转整集生成。"
                 ]
@@ -791,7 +803,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx):
+            if route == "ad":
                 ad_log: list[str] = [
                     f"⚠️  reference_video 模式暂不支持单 unit 精确选择；scene_id={scene_id} 被忽略，转整集生成。"
                 ]
@@ -884,7 +896,8 @@ def generate_video_all_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if is_reference_script(script):
+            route = _resolve_reference_route(ctx, script)
+            if route == "episode":
                 return await _run_reference_episode(
                     ctx=ctx,
                     script=script,
@@ -893,7 +906,7 @@ def generate_video_all_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx):
+            if route == "ad":
                 return await _run_ad_reference_episode(
                     ctx=ctx,
                     script_filename=script_filename,
@@ -975,7 +988,8 @@ def generate_video_selected_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if is_reference_script(script):
+            route = _resolve_reference_route(ctx, script)
+            if route == "episode":
                 log.append(
                     f"⚠️  reference_video 模式暂不支持多 unit 精确选择；scene_ids={','.join(scene_ids)} 被忽略，转整集生成。"
                 )
@@ -987,7 +1001,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx):
+            if route == "ad":
                 log.append(
                     f"⚠️  reference_video 模式暂不支持多 unit 精确选择；scene_ids={','.join(scene_ids)} 被忽略，转整集生成。"
                 )

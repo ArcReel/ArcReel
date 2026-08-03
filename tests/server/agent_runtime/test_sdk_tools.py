@@ -436,13 +436,13 @@ async def test_generate_narration_audio_rejects_drama_script(fake_ctx: ToolConte
     assert "narration" in out["content"][0]["text"]
 
 
-async def test_generate_narration_audio_rejects_reference_video_script(fake_ctx: ToolContext) -> None:
-    """reference_video 模式无 segments，必须显式报错而非假装'已全部生成'。"""
+async def test_generate_narration_audio_rejects_reference_route(fake_ctx: ToolContext) -> None:
+    """参考生视频路线无 segments，必须显式报错而非假装'已全部生成'。"""
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
     fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
         "content_mode": "narration",
-        "generation_mode": "reference_video",
         "episode": 1,
         "video_units": [{"unit_id": "E1U1"}],
     }
@@ -450,6 +450,67 @@ async def test_generate_narration_audio_rejects_reference_video_script(fake_ctx:
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is True
     assert "reference_video" in out["content"][0]["text"]
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "args"),
+    [
+        ("generate_video_episode_tool", {"script": "episode_1.json"}),
+        ("generate_video_scene_tool", {"script": "episode_1.json", "scene_id": "E1U1"}),
+        ("generate_video_all_tool", {"script": "episode_1.json"}),
+        ("generate_video_selected_tool", {"script": "episode_1.json", "scene_ids": ["E1U1"]}),
+    ],
+)
+async def test_generate_video_rejects_mismatched_unit_script_on_storyboard_route(
+    fake_ctx: ToolContext, tool_name: str, args: dict[str, Any]
+) -> None:
+    """分镜路线项目下的 video_units 骨架剧本：四个入口一律结构报错 + 重拆指引。
+
+    静默降档与悄悄换路径都不可构造——存量混排集的唯一出路是重拆重生成。
+    """
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+        "content_mode": "narration",
+        "episode": 1,
+        "video_units": [{"unit_id": "E1U1", "shots": [{"text": "x"}], "duration_seconds": 5}],
+    }
+    tool_obj = getattr(mod, tool_name)(fake_ctx)
+    out = await _call(tool_obj, args)
+
+    assert out.get("is_error") is True
+    text = out["content"][0]["text"]
+    assert "骨架" in text and "重新拆分" in text
+
+
+async def test_generate_video_episode_rejects_mismatched_storyboard_script_on_reference_route(
+    fake_ctx: ToolContext,
+) -> None:
+    """反向：参考路线项目下的分镜骨架剧本同样被拒，指引重跑 unit 拆分。"""
+    from server.agent_runtime.sdk_tools import enqueue_videos as mod
+
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
+    tool_obj = mod.generate_video_episode_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is True
+    assert "split-reference-video-units" in out["content"][0]["text"]
+
+
+async def test_generate_narration_audio_rejects_mismatched_script(fake_ctx: ToolContext) -> None:
+    """分镜路线项目下的 video_units 骨架剧本：结构报错 + 重拆指引，不静默换路径。"""
+    from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
+
+    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+        "content_mode": "narration",
+        "episode": 1,
+        "video_units": [{"unit_id": "E1U1"}],
+    }
+    tool_obj = mod.generate_narration_audio_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+    assert out.get("is_error") is True
+    text = out["content"][0]["text"]
+    assert "骨架" in text and "重新拆分" in text
 
 
 async def test_generate_narration_audio_rejects_string_segment_ids(fake_ctx: ToolContext) -> None:
@@ -602,6 +663,21 @@ async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
     out = await _call(tool_obj, {"script": "episode_1.json"})
     assert out.get("is_error") is not True, out
     assert [s.resource_id for s in captured] == ["E1S01"]
+
+
+async def test_generate_storyboards_rejects_mismatched_unit_script(fake_ctx: ToolContext) -> None:
+    """失配剧本不能落进"✨ 所有片段的分镜图都已生成"的假成功——报结构错误并指引重拆。"""
+    fake_ctx.pm.script_payload = {  # type: ignore[attr-defined]
+        "content_mode": "narration",
+        "episode": 1,
+        "video_units": [{"unit_id": "E1U1"}],
+    }
+    tool_obj = generate_storyboards_tool(fake_ctx)
+    out = await _call(tool_obj, {"script": "episode_1.json"})
+
+    assert out.get("is_error") is True
+    text = out["content"][0]["text"]
+    assert "骨架" in text and "重新拆分" in text
 
 
 async def test_generate_storyboards_error(fake_ctx: ToolContext, monkeypatch) -> None:
@@ -983,7 +1059,6 @@ async def test_generate_video_episode_error(fake_ctx: ToolContext) -> None:
 def _reference_video_script(**overrides: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "content_mode": "narration",
-        "generation_mode": "reference_video",
         "episode": 1,
         "video_units": [
             {
@@ -998,12 +1073,18 @@ def _reference_video_script(**overrides: Any) -> dict[str, Any]:
     return payload
 
 
+def _use_reference_route(fake_ctx: ToolContext) -> None:
+    """把 fake 项目切到参考生视频路线——路线是项目级事实，剧本不携带戳。"""
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
+
+
 @pytest.mark.integration
 async def test_generate_video_episode_reference_duration_needs_confirmation(fake_ctx: ToolContext, monkeypatch) -> None:
     """申请秒数与剧本总时长不一致时，首次调用不入队，返回内容含总时长/申请秒数/差异说明。"""
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
+    _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
     def fake_precheck(ctx, unit, ad_shots):
@@ -1040,6 +1121,7 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
+    _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
     def fake_precheck(ctx, unit, ad_shots):
@@ -1083,6 +1165,7 @@ async def test_generate_video_episode_reference_duration_repeat_without_confirm_
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
+    _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
     def fake_precheck(ctx, unit, ad_shots):
@@ -1117,6 +1200,7 @@ async def test_generate_video_episode_reference_duration_exact_enqueues_directly
     from lib.reference_video.duration_slots import EXACT, DurationSlot
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
+    _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
     def fake_precheck(ctx, unit, ad_shots):
@@ -1169,6 +1253,7 @@ async def test_generate_video_episode_reference_duration_skips_unit_without_shot
 
     script = _reference_video_script()
     script["video_units"].append({"unit_id": "E1U2", "duration_seconds": 5})
+    _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
 
     precheck_calls: list[str] = []
@@ -1233,6 +1318,7 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
             "duration_seconds": 5,
         }
     )
+    _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
 
     context_calls: list[dict[str, Any]] = []
@@ -1270,6 +1356,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_noth
     script = _reference_video_script()
     for unit in script["video_units"]:
         unit["shots"] = []
+    _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
 
     context_calls: list[dict[str, Any]] = []
@@ -1301,6 +1388,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_prom
     script = _reference_video_script()
     for unit in script["video_units"]:
         unit["shots"] = [{"text": "   "}]
+    _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
 
     context_calls: list[dict[str, Any]] = []
@@ -1379,6 +1467,7 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     from lib.reference_video.duration_slots import UP, DurationSlot
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
+    _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = _reference_video_script()  # type: ignore[attr-defined]
 
     def fake_precheck(ctx, unit, ad_shots):

@@ -72,17 +72,16 @@ class StatusCalculator:
         self.pm = project_manager
 
     @classmethod
-    def _select_kind_and_items(cls, script: dict) -> tuple[str, list[dict]]:
+    def _select_kind_and_items(cls, script: dict, generation_mode: str | None) -> tuple[str, list[dict]]:
         """返回 ``(骨架种类, items)``，骨架种类 ∈ {segments, scenes, shots, video_units}。
 
-        **主路径**按剧本声明的 ``(content_mode, generation_mode)`` 走规范解析
+        **主路径**按剧本级 ``content_mode`` 与调用方传入的项目级 ``generation_mode`` 走规范解析
         （``resolve_declared_kind``）——计分必须按声明分派、不嗅探数据形状（残留派生索引
         不得污染 storyboard 计分）：``video_units`` 恒按声明取 ``video_units`` 数组、不回退。
         **legacy 容忍**（本模块本地，不进解析器本体）：缺失/未知 content_mode 的存量剧本，
-        保留声明的 reference 短路 + 主结构鸭子类型兜底阶梯（现状行为）。
+        保留按项目路线的 reference 短路 + 主结构鸭子类型兜底阶梯（现状行为）。
         """
         content_mode = script.get("content_mode")
-        generation_mode = script.get("generation_mode")
         try:
             kind = resolve_declared_kind(content_mode, generation_mode)
         except ValueError:
@@ -96,7 +95,7 @@ class StatusCalculator:
             if isinstance(items, list):
                 return kind, items
         elif generation_mode == "reference_video":
-            # 缺失/未知 content_mode 但声明了 reference：沿用历史 legacy 容忍，按声明取 video_units。
+            # 缺失/未知 content_mode 但项目走参考路线：沿用历史 legacy 容忍，按路线取 video_units。
             return "video_units", script.get("video_units") or []
 
         for legacy_kind in _LEGACY_DUCK_TYPE_KINDS:
@@ -108,12 +107,12 @@ class StatusCalculator:
     def calculate_episode_stats(self, project_name: str, script: dict, *, generation_mode: str | None = None) -> dict:
         """计算单集的统计信息 — 按骨架种类分派。
 
-        ``generation_mode`` 由调用方从 project.json 的项目路线字段传入：
-        ad 剧本不打 generation_mode 戳（骨架唯一），reference_video 路径的视频
-        产物挂在派生索引 ``reference_units`` 的 unit 上而非 shots，计分需按声明的
-        生成路径分派而不能嗅探数据形状（残留索引不应污染 storyboard 路径的状态）。
+        ``generation_mode`` 由调用方从 project.json 的项目路线字段传入——剧本不携带路线信息，
+        路线是项目级唯一事实。reference_video 路线的视频产物挂在派生索引 ``reference_units``
+        的 unit 上而非 shots，计分需按路线分派而不能嗅探数据形状（残留索引不应污染 storyboard
+        路线的状态）。
         """
-        kind, items = self._select_kind_and_items(script)
+        kind, items = self._select_kind_and_items(script, generation_mode)
 
         if kind == "video_units":
             return self._calculate_reference_video_stats(items)
@@ -460,7 +459,7 @@ class StatusCalculator:
         )
         return project
 
-    def enrich_script(self, script: dict) -> dict:
+    def enrich_script(self, script: dict, *, generation_mode: str | None = None) -> dict:
         """
         为剧本数据注入计算字段
 
@@ -468,11 +467,13 @@ class StatusCalculator:
 
         Args:
             script: 原始剧本数据
+            generation_mode: 项目路线（project.json 字段），与 ``calculate_episode_stats``
+                同口径定骨架；缺省时按分镜族解析。
 
         Returns:
             注入计算字段后的剧本数据
         """
-        kind, items = self._select_kind_and_items(script)
+        kind, items = self._select_kind_and_items(script, generation_mode)
         total_duration = script_duration_total(kind, items)
 
         # 注入 metadata 计算字段

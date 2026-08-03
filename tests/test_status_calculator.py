@@ -28,12 +28,12 @@ class _FakePM:
 class TestStatusCalculator:
     def test_select_kind_and_items(self):
         kind, items = StatusCalculator._select_kind_and_items(
-            {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]}
+            {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]}, "storyboard"
         )
         assert kind == "segments"
         assert len(items) == 1
 
-        kind2, items2 = StatusCalculator._select_kind_and_items({"scenes": [{"scene_id": "E1S01"}]})
+        kind2, items2 = StatusCalculator._select_kind_and_items({"scenes": [{"scene_id": "E1S01"}]}, "storyboard")
         assert kind2 == "scenes"
         assert len(items2) == 1
 
@@ -515,7 +515,7 @@ class TestAdStatusCalculation:
 
     def test_select_ad_by_duck_typing_when_content_mode_absent(self):
         # 本地 legacy 容忍：缺 content_mode 的存量 ad 剧本按 shots 键鸭子推断（矩阵不覆盖本地阶梯）。
-        kind, items = StatusCalculator._select_kind_and_items({"shots": [{"shot_id": "E1S01"}]})
+        kind, items = StatusCalculator._select_kind_and_items({"shots": [{"shot_id": "E1S01"}]}, "storyboard")
         assert kind == "shots"
         assert len(items) == 1
 
@@ -659,9 +659,11 @@ class TestAdStatusCalculation:
     def test_duck_typing_precedence_segments_over_scenes_over_shots(self):
         """缺 content_mode 的老脚本同时残留多种键时，鸭子类型优先级固定为
         segments > scenes > shots（依赖 _LEGACY_DUCK_TYPE_KINDS 顺序，本测试钉住该顺序）。"""
-        kind, _ = StatusCalculator._select_kind_and_items({"segments": [{}], "scenes": [{}], "shots": [{}]})
+        kind, _ = StatusCalculator._select_kind_and_items(
+            {"segments": [{}], "scenes": [{}], "shots": [{}]}, "storyboard"
+        )
         assert kind == "segments"
-        kind, _ = StatusCalculator._select_kind_and_items({"scenes": [{}], "shots": [{}]})
+        kind, _ = StatusCalculator._select_kind_and_items({"scenes": [{}], "shots": [{}]}, "storyboard")
         assert kind == "scenes"
 
 
@@ -691,8 +693,6 @@ class TestStatusCalculatorSkeletonExhaustiveness:
         content_mode, gen_mode = _KIND_TO_MODES[kind]
         id_field = SKELETONS[kind].id_field
         script = {"content_mode": content_mode, kind: [{id_field: "E1S01"}]}
-        if gen_mode:
-            script["generation_mode"] = gen_mode
 
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         stats = calc.calculate_episode_stats("demo", script, generation_mode=gen_mode)

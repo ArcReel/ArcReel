@@ -14,8 +14,10 @@ from lib.generation_queue_client import (
     TaskSpec,
     batch_enqueue_and_wait,
 )
+from lib.project_manager import is_reference_video_project
 from lib.resource_paths import resource_relative_path
-from lib.script_models import get_generated_assets, is_reference_script
+from lib.script_models import get_generated_assets, resolve_content_mode
+from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import get_storyboard_items
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 
@@ -68,12 +70,15 @@ def generate_narration_audio_tool(ctx: ToolContext):
             if script.get("content_mode") == "drama":
                 raise ValueError("旁白配音仅适用说书（narration）模式剧本；drama 模式的 scenes 没有 novel_text")
 
+            # 路线以项目为唯一真相源；同时把守骨架闸门，失配剧本（存量混排集）在此被拒。
+            project = ctx.pm.load_project(ctx.project_name)
+            ensure_route_skeleton(script, resolve_content_mode(script, project), project.get("generation_mode"))
+            if is_reference_video_project(project):
+                raise ValueError("参考生视频（reference_video）路线的剧本没有 segments，不适用旁白配音")
+
             items, id_field, *_ = get_storyboard_items(script)
             if not items:
-                # reference_video 模式 get_storyboard_items 硬返回空列表；空剧本同样
-                # 无可配音项。两者都不能落进"✨ 已全部生成"的假成功分支。
-                if is_reference_script(script):
-                    raise ValueError("参考生视频（reference_video）模式剧本没有 segments，不适用旁白配音")
+                # 空剧本无可配音项，不能落进"✨ 已全部生成"的假成功分支。
                 raise ValueError("剧本没有可配音的片段")
 
             explicit = segment_ids is not None

@@ -1136,11 +1136,11 @@ class TestCostEstimationService:
         assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
 
     @pytest.mark.integration
-    async def test_narration_reference_video_falls_back_when_script_still_storyboard(self, db_factory):
-        """项目已切到 reference_video、该集剧本还是分镜骨架时，估算沿用分镜路径而非归零。
+    async def test_reference_route_gives_no_estimate_for_mismatched_storyboard_script(self, db_factory):
+        """参考路线项目下的失配剧本（分镜骨架）不产生预估：该集按当前路线根本不能生成。
 
-        narration/drama 的生成侧按剧本自身的 generation_mode 戳判定，此状态下实际入队的
-        仍是分镜任务；若估算只看项目级戳就会找不到 video_units 而给出一份全零预估。
+        估算与执行同轴——生成侧对这类存量混排集直接拒绝并要求重拆，估算这边照实给零，
+        不去替它假想一条分镜路径。
         """
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -1166,22 +1166,14 @@ class TestCostEstimationService:
             }
         }
 
-        result = await service.compute(project_data, scripts, project_name="narration-transitional")
+        result = await service.compute(project_data, scripts, project_name="narration-mismatched")
 
-        segments = result["episodes"][0]["segments"]
-        assert [seg["segment_id"] for seg in segments] == ["E1S1", "E1S2"]
-        assert result["project_totals"]["estimate"]["image"]
-        assert result["project_totals"]["estimate"]["video"]
+        assert result["episodes"][0]["segments"] == []
+        assert not result["project_totals"]["estimate"]["video"]
 
     @pytest.mark.integration
-    async def test_narration_reference_video_falls_back_when_video_units_stale(self, db_factory):
-        """剧本残留切换前/迁移中间态的 ``video_units``、自身戳非 reference_video 时，
-        估算仍按分镜路径走，不因 units 非空而误判为 unit 路径。
-
-        与 ``test_narration_reference_video_falls_back_when_script_still_storyboard`` 的区别：
-        该用例的剧本没有 video_units；本用例剧本残留了非空 video_units，验证判定看的是剧本
-        自身的 ``generation_mode`` 戳而非 ``bool(video_units)``。
-        """
+    async def test_reference_route_estimates_units_ignoring_residual_segments(self, db_factory):
+        """参考路线项目按 units 估算，剧本里残留的 segments 不参与——路线定路径，形状不投票。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -1193,25 +1185,20 @@ class TestCostEstimationService:
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
         script = _make_reference_video_script(1, "narration", [("E1U1", 6)])
-        script.pop("generation_mode")
         script["segments"] = [
             {"segment_id": "E1S1", "duration_seconds": 5, "narration": "n1", "visual_prompt": "v1"},
         ]
         scripts = {"ep1.json": script}
 
-        result = await service.compute(project_data, scripts, project_name="narration-stale-units")
+        result = await service.compute(project_data, scripts, project_name="narration-residual-segments")
 
         segments = result["episodes"][0]["segments"]
-        assert [seg["segment_id"] for seg in segments] == ["E1S1"]
-        assert result["project_totals"]["estimate"]["image"]
+        assert [seg["segment_id"] for seg in segments] == ["E1U1"]
         assert result["project_totals"]["estimate"]["video"]
 
     @pytest.mark.integration
-    async def test_narration_reference_video_estimate_follows_script_stamp_over_project_route(self, db_factory):
-        """剧本带 ``reference_video`` 戳而项目路线是分镜时，估算跟随剧本戳走 unit 路径。
-
-        实际入队（``is_reference_script``）只认剧本自身的戳，估算改按项目路线回落分镜就与执行对不上。
-        """
+    async def test_storyboard_route_gives_no_estimate_for_mismatched_unit_script(self, db_factory):
+        """分镜路线项目下的失配剧本（video_units 骨架）不产生预估：估算只认项目路线。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -1224,12 +1211,10 @@ class TestCostEstimationService:
         }
         scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 6)])}
 
-        result = await service.compute(project_data, scripts, project_name="narration-reverted-project-mode")
+        result = await service.compute(project_data, scripts, project_name="narration-mismatched-units")
 
-        segments = result["episodes"][0]["segments"]
-        assert segments[0]["segment_id"] == "E1U1"
-        assert segments[0]["estimate"]["video"]
-        assert result["project_totals"]["estimate"]["video"]
+        assert result["episodes"][0]["segments"] == []
+        assert not result["project_totals"]["estimate"]["video"]
 
     @pytest.mark.integration
     async def test_narration_reference_video_estimate_skips_unenqueueable_units(self, db_factory):
@@ -1612,12 +1597,11 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_unit_duration_slots_come_from_the_r2v_bucket_model(self, db_factory, monkeypatch):
-        """unit 取档与算价读同一个模型：档位来自 r2v 桶，不来自项目级 generation_mode 定的桶。
+        """unit 取档与算价读同一个模型：两者都落参考路线的 r2v 桶。
 
-        项目层是 storyboard、某集剧本仍带 reference_video 戳时，该集按 unit 计费（入队参考视频
-        任务）。若取档沿用项目级视图，5 秒的 unit 会按 i2v 桶 kling 的 [5, 10] 停在 5 秒，再按
-        r2v 桶 Veo 的单价算钱；而执行期按 Veo 的档位（未配分辨率走 1080p 兜底，只接受 8 秒）
-        申请 8 秒——估算量与扣费量对不上。
+        若取档误用 i2v 桶，5 秒的 unit 会按 kling 的 [5, 10] 停在 5 秒，再按 r2v 桶 Veo 的单价
+        算钱；而执行期按 Veo 的档位（未配分辨率走 1080p 兜底，只接受 8 秒）申请 8 秒——估算量
+        与扣费量对不上。
         """
         priced: list[tuple[str | None, int | None]] = []
         original = cost_calculator.calculate_cost
@@ -1640,7 +1624,7 @@ class TestCostEstimationService:
         project_data = {
             "title": "Narration",
             "content_mode": "narration",
-            "generation_mode": "storyboard",
+            "generation_mode": "reference_video",
             "target_duration": 30,
             "video_provider_i2v": "kling/kling-v3",
             "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
@@ -1653,13 +1637,11 @@ class TestCostEstimationService:
         assert priced == [("veo-3.1-generate-preview", 8)]
 
     @pytest.mark.integration
-    async def test_episode_priced_by_its_own_effective_bucket(self, db_factory, monkeypatch):
-        """逐集算价按该集实际走的那条路径定桶，不按项目级 generation_mode 一刀切。
+    async def test_all_episodes_priced_by_the_project_route_bucket(self, db_factory, monkeypatch):
+        """全项目同一条路线、同一个桶：算价不逐集分歧，也不被某集的剧本形状带偏。
 
-        项目路线是 storyboard，而剧本带 reference_video 戳的集实际入队的是参考视频任务
-        （``is_reference_script``，见
-        ``test_narration_reference_video_estimate_follows_script_stamp_over_project_route``）。
-        按项目级定桶会拿 i2v 桶模型的价目去算 r2v 的量，与执行扣费对不上。
+        项目路线是 storyboard，ep2 是失配的 video_units 骨架——它不产生预估（生成侧会拒绝
+        并要求重拆），更不会把估算拽去 r2v 桶。
         """
         priced_models: list[str | None] = []
         original = cost_calculator.calculate_cost
@@ -1691,17 +1673,16 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, scripts, project_name="per-episode-bucket")
 
-        # 分镜集走 i2v 桶模型，参考视频集走 r2v 桶模型——两集在同一次估算里取不同的价目。
-        assert priced_models == ["kling-v3", "kling-v3-omni"]
-        # 项目层展示仍按项目自身 generation_mode 定桶，不随某一集的路径改变。
+        # 只有骨架与路线相符的 ep1 产生预估，且按项目路线的 i2v 桶算价。
+        assert priced_models == ["kling-v3"]
+        assert result["episodes"][1]["segments"] == []
         assert result["models"]["video"] == {"provider": "kling", "model": "kling-v3"}
 
     @pytest.mark.integration
     async def test_ad_reference_route_prices_by_r2v_bucket(self, db_factory, monkeypatch):
         """ad 参考路线项目按 r2v 桶模型算价。
 
-        ad 骨架的镜头不打 generation_mode 戳，生成路径以项目路线为真相源；参考路线的集实际
-        入队参考视频任务，算价须跟着落 r2v 桶。
+        生成路径以项目路线为真相源；参考路线的集实际入队参考视频任务，算价须跟着落 r2v 桶。
         """
         priced_models: list[str | None] = []
         original = cost_calculator.calculate_cost
