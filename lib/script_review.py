@@ -168,6 +168,27 @@ class Step1WriteConflict(Exception):
         self.current_content = current_content
 
 
+def assert_base_fingerprint(path: Path, expected: str | None | _UncheckedFingerprint) -> None:
+    """乐观并发比对：``expected`` 与 ``path`` 盘上现值不一致时抛 ``Step1WriteConflict``、不落盘。
+
+    ``expected`` 是写入方取基线时的文件指纹（``None`` 表示彼时文件不存在），
+    ``UNCHECKED_FINGERPRINT`` 跳过比对。三个 step1 变体共用本函数，比对语义只存在这一处。
+
+    调用方须已持该路径的排他锁：比对与随后的写盘不在同一临界区内，比对就只是一次过期读。
+    """
+    if isinstance(expected, _UncheckedFingerprint):
+        return
+    actual = content_fingerprint(path)
+    if expected == actual:
+        return
+    current = load_json_or_none(path)
+    raise Step1WriteConflict(
+        expected=expected,
+        actual=actual,
+        current_content=current if isinstance(current, dict) else None,
+    )
+
+
 def official_reference_step1_path(project_path: Path, episode: int) -> Path:
     """该集参考生视频正式 step1 的路径（``drafts/episode_N/step1_reference_units.json``）。
 
@@ -216,15 +237,7 @@ def write_step1_locked(
     格式收编、不是内容编辑，调用方传 ``clear_step2_quarantine=False`` 保留 step2 草稿。
     """
     path = official_reference_step1_path(project_path, episode)
-    if not isinstance(expected_fingerprint, _UncheckedFingerprint):
-        actual = content_fingerprint(path)
-        if expected_fingerprint != actual:
-            current = load_json_or_none(path)
-            raise Step1WriteConflict(
-                expected=expected_fingerprint,
-                actual=actual,
-                current_content=current if isinstance(current, dict) else None,
-            )
+    assert_base_fingerprint(path, expected_fingerprint)
     previous = load_json_or_none(path)
     changed = previous != content
     atomic_write_json(path, content)

@@ -42,7 +42,7 @@ class ProtectedWriteRule:
     故谓词与投影是两列独立声明，不从彼此推导。
     """
 
-    #: 规则名（诊断用）。
+    #: 规则名：表内每行的可读标识，无运行期消费者（谓词与投影都不按名字查找）。
     name: str
     #: hook 层谓词：``(target, bases) -> 是否命中``。target 由 caller 分别以「逻辑目标」与
     #: 「resolve 后目标」各调一次，bases 为 raw + resolved 两种形式的 project_cwd。

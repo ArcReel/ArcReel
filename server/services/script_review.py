@@ -372,24 +372,26 @@ class ScriptReviewService:
             validated = model.model_validate(content).model_dump()
         except ValidationError as exc:
             raise ScriptReviewError("invalid_content", str(exc)) from exc
-        if kind == "reference_video":
-            # references 是从 shot 文本机械派生的字段：编辑正文后随之重派生，避免正文与 references
-            # 漂移（step2 会用陈旧 [图N] 映射生成）。机械变换、不校验能力上限（同 drama / narration 只结构校验）。
-            rederive_unit_references(validated["units"], project)
-            # 写盘经单一出口：锁、基线比对、step2 隔离草稿清理都在 write_step1_locked 一处。
-            expected = base_fingerprint if base_fingerprint is not None else script_review.UNCHECKED_FINGERPRINT
-            try:
+        # 入参的 None 表示「调用方无基线、不比对」；比对语义里的 None 另有含义（取基线时文件不存在），
+        # 两者在此一次性转换，三个变体共用同一个 expected。
+        expected = base_fingerprint if base_fingerprint is not None else script_review.UNCHECKED_FINGERPRINT
+        try:
+            if kind == "reference_video":
+                # references 是从 shot 文本机械派生的字段：编辑正文后随之重派生，避免正文与 references
+                # 漂移（step2 会用陈旧 [图N] 映射生成）。机械变换、不校验能力上限（同 drama / narration 只结构校验）。
+                rederive_unit_references(validated["units"], project)
+                # 写盘经单一出口：锁、基线比对、step2 隔离草稿清理都在 write_step1_locked 一处。
                 with script_review.step1_write_lock(project_path, episode):
                     script_review.write_step1_locked(project_path, episode, validated, expected_fingerprint=expected)
-            except script_review.Step1WriteConflict as exc:
-                raise ScriptReviewError("conflict", str(exc)) from exc
-            return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # 与 _read_step1_migrated 共享同一把 per-path 锁：保存与迁移的读改写相互互斥。
-        with self.pm.file_lock(path):
-            if base_fingerprint is not None and base_fingerprint != script_review.content_fingerprint(path):
-                raise ScriptReviewError("conflict", f"step1 内容在编辑期间已被修改（基线 {base_fingerprint}）")
-            atomic_write_json(path, validated)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                # 与 _read_step1_migrated 共享同一把 per-path 锁：保存与迁移的读改写相互互斥。
+                # 基线比对同 rv 走 assert_base_fingerprint，两者的冲突判据不分叉。
+                with self.pm.file_lock(path):
+                    script_review.assert_base_fingerprint(path, expected)
+                    atomic_write_json(path, validated)
+        except script_review.Step1WriteConflict as exc:
+            raise ScriptReviewError("conflict", str(exc)) from exc
 
     async def confirm(self, project_name: str, episode: int) -> dict[str, Any]:
         """把该集审核状态翻到 confirmed（记录当前 step1 内容指纹），放行 step2。

@@ -53,7 +53,7 @@ from lib.source_loader import (
     SourceLoader,
     UnsupportedFormatError,
 )
-from server.routers.script_review import _raise_review_error
+from server.routers._script_review_errors import raise_review_error
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 router = APIRouter()
@@ -844,11 +844,13 @@ async def update_draft_content(
                 parsed = json.loads(content)
             except json.JSONDecodeError as exc:
                 raise HTTPException(status_code=400, detail=_t("script_review_invalid_content", details=str(exc)))
-            is_new = not draft_path.exists()
+            # 存在性探测同其余同步文件 I/O 卸到线程：本函数由请求协程直接 await，
+            # 裸 exists() 会跑在事件循环上阻塞并发请求。
+            is_new = not await asyncio.to_thread(draft_path.exists)
             try:
                 await ScriptReviewService(get_project_manager()).save_content(project_name, episode, parsed)
             except ScriptReviewError as exc:
-                _raise_review_error(exc, episode, _t)
+                raise_review_error(exc, episode, _t)
         else:
             is_new = await asyncio.to_thread(_write_plain_draft, draft_path, content, _t)
 

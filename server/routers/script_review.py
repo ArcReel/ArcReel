@@ -7,44 +7,17 @@ drama（utterances + source_text）与 narration（结构化 novel_text）共用
 
 import logging
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body
 
 from lib.api_errors import NotFoundError
 from lib.i18n import Translator
 from lib.project_manager import get_project_manager
+from server.routers._script_review_errors import raise_review_error
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# gate 领域错误码 → (HTTP 状态, i18n key)。invalid_content / episode_not_found 带参数另行注入。
-_ERROR_STATUS: dict[str, int] = {
-    "not_applicable": 409,
-    "no_step1": 409,
-    "invalid_content": 422,
-    "episode_not_found": 404,
-    "quarantined": 409,
-    "conflict": 409,
-}
-# 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 _raise_review_error 单独处理。
-_ERROR_I18N: dict[str, str] = {
-    "not_applicable": "script_review_not_applicable",
-    "no_step1": "script_review_no_step1",
-    "quarantined": "script_review_quarantined",
-    "conflict": "script_review_conflict",
-}
-
-
-def _raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> None:
-    status = _ERROR_STATUS.get(exc.code, 400)
-    if exc.code == "invalid_content":
-        detail = _t("script_review_invalid_content", details=exc.message)
-    elif exc.code == "episode_not_found":
-        detail = _t("episode_not_found", episode=episode)
-    else:
-        detail = _t(_ERROR_I18N.get(exc.code, "internal_server_error"))
-    raise HTTPException(status_code=status, detail=detail)
 
 
 async def _attach_duration_tiers(service: ScriptReviewService, project_name: str, episode: int, state: dict) -> dict:
@@ -95,7 +68,7 @@ async def get_script_review(project_name: str, episode: int, _t: Translator):
         state["quarantine"] = _localize_quarantine_violations(quarantine, _t)
         return state
     except ScriptReviewError as exc:
-        _raise_review_error(exc, episode, _t)
+        raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
 
@@ -131,7 +104,7 @@ async def update_script_review_content(
         state["quarantine"] = _localize_quarantine_violations(quarantine, _t)
         return state
     except ScriptReviewError as exc:
-        _raise_review_error(exc, episode, _t)
+        raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
 
@@ -153,6 +126,6 @@ async def confirm_script_review(project_name: str, episode: int, _t: Translator)
         )
         return state
     except ScriptReviewError as exc:
-        _raise_review_error(exc, episode, _t)
+        raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
