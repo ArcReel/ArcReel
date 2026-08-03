@@ -1886,7 +1886,7 @@ async def test_get_video_capabilities_happy(fake_ctx: ToolContext, monkeypatch) 
 
 @pytest.mark.unit
 async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext, monkeypatch) -> None:
-    """能力按项目路线解析：工具不收集号，存量 prompt 误传集号也不改变口径。"""
+    """能力按项目路线解析：工具不收集号，多余的集号入参被忽略、不改变解析口径。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     seen: list[str] = []

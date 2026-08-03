@@ -33,6 +33,7 @@ class _FakePM:
             "ready": {
                 "title": "Ready",
                 "style": "Anime",
+                "generation_mode": "storyboard",
                 "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
                 "overview": {"synopsis": "old"},
             },
@@ -1740,11 +1741,15 @@ class TestGetVideoCapabilities:
             )
         assert resp.status_code == 200
         assert resolver_instance.video_capabilities.await_args.args == ("ready",)
-        assert len(resolver_instance.video_capabilities_for_model.await_args.args) == 3
+        # 候选模型解析拿到的第三个入参必须是该项目的已加载数据（含项目路线），只断言参数个数的话
+        # 路由传 None 或传错项目都照样通过。
+        passed_project = resolver_instance.video_capabilities_for_model.await_args.args[2]
+        assert passed_project["title"] == "Ready"
+        assert passed_project["generation_mode"] == "storyboard"
 
     @pytest.mark.integration
     def test_stale_episode_query_param_is_ignored(self, tmp_path, monkeypatch):
-        """存量前端仍可能带 ?episode=N：多余查询参数被忽略，不改变解析口径、不报错。"""
+        """端点不声明 ``episode`` 查询参数：带上也被忽略，不改变解析口径、不报错。"""
         from unittest.mock import AsyncMock, MagicMock
 
         resolver_instance = MagicMock()

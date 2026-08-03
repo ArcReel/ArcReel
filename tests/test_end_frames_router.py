@@ -805,7 +805,7 @@ def _ad_script(shot_id="E1S01") -> dict:
 
 
 class TestReferenceVideoRejection:
-    """生效 generation_mode（集级覆盖项目级）为 reference_video 时，尾帧三端点一律拒绝。
+    """项目生成路线为 reference_video 时，尾帧三端点一律拒绝。
 
     判定只看 project.json：ad 剧本骨架不携带剧本级 generation_mode 戳（见 script_generator），
     各内容模式共用这一口径。
@@ -815,22 +815,6 @@ class TestReferenceVideoRejection:
         # ad 剧本骨架不携带 generation_mode 戳，参考生视频只由项目级配置声明。
         c, pm = _client_with_project(
             tmp_path, monkeypatch, content_mode="ad", script=_ad_script(), project_generation_mode="reference_video"
-        )
-
-        _assert_reference_video_rejected(_upload(c, _img_bytes("PNG"), shot_id="E1S01"))
-        _assert_reference_video_rejected(_select(c, "storyboards/whatever.png", shot_id="E1S01"))
-        _assert_reference_video_rejected(_delete(c, shot_id="E1S01"))
-
-        assert pm.load_script("demo", "episode_1.json")["shots"][0].get("end_frame_image") is None
-
-    def test_ad_reference_route_rejects_all_three_endpoints(self, tmp_path, monkeypatch):
-        # ad 剧本不打 generation_mode 戳，准入以项目路线为唯一真相源。
-        c, pm = _client_with_project(
-            tmp_path,
-            monkeypatch,
-            content_mode="ad",
-            script=_ad_script(),
-            project_generation_mode="reference_video",
         )
 
         _assert_reference_video_rejected(_upload(c, _img_bytes("PNG"), shot_id="E1S01"))
