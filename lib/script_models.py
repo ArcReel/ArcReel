@@ -919,7 +919,7 @@ def is_reference_script(script: dict) -> bool:
     """判定剧本自身的 ``generation_mode`` 戳是否为 ``reference_video``。
 
     仅适用于 narration/drama：剧本自身携带 generation_mode 戳。ad 骨架不打此戳，
-    真相源是项目/集级配置（``effective_mode``），不适用本谓词。
+    真相源是项目生成路线（``is_reference_video_project``），不适用本谓词。
     """
     return script.get("generation_mode") == "reference_video"
 
