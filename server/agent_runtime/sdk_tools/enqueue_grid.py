@@ -44,7 +44,8 @@ def _list_groups(project: dict, script: dict, scene_ids: list[str] | None = None
 def generate_grid_tool(ctx: ToolContext):
     @tool(
         "generate_grid",
-        "为 grid 模式项目生成宫格分镜图（按 segment_break 分组）。"
+        "为已开启宫格装配的 storyboard 项目（generation_mode=storyboard 且 grid_storyboard=true）"
+        "生成宫格分镜图（按 segment_break 分组）。"
         "list_only=true 时只列出分组不执行生成。scene_ids 过滤包含这些场景的分组。",
         {
             "type": "object",
