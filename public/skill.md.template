@@ -61,7 +61,8 @@ curl {{BASE_URL}}/api/v1/projects \
 |------|------|------|
 | `name` | string | 项目标识，仅字母、数字与连字符 |
 | `title` | string | 项目标题 |
-| `generation_mode` | string | **必填**，视频来源二选一：`storyboard`（分镜图生视频）/ `reference_video`（参考图直接生视频，无分镜图步骤） |
+| `generation_mode` | string | **必填**，视频来源二选一：`storyboard`（分镜图生视频）/ `reference_video`（参考图直接生视频，无分镜图步骤）。创建后不可更改 |
+| `grid_storyboard` | bool | 选填，默认 `false`。按分镜板（宫格）批量产出分镜图，仅 `generation_mode` 为 `storyboard` 时生效；广告/短片项目不可开启。创建后可经项目 PATCH 切换 |
 
 ```bash
 curl -X POST {{BASE_URL}}/api/v1/projects \
@@ -148,7 +149,7 @@ curl {{BASE_URL}}/api/v1/projects/my-novel \
 
 ### 5. 更新项目设置
 
-修改项目配置（标题、风格等）。
+修改项目配置（标题、风格、分镜板（宫格）开关等）。生成方式 `generation_mode` 创建后不可更改，不接受该字段。
 
 - **端点**：`PATCH {{BASE_URL}}/api/v1/projects/{name}`
 - **认证**：需要 Bearer Token
@@ -157,7 +158,7 @@ curl {{BASE_URL}}/api/v1/projects/my-novel \
 curl -X PATCH {{BASE_URL}}/api/v1/projects/my-novel \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
-  -d '{"title": "新标题"}'
+  -d '{"title": "新标题", "grid_storyboard": true}'
 ```
 
 ### 6. Agent 对话（剧本与创作）

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
+from lib.i18n import _ as i18n_message
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import grids
@@ -163,25 +164,39 @@ class _FakePMReferenceVideo(_FakePMPathOnly):
         return {"content_mode": "narration", "generation_mode": "reference_video", "grid_storyboard": True}
 
 
+def _assert_grid_switch_rejected(resp, queue) -> None:
+    """断言响应是宫格开关专属的拒绝，且拒绝发生在入队之前（不产生计费任务）。"""
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == i18n_message("grid_storyboard_not_enabled")
+    assert queue.calls == []
+
+
 @pytest.mark.parametrize("fake_pm", [_FakePMGridDisabled, _FakePMReferenceVideo])
 def test_generate_grid_rejected_when_switch_off(monkeypatch, fake_pm):
     # 宫格开关是入队闸门：未开宫格的项目直接 400，不产生计费任务
-    client = _client(monkeypatch, get_project_manager=fake_pm)
+    fake_queue = _FakeQueue()
+    client = _client(monkeypatch, get_project_manager=fake_pm, get_generation_queue=lambda: fake_queue)
     with client:
         resp = client.post(
             "/api/v1/projects/demo/generate/grid/1",
             json={"script_file": "episode_1.json"},
         )
-        assert resp.status_code == 400, resp.text
+        _assert_grid_switch_rejected(resp, fake_queue)
 
 
 @pytest.mark.parametrize("fake_pm", [_FakePMGridDisabled, _FakePMReferenceVideo])
 def test_regenerate_grid_rejected_when_switch_off(monkeypatch, fake_pm):
     # 开关关闭后历史 grid 记录同样不可重新入队
-    client = _client(monkeypatch, get_project_manager=fake_pm, GridManager=_FakeGMNotFound)
+    fake_queue = _FakeQueue()
+    client = _client(
+        monkeypatch,
+        get_project_manager=fake_pm,
+        GridManager=_FakeGMNotFound,
+        get_generation_queue=lambda: fake_queue,
+    )
     with client:
         resp = client.post("/api/v1/projects/demo/grids/grid-123/regenerate")
-        assert resp.status_code == 400, resp.text
+        _assert_grid_switch_rejected(resp, fake_queue)
 
 
 def test_get_grid_not_found(monkeypatch):
