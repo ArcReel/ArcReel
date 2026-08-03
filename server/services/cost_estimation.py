@@ -309,23 +309,24 @@ class CostEstimationService:
                 proj_est[cost_type] = _merge_breakdowns(proj_est.get(cost_type, {}), ep_est.get(cost_type, {}))
                 proj_act[cost_type] = _merge_breakdowns(proj_act.get(cost_type, {}), ep_act.get(cost_type, {}))
 
+        # 参考生视频路径跳过分镜步骤，分镜图维度按路径显式跳过；视频估值按实际计费颗粒度
+        # （reference_unit，而非镜头）计算。两条子路径的展示颗粒度不同：ad 的 unit 只是
+        # 镜头分组索引，费用要摊回自带 ``shot_id`` 的成员镜头（``_estimate_ad_reference_video_episode``）；
+        # narration/drama 的 unit 自带 ``unit_id`` 且成员 shot 无独立 ID，unit 本身即展示
+        # 颗粒度（``_estimate_unit_reference_video_episode``）。
+        #
+        # ad 骨架唯一、shots 不打 generation_mode 戳，生成路径以项目路线为真相源，整个项目同一
+        # 条路线、逐集不变；narration/drama 的生成侧只认剧本自身的 generation_mode 戳
+        # （``lib.script_models.is_reference_script``），估算须跟同一口径——存量剧本仍可能
+        # 携带与项目路线不符的戳，实际入队按戳走 unit 路径，估算叠加路线门槛会误判回落分镜。
+        is_reference_video = is_reference_video_project(project_data)
+
         for ep_meta in episodes_meta:
             script_file = ep_meta.get("script_file", "")
             script = scripts.get(script_file)
             if not script:
                 continue
 
-            # 参考生视频路径跳过分镜步骤，分镜图维度按路径显式跳过；视频估值按实际计费颗粒度
-            # （reference_unit，而非镜头）计算。两条子路径的展示颗粒度不同：ad 的 unit 只是
-            # 镜头分组索引，费用要摊回自带 ``shot_id`` 的成员镜头（``_estimate_ad_reference_video_episode``）；
-            # narration/drama 的 unit 自带 ``unit_id`` 且成员 shot 无独立 ID，unit 本身即展示
-            # 颗粒度（``_estimate_unit_reference_video_episode``）。
-            #
-            # ad 骨架唯一、shots 不打 generation_mode 戳，生成路径以项目路线为真相源；
-            # narration/drama 的生成侧只认剧本自身的 generation_mode 戳
-            # （``lib.script_models.is_reference_script``），估算须跟同一口径——存量剧本仍可能
-            # 携带与项目路线不符的戳，实际入队按戳走 unit 路径，估算叠加路线门槛会误判回落分镜。
-            is_reference_video = is_reference_video_project(project_data)
             raw_units = script.get("video_units")
             video_units: list[Any] = raw_units if isinstance(raw_units, list) else []
             if content_mode == "ad":

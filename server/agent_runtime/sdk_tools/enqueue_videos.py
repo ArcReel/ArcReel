@@ -178,7 +178,7 @@ async def _resolve_voice_characters(ctx: ToolContext, content_mode: str) -> dict
     return project.get("characters") or {}
 
 
-def _is_ad_reference(ctx: ToolContext, _script: dict[str, Any]) -> bool:
+def _is_ad_reference(ctx: ToolContext) -> bool:
     """ad + reference_video 判定：ad 剧本骨架唯一、不打 generation_mode 戳，
     生成路径以 project.json 的项目生成路线为真相源。"""
     project = ctx.pm.load_project(ctx.project_name)
@@ -686,7 +686,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx, script):
+            if _is_ad_reference(ctx):
                 return await _run_ad_reference_episode(
                     ctx=ctx,
                     script_filename=script_filename,
@@ -791,7 +791,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx, script):
+            if _is_ad_reference(ctx):
                 ad_log: list[str] = [
                     f"⚠️  reference_video 模式暂不支持单 unit 精确选择；scene_id={scene_id} 被忽略，转整集生成。"
                 ]
@@ -893,7 +893,7 @@ def generate_video_all_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx, script):
+            if _is_ad_reference(ctx):
                 return await _run_ad_reference_episode(
                     ctx=ctx,
                     script_filename=script_filename,
@@ -987,7 +987,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx, script):
+            if _is_ad_reference(ctx):
                 log.append(
                     f"⚠️  reference_video 模式暂不支持多 unit 精确选择；scene_ids={','.join(scene_ids)} 被忽略，转整集生成。"
                 )

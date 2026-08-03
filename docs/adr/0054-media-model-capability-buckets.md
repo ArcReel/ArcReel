@@ -4,7 +4,7 @@ status: accepted
 
 # 图片 / 视频模型按能力桶配置：单一默认 + 可选能力覆盖
 
-部分视频模型只具备部分能力（仅 i2v、无参考图槽位），单一「视频模型」配置项表达不了这一约束，选错模型的项目要到参考生视频路径执行期才失败。决定图片与视频统一为「**单一默认模型 + 按 capability 的可选覆盖桶**」：图片 t2i / i2i、视频 i2v / r2v，解析顺序与文本档位（`docs/adr/0051`）同构、项目优先——项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断，空桶回退默认层。桶与调用点的映射固定在代码里：图片按执行时请求形态归桶（见 `docs/adr/0001`），视频按实际执行路径归桶，与生成侧同口径：ad 剧本不打 generation_mode 戳，取生效 generation_mode（剧集覆盖优先于项目，同 `project_manager.effective_mode`）；narration / drama 取剧本自身的 generation_mode 戳（`script_models.is_reference_script`），项目 / 集事后改回 storyboard 而剧本仍留 reference_video 戳时按剧本戳走。图生视频 / 宫格 → i2v；参考生视频 → r2v，**含无参考图的退化镜头**。图片两槽的配置形态由本 ADR 收敛，`docs/adr/0015` 的端点三拆与运行时 gating 不受影响。
+部分视频模型只具备部分能力（仅 i2v、无参考图槽位），单一「视频模型」配置项表达不了这一约束，选错模型的项目要到参考生视频路径执行期才失败。决定图片与视频统一为「**单一默认模型 + 按 capability 的可选覆盖桶**」：图片 t2i / i2i、视频 i2v / r2v，解析顺序与文本档位（`docs/adr/0051`）同构、项目优先——项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断，空桶回退默认层。桶与调用点的映射固定在代码里：图片按执行时请求形态归桶（见 `docs/adr/0001`），视频按实际执行路径归桶，与生成侧同口径：ad 剧本不打 generation_mode 戳，取项目 generation_mode（`project_manager.is_reference_video_project`）；narration / drama 取剧本自身的 generation_mode 戳（`script_models.is_reference_script`），存量剧本携带与项目路线不符的 reference_video 戳时按剧本戳走。图生视频 / 宫格 → i2v；参考生视频 → r2v，**含无参考图的退化镜头**。图片两槽的配置形态由本 ADR 收敛，`docs/adr/0015` 的端点三拆与运行时 gating 不受影响。
 
 ## 明确不采用
 
@@ -17,7 +17,7 @@ status: accepted
 ## Consequences
 
 - 能力真相源维持既有声明、不新增副本：两桶都取 backend `VideoCapabilities`——i2v 看 `first_frame`（分镜 / 宫格路径由首帧驱动），r2v 看 `max_reference_images > 0`；自定义供应商 = endpoint 系统判定 ⊕ 模型级 `capability_overrides` 合成。registry `ModelInfo.capabilities` 的 `image_to_video` 不区分这两条路径（`happyhorse-1.0-r2v` 声明该位、backend `first_frame=False`），不作桶候选的过滤依据。桶下拉据此预过滤候选；默认层下拉不过滤——默认层不承诺任何能力。
-- 全部读侧（`video_capabilities` 查询与 agent 工具、费用估算、时长 / 分辨率约束收窄）与执行侧同口径：按上述口径定桶后走同一解析函数，读侧因此需要剧集与剧本上下文（费用估算已按同一口径分 ad 与 narration / drama 两支），不只取项目层字段。切换 generation_mode 可能改变能力查询结果，由既有的生成时校验 / 收窄兜住，不新增机制。
+- 全部读侧（`video_capabilities` 查询与 agent 工具、费用估算、时长 / 分辨率约束收窄）与执行侧同口径：按上述口径定桶后走同一解析函数。能力查询按项目路线一次定轴、不需要剧集上下文；费用估算按同一口径分 ad 与 narration / drama 两支，后者仍取剧本戳。生成路线创建即定不可变，能力查询结果不随配置改动换桶。
 - 图片侧空桶语义是「回退默认层」，不存在「空 = 跟随自动推断」的读法；存量配置的键组合在迁移中穷举处置。
-- 前端呈现与 per-model 存储按**执行模型**取键：凡按模型查能力或按模型存配置的界面元素（能力面板、`model_settings` 下的分辨率等），一律取当前配置真正会执行的模型——细分桶生效时是桶内模型，否则是默认层穿透演算的结果；视频侧先按 generation_mode 定桶再求值，与后端定桶口径同源。此规则限于项目设置页持有单一 generation_mode 值的场景，两类分支例外：剧集覆盖或剧本自身保留的 `reference_video` 戳（见开篇「项目 / 集事后改回 storyboard 而剧本仍留戳」）会让某集实际按 r2v 执行，但 UI 展示与 `model_settings` 存储键仍按项目级 generation_mode 求值为 i2v，与该集实际执行的模型不同，只影响上一条读侧的能力查询与执行判定；图片侧 `executingImageModel` 只取 T2I 层的执行模型，图片分辨率据此存取键，I2I 走独立的执行模型——两者配置不同模型时，I2I 执行期按自己的模型查 `model_settings` 查不到该键，回落供应商默认分辨率档位。默认层模型不作查询或存储的键，除非它就是执行模型。
+- 前端呈现与 per-model 存储按**执行模型**取键：凡按模型查能力或按模型存配置的界面元素（能力面板、`model_settings` 下的分辨率等），一律取当前配置真正会执行的模型——细分桶生效时是桶内模型，否则是默认层穿透演算的结果；视频侧先按 generation_mode 定桶再求值，与后端定桶口径同源。一类分支例外：剧本自身保留的 `reference_video` 戳（见开篇「存量剧本携带与项目路线不符的戳」）会让某集实际按 r2v 执行，但 UI 展示与 `model_settings` 存储键仍按项目 generation_mode 求值为 i2v，与该集实际执行的模型不同，只影响上一条读侧的能力查询与执行判定；图片侧 `executingImageModel` 只取 T2I 层的执行模型，图片分辨率据此存取键，I2I 走独立的执行模型——两者配置不同模型时，I2I 执行期按自己的模型查 `model_settings` 查不到该键，回落供应商默认分辨率档位。默认层模型不作查询或存储的键，除非它就是执行模型。
 - 设置 UI 三媒体（文本档位 / 图片桶 / 视频桶）共用同一交互形态：默认主下拉常驻 + 折叠的能力细分区，未配置桶的占位穿透演算到最终生效模型并标注各桶覆盖的调用点（zh / en / vi 同步）；创建向导只暴露默认层。
