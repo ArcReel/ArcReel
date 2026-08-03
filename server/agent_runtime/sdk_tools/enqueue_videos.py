@@ -187,7 +187,7 @@ def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | 
     携带路线信息，同一项目逐集不变。
 
     Raises:
-        SkeletonRouteMismatchError: 剧本骨架与项目路线失配（存量混排集），生成被拒。
+        SkeletonRouteMismatchError: 剧本骨架与项目路线失配，生成被拒。
     """
     project = ctx.pm.load_project(ctx.project_name)
     content_mode = resolve_content_mode(script, project)

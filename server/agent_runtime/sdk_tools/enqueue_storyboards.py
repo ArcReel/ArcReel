@@ -163,7 +163,7 @@ def generate_storyboards_tool(ctx: ToolContext):
                 project_data = {}
 
             if project_data:
-                # 失配剧本（存量混排集）在此被拒：按分镜路线该读的数组不在剧本里，继续走下去
+                # 失配剧本在此被拒：按分镜路线该读的数组不在剧本里，继续走下去
                 # 会落进"✨ 所有片段的分镜图都已生成"的假成功，把成因埋掉。project.json 缺失
                 # 时无路线可依，沿用上面的降级放行。
                 ensure_route_skeleton(

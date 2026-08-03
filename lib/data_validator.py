@@ -1248,7 +1248,7 @@ class DataValidator:
         try:
             ensure_route_skeleton(episode, content_mode, gen_mode)
         except SkeletonRouteMismatchError as exc:
-            # 存量失配剧本（集级路线覆盖时代留下的混排集）：按路线该读的数组根本不在剧本里，
+            # 失配剧本（骨架与项目路线跨族）：按路线该读的数组根本不在剧本里，
             # 逐字段报"缺少 segments"会把成因埋掉——直接给结构结论与重拆指引，并跳过后续
             # 按骨架的检查。同一闸门在生成入口拒绝生成，此处只是把同一事实报告出来。
             errors.append(str(exc))

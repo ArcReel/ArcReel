@@ -70,7 +70,7 @@ def generate_narration_audio_tool(ctx: ToolContext):
             if script.get("content_mode") == "drama":
                 raise ValueError("旁白配音仅适用说书（narration）模式剧本；drama 模式的 scenes 没有 novel_text")
 
-            # 路线以项目为唯一真相源；同时把守骨架闸门，失配剧本（存量混排集）在此被拒。
+            # 路线以项目为唯一真相源；同时把守骨架闸门，失配剧本在此被拒。
             project = ctx.pm.load_project(ctx.project_name)
             ensure_route_skeleton(script, resolve_content_mode(script, project), project.get("generation_mode"))
             if is_reference_video_project(project):

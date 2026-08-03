@@ -71,7 +71,7 @@ def generate_grid_tool(ctx: ToolContext):
 
             project = ctx.pm.load_project(ctx.project_name)
             script = ctx.pm.load_script(ctx.project_name, script_filename)
-            # 失配剧本（存量混排集）在此被拒：按分镜路线该读的数组不在剧本里，继续走下去只会
+            # 失配剧本在此被拒：按分镜路线该读的数组不在剧本里，继续走下去只会
             # 报"没有匹配的场景组"，把成因埋掉。
             ensure_route_skeleton(script, resolve_content_mode(script, project), project.get("generation_mode"))
 
