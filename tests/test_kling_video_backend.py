@@ -224,6 +224,7 @@ class TestAudioGating:
         )
         assert payload["sound"] == "off"
 
+    @pytest.mark.unit
     def test_v2_6_audio_gate_ignores_request_resolution(self, tmp_path):
         # request.resolution 不进 payload（4k 档除外），不能作为成片是否 1080P 的判据：
         # pro 档即 1080P，resolution 写 720p 也照常有声
@@ -232,6 +233,15 @@ class TestAudioGating:
         )
         assert payload["sound"] == "on"
 
+    @pytest.mark.unit
+    def test_v2_6_4k_audio_forced_off(self, tmp_path):
+        # 4k 档是 v3 系专有，对 v2-6 是非法请求：不当作满足 1080P 放行，避免按有声价出账
+        _, payload = _jwt_backend("kling-v2-6")._build_payload(
+            _request(tmp_path, resolution="4k", service_tier="pro", generate_audio=True)
+        )
+        assert payload["sound"] == "off"
+
+    @pytest.mark.unit
     def test_v3_audio_enabled_without_tier_constraint(self, tmp_path):
         # v3 系官方未声明分辨率/档位约束：请求要人声即开启，不按未记载的限制降级
         for model in ("kling-v3", "kling-v3-omni"):
@@ -240,11 +250,13 @@ class TestAudioGating:
             )
             assert payload["sound"] == "on"
 
+    @pytest.mark.unit
     def test_audio_capable_model_sends_off_when_not_requested(self, tmp_path):
         # 有能力但请求不要人声：显式发 "off"，与官方默认值一致
         _, payload = _jwt_backend("kling-v3")._build_payload(_request(tmp_path, generate_audio=False))
         assert payload["sound"] == "off"
 
+    @pytest.mark.unit
     def test_no_audio_model_omits_sound_field(self, tmp_path):
         # 无音频能力的档：不携带 sound，避免向不支持的端点发未知参数
         img = tmp_path / "start.png"
@@ -274,6 +286,7 @@ class TestMultiImageSubpath:
         assert not payload["image_list"][0]["image"].startswith("data:")
         assert "image" not in payload and "image_tail" not in payload
 
+    @pytest.mark.unit
     def test_multi_image2video_omits_sound(self, tmp_path):
         refs = self._refs(tmp_path, 1)
         _, payload = _jwt_backend("kling-v3-omni")._build_payload(
@@ -648,6 +661,7 @@ class TestAudioGatingResult:
         assert result.generate_audio is True
         assert post.await_args.args[0].endswith("/videos/text2video")
 
+    @pytest.mark.unit
     async def test_v2_6_std_audio_result_false(self, tmp_path):
         # std 档拿不到 1080P：即使 request.resolution 写 1080p，结果也必须记为无声，
         # 否则拿到无声片却按有声价（¥1.0/s vs ¥0.8/s）出账
@@ -664,6 +678,7 @@ class TestAudioGatingResult:
             )
         assert result.generate_audio is False
 
+    @pytest.mark.unit
     async def test_v3_audio_result_true(self, tmp_path):
         # v3 支持音画同出且无分辨率约束：请求有声 → result.generate_audio=True
         post = AsyncMock(return_value=_resp(_submit("task-b")))
@@ -677,6 +692,7 @@ class TestAudioGatingResult:
             result = await _jwt_backend("kling-v3").generate(_request(tmp_path, generate_audio=True))
         assert result.generate_audio is True
 
+    @pytest.mark.unit
     async def test_turbo_audio_gated_result_false(self, tmp_path):
         # turbo 无音频能力：即使请求有声，result.generate_audio=False（计费取无声价）
         post = AsyncMock(return_value=_resp(_submit("task-b2")))
@@ -690,6 +706,7 @@ class TestAudioGatingResult:
             result = await _jwt_backend().generate(_request(tmp_path, resolution="1080p", generate_audio=True))
         assert result.generate_audio is False
 
+    @pytest.mark.unit
     async def test_v3_omni_multi_image_audio_result_false(self, tmp_path):
         # multi-image2video 子路径不携带 sound（原生 schema 无此字段），成片必然无声：
         # result.generate_audio 必须同步为 False，否则按有声价出账却拿到无声片
@@ -709,6 +726,7 @@ class TestAudioGatingResult:
         assert post.await_args.args[0].endswith("/videos/multi-image2video")
         assert result.generate_audio is False
 
+    @pytest.mark.unit
     async def test_v2_6_persists_audio_bit_in_job_id(self, tmp_path):
         # submit 时算定的有声决策编入 job_id（v2-6 pro 有声 → 末段 :1），resume 据此直连计费
         post = AsyncMock(return_value=_resp(_submit("task-c")))
@@ -746,8 +764,8 @@ class TestAudioGatingResult:
         assert result.task_id == "task-c"
         assert get.await_args.args[0].endswith("/videos/text2video/task-c")
 
-    async def test_resume_legacy_job_id_recomputes_audio(self, tmp_path):
-        # 旧 job_id（2 段，未持久化有声标志）回落按请求重算
+    async def test_resume_legacy_job_id_stays_silent(self, tmp_path):
+        # 2 段旧 job_id 出自尚无音频能力的实现，成片必然无声：不得按当前能力图重算为有声
         post = AsyncMock()
         get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
         client = _client(post=post, get=get)
@@ -760,11 +778,12 @@ class TestAudioGatingResult:
                 "text2video:task-c", _request(tmp_path, service_tier="pro", generate_audio=True)
             )
         post.assert_not_called()
-        assert result.generate_audio is True
+        assert result.generate_audio is False
         # 2 段旧 job_id 同样须正确复原子路径/任务号（不误把整串当 task_id）
         assert result.task_id == "task-c"
         assert get.await_args.args[0].endswith("/videos/text2video/task-c")
 
+    @pytest.mark.unit
     async def test_resume_legacy_multi_image_job_id_stays_silent(self, tmp_path):
         # 旧格式多图主体 job_id 回落重算时，resume 请求已不带参考图字段，只能按解码出的
         # 子路径判定：multi-image2video 成片必然无声，不得按有声价出账

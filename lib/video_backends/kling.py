@@ -313,10 +313,11 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             return False
         if self._caps.audio_requires_1080p:
             # 官方约束的维度是分辨率（v2-6「生成有声视频时，仅支持生成 1080P」），但可灵请求体没有
-            # 分辨率字段：输出档位只由 mode 决定（std 720P / pro 1080P / 4k），``request.resolution``
-            # 除识别 4k 档外不进入 payload。判据因此落在实际发出的 mode 上——std 档拿不到 1080P，
-            # 据 resolution="1080p" 发 sound="on" 会拿到无声片却按有声价出账。
-            return self._resolve_mode(request) != "std"
+            # 分辨率字段：输出档位只由 mode 决定，``request.resolution`` 除识别 4k 档外不进入 payload。
+            # 判据因此落在实际发出的 mode 上。声明该位的 model（v2-6）只有 std / pro 两档，pro 即
+            # 1080P；4k 档是 v3 系专有，对这些 model 是非法请求，不当作满足 1080P 放行——否则会发
+            # sound="on" 并按有声价出账，换回一个必然失败或无声的任务。
+            return self._resolve_mode(request) == "pro"
         return True
 
     @staticmethod
@@ -437,13 +438,12 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         而 resume 请求已无 ``start_image`` 可推断，故不能再从 request 取（见 _encode_job_id）。
 
         有声标志同样优先取持久化值（submit 时算定）：直连有声/无声计费，避免按 resume 时
-        可能已漂移的 config 默认/请求重算。旧 job_id 未持久化时（None）按解码出的子路径重算——
-        resume 请求不带图字段，子路径是此处唯一能判出多图主体（必然无声）的依据。
+        可能已漂移的 config 默认/请求重算。未持久化该标志的 2 段旧 job_id 一律判无声——产出这类
+        job_id 的实现尚不具备任何音频能力（结果恒 ``generate_audio=False``），成片必然无声；按
+        当前能力图重算会让这些旧任务按有声价出账（v3 系有声档在其之后才登记）。
         """
         subpath, task_id, persisted_audio = _decode_job_id(job_id)
-        generate_audio = (
-            persisted_audio if persisted_audio is not None else self._effective_audio(request, subpath=subpath)
-        )
+        generate_audio = persisted_audio if persisted_audio is not None else False
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             return await self._poll_and_build(client, subpath, task_id, request, generate_audio=generate_audio)
 

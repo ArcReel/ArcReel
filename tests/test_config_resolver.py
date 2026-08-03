@@ -939,14 +939,16 @@ class TestVoiceConsistency:
         caps = await self._caps({"video_backend": "openai/sora-2"})
         assert caps["voice_consistency"] == "soft"
 
-    async def test_kling_v3_soft_after_token_correction(self):
-        """可灵 v3 系目录补 generate_audio 后派生 soft（不再因缺 token 误判 none、不注入 Voice_Profiles）。"""
+    @pytest.mark.unit
+    async def test_kling_v3_audio_models_are_soft(self):
+        """可灵 v3 系声明音频能力 → soft（注入 Voice_Profiles）。"""
         for model_id in ("kling-v3", "kling-v3-omni"):
             caps = await self._caps({"video_backend": f"kling/{model_id}"})
             assert caps["voice_consistency"] == "soft"
 
+    @pytest.mark.unit
     async def test_kling_turbo_true_silent_is_none(self):
-        """可灵 v2-5-turbo 无音频开关 → none（token 修正不外溢到真无声档）。"""
+        """可灵 v2-5-turbo 无音频开关 → none。"""
         caps = await self._caps({"video_backend": "kling/kling-v2-5-turbo"})
         assert caps["voice_consistency"] == "none"
 

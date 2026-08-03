@@ -267,21 +267,26 @@ class TestBuildRequest:
             backend._build_request(req)
 
 
+@pytest.mark.unit
 class TestPromptLength:
     """prompt 超限一律拒绝，不再客户端静默截断。"""
 
+    @pytest.mark.unit
     def test_reference_only_model_declares_narrow_limit(self):
         """viduq3 只跑 /reference2video，静态声明取该端点的窄值。"""
         assert ViduVideoBackend.video_capabilities_for_model("viduq3").max_prompt_chars == 2000
 
+    @pytest.mark.unit
     def test_multi_endpoint_model_declares_wide_limit(self):
         """viduq3-turbo 还能跑 t2v/i2v，静态声明取宽值——否则会误拒其合法的长 prompt。"""
         assert ViduVideoBackend.video_capabilities_for_model("viduq3-turbo").max_prompt_chars == 5000
 
+    @pytest.mark.unit
     def test_unknown_model_declares_wide_limit(self):
         """未登记 model（中转自定义命名）取宽值：能力不明时误拒是更糟的降级。"""
         assert ViduVideoBackend.video_capabilities_for_model("proxy-x").max_prompt_chars == 5000
 
+    @pytest.mark.unit
     def test_reference2video_over_limit_raises(self, output_path: Path):
         backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
         req = VideoGenerationRequest(
@@ -302,6 +307,7 @@ class TestPromptLength:
         }
 
     @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
+    @pytest.mark.unit
     def test_reference2video_at_limit_passes_untruncated(self, _mock_data_uri, output_path: Path):
         backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
         prompt = "字" * 2000
@@ -315,6 +321,7 @@ class TestPromptLength:
 
         assert body["prompt"] == prompt
 
+    @pytest.mark.unit
     def test_text2video_allows_longer_than_reference_limit(self, output_path: Path):
         """端点上限按端点各算：t2v 的 5000 不受 /reference2video 的 2000 牵连。"""
         backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
@@ -330,6 +337,7 @@ class TestDurationRulesSpec:
     def test_q1_text2video_only_5(self):
         assert _DURATION_RULES[("viduq1", "/text2video")] == [5]
 
+    @pytest.mark.unit
     def test_q2_img2video_up_to_10(self):
         """/img2video 官方为 1–10；1–8 是 /start-end2video 的值，两端点不同。"""
         assert _DURATION_RULES[("viduq2-pro", "/img2video")] == list(range(1, 11))
