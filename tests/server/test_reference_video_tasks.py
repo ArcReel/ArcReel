@@ -1523,9 +1523,9 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """prompt 里的 [图N] 索引必须与 backend 收到的 reference_images 对齐：references 裁剪后
-    须按 `constrained_refs` 长度重新 slice，用整条 `unit.references` 渲染会让 [图N] 越界
-    （例如 5 张裁到 1 张，prompt 里仍出现 [图5]）。
+    """prompt 里的 `@图片N` 索引必须与 backend 收到的 reference_images 对齐：references 裁剪后
+    须按 `constrained_refs` 长度重新 slice，用整条 `unit.references` 渲染会让 `@图片N` 越界
+    （例如 5 张裁到 1 张，prompt 里仍出现 `@图片5`）。
     """
     proj_dir = _write_project(tmp_path)
 
@@ -1615,9 +1615,9 @@ async def test_execute_reference_video_task_prompt_matches_deduped_refs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """unit.references 携带同一角色的 NFC/NFD 两条记录时，prompt 的 [图N] 索引必须与去重后的
-    reference_images 对齐：图片列表与渲染用的逻辑引用列表须按同一去重规则计数，否则 [图2]
-    会错误绑到与 [图1] 相同的资产、后面一条真正不同的参考丢失编号。"""
+    """unit.references 携带同一角色的 NFC/NFD 两条记录时，prompt 的 `@图片N` 索引必须与去重后的
+    reference_images 对齐：图片列表与渲染用的逻辑引用列表须按同一去重规则计数，否则 `@图片2`
+    会错误绑到与 `@图片1` 相同的资产、后面一条真正不同的参考丢失编号。"""
     import unicodedata
 
     proj_dir = _write_project(tmp_path)
