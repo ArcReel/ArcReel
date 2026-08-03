@@ -128,6 +128,27 @@ class TestReferenceInheritance:
             {"type": "character", "name": "小明"},
         ]
 
+    def test_references_deduplicated_across_encoding_forms(self):
+        # 同一资产在两个镜头里以 NFC / NFD 两种等价编码写入：派生参考集须按归一名判同，
+        # 否则画布上重复显示同一资产、并各占一个参考图槽位
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+
+        shots = [
+            _shot("E1S1", characters_in_shot=[name_nfc], products_in_shot=[name_nfc]),
+            _shot("E1S2", characters_in_shot=[name_nfd], products_in_shot=[name_nfd]),
+        ]
+
+        units = derive_ad_reference_units(shots, episode=1)
+
+        assert units[0]["references"] == [
+            {"type": "product", "name": name_nfc},
+            {"type": "character", "name": name_nfc},
+        ]
+
     def test_atmosphere_only_unit_has_zero_product_references(self):
         shots = [_shot("E1S1", scenes=["海边"]), _shot("E1S2", scenes=["海边"])]
 

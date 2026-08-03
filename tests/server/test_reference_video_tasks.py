@@ -249,6 +249,29 @@ def test_resolve_ad_unit_reference_entries_dedupes_nfc_nfd_pair(tmp_path: Path):
 
 
 @pytest.mark.integration
+def test_resolve_ad_unit_reference_entries_nfd_reference_hits_nfc_registered_asset(tmp_path: Path):
+    """镜头以 NFD 形式引用、资产表按 NFC 登记：解析须命中该资产的 sheet 而非软跳过，且条目的
+    name/label 写归一形式——下游按名字判等（第一段主体绑定、参考音频图号对齐）才落在同一坐标系。"""
+    import unicodedata
+
+    proj_dir = _write_project(tmp_path)
+    project, _ = _load_project_and_unit(proj_dir, "E1U1")
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    assert name_nfc != name_nfd
+    project["characters"][name_nfc] = {"description": "x", "character_sheet": "characters/hieu.png"}
+    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    refs = [{"type": "character", "name": name_nfd}]
+    entries, warnings = _resolve_ad_unit_reference_entries(project, proj_dir, refs)
+
+    assert warnings == []
+    assert [e["image"].name for e in entries] == ["hieu.png"]
+    assert entries[0]["name"] == name_nfc
+    assert name_nfc in entries[0]["label"] and name_nfd not in entries[0]["label"]
+
+
+@pytest.mark.integration
 def test_resolve_ad_unit_reference_entries_no_false_positive_warning_for_nfd_product(tmp_path: Path):
     """产品参考在 unit.references 中以 NFD 编码出现且 sheet 存在：collect_product_references_for_names
     返回的 entries["name"] 已归一为 NFC，membership 检查须同样归一后再比较产品名是否成功注入，
