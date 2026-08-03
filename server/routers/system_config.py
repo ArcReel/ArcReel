@@ -196,6 +196,7 @@ async def _enumerate_candidates(
                         endpoint=model.endpoint,
                         model_id=model.model_id,
                         capability_overrides=model.capability_overrides,
+                        endpoint_config=model.endpoint_config,
                     ),
                 )
             )

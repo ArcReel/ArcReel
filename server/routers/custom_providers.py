@@ -51,7 +51,6 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
 from lib.image_backends.base import ImageCapability
 from lib.video_backends.base import ReferenceAudioMode
-from lib.video_backends.comfyui import ComfyUIVideoBackend
 
 
 def _validate_endpoint(value: str) -> str:
@@ -333,9 +332,13 @@ def _system_capabilities_for(
     try:
         if endpoint_to_media_type(endpoint) != "video":
             return None
-        if endpoint == COMFYUI_ENDPOINT and endpoint_config is not None:
-            return asdict(ComfyUIVideoBackend.video_capabilities_for_config(endpoint_config))
-        return asdict(system_video_capabilities(endpoint=endpoint, model_id=model_id))
+        return asdict(
+            system_video_capabilities(
+                endpoint=endpoint,
+                model_id=model_id,
+                endpoint_config=endpoint_config,
+            )
+        )
     except (ComfyUIWorkflowConfigError, ValueError):
         logger.warning("无法判定系统能力: endpoint=%r model_id=%r", endpoint, model_id)
         return None

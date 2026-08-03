@@ -1123,6 +1123,7 @@ class ConfigResolver:
                     endpoint=model.endpoint,
                     model_id=model_id,
                     overrides=model.capability_overrides,
+                    endpoint_config=model.endpoint_config,
                 )
             except ValueError as exc:
                 raise _video_bucket_reference_unavailable(capability, provider_id, model_id) from exc
@@ -1295,6 +1296,7 @@ class ConfigResolver:
                     endpoint=model.endpoint,
                     model_id=model_id,
                     overrides=model.capability_overrides,
+                    endpoint_config=model.endpoint_config,
                 )
             except ValueError as exc:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
