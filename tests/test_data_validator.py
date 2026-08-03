@@ -1651,3 +1651,20 @@ class TestDataValidatorSkeletonExhaustiveness:
         validator._validate_episode_payload(tmp_path, project, episode, [], [])
 
         assert _KIND_TO_VALIDATOR[kind] in called
+
+    def test_narration_data_in_scenes_key_is_validated_as_scenes(self, tmp_path, monkeypatch):
+        """族内历史形态（narration 数据落 scenes 键）被闸门放行后，按剧本实际骨架校验。
+
+        按声明的 segments 分派会去读不存在的数组，scenes 里的数据一条都不受校验。
+        """
+        called: list[str] = []
+        for name in _KIND_TO_VALIDATOR.values():
+            monkeypatch.setattr(DataValidator, name, lambda *a, _n=name, **k: called.append(_n))
+
+        project = {"content_mode": "narration", "products": {}}
+        episode = {"episode": 1, "title": "第一集", "content_mode": "narration", "scenes": []}
+
+        validator = DataValidator(projects_root=str(tmp_path / "projects"))
+        validator._validate_episode_payload(tmp_path, project, episode, [], [])
+
+        assert called == ["_validate_scenes"]

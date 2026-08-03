@@ -1246,7 +1246,9 @@ class DataValidator:
             errors.append(f"content_mode 值无效: '{content_mode}'，必须是 {self.VALID_CONTENT_MODES}")
             return
         try:
-            ensure_route_skeleton(episode, content_mode, gen_mode)
+            # 闸门放行族内历史形态（narration 数据落 scenes 键）并返回剧本的实际骨架，后续按
+            # 该实际种类分派——用声明种类会让这类剧本按不存在的 segments 空读，数据一条都不校验。
+            kind = ensure_route_skeleton(episode, content_mode, gen_mode)
         except SkeletonRouteMismatchError as exc:
             # 失配剧本（骨架与项目路线跨族）：按路线该读的数组根本不在剧本里，
             # 逐字段报"缺少 segments"会把成因埋掉——直接给结构结论与重拆指引，并跳过后续

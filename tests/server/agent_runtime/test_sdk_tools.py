@@ -1100,13 +1100,16 @@ async def test_generate_video_episode_reference_rejects_malformed_unit_container
     from server.agent_runtime.sdk_tools.enqueue_videos import generate_video_episode_tool
 
     _use_reference_route(fake_ctx)
-    fake_ctx.pm.script_payload = _reference_video_script(video_units={"E1U1": {"unit_id": "E1U1"}})  # type: ignore[attr-defined]
-    tool_obj = generate_video_episode_tool(fake_ctx)
-    out = await _call(tool_obj, {"script": "episode_1.json"})
-    assert out.get("is_error") is True
-    text = out["content"][0]["text"]
-    assert "video_units 必须是数组" in text
-    assert "dict" in text
+    for malformed, type_name in (({"E1U1": {}}, "dict"), ({}, "dict"), ("", "str"), (False, "bool")):
+        # 键在场即按类型判定，不看真值：``{}`` / ``""`` / ``False`` 同样是类型错误，
+        # 报成「为空」会把成因埋掉。
+        fake_ctx.pm.script_payload = _reference_video_script(video_units=malformed)  # type: ignore[attr-defined]
+        tool_obj = generate_video_episode_tool(fake_ctx)
+        out = await _call(tool_obj, {"script": "episode_1.json"})
+        assert out.get("is_error") is True
+        text = out["content"][0]["text"]
+        assert "video_units 必须是数组" in text
+        assert type_name in text
 
 
 @pytest.mark.integration

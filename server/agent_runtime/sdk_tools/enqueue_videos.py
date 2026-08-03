@@ -579,7 +579,7 @@ async def _run_reference_episode(
     """
     episode = ProjectManager.resolve_episode_from_script(script, script_filename)
     units = script.get("video_units")
-    if units and not isinstance(units, list):
+    if "video_units" in script and not isinstance(units, list):
         # 路线闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
         # 产生的 dict、字符串）会一路下传到 unit 迭代，报出无从定位的 TypeError。
         raise ValueError(f"第 {episode} 集 video_units 必须是数组，当前为 {type(units).__name__}：{script_filename}")
