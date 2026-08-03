@@ -954,6 +954,11 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="video",
                 capabilities=["image_to_video", "seed_control"],
                 supported_durations=[4, 8],
+                # 图生/首尾帧端点 8 秒档只出 720p，1080p 仅 4 秒档可选。
+                duration_resolution_constraints={"1080p": [4]},
+                # 参考生视频端点时长仅认 4 秒；不收窄会让 r2v 项目的时长下拉出现
+                # 8 秒幽灵档位——选中后被 backend 静默取到 4 秒。
+                reference_image_durations=[4],
                 resolutions=["360p", "720p", "1080p"],
                 max_reference_images=7,
                 pricing=ViduDelegate(),

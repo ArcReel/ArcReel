@@ -355,6 +355,33 @@ class TestDurationRulesSpec:
         assert _DURATION_RULES[("viduq3-turbo", "/text2video")] == list(range(1, 17))
 
 
+class TestRegistryBackendConsistency:
+    """registry 的 vidu2.0 声明与 backend 执行期白名单须无分歧（两侧同一份官方文档核实）。"""
+
+    def _vidu2_model_info(self):
+        from lib.config.registry import PROVIDER_REGISTRY
+
+        return PROVIDER_REGISTRY["vidu"].models["vidu2.0"]
+
+    def test_reference_image_durations_matches_reference2video_rule(self):
+        model_info = self._vidu2_model_info()
+        assert model_info.reference_image_durations == _DURATION_RULES[("vidu2.0", "/reference2video")]
+
+    def test_supported_durations_covers_img2video_and_start_end2video(self):
+        model_info = self._vidu2_model_info()
+        assert set(model_info.supported_durations) == set(_DURATION_RULES[("vidu2.0", "/img2video")])
+        assert set(model_info.supported_durations) == set(_DURATION_RULES[("vidu2.0", "/start-end2video")])
+
+    def test_duration_resolution_constraints_forbids_8s_1080p(self):
+        """8 秒档只出 720p——1080p 须声明仅 4 秒可选，UI 才不会给出 8s+1080p 的无效组合。"""
+        model_info = self._vidu2_model_info()
+        assert model_info.duration_resolution_constraints.get("1080p") == [4]
+
+    def test_resolutions_is_superset_of_backend_whitelist(self):
+        model_info = self._vidu2_model_info()
+        assert set(model_info.resolutions) == set(_RESOLUTION_WHITELIST["vidu2.0"])
+
+
 class TestCreateTask413:
     """413 规整：_create_task 透出保留状态码的 httpx.HTTPStatusError（咽喉层据此降档）。"""
 
