@@ -165,7 +165,7 @@ class TestPerModelCapabilities:
         request = _request(tmp_path, generate_audio=True)
 
         assert effective_generate_audio_for_model("kling", "kling-video-o1") is False
-        assert backend._effective_audio(request) is False
+        assert backend._effective_audio(request, subpath="text2video") is False
 
     def test_unknown_model_falls_back_to_default_caps(self):
         # bearer 透传原生 model_name：未登记 → 保守默认（t2v+i2v、尾帧仅 pro 档，声明按 std 档保守
@@ -283,7 +283,8 @@ class TestMultiImageSubpath:
         assert "sound" not in payload
         assert (
             _jwt_backend("kling-v3-omni")._effective_audio(
-                _request(tmp_path, reference_images=refs, resolution="1080p", generate_audio=True)
+                _request(tmp_path, reference_images=refs, resolution="1080p", generate_audio=True),
+                subpath="multi-image2video",
             )
             is False
         )
@@ -763,3 +764,21 @@ class TestAudioGatingResult:
         # 2 段旧 job_id 同样须正确复原子路径/任务号（不误把整串当 task_id）
         assert result.task_id == "task-c"
         assert get.await_args.args[0].endswith("/videos/text2video/task-c")
+
+    async def test_resume_legacy_multi_image_job_id_stays_silent(self, tmp_path):
+        # 旧格式多图主体 job_id 回落重算时，resume 请求已不带参考图字段，只能按解码出的
+        # 子路径判定：multi-image2video 成片必然无声，不得按有声价出账
+        post = AsyncMock()
+        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
+        client = _client(post=post, get=get)
+        with (
+            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
+        ):
+            result = await _jwt_backend("kling-v3-omni").resume_video(
+                "multi-image2video:task-d", _request(tmp_path, generate_audio=True)
+            )
+        post.assert_not_called()
+        assert result.generate_audio is False
+        assert get.await_args.args[0].endswith("/videos/multi-image2video/task-d")

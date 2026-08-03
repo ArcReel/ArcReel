@@ -295,18 +295,21 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     def _resolve_mode(self, request: VideoGenerationRequest) -> str:
         return self._resolve_mode_from(request.resolution, request.service_tier)
 
-    def _effective_audio(self, request: VideoGenerationRequest) -> bool:
+    def _effective_audio(self, request: VideoGenerationRequest, *, subpath: str) -> bool:
         """实际是否产出视频内人声：请求要 + model 有 generate_audio 能力 + 走得到音频开关的子路径
         + 满足该 model 的分辨率约束。
 
         无能力的 model 恒 False——不被错配有声价（下游 pricing 取 ``result.generate_audio``）。
+
+        ``subpath`` 必传而非由 ``request.reference_images`` 推断：resume 请求重建时不带图字段
+        （见 ``media_generator.resume_video_async``），按参考图推断会把旧格式 job_id 的多图主体
+        任务判成有声。generate 侧由 ``_build_payload`` 给出，resume 侧由 job_id 解码得出。
         """
         if not (request.generate_audio and self._caps.generate_audio):
             return False
-        # 有参考图 = multi-image2video 子路径，其原生 schema 不含音频开关，``_build_payload`` 不会
-        # 携带 sound（判据与那里的子路径优先级同源）。此处必须一并返回 False：否则 v3-omni 的多图
-        # 主体请求会拿到必然无声的成片，却因该标志进 ledger 而按有声价出账。
-        if self._valid_frames(request.reference_images):
+        # multi-image2video 原生 schema 不含音频开关，``_build_payload`` 不会携带 sound，成片必然
+        # 无声。此处必须一并返回 False：否则该请求会因标志进 ledger 而按有声价出账。
+        if subpath == _MULTI_IMAGE2VIDEO:
             return False
         if self._caps.audio_requires_1080p:
             # 官方约束的维度是分辨率（v2-6「生成有声视频时，仅支持生成 1080P」），但可灵请求体没有
@@ -375,7 +378,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         # 携带（multi-image2video 原生 schema 不含）；无音频能力的 model 不发该字段，避免向不支持的
         # 端点递未知参数。
         if self._caps.generate_audio:
-            payload["sound"] = "on" if self._effective_audio(request) else "off"
+            payload["sound"] = "on" if self._effective_audio(request, subpath=subpath) else "off"
         return subpath, payload
 
     def _encode_frame(self, path: Path) -> str:
@@ -413,7 +416,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         subpath, payload = self._build_payload(request)
-        generate_audio = self._effective_audio(request)
+        generate_audio = self._effective_audio(request, subpath=subpath)
         logger.info("调用 Kling 视频 API payload=%s", self._safe_log_view(subpath, payload))
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             task_id = await self._submit_task(client, f"videos/{subpath}", payload)
@@ -434,10 +437,13 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         而 resume 请求已无 ``start_image`` 可推断，故不能再从 request 取（见 _encode_job_id）。
 
         有声标志同样优先取持久化值（submit 时算定）：直连有声/无声计费，避免按 resume 时
-        可能已漂移的 config 默认/请求重算。旧 job_id 未持久化时（None）回落重算。
+        可能已漂移的 config 默认/请求重算。旧 job_id 未持久化时（None）按解码出的子路径重算——
+        resume 请求不带图字段，子路径是此处唯一能判出多图主体（必然无声）的依据。
         """
         subpath, task_id, persisted_audio = _decode_job_id(job_id)
-        generate_audio = persisted_audio if persisted_audio is not None else self._effective_audio(request)
+        generate_audio = (
+            persisted_audio if persisted_audio is not None else self._effective_audio(request, subpath=subpath)
+        )
         async with httpx.AsyncClient(timeout=self._http_timeout) as client:
             return await self._poll_and_build(client, subpath, task_id, request, generate_audio=generate_audio)
 
