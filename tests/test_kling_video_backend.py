@@ -210,27 +210,29 @@ class TestModeAndResolution:
 
 
 class TestAudioGating:
-    def test_v2_6_1080p_audio_enabled(self, tmp_path):
+    def test_v2_6_pro_audio_enabled(self, tmp_path):
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
-            _request(tmp_path, resolution="1080p", generate_audio=True)
+            _request(tmp_path, resolution="1080p", service_tier="pro", generate_audio=True)
         )
         assert payload["sound"] == "on"
 
-    def test_v2_6_720p_audio_forced_off(self, tmp_path):
-        # v2-6 有声官方限 1080P：其余分辨率即使请求有声也压制为无声
-        _, payload = _jwt_backend("kling-v2-6")._build_payload(
-            _request(tmp_path, resolution="720p", service_tier="pro", generate_audio=True)
-        )
-        assert payload["sound"] == "off"
-
-    def test_v2_6_audio_gate_ignores_service_tier(self, tmp_path):
-        # 官方约束绑分辨率不绑质量档：1080p + std 同样有声
+    def test_v2_6_std_audio_forced_off(self, tmp_path):
+        # v2-6 有声官方限 1080P，而可灵只能经 mode 请求该档位：std 档拿不到 1080P，
+        # 即使 request.resolution 写 1080p 也压制为无声——否则拿到无声片却按有声价出账
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
             _request(tmp_path, resolution="1080p", service_tier="std", generate_audio=True)
         )
+        assert payload["sound"] == "off"
+
+    def test_v2_6_audio_gate_ignores_request_resolution(self, tmp_path):
+        # request.resolution 不进 payload（4k 档除外），不能作为成片是否 1080P 的判据：
+        # pro 档即 1080P，resolution 写 720p 也照常有声
+        _, payload = _jwt_backend("kling-v2-6")._build_payload(
+            _request(tmp_path, resolution="720p", service_tier="pro", generate_audio=True)
+        )
         assert payload["sound"] == "on"
 
-    def test_v3_audio_enabled_without_resolution_constraint(self, tmp_path):
+    def test_v3_audio_enabled_without_tier_constraint(self, tmp_path):
         # v3 系官方未声明分辨率/档位约束：请求要人声即开启，不按未记载的限制降级
         for model in ("kling-v3", "kling-v3-omni"):
             _, payload = _jwt_backend(model)._build_payload(
@@ -629,8 +631,8 @@ class TestResume:
 
 
 class TestAudioGatingResult:
-    async def test_v2_6_1080p_audio_result_true(self, tmp_path):
-        # v2-6 1080p + 请求有声 → result.generate_audio=True（下游计费取有声价）
+    async def test_v2_6_pro_audio_result_true(self, tmp_path):
+        # v2-6 pro（即 1080P 档）+ 请求有声 → result.generate_audio=True（下游计费取有声价）
         post = AsyncMock(return_value=_resp(_submit("task-a")))
         get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
         client = _client(post=post, get=get)
@@ -640,10 +642,26 @@ class TestAudioGatingResult:
             patch("lib.video_backends.kling.download_video", new=AsyncMock()),
         ):
             result = await _jwt_backend("kling-v2-6").generate(
-                _request(tmp_path, resolution="1080p", generate_audio=True)
+                _request(tmp_path, resolution="1080p", service_tier="pro", generate_audio=True)
             )
         assert result.generate_audio is True
         assert post.await_args.args[0].endswith("/videos/text2video")
+
+    async def test_v2_6_std_audio_result_false(self, tmp_path):
+        # std 档拿不到 1080P：即使 request.resolution 写 1080p，结果也必须记为无声，
+        # 否则拿到无声片却按有声价（¥1.0/s vs ¥0.8/s）出账
+        post = AsyncMock(return_value=_resp(_submit("task-a2")))
+        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
+        client = _client(post=post, get=get)
+        with (
+            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
+        ):
+            result = await _jwt_backend("kling-v2-6").generate(
+                _request(tmp_path, resolution="1080p", service_tier="std", generate_audio=True)
+            )
+        assert result.generate_audio is False
 
     async def test_v3_audio_result_true(self, tmp_path):
         # v3 支持音画同出且无分辨率约束：请求有声 → result.generate_audio=True
@@ -691,7 +709,7 @@ class TestAudioGatingResult:
         assert result.generate_audio is False
 
     async def test_v2_6_persists_audio_bit_in_job_id(self, tmp_path):
-        # submit 时算定的有声决策编入 job_id（v2-6 1080p 有声 → 末段 :1），resume 据此直连计费
+        # submit 时算定的有声决策编入 job_id（v2-6 pro 有声 → 末段 :1），resume 据此直连计费
         post = AsyncMock(return_value=_resp(_submit("task-c")))
         get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
         client = _client(post=post, get=get)
@@ -702,7 +720,7 @@ class TestAudioGatingResult:
             patch("lib.video_backends.base.persist_provider_job_id", new=AsyncMock()) as persist,
         ):
             await _jwt_backend("kling-v2-6").generate(
-                _request(tmp_path, task_id="local-a", resolution="1080p", generate_audio=True)
+                _request(tmp_path, task_id="local-a", service_tier="pro", generate_audio=True)
             )
         assert persist.await_args is not None
         assert persist.await_args.args[1] == "text2video:task-c:1"
@@ -738,7 +756,7 @@ class TestAudioGatingResult:
             patch("lib.video_backends.kling.download_video", new=AsyncMock()),
         ):
             result = await _jwt_backend("kling-v2-6").resume_video(
-                "text2video:task-c", _request(tmp_path, resolution="1080p", generate_audio=True)
+                "text2video:task-c", _request(tmp_path, service_tier="pro", generate_audio=True)
             )
         post.assert_not_called()
         assert result.generate_audio is True

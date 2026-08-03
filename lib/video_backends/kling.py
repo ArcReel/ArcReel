@@ -78,8 +78,9 @@ class _KlingVideoModelCaps:
     # 能产出视频内人声（官方能力地图的「音画同出」列）：v2-6 / v3 / v3-omni ✅。该位同时决定请求体
     # 是否携带音频开关 sound——官方各档默认 off，无此能力的 model 不发该字段而非发 "off" 压制。
     generate_audio: bool
-    # 有声仅在 1080P 下可用（官方 v2-6 明文「生成有声视频时，仅支持生成 1080P」）。约束绑分辨率、
-    # 不绑 std/pro 质量档；v3 系官方未声明任何分辨率或档位限制，故为 False。
+    # 有声仅在 1080P 下可用（官方 v2-6 明文「生成有声视频时，仅支持生成 1080P」）。可灵请求体没有
+    # 分辨率字段——输出档位只由 mode 决定，故执行期判据落在 mode 上（见 `_effective_audio`）。
+    # v3 系官方未声明任何分辨率或档位限制，故为 False。
     audio_requires_1080p: bool
 
 
@@ -244,9 +245,9 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     def effective_generate_audio_for_model(model: str) -> bool:
         """无逐请求档位上下文时，返回默认执行档真正生效的音频计价参数。
 
-        有声受分辨率约束的 model（v2-6 官方限 1080P）无从得知调用方将选哪档分辨率，保守返回
+        有声受 1080P 约束的 model（v2-6）无从得知调用方将选哪档质量档，保守返回
         False；无约束的有声 model（v3 / v3-omni）只要请求要人声就产出，返回 True。执行期仍由
-        ``_effective_audio`` 按请求实际分辨率与子路径决定——v3-omni 走多图主体子路径时实际无声，
+        ``_effective_audio`` 按请求实际质量档与子路径决定——v3-omni 走多图主体子路径时实际无声，
         本接口无从得知是否带参考图而返回 True，方向是高估成本（预估偏保守），不会低报。
         """
         caps = _lookup_video_caps(model)
@@ -299,8 +300,6 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         + 满足该 model 的分辨率约束。
 
         无能力的 model 恒 False——不被错配有声价（下游 pricing 取 ``result.generate_audio``）。
-        受约束的 model 按官方原文绑分辨率（v2-6「生成有声视频时，仅支持生成 1080P」）而非绑 mode：
-        mode 是 std/pro/4k 质量档，与官方声明音频约束时用的维度无关。
         """
         if not (request.generate_audio and self._caps.generate_audio):
             return False
@@ -310,7 +309,11 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         if self._valid_frames(request.reference_images):
             return False
         if self._caps.audio_requires_1080p:
-            return (request.resolution or "").lower() == "1080p"
+            # 官方约束的维度是分辨率（v2-6「生成有声视频时，仅支持生成 1080P」），但可灵请求体没有
+            # 分辨率字段：输出档位只由 mode 决定（std 720P / pro 1080P / 4k），``request.resolution``
+            # 除识别 4k 档外不进入 payload。判据因此落在实际发出的 mode 上——std 档拿不到 1080P，
+            # 据 resolution="1080p" 发 sound="on" 会拿到无声片却按有声价出账。
+            return self._resolve_mode(request) != "std"
         return True
 
     @staticmethod
