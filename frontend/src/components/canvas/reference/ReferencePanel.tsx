@@ -118,10 +118,10 @@ export function ReferencePanel({
   // 候选过滤用）用 baseIds，语义是「已存在该资产」，与下面 sortableIds 的「拖拽身份」无关。
   const baseIds = useMemo(() => references.map(refId), [references]);
   const existingKeys = useMemo(() => new Set(baseIds), [baseIds]);
-  // sortableIds 用数组下标：位置在同一次渲染内天然唯一，不依赖字符串拼接方案去猜「不会与
-  // 合法资产名撞车」的分隔符（曾用 `#` 分隔，但 `#` 本身是合法资产名字符，回归过一次真实撞车）。
-  // reorder 只在 dragEnd 提交（onReorder 才更新 references），拖拽过程中 items 顺序不变，
-  // 下标身份在一次拖拽内是稳定的。
+  // sortableIds 用数组下标：位置在同一次渲染内天然唯一。合法资产名可以包含 `#` 等任意非
+  // 路径分隔符字符（见 validate_asset_name），任何字符串拼接式分隔符方案都可能与真实资产名
+  // 撞车，下标不依赖分隔符假设，天然规避这类撞车。reorder 只在 dragEnd 提交（onReorder 才
+  // 更新 references），拖拽过程中 items 顺序不变，下标身份在一次拖拽内是稳定的。
   const sortableIds = useMemo(() => references.map((_, i) => String(i)), [references]);
 
   const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
