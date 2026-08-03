@@ -222,6 +222,8 @@ dispatch `generate-assets` subagent：
 - `generation_mode == "storyboard"` 且 `grid_storyboard` 为 true → dispatch `generate-assets`，调 `mcp__arcreel__generate_grid`
 - `generation_mode == "reference_video"` → 不触发，直接跳到阶段 7
 
+> 本阶段的触发条件是「缺分镜图」，用户在设置页切换 `grid_storyboard` 不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出。用户在已有分镜图的项目上切换开关后要求按新方式出图时，向其确认要重做的片段范围并显式重新生成，不要因为 `storyboard_image` 已存在就跳过本阶段。
+
 ### storyboard 模式（grid_storyboard=false）
 
 **dispatch `generate-assets` subagent**：

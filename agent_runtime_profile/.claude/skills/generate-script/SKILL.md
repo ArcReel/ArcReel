@@ -72,4 +72,4 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
 
 打印将发送给文本模型的完整 prompt 文本，不调用 API、不写文件。用于检查 prompt 质量和长度。
 
-> 三种生成模式的数据路径、预处理 subagent、schema 选择详见 `.claude/references/generation-modes.md`。
+> 两种生成模式（storyboard / reference_video）在 narration / drama 下的数据路径、预处理 subagent、schema 选择详见 `.claude/references/generation-modes.md`；ad 的路径见 `CLAUDE.ad.md`。

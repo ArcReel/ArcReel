@@ -52,7 +52,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 - 创作输入为 `project.json` 顶层的 `brief`（创作诉求短文本）与 `target_duration`（目标总时长，秒）；不走小说源文件导入流程
 - 剧本总时长应贴近 `target_duration`，偏差过大时提醒用户而非拒绝保存
 
-> 生成模式（storyboard / reference_video）由 `project.json` 顶层 `generation_mode` 字段唯一决定，项目创建后不可更改；与内容模式独立。详细规格见 `.claude/references/generation-modes.md`。
+> 生成模式（storyboard / reference_video）由 `project.json` 顶层 `generation_mode` 字段唯一决定，项目创建后不可更改；与内容模式独立。ad 的数据结构与阶段分支以本文为准——`.claude/references/generation-modes.md` 只覆盖 narration / drama 的预处理与 schema 路径，不适用于 ad。
 
 ---
 

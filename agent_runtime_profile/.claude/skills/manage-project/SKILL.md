@@ -44,7 +44,7 @@ mcp__arcreel__patch_project({"overview": {"genre": "悬疑", "theme": "复仇与
 - `narration_voice`：非空字符串（音色 id 照供应商文档）设置 / `null` 清除。项目级旁白音色覆盖，优先于全局设置生效，只影响当前项目
 - `narration_speed`：正的有限数值（如 `1.2`）设置 / `null` 清除。项目级旁白语速覆盖，优先于全局设置生效，只影响当前项目
 
-`generation_mode`、`grid_storyboard` 不在白名单内，`patch_project` 会拒绝写入：`generation_mode` 项目创建后不可更改，用户要求改生成方式（storyboard ↔ reference_video）时明确告知不可更改、无绕过方式；`grid_storyboard` 由用户在 Web 设置页开关，用户要求改宫格装配时指引其前往设置页操作。
+`generation_mode`、`grid_storyboard` 不在白名单内，`patch_project` 会拒绝写入：`generation_mode` 项目创建后不可更改，用户要求改生成方式（storyboard ↔ reference_video）时明确告知不可更改、无绕过方式；`grid_storyboard` 由用户在 Web 设置页开关，用户要求改宫格装配时指引其前往设置页操作，并告知开关只影响后续生成——已生成的分镜图不会自动失效，要按新装配方式出图须显式重新生成对应分镜。
 
 `overview` 白名单字段：`synopsis` / `genre` / `theme` / `world_setting`，**merge 语义**（只改传入字段、
 概述不存在时创建）。**修订概述需用户显式意图驱动**（避免静默覆盖人工编辑过的字段）。

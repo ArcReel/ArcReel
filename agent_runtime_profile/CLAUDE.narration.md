@@ -129,7 +129,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 `/manga-workflow` 编排 skill 按以下阶段自动推进（每个阶段完成后等待用户确认）：
 
-1. **项目设置**：创建项目（创建时确定 `content_mode` 与 `generation_mode`，之后均不可变）、上传小说、生成项目概述。用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知路线创建后不可更改，无绕过方式；要求改宫格装配（`grid_storyboard`）时指引用户前往设置页操作，agent 无对应写入权限
+1. **项目设置**：创建项目（创建时确定 `content_mode` 与 `generation_mode`，之后均不可变）、上传小说、生成项目概述。用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知路线创建后不可更改，无绕过方式；要求改宫格装配（`grid_storyboard`）时指引用户前往设置页操作，agent 无对应写入权限；该开关只影响后续生成，已生成的分镜图不会自动失效，须显式重新生成对应分镜才会按新装配方式出图
 2. **全局角色/场景/道具提取** → dispatch `analyze-assets` subagent
 3. **分集规划** → 主 agent 调用 `mcp__arcreel__plan_episodes` 服务端工具规划一批集（账本+派生集文件由工具维护）+ 批级审阅。用户对已规划内容提出调整意见时走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning` 退回到意见中最早受影响的集（保留其前的集），再带调整后的 `instructions` 分批重新调用 `plan_episodes`。用户表达常驻分集偏好（如按章节对齐切分）时，须经 `plan_episodes` 的 `instructions` 传入，并在规划完成前**每一批调用都重复带上**（偏好不持久化）；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
 4. **单集预处理** → 按项目 `generation_mode` × `content_mode` 选（中间文件统一位于 `drafts/episode_{N}/`）：
