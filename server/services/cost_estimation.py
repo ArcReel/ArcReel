@@ -21,7 +21,7 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
 from lib.grid.layout import calculate_grid_layout
 from lib.pricing.strategies import PricingParams
-from lib.project_manager import effective_mode
+from lib.project_manager import effective_mode, grid_storyboard_enabled
 from lib.reference_video import assemble_shots_text
 from lib.reference_video.ad_units import derive_ad_reference_units, resolve_ad_unit_shots
 from lib.script_editor import ScriptEditError
@@ -239,9 +239,7 @@ class CostEstimationService:
         # 不随某一集的覆盖而变；逐集算价另按该集的生效桶取（见循环内 ``episode_video``）。
         project_video = video_pricing[video_bucket_for_generation_mode(project_data.get("generation_mode"))]
 
-        # 宫格分镜是 storyboard 路线内的分镜图生产方式：reference_video 路线无分镜图步骤，
-        # 即使残留 grid_storyboard=true 也不产生宫格费用分支
-        grid_enabled = project_data.get("generation_mode") == "storyboard" and bool(project_data.get("grid_storyboard"))
+        grid_enabled = grid_storyboard_enabled(project_data)
         # 规范化 aspect_ratio：可能是 str 或 dict，复用生成任务的解析逻辑
         raw_ar = project_data.get("aspect_ratio")
         if isinstance(raw_ar, str):

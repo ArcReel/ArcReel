@@ -57,7 +57,6 @@ PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 # 宫格不是路线：它由独立的 grid_storyboard 布尔表达，仅 storyboard 路线有意义。
 # 存量三值 "grid" 已由 v4→v5 迁移重编码为 storyboard + grid_storyboard=true。
 VALID_GENERATION_MODES: frozenset[str] = frozenset({"storyboard", "reference_video"})
-_VALID_GENERATION_MODES = VALID_GENERATION_MODES
 _DEFAULT_GENERATION_MODE = "storyboard"
 
 # 源文件性质（source_kind）：与 content_mode / generation_mode 正交的第三轴，project.json
@@ -81,12 +80,21 @@ def effective_mode(*, project: dict, episode: dict) -> str:
     未知值一律回退到默认，兼容脏数据。
     """
     ep_mode = episode.get("generation_mode")
-    if ep_mode in _VALID_GENERATION_MODES:
+    if ep_mode in VALID_GENERATION_MODES:
         return ep_mode
     proj_mode = project.get("generation_mode")
-    if proj_mode in _VALID_GENERATION_MODES:
+    if proj_mode in VALID_GENERATION_MODES:
         return proj_mode
     return _DEFAULT_GENERATION_MODE
+
+
+def grid_storyboard_enabled(project: dict[str, Any]) -> bool:
+    """项目是否按宫格生产分镜图。
+
+    宫格是 storyboard 路线内的分镜图生产方式：reference_video 路线无分镜图步骤，
+    即使残留 grid_storyboard=true 也不激活宫格分支。
+    """
+    return project.get("generation_mode") == "storyboard" and bool(project.get("grid_storyboard"))
 
 
 def find_episode(project: dict[str, Any], episode: int | None) -> dict[str, Any] | None:

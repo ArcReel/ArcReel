@@ -585,7 +585,7 @@ async def get_video_capabilities(
 
     三级模型选择（项目 > 系统设置 > 系统默认）后，读 model 的 `supported_durations`
     并派生 `max_duration`；同时带回 `project.json.default_duration`（用户偏好）。
-    所有 generation_mode（storyboard/grid/reference_video）都可复用。
+    两条生成路线（storyboard/reference_video）都可复用。
 
     `video_backend`（"provider/model"）用于设置表单里尚未保存的候选模型：不带该参数时按已
     落盘配置解析，带上则按候选模型 × 本项目的生效 generation_mode 解析，使 voice_consistency 等

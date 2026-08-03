@@ -12,7 +12,7 @@ from lib.grid.layout import calculate_grid_layout
 from lib.grid.models import GridGeneration
 from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
-from lib.project_manager import ProjectManager
+from lib.project_manager import ProjectManager, grid_storyboard_enabled
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.agent_runtime.sdk_tools._context import ToolContext, tool_error, validate_script_filename
 
@@ -73,9 +73,7 @@ def generate_grid_tool(ctx: ToolContext):
             # ``list_only`` 是 ``generate_grid`` 工具的预览模式，与生成分支一样
             # 必须先过宫格开关校验——否则未开宫格的项目靠 ``list_only=true``
             # 就能拿到成功响应，调用方会误以为该工具适用于当前项目。
-            # 宫格是 storyboard 路线内的分镜图生产方式：reference_video 路线无分镜图步骤，
-            # 即使残留 grid_storyboard=true 也不适用本工具。
-            if not (project.get("generation_mode") == "storyboard" and project.get("grid_storyboard")):
+            if not grid_storyboard_enabled(project):
                 return {
                     "content": [{"type": "text", "text": "⚠️  项目未启用宫格分镜（grid_storyboard 未开启）"}],
                     "is_error": True,
