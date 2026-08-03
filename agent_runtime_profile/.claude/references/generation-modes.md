@@ -37,10 +37,12 @@ Step 6 分镜图
   storyboard（grid_storyboard=true）   → dispatch generate-assets (grid)
   reference_video                     → 跳过
 
-Step 7 视频
-  storyboard          → dispatch generate-assets (video)
-  reference_video     → dispatch generate-assets (video)
-                        mcp__arcreel__generate_video_episode 检测 video_units 后路由到 task_type="reference_video"
+Step 7 视频（路由同样按项目 generation_mode，剧本骨架只作校验）
+  storyboard          → dispatch generate-assets (video) → task_type="video"
+  reference_video     → dispatch generate-assets (video) → task_type="reference_video"
+                        mcp__arcreel__generate_video_episode 读 project.json 定路线，再校验剧本骨架是否匹配；
+                        失配（如 storyboard 项目里残留 video_units[] 旧剧本）直接拒绝入队，
+                        正解是按项目当前路线重跑 Step 3/4 重生剧本，而非指望旧剧本被执行
 
 Step 8 旁白配音（仅 narration 内容模式）
   storyboard          → dispatch generate-assets (narration_audio)
