@@ -1108,6 +1108,22 @@ class TestAdEpisodeValidation:
         assert not result.valid
         assert any("products_in_shot" in e for e in result.errors)
 
+    @pytest.mark.integration
+    def test_shot_reference_accepts_nfc_nfd_mismatch_against_registered_asset(self, tmp_path):
+        """project.json 角色以 NFD 登记、镜头 characters_in_shot 引用同名的 NFC 形式：
+        必须按归一形式判「已登记」放行，否则 ad 的 reference_video unit 派生
+        （lib.reference_video.ad_units 直接消费 characters_in_shot）会被这层校验先行拒绝，
+        用户永远走不到真实的参考解析阶段。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+
+        project = _ad_project_payload(characters={name_nfd: {"description": "出镜模特"}})
+        result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[name_nfc])], project=project)
+        assert result.valid, result.errors
+
     def test_missing_duration_warns_with_default(self, tmp_path):
         shot = self._ad_shot()
         del shot["duration_seconds"]

@@ -497,14 +497,23 @@ class DataValidator:
         *,
         field_label: str,
         kind_label: str,
+        normalize: bool = False,
     ) -> None:
+        """``normalize=True`` 时按 NFC 归一比对：ad shots 的参考集直接驱动 reference_video
+        的 unit 派生（见 ``lib.reference_video.ad_units``），project.json 资产 key 与镜头
+        引用编码形式不一致时不能误判未登记。narration/drama 的 segments/scenes 校验路径
+        保持原始比对（``normalize`` 默认 False），不在本次改动范围内。"""
         if refs is None:
             warnings.append(f"{prefix}: 缺少 {field_label}，将使用默认空数组")
             return
         if not isinstance(refs, list):
             errors.append(f"{prefix}: {field_label} 必须是数组")
             return
-        invalid = set(refs) - valid_set
+        if normalize:
+            normalized_valid = {normalize_asset_name(v) for v in valid_set}
+            invalid = {r for r in refs if not isinstance(r, str) or normalize_asset_name(r) not in normalized_valid}
+        else:
+            invalid = set(refs) - valid_set
         if invalid:
             errors.append(f"{prefix}: {field_label} 引用了不存在于 project.json 的{kind_label}: {invalid}")
 
@@ -945,6 +954,7 @@ class DataValidator:
                 warnings,
                 field_label="characters_in_shot",
                 kind_label="角色",
+                normalize=True,
             )
             self._validate_segment_refs(
                 prefix,
@@ -954,6 +964,7 @@ class DataValidator:
                 warnings,
                 field_label="scenes",
                 kind_label="场景",
+                normalize=True,
             )
             self._validate_segment_refs(
                 prefix,
@@ -963,6 +974,7 @@ class DataValidator:
                 warnings,
                 field_label="props",
                 kind_label="道具",
+                normalize=True,
             )
             self._validate_segment_refs(
                 prefix,
@@ -972,6 +984,7 @@ class DataValidator:
                 warnings,
                 field_label="products_in_shot",
                 kind_label="产品",
+                normalize=True,
             )
 
             if not shot.get("image_prompt"):

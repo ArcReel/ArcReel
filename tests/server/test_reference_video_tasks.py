@@ -204,6 +204,27 @@ def test_resolve_unit_references_resolves_nfd_registered_name_by_nfc_reference(t
 
 
 @pytest.mark.integration
+def test_resolve_unit_references_dedupes_nfc_nfd_pair(tmp_path: Path):
+    """unit.references 携带同一角色的 NFC/NFD 两条记录（PATCH 不做数组内去重）：解析须按
+    类型+归一名去重为一条，否则 _apply_provider_constraints 把同一张图计入两个参考名额，
+    挤掉后面一条真正不同的参考、且给 provider 发送重复图片。"""
+    import unicodedata
+
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    assert name_nfc != name_nfd
+
+    proj_dir = _write_project(tmp_path)
+    project, _ = _load_project_and_unit(proj_dir, "E1U1")
+    project["characters"][name_nfc] = {"description": "x", "character_sheet": "characters/hieu.png"}
+    (proj_dir / "characters" / "hieu.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    refs = [{"type": "character", "name": name_nfc}, {"type": "character", "name": name_nfd}]
+    resolved = _resolve_unit_references(project, proj_dir, refs)
+    assert [p.name for p in resolved] == ["hieu.png"]
+
+
+@pytest.mark.integration
 def test_resolve_ad_unit_reference_entries_dedupes_nfc_nfd_pair(tmp_path: Path):
     """同一 ad unit 内两个镜头以不同编码形式引用同一角色：归一化查找会把两条都解析到同一张
     图，_resolve_ad_unit_reference_entries 须按归一形式去重为一条，否则同一张参考图占两个

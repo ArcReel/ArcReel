@@ -60,21 +60,28 @@ def _resolve_unit_references(
     project_path: Path,
     references: list[dict],
 ) -> list[Path]:
-    """把 unit.references 转成绝对路径列表（按 references 顺序）。
+    """把 unit.references 转成绝对路径列表（按 references 顺序，按类型+归一名去重）。
+
+    PATCH 接口只校验每条 reference 已登记，不校验数组内互相去重：同一资产可能以 NFC/NFD
+    两条等价记录同时留在 unit.references 里。两者归一后解析到同一张图，若不去重会被
+    _apply_provider_constraints 计入两个名额，挤掉后面一条真正不同的参考、且给 provider
+    发送重复图片。
 
     Raises:
         MissingReferenceError: 任一 reference 在 project.json 对应 bucket 缺失或 sheet 不存在。
     """
     missing: list[tuple[str, str | None]] = []
     resolved: list[Path] = []
+    seen: set[tuple[str, str]] = set()
     for ref in references:
         rtype = ref.get("type")
         rname = ref.get("name")
         if rtype not in BUCKET_KEY:
             missing.append((str(rtype), str(rname)))
             continue
+        canonical = normalize_asset_name(str(rname))
         bucket = normalize_asset_bucket(project.get(BUCKET_KEY[rtype]))
-        item = bucket.get(normalize_asset_name(str(rname)))
+        item = bucket.get(canonical)
         sheet_rel = item.get(SHEET_KEY[rtype]) if isinstance(item, dict) else None
         if not sheet_rel:
             missing.append((rtype, rname))
@@ -83,6 +90,10 @@ def _resolve_unit_references(
         if not path.exists():
             missing.append((rtype, rname))
             continue
+        key = (rtype, canonical)
+        if key in seen:
+            continue
+        seen.add(key)
         resolved.append(path)
 
     if missing:
