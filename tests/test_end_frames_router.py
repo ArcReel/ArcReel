@@ -355,7 +355,7 @@ def _interleave_across_critical_section(
         def _target() -> None:
             try:
                 results[key] = call()
-            except BaseException as exc:  # noqa: BLE001 — 主线程复述，不能只打印到 stderr
+            except Exception as exc:  # 主线程复述，不能只打印到 stderr
                 errors[key] = exc
 
         thread = threading.Thread(target=_target)
