@@ -1358,6 +1358,10 @@ class ConfigResolver:
 
         max_duration = max(supported_durations)
 
+        # requested_generate_audio 是**用户的无声意图**（全局设置 ← project.json 覆盖），与执行层
+        # MediaGenerator 读的 video_generate_audio 同源；下面的 generate_audio 是**计价口径**（叠加了
+        # 恒含音出账与默认执行档判定），两者不等价，故并列透出，消费方按语义各取一个：判「本集要不要
+        # 组装参考音频」只能读前者。
         requested_generate_audio = await self._resolve_video_generate_audio_from_project(svc, project)
         # 恒含音出账的 provider 无视请求值；其余 backend 只有在项目请求开启、且无上下文能力
         # 接口确认默认执行档会产出人声时，计价参数才为 True。
@@ -1395,6 +1399,7 @@ class ConfigResolver:
             "first_frame": first_frame,
             "last_frame": last_frame,
             "generate_audio": generate_audio,
+            "requested_generate_audio": requested_generate_audio,
             "max_reference_audio_count": max_reference_audio_count,
             "reference_audio_per_image": reference_audio_per_image,
             "source": source,

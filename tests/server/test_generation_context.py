@@ -234,6 +234,35 @@ class TestVideoLane:
         assert ctx.video.max_reference_images is None
         assert ctx.video.backend_model == "mystery-model"
 
+    async def test_requested_generate_audio_follows_project_override(self, session_factory, project_env, fake_assemble):
+        """本集无声开关随 project.json 覆盖进 lane，编排层据此决定要不要组装参考音频。"""
+        video_model = _registry_video_model("ark")
+        ctx = await resolve_generation_context(
+            "demo",
+            None,
+            project={"video_backend": f"ark/{video_model}", "video_generate_audio": False},
+            video=VideoLaneRequest(),
+        )
+        assert ctx.video.requested_generate_audio is False
+
+    async def test_requested_generate_audio_degrades_to_true_on_capability_failure(
+        self, session_factory, project_env, monkeypatch
+    ):
+        """能力查询失败不收紧：静默丢掉用户配好的音色参考比多发一次更难排查。"""
+
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
+            return _FakeBackend(name=provider_id, model="mystery-model")
+
+        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        video_model = _registry_video_model("ark")
+        ctx = await resolve_generation_context(
+            "demo",
+            None,
+            project={"video_backend": f"ark/{video_model}", "video_generate_audio": False},
+            video=VideoLaneRequest(),
+        )
+        assert ctx.video.requested_generate_audio is True
+
     async def test_payload_overrides_project(self, session_factory, project_env, fake_assemble):
         """payload > project：历史任务携带的 video_provider 决定实际解析身份。"""
         ark_model = _registry_video_model("ark")

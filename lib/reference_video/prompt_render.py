@@ -102,6 +102,7 @@ def render_unit_prompt(
     references: list[ReferenceResource],
     *,
     voice_consistency: str = "soft",
+    requested_generate_audio: bool = True,
     max_reference_audio: int = 0,
     model_id: str = "",
     style: str | None = None,
@@ -119,6 +120,10 @@ def render_unit_prompt(
     上），纯画外 speaker 不绑定音频（降级 + warning）——绑定后 ``@音频N`` 编号会写进 prompt
     文本，若随后才在 backend 层过滤会让文本承诺的绑定与实际发出的 ``reference_audio_files``
     分叉，必须在编号生成前就排除。
+
+    ``requested_generate_audio`` 为 False（本集无声）时不产出任何音频绑定：``@音频N`` 不进 prompt、
+    ``audio_speakers`` 为空，调用方组装出的 ``reference_audio_files`` 随之为空。第二段的台词
+    渲染不看这一位——无声视频里台词文本照常下发，供应商可用作口型参考。
 
     warning 与解析预览面板同一批 ``{key, params}`` 条目，由调用方并入任务 ``result.warnings``。
     """
@@ -142,6 +147,7 @@ def render_unit_prompt(
         utterances,
         characters,
         voice_consistency=voice_consistency,
+        requested_generate_audio=requested_generate_audio,
         max_reference_audio=max_reference_audio,
         model_id=model_id,
         audio_ready=audio_ready,
@@ -183,6 +189,10 @@ def _render_voice_declarations(
     的展示 label），但声音声明只认「已登记的 dialogue speaker」，与主体绑定行解耦，可整段复用。
 
     C 类（真无声）不注入声音声明；A/B 类均注入声音特征——官方建议音色还原不佳时补描述。
+    本集设为无声（``requested_generate_audio`` 为 False）时 ``audio_no`` 为空，``@音频N`` 随之
+    消失，但「声音特征：…」照常注入：它是提示词文本、不是参考音频负载，保留后无声路径与 B 类
+    软约束逐字同形，不引入第三种提示词形态。
+
     角色记录非 dict（外部编辑写坏的 project.json）按无声音特征处理，不索引脏值——ad 参考
     解析（``_resolve_ad_unit_reference_entries``）对同一形态的脏数据已按软跳过处理，本函数
     保持同一降级口径而非崩溃。
@@ -328,6 +338,7 @@ def render_ad_backend_prompt(
     project: dict,
     *,
     voice_consistency: str = "soft",
+    requested_generate_audio: bool = True,
     max_reference_audio: int = 0,
     model_id: str = "",
     style: str | None = None,
@@ -377,6 +388,7 @@ def render_ad_backend_prompt(
         utterances,
         characters,
         voice_consistency=voice_consistency,
+        requested_generate_audio=requested_generate_audio,
         max_reference_audio=max_reference_audio,
         model_id=model_id,
         audio_ready=audio_ready,

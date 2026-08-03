@@ -6,6 +6,7 @@ from lib.i18n import MESSAGES, _
 from lib.reference_video.script_preview import (
     WARN_DIALOGUE_INLINE,
     WARN_REFERENCE_AUDIO_OVERFLOW,
+    WARN_SILENT_EPISODE,
     WARN_SILENT_MODEL,
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
     WARN_SPEAKER_AUDIO_UNAVAILABLE,
@@ -14,12 +15,14 @@ from lib.reference_video.script_preview import (
     WARN_UNREGISTERED_MENTION,
     WARN_UNREGISTERED_SPEAKER,
     build_script_preview,
+    derive_utterances,
     derive_voice_bindings,
 )
 from lib.reference_video.shot_parser import (
     extract_mentions,
     match_dialogue_line,
     match_voiceover_line,
+    parse_prompt,
 )
 
 pytestmark = pytest.mark.unit
@@ -272,6 +275,56 @@ def test_silent_model_notice_not_emitted_without_any_utterance():
     assert preview.warnings == []
 
 
+# ---------- 本集无声（requested_generate_audio=False） ----------
+
+
+def test_silent_episode_drops_audio_bindings_on_native_model():
+    """无声开关关掉后，A 类模型也不再绑定参考音频——请求里不会带音频段。"""
+    text = "镜头1：开场。\n@[张三]：{我来了}"
+    bindings = derive_voice_bindings(
+        derive_utterances(parse_prompt(text)[0])[0],
+        PROJECT["characters"],
+        voice_consistency="native",
+        requested_generate_audio=False,
+        max_reference_audio=3,
+    )
+    assert bindings.audio_speakers == []
+    assert bindings.speakers == ["张三"]
+    assert [w["key"] for w in bindings.warnings] == [WARN_SILENT_EPISODE]
+
+
+def test_silent_episode_notice_replaces_per_speaker_audio_warnings():
+    """无声时不再逐角色报「未设参考音频」——原因是本集无声，不是角色没配音频。"""
+    text = "镜头1：开场。\n@[张三]：{我来了}\n@[李四]：{我也在}"
+    preview = build_script_preview(text, PROJECT, voice_consistency="native", requested_generate_audio=False)
+    assert keys(preview) == [WARN_SILENT_EPISODE]
+    assert preview.warnings[0]["params"] == {}
+
+
+def test_silent_episode_notice_takes_precedence_over_silent_model():
+    preview = build_script_preview(
+        "镜头1：开场。\n@[张三]：{我来了}",
+        PROJECT,
+        voice_consistency="none",
+        requested_generate_audio=False,
+        model_id="minimax-01",
+    )
+    assert keys(preview) == [WARN_SILENT_EPISODE]
+
+
+def test_silent_episode_notice_not_emitted_without_any_utterance():
+    preview = build_script_preview("镜头1：开场。", PROJECT, voice_consistency="native", requested_generate_audio=False)
+    assert preview.warnings == []
+
+
+def test_silent_episode_keeps_utterances_for_lip_sync():
+    """台词照常派生：无声视频里台词仍下发，供应商可用作口型参考。"""
+    preview = build_script_preview(
+        "镜头1：开场。\n@[张三]：{我来了}", PROJECT, voice_consistency="native", requested_generate_audio=False
+    )
+    assert [u.utterance.text for u in preview.utterances] == ["我来了"]
+
+
 # ---------- i18n ----------
 
 WARNING_KEYS = [
@@ -282,6 +335,7 @@ WARNING_KEYS = [
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_MODEL,
+    WARN_SILENT_EPISODE,
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
 ]
 
@@ -293,6 +347,7 @@ WARNING_PARAMS = {
     WARN_SPEAKER_WITHOUT_AUDIO: {"name": "李四"},
     WARN_REFERENCE_AUDIO_OVERFLOW: {"limit": 3, "name": "李四"},
     WARN_SILENT_MODEL: {"model": "minimax-01"},
+    WARN_SILENT_EPISODE: {},
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE: {"name": "李四"},
 }
 

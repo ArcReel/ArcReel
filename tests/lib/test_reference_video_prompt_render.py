@@ -68,6 +68,43 @@ def test_native_tier_binds_audio_in_speaker_first_appearance_order():
     assert "<李四>的台词音色参考 @音频2，声音特征：清亮少女音。" in rendered.prompt
 
 
+def test_silent_episode_sends_dialogue_without_any_audio_binding():
+    """本集无声：不组装参考音频、prompt 里不出现 @音频N，台词照常下发作口型参考。"""
+    rendered = render_unit_prompt(
+        _TEXT,
+        _project(),
+        _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑")),
+        voice_consistency="native",
+        requested_generate_audio=False,
+        max_reference_audio=3,
+        model_id="doubao-seedance-2-0",
+        style="写实电影感",
+    )
+    assert rendered.audio_speakers == []
+    assert rendered.audio_speaker_reference_index == []
+    assert "@音频" not in rendered.prompt
+    assert "<张三>说 {今晚的酒，我请。}" in rendered.prompt
+    assert "<李四>说 {你终于来了。}" in rendered.prompt
+
+
+def test_silent_episode_keeps_dialogue_segment_identical_to_audible_path():
+    """第二段（台词）与有声路径逐字同形——只有第一段的音色参考行消失。"""
+    kwargs = dict(
+        voice_consistency="native",
+        max_reference_audio=3,
+        model_id="doubao-seedance-2-0",
+        style="写实电影感",
+    )
+    refs = _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑"))
+    audible = render_unit_prompt(_TEXT, _project(), refs, requested_generate_audio=True, **kwargs)
+    silent = render_unit_prompt(_TEXT, _project(), refs, requested_generate_audio=False, **kwargs)
+
+    def _shot_segment(prompt: str) -> str:
+        return next(seg for seg in prompt.split("\n\n") if seg.startswith("镜头1："))
+
+    assert _shot_segment(silent.prompt) == _shot_segment(audible.prompt)
+
+
 def test_first_segment_binds_images_in_reference_order():
     rendered = render_unit_prompt(
         _TEXT,

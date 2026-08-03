@@ -40,6 +40,7 @@ WARN_SPEAKER_WITHOUT_AUDIO = "ref_warn_speaker_without_audio"
 WARN_SPEAKER_AUDIO_UNAVAILABLE = "ref_warn_speaker_audio_unavailable"
 WARN_REFERENCE_AUDIO_OVERFLOW = "ref_warn_reference_audio_overflow"
 WARN_SILENT_MODEL = "ref_warn_silent_model"
+WARN_SILENT_EPISODE = "ref_warn_silent_episode"
 WARN_SPEAKER_AUDIO_NEEDS_IMAGE = "ref_warn_speaker_audio_needs_image"
 
 
@@ -113,6 +114,7 @@ def derive_voice_bindings(
     characters: dict,
     *,
     voice_consistency: str = "soft",
+    requested_generate_audio: bool = True,
     max_reference_audio: int = 0,
     model_id: str = "",
     audio_ready: Collection[str] | None = None,
@@ -124,6 +126,14 @@ def derive_voice_bindings(
     ``voice_consistency`` 是服务端派生的三级标识（``native`` / ``soft`` / ``none``）：只有
     ``native``（A 类·原生音频参考）才谈得上参考音频的绑定与上限，故「未设参考音频」「超出
     段数上限」两条只在该档发出；``none``（真无声）时改发一条无声知会。
+
+    ``requested_generate_audio`` 是本集的无声开关（用户意图，非计价口径）：为 False 时无论模型档位如何
+    都不产出 ``audio_speakers``，改发一条本集无声知会。参考音频只在这一处收口，prompt 的
+    ``@音频N`` 与 ``reference_audio_files`` 因此同源消失，不会出现文本承诺了音色参考、请求里
+    却没有对应音频段的分叉；台词渲染与本开关无关（另见 :func:`lib.reference_video.prompt_render
+    ._render_segment_two`），供应商可继续拿台词文本做口型参考。无声知会优先于 ``none`` 档的
+    ``WARN_SILENT_MODEL``：两者都是「这一集听不到声音」，用户主动关掉音频时说模型不产音会指错
+    排查方向。
 
     ``audio_ready`` 是「音频确实可用」的角色名集合：解析预览不碰文件系统，传 None 时按角色
     资产的 ``reference_audio`` 字段非空判定；执行层传入已解析且确实存在的文件对应的角色名，
@@ -160,7 +170,10 @@ def derive_voice_bindings(
             warnings.append(_warning(WARN_UNREGISTERED_SPEAKER, name=speaker))
 
     audio_speakers: list[str] = []
-    if voice_consistency == "native":
+    if not requested_generate_audio:
+        if utterances:
+            warnings.append(_warning(WARN_SILENT_EPISODE))
+    elif voice_consistency == "native":
         image_names = speakers_with_reference_image or ()
         # 音频编号 = dialogue speaker 首现顺序，受 max_reference_audio 上限截断。
         for speaker in registered:
@@ -190,6 +203,7 @@ def build_script_preview(
     project: dict,
     *,
     voice_consistency: str = "soft",
+    requested_generate_audio: bool = True,
     max_reference_audio: int = 0,
     model_id: str = "",
     audio_requires_reference_image: bool = False,
@@ -200,6 +214,9 @@ def build_script_preview(
     ``audio_requires_reference_image`` 须与执行层（``render_unit_prompt``）传的同一个 backend
     判定同步——预览不碰文件系统，但这一位不涉及 IO，只是「目标 backend 是否要求音频逐段挂图」
     的能力声明，遗漏会让预览显示已绑定、执行时才降级，用户直到生成后才发现声音没生效。
+
+    ``requested_generate_audio`` 须同步执行层传给 ``render_unit_prompt`` 的同一个值（本集无声开关），
+    否则预览会显示音频已绑定、实际请求却不带音频段。
 
     ``max_reference_images`` 须同步执行层的能力上限（``VideoLaneResult.max_reference_images``）：
     执行期会把 ``unit.references`` 先按此上限裁剪、再渲染（保证 ``图片N`` 编号与实际发出的
@@ -225,6 +242,7 @@ def build_script_preview(
         utterances,
         project.get(BUCKET_KEY["character"]) or {},
         voice_consistency=voice_consistency,
+        requested_generate_audio=requested_generate_audio,
         max_reference_audio=max_reference_audio,
         model_id=model_id,
         require_reference_image=audio_requires_reference_image,

@@ -270,6 +270,10 @@ MESSAGES = {
     "ref_warn_silent_model": (
         "The current video model '{model}' generates no audio; dialogue is used only as prompt context"
     ),
+    "ref_warn_silent_episode": (
+        "This episode is set to silent video, so voice consistency does not apply: no reference audio "
+        "is uploaded and dialogue is used only as prompt context"
+    ),
     # Episode meta
     "episode_not_found": "Episode {episode} not found or has no script file yet",
     "episode_title_empty": "Episode title cannot be empty",

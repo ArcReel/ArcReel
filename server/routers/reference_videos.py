@@ -449,8 +449,8 @@ async def preview_script(
     """分镜文稿的读时派生预览：shots / references / utterances + 降级可见性 warning。
 
     只读、不落盘——文稿是唯一真相，utterances 与 references 都是机械派生物。声音相关的
-    三条 warning 依赖该集视频后端的能力（``voice_consistency`` 与参考音频段数上限），
-    与执行层同一份解析出口；能力解析失败时按 ``soft`` 降级，只是少发这几条提示。
+    warning 依赖该集视频后端的能力（``voice_consistency`` 与参考音频段数上限）与本集的无声
+    开关，与执行层同一份解析出口；能力解析失败时按 ``soft`` 降级，只是少发这几条提示。
     """
     project, _script, _sf = _load_episode_script(project_name, episode, _t)
     caps = await project_video_caps(project, degraded_to="解析预览不发声音相关提示", episode=episode)
@@ -458,6 +458,7 @@ async def preview_script(
         req.prompt,
         project,
         voice_consistency=str(caps.get("voice_consistency") or "soft"),
+        requested_generate_audio=bool(caps.get("requested_generate_audio", True)),
         max_reference_audio=int(caps.get("max_reference_audio_count") or 0),
         model_id=str(caps.get("model") or ""),
         audio_requires_reference_image=bool(caps.get("reference_audio_per_image") or False),
