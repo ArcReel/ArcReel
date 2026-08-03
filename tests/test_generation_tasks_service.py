@@ -2001,8 +2001,9 @@ class TestAdProductFidelityStoryboard:
 
     @pytest.mark.integration
     def test_collect_product_references_resolves_nfd_registered_name_by_nfc_query(self, tmp_path):
-        """产品以 NFD key 登记、镜头 products_in_shot 传入 NFC 名字：仍须命中，不能因编码
-        形式不同静默跳过（回归 collect_product_references_for_names 的裸 bucket 查找）。"""
+        """产品以 NFD key 登记、镜头 products_in_shot 传入 NFC 名字：
+        collect_product_references_for_names 须按归一形式查找 bucket 命中，不能因编码
+        形式不同静默跳过。"""
         import unicodedata
 
         project_path = _prepare_files(tmp_path)

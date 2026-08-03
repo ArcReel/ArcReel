@@ -206,8 +206,8 @@ def test_resolve_unit_references_resolves_nfd_registered_name_by_nfc_reference(t
 @pytest.mark.integration
 def test_resolve_ad_unit_reference_entries_dedupes_nfc_nfd_pair(tmp_path: Path):
     """同一 ad unit 内两个镜头以不同编码形式引用同一角色：归一化查找会把两条都解析到同一张
-    图，须去重为一条，否则同一张参考图占两个槽位（回归 _resolve_ad_unit_reference_entries
-    的裸字符串去重）。"""
+    图，_resolve_ad_unit_reference_entries 须按归一形式去重为一条，否则同一张参考图占两个
+    槽位。"""
     import unicodedata
 
     proj_dir = _write_project(tmp_path)

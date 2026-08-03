@@ -215,8 +215,8 @@ def test_patch_unit_rejects_unknown_reference(client: TestClient):
 
 @pytest.mark.integration
 def test_patch_unit_accepts_nfc_reference_for_nfd_registered_name(client: TestClient):
-    """资产以 NFD 形式登记、PATCH 请求携带解析器已归一的 NFC 名字：须仍判「已登记」放行，
-    不能因编码形式不同误判未登记（_validate_references_exist 的裸比对回归）。"""
+    """资产以 NFD 形式登记、PATCH 请求携带解析器已归一的 NFC 名字：_validate_references_exist
+    须按归一形式比对判「已登记」放行，不能因编码形式不同误判未登记。"""
     import unicodedata
 
     from server.routers import reference_videos as router_mod

@@ -398,6 +398,7 @@ def test_combining_char_name_renders_identically_in_every_encoding_pairing(regis
     assert "@[" not in rendered.prompt
 
 
+@pytest.mark.integration
 def test_resolve_reference_audio_paths_keys_are_normalized_for_binding(tmp_path):
     """``resolve_reference_audio_paths`` 的 key 直接作为 ``audio_ready`` 与说话人判等：
     资产表以 NFD 落盘时若原样返回，绑定判定两侧不同形，音频会被静默判成不可用。"""
