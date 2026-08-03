@@ -172,8 +172,8 @@ export function mergeReferences(
   project: ProjectBuckets | null | undefined,
 ): ReferenceResource[] {
   // mention 与既有 references 的名字都归一到比对坐标系再判等/去重——两侧字节形式可能不同
-  // （既有 references 出自后端已归一的落盘值，mention 出自本次输入，来源不同）；输出的
-  // name 同样落成归一形式，与后端 `resolve_references` 的产出口径一致。
+  // （既有 references 出自后端已归一的落盘值，mention 出自 prompt 文本解析，来源不同）；
+  // 输出的 name 同样落成归一形式，与后端 `resolve_references` 的产出口径一致。
   const mentioned = new Set(extractMentions(prompt).map(normalizeAssetName));
   const kept: ReferenceResource[] = [];
   const keptNames = new Set<string>();

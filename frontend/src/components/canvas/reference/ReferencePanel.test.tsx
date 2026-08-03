@@ -104,6 +104,27 @@ describe("ReferencePanel", () => {
     fireEvent.click(screen.getByRole("option", { name: /主角/ }));
     expect(onAdd).toHaveBeenCalledWith({ type: "character", name: "主角" });
   });
+
+  it("excludes a candidate from the picker when its bucket key and the existing reference name differ in NFC/NFD form", () => {
+    const nameNfc = "Hiếu".normalize("NFC");
+    const nameNfd = "Hiếu".normalize("NFD");
+    expect(nameNfc).not.toBe(nameNfd);
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: { ...PROJECT, characters: { [nameNfd]: { description: "" } } },
+    });
+    render(
+      <ReferencePanel
+        references={[{ type: "character", name: nameNfc }]}
+        projectName="proj"
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onAdd={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Add reference|添加引用/ }));
+    expect(screen.queryByRole("option", { name: new RegExp(nameNfd) })).not.toBeInTheDocument();
+  });
 });
 
 describe("ReferencePanel drag a11y", () => {

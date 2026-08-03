@@ -275,6 +275,32 @@ class TestRenderUnitPrompt:
         assert "Zoom In" in prompt
         assert "太好用了" in prompt
 
+    def test_dialogue_speaker_normalized_to_nfc(self):
+        # derive_voice_bindings（script_preview 复用于 ad 路径）把说话人名归一到 NFC 再产出
+        # 音色绑定声明；画面 prompt 的台词句式须用同一坐标系，否则两处 `<X>` 字节不同，
+        # 供应商侧无法把参考音色与这句台词对上。
+        import unicodedata
+
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        assert name_nfd != name_nfc
+        shots = [
+            _shot(
+                "E1S1",
+                video_prompt={
+                    "action": "",
+                    "camera_motion": "",
+                    "ambiance_audio": "",
+                    "dialogue": [{"speaker": name_nfd, "line": "太好用了"}],
+                },
+            )
+        ]
+
+        prompt = render_ad_unit_prompt(shots)
+
+        assert f"<{name_nfc}>说 {{太好用了}}" in prompt
+        assert name_nfd not in prompt
+
     def test_all_blank_shots_render_empty_for_enqueue_guard(self):
         # 空提示词必须渲染为空串，让 TaskSpec 入队守卫当场拒绝
         shots = [_shot("E1S1", image_prompt={"scene": "", "composition": {}}, video_prompt={"action": ""})]

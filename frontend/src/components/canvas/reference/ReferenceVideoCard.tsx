@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { MENTION_PICKER_DEFAULT_ID, MentionPicker, type MentionCandidate } from "./MentionPicker";
 import { ASSET_COLORS, assetColor } from "./asset-colors";
 import { useShotPromptHighlight, type MentionLookup, type Token } from "@/hooks/useShotPromptHighlight";
-import { MENTION_RE } from "@/utils/reference-mentions";
+import { MENTION_RE, normalizeAssetName } from "@/utils/reference-mentions";
 import { useProjectsStore } from "@/stores/projects-store";
 import {
   SHEET_FIELD,
@@ -127,9 +127,9 @@ export function ReferenceVideoCard({
 
   const lookup: MentionLookup = useMemo(() => {
     const out: MentionLookup = {};
-    for (const name of Object.keys(project?.characters ?? {})) out[name] = "character";
-    for (const name of Object.keys(project?.scenes ?? {})) out[name] = "scene";
-    for (const name of Object.keys(project?.props ?? {})) out[name] = "prop";
+    for (const name of Object.keys(project?.characters ?? {})) out[normalizeAssetName(name)] = "character";
+    for (const name of Object.keys(project?.scenes ?? {})) out[normalizeAssetName(name)] = "scene";
+    for (const name of Object.keys(project?.props ?? {})) out[normalizeAssetName(name)] = "prop";
     return out;
   }, [project?.characters, project?.scenes, project?.props]);
 

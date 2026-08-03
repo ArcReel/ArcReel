@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from lib.asset_types import ASSET_SPECS, ASSET_TYPES
+from lib.asset_types import ASSET_SPECS, ASSET_TYPES, normalize_asset_name
 from lib.episode_ledger import (
     LEDGER_STATUSES,
     EpisodeOutline,
@@ -1044,10 +1044,13 @@ class DataValidator:
             errors.append("reference_video 脚本缺少 video_units 数组或为空")
             return
 
+        # 归一到 NFC 再建集合：project_characters/scenes/props 是落盘原始 key（可能 NFD），
+        # reference.name 已在别处归一到 NFC（见 lib.asset_types.normalize_asset_name），
+        # 裸比对会把已登记的资产误判成不在 bucket 中，产生假阳性 unregistered 报错。
         bucket_by_type = {
-            "character": project_characters,
-            "scene": project_scenes,
-            "prop": project_props,
+            "character": {normalize_asset_name(n) for n in project_characters},
+            "scene": {normalize_asset_name(n) for n in project_scenes},
+            "prop": {normalize_asset_name(n) for n in project_props},
         }
         seen_unit_ids: set[str] = set()
 
@@ -1101,7 +1104,7 @@ class DataValidator:
                     errors.append(f"{prefix}: reference.name 必须是非空字符串: {rname!r}")
                     continue
                 bucket = bucket_by_type.get(rtype, set())
-                if rname not in bucket:
+                if normalize_asset_name(rname) not in bucket:
                     errors.append(f"{prefix}: 引用的{rtype} '{rname}' 不在 project.json 对应 bucket 中")
 
             if project_dir is not None:
@@ -1132,6 +1135,10 @@ class DataValidator:
             errors.append("reference_units 必须是数组")
             return
 
+        # 归一到 NFC 再建集合，理由同 `_validate_reference_video_script`。
+        normalized_registered_names = {
+            rtype: {normalize_asset_name(n) for n in names} for rtype, names in registered_names.items()
+        }
         shot_ids = {s.get("shot_id") for s in shots if isinstance(s, dict)} if isinstance(shots, list) else set()
         seen_unit_ids: set[str] = set()
         for index, unit in enumerate(units):
@@ -1174,7 +1181,7 @@ class DataValidator:
                 if not rname or not isinstance(rname, str):
                     errors.append(f"{prefix}.references[{ri}]: name 必须是非空字符串: {rname!r}")
                     continue
-                if rname not in registered_names[rtype]:
+                if normalize_asset_name(rname) not in normalized_registered_names[rtype]:
                     warnings.append(f"{prefix}.references[{ri}]: 引用的{rtype}「{rname}」未注册，需重新派生分组")
 
             assets = unit.get("generated_assets")

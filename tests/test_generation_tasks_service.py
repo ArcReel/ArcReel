@@ -2013,6 +2013,21 @@ class TestAdProductFidelityStoryboard:
         refs = generation_tasks.collect_product_references_for_names(project, project_path, [name_nfc])
         assert [r["image"] for r in refs] == [project_path / "products" / "refs" / "保温杯_1.jpg"]
 
+    def test_collect_product_references_dedupes_nfc_nfd_pair(self, tmp_path):
+        """同一产品的 NFC/NFD 两种编码形式同时出现在 products_in_shot：归一后是同一产品，
+        只应注入一份参考图，不能各自命中同一 bucket 条目各注入一份（回归：分镜图产品收集
+        此前没有 ad 参考直出路径那样的去重，会重复消耗参考位、挤掉真正的角色/场景参考）。"""
+        import unicodedata
+
+        project_path = _prepare_files(tmp_path)
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+        project = {"products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+
+        refs = generation_tasks.collect_product_references_for_names(project, project_path, [name_nfc, name_nfd])
+        assert [r["image"] for r in refs] == [project_path / "products" / "refs" / "保温杯_1.jpg"]
+
 
 def _patch_video_path(monkeypatch, pm, generator):
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)

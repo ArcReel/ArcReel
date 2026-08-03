@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from lib.asset_types import normalize_asset_name
 from lib.config.resolver import resolve_raw_supported_durations
 from lib.data_validator import DataValidator, ValidationResult
 from lib.episode_ledger import parse_positive_episode_num
@@ -1118,10 +1119,24 @@ class ProjectArchiveService:
 
         与 narration/drama 的 characters/scenes/props 处理对齐——只是引用结构是
         list[{type, name}]。返回是否补过占位角色（即 project_payload 是否改动）。
+
+        引用名（``ref_name``）在别处已归一到 NFC（见 ``lib.asset_types.normalize_asset_name``），
+        registered 集合的 key 仍是落盘原始形式（可能是 NFD）；比对前把 ``ref_name`` 解析回
+        registered 集合里字节形式一致的那个 key，否则会把已登记的资产误判缺失，插入一份
+        重复的占位定义（角色）或产出假阳性阻断诊断（场景/道具）。
         """
         references = unit.get("references")
         if not isinstance(references, list):
             return False
+
+        def resolve_existing(name: str, candidates: set[str]) -> str:
+            if name in candidates:
+                return name
+            canonical = normalize_asset_name(name)
+            for candidate in candidates:
+                if normalize_asset_name(candidate) == canonical:
+                    return candidate
+            return name
 
         project_changed = False
         missing_scenes: set[str] = set()
@@ -1134,11 +1149,12 @@ class ProjectArchiveService:
                 continue
             ref_type = ref.get("type")
             if ref_type == "character":
-                if self._add_placeholder_character(project_payload, project_characters, ref_name, diagnostics):
+                resolved_name = resolve_existing(ref_name, project_characters)
+                if self._add_placeholder_character(project_payload, project_characters, resolved_name, diagnostics):
                     project_changed = True
-            elif ref_type == "scene" and ref_name not in project_scenes:
+            elif ref_type == "scene" and resolve_existing(ref_name, project_scenes) not in project_scenes:
                 missing_scenes.add(ref_name)
-            elif ref_type == "prop" and ref_name not in project_props:
+            elif ref_type == "prop" and resolve_existing(ref_name, project_props) not in project_props:
                 missing_props.add(ref_name)
 
         for missing, asset_type, label in (

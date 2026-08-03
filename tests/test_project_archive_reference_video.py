@@ -367,6 +367,37 @@ class TestProjectArchiveReferenceVideo:
         assert "幽灵" in imported_project["characters"]
         assert result.diagnostics["auto_fixed"]
 
+    def test_import_resolves_nfc_reference_against_nfd_registered_character(self, tmp_path):
+        # references 已归一到 NFC（见 lib.asset_types.normalize_asset_name），登记侧的角色
+        # key 仍可能是落盘的 NFD 原形；自愈逻辑须把两者判等，而非把已登记角色误判缺失、
+        # 补出一份重复的占位定义。
+        import unicodedata
+
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        assert name_nfd != name_nfc
+
+        pm = ProjectManager(tmp_path / "projects")
+        unit = _build_unit(
+            video_clip="reference_videos/E1U1.mp4",
+            references=[{"type": "character", "name": name_nfc}],
+        )
+        project_dir = _create_reference_video_project(pm, unit=unit)
+        project = pm.load_project("refdemo")
+        project["characters"][name_nfd] = {"description": "x"}
+        pm.save_project("refdemo", project)
+
+        service = ProjectArchiveService(pm)
+        archive_path = tmp_path / "nfc-nfd.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="nfc-nfd.zip")
+
+        imported_project = pm.load_project(result.project_name)
+        assert imported_project["characters"].keys() == {name_nfd}
+        assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
+
     def test_import_blocks_missing_scene_reference(self, tmp_path):
         # 与 narration/drama 对齐：references 引用了缺失的场景 → 阻断导入
         pm = ProjectManager(tmp_path / "projects")

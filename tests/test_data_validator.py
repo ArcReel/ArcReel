@@ -1323,6 +1323,30 @@ class TestAdReferenceUnitsValidation:
         assert result.valid, result.errors
         assert any("不存在" in w for w in result.warnings)
 
+    def test_nfc_reference_accepted_for_nfd_registered_character(self, tmp_path):
+        import unicodedata
+
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        assert name_nfd != name_nfc
+
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _ad_project_payload(generation_mode="reference_video")
+        payload["characters"] = {name_nfd: {"description": "主播"}}
+        _write_json(project_dir / "project.json", payload)
+        units = [{"unit_id": "E1U1", "shot_ids": ["E1S01"], "references": [{"type": "character", "name": name_nfc}]}]
+        script = {
+            "episode": 1,
+            "title": "速干杯带货",
+            "content_mode": "ad",
+            "shots": [self._ad_shot()],
+            "reference_units": units,
+        }
+        _write_json(project_dir / "scripts" / "episode_1.json", script)
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        assert result.valid, result.errors
+        assert not any(name_nfc in w or name_nfd in w for w in result.warnings)
+
 
 class TestSourceKindValidation:
     """source_kind 顶层枚举校验：缺省 novel（缺失放行），仅拦非法值；并锁泛指 speaker 回归。"""

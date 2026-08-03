@@ -328,11 +328,16 @@ def collect_product_references_for_names(
     spec = ASSET_SPECS["product"]
     products = normalize_asset_bucket(project.get(spec.bucket_key))
     references: list[dict] = []
+    seen: set[str] = set()
     for name in names:
         if not isinstance(name, str):
             logger.warning("products_in_shot 含非字符串条目 %r，产品参考跳过", name)
             continue
-        entry = products.get(normalize_asset_name(name))
+        canonical = normalize_asset_name(name)
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        entry = products.get(canonical)
         if not isinstance(entry, dict):
             logger.warning("镜头引用的产品 '%s' 不在 project.json products 中，产品参考跳过", name)
             continue

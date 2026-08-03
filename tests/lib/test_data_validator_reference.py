@@ -77,6 +77,27 @@ def test_validator_accepts_reference_video_generation_mode(tmp_path: Path):
     assert result.valid, result.errors
 
 
+def test_validator_accepts_nfc_reference_for_nfd_registered_character(tmp_path: Path):
+    import unicodedata
+
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    assert name_nfd != name_nfc
+
+    project = _reference_project(with_assets=False)
+    project["characters"][name_nfd] = {"description": "x"}
+    script = _valid_reference_script()
+    script["video_units"][0]["shots"] = [{"text": f"Shot 1 (3s): @{name_nfc} 推门"}]
+    script["video_units"][0]["references"] = [{"type": "character", "name": name_nfc}]
+
+    _write(tmp_path, "project.json", project)
+    _write(tmp_path, "scripts/episode_1.json", script)
+
+    v = DataValidator()
+    result = v.validate_project_tree(tmp_path)
+    assert result.valid, result.errors
+
+
 def test_validator_rejects_unknown_mention(tmp_path: Path):
     _write(tmp_path, "project.json", _reference_project(with_assets=False))
     _write(tmp_path, "scripts/episode_1.json", _valid_reference_script())

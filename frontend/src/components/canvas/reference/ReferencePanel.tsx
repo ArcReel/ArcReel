@@ -23,20 +23,32 @@ import { RefChip } from "./RefChip";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { SHEET_FIELD, type AssetKind, type ReferenceResource } from "@/types/reference-video";
+import { normalizeAssetName } from "@/utils/reference-mentions";
 
 const PICKER_ID = "reference-panel-mention-picker";
 
 // Drag id format: `${type}:${name}`. Split on the first ":" so CJK names survive.
-const refId = (r: ReferenceResource): string => `${r.type}:${r.name}`;
+const refId = (r: ReferenceResource): string => `${r.type}:${normalizeAssetName(r.name)}`;
 const refNameFromId = (id: string): string => id.slice(id.indexOf(":") + 1);
 
 type BucketEntry = Partial<Record<"character_sheet" | "scene_sheet" | "prop_sheet", string>>;
+// bucket key 与 name 可能是 NFC/NFD 中的任一方（bucket 来自落盘的 project.json 原始 key，
+// name 可能来自已归一的 references 或选择器候选），两侧归一后再比对，见
+// `utils/reference-mentions.ts` 顶部注释的坐标系约定。
 const sheetOf = (
   bucket: Record<string, unknown> | undefined,
   kind: AssetKind,
   name: string,
-): string | null =>
-  (bucket?.[name] as BucketEntry | undefined)?.[SHEET_FIELD[kind]] ?? null;
+): string | null => {
+  if (!bucket) return null;
+  const target = normalizeAssetName(name);
+  for (const key of Object.keys(bucket)) {
+    if (normalizeAssetName(key) === target) {
+      return (bucket[key] as BucketEntry | undefined)?.[SHEET_FIELD[kind]] ?? null;
+    }
+  }
+  return null;
+};
 
 export interface ReferencePanelProps {
   references: ReferenceResource[];
@@ -114,7 +126,7 @@ export function ReferencePanel({
     const out = {} as Record<AssetKind, MentionCandidate[]>;
     for (const kind of ["character", "scene", "prop"] as const) {
       out[kind] = Object.keys(buckets[kind] ?? {})
-        .filter((name) => !existingKeys.has(`${kind}:${name}`))
+        .filter((name) => !existingKeys.has(`${kind}:${normalizeAssetName(name)}`))
         .map((name) => ({ name, imagePath: sheetOf(buckets[kind], kind, name) }));
     }
     return out;

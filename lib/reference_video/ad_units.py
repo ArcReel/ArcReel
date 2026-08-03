@@ -10,6 +10,7 @@ ad 剧本骨架唯一（shots 是内容唯一真相，见 docs/adr/0033）；ref
 
 from __future__ import annotations
 
+from lib.asset_types import normalize_asset_name
 from lib.script_models import GeneratedAssets, ad_shot_duration_seconds, get_generated_assets
 
 #: 单个 video_unit 最多容纳的镜头数，与 ``ReferenceVideoUnit.shots`` 的
@@ -213,6 +214,10 @@ def _shot_prompt_text(shot: dict) -> str:
             if not isinstance(entry, dict):
                 continue
             speaker = _text(entry.get("speaker"))
+            # 归一到与 derive_voice_bindings 相同的坐标系（NFC）：该函数对说话人名归一后
+            # 产出音色绑定声明 `<X>的台词音色参考 @音频N`，这里的台词句式若仍用未归一的
+            # 原始字节形式，两处的 `<X>` 会字节不同，供应商侧无法把参考音色与这句台词对上。
+            speaker = normalize_asset_name(speaker) if speaker else speaker
             line = _text(entry.get("line"))
             if line:
                 # 台词句式与 narration/drama 参考路径的第二段统一（<X>说 {台词}），无 speaker
