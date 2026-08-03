@@ -10,8 +10,9 @@
 ### 视频规格
 - **视频比例**：由项目 `aspect_ratio` 配置决定，无需在 prompt 中指定
 - **单片段/场景时长**：由视频模型能力和项目 `default_duration` 配置决定
-  - storyboard 模式（含 `grid_storyboard=true`）：由项目 `default_duration` 决定
-  - reference_video 模式：由所选视频模型的 `supported_durations` 决定；subagent 运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
+  - storyboard 模式（含 `grid_storyboard=true`）：取值必须在所选视频模型的 `supported_durations` 内，项目 `default_duration` 非 null 时作默认偏好
+  - reference_video 模式：unit 时长必须取该 unit **引用状态对应**的生效档位（`reference_unit_durations.with_references` / `.without_references`）
+  - 两者的真值均由 subagent 运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
 - **生成方式**：每个片段/场景独立生成，使用分镜图作为起始帧

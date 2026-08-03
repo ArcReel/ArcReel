@@ -71,7 +71,7 @@ mcp__arcreel__generate_video_episode({"script": "episode_1.json", "confirm_durat
 
 ## 工作流程
 
-1. **加载项目和剧本** — 确认所有场景都有 `storyboard_image`
+1. **加载项目和剧本** — storyboard 模式确认所有场景都有 `storyboard_image`；reference_video 模式无分镜图，改为确认各 unit 的引用资产 sheet 图齐备
 2. **生成视频** — MCP 工具自动构建 Prompt、调用 API、保存 checkpoint
 3. **审核检查点** — 展示结果，用户可重新生成不满意的场景
 4. **更新剧本** — 自动更新 `video_clip` 路径和场景状态
@@ -90,9 +90,16 @@ Prompt 由 MCP 工具内部自动构建，根据 content_mode 选择不同策略
 
 ## 生成前检查
 
-- [ ] 所有场景都有已批准的分镜图
+按项目 `generation_mode` 取对应清单，不要交叉套用——reference_video 剧本是 `video_units[]`（ad 为 `shots[]` 派生分组），没有场景级 `storyboard_image`，拿 storyboard 清单去卡会把合法任务挡在入队之前。
+
+**通用**
+
 - [ ] 对话文本长度适当
 - [ ] 动作描述清晰简单
+
+### storyboard 模式（含 `grid_storyboard=true`）
+
+- [ ] 所有场景都有已批准的分镜图
 
 ### reference_video 模式
 
