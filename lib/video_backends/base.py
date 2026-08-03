@@ -416,6 +416,13 @@ class VideoCapabilities:
     聚合约束，仅按 ``max_reference_audio_count`` 卡段数）。段数上限推不出总时长——两段各处于
     单段合法区间的音频，合计仍可能超出供应商总时长上限，故需独立声明。判定需要读音频元数据，
     调用方在 :func:`lib.video_frame_slots.gate_video_request` 前置探测好总时长再传入。
+
+    ``max_prompt_chars``：提示词字符数上限（None = 该后端未声明约束）。声明的是**该 model 无论
+    走哪条端点都成立**的上限——部分供应商按端点各设更窄的值（如 Vidu 的参考生视频端点），那层
+    收窄留在 backend 组装期按实际端点 fail-loud，不塞进这个无端点上下文的静态声明里。计量口径
+    为字符数（中英文同权），与各家文档一致。超限的典型失败模式是静默截断而非报错：供应商照常
+    扣费、成片与意图不符、用户无从知情，正是 :func:`lib.video_frame_slots.gate_video_request`
+    要在付费前堵住的降级。
     """
 
     first_frame: bool = True
@@ -425,6 +432,7 @@ class VideoCapabilities:
     max_reference_audio_count: int = 0
     max_reference_audio_total_seconds: float | None = None
     reference_audio_per_image: bool = False
+    max_prompt_chars: int | None = None
 
 
 @dataclass

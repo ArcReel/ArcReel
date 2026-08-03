@@ -921,6 +921,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control"],
                 default=True,
                 supported_durations=list(range(1, 17)),
+                # 参考生视频端点的时长下限是 3 秒（文/图生视频仍为 1 起），不收窄会让 r2v 项目的
+                # 时长下拉出现 1s / 2s 幽灵档位——选中后被 backend 静默取到 3 秒并按 3 秒计费。
+                reference_image_durations=list(range(3, 17)),
                 resolutions=["540p", "720p", "1080p"],
                 max_reference_images=7,
                 pricing=ViduDelegate(),
@@ -931,7 +934,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control"],
                 supported_durations=list(range(1, 17)),
                 resolutions=["540p", "720p", "1080p"],
-                max_reference_images=7,
+                # 官方三次上线记录均未把 viduq3-pro 纳入 reference2video 端点，参考图路径不可用，
+                # 与 backend 的 r2v 白名单同口径声明为 0。
+                max_reference_images=0,
                 pricing=ViduDelegate(),
             ),
             "viduq3": ModelInfo(
@@ -939,6 +944,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="video",
                 capabilities=["image_to_video", "generate_audio", "seed_control"],
                 supported_durations=list(range(3, 17)),
+                reference_image_durations=list(range(3, 17)),
                 resolutions=["540p", "720p", "1080p"],
                 max_reference_images=7,
                 pricing=ViduDelegate(),

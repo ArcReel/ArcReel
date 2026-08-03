@@ -97,14 +97,18 @@ _POLL_TIMEOUT_PER_SECOND = 60.0
 # （官方：参考图像 + 参考视频 ≤ 5）。
 _WAN27_R2V_MAX_REFERENCE = 5
 
+# wan2.7 全家族 prompt 上限 5000 字符（官方参数表原文「超过部分会自动截断」，错误码表无对应
+# 条目——超限不报错、直接静默截断并照常计费，故由 gate_video_request 在付费前拒绝）。
+_WAN27_MAX_PROMPT_CHARS = 5000
+
 # 按 model id 派发能力声明。happyhorse-r2v 仅 reference_image（无 first_frame）；
 # wan2.7-r2v 额外支持首帧与参考音色。
 _MODEL_PROFILES: dict[str, VideoCapabilities] = {
     "happyhorse-1.0-t2v": VideoCapabilities(first_frame=False),
     "happyhorse-1.0-i2v": VideoCapabilities(first_frame=True),
     "happyhorse-1.0-r2v": VideoCapabilities(first_frame=False, max_reference_images=9),
-    "wan2.7-t2v": VideoCapabilities(first_frame=False),
-    "wan2.7-i2v": VideoCapabilities(first_frame=True),
+    "wan2.7-t2v": VideoCapabilities(first_frame=False, max_prompt_chars=_WAN27_MAX_PROMPT_CHARS),
+    "wan2.7-i2v": VideoCapabilities(first_frame=True, max_prompt_chars=_WAN27_MAX_PROMPT_CHARS),
     # 带首帧的参考生视频是 wan2.7-r2v 的官方形态（_build_media 同请求组装
     # first_frame + reference_image）。
     "wan2.7-r2v": VideoCapabilities(
@@ -115,6 +119,7 @@ _MODEL_PROFILES: dict[str, VideoCapabilities] = {
         # 音色挂在具体参考素材项上（_attach_reference_voices），不是独立的音色输入通道，
         # 编排层必须显式给出「谁的声音配哪张图」的映射，不能假设与 reference_audio_files 同序。
         reference_audio_per_image=True,
+        max_prompt_chars=_WAN27_MAX_PROMPT_CHARS,
     ),
 }
 

@@ -17,6 +17,7 @@ from lib.providers import PROVIDER_VIDU
 from lib.retry import DOWNLOAD_BACKOFF_SECONDS, DOWNLOAD_MAX_ATTEMPTS, with_retry_async
 from lib.video_backends.base import (
     VideoCapabilities,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
@@ -68,9 +69,10 @@ _DURATION_RULES: dict[tuple[str, str], list[int]] = {
     ("viduq3-pro", "/img2video"): list(range(1, 17)),
     ("viduq3-turbo", "/img2video"): list(range(1, 17)),
     ("viduq3-pro-fast", "/img2video"): list(range(1, 17)),
-    ("viduq2-pro-fast", "/img2video"): list(range(1, 9)),
-    ("viduq2-pro", "/img2video"): list(range(1, 9)),
-    ("viduq2-turbo", "/img2video"): list(range(1, 9)),
+    # q2 系在 /img2video 为 1–10；1–8 是 /start-end2video（首尾帧）端点的值，两端点不同。
+    ("viduq2-pro-fast", "/img2video"): list(range(1, 11)),
+    ("viduq2-pro", "/img2video"): list(range(1, 11)),
+    ("viduq2-turbo", "/img2video"): list(range(1, 11)),
     ("viduq1", "/img2video"): [5],
     ("viduq1-classic", "/img2video"): [5],
     ("vidu2.0", "/img2video"): [4, 8],
@@ -181,12 +183,26 @@ class ViduVideoBackend:
         `/video-capabilities`）。
         """
         reference_images = model in _ENDPOINT_MODELS["/reference2video"]
+        first_frame = model in _ENDPOINT_MODELS["/img2video"]
+        last_frame = model in _ENDPOINT_MODELS["/start-end2video"]
         return VideoCapabilities(
-            first_frame=model in _ENDPOINT_MODELS["/img2video"],
-            last_frame=model in _ENDPOINT_MODELS["/start-end2video"],
+            first_frame=first_frame,
+            last_frame=last_frame,
             max_reference_images=_MAX_REFERENCE_IMAGES if reference_images else 0,
             # 参考图与首帧在 Vidu 上是互斥模式：_select_endpoint 见参考图即切 /reference2video，
             # start_image 不进请求体（首帧被丢弃）。
+            #
+            # prompt 上限按端点分档（/reference2video 更窄），而本函数无端点上下文，只能声明
+            # 「该 model 无论走哪条端点都成立」的值：只跑 /reference2video 的 model（如 viduq3）
+            # 取窄值，能跑其他端点的 model 取宽值——多端点 model 走 /reference2video 时的窄值由
+            # _build_request 按实际端点 fail-loud 兜底，不在此处按最窄值误拒其合法的 t2v/i2v 请求。
+            # 未登记 model（中转自定义命名）不在任何白名单内，取宽值：静态声明只该拒绝必然违约的
+            # 请求，对能力不明的 model 误拒是更糟的降级。
+            max_prompt_chars=(
+                _PROMPT_MAX_REFERENCE2VIDEO
+                if reference_images and not (first_frame or last_frame or model in _ENDPOINT_MODELS["/text2video"])
+                else _PROMPT_MAX_TEXT2VIDEO
+            ),
         )
 
     @property
@@ -260,12 +276,21 @@ class ViduVideoBackend:
         # 2) duration 在合法集合内取最近值
         duration = _coerce_duration(self._model, endpoint, request.duration_seconds)
 
-        # 3) prompt 截断（reference2video 上限 2000，其他 5000）
+        # 3) prompt 长度（reference2video 上限 2000，其他 5000）
+        # 超限一律拒绝，不再客户端截断：截断会产出与意图不符的成片却照常计费、用户无从知情，
+        # 与 gate_video_request 「同一种违约只有硬失败、没有静默降级」的口径一致。model 级上限
+        # （video_capabilities_for_model 声明的那个）已由 gate 在付费前拦下；此处是端点级更窄
+        # 上限的执行期防御——多端点 model 走 /reference2video 时 gate 的静态声明覆盖不到。
         prompt = request.prompt or ""
         prompt_max = _PROMPT_MAX_REFERENCE2VIDEO if endpoint == "/reference2video" else _PROMPT_MAX_TEXT2VIDEO
         if len(prompt) > prompt_max:
-            logger.warning("Vidu prompt 长度 %d 超限 %d，截断", len(prompt), prompt_max)
-            prompt = prompt[:prompt_max]
+            raise VideoCapabilityError(
+                "video_prompt_too_long",
+                provider=self.name,
+                model=self._model,
+                limit=prompt_max,
+                count=len(prompt),
+            )
 
         body: dict = {
             "model": self._model,

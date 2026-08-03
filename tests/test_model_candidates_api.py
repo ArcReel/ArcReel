@@ -272,11 +272,13 @@ class TestBucketJudgement:
         assert builtin_model_buckets(provider_id, model_id, model_info) == frozenset()
 
     def test_builtin_video_r2v_reads_backend_not_registry(self):
-        """registry 的 max_reference_images 与 backend 声明并存时，判定以 backend 为准。"""
+        """registry 的 max_reference_images 与 backend 声明冲突时，判定以 backend 为准。
+
+        viduq3-pro 不在 Vidu 的 /reference2video 端点白名单内，backend 据此声明
+        max_reference_images=0。此处人为把 registry 侧的并行声明改成非 0，断言桶判定不受其影响。
+        """
         meta = PROVIDER_REGISTRY["vidu"]
-        # viduq3-pro 的 backend 声明 max_reference_images=0，registry 侧则非 0
-        model_info = meta.models["viduq3-pro"]
-        assert model_info.max_reference_images > 0
+        model_info = replace(meta.models["viduq3-pro"], max_reference_images=7)
         assert "r2v" not in builtin_model_buckets("vidu", "viduq3-pro", model_info)
 
     @pytest.mark.parametrize(

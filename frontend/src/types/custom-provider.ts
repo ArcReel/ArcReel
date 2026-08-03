@@ -59,7 +59,7 @@ export interface CustomProviderModelInfo {
 export type ReferenceAudioMode = "none" | "direct";
 
 /** 后端 VideoCapabilities 中界面用得到的子集（后端另有 reference_audio_per_image、
- *  max_reference_audio_total_seconds 等纯执行期维度，不在此声明）。
+ *  max_reference_audio_total_seconds、max_prompt_chars 等纯执行期维度，不在此声明）。
  *  参考图路径以 max_reference_images > 0 表达，
  *  不另设布尔位——两份声明会漂移出「称支持但上限为 0」这类自相矛盾的状态。 */
 export interface VideoCapabilityFlags {
