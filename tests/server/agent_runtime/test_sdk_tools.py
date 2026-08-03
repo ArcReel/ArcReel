@@ -3153,6 +3153,22 @@ async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monke
     assert caps.max_refs is None
 
 
+async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_failure(monkeypatch) -> None:
+    """能力查询失败时，`raw["requested_generate_audio"]` 仍随项目覆盖走，不回退成 True。
+
+    它不依赖能力接口独立解析（同 generation_context.py），否则声音提示层会漏发
+    WARN_SILENT_EPISODE，误导用户以为本集仍会尝试组装参考音频。
+    """
+    from server.agent_runtime.sdk_tools import text_generation as mod
+
+    async def _raising_caps(_project, _episode=None):
+        raise ValueError("no provider configured")
+
+    monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
+    caps = await mod._fetch_reference_caps_with_fallback({"video_generate_audio": False}, 1)
+    assert caps.raw.get("requested_generate_audio") is False
+
+
 def _rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = None):
     """构造返回指定扁平 units JSON 的假 TextGenerator.create（可选捕获 task_type / project_name）。"""
 

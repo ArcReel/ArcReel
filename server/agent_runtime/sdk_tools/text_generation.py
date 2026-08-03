@@ -622,6 +622,13 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
     except Exception as exc:  # noqa: BLE001
         logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         caps = {}
+        # requested_generate_audio 不依赖能力接口（见 generation_context.py 同名字段注释），
+        # 能力解析失败也不能连带丢失，否则本该报的 WARN_SILENT_EPISODE 会静默消失。
+        try:
+            resolver = ConfigResolver(async_session_factory)
+            caps["requested_generate_audio"] = await resolver.video_generate_audio_for_project(project)
+        except Exception as inner_exc:  # noqa: BLE001
+            logger.warning("video_generate_audio 独立解析也失败，声音提示按能力字段同口径降级：%s", inner_exc)
     durations = [int(d) for d in caps.get("supported_durations") or []]
     if not durations:
         durations = list(DEFAULT_FALLBACK)

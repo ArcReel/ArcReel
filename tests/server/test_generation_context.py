@@ -245,10 +245,10 @@ class TestVideoLane:
         )
         assert ctx.video.requested_generate_audio is False
 
-    async def test_requested_generate_audio_degrades_to_true_on_capability_failure(
+    async def test_requested_generate_audio_survives_capability_failure(
         self, session_factory, project_env, monkeypatch
     ):
-        """能力查询失败不收紧：静默丢掉用户配好的音色参考比多发一次更难排查。"""
+        """能力查询失败不得连带丢失用户的无声意图：它不来自能力接口，独立解析。"""
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None):
             return _FakeBackend(name=provider_id, model="mystery-model")
@@ -261,7 +261,7 @@ class TestVideoLane:
             project={"video_backend": f"ark/{video_model}", "video_generate_audio": False},
             video=VideoLaneRequest(),
         )
-        assert ctx.video.requested_generate_audio is True
+        assert ctx.video.requested_generate_audio is False
 
     async def test_payload_overrides_project(self, session_factory, project_env, fake_assemble):
         """payload > project：历史任务携带的 video_provider 决定实际解析身份。"""

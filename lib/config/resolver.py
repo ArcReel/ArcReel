@@ -649,6 +649,15 @@ class ConfigResolver:
         async with self._open_session() as (session, svc):
             return await self._resolve_video_generate_audio(svc, project_name)
 
+    async def video_generate_audio_for_project(self, project: dict | None) -> bool:
+        """同 :meth:`video_generate_audio`，但接收调用方已加载的 project 字典，不重复读盘。
+
+        供需要与 video capabilities 解析**独立**判定用户无声意图的调用方使用：能力解析（如
+        ``video_capabilities_for_model``）失败不应连带丢失这个值——它本就不依赖能力接口。
+        """
+        async with self._open_session() as (_session, svc):
+            return await self._resolve_video_generate_audio_from_project(svc, project)
+
     async def default_video_backend(self) -> tuple[str, str]:
         """返回系统级默认 (provider_id, model_id)（不含项目级覆盖）。"""
         async with self._open_session() as (session, svc):
