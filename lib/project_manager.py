@@ -1663,7 +1663,7 @@ class ProjectManager:
         # 生成路线与宫格开关：路由层已做必填二值校验与 ad 互斥（400/422），这里再兜一道防非路由
         # 调用方；未传时按数据层默认补写显式值，保证新项目落盘即含两字段（与 schema v5 形态对齐）。
         generation_mode = project.setdefault("generation_mode", _DEFAULT_GENERATION_MODE)
-        if generation_mode not in VALID_GENERATION_MODES:
+        if not isinstance(generation_mode, str) or generation_mode not in VALID_GENERATION_MODES:
             raise ValueError(f"generation_mode 值无效: {generation_mode!r}，必须是 {sorted(VALID_GENERATION_MODES)}")
         grid_storyboard = project.setdefault("grid_storyboard", False)
         if not isinstance(grid_storyboard, bool):

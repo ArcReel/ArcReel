@@ -178,6 +178,7 @@ MESSAGES = {
     "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",
     "ad_no_default_duration": "Ad/short-video projects do not support a default duration; shot lengths are planned against the target duration",
     "ad_grid_not_supported": "Ad/short-video projects do not support Grid Storyboard to Video",
+    "grid_storyboard_not_enabled": "Grid Storyboard is not enabled for this project",
     "ad_target_duration_required": "Ad/short-video projects require a target duration (positive integer seconds)",
     "project_id_not_editable": "content_mode cannot be modified after project creation",
     "source_kind_not_editable": "source_kind cannot be modified after project creation",

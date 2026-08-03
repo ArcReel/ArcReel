@@ -1021,6 +1021,15 @@ class TestGenerationModeValidation:
         assert not result.valid
         assert any("generation_mode 值无效" in e for e in result.errors)
 
+    @pytest.mark.parametrize("mode", [{"value": "storyboard"}, ["storyboard"], 5])
+    def test_non_scalar_route_reported_as_error(self, tmp_path, mode):
+        """非标量脏值报校验错误而非抛异常——归档导入据此返回 400 而不是 500。"""
+        payload = _project_payload()
+        payload["generation_mode"] = mode
+        result = self._validate(tmp_path, payload)
+        assert not result.valid
+        assert any("generation_mode 值无效" in e for e in result.errors)
+
     def test_grid_storyboard_true_passes_on_storyboard_route(self, tmp_path):
         payload = _project_payload()
         payload["grid_storyboard"] = True

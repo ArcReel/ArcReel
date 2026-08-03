@@ -342,7 +342,7 @@ class DataValidator:
         generation_mode = project.get("generation_mode")
         if not generation_mode:
             errors.append("缺少必填字段: generation_mode")
-        elif generation_mode not in self.VALID_GENERATION_MODES:
+        elif not isinstance(generation_mode, str) or generation_mode not in self.VALID_GENERATION_MODES:
             errors.append(f"generation_mode 值无效: '{generation_mode}'，必须是 {self.VALID_GENERATION_MODES}")
 
         grid_storyboard = project.get("grid_storyboard")

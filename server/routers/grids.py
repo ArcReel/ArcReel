@@ -20,7 +20,7 @@ from lib.grid.prompt_builder import build_grid_prompt
 from lib.grid_manager import GridManager
 from lib.i18n import Translator
 from lib.json_io import domain_error_on_value_error
-from lib.project_manager import get_project_manager
+from lib.project_manager import get_project_manager, grid_storyboard_enabled
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.auth import CurrentUser
 
@@ -96,6 +96,10 @@ async def generate_grid(
     # 写入边界（create/PATCH 拒 ad 开启 grid_storyboard）之外在动作端点再设一道防线
     if project.get("content_mode") == "ad":
         raise BadRequestError("ad_grid_not_supported")
+    # 宫格开关是入队的唯一闸门，与 SDK 工具同用一个谓词：未开宫格（含 reference_video 路线）
+    # 的项目直接拒绝，不让 HTTP 直调绕过开关产生计费任务
+    if not grid_storyboard_enabled(project):
+        raise BadRequestError("grid_storyboard_not_enabled")
     # 路径穿越等非法 script_file 是坏请求，400 而非落入下方 500 兜底；剧本文件损坏
     # （JSONDecodeError）不能被误判为非法 script_file，交由 app 级 catch-all 收口为通用 500
     with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_script_file", name=req.script_file)):
@@ -267,10 +271,12 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     # project.json 损坏（JSONDecodeError）不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
     with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
         project = get_project_manager().load_project(project_name)
-    # 广告/短片项目不开放宫格生视频：首次提交端点已封禁，重生成端点同样设防,
-    # 否则残留的历史 grid 记录仍可被重新入队
+    # 广告/短片项目不开放宫格分镜：首次提交端点已封禁，重生成端点同样设防,
+    # 否则残留的历史 grid 记录仍可被重新入队。宫格开关关闭后同理——历史 grid 不再可重生成
     if project.get("content_mode") == "ad":
         raise BadRequestError("ad_grid_not_supported")
+    if not grid_storyboard_enabled(project):
+        raise BadRequestError("grid_storyboard_not_enabled")
     project_path = get_project_manager().get_project_path(project_name)
     gm = GridManager(project_path)
     grid = _load_grid_or_404(project_path, grid_id)

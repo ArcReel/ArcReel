@@ -29,7 +29,9 @@ def migrate_project_dict(project: dict) -> dict:
     if mode == "grid":
         data["generation_mode"] = "storyboard"
         data["grid_storyboard"] = True
-    elif mode not in _ROUTE_MODES:
+    # 先判类型再做集合成员检查：project.json 是明文文件，generation_mode 可能被写成
+    # list / dict 等不可哈希值，直接 `in` 会抛 TypeError 令启动期迁移中止
+    elif not isinstance(mode, str) or mode not in _ROUTE_MODES:
         data["generation_mode"] = "storyboard"
     data.setdefault("grid_storyboard", False)
 

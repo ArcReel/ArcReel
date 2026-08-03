@@ -55,12 +55,19 @@ curl {{BASE_URL}}/api/v1/projects \
 
 - **端点**：`POST {{BASE_URL}}/api/v1/projects`
 - **认证**：需要 Bearer Token
+- **请求字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | string | 项目标识，仅字母、数字与连字符 |
+| `title` | string | 项目标题 |
+| `generation_mode` | string | **必填**，视频来源二选一：`storyboard`（分镜图生视频）/ `reference_video`（参考图直接生视频，无分镜图步骤） |
 
 ```bash
 curl -X POST {{BASE_URL}}/api/v1/projects \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "project-id", "title": "项目标题"}'
+  -d '{"name": "project-id", "title": "项目标题", "generation_mode": "storyboard"}'
 ```
 
 - **响应**：201，返回项目详情
@@ -194,7 +201,7 @@ curl -X POST {{BASE_URL}}/api/v1/agent/chat \
 curl -X POST {{BASE_URL}}/api/v1/projects \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "ghost-story", "title": "鬼屋探险"}'
+  -d '{"name": "ghost-story", "title": "鬼屋探险", "generation_mode": "storyboard"}'
 
 # 2A. 上传小说文本，自动生成概述
 curl -X POST {{BASE_URL}}/api/v1/projects/ghost-story/source \

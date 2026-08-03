@@ -178,6 +178,7 @@ MESSAGES = {
     "ad_only_field": "{field} chỉ khả dụng cho dự án quảng cáo/video ngắn (content_mode=ad)",
     "ad_no_default_duration": "Dự án quảng cáo/video ngắn không hỗ trợ thời lượng mặc định; thời lượng cảnh quay được lên kế hoạch theo tổng thời lượng mục tiêu",
     "ad_grid_not_supported": "Dự án quảng cáo/video ngắn không hỗ trợ tạo video từ bảng phân cảnh dạng lưới",
+    "grid_storyboard_not_enabled": "Dự án chưa bật bảng phân cảnh dạng lưới",
     "ad_target_duration_required": "Dự án quảng cáo/video ngắn bắt buộc phải có tổng thời lượng mục tiêu (số giây nguyên dương)",
     "project_id_not_editable": "content_mode không thể chỉnh sửa sau khi tạo dự án",
     "source_kind_not_editable": "source_kind không thể chỉnh sửa sau khi tạo dự án",

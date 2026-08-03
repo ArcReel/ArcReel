@@ -30,7 +30,7 @@ class TestMigrateProjectDict:
         assert after["generation_mode"] == "storyboard"
         assert after["grid_storyboard"] is False
 
-    @pytest.mark.parametrize("dirty", [None, "", "single", 42])
+    @pytest.mark.parametrize("dirty", [None, "", "single", 42, [], {}, {"value": "grid"}])
     def test_dirty_mode_backfilled_as_storyboard(self, dirty):
         """非二值脏值与迁移前读侧的未知值回退口径一致：落显式 storyboard。"""
         after = migrate_project_dict({"generation_mode": dirty})
