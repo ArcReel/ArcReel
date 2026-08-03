@@ -166,7 +166,7 @@ def resolve_script_kind(script: dict[str, Any]) -> str:
 # 路线要求的骨架族：参考生视频路线（非 ad）要 ``video_units``，其余路线要分镜族骨架
 # （``segments`` / ``scenes`` / ``shots``）。族内差异（如 narration 数据落 ``scenes`` 键的历史
 # 形态）不构成失配，只有跨族才是——跨族意味着生成侧要读的数组根本不在剧本里。
-_ROUTE_SKELETON = "video_units"
+_REFERENCE_ROUTE_SKELETON = "video_units"
 
 
 class SkeletonRouteMismatchError(ValueError):
@@ -182,7 +182,7 @@ class SkeletonRouteMismatchError(ValueError):
         route = (
             "参考生视频（reference_video）" if generation_mode == "reference_video" else "分镜图生视频（storyboard）"
         )
-        if expected == _ROUTE_SKELETON:
+        if expected == _REFERENCE_ROUTE_SKELETON:
             guidance = "请重跑 split-reference-video-units 重新拆分该集，再重新生成剧本"
         else:
             guidance = "请重跑分集拆分（step1）重新拆分该集，再重新生成剧本"
@@ -200,8 +200,11 @@ def ensure_route_skeleton(script: dict[str, Any], content_mode: str | None, gene
     （集级路线覆盖时代留下的混排集）按路线生成时要读的数组不存在，静默降档与悄悄换路径都不
     可接受——此处显式拒绝并给出重拆指引。
 
-    返回值取 ``resolve_script_kind``（取证）而非声明值：族内的历史形态差异（narration 数据
-    落 ``scenes`` 键）应照实反映给调用方，闸门只管跨族。
+    判据是「路线要读的那个数组在不在」，不是「取证解析的答案等不等于声明值」：族内的历史形态
+    差异（narration 数据落 ``scenes`` 键）照实放行并原样返回，闸门只管跨族。参考路线另按
+    ``video_units`` 键的在场性直接判定——剧本同时残留分镜族数组时取证解析会按形状优先答
+    ``segments``，但参考路线的生成侧读的就是 ``video_units``，残留数组不参与投票（费用估算同此
+    口径：``is_reference_video_project`` 定路径，形状不投票）。
 
     Raises:
         SkeletonRouteMismatchError: 剧本骨架与路线要求的骨架不属同一族。
@@ -209,6 +212,12 @@ def ensure_route_skeleton(script: dict[str, Any], content_mode: str | None, gene
     """
     expected = resolve_declared_kind(content_mode, generation_mode)
     actual = resolve_script_kind(script)
-    if (expected == _ROUTE_SKELETON) != (actual == _ROUTE_SKELETON):
-        raise SkeletonRouteMismatchError(expected=expected, actual=actual, generation_mode=generation_mode)
-    return actual
+    if expected == _REFERENCE_ROUTE_SKELETON:
+        # 只问键在不在，不问值的类型：``"video_units": {}`` 这类脏数据是类型错误、不是路线失配，
+        # 报错权归下游的「必须是数组」校验，闸门不越俎代庖（否则报出「要求 video_units、当前
+        # video_units」的自相矛盾文案）。
+        if _REFERENCE_ROUTE_SKELETON in script:
+            return _REFERENCE_ROUTE_SKELETON
+    elif actual != _REFERENCE_ROUTE_SKELETON:
+        return actual
+    raise SkeletonRouteMismatchError(expected=expected, actual=actual, generation_mode=generation_mode)

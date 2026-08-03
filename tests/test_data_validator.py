@@ -1486,6 +1486,27 @@ class TestRouteSkeletonMismatchValidation:
         assert not result.valid
         assert any("split-reference-video-units" in error for error in result.errors), result.errors
 
+    def test_reference_route_script_with_residual_segments_is_not_a_mismatch(self, tmp_path):
+        """参考路线剧本残留分镜数组不算失配：video_units 在场即按 units 校验，导入不被阻断。"""
+        payload = _project_payload()
+        payload["generation_mode"] = "reference_video"
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", payload)
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "video_units": [],
+                "segments": [{"segment_id": "E1S1"}],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        assert not any("骨架" in error for error in result.errors), result.errors
+
     def test_residual_route_stamp_is_ignored(self, tmp_path):
         """存量剧本残留的 generation_mode 戳是未知字段：不参与判别，也不让校验失败。"""
         project_dir = tmp_path / "projects" / "demo"
