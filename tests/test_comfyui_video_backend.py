@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from lib.comfyui_workflow import detect_comfyui_endpoint_config
+from lib.comfyui_workflow import bind_scalar_inputs, detect_comfyui_endpoint_config
 from lib.video_backends.base import VideoGenerationRequest
 from lib.video_backends.comfyui import ComfyUIVideoBackend
 
@@ -158,8 +158,10 @@ async def test_generate_uploads_and_binds_multiple_reference_images(monkeypatch,
     monkeypatch.setattr("lib.video_backends.comfyui.httpx.AsyncClient", client_factory)
     first = tmp_path / "person.png"
     second = tmp_path / "scene.png"
+    third = tmp_path / "prop.png"
     first.write_bytes(b"person")
     second.write_bytes(b"scene")
+    third.write_bytes(b"prop")
     target = tmp_path / "result.mp4"
     backend = ComfyUIVideoBackend(
         base_url="http://comfy.local:8188",
@@ -173,7 +175,7 @@ async def test_generate_uploads_and_binds_multiple_reference_images(monkeypatch,
         VideoGenerationRequest(
             prompt="<张三>@图片1、<酒馆>@图片2。",
             output_path=target,
-            reference_images=[first, second],
+            reference_images=[first, second, third],
             project_name="proj",
         )
     )
@@ -181,6 +183,35 @@ async def test_generate_uploads_and_binds_multiple_reference_images(monkeypatch,
     assert submitted_workflow["10"]["inputs"]["prompt"] == "<张三><Picture 1>、<酒馆><Picture 2>。"
     assert submitted_workflow["10"]["inputs"]["ref_images.ref_image_0"][0] == "arcreel_reference_image_1"
     assert submitted_workflow["10"]["inputs"]["ref_images.ref_image_1"][0] == "arcreel_reference_image_2"
+    assert submitted_workflow["10"]["inputs"]["ref_images.ref_image_2"][0] == "arcreel_reference_image_3"
     assert submitted_workflow["arcreel_reference_image_1"]["inputs"]["image"].endswith("reference_1_person.png")
     assert submitted_workflow["arcreel_reference_image_2"]["inputs"]["image"].endswith("reference_2_scene.png")
+    assert submitted_workflow["arcreel_reference_image_3"]["inputs"]["image"].endswith("reference_3_prop.png")
     assert target.read_bytes() == b"video"
+
+
+async def test_empty_reference_list_removes_template_image_slots() -> None:
+    backend = ComfyUIVideoBackend(
+        base_url="http://comfy.local:8188",
+        model="comfy-reference",
+        endpoint_config=_reference_config(),
+    )
+    workflow = bind_scalar_inputs(
+        backend._config,
+        prompt="empty references",
+        duration_seconds=1,
+        aspect_ratio="9:16",
+        seed=1,
+        output_prefix="test/empty",
+    )
+    request = VideoGenerationRequest(
+        prompt="empty references",
+        output_path=Path("result.mp4"),
+        reference_images=[],
+    )
+
+    async with httpx.AsyncClient() as client:
+        await backend._bind_request_images(client, workflow, request)
+
+    assert not any(name.startswith("ref_images.ref_image_") for name in workflow["10"]["inputs"])
+    assert "20" not in workflow

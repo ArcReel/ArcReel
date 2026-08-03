@@ -138,12 +138,12 @@ class ComfyUIVideoBackend(ProviderJobIdPersistenceMixin):
                 raise ValueError(f"ComfyUI workflow {self._model} does not expose a last-frame input")
             uploaded = await self._upload_image(client, Path(request.end_image), request, "end")
             bind_uploaded_image(workflow, binding, uploaded, loader_id="arcreel_end_image")
-        if request.reference_images:
-            binding = bindings.get("reference_images")
-            if not isinstance(binding, dict):
-                raise ValueError(f"ComfyUI workflow {self._model} does not expose reference image slots")
-            max_items = int(binding.get("max_items", 0))
-            references = [Path(path) for path in request.reference_images if path]
+        references = [Path(path) for path in request.reference_images or [] if path]
+        reference_binding = bindings.get("reference_images")
+        if references and not isinstance(reference_binding, dict):
+            raise ValueError(f"ComfyUI workflow {self._model} does not expose reference image slots")
+        if isinstance(reference_binding, dict):
+            max_items = int(reference_binding.get("max_items", 0))
             if len(references) > max_items:
                 raise ValueError(
                     f"ComfyUI workflow {self._model} accepts at most {max_items} reference images, "
@@ -152,7 +152,7 @@ class ComfyUIVideoBackend(ProviderJobIdPersistenceMixin):
             uploaded_references = []
             for index, path in enumerate(references, start=1):
                 uploaded_references.append(await self._upload_image(client, path, request, f"reference_{index}"))
-            bind_uploaded_reference_images(workflow, binding, uploaded_references)
+            bind_uploaded_reference_images(workflow, reference_binding, uploaded_references)
 
     async def _upload_image(
         self,
