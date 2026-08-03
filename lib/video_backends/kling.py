@@ -174,9 +174,9 @@ def _encode_job_id(subpath: str, task_id: str, *, generate_audio: bool) -> str:
 def _decode_job_id(job_id: str) -> tuple[str, str, bool | None]:
     """从持久化 job_id 复原 ``(子路径, task_id, 有声标志)``。
 
-    新格式 ``subpath:task_id:audio``（3 段，audio 为 0/1）；旧格式 ``subpath:task_id``
-    （2 段，有声标志未持久化，返回 None 由 caller 重算）；无已知前缀（异常/更旧数据）
-    回落 text2video、整串作 task_id。
+    ``subpath:task_id:audio``（3 段，audio 为 0/1）带有声标志；``subpath:task_id``
+    （2 段）不带，返回 None——caller 据此按无声处理；无已知前缀回落 text2video、
+    整串作 task_id。
     """
     parts = job_id.split(":")
     if len(parts) == 3 and parts[0] in _RESUMABLE_SUBPATHS and parts[2] in ("0", "1"):
@@ -438,9 +438,8 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         而 resume 请求已无 ``start_image`` 可推断，故不能再从 request 取（见 _encode_job_id）。
 
         有声标志同样优先取持久化值（submit 时算定）：直连有声/无声计费，避免按 resume 时
-        可能已漂移的 config 默认/请求重算。未持久化该标志的 2 段旧 job_id 一律判无声——产出这类
-        job_id 的实现尚不具备任何音频能力（结果恒 ``generate_audio=False``），成片必然无声；按
-        当前能力图重算会让这些旧任务按有声价出账（v3 系有声档在其之后才登记）。
+        可能已漂移的 config 默认/请求重算。不含该标志的 2 段 job_id 一律判无声：这类 job_id 只
+        由不具备音频能力的实现产出，成片必然无声，按当前能力表重算会让它们按有声价出账。
         """
         subpath, task_id, persisted_audio = _decode_job_id(job_id)
         generate_audio = persisted_audio if persisted_audio is not None else False

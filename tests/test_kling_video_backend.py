@@ -765,7 +765,7 @@ class TestAudioGatingResult:
         assert get.await_args.args[0].endswith("/videos/text2video/task-c")
 
     async def test_resume_legacy_job_id_stays_silent(self, tmp_path):
-        # 2 段旧 job_id 出自尚无音频能力的实现，成片必然无声：不得按当前能力图重算为有声
+        # 不含有声标志的 2 段 job_id 一律判无声：这类任务的成片必然无声，不得按当前能力表重算为有声
         post = AsyncMock()
         get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
         client = _client(post=post, get=get)
@@ -785,8 +785,7 @@ class TestAudioGatingResult:
 
     @pytest.mark.unit
     async def test_resume_legacy_multi_image_job_id_stays_silent(self, tmp_path):
-        # 旧格式多图主体 job_id 回落重算时，resume 请求已不带参考图字段，只能按解码出的
-        # 子路径判定：multi-image2video 成片必然无声，不得按有声价出账
+        # 多图主体子路径的成片必然无声：接续请求不带参考图字段，判据只能取自解码出的子路径
         post = AsyncMock()
         get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
         client = _client(post=post, get=get)
