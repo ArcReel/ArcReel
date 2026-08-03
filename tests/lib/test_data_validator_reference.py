@@ -77,6 +77,7 @@ def test_validator_accepts_reference_video_generation_mode(tmp_path: Path):
     assert result.valid, result.errors
 
 
+@pytest.mark.integration
 def test_validator_accepts_nfc_reference_for_nfd_registered_character(tmp_path: Path):
     import unicodedata
 

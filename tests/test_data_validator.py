@@ -1323,6 +1323,7 @@ class TestAdReferenceUnitsValidation:
         assert result.valid, result.errors
         assert any("不存在" in w for w in result.warnings)
 
+    @pytest.mark.integration
     def test_nfc_reference_accepted_for_nfd_registered_character(self, tmp_path):
         import unicodedata
 

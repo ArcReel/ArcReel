@@ -367,6 +367,7 @@ class TestProjectArchiveReferenceVideo:
         assert "幽灵" in imported_project["characters"]
         assert result.diagnostics["auto_fixed"]
 
+    @pytest.mark.integration
     def test_import_resolves_nfc_reference_against_nfd_registered_character(self, tmp_path):
         # references 已归一到 NFC（见 lib.asset_types.normalize_asset_name），登记侧的角色
         # key 仍可能是落盘的 NFD 原形；自愈逻辑须把两者判等，而非把已登记角色误判缺失、

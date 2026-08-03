@@ -57,6 +57,29 @@ describe("ReferencePanel", () => {
     expect(screen.getByText(/\[(图|IMG-)1\]/)).toBeInTheDocument();
   });
 
+  it("renders both chips when references contains the same asset in NFC and NFD form", () => {
+    // PATCH 接口只校验每条 reference 已登记，不校验数组内互相去重；同一资产的 NFC/NFD
+    // 两条历史记录会落在同一个 unit.references 里。两条归一后是同一个 base drag id，
+    // 面板须仍能各自渲染、各自可移除，不能因 React key / dnd-kit sortable id 撞车而丢失一条。
+    const nameA = "Hiếu".normalize("NFC");
+    const nameB = "Hiếu".normalize("NFD");
+    expect(nameA).not.toBe(nameB);
+    const refs: ReferenceResource[] = [
+      { type: "character", name: nameA },
+      { type: "character", name: nameB },
+    ];
+    render(
+      <ReferencePanel
+        references={refs}
+        projectName="proj"
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onAdd={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByRole("button", { name: /Remove reference|移除引用/ })).toHaveLength(2);
+  });
+
   it("calls onRemove when the ✕ button is clicked", () => {
     const onRemove = vi.fn();
     render(

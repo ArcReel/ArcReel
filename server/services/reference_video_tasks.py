@@ -406,9 +406,11 @@ def _resolve_ad_unit_reference_entries(
                 asset_refs.append((str(rtype), rname))
 
     entries = collect_product_references_for_names(project, project_path, product_names)
+    # entries 的 "name" 字段已被 collect_product_references_for_names 归一为 canonical，
+    # product_names 仍保留原始编码形式（供 warning params 回显用户输入），比较前须归一。
     injected_products = {e["name"] for e in entries}
     for name in product_names:
-        if name not in injected_products:
+        if normalize_asset_name(name) not in injected_products:
             warnings.append({"key": "ref_ad_reference_skipped", "params": {"type": "product", "name": name}})
 
     for rtype, rname in asset_refs:

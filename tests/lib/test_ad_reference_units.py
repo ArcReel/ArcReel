@@ -275,6 +275,7 @@ class TestRenderUnitPrompt:
         assert "Zoom In" in prompt
         assert "太好用了" in prompt
 
+    @pytest.mark.unit
     def test_dialogue_speaker_normalized_to_nfc(self):
         # derive_voice_bindings（script_preview 复用于 ad 路径）把说话人名归一到 NFC 再产出
         # 音色绑定声明；画面 prompt 的台词句式须用同一坐标系，否则两处 `<X>` 字节不同，

@@ -1999,6 +1999,7 @@ class TestAdProductFidelityStoryboard:
             assert generation_tasks._collect_shot_product_references(project, project_path, item) == []
         assert generation_tasks._collect_shot_product_references(project, project_path, {"shot_id": "E1S01"}) == []
 
+    @pytest.mark.integration
     def test_collect_product_references_resolves_nfd_registered_name_by_nfc_query(self, tmp_path):
         """产品以 NFD key 登记、镜头 products_in_shot 传入 NFC 名字：仍须命中，不能因编码
         形式不同静默跳过（回归 collect_product_references_for_names 的裸 bucket 查找）。"""
@@ -2013,6 +2014,7 @@ class TestAdProductFidelityStoryboard:
         refs = generation_tasks.collect_product_references_for_names(project, project_path, [name_nfc])
         assert [r["image"] for r in refs] == [project_path / "products" / "refs" / "保温杯_1.jpg"]
 
+    @pytest.mark.integration
     def test_collect_product_references_dedupes_nfc_nfd_pair(self, tmp_path):
         """同一产品的 NFC/NFD 两种编码形式同时出现在 products_in_shot：归一后是同一产品，
         只应注入一份参考图，不能各自命中同一 bucket 条目各注入一份，否则会重复消耗参考位、

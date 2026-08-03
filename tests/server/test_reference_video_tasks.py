@@ -183,6 +183,7 @@ def test_resolve_unit_references_unknown_name_raises(tmp_path: Path):
     assert ("prop", "不存在的道具") in excinfo.value.missing
 
 
+@pytest.mark.integration
 def test_resolve_unit_references_resolves_nfd_registered_name_by_nfc_reference(tmp_path: Path):
     """资产以 NFD key 登记、unit.references 存的是解析器归一后的 NFC name：解析必须仍能命中，
     否则 draft 校验放行（判「已登记」）而执行层查不到，会晚至生成时才响 MissingReferenceError。"""
@@ -202,6 +203,7 @@ def test_resolve_unit_references_resolves_nfd_registered_name_by_nfc_reference(t
     assert [p.name for p in resolved] == ["hieu.png"]
 
 
+@pytest.mark.integration
 def test_resolve_ad_unit_reference_entries_dedupes_nfc_nfd_pair(tmp_path: Path):
     """同一 ad unit 内两个镜头以不同编码形式引用同一角色：归一化查找会把两条都解析到同一张
     图，须去重为一条，否则同一张参考图占两个槽位（回归 _resolve_ad_unit_reference_entries
@@ -220,6 +222,30 @@ def test_resolve_ad_unit_reference_entries_dedupes_nfc_nfd_pair(tmp_path: Path):
         {"type": "character", "name": name_nfc},
         {"type": "character", "name": name_nfd},
     ]
+    entries, warnings = _resolve_ad_unit_reference_entries(project, proj_dir, refs)
+    assert [e["image"].name for e in entries] == ["hieu.png"]
+    assert warnings == []
+
+
+@pytest.mark.integration
+def test_resolve_ad_unit_reference_entries_no_false_positive_warning_for_nfd_product(tmp_path: Path):
+    """产品参考在 unit.references 中以 NFD 编码出现且 sheet 存在：collect_product_references_for_names
+    返回的 entries["name"] 已归一为 NFC，membership 检查须同样归一后再比较产品名是否成功注入，
+    否则原始 NFD 名永远命中不了归一后的集合，误报 ref_ad_reference_skipped。"""
+    import unicodedata
+
+    proj_dir = _write_project(tmp_path)
+    project, _ = _load_project_and_unit(proj_dir, "E1U1")
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    project["products"] = {name_nfd: {"description": "x", "product_sheet": "products/hieu.png"}}
+    (proj_dir / "products").mkdir()
+    (proj_dir / "products" / "hieu.png").write_bytes(
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
+        b"\x08\x02\x00\x00\x00&\x93\t)\x00\x00\x00\x13IDATx\x9cc<\x91b\xc4\x00"
+        b"\x03Lp\x16^\x0e\x00E\xf6\x01f\xac\xf5\x15\xfa\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+    refs = [{"type": "product", "name": name_nfd}]
     entries, warnings = _resolve_ad_unit_reference_entries(project, proj_dir, refs)
     assert [e["image"].name for e in entries] == ["hieu.png"]
     assert warnings == []
