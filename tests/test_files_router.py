@@ -651,9 +651,14 @@ class TestFilesRouter:
         def _snapshot() -> dict[Path, bytes]:
             return {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
 
-        # 预置 "../existing" 会解析到的既有文件：没有真实的覆写目标时，内容快照验证不到覆写这一维
-        for ext in (".png", ".jpg", ".wav", ".txt"):
-            (tmp_path / "projects" / "demo" / f"existing{ext}").write_bytes(b"original")
+        # 预置 "../existing" 会解析到的既有文件：没有真实的覆写目标时，内容快照验证不到覆写这一维。
+        # 逐 subdir 铺哨兵——嵌套类型（characters/refs 等）的 ".." 落在 characters/ 而非项目根
+        project_dir = tmp_path / "projects" / "demo"
+        for spec in files.UPLOAD_SPECS.values():
+            parent = project_dir.joinpath(*spec.subdir).parent
+            parent.mkdir(parents=True, exist_ok=True)
+            for ext in (".png", ".jpg", ".wav", ".txt"):
+                (parent / f"existing{ext}").write_bytes(b"original")
 
         before = _snapshot()
         unsafe_names = [
