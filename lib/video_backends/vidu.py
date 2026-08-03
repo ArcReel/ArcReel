@@ -149,6 +149,17 @@ _RESOLUTION_WHITELIST: dict[str, list[str]] = {
 _DEFAULT_RESOLUTION = "720p"
 
 
+def _serves_only_reference2video(model: str) -> bool:
+    """该 model 除 /reference2video 外不派发到任何端点。
+
+    是无请求上下文时能否按 r2v 的窄 prompt 上限静态声明的判据：多端点 model 走 r2v 时的
+    窄值改由 ``_build_request`` 按实际端点兜底。
+    """
+    return model in _ENDPOINT_MODELS["/reference2video"] and not any(
+        model in _ENDPOINT_MODELS[endpoint] for endpoint in ("/text2video", "/img2video", "/start-end2video")
+    )
+
+
 class ViduVideoBackend:
     """Vidu 视频生成后端，按 request 字段分派到不同端点。"""
 
@@ -193,15 +204,11 @@ class ViduVideoBackend:
             # start_image 不进请求体（首帧被丢弃）。
             #
             # prompt 上限按端点分档（/reference2video 更窄），而本函数无端点上下文，只能声明
-            # 「该 model 无论走哪条端点都成立」的值：只跑 /reference2video 的 model（如 viduq3）
-            # 取窄值，能跑其他端点的 model 取宽值——多端点 model 走 /reference2video 时的窄值由
-            # _build_request 按实际端点 fail-loud 兜底，不在此处按最窄值误拒其合法的 t2v/i2v 请求。
-            # 未登记 model（中转自定义命名）不在任何白名单内，取宽值：静态声明只该拒绝必然违约的
-            # 请求，对能力不明的 model 误拒是更糟的降级。
+            # 「该 model 无论走哪条端点都成立」的值，不在此处按最窄值误拒多端点 model 合法的
+            # t2v/i2v 请求。未登记 model（中转自定义命名）不在任何白名单内，取宽值：静态声明只该
+            # 拒绝必然违约的请求，对能力不明的 model 误拒是更糟的降级。
             max_prompt_chars=(
-                _PROMPT_MAX_REFERENCE2VIDEO
-                if reference_images and not (first_frame or last_frame or model in _ENDPOINT_MODELS["/text2video"])
-                else _PROMPT_MAX_TEXT2VIDEO
+                _PROMPT_MAX_REFERENCE2VIDEO if _serves_only_reference2video(model) else _PROMPT_MAX_TEXT2VIDEO
             ),
         )
 
