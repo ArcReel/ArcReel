@@ -641,6 +641,7 @@ class TestFilesRouter:
             assert character_missing_entity.status_code == 200
             assert character_missing_entity.json()["path"] == "characters/不存在角色.jpg"
 
+    @pytest.mark.integration
     def test_upload_rejects_unsafe_name_for_every_type(self, tmp_path, monkeypatch):
         """name 会被拼进落盘路径：含分隔符 / .. / 控制字符的名字在所有上传类型下都应被 400 拒绝。"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -668,6 +669,7 @@ class TestFilesRouter:
             # 越界名字不得留下任何落盘产物（项目内与项目外都不得新增文件）
             assert sorted(p for p in projects_root.rglob("*") if p.is_file()) == before
 
+    @pytest.mark.integration
     def test_upload_unsafe_name_message_is_localized(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         expected = {
@@ -687,6 +689,7 @@ class TestFilesRouter:
                 assert resp.status_code == 400
                 assert resp.json()["detail"] == template.format(name="../evil")
 
+    @pytest.mark.integration
     def test_upload_name_is_stripped_before_use(self, tmp_path, monkeypatch):
         """校验谓词会 strip 名字，落盘路径与元数据都应使用规范化后的值。"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -700,6 +703,7 @@ class TestFilesRouter:
             assert resp.json()["path"] == "characters/Alice.jpg"
             assert pm.load_project("demo")["characters"]["Alice"]["character_sheet"] == "characters/Alice.jpg"
 
+    @pytest.mark.unit
     def test_upload_spec_table_drives_extensions(self):
         """ALLOWED_EXTENSIONS 由 UPLOAD_SPECS 派生，两者不得漂移。"""
         assert set(files.ALLOWED_EXTENSIONS) == set(files.UPLOAD_SPECS)
@@ -708,6 +712,7 @@ class TestFilesRouter:
         # source 一项被 frontend/src/utils/source-files.ts 镜像，取值变动需同步前端
         assert files.ALLOWED_EXTENSIONS["source"] == [".txt", ".md", ".docx", ".epub", ".pdf"]
 
+    @pytest.mark.unit
     def test_upload_spec_host_fields_must_be_paired(self):
         """登记宿主约束却漏配 404 文案时，构造期即失败，而非拒收时取到空翻译 key。"""
         with pytest.raises(ValueError):
@@ -718,23 +723,35 @@ class TestFilesRouter:
                 content_check="validate_image",
                 host_bucket="products",
             )
+        # 反方向同样是配置错误：登记了文案却没有宿主约束，该文案永远取不到
+        with pytest.raises(ValueError):
+            files.UploadSpec(
+                allowed_exts=(".png",),
+                subdir=("x",),
+                naming="stable_png",
+                content_check="validate_image",
+                host_not_found_key="product_not_found",
+            )
 
+    @pytest.mark.integration
     def test_upload_rejects_oversized_payload_for_any_type(self, tmp_path, monkeypatch):
         """max_bytes 是通用请求体闸门：登记了上限的类型无论 content_check 为何都应拒收超限请求。"""
         client, _ = _client(monkeypatch, tmp_path)
+        limit = 1024 * 1024
         monkeypatch.setitem(
             files.UPLOAD_SPECS,
             "prop",
-            dataclasses.replace(files.UPLOAD_SPECS["prop"], max_bytes=16),
+            dataclasses.replace(files.UPLOAD_SPECS["prop"], max_bytes=limit),
         )
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/upload/prop",
                 params={"name": "道具"},
-                files={"file": ("x.jpg", _img_bytes("JPEG"), "image/jpeg")},
+                files={"file": ("x.jpg", b"\x00" * (limit + 1), "image/jpeg")},
             )
             assert resp.status_code == 400
-            assert resp.json()["detail"] == zh_errors.MESSAGES["upload_too_large"].format(max_mb=0)
+            # 上限取整 MB，文案里的 max_mb 才是对用户有意义的数字
+            assert resp.json()["detail"] == zh_errors.MESSAGES["upload_too_large"].format(max_mb=1)
 
     def test_source_decode_and_draft_mode_helpers(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
