@@ -92,8 +92,8 @@ async def generate_grid(
     # 不能被误判为非法项目名，交由 app 级 catch-all 收口为通用 500
     with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
         project = get_project_manager().load_project(project_name)
-    # 广告/短片项目不开放宫格生视频（宫格单格分辨率与产品高保真目标冲突），
-    # 写入边界（create/PATCH 拒 generation_mode=grid）之外在动作端点再设一道防线
+    # 广告/短片项目不开放宫格分镜（宫格单格分辨率与产品高保真目标冲突），
+    # 写入边界（create/PATCH 拒 ad 开启 grid_storyboard）之外在动作端点再设一道防线
     if project.get("content_mode") == "ad":
         raise BadRequestError("ad_grid_not_supported")
     # 路径穿越等非法 script_file 是坏请求，400 而非落入下方 500 兜底；剧本文件损坏

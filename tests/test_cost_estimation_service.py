@@ -448,7 +448,8 @@ class TestCostEstimationService:
         project_data = {
             "title": "Test",
             "content_mode": "narration",
-            "generation_mode": "grid",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 9, generated_assets_overrides=overrides)}
@@ -500,7 +501,8 @@ class TestCostEstimationService:
         project_data = {
             "title": "Test",
             "content_mode": "narration",
-            "generation_mode": "grid",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_script(1, seg_ids, [6, 6], generated_assets_overrides=overrides)}
@@ -540,7 +542,8 @@ class TestCostEstimationService:
         project_data = {
             "title": "Test",
             "content_mode": "narration",
-            "generation_mode": "grid",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 5, generated_assets_overrides=overrides)}
@@ -1830,7 +1833,8 @@ class TestCostEstimationService:
         project_data = {
             "title": "Test",
             "content_mode": "narration",
-            "generation_mode": "grid",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
             "image_provider_t2i": "custom-1/img",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }

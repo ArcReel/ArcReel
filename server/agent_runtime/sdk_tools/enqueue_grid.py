@@ -71,11 +71,13 @@ def generate_grid_tool(ctx: ToolContext):
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
             # ``list_only`` 是 ``generate_grid`` 工具的预览模式，与生成分支一样
-            # 必须先过 generation_mode 校验——否则非 grid 项目靠 ``list_only=true``
+            # 必须先过宫格开关校验——否则未开宫格的项目靠 ``list_only=true``
             # 就能拿到成功响应，调用方会误以为该工具适用于当前项目。
-            if project.get("generation_mode") != "grid":
+            # 宫格是 storyboard 路线内的分镜图生产方式：reference_video 路线无分镜图步骤，
+            # 即使残留 grid_storyboard=true 也不适用本工具。
+            if not (project.get("generation_mode") == "storyboard" and project.get("grid_storyboard")):
                 return {
-                    "content": [{"type": "text", "text": "⚠️  项目未启用宫格模式（generation_mode != 'grid'）"}],
+                    "content": [{"type": "text", "text": "⚠️  项目未启用宫格分镜（grid_storyboard 未开启）"}],
                     "is_error": True,
                 }
 

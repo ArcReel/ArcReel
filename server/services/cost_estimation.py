@@ -239,7 +239,9 @@ class CostEstimationService:
         # 不随某一集的覆盖而变；逐集算价另按该集的生效桶取（见循环内 ``episode_video``）。
         project_video = video_pricing[video_bucket_for_generation_mode(project_data.get("generation_mode"))]
 
-        generation_mode = project_data.get("generation_mode", "single")
+        # 宫格分镜是 storyboard 路线内的分镜图生产方式：reference_video 路线无分镜图步骤，
+        # 即使残留 grid_storyboard=true 也不产生宫格费用分支
+        grid_enabled = project_data.get("generation_mode") == "storyboard" and bool(project_data.get("grid_storyboard"))
         # 规范化 aspect_ratio：可能是 str 或 dict，复用生成任务的解析逻辑
         raw_ar = project_data.get("aspect_ratio")
         if isinstance(raw_ar, str):
@@ -264,7 +266,7 @@ class CostEstimationService:
         except Exception:
             logger.debug("无法计算 image 预估单价", exc_info=True)
 
-        if generation_mode == "grid":
+        if grid_enabled:
             try:
                 grid_image_unit_cost = cost_calculator.calculate_cost(
                     image_provider,
@@ -373,7 +375,7 @@ class CostEstimationService:
 
             # Grid 模式：预计算每个 segment 的图片分摊费用
             grid_cost_per_segment: dict[str, tuple[float, str]] = {}
-            if generation_mode == "grid" and grid_image_unit_cost:
+            if grid_enabled and grid_image_unit_cost:
                 groups = group_scenes_by_segment_break(raw_segments, id_key)
                 for group in groups:
                     n = len(group)
@@ -416,7 +418,7 @@ class CostEstimationService:
                 est_video: CostBreakdown = {}
                 est_audio: CostBreakdown = {}
 
-                if generation_mode == "grid" and seg_id in grid_cost_per_segment:
+                if grid_enabled and seg_id in grid_cost_per_segment:
                     cost_amount, cost_currency = grid_cost_per_segment[seg_id]
                     _add_cost(est_image, cost_amount, cost_currency)
                 elif image_unit_cost:

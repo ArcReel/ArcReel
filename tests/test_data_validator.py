@@ -21,6 +21,7 @@ def _project_payload(content_mode: str = "narration") -> dict:
     return {
         "title": "Demo",
         "content_mode": content_mode,
+        "generation_mode": "storyboard",
         "style": "Anime",
         "characters": {
             "姜月茴": {"description": "女主"},
@@ -536,6 +537,7 @@ class TestDataValidator:
             {
                 "title": "Test",
                 "content_mode": "narration",
+                "generation_mode": "storyboard",
                 "style": "Anime",
                 "characters": {},
                 "scenes": {
@@ -891,6 +893,7 @@ def _ad_project_payload(**overrides) -> dict:
     payload = {
         "title": "速干杯带货",
         "content_mode": "ad",
+        "generation_mode": "storyboard",
         "style": "Realistic",
         "target_duration": 60,
         "brief": "突出 3 秒速干卖点",
@@ -978,6 +981,58 @@ class TestAdProjectValidation:
         for mode in ("narration", "drama"):
             result = self._validate(tmp_path, _project_payload(mode))
             assert result.valid, result.errors
+
+    def test_ad_grid_storyboard_rejected(self, tmp_path):
+        result = self._validate(tmp_path, _ad_project_payload(grid_storyboard=True))
+        assert not result.valid
+        assert any("grid_storyboard" in e for e in result.errors)
+
+    def test_ad_grid_storyboard_false_passes(self, tmp_path):
+        result = self._validate(tmp_path, _ad_project_payload(grid_storyboard=False))
+        assert result.valid, result.errors
+
+
+class TestGenerationModeValidation:
+    """生成路线（generation_mode）必填二值与宫格开关（grid_storyboard）类型校验。"""
+
+    def _validate(self, tmp_path, payload: dict):
+        _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
+        return DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+    @pytest.mark.parametrize("mode", ["storyboard", "reference_video"])
+    def test_binary_route_values_pass(self, tmp_path, mode):
+        payload = _project_payload()
+        payload["generation_mode"] = mode
+        result = self._validate(tmp_path, payload)
+        assert result.valid, result.errors
+
+    def test_missing_generation_mode_rejected(self, tmp_path):
+        payload = _project_payload()
+        del payload["generation_mode"]
+        result = self._validate(tmp_path, payload)
+        assert not result.valid
+        assert any("缺少必填字段: generation_mode" in e for e in result.errors)
+
+    @pytest.mark.parametrize("mode", ["grid", "single", "bogus"])
+    def test_non_binary_route_rejected(self, tmp_path, mode):
+        payload = _project_payload()
+        payload["generation_mode"] = mode
+        result = self._validate(tmp_path, payload)
+        assert not result.valid
+        assert any("generation_mode 值无效" in e for e in result.errors)
+
+    def test_grid_storyboard_true_passes_on_storyboard_route(self, tmp_path):
+        payload = _project_payload()
+        payload["grid_storyboard"] = True
+        result = self._validate(tmp_path, payload)
+        assert result.valid, result.errors
+
+    def test_grid_storyboard_non_bool_rejected(self, tmp_path):
+        payload = _project_payload()
+        payload["grid_storyboard"] = "yes"
+        result = self._validate(tmp_path, payload)
+        assert not result.valid
+        assert any("grid_storyboard" in e for e in result.errors)
 
 
 class TestAdEpisodeValidation:

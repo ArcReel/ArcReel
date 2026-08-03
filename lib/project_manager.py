@@ -53,7 +53,11 @@ logger = logging.getLogger(__name__)
 PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 
-_VALID_GENERATION_MODES = {"storyboard", "grid", "reference_video"}
+# 生成路线（generation_mode）：二值必填，创建即定、之后不可变（可变性由 PATCH 模型结构保证）。
+# 宫格不是路线：它由独立的 grid_storyboard 布尔表达，仅 storyboard 路线有意义。
+# 存量三值 "grid" 已由 v4→v5 迁移重编码为 storyboard + grid_storyboard=true。
+VALID_GENERATION_MODES: frozenset[str] = frozenset({"storyboard", "reference_video"})
+_VALID_GENERATION_MODES = VALID_GENERATION_MODES
 _DEFAULT_GENERATION_MODE = "storyboard"
 
 # 源文件性质（source_kind）：与 content_mode / generation_mode 正交的第三轴，project.json
@@ -1647,6 +1651,17 @@ class ProjectManager:
             if forbidden:
                 raise ValueError(f"extras 不允许覆盖核心字段: {sorted(forbidden)}")
             project.update(extras)
+
+        # 生成路线与宫格开关：路由层已做必填二值校验与 ad 互斥（400/422），这里再兜一道防非路由
+        # 调用方；未传时按数据层默认补写显式值，保证新项目落盘即含两字段（与 schema v5 形态对齐）。
+        generation_mode = project.setdefault("generation_mode", _DEFAULT_GENERATION_MODE)
+        if generation_mode not in VALID_GENERATION_MODES:
+            raise ValueError(f"generation_mode 值无效: {generation_mode!r}，必须是 {sorted(VALID_GENERATION_MODES)}")
+        grid_storyboard = project.setdefault("grid_storyboard", False)
+        if not isinstance(grid_storyboard, bool):
+            raise ValueError(f"grid_storyboard 必须是布尔值，当前为 {grid_storyboard!r}")
+        if resolved_mode == "ad" and grid_storyboard:
+            raise ValueError("广告/短片项目不支持宫格分镜（grid_storyboard）")
 
         self.save_project(project_name, project)
         return project

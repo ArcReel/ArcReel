@@ -162,7 +162,7 @@ MESSAGES = {
     "unknown_style_template": "未知的风格模版: {template_id}",
     "ad_only_field": "{field} 仅广告/短片项目（content_mode=ad）可用",
     "ad_no_default_duration": "广告/短片项目不支持默认时长，镜头时长按目标总时长规划",
-    "ad_grid_not_supported": "广告/短片项目不支持宫格生视频模式",
+    "ad_grid_not_supported": "广告/短片项目不支持分镜板（宫格）生视频",
     "ad_target_duration_required": "广告/短片项目必须设置目标总时长（正整数秒）",
     "project_id_not_editable": "项目创建后不支持修改 content_mode",
     "source_kind_not_editable": "项目创建后不支持修改源文件性质（source_kind）",

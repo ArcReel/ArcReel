@@ -26,6 +26,7 @@ from lib.episode_ledger import (
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
+from lib.project_manager import VALID_GENERATION_MODES as _VALID_GENERATION_MODES
 from lib.project_manager import VALID_SOURCE_KINDS as _VALID_SOURCE_KINDS
 from lib.project_manager import effective_mode
 from lib.script_models import (
@@ -99,6 +100,9 @@ class DataValidator:
     # 源文件性质（novel / screenplay）合法集，真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。缺省 novel：缺失字段不报错，仅拦截非法值（如 screen_play）。
     VALID_SOURCE_KINDS = set(_VALID_SOURCE_KINDS)
+    # 生成路线合法集（storyboard / reference_video），真相源在 lib.project_manager（创建写入方），
+    # 避免两处枚举漂移。必填：存量项目由 v4→v5 迁移补写显式值，缺失即非法。
+    VALID_GENERATION_MODES = set(_VALID_GENERATION_MODES)
     # ad 路径下单镜头时长区间，真相源在 lib.script_models（与 ad reference 路径的剧本模型
     # 同口径），避免两处枚举漂移。
     VALID_SHOT_DURATION_RANGE = REFERENCE_SHOT_DURATION_RANGE
@@ -303,6 +307,9 @@ class DataValidator:
         if project.get("default_duration") is not None:
             errors.append("广告/短片项目不持有 default_duration（镜头时长按 target_duration 预算逐镜头规划）")
 
+        if project.get("grid_storyboard") is True:
+            errors.append("广告/短片项目不支持宫格分镜（grid_storyboard）")
+
         episodes = project.get("episodes")
         if not isinstance(episodes, list) or (
             len(episodes) != 1 or not isinstance(episodes[0], dict) or episodes[0].get("episode") != 1
@@ -330,6 +337,17 @@ class DataValidator:
         source_kind = project.get("source_kind")
         if source_kind is not None and source_kind not in self.VALID_SOURCE_KINDS:
             errors.append(f"source_kind 值无效: '{source_kind}'，必须是 {self.VALID_SOURCE_KINDS}")
+
+        # 生成路线必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
+        generation_mode = project.get("generation_mode")
+        if not generation_mode:
+            errors.append("缺少必填字段: generation_mode")
+        elif generation_mode not in self.VALID_GENERATION_MODES:
+            errors.append(f"generation_mode 值无效: '{generation_mode}'，必须是 {self.VALID_GENERATION_MODES}")
+
+        grid_storyboard = project.get("grid_storyboard")
+        if grid_storyboard is not None and not isinstance(grid_storyboard, bool):
+            errors.append("字段类型错误: grid_storyboard 应为布尔值")
 
         self._validate_ad_project_fields(project, content_mode, errors)
 
