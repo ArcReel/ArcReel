@@ -37,25 +37,7 @@ PR #608 在 ADR-0002「不更坏」基础上落地了本 ADR 的工具收归,但
 - **咽喉外一律 fail-loud**:`resolve_items` 在分镜数组键存在但非 list 时抛 `ScriptEditError`(已经如此);`batch_update_scene_assets` 在 id 未命中时 fail-loud 抛 `KeyError`(本 PR);`_write_script_unlocked` metadata 重算的 `duration_seconds=None` 视为缺失而非 crash;`get_storyboard_items` 走 `resolve_items` 让脏数据异常类型对齐(不再 `list(None)` 抛 generic TypeError)。
 - **降级是 caller 的显式决策**:`versions.py::_sync_storyboard_metadata` 从 `except Exception` 收紧为 `except ScriptEditError` + warning 包含集名 + continue(脏脚本跨集同步降级,有可观测信号);未预期异常让其冒到 router 5xx。读路径 `_resolve_items_or_warn` 在脏数据时 warning(已经如此),missing key 返回 `[]` 不 warning(空草稿合法初始态)。**禁止零信号成功**——任何降级路径必须有 warning。
 - **agent 白名单 silent drop 改为显式反馈**:`upsert_assets` 返回诊断 dict(added / merged / dropped_fields / dropped_legacy),`patch_project` 工具据此构造文本告知 agent「以下字段不在 agent 可编辑范围(reference_image / sheet_field),已忽略」「以下历史字段已废弃(type / importance)」,让 LLM 不再重复尝试同样会被丢的字段;`analyze-assets` subagent prompt 改为严格 skip 已存在(调用 patch_project 前过滤),消除「不覆盖」与「可修订」自相矛盾的措辞。
-- **路由按数据形状优先**:`resolve_kind` 取消 `generation_mode` 作为优先判别项,改为按 `video_units` / `segments` / `scenes` 顶层键存在性 + `content_mode` 辅助路由。理由:partial migration 中间态(配置改了 reference 但数据还在 segments)下,旧逻辑让 `generation_mode` 单向赢会导致整集脚本对所有 MCP 编辑工具不可触达,agent 看到「未找到 id」无线索定位。
+- **编辑路由按数据形状优先**:编辑工具经取证解析(`lib/script_skeleton.resolve_script_kind`)按 `video_units` / `segments` / `scenes` 顶层键存在性 + `content_mode` 辅助路由,不看项目声明的生成路线。理由:编辑面对的问题是「这份剧本现在长什么样」,骨架与项目路线不符的存量剧本若按路线路由会整集对所有 MCP 编辑工具不可触达,agent 看到「未找到 id」无线索定位。生成侧相反,一律按项目路线分派并由路线闸门拒绝失配剧本(见 `docs/adr/0045`、`docs/adr/0055`)——失配集因此可读、可改、可导出,只是不能按它生成。
 - **工具职责边界**:`patch_episode_script` 的 `_set_nested` 在叶子(最后一段)不存在时**允许写入**(LLM 漏写的 optional 字段如 `video_prompt.note` agent 应能补,而非被迫走 remove+insert 重生整集),父节点(中间路径段)不存在仍 fail-loud(挡 typo);`split_segment` 保留 `parts[0]`(锚点)的 `generated_assets` 不动,与 `insert_segment` 锚点资产保留语义对齐,误用 split 当 insert 不再丢失已生成资产。
 
 横切原则:**fail-loud 改造时需先枚举二维矩阵**(读/写 × 键缺失/键脏 × validate/no-validate),逐格做决策;不能把「在结构校验层不引入新错误」的「不更坏」策略下沉到没有 before/after 概念的 helper(元数据重算、key lookup、异常处理)——那些场景的脏数据降级是 caller 的显式职责,不是 helper 的默认行为。
-
-## partial migration 中间态的已知限制(选项 C)
-
-上一条「路由按数据形状优先」只改了 `resolve_kind`(结构校验 / 编辑核心 / metadata 重算三处共用),三个**生成路径 caller** 仍按 `generation_mode` 优先判别,未随之迁移:
-
-| caller | 判别依据 | partial migration 下的表现 |
-|---|---|---|
-| `enqueue_videos.py::_is_reference_script` | `generation_mode == "reference_video"` | 走 reference 分支读空的 `video_units`,抛 `ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")` |
-| `storyboard_sequence.py::get_storyboard_items` | `generation_mode == "reference_video"` 时早返回 `[]` | storyboard / grid / cost_estimation 看到空集,UI 报「无任务可生成」 |
-| `status_calculator.py::_select_content_mode_and_items` | `generation_mode == "reference_video"` 时取 `video_units` | progress / scene 数算成 0,前端显示「项目空了」 |
-
-于是 partial migration 中间态(项目配置已改为 `generation_mode=reference_video`,分镜数据仍留在 `segments`)下,两套判别给出不一致结果:MCP 编辑工具(按数据形状)看到 segments、可正常编辑;上述三个 caller(按 generation_mode)判空。
-
-**决策**:partial migration 中间态视为**异常状态**,不是受支持的合法形态。产品语义要求「改了 `generation_mode` 就要把分镜数据迁到对应顶层键」是一次完整、原子的迁移动作;停在半路属操作失误,系统不为该中间态提供功能可用性保证。本 issue 仅记录该取舍,**不改三个 caller 的运行时行为**。
-
-**理由**:caller 全迁到 `resolve_kind`(选项 A)会反向强制——partial migration 项目(配置 reference、数据在 segments)将永远走不到 reference 生成路径,等于用数据形状否决用户已表达的配置意图;中间态检测 + 诊断报错(选项 B)需在多个 caller 重复铺设状态检测,且只是把「判空」换成「报错」,治标。partial migration 是少数边角场景,以「文档化已知 trade-off」收口、把行为层修复留给后续重构,成本最低且不引入新运行时分支。
-
-**行为层修复的归宿**:reference_video 升格为顶层内容类型的重构(issue #618)。届时 `generation_mode=reference_video` 与 `video_units` 顶层键一一对应、配置与数据形状不再可能脱节,partial migration 中间态从根上消除,这三处判别的不一致随之消失。
