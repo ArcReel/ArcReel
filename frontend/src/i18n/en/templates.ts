@@ -90,6 +90,7 @@ export default {
   model_text: "Text models",
   model_bucket_section: "Set models by purpose",
   model_bucket_section_hint: "Purposes left empty use the default model above.",
+  model_bucket_candidates_error: "Couldn't load the list of available models. Models already set per purpose are still editable.",
   model_bucket_configured_count: "{{n}} set",
   follow_model_default: "Follows default",
   bucket_t2i_label: "Text to image",

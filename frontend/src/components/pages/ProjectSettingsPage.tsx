@@ -13,7 +13,8 @@ import { executingImageModel, executingVideoModel } from "@/components/shared/La
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
-import type { CustomProviderInfo, ModelCandidatesResponse, ProviderInfo } from "@/types";
+import type { CustomProviderInfo, ProviderInfo } from "@/types";
+import { useModelCandidates } from "@/hooks/useModelCandidates";
 import { ROUTE_META, RouteLockBadge } from "@/components/shared/GenerationRouteCards";
 import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/ui/darkroom-tokens";
@@ -102,7 +103,12 @@ export function ProjectSettingsPage() {
     audio_backends: string[];
     provider_names?: Record<string, string>;
   } | null>(null);
-  const [candidates, setCandidates] = useState<ModelCandidatesResponse | null>(null);
+  const {
+    candidates,
+    error: candidatesError,
+    retrying: candidatesRetrying,
+    reload: reloadCandidates,
+  } = useModelCandidates();
   const [globalDefaults, setGlobalDefaults] = useState<{
     video: string;
     videoI2V: string;
@@ -172,19 +178,22 @@ export function ProjectSettingsPage() {
   // 风格区独立保存，但"未保存就离开"也需被 isDirty 拦截。
   const initialStyleRef = useRef<StylePickerValue | null>(null);
 
+  // 候选是全局配置、与项目无关，故只在挂载时取一次，不跟随下面按 projectName 重取的效果；
+  // 拉取失败也只影响细分区，其余表单状态照常。
+  useEffect(() => {
+    void reloadCandidates();
+  }, [reloadCandidates]);
+
   useEffect(() => {
     let disposed = false;
 
     voidCall(Promise.all([
       API.getSystemConfig(),
-      API.getModelCandidates().catch(() => null),
       API.getProject(projectName),
       getProviderModels().catch(() => [] as ProviderInfo[]),
       getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
-    ]).then(([configRes, candidatesRes, projectRes, providerList, customProviderList]) => {
+    ]).then(([configRes, projectRes, providerList, customProviderList]) => {
       if (disposed) return;
-
-      setCandidates(candidatesRes);
 
       setOptions({
         video_backends: configRes.options?.video_backends ?? [],
@@ -633,6 +642,11 @@ export function ProjectSettingsPage() {
                     providerNames: allProviderNames,
                   }}
                   candidates={candidates}
+                  candidatesError={
+                    candidatesError
+                      ? { onRetry: () => void reloadCandidates(), retrying: candidatesRetrying }
+                      : undefined
+                  }
                   globalDefaults={{
                     video: globalDefaults.video,
                     videoI2V: globalDefaults.videoI2V,
