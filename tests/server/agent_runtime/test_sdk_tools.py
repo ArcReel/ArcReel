@@ -2003,20 +2003,20 @@ async def test_resolve_voice_characters_skips_non_drama(fake_ctx: ToolContext) -
 async def test_resolve_voice_characters_drama_reads_project_characters_and_gate(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """drama：读项目角色资产，voice_consistency 为 none（C 类真无声）时退回不注入。"""
+    """drama：读项目角色资产，无声（C 类真无声、或本集关闭音频）时退回不注入。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
-    async def fake_voice_consistency(_project, _episode=None):
-        return "soft"
+    async def fake_not_silent(_project, _episode=None):
+        return False
 
-    monkeypatch.setattr(mod, "resolve_project_voice_consistency", fake_voice_consistency)
+    monkeypatch.setattr(mod, "resolve_project_is_silent", fake_not_silent)
     characters = await mod._resolve_voice_characters(fake_ctx, "drama")
     assert characters == fake_ctx.pm.project_payload["characters"]  # type: ignore[attr-defined]
 
-    async def fake_voice_consistency_none(_project, _episode=None):
-        return "none"
+    async def fake_silent(_project, _episode=None):
+        return True
 
-    monkeypatch.setattr(mod, "resolve_project_voice_consistency", fake_voice_consistency_none)
+    monkeypatch.setattr(mod, "resolve_project_is_silent", fake_silent)
     assert await mod._resolve_voice_characters(fake_ctx, "drama") is None
 
 

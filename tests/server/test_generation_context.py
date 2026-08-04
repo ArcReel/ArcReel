@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from lib.audio_backends.base import VoiceOption
 from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import ConfigResolver, ProviderModel, get_provider_fallback
+from lib.config.resolver import ConfigResolver, ProviderModel, VoiceConsistency, get_provider_fallback
 from lib.custom_provider import make_provider_id
 from lib.db.base import Base
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -532,6 +532,37 @@ class TestValueObjectAssembly:
         )
         with pytest.raises(AttributeError):
             lane.resolution = "720p"  # type: ignore[misc]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("voice_consistency", "requested_generate_audio", "expected"),
+        [
+            ("soft", True, False),
+            ("native", True, False),
+            # C 类模型不产音
+            ("none", True, True),
+            # 本集关闭音频：模型有音轨也听不到声音
+            ("soft", False, True),
+            ("none", False, True),
+        ],
+    )
+    def test_video_lane_is_silent_covers_both_paths(
+        self, voice_consistency: VoiceConsistency, requested_generate_audio: bool, expected: bool
+    ):
+        """无声判据合并模型档与本集开关两条路径，渲染层据此决定是否注入声音风格。"""
+        lane = VideoLaneResult(
+            provider_model=ProviderModel("ark", "m"),
+            backend_name="ark",
+            backend_model="m",
+            resolution=None,
+            resolution_or_fallback="720p",
+            supported_durations=(4, 8),
+            max_duration=8,
+            max_reference_images=9,
+            voice_consistency=voice_consistency,
+            requested_generate_audio=requested_generate_audio,
+        )
+        assert lane.is_silent is expected
 
     @pytest.mark.unit
     def test_audio_lane_result_shape(self):

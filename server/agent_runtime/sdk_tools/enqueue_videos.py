@@ -47,7 +47,7 @@ from server.services.reference_video_tasks import (
     resolve_max_unit_duration,
     resolve_project_duration_context,
 )
-from server.services.video_caps import resolve_project_voice_consistency
+from server.services.video_caps import resolve_project_is_silent
 
 _CONFIRM_DURATION_SCHEMA_PROPERTY = {
     "type": "boolean",
@@ -168,13 +168,13 @@ def _get_video_prompt(
 async def _resolve_voice_characters(ctx: ToolContext, content_mode: str) -> dict[str, Any] | None:
     """供 Voice_Profiles 注入的角色资产；``None`` 表示不注入。
 
-    非 drama 直接返回 None（无需为 narration/ad 项目多付一次视频能力解析），drama 再按
-    声音一致性档位排除 C 类（真无声）模型。
+    非 drama 直接返回 None（无需为 narration/ad 项目多付一次视频能力解析），drama 再按无声
+    判据排除：C 类模型不产音、或本集关闭了音频，两条路径同口径。台词不受影响、照常下发。
     """
     if content_mode != "drama":
         return None
     project = ctx.pm.load_project(ctx.project_name)
-    if await resolve_project_voice_consistency(project) == "none":
+    if await resolve_project_is_silent(project):
         return None
     return project.get("characters") or {}
 

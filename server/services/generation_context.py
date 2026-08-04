@@ -223,6 +223,17 @@ class VideoLaneResult:
     # 与其余能力字段同口径，不明时不额外收紧。
     reference_audio_per_image: bool = False
 
+    @property
+    def is_silent(self) -> bool:
+        """这一集是否听不到声音——模型不产音（C 类）或本集关闭了音频，两条路径同口径。
+
+        声音特征描述随该判据一并不注入：它虽是提示词文本而非音频负载，但描述的是听得到的
+        音色，无声成片里注入只会让模型把配额花在用不上的约束上。台词不看这一位——无声视频
+        里台词文本照常下发，供应商可用作口型参考。参考路线的同名判据见
+        ``lib.reference_video.voice_settings.VoiceRenderSettings.is_silent``。
+        """
+        return self.voice_consistency == "none" or not self.requested_generate_audio
+
 
 @dataclass(frozen=True)
 class AudioLaneResult:
