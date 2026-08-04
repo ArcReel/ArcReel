@@ -45,7 +45,9 @@
 # stage_hint LADDER (first match wins; purely remote-mechanical, no liveness guess)
 #   1. PR MERGED and issue not open           -> done      (a reopened issue falls through)
 #   2. PR OPEN and not draft                  -> review-loop
-#   3. PR is draft, or PR CLOSED unmerged     -> shelved   (this workflow shelves by drafting the PR)
+#   3. PR is draft, or PR CLOSED unmerged
+#      with its branch still alive            -> shelved   (this workflow shelves by drafting the PR;
+#                                                           branch deleted = restart cleanup, falls through)
 #   4. no PR but remote branch issue/<N>      -> local-review (branch pushed, PR not opened yet)
 #   5. no PR, no branch, issue closed/done    -> done       (closed-completed without a PR of its own)
 #   6. no PR, no branch, issue closed/other   -> shelved
