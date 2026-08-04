@@ -41,6 +41,30 @@ function selectContent(state: ScriptReviewState): DramaNormalizedScript | null {
 
 const noop = () => {};
 
+/**
+ * 一次挂起的 `getScriptReview`：像真实 fetch 一样在 abort 时 reject，并留出 signal 供断言。
+ * 只用 resolve 的 mock 无法覆盖取消时序——请求被误取消时它仍会成功返回。
+ */
+function deferredGet() {
+  let captured: AbortSignal | null = null;
+  let settle: (state: ScriptReviewState) => void = noop;
+  const impl = (_projectName: string, _episode: number, options?: { signal?: AbortSignal }) => {
+    captured = options?.signal ?? null;
+    return new Promise<ScriptReviewState>((resolve, reject) => {
+      settle = resolve;
+      options?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    });
+  };
+  return {
+    impl,
+    /** 让这次拉取返回内容；已被 abort 时 promise 已 reject，此处即无效果。 */
+    respond: (state: ScriptReviewState) => settle(state),
+    get signal() {
+      return captured;
+    },
+  };
+}
+
 function renderDraft() {
   return renderHook(() =>
     useScriptReviewDraft<DramaNormalizedScript>({
@@ -125,23 +149,21 @@ describe("useScriptReviewDraft", () => {
     expect(save.mock.calls[1][3]).toBe("fp2");
   });
 
-  it("keeps the adopted content when a pull issued before the save resolves afterwards", async () => {
-    let resolvePending: (state: ScriptReviewState) => void = noop;
-    const pending = new Promise<ScriptReviewState>((resolve) => {
-      resolvePending = resolve;
-    });
+  it("cancels the pull that was in flight when the save is adopted, so it cannot roll the draft back", async () => {
+    const pull = deferredGet();
+    const saved = reviewState({ fingerprint: "fp2" });
+    (saved.content as DramaNormalizedScript).scenes[0].utterances[0].text = "我的本地编辑";
     const get = vi
       .spyOn(API, "getScriptReview")
       .mockResolvedValueOnce(reviewState())
-      .mockReturnValueOnce(pending);
-    const saved = reviewState({ fingerprint: "fp2" });
-    (saved.content as DramaNormalizedScript).scenes[0].utterances[0].text = "我的本地编辑";
+      .mockImplementationOnce(pull.impl)
+      .mockResolvedValue(saved);
     const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(saved);
 
     const { result } = renderDraft();
     await waitFor(() => expect(result.current.draft).not.toBeNull());
 
-    // 外部刷新发出 GET，但它在用户保存完成前都不 resolve
+    // 外部刷新发出 GET，它在用户保存完成前都不 resolve——读到的是保存前的旧内容
     act(() => {
       useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
     });
@@ -154,31 +176,29 @@ describe("useScriptReviewDraft", () => {
       await result.current.save();
     });
 
-    // 保存前发出的 GET 此刻才回来，携带保存前的旧内容与旧指纹
+    // 采纳保存回显时该 GET 被作废；此刻服务端才回旧内容，作废后它不再回写：
+    // 否则草稿回退、基线指纹退回 fp1，下次保存撞 OCC
+    expect(pull.signal?.aborted).toBe(true);
     await act(async () => {
-      resolvePending(reviewState());
-      await pending;
+      pull.respond(reviewState());
+      await Promise.resolve();
     });
-
-    // 旧响应不得回写：草稿保持刚采纳的内容，基线指纹保持 fp2（否则下次保存拿 fp1 撞 OCC）
-    expect(result.current.draft?.scenes[0].utterances[0].text).toBe("我的本地编辑");
+    await waitFor(() => expect(result.current.draft?.scenes[0].utterances[0].text).toBe("我的本地编辑"));
     await act(async () => {
       await result.current.save();
     });
     expect(save.mock.calls[1][3]).toBe("fp2");
   });
 
-  it("keeps a refresh that started after the save was issued", async () => {
+  it("re-pulls after adopting, so an external refresh cancelled by the save is not lost", async () => {
     const agentEdited = reviewState({ fingerprint: "fp3" });
     (agentEdited.content as DramaNormalizedScript).scenes[0].utterances[0].text = "agent 改写的台词";
-    let resolveRefresh: (state: ScriptReviewState) => void = noop;
-    const refresh = new Promise<ScriptReviewState>((resolve) => {
-      resolveRefresh = resolve;
-    });
+    const refresh = deferredGet();
     const get = vi
       .spyOn(API, "getScriptReview")
       .mockResolvedValueOnce(reviewState())
-      .mockReturnValueOnce(refresh);
+      .mockImplementationOnce(refresh.impl)
+      .mockResolvedValue(agentEdited);
     let resolveSave: (state: ScriptReviewState) => void = noop;
     const savePromise = new Promise<ScriptReviewState>((resolve) => {
       resolveSave = resolve;
@@ -191,7 +211,7 @@ describe("useScriptReviewDraft", () => {
     act(() => {
       result.current.setDraft((prev) => (prev ? editFirstUtterance(prev, "我的本地编辑") : prev));
     });
-    // 保存发出后仍在途时，agent 改了 step1 触发外部刷新——这个 GET 晚于保存，携带更新的服务端态
+    // 保存在途时 agent 改了 step1，外部刷新发出 GET；它与保存的先后无法在客户端判定，一律作废
     let saving: Promise<void>;
     act(() => {
       saving = result.current.save();
@@ -205,13 +225,16 @@ describe("useScriptReviewDraft", () => {
       resolveSave(reviewState({ fingerprint: "fp2" }));
       await saving;
     });
-    await act(async () => {
-      resolveRefresh(agentEdited);
-      await refresh;
-    });
 
-    // 晚于保存发出的刷新不得被误杀：触发它的 revision 已被消费，作废后不会再有请求补上
-    expect(result.current.draft?.scenes[0].utterances[0].text).toBe("agent 改写的台词");
+    // 该刷新读库早于保存落库，此刻返回的是保存前的旧内容——作废后不得回写
+    expect(refresh.signal?.aborted).toBe(true);
+    await act(async () => {
+      refresh.respond(reviewState());
+      await Promise.resolve();
+    });
+    // 作废的那次刷新由采纳后补发的一轮拉取补回，agent 的修改不丢
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(result.current.draft?.scenes[0].utterances[0].text).toBe("agent 改写的台词"));
     save.mockResolvedValue(agentEdited);
     await act(async () => {
       await result.current.save();

@@ -88,21 +88,26 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     dirtyRef.current = dirty;
   }, [dirty]);
 
-  // 在途拉取的 controller，供保存 / 确认发起时捕获。
+  // 在途拉取的 controller 与在途标记，供 adopt 作废与补拉判定。
   const loadControllerRef = useRef<AbortController | null>(null);
+  const loadInFlightRef = useRef(false);
 
   // 采用服务端内容为新草稿（深克隆，避免与服务端态共享引用）。用户主动动作（保存 / 确认）后调用，
   // 总是覆盖本地草稿；setDraft 传值而非更新器，保持纯净、不在更新器内读写 ref。
-  // `staleLoad` 是该动作发起**时刻**就已在途的拉取，须一并作废：它早于本次变更发出，回来时 dirtyRef
-  // 已因采纳而为 false，会按变更前的旧内容回写 draft 与 baseFingerprint——草稿回退，且下次保存拿旧
-  // 指纹撞 OCC。动作发起之后才起的拉取（外部事件触发）携带的是更新的服务端态，不能顺带误杀——
-  // 触发它的那次 revision 已被消费，作废后不会再有请求补上。
+  //
+  // 采纳前发出的拉取一律作废：它读到的服务端态未必包含本次写入，回来时 dirtyRef 已因采纳而为
+  // false，会按旧内容回写 draft 与 baseFingerprint——草稿回退，且下次保存拿旧指纹撞 OCC。
+  // 但作废掉的若是外部事件（agent 改 step1 的 revision）触发的那次拉取，该 revision 已被消费、
+  // 不会再有请求补上，外部更新就此丢失；故确有在途拉取被作废时补发一轮，把它重新拉回来。
   const adopt = useCallback(
-    (next: ScriptReviewState, staleLoad: AbortController | null) => {
-      staleLoad?.abort();
+    (next: ScriptReviewState) => {
+      const abandonedLoad = loadInFlightRef.current;
+      loadControllerRef.current?.abort();
+      loadInFlightRef.current = false;
       setState(next);
       setDraft(clone(selectContent(next)));
       setBaseFingerprint(next.fingerprint);
+      if (abandonedLoad) setReloadNonce((n) => n + 1);
     },
     [selectContent],
   );
@@ -117,6 +122,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     const controller = new AbortController();
     const { signal } = controller;
     loadControllerRef.current = controller;
+    loadInFlightRef.current = true;
     // 已拿到过任一响应（空态或内容态）后，revision 触发的重新拉取静默刷新、不闪加载态；
     const hadResponse = state != null;
     // 屏上有真实内容可保留时，刷新失败静默保留、不破坏用户视图；无内容（首屏，或空态）时失败才进错误态。
@@ -143,8 +149,11 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
         if (!hasContent) setLoadError({ message: scriptReviewErrorMessage(err) });
       })
       .finally(() => {
-        // 收尾让位给接管方：已作废就不碰 loading，否则会打断新一轮加载态。
-        if (!signal.aborted) setLoading(false);
+        // 收尾让位给接管方：已作废就不碰在途标记与 loading，否则会打断新一轮加载态。
+        if (!signal.aborted) {
+          loadInFlightRef.current = false;
+          setLoading(false);
+        }
       });
     return () => {
       controller.abort();
@@ -154,10 +163,9 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
 
   const save = useCallback(async () => {
     if (!draft) return;
-    const staleLoad = loadControllerRef.current;
     setSaving(true);
     try {
-      adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint), staleLoad);
+      adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
       pushToast(t("dashboard:review_saved"), "success");
     } catch (err) {
       pushToast(scriptReviewErrorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
@@ -167,13 +175,12 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
   }, [draft, baseFingerprint, projectName, episode, adopt, pushToast, t]);
 
   const confirm = useCallback(async () => {
-    const staleLoad = loadControllerRef.current;
     setConfirming(true);
     try {
       if (dirty && draft) {
-        adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint), staleLoad);
+        adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
       }
-      adopt(await API.confirmScriptReview(projectName, episode), staleLoad);
+      adopt(await API.confirmScriptReview(projectName, episode));
       onConfirmed();
     } catch (err) {
       pushToast(scriptReviewErrorMessage(err) || t("dashboard:review_confirm_failed"), "error");
