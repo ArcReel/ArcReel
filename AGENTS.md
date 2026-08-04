@@ -75,7 +75,7 @@ pnpm build       # 生产构建，含 typecheck
 
 ### 供应商能力数据
 
-生成模型供应商的能力数据按字段划分真相源：视频能力位、参考图上限与参考音频限制（i2v / r2v 判定、`max_reference_images`、`max_reference_audio_count`、`max_reference_audio_total_seconds`）以各 backend 的 `VideoCapabilities` 声明为准——与请求构造同源（见 `docs/adr/0054`）；图片能力位（t2i / i2i）以内置模型的 `ModelInfo.capabilities`（即 `PROVIDER_REGISTRY`）或自定义供应商 endpoint 的 `image_capabilities` 为准，二者同构于视频能力位规则；其余能力数字与默认 model，已登记于 `lib/config/registry.py` 的 `PROVIDER_REGISTRY` 的型号以其为准；`supported_durations` 未登记即 fail loud（无隐性 fallback，见 `docs/adr/0018`），自定义模型改读 DB 记录的声明。仅时长联动约束（`duration_resolution_constraints` / `reference_image_durations`）在未登记型号（中转站、自定义供应商包装、已下线型号等）上有对应 backend 的模块级 fallback 常量。自定义供应商（`custom-` 前缀）与智能体供应商预设（`lib/agent_provider_catalog.py::PRESET_PROVIDERS`）不在其内。新增或修改 prompt 模板与智能体运行配置（`agent_runtime_profile/`）时不硬编码具体数值，用占位符由编排层动态注入；供应商 API 文档镜像（如 `docs/vidu-docs/`）保留原始数值，不受此约束。配置界面的此类字段不预填。个别 backend（如 `lib/video_backends/vidu.py::_RESOLUTION_WHITELIST`）另维护一份独立于 registry 的执行期白名单校验分辨率合法性，修改该型号的 registry 分辨率声明时需同步核对对应 backend 是否也要更新，否则用户可选但 backend 不认的分辨率会被静默替换为 backend 兜底档位。
+生成模型供应商的能力数据按字段划分真相源：视频能力位与各类上限归对应 backend（`VideoCapabilities`，与请求构造同源，见 `docs/adr/0054`）；图片能力位归 `PROVIDER_REGISTRY` 的 `ModelInfo.capabilities`（自定义供应商归 endpoint 声明）；其余能力数字与默认 model 归 `PROVIDER_REGISTRY`，`supported_durations` 未登记即 fail loud、无隐性 fallback（见 `docs/adr/0018`；仅时长联动约束在未登记型号上有 backend 兜底常量），自定义模型改读 DB 声明。自定义供应商（`custom-` 前缀）与智能体供应商预设不适用上述划分。prompt 模板与智能体运行配置（`agent_runtime_profile/`）不硬编码具体数值，占位符由编排层注入（供应商 API 文档镜像保留原始数值）；配置界面此类字段不预填。陷阱：个别 backend（如 vidu 的执行期分辨率白名单）独立于 registry，改 registry 分辨率声明时须同步核对对应 backend，否则用户可选但 backend 不认的档位会被静默替换为兜底档位。
 
 ### 内容模式 (content_mode) 与生成模式 (generation_mode)
 

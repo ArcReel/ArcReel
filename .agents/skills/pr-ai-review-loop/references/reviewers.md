@@ -101,12 +101,12 @@ PR reaction 是当前审查状态:新 push 启动审查时,Codex 会把上一轮
 
 **actionable**:两家所有本轮新 inline 一律算 actionable,与 CodeRabbit / Gemini / Codex 的评论并入同一批处理。pushback(误报、不该提交的产物等)同样按 `receiving-code-review` 的纪律判断,但落点是 PR 评论说明或 dismiss alert,**不是**回 inline。
 
-**已知误报**:`py/path-injection` 告警中,污点值止步于 `ProjectManager.get_project_path()` 的返回路径本身(内部 `safe_join` 消毒过 project_name)时属已知误报家族——核实告警链路的最终污点确实未越过该函数返回值后,处置为 PR 评论说明 + 转呈用户 dismiss(reason: false positive),不重新分析、不为其改代码。`get_project_path()` 之后又拼接了未经 `safe_join` 处理的其他污点片段(如 `get_source_path()` / `_get_asset_path()` 追加的 `filename`)不属该家族,按常规告警核实处置,不得直接 dismiss。dismiss 权限在用户,不得代执行——转呈后按 SKILL.md「故障处理」的暂停询问场景处理,不得把"已转呈、尚待用户 dismiss"当作退出门槛 2 已满足而继续空转轮询。
+**已知误报**:`py/path-injection` 告警中,污点值止步于 `ProjectManager.get_project_path()` 的返回路径本身(内部 `safe_join` 消毒过 project_name)时属已知误报家族——核实告警链路的最终污点确实未越过该函数返回值后,处置为 PR 评论说明(写明核实到的污点终点)+ 记入已认定误报在案清单,不重新分析、不为其改代码。`get_project_path()` 之后又拼接了未经 `safe_join` 处理的其他污点片段(如 `get_source_path()` / `_get_asset_path()` 追加的 `filename`)不属该家族,按常规告警核实处置,不得直接 dismiss。dismiss 权限在用户,不得代执行——退出汇报列明待 dismiss 清单转呈用户事后执行,在案清单即该 alert 在循环内的终态(退出判定见门槛 2 例外)。
 
 **退出门槛**(代替"通过",在准备宣布循环结束时核对):
 
 1. **分析完成且成功**:`codeql_checks.all_ok == true`(要求 total > 0 且无 pending、无 failing;失败态集合定义见 poll.sh header `checks_failing` 条,同名重跑已由 poll.sh 归一为每名最新一条)。`total == 0` 只说明分析未注册(继续等待)或仓库未接入(见下),不是通过;`failing` 非空时 alerts 数据停留在上次成功分析,直接核对门槛 2 会漏报新告警——归入故障类暂停。分析超过 30 分钟未完成同样归入故障类暂停
-2. **security 无遗留**:`security_alerts.open_introduced` 为空(poll.sh 已做 base 分支差集,排除存量告警)。**勿采信 CodeQL check-run 标题里的 "N new alerts" 计数**——该数字按 merge-ref 全量统计,存量场景会把 main 上的旧告警一并计入,`N` 虚高会误导判定;口径一律以 `open_introduced`(已做 base 差集)为准。`available == false` 时降级:把 `unavailable_hint` 贴给用户,说明无法核对 alerts API(权限或 merge ref 原因),请人工确认后再退出
+2. **security 无遗留**:`security_alerts.open_introduced` 为空(poll.sh 已做 base 分支差集,排除存量告警);仅剩已认定误报在案清单内的 alert(按上文已知误报流程核实并留痕)同样视为达成,退出汇报列明待 dismiss 清单。**勿采信 CodeQL check-run 标题里的 "N new alerts" 计数**——该数字按 merge-ref 全量统计,存量场景会把 main 上的旧告警一并计入,`N` 虚高会误导判定;口径一律以 `open_introduced`(已做 base 差集)为准。`available == false` 时降级:把 `unavailable_hint` 贴给用户,说明无法核对 alerts API(权限或 merge ref 原因),请人工确认后再退出
 3. **quality 无遗留**:终核时跑 `query.sh quality-all` 取 `github-code-quality[bot]` 的**全量** inline 评论(不限本轮)逐条核对——对应代码已修改,或已有 pushback 记录(PR 评论说明)。quality 没有可查的告警列表 API(实测 404),全量评论 + 代码现状就是完整事实,以本次查询结果为准而非对话记忆(压缩后无法重建)。常规 PR 该量级是个位数;若全量达数十条,向用户说明数量并商定抽查口径
 
 **仓库未接入 code scanning 的判定**:`codeql_checks.total` 全程为 0 + `security_alerts.available == false`(两端 alerts API 均不可用)+ PR 上从无两家 bot 评论 → 疑似未接入。跳过该门槛前必须先向用户确认一次——GitHub 对无权限的资源同样返回 404,权限不足(如 token 缺 `security_events` scope)会伪装成与未接入相同的三信号,静默跳过等于放行未核对的安全告警。判别辅助:读 `unavailable_hint`,含 403 / permission / "must be enabled"(Advanced Security 未开)字样 → 权限或配置问题,按故障类暂停处理;含 404 + "not enabled" / "no analysis found" → 未接入佐证。经用户确认跳过后,在退出汇报中注明"code scanning 未接入(经用户确认),该门槛未核对"
