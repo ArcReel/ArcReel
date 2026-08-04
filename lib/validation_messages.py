@@ -28,6 +28,21 @@ class MessageRef:
 
 
 @dataclass(frozen=True)
+class MessageJoin:
+    """参数位上的片段序列：字面文本与 ``MessageRef`` 混排，逐段解析后按分隔符拼接。
+
+    供一个参数位需要承载多条子消息的场景（如把多条 Pydantic 报错压成一行摘要）。
+    """
+
+    parts: tuple[MessagePart, ...]
+    separator: str = "; "
+
+
+#: 片段序列里允许出现的元素：字面文本、嵌套翻译键，或再嵌一层的片段序列。
+type MessagePart = str | MessageRef | MessageJoin
+
+
+@dataclass(frozen=True)
 class ValidationMessage:
     """一条 locale-neutral 的校验消息。"""
 
@@ -42,9 +57,7 @@ class ValidationMessage:
     def render(self, translate: Callable[..., str] | None = None) -> str:
         """按 ``translate`` 渲染成文本；缺省用默认语言（中文）渲染，供智能体与 CLI 边界消费。"""
         tr = translate or _default_translate()
-        resolved = {
-            name: (tr(value.key) if isinstance(value, MessageRef) else value) for name, value in self.params.items()
-        }
+        resolved = {name: _resolve_param(value, tr) for name, value in self.params.items()}
         return tr(self.key, **resolved)
 
 
@@ -89,6 +102,15 @@ class ValidationResult:
         if warnings:
             msg += f"\n警告 ({len(warnings)}):\n" + "\n".join(f"  - {warning}" for warning in warnings)
         return msg
+
+
+def _resolve_param(value: Any, translate: Callable[..., str]) -> Any:
+    """把参数值里的嵌套翻译标记解析成当前语言的文本，其余值原样返回。"""
+    if isinstance(value, MessageRef):
+        return translate(value.key)
+    if isinstance(value, MessageJoin):
+        return value.separator.join(str(_resolve_param(part, translate)) for part in value.parts)
+    return value
 
 
 def _default_translate() -> Callable[..., str]:

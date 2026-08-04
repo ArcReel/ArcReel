@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -39,12 +40,10 @@ from lib.script_models import (
 )
 from lib.script_skeleton import SkeletonRouteMismatchError, ensure_route_skeleton, resolve_declared_kind
 from lib.speech_rate import estimate_spoken_seconds
-from lib.validation_messages import MessageRef, ValidationMessage, ValidationResult
+from lib.validation_messages import MessageJoin, MessagePart, MessageRef, ValidationMessage, ValidationResult
 
 __all__ = [
     "DataValidator",
-    "ValidationMessage",
-    "ValidationResult",
     "validate_episode",
     "validate_project",
 ]
@@ -69,9 +68,29 @@ def _asset(asset_type: str) -> MessageRef:
     return MessageRef(f"asset_type_{asset_type}")
 
 
-def _pydantic_error_summary(exc: ValidationError) -> str:
-    """把 ValidationError 压成单行 ``字段: 原因`` 摘要，供 errors 列表内嵌。"""
-    return "; ".join(f"{'.'.join(str(part) for part in err['loc']) or '<root>'}: {err['msg']}" for err in exc.errors())
+def _pydantic_error_summary(exc: ValidationError) -> MessageJoin:
+    """把 ValidationError 压成 ``字段: 原因`` 摘要片段，供 errors 列表内嵌。
+
+    自定义校验器把失败原因以翻译键抛出（见 ``lib.episode_ledger``），这里还原成
+    ``MessageRef`` 让原因跟随请求语言；Pydantic 内置报错无可翻译结构，原样并入。
+    """
+    parts: list[MessagePart] = []
+    for err in exc.errors():
+        location = ".".join(str(part) for part in err["loc"]) or "<root>"
+        reason = _custom_error_key(err)
+        if reason:
+            parts.append(MessageJoin((f"{location}: ", MessageRef(reason)), separator=""))
+        else:
+            parts.append(f"{location}: {err['msg']}")
+    return MessageJoin(tuple(parts))
+
+
+def _custom_error_key(err: Mapping[str, Any]) -> str | None:
+    """自定义校验器抛出的翻译键；内置报错或未登记文案返回 None。"""
+    if err.get("type") != "value_error":
+        return None
+    candidate = str(err.get("ctx", {}).get("error", ""))
+    return candidate if candidate.startswith("val_") else None
 
 
 def _is_parseable_iso_timestamp(value: str) -> bool:

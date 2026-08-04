@@ -308,7 +308,7 @@ async def export_project_archive(
 
     try:
         archive_path, download_name = await asyncio.to_thread(
-            lambda: get_archive_service().export_project(name, scope=scope, translate=_t)
+            lambda: get_archive_service().export_project(name, scope=scope)
         )
         return FileResponse(
             archive_path,

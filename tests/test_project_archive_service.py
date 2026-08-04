@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import stat
 import zipfile
@@ -6,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.i18n import _
 from lib.project_manager import ProjectManager
 from server.services import project_archive as project_archive_module
 from server.services.project_archive import (
@@ -165,6 +167,70 @@ def _make_manual_zip(project_dir: Path, zip_path: Path) -> None:
                 archive.writestr(info, b"")
             else:
                 archive.write(item, arcname=relative.as_posix())
+
+
+def _stage_legacy_narration_archive(pm: ProjectManager, project_dir: Path, archive_path: Path) -> None:
+    """把 demo 项目改写成需要自动修复的旧格式，并打包成归档（原目录随之移除）。"""
+
+    project = pm.load_project("demo")
+    project["characters"] = {}
+    pm.save_project("demo", project)
+
+    source_dir = project_dir / "source"
+    (source_dir / "chapter.txt").unlink()
+    _write_text(source_dir / "1-7-0227.txt", "source")
+
+    _write_json(
+        project_dir / "versions" / "versions.json",
+        {
+            "videos": {
+                "E1S01_1": {
+                    "current_version": 1,
+                    "versions": [
+                        {
+                            "version": 1,
+                            "file": "versions/videos/E1S01_1_v1.mp4",
+                            "prompt": "vp1",
+                            "created_at": "2024-01-01",
+                        }
+                    ],
+                }
+            }
+        },
+    )
+    _write_bytes(project_dir / "versions" / "videos" / "E1S01_1_v1.mp4", b"mp4-v1")
+
+    _write_json(
+        project_dir / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "novel": {
+                "title": "Demo",
+                "chapter": "第一章",
+            },
+            "segments": [
+                {
+                    "segment_id": "E1S01_1",
+                    "duration_seconds": 4,
+                    "novel_text": "原文",
+                    "characters_in_segment": ["Ghost"],
+                    "image_prompt": "img",
+                    "video_prompt": "vid",
+                    "generated_assets": {
+                        "storyboard_image": "storyboards/scene_E1S01.png",
+                        "video_clip": "versions/videos/E1S01_1_v9.mp4",
+                        "video_uri": None,
+                        "status": "completed",
+                    },
+                }
+            ],
+        },
+    )
+
+    _make_manual_zip(project_dir, archive_path)
+    shutil.rmtree(project_dir)
 
 
 class TestProjectArchiveService:
@@ -746,67 +812,8 @@ class TestProjectArchiveService:
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
-
-        project = pm.load_project("demo")
-        project["characters"] = {}
-        pm.save_project("demo", project)
-
-        source_dir = project_dir / "source"
-        (source_dir / "chapter.txt").unlink()
-        _write_text(source_dir / "1-7-0227.txt", "source")
-
-        _write_json(
-            project_dir / "versions" / "versions.json",
-            {
-                "videos": {
-                    "E1S01_1": {
-                        "current_version": 1,
-                        "versions": [
-                            {
-                                "version": 1,
-                                "file": "versions/videos/E1S01_1_v1.mp4",
-                                "prompt": "vp1",
-                                "created_at": "2024-01-01",
-                            }
-                        ],
-                    }
-                }
-            },
-        )
-        _write_bytes(project_dir / "versions" / "videos" / "E1S01_1_v1.mp4", b"mp4-v1")
-
-        _write_json(
-            project_dir / "scripts" / "episode_1.json",
-            {
-                "episode": 1,
-                "title": "第一集",
-                "content_mode": "narration",
-                "novel": {
-                    "title": "Demo",
-                    "chapter": "第一章",
-                },
-                "segments": [
-                    {
-                        "segment_id": "E1S01_1",
-                        "duration_seconds": 4,
-                        "novel_text": "原文",
-                        "characters_in_segment": ["Ghost"],
-                        "image_prompt": "img",
-                        "video_prompt": "vid",
-                        "generated_assets": {
-                            "storyboard_image": "storyboards/scene_E1S01.png",
-                            "video_clip": "versions/videos/E1S01_1_v9.mp4",
-                            "video_uri": None,
-                            "status": "completed",
-                        },
-                    }
-                ],
-            },
-        )
-
         archive_path = tmp_path / "legacy.zip"
-        _make_manual_zip(project_dir, archive_path)
-        shutil.rmtree(project_dir)
+        _stage_legacy_narration_archive(pm, project_dir, archive_path)
 
         result = service.import_project_archive(
             archive_path,
@@ -1247,3 +1254,45 @@ class TestExportScope:
         with zipfile.ZipFile(archive_path) as archive:
             manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
             assert manifest["scope"] == "full"
+
+
+@pytest.mark.integration
+class TestArchiveDiagnosticsLocalization:
+    """结构化诊断在传入 translator 时按目标语言成文（成功导入路径含 auto_fixed 家族）。"""
+
+    @staticmethod
+    def _en(key: str, **kwargs: object) -> str:
+        return _(key, locale="en", **kwargs)
+
+    def test_import_success_diagnostics_render_in_target_language(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+        archive_path = tmp_path / "legacy.zip"
+        _stage_legacy_narration_archive(pm, project_dir, archive_path)
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="legacy.zip",
+            translate=self._en,
+        )
+
+        assert result.diagnostics["auto_fixed"]
+        rendered = json.dumps(result.diagnostics, ensure_ascii=False) + json.dumps(
+            [warning.render(self._en) for warning in result.warnings], ensure_ascii=False
+        )
+        assert not re.search(r"[一-鿿]", rendered)
+
+    def test_export_diagnostics_snapshot_in_archive_stays_default_language(self, tmp_path):
+        """随包分发的诊断快照与导出方的请求语言无关——导入方语言未必相同。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        _write_text(project_dir / "notes.txt", "scratch")
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+        messages = [item["message"] for item in manifest["export_diagnostics"]["warnings"]]
+        assert any("notes.txt" in message and re.search(r"[一-鿿]", message) for message in messages)

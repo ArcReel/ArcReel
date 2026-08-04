@@ -7,17 +7,14 @@ from lib.i18n.en import emails as en_emails
 from lib.i18n.en import errors as en_errors
 from lib.i18n.en import system as en_system
 from lib.i18n.en import templates as en_templates
-from lib.i18n.en import validation as en_validation
 from lib.i18n.vi import emails as vi_emails
 from lib.i18n.vi import errors as vi_errors
 from lib.i18n.vi import system as vi_system
 from lib.i18n.vi import templates as vi_templates
-from lib.i18n.vi import validation as vi_validation
 from lib.i18n.zh import emails as zh_emails
 from lib.i18n.zh import errors as zh_errors
 from lib.i18n.zh import system as zh_system
 from lib.i18n.zh import templates as zh_templates
-from lib.i18n.zh import validation as zh_validation
 from lib.style_templates import STYLE_TEMPLATES
 
 pytestmark = pytest.mark.unit
@@ -122,15 +119,12 @@ def test_supported_locales_all_present():
 
 def test_format_placeholders_consistent():
     """Both locales must use the same format placeholders for each key."""
-    import re
-
-    placeholder_re = re.compile(r"\{(\w+)\}")
-    # `str.format` 的转义花括号 `{{…}}` 是字面文本（如语法示例 `@[角色]：{台词}`），
-    # 不是占位符：先剔除，否则各语言的示例用词会被误判为占位符不一致。
-    escaped_re = re.compile(r"\{\{.*?\}\}")
+    import string
 
     def placeholders(msg: str) -> set[str]:
-        return set(placeholder_re.findall(escaped_re.sub("", msg)))
+        # 用 `str.format` 自己的解析器：转义花括号 `{{…}}`（如语法示例 `@[角色]：{台词}`）
+        # 被识别为字面文本而非占位符，带格式说明的 `{delta:.0%}` 也能正确取到字段名。
+        return {name for _, name, _, _ in string.Formatter().parse(msg) if name}
 
     base_locale = SUPPORTED_LOCALES[0]
 
@@ -143,34 +137,3 @@ def test_format_placeholders_consistent():
             assert base_placeholders == locale_placeholders, (
                 f"Key '{key}': {base_locale} uses {base_placeholders} but {locale} uses {locale_placeholders}"
             )
-
-
-def test_validation_module_keys_match():
-    """en/validation.py and zh/validation.py must have identical key sets."""
-    en_keys = set(en_validation.MESSAGES.keys())
-    zh_keys = set(zh_validation.MESSAGES.keys())
-    assert en_keys == zh_keys, (
-        f"en-zh validation key mismatch: missing_in_zh={en_keys - zh_keys}, missing_in_en={zh_keys - en_keys}"
-    )
-
-
-def test_vi_validation_module_keys_match():
-    """vi/validation.py and en/validation.py must have identical key sets."""
-    en_keys = set(en_validation.MESSAGES.keys())
-    vi_keys = set(vi_validation.MESSAGES.keys())
-    assert en_keys == vi_keys, (
-        f"en-vi validation key mismatch: missing_in_vi={en_keys - vi_keys}, missing_in_en={vi_keys - en_keys}"
-    )
-
-
-def test_validation_templates_share_placeholders():
-    """同一条校验消息在三语间的占位符集合必须一致，否则渲染时会 KeyError 回退到原始模板。"""
-    import string
-
-    def placeholders(template: str) -> set[str]:
-        return {name for _, name, _, _ in string.Formatter().parse(template) if name}
-
-    for key, zh_template in zh_validation.MESSAGES.items():
-        expected = placeholders(zh_template)
-        for locale, messages in (("en", en_validation.MESSAGES), ("vi", vi_validation.MESSAGES)):
-            assert placeholders(messages[key]) == expected, f"{locale}/{key} placeholder mismatch"

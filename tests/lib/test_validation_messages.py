@@ -1,7 +1,11 @@
 """结构化校验消息的渲染语义：默认语言、指定 translator、嵌套翻译键、literal 通道。"""
 
+import pytest
+
 from lib.i18n import _
 from lib.validation_messages import MessageRef, ValidationMessage, ValidationResult
+
+pytestmark = pytest.mark.unit
 
 
 def _translator(locale: str):

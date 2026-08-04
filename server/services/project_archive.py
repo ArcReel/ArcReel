@@ -220,7 +220,7 @@ class ProjectArchiveService:
         if not self.project_manager.project_exists(project_name):
             raise FileNotFoundError(f"项目 '{project_name}' 不存在或未初始化")
 
-        temp_dir, _, _, diagnostics = self._prepare_export_snapshot(project_name, scope=scope, translate=translate)
+        temp_dir, _, _, diagnostics = self._prepare_export_snapshot(project_name, scope=scope)
         temp_dir.cleanup()
         return diagnostics.to_export_payload(translate)
 
@@ -229,7 +229,6 @@ class ProjectArchiveService:
         project_name: str,
         *,
         scope: str = "full",
-        translate: Callable[..., str] | None = None,
     ) -> tuple[Path, str]:
         self._validate_scope(scope)
         if not self.project_manager.project_exists(project_name):
@@ -244,11 +243,7 @@ class ProjectArchiveService:
 
         temp_dir: tempfile.TemporaryDirectory[str] | None = None
         try:
-            temp_dir, snapshot_dir, manifest, _ = self._prepare_export_snapshot(
-                project_name,
-                scope=scope,
-                translate=translate,
-            )
+            temp_dir, snapshot_dir, manifest, _ = self._prepare_export_snapshot(project_name, scope=scope)
             with zipfile.ZipFile(
                 archive_path,
                 mode="w",
@@ -382,7 +377,6 @@ class ProjectArchiveService:
         project_name: str,
         *,
         scope: str,
-        translate: Callable[..., str] | None = None,
     ) -> tuple[tempfile.TemporaryDirectory[str], Path, dict[str, Any], ArchiveDiagnostics]:
         source_dir = self.project_manager.get_project_path(project_name)
         temp_dir = tempfile.TemporaryDirectory(prefix="arcreel-export-")
@@ -407,8 +401,9 @@ class ProjectArchiveService:
             project_name,
             snapshot_project,
             scope=scope,
-            # 归档内的诊断快照按导出方的请求语言渲染，与用户当时看到的导出提示一致。
-            diagnostics=diagnostics.to_export_payload(translate),
+            # 归档内的诊断快照是随包分发的数据，按默认语言渲染——导入方与导出方的语言未必相同，
+            # 面向请求的渲染只发生在 router 边界。
+            diagnostics=diagnostics.to_export_payload(),
             pass_through_entries=excluded_entries,
         )
         return temp_dir, snapshot_dir, manifest, diagnostics

@@ -260,6 +260,7 @@ def _has_cjk(payload: object) -> bool:
     return bool(re.search(r"[一-鿿]", json.dumps(payload, ensure_ascii=False)))
 
 
+@pytest.mark.integration
 class TestProjectArchiveDiagnosticsLocalization:
     """归档导入/导出诊断按 Accept-Language 渲染（结构化消息在 router 边界成文）。"""
 
