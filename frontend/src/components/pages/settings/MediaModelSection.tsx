@@ -97,13 +97,14 @@ export function MediaModelSection() {
   const bucketLabels = useCapabilityBucketLabels();
 
   // 候选与其余配置分开拉：它自带失败态，失败时只影响细分区、不牵动已加载的表单状态，
-  // 也让重试不必重取整页配置（会连带清空未保存的 draft）。
+  // 也让重试不必重取整页配置（会连带清空未保存的 draft）。启动后不等它落地——候选接口
+  // 慢或悬挂时，整页 spinner 和保存流程都会跟着卡住，而细分区本就有自己的加载叙事。
   const fetchConfig = useCallback(async () => {
+    void reloadCandidates();
     const [res, catalog, custom] = await Promise.all([
       API.getSystemConfig(),
       getProviderModels().catch(() => [] as ProviderInfo[]),
       getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
-      reloadCandidates(),
     ]);
     setSettings(res.settings);
     setOptions(res.options);

@@ -138,6 +138,27 @@ describe("LayeredModelFields", () => {
     expect(screen.getByRole("button", { name: "重试" })).toBeDisabled();
   });
 
+  it("expands the collapsed disclosure when the error appears after mount", () => {
+    // 候选请求失败通常晚于挂载，初始 open 已经算过；只在初始渲染就带错误的用例下，
+    // useState 初值即为 true，删掉挂载后的强制展开也照样通过。
+    const { container, rerender } = renderFields();
+    expect(container.querySelector("details")?.open).toBe(false);
+
+    rerender(
+      <LayeredModelFields
+        defaultLabel="默认视频模型"
+        defaultValue=""
+        defaultOptions={OPTIONS}
+        onDefaultChange={() => {}}
+        emptyLabel="自动选择"
+        providerNames={PROVIDER_NAMES}
+        subFields={[subField()]}
+        subFieldsError={{ onRetry: () => {} }}
+      />,
+    );
+    expect(container.querySelector("details")?.open).toBe(true);
+  });
+
   it("lets the user collapse the disclosure again after the forced-open error state", async () => {
     const user = userEvent.setup();
     const { container } = renderFields({ subFields: [], subFieldsError: { onRetry: () => {} } });

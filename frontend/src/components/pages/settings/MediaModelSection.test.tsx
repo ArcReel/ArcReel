@@ -155,6 +155,31 @@ describe("MediaModelSection", () => {
     );
   });
 
+  it("renders the form and completes a save while the candidate request never settles", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "getModelCandidates").mockReturnValue(
+      new Promise(() => {}) as ReturnType<typeof API.getModelCandidates>,
+    );
+    const patch = vi
+      .spyOn(API, "updateSystemConfig")
+      .mockResolvedValue(CONFIG as unknown as Awaited<ReturnType<typeof API.updateSystemConfig>>);
+    render(<MediaModelSection />);
+
+    await screen.findByRole("combobox", { name: "默认视频模型" });
+    await user.click(screen.getByRole("combobox", { name: "默认视频模型" }));
+    await user.click(screen.getByRole("option", { name: /seedance/ }));
+    await user.click(screen.getByRole("button", { name: /保存|Save/ }));
+
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith({ default_video_backend: "ark/seedance" }),
+    );
+    // 保存结束的可观测证据：成功 toast 已推出——PATCH 已返回但流程仍卡在候选请求上时，
+    // finally 里的 setSaving(false) 与这条 toast 都不会发生。
+    await waitFor(() =>
+      expect(useAppStore.getState().toast?.text).toBe("媒体模型配置已保存"),
+    );
+  });
+
   it("auto-expands a channel whose sub-field is already configured", async () => {
     mockConfig({ default_image_backend_i2i: "openai/gpt-image-edit" });
     const { container } = render(<MediaModelSection />);
