@@ -271,15 +271,16 @@ class TestBucketJudgement:
         model_info = PROVIDER_REGISTRY[provider_id].models[model_id]
         assert builtin_model_buckets(provider_id, model_id, model_info) == frozenset()
 
-    def test_builtin_video_r2v_reads_backend_not_registry(self):
-        """registry 的 max_reference_images 与 backend 声明冲突时，判定以 backend 为准。
+    def test_builtin_video_r2v_reads_backend_declaration(self):
+        """r2v 归属只看 backend 的 max_reference_images，registry ModelInfo 不参与。
 
         viduq3-pro 不在 Vidu 的 /reference2video 端点白名单内，backend 据此声明
-        max_reference_images=0。此处人为把 registry 侧的并行声明改成非 0，断言桶判定不受其影响。
+        max_reference_images=0；同 provider 的 viduq3 在白名单内、声明 7。两者的 registry
+        条目都不带能力位，桶归属仍按 backend 分开。
         """
         meta = PROVIDER_REGISTRY["vidu"]
-        model_info = replace(meta.models["viduq3-pro"], max_reference_images=7)
-        assert "r2v" not in builtin_model_buckets("vidu", "viduq3-pro", model_info)
+        assert "r2v" not in builtin_model_buckets("vidu", "viduq3-pro", meta.models["viduq3-pro"])
+        assert "r2v" in builtin_model_buckets("vidu", "viduq3", meta.models["viduq3"])
 
     @pytest.mark.parametrize(
         ("provider_id", "model_id"),
@@ -289,14 +290,13 @@ class TestBucketJudgement:
             ("minimax", "S2V-01"),  # 单脸 subject_reference 驱动，不接受 first_frame_image
         ],
     )
-    def test_builtin_video_i2v_reads_backend_not_registry(self, provider_id: str, model_id: str):
-        """registry 的 image_to_video token 与 backend first_frame 冲突时，判定以 backend 为准。
+    def test_builtin_video_i2v_reads_backend_declaration(self, provider_id: str, model_id: str):
+        """i2v 归属只看 backend 的 first_frame，registry ModelInfo 不参与。
 
-        这三个 model 的 token 声称支持图生视频，但 backend 的 first_frame=False 与请求构造同源，
-        执行期不接首帧——放进 i2v 桶就等于让用户配出必败的组合。
+        这三个 model 的 backend first_frame=False 与请求构造同源，执行期不接首帧——放进 i2v 桶
+        就等于让用户配出必败的组合。
         """
         model_info = PROVIDER_REGISTRY[provider_id].models[model_id]
-        assert "image_to_video" in model_info.capabilities
         assert "i2v" not in builtin_model_buckets(provider_id, model_id, model_info)
 
     def test_unknown_endpoint_yields_no_buckets(self):

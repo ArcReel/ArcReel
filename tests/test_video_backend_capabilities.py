@@ -141,3 +141,54 @@ class TestVideoCapabilitiesForModel:
         with patch("lib.video_backends.ark.create_ark_client"):
             backend = ArkVideoBackend(api_key="k", model="doubao-seedance-2-0")
         assert backend.video_capabilities == ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0")
+
+
+class TestVideoCapabilitySingleSourceOfTruth:
+    """全注册表扫描：内置视频模型的 i2v / r2v 能力与参考图上限只有 backend 一处手写声明。
+
+    registry 侧曾并行声明 `image_to_video` token 与 `max_reference_images`，两份无人比对、
+    在若干 model 上实际漂移（backend 不接首帧而 token 声称支持、参考图上限两侧不同值），
+    还两次误导审查者按已失效的那份提意见。这两个用例守住收敛后的形状。
+    """
+
+    @pytest.mark.unit
+    def test_registry_declares_no_video_capability_bits(self):
+        """视频模型的 capabilities 不得含图生 / 参考生能力位——它们的真相源是 VideoCapabilities。"""
+        from lib.config.registry import PROVIDER_REGISTRY
+
+        banned = {"image_to_video", "reference_to_video", "max_reference_images"}
+        offenders = [
+            f"{provider_id}/{model_id}: {sorted(banned & set(info.capabilities))}"
+            for provider_id, meta in PROVIDER_REGISTRY.items()
+            for model_id, info in meta.models.items()
+            if info.media_type == "video" and banned & set(info.capabilities)
+        ]
+        assert offenders == []
+
+    @pytest.mark.unit
+    def test_model_info_has_no_reference_image_cap_field(self):
+        """ModelInfo 不得重新长出参考图上限字段：加回去就等于把第二份手写来源请回来。"""
+        from dataclasses import fields
+
+        from lib.config.registry import ModelInfo
+
+        assert "max_reference_images" not in {f.name for f in fields(ModelInfo)}
+
+    @pytest.mark.unit
+    def test_every_registry_video_model_resolves_backend_capabilities(self):
+        """每个内置视频模型都能从 backend 取到能力声明——单一真相源须覆盖全注册表。"""
+        from lib.backend_assembly.specs import get_provider_spec
+        from lib.config.registry import PROVIDER_REGISTRY
+        from lib.video_backends.registry import video_capabilities_for_model
+
+        unresolved: list[str] = []
+        for provider_id, meta in PROVIDER_REGISTRY.items():
+            for model_id, info in meta.models.items():
+                if info.media_type != "video":
+                    continue
+                try:
+                    spec = get_provider_spec(provider_id, "video")
+                    video_capabilities_for_model(spec.registry_backend, model_id)
+                except ValueError as exc:
+                    unresolved.append(f"{provider_id}/{model_id}: {exc}")
+        assert unresolved == []
