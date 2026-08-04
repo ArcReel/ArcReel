@@ -100,6 +100,7 @@ def _fake_resolve_ctx(
     video_resolution="720p",
     supported_durations=(4, 6, 8),
     voice_consistency="soft",
+    requested_generate_audio=True,
     seen_lane_requests=None,
 ):
     """lane 感知的假 resolve_generation_context：按调用方声明的 lane 拼装 frozen dataclass 产物。
@@ -135,6 +136,7 @@ def _fake_resolve_ctx(
                 max_duration=None,
                 max_reference_images=None,
                 voice_consistency=voice_consistency,
+                requested_generate_audio=requested_generate_audio,
             )
         return GenerationContext(generator=generator, image_lane=image_lane, video_lane=video_lane)
 
@@ -1251,6 +1253,43 @@ class TestGenerationTasks:
         prompt_yaml = fake_generator.video_calls[0]["prompt"]
         assert "Voice_Profiles" not in prompt_yaml
         assert "低沉沙哑" not in prompt_yaml
+        # 台词不随声音风格一并省略：无声成片里台词文本照常下发，供应商可用作口型参考
+        assert "你来了。" in prompt_yaml
+
+    @pytest.mark.unit
+    async def test_execute_video_task_skips_voice_profiles_when_episode_audio_disabled(self, monkeypatch, tmp_path):
+        """本集关闭音频（requested_generate_audio=False）：即便模型有音轨也不注入 Voice_Profiles，
+        与 C 类真无声模型同口径。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
+        fake_generator = _FakeGenerator()
+        fake_pm.script = self._drama_script()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, voice_consistency="soft", requested_generate_audio=False),
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                "duration_seconds": 8,
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" not in prompt_yaml
+        assert "低沉沙哑" not in prompt_yaml
+        # 台词逐字不变，与 C 类真无声路径同口径
+        assert "你来了。" in prompt_yaml
 
     @pytest.mark.unit
     async def test_execute_video_task_strips_caller_supplied_voice_profiles_for_non_drama(self, monkeypatch, tmp_path):
