@@ -111,7 +111,7 @@ cd frontend && pnpm lint:fix      # 自动修可修的部分
 - 漏标或多标的用例让收集直接失败（`tests/conftest.py::_enforce_classification_markers`），报错列出具体 nodeid
 - `--strict-markers` 使未在 `pyproject.toml` 注册的 marker 同样在收集期失败
 
-`unit`/`integration` 的现存分类由批量默认档得出（真实 ffmpeg、`uses_db` 命中的归 `integration`，其余归 `unit`），不保证逐条语义精确；新增测试按上表语义自行选择。
+`unit`/`integration` 的现存分类由批量默认档得出（真实调用 ffmpeg 生成测试用音视频资源、`uses_db` 命中的归 `integration`，其余归 `unit`），不保证逐条语义精确；新增测试按上表语义自行选择——用真实 ffmpeg 生成用例夹具与 `e2e` 定义的"真实 ffmpeg 重活"不是同一回事：前者是调用 ffmpeg 产出测试输入，后者指端到端场景里的重量级 ffmpeg 处理链路。
 
 ## 工作流程
 
