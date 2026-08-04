@@ -46,12 +46,18 @@ def _build_specs(
 
     if names:
         resolved: list[str] = []
+        # 调用方侧的保序去重只按原始字符串，同一资产的 NFC/NFD 两种拼写会各留一份；
+        # 解析到同一个真实 key 后在此二次去重，避免同一资产入两次队、重复产出版本。
+        seen_keys: set[str] = set()
         for name in names:
             # 调用方给的名字与桶 key 可能是 NFC/NFD 中的任一形态，按坐标系解析真实落盘 key
             key = resolve_asset_key(assets_dict, name)
             if key is None:
                 warnings.append(f"⚠️  {spec.label_zh} '{name}' 不存在于 project.json 中，跳过")
                 continue
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
             # 仅当 description 是非空字符串才入队；空白 / 非字符串（dict、数字等）
             # 都告警跳过，避免漏到 from_request 抛错或 .strip() 抛 AttributeError 而中断整批。
             desc = assets_dict[key].get("description")

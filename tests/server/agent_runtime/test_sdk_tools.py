@@ -1702,6 +1702,12 @@ def test_build_asset_specs_resolves_nfd_registered_key() -> None:
     assert [s.resource_id for s in specs] == [name_nfd]
     assert warnings == []
 
+    # 同一资产的两种拼写解析到同一个 key，只入一次队（调用方侧的去重只按原始字符串）
+    warnings = []
+    specs = _build_specs(_PM(), "demo", "character", [name_nfc, name_nfd], warnings)  # type: ignore[arg-type]
+    assert [s.resource_id for s in specs] == [name_nfd]
+    assert warnings == []
+
 
 def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> None:
     """duration 是能力维度，入队侧不再校验——任意 duration 都透传给执行层（见 ADR-0001）。"""

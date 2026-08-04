@@ -899,6 +899,57 @@ class TestProjectArchiveService:
         assert any("不存在于 project.json 的场景" in error for error in exc_info.value.errors)
         assert exc_info.value.extra["diagnostics"]["blocking"]
 
+    def test_import_resolves_nfd_script_refs_against_nfc_registered_assets(self, tmp_path):
+        """剧本与 project.json 可以各自是 NFC/NFD：修复期的成员判定按坐标系解析，
+        否则已登记的角色会被补出一份重复占位定义（后写入胜出会盖掉真实元数据），
+        已登记的场景/道具会被误报 blocking 缺失。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        project = pm.load_project("demo")
+        project["characters"][name_nfc] = {"description": "已登记角色"}
+        project["scenes"] = {name_nfc: {"description": "已登记场景"}}
+        project["props"][name_nfc] = {"description": "已登记道具"}
+        pm.save_project("demo", project)
+
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "novel": {"title": "Demo", "chapter": "第一章"},
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "原文",
+                        "characters_in_segment": [name_nfd],
+                        "scenes": [name_nfd],
+                        "props": [name_nfd],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                    }
+                ],
+            },
+        )
+
+        archive_path = tmp_path / "nfc-nfd.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="nfc-nfd.zip")
+
+        imported = pm.load_project(result.project_name)
+        assert name_nfd not in imported["characters"]  # 不补重复占位角色
+        assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
+
     def test_import_blocks_missing_prop_definition(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
