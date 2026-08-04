@@ -31,7 +31,7 @@
 #     "scope":  {"spec": <int>} | {"issues": [<int>,...]} | null,
 #                                  # the batch's membership in machine-readable form, so recovery
 #                                  # rebuilds the batch-poll input deterministically instead of parsing
-#                                  # free text. Set it on the FIRST line (the plan decision/authorization):
+#                                  # free text. Set it on each segment's first line (the plan decision/authorization):
 #                                  # --scope-spec <N> for a Spec batch, --scope-issues <csv> for a slug batch
 #                                  # (where batch-id alone cannot recover the member set). null otherwise.
 #     "detail": "<str>"            # human-readable specifics (the argument/decision/cause)
@@ -46,6 +46,9 @@
 #   - The batch ends with a `closed` line. The file is NOT deleted — it is the
 #     retrospective/audit source, and recovery treats a `closed` line as the terminal
 #     marker (a ledger without one is a candidate for resumption).
+#   - Reopening the same batch-id after `closed` appends a new segment to the same
+#     file. Each segment's first line must carry scope (enforced below); recovery and
+#     retrospection read only the segment after the last `closed`.
 #
 # NOTE: .afk/ is gitignored. This ledger is local operational state, never committed.
 
