@@ -50,7 +50,7 @@ bash .agents/skills/pr-ai-review-loop/scripts/query.sh <PR_NUMBER> <子命令>
 | `checks_failing` 非空(CI 红) | 就地修复并 push——CI 红会阻塞 reviewer 触发;修不动(重试仍红 / 根因在 main)才暂停询问 |
 | 某家参审 reviewer 未审当前 HEAD | 按 reviewers.md 该家「触发」规则决定等待或发触发命令 |
 | 至少一家有本轮新 actionable 评论(判定见 reviewers.md) | 进入步骤 3 |
-| `security_alerts.open_introduced` 非空但无对应新评论 | 上一轮没修干净(bot 不重复提醒)——把 alert 数据(rule / path / url)直接带入步骤 3,按数据修而非按评论修。前提:CodeQL 分析完成且成功(门槛 1 口径)——分析未完成时差集基于过期数据,归入下行等待 |
+| `security_alerts.open_introduced` 与已认定误报在案清单(核对方式见 reviewers.md「已知误报」)的差集非空,且该差集无对应新评论 | 上一轮没修干净(bot 不重复提醒)——只把差集里的 alert 数据(number / rule / path / url)带入步骤 3,按数据修而非按评论修;已在案的部分不重复处理。前提:CodeQL 分析完成且成功(门槛 1 口径)——分析未完成时差集基于过期数据,归入下行等待 |
 | CodeQL 分析未完成(`codeql_checks.all_ok == false` 且 `failing` 为空) | 等待(不阻塞其它缺口的处理,但阻塞终核——分析完成前不得宣布"缺口均消失") |
 | 以上缺口均消失 | 做目标状态**终核**(含 CodeQL 门槛与 `unacked` 兜底逐条);全过则按「收敛兜底」#4 正常退出;发现遗留则按对应缺口处理 |
 | 未全部达成且无可执行动作(reviewer 响应中) | 按「轮询节奏」表等待下一轮 |
