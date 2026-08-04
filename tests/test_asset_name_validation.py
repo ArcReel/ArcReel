@@ -50,6 +50,19 @@ class TestResolveAssetKey:
         bucket = {_NAME_NFC: {"description": "first"}, _NAME_NFD: {"description": "last"}}
         assert resolve_asset_key(bucket, _NAME_NFC) == _NAME_NFD
 
+    def test_duplicate_forms_last_wins_after_json_roundtrip(self, tmp_path):
+        """胜出结果由写入顺序决定，落盘再读回后仍一致——JSON 序列化不重排键顺序。"""
+        import json
+
+        bucket = {_NAME_NFC: {"description": "first"}, _NAME_NFD: {"description": "last"}}
+        path = tmp_path / "project.json"
+        path.write_text(json.dumps({"characters": bucket}, ensure_ascii=False), encoding="utf-8")
+
+        reloaded = json.loads(path.read_text(encoding="utf-8"))["characters"]
+        key = resolve_asset_key(reloaded, _NAME_NFC)
+        assert key == _NAME_NFD
+        assert reloaded[key]["description"] == "last"
+
     @pytest.mark.parametrize(
         "bad",
         [

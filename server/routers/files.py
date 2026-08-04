@@ -322,7 +322,8 @@ async def upload_file(
 
             if spec.host_bucket is not None:
                 hosts = manager.load_project(project_name).get(spec.host_bucket) or {}
-                if not name or name not in hosts:
+                # name 已经过 validate_asset_name 落到 NFC，存量宿主 key 可能是 NFD，按坐标系解析存在性
+                if not name or resolve_asset_key(hosts, name) is None:
                     raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name or ""))
 
             target_dir = project_dir.joinpath(*spec.subdir)

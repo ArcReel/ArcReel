@@ -487,6 +487,16 @@ class DataValidator:
                             f"{kind_label} '{name}'.{field_name}[{idx}] 必须是字符串，当前为 {type(item).__name__}"
                         )
 
+    def _unregistered_refs(self, refs: list[Any], valid_set: set[str]) -> list[Any]:
+        """按 ``lib.asset_types`` 的比对坐标系（NFC）挑出未登记的资产引用。
+
+        剧本里的名字与 project.json 的资产 key 可以是 NFC/NFD 中的任一形态（登记闸口落
+        NFC，存量剧本与桶均不迁移），两侧归一后才判得准；下游各收集器同样归一后索引，
+        校验层与收集层因此对同一份数据给出一致结论。资产引用的判等一律经此，不在各字段
+        处按裸字符串做集合差。"""
+        normalized_valid = {normalize_asset_name(v) for v in valid_set}
+        return [r for r in refs if not isinstance(r, str) or normalize_asset_name(r) not in normalized_valid]
+
     def _validate_segment_refs(
         self,
         prefix: str,
@@ -498,19 +508,14 @@ class DataValidator:
         field_label: str,
         kind_label: str,
     ) -> None:
-        """按 ``lib.asset_types`` 的比对坐标系（NFC）判断镜头引用是否已登记。
-
-        剧本里的名字与 project.json 的资产 key 可以是 NFC/NFD 中的任一形态（登记闸口落
-        NFC，存量剧本与桶均不迁移），两侧归一后才判得准；下游各收集器同样归一后索引，
-        校验层与收集层因此对同一份数据给出一致结论。"""
+        """校验可缺省的镜头资产引用字段：缺失给 warning，非数组或引用未登记给 error。"""
         if refs is None:
             warnings.append(f"{prefix}: 缺少 {field_label}，将使用默认空数组")
             return
         if not isinstance(refs, list):
             errors.append(f"{prefix}: {field_label} 必须是数组")
             return
-        normalized_valid = {normalize_asset_name(v) for v in valid_set}
-        invalid = [r for r in refs if not isinstance(r, str) or normalize_asset_name(r) not in normalized_valid]
+        invalid = self._unregistered_refs(refs, valid_set)
         if invalid:
             errors.append(f"{prefix}: {field_label} 引用了不存在于 project.json 的{kind_label}: {invalid}")
 
@@ -676,7 +681,7 @@ class DataValidator:
             elif not isinstance(chars_in_segment, list):
                 errors.append(f"{prefix}: characters_in_segment 必须是数组")
             else:
-                invalid = set(chars_in_segment) - project_characters
+                invalid = self._unregistered_refs(chars_in_segment, project_characters)
                 if invalid:
                     errors.append(f"{prefix}: characters_in_segment 引用了不存在于 project.json 的角色: {invalid}")
 
@@ -760,29 +765,28 @@ class DataValidator:
             elif not isinstance(chars_in_scene, list):
                 errors.append(f"{prefix}: characters_in_scene 必须是数组")
             else:
-                invalid = set(chars_in_scene) - project_characters
+                invalid = self._unregistered_refs(chars_in_scene, project_characters)
                 if invalid:
                     errors.append(f"{prefix}: characters_in_scene 引用了不存在于 project.json 的角色: {invalid}")
 
-            scenes_in_scene = scene.get("scenes")
-            if scenes_in_scene is None:
-                warnings.append(f"{prefix}: 缺少 scenes，将使用默认空数组")
-            elif not isinstance(scenes_in_scene, list):
-                errors.append(f"{prefix}: scenes 必须是数组")
-            else:
-                invalid = set(scenes_in_scene) - project_scenes
-                if invalid:
-                    errors.append(f"{prefix}: scenes 引用了不存在于 project.json 的场景: {invalid}")
-
-            props_in_scene = scene.get("props")
-            if props_in_scene is None:
-                warnings.append(f"{prefix}: 缺少 props，将使用默认空数组")
-            elif not isinstance(props_in_scene, list):
-                errors.append(f"{prefix}: props 必须是数组")
-            else:
-                invalid = set(props_in_scene) - project_props
-                if invalid:
-                    errors.append(f"{prefix}: props 引用了不存在于 project.json 的道具: {invalid}")
+            self._validate_segment_refs(
+                prefix,
+                scene.get("scenes"),
+                project_scenes,
+                errors,
+                warnings,
+                field_label="scenes",
+                kind_label="场景",
+            )
+            self._validate_segment_refs(
+                prefix,
+                scene.get("props"),
+                project_props,
+                errors,
+                warnings,
+                field_label="props",
+                kind_label="道具",
+            )
 
             # utterances：场景级有序发声序列（取代旧 video_prompt.dialogue + voiceover）。
             # 缺失放行（存量 drama 走读时迁移，旧双字段不在此层校验）；出现则校验结构与

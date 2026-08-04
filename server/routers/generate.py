@@ -631,19 +631,21 @@ async def _enqueue_asset_generation(
     spec = ASSET_SPECS[asset_type]
     keys = _ASSET_GENERATE_I18N[asset_type]
 
-    def _sync():
+    def _sync() -> str:
         project = get_project_manager().load_project(project_name)
-        # load_project 读时不校验 bucket 结构：project.json 存在显式 null 时
-        # get(key, {}) 仍返回 None，`not in None` 会抛 TypeError → 500，故用 `or {}` 兜底
-        if resource_name not in (project.get(spec.bucket_key) or {}):
+        # 存量 key 可能是 NFD，按坐标系解析存在性并取真实落盘 key；
+        # 非 dict / 显式 null 的畸形桶由 resolve_asset_key 按空桶处理
+        resolved = resolve_asset_key(project.get(spec.bucket_key), resource_name)
+        if resolved is None:
             raise NotFoundError(keys["not_found"], name=resource_name)
+        return resolved
 
-    await asyncio.to_thread(_sync)
+    resource_key = await asyncio.to_thread(_sync)
 
     task_spec = TaskSpec.from_request(
         task_type=asset_type,
         media_type="image",
-        resource_id=resource_name,
+        resource_id=resource_key,
         prompt=prompt,
     )
 
