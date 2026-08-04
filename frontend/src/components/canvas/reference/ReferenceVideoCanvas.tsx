@@ -547,8 +547,11 @@ export function ReferenceVideoCanvas({
   const handleRemoveRef = useCallback(
     (ref: ReferenceResource) => {
       if (!selected) return;
+      // 存量 references 的 name 可能是 NFD（外部编辑/旧数据落盘），归一后比对，
+      // 否则视觉同名的条目删不掉
+      const target = normalizeAssetName(ref.name);
       const next = selected.references.filter(
-        (r) => !(r.name === ref.name && r.type === ref.type),
+        (r) => !(normalizeAssetName(r.name) === target && r.type === ref.type),
       );
       patchReferencesAtomic(selected.unit_id, next);
     },

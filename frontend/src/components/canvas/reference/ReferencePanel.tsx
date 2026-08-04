@@ -33,7 +33,8 @@ const refId = (r: ReferenceResource): string => `${r.type}:${normalizeAssetName(
 type BucketEntry = Partial<Record<"character_sheet" | "scene_sheet" | "prop_sheet", string>>;
 // bucket key 与 name 可能是 NFC/NFD 中的任一方（bucket 来自落盘的 project.json 原始 key，
 // name 可能来自已归一的 references 或选择器候选），两侧归一后再比对，见
-// `utils/reference-mentions.ts` 顶部注释的坐标系约定。
+// `utils/reference-mentions.ts` 顶部注释的坐标系约定。存量桶里视觉同名的多形式 key
+// 之间后写入的胜出，与后端 normalize_asset_bucket / VoiceLegacyBanner 的合并方向一致。
 const sheetOf = (
   bucket: Record<string, unknown> | undefined,
   kind: AssetKind,
@@ -41,12 +42,13 @@ const sheetOf = (
 ): string | null => {
   if (!bucket) return null;
   const target = normalizeAssetName(name);
+  let sheet: string | null = null;
   for (const key of Object.keys(bucket)) {
     if (normalizeAssetName(key) === target) {
-      return (bucket[key] as BucketEntry | undefined)?.[SHEET_FIELD[kind]] ?? null;
+      sheet = (bucket[key] as BucketEntry | undefined)?.[SHEET_FIELD[kind]] ?? null;
     }
   }
-  return null;
+  return sheet;
 };
 
 export interface ReferencePanelProps {

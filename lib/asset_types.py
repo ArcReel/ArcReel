@@ -163,8 +163,32 @@ def normalize_asset_bucket(bucket: object) -> dict[str, Any]:
     return {normalize_asset_name(str(name)): item for name, item in bucket.items()}  # pyright: ignore[reportUnknownVariableType]
 
 
+def resolve_asset_key(bucket: object, name: str) -> str | None:
+    """在资产桶中按比对坐标系（NFC）解析 *name* 对应的真实落盘 key；未命中返回 None。
+
+    写入侧已统一落 NFC（:func:`validate_asset_name`），但存量数据的 key 可能是任一
+    编码形式且无需迁移：按 key 就地更新/删除/冲突判定时不能拿归一后的名字直接下标，
+    须先解析出真实 key 再操作，否则会对同一个视觉名字新建第二条资产或漏判冲突。
+
+    同名多形式的存量 key 之间后写入的胜出，与 :func:`normalize_asset_bucket` 的合并
+    方向一致。非 dict 的畸形桶按空桶处理。
+    """
+    if not isinstance(bucket, dict):
+        return None
+    target = normalize_asset_name(name)
+    found: str | None = None
+    for key in bucket:
+        if isinstance(key, str) and normalize_asset_name(key) == target:
+            found = key
+    return found
+
+
 def validate_asset_name(name: object) -> str:
-    """校验并规范化（strip）资产名，非法时抛 ValueError，合法时返回 strip 后的名字。
+    """校验并规范化（strip + NFC）资产名，非法时抛 ValueError，合法时返回规范化后的名字。
+
+    这是登记路径的规范化闸口：所有新登记/新写入的资产名经此落到 NFC 坐标系
+    （见 :func:`normalize_asset_name`），NFD 输入不再以另一种编码形式落盘产生
+    视觉同名的重复资产。
 
     资产名全链路被当作单段路径组件使用：文件名（``characters/{name}.png``、
     ``versions/{type}/{name}_v{n}_{ts}.png``）与 REST 路由的单段路径参数。含路径
@@ -175,7 +199,7 @@ def validate_asset_name(name: object) -> str:
     """
     if not isinstance(name, str):
         raise ValueError(f"资产名称必须是字符串，当前为 {type(name).__name__}")
-    cleaned = name.strip()
+    cleaned = normalize_asset_name(name.strip())
     if not cleaned:
         raise ValueError("资产名称不能为空或仅含空白字符")
     if (

@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
 from lib.app_data_dir import app_data_dir
-from lib.asset_types import ASSET_SPECS, validate_asset_name
+from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode_paths import episode_script_relpath
 from lib.json_io import atomic_write_json, load_json, load_json_or_none
@@ -949,10 +949,11 @@ class ProjectManager:
         """更新角色设计图路径"""
         # 资产回写热路径：只动运行时字段，结构不可能因此变坏，豁免结构校验。
         with self.locked_script(project_name, script_filename, validate=False) as script:
-            if name not in script["characters"]:
+            key = resolve_asset_key(script.get("characters"), name)
+            if key is None:
                 # 在锁内抛出，locked_script 跳过写回
                 raise KeyError(f"角色 '{name}' 不存在")
-            script["characters"][name]["character_sheet"] = sheet_path
+            script["characters"][key]["character_sheet"] = sheet_path
         return script
 
     # ==================== 数据结构标准化 ====================
@@ -1719,7 +1720,8 @@ class ProjectManager:
         def _mutate(project):
             nonlocal added
             bucket = project.setdefault(spec.bucket_key, {})
-            if name in bucket:
+            # 存量 key 可能是 NFD，按坐标系解析后判冲突，避免视觉同名的第二条资产
+            if resolve_asset_key(bucket, name) is not None:
                 logger.debug("%s '%s' 已存在于 project.json，跳过", spec.label_zh, name)
                 return
             bucket[name] = entry
@@ -1737,8 +1739,9 @@ class ProjectManager:
         的 lost-update 竞态。
         """
         spec = ASSET_SPECS[asset_type]
-        # 与 upsert_assets 同口径：strip 后等价的 key（{"李白", "  李白  "}）不允许静默
-        # 互相覆盖，整批 fail-loud 不落盘，让调用方感知 collision 并去重。
+        # 与 upsert_assets 同口径：规范化（strip + NFC）后等价的 key（{"李白", "  李白  "}
+        # 或 NFC/NFD 双形态）不允许静默互相覆盖，整批 fail-loud 不落盘，让调用方感知
+        # collision 并去重。
         normalized_entries: dict[str, dict] = {}
         raw_keys_by_normalized: dict[str, str] = {}
         for raw_name, entry in entries.items():
@@ -1746,7 +1749,7 @@ class ProjectManager:
             if name in normalized_entries:
                 raise ValueError(
                     f"{spec.bucket_key} 的 entries 含规范化后冲突的 name {name!r}："
-                    f"原始键 {raw_keys_by_normalized[name]!r} 与 {raw_name!r} 在 strip 后等价"
+                    f"原始键 {raw_keys_by_normalized[name]!r} 与 {raw_name!r} 在规范化（strip + NFC）后等价"
                 )
             normalized_entries[name] = entry
             raw_keys_by_normalized[name] = raw_name
@@ -1757,7 +1760,7 @@ class ProjectManager:
             nonlocal added
             bucket = project.setdefault(spec.bucket_key, {})
             for name, entry in entries.items():
-                if name in bucket:
+                if resolve_asset_key(bucket, name) is not None:
                     logger.debug("%s '%s' 已存在，跳过", spec.label_zh, name)
                     continue
                 bucket[name] = entry
@@ -1796,11 +1799,11 @@ class ProjectManager:
             raise ValueError(f"entries 必须是对象（dict），当前为 {type(entries).__name__}")
         if not entries:
             raise ValueError("entries 不能为空（至少需要一个 name → attrs 条目）")
-        # 规范化 name：strip 空白后非空，且须是路径安全的单段组件（validate_asset_name，
+        # 规范化 name：strip + NFC 后非空，且须是路径安全的单段组件（validate_asset_name，
         # 名称会被拼进文件路径与单段路由参数）。agent 误传 "  李白  " 这种带空格的 name 会让
         # 后续按 name 索引查找（角色生成等）因空格差异 mismatch。非法 name fail-loud。
-        # 同时检测 strip 后冲突：{"李白": {...}, "  李白  ": {...}} 规范化后 key 相同 →
-        # 后者会 silent overwrite 前者；fail-loud 让 agent 明确感知 collision 并去重。
+        # 同时检测规范化后冲突：{"李白": {...}, "  李白  ": {...}} 或 NFC/NFD 双形态规范化后
+        # key 相同 → 后者会 silent overwrite 前者；fail-loud 让 agent 明确感知 collision 并去重。
         normalized_entries: dict[str, dict] = {}
         raw_keys_by_normalized: dict[str, str] = {}
         for raw_name, attrs in entries.items():
@@ -1813,7 +1816,7 @@ class ProjectManager:
             if name in normalized_entries:
                 raise ValueError(
                     f"{table} 的 entries 含规范化后冲突的 name {name!r}："
-                    f"原始键 {raw_keys_by_normalized[name]!r} 与 {raw_name!r} 在 strip 后等价"
+                    f"原始键 {raw_keys_by_normalized[name]!r} 与 {raw_name!r} 在规范化（strip + NFC）后等价"
                 )
             normalized_entries[name] = attrs
             raw_keys_by_normalized[name] = raw_name
@@ -1868,7 +1871,9 @@ class ProjectManager:
                 # 给出意外类型与 offending key（mutation 物理上无法对非 dict 施加，与「不更坏」无关）。
                 raise ValueError(f"project[{spec.bucket_key!r}] 必须是对象，当前为 {type(bucket).__name__}")
             for name, attrs in cleaned.items():
-                existing = isinstance(bucket.get(name), dict)
+                # 存量 entry 的 key 可能是 NFD：解析真实 key 就地更新，而非按 NFC 名新建第二条
+                key = resolve_asset_key(bucket, name) or name
+                existing = isinstance(bucket.get(key), dict)
                 # 仅对已存在 entry 检测 no-op:全字段被白名单/legacy strip 丢空时 update({})
                 # 实际不变,归到 noop 而非 merged 避免「合并 1 个」误报。新 entry 即使
                 # cleaned 空也仍走 _build_asset_entry,让 description 缺失的 validator 拒写
@@ -1877,10 +1882,10 @@ class ProjectManager:
                     noop.append(name)
                     continue
                 if existing:
-                    bucket[name].update(attrs)  # 改：合并字段，保留 sheet 路径等既有字段
+                    bucket[key].update(attrs)  # 改：合并字段，保留 sheet 路径等既有字段
                     merged.append(name)
                 else:
-                    bucket[name] = self._build_asset_entry(asset_type, attrs.get("description", ""), attrs)
+                    bucket[key] = self._build_asset_entry(asset_type, attrs.get("description", ""), attrs)
                     added.append(name)
             after_errors = set(validator.validate_project_payload(project).errors)
             # 「不更坏」按 error set diff 判定：after 不应比 before 多任何 errors。
@@ -1922,9 +1927,10 @@ class ProjectManager:
 
         def _mutate(project):
             bucket = project.get(spec.bucket_key)
-            if bucket is None or name not in bucket:
+            key = resolve_asset_key(bucket, name)
+            if not isinstance(bucket, dict) or key is None:
                 raise KeyError(f"{spec.label_zh} '{name}' 不存在")
-            bucket[name][spec.sheet_field] = sheet_path
+            bucket[key][spec.sheet_field] = sheet_path
 
         return self.update_project(project_name, _mutate)
 
@@ -1933,9 +1939,10 @@ class ProjectManager:
         spec = ASSET_SPECS[asset_type]
         project = self.load_project(project_name)
         bucket = project.get(spec.bucket_key)
-        if bucket is None or name not in bucket:
+        key = resolve_asset_key(bucket, name)
+        if not isinstance(bucket, dict) or key is None:
             raise KeyError(f"{spec.label_zh} '{name}' 不存在")
-        return bucket[name]
+        return bucket[key]
 
     def _get_pending_assets(self, asset_type: str, project_name: str) -> list[dict]:
         """无 sheet 字段或 sheet 文件不存在的资产列表。"""
@@ -1980,7 +1987,10 @@ class ProjectManager:
         name = validate_asset_name(name)
 
         def _mutate(project: dict) -> None:
-            project["characters"][name] = {
+            bucket = project["characters"]
+            # 覆盖写也要落在存量真实 key 上（可能是 NFD），否则会残留视觉同名的旧条目
+            key = resolve_asset_key(bucket, name) or name
+            bucket[key] = {
                 "description": description,
                 "voice_style": voice_style or "",
                 "character_sheet": character_sheet or "",
@@ -2006,9 +2016,10 @@ class ProjectManager:
         """
 
         def _mutate(project: dict) -> None:
-            if "characters" not in project or char_name not in project["characters"]:
+            key = resolve_asset_key(project.get("characters"), char_name)
+            if key is None:
                 raise KeyError(f"角色 '{char_name}' 不存在")
-            project["characters"][char_name]["reference_image"] = ref_path
+            project["characters"][key]["reference_image"] = ref_path
 
         return self.update_project(project_name, _mutate)
 
@@ -2034,10 +2045,11 @@ class ProjectManager:
         """
 
         def _mutate(project: dict) -> None:
-            if "characters" not in project or char_name not in project["characters"]:
+            key = resolve_asset_key(project.get("characters"), char_name)
+            if key is None:
                 raise KeyError(f"角色 '{char_name}' 不存在")
-            project["characters"][char_name]["reference_audio"] = ref_path
-            project["characters"][char_name]["voice_updated_at"] = datetime.now(UTC).isoformat()
+            project["characters"][key]["reference_audio"] = ref_path
+            project["characters"][key]["voice_updated_at"] = datetime.now(UTC).isoformat()
 
         return self.update_project(project_name, _mutate)
 
@@ -2111,9 +2123,10 @@ class ProjectManager:
 
         def _mutate(project: dict) -> None:
             bucket = project.get("products")
-            if bucket is None or product_name not in bucket:
+            key = resolve_asset_key(bucket, product_name)
+            if not isinstance(bucket, dict) or key is None:
                 raise KeyError(f"产品 '{product_name}' 不存在")
-            refs = bucket[product_name].setdefault("reference_images", [])
+            refs = bucket[key].setdefault("reference_images", [])
             if not isinstance(refs, list):
                 raise ValueError(
                     f"products['{product_name}'].reference_images 必须是列表，当前为 {type(refs).__name__}"

@@ -237,6 +237,44 @@ def test_patch_unit_accepts_nfc_reference_for_nfd_registered_name(client: TestCl
     assert resp.status_code == 200, resp.text
 
 
+@pytest.mark.integration
+def test_unit_references_persisted_as_nfc(client: TestClient):
+    """add/patch 落盘的 reference name 统一 NFC：NFD 请求名（macOS 输入法/拖放形态）
+    不得以原始编码持久化，否则同一资产在 references 里会出现视觉同名的两种形态。"""
+    import unicodedata
+
+    from server.routers import reference_videos as router_mod
+
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    pm = router_mod.get_project_manager()
+    project = pm.load_project("demo")
+    project["characters"][name_nfd] = {"description": "x"}
+    pm.save_project("demo", project)
+
+    resp = client.post(
+        "/api/v1/projects/demo/reference-videos/episodes/1/units",
+        json={
+            "prompt": "镜头1：推门",
+            "duration_seconds": 3,
+            "references": [{"type": "character", "name": name_nfd}],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    unit = resp.json()["unit"]
+    assert unit["references"] == [{"type": "character", "name": name_nfc}]
+
+    resp = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{unit['unit_id']}",
+        json={"references": [{"type": "character", "name": name_nfd}, {"type": "character", "name": "张三"}]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["unit"]["references"] == [
+        {"type": "character", "name": name_nfc},
+        {"type": "character", "name": "张三"},
+    ]
+
+
 def test_patch_unknown_unit_404(client: TestClient):
     resp = client.patch(
         "/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9",

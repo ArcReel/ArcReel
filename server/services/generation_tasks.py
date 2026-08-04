@@ -10,7 +10,13 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from lib.asset_types import ASSET_SPECS, normalize_asset_bucket, normalize_asset_name, validate_asset_name
+from lib.asset_types import (
+    ASSET_SPECS,
+    normalize_asset_bucket,
+    normalize_asset_name,
+    resolve_asset_key,
+    validate_asset_name,
+)
 from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
     AUDIO_REFERENCE_MAX_SECONDS,
@@ -831,7 +837,7 @@ async def execute_character_voice_sample_task(
         raise ValueError("voice sample 任务需要 task_id")
 
     project = await asyncio.to_thread(get_project_manager().load_project, project_name)
-    if character_name not in project.get("characters", {}):
+    if resolve_asset_key(project.get("characters"), character_name) is None:
         # 与 execute_character_task 等其它执行器同口径：入队后、worker 取到任务前角色可能
         # 已被删除，执行前重新核实存在，避免花钱合成一段没有归属的孤儿预览。
         raise ValueError(f"character not found: {character_name}")
@@ -1131,9 +1137,10 @@ async def execute_character_task(
     def _prepare_char():
         _project = get_project_manager().load_project(project_name)
         _project_path = get_project_manager().get_project_path(project_name)
-        if resource_id not in _project.get("characters", {}):
+        _char_key = resolve_asset_key(_project.get("characters"), resource_id)
+        if _char_key is None:
             raise ValueError(f"character not found: {resource_id}")
-        _char_data = _project["characters"][resource_id]
+        _char_data = _project["characters"][_char_key]
         _style = _project.get("style", "")
         _style_desc = _project.get("style_description", "")
         _full_prompt = build_character_prompt(resource_id, prompt, _style, _style_desc)
@@ -1172,7 +1179,10 @@ async def execute_character_task(
 
     def _finalize_char():
         def _set_character_sheet(p: dict) -> None:
-            p["characters"][resource_id]["character_sheet"] = sheet_path
+            key = resolve_asset_key(p.get("characters"), resource_id)
+            if key is None:
+                raise KeyError(f"角色 '{resource_id}' 不存在")
+            p["characters"][key]["character_sheet"] = sheet_path
 
         get_project_manager().update_project(project_name, _set_character_sheet)
         return generator.versions.get_versions("characters", resource_id)["versions"][-1]["created_at"]

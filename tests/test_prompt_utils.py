@@ -132,6 +132,28 @@ class TestBuildDramaVideoPrompt:
         prompt = build_drama_video_prompt(carried, [_utterance("王", "嗯")], characters={"王": {"voice_style": "低沉"}})
         assert prompt["voice_profiles"] == [{"Speaker": "王", "Voice_Style": "低沉"}]
 
+    def test_nfd_speaker_hits_nfc_registered_character(self):
+        # speaker 与角色表 key 可能各是 NFC/NFD 中的任一形态（存量数据无需迁移），
+        # 归一后索引须双向命中；Speaker 展示值保留 dialogue 原文
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        for speaker, registered in ((name_nfd, name_nfc), (name_nfc, name_nfd)):
+            prompt = build_drama_video_prompt(
+                _BASE_PROMPT, [_utterance(speaker, "xin chào")], characters={registered: {"voice_style": "trầm"}}
+            )
+            assert prompt["voice_profiles"] == [{"Speaker": speaker, "Voice_Style": "trầm"}]
+
+    def test_nfc_nfd_same_speaker_deduped_to_one_profile(self):
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        utterances = [_utterance(name_nfc, "một"), _utterance(name_nfd, "hai")]
+        prompt = build_drama_video_prompt(_BASE_PROMPT, utterances, characters={name_nfc: {"voice_style": "trầm"}})
+        assert prompt["voice_profiles"] == [{"Speaker": name_nfc, "Voice_Style": "trầm"}]
+
     def test_speaker_without_matching_character_skipped_silently(self):
         prompt = build_drama_video_prompt(_BASE_PROMPT, [_utterance("路人甲", "喂")], characters={})
         assert "voice_profiles" not in prompt

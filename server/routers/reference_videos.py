@@ -266,7 +266,9 @@ async def add_unit(
     req: AddUnitRequest,
     _t: Translator,
 ) -> dict[str, Any]:
-    refs = [r.model_dump() for r in req.references]
+    # 落盘值统一 NFC：请求可能携带 NFD 形态的资产名（macOS 输入法/拖放），持久化前归一，
+    # 与镜头正文（parse_prompt 内 NFC）及前端 mergeReferences 的写回口径一致
+    refs = [{**r.model_dump(), "name": normalize_asset_name(r.name)} for r in req.references]
 
     # 时长是 unit 级单一真相：请求未给出时按项目能力解析默认档位（异步 IO 不进项目锁临界区）
     duration_seconds = req.duration_seconds
@@ -332,8 +334,12 @@ async def patch_unit(
     req: PatchUnitRequest,
     _t: Translator,
 ) -> dict[str, Any]:
-    # references 存在性校验在解析器内、项目锁内进行，失败 raise 400
-    refs: list[dict] | None = [r.model_dump() for r in req.references] if req.references is not None else None
+    # references 存在性校验在解析器内、项目锁内进行，失败 raise 400；落盘值统一 NFC（同 add_unit）
+    refs: list[dict] | None = (
+        [{**r.model_dump(), "name": normalize_asset_name(r.name)} for r in req.references]
+        if req.references is not None
+        else None
+    )
 
     with _locked_episode_script(
         project_name, _episode_script_resolver(episode, _t, refs, require_ad=False), _t
