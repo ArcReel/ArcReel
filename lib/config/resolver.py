@@ -197,6 +197,16 @@ _VIDEO_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
     for cap in ("i2v", "r2v")
 }
 
+
+# 音频键位。音频无能力桶，桶层留空（None）由骨架直接跳过：项目默认层用 project.json 的
+# audio_backend 字段，全局默认层用 default_audio_backend 设置键。
+_AUDIO_LAYERED_KEYS = _LayeredBackendKeys(
+    media_type="audio",
+    parse_fallback=_DEFAULT_AUDIO_BACKEND,
+    project_default_key="audio_backend",
+    global_default_key="default_audio_backend",
+)
+
 #: 视频能力桶：i2v（图生视频 / 宫格，由首帧驱动）、r2v（参考生视频，含无参考图退化镜头）。
 #: t2v 不设桶（docs/adr/0054）。
 VideoCapability = Literal["i2v", "r2v"]
@@ -283,6 +293,21 @@ def video_capability_satisfied(*, capability: VideoCapability, first_frame: bool
 _TEXT_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
     TextTaskTier.SIMPLE: "text_backend_simple",
     TextTaskTier.COMPLEX: "text_backend_complex",
+}
+
+
+# 文本档位（docs/adr/0051）键位。档位即桶，项目级与全局同名同构，故桶层两侧同键；默认层
+# 两侧同用 default_text_backend。
+_TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
+    tier: _LayeredBackendKeys(
+        media_type="text",
+        parse_fallback=_DEFAULT_TEXT_BACKEND,
+        project_bucket_key=tier_key,
+        project_default_key="default_text_backend",
+        global_bucket_key=tier_key,
+        global_default_key="default_text_backend",
+    )
+    for tier, tier_key in _TEXT_TIER_SETTING_KEYS.items()
 }
 
 
@@ -1185,22 +1210,11 @@ class ConfigResolver:
         return ProviderModel(selected.provider_id, default_model.model_id)
 
     async def _resolve_default_audio_backend(self, svc: ConfigService, session: AsyncSession) -> tuple[str, str]:
-        raw = await svc.get_setting("default_audio_backend", "")
-        if raw and "/" in raw:
-            return ConfigService._parse_backend(raw, _DEFAULT_AUDIO_BACKEND)
-        return await self._auto_resolve_backend(svc, session, "audio")
+        """仅全局层解析音频默认 backend：全局默认键 > 自动推断。
 
-    async def _resolve_audio_backend_from_project(
-        self,
-        svc: ConfigService,
-        session: AsyncSession,
-        project: dict | None,
-    ) -> tuple[str, str]:
-        if project is not None:
-            parsed = _parse_project_provider(project.get("audio_backend"), "audio")
-            if parsed is not None:
-                return parsed
-        return await self._resolve_default_audio_backend(svc, session)
+        走四级骨架但不带项目（project=None 跳过项目层）。
+        """
+        return await self._resolve_layered_backend(svc, session, None, _AUDIO_LAYERED_KEYS)
 
     async def _resolve_audio_provider_model(
         self,
@@ -1220,7 +1234,7 @@ class ConfigResolver:
                 model = _payload_model_or_default(payload.get("audio_model"), provider_id, "audio")
                 if model is not None:
                     return ProviderModel(provider_id, model)
-        provider_id, model_id = await self._resolve_audio_backend_from_project(svc, session, project)
+        provider_id, model_id = await self._resolve_layered_backend(svc, session, project, _AUDIO_LAYERED_KEYS)
         return ProviderModel(provider_id, model_id)
 
     async def _resolve_video_capabilities(
@@ -1477,30 +1491,9 @@ class ConfigResolver:
         task_type: TextTaskType,
         project_name: str | None,
     ) -> tuple[str, str]:
-        tier_key = _TEXT_TIER_SETTING_KEYS[TEXT_TASK_TIERS[task_type]]
-        resolved: tuple[str, str] | None = None
-
-        # 1/2. 项目档位 > 项目默认模型（「项目默认」读作「本项目整体用它」，遮蔽全局配置）
-        if project_name:
-            project = get_project_manager().load_project(project_name)
-            for key in (tier_key, "default_text_backend"):
-                project_val = project.get(key)
-                if project_val and "/" in str(project_val):
-                    resolved = ConfigService._parse_backend(str(project_val), _DEFAULT_TEXT_BACKEND)
-                    break
-
-        # 3/4. 全局档位 > 全局默认模型
-        if resolved is None:
-            for key in (tier_key, "default_text_backend"):
-                global_val = await svc.get_setting(key, "")
-                if global_val and "/" in global_val:
-                    resolved = ConfigService._parse_backend(global_val, _DEFAULT_TEXT_BACKEND)
-                    break
-
-        # 5. 自动推断
-        if resolved is None:
-            resolved = await self._auto_resolve_backend(svc, session, "text")
-
+        project = get_project_manager().load_project(project_name) if project_name else None
+        keys = _TEXT_LAYERED_KEYS[TEXT_TASK_TIERS[task_type]]
+        resolved = await self._resolve_layered_backend(svc, session, project, keys)
         if task_type in VISION_REQUIRED_TASKS:
             _ensure_text_model_vision_capable(task_type, *resolved)
         return resolved

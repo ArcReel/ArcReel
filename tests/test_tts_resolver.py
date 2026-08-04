@@ -31,6 +31,9 @@ class _FakeSvc:
     async def get_setting(self, key: str, default: str = "") -> str:
         return self._settings.get(key, default)
 
+    async def get_all_settings(self) -> dict[str, str]:
+        return dict(self._settings)
+
     async def get_all_providers_status(self) -> list[ProviderStatus]:
         if self._ready is not None:
             return self._ready

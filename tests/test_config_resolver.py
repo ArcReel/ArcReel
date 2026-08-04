@@ -1817,6 +1817,20 @@ class TestTextBackendTierResolution:
         result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.SCRIPT, None)
         assert result == ("g-def", "m")
 
+    async def test_project_bare_provider_pins_its_default_model(self):
+        """项目档位写裸 provider（写边界放行的合法值）→ pin 住该 provider 补默认 model，
+        不静默回退到全局默认的另一供应商。与图片 / 视频的项目层同构。"""
+        from unittest.mock import MagicMock
+
+        from lib.text_backends.base import TextTaskType
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_text_backend": "g-def/m"})
+        with patch("lib.config.resolver.get_project_manager") as mock_pm:
+            mock_pm.return_value.load_project.return_value = {"text_backend_complex": "openai"}
+            result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.SCRIPT, "demo")
+        assert result == ("openai", "gpt-5.4-mini")
+
 
 class TestStyleAnalysisVisionGuard:
     """简单档模型不支持图像输入时，风格分析解析直接报错，不静默换模型。"""
