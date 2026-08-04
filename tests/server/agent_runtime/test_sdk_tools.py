@@ -4468,6 +4468,7 @@ async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
     assert "未设置参考音频" in text
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_backend(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
