@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -66,6 +66,11 @@ def _m(key: str, **params: Any) -> ValidationMessage:
 def _asset(asset_type: str) -> MessageRef:
     """资产类别名词的嵌套翻译键，复用 ``asset_type_*`` 一份词表。"""
     return MessageRef(f"asset_type_{asset_type}")
+
+
+def _allowed(values: Iterable[str]) -> str:
+    """合法取值列表的稳定文本。集合直接代入会走 ``repr``，字符串 hash 随机化下逐进程变序。"""
+    return ", ".join(sorted(values))
 
 
 def _pydantic_error_summary(exc: ValidationError) -> MessageJoin:
@@ -351,19 +356,23 @@ class DataValidator:
         if not content_mode:
             errors.append(_m("val_missing_field", field="content_mode"))
         elif content_mode not in self.VALID_CONTENT_MODES:
-            errors.append(_m("val_content_mode_invalid", value=content_mode, allowed=self.VALID_CONTENT_MODES))
+            errors.append(
+                _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
+            )
 
         # source_kind 缺省 novel：缺失字段（存量项目）放行，仅拦截非法值（如 screen_play）。
         source_kind = project.get("source_kind")
         if source_kind is not None and source_kind not in self.VALID_SOURCE_KINDS:
-            errors.append(_m("val_source_kind_invalid", value=source_kind, allowed=self.VALID_SOURCE_KINDS))
+            errors.append(_m("val_source_kind_invalid", value=source_kind, allowed=_allowed(self.VALID_SOURCE_KINDS)))
 
         # 生成路线必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
         generation_mode = project.get("generation_mode")
         if not generation_mode:
             errors.append(_m("val_missing_field", field="generation_mode"))
         elif not isinstance(generation_mode, str) or generation_mode not in self.VALID_GENERATION_MODES:
-            errors.append(_m("val_generation_mode_invalid", value=generation_mode, allowed=self.VALID_GENERATION_MODES))
+            errors.append(
+                _m("val_generation_mode_invalid", value=generation_mode, allowed=_allowed(self.VALID_GENERATION_MODES))
+            )
 
         grid_storyboard = project.get("grid_storyboard")
         if grid_storyboard is not None and not isinstance(grid_storyboard, bool):
@@ -1351,7 +1360,9 @@ class DataValidator:
             # content_mode 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud
             # 抛错，但 validator 的契约是把脏数据报告成结构化错误而非让异常传播出去。跳过依赖
             # 骨架种类的后续检查——没有合法 kind 就无从判断该读 segments/scenes/shots 中哪个。
-            errors.append(_m("val_content_mode_invalid", value=content_mode, allowed=self.VALID_CONTENT_MODES))
+            errors.append(
+                _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
+            )
             return
         try:
             # 闸门放行族内历史形态（narration 数据落 scenes 键）并返回剧本的实际骨架，后续按

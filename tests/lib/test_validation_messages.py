@@ -3,7 +3,7 @@
 import pytest
 
 from lib.i18n import _
-from lib.validation_messages import MessageRef, ValidationMessage, ValidationResult
+from lib.validation_messages import MessageJoin, MessageRef, ValidationMessage, ValidationResult
 
 pytestmark = pytest.mark.unit
 
@@ -36,6 +36,18 @@ class TestValidationMessage:
         )
         assert "角色" in message.render()
         assert "角色" not in message.render(_translator("en"))
+
+    def test_message_join_renders_fragments_with_separator(self):
+        message = ValidationMessage(
+            "val_missing_field",
+            {"field": MessageJoin(("title", MessageRef("asset_type_character")), separator=" / ")},
+        )
+        assert message.render() == "缺少必填字段: title / 角色"
+
+    def test_message_join_nests_recursively(self):
+        inner = MessageJoin(("novel.", MessageRef("asset_type_scene")), separator="")
+        message = ValidationMessage("val_missing_field", {"field": MessageJoin((inner, "title"))})
+        assert message.render() == "缺少必填字段: novel.场景; title"
 
     def test_literal_channel_passes_text_through_unchanged(self):
         message = ValidationMessage.literal("pydantic: field required")

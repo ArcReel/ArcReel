@@ -126,10 +126,9 @@ def _create_project(
 def _add_agent_runtime_symlinks(project_dir: Path) -> None:
     """Simulate legacy production layout: create agent_runtime_profile and symlinks.
 
-    PR fix/agent-profile-sync-manifest 起，``create_project`` 会把 ``.claude`` /
-    ``CLAUDE.md`` 物化为真目录/真文件 + 写 manifest，与本 helper 要测的"旧 symlink
-    部署遗留"场景冲突。这里先清理 dest 再 symlink 模拟老版本 docker volume 持久化
-    下来的旧项目目录形态。
+    ``create_project`` 会把 ``.claude`` / ``CLAUDE.md`` 物化为真目录/真文件 + 写
+    manifest，与本 helper 要测的"旧 symlink 部署遗留"场景冲突。这里先清理 dest 再
+    symlink 模拟老版本 docker volume 持久化下来的旧项目目录形态。
     """
     import shutil
 

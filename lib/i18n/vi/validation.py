@@ -149,7 +149,7 @@ MESSAGES = {
     ),
     # ---- di trú gộp thời lượng đơn vị video tham chiếu ----
     "val_unit_duration_clamped": (
-        "unit {unit_id} có thời lượng {target}s nằm ngoài khoảng hợp lý {low}-{high}s; đã lưu thành {clamped}s"
+        "unit {unit_id} có thời lượng {target}s nằm ngoài khoảng hợp lý {low}-{high}s; đã cắt về {clamped}s"
     ),
     "val_unit_duration_slotted": (
         "unit {unit_id} có thời lượng {duration}s không thuộc các mức thời lượng của mô hình ({durations}); "

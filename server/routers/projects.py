@@ -198,7 +198,7 @@ async def import_project_archive(
         os.close(fd)
 
         # 使用底层 SpooledTemporaryFile 的同步句柄，整循环 offload 到线程，
-        # 避免 async 读取 + 同步写入的混合模式阻塞事件循环 (#230)
+        # 避免 async 读取 + 同步写入的混合模式阻塞事件循环
         raw_file = file.file
 
         def _write_upload():

@@ -149,7 +149,7 @@ MESSAGES = {
     ),
     # ---- reference-video duration consolidation migration ----
     "val_unit_duration_clamped": (
-        "unit {unit_id} duration {target}s is outside the sensible {low}-{high}s range; saved as {clamped}s"
+        "unit {unit_id} duration {target}s is outside the sensible {low}-{high}s range; clamped to {clamped}s"
     ),
     "val_unit_duration_slotted": (
         "unit {unit_id} duration {duration}s is not one of the model's duration options ({durations}); "

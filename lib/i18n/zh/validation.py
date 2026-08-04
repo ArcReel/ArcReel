@@ -131,7 +131,7 @@ MESSAGES = {
         "请重跑分集拆分（step1）重新拆分该集，再重新生成剧本。该剧本仍可查看、编辑与导出。"
     ),
     # ---- 参考生视频时长收编迁移 ----
-    "val_unit_duration_clamped": "unit {unit_id} 时长 {target}s 超出 {low}-{high}s 合理区间，已按 {clamped}s 落盘",
+    "val_unit_duration_clamped": "unit {unit_id} 时长 {target}s 超出 {low}-{high}s 合理区间，已裁剪为 {clamped}s",
     "val_unit_duration_slotted": ("unit {unit_id} 时长 {duration}s 不是模型档位（{durations}）成员，已取档为 {slot}s"),
     # ---- 归档修复与导入导出诊断 ----
     "arch_source_encoding_unconverted": "源文件编码无法识别，未转换为 UTF-8：source/{name}（分集规划无法读取该文件）",
