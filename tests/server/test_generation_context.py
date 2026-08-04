@@ -547,7 +547,7 @@ class TestValueObjectAssembly:
         ],
     )
     def test_video_lane_is_silent_covers_both_paths(
-        self, voice_consistency: str, requested_generate_audio: bool, expected: bool
+        self, voice_consistency: VoiceConsistency, requested_generate_audio: bool, expected: bool
     ):
         """无声判据合并模型档与本集开关两条路径，渲染层据此决定是否注入声音风格。"""
         lane = VideoLaneResult(
@@ -559,7 +559,7 @@ class TestValueObjectAssembly:
             supported_durations=(4, 8),
             max_duration=8,
             max_reference_images=9,
-            voice_consistency=cast(VoiceConsistency, voice_consistency),
+            voice_consistency=voice_consistency,
             requested_generate_audio=requested_generate_audio,
         )
         assert lane.is_silent is expected

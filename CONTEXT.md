@@ -209,7 +209,7 @@ _Avoid_: 与「旁白配音」混为一谈——旁白是成片素材，试听�
 _Avoid_: 用 `generate_audio` 的真假直接代指有无音轨。
 
 **声音描述声明段（Voice_Profiles）**：
-drama 视频提示词 YAML 顶部的集中声明段，形如 `Voice_Profiles: [{Speaker, Voice_Style}]`，由编排层从角色资产的 `voice_style` 机械派生——收录集合为「本场景 dialogue 的 speaker」∩「角色资产 `voice_style` 非空」，只出场不开口的角色不收录。剧本 JSON 与 step2 LLM 零承载：编排层是它唯一的来源（`lib/prompt_utils.py::build_drama_video_prompt`），故角色 `voice_style` 改动下次生成即生效。档位为 `none` 时不注入。
+drama 视频提示词 YAML 顶部的集中声明段，形如 `Voice_Profiles: [{Speaker, Voice_Style}]`，由编排层从角色资产的 `voice_style` 机械派生——收录集合为「本场景 dialogue 的 speaker」∩「角色资产 `voice_style` 非空」，只出场不开口的角色不收录。剧本 JSON 与 step2 LLM 零承载：编排层是它唯一的来源（`lib/prompt_utils.py::build_drama_video_prompt`），故角色 `voice_style` 改动下次生成即生效。无声时不注入——`none`（模型不产音）与本集关闭音频（`requested_generate_audio` 为假）同口径，入队前判据收在 `server/services/video_caps.py::resolve_project_is_silent`、执行期收在 `VideoLaneResult.is_silent`；台词不看这一位，无声成片里照常下发供口型参考。
 _Avoid_: 与既有 `Dialogue` 条目混为一谈——前者声明音色、每 speaker 一条，后者是台词、按时序逐条。
 
 **"audio" 的三种含义（歧义警示）**：
