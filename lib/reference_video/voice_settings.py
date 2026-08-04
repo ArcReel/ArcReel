@@ -45,8 +45,11 @@ class VoiceRenderSettings:
     def from_caps(cls, caps: Mapping[str, Any], *, audio_ready: Collection[str] | None = None) -> VoiceRenderSettings:
         """从解析出的视频能力 dict 取值构造。
 
-        能力解析失败时调用方传空 dict，各字段落到 ``soft`` / 无参考音频的降级默认——只是少发
-        几条声音相关提示，不阻断渲染。能力 dict 的 key 名与本类字段名的对应只在这一处，
+        能力解析失败时调用方传空 dict，各字段落到本类的字段默认（``soft`` 档、无参考音频）——
+        只是少发几条声音相关提示，不阻断渲染。本集无声开关的缺省是 ``True``，即「未收到关闭
+        信号就按有声渲染」：能力解析失败不该替用户把这一集判成无声，真实的关闭意图由调用方
+        在能力 dict 里独立解析后写入（见 ``server/services/video_caps.py``）。能力 dict 的
+        key 名与本类字段名的对应只在这一处，
         多个调用点（解析预览路由、SDK 拆分工具）因此不会各自漏取某一位而给出不同的声音结论。
         """
         return cls(

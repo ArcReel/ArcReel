@@ -12,6 +12,7 @@ import json
 import logging
 import re
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -755,9 +756,14 @@ def _reference_voice_warning_lines(unit_texts: list[str], project: dict[str, Any
     逐 unit 而非把全集正文拼起来判：unit 就是一次生成调用，参考音频段数上限按调用计——拼起来
     判会把「每个 unit 各两个说话人」误报成超限。与编辑器预览、执行期渲染共用
     ``derive_voice_bindings``，三处对同一份文稿给出的声音结论因此不会分叉。
+
+    ``requires_reference_image`` 在本处一律关掉：该位的判定要配 ``speakers_with_reference_image``
+    才有意义，而拆分阶段的 unit 尚未确定随请求发出的参考图。开着而不给图集合，等于把每个说话人
+    都判成「无画面可挂」，那条 warning 又不在容忍列表内会被丢弃——结果是「未设参考音频」「超出
+    段数上限」这些该让 agent 看见的提示反被吞掉。
     """
     characters = project.get(BUCKET_KEY["character"]) or {}
-    settings = VoiceRenderSettings.from_caps(caps)
+    settings = replace(VoiceRenderSettings.from_caps(caps), requires_reference_image=False)
     seen: set[tuple[str, str]] = set()
     lines: list[str] = []
     for text in unit_texts:

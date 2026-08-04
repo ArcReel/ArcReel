@@ -508,7 +508,7 @@ def _build_reference_audio_wiring(
     共用同一份组装口径。
 
     ``reference_audio_per_image`` 为 True 时（backend 要求音频逐段挂在具体参考素材项上），
-    渲染层已按 ``audio_requires_reference_image`` 门控排除无参考图的 speaker，
+    渲染层已按 ``VoiceRenderSettings.requires_reference_image`` 门控排除无参考图的 speaker，
     ``audio_speaker_reference_index`` 此时不应再有 None——仍按下标同时过滤两个列表而非直接
     zip 全量，是为了在渲染层与本处口径将来漂移时，两个列表始终等长同序，不会因为其中一个
     多出未过滤的 None 项而导致音频与参考图下标错位、静默绑错角色。
@@ -681,7 +681,7 @@ async def execute_reference_video_task(
         rendered = _render_unit_prompt(unit_for_prompt, project, voice_settings)
     rendered_prompt = rendered.prompt
     reference_audio_files, reference_audio_targets = _build_reference_audio_wiring(
-        rendered, audio_paths, reference_audio_per_image=video.reference_audio_per_image
+        rendered, audio_paths, reference_audio_per_image=voice_settings.requires_reference_image
     )
     # 解析派生的降级提示与生成结果同屏可见：与解析预览面板同一批 {key, params} 条目。
     warnings = [*warnings, *rendered.warnings]

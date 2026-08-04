@@ -117,23 +117,36 @@ def test_silent_episode_injects_no_voice_style_same_as_silent_model():
     assert silent_episode.prompt.split("\n\n")[0] == silent_model.prompt.split("\n\n")[0]
 
 
-def test_silent_episode_keeps_dialogue_segment_identical_to_audible_path():
-    """第二段（台词）与有声路径逐字同形——只有第一段的音色参考行消失。"""
+@pytest.mark.parametrize(
+    "silencing",
+    [
+        pytest.param({"requested_generate_audio": False}, id="silent_episode"),
+        pytest.param({"voice_consistency": "none"}, id="silent_model"),
+    ],
+)
+def test_silent_paths_keep_every_dialogue_shot_identical_to_audible_path(silencing: dict):
+    """第二段与有声路径逐字同形——只有第一段的音色参考行消失。
+
+    整段（含两个镜头块）比对而非只比首个镜头：音频编号从第二个说话人起才可能出现分叉，
+    只比镜头1 会漏掉后续绑定位上的差异。两条无声路径各比一次。
+    """
     settings = VoiceRenderSettings(
         voice_consistency="native",
         max_reference_audio=3,
         model_id="doubao-seedance-2-0",
+        audio_ready={"张三", "李四"},
     )
     refs = _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑"))
     audible = render_unit_prompt(_TEXT, _project(), refs, settings, style="写实电影感")
-    silent = render_unit_prompt(
-        _TEXT, _project(), refs, replace(settings, requested_generate_audio=False), style="写实电影感"
-    )
+    silent = render_unit_prompt(_TEXT, _project(), refs, replace(settings, **silencing), style="写实电影感")
 
-    def _shot_segment(prompt: str) -> str:
-        return next(seg for seg in prompt.split("\n\n") if seg.startswith("镜头1："))
+    def _shot_segments(prompt: str) -> list[str]:
+        return [seg for seg in prompt.split("\n\n") if seg.startswith("镜头")]
 
-    assert _shot_segment(silent.prompt) == _shot_segment(audible.prompt)
+    # 有声侧确实绑定了两段音频，比对才有区分度（否则两侧本就无音频，断言恒真）
+    assert audible.audio_speakers == ["张三", "李四"]
+    assert len(_shot_segments(audible.prompt)) == 2
+    assert _shot_segments(silent.prompt) == _shot_segments(audible.prompt)
 
 
 def test_first_segment_binds_images_in_reference_order():
@@ -316,7 +329,7 @@ def test_audio_speaker_reference_index_tracks_image_slot_by_name_not_position():
     assert rendered.audio_speaker_reference_index == [1, None]
 
 
-def test_audio_requires_reference_image_downgrades_offscreen_speaker_with_warning():
+def test_requires_reference_image_downgrades_offscreen_speaker_with_warning():
     """backend 要求音频逐段挂图（如 wan2.7-r2v）时，纯画外 speaker（无参考图）不绑定音频，
     编号与 warning 都在渲染期同步产生，避免 @音频N 承诺一段实际不会发出的绑定。"""
     rendered = render_unit_prompt(
