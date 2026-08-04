@@ -1,11 +1,14 @@
 from io import BytesIO
 
+import pytest
 from PIL import Image
 
 import server.routers.versions as versions_router
 from lib.image_utils import convert_image_bytes_to_png
 from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
+
+pytestmark = pytest.mark.unit
 
 
 class TestUploadRestorePng:

@@ -14,6 +14,8 @@ from lib.path_safety import (
     try_safe_join,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def test_existing_relative_path(tmp_path: Path):
     (tmp_path / "a.txt").write_text("x", encoding="utf-8")

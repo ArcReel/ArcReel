@@ -28,6 +28,8 @@ import pytest
 
 from lib.asset_types import ASSET_SPECS
 
+pytestmark = pytest.mark.unit
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DASHBOARD_TS = "frontend/src/i18n/{locale}/dashboard.ts"
 LOCALES = ("zh", "en", "vi")

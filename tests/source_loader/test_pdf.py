@@ -3,6 +3,8 @@ import pytest
 from lib.source_loader.errors import CorruptFileError
 from lib.source_loader.pdf import PdfOxideExtractor
 
+pytestmark = pytest.mark.unit
+
 # 取样自 data/sample_text.pdf 中确定出现的中文短语
 _EXPECTED_SNIPPET_PAGE_1 = "新股研究"
 _EXPECTED_SNIPPET_PAGE_2 = "打新基金"

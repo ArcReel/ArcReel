@@ -6,6 +6,7 @@ from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities, Video
 
 
 class TestVideoCapabilities:
+    @pytest.mark.unit
     def test_defaults(self):
         caps = VideoCapabilities()
         assert caps.first_frame is True
@@ -14,10 +15,12 @@ class TestVideoCapabilities:
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
         assert caps.max_reference_audio_count == 0
 
+    @pytest.mark.unit
     def test_first_last(self):
         caps = VideoCapabilities(last_frame=True)
         assert caps.last_frame is True
 
+    @pytest.mark.unit
     def test_custom_values(self):
         caps = VideoCapabilities(
             last_frame=True,
@@ -32,11 +35,13 @@ class TestVideoCapabilities:
 
 
 class TestVideoGenerationRequestNewFields:
+    @pytest.mark.unit
     def test_end_image_default_none(self):
         req = VideoGenerationRequest(prompt="t", output_path=Path("/tmp/o.mp4"))
         assert req.end_image is None
         assert req.reference_images is None
 
+    @pytest.mark.unit
     def test_end_image_set(self):
         req = VideoGenerationRequest(
             prompt="t",
@@ -46,6 +51,7 @@ class TestVideoGenerationRequestNewFields:
         )
         assert req.end_image == Path("/tmp/l.png")
 
+    @pytest.mark.unit
     def test_reference_images(self):
         req = VideoGenerationRequest(
             prompt="t",
@@ -54,6 +60,7 @@ class TestVideoGenerationRequestNewFields:
         )
         assert len(req.reference_images) == 2
 
+    @pytest.mark.unit
     def test_existing_fields_unchanged(self):
         """Ensure existing fields still work as before."""
         req = VideoGenerationRequest(
@@ -94,6 +101,7 @@ class TestVideoCapabilitiesForModel:
 
     resolver 解析参考图上限走这条纯函数路径，故不应触发 SDK client 构造或 api_key 校验。"""
 
+    @pytest.mark.unit
     def test_ark_seedance_2_returns_nine(self):
         from lib.video_backends.ark import ArkVideoBackend
 
@@ -102,21 +110,25 @@ class TestVideoCapabilitiesForModel:
         assert caps.max_reference_images == 9
         assert caps.max_reference_images > 0
 
+    @pytest.mark.unit
     def test_ark_non_seedance_2_returns_zero(self):
         from lib.video_backends.ark import ArkVideoBackend
 
         assert ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0").max_reference_images == 0
 
+    @pytest.mark.unit
     def test_vidu_returns_seven(self):
         from lib.video_backends.vidu import ViduVideoBackend
 
         assert ViduVideoBackend.video_capabilities_for_model("viduq3-turbo").max_reference_images == 7
 
+    @pytest.mark.unit
     def test_v2_returns_four(self):
         from lib.video_backends.v2_video_generations import V2VideoGenerationsBackend
 
         assert V2VideoGenerationsBackend.video_capabilities_for_model("whatever").max_reference_images == 4
 
+    @pytest.mark.unit
     def test_instance_property_delegates_to_static(self):
         """instance video_capabilities 委托至静态方法，保持 backend 为单一真相源。
 

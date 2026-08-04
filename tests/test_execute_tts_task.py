@@ -13,6 +13,8 @@ from lib.config.resolver import ConfigResolver, ProviderModel
 from server.services import generation_context, generation_tasks
 from server.services.generation_context import AudioLaneResult, GenerationContext
 
+pytestmark = pytest.mark.unit
+
 
 def _audio_ctx(generator, *, voice="Cherry", speed=None):
     """把 audio lane 解析产物拼成假 GenerationContext，替换 resolve_generation_context 单点。"""

@@ -203,6 +203,7 @@ def _write_source_text(pm: ProjectManager, filename: str, text: str) -> Path:
 
 
 class TestDramaGateFlow:
+    @pytest.mark.unit
     async def test_no_step1_then_pending_then_confirmed(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
@@ -227,6 +228,7 @@ class TestDramaGateFlow:
         project = pm.load_project("demo")
         assert script_review.gate_blocks_step2(project_path, project, 1) is False
 
+    @pytest.mark.unit
     async def test_editing_step1_after_confirm_repends(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
@@ -243,6 +245,7 @@ class TestDramaGateFlow:
         assert state["status"] == "pending_review"
         assert state["content"]["scenes"][0]["utterances"][1]["text"] == "你怎么才回来。"
 
+    @pytest.mark.unit
     async def test_whitespace_reformat_keeps_confirmed(self, tmp_path):
         """纯键序 / 空白重排不改语义 → 指纹不变、保持 confirmed。"""
         pm = _make_project(tmp_path, "drama")
@@ -261,6 +264,7 @@ class TestDramaGateFlow:
 
 
 class TestNarrationGateFlow:
+    @pytest.mark.unit
     async def test_pending_then_confirm(self, tmp_path):
         pm = _make_project(tmp_path, "narration")
         svc = ScriptReviewService(pm)
@@ -272,6 +276,7 @@ class TestNarrationGateFlow:
 
         assert (await svc.confirm("demo", 1))["status"] == "confirmed"
 
+    @pytest.mark.unit
     async def test_edit_novel_text_repends(self, tmp_path):
         pm = _make_project(tmp_path, "narration")
         svc = ScriptReviewService(pm)
@@ -290,6 +295,7 @@ class TestNarrationGateFlow:
 
 
 class TestReferenceVideoGateFlow:
+    @pytest.mark.unit
     async def test_no_step1_then_pending_then_confirmed(self, tmp_path):
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = ScriptReviewService(pm)
@@ -312,6 +318,7 @@ class TestReferenceVideoGateFlow:
         assert confirmed["confirmed_at"]
         assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
 
+    @pytest.mark.unit
     async def test_editing_shot_text_repends_and_rederives_references(self, tmp_path):
         """编辑 shot 文本 → 重新待审；references 随正文 @ 引用机械重派生（不采用入参陈旧值）。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
@@ -331,6 +338,7 @@ class TestReferenceVideoGateFlow:
         refs = state["content"]["units"][0]["references"]
         assert [(r["type"], r["name"]) for r in refs] == [("character", "阿离"), ("scene", "屋檐")]
 
+    @pytest.mark.unit
     async def test_quarantined_step1_blocks_confirm_and_step2(self, tmp_path):
         """隔离草稿在场 → 确认被拒、step2 被阻塞，即使正式 step1 早已确认过。
 
@@ -362,6 +370,7 @@ class TestReferenceVideoGateFlow:
         clear_quarantine(project_path, 1, QUARANTINE_KIND_STEP1)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
+    @pytest.mark.unit
     def test_quarantine_not_applicable_to_non_reference_paths(self, tmp_path):
         """drama / narration 无隔离草稿概念：路径解析返回 None，状态判定不受影响。"""
         pm = _make_project(tmp_path, "drama")
@@ -369,6 +378,7 @@ class TestReferenceVideoGateFlow:
         assert script_review.step1_quarantine_path(project_path, pm.load_project("demo"), 1) is None
         assert script_review.step1_quarantined(project_path, pm.load_project("demo"), 1) is False
 
+    @pytest.mark.unit
     async def test_confirm_rejects_unit_duration_out_of_range(self, tmp_path):
         """损坏的 step1（unit 时长越界）→ 确认被结构校验拒绝，不放行 step2。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
@@ -380,6 +390,7 @@ class TestReferenceVideoGateFlow:
             await svc.confirm("demo", 1)
         assert exc.value.code == "invalid_content"
 
+    @pytest.mark.unit
     async def test_confirm_rederives_references_when_step1_edited_outside_save_content(self, tmp_path):
         """confirm 前直改 step1 文件（绕过 save_content，如 agent Write/Edit 直改 drafts/）→
         确认时按当前正文重派生 references 并落盘，不放行陈旧引用。"""
@@ -812,6 +823,7 @@ class TestReferenceVideoStep1Migration:
 
 
 class TestReferenceVideoStep2Enforcement:
+    @pytest.mark.unit
     async def test_generate_blocked_then_confirm_tool_unblocks(self, tmp_path):
         """agent 路径：rv 的 step1 未确认时 step2 阻塞，confirm_script_review 工具确认后放行。"""
         from server.agent_runtime.sdk_tools._context import ToolContext
@@ -841,6 +853,7 @@ class TestReferenceVideoStep2Enforcement:
 
 
 class TestApplicability:
+    @pytest.mark.unit
     async def test_reference_video_applicable(self, tmp_path):
         """reference_video（跨 content_mode）纳入 gate，step1 变体判为 reference_video。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
@@ -850,6 +863,7 @@ class TestApplicability:
         # 未产 step1 → no_step1（区别于 ad 的 not_applicable）。
         assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "no_step1"
 
+    @pytest.mark.unit
     async def test_ad_not_applicable(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("addemo")
@@ -865,6 +879,7 @@ class TestApplicability:
 
 
 class TestErrors:
+    @pytest.mark.unit
     async def test_save_invalid_content_rejected(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
@@ -877,6 +892,7 @@ class TestErrors:
             await svc.save_content("demo", 1, bad)
         assert exc.value.code == "invalid_content"
 
+    @pytest.mark.unit
     async def test_confirm_without_step1_rejected(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         svc = ScriptReviewService(pm)
@@ -884,6 +900,7 @@ class TestErrors:
             await svc.confirm("demo", 1)
         assert exc.value.code == "no_step1"
 
+    @pytest.mark.unit
     async def test_save_not_applicable_rejected(self, tmp_path):
         pm = _make_project(tmp_path, "ad")  # ad 无结构化 step1，gate 不适用
         svc = ScriptReviewService(pm)
@@ -891,6 +908,7 @@ class TestErrors:
             await svc.save_content("demo", 1, _drama_step1())
         assert exc.value.code == "not_applicable"
 
+    @pytest.mark.unit
     async def test_get_state_unregistered_episode_rejected(self, tmp_path):
         """适用 gate 但分集未登记 project.json → episode_not_found（而非误报 no_step1）。"""
         pm = _make_project(tmp_path, "drama")  # 仅登记第 1 集
@@ -899,6 +917,7 @@ class TestErrors:
             await svc.get_state("demo", 99)
         assert exc.value.code == "episode_not_found"
 
+    @pytest.mark.unit
     async def test_save_unregistered_episode_writes_no_orphan(self, tmp_path):
         """给未登记分集保存 → episode_not_found，且不落 drafts/episode_99 孤儿 step1 文件。"""
         pm = _make_project(tmp_path, "drama")
@@ -909,6 +928,7 @@ class TestErrors:
         orphan = pm.get_project_path("demo") / "drafts" / "episode_99" / "step1_normalized_script.json"
         assert not orphan.exists()
 
+    @pytest.mark.unit
     async def test_save_with_stale_fingerprint_conflicts_reference_video(self, tmp_path):
         """rv 并发编辑：保存携带的基线指纹与盘上现值不一致（编辑期间另一方已保存）→ conflict、
         不落盘不覆盖；拿最新指纹（等价于刷新合并后）重试放行。"""
@@ -935,6 +955,7 @@ class TestErrors:
         assert state["status"] == "pending_review"
         assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["shots"][1]["text"] == "@[裴与] 下马。"
 
+    @pytest.mark.unit
     async def test_save_with_stale_fingerprint_conflicts_drama(self, tmp_path):
         """drama/narration 的 web 保存同样受基线比对保护：同一个 conflict 错误码。"""
         pm = _make_project(tmp_path, "drama")
@@ -952,6 +973,7 @@ class TestErrors:
         assert exc.value.code == "conflict"
         assert path.read_text(encoding="utf-8") == before
 
+    @pytest.mark.unit
     async def test_save_without_fingerprint_skips_baseline_check(self, tmp_path):
         """不带基线指纹的直连调用维持原语义：不比对、直接落盘。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
@@ -964,6 +986,7 @@ class TestErrors:
         state = await svc.save_content("demo", 1, _rv_step1())
         assert state["status"] == "pending_review"
 
+    @pytest.mark.unit
     async def test_rv_save_clears_stale_step2_quarantine_on_change(self, tmp_path):
         """web 保存改了 step1 内容 → 在场的 step2 隔离草稿作废（其保结构 diff 以旧 step1 为
         基底）；内容未变的保存不清。与 agent 侧写盘同一出口、同一语义。"""
@@ -984,6 +1007,7 @@ class TestErrors:
         await svc.save_content("demo", 1, edited)
         assert not step2_q.exists()
 
+    @pytest.mark.unit
     async def test_confirm_corrupt_step1_rejected(self, tmp_path):
         """step1 文件损坏（非法 JSON，但 content_fingerprint 仍产哈希）→ 确认被结构校验拒绝。"""
         pm = _make_project(tmp_path, "drama")
@@ -1005,6 +1029,7 @@ class TestStep1WriteStore:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         return pm.get_project_path("demo")
 
+    @pytest.mark.unit
     def test_conflict_on_stale_baseline_keeps_file(self, tmp_path: Path):
         project_path = self._project_path(tmp_path)
         with script_review.step1_write_lock(project_path, 1):
@@ -1021,6 +1046,7 @@ class TestStep1WriteStore:
         path = script_review.official_reference_step1_path(project_path, 1)
         assert json.loads(path.read_text(encoding="utf-8")) == {"units": [{"v": 1}]}
 
+    @pytest.mark.unit
     def test_matching_baseline_and_none_baseline_write(self, tmp_path: Path):
         """基线一致放行；``None`` 基线表示「取基线时文件不存在」，首写同样放行。"""
         project_path = self._project_path(tmp_path)
@@ -1032,6 +1058,7 @@ class TestStep1WriteStore:
         path = script_review.official_reference_step1_path(project_path, 1)
         assert json.loads(path.read_text(encoding="utf-8")) == {"units": [{"v": 2}]}
 
+    @pytest.mark.unit
     def test_none_baseline_conflicts_when_file_appeared(self, tmp_path: Path):
         """基线 None（取基线时无正式文件）而写盘前文件已被另一方写出 → 冲突，不覆盖。"""
         project_path = self._project_path(tmp_path)
@@ -1041,6 +1068,7 @@ class TestStep1WriteStore:
             with script_review.step1_write_lock(project_path, 1):
                 script_review.write_step1_locked(project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=None)
 
+    @pytest.mark.unit
     def test_step2_quarantine_cleared_only_on_change(self, tmp_path: Path):
         project_path = self._project_path(tmp_path)
         step2_q = quarantine_path(project_path, 1, QUARANTINE_KIND_STEP2)
@@ -1071,6 +1099,7 @@ class TestStep1WriteStore:
 
 
 class TestStep2Enforcement:
+    @pytest.mark.unit
     async def test_generate_blocked_when_pending(self, tmp_path):
         from server.agent_runtime.sdk_tools._context import ToolContext
         from server.agent_runtime.sdk_tools.text_generation import generate_episode_script_tool
@@ -1086,6 +1115,7 @@ class TestStep2Enforcement:
         text = result["content"][0]["text"]
         assert "step1" in text and "阻塞" in text
 
+    @pytest.mark.unit
     async def test_confirm_tool_unblocks_step2(self, tmp_path):
         """agent 路径：confirm_script_review 工具确认后，gate 放行（既有 step1→step2 不被破坏）。"""
         from server.agent_runtime.sdk_tools._context import ToolContext
@@ -1109,16 +1139,19 @@ class TestStep2Enforcement:
 
 
 class TestLegacyEnumeration:
+    @pytest.mark.unit
     async def test_no_step1(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "no_step1"
 
+    @pytest.mark.unit
     async def test_step1_no_step2_no_review_pending(self, tmp_path):
         """feature 后首次产 step1（未产 step2、无确认）→ 待审、阻塞。"""
         pm = _make_project(tmp_path, "drama")
         _write_step1(pm, "drama", _drama_step1())
         assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "pending_review"
 
+    @pytest.mark.unit
     async def test_step1_step2_no_review_grandfathered_confirmed(self, tmp_path):
         """存量项目（已产 step1 + step2、无 step1_review 字段）→ grandfather 放行，不阻塞重跑。"""
         pm = _make_project(tmp_path, "drama")
@@ -1128,6 +1161,7 @@ class TestLegacyEnumeration:
         assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "confirmed"
         assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
 
+    @pytest.mark.unit
     async def test_step1_step2_review_matching_confirmed(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
         _write_step1(pm, "drama", _drama_step1())
@@ -1135,6 +1169,7 @@ class TestLegacyEnumeration:
         await ScriptReviewService(pm).confirm("demo", 1)
         assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "confirmed"
 
+    @pytest.mark.unit
     async def test_step1_step2_review_mismatch_pending(self, tmp_path):
         """已确认后 step1 又被改（即便 step2 在）→ 重新待审，指纹优先于 grandfather。"""
         pm = _make_project(tmp_path, "drama")
@@ -1154,6 +1189,7 @@ class TestLegacyEnumeration:
 
 
 class TestManualSplitSelfHeal:
+    @pytest.mark.unit
     async def test_get_state_self_heals_orphan_without_source_range(self, tmp_path):
         """孤儿派生文件 → 自愈登记条目（不写 source_range），get_state 不再 episode_not_found。"""
         pm = _make_manual_split_project(tmp_path, "narration")
@@ -1168,6 +1204,7 @@ class TestManualSplitSelfHeal:
         assert ep["ledger_status"] == "consumed"  # 已有 step1 中间文件
         assert "source_range" not in ep
 
+    @pytest.mark.unit
     async def test_confirm_self_heals_and_unblocks_step2(self, tmp_path):
         """confirm（web 与 agent 工具共用同一 service）在空账本下不再 episode_not_found，且放行 step2。"""
         pm = _make_manual_split_project(tmp_path, "drama")
@@ -1180,6 +1217,7 @@ class TestManualSplitSelfHeal:
         project_path = pm.get_project_path("demo")
         assert script_review.gate_blocks_step2(project_path, pm.load_project("demo"), 1) is False
 
+    @pytest.mark.unit
     async def test_self_heal_never_anchors_even_when_source_text_matches(self, tmp_path):
         """派生文件内容即使能在原文中精确匹配，自愈也只登记不锚定：位置记录只由规划工具写入。"""
         pm = _make_manual_split_project(tmp_path, "narration")
@@ -1193,6 +1231,7 @@ class TestManualSplitSelfHeal:
         assert ep is not None
         assert "source_range" not in ep
 
+    @pytest.mark.unit
     async def test_self_heal_registers_all_orphans_not_just_requested(self, tmp_path):
         """自愈一次登记账本中所有孤儿集号的派生文件，不只是当前请求的那一集。"""
         pm = _make_manual_split_project(tmp_path, "narration")
@@ -1205,6 +1244,7 @@ class TestManualSplitSelfHeal:
         assert script_review.find_episode(project, 1) is not None
         assert script_review.find_episode(project, 2) is not None
 
+    @pytest.mark.unit
     async def test_self_heal_preserves_existing_ledger_status_entries(self, tmp_path):
         """已带 ledger_status 的条目（规划工具写入）不因其他集号的自愈触发被改写。"""
         pm = _make_manual_split_project(tmp_path, "narration")
@@ -1228,6 +1268,7 @@ class TestManualSplitSelfHeal:
         assert ep1["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": 5}
         assert script_review.find_episode(project, 2) is not None
 
+    @pytest.mark.unit
     async def test_self_heal_does_not_apply_when_derivative_file_missing(self, tmp_path):
         """账本为空且该集派生文件也不存在（真正缺失的集号）→ 仍抛 episode_not_found，不自愈。"""
         pm = _make_manual_split_project(tmp_path, "narration")
@@ -1236,6 +1277,7 @@ class TestManualSplitSelfHeal:
         assert exc.value.code == "episode_not_found"
         assert pm.load_project("demo")["episodes"] == []
 
+    @pytest.mark.unit
     async def test_self_heal_idempotent_no_duplicate_entries(self, tmp_path):
         """重复触发自愈（同集反复读状态）不产生重复集号条目，也不重复改写已登记条目。"""
         pm = _make_manual_split_project(tmp_path, "narration")

@@ -68,6 +68,7 @@ def _reference_project(*, with_assets: bool = True) -> dict:
     return project
 
 
+@pytest.mark.unit
 def test_validator_accepts_reference_video_generation_mode(tmp_path: Path):
     _write(tmp_path, "project.json", _reference_project())
     _write(tmp_path, "scripts/episode_1.json", _valid_reference_script())
@@ -99,6 +100,7 @@ def test_validator_accepts_nfc_reference_for_nfd_registered_character(tmp_path: 
     assert result.valid, result.errors
 
 
+@pytest.mark.unit
 def test_validator_rejects_unknown_mention(tmp_path: Path):
     _write(tmp_path, "project.json", _reference_project(with_assets=False))
     _write(tmp_path, "scripts/episode_1.json", _valid_reference_script())
@@ -110,6 +112,7 @@ def test_validator_rejects_unknown_mention(tmp_path: Path):
     assert any("酒馆" in e for e in result.errors)
 
 
+@pytest.mark.unit
 def test_validator_allows_reference_videos_dir(tmp_path: Path):
     project = _reference_project(with_assets=False)
     project["episodes"] = []
@@ -122,6 +125,7 @@ def test_validator_allows_reference_videos_dir(tmp_path: Path):
     assert result.valid, result.errors
 
 
+@pytest.mark.unit
 def test_validator_rejects_non_string_reference_name(tmp_path: Path):
     project = _reference_project(with_assets=False)
     script = _valid_reference_script()
@@ -135,6 +139,7 @@ def test_validator_rejects_non_string_reference_name(tmp_path: Path):
     assert any("reference.name 必须是非空字符串" in e for e in result.errors)
 
 
+@pytest.mark.unit
 def test_validator_rejects_invalid_unit_duration(tmp_path: Path):
     project = _reference_project()
     script = _valid_reference_script()
@@ -194,6 +199,7 @@ def test_validator_rejects_duplicate_ad_reference_unit_ids(tmp_path: Path):
     assert any("unit_id 重复 'E1U1'" in error for error in result.errors)
 
 
+@pytest.mark.unit
 def test_validator_rejects_reference_video_in_content_mode(tmp_path: Path):
     """content_mode 严格只允许 narration / drama；reference_video 属于 generation_mode
     维度。UI 不可达该值，无需兼容迁移，直接拒绝即可。

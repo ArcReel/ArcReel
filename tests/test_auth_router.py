@@ -15,6 +15,8 @@ import server.auth as auth_module
 from server.routers import auth as auth_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture()
 def client():

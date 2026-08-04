@@ -4,6 +4,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -11,6 +12,8 @@ from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, create_download_token, create_token, get_current_user
 from server.routers import projects
 from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 def _write_text(path: Path, content: str) -> None:

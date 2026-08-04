@@ -3,7 +3,11 @@
 import os
 from unittest.mock import patch
 
+import pytest
+
 from lib.db.engine import get_database_url, is_sqlite_backend
+
+pytestmark = pytest.mark.unit
 
 
 class TestGetDatabaseUrl:

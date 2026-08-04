@@ -15,6 +15,8 @@ import pytest
 
 from server.agent_runtime.service import AssistantService
 
+pytestmark = pytest.mark.unit
+
 
 class TestApiErrorStatusInStatusPayload:
     """0.1.76 新字段 api_error_status 透传到 SSE payload。"""

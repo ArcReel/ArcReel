@@ -17,6 +17,8 @@ from lib.image_backends.base import (
 )
 from lib.providers import PROVIDER_ARK
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

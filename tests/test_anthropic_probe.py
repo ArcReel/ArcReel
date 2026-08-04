@@ -17,6 +17,8 @@ from lib.config.anthropic_probe import (
     run_test,
 )
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.mark.asyncio
 async def test_probe_messages_success() -> None:

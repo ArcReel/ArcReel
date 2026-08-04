@@ -158,6 +158,7 @@ def _make_reference_video_script(episode: int, content_mode: str, unit_specs: li
 
 
 class TestCostEstimationService:
+    @pytest.mark.unit
     async def test_estimate_single_episode(self, db_factory):
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -181,6 +182,7 @@ class TestCostEstimationService:
                 assert isinstance(cost, dict)
                 assert all(isinstance(v, (int, float)) for v in cost.values())
 
+    @pytest.mark.unit
     async def test_actual_costs_included(self, db_factory):
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -424,6 +426,7 @@ class TestCostEstimationService:
         assert project_actual["video"]["USD"] == pytest.approx(3.0)
         assert "unassigned" not in project_actual
 
+    @pytest.mark.unit
     async def test_grid_actual_costs_apportioned_to_scenes(self, db_factory):
         """Grid actual cost should be split evenly among scenes sharing the grid_id."""
         resolver = ConfigResolver(db_factory)
@@ -513,6 +516,7 @@ class TestCostEstimationService:
         assert project_actual["image"]["USD"] == pytest.approx(0.6)
         assert project_actual["unassigned"]["USD"] == pytest.approx(1.4)
 
+    @pytest.mark.unit
     async def test_grid_partial_generation_some_without_grid_id(self, db_factory):
         """Scenes without grid_id should have empty actual image cost."""
         resolver = ConfigResolver(db_factory)
@@ -557,6 +561,7 @@ class TestCostEstimationService:
         for seg in segments[3:]:
             assert seg["actual"]["image"] == {}
 
+    @pytest.mark.unit
     async def test_single_mode_unaffected_by_grid_logic(self, db_factory):
         """Single generation mode should be completely unaffected by grid apportionment."""
         resolver = ConfigResolver(db_factory)
@@ -587,6 +592,7 @@ class TestCostEstimationService:
         seg2 = result["episodes"][0]["segments"][1]
         assert seg2["actual"]["image"] == {}
 
+    @pytest.mark.unit
     async def test_project_level_actual_split_by_asset_type(self, db_factory):
         """project-level image 成本应按 output_path 前缀拆分为 characters/scenes/props 三项。"""
         resolver = ConfigResolver(db_factory)
@@ -616,6 +622,7 @@ class TestCostEstimationService:
         # 旧 key 不应出现
         assert "character_and_clue" not in actual
 
+    @pytest.mark.unit
     async def test_dirty_script_skipped_with_warning(self, db_factory, caplog):
         """单集脏脚本(segments=null)不应让整个项目费用估算 5xx;脏集降级为 0 segments
         + warning,其他正常集仍参与估算。"""
@@ -662,6 +669,7 @@ class TestCostEstimationService:
         warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any("ep2.json" in m for m in warnings), warnings
 
+    @pytest.mark.unit
     async def test_audio_estimate_per_segment_by_characters(self, db_factory):
         """旁白配音预估 = novel_text 字符数 × 按字符费率；models 含 audio 条目。"""
         from lib.config.service import ConfigService
@@ -695,6 +703,7 @@ class TestCostEstimationService:
         assert result["episodes"][0]["totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.008)
         assert result["project_totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.008)
 
+    @pytest.mark.unit
     async def test_audio_actual_costs_included(self, db_factory):
         """旁白实际费用按 segment 聚合进 actual.audio。"""
         resolver = ConfigResolver(db_factory)
@@ -724,6 +733,7 @@ class TestCostEstimationService:
         assert seg["actual"]["audio"]["CNY"] == pytest.approx(0.008)
         assert result["project_totals"]["actual"]["audio"]["CNY"] == pytest.approx(0.008)
 
+    @pytest.mark.unit
     async def test_ad_storyboard_estimates_per_shot(self, db_factory):
         """ad 项目（分镜路径）：逐镜头返回分镜图 + 视频估值，聚合进集/项目两级合计。"""
         resolver = ConfigResolver(db_factory)
@@ -750,6 +760,7 @@ class TestCostEstimationService:
         assert result["episodes"][0]["totals"]["estimate"]["image"]
         assert result["project_totals"]["estimate"]["video"]
 
+    @pytest.mark.unit
     async def test_ad_voiceover_does_not_produce_audio_estimate(self, db_factory):
         """ad 镜头口播文案不产生旁白配音预估（本期草稿导出后在剪映配音）。"""
         from lib.config.service import ConfigService
@@ -772,6 +783,7 @@ class TestCostEstimationService:
 
         assert result["episodes"][0]["segments"][0]["estimate"]["audio"] == {}
 
+    @pytest.mark.unit
     async def test_ad_reference_video_skips_image_estimate(self, db_factory):
         """ad + 参考生视频路径跳过分镜步骤：不产生分镜图估值，视频估值按 unit 计费后摊回镜头。
 
@@ -802,6 +814,7 @@ class TestCostEstimationService:
         assert result["project_totals"]["estimate"].get("image", {}) == {}
         assert result["project_totals"]["estimate"]["video"]
 
+    @pytest.mark.unit
     async def test_ad_reference_video_apportions_unit_cost_across_shots(self, db_factory, monkeypatch):
         """unit 费用均摊到成员镜头，除不尽时余数补末镜，合计与 unit 原值分文不差。
 
@@ -844,6 +857,7 @@ class TestCostEstimationService:
         assert round(sum(shares), 6) == ep_total
         assert ep_total == result["project_totals"]["estimate"]["video"][currency]
 
+    @pytest.mark.unit
     async def test_ad_reference_video_apportions_actual_cost_across_shots(self, db_factory):
         """实际费用同样按 unit 分摊：usage 记录的 segment_id 是 unit ID，不是镜头 ID。
 
@@ -883,6 +897,7 @@ class TestCostEstimationService:
         assert result["episodes"][0]["totals"]["actual"]["video"]["USD"] == pytest.approx(1.6)
         assert result["project_totals"]["actual"]["video"]["USD"] == pytest.approx(1.6)
 
+    @pytest.mark.unit
     async def test_ad_reference_video_merges_shot_level_legacy_video_actual(self, db_factory):
         """切换到 reference_video 前，某镜头已在 storyboard 模式产生过视频实付（按 shot_id
         记账），切换后与 unit 分摊额是两笔独立支出，须相加而非互相替换。
@@ -934,6 +949,7 @@ class TestCostEstimationService:
         assert ep_total == pytest.approx(1.5 + 0.4)
         assert result["project_totals"]["actual"]["video"]["USD"] == pytest.approx(1.5 + 0.4)
 
+    @pytest.mark.unit
     async def test_ad_reference_video_estimate_uses_rounded_up_unit_duration(self, db_factory, monkeypatch):
         """取档向上的 unit：预估金额按取档后的秒数（8s）计，而非剧本原始总时长（5s）。
 
@@ -981,6 +997,7 @@ class TestCostEstimationService:
         assert sum(seg["estimate"]["video"].values()) > sum(base_seg["estimate"]["video"].values())
         assert seg["estimate"]["video"] == rounded["episodes"][0]["totals"]["estimate"]["video"]
 
+    @pytest.mark.unit
     async def test_ad_reference_video_fallback_derivation_applies_max_unit_duration(self, db_factory, monkeypatch):
         """剧本尚未派生 reference_units 时，估算现推的分组与执行侧同受供应商时长上限约束。
 
@@ -1384,6 +1401,7 @@ class TestCostEstimationService:
         assert segments[0]["estimate"]["video"]
         assert result["project_totals"]["estimate"]["video"]
 
+    @pytest.mark.unit
     async def test_empty_episodes(self, db_factory):
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
@@ -1395,6 +1413,7 @@ class TestCostEstimationService:
         assert result["episodes"] == []
         assert result["project_totals"]["estimate"] == {}
 
+    @pytest.mark.unit
     async def test_cost_estimation_uses_t2i_default_when_split_fields_present(self, db_factory):
         """project 仅有 image_provider_t2i 时，cost estimation 用此值估算（T2I 是 cost estimation 锚点）。"""
         resolver = ConfigResolver(db_factory)
@@ -1414,6 +1433,7 @@ class TestCostEstimationService:
         assert result["models"]["image"]["provider"] == "openai"
         assert result["models"]["image"]["model"] == "gpt-image-1"
 
+    @pytest.mark.unit
     async def test_cost_estimation_no_image_provider_falls_back_to_resolver(self, db_factory):
         """project 没有 image_provider_t2i 时，cost_estimation 不再自行 fallback I2I 或 legacy
         （legacy 由 ProjectManager.load_project 的 lazy upgrade 处理；I2I 和 T2I 是正交能力槽，
@@ -1438,6 +1458,7 @@ class TestCostEstimationService:
         assert result["models"]["image"]["provider"] == "unknown"
         assert result["models"]["image"]["model"] == "unknown"
 
+    @pytest.mark.unit
     async def test_cost_estimation_resolve_resolution_exception_degrades_gracefully(self, db_factory, monkeypatch):
         """resolve_resolution 抛异常时预估整体降级而非中断，与 image/video/audio 三处 except 兜底同构。"""
         resolver = ConfigResolver(db_factory)
@@ -1717,6 +1738,7 @@ class TestCostEstimationService:
 
         assert priced_models == ["kling-v3-omni"]
 
+    @pytest.mark.unit
     async def test_custom_provider_estimates_use_db_prices(self, db_factory):
         """自定义供应商预估：image/video/audio 单价来自 DB（与实际记账同源），估值按配置价格非零。"""
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
@@ -1784,6 +1806,7 @@ class TestCostEstimationService:
         # 集/项目两级合计同步纳入
         assert result["project_totals"]["estimate"]["video"]["USD"] == pytest.approx(0.60)
 
+    @pytest.mark.unit
     async def test_custom_provider_grid_estimate_uses_db_price(self, db_factory):
         """grid 模式下自定义供应商图片单价同样贯通（2K grid 单价 = DB flat 价）。"""
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
@@ -1830,6 +1853,7 @@ class TestCostEstimationService:
         # 集合计 = 满张单价 0.09 USD
         assert result["episodes"][0]["totals"]["estimate"]["image"]["USD"] == pytest.approx(0.09, abs=1e-4)
 
+    @pytest.mark.unit
     async def test_custom_provider_without_price_degrades_to_zero(self, db_factory):
         """自定义供应商查无价格模型：预估降级为 0（记 debug 日志、不抛错），与现状降级口径一致。"""
         resolver = ConfigResolver(db_factory)
@@ -1851,6 +1875,7 @@ class TestCostEstimationService:
         seg = result["episodes"][0]["segments"][0]
         assert seg["estimate"]["image"] == {}
 
+    @pytest.mark.unit
     async def test_custom_provider_malformed_id_degrades_to_zero(self, db_factory):
         """畸形 custom- provider id（非数字后缀）：parse_provider_id 的 ValueError 需降级为 0，不抛错。"""
         resolver = ConfigResolver(db_factory)

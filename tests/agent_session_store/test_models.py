@@ -8,6 +8,8 @@ from sqlalchemy.exc import IntegrityError
 
 from lib.agent_session_store.models import AgentSessionEntry, AgentSessionSummary
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.mark.asyncio
 async def test_entry_can_round_trip(session_factory):

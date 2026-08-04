@@ -8,6 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture()
 def reload_app_with_env(monkeypatch: pytest.MonkeyPatch):

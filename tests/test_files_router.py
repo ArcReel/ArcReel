@@ -70,6 +70,7 @@ def _client(monkeypatch, tmp_path):
 
 
 class TestFilesRouter:
+    @pytest.mark.unit
     def test_source_and_file_endpoints(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
 
@@ -107,6 +108,7 @@ class TestFilesRouter:
             missing = client.get("/api/v1/projects/demo/source/missing.txt")
             assert missing.status_code == 404
 
+    @pytest.mark.unit
     def test_source_upload_race_project_deleted_reports_project_not_found(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
 
@@ -125,6 +127,7 @@ class TestFilesRouter:
             assert resp.status_code == 404
             assert resp.json()["detail"] == zh_errors.MESSAGES["project_not_found"].format(name="demo")
 
+    @pytest.mark.unit
     def test_source_upload_loader_file_missing_with_project_intact_stays_generic(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
 
@@ -142,6 +145,7 @@ class TestFilesRouter:
             assert resp.status_code == 404
             assert resp.json()["detail"] == zh_errors.MESSAGES["resource_not_found"]
 
+    @pytest.mark.unit
     def test_upload_assets_and_drafts(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
 
@@ -220,6 +224,7 @@ class TestFilesRouter:
             assert project["characters"]["Alice"]["reference_image"] == "characters/refs/Alice.webp"
             assert project["props"]["玉佩"]["prop_sheet"] == "props/玉佩.jpg"
 
+    @pytest.mark.unit
     def test_character_audio_ref_upload_success(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
@@ -232,6 +237,7 @@ class TestFilesRouter:
             project = pm.load_project("demo")
             assert project["characters"]["Alice"]["reference_audio"] == "characters/refs_audio/Alice.wav"
 
+    @pytest.mark.unit
     def test_character_audio_ref_rejects_bad_extension(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
@@ -242,6 +248,7 @@ class TestFilesRouter:
             assert resp.status_code == 400
             assert "音频类型" in resp.json()["detail"] or "audio type" in resp.json()["detail"].lower()
 
+    @pytest.mark.unit
     def test_character_audio_ref_rejects_oversized(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         oversized = b"\x00" * (files.AUDIO_REFERENCE_MAX_BYTES + 1)
@@ -253,6 +260,7 @@ class TestFilesRouter:
             assert resp.status_code == 400
             assert resp.json()["detail"] == zh_errors.MESSAGES["upload_too_large"].format(max_mb=15)
 
+    @pytest.mark.unit
     def test_character_audio_ref_rejects_duration_out_of_range(self, tmp_path, monkeypatch):
         import shutil as _shutil
 
@@ -273,6 +281,7 @@ class TestFilesRouter:
             )
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio", "") == ""
 
+    @pytest.mark.unit
     def test_character_audio_ref_replace_removes_old_extension(self, tmp_path, monkeypatch):
         """替换参考音频且新旧扩展名不同（wav -> mp3）时旧文件应被清理，不留孤儿。"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -302,6 +311,7 @@ class TestFilesRouter:
             new_path = project_dir / "characters" / "refs_audio" / "Alice.mp3"
             assert new_path.exists()
 
+    @pytest.mark.unit
     def test_character_audio_ref_replace_succeeds_when_stale_cleanup_fails(self, tmp_path, monkeypatch):
         """替换成功但旧文件物理删除失败（权限/IO 错误）时，请求仍应成功——新文件与字段已提交，
         不应因清理失败误报整次替换失败并诱导重试（重试时旧文件已找不到指针，成为孤儿）。"""
@@ -344,6 +354,7 @@ class TestFilesRouter:
                 pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == "characters/refs_audio/Alice.mp3"
             )
 
+    @pytest.mark.unit
     def test_delete_character_reference_audio(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
@@ -361,6 +372,7 @@ class TestFilesRouter:
             assert not audio_path.exists()
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio") == ""
 
+    @pytest.mark.unit
     def test_delete_character_reference_audio_preserves_pointer_on_unlink_failure(self, tmp_path, monkeypatch):
         """物理删除失败（权限/IO 错误，含 Windows 文件占用）时保留字段指针，允许重试发现并清理该文件。"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -390,12 +402,14 @@ class TestFilesRouter:
             )
             assert audio_path.exists()
 
+    @pytest.mark.unit
     def test_delete_character_reference_audio_unknown_character_404(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
             resp = client.delete("/api/v1/projects/demo/characters/Ghost/reference-audio")
             assert resp.status_code == 404
 
+    @pytest.mark.unit
     def test_delete_character_reference_audio_noop_when_no_audio(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
@@ -403,6 +417,7 @@ class TestFilesRouter:
             assert resp.status_code == 200
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio", "") == ""
 
+    @pytest.mark.unit
     def test_delete_character_reference_audio_ignores_out_of_project_path(self, tmp_path, monkeypatch):
         """reference_audio 可经资产 PATCH 写成任意字符串；越界路径只清字段，不得删项目外文件。"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -416,6 +431,7 @@ class TestFilesRouter:
             assert outsider.exists()
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio") == ""
 
+    @pytest.mark.unit
     def test_character_audio_ref_replace_ignores_out_of_project_old_path(self, tmp_path, monkeypatch):
         """替换时的旧文件清理同样受项目目录约束，越界的存量值不触发删除。"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -439,6 +455,7 @@ class TestFilesRouter:
                 pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == "characters/refs_audio/Alice.mp3"
             )
 
+    @pytest.mark.unit
     def test_delete_character_reference_audio_ignores_path_outside_refs_audio(self, tmp_path, monkeypatch):
         """reference_audio 越权指向项目内 refs_audio 之外的文件（如 project.json）时，只清字段，不得删该文件。"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -452,6 +469,7 @@ class TestFilesRouter:
             assert project_json.exists()
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio") == ""
 
+    @pytest.mark.unit
     def test_character_audio_ref_replace_ignores_stale_path_outside_refs_audio(self, tmp_path, monkeypatch):
         """替换时的旧文件清理同样限定在 refs_audio 目录内，落在项目目录内其它位置的存量值不触发删除。"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -475,6 +493,7 @@ class TestFilesRouter:
                 pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == "characters/refs_audio/Alice.mp3"
             )
 
+    @pytest.mark.unit
     def test_product_ref_upload_preserves_original_bytes(self, tmp_path, monkeypatch):
         """产品原图是保真验收锚点：保存管线保留原件字节，不做阈值压缩/重编码。"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -505,6 +524,7 @@ class TestFilesRouter:
             project = pm.load_project("demo")
             assert project["products"]["保温杯"]["reference_images"] == [path]
 
+    @pytest.mark.unit
     def test_product_ref_multiple_uploads_accumulate(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
@@ -524,6 +544,7 @@ class TestFilesRouter:
             for p in paths:
                 assert (project_dir / p).exists()
 
+    @pytest.mark.unit
     def test_product_ref_upload_resolves_nfd_registered_host(self, tmp_path, monkeypatch):
         """宿主资产的存量 key 可能是 NFD：上传入口按坐标系解析存在性，
         否则闸口把 name 归一到 NFC 后会先返回 404，写回侧的解析根本走不到。"""
@@ -549,6 +570,7 @@ class TestFilesRouter:
             assert name_nfc not in products  # 不因上传新造一条 NFC 产品
             assert products[name_nfd]["reference_images"] == [resp.json()["path"]]
 
+    @pytest.mark.unit
     def test_product_ref_unknown_product_404(self, tmp_path, monkeypatch):
         """原图列表是文件的唯一指针：产品不存在时拒收，避免落下孤儿文件。"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -561,6 +583,7 @@ class TestFilesRouter:
             refs_dir = pm.get_project_path("demo") / "products" / "refs"
             assert not refs_dir.exists() or not any(refs_dir.iterdir())
 
+    @pytest.mark.unit
     def test_product_ref_invalid_image_rejected(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
@@ -570,6 +593,7 @@ class TestFilesRouter:
             )
             assert resp.status_code == 400
 
+    @pytest.mark.unit
     def test_product_sheet_upload_updates_metadata(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
@@ -582,6 +606,7 @@ class TestFilesRouter:
             project = pm.load_project("demo")
             assert project["products"]["保温杯"]["product_sheet"] == "products/保温杯.jpg"
 
+    @pytest.mark.unit
     def test_list_files_includes_products(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
@@ -593,6 +618,7 @@ class TestFilesRouter:
             assert listed.status_code == 200
             assert any(item["name"] == "保温杯.jpg" for item in listed.json()["files"]["products"])
 
+    @pytest.mark.unit
     def test_style_image_endpoints(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
 
@@ -622,6 +648,7 @@ class TestFilesRouter:
             )
             assert bad_style_ext.status_code == 400
 
+    @pytest.mark.unit
     def test_security_and_error_paths(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
 
@@ -642,6 +669,7 @@ class TestFilesRouter:
             )
             assert missing_source.status_code == 404
 
+    @pytest.mark.unit
     def test_upload_without_name_and_keyerror_tolerance(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
@@ -816,6 +844,7 @@ class TestFilesRouter:
             # 上限取整 MB，文案里的 max_mb 才是对用户有意义的数字
             assert resp.json()["detail"] == zh_errors.MESSAGES["upload_too_large"].format(max_mb=1)
 
+    @pytest.mark.unit
     def test_source_decode_and_draft_mode_helpers(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
@@ -911,6 +940,7 @@ class TestFilesRouter:
             unknown_draft = client.delete("/api/v1/projects/demo/drafts/9/step1")
             assert unknown_draft.status_code == 404
 
+    @pytest.mark.unit
     def test_cache_control_immutable_with_version_param(self, tmp_path, monkeypatch):
         """带 ?v= 参数时应返回 immutable 缓存头"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -924,6 +954,7 @@ class TestFilesRouter:
             assert "immutable" in resp.headers.get("cache-control", "")
             assert "max-age=31536000" in resp.headers.get("cache-control", "")
 
+    @pytest.mark.unit
     def test_cache_control_immutable_for_version_files(self, tmp_path, monkeypatch):
         """versions/ 路径下的文件应返回 immutable 缓存头"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -936,6 +967,7 @@ class TestFilesRouter:
             assert resp.status_code == 200
             assert "immutable" in resp.headers.get("cache-control", "")
 
+    @pytest.mark.unit
     def test_no_cache_control_without_version(self, tmp_path, monkeypatch):
         """无 ?v= 参数且非 versions 路径时不应有 immutable 头"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -948,6 +980,7 @@ class TestFilesRouter:
             assert resp.status_code == 200
             assert "immutable" not in resp.headers.get("cache-control", "")
 
+    @pytest.mark.unit
     def test_files_helper_functions(self, tmp_path):
         assert files._get_step_files("narration") == {1: "step1_segments.json"}
         assert files._get_step_files("drama") == {1: "step1_normalized_script.json"}
@@ -957,6 +990,7 @@ class TestFilesRouter:
         # 其他 generation_mode 回落到 content_mode
         assert files._get_step_files("narration", "storyboard") == {1: "step1_segments.json"}
 
+    @pytest.mark.unit
     def test_resolve_step1_path_narration_prefers_own_legacy_md(self, tmp_path):
         """narration step1 缺 .json 时优先回落自家旧 .md，不被跨模式遗留 reference_units.md 抢占。"""
         drafts_dir = tmp_path / "drafts" / "episode_1"
@@ -966,6 +1000,7 @@ class TestFilesRouter:
         resolved = files._resolve_step1_path(drafts_dir, 1, drafts_dir / "step1_segments.json")
         assert resolved.name == "step1_segments.md"
 
+    @pytest.mark.unit
     def test_draft_content_reference_video_mode(self, tmp_path, monkeypatch):
         """参考生视频模式下读/写 step1_reference_units.json，避免被按 content_mode 错误路由；
         旧 .md 仅存量兼读，写入经 ScriptReviewService 单一出口做结构校验后落结构化 .json"""
@@ -1021,6 +1056,7 @@ class TestFilesRouter:
             saved = json.loads(resp.text)
             assert saved["units"][0]["unit_id"] == "E1U01"
 
+    @pytest.mark.unit
     def test_draft_content_fallback_when_mode_mismatches_file(self, tmp_path, monkeypatch):
         """content_mode=narration 但磁盘上只有 reference_units 文件（集级模式切换/历史项目）也能读到"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -1035,6 +1071,7 @@ class TestFilesRouter:
             assert resp.status_code == 200
             assert resp.text == "fallback content"
 
+    @pytest.mark.unit
     def test_draft_content_routes_by_project_generation_mode(self, tmp_path, monkeypatch):
         """草稿文件名按项目生成路线路由：参考路线全项目落 step1_reference_units.json。"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -1069,6 +1106,7 @@ class TestFilesRouter:
         assert content_mode == "narration"
         assert gen_mode == "reference_video"
 
+    @pytest.mark.unit
     def test_draft_event_emission(self, tmp_path, monkeypatch):
         """PUT drafts 端点应发射 draft:created/updated 事件"""
         from unittest.mock import patch
@@ -1106,6 +1144,7 @@ class TestFilesRouter:
             assert change2["action"] == "updated"
             assert change2["important"] is False
 
+    @pytest.mark.unit
     def test_serve_global_asset_image(self, tmp_path, monkeypatch):
         """全局资产图片能够被正确读取返回"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -1117,6 +1156,7 @@ class TestFilesRouter:
             assert resp.status_code == 200
             assert resp.content == b"img-bytes"
 
+    @pytest.mark.unit
     def test_serve_global_asset_scene_and_prop(self, tmp_path, monkeypatch):
         """scene/prop 子目录也能正确读取"""
         client, pm = _client(monkeypatch, tmp_path)
@@ -1133,6 +1173,7 @@ class TestFilesRouter:
             assert r_prop.status_code == 200
             assert r_prop.content == b"prop-bytes"
 
+    @pytest.mark.unit
     def test_global_asset_invalid_type_returns_400(self, tmp_path, monkeypatch):
         """非法 asset_type 返回 400"""
         client, _ = _client(monkeypatch, tmp_path)
@@ -1141,6 +1182,7 @@ class TestFilesRouter:
             resp = client.get("/api/v1/global-assets/invalid/abc.png")
             assert resp.status_code == 400
 
+    @pytest.mark.unit
     def test_global_asset_missing_file_returns_404(self, tmp_path, monkeypatch):
         """文件不存在时返回 404"""
         client, _ = _client(monkeypatch, tmp_path)
@@ -1149,6 +1191,7 @@ class TestFilesRouter:
             resp = client.get("/api/v1/global-assets/character/nonexistent.png")
             assert resp.status_code == 404
 
+    @pytest.mark.unit
     def test_global_asset_path_traversal_rejected(self, tmp_path, monkeypatch):
         """filename 中包含 .. 应被阻止（400/403/404 均可接受）"""
         client, _ = _client(monkeypatch, tmp_path)
@@ -1158,6 +1201,7 @@ class TestFilesRouter:
             resp = client.get("/api/v1/global-assets/character/..%2Fevil.png")
             assert resp.status_code in (400, 403, 404)
 
+    @pytest.mark.unit
     def test_global_asset_symlink_escape_returns_403(self, tmp_path, monkeypatch):
         """在 _global_assets/character/ 里放一个指向外部文件的 symlink,应被 resolve-relative 检查拦截为 403。"""
         import os
@@ -1203,6 +1247,7 @@ def _upload_source(client, project_name: str, filename: str, content: bytes, on_
 
 
 class TestSourceMultiFormatUpload:
+    @pytest.mark.unit
     def test_upload_source_utf8_txt_normalized(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
@@ -1214,6 +1259,7 @@ class TestSourceMultiFormatUpload:
             assert body["original_kept"] is False
             assert body["chapter_count"] == 0
 
+    @pytest.mark.unit
     def test_upload_source_gbk_txt_normalized_and_raw_kept(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
@@ -1225,12 +1271,14 @@ class TestSourceMultiFormatUpload:
             assert body["used_encoding"] and body["used_encoding"].lower() != "utf-8"
             assert body["original_kept"] is True
 
+    @pytest.mark.unit
     def test_upload_source_doc_rejected_with_400(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
             resp = _upload_source(client, "demo", "x.doc", b"binary")
             assert resp.status_code == 400
 
+    @pytest.mark.unit
     def test_upload_source_conflict_returns_409_with_suggestion(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
@@ -1241,6 +1289,7 @@ class TestSourceMultiFormatUpload:
             assert body["detail"]["existing"] == "novel.txt"
             assert body["detail"]["suggested_name"] == "novel_1"
 
+    @pytest.mark.unit
     def test_upload_source_on_conflict_replace(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
@@ -1252,6 +1301,7 @@ class TestSourceMultiFormatUpload:
             assert get_resp.status_code == 200
             assert get_resp.text == "新内容"
 
+    @pytest.mark.unit
     def test_upload_source_on_conflict_rename(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
@@ -1261,6 +1311,7 @@ class TestSourceMultiFormatUpload:
             body = resp.json()
             assert body["filename"] == "novel_1.txt"
 
+    @pytest.mark.unit
     def test_delete_source_cascades_raw(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:
@@ -1275,6 +1326,7 @@ class TestSourceMultiFormatUpload:
             assert resp.status_code == 200
             assert not raw_path.exists()
 
+    @pytest.mark.unit
     def test_upload_source_invalid_on_conflict_returns_422(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
@@ -1285,6 +1337,7 @@ class TestSourceMultiFormatUpload:
             # FastAPI 用 Literal 自动校验 query param，非法值返回 422
             assert resp.status_code == 422
 
+    @pytest.mark.unit
     def test_upload_source_rejects_oversized_upload_by_content_length(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         from lib.source_loader import SourceLoader
@@ -1301,6 +1354,7 @@ class TestSourceMultiFormatUpload:
             )
             assert resp.status_code == 413
 
+    @pytest.mark.unit
     def test_list_files_source_includes_raw_filename(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
@@ -1312,6 +1366,7 @@ class TestSourceMultiFormatUpload:
             entry = next(e for e in source if e["name"] == "old.txt")
             assert entry["raw_filename"] == "old.txt"
 
+    @pytest.mark.unit
     def test_list_files_source_raw_filename_none_for_pure_utf8(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)
         with client:
@@ -1345,6 +1400,7 @@ def _client_with_pm_raising(monkeypatch, sentinel: str):
 class TestFilesUnexpectedErrorsMapTo500:
     """未预期异常应映射为通用 500，且不在响应体泄露内部异常细节。"""
 
+    @pytest.mark.unit
     def test_upload_file_unexpected_error_maps_to_500(self, monkeypatch):
         sentinel = "upload-boom-a1b2"
         client = _client_with_pm_raising(monkeypatch, sentinel)
@@ -1356,6 +1412,7 @@ class TestFilesUnexpectedErrorsMapTo500:
         assert resp.status_code == 500
         assert sentinel not in resp.text
 
+    @pytest.mark.unit
     def test_list_project_files_unexpected_error_maps_to_500(self, monkeypatch):
         sentinel = "list-boom-c3d4"
         client = _client_with_pm_raising(monkeypatch, sentinel)
@@ -1364,6 +1421,7 @@ class TestFilesUnexpectedErrorsMapTo500:
         assert resp.status_code == 500
         assert sentinel not in resp.text
 
+    @pytest.mark.unit
     def test_get_source_file_unexpected_error_maps_to_500(self, monkeypatch):
         sentinel = "get-source-boom-e5f6"
         client = _client_with_pm_raising(monkeypatch, sentinel)
@@ -1372,6 +1430,7 @@ class TestFilesUnexpectedErrorsMapTo500:
         assert resp.status_code == 500
         assert sentinel not in resp.text
 
+    @pytest.mark.unit
     def test_update_source_file_unexpected_error_maps_to_500(self, monkeypatch):
         sentinel = "update-source-boom-7890"
         client = _client_with_pm_raising(monkeypatch, sentinel)
@@ -1384,6 +1443,7 @@ class TestFilesUnexpectedErrorsMapTo500:
         assert resp.status_code == 500
         assert sentinel not in resp.text
 
+    @pytest.mark.unit
     def test_delete_source_file_unexpected_error_maps_to_500(self, monkeypatch):
         sentinel = "delete-source-boom-1a2b"
         client = _client_with_pm_raising(monkeypatch, sentinel)
@@ -1392,6 +1452,7 @@ class TestFilesUnexpectedErrorsMapTo500:
         assert resp.status_code == 500
         assert sentinel not in resp.text
 
+    @pytest.mark.unit
     def test_upload_style_image_unexpected_error_maps_to_500(self, monkeypatch):
         sentinel = "style-image-boom-3c4d"
         client = _client_with_pm_raising(monkeypatch, sentinel)
@@ -1403,6 +1464,7 @@ class TestFilesUnexpectedErrorsMapTo500:
         assert resp.status_code == 500
         assert sentinel not in resp.text
 
+    @pytest.mark.unit
     def test_upload_style_image_vision_unsupported_maps_to_localized_400(self, tmp_path, monkeypatch):
         """简单档模型不支持 vision 时，400 detail 走 i18n 翻译，不透出裸中文技术消息。"""
         from lib.config.resolver import VisionCapabilityError
@@ -1429,6 +1491,7 @@ class TestFilesUnexpectedErrorsMapTo500:
         # 英文 zh 环境默认无 Accept-Language，走中文翻译文案，而非 __str__ 的英文技术消息
         assert "不支持图像输入" in detail
 
+    @pytest.mark.unit
     def test_upload_style_image_backend_value_error_maps_to_500_not_leaked(self, tmp_path, monkeypatch):
         """非 vision 校验的后端构造 ValueError（如凭证文件路径缺失 project_id）不得原样透出为 400。"""
         sentinel = "/secret/vertex_keys/service-account-9f8e.json"

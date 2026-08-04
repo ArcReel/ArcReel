@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from claude_agent_sdk import project_key_for_directory
 
 from lib.agent_session_store import make_project_key
+
+pytestmark = pytest.mark.unit
 
 
 def test_matches_sdk_helper(tmp_path: Path):

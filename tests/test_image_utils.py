@@ -10,6 +10,8 @@ from PIL import Image
 
 from lib.image_utils import compress_image_bytes, normalize_uploaded_image
 
+pytestmark = pytest.mark.unit
+
 
 class TestCompressImageBytes:
     """compress_image_bytes 测试。"""

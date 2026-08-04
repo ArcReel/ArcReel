@@ -21,6 +21,8 @@ from lib.db.base import Base
 from lib.db.models.api_call import ApiCall
 from lib.ledger import Ledger, _settlement_from_result
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def factory() -> Any:

@@ -1,8 +1,11 @@
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from scripts.fixtures.reference_video.generate_fixtures import generate_color_refs
+
+pytestmark = pytest.mark.unit
 
 
 def test_generate_color_refs_creates_n_pngs(tmp_path: Path):

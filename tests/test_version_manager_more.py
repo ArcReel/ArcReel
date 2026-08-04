@@ -3,6 +3,8 @@ import pytest
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.version_manager import VersionManager, _get_versions_file_lock
 
+pytestmark = pytest.mark.unit
+
 
 class TestVersionManagerMore:
     def test_lock_is_reused_for_same_file(self, tmp_path):

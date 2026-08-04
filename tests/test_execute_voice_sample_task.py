@@ -12,6 +12,8 @@ from lib.resource_paths import resource_relative_path
 from server.services import generation_tasks
 from server.services.generation_context import AudioLaneResult, GenerationContext
 
+pytestmark = pytest.mark.unit
+
 
 def _audio_ctx(generator):
     ctx = GenerationContext(

@@ -1,9 +1,13 @@
 import json
 
+import pytest
+
 from server.agent_runtime.failure_observation import (
     build_startup_failure_observation,
     build_turn_failure_observation,
 )
+
+pytestmark = pytest.mark.unit
 
 
 def test_startup_observation_uses_standard_exception_chain_without_serializing_attributes() -> None:

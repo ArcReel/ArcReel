@@ -24,6 +24,8 @@ from server.services.image_edit_tasks import (
     resolve_current_image_rel,
 )
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def session_factory(monkeypatch):

@@ -3,10 +3,14 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from lib.project_migrations.v1_to_v2_normalize_providers import (
     migrate_project_dict,
     migrate_v1_to_v2,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class TestMigrateProjectDictPureFunction:

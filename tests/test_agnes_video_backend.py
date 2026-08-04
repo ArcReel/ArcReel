@@ -16,6 +16,8 @@ from lib.video_backends.base import (
     VideoGenerationRequest,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def _make_response(status_code: int, json_body: dict) -> MagicMock:
     resp = MagicMock()

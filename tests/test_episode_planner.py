@@ -96,9 +96,11 @@ def _plan_response(episodes: list[dict]) -> str:
 
 
 class TestFindAllOverlapping:
+    @pytest.mark.unit
     def test_collects_overlapping_starts(self):
         assert _find_all_overlapping("aaaa", "aaa") == [0, 1]
 
+    @pytest.mark.unit
     def test_empty_needle_returns_empty_without_hanging(self):
         # 空 needle 防御边界：直接返回 []，不进入逐位滑动（调用方 anchor 受 min_length=2 约束）
         assert _find_all_overlapping("abcabc", "") == []
@@ -106,6 +108,7 @@ class TestFindAllOverlapping:
 
 
 class TestPlan:
+    @pytest.mark.unit
     async def test_plan_writes_ledger_derives_files_and_advances_cursor(self, tmp_path: Path):
         project_dir = _write_project(tmp_path)
         fake = _FakeTextGenerator(
@@ -147,6 +150,7 @@ class TestPlan:
         assert result.episodes[0].reading_units > 0
         assert result.source_exhausted is False
 
+    @pytest.mark.unit
     async def test_plan_rejects_old_flow_episodes_without_source_range(self, tmp_path: Path):
         """旧拆分流程留下的集（无位置记录）拦住规划：指名集号并指路全量重置，不调模型。"""
         project_dir = _write_project(
@@ -166,6 +170,7 @@ class TestPlan:
             {"episode": 1, "title": "旧集", "script_file": "scripts/episode_1.json"}
         ]
 
+    @pytest.mark.unit
     async def test_plan_registers_orphan_episode_file_and_rejects_instead_of_overwriting(self, tmp_path: Path):
         """账本为空但磁盘已有手动预拆分的集文件：规划先自愈识别出这是孤儿集号再拒绝，
         不会因为账本读起来是空的就当无主原文重新生成并覆盖手动内容。"""
@@ -182,6 +187,7 @@ class TestPlan:
         # 手动预拆分的集文件原样保留，未被规划重新生成覆盖
         assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == "人工预拆分的旧集内容。"
 
+    @pytest.mark.unit
     async def test_plan_rejects_legacy_status_entry_without_source_range(self, tmp_path: Path):
         """存量项目遗留的已废弃状态值不影响判定：看的是有没有 source_range。"""
         project_dir = _write_project(
@@ -207,6 +213,7 @@ class TestPlan:
         # 集文件不动：没有位置记录的集，其物理文件就是最终记录
         assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == "人工改过的内容。"
 
+    @pytest.mark.unit
     async def test_full_reset_unblocks_planning_for_legacy_ledger(self, tmp_path: Path):
         """老项目出路：无位置记录的账本先被 plan 拒绝，全量重置后可正常从头规划。"""
         project_dir = _write_project(
@@ -232,6 +239,7 @@ class TestPlan:
         assert [e["episode"] for e in eps] == [1]
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP1)}
 
+    @pytest.mark.unit
     async def test_plan_retries_with_failure_reason_when_anchor_invalid(self, tmp_path: Path):
         """机械校验失败自动重试：锚点不存在 → 重试 prompt 附失败原因，第二轮通过。"""
         project_dir = _write_project(tmp_path)
@@ -253,6 +261,7 @@ class TestPlan:
         project = _load_project(project_dir)
         assert len(project["episodes"]) == 1
 
+    @pytest.mark.unit
     async def test_plan_retries_on_ambiguous_and_non_monotonic_anchors(self, tmp_path: Path):
         """锚点不唯一 / 范围不连续同样触发重试，失败原因可区分。"""
         repeated = "李恒抬头看了看天。"
@@ -278,6 +287,7 @@ class TestPlan:
         assert "连续" in fake.requests[2].prompt  # 不连续：报范围推进问题
         assert [s.title for s in result.episodes] == ["丙"]
 
+    @pytest.mark.unit
     async def test_plan_rejects_overlapping_anchor_occurrences_as_ambiguous(self, tmp_path: Path):
         """锚点重叠出现同样判不唯一：非重叠计数会把 "哪哪哪" 中的 "哪哪" 误判为唯一定位。"""
         source = "天哪哪哪，山里炸开了锅。李恒收剑而立。"
@@ -295,6 +305,7 @@ class TestPlan:
         assert "2 次" in fake.requests[1].prompt  # 按允许重叠的口径计数
         assert [s.title for s in result.episodes] == ["乙"]
 
+    @pytest.mark.unit
     async def test_plan_resolves_anchor_with_halfwidth_punctuation(self, tmp_path: Path):
         """锚点与源文仅差全/半角标点宽度（，→ , 与 。→ .）：折叠容错还原精确 NFC 偏移，一次通过不重试。"""
         project_dir = _write_project(tmp_path)
@@ -314,6 +325,7 @@ class TestPlan:
         assert ep1.endswith("玉中藏着剑诀。")  # 源文标点未被改写（仍是全角 。）
         assert [s.title for s in result.episodes] == ["古玉藏诀"]
 
+    @pytest.mark.unit
     async def test_plan_drama_resolves_anchor_with_punctuation_width_mismatch(self, tmp_path: Path):
         """drama 草稿同样走折叠容错：标点宽度不匹配（。→ .）时解析到正确精确偏移。"""
         project_dir = _write_project(tmp_path, content_mode="drama")
@@ -344,6 +356,7 @@ class TestPlan:
         assert ep1 == SOURCE[: _end_of(ANCHOR_EP2)]
         assert [s.title for s in result.episodes] == ["城门遇袭"]
 
+    @pytest.mark.unit
     async def test_plan_resolves_anchor_with_whitespace_width_mismatch(self, tmp_path: Path):
         """锚点空白宽度不匹配（全角空格 ↔ 半角空格）：折叠容错还原精确偏移。"""
         source = "The hero　rose at dawn. Then darkness fell over the land."  # 含全角空格 U+3000
@@ -362,6 +375,7 @@ class TestPlan:
         assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == source[:end]
         assert [s.title for s in result.episodes] == ["Dawn"]
 
+    @pytest.mark.unit
     async def test_plan_resolves_anchor_with_unicode_nfc_mismatch(self, tmp_path: Path):
         """锚点与源文 Unicode 规范形不一致（锚为 NFD 分解形 ↔ 源文 NFC）：折叠兜底对锚副本
         施加与 window 相同的 normalize_source_text 归一再匹配，还原精确偏移；Tier1 与源文坐标不变。"""
@@ -382,6 +396,7 @@ class TestPlan:
         assert ep1 == source[:end]  # 切片取 NFC 原文，未改写源文
         assert [s.title for s in result.episodes] == ["Mở đầu"]
 
+    @pytest.mark.unit
     async def test_plan_resolves_anchor_with_crlf_and_combining_length_change(self, tmp_path: Path):
         """长度护栏：锚同时含 \\r\\n 与会改变长度的组合字符（NFD），两者都让锚比源文对应子串更长。
         归一副本走 normalize_source_text（NFC + 换行统一），end 跨度按归一锚长还原，断言源文偏移/
@@ -408,6 +423,7 @@ class TestPlan:
         assert ep1 == source[:end]  # 切片逐字节落在源文坐标上，未被 \r/组合字符撑长漂移
         assert [s.title for s in result.episodes] == ["Mở đầu"]
 
+    @pytest.mark.unit
     async def test_plan_resolves_anchor_with_curly_double_quote_mismatch(self, tmp_path: Path):
         """源文用弯双引号（U+201C/U+201D），模型回显成直双引号：折叠表新增映射令其对齐。"""
         source = "他说：“古玉里藏着剑诀。”少女沉默不语。"
@@ -429,6 +445,7 @@ class TestPlan:
         assert ep1.endswith("”")  # 源文标点未被改写（仍是弯引号）
         assert [s.title for s in result.episodes] == ["古玉藏诀"]
 
+    @pytest.mark.unit
     async def test_plan_resolves_anchor_with_curly_double_quote_mismatch_reverse(self, tmp_path: Path):
         """反向：源文用直双引号，模型回显成弯双引号，同一折叠表对齐两个方向。"""
         source = '他说："古玉里藏着剑诀。"少女沉默不语。'
@@ -447,6 +464,7 @@ class TestPlan:
         assert ep1 == source[:end]
         assert [s.title for s in result.episodes] == ["古玉藏诀"]
 
+    @pytest.mark.unit
     async def test_plan_resolves_anchor_with_curly_single_quote_mismatch(self, tmp_path: Path):
         """源文用弯单引号（U+2018/U+2019），模型回显成直单引号：折叠表新增映射令其对齐。"""
         source = "少女低声说：‘我不是坏人。’李恒不再追问。"
@@ -468,6 +486,7 @@ class TestPlan:
         assert ep1.endswith("’")  # 源文标点未被改写（仍是弯引号）
         assert [s.title for s in result.episodes] == ["少女辩白"]
 
+    @pytest.mark.unit
     async def test_plan_resolves_anchor_with_cjk_wave_dash_fullwidth_anchor(self, tmp_path: Path):
         """源文用 CJK 波浪号（U+301C），模型回显成全角波浪号（U+FF5E）：两者折叠后同归半角 ~。"""
         source = "古玉估价约〜百金，来历不明。少女转身离去。"
@@ -489,6 +508,7 @@ class TestPlan:
         assert ep1.endswith("〜百金，来历不明。")  # 源文标点未被改写（仍是 CJK 波浪号）
         assert [s.title for s in result.episodes] == ["估价成谜"]
 
+    @pytest.mark.unit
     async def test_plan_resolves_anchor_with_cjk_wave_dash_halfwidth_anchor(self, tmp_path: Path):
         """源文用 CJK 波浪号（U+301C），模型回显成半角 ~：折叠表新增映射令其对齐。"""
         source = "古玉估价约〜百金，来历不明。少女转身离去。"
@@ -509,6 +529,7 @@ class TestPlan:
         assert ep1 == source[:end]
         assert [s.title for s in result.episodes] == ["估价成谜"]
 
+    @pytest.mark.unit
     async def test_plan_resolves_anchor_with_fullwidth_straight_quote_mismatch(self, tmp_path: Path):
         """源文用全角直引号（U+FF02/U+FF07），模型回显成半角直引号：折叠表新增映射令其对齐。"""
         source = "少女喊道：＂别跑，＇等等我＇！＂李恒停下脚步。"
@@ -530,6 +551,7 @@ class TestPlan:
         assert ep1.endswith("＂")  # 源文标点未被改写（仍是全角直引号）
         assert [s.title for s in result.episodes] == ["城门呼喊"]
 
+    @pytest.mark.unit
     async def test_plan_rejects_anchor_ambiguous_after_punctuation_folding(self, tmp_path: Path):
         """折叠后仍命中多处：维持「无法唯一定位」拒绝并重试，不静默挑第一处。"""
         source = "他说好的。她说好的。后来他离开了。"  # 两处「说好的。」全角句号
@@ -548,6 +570,7 @@ class TestPlan:
         assert "2 次" in fake.requests[1].prompt
         assert [s.title for s in result.episodes] == ["乙"]
 
+    @pytest.mark.unit
     async def test_plan_ignores_negative_cursor_offset(self, tmp_path: Path):
         """游标 offset 为负：按非法游标忽略，从源文开头规划而非尾部静默取段。"""
         project_dir = _write_project(tmp_path, planning_cursor={"source_file": "source/novel.txt", "offset": -5})
@@ -560,6 +583,7 @@ class TestPlan:
         eps = _load_project(project_dir)["episodes"]
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP1)}
 
+    @pytest.mark.unit
     async def test_plan_continues_from_cursor_advanced_into_next_source_file(self, tmp_path: Path):
         """游标已合法推进到后一个源文件：续规划从游标起，不重复规划该文件前缀。"""
         c = _end_of(ANCHOR2_MID, SOURCE2)
@@ -578,6 +602,7 @@ class TestPlan:
         eps = {e["episode"]: e for e in _load_project(project_dir)["episodes"]}
         assert eps[2]["source_range"] == {"source_file": "source/novel2.txt", "start": c, "end": len(SOURCE2)}
 
+    @pytest.mark.unit
     async def test_plan_raises_and_leaves_project_untouched_after_retry_exhaustion(self, tmp_path: Path):
         """重试耗尽：抛 EpisodePlanningError，账本与文件零变更（原子性）。"""
         project_dir = _write_project(tmp_path)
@@ -618,6 +643,7 @@ class TestPlan:
         assert (project_dir / "project.json").read_text(encoding="utf-8") == after_concurrent_commit[0]
         assert not list((project_dir / "source").glob("episode_*.txt"))
 
+    @pytest.mark.unit
     async def test_plan_truncation_short_circuits_retry_and_hints_leverage(self, tmp_path: Path):
         """结构化输出被截断时不重试，直接冒泡 EpisodePlanningError 并附带调小窗口/集数的提示（见 docs/adr/0044）。"""
         from lib.text_backends.base import TextOutputTruncatedError
@@ -645,6 +671,7 @@ class TestPlan:
         assert "planning_max_episodes" in str(exc_info.value)
         assert (project_dir / "project.json").read_text(encoding="utf-8") == before
 
+    @pytest.mark.unit
     async def test_plan_accepts_uppercase_json_fence(self, tmp_path: Path):
         """模型输出大写 ```JSON 围栏也能解析（围栏标记不区分大小写）。"""
         project_dir = _write_project(tmp_path)
@@ -658,6 +685,7 @@ class TestPlan:
         assert [s.title for s in result.episodes] == ["古玉藏诀"]
         assert len(fake.requests) == 1  # 一次通过，未触发重试
 
+    @pytest.mark.unit
     async def test_plan_drama_writes_outline_to_ledger(self, tmp_path: Path):
         """drama 条目加厚为分集大纲：story_beats + next_episode_teaser 落账本 outline。"""
         project_dir = _write_project(tmp_path, content_mode="drama")
@@ -685,6 +713,7 @@ class TestPlan:
             "next_episode_teaser": "下集李恒下山",
         }
 
+    @pytest.mark.unit
     async def test_plan_drama_rejects_response_missing_story_beats(self, tmp_path: Path):
         """drama 模式缺 story_beats 的输出被 schema 校验打回重试。"""
         project_dir = _write_project(tmp_path, content_mode="drama")
@@ -710,6 +739,7 @@ class TestPlan:
         assert len(fake.requests) == 2
         assert "schema" in fake.requests[1].prompt
 
+    @pytest.mark.unit
     async def test_plan_screenplay_respects_author_divisions(self, tmp_path: Path):
         """screenplay：mock 返回尊重作者分集的规划 → 账本落作者的边界 / 标题 / 钩子 / 大纲。"""
         project_dir = _write_project(tmp_path, content_mode="drama", extra={"source_kind": "screenplay"})
@@ -749,6 +779,7 @@ class TestPlan:
         }
         assert eps[0]["outline"] == {"story_beats": ["山村习武", "后山得玉"], "next_episode_teaser": "下集李恒下山"}
 
+    @pytest.mark.unit
     async def test_plan_prompt_branches_on_source_kind(self, tmp_path: Path):
         """screenplay 规划 prompt 携带「尊重作者分集 / 无则按剧情弧语义切 / 不依赖固定标记」；novel 不翻面。"""
 
@@ -789,6 +820,7 @@ class TestPlan:
         assert "固定标记" not in nov_prompt
         assert "小说原文片段" in nov_prompt
 
+    @pytest.mark.unit
     async def test_plan_window_setting_limits_prompt_window(self, tmp_path: Path):
         """planning_window_chars 项目设置覆盖内部默认：窗口外内容不进 prompt。"""
         window_chars = _end_of(ANCHOR_EP1) + 4
@@ -802,6 +834,7 @@ class TestPlan:
         cursor = _load_project(project_dir)["planning_cursor"]
         assert cursor == {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP1)}
 
+    @pytest.mark.unit
     async def test_plan_window_elasticity_extends_to_full_text_when_remainder_small(self, tmp_path: Path):
         """剩余全文不足窗口 1.2 倍时窗口直接延伸到全文末尾，避免残余被迫单独成集。"""
         window_chars = len(SOURCE) - 8  # 小于全文长度，但剩余量仍在 1.2 倍窗口以内
@@ -826,6 +859,7 @@ class TestPlan:
         project = _load_project(project_dir)
         assert project["planning_cursor"]["offset"] == len(SOURCE)
 
+    @pytest.mark.unit
     async def test_plan_max_episodes_setting_truncates_batch(self, tmp_path: Path):
         """planning_max_episodes 覆盖每批集数上限：超出的集截断留给下一批。"""
         project_dir = _write_project(tmp_path, extra={"planning_max_episodes": 1})
@@ -847,6 +881,7 @@ class TestPlan:
         assert len(project["episodes"]) == 1
         assert project["planning_cursor"]["offset"] == _end_of(ANCHOR_EP1)
 
+    @pytest.mark.unit
     async def test_plan_final_window_with_whitespace_tail_marks_source_exhausted(self, tmp_path: Path):
         """规划到全文结尾（仅剩空白）：末集贴齐文末，cursor 到文末，报告源文耗尽。"""
         source = SOURCE + "\n\n"
@@ -872,6 +907,7 @@ class TestPlan:
         ep2_file = (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8")
         assert ep2_file.endswith("漩涡之中。\n\n")
 
+    @pytest.mark.unit
     async def test_plan_on_exhausted_source_returns_without_llm_call(self, tmp_path: Path):
         """游标已到文末：直接返回 source_exhausted，不调模型、不动账本。"""
         project_dir = _write_project(
@@ -886,6 +922,7 @@ class TestPlan:
         assert result.episodes == []
         assert fake.requests == []
 
+    @pytest.mark.unit
     async def test_plan_advances_to_next_source_when_current_exhausted(self, tmp_path: Path):
         """多源文件：当前源文件已规划完时，自动从下一个源文件起点续规划。"""
         source2 = "第二部 新的征程。李恒踏入上界，结识了新的同伴。"
@@ -911,6 +948,7 @@ class TestPlan:
         assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == source2
         assert result.source_exhausted is True  # 第二个文件也到结尾，且没有更多源文件
 
+    @pytest.mark.unit
     async def test_plan_not_exhausted_when_more_source_files_remain(self, tmp_path: Path):
         """规划到当前源文件结尾但还有后续源文件：不报源文耗尽。"""
         project_dir = _write_project(tmp_path)
@@ -932,6 +970,7 @@ class TestPlan:
         cursor = _load_project(project_dir)["planning_cursor"]
         assert cursor == {"source_file": "source/novel.txt", "offset": len(SOURCE)}
 
+    @pytest.mark.unit
     async def test_plan_rejects_when_entry_loses_source_range_during_model_call(self, tmp_path: Path):
         """锁内复核：模型调用期间账本被补进无位置记录的条目，提交仍被拦下、账本不写入。"""
         project_dir = _write_project(tmp_path)
@@ -956,6 +995,7 @@ class TestPlan:
         assert [e["episode"] for e in episodes] == [7]
         assert not (project_dir / "source" / "episode_1.txt").exists()
 
+    @pytest.mark.unit
     async def test_plan_forwards_instructions_into_prompt(self, tmp_path: Path):
         """首批规划带 instructions 时，原文进「用户规划意见（必须全部落实）」分节。"""
         project_dir = _write_project(tmp_path)
@@ -969,6 +1009,7 @@ class TestPlan:
         assert "# 用户规划意见（必须全部落实）" in prompt
         assert "严格按章节切分，一章一集" in prompt
 
+    @pytest.mark.unit
     async def test_plan_without_instructions_omits_section(self, tmp_path: Path):
         """不传 instructions 时 prompt 无指令分节，与今日纯剧情弧行为逐字一致。"""
         project_dir = _write_project(tmp_path)
@@ -982,6 +1023,7 @@ class TestPlan:
         assert "用户规划意见" not in prompt
         assert "必须全部落实" not in prompt
 
+    @pytest.mark.unit
     async def test_plan_blank_instructions_treated_as_absent(self, tmp_path: Path):
         """纯空白 instructions strip 后视同未传：prompt 与不传时逐字一致（无指令分节）。"""
         blank = _FakeTextGenerator(
@@ -996,6 +1038,7 @@ class TestPlan:
 
         assert blank.requests[0].prompt == none.requests[0].prompt
 
+    @pytest.mark.unit
     async def test_plan_with_instructions_injects_global_progress_section(self, tmp_path: Path):
         """有 instructions 时才注入「全局进度」分节：已规划集数/余量/本窗口体量按阅读单位现算。"""
         ep1_end = _end_of(ANCHOR_EP1)
@@ -1018,6 +1061,7 @@ class TestPlan:
         assert f"未规划余量约 {remaining_units} 字" in prompt
         assert f"本窗口为其中前 {window_units} 字" in prompt
 
+    @pytest.mark.unit
     async def test_plan_normal_batch_omits_ledger_stats(self, tmp_path: Path):
         """常规（非耗尽）批次不附全局核对材料，只报累计已规划集数。"""
         window_chars = _end_of(ANCHOR_EP1) + 4
@@ -1030,6 +1074,7 @@ class TestPlan:
         assert result.ledger_stats is None
         assert result.total_planned == 1
 
+    @pytest.mark.unit
     async def test_plan_exhausted_batch_includes_ledger_stats(self, tmp_path: Path):
         """末批即耗尽：附全局核对材料——累计集数、最小体量集（升序）、中位数。"""
         last_anchor = "卷入漩涡之中。"
@@ -1055,6 +1100,7 @@ class TestPlan:
         assert stats.median_units == 37
         assert stats.target_units is None  # 未配置 episode_target_units 时不报
 
+    @pytest.mark.unit
     async def test_plan_exhausted_batch_reports_target_units_when_configured(self, tmp_path: Path):
         """episode_target_units 项目设置存在时，核对材料里带出该目标体量。"""
         last_anchor = "卷入漩涡之中。"
@@ -1076,6 +1122,7 @@ class TestPlan:
         assert result.ledger_stats is not None
         assert result.ledger_stats.target_units == 800
 
+    @pytest.mark.unit
     async def test_plan_no_new_content_early_exit_includes_ledger_stats(self, tmp_path: Path):
         """再次调用无新内容（早退路径）：不调模型，仍附全局核对材料供复核。"""
         project_dir = _planned_three(tmp_path)
@@ -1091,6 +1138,7 @@ class TestPlan:
         assert [num for num, _units in stats.smallest] == [3, 2, 1]
         assert stats.median_units == 37
 
+    @pytest.mark.unit
     async def test_plan_marks_stale_when_new_episode_num_has_downstream_products(self, tmp_path: Path):
         """新提交的集号若在磁盘上已有剧本产物（如重置到更早集号后重新规划、与原消费范围重叠），标 stale，不删产物。"""
         project_dir = _write_project(tmp_path)
@@ -1108,6 +1156,7 @@ class TestPlan:
         assert eps[1]["ledger_status"] == "stale"
         assert (project_dir / "scripts" / "episode_1.json").exists()  # 产物不删除
 
+    @pytest.mark.unit
     async def test_plan_keeps_planned_when_no_downstream_products(self, tmp_path: Path):
         """新提交的集号磁盘上没有任何产物：照常标 planned，stale_episodes 为空。"""
         project_dir = _write_project(tmp_path)
@@ -1411,6 +1460,7 @@ class TestReconcileFailFast:
     与 plan() 从 planning_cursor 续接新一批无关——plan() 的提交路径已由 TestPlan 覆盖。
     """
 
+    @pytest.mark.unit
     def test_commit_aborts_when_anchored_entry_has_invalid_source_range(self, tmp_path: Path):
         """账本中锚定集的原文范围类型非法：对账中止，派生文件零变更。"""
         project_dir = _planned_three(tmp_path)
@@ -1423,6 +1473,7 @@ class TestReconcileFailFast:
 
         assert (project_dir / "source" / "episode_3.txt").exists()  # 旧文件未被清理
 
+    @pytest.mark.unit
     def test_commit_aborts_when_source_range_out_of_bounds(self, tmp_path: Path):
         """账本中锚定集的原文范围越界（end 超源文长度）：对账中止。"""
         project_dir = _planned_three(tmp_path)
@@ -1433,6 +1484,7 @@ class TestReconcileFailFast:
         with pytest.raises(EpisodePlanningError, match="越界"):
             planner._reconcile_derived_files(project, {})
 
+    @pytest.mark.unit
     def test_commit_aborts_when_entry_source_file_missing(self, tmp_path: Path):
         """账本引用的源文件缺失：派生文件重写失败中止对账。"""
         project_dir = _planned_three(tmp_path)
@@ -1445,6 +1497,7 @@ class TestReconcileFailFast:
 
         assert (project_dir / "source" / "episode_3.txt").exists()
 
+    @pytest.mark.unit
     def test_commit_validation_failure_leaves_derived_files_untouched(self, tmp_path: Path):
         """校验类失败中止时不得留下部分重写的派生文件：全部校验通过后才统一落盘。"""
         project_dir = _planned_three(tmp_path)
@@ -1460,6 +1513,7 @@ class TestReconcileFailFast:
         # 排序在前的第 1 集合法，但因第 2 集校验失败，其派生文件不得被提前重写
         assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == sentinel
 
+    @pytest.mark.unit
     def test_commit_aborts_when_derived_episode_file_is_symlink(self, tmp_path: Path):
         """派生集文件是符号链接：写入会跟随链接落到项目外，必须中止对账。"""
         project_dir = _planned_three(tmp_path)

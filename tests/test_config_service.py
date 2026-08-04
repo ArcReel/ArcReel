@@ -5,6 +5,8 @@ from lib.config.service import ConfigService
 from lib.db.base import Base
 from lib.db.repositories.credential_repository import CredentialRepository
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def session():

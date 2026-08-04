@@ -1,5 +1,7 @@
 """product 资产类型的 spec 层行为：第 4 条目、列表字段抽象、全局库豁免。"""
 
+import pytest
+
 from lib.asset_types import (
     ASSET_SPECS,
     ASSET_TYPES,
@@ -7,6 +9,8 @@ from lib.asset_types import (
     GLOBAL_LIBRARY_ASSET_TYPES,
     SHEET_KEY,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class TestProductSpec:

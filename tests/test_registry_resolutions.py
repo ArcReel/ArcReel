@@ -1,6 +1,10 @@
 """测试 ModelInfo.resolutions 字段与预置模型填充。"""
 
+import pytest
+
 from lib.config.registry import PROVIDER_REGISTRY, ModelInfo
+
+pytestmark = pytest.mark.unit
 
 
 def test_model_info_has_resolutions_default_empty_list():

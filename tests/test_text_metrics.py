@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lib.text_metrics import count_reading_units, find_reading_unit_offset, reading_unit_noun
+
+pytestmark = pytest.mark.unit
 
 
 class TestZh:

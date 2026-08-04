@@ -14,6 +14,8 @@ from lib.custom_provider.backends import (
 )
 from lib.custom_provider.factory import create_custom_backend
 
+pytestmark = pytest.mark.unit
+
 
 def _make_provider(*, base_url: str = "https://api.example.com/v1", api_key: str = "sk-test") -> MagicMock:
     p = MagicMock()

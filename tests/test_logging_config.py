@@ -1,6 +1,10 @@
 import logging
 
+import pytest
+
 from lib.logging_config import _HANDLER_ATTR, setup_logging
+
+pytestmark = pytest.mark.unit
 
 
 class TestSetupLogging:

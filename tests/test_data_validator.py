@@ -36,6 +36,7 @@ def _project_payload(content_mode: str = "narration") -> dict:
 
 
 class TestDataValidator:
+    @pytest.mark.unit
     def test_validate_project_success(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload())
@@ -47,6 +48,7 @@ class TestDataValidator:
         assert result.errors == []
         assert "验证通过" in str(result)
 
+    @pytest.mark.unit
     def test_validate_project_reports_missing_and_invalid_fields(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         # title 字段完全缺失才报错;空字符串在新策略下属于合法状态(前端 i18n 兜底)
@@ -76,6 +78,7 @@ class TestDataValidator:
         assert any("场景 'X'" in error for error in result.errors)
         assert any("道具 'Y'" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_project_rejects_non_string_title(self, tmp_path):
         # title 字段存在但类型不是 string(如 int / null / list)应给出区分于"缺失"的明确文案,
         # 避免调用方误以为字段没写。
@@ -90,6 +93,7 @@ class TestDataValidator:
         assert any("字段类型错误: title 应为字符串" in error for error in result.errors)
         assert not any("缺少必填字段: title" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_project_allows_empty_title(self, tmp_path):
         # title 为空字符串属于合法状态:前端会以「未命名项目」i18n 兜底,
         # lib 层不再要求 title 非空,避免 ProjectManager 写路径被迫存 slug 作 fallback。
@@ -158,6 +162,7 @@ class TestDataValidator:
 
         assert result.valid
 
+    @pytest.mark.unit
     def test_validate_episode_narration_success_with_warnings(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
@@ -186,6 +191,7 @@ class TestDataValidator:
         assert result.valid
         assert any("缺少 duration_seconds" in w for w in result.warnings)
 
+    @pytest.mark.unit
     def test_validate_episode_rejects_missing_narration_audio_file(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
@@ -214,6 +220,7 @@ class TestDataValidator:
         assert not result.valid
         assert any("narration_audio" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_episode_accepts_existing_narration_audio(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
@@ -245,6 +252,7 @@ class TestDataValidator:
         assert result.valid
         assert not any("narration_audio" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_episode_accepts_split_segment_ids_and_missing_scenes_props_warning(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
@@ -273,6 +281,7 @@ class TestDataValidator:
         assert any("缺少 scenes" in warning for warning in result.warnings)
         assert any("缺少 props" in warning for warning in result.warnings)
 
+    @pytest.mark.unit
     def test_validate_episode_reports_invalid_references_and_fields(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
@@ -308,6 +317,7 @@ class TestDataValidator:
         assert any("不存在于 project.json 的场景" in error for error in result.errors)
         assert any("不存在于 project.json 的道具" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_episode_accepts_nfc_nfd_mismatch_on_narration_segment_refs(self, tmp_path):
         """segment 的角色/场景/道具引用一律按 NFC 归一比对：登记闸口落 NFC 后，
         保留原 NFD 拼写的存量剧本仍须放行，否则合法剧本会被判为引用了未登记资产。"""
@@ -348,6 +358,7 @@ class TestDataValidator:
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_validate_episode_accepts_nfc_nfd_mismatch_on_drama_scene_refs(self, tmp_path):
         """drama 场景的三类引用与 narration segment 同口径归一。"""
         import unicodedata
@@ -385,6 +396,7 @@ class TestDataValidator:
         result = validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("bad_duration", [0, -1, "5", 4.5, True])
     def test_validate_episode_rejects_non_positive_integer_duration(self, tmp_path, bad_duration):
         """非正整数的 duration_seconds 仍应报错（0 / 负数 / 字符串 / 浮点 / bool）。"""
@@ -413,6 +425,7 @@ class TestDataValidator:
         assert not result.valid, f"bad={bad_duration}"
         assert any("duration_seconds 值无效" in e for e in result.errors), f"bad={bad_duration}; errors={result.errors}"
 
+    @pytest.mark.unit
     def test_validate_episode_drama_mode(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("drama"))
@@ -459,6 +472,7 @@ class TestDataValidator:
         )
         return validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
 
+    @pytest.mark.unit
     def test_validate_episode_drama_accepts_valid_utterances(self, tmp_path):
         # 合法 utterances（dialogue 带 speaker、voiceover 无 speaker）→ 通过
         result = self._drama_episode_with_scene(
@@ -472,12 +486,14 @@ class TestDataValidator:
         )
         assert result.valid
 
+    @pytest.mark.unit
     def test_validate_episode_drama_rejects_non_list_utterances(self, tmp_path):
         # utterances 出现但不是数组 → 结构错误
         result = self._drama_episode_with_scene(tmp_path, {"utterances": "这不是数组"})
         assert not result.valid
         assert any("utterances" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_episode_drama_rejects_dialogue_without_speaker(self, tmp_path):
         # kind ⇄ speaker：dialogue 缺非空 speaker → 校验失败
         result = self._drama_episode_with_scene(
@@ -486,6 +502,7 @@ class TestDataValidator:
         assert not result.valid
         assert any("speaker" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_episode_drama_rejects_voiceover_with_speaker(self, tmp_path):
         # kind ⇄ speaker：voiceover 带 speaker → 校验失败
         result = self._drama_episode_with_scene(
@@ -494,6 +511,7 @@ class TestDataValidator:
         assert not result.valid
         assert any("speaker" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_episode_drama_rejects_non_string_speaker(self, tmp_path):
         # speaker 非字符串非 null（如数字）→ 校验失败：镜像 Pydantic 的 speaker: str | None 类型约束，
         # 不在结构校验里静默放行、到 Pydantic 才崩
@@ -503,6 +521,7 @@ class TestDataValidator:
         assert not result.valid
         assert any("speaker" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_episode_drama_accepts_voiceover_blank_speaker(self, tmp_path):
         # voiceover 的空串 / 纯空白 speaker 等价「无 speaker」（与 Pydantic _normalize_speaker 同口径）→ 放行，
         # 不比权威 Pydantic 模型更严
@@ -511,11 +530,13 @@ class TestDataValidator:
         )
         assert result.valid
 
+    @pytest.mark.unit
     def test_validate_episode_drama_legacy_voiceover_tolerated(self, tmp_path):
         # 存量 drama（无 utterances、残留旧 voiceover）走读时迁移，校验层放行、不阻塞导出
         result = self._drama_episode_with_scene(tmp_path, {"voiceover": ["旧画外音"]})
         assert result.valid
 
+    @pytest.mark.unit
     def test_validate_episode_drama_warns_when_speech_overflows_scene(self, tmp_path):
         # 单向上界：估算说话时长（台词）超场景 duration × 容差 → 仅 warn，不阻塞保存
         long_line = "台词" * 60  # 120 个汉字阅读单位，远超 8 秒场景的容差上界
@@ -530,6 +551,7 @@ class TestDataValidator:
         assert result.valid, result.errors
         assert any("说话时长" in w for w in result.warnings)
 
+    @pytest.mark.unit
     def test_validate_episode_drama_speech_overflow_counts_voiceover(self, tmp_path):
         # 说话量含画外音：台词 + 画外音一并计入估算（与字幕派生同口径）
         long_vo = "旁白" * 60
@@ -543,6 +565,7 @@ class TestDataValidator:
         assert result.valid, result.errors
         assert any("说话时长" in w for w in result.warnings)
 
+    @pytest.mark.unit
     def test_validate_episode_drama_no_warning_when_speech_fits(self, tmp_path):
         # 界内：说话量在场景 duration × 容差以内 → 不产说话量 warning
         result = self._drama_episode_with_scene(
@@ -558,6 +581,7 @@ class TestDataValidator:
         assert result.valid, result.errors
         assert not any("说话时长" in w for w in result.warnings)
 
+    @pytest.mark.unit
     def test_validate_episode_drama_no_warning_when_speech_far_under_duration(self, tmp_path):
         # 单向上界：说话量远少于场景时长不警告（duration 由画面驱动、留白合法，不管「说话太少」）
         result = self._drama_episode_with_scene(
@@ -570,28 +594,33 @@ class TestDataValidator:
         assert result.valid, result.errors
         assert not any("说话时长" in w for w in result.warnings)
 
+    @pytest.mark.unit
     def test_validate_episode_drama_no_speech_warning_without_utterances(self, tmp_path):
         # 无 utterances（存量 / 未填）→ 不产说话量 warning，也不崩
         result = self._drama_episode_with_scene(tmp_path, {"duration_seconds": 8})
         assert result.valid, result.errors
         assert not any("说话时长" in w for w in result.warnings)
 
+    @pytest.mark.unit
     def test_validate_episode_drama_accepts_source_text(self, tmp_path):
         # source_text（逐字原文锚）为字符串 → 通过
         result = self._drama_episode_with_scene(tmp_path, {"source_text": "推门而入，信纸还在桌上。"})
         assert result.valid
 
+    @pytest.mark.unit
     def test_validate_episode_drama_accepts_missing_source_text(self, tmp_path):
         # source_text 缺失（存量 / best-effort 留空）→ 放行，默认空串
         result = self._drama_episode_with_scene(tmp_path, {})
         assert result.valid
 
+    @pytest.mark.unit
     def test_validate_episode_drama_rejects_non_string_source_text(self, tmp_path):
         # source_text 非字符串（如数字）→ 校验失败：镜像 Pydantic 的 source_text: str 类型约束
         result = self._drama_episode_with_scene(tmp_path, {"source_text": 123})
         assert not result.valid
         assert any("source_text" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_episode_drama_rejects_null_source_text(self, tmp_path):
         # source_text 显式 null → 校验失败：区分「键缺失」（放行、默认空串）与「显式 null」（拒绝），
         # 与共享模型 source_text: str（extra=forbid 下拒 null）同口径，避免校验器先放行、模型层再失败
@@ -599,6 +628,7 @@ class TestDataValidator:
         assert not result.valid
         assert any("source_text" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_helpers_on_missing_files(self, tmp_path):
         result = validate_project("missing", projects_root=str(tmp_path / "projects"))
         assert not result.valid
@@ -606,6 +636,7 @@ class TestDataValidator:
 
     # ── 新增测试 ──────────────────────────────────────────────
 
+    @pytest.mark.unit
     def test_project_json_validates_scenes_and_props(self, tmp_path):
         """新 schema：scenes + props 两个字典都通过校验"""
         project_dir = tmp_path / "projects" / "demo"
@@ -631,6 +662,7 @@ class TestDataValidator:
         assert result.valid
         assert result.errors == []
 
+    @pytest.mark.unit
     def test_project_json_rejects_legacy_clues(self, tmp_path):
         """顶层 clues 字段应报废弃错误"""
         project_dir = tmp_path / "projects" / "demo"
@@ -649,6 +681,7 @@ class TestDataValidator:
         assert not result.valid
         assert any("已废弃字段 clues" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_scenes_dict_missing_description(self, tmp_path):
         """scenes 字典中某个场景缺少 description 应报错"""
         project_dir = tmp_path / "projects" / "demo"
@@ -670,6 +703,7 @@ class TestDataValidator:
         assert not result.valid
         assert any("场景 '书房'" in error and "description" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_props_dict_missing_description(self, tmp_path):
         """props 字典中某个道具缺少 description 应报错"""
         project_dir = tmp_path / "projects" / "demo"
@@ -691,6 +725,7 @@ class TestDataValidator:
         assert not result.valid
         assert any("道具 '玉佩'" in error and "description" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_validate_episode_drama_invalid_scene_prop_refs(self, tmp_path):
         """drama 模式：引用未定义的 scenes/props 应报错"""
         project_dir = tmp_path / "projects" / "demo"
@@ -752,6 +787,7 @@ class TestDataValidator:
         assert not result.valid
         assert any("不存在于 project.json 的场景" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_legacy_scene_type_field_does_not_block_export(self, tmp_path):
         """存量项目里残留 scene_type='对话'/'动作'/'过渡' 等任意值不该阻断导出。
 
@@ -798,15 +834,18 @@ class TestEpisodeLedgerFields:
     def _entry(self, **ledger_fields):
         return {"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json", **ledger_fields}
 
+    @pytest.mark.unit
     def test_legacy_entry_without_ledger_fields_is_valid(self, tmp_path):
         result = self._validate(tmp_path, self._entry())
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_bool_episode_num_rejected(self, tmp_path):
         """True/False 是 int 子类但不是合法集号：会与第 1/0 集同键碰撞，须显式拒绝。"""
         result = self._validate(tmp_path, self._entry(episode=True))
         assert any("episode" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_full_ledger_entry_is_valid(self, tmp_path):
         result = self._validate(
             tmp_path,
@@ -820,6 +859,7 @@ class TestEpisodeLedgerFields:
         )
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_empty_title_allowed_on_episode_entry(self, tmp_path):
         # 孤儿条目登记新建的条目 title 为空串；写入方（剧本同步）在剧本缺 title 时也写 ""
         entry = self._entry()
@@ -827,21 +867,25 @@ class TestEpisodeLedgerFields:
         result = self._validate(tmp_path, entry)
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_missing_title_still_reported(self, tmp_path):
         entry = self._entry()
         del entry["title"]
         result = self._validate(tmp_path, entry)
         assert any("title" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_unknown_ledger_status_tolerated(self, tmp_path):
         """当前状态集之外的取值按「无状态」容忍：存量项目可能留有已废弃的状态值。"""
         result = self._validate(tmp_path, self._entry(ledger_status="done"))
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_non_string_ledger_status_rejected(self, tmp_path):
         result = self._validate(tmp_path, self._entry(ledger_status=3))
         assert any("ledger_status" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_malformed_source_range_rejected(self, tmp_path):
         result = self._validate(
             tmp_path,
@@ -849,6 +893,7 @@ class TestEpisodeLedgerFields:
         )
         assert any("source_range" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_escaping_source_file_rejected(self, tmp_path):
         # source_file 是消费方按路径读源文的依据，越界值（..）必须在校验层拒绝
         result = self._validate(
@@ -857,10 +902,12 @@ class TestEpisodeLedgerFields:
         )
         assert any("source_range" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_absolute_planning_cursor_source_file_rejected(self, tmp_path):
         result = self._validate(tmp_path, planning_cursor={"source_file": "/etc/passwd", "offset": 0})
         assert any("planning_cursor" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_legacy_status_with_source_range_tolerated(self, tmp_path):
         """遗留状态值 + 合法 source_range 不再互斥校验：位置真相只看 source_range 本身。"""
         result = self._validate(
@@ -872,22 +919,27 @@ class TestEpisodeLedgerFields:
         )
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_non_string_hook_rejected(self, tmp_path):
         result = self._validate(tmp_path, self._entry(hook=123))
         assert any("hook" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_malformed_outline_rejected(self, tmp_path):
         result = self._validate(tmp_path, self._entry(outline={"story_beats": "不是列表"}))
         assert any("outline" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_malformed_planning_cursor_rejected(self, tmp_path):
         result = self._validate(tmp_path, planning_cursor={"offset": -1})
         assert any("planning_cursor" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_null_planning_cursor_is_valid(self, tmp_path):
         result = self._validate(tmp_path, planning_cursor=None)
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_tree_validation_allows_missing_script_for_ledgered_entry(self, tmp_path):
         """账本条目的 script_file 是前瞻性契约：剧本尚未生成不算 tree 校验错误。"""
         payload = _project_payload()
@@ -906,6 +958,7 @@ class TestEpisodeLedgerFields:
         )
         assert not any("script_file" in e for e in result.errors), result.errors
 
+    @pytest.mark.unit
     def test_tree_validation_allows_missing_script_for_entry_without_ledger_status(self, tmp_path):
         """v2→v3 迁移不再回填 ledger_status，老项目升级后的条目可能永远没有该字段：
         形状合法（集号可解析）即视为正常账本条目，剧本未生成同样不阻断。"""
@@ -917,6 +970,7 @@ class TestEpisodeLedgerFields:
         )
         assert not any("script_file" in e for e in result.errors), result.errors
 
+    @pytest.mark.unit
     def test_tree_validation_missing_script_still_blocks_malformed_entry(self, tmp_path):
         """集号无法解析的畸形条目不是合法账本条目：script_file 仍须实际存在。"""
         payload = _project_payload()
@@ -927,6 +981,7 @@ class TestEpisodeLedgerFields:
         )
         assert any("episodes[0].script_file" in e for e in result.errors)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("bad_episode_num", [0, -1])
     def test_tree_validation_missing_script_still_blocks_non_positive_episode_num(self, tmp_path, bad_episode_num):
         """0/负数集号能被 parse_episode_num 解析，但不是合法集号：script_file 仍须实际存在。"""
@@ -938,6 +993,7 @@ class TestEpisodeLedgerFields:
         )
         assert any("episodes[0].script_file" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_tree_validation_traversal_still_rejected_for_ledgered_entry(self, tmp_path):
         """missing_ok 只豁免「文件不存在」，路径越界对账本条目照常拒绝。"""
         payload = _project_payload()
@@ -955,6 +1011,7 @@ class TestEpisodeLedgerFields:
         )
         assert any("越界" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_tree_validation_reference_audio_missing_field_is_valid(self, tmp_path):
         """reference_audio 是可选字段：角色没有该字段/为空串时不应报错。"""
         payload = _project_payload()
@@ -964,6 +1021,7 @@ class TestEpisodeLedgerFields:
         )
         assert not any("reference_audio" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_tree_validation_reference_audio_accepts_existing_file(self, tmp_path):
         payload = _project_payload()
         payload["characters"]["姜月茴"]["reference_audio"] = "characters/refs_audio/姜月茴.wav"
@@ -977,6 +1035,7 @@ class TestEpisodeLedgerFields:
         )
         assert not any("reference_audio" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_tree_validation_reference_audio_missing_file_rejected(self, tmp_path):
         payload = _project_payload()
         payload["characters"]["姜月茴"]["reference_audio"] = "characters/refs_audio/姜月茴.wav"
@@ -987,6 +1046,7 @@ class TestEpisodeLedgerFields:
         )
         assert any("reference_audio" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_tree_validation_reference_audio_rejects_path_traversal(self, tmp_path):
         payload = _project_payload()
         payload["characters"]["姜月茴"]["reference_audio"] = "../outside.wav"
@@ -1022,15 +1082,18 @@ class TestAdProjectValidation:
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
         return DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
 
+    @pytest.mark.unit
     def test_valid_ad_project_passes(self, tmp_path):
         result = self._validate(tmp_path, _ad_project_payload())
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_ad_accepts_arbitrary_positive_target_duration(self, tmp_path):
         # UI 只给四档，但数据层接受任意正整数秒
         result = self._validate(tmp_path, _ad_project_payload(target_duration=47))
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_ad_missing_target_duration_rejected(self, tmp_path):
         payload = _ad_project_payload()
         del payload["target_duration"]
@@ -1038,22 +1101,26 @@ class TestAdProjectValidation:
         assert not result.valid
         assert any("target_duration" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_ad_non_positive_target_duration_rejected(self, tmp_path):
         for bad in (0, -5, "60", True):
             result = self._validate(tmp_path, _ad_project_payload(target_duration=bad))
             assert not result.valid, f"target_duration={bad!r} 应被拒绝"
             assert any("target_duration" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_ad_non_string_brief_rejected(self, tmp_path):
         result = self._validate(tmp_path, _ad_project_payload(brief=123))
         assert not result.valid
         assert any("brief" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_ad_with_default_duration_rejected(self, tmp_path):
         result = self._validate(tmp_path, _ad_project_payload(default_duration=8))
         assert not result.valid
         assert any("default_duration" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_ad_episodes_must_be_single_episode_one(self, tmp_path):
         multi = _ad_project_payload(
             episodes=[
@@ -1073,6 +1140,7 @@ class TestAdProjectValidation:
         result = self._validate(tmp_path, empty)
         assert not result.valid
 
+    @pytest.mark.unit
     def test_target_duration_and_brief_rejected_outside_ad(self, tmp_path):
         payload = _project_payload("narration")
         payload["target_duration"] = 60
@@ -1086,16 +1154,19 @@ class TestAdProjectValidation:
         assert not result.valid
         assert any("brief" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_narration_and_drama_payloads_unaffected(self, tmp_path):
         for mode in ("narration", "drama"):
             result = self._validate(tmp_path, _project_payload(mode))
             assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_ad_grid_storyboard_rejected(self, tmp_path):
         result = self._validate(tmp_path, _ad_project_payload(grid_storyboard=True))
         assert not result.valid
         assert any("grid_storyboard" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_ad_grid_storyboard_false_passes(self, tmp_path):
         result = self._validate(tmp_path, _ad_project_payload(grid_storyboard=False))
         assert result.valid, result.errors
@@ -1108,6 +1179,7 @@ class TestGenerationModeValidation:
         _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
         return DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("mode", ["storyboard", "reference_video"])
     def test_binary_route_values_pass(self, tmp_path, mode):
         payload = _project_payload()
@@ -1115,6 +1187,7 @@ class TestGenerationModeValidation:
         result = self._validate(tmp_path, payload)
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_missing_generation_mode_rejected(self, tmp_path):
         payload = _project_payload()
         del payload["generation_mode"]
@@ -1122,6 +1195,7 @@ class TestGenerationModeValidation:
         assert not result.valid
         assert any("缺少必填字段: generation_mode" in e for e in result.errors)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("mode", ["grid", "single", "bogus"])
     def test_non_binary_route_rejected(self, tmp_path, mode):
         payload = _project_payload()
@@ -1130,6 +1204,7 @@ class TestGenerationModeValidation:
         assert not result.valid
         assert any("generation_mode 值无效" in e for e in result.errors)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("mode", [{"value": "storyboard"}, ["storyboard"], 5])
     def test_non_scalar_route_reported_as_error(self, tmp_path, mode):
         """非标量脏值报校验错误而非抛异常——归档导入据此返回 400 而不是 500。"""
@@ -1139,12 +1214,14 @@ class TestGenerationModeValidation:
         assert not result.valid
         assert any("generation_mode 值无效" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_grid_storyboard_true_passes_on_storyboard_route(self, tmp_path):
         payload = _project_payload()
         payload["grid_storyboard"] = True
         result = self._validate(tmp_path, payload)
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_grid_storyboard_non_bool_rejected(self, tmp_path):
         payload = _project_payload()
         payload["grid_storyboard"] = "yes"
@@ -1181,20 +1258,24 @@ class TestAdEpisodeValidation:
         )
         return DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
+    @pytest.mark.unit
     def test_valid_ad_script_passes(self, tmp_path):
         result = self._validate(tmp_path, [self._ad_shot()])
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_empty_shots_rejected(self, tmp_path):
         result = self._validate(tmp_path, [])
         assert not result.valid
         assert any("shots" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_bad_shot_id_rejected(self, tmp_path):
         result = self._validate(tmp_path, [self._ad_shot(shot_id="S01")])
         assert not result.valid
         assert any("shot_id" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_missing_voiceover_text_rejected(self, tmp_path):
         shot = self._ad_shot()
         del shot["voiceover_text"]
@@ -1202,16 +1283,19 @@ class TestAdEpisodeValidation:
         assert not result.valid
         assert any("voiceover_text" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_non_string_voiceover_text_rejected(self, tmp_path):
         result = self._validate(tmp_path, [self._ad_shot(voiceover_text=42)])
         assert not result.valid
         assert any("voiceover_text" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_unknown_character_reference_rejected(self, tmp_path):
         result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=["不存在的人"])])
         assert not result.valid
         assert any("characters_in_shot" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_unknown_product_reference_rejected(self, tmp_path):
         result = self._validate(tmp_path, [self._ad_shot(products_in_shot=["不存在的产品"])])
         assert not result.valid
@@ -1274,6 +1358,7 @@ class TestAdEpisodeValidation:
         result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[name_nfc])], project=project)
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_missing_duration_warns_with_default(self, tmp_path):
         shot = self._ad_shot()
         del shot["duration_seconds"]
@@ -1281,12 +1366,14 @@ class TestAdEpisodeValidation:
         assert result.valid, result.errors
         assert any("duration_seconds" in w for w in result.warnings)
 
+    @pytest.mark.unit
     def test_storyboard_path_accepts_duration_above_reference_cap(self, tmp_path):
         """storyboard 路径的成员校验在生成 schema 层（supported_durations 枚举）；
         校验器只把关正整数，16 秒不按 reference 区间拒。"""
         result = self._validate(tmp_path, [self._ad_shot(duration_seconds=16)])
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_reference_path_rejects_duration_out_of_range(self, tmp_path):
         """ad + reference_video：镜头时长必须是 1-15 自由整数。"""
         project = _ad_project_payload(generation_mode="reference_video")
@@ -1294,6 +1381,7 @@ class TestAdEpisodeValidation:
         assert not result.valid
         assert any("1-15" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_reference_path_accepts_free_integers_in_range(self, tmp_path):
         project = _ad_project_payload(generation_mode="reference_video")
         result = self._validate(
@@ -1303,6 +1391,7 @@ class TestAdEpisodeValidation:
         )
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_total_duration_drift_warns_but_passes(self, tmp_path):
         """剧本总时长与 target_duration 偏差超阈值仅 warn，不阻塞。"""
         project = _ad_project_payload(target_duration=60)
@@ -1310,6 +1399,7 @@ class TestAdEpisodeValidation:
         assert result.valid, result.errors
         assert any("target_duration" in w for w in result.warnings)
 
+    @pytest.mark.unit
     def test_total_duration_close_to_target_no_warning(self, tmp_path):
         project = _ad_project_payload(target_duration=12)
         shots = [
@@ -1325,6 +1415,7 @@ class TestAdEpisodeValidation:
 class TestAdEpisodeValidationEdgeCases:
     """ad 剧本骨架唯一与脏数据容错。"""
 
+    @pytest.mark.unit
     def test_ad_reference_generation_mode_still_validates_shots(self, tmp_path):
         """ad 剧本不随生成路径换骨架：generation_mode=reference_video 仍按 shots 校验。"""
         project = _ad_project_payload(generation_mode="reference_video")
@@ -1352,6 +1443,7 @@ class TestAdEpisodeValidationEdgeCases:
         result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_non_string_shot_id_reported_not_crash(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _ad_project_payload())
@@ -1368,6 +1460,7 @@ class TestAdEpisodeValidationEdgeCases:
         assert not result.valid
         assert any("shot_id" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_products_bucket_not_dict_reported_not_crash(self, tmp_path):
         project = _ad_project_payload()
         project["products"] = ["速干杯"]
@@ -1394,6 +1487,7 @@ class TestAdEpisodeValidationEdgeCases:
         assert not result.valid
         assert any("products_in_shot" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_ad_missing_episodes_key_rejected(self, tmp_path):
         payload = _ad_project_payload()
         del payload["episodes"]
@@ -1431,6 +1525,7 @@ class TestAdReferenceUnitsValidation:
         _write_json(project_dir / "scripts" / "episode_1.json", script)
         return DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
+    @pytest.mark.unit
     def test_valid_index_passes(self, tmp_path):
         units = [
             {
@@ -1443,6 +1538,7 @@ class TestAdReferenceUnitsValidation:
         result = self._validate(tmp_path, [self._ad_shot()], units)
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_missing_index_is_legal(self, tmp_path):
         result = self._validate(tmp_path, [self._ad_shot()], None)
         assert result.valid, result.errors
@@ -1464,6 +1560,7 @@ class TestAdReferenceUnitsValidation:
         assert not result.valid
         assert any("video_generated_at 不是合法的 ISO8601 时间戳" in error for error in result.errors)
 
+    @pytest.mark.unit
     def test_dangling_shot_id_warns_not_errors(self, tmp_path):
         """镜头删除后索引短暂悬空是合法中间态（重新派生即愈）：warn 不 error。"""
         units = [{"unit_id": "E1U1", "shot_ids": ["E1S01", "E1S99"], "references": []}]
@@ -1471,6 +1568,7 @@ class TestAdReferenceUnitsValidation:
         assert result.valid, result.errors
         assert any("E1S99" in w for w in result.warnings)
 
+    @pytest.mark.unit
     def test_malformed_entry_rejected(self, tmp_path):
         units = ["not-a-dict", {"unit_id": "E1U2"}]
         result = self._validate(tmp_path, [self._ad_shot()], units)
@@ -1478,11 +1576,13 @@ class TestAdReferenceUnitsValidation:
         assert any("reference_units[0]" in e for e in result.errors)
         assert any("shot_ids" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_invalid_reference_type_rejected(self, tmp_path):
         units = [{"unit_id": "E1U1", "shot_ids": ["E1S01"], "references": [{"type": "voice", "name": "x"}]}]
         result = self._validate(tmp_path, [self._ad_shot()], units)
         assert not result.valid
 
+    @pytest.mark.unit
     def test_unregistered_reference_name_warns(self, tmp_path):
         units = [{"unit_id": "E1U1", "shot_ids": ["E1S01"], "references": [{"type": "product", "name": "不存在"}]}]
         result = self._validate(tmp_path, [self._ad_shot()], units)
@@ -1523,12 +1623,14 @@ class TestSourceKindValidation:
         _write_json(project_dir / "project.json", project)
         return DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
 
+    @pytest.mark.unit
     def test_missing_source_kind_is_valid(self, tmp_path):
         # 存量项目无 source_kind 字段：缺省 novel，不报错
         result = self._validate(tmp_path, _project_payload("drama"))
         assert result.valid, result.errors
         assert not any("source_kind" in e for e in result.errors)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("kind", ["novel", "screenplay"])
     def test_valid_source_kind_passes(self, tmp_path, kind):
         payload = _project_payload("drama")
@@ -1536,6 +1638,7 @@ class TestSourceKindValidation:
         result = self._validate(tmp_path, payload)
         assert result.valid, result.errors
 
+    @pytest.mark.unit
     def test_invalid_source_kind_rejected(self, tmp_path):
         payload = _project_payload("drama")
         payload["source_kind"] = "screen_play"
@@ -1543,6 +1646,7 @@ class TestSourceKindValidation:
         assert not result.valid
         assert any("source_kind" in e for e in result.errors)
 
+    @pytest.mark.unit
     def test_generic_speaker_in_drama_dialogue_passes_validation(self, tmp_path):
         """泛指 speaker（未注册角色）只进 dialogue、不进 characters_in_scene → 校验通过。
 
@@ -1611,6 +1715,7 @@ class TestSkeletonEntryTypeGuards:
         _write_json(project_dir / "scripts" / "episode_1.json", episode)
         return DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         ("kind", "array_key"),
         [
@@ -1627,6 +1732,7 @@ class TestSkeletonEntryTypeGuards:
         assert not result.valid
         assert any(f"{array_key}[0]" in error for error in result.errors), result.errors
 
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         ("kind", "array_key"),
         [
@@ -1647,6 +1753,7 @@ class TestSkeletonEntryTypeGuards:
 class TestRouteSkeletonMismatchValidation:
     """存量失配剧本（集级路线覆盖时代的混排集）：报结构结论 + 重拆指引，不逐字段报缺失。"""
 
+    @pytest.mark.unit
     def test_unit_script_under_storyboard_route_is_rejected(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload())
@@ -1662,6 +1769,7 @@ class TestRouteSkeletonMismatchValidation:
         # 只报路线结论，不再叠一份"缺少 segments"之类的下游噪声。
         assert len(result.errors) == 1, result.errors
 
+    @pytest.mark.unit
     def test_storyboard_script_under_reference_route_is_rejected(self, tmp_path):
         payload = _project_payload()
         payload["generation_mode"] = "reference_video"
@@ -1677,6 +1785,7 @@ class TestRouteSkeletonMismatchValidation:
         assert not result.valid
         assert any("split-reference-video-units" in error for error in result.errors), result.errors
 
+    @pytest.mark.unit
     def test_reference_route_script_with_residual_segments_is_not_a_mismatch(self, tmp_path):
         """参考路线剧本残留分镜数组不算失配：video_units 在场即按 units 校验，导入不被阻断。"""
         payload = _project_payload()
@@ -1698,6 +1807,7 @@ class TestRouteSkeletonMismatchValidation:
 
         assert not any("骨架" in error for error in result.errors), result.errors
 
+    @pytest.mark.unit
     def test_residual_route_stamp_is_ignored(self, tmp_path):
         """存量剧本残留的 generation_mode 戳是未知字段：不参与判别，也不让校验失败。"""
         project_dir = tmp_path / "projects" / "demo"
@@ -1723,6 +1833,7 @@ class TestInvalidContentModeEpisodeValidation:
     """content_mode 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud 抛 ValueError，
     但剧集级校验的契约是把脏数据报告成结构化错误，不让异常向外传播。"""
 
+    @pytest.mark.unit
     def test_validate_episode_reports_structured_error_not_crash(self, tmp_path):
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("bogus_legacy"))
@@ -1736,6 +1847,7 @@ class TestInvalidContentModeEpisodeValidation:
         assert not result.valid
         assert any("content_mode" in error for error in result.errors), result.errors
 
+    @pytest.mark.unit
     def test_validate_project_tree_reports_structured_error_not_crash(self, tmp_path):
         payload = _project_payload("bogus_legacy")
         payload["episodes"] = [{"episode": 1, "title": "x", "script_file": "scripts/episode_1.json"}]
@@ -1751,6 +1863,7 @@ class TestInvalidContentModeEpisodeValidation:
         assert not result.valid
         assert any("content_mode" in error for error in result.errors), result.errors
 
+    @pytest.mark.unit
     def test_episode_level_invalid_content_mode_also_reported(self, tmp_path):
         # 项目级 content_mode 合法，但剧集自身声明的 content_mode 非法（覆盖项目级值）：
         # 同样结构化报错，不抛异常。
@@ -1766,6 +1879,7 @@ class TestInvalidContentModeEpisodeValidation:
         assert not result.valid
         assert any("content_mode" in error for error in result.errors), result.errors
 
+    @pytest.mark.unit
     def test_missing_episode_content_mode_still_falls_back_to_project_value(self, tmp_path):
         # 回归防线：剧集级 content_mode 完全缺失时仍应回落项目级值 / "narration"，不触发本次改动
         # 新增的错误分支。
@@ -1818,6 +1932,7 @@ class TestDataValidatorSkeletonExhaustiveness:
     第五种骨架加入 SKELETONS（+ 规范解析映射）时，分派 else 分支 fail-loud，此测试逐个报红。
     """
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
     def test_episode_dispatch_covers_every_skeleton_kind(self, kind, tmp_path, monkeypatch):
         from lib.script_skeleton import SKELETONS

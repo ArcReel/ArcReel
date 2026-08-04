@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -13,6 +14,8 @@ from server.error_handlers import register_error_handlers
 from server.routers import generate
 from server.services.generation_context import AudioLaneResult, GenerationContext
 from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 class _FakeQueue:

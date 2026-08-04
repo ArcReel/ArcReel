@@ -13,6 +13,8 @@ from lib.text_backends.base import (
 )
 from lib.text_backends.gemini import GeminiTextBackend
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def mock_genai():

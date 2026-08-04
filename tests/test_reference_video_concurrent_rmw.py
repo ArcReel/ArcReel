@@ -11,7 +11,11 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+import pytest
+
 from lib.project_manager import ProjectManager
+
+pytestmark = pytest.mark.unit
 
 
 def _seed_reference_video_project(pm: ProjectManager, name: str, n_units: int) -> None:

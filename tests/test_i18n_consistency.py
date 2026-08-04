@@ -1,5 +1,7 @@
 """Verify that i18n translation dictionaries are consistent across locales."""
 
+import pytest
+
 from lib.i18n import MESSAGES, SUPPORTED_LOCALES
 from lib.i18n.en import emails as en_emails
 from lib.i18n.en import errors as en_errors
@@ -14,6 +16,8 @@ from lib.i18n.zh import errors as zh_errors
 from lib.i18n.zh import system as zh_system
 from lib.i18n.zh import templates as zh_templates
 from lib.style_templates import STYLE_TEMPLATES
+
+pytestmark = pytest.mark.unit
 
 
 def test_all_locales_have_same_keys():

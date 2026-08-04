@@ -17,6 +17,8 @@ from server.agent_runtime.usage_extraction import (
     resolve_configured_assistant_model,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestExtractTextTokenUsage:
     def test_extract_text_token_usage_accepts_numeric_strings(self):

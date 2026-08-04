@@ -2,6 +2,8 @@ import pytest
 
 from scripts.project_status_sync import derive_status
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.mark.parametrize(
     ("state", "labels", "has_assignee", "has_open_closing_pr", "expected"),

@@ -19,6 +19,8 @@ from server.agent_runtime.event_log import (
     normalize_sdk_message_to_entries,
 )
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture()
 async def log_store():

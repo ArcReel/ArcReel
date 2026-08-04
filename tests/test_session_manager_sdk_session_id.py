@@ -12,6 +12,8 @@ from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession
 from tests.fakes import FakeSDKClient
 
+pytestmark = pytest.mark.unit
+
 
 class StreamEvent:
     def __init__(self, session_id: str, uuid: str = "stream-1"):

@@ -72,17 +72,20 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(app)
 
 
+@pytest.mark.unit
 def test_list_units_empty(client: TestClient):
     resp = client.get("/api/v1/projects/demo/reference-videos/episodes/1/units")
     assert resp.status_code == 200
     assert resp.json() == {"units": []}
 
 
+@pytest.mark.unit
 def test_list_units_404_for_unknown_project(client: TestClient):
     resp = client.get("/api/v1/projects/missing/reference-videos/episodes/1/units")
     assert resp.status_code == 404
 
 
+@pytest.mark.unit
 def test_add_unit_creates_minimal_entry(client: TestClient):
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
@@ -126,6 +129,7 @@ def test_add_unit_rejects_non_positive_duration(client: TestClient, duration_sec
     assert resp.status_code == 422, resp.text
 
 
+@pytest.mark.unit
 def test_add_unit_rejects_unknown_asset_reference(client: TestClient):
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
@@ -190,6 +194,7 @@ def test_patch_unit_rejects_non_positive_duration(client: TestClient, duration_s
     assert resp.status_code == 422, resp.text
 
 
+@pytest.mark.unit
 def test_patch_unit_references_only(client: TestClient):
     uid = _seed_unit(client)
     resp = client.patch(
@@ -205,6 +210,7 @@ def test_patch_unit_references_only(client: TestClient):
     assert len(resp.json()["unit"]["references"]) == 2
 
 
+@pytest.mark.unit
 def test_patch_unit_rejects_unknown_reference(client: TestClient):
     uid = _seed_unit(client)
     resp = client.patch(
@@ -272,6 +278,7 @@ def test_unit_references_persisted_as_nfc(client: TestClient):
     ]
 
 
+@pytest.mark.unit
 def test_patch_unknown_unit_404(client: TestClient):
     resp = client.patch(
         "/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9",
@@ -280,6 +287,7 @@ def test_patch_unknown_unit_404(client: TestClient):
     assert resp.status_code == 404
 
 
+@pytest.mark.unit
 def test_delete_unit_removes_entry(client: TestClient):
     uid = _seed_unit(client)
     resp = client.delete(f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}")
@@ -288,11 +296,13 @@ def test_delete_unit_removes_entry(client: TestClient):
     assert resp.json()["units"] == []
 
 
+@pytest.mark.unit
 def test_delete_unknown_unit_404(client: TestClient):
     resp = client.delete("/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9")
     assert resp.status_code == 404
 
 
+@pytest.mark.unit
 def test_reorder_units_applies_new_order(client: TestClient):
     uid1 = _seed_unit(client)
     uid2 = _seed_unit(client)
@@ -305,6 +315,7 @@ def test_reorder_units_applies_new_order(client: TestClient):
     assert [u["unit_id"] for u in units] == [uid2, uid1]
 
 
+@pytest.mark.unit
 def test_reorder_units_rejects_length_mismatch(client: TestClient):
     uid = _seed_unit(client)
     resp = client.post(
@@ -314,6 +325,7 @@ def test_reorder_units_rejects_length_mismatch(client: TestClient):
     assert resp.status_code == 400
 
 
+@pytest.mark.unit
 def test_reorder_units_rejects_duplicates(client: TestClient):
     uid = _seed_unit(client)
     resp = client.post(
@@ -323,6 +335,7 @@ def test_reorder_units_rejects_duplicates(client: TestClient):
     assert resp.status_code == 400
 
 
+@pytest.mark.unit
 def test_generate_unit_enqueues_task(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     uid = _seed_unit(client)
 
@@ -380,6 +393,7 @@ def test_generate_unit_bucket_capability_error_returns_400(client: TestClient, m
     assert enqueued == []
 
 
+@pytest.mark.unit
 def test_generate_unit_rejects_blank_prompt(client: TestClient, tmp_path: Path):
     """shots 文本全空白的 unit 在入队时被守卫点拒绝（400），不再漏到执行层失败。"""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
@@ -391,6 +405,7 @@ def test_generate_unit_rejects_blank_prompt(client: TestClient, tmp_path: Path):
     assert resp.status_code == 400, resp.text
 
 
+@pytest.mark.unit
 def test_generate_unit_missing_returns_404(client: TestClient):
     resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9/generate")
     assert resp.status_code == 404
@@ -465,6 +480,7 @@ def test_precheck_missing_unit_returns_404(client: TestClient):
     assert _precheck(client, "E9U9").status_code == 404
 
 
+@pytest.mark.unit
 def test_add_unit_stale_script_file_returns_404(client: TestClient, tmp_path: Path):
     """project.json 残留指向已删除文件的 script_file 时，写端点应返回 404 而非 500。"""
     (tmp_path / "projects" / "demo" / "scripts" / "episode_1.json").unlink()
@@ -475,6 +491,7 @@ def test_add_unit_stale_script_file_returns_404(client: TestClient, tmp_path: Pa
     assert resp.status_code == 404, resp.text
 
 
+@pytest.mark.unit
 def test_add_unit_unknown_project_returns_404(client: TestClient):
     resp = client.post(
         "/api/v1/projects/missing/reference-videos/episodes/1/units",
@@ -483,6 +500,7 @@ def test_add_unit_unknown_project_returns_404(client: TestClient):
     assert resp.status_code == 404
 
 
+@pytest.mark.unit
 def test_add_unit_unknown_episode_returns_404(client: TestClient):
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/99/units",
@@ -491,6 +509,7 @@ def test_add_unit_unknown_episode_returns_404(client: TestClient):
     assert resp.status_code == 404
 
 
+@pytest.mark.unit
 def test_write_endpoint_rejects_non_reference_video_mode(client: TestClient, tmp_path: Path):
     """episode 非 reference_video 模式时，写端点应返回 409。"""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
@@ -509,6 +528,7 @@ def test_write_endpoint_rejects_non_reference_video_mode(client: TestClient, tmp
     assert resp.status_code == 409
 
 
+@pytest.mark.unit
 def test_patch_unit_duration_override_without_header(client: TestClient):
     """无 header 的 prompt → override=True，duration_seconds 直接生效。"""
     resp = client.post(
@@ -539,6 +559,7 @@ def test_patch_unit_duration_override_without_header(client: TestClient):
     assert resp.json()["unit"]["duration_seconds"] == 7
 
 
+@pytest.mark.unit
 def test_reorder_units_rejects_true_duplicate(client: TestClient):
     """长度匹配但含重复 ID → 命中 duplicate 校验分支。"""
     uid1 = _seed_unit(client)
@@ -551,6 +572,7 @@ def test_reorder_units_rejects_true_duplicate(client: TestClient):
     assert "重复" in resp.json()["detail"]
 
 
+@pytest.mark.unit
 def test_reorder_units_rejects_unknown_id_set_mismatch(client: TestClient):
     """长度匹配、无重复，但 ID 集合与现有不一致 → set mismatch 分支。"""
     uid1 = _seed_unit(client)
@@ -563,6 +585,7 @@ def test_reorder_units_rejects_unknown_id_set_mismatch(client: TestClient):
     assert "不匹配" in resp.json()["detail"]
 
 
+@pytest.mark.unit
 def test_add_unit_concurrent_rebind_returns_409(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     """加锁前后 episode→script_file 被并发改绑 → 写端点返回 409（前端可重试）。"""
     from server.routers import reference_videos as router_mod

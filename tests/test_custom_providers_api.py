@@ -24,6 +24,8 @@ from server.error_handlers import register_error_handlers
 from server.routers import custom_providers
 from tests.auth_deps import AUTH_DEPENDENCIES
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

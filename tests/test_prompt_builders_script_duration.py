@@ -6,6 +6,8 @@ import pytest
 
 from lib.prompt_builders_script import _format_duration_constraint
 
+pytestmark = pytest.mark.unit
+
 
 class TestFormatDurationConstraint:
     def test_discrete_set(self):

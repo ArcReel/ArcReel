@@ -10,6 +10,8 @@ from alembic.config import Config
 
 from alembic import command
 
+pytestmark = pytest.mark.unit
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 

@@ -1,3 +1,4 @@
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -9,6 +10,8 @@ from server.routers import assistant
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.conftest import make_translator
 from tests.factories import make_session_meta
+
+pytestmark = pytest.mark.unit
 
 PROJECT = "demo"
 PREFIX = f"/api/v1/projects/{PROJECT}/assistant"

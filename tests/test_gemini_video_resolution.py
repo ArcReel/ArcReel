@@ -8,6 +8,8 @@ from lib.config.registry import ModelInfo
 from lib.video_backends.base import VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.gemini import GeminiVideoBackend
 
+pytestmark = pytest.mark.unit
+
 
 def _make_backend(model="veo-3.1-lite-generate-preview", backend_type="aistudio"):
     backend = GeminiVideoBackend.__new__(GeminiVideoBackend)

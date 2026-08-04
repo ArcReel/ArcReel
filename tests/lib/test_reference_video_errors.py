@@ -5,6 +5,8 @@ from lib.reference_video.errors import (
     ProviderUnsupportedFeatureError,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def test_missing_reference_error_carries_details():
     err = MissingReferenceError(missing=[("character", "张三"), ("scene", "酒馆")])

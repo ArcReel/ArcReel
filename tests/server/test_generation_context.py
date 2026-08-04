@@ -145,6 +145,7 @@ async def _seed_custom_video_provider(session_factory) -> str:
 
 
 class TestLaneDeclaration:
+    @pytest.mark.unit
     async def test_only_declared_lanes_are_constructed(self, session_factory, project_env, fake_assemble):
         """只声明 image lane：不解析、不构造 video/audio，视频供应商缺配置不影响图片任务。"""
         project = {"image_provider_t2i": "ark/img-model-x"}
@@ -159,6 +160,7 @@ class TestLaneDeclaration:
         with pytest.raises(RuntimeError, match="audio lane 未声明"):
             _ = ctx.audio
 
+    @pytest.mark.unit
     async def test_no_lane_declared_still_returns_generator(self, session_factory, project_env, fake_assemble):
         ctx = await resolve_generation_context("demo", None, project={})
         assert isinstance(ctx.generator, MediaGenerator)
@@ -166,6 +168,7 @@ class TestLaneDeclaration:
         with pytest.raises(RuntimeError, match="image lane 未声明"):
             _ = ctx.image
 
+    @pytest.mark.unit
     async def test_i2i_capability_selects_i2i_slot(self, session_factory, project_env, fake_assemble):
         project = {
             "image_provider_t2i": "ark/img-t2i",
@@ -174,6 +177,7 @@ class TestLaneDeclaration:
         ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest(capability="i2i"))
         assert ctx.image.provider_model == ProviderModel("ark", "img-i2i")
 
+    @pytest.mark.unit
     async def test_all_three_lanes(self, session_factory, project_env, fake_assemble):
         video_model = _registry_video_model("ark")
         project = {
@@ -195,6 +199,7 @@ class TestLaneDeclaration:
 
 
 class TestVideoLane:
+    @pytest.mark.unit
     async def test_registry_capabilities_and_fallback_resolution(self, session_factory, project_env, fake_assemble):
         video_model = _registry_video_model("ark")
         expected = PROVIDER_REGISTRY["ark"].models[video_model]
@@ -208,6 +213,7 @@ class TestVideoLane:
         assert ctx.video.resolution is None
         assert ctx.video.resolution_or_fallback == get_provider_fallback("ark")
 
+    @pytest.mark.unit
     async def test_resolution_from_model_settings(self, session_factory, project_env, fake_assemble):
         video_model = _registry_video_model("ark")
         project = {
@@ -218,6 +224,7 @@ class TestVideoLane:
         assert ctx.video.resolution == "480p"
         assert ctx.video.resolution_or_fallback == "480p"
 
+    @pytest.mark.unit
     async def test_capability_query_failure_degrades_to_empty(self, session_factory, project_env, monkeypatch):
         """fake backend 报告 registry 之外的 model：能力查询失败降级空值，整次调用照常成功。"""
 
@@ -265,6 +272,7 @@ class TestVideoLane:
         )
         assert ctx.video.requested_generate_audio is False
 
+    @pytest.mark.unit
     async def test_payload_overrides_project(self, session_factory, project_env, fake_assemble):
         """payload > project：历史任务携带的 video_provider 决定实际解析身份。"""
         ark_model = _registry_video_model("ark")
@@ -279,6 +287,7 @@ class TestVideoLane:
 
 
 class TestActualIdentityQueries:
+    @pytest.mark.unit
     async def test_custom_model_fallback_queries_by_actual_model(self, session_factory, project_env, monkeypatch):
         """自定义供应商目标 model 被禁用回退：resolution 与能力按 backend 实际 model 查询。"""
         provider_id = await _seed_custom_video_provider(session_factory)
@@ -304,6 +313,7 @@ class TestActualIdentityQueries:
 
 
 class TestAudioLane:
+    @pytest.mark.unit
     async def test_narration_voice_and_speed_from_project(self, session_factory, project_env, fake_assemble):
         project = {
             "audio_backend": "dashscope/tts-model-x",
@@ -316,12 +326,14 @@ class TestAudioLane:
         assert ctx.audio.backend_name == "dashscope"
         assert ctx.audio.backend_model == "tts-model-x"
 
+    @pytest.mark.unit
     async def test_narration_defaults_when_unset(self, session_factory, project_env, fake_assemble):
         project = {"audio_backend": "dashscope/tts-model-x"}
         ctx = await resolve_generation_context("demo", None, project=project, audio=AudioLaneRequest())
         assert isinstance(ctx.audio.narration_voice, str) and ctx.audio.narration_voice
         assert ctx.audio.narration_speed is None
 
+    @pytest.mark.unit
     async def test_voice_catalog_snapshot_passed_through(self, session_factory, project_env, monkeypatch):
         """ctx.audio.voices 须是 backend.list_voices() 的真实快照，而非默认的空元组——
         断言字段存在不够，须证明 resolve_generation_context 确实转发了 backend 的音色目录。
@@ -339,6 +351,7 @@ class TestAudioLane:
 
 
 class TestAtomicFailure:
+    @pytest.mark.unit
     async def test_declared_lane_construction_failure_fails_whole_call(self, session_factory, project_env, monkeypatch):
         """image 成功后 video 构造失败：整次调用原样上抛，无部分结果。"""
 
@@ -358,12 +371,14 @@ class TestAtomicFailure:
                 video=VideoLaneRequest(),
             )
 
+    @pytest.mark.unit
     async def test_missing_project_dir_raises(self, session_factory, project_env, fake_assemble):
         with pytest.raises(FileNotFoundError):
             await resolve_generation_context("nope", None, project={}, image=ImageLaneRequest())
 
 
 class TestBackendCache:
+    @pytest.mark.unit
     async def test_backend_reused_until_invalidated(self, session_factory, project_env, fake_assemble):
         project = {"image_provider_t2i": "ark/img-model-x"}
         await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
@@ -374,6 +389,7 @@ class TestBackendCache:
         await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
         assert len(fake_assemble) == 2, "失效后须重建 backend"
 
+    @pytest.mark.unit
     async def test_invalidate_during_construction_discards_instance(self, monkeypatch):
         """构造中途（assemble_backend await 挂起期间）触发 invalidate：完成的实例不写回缓存。"""
         entered = asyncio.Event()
@@ -402,6 +418,7 @@ class TestBackendCache:
         assert stale is built[0] and fresh is built[1]
         assert fresh is not stale
 
+    @pytest.mark.unit
     async def test_concurrent_same_key_constructs_once(self, monkeypatch):
         """同 key 并发两次 get_or_create：只构造一次，两调用方拿到同一实例。"""
         entered = asyncio.Event()
@@ -430,6 +447,7 @@ class TestBackendCache:
         assert construct_count == 1, "同 key 并发 miss 须 single-flight，只构造一次"
         assert b1 is b2
 
+    @pytest.mark.unit
     async def test_follower_queued_before_invalidate_discards_instance(self, monkeypatch):
         """失效边界前已排队等锁的旧代际请求（follower）：跨越失效后拿到锁，仍不得写回缓存。
 
@@ -477,6 +495,7 @@ class TestBackendCache:
 
 
 class TestValueObjectAssembly:
+    @pytest.mark.unit
     def test_fake_context_assembles_from_frozen_dataclasses(self, tmp_path: Path):
         """消费方测试的拼装路径：frozen dataclass 直接构造假 context，property 原样返回。"""
         lane = VideoLaneResult(
@@ -494,6 +513,7 @@ class TestValueObjectAssembly:
         with pytest.raises(RuntimeError, match="image lane 未声明"):
             _ = ctx.image
 
+    @pytest.mark.unit
     def test_lane_results_are_frozen(self):
         lane = ImageLaneResult(
             provider_model=ProviderModel("ark", "m"),
@@ -504,6 +524,7 @@ class TestValueObjectAssembly:
         with pytest.raises(AttributeError):
             lane.resolution = "720p"  # type: ignore[misc]
 
+    @pytest.mark.unit
     def test_audio_lane_result_shape(self):
         lane = AudioLaneResult(
             provider_model=ProviderModel("dashscope", "tts"),

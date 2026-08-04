@@ -10,6 +10,8 @@ import pytest
 
 from server.sse_channel import IDLE, DropSubscriber, EvictNonCriticalAndSignal, SseChannel
 
+pytestmark = pytest.mark.unit
+
 
 def _is_critical(message) -> bool:
     return message.get("type") in {"result", "runtime_status", "user", "assistant"}

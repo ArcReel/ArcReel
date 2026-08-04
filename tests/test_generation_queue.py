@@ -9,6 +9,8 @@ from lib.db.base import Base
 from lib.generation_queue import GenerationQueue
 from lib.task_failure import encode_failure
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def queue():

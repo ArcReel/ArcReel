@@ -4,6 +4,8 @@ import pytest
 
 from lib.project_manager import ProjectManager
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture()
 def pm_env(tmp_path):

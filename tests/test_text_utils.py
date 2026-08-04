@@ -6,6 +6,8 @@ import pytest
 
 from lib.text_utils import strip_json_code_fences
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.mark.parametrize(
     "raw",

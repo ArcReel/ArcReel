@@ -1,6 +1,10 @@
 """ImageCapabilityError 携带稳定 code + 上下文 params。"""
 
+import pytest
+
 from lib.image_backends import ImageCapabilityError
+
+pytestmark = pytest.mark.unit
 
 
 def test_carries_code_and_params():

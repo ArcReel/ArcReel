@@ -6,7 +6,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lib.script_structure_validator import validate_script_structure
+
+pytestmark = pytest.mark.unit
 
 
 def _segment(segment_id: str = "E1S01", duration: int = 4) -> dict:

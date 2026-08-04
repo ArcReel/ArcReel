@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lib.project_manager import ProjectManager
+
+pytestmark = pytest.mark.unit
 
 
 def test_get_global_assets_root_creates_subdirs(tmp_path):

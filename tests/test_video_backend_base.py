@@ -22,6 +22,8 @@ from lib.video_backends.base import (
     submit_post,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def _http_status_error(status_code: int, *, text: str = "boom") -> httpx.HTTPStatusError:
     """构造真实 httpx.HTTPStatusError；URL 故意含 "503" 子串以验证不再走字符串误判。"""

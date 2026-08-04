@@ -13,6 +13,10 @@ import base64
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # 1 & 2: ImageGenerationResult dataclass
 # ---------------------------------------------------------------------------

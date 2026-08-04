@@ -8,9 +8,12 @@ import os
 import time
 from unittest.mock import patch
 
+import pytest
 from fastapi import HTTPException
 
 import server.auth as auth_module
+
+pytestmark = pytest.mark.unit
 
 
 class TestGeneratePassword:

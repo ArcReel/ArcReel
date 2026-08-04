@@ -22,6 +22,8 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.conftest import make_translator
 from tests.factories import make_session_meta
 
+pytestmark = pytest.mark.unit
+
 SESSION_ID = "entry-stream-s1"
 
 

@@ -157,6 +157,7 @@ def _wire_locked_script(fake_pm: MagicMock) -> None:
     fake_pm.locked_script.side_effect = _locked
 
 
+@pytest.mark.unit
 def test_resolve_unit_references_maps_sheets(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
     project, unit = _load_project_and_unit(proj_dir, "E1U1")
@@ -164,6 +165,7 @@ def test_resolve_unit_references_maps_sheets(tmp_path: Path):
     assert [p.name for p in resolved] == ["张三.png", "酒馆.png"]
 
 
+@pytest.mark.unit
 def test_resolve_unit_references_missing_sheet_raises(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
     project, unit = _load_project_and_unit(proj_dir, "E1U1")
@@ -174,6 +176,7 @@ def test_resolve_unit_references_missing_sheet_raises(tmp_path: Path):
     assert ("character", "张三") in excinfo.value.missing
 
 
+@pytest.mark.unit
 def test_resolve_unit_references_unknown_name_raises(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
     project, _ = _load_project_and_unit(proj_dir, "E1U1")
@@ -295,6 +298,7 @@ def test_resolve_ad_unit_reference_entries_no_false_positive_warning_for_nfd_pro
     assert warnings == []
 
 
+@pytest.mark.unit
 def test_render_unit_prompt_rejects_empty_shots():
     """执行层保留一道防御性空检查：提示词源是可变 script、执行期重读，结构校验上移到
     入队守卫点后仍需挡住「入队后被改空 / 在途遗留任务」漏过的空提示词，避免尾词追加后
@@ -318,6 +322,7 @@ def test_render_unit_prompt_rejects_empty_shots():
         )
 
 
+@pytest.mark.unit
 def test_render_unit_prompt_binds_subjects_in_reference_order():
     unit = {
         "shots": [
@@ -345,6 +350,7 @@ def test_render_unit_prompt_binds_subjects_in_reference_order():
     assert "[图1]" not in rendered.prompt
 
 
+@pytest.mark.unit
 def test_render_unit_prompt_preserves_shot_boundaries_when_shots_lack_headers():
     """经解析预览面板编辑回写的 unit，``shots[*].text`` 不带 ``镜头N：`` header——
     渲染仍须按数组结构切成对应数量的镜头，不能因裸拼接后找不到 header 被折叠成一镜头。"""
@@ -612,6 +618,7 @@ def test_apply_provider_constraints_narrows_by_call_conditions():
     assert without_images == 6
 
 
+@pytest.mark.unit
 def test_apply_provider_constraints_sora_single_ref():
     refs = [Path(f"/tmp/ref{i}.png") for i in range(3)]
     new_refs, _, warnings = _apply_provider_constraints(
@@ -626,6 +633,7 @@ def test_apply_provider_constraints_sora_single_ref():
     assert any("ref_sora_single_ref" in w["key"] for w in warnings)
 
 
+@pytest.mark.unit
 def test_apply_provider_constraints_ark_keeps_nine():
     refs = [Path(f"/tmp/ref{i}.png") for i in range(9)]
     new_refs, new_duration, warnings = _apply_provider_constraints(
@@ -641,6 +649,7 @@ def test_apply_provider_constraints_ark_keeps_nine():
     assert warnings == []
 
 
+@pytest.mark.unit
 def test_apply_provider_constraints_none_caps_skip_clamp():
     """当 ConfigResolver 解析失败（例如无 DB 的 CI 环境），调用方传 None / 空档位集 →
     不裁剪任何维度、时长原样透传，把决策推到 backend 自己去报错。"""
@@ -658,6 +667,7 @@ def test_apply_provider_constraints_none_caps_skip_clamp():
     assert warnings == []
 
 
+@pytest.mark.unit
 def test_apply_provider_constraints_custom_provider_model_granular():
     """Custom provider 场景：档位集由自定义 model.supported_durations 决定，
     无需 PROVIDER_MAX_DURATION 常量查表。传入 duration=18 超过最大档位 → 按 10 申请。"""
@@ -676,6 +686,7 @@ def test_apply_provider_constraints_custom_provider_model_granular():
     assert not any(w["key"] == "ref_too_many_images" for w in warnings)
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     proj_dir = _write_project(tmp_path)
@@ -724,6 +735,7 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
     assert result["file_path"].endswith("E1U1.mp4")
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_sends_reference_audio_in_prompt_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -876,6 +888,7 @@ async def test_execute_reference_video_task_omits_reference_audio_when_episode_i
     assert {"key": "ref_warn_silent_episode", "params": {}} in result["warnings"]
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_aligns_reference_audio_targets_for_per_image_backend(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -957,6 +970,7 @@ async def test_execute_reference_video_task_aligns_reference_audio_targets_for_p
     assert captured["reference_audio_targets"] == [1]
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_omits_audio_field_for_soft_tier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1019,6 +1033,7 @@ async def test_execute_reference_video_task_omits_audio_field_for_soft_tier(
     assert "@音频" not in captured["prompt"]
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_surfaces_render_warnings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """渲染期降级 warning 与既有 result.warnings 通道贯通（超上限截断降级）。"""
@@ -1081,6 +1096,7 @@ async def test_execute_reference_video_task_surfaces_render_warnings(tmp_path: P
     assert {"key": "ref_warn_reference_audio_overflow", "params": {"limit": 1, "name": "李四"}} in result["warnings"]
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail(
     tmp_path: Path,
@@ -1147,6 +1163,7 @@ async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail
     assert ga_after["status"] == "completed"
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_grok_uses_provider_default_resolution(
     tmp_path: Path,
@@ -1273,6 +1290,7 @@ async def test_execute_reference_video_task_narrows_durations_by_registry_provid
     assert captured.get("duration_seconds") == 8
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_missing_reference_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     proj_dir = _write_project(tmp_path)
@@ -1298,6 +1316,7 @@ async def test_execute_reference_video_task_missing_reference_fails(tmp_path: Pa
         )
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """executor 必须走真实 MediaGenerator._get_output_path。
@@ -1415,6 +1434,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     assert any(p.suffix == ".mp4" for p in version_dir.iterdir())
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """executor 把**源 sheet 路径**直接交给 generate_video_async（单次调用），压缩下沉
@@ -1472,6 +1492,7 @@ async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, m
     ]
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_clamps_via_lane_caps(
     tmp_path: Path,
@@ -1541,6 +1562,7 @@ async def test_execute_reference_video_task_clamps_via_lane_caps(
     assert len(captured["reference_images"]) == 1
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     tmp_path: Path,
@@ -1778,6 +1800,7 @@ async def test_execute_reference_video_task_rounds_up_non_member_duration(
     assert warnings[0]["params"] == {"total": 5, "duration": 8, "model": "sora-2"}
 
 
+@pytest.mark.unit
 async def test_execute_reference_video_task_persists_effective_duration_when_rounded(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1835,6 +1858,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     fake_queue.persist_effective_duration.assert_awaited_once_with("task-1", 8)
 
 
+@pytest.mark.unit
 async def test_execute_reference_video_task_persists_duration_when_unchanged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1888,6 +1912,7 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
     fake_queue.persist_effective_duration.assert_awaited_once_with("task-1", 3)
 
 
+@pytest.mark.unit
 def test_apply_unit_video_assets_distinguishes_failures():
     """结构损坏与 unit 不存在抛不同异常：还原侧据此区分「脏脚本告警」与「正常跳过」。
 
@@ -1923,6 +1948,7 @@ def test_apply_unit_video_assets_distinguishes_failures():
     assert ga["status"] == "completed"
 
 
+@pytest.mark.unit
 def test_apply_unit_video_assets_stamps_video_generated_at():
     """每次写回 video_clip 都机械戳 video_generated_at（存量过渡横幅的计数依据）。"""
     from server.services.reference_video_tasks import apply_unit_video_assets
@@ -1938,6 +1964,7 @@ def test_apply_unit_video_assets_stamps_video_generated_at():
     assert isinstance(second_stamp, str) and second_stamp
 
 
+@pytest.mark.unit
 def test_apply_unit_video_assets_honors_explicit_generated_at():
     """版本还原传入被还原版本的原始入库时间，不把旧内容洗成「刚生成」。"""
     from server.services.reference_video_tasks import apply_unit_video_assets

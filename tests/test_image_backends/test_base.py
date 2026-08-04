@@ -1,11 +1,15 @@
 from pathlib import Path
 
+import pytest
+
 from lib.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
     ReferenceImage,
 )
+
+pytestmark = pytest.mark.unit
 
 
 def test_image_capability_is_str_enum():

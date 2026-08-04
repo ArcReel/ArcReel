@@ -1,6 +1,10 @@
 from pathlib import Path
 
+import pytest
+
 from lib.source_loader.base import ExtractedText, FormatExtractor, NormalizeResult  # noqa: F401
+
+pytestmark = pytest.mark.unit
 
 
 def test_extracted_text_defaults():

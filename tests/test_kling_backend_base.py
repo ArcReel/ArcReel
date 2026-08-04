@@ -12,6 +12,8 @@ from lib.image_backends.kling import KlingImageBackend
 from lib.kling_backend_base import KlingBackendBase
 from lib.video_backends.kling import KlingVideoBackend
 
+pytestmark = pytest.mark.unit
+
 _SECRET = "s" * 40
 
 

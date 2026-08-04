@@ -1,6 +1,10 @@
 import time
 
+import pytest
+
 from lib.asset_fingerprints import compute_asset_fingerprints
+
+pytestmark = pytest.mark.unit
 
 
 class TestComputeAssetFingerprints:

@@ -15,6 +15,8 @@ from lib.project_manager import ProjectManager
 from lib.script_editor import ScriptEditError
 from lib.script_structure_validator import ScriptStructureValidationError
 
+pytestmark = pytest.mark.unit
+
 
 def _segment(segment_id: str = "E1S01", duration: int = 4) -> dict:
     return {

@@ -17,6 +17,8 @@ from lib.db.base import Base
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.routers.system_config import _build_options
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

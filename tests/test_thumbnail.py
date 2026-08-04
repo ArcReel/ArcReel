@@ -5,6 +5,8 @@ import pytest
 
 from lib.thumbnail import extract_video_last_frame, extract_video_thumbnail
 
+pytestmark = pytest.mark.unit
+
 
 class TestExtractVideoThumbnail:
     @pytest.fixture(autouse=True)

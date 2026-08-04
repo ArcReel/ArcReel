@@ -1,11 +1,15 @@
 """base_url 归一化工具函数测试。"""
 
+import pytest
+
 from lib.config.url_utils import (
     ensure_google_base_url,
     ensure_openai_base_url,
     is_official_openai_base_url,
     normalize_base_url,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class TestIsOfficialOpenAIBaseURL:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -13,6 +14,8 @@ from lib.db.models.credential import ProviderCredential
 from lib.db.repositories.credential_repository import CredentialRepository
 from server.routers import providers
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
+
+pytestmark = pytest.mark.unit
 
 
 def _make_app() -> tuple[FastAPI, MagicMock]:

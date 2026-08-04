@@ -17,6 +17,8 @@ from server.app import (
     detect_docker_environment,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def _bwrap_probe_stub(returncode: int = 0, stderr: bytes = b""):
     """构造 subprocess.run 替身，用于桩 bwrap 试跑结果。"""

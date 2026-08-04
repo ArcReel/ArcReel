@@ -7,6 +7,8 @@ from PIL import Image
 
 from lib.image_utils import compress_image_bytes
 
+pytestmark = pytest.mark.unit
+
 
 def _make_big_png(width: int = 4096, height: int = 3072) -> bytes:
     img = Image.new("RGB", (width, height), color=(240, 80, 40))

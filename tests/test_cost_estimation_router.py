@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -9,6 +10,8 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import cost_estimation
 from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 def _make_app():

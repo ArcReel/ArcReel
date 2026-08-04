@@ -5,7 +5,11 @@ from __future__ import annotations
 import asyncio
 import gc
 
+import pytest
+
 from server.agent_runtime.keyed_locks import KeyedLocks
+
+pytestmark = pytest.mark.unit
 
 
 class TestKeyedLocks:

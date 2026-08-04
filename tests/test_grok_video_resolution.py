@@ -7,6 +7,8 @@ import pytest
 from lib.video_backends.base import VideoGenerationRequest
 from lib.video_backends.grok import GrokVideoBackend
 
+pytestmark = pytest.mark.unit
+
 
 def _make_backend():
     backend = GrokVideoBackend.__new__(GrokVideoBackend)

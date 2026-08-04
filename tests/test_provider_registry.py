@@ -1,6 +1,10 @@
 """PROVIDER_REGISTRY 字段与注册完整性单元测试。"""
 
+import pytest
+
 from lib.config.registry import PROVIDER_REGISTRY
+
+pytestmark = pytest.mark.unit
 
 
 def test_ark_has_default_base_url() -> None:

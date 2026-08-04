@@ -9,6 +9,8 @@ import lib.db.models  # noqa: F401 — ensure all models registered for Base.met
 from lib.db.base import Base
 from lib.db.models.asset import Asset
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def engine():

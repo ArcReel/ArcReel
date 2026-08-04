@@ -7,6 +7,8 @@ import pytest
 from lib.image_backends.base import ImageGenerationRequest
 from lib.image_backends.grok import GrokImageBackend
 
+pytestmark = pytest.mark.unit
+
 
 def _make_backend():
     backend = GrokImageBackend.__new__(GrokImageBackend)

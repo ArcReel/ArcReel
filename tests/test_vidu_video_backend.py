@@ -32,11 +32,13 @@ def output_path(tmp_path: Path) -> Path:
 
 
 class TestBackendBasics:
+    @pytest.mark.unit
     def test_default_model_is_q3_turbo(self):
         backend = ViduVideoBackend(api_key="test-key")
         assert backend.name == PROVIDER_VIDU
         assert backend.model == DEFAULT_MODEL == "viduq3-turbo"
 
+    @pytest.mark.unit
     def test_max_reference_images_seven(self):
         backend = ViduVideoBackend(api_key="test-key")
         assert backend.video_capabilities.max_reference_images == 7
@@ -64,11 +66,13 @@ class TestEndpointSelection:
     def _backend(self, model: str = "viduq3-turbo") -> ViduVideoBackend:
         return ViduVideoBackend(api_key="test-key", model=model)
 
+    @pytest.mark.unit
     def test_text_only_picks_text2video(self, output_path: Path):
         backend = self._backend()
         req = VideoGenerationRequest(prompt="x", output_path=output_path)
         assert backend._select_endpoint(req) == "/text2video"
 
+    @pytest.mark.unit
     def test_start_image_picks_img2video(self, tmp_path: Path, output_path: Path):
         backend = self._backend()
         start = tmp_path / "start.png"
@@ -76,6 +80,7 @@ class TestEndpointSelection:
         req = VideoGenerationRequest(prompt="x", output_path=output_path, start_image=start)
         assert backend._select_endpoint(req) == "/img2video"
 
+    @pytest.mark.unit
     def test_start_and_end_image_picks_start_end2video(self, tmp_path: Path, output_path: Path):
         backend = self._backend()
         start, end = tmp_path / "s.png", tmp_path / "e.png"
@@ -84,6 +89,7 @@ class TestEndpointSelection:
         req = VideoGenerationRequest(prompt="x", output_path=output_path, start_image=start, end_image=end)
         assert backend._select_endpoint(req) == "/start-end2video"
 
+    @pytest.mark.unit
     def test_reference_images_take_priority(self, tmp_path: Path, output_path: Path):
         """有 refs 时即使带 start_image 也应走 reference2video（依实现：refs 先判）。"""
         backend = self._backend()
@@ -96,19 +102,24 @@ class TestEndpointSelection:
 class TestEndpointModelMatrix:
     """端点支持模型集合是 spec，钉死，避免误改。"""
 
+    @pytest.mark.unit
     def test_reference2video_does_not_include_q3_pro(self):
         # q3-pro 在 reference2video 上不被官方文档列出
         assert "viduq3-pro" not in _ENDPOINT_MODELS["/reference2video"]
 
+    @pytest.mark.unit
     def test_reference2video_includes_q3_turbo(self):
         assert "viduq3-turbo" in _ENDPOINT_MODELS["/reference2video"]
 
+    @pytest.mark.unit
     def test_text2video_excludes_vidu2_0(self):
         assert "vidu2.0" not in _ENDPOINT_MODELS["/text2video"]
 
+    @pytest.mark.unit
     def test_aspect_ratio_only_text2video_and_reference2video(self):
         assert _ENDPOINTS_WITH_ASPECT_RATIO == frozenset({"/text2video", "/reference2video"})
 
+    @pytest.mark.unit
     def test_q3_models_set(self):
         assert "viduq3-turbo" in _Q3_MODELS
         assert "viduq3-pro" in _Q3_MODELS
@@ -116,29 +127,36 @@ class TestEndpointModelMatrix:
 
 
 class TestCoerceDuration:
+    @pytest.mark.unit
     def test_q3_turbo_text2video_passthrough_in_range(self):
         assert _coerce_duration("viduq3-turbo", "/text2video", 8) == 8
 
+    @pytest.mark.unit
     def test_q3_turbo_text2video_clamps_to_nearest(self):
         # range 1..16；超过 16 应取 16
         assert _coerce_duration("viduq3-turbo", "/text2video", 30) == 16
 
+    @pytest.mark.unit
     def test_vidu2_0_img2video_only_4_or_8(self):
         assert _coerce_duration("vidu2.0", "/img2video", 12) == 8
         assert _coerce_duration("vidu2.0", "/img2video", 5) == 4
         assert _coerce_duration("vidu2.0", "/img2video", 4) == 4
         assert _coerce_duration("vidu2.0", "/img2video", 8) == 8
 
+    @pytest.mark.unit
     def test_vidu2_0_reference2video_only_4(self):
         assert _coerce_duration("vidu2.0", "/reference2video", 8) == 4
 
+    @pytest.mark.unit
     def test_q1_text2video_only_5(self):
         assert _coerce_duration("viduq1", "/text2video", 10) == 5
 
+    @pytest.mark.unit
     def test_q3_reference2video_min_3(self):
         # range 3..16；请求 1 → 取最近 3
         assert _coerce_duration("viduq3", "/reference2video", 1) == 3
 
+    @pytest.mark.unit
     def test_unknown_combination_passthrough(self):
         # 表里无项时不强校（透传 / 兜底 5）
         assert _coerce_duration("unknown-model", "/img2video", 9) == 9
@@ -146,19 +164,24 @@ class TestCoerceDuration:
 
 
 class TestCoerceResolution:
+    @pytest.mark.unit
     def test_q1_only_1080p_falls_back(self):
         assert _coerce_resolution("viduq1", "720p") == "1080p"
 
+    @pytest.mark.unit
     def test_q3_turbo_passes_720p(self):
         assert _coerce_resolution("viduq3-turbo", "720p") == "720p"
 
+    @pytest.mark.unit
     def test_default_for_q3_turbo_when_none(self):
         # whitelist 里有 720p → 取 720p
         assert _coerce_resolution("viduq3-turbo", None) == "720p"
 
+    @pytest.mark.unit
     def test_unknown_model_passthrough(self):
         assert _coerce_resolution("unknown", "9000p") == "9000p"
 
+    @pytest.mark.unit
     def test_all_known_models_have_whitelist(self):
         # registry 中暴露的模型都得在白名单里
         for model in {
@@ -176,6 +199,7 @@ class TestCoerceResolution:
 class TestBuildRequest:
     """_build_request 是核心串联函数：endpoint 选择 + duration/resolution/aspect_ratio/audio 字段拼装。"""
 
+    @pytest.mark.unit
     @patch("lib.video_backends.vidu.image_to_data_uri")
     def test_text2video_body_minimal(self, mock_data_uri, output_path: Path):
         backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
@@ -199,6 +223,7 @@ class TestBuildRequest:
         # text2video 不携带 images
         assert "images" not in body
 
+    @pytest.mark.unit
     @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
     def test_img2video_passes_one_image_no_aspect_ratio(self, _mock, tmp_path: Path, output_path: Path):
         start = tmp_path / "s.png"
@@ -219,6 +244,7 @@ class TestBuildRequest:
         # img2video 不接受 aspect_ratio
         assert "aspect_ratio" not in body
 
+    @pytest.mark.unit
     @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
     def test_reference2video_with_q3_turbo(self, _mock, tmp_path: Path, output_path: Path):
         ref1, ref2 = tmp_path / "r1.png", tmp_path / "r2.png"
@@ -242,6 +268,7 @@ class TestBuildRequest:
         # range 3..16，5 透传
         assert body["duration"] == 5
 
+    @pytest.mark.unit
     def test_reference2video_with_q3_pro_raises_model_mismatch(self, tmp_path: Path, output_path: Path):
         ref = tmp_path / "r.png"
         ref.write_bytes(b"x")
@@ -256,6 +283,7 @@ class TestBuildRequest:
         with pytest.raises(RuntimeError, match="不支持"):
             backend._build_request(req)
 
+    @pytest.mark.unit
     def test_non_q3_model_does_not_send_audio(self, output_path: Path):
         backend = ViduVideoBackend(api_key="test-key", model="vidu2.0")
         # vidu2.0 走 img2video，不能 text2video
@@ -335,6 +363,7 @@ class TestPromptLength:
 class TestDurationRulesSpec:
     """直接钉死 _DURATION_RULES 关键条目，避免误改。"""
 
+    @pytest.mark.unit
     def test_q1_text2video_only_5(self):
         assert _DURATION_RULES[("viduq1", "/text2video")] == [5]
 
@@ -346,12 +375,15 @@ class TestDurationRulesSpec:
         assert _DURATION_RULES[("viduq2-pro-fast", "/img2video")] == list(range(1, 11))
         assert _DURATION_RULES[("viduq2-pro", "/start-end2video")] == list(range(1, 9))
 
+    @pytest.mark.unit
     def test_vidu2_0_img2video_only_4_8(self):
         assert _DURATION_RULES[("vidu2.0", "/img2video")] == [4, 8]
 
+    @pytest.mark.unit
     def test_vidu2_0_reference2video_only_4(self):
         assert _DURATION_RULES[("vidu2.0", "/reference2video")] == [4]
 
+    @pytest.mark.unit
     def test_q3_turbo_text2video_full_range(self):
         assert _DURATION_RULES[("viduq3-turbo", "/text2video")] == list(range(1, 17))
 
@@ -362,10 +394,12 @@ class TestRegistryBackendConsistency:
     def _vidu2_model_info(self):
         return PROVIDER_REGISTRY["vidu"].models["vidu2.0"]
 
+    @pytest.mark.unit
     def test_reference_image_durations_matches_reference2video_rule(self):
         model_info = self._vidu2_model_info()
         assert model_info.reference_image_durations == _DURATION_RULES[("vidu2.0", "/reference2video")]
 
+    @pytest.mark.unit
     def test_supported_durations_covers_img2video_and_start_end2video(self):
         model_info = self._vidu2_model_info()
         expected_durations = set(_DURATION_RULES[("vidu2.0", "/img2video")]) | set(
@@ -373,11 +407,13 @@ class TestRegistryBackendConsistency:
         )
         assert set(model_info.supported_durations) == expected_durations
 
+    @pytest.mark.unit
     def test_duration_resolution_constraints_confines_non_720p_to_4s(self):
         """8 秒档只出 720p——360p / 1080p 须声明仅 4 秒可选，UI 才不会给出无效的时长×分辨率组合。"""
         model_info = self._vidu2_model_info()
         assert model_info.duration_resolution_constraints == {"360p": [4], "1080p": [4]}
 
+    @pytest.mark.unit
     def test_resolutions_matches_backend_whitelist(self):
         model_info = self._vidu2_model_info()
         assert set(model_info.resolutions) == set(_RESOLUTION_WHITELIST["vidu2.0"])
@@ -386,6 +422,7 @@ class TestRegistryBackendConsistency:
 class TestCreateTask413:
     """413 规整：_create_task 透出保留状态码的 httpx.HTTPStatusError（咽喉层据此降档）。"""
 
+    @pytest.mark.unit
     async def test_create_task_413_surfaces_httpstatuserror_no_retry(self):
         from unittest.mock import AsyncMock, MagicMock
 
@@ -413,6 +450,7 @@ class TestCreateTask413:
 class TestCreateTaskAmbiguity:
     """create 阶段按「请求是否确定送达」收窄重试，避免重复建任务 + 重复计费。"""
 
+    @pytest.mark.unit
     async def test_read_timeout_fails_fast_with_manual_retry_hint(self):
         from unittest.mock import AsyncMock
 
@@ -432,6 +470,7 @@ class TestCreateTaskAmbiguity:
         # 歧义态：请求可能已送达，不重试
         assert client.post.call_count == 1
 
+    @pytest.mark.unit
     async def test_connect_error_retries(self):
         from unittest.mock import AsyncMock, MagicMock
 

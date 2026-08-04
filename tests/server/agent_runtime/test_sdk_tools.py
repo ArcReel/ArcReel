@@ -132,6 +132,7 @@ async def _call(tool_obj, args: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.unit
 def test_build_arcreel_mcp_server_contains_all_tools(tmp_path: Path) -> None:
     srv = build_arcreel_mcp_server(project_name="demo", projects_root=tmp_path)
     assert srv["name"] == "arcreel"
@@ -140,6 +141,7 @@ def test_build_arcreel_mcp_server_contains_all_tools(tmp_path: Path) -> None:
     assert "instance" in srv
 
 
+@pytest.mark.unit
 def test_generate_narration_audio_registered() -> None:
     """旁白配音工具必须同时进 MCP 工具 id 集（前端 chip 三语校验依赖它）。"""
     from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
@@ -152,6 +154,7 @@ def test_generate_narration_audio_registered() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "bad",
     [
@@ -171,12 +174,14 @@ def test_validate_script_filename_rejects_paths(bad: str) -> None:
         validate_script_filename(bad)
 
 
+@pytest.mark.unit
 def test_validate_script_filename_accepts_basename() -> None:
     from server.agent_runtime.sdk_tools._context import validate_script_filename
 
     assert validate_script_filename("episode_1.json") == "episode_1.json"
 
 
+@pytest.mark.unit
 async def test_generate_storyboards_rejects_path_in_script_arg(fake_ctx: ToolContext) -> None:
     """Agent 传带路径分隔符的 script 名必须被 handler 拒绝（共享 validate_script_filename 防御）。"""
     tool_obj = generate_storyboards_tool(fake_ctx)
@@ -190,6 +195,7 @@ async def test_generate_storyboards_rejects_path_in_script_arg(fake_ctx: ToolCon
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.unit
 async def test_list_pending_assets_happy(fake_ctx: ToolContext) -> None:
     tool_obj = list_pending_assets_tool(fake_ctx)
     out = await _call(tool_obj, {})
@@ -200,6 +206,7 @@ async def test_list_pending_assets_happy(fake_ctx: ToolContext) -> None:
     assert "保温杯" in text
 
 
+@pytest.mark.unit
 async def test_list_pending_assets_error(fake_ctx: ToolContext, monkeypatch) -> None:
     def boom(_name):
         raise RuntimeError("db down")
@@ -210,6 +217,7 @@ async def test_list_pending_assets_error(fake_ctx: ToolContext, monkeypatch) -> 
     assert out.get("is_error") is True
 
 
+@pytest.mark.unit
 async def test_generate_assets_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_assets as mod
 
@@ -236,6 +244,7 @@ async def test_generate_assets_happy(fake_ctx: ToolContext, monkeypatch) -> None
     assert "张三" in text
 
 
+@pytest.mark.unit
 async def test_generate_assets_names_without_type(fake_ctx: ToolContext) -> None:
     tool_obj = generate_assets_tool(fake_ctx)
     out = await _call(tool_obj, {"names": ["张三"]})
@@ -266,6 +275,7 @@ def _narration_audio_script() -> dict[str, Any]:
     }
 
 
+@pytest.mark.unit
 async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: ToolContext, monkeypatch) -> None:
     """不传 segment_ids → 只为缺 narration_audio 的段入队 tts 任务，prompt 为该段 novel_text。"""
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
@@ -304,6 +314,7 @@ async def test_generate_narration_audio_enqueues_missing_segments(fake_ctx: Tool
     assert "audio/segment_E1S01.wav" in text
 
 
+@pytest.mark.unit
 async def test_generate_narration_audio_selects_item_with_corrupt_generated_assets(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -338,6 +349,7 @@ async def test_generate_narration_audio_selects_item_with_corrupt_generated_asse
     assert [s.resource_id for s in captured] == ["E1S01"]
 
 
+@pytest.mark.unit
 async def test_generate_narration_audio_explicit_ids_regenerate(fake_ctx: ToolContext, monkeypatch) -> None:
     """传 segment_ids → 即使该段已有 narration_audio 也重新入队（批量范围/单段重生语义）。"""
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
@@ -361,6 +373,7 @@ async def test_generate_narration_audio_explicit_ids_regenerate(fake_ctx: ToolCo
     assert [s.resource_id for s in captured] == ["E1S02"]
 
 
+@pytest.mark.unit
 async def test_generate_narration_audio_blank_text_reported(fake_ctx: ToolContext, monkeypatch) -> None:
     """novel_text 空白的段不能静默丢弃：不入队、在输出中可见，显式点名时按错误上报。"""
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
@@ -397,6 +410,7 @@ async def test_generate_narration_audio_blank_text_reported(fake_ctx: ToolContex
     assert "0 succeeded, 1 failed" in text
 
 
+@pytest.mark.unit
 async def test_generate_narration_audio_partial_unmatched_reported(fake_ctx: ToolContext, monkeypatch) -> None:
     """部分 id 不命中不能静默丢弃：命中的照常入队，未命中的按失败上报。"""
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
@@ -423,6 +437,7 @@ async def test_generate_narration_audio_partial_unmatched_reported(fake_ctx: Too
     assert "E1S99" in text and "片段不存在" in text
 
 
+@pytest.mark.unit
 async def test_generate_narration_audio_rejects_drama_script(fake_ctx: ToolContext) -> None:
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
@@ -535,6 +550,7 @@ async def test_generate_narration_audio_rejects_mismatched_script(fake_ctx: Tool
     assert "骨架" in text and "重新拆分" in text
 
 
+@pytest.mark.unit
 async def test_generate_narration_audio_rejects_string_segment_ids(fake_ctx: ToolContext) -> None:
     """segment_ids 传裸字符串会被逐字符迭代成 {'E','1','S'...}，必须显式拒绝。"""
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
@@ -546,6 +562,7 @@ async def test_generate_narration_audio_rejects_string_segment_ids(fake_ctx: Too
     assert "数组" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolContext, monkeypatch) -> None:
     """缺 segment_id 的片段不能让整批中断：跳过并告警，其余片段照常入队。"""
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
@@ -572,6 +589,7 @@ async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolC
     assert "跳过 1 个缺少 segment_id 的片段" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_generate_narration_audio_no_match_error(fake_ctx: ToolContext) -> None:
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
@@ -582,6 +600,7 @@ async def test_generate_narration_audio_no_match_error(fake_ctx: ToolContext) ->
     assert "没有找到匹配的片段" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_generate_narration_audio_all_done(fake_ctx: ToolContext) -> None:
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
@@ -594,6 +613,7 @@ async def test_generate_narration_audio_all_done(fake_ctx: ToolContext) -> None:
     assert "所有片段的旁白音频都已生成" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_generate_narration_audio_task_failures_surface(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
@@ -617,6 +637,7 @@ async def test_generate_narration_audio_task_failures_surface(fake_ctx: ToolCont
     assert "provider down" in text
 
 
+@pytest.mark.unit
 async def test_generate_narration_audio_rejects_path_in_script_arg(fake_ctx: ToolContext) -> None:
     from server.agent_runtime.sdk_tools import enqueue_narration_audio as mod
 
@@ -631,6 +652,7 @@ async def test_generate_narration_audio_rejects_path_in_script_arg(fake_ctx: Too
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.unit
 async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_storyboards as mod
 
@@ -656,6 +678,7 @@ async def test_generate_storyboards_happy(fake_ctx: ToolContext, monkeypatch) ->
     assert out.get("is_error") is not True
 
 
+@pytest.mark.unit
 async def test_generate_storyboards_selects_item_with_corrupt_generated_assets(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -703,6 +726,7 @@ async def test_generate_storyboards_rejects_mismatched_unit_script(fake_ctx: Too
     assert "骨架" in text and "重新拆分" in text
 
 
+@pytest.mark.unit
 async def test_generate_storyboards_error(fake_ctx: ToolContext, monkeypatch) -> None:
     def boom(*args, **kwargs):
         raise ValueError("bad script")
@@ -718,6 +742,7 @@ async def test_generate_storyboards_error(fake_ctx: ToolContext, monkeypatch) ->
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.unit
 def test_edit_images_registered() -> None:
     """edit_images 必须同时进 MCP 工具 id 集（前端 chip 三语校验依赖它）。"""
     from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
@@ -725,6 +750,7 @@ def test_edit_images_registered() -> None:
     assert "edit_images" in ARCREEL_MCP_TOOL_IDS
 
 
+@pytest.mark.unit
 async def test_edit_images_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
 
@@ -763,6 +789,7 @@ async def test_edit_images_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     assert "张三" in text
 
 
+@pytest.mark.unit
 async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext, monkeypatch) -> None:
     """i2i 不可用时直接报错，不创建任何任务（复用服务端 fail-fast 判断点）。"""
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
@@ -779,6 +806,7 @@ async def test_edit_images_i2i_unavailable(fake_ctx: ToolContext, monkeypatch) -
     assert out.get("is_error") is True
 
 
+@pytest.mark.unit
 async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
 
@@ -792,12 +820,14 @@ async def test_edit_images_storyboard_requires_script_file(fake_ctx: ToolContext
     assert "script_file" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_edit_images_rejects_unknown_resource_type(fake_ctx: ToolContext) -> None:
     tool_obj = edit_images_tool(fake_ctx)
     out = await _call(tool_obj, {"resource_type": "video", "edits": [{"id": "x", "instruction": "y"}]})
     assert out.get("is_error") is True
 
 
+@pytest.mark.unit
 async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext, monkeypatch) -> None:
     """资产没有可编辑的当前图（sheet 字段未设置）时跳过并告警，不入队。"""
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
@@ -815,6 +845,7 @@ async def test_edit_images_skips_missing_current_image(fake_ctx: ToolContext, mo
     assert "没有可编辑的当前图" in text
 
 
+@pytest.mark.unit
 async def test_edit_images_rejects_empty_edits(fake_ctx: ToolContext) -> None:
     tool_obj = edit_images_tool(fake_ctx)
     out = await _call(tool_obj, {"resource_type": "character", "edits": []})
@@ -822,6 +853,7 @@ async def test_edit_images_rejects_empty_edits(fake_ctx: ToolContext) -> None:
     assert "edits 不能为空" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext, monkeypatch) -> None:
     """_build_specs 的告警分支（非法条目/缺 id/重复 id/缺指令/资源不存在）逐一命中，合法条目仍正常入队。"""
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
@@ -874,6 +906,7 @@ async def test_edit_images_build_specs_warnings(fake_ctx: ToolContext, monkeypat
     assert "1 succeeded" in text
 
 
+@pytest.mark.unit
 async def test_edit_images_storyboard_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     """storyboard 分支带合法 script_file 时应正常解析剧本并入队（覆盖 validate_script_filename + load_script 调用）。"""
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
@@ -910,6 +943,7 @@ async def test_edit_images_storyboard_happy(fake_ctx: ToolContext, monkeypatch) 
     assert "1 succeeded" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_edit_images_reports_failures(fake_ctx: ToolContext, monkeypatch) -> None:
     """批量入队返回失败项时，摘要与明细都要带上失败原因。"""
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
@@ -941,6 +975,7 @@ async def test_edit_images_reports_failures(fake_ctx: ToolContext, monkeypatch) 
     assert "provider timeout" in text
 
 
+@pytest.mark.unit
 async def test_edit_images_unexpected_exception(fake_ctx: ToolContext) -> None:
     """未预期的异常（如 pm 读取项目失败）要落到统一的 tool_error 兜底，而非向上抛出。"""
 
@@ -954,6 +989,7 @@ async def test_edit_images_unexpected_exception(fake_ctx: ToolContext) -> None:
     assert "edit_images 失败" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_i2i_provider_available_true(monkeypatch) -> None:
     from lib.config.resolver import ConfigResolver
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
@@ -966,6 +1002,7 @@ async def test_i2i_provider_available_true(monkeypatch) -> None:
     assert await mod._i2i_provider_available({}) is True
 
 
+@pytest.mark.unit
 async def test_i2i_provider_available_false_on_value_error(monkeypatch) -> None:
     from lib.config.resolver import ConfigResolver
     from server.agent_runtime.sdk_tools import enqueue_image_edits as mod
@@ -982,6 +1019,7 @@ async def test_i2i_provider_available_false_on_value_error(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.unit
 async def test_generate_grid_list_only(fake_ctx: ToolContext) -> None:
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"  # type: ignore[attr-defined]
     fake_ctx.pm.project_payload["grid_storyboard"] = True  # type: ignore[attr-defined]
@@ -995,6 +1033,7 @@ async def test_generate_grid_list_only(fake_ctx: ToolContext) -> None:
     assert "分组" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_generate_grid_wrong_mode(fake_ctx: ToolContext) -> None:
     # 项目未开启 grid_storyboard → error
     tool_obj = generate_grid_tool(fake_ctx)
@@ -1002,6 +1041,7 @@ async def test_generate_grid_wrong_mode(fake_ctx: ToolContext) -> None:
     assert out.get("is_error") is True
 
 
+@pytest.mark.unit
 async def test_generate_grid_rejected_on_reference_video_route(fake_ctx: ToolContext) -> None:
     # reference_video 路线无分镜图步骤：即使残留 grid_storyboard=true 也不适用宫格工具
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"  # type: ignore[attr-defined]
@@ -1016,6 +1056,7 @@ async def test_generate_grid_rejected_on_reference_video_route(fake_ctx: ToolCon
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.unit
 async def test_generate_video_episode_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
@@ -1072,6 +1113,7 @@ async def test_generate_video_episode_non_dict_generated_assets_does_not_abort_b
     assert enqueued == ["E1S02"]
 
 
+@pytest.mark.unit
 async def test_generate_video_episode_error(fake_ctx: ToolContext) -> None:
     fake_ctx.pm.script_payload = {"content_mode": "narration", "segments": [], "episode": 1}  # type: ignore[attr-defined]
     tool_obj = generate_video_episode_tool(fake_ctx)
@@ -1560,6 +1602,7 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     assert [s.resource_id for s in enqueued] == ["E1U1"]
 
 
+@pytest.mark.unit
 async def test_generate_video_scene_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
@@ -1572,6 +1615,7 @@ async def test_generate_video_scene_happy(fake_ctx: ToolContext, monkeypatch) ->
     assert out.get("is_error") is not True
 
 
+@pytest.mark.unit
 async def test_generate_video_scene_missing(fake_ctx: ToolContext) -> None:
     tool_obj = generate_video_scene_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "scene_id": "NO_SUCH"})
@@ -1598,6 +1642,7 @@ async def test_generate_video_scene_rejects_invalid_storyboard_image(
     assert f"invalid storyboard image path: {storyboard_value!r}" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_generate_video_all_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
@@ -1618,6 +1663,7 @@ async def test_generate_video_all_happy(fake_ctx: ToolContext, monkeypatch) -> N
     assert out.get("is_error") is not True
 
 
+@pytest.mark.unit
 async def test_generate_video_all_error(fake_ctx: ToolContext) -> None:
     def boom(*a, **kw):
         raise RuntimeError("broken")
@@ -1628,6 +1674,7 @@ async def test_generate_video_all_error(fake_ctx: ToolContext) -> None:
     assert out.get("is_error") is True
 
 
+@pytest.mark.unit
 async def test_generate_video_selected_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
@@ -1652,12 +1699,14 @@ async def test_generate_video_selected_happy(fake_ctx: ToolContext, monkeypatch)
     assert out.get("is_error") is not True
 
 
+@pytest.mark.unit
 async def test_generate_video_selected_no_match(fake_ctx: ToolContext) -> None:
     tool_obj = generate_video_selected_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json", "scene_ids": ["NO_SUCH"]})
     assert out.get("is_error") is True
 
 
+@pytest.mark.unit
 def test_build_asset_specs_skips_invalid_description(monkeypatch) -> None:
     """空白 / 非字符串描述都被跳过并告警，不应抛错（.strip()）或漏到 from_request 而中断整批。"""
     from lib.asset_types import ASSET_SPECS
@@ -1682,6 +1731,7 @@ def test_build_asset_specs_skips_invalid_description(monkeypatch) -> None:
     assert any("Carol" in w for w in warnings)
 
 
+@pytest.mark.unit
 def test_build_asset_specs_resolves_nfd_registered_key() -> None:
     """智能体给的名字与桶 key 形态可以不同：按坐标系解析后入队，resource_id 用真实落盘 key。"""
     import unicodedata
@@ -1709,6 +1759,7 @@ def test_build_asset_specs_resolves_nfd_registered_key() -> None:
     assert warnings == []
 
 
+@pytest.mark.unit
 def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> None:
     """duration 是能力维度，入队侧不再校验——任意 duration 都透传给执行层（见 ADR-0001）。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_video_specs
@@ -1835,6 +1886,7 @@ async def test_generate_video_scene_generated_assets_non_dict_readable_rejection
     assert "没有分镜图" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
     """drama：_get_video_prompt 从场景级 dialogue-kind utterances 派生 video YAML 台词，
     voiceover-kind 不进；narration / ad（无 utterances 字段）原样渲染既有 video_prompt.dialogue。"""
@@ -1866,6 +1918,7 @@ def test_get_video_prompt_drama_sources_dialogue_from_utterances() -> None:
     assert parsed_narr["Dialogue"] == [{"Speaker": "Alice", "Line": "hello"}]
 
 
+@pytest.mark.unit
 def test_get_video_prompt_injects_voice_profiles_when_characters_given() -> None:
     """drama：传入带非空 voice_style 的角色资产时 YAML 顶部出现 Voice_Profiles；
     voice_characters 缺省（既有调用点行为）不注入。"""
@@ -1892,6 +1945,7 @@ def test_get_video_prompt_injects_voice_profiles_when_characters_given() -> None
     assert "Voice_Profiles" not in parsed_no_style
 
 
+@pytest.mark.unit
 def test_get_video_prompt_injects_voice_profiles_from_legacy_dialogue() -> None:
     """utterances 迁移前的存量 drama 剧本（无 utterances 字段，台词仍在
     video_prompt.dialogue）：改走 legacy 出口派生 Voice_Profiles，不因缺 utterances 静默丢失。"""
@@ -1915,6 +1969,7 @@ def test_get_video_prompt_injects_voice_profiles_from_legacy_dialogue() -> None:
     assert parsed["Dialogue"] == [{"Speaker": "王", "Line": "你来了。"}]
 
 
+@pytest.mark.unit
 def test_get_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() -> None:
     """narration/ad（item 无 utterances 字段）剧本 video_prompt 自带 voice_profiles 时一律剥离：
     该声明段唯一来源是 build_drama_video_prompt 的机械派生，剧本残留值不得越权、绕过 C 类
@@ -1936,6 +1991,7 @@ def test_get_video_prompt_strips_caller_supplied_voice_profiles_for_non_drama() 
     assert "Voice_Profiles" not in parsed
 
 
+@pytest.mark.unit
 async def test_resolve_voice_characters_skips_non_drama(fake_ctx: ToolContext) -> None:
     """narration/ad：不解析 voice_consistency，直接跳过（无 drama dialogue speaker 概念）。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _resolve_voice_characters
@@ -1943,6 +1999,7 @@ async def test_resolve_voice_characters_skips_non_drama(fake_ctx: ToolContext) -
     assert await _resolve_voice_characters(fake_ctx, "narration") is None
 
 
+@pytest.mark.unit
 async def test_resolve_voice_characters_drama_reads_project_characters_and_gate(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -1963,6 +2020,7 @@ async def test_resolve_voice_characters_drama_reads_project_characters_and_gate(
     assert await mod._resolve_voice_characters(fake_ctx, "drama") is None
 
 
+@pytest.mark.unit
 def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
     """参考生视频入队经统一守卫点：prompt 由 shots 拼接后随 payload 入队（见 ADR-0001）。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
@@ -1986,6 +2044,7 @@ def test_build_reference_specs_routes_through_guard(tmp_path) -> None:
     assert specs[0].payload["script_file"] == "episode_1.json"
 
 
+@pytest.mark.unit
 def test_build_reference_specs_skips_blank_prompt(tmp_path) -> None:
     """shots 存在但文本全空白的 unit 被跳过并告警，不漏到执行层（结构校验上移到守卫点）。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
@@ -2000,6 +2059,7 @@ def test_build_reference_specs_skips_blank_prompt(tmp_path) -> None:
     assert any("E1U1" in w for w in log)
 
 
+@pytest.mark.unit
 def test_build_reference_specs_skips_bad_unit_id_without_aborting_batch(tmp_path) -> None:
     """unit_id 为空或键缺失（Agent 裸写 JSON 可致）都跳过该 unit 而非中断整批：
     空串经 from_request 抛 ValueError 被捕获，缺键经 .get 归一化为空串后同样被拒。"""
@@ -2015,6 +2075,7 @@ def test_build_reference_specs_skips_bad_unit_id_without_aborting_batch(tmp_path
     assert [s.resource_id for s in specs] == ["E1U2"]
 
 
+@pytest.mark.unit
 def test_build_reference_specs_handles_malformed_shots(tmp_path) -> None:
     """畸形 shots（显式 null text / 非 dict 元素）不应崩溃整批，且不得把 'None' 注入 prompt。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_reference_specs
@@ -2035,6 +2096,7 @@ def test_build_reference_specs_handles_malformed_shots(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.unit
 async def test_get_video_capabilities_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -2137,6 +2199,7 @@ async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: Too
     assert seen == [fake_ctx.project_name]
 
 
+@pytest.mark.unit
 async def test_get_video_capabilities_error(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -2149,6 +2212,7 @@ async def test_get_video_capabilities_error(fake_ctx: ToolContext, monkeypatch) 
     assert out.get("is_error") is True
 
 
+@pytest.mark.unit
 async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -2172,12 +2236,14 @@ async def test_generate_episode_script_dry_run(fake_ctx: ToolContext, monkeypatc
     assert "fake prompt" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_generate_episode_script_missing_step1(fake_ctx: ToolContext) -> None:
     tool_obj = generate_episode_script_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 99})
     assert out.get("is_error") is True
 
 
+@pytest.mark.unit
 async def test_generate_episode_script_writes_to_default_project_scripts(fake_ctx: ToolContext, monkeypatch) -> None:
     """output 参数已下线；写出路径必须由 ScriptGenerator 内部决定，handler 不应让 agent 控制。"""
     from lib import script_review
@@ -2221,6 +2287,7 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
     assert "output_path" not in captured["calls"]
 
 
+@pytest.mark.unit
 async def test_generate_episode_script_ad_skips_step1(fake_ctx: ToolContext, monkeypatch) -> None:
     """ad 一键生成不依赖 step1 中间文件：缺 drafts/ 也不报 step1 错误。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -2244,6 +2311,7 @@ async def test_generate_episode_script_ad_skips_step1(fake_ctx: ToolContext, mon
     assert out.get("is_error") is not True
 
 
+@pytest.mark.unit
 def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:
     """_parse_normalized_content 复用按 supported_durations 构造的动态 schema：合法 duration 经模型
     校验并补全默认字段；超出枚举的 duration 触发 fail-loud（抛 ValueError），而非被静态模型(ge=1,le=60)
@@ -2269,6 +2337,7 @@ def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:
         _parse_normalized_content(json.dumps({"title": "t", "scenes": [bad]}), model)
 
 
+@pytest.mark.unit
 async def test_fetch_caps_with_fallback_uses_write_layer_default(monkeypatch) -> None:
     """resolver 失败时软回退须与自定义供应商写入层的保守默认（duration_presets.DEFAULT_FALLBACK）
     同一真相源——独立维护第二套回退集会让 LLM 拿到供应商未必支持的时长。"""
@@ -2350,6 +2419,7 @@ async def test_fetch_video_caps_narrows_durations_by_constraints(monkeypatch) ->
     assert durations == [8]
 
 
+@pytest.mark.unit
 async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -2368,6 +2438,7 @@ async def test_normalize_drama_script_dry_run(fake_ctx: ToolContext, monkeypatch
     assert "DRY RUN" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContext, monkeypatch) -> None:
     """normalize 把项目 source_language 透传为 build_normalize_prompt 的 target_language——
     非中文项目的 step1 输出语言据此切换，而非恒退默认中文。"""
@@ -2390,6 +2461,7 @@ async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolContex
     assert "English" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext, monkeypatch) -> None:
     """normalize 产出空 scenes → 工具报错，不把空 step1 当成功产物写盘（与 _load_drama_step1_content 同口径）。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -2422,6 +2494,7 @@ async def test_normalize_drama_script_rejects_empty_scenes(fake_ctx: ToolContext
     assert not (project_path / "drafts" / "episode_1" / "step1_normalized_script.json").exists()
 
 
+@pytest.mark.unit
 async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: ToolContext, monkeypatch) -> None:
     """工具必须把 episode 注入 build_normalize_prompt，避免 LLM 写错 E\\d+ 前缀。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -2444,6 +2517,7 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
     assert "E1S01" not in prompt_text
 
 
+@pytest.mark.unit
 async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolContext, monkeypatch) -> None:
     """内容抽取前移后，分集大纲（故事节点 / 钩子）随 step1 注入 normalize prompt（见 ADR 0041）。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -2473,6 +2547,7 @@ async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolCont
     assert "少年坠崖生死未卜" in prompt_text
 
 
+@pytest.mark.unit
 async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: ToolContext, monkeypatch) -> None:
     """工具必须把 ctx.project_name 传给 TextGenerator.create/generate，
     否则项目级文本档位覆盖被跳过，且 usage tracking 会丢 project_name。"""
@@ -2539,6 +2614,7 @@ async def test_normalize_drama_script_passes_project_name_to_backend(fake_ctx: T
     )
 
 
+@pytest.mark.unit
 async def test_normalize_drama_script_no_source(fake_ctx: ToolContext) -> None:
     tool_obj = normalize_drama_script_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
@@ -2551,6 +2627,7 @@ async def test_normalize_drama_script_no_source(fake_ctx: ToolContext) -> None:
 
 
 class TestBuildPrompt:
+    @pytest.mark.unit
     def test_structured_no_duplicate_style(self) -> None:
         from server.agent_runtime.sdk_tools.enqueue_storyboards import _build_prompt
 
@@ -2571,6 +2648,7 @@ class TestBuildPrompt:
         # style_description 仍以 Visual style 前缀注入
         assert out.startswith("Visual style: Soft light")
 
+    @pytest.mark.unit
     def test_unstructured_keeps_style_prefix_normalized(self) -> None:
         from server.agent_runtime.sdk_tools.enqueue_storyboards import _build_prompt
 
@@ -2612,6 +2690,7 @@ def _fake_planner_cls(result: Any, captured: dict[str, Any] | None = None):
     return _FakePlanner
 
 
+@pytest.mark.unit
 async def test_plan_episodes_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     from lib.episode_planner import EpisodePlanSummary, PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
@@ -2639,6 +2718,7 @@ async def test_plan_episodes_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     assert captured["plan_instructions"] is None  # 不传时透传 None
 
 
+@pytest.mark.unit
 async def test_plan_episodes_forwards_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
     """用户分集偏好经 instructions 透传给 EpisodePlanner.plan（strip 后非空）。"""
     from lib.episode_planner import EpisodePlanSummary, PlanResult
@@ -2658,6 +2738,7 @@ async def test_plan_episodes_forwards_instructions(fake_ctx: ToolContext, monkey
     assert captured["plan_instructions"] == "按章节对齐切分"
 
 
+@pytest.mark.unit
 async def test_plan_episodes_blank_instructions_treated_as_none(fake_ctx: ToolContext, monkeypatch) -> None:
     """纯空白 instructions 视同未传：透传 None，与不传逐字一致。"""
     from lib.episode_planner import PlanResult
@@ -2673,6 +2754,7 @@ async def test_plan_episodes_blank_instructions_treated_as_none(fake_ctx: ToolCo
     assert captured["plan_instructions"] is None
 
 
+@pytest.mark.unit
 async def test_plan_episodes_rejects_non_string_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
     """instructions 传非字符串（如数组）按参数错误上报，不静默吞掉。"""
     from lib.episode_planner import PlanResult
@@ -2685,6 +2767,7 @@ async def test_plan_episodes_rejects_non_string_instructions(fake_ctx: ToolConte
     assert "instructions" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_plan_episodes_rejects_overlong_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
     """instructions 超长按参数错误提前拒绝，不注入 prompt。"""
     from lib.episode_planner import PlanResult
@@ -2697,6 +2780,7 @@ async def test_plan_episodes_rejects_overlong_instructions(fake_ctx: ToolContext
     assert "过长" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_plan_episodes_accepts_boundary_length_instructions(fake_ctx: ToolContext, monkeypatch) -> None:
     """instructions 恰好等于上限长度应被接受（覆盖 > 比较的差一边界）。"""
     from lib.episode_planner import EpisodePlanSummary, PlanResult
@@ -2717,6 +2801,7 @@ async def test_plan_episodes_accepts_boundary_length_instructions(fake_ctx: Tool
     assert captured["plan_instructions"] == text
 
 
+@pytest.mark.unit
 async def test_plan_episodes_planner_value_error_not_mislabeled_as_param_error(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -2732,6 +2817,7 @@ async def test_plan_episodes_planner_value_error_not_mislabeled_as_param_error(
     assert "参数错误" not in text  # 供应商未配置不是入参问题
 
 
+@pytest.mark.unit
 async def test_plan_episodes_source_exhausted(fake_ctx: ToolContext, monkeypatch) -> None:
     from lib.episode_planner import PlanResult
     from server.agent_runtime.sdk_tools import episode_planning as mod
@@ -2744,6 +2830,7 @@ async def test_plan_episodes_source_exhausted(fake_ctx: ToolContext, monkeypatch
     assert "全部规划" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_plan_episodes_source_exhausted_includes_ledger_stats(fake_ctx: ToolContext, monkeypatch) -> None:
     """再次调用无新内容（早退路径）：附全局核对材料供主 agent 核对结构性偏好。"""
     from lib.episode_planner import LedgerStats, PlanResult
@@ -2764,6 +2851,7 @@ async def test_plan_episodes_source_exhausted_includes_ledger_stats(fake_ctx: To
     assert "有偏差须向用户明确说明" in text
 
 
+@pytest.mark.unit
 async def test_plan_episodes_normal_batch_reports_total_planned_line_only(fake_ctx: ToolContext, monkeypatch) -> None:
     """常规（非耗尽）批次没有 ledger_stats：只附「累计已规划 N 集」一行，不带全局核对材料。"""
     from lib.episode_planner import EpisodePlanSummary, PlanResult
@@ -2788,6 +2876,7 @@ async def test_plan_episodes_normal_batch_reports_total_planned_line_only(fake_c
     assert "体量最小的几集" not in text
 
 
+@pytest.mark.unit
 async def test_plan_episodes_error_envelope(fake_ctx: ToolContext, monkeypatch) -> None:
     from lib.episode_planner import EpisodePlanningError
     from server.agent_runtime.sdk_tools import episode_planning as mod
@@ -3004,6 +3093,7 @@ def ad_reference_ctx(fake_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch) -> 
     return fake_ctx
 
 
+@pytest.mark.unit
 async def test_generate_video_episode_ad_reference_derives_and_enqueues(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3044,6 +3134,7 @@ async def test_generate_video_episode_ad_reference_derives_and_enqueues(
     assert script["reference_units"][0]["references"][0] == {"type": "product", "name": "保温杯"}
 
 
+@pytest.mark.unit
 async def test_generate_video_episode_ad_reference_regenerates_reset_unit(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3092,6 +3183,7 @@ async def test_generate_video_episode_ad_reference_regenerates_reset_unit(
     assert [s.resource_id for s in enqueued] == ["E1U1"]
 
 
+@pytest.mark.unit
 async def test_generate_video_episode_ad_reference_skips_unchanged_unit_with_output(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3126,6 +3218,7 @@ async def test_generate_video_episode_ad_reference_skips_unchanged_unit_with_out
     assert enqueued == []
 
 
+@pytest.mark.unit
 async def test_generate_video_all_ad_reference_falls_through_to_episode(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3176,6 +3269,7 @@ def _rv_caps(default=4, durations=(4, 6, 8), reference_durations=None, max_durat
     return fake_caps
 
 
+@pytest.mark.unit
 async def test_fetch_reference_caps_with_fallback_returns_declared_slots(monkeypatch) -> None:
     """unit 时长就是发给供应商的那个值，档位原样取自模型声明（不与任何静态区间求交）。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -3300,6 +3394,7 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
     assert caps.tiers_for(has_references=False) == [4, 6, 8]
 
 
+@pytest.mark.unit
 async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monkeypatch) -> None:
     """rv 路径的软回退与 _fetch_caps_with_fallback 同口径，取 duration_presets.DEFAULT_FALLBACK。"""
     from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
@@ -3424,6 +3519,7 @@ async def _run_rv_split(fake_ctx: ToolContext, monkeypatch, units: list[dict], *
     return await _call(split_reference_video_units_tool(fake_ctx), {"episode": 1})
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -3442,6 +3538,7 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext, monkey
     assert "镜头N：" in prompt_text
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_happy_derives_structure(fake_ctx: ToolContext, monkeypatch) -> None:
     """happy path：LLM 只写扁平正文，unit_id / shots / references 全部由工具机械派生后落盘。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -3469,6 +3566,7 @@ async def test_split_reference_video_units_happy_derives_structure(fake_ctx: Too
     assert captured["generate_project_name"] == "demo"
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_numbers_unit_ids_by_order(fake_ctx: ToolContext, monkeypatch) -> None:
     """unit_id 按数组序号机械编号：LLM 不写 id，也就不存在重复 / 错集号可写。"""
     _rv_source(fake_ctx)
@@ -3479,6 +3577,7 @@ async def test_split_reference_video_units_numbers_unit_ids_by_order(fake_ctx: T
     assert [u["unit_id"] for u in saved["units"]] == ["E1U01", "E1U02"]
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_derives_dialogue_without_reference_image(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -3491,6 +3590,7 @@ async def test_split_reference_video_units_derives_dialogue_without_reference_im
     assert saved["units"][0]["references"] == []
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_rejects_unregistered_asset(fake_ctx: ToolContext, monkeypatch) -> None:
     """正文引用未登记资产名 → fail-loud，不写盘（资产名引用完整性）。"""
     _rv_source(fake_ctx)
@@ -3500,6 +3600,7 @@ async def test_split_reference_video_units_rejects_unregistered_asset(fake_ctx: 
     assert not _rv_step1_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_rejects_unregistered_speaker(fake_ctx: ToolContext, monkeypatch) -> None:
     """说话人位未登记同样阻断：说话人决定该句台词绑哪段参考音频。"""
     _rv_source(fake_ctx)
@@ -3509,6 +3610,7 @@ async def test_split_reference_video_units_rejects_unregistered_speaker(fake_ctx
     assert not _rv_step1_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_rejects_over_max_refs(fake_ctx: ToolContext, monkeypatch) -> None:
     _rv_source(fake_ctx)
     out = await _run_rv_split(fake_ctx, monkeypatch, [_rv_unit("镜头1：@[张三] 与 @[李四] 在 @[村口]")], max_refs=2)
@@ -3558,6 +3660,7 @@ async def test_split_reference_video_units_accepts_wide_tier_without_references(
     assert saved["units"][0]["references"] == []
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:
     """本地校验复用动态 schema：超出 supported_durations 的 unit 时长被拦截，不落盘。"""
     _rv_source(fake_ctx)
@@ -3567,6 +3670,7 @@ async def test_split_reference_video_units_rejects_out_of_enum_duration(fake_ctx
     assert not _rv_step1_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_rejects_empty_units(fake_ctx: ToolContext, monkeypatch) -> None:
     _rv_source(fake_ctx)
     out = await _run_rv_split(fake_ctx, monkeypatch, [])
@@ -3574,6 +3678,7 @@ async def test_split_reference_video_units_rejects_empty_units(fake_ctx: ToolCon
     assert not _rv_step1_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_rejects_non_verbatim_source_text(fake_ctx: ToolContext, monkeypatch) -> None:
     """source_text 非源文逐字子串 → 响亮失败（模型转述 / 杜撰原文）。"""
     _rv_source(fake_ctx)
@@ -3584,6 +3689,7 @@ async def test_split_reference_video_units_rejects_non_verbatim_source_text(fake
     assert not _rv_step1_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_accepts_source_text_substring(fake_ctx: ToolContext, monkeypatch) -> None:
     """锚只需是源文子串：unit 是画面单元，不必覆盖整段原文。"""
     _rv_source(fake_ctx)
@@ -3592,6 +3698,7 @@ async def test_split_reference_video_units_accepts_source_text_substring(fake_ct
     assert out.get("is_error") is not True, out
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_rejects_dialogue_overload(fake_ctx: ToolContext, monkeypatch) -> None:
     """台词量按语速估算超过 unit 时长（宽容系数外）→ 阻断。"""
     _rv_source(fake_ctx)
@@ -3603,6 +3710,7 @@ async def test_split_reference_video_units_rejects_dialogue_overload(fake_ctx: T
     assert not _rv_step1_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_rejects_braces_in_description(fake_ctx: ToolContext, monkeypatch) -> None:
     """描述行误用花括号保留语法 → 阻断（写在描述行里的台词不会被识别，须响亮失败）。"""
     _rv_source(fake_ctx)
@@ -3612,6 +3720,7 @@ async def test_split_reference_video_units_rejects_braces_in_description(fake_ct
     assert not _rv_step1_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_rejects_too_many_shots(fake_ctx: ToolContext, monkeypatch) -> None:
     _rv_source(fake_ctx)
     text = "\n".join(f"镜头{i}：@[张三] 动作 {i}" for i in range(1, 6))
@@ -3621,6 +3730,7 @@ async def test_split_reference_video_units_rejects_too_many_shots(fake_ctx: Tool
     assert not _rv_step1_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_no_source(fake_ctx: ToolContext) -> None:
     tool_obj = split_reference_video_units_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
@@ -3667,6 +3777,7 @@ _RV_VIOLATION_CASES = [
 ]
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize(("code", "unit"), _RV_VIOLATION_CASES, ids=[c for c, _ in _RV_VIOLATION_CASES])
 async def test_split_reference_video_units_quarantines_each_violation_class(
     fake_ctx: ToolContext, monkeypatch, code: str, unit: dict
@@ -3693,6 +3804,7 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
     assert "validate_and_promote_reference_draft" in report
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -3713,6 +3825,7 @@ async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
     assert len(envelope["content"]["units"]) == 3
 
 
+@pytest.mark.unit
 async def test_validate_and_promote_reference_draft_promotes_after_repair(fake_ctx: ToolContext, monkeypatch) -> None:
     """agent 修好隔离草稿后晋升：正式 step1 落盘、草稿清除、结构由正文机械派生。"""
     _rv_source(fake_ctx)
@@ -3734,6 +3847,7 @@ async def test_validate_and_promote_reference_draft_promotes_after_repair(fake_c
     ]
 
 
+@pytest.mark.unit
 async def test_validate_and_promote_reference_draft_reports_again_without_round_limit(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -3785,6 +3899,7 @@ async def _open_for_edit(fake_ctx: ToolContext, **args) -> dict:
     return await _call(open_reference_step1_for_edit_tool(fake_ctx), {"episode": 1, **args})
 
 
+@pytest.mark.unit
 async def test_open_reference_step1_for_edit_returns_flat_writing_layer(fake_ctx: ToolContext) -> None:
     """取回的草稿装扁平书写层，不装派生物：agent 改的是正文 / 锚 / 时长，
     unit_id / shots / references 由晋升时按正文重新派生，放进草稿等于给漂移开口子。"""
@@ -3807,6 +3922,7 @@ async def test_open_reference_step1_for_edit_returns_flat_writing_layer(fake_ctx
     assert unit["text"] == "镜头1：@[张三] 起身\n镜头2：@[张三] 走向 @[村口]"
 
 
+@pytest.mark.unit
 async def test_open_reference_step1_for_edit_leaves_official_file_untouched(fake_ctx: ToolContext) -> None:
     """取回只是开编辑工位，正式文件一步不动——改动落回正式文件只发生在持锁的晋升侧。"""
     _rv_source(fake_ctx)
@@ -3818,6 +3934,7 @@ async def test_open_reference_step1_for_edit_leaves_official_file_untouched(fake
     assert _rv_step1_path(fake_ctx).read_text(encoding="utf-8") == before
 
 
+@pytest.mark.unit
 async def test_open_reference_step1_for_edit_round_trips_through_promote(fake_ctx: ToolContext, monkeypatch) -> None:
     """情况 B 的完整闭环：取回 → 改草稿 → 晋升。改动经晋升侧的持锁写盘落回正式文件，
     结构字段按新正文重新派生（references 跟着正文里的 @ 引用走）。"""
@@ -3841,6 +3958,7 @@ async def test_open_reference_step1_for_edit_round_trips_through_promote(fake_ct
     ]
 
 
+@pytest.mark.unit
 async def test_open_reference_step1_for_edit_refuses_to_clobber_existing_draft(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -3858,6 +3976,7 @@ async def test_open_reference_step1_for_edit_refuses_to_clobber_existing_draft(
     assert "validate_and_promote_reference_draft" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_open_reference_step1_for_edit_without_official_file(fake_ctx: ToolContext) -> None:
     """没有正式 step1 时指回首次拆分工具，而不是开一份空草稿让 agent 手写整集。"""
     _rv_source(fake_ctx)
@@ -3869,6 +3988,7 @@ async def test_open_reference_step1_for_edit_without_official_file(fake_ctx: Too
     assert not _rv_quarantine_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_open_reference_step1_for_edit_keeps_malformed_duration_verbatim(fake_ctx: ToolContext) -> None:
     """盘上 unit 的字段类型不符时原样带进草稿，不归一化成合法值：``8.0`` 被改写成 ``0``
     后，agent 从草稿里看到的是一个它没写过的时长，晋升报告说「时长不在档位内」也对不上
@@ -3884,6 +4004,7 @@ async def test_open_reference_step1_for_edit_keeps_malformed_duration_verbatim(f
     assert _read_rv_quarantine(fake_ctx)["content"]["units"][0]["duration_seconds"] == 8.0
 
 
+@pytest.mark.unit
 async def test_open_reference_step1_for_edit_keeps_malformed_non_dict_unit_slot(fake_ctx: ToolContext) -> None:
     """盘上 units 混入非 dict 元素时不能直接丢弃：跳过会让草稿数组比正式文件短一个，若剩余
     unit 都能过校验，晋升会悄悄覆盖正式文件、丢失这个 unit 而无人知晓。留空占位在原数组
@@ -3902,6 +4023,7 @@ async def test_open_reference_step1_for_edit_keeps_malformed_non_dict_unit_slot(
     assert units[1] == {"duration_seconds": None, "source_text": "", "text": ""}
 
 
+@pytest.mark.unit
 async def test_open_reference_step1_for_edit_blanks_shot_with_embedded_fake_header(fake_ctx: ToolContext) -> None:
     """盘上 shot 自身文本里恰好有一行形如「镜头N：」（旧数据经 Web 端保存，字段不禁止这种
     文本）时，render 后重新解析会把这一个 shot 误判成两个——原样晋升也会带着错位的分镜覆盖
@@ -3918,6 +4040,7 @@ async def test_open_reference_step1_for_edit_blanks_shot_with_embedded_fake_head
     assert _read_rv_quarantine(fake_ctx)["content"]["units"][0]["text"] == ""
 
 
+@pytest.mark.unit
 async def test_open_reference_step1_for_edit_rejects_missing_source_without_side_effect(
     fake_ctx: ToolContext,
 ) -> None:
@@ -3933,6 +4056,7 @@ async def test_open_reference_step1_for_edit_rejects_missing_source_without_side
     assert not _rv_quarantine_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_open_reference_step1_for_edit_rejects_non_reference_episode(fake_ctx: ToolContext) -> None:
     """切走参考路径的集不给编辑：盘上的 step1 与该集此刻的生成路径无关。与晋升工具同一判据。"""
     _rv_source(fake_ctx)
@@ -3950,6 +4074,7 @@ async def test_open_reference_step1_for_edit_rejects_non_reference_episode(fake_
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.unit
 async def test_open_reference_step1_for_edit_records_base_fingerprint(fake_ctx: ToolContext) -> None:
     """取回时把正式文件此刻的内容指纹记进 meta.base_fingerprint，供晋升前基线比对。"""
     _rv_source(fake_ctx)
@@ -3962,6 +4087,7 @@ async def test_open_reference_step1_for_edit_records_base_fingerprint(fake_ctx: 
     assert meta["base_fingerprint"] == script_review.content_fingerprint(_rv_step1_path(fake_ctx))
 
 
+@pytest.mark.unit
 async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: ToolContext, monkeypatch) -> None:
     """「用户在审阅门编辑 + agent 改隔离草稿并晋升」的双端并发：取回后正式文件被另一写入方
     改过时，晋升中止并返回冲突报告（含最新内容与合并指引），不静默覆盖对方的修改；草稿
@@ -3995,6 +4121,7 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     assert not _rv_quarantine_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -4020,6 +4147,7 @@ async def test_promote_conflict_report_renders_missing_fingerprint_as_json_null(
     assert not _rv_quarantine_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx: ToolContext, monkeypatch) -> None:
     """基线机制引入前产出的存量草稿缺 meta.base_fingerprint 键：按无基线晋升，不被新校验卡死。"""
     _rv_source(fake_ctx)
@@ -4037,6 +4165,7 @@ async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx
     assert not _rv_quarantine_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: ToolContext, monkeypatch) -> None:
     """拆分违约落隔离草稿时同样记基线：修好晋升前正式文件被并发改写的话按基线中止。
     首拆时正式文件不存在，基线为 null——晋升时若正式文件已被另一次拆分写出，同样判冲突。"""
@@ -4059,6 +4188,7 @@ async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: Too
     assert "并发冲突" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("mutate", "hint"),
     [
@@ -4092,6 +4222,7 @@ async def test_validate_and_promote_reference_draft_rejects_schema_breach(
     assert [v["code"] for v in _read_rv_quarantine(fake_ctx)["violations"]] == ["schema_invalid"]
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "mutate_content",
     [
@@ -4130,6 +4261,7 @@ async def test_validate_and_promote_reference_draft_reports_broken_outer_shape(
     assert refreshed["content"] == edited_content
 
 
+@pytest.mark.unit
 async def test_validate_and_promote_reference_draft_requires_source_provenance(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -4149,6 +4281,7 @@ async def test_validate_and_promote_reference_draft_requires_source_provenance(
     assert not _rv_step1_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_validate_and_promote_reference_draft_reports_promotion_not_split(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -4165,6 +4298,7 @@ async def test_validate_and_promote_reference_draft_reports_promotion_not_split(
     assert "晋升" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_writing_reference_step1_clears_stale_step2_quarantine(fake_ctx: ToolContext, monkeypatch) -> None:
     """step1 一变即清掉在场的 step2 隔离草稿：它以旧 step1 为 diff 基底，留着就永远晋升不了。"""
     _rv_source(fake_ctx)
@@ -4184,6 +4318,7 @@ async def test_writing_reference_step1_clears_stale_step2_quarantine(fake_ctx: T
     assert not step2_path.exists()
 
 
+@pytest.mark.unit
 async def test_promote_reference_step1_preserves_step2_draft_when_content_unchanged(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -4209,6 +4344,7 @@ async def test_promote_reference_step1_preserves_step2_draft_when_content_unchan
     assert step2_path.exists()
 
 
+@pytest.mark.unit
 async def test_validate_and_promote_reference_draft_step2_uses_async_factory(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -4243,6 +4379,7 @@ async def test_validate_and_promote_reference_draft_step2_uses_async_factory(
     assert "episode_1.json" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_validate_and_promote_reference_draft_refuses_after_mode_switch(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -4261,6 +4398,7 @@ async def test_validate_and_promote_reference_draft_refuses_after_mode_switch(
     assert "不走参考生视频路径" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_validate_and_promote_reference_draft_step2_blocked_by_review_gate(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -4289,12 +4427,14 @@ async def test_validate_and_promote_reference_draft_step2_blocked_by_review_gate
     assert "尚未经 web 审核确认" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_validate_and_promote_reference_draft_without_draft(fake_ctx: ToolContext, monkeypatch) -> None:
     out = await _promote(fake_ctx, monkeypatch)
     assert out.get("is_error") is True
     assert "没有待处置的隔离草稿" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_clears_stale_quarantine_on_success(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -4308,6 +4448,7 @@ async def test_split_reference_video_units_clears_stale_quarantine_on_success(
     assert not _rv_quarantine_path(fake_ctx).exists()
 
 
+@pytest.mark.unit
 async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -4337,6 +4478,7 @@ def _write_rv_quarantine(fake_ctx: ToolContext) -> None:
     )
 
 
+@pytest.mark.unit
 async def test_generate_episode_script_blocked_by_quarantine(fake_ctx: ToolContext) -> None:
     """隔离草稿在场时 step2 入口阻塞，且给出「改草稿再晋升」而非「去 Web 端确认」的出路。"""
     _rv_project(fake_ctx)
@@ -4351,6 +4493,7 @@ async def test_generate_episode_script_blocked_by_quarantine(fake_ctx: ToolConte
     assert "validate_and_promote_reference_draft" in out["content"][0]["text"]
 
 
+@pytest.mark.unit
 async def test_generate_episode_script_quarantine_precedes_missing_step1(fake_ctx: ToolContext) -> None:
     """首次拆分就违约时正式 step1 本就不存在——先报缺文件会把 agent 引回重跑拆分（丢弃重抽）。"""
     _rv_project(fake_ctx)
@@ -4364,6 +4507,7 @@ async def test_generate_episode_script_quarantine_precedes_missing_step1(fake_ct
     assert "未找到 Step 1 文件" not in text
 
 
+@pytest.mark.unit
 async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake_ctx: ToolContext) -> None:
     """切走参考路径后残留的隔离草稿与新路径无关：非参考路径不清它们，仍判会把该集永久卡死。"""
     _rv_project(fake_ctx, generation_mode="storyboard")
@@ -4423,6 +4567,7 @@ def _nr_segment(segment_id="E1S01", duration=4, novel_text="张三走向村口�
     return seg
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_dry_run(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -4440,6 +4585,7 @@ async def test_split_narration_segments_dry_run(fake_ctx: ToolContext, monkeypat
     assert "4" in prompt_text
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch) -> None:
     """happy path：结构化片段 step1 落盘；模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -4470,6 +4616,7 @@ async def test_split_narration_segments_happy(fake_ctx: ToolContext, monkeypatch
     assert captured["generate_project_name"] == "demo"
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: ToolContext, monkeypatch) -> None:
     """静态片段 schema 的 duration 是开区间，超出 supported_durations 的时长由工具后校验拦截，不落盘。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -4486,6 +4633,7 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(fake_ctx: T
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_rejects_duplicate_segment_ids(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -4501,6 +4649,7 @@ async def test_split_narration_segments_rejects_duplicate_segment_ids(fake_ctx: 
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_rejects_blank_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
     """novel_text 为纯空白（如单个空格）满足 schema min_length=1 却无实际旁白内容，须被后校验拦截，不落盘。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -4518,6 +4667,7 @@ async def test_split_narration_segments_rejects_blank_novel_text(fake_ctx: ToolC
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_rejects_empty_segments(fake_ctx: ToolContext, monkeypatch) -> None:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
@@ -4531,6 +4681,7 @@ async def test_split_narration_segments_rejects_empty_segments(fake_ctx: ToolCon
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolContext, monkeypatch) -> None:
     """缺资产字段（characters_in_segment 等）由既有片段 schema（NarrationStep1Segment strict）拦截。"""
     from server.agent_runtime.sdk_tools import text_generation as mod
@@ -4547,6 +4698,7 @@ async def test_split_narration_segments_rejects_missing_field(fake_ctx: ToolCont
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_rejects_unregistered_asset_reference(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -4579,6 +4731,7 @@ async def _nr_source_and_call(fake_ctx: ToolContext, monkeypatch, source_text: s
     return await _call(tool_obj, {"episode": 1})
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_rejects_truncated_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
     """片段合并后比源文短（模型删减）：novel_text 完整性校验拦截，不落盘。"""
     out = await _nr_source_and_call(
@@ -4592,6 +4745,7 @@ async def test_split_narration_segments_rejects_truncated_novel_text(fake_ctx: T
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_rejects_rewritten_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
     """片段文字被模型改写（非逐字）：novel_text 完整性校验拦截，不落盘。"""
     out = await _nr_source_and_call(
@@ -4608,6 +4762,7 @@ async def test_split_narration_segments_rejects_rewritten_novel_text(fake_ctx: T
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_rejects_reordered_novel_text(fake_ctx: ToolContext, monkeypatch) -> None:
     """片段顺序被模型打乱：novel_text 完整性校验拦截，不落盘。"""
     out = await _nr_source_and_call(
@@ -4624,6 +4779,7 @@ async def test_split_narration_segments_rejects_reordered_novel_text(fake_ctx: T
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_rejects_dropped_word_space(fake_ctx: ToolContext, monkeypatch) -> None:
     """空格分词语言里模型丢失词间空格（"Hello world" -> "Helloworld"）属实质内容损坏，须拦截。"""
     out = await _nr_source_and_call(
@@ -4637,6 +4793,7 @@ async def test_split_narration_segments_rejects_dropped_word_space(fake_ctx: Too
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_accepts_split_at_paragraph_break(fake_ctx: ToolContext, monkeypatch) -> None:
     """片段边界恰好落在源文的段落换行处：边界处允许可选空格，不应误报删减。"""
     out = await _nr_source_and_call(
@@ -4653,6 +4810,7 @@ async def test_split_narration_segments_accepts_split_at_paragraph_break(fake_ct
     assert step1_path.exists()
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_accepts_split_at_halfwidth_punctuation(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -4671,6 +4829,7 @@ async def test_split_narration_segments_accepts_split_at_halfwidth_punctuation(
     assert step1_path.exists()
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_rejects_dropped_space_after_punctuation(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
@@ -4686,12 +4845,14 @@ async def test_split_narration_segments_rejects_dropped_space_after_punctuation(
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "step1_segments.json").exists()
 
 
+@pytest.mark.unit
 async def test_split_narration_segments_no_source(fake_ctx: ToolContext) -> None:
     tool_obj = split_narration_segments_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1})
     assert out.get("is_error") is True
 
 
+@pytest.mark.unit
 async def test_generate_episode_script_reference_legacy_md_hints_resplit(fake_ctx: ToolContext) -> None:
     """reference_video 集仅存旧 .md 拆分表时，generate_episode_script 给出重跑拆分提示。"""
     project_path = fake_ctx.project_path
