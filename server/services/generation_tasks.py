@@ -218,8 +218,11 @@ def _collect_sheet_references(
     Returns (list of ``{"image": Path, "label": 资产名}`` dicts, set of relative
     sheet strings for dedup). If *max_count* > 0 collection stops after that many images.
 
-    label 取 project.json 中的资产名，与 prompt 里的专名严格一致——供支持内联标签的
+    label 取剧本条目里的资产名，与 prompt 里的专名严格一致——供支持内联标签的
     后端（如 Gemini）把参考图与 prompt 专名显式绑定，不再依赖文件名推断。
+
+    剧本里的资产名与资产桶 key 可能是 NFC/NFD 中的任一形态（登记闸口落 NFC，存量剧本
+    与桶均无需迁移），索引前按 ``lib.asset_types`` 的比对坐标系归一，label 保留剧本原文。
 
     ``char_field`` 为 ``None`` 表示该骨架无逐条角色名单字段（video_units：角色以
     references 条目形态存在），``item.get(None) or []`` 天然跳过角色 sheet 收集。
@@ -227,18 +230,15 @@ def _collect_sheet_references(
     seen: set[str] = set()
     refs: list[dict] = []
 
-    characters = project.get("characters")
-    characters = characters if isinstance(characters, dict) else {}
-    project_scenes = project.get("scenes")
-    project_scenes = project_scenes if isinstance(project_scenes, dict) else {}
-    project_props = project.get("props")
-    project_props = project_props if isinstance(project_props, dict) else {}
+    characters = normalize_asset_bucket(project.get("characters"))
+    project_scenes = normalize_asset_bucket(project.get("scenes"))
+    project_props = normalize_asset_bucket(project.get("props"))
 
     for item in items:
         for char_name in item.get(char_field) or []:
             if not isinstance(char_name, str):
                 continue
-            char_data = characters.get(char_name)
+            char_data = characters.get(normalize_asset_name(char_name))
             sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
@@ -248,7 +248,7 @@ def _collect_sheet_references(
         for scene_name in item.get(scene_field) or []:
             if not isinstance(scene_name, str):
                 continue
-            scene_data = project_scenes.get(scene_name)
+            scene_data = project_scenes.get(normalize_asset_name(scene_name))
             sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
@@ -258,7 +258,7 @@ def _collect_sheet_references(
         for prop_name in item.get(prop_field) or []:
             if not isinstance(prop_name, str):
                 continue
-            prop_data = project_props.get(prop_name)
+            prop_data = project_props.get(normalize_asset_name(prop_name))
             sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
@@ -1375,12 +1375,9 @@ def _collect_grid_reference_images(
     scene_id_set = set(scene_ids)
     matched_items = [item for item in items if str(item.get(id_field, "")) in scene_id_set]
 
-    characters = project.get("characters")
-    characters = characters if isinstance(characters, dict) else {}
-    project_scenes = project.get("scenes")
-    project_scenes = project_scenes if isinstance(project_scenes, dict) else {}
-    project_props = project.get("props")
-    project_props = project_props if isinstance(project_props, dict) else {}
+    characters = normalize_asset_bucket(project.get("characters"))
+    project_scenes = normalize_asset_bucket(project.get("scenes"))
+    project_props = normalize_asset_bucket(project.get("props"))
 
     seen: set[str] = set()
     paths: list[Path] = []
@@ -1391,7 +1388,7 @@ def _collect_grid_reference_images(
         for char_name in item.get(char_field) or []:
             if not isinstance(char_name, str):
                 continue
-            char_data = characters.get(char_name)
+            char_data = characters.get(normalize_asset_name(char_name))
             sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet
@@ -1402,7 +1399,7 @@ def _collect_grid_reference_images(
         for scene_name in item.get(scene_field) or []:
             if not isinstance(scene_name, str):
                 continue
-            scene_data = project_scenes.get(scene_name)
+            scene_data = project_scenes.get(normalize_asset_name(scene_name))
             sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet
@@ -1413,7 +1410,7 @@ def _collect_grid_reference_images(
         for prop_name in item.get(prop_field) or []:
             if not isinstance(prop_name, str):
                 continue
-            prop_data = project_props.get(prop_name)
+            prop_data = project_props.get(normalize_asset_name(prop_name))
             sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet

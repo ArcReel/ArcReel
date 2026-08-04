@@ -26,7 +26,13 @@ from pydantic import BaseModel, Field
 
 from lib.agent_profile import agent_profile_dir
 from lib.app_data_dir import app_data_dir
-from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
+from lib.asset_types import (
+    ASSET_SPECS,
+    normalize_asset_bucket,
+    normalize_asset_name,
+    resolve_asset_key,
+    validate_asset_name,
+)
 from lib.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.episode_paths import episode_script_relpath
 from lib.json_io import atomic_write_json, load_json, load_json_or_none
@@ -2215,14 +2221,20 @@ class ProjectManager:
 
         Returns:
             参考图路径列表
+
+        剧本里的资产名与资产桶 key 可能是 NFC/NFD 中的任一形态（登记闸口落 NFC，存量剧本
+        与桶均无需迁移），索引前按 ``lib.asset_types`` 的比对坐标系归一。
         """
         project = self.load_project(project_name)
         project_dir = self.get_project_path(project_name)
         refs = []
 
+        characters = normalize_asset_bucket(project.get("characters"))
+        props = normalize_asset_bucket(project.get("props"))
+
         # 角色参考图
         for char in scene.get("characters_in_scene", []):
-            char_data = project["characters"].get(char, {})
+            char_data = characters.get(normalize_asset_name(char), {})
             sheet = char_data.get("character_sheet")
             if sheet:
                 sheet_path = project_dir / sheet
@@ -2231,7 +2243,7 @@ class ProjectManager:
 
         # 道具参考图
         for prop in scene.get("props_in_scene", []):
-            prop_data = project.get("props", {}).get(prop, {})
+            prop_data = props.get(normalize_asset_name(prop), {})
             sheet = prop_data.get("prop_sheet")
             if sheet:
                 sheet_path = project_dir / sheet

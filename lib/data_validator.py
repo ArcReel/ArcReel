@@ -497,26 +497,20 @@ class DataValidator:
         *,
         field_label: str,
         kind_label: str,
-        normalize: bool = False,
     ) -> None:
-        """``normalize=True`` 时按 NFC 归一比对：ad + reference_video 的镜头参考集直接驱动
-        reference_video 的 unit 派生（见 ``lib.reference_video.ad_units``），project.json
-        资产 key 与镜头引用编码形式不一致时不能误判未登记。narration/drama 的 segments/scenes
-        校验路径、以及 ad 的 storyboard 生成路径均保持原始比对（``normalize`` 默认 False）——
-        storyboard 路径的图片收集（``server.services.generation_tasks._collect_sheet_references``）
-        仍按原始字符串查找，校验层先归一会让此处判「已登记」放行而收集层实际查不到，
-        生成时静默漏收对应 sheet。"""
+        """按 ``lib.asset_types`` 的比对坐标系（NFC）判断镜头引用是否已登记。
+
+        剧本里的名字与 project.json 的资产 key 可以是 NFC/NFD 中的任一形态（登记闸口落
+        NFC，存量剧本与桶均不迁移），两侧归一后才判得准；下游各收集器同样归一后索引，
+        校验层与收集层因此对同一份数据给出一致结论。"""
         if refs is None:
             warnings.append(f"{prefix}: 缺少 {field_label}，将使用默认空数组")
             return
         if not isinstance(refs, list):
             errors.append(f"{prefix}: {field_label} 必须是数组")
             return
-        if normalize:
-            normalized_valid = {normalize_asset_name(v) for v in valid_set}
-            invalid = [r for r in refs if not isinstance(r, str) or normalize_asset_name(r) not in normalized_valid]
-        else:
-            invalid = [r for r in refs if not isinstance(r, str) or r not in valid_set]
+        normalized_valid = {normalize_asset_name(v) for v in valid_set}
+        invalid = [r for r in refs if not isinstance(r, str) or normalize_asset_name(r) not in normalized_valid]
         if invalid:
             errors.append(f"{prefix}: {field_label} 引用了不存在于 project.json 的{kind_label}: {invalid}")
 
@@ -912,12 +906,8 @@ class DataValidator:
         （supported_durations 枚举，校验器拿不到供应商能力、只把关正整数）；
         ``reference_mode=True`` 时按 1-15 自由整数区间校验（与参考视频 Shot 同口径）。
 
-        资产引用的归一比对按各自收集器的实际行为对齐：characters_in_shot/scenes/props
-        三个字段的 storyboard 收集器（``_collect_sheet_references``）始终原始比对，校验层
-        随 ``reference_mode`` 切换（见 ``_validate_segment_refs`` 文档）；products_in_shot
-        的收集器（``collect_product_references_for_names``）不区分生成路径、始终归一，
-        校验层因此始终 ``normalize=True``——否则 storyboard 路径下合法的 NFC/NFD 产品名
-        会被校验层拒绝，而收集层其实能正常解析。
+        资产引用一律按 NFC 归一比对（见 ``_validate_segment_refs``），与两条生成路径的
+        各收集器同口径。
         """
         if not isinstance(shots, list) or not shots:
             errors.append("ad 剧本缺少 shots 数组或为空")
@@ -964,7 +954,6 @@ class DataValidator:
                 warnings,
                 field_label="characters_in_shot",
                 kind_label="角色",
-                normalize=reference_mode,
             )
             self._validate_segment_refs(
                 prefix,
@@ -974,7 +963,6 @@ class DataValidator:
                 warnings,
                 field_label="scenes",
                 kind_label="场景",
-                normalize=reference_mode,
             )
             self._validate_segment_refs(
                 prefix,
@@ -984,7 +972,6 @@ class DataValidator:
                 warnings,
                 field_label="props",
                 kind_label="道具",
-                normalize=reference_mode,
             )
             self._validate_segment_refs(
                 prefix,
@@ -994,7 +981,6 @@ class DataValidator:
                 warnings,
                 field_label="products_in_shot",
                 kind_label="产品",
-                normalize=True,
             )
 
             if not shot.get("image_prompt"):

@@ -206,3 +206,19 @@ class TestNfcConvergence:
         chars = pm.load_project("demo")["characters"]
         assert list(chars) == [_NAME_NFD]
         assert chars[_NAME_NFD]["reference_audio"] == "characters/refs_audio/x.wav"
+
+    def test_collect_reference_images_matches_across_forms(self, pm):
+        """剧本里的名字与桶 key 形态可以不同（登记闸口落 NFC，剧本原文未归一）。"""
+        pm.add_character("demo", _NAME_NFD, "desc")
+        sheet = "characters/sheet.png"
+        sheet_path = pm.get_project_path("demo") / sheet
+        sheet_path.parent.mkdir(parents=True, exist_ok=True)
+        sheet_path.write_bytes(b"png")
+
+        def _mutate(project: dict) -> None:
+            project["characters"][_NAME_NFC]["character_sheet"] = sheet
+
+        pm.update_project("demo", _mutate)
+
+        refs = pm.collect_reference_images("demo", {"characters_in_scene": [_NAME_NFD]})
+        assert refs == [sheet_path]

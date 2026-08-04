@@ -81,7 +81,7 @@ describe("ReferencePanel", () => {
   });
 
   it("resolves the chip thumbnail from the last matching bucket key when NFC and NFD duplicates exist", () => {
-    // 存量桶可能同时含同一名字的 NFC/NFD 两条 key（写入侧收敛前的遗留），
+    // 存量桶可能同时含同一名字的 NFC/NFD 两条 key（登记闸口只约束新写入，存量不迁移），
     // 后写入的胜出——与后端 normalize_asset_bucket / VoiceLegacyBanner 的合并方向一致。
     const nameNfc = "Hiếu".normalize("NFC");
     const nameNfd = "Hiếu".normalize("NFD");

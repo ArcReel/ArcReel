@@ -1169,10 +1169,9 @@ class TestAdEpisodeValidation:
 
     @pytest.mark.integration
     def test_shot_product_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
-        """products_in_shot 的归一比对不随 generation_mode 切换，始终与其收集器
-        （collect_product_references_for_names，无条件归一）同口径——即使在 storyboard
-        路径（默认 generation_mode）下，NFC/NFD 不一致的合法产品名也必须放行，否则
-        校验层会比实际生成时的收集层更严格，挡下收集层其实能解析的产品。"""
+        """products_in_shot 与其收集器（collect_product_references_for_names）同口径归一：
+        NFC/NFD 不一致的合法产品名必须放行，否则校验层比实际生成时的收集层更严格，
+        挡下收集层其实能解析的产品。"""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -1184,11 +1183,10 @@ class TestAdEpisodeValidation:
         assert result.valid, result.errors
 
     @pytest.mark.integration
-    def test_shot_reference_storyboard_path_keeps_raw_comparison(self, tmp_path):
-        """storyboard 路径（默认 generation_mode）保持原始字符串比对：该路径的图片收集
-        （server.services.generation_tasks._collect_sheet_references）仍按原始名称查找，
-        校验层若归一放行、收集层实际查不到，会生成时静默漏收对应 sheet——不能让校验层
-        比收集层更宽松。"""
+    def test_shot_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
+        """storyboard 路径的资产引用同样按 NFC 归一比对：该路径的图片收集
+        （server.services.generation_tasks._collect_sheet_references）归一后索引，校验层
+        若在此原样比对会拒掉收集层其实能解析的合法名字。"""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -1197,8 +1195,7 @@ class TestAdEpisodeValidation:
 
         project = _ad_project_payload(characters={name_nfd: {"description": "出镜模特"}})
         result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[name_nfc])], project=project)
-        assert not result.valid
-        assert any("characters_in_shot" in e for e in result.errors)
+        assert result.valid, result.errors
 
     def test_missing_duration_warns_with_default(self, tmp_path):
         shot = self._ad_shot()

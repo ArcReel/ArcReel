@@ -22,7 +22,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from lib.api_errors import NotFoundError
-from lib.asset_types import ASSET_SPECS, validate_asset_name
+from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
 from lib.i18n import Translator
 from lib.project_change_hints import project_change_source
 from lib.project_manager import ProjectManager
@@ -191,9 +191,10 @@ def build_asset_router(
 
                 def _mutate(project):
                     bucket = project.get(spec.bucket_key) or {}
-                    if entry_name not in bucket:
+                    key = resolve_asset_key(bucket, entry_name)
+                    if key is None:
                         raise KeyError(entry_name)
-                    entry = bucket[entry_name]
+                    entry = bucket[key]
                     for field in (*update_fields, *update_list_fields):
                         if req.get(field) is not None:
                             # voice_notice_dismissed_at 语义是「已确认到的声音版本」，必须原样
@@ -240,9 +241,10 @@ def build_asset_router(
 
                 def _mutate(project):
                     bucket = project.get(spec.bucket_key) or {}
-                    if entry_name not in bucket:
+                    key = resolve_asset_key(bucket, entry_name)
+                    if key is None:
                         raise KeyError(entry_name)
-                    del bucket[entry_name]
+                    del bucket[key]
 
                 with project_change_source("webui"):
                     manager.update_project(project_name, _mutate)
