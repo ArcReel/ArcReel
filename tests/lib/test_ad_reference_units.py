@@ -13,6 +13,8 @@ from lib.reference_video.ad_units import (
     sync_ad_reference_units,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def _shot(shot_id: str, duration: int = 3, **overrides) -> dict:
     base = {
@@ -40,7 +42,6 @@ def _shot(shot_id: str, duration: int = 3, **overrides) -> dict:
 
 
 class TestDeriveGrouping:
-    @pytest.mark.unit
     def test_consecutive_shots_grouped_into_single_unit(self):
         shots = [_shot("E1S1"), _shot("E1S2"), _shot("E1S3")]
 
@@ -50,7 +51,6 @@ class TestDeriveGrouping:
         assert units[0]["unit_id"] == "E1U1"
         assert units[0]["shot_ids"] == ["E1S1", "E1S2", "E1S3"]
 
-    @pytest.mark.unit
     def test_unit_holds_at_most_four_shots(self):
         shots = [_shot(f"E1S{n}") for n in range(1, 7)]
 
@@ -62,7 +62,6 @@ class TestDeriveGrouping:
         ]
         assert [u["unit_id"] for u in units] == ["E1U1", "E1U2"]
 
-    @pytest.mark.unit
     def test_unit_total_duration_respects_provider_cap(self):
         shots = [
             _shot("E1S1", duration=5),
@@ -75,7 +74,6 @@ class TestDeriveGrouping:
 
         assert [u["shot_ids"] for u in units] == [["E1S1", "E1S2"], ["E1S3", "E1S4"]]
 
-    @pytest.mark.unit
     def test_single_shot_exceeding_cap_forms_its_own_unit(self):
         # 单镜头无法再拆，超上限时独立成 unit，留给执行层 clamp + warning 软处理
         shots = [_shot("E1S1", duration=15), _shot("E1S2", duration=3)]
@@ -84,7 +82,6 @@ class TestDeriveGrouping:
 
         assert [u["shot_ids"] for u in units] == [["E1S1"], ["E1S2"]]
 
-    @pytest.mark.unit
     def test_no_cap_groups_by_shot_count_only(self):
         shots = [_shot(f"E1S{n}", duration=15) for n in range(1, 5)]
 
@@ -92,7 +89,6 @@ class TestDeriveGrouping:
 
         assert [u["shot_ids"] for u in units] == [["E1S1", "E1S2", "E1S3", "E1S4"]]
 
-    @pytest.mark.unit
     def test_short_two_to_three_second_shots_are_legal(self):
         # 2-3 秒短切镜头是该路径的合法常态（快节奏剪辑感）
         shots = [_shot("E1S1", duration=2), _shot("E1S2", duration=3), _shot("E1S3", duration=2)]
@@ -103,7 +99,6 @@ class TestDeriveGrouping:
 
 
 class TestReferenceInheritance:
-    @pytest.mark.unit
     def test_unit_inherits_member_shot_references_products_first(self):
         # 产品镜头沿用注入二元规则：产品参考全量进入参考集且排序绝对优先
         shots = [
@@ -120,7 +115,6 @@ class TestReferenceInheritance:
             {"type": "prop", "name": "毛巾"},
         ]
 
-    @pytest.mark.unit
     def test_references_deduplicated_preserving_first_appearance(self):
         shots = [
             _shot("E1S1", products_in_shot=["按摩仪"], characters_in_shot=["小美", "小明"]),
@@ -136,7 +130,6 @@ class TestReferenceInheritance:
             {"type": "character", "name": "小明"},
         ]
 
-    @pytest.mark.unit
     def test_references_deduplicated_across_encoding_forms(self):
         # 同一资产在两个镜头里以 NFC / NFD 两种等价编码写入：派生参考集须按归一名判同，
         # 否则画布上重复显示同一资产、并各占一个参考图槽位
@@ -158,7 +151,6 @@ class TestReferenceInheritance:
             {"type": "character", "name": name_nfc},
         ]
 
-    @pytest.mark.unit
     def test_atmosphere_only_unit_has_zero_product_references(self):
         shots = [_shot("E1S1", scenes=["海边"]), _shot("E1S2", scenes=["海边"])]
 
@@ -168,7 +160,6 @@ class TestReferenceInheritance:
 
 
 class TestReproducibility:
-    @pytest.mark.unit
     def test_same_shots_and_cap_always_produce_identical_grouping(self):
         shots = [
             _shot("E1S1", duration=2, products_in_shot=["按摩仪"]),
@@ -183,7 +174,6 @@ class TestReproducibility:
 
         assert first == second
 
-    @pytest.mark.unit
     def test_index_only_references_shot_ids_without_copying_content(self):
         shots = [_shot("E1S1", products_in_shot=["按摩仪"])]
 
@@ -191,7 +181,6 @@ class TestReproducibility:
 
         assert set(units[0].keys()) == {"unit_id", "shot_ids", "references"}
 
-    @pytest.mark.unit
     def test_dirty_shots_skipped_deterministically(self):
         shots = [
             "not-a-dict",
@@ -207,7 +196,6 @@ class TestReproducibility:
 
 
 class TestSyncPersistence:
-    @pytest.mark.unit
     def test_sync_writes_index_into_script(self):
         script = {"episode": 1, "shots": [_shot("E1S1"), _shot("E1S2")]}
 
@@ -217,7 +205,6 @@ class TestSyncPersistence:
         assert units[0]["shot_ids"] == ["E1S1", "E1S2"]
         assert units[0]["generated_assets"]["status"] == "pending"
 
-    @pytest.mark.unit
     def test_resync_with_unchanged_shots_preserves_generated_assets(self):
         script = {"episode": 1, "shots": [_shot("E1S1"), _shot("E1S2")]}
         sync_ad_reference_units(script, episode=1)
@@ -229,7 +216,6 @@ class TestSyncPersistence:
         assert units[0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
         assert units[0]["generated_assets"]["status"] == "completed"
 
-    @pytest.mark.unit
     def test_resync_after_shot_change_resets_changed_unit_assets(self):
         script = {"episode": 1, "shots": [_shot("E1S1"), _shot("E1S2")]}
         sync_ad_reference_units(script, episode=1)
@@ -242,7 +228,6 @@ class TestSyncPersistence:
         assert units[0]["shot_ids"] == ["E1S1", "E1S2", "E1S3"]
         assert units[0]["generated_assets"].get("video_clip") is None
 
-    @pytest.mark.unit
     def test_resync_after_reference_change_resets_unit_assets(self):
         script = {"episode": 1, "shots": [_shot("E1S1")]}
         sync_ad_reference_units(script, episode=1)
@@ -256,7 +241,6 @@ class TestSyncPersistence:
 
 
 class TestResolveUnitShots:
-    @pytest.mark.unit
     def test_hydrates_member_shots_from_script_in_index_order(self):
         script = {"shots": [_shot("E1S1"), _shot("E1S2"), _shot("E1S3")]}
         unit = {"unit_id": "E1U1", "shot_ids": ["E1S2", "E1S3"]}
@@ -265,7 +249,6 @@ class TestResolveUnitShots:
 
         assert [s["shot_id"] for s in shots] == ["E1S2", "E1S3"]
 
-    @pytest.mark.unit
     def test_dangling_shot_id_raises_stale_index_error(self):
         script = {"shots": [_shot("E1S1")]}
         unit = {"unit_id": "E1U1", "shot_ids": ["E1S1", "E1S9"]}
@@ -275,7 +258,6 @@ class TestResolveUnitShots:
 
 
 class TestRenderUnitPrompt:
-    @pytest.mark.unit
     def test_renders_shot_headers_with_durations_and_visual_content(self):
         shots = [
             _shot("E1S1", duration=3),
@@ -290,7 +272,6 @@ class TestRenderUnitPrompt:
         assert "E1S1 画面" in prompt
         assert "E1S1 动作" in prompt
 
-    @pytest.mark.unit
     def test_voiceover_text_excluded_from_video_prompt(self):
         # 口播是后期配音的输入，不进画面生成 prompt
         shots = [_shot("E1S1", voiceover_text="买它买它")]
@@ -299,7 +280,6 @@ class TestRenderUnitPrompt:
 
         assert "买它买它" not in prompt
 
-    @pytest.mark.unit
     def test_dialogue_and_camera_motion_included(self):
         shots = [
             _shot(
@@ -318,7 +298,6 @@ class TestRenderUnitPrompt:
         assert "Zoom In" in prompt
         assert "太好用了" in prompt
 
-    @pytest.mark.unit
     def test_dialogue_speaker_normalized_to_nfc(self):
         # derive_voice_bindings（script_preview 复用于 ad 路径）把说话人名归一到 NFC 再产出
         # 音色绑定声明；画面 prompt 的台词句式须用同一坐标系，否则两处 `<X>` 字节不同，
@@ -345,14 +324,12 @@ class TestRenderUnitPrompt:
         assert f"<{name_nfc}>说 {{太好用了}}" in prompt
         assert name_nfd not in prompt
 
-    @pytest.mark.unit
     def test_all_blank_shots_render_empty_for_enqueue_guard(self):
         # 空提示词必须渲染为空串，让 TaskSpec 入队守卫当场拒绝
         shots = [_shot("E1S1", image_prompt={"scene": "", "composition": {}}, video_prompt={"action": ""})]
 
         assert render_ad_unit_prompt(shots, style="水彩插画") == ""
 
-    @pytest.mark.unit
     def test_dialogue_without_speaker_renders_as_voiceover(self):
         shots = [
             _shot(

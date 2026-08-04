@@ -187,7 +187,7 @@ async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> Sessi
 # ---------------------------------------------------------------------------
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Auto-mark dialect-sensitive tests with `uses_db`.
 
     Mark a test only when it consumes a fixture defined in a canonical
@@ -223,7 +223,7 @@ def pytest_collection_modifyitems(config, items):
     _enforce_classification_markers(items)
 
 
-def _enforce_classification_markers(items) -> None:
+def _enforce_classification_markers(items: list[pytest.Item]) -> None:
     """收集期强制：每个用例恰好带一个 unit/integration/e2e 分类 marker。
 
     漏标不影响用例本身通过，只能靠人工 review 发现；这里把它变成收集期失败，
