@@ -6,7 +6,7 @@
 
 ## 1. 对账
 
-对该 batch-id 跑一次 batch-poll：`spec-<N>` 批次直接 `--spec <N>`；slug 批次的成员取账本**最后一条带 `scope` 的行**（清尾扩员会追加 scope 行），据此 `--issues`；当前段内无 scope 行时由用户指定范围。
+对该 batch-id 跑一次 batch-poll：`spec-<N>` 批次直接 `--spec <N>`；slug 批次的成员取当前生命周期段内**最后一条带 `scope` 的行**（清尾扩员会追加 scope 行），据此 `--issues`；当前段内无 scope 行时由用户指定范围。
 
 所有 issue 的 `stage_hint` 均为 `done` / `shelved` 时，远端已收敛，但前任的本地收尾未必完成：先按 §2 replay 当前段取回实现路线与已定裁决，据此对路线为 codex 的 issue 在其 worktree 跑 companion `cancel` 停掉仍存活的任务，再按 SKILL.md 收尾节执行完整收尾（含 worktree 清理），`closed` 为最后一笔。
 

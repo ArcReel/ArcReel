@@ -45,10 +45,11 @@
 # stage_hint LADDER (first match wins; purely remote-mechanical, no liveness guess)
 #   1. PR MERGED and issue not open           -> done      (a reopened issue falls through)
 #   2. PR OPEN and not draft                  -> review-loop
-#   3. PR is draft, or PR CLOSED unmerged
+#   3. PR OPEN as draft, or PR CLOSED unmerged
 #      with its branch alive at the PR head   -> shelved   (this workflow shelves by drafting the PR;
 #                                                           branch deleted = restart cleanup, branch
-#                                                           moved = new lifecycle; both fall through)
+#                                                           moved = new lifecycle; both fall through.
+#                                                           a CLOSED draft follows the CLOSED arm)
 #   4. no PR but remote branch issue/<N>      -> local-review (branch pushed, PR not opened yet)
 #   5. no PR, no branch, issue closed/done    -> done       (closed-completed without a PR of its own)
 #   6. no PR, no branch, issue closed/other   -> shelved
@@ -284,7 +285,7 @@ jq -n \
     elif ($pr != null and $pr.state == "OPEN" and ($pr.isDraft | not))    then "review-loop"
     # a CLOSED PR marks shelved only while its branch survives at the PR head; a branch
     # deleted by restart cleanup or recreated for a new lifecycle must fall through
-    elif ($pr != null and ($pr.isDraft == true
+    elif ($pr != null and (($pr.state == "OPEN" and $pr.isDraft == true)
                            or ($pr.state == "CLOSED" and $hasBranch
                                and $branchTip == $pr.headRefOid)))        then "shelved"
     elif $hasBranch                                                       then "local-review"
