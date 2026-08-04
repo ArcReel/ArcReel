@@ -1977,7 +1977,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
 
     fake_queue = MagicMock()
     fake_queue.persist_effective_duration = AsyncMock()
-    fake_queue.persist_execution_provider_id = AsyncMock()
+    fake_queue.persist_execution_identity = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     await rvt.execute_reference_video_task(
@@ -2032,7 +2032,7 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
 
     fake_queue = MagicMock()
     fake_queue.persist_effective_duration = AsyncMock()
-    fake_queue.persist_execution_provider_id = AsyncMock()
+    fake_queue.persist_execution_identity = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     await rvt.execute_reference_video_task(
@@ -2047,14 +2047,16 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
 
 
 @pytest.mark.unit
-async def test_execute_reference_video_task_persists_execution_provider(
+async def test_execute_reference_video_task_persists_execution_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """执行期解析出的 registry provider 须写回 task.provider_id：入队投影按 unit 声明近似，
-    退化镜头降级 i2v 后两者可能分裂，resume 靠该列锁定轮询 backend。"""
+    """执行期解析出的身份（registry provider + model + 实际桶）须写回投影列与 payload 钉住键：
+    入队投影与钉住按 unit 声明近似，退化镜头降级 i2v 后与实际可能分裂，resume 解析里
+    钉住键优先于列注入，写回须覆盖两处。"""
     proj_dir = _write_project(tmp_path)
 
+    from lib.config.resolver import ProviderModel
     from server.services import reference_video_tasks as rvt
 
     fake_pm = MagicMock()
@@ -2088,7 +2090,7 @@ async def test_execute_reference_video_task_persists_execution_provider(
 
     fake_queue = MagicMock()
     fake_queue.persist_effective_duration = AsyncMock()
-    fake_queue.persist_execution_provider_id = AsyncMock()
+    fake_queue.persist_execution_identity = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     await rvt.execute_reference_video_task(
@@ -2099,7 +2101,11 @@ async def test_execute_reference_video_task_persists_execution_provider(
         task_id="task-1",
     )
 
-    fake_queue.persist_execution_provider_id.assert_awaited_once_with("task-1", "ark-agent-plan")
+    fake_queue.persist_execution_identity.assert_awaited_once_with(
+        "task-1",
+        execution_model=ProviderModel("ark-agent-plan", "doubao-seedance-1-5-pro-251215"),
+        capability="r2v",
+    )
 
 
 @pytest.mark.unit

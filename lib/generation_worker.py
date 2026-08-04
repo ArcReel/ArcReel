@@ -370,7 +370,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     按 i2i 槽精确解析。视频定桶经 ``video_bucket_for_queued_task`` 与入队派生共用：
     参考生视频按 unit **声明**的参考集近似分流（无引用退化镜头 → i2v），投影只服务 claim
     过滤与限流路由；执行侧按解析后的**实际**参考图精确定桶，ad 声明了参考但资产缺图时
-    两者允许分裂（执行前经 ``persist_execution_provider_id`` 把实际值写回投影列）。
+    两者允许分裂（执行前经 ``persist_execution_identity`` 把实际身份写回投影列与钉住键）。
     解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")

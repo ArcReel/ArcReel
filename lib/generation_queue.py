@@ -276,6 +276,28 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             await repo.persist_execution_provider_id(task_id, provider_id)
 
+    async def persist_execution_identity(
+        self, task_id: str, *, execution_model: ProviderModel, capability: VideoCapability
+    ) -> None:
+        """执行前把实际执行身份写回投影列与 payload 钉住键。
+
+        入队按 unit 声明近似定桶钉住身份（``_pin_video_execution_model``），执行按解析后的
+        实际参考图定桶，二者分裂时（ad 声明了参考但资产全缺图：钉住 r2v、执行 i2v）陈旧
+        桶键在 resume 解析里优先于 ``provider_id`` 列注入，只刷新列锁不住轮询 backend——
+        故连同钉住键一起改写：清掉其它桶的键、把实际执行身份写进实际桶的键。非分裂场景
+        等值改写，幂等。
+        """
+        from typing import get_args
+
+        from lib.config.resolver import VideoCapability as _VideoCapabilityAlias
+
+        payload_patch: dict[str, Any] = {
+            f"video_provider_{cap}": None for cap in get_args(_VideoCapabilityAlias) if cap != capability
+        }
+        payload_patch[f"video_provider_{capability}"] = execution_model.pair_key
+        async with self._task_repo() as repo:
+            await repo.persist_execution_identity(task_id, execution_model.provider_id, payload_patch)
+
     async def mark_task_succeeded(self, task_id: str, result: dict[str, Any] | None) -> int:
         """Returns rows_affected (0 = 已被外部翻成非 running 终/中间态，worker 走 0-rows-cancelled 协议)."""
         async with self._task_repo() as repo:
