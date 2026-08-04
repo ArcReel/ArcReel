@@ -2139,6 +2139,7 @@ async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext,
 @pytest.mark.unit
 async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: ToolContext, monkeypatch) -> None:
     """参考路径项目另返回两套逐 unit 生效档位，供手工改 step1 时与生成侧对同一份数字。"""
+    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def fake_resolve(_project):
@@ -2153,6 +2154,11 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: T
         "gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}
     }
     monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
+
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable in this test")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
     out = await _call(get_video_capabilities_tool(fake_ctx), {})
     assert out.get("is_error") is not True, out
     payload = json.loads(out["content"][0]["text"])
@@ -3280,12 +3286,18 @@ def _rv_caps(default=4, durations=(4, 6, 8), reference_durations=None, max_durat
 @pytest.mark.unit
 async def test_fetch_reference_caps_with_fallback_returns_declared_slots(monkeypatch) -> None:
     """unit 时长就是发给供应商的那个值，档位原样取自模型声明（不与任何静态区间求交）。"""
+    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def _fake_caps(_project, _episode=None):
         return {"supported_durations": [1, 8, 16, 18], "max_duration": 18, "default_duration": 16}
 
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable in this test")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
 
     caps = await mod._fetch_reference_caps_with_fallback({}, 1)
 
@@ -3303,6 +3315,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monk
 
     不收窄的话 step1 会按 10 秒拆出 unit，step2 的枚举 schema 再把它判非法。
     """
+    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def _fake_caps(_project, _episode=None):
@@ -3316,6 +3329,11 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monk
 
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable in this test")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
+
     project = {"model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}}}
     caps = await mod._fetch_reference_caps_with_fallback(project, 1)
     assert caps.durations == [6]
@@ -3325,6 +3343,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monk
 @pytest.mark.unit
 async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution(monkeypatch) -> None:
     """分辨率联动约束同样收窄 unit 档位：Veo 1080p 下只接受 8 秒。"""
+    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def _fake_caps(_project, _episode=None):
@@ -3338,6 +3357,11 @@ async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution(mo
 
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable in this test")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
+
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
     caps = await mod._fetch_reference_caps_with_fallback(project, 1)
     assert caps.durations == [8]
@@ -3345,15 +3369,16 @@ async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution(mo
 
 
 @pytest.mark.unit
-def test_reference_unit_duration_tiers_does_not_assume_containment(monkeypatch) -> None:
+async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeypatch) -> None:
     """两套档位之间无包含关系可假定：两条约束自相矛盾时带图那套反而更宽。
 
     ``constrain_durations`` 在交集为空时回退到未收窄候选，故型号同时声明「带图仅 8s」与
     「1080p 仅 6s」时，带图集回退成全集、不带图集收成 [6]。调用方须显式取并集当枚举。
+    i2v 桶解析按不可解析处理——退回两桶同模型口径，联动矛盾在单模型内就能成立。
     """
     from lib.config import resolver as resolver_mod
     from lib.config.registry import ModelInfo
-    from server.agent_runtime.sdk_tools._context import reference_unit_duration_tiers
+    from server.agent_runtime.sdk_tools import _context
 
     contradictory = ModelInfo(
         display_name="contradictory",
@@ -3365,12 +3390,39 @@ def test_reference_unit_duration_tiers_does_not_assume_containment(monkeypatch) 
     )
     monkeypatch.setattr(resolver_mod, "model_info_for", lambda *_args: contradictory)
 
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
+
     project = {"model_settings": {"p/m": {"resolution": "1080p"}}}
-    with_refs, without_refs = reference_unit_duration_tiers(project, {"provider_id": "p", "model": "m"}, [4, 6, 8])
+    with_refs, without_refs = await _context.reference_unit_duration_tiers(
+        project, {"provider_id": "p", "model": "m"}, [4, 6, 8]
+    )
 
     assert with_refs == [4, 6, 8]
     assert without_refs == [6]
     assert not set(with_refs) <= set(without_refs)
+
+
+@pytest.mark.unit
+async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket(monkeypatch) -> None:
+    """不带图档位按 i2v 桶模型求值：无引用 unit 执行期降级到 i2v 桶执行，创作侧放行的秒数
+    须与该桶模型的声明一致，否则会放行 r2v 独有档位、漏掉 i2v 独有档位。"""
+    from server.agent_runtime.sdk_tools import _context
+
+    async def _i2v_caps(_project, *, capability=None):
+        assert capability == "i2v"
+        return {"provider_id": "ark", "model": "doubao-seedance-1-5-pro-251215", "supported_durations": [5, 10]}
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _i2v_caps)
+
+    with_refs, without_refs = await _context.reference_unit_duration_tiers(
+        {}, {"provider_id": "minimax", "model": "S2V-01"}, [6, 10]
+    )
+
+    assert with_refs == [6, 10]
+    assert without_refs == [5, 10]
 
 
 @pytest.mark.unit
@@ -3379,6 +3431,7 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
 
     枚举与 prompt 候选取并集——一律按带图收窄会把无引用 unit 本可申请的短档也收掉。
     """
+    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def _fake_caps(_project, _episode=None):
@@ -3391,6 +3444,11 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
         }
 
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable in this test")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
 
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}}
     caps = await mod._fetch_reference_caps_with_fallback(project, 1)
@@ -3406,12 +3464,18 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
 async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monkeypatch) -> None:
     """rv 路径的软回退与 _fetch_caps_with_fallback 同口径，取 duration_presets.DEFAULT_FALLBACK。"""
     from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
+    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def _raising_caps(_project, _episode=None):
         raise ValueError("no provider configured")
 
     monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
+
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable in this test")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
     caps = await mod._fetch_reference_caps_with_fallback({}, 1)
     assert caps.default_duration is None
     assert caps.durations == DEFAULT_FALLBACK

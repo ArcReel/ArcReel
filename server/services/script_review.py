@@ -337,7 +337,7 @@ class ScriptReviewService:
         raw = resolve_raw_supported_durations(project, caps)
         if raw is None:
             return None
-        with_refs, without_refs = reference_unit_duration_tiers(project, caps, raw)
+        with_refs, without_refs = await reference_unit_duration_tiers(project, caps, raw)
         return {"with_references": sorted(set(with_refs)), "without_references": sorted(set(without_refs))}
 
     async def save_content(

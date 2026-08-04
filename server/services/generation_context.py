@@ -306,8 +306,10 @@ async def resolve_generation_context(
     的解析或构造失败即原样上抛、整次调用失败——无部分结果、无跨 provider 兜底；仅能力
     查询失败降级空值放行。``project`` 是调用方已加载的项目快照，本函数不读盘。
 
-    video lane 的能力按项目生成路线解析（见 ``lib.config.resolver.caps_generation_mode``）：
-    路线创建即定、整个项目按同一条路径生成，声音一致性等二维派生值因此不需要集号。
+    video lane 的定桶随 ``VideoLaneRequest.capability``：None 时按项目生成路线解析（见
+    ``lib.config.resolver.caps_generation_mode``）——路线创建即定、整个项目按同一条路径生成，
+    声音一致性等二维派生值因此不需要集号；显式给定时按指定桶解析（参考路线内按镜头分流的
+    调用方自带判定结果）。
     """
     from lib.db import async_session_factory
 

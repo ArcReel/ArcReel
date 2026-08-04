@@ -166,7 +166,7 @@ async def _resolve_video_capabilities(project_name: str) -> dict[str, Any]:
     return await resolver.video_capabilities(project_name)
 
 
-def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, Any]) -> None:
+async def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, Any]) -> None:
     """就地补上参考视频路径逐 unit 的两套生效档位（非该路径的项目不补）。
 
     ``supported_durations`` 是型号声明的全集，不含「分辨率↔时长」「参考图↔时长」两条联动约束。
@@ -181,7 +181,7 @@ def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, A
     durations = [int(d) for d in payload.get("supported_durations") or []]
     if not durations:
         return
-    with_refs, without_refs = reference_unit_duration_tiers(project, payload, durations)
+    with_refs, without_refs = await reference_unit_duration_tiers(project, payload, durations)
     payload["reference_unit_durations"] = {
         "with_references": with_refs,
         "without_references": without_refs,
@@ -199,7 +199,7 @@ def get_video_capabilities_tool(ctx: ToolContext):
     async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
         try:
             payload = await _resolve_video_capabilities(ctx.project_name)
-            _annotate_reference_unit_tiers(payload, ctx.pm.load_project(ctx.project_name))
+            await _annotate_reference_unit_tiers(payload, ctx.pm.load_project(ctx.project_name))
             return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)}]}
         except FileNotFoundError as exc:
             return {
@@ -621,7 +621,7 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
     durations = [int(d) for d in caps.get("supported_durations") or []]
     if not durations:
         durations = list(DEFAULT_FALLBACK)
-    with_refs, without_refs = reference_unit_duration_tiers(project, caps, durations)
+    with_refs, without_refs = await reference_unit_duration_tiers(project, caps, durations)
     unit_durations = sorted(set(with_refs) | set(without_refs))
     max_duration = max(unit_durations)
     raw_refs = caps.get("max_reference_images")

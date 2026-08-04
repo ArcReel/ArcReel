@@ -613,6 +613,17 @@ class GenerationWorker:
                         media_type,
                         task["task_id"],
                     )
+                    # 回队前把重派生的 provider 刷回投影列：走到这里说明存量投影与现值
+                    # 分裂（NULL 兜底，或入队后剧本参考集 / 供应商配置被改），不刷新的话
+                    # 存量值躲过 pool_full 的 SQL 过滤，之后每个 cycle 都重复
+                    # claim → requeue → break，满池期间同 lane 其他可跑任务被持续排头阻塞。
+                    # best-effort：刷新失败只损失过滤精度，回队重试本身不受影响。
+                    try:
+                        await self.queue.persist_execution_provider_id(task["task_id"], provider_id)
+                    except Exception:
+                        logger.warning(
+                            "回队前投影刷新失败 task_id=%s provider=%s", task["task_id"], provider_id, exc_info=True
+                        )
                     await self._requeue_single_task(task["task_id"])
                     # break 当前 media_type 循环：下一轮 SQL 会按重算的 pool_full
                     # 过滤掉这个 provider，避免反复 claim 同一 task

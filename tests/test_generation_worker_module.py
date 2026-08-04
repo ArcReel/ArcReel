@@ -44,6 +44,10 @@ class _FakeQueue:
         self._succeeded_rows = succeeded_rows
         self._failed_rows = failed_rows
         self._orphans: list[dict] = []
+        self.persisted_providers: list[tuple[str, str]] = []
+
+    async def persist_execution_provider_id(self, task_id, provider_id):
+        self.persisted_providers.append((task_id, provider_id))
 
     async def acquire_or_renew_worker_lease(self, name, owner_id, ttl_seconds):
         self._lease_calls += 1
@@ -1120,6 +1124,58 @@ class TestGenerationWorker:
 
         # Wait for tasks to complete
         await asyncio.gather(*worker._slots.all_active_tasks(), return_exceptions=True)
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_claim_requeue_on_full_pool_refreshes_provider_projection(self, monkeypatch):
+        """池满回队前把重派生的 provider 刷回投影列。
+
+        走到二次校验池满这条路，说明存量投影与现值分裂（NULL 兜底，或入队后剧本参考集 /
+        供应商配置被改）；不刷新的话存量值躲过 pool_full 的 SQL 过滤，满池期间每个 cycle
+        都重复 claim → requeue → break，同 lane 其他可跑任务被持续排头阻塞。
+        """
+
+        class _StaleProjectionQueue(_FakeQueue):
+            def __init__(self):
+                super().__init__()
+                self._tasks = [
+                    {
+                        "task_id": "vid-stale",
+                        "task_type": "reference_video",
+                        "media_type": "video",
+                        "provider_id": "ark",  # 入队时的投影，与现值分裂
+                        "payload": {},
+                    }
+                ]
+
+            async def claim_next_task(self, media_type, **_kwargs):  # type: ignore[override]
+                if media_type == "video" and self._tasks:
+                    return self._tasks.pop()
+                return None
+
+        queue = _StaleProjectionQueue()
+        worker = GenerationWorker(queue=queue, capacity=_cap({"minimax": {"video": 1}}))
+
+        async def _current_provider(_task):
+            return "minimax"
+
+        monkeypatch.setattr("lib.generation_worker._extract_provider", _current_provider)
+
+        occupier = asyncio.create_task(asyncio.sleep(30))
+        worker._slots.register("minimax", "video", "vid-running", occupier)
+        requeued: list[str] = []
+
+        async def _capture_requeue(self, task_id):
+            requeued.append(task_id)
+
+        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
+        try:
+            await worker._claim_tasks()
+        finally:
+            occupier.cancel()
+
+        assert requeued == ["vid-stale"]
+        assert queue.persisted_providers == [("vid-stale", "minimax")]
 
     # ------------------------------------------------------------------
     # _pool_full_providers

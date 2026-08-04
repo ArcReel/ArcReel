@@ -423,6 +423,7 @@ class TestReferenceVideoGateFlow:
         get_state 暴露的档位表会让用户选中 4/6 秒，save + confirm 都不拦，直到 step2
         ``_assert_reference_step1_ready`` 才硬拒——用户已确认过的内容变成付完钱才失败。
         """
+        from server.agent_runtime.sdk_tools import _context
         from server.services import script_review as mod
 
         _stub_video_caps(monkeypatch, [4, 6, 8])
@@ -437,6 +438,11 @@ class TestReferenceVideoGateFlow:
             }
 
         monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+
+        async def _no_i2v(_project, *, capability=None):
+            raise ValueError("i2v bucket unresolvable in this test")
+
+        monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
         tiers = await svc.get_reference_duration_tiers("demo", 1)
         assert tiers == {"with_references": [8], "without_references": [8]}
 
@@ -483,6 +489,7 @@ class TestReferenceVideoGateFlow:
         （DB 驱动的能力查询）。caps 必须先于 ``resolve_raw_supported_durations`` 解析，否则
         raw 会因取不到而提前返回 None，永远不会用上 caps 本能给出的答案。
         """
+        from server.agent_runtime.sdk_tools import _context
         from server.services import script_review as mod
 
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
@@ -492,6 +499,11 @@ class TestReferenceVideoGateFlow:
             return {"provider_id": "custom-acme", "model": "acme-video", "supported_durations": [5, 10]}
 
         monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+
+        async def _no_i2v(_project, *, capability=None):
+            raise ValueError("i2v bucket unresolvable in this test")
+
+        monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
         tiers = await svc.get_reference_duration_tiers("demo", 1)
         # 自定义供应商不在 registry，reference_unit_duration_tiers 查不到联动约束，两套档位
         # 都退回 caps 给出的原始集合。

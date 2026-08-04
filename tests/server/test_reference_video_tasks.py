@@ -788,6 +788,87 @@ async def test_execute_reference_video_task_bucket_follows_resolved_references(
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_execute_reference_video_task_ad_bucket_follows_resolved_not_declared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """ad 声明了参考但资产全缺图 → 软跳过后实际参考为空，按 i2v 定桶。
+
+    与清空声明的用例互补：这里 ``unit["references"]`` 非空，只有按**解析结果**定桶才会
+    得到 i2v——若实现回退成按声明判定（``bool(unit["references"])``），该 unit 会被送进
+    拒空参考的 r2v 桶模型，正是分流要消除的失败。
+    """
+    proj_dir = _write_project(tmp_path)
+
+    project_path = proj_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project["content_mode"] = "ad"
+    # 声明保留、盘上无图：软口径跳过后 source_refs 为空
+    project["scenes"]["酒馆"]["scene_sheet"] = "scenes/不存在.png"
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["content_mode"] = "ad"
+    script["shots"] = [
+        {
+            "shot_id": "S1",
+            "duration_seconds": 3,
+            "image_prompt": {"scene": "产品置于木桌上"},
+            "video_prompt": {"action": "镜头缓推"},
+        }
+    ]
+    script["reference_units"] = [
+        {
+            "unit_id": "E1U1",
+            "shot_ids": ["S1"],
+            "references": [{"type": "scene", "name": "酒馆"}],
+        }
+    ]
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads(project_path.read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**kwargs):
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
+
+    captured: dict = {}
+    inner = rvt.resolve_generation_context
+
+    async def _capture(*args, **kwargs):
+        captured["video"] = kwargs.get("video")
+        return await inner(*args, **kwargs)
+
+    monkeypatch.setattr(rvt, "resolve_generation_context", _capture)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
+
+    assert captured["video"].capability == "i2v"
+    call_kwargs = fake_generator.generate_video_async.await_args.kwargs
+    assert call_kwargs.get("reference_images") in (None, [])
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_execute_reference_video_task_sends_reference_audio_in_prompt_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
