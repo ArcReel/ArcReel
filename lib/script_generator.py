@@ -894,7 +894,7 @@ class ScriptGenerator:
             if gate_blocks_step2(self.project_path, migrated_project, episode):
                 raise ValueError(
                     f"第 {episode} 集 step1 时长已按当前模型档位收编改写（"
-                    + "；".join(migration_warnings)
+                    + "；".join(warning.render() for warning in migration_warnings)
                     + "），改写后的内容尚未经审阅确认，step2 生成已中止；"
                     "请在 Web 端审阅确认本集 step1 后重新生成"
                 )

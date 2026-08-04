@@ -940,7 +940,7 @@ class ProjectManager:
 
         migrated, warnings = migrate_script_unit_durations(script)
         for message in warnings:
-            logger.warning("剧本 %s 时长收编迁移: %s", real.name, message)
+            logger.warning("剧本 %s 时长收编迁移: %s", real.name, message.render())
         return script, migrated
 
     def list_scripts(self, project_name: str) -> list[str]:

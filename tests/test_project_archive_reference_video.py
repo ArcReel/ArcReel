@@ -424,7 +424,7 @@ class TestProjectArchiveReferenceVideo:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="missing-scene.zip")
 
-        assert exc_info.value.extra["diagnostics"]["blocking"]
+        assert exc_info.value.diagnostics_payload()["blocking"]
 
     @pytest.mark.unit
     def test_import_blocks_missing_prop_reference(self, tmp_path):
@@ -442,4 +442,4 @@ class TestProjectArchiveReferenceVideo:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="missing-prop.zip")
 
-        assert exc_info.value.extra["diagnostics"]["blocking"]
+        assert exc_info.value.diagnostics_payload()["blocking"]

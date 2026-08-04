@@ -2,13 +2,16 @@
 数据验证工具
 
 验证 project.json 和 episode JSON 的数据结构完整性和引用一致性。
+
+产出的 errors / warnings 是 locale-neutral 的 ``ValidationMessage``（key + params），由各消费
+边界渲染：归档 router 按请求语言渲染，智能体与 CLI 走默认语言。
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -37,6 +40,13 @@ from lib.script_models import (
 )
 from lib.script_skeleton import SkeletonRouteMismatchError, ensure_route_skeleton, resolve_declared_kind
 from lib.speech_rate import estimate_spoken_seconds
+from lib.validation_messages import MessageJoin, MessagePart, MessageRef, ValidationMessage, ValidationResult
+
+__all__ = [
+    "DataValidator",
+    "validate_episode",
+    "validate_project",
+]
 
 #: drama 场景说话量（台词 + 画外音）对场景时长的单向上界容差（比例）。语速估算
 #: （``lib.speech_rate`` 单一真相源）是近似值，给 20% 余量只在说话量明显超过画面时长时才
@@ -48,31 +58,44 @@ DRAMA_SPEECH_OVERFLOW_TOLERANCE = 0.20
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ValidationResult:
-    """验证结果"""
-
-    valid: bool
-    errors: list[str] = field(default_factory=list)  # 错误列表（阻止继续）
-    warnings: list[str] = field(default_factory=list)  # 警告列表（仅提示）
-
-    def __str__(self) -> str:
-        if self.valid:
-            msg = "验证通过"
-            if self.warnings:
-                msg += f"\n警告 ({len(self.warnings)}):\n" + "\n".join(f"  - {warning}" for warning in self.warnings)
-            return msg
-
-        msg = f"验证失败 ({len(self.errors)} 个错误)"
-        msg += "\n错误:\n" + "\n".join(f"  - {error}" for error in self.errors)
-        if self.warnings:
-            msg += f"\n警告 ({len(self.warnings)}):\n" + "\n".join(f"  - {warning}" for warning in self.warnings)
-        return msg
+def _m(key: str, **params: Any) -> ValidationMessage:
+    """构造一条校验消息（key + params），产出点不做语言渲染。"""
+    return ValidationMessage(key, params)
 
 
-def _pydantic_error_summary(exc: ValidationError) -> str:
-    """把 ValidationError 压成单行 ``字段: 原因`` 摘要，供 errors 列表内嵌。"""
-    return "; ".join(f"{'.'.join(str(part) for part in err['loc']) or '<root>'}: {err['msg']}" for err in exc.errors())
+def _asset(asset_type: str) -> MessageRef:
+    """资产类别名词的嵌套翻译键，复用 ``asset_type_*`` 一份词表。"""
+    return MessageRef(f"asset_type_{asset_type}")
+
+
+def _allowed(values: Iterable[str]) -> str:
+    """合法取值列表的稳定文本。集合直接代入会走 ``repr``，字符串 hash 随机化下逐进程变序。"""
+    return ", ".join(sorted(values))
+
+
+def _pydantic_error_summary(exc: ValidationError) -> MessageJoin:
+    """把 ValidationError 压成 ``字段: 原因`` 摘要片段，供 errors 列表内嵌。
+
+    自定义校验器把失败原因以翻译键抛出（见 ``lib.episode_ledger``），这里还原成
+    ``MessageRef`` 让原因跟随请求语言；Pydantic 内置报错无可翻译结构，原样并入。
+    """
+    parts: list[MessagePart] = []
+    for err in exc.errors():
+        location = ".".join(str(part) for part in err["loc"]) or "<root>"
+        reason = _custom_error_key(err)
+        if reason:
+            parts.append(MessageJoin((f"{location}: ", MessageRef(reason)), separator=""))
+        else:
+            parts.append(f"{location}: {err['msg']}")
+    return MessageJoin(tuple(parts))
+
+
+def _custom_error_key(err: Mapping[str, Any]) -> str | None:
+    """自定义校验器抛出的翻译键；内置报错或未登记文案返回 None。"""
+    if err.get("type") != "value_error":
+        return None
+    candidate = str(err.get("ctx", {}).get("error", ""))
+    return candidate if candidate.startswith("val_") else None
 
 
 def _is_parseable_iso_timestamp(value: str) -> bool:
@@ -160,10 +183,11 @@ class DataValidator:
         default_dir: str | None = None,
         missing_ok: bool = False,
         confine_to_default_dir: bool = False,
-    ) -> tuple[str | None, str | None]:
+    ) -> tuple[str | None, tuple[str, dict[str, Any]] | None]:
+        """返回 ``(相对路径, 失败原因)``；失败原因是 ``(key, params)``，``field`` 由调用方补齐。"""
         normalized = str(raw_path).strip().replace("\\", "/")
         if not normalized:
-            return None, "路径不能为空"
+            return None, ("val_path_empty", {})
 
         candidate_paths = [Path(normalized)]
         if default_dir and len(candidate_paths[0].parts) == 1:
@@ -184,7 +208,7 @@ class DataValidator:
             try:
                 resolved = safe_join(project_dir, candidate)
             except PathTraversalError:
-                return None, f"引用路径越界: {normalized}"
+                return None, ("val_path_traversal", {"path": normalized})
 
             if confine_root is not None:
                 try:
@@ -197,16 +221,16 @@ class DataValidator:
                 return candidate.as_posix(), None
 
         if saw_out_of_confine:
-            return None, f"引用路径必须位于 {default_dir}/ 目录下: {normalized}"
+            return None, ("val_path_outside_dir", {"dir": default_dir, "path": normalized})
         if missing_ok:
             return None, None
-        return None, f"引用的文件不存在: {normalized}"
+        return None, ("val_path_missing", {"path": normalized})
 
     def _validate_local_reference(
         self,
         project_dir: Path,
         value: Any,
-        errors: list[str],
+        errors: list[ValidationMessage],
         field_name: str,
         *,
         default_dir: str | None = None,
@@ -217,7 +241,7 @@ class DataValidator:
         if value in (None, ""):
             return None
         if not isinstance(value, str):
-            errors.append(f"{field_name} 必须是字符串")
+            errors.append(_m("val_field_must_be_string", field=field_name))
             return None
 
         raw_value = value.strip()
@@ -227,7 +251,7 @@ class DataValidator:
         if self.EXTERNAL_URI_PATTERN.match(raw_value):
             if allow_external:
                 return raw_value
-            errors.append(f"{field_name} 必须是项目内相对路径: {raw_value}")
+            errors.append(_m("val_path_must_be_relative", field=field_name, path=raw_value))
             return None
 
         resolved_path, error = self._resolve_existing_path(
@@ -238,11 +262,12 @@ class DataValidator:
             confine_to_default_dir=confine_to_default_dir,
         )
         if error:
-            errors.append(f"{field_name}: {error}")
+            key, params = error
+            errors.append(ValidationMessage(key, {**params, "field": field_name}))
         return resolved_path
 
     @staticmethod
-    def _validate_episode_ledger_fields(episode: dict[str, Any], prefix: str, errors: list[str]) -> None:
+    def _validate_episode_ledger_fields(episode: dict[str, Any], prefix: str, errors: list[ValidationMessage]) -> None:
         """分集账本字段的形状校验（全部可缺失 = 该集无位置记录），形状真相源复用 lib.episode_ledger 模型。
 
         ``ledger_status`` 只校验类型：它是咨询性的消费状态，位置真相在 ``source_range``。
@@ -251,7 +276,7 @@ class DataValidator:
         """
         ledger_status = episode.get("ledger_status")
         if ledger_status is not None and not isinstance(ledger_status, str):
-            errors.append(f"{prefix}: ledger_status 必须是字符串，当前取值: {ledger_status!r}")
+            errors.append(_m("val_ledger_status_type", prefix=prefix, value=repr(ledger_status)))
         elif isinstance(ledger_status, str) and ledger_status not in LEDGER_STATUSES:
             # 容忍放行、只留排查线索：分不清是存量遗留值还是手编拼写错误，不拿它判项目损坏
             logger.debug("%s: ledger_status 取值 %r 不在当前状态集内，按无状态处理", prefix, ledger_status)
@@ -261,24 +286,26 @@ class DataValidator:
             try:
                 SourceRange.model_validate(source_range)
             except ValidationError as exc:
-                errors.append(f"{prefix}: source_range 不合法: {_pydantic_error_summary(exc)}")
+                errors.append(
+                    _m("val_field_invalid", field=f"{prefix}: source_range", detail=_pydantic_error_summary(exc))
+                )
 
         hook = episode.get("hook")
         if hook is not None and not isinstance(hook, str):
-            errors.append(f"{prefix}: hook 必须是字符串")
+            errors.append(_m("val_field_must_be_string", field=f"{prefix}: hook"))
 
         outline = episode.get("outline")
         if outline is not None:
             try:
                 EpisodeOutline.model_validate(outline)
             except ValidationError as exc:
-                errors.append(f"{prefix}: outline 不合法: {_pydantic_error_summary(exc)}")
+                errors.append(_m("val_field_invalid", field=f"{prefix}: outline", detail=_pydantic_error_summary(exc)))
 
     @staticmethod
     def _validate_ad_project_fields(
         project: dict[str, Any],
         content_mode: Any,
-        errors: list[str],
+        errors: list[ValidationMessage],
     ) -> None:
         """广告/短片项目的专属字段与恒单集约束。
 
@@ -287,94 +314,98 @@ class DataValidator:
         """
         if content_mode != "ad":
             if project.get("target_duration") is not None:
-                errors.append("target_duration 仅广告/短片项目（content_mode=ad）可用")
+                errors.append(_m("val_ad_only_field", field="target_duration"))
             if project.get("brief") is not None:
-                errors.append("brief 仅广告/短片项目（content_mode=ad）可用")
+                errors.append(_m("val_ad_only_field", field="brief"))
             return
 
         target_duration = project.get("target_duration")
         if target_duration is None:
-            errors.append("缺少必填字段: target_duration（广告/短片项目的目标总时长，秒）")
+            errors.append(_m("val_ad_missing_target_duration"))
         elif not isinstance(target_duration, int) or isinstance(target_duration, bool) or target_duration <= 0:
-            errors.append(f"target_duration 值无效: {target_duration!r}，必须为正整数秒")
+            errors.append(_m("val_ad_target_duration_invalid", value=repr(target_duration)))
 
         brief = project.get("brief")
         if brief is not None and not isinstance(brief, str):
-            errors.append("brief 必须是字符串")
+            errors.append(_m("val_field_must_be_string", field="brief"))
 
         if project.get("default_duration") is not None:
-            errors.append("广告/短片项目不持有 default_duration（镜头时长按 target_duration 预算逐镜头规划）")
+            errors.append(_m("val_ad_no_default_duration"))
 
         if project.get("grid_storyboard") is True:
-            errors.append("广告/短片项目不支持宫格分镜（grid_storyboard）")
+            errors.append(_m("val_ad_no_grid_storyboard"))
 
         episodes = project.get("episodes")
         if not isinstance(episodes, list) or (
             len(episodes) != 1 or not isinstance(episodes[0], dict) or episodes[0].get("episode") != 1
         ):
-            errors.append("广告/短片项目 episodes 必须恒为第 1 集单条")
+            errors.append(_m("val_ad_episodes_single"))
 
     def _validate_project_payload(
         self,
         project: dict[str, Any],
-        errors: list[str],
-        warnings: list[str],
+        errors: list[ValidationMessage],
+        warnings: list[ValidationMessage],
     ) -> None:
         if "title" not in project:
-            errors.append("缺少必填字段: title")
+            errors.append(_m("val_missing_field", field="title"))
         elif not isinstance(project["title"], str):
-            errors.append("字段类型错误: title 应为字符串")
+            errors.append(_m("val_field_type_string", field="title"))
 
         content_mode = project.get("content_mode")
         if not content_mode:
-            errors.append("缺少必填字段: content_mode")
+            errors.append(_m("val_missing_field", field="content_mode"))
         elif content_mode not in self.VALID_CONTENT_MODES:
-            errors.append(f"content_mode 值无效: '{content_mode}'，必须是 {self.VALID_CONTENT_MODES}")
+            errors.append(
+                _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
+            )
 
         # source_kind 缺省 novel：缺失字段（存量项目）放行，仅拦截非法值（如 screen_play）。
         source_kind = project.get("source_kind")
         if source_kind is not None and source_kind not in self.VALID_SOURCE_KINDS:
-            errors.append(f"source_kind 值无效: '{source_kind}'，必须是 {self.VALID_SOURCE_KINDS}")
+            errors.append(_m("val_source_kind_invalid", value=source_kind, allowed=_allowed(self.VALID_SOURCE_KINDS)))
 
         # 生成路线必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
         generation_mode = project.get("generation_mode")
         if not generation_mode:
-            errors.append("缺少必填字段: generation_mode")
+            errors.append(_m("val_missing_field", field="generation_mode"))
         elif not isinstance(generation_mode, str) or generation_mode not in self.VALID_GENERATION_MODES:
-            errors.append(f"generation_mode 值无效: '{generation_mode}'，必须是 {self.VALID_GENERATION_MODES}")
+            errors.append(
+                _m("val_generation_mode_invalid", value=generation_mode, allowed=_allowed(self.VALID_GENERATION_MODES))
+            )
 
         grid_storyboard = project.get("grid_storyboard")
         if grid_storyboard is not None and not isinstance(grid_storyboard, bool):
-            errors.append("字段类型错误: grid_storyboard 应为布尔值")
+            errors.append(_m("val_field_type_bool", field="grid_storyboard"))
 
         self._validate_ad_project_fields(project, content_mode, errors)
 
         if not project.get("style"):
-            errors.append("缺少必填字段: style")
+            errors.append(_m("val_missing_field", field="style"))
 
         episodes = project.get("episodes", [])
         if not isinstance(episodes, list):
-            errors.append("episodes 必须是数组")
+            errors.append(_m("val_field_must_be_array", field="episodes"))
         else:
             for index, episode in enumerate(episodes):
                 prefix = f"episodes[{index}]"
                 if not isinstance(episode, dict):
-                    errors.append(f"{prefix}: 数据格式错误，应为对象")
+                    errors.append(_m("val_item_format_object", prefix=prefix))
                     continue
 
                 episode_num = episode.get("episode")
                 if not isinstance(episode_num, int) or isinstance(episode_num, bool):
-                    errors.append(f"{prefix}: 缺少必填字段 episode (整数)")
+                    errors.append(_m("val_episode_missing_num_at", prefix=prefix))
                 # title 允许空串：写入方（剧本同步/孤儿条目登记）在标题未知时即写 ""，
                 # 待用户或智能体后续命名
                 if not isinstance(episode.get("title"), str):
-                    errors.append(f"{prefix}: 缺少必填字段 title (字符串，可为空)")
+                    errors.append(_m("val_episode_missing_title_at", prefix=prefix))
 
                 script_file = episode.get("script_file")
                 if not script_file:
-                    errors.append(f"{prefix}: 缺少必填字段 script_file")
+                    errors.append(_m("val_missing_field_at", prefix=prefix, field="script_file"))
                 elif not isinstance(script_file, str):
-                    errors.append(f"{prefix}: script_file 必须是字符串")
+                    errors.append(_m("val_field_must_be_string", field=f"{prefix}: script_file"))
 
                 self._validate_episode_ledger_fields(episode, prefix, errors)
 
@@ -383,29 +414,45 @@ class DataValidator:
             try:
                 PlanningCursor.model_validate(planning_cursor)
             except ValidationError as exc:
-                errors.append(f"planning_cursor 不合法: {_pydantic_error_summary(exc)}")
+                errors.append(_m("val_field_invalid", field="planning_cursor", detail=_pydantic_error_summary(exc)))
 
         characters = project.get("characters", {})
         if isinstance(characters, dict):
             char_extra_fields = ASSET_SPECS["character"].extra_string_fields
             for char_name, char_data in characters.items():
                 if not isinstance(char_data, dict):
-                    errors.append(f"角色 '{char_name}' 数据格式错误，应为对象")
+                    errors.append(_m("val_asset_format_object", asset_type=_asset("character"), name=char_name))
                     continue
                 desc = char_data.get("description")
                 if not isinstance(desc, str) or not desc:
                     # 必须是非空字符串：description 是 LLM 直写字段，agent 误传数字/对象
                     # 应在守卫点 fail-loud，否则会作为合法资产落盘、下游消费时才崩
-                    errors.append(f"角色 '{char_name}' 缺少必填字段: description（须为非空字符串）")
+                    errors.append(_m("val_asset_missing_description", asset_type=_asset("character"), name=char_name))
                 for field_name in char_extra_fields:
                     # spec 声明的 extra_string_fields（voice_style / reference_image 等）若存在
                     # 须为字符串（可空），否则下游消费方（如把 reference_image 当路径拼接）
                     # 会运行时崩。None 视为「未设置」放行，非 str 类型 fail-loud。
                     val = char_data.get(field_name)
                     if val is not None and not isinstance(val, str):
-                        errors.append(f"角色 '{char_name}'.{field_name} 必须是字符串，当前为 {type(val).__name__}")
+                        errors.append(
+                            _m(
+                                "val_asset_field_must_be_string",
+                                asset_type=_asset("character"),
+                                name=char_name,
+                                field=field_name,
+                                actual=type(val).__name__,
+                            )
+                        )
                     elif field_name == "voice_notice_dismissed_at" and val and not _is_parseable_iso_timestamp(val):
-                        errors.append(f"角色 '{char_name}'.{field_name} 不是合法的 ISO8601 时间戳: {val!r}")
+                        errors.append(
+                            _m(
+                                "val_asset_field_bad_timestamp",
+                                asset_type=_asset("character"),
+                                name=char_name,
+                                field=field_name,
+                                value=repr(val),
+                            )
+                        )
                 # voice_updated_at 不在 extra_string_fields 里（系统专用戳字段，故意不开放
                 # 通用 PATCH 覆写），但仍需校验类型与值：外部编辑/导入的 project.json 若把它写成
                 # 非字符串或不可解析的字符串，会在前端 computeVoiceLegacyNotice 的日期解析处
@@ -413,45 +460,41 @@ class DataValidator:
                 voice_updated_at = char_data.get("voice_updated_at")
                 if voice_updated_at is not None and not isinstance(voice_updated_at, str):
                     errors.append(
-                        f"角色 '{char_name}'.voice_updated_at 必须是字符串，当前为 {type(voice_updated_at).__name__}"
+                        _m(
+                            "val_asset_field_must_be_string",
+                            asset_type=_asset("character"),
+                            name=char_name,
+                            field="voice_updated_at",
+                            actual=type(voice_updated_at).__name__,
+                        )
                     )
                 elif voice_updated_at and not _is_parseable_iso_timestamp(voice_updated_at):
                     errors.append(
-                        f"角色 '{char_name}'.voice_updated_at 不是合法的 ISO8601 时间戳: {voice_updated_at!r}"
+                        _m(
+                            "val_asset_field_bad_timestamp",
+                            asset_type=_asset("character"),
+                            name=char_name,
+                            field="voice_updated_at",
+                            value=repr(voice_updated_at),
+                        )
                     )
 
         if project.get("clues") is not None:
-            errors.append("project.json 含已废弃字段 clues，请等待自动迁移或手动重启服务")
+            errors.append(_m("val_deprecated_clues"))
 
-        self._validate_project_catalog(
-            project.get("scenes") or {},
-            errors,
-            field_label="scenes",
-            kind_label="场景",
-        )
-        self._validate_project_catalog(
-            project.get("props") or {},
-            errors,
-            field_label="props",
-            kind_label="道具",
-        )
-        self._validate_project_catalog(
-            project.get("products") or {},
-            errors,
-            field_label="products",
-            kind_label="产品",
-        )
+        self._validate_project_catalog(project.get("scenes") or {}, errors, field_label="scenes")
+        self._validate_project_catalog(project.get("props") or {}, errors, field_label="props")
+        self._validate_project_catalog(project.get("products") or {}, errors, field_label="products")
 
     def _validate_project_catalog(
         self,
         catalog: Any,
-        errors: list[str],
+        errors: list[ValidationMessage],
         *,
         field_label: str,
-        kind_label: str,
     ) -> None:
         if not isinstance(catalog, dict):
-            errors.append(f"{field_label} 必须是对象")
+            errors.append(_m("val_field_must_be_object", field=field_label))
             return
         # scene/prop 的 extra_string_fields 当前均为空 tuple（见 ASSET_SPECS），仍按 spec 取
         # 以保持「validator 跟 spec 同步」——将来给 scenes/props 加 extra 字段时无需改本处。
@@ -459,18 +502,27 @@ class DataValidator:
         spec = ASSET_SPECS.get(asset_type)
         extra_fields = spec.extra_string_fields if spec else ()
         extra_list_fields = spec.extra_list_fields if spec else ()
+        kind = _asset(asset_type)
         for name, data in catalog.items():
             if not isinstance(data, dict):
-                errors.append(f"{kind_label} '{name}' 数据格式错误，应为对象")
+                errors.append(_m("val_asset_format_object", asset_type=kind, name=name))
                 continue
             desc = data.get("description")
             if not isinstance(desc, str) or not desc:
                 # 同 characters：description 须为非空字符串，避免数字/对象被 truthy 判通过
-                errors.append(f"{kind_label} '{name}' 缺少必填字段: description（须为非空字符串）")
+                errors.append(_m("val_asset_missing_description", asset_type=kind, name=name))
             for field_name in extra_fields:
                 val = data.get(field_name)
                 if val is not None and not isinstance(val, str):
-                    errors.append(f"{kind_label} '{name}'.{field_name} 必须是字符串，当前为 {type(val).__name__}")
+                    errors.append(
+                        _m(
+                            "val_asset_field_must_be_string",
+                            asset_type=kind,
+                            name=name,
+                            field=field_name,
+                            actual=type(val).__name__,
+                        )
+                    )
             for field_name in extra_list_fields:
                 # spec 声明的 extra_list_fields（reference_images / selling_points 等）若存在
                 # 须为字符串列表：下游把元素当路径拼接 / 当文本注入 prompt，混入非 str 会
@@ -479,12 +531,27 @@ class DataValidator:
                 if val is None:
                     continue
                 if not isinstance(val, list):
-                    errors.append(f"{kind_label} '{name}'.{field_name} 必须是字符串列表，当前为 {type(val).__name__}")
+                    errors.append(
+                        _m(
+                            "val_asset_field_must_be_string_list",
+                            asset_type=kind,
+                            name=name,
+                            field=field_name,
+                            actual=type(val).__name__,
+                        )
+                    )
                     continue
                 for idx, item in enumerate(val):
                     if not isinstance(item, str):
                         errors.append(
-                            f"{kind_label} '{name}'.{field_name}[{idx}] 必须是字符串，当前为 {type(item).__name__}"
+                            _m(
+                                "val_asset_field_item_must_be_string",
+                                asset_type=kind,
+                                name=name,
+                                field=field_name,
+                                index=idx,
+                                actual=type(item).__name__,
+                            )
                         )
 
     def _unregistered_refs(self, refs: list[Any], valid_set: set[str]) -> list[Any]:
@@ -502,22 +569,30 @@ class DataValidator:
         prefix: str,
         refs: Any,
         valid_set: set[str],
-        errors: list[str],
-        warnings: list[str],
+        errors: list[ValidationMessage],
+        warnings: list[ValidationMessage],
         *,
         field_label: str,
-        kind_label: str,
+        asset_type: str,
     ) -> None:
         """校验可缺省的镜头资产引用字段：缺失给 warning，非数组或引用未登记给 error。"""
         if refs is None:
-            warnings.append(f"{prefix}: 缺少 {field_label}，将使用默认空数组")
+            warnings.append(_m("val_missing_defaults_empty_array", prefix=prefix, field=field_label))
             return
         if not isinstance(refs, list):
-            errors.append(f"{prefix}: {field_label} 必须是数组")
+            errors.append(_m("val_field_must_be_array", field=f"{prefix}: {field_label}"))
             return
         invalid = self._unregistered_refs(refs, valid_set)
         if invalid:
-            errors.append(f"{prefix}: {field_label} 引用了不存在于 project.json 的{kind_label}: {invalid}")
+            errors.append(
+                _m(
+                    "val_refs_unregistered",
+                    prefix=prefix,
+                    field=field_label,
+                    asset_type=_asset(asset_type),
+                    names=invalid,
+                )
+            )
 
     def validate_project_payload(self, project: dict[str, Any]) -> ValidationResult:
         """对内存中的 project.json dict 做结构校验（不读盘）。
@@ -525,10 +600,10 @@ class DataValidator:
         供写入前校验复用——`patch_project` 在 `update_project` 的 mutation 内 apply 改动后、
         落盘前调用本方法，非法则中止写入，避免「先写后验、失败仍留脏数据」。
         """
-        errors: list[str] = []
-        warnings: list[str] = []
+        errors: list[ValidationMessage] = []
+        warnings: list[ValidationMessage] = []
         self._validate_project_payload(project, errors, warnings)
-        return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)
+        return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
 
     def validate_project(self, project_name: str) -> ValidationResult:
         """验证 project.json"""
@@ -536,31 +611,31 @@ class DataValidator:
 
     def validate_project_dir(self, project_dir: Path) -> ValidationResult:
         """验证指定目录中的 project.json。"""
-        errors: list[str] = []
-        warnings: list[str] = []
+        errors: list[ValidationMessage] = []
+        warnings: list[ValidationMessage] = []
 
         project_path = Path(project_dir) / "project.json"
         project = load_json_or_none(project_path)
         if project is None:
             return ValidationResult(
                 valid=False,
-                errors=[f"无法加载 project.json: {project_path}"],
+                error_messages=[_m("val_cannot_load_project_json", path=project_path)],
             )
 
         self._validate_project_payload(project, errors, warnings)
-        return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)
+        return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
 
     def _validate_generated_assets(
         self,
         project_dir: Path,
         prefix: str,
         assets: Any,
-        errors: list[str],
+        errors: list[ValidationMessage],
     ) -> None:
         if assets in (None, ""):
             return
         if not isinstance(assets, dict):
-            errors.append(f"{prefix}.generated_assets 必须是对象")
+            errors.append(_m("val_field_must_be_object", field=f"{prefix}.generated_assets"))
             return
 
         self._validate_local_reference(
@@ -604,21 +679,20 @@ class DataValidator:
         # 角色声音更新时间的依据；非字符串或不可解析的字符串会在该处日期解析得到 NaN，
         # NaN 参与的比较恒为 false，判定因此静默失效而非报错。
         video_generated_at = assets.get("video_generated_at")
+        field_name = f"{prefix}.generated_assets.video_generated_at"
         if video_generated_at is not None and not isinstance(video_generated_at, str):
             errors.append(
-                f"{prefix}.generated_assets.video_generated_at 必须是字符串，当前为 {type(video_generated_at).__name__}"
+                _m("val_field_must_be_string_typed", field=field_name, actual=type(video_generated_at).__name__)
             )
         elif video_generated_at and not _is_parseable_iso_timestamp(video_generated_at):
-            errors.append(
-                f"{prefix}.generated_assets.video_generated_at 不是合法的 ISO8601 时间戳: {video_generated_at!r}"
-            )
+            errors.append(_m("val_field_bad_timestamp", field=field_name, value=repr(video_generated_at)))
 
     def _validate_end_frame_image(
         self,
         project_dir: Path,
         prefix: str,
         item: dict[str, Any],
-        errors: list[str],
+        errors: list[ValidationMessage],
     ) -> None:
         """校验镜头条目的尾帧快照路径：越界、缺失、目录外均报 error（缺失即悬空引用，不容忍）。
 
@@ -641,49 +715,57 @@ class DataValidator:
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
-        errors: list[str],
-        warnings: list[str],
+        errors: list[ValidationMessage],
+        warnings: list[ValidationMessage],
         *,
         project_dir: Path | None = None,
     ) -> None:
         """验证 segments（narration 模式）"""
         if not isinstance(segments, list):
-            errors.append("segments 必须是数组")
+            errors.append(_m("val_field_must_be_array", field="segments"))
             return
         if not segments:
-            errors.append("segments 数组为空")
+            errors.append(_m("val_array_empty", field="segments"))
             return
 
         for index, segment in enumerate(segments):
             prefix = f"segments[{index}]"
             if not isinstance(segment, dict):
-                errors.append(f"{prefix}: 必须是对象")
+                errors.append(_m("val_item_must_be_object", prefix=prefix))
                 continue
 
             segment_id = segment.get("segment_id")
             if not segment_id:
-                errors.append(f"{prefix}: 缺少必填字段 segment_id")
+                errors.append(_m("val_missing_field_at", prefix=prefix, field="segment_id"))
             elif not self.ID_PATTERN.match(segment_id):
-                errors.append(f"{prefix}: segment_id 格式错误 '{segment_id}'，应为 E{{n}}S{{nn}}")
+                errors.append(_m("val_id_format", prefix=prefix, field="segment_id", value=segment_id))
 
             duration = segment.get("duration_seconds")
             if duration is None:
-                warnings.append(f"{prefix}: 缺少 duration_seconds，将使用默认值 4")
+                warnings.append(_m("val_missing_duration_default", prefix=prefix, default=4))
             elif not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
-                errors.append(f"{prefix}: duration_seconds 值无效 '{duration}'，必须为正整数")
+                errors.append(_m("val_duration_invalid", prefix=prefix, value=duration))
 
             if not segment.get("novel_text"):
-                errors.append(f"{prefix}: 缺少必填字段 novel_text")
+                errors.append(_m("val_missing_field_at", prefix=prefix, field="novel_text"))
 
             chars_in_segment = segment.get("characters_in_segment")
             if chars_in_segment is None:
-                errors.append(f"{prefix}: 缺少必填字段 characters_in_segment")
+                errors.append(_m("val_missing_field_at", prefix=prefix, field="characters_in_segment"))
             elif not isinstance(chars_in_segment, list):
-                errors.append(f"{prefix}: characters_in_segment 必须是数组")
+                errors.append(_m("val_field_must_be_array", field=f"{prefix}: characters_in_segment"))
             else:
                 invalid = self._unregistered_refs(chars_in_segment, project_characters)
                 if invalid:
-                    errors.append(f"{prefix}: characters_in_segment 引用了不存在于 project.json 的角色: {invalid}")
+                    errors.append(
+                        _m(
+                            "val_refs_unregistered",
+                            prefix=prefix,
+                            field="characters_in_segment",
+                            asset_type=_asset("character"),
+                            names=invalid,
+                        )
+                    )
 
             self._validate_segment_refs(
                 prefix,
@@ -692,7 +774,7 @@ class DataValidator:
                 errors,
                 warnings,
                 field_label="scenes",
-                kind_label="场景",
+                asset_type="scene",
             )
             self._validate_segment_refs(
                 prefix,
@@ -701,13 +783,13 @@ class DataValidator:
                 errors,
                 warnings,
                 field_label="props",
-                kind_label="道具",
+                asset_type="prop",
             )
 
             if not segment.get("image_prompt"):
-                errors.append(f"{prefix}: 缺少必填字段 image_prompt")
+                errors.append(_m("val_missing_field_at", prefix=prefix, field="image_prompt"))
             if not segment.get("video_prompt"):
-                errors.append(f"{prefix}: 缺少必填字段 video_prompt")
+                errors.append(_m("val_missing_field_at", prefix=prefix, field="video_prompt"))
 
             if project_dir is not None:
                 self._validate_generated_assets(
@@ -724,8 +806,8 @@ class DataValidator:
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
-        errors: list[str],
-        warnings: list[str],
+        errors: list[ValidationMessage],
+        warnings: list[ValidationMessage],
         *,
         project_dir: Path | None = None,
         language: str | None = None,
@@ -735,39 +817,47 @@ class DataValidator:
         ``language`` 为项目 ``source_language``（说话量上界 warning 的语速按此取，与字幕派生同口径）。
         """
         if not isinstance(scenes, list):
-            errors.append("scenes 必须是数组")
+            errors.append(_m("val_field_must_be_array", field="scenes"))
             return
         if not scenes:
-            errors.append("scenes 数组为空")
+            errors.append(_m("val_array_empty", field="scenes"))
             return
 
         for index, scene in enumerate(scenes):
             prefix = f"scenes[{index}]"
             if not isinstance(scene, dict):
-                errors.append(f"{prefix}: 必须是对象")
+                errors.append(_m("val_item_must_be_object", prefix=prefix))
                 continue
 
             scene_id = scene.get("scene_id")
             if not scene_id:
-                errors.append(f"{prefix}: 缺少必填字段 scene_id")
+                errors.append(_m("val_missing_field_at", prefix=prefix, field="scene_id"))
             elif not self.ID_PATTERN.match(scene_id):
-                errors.append(f"{prefix}: scene_id 格式错误 '{scene_id}'，应为 E{{n}}S{{nn}}")
+                errors.append(_m("val_id_format", prefix=prefix, field="scene_id", value=scene_id))
 
             duration = scene.get("duration_seconds")
             if duration is None:
-                warnings.append(f"{prefix}: 缺少 duration_seconds，将使用默认值 8")
+                warnings.append(_m("val_missing_duration_default", prefix=prefix, default=8))
             elif not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
-                errors.append(f"{prefix}: duration_seconds 值无效 '{duration}'，必须为正整数")
+                errors.append(_m("val_duration_invalid", prefix=prefix, value=duration))
 
             chars_in_scene = scene.get("characters_in_scene")
             if chars_in_scene is None:
-                errors.append(f"{prefix}: 缺少必填字段 characters_in_scene")
+                errors.append(_m("val_missing_field_at", prefix=prefix, field="characters_in_scene"))
             elif not isinstance(chars_in_scene, list):
-                errors.append(f"{prefix}: characters_in_scene 必须是数组")
+                errors.append(_m("val_field_must_be_array", field=f"{prefix}: characters_in_scene"))
             else:
                 invalid = self._unregistered_refs(chars_in_scene, project_characters)
                 if invalid:
-                    errors.append(f"{prefix}: characters_in_scene 引用了不存在于 project.json 的角色: {invalid}")
+                    errors.append(
+                        _m(
+                            "val_refs_unregistered",
+                            prefix=prefix,
+                            field="characters_in_scene",
+                            asset_type=_asset("character"),
+                            names=invalid,
+                        )
+                    )
 
             self._validate_segment_refs(
                 prefix,
@@ -776,7 +866,7 @@ class DataValidator:
                 errors,
                 warnings,
                 field_label="scenes",
-                kind_label="场景",
+                asset_type="scene",
             )
             self._validate_segment_refs(
                 prefix,
@@ -785,7 +875,7 @@ class DataValidator:
                 errors,
                 warnings,
                 field_label="props",
-                kind_label="道具",
+                asset_type="prop",
             )
 
             # utterances：场景级有序发声序列（取代旧 video_prompt.dialogue + voiceover）。
@@ -801,12 +891,12 @@ class DataValidator:
             # 的 source_text: str（extra=forbid 下显式 null 同样被拒）——键存在则须为字符串，显式 null
             # 一并拒绝；键缺失放行（默认空串，存量数据无此字段）。用 in 判定以区分缺失与显式 null。
             if "source_text" in scene and not isinstance(scene["source_text"], str):
-                errors.append(f"{prefix}: source_text 必须是字符串")
+                errors.append(_m("val_field_must_be_string", field=f"{prefix}: source_text"))
 
             if not scene.get("image_prompt"):
-                errors.append(f"{prefix}: 缺少必填字段 image_prompt")
+                errors.append(_m("val_missing_field_at", prefix=prefix, field="image_prompt"))
             if not scene.get("video_prompt"):
-                errors.append(f"{prefix}: 缺少必填字段 video_prompt")
+                errors.append(_m("val_missing_field_at", prefix=prefix, field="video_prompt"))
 
             if project_dir is not None:
                 self._validate_generated_assets(
@@ -818,7 +908,7 @@ class DataValidator:
                 self._validate_end_frame_image(project_dir, prefix, scene, errors)
 
     @staticmethod
-    def _validate_utterances(utterances: Any, prefix: str, errors: list[str]) -> None:
+    def _validate_utterances(utterances: Any, prefix: str, errors: list[ValidationMessage]) -> None:
         """校验 drama 场景级 utterances 的结构与 kind ⇄ speaker 约束（缺失放行，存量走读时迁移）。
 
         每条须为 ``{kind, speaker, text}``：kind ∈ {dialogue, voiceover}、text 非空字符串；
@@ -827,41 +917,41 @@ class DataValidator:
         if utterances is None:
             return
         if not isinstance(utterances, list):
-            errors.append(f"{prefix}: utterances 必须是数组")
+            errors.append(_m("val_field_must_be_array", field=f"{prefix}: utterances"))
             return
         for ui, item in enumerate(utterances):
             uprefix = f"{prefix}: utterances[{ui}]"
             if not isinstance(item, dict):
-                errors.append(f"{uprefix} 必须是对象")
+                errors.append(_m("val_utterance_must_be_object", prefix=uprefix))
                 continue
             kind = item.get("kind")
             if kind not in ("dialogue", "voiceover"):
-                errors.append(f"{uprefix} kind 必须是 dialogue 或 voiceover")
+                errors.append(_m("val_utterance_kind_invalid", prefix=uprefix))
             text = item.get("text")
             if not isinstance(text, str) or not text.strip():
-                errors.append(f"{uprefix} text 必须是非空字符串")
+                errors.append(_m("val_utterance_text_invalid", prefix=uprefix))
             speaker = item.get("speaker")
             if speaker is not None and not isinstance(speaker, str):
                 # speaker 仅允许字符串或 null（镜像 Utterance.speaker: str | None 的类型约束）：
                 # 数字 / 布尔 / 对象等在 Pydantic 层即类型校验失败，这里同口径 fail-loud，避免
                 # 非法 shape 在结构校验里静默放行、到 Pydantic 才崩。置 has_speaker=True 表示
                 # 「提供了 speaker」，使 dialogue 不再叠报「缺 speaker」（类型错才是根因）。
-                errors.append(f"{uprefix} speaker 必须是字符串或 null")
+                errors.append(_m("val_utterance_speaker_type", prefix=uprefix))
                 has_speaker = True
             else:
                 # 字符串（空串 / 纯空白按 Utterance._normalize_speaker 同口径归一为「无 speaker」）或 None
                 has_speaker = isinstance(speaker, str) and bool(speaker.strip())
             if kind == "dialogue" and not has_speaker:
-                errors.append(f"{uprefix} dialogue 必须带非空 speaker")
+                errors.append(_m("val_utterance_dialogue_speaker", prefix=uprefix))
             elif kind == "voiceover" and has_speaker:
-                errors.append(f"{uprefix} voiceover 不得带 speaker")
+                errors.append(_m("val_utterance_voiceover_speaker", prefix=uprefix))
 
     @staticmethod
     def _warn_scene_speech_overflow(
         scene: dict[str, Any],
         prefix: str,
         language: str | None,
-        warnings: list[str],
+        warnings: list[ValidationMessage],
     ) -> None:
         """场景说话量（台词 + 画外音）估算时长超 ``duration ×（1 + 容差）`` 时仅 warn（单向上界，不阻塞）。
 
@@ -886,9 +976,14 @@ class DataValidator:
         budget = duration * (1 + DRAMA_SPEECH_OVERFLOW_TOLERANCE)
         if spoken > budget:
             warnings.append(
-                f"{prefix}: 估算说话时长 {spoken:.1f} 秒超过场景时长 {duration} 秒逾 "
-                f"{DRAMA_SPEECH_OVERFLOW_TOLERANCE:.0%}（容差上界 {budget:.1f} 秒），"
-                f"长对白可能说不完或语速畸快（仅提示，不阻塞保存）"
+                _m(
+                    "val_scene_speech_overflow",
+                    prefix=prefix,
+                    spoken=spoken,
+                    duration=duration,
+                    tolerance=DRAMA_SPEECH_OVERFLOW_TOLERANCE,
+                    budget=budget,
+                )
             )
 
     def _validate_shots(
@@ -898,8 +993,8 @@ class DataValidator:
         project_scenes: set[str],
         project_props: set[str],
         project_products: set[str],
-        errors: list[str],
-        warnings: list[str],
+        errors: list[ValidationMessage],
+        warnings: list[ValidationMessage],
         *,
         project_dir: Path | None = None,
         reference_mode: bool = False,
@@ -914,41 +1009,38 @@ class DataValidator:
         各收集器同口径。
         """
         if not isinstance(shots, list) or not shots:
-            errors.append("ad 剧本缺少 shots 数组或为空")
+            errors.append(_m("val_ad_shots_missing"))
             return
 
         low, high = self.VALID_SHOT_DURATION_RANGE
         for index, shot in enumerate(shots):
             prefix = f"shots[{index}]"
             if not isinstance(shot, dict):
-                errors.append(f"{prefix}: 必须是对象")
+                errors.append(_m("val_item_must_be_object", prefix=prefix))
                 continue
 
             shot_id = shot.get("shot_id")
             if not shot_id:
-                errors.append(f"{prefix}: 缺少必填字段 shot_id")
+                errors.append(_m("val_missing_field_at", prefix=prefix, field="shot_id"))
             elif not isinstance(shot_id, str) or not self.ID_PATTERN.match(shot_id):
-                errors.append(f"{prefix}: shot_id 格式错误 '{shot_id}'，应为 E{{n}}S{{nn}}")
+                errors.append(_m("val_id_format", prefix=prefix, field="shot_id", value=shot_id))
 
             duration = shot.get("duration_seconds")
             if duration is None:
-                warnings.append(f"{prefix}: 缺少 duration_seconds，将按 0 计入总时长")
+                warnings.append(_m("val_shot_duration_missing_zero", prefix=prefix))
             elif not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
-                errors.append(f"{prefix}: duration_seconds 值无效 '{duration}'，必须为正整数")
+                errors.append(_m("val_duration_invalid", prefix=prefix, value=duration))
             elif reference_mode and not (low <= duration <= high):
-                errors.append(
-                    f"{prefix}: duration_seconds 值无效 '{duration}'，"
-                    f"reference_video 路径必须是 {low}-{high} 之间的整数"
-                )
+                errors.append(_m("val_shot_duration_out_of_range", prefix=prefix, value=duration, low=low, high=high))
 
             if "voiceover_text" not in shot:
-                errors.append(f"{prefix}: 缺少必填字段 voiceover_text（口播文案，可为空字符串）")
+                errors.append(_m("val_shot_missing_voiceover_text", prefix=prefix))
             elif not isinstance(shot.get("voiceover_text"), str):
-                errors.append(f"{prefix}: voiceover_text 必须是字符串")
+                errors.append(_m("val_field_must_be_string", field=f"{prefix}: voiceover_text"))
 
             section = shot.get("section")
             if section is not None and not isinstance(section, str):
-                errors.append(f"{prefix}: section 必须是字符串")
+                errors.append(_m("val_field_must_be_string", field=f"{prefix}: section"))
 
             self._validate_segment_refs(
                 prefix,
@@ -957,7 +1049,7 @@ class DataValidator:
                 errors,
                 warnings,
                 field_label="characters_in_shot",
-                kind_label="角色",
+                asset_type="character",
             )
             self._validate_segment_refs(
                 prefix,
@@ -966,7 +1058,7 @@ class DataValidator:
                 errors,
                 warnings,
                 field_label="scenes",
-                kind_label="场景",
+                asset_type="scene",
             )
             self._validate_segment_refs(
                 prefix,
@@ -975,7 +1067,7 @@ class DataValidator:
                 errors,
                 warnings,
                 field_label="props",
-                kind_label="道具",
+                asset_type="prop",
             )
             self._validate_segment_refs(
                 prefix,
@@ -984,13 +1076,13 @@ class DataValidator:
                 errors,
                 warnings,
                 field_label="products_in_shot",
-                kind_label="产品",
+                asset_type="product",
             )
 
             if not shot.get("image_prompt"):
-                errors.append(f"{prefix}: 缺少必填字段 image_prompt")
+                errors.append(_m("val_missing_field_at", prefix=prefix, field="image_prompt"))
             if not shot.get("video_prompt"):
-                errors.append(f"{prefix}: 缺少必填字段 video_prompt")
+                errors.append(_m("val_missing_field_at", prefix=prefix, field="video_prompt"))
 
             if project_dir is not None:
                 self._validate_generated_assets(
@@ -1005,7 +1097,7 @@ class DataValidator:
     def _warn_ad_target_duration_drift(
         project: dict[str, Any],
         shots: Any,
-        warnings: list[str],
+        warnings: list[ValidationMessage],
     ) -> None:
         """ad 剧本总时长偏离 target_duration 超阈值仅 warn，不阻塞（轻量观察，不推前端）。"""
         target = project.get("target_duration")
@@ -1017,8 +1109,13 @@ class DataValidator:
         delta_ratio = abs(total - target) / target
         if delta_ratio > AD_TARGET_DURATION_DRIFT_THRESHOLD:
             warnings.append(
-                f"剧本总时长 {total} 秒与 target_duration {target} 秒偏差 {delta_ratio:.0%}，"
-                f"超过 {AD_TARGET_DURATION_DRIFT_THRESHOLD:.0%} 观察阈值（仅提示，不阻塞保存）"
+                _m(
+                    "val_ad_duration_drift",
+                    total=total,
+                    target=target,
+                    delta=delta_ratio,
+                    threshold=AD_TARGET_DURATION_DRIFT_THRESHOLD,
+                )
             )
 
     @staticmethod
@@ -1026,19 +1123,19 @@ class DataValidator:
         unit_id: Any,
         seen_unit_ids: set[str],
         prefix: str,
-        errors: list[str],
+        errors: list[ValidationMessage],
         *,
-        missing_message: str,
+        missing_key: str,
     ) -> None:
         """校验单个 unit_id 的存在性与唯一性。
 
         video_units 与 reference_units 两处判重规则一致，共用此实现，避免规则调整时漏改一处。
         """
         if not unit_id or not isinstance(unit_id, str):
-            errors.append(f"{prefix}: {missing_message}")
+            errors.append(_m(missing_key, prefix=prefix))
             return
         if unit_id in seen_unit_ids:
-            errors.append(f"{prefix}: unit_id 重复 '{unit_id}'")
+            errors.append(_m("val_unit_id_duplicate", prefix=prefix, value=unit_id))
         seen_unit_ids.add(unit_id)
 
     def _validate_reference_video_script(
@@ -1047,14 +1144,14 @@ class DataValidator:
         project_characters: set[str],
         project_scenes: set[str],
         project_props: set[str],
-        errors: list[str],
-        warnings: list[str],
+        errors: list[ValidationMessage],
+        warnings: list[ValidationMessage],
         *,
         project_dir: Path | None = None,
     ) -> None:
         """验证 video_units（reference_video 模式）"""
         if not isinstance(video_units, list) or not video_units:
-            errors.append("reference_video 脚本缺少 video_units 数组或为空")
+            errors.append(_m("val_video_units_missing"))
             return
 
         # 归一到 NFC 再建集合：project_characters/scenes/props 是落盘原始 key（可能 NFD），
@@ -1070,7 +1167,7 @@ class DataValidator:
         for index, unit in enumerate(video_units):
             prefix = f"video_units[{index}]"
             if not isinstance(unit, dict):
-                errors.append(f"{prefix}: 必须是对象")
+                errors.append(_m("val_item_must_be_object", prefix=prefix))
                 continue
 
             self._check_unit_id_unique(
@@ -1078,47 +1175,49 @@ class DataValidator:
                 seen_unit_ids,
                 prefix,
                 errors,
-                missing_message="缺少 unit_id",
+                missing_key="val_unit_id_missing",
             )
 
             duration = unit.get("duration_seconds")
             low, high = self.VALID_UNIT_DURATION_RANGE
             if not isinstance(duration, int) or isinstance(duration, bool) or duration < low or duration > high:
-                errors.append(f"{prefix}: duration_seconds 必须是 {low}-{high} 之间的整数")
+                errors.append(_m("val_unit_duration_range", prefix=prefix, low=low, high=high))
 
             shots = unit.get("shots")
             if not isinstance(shots, list) or not shots:
-                errors.append(f"{prefix}: shots 必须是非空数组")
+                errors.append(_m("val_field_must_be_nonempty_array", field=f"{prefix}: shots"))
             else:
                 for si, shot in enumerate(shots):
                     sp = f"{prefix}.shots[{si}]"
                     if not isinstance(shot, dict):
-                        errors.append(f"{sp}: 必须是对象")
+                        errors.append(_m("val_item_must_be_object", prefix=sp))
                         continue
                     if not isinstance(shot.get("text"), str):
-                        errors.append(f"{sp}: text 必须是字符串")
+                        errors.append(_m("val_field_must_be_string", field=f"{sp}: text"))
 
             refs = unit.get("references")
             if refs is None:
                 refs = []
             elif not isinstance(refs, list):
-                errors.append(f"{prefix}: references 必须是数组")
+                errors.append(_m("val_field_must_be_array", field=f"{prefix}: references"))
                 refs = []
             for ref in refs:
                 if not isinstance(ref, dict):
-                    errors.append(f"{prefix}: reference 条目必须是对象")
+                    errors.append(_m("val_reference_entry_must_be_object", prefix=prefix))
                     continue
                 rtype = ref.get("type")
                 rname = ref.get("name")
                 if rtype not in ASSET_TYPES:
-                    errors.append(f"{prefix}: reference.type 无效: {rtype!r}")
+                    errors.append(_m("val_reference_type_invalid", prefix=prefix, value=repr(rtype)))
                     continue
                 if not isinstance(rname, str) or not rname:
-                    errors.append(f"{prefix}: reference.name 必须是非空字符串: {rname!r}")
+                    errors.append(_m("val_reference_name_invalid", prefix=prefix, value=repr(rname)))
                     continue
                 bucket = bucket_by_type.get(rtype, set())
                 if normalize_asset_name(rname) not in bucket:
-                    errors.append(f"{prefix}: 引用的{rtype} '{rname}' 不在 project.json 对应 bucket 中")
+                    errors.append(
+                        _m("val_reference_not_in_bucket", prefix=prefix, asset_type=_asset(rtype), name=rname)
+                    )
 
             if project_dir is not None:
                 self._validate_generated_assets(
@@ -1133,8 +1232,8 @@ class DataValidator:
         units: Any,
         shots: Any,
         registered_names: dict[str, set[str]],
-        errors: list[str],
-        warnings: list[str],
+        errors: list[ValidationMessage],
+        warnings: list[ValidationMessage],
     ) -> None:
         """验证 ad 参考直出派生索引（reference_units，可缺省）。
 
@@ -1145,7 +1244,7 @@ class DataValidator:
         if units is None:
             return
         if not isinstance(units, list):
-            errors.append("reference_units 必须是数组")
+            errors.append(_m("val_field_must_be_array", field="reference_units"))
             return
 
         # 归一到 NFC 再建集合，理由同 `_validate_reference_video_script`。
@@ -1157,7 +1256,7 @@ class DataValidator:
         for index, unit in enumerate(units):
             prefix = f"reference_units[{index}]"
             if not isinstance(unit, dict):
-                errors.append(f"{prefix}: 必须是对象")
+                errors.append(_m("val_item_must_be_object", prefix=prefix))
                 continue
 
             self._check_unit_id_unique(
@@ -1165,37 +1264,40 @@ class DataValidator:
                 seen_unit_ids,
                 prefix,
                 errors,
-                missing_message="缺少必填字段 unit_id",
+                missing_key="val_unit_id_missing_required",
             )
 
             ids = unit.get("shot_ids")
             if not isinstance(ids, list) or not ids:
-                errors.append(f"{prefix}: shot_ids 必须是非空数组")
+                errors.append(_m("val_field_must_be_nonempty_array", field=f"{prefix}: shot_ids"))
             else:
                 dangling = [str(sid) for sid in ids if sid not in shot_ids]
                 if dangling:
-                    warnings.append(f"{prefix}: 引用的镜头不存在（{', '.join(dangling)}），需重新派生分组")
+                    warnings.append(_m("val_reference_units_dangling_shots", prefix=prefix, ids=", ".join(dangling)))
 
             refs = unit.get("references")
             if refs is None:
                 continue
             if not isinstance(refs, list):
-                errors.append(f"{prefix}: references 必须是数组")
+                errors.append(_m("val_field_must_be_array", field=f"{prefix}: references"))
                 continue
             for ri, ref in enumerate(refs):
+                ref_prefix = f"{prefix}.references[{ri}]"
                 if not isinstance(ref, dict):
-                    errors.append(f"{prefix}.references[{ri}]: 必须是对象")
+                    errors.append(_m("val_item_must_be_object", prefix=ref_prefix))
                     continue
                 rtype = ref.get("type")
                 rname = ref.get("name")
                 if rtype not in registered_names:
-                    errors.append(f"{prefix}.references[{ri}]: type 无效: {rtype!r}")
+                    errors.append(_m("val_ref_type_invalid", prefix=ref_prefix, value=repr(rtype)))
                     continue
                 if not rname or not isinstance(rname, str):
-                    errors.append(f"{prefix}.references[{ri}]: name 必须是非空字符串: {rname!r}")
+                    errors.append(_m("val_ref_name_invalid", prefix=ref_prefix, value=repr(rname)))
                     continue
                 if normalize_asset_name(rname) not in normalized_registered_names[rtype]:
-                    warnings.append(f"{prefix}.references[{ri}]: 引用的{rtype}「{rname}」未注册，需重新派生分组")
+                    warnings.append(
+                        _m("val_ref_unregistered_regroup", prefix=ref_prefix, asset_type=_asset(rtype), name=rname)
+                    )
 
             assets = unit.get("generated_assets")
             if isinstance(assets, dict):
@@ -1203,50 +1305,45 @@ class DataValidator:
                 # video_generated_at 字段做时刻比较；外部编辑/导入写入不可解析的字符串会
                 # 在前端日期解析处静默产生 NaN。
                 video_generated_at = assets.get("video_generated_at")
+                field_name = f"{prefix}.generated_assets.video_generated_at"
                 if video_generated_at is not None and not isinstance(video_generated_at, str):
                     errors.append(
-                        f"{prefix}.generated_assets.video_generated_at 必须是字符串，"
-                        f"当前为 {type(video_generated_at).__name__}"
+                        _m(
+                            "val_field_must_be_string_typed",
+                            field=field_name,
+                            actual=type(video_generated_at).__name__,
+                        )
                     )
                 elif video_generated_at and not _is_parseable_iso_timestamp(video_generated_at):
-                    errors.append(
-                        f"{prefix}.generated_assets.video_generated_at 不是合法的 ISO8601 时间戳: "
-                        f"{video_generated_at!r}"
-                    )
+                    errors.append(_m("val_field_bad_timestamp", field=field_name, value=repr(video_generated_at)))
 
     def _validate_episode_payload(
         self,
         project_dir: Path,
         project: dict[str, Any],
         episode: dict[str, Any],
-        errors: list[str],
-        warnings: list[str],
+        errors: list[ValidationMessage],
+        warnings: list[ValidationMessage],
     ) -> None:
         project_characters = set(project.get("characters", {}).keys())
         project_scenes = set(project.get("scenes", {}).keys())
         project_props = set(project.get("props", {}).keys())
 
         if not isinstance(episode.get("episode"), int):
-            errors.append("缺少必填字段: episode (整数)")
+            errors.append(_m("val_episode_missing_num"))
 
         if not episode.get("title"):
-            errors.append("缺少必填字段: title")
+            errors.append(_m("val_missing_field", field="title"))
 
         content_mode = resolve_content_mode(episode, project)
 
-        characters_in_episode = episode.get("characters_in_episode")
-        if characters_in_episode is not None:
-            warnings.append("characters_in_episode 字段已废弃（改为读时计算），可安全移除")
-
-        if episode.get("scenes_in_episode") is not None:
-            warnings.append("scenes_in_episode 字段已废弃（改为读时计算），可安全移除")
-
-        if episode.get("props_in_episode") is not None:
-            warnings.append("props_in_episode 字段已废弃（改为读时计算），可安全移除")
+        for deprecated_field in ("characters_in_episode", "scenes_in_episode", "props_in_episode"):
+            if episode.get(deprecated_field) is not None:
+                warnings.append(_m("val_deprecated_field_removable", field=deprecated_field))
 
         novel = episode.get("novel")
         if novel is not None and not isinstance(novel, dict):
-            errors.append("novel 字段必须是对象")
+            errors.append(_m("val_novel_must_be_object"))
 
         # drama 说话量上界 warning 的语速按项目 source_language 取（唯一真相源，缺失 / 脏值回退默认语速）。
         source_language = project.get("source_language")
@@ -1263,7 +1360,9 @@ class DataValidator:
             # content_mode 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud
             # 抛错，但 validator 的契约是把脏数据报告成结构化错误而非让异常传播出去。跳过依赖
             # 骨架种类的后续检查——没有合法 kind 就无从判断该读 segments/scenes/shots 中哪个。
-            errors.append(f"content_mode 值无效: '{content_mode}'，必须是 {self.VALID_CONTENT_MODES}")
+            errors.append(
+                _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
+            )
             return
         try:
             # 闸门放行族内历史形态（narration 数据落 scenes 键）并返回剧本的实际骨架，后续按
@@ -1273,7 +1372,7 @@ class DataValidator:
             # 失配剧本（骨架与项目路线跨族）：按路线该读的数组根本不在剧本里，
             # 逐字段报"缺少 segments"会把成因埋掉——直接给结构结论与重拆指引，并跳过后续
             # 按骨架的检查。同一闸门在生成入口拒绝生成，此处只是把同一事实报告出来。
-            errors.append(str(exc))
+            errors.append(exc.to_validation_message())
             return
         if kind == "video_units":
             self._validate_reference_video_script(
@@ -1346,8 +1445,8 @@ class DataValidator:
         episode_file: str | Path,
     ) -> ValidationResult:
         """验证指定目录中的剧本文件。"""
-        errors: list[str] = []
-        warnings: list[str] = []
+        errors: list[ValidationMessage] = []
+        warnings: list[ValidationMessage] = []
 
         project_dir = Path(project_dir)
         project_path = project_dir / "project.json"
@@ -1355,7 +1454,7 @@ class DataValidator:
         if project is None:
             return ValidationResult(
                 valid=False,
-                errors=[f"无法加载 project.json: {project_path}"],
+                error_messages=[_m("val_cannot_load_project_json", path=project_path)],
             )
 
         resolved_episode_path, error = self._resolve_existing_path(
@@ -1366,7 +1465,7 @@ class DataValidator:
         if error or resolved_episode_path is None:
             return ValidationResult(
                 valid=False,
-                errors=[f"无法加载剧本文件: {project_dir / str(episode_file)}"],
+                error_messages=[_m("val_cannot_load_script", path=project_dir / str(episode_file))],
             )
 
         episode_path = project_dir / resolved_episode_path
@@ -1374,11 +1473,11 @@ class DataValidator:
         if episode is None:
             return ValidationResult(
                 valid=False,
-                errors=[f"无法加载剧本文件: {episode_path}"],
+                error_messages=[_m("val_cannot_load_script", path=episode_path)],
             )
 
         self._validate_episode_payload(project_dir, project, episode, errors, warnings)
-        return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)
+        return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
 
     def validate_project_tree(self, project_dir: str | Path) -> ValidationResult:
         """
@@ -1388,13 +1487,13 @@ class DataValidator:
         """
         project_dir = Path(project_dir)
         project_result = self.validate_project_dir(project_dir)
-        errors = list(project_result.errors)
-        warnings = list(project_result.warnings)
+        errors = list(project_result.error_messages)
+        warnings = list(project_result.warning_messages)
 
         project_path = project_dir / "project.json"
         project = load_json_or_none(project_path)
         if project is None:
-            return ValidationResult(valid=False, errors=errors, warnings=warnings)
+            return ValidationResult(valid=False, error_messages=errors, warning_messages=warnings)
 
         self._validate_local_reference(
             project_dir,
@@ -1483,11 +1582,11 @@ class DataValidator:
 
                 episode = load_json_or_none(project_dir / resolved_path)
                 if episode is None:
-                    errors.append(f"无法加载剧本文件: {project_dir / resolved_path}")
+                    errors.append(_m("val_cannot_load_script", path=project_dir / resolved_path))
                     continue
 
-                episode_errors: list[str] = []
-                episode_warnings: list[str] = []
+                episode_errors: list[ValidationMessage] = []
+                episode_warnings: list[ValidationMessage] = []
                 self._validate_episode_payload(
                     project_dir,
                     project,
@@ -1503,9 +1602,9 @@ class DataValidator:
                 if self._is_hidden_path(Path(child.name)):
                     continue
                 if child.name not in self.ALLOWED_ROOT_ENTRIES:
-                    warnings.append(f"发现未识别的附加文件/目录: {child.name}")
+                    warnings.append(_m("val_unrecognized_entry", name=child.name))
 
-        return ValidationResult(valid=len(errors) == 0, errors=errors, warnings=warnings)
+        return ValidationResult(valid=len(errors) == 0, error_messages=errors, warning_messages=warnings)
 
 
 def validate_project(

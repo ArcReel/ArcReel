@@ -198,7 +198,7 @@ async def import_project_archive(
         os.close(fd)
 
         # 使用底层 SpooledTemporaryFile 的同步句柄，整循环 offload 到线程，
-        # 避免 async 读取 + 同步写入的混合模式阻塞事件循环 (#230)
+        # 避免 async 读取 + 同步写入的混合模式阻塞事件循环
         raw_file = file.file
 
         def _write_upload():
@@ -216,6 +216,7 @@ async def import_project_archive(
                 Path(upload_path),
                 uploaded_filename=file.filename,
                 conflict_policy=conflict_policy,
+                translate=_t,
             )
 
         result = await asyncio.to_thread(_sync)
@@ -223,22 +224,18 @@ async def import_project_archive(
             "success": True,
             "project_name": result.project_name,
             "project": result.project,
-            "warnings": result.warnings,
+            "warnings": [warning.render(_t) for warning in result.warnings],
             "conflict_resolution": result.conflict_resolution,
             "diagnostics": result.diagnostics,
         }
     except ProjectArchiveValidationError as exc:
-        diagnostics = exc.extra.get(
-            "diagnostics",
-            {"blocking": [], "auto_fixable": [], "warnings": []},
-        )
         return JSONResponse(
             status_code=exc.status_code,
             content={
-                "detail": exc.detail,
-                "errors": exc.errors,
-                "warnings": exc.warnings,
-                "diagnostics": diagnostics,
+                "detail": exc.detail.render(_t),
+                "errors": exc.render_errors(_t),
+                "warnings": exc.render_warnings(_t),
+                "diagnostics": exc.diagnostics_payload(_t),
                 **exc.extra,
             },
         )
@@ -269,7 +266,7 @@ async def create_export_token(
         def _sync():
             if not get_project_manager().project_exists(name):
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
-            return get_archive_service().get_export_diagnostics(name, scope=scope)
+            return get_archive_service().get_export_diagnostics(name, scope=scope, translate=_t)
 
         diagnostics = await asyncio.to_thread(_sync)
         username = current_user.sub

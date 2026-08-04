@@ -44,6 +44,7 @@ from lib.reference_video.quarantine import (
     clear_quarantine,
     quarantine_path,
 )
+from lib.validation_messages import ValidationMessage
 
 logger = logging.getLogger(__name__)
 
@@ -345,7 +346,7 @@ def migrate_step1_draft_in_place(
     episode: int,
     update_project: Callable[[Callable[[dict[str, Any]], None]], dict[str, Any]],
     supported_durations: Sequence[int] | None = None,
-) -> tuple[dict[str, Any] | None, list[str]]:
+) -> tuple[dict[str, Any] | None, list[ValidationMessage]]:
     """对已读入内存的 step1 草稿就地做一次性时长收编迁移并回写；返回 ``(最新 project, warnings)``。
 
     调用方须已持有该文件的排他锁（``step1_write_lock`` / 同路径 ``ProjectManager.file_lock``）
@@ -376,7 +377,7 @@ def migrate_step1_draft_in_place(
     before = content_fingerprint_of_data(content)
     changed, warnings = migrate_unit_durations(content.get("units"), supported_durations=supported_durations)
     for message in warnings:
-        logger.warning("step1 草稿 %s 时长收编迁移: %s", REFERENCE_VIDEO_STEP1_FILENAME, message)
+        logger.warning("step1 草稿 %s 时长收编迁移: %s", REFERENCE_VIDEO_STEP1_FILENAME, message.render())
     if not changed:
         return None, []
 

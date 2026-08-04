@@ -30,6 +30,7 @@ from collections.abc import Sequence
 
 from lib.reference_video.duration_slots import resolve_duration_slot
 from lib.script_models import REFERENCE_UNIT_DURATION_RANGE
+from lib.validation_messages import ValidationMessage
 
 #: 迁移会剥掉的镜头级字段与 unit 级退役字段。
 _LEGACY_SHOT_FIELD = "duration"
@@ -67,8 +68,11 @@ def migrate_unit_durations(
     units: object,
     *,
     supported_durations: Sequence[int] | None = None,
-) -> tuple[bool, list[str]]:
+) -> tuple[bool, list[ValidationMessage]]:
     """就地把 units 的 per-shot 时长收编到 unit 级。返回 ``(是否发生变更, warnings)``。
+
+    warnings 是 locale-neutral 的 ``ValidationMessage``，由消费边界渲染（归档导入按请求语言，
+    加载链只落日志）。
 
     每个 unit 的目标时长优先取已有的 ``duration_seconds``（收编前它已是求和结果或用户手填值，
     两种情形下都已是这个 unit 实际申请的秒数），缺失或脏值时回退为各镜头时长之和。两者都取不到
@@ -81,7 +85,7 @@ def migrate_unit_durations(
         return False, []
 
     changed = False
-    warnings: list[str] = []
+    warnings: list[ValidationMessage] = []
     low, high = REFERENCE_UNIT_DURATION_RANGE
 
     for unit in units:
@@ -102,14 +106,24 @@ def migrate_unit_durations(
         clamped = min(max(target, low), high)
         if clamped != target:
             warnings.append(
-                f"unit {unit.get('unit_id')} 时长 {target}s 超出 {low}-{high}s 合理区间，已按 {clamped}s 落盘"
+                ValidationMessage(
+                    "val_unit_duration_clamped",
+                    {"unit_id": unit.get("unit_id"), "target": target, "low": low, "high": high, "clamped": clamped},
+                )
             )
         if supported_durations:
             slot = resolve_duration_slot(clamped, supported_durations)
             if slot.seconds != clamped:
                 warnings.append(
-                    f"unit {unit.get('unit_id')} 时长 {clamped}s 不是模型档位"
-                    f"（{sorted(set(supported_durations))}）成员，已取档为 {slot.seconds}s"
+                    ValidationMessage(
+                        "val_unit_duration_slotted",
+                        {
+                            "unit_id": unit.get("unit_id"),
+                            "duration": clamped,
+                            "durations": sorted(set(supported_durations)),
+                            "slot": slot.seconds,
+                        },
+                    )
                 )
             clamped = slot.seconds
         unit["duration_seconds"] = clamped
@@ -117,7 +131,7 @@ def migrate_unit_durations(
     return changed, warnings
 
 
-def migrate_script_unit_durations(script: object) -> tuple[bool, list[str]]:
+def migrate_script_unit_durations(script: object) -> tuple[bool, list[ValidationMessage]]:
     """剧集脚本级入口：仅对参考生视频骨架（含 ``video_units``）生效。
 
     按数据形状而非 ``generation_mode`` 戳判定——脏数据与半成品剧本可能缺戳，而收编只关心
