@@ -209,6 +209,7 @@ def _stage_legacy_narration_archive(pm: ProjectManager, project_dir: Path, archi
             "novel": {
                 "title": "Demo",
                 "chapter": "第一章",
+                "source_file": "source/1-7-0227.txt",
             },
             "segments": [
                 {
