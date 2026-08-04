@@ -277,7 +277,10 @@ jq -n \
   def stage_hint($pr; $hasBranch; $istate; $ireason):
     if   ($pr != null and $pr.state == "MERGED")                          then "done"
     elif ($pr != null and $pr.state == "OPEN" and ($pr.isDraft | not))    then "review-loop"
-    elif ($pr != null and ($pr.isDraft == true or $pr.state == "CLOSED")) then "shelved"
+    # a CLOSED PR marks shelved only while its branch survives; after a restart cleanup
+    # (PR closed, branches deleted) the issue must poll as startable again
+    elif ($pr != null and ($pr.isDraft == true
+                           or ($pr.state == "CLOSED" and $hasBranch)))    then "shelved"
     elif $hasBranch                                                       then "local-review"
     elif ($istate == "closed" and $ireason == "completed")               then "done"
     elif ($istate == "closed")                                           then "shelved"
