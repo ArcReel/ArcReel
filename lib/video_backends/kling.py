@@ -56,8 +56,8 @@ _IMAGE2VIDEO = "image2video"
 _MULTI_IMAGE2VIDEO = "multi-image2video"
 _RESUMABLE_SUBPATHS = frozenset({_TEXT2VIDEO, _IMAGE2VIDEO, _MULTI_IMAGE2VIDEO})
 
-# 多图主体（R2V）参考图上限保守值，由 backend caps 单独声明（编排层裁剪与生成时防御同读）。
-# 待 app.klingai.com 控制台核对，不硬编当既成事实。
+# 多图主体（R2V）参考图上限，由 backend caps 单独声明（编排层裁剪与生成时防御同读）。
+# 取保守值：官方文档未明确列出该上限。
 _R2V_MAX_REFERENCE_IMAGES = 4
 
 
@@ -219,8 +219,8 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         # first_frame 恒真（各档均支持 i2v 首帧）；last_frame / reference_images / 上限按 model 从
         # _KLING_VIDEO_CAPS 读（_lookup_video_caps 归一化前缀/大小写后精确命中，未登记回落保守默认）。
-        # max_reference_images 只在此处声明（编排层裁剪与生成时防御同读它），取保守值、
-        # 未经 app.klingai.com 控制台核对。纯函数（不构造 client /
+        # max_reference_images 只在此处声明（编排层裁剪与生成时防御同读它），取保守值——
+        # 官方文档未明确列出该上限。纯函数（不构造 client /
         # 不需 api_key），供 custom endpoint resolver 按 model_id 读上限复用。
         #
         # last_frame_requires_pro 为真的 model（kling-v2-5-turbo、kling-v2-6）：该位不按 service_tier
