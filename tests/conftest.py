@@ -224,24 +224,36 @@ def pytest_collection_modifyitems(config, items):
 
 
 def _enforce_classification_markers(items) -> None:
-    """Every collected test must carry exactly one of unit/integration/e2e.
+    """收集期强制：每个用例恰好带一个 unit/integration/e2e 分类 marker。
 
-    Unmarked tests only surface via external review (a whole batch once slipped
-    10+ unmarked cases through); this makes the omission a collection-time
-    failure instead, so it can't reach CI unnoticed.
+    漏标不影响用例本身通过，只能靠人工 review 发现；这里把它变成收集期失败，
+    使其无法进入 CI。多标同样拦截——三类语义互斥，同时命中会让 `-m` 选集失去意义
+    （marker 可来自用例、类、模块三层，叠加时容易出现自相矛盾的组合）。
     """
     classify_marks = {"unit", "integration", "e2e"}
-    offenders = []
+    missing = []
+    conflicting = []
     for item in items:
         marks = {m.name for m in item.iter_markers()} & classify_marks
         if not marks:
-            offenders.append(item.nodeid)
-    if offenders:
-        listing = "\n".join(f"  - {nodeid}" for nodeid in offenders)
-        raise pytest.UsageError(
-            f"{len(offenders)} 个测试用例缺少分类 marker（unit/integration/e2e 三选一）：\n{listing}\n"
+            missing.append(item.nodeid)
+        elif len(marks) > 1:
+            conflicting.append(f"{item.nodeid}（{'/'.join(sorted(marks))}）")
+    problems = []
+    if missing:
+        listing = "\n".join(f"  - {nodeid}" for nodeid in missing)
+        problems.append(
+            f"{len(missing)} 个测试用例缺少分类 marker（unit/integration/e2e 三选一）：\n{listing}\n"
             "在用例或所在模块补 @pytest.mark.unit / integration / e2e。"
         )
+    if conflicting:
+        listing = "\n".join(f"  - {entry}" for entry in conflicting)
+        problems.append(
+            f"{len(conflicting)} 个测试用例带多个分类 marker（三者互斥）：\n{listing}\n"
+            "去掉用例/类/模块三层中多余的那个分类 marker。"
+        )
+    if problems:
+        raise pytest.UsageError("\n".join(problems))
 
 
 @pytest.fixture()

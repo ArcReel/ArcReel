@@ -96,7 +96,7 @@ cd frontend && pnpm lint:fix      # 自动修可修的部分
 
 ### Pytest markers 纪律
 
-新增测试必须按类型打标，默认 CI 跑 `-m "not e2e"`：
+每个测试用例必须恰好带一个类型标记，默认 CI 跑 `-m "not e2e"`：
 
 | Marker | 含义 | 禁止 |
 |--------|------|------|
@@ -104,7 +104,14 @@ cd frontend && pnpm lint:fix      # 自动修可修的部分
 | `integration` | 跨模块协作，使用真实依赖（in-memory DB、tmp 文件系统等） | **禁止 mock 被测 module 的公共入口**（例如测 `MediaGenerator` 的集成测试不能 mock `MediaGenerator.generate`，否则是在测 mock 本身） |
 | `e2e` | 端到端，依赖真实外部资源（远程 API、大模型调用、真实 ffmpeg 重活） | CI 默认跳过，本地按需运行 |
 
-现存测试不强制回溯打标；只对新增测试落实。
+标记可打在用例、类或模块（`pytestmark`）任一层，三层叠加后仍须恰好命中一个分类。
+
+打标由 pytest 收集期强制，不依赖人工 review：
+
+- 漏标或多标的用例让收集直接失败（`tests/conftest.py::_enforce_classification_markers`），报错列出具体 nodeid
+- `--strict-markers` 使未在 `pyproject.toml` 注册的 marker 同样在收集期失败
+
+`unit`/`integration` 的现存分类由批量默认档得出（真实 ffmpeg、`uses_db` 命中的归 `integration`，其余归 `unit`），不保证逐条语义精确；新增测试按上表语义自行选择。
 
 ## 工作流程
 
