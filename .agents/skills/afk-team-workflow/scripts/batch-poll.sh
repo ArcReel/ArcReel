@@ -230,9 +230,11 @@ done
 # ---- list remote issue/* branches in one call (no local git remote dependency) ----
 if ! gh api "repos/${OWNER_REPO}/git/matching-refs/heads/issue/" --paginate --jq '.[] | "\(.ref) \(.object.sha)"' \
       > "$TMPDIR/branches.txt" 2>"$TMPDIR/refs.err"; then
-  echo "BATCH_POLL_WARN: matching-refs fetch failed (remote_branch will read false)" >&2
+  # Branch facts feed every issue's stage_hint; a silent empty list would read
+  # as "no branch anywhere" and mis-converge stages. Fail loud instead.
+  echo "BATCH_POLL_ERROR: matching-refs fetch failed" >&2
   cat "$TMPDIR/refs.err" >&2
-  : > "$TMPDIR/branches.txt"
+  exit 6
 fi
 
 # ---- combine into the final schema ----

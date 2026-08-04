@@ -2,7 +2,7 @@
 
 用户显式要求接管或恢复某批次，或 SKILL.md 第一步的同批次检查命中且用户裁决接管时，加载本契约。gh/git 是唯一真相：恢复即 replay 账本补回不可从远端重推的事实，再以一次 poll 对账，而非重建状态机。账本文件可能含多段生命周期——`closed` 后同一 batch-id 再开批会续写同一文件——对账与 replay 一律只取最后一条 `closed` 之后的段。账本不存在或末条已是 `closed` 时不存在未收尾批次：告知用户并转 SKILL.md 新批次流程。
 
-用户裁决重开而非接管时只执行清理：cancel 在途 codex 任务，关闭批次在途 PR，删除远端分支、批次 worktree、本地分支与 handoff 目录（worktree 先于其占用的本地分支，否则 `git branch -D` 会被拒），账本 append 一条 `closed`，随后按 SKILL.md 第一步的新批次流程重来。已搁置为 needs-human 的 issue 不在清理之列——其 PR 与远端分支按 SKILL.md 搁置流程留待人工接手。
+用户裁决重开而非接管时只执行清理。清理所需的成员落点、needs-human 搁置名单与各 issue 实现路线来自 §1 对账与 §2 replay，先完成这两步再执行：cancel 在途 codex 任务，关闭批次在途 PR，删除远端分支、批次 worktree、本地分支与 handoff 目录（worktree 先于其占用的本地分支，否则 `git branch -D` 会被拒），账本 append 一条 `closed`，随后按 SKILL.md 第一步的新批次流程重来。已搁置为 needs-human 的 issue 不在清理之列——其 PR 与远端分支按 SKILL.md 搁置流程留待人工接手。
 
 ## 1. 对账
 
