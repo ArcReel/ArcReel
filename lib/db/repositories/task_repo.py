@@ -707,6 +707,21 @@ class TaskRepository(BaseRepository):
         """
         await self._merge_payload_field(task_id, "duration_seconds", duration_seconds, raise_if_missing=False)
 
+    async def persist_execution_provider_id(self, task_id: str, provider_id: str) -> None:
+        """把执行期实际解析出的 provider 写回 ``task.provider_id``。
+
+        ``provider_id`` 列在入队/认领时按 unit 声明的参考集近似投影；参考路线的退化镜头
+        执行期按解析后的实际参考图分桶，两者可能不同（ad 声明了参考但资产全缺图时投影
+        r2v、执行 i2v）。resume 路径（``_process_resume_task``）按该列锁定 backend 轮询
+        ``provider_job_id``，不写回会拿实际执行 backend 的 job_id 去投影 backend 轮询，
+        已提交任务的恢复因此丢失。不带 WHERE 状态守卫，与 ``persist_provider_job_id`` 同理。
+        """
+        now = utc_now()
+        await self.session.execute(
+            update(Task).where(Task.task_id == task_id).values(provider_id=provider_id, updated_at=now)
+        )
+        await self.session.commit()
+
     async def list_orphan_tasks_on_start(self) -> list[dict[str, Any]]:
         """返回 running + cancelling 状态任务用于重启自愈（ADR 0007）。"""
         result = await self.session.execute(

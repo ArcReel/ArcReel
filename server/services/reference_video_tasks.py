@@ -57,6 +57,18 @@ async def _persist_effective_duration(task_id: str, duration_seconds: int) -> No
         logger.warning("effective_duration 写回 payload 失败 task_id=%s", task_id, exc_info=True)
 
 
+async def _persist_execution_provider(task_id: str, provider_id: str) -> None:
+    """把执行期实际解析出的 provider 写回 ``task.provider_id``（见调用点注释）。
+
+    非致命路径：写回失败时该列停留在入队投影值，行为退回写回机制引入前；后续
+    ``persist_provider_job_id`` 才是 fail-fast 闸（DB 真不可用时整笔在那里失败）。
+    """
+    try:
+        await get_generation_queue().persist_execution_provider_id(task_id, provider_id)
+    except Exception:
+        logger.warning("执行 provider 写回 task.provider_id 失败 task_id=%s", task_id, exc_info=True)
+
+
 def _dedupe_typed_references(references: list[dict]) -> list[dict]:
     """按 (type, 归一名) 去重 reference 字典，保留首次出现顺序。
 
@@ -653,6 +665,11 @@ async def execute_reference_video_task(
     # 时长，即回退路径本身的行为），不影响当前生成结果，不 fail-fast。
     if task_id is not None:
         await _persist_effective_duration(task_id, effective_duration)
+        # task.provider_id 是入队/认领时按 unit 声明近似的投影，执行按解析后实际参考图
+        # 分桶后两者可能分裂（ad 声明了参考但资产全缺图：投影 r2v、执行降级 i2v）。
+        # resume 靠该列锁定轮询 backend——提交前写回实际执行身份，否则重启后会拿
+        # i2v backend 的 provider_job_id 去 r2v backend 轮询，已提交任务的恢复丢失。
+        await _persist_execution_provider(task_id, video.provider_model.provider_id)
 
     # 6. 渲染 prompt：ad 与 narration/drama 共用三段论渲染管线（`<X>@图片N` 绑定 + 声音声明 +
     #    分镜段 + 约束包），差异只在输入形态（见 `lib.reference_video.prompt_render` 模块

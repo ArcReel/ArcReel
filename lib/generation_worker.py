@@ -377,7 +377,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     is_video = task.get("media_type") == "video" or task.get("task_type") in ("video", "reference_video")
     is_audio = task.get("media_type") == "audio" or task.get("task_type") == "tts"
 
-    # 整体兜底：含项目加载（队列里可能有指向已删除/不可读项目的历史任务，load_project 会抛
+    # 整体兜底：含项目加载（队列里可能残留指向已删除/不可读项目的任务，load_project 会抛
     # FileNotFoundError）在内的任何失败都回退 DEFAULT_PROVIDER，绝不冒泡阻断认领循环（见 docstring）。
     try:
         project: dict | None = None

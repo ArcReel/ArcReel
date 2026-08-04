@@ -1390,11 +1390,10 @@ async def test_generate_video_episode_reference_duration_skips_unit_without_shot
 async def test_generate_video_episode_reference_duration_resolves_project_context_once(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """批量预检 N 个 unit 时项目视频能力/分辨率只解析一次，逐 unit 取档改走纯函数 precheck_unit。
+    """批量预检时项目视频能力/分辨率按能力桶至多各解析一次，逐 unit 取档走纯函数 precheck_unit。
 
-    重构前 ``_pending_duration_confirmations`` 对每个待确认 unit 各自触发一轮 DB 往返
-    （``resolve_project_supported_durations``）；重构后项目级 IO 收口到批次开始时的
-    一次 ``resolve_project_duration_context`` 调用，逐 unit 只做纯计算。
+    unit 按声明的参考集分桶：有参考图 → r2v，无参考图退化镜头 → i2v，与执行侧同口径。
+    同桶多 unit 复用同一次解析，不逐 unit 触发 DB 往返。
     """
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
     from server.services.reference_video_tasks import ProjectDurationContext
@@ -1408,13 +1407,21 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
             "duration_seconds": 5,
         }
     )
+    script["video_units"].append(
+        {
+            "unit_id": "E1U3",
+            "shots": [{"text": "空镜转场"}],
+            "references": [],
+            "duration_seconds": 5,
+        }
+    )
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
 
-    context_calls: list[dict[str, Any]] = []
+    context_calls: list[Any] = []
 
     async def fake_duration_context(project, _episode=None, *, capability=None):
-        context_calls.append(project)
+        context_calls.append(capability)
         return ProjectDurationContext(supported_durations=(4, 8, 12), resolution=None, provider_id="", model_name=None)
 
     enqueued: list[Any] = []
@@ -1429,9 +1436,10 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
     tool_obj = generate_video_episode_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
 
-    # 两个 unit 均 5 秒、档位无 5 → 都需确认，本批不入队；解析只发生一次。
+    # 三个 unit 均 5 秒、档位无 5 → 都需确认，本批不入队；两个带参考图 unit 共用一次
+    # r2v 解析，无参考图 unit 单独触发一次 i2v 解析——既验证分桶传递，也验证按桶缓存。
     assert out.get("is_error") is not True, out
-    assert len(context_calls) == 1
+    assert context_calls == ["r2v", "i2v"]
     assert enqueued == []
 
 

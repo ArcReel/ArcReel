@@ -110,7 +110,7 @@ def _wire_context(
 ) -> None:
     """把 fake generator + video lane 值包成 GenerationContext，替换 resolve_generation_context 单点。
 
-    executor 迁移后不再触碰 MediaGenerator 私有属性、不再手工重建 provider 身份——所有
+    executor 不触碰 MediaGenerator 私有属性、不手工重建 provider 身份——所有
     provider/backend 身份、能力上限、resolution 均由 GenerationContext 的 video lane 提供。
     能力上限与 resolution 的解析逻辑本身在 tests/server/test_generation_context.py 覆盖，此处
     只需喂入 lane 值验证 executor 的下游 clamp / 守卫 / 透传行为。
@@ -1895,6 +1895,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
 
     fake_queue = MagicMock()
     fake_queue.persist_effective_duration = AsyncMock()
+    fake_queue.persist_execution_provider_id = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     await rvt.execute_reference_video_task(
@@ -1949,6 +1950,7 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
 
     fake_queue = MagicMock()
     fake_queue.persist_effective_duration = AsyncMock()
+    fake_queue.persist_execution_provider_id = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     await rvt.execute_reference_video_task(
@@ -1960,6 +1962,62 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
     )
 
     fake_queue.persist_effective_duration.assert_awaited_once_with("task-1", 3)
+
+
+@pytest.mark.unit
+async def test_execute_reference_video_task_persists_execution_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """执行期解析出的 registry provider 须写回 task.provider_id：入队投影按 unit 声明近似，
+    退化镜头降级 i2v 后两者可能分裂，resume 靠该列锁定轮询 backend。"""
+    proj_dir = _write_project(tmp_path)
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**kwargs):
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    # 族别名场景：registry provider_id 与 backend_name 不同，写回的必须是 registry 身份
+    # （provider_id 列的既有口径，claim 池过滤与 resume 锁定都按它查）。
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="ark",
+        backend_model="doubao-seedance-1-5-pro-251215",
+        registry_provider_id="ark-agent-plan",
+        supported_durations=(3, 8, 12),
+    )
+
+    fake_queue = MagicMock()
+    fake_queue.persist_effective_duration = AsyncMock()
+    fake_queue.persist_execution_provider_id = AsyncMock()
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+        task_id="task-1",
+    )
+
+    fake_queue.persist_execution_provider_id.assert_awaited_once_with("task-1", "ark-agent-plan")
 
 
 @pytest.mark.unit

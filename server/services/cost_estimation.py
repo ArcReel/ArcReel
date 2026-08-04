@@ -742,10 +742,13 @@ class CostEstimationService:
                 # SDK 侧入队预检（enqueue_videos.py）对每个 unit 单独 catch ValueError 跳过，
                 # 此处须跟随同一容错口径——否则一个 unit 的脏时长会让整个项目估算 500，
                 # 拖累其余正常集。int() 转换对非数值字符串抛 ValueError，对 list/dict 抛
-                # TypeError，两者都要接住。
+                # TypeError，两者都要接住。ctx 解析在 try 外：能力配置错误是项目级问题，
+                # 须 fail loud 上抛，不得被当成单 unit 脏时长静默跳过（SDK 预检同口径——
+                # 解析在批次层、逐 unit 只 catch 取档）。
                 bucket = reference_unit_video_bucket(unit)
+                duration_ctx = await get_duration_ctx(bucket)
                 try:
-                    slot = precheck_unit(await get_duration_ctx(bucket), unit, None)
+                    slot = precheck_unit(duration_ctx, unit, None)
                 except (ValueError, TypeError):
                     logger.warning("费用估算跳过时长非法的 unit %s", unit_id, exc_info=True)
                     slot = None

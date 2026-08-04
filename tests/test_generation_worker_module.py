@@ -119,7 +119,7 @@ class TestExtractProvider:
 
     @pytest.mark.unit
     async def test_video_payload_provider(self):
-        """payload 携带历史 video_provider → 投影直接取到（payload 层短路，无需 DB）。"""
+        """payload 携带 video_provider → 投影直接取到（payload 层短路，无需 DB）。"""
         task = {"payload": {"video_provider": "ark"}, "task_type": "video"}
         assert await _extract_provider(task) == "ark"
 
@@ -159,7 +159,7 @@ class TestExtractProvider:
 
         项目同时配置了不同 provider 的 video_backend（ark）与 image_provider_t2i
         （gemini-vertex）。reference_video 属于 video lane，认领期 provider 投影须取 ark；
-        若误判为 image lane（历史上 task_type != "video" 即读 image 槽），会取到纯图片
+        若误判为 image lane（按 task_type != "video" 去读 image 槽），会取到纯图片
         供应商，导致 worker 在 video 通道以 video_max==0 直接把任务标记
         「供应商不支持 video 生成」。"""
         _patch_pm(
@@ -198,17 +198,15 @@ class TestExtractProvider:
             "video_provider_r2v": "minimax/S2V-01",
         }
         script = {"video_units": [{"unit_id": "E1U1", "references": references, "shots": [{"text": "t"}]}]}
-        monkeypatch.setattr(
-            "lib.config.resolver.get_project_manager",
-            lambda: type(
-                "PM",
-                (),
-                {
-                    "load_project": lambda self, name: project,
-                    "load_script": lambda self, name, filename: script,
-                },
-            )(),
+        pm_cls = type(
+            "PM",
+            (),
+            {
+                "load_project": lambda self, name: project,
+                "load_script": lambda self, name, filename: script,
+            },
         )
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", pm_cls)
         task = {
             "payload": {"script_file": "ep1.json"},
             "project_name": "demo",
@@ -228,10 +226,8 @@ class TestExtractProvider:
             "video_provider_i2v": "ark/doubao-seedance-1-5-pro-251215",
             "video_provider_r2v": "minimax/S2V-01",
         }
-        monkeypatch.setattr(
-            "lib.config.resolver.get_project_manager",
-            lambda: type("PM", (), {"load_project": lambda self, name: project, "load_script": _load_script})(),
-        )
+        pm_cls = type("PM", (), {"load_project": lambda self, name: project, "load_script": _load_script})
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", pm_cls)
         task = {
             "payload": {"script_file": "ep1.json"},
             "project_name": "demo",
@@ -242,14 +238,14 @@ class TestExtractProvider:
 
     @pytest.mark.unit
     async def test_payload_provider_takes_precedence_over_project(self, monkeypatch):
-        """payload 历史 provider 优先于项目级。"""
+        """payload provider 优先于项目级。"""
         _patch_pm(monkeypatch, {"video_backend": "grok/grok-imagine-video"})
         task = {"payload": {"video_provider": "ark"}, "project_name": "demo", "task_type": "video"}
         assert await _extract_provider(task) == "ark"
 
     @pytest.mark.unit
     async def test_deleted_project_load_failure_falls_back_not_raises(self, monkeypatch):
-        """指向已删除/不可读项目的历史任务：load_project 抛错也须回退 DEFAULT_PROVIDER，
+        """指向已删除/不可读项目的残留任务：load_project 抛错也须回退 DEFAULT_PROVIDER，
         绝不冒泡阻断认领循环（否则一个坏任务会拖垮整个 worker）。"""
 
         def _raising_pm():
