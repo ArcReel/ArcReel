@@ -60,13 +60,12 @@ async def _persist_effective_duration(task_id: str, duration_seconds: int) -> No
 async def _persist_execution_provider(task_id: str, provider_id: str) -> None:
     """把执行期实际解析出的 provider 写回 ``task.provider_id``（见调用点注释）。
 
-    非致命路径：写回失败时该列停留在入队投影值，行为退回写回机制引入前；后续
-    ``persist_provider_job_id`` 才是 fail-fast 闸（DB 真不可用时整笔在那里失败）。
+    fail-fast：写回失败上抛、任务在向 provider 提交前失败。吞掉异常继续提交会留下
+    「provider_id 停留在入队投影、job_id 却已持久化」的任务——重启恢复拿错 backend
+    轮询，与 ``persist_provider_job_id`` 防「幽灵任务」是同一语义（ADR 0007）；此处
+    失败发生在提交前，没有已计费的 provider 端 job 可丢。
     """
-    try:
-        await get_generation_queue().persist_execution_provider_id(task_id, provider_id)
-    except Exception:
-        logger.warning("执行 provider 写回 task.provider_id 失败 task_id=%s", task_id, exc_info=True)
+    await get_generation_queue().persist_execution_provider_id(task_id, provider_id)
 
 
 def _dedupe_typed_references(references: list[dict]) -> list[dict]:

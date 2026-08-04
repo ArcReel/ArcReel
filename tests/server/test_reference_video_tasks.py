@@ -786,6 +786,7 @@ async def test_execute_reference_video_task_bucket_follows_resolved_references(
     assert captured["video"].capability == expected_capability
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_sends_reference_audio_in_prompt_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

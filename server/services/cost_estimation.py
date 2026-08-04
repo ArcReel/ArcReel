@@ -630,6 +630,10 @@ class CostEstimationService:
                 continue
 
             bucket = reference_unit_video_bucket(unit)
+            # 不需要 narration/drama 路径的逐 unit 脏时长容错：ad 的 unit 时长经
+            # ad_script_total_duration 求和，该函数对脏数据按 0 计、不抛（全脏回退
+            # FALLBACK_UNIT_DURATION），precheck_unit 在 ad 分支没有 unit 级脏数据
+            # 异常可捕；悬空分组索引已在上方 resolve_ad_unit_shots 处按 unit 跳过。
             slot = precheck_unit(await get_duration_ctx(bucket), unit, ad_shots)
 
             est_video = _estimate_unit_video_cost(
