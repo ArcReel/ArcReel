@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, CheckCircle2, ChevronDown, Clock, Lock, OctagonAlert, Pencil, RotateCcw, Save } from "lucide-react";
-import { API } from "@/api";
 import type {
   ReferenceResource,
   ReferenceStep1Draft,
@@ -14,6 +13,7 @@ import type {
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
 import { AutoTextarea } from "@/components/ui/AutoTextarea";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_BTN_LG_CLS } from "@/components/ui/darkroom-tokens";
@@ -364,14 +364,9 @@ function UnitCard({
   );
 }
 
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : "";
-}
-
-/** 内容是否有未保存编辑：以序列化比对，draft 由 server content 克隆而来，键序稳定。 */
-function isDirty(draft: unknown, serverContent: unknown): boolean {
-  if (draft == null) return false;
-  return JSON.stringify(draft) !== JSON.stringify(serverContent);
+/** 本面板只编辑 reference_video 变体的 units 内容；其余变体的内容不属于这里。 */
+function selectUnitsContent(state: ScriptReviewState): ReferenceStep1Draft | null {
+  return state.content != null && "units" in state.content ? state.content : null;
 }
 
 /**
@@ -385,78 +380,43 @@ function isDirty(draft: unknown, serverContent: unknown): boolean {
 export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: ReferenceStep1PreviewPanelProps) {
   const { t } = useTranslation("dashboard");
   const pushToast = useAppStore((s) => s.pushToast);
-  const draftRevision = useAppStore((s) => s.getEntityRevision(`draft:episode_${episode}_step1`));
 
-  const [state, setState] = useState<ScriptReviewState | null>(null);
-  const [draft, setDraft] = useState<ReferenceStep1Draft | null>(null);
-  // 保存时提交的基线指纹：绑定在**当前草稿所基于的那份服务端内容**上，只在草稿采用服务端内容时推进。
-  // 不能改用 state.fingerprint——有未保存编辑时的外部刷新会更新 state 却保留旧草稿，届时提交
-  // state.fingerprint 等于拿别人新写的内容当基线，OCC 会放行并静默覆盖对方的修改。
-  const [baseFingerprint, setBaseFingerprint] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<{ message: string } | null>(null);
-  const [reloadNonce, setReloadNonce] = useState(0);
-  const [saving, setSaving] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const [editingUnitKey, setEditingUnitKey] = useState<string | null>(null);
 
-  const serverContent = state?.content != null && "units" in state.content ? (state.content) : null;
-  const dirty = useMemo(() => isDirty(draft, serverContent), [draft, serverContent]);
-  const busy = saving || confirming;
+  const handleConfirmed = useCallback(() => {
+    // 保存 / 确认两次 await 期间用户可能已切走项目（本组件所在的 tab 可能因此被卸载）：只在项目
+    // 本身变了才抑制全局副作用，否则会把续写消息写进用户切换到的别的项目/会话。同项目内切
+    // tab（如切到「视频单元」，本面板同样会被卸载）不属于这种情况——预填文案本身带着具体
+    // 集号，写进全局 assistant 输入框依然准确，不该被同一份卸载信号误伤。
+    if (useProjectsStore.getState().currentProjectName !== projectName) return;
+    pushToast(t("dashboard:review_confirmed"), "success");
+    // 确认放行 + 预填继续消息到会话输入框——只填不发送，用户自行核对后发送。
+    useAssistantStore.getState().setInput(t("reference_step1_confirm_continue_prefill", { episode }));
+    useAppStore.getState().setAssistantPanelOpen(true);
+  }, [projectName, episode, pushToast, t]);
 
-  const dirtyRef = useRef(false);
-  useEffect(() => {
-    dirtyRef.current = dirty;
-  }, [dirty]);
+  const {
+    state,
+    draft,
+    setDraft,
+    dirty,
+    loading,
+    loadError,
+    saving,
+    busy,
+    retry: handleRetry,
+    save: handleSave,
+    confirm: handleConfirm,
+    confirming,
+  } = useScriptReviewDraft<ReferenceStep1Draft>({
+    projectName,
+    episode,
+    selectContent: selectUnitsContent,
+    onConfirmed: handleConfirmed,
+  });
 
-
-  const adopt = useCallback((next: ScriptReviewState) => {
-    setState(next);
-    const content = next.content != null && "units" in next.content ? (next.content) : null;
-    setDraft(content ? (JSON.parse(JSON.stringify(content)) as ReferenceStep1Draft) : null);
-    setBaseFingerprint(next.fingerprint);
-  }, []);
-
-  const handleRetry = useCallback(() => {
-    setLoadError(null);
-    setLoading(true);
-    setReloadNonce((n) => n + 1);
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const { signal } = controller;
-    const hadResponse = state != null;
-    const hasContent = draft != null;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!hadResponse) setLoading(true);
-    API.getScriptReview(projectName, episode, { signal })
-      .then((next) => {
-        // 响应已 resolve 之后才 abort 的窗口：写 state 前复核，避免离场的这轮回写。
-        if (signal.aborted) return;
-        setLoadError(null);
-        setState(next);
-        if (!dirtyRef.current) {
-          const content = next.content != null && "units" in next.content ? (next.content) : null;
-          setDraft(content ? (JSON.parse(JSON.stringify(content)) as ReferenceStep1Draft) : null);
-          setBaseFingerprint(next.fingerprint);
-        }
-      })
-      .catch((err) => {
-        if (signal.aborted) return;
-        if (!hasContent) setLoadError({ message: errorMessage(err) });
-      })
-      .finally(() => {
-        // 收尾让位给接管方：已作废就不碰 loading，否则会打断新一轮加载态。
-        if (!signal.aborted) setLoading(false);
-      });
-    return () => {
-      controller.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- state/draft 仅用于决定加载态与错误态分支，加入 deps 会在每次刷新后重新拉取造成循环
-  }, [projectName, episode, draftRevision, reloadNonce]);
-
-  const updateShotText = useCallback((unitIndex: number, shotIndex: number, text: string) => {
+  const updateShotText = useCallback(
+    (unitIndex: number, shotIndex: number, text: string) => {
     setDraft((prev) => {
       if (!prev) return prev;
       return {
@@ -466,53 +426,22 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         ),
       };
     });
-  }, []);
+    },
+    [setDraft],
+  );
 
-  const updateDuration = useCallback((unitIndex: number, seconds: number) => {
-    setDraft((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        units: prev.units.map((u, i) => (i === unitIndex ? { ...u, duration_seconds: seconds } : u)),
-      };
-    });
-  }, []);
-
-  const handleSave = useCallback(async () => {
-    if (!draft) return;
-    setSaving(true);
-    try {
-      adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
-      pushToast(t("dashboard:review_saved"), "success");
-    } catch (err) {
-      pushToast(errorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
-    } finally {
-      setSaving(false);
-    }
-  }, [draft, baseFingerprint, projectName, episode, adopt, pushToast, t]);
-
-  const handleConfirm = useCallback(async () => {
-    setConfirming(true);
-    try {
-      if (dirty && draft) {
-        adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
-      }
-      adopt(await API.confirmScriptReview(projectName, episode));
-      // 两次 await 期间用户可能已切走项目（本组件所在的 tab 可能因此被卸载）：只在项目本身
-      // 变了才抑制全局副作用，否则会把续写消息写进用户切换到的别的项目/会话。同项目内切
-      // tab（如切到「视频单元」，本面板同样会被卸载）不属于这种情况——预填文案本身带着具体
-      // 集号，写进全局 assistant 输入框依然准确，不该被同一份卸载信号误伤。
-      if (useProjectsStore.getState().currentProjectName !== projectName) return;
-      pushToast(t("dashboard:review_confirmed"), "success");
-      // 确认放行 + 预填继续消息到会话输入框——只填不发送，用户自行核对后发送。
-      useAssistantStore.getState().setInput(t("reference_step1_confirm_continue_prefill", { episode }));
-      useAppStore.getState().setAssistantPanelOpen(true);
-    } catch (err) {
-      pushToast(errorMessage(err) || t("dashboard:review_confirm_failed"), "error");
-    } finally {
-      setConfirming(false);
-    }
-  }, [dirty, draft, baseFingerprint, projectName, episode, adopt, pushToast, t]);
+  const updateDuration = useCallback(
+    (unitIndex: number, seconds: number) => {
+      setDraft((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          units: prev.units.map((u, i) => (i === unitIndex ? { ...u, duration_seconds: seconds } : u)),
+        };
+      });
+    },
+    [setDraft],
+  );
 
   const handleRequestFix = useCallback(() => {
     const violations = state?.quarantine?.violations ?? [];
