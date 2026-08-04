@@ -27,6 +27,7 @@ from lib.reference_video.shot_parser import (
     parse_prompt,
     resolve_references,
 )
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_models import ReferenceResource, Shot, Utterance
 
 #: 未闭合花括号 warning 里回显的原行片段长度上限。
@@ -112,47 +113,42 @@ class VoiceBindings:
 def derive_voice_bindings(
     utterances: list[ShotUtterance],
     characters: dict,
+    settings: VoiceRenderSettings,
     *,
-    voice_consistency: str = "soft",
-    requested_generate_audio: bool = True,
-    max_reference_audio: int = 0,
-    model_id: str = "",
-    audio_ready: Collection[str] | None = None,
-    require_reference_image: bool = False,
     speakers_with_reference_image: Collection[str] | None = None,
 ) -> VoiceBindings:
     """从 utterances 机械派生声音绑定：说话人顺序、参考音频编号与降级 warning。
 
-    ``voice_consistency`` 是服务端派生的三级标识（``native`` / ``soft`` / ``none``）：只有
-    ``native``（A 类·原生音频参考）才谈得上参考音频的绑定与上限，故「未设参考音频」「超出
-    段数上限」两条只在该档发出；``none``（真无声）时改发一条无声知会。
+    ``settings`` 收口本次渲染的声音输入档（见 :class:`~lib.reference_video.voice_settings
+    .VoiceRenderSettings`）。只有 ``native``（A 类·原生音频参考）才谈得上参考音频的绑定与
+    上限，故「未设参考音频」「超出段数上限」两条只在该档发出；``none``（真无声）时改发一条
+    无声知会。
 
-    ``requested_generate_audio`` 是本集的无声开关（用户意图，非计价口径）：为 False 时无论模型档位如何
-    都不产出 ``audio_speakers``，改发一条本集无声知会。参考音频只在这一处收口，prompt 的
-    ``@音频N`` 与 ``reference_audio_files`` 因此同源消失，不会出现文本承诺了音色参考、请求里
-    却没有对应音频段的分叉；台词渲染与本开关无关（另见 :func:`lib.reference_video.prompt_render
+    ``settings.requested_generate_audio`` 为 False 时无论模型档位如何都不产出
+    ``audio_speakers``，改发一条本集无声知会。参考音频只在这一处收口，prompt 的 ``@音频N``
+    与 ``reference_audio_files`` 因此同源消失，不会出现文本承诺了音色参考、请求里却没有对应
+    音频段的分叉；台词渲染与本开关无关（另见 :func:`lib.reference_video.prompt_render
     ._render_segment_two`），供应商可继续拿台词文本做口型参考。无声知会优先于 ``none`` 档的
     ``WARN_SILENT_MODEL``：两者都是「这一集听不到声音」，用户主动关掉音频时说模型不产音会指错
     排查方向。
 
-    ``audio_ready`` 是「音频确实可用」的角色名集合：解析预览不碰文件系统，传 None 时按角色
-    资产的 ``reference_audio`` 字段非空判定；执行层传入已解析且确实存在的文件对应的角色名，
-    让编号与实际随请求发出的音频段数严格等长——字段指向已删文件时编号若不同步，``@音频N``
-    会指向不存在的段。两条路径共用本函数，避免预览承诺的绑定与生成实际发出的绑定分叉。
-    ``audio_ready`` 非 None 时降级原因区分两种：角色 ``reference_audio`` 字段未设置发
-    ``WARN_SPEAKER_WITHOUT_AUDIO``；字段有值但不在 ``audio_ready`` 内发
+    ``settings.audio_ready`` 为 None 时按角色资产的 ``reference_audio`` 字段非空判定；执行层
+    传入已解析且确实存在的文件对应的角色名，让编号与实际随请求发出的音频段数严格等长——字段
+    指向已删文件时编号若不同步，``@音频N`` 会指向不存在的段。两条路径共用本函数，避免预览
+    承诺的绑定与生成实际发出的绑定分叉。非 None 时降级原因区分两种：角色 ``reference_audio``
+    字段未设置发 ``WARN_SPEAKER_WITHOUT_AUDIO``；字段有值但不在集合内发
     ``WARN_SPEAKER_AUDIO_UNAVAILABLE``——前者该去角色设置里补音频，后者字段已填好，该去查
     它指向的音频本身，排查方向不同，不能合并成一条 warning。后者的成因不止一种（文件被删、
     字段值指到 ``characters/refs_audio`` 之外都会被
     :func:`lib.reference_video.prompt_render.resolve_reference_audio_paths` 排除），故文案
     只说「不可用」，不断言具体是哪一种。
 
-    ``require_reference_image``：目标 backend 的音频必须逐段挂在具体参考素材项上（如
-    wan2.7-r2v）时传 True，此时纯画外（无参考图）speaker 即使有可用音频也不绑定——绑定后
+    ``settings.requires_reference_image`` 为 True 时（目标 backend 的音频必须逐段挂在具体
+    参考素材项上，如 wan2.7-r2v），纯画外（无参考图）speaker 即使有可用音频也不绑定——绑定后
     该角色的音频段数会算进 ``max_reference_audio``，但 backend 没有素材项可挂，要么错配给
     别的角色/场景要么硬失败。降级发一条独立 warning（而非复用「未设参考音频」，原因不同：
     这里音频确实可用，只是没有画面可挂）。``speakers_with_reference_image`` 是本次实际随
-    请求发出的参考图对应的角色名集合，仅在 ``require_reference_image`` 为 True 时读取。
+    请求发出的参考图对应的角色名集合，仅在该位为 True 时读取。
 
     角色表与两个按名字判定的集合（``audio_ready`` / ``speakers_with_reference_image``）都先归一
     到资产名比对坐标系（:func:`lib.asset_types.normalize_asset_name`）：说话人一侧出自解析器、
@@ -177,12 +173,19 @@ def derive_voice_bindings(
             warnings.append(_warning(WARN_UNREGISTERED_SPEAKER, name=speaker))
 
     audio_speakers: list[str] = []
-    if not requested_generate_audio:
+    if settings.is_silent:
+        # 只要有台词就知会：画外音同样要渲染，纯画外的文稿在无声路径上也听不到声音。
+        # 本集关闭音频的提示优先于模型不产音——前者是用户当下可改的开关。
         if utterances:
-            warnings.append(_warning(WARN_SILENT_EPISODE))
-    elif voice_consistency == "native":
+            if not settings.requested_generate_audio:
+                warnings.append(_warning(WARN_SILENT_EPISODE))
+            else:
+                warnings.append(_warning(WARN_SILENT_MODEL, model=settings.model_id))
+    elif settings.voice_consistency == "native":
         image_names = {normalize_asset_name(name) for name in speakers_with_reference_image or ()}
-        audio_ready = {normalize_asset_name(name) for name in audio_ready} if audio_ready is not None else None
+        audio_ready = (
+            {normalize_asset_name(name) for name in settings.audio_ready} if settings.audio_ready is not None else None
+        )
         # 音频编号 = dialogue speaker 首现顺序，受 max_reference_audio 上限截断。
         for speaker in registered:
             char_data = characters.get(speaker)
@@ -193,15 +196,14 @@ def derive_voice_bindings(
                     warnings.append(_warning(WARN_SPEAKER_AUDIO_UNAVAILABLE, name=speaker))
                 else:
                     warnings.append(_warning(WARN_SPEAKER_WITHOUT_AUDIO, name=speaker))
-            elif require_reference_image and speaker not in image_names:
+            elif settings.requires_reference_image and speaker not in image_names:
                 warnings.append(_warning(WARN_SPEAKER_AUDIO_NEEDS_IMAGE, name=speaker))
-            elif len(audio_speakers) >= max_reference_audio:
-                warnings.append(_warning(WARN_REFERENCE_AUDIO_OVERFLOW, limit=max_reference_audio, name=speaker))
+            elif len(audio_speakers) >= settings.max_reference_audio:
+                warnings.append(
+                    _warning(WARN_REFERENCE_AUDIO_OVERFLOW, limit=settings.max_reference_audio, name=speaker)
+                )
             else:
                 audio_speakers.append(speaker)
-    elif voice_consistency == "none" and utterances:
-        # 只要有台词就知会：画外音同样要渲染，纯画外的文稿在无声模型上也听不到声音。
-        warnings.append(_warning(WARN_SILENT_MODEL, model=model_id))
 
     return VoiceBindings(speakers=registered, audio_speakers=audio_speakers, warnings=warnings)
 
@@ -209,22 +211,17 @@ def derive_voice_bindings(
 def build_script_preview(
     text: str,
     project: dict,
+    settings: VoiceRenderSettings | None = None,
     *,
-    voice_consistency: str = "soft",
-    requested_generate_audio: bool = True,
-    max_reference_audio: int = 0,
-    model_id: str = "",
-    audio_requires_reference_image: bool = False,
     max_reference_images: int | None = None,
 ) -> ScriptPreview:
     """把书写文稿派生成 shots / references / utterances + 降级可见性 warning。
 
-    ``audio_requires_reference_image`` 须与执行层（``render_unit_prompt``）传的同一个 backend
-    判定同步——预览不碰文件系统，但这一位不涉及 IO，只是「目标 backend 是否要求音频逐段挂图」
-    的能力声明，遗漏会让预览显示已绑定、执行时才降级，用户直到生成后才发现声音没生效。
-
-    ``requested_generate_audio`` 须同步执行层传给 ``render_unit_prompt`` 的同一个值（本集无声开关），
-    否则预览会显示音频已绑定、实际请求却不带音频段。
+    ``settings`` 须与执行层（``render_unit_prompt``）拿到的同一份声音输入档同步，否则预览会
+    显示音频已绑定、实际请求却不带音频段。其中 ``requires_reference_image``（目标 backend 是否
+    要求音频逐段挂图）不涉及 IO，预览虽不碰文件系统也须一并同步，遗漏会让预览显示已绑定、
+    执行时才降级，用户直到生成后才发现声音没生效。``settings.audio_ready`` 在预览侧留 None：
+    预览不解析文件，按角色资产的 ``reference_audio`` 字段非空判定。
 
     ``max_reference_images`` 须同步执行层的能力上限（``VideoLaneResult.max_reference_images``）：
     执行期会把 ``unit.references`` 先按此上限裁剪、再渲染（保证 ``图片N`` 编号与实际发出的
@@ -249,11 +246,7 @@ def build_script_preview(
     bindings = derive_voice_bindings(
         utterances,
         project.get(BUCKET_KEY["character"]) or {},
-        voice_consistency=voice_consistency,
-        requested_generate_audio=requested_generate_audio,
-        max_reference_audio=max_reference_audio,
-        model_id=model_id,
-        require_reference_image=audio_requires_reference_image,
+        settings or VoiceRenderSettings(),
         speakers_with_reference_image=character_image_names,
     )
     warnings.extend(bindings.warnings)

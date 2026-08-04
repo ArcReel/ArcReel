@@ -4468,6 +4468,36 @@ async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
     assert "未设置参考音频" in text
 
 
+@pytest.mark.unit
+async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_backend(
+    fake_ctx: ToolContext, monkeypatch
+) -> None:
+    """逐图挂载型 backend 下 warning 照常呈现：拆分阶段还没有参考图，那一位不该参与判定。
+
+    开着 ``reference_audio_per_image`` 而不给参考图集合，会把每个说话人都判成「无画面可挂」，
+    那条 warning 不在容忍列表内会被丢弃——超出段数上限这类提示反而不见了。
+    """
+    _rv_source(fake_ctx)
+    fake_ctx.pm.project_payload["characters"] = {  # pyright: ignore[reportAttributeAccessIssue]
+        "张三": {"description": "主角", "reference_audio": "characters/refs_audio/张三.wav"},
+        "李四": {"description": "", "reference_audio": "characters/refs_audio/李四.wav"},
+    }
+    out = await _run_rv_split(
+        fake_ctx,
+        monkeypatch,
+        [_rv_unit("镜头1：@[张三] 起身\n@[张三]：{我来了。}\n@[李四]：{你终于来了。}")],
+        caps={
+            "voice_consistency": "native",
+            "max_reference_audio_count": 1,
+            "model": "m",
+            "reference_audio_per_image": True,
+        },
+    )
+
+    assert out.get("is_error") is not True, out
+    assert "参考音频最多 1 段" in out["content"][0]["text"]
+
+
 def _write_rv_quarantine(fake_ctx: ToolContext) -> None:
     write_quarantine(
         fake_ctx.project_path,

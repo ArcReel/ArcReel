@@ -6,7 +6,8 @@
 三段分工：
 
 - **第一段**：``<X>@图片N`` 简式绑定（图片编号 = 随请求发出的参考图顺序）+ 声音声明集中
-  声明区（``<X>的台词音色参考 @音频N，声音特征：…``）。A/B 类均注入声音特征，C 类不注入
+  声明区（``<X>的台词音色参考 @音频N，声音特征：…``）。听得到声音的 A/B 类均注入声音特征，
+  两条无声路径（模型不产音的 C 类、本集关闭音频）都不注入
 - **第二段**：镜头分镜段 + 台词行（``<X>说 {台词}`` / ``画外音说 {台词}``）
 - **第三段**：风格锚定 + 画质/稳定/字幕/水印约束包（本路径的反向约束全部由它承担，不另加
   尾词）；两个及以上角色参考图时补双胞胎兜底
@@ -46,6 +47,7 @@ from lib.reference_video.shot_parser import (
     render_mentions_as_subjects,
     resolve_references,
 )
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_models import ReferenceResource, Utterance
 
 #: 角色参考音频的项目内固定目录（与上传 / TTS 样本落盘口径一致）。
@@ -102,14 +104,9 @@ def render_unit_prompt(
     text: str,
     project: dict,
     references: list[ReferenceResource],
+    settings: VoiceRenderSettings | None = None,
     *,
-    voice_consistency: str = "soft",
-    requested_generate_audio: bool = True,
-    max_reference_audio: int = 0,
-    model_id: str = "",
     style: str | None = None,
-    audio_ready: Collection[str] | None = None,
-    audio_requires_reference_image: bool = False,
 ) -> RenderedUnitPrompt:
     """把一个 unit 的书写文稿渲染成三段论 backend prompt。
 
@@ -118,17 +115,19 @@ def render_unit_prompt(
     悬空绑定。文稿派生出的参考图顺序（``@mention`` 首现、规范台词行的 speaker 位不计入）
     由上游持久化，本函数只消费不重算。
 
-    ``audio_requires_reference_image`` 为 True 时（backend 要求音频逐段挂在具体参考素材项
-    上），纯画外 speaker 不绑定音频（降级 + warning）——绑定后 ``@音频N`` 编号会写进 prompt
-    文本，若随后才在 backend 层过滤会让文本承诺的绑定与实际发出的 ``reference_audio_files``
-    分叉，必须在编号生成前就排除。
+    ``settings`` 是本次渲染的声音输入档（见 :class:`~lib.reference_video.voice_settings
+    .VoiceRenderSettings`）。``requires_reference_image`` 为 True 时（backend 要求音频逐段挂在
+    具体参考素材项上），纯画外 speaker 不绑定音频（降级 + warning）——绑定后 ``@音频N`` 编号会
+    写进 prompt 文本，若随后才在 backend 层过滤会让文本承诺的绑定与实际发出的
+    ``reference_audio_files`` 分叉，必须在编号生成前就排除。
 
-    ``requested_generate_audio`` 为 False（本集无声）时不产出任何音频绑定：``@音频N`` 不进 prompt、
-    ``audio_speakers`` 为空，调用方组装出的 ``reference_audio_files`` 随之为空。第二段的台词
-    渲染不看这一位——无声视频里台词文本照常下发，供应商可用作口型参考。
+    无声路径（``settings.is_silent``）不产出任何音频绑定：``@音频N`` 与「声音特征：…」都不进
+    prompt、``audio_speakers`` 为空，调用方组装出的 ``reference_audio_files`` 随之为空。第二段的
+    台词渲染不看这一位——无声视频里台词文本照常下发，供应商可用作口型参考。
 
     warning 与解析预览面板同一批 ``{key, params}`` 条目，由调用方并入任务 ``result.warnings``。
     """
+    settings = settings or VoiceRenderSettings()
     shots, mentions = parse_prompt(text)
     utterances, warnings = derive_utterances(shots)
 
@@ -153,12 +152,7 @@ def render_unit_prompt(
     bindings = derive_voice_bindings(
         utterances,
         characters,
-        voice_consistency=voice_consistency,
-        requested_generate_audio=requested_generate_audio,
-        max_reference_audio=max_reference_audio,
-        model_id=model_id,
-        audio_ready=audio_ready,
-        require_reference_image=audio_requires_reference_image,
+        settings,
         speakers_with_reference_image=set(character_image_no),
     )
     warnings.extend(bindings.warnings)
@@ -166,9 +160,7 @@ def render_unit_prompt(
     audio_no, audio_speaker_reference_index = _number_audio_speakers(bindings.audio_speakers, character_image_no)
 
     segments = [
-        _render_segment_one(
-            [ref.name for ref in references], bindings.speakers, audio_no, characters, voice_consistency
-        ),
+        _render_segment_one([ref.name for ref in references], bindings.speakers, audio_no, characters, settings),
         _render_segment_two(shots, subjects, characters),
         _render_segment_three(sum(1 for ref in references if ref.type == "character"), style),
     ]
@@ -189,22 +181,21 @@ def _render_voice_declarations(
     speakers: list[str],
     audio_no: dict[str, int],
     characters: dict,
-    voice_consistency: str,
+    settings: VoiceRenderSettings,
 ) -> list[str]:
     """声音声明行：``<X>的台词音色参考 @音频N，声音特征：…``。剧集与 ad 路径共用——两者的
     主体绑定行输入形态不同（前者是 mention 派生的 ``ReferenceResource``、后者是 ad 参考条目
     的展示 label），但声音声明只认「已登记的 dialogue speaker」，与主体绑定行解耦，可整段复用。
 
-    C 类（真无声）不注入声音声明；A/B 类均注入声音特征——官方建议音色还原不佳时补描述。
-    本集设为无声（``requested_generate_audio`` 为 False）时 ``audio_no`` 为空，``@音频N`` 随之
-    消失，但「声音特征：…」照常注入：它是提示词文本、不是参考音频负载，保留后无声路径与 B 类
-    软约束逐字同形，不引入第三种提示词形态。
+    两条无声路径（``settings.is_silent``：模型不产音的 C 类、本集关闭音频）都不注入声音声明；
+    听得到声音的 A/B 类均注入声音特征——官方建议音色还原不佳时补描述。台词行不受影响，
+    照常进第二段（见 :func:`_render_segment_two`）。
 
     角色记录非 dict（外部编辑写坏的 project.json）按无声音特征处理，不索引脏值——ad 参考
     解析（``_resolve_ad_unit_reference_entries``）对同一形态的脏数据已按软跳过处理，本函数
     保持同一降级口径而非崩溃。
     """
-    if voice_consistency == "none":
+    if settings.is_silent:
         return []
     lines: list[str] = []
     for name in speakers:
@@ -241,7 +232,7 @@ def _render_segment_one(
     speakers: list[str],
     audio_no: dict[str, int],
     characters: dict,
-    voice_consistency: str,
+    settings: VoiceRenderSettings,
 ) -> str:
     """主体绑定 + 声音声明。
 
@@ -259,7 +250,7 @@ def _render_segment_one(
     bindings = "、".join(f"<{label}>@图片{i}" for i, label in enumerate(labels, start=1) if label)
     if bindings:
         lines.append(bindings + "。")
-    lines.extend(_render_voice_declarations(speakers, audio_no, characters, voice_consistency))
+    lines.extend(_render_voice_declarations(speakers, audio_no, characters, settings))
     return "\n".join(lines)
 
 
@@ -343,14 +334,9 @@ def render_ad_backend_prompt(
     shots: list[dict],
     entries: list[dict],
     project: dict,
+    settings: VoiceRenderSettings | None = None,
     *,
-    voice_consistency: str = "soft",
-    requested_generate_audio: bool = True,
-    max_reference_audio: int = 0,
-    model_id: str = "",
     style: str | None = None,
-    audio_ready: Collection[str] | None = None,
-    audio_requires_reference_image: bool = False,
 ) -> RenderedUnitPrompt:
     """把 ad 派生 unit 的结构化镜头渲染成三段论 backend prompt，与剧集路径
     （:func:`render_unit_prompt`）共用第一、三段与音频接线；差异只在输入形态——ad 无书写层
@@ -373,6 +359,7 @@ def render_ad_backend_prompt(
             :func:`lib.reference_video.ad_units.render_ad_unit_prompt` 的口径，防止机器生成的
             第一/三段把空提示词撑成非空文本绕过 backend 的空值保护。
     """
+    settings = settings or VoiceRenderSettings()
     body = render_ad_unit_prompt(shots, style=None)
     if not body.strip():
         raise ValueError("reference video unit prompt is empty: all member shots have no visual content")
@@ -396,12 +383,7 @@ def render_ad_backend_prompt(
     bindings = derive_voice_bindings(
         utterances,
         characters,
-        voice_consistency=voice_consistency,
-        requested_generate_audio=requested_generate_audio,
-        max_reference_audio=max_reference_audio,
-        model_id=model_id,
-        audio_ready=audio_ready,
-        require_reference_image=audio_requires_reference_image,
+        settings,
         speakers_with_reference_image=set(character_image_no),
     )
 
@@ -413,7 +395,7 @@ def render_ad_backend_prompt(
             bindings.speakers,
             audio_no,
             characters,
-            voice_consistency,
+            settings,
         ),
         body,
         _render_segment_three(len(character_image_no), style),

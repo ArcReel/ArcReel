@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unicodedata
+from dataclasses import replace
 
 import pytest
 
@@ -20,6 +21,7 @@ from lib.reference_video.script_preview import (
     WARN_UNREGISTERED_MENTION,
     WARN_UNREGISTERED_SPEAKER,
 )
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_models import ReferenceResource
 
 pytestmark = pytest.mark.unit
@@ -64,9 +66,7 @@ def test_native_tier_binds_audio_in_speaker_first_appearance_order():
         _TEXT,
         _project(),
         _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑")),
-        voice_consistency="native",
-        max_reference_audio=3,
-        model_id="doubao-seedance-2-0",
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, model_id="doubao-seedance-2-0"),
         style="写实电影感",
     )
     # 音频顺序即请求字段顺序，也即 @音频N 编号
@@ -81,10 +81,12 @@ def test_silent_episode_sends_dialogue_without_any_audio_binding():
         _TEXT,
         _project(),
         _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑")),
-        voice_consistency="native",
-        requested_generate_audio=False,
-        max_reference_audio=3,
-        model_id="doubao-seedance-2-0",
+        VoiceRenderSettings(
+            voice_consistency="native",
+            requested_generate_audio=False,
+            max_reference_audio=3,
+            model_id="doubao-seedance-2-0",
+        ),
         style="写实电影感",
     )
     assert rendered.audio_speakers == []
@@ -94,22 +96,57 @@ def test_silent_episode_sends_dialogue_without_any_audio_binding():
     assert "<李四>说 {你终于来了。}" in rendered.prompt
 
 
-def test_silent_episode_keeps_dialogue_segment_identical_to_audible_path():
-    """第二段（台词）与有声路径逐字同形——只有第一段的音色参考行消失。"""
-    kwargs = dict(
+def test_silent_episode_injects_no_voice_style_same_as_silent_model():
+    """本集关闭音频与模型不产音（C 类）同口径：两条无声路径都不注入「声音特征：…」。
+
+    ``voice_style`` 描述的是听得到的音色，无声成片里注入只会让模型把配额花在用不上的约束上；
+    台词不受影响（另有用例逐字比对第二段）。
+    """
+    refs = _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑"))
+    silent_episode = render_unit_prompt(
+        _TEXT,
+        _project(),
+        refs,
+        VoiceRenderSettings(voice_consistency="native", requested_generate_audio=False, max_reference_audio=3),
+    )
+    silent_model = render_unit_prompt(_TEXT, _project(), refs, VoiceRenderSettings(voice_consistency="none"))
+
+    assert "声音特征" not in silent_episode.prompt
+    assert "声音特征" not in silent_model.prompt
+    # 第一段只剩主体绑定行，两条无声路径逐字同形
+    assert silent_episode.prompt.split("\n\n")[0] == silent_model.prompt.split("\n\n")[0]
+
+
+@pytest.mark.parametrize(
+    "silencing",
+    [
+        pytest.param({"requested_generate_audio": False}, id="silent_episode"),
+        pytest.param({"voice_consistency": "none"}, id="silent_model"),
+    ],
+)
+def test_silent_paths_keep_every_dialogue_shot_identical_to_audible_path(silencing: dict):
+    """第二段与有声路径逐字同形——只有第一段的音色参考行消失。
+
+    整段（含两个镜头块）比对而非只比首个镜头：音频编号从第二个说话人起才可能出现分叉，
+    只比镜头1 会漏掉后续绑定位上的差异。两条无声路径各比一次。
+    """
+    settings = VoiceRenderSettings(
         voice_consistency="native",
         max_reference_audio=3,
         model_id="doubao-seedance-2-0",
-        style="写实电影感",
+        audio_ready={"张三", "李四"},
     )
     refs = _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑"))
-    audible = render_unit_prompt(_TEXT, _project(), refs, requested_generate_audio=True, **kwargs)
-    silent = render_unit_prompt(_TEXT, _project(), refs, requested_generate_audio=False, **kwargs)
+    audible = render_unit_prompt(_TEXT, _project(), refs, settings, style="写实电影感")
+    silent = render_unit_prompt(_TEXT, _project(), refs, replace(settings, **silencing), style="写实电影感")
 
-    def _shot_segment(prompt: str) -> str:
-        return next(seg for seg in prompt.split("\n\n") if seg.startswith("镜头1："))
+    def _shot_segments(prompt: str) -> list[str]:
+        return [seg for seg in prompt.split("\n\n") if seg.startswith("镜头")]
 
-    assert _shot_segment(silent.prompt) == _shot_segment(audible.prompt)
+    # 有声侧确实绑定了两段音频，比对才有区分度（否则两侧本就无音频，断言恒真）
+    assert audible.audio_speakers == ["张三", "李四"]
+    assert len(_shot_segments(audible.prompt)) == 2
+    assert _shot_segments(silent.prompt) == _shot_segments(audible.prompt)
 
 
 def test_first_segment_binds_images_in_reference_order():
@@ -117,7 +154,7 @@ def test_first_segment_binds_images_in_reference_order():
         _TEXT,
         _project(),
         _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑")),
-        voice_consistency="soft",
+        VoiceRenderSettings(voice_consistency="soft"),
     )
     assert rendered.prompt.startswith("<酒馆>@图片1、<张三>@图片2、<长剑>@图片3。")
 
@@ -128,8 +165,7 @@ def test_speaker_position_never_produces_a_reference_image():
         _TEXT,
         _project(),
         _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑")),
-        voice_consistency="native",
-        max_reference_audio=3,
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3),
     )
     assert "<李四>@图片" not in rendered.prompt
     assert "<李四>的台词音色参考 @音频2" in rendered.prompt
@@ -141,8 +177,7 @@ def test_soft_tier_declares_voice_style_without_audio_designation():
         _TEXT,
         _project(),
         _refs(("character", "张三")),
-        voice_consistency="soft",
-        max_reference_audio=3,
+        VoiceRenderSettings(voice_consistency="soft", max_reference_audio=3),
     )
     assert rendered.audio_speakers == []
     assert "@音频" not in rendered.prompt
@@ -155,8 +190,7 @@ def test_silent_tier_keeps_dialogue_lines_but_injects_no_voice_declaration():
         _TEXT,
         _project(),
         _refs(("character", "张三")),
-        voice_consistency="none",
-        model_id="minimax-01",
+        VoiceRenderSettings(voice_consistency="none", model_id="minimax-01"),
     )
     assert "声音特征" not in rendered.prompt
     assert "@音频" not in rendered.prompt
@@ -170,8 +204,7 @@ def test_reference_audio_overflow_truncates_and_warns():
         _TEXT,
         _project(),
         _refs(("character", "张三")),
-        voice_consistency="native",
-        max_reference_audio=1,
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=1),
     )
     assert rendered.audio_speakers == ["张三"]
     assert "<李四>的声音特征：清亮少女音。" in rendered.prompt
@@ -182,11 +215,7 @@ def test_reference_audio_overflow_truncates_and_warns():
 def test_speaker_without_reference_audio_warns_and_keeps_voice_style():
     text = "镜头1：黑场。\n@[旁白人]：{很久很久以前。}"
     rendered = render_unit_prompt(
-        text,
-        _project(),
-        [],
-        voice_consistency="native",
-        max_reference_audio=3,
+        text, _project(), [], VoiceRenderSettings(voice_consistency="native", max_reference_audio=3)
     )
     assert rendered.audio_speakers == []
     assert "<旁白人>的声音特征：温和中年男声。" in rendered.prompt
@@ -261,8 +290,7 @@ def test_legacy_script_without_dialogue_still_renders_three_segments():
         "镜头1：@[张三] 走进 @[酒馆]。\n镜头2：他坐下。",
         _project(),
         _refs(("character", "张三"), ("scene", "酒馆")),
-        voice_consistency="native",
-        max_reference_audio=3,
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3),
     )
     assert rendered.audio_speakers == []
     assert rendered.warnings == []
@@ -278,9 +306,7 @@ def test_audio_ready_overrides_field_presence(tmp_path):
         _TEXT,
         _project(),
         _refs(("character", "张三")),
-        voice_consistency="native",
-        max_reference_audio=3,
-        audio_ready={"李四"},
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, audio_ready={"李四"}),
     )
     assert rendered.audio_speakers == ["李四"]
     assert "<李四>的台词音色参考 @音频1" in rendered.prompt
@@ -296,24 +322,21 @@ def test_audio_speaker_reference_index_tracks_image_slot_by_name_not_position():
         _TEXT,
         _project(),
         _refs(("scene", "酒馆"), ("character", "张三")),
-        voice_consistency="native",
-        max_reference_audio=3,
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3),
     )
     assert rendered.audio_speakers == ["张三", "李四"]
     # references[0]=酒馆, references[1]=张三 → 张三的 0-based 下标是 1；李四未随请求发图
     assert rendered.audio_speaker_reference_index == [1, None]
 
 
-def test_audio_requires_reference_image_downgrades_offscreen_speaker_with_warning():
+def test_requires_reference_image_downgrades_offscreen_speaker_with_warning():
     """backend 要求音频逐段挂图（如 wan2.7-r2v）时，纯画外 speaker（无参考图）不绑定音频，
     编号与 warning 都在渲染期同步产生，避免 @音频N 承诺一段实际不会发出的绑定。"""
     rendered = render_unit_prompt(
         _TEXT,
         _project(),
         _refs(("scene", "酒馆"), ("character", "张三")),
-        voice_consistency="native",
-        max_reference_audio=3,
-        audio_requires_reference_image=True,
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, requires_reference_image=True),
     )
     # 李四没有参考图（纯画外），即使有可用音频也不绑定
     assert rendered.audio_speakers == ["张三"]
@@ -331,9 +354,7 @@ def test_audio_speaker_image_slot_ignores_same_named_scene_or_prop():
         text,
         project,
         _refs(("scene", "张三")),
-        voice_consistency="native",
-        max_reference_audio=3,
-        audio_requires_reference_image=True,
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, requires_reference_image=True),
     )
     assert rendered.audio_speakers == []
     assert {"key": WARN_SPEAKER_AUDIO_NEEDS_IMAGE, "params": {"name": "张三"}} in rendered.warnings
@@ -350,8 +371,7 @@ def test_audio_speaker_image_slot_and_binding_label_survive_same_named_type_coll
         project,
         # scene「张三」先于 character「张三」出现：若按名字覆盖，name 键会指向 scene 的图 1。
         _refs(("scene", "张三"), ("character", "张三")),
-        voice_consistency="native",
-        max_reference_audio=3,
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3),
     )
     assert rendered.audio_speakers == ["张三"]
     # references[0]=scene 张三, references[1]=character 张三 → 音频须挂 character 的 0-based 下标 1。
@@ -382,9 +402,7 @@ def test_combining_char_name_renders_identically_in_every_encoding_pairing(regis
         text,
         project,
         _refs(("character", written)),
-        voice_consistency="native",
-        max_reference_audio=3,
-        audio_ready={registered},
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, audio_ready={registered}),
     )
 
     assert rendered.audio_speakers == [_NAME_NFC]
@@ -432,10 +450,12 @@ def test_out_of_bounds_audio_path_also_degrades_as_unavailable(tmp_path):
         "镜头1：开场。\n@[张三]：{我来了}",
         project,
         _refs(("character", "张三")),
-        voice_consistency="native",
-        max_reference_audio=3,
-        model_id="doubao-seedance-2-0",
-        audio_ready=set(audio_ready),
+        VoiceRenderSettings(
+            voice_consistency="native",
+            max_reference_audio=3,
+            model_id="doubao-seedance-2-0",
+            audio_ready=set(audio_ready),
+        ),
     )
     assert rendered.audio_speakers == []
     assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "张三"}} in rendered.warnings

@@ -26,6 +26,7 @@ from lib.reference_video.shot_parser import (
     match_voiceover_line,
     parse_prompt,
 )
+from lib.reference_video.voice_settings import VoiceRenderSettings
 
 pytestmark = pytest.mark.unit
 
@@ -183,9 +184,9 @@ def test_warn_unregistered_speaker():
 
 def test_warn_speaker_without_reference_audio_only_on_native():
     text = "镜头1：开场。\n@[李四]：{你迟到了}"
-    native = build_script_preview(text, PROJECT, voice_consistency="native", max_reference_audio=3)
+    native = build_script_preview(text, PROJECT, VoiceRenderSettings(voice_consistency="native", max_reference_audio=3))
     assert keys(native) == [WARN_SPEAKER_WITHOUT_AUDIO]
-    soft = build_script_preview(text, PROJECT, voice_consistency="soft")
+    soft = build_script_preview(text, PROJECT, VoiceRenderSettings(voice_consistency="soft"))
     assert keys(soft) == []
 
 
@@ -193,14 +194,18 @@ def test_warn_speaker_audio_unavailable_distinguished_from_unset():
     """``audio_ready`` 非 None 时，字段有值但音频不可用（不在 audio_ready 内）与字段未设置
     要发不同的 warning：前者字段已填好、该去查它指向的音频，后者该去角色设置里补音频。"""
     text = "镜头1：开场。\n@[张三]：{我来了}\n@[李四]：{你迟到了}"
-    preview = build_script_preview(text, PROJECT, voice_consistency="native", max_reference_audio=3)
+    preview = build_script_preview(
+        text, PROJECT, VoiceRenderSettings(voice_consistency="native", max_reference_audio=3)
+    )
     bindings = derive_voice_bindings(
         preview.utterances,
         PROJECT["characters"],
-        voice_consistency="native",
-        max_reference_audio=3,
-        # 张三字段有值、李四未设置；audio_ready 为空表示执行层一段都没解析出来。
-        audio_ready=set(),
+        VoiceRenderSettings(
+            voice_consistency="native",
+            max_reference_audio=3,
+            # 张三字段有值、李四未设置；audio_ready 为空表示执行层一段都没解析出来。
+            audio_ready=set(),
+        ),
     )
     assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "张三"}} in bindings.warnings
     assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} not in bindings.warnings
@@ -223,17 +228,21 @@ def test_combining_char_speaker_binds_audio_in_every_encoding_pairing(registered
     }
     text = f"镜头1：开场。\n@[{written}]：{{Tôi đến rồi.}}"
 
-    preview = build_script_preview(text, project, voice_consistency="native", max_reference_audio=3)
+    preview = build_script_preview(
+        text, project, VoiceRenderSettings(voice_consistency="native", max_reference_audio=3)
+    )
     assert keys(preview) == []
 
     # 执行层口径：audio_ready 由 resolve_reference_audio_paths 按资产表的 key 建，同样可能是任一形式
     bindings = derive_voice_bindings(
         preview.utterances,
         project["characters"],
-        voice_consistency="native",
-        max_reference_audio=3,
-        audio_ready={registered},
-        require_reference_image=True,
+        VoiceRenderSettings(
+            voice_consistency="native",
+            max_reference_audio=3,
+            audio_ready={registered},
+            requires_reference_image=True,
+        ),
         speakers_with_reference_image={registered},
     )
     assert bindings.speakers == [_NAME_NFC]
@@ -245,13 +254,13 @@ def test_derive_voice_bindings_degrades_on_malformed_character_entry():
     """执行层传入 ``audio_ready`` 时，角色条目非 dict（外部写坏 project.json）不得崩溃——
     只是 audio_field_set 判定不到值，按「未设置」降级，而不是让 ``.get`` 抛 AttributeError。"""
     text = "镜头1：开场。\n@[张三]：{我来了}"
-    preview = build_script_preview(text, {"characters": {"张三": "bad"}}, voice_consistency="native")
+    preview = build_script_preview(
+        text, {"characters": {"张三": "bad"}}, VoiceRenderSettings(voice_consistency="native")
+    )
     bindings = derive_voice_bindings(
         preview.utterances,
         {"张三": "bad"},
-        voice_consistency="native",
-        max_reference_audio=3,
-        audio_ready=set(),
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, audio_ready=set()),
     )
     assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "张三"}} in bindings.warnings
 
@@ -263,9 +272,7 @@ def test_warn_speaker_audio_needs_image_when_backend_requires_per_image_attachme
     preview = build_script_preview(
         text,
         PROJECT,
-        voice_consistency="native",
-        max_reference_audio=3,
-        audio_requires_reference_image=True,
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, requires_reference_image=True),
     )
     assert keys(preview) == [WARN_SPEAKER_AUDIO_NEEDS_IMAGE]
     assert preview.warnings[0]["params"] == {"name": "张三"}
@@ -278,9 +285,7 @@ def test_warn_speaker_audio_needs_image_when_image_clipped_by_reference_limit():
     preview = build_script_preview(
         text,
         PROJECT,
-        voice_consistency="native",
-        max_reference_audio=3,
-        audio_requires_reference_image=True,
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, requires_reference_image=True),
         max_reference_images=1,  # 只留 @[酒馆]，张三的图被裁掉
     )
     assert keys(preview) == [WARN_SPEAKER_AUDIO_NEEDS_IMAGE]
@@ -289,14 +294,16 @@ def test_warn_speaker_audio_needs_image_when_image_clipped_by_reference_limit():
 
 def test_warn_reference_audio_overflow():
     text = "镜头1：开场。\n@[张三]：{我来了}\n@[旁白者]：{我也在}"
-    preview = build_script_preview(text, PROJECT, voice_consistency="native", max_reference_audio=1)
+    preview = build_script_preview(
+        text, PROJECT, VoiceRenderSettings(voice_consistency="native", max_reference_audio=1)
+    )
     assert keys(preview) == [WARN_REFERENCE_AUDIO_OVERFLOW]
     assert preview.warnings[0]["params"] == {"limit": 1, "name": "旁白者"}
 
 
 def test_warn_silent_model_notice():
     text = "镜头1：开场。\n@[张三]：{我来了}"
-    preview = build_script_preview(text, PROJECT, voice_consistency="none", model_id="minimax-01")
+    preview = build_script_preview(text, PROJECT, VoiceRenderSettings(voice_consistency="none", model_id="minimax-01"))
     assert keys(preview) == [WARN_SILENT_MODEL]
     assert preview.warnings[0]["params"] == {"model": "minimax-01"}
 
@@ -304,13 +311,15 @@ def test_warn_silent_model_notice():
 def test_warn_silent_model_notice_covers_voiceover_only_script():
     """画外音同样要渲染，纯画外文稿在无声模型上也该知会。"""
     preview = build_script_preview(
-        "镜头1：开场。\n{那年冬天格外冷}", PROJECT, voice_consistency="none", model_id="minimax-01"
+        "镜头1：开场。\n{那年冬天格外冷}", PROJECT, VoiceRenderSettings(voice_consistency="none", model_id="minimax-01")
     )
     assert keys(preview) == [WARN_SILENT_MODEL]
 
 
 def test_silent_model_notice_not_emitted_without_any_utterance():
-    preview = build_script_preview("镜头1：开场。", PROJECT, voice_consistency="none", model_id="m")
+    preview = build_script_preview(
+        "镜头1：开场。", PROJECT, VoiceRenderSettings(voice_consistency="none", model_id="m")
+    )
     assert preview.warnings == []
 
 
@@ -323,9 +332,7 @@ def test_silent_episode_drops_audio_bindings_on_native_model():
     bindings = derive_voice_bindings(
         derive_utterances(parse_prompt(text)[0])[0],
         PROJECT["characters"],
-        voice_consistency="native",
-        requested_generate_audio=False,
-        max_reference_audio=3,
+        VoiceRenderSettings(voice_consistency="native", requested_generate_audio=False, max_reference_audio=3),
     )
     assert bindings.audio_speakers == []
     assert bindings.speakers == ["张三"]
@@ -335,7 +342,9 @@ def test_silent_episode_drops_audio_bindings_on_native_model():
 def test_silent_episode_notice_replaces_per_speaker_audio_warnings():
     """无声时不再逐角色报「未设参考音频」——原因是本集无声，不是角色没配音频。"""
     text = "镜头1：开场。\n@[张三]：{我来了}\n@[李四]：{我也在}"
-    preview = build_script_preview(text, PROJECT, voice_consistency="native", requested_generate_audio=False)
+    preview = build_script_preview(
+        text, PROJECT, VoiceRenderSettings(voice_consistency="native", requested_generate_audio=False)
+    )
     assert keys(preview) == [WARN_SILENT_EPISODE]
     assert preview.warnings[0]["params"] == {}
 
@@ -344,22 +353,24 @@ def test_silent_episode_notice_takes_precedence_over_silent_model():
     preview = build_script_preview(
         "镜头1：开场。\n@[张三]：{我来了}",
         PROJECT,
-        voice_consistency="none",
-        requested_generate_audio=False,
-        model_id="minimax-01",
+        VoiceRenderSettings(voice_consistency="none", requested_generate_audio=False, model_id="minimax-01"),
     )
     assert keys(preview) == [WARN_SILENT_EPISODE]
 
 
 def test_silent_episode_notice_not_emitted_without_any_utterance():
-    preview = build_script_preview("镜头1：开场。", PROJECT, voice_consistency="native", requested_generate_audio=False)
+    preview = build_script_preview(
+        "镜头1：开场。", PROJECT, VoiceRenderSettings(voice_consistency="native", requested_generate_audio=False)
+    )
     assert preview.warnings == []
 
 
 def test_silent_episode_keeps_utterances_for_lip_sync():
     """台词照常派生：无声视频里台词仍下发，供应商可用作口型参考。"""
     preview = build_script_preview(
-        "镜头1：开场。\n@[张三]：{我来了}", PROJECT, voice_consistency="native", requested_generate_audio=False
+        "镜头1：开场。\n@[张三]：{我来了}",
+        PROJECT,
+        VoiceRenderSettings(voice_consistency="native", requested_generate_audio=False),
     )
     assert [u.utterance.text for u in preview.utterances] == ["我来了"]
 

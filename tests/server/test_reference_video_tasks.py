@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from lib.reference_video.errors import MissingReferenceError
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from server.services.reference_video_tasks import (
     FALLBACK_UNIT_DURATION,
     ProjectDurationContext,
@@ -314,11 +315,7 @@ def test_render_unit_prompt_rejects_empty_shots():
         _render_unit_prompt(
             unit,
             {},
-            voice_consistency="soft",
-            requested_generate_audio=True,
-            max_reference_audio=0,
-            model_id="m",
-            audio_ready=set(),
+            VoiceRenderSettings(model_id="m", audio_ready=set()),
         )
 
 
@@ -338,11 +335,7 @@ def test_render_unit_prompt_binds_subjects_in_reference_order():
     rendered = _render_unit_prompt(
         unit,
         project,
-        voice_consistency="soft",
-        requested_generate_audio=True,
-        max_reference_audio=0,
-        model_id="m",
-        audio_ready=set(),
+        VoiceRenderSettings(model_id="m", audio_ready=set()),
     )
     assert "<张三>@图片1、<酒馆>@图片2。" in rendered.prompt
     assert "@张三" not in rendered.prompt
@@ -366,11 +359,7 @@ def test_render_unit_prompt_preserves_shot_boundaries_when_shots_lack_headers():
     rendered = _render_unit_prompt(
         unit,
         project,
-        voice_consistency="soft",
-        requested_generate_audio=True,
-        max_reference_audio=0,
-        model_id="m",
-        audio_ready=set(),
+        VoiceRenderSettings(model_id="m", audio_ready=set()),
     )
     assert "镜头1：\n<张三> 推门而入。" in rendered.prompt
     assert "镜头2：\n他环顾四周。" in rendered.prompt
