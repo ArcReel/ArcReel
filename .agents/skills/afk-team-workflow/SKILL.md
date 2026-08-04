@@ -105,7 +105,7 @@ bash .agents/skills/afk-team-workflow/scripts/ledger.sh <batch-id> <kind> [--iss
 - **batch-id**：Spec 批次用 `spec-<N>`；显式 issue 批次用一个 slug（如 `batch-<日期>`）
 - **scope（首条必填）**：首条记录批次成员，Spec 批次用 `--scope-spec <N>`，slug 批次用 `--scope-issues "1,2,3"`（slug 的 batch-id 不含成员信息，恢复靠 scope 行重建）
 - **全程 append，按 kind 落账**：`decision`（计划与清尾分拣裁决）、`authorization`（用户口头授权；仅作恢复 replay 的信息参考，不作执行凭证）、`fault`（吸收的故障 / 停用的 reviewer）、`gap`（已浮现的 Spec 缺口）、`shelve`（搁置为 needs-human 的 issue 及争点）、`merge`（已执行的合并）、`retrospective`（review-looper 交来的 per-PR 复盘）、`closed`（收尾终态行）
-- **生命周期**：第二步用户确认时写首条（create）→ 全程 append → 收尾写 `closed`，**不删除**。`.afk/` 已 gitignored，账本是本地运维状态，永不提交
+- **生命周期**：第二步用户确认时写首条（create）→ 全程 append → 收尾写 `closed`，**不删除**。`closed` 后同一 batch-id 再开批续写同一文件；恢复 replay 与清尾、复盘的聚合均只取最后一条 `closed` 之后的段，整文件仅作审计。`.afk/` 已 gitignored，账本是本地运维状态，永不提交
 
 ## 发现 Spec 落点缺口时
 

@@ -46,8 +46,9 @@
 #   1. PR MERGED and issue not open           -> done      (a reopened issue falls through)
 #   2. PR OPEN and not draft                  -> review-loop
 #   3. PR is draft, or PR CLOSED unmerged
-#      with its branch still alive            -> shelved   (this workflow shelves by drafting the PR;
-#                                                           branch deleted = restart cleanup, falls through)
+#      with its branch alive at the PR head   -> shelved   (this workflow shelves by drafting the PR;
+#                                                           branch deleted = restart cleanup, branch
+#                                                           moved = new lifecycle; both fall through)
 #   4. no PR but remote branch issue/<N>      -> local-review (branch pushed, PR not opened yet)
 #   5. no PR, no branch, issue closed/done    -> done       (closed-completed without a PR of its own)
 #   6. no PR, no branch, issue closed/other   -> shelved
@@ -226,7 +227,7 @@ for N in $(jq -r '.[].number' "$TMPDIR/batch_raw.json"); do
 done
 
 # ---- list remote issue/* branches in one call (no local git remote dependency) ----
-if ! gh api "repos/${OWNER_REPO}/git/matching-refs/heads/issue/" --paginate --jq '.[].ref' \
+if ! gh api "repos/${OWNER_REPO}/git/matching-refs/heads/issue/" --paginate --jq '.[] | "\(.ref) \(.object.sha)"' \
       > "$TMPDIR/branches.txt" 2>"$TMPDIR/refs.err"; then
   echo "BATCH_POLL_WARN: matching-refs fetch failed (remote_branch will read false)" >&2
   cat "$TMPDIR/refs.err" >&2
@@ -276,15 +277,16 @@ jq -n \
         )
       | {name: ($e.name // $e.context), status: ($e.status // $e.state)} ];
 
-  def stage_hint($pr; $hasBranch; $istate; $ireason):
+  def stage_hint($pr; $hasBranch; $branchTip; $istate; $ireason):
     # a MERGED PR marks done only while the issue stays closed; a reopened issue must
     # fall through to the branch rungs so it polls as startable again
     if   ($pr != null and $pr.state == "MERGED" and $istate != "open")    then "done"
     elif ($pr != null and $pr.state == "OPEN" and ($pr.isDraft | not))    then "review-loop"
-    # a CLOSED PR marks shelved only while its branch survives; after a restart cleanup
-    # (PR closed, branches deleted) the issue must poll as startable again
+    # a CLOSED PR marks shelved only while its branch survives at the PR head; a branch
+    # deleted by restart cleanup or recreated for a new lifecycle must fall through
     elif ($pr != null and ($pr.isDraft == true
-                           or ($pr.state == "CLOSED" and $hasBranch)))    then "shelved"
+                           or ($pr.state == "CLOSED" and $hasBranch
+                               and $branchTip == $pr.headRefOid)))        then "shelved"
     elif $hasBranch                                                       then "local-review"
     elif ($istate == "closed" and $ireason == "completed")               then "done"
     elif ($istate == "closed")                                           then "shelved"
@@ -299,7 +301,7 @@ jq -n \
 
   ($batch_w[0]) as $issues
   | ($blocked_w[0]) as $blocked
-  | ($branches | split("\n") | map(select(length > 0))) as $branchrefs
+  | ($branches | split("\n") | map(select(length > 0) | split(" "))) as $branchpairs
   | ($prs | INDEX(.issue | tostring)) as $prByIssue
   | ($blocked | INDEX(.number | tostring)) as $blkByIssue
   | (($issues | map({number, state, state_reason})) + $blockerstates | INDEX(.number | tostring)) as $stateByNum
@@ -309,7 +311,9 @@ jq -n \
         | ($prByIssue[$n | tostring].prs // []) as $prarr
         | pick_pr($prarr) as $prraw
         | ($blkByIssue[$n | tostring].blocked_by // []) as $bb
-        | (($branchrefs | index("refs/heads/issue/\($n)")) != null) as $hasBranch
+        | ($branchpairs | map(select(.[0] == "refs/heads/issue/\($n)")) | first) as $bref
+        | ($bref != null) as $hasBranch
+        | (if $bref != null then $bref[1] else null end) as $branchTip
         | {
             number:          $n,
             title:           $iss.title,
@@ -330,7 +334,7 @@ jq -n \
                    checks_failing:   failing($prraw),
                    checks_pending:   pending($prraw)
                  } end),
-            stage_hint: stage_hint($prraw; $hasBranch; $iss.state; $iss.state_reason)
+            stage_hint: stage_hint($prraw; $hasBranch; $branchTip; $iss.state; $iss.state_reason)
           }
       ] ) as $rows
   | {
