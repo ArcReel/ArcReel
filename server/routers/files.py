@@ -94,6 +94,9 @@ class UploadSpec:
 
     新增上传类型只在 ``UPLOAD_SPECS`` 登记表项，不复制分支逻辑。``source`` 是唯一例外：
     它由 ``_handle_source_upload`` 全权接管，表项只提供类型校验与扩展名白名单。
+
+    按剧本条目定位（script_file + shot_id）、需回写剧本元数据的上传不入本表，走各自的
+    镜头级路由，校验与落盘共用 ``server.services.upload_finalize`` 的 helper。
     """
 
     allowed_exts: tuple[str, ...]
