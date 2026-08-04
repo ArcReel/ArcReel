@@ -52,7 +52,7 @@ class TestMigrateUnitDurations:
         unit = _legacy_unit(shots=[15, 15, 15, 15], duration_seconds=9999)
         _changed, warnings = migrate_unit_durations([unit])
         assert unit["duration_seconds"] == REFERENCE_UNIT_DURATION_RANGE[1]
-        assert any("合理区间" in w for w in warnings)
+        assert any("合理区间" in w.render() for w in warnings)
 
     def test_keeps_durations_longer_than_four_shots_worth(self):
         """unit 时长的合法性由档位判定，与镜头数无关：档位成员即便远大于各镜头之和也原样保留。"""
@@ -65,7 +65,7 @@ class TestMigrateUnitDurations:
         unit = _legacy_unit(shots=[3, 5])
         _changed, warnings = migrate_unit_durations([unit], supported_durations=[4, 6, 12])
         assert unit["duration_seconds"] == 12
-        assert any("档位" in w for w in warnings)
+        assert any("档位" in w.render() for w in warnings)
 
     def test_slot_clamps_down_when_over_largest(self):
         unit = _legacy_unit(shots=[15, 15])

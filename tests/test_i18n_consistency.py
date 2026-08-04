@@ -7,14 +7,17 @@ from lib.i18n.en import emails as en_emails
 from lib.i18n.en import errors as en_errors
 from lib.i18n.en import system as en_system
 from lib.i18n.en import templates as en_templates
+from lib.i18n.en import validation as en_validation
 from lib.i18n.vi import emails as vi_emails
 from lib.i18n.vi import errors as vi_errors
 from lib.i18n.vi import system as vi_system
 from lib.i18n.vi import templates as vi_templates
+from lib.i18n.vi import validation as vi_validation
 from lib.i18n.zh import emails as zh_emails
 from lib.i18n.zh import errors as zh_errors
 from lib.i18n.zh import system as zh_system
 from lib.i18n.zh import templates as zh_templates
+from lib.i18n.zh import validation as zh_validation
 from lib.style_templates import STYLE_TEMPLATES
 
 pytestmark = pytest.mark.unit
@@ -140,3 +143,34 @@ def test_format_placeholders_consistent():
             assert base_placeholders == locale_placeholders, (
                 f"Key '{key}': {base_locale} uses {base_placeholders} but {locale} uses {locale_placeholders}"
             )
+
+
+def test_validation_module_keys_match():
+    """en/validation.py and zh/validation.py must have identical key sets."""
+    en_keys = set(en_validation.MESSAGES.keys())
+    zh_keys = set(zh_validation.MESSAGES.keys())
+    assert en_keys == zh_keys, (
+        f"en-zh validation key mismatch: missing_in_zh={en_keys - zh_keys}, missing_in_en={zh_keys - en_keys}"
+    )
+
+
+def test_vi_validation_module_keys_match():
+    """vi/validation.py and en/validation.py must have identical key sets."""
+    en_keys = set(en_validation.MESSAGES.keys())
+    vi_keys = set(vi_validation.MESSAGES.keys())
+    assert en_keys == vi_keys, (
+        f"en-vi validation key mismatch: missing_in_vi={en_keys - vi_keys}, missing_in_en={vi_keys - en_keys}"
+    )
+
+
+def test_validation_templates_share_placeholders():
+    """同一条校验消息在三语间的占位符集合必须一致，否则渲染时会 KeyError 回退到原始模板。"""
+    import string
+
+    def placeholders(template: str) -> set[str]:
+        return {name for _, name, _, _ in string.Formatter().parse(template) if name}
+
+    for key, zh_template in zh_validation.MESSAGES.items():
+        expected = placeholders(zh_template)
+        for locale, messages in (("en", en_validation.MESSAGES), ("vi", vi_validation.MESSAGES)):
+            assert placeholders(messages[key]) == expected, f"{locale}/{key} placeholder mismatch"

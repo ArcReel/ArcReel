@@ -352,8 +352,8 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="broken.zip")
 
-        assert exc_info.value.detail == "导入包校验失败"
-        assert any("project.json" in error for error in exc_info.value.errors)
+        assert exc_info.value.detail.render() == "导入包校验失败"
+        assert any("project.json" in error for error in exc_info.value.render_errors())
 
     @pytest.mark.unit
     def test_import_rejects_missing_script_reference_for_malformed_entry(self, tmp_path):
@@ -373,7 +373,7 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="broken.zip")
 
-        assert any("episodes[0].script_file" in error for error in exc_info.value.errors)
+        assert any("episodes[0].script_file" in error for error in exc_info.value.render_errors())
 
     @pytest.mark.unit
     def test_import_allows_missing_script_for_ledgered_entry(self, tmp_path):
@@ -391,7 +391,7 @@ class TestProjectArchiveService:
         _make_manual_zip(project_dir, archive_path)
 
         result = service.import_project_archive(archive_path, uploaded_filename="ledgered.zip")
-        assert any("episodes[0].script_file" in w for w in result.warnings)
+        assert any("episodes[0].script_file" in w for w in (m.render() for m in result.warnings))
 
     @pytest.mark.unit
     def test_import_allows_missing_script_for_entry_without_ledger_status(self, tmp_path):
@@ -407,7 +407,7 @@ class TestProjectArchiveService:
         _make_manual_zip(project_dir, archive_path)
 
         result = service.import_project_archive(archive_path, uploaded_filename="unledgered.zip")
-        assert any("episodes[0].script_file" in w for w in result.warnings)
+        assert any("episodes[0].script_file" in w for w in (m.render() for m in result.warnings))
 
     @pytest.mark.unit
     def test_import_rejects_missing_script_reference_for_non_positive_episode_num(self, tmp_path):
@@ -427,7 +427,7 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="broken.zip")
 
-        assert any("episodes[0].script_file" in error for error in exc_info.value.errors)
+        assert any("episodes[0].script_file" in error for error in exc_info.value.render_errors())
 
     @pytest.mark.unit
     def test_migrated_project_archive_roundtrip_with_unscripted_episode(self, tmp_path):
@@ -478,7 +478,7 @@ class TestProjectArchiveService:
         )
 
         result = service.import_project_archive(archive_path, uploaded_filename="bad.zip")
-        assert any("novel.txt" in w and "编码" in w for w in result.warnings)
+        assert any("novel.txt" in w and "编码" in w for w in (m.render() for m in result.warnings))
 
     @pytest.mark.unit
     @pytest.mark.parametrize(
@@ -516,7 +516,7 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="broken.zip")
 
-        assert any(field_name in error for error in exc_info.value.errors)
+        assert any(field_name in error for error in exc_info.value.render_errors())
 
     @pytest.mark.unit
     def test_import_allows_external_video_uri(self, tmp_path):
@@ -598,7 +598,7 @@ class TestProjectArchiveService:
             )
 
         assert exc_info.value.status_code == 409
-        assert exc_info.value.detail == "检测到项目编号冲突"
+        assert exc_info.value.detail.render() == "检测到项目编号冲突"
         assert exc_info.value.extra["conflict_project_name"] == "demo"
 
     @pytest.mark.unit
@@ -923,8 +923,8 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="missing-scene.zip")
 
-        assert any("不存在于 project.json 的场景" in error for error in exc_info.value.errors)
-        assert exc_info.value.extra["diagnostics"]["blocking"]
+        assert any("不存在于 project.json 的场景" in error for error in exc_info.value.render_errors())
+        assert exc_info.value.diagnostics_payload()["blocking"]
 
     @pytest.mark.unit
     def test_import_resolves_nfd_script_refs_against_nfc_registered_assets(self, tmp_path):
@@ -1015,8 +1015,8 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="missing-prop.zip")
 
-        assert any("不存在于 project.json 的道具" in error for error in exc_info.value.errors)
-        assert exc_info.value.extra["diagnostics"]["blocking"]
+        assert any("不存在于 project.json 的道具" in error for error in exc_info.value.render_errors())
+        assert exc_info.value.diagnostics_payload()["blocking"]
 
     @pytest.mark.unit
     def test_export_dirty_project_emits_diagnostics_and_repairs_snapshot(self, tmp_path):

@@ -8,6 +8,7 @@ import shutil
 import stat
 import tempfile
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,7 +16,7 @@ from typing import Any
 
 from lib.asset_types import normalize_asset_name
 from lib.config.resolver import resolve_raw_supported_durations
-from lib.data_validator import DataValidator, ValidationResult
+from lib.data_validator import DataValidator
 from lib.episode_ledger import parse_positive_episode_num
 from lib.json_io import load_json
 from lib.path_safety import PathTraversalError, safe_join, try_safe_join
@@ -27,6 +28,7 @@ from lib.reference_video.duration_migration import migrate_unit_durations
 from lib.resource_paths import resource_extension, resource_relative_path
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
 from lib.source_loader.migration import migrate_project_source_encoding
+from lib.validation_messages import MessageRef, ValidationMessage, ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -61,14 +63,16 @@ class ArchiveMember:
 
 @dataclass(frozen=True)
 class ArchiveDiagnostic:
+    """一条归档诊断。``message`` 是 locale-neutral 的结构化消息，渲染发生在消费边界。"""
+
     code: str
-    message: str
+    message: ValidationMessage
     location: str | None = None
 
-    def to_payload(self) -> dict[str, Any]:
+    def to_payload(self, translate: Callable[..., str] | None = None) -> dict[str, Any]:
         payload = {
             "code": self.code,
-            "message": self.message,
+            "message": self.message.render(translate),
         }
         if self.location:
             payload["location"] = self.location
@@ -90,11 +94,13 @@ class ArchiveDiagnostics:
         self,
         bucket: str,
         code: str,
-        message: str,
+        message: ValidationMessage,
         *,
         location: str | None = None,
     ) -> None:
-        key = (bucket, code, message, location)
+        # 判重按默认语言渲染文本比对：同 key 不同 params 是不同诊断，须各自保留；
+        # params 可能含列表 / 集合等不可哈希值，渲染结果是稳定且可哈希的等价指纹。
+        key = (bucket, code, message.render(), location)
         if key in self._seen:
             return
         self._seen.add(key)
@@ -107,35 +113,35 @@ class ArchiveDiagnostics:
         )
 
     def extend_validation(self, validation: ValidationResult) -> None:
-        for error in validation.errors:
+        for error in validation.error_messages:
             self.add("blocking", "validation_error", error)
-        for warning in validation.warnings:
+        for warning in validation.warning_messages:
             self.add("warnings", "validation_warning", warning)
 
-    def to_export_payload(self) -> dict[str, list[dict[str, Any]]]:
+    def to_export_payload(self, translate: Callable[..., str] | None = None) -> dict[str, list[dict[str, Any]]]:
         return {
-            "blocking": [item.to_payload() for item in self.blocking],
-            "auto_fixed": [item.to_payload() for item in self.auto_fixed],
-            "warnings": [item.to_payload() for item in self.warnings],
+            "blocking": [item.to_payload(translate) for item in self.blocking],
+            "auto_fixed": [item.to_payload(translate) for item in self.auto_fixed],
+            "warnings": [item.to_payload(translate) for item in self.warnings],
         }
 
-    def to_import_success_payload(self) -> dict[str, list[dict[str, Any]]]:
+    def to_import_success_payload(self, translate: Callable[..., str] | None = None) -> dict[str, list[dict[str, Any]]]:
         return {
-            "auto_fixed": [item.to_payload() for item in self.auto_fixed],
-            "warnings": [item.to_payload() for item in self.warnings],
+            "auto_fixed": [item.to_payload(translate) for item in self.auto_fixed],
+            "warnings": [item.to_payload(translate) for item in self.warnings],
         }
 
-    def to_import_error_payload(self) -> dict[str, list[dict[str, Any]]]:
+    def to_import_error_payload(self, translate: Callable[..., str] | None = None) -> dict[str, list[dict[str, Any]]]:
         return {
-            "blocking": [item.to_payload() for item in self.blocking],
-            "auto_fixable": [item.to_payload() for item in self.auto_fixed],
-            "warnings": [item.to_payload() for item in self.warnings],
+            "blocking": [item.to_payload(translate) for item in self.blocking],
+            "auto_fixable": [item.to_payload(translate) for item in self.auto_fixed],
+            "warnings": [item.to_payload(translate) for item in self.warnings],
         }
 
-    def blocking_messages(self) -> list[str]:
+    def blocking_messages(self) -> list[ValidationMessage]:
         return [item.message for item in self.blocking]
 
-    def warning_messages(self) -> list[str]:
+    def warning_messages(self) -> list[ValidationMessage]:
         return [item.message for item in self.warnings]
 
 
@@ -143,31 +149,44 @@ class ArchiveDiagnostics:
 class ProjectImportResult:
     project_name: str
     project: dict[str, Any]
-    warnings: list[str]
+    warnings: list[ValidationMessage]
     conflict_resolution: str
     diagnostics: dict[str, list[dict[str, Any]]]
 
 
 class ProjectArchiveValidationError(ValueError):
+    """归档导入/导出的用户可见失败。``detail`` / ``errors`` / ``warnings`` 均为结构化消息，
+    由 router 按请求语言渲染。"""
+
     def __init__(
         self,
-        detail: str,
+        detail: ValidationMessage,
         *,
         status_code: int = 400,
-        errors: list[str] | None = None,
-        warnings: list[str] | None = None,
-        diagnostics: dict[str, Any] | None = None,
+        errors: list[ValidationMessage] | None = None,
+        warnings: list[ValidationMessage] | None = None,
+        diagnostics: ArchiveDiagnostics | None = None,
         extra: dict[str, Any] | None = None,
     ):
-        super().__init__(detail)
+        super().__init__(detail.render())
         self.detail = detail
         self.status_code = status_code
         self.errors = errors or []
         self.warnings = warnings or []
-        merged_extra = dict(extra or {})
-        if diagnostics is not None:
-            merged_extra["diagnostics"] = diagnostics
-        self.extra = merged_extra
+        self.diagnostics = diagnostics
+        self.extra = dict(extra or {})
+
+    def render_errors(self, translate: Callable[..., str] | None = None) -> list[str]:
+        return [error.render(translate) for error in self.errors]
+
+    def render_warnings(self, translate: Callable[..., str] | None = None) -> list[str]:
+        return [warning.render(translate) for warning in self.warnings]
+
+    def diagnostics_payload(self, translate: Callable[..., str] | None = None) -> dict[str, list[dict[str, Any]]]:
+        """导入失败响应里的诊断三桶；无诊断来源时给空桶，保持响应形状恒定。"""
+        if self.diagnostics is None:
+            return {"blocking": [], "auto_fixable": [], "warnings": []}
+        return self.diagnostics.to_import_error_payload(translate)
 
 
 class ProjectArchiveService:
@@ -195,16 +214,23 @@ class ProjectArchiveService:
         project_name: str,
         *,
         scope: str = "full",
+        translate: Callable[..., str] | None = None,
     ) -> dict[str, list[dict[str, Any]]]:
         self._validate_scope(scope)
         if not self.project_manager.project_exists(project_name):
             raise FileNotFoundError(f"项目 '{project_name}' 不存在或未初始化")
 
-        temp_dir, _, _, diagnostics = self._prepare_export_snapshot(project_name, scope=scope)
+        temp_dir, _, _, diagnostics = self._prepare_export_snapshot(project_name, scope=scope, translate=translate)
         temp_dir.cleanup()
-        return diagnostics.to_export_payload()
+        return diagnostics.to_export_payload(translate)
 
-    def export_project(self, project_name: str, *, scope: str = "full") -> tuple[Path, str]:
+    def export_project(
+        self,
+        project_name: str,
+        *,
+        scope: str = "full",
+        translate: Callable[..., str] | None = None,
+    ) -> tuple[Path, str]:
         self._validate_scope(scope)
         if not self.project_manager.project_exists(project_name):
             raise FileNotFoundError(f"项目 '{project_name}' 不存在或未初始化")
@@ -221,6 +247,7 @@ class ProjectArchiveService:
             temp_dir, snapshot_dir, manifest, _ = self._prepare_export_snapshot(
                 project_name,
                 scope=scope,
+                translate=translate,
             )
             with zipfile.ZipFile(
                 archive_path,
@@ -258,11 +285,12 @@ class ProjectArchiveService:
         *,
         uploaded_filename: str | None = None,
         conflict_policy: str = "prompt",
+        translate: Callable[..., str] | None = None,
     ) -> ProjectImportResult:
         if conflict_policy not in {"prompt", "rename", "overwrite"}:
             raise ProjectArchiveValidationError(
-                "无效的冲突策略",
-                errors=[f"conflict_policy 仅支持 prompt、rename 或 overwrite，收到: {conflict_policy}"],
+                ValidationMessage("arch_invalid_conflict_policy"),
+                errors=[ValidationMessage("arch_conflict_policy_unsupported", {"value": conflict_policy})],
             )
 
         try:
@@ -296,16 +324,16 @@ class ProjectArchiveService:
                         diagnostics.add(
                             "warnings",
                             "source_encoding_unconverted",
-                            f"源文件编码无法识别，未转换为 UTF-8：source/{failed_name}（分集规划无法读取该文件）",
+                            ValidationMessage("arch_source_encoding_unconverted", {"name": failed_name}),
                         )
                     migrate_project_dir(staging_dir)
                     diagnostics.extend_validation(self.validator.validate_project_tree(staging_dir))
                     if diagnostics.blocking:
                         raise ProjectArchiveValidationError(
-                            "导入包校验失败",
+                            ValidationMessage("arch_import_validation_failed"),
                             errors=diagnostics.blocking_messages(),
                             warnings=diagnostics.warning_messages(),
-                            diagnostics=diagnostics.to_import_error_payload(),
+                            diagnostics=diagnostics,
                         )
 
                     project = self._load_project_file(staging_dir / self.project_manager.PROJECT_FILE)
@@ -341,12 +369,12 @@ class ProjectArchiveService:
                         project=imported_project,
                         warnings=diagnostics.warning_messages(),
                         conflict_resolution=conflict_resolution,
-                        diagnostics=diagnostics.to_import_success_payload(),
+                        diagnostics=diagnostics.to_import_success_payload(translate),
                     )
         except zipfile.BadZipFile as exc:
             raise ProjectArchiveValidationError(
-                "上传文件不是有效的 ZIP 归档",
-                errors=[str(exc)],
+                ValidationMessage("arch_not_a_zip"),
+                errors=[ValidationMessage.literal(str(exc))],
             ) from exc
 
     def _prepare_export_snapshot(
@@ -354,6 +382,7 @@ class ProjectArchiveService:
         project_name: str,
         *,
         scope: str,
+        translate: Callable[..., str] | None = None,
     ) -> tuple[tempfile.TemporaryDirectory[str], Path, dict[str, Any], ArchiveDiagnostics]:
         source_dir = self.project_manager.get_project_path(project_name)
         temp_dir = tempfile.TemporaryDirectory(prefix="arcreel-export-")
@@ -369,7 +398,7 @@ class ProjectArchiveService:
             diagnostics.add(
                 "warnings",
                 "non_standard_entry_excluded",
-                f"非标准顶层目录/文件 '{entry}' 未包含在导出中",
+                ValidationMessage("arch_non_standard_entry_excluded", {"entry": entry}),
                 location=entry,
             )
 
@@ -378,7 +407,8 @@ class ProjectArchiveService:
             project_name,
             snapshot_project,
             scope=scope,
-            diagnostics=diagnostics.to_export_payload(),
+            # 归档内的诊断快照按导出方的请求语言渲染，与用户当时看到的导出提示一致。
+            diagnostics=diagnostics.to_export_payload(translate),
             pass_through_entries=excluded_entries,
         )
         return temp_dir, snapshot_dir, manifest, diagnostics
@@ -528,7 +558,10 @@ class ProjectArchiveService:
             diagnostics.add(
                 "blocking",
                 "invalid_project_json",
-                f"无法解析 {self.project_manager.PROJECT_FILE}: {project_path}",
+                ValidationMessage(
+                    "arch_invalid_project_json",
+                    {"file": self.project_manager.PROJECT_FILE, "path": project_path},
+                ),
                 location=self.project_manager.PROJECT_FILE,
             )
             return diagnostics
@@ -650,7 +683,10 @@ class ProjectArchiveService:
                         diagnostics.add(
                             "auto_fixed",
                             "script_file_repaired",
-                            f"{script_location}: 自动修复为 {repaired_script}",
+                            ValidationMessage(
+                                "arch_script_file_repaired",
+                                {"location": script_location, "path": repaired_script},
+                            ),
                             location=script_location,
                         )
                     script_path_rel = repaired_script or script_file.replace("\\", "/")
@@ -670,14 +706,20 @@ class ProjectArchiveService:
                         diagnostics.add(
                             "warnings",
                             "missing_script_file",
-                            f"{script_location}: 剧本尚未生成: {script_path_rel}",
+                            ValidationMessage(
+                                "arch_missing_script_file_pending",
+                                {"location": script_location, "path": script_path_rel},
+                            ),
                             location=script_location,
                         )
                     else:
                         diagnostics.add(
                             "blocking",
                             "missing_script_file",
-                            f"{script_location}: 引用的文件不存在: {script_path_rel}",
+                            ValidationMessage(
+                                "arch_missing_script_file",
+                                {"location": script_location, "path": script_path_rel},
+                            ),
                             location=script_location,
                         )
                     continue
@@ -687,7 +729,7 @@ class ProjectArchiveService:
                     diagnostics.add(
                         "blocking",
                         "invalid_script_json",
-                        f"无法解析剧本文件: {script_path_rel}",
+                        ValidationMessage("arch_invalid_script_json", {"path": script_path_rel}),
                         location=script_location,
                     )
                     continue
@@ -738,7 +780,7 @@ class ProjectArchiveService:
             diagnostics.add(
                 "auto_fixed",
                 "deprecated_source_file_removed",
-                "novel.source_file 字段已废弃，已移除",
+                ValidationMessage("arch_deprecated_source_file_removed"),
                 location=f"{script_path_rel}:novel.source_file",
             )
 
@@ -750,7 +792,7 @@ class ProjectArchiveService:
                 diagnostics.add(
                     "auto_fixed",
                     "deprecated_field_removed",
-                    f"{deprecated_field} 字段已废弃（改为读时计算），已移除",
+                    ValidationMessage("arch_deprecated_field_removed", {"field": deprecated_field}),
                     location=f"{script_path_rel}:{deprecated_field}",
                 )
 
@@ -811,7 +853,10 @@ class ProjectArchiveService:
                     diagnostics.add(
                         "auto_fixed",
                         "deprecated_clue_field_removed",
-                        f"{items_key}[{index}]: 废弃字段 {legacy_field} 已移除（请改用 scenes/props）",
+                        ValidationMessage(
+                            "arch_deprecated_clue_field_removed",
+                            {"items_key": items_key, "index": index, "field": legacy_field},
+                        ),
                         location=f"{location_prefix}.{legacy_field}",
                     )
 
@@ -822,7 +867,10 @@ class ProjectArchiveService:
                     diagnostics.add(
                         "auto_fixed",
                         f"missing_{asset_field}_field",
-                        f"{items_key}[{index}]: 补全缺失字段 {asset_field}",
+                        ValidationMessage(
+                            "arch_missing_field_filled",
+                            {"items_key": items_key, "index": index, "field": asset_field},
+                        ),
                         location=f"{location_prefix}.{asset_field}",
                     )
 
@@ -850,9 +898,9 @@ class ProjectArchiveService:
                     ):
                         project_changed = True
 
-            for asset_field, pool, label in (
-                ("scenes", project_scenes, "场景"),
-                ("props", project_props, "道具"),
+            for asset_field, pool, asset_type in (
+                ("scenes", project_scenes, "scene"),
+                ("props", project_props, "prop"),
             ):
                 refs = item.get(asset_field)
                 if not isinstance(refs, list):
@@ -863,10 +911,16 @@ class ProjectArchiveService:
                 if missing:
                     diagnostics.add(
                         "blocking",
-                        f"missing_{asset_field.rstrip('s')}_definition",
-                        (
-                            f"{items_key}[{index}]: {asset_field} 引用了不存在于 "
-                            f"project.json 的{label}: {', '.join(missing)}"
+                        f"missing_{asset_type}_definition",
+                        ValidationMessage(
+                            "arch_missing_asset_definition",
+                            {
+                                "items_key": items_key,
+                                "index": index,
+                                "field": asset_field,
+                                "asset_type": MessageRef(f"asset_type_{asset_type}"),
+                                "names": ", ".join(missing),
+                            },
                         ),
                         location=f"{location_prefix}.{asset_field}",
                     )
@@ -963,7 +1017,10 @@ class ProjectArchiveService:
                     diagnostics.add(
                         "auto_fixed",
                         "generated_assets_defaults",
-                        (f"{label}[{index}].generated_assets: 补全默认字段 {', '.join(non_null_keys)}"),
+                        ValidationMessage(
+                            "arch_generated_assets_defaults",
+                            {"label": label, "index": index, "fields": ", ".join(non_null_keys)},
+                        ),
                         location=f"{location_prefix}.generated_assets",
                     )
         else:
@@ -971,10 +1028,13 @@ class ProjectArchiveService:
             # 只在诊断上区分，让导入方知道是补齐还是丢弃了脏数据。
             if assets is None:
                 code = "missing_generated_assets"
-                message = f"{label}[{index}]: 补全缺失字段 generated_assets"
+                message = ValidationMessage("arch_missing_generated_assets", {"label": label, "index": index})
             else:
                 code = "invalid_generated_assets"
-                message = f"{label}[{index}]: generated_assets 形态异常（{type(assets).__name__}），已重置为默认结构"
+                message = ValidationMessage(
+                    "arch_invalid_generated_assets",
+                    {"label": label, "index": index, "actual": type(assets).__name__},
+                )
             item["generated_assets"] = self.project_manager.create_generated_assets(content_mode)
             changed = True
             diagnostics.add(
@@ -1010,7 +1070,7 @@ class ProjectArchiveService:
         diagnostics.add(
             "auto_fixed",
             "placeholder_character_added",
-            f"自动补充缺失角色定义: {character_name}",
+            ValidationMessage("arch_placeholder_character_added", {"name": character_name}),
             location=f"characters[{character_name}]",
         )
         return True
@@ -1058,10 +1118,12 @@ class ProjectArchiveService:
         )
         changed = migrated
         for message in migration_warnings:
+            # 迁移消息本身不含剧本路径，出处经 location 携带（消息模板因此对各调用链复用）。
             diagnostics.add(
                 "warnings",
                 "reference_video_duration_migrated",
-                f"{script_path_rel}: {message}",
+                message,
+                location=script_path_rel,
             )
 
         project_changed = False
@@ -1167,16 +1229,18 @@ class ProjectArchiveService:
             elif ref_type == "prop" and _resolve_existing_asset(ref_name, project_props) not in project_props:
                 missing_props.add(ref_name)
 
-        for missing, asset_type, label in (
-            (missing_scenes, "scene", "场景"),
-            (missing_props, "prop", "道具"),
-        ):
+        for missing, asset_type in ((missing_scenes, "scene"), (missing_props, "prop")):
             if missing:
                 diagnostics.add(
                     "blocking",
                     f"missing_{asset_type}_definition",
-                    (
-                        f"video_units[{index}]: references 引用了不存在于 project.json 的{label}: {', '.join(sorted(missing))}"
+                    ValidationMessage(
+                        "arch_unit_missing_asset_definition",
+                        {
+                            "index": index,
+                            "asset_type": MessageRef(f"asset_type_{asset_type}"),
+                            "names": ", ".join(sorted(missing)),
+                        },
                     ),
                     location=f"{location_prefix}.references",
                 )
@@ -1209,7 +1273,7 @@ class ProjectArchiveService:
                 diagnostics.add(
                     "auto_fixed",
                     "canonical_path_normalized",
-                    f"{location}: 规范化为 {canonical_rel}",
+                    ValidationMessage("arch_canonical_path_normalized", {"location": location, "path": canonical_rel}),
                     location=location,
                 )
                 return True
@@ -1230,7 +1294,10 @@ class ProjectArchiveService:
                     diagnostics.add(
                         "auto_fixed",
                         "current_asset_materialized",
-                        f"{location}: 从 {resolved_raw} 恢复当前文件 {canonical_rel}",
+                        ValidationMessage(
+                            "arch_current_asset_materialized",
+                            {"location": location, "source": resolved_raw, "target": canonical_rel},
+                        ),
                         location=location,
                     )
                     return True
@@ -1252,7 +1319,10 @@ class ProjectArchiveService:
                     diagnostics.add(
                         "auto_fixed",
                         "current_asset_restored_from_version",
-                        f"{location}: 从 {version_rel} 恢复当前文件 {canonical_rel}",
+                        ValidationMessage(
+                            "arch_current_asset_restored_from_version",
+                            {"location": location, "source": version_rel, "target": canonical_rel},
+                        ),
                         location=location,
                     )
                     return True
@@ -1464,15 +1534,15 @@ class ProjectArchiveService:
         for info in archive.infolist():
             if info.flag_bits & 0x1:
                 raise ProjectArchiveValidationError(
-                    "导入包校验失败",
-                    errors=[f"ZIP 包含加密条目，无法导入: {info.filename}"],
+                    ValidationMessage("arch_import_validation_failed"),
+                    errors=[ValidationMessage("arch_zip_encrypted_entry", {"name": info.filename})],
                 )
 
             normalized_name = info.filename.replace("\\", "/")
             if normalized_name.startswith("/"):
                 raise ProjectArchiveValidationError(
-                    "导入包校验失败",
-                    errors=[f"ZIP 包含绝对路径条目: {info.filename}"],
+                    ValidationMessage("arch_import_validation_failed"),
+                    errors=[ValidationMessage("arch_zip_absolute_path_entry", {"name": info.filename})],
                 )
 
             stripped_name = normalized_name.strip("/")
@@ -1482,20 +1552,20 @@ class ProjectArchiveService:
             parts = tuple(part for part in stripped_name.split("/") if part)
             if parts and len(parts[0]) == 2 and parts[0][1] == ":":
                 raise ProjectArchiveValidationError(
-                    "导入包校验失败",
-                    errors=[f"ZIP 包含绝对路径条目: {info.filename}"],
+                    ValidationMessage("arch_import_validation_failed"),
+                    errors=[ValidationMessage("arch_zip_absolute_path_entry", {"name": info.filename})],
                 )
             if any(part == ".." for part in parts):
                 raise ProjectArchiveValidationError(
-                    "导入包校验失败",
-                    errors=[f"ZIP 包含路径穿越条目: {info.filename}"],
+                    ValidationMessage("arch_import_validation_failed"),
+                    errors=[ValidationMessage("arch_zip_traversal_entry", {"name": info.filename})],
                 )
 
             mode = (info.external_attr >> 16) & 0xFFFF
             if stat.S_ISLNK(mode):
                 raise ProjectArchiveValidationError(
-                    "导入包校验失败",
-                    errors=[f"ZIP 包含符号链接条目: {info.filename}"],
+                    ValidationMessage("arch_import_validation_failed"),
+                    errors=[ValidationMessage("arch_zip_symlink_entry", {"name": info.filename})],
                 )
 
             members.append(
@@ -1523,8 +1593,10 @@ class ProjectArchiveService:
                 return json.loads(handle.read().decode("utf-8"))
         except Exception as exc:
             raise ProjectArchiveValidationError(
-                "导入包校验失败",
-                errors=[f"无法解析 {label}: {'/'.join(member.parts)}"],
+                ValidationMessage("arch_import_validation_failed"),
+                errors=[
+                    ValidationMessage("arch_zip_unparsable_member", {"label": label, "path": "/".join(member.parts)})
+                ],
             ) from exc
 
     def _locate_project_root(
@@ -1539,15 +1611,15 @@ class ProjectArchiveService:
             root_candidates = {member.parts[:-1] for member in manifest_members}
             if len(root_candidates) != 1:
                 raise ProjectArchiveValidationError(
-                    "导入包校验失败",
-                    errors=["ZIP 中包含多个 arcreel-export.json，无法确定项目根目录"],
+                    ValidationMessage("arch_import_validation_failed"),
+                    errors=[ValidationMessage("arch_multiple_manifests")],
                 )
 
             root_parts = next(iter(root_candidates))
             if not any(member.parts == (*root_parts, self.project_manager.PROJECT_FILE) for member in visible_members):
                 raise ProjectArchiveValidationError(
-                    "导入包校验失败",
-                    errors=["官方导出包缺少 project.json"],
+                    ValidationMessage("arch_import_validation_failed"),
+                    errors=[ValidationMessage("arch_manifest_missing_project_json")],
                 )
 
             manifest = self._load_member_json(
@@ -1563,13 +1635,13 @@ class ProjectArchiveService:
         root_candidates = {member.parts[:-1] for member in project_members}
         if not root_candidates:
             raise ProjectArchiveValidationError(
-                "导入包校验失败",
-                errors=["ZIP 中未找到 project.json"],
+                ValidationMessage("arch_import_validation_failed"),
+                errors=[ValidationMessage("arch_no_project_json")],
             )
         if len(root_candidates) != 1:
             raise ProjectArchiveValidationError(
-                "导入包校验失败",
-                errors=["ZIP 中包含多个 project.json，无法确定项目根目录"],
+                ValidationMessage("arch_import_validation_failed"),
+                errors=[ValidationMessage("arch_multiple_project_json")],
             )
 
         return next(iter(root_candidates)), None
@@ -1599,8 +1671,8 @@ class ProjectArchiveService:
                 target_path = safe_join(staging_dir, *relative_parts)
             except PathTraversalError as exc:
                 raise ProjectArchiveValidationError(
-                    "导入包校验失败",
-                    errors=[f"解压路径越界: {'/'.join(member.parts)}"],
+                    ValidationMessage("arch_import_validation_failed"),
+                    errors=[ValidationMessage("arch_extract_path_traversal", {"path": "/".join(member.parts)})],
                 ) from exc
 
             if member.is_dir:
@@ -1658,9 +1730,9 @@ class ProjectArchiveService:
         if conflict_policy == "prompt":
             if target_dir.exists():
                 raise ProjectArchiveValidationError(
-                    "检测到项目编号冲突",
+                    ValidationMessage("arch_conflict_detected"),
                     status_code=409,
-                    errors=[f"项目编号 '{preferred_name}' 已存在，请选择覆盖现有项目或自动重命名导入。"],
+                    errors=[ValidationMessage("arch_project_name_conflict", {"name": preferred_name})],
                     extra={"conflict_project_name": preferred_name},
                 )
             return preferred_name, "none"

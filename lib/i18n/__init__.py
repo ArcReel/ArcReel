@@ -12,18 +12,21 @@ from .en import errors as en_errors
 from .en import providers as en_providers
 from .en import system as en_system
 from .en import templates as en_templates
+from .en import validation as en_validation
 from .vi import assets as vi_assets
 from .vi import emails as vi_emails
 from .vi import errors as vi_errors
 from .vi import providers as vi_providers
 from .vi import system as vi_system
 from .vi import templates as vi_templates
+from .vi import validation as vi_validation
 from .zh import assets as zh_assets
 from .zh import emails as zh_emails
 from .zh import errors as zh_errors
 from .zh import providers as zh_providers
 from .zh import system as zh_system
 from .zh import templates as zh_templates
+from .zh import validation as zh_validation
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +50,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         **zh_providers.MESSAGES,
         **zh_templates.MESSAGES,
         **zh_assets.MESSAGES,
+        **zh_validation.MESSAGES,
     },
     "en": {
         **en_errors.MESSAGES,
@@ -55,6 +59,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         **en_providers.MESSAGES,
         **en_templates.MESSAGES,
         **en_assets.MESSAGES,
+        **en_validation.MESSAGES,
     },
     "vi": {
         **vi_errors.MESSAGES,
@@ -63,6 +68,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         **vi_providers.MESSAGES,
         **vi_templates.MESSAGES,
         **vi_assets.MESSAGES,
+        **vi_validation.MESSAGES,
     },
 }
 
