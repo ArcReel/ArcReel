@@ -5,6 +5,13 @@
 
 宫格模式无独立端点：拆分后的单元格图 canonical 路径与图生视频模式相同
 （storyboards/scene_{id}.png），按镜头上传即覆盖该单元格，宫格记录不动。
+
+不收编进 files.py 的 UPLOAD_SPECS：该表驱动的是按 name 定位、单文件覆写的通用资产上传，
+与本路由按 shot_id + script_file 定位、集成版本管理（VersionManager）、剧本元数据回写
+（finalize_shot_* helpers）、SSE 指纹推送的镜头级管线不同源；kind 相关的扩展名/大小校验
+已由 upload_finalize.py::validate_upload 表驱动（与 reference_videos.py 共用）。收编需要
+给 UploadSpec 塞入只服务本路由的版本/剧本回写字段，或让 upload_file 的通用分支承载与自己
+无关的复杂度，两者都不划算。
 """
 
 from __future__ import annotations
