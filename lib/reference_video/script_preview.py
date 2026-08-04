@@ -173,9 +173,14 @@ def derive_voice_bindings(
             warnings.append(_warning(WARN_UNREGISTERED_SPEAKER, name=speaker))
 
     audio_speakers: list[str] = []
-    if not settings.requested_generate_audio:
+    if settings.is_silent:
+        # 只要有台词就知会：画外音同样要渲染，纯画外的文稿在无声路径上也听不到声音。
+        # 本集关闭音频的提示优先于模型不产音——前者是用户当下可改的开关。
         if utterances:
-            warnings.append(_warning(WARN_SILENT_EPISODE))
+            if not settings.requested_generate_audio:
+                warnings.append(_warning(WARN_SILENT_EPISODE))
+            else:
+                warnings.append(_warning(WARN_SILENT_MODEL, model=settings.model_id))
     elif settings.voice_consistency == "native":
         image_names = {normalize_asset_name(name) for name in speakers_with_reference_image or ()}
         audio_ready = (
@@ -199,9 +204,6 @@ def derive_voice_bindings(
                 )
             else:
                 audio_speakers.append(speaker)
-    elif settings.voice_consistency == "none" and utterances:
-        # 只要有台词就知会：画外音同样要渲染，纯画外的文稿在无声模型上也听不到声音。
-        warnings.append(_warning(WARN_SILENT_MODEL, model=settings.model_id))
 
     return VoiceBindings(speakers=registered, audio_speakers=audio_speakers, warnings=warnings)
 
