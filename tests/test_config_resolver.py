@@ -2055,6 +2055,18 @@ class TestPayloadPinnedVideoModel:
         assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-2-0-260128")
 
     @pytest.mark.unit
+    async def test_pinned_bucket_key_skips_capability_gate(self):
+        """钉住身份只过身份可用性、不过能力闸：已入队任务按 payload 照常执行，不回头补校验。
+
+        钉的是 i2v-only 的 viduq3-pro 而按 r2v 解析——过能力闸就会报错。
+        """
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        payload = {"video_provider_r2v": "vidu/viduq3-pro"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, payload, "r2v")
+        assert (resolved.provider_id, resolved.model_id) == ("vidu", "viduq3-pro")
+
+    @pytest.mark.unit
     async def test_pinned_bucket_key_hit_without_capability(self):
         """resume 口径（capability=None）：入队只写一个桶键，按固定桶序取到即命中。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
