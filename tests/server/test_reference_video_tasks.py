@@ -443,7 +443,7 @@ async def test_resolve_project_duration_context_resolves_caps_and_resolution_onc
     caps_calls = 0
     resolution_calls = 0
 
-    async def fake_caps(_project, *, degraded_to, episode=None):
+    async def fake_caps(_project, *, degraded_to, capability=None, episode=None):
         nonlocal caps_calls
         caps_calls += 1
         return {"provider_id": "gemini-aistudio", "model": "veo-3.1-generate-preview", "supported_durations": [4, 6, 8]}
@@ -475,7 +475,7 @@ async def test_resolve_project_duration_context_skips_resolution_when_no_duratio
 
     resolution_calls = 0
 
-    async def fake_caps(_project, *, degraded_to, episode=None):
+    async def fake_caps(_project, *, degraded_to, capability=None, episode=None):
         return {}
 
     async def fake_resolution(*_a, **_kw):
@@ -725,6 +725,67 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
 
 
 @pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("strip_references", "expected_capability"), [(False, "r2v"), (True, "i2v")])
+async def test_execute_reference_video_task_bucket_follows_resolved_references(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, strip_references: bool, expected_capability: str
+):
+    """执行侧按解析后的实际参考图分流定桶：有参考图 → r2v，无参考图退化镜头 → i2v。
+
+    降级让 r2v 桶配置为拒空参考模型（DashScope R2V / MiniMax S2V）的项目也能生成
+    退化镜头——若恒声明 r2v，这类镜头执行期必以 video_reference_images_required 失败。
+    """
+    proj_dir = _write_project(tmp_path)
+    if strip_references:
+        script_path = proj_dir / "scripts" / "episode_1.json"
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        script["video_units"][0]["references"] = []
+        script["video_units"][0]["shots"] = [{"text": "空镜头，推门而入"}]
+        script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+
+    def fake_load_script(_project_name, _filename):
+        return json.loads((proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+
+    fake_pm.load_script.side_effect = fake_load_script
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**kwargs):
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
+
+    captured: dict = {}
+    inner = rvt.resolve_generation_context
+
+    async def _capture(*args, **kwargs):
+        captured["video"] = kwargs.get("video")
+        return await inner(*args, **kwargs)
+
+    monkeypatch.setattr(rvt, "resolve_generation_context", _capture)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
+
+    assert captured["video"].capability == expected_capability
+
+
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_sends_reference_audio_in_prompt_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

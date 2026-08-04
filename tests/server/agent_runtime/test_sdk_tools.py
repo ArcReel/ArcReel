@@ -1186,7 +1186,7 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
         enqueued.extend(specs)
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1233,7 +1233,7 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
                 )
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1267,7 +1267,7 @@ async def test_generate_video_episode_reference_duration_repeat_without_confirm_
         enqueued.extend(specs)
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1314,7 +1314,7 @@ async def test_generate_video_episode_reference_duration_exact_enqueues_directly
                 )
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1370,7 +1370,7 @@ async def test_generate_video_episode_reference_duration_skips_unit_without_shot
                 )
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1413,7 +1413,7 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
 
     context_calls: list[dict[str, Any]] = []
 
-    async def fake_duration_context(project, _episode=None):
+    async def fake_duration_context(project, _episode=None, *, capability=None):
         context_calls.append(project)
         return ProjectDurationContext(supported_durations=(4, 8, 12), resolution=None, provider_id="", model_name=None)
 
@@ -1451,7 +1451,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_noth
 
     context_calls: list[dict[str, Any]] = []
 
-    async def fake_duration_context(project, _episode=None):
+    async def fake_duration_context(project, _episode=None, *, capability=None):
         context_calls.append(project)
         raise AssertionError("无可预检 unit 时不应解析项目视频能力")
 
@@ -1483,7 +1483,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_prom
 
     context_calls: list[dict[str, Any]] = []
 
-    async def fake_duration_context(project, _episode=None):
+    async def fake_duration_context(project, _episode=None, *, capability=None):
         context_calls.append(project)
         raise AssertionError("整批提示词均空白时不应解析项目视频能力")
 
@@ -1520,7 +1520,7 @@ async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
         enqueued.extend(specs)
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1579,7 +1579,7 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
                 )
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)

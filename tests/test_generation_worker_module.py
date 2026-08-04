@@ -174,7 +174,7 @@ class TestExtractProvider:
 
     @pytest.mark.unit
     async def test_reference_video_prefers_r2v_bucket_provider(self, monkeypatch):
-        """配置 r2v 桶后，reference_video 的认领期投影随桶内 provider，与执行层定桶解析同源。"""
+        """payload 无 script_file、镜头级参考集无从判定时，reference_video 投影回退代表桶 r2v。"""
         _patch_pm(
             monkeypatch,
             {
@@ -183,6 +183,61 @@ class TestExtractProvider:
             },
         )
         task = {"payload": {}, "project_name": "demo", "task_type": "reference_video"}
+        assert await _extract_provider(task) == "minimax"
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("references", "expected_provider"),
+        [([{"type": "character", "name": "A"}], "minimax"), ([], "ark")],
+    )
+    async def test_reference_video_routes_by_unit_reference_bucket(self, monkeypatch, references, expected_provider):
+        """reference_video 投影按 unit 声明的参考集分桶：有参考图 → r2v 桶 provider，
+        无参考图退化镜头 → i2v 桶 provider，与执行层降级定桶同口径。"""
+        project = {
+            "video_provider_i2v": "ark/doubao-seedance-1-5-pro-251215",
+            "video_provider_r2v": "minimax/S2V-01",
+        }
+        script = {"video_units": [{"unit_id": "E1U1", "references": references, "shots": [{"text": "t"}]}]}
+        monkeypatch.setattr(
+            "lib.config.resolver.get_project_manager",
+            lambda: type(
+                "PM",
+                (),
+                {
+                    "load_project": lambda self, name: project,
+                    "load_script": lambda self, name, filename: script,
+                },
+            )(),
+        )
+        task = {
+            "payload": {"script_file": "ep1.json"},
+            "project_name": "demo",
+            "task_type": "reference_video",
+            "resource_id": "E1U1",
+        }
+        assert await _extract_provider(task) == expected_provider
+
+    @pytest.mark.unit
+    async def test_reference_video_script_read_failure_falls_back_to_r2v(self, monkeypatch):
+        """剧本读取失败时投影回退 r2v 代表桶，不冒泡阻断认领。"""
+
+        def _load_script(self, name, filename):
+            raise ScriptEditError("broken")
+
+        project = {
+            "video_provider_i2v": "ark/doubao-seedance-1-5-pro-251215",
+            "video_provider_r2v": "minimax/S2V-01",
+        }
+        monkeypatch.setattr(
+            "lib.config.resolver.get_project_manager",
+            lambda: type("PM", (), {"load_project": lambda self, name: project, "load_script": _load_script})(),
+        )
+        task = {
+            "payload": {"script_file": "ep1.json"},
+            "project_name": "demo",
+            "task_type": "reference_video",
+            "resource_id": "E1U1",
+        }
         assert await _extract_provider(task) == "minimax"
 
     @pytest.mark.unit

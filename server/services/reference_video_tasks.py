@@ -13,7 +13,7 @@ from typing import Any
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY, normalize_asset_bucket, normalize_asset_name
-from lib.config.resolver import ConfigResolver, constrain_durations, get_provider_fallback
+from lib.config.resolver import ConfigResolver, VideoCapability, constrain_durations, get_provider_fallback
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import get_generation_queue
@@ -29,6 +29,7 @@ from lib.reference_video.prompt_render import (
     render_unit_prompt,
     resolve_reference_audio_paths,
 )
+from lib.reference_video.units import reference_video_bucket
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_editor import ScriptEditError
 from lib.script_models import ReferenceResource, ad_script_total_duration
@@ -265,14 +266,21 @@ class ProjectDurationContext:
     max_duration: int | None = None
 
 
-async def resolve_project_duration_context(project: dict) -> ProjectDurationContext:
+async def resolve_project_duration_context(
+    project: dict,
+    *,
+    capability: VideoCapability | None = None,
+) -> ProjectDurationContext:
     """一次性解析视频能力（档位全集 + 单次生成时长上限 + 分辨率 + provider/model 身份）。
+
+    ``capability`` 未给定时按项目路线定桶；给定时按指定桶解析——参考路线内按镜头分流的
+    调用方（费用估算、逐 unit 预检）以此对无参考图退化镜头按 i2v 桶模型取档。
 
     解析失败按空档位处理（沿用现状放行，不弹确认）；分辨率仅在档位非空时才解析，
     空档位下分辨率约束无意义。``max_duration`` 与 :func:`resolve_max_unit_duration`
     取自同一份能力解析结果，供需要现推分组的调用方复用而不再触发一次 IO。
     """
-    caps = await project_video_caps(project, degraded_to="时长取档不施加档位约束")
+    caps = await project_video_caps(project, degraded_to="时长取档不施加档位约束", capability=capability)
     durations = tuple(int(d) for d in caps.get("supported_durations") or [])
     provider_id = str(caps.get("provider_id") or "")
     model = caps.get("model")
@@ -573,13 +581,16 @@ async def execute_reference_video_task(
     # 3. 单次解析生成上下文（声明 video lane）：构造 generator 并按实际 backend 身份
     #    查能力上限与 resolution。provider 身份解析收口于 GenerationContext
     #    （docs/adr/0049）——executor 不再触碰 MediaGenerator 私有属性、不再手工重建
-    #    registry provider_id。
+    #    registry provider_id。桶按本 unit 解析后的实际参考图分流（docs/adr/0054）：
+    #    有参考图 → r2v；无参考图的退化镜头降级 → i2v，不送入拒空参考的 r2v 桶模型。
+    #    判据取解析结果而非声明——ad 的资产缺图按软口径跳过后 source_refs 可为空，
+    #    与 backend「只在 reference_images 非空时施加参考图约束」的口径同源。
     ctx = await resolve_generation_context(
         project_name,
         payload,
         project=project,
         user_id=user_id,
-        video=VideoLaneRequest(capability="r2v"),
+        video=VideoLaneRequest(capability=reference_video_bucket(with_references=bool(source_refs))),
     )
     generator = ctx.generator
     video = ctx.video

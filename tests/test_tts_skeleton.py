@@ -364,6 +364,6 @@ class TestDeriveExecutionModelForEnqueueAudio:
 
         monkeypatch.setattr("lib.config.resolver.ConfigResolver", _FakeResolver)
         derived = await gq._derive_execution_model_for_enqueue(
-            project_name=None, payload={}, task_type="tts", media_type="audio"
+            project_name=None, payload={}, task_type="tts", media_type="audio", resource_id=None
         )
-        assert derived == ProviderModel("dashscope", "qwen3-tts-flash")
+        assert derived == (ProviderModel("dashscope", "qwen3-tts-flash"), None)

@@ -34,6 +34,7 @@ from lib.generation_queue import (
     TASK_WORKER_LEASE_TTL_SEC,
     GenerationQueue,
     get_generation_queue,
+    video_bucket_for_queued_task,
 )
 from lib.image_backends.base import ImageCapabilityError
 from lib.reference_compression import ReferencePayloadFloorError
@@ -366,7 +367,9 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``capability="t2i"`` 取一个
     **代表性** provider——worker 认领时拿不到真实 capability（见 ``docs/adr/0001``），这点近似不影响
     生成正确性（执行层会独立精确再解析一次）；``image_edit`` 是唯一例外（必然 i2i、入队即知），
-    按 i2i 槽精确解析。解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
+    按 i2i 槽精确解析。视频定桶经 ``video_bucket_for_queued_task`` 与入队派生、执行侧同口径
+    （参考生视频按 unit 声明的参考集分流，无参考图退化镜头 → i2v）。解析失败（未配置供应商）
+    时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
     payload = task.get("payload") or {}
@@ -383,14 +386,19 @@ async def _extract_provider(task: dict[str, Any]) -> str:
 
             project = await asyncio.to_thread(get_project_manager().load_project, project_name)
 
-        from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE, ConfigResolver
+        from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
 
         resolver = ConfigResolver(async_session_factory)
         if is_video:
-            resolved = await resolver.resolve_video_backend(
-                project, payload, capability=VIDEO_BUCKET_BY_TASK_TYPE.get(task.get("task_type", ""))
+            capability = await video_bucket_for_queued_task(
+                project=project,
+                project_name=project_name,
+                task_type=task.get("task_type", ""),
+                payload=payload,
+                resource_id=task.get("resource_id"),
             )
+            resolved = await resolver.resolve_video_backend(project, payload, capability=capability)
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload)
         else:

@@ -30,6 +30,7 @@ from lib.reference_video.ad_units import (
     sync_ad_reference_units,
 )
 from lib.reference_video.script_preview import build_script_preview
+from lib.reference_video.units import reference_unit_video_bucket, reference_video_bucket
 from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
@@ -283,7 +284,11 @@ async def add_unit(
     if duration_seconds is None:
         project, _script, _sf = _load_episode_script(project_name, episode, _t)
         duration_seconds = default_unit_duration(
-            await resolve_project_duration_context(project), project, with_references=bool(refs)
+            await resolve_project_duration_context(
+                project, capability=reference_video_bucket(with_references=bool(refs))
+            ),
+            project,
+            with_references=bool(refs),
         )
 
     with _locked_episode_script(
@@ -440,7 +445,10 @@ async def precheck_unit_duration(
         unit = _find_unit(script, unit_id, _t)
         ad_shots = None
 
-    slot = precheck_unit(await resolve_project_duration_context(project), unit, ad_shots)
+    # ctx 按 unit 定桶解析（无参考图退化镜头 → i2v），与执行期实际取档的模型同桶
+    slot = precheck_unit(
+        await resolve_project_duration_context(project, capability=reference_unit_video_bucket(unit)), unit, ad_shots
+    )
     return {
         "needs_confirmation": slot.needs_confirmation,
         "script_duration": slot.total_seconds,
@@ -526,9 +534,10 @@ async def generate_unit(
     except TaskSpecValidationError as exc:
         raise HTTPException(status_code=400, detail=_t(exc.code, **exc.params)) from exc
 
-    # 参考生视频路径全部镜头（含无参考图退化镜头）归 r2v 桶（docs/adr/0054）：解析闸预检
-    # 让能力缺失 / 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
-    await require_video_bucket_capability(project, "r2v")
+    # 参考生视频按镜头是否携带参考图分流定桶（docs/adr/0054）：有参考图 → r2v，无参考图
+    # 退化镜头降级 → i2v。预检按 unit 声明的 references 近似（执行层按解析后的实际图独立
+    # 判定），解析闸让能力缺失 / 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
+    await require_video_bucket_capability(project, reference_unit_video_bucket(unit))
 
     queue = get_generation_queue()
     result = await queue.enqueue_task(

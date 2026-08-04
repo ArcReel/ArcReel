@@ -236,12 +236,13 @@ _AUDIO_LAYERED_KEYS = _LayeredBackendKeys(
     global_default_key="default_audio_backend",
 )
 
-#: 视频能力桶：i2v（图生视频 / 宫格，由首帧驱动）、r2v（参考生视频，含无参考图退化镜头）。
-#: t2v 不设桶（docs/adr/0054）。
+#: 视频能力桶：i2v（图生视频 / 宫格，由首帧驱动；另承接参考路线无参考图退化镜头的降级执行）、
+#: r2v（参考生视频的有参考图镜头）。t2v 不设桶（docs/adr/0054）。
 VideoCapability = Literal["i2v", "r2v"]
 
 #: 视频任务类型 → 能力桶。执行路径与桶的映射固定在代码里（docs/adr/0054）：图生视频 /
-#: 宫格生视频（task_type ``video``）→ i2v，参考生视频（含无参考图退化镜头）→ r2v。
+#: 宫格生视频（task_type ``video``）→ i2v；参考生视频按镜头是否携带参考图分流
+#: （``lib.reference_video.units``），本表登记其代表桶 r2v，仅供剧本 / unit 读不到时回退。
 #: 表外任务类型无视频桶，调用方按「不定桶」处理。定义在本模块（而非 lib.capability_buckets）
 #: 是分层约束：队列 / worker 的入队与认领路径处于 lib.video_backends 的依赖闭包内，不得经
 #: 桶判定模块间接引入 lib.custom_provider。
@@ -251,8 +252,9 @@ VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoCapability] = {
 }
 
 #: 生成模式 → 能力桶。与 ``VIDEO_BUCKET_BY_TASK_TYPE`` 描述同一套映射的两个入口：执行路径按
-#: 已成形任务的 task_type 定桶，读侧（能力查询 / 费用估算 / 时长约束收窄）在任务成形前只有项目
-#: 的 generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。
+#: 已成形任务的 task_type 定桶，读侧（能力查询 / 时长约束收窄等）在任务成形前只有项目的
+#: generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。参考
+#: 路线内无参考图退化镜头的镜头级降级（→ i2v）不经本表，见 ``lib.reference_video.units``。
 VIDEO_BUCKET_BY_GENERATION_MODE: dict[str, VideoCapability] = {
     "storyboard": "i2v",
     "reference_video": "r2v",
@@ -903,15 +905,23 @@ class ConfigResolver:
         async with self._open_session() as (session, svc):
             return await self._resolve_video_capabilities(svc, session, project_name)
 
-    async def video_capabilities_for_project(self, project: dict) -> dict:
+    async def video_capabilities_for_project(
+        self,
+        project: dict,
+        *,
+        capability: VideoCapability | None = None,
+    ) -> dict:
         """同 `video_capabilities`，但使用调用方已加载的 project dict。
 
         优先用此变体，可避免按名称二次加载、也不依赖 `PROJECT_ROOT/projects/<name>` 目录结构
         （例如 `ScriptGenerator` 在非标准路径实例化、或测试用 tmp_path 时，防止目录名
         与全局项目碰撞读到错误能力）。
+
+        ``capability`` 未给定时按项目 generation_mode 定桶；给定时按指定桶解析——供参考路线
+        内按镜头分流的读侧（无参考图退化镜头按 i2v 桶取档 / 计价）使用。
         """
         async with self._open_session() as (session, svc):
-            return await self._resolve_video_capabilities_from_project(svc, session, project)
+            return await self._resolve_video_capabilities_from_project(svc, session, project, capability=capability)
 
     async def video_capabilities_for_model(
         self,
@@ -1332,8 +1342,10 @@ class ConfigResolver:
         svc: ConfigService,
         session: AsyncSession,
         project: dict | None,
+        *,
+        capability: VideoCapability | None = None,
     ) -> dict:
-        """按项目 generation_mode 定桶解析出会执行的那个模型，再读它的能力。
+        """按能力桶（未显式给定时按项目 generation_mode 定桶）解析出会执行的那个模型，再读它的能力。
 
         与执行路径共用 ``_resolve_video_provider_model``（含能力闸），读侧不留第二种口径：切换
         generation_mode 后能力查询随桶变化，模型缺该桶所需能力或引用已失效时报错、不静默换模型
@@ -1342,7 +1354,8 @@ class ConfigResolver:
         只传选择身份：有效身份收敛由 ``_resolve_video_caps_for_model`` 统一做，在此先做一遍会让
         自定义 provider 多跑一轮 model 查询。
         """
-        capability = video_bucket_for_generation_mode(caps_generation_mode(project))
+        if capability is None:
+            capability = video_bucket_for_generation_mode(caps_generation_mode(project))
         selected = await self._resolve_video_provider_model(svc, session, project, None, capability)
         return await self._resolve_video_caps_for_model(svc, session, selected.provider_id, selected.model_id, project)
 
