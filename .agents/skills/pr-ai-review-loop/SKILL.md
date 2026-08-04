@@ -78,17 +78,15 @@ GitHub code scanning 两家(quality / security)的评论并入同一批,处置�
 
 | 场景 | 延迟 | 备注 |
 |---|---|---|
-| 新 HEAD 后首次 poll | 180s | reviewer cold-start |
-| 发送 `/gemini review` 或首次 cold-start fallback `@codex review` 之后 | 120s | |
-| 常规等待(reviewer 响应中) | 60s | |
-| 仅剩 CodeQL 分析未完成 | 120s | 等 check 完成做终核 |
+| 新 HEAD 后首次 poll | 360s | reviewer cold-start |
+| 其余等待(触发命令后、reviewer 响应中、仅剩 CodeQL 分析未完成) | 180s | |
 | 超过 25 分钟无响应 | 暂停并询问用户,不再 ScheduleWakeup | 见「故障处理」 |
 
 ## 收敛兜底
 
 下列任一条件触发退出:
 
-1. `round_estimate` ≥ 5 → 暂停询问"已 5 轮,merge / 继续 / 放弃?"
+1. `round_estimate` ≥ 3 → 暂停询问"已 3 轮,merge / 继续 / 放弃?"
 2. 连续 2 轮 push 都没有产生实质收益 → 暂停询问"边际收益已降低,是否结束?"。实质收益有两种,占一种即算:**用户可感知的行为改善**(修掉一条真实可达的崩溃或错误路径算,哪怕形式上是一处防御),或**后续改动成本的下降**(消除重复、拆掉错误抽象、去掉不可达的防御分支)。按改动实际做了什么判断,不按它的标签——架构与 DRY 上的改善是要争取的收益,不因为用户看不见就算没收益。真正不算的是往复:风格与命名的口味调整、reviewer 之间的偏好差异、已驳回又换个说法重提的意见。证据跑 `classify_commits.sh` 看最近两批;它只给 commit 说明与文件行数统计,说明笼统或同一文件里内部逻辑与用户路径混在一起时,按输出的 `sha` 跑 `git show` 看改动本身。本条判断的是收益,fix-up 顺延的五类形状判断的是重审风险,两处口径不通用
 3. 同一主题(reviewer + 关键词,例如 "Pydantic `extra=ignore` vs `forbid`")被同一家 reviewer 在 ≥ 3 个 HEAD 上反复提出,且无 ADR / memory 兜底 → 暂停询问是否升级 ADR。新评论似曾相识时跑 `query.sh <PR> history` 通读评论历史,按语义归并主题,数同一主题出现在几个 HEAD 上
 4. 目标状态全部达成 → 正常退出,按 [references/retrospective.md](references/retrospective.md) 产出复盘随汇报交出(何种出口产复盘以该文件开篇为准)
