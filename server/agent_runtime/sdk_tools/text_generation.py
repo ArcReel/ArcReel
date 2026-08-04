@@ -66,6 +66,7 @@ from lib.reference_video.script_preview import (
     derive_voice_bindings,
 )
 from lib.reference_video.shot_parser import parse_prompt, render_shots_text
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_generator import ScriptGenerator
 from lib.script_models import (
     NarrationStep1Draft,
@@ -756,23 +757,13 @@ def _reference_voice_warning_lines(unit_texts: list[str], project: dict[str, Any
     ``derive_voice_bindings``，三处对同一份文稿给出的声音结论因此不会分叉。
     """
     characters = project.get(BUCKET_KEY["character"]) or {}
-    voice_consistency = str(caps.get("voice_consistency") or "soft")
-    max_reference_audio = int(caps.get("max_reference_audio_count") or 0)
-    requested_generate_audio = bool(caps.get("requested_generate_audio", True))
-    model_id = str(caps.get("model") or "")
+    settings = VoiceRenderSettings.from_caps(caps)
     seen: set[tuple[str, str]] = set()
     lines: list[str] = []
     for text in unit_texts:
         shots, _mentions = parse_prompt(text)
         utterances, _syntax_warnings = derive_utterances(shots)
-        bindings = derive_voice_bindings(
-            utterances,
-            characters,
-            voice_consistency=voice_consistency,
-            requested_generate_audio=requested_generate_audio,
-            max_reference_audio=max_reference_audio,
-            model_id=model_id,
-        )
+        bindings = derive_voice_bindings(utterances, characters, settings)
         for warning in bindings.warnings:
             key = str(warning["key"])
             if key not in _TOLERATED_VOICE_WARNINGS:

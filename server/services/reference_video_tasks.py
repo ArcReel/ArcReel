@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +29,7 @@ from lib.reference_video.prompt_render import (
     render_unit_prompt,
     resolve_reference_audio_paths,
 )
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_editor import ScriptEditError
 from lib.script_models import ReferenceResource, ad_script_total_duration
 from lib.thumbnail import extract_video_thumbnail
@@ -112,13 +113,7 @@ def _resolve_unit_references(
 def _render_unit_prompt(
     unit: dict,
     project: dict,
-    *,
-    voice_consistency: str,
-    requested_generate_audio: bool,
-    max_reference_audio: int,
-    model_id: str,
-    audio_ready: Collection[str],
-    audio_requires_reference_image: bool = False,
+    settings: VoiceRenderSettings,
 ) -> RenderedUnitPrompt:
     """把 unit 的书写文稿渲染成三段论 backend prompt（见 ``lib.reference_video.prompt_render``）。
 
@@ -146,13 +141,8 @@ def _render_unit_prompt(
         assemble_shots_text_for_render(shots),
         project,
         references,
-        voice_consistency=voice_consistency,
-        requested_generate_audio=requested_generate_audio,
-        max_reference_audio=max_reference_audio,
-        model_id=model_id,
+        settings,
         style=project.get("style"),
-        audio_ready=audio_ready,
-        audio_requires_reference_image=audio_requires_reference_image,
     )
 
 
@@ -486,13 +476,8 @@ def _render_ad_unit_prompt_for_backend(
     shots: list[dict],
     entries: list[dict],
     project: dict,
+    settings: VoiceRenderSettings,
     *,
-    voice_consistency: str,
-    requested_generate_audio: bool,
-    max_reference_audio: int,
-    model_id: str,
-    audio_ready: Collection[str],
-    audio_requires_reference_image: bool,
     style: object,
 ) -> RenderedUnitPrompt:
     """ad 派生 unit 的最终 backend prompt：三段论渲染（与 narration/drama 共用管线，见
@@ -506,13 +491,8 @@ def _render_ad_unit_prompt_for_backend(
         shots,
         entries,
         project,
-        voice_consistency=voice_consistency,
-        requested_generate_audio=requested_generate_audio,
-        max_reference_audio=max_reference_audio,
-        model_id=model_id,
+        settings,
         style=style if isinstance(style, str) else None,
-        audio_ready=audio_ready,
-        audio_requires_reference_image=audio_requires_reference_image,
     )
     product_names = list(dict.fromkeys(e["name"] for e in entries if e.get("kind") in ("sheet", "original")))
     return replace(rendered, prompt=append_product_fidelity_tail(rendered.prompt, product_names))
@@ -676,17 +656,20 @@ async def execute_reference_video_task(
     #    参考音频路径先解析再渲染：渲染层按「确实可用」判定绑定，`@音频N` 的编号与随请求
     #    发出的段数因此严格等长（字段指向已删文件时不会留下指向不存在段的编号）。
     audio_paths = await asyncio.to_thread(resolve_reference_audio_paths, project, project_path)
+    voice_settings = VoiceRenderSettings(
+        voice_consistency=video.voice_consistency,
+        requested_generate_audio=video.requested_generate_audio,
+        max_reference_audio=video.max_reference_audio_count,
+        model_id=model_name,
+        audio_ready=audio_paths,
+        requires_reference_image=video.reference_audio_per_image,
+    )
     if is_ad:
         rendered = _render_ad_unit_prompt_for_backend(
             ad_shots or [],
             ad_entries,
             project,
-            voice_consistency=video.voice_consistency,
-            requested_generate_audio=video.requested_generate_audio,
-            max_reference_audio=video.max_reference_audio_count,
-            model_id=model_name,
-            audio_ready=audio_paths,
-            audio_requires_reference_image=video.reference_audio_per_image,
+            voice_settings,
             style=project.get("style"),
         )
     else:
@@ -695,16 +678,7 @@ async def execute_reference_video_task(
         prompt_refs = _dedupe_typed_references(raw_unit_refs)[: len(constrained_refs)]
         if len(prompt_refs) < len(raw_unit_refs):
             unit_for_prompt = {**unit, "references": prompt_refs}
-        rendered = _render_unit_prompt(
-            unit_for_prompt,
-            project,
-            voice_consistency=video.voice_consistency,
-            requested_generate_audio=video.requested_generate_audio,
-            max_reference_audio=video.max_reference_audio_count,
-            model_id=model_name,
-            audio_ready=audio_paths,
-            audio_requires_reference_image=video.reference_audio_per_image,
-        )
+        rendered = _render_unit_prompt(unit_for_prompt, project, voice_settings)
     rendered_prompt = rendered.prompt
     reference_audio_files, reference_audio_targets = _build_reference_audio_wiring(
         rendered, audio_paths, reference_audio_per_image=video.reference_audio_per_image

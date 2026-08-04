@@ -30,6 +30,7 @@ from lib.reference_video.ad_units import (
     sync_ad_reference_units,
 )
 from lib.reference_video.script_preview import build_script_preview
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
@@ -466,11 +467,7 @@ async def preview_script(
     preview = build_script_preview(
         req.prompt,
         project,
-        voice_consistency=str(caps.get("voice_consistency") or "soft"),
-        requested_generate_audio=bool(caps.get("requested_generate_audio", True)),
-        max_reference_audio=int(caps.get("max_reference_audio_count") or 0),
-        model_id=str(caps.get("model") or ""),
-        audio_requires_reference_image=bool(caps.get("reference_audio_per_image") or False),
+        VoiceRenderSettings.from_caps(caps),
         max_reference_images=caps.get("max_reference_images"),
     )
     return {
