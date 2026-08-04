@@ -43,7 +43,7 @@
 # }
 #
 # stage_hint LADDER (first match wins; purely remote-mechanical, no liveness guess)
-#   1. PR MERGED                              -> done
+#   1. PR MERGED and issue not open           -> done      (a reopened issue falls through)
 #   2. PR OPEN and not draft                  -> review-loop
 #   3. PR is draft, or PR CLOSED unmerged     -> shelved   (this workflow shelves by drafting the PR)
 #   4. no PR but remote branch issue/<N>      -> local-review (branch pushed, PR not opened yet)
@@ -275,7 +275,9 @@ jq -n \
       | {name: ($e.name // $e.context), status: ($e.status // $e.state)} ];
 
   def stage_hint($pr; $hasBranch; $istate; $ireason):
-    if   ($pr != null and $pr.state == "MERGED")                          then "done"
+    # a MERGED PR marks done only while the issue stays closed; a reopened issue must
+    # fall through to the branch rungs so it polls as startable again
+    if   ($pr != null and $pr.state == "MERGED" and $istate != "open")    then "done"
     elif ($pr != null and $pr.state == "OPEN" and ($pr.isDraft | not))    then "review-loop"
     # a CLOSED PR marks shelved only while its branch survives; after a restart cleanup
     # (PR closed, branches deleted) the issue must poll as startable again
