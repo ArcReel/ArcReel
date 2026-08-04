@@ -1,12 +1,5 @@
 import type enTemplates from "@/i18n/en/templates";
-
-type DeepStringify<T> = {
-  [K in keyof T]: T[K] extends string
-    ? string
-    : T[K] extends object
-      ? DeepStringify<T[K]>
-      : T[K];
-};
+import type { DeepStringify } from "@/i18n/types";
 
 export default {
   category: {
