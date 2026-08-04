@@ -80,7 +80,7 @@ GitHub code scanning 两家(quality / security)的评论并入同一批,处置�
 |---|---|---|
 | 新 HEAD 后首次 poll | 360s | reviewer cold-start |
 | 其余等待(触发命令后、reviewer 响应中、仅剩 CodeQL 分析未完成) | 180s | |
-| 超过 25 分钟无响应 | 暂停并询问用户,不再 ScheduleWakeup | 见「故障处理」 |
+| 超过 30 分钟无响应 | 暂停并询问用户,不再 ScheduleWakeup | 见「故障处理」 |
 
 ## 收敛兜底
 
@@ -97,7 +97,7 @@ GitHub code scanning 两家(quality / security)的评论并入同一批,处置�
 
 **能力证伪自裁决**(唯一不暂停的故障):reviewer 的回复或官方通知确证其无法参审——App 未接入、要求创建/连接账号、服务已停止——该家本 PR 按不参审处理、不再触发,记入退出汇报;沉默或一般报错不算证伪,仍按下列条目暂停询问。
 
-- **某家 reviewer(含 CodeQL 分析)超过 25 分钟未响应**:bot 可能服务异常或配额已满,暂停说明现状。Gemini fix-up 顺延导致的"未审"不算无响应——那是设计内跳过
+- **某家 reviewer(含 CodeQL 分析)超过 30 分钟未响应**:bot 可能服务异常或配额已满,暂停说明现状。Gemini fix-up 顺延导致的"未审"不算无响应——那是设计内跳过
 - **bot 报错**(如 "Internal error"、"Token limit exceeded"):贴出错误内容,按 reviewers.md 该家的触发约束询问是否重跑
 - **`quota_alerts` 非空**:alert 之后该家已有成功审查(更晚的 review 或 walkthrough 更新)的视为已恢复,忽略残留 banner;真实受阻时,reviewers.md 该家有专项配额处置段的(如 CodeRabbit)按其规则自行处置,不暂停;其余家贴出 `body_head`,询问停用该家继续其他家,还是等 quota 恢复后再 push
 - **`codeql_checks.failing` 非空**(失败态集合见 poll.sh header `checks_failing` 条):分析失败,alerts 数据停留在上次成功分析,不能做终核;询问是否重跑失败的 workflow
