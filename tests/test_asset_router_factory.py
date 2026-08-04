@@ -345,6 +345,7 @@ class TestAssetRouterNoLeak:
 class TestNfcConvergence:
     """PATCH/DELETE 的路径参数与桶 key 形态可以不同：登记闸口落 NFC，存量 key 未迁移。"""
 
+    @pytest.mark.unit
     def test_patch_resolves_across_normalization_forms(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         fake_pm.projects["demo"]["characters"][_NAME_NFD] = {"name": _NAME_NFD, "description": "legacy"}
@@ -356,6 +357,7 @@ class TestNfcConvergence:
         assert list(chars) == [_NAME_NFD]
         assert chars[_NAME_NFD]["description"] == "new"
 
+    @pytest.mark.unit
     def test_delete_resolves_across_normalization_forms(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         fake_pm.projects["demo"]["characters"][_NAME_NFC] = {"name": _NAME_NFC, "description": "d"}
