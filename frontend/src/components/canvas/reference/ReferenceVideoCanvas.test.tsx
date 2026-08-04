@@ -295,6 +295,42 @@ describe("ReferenceVideoCanvas", () => {
     });
   });
 
+  it("removes both NFC and NFD forms of the same asset when its chip is removed", async () => {
+    // 存量 references 可能同时含同一资产的 NFC/NFD 两条等价记录；删除按归一后比对，
+    // 一次移除即清干净，不留一条肉眼相同、按字节不同的残余 chip。
+    const nameNfc = "Hiếu".normalize("NFC");
+    const nameNfd = "Hiếu".normalize("NFD");
+    expect(nameNfc).not.toBe(nameNfd);
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...STUB_PROJECT,
+        characters: { [nameNfd]: { description: "" } },
+      } as ProjectData,
+    });
+    const unit: ReferenceVideoUnit = {
+      ...mkUnit("E1U1", "推门。"),
+      references: [
+        { type: "character", name: nameNfc },
+        { type: "character", name: nameNfd },
+      ],
+    };
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValue({ unit: { ...unit, references: [] } });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    const removeButtons = await screen.findAllByRole("button", {
+      name: /Remove reference|移除引用/,
+    });
+    expect(removeButtons).toHaveLength(2);
+    fireEvent.click(removeButtons[0]);
+
+    await waitFor(() => expect(patchSpy).toHaveBeenCalled());
+    expect(patchSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { references: [] });
+  });
+
   // 时长是 unit 级单一真相：下拉档位来自模型能力声明，选中即单独 PATCH（不牵连正文草稿）
   it("renders the unit duration dropdown from the model's declared slots and patches on change", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });

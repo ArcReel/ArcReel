@@ -4,6 +4,8 @@ scenes/props 的 CRUD 行为由 test_scenes_router / test_props_router 覆盖；
 factory 引入的新能力（character extras + extra='allow' 创建语义）。
 """
 
+import unicodedata
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -17,6 +19,9 @@ from tests.conftest import make_translator
 # 兜底 500 的默认 locale 文案：测试未覆盖 get_translator，端点回落到 DEFAULT_LOCALE("zh")，
 # 与 make_translator() 默认 locale 一致。
 _INTERNAL_ERROR_DETAIL = make_translator()("internal_server_error")
+
+_NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
+_NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
 
 class _FakePM:
@@ -326,3 +331,27 @@ class TestAssetRouterNoLeak:
             assert resp.status_code == 500
             assert resp.json()["detail"] == _INTERNAL_ERROR_DETAIL
             assert "LEAK_delete" not in resp.text
+
+
+class TestNfcConvergence:
+    """PATCH/DELETE 的路径参数与桶 key 形态可以不同：登记闸口落 NFC，存量 key 未迁移。"""
+
+    def test_patch_resolves_across_normalization_forms(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"][_NAME_NFD] = {"name": _NAME_NFD, "description": "legacy"}
+
+        resp = client.patch(f"/api/v1/projects/demo/characters/{_NAME_NFC}", json={"description": "new"})
+
+        assert resp.status_code == 200
+        chars = fake_pm.projects["demo"]["characters"]
+        assert list(chars) == [_NAME_NFD]
+        assert chars[_NAME_NFD]["description"] == "new"
+
+    def test_delete_resolves_across_normalization_forms(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"][_NAME_NFC] = {"name": _NAME_NFC, "description": "d"}
+
+        resp = client.delete(f"/api/v1/projects/demo/characters/{_NAME_NFD}")
+
+        assert resp.status_code == 200
+        assert fake_pm.projects["demo"]["characters"] == {}

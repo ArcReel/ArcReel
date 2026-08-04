@@ -10,7 +10,13 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from lib.asset_types import ASSET_SPECS, normalize_asset_bucket, normalize_asset_name, validate_asset_name
+from lib.asset_types import (
+    ASSET_SPECS,
+    normalize_asset_bucket,
+    normalize_asset_name,
+    resolve_asset_key,
+    validate_asset_name,
+)
 from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
     AUDIO_REFERENCE_MAX_SECONDS,
@@ -212,8 +218,11 @@ def _collect_sheet_references(
     Returns (list of ``{"image": Path, "label": 资产名}`` dicts, set of relative
     sheet strings for dedup). If *max_count* > 0 collection stops after that many images.
 
-    label 取 project.json 中的资产名，与 prompt 里的专名严格一致——供支持内联标签的
+    label 取剧本条目里的资产名，与 prompt 里的专名严格一致——供支持内联标签的
     后端（如 Gemini）把参考图与 prompt 专名显式绑定，不再依赖文件名推断。
+
+    剧本里的资产名与资产桶 key 可能是 NFC/NFD 中的任一形态（登记闸口落 NFC，存量剧本
+    与桶均无需迁移），索引前按 ``lib.asset_types`` 的比对坐标系归一，label 保留剧本原文。
 
     ``char_field`` 为 ``None`` 表示该骨架无逐条角色名单字段（video_units：角色以
     references 条目形态存在），``item.get(None) or []`` 天然跳过角色 sheet 收集。
@@ -221,18 +230,15 @@ def _collect_sheet_references(
     seen: set[str] = set()
     refs: list[dict] = []
 
-    characters = project.get("characters")
-    characters = characters if isinstance(characters, dict) else {}
-    project_scenes = project.get("scenes")
-    project_scenes = project_scenes if isinstance(project_scenes, dict) else {}
-    project_props = project.get("props")
-    project_props = project_props if isinstance(project_props, dict) else {}
+    characters = normalize_asset_bucket(project.get("characters"))
+    project_scenes = normalize_asset_bucket(project.get("scenes"))
+    project_props = normalize_asset_bucket(project.get("props"))
 
     for item in items:
         for char_name in item.get(char_field) or []:
             if not isinstance(char_name, str):
                 continue
-            char_data = characters.get(char_name)
+            char_data = characters.get(normalize_asset_name(char_name))
             sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
@@ -242,7 +248,7 @@ def _collect_sheet_references(
         for scene_name in item.get(scene_field) or []:
             if not isinstance(scene_name, str):
                 continue
-            scene_data = project_scenes.get(scene_name)
+            scene_data = project_scenes.get(normalize_asset_name(scene_name))
             sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
@@ -252,7 +258,7 @@ def _collect_sheet_references(
         for prop_name in item.get(prop_field) or []:
             if not isinstance(prop_name, str):
                 continue
-            prop_data = project_props.get(prop_name)
+            prop_data = project_props.get(normalize_asset_name(prop_name))
             sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
@@ -831,7 +837,7 @@ async def execute_character_voice_sample_task(
         raise ValueError("voice sample 任务需要 task_id")
 
     project = await asyncio.to_thread(get_project_manager().load_project, project_name)
-    if character_name not in project.get("characters", {}):
+    if resolve_asset_key(project.get("characters"), character_name) is None:
         # 与 execute_character_task 等其它执行器同口径：入队后、worker 取到任务前角色可能
         # 已被删除，执行前重新核实存在，避免花钱合成一段没有归属的孤儿预览。
         raise ValueError(f"character not found: {character_name}")
@@ -1131,9 +1137,10 @@ async def execute_character_task(
     def _prepare_char():
         _project = get_project_manager().load_project(project_name)
         _project_path = get_project_manager().get_project_path(project_name)
-        if resource_id not in _project.get("characters", {}):
+        _char_key = resolve_asset_key(_project.get("characters"), resource_id)
+        if _char_key is None:
             raise ValueError(f"character not found: {resource_id}")
-        _char_data = _project["characters"][resource_id]
+        _char_data = _project["characters"][_char_key]
         _style = _project.get("style", "")
         _style_desc = _project.get("style_description", "")
         _full_prompt = build_character_prompt(resource_id, prompt, _style, _style_desc)
@@ -1172,7 +1179,10 @@ async def execute_character_task(
 
     def _finalize_char():
         def _set_character_sheet(p: dict) -> None:
-            p["characters"][resource_id]["character_sheet"] = sheet_path
+            key = resolve_asset_key(p.get("characters"), resource_id)
+            if key is None:
+                raise KeyError(f"角色 '{resource_id}' 不存在")
+            p["characters"][key]["character_sheet"] = sheet_path
 
         get_project_manager().update_project(project_name, _set_character_sheet)
         return generator.versions.get_versions("characters", resource_id)["versions"][-1]["created_at"]
@@ -1365,12 +1375,9 @@ def _collect_grid_reference_images(
     scene_id_set = set(scene_ids)
     matched_items = [item for item in items if str(item.get(id_field, "")) in scene_id_set]
 
-    characters = project.get("characters")
-    characters = characters if isinstance(characters, dict) else {}
-    project_scenes = project.get("scenes")
-    project_scenes = project_scenes if isinstance(project_scenes, dict) else {}
-    project_props = project.get("props")
-    project_props = project_props if isinstance(project_props, dict) else {}
+    characters = normalize_asset_bucket(project.get("characters"))
+    project_scenes = normalize_asset_bucket(project.get("scenes"))
+    project_props = normalize_asset_bucket(project.get("props"))
 
     seen: set[str] = set()
     paths: list[Path] = []
@@ -1381,7 +1388,7 @@ def _collect_grid_reference_images(
         for char_name in item.get(char_field) or []:
             if not isinstance(char_name, str):
                 continue
-            char_data = characters.get(char_name)
+            char_data = characters.get(normalize_asset_name(char_name))
             sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet
@@ -1392,7 +1399,7 @@ def _collect_grid_reference_images(
         for scene_name in item.get(scene_field) or []:
             if not isinstance(scene_name, str):
                 continue
-            scene_data = project_scenes.get(scene_name)
+            scene_data = project_scenes.get(normalize_asset_name(scene_name))
             sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet
@@ -1403,7 +1410,7 @@ def _collect_grid_reference_images(
         for prop_name in item.get(prop_field) or []:
             if not isinstance(prop_name, str):
                 continue
-            prop_data = project_props.get(prop_name)
+            prop_data = project_props.get(normalize_asset_name(prop_name))
             sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet

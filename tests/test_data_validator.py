@@ -308,6 +308,83 @@ class TestDataValidator:
         assert any("不存在于 project.json 的场景" in error for error in result.errors)
         assert any("不存在于 project.json 的道具" in error for error in result.errors)
 
+    def test_validate_episode_accepts_nfc_nfd_mismatch_on_narration_segment_refs(self, tmp_path):
+        """segment 的角色/场景/道具引用一律按 NFC 归一比对：登记闸口落 NFC 后，
+        保留原 NFD 拼写的存量剧本仍须放行，否则合法剧本会被判为引用了未登记资产。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+
+        project = _project_payload("narration")
+        project["characters"] = {name_nfc: {"description": "女主"}}
+        project["scenes"] = {name_nfc: {"description": "场景"}}
+        project["props"] = {name_nfc: {"description": "道具"}}
+
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", project)
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "原文",
+                        "characters_in_segment": [name_nfd],
+                        "scenes": [name_nfd],
+                        "props": [name_nfd],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                    }
+                ],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        assert result.valid, result.errors
+
+    def test_validate_episode_accepts_nfc_nfd_mismatch_on_drama_scene_refs(self, tmp_path):
+        """drama 场景的三类引用与 narration segment 同口径归一。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+
+        project = _project_payload("drama")
+        project["characters"] = {name_nfc: {"description": "女主"}}
+        project["scenes"] = {name_nfc: {"description": "场景"}}
+        project["props"] = {name_nfc: {"description": "道具"}}
+
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", project)
+        _write_json(
+            project_dir / "scripts" / "episode_2.json",
+            {
+                "episode": 2,
+                "title": "第二集",
+                "content_mode": "drama",
+                "scenes": [
+                    {
+                        "scene_id": "E2S01",
+                        "duration_seconds": 8,
+                        "characters_in_scene": [name_nfd],
+                        "scenes": [name_nfd],
+                        "props": [name_nfd],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                    }
+                ],
+            },
+        )
+
+        result = validate_episode("demo", "episode_2.json", projects_root=str(tmp_path / "projects"))
+        assert result.valid, result.errors
+
     @pytest.mark.parametrize("bad_duration", [0, -1, "5", 4.5, True])
     def test_validate_episode_rejects_non_positive_integer_duration(self, tmp_path, bad_duration):
         """非正整数的 duration_seconds 仍应报错（0 / 负数 / 字符串 / 浮点 / bool）。"""
@@ -1169,10 +1246,9 @@ class TestAdEpisodeValidation:
 
     @pytest.mark.integration
     def test_shot_product_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
-        """products_in_shot 的归一比对不随 generation_mode 切换，始终与其收集器
-        （collect_product_references_for_names，无条件归一）同口径——即使在 storyboard
-        路径（默认 generation_mode）下，NFC/NFD 不一致的合法产品名也必须放行，否则
-        校验层会比实际生成时的收集层更严格，挡下收集层其实能解析的产品。"""
+        """products_in_shot 与其收集器（collect_product_references_for_names）同口径归一：
+        NFC/NFD 不一致的合法产品名必须放行，否则校验层比实际生成时的收集层更严格，
+        挡下收集层其实能解析的产品。"""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -1184,11 +1260,10 @@ class TestAdEpisodeValidation:
         assert result.valid, result.errors
 
     @pytest.mark.integration
-    def test_shot_reference_storyboard_path_keeps_raw_comparison(self, tmp_path):
-        """storyboard 路径（默认 generation_mode）保持原始字符串比对：该路径的图片收集
-        （server.services.generation_tasks._collect_sheet_references）仍按原始名称查找，
-        校验层若归一放行、收集层实际查不到，会生成时静默漏收对应 sheet——不能让校验层
-        比收集层更宽松。"""
+    def test_shot_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
+        """storyboard 路径的资产引用同样按 NFC 归一比对：该路径的图片收集
+        （server.services.generation_tasks._collect_sheet_references）归一后索引，校验层
+        若在此原样比对会拒掉收集层其实能解析的合法名字。"""
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
@@ -1197,8 +1272,7 @@ class TestAdEpisodeValidation:
 
         project = _ad_project_payload(characters={name_nfd: {"description": "出镜模特"}})
         result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[name_nfc])], project=project)
-        assert not result.valid
-        assert any("characters_in_shot" in e for e in result.errors)
+        assert result.valid, result.errors
 
     def test_missing_duration_warns_with_default(self, tmp_path):
         shot = self._ad_shot()

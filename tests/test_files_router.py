@@ -524,6 +524,31 @@ class TestFilesRouter:
             for p in paths:
                 assert (project_dir / p).exists()
 
+    def test_product_ref_upload_resolves_nfd_registered_host(self, tmp_path, monkeypatch):
+        """宿主资产的存量 key 可能是 NFD：上传入口按坐标系解析存在性，
+        否则闸口把 name 归一到 NFC 后会先返回 404，写回侧的解析根本走不到。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+
+        client, pm = _client(monkeypatch, tmp_path)
+
+        def _mutate(project: dict) -> None:
+            project.setdefault("products", {})[name_nfd] = {"description": "存量 NFD 产品"}
+
+        pm.update_project("demo", _mutate)
+
+        with client:
+            resp = client.post(
+                f"/api/v1/projects/demo/upload/product_ref?name={name_nfc}",
+                files={"file": ("x.jpg", _img_bytes("JPEG"), "image/jpeg")},
+            )
+            assert resp.status_code == 200, resp.text
+            products = pm.load_project("demo")["products"]
+            assert name_nfc not in products  # 不因上传新造一条 NFC 产品
+            assert products[name_nfd]["reference_images"] == [resp.json()["path"]]
+
     def test_product_ref_unknown_product_404(self, tmp_path, monkeypatch):
         """原图列表是文件的唯一指针：产品不存在时拒收，避免落下孤儿文件。"""
         client, pm = _client(monkeypatch, tmp_path)

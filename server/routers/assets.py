@@ -15,7 +15,15 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
 from lib.api_errors import NotFoundError
-from lib.asset_types import BUCKET_KEY, GLOBAL_LIBRARY_ASSET_TYPES, SHEET_KEY, localize_asset_type, validate_asset_name
+from lib.asset_types import (
+    BUCKET_KEY,
+    GLOBAL_LIBRARY_ASSET_TYPES,
+    SHEET_KEY,
+    localize_asset_type,
+    normalize_asset_name,
+    resolve_asset_key,
+    validate_asset_name,
+)
 from lib.db import async_session_factory
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.i18n import Translator
@@ -264,7 +272,9 @@ async def from_project(
     # 3) 从对应 bucket 中读取资源
     bucket_key = BUCKET_KEY[req.resource_type]
     bucket = project.get(bucket_key) or {}
-    resource = bucket.get(req.resource_id)
+    # 存量 key 与请求名可能是 NFC/NFD 中的任一形态，按坐标系解析
+    resource_key = resolve_asset_key(bucket, req.resource_id)
+    resource = bucket.get(resource_key) if resource_key is not None else None
     if resource is None:
         raise HTTPException(
             status_code=404,
@@ -455,8 +465,11 @@ async def apply_to_project(
     # 4) 先在内存里算好每条 asset 的目标名 + 是否需要拷贝文件，
     #    再一次性执行文件拷贝和 project.json 写回
     project_dir = project_manager.get_project_path(req.target_project)
-    # 按 bucket 维护一份"已占用的名字"集合，用于 rename 策略的累积冲突检查
-    bucket_names: dict[str, set[str]] = {bk: set((project.get(bk) or {}).keys()) for bk in BUCKET_KEY.values()}
+    # 按 bucket 维护一份"已占用的名字"集合（NFC 坐标系，存量 key 可能是 NFD），
+    # 用于冲突判定与 rename 策略的累积冲突检查
+    bucket_names: dict[str, set[str]] = {
+        bk: {normalize_asset_name(str(k)) for k in (project.get(bk) or {})} for bk in BUCKET_KEY.values()
+    }
     plans: list[dict] = []
     for asset_id in req.asset_ids:
         a = assets_by_id.get(asset_id)
@@ -478,10 +491,12 @@ async def apply_to_project(
                 skipped.append({"id": a.id, "name": a.name})
                 continue
             if req.conflict_policy == "rename":
+                # 基名用校验后的 desired_name（NFC），与 names 集合同坐标系，DB 原文可能是 NFD
+                base_name = desired_name
                 i = 2
-                while f"{a.name} ({i})" in names:
+                while f"{base_name} ({i})" in names:
                     i += 1
-                desired_name = f"{a.name} ({i})"
+                desired_name = f"{base_name} ({i})"
             # overwrite: 保留原名，后续覆盖
 
         # 规划图片拷贝
@@ -586,7 +601,9 @@ async def apply_to_project(
                 payload[sk] = ts
             if bk not in data or not isinstance(data.get(bk), dict):
                 data[bk] = {}
-            data[bk][name_] = payload
+            # overwrite 策略要落在存量真实 key 上（可能是 NFD），否则会并存两条视觉同名条目
+            key = resolve_asset_key(data[bk], name_) or name_
+            data[bk][key] = payload
 
     if plans:
         project_manager.update_project(req.target_project, _apply_all)

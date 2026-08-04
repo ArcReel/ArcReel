@@ -440,6 +440,28 @@ class TestGenerateRouter:
             assert call["media_type"] == "image"
             assert call["resource_id"] == "Alice"
 
+    def test_character_enqueue_resolves_nfd_registered_key(self, tmp_path, monkeypatch):
+        """路径参数与桶 key 形态可以不同：登记闸口落 NFC 后，仍须能按 NFD 原文发起生成，
+        且入队的 resource_id 用真实落盘 key，不新造一种编码形式。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"] = {name_nfd: {"description": "存量 NFD 角色"}}
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                f"/api/v1/projects/demo/generate/character/{name_nfc}",
+                json={"prompt": "女主，冷静"},
+            )
+            assert resp.status_code == 200, resp.text
+            assert fake_queue.calls[0]["resource_id"] == name_nfd
+
     def test_scene_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

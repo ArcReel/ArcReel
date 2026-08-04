@@ -80,6 +80,35 @@ describe("ReferencePanel", () => {
     expect(screen.getAllByRole("button", { name: /Remove reference|移除引用/ })).toHaveLength(2);
   });
 
+  it("resolves the chip thumbnail from the last matching bucket key when NFC and NFD duplicates exist", () => {
+    // 存量桶可能同时含同一名字的 NFC/NFD 两条 key（登记闸口只约束新写入，存量不迁移），
+    // 后写入的胜出——与后端 normalize_asset_bucket / VoiceLegacyBanner 的合并方向一致。
+    const nameNfc = "Hiếu".normalize("NFC");
+    const nameNfd = "Hiếu".normalize("NFD");
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...PROJECT,
+        characters: {
+          [nameNfc]: { description: "", character_sheet: "characters/first.png" },
+          [nameNfd]: { description: "", character_sheet: "characters/last.png" },
+        },
+      },
+    });
+    const { container } = render(
+      <ReferencePanel
+        references={[{ type: "character", name: nameNfc }]}
+        projectName="proj"
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onAdd={vi.fn()}
+      />,
+    );
+    const img = container.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute("src")).toContain("last.png");
+  });
+
   it("calls onRemove when the ✕ button is clicked", () => {
     const onRemove = vi.fn();
     render(

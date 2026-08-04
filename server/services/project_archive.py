@@ -36,6 +36,22 @@ ARCHIVE_SCRIPT_SCHEMA_VERSION = 2
 DEFAULT_IMPORT_FILENAME = "imported-project.zip"
 
 
+def _resolve_existing_asset(name: str, candidates: set[str]) -> str:
+    """把剧本里的资产名解析为 *candidates* 中等价的真实名字；未命中原样返回。
+
+    导入的剧本与 project.json 可以各自是 NFC/NFD 中的任一形态（登记闸口落 NFC，
+    存量归档不迁移），按 ``lib.asset_types`` 的比对坐标系解析后才判得准成员关系：
+    否则修复期会给已登记的资产补一条视觉同名的占位定义，或对其报 blocking 缺失。
+    """
+    if name in candidates:
+        return name
+    canonical = normalize_asset_name(name)
+    for candidate in candidates:
+        if normalize_asset_name(candidate) == canonical:
+            return candidate
+    return name
+
+
 @dataclass(frozen=True)
 class ArchiveMember:
     info: zipfile.ZipInfo
@@ -841,7 +857,9 @@ class ProjectArchiveService:
                 refs = item.get(asset_field)
                 if not isinstance(refs, list):
                     continue
-                missing = sorted({name for name in refs if isinstance(name, str) and name not in pool})
+                missing = sorted(
+                    {name for name in refs if isinstance(name, str) and _resolve_existing_asset(name, pool) not in pool}
+                )
                 if missing:
                     diagnostics.add(
                         "blocking",
@@ -975,8 +993,12 @@ class ProjectArchiveService:
         character_name: str,
         diagnostics: ArchiveDiagnostics,
     ) -> bool:
-        """为缺失的角色引用补占位定义，返回是否改动 project_payload。"""
-        if character_name in project_characters:
+        """为缺失的角色引用补占位定义，返回是否改动 project_payload。
+
+        成员判定经 :func:`_resolve_existing_asset`：已登记角色的另一种编码形式不再被
+        当作缺失补进第二条占位定义（后写入胜出会盖掉真实的 sheet / 配音元数据）。
+        """
+        if _resolve_existing_asset(character_name, project_characters) in project_characters:
             return False
         project_payload.setdefault("characters", {})
         if not isinstance(project_payload.get("characters"), dict):
@@ -1120,23 +1142,12 @@ class ProjectArchiveService:
         与 narration/drama 的 characters/scenes/props 处理对齐——只是引用结构是
         list[{type, name}]。返回是否补过占位角色（即 project_payload 是否改动）。
 
-        引用名（``ref_name``）在别处已归一到 NFC（见 ``lib.asset_types.normalize_asset_name``），
-        registered 集合的 key 仍是落盘原始形式（可能是 NFD）；比对前把 ``ref_name`` 解析回
-        registered 集合里字节形式一致的那个 key，否则会把已登记的资产误判缺失，插入一份
-        重复的占位定义（角色）或产出假阳性阻断诊断（场景/道具）。
+        引用名与 registered 集合的 key 可以是 NFC/NFD 中的任一形态，成员判定一律经
+        :func:`_resolve_existing_asset`，与 narration/drama 分支同口径。
         """
         references = unit.get("references")
         if not isinstance(references, list):
             return False
-
-        def resolve_existing(name: str, candidates: set[str]) -> str:
-            if name in candidates:
-                return name
-            canonical = normalize_asset_name(name)
-            for candidate in candidates:
-                if normalize_asset_name(candidate) == canonical:
-                    return candidate
-            return name
 
         project_changed = False
         missing_scenes: set[str] = set()
@@ -1149,12 +1160,11 @@ class ProjectArchiveService:
                 continue
             ref_type = ref.get("type")
             if ref_type == "character":
-                resolved_name = resolve_existing(ref_name, project_characters)
-                if self._add_placeholder_character(project_payload, project_characters, resolved_name, diagnostics):
+                if self._add_placeholder_character(project_payload, project_characters, ref_name, diagnostics):
                     project_changed = True
-            elif ref_type == "scene" and resolve_existing(ref_name, project_scenes) not in project_scenes:
+            elif ref_type == "scene" and _resolve_existing_asset(ref_name, project_scenes) not in project_scenes:
                 missing_scenes.add(ref_name)
-            elif ref_type == "prop" and resolve_existing(ref_name, project_props) not in project_props:
+            elif ref_type == "prop" and _resolve_existing_asset(ref_name, project_props) not in project_props:
                 missing_props.add(ref_name)
 
         for missing, asset_type, label in (

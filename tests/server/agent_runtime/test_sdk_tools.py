@@ -1682,6 +1682,33 @@ def test_build_asset_specs_skips_invalid_description(monkeypatch) -> None:
     assert any("Carol" in w for w in warnings)
 
 
+def test_build_asset_specs_resolves_nfd_registered_key() -> None:
+    """智能体给的名字与桶 key 形态可以不同：按坐标系解析后入队，resource_id 用真实落盘 key。"""
+    import unicodedata
+
+    from lib.asset_types import ASSET_SPECS
+    from server.agent_runtime.sdk_tools.enqueue_assets import _build_specs
+
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    bucket = ASSET_SPECS["character"].bucket_key
+
+    class _PM:
+        def load_project(self, _name):
+            return {bucket: {name_nfd: {"description": "存量 NFD 角色"}}}
+
+    warnings: list[str] = []
+    specs = _build_specs(_PM(), "demo", "character", [name_nfc], warnings)  # type: ignore[arg-type]
+    assert [s.resource_id for s in specs] == [name_nfd]
+    assert warnings == []
+
+    # 同一资产的两种拼写解析到同一个 key，只入一次队（调用方侧的去重只按原始字符串）
+    warnings = []
+    specs = _build_specs(_PM(), "demo", "character", [name_nfc, name_nfd], warnings)  # type: ignore[arg-type]
+    assert [s.resource_id for s in specs] == [name_nfd]
+    assert warnings == []
+
+
 def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> None:
     """duration 是能力维度，入队侧不再校验——任意 duration 都透传给执行层（见 ADR-0001）。"""
     from server.agent_runtime.sdk_tools.enqueue_videos import _build_video_specs

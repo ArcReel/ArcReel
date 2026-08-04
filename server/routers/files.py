@@ -20,7 +20,7 @@ from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib.api_errors import NotFoundError
-from lib.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, validate_asset_name
+from lib.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
 from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
     AUDIO_REFERENCE_MAX_SECONDS,
@@ -322,7 +322,8 @@ async def upload_file(
 
             if spec.host_bucket is not None:
                 hosts = manager.load_project(project_name).get(spec.host_bucket) or {}
-                if not name or name not in hosts:
+                # name 已经过 validate_asset_name 落到 NFC，存量宿主 key 可能是 NFD，按坐标系解析存在性
+                if not name or resolve_asset_key(hosts, name) is None:
                     raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name or ""))
 
             target_dir = project_dir.joinpath(*spec.subdir)
@@ -362,9 +363,9 @@ async def upload_file(
             stale_audio_path: Path | None = None
             if spec.tracks_stale_audio and name:
                 # 实际删除推迟到新文件与字段写入成功之后（见 discard_stale_reference_audio）。
-                old_audio = (manager.load_project(project_name).get("characters", {}).get(name, {})).get(
-                    "reference_audio"
-                )
+                characters = manager.load_project(project_name).get("characters", {})
+                char_key = resolve_asset_key(characters, name)
+                old_audio = (characters.get(char_key, {}) if char_key else {}).get("reference_audio")
                 stale_audio_path = resolve_stale_reference_audio(
                     project_dir, target_dir, old_audio, target_dir / filename
                 )
@@ -418,7 +419,9 @@ async def delete_character_reference_audio(project_name: str, name: str, _t: Tra
             manager = get_project_manager()
             project_dir = manager.get_project_path(project_name)
             project = manager.load_project(project_name)
-            character = (project.get("characters") or {}).get(name)
+            characters = project.get("characters") or {}
+            char_key = resolve_asset_key(characters, name)
+            character = characters.get(char_key) if char_key else None
             if character is None:
                 raise HTTPException(status_code=404, detail=_t("character_not_found", name=name))
 
