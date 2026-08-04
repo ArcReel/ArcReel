@@ -20,6 +20,8 @@ from lib.resource_paths import RESOURCE_TYPES, resource_extension, resource_rela
 from lib.script_models import GeneratedAssets
 from lib.version_manager import VersionManager
 
+pytestmark = pytest.mark.unit
+
 
 class TestResourcePaths:
     def test_audio_relative_path(self):

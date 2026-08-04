@@ -47,6 +47,7 @@ async def _seed(session, *, models: list[dict]) -> str:
 
 
 class TestLoadCustomBackend:
+    @pytest.mark.unit
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
     async def test_resolves_named_model_and_delegates(self, mock_cls, session):
         pid = await _seed(
@@ -58,6 +59,7 @@ class TestLoadCustomBackend:
         assert result.model == "dall-e-3"
         mock_cls.assert_called_once_with(api_key="sk-relay", base_url="https://relay.test/v1", model="dall-e-3")
 
+    @pytest.mark.unit
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
     async def test_falls_back_to_default_when_model_disabled(self, mock_cls, session):
         # 请求的 model 已禁用 → 回退到该 media_type 的默认启用 model
@@ -71,12 +73,14 @@ class TestLoadCustomBackend:
         result = await load_custom_backend(session=session, provider_id=pid, model_id="disabled-m", media_type="image")
         assert result.model == "active-m"
 
+    @pytest.mark.unit
     async def test_provider_not_found_fails_loud(self, session):
         with pytest.raises(ValueError, match="不存在"):
             await load_custom_backend(
                 session=session, provider_id=make_provider_id(999), model_id="x", media_type="image"
             )
 
+    @pytest.mark.unit
     async def test_no_default_model_for_media_fails_loud(self, session):
         # 只有 image model，请求 video → 无默认 video model
         pid = await _seed(

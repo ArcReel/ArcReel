@@ -26,6 +26,7 @@ class _FakePM:
 
 
 class TestStatusCalculator:
+    @pytest.mark.unit
     def test_select_kind_and_items(self):
         kind, items = StatusCalculator._select_kind_and_items(
             {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]}, "storyboard"
@@ -37,6 +38,7 @@ class TestStatusCalculator:
         assert kind2 == "scenes"
         assert len(items2) == 1
 
+    @pytest.mark.unit
     def test_calculate_episode_stats_statuses(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
 
@@ -80,6 +82,7 @@ class TestStatusCalculator:
         assert completed["storyboards"] == {"total": 1, "completed": 0}
         assert completed["videos"] == {"total": 1, "completed": 1}
 
+    @pytest.mark.unit
     def test_calculate_episode_stats_tolerates_corrupt_generated_assets(self, tmp_path):
         """generated_assets 为非 dict 脏数据（如字符串）时按缺失处理，不抛 AttributeError。"""
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
@@ -97,6 +100,7 @@ class TestStatusCalculator:
         assert stats["storyboards"] == {"total": 2, "completed": 1}
         assert stats["videos"] == {"total": 2, "completed": 0}
 
+    @pytest.mark.unit
     def test_load_episode_script(self, tmp_path):
         project_root = tmp_path / "projects"
         project_path = project_root / "demo"
@@ -172,6 +176,7 @@ class TestStatusCalculator:
         assert status7 == "segmented"
         assert script7 is None
 
+    @pytest.mark.unit
     def test_calculate_current_phase_setup(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         project_no_overview = {}
@@ -179,6 +184,7 @@ class TestStatusCalculator:
         # 即使有空集列表，但无 overview 且无资产 → 仍是 setup
         assert calc.calculate_current_phase(project_no_overview, [], assets_completed=0) == "setup"
 
+    @pytest.mark.unit
     def test_calculate_current_phase_worldbuilding(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         project = {"overview": {"synopsis": "test"}}
@@ -192,6 +198,7 @@ class TestStatusCalculator:
         # 没有 overview / 资产，但已有分段草稿 → 仍判定为 worldbuilding
         assert calc.calculate_current_phase({}, [{"script_status": "segmented"}], assets_completed=0) == "worldbuilding"
 
+    @pytest.mark.unit
     def test_calculate_current_phase_scripting(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         project = {"overview": {"synopsis": "test"}}
@@ -204,6 +211,7 @@ class TestStatusCalculator:
         # 没有 overview 也一样：脚本产物本身就是更强信号
         assert calc.calculate_current_phase({}, episodes_stats) == "scripting"
 
+    @pytest.mark.unit
     def test_calculate_current_phase_production_and_completed(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         project = {"overview": {"synopsis": "test"}}
@@ -248,6 +256,7 @@ class TestStatusCalculator:
         ]
         assert calc.calculate_current_phase(project, all_scripts_in_prod, assets_completed=3) == "production"
 
+    @pytest.mark.unit
     def test_calculate_project_status(self, tmp_path):
         project_root = tmp_path / "projects"
         project_path = project_root / "demo"
@@ -290,6 +299,7 @@ class TestStatusCalculator:
         assert status["props"] == {"total": 1, "completed": 1}
         assert status["episodes_summary"] == {"total": 1, "scripted": 1, "in_production": 0, "completed": 1}
 
+    @pytest.mark.unit
     def test_enrich_project(self, tmp_path):
         project_root = tmp_path / "projects"
         project_root.mkdir(parents=True)
@@ -340,6 +350,7 @@ class TestStatusCalculator:
         assert ep2["script_status"] == "none"
         assert ep2["status"] == "draft"
 
+    @pytest.mark.unit
     def test_stale_ledger_episode_regresses_to_pending_preprocess(self, tmp_path):
         """账本标 stale 的集：读时状态回退为待预处理（script_status=none），已有产物不删除。
 
@@ -386,6 +397,7 @@ class TestStatusCalculator:
         # 项目级汇总同步回退：仅 1 集计为已生成剧本
         assert enriched["status"]["episodes_summary"]["scripted"] == 1
 
+    @pytest.mark.unit
     def test_enrich_script(self, tmp_path):
         script = {
             "content_mode": "narration",
@@ -408,6 +420,7 @@ class TestStatusCalculator:
         assert enriched_script["scenes_in_episode"] == ["S1"]
         assert enriched_script["props_in_episode"] == ["P1"]
 
+    @pytest.mark.unit
     def test_load_episode_script_corrupted_json(self, tmp_path):
         """JSON 损坏时应降级返回 ('generated', None)，而不是上抛异常。"""
         import json
@@ -421,6 +434,7 @@ class TestStatusCalculator:
         assert status == "generated"
         assert script is None
 
+    @pytest.mark.unit
     def test_calculate_project_status_preloaded_scripts_skips_pm_load(self, tmp_path):
         """preloaded_scripts 覆盖所有集时，不应再调用 pm.load_script。
 
@@ -465,6 +479,7 @@ class TestStatusCalculator:
         assert status["episodes_summary"]["total"] == 1
         assert status["episodes_summary"]["scripted"] == 1
 
+    @pytest.mark.unit
     def test_calculate_project_status_preloaded_scripts_falls_back_for_missing(self, tmp_path):
         """preloaded_scripts 未覆盖的集：回退 pm.load_script，保持"尽力而为"合同。"""
         project_root = tmp_path / "projects"
@@ -513,12 +528,14 @@ class TestStatusCalculator:
 class TestAdStatusCalculation:
     """广告/短片模式（平铺 shots[]）的状态与统计计算。"""
 
+    @pytest.mark.unit
     def test_select_ad_by_duck_typing_when_content_mode_absent(self):
         # 本地 legacy 容忍：缺 content_mode 的存量 ad 剧本按 shots 键鸭子推断（矩阵不覆盖本地阶梯）。
         kind, items = StatusCalculator._select_kind_and_items({"shots": [{"shot_id": "E1S01"}]}, "storyboard")
         assert kind == "shots"
         assert len(items) == 1
 
+    @pytest.mark.unit
     def test_calculate_episode_stats_for_ad(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
 
@@ -538,6 +555,7 @@ class TestAdStatusCalculation:
         assert stats["storyboards"] == {"total": 2, "completed": 1}
         assert stats["videos"] == {"total": 2, "completed": 0}
 
+    @pytest.mark.unit
     def test_ad_reference_path_scores_videos_by_units(self, tmp_path):
         """ad + reference_video：视频进度按派生 unit 计，分镜仍按 shots 计（该路径恒 0）。"""
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
@@ -564,6 +582,7 @@ class TestAdStatusCalculation:
         assert stats["duration_seconds"] == 5
         assert stats["scenes_count"] == 2
 
+    @pytest.mark.unit
     def test_ad_reference_path_without_index_stays_draft(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         script = {"content_mode": "ad", "shots": [{"shot_id": "E1S01", "duration_seconds": 3}]}
@@ -573,6 +592,7 @@ class TestAdStatusCalculation:
         assert stats["videos"] == {"total": 0, "completed": 0}
         assert stats["status"] == "draft"
 
+    @pytest.mark.unit
     def test_ad_reference_path_malformed_index_scores_as_not_derived(self, tmp_path):
         """索引形状损坏（非数组 / 夹非 dict 条目）按未派生计分，不部分计数、不抛错。"""
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
@@ -599,6 +619,7 @@ class TestAdStatusCalculation:
             assert stats["videos"] == {"total": 0, "completed": 0}
             assert stats["status"] == "draft"
 
+    @pytest.mark.unit
     def test_ad_storyboard_path_ignores_leftover_index(self, tmp_path):
         """切回 storyboard 路径后按 shots 计分，残留索引不污染状态。"""
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
@@ -618,6 +639,7 @@ class TestAdStatusCalculation:
 
         assert stats["videos"] == {"total": 1, "completed": 0}
 
+    @pytest.mark.unit
     def test_ad_missing_duration_counts_zero(self, tmp_path):
         # ad 无单镜头默认时长偏好：缺 duration_seconds 的镜头按 0 计入，
         # 不挪用 narration(4)/drama(8) 的默认值污染 target_duration 对照
@@ -628,6 +650,7 @@ class TestAdStatusCalculation:
         )
         assert stats["duration_seconds"] == 3
 
+    @pytest.mark.unit
     def test_enrich_script_aggregates_ad_references(self, tmp_path):
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         script = {
@@ -729,6 +752,7 @@ class TestAdStatusCalculation:
         assert enriched["scenes_in_episode"] == []
         assert enriched["props_in_episode"] == []
 
+    @pytest.mark.unit
     def test_duck_typing_precedence_segments_over_scenes_over_shots(self):
         """缺 content_mode 的老脚本同时残留多种键时，鸭子类型优先级固定为
         segments > scenes > shots（依赖 _LEGACY_DUCK_TYPE_KINDS 顺序，本测试钉住该顺序）。"""
@@ -756,6 +780,7 @@ class TestStatusCalculatorSkeletonExhaustiveness:
     KeyError，逐个报红。
     """
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
     def test_calculate_episode_stats_covers_every_skeleton_kind(self, kind, tmp_path):
         from lib.script_skeleton import SKELETONS

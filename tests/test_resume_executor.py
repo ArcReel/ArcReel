@@ -18,6 +18,8 @@ import pytest
 
 from lib.video_backends.base import ResumeExpiredError
 
+pytestmark = pytest.mark.unit
+
 
 class _FakeProjectManager:
     def __init__(self, project_path: Path, project: dict[str, Any]) -> None:

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from pydantic import BaseModel
 
 from lib.text_backends.base import (
@@ -16,6 +17,8 @@ from lib.text_backends.base import (
     TextTaskType,
     resolve_schema,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class TestTextCapability:

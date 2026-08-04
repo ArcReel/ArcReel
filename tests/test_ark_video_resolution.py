@@ -7,6 +7,8 @@ import pytest
 from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import VideoGenerationRequest
 
+pytestmark = pytest.mark.unit
+
 
 def _make_backend():
     backend = ArkVideoBackend.__new__(ArkVideoBackend)

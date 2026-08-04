@@ -16,6 +16,8 @@ from pydantic import BaseModel
 from lib.providers import PROVIDER_AGNES
 from lib.text_backends.base import TextCapability, TextGenerationRequest
 
+pytestmark = pytest.mark.unit
+
 
 def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):
     """构造 mock ChatCompletion 响应。"""

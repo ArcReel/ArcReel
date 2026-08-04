@@ -1,7 +1,11 @@
 """Tests for GridManager file-based CRUD."""
 
+import pytest
+
 from lib.grid.models import GridGeneration
 from lib.grid_manager import GridManager
+
+pytestmark = pytest.mark.unit
 
 
 def _make_grid(**kwargs) -> GridGeneration:

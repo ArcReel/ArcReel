@@ -4,11 +4,14 @@ import json
 import zipfile
 from io import BytesIO
 
+import pytest
 from fastapi.testclient import TestClient
 
 from lib.project_manager import ProjectManager
 from server.auth import create_download_token
 from tests.conftest import make_test_video
+
+pytestmark = pytest.mark.integration
 
 
 def _setup_project(pm: ProjectManager):

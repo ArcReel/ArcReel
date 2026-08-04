@@ -10,6 +10,8 @@ from sqlalchemy import select
 from lib.agent_session_store import AgentSessionEntry
 from lib.agent_session_store.store import DbSessionStore
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.mark.sqlite_only
 @pytest.mark.asyncio

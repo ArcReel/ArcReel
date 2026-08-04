@@ -17,6 +17,8 @@ from lib.pricing.types import (
     ViduDelegate,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestPerToken:
     pricing = PerToken(

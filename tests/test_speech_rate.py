@@ -12,6 +12,8 @@ from lib.speech_rate import (
     speech_rate_units_per_second,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestSpeechRateUnitsPerSecond:
     def test_none_and_empty_fall_back_to_default(self):

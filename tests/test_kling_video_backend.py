@@ -70,23 +70,28 @@ def _request(tmp_path: Path, **overrides) -> VideoGenerationRequest:
 
 
 class TestConstructionAndCapabilities:
+    @pytest.mark.unit
     def test_name_and_default_model(self):
         b = _jwt_backend()
         assert b.name == PROVIDER_KLING
         assert b.model == "kling-v2-5-turbo"
 
+    @pytest.mark.unit
     def test_jwt_missing_credentials_raises(self):
         with pytest.raises(ValueError):
             KlingVideoBackend(auth_mode="jwt", access_key="ak", secret_key=None)
 
+    @pytest.mark.unit
     def test_bearer_missing_api_key_raises(self):
         with pytest.raises(ValueError):
             KlingVideoBackend(auth_mode="bearer", api_key=None)
 
+    @pytest.mark.unit
     def test_unknown_auth_mode_raises(self):
         with pytest.raises(ValueError):
             KlingVideoBackend(auth_mode="oauth", api_key="k")
 
+    @pytest.mark.unit
     def test_video_capabilities_first_and_last_frame(self):
         caps = _jwt_backend().video_capabilities
         assert caps.first_frame is True
@@ -137,21 +142,25 @@ class TestVideoCapabilitiesForTier:
 
 
 class TestPerModelCapabilities:
+    @pytest.mark.unit
     def test_v3_t2v_i2v_no_audio_no_reference(self):
         b = _jwt_backend("kling-v3")
         vc = b.video_capabilities
         assert vc.first_frame is True and vc.last_frame is True
         assert vc.max_reference_images == 0
 
+    @pytest.mark.unit
     def test_v3_omni_declares_reference_images(self):
         b = _jwt_backend("kling-v3-omni")
         vc = b.video_capabilities
         assert vc.max_reference_images == 4  # 保守值，待控制台核对
 
+    @pytest.mark.unit
     def test_v2_6_declares_generate_audio_no_reference(self):
         b = _jwt_backend("kling-v2-6")
         assert b.video_capabilities.max_reference_images == 0
 
+    @pytest.mark.unit
     def test_video_o1_i2v_only_with_reference_images(self):
         b = _jwt_backend("kling-video-o1")
         # 多图主体 R2V
@@ -159,6 +168,7 @@ class TestPerModelCapabilities:
         assert vc.last_frame is True
         assert vc.max_reference_images == 4
 
+    @pytest.mark.unit
     def test_video_o1_pricing_audio_matches_effective_request(self, tmp_path):
         """预估消费的 backend 能力接口与真实请求的 `_effective_audio` 对参考模型给出同一静音档。"""
         backend = _jwt_backend("kling-video-o1")
@@ -167,6 +177,7 @@ class TestPerModelCapabilities:
         assert effective_generate_audio_for_model("kling", "kling-video-o1") is False
         assert backend._effective_audio(request, subpath="text2video") is False
 
+    @pytest.mark.unit
     def test_unknown_model_falls_back_to_default_caps(self):
         # bearer 透传原生 model_name：未登记 → 保守默认（t2v+i2v、尾帧仅 pro 档，声明按 std 档保守
         # 为 False；无音频/参考）
@@ -175,6 +186,7 @@ class TestPerModelCapabilities:
         assert vc.last_frame is False
         assert vc.max_reference_images == 0
 
+    @pytest.mark.unit
     def test_prefixed_and_cased_model_normalizes_to_registered_caps(self):
         # 中转 model_id 带厂商前缀（仓库既有约定 / 与 :）+ 非规范大小写/空白：归一化后实例 caps 仍精确命中
         # 已登记档，生成时防御与 resolver 裁剪同源——否则编排层放 4 张参考图、backend 却按默认 0 拒收。
@@ -182,6 +194,7 @@ class TestPerModelCapabilities:
             vc = _bearer_backend(model).video_capabilities
             assert vc.max_reference_images > 0 and vc.max_reference_images == 4
 
+    @pytest.mark.unit
     def test_future_version_does_not_inherit_caps_by_substring(self):
         # kling-v4 含子串 "kling-v3"？不含——但即便形如 kling-v3-omni-pro 也不得被子串误判继承能力；
         # 未登记一律保守默认，不猜未知 model 的参考图上限。
@@ -191,31 +204,37 @@ class TestPerModelCapabilities:
 
 
 class TestModeAndResolution:
+    @pytest.mark.unit
     def test_resolution_4k_maps_to_mode_4k(self, tmp_path):
         _, payload = _jwt_backend("kling-v3")._build_payload(_request(tmp_path, resolution="4k"))
         assert payload["mode"] == "4k"
 
+    @pytest.mark.unit
     def test_resolution_4k_case_insensitive(self, tmp_path):
         _, payload = _jwt_backend("kling-v3-omni")._build_payload(_request(tmp_path, resolution="4K"))
         assert payload["mode"] == "4k"
 
+    @pytest.mark.unit
     def test_4k_overrides_service_tier(self, tmp_path):
         # 4k 档优先于 std/pro（与 per_second_tiered 档位派生一致）
         _, payload = _jwt_backend("kling-v3")._build_payload(_request(tmp_path, resolution="4k", service_tier="pro"))
         assert payload["mode"] == "4k"
 
+    @pytest.mark.unit
     def test_non_4k_resolution_keeps_service_tier_mode(self, tmp_path):
         _, payload = _jwt_backend("kling-v3")._build_payload(_request(tmp_path, resolution="1080p", service_tier="pro"))
         assert payload["mode"] == "pro"
 
 
 class TestAudioGating:
+    @pytest.mark.unit
     def test_v2_6_pro_audio_enabled(self, tmp_path):
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
             _request(tmp_path, resolution="1080p", service_tier="pro", generate_audio=True)
         )
         assert payload["sound"] == "on"
 
+    @pytest.mark.unit
     def test_v2_6_std_audio_forced_off(self, tmp_path):
         # v2-6 有声官方限 1080P，而可灵只能经 mode 请求该档位：std 档拿不到 1080P，
         # 即使 request.resolution 写 1080p 也压制为无声——否则拿到无声片却按有声价出账
@@ -276,6 +295,7 @@ class TestMultiImageSubpath:
             paths.append(p)
         return paths
 
+    @pytest.mark.unit
     def test_reference_images_select_multi_image2video(self, tmp_path):
         refs = self._refs(tmp_path, 2)
         subpath, payload = _jwt_backend("kling-v3-omni")._build_payload(_request(tmp_path, reference_images=refs))
@@ -302,6 +322,7 @@ class TestMultiImageSubpath:
             is False
         )
 
+    @pytest.mark.unit
     def test_reference_images_take_precedence_over_start_image(self, tmp_path):
         refs = self._refs(tmp_path, 1)
         start = tmp_path / "start.png"
@@ -312,10 +333,12 @@ class TestMultiImageSubpath:
         assert subpath == "multi-image2video"
         assert "image_list" in payload
 
+    @pytest.mark.unit
     def test_empty_reference_images_falls_through(self, tmp_path):
         subpath, _ = _jwt_backend("kling-v3-omni")._build_payload(_request(tmp_path, reference_images=[]))
         assert subpath == "text2video"
 
+    @pytest.mark.unit
     def test_unreadable_reference_image_raises(self, tmp_path):
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend("kling-v3-omni")._build_payload(
@@ -336,12 +359,14 @@ class TestCapabilityValidation:
             paths.append(p)
         return paths
 
+    @pytest.mark.unit
     def test_reference_images_on_unsupported_model_raises(self, tmp_path):
         # kling-v3 未声明多图主体能力：带参考图即拒绝，不误升级到 multi-image2video 子路径
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend("kling-v3")._build_payload(_request(tmp_path, reference_images=self._refs(tmp_path, 1)))
         assert exc.value.code == "video_reference_images_unsupported"
 
+    @pytest.mark.unit
     def test_reference_images_over_limit_raises(self, tmp_path):
         # v3-omni 上限 4：传 5 张即拒绝
         with pytest.raises(VideoCapabilityError) as exc:
@@ -350,12 +375,14 @@ class TestCapabilityValidation:
         assert exc.value.params["limit"] == 4
         assert exc.value.params["count"] == 5
 
+    @pytest.mark.unit
     def test_text2video_on_model_without_t2v_raises(self, tmp_path):
         # kling-video-o1 不支持文生视频：无首帧/无参考即拒绝，不回落 text2video 子路径
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend("kling-video-o1")._build_payload(_request(tmp_path))
         assert exc.value.code == "video_capability_missing_t2v"
 
+    @pytest.mark.unit
     def test_reference_at_limit_allowed(self, tmp_path):
         # 恰好达上限（4 张）放行
         subpath, payload = _jwt_backend("kling-v3-omni")._build_payload(
@@ -366,6 +393,7 @@ class TestCapabilityValidation:
 
 
 class TestAuthHeaders:
+    @pytest.mark.unit
     def test_jwt_mode_signs_bearer_token(self):
         headers = _jwt_backend()._headers()
         assert headers["Content-Type"] == "application/json"
@@ -373,6 +401,7 @@ class TestAuthHeaders:
         claims = jwt.decode(token, _SECRET, algorithms=["HS256"], options={"verify_exp": False})
         assert claims["iss"] == "ak-1"
 
+    @pytest.mark.unit
     def test_bearer_mode_uses_static_key(self):
         # bearer 模式旁路 JWT 管理器：Authorization 是静态 key，非签名 token
         headers = _bearer_backend()._headers()
@@ -380,6 +409,7 @@ class TestAuthHeaders:
 
 
 class TestPayloadBuilding:
+    @pytest.mark.unit
     def test_text2video_no_image(self, tmp_path):
         subpath, payload = _jwt_backend()._build_payload(_request(tmp_path))
         assert subpath == "text2video"
@@ -389,14 +419,17 @@ class TestPayloadBuilding:
         assert payload["aspect_ratio"] == "9:16"
         assert "image" not in payload
 
+    @pytest.mark.unit
     def test_service_tier_pro_maps_to_mode_pro(self, tmp_path):
         _, payload = _jwt_backend()._build_payload(_request(tmp_path, service_tier="pro"))
         assert payload["mode"] == "pro"
 
+    @pytest.mark.unit
     def test_service_tier_default_maps_to_std(self, tmp_path):
         _, payload = _jwt_backend()._build_payload(_request(tmp_path, service_tier="default"))
         assert payload["mode"] == "std"
 
+    @pytest.mark.unit
     def test_image2video_embeds_base64_frame(self, tmp_path):
         img = tmp_path / "first.png"
         img.write_bytes(b"\x89PNG\r\n")
@@ -407,6 +440,7 @@ class TestPayloadBuilding:
         assert not payload["image"].startswith("data:")
         assert "image_tail" not in payload
 
+    @pytest.mark.unit
     def test_image2video_with_end_frame(self, tmp_path):
         # kling-v2-5-turbo 首尾帧仅 pro 档生效，须显式带 service_tier="pro" 才会放行 image_tail。
         first = tmp_path / "first.png"
@@ -440,6 +474,7 @@ class TestPayloadBuilding:
         _, payload = _jwt_backend("kling-v3")._build_payload(_request(tmp_path, start_image=first, end_image=last))
         assert "image" in payload and "image_tail" in payload
 
+    @pytest.mark.unit
     def test_image2video_empty_end_frame_is_omitted(self, tmp_path):
         # 空串 end_image 等价于"无尾帧"，按 truthy 判定跳过，不应误当路径去编码而崩溃。
         first = tmp_path / "first.png"
@@ -448,6 +483,7 @@ class TestPayloadBuilding:
         assert subpath == "image2video"
         assert "image" in payload and "image_tail" not in payload
 
+    @pytest.mark.unit
     def test_unreadable_start_image_raises(self, tmp_path):
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend()._build_payload(_request(tmp_path, start_image=tmp_path / "nope.png"))
@@ -455,6 +491,7 @@ class TestPayloadBuilding:
 
 
 class TestSafeLogView:
+    @pytest.mark.unit
     def test_no_base64_or_prompt_leaks(self, tmp_path):
         img = tmp_path / "f.png"
         img.write_bytes(b"\x89PNG\r\n")
@@ -470,6 +507,7 @@ class TestSafeLogView:
 
 
 class TestGenerateHappyPath:
+    @pytest.mark.unit
     async def test_submit_poll_download(self, tmp_path):
         post = AsyncMock(return_value=_resp(_submit("task-9")))
         get = AsyncMock(
@@ -494,6 +532,7 @@ class TestGenerateHappyPath:
         # text2video 提交端点
         assert post.await_args.args[0].endswith("/videos/text2video")
 
+    @pytest.mark.unit
     async def test_jwt_injected_on_submit(self, tmp_path):
         captured: dict = {}
 
@@ -515,6 +554,7 @@ class TestGenerateHappyPath:
         claims = jwt.decode(token, _SECRET, algorithms=["HS256"], options={"verify_exp": False})
         assert claims["iss"] == "ak-1"
 
+    @pytest.mark.unit
     async def test_bearer_static_key_on_submit(self, tmp_path):
         captured: dict = {}
 
@@ -533,6 +573,7 @@ class TestGenerateHappyPath:
             await _bearer_backend().generate(_request(tmp_path))
         assert captured["headers"]["Authorization"] == "Bearer static-key"
 
+    @pytest.mark.unit
     async def test_failed_status_raises(self, tmp_path):
         post = AsyncMock(return_value=_resp(_submit()))
         get = AsyncMock(return_value=_resp(_query("failed", status_msg="content rejected")))
@@ -545,6 +586,7 @@ class TestGenerateHappyPath:
             with pytest.raises(RuntimeError, match="content rejected"):
                 await _jwt_backend().generate(_request(tmp_path))
 
+    @pytest.mark.unit
     async def test_persists_provider_job_id_when_task_id_present(self, tmp_path):
         post = AsyncMock(return_value=_resp(_submit("task-x")))
         get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
@@ -561,6 +603,7 @@ class TestGenerateHappyPath:
         # 持久化的是「子路径:task_id:有声标志」，resume 据此复原查询端点（text2video 因无首帧）+ 有声决策（turbo 恒 0）
         assert persist.await_args.args[1] == "text2video:task-x:0"
 
+    @pytest.mark.unit
     async def test_persists_image2video_subpath_in_job_id(self, tmp_path):
         img = tmp_path / "first.png"
         img.write_bytes(b"\x89PNG\r\n")
@@ -580,6 +623,7 @@ class TestGenerateHappyPath:
 
 
 class TestResume:
+    @pytest.mark.unit
     async def test_resume_polls_without_resubmit(self, tmp_path):
         post = AsyncMock()  # must NOT be called
         get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
@@ -598,6 +642,7 @@ class TestResume:
         assert get.await_args.args[0].endswith("/videos/text2video/task-resume")
         dl.assert_awaited_once()
 
+    @pytest.mark.unit
     async def test_resume_image2video_subpath_from_encoded_job_id(self, tmp_path):
         # resume 请求不带 start_image（真实重启路径如此）：子路径必须来自持久化 job_id 前缀，
         # 否则 image2video 任务会误查 text2video 端点取不到。
@@ -614,6 +659,7 @@ class TestResume:
         assert result.task_id == "task-r2"
         assert get.await_args.args[0].endswith("/videos/image2video/task-r2")
 
+    @pytest.mark.unit
     async def test_resume_bare_job_id_falls_back_to_text2video(self, tmp_path):
         # 无已知前缀（异常/旧数据）回落 text2video，整串作 task_id。
         post = AsyncMock()
@@ -628,6 +674,7 @@ class TestResume:
         assert result.task_id == "legacy-bare-id"
         assert get.await_args.args[0].endswith("/videos/text2video/legacy-bare-id")
 
+    @pytest.mark.unit
     async def test_resume_multi_image2video_subpath_from_encoded_job_id(self, tmp_path):
         # 多图主体任务 resume：子路径从持久化 job_id 前缀复原，查 multi-image2video 端点。
         post = AsyncMock()
@@ -645,6 +692,7 @@ class TestResume:
 
 
 class TestAudioGatingResult:
+    @pytest.mark.unit
     async def test_v2_6_pro_audio_result_true(self, tmp_path):
         # v2-6 pro（即 1080P 档）+ 请求有声 → result.generate_audio=True（下游计费取有声价）
         post = AsyncMock(return_value=_resp(_submit("task-a")))
@@ -744,6 +792,7 @@ class TestAudioGatingResult:
         assert persist.await_args is not None
         assert persist.await_args.args[1] == "text2video:task-c:1"
 
+    @pytest.mark.unit
     async def test_resume_reuses_persisted_audio_over_recompute(self, tmp_path):
         # 持久化有声标志（:1）优先于 resume 时按请求重算：即使请求 generate_audio=False，
         # 结果仍取 submit 时算定的有声（避免计费漂移）
@@ -764,6 +813,7 @@ class TestAudioGatingResult:
         assert result.task_id == "task-c"
         assert get.await_args.args[0].endswith("/videos/text2video/task-c")
 
+    @pytest.mark.unit
     async def test_resume_legacy_job_id_stays_silent(self, tmp_path):
         # 不含有声标志的 2 段 job_id 一律判无声：这类任务的成片必然无声，不得按当前能力表重算为有声
         post = AsyncMock()

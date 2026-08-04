@@ -1,9 +1,12 @@
 """Tests for BaseRepository and _scope_query mechanism."""
 
+import pytest
 from sqlalchemy import select
 
 from lib.db.models import Task
 from lib.db.repositories.base import BaseRepository
+
+pytestmark = pytest.mark.unit
 
 
 class TestBaseRepository:

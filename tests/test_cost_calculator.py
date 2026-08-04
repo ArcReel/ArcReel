@@ -11,6 +11,8 @@ from lib.cost_calculator import CostCalculator, cost_calculator
 from lib.pricing.strategies import PricingParams
 from lib.providers import PROVIDER_ANTHROPIC
 
+pytestmark = pytest.mark.unit
+
 
 def _cost(provider, call_type, **params):
     """构造 ``PricingParams`` 并调统一入口——费用对拍只在意金额/币种，用薄封装免逐行铺展。"""

@@ -62,6 +62,7 @@ def _client(monkeypatch):
 
 
 class TestAssetRouterFactory:
+    @pytest.mark.unit
     def test_character_post_passes_extra_voice_style(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         with client:
@@ -116,6 +117,7 @@ class TestAssetRouterFactory:
             assert resp.status_code == 422
             assert "Bob" not in fake_pm.projects["demo"]["characters"]
 
+    @pytest.mark.unit
     def test_character_post_400_on_path_unsafe_name(self, monkeypatch):
         """名字含路径分隔符须在 HTTP 边界拒绝：这类名字会让生成（嵌套文件路径）
         与后续单段路由（PATCH/DELETE/{name}）全部失效。"""
@@ -129,6 +131,7 @@ class TestAssetRouterFactory:
                 assert resp.status_code == 400, bad_name
                 assert bad_name not in fake_pm.projects["demo"]["characters"]
 
+    @pytest.mark.unit
     def test_character_post_409_on_duplicate(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         fake_pm.projects["demo"]["characters"]["Alice"] = {
@@ -144,6 +147,7 @@ class TestAssetRouterFactory:
             )
             assert resp.status_code == 409
 
+    @pytest.mark.unit
     def test_character_patch_accepts_extra_fields(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         fake_pm.projects["demo"]["characters"]["Alice"] = {
@@ -167,6 +171,7 @@ class TestAssetRouterFactory:
             assert entry["voice_style"] == "strong"
             assert entry["reference_image"] == "characters/refs/Alice.png"
 
+    @pytest.mark.unit
     def test_character_patch_rejects_non_string_value(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         fake_pm.projects["demo"]["characters"]["Alice"] = {
@@ -268,6 +273,7 @@ class TestAssetRouterFactory:
             # entry 未被污染
             assert "voice_notice_dismissed_at" not in fake_pm.projects["demo"]["characters"]["Alice"]
 
+    @pytest.mark.unit
     def test_unknown_asset_type_raises(self):
         from server.routers._asset_router_factory import build_asset_router
 
@@ -287,6 +293,7 @@ class TestAssetRouterNoLeak:
     分支落到末端 except Exception，断言 500、detail 为通用 i18n 文案且哨兵串不出现在响应体。
     """
 
+    @pytest.mark.unit
     def test_add_unexpected_error_no_leak(self, monkeypatch):
         monkeypatch.setattr(
             characters,
@@ -302,6 +309,7 @@ class TestAssetRouterNoLeak:
             assert resp.json()["detail"] == _INTERNAL_ERROR_DETAIL
             assert "LEAK_add" not in resp.text
 
+    @pytest.mark.unit
     def test_update_unexpected_error_no_leak(self, monkeypatch):
         monkeypatch.setattr(
             characters,
@@ -317,6 +325,7 @@ class TestAssetRouterNoLeak:
             assert resp.json()["detail"] == _INTERNAL_ERROR_DETAIL
             assert "LEAK_update" not in resp.text
 
+    @pytest.mark.unit
     def test_delete_unexpected_error_no_leak(self, monkeypatch):
         monkeypatch.setattr(
             characters,

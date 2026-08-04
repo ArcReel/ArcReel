@@ -6,6 +6,8 @@ import pytest
 from lib.api_errors import BadRequestError, NotFoundError
 from server.routers import project_events as project_events_router
 
+pytestmark = pytest.mark.unit
+
 
 class _FakeRequest:
     def __init__(self, app, *, disconnect_after: int | None = None):

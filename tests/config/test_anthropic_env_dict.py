@@ -9,6 +9,8 @@ import pytest
 
 from lib.config.service import build_anthropic_env_dict
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.mark.asyncio
 async def test_active_credential_returns_full_dict(monkeypatch: pytest.MonkeyPatch) -> None:

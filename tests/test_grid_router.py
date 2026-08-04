@@ -1,7 +1,11 @@
 """基本路由存在性测试：验证 grids router 注册了预期路径。"""
 
+import pytest
+
 from server.routers.grids import router
 from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 class TestGridRouterExists:

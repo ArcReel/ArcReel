@@ -10,6 +10,8 @@ from lib.project_migrations import v2_to_v3_episode_ledger
 from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v2_to_v3_episode_ledger import migrate_v2_to_v3
 
+pytestmark = pytest.mark.unit
+
 NOVEL = "第一集的正文内容。第二集还没拆出来的余文。"
 EP1 = "第一集的正文内容。"
 

@@ -6,6 +6,8 @@ import pytest
 
 from lib.image_backends.base import ImageCapability, ImageCapabilityError
 
+pytestmark = pytest.mark.unit
+
 
 def _make_backend(caps: set[ImageCapability]) -> MagicMock:
     backend = MagicMock()

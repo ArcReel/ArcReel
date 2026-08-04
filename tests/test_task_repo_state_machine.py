@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.db.base import Base
 from lib.db.repositories.task_repo import TaskRepository
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def engine():

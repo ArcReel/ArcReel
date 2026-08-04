@@ -10,6 +10,8 @@ from alembic.config import Config
 
 from alembic import command
 
+pytestmark = pytest.mark.unit
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # 本文件只覆盖拆分迁移本身，停在该 revision——后续 revision 会把两桶重新收敛回默认层。

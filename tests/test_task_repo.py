@@ -35,6 +35,7 @@ async def db_session(engine):
 
 
 class TestTaskRepository:
+    @pytest.mark.unit
     async def test_enqueue_dedupe_claim_succeed(self, db_session):
         repo = TaskRepository(db_session)
 
@@ -68,6 +69,7 @@ class TestTaskRepository:
         done = await repo.get(first["task_id"])
         assert done["status"] == "succeeded"
 
+    @pytest.mark.unit
     async def test_enqueue_dedupe_respects_resource_type(self, db_session):
         """同名不同资产类型（如角色和道具都叫「玉佩」）不应互相去重。"""
         repo = TaskRepository(db_session)
@@ -105,6 +107,7 @@ class TestTaskRepository:
         assert character_edit_again["deduped"]
         assert character_edit_again["task_id"] == character_edit["task_id"]
 
+    @pytest.mark.unit
     async def test_dependency_cascade_failure(self, db_session):
         repo = TaskRepository(db_session)
 
@@ -210,6 +213,7 @@ class TestTaskRepository:
             assert "[" not in rendered
             assert "cascade_blocked_dependency" not in rendered
 
+    @pytest.mark.unit
     async def test_requeue_running_tasks(self, db_session):
         repo = TaskRepository(db_session)
 
@@ -228,6 +232,7 @@ class TestTaskRepository:
         queued = await repo.get(task["task_id"])
         assert queued["status"] == "queued"
 
+    @pytest.mark.unit
     async def test_worker_lease(self, db_session):
         repo = TaskRepository(db_session)
 
@@ -238,6 +243,7 @@ class TestTaskRepository:
         await repo.release_lease(name="default", owner_id="a")
         assert not await repo.is_worker_online(name="default")
 
+    @pytest.mark.unit
     async def test_worker_lease_concurrent_first_acquire(self, tmp_path):
         db_path = tmp_path / "lease-race.db"
         engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
@@ -272,6 +278,7 @@ class TestTaskRepository:
 
         await engine.dispose()
 
+    @pytest.mark.unit
     async def test_list_tasks_with_filters(self, db_session):
         repo = TaskRepository(db_session)
 
@@ -298,6 +305,7 @@ class TestTaskRepository:
         result = await repo.list_tasks()
         assert result["total"] == 2
 
+    @pytest.mark.unit
     async def test_task_has_cancelled_by_field(self, db_session):
         repo = TaskRepository(db_session)
         task = await repo.enqueue(
@@ -311,6 +319,7 @@ class TestTaskRepository:
         fetched = await repo.get(task["task_id"])
         assert fetched["cancelled_by"] is None
 
+    @pytest.mark.unit
     async def test_cancel_single_queued_task(self, db_session):
         repo = TaskRepository(db_session)
 
@@ -334,6 +343,7 @@ class TestTaskRepository:
         assert cancelled["status"] == "cancelled"
         assert cancelled["cancelled_by"] == "user"
 
+    @pytest.mark.unit
     async def test_get_stats(self, db_session):
         repo = TaskRepository(db_session)
 
@@ -349,6 +359,7 @@ class TestTaskRepository:
         assert stats["queued"] == 1
         assert stats["total"] == 1
 
+    @pytest.mark.unit
     async def test_cancel_task_cascades_to_dependents(self, db_session):
         repo = TaskRepository(db_session)
 
@@ -381,6 +392,7 @@ class TestTaskRepository:
         assert dep_task["status"] == "cancelled"
         assert dep_task["cancelled_by"] == "cascade"
 
+    @pytest.mark.unit
     async def test_cancel_running_task_marks_cancelling(self, db_session):
         """ADR 0006: 取消 running task 转入 cancelling 中间态；
         Repository 不再 raise，由上层 GenerationQueue 分发 worker 信号。"""
@@ -404,6 +416,7 @@ class TestTaskRepository:
         refreshed = await repo.get(task["task_id"])
         assert refreshed["status"] == "cancelling"
 
+    @pytest.mark.unit
     async def test_cancel_preview(self, db_session):
         repo = TaskRepository(db_session)
 
@@ -430,6 +443,7 @@ class TestTaskRepository:
         assert len(preview["cascaded"]) == 1
         assert preview["cascaded"][0]["task_id"] == second["task_id"]
 
+    @pytest.mark.unit
     async def test_cancel_all_queued(self, db_session):
         repo = TaskRepository(db_session)
 
@@ -459,6 +473,7 @@ class TestTaskRepository:
         task = await repo.get(t2["task_id"])
         assert task["status"] == "cancelled"
 
+    @pytest.mark.unit
     async def test_get_stats_includes_cancelled(self, db_session):
         repo = TaskRepository(db_session)
 
@@ -494,6 +509,7 @@ class TestPersistApiCallId:
         )
         return result["task_id"]
 
+    @pytest.mark.unit
     async def test_persist_writes_api_call_id_into_payload(self, db_session):
         repo = TaskRepository(db_session)
         task_id = await self._enqueue(repo, payload={"prompt": "p"})
@@ -505,6 +521,7 @@ class TestPersistApiCallId:
         assert task["payload"]["api_call_id"] == 42
         assert task["payload"]["prompt"] == "p", "其它 payload 字段不应被覆盖"
 
+    @pytest.mark.unit
     async def test_persist_overwrites_existing_api_call_id(self, db_session):
         """重试场景：同一 task 第二次走 generate 写新 call_id 应覆盖。"""
         repo = TaskRepository(db_session)
@@ -517,6 +534,7 @@ class TestPersistApiCallId:
         assert task is not None
         assert task["payload"]["api_call_id"] == 20
 
+    @pytest.mark.unit
     async def test_persist_handles_empty_payload(self, db_session):
         """Payload 为空 JSON 也能正常写。"""
         repo = TaskRepository(db_session)
@@ -528,12 +546,14 @@ class TestPersistApiCallId:
         assert task is not None
         assert task["payload"] == {"api_call_id": 7}
 
+    @pytest.mark.unit
     async def test_persist_raises_when_task_not_found(self, db_session):
         """task_id 不存在 → 显式 ValueError，避免静默 commit 让上层以为已持久化。"""
         repo = TaskRepository(db_session)
         with pytest.raises(ValueError, match="task not found"):
             await repo.persist_api_call_id("nonexistent-task-id", 42)
 
+    @pytest.mark.unit
     async def test_persist_handles_null_payload_json_row(self, db_session):
         """task 存在但 payload_json IS NULL（迁移历史/旧任务）→ 走 first() 判存在性，不应误判 task not found。"""
         from sqlalchemy import update as sql_update
@@ -570,6 +590,7 @@ class TestPersistEffectiveDuration:
         )
         return result["task_id"]
 
+    @pytest.mark.unit
     async def test_persist_overwrites_duration_seconds_in_payload(self, db_session):
         repo = TaskRepository(db_session)
         task_id = await self._enqueue(repo, payload={"duration_seconds": 5, "prompt": "p"})
@@ -581,6 +602,7 @@ class TestPersistEffectiveDuration:
         assert task["payload"]["duration_seconds"] == 8
         assert task["payload"]["prompt"] == "p", "其它 payload 字段不应被覆盖"
 
+    @pytest.mark.unit
     async def test_persist_handles_empty_payload(self, db_session):
         repo = TaskRepository(db_session)
         task_id = await self._enqueue(repo, payload={})
@@ -591,6 +613,7 @@ class TestPersistEffectiveDuration:
         assert task is not None
         assert task["payload"] == {"duration_seconds": 8}
 
+    @pytest.mark.unit
     async def test_persist_silently_skips_when_task_not_found(self, db_session):
         """metadata-only 写回：task 不存在时静默跳过，不 fail-fast（与 persist_api_call_id 不同）。"""
         repo = TaskRepository(db_session)
@@ -630,6 +653,7 @@ class TestCancelCascadeAcrossCancelling:
         )
         return a["task_id"], b["task_id"], c["task_id"]
 
+    @pytest.mark.unit
     async def test_cancel_running_task_returns_only_cancelling(self, db_session):
         """A running → cancel_task 响应体 cancelled=[]、cancelling=[A]、下游变动靠后续 SSE/finalize。"""
         repo = TaskRepository(db_session)
@@ -645,6 +669,7 @@ class TestCancelCascadeAcrossCancelling:
         assert (await repo.get(b))["status"] == "queued"
         assert (await repo.get(c))["status"] == "queued"
 
+    @pytest.mark.unit
     async def test_cancel_link_running_to_queued(self, db_session):
         """A(running)→B(queued)→C(queued)：finalize_cancelled(A) → A/B/C 全 cancelled，
         B/C 的 cancelled_by="cascade"。"""
@@ -660,6 +685,7 @@ class TestCancelCascadeAcrossCancelling:
             assert t["status"] == "cancelled", f"{tid} expected cancelled, got {t['status']}"
             assert t["cancelled_by"] == expected
 
+    @pytest.mark.unit
     async def test_finalize_cancelled_returns_cascading_cancelling_ids(self, db_session):
         """finalize_cancelled 应返回级联出来的 running 子任务 task_id 列表，
         让上层 GenerationQueue 同步分发 in-process cancel 信号给 worker。
@@ -684,6 +710,7 @@ class TestCancelCascadeAcrossCancelling:
         # C 是 queued（依赖 B 还没结束），不进 cancelling 列表
         assert c not in result["cancelling"]
 
+    @pytest.mark.unit
     async def test_cancel_link_running_running_queued(self, db_session):
         """A(running)→B(running)→C(queued)：finalize(A) → A cancelled、B cancelling、C queued；
         finalize(B) → B cancelled、C cancelled。"""
@@ -712,6 +739,7 @@ class TestCancelCascadeAcrossCancelling:
         assert (await repo.get(c))["status"] == "cancelled"
         assert (await repo.get(c))["cancelled_by"] == "cascade"
 
+    @pytest.mark.unit
     async def test_cancel_cascade_task_rows_carry_cancelled_by(self, db_session):
         """级联取消的下游任务与发起方在 cancelled_by 字段上须能区分。
 
@@ -728,6 +756,7 @@ class TestCancelCascadeAcrossCancelling:
         assert (await repo.get(b))["cancelled_by"] == "cascade"
         assert (await repo.get(c))["cancelled_by"] == "cascade"
 
+    @pytest.mark.unit
     async def test_cancel_records_each_terminal_event_at_most_once(self, db_session):
         """每个 task 的终态推送（project_events SSE 依赖的 terminal_events）不重复记账。"""
         repo = TaskRepository(db_session)

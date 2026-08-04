@@ -14,6 +14,8 @@ import pytest
 from lib.asset_types import resolve_asset_key, validate_asset_name
 from lib.project_manager import ProjectManager
 
+pytestmark = pytest.mark.unit
+
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 

@@ -16,6 +16,8 @@ from server.agent_runtime.session_manager import ManagedSession, SessionBusyErro
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import FakeSDKClient
 
+pytestmark = pytest.mark.unit
+
 
 class _FakeOptions:
     def __init__(self, **kwargs):

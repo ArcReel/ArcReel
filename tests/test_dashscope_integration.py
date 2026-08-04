@@ -10,6 +10,8 @@ from lib.pricing.lookup import lookup_pricing
 from lib.pricing.strategies import PricingParams, calculate_pricing
 from lib.providers import PROVIDER_DASHSCOPE, PROVIDER_OPENAI
 
+pytestmark = pytest.mark.unit
+
 
 def _text_response(content: str = "ok", in_tok: int = 10, out_tok: int = 5) -> MagicMock:
     usage = MagicMock()

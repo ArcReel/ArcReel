@@ -5,6 +5,8 @@ import pytest
 from lib.cost_calculator import CostCalculator
 from lib.providers import PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def calc() -> CostCalculator:

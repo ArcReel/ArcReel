@@ -12,6 +12,8 @@ import pytest
 
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 
+pytestmark = pytest.mark.unit
+
 
 def _make_policy(tmp_path: Path, **overrides: object) -> AgentAccessPolicy:
     """以 tmp 根路径纯构造 policy：repo 布局与旧 SessionManager fixture 一致。"""

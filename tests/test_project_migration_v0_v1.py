@@ -7,6 +7,8 @@ import pytest
 
 from lib.project_migrations import v0_to_v1_clues_to_scenes_props as mod
 
+pytestmark = pytest.mark.unit
+
 migrate_v0_to_v1 = mod.migrate_v0_to_v1
 
 

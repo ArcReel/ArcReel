@@ -19,6 +19,8 @@ from server.error_handlers import register_error_handlers
 from server.routers import grids
 from tests.auth_deps import AUTH_DEPENDENCIES
 
+pytestmark = pytest.mark.unit
+
 
 def _narration_script():
     """四个无 segment_break 的分段，凑成单组 grid_4（cell_count=4）。"""

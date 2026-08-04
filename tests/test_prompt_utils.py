@@ -1,5 +1,6 @@
 import unicodedata
 
+import pytest
 import yaml
 
 from lib.prompt_utils import (
@@ -13,6 +14,8 @@ from lib.prompt_utils import (
     validate_shot_type,
     video_prompt_to_yaml,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class TestNormalizeStyle:

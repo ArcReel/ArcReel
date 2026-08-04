@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.config.service import ProviderStatus
 from lib.db.base import Base
+
+pytestmark = pytest.mark.unit
 
 
 def _ready(name: str, media_types: list[str]) -> ProviderStatus:

@@ -7,6 +7,8 @@ import pytest
 
 from lib.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def mock_xai():

@@ -10,6 +10,8 @@ from httpx import ASGITransport, AsyncClient
 
 from server.app import request_logging_middleware
 
+pytestmark = pytest.mark.unit
+
 _ACCESS_LOG_FMT = "%s %s %d %.0fms"
 
 

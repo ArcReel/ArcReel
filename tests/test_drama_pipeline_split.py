@@ -25,6 +25,8 @@ from lib.script_models import (
     merge_drama_visual_into_scenes,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def _content_scene(scene_id: str = "E1S01", **overrides) -> dict:
     base = {

@@ -1,3 +1,5 @@
+import pytest
+
 from lib.source_loader.errors import (
     ConflictError,
     CorruptFileError,
@@ -6,6 +8,8 @@ from lib.source_loader.errors import (
     SourceLoaderError,
     UnsupportedFormatError,
 )
+
+pytestmark = pytest.mark.unit
 
 
 def test_unsupported_format_error_carries_ext():

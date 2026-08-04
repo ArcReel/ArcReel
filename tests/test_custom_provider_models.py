@@ -10,6 +10,8 @@ import lib.db.models  # noqa: F401 — ensure all models registered
 from lib.db.base import Base
 from lib.db.models import CustomProvider, CustomProviderModel
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def engine():

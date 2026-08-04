@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.db.base import Base
 from lib.db.repositories.session_repo import SessionRepository
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def engine():

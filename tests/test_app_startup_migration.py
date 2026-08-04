@@ -9,6 +9,8 @@ import lib.db
 import server.app as app_module
 from server.routers import assistant as assistant_router
 
+pytestmark = pytest.mark.unit
+
 
 async def _noop_async(*args, **kwargs):
     """No-op coroutine for mocking async startup steps."""

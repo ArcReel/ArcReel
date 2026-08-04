@@ -8,6 +8,8 @@ import pytest
 from lib.project_manager import ProjectManager
 from lib.style_templates import resolve_template_prompt
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def pm(tmp_path: Path) -> ProjectManager:

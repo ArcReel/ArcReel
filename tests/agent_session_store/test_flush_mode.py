@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from lib.agent_session_store import session_store_flush_mode
+
+pytestmark = pytest.mark.unit
 
 
 def test_default_is_eager(monkeypatch):

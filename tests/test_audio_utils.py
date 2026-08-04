@@ -69,6 +69,7 @@ def _m4a_bytes(duration_seconds: float = 3.0) -> bytes:
 
 
 class TestFfprobeUnavailable:
+    @pytest.mark.unit
     async def test_returns_none_without_spawning(self):
         with patch("lib.audio_utils.shutil.which", return_value=None):
             with patch("lib.audio_utils.asyncio.create_subprocess_exec") as spawn:
@@ -85,15 +86,18 @@ class TestFfprobeAvailable:
         if shutil.which("ffprobe") is None:
             pytest.skip("ffprobe not available")
 
+    @pytest.mark.unit
     async def test_probes_real_duration(self):
         duration = await audio_utils_module.probe_audio_duration_seconds(_wav_bytes(3), ".wav")
         assert duration is not None
         assert 2.5 < duration < 3.5
 
+    @pytest.mark.unit
     async def test_invalid_bytes_raise_value_error(self):
         with pytest.raises(ValueError):
             await audio_utils_module.probe_audio_duration_seconds(b"not audio at all", ".wav")
 
+    @pytest.mark.unit
     async def test_video_only_file_renamed_to_wav_is_rejected(self):
         """把无音轨的视频文件改名为 .wav 上传时，容器/时长校验会通过，但应无音频流可用而拒绝。"""
         if shutil.which("ffmpeg") is None:
@@ -101,6 +105,7 @@ class TestFfprobeAvailable:
         with pytest.raises(ValueError):
             await audio_utils_module.probe_audio_duration_seconds(_video_only_mp4_bytes(), ".wav")
 
+    @pytest.mark.unit
     async def test_m4a_renamed_to_wav_is_rejected(self):
         """m4a 有音轨也能探出时长，但容器不是 wav，改名上传应被拒绝而非当作 wav 收下。"""
         if shutil.which("ffmpeg") is None:
@@ -108,6 +113,7 @@ class TestFfprobeAvailable:
         with pytest.raises(ValueError):
             await audio_utils_module.probe_audio_duration_seconds(_m4a_bytes(), ".wav")
 
+    @pytest.mark.unit
     async def test_ffprobe_invoked_with_protocol_whitelist(self):
         """探测字节可能嵌套 HLS/RTMP 等播放列表引用；每次 ffprobe 调用都必须限制协议白名单为 file，防 SSRF。"""
         calls: list[tuple[object, ...]] = []

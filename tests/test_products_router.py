@@ -1,11 +1,14 @@
 """products 资产路由（spec 工厂自动生成）：CRUD 全通 + 列表字段读写。"""
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import products
 from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 class _FakePM:

@@ -1,10 +1,14 @@
 """预设供应商目录单元测试。"""
 
+import pytest
+
 from lib.agent_provider_catalog import (
     CUSTOM_SENTINEL_ID,
     get_preset,
     list_presets,
 )
+
+pytestmark = pytest.mark.unit
 
 
 def test_custom_sentinel_value() -> None:

@@ -1,7 +1,11 @@
 import random
 from pathlib import Path
 
+import pytest
+
 from lib.source_loader.migration import migrate_project_source_encoding
+
+pytestmark = pytest.mark.unit
 
 
 def _make_project(tmp_path: Path, name: str) -> Path:

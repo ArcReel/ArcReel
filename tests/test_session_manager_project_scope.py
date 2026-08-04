@@ -10,6 +10,8 @@ from lib.db.base import Base
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
+pytestmark = pytest.mark.unit
+
 
 class _FakeOptions:
     def __init__(self, **kwargs):

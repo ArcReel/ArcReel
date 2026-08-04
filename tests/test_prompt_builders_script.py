@@ -1,3 +1,5 @@
+import pytest
+
 from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_script import (
     _format_names,
@@ -10,6 +12,8 @@ from lib.prompt_builders_script import (
 )
 from lib.prompt_rules.episode_pacing import DRAMA_PACING_RULES, NARRATION_PACING_RULES
 from lib.speech_rate import speech_rate_units_per_second
+
+pytestmark = pytest.mark.unit
 
 
 class TestPromptBuildersScript:

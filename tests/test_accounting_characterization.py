@@ -51,6 +51,8 @@ from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # 冻结时钟：写入侧（usage_repo.utc_now）是 aware datetime，SQLite 回读为 naive。
 # ---------------------------------------------------------------------------

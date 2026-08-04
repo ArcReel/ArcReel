@@ -27,6 +27,8 @@ from lib.reference_compression import (
     select_ladder_step,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def _noise_jpeg_bytes(w: int, h: int) -> bytes:
     """高熵噪声图（压缩体积随分辨率变化），存为 JPEG。"""

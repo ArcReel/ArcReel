@@ -183,6 +183,7 @@ def _wire_executor(
     return fake_generator
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ad_unit_generates_video_with_inherited_references(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from server.services import reference_video_tasks as rvt
@@ -265,6 +266,7 @@ async def test_ad_dialogue_speaker_binds_reference_audio_for_native_tier(
     assert "禁止出现：BGM、文字字幕、水印。" not in prompt
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ad_missing_asset_sheet_skipped_with_warning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """ad 参考集由分组器自动继承，缺图软跳过 + warning，不像 narration/drama 那样硬失败。"""
@@ -287,6 +289,7 @@ async def test_ad_missing_asset_sheet_skipped_with_warning(tmp_path: Path, monke
     assert any(w["key"] == "ref_ad_reference_skipped" and w["params"]["name"] == "小美" for w in result["warnings"])
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ad_product_without_sheet_injects_originals_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from server.services import reference_video_tasks as rvt
@@ -309,6 +312,7 @@ async def test_ad_product_without_sheet_injects_originals_only(tmp_path: Path, m
     assert ref_names == ["按摩仪_原图.jpg", "小美.png"]
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ad_reference_clamp_keeps_product_sheets_alive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """超后端参考上限时产品 sheet 跨产品稳定前置存活，主体绑定行与实收列表对齐。"""
@@ -354,6 +358,7 @@ async def test_ad_reference_clamp_keeps_product_sheets_alive(tmp_path: Path, mon
     assert any(w["key"] == "ref_too_many_images" for w in result["warnings"])
 
 
+@pytest.mark.unit
 def test_clamp_zero_max_refs_drops_all_entries():
     """max_refs == 0（模型不支持参考图）裁到空集 + warning，不得当作「无上限」放行。"""
     from server.services.reference_video_tasks import _clamp_ad_reference_entries
@@ -365,6 +370,7 @@ def test_clamp_zero_max_refs_drops_all_entries():
     assert [w["key"] for w in warnings] == ["ref_too_many_images"]
 
 
+@pytest.mark.unit
 def test_clamp_none_max_refs_keeps_all_entries():
     """max_refs is None（能力未解析）不裁剪，交由 backend 自行报错。"""
     from server.services.reference_video_tasks import _clamp_ad_reference_entries
@@ -376,6 +382,7 @@ def test_clamp_none_max_refs_keeps_all_entries():
     assert warnings == []
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ad_dirty_asset_bucket_skips_with_warning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """project.json 资产 bucket 形状损坏（非 dict）时软跳过该参考 + warning，不抛 AttributeError。"""
@@ -400,6 +407,7 @@ async def test_ad_dirty_asset_bucket_skips_with_warning(tmp_path: Path, monkeypa
     assert any(w["key"] == "ref_ad_reference_skipped" and w["params"]["name"] == "小美" for w in result["warnings"])
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ad_stale_index_fails_loud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """镜头被删后索引悬空 → fail-loud 提示重新派生，不静默生成残缺视频。"""

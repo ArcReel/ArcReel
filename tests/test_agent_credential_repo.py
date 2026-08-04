@@ -6,6 +6,8 @@ import pytest
 
 from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.mark.asyncio
 async def test_create_and_get(async_session) -> None:

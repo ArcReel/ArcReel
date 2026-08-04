@@ -9,6 +9,8 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.routers import usage
 from tests.auth_deps import AUTH_DEPENDENCIES
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def _usage_env(monkeypatch):

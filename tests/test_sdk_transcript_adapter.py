@@ -8,6 +8,8 @@ import pytest
 
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 
+pytestmark = pytest.mark.unit
+
 
 class TestSdkTranscriptAdapterLegacyPath:
     """Tests for the filesystem fallback path (store=None)."""

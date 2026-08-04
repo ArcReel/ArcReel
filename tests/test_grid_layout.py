@@ -1,7 +1,11 @@
 """Tests for grid layout calculator."""
 
+import pytest
+
 from lib.grid.layout import calculate_grid_layout
 from lib.grid.models import GridGeneration, build_frame_chain
+
+pytestmark = pytest.mark.unit
 
 
 class TestCalculateGridLayout:

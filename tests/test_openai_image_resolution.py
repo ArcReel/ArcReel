@@ -13,6 +13,8 @@ import pytest
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
 from lib.image_backends.openai import OpenAIImageBackend
 
+pytestmark = pytest.mark.unit
+
 
 def _make_backend():
     backend = OpenAIImageBackend.__new__(OpenAIImageBackend)

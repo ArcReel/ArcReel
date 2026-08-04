@@ -220,6 +220,29 @@ def pytest_collection_modifyitems(config, items):
                 item.add_marker(uses_db)
                 break
 
+    _enforce_classification_markers(items)
+
+
+def _enforce_classification_markers(items) -> None:
+    """Every collected test must carry exactly one of unit/integration/e2e.
+
+    Unmarked tests only surface via external review (a whole batch once slipped
+    10+ unmarked cases through); this makes the omission a collection-time
+    failure instead, so it can't reach CI unnoticed.
+    """
+    classify_marks = {"unit", "integration", "e2e"}
+    offenders = []
+    for item in items:
+        marks = {m.name for m in item.iter_markers()} & classify_marks
+        if not marks:
+            offenders.append(item.nodeid)
+    if offenders:
+        listing = "\n".join(f"  - {nodeid}" for nodeid in offenders)
+        raise pytest.UsageError(
+            f"{len(offenders)} 个测试用例缺少分类 marker（unit/integration/e2e 三选一）：\n{listing}\n"
+            "在用例或所在模块补 @pytest.mark.unit / integration / e2e。"
+        )
+
 
 @pytest.fixture()
 async def async_session():

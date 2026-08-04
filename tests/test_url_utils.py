@@ -6,6 +6,8 @@ import pytest
 
 from lib.config.url_utils import ensure_anthropic_base_url
 
+pytestmark = pytest.mark.unit
+
 
 class TestEnsureAnthropicBaseUrl:
     def test_official_root_unchanged(self):

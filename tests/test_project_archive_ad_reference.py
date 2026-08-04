@@ -10,8 +10,12 @@ import shutil
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from lib.project_manager import ProjectManager
 from server.services.project_archive import ProjectArchiveService
+
+pytestmark = pytest.mark.unit
 
 
 def _write_bytes(path: Path, content: bytes) -> None:

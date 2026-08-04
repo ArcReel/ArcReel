@@ -9,6 +9,8 @@ from lib.source_loader.errors import (
     UnsupportedFormatError,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def test_load_txt_utf8_no_raw_backup(tmp_path: Path):
     project_source = tmp_path / "source"

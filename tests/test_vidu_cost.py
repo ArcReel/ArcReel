@@ -11,6 +11,8 @@ from lib.vidu_shared import (
     calculate_vidu_cost,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestViduMainPath:
     """主路径：响应里有 credits（=usage_tokens），按 ¥0.03125/credit 折算。"""

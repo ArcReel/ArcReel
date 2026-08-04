@@ -6,6 +6,8 @@ from lib.prompt_rules.episode_pacing import (
     render_pacing_section,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def test_drama_rules_keywords() -> None:
     text = render_pacing_section("drama")

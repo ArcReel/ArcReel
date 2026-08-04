@@ -17,6 +17,8 @@ import pytest
 
 from server.agent_runtime.sdk_tools import ARCREEL_MCP_TOOL_IDS
 
+pytestmark = pytest.mark.unit
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DASHBOARD_TS = "frontend/src/i18n/{locale}/dashboard.ts"
 LOCALES = ("zh", "en", "vi")

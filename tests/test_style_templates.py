@@ -9,6 +9,8 @@ from lib.style_templates import (
     resolve_template_prompt,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def test_templates_count_and_categories():
     assert len(STYLE_TEMPLATES) == 36

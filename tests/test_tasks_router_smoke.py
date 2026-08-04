@@ -1,11 +1,14 @@
 """Smoke tests for task router endpoints against a real generation queue."""
 
+import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.routers import tasks as tasks_router
 from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 def _build_app():
