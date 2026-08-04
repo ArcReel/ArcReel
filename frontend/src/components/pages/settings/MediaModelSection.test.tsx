@@ -80,6 +80,37 @@ describe("MediaModelSection", () => {
     expect(screen.queryByRole("combobox", { name: "参考生视频" })).not.toBeInTheDocument();
   });
 
+  it("shows an explicit error notice with a retry entry when the candidate fetch fails, even with no saved overrides", async () => {
+    // 候选失败但全局层未配置过任何细分项时，旧行为是整块折叠区消失——用户拿不到失败信号
+    vi.spyOn(API, "getModelCandidates").mockRejectedValue(new Error("boom"));
+    render(<MediaModelSection />);
+    await screen.findByRole("combobox", { name: "默认视频模型" });
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts.length).toBeGreaterThanOrEqual(2); // video + image 两处折叠区
+    for (const alert of alerts) {
+      expect(alert).toHaveTextContent(/候选/);
+    }
+    expect(screen.getAllByRole("button", { name: "重试" }).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("recovers normal rendering after a retry succeeds", async () => {
+    const user = userEvent.setup();
+    const getCandidates = vi
+      .spyOn(API, "getModelCandidates")
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce(CANDIDATES as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>);
+    render(<MediaModelSection />);
+    await screen.findByRole("combobox", { name: "默认视频模型" });
+    const retryButtons = await screen.findAllByRole("button", { name: "重试" });
+    await user.click(retryButtons[0]);
+
+    await waitFor(() => expect(getCandidates).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryAllByRole("alert")).toHaveLength(0));
+    // 失败态强制展开过折叠区，重试成功后仍展开，无需再次点开
+    await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
+    expect(screen.getByRole("option", { name: /seedance/ })).toBeInTheDocument();
+  });
+
   it("filters sub-field candidates by purpose while the default dropdown stays unfiltered", async () => {
     const user = userEvent.setup();
     render(<MediaModelSection />);

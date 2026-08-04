@@ -158,6 +158,47 @@ describe("ModelConfigSection", () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ imageBackendT2I: "" }));
   });
 
+  it("shows an explicit error notice with a retry entry when candidatesError is set, even with no saved overrides", async () => {
+    // 候选拉取失败态与"仍在加载中"（candidates=null 但未标记失败）不同：前者要给出可感知的错误信号
+    const user = userEvent.setup();
+    const onRetry = vi.fn();
+    render(
+      <ModelConfigSection
+        candidates={null}
+        candidatesError
+        onRetryCandidates={onRetry}
+        value={EMPTY_VALUE}
+        onChange={() => {}}
+        providers={PROVIDERS}
+        options={OPTIONS}
+        globalDefaults={EMPTY_GLOBALS}
+      />,
+    );
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts).toHaveLength(2); // video + image；文本档位不取用候选数据，不参与
+    for (const alert of alerts) {
+      expect(alert).toHaveTextContent(/候选/);
+    }
+    const retryButtons = screen.getAllByRole("button", { name: "重试" });
+    expect(retryButtons).toHaveLength(2);
+    await user.click(retryButtons[0]);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show the error notice when candidates is merely absent without candidatesError", () => {
+    render(
+      <ModelConfigSection
+        candidates={null}
+        value={EMPTY_VALUE}
+        onChange={() => {}}
+        providers={PROVIDERS}
+        options={OPTIONS}
+        globalDefaults={EMPTY_GLOBALS}
+      />,
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   describe("按用途指定模型（项目层）", () => {
     const CANDIDATES = {
       image: {

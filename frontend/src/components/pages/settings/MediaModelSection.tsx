@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
@@ -71,6 +71,8 @@ export function MediaModelSection() {
   const [settings, setSettings] = useState<SystemConfigSettings | null>(null);
   const [options, setOptions] = useState<SystemConfigOptions | null>(null);
   const [candidates, setCandidates] = useState<ModelCandidatesResponse | null>(null);
+  const [candidatesError, setCandidatesError] = useState(false);
+  const candidatesAbortRef = useRef<AbortController | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [draft, setDraft] = useState<SystemConfigPatch>({});
@@ -91,20 +93,39 @@ export function MediaModelSection() {
   );
   const bucketLabels = useCapabilityBucketLabels();
 
+  // 候选拉取独立于其余配置：写错误态、失败时不动其它已加载的表单状态，供挂载与重试共用。
+  // 接管方轮换 controller——重试可能在上一轮请求尚未回来时触发，旧响应回来时已经过期。
+  const loadCandidates = useCallback(async () => {
+    candidatesAbortRef.current?.abort();
+    const controller = new AbortController();
+    candidatesAbortRef.current = controller;
+    try {
+      const cand = await API.getModelCandidates({ signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setCandidates(cand);
+      setCandidatesError(false);
+    } catch {
+      if (controller.signal.aborted) return;
+      setCandidates(null);
+      setCandidatesError(true);
+    }
+  }, []);
+
+  useEffect(() => () => candidatesAbortRef.current?.abort(), []);
+
   const fetchConfig = useCallback(async () => {
-    const [res, cand, catalog, custom] = await Promise.all([
+    const [res, catalog, custom] = await Promise.all([
       API.getSystemConfig(),
-      API.getModelCandidates().catch(() => null),
       getProviderModels().catch(() => [] as ProviderInfo[]),
       getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
+      loadCandidates(),
     ]);
     setSettings(res.settings);
     setOptions(res.options);
-    setCandidates(cand);
     setProviders(catalog);
     setCustomProviders(custom);
     setDraft({});
-  }, []);
+  }, [loadCandidates]);
 
   useEffect(() => {
     // mount/依赖变更时异步拉取配置，回调内 setSettings 等（异步 fetch 后回写）
@@ -224,6 +245,8 @@ export function MediaModelSection() {
     complex: draft.text_backend_complex ?? settings.text_backend_complex ?? "",
   };
 
+  const candidatesSubFieldsError = candidatesError ? { onRetry: () => void loadCandidates() } : undefined;
+
   const emptyHint = (msg: string) => (
     <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-3 py-2.5 text-[12px] text-text-3">
       {msg}
@@ -267,6 +290,7 @@ export function MediaModelSection() {
             providerNames={allProviderNames}
             renderOptionMeta={renderVideoOptionMeta}
             subFields={videoSubFields}
+            subFieldsError={candidatesSubFieldsError}
           >
             {currentVideo && (
               <VideoModelSpecBar
@@ -309,6 +333,7 @@ export function MediaModelSection() {
             emptyHint={t("auto")}
             providerNames={allProviderNames}
             subFields={imageSubFields}
+            subFieldsError={candidatesSubFieldsError}
           />
         ) : (
           emptyHint(t("no_image_providers_hint"))

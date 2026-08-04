@@ -70,6 +70,12 @@ export interface ModelConfigSectionProps {
    * 候选只列其当前值，未配置项不渲染；全部未配置即整块折叠区不渲染。
    */
   candidates?: ModelCandidatesResponse | null;
+  /**
+   * 候选拉取是否处于失败态；true 时视频/图片折叠区渲染错误文案与重试入口（onRetryCandidates），
+   * 与 candidates 缺席但未失败（仍在加载中）区分——后者沿用上面的静默降级，不显示错误态。
+   */
+  candidatesError?: boolean;
+  onRetryCandidates?: () => void;
   providers: ProviderInfo[];
   customProviders?: CustomProviderInfo[];
   /** 全局各层的已配置值（原样传入、不在调用处折叠回退），穿透演算按解析链就地推导。 */
@@ -131,6 +137,8 @@ export function ModelConfigSection({
   options,
   showSubFields = true,
   candidates,
+  candidatesError,
+  onRetryCandidates,
   providers,
   customProviders = EMPTY_CUSTOM_PROVIDERS,
   globalDefaults,
@@ -163,6 +171,8 @@ export function ModelConfigSection({
 
   // 穿透演算（docs/adr/0054，项目优先）：细分项留空 → 项目默认模型 → 全局同名细分 → 全局默认模型。
   const mediaCandidates = showSubFields ? candidates : null;
+  const mediaCandidatesError =
+    showSubFields && candidatesError && onRetryCandidates ? { onRetry: onRetryCandidates } : undefined;
 
   // 时长与分辨率都按执行模型取值，故默认层与细分项的任何一次改动都先看执行模型变没变：
   // 没变（细分项已覆盖时改默认层就是这种）原样写入，变了才清掉不再适用的分辨率、并把落在
@@ -341,6 +351,7 @@ export function ModelConfigSection({
             providerNames={options.providerNames}
             renderOptionMeta={renderVideoOptionMeta}
             subFields={videoSubFields}
+            subFieldsError={mediaCandidatesError}
           >
           {executingVideo && (
             <VideoModelSpecBar
@@ -440,6 +451,7 @@ export function ModelConfigSection({
             defaultEffective={globalDefaults.image || undefined}
             providerNames={options.providerNames}
             subFields={imageSubFields}
+            subFieldsError={mediaCandidatesError}
           >
             {renderResolutionField(executingImage, value.imageResolution, (v) =>
               onChange({ ...value, imageResolution: v }),
