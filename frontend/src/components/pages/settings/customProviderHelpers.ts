@@ -1,6 +1,6 @@
 import type { CapabilityOverrides, EndpointKey, ImageCap, MediaType, VideoCapabilityFlags } from "@/types";
 
-export type DiscoveryFormat = "openai" | "google";
+export type DiscoveryFormat = "openai" | "google" | "comfyui";
 export type ModelLike = { key: string; endpoint: EndpointKey; is_default: boolean };
 
 /** 价格行标签 —— mediaType 由调用方从 endpoint-catalog-store 读出注入。 */
@@ -24,6 +24,7 @@ export function urlPreviewFor(format: DiscoveryFormat, rawBaseUrl: string): stri
     const base = trimmed.match(/\/v\d+$/) ? trimmed : `${trimmed}/v1`;
     return `${base}/models`;
   }
+  if (format === "comfyui") return `${trimmed}/system_stats`;
   const base = trimmed.replace(/\/v\d+\w*$/, "");
   return `${base}/v1beta/models`;
 }

@@ -78,6 +78,7 @@ def custom_model_buckets(
     endpoint: str,
     model_id: str,
     capability_overrides: object | None = None,
+    endpoint_config: object | None = None,
 ) -> frozenset[CapabilityBucket]:
     """自定义供应商模型具备的能力桶；文本 / 音频 endpoint 与未知 endpoint 恒为空集。"""
     try:
@@ -95,7 +96,12 @@ def custom_model_buckets(
         return frozenset()
 
     try:
-        video_caps = synthesize_video_capabilities(endpoint=endpoint, model_id=model_id, overrides=capability_overrides)
+        video_caps = synthesize_video_capabilities(
+            endpoint=endpoint,
+            model_id=model_id,
+            overrides=capability_overrides,
+            endpoint_config=endpoint_config,
+        )
     except ValueError:
         return frozenset()
     return _video_buckets(video_caps.first_frame, video_caps.max_reference_images)

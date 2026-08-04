@@ -43,7 +43,7 @@ class CustomProvider(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    discovery_format: Mapped[str] = mapped_column(String(32), nullable=False)  # "openai" | "google"
+    discovery_format: Mapped[str] = mapped_column(String(32), nullable=False)  # openai | google | comfyui
     base_url: Mapped[str] = mapped_column(Text, nullable=False)
     api_key: Mapped[str] = mapped_column(Text, nullable=False)  # sensitive, masked in API responses
     # 按 lane 命名的并发上限定型列；NULL = 未设置 → 容量装载回退全局默认。自定义供应商不在
@@ -91,3 +91,6 @@ class CustomProviderModel(TimestampMixin, Base):
     # 跟随系统判定；写死的能力维度列表不进 schema，向新维度开放无需迁移。合成语义由
     # lib.custom_provider.capabilities 唯一承载。
     capability_overrides: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    # Endpoint-specific immutable execution template.  ComfyUI stores the sanitized API-format
+    # workflow plus ArcReel input/output bindings here; ordinary provider models keep NULL.
+    endpoint_config: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)

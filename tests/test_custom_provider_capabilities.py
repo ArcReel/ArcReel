@@ -109,6 +109,32 @@ class TestSystemCapabilities:
         assert caps == ViduVideoBackend.video_capabilities_for_model("viduq3")
 
     @pytest.mark.unit
+    def test_comfyui_uses_workflow_bindings_when_config_is_available(self):
+        config = {
+            "version": 1,
+            "workflow": {"10": {"inputs": {"prompt": "", "video": None}}},
+            "bindings": {
+                "prompt": {"node_id": "10", "field": "prompt"},
+                "output": {"node_id": "10", "field": "video"},
+                "reference_images": {
+                    "mode": "autogrow",
+                    "node_id": "10",
+                    "field_prefix": "ref_images.ref_image_",
+                    "max_items": 9,
+                },
+            },
+        }
+
+        caps = system_video_capabilities(
+            endpoint="comfyui-workflow",
+            model_id="comfy-r2v",
+            endpoint_config=config,
+        )
+
+        assert caps.first_frame is False
+        assert caps.max_reference_images == 9
+
+    @pytest.mark.unit
     def test_non_video_endpoint_raises(self):
         with pytest.raises(ValueError, match="not video"):
             system_video_capabilities(endpoint="openai-chat", model_id="gpt-4o")

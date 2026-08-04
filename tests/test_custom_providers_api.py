@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from lib.comfyui_workflow import detect_comfyui_endpoint_config
 from lib.config.service import ConfigService
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 from lib.db import get_async_session
@@ -167,6 +168,50 @@ class TestCreateProvider:
         assert len(body["models"]) == 1
         assert body["models"][0]["model_id"] == "kling-v1"
 
+    def test_persists_comfyui_workflow_config_without_api_key(self, client: TestClient):
+        workflow = {
+            "10": {
+                "class_type": "MiniMaxH3ImageToVideo",
+                "inputs": {"prompt": "move", "first_frame": ["20", 0]},
+            },
+            "20": {"class_type": "LoadImage", "inputs": {"image": "frame.png"}},
+            "90": {
+                "class_type": "SaveVideo",
+                "inputs": {"filename_prefix": "MiniMax_H3", "video": ["10", 0]},
+            },
+        }
+        endpoint_config = detect_comfyui_endpoint_config(workflow)
+
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Local ComfyUI",
+                "discovery_format": "comfyui",
+                "base_url": "http://comfy.local:8188",
+                "api_key": "",
+                "video_max_workers": 1,
+                "models": [
+                    {
+                        "model_id": "comfy-test",
+                        "display_name": "MiniMax H3",
+                        "endpoint": "comfyui-workflow",
+                        "is_default": True,
+                        "is_enabled": True,
+                        "supported_durations": [5],
+                        "endpoint_config": endpoint_config,
+                    }
+                ],
+            },
+        )
+
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["discovery_format"] == "comfyui"
+        assert body["video_max_workers"] == 1
+        assert body["models"][0]["endpoint_config"] == endpoint_config
+        assert body["models"][0]["system_capabilities"]["first_frame"] is True
+        assert body["models"][0]["system_capabilities"]["max_reference_images"] == 0
+
 
 class TestListProviders:
     def test_empty_list(self, client: TestClient):
@@ -220,6 +265,7 @@ class TestEndpointCatalog:
             "openai-video",
             "newapi-video",
             "v2-video-generations",
+            "comfyui-workflow",
             "ark-seedance",
             "vidu-video",
             "dashscope-image",

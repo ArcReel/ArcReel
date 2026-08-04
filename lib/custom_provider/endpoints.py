@@ -32,6 +32,7 @@ from lib.text_backends.gemini import GeminiTextBackend
 from lib.text_backends.openai import OpenAITextBackend
 from lib.video_backends.ark import ArkVideoBackend
 from lib.video_backends.base import VideoCapabilities
+from lib.video_backends.comfyui import ComfyUIVideoBackend
 from lib.video_backends.dashscope import DashScopeVideoBackend
 from lib.video_backends.kling import KlingVideoBackend
 from lib.video_backends.minimax import MiniMaxVideoBackend
@@ -61,6 +62,15 @@ class EndpointSpec:
         [CustomProvider, str],
         CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend,
     ]
+    # A small number of endpoints need per-model persisted execution data in addition to the
+    # provider credential.  Keeping this separate preserves every existing two-argument builder.
+    build_configured_backend: (
+        Callable[
+            [CustomProvider, str, object | None],
+            CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend,
+        ]
+        | None
+    ) = None
     image_capabilities: frozenset[ImageCapability] | None = None  # image 类才填，非 image 类省略
     # 参考生视频单镜头参考图上限；仅 video 类有意义。
     # 显式 int：原样下传作为硬约束（0 表示不接受参考图，executor 据此将 references 裁剪为 0 张）。
@@ -71,6 +81,9 @@ class EndpointSpec:
     # caps —— 不构造 SDK client、不查 provider 行。video_max_reference_images 为 int 时此字段应为
     # None（endpoint 维度已能给出硬上限）。二者对每个 video endpoint 恰填其一（见注册表末尾不变式）。
     video_caps_for_model: Callable[[str], VideoCapabilities] | None = None
+    # 工作流型 endpoint 的能力由每个模型持久化的 endpoint_config 决定。配置存在时优先于
+    # video_caps_for_model；配置缺失时仍可用后者给出保守的目录级判定。
+    video_caps_for_config: Callable[[object], VideoCapabilities] | None = None
     # 该 endpoint 的 delegate.generate() 是否真的读取 VideoGenerationRequest.end_image 并下传
     # 尾帧约束。仅 video 类有意义；False 时即便系统判定或用户覆盖把 last_frame 置为 True，执行层
     # 也会静默丢弃尾帧、按无约束生成——写入侧 last_frame 覆盖据此收窄可开启的 endpoint 范围。
@@ -231,6 +244,22 @@ def _build_kling_video(provider, model_id: str) -> CustomVideoBackend:
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_comfyui_unconfigured(provider, model_id: str) -> CustomVideoBackend:
+    del provider, model_id
+    raise ValueError("ComfyUI 工作流模型缺少 endpoint_config")
+
+
+def _build_comfyui_video(provider, model_id: str, endpoint_config: object | None) -> CustomVideoBackend:
+    delegate = ComfyUIVideoBackend(
+        base_url=provider.base_url,
+        api_key=provider.api_key,
+        model=model_id,
+        endpoint_config=endpoint_config,
+        provider_name=provider.provider_id,
+    )
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 # ── ENDPOINT_REGISTRY 注册表 ───────────────────────────────────────
 
 
@@ -325,6 +354,19 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_v2_video_generations,
         # 多 model 共享端点、容量不同 → endpoint 维度不声明，按 model 读 backend caps（不构造 client）
         video_caps_for_model=V2VideoGenerationsBackend.video_capabilities_for_model,
+        end_image_capable=True,
+    ),
+    "comfyui-workflow": EndpointSpec(
+        key="comfyui-workflow",
+        media_type="video",
+        family="comfyui",
+        display_name_key="endpoint_comfyui_workflow_display",
+        request_method="POST",
+        request_path_template="/prompt",
+        build_backend=_build_comfyui_unconfigured,
+        build_configured_backend=_build_comfyui_video,
+        video_caps_for_model=ComfyUIVideoBackend.video_capabilities_for_model,
+        video_caps_for_config=ComfyUIVideoBackend.video_capabilities_for_config,
         end_image_capable=True,
     ),
     "ark-seedance": EndpointSpec(
@@ -440,19 +482,23 @@ ENDPOINT_KEYS_BY_MEDIA_TYPE: dict[str, tuple[str, ...]] = {
 
 
 def _validate_video_caps_declarations() -> None:
-    """import 期校验参考图上限来源：caps_fn 若声明必须可调用；每个 video endpoint 必须「int cap」
-    XOR「caps_fn 非 None」恰一、且 int cap 非负；非 video endpoint 两者皆 None。misconfig（caps_fn
-    填成非 callable、多 model 共享端点漏配 caps_fn、同时声明二者、或声明负数 cap）在 import 期
-    fail-fast，而非等到 request 期 resolver 才抛。
+    """import 期校验参考图上限来源及工作流配置判定函数。
+
+    每个 video endpoint 必须「int cap」XOR「model caps_fn」恰一；工作流型 endpoint 可额外声明
+    config caps_fn，在 endpoint_config 存在时覆盖目录级判定。所有函数必须可调用，非 video endpoint
+    不得声明视频能力，错误在 import 期 fail-fast。
     """
     for key, spec in ENDPOINT_REGISTRY.items():
         cap = spec.video_max_reference_images
         caps_fn = spec.video_caps_for_model
+        config_caps_fn = spec.video_caps_for_config
         has_int = cap is not None
         # resolver 会以 caps_fn(model_id) 执行它，故必须是 callable。误填字符串/整数等非空非 callable
         # 值要在 import 期就挡掉，而非放行到请求期才在 resolver 里炸——与本函数的 fail-fast 初衷一致。
         if caps_fn is not None and not callable(caps_fn):
             raise ValueError(f"endpoint {key!r} declares non-callable video_caps_for_model: {caps_fn!r}")
+        if config_caps_fn is not None and not callable(config_caps_fn):
+            raise ValueError(f"endpoint {key!r} declares non-callable video_caps_for_config: {config_caps_fn!r}")
         has_fn = callable(caps_fn)
         if spec.media_type != "video" and spec.reference_audio_capable:
             raise ValueError(f"non-video endpoint {key!r} must not declare reference_audio_capable")
@@ -468,11 +514,12 @@ def _validate_video_caps_declarations() -> None:
                 # int cap 是参考图张数硬上限；负数到了下游会被当负切片 references[:-1] 误丢最后一张
                 # 而非裁成 0 张 → import 期挡掉，保证 resolver int 分支取到的恒为合法非负数。
                 raise ValueError(f"video endpoint {key!r} declares negative video_max_reference_images: {cap}")
-        elif has_int or has_fn:
+        elif has_int or has_fn or config_caps_fn is not None:
             raise ValueError(
                 f"non-video endpoint {key!r} must not declare video caps, got "
                 f"video_max_reference_images={cap!r}, "
-                f"video_caps_for_model={caps_fn!r}"
+                f"video_caps_for_model={caps_fn!r}, "
+                f"video_caps_for_config={config_caps_fn!r}"
             )
 
 
@@ -509,7 +556,9 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     """把 EndpointSpec 转成可序列化的纯数据 dict（剥掉不可 JSON 化的 build_backend 闭包）。"""
     data = asdict(spec)
     data.pop("build_backend", None)
+    data.pop("build_configured_backend", None)
     data.pop("video_caps_for_model", None)  # 同 build_backend：callable 不可 JSON 化，剥掉
+    data.pop("video_caps_for_config", None)
     if spec.image_capabilities is not None:
         data["image_capabilities"] = sorted(c.value for c in spec.image_capabilities)
     else:

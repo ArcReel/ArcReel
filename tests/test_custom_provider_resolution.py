@@ -158,6 +158,63 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
 
 
 @pytest.mark.asyncio
+async def test_comfyui_reference_workflow_is_rejected_from_i2v_bucket(db_session: AsyncSession):
+    """ComfyUI 的能力必须由工作流绑定派生，不能用目录级首帧能力放行全模态工作流。"""
+    from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
+    from lib.config.service import ConfigService
+    from lib.custom_provider import make_provider_id
+
+    provider = CustomProvider(
+        display_name="Local ComfyUI",
+        discovery_format="comfyui",
+        base_url="http://comfy.local:8188",
+        api_key="",
+    )
+    db_session.add(provider)
+    await db_session.flush()
+
+    endpoint_config = {
+        "version": 1,
+        "workflow": {"10": {"inputs": {"prompt": "", "video": None}}},
+        "bindings": {
+            "prompt": {"node_id": "10", "field": "prompt"},
+            "output": {"node_id": "10", "field": "video"},
+            "reference_images": {
+                "mode": "autogrow",
+                "node_id": "10",
+                "field_prefix": "ref_images.ref_image_",
+                "max_items": 9,
+            },
+        },
+    }
+    model = CustomProviderModel(
+        provider_id=provider.id,
+        model_id="comfy-r2v",
+        display_name="Reference workflow",
+        endpoint="comfyui-workflow",
+        endpoint_config=endpoint_config,
+        is_default=True,
+        is_enabled=True,
+        supported_durations="[1, 2, 3]",
+    )
+    db_session.add(model)
+    await db_session.flush()
+
+    provider_id = make_provider_id(provider.id)
+    project = {
+        "video_backend": f"{provider_id}/{model.model_id}",
+        "generation_mode": "storyboard",
+    }
+    factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
+    resolver = ConfigResolver(factory, _bound_session=db_session)
+
+    with pytest.raises(VideoBucketCapabilityError) as excinfo:
+        await resolver._resolve_video_capabilities_from_project(ConfigService(db_session), db_session, project)
+
+    assert excinfo.value.code == "video_capability_missing_i2v"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "endpoint, model_id, expected_max_refs, generation_mode",
     [

@@ -304,3 +304,25 @@ class TestBucketJudgement:
 
     def test_text_endpoint_yields_no_buckets(self):
         assert custom_model_buckets(endpoint="openai-chat", model_id="gpt-4o") == frozenset()
+
+    def test_comfyui_workflow_buckets_follow_persisted_bindings(self):
+        config = {
+            "version": 1,
+            "workflow": {"10": {"inputs": {"prompt": "", "video": None}}},
+            "bindings": {
+                "prompt": {"node_id": "10", "field": "prompt"},
+                "output": {"node_id": "10", "field": "video"},
+                "reference_images": {
+                    "mode": "autogrow",
+                    "node_id": "10",
+                    "field_prefix": "ref_images.ref_image_",
+                    "max_items": 9,
+                },
+            },
+        }
+
+        assert custom_model_buckets(
+            endpoint="comfyui-workflow",
+            model_id="comfy-r2v",
+            endpoint_config=config,
+        ) == frozenset({"r2v"})

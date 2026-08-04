@@ -56,7 +56,12 @@ def capability_type_name(expected: object) -> str:
     return f"{name} | None" if optional else name
 
 
-def system_video_capabilities(*, endpoint: str, model_id: str) -> VideoCapabilities:
+def system_video_capabilities(
+    *,
+    endpoint: str,
+    model_id: str,
+    endpoint_config: object | None = None,
+) -> VideoCapabilities:
     """读 endpoint spec 得出系统对该模型视频能力的判定。
 
     两条声明形式（注册表不变式保证恰填其一）：
@@ -72,6 +77,16 @@ def system_video_capabilities(*, endpoint: str, model_id: str) -> VideoCapabilit
     spec = get_endpoint_spec(endpoint)
     if spec.media_type != "video":
         raise ValueError(f"endpoint {endpoint!r} is {spec.media_type}, not video")
+
+    config_caps_fn = spec.video_caps_for_config
+    if endpoint_config is not None and config_caps_fn is not None:
+        caps = config_caps_fn(endpoint_config)
+        if caps.max_reference_images < 0:
+            raise ValueError(
+                f"invalid backend max_reference_images: endpoint={endpoint!r} model={model_id!r} "
+                f"value={caps.max_reference_images!r}"
+            )
+        return caps
 
     caps_fn = spec.video_caps_for_model
     if caps_fn is not None:
@@ -175,6 +190,7 @@ def synthesize_video_capabilities(
     endpoint: str,
     model_id: str,
     overrides: object | None,
+    endpoint_config: object | None = None,
 ) -> VideoCapabilities:
     """系统判定 ⊕ 用户覆盖 → 生效能力。
 
@@ -182,7 +198,10 @@ def synthesize_video_capabilities(
         ValueError: 系统判定本身不可得（见 :func:`system_video_capabilities`）。
     """
     caps, _applied = synthesize_video_capabilities_with_overrides(
-        endpoint=endpoint, model_id=model_id, overrides=overrides
+        endpoint=endpoint,
+        model_id=model_id,
+        overrides=overrides,
+        endpoint_config=endpoint_config,
     )
     return caps
 
@@ -192,6 +211,7 @@ def synthesize_video_capabilities_with_overrides(
     endpoint: str,
     model_id: str,
     overrides: object | None,
+    endpoint_config: object | None = None,
 ) -> tuple[VideoCapabilities, dict[str, object]]:
     """同 :func:`synthesize_video_capabilities`，额外返回过滤后的稀疏覆盖字典。
 
@@ -204,7 +224,7 @@ def synthesize_video_capabilities_with_overrides(
     Raises:
         ValueError: 系统判定本身不可得（见 :func:`system_video_capabilities`）。
     """
-    caps = system_video_capabilities(endpoint=endpoint, model_id=model_id)
+    caps = system_video_capabilities(endpoint=endpoint, model_id=model_id, endpoint_config=endpoint_config)
     applied = filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides)
     merged = merge_overrides(caps, applied)
     return enforce_audio_capability_invariant(merged, endpoint=endpoint, model_id=model_id), applied

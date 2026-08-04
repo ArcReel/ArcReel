@@ -4,6 +4,7 @@
 export type EndpointKey = string;
 
 export type MediaType = "text" | "image" | "video" | "audio";
+export type CustomProviderDiscoveryFormat = "openai" | "google" | "comfyui";
 
 export type ImageCap = "text_to_image" | "image_to_image";
 
@@ -23,7 +24,7 @@ export interface EndpointDescriptor {
 export interface CustomProviderInfo {
   id: number;
   display_name: string;
-  discovery_format: "openai" | "google";
+  discovery_format: CustomProviderDiscoveryFormat;
   base_url: string;
   api_key_masked: string;
   models: CustomProviderModelInfo[];
@@ -51,6 +52,8 @@ export interface CustomProviderModelInfo {
   system_capabilities: VideoCapabilityFlags | null;
   /** 用户覆盖（稀疏），与 system_capabilities 合并即为生效值；无覆盖为 null。 */
   capability_overrides: CapabilityOverrides | null;
+  /** Endpoint-specific execution template; currently used by imported ComfyUI workflows. */
+  endpoint_config?: Record<string, unknown> | null;
   /** 正在引用该模型的全局 system_settings 键名（如 default_video_backend_i2v）；未被引用为 null。 */
   global_bucket_refs: string[] | null;
 }
@@ -80,11 +83,14 @@ export interface DiscoveredModel {
   endpoint: EndpointKey;
   is_default: boolean;
   is_enabled: boolean;
+  supported_durations?: number[] | null;
+  capability_overrides?: CapabilityOverrides | null;
+  endpoint_config?: Record<string, unknown> | null;
 }
 
 export interface CustomProviderCreateRequest {
   display_name: string;
-  discovery_format: "openai" | "google";
+  discovery_format: CustomProviderDiscoveryFormat;
   base_url: string;
   api_key: string;
   models: CustomProviderModelInput[];
@@ -120,6 +126,7 @@ export interface CustomProviderModelInput {
   resolution?: string | null;
   /** 保存模型列表是整体替换语义：省略该字段会清空已有覆盖，编辑既有模型时必须原样回传。 */
   capability_overrides?: CapabilityOverrides | null;
+  endpoint_config?: Record<string, unknown> | null;
 }
 
 export interface CustomProviderCredentials {
