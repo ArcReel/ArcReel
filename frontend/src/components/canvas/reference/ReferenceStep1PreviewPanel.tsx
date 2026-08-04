@@ -417,15 +417,15 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
 
   const updateShotText = useCallback(
     (unitIndex: number, shotIndex: number, text: string) => {
-    setDraft((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        units: prev.units.map((u, i) =>
-          i === unitIndex ? { ...u, shots: u.shots.map((s, j) => (j === shotIndex ? { ...s, text } : s)) } : u,
-        ),
-      };
-    });
+      setDraft((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          units: prev.units.map((u, i) =>
+            i === unitIndex ? { ...u, shots: u.shots.map((s, j) => (j === shotIndex ? { ...s, text } : s)) } : u,
+          ),
+        };
+      });
     },
     [setDraft],
   );

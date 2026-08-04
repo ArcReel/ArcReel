@@ -7,7 +7,7 @@ import { useAppStore } from "@/stores/app-store";
 /** 面板可编辑的草稿：`ScriptReviewState.content` 的某个变体。 */
 type ScriptReviewContent = NonNullable<ScriptReviewState["content"]>;
 
-export function scriptReviewErrorMessage(err: unknown): string {
+function scriptReviewErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "";
 }
 
