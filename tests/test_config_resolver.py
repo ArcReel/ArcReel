@@ -1391,9 +1391,9 @@ class TestResolveVideoBackend:
     async def test_project_video_backend_when_no_payload(self):
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
-        project = {"video_backend": "ark/seedance-1-0-pro"}
+        project = {"video_backend": "ark/doubao-seedance-2-0-260128"}
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, {})
-        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-2-0-260128")
 
     @pytest.mark.integration
     async def test_disabled_custom_model_resolves_to_runtime_default(self):
@@ -1463,10 +1463,10 @@ class TestResolveVideoBackend:
         """in-flight 历史任务 payload 携带 legacy video_provider（如 seedance）→ 不予信任，回退已迁移的 project。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
-        project = {"video_backend": "ark/seedance-1-0-pro"}  # 启动期已迁移为规范名
+        project = {"video_backend": "ark/doubao-seedance-2-0-260128"}  # 启动期已迁移为规范名
         payload = {"video_provider": "seedance", "video_model": "legacy"}  # legacy，不可识别
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload)
-        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-2-0-260128")
 
     @pytest.mark.unit
     async def test_payload_non_dict_video_provider_settings_does_not_crash(self):
@@ -2050,9 +2050,9 @@ class TestPayloadPinnedVideoModel:
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_provider_i2v": "vidu/viduq3-pro", "video_backend": "grok/grok-imagine-video"}
-        payload = {"video_provider_i2v": "ark/seedance-1-0-pro", "video_provider": "grok"}
+        payload = {"video_provider_i2v": "ark/doubao-seedance-2-0-260128", "video_provider": "grok"}
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
-        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-2-0-260128")
 
     @pytest.mark.unit
     async def test_pinned_bucket_key_hit_without_capability(self):
@@ -2060,9 +2060,9 @@ class TestPayloadPinnedVideoModel:
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
-        payload = {"video_provider_r2v": "ark/seedance-1-0-pro"}
+        payload = {"video_provider_r2v": "ark/doubao-seedance-2-0-260128"}
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload)
-        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-2-0-260128")
 
     @pytest.mark.unit
     async def test_pin_of_other_bucket_ignored_when_capability_given(self):
@@ -2070,19 +2070,44 @@ class TestPayloadPinnedVideoModel:
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
-        payload = {"video_provider_r2v": "ark/seedance-1-0-pro"}
+        payload = {"video_provider_r2v": "ark/doubao-seedance-2-0-260128"}
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
         assert (resolved.provider_id, resolved.model_id) == ("grok", "grok-imagine-video")
 
     @pytest.mark.unit
-    async def test_untrusted_pin_falls_through_to_legacy_payload_keys(self):
-        """脏 / legacy provider 的桶键不予信任，回退 payload 旧键（历史任务排空语义不变）。"""
+    async def test_pin_of_unavailable_provider_raises_instead_of_falling_back(self):
+        """钉住的供应商已下线：报错，不回退 payload 旧键或配置层。
+
+        回退等于换供应商执行，续跑更会拿另一个 backend 去轮原供应商的 provider_job_id。
+        """
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
         payload = {"video_provider_i2v": "seedance/legacy", "video_provider": "ark", "video_model": "seedance"}
-        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
-        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance")
+        with pytest.raises(VideoBucketCapabilityError) as excinfo:
+            await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
+        assert excinfo.value.provider_id == "seedance"
+
+    @pytest.mark.unit
+    async def test_pin_of_deleted_builtin_model_raises(self):
+        """钉住的内置 model 被注册表升级删除：报错，不带着悬空身份继续执行。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider_i2v": "ark/retired-model"}
+        with pytest.raises(VideoBucketCapabilityError) as excinfo:
+            await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
+        assert excinfo.value.model_id == "retired-model"
+
+    @pytest.mark.unit
+    async def test_pin_of_non_video_builtin_model_raises(self):
+        """钉住的内置 model 不是视频模型：同样报错，不静默改用配置层的视频模型。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider_i2v": "ark/doubao-seedream-4-0-250828"}
+        with pytest.raises(VideoBucketCapabilityError):
+            await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
 
     @pytest.mark.unit
     async def test_malformed_pin_falls_through_to_config(self):
