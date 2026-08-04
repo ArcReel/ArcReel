@@ -79,6 +79,7 @@ def gate_video_request(
     caps: VideoCapabilities | None,
     provider: str,
     model: str,
+    prompt: str | None = None,
     end_image: Path | None = None,
     reference_images: "list[Path] | None" = None,
     reference_audio_files: "list[Path] | None" = None,
@@ -101,9 +102,24 @@ def gate_video_request(
     未知（探测失败/环境不支持），此时跳过总时长校验而不是当作超限拒绝——与本仓库 ffprobe
     不可用时降级放行的既有口径一致。
 
+    ``prompt`` 与三条可选路径不同：它在每个请求上都存在，故 ``caps`` 未声明
+    ``max_prompt_chars`` 时（含 ``caps`` 为 None）跳过该项——未声明约束不等于上限为 0。
+
     与 :func:`plan_frame_slots` 分离是有意的：校验会抛、组装是纯函数，两者调用时机不同——
     校验须先于记账括号（硬失败要不扣费、不留 failed ApiCall 行），组装则可在其后按需进行。
     """
+    prompt_limit = None if caps is None else caps.max_prompt_chars
+    if prompt_limit is not None and prompt is not None and len(prompt) > prompt_limit:
+        # 供应商对超长 prompt 普遍是静默截断而非报错（如 wan2.7 文档原文「超过部分会自动截断」，
+        # 错误码表无对应条目），照常扣费却产出与意图不符的成片——付费前拒绝，不放行。
+        raise VideoCapabilityError(
+            "video_prompt_too_long",
+            provider=provider,
+            model=model,
+            limit=prompt_limit,
+            count=len(prompt),
+        )
+
     if end_image is not None and (caps is None or not caps.last_frame):
         raise VideoCapabilityError("video_last_frame_unsupported", provider=provider, model=model)
 

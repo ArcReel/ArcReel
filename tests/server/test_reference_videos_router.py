@@ -213,6 +213,30 @@ def test_patch_unit_rejects_unknown_reference(client: TestClient):
     assert resp.status_code == 400
 
 
+@pytest.mark.integration
+def test_patch_unit_accepts_nfc_reference_for_nfd_registered_name(client: TestClient):
+    """资产以 NFD 形式登记、PATCH 请求携带解析器已归一的 NFC 名字：_validate_references_exist
+    须按归一形式比对判「已登记」放行，不能因编码形式不同误判未登记。"""
+    import unicodedata
+
+    from server.routers import reference_videos as router_mod
+
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    assert name_nfd != name_nfc
+    pm = router_mod.get_project_manager()
+    project = pm.load_project("demo")
+    project["characters"][name_nfd] = {"description": "x"}
+    pm.save_project("demo", project)
+
+    uid = _seed_unit(client)
+    resp = client.patch(
+        f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}",
+        json={"references": [{"type": "character", "name": name_nfc}]},
+    )
+    assert resp.status_code == 200, resp.text
+
+
 def test_patch_unknown_unit_404(client: TestClient):
     resp = client.patch(
         "/api/v1/projects/demo/reference-videos/episodes/1/units/E9U9",
@@ -571,6 +595,25 @@ def test_script_preview_uses_project_voice_capabilities(client: TestClient, monk
     body = _preview(client, "镜头1：开场。\n@[张三]：{我来了}").json()
     assert [w["key"] for w in body["warnings"]] == ["ref_warn_silent_model"]
     assert "silent-01" in body["warnings"][0]["message"]
+
+
+@pytest.mark.integration
+def test_script_preview_warns_when_episode_is_silent(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """本集设为无声视频时，预览面板告知声音一致性不生效（模型仍是 A 类）。"""
+    _patch_video_caps(
+        monkeypatch,
+        {
+            "voice_consistency": "native",
+            "max_reference_audio_count": 3,
+            "requested_generate_audio": False,
+            "model": "doubao-seedance-2-0",
+        },
+    )
+    body = _preview(client, "镜头1：开场。\n@[张三]：{我来了}").json()
+    assert [w["key"] for w in body["warnings"]] == ["ref_warn_silent_episode"]
+    assert body["warnings"][0]["message"] != "ref_warn_silent_episode"
+    # 台词照常派生：无声只影响参考音频，不影响下发给供应商的台词文本
+    assert [u["text"] for u in body["utterances"]] == ["我来了"]
 
 
 @pytest.mark.integration

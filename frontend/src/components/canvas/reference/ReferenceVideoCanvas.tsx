@@ -36,7 +36,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { errMsg } from "@/utils/async";
-import { mergeReferences } from "@/utils/reference-mentions";
+import { mergeReferences, normalizeAssetName } from "@/utils/reference-mentions";
 import type {
   ReferenceResource,
   ReferenceVideoUnit,
@@ -319,7 +319,7 @@ export function ReferenceVideoCanvas({
   /**
    * 串行 enqueue —— 让前端依次触发后端 dedup 检查；后端实际仍按 worker 并发跑。
    *
-   * 每次 POST 前都用本次入口的判定复核一遍：循环里每个请求之间都是一段等待窗口，靠后的
+   * 每次 POST 前都用入口的判定复核一遍：循环里每个请求之间都是一段等待窗口，靠后的
    * 单元可能在此期间由别处生成完成，只在循环开始前过滤一次拦不住它。
    */
   const makeEnqueueSerially = useCallback(
@@ -380,9 +380,9 @@ export function ReferenceVideoCanvas({
     [loadUnits, projectName, episode],
   );
 
-  // 批量生成的作用对象：全部待生成 unit。按钮禁用与它同一口径——此前只看当前选中
-  // unit 是否在跑，与作用对象无关，选中项空闲时按钮会在没有任何待生成 unit 的情况下
-  // 仍可点击，选中项在跑时又会挡住其余 unit 的批量生成。
+  // 批量生成的作用对象：全部待生成 unit。按钮禁用须与它同一口径——只看当前选中
+  // unit 是否在跑、与作用对象无关的判定会脱节：选中项空闲时按钮会在没有任何待生成
+  // unit 的情况下仍可点击，选中项在跑时又会挡住其余 unit 的批量生成。
   const batchTargets = useMemo(
     () => units.filter((u) => statusMap[u.unit_id] === "pending"),
     [units, statusMap],
@@ -466,7 +466,10 @@ export function ReferenceVideoCanvas({
     const claim = (name: string, kind: "character" | "scene" | "prop") => {
       // hasOwn 而非 `in`：`toString` / `constructor` 等是合法资产名，`in` 命中原型链会让
       // 真正登记的资产拿不到类型，前端高亮判它未登记、后端预览正常解析，两侧当场矛盾。
-      if (!Object.hasOwn(out, name)) out[name] = kind;
+      // key 归一到 NFC：bucket 原始 key 可能是 NFD，查询侧（pushMentionTokens/toScriptLines）
+      // 统一按归一坐标系查，两侧不归一就会出现「已登记却判未登记」。
+      const key = normalizeAssetName(name);
+      if (!Object.hasOwn(out, key)) out[key] = kind;
     };
     for (const name of Object.keys(project?.characters ?? {})) claim(name, "character");
     for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");
@@ -517,8 +520,8 @@ export function ReferenceVideoCanvas({
       const hasDraft =
         draftText !== undefined && unit !== undefined && draftText !== unitPromptText(unit);
       // draftText 未落盘时，chip 操作请求的 nextRefs 仍基于旧 prompt 状态；按新 draftText
-      // 重新派生，同时把 nextRefs 作为 mergeReferences 的 existing 基准——保留本次 chip
-      // 操作请求的顺序（拖拽结果），只补丢弃/新增仅由文本变化引起的部分。
+      // 重新派生，同时把 nextRefs 作为 mergeReferences 的 existing 基准——保留 chip 操作
+      // 请求的顺序（拖拽结果），只补丢弃/新增仅由文本变化引起的部分。
       const body: { prompt?: string; references: ReferenceResource[] } = hasDraft
         ? { prompt: draftText, references: mergeReferences(draftText, nextRefs, project ?? null) }
         : { references: nextRefs };
@@ -555,8 +558,16 @@ export function ReferenceVideoCanvas({
   const handleAddRef = useCallback(
     (ref: ReferenceResource) => {
       if (!selected) return;
-      if (selected.references.some((r) => r.type === ref.type && r.name === ref.name)) return;
-      const next = [...selected.references, ref];
+      // 落盘值统一 NFC：PATCH 的 references 写回口径与 mergeReferences 的产出一致，否则
+      // 挑选到的 NFD 名称会绕过归一边界直接落盘。
+      const normalizedRef: ReferenceResource = { ...ref, name: normalizeAssetName(ref.name) };
+      if (
+        selected.references.some(
+          (r) => r.type === normalizedRef.type && normalizeAssetName(r.name) === normalizedRef.name,
+        )
+      )
+        return;
+      const next = [...selected.references, normalizedRef];
       patchReferencesAtomic(selected.unit_id, next);
     },
     [patchReferencesAtomic, selected],

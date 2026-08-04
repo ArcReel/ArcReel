@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import unicodedata
+
 import pytest
 
 from lib.reference_video.prompt_render import (
@@ -38,6 +40,11 @@ def _project(**overrides):
     return project
 
 
+#: 带组合附加符的角色名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
+_NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
+_NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
+
+
 def _refs(*pairs):
     return [ReferenceResource(type=t, name=n) for t, n in pairs]
 
@@ -66,6 +73,43 @@ def test_native_tier_binds_audio_in_speaker_first_appearance_order():
     assert rendered.audio_speakers == ["张三", "李四"]
     assert "<张三>的台词音色参考 @音频1，声音特征：低沉沙哑的男声。" in rendered.prompt
     assert "<李四>的台词音色参考 @音频2，声音特征：清亮少女音。" in rendered.prompt
+
+
+def test_silent_episode_sends_dialogue_without_any_audio_binding():
+    """本集无声：不组装参考音频、prompt 里不出现 @音频N，台词照常下发作口型参考。"""
+    rendered = render_unit_prompt(
+        _TEXT,
+        _project(),
+        _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑")),
+        voice_consistency="native",
+        requested_generate_audio=False,
+        max_reference_audio=3,
+        model_id="doubao-seedance-2-0",
+        style="写实电影感",
+    )
+    assert rendered.audio_speakers == []
+    assert rendered.audio_speaker_reference_index == []
+    assert "@音频" not in rendered.prompt
+    assert "<张三>说 {今晚的酒，我请。}" in rendered.prompt
+    assert "<李四>说 {你终于来了。}" in rendered.prompt
+
+
+def test_silent_episode_keeps_dialogue_segment_identical_to_audible_path():
+    """第二段（台词）与有声路径逐字同形——只有第一段的音色参考行消失。"""
+    kwargs = dict(
+        voice_consistency="native",
+        max_reference_audio=3,
+        model_id="doubao-seedance-2-0",
+        style="写实电影感",
+    )
+    refs = _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑"))
+    audible = render_unit_prompt(_TEXT, _project(), refs, requested_generate_audio=True, **kwargs)
+    silent = render_unit_prompt(_TEXT, _project(), refs, requested_generate_audio=False, **kwargs)
+
+    def _shot_segment(prompt: str) -> str:
+        return next(seg for seg in prompt.split("\n\n") if seg.startswith("镜头1："))
+
+    assert _shot_segment(silent.prompt) == _shot_segment(audible.prompt)
 
 
 def test_first_segment_binds_images_in_reference_order():
@@ -315,6 +359,43 @@ def test_audio_speaker_image_slot_and_binding_label_survive_same_named_type_coll
     # 两条绑定标签分别指向各自的位置编号，不因同名互相覆盖。
     assert "<张三>@图片1" in rendered.prompt
     assert "<张三>@图片2" in rendered.prompt
+
+
+@pytest.mark.parametrize("registered", [_NAME_NFC, _NAME_NFD], ids=["登记NFC", "登记NFD"])
+@pytest.mark.parametrize("written", [_NAME_NFC, _NAME_NFD], ids=["出场NFC", "出场NFD"])
+def test_combining_char_name_renders_identically_in_every_encoding_pairing(registered: str, written: str):
+    """组合字符角色名的四种 NFC/NFD 配对渲染出完全相同的 prompt 与音频绑定。
+
+    这是链路末端：说话人、mention 主体记号、参考图编号、音色声明四处判定任一漏归一，都不会
+    报错，而是让 ``@[名称]`` 这个书写层记号原样漏进供应商请求、台词不重组成官方句式、或音频
+    不绑——用户拿到的是一条脸和声音都不对的成片。
+    """
+    project = {
+        "style": "写实电影感",
+        "characters": {registered: {"voice_style": "清亮少女音", "reference_audio": "characters/refs_audio/x.wav"}},
+        "scenes": {},
+        "props": {},
+    }
+    text = f"镜头1：夜色下，@[{written}] 推门而入。\n@[{written}]：{{Tôi đến rồi.}}"
+
+    rendered = render_unit_prompt(
+        text,
+        project,
+        _refs(("character", written)),
+        voice_consistency="native",
+        max_reference_audio=3,
+        audio_ready={registered},
+    )
+
+    assert rendered.audio_speakers == [_NAME_NFC]
+    assert rendered.audio_speaker_reference_index == [0]
+    assert rendered.warnings == []
+    assert f"<{_NAME_NFC}>@图片1" in rendered.prompt
+    assert f"<{_NAME_NFC}>的台词音色参考 @音频1，声音特征：清亮少女音。" in rendered.prompt
+    assert f"<{_NAME_NFC}> 推门而入" in rendered.prompt
+    assert f"<{_NAME_NFC}>说 {{Tôi đến rồi.}}" in rendered.prompt
+    # 书写层记号一个都不该漏进供应商请求
+    assert "@[" not in rendered.prompt
 
 
 def test_resolve_reference_audio_paths_only_returns_existing_files_under_refs_audio(tmp_path):

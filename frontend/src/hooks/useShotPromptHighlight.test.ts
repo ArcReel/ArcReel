@@ -131,6 +131,19 @@ describe("tokenizePrompt", () => {
     const mentions = t.filter((x) => x.kind === "mention");
     expect(mentions).toHaveLength(0);
   });
+
+  it("resolves a mention typed in NFD against a lookup already normalized to NFC by the caller", () => {
+    // MentionLookup 的契约：caller 构建时先归一 key（见类型上方注释）。这里模拟 prompt 里的
+    // mention 文本本身是 NFD（输入法产出）——lookup 侧已是 NFC，两侧不同源，查询侧须归一
+    // 后再查，否则命中不了。
+    const nameNfc = "Hiếu".normalize("NFC");
+    const nameNfd = "Hiếu".normalize("NFD");
+    expect(nameNfc).not.toBe(nameNfd);
+    const lookup: MentionLookup = { [nameNfc]: "character" };
+    const t = tokenizePrompt(`@[${nameNfd}] 出场`, lookup);
+    const mention = t.find((x) => x.kind === "mention");
+    expect(mention?.assetKind).toBe("character");
+  });
 });
 
 describe("toScriptLines shot attribution", () => {
@@ -149,6 +162,17 @@ describe("toScriptLines shot attribution", () => {
   it("treats a headerless script as a single shot", () => {
     const lines = toScriptLines("@[张三]：{我来了}", LOOKUP);
     expect(lines.map((l) => l.shotIndex)).toEqual([1]);
+  });
+
+  it("resolves a dialogue speaker typed in NFD against a lookup already normalized to NFC by the caller", () => {
+    const nameNfc = "Hiếu".normalize("NFC");
+    const nameNfd = "Hiếu".normalize("NFD");
+    expect(nameNfc).not.toBe(nameNfd);
+    const lookup: MentionLookup = { [nameNfc]: "character" };
+    const lines = toScriptLines(`@[${nameNfd}]：{我来了}`, lookup);
+    expect(lines).toEqual([
+      { kind: "dialogue", shotIndex: 1, sourceLine: 0, speaker: nameNfd, speakerKind: "character", text: "我来了" },
+    ]);
   });
 });
 

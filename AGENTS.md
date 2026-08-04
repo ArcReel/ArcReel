@@ -20,6 +20,7 @@ uv run uvicorn server.app:app --reload --reload-dir server --reload-dir lib --po
 uv run python -m pytest                              # 测试（-v 单文件 / -k 关键字 / --cov 覆盖率）
 uv run ruff check . && uv run ruff format .          # lint + format
 uv run basedpyright                                  # 类型检查（CI 强制 0 error）
+uv run lint-imports                                  # import 分层契约（CI backend-tests 必过）
 uv sync                                              # 安装依赖
 uv run alembic upgrade head                          # 数据库迁移
 uv run alembic revision --autogenerate -m "desc"     # 生成迁移
@@ -74,15 +75,15 @@ pnpm build       # 生产构建，含 typecheck
 
 ### 供应商能力数据
 
-生成模型供应商的能力数字（时长、参考图上限、分辨率约束）与默认 model，以 `lib/config/registry.py` 的 `PROVIDER_REGISTRY` 为单一真相源。自定义供应商（`custom-` 前缀）与智能体供应商预设（`lib/agent_provider_catalog.py::PRESET_PROVIDERS`）不在其内。新增或修改 prompt 模板与智能体运行配置（`agent_runtime_profile/`）时不硬编码具体数值，用占位符由编排层动态注入；供应商 API 文档镜像（如 `docs/vidu-docs/`）保留原始数值，不受此约束。配置界面的此类字段不预填。
+生成模型供应商的能力数据按字段划分真相源：视频能力位、参考图上限与参考音频限制（i2v / r2v 判定、`max_reference_images`、`max_reference_audio_count`、`max_reference_audio_total_seconds`）以各 backend 的 `VideoCapabilities` 声明为准——与请求构造同源（见 `docs/adr/0054`）；图片能力位（t2i / i2i）以内置模型的 `ModelInfo.capabilities`（即 `PROVIDER_REGISTRY`）或自定义供应商 endpoint 的 `image_capabilities` 为准，二者同构于视频能力位规则；其余能力数字与默认 model，已登记于 `lib/config/registry.py` 的 `PROVIDER_REGISTRY` 的型号以其为准；`supported_durations` 未登记即 fail loud（无隐性 fallback，见 `docs/adr/0018`），自定义模型改读 DB 记录的声明。仅时长联动约束（`duration_resolution_constraints` / `reference_image_durations`）在未登记型号（中转站、自定义供应商包装、已下线型号等）上有对应 backend 的模块级 fallback 常量。自定义供应商（`custom-` 前缀）与智能体供应商预设（`lib/agent_provider_catalog.py::PRESET_PROVIDERS`）不在其内。新增或修改 prompt 模板与智能体运行配置（`agent_runtime_profile/`）时不硬编码具体数值，用占位符由编排层动态注入；供应商 API 文档镜像（如 `docs/vidu-docs/`）保留原始数值，不受此约束。配置界面的此类字段不预填。个别 backend（如 `lib/video_backends/vidu.py::_RESOLUTION_WHITELIST`）另维护一份独立于 registry 的执行期白名单校验分辨率合法性，修改该型号的 registry 分辨率声明时需同步核对对应 backend 是否也要更新，否则用户可选但 backend 不认的分辨率会被静默替换为 backend 兜底档位。
 
 ### 内容模式 (content_mode) 与生成模式 (generation_mode)
 
 两个独立维度，分别承载"内容类型"与"视频来源"：
 
 - **content_mode** — `drama`（剧集，内容驱动）/`narration`（说书，旁白驱动） / `ad`（广告/短片）。决定剧本结构与 agent profile 加载哪个 `CLAUDE.*.md` 变体
-- **generation_mode** — `reference_video` 等。决定视频生成路径：图生视频（默认，分镜图驱动）/ 宫格生视频（grid_4/6/9）/ 参考生视频（无需分镜图步骤，直接使用资产图作为参考图生成视频，见 `lib/reference_video/`）
-- 两字段对 LLM 隐藏（`SkipJsonSchema`），由编排层自动注入
+- **generation_mode** — 项目级**生成路线**，二值必填：`storyboard`（分镜路线，分镜图驱动，走 i2v）/ `reference_video`（参考路线，无需分镜图步骤，直接使用资产图作为参考图生成视频，见 `lib/reference_video/`）。创建时二选一、创建后不可更改；宫格不是路线，由独立的项目级布尔 `grid_storyboard` 表达（见 `docs/adr/0055`）
+- 两字段均对 LLM 隐藏：`content_mode` 是剧本模型上的 `SkipJsonSchema` 字段、由编排层写入；`generation_mode` 只存 project.json，剧本不携带该字段
 
 ## Agent 沙箱
 
@@ -137,6 +138,7 @@ API Key、后端选择、模型配置等通过 WebUI 配置页（`/settings`）�
 
 - **ruff**：line-length 120，提交前对修改的 Python 文件执行 `uv run ruff check <files> && uv run ruff format <files>`
 - **basedpyright**：standard 模式 + `reportMissingTypeStubs = false`，CI 强制 0 error，pre-push hook 跑全量扫描；本地可随时执行 `uv run basedpyright` 校验。tests/ 内 `reportOptional*` 和 `unknown*` 系列降级为 warning，避免大量使用 mock 的测试产生噪声；第三方 untyped 库（ffmpeg-python、pyJianYingDraft、volcenginesdkarkruntime、xai_sdk.chat、docx2txt/mammoth/ebooklib）通过行级 `# pyright: ignore[...]` 处理
+- **import-linter**：`uv run lint-imports` 校验 `lib.config < lib.*_backends < lib.custom_provider` 分层契约，CI backend-tests 必过步骤；新增 ignore 条目前先确认该依赖边无法就地清零（约定见 pyproject.toml）
 - **pytest**：`asyncio_mode = "auto"`，CI 覆盖率 ≥80%，共用 fixtures 在 `tests/conftest.py`
 - **依赖管理**：前后端新增/升级依赖一律用 `uv add` / `pnpm add`（不手写版本号到 pyproject.toml / package.json）；新增依赖后同步 `.github/dependabot.yml` 的 patterns 归入对应分组
 - **注释**：代码与测试注释只描述当下行为与约束，不写 issue/PR/Spec 编号，也不用时间性措辞（「最近」「本次」「实测」）——这些信息写在 commit message / PR 描述；修改文件时顺带清除已有的此类引用。`docs/` 下专门文档之间互引 spec 不受此限

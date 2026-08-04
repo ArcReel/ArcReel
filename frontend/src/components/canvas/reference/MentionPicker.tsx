@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { assetColor } from "./asset-colors";
 import { Popover } from "@/components/ui/Popover";
 import { API } from "@/api";
+import { normalizeAssetName } from "@/utils/reference-mentions";
 import type { AssetKind } from "@/types/reference-video";
 
 /** Default DOM id for the listbox; paired with combobox aria-controls in ReferenceVideoCard. */
@@ -82,11 +83,13 @@ export function MentionPicker({
 
   // 按 query 过滤所有 kind 一遍；filtered/totalsByKind 都派生自此，避免每次 keystroke 双倍 filter。
   const filteredByQuery = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    // 比较侧统一 NFC：candidates 携带资产原始名（落盘可能是 NFD），query 来自用户输入法产出，
+    // 两者编码不保证一致，只归一比较用的副本，展示与选中回传仍用原始 name。
+    const q = normalizeAssetName(query.trim()).toLowerCase();
     const result: Record<AssetKind, MentionCandidate[]> = { character: [], scene: [], prop: [] };
     for (const kind of GROUP_ORDER) {
       const arr = candidates[kind] ?? [];
-      result[kind] = q.length === 0 ? arr : arr.filter((c) => c.name.toLowerCase().includes(q));
+      result[kind] = q.length === 0 ? arr : arr.filter((c) => normalizeAssetName(c.name).toLowerCase().includes(q));
     }
     return result;
   }, [candidates, query]);

@@ -39,7 +39,7 @@ from lib.config.service import (
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.project_manager import effective_mode, find_episode, get_project_manager
+from lib.project_manager import get_project_manager
 from lib.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
 from lib.video_backends.registry import (
     effective_generate_audio_for_model as builtin_effective_generate_audio_for_model,
@@ -216,17 +216,16 @@ VIDEO_BUCKET_BY_TASK_TYPE: dict[str, VideoCapability] = {
 #: 的 generation_mode，按它定同一个桶，两侧因此回答同一个「当前配置真正会执行的模型」。
 VIDEO_BUCKET_BY_GENERATION_MODE: dict[str, VideoCapability] = {
     "storyboard": "i2v",
-    "grid": "i2v",
     "reference_video": "r2v",
 }
 
-#: 表外 generation_mode（含缺省与脏数据）落的桶。与 ``lib.project_manager.effective_mode``
-#: 对未知模式回退 ``storyboard`` 的口径一致。
+#: 表外 generation_mode（无项目上下文与脏数据）落的桶。project.json 是明文文件，路线字段
+#: 可能被手工改坏；无项目上下文（如 provider 目录查询）同样没有路线可依。
 _DEFAULT_VIDEO_BUCKET: VideoCapability = "i2v"
 
 
 def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoCapability:
-    """项目 / 剧集的 generation_mode 归到哪个视频能力桶——读侧定桶的唯一入口。
+    """项目的 generation_mode 归到哪个视频能力桶——读侧定桶的唯一入口。
 
     project.json 是明文文件，``generation_mode`` 可能被写成非字符串，一并落默认桶。
     """
@@ -235,25 +234,19 @@ def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoCapabi
     return VIDEO_BUCKET_BY_GENERATION_MODE.get(generation_mode, _DEFAULT_VIDEO_BUCKET)
 
 
-def caps_generation_mode(project: dict | None, episode: int | None) -> str | None:
-    """能力查询口径的生效 generation_mode：集级覆盖 > 项目级，两级都未声明时为 None。
+def caps_generation_mode(project: dict | None) -> str | None:
+    """能力查询口径的 generation_mode：直读项目字段，无项目上下文时为 None。
 
-    模式排序委托 ``lib.project_manager.effective_mode``（生效模式的唯一真相源），能力解析不
-    另立一份项目级口径：剧集覆盖生成模式后，定桶、声音一致性、以及下游按 caps
-    ``generation_mode`` 求值的分辨率与参考图约束一并跟着该集走。
+    生成路线创建即定、整个项目按同一条路径生成，能力解析因此不需要剧集上下文：定桶、声音
+    一致性、以及下游按 caps ``generation_mode`` 求值的分辨率与参考图约束全部按项目路线定轴。
 
-    与 ``effective_mode`` 的唯一差别是两级都没声明时返回 None 而非默认档——``generation_mode``
-    是 caps 的对外字段（回前端与智能体），「未声明」不该渲染成用户显式选过 storyboard。
-
-    ``episode`` 为 None（无集号上下文，如设置页与目录查询）时只解析到项目级。
+    返回 None 而非默认档，是因为 ``generation_mode`` 是 caps 的对外字段（回前端与智能体）：
+    无项目上下文（provider 目录查询等）时「未声明」不该渲染成用户显式选过某条路线。
     """
     if project is None:
         return None
-    episode_entry = find_episode(project, episode) or {}
-    declared = (episode_entry.get("generation_mode"), project.get("generation_mode"))
-    if not any(isinstance(value, str) and value for value in declared):
-        return None
-    return effective_mode(project=project, episode=episode_entry)
+    mode = project.get("generation_mode")
+    return mode if isinstance(mode, str) and mode else None
 
 
 def project_video_backend_ids(project: dict) -> tuple[str, str] | None:
@@ -650,6 +643,15 @@ class ConfigResolver:
         async with self._open_session() as (session, svc):
             return await self._resolve_video_generate_audio(svc, project_name)
 
+    async def video_generate_audio_for_project(self, project: dict | None) -> bool:
+        """同 :meth:`video_generate_audio`，但接收调用方已加载的 project 字典，不重复读盘。
+
+        供需要与 video capabilities 解析**独立**判定用户无声意图的调用方使用：能力解析（如
+        ``video_capabilities_for_model``）失败不应连带丢失这个值——它本就不依赖能力接口。
+        """
+        async with self._open_session() as (_session, svc):
+            return await self._resolve_video_generate_audio_from_project(svc, project)
+
     async def default_video_backend(self) -> tuple[str, str]:
         """返回系统级默认 (provider_id, model_id)（不含项目级覆盖）。"""
         async with self._open_session() as (session, svc):
@@ -796,15 +798,12 @@ class ConfigResolver:
                         return speed_from_str
             return await svc.get_narration_speed()
 
-    async def video_capabilities(self, project_name: str | None = None, episode: int | None = None) -> dict:
+    async def video_capabilities(self, project_name: str | None = None) -> dict:
         """解析当前项目视频 model 的综合能力 + 用户项目偏好。
 
-        model 按生效 ``generation_mode`` 定桶（图生视频 / 宫格 → i2v，参考生视频 → r2v）后走与
-        执行相同的解析入口，回答的始终是「当前配置真正会执行的那个模型」；切换 generation_mode
-        后返回值随桶变化（``docs/adr/0054``）。
-
-        ``episode`` 给出集号时按该集生效模式解析（``caps_generation_mode``），项目级模式被单集
-        覆盖时能力随该集走；不给则只解析到项目级。
+        model 按项目 ``generation_mode`` 定桶（图生视频 / 宫格 → i2v，参考生视频 → r2v）后走与
+        执行相同的解析入口，回答的始终是「当前配置真正会执行的那个模型」（``docs/adr/0054``）。
+        路线创建即定、整个项目按同一条路径生成，解析因此不需要剧集上下文。
 
         Returns:
             {
@@ -816,12 +815,13 @@ class ConfigResolver:
               "first_frame": bool,                 # 生效值（系统判定 ⊕ 用户覆盖），与执行层同源
               "last_frame": bool,                  # 同上
               "generate_audio": bool,              # backend 默认执行档生效后的计价参数
+              "requested_generate_audio": bool,    # 用户在 project.json/全局设置里的无声意图请求值，非计价口径
               "max_reference_audio_count": int,    # 每请求可携带的参考音频段数上限（backend 声明）
               "reference_audio_per_image": bool,   # 音频是否须逐段挂在具体参考素材项上（backend 声明）
               "source": "registry" | "custom",
               "default_duration": int | None,      # 用户在 project.json 里设置的偏好
               "content_mode": str | None,
-              "generation_mode": str | None,       # 该集生效模式（集级覆盖 > 项目级）
+              "generation_mode": str | None,       # 项目生成路线（无项目上下文时 None）
               "voice_consistency": "native" | "soft" | "none",  # 模型能力 × generation_mode 二维派生
             }
 
@@ -831,9 +831,9 @@ class ConfigResolver:
                 引用已不可用。
         """
         async with self._open_session() as (session, svc):
-            return await self._resolve_video_capabilities(svc, session, project_name, episode)
+            return await self._resolve_video_capabilities(svc, session, project_name)
 
-    async def video_capabilities_for_project(self, project: dict, episode: int | None = None) -> dict:
+    async def video_capabilities_for_project(self, project: dict) -> dict:
         """同 `video_capabilities`，但使用调用方已加载的 project dict。
 
         优先用此变体，可避免按名称二次加载、也不依赖 `PROJECT_ROOT/projects/<name>` 目录结构
@@ -841,14 +841,13 @@ class ConfigResolver:
         与全局项目碰撞读到错误能力）。
         """
         async with self._open_session() as (session, svc):
-            return await self._resolve_video_capabilities_from_project(svc, session, project, episode)
+            return await self._resolve_video_capabilities_from_project(svc, session, project)
 
     async def video_capabilities_for_model(
         self,
         provider_id: str,
         model_id: str,
         project: dict | None = None,
-        episode: int | None = None,
     ) -> dict:
         """读取指定 provider/model 的视频能力，不再二次解析 provider。
 
@@ -860,18 +859,16 @@ class ConfigResolver:
         入参身份仍会再收敛一次（口径同 ``resolve_video_backend``），因此直接传字面配置也能
         拿到有效身份的能力；自定义 provider 无可用默认 model 时抛 ``ValueError``。
 
-        ``episode`` 同 ``video_capabilities``：给出集号时按该集生效 ``generation_mode`` 派生
-        声音一致性等二维值，主链路因此不会拿项目级模式去判定被单集覆盖的那一集。
+        声音一致性等二维值按 ``project`` 的生成路线派生。
         """
         async with self._open_session() as (session, svc):
-            return await self._resolve_video_caps_for_model(svc, session, provider_id, model_id, project, episode)
+            return await self._resolve_video_caps_for_model(svc, session, provider_id, model_id, project)
 
     async def video_pricing_generate_audio(
         self,
         provider_id: str,
         model_id: str,
         project: dict | None = None,
-        episode: int | None = None,
     ) -> bool:
         """费用预估用的有效 ``generate_audio``：读能力接口，解析不出时降级，绝不抛错。
 
@@ -882,7 +879,7 @@ class ConfigResolver:
         会被按静音档低估。
         """
         try:
-            caps = await self.video_capabilities_for_model(provider_id, model_id, project, episode)
+            caps = await self.video_capabilities_for_model(provider_id, model_id, project)
         except Exception as exc:
             logger.info(
                 "视频能力解析失败（%s/%s），计价 generate_audio 降级到 provider 级规则与请求值：%s",
@@ -1231,20 +1228,18 @@ class ConfigResolver:
         svc: ConfigService,
         session: AsyncSession,
         project_name: str | None,
-        episode: int | None = None,
     ) -> dict:
         """按两步解析：先选 model，再读 model 能力。"""
         project = get_project_manager().load_project(project_name) if project_name else None
-        return await self._resolve_video_capabilities_from_project(svc, session, project, episode)
+        return await self._resolve_video_capabilities_from_project(svc, session, project)
 
     async def _resolve_video_capabilities_from_project(
         self,
         svc: ConfigService,
         session: AsyncSession,
         project: dict | None,
-        episode: int | None = None,
     ) -> dict:
-        """按生效 generation_mode 定桶解析出会执行的那个模型，再读它的能力。
+        """按项目 generation_mode 定桶解析出会执行的那个模型，再读它的能力。
 
         与执行路径共用 ``_resolve_video_provider_model``（含能力闸），读侧不留第二种口径：切换
         generation_mode 后能力查询随桶变化，模型缺该桶所需能力或引用已失效时报错、不静默换模型
@@ -1253,11 +1248,9 @@ class ConfigResolver:
         只传选择身份：有效身份收敛由 ``_resolve_video_caps_for_model`` 统一做，在此先做一遍会让
         自定义 provider 多跑一轮 model 查询。
         """
-        capability = video_bucket_for_generation_mode(caps_generation_mode(project, episode))
+        capability = video_bucket_for_generation_mode(caps_generation_mode(project))
         selected = await self._resolve_video_provider_model(svc, session, project, None, capability)
-        return await self._resolve_video_caps_for_model(
-            svc, session, selected.provider_id, selected.model_id, project, episode
-        )
+        return await self._resolve_video_caps_for_model(svc, session, selected.provider_id, selected.model_id, project)
 
     async def _resolve_video_caps_for_model(
         self,
@@ -1266,7 +1259,6 @@ class ConfigResolver:
         provider_id: str,
         model_id: str,
         project: dict | None,
-        episode: int | None = None,
     ) -> dict:
         effective = await self._resolve_effective_video_provider_model(session, ProviderModel(provider_id, model_id))
         provider_id, model_id = effective.provider_id, effective.model_id
@@ -1359,6 +1351,10 @@ class ConfigResolver:
 
         max_duration = max(supported_durations)
 
+        # requested_generate_audio 是**用户的无声意图**（全局设置 ← project.json 覆盖），与执行层
+        # MediaGenerator 读的 video_generate_audio 同源；下面的 generate_audio 是**计价口径**（叠加了
+        # 恒含音出账与默认执行档判定），两者不等价，故并列透出，消费方按语义各取一个：判「本集要不要
+        # 组装参考音频」只能读前者。
         requested_generate_audio = await self._resolve_video_generate_audio_from_project(svc, project)
         # 恒含音出账的 provider 无视请求值；其余 backend 只有在项目请求开启、且无上下文能力
         # 接口确认默认执行档会产出人声时，计价参数才为 True。
@@ -1379,7 +1375,7 @@ class ConfigResolver:
             cm = project.get("content_mode")
             if isinstance(cm, str) and cm:
                 content_mode = cm
-        generation_mode = caps_generation_mode(project, episode)
+        generation_mode = caps_generation_mode(project)
 
         voice_consistency = derive_voice_consistency(
             reference_audio_mode=reference_audio_mode,
@@ -1396,6 +1392,7 @@ class ConfigResolver:
             "first_frame": first_frame,
             "last_frame": last_frame,
             "generate_audio": generate_audio,
+            "requested_generate_audio": requested_generate_audio,
             "max_reference_audio_count": max_reference_audio_count,
             "reference_audio_per_image": reference_audio_per_image,
             "source": source,

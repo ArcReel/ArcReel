@@ -165,7 +165,7 @@ class TestPerModelCapabilities:
         request = _request(tmp_path, generate_audio=True)
 
         assert effective_generate_audio_for_model("kling", "kling-video-o1") is False
-        assert backend._effective_audio(request) is False
+        assert backend._effective_audio(request, subpath="text2video") is False
 
     def test_unknown_model_falls_back_to_default_caps(self):
         # bearer 透传原生 model_name：未登记 → 保守默认（t2v+i2v、尾帧仅 pro 档，声明按 std 档保守
@@ -212,28 +212,58 @@ class TestModeAndResolution:
 class TestAudioGating:
     def test_v2_6_pro_audio_enabled(self, tmp_path):
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
-            _request(tmp_path, service_tier="pro", generate_audio=True)
+            _request(tmp_path, resolution="1080p", service_tier="pro", generate_audio=True)
         )
-        assert payload["enable_audio"] is True
+        assert payload["sound"] == "on"
 
     def test_v2_6_std_audio_forced_off(self, tmp_path):
-        # 人声仅 pro 档：std 即使请求有声也压制为无声
+        # v2-6 有声官方限 1080P，而可灵只能经 mode 请求该档位：std 档拿不到 1080P，
+        # 即使 request.resolution 写 1080p 也压制为无声——否则拿到无声片却按有声价出账
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
-            _request(tmp_path, service_tier="std", generate_audio=True)
+            _request(tmp_path, resolution="1080p", service_tier="std", generate_audio=True)
         )
-        assert payload["enable_audio"] is False
+        assert payload["sound"] == "off"
 
-    def test_v3_audio_capability_absent_forced_off(self, tmp_path):
-        # 无 generate_audio 能力的 model：即使请求有声，enable_audio 强制 False（压制 v3 默认有声）
-        _, payload = _jwt_backend("kling-v3")._build_payload(
-            _request(tmp_path, service_tier="pro", generate_audio=True)
+    @pytest.mark.unit
+    def test_v2_6_audio_gate_ignores_request_resolution(self, tmp_path):
+        # request.resolution 不进 payload（4k 档除外），不能作为成片是否 1080P 的判据：
+        # pro 档即 1080P，resolution 写 720p 也照常有声
+        _, payload = _jwt_backend("kling-v2-6")._build_payload(
+            _request(tmp_path, resolution="720p", service_tier="pro", generate_audio=True)
         )
-        assert payload["enable_audio"] is False
+        assert payload["sound"] == "on"
 
-    def test_turbo_omits_enable_audio_field(self, tmp_path):
-        # 旧档无 enable_audio 字段：不携带，避免向不支持的端点发未知参数
-        _, payload = _jwt_backend()._build_payload(_request(tmp_path, generate_audio=True))
-        assert "enable_audio" not in payload
+    @pytest.mark.unit
+    def test_v2_6_4k_audio_forced_off(self, tmp_path):
+        # 4k 档是 v3 系专有，对 v2-6 是非法请求：不当作满足 1080P 放行，避免按有声价出账
+        _, payload = _jwt_backend("kling-v2-6")._build_payload(
+            _request(tmp_path, resolution="4k", service_tier="pro", generate_audio=True)
+        )
+        assert payload["sound"] == "off"
+
+    @pytest.mark.unit
+    def test_v3_audio_enabled_without_tier_constraint(self, tmp_path):
+        # v3 系官方未声明分辨率/档位约束：请求要人声即开启，不按未记载的限制降级
+        for model in ("kling-v3", "kling-v3-omni"):
+            _, payload = _jwt_backend(model)._build_payload(
+                _request(tmp_path, resolution="720p", service_tier="std", generate_audio=True)
+            )
+            assert payload["sound"] == "on"
+
+    @pytest.mark.unit
+    def test_audio_capable_model_sends_off_when_not_requested(self, tmp_path):
+        # 有能力但请求不要人声：显式发 "off"，与官方默认值一致
+        _, payload = _jwt_backend("kling-v3")._build_payload(_request(tmp_path, generate_audio=False))
+        assert payload["sound"] == "off"
+
+    @pytest.mark.unit
+    def test_no_audio_model_omits_sound_field(self, tmp_path):
+        # 无音频能力的档：不携带 sound，避免向不支持的端点发未知参数
+        img = tmp_path / "start.png"
+        img.write_bytes(b"\x89PNG\r\n")
+        for backend in (_jwt_backend(), _jwt_backend("kling-video-o1")):
+            _, payload = backend._build_payload(_request(tmp_path, start_image=img, generate_audio=True))
+            assert "sound" not in payload
 
 
 class TestMultiImageSubpath:
@@ -256,13 +286,21 @@ class TestMultiImageSubpath:
         assert not payload["image_list"][0]["image"].startswith("data:")
         assert "image" not in payload and "image_tail" not in payload
 
-    def test_multi_image2video_omits_enable_audio(self, tmp_path):
+    @pytest.mark.unit
+    def test_multi_image2video_omits_sound(self, tmp_path):
         refs = self._refs(tmp_path, 1)
         _, payload = _jwt_backend("kling-v3-omni")._build_payload(
-            _request(tmp_path, reference_images=refs, service_tier="pro", generate_audio=True)
+            _request(tmp_path, reference_images=refs, resolution="1080p", generate_audio=True)
         )
-        # multi-image2video 原生 schema 不含 enable_audio
-        assert "enable_audio" not in payload
+        # multi-image2video 原生 schema 不含音频开关；有声决策同步归 False，避免按有声价出账
+        assert "sound" not in payload
+        assert (
+            _jwt_backend("kling-v3-omni")._effective_audio(
+                _request(tmp_path, reference_images=refs, resolution="1080p", generate_audio=True),
+                subpath="multi-image2video",
+            )
+            is False
+        )
 
     def test_reference_images_take_precedence_over_start_image(self, tmp_path):
         refs = self._refs(tmp_path, 1)
@@ -608,7 +646,7 @@ class TestResume:
 
 class TestAudioGatingResult:
     async def test_v2_6_pro_audio_result_true(self, tmp_path):
-        # v2-6 pro + 请求有声 → result.generate_audio=True（下游计费取有声价 ¥1/s）
+        # v2-6 pro（即 1080P 档）+ 请求有声 → result.generate_audio=True（下游计费取有声价）
         post = AsyncMock(return_value=_resp(_submit("task-a")))
         get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
         client = _client(post=post, get=get)
@@ -618,13 +656,31 @@ class TestAudioGatingResult:
             patch("lib.video_backends.kling.download_video", new=AsyncMock()),
         ):
             result = await _jwt_backend("kling-v2-6").generate(
-                _request(tmp_path, service_tier="pro", generate_audio=True)
+                _request(tmp_path, resolution="1080p", service_tier="pro", generate_audio=True)
             )
         assert result.generate_audio is True
         assert post.await_args.args[0].endswith("/videos/text2video")
 
-    async def test_v3_audio_gated_result_false(self, tmp_path):
-        # v3 无音频能力：即使请求有声，result.generate_audio=False（计费取无声价）
+    @pytest.mark.unit
+    async def test_v2_6_std_audio_result_false(self, tmp_path):
+        # std 档拿不到 1080P：即使 request.resolution 写 1080p，结果也必须记为无声，
+        # 否则拿到无声片却按有声价（¥1.0/s vs ¥0.8/s）出账
+        post = AsyncMock(return_value=_resp(_submit("task-a2")))
+        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
+        client = _client(post=post, get=get)
+        with (
+            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
+        ):
+            result = await _jwt_backend("kling-v2-6").generate(
+                _request(tmp_path, resolution="1080p", service_tier="std", generate_audio=True)
+            )
+        assert result.generate_audio is False
+
+    @pytest.mark.unit
+    async def test_v3_audio_result_true(self, tmp_path):
+        # v3 支持音画同出且无分辨率约束：请求有声 → result.generate_audio=True
         post = AsyncMock(return_value=_resp(_submit("task-b")))
         get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
         client = _client(post=post, get=get)
@@ -633,12 +689,45 @@ class TestAudioGatingResult:
             patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
             patch("lib.video_backends.kling.download_video", new=AsyncMock()),
         ):
-            result = await _jwt_backend("kling-v3").generate(
-                _request(tmp_path, service_tier="pro", generate_audio=True)
-            )
+            result = await _jwt_backend("kling-v3").generate(_request(tmp_path, generate_audio=True))
+        assert result.generate_audio is True
+
+    @pytest.mark.unit
+    async def test_turbo_audio_gated_result_false(self, tmp_path):
+        # turbo 无音频能力：即使请求有声，result.generate_audio=False（计费取无声价）
+        post = AsyncMock(return_value=_resp(_submit("task-b2")))
+        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
+        client = _client(post=post, get=get)
+        with (
+            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
+        ):
+            result = await _jwt_backend().generate(_request(tmp_path, resolution="1080p", generate_audio=True))
         assert result.generate_audio is False
 
-    async def test_v2_6_pro_persists_audio_bit_in_job_id(self, tmp_path):
+    @pytest.mark.unit
+    async def test_v3_omni_multi_image_audio_result_false(self, tmp_path):
+        # multi-image2video 子路径不携带 sound（原生 schema 无此字段），成片必然无声：
+        # result.generate_audio 必须同步为 False，否则按有声价出账却拿到无声片
+        ref = tmp_path / "ref0.png"
+        ref.write_bytes(b"\x89PNG\r\n")
+        post = AsyncMock(return_value=_resp(_submit("task-b3")))
+        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
+        client = _client(post=post, get=get)
+        with (
+            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
+        ):
+            result = await _jwt_backend("kling-v3-omni").generate(
+                _request(tmp_path, reference_images=[ref], resolution="1080p", generate_audio=True)
+            )
+        assert post.await_args.args[0].endswith("/videos/multi-image2video")
+        assert result.generate_audio is False
+
+    @pytest.mark.unit
+    async def test_v2_6_persists_audio_bit_in_job_id(self, tmp_path):
         # submit 时算定的有声决策编入 job_id（v2-6 pro 有声 → 末段 :1），resume 据此直连计费
         post = AsyncMock(return_value=_resp(_submit("task-c")))
         get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/v.mp4")))
@@ -675,8 +764,8 @@ class TestAudioGatingResult:
         assert result.task_id == "task-c"
         assert get.await_args.args[0].endswith("/videos/text2video/task-c")
 
-    async def test_resume_legacy_job_id_recomputes_audio(self, tmp_path):
-        # 旧 job_id（2 段，未持久化有声标志）回落按请求重算
+    async def test_resume_legacy_job_id_stays_silent(self, tmp_path):
+        # 不含有声标志的 2 段 job_id 一律判无声：这类任务的成片必然无声，不得按当前能力表重算为有声
         post = AsyncMock()
         get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
         client = _client(post=post, get=get)
@@ -689,7 +778,25 @@ class TestAudioGatingResult:
                 "text2video:task-c", _request(tmp_path, service_tier="pro", generate_audio=True)
             )
         post.assert_not_called()
-        assert result.generate_audio is True
+        assert result.generate_audio is False
         # 2 段旧 job_id 同样须正确复原子路径/任务号（不误把整串当 task_id）
         assert result.task_id == "task-c"
         assert get.await_args.args[0].endswith("/videos/text2video/task-c")
+
+    @pytest.mark.unit
+    async def test_resume_legacy_multi_image_job_id_stays_silent(self, tmp_path):
+        # 多图主体子路径的成片必然无声：接续请求不带参考图字段，判据只能取自解码出的子路径
+        post = AsyncMock()
+        get = AsyncMock(return_value=_resp(_query("succeed", url="https://x/r.mp4")))
+        client = _client(post=post, get=get)
+        with (
+            patch("lib.video_backends.kling.httpx.AsyncClient", return_value=client),
+            patch("lib.video_backends.kling._KLING_VIDEO_POLL_INTERVAL_SECONDS", 0),
+            patch("lib.video_backends.kling.download_video", new=AsyncMock()),
+        ):
+            result = await _jwt_backend("kling-v3-omni").resume_video(
+                "multi-image2video:task-d", _request(tmp_path, generate_audio=True)
+            )
+        post.assert_not_called()
+        assert result.generate_audio is False
+        assert get.await_args.args[0].endswith("/videos/multi-image2video/task-d")

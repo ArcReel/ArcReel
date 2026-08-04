@@ -7,42 +7,17 @@ drama（utterances + source_text）与 narration（结构化 novel_text）共用
 
 import logging
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body
 
 from lib.api_errors import NotFoundError
 from lib.i18n import Translator
 from lib.project_manager import get_project_manager
+from server.routers._script_review_errors import raise_review_error
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# gate 领域错误码 → (HTTP 状态, i18n key)。invalid_content / episode_not_found 带参数另行注入。
-_ERROR_STATUS: dict[str, int] = {
-    "not_applicable": 409,
-    "no_step1": 409,
-    "invalid_content": 422,
-    "episode_not_found": 404,
-    "quarantined": 409,
-}
-# 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 _raise_review_error 单独处理。
-_ERROR_I18N: dict[str, str] = {
-    "not_applicable": "script_review_not_applicable",
-    "no_step1": "script_review_no_step1",
-    "quarantined": "script_review_quarantined",
-}
-
-
-def _raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> None:
-    status = _ERROR_STATUS.get(exc.code, 400)
-    if exc.code == "invalid_content":
-        detail = _t("script_review_invalid_content", details=exc.message)
-    elif exc.code == "episode_not_found":
-        detail = _t("episode_not_found", episode=episode)
-    else:
-        detail = _t(_ERROR_I18N.get(exc.code, "internal_server_error"))
-    raise HTTPException(status_code=status, detail=detail)
 
 
 async def _attach_duration_tiers(service: ScriptReviewService, project_name: str, episode: int, state: dict) -> dict:
@@ -93,7 +68,7 @@ async def get_script_review(project_name: str, episode: int, _t: Translator):
         state["quarantine"] = _localize_quarantine_violations(quarantine, _t)
         return state
     except ScriptReviewError as exc:
-        _raise_review_error(exc, episode, _t)
+        raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
 
@@ -104,8 +79,12 @@ async def update_script_review_content(
     episode: int,
     _t: Translator,
     content: dict = Body(...),
+    base_fingerprint: str | None = None,
 ):
     """保存手动 / agent 编辑后的结构化中间态，并使该集重新进入待审。
+
+    ``base_fingerprint``（query）是编辑方 GET 时拿到的内容指纹：给定时服务端在锁内比对，
+    编辑期间 step1 被另一写入方改过则 409 冲突、不落盘；缺省不比对（无基线的直连调用）。
 
     ``quarantine`` 同 GET 一并合并：保存作用于正式草稿，与隔离草稿是两份独立文件，保存在途时
     agent 可能已经另外产出一份新的隔离草稿——响应缺这个字段的话 ``adopt()`` 会把它当作
@@ -119,13 +98,13 @@ async def update_script_review_content(
     """
     try:
         service = ScriptReviewService(get_project_manager())
-        state = await service.save_content(project_name, episode, content)
+        state = await service.save_content(project_name, episode, content, base_fingerprint)
         quarantine = await service.get_quarantine_info(project_name, episode)
         await _attach_duration_tiers(service, project_name, episode, state)
         state["quarantine"] = _localize_quarantine_violations(quarantine, _t)
         return state
     except ScriptReviewError as exc:
-        _raise_review_error(exc, episode, _t)
+        raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
 
@@ -147,6 +126,6 @@ async def confirm_script_review(project_name: str, episode: int, _t: Translator)
         )
         return state
     except ScriptReviewError as exc:
-        _raise_review_error(exc, episode, _t)
+        raise_review_error(exc, episode, _t)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc

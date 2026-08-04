@@ -15,16 +15,16 @@ import logging
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from lib.api_errors import BadRequestError, NotFoundError
+from lib.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.asset_types import ASSET_SPECS, validate_asset_name
 from lib.audio_utils import discard_stale_reference_audio, resolve_stale_reference_audio
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec
 from lib.i18n import Translator
 from lib.path_safety import safe_exists, safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
-from lib.project_manager import get_project_manager
+from lib.project_manager import get_project_manager, is_reference_video_project
 from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import (
     find_storyboard_item,
@@ -164,12 +164,20 @@ async def generate_video(
     提交视频生成任务到队列，立即返回 task_id。
 
     需要先有分镜图作为起始帧。生成由 GenerationWorker 异步执行。
+
+    仅服务分镜图生视频路线：参考生视频路线没有分镜图这一步，在此拒绝并指引换入口。
     """
 
     def _sync() -> dict:
         pm_local = get_project_manager()
         project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
+
+        # 路线闸门前置于分镜图存在性检查：参考路线项目本无分镜图步骤，落到下面会拿到
+        # 「请先生成分镜图」的误导指引；换路线前残留分镜图时更糟——请求按 i2v 执行，
+        # 与按 r2v 归桶的费用估算不同轴。路线以 project.json 为唯一真相源，磁盘产物不投票。
+        if is_reference_video_project(project):
+            raise ConflictError("video_route_is_reference_video")
 
         # 与 worker 一致：优先读取 generated_assets.storyboard_image，回退默认路径。
         # 旧宫格项目 storyboard_image 指向 scene_{id}_first.png，仍可正常解析。
@@ -199,9 +207,10 @@ async def generate_video(
 
     project = await asyncio.to_thread(_sync)
 
-    # 图生视频路径归 i2v 桶（docs/adr/0054）：解析闸预检让能力缺失 / 悬空引用在提交入口
-    # 即返回修复指引，而非任务面板里的异步失败。
-    await require_video_bucket_capability(project, "i2v")
+    # 归桶按项目路线求值（docs/adr/0054），与执行层 lane 声明同源、不第二次硬编码 i2v；
+    # 上面的路线闸门已挡掉参考路线，此处对能到达的项目恒为 i2v。解析闸预检让能力缺失 /
+    # 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
+    await require_video_bucket_capability(project, video_bucket_for_generation_mode(project.get("generation_mode")))
 
     # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）。
     # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）。

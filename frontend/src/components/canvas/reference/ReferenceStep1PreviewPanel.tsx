@@ -20,7 +20,7 @@ import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE, GHOST_BTN_CLS, GHOST_B
 import { assetColor } from "@/components/canvas/reference/asset-colors";
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
 import { toScriptLines, type MentionLookup } from "@/hooks/useShotPromptHighlight";
-import { extractMentions, formatShotHeader } from "@/utils/reference-mentions";
+import { extractMentions, formatShotHeader, normalizeAssetName } from "@/utils/reference-mentions";
 
 interface ReferenceStep1PreviewPanelProps {
   projectName: string;
@@ -82,10 +82,15 @@ function deriveDisplayReferences(text: string, lookup: MentionLookup): Reference
   const out: ReferenceResource[] = [];
   // extractMentions（非 tokenizePrompt）：规范台词行里的说话人不产参考图，与后端
   // extract_mentions 同口径——tokenizePrompt 是给高亮用的，不做这条跳过。
+  // extractMentions 按裸字符串去重，同一资产以 NFC/NFD 两种编码各出现一次时会各产一条；
+  // 后端归一后落盘只保留一条，这里须同口径按归一形式去重，否则预览多显示一张图/一个图号。
+  const seen = new Set<string>();
   for (const name of extractMentions(text)) {
-    const assetKind = lookup[name];
-    if (!assetKind) continue;
-    out.push({ type: assetKind, name });
+    const canonical = normalizeAssetName(name);
+    const assetKind = lookup[canonical];
+    if (!assetKind || seen.has(canonical)) continue;
+    seen.add(canonical);
+    out.push({ type: assetKind, name: canonical });
   }
   return out;
 }
@@ -162,7 +167,7 @@ function unitDurationTiers(
   tiers: NonNullable<ScriptReviewState["duration_tiers"]> | null,
 ): number[] | null {
   if (!tiers) return null;
-  const hasReferences = extractMentions(unit.scriptText).some((name) => Boolean(lookup[name]));
+  const hasReferences = extractMentions(unit.scriptText).some((name) => Boolean(lookup[normalizeAssetName(name)]));
   return hasReferences ? tiers.with_references : tiers.without_references;
 }
 
@@ -384,6 +389,10 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
 
   const [state, setState] = useState<ScriptReviewState | null>(null);
   const [draft, setDraft] = useState<ReferenceStep1Draft | null>(null);
+  // 保存时提交的基线指纹：绑定在**当前草稿所基于的那份服务端内容**上，只在草稿采用服务端内容时推进。
+  // 不能改用 state.fingerprint——有未保存编辑时的外部刷新会更新 state 却保留旧草稿，届时提交
+  // state.fingerprint 等于拿别人新写的内容当基线，OCC 会放行并静默覆盖对方的修改。
+  const [baseFingerprint, setBaseFingerprint] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<{ message: string } | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -405,6 +414,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     setState(next);
     const content = next.content != null && "units" in next.content ? (next.content) : null;
     setDraft(content ? (JSON.parse(JSON.stringify(content)) as ReferenceStep1Draft) : null);
+    setBaseFingerprint(next.fingerprint);
   }, []);
 
   const handleRetry = useCallback(() => {
@@ -429,6 +439,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
         if (!dirtyRef.current) {
           const content = next.content != null && "units" in next.content ? (next.content) : null;
           setDraft(content ? (JSON.parse(JSON.stringify(content)) as ReferenceStep1Draft) : null);
+          setBaseFingerprint(next.fingerprint);
         }
       })
       .catch((err) => {
@@ -471,20 +482,20 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     if (!draft) return;
     setSaving(true);
     try {
-      adopt(await API.saveScriptReviewContent(projectName, episode, draft));
+      adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
       pushToast(t("dashboard:review_saved"), "success");
     } catch (err) {
       pushToast(errorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
     } finally {
       setSaving(false);
     }
-  }, [draft, projectName, episode, adopt, pushToast, t]);
+  }, [draft, baseFingerprint, projectName, episode, adopt, pushToast, t]);
 
   const handleConfirm = useCallback(async () => {
     setConfirming(true);
     try {
       if (dirty && draft) {
-        adopt(await API.saveScriptReviewContent(projectName, episode, draft));
+        adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
       }
       adopt(await API.confirmScriptReview(projectName, episode));
       // 两次 await 期间用户可能已切走项目（本组件所在的 tab 可能因此被卸载）：只在项目本身
@@ -501,7 +512,7 @@ export function ReferenceStep1PreviewPanel({ projectName, episode, lookup }: Ref
     } finally {
       setConfirming(false);
     }
-  }, [dirty, draft, projectName, episode, adopt, pushToast, t]);
+  }, [dirty, draft, baseFingerprint, projectName, episode, adopt, pushToast, t]);
 
   const handleRequestFix = useCallback(() => {
     const violations = state?.quarantine?.violations ?? [];

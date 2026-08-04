@@ -25,6 +25,7 @@ CAPS_WITH_AUDIO_DURATION_LIMIT = VideoCapabilities(
     max_reference_audio_count=3,
     max_reference_audio_total_seconds=15.0,
 )
+CAPS_WITH_PROMPT_LIMIT = VideoCapabilities(first_frame=True, max_prompt_chars=100)
 
 
 def _gate(caps: VideoCapabilities | None, **kwargs):
@@ -258,6 +259,40 @@ class TestReferenceAudioDurationGating:
             reference_audio_files=[Path("a.mp3"), Path("b.wav")],
             reference_audio_total_seconds=1000.0,
         )
+
+
+class TestPromptLengthGating:
+    def test_prompt_within_limit_passes(self):
+        _gate(CAPS_WITH_PROMPT_LIMIT, prompt="x" * 99)
+
+    def test_prompt_at_limit_passes(self):
+        _gate(CAPS_WITH_PROMPT_LIMIT, prompt="x" * 100)
+
+    def test_prompt_beyond_limit_raises(self):
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(CAPS_WITH_PROMPT_LIMIT, prompt="x" * 101)
+
+        assert exc.value.code == "video_prompt_too_long"
+        assert exc.value.params == {"provider": "acme", "model": "acme-v1", "limit": 100, "count": 101}
+
+    def test_limit_counts_characters_not_bytes(self):
+        """计量口径是字符数，中英文同权——按字节算会把中文 prompt 误拒。"""
+        _gate(CAPS_WITH_PROMPT_LIMIT, prompt="中" * 100)
+
+    def test_no_declared_limit_skips_check(self):
+        """caps 未声明上限：任意长度都放行，未声明不等于上限为 0。"""
+        _gate(CAPS_WITH_LAST_FRAME, prompt="x" * 100_000)
+
+    def test_none_caps_skips_check(self):
+        """能力未查询（caps=None）时不拦 prompt——无从得知上限，拒绝反成误伤。"""
+        _gate(None, prompt="x" * 100_000)
+
+    def test_prompt_checked_before_optional_paths(self):
+        """prompt 违约先于尾帧等可选路径报出，用户一次只看到最先命中的那条。"""
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(CAPS_WITH_PROMPT_LIMIT, prompt="x" * 101, end_image=Path("end.png"))
+
+        assert exc.value.code == "video_prompt_too_long"
 
 
 class TestGateAndAssemblySeparation:

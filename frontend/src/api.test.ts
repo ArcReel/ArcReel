@@ -170,8 +170,8 @@ describe("API", () => {
         .mockResolvedValue({ success: true } as never);
 
       await API.listProjects();
-      await API.createProject({ title: "Demo" });
-      await API.createProject({ title: "Untitled" });
+      await API.createProject({ title: "Demo", generation_mode: "storyboard" });
+      await API.createProject({ title: "Untitled", generation_mode: "reference_video" });
       await API.getProject("a b");
       await API.updateProject("demo", { style: "Anime" });
       await API.deleteProject("demo");
@@ -218,11 +218,11 @@ describe("API", () => {
       expect(requestSpy).toHaveBeenCalledWith("/projects");
       expect(requestSpy).toHaveBeenCalledWith("/projects", {
         method: "POST",
-        body: JSON.stringify({ title: "Demo" }),
+        body: JSON.stringify({ title: "Demo", generation_mode: "storyboard" }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects", {
         method: "POST",
-        body: JSON.stringify({ title: "Untitled" }),
+        body: JSON.stringify({ title: "Untitled", generation_mode: "reference_video" }),
       });
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b", { signal: undefined });
       expect(requestSpy).toHaveBeenCalledWith("/projects/demo", {
@@ -478,6 +478,7 @@ describe("API", () => {
       const requestSpy = vi.spyOn(API, "request").mockResolvedValue({ success: true } as never);
       await API.createProject({
         title: "P1",
+        generation_mode: "storyboard",
         style_template_id: "live_premium_drama",
         content_mode: "drama",
         aspect_ratio: "9:16",
@@ -488,6 +489,7 @@ describe("API", () => {
         method: "POST",
         body: JSON.stringify({
           title: "P1",
+          generation_mode: "storyboard",
           style_template_id: "live_premium_drama",
           content_mode: "drama",
           aspect_ratio: "9:16",
@@ -516,6 +518,7 @@ describe("API", () => {
       // 三个封装都用含空格项目名，断言 encodeURIComponent 在各自路径上生效（编码丢失即失败）。
       await API.getScriptReview("a b", 1);
       await API.saveScriptReviewContent("a b", 2, content);
+      await API.saveScriptReviewContent("a b", 2, content, "fp 1");
       await API.confirmScriptReview("a b", 3);
 
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/1/script-review", {
@@ -525,6 +528,14 @@ describe("API", () => {
         method: "PUT",
         body: JSON.stringify(content),
       });
+      // 基线指纹经 query 传递（编码后），供服务端做并发编辑冲突比对
+      expect(requestSpy).toHaveBeenCalledWith(
+        "/projects/a%20b/episodes/2/script-review/content?base_fingerprint=fp%201",
+        {
+          method: "PUT",
+          body: JSON.stringify(content),
+        },
+      );
       expect(requestSpy).toHaveBeenCalledWith("/projects/a%20b/episodes/3/script-review/confirm", {
         method: "POST",
       });

@@ -142,6 +142,7 @@ class TestModelListExposesCapabilities:
             "max_reference_audio_count": 0,
             "max_reference_audio_total_seconds": None,
             "reference_audio_per_image": False,
+            "max_prompt_chars": None,
         }
         assert models[0]["capability_overrides"] is None
 
@@ -160,6 +161,7 @@ class TestModelListExposesCapabilities:
             "max_reference_audio_count": expected.max_reference_audio_count,
             "max_reference_audio_total_seconds": expected.max_reference_audio_total_seconds,
             "reference_audio_per_image": expected.reference_audio_per_image,
+            "max_prompt_chars": expected.max_prompt_chars,
         }
 
     @pytest.mark.integration

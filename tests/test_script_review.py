@@ -15,7 +15,13 @@ from lib import script_review
 from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
 from lib.reference_video.draft_validation import DraftViolation
-from lib.reference_video.quarantine import QUARANTINE_KIND_STEP1, clear_quarantine, write_quarantine
+from lib.reference_video.quarantine import (
+    QUARANTINE_KIND_STEP1,
+    QUARANTINE_KIND_STEP2,
+    clear_quarantine,
+    quarantine_path,
+    write_quarantine,
+)
 from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 
@@ -839,8 +845,8 @@ class TestApplicability:
         """reference_video（跨 content_mode）纳入 gate，step1 变体判为 reference_video。"""
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         project = pm.load_project("demo")
-        assert script_review.step1_kind(project, 1) == "reference_video"
-        assert script_review.is_applicable(project, 1) is True
+        assert script_review.step1_kind(project) == "reference_video"
+        assert script_review.is_applicable(project) is True
         # 未产 step1 → no_step1（区别于 ad 的 not_applicable）。
         assert (await ScriptReviewService(pm).get_state("demo", 1))["status"] == "no_step1"
 
@@ -849,7 +855,7 @@ class TestApplicability:
         pm.create_project("addemo")
         pm.create_project_metadata("addemo", "Ad", "Anime", "ad")
         svc = ScriptReviewService(pm)
-        assert script_review.step1_kind(svc.pm.load_project("addemo"), 1) is None
+        assert script_review.step1_kind(svc.pm.load_project("addemo")) is None
         assert (await svc.get_state("addemo", 1))["status"] == "not_applicable"
 
 
@@ -903,6 +909,81 @@ class TestErrors:
         orphan = pm.get_project_path("demo") / "drafts" / "episode_99" / "step1_normalized_script.json"
         assert not orphan.exists()
 
+    async def test_save_with_stale_fingerprint_conflicts_reference_video(self, tmp_path):
+        """rv 并发编辑：保存携带的基线指纹与盘上现值不一致（编辑期间另一方已保存）→ conflict、
+        不落盘不覆盖；拿最新指纹（等价于刷新合并后）重试放行。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        path = _write_rv_step1(pm, _rv_step1())
+        stale = (await svc.get_state("demo", 1))["fingerprint"]
+
+        # 另一编辑方先保存（内容变化 → 指纹漂移）
+        other = _rv_step1()
+        other["units"][0]["shots"][0]["text"] = "@[阿离] 转身离开。"
+        await svc.save_content("demo", 1, other)
+        before = path.read_text(encoding="utf-8")
+
+        mine = _rv_step1()
+        mine["units"][0]["shots"][1]["text"] = "@[裴与] 下马。"
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.save_content("demo", 1, mine, stale)
+        assert exc.value.code == "conflict"
+        assert path.read_text(encoding="utf-8") == before
+
+        fresh = (await svc.get_state("demo", 1))["fingerprint"]
+        state = await svc.save_content("demo", 1, mine, fresh)
+        assert state["status"] == "pending_review"
+        assert json.loads(path.read_text(encoding="utf-8"))["units"][0]["shots"][1]["text"] == "@[裴与] 下马。"
+
+    async def test_save_with_stale_fingerprint_conflicts_drama(self, tmp_path):
+        """drama/narration 的 web 保存同样受基线比对保护：同一个 conflict 错误码。"""
+        pm = _make_project(tmp_path, "drama")
+        svc = ScriptReviewService(pm)
+        path = _write_step1(pm, "drama", _drama_step1())
+        stale = (await svc.get_state("demo", 1))["fingerprint"]
+
+        other = _drama_step1()
+        other["title"] = "另一方改的标题"
+        await svc.save_content("demo", 1, other)
+        before = path.read_text(encoding="utf-8")
+
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.save_content("demo", 1, _drama_step1(), stale)
+        assert exc.value.code == "conflict"
+        assert path.read_text(encoding="utf-8") == before
+
+    async def test_save_without_fingerprint_skips_baseline_check(self, tmp_path):
+        """不带基线指纹的直连调用维持原语义：不比对、直接落盘。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        _write_rv_step1(pm, _rv_step1())
+        other = _rv_step1()
+        other["units"][0]["shots"][0]["text"] = "@[阿离] 转身离开。"
+        await svc.save_content("demo", 1, other)
+
+        state = await svc.save_content("demo", 1, _rv_step1())
+        assert state["status"] == "pending_review"
+
+    async def test_rv_save_clears_stale_step2_quarantine_on_change(self, tmp_path):
+        """web 保存改了 step1 内容 → 在场的 step2 隔离草稿作废（其保结构 diff 以旧 step1 为
+        基底）；内容未变的保存不清。与 agent 侧写盘同一出口、同一语义。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        svc = ScriptReviewService(pm)
+        project_path = pm.get_project_path("demo")
+        _write_rv_step1(pm, _rv_step1())
+        # 先经一次保存把归一化形状（含模型默认字段）落盘，"内容未变"的比较才有同一基准
+        await svc.save_content("demo", 1, _rv_step1())
+        step2_q = quarantine_path(project_path, 1, QUARANTINE_KIND_STEP2)
+
+        write_quarantine(project_path, 1, QUARANTINE_KIND_STEP2, content={"units": [{"text": "旧基底"}]}, violations=[])
+        await svc.save_content("demo", 1, _rv_step1())  # 内容未变（校验/重派生结果与盘上一致）
+        assert step2_q.exists()
+
+        edited = _rv_step1()
+        edited["units"][0]["shots"][0]["text"] = "@[阿离] 转身离开。"
+        await svc.save_content("demo", 1, edited)
+        assert not step2_q.exists()
+
     async def test_confirm_corrupt_step1_rejected(self, tmp_path):
         """step1 文件损坏（非法 JSON，但 content_fingerprint 仍产哈希）→ 确认被结构校验拒绝。"""
         pm = _make_project(tmp_path, "drama")
@@ -912,6 +993,76 @@ class TestErrors:
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
         assert exc.value.code == "invalid_content"
+
+
+# ---------------------------------------------------------------------------
+# 单一写盘出口（lib.script_review.write_step1_locked）
+# ---------------------------------------------------------------------------
+
+
+class TestStep1WriteStore:
+    def _project_path(self, tmp_path: Path) -> Path:
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        return pm.get_project_path("demo")
+
+    def test_conflict_on_stale_baseline_keeps_file(self, tmp_path: Path):
+        project_path = self._project_path(tmp_path)
+        with script_review.step1_write_lock(project_path, 1):
+            script_review.write_step1_locked(project_path, 1, {"units": [{"v": 1}]})
+        stale = "0" * 64
+
+        with pytest.raises(script_review.Step1WriteConflict) as exc:
+            with script_review.step1_write_lock(project_path, 1):
+                script_review.write_step1_locked(project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=stale)
+
+        assert exc.value.expected == stale
+        assert exc.value.actual == script_review.content_fingerprint_of_data({"units": [{"v": 1}]})
+        assert exc.value.current_content == {"units": [{"v": 1}]}
+        path = script_review.official_reference_step1_path(project_path, 1)
+        assert json.loads(path.read_text(encoding="utf-8")) == {"units": [{"v": 1}]}
+
+    def test_matching_baseline_and_none_baseline_write(self, tmp_path: Path):
+        """基线一致放行；``None`` 基线表示「取基线时文件不存在」，首写同样放行。"""
+        project_path = self._project_path(tmp_path)
+        with script_review.step1_write_lock(project_path, 1):
+            script_review.write_step1_locked(project_path, 1, {"units": [{"v": 1}]}, expected_fingerprint=None)
+        current = script_review.content_fingerprint(script_review.official_reference_step1_path(project_path, 1))
+        with script_review.step1_write_lock(project_path, 1):
+            script_review.write_step1_locked(project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=current)
+        path = script_review.official_reference_step1_path(project_path, 1)
+        assert json.loads(path.read_text(encoding="utf-8")) == {"units": [{"v": 2}]}
+
+    def test_none_baseline_conflicts_when_file_appeared(self, tmp_path: Path):
+        """基线 None（取基线时无正式文件）而写盘前文件已被另一方写出 → 冲突，不覆盖。"""
+        project_path = self._project_path(tmp_path)
+        with script_review.step1_write_lock(project_path, 1):
+            script_review.write_step1_locked(project_path, 1, {"units": [{"v": 1}]})
+        with pytest.raises(script_review.Step1WriteConflict):
+            with script_review.step1_write_lock(project_path, 1):
+                script_review.write_step1_locked(project_path, 1, {"units": [{"v": 2}]}, expected_fingerprint=None)
+
+    def test_step2_quarantine_cleared_only_on_change(self, tmp_path: Path):
+        project_path = self._project_path(tmp_path)
+        step2_q = quarantine_path(project_path, 1, QUARANTINE_KIND_STEP2)
+        with script_review.step1_write_lock(project_path, 1):
+            script_review.write_step1_locked(project_path, 1, {"units": [{"v": 1}]})
+
+        # 内容未变 → 不清
+        write_quarantine(project_path, 1, QUARANTINE_KIND_STEP2, content={"units": [{"text": "基底"}]}, violations=[])
+        with script_review.step1_write_lock(project_path, 1):
+            assert script_review.write_step1_locked(project_path, 1, {"units": [{"v": 1}]}) is False
+        assert step2_q.exists()
+
+        # 内容变了 → 清
+        with script_review.step1_write_lock(project_path, 1):
+            assert script_review.write_step1_locked(project_path, 1, {"units": [{"v": 2}]}) is True
+        assert not step2_q.exists()
+
+        # 迁移回写按机械收编处理：内容变了也不清
+        write_quarantine(project_path, 1, QUARANTINE_KIND_STEP2, content={"units": [{"text": "基底"}]}, violations=[])
+        with script_review.step1_write_lock(project_path, 1):
+            script_review.write_step1_locked(project_path, 1, {"units": [{"v": 3}]}, clear_step2_quarantine=False)
+        assert step2_q.exists()
 
 
 # ---------------------------------------------------------------------------

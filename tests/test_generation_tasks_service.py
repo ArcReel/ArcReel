@@ -532,6 +532,34 @@ class TestGenerationTasks:
         assert "video_thumbnail" in asset_types
         assert thumbnail_path.exists()
 
+    @pytest.mark.integration
+    async def test_execute_video_task_lane_bucket_follows_project_route(self, monkeypatch, tmp_path):
+        """lane 归桶按项目路线求值，不再无条件 i2v——与提交入口口径同源。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        seen_lanes: list[dict] = []
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, seen_lane_requests=seen_lanes),
+        )
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        payload = {
+            "script_file": "episode_1.json",
+            "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+        }
+        fake_pm.project["generation_mode"] = "storyboard"
+        await generation_tasks.execute_video_task("demo", "E1S01", payload)
+        assert seen_lanes[-1]["video"].capability == "i2v"
+
+        fake_pm.project["generation_mode"] = "reference_video"
+        await generation_tasks.execute_video_task("demo", "E1S01", payload)
+        assert seen_lanes[-1]["video"].capability == "r2v"
+
     async def test_execute_video_task_rejects_unsupported_duration(self, monkeypatch, tmp_path):
         """执行层在解析出 ProviderModel 后，对越界 duration 以明确错误拒绝。"""
         project_path = _prepare_files(tmp_path)
@@ -1364,39 +1392,6 @@ class TestGenerationTasks:
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 6
 
-    async def test_execute_video_task_passes_script_episode_to_context(self, monkeypatch, tmp_path):
-        """执行层把剧本集号交给能力解析：生成模式可被单集覆盖，按项目级解析会漏掉该覆盖。
-
-        集号与入队侧共用一份解析：剧本 episode 字段优先，缺字段（存量脏数据）时回落文件名，
-        两者都解析不出才传 None 让能力回落项目级口径。
-        """
-        project_path = _prepare_files(tmp_path)
-        fake_pm = _FakePM(project_path)
-        fake_generator = _FakeGenerator()
-        seen: list[int | None] = []
-        inner = _fake_resolve_ctx(fake_generator, supported_durations=(6, 10))
-
-        async def _recording_resolve(*args, episode=None, **kwargs):
-            seen.append(episode)
-            return await inner(*args, episode=episode, **kwargs)
-
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _recording_resolve)
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
-
-        payload = {
-            "script_file": "episode_1.json",
-            "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
-        }
-        fake_pm.script["episode"] = 2
-        await generation_tasks.execute_video_task("demo", "E1S01", payload)
-        fake_pm.script.pop("episode")
-        await generation_tasks.execute_video_task("demo", "E1S01", payload)
-        payload_unresolvable = {**payload, "script_file": "draft.json"}
-        await generation_tasks.execute_video_task("demo", "E1S01", payload_unresolvable)
-        assert seen == [2, 1, None]
-
     async def test_execute_video_task_default_duration_respects_resolution_constraint(self, monkeypatch, tmp_path):
         """Auto（无显式 duration）在受约束分辨率下取约束内的时长，而非 supported_durations 首项。
 
@@ -1868,7 +1863,7 @@ class TestGetAspectRatio:
         assert generation_tasks.get_aspect_ratio(project, "videos") == "16:9"
 
     def test_characters_always_16_9(self):
-        # 角色采用四视图横版（issue #353）
+        # 角色资产统一采用四视图横版，与项目整体画幅无关
         project = {"aspect_ratio": "9:16"}
         assert generation_tasks.get_aspect_ratio(project, "characters") == "16:9"
 
@@ -2031,6 +2026,38 @@ class TestAdProductFidelityStoryboard:
             item = {"shot_id": "E1S01", "products_in_shot": empty}
             assert generation_tasks._collect_shot_product_references(project, project_path, item) == []
         assert generation_tasks._collect_shot_product_references(project, project_path, {"shot_id": "E1S01"}) == []
+
+    @pytest.mark.integration
+    def test_collect_product_references_resolves_nfd_registered_name_by_nfc_query(self, tmp_path):
+        """产品以 NFD key 登记、镜头 products_in_shot 传入 NFC 名字：
+        collect_product_references_for_names 须按归一形式查找 bucket 命中，不能因编码
+        形式不同静默跳过。"""
+        import unicodedata
+
+        project_path = _prepare_files(tmp_path)
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+        project = {"products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+
+        refs = generation_tasks.collect_product_references_for_names(project, project_path, [name_nfc])
+        assert [r["image"] for r in refs] == [project_path / "products" / "refs" / "保温杯_1.jpg"]
+
+    @pytest.mark.integration
+    def test_collect_product_references_dedupes_nfc_nfd_pair(self, tmp_path):
+        """同一产品的 NFC/NFD 两种编码形式同时出现在 products_in_shot：归一后是同一产品，
+        只应注入一份参考图，不能各自命中同一 bucket 条目各注入一份，否则会重复消耗参考位、
+        挤掉真正的角色/场景参考。"""
+        import unicodedata
+
+        project_path = _prepare_files(tmp_path)
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+        project = {"products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+
+        refs = generation_tasks.collect_product_references_for_names(project, project_path, [name_nfc, name_nfd])
+        assert [r["image"] for r in refs] == [project_path / "products" / "refs" / "保温杯_1.jpg"]
 
 
 def _patch_video_path(monkeypatch, pm, generator):

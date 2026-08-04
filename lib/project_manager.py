@@ -53,7 +53,10 @@ logger = logging.getLogger(__name__)
 PROJECT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 
-_VALID_GENERATION_MODES = {"storyboard", "grid", "reference_video"}
+# 生成路线（generation_mode）：二值必填，创建即定、之后不可变（可变性由 PATCH 模型结构保证）。
+# 宫格不是路线：它由独立的 grid_storyboard 布尔表达，仅 storyboard 路线有意义。
+# 存量三值 "grid" 已由 v4→v5 迁移重编码为 storyboard + grid_storyboard=true。
+VALID_GENERATION_MODES: frozenset[str] = frozenset({"storyboard", "reference_video"})
 _DEFAULT_GENERATION_MODE = "storyboard"
 
 # 源文件性质（source_kind）：与 content_mode / generation_mode 正交的第三轴，project.json
@@ -71,24 +74,19 @@ class _Unset:
 _UNSET = _Unset()
 
 
-def effective_mode(*, project: dict, episode: dict) -> str:
-    """按 episode → project → 默认 storyboard 回退解析 generation_mode。
+def grid_storyboard_enabled(project: dict[str, Any]) -> bool:
+    """项目是否按宫格生产分镜图。
 
-    未知值一律回退到默认，兼容脏数据。
+    宫格是 storyboard 路线内的分镜图生产方式：reference_video 路线无分镜图步骤，
+    即使残留 grid_storyboard=true 也不激活宫格分支。
     """
-    ep_mode = episode.get("generation_mode")
-    if ep_mode in _VALID_GENERATION_MODES:
-        return ep_mode
-    proj_mode = project.get("generation_mode")
-    if proj_mode in _VALID_GENERATION_MODES:
-        return proj_mode
-    return _DEFAULT_GENERATION_MODE
+    return project.get("generation_mode") == "storyboard" and bool(project.get("grid_storyboard"))
 
 
 def find_episode(project: dict[str, Any], episode: int | None) -> dict[str, Any] | None:
     """返回 project.json ``episodes[]`` 中 ``episode == N`` 的条目，缺失则 None。
 
-    ``episode`` 为 None（集号未知）时不匹配任何条目，调用方据此回退到项目级配置。
+    ``episode`` 为 None（集号未知）时不匹配任何条目。
     """
     if episode is None:
         return None
@@ -98,13 +96,14 @@ def find_episode(project: dict[str, Any], episode: int | None) -> dict[str, Any]
     return None
 
 
-def is_reference_video_episode(project: dict[str, Any], episode: int | None) -> bool:
-    """该集的生效 generation_mode 是否为 reference_video。
+def is_reference_video_project(project: Mapping[str, Any]) -> bool:
+    """项目是否走参考生视频路线。
 
-    project.json 是该判定的唯一真相源：ad 内容模式的剧本骨架不携带剧本级
-    ``generation_mode`` 戳（见 ``script_generator``），只看剧本判不出参考生视频。
+    project.json 的 ``generation_mode`` 是该判定的唯一真相源：路线创建即定、之后不可变，
+    整个项目按同一条路径生成；ad 内容模式的剧本骨架也不携带剧本级 ``generation_mode`` 戳
+    （见 ``script_generator``），只看剧本判不出参考生视频。
     """
-    return effective_mode(project=project, episode=find_episode(project, episode) or {}) == "reference_video"
+    return project.get("generation_mode") == "reference_video"
 
 
 def resolve_source_kind(project: Mapping[str, Any]) -> SourceKind:
@@ -828,20 +827,6 @@ class ProjectManager:
         if match:
             return int(match.group(1))
         raise ValueError(f"无法确定集号：剧本缺少 episode 字段且文件名 {script_filename} 不含 episodeN 模式")
-
-    @staticmethod
-    def resolve_episode_from_script_or_none(script: dict, script_filename: str) -> int | None:
-        """同 `resolve_episode_from_script`，解析不出时返回 None 而非抛错。
-
-        供能力解析用：集号只决定按哪一集的生效 `generation_mode` 取能力，解析不出时回落项目级
-        口径即可，不该让一次能力解析打断整条入队 / 执行链路。与硬口径共用同一份解析，调用方
-        不各写一份「只认剧本字段」的简化版——那会让集号出自文件名的剧本一边按第 N 集入队、
-        一边按项目级口径解析能力。
-        """
-        try:
-            return ProjectManager.resolve_episode_from_script(script, script_filename)
-        except ValueError:
-            return None
 
     def sync_episode_from_script(self, project_name: str, script_filename: str) -> dict:
         """
@@ -1648,6 +1633,17 @@ class ProjectManager:
                 raise ValueError(f"extras 不允许覆盖核心字段: {sorted(forbidden)}")
             project.update(extras)
 
+        # 生成路线与宫格开关：路由层已做必填二值校验与 ad 互斥（400/422），这里再兜一道防非路由
+        # 调用方；未传时按数据层默认补写显式值，保证新项目落盘即含两字段（与 schema v5 形态对齐）。
+        generation_mode = project.setdefault("generation_mode", _DEFAULT_GENERATION_MODE)
+        if not isinstance(generation_mode, str) or generation_mode not in VALID_GENERATION_MODES:
+            raise ValueError(f"generation_mode 值无效: {generation_mode!r}，必须是 {sorted(VALID_GENERATION_MODES)}")
+        grid_storyboard = project.setdefault("grid_storyboard", False)
+        if not isinstance(grid_storyboard, bool):
+            raise ValueError(f"grid_storyboard 必须是布尔值，当前为 {grid_storyboard!r}")
+        if resolved_mode == "ad" and grid_storyboard:
+            raise ValueError("广告/短片项目不支持宫格分镜（grid_storyboard）")
+
         self.save_project(project_name, project)
         return project
 
@@ -1789,7 +1785,7 @@ class ProjectManager:
         但纯 silent 让 agent 误以为 reference_image / sheet_field 写入成功；返回诊断让工具层
         把忽略原因明示给 agent，避免 agent 重复尝试同样会被丢的字段。
         """
-        # data_validator 在模块级 import 本模块（effective_mode），故惰性 import 破环。
+        # data_validator 在模块级 import 本模块（VALID_GENERATION_MODES），故惰性 import 破环。
         from lib.data_validator import DataValidator
 
         asset_type = self._BUCKET_TO_ASSET_TYPE.get(table)

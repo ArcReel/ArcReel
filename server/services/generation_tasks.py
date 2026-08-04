@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from lib.asset_types import ASSET_SPECS, validate_asset_name
+from lib.asset_types import ASSET_SPECS, normalize_asset_bucket, normalize_asset_name, validate_asset_name
 from lib.audio_utils import (
     AUDIO_REFERENCE_MAX_BYTES,
     AUDIO_REFERENCE_MAX_SECONDS,
@@ -18,11 +18,11 @@ from lib.audio_utils import (
     probe_audio_duration_seconds,
 )
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import constrain_durations
+from lib.config.resolver import constrain_durations, video_bucket_for_generation_mode
 from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
-from lib.project_manager import ProjectManager, get_project_manager
+from lib.project_manager import get_project_manager
 from lib.prompt_builders import (
     append_product_fidelity_tail,
     build_character_prompt,
@@ -171,7 +171,7 @@ def assert_duration_supported(duration: int | float | str, supported_durations: 
 
     这是 `duration ↔ supported_durations` 唯一的权威校验家——provider 在执行时才解析
     （见 ADR-0001），故能力校验只能坐在 provider 解析之后。``supported_durations`` 为空时
-    放行（能力不可解析，不更坏：保持既有行为不被本次改动弄坏）。
+    放行（能力不可解析，不更坏：不拒绝一个校验层判断不了的 duration）。
 
     duration 可能来自外部配置（payload / project.json），故安全解析字符串 / 浮点：
     可解析为整数秒（如 ``"6"`` / ``6.0``）的归一化后比较；非整数秒（如 ``4.5``）一律
@@ -326,15 +326,18 @@ def collect_product_references_for_names(
     按 unit 注入共用此函数，保证两条路径的「sheet 在前、原图压阵」口径一致。
     """
     spec = ASSET_SPECS["product"]
-    products = project.get(spec.bucket_key)
-    if not isinstance(products, dict):
-        products = {}
+    products = normalize_asset_bucket(project.get(spec.bucket_key))
     references: list[dict] = []
+    seen: set[str] = set()
     for name in names:
         if not isinstance(name, str):
             logger.warning("products_in_shot 含非字符串条目 %r，产品参考跳过", name)
             continue
-        entry = products.get(name)
+        canonical = normalize_asset_name(name)
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        entry = products.get(canonical)
         if not isinstance(entry, dict):
             logger.warning("镜头引用的产品 '%s' 不在 project.json products 中，产品参考跳过", name)
             continue
@@ -344,14 +347,19 @@ def collect_product_references_for_names(
             references.append(
                 {
                     "image": project_path / sheet,
-                    "label": f"产品「{name}」标准多角度参考图",
-                    "name": name,
+                    "label": f"产品「{canonical}」标准多角度参考图",
+                    "name": canonical,
                     "kind": "sheet",
                 }
             )
-        for original in _collect_product_reference_images(project, project_path, name) or []:
+        for original in _collect_product_reference_images(project, project_path, canonical) or []:
             references.append(
-                {"image": original, "label": f"产品「{name}」实拍原图（保真锚点）", "name": name, "kind": "original"}
+                {
+                    "image": original,
+                    "label": f"产品「{canonical}」实拍原图（保真锚点）",
+                    "name": canonical,
+                    "kind": "original",
+                }
             )
         if len(references) == before:
             logger.warning("产品镜头引用的产品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)
@@ -896,24 +904,22 @@ async def execute_video_task(
         _items, _id_field, _, _, _ = get_storyboard_items(_script)
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
         _item = _resolved[0] if _resolved else {}
-        # 集号供能力解析按该集生效 generation_mode 取值，与入队侧共用同一份解析（剧本 episode
-        # 字段优先，缺则文件名 episodeN）；两者都解析不出时传 None，能力回落到项目级口径。
         return (
             _project,
             _project_path,
             _item,
             resolve_content_mode(_script, _project),
-            ProjectManager.resolve_episode_from_script_or_none(_script, script_file),
         )
 
-    project, project_path, item, content_mode, episode = await asyncio.to_thread(_load)
+    project, project_path, item, content_mode = await asyncio.to_thread(_load)
+    # lane 归桶按项目路线求值，与提交入口（``generate_video``）同源：入口挡掉参考路线后
+    # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免路线口径分叉。
     ctx = await resolve_generation_context(
         project_name,
         payload,
         project=project,
         user_id=user_id,
-        episode=episode,
-        video=VideoLaneRequest(capability="i2v"),
+        video=VideoLaneRequest(capability=video_bucket_for_generation_mode(project.get("generation_mode"))),
     )
     generator = ctx.generator
 
@@ -1193,7 +1199,7 @@ _DESIGN_PROMPT_BUILDERS: dict[str, Any] = {
 
 def _collect_product_reference_images(project: dict, project_path: Path, resource_id: str) -> list[Path] | None:
     """产品原图（保真验收锚点）作为 sheet 标准化整理的参考输入；缺失文件跳过。"""
-    entry = (project.get("products") or {}).get(resource_id) or {}
+    entry = normalize_asset_bucket(project.get("products")).get(normalize_asset_name(resource_id)) or {}
     refs = entry.get("reference_images")
     if not isinstance(refs, list):
         return None

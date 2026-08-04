@@ -13,13 +13,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from lib.asset_types import normalize_asset_name
 from lib.config.resolver import resolve_raw_supported_durations
 from lib.data_validator import DataValidator, ValidationResult
 from lib.episode_ledger import parse_positive_episode_num
 from lib.json_io import load_json
 from lib.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_hint
-from lib.project_manager import ProjectManager, effective_mode
+from lib.project_manager import ProjectManager
 from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v1_to_v2_normalize_providers import migrate_project_dict as normalize_legacy_providers
 from lib.reference_video.duration_migration import migrate_unit_durations
@@ -265,6 +266,23 @@ class ProjectArchiveService:
                     )
 
                     diagnostics = self._repair_project_tree(staging_dir)
+                    # 在校验前对 staging 副本跑完整迁移链（归一化 legacy provider 名 / 拆分 image_backend /
+                    # 生成路线重编码）：启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的
+                    # 旧归档需在此补跑，否则解析链不再读 legacy 字段会让该项目静默回退全局默认，且校验器按
+                    # 最新 schema 形态断言（如 generation_mode 必填二值），未迁移的旧归档会被误拒。放在安装
+                    # **前** → 迁移若抛错，staging 临时目录随 TemporaryDirectory 丢弃、不会留下半迁移的脏项目
+                    # 目录，无需回滚已落盘安装。
+                    # 编码迁移先于 schema 迁移：源文一律先归到 UTF-8，之后所有按 UTF-8 读源文的
+                    # 链路才有统一的输入。转换失败 = 文件本身不可解码（任何路径都读不出），浮成
+                    # 导入 warning 而非中止——局部损坏文件不应阻断整个项目导入。
+                    encoding_summary = migrate_project_source_encoding(staging_dir)
+                    for failed_name in encoding_summary.failed:
+                        diagnostics.add(
+                            "warnings",
+                            "source_encoding_unconverted",
+                            f"源文件编码无法识别，未转换为 UTF-8：source/{failed_name}（分集规划无法读取该文件）",
+                        )
+                    migrate_project_dir(staging_dir)
                     diagnostics.extend_validation(self.validator.validate_project_tree(staging_dir))
                     if diagnostics.blocking:
                         raise ProjectArchiveValidationError(
@@ -288,22 +306,6 @@ class ProjectArchiveService:
                     )
 
                     self._ensure_standard_subdirs(staging_dir)
-
-                    # 在安装前对 staging 副本跑完整迁移链（归一化 legacy provider 名 / 拆分 image_backend）：
-                    # 启动期 run_project_migrations 只覆盖启动时已存在的项目，启动后导入的旧归档需在此补跑，
-                    # 否则解析链不再读 legacy 字段会让该项目静默回退全局默认。放在安装**前** → 迁移若抛错，
-                    # staging 临时目录随 TemporaryDirectory 丢弃、不会留下半迁移的脏项目目录，无需回滚已落盘安装。
-                    # 编码迁移先于 schema 迁移：源文一律先归到 UTF-8，之后所有按 UTF-8 读源文的
-                    # 链路才有统一的输入。转换失败 = 文件本身不可解码（任何路径都读不出），浮成
-                    # 导入 warning 而非中止——局部损坏文件不应阻断整个项目导入。
-                    encoding_summary = migrate_project_source_encoding(staging_dir)
-                    for failed_name in encoding_summary.failed:
-                        diagnostics.add(
-                            "warnings",
-                            "source_encoding_unconverted",
-                            f"源文件编码无法识别，未转换为 UTF-8：source/{failed_name}（分集规划无法读取该文件）",
-                        )
-                    migrate_project_dir(staging_dir)
 
                     self._install_project_dir(
                         staging_dir,
@@ -744,7 +746,7 @@ class ProjectArchiveService:
         if not isinstance(raw_content_mode, str):
             raise ValueError(f"未知或缺失 content_mode: {raw_content_mode!r}")
         content_mode = raw_content_mode
-        generation_mode = effective_mode(project=project_payload, episode=script_payload)
+        generation_mode = project_payload.get("generation_mode")
 
         # 修复分流按规范解析的骨架种类走，而非 generation_mode：ad 项目 generation_mode
         # 可为 reference_video 但骨架恒为 shots（不含 video_units），按 generation_mode
@@ -1117,10 +1119,24 @@ class ProjectArchiveService:
 
         与 narration/drama 的 characters/scenes/props 处理对齐——只是引用结构是
         list[{type, name}]。返回是否补过占位角色（即 project_payload 是否改动）。
+
+        引用名（``ref_name``）在别处已归一到 NFC（见 ``lib.asset_types.normalize_asset_name``），
+        registered 集合的 key 仍是落盘原始形式（可能是 NFD）；比对前把 ``ref_name`` 解析回
+        registered 集合里字节形式一致的那个 key，否则会把已登记的资产误判缺失，插入一份
+        重复的占位定义（角色）或产出假阳性阻断诊断（场景/道具）。
         """
         references = unit.get("references")
         if not isinstance(references, list):
             return False
+
+        def resolve_existing(name: str, candidates: set[str]) -> str:
+            if name in candidates:
+                return name
+            canonical = normalize_asset_name(name)
+            for candidate in candidates:
+                if normalize_asset_name(candidate) == canonical:
+                    return candidate
+            return name
 
         project_changed = False
         missing_scenes: set[str] = set()
@@ -1133,11 +1149,12 @@ class ProjectArchiveService:
                 continue
             ref_type = ref.get("type")
             if ref_type == "character":
-                if self._add_placeholder_character(project_payload, project_characters, ref_name, diagnostics):
+                resolved_name = resolve_existing(ref_name, project_characters)
+                if self._add_placeholder_character(project_payload, project_characters, resolved_name, diagnostics):
                     project_changed = True
-            elif ref_type == "scene" and ref_name not in project_scenes:
+            elif ref_type == "scene" and resolve_existing(ref_name, project_scenes) not in project_scenes:
                 missing_scenes.add(ref_name)
-            elif ref_type == "prop" and ref_name not in project_props:
+            elif ref_type == "prop" and resolve_existing(ref_name, project_props) not in project_props:
                 missing_props.add(ref_name)
 
         for missing, asset_type, label in (

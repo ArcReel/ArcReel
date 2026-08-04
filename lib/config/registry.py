@@ -31,8 +31,8 @@ class ModelInfo:
     supported_durations: list[int] = field(default_factory=list)
     duration_resolution_constraints: dict[str, list[int]] = field(default_factory=dict)
     # 使用参考图（参考生视频）时允许的时长；空 = 该模型的参考图路径不额外约束时长。
-    # 与 duration_resolution_constraints 同构的最窄表达：目前只有 Veo 一家把「带参考图」
-    # 单独收窄到 8 秒，故按条件各立一字段，不引入通用「条件→约束」语言。
+    # 与 duration_resolution_constraints 同构的最窄表达：需要表达的条件只有「指定分辨率」
+    # 与「带参考图」两种，故按条件各立一字段，不引入通用「条件→约束」语言。
     reference_image_durations: list[int] = field(default_factory=list)
     resolutions: list[str] = field(default_factory=list)
     # 参考生视频单镜头参考图上限；0 = 不适用（图像/文本模型，或视频模型未声明）。
@@ -304,7 +304,7 @@ def _minimax_video_pricing(model_id: str, buckets: dict[tuple[str, int], float])
 
 # 可灵 Kling 视频「质量档 × 是否有声」¥/s 矩阵（官方一手核实，CNY，1 积分 = ¥1）。
 # 全部 video 模型共享同一档位矩阵（官方按维度组合定价、不分模型）：4K 档仅 v3/v3-omni 可达、
-# 有声仅 v2-6（pro）；turbo 仅触达 std/pro 无声/有声档。
+# 有声档仅 v2-6 / v3 / v3-omni 可达；turbo 与 video-o1 仅触达 std/pro 无声档。
 _KLING_VIDEO_TIERED_RATES: dict[tuple[str, bool], float] = {
     ("std", False): 0.6,
     ("std", True): 0.8,
@@ -921,6 +921,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control"],
                 default=True,
                 supported_durations=list(range(1, 17)),
+                # 参考生视频端点的时长下限是 3 秒（文/图生视频仍为 1 起），不收窄会让 r2v 项目的
+                # 时长下拉出现 1s / 2s 幽灵档位——选中后被 backend 静默取到 3 秒并按 3 秒计费。
+                reference_image_durations=list(range(3, 17)),
                 resolutions=["540p", "720p", "1080p"],
                 max_reference_images=7,
                 pricing=ViduDelegate(),
@@ -931,7 +934,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["text_to_video", "image_to_video", "generate_audio", "seed_control"],
                 supported_durations=list(range(1, 17)),
                 resolutions=["540p", "720p", "1080p"],
-                max_reference_images=7,
+                # 官方 /reference2video 的模型清单不含 viduq3-pro，参考图路径不可用，
+                # 与 backend 的 r2v 白名单同口径声明为 0。
+                max_reference_images=0,
                 pricing=ViduDelegate(),
             ),
             "viduq3": ModelInfo(
@@ -939,6 +944,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="video",
                 capabilities=["image_to_video", "generate_audio", "seed_control"],
                 supported_durations=list(range(3, 17)),
+                reference_image_durations=list(range(3, 17)),
                 resolutions=["540p", "720p", "1080p"],
                 max_reference_images=7,
                 pricing=ViduDelegate(),
@@ -948,6 +954,11 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 media_type="video",
                 capabilities=["image_to_video", "seed_control"],
                 supported_durations=[4, 8],
+                # 图生/首尾帧端点 8 秒档只出 720p，360p 与 1080p 均仅 4 秒档可选。
+                duration_resolution_constraints={"360p": [4], "1080p": [4]},
+                # 参考生视频端点时长仅认 4 秒；不收窄会让 r2v 项目的时长下拉出现
+                # 8 秒幽灵档位——选中后被 backend 静默取到 4 秒。
+                reference_image_durations=[4],
                 resolutions=["360p", "720p", "1080p"],
                 max_reference_images=7,
                 pricing=ViduDelegate(),
@@ -1208,8 +1219,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         # api_key 单键 / access_key+secret_key 双键二选一（官方 API Key 鉴权全模型可用，AK/SK JWT
         # 仅 3.0 及更早模型）；同时填写时 backend_assembly 按 api_key 优先分派。
         credential_groups=[["api_key"], ["access_key", "secret_key"]],
-        # JWT 直连：视频默认 kling-v2-5-turbo（性价比走量）+ v3/v3-omni（旗舰 4K + 多图主体）、
-        # v2-6（pro 人声）、video-o1（多图主体 R2V）；图像 kling-image-o1（默认）+ v3-omni（两栖）。
+        # JWT 直连：视频默认 kling-v2-5-turbo（性价比走量）+ v3/v3-omni（旗舰 4K + 人声 + 多图主体）、
+        # v2-6（人声，官方限 1080P）、video-o1（多图主体 R2V）；图像 kling-image-o1（默认）+ v3-omni（两栖）。
         models={
             "kling-v2-5-turbo": ModelInfo(
                 display_name="可灵 2.5 Turbo",
@@ -1243,7 +1254,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "kling-v3": ModelInfo(
                 display_name="可灵 v3",
                 media_type="video",
-                capabilities=["text_to_video", "image_to_video"],
+                capabilities=["text_to_video", "image_to_video", "generate_audio"],
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p", "4k"],
                 pricing=_kling_video_pricing("kling-v3"),
@@ -1251,7 +1262,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "kling-v3-omni": ModelInfo(
                 display_name="可灵 v3 Omni",
                 media_type="video",
-                capabilities=["text_to_video", "image_to_video"],
+                capabilities=["text_to_video", "image_to_video", "generate_audio"],
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p", "4k"],
                 # 多图主体（R2V）参考上限保守值；编排层裁剪读此处，与 backend caps 同值，

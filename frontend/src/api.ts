@@ -60,7 +60,7 @@ import type {
   ReferenceStep1Draft,
   VideoCapabilities,
 } from "@/types";
-import type { GenerationMode } from "@/utils/generation-mode";
+import type { GenerationRoute } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
 import type {
@@ -219,7 +219,10 @@ export interface CreateProjectPayload {
   /** 源文件性质：novel（默认）/ screenplay。仅 drama 暴露，创建即定、不可变。 */
   source_kind?: "novel" | "screenplay";
   aspect_ratio?: "9:16" | "16:9";
-  generation_mode?: GenerationMode;
+  /** 生成路线，创建时必填二选一、无默认值（后端缺失即 422）。 */
+  generation_mode: GenerationRoute;
+  /** 分镜板（宫格）装配开关，可随创建写入；仅分镜路线有意义。 */
+  grid_storyboard?: boolean;
   default_duration?: number | null;
   /** 仅 ad：目标总时长（秒），UI 四档 15/30/60/90。 */
   target_duration?: number;
@@ -875,14 +878,21 @@ class API {
     );
   }
 
-  /** 保存手动 / agent 编辑后的结构化中间态，返回最新状态（重新待审）。 */
+  /** 保存手动 / agent 编辑后的结构化中间态，返回最新状态（重新待审）。
+   *
+   * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 step1 被另一写入方（如 agent 晋升）
+   * 改过时服务端 409 冲突、不落盘，避免静默覆盖对方的修改；不传则不比对。 */
   static async saveScriptReviewContent(
     projectName: string,
     episode: number,
-    content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft
+    content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft,
+    baseFingerprint?: string | null
   ): Promise<ScriptReviewState> {
+    const query = baseFingerprint
+      ? `?base_fingerprint=${encodeURIComponent(baseFingerprint)}`
+      : "";
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/content`,
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/content${query}`,
       {
         method: "PUT",
         body: JSON.stringify(content),

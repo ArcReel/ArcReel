@@ -5,11 +5,11 @@ description: 生成宫格分镜图。当用户说"生成宫格"、"宫格生图"
 
 # 生成宫格分镜图
 
-为 grid 模式项目生成宫格分镜图。自动按 segment_break 分组，每组生成一张宫格大图，切割后形成首尾帧链式结构。
+为开启宫格装配的项目生成宫格分镜图。自动按 segment_break 分组，每组生成一张宫格大图，切割后形成首尾帧链式结构。
 
 ## 前置条件
 
-- 项目 `generation_mode` 为 `"grid"`
+- 项目 `generation_mode` 为 `"storyboard"` 且 `grid_storyboard` 为 `true`（宫格装配由用户在 Web 设置页开关，项目创建后不可经 agent 改）
 - 剧本已生成（scripts/episode_N.json 存在）
 - 角色/场景/道具设计图已生成（用作参考图）
 

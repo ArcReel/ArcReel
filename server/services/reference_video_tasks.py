@@ -12,13 +12,12 @@ from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY
+from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY, normalize_asset_bucket, normalize_asset_name
 from lib.config.resolver import ConfigResolver, constrain_durations, get_provider_fallback
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import get_generation_queue
 from lib.path_safety import safe_exists
-from lib.project_manager import ProjectManager
 from lib.prompt_builders import append_product_fidelity_tail
 from lib.reference_video import assemble_shots_text, assemble_shots_text_for_render
 from lib.reference_video.ad_units import resolve_ad_unit_shots
@@ -56,26 +55,45 @@ async def _persist_effective_duration(task_id: str, duration_seconds: int) -> No
         logger.warning("effective_duration 写回 payload 失败 task_id=%s", task_id, exc_info=True)
 
 
+def _dedupe_typed_references(references: list[dict]) -> list[dict]:
+    """按 (type, 归一名) 去重 reference 字典，保留首次出现顺序。
+
+    PATCH 接口只校验每条 reference 已登记，不校验数组内互相去重：同一资产可能以 NFC/NFD
+    两条等价记录同时留在 unit.references 里。参考图解析（``_resolve_unit_references``）与
+    prompt 渲染前的裁剪必须共用同一份去重结果——否则图片列表与逻辑引用列表长度不一致，
+    ``@图片N`` 的编号会与实际图片错位、按图号绑定的参考音频也会挂到错的图上。
+    """
+    seen: set[tuple[str, str]] = set()
+    deduped: list[dict] = []
+    for ref in references:
+        key = (str(ref.get("type")), normalize_asset_name(str(ref.get("name"))))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(ref)
+    return deduped
+
+
 def _resolve_unit_references(
     project: dict,
     project_path: Path,
     references: list[dict],
 ) -> list[Path]:
-    """把 unit.references 转成绝对路径列表（按 references 顺序）。
+    """把 unit.references 转成绝对路径列表（按 references 顺序，按类型+归一名去重）。
 
     Raises:
         MissingReferenceError: 任一 reference 在 project.json 对应 bucket 缺失或 sheet 不存在。
     """
     missing: list[tuple[str, str | None]] = []
     resolved: list[Path] = []
-    for ref in references:
+    for ref in _dedupe_typed_references(references):
         rtype = ref.get("type")
         rname = ref.get("name")
         if rtype not in BUCKET_KEY:
             missing.append((str(rtype), str(rname)))
             continue
-        bucket = project.get(BUCKET_KEY[rtype]) or {}
-        item = bucket.get(rname)
+        bucket = normalize_asset_bucket(project.get(BUCKET_KEY[rtype]))
+        item = bucket.get(normalize_asset_name(str(rname)))
         sheet_rel = item.get(SHEET_KEY[rtype]) if isinstance(item, dict) else None
         if not sheet_rel:
             missing.append((rtype, rname))
@@ -96,6 +114,7 @@ def _render_unit_prompt(
     project: dict,
     *,
     voice_consistency: str,
+    requested_generate_audio: bool,
     max_reference_audio: int,
     model_id: str,
     audio_ready: Collection[str],
@@ -128,6 +147,7 @@ def _render_unit_prompt(
         project,
         references,
         voice_consistency=voice_consistency,
+        requested_generate_audio=requested_generate_audio,
         max_reference_audio=max_reference_audio,
         model_id=model_id,
         style=project.get("style"),
@@ -255,17 +275,14 @@ class ProjectDurationContext:
     max_duration: int | None = None
 
 
-async def resolve_project_duration_context(project: dict, episode: int | None = None) -> ProjectDurationContext:
+async def resolve_project_duration_context(project: dict) -> ProjectDurationContext:
     """一次性解析视频能力（档位全集 + 单次生成时长上限 + 分辨率 + provider/model 身份）。
 
     解析失败按空档位处理（沿用现状放行，不弹确认）；分辨率仅在档位非空时才解析，
     空档位下分辨率约束无意义。``max_duration`` 与 :func:`resolve_max_unit_duration`
     取自同一份能力解析结果，供需要现推分组的调用方复用而不再触发一次 IO。
-
-    ``episode`` 给出集号时按该集生效 ``generation_mode`` 定桶：项目层仍是分镜、该集覆盖为
-    参考生视频时，档位与分辨率取的才是这集实际会执行的那个模型。
     """
-    caps = await project_video_caps(project, degraded_to="时长取档不施加档位约束", episode=episode)
+    caps = await project_video_caps(project, degraded_to="时长取档不施加档位约束")
     durations = tuple(int(d) for d in caps.get("supported_durations") or [])
     provider_id = str(caps.get("provider_id") or "")
     model = caps.get("model")
@@ -349,14 +366,14 @@ async def _project_video_resolution(project: dict, provider_id: str, model_id: s
     return resolution or get_provider_fallback(provider_id)
 
 
-async def resolve_max_unit_duration(project: dict, episode: int | None = None) -> int | None:
-    """解析该集视频后端的单次生成时长上限（秒），供派生分组约束 unit 总长。
+async def resolve_max_unit_duration(project: dict) -> int | None:
+    """解析项目视频后端的单次生成时长上限（秒），供派生分组约束 unit 总长。
 
     单一真相源与 executor 取档同口径（``video_capabilities_for_project`` 的
     model 粒度 ``max_duration``）；解析失败返回 None——分组退化为仅按镜头数
     切分，超长 unit 交由执行层取档 + warning 兜底，不阻塞派生。
     """
-    caps = await project_video_caps(project, degraded_to="派生分组不施加时长上限", episode=episode)
+    caps = await project_video_caps(project, degraded_to="派生分组不施加时长上限")
     max_duration = caps.get("max_duration")
     return int(max_duration) if max_duration else None
 
@@ -384,7 +401,9 @@ def _resolve_ad_unit_reference_entries(
     """
     warnings: list[dict] = []
     product_names: list[str] = []
-    asset_refs: list[tuple[str, str]] = []
+    asset_refs: list[tuple[str, str, str]] = []
+    seen_products: set[str] = set()
+    seen_assets: set[tuple[str, str]] = set()
     for ref in references:
         if not isinstance(ref, dict):
             continue
@@ -392,29 +411,42 @@ def _resolve_ad_unit_reference_entries(
         rname = ref.get("name")
         if not isinstance(rname, str) or not rname:
             continue
+        # 同一 unit 内两个镜头可能以不同编码形式（NFC/NFD）引用同一资产：按归一形式去重，
+        # 否则下面的归一化查找会把两者解析到同一张图，参考图槽位被同一张图占两份。
+        canonical = normalize_asset_name(rname)
         if rtype == "product":
-            if rname not in product_names:
+            if canonical not in seen_products:
+                seen_products.add(canonical)
                 product_names.append(rname)
         elif rtype in BUCKET_KEY:
-            asset_refs.append((str(rtype), rname))
+            key = (str(rtype), canonical)
+            if key not in seen_assets:
+                seen_assets.add(key)
+                asset_refs.append((str(rtype), rname, canonical))
 
     entries = collect_product_references_for_names(project, project_path, product_names)
+    # entries 的 "name" 字段已被 collect_product_references_for_names 归一为 canonical，
+    # product_names 仍保留原始编码形式（供 warning params 回显用户输入），比较前须归一。
     injected_products = {e["name"] for e in entries}
     for name in product_names:
-        if name not in injected_products:
+        if normalize_asset_name(name) not in injected_products:
             warnings.append({"key": "ref_ad_reference_skipped", "params": {"type": "product", "name": name}})
 
-    for rtype, rname in asset_refs:
-        raw_bucket = project.get(BUCKET_KEY[rtype])
-        bucket = raw_bucket if isinstance(raw_bucket, dict) else {}
-        item = bucket.get(rname)
+    # 条目的名字写归一形式，与产品条目同口径（``collect_product_references_for_names``
+    # 产出的 "name" 已归一），让 entries 内部不因来源不同而混用两种编码形式。
+    # 这是加固而非替换：按名字判等的消费点（``prompt_render`` 的第一段主体绑定与参考音频
+    # 图号对齐）在读取处各自归一，那道归一仍是它们正确性的依据，不因这里归一而可省。
+    # warning 的 params 仍回显用户输入的原始形式。
+    for rtype, rname, canonical in asset_refs:
+        bucket = normalize_asset_bucket(project.get(BUCKET_KEY[rtype]))
+        item = bucket.get(canonical)
         sheet_rel = item.get(SHEET_KEY[rtype]) if isinstance(item, dict) else None
         if sheet_rel and safe_exists(project_path, sheet_rel):
             entries.append(
                 {
                     "image": project_path / sheet_rel,
-                    "label": f"{ASSET_SPECS[rtype].label_zh}「{rname}」设计图",
-                    "name": rname,
+                    "label": f"{ASSET_SPECS[rtype].label_zh}「{canonical}」设计图",
+                    "name": canonical,
                     "kind": "asset",
                     "asset_type": rtype,
                 }
@@ -456,6 +488,7 @@ def _render_ad_unit_prompt_for_backend(
     project: dict,
     *,
     voice_consistency: str,
+    requested_generate_audio: bool,
     max_reference_audio: int,
     model_id: str,
     audio_ready: Collection[str],
@@ -474,6 +507,7 @@ def _render_ad_unit_prompt_for_backend(
         entries,
         project,
         voice_consistency=voice_consistency,
+        requested_generate_audio=requested_generate_audio,
         max_reference_audio=max_reference_audio,
         model_id=model_id,
         style=style if isinstance(style, str) else None,
@@ -540,12 +574,9 @@ async def execute_reference_video_task(
             raise ValueError(f"unit not found: {resource_id}")
         # 索引悬空（镜头被删/改 ID 后未重新派生）在此 fail-loud，提示重新派生
         ad_shots = resolve_ad_unit_shots(script, unit) if is_ad else None
-        # 集号供能力解析按该集生效 generation_mode 取值，与入队侧共用同一份解析（剧本 episode
-        # 字段优先，缺则文件名 episodeN）；两者都解析不出时传 None，能力回落到项目级口径。
-        script_episode = ProjectManager.resolve_episode_from_script_or_none(script, script_file)
-        return project, project_path, unit, ad_shots, script_episode
+        return project, project_path, unit, ad_shots
 
-    project, project_path, unit, ad_shots, episode = await asyncio.to_thread(_load)
+    project, project_path, unit, ad_shots = await asyncio.to_thread(_load)
     is_ad = ad_shots is not None
 
     # 2. 解析 references（narration/drama 缺图直接失败；ad 软口径跳过 + warning）
@@ -568,7 +599,6 @@ async def execute_reference_video_task(
         payload,
         project=project,
         user_id=user_id,
-        episode=episode,
         video=VideoLaneRequest(capability="r2v"),
     )
     generator = ctx.generator
@@ -629,16 +659,17 @@ async def execute_reference_video_task(
     # 不写回时回退到的是 project 默认时长，而非该 unit 自己的时长——二者不相等是常态，
     # 不能仅在「取档偏移了剧本编排（adjustment != exact）」时才写回，未取档但仍偏离项目
     # 默认值的 unit 同样需要。持久化失败只降级为 resume 元数据不够精确（回退到项目默认
-    # 时长，与本次改动前行为一致），不影响本次生成结果，不 fail-fast。
+    # 时长，即回退路径本身的行为），不影响当前生成结果，不 fail-fast。
     if task_id is not None:
         await _persist_effective_duration(task_id, effective_duration)
 
     # 6. 渲染 prompt：ad 与 narration/drama 共用三段论渲染管线（`<X>@图片N` 绑定 + 声音声明 +
     #    分镜段 + 约束包），差异只在输入形态（见 `lib.reference_video.prompt_render` 模块
-    #    docstring）。narration/drama 必须按 `constrained_refs` 的长度裁 `unit.references`
-    #    再渲染，保证 `图片N` 的 1-based 索引与 backend 实际收到的 reference_images 长度严格
-    #    对齐；否则裁剪后的 `@clipped_name` 会被绑到指向不存在的图的编号上。ad 的 `ad_entries`
-    #    已在上一步按同一裁剪口径（产品 sheet 优先存活）收窄，无需再裁。
+    #    docstring）。narration/drama 必须先按 `_dedupe_typed_references` 与 `source_refs`
+    #    同口径去重、再按 `constrained_refs` 的长度裁 `unit.references` 后渲染，保证
+    #    `图片N` 的 1-based 索引与 backend 实际收到的 reference_images 一一对应；跳过去重会
+    #    让逻辑引用列表比图片列表长，编号错位到错误的资产上、按图号绑定的参考音频也会挂错。
+    #    ad 的 `ad_entries` 已在上一步按同一裁剪口径（产品 sheet 优先存活）收窄，无需再裁。
     #    prompt 始终从执行期新读取的剧本重组（脚本可变 + 队列 dedup 不看 payload，
     #    用入队快照会丢失入队后对镜头文本的编辑）；入队 payload 里的 prompt 仅作守卫点的
     #    校验记录，执行期不使用。
@@ -651,6 +682,7 @@ async def execute_reference_video_task(
             ad_entries,
             project,
             voice_consistency=video.voice_consistency,
+            requested_generate_audio=video.requested_generate_audio,
             max_reference_audio=video.max_reference_audio_count,
             model_id=model_name,
             audio_ready=audio_paths,
@@ -659,13 +691,15 @@ async def execute_reference_video_task(
         )
     else:
         unit_for_prompt = unit
-        unit_refs = unit.get("references") or []
-        if len(constrained_refs) < len(unit_refs):
-            unit_for_prompt = {**unit, "references": unit_refs[: len(constrained_refs)]}
+        raw_unit_refs = unit.get("references") or []
+        prompt_refs = _dedupe_typed_references(raw_unit_refs)[: len(constrained_refs)]
+        if len(prompt_refs) < len(raw_unit_refs):
+            unit_for_prompt = {**unit, "references": prompt_refs}
         rendered = _render_unit_prompt(
             unit_for_prompt,
             project,
             voice_consistency=video.voice_consistency,
+            requested_generate_audio=video.requested_generate_audio,
             max_reference_audio=video.max_reference_audio_count,
             model_id=model_name,
             audio_ready=audio_paths,

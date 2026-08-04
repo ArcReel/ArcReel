@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { MENTION_PICKER_DEFAULT_ID, MentionPicker, type MentionCandidate } from "./MentionPicker";
 import { ASSET_COLORS, assetColor } from "./asset-colors";
 import { useShotPromptHighlight, type MentionLookup, type Token } from "@/hooks/useShotPromptHighlight";
-import { MENTION_RE } from "@/utils/reference-mentions";
+import { MENTION_RE, normalizeAssetName } from "@/utils/reference-mentions";
 import { useProjectsStore } from "@/stores/projects-store";
 import {
   SHEET_FIELD,
@@ -126,10 +126,17 @@ export function ReferenceVideoCard({
   const project = useProjectsStore((s) => s.currentProjectData);
 
   const lookup: MentionLookup = useMemo(() => {
-    const out: MentionLookup = {};
-    for (const name of Object.keys(project?.characters ?? {})) out[name] = "character";
-    for (const name of Object.keys(project?.scenes ?? {})) out[name] = "scene";
-    for (const name of Object.keys(project?.props ?? {})) out[name] = "prop";
+    // 无原型字典 + 首次命中：与 ReferenceVideoCanvas.tsx 的 mentionLookup 同口径——`__proto__`
+    // 是合法资产名，普通对象上的赋值不会落自有属性；同名跨 bucket 时后写入不得覆盖先写入
+    // （character → scene → prop 优先级）。
+    const out: MentionLookup = Object.create(null) as MentionLookup;
+    const claim = (name: string, kind: "character" | "scene" | "prop") => {
+      const key = normalizeAssetName(name);
+      if (!Object.hasOwn(out, key)) out[key] = kind;
+    };
+    for (const name of Object.keys(project?.characters ?? {})) claim(name, "character");
+    for (const name of Object.keys(project?.scenes ?? {})) claim(name, "scene");
+    for (const name of Object.keys(project?.props ?? {})) claim(name, "prop");
     return out;
   }, [project?.characters, project?.scenes, project?.props]);
 

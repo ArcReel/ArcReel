@@ -19,7 +19,7 @@ import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
-from lib.asset_types import BUCKET_KEY
+from lib.asset_types import BUCKET_KEY, normalize_asset_bucket
 from lib.reference_video.shot_parser import (
     derive_references_from_text,
     find_malformed_mention,
@@ -103,11 +103,6 @@ def render_violation_report(violations: Sequence[DraftViolation]) -> str:
         suffix = f"[{violation.code}] " if violation.code else ""
         lines.append(f"{index}. {suffix}{violation}")
     return "\n".join(lines)
-
-
-def _nfc(text: str) -> str:
-    """Unicode NFC 归一：与 ``lib.episode_ledger.normalize_source_text`` 定义的源文坐标系一致。"""
-    return unicodedata.normalize("NFC", text)
 
 
 def _normalize_for_anchor(text: str) -> str:
@@ -224,7 +219,12 @@ def _has_description_line(shot_text: str) -> bool:
 
 
 def dialogue_speakers(text: str) -> list[str]:
-    """按出现顺序取出规范台词行的说话人（去重）——音色声明与登记校验共用同一口径。"""
+    """按出现顺序取出规范台词行的说话人（去重）——登记校验据此判说话人是否为登记角色。
+
+    说话人取自 ``match_dialogue_line``，已在解析器入口归一到资产名比对坐标系
+    （``lib.reference_video.shot_parser`` 的 ``_normalize_source``），与资产表归一后的 key
+    同形，本函数直接使用该结果，不再额外归一。
+    """
     seen: set[str] = set()
     speakers: list[str] = []
     for line in _content_lines(text):
@@ -243,19 +243,20 @@ def normative_lines(text: str) -> list[tuple[str, str, str]]:
 
     step2 的保结构 diff 以此为比对项：画面描述可自由展开，发声行必须逐字不变。
 
-    台词与说话人一律归一到 NFC 后返回：源文可能以 NFD 落盘而模型回写 NFC，两种形式肉眼
-    同字，逐字比对却不等；口播时长估算同样要求 NFC（按词计的语种下组合附加符会把一个词
-    拆成多个阅读单位）。归一放在这一处，两个消费方口径天然一致。
+    台词与说话人已在解析器入口归一到 NFC（``lib.reference_video.shot_parser`` 的
+    ``_normalize_source``）：源文可能以 NFD 落盘而模型回写 NFC，两种形式肉眼同字、逐字比对
+    却不等，保结构 diff 会把纯编码差异判成改写；口播时长估算同样要求 NFC（按词计的语种下
+    组合附加符会把一个词拆成多个阅读单位）。归一在解析器一处完成，两个消费方口径天然一致。
     """
     result: list[tuple[str, str, str]] = []
     for line in _content_lines(text):
         dialogue = match_dialogue_line(line)
         if dialogue is not None:
-            result.append(("dialogue", _nfc(dialogue[0]), _nfc(dialogue[1])))
+            result.append(("dialogue", dialogue[0], dialogue[1]))
             continue
         voiceover = match_voiceover_line(line)
         if voiceover is not None:
-            result.append(("voiceover", "", _nfc(voiceover)))
+            result.append(("voiceover", "", voiceover))
     return result
 
 
@@ -276,7 +277,8 @@ def validate_unit_text(
     if not text.strip():
         raise DraftViolation(f"{label} 的正文为空", code="empty_text", label=label)
 
-    characters = project.get(BUCKET_KEY["character"]) or {}
+    # 资产表的 key 归一到比对坐标系后再参与判定：正文一侧已由解析器入口归一，两侧同形才判得准。
+    characters = normalize_asset_bucket(project.get(BUCKET_KEY["character"]))
     _assert_line_syntax(label, text, characters)
 
     shots, _mentions = parse_prompt(text)

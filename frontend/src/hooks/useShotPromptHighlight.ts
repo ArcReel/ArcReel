@@ -7,6 +7,7 @@ import {
   matchDialogueLine,
   matchVoiceoverLine,
   mentionNameFromMatch,
+  normalizeAssetName,
   splitScriptLines,
 } from "@/utils/reference-mentions";
 
@@ -20,6 +21,11 @@ import {
  * Output tokens are non-overlapping and concatenate back to the original text.
  */
 
+/**
+ * key 一律是归一后的资产名（callers 构建时须先 `normalizeAssetName`），查询侧
+ * （`pushMentionTokens` / `toScriptLines`）同样归一后再查——mention/说话人取自 prompt
+ * 原始文本，与登记侧字节形式可能不同，两侧不同源同一坐标系才能稳定命中。
+ */
 export type MentionLookup = Record<string, "character" | "scene" | "prop">;
 
 export type Token =
@@ -70,7 +76,7 @@ function pushMentionTokens(out: Token[], text: string, lookup: MentionLookup): v
     if (idx > lastIdx) {
       out.push({ kind: "text", text: text.slice(lastIdx, idx) });
     }
-    const name = mentionNameFromMatch(m);
+    const name = normalizeAssetName(mentionNameFromMatch(m));
     // hasOwn 而非直接下标：`toString` 等原型链属性是合法资产名，未登记时下标会取到
     // Object.prototype 上的函数并被当成已解析的类型。
     const resolved = Object.hasOwn(lookup, name) ? lookup[name] : undefined;
@@ -161,7 +167,7 @@ export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[]
         speaker: dialogue.speaker,
         // Only a registered character can be a speaker — a scene or prop name in the
         // speaker slot reads as unresolved here, matching the backend's warning.
-        speakerKind: lookup[dialogue.speaker] === "character" ? "character" : "unknown",
+        speakerKind: lookup[normalizeAssetName(dialogue.speaker)] === "character" ? "character" : "unknown",
         text: dialogue.text,
       });
       continue;

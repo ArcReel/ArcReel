@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lib.asset_types import BUCKET_KEY
+from lib.asset_types import BUCKET_KEY, normalize_asset_bucket, normalize_asset_name
 from lib.audio_utils import resolve_audio_ref_path
 from lib.prompt_utils import normalize_style
 from lib.reference_video.ad_units import render_ad_unit_prompt
@@ -63,15 +63,17 @@ _TWIN_PACK = (
 )
 
 
-def _character_bucket(project: dict) -> dict:
-    """项目角色表，非 dict（外部编辑写坏的 project.json）按空处理。
+def _character_bucket(project: dict) -> dict[str, Any]:
+    """项目角色表，key 已归一到资产名比对坐标系；非 dict（外部编辑写坏的 project.json）按空处理。
 
     校验器只在该字段本身是 dict 时才校验内部条目（见 ``lib.data_validator``），字段整体
     非 dict 的畸形项目不会被拒绝；本模块多处按名字索引角色表，统一在取值处归一化，
     避免每个调用点各自补一遍 isinstance 判断。
+
+    名字侧的归一同理落在这一处（见 :func:`lib.asset_types.normalize_asset_bucket`）：与角色表
+    比对的说话人与 mention 名都出自解析器、已是归一形式，角色表以哪种形式落盘则不可控。
     """
-    raw = project.get(BUCKET_KEY["character"])
-    return raw if isinstance(raw, dict) else {}
+    return normalize_asset_bucket(project.get(BUCKET_KEY["character"]))
 
 
 @dataclass(frozen=True)
@@ -102,6 +104,7 @@ def render_unit_prompt(
     references: list[ReferenceResource],
     *,
     voice_consistency: str = "soft",
+    requested_generate_audio: bool = True,
     max_reference_audio: int = 0,
     model_id: str = "",
     style: str | None = None,
@@ -120,10 +123,19 @@ def render_unit_prompt(
     文本，若随后才在 backend 层过滤会让文本承诺的绑定与实际发出的 ``reference_audio_files``
     分叉，必须在编号生成前就排除。
 
+    ``requested_generate_audio`` 为 False（本集无声）时不产出任何音频绑定：``@音频N`` 不进 prompt、
+    ``audio_speakers`` 为空，调用方组装出的 ``reference_audio_files`` 随之为空。第二段的台词
+    渲染不看这一位——无声视频里台词文本照常下发，供应商可用作口型参考。
+
     warning 与解析预览面板同一批 ``{key, params}`` 条目，由调用方并入任务 ``result.warnings``。
     """
     shots, mentions = parse_prompt(text)
     utterances, warnings = derive_utterances(shots)
+
+    # ``references`` 是入参（上游持久化的派生结果），其名字以哪种编码形式落盘不可控；正文一侧
+    # 出自解析器、已归一。两侧同形，主体记号与图号才对得上——不归一时该角色的绑定行会缺位、
+    # 音频也挂不到图上，且全程不报错。
+    references = [ReferenceResource(type=ref.type, name=normalize_asset_name(ref.name)) for ref in references]
 
     registered, missing = resolve_references(mentions, project)
     warnings = [_warning_unregistered(name) for name in missing] + warnings
@@ -142,6 +154,7 @@ def render_unit_prompt(
         utterances,
         characters,
         voice_consistency=voice_consistency,
+        requested_generate_audio=requested_generate_audio,
         max_reference_audio=max_reference_audio,
         model_id=model_id,
         audio_ready=audio_ready,
@@ -183,6 +196,10 @@ def _render_voice_declarations(
     的展示 label），但声音声明只认「已登记的 dialogue speaker」，与主体绑定行解耦，可整段复用。
 
     C 类（真无声）不注入声音声明；A/B 类均注入声音特征——官方建议音色还原不佳时补描述。
+    本集设为无声（``requested_generate_audio`` 为 False）时 ``audio_no`` 为空，``@音频N`` 随之
+    消失，但「声音特征：…」照常注入：它是提示词文本、不是参考音频负载，保留后无声路径与 B 类
+    软约束逐字同形，不引入第三种提示词形态。
+
     角色记录非 dict（外部编辑写坏的 project.json）按无声音特征处理，不索引脏值——ad 参考
     解析（``_resolve_ad_unit_reference_entries``）对同一形态的脏数据已按软跳过处理，本函数
     保持同一降级口径而非崩溃。
@@ -328,6 +345,7 @@ def render_ad_backend_prompt(
     project: dict,
     *,
     voice_consistency: str = "soft",
+    requested_generate_audio: bool = True,
     max_reference_audio: int = 0,
     model_id: str = "",
     style: str | None = None,
@@ -367,8 +385,10 @@ def render_ad_backend_prompt(
     # 分开——按名字判定会让同名场景的图被当成角色的图（并在名字键的字典里互相覆盖），
     # 使 speakers_with_reference_image 误判、reference_audio_targets 指向错图（与剧集路径
     # `character_image_no` 的同款过滤同一理由，见 `render_unit_prompt`）。
+    # 名字归一到比对坐标系后再建映射：本映射与 derive_voice_bindings 产出的说话人（出自解析器、
+    # 已归一）判等，entries 的名字则取自资产条目、形式不可控。
     character_image_no = {
-        str(e["name"]): i
+        normalize_asset_name(str(e["name"])): i
         for i, e in enumerate(entries, start=1)
         if e.get("asset_type") == "character" and isinstance(e.get("name"), str)
     }
@@ -377,6 +397,7 @@ def render_ad_backend_prompt(
         utterances,
         characters,
         voice_consistency=voice_consistency,
+        requested_generate_audio=requested_generate_audio,
         max_reference_audio=max_reference_audio,
         model_id=model_id,
         audio_ready=audio_ready,
@@ -412,6 +433,10 @@ def resolve_reference_audio_paths(project: dict, project_path: Path) -> dict[str
     只收录字段指向 ``characters/refs_audio`` 内且文件确实存在的条目（越界路径由
     :func:`lib.audio_utils.resolve_audio_ref_path` 挡下——该字段可经资产 PATCH 写成项目内
     任意字符串）。渲染层据此判定绑定，编号与实际发出的音频段数因此严格等长。
+
+    key 是归一后的角色名（``_character_bucket`` 已归一）：本映射作为 ``audio_ready`` 传给
+    :func:`lib.reference_video.script_preview.derive_voice_bindings` 与说话人判等，两侧同形
+    才不会把「音频确实可用」误判成「不可用」而静默不绑。
     """
     audio_refs_dir = project_path / ASSET_AUDIO_SUBDIR
     resolved: dict[str, Path] = {}

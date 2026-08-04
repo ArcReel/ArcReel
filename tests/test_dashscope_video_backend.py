@@ -145,6 +145,22 @@ class TestCapabilities:
         b = DashScopeVideoBackend(api_key="sk", model="happyhorse")
         assert b.video_capabilities.max_reference_images == 0
 
+    @pytest.mark.unit
+    def test_wan27_declares_prompt_char_limit(self):
+        """wan2.7 全家族 prompt ≤ 5000 字符；超限官方静默截断并照常计费，故须付费前拦。"""
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        for model in ("wan2.7-t2v", "wan2.7-i2v", "wan2.7-r2v"):
+            assert DashScopeVideoBackend.video_capabilities_for_model(model).max_prompt_chars == 5000
+
+    @pytest.mark.unit
+    def test_models_without_verified_limit_declare_none(self):
+        """未取证到上限的 model 不声明——未声明 ≠ 上限 0，凭空声明会误拒合法请求。"""
+        from lib.video_backends.dashscope import DashScopeVideoBackend
+
+        for model in ("happyhorse-1.0-t2v", "happyhorse-1.0-i2v", "happyhorse-1.0-r2v", "happyhorse"):
+            assert DashScopeVideoBackend.video_capabilities_for_model(model).max_prompt_chars is None
+
 
 class TestReferenceToVideo:
     async def test_r2v_happy_path(self, tmp_path: Path):

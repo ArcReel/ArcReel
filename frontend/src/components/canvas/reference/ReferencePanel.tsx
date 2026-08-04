@@ -23,20 +23,31 @@ import { RefChip } from "./RefChip";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { SHEET_FIELD, type AssetKind, type ReferenceResource } from "@/types/reference-video";
+import { normalizeAssetName } from "@/utils/reference-mentions";
 
 const PICKER_ID = "reference-panel-mention-picker";
 
-// Drag id format: `${type}:${name}`. Split on the first ":" so CJK names survive.
-const refId = (r: ReferenceResource): string => `${r.type}:${r.name}`;
-const refNameFromId = (id: string): string => id.slice(id.indexOf(":") + 1);
+// refId 用于 baseIds/existingKeys（资产存在性判断），不是拖拽身份——拖拽身份见下方 sortableIds。
+const refId = (r: ReferenceResource): string => `${r.type}:${normalizeAssetName(r.name)}`;
 
 type BucketEntry = Partial<Record<"character_sheet" | "scene_sheet" | "prop_sheet", string>>;
+// bucket key 与 name 可能是 NFC/NFD 中的任一方（bucket 来自落盘的 project.json 原始 key，
+// name 可能来自已归一的 references 或选择器候选），两侧归一后再比对，见
+// `utils/reference-mentions.ts` 顶部注释的坐标系约定。
 const sheetOf = (
   bucket: Record<string, unknown> | undefined,
   kind: AssetKind,
   name: string,
-): string | null =>
-  (bucket?.[name] as BucketEntry | undefined)?.[SHEET_FIELD[kind]] ?? null;
+): string | null => {
+  if (!bucket) return null;
+  const target = normalizeAssetName(name);
+  for (const key of Object.keys(bucket)) {
+    if (normalizeAssetName(key) === target) {
+      return (bucket[key] as BucketEntry | undefined)?.[SHEET_FIELD[kind]] ?? null;
+    }
+  }
+  return null;
+};
 
 export interface ReferencePanelProps {
   references: ReferenceResource[];
@@ -48,6 +59,7 @@ export interface ReferencePanelProps {
 }
 
 interface SortableChipProps {
+  id: string;
   refItem: ReferenceResource;
   index: number;
   imageUrl: string | null;
@@ -55,14 +67,13 @@ interface SortableChipProps {
 }
 
 const SortableChip = memo(function SortableChip({
+  id,
   refItem,
   index,
   imageUrl,
   onRemove,
 }: SortableChipProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: refId(refItem),
-  });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   return (
     <RefChip
       ref={setNodeRef}
@@ -102,8 +113,16 @@ export function ReferencePanel({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const sortableIds = useMemo(() => references.map(refId), [references]);
-  const existingKeys = useMemo(() => new Set(sortableIds), [sortableIds]);
+  // baseIds 可能重复：PATCH 接口只校验 references 逐条已登记，不校验数组内互相去重，
+  // 一个 unit 的 references 里可能同时留有同一资产的 NFC/NFD 两条等价记录。existingKeys（供
+  // 候选过滤用）用 baseIds，语义是「已存在该资产」，与下面 sortableIds 的「拖拽身份」无关。
+  const baseIds = useMemo(() => references.map(refId), [references]);
+  const existingKeys = useMemo(() => new Set(baseIds), [baseIds]);
+  // sortableIds 用数组下标：位置在同一次渲染内天然唯一。合法资产名可以包含 `#` 等任意非
+  // 路径分隔符字符（见 validate_asset_name），任何字符串拼接式分隔符方案都可能与真实资产名
+  // 撞车，下标不依赖分隔符假设，天然规避这类撞车。reorder 只在 dragEnd 提交（onReorder 才
+  // 更新 references），拖拽过程中 items 顺序不变，下标身份在一次拖拽内是稳定的。
+  const sortableIds = useMemo(() => references.map((_, i) => String(i)), [references]);
 
   const candidates: Record<AssetKind, MentionCandidate[]> = useMemo(() => {
     const buckets: Record<AssetKind, Record<string, unknown> | undefined> = {
@@ -114,7 +133,7 @@ export function ReferencePanel({
     const out = {} as Record<AssetKind, MentionCandidate[]>;
     for (const kind of ["character", "scene", "prop"] as const) {
       out[kind] = Object.keys(buckets[kind] ?? {})
-        .filter((name) => !existingKeys.has(`${kind}:${name}`))
+        .filter((name) => !existingKeys.has(`${kind}:${normalizeAssetName(name)}`))
         .map((name) => ({ name, imagePath: sheetOf(buckets[kind], kind, name) }));
     }
     return out;
@@ -137,7 +156,7 @@ export function ReferencePanel({
 
   const handleAddClick = () => setPickerOpen((v) => !v);
 
-  const indexOfId = (id: string): number => references.findIndex((r) => refId(r) === id);
+  const indexOfId = (id: string): number => sortableIds.indexOf(id);
 
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -150,26 +169,27 @@ export function ReferencePanel({
 
   // Keyboard drag announcements for screen readers.
   const announcements = useMemo<Announcements>(() => {
-    const locate = (id: string) => ({
-      name: refNameFromId(id),
-      index: references.findIndex((r) => refId(r) === id) + 1,
-    });
+    const locate = (id: string) => {
+      const index = sortableIds.indexOf(id);
+      return { name: references[index]?.name ?? "", index: index + 1 };
+    };
     return {
       onDragStart: ({ active }) => t("reference_panel_announce_pick_up", locate(String(active.id))),
       onDragOver: ({ active, over }) => {
         if (!over) return undefined;
+        const { name } = locate(String(active.id));
         const { index } = locate(String(over.id));
-        return t("reference_panel_announce_move", { name: refNameFromId(String(active.id)), index });
+        return t("reference_panel_announce_move", { name, index });
       },
       onDragEnd: ({ active, over }) => {
         if (!over) return undefined;
+        const { name } = locate(String(active.id));
         const { index } = locate(String(over.id));
-        return t("reference_panel_announce_drop", { name: refNameFromId(String(active.id)), index });
+        return t("reference_panel_announce_drop", { name, index });
       },
-      onDragCancel: ({ active }) =>
-        t("reference_panel_announce_cancel", { name: refNameFromId(String(active.id)) }),
+      onDragCancel: ({ active }) => t("reference_panel_announce_cancel", locate(String(active.id))),
     };
-  }, [t, references]);
+  }, [t, references, sortableIds]);
 
   const screenReaderInstructions = useMemo<ScreenReaderInstructions>(
     () => ({ draggable: t("reference_panel_sr_instructions") }),
@@ -205,7 +225,8 @@ export function ReferencePanel({
           <SortableContext items={sortableIds} strategy={rectSortingStrategy}>
             {chipData.map((d, i) => (
               <SortableChip
-                key={refId(d.ref)}
+                key={sortableIds[i]}
+                id={sortableIds[i]}
                 refItem={d.ref}
                 index={i}
                 imageUrl={d.imageUrl}

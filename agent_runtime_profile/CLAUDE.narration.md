@@ -10,11 +10,12 @@
 ### 视频规格
 - **视频比例**：由项目 `aspect_ratio` 配置决定，无需在 prompt 中指定
 - **单片段/场景时长**：由视频模型能力和项目 `default_duration` 配置决定
-  - storyboard / grid 模式：由项目 `default_duration` 决定
-  - reference_video 模式：由所选视频模型的 `supported_durations` 决定；subagent 运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查真值
+  - storyboard 模式（含 `grid_storyboard=true`）：取值必须在所选视频模型的 `supported_durations` 内，项目 `default_duration` 非 null 时作默认偏好
+  - reference_video 模式：unit 时长必须取该 unit **引用状态对应**的生效档位（`reference_unit_durations.with_references` / `.without_references`）
+  - 两者的真值均由 subagent 运行时通过 `mcp__arcreel__get_video_capabilities` 工具自查；该工具返回的 `supported_durations` 是型号声明的全集，**未**施加「分辨率↔时长」「参考图↔时长」两条联动约束，生成工具会按项目分辨率再收窄一次。手工改 step1 时长后若入队被拒，按错误提示取收窄后的档位，不要反复重试原值
 - **图片分辨率**：1K
 - **视频分辨率**：1080p
-- **生成方式**：每个片段/场景独立生成，使用分镜图作为起始帧
+- **生成方式**：按 `generation_mode` 分两路——storyboard 模式每个片段/场景独立生成、以分镜图作起始帧（`grid_storyboard=true` 时起始帧来自宫格切块）；reference_video 模式按 video_unit 直出、以资产 sheet 图作 `reference_images`，无分镜图
 
 > **关于 extend 功能**：Veo 3.1 extend 功能仅用于延长单个片段/场景，
 > 每次固定 +7 秒，不适合用于串联不同镜头。不同片段/场景之间使用 ffmpeg 拼接。
@@ -48,21 +49,20 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 本项目为**说书+画面模式**（narration）。剧本数据结构为 `segments[]`，每个片段对应一段朗读 + 一张分镜画面。
 
-> 生成模式（storyboard / grid / reference_video）通过 `project.json` 的 `generation_mode` 字段配置，与内容模式独立。详细规格见 `.claude/references/generation-modes.md`。
+> 生成模式（storyboard / reference_video）由 `project.json` 顶层 `generation_mode` 字段唯一决定，项目创建后不可更改；与内容模式独立。详细规格见 `.claude/references/generation-modes.md`。
 
 ---
 
 ## 生成模式
 
-系统支持三种**生成模式**（`generation_mode`），通过 `project.json` 顶层字段 + 集级 `episodes[i].generation_mode` 指定：
+系统支持两种**生成模式**（`generation_mode`），由 `project.json` 顶层字段唯一表达，创建后不可更改，不存在集级覆盖：
 
 | generation_mode | 名称（UI） | 数据主结构 | 视觉参考来源 |
 |---|---|---|---|
-| `storyboard`（默认） | 图生视频 | `segments[]` 或 `scenes[]` + 分镜图 | 每片段一张分镜图作起始帧 |
-| `grid` | 宫格生视频 | `segments[]` 或 `scenes[]` + 宫格分组 | 宫格图切块 |
+| `storyboard` | 图生视频 / 宫格生视频 | `segments[]` 或 `scenes[]` + 分镜图 | 每片段一张分镜图作起始帧；`grid_storyboard=true` 时改用宫格图切块 |
 | `reference_video` | 参考生视频 | `video_units[]` | 角色/场景/道具 sheet 图作为参考 |
 
-解析规则：`effective_mode(project, episode) = episode.generation_mode or project.generation_mode or "storyboard"`。
+宫格不是独立生成模式：`grid_storyboard` 是仅在 `generation_mode="storyboard"` 下生效的独立布尔开关，切换宫格 UI 在设置页操作，agent 无法经工具绕过。
 
 > 完整模式矩阵与阶段分支详见 `.claude/references/generation-modes.md`。
 
@@ -117,7 +117,7 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 | generate-script | — | 调用项目配置的文本模型生成 JSON 剧本（由 subagent 调用） |
 | generate-assets | `/generate-assets` | 统一资产生成：可指定 `type=character\|scene\|prop`，省略则三类并行 |
 | generate-storyboard | `/generate-storyboard` | 生成分镜图片（storyboard 模式） |
-| generate-grid | `/generate-grid` | 生成宫格分镜图（grid 模式：按 segment_break 分组的链式宫格） |
+| generate-grid | `/generate-grid` | 生成宫格分镜图（`grid_storyboard=true` 时：按 segment_break 分组的链式宫格） |
 | generate-video | `/generate-video` | 生成视频 |
 | generate-narration-audio | `/generate-narration-audio` | 生成旁白配音（按段 TTS，只依赖剧本 novel_text） |
 | compose-video | `/compose-video` | 视频后期合成（BGM、片头片尾、多集拼接，ffmpeg） |
@@ -130,25 +130,25 @@ agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 `/manga-workflow` 编排 skill 按以下阶段自动推进（每个阶段完成后等待用户确认）：
 
-1. **项目设置**：创建项目（创建时确定 `content_mode`，之后不可变）、选择 `generation_mode`、上传小说、生成项目概述
+1. **项目设置**：创建项目（创建时确定 `content_mode` 与 `generation_mode`，之后均不可变）、上传小说、生成项目概述。用户中途要求更改生成模式（storyboard ↔ reference_video）时明确告知路线创建后不可更改，无绕过方式；要求改宫格装配（`grid_storyboard`）时指引用户前往设置页操作，agent 无对应写入权限；该开关只影响后续生成，已生成的分镜图不会自动失效，须显式重新生成对应分镜才会按新装配方式出图
 2. **全局角色/场景/道具提取** → dispatch `analyze-assets` subagent
 3. **分集规划** → 主 agent 调用 `mcp__arcreel__plan_episodes` 服务端工具规划一批集（账本+派生集文件由工具维护）+ 批级审阅。用户对已规划内容提出调整意见时走「重置 + 重新规划」：先调用 `mcp__arcreel__reset_episode_planning` 退回到意见中最早受影响的集（保留其前的集），再带调整后的 `instructions` 分批重新调用 `plan_episodes`。用户表达常驻分集偏好（如按章节对齐切分）时，须经 `plan_episodes` 的 `instructions` 传入，并在规划完成前**每一批调用都重复带上**（偏好不持久化）；每集目标体量等全局性偏好经 `patch_project` 显式写入 `episode_target_units`
-4. **单集预处理** → 按 `effective_mode` × `content_mode` 三分支选（中间文件统一位于 `drafts/episode_{N}/`）：
+4. **单集预处理** → 按项目 `generation_mode` × `content_mode` 选（中间文件统一位于 `drafts/episode_{N}/`）：
    - reference_video（任一 content_mode）→ `split-reference-video-units`（产出 `step1_reference_units.json`）
-   - storyboard / grid + narration → `split-narration-segments`（产出 `step1_segments.json`）
-   - storyboard / grid + drama → `normalize-drama-script`（产出结构化内容 `step1_normalized_script.json`）
+   - storyboard + narration → `split-narration-segments`（产出 `step1_segments.json`）
+   - storyboard + drama → `normalize-drama-script`（产出结构化内容 `step1_normalized_script.json`）
 5. **JSON 剧本生成** → dispatch `create-episode-script` subagent；中间文件被修改/重拆后必须重新执行本阶段
 6. **资产设计（character/scene/prop 三类并行）** → dispatch `generate-assets` subagent
-7. **分镜图生成**：仅 `storyboard` / `grid` 模式；`reference_video` 跳过 → dispatch `generate-assets` subagent
+7. **分镜图生成**：仅 `storyboard` 模式（`grid_storyboard=true` 时生成宫格图）；`reference_video` 跳过 → dispatch `generate-assets` subagent
 8. **视频生成** → dispatch `generate-assets` subagent（脚本自动按 video_units/segments/scenes 分派）
-9. **旁白配音**：仅 `storyboard` / `grid` 模式（`reference_video` 无 segments，跳过） → dispatch `generate-assets` subagent（按段 TTS；只依赖剧本 `novel_text`、独立于视频，剧本生成后即可推进）
+9. **旁白配音**：仅 `storyboard` 模式（`reference_video` 无 segments，跳过） → dispatch `generate-assets` subagent（按段 TTS；只依赖剧本 `novel_text`、独立于视频，剧本生成后即可推进）
 
 工作流支持**灵活入口**：状态检测自动定位到第一个未完成的阶段，支持中断后恢复。
 视频生成完成后，用户可在 Web 端导出为剪映草稿。
 
 ## 关键原则
 
-- **角色一致性**：每个场景都使用分镜图作为起始帧，确保角色形象一致
+- **角色一致性**：storyboard 模式每个片段都使用分镜图作为起始帧；reference_video 模式改由 unit 引用的角色 sheet 图承担同一职责，两者都确保角色形象一致
 - **场景/道具一致性**：标志性环境和关键道具通过 `scenes` / `props` 机制固化，确保跨场景视觉一致
 - **分镜连贯性**：使用 segment_break 标记场景切换点，后期可添加转场效果
 - **质量控制**：每个场景生成后检查质量，可单独重新生成不满意的场景
@@ -166,9 +166,9 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 ├── characters/        # 角色设计图
 ├── scenes/            # 场景设计图
 ├── props/             # 道具设计图
-├── storyboards/       # 分镜图片（storyboard / grid 模式）
-├── grids/             # 宫格图（grid 模式）
-├── videos/            # 生成的视频片段（storyboard / grid 模式）
+├── storyboards/       # 分镜图片（storyboard 模式；`grid_storyboard=true` 时存宫格切割出的首尾帧）
+├── grids/             # 宫格大图（storyboard 模式且 `grid_storyboard=true`）
+├── videos/            # 生成的视频片段（storyboard 模式）
 ├── reference_videos/  # 生成的 video_unit（reference_video 模式）
 ├── audio/             # 旁白音频（说书模式，首次生成时创建）
 ├── thumbnails/        # 首帧缩略图
@@ -178,9 +178,9 @@ projects/{项目名}/      # ← session cwd 已在此，下面均为 cwd 内的
 ### project.json 核心字段
 
 - `schema_version`：项目数据格式版本（当前 1）
-- `title`、`content_mode`（`narration`/`drama`）、`generation_mode`（`storyboard`/`grid`/`reference_video`）、`style`、`style_description`
+- `title`、`content_mode`（`narration`/`drama`）、`generation_mode`（`storyboard`/`reference_video`，创建后不可更改）、`grid_storyboard`（布尔，仅 `generation_mode="storyboard"` 下生效，由用户在设置页开关）、`style`、`style_description`
 - `overview`：项目概述（synopsis、genre、theme、world_setting）
-- `episodes`：分集账本（单一真相源）：episode、title、script_file、可选 `generation_mode` 覆盖，以及账本字段 `source_range`（原文范围）/ `hook`（集尾钩子）/ `outline`（drama 分集大纲）/ `ledger_status`（planned/consumed/stale）；顶层 `planning_cursor` 标记下一批规划起点。`source/episode_N.txt` 是账本的派生物，由规划工具维护，不要手工编辑或重命名
+- `episodes`：分集账本（单一真相源）：episode、title、script_file，以及账本字段 `source_range`（原文范围）/ `hook`（集尾钩子）/ `outline`（drama 分集大纲）/ `ledger_status`（planned/consumed/stale）；顶层 `planning_cursor` 标记下一批规划起点。`source/episode_N.txt` 是账本的派生物，由规划工具维护，不要手工编辑或重命名
 - `characters`：角色完整定义（description、voice_style、character_sheet）
 - `scenes`：场景完整定义（description、scene_sheet）
 - `props`：道具完整定义（description、prop_sheet）

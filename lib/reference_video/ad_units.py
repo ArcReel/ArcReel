@@ -10,6 +10,7 @@ ad 剧本骨架唯一（shots 是内容唯一真相，见 docs/adr/0033）；ref
 
 from __future__ import annotations
 
+from lib.asset_types import normalize_asset_name
 from lib.script_models import GeneratedAssets, ad_shot_duration_seconds, get_generated_assets
 
 #: 单个 video_unit 最多容纳的镜头数，与 ``ReferenceVideoUnit.shots`` 的
@@ -29,7 +30,13 @@ _REFERENCE_FIELDS: tuple[tuple[str, str], ...] = (
 
 
 def _unit_references(shots: list[dict]) -> list[dict]:
-    """unit 参考集：成员镜头参考的并集，产品在前，类型内按首次出现顺序去重。"""
+    """unit 参考集：成员镜头参考的并集，产品在前，类型内按首次出现顺序去重。
+
+    去重按归一名（:func:`lib.asset_types.normalize_asset_name`）而非裸字符串：同一资产在不同
+    镜头里可能以 NFC/NFD 两种等价编码写入，裸比对判不相等会让它派生出两条 reference——画布
+    上重复显示同一资产，并各占一个参考图槽位挤掉真正不同的参考。条目本身保留镜头里的原始
+    形式，判等交给读取侧的归一（与 ``_resolve_unit_references`` 的去重同构）。
+    """
     references: list[dict] = []
     for field, ref_type in _REFERENCE_FIELDS:
         seen: set[str] = set()
@@ -38,9 +45,12 @@ def _unit_references(shots: list[dict]) -> list[dict]:
             if not isinstance(names, list):
                 continue
             for name in names:
-                if not isinstance(name, str) or not name or name in seen:
+                if not isinstance(name, str) or not name:
                     continue
-                seen.add(name)
+                canonical = normalize_asset_name(name)
+                if canonical in seen:
+                    continue
+                seen.add(canonical)
                 references.append({"type": ref_type, "name": name})
     return references
 
@@ -213,6 +223,10 @@ def _shot_prompt_text(shot: dict) -> str:
             if not isinstance(entry, dict):
                 continue
             speaker = _text(entry.get("speaker"))
+            # 归一到与 derive_voice_bindings 相同的坐标系（NFC）：该函数对说话人名归一后
+            # 产出音色绑定声明 `<X>的台词音色参考 @音频N`，这里的台词句式若仍用未归一的
+            # 原始字节形式，两处的 `<X>` 会字节不同，供应商侧无法把参考音色与这句台词对上。
+            speaker = normalize_asset_name(speaker) if speaker else speaker
             line = _text(entry.get("line"))
             if line:
                 # 台词句式与 narration/drama 参考路径的第二段统一（<X>说 {台词}），无 speaker

@@ -1662,12 +1662,12 @@ describe("StudioCanvasRouter", () => {
   it("reports grid generation failure with an error toast", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData({ generation_mode: "grid" }),
+      currentProjectData: makeProjectData({ generation_mode: "storyboard", grid_storyboard: true }),
       currentScripts: { "episode_1.json": makeScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ generation_mode: "grid" }),
+      project: makeProjectData({ generation_mode: "storyboard", grid_storyboard: true }),
       scripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "generateGrid").mockRejectedValue(new Error("grid generate failed"));
@@ -1685,12 +1685,12 @@ describe("StudioCanvasRouter", () => {
   it("marks the scriptFile as optimistically active on grid generation submit success", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData({ generation_mode: "grid" }),
+      currentProjectData: makeProjectData({ generation_mode: "storyboard", grid_storyboard: true }),
       currentScripts: { "episode_1.json": makeScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ generation_mode: "grid" }),
+      project: makeProjectData({ generation_mode: "storyboard", grid_storyboard: true }),
       scripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "generateGrid").mockResolvedValue({
@@ -1716,12 +1716,12 @@ describe("StudioCanvasRouter", () => {
   it("does not mark optimistic occupancy when grid generation returns no task_ids", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
-      currentProjectData: makeProjectData({ generation_mode: "grid" }),
+      currentProjectData: makeProjectData({ generation_mode: "storyboard", grid_storyboard: true }),
       currentScripts: { "episode_1.json": makeScript() },
     });
 
     vi.spyOn(API, "getProject").mockResolvedValue({
-      project: makeProjectData({ generation_mode: "grid" }),
+      project: makeProjectData({ generation_mode: "storyboard", grid_storyboard: true }),
       scripts: { "episode_1.json": makeScript() },
     });
     vi.spyOn(API, "generateGrid").mockResolvedValue({

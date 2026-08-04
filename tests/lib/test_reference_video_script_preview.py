@@ -1,11 +1,14 @@
 """分镜文稿台词规范行的派生与降级可见性 warning。"""
 
+import unicodedata
+
 import pytest
 
 from lib.i18n import MESSAGES, _
 from lib.reference_video.script_preview import (
     WARN_DIALOGUE_INLINE,
     WARN_REFERENCE_AUDIO_OVERFLOW,
+    WARN_SILENT_EPISODE,
     WARN_SILENT_MODEL,
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
     WARN_SPEAKER_AUDIO_UNAVAILABLE,
@@ -14,12 +17,14 @@ from lib.reference_video.script_preview import (
     WARN_UNREGISTERED_MENTION,
     WARN_UNREGISTERED_SPEAKER,
     build_script_preview,
+    derive_utterances,
     derive_voice_bindings,
 )
 from lib.reference_video.shot_parser import (
     extract_mentions,
     match_dialogue_line,
     match_voiceover_line,
+    parse_prompt,
 )
 
 pytestmark = pytest.mark.unit
@@ -33,6 +38,10 @@ PROJECT = {
     "scenes": {"酒馆": {"description": "x"}},
     "props": {},
 }
+
+#: 带组合附加符的角色名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
+_NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
+_NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
 
 def keys(preview) -> list[str]:
@@ -199,6 +208,39 @@ def test_warn_speaker_audio_unavailable_distinguished_from_unset():
     assert {"key": WARN_SPEAKER_AUDIO_UNAVAILABLE, "params": {"name": "李四"}} not in bindings.warnings
 
 
+@pytest.mark.parametrize("registered", [_NAME_NFC, _NAME_NFD], ids=["登记NFC", "登记NFD"])
+@pytest.mark.parametrize("written", [_NAME_NFC, _NAME_NFD], ids=["出场NFC", "出场NFD"])
+def test_combining_char_speaker_binds_audio_in_every_encoding_pairing(registered: str, written: str):
+    """组合字符角色名的四种 NFC/NFD 配对绑定结果一致：不得因编码形式差异静默降级。
+
+    「未登记」与「无可用音频」两条 warning 都不发——它们不阻断生成，漏发的后果是用户拿到
+    一条没绑上音色的成片，而不是一个能排查的报错。
+    """
+    project = {
+        "characters": {registered: {"reference_audio": "assets/audio/x.wav"}},
+        "scenes": {},
+        "props": {},
+    }
+    text = f"镜头1：开场。\n@[{written}]：{{Tôi đến rồi.}}"
+
+    preview = build_script_preview(text, project, voice_consistency="native", max_reference_audio=3)
+    assert keys(preview) == []
+
+    # 执行层口径：audio_ready 由 resolve_reference_audio_paths 按资产表的 key 建，同样可能是任一形式
+    bindings = derive_voice_bindings(
+        preview.utterances,
+        project["characters"],
+        voice_consistency="native",
+        max_reference_audio=3,
+        audio_ready={registered},
+        require_reference_image=True,
+        speakers_with_reference_image={registered},
+    )
+    assert bindings.speakers == [_NAME_NFC]
+    assert bindings.audio_speakers == [_NAME_NFC]
+    assert bindings.warnings == []
+
+
 def test_derive_voice_bindings_degrades_on_malformed_character_entry():
     """执行层传入 ``audio_ready`` 时，角色条目非 dict（外部写坏 project.json）不得崩溃——
     只是 audio_field_set 判定不到值，按「未设置」降级，而不是让 ``.get`` 抛 AttributeError。"""
@@ -272,6 +314,56 @@ def test_silent_model_notice_not_emitted_without_any_utterance():
     assert preview.warnings == []
 
 
+# ---------- 本集无声（requested_generate_audio=False） ----------
+
+
+def test_silent_episode_drops_audio_bindings_on_native_model():
+    """无声开关关掉后，A 类模型也不再绑定参考音频——请求里不会带音频段。"""
+    text = "镜头1：开场。\n@[张三]：{我来了}"
+    bindings = derive_voice_bindings(
+        derive_utterances(parse_prompt(text)[0])[0],
+        PROJECT["characters"],
+        voice_consistency="native",
+        requested_generate_audio=False,
+        max_reference_audio=3,
+    )
+    assert bindings.audio_speakers == []
+    assert bindings.speakers == ["张三"]
+    assert [w["key"] for w in bindings.warnings] == [WARN_SILENT_EPISODE]
+
+
+def test_silent_episode_notice_replaces_per_speaker_audio_warnings():
+    """无声时不再逐角色报「未设参考音频」——原因是本集无声，不是角色没配音频。"""
+    text = "镜头1：开场。\n@[张三]：{我来了}\n@[李四]：{我也在}"
+    preview = build_script_preview(text, PROJECT, voice_consistency="native", requested_generate_audio=False)
+    assert keys(preview) == [WARN_SILENT_EPISODE]
+    assert preview.warnings[0]["params"] == {}
+
+
+def test_silent_episode_notice_takes_precedence_over_silent_model():
+    preview = build_script_preview(
+        "镜头1：开场。\n@[张三]：{我来了}",
+        PROJECT,
+        voice_consistency="none",
+        requested_generate_audio=False,
+        model_id="minimax-01",
+    )
+    assert keys(preview) == [WARN_SILENT_EPISODE]
+
+
+def test_silent_episode_notice_not_emitted_without_any_utterance():
+    preview = build_script_preview("镜头1：开场。", PROJECT, voice_consistency="native", requested_generate_audio=False)
+    assert preview.warnings == []
+
+
+def test_silent_episode_keeps_utterances_for_lip_sync():
+    """台词照常派生：无声视频里台词仍下发，供应商可用作口型参考。"""
+    preview = build_script_preview(
+        "镜头1：开场。\n@[张三]：{我来了}", PROJECT, voice_consistency="native", requested_generate_audio=False
+    )
+    assert [u.utterance.text for u in preview.utterances] == ["我来了"]
+
+
 # ---------- i18n ----------
 
 WARNING_KEYS = [
@@ -282,6 +374,7 @@ WARNING_KEYS = [
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_MODEL,
+    WARN_SILENT_EPISODE,
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
 ]
 
@@ -293,6 +386,7 @@ WARNING_PARAMS = {
     WARN_SPEAKER_WITHOUT_AUDIO: {"name": "李四"},
     WARN_REFERENCE_AUDIO_OVERFLOW: {"limit": 3, "name": "李四"},
     WARN_SILENT_MODEL: {"model": "minimax-01"},
+    WARN_SILENT_EPISODE: {},
     WARN_SPEAKER_AUDIO_NEEDS_IMAGE: {"name": "李四"},
 }
 

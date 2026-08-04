@@ -28,12 +28,12 @@ class _FakePM:
 class TestStatusCalculator:
     def test_select_kind_and_items(self):
         kind, items = StatusCalculator._select_kind_and_items(
-            {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]}
+            {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]}, "storyboard"
         )
         assert kind == "segments"
         assert len(items) == 1
 
-        kind2, items2 = StatusCalculator._select_kind_and_items({"scenes": [{"scene_id": "E1S01"}]})
+        kind2, items2 = StatusCalculator._select_kind_and_items({"scenes": [{"scene_id": "E1S01"}]}, "storyboard")
         assert kind2 == "scenes"
         assert len(items2) == 1
 
@@ -515,7 +515,7 @@ class TestAdStatusCalculation:
 
     def test_select_ad_by_duck_typing_when_content_mode_absent(self):
         # 本地 legacy 容忍：缺 content_mode 的存量 ad 剧本按 shots 键鸭子推断（矩阵不覆盖本地阶梯）。
-        kind, items = StatusCalculator._select_kind_and_items({"shots": [{"shot_id": "E1S01"}]})
+        kind, items = StatusCalculator._select_kind_and_items({"shots": [{"shot_id": "E1S01"}]}, "storyboard")
         assert kind == "shots"
         assert len(items) == 1
 
@@ -656,12 +656,87 @@ class TestAdStatusCalculation:
         assert enriched["scenes_in_episode"] == ["客厅"]
         assert enriched["props_in_episode"] == ["速干杯"]
 
+    @pytest.mark.unit
+    def test_legacy_ad_script_on_reference_route_keeps_shots(self):
+        """缺 content_mode 的 ad 剧本落在参考路线项目下：ad 骨架恒 shots（含派生
+        reference_units 索引），legacy 短路不得把计分抢成空 video_units。"""
+        script = {"shots": [{"shot_id": "E1S01"}, {"shot_id": "E1S02"}], "reference_units": []}
+        kind, items = StatusCalculator._select_kind_and_items(script, "reference_video")
+        assert kind == "shots"
+        assert len(items) == 2
+
+    @pytest.mark.unit
+    def test_malformed_unit_container_scores_as_empty(self):
+        """``video_units`` 非数组（外部编辑 / 归档导入的脏数据）归一为空而不是原样下传——
+        否则下游按 dict 键迭代、对 str 调 get，项目详情读取变成 500 全不可查看。"""
+        for malformed in ({"unit_a": {}}, "E1U1", 3):
+            kind, items = StatusCalculator._select_kind_and_items(
+                {"content_mode": "narration", "video_units": malformed}, "reference_video"
+            )
+            assert kind == "video_units"
+            assert items == []
+
+    @pytest.mark.unit
+    def test_non_object_units_are_dropped_before_scoring(self):
+        """``video_units`` 夹非对象条目：剔除而不是原样下传——下游对 str 调 get 会让
+        项目详情读取变成 500，整个项目不可查看。"""
+        kind, items = StatusCalculator._select_kind_and_items(
+            {"content_mode": "narration", "video_units": ["bad", {"unit_id": "E1U1"}, 7, None]},
+            "reference_video",
+        )
+        assert kind == "video_units"
+        assert items == [{"unit_id": "E1U1"}]
+
+    @pytest.mark.unit
+    def test_enrich_script_tolerates_malformed_unit_references(self, tmp_path):
+        """unit 本身合法但 references 容器/条目脏：聚合跳过而非抛 AttributeError。"""
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        script = {
+            "content_mode": "narration",
+            "metadata": {},
+            "video_units": [
+                {"unit_id": "E1U1", "references": "bad"},
+                {"unit_id": "E1U2", "references": ["bad", {"type": "character", "name": "张三"}]},
+                {"unit_id": "E1U3"},
+            ],
+        }
+        enriched = calc.enrich_script(script, generation_mode="reference_video")
+        assert enriched["characters_in_episode"] == ["张三"]
+
+    @pytest.mark.unit
+    def test_enrich_script_tolerates_non_string_reference_names(self, tmp_path):
+        """``name`` 为 list / dict 会在集合 add 处抛 unhashable，为数字会让 sorted 抛
+        混类型比较错误——两者都让项目详情读取失败，须一并跳过。"""
+        calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
+        script = {
+            "content_mode": "narration",
+            "metadata": {},
+            "video_units": [
+                {
+                    "unit_id": "E1U1",
+                    "references": [
+                        {"type": "character", "name": ["坏"]},
+                        {"type": "character", "name": {"k": "v"}},
+                        {"type": "scene", "name": 7},
+                        {"type": "prop", "name": ""},
+                        {"type": "character", "name": "张三"},
+                    ],
+                }
+            ],
+        }
+        enriched = calc.enrich_script(script, generation_mode="reference_video")
+        assert enriched["characters_in_episode"] == ["张三"]
+        assert enriched["scenes_in_episode"] == []
+        assert enriched["props_in_episode"] == []
+
     def test_duck_typing_precedence_segments_over_scenes_over_shots(self):
         """缺 content_mode 的老脚本同时残留多种键时，鸭子类型优先级固定为
         segments > scenes > shots（依赖 _LEGACY_DUCK_TYPE_KINDS 顺序，本测试钉住该顺序）。"""
-        kind, _ = StatusCalculator._select_kind_and_items({"segments": [{}], "scenes": [{}], "shots": [{}]})
+        kind, _ = StatusCalculator._select_kind_and_items(
+            {"segments": [{}], "scenes": [{}], "shots": [{}]}, "storyboard"
+        )
         assert kind == "segments"
-        kind, _ = StatusCalculator._select_kind_and_items({"scenes": [{}], "shots": [{}]})
+        kind, _ = StatusCalculator._select_kind_and_items({"scenes": [{}], "shots": [{}]}, "storyboard")
         assert kind == "scenes"
 
 
@@ -691,8 +766,6 @@ class TestStatusCalculatorSkeletonExhaustiveness:
         content_mode, gen_mode = _KIND_TO_MODES[kind]
         id_field = SKELETONS[kind].id_field
         script = {"content_mode": content_mode, kind: [{id_field: "E1S01"}]}
-        if gen_mode:
-            script["generation_mode"] = gen_mode
 
         calc = StatusCalculator(_FakePM(tmp_path, {}, {}))
         stats = calc.calculate_episode_stats("demo", script, generation_mode=gen_mode)

@@ -34,7 +34,7 @@ from lib.episode_paths import (
 from lib.i18n import _ as translate
 from lib.json_io import atomic_write_json, load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
-from lib.project_manager import DEFAULT_SOURCE_KIND, ProjectManager, effective_mode
+from lib.project_manager import DEFAULT_SOURCE_KIND, is_reference_video_project
 from lib.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
 from lib.reference_video.draft_validation import (
@@ -59,6 +59,7 @@ from lib.reference_video.quarantine import (
 )
 from lib.reference_video.script_preview import (
     WARN_REFERENCE_AUDIO_OVERFLOW,
+    WARN_SILENT_EPISODE,
     WARN_SILENT_MODEL,
     WARN_SPEAKER_WITHOUT_AUDIO,
     derive_utterances,
@@ -158,9 +159,9 @@ def _load_novel_source(project_path: Path, source: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_video_capabilities(project_name: str, episode: int | None) -> dict[str, Any]:
+async def _resolve_video_capabilities(project_name: str) -> dict[str, Any]:
     resolver = ConfigResolver(async_session_factory)
-    return await resolver.video_capabilities(project_name, episode)
+    return await resolver.video_capabilities(project_name)
 
 
 def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, Any]) -> None:
@@ -190,22 +191,12 @@ def get_video_capabilities_tool(ctx: ToolContext):
         "get_video_capabilities",
         "查视频模型能力（model 粒度）+ 用户项目偏好。返回 JSON；"
         "参考生视频项目另含 reference_unit_durations（按 unit 有无 @ 引用分开的两套生效档位）。"
-        "生成模式可被单集覆盖，为某一集取能力时必须带 episode，否则拿到的是项目级口径。",
-        {
-            "type": "object",
-            "properties": {
-                "episode": {
-                    "type": "integer",
-                    "description": "剧集编号；省略则按项目级生成模式解析",
-                }
-            },
-        },
+        "能力按项目生成路线定轴，全项目同一口径，无需指定剧集。",
+        {"type": "object", "properties": {}},
     )
-    async def _handler(args: dict[str, Any]) -> dict[str, Any]:
+    async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
         try:
-            raw_episode = args.get("episode")
-            episode = int(raw_episode) if raw_episode is not None else None
-            payload = await _resolve_video_capabilities(ctx.project_name, episode)
+            payload = await _resolve_video_capabilities(ctx.project_name)
             _annotate_reference_unit_tiers(payload, ctx.pm.load_project(ctx.project_name))
             return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)}]}
         except FileNotFoundError as exc:
@@ -229,20 +220,14 @@ def get_video_capabilities_tool(ctx: ToolContext):
 # ---------------------------------------------------------------------------
 
 
-def _is_reference_video_episode(project_data: dict[str, Any], episode: int) -> bool:
-    """本集当前是否走参考生视频路径——隔离草稿只在这条路径上有意义。"""
+def _uses_reference_video_units(project_data: dict[str, Any]) -> bool:
+    """项目是否产出参考视频 unit——隔离草稿只在这条路径上有意义。
+
+    ad 的 unit 是 shots 的派生索引、无 step1 拆分，即使走参考路线也不在此列。
+    """
     if project_data.get("content_mode", "narration") == "ad":
         return False
-    return _effective_generation_mode(project_data, episode) == "reference_video"
-
-
-def _effective_generation_mode(project_data: dict[str, Any], episode: int) -> str:
-    """按 episode → project 回退解析本集生效的 generation_mode。"""
-    episode_dict = next(
-        (ep for ep in (project_data.get("episodes") or []) if ep.get("episode") == episode),
-        {},
-    )
-    return effective_mode(project=project_data, episode=episode_dict)
+    return is_reference_video_project(project_data)
 
 
 def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str, Any]) -> tuple[Path, str] | None:
@@ -252,7 +237,7 @@ def _resolve_step1_path(project_path: Path, episode: int, project_data: dict[str
         # ad 创作输入是 project.json 的 brief + 产品信息 + target_duration，
         # ScriptGenerator 的 ad 分支不读 drafts/ 中间文件。
         return None
-    generation_mode = _effective_generation_mode(project_data, episode)
+    generation_mode = project_data.get("generation_mode")
     drafts_path = episode_drafts_dir(project_path, episode)
     if generation_mode == "reference_video":
         # reference_video 生成需结构化 step1 JSON；仅存旧版 .md 时给出与
@@ -307,9 +292,9 @@ def generate_episode_script_tool(ctx: ToolContext):
             # 隔离草稿在场先于「缺 step1」与审核 gate 报出。三者都判「未放行」，但出路各不相同：
             # 首次拆分就违约时正式 step1 本就不存在，先报缺文件会把 agent 引回重跑拆分——正是本
             # 机制要避免的「丢弃重抽」；gate 阻塞则要用户去 Web 端确认，agent 自己解决不了。
-            # 只在本集实际走参考路径时判：generation_mode 可改，切走之后这些残留草稿与新路径无关，
-            # 而非参考路径的写入方不会清它们，无条件判会把该集永久卡死。
-            if _is_reference_video_episode(project_data, episode):
+            # 只在项目实际走参考路径时判：分镜路线项目上残留的隔离草稿与其生成路径无关，
+            # 非参考路径的写入方不会清它们，无条件判会把该集永久卡死。
+            if _uses_reference_video_units(project_data):
                 for kind in (QUARANTINE_KIND_STEP1, QUARANTINE_KIND_STEP2):
                     if quarantine_exists(project_path, episode, kind):
                         path = quarantine_path(project_path, episode, kind)
@@ -442,7 +427,7 @@ async def _fetch_caps_with_fallback(project: dict[str, Any], episode: int) -> tu
     越界默认时长」变成整个工具的硬失败。与 ``_fetch_reference_caps_with_fallback`` 同口径。
     """
     try:
-        default_int, durations = await fetch_video_caps(project, episode=episode, generation_mode=None)
+        default_int, durations = await fetch_video_caps(project, generation_mode=None)
     except (FileNotFoundError, ValueError) as exc:
         logger.info("video_capabilities 不可解析，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         return None, list(DEFAULT_FALLBACK)
@@ -580,9 +565,10 @@ class ReferenceSplitCaps(NamedTuple):
     可能合法；归属哪一套要等正文派生出 references 才知道。三者相等即该型号在当前分辨率下未声明
     生效的「参考图↔时长」联动约束，多数型号如此。
 
-    ``raw`` 是解析到的原始能力 dict（故障回退时为空 dict），供声音相关的三条容忍 warning 取
-    ``voice_consistency`` / ``max_reference_audio_count`` / ``model``——它们与时长档位同源于这
-    一次解析，分两次查会让同一份产物的档位与声音提示描述不同时刻的配置。
+    ``raw`` 是解析到的原始能力 dict（故障回退时为空 dict），供声音相关的容忍 warning 取
+    ``voice_consistency`` / ``max_reference_audio_count`` / ``requested_generate_audio`` /
+    ``model``——它们与时长档位同源于这一次解析，分两次查会让同一份产物的档位与声音提示描述
+    不同时刻的配置。
     """
 
     default_duration: int | None
@@ -616,10 +602,20 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
     ``default_duration`` 非并集成员（用户配置漂移）按 None 处理，避免 prompt 自相矛盾。
     """
     try:
-        caps = await resolve_video_caps(project, episode)
+        caps = await resolve_video_caps(project)
     except Exception as exc:  # noqa: BLE001
         logger.warning("video_capabilities 查询异常，使用 fallback %s：%s", DEFAULT_FALLBACK, exc)
         caps = {}
+        # requested_generate_audio 不依赖能力接口（见 generation_context.py 同名字段注释），
+        # 能力解析失败也不能连带丢失，否则本该报的 WARN_SILENT_EPISODE 会静默消失。
+        try:
+            resolver = ConfigResolver(async_session_factory)
+            caps["requested_generate_audio"] = await resolver.video_generate_audio_for_project(project)
+        except Exception as inner_exc:  # noqa: BLE001
+            # 与其余能力字段的「不明时不额外收紧」相反：这里不明时收紧到 False——静默丢掉
+            # 一次声音提示，好过在双重解析失败时把用户的无声意图错读成有声。
+            logger.warning("video_generate_audio 独立解析也失败，声音提示按无声降级：%s", inner_exc)
+            caps["requested_generate_audio"] = False
     durations = [int(d) for d in caps.get("supported_durations") or []]
     if not durations:
         durations = list(DEFAULT_FALLBACK)
@@ -742,17 +738,18 @@ def _build_reference_units_from_flat(
     return units
 
 
-#: 落盘照常、只随产物呈现的三类容忍 warning（声音降级）。其余 warning 键（未登记 mention /
+#: 落盘照常、只随产物呈现的容忍 warning（声音降级）。其余 warning 键（未登记 mention /
 #: 说话人、语法误用）在机器产物这条路上是阻断违约，不走容忍分支。
 _TOLERATED_VOICE_WARNINGS = (
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_REFERENCE_AUDIO_OVERFLOW,
     WARN_SILENT_MODEL,
+    WARN_SILENT_EPISODE,
 )
 
 
 def _reference_voice_warning_lines(unit_texts: list[str], project: dict[str, Any], caps: dict[str, Any]) -> list[str]:
-    """逐 unit 派生声音绑定，取三类容忍 warning 的渲染文本（跨 unit 去重、保持首现顺序）。
+    """逐 unit 派生声音绑定，取容忍类 warning 的渲染文本（跨 unit 去重、保持首现顺序）。
 
     逐 unit 而非把全集正文拼起来判：unit 就是一次生成调用，参考音频段数上限按调用计——拼起来
     判会把「每个 unit 各两个说话人」误报成超限。与编辑器预览、执行期渲染共用
@@ -761,6 +758,7 @@ def _reference_voice_warning_lines(unit_texts: list[str], project: dict[str, Any
     characters = project.get(BUCKET_KEY["character"]) or {}
     voice_consistency = str(caps.get("voice_consistency") or "soft")
     max_reference_audio = int(caps.get("max_reference_audio_count") or 0)
+    requested_generate_audio = bool(caps.get("requested_generate_audio", True))
     model_id = str(caps.get("model") or "")
     seen: set[tuple[str, str]] = set()
     lines: list[str] = []
@@ -771,6 +769,7 @@ def _reference_voice_warning_lines(unit_texts: list[str], project: dict[str, Any
             utterances,
             characters,
             voice_consistency=voice_consistency,
+            requested_generate_audio=requested_generate_audio,
             max_reference_audio=max_reference_audio,
             model_id=model_id,
         )
@@ -926,39 +925,58 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
         return {"content": [{"type": "text", "text": report}], "is_error": True}
 
     units = _build_reference_units_from_flat(flat_units, project, episode=episode, max_refs=split_caps.max_refs)
-    step1_path = _write_reference_step1(project_path, episode, units)
-    # 落盘成功后才清草稿：写盘失败时草稿还在，重试晋升即可，不会两头皆空。
-    clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+    # 写盘经单一出口（lib.script_review.write_step1_locked）：锁、基线比对、step2 隔离草稿清理
+    # 只存在那一处。基线指纹取自取回 / 隔离时记进 meta 的 base_fingerprint——正式文件在草稿
+    # 产出后被其他写入方（Web 端保存、另一次拆分）改过时晋升中止、返回冲突报告让 agent 合并，
+    # 不静默覆盖对方的修改。引入基线前产出的存量草稿缺该键，按无基线晋升。
+    expected = (
+        draft.meta["base_fingerprint"] if "base_fingerprint" in draft.meta else script_review.UNCHECKED_FINGERPRINT
+    )
+    try:
+        with script_review.step1_write_lock(project_path, episode) as step1_path:
+            script_review.write_step1_locked(project_path, episode, {"units": units}, expected_fingerprint=expected)
+            # 落盘成功后才清草稿：写盘失败（含冲突）时草稿还在，改完重试晋升即可，不会两头皆空。
+            # 清理与写盘同一临界区：并发的取回请求不会在两步之间看到「正式文件已是新内容、
+            # 草稿却还在场」的中间态。
+            clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+    except script_review.Step1WriteConflict as conflict:
+        return {
+            "content": [{"type": "text", "text": _render_step1_conflict_report(episode, draft, conflict)}],
+            "is_error": True,
+        }
     warning_lines = _reference_voice_warning_lines([f["text"] for f in flat_units], project, split_caps.raw)
     return {
         "content": [{"type": "text", "text": _reference_result_text(step1_path, units, warning_lines, action="晋升")}]
     }
 
 
-def _write_reference_step1(project_path: Path, episode: int, units: list[dict]) -> Path:
-    """把结构化 step1 原子写入正式文件（拆分与晋升共用的唯一写盘出口）。
+def _render_step1_conflict_report(
+    episode: int, draft: QuarantinedDraft, conflict: script_review.Step1WriteConflict
+) -> str:
+    """渲染晋升遇乐观并发冲突时回给 agent 的结构化报告：最新内容 + 合并指引。
 
-    与 ScriptGenerator._load_reference_step1 / ScriptReviewService 共享同一把 per-path 锁：
-    重新拆分的整份覆盖式重写与迁移、Web 端编辑相互串行化。agent 对已有拆分的修改也汇入这里
-    ——它经 ``open_reference_step1_for_edit`` 取回草稿、改完走晋升，写盘只发生在本函数，
-    沙箱内取不到锁的 Write/Edit 直改由 ``AgentAccessPolicy`` 拒绝。
-
-    step1 真的变了，在场的 step2 隔离草稿才作废：它的保结构 diff 以旧 step1 为基底，留着既
-    永远晋升不了（unit 数与台词都对不上新基底），又会让生成侧一直阻塞在这份没有出路的草稿
-    上。取回编辑后中途放弃、原样晋升（``units`` 与盘上原值逐字相同）时内容并未变化，此时
-    不清——agent 放弃 step1 修改不该连带销毁一份内容仍对得上基底的 step2 修复草稿。
+    报告要让编辑方能就地合并：附上盘上现值的扁平书写层（与草稿 ``content`` 同形，可逐 unit
+    对照），并指明确认合并后把 ``meta.base_fingerprint`` 更新为现值指纹——这一步是显式确认
+    「我已看过并合并了对方的修改」，之后重新晋升才会放行；不更新就重试只会拿到同一份报告。
     """
-    drafts_dir = episode_drafts_dir(project_path, episode)
-    drafts_dir.mkdir(parents=True, exist_ok=True)
-    step1_path = drafts_dir / REFERENCE_VIDEO_STEP1_FILENAME
-    pm = ProjectManager(str(project_path.parent))
-    with pm.file_lock(step1_path):
-        previous = load_json_or_none(step1_path)
-        changed = not (isinstance(previous, dict) and previous.get("units") == units)
-        atomic_write_json(step1_path, {"units": units})
-    if changed:
-        clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP2)
-    return step1_path
+    current_units = (conflict.current_content or {}).get("units")
+    if isinstance(current_units, list) and current_units:
+        latest = json.dumps({"units": _flatten_reference_step1_units(current_units)}, ensure_ascii=False, indent=2)
+        latest_block = f"当前正式 step1 的最新内容（扁平书写层，与草稿 content 同形）：\n{latest}"
+    else:
+        latest_block = "当前正式文件不存在或不是合法的 step1 JSON，无法附上最新内容；请自行读取该文件确认。"
+    # 指纹按 JSON 字面量给：正式文件已被删除时现值是 null，写成 "None" 会让 agent 把这串字符
+    # 当基线填回 meta，之后每次重晋升都比对不上、拿到同一份报告，冲突再也解不掉。
+    actual_literal = json.dumps(conflict.actual)
+    return (
+        "❌ 晋升中止（并发冲突）：正式 step1 在本草稿产出后已被其他写入方（如 Web 端保存）修改，"
+        "直接晋升会覆盖对方的修改，本次未写盘、草稿仍在场。\n"
+        f"草稿基线指纹: {json.dumps(conflict.expected)}；盘上现值指纹: {actual_literal}\n\n"
+        f"{latest_block}\n\n"
+        f"处置：对照上方最新内容与草稿 {draft.path} 的 content.units，把对方的修改合并进草稿；"
+        f"合并完成后把草稿 meta.base_fingerprint 更新为 {actual_literal}，"
+        f'再调用 {PROMOTE_TOOL_NAME}({{"episode": {episode}}}) 重新晋升。'
+    )
 
 
 def _flatten_reference_step1_units(units: list[Any]) -> list[dict[str, Any]]:
@@ -1032,9 +1050,9 @@ def open_reference_step1_for_edit_tool(ctx: ToolContext):
             project_path = ctx.project_path
             project_data = ctx.pm.load_project(ctx.project_name)
 
-            # 与晋升工具同一判据：切走参考路径后，盘上的 step1 与该集此刻的生成路径无关，
+            # 与晋升工具同一判据：分镜路线项目上盘存的 step1 与其生成路径无关，
             # 取回来编辑只会诱导 agent 改一份不会被消费的文件。
-            if not _is_reference_video_episode(project_data, episode):
+            if not _uses_reference_video_units(project_data):
                 return {
                     "content": [
                         {"type": "text", "text": f"❌ 第 {episode} 集当前不走参考生视频路径，无 step1 拆分可编辑"}
@@ -1052,13 +1070,11 @@ def open_reference_step1_for_edit_tool(ctx: ToolContext):
                 except ValueError as exc:
                     return {"content": [{"type": "text", "text": f"❌ {exc}"}], "is_error": True}
 
-            step1_path = episode_drafts_dir(project_path, episode) / REFERENCE_VIDEO_STEP1_FILENAME
-            pm = ProjectManager(str(project_path.parent))
             # 草稿有无的检查、正式文件的读取、草稿的写入须在同一把锁的临界区内完成：拆开在锁外
             # 各做一次的话，同一集的两个并发取回请求可能都先看到「无草稿」，再都各自写入草稿，
-            # 后写者悄悄覆盖前者的 content 与 meta.source。锁与 Web 端保存、迁移同一把，读也持锁
-            # 避免取回一份写到一半的 step1。
-            with pm.file_lock(step1_path):
+            # 后写者悄悄覆盖前者的 content 与 meta.source。写临界区与 Web 端保存、迁移同一把锁，
+            # 读也持锁避免取回一份写到一半的 step1。
+            with script_review.step1_write_lock(project_path, episode) as step1_path:
                 # 已有草稿在场时不覆盖：那份草稿要么是违约产物、要么是上一轮取回后 agent 已改了
                 # 一半，拿正式文件盖过去等于抹掉它手上的修改。两种情况的出路相同——继续改那份
                 # 草稿再晋升。
@@ -1108,8 +1124,13 @@ def open_reference_step1_for_edit_tool(ctx: ToolContext):
                     # 晋升时照常全量重判。
                     violations=[],
                     # source 键一律写出（未指定时为 null），与拆分侧同口径：晋升侧据此区分「本就按
-                    # 整个 source/ 判锚」与「meta 被改坏」。
-                    meta={"source": source or None},
+                    # 整个 source/ 判锚」与「meta 被改坏」。base_fingerprint 记下此刻正式文件的
+                    # 指纹（与本临界区读到的 data 同一份内容）：晋升前按它做基线比对，取回与晋升
+                    # 之间正式文件被 Web 端保存等并发写入改过时中止晋升、报冲突让 agent 合并。
+                    meta={
+                        "source": source or None,
+                        "base_fingerprint": script_review.content_fingerprint_of_data(data),
+                    },
                 )
             return {
                 "content": [
@@ -1242,25 +1263,35 @@ def split_reference_video_units_tool(ctx: ToolContext):
                 # 违约不丢弃、也不写正式文件：产物连同报告落隔离草稿，由 agent 修复后经
                 # 晋升工具重判。源文路径进 meta——重判时按整个 source/ 重解析会让原文锚的
                 # 子串判定比产出时更松，一份改写过的锚可能在别集原文里恰好命中。
-                report = quarantine_and_report(
-                    project_path,
-                    episode,
-                    QUARANTINE_KIND_STEP1,
-                    content={"units": flat_units},
-                    violations=violations,
-                    # source 键一律写出（未指定源文时为 null）：晋升侧据此区分「原本就按整个
-                    # source/ 产出」与「meta 被改坏」，缺键时不能默默退回更松的全目录解析。
-                    meta={"source": source or None},
-                )
+                # 基线读取与草稿写入在同一写临界区内完成：锁外各做一次的话，记下的基线可能
+                # 描述的是另一份并发写入前的内容。
+                with script_review.step1_write_lock(project_path, episode) as step1_path:
+                    report = quarantine_and_report(
+                        project_path,
+                        episode,
+                        QUARANTINE_KIND_STEP1,
+                        content={"units": flat_units},
+                        violations=violations,
+                        # source 键一律写出（未指定源文时为 null）：晋升侧据此区分「原本就按整个
+                        # source/ 产出」与「meta 被改坏」，缺键时不能默默退回更松的全目录解析。
+                        # base_fingerprint 记下此刻正式文件的指纹（不存在时为 null）：这份草稿
+                        # 修好晋升时若正式文件已被别的写入方改过，按基线比对中止并报冲突。
+                        meta={
+                            "source": source or None,
+                            "base_fingerprint": script_review.content_fingerprint(step1_path),
+                        },
+                    )
                 return {"content": [{"type": "text", "text": report}], "is_error": True}
 
             raw_units = _build_reference_units_from_flat(
                 flat_units, project, episode=episode, max_refs=split_caps.max_refs
             )
-            step1_path = _write_reference_step1(project_path, episode, raw_units)
-            # 重拆分成功即清掉上一轮的隔离草稿：正式文件已是这一份产物，旧草稿留着只会让
-            # gate 与生成侧继续阻塞在一份已被取代的违约产物上。
-            clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
+            # 重拆分是刻意的整份重建，无基线可比对；写盘经单一出口。上一轮隔离草稿的清除与
+            # 写盘同一临界区：正式文件已是这一份产物，旧草稿留着只会让 gate 与生成侧继续阻塞
+            # 在一份已被取代的违约产物上。
+            with script_review.step1_write_lock(project_path, episode) as step1_path:
+                script_review.write_step1_locked(project_path, episode, {"units": raw_units})
+                clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
             warning_lines = _reference_voice_warning_lines([f["text"] for f in flat_units], project, split_caps.raw)
             return {
                 "content": [
@@ -1299,9 +1330,9 @@ def validate_and_promote_reference_draft_tool(ctx: ToolContext):
             project_path = ctx.project_path
             project_data = ctx.pm.load_project(ctx.project_name)
 
-            # 切走参考路径后残留的草稿不再晋升：晋升会按参考路径的形状覆盖 scripts/episode_N.json，
-            # 而该集此刻走的是别的生成路径。与 generate_episode_script 忽略这些残留同一判据。
-            if not _is_reference_video_episode(project_data, episode):
+            # 分镜路线项目上残留的草稿不再晋升：晋升会按参考路径的形状覆盖 scripts/episode_N.json，
+            # 而该项目走的是分镜路径。与 generate_episode_script 忽略这些残留同一判据。
+            if not _uses_reference_video_units(project_data):
                 return {
                     "content": [
                         {

@@ -211,6 +211,12 @@ class VideoLaneResult:
     # 每请求可携带的参考音频段数上限。降级为 0 = 不绑定任何参考音频：绑定数超上限会被
     # gate_video_request 当场拒绝，能力不明时宁可退到 B 类软约束也不赌一个上限值。
     max_reference_audio_count: int = 0
+    # 本集的无声开关（用户意图口径：全局设置 ← project.json 覆盖），与 MediaGenerator 结算时读的
+    # video_generate_audio 同源，**不是** caps["generate_audio"] 那个叠加了恒含音出账与默认执行档
+    # 判定的计价参数。为 False 时编排层不组装参考音频（台词文本照发）。与其余能力字段不同口径：
+    # 它不依赖 provider 能力接口，独立解析（见 resolve_generation_context 内的调用），能力查询
+    # 失败不会连带把它冲回默认值——冲回会静默重新允许参考音频上传，违背用户已关闭的意图。
+    requested_generate_audio: bool = True
     # 音频是否须逐段挂在具体参考素材项上（如 wan2.7-r2v 的 reference_voice 字段）。为 True
     # 时渲染层派生的音频顺序（台词 speaker 首现顺序）不能假设与参考图顺序（mention 首现顺序）
     # 天然对齐，调用方须显式算出「谁的声音配哪张图」再随请求下发。能力查询失败降级为 False——
@@ -278,7 +284,6 @@ async def resolve_generation_context(
     *,
     project: dict,
     user_id: str = DEFAULT_USER_ID,
-    episode: int | None = None,
     image: ImageLaneRequest | None = None,
     video: VideoLaneRequest | None = None,
     audio: AudioLaneRequest | None = None,
@@ -289,9 +294,8 @@ async def resolve_generation_context(
     的解析或构造失败即原样上抛、整次调用失败——无部分结果、无跨 provider 兜底；仅能力
     查询失败降级空值放行。``project`` 是调用方已加载的项目快照，本函数不读盘。
 
-    ``episode`` 传本次任务所属集号时，video lane 的能力按该集生效 ``generation_mode`` 解析
-    （见 ``lib.config.resolver.caps_generation_mode``）：项目级模式被单集覆盖时，声音一致性
-    等二维派生值跟着该集走，而不是拿项目级口径去判定这一集。
+    video lane 的能力按项目生成路线解析（见 ``lib.config.resolver.caps_generation_mode``）：
+    路线创建即定、整个项目按同一条路径生成，声音一致性等二维派生值因此不需要集号。
     """
     from lib.db import async_session_factory
 
@@ -337,8 +341,11 @@ async def resolve_generation_context(
             voice_consistency: VoiceConsistency = "soft"
             max_reference_audio_count = 0
             reference_audio_per_image = False
+            # 独立于能力解析：这是用户在 project.json / 全局设置里的无声意图，不来自 provider
+            # 能力接口，能力解析失败不得连带把它冲回默认值 True（会静默重新允许参考音频上传）。
+            requested_generate_audio = await r.video_generate_audio_for_project(project)
             try:
-                caps = await r.video_capabilities_for_model(resolved.provider_id, actual_model, project, episode)
+                caps = await r.video_capabilities_for_model(resolved.provider_id, actual_model, project)
                 supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
                 max_duration = caps.get("max_duration")
                 max_reference_images = caps.get("max_reference_images")
@@ -362,6 +369,7 @@ async def resolve_generation_context(
                 max_duration=max_duration,
                 max_reference_images=max_reference_images,
                 voice_consistency=voice_consistency,
+                requested_generate_audio=requested_generate_audio,
                 max_reference_audio_count=max_reference_audio_count,
                 reference_audio_per_image=reference_audio_per_image,
             )

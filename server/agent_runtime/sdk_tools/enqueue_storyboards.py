@@ -16,7 +16,8 @@ from lib.generation_queue_client import (
     batch_enqueue_and_wait,
 )
 from lib.prompt_utils import image_prompt_to_yaml, is_structured_image_prompt, normalize_style
-from lib.script_models import get_generated_assets
+from lib.script_models import get_generated_assets, resolve_content_mode
+from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import (
     StoryboardTaskPlan,
     build_storyboard_dependency_plan,
@@ -160,6 +161,14 @@ def generate_storyboards_tool(ctx: ToolContext):
                 # JSON 损坏 / 权限错误等其他异常应该让外层 tool_error 暴露出来，
                 # 否则会用空 style 静默继续入队，丢掉了配置。
                 project_data = {}
+
+            if project_data:
+                # 失配剧本在此被拒：按分镜路线该读的数组不在剧本里，继续走下去
+                # 会落进"✨ 所有片段的分镜图都已生成"的假成功，把成因埋掉。project.json 缺失
+                # 时无路线可依，沿用上面的降级放行。
+                ensure_route_skeleton(
+                    script, resolve_content_mode(script, project_data), project_data.get("generation_mode")
+                )
 
             items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
             selected = _select_items(items, id_field, segment_ids)

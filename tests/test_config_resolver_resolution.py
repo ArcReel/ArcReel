@@ -239,6 +239,18 @@ def test_constrain_durations_by_reference_images():
 
 
 @pytest.mark.unit
+def test_constrain_durations_drops_vidu_r2v_ghost_tiers():
+    """Vidu 参考生视频端点时长下限为 3 秒：走参考图路径时 1s / 2s 幽灵档位被剔除。
+
+    不剔除的后果是用户在 r2v 项目选中 1s，提交后被 backend 静默取到 3 秒并按 3 秒计费。
+    """
+    full = list(range(1, 17))
+    assert constrain_durations("vidu", "viduq3-turbo", full, uses_reference_images=True) == list(range(3, 17))
+    # 非参考图路径（文/图生视频）不受影响，1s / 2s 在那里合法
+    assert constrain_durations("vidu", "viduq3-turbo", full, uses_reference_images=False) == full
+
+
+@pytest.mark.unit
 def test_constrain_durations_both_dimensions_intersect():
     """两条约束同时生效时取交集。"""
     assert constrain_durations(*_HAILUO, [6, 10], resolution="1080p", uses_reference_images=True) == [6]

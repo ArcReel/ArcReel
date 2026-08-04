@@ -109,10 +109,12 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(saveBtn);
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
-    const [, , savedContent] = save.mock.calls[0];
+    const [, , savedContent, baseFingerprint] = save.mock.calls[0];
     expect(savedContent).toMatchObject({
       scenes: [{ utterances: [{ text: "三年后。" }, { text: "你怎么才回来。" }] }],
     });
+    // 保存携带 GET 时拿到的内容指纹，供服务端做并发编辑冲突比对
+    expect(baseFingerprint).toBe("fp1");
   });
 
   it("renders narration novel_text as editable", async () => {
@@ -168,6 +170,34 @@ describe("ScriptReviewGate", () => {
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
     expect(screen.getByDisplayValue("我的本地编辑")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("服务端覆盖文案")).not.toBeInTheDocument();
+  });
+
+  it("saves with the fingerprint of the content the draft was based on, not the refreshed one", async () => {
+    const serverEdited = dramaState({ fingerprint: "fp2" });
+    (serverEdited.content as { scenes: { utterances: { text: string }[] }[] }).scenes[0].utterances[1].text =
+      "agent 改写的文案";
+    const get = vi
+      .spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(dramaState())
+      .mockResolvedValueOnce(serverEdited);
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(dramaState());
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByDisplayValue("你终于回来了。"), { target: { value: "我的本地编辑" } });
+    await screen.findByText("保存");
+
+    // agent 改了 step1 → 外部刷新把 state 换成新版，但用户草稿仍基于旧版
+    act(() => {
+      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+    });
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(screen.getByText("保存"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    // 提交草稿所基于的 fp1，服务端才能判出冲突；提交刷新后的 fp2 会让 OCC 放行、静默覆盖 agent 的修改
+    expect(save.mock.calls[0][3]).toBe("fp1");
   });
 
   it("shows an empty state when there is no step1 content", async () => {

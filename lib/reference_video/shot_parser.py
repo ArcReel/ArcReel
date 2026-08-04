@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Collection, Iterator
 from typing import Any
 
-from lib.asset_types import BUCKET_KEY
+from lib.asset_types import BUCKET_KEY, normalize_asset_bucket, normalize_asset_name
 from lib.script_models import ReferenceResource, Shot
 
 #: 镜头行 header：``镜头N：``（中英冒号均可）。时长已收编到 unit 级，header 不带秒数——
@@ -24,15 +25,23 @@ _SHOT_HEADER_RE = re.compile(r"""^镜头\s*\d+\s*[:：](.*)$""")
 _BOM = "﻿"
 
 
-def _strip_bom(text: str) -> str:
-    """去掉文本中全部 U+FEFF。
+def _normalize_source(text: str) -> str:
+    """书写层文本的入口归一：去掉全部 U+FEFF，并把编码形式收敛到 Unicode NFC。
 
-    不止文档开头：粘贴拼接会把 BOM 带到任意行首，而分叉是按行发生的。故归一落在三个
-    行级原语（``strip_shot_header`` / ``match_dialogue_line`` / ``match_voiceover_line``）
-    上——它们各自与前端同名函数互为镜像，单独调用时也须同判；``parse_prompt`` 另做一次
-    整体归一，让派生出的 shot 文本本身不带 BOM（它会进预览显示与后端渲染）。
+    两者同一性质——屏幕上看不见的字节差异，却让按字节走的判定分叉，故合并在一个入口处理。
+    BOM 不止出现在文档开头：粘贴拼接会把它带到任意行首，而分叉是按行发生的。NFC 则是
+    资产名比对的坐标系（见 :func:`lib.asset_types.normalize_asset_name`）：说话人位与
+    ``@[名称]`` 引用都要与资产表的 key 判等，正文以 NFD 落盘、资产表以 NFC 登记时两者
+    肉眼同字却判不相等。
+
+    归一落在四个行级原语（``strip_shot_header`` / ``match_dialogue_line`` /
+    ``match_voiceover_line`` / ``leading_mention_before_colon``）与 ``find_malformed_mention``
+    上——它们各自与前端同名函数互为镜像，单独调用时也须同判；``parse_prompt`` 另做一次整体
+    归一，让派生出的 shot 文本本身已归一（它会进预览显示、后端渲染与落盘）。据此，从解析器
+    出来的说话人名、mention 名与台词文本一律已是 NFC，下游比对只需归一资产表一侧。
     """
-    return text.replace(_BOM, "") if _BOM in text else text
+    stripped = text.replace(_BOM, "") if _BOM in text else text
+    return unicodedata.normalize("NFC", stripped)
 
 
 def _is_ascii_word_char(ch: str) -> bool:
@@ -97,9 +106,15 @@ def _iter_mentions(text: str) -> Iterator[tuple[int, int, str]]:
 
 
 def strip_shot_header(line: str) -> str:
-    """去掉行首的 ``镜头N：`` header，返回 header 之后的正文；无 header 时原样返回。"""
-    m = _SHOT_HEADER_RE.match(_strip_bom(line).strip())
-    return m.group(1).lstrip() if m else line
+    """去掉行首的 ``镜头N：`` header，返回 header 之后的正文；无 header 时返回归一后的整行。
+
+    两条分支都经 :func:`_normalize_source`：本函数是 ``_content_lines`` 逐行取正文的入口，
+    无 header 分支若原样返回，描述行就绕过了归一，行内 ``@[名称]`` 与资产表的比对又回到
+    两种坐标系。
+    """
+    normalized = _normalize_source(line)
+    m = _SHOT_HEADER_RE.match(normalized.strip())
+    return m.group(1).lstrip() if m else normalized
 
 
 def match_dialogue_line(line: str) -> tuple[str, str] | None:
@@ -112,7 +127,7 @@ def match_dialogue_line(line: str) -> tuple[str, str] | None:
     speaker 位全为空白（``@[ ]：{台词}``）不算规范行：``Utterance`` 要求 dialogue 带非空
     speaker，放行会让只读派生抛校验错；判为非规范后走既有「台词混写描述行」warning 路径。
     """
-    stripped = _strip_bom(line).strip()
+    stripped = _normalize_source(line).strip()
     if not stripped.startswith("@"):
         return None
     first = next(_iter_mentions(stripped), None)
@@ -137,7 +152,7 @@ def leading_mention_before_colon(line: str) -> str | None:
     是因为这一形态还要看名称是不是角色——场景 / 道具做小标题（``@[酒馆]：木门被风吹开``）
     是合法的画面描述写法，不能与漏花括号的台词混为一谈。
     """
-    stripped = _strip_bom(line).strip()
+    stripped = _normalize_source(line).strip()
     if not stripped.startswith("@"):
         return None
     first = next(_iter_mentions(stripped), None)
@@ -159,7 +174,7 @@ def find_malformed_mention(line: str) -> str | None:
     全角形（``＠[李明]`` / ``@［李明］``）一并算坏 token：中文输入法下模型很容易写出，而语法只认
     半角，静默放行的后果同样是那张参考图从视频请求里消失。
     """
-    text = _strip_bom(line)
+    text = _normalize_source(line)
     for index, char in enumerate(text):
         if char == "＠" or (char == "@" and text[index + 1 : index + 2] == "［"):
             return text[index : index + 20]
@@ -175,7 +190,7 @@ def find_malformed_mention(line: str) -> str | None:
 
 def match_voiceover_line(line: str) -> str | None:
     """裸 ``{台词}`` 行 = 画外音 → 台词正文；不匹配返回 ``None``。"""
-    return _unwrap_braces(_strip_bom(line))
+    return _unwrap_braces(_normalize_source(line))
 
 
 def _unwrap_braces(text: str) -> str | None:
@@ -206,7 +221,7 @@ def parse_prompt(text: str) -> tuple[list[Shot], list[str]]:
     时长不从文本解析：它是 unit 级字段，由 caller 从请求 / 剧本读取（见
     ``ReferenceVideoUnit.duration_seconds``）。
     """
-    text = _strip_bom(text)
+    text = _normalize_source(text)
     lines = text.splitlines()
     segments: list[str] = []
     started = False
@@ -269,7 +284,8 @@ def extract_mentions(text: str) -> list[str]:
     """
     seen: set[str] = set()
     result: list[str] = []
-    for line in text.splitlines():
+    for raw_line in text.splitlines():
+        line = _normalize_source(raw_line)
         if match_dialogue_line(strip_shot_header(line)) is not None:
             continue
         for _start, _end, name in _iter_mentions(line):
@@ -318,12 +334,18 @@ def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
     ``names`` 是资产表里已登记的名字——``<X>`` 是画面主体记号、不指向参考图编号，故不随
     能力上限裁剪收窄。不在其中的 mention 原样保留、从不删字（据此「拼接文本去空白后为空」
     等价于「渲染后为空」，空提示词校验可在入队侧无损完成）。
+
+    正文与 ``names`` 都归一到比对坐标系后再判成员：不归一时，NFD 落盘的 ``@[名称]`` 与 NFC
+    登记的同一个名字判不相等，该 mention 会被当成未登记而原样保留，``@[名称]`` 这个书写层
+    记号就直接漏进了供应商请求。
     """
+    normalized_names = {normalize_asset_name(name) for name in names}
+    text = _normalize_source(text)
     parts: list[str] = []
     last = 0
     for start, end, name in _iter_mentions(text):
         parts.append(text[last:start])
-        parts.append(f"<{name}>" if name in names else text[start:end])
+        parts.append(f"<{name}>" if name in normalized_names else text[start:end])
         last = end
 
     parts.append(text[last:])
@@ -381,17 +403,24 @@ def resolve_references(
 
     当同一名称同时存在于多个 bucket 时，优先级为 character → scene → prop。
 
+    名字与三张资产表都先归一到比对坐标系（:func:`lib.asset_types.normalize_asset_name`），
+    产出的 ``ReferenceResource.name`` 与 ``missing`` 因此一律是归一形式：下游拿它回查资产表、
+    与说话人判等、在正文里替换成主体记号 ``<X>``，三处都要与这里的判定同形，否则「这里判已
+    登记、下游查不到」。入参 ``names`` 通常已出自本模块的解析器（已归一），归一是幂等的补齐，
+    覆盖直接传外部名字的调用方。
+
     Returns:
         (refs, missing): refs 保持入参顺序；missing 是没在任何 bucket 找到的名字
     """
-    buckets: dict[str, dict] = {
-        "character": project.get(BUCKET_KEY["character"]) or {},
-        "scene": project.get(BUCKET_KEY["scene"]) or {},
-        "prop": project.get(BUCKET_KEY["prop"]) or {},
+    buckets: dict[str, dict[str, Any]] = {
+        "character": normalize_asset_bucket(project.get(BUCKET_KEY["character"])),
+        "scene": normalize_asset_bucket(project.get(BUCKET_KEY["scene"])),
+        "prop": normalize_asset_bucket(project.get(BUCKET_KEY["prop"])),
     }
     refs: list[ReferenceResource] = []
     missing: list[str] = []
-    for name in names:
+    for raw_name in names:
+        name = normalize_asset_name(raw_name)
         resolved = False
         for rtype, bucket in buckets.items():
             if name in bucket:

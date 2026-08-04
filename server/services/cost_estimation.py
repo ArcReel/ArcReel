@@ -21,11 +21,11 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
 from lib.grid.layout import calculate_grid_layout
 from lib.pricing.strategies import PricingParams
-from lib.project_manager import effective_mode
+from lib.project_manager import grid_storyboard_enabled, is_reference_video_project
 from lib.reference_video import assemble_shots_text
 from lib.reference_video.ad_units import derive_ad_reference_units, resolve_ad_unit_shots
 from lib.script_editor import ScriptEditError
-from lib.script_models import get_generated_assets, is_reference_script
+from lib.script_models import get_generated_assets
 from lib.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.services.reference_video_tasks import (
     ProjectDurationContext,
@@ -41,9 +41,9 @@ ActualBySegment = dict[str, dict[str, CostBreakdown]]
 ACTUAL_COST_TYPES = ("image", "video", "audio")
 
 
-#: 读侧定桶要枚举的全部视频能力桶。两个桶都预解析：同一项目里逐集的生效路径可以不同
-#: （集级 generation_mode 覆盖、或剧本自带 r2v 戳），而解析需要 resolver session，不能推迟到
-#: 已关闭 session 的估算循环里逐集去做。桶只有两个，代价有界。
+#: 读侧定桶要枚举的全部视频能力桶。项目生成路线（generation_mode）唯一决定生效桶、整个
+#: 项目逐集不变；两个桶仍都在这里预解析，省去按路线分支判断该解析哪个桶的复杂度——桶只有
+#: 两个，代价有界。
 _VIDEO_BUCKETS: tuple[VideoCapability, ...] = ("i2v", "r2v")
 
 
@@ -176,8 +176,8 @@ class CostEstimationService:
                 image_provider, image_model = "unknown", "unknown"
 
             # 视频按能力桶解析（``docs/adr/0054``），与执行扣费同一个模型：参考生视频路径算 r2v
-            # 桶的价、图生视频 / 宫格算 i2v 桶的价。逐集选桶，故两个桶都在这里解析出来（见
-            # ``_VIDEO_BUCKETS``），分辨率与 generate_audio 随各自的模型身份求值。
+            # 桶的价、图生视频 / 宫格算 i2v 桶的价，整个项目逐集同一个桶。两个桶仍都在这里解析
+            # 出来（见 ``_VIDEO_BUCKETS``），分辨率与 generate_audio 随各自的模型身份求值。
             video_identity: dict[VideoCapability, tuple[str, str, str | None, bool]] = {}
             for capability in _VIDEO_BUCKETS:
                 try:
@@ -235,11 +235,11 @@ class CostEstimationService:
                 bucket_audio,
             ) in video_identity.items()
         }
-        # 项目层展示的视频模型按项目自身 generation_mode 定桶：``models`` 回答的是「当前项目配置」，
-        # 不随某一集的覆盖而变；逐集算价另按该集的生效桶取（见循环内 ``episode_video``）。
+        # 项目层展示的视频模型按项目 generation_mode 定桶：``models`` 回答的是「当前项目配置」；
+        # 逐集算价由入队路径按同一条项目路线取到同一个桶（见循环内 ``episode_video``）。
         project_video = video_pricing[video_bucket_for_generation_mode(project_data.get("generation_mode"))]
 
-        generation_mode = project_data.get("generation_mode", "single")
+        grid_enabled = grid_storyboard_enabled(project_data)
         # 规范化 aspect_ratio：可能是 str 或 dict，复用生成任务的解析逻辑
         raw_ar = project_data.get("aspect_ratio")
         if isinstance(raw_ar, str):
@@ -264,7 +264,7 @@ class CostEstimationService:
         except Exception:
             logger.debug("无法计算 image 预估单价", exc_info=True)
 
-        if generation_mode == "grid":
+        if grid_enabled:
             try:
                 grid_image_unit_cost = cost_calculator.calculate_cost(
                     image_provider,
@@ -284,11 +284,7 @@ class CostEstimationService:
         content_mode = project_data.get("content_mode", "narration")
         # 惰性解析：只有项目里真出现按 unit 计费的参考视频集时才触发这次额外 IO
         # （见 :func:`server.services.reference_video_tasks.resolve_project_duration_context`）。
-        # 走 unit 路径的集按定义落 r2v 桶（入队的是参考视频任务），取档要与算价读同一个模型，
-        # 故按 reference_video 视图解析：项目层是 storyboard 时直接用 project_data 会拿 i2v 桶
-        # 模型的档位取整，再按 r2v 桶模型的单价算钱，估算与实际扣费对不上。
         duration_ctx: ProjectDurationContext | None = None
-        r2v_project_view = {**project_data, "generation_mode": "reference_video"}
 
         def _accumulate_episode(
             ep_meta: dict[str, Any],
@@ -309,40 +305,32 @@ class CostEstimationService:
                 proj_est[cost_type] = _merge_breakdowns(proj_est.get(cost_type, {}), ep_est.get(cost_type, {}))
                 proj_act[cost_type] = _merge_breakdowns(proj_act.get(cost_type, {}), ep_act.get(cost_type, {}))
 
+        # 参考生视频路径跳过分镜步骤，分镜图维度按路径显式跳过；视频估值按实际计费颗粒度
+        # （reference_unit，而非镜头）计算。两条子路径的展示颗粒度不同：ad 的 unit 只是
+        # 镜头分组索引，费用要摊回自带 ``shot_id`` 的成员镜头（``_estimate_ad_reference_video_episode``）；
+        # narration/drama 的 unit 自带 ``unit_id`` 且成员 shot 无独立 ID，unit 本身即展示
+        # 颗粒度（``_estimate_unit_reference_video_episode``）。
+        #
+        # 生成路径以项目路线为唯一真相源，整个项目同一条路线、逐集不变（剧本不携带路线信息），
+        # 估算与执行因此天然同轴。
+        is_reference_video = is_reference_video_project(project_data)
+
         for ep_meta in episodes_meta:
             script_file = ep_meta.get("script_file", "")
             script = scripts.get(script_file)
             if not script:
                 continue
 
-            # 参考生视频路径跳过分镜步骤，分镜图维度按路径显式跳过；视频估值按实际计费颗粒度
-            # （reference_unit，而非镜头）计算。两条子路径的展示颗粒度不同：ad 的 unit 只是
-            # 镜头分组索引，费用要摊回自带 ``shot_id`` 的成员镜头（``_estimate_ad_reference_video_episode``）；
-            # narration/drama 的 unit 自带 ``unit_id`` 且成员 shot 无独立 ID，unit 本身即展示
-            # 颗粒度（``_estimate_unit_reference_video_episode``）。
-            #
-            # ad 骨架唯一、shots 不打 generation_mode 戳，生成路径以项目级/集级戳为真相源，故
-            # 只按 ``effective_mode`` 判定；narration/drama 的生成侧只认剧本自身的 generation_mode
-            # 戳（``lib.script_models.is_reference_script``），从不
-            # 读 ``effective_mode``，估算须跟同一口径——项目/集事后经 PATCH 把 effective_mode 改回
-            # storyboard、但该集剧本仍保留切换前的 reference_video 戳时，实际入队仍按剧本戳走 unit
-            # 路径，估算若再叠加 ``effective_mode`` 门槛会误判回落分镜，与实际生成对不上。
-            is_reference_video = effective_mode(project=project_data, episode=ep_meta) == "reference_video"
             raw_units = script.get("video_units")
             video_units: list[Any] = raw_units if isinstance(raw_units, list) else []
-            if content_mode == "ad":
-                estimate_by_unit = is_reference_video
-            else:
-                estimate_by_unit = is_reference_script(script)
+            estimate_by_unit = is_reference_video
 
-            # 算价的桶跟着上面判出的生效路径走，不另按项目级 generation_mode 定：走 unit 路径的集
-            # 实际入队的是参考视频任务（r2v 桶），项目层仍是 storyboard 时按项目级定桶会拿 i2v 桶
-            # 模型的价目去算 r2v 的量。判定与算价共用同一个谓词，同一函数里就不留第二种口径。
+            # 算价的桶与判定同源：unit 路径入队的是参考视频任务（r2v 桶），分镜路径是 i2v 桶。
             episode_video = video_pricing["r2v" if estimate_by_unit else "i2v"]
 
             if estimate_by_unit:
                 if duration_ctx is None:
-                    duration_ctx = await resolve_project_duration_context(r2v_project_view)
+                    duration_ctx = await resolve_project_duration_context(project_data)
                 if content_mode == "ad":
                     segments_result, ep_est, ep_act = self._estimate_ad_reference_video_episode(
                         script=script,
@@ -373,7 +361,7 @@ class CostEstimationService:
 
             # Grid 模式：预计算每个 segment 的图片分摊费用
             grid_cost_per_segment: dict[str, tuple[float, str]] = {}
-            if generation_mode == "grid" and grid_image_unit_cost:
+            if grid_enabled and grid_image_unit_cost:
                 groups = group_scenes_by_segment_break(raw_segments, id_key)
                 for group in groups:
                     n = len(group)
@@ -416,7 +404,7 @@ class CostEstimationService:
                 est_video: CostBreakdown = {}
                 est_audio: CostBreakdown = {}
 
-                if generation_mode == "grid" and seg_id in grid_cost_per_segment:
+                if grid_enabled and seg_id in grid_cost_per_segment:
                     cost_amount, cost_currency = grid_cost_per_segment[seg_id]
                     _add_cost(est_image, cost_amount, cost_currency)
                 elif image_unit_cost:

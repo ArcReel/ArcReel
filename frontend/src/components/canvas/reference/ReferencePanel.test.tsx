@@ -57,6 +57,29 @@ describe("ReferencePanel", () => {
     expect(screen.getByText(/\[(图|IMG-)1\]/)).toBeInTheDocument();
   });
 
+  it("renders both chips when references contains the same asset in NFC and NFD form", () => {
+    // PATCH 接口只校验每条 reference 已登记，不校验数组内互相去重；同一资产的 NFC/NFD
+    // 两条等价记录可以同时留在同一个 unit.references 里。两条归一后是同一个 base drag id，
+    // 面板须仍能各自渲染、各自可移除，不能因 React key / dnd-kit sortable id 撞车而丢失一条。
+    const nameA = "Hiếu".normalize("NFC");
+    const nameB = "Hiếu".normalize("NFD");
+    expect(nameA).not.toBe(nameB);
+    const refs: ReferenceResource[] = [
+      { type: "character", name: nameA },
+      { type: "character", name: nameB },
+    ];
+    render(
+      <ReferencePanel
+        references={refs}
+        projectName="proj"
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onAdd={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByRole("button", { name: /Remove reference|移除引用/ })).toHaveLength(2);
+  });
+
   it("calls onRemove when the ✕ button is clicked", () => {
     const onRemove = vi.fn();
     render(
@@ -103,6 +126,27 @@ describe("ReferencePanel", () => {
     // Pick "主角" (from the stubbed PROJECT in this test file's beforeEach)
     fireEvent.click(screen.getByRole("option", { name: /主角/ }));
     expect(onAdd).toHaveBeenCalledWith({ type: "character", name: "主角" });
+  });
+
+  it("excludes a candidate from the picker when its bucket key and the existing reference name differ in NFC/NFD form", () => {
+    const nameNfc = "Hiếu".normalize("NFC");
+    const nameNfd = "Hiếu".normalize("NFD");
+    expect(nameNfc).not.toBe(nameNfd);
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: { ...PROJECT, characters: { [nameNfd]: { description: "" } } },
+    });
+    render(
+      <ReferencePanel
+        references={[{ type: "character", name: nameNfc }]}
+        projectName="proj"
+        onReorder={vi.fn()}
+        onRemove={vi.fn()}
+        onAdd={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Add reference|添加引用/ }));
+    expect(screen.queryByRole("option", { name: new RegExp(nameNfd) })).not.toBeInTheDocument();
   });
 });
 

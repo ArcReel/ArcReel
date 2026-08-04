@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from lib.asset_types import ASSET_SPECS, ASSET_TYPES
+from lib.asset_types import ASSET_SPECS, ASSET_TYPES, normalize_asset_name
 from lib.episode_ledger import (
     LEDGER_STATUSES,
     EpisodeOutline,
@@ -26,8 +26,8 @@ from lib.episode_ledger import (
 from lib.json_io import load_json_or_none
 from lib.path_safety import PathTraversalError, safe_join
 from lib.profile_manifest import VALID_CONTENT_MODES as _VALID_CONTENT_MODES
+from lib.project_manager import VALID_GENERATION_MODES as _VALID_GENERATION_MODES
 from lib.project_manager import VALID_SOURCE_KINDS as _VALID_SOURCE_KINDS
-from lib.project_manager import effective_mode
 from lib.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
     REFERENCE_SHOT_DURATION_RANGE,
@@ -35,7 +35,7 @@ from lib.script_models import (
     ad_script_total_duration,
     resolve_content_mode,
 )
-from lib.script_skeleton import resolve_declared_kind
+from lib.script_skeleton import SkeletonRouteMismatchError, ensure_route_skeleton, resolve_declared_kind
 from lib.speech_rate import estimate_spoken_seconds
 
 #: drama 场景说话量（台词 + 画外音）对场景时长的单向上界容差（比例）。语速估算
@@ -92,13 +92,15 @@ def _is_parseable_iso_timestamp(value: str) -> bool:
 class DataValidator:
     """数据验证器"""
 
-    # content_mode 严格只表达"内容类型"；"视频来源"维度由 generation_mode 字段
-    # 表达，通过 project_manager.effective_mode 解析。
+    # content_mode 严格只表达"内容类型"；"视频来源"维度由项目级 generation_mode 字段表达。
     # 合法集真相源在 lib.profile_manifest，避免两处枚举漂移。
     VALID_CONTENT_MODES = set(_VALID_CONTENT_MODES)
     # 源文件性质（novel / screenplay）合法集，真相源在 lib.project_manager（创建写入方），
     # 避免两处枚举漂移。缺省 novel：缺失字段不报错，仅拦截非法值（如 screen_play）。
     VALID_SOURCE_KINDS = set(_VALID_SOURCE_KINDS)
+    # 生成路线合法集（storyboard / reference_video），真相源在 lib.project_manager（创建写入方），
+    # 避免两处枚举漂移。必填：存量项目由 v4→v5 迁移补写显式值，缺失即非法。
+    VALID_GENERATION_MODES = set(_VALID_GENERATION_MODES)
     # ad 路径下单镜头时长区间，真相源在 lib.script_models（与 ad reference 路径的剧本模型
     # 同口径），避免两处枚举漂移。
     VALID_SHOT_DURATION_RANGE = REFERENCE_SHOT_DURATION_RANGE
@@ -303,6 +305,9 @@ class DataValidator:
         if project.get("default_duration") is not None:
             errors.append("广告/短片项目不持有 default_duration（镜头时长按 target_duration 预算逐镜头规划）")
 
+        if project.get("grid_storyboard") is True:
+            errors.append("广告/短片项目不支持宫格分镜（grid_storyboard）")
+
         episodes = project.get("episodes")
         if not isinstance(episodes, list) or (
             len(episodes) != 1 or not isinstance(episodes[0], dict) or episodes[0].get("episode") != 1
@@ -330,6 +335,17 @@ class DataValidator:
         source_kind = project.get("source_kind")
         if source_kind is not None and source_kind not in self.VALID_SOURCE_KINDS:
             errors.append(f"source_kind 值无效: '{source_kind}'，必须是 {self.VALID_SOURCE_KINDS}")
+
+        # 生成路线必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
+        generation_mode = project.get("generation_mode")
+        if not generation_mode:
+            errors.append("缺少必填字段: generation_mode")
+        elif not isinstance(generation_mode, str) or generation_mode not in self.VALID_GENERATION_MODES:
+            errors.append(f"generation_mode 值无效: '{generation_mode}'，必须是 {self.VALID_GENERATION_MODES}")
+
+        grid_storyboard = project.get("grid_storyboard")
+        if grid_storyboard is not None and not isinstance(grid_storyboard, bool):
+            errors.append("字段类型错误: grid_storyboard 应为布尔值")
 
         self._validate_ad_project_fields(project, content_mode, errors)
 
@@ -481,14 +497,26 @@ class DataValidator:
         *,
         field_label: str,
         kind_label: str,
+        normalize: bool = False,
     ) -> None:
+        """``normalize=True`` 时按 NFC 归一比对：ad + reference_video 的镜头参考集直接驱动
+        reference_video 的 unit 派生（见 ``lib.reference_video.ad_units``），project.json
+        资产 key 与镜头引用编码形式不一致时不能误判未登记。narration/drama 的 segments/scenes
+        校验路径、以及 ad 的 storyboard 生成路径均保持原始比对（``normalize`` 默认 False）——
+        storyboard 路径的图片收集（``server.services.generation_tasks._collect_sheet_references``）
+        仍按原始字符串查找，校验层先归一会让此处判「已登记」放行而收集层实际查不到，
+        生成时静默漏收对应 sheet。"""
         if refs is None:
             warnings.append(f"{prefix}: 缺少 {field_label}，将使用默认空数组")
             return
         if not isinstance(refs, list):
             errors.append(f"{prefix}: {field_label} 必须是数组")
             return
-        invalid = set(refs) - valid_set
+        if normalize:
+            normalized_valid = {normalize_asset_name(v) for v in valid_set}
+            invalid = [r for r in refs if not isinstance(r, str) or normalize_asset_name(r) not in normalized_valid]
+        else:
+            invalid = [r for r in refs if not isinstance(r, str) or r not in valid_set]
         if invalid:
             errors.append(f"{prefix}: {field_label} 引用了不存在于 project.json 的{kind_label}: {invalid}")
 
@@ -883,6 +911,13 @@ class DataValidator:
         镜头时长约束按生成路径动态切换：storyboard 路径的成员校验在生成 schema 层
         （supported_durations 枚举，校验器拿不到供应商能力、只把关正整数）；
         ``reference_mode=True`` 时按 1-15 自由整数区间校验（与参考视频 Shot 同口径）。
+
+        资产引用的归一比对按各自收集器的实际行为对齐：characters_in_shot/scenes/props
+        三个字段的 storyboard 收集器（``_collect_sheet_references``）始终原始比对，校验层
+        随 ``reference_mode`` 切换（见 ``_validate_segment_refs`` 文档）；products_in_shot
+        的收集器（``collect_product_references_for_names``）不区分生成路径、始终归一，
+        校验层因此始终 ``normalize=True``——否则 storyboard 路径下合法的 NFC/NFD 产品名
+        会被校验层拒绝，而收集层其实能正常解析。
         """
         if not isinstance(shots, list) or not shots:
             errors.append("ad 剧本缺少 shots 数组或为空")
@@ -929,6 +964,7 @@ class DataValidator:
                 warnings,
                 field_label="characters_in_shot",
                 kind_label="角色",
+                normalize=reference_mode,
             )
             self._validate_segment_refs(
                 prefix,
@@ -938,6 +974,7 @@ class DataValidator:
                 warnings,
                 field_label="scenes",
                 kind_label="场景",
+                normalize=reference_mode,
             )
             self._validate_segment_refs(
                 prefix,
@@ -947,6 +984,7 @@ class DataValidator:
                 warnings,
                 field_label="props",
                 kind_label="道具",
+                normalize=reference_mode,
             )
             self._validate_segment_refs(
                 prefix,
@@ -956,6 +994,7 @@ class DataValidator:
                 warnings,
                 field_label="products_in_shot",
                 kind_label="产品",
+                normalize=True,
             )
 
             if not shot.get("image_prompt"):
@@ -1028,10 +1067,13 @@ class DataValidator:
             errors.append("reference_video 脚本缺少 video_units 数组或为空")
             return
 
+        # 归一到 NFC 再建集合：project_characters/scenes/props 是落盘原始 key（可能 NFD），
+        # reference.name 已在别处归一到 NFC（见 lib.asset_types.normalize_asset_name），
+        # 裸比对会把已登记的资产误判成不在 bucket 中，产生假阳性 unregistered 报错。
         bucket_by_type = {
-            "character": project_characters,
-            "scene": project_scenes,
-            "prop": project_props,
+            "character": {normalize_asset_name(n) for n in project_characters},
+            "scene": {normalize_asset_name(n) for n in project_scenes},
+            "prop": {normalize_asset_name(n) for n in project_props},
         }
         seen_unit_ids: set[str] = set()
 
@@ -1085,7 +1127,7 @@ class DataValidator:
                     errors.append(f"{prefix}: reference.name 必须是非空字符串: {rname!r}")
                     continue
                 bucket = bucket_by_type.get(rtype, set())
-                if rname not in bucket:
+                if normalize_asset_name(rname) not in bucket:
                     errors.append(f"{prefix}: 引用的{rtype} '{rname}' 不在 project.json 对应 bucket 中")
 
             if project_dir is not None:
@@ -1116,6 +1158,10 @@ class DataValidator:
             errors.append("reference_units 必须是数组")
             return
 
+        # 归一到 NFC 再建集合，理由同 `_validate_reference_video_script`。
+        normalized_registered_names = {
+            rtype: {normalize_asset_name(n) for n in names} for rtype, names in registered_names.items()
+        }
         shot_ids = {s.get("shot_id") for s in shots if isinstance(s, dict)} if isinstance(shots, list) else set()
         seen_unit_ids: set[str] = set()
         for index, unit in enumerate(units):
@@ -1158,7 +1204,7 @@ class DataValidator:
                 if not rname or not isinstance(rname, str):
                     errors.append(f"{prefix}.references[{ri}]: name 必须是非空字符串: {rname!r}")
                     continue
-                if rname not in registered_names[rtype]:
+                if normalize_asset_name(rname) not in normalized_registered_names[rtype]:
                     warnings.append(f"{prefix}.references[{ri}]: 引用的{rtype}「{rname}」未注册，需重新派生分组")
 
             assets = unit.get("generated_assets")
@@ -1216,11 +1262,11 @@ class DataValidator:
         source_language = project.get("source_language")
         scene_language = source_language if isinstance(source_language, str) else None
 
-        # "视频来源"维度由 generation_mode 表达；骨架种类经规范解析统一判别，不再自建
-        # (content_mode, generation_mode) 轴交互的四路 if-elif。ad 剧本骨架唯一、不随生成
-        # 路径更换（见 docs/adr/0033），resolve_declared_kind 已内置该恒定映射。四个 validator
-        # 函数及各自签名（products / reference_mode / language）保留，校验行为不变。
-        gen_mode = effective_mode(project=project, episode=episode)
+        # "视频来源"维度是项目级事实（generation_mode），剧本不携带；骨架种类经规范解析统一
+        # 判别，不再自建 (content_mode, generation_mode) 轴交互的四路 if-elif。ad 剧本骨架唯一、
+        # 不随生成路径更换（见 docs/adr/0033），resolve_declared_kind 已内置该恒定映射。四个
+        # validator 函数及各自签名（products / reference_mode / language）保留，校验行为不变。
+        gen_mode = project.get("generation_mode")
         try:
             kind = resolve_declared_kind(content_mode, gen_mode)
         except ValueError:
@@ -1228,6 +1274,16 @@ class DataValidator:
             # 抛错，但 validator 的契约是把脏数据报告成结构化错误而非让异常传播出去。跳过依赖
             # 骨架种类的后续检查——没有合法 kind 就无从判断该读 segments/scenes/shots 中哪个。
             errors.append(f"content_mode 值无效: '{content_mode}'，必须是 {self.VALID_CONTENT_MODES}")
+            return
+        try:
+            # 闸门放行族内历史形态（narration 数据落 scenes 键）并返回剧本的实际骨架，后续按
+            # 该实际种类分派——用声明种类会让这类剧本按不存在的 segments 空读，数据一条都不校验。
+            kind = ensure_route_skeleton(episode, content_mode, gen_mode)
+        except SkeletonRouteMismatchError as exc:
+            # 失配剧本（骨架与项目路线跨族）：按路线该读的数组根本不在剧本里，
+            # 逐字段报"缺少 segments"会把成因埋掉——直接给结构结论与重拆指引，并跳过后续
+            # 按骨架的检查。同一闸门在生成入口拒绝生成，此处只是把同一事实报告出来。
+            errors.append(str(exc))
             return
         if kind == "video_units":
             self._validate_reference_video_script(

@@ -278,9 +278,11 @@ class NarrationEpisodeScript(BaseModel):
     由 `ScriptGenerator._add_metadata` 写入。不让 AI 生成该字段，避免幻觉写错集号
     进而污染 project.json（曾导致 episode_10.json 内部 episode=1 覆盖第 1 集条目）。
 
-    顶层**不**走 ``extra="forbid"``:``episode`` / ``metadata`` / ``generation_mode`` 等
-    字段由运行时注入(``_add_metadata`` / ``_write_script_unlocked``)而非 schema 内字段,
-    顶层 forbid 会让现有写盘流程崩。typo 防护靠子模型(VideoPrompt / ImagePrompt /
+    顶层**不**走 ``extra="forbid"``:``episode`` / ``metadata`` 等字段由运行时注入
+    (``_add_metadata`` / ``_write_script_unlocked``)而非 schema 内字段,顶层 forbid
+    会让现有写盘流程崩;``generation_mode`` 不在其列——路线的真相源是 project.json,剧本
+    不留戳,生成写盘前由 ``ScriptGenerator._add_metadata`` 剥离,存量在制品里的残留字段按
+    未知字段忽略。typo 防护靠子模型(VideoPrompt / ImagePrompt /
     NarrationSegment 等)的 ``extra="forbid"`` 在嵌套字段路径上挡。
     """
 
@@ -892,18 +894,15 @@ class ReferenceVideoScript(BaseModel):
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
     详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
 
-    ``content_mode`` 仅承担"内容类型"维度（narration/drama），"视频来源"维度由
-    ``generation_mode = "reference_video"`` 表达。两字段都对 LLM 隐藏，由
-    ``ScriptGenerator._add_metadata`` 按项目级配置注入。
+    ``content_mode`` 仅承担"内容类型"维度（narration/drama）；"视频来源"维度是项目级事实
+    （``project.json`` 的 ``generation_mode``），剧本不携带——路线创建时锁定，剧本骨架种类
+    本身即路线的体现。
     """
 
     title: str = Field(description="剧集标题")
-    # 对 LLM 隐藏：参考视频模式下这两个字段都由 _add_metadata 注入。
+    # 对 LLM 隐藏：由 _add_metadata 注入。
     content_mode: SkipJsonSchema[Literal["narration", "drama"]] = Field(
         default="narration", description="内容类型（narration/drama），参考视频模式实际不区分"
-    )
-    generation_mode: SkipJsonSchema[Literal["reference_video"]] = Field(
-        default="reference_video", description="生成模式，固定 reference_video"
     )
     # 见 NarrationEpisodeScript.duration_seconds 说明。
     duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
@@ -913,15 +912,6 @@ class ReferenceVideoScript(BaseModel):
     hook: SkipJsonSchema[str | None] = Field(default=None, description="集尾钩子（来自分集账本）")
     next_episode_teaser: SkipJsonSchema[str | None] = Field(default=None, description="下集预告语（来自分集账本）")
     video_units: list[ReferenceVideoUnit] = Field(description="视频单元列表")
-
-
-def is_reference_script(script: dict) -> bool:
-    """判定剧本自身的 ``generation_mode`` 戳是否为 ``reference_video``。
-
-    仅适用于 narration/drama：剧本自身携带 generation_mode 戳。ad 骨架不打此戳，
-    真相源是项目/集级配置（``effective_mode``），不适用本谓词。
-    """
-    return script.get("generation_mode") == "reference_video"
 
 
 def resolve_content_mode(script: dict[str, Any], project: dict[str, Any]) -> str:

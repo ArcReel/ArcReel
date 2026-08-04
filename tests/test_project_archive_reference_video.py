@@ -1,8 +1,9 @@
 """归档导入针对 reference_video 模式（video_units）的修复测试。
 
-覆盖 issue：_repair_script_payload 此前只按 content_mode 走 segments/scenes，
-未处理 generation_mode=reference_video 项目剧本里的 video_units，导致导出-导入往返时
-video_units[*].generated_assets 的路径规范化与版本回溯不触发。
+覆盖 _repair_script_payload 对 generation_mode=reference_video 项目剧本里
+video_units 的处理：确保导出-导入往返时 video_units[*].generated_assets
+的路径规范化与版本回溯正常触发（该函数按 content_mode 走 segments/scenes
+的分支不覆盖 video_units，须单独校验）。
 """
 
 import json
@@ -366,6 +367,38 @@ class TestProjectArchiveReferenceVideo:
         imported_project = pm.load_project(result.project_name)
         assert "幽灵" in imported_project["characters"]
         assert result.diagnostics["auto_fixed"]
+
+    @pytest.mark.integration
+    def test_import_resolves_nfc_reference_against_nfd_registered_character(self, tmp_path):
+        # references 已归一到 NFC（见 lib.asset_types.normalize_asset_name），登记侧的角色
+        # key 仍可能是落盘的 NFD 原形；自愈逻辑须把两者判等，而非把已登记角色误判缺失、
+        # 补出一份重复的占位定义。
+        import unicodedata
+
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        assert name_nfd != name_nfc
+
+        pm = ProjectManager(tmp_path / "projects")
+        unit = _build_unit(
+            video_clip="reference_videos/E1U1.mp4",
+            references=[{"type": "character", "name": name_nfc}],
+        )
+        project_dir = _create_reference_video_project(pm, unit=unit)
+        project = pm.load_project("refdemo")
+        project["characters"][name_nfd] = {"description": "x"}
+        pm.save_project("refdemo", project)
+
+        service = ProjectArchiveService(pm)
+        archive_path = tmp_path / "nfc-nfd.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="nfc-nfd.zip")
+
+        imported_project = pm.load_project(result.project_name)
+        assert imported_project["characters"].keys() == {name_nfd}
+        assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
 
     def test_import_blocks_missing_scene_reference(self, tmp_path):
         # 与 narration/drama 对齐：references 引用了缺失的场景 → 阻断导入

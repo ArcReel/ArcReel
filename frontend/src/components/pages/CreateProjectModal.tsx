@@ -151,7 +151,8 @@ export function CreateProjectModal() {
     contentMode: "narration",
     sourceKind: "novel",
     aspectRatio: "9:16",
-    generationMode: "storyboard",
+    generationRoute: null,
+    gridStoryboard: false,
     targetDuration: 60,
   });
 
@@ -255,14 +256,14 @@ export function CreateProjectModal() {
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef, true);
 
-  // 第二步选好时长与分辨率后还能退回第一步改生成模式。分辨率只由执行模型决定，模型没换就不动；
-  // 时长还受参考图路径影响——同一个模型走参考图时可选时长可能被收窄，故换模式一律重算。
+  // 第二步选好时长与分辨率后还能退回第一步改路线。分辨率只由执行模型决定，模型没换就不动；
+  // 时长还受参考图路径影响——同一个模型走参考图时可选时长可能被收窄，故换路线一律重算。
   const handleBasicsChange = (next: WizardStep1Value) => {
     setBasics(next);
-    if (next.generationMode === basics.generationMode) return;
+    if (next.generationRoute === basics.generationRoute) return;
     const globals = step2Data?.globalDefaults ?? { video: "", videoI2V: "", videoR2V: "" };
-    const usesReferenceImages = next.generationMode === "reference_video";
-    const before = executingVideoModel(models, globals, basics.generationMode === "reference_video");
+    const usesReferenceImages = next.generationRoute === "reference_video";
+    const before = executingVideoModel(models, globals, basics.generationRoute === "reference_video");
     const after = executingVideoModel(models, globals, usesReferenceImages);
     const modelChanged = before !== after;
     const nextDurations = catalogDurations(step2Data?.providers ?? [], step2Data?.customProviders ?? [], after, {
@@ -280,12 +281,14 @@ export function CreateProjectModal() {
   };
 
   const handleCreate = async () => {
+    // 路线必选（Step1 已拦一道）：缺失时后端返回 422，此处不构造无路线的创建请求
+    if (!basics.generationRoute) return;
     setCreating(true);
     try {
       // resolution 的 model_settings key 用执行模型：后端按执行模型查这张表，向导只暴露默认层，
       // 但全局细分层若指向别的模型，执行的就不是默认层那个——键位对不上分辨率会被静默忽略。
       const globals = step2Data?.globalDefaults ?? { video: "", videoI2V: "", videoR2V: "", image: "", imageT2I: "" };
-      const executingVideo = executingVideoModel(models, globals, basics.generationMode === "reference_video");
+      const executingVideo = executingVideoModel(models, globals, basics.generationRoute === "reference_video");
       const executingImage = executingImageModel(models, globals);
       const modelSettings: Record<string, { resolution: string }> = {};
       if (executingVideo && models.videoResolution) {
@@ -302,7 +305,8 @@ export function CreateProjectModal() {
         // source_kind 仅 drama 暴露与生效；其余模式由服务端缺省 novel
         ...(basics.contentMode === "drama" ? { source_kind: basics.sourceKind } : {}),
         aspect_ratio: basics.aspectRatio,
-        generation_mode: basics.generationMode,
+        generation_mode: basics.generationRoute,
+        grid_storyboard: basics.gridStoryboard,
         // ad 不暴露 default_duration（按目标总时长逐镜头规划），改传 target_duration
         ...(isAd
           ? { target_duration: basics.targetDuration }
@@ -442,7 +446,7 @@ export function CreateProjectModal() {
               data={step2Data}
               error={step2Error}
               hideDuration={basics.contentMode === "ad"}
-              usesReferenceImages={basics.generationMode === "reference_video"}
+              usesReferenceImages={basics.generationRoute === "reference_video"}
             />
           )}
           {step === 3 && (

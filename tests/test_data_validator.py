@@ -21,6 +21,7 @@ def _project_payload(content_mode: str = "narration") -> dict:
     return {
         "title": "Demo",
         "content_mode": content_mode,
+        "generation_mode": "storyboard",
         "style": "Anime",
         "characters": {
             "姜月茴": {"description": "女主"},
@@ -536,6 +537,7 @@ class TestDataValidator:
             {
                 "title": "Test",
                 "content_mode": "narration",
+                "generation_mode": "storyboard",
                 "style": "Anime",
                 "characters": {},
                 "scenes": {
@@ -640,6 +642,38 @@ class TestDataValidator:
         assert not result.valid
         assert any("不存在于 project.json 的场景" in error for error in result.errors)
         assert any("不存在于 project.json 的道具" in error for error in result.errors)
+
+    @pytest.mark.integration
+    def test_validate_episode_malformed_segment_ref_reports_error_not_typeerror(self, tmp_path):
+        """segments[*].scenes 混入 dict 等不可哈希元素时（``_validate_segment_refs`` 的比对分支），
+        须走校验失败分支而非因集合运算崩溃——episode JSON 来自外部文件，脏数据必须报错而不是
+        让 validate_episode 直接抛异常。"""
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload("narration"))
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 5,
+                        "novel_text": "text",
+                        "characters_in_segment": ["姜月茴"],
+                        "scenes": [{"malformed": True}],
+                        "props": [],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                    }
+                ],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        assert not result.valid
+        assert any("不存在于 project.json 的场景" in error for error in result.errors)
 
     def test_legacy_scene_type_field_does_not_block_export(self, tmp_path):
         """存量项目里残留 scene_type='对话'/'动作'/'过渡' 等任意值不该阻断导出。
@@ -891,6 +925,7 @@ def _ad_project_payload(**overrides) -> dict:
     payload = {
         "title": "速干杯带货",
         "content_mode": "ad",
+        "generation_mode": "storyboard",
         "style": "Realistic",
         "target_duration": 60,
         "brief": "突出 3 秒速干卖点",
@@ -979,6 +1014,67 @@ class TestAdProjectValidation:
             result = self._validate(tmp_path, _project_payload(mode))
             assert result.valid, result.errors
 
+    def test_ad_grid_storyboard_rejected(self, tmp_path):
+        result = self._validate(tmp_path, _ad_project_payload(grid_storyboard=True))
+        assert not result.valid
+        assert any("grid_storyboard" in e for e in result.errors)
+
+    def test_ad_grid_storyboard_false_passes(self, tmp_path):
+        result = self._validate(tmp_path, _ad_project_payload(grid_storyboard=False))
+        assert result.valid, result.errors
+
+
+class TestGenerationModeValidation:
+    """生成路线（generation_mode）必填二值与宫格开关（grid_storyboard）类型校验。"""
+
+    def _validate(self, tmp_path, payload: dict):
+        _write_json(tmp_path / "projects" / "demo" / "project.json", payload)
+        return DataValidator(projects_root=str(tmp_path / "projects")).validate_project("demo")
+
+    @pytest.mark.parametrize("mode", ["storyboard", "reference_video"])
+    def test_binary_route_values_pass(self, tmp_path, mode):
+        payload = _project_payload()
+        payload["generation_mode"] = mode
+        result = self._validate(tmp_path, payload)
+        assert result.valid, result.errors
+
+    def test_missing_generation_mode_rejected(self, tmp_path):
+        payload = _project_payload()
+        del payload["generation_mode"]
+        result = self._validate(tmp_path, payload)
+        assert not result.valid
+        assert any("缺少必填字段: generation_mode" in e for e in result.errors)
+
+    @pytest.mark.parametrize("mode", ["grid", "single", "bogus"])
+    def test_non_binary_route_rejected(self, tmp_path, mode):
+        payload = _project_payload()
+        payload["generation_mode"] = mode
+        result = self._validate(tmp_path, payload)
+        assert not result.valid
+        assert any("generation_mode 值无效" in e for e in result.errors)
+
+    @pytest.mark.parametrize("mode", [{"value": "storyboard"}, ["storyboard"], 5])
+    def test_non_scalar_route_reported_as_error(self, tmp_path, mode):
+        """非标量脏值报校验错误而非抛异常——归档导入据此返回 400 而不是 500。"""
+        payload = _project_payload()
+        payload["generation_mode"] = mode
+        result = self._validate(tmp_path, payload)
+        assert not result.valid
+        assert any("generation_mode 值无效" in e for e in result.errors)
+
+    def test_grid_storyboard_true_passes_on_storyboard_route(self, tmp_path):
+        payload = _project_payload()
+        payload["grid_storyboard"] = True
+        result = self._validate(tmp_path, payload)
+        assert result.valid, result.errors
+
+    def test_grid_storyboard_non_bool_rejected(self, tmp_path):
+        payload = _project_payload()
+        payload["grid_storyboard"] = "yes"
+        result = self._validate(tmp_path, payload)
+        assert not result.valid
+        assert any("grid_storyboard" in e for e in result.errors)
+
 
 class TestAdEpisodeValidation:
     """广告/短片剧本（平铺 shots[]）的结构与引用完整性校验。"""
@@ -1043,6 +1139,66 @@ class TestAdEpisodeValidation:
         result = self._validate(tmp_path, [self._ad_shot(products_in_shot=["不存在的产品"])])
         assert not result.valid
         assert any("products_in_shot" in e for e in result.errors)
+
+    @pytest.mark.integration
+    def test_shot_reference_accepts_nfc_nfd_mismatch_against_registered_asset(self, tmp_path):
+        """project.json 角色以 NFD 登记、镜头 characters_in_shot 引用同名的 NFC 形式：
+        generation_mode=reference_video 时必须按归一形式判「已登记」放行，否则 ad 的
+        reference_video unit 派生（lib.reference_video.ad_units 直接消费 characters_in_shot）
+        会被这层校验先行拒绝，用户永远走不到真实的参考解析阶段。归一比对只在
+        reference_mode 下开启（见 storyboard 路径保持原始比对的测试）。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+
+        project = _ad_project_payload(
+            generation_mode="reference_video", characters={name_nfd: {"description": "出镜模特"}}
+        )
+        result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[name_nfc])], project=project)
+        assert result.valid, result.errors
+
+    @pytest.mark.integration
+    def test_shot_malformed_reference_reports_error_not_typeerror(self, tmp_path):
+        """归一比对分支（reference_mode）下 characters_in_shot 混入不可哈希元素同样须报错而非崩溃。"""
+        project = _ad_project_payload(generation_mode="reference_video")
+        result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[{"malformed": True}])], project=project)
+        assert not result.valid
+        assert any("characters_in_shot" in e for e in result.errors)
+
+    @pytest.mark.integration
+    def test_shot_product_reference_accepts_nfc_nfd_mismatch_on_storyboard_path(self, tmp_path):
+        """products_in_shot 的归一比对不随 generation_mode 切换，始终与其收集器
+        （collect_product_references_for_names，无条件归一）同口径——即使在 storyboard
+        路径（默认 generation_mode）下，NFC/NFD 不一致的合法产品名也必须放行，否则
+        校验层会比实际生成时的收集层更严格，挡下收集层其实能解析的产品。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+
+        project = _ad_project_payload(products={name_nfd: {"description": "主推产品"}})
+        result = self._validate(tmp_path, [self._ad_shot(products_in_shot=[name_nfc])], project=project)
+        assert result.valid, result.errors
+
+    @pytest.mark.integration
+    def test_shot_reference_storyboard_path_keeps_raw_comparison(self, tmp_path):
+        """storyboard 路径（默认 generation_mode）保持原始字符串比对：该路径的图片收集
+        （server.services.generation_tasks._collect_sheet_references）仍按原始名称查找，
+        校验层若归一放行、收集层实际查不到，会生成时静默漏收对应 sheet——不能让校验层
+        比收集层更宽松。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+
+        project = _ad_project_payload(characters={name_nfd: {"description": "出镜模特"}})
+        result = self._validate(tmp_path, [self._ad_shot(characters_in_shot=[name_nfc])], project=project)
+        assert not result.valid
+        assert any("characters_in_shot" in e for e in result.errors)
 
     def test_missing_duration_warns_with_default(self, tmp_path):
         shot = self._ad_shot()
@@ -1259,6 +1415,31 @@ class TestAdReferenceUnitsValidation:
         assert result.valid, result.errors
         assert any("不存在" in w for w in result.warnings)
 
+    @pytest.mark.integration
+    def test_nfc_reference_accepted_for_nfd_registered_character(self, tmp_path):
+        import unicodedata
+
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        assert name_nfd != name_nfc
+
+        project_dir = tmp_path / "projects" / "demo"
+        payload = _ad_project_payload(generation_mode="reference_video")
+        payload["characters"] = {name_nfd: {"description": "主播"}}
+        _write_json(project_dir / "project.json", payload)
+        units = [{"unit_id": "E1U1", "shot_ids": ["E1S01"], "references": [{"type": "character", "name": name_nfc}]}]
+        script = {
+            "episode": 1,
+            "title": "速干杯带货",
+            "content_mode": "ad",
+            "shots": [self._ad_shot()],
+            "reference_units": units,
+        }
+        _write_json(project_dir / "scripts" / "episode_1.json", script)
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+        assert result.valid, result.errors
+        assert not any(name_nfc in w or name_nfd in w for w in result.warnings)
+
 
 class TestSourceKindValidation:
     """source_kind 顶层枚举校验：缺省 novel（缺失放行），仅拦非法值；并锁泛指 speaker 回归。"""
@@ -1389,6 +1570,81 @@ class TestSkeletonEntryTypeGuards:
         assert any(array_key in error and "数组" in error for error in result.errors), result.errors
 
 
+class TestRouteSkeletonMismatchValidation:
+    """存量失配剧本（集级路线覆盖时代的混排集）：报结构结论 + 重拆指引，不逐字段报缺失。"""
+
+    def test_unit_script_under_storyboard_route_is_rejected(self, tmp_path):
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload())
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {"episode": 1, "title": "第一集", "content_mode": "narration", "video_units": []},
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        assert not result.valid
+        assert any("骨架" in error and "重新拆分" in error for error in result.errors), result.errors
+        # 只报路线结论，不再叠一份"缺少 segments"之类的下游噪声。
+        assert len(result.errors) == 1, result.errors
+
+    def test_storyboard_script_under_reference_route_is_rejected(self, tmp_path):
+        payload = _project_payload()
+        payload["generation_mode"] = "reference_video"
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", payload)
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {"episode": 1, "title": "第一集", "content_mode": "narration", "segments": []},
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        assert not result.valid
+        assert any("split-reference-video-units" in error for error in result.errors), result.errors
+
+    def test_reference_route_script_with_residual_segments_is_not_a_mismatch(self, tmp_path):
+        """参考路线剧本残留分镜数组不算失配：video_units 在场即按 units 校验，导入不被阻断。"""
+        payload = _project_payload()
+        payload["generation_mode"] = "reference_video"
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", payload)
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "video_units": [],
+                "segments": [{"segment_id": "E1S1"}],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        assert not any("骨架" in error for error in result.errors), result.errors
+
+    def test_residual_route_stamp_is_ignored(self, tmp_path):
+        """存量剧本残留的 generation_mode 戳是未知字段：不参与判别，也不让校验失败。"""
+        project_dir = tmp_path / "projects" / "demo"
+        _write_json(project_dir / "project.json", _project_payload())
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "generation_mode": "reference_video",
+                "segments": [],
+            },
+        )
+
+        result = DataValidator(projects_root=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
+
+        # 仍按 segments 骨架校验（空数组另有其错），不因残留戳被判成失配。
+        assert not any("骨架" in error for error in result.errors), result.errors
+
+
 class TestInvalidContentModeEpisodeValidation:
     """content_mode 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud 抛 ValueError，
     但剧集级校验的契约是把脏数据报告成结构化错误，不让异常向外传播。"""
@@ -1503,12 +1759,30 @@ class TestDataValidatorSkeletonExhaustiveness:
             monkeypatch.setattr(DataValidator, name, lambda *a, _n=name, **k: called.append(_n))
 
         project = {"content_mode": content_mode, "products": {}}
-        episode = {"episode": 1, "title": "第一集", "content_mode": content_mode}
+        # 剧本不携带路线戳；骨架数组照 kind 摆出来，否则会先被路线闸门按失配拒掉。
+        episode = {"episode": 1, "title": "第一集", "content_mode": content_mode, kind: []}
         if gen_mode:
             project["generation_mode"] = gen_mode
-            episode["generation_mode"] = gen_mode
 
         validator = DataValidator(projects_root=str(tmp_path / "projects"))
         validator._validate_episode_payload(tmp_path, project, episode, [], [])
 
         assert _KIND_TO_VALIDATOR[kind] in called
+
+    @pytest.mark.integration
+    def test_narration_data_in_scenes_key_is_validated_as_scenes(self, tmp_path, monkeypatch):
+        """族内历史形态（narration 数据落 scenes 键）被闸门放行后，按剧本实际骨架校验。
+
+        按声明的 segments 分派会去读不存在的数组，scenes 里的数据一条都不受校验。
+        """
+        called: list[str] = []
+        for name in _KIND_TO_VALIDATOR.values():
+            monkeypatch.setattr(DataValidator, name, lambda *a, _n=name, **k: called.append(_n))
+
+        project = {"content_mode": "narration", "products": {}}
+        episode = {"episode": 1, "title": "第一集", "content_mode": "narration", "scenes": []}
+
+        validator = DataValidator(projects_root=str(tmp_path / "projects"))
+        validator._validate_episode_payload(tmp_path, project, episode, [], [])
+
+        assert called == ["_validate_scenes"]

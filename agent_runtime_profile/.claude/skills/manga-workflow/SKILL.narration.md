@@ -14,7 +14,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 - 每次 dispatch 只传**文件路径和关键参数**，不传大块内容
 - 每个 subagent 完成一个聚焦任务就返回，主 agent 负责阶段间衔接
 
-> 三种生成模式（图生视频 / 宫格生视频 / 参考生视频）的数据路径与阶段分支详见 `.claude/references/generation-modes.md`。
+> 两种生成模式（图生视频 storyboard，含 grid_storyboard 宫格开关 / 参考生视频 reference_video）的数据路径与阶段分支详见 `.claude/references/generation-modes.md`。
 
 ---
 
@@ -24,11 +24,10 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 ### 新项目
 
-1. 提示用户在 Web 端先创建项目，**创建时指定 content_mode**（narration / drama）；session 启动后 cwd 已绑定到对应项目根
+1. 提示用户在 Web 端先创建项目，**创建时指定 content_mode（narration / drama）与 generation_mode（storyboard / reference_video）**；两者创建后均不可变更，agent 无对应写入权限。session 启动后 cwd 已绑定到对应项目根
 2. 使用 Read 工具读取 `project.json`，确认 `title`、`content_mode`、`generation_mode` 字段（本 session 当前 content_mode 为 `narration`，创建后不可变更）
-3. 若 `generation_mode` 未在创建时指定，AskUserQuestion 询问后由用户在 Web 端补齐（或由 mcp__arcreel__ 配置工具写入）
-4. 请用户将小说文本放入 `source/`
-5. **上传后自动生成项目概述**（synopsis、genre、theme、world_setting）
+3. 请用户将小说文本放入 `source/`
+4. **上传后自动生成项目概述**（synopsis、genre、theme、world_setting）
 
 > 标准项目子目录由 `create_project()` 自动建好：`source/`、`scripts/`、`drafts/`、`characters/`、`scenes/`、`props/`、`storyboards/`、`grids/`、`videos/`、`reference_videos/`、`thumbnails/`、`output/`。
 
@@ -46,17 +45,17 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 1. characters / scenes / props 中**任一**为空（定义缺失）？ → **阶段 1**
 2. 目标集在账本（project.json `episodes[]`）中没有条目？ → **阶段 2**。分集接续状态**只读账本**：条目的 `ledger_status` 标记每集状态（planned 已规划 / consumed 已消费 / stale 已有下游产物待重做），顶层 `planning_cursor` 标记下一批规划起点；**不要用 Glob 文件名推断集数**（`source/episode_{N}.txt` 只是账本的派生物）
-3. 目标集 `ledger_status` 为 `stale`（该集号重新规划前已有下游产物——旧 step1/剧本/媒体一律视为失效，即使文件还在也从本阶段起重做，产物沿版本机制替换），或目标集**当前组合对应的** step1 中间文件不存在？ → **阶段 3**。按 `effective_mode(project, episode)` × `content_mode` 三分支检查对应文件（注意 effective_mode 含集级 `episodes[i].generation_mode` 覆盖，不能只看项目顶层字段）：
-   - effective_mode == reference_video（任一 content_mode）: `drafts/episode_{N}/step1_reference_units.json`
-   - effective_mode ∈ {storyboard, grid} 且 content_mode == narration: `drafts/episode_{N}/step1_segments.json`
-   - effective_mode ∈ {storyboard, grid} 且 content_mode == drama: `drafts/episode_{N}/step1_normalized_script.json`（结构化内容）
+3. 目标集 `ledger_status` 为 `stale`（该集号重新规划前已有下游产物——旧 step1/剧本/媒体一律视为失效，即使文件还在也从本阶段起重做，产物沿版本机制替换），或目标集**当前组合对应的** step1 中间文件不存在？ → **阶段 3**。按项目 `generation_mode` × `content_mode` 检查对应文件（generation_mode 由项目唯一决定，创建后不可变，不存在集级覆盖）：
+   - generation_mode == reference_video（任一 content_mode）: `drafts/episode_{N}/step1_reference_units.json`
+   - generation_mode == storyboard 且 content_mode == narration: `drafts/episode_{N}/step1_segments.json`
+   - generation_mode == storyboard 且 content_mode == drama: `drafts/episode_{N}/step1_normalized_script.json`（结构化内容）
 
-   本项目 content_mode 固定为 narration（创建后不可变），故只会命中第 1 或第 2 分支，取决于该集的 effective_mode。只认当前组合对应的那一个文件：目录中出现**其他模式的 `step1_*` 文件**属残留，不作为阶段 3 已完成的依据。
+   本项目 content_mode 固定为 narration（创建后不可变），故只会命中第 1 或第 2 分支，取决于项目的 generation_mode。只认当前组合对应的那一个文件：目录中出现**其他模式的 `step1_*` 文件**属残留，不作为阶段 3 已完成的依据。
 4. scripts/episode_{N}.json 不存在？ → **阶段 4**（另见阶段 4 触发条件：本次会话中阶段 3 中间文件被修改/重拆时，即使 JSON 存在也须重生）
 5. 任一类资产仍有缺 sheet 项（character 缺 character_sheet / scene 缺 scene_sheet / prop 缺 prop_sheet）？ → **阶段 5**（三类并行）
-6. **storyboard / grid 模式**：有场景缺少分镜图？ → **阶段 6**（reference_video 模式跳过）
-7. 有场景/unit 缺少视频？ → **阶段 7**
-8. **storyboard / grid 模式**：有段缺 `narration_audio`？ → **阶段 8（旁白配音）**（reference_video 模式无 segments，跳过）
+6. **storyboard 模式**（含 grid_storyboard）：有片段缺少分镜图？ → **阶段 6**（reference_video 模式跳过）
+7. 有片段/unit 缺少视频？ → **阶段 7**
+8. **storyboard 模式**（含 grid_storyboard）：有段缺 `narration_audio`？ → **阶段 8（旁白配音）**（reference_video 模式无 segments，跳过）
 9. 全部完成 → 工作流结束，引导用户在 Web 端导出剪映草稿
 
 > 阶段 8 只依赖剧本各段的 `novel_text`，独立于分镜图/视频——阶段 4 剧本生成后即可推进。
@@ -119,15 +118,15 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 
 **触发**：目标集的 drafts/ 中间文件不存在
 
-根据 `effective_mode(project, episode)` 选择 subagent：
+根据项目 `generation_mode` 选择 subagent：
 
-- `effective_mode == reference_video` → dispatch `split-reference-video-units`（产出 `drafts/episode_{N}/step1_reference_units.json`）
+- `generation_mode == reference_video` → dispatch `split-reference-video-units`（产出 `drafts/episode_{N}/step1_reference_units.json`）
 - 否则（本项目 content_mode == narration）→ dispatch `split-narration-segments`（产出 `drafts/episode_{N}/step1_segments.json`）
 
 dispatch prompt 通用参数：项目名称、项目路径、集数、本集小说文件路径。
 
 （两个预处理 subagent 会自行读 project.json + 调用
-`mcp__arcreel__get_video_capabilities({"episode": N})`
+`mcp__arcreel__get_video_capabilities({})`
 拿到模型能力与用户偏好；主 agent 不需要预先注入角色/场景/道具列表或
 `supported_durations` / `max_duration` / `max_reference_images` / `default_duration` 等数据。）
 
@@ -141,7 +140,7 @@ dispatch prompt 通用参数：项目名称、项目路径、集数、本集小�
 - `scripts/episode_{N}.json` 不存在
 - 阶段 3 的中间文件在本次会话中被修改或重拆（此时即使 JSON 已存在也必须重生）
 
-**step1→step2 审核 gate（阻塞）**：阶段 3 的结构化 step1 中间态须经**显式确认**才放行本阶段（仅结构化 step1 适用；`reference_video` 路径的 step1 是自由文本 md、不走本 gate，无需确认、也不要对其调用 `confirm_script_review`）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。未确认（或确认后 step1 又被改）时 `generate_episode_script` 会被 gate 拒绝；**存量项目**（升级前已生成过本集剧本）已 grandfather 放行、无需再确认。
+**step1→step2 审核 gate（阻塞）**：阶段 3 的结构化 step1 中间态须经**显式确认**才放行本阶段（三种结构化 step1 变体——drama / narration / reference_video——一律适用；`reference_video` 的 `step1_reference_units.json` 同样须确认，不要跳过。ad 无 step1，不纳入 gate）。两条等价确认路径——用户在 Web 端审阅 / 编辑后确认，或在对话中明确同意进入视觉生成后由你调用 `mcp__arcreel__confirm_script_review({"episode": N})`（全自主模式下按用户总体授权确认）。未确认（或确认后 step1 又被改）时 `generate_episode_script` 会被 gate 拒绝；**存量项目**（升级前已生成过本集剧本）已 grandfather 放行、无需再确认。
 
 **dispatch `create-episode-script` subagent**：传入项目名称、项目路径、集数。
 
@@ -213,17 +212,19 @@ dispatch `generate-assets` subagent：
 
 ---
 
-## 阶段 6：分镜图生成（仅 storyboard / grid 模式）
+## 阶段 6：分镜图生成（仅 storyboard 模式，含 grid_storyboard）
 
-**触发**：有场景缺少分镜图；**参考生视频模式跳过此阶段**
+**触发**：有片段缺少分镜图；**参考生视频模式跳过此阶段**
 
-检查 `effective_mode(project, episode)`：
+检查项目 `generation_mode` 与 `grid_storyboard`：
 
-- `"storyboard"` → dispatch `generate-assets`，调 `mcp__arcreel__generate_storyboards`
-- `"grid"` → dispatch `generate-assets`，调 `mcp__arcreel__generate_grid`
-- `"reference_video"` → 不触发，直接跳到阶段 7
+- `generation_mode == "storyboard"` 且 `grid_storyboard` 为 false → dispatch `generate-assets`，调 `mcp__arcreel__generate_storyboards`
+- `generation_mode == "storyboard"` 且 `grid_storyboard` 为 true → dispatch `generate-assets`，调 `mcp__arcreel__generate_grid`
+- `generation_mode == "reference_video"` → 不触发，直接跳到阶段 7
 
-### storyboard 模式（默认）
+> **切换 `grid_storyboard` 后的重做**：本阶段的常规触发条件是「缺分镜图」，而用户在设置页切换该开关不会让已有分镜图失效，剧本里也不记录分镜图由哪种装配方式产出——单看缺图会把整集判成已完成。用户在已有分镜图的项目上切换开关后要求按新方式出图时，与其确认要重做的片段范围，再显式带 ID 重生：切到宫格用 `mcp__arcreel__generate_grid({"script": "episode_{N}.json", "scene_ids": [...]})`，切回单图用 `mcp__arcreel__generate_storyboards({"script": "episode_{N}.json", "segment_ids": [...]})`（`script` 必填；ID 列表省略时只补缺图，达不到重做效果）。已生成的视频同样不会自动失效，重出分镜图后需按新图重跑阶段 7 对应片段。
+
+### storyboard 模式（grid_storyboard=false）
 
 **dispatch `generate-assets` subagent**：
 
@@ -236,7 +237,7 @@ dispatch `generate-assets` subagent：
   验证方式：重新读取 scripts/episode_{N}.json，检查各场景的 storyboard_image 字段
 ```
 
-### grid 模式
+### storyboard 模式，grid_storyboard=true
 
 **dispatch `generate-assets` subagent**：
 
@@ -268,7 +269,7 @@ dispatch `generate-assets` subagent：
 
 ---
 
-## 阶段 8：旁白配音（仅 storyboard / grid 模式）
+## 阶段 8：旁白配音（仅 storyboard 模式，含 grid_storyboard）
 
 **触发**：有段缺 `narration_audio`；**参考生视频模式跳过此阶段**（无 segments）
 

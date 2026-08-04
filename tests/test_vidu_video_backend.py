@@ -7,8 +7,10 @@ from unittest.mock import patch
 
 import pytest
 
+from lib.config.registry import PROVIDER_REGISTRY
 from lib.providers import PROVIDER_VIDU
 from lib.video_backends.base import (
+    VideoCapabilityError,
     VideoGenerationRequest,
 )
 from lib.video_backends.vidu import (
@@ -266,11 +268,83 @@ class TestBuildRequest:
             backend._build_request(req)
 
 
+@pytest.mark.unit
+class TestPromptLength:
+    """prompt 超限一律拒绝，不再客户端静默截断。"""
+
+    @pytest.mark.unit
+    def test_reference_only_model_declares_narrow_limit(self):
+        """viduq3 只跑 /reference2video，静态声明取该端点的窄值。"""
+        assert ViduVideoBackend.video_capabilities_for_model("viduq3").max_prompt_chars == 2000
+
+    @pytest.mark.unit
+    def test_multi_endpoint_model_declares_wide_limit(self):
+        """viduq3-turbo 还能跑 t2v/i2v，静态声明取宽值——否则会误拒其合法的长 prompt。"""
+        assert ViduVideoBackend.video_capabilities_for_model("viduq3-turbo").max_prompt_chars == 5000
+
+    @pytest.mark.unit
+    def test_unknown_model_declares_wide_limit(self):
+        """未登记 model（中转自定义命名）取宽值：能力不明时误拒是更糟的降级。"""
+        assert ViduVideoBackend.video_capabilities_for_model("proxy-x").max_prompt_chars == 5000
+
+    @pytest.mark.unit
+    def test_reference2video_over_limit_raises(self, output_path: Path):
+        backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
+        req = VideoGenerationRequest(
+            prompt="字" * 2001,
+            output_path=output_path,
+            duration_seconds=8,
+            reference_images=[Path("a.png")],
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            backend._build_request(req)
+
+        assert exc.value.code == "video_prompt_too_long"
+        assert exc.value.params == {
+            "provider": PROVIDER_VIDU,
+            "model": "viduq3-turbo",
+            "limit": 2000,
+            "count": 2001,
+        }
+
+    @patch("lib.video_backends.vidu.image_to_data_uri", return_value="data:image/png;base64,XX")
+    @pytest.mark.unit
+    def test_reference2video_at_limit_passes_untruncated(self, _mock_data_uri, output_path: Path):
+        backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
+        prompt = "字" * 2000
+        req = VideoGenerationRequest(
+            prompt=prompt,
+            output_path=output_path,
+            duration_seconds=8,
+            reference_images=[Path("a.png")],
+        )
+        _endpoint, body = backend._build_request(req)
+
+        assert body["prompt"] == prompt
+
+    @pytest.mark.unit
+    def test_text2video_allows_longer_than_reference_limit(self, output_path: Path):
+        """端点上限按端点各算：t2v 的 5000 不受 /reference2video 的 2000 牵连。"""
+        backend = ViduVideoBackend(api_key="k", model="viduq3-turbo")
+        req = VideoGenerationRequest(prompt="字" * 3000, output_path=output_path, duration_seconds=8)
+        _endpoint, body = backend._build_request(req)
+
+        assert len(body["prompt"]) == 3000
+
+
 class TestDurationRulesSpec:
     """直接钉死 _DURATION_RULES 关键条目，避免误改。"""
 
     def test_q1_text2video_only_5(self):
         assert _DURATION_RULES[("viduq1", "/text2video")] == [5]
+
+    @pytest.mark.unit
+    def test_q2_img2video_up_to_10(self):
+        """/img2video 官方为 1–10；1–8 是 /start-end2video 的值，两端点不同。"""
+        assert _DURATION_RULES[("viduq2-pro", "/img2video")] == list(range(1, 11))
+        assert _DURATION_RULES[("viduq2-turbo", "/img2video")] == list(range(1, 11))
+        assert _DURATION_RULES[("viduq2-pro-fast", "/img2video")] == list(range(1, 11))
+        assert _DURATION_RULES[("viduq2-pro", "/start-end2video")] == list(range(1, 9))
 
     def test_vidu2_0_img2video_only_4_8(self):
         assert _DURATION_RULES[("vidu2.0", "/img2video")] == [4, 8]
@@ -280,6 +354,33 @@ class TestDurationRulesSpec:
 
     def test_q3_turbo_text2video_full_range(self):
         assert _DURATION_RULES[("viduq3-turbo", "/text2video")] == list(range(1, 17))
+
+
+class TestRegistryBackendConsistency:
+    """registry 的 vidu2.0 声明与 backend 执行期白名单须无分歧（两侧同一份官方文档核实）。"""
+
+    def _vidu2_model_info(self):
+        return PROVIDER_REGISTRY["vidu"].models["vidu2.0"]
+
+    def test_reference_image_durations_matches_reference2video_rule(self):
+        model_info = self._vidu2_model_info()
+        assert model_info.reference_image_durations == _DURATION_RULES[("vidu2.0", "/reference2video")]
+
+    def test_supported_durations_covers_img2video_and_start_end2video(self):
+        model_info = self._vidu2_model_info()
+        expected_durations = set(_DURATION_RULES[("vidu2.0", "/img2video")]) | set(
+            _DURATION_RULES[("vidu2.0", "/start-end2video")]
+        )
+        assert set(model_info.supported_durations) == expected_durations
+
+    def test_duration_resolution_constraints_confines_non_720p_to_4s(self):
+        """8 秒档只出 720p——360p / 1080p 须声明仅 4 秒可选，UI 才不会给出无效的时长×分辨率组合。"""
+        model_info = self._vidu2_model_info()
+        assert model_info.duration_resolution_constraints == {"360p": [4], "1080p": [4]}
+
+    def test_resolutions_matches_backend_whitelist(self):
+        model_info = self._vidu2_model_info()
+        assert set(model_info.resolutions) == set(_RESOLUTION_WHITELIST["vidu2.0"])
 
 
 class TestCreateTask413:

@@ -16,13 +16,13 @@ from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from lib.api_errors import ApiError, NotFoundError
-from lib.asset_types import BUCKET_KEY
+from lib.asset_types import BUCKET_KEY, normalize_asset_bucket, normalize_asset_name
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
-from lib.project_manager import EpisodeScriptReboundError, effective_mode, get_project_manager
+from lib.project_manager import EpisodeScriptReboundError, get_project_manager, is_reference_video_project
 from lib.reference_video import assemble_shots_text, parse_prompt
 from lib.reference_video.ad_units import (
     render_ad_unit_prompt,
@@ -98,7 +98,7 @@ def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tup
         script = get_project_manager().load_script(project_name, script_file)
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=script_file) from exc
-    if effective_mode(project=project, episode=meta) != "reference_video":
+    if not is_reference_video_project(project):
         raise HTTPException(status_code=409, detail=_t("ref_not_reference_video_mode"))
     return project, script, script_file
 
@@ -128,7 +128,7 @@ def _episode_script_resolver(
         meta = next((e for e in episodes if e.get("episode") == episode), None)
         if meta is None or not meta.get("script_file"):
             raise HTTPException(status_code=404, detail=_t("ref_episode_not_found", episode=episode))
-        if effective_mode(project=project, episode=meta) != "reference_video":
+        if not is_reference_video_project(project):
             raise HTTPException(status_code=409, detail=_t("ref_not_reference_video_mode"))
         if refs is not None:
             _validate_references_exist(project, refs, _t)
@@ -181,8 +181,8 @@ def _validate_references_exist(project: dict, refs: list[dict], _t: Translator) 
     """确保 references 都在 project.json 对应 bucket 中。"""
     missing: list[str] = []
     for r in refs:
-        bucket = project.get(BUCKET_KEY.get(r["type"], "")) or {}
-        if r["name"] not in bucket:
+        bucket = normalize_asset_bucket(project.get(BUCKET_KEY.get(r["type"], "")))
+        if normalize_asset_name(r["name"]) not in bucket:
             missing.append(f"{r['type']}:{r['name']}")
     if missing:
         raise HTTPException(status_code=400, detail=_t("ref_not_registered", missing=", ".join(missing)))
@@ -252,7 +252,7 @@ async def derive_units(
     project, _script, _sf = _load_episode_script(project_name, episode, _t)
     _require_ad_project(project, True, _t)
     # 供应商时长上限在锁外解析（异步 I/O 不进项目锁临界区）
-    max_unit_duration = await resolve_max_unit_duration(project, episode)
+    max_unit_duration = await resolve_max_unit_duration(project)
 
     with _locked_episode_script(project_name, _episode_script_resolver(episode, _t, require_ad=True), _t) as script:
         units = sync_ad_reference_units(script, episode=episode, max_unit_duration=max_unit_duration)
@@ -273,7 +273,7 @@ async def add_unit(
     if duration_seconds is None:
         project, _script, _sf = _load_episode_script(project_name, episode, _t)
         duration_seconds = default_unit_duration(
-            await resolve_project_duration_context(project, episode), project, with_references=bool(refs)
+            await resolve_project_duration_context(project), project, with_references=bool(refs)
         )
 
     with _locked_episode_script(
@@ -430,7 +430,7 @@ async def precheck_unit_duration(
         unit = _find_unit(script, unit_id, _t)
         ad_shots = None
 
-    slot = precheck_unit(await resolve_project_duration_context(project, episode), unit, ad_shots)
+    slot = precheck_unit(await resolve_project_duration_context(project), unit, ad_shots)
     return {
         "needs_confirmation": slot.needs_confirmation,
         "script_duration": slot.total_seconds,
@@ -449,15 +449,16 @@ async def preview_script(
     """分镜文稿的读时派生预览：shots / references / utterances + 降级可见性 warning。
 
     只读、不落盘——文稿是唯一真相，utterances 与 references 都是机械派生物。声音相关的
-    三条 warning 依赖该集视频后端的能力（``voice_consistency`` 与参考音频段数上限），
-    与执行层同一份解析出口；能力解析失败时按 ``soft`` 降级，只是少发这几条提示。
+    warning 依赖该集视频后端的能力（``voice_consistency`` 与参考音频段数上限）与本集的无声
+    开关，与执行层同一份解析出口；能力解析失败时按 ``soft`` 降级，只是少发这几条提示。
     """
     project, _script, _sf = _load_episode_script(project_name, episode, _t)
-    caps = await project_video_caps(project, degraded_to="解析预览不发声音相关提示", episode=episode)
+    caps = await project_video_caps(project, degraded_to="解析预览不发声音相关提示")
     preview = build_script_preview(
         req.prompt,
         project,
         voice_consistency=str(caps.get("voice_consistency") or "soft"),
+        requested_generate_audio=bool(caps.get("requested_generate_audio", True)),
         max_reference_audio=int(caps.get("max_reference_audio_count") or 0),
         model_id=str(caps.get("model") or ""),
         audio_requires_reference_image=bool(caps.get("reference_audio_per_image") or False),

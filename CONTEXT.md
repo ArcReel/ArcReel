@@ -112,12 +112,16 @@ _Avoid_: 用 `backend.name` 作 provider 查询轴；假设 `provider_model.mode
 _Avoid_: 为单个调用点开专属模型设置项（档位即配置粒度的上限）；把 Agent 对话模型当作某个档位；把「默认模型」理解为第三档——它不绑定任何任务，只是回退。
 
 **capability（t2i / i2i / i2v / r2v）**：
-媒体任务按请求形态的能力分类。图片两种：t2i 文生图（无参考图）、i2i 图生图（带参考图）——一个镜头属于哪种，取决于"开画那一刻"是否拼出了参考图，**只有执行时才能确定**（见 `docs/adr/0001`）；入队与调度（worker claim）这两个执行前环节都无法获知。图片编辑任务是唯一例外——它必然 i2i，入队即知（见「图片编辑」）。视频两种：i2v 图生视频（首帧驱动——分镜图与宫格路径）、r2v 参考生视频（参考图槽位驱动——参考生视频模式的全部镜头，**含无参考图的退化镜头**）——与图片不同，视频镜头属于哪种在执行前即知：ad 按生效 generation_mode（剧集覆盖优先于项目），narration / drama 按剧本自身的 generation_mode 戳（见 `docs/adr/0054`）。
+媒体任务按请求形态的能力分类。图片两种：t2i 文生图（无参考图）、i2i 图生图（带参考图）——一个镜头属于哪种，取决于"开画那一刻"是否拼出了参考图，**只有执行时才能确定**（见 `docs/adr/0001`）；入队与调度（worker claim）这两个执行前环节都无法获知。图片编辑任务是唯一例外——它必然 i2i，入队即知（见「图片编辑」）。视频两种：i2v 图生视频（首帧驱动——分镜路线的全部镜头，逐张与宫格装配同归此桶）、r2v 参考生视频（参考图槽位驱动——参考路线的全部镜头，**含无参考图的退化镜头**）——与图片不同，视频镜头属于哪种在执行前即知：一律按项目生成路线定桶，三种 content_mode 同一口径（见 `docs/adr/0054`）。
 _Avoid_: t2v 作为 capability 维度——参考模式无图镜头归 r2v，不另立形态。
 
 **能力桶（capability bucket）**：
 按 capability 细分的**可选**模型配置槽位（图片 t2i / i2i，视频 i2v / r2v），是「默认模型」之上的细化覆盖：未配置的桶回退同层默认模型。解析顺序与文本任务档位同构、项目优先：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。桶与调用点的映射固定在代码里、用户只配桶内容；桶候选按能力预过滤，解析时能力不满足直接报错，不静默换模型（见 `docs/adr/0054`）。「能力桶」是代码与文档内部术语，界面呈现用「按用途指定模型」，不直接暴露给用户。
-_Avoid_: 把桶当强制配置（默认模型才是唯一兜底层）；按 generation_mode 逐模式设桶（桶的维度是能力不是路径）；把「默认模型」理解为又一个桶——它不承诺任何能力，只是回退；在用户可见文案里写「能力桶 / capability bucket」。
+_Avoid_: 把桶当强制配置（默认模型才是唯一兜底层）；按生成路线逐路设桶（桶的维度是能力不是路径）；把「默认模型」理解为又一个桶——它不承诺任何能力，只是回退；在用户可见文案里写「能力桶 / capability bucket」。
+
+**执行模型（effective model）**：
+给定调用点的 capability（或文本档位）与当前配置，分层解析最终选中的模型：细分桶 / 档位生效时是其中的模型，否则是默认层逐层穿透的结果，全层皆空时来自自动推断。与「默认层模型」相对——默认层只是解析的一层输入，执行模型才是真正会执行的那一个。凡按模型查能力或按模型存配置的界面元素与存储键（per-model 设置，如分辨率），一律取执行模型；视频侧先按项目生成路线定桶再求值，项目内全集同一结果——例外是 WebUI 逐条生成端点：它不读路线、恒按 i2v 归桶，参考路线项目若两桶配了不同模型，该入口实际执行的模型与此处求得的不是同一个，存到路线模型键下的分辨率在该入口也不生效（见 `docs/adr/0054`）。全层皆空的自动推断依赖供应商就绪状态与 registry 顺序，前端算不出：此时按模型查能力的界面元素显示「自动选择」、`model_settings` 省略该项，不伪造一个执行模型；后端侧无此限制，自动推断结果本身就是执行模型。裸 provider（未带 `/model`）覆盖时，后端 `_parse_project_provider` 会展开为该 provider 的默认 model 再求执行模型，前端 `effectiveModel()` 不做此展开、原样返回裸字符串——两侧对同一层的执行模型取值可能不同，UI 存取键与后端查询键因此不一致，属已知例外。
+_Avoid_: 用默认层模型作能力查询或 per-model 存储的键（细分覆盖生效时两者不同）；把执行模型当作可配置项——它是解析结果，不是配置槽位；把执行模型等同于生成期 lane 结果的 backend 实际身份——后者是构造后的查询键（见「lane 结果的两组身份」），两者仅在自定义供应商 loader 未回退时保证一致。
 
 **图片编辑（image edit）**：
 对一张已有设计图或分镜图的指令式修改：以当前图为唯一参考图、以用户的增量修改指令为唯一 prompt，产出保持原图大体不变的新版本。编辑是对**图**的分叉而非对 prompt 的分叉——原 image_prompt 不回写；编辑后再触发重新生成仍按原 prompt 重画，编辑效果只能从版本历史找回。必然 i2i。
@@ -201,7 +205,7 @@ _Avoid_: 用 voice 指代 audio 媒体类型本身；把音色与「声音复刻
 _Avoid_: 与「旁白配音」混为一谈——旁白是成片素材，试听样本只是选音色的中间产物。
 
 **声音一致性档位（voice consistency）**：
-视频模型在跨片段保持人物音色上能做到什么程度的三级标识，由「模型有无音轨」×「项目 generation_mode」二维派生，全仓库唯一派生点是 `lib/config/resolver.py::derive_voice_consistency`。`native`＝参考生视频直传参考音频、音色由音频本身锁定；`soft`＝有音轨但只能靠文字描述引导音色；`none`＝真无声，不承载任何声音语义。soft/none 之分不看 `generate_audio` token 是否声明——该 token 语义是「开关可控」而非「有无音轨」，恒有声但开关不可控的供应商（AI Studio Veo、Grok）经 `model_has_audio_track` 单独识别为有音轨。
+视频模型在跨片段保持人物音色上能做到什么程度的三级标识，由「模型有无音轨」×「项目生成路线」二维派生，全仓库唯一派生点是 `lib/config/resolver.py::derive_voice_consistency`。路线创建即定不可变，同一项目内档位不随剧集或剧本变化。`native`＝参考路线直传参考音频、音色由音频本身锁定；`soft`＝有音轨但只能靠文字描述引导音色；`none`＝真无声，不承载任何声音语义。soft/none 之分不看 `generate_audio` token 是否声明——该 token 语义是「开关可控」而非「有无音轨」，恒有声但开关不可控的供应商（AI Studio Veo、Grok）经 `model_has_audio_track` 单独识别为有音轨。
 _Avoid_: 用 `generate_audio` 的真假直接代指有无音轨。
 
 **声音描述声明段（Voice_Profiles）**：
@@ -239,19 +243,27 @@ _Avoid_: 在新代码/文档里用 clue/线索 指代场景或道具——规范
 ### 剧本与分镜
 
 **骨架（skeleton / 骨架种类 skeleton kind）**：
-剧本条目数组的结构种类，四值：`segments`（说书片段）/ `scenes`（剧集场景）/ `shots`（广告镜头）/ `video_units`（参考生视频单元）。骨架是由 content_mode 与 generation_mode 两轴**派生**的概念，本身不是第三条轴：narration/drama/ad 各对应前三种骨架；narration/drama 在 generation_mode=reference_video 下整体换用 video_units 骨架，ad 骨架恒为 shots、不随生成路径变（见 `docs/adr/0033`）。对骨架有两种合法提问——**规范性**（按项目/剧集的模式配置，这份剧本*应该*是什么骨架）与**取证性**（这份剧本数据*实际*是什么骨架）；两者在部分迁移等中间态下可能不一致，取证以数据形状优先。骨架知识收归零依赖叶子模块 `lib/script_skeleton.py`：以骨架种类为键的窄表 `SKELETONS`（键即条目数组键，行 `Skeleton(id_field, chars_field)`，`video_units` 无逐条角色名单故 `chars_field=None`）+ **规范解析** `resolve_declared_kind(content_mode, generation_mode)`（服务手持项目配置的消费方，未知/缺失 content_mode 抛 `ValueError`）+ **取证解析** `resolve_script_kind(script)`（服务手持剧本数据的消费方，保留数据形状优先的容忍阶梯）；两个解析器是全体消费方分派骨架的单一入口，设计依据见 `docs/adr/0045`。
-_Avoid_: 把骨架当第四个 content_mode 或 content_mode 的同义词（三值轴推不出四种骨架）；把规范性与取证性两问混同（配置已改 reference_video 但数据仍在 segments 时，编辑要跟数据走）；对未知模式做「非 narration 即 drama」式二值兜底（`docs/adr/0033` 禁令）。
+剧本条目数组的结构种类，四值：`segments`（说书片段）/ `scenes`（剧集场景）/ `shots`（广告镜头）/ `video_units`（参考生视频单元）。骨架是由 content_mode 与生成路线两轴**派生**的概念，本身不是第三条轴：narration/drama/ad 各对应前三种骨架；narration/drama 在参考路线下整体换用 video_units 骨架，ad 骨架恒为 shots、不随路线变（见 `docs/adr/0033`）。路线一轴恒取项目字段，剧本自身不承载路线信息。对骨架有两种合法提问——**规范性**（按项目的 content_mode 与生成路线，这份剧本*应该*是什么骨架）与**取证性**（这份剧本数据*实际*是什么骨架）；两者在存量失配剧本（骨架与项目路线不符的历史集）上可能不一致，取证以数据形状优先。骨架知识收归零依赖叶子模块 `lib/script_skeleton.py`：以骨架种类为键的窄表 `SKELETONS`（键即条目数组键，行 `Skeleton(id_field, chars_field)`，`video_units` 无逐条角色名单故 `chars_field=None`）+ **规范解析** `resolve_declared_kind(content_mode, generation_mode)`（服务手持项目配置的消费方，未知/缺失 content_mode 抛 `ValueError`）+ **取证解析** `resolve_script_kind(script)`（服务手持剧本数据的消费方，保留数据形状优先的容忍阶梯）；两个解析器是全体消费方分派骨架的单一入口，设计依据见 `docs/adr/0045`。智能体的生成入队工具与数据校验另过**路线闸门** `ensure_route_skeleton(script, content_mode, generation_mode)`：剧本骨架与项目路线跨族（分镜族 ⟷ `video_units`）时抛 `SkeletonRouteMismatchError`，给结构结论与重拆指引，杜绝静默降档与悄悄换路径；族内形态差异与残留的另一族数组均放行。查看 / 编辑 / 项目归档导出不经闸门，失配剧本仍可读可改可归档；剪映草稿导出按剧本 content_mode 的规范骨架取片段，失配剧本取不到已完成片段。
+_Avoid_: 把骨架当第四个 content_mode 或 content_mode 的同义词（三值轴推不出四种骨架）；把规范性与取证性两问混同（存量失配集的骨架与项目路线不符时，编辑要跟数据走、生成要跟路线走）；对未知模式做「非 narration 即 drama」式二值兜底（`docs/adr/0033` 禁令）。
+
+**生成路线（generation route / generation_mode）**：
+项目级二值必填字段，决定喂给视频模型的**输入契约**：`storyboard`（分镜路线，输入是单张分镜图，走 i2v）/ `reference_video`（参考路线，输入是资产参考图集合、跳过分镜图步骤，走 r2v）。创建项目时二选一、**创建后不可更改**——不可变性由结构保证：项目 PATCH 模型、集级 PATCH 模型、agent 项目设置白名单中都不存在该字段。路线是全项目唯一定轴：剧本骨架、视频能力归桶、声音一致性档位、时长约束、费用估算、生成入队一律读它，不需要剧集与剧本上下文，剧本自身也不承载路线信息；时长联动约束里的参考图档位是例外——路线只决定这条约束适不适用，具体收窄按该单元实际是否带参考图判定（`uses_reference_images`），不由路线一刀切（见 `docs/adr/0055`）。骨架与项目路线跨族的存量剧本经智能体入队生成时被路线闸门显式拒绝，仍可查看、编辑、归档导出；WebUI 的逐条生成端点不经闸门，也不读项目路线——恒按 i2v 归桶，参考路线项目从该入口生成时执行与估算就此分歧。
+_Avoid_: 把它当可切换的「生成模式」——路线是立项决策，改路线的出路是另建项目；给某集单独指定路线（集级覆盖不存在）；把宫格当作第三个平级取值（见「宫格」）；与 content_mode（内容类型）或 source_kind（源文件性质）混为一轴——三者正交。
 
 **宫格（grid）**：
-把同一段落多个场景合并成一张 N 格联合大图一次生成（grid_4/6/9）、再切割成各场景首尾帧的分镜生成路径；与逐张图生视频（storyboard）同为 generation_mode 下的「分镜→视频」路径，核心价值在一次生成保证画风/角色一致。
-_Avoid_: 把 reference_video 当作与 grid/storyboard 同维度的第三个平级取值——它跳过分镜、是凌驾于 content_mode 之上的独立骨架，并非这种「分镜→视频」路径；逐张模式的规范值是 storyboard，而非旧用语 single。
+把同一段落多个场景合并成一张 N 格联合大图一次生成（grid_4/6/9）、再切割成各场景起始分镜图的**分镜图生产方式**，核心价值在一次生成保证画风/角色一致。它是分镜路线内部的装配选项而非生成路线：切割后仍是单张图走 i2v，喂给视频模型的输入契约与逐张分镜完全相同（判据与业界事实见 `docs/adr/0055`、`docs/research/storyboard-to-video-industry-survey.md`）。
+_Avoid_: 把宫格当与分镜路线、参考路线并列的第三条路线——它不改变视频模型的输入契约，只改变分镜图从哪里来；逐张分镜的规范值是 storyboard，而非旧用语 single。
+
+**宫格开关（grid_storyboard）**：
+项目级布尔字段（默认 false），表达「本项目按宫格生产分镜图」。与路线不同，它**随时可切**且只影响后续生成，已有内容不动；仅分镜路线有意义——参考路线无分镜图步骤，即使字段为真也不激活宫格分支（判定收口在 `lib/project_manager.grid_storyboard_enabled`）。ad 内容模式恒不支持宫格，创建、PATCH、数据校验三处一致拒绝置真。可随创建写入，之后由设置页切换。
+_Avoid_: 把它并进 generation_mode 当第三个取值；交给 agent 改——它不在 agent 项目设置白名单，agent 被要求改装配时指引用户去设置页；以为它对参考路线项目也会生效或需要呈现。
 
 **尾帧（end frame / end_frame_image）**：
 用户为单个镜头指定的、视频生成收束到的目标画面——普通图生视频路径上的**可选**过渡控制手段（首帧恒为分镜图，不开放自定义）。是镜头条目的**用户意图持久属性**（存剧集 JSON，视频重生成自动沿用），不是生成产出；来源为项目内选图或上传任意图，落定即**快照复制**进项目专用目录、与源图彻底解耦（源图重生成/回滚/删除不影响已定尾帧，跟随源图更新须手动重选）。所选后端不支持 last_frame 能力、或快照文件缺失时硬失败，不静默降级。
 _Avoid_: 与宫格产出字段 `storyboard_last_image`（运行时产出，已不再作尾帧消费）混为一谈；把整集剧本重生成后字段丢失当 bug——与 note/transition_to_next 同口径，「重生成沿用」仅指视频重生成；用它做全自动场景衔接（正常成片切镜是合理且应该的）。
 
 **广告/短片模式（ad）**：
-content_mode 第三值，产出单个约 `target_duration` 秒的短视频而非多集系列。剧本骨架为平铺 `shots[]`（`shot_id` 格式 E1S{n}），每镜头携带 `section`（带货框架段落标签，八值引导不硬枚举）与一等口播文案 `voiceover_text`；项目恒单集（episodes 恒为第 1 集单条），项目级新字段 `target_duration`（正整数秒）与 `brief`（创作诉求短文本，不走 source_loader），不持有 `default_duration`；generation_mode 仅开放 storyboard 与 reference_video（见 `docs/adr/0033`）。剧本一键生成不走 step1 中间文件：prompt 直接来自 brief + 产品信息（含 selling_points）+ 审定的带货八段框架配比表（15/30/60/90 取最近档位，依据见 `docs/research/arcreel-ad-section-timing-research.md`），products 为空自动分流通用短片 prompt；镜头时长约束随生成路径切换——storyboard 为 supported_durations 硬枚举、reference_video 为 1-15 秒自由整数；剧本总时长偏离 `target_duration` 超阈值仅 warn 不阻塞。
+content_mode 第三值，产出单个约 `target_duration` 秒的短视频而非多集系列。剧本骨架为平铺 `shots[]`（`shot_id` 格式 E1S{n}），每镜头携带 `section`（带货框架段落标签，八值引导不硬枚举）与一等口播文案 `voiceover_text`；项目恒单集（episodes 恒为第 1 集单条），项目级新字段 `target_duration`（正整数秒）与 `brief`（创作诉求短文本，不走 source_loader），不持有 `default_duration`；两条生成路线都可选，但不支持宫格（`grid_storyboard` 恒拒置真，见 `docs/adr/0033`）。剧本一键生成不走 step1 中间文件：prompt 直接来自 brief + 产品信息（含 selling_points）+ 审定的带货八段框架配比表（15/30/60/90 取最近档位，依据见 `docs/research/arcreel-ad-section-timing-research.md`），products 为空自动分流通用短片 prompt；镜头时长约束随生成路线切换——storyboard 为 supported_durations 硬枚举、reference_video 为 1-15 秒自由整数；剧本总时长偏离 `target_duration` 超阈值仅 warn 不阻塞。
 _Avoid_: 让 ad 落入「非 narration 即 drama」的二值兜底——所有按 content_mode 分派的机制必须显式处理第三值；把 AdShot 与 video_unit 内的 shot（参考生视频子镜头）混为一谈——前者是剧本骨架的平铺镜头、后者是 unit 内时间编排；把 ad 未接入 step1→step2 审核 gate 当作待补缺口——单发生成、无 step1 中间态是有意契约，重访条件见 `.out-of-scope/ad-step1-step2-review-gate.md`。
 
 **video_unit / shot（参考生视频单元）**：

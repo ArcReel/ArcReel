@@ -119,10 +119,10 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     import json as _j
 
     data = _j.loads(out.read_text(encoding="utf-8"))
-    # 参考视频集 content_mode 继承项目级 narration/drama；生成模式由独立的
-    # generation_mode 字段表达。
+    # 参考视频集 content_mode 继承项目级 narration/drama；生成路线是项目级事实，
+    # 剧本不落盘任何路线戳。
     assert data["content_mode"] == "narration"
-    assert data["generation_mode"] == "reference_video"
+    assert "generation_mode" not in data
     assert len(data["video_units"]) == 1
     unit = data["video_units"][0]
     # unit_id / 时长沿用 step1；shots / references 由正文机械派生
@@ -438,7 +438,7 @@ async def test_script_generator_reference_branch_inherits_drama_content_mode(tmp
 
     data = _j.loads(out.read_text(encoding="utf-8"))
     assert data["content_mode"] == "drama"
-    assert data["generation_mode"] == "reference_video"
+    assert "generation_mode" not in data
 
 
 @pytest.mark.parametrize(
@@ -568,11 +568,10 @@ async def test_fetch_video_capabilities_swallows_db_errors(reference_project: Pa
 
 
 @pytest.mark.asyncio
-async def test_effective_generation_mode_honors_episode_override(tmp_path: Path):
-    """当 project=storyboard 但 episode=reference_video 时，build_prompt 必须走 reference 分支。
+async def test_build_prompt_follows_project_reference_route(tmp_path: Path):
+    """项目路线为 reference_video 时 build_prompt 必须走 reference 分支。
 
-    解析规则：``effective_mode(project, episode) = episode.generation_mode or
-    project.generation_mode or "storyboard"``。
+    路线取自 ``project.json`` 顶层 ``generation_mode``，全项目同一条、不随集号变化。
     """
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
@@ -583,7 +582,7 @@ async def test_effective_generation_mode_honors_episode_override(tmp_path: Path)
             {
                 "title": "t",
                 "content_mode": "narration",
-                "generation_mode": "storyboard",  # 项目级是 storyboard
+                "generation_mode": "reference_video",
                 "video_backend": "vidu/vidu2.0",
                 "overview": {"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
                 "style": "s",
@@ -591,9 +590,7 @@ async def test_effective_generation_mode_honors_episode_override(tmp_path: Path)
                 "characters": {"A": {"description": "d"}},
                 "scenes": {},
                 "props": {},
-                "episodes": [
-                    {"episode": 1, "generation_mode": "reference_video"},  # 集级覆盖为 reference
-                ],
+                "episodes": [{"episode": 1}],
             }
         ),
         encoding="utf-8",

@@ -9,7 +9,7 @@ import {
 } from "@/hooks/useModelCapabilities";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { ProjectData, ProviderInfo, VideoCapabilities } from "@/types";
+import type { ProviderInfo, VideoCapabilities } from "@/types";
 
 const PROJECT = "demo-project";
 const BACKEND = "gemini/veo-3";
@@ -56,14 +56,6 @@ function caps(overrides: Partial<VideoCapabilities> = {}): VideoCapabilities {
     voice_consistency: "soft",
     ...overrides,
   };
-}
-
-/** 只含能力 key 关心的字段：集级 generation_mode 覆盖与其回退到的项目级值。 */
-function projectData(episodeMode: string | null): ProjectData {
-  return {
-    generation_mode: "storyboard",
-    episodes: [{ episode: 1, ...(episodeMode ? { generation_mode: episodeMode } : {}) }],
-  } as ProjectData;
 }
 
 beforeEach(() => {
@@ -318,20 +310,6 @@ describe("useModelCapabilities 失效时机", () => {
     await waitFor(() => expect(result.current.lastFrame).toBe(false));
   });
 
-  it("集级 generation_mode 覆盖变更后自动重取，不等切集或重新挂载", async () => {
-    // 覆盖经 PATCH /projects/{name} 写入、项目事件 SSE 刷进 store：集号没变，能力却已换桶。
-    useProjectsStore.setState({ currentProjectName: PROJECT, currentProjectData: projectData(null) });
-    const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps({ last_frame: true }));
-    const { result } = renderHook(() =>
-      useModelCapabilities({ projectName: PROJECT, videoBackend: BACKEND, episode: 1 }),
-    );
-    await waitFor(() => expect(result.current.lastFrame).toBe(true));
-
-    spy.mockResolvedValue(caps({ last_frame: false }));
-    act(() => useProjectsStore.setState({ currentProjectData: projectData("reference_video") }));
-    await waitFor(() => expect(result.current.lastFrame).toBe(false));
-  });
-
   it("失效重取期间保留旧值，不闪未知态", async () => {
     const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps({ last_frame: false }));
     const { result } = renderHook(() =>
@@ -362,7 +340,7 @@ describe("catalogDurations", () => {
 describe("narrowDurations", () => {
   const CONSTRAINTS = { byResolution: { "1080p": [8] }, withReferenceImages: [8] };
 
-  // 上下文按集变化（generation_mode 可被单集覆盖），而能力查询只在组件顶层做一次；
+  // 收窄上下文按集变化（分辨率、参考图状态），而能力查询只在组件顶层做一次；
   // 收窄规则仍留在本模块，调用点不重新拼查表链路。
   it("用已取到的能力对另一份上下文再算一次收窄", () => {
     const capsIn = { rawDurations: [4, 6, 8], durationConstraints: CONSTRAINTS };

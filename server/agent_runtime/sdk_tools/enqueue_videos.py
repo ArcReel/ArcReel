@@ -19,7 +19,7 @@ from lib.generation_queue_client import (
     batch_enqueue_and_wait,
     enqueue_and_wait,
 )
-from lib.project_manager import ProjectManager, is_reference_video_episode
+from lib.project_manager import ProjectManager, is_reference_video_project
 from lib.prompt_utils import (
     build_drama_video_prompt,
     build_drama_video_prompt_from_legacy_dialogue,
@@ -33,7 +33,8 @@ from lib.reference_video.ad_units import (
     resolve_ad_unit_shots,
     sync_ad_reference_units,
 )
-from lib.script_models import get_generated_assets, is_reference_script, resolve_content_mode
+from lib.script_models import get_generated_assets, resolve_content_mode
+from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
@@ -116,7 +117,7 @@ async def _pending_duration_confirmations(
         except ValueError:
             continue
         if ctx is None:
-            ctx = await resolve_project_duration_context(project, episode)
+            ctx = await resolve_project_duration_context(project)
         try:
             slot = precheck_unit(ctx, unit, ad_shots)
         except ValueError:
@@ -164,30 +165,36 @@ def _get_video_prompt(
     return prompt
 
 
-async def _resolve_voice_characters(
-    ctx: ToolContext, content_mode: str, episode: int | None = None
-) -> dict[str, Any] | None:
+async def _resolve_voice_characters(ctx: ToolContext, content_mode: str) -> dict[str, Any] | None:
     """供 Voice_Profiles 注入的角色资产；``None`` 表示不注入。
 
     非 drama 直接返回 None（无需为 narration/ad 项目多付一次视频能力解析），drama 再按
-    声音一致性档位排除 C 类（真无声）模型。``episode`` 给出集号时按该集生效
-    ``generation_mode`` 解析声音一致性。
+    声音一致性档位排除 C 类（真无声）模型。
     """
     if content_mode != "drama":
         return None
     project = ctx.pm.load_project(ctx.project_name)
-    if await resolve_project_voice_consistency(project, episode) == "none":
+    if await resolve_project_voice_consistency(project) == "none":
         return None
     return project.get("characters") or {}
 
 
-def _is_ad_reference(ctx: ToolContext, script: dict[str, Any]) -> bool:
-    """ad + reference_video 判定：ad 剧本骨架唯一、不打 generation_mode 戳，
-    生成路径以 project.json（项目级/集级 generation_mode）为真相源。"""
+def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | None:
+    """定生成路线并把守骨架闸门。
+
+    项目走参考生视频路线时返回子分支（``"ad"`` / ``"episode"``，两者展示与派生颗粒度不同），
+    分镜路线返回 ``None``。路线以 project.json 的 ``generation_mode`` 为唯一真相源——剧本不
+    携带路线信息，同一项目逐集不变。
+
+    Raises:
+        SkeletonRouteMismatchError: 剧本骨架与项目路线失配，生成被拒。
+    """
     project = ctx.pm.load_project(ctx.project_name)
-    if project.get("content_mode") != "ad":
-        return False
-    return is_reference_video_episode(project, script.get("episode"))
+    content_mode = resolve_content_mode(script, project)
+    ensure_route_skeleton(script, content_mode, project.get("generation_mode"))
+    if not is_reference_video_project(project):
+        return None
+    return "ad" if content_mode == "ad" else "episode"
 
 
 # Checkpoint helpers
@@ -567,11 +574,15 @@ async def _run_reference_episode(
     """Run reference_video-mode generation and format the tool response.
 
     All 4 video handlers fall through to whole-episode reference generation
-    when ``is_reference_script`` returns True; this captures the shared tail
-    (resolve episode → generate units → header + log).
+    when ``_resolve_reference_route`` reports the episode branch; this captures
+    the shared tail (resolve episode → generate units → header + log).
     """
     episode = ProjectManager.resolve_episode_from_script(script, script_filename)
-    units = script.get("video_units") or []
+    units = script.get("video_units")
+    if "video_units" in script and not isinstance(units, list):
+        # 路线闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
+        # 产生的 dict、字符串）会一路下传到 unit 迭代，报出无从定位的 TypeError。
+        raise ValueError(f"第 {episode} 集 video_units 必须是数组，当前为 {type(units).__name__}：{script_filename}")
     if not units:
         raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
     project = ctx.pm.load_project(ctx.project_name)
@@ -608,12 +619,7 @@ async def _run_ad_reference_episode(
     的 unit 保留 generated_assets，已有产物经磁盘扫描跳过重复入队。
     """
     project = ctx.pm.load_project(ctx.project_name)
-    # 集号取剧本自报字段（缺失才回落文件名），与锁内 `_sync` 是同一次 `resolve_episode_from_script`：
-    # 能力解析与分组派生因此不会各拿一个集号，覆盖集的能力不会静默回落项目级。
-    episode_for_caps = ProjectManager.resolve_episode_from_script(
-        ctx.pm.load_script(ctx.project_name, script_filename), script_filename
-    )
-    max_unit_duration = await resolve_max_unit_duration(project, episode_for_caps)
+    max_unit_duration = await resolve_max_unit_duration(project)
 
     def _sync() -> tuple[dict[str, Any], list[dict[str, Any]], int]:
         with ctx.pm.locked_script(ctx.project_name, script_filename) as script:
@@ -685,7 +691,8 @@ def generate_video_episode_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if is_reference_script(script):
+            route = _resolve_reference_route(ctx, script)
+            if route == "episode":
                 return await _run_reference_episode(
                     ctx=ctx,
                     script=script,
@@ -694,7 +701,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx, script):
+            if route == "ad":
                 return await _run_ad_reference_episode(
                     ctx=ctx,
                     script_filename=script_filename,
@@ -721,9 +728,7 @@ def generate_video_episode_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(items, id_field, completed, videos_dir)
-            voice_characters = await _resolve_voice_characters(
-                ctx, content_mode, ProjectManager.resolve_episode_from_script_or_none(script, script_filename)
-            )
+            voice_characters = await _resolve_voice_characters(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=items,
                 id_field=id_field,
@@ -789,7 +794,8 @@ def generate_video_scene_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if is_reference_script(script):
+            route = _resolve_reference_route(ctx, script)
+            if route == "episode":
                 log: list[str] = [
                     f"⚠️  reference_video 模式暂不支持单 unit 精确选择；scene_id={scene_id} 被忽略，转整集生成。"
                 ]
@@ -801,7 +807,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx, script):
+            if route == "ad":
                 ad_log: list[str] = [
                     f"⚠️  reference_video 模式暂不支持单 unit 精确选择；scene_id={scene_id} 被忽略，转整集生成。"
                 ]
@@ -833,9 +839,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                 raise FileNotFoundError(f"分镜图不存在: {storyboard_path}")
 
             content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
-            voice_characters = await _resolve_voice_characters(
-                ctx, content_mode, ProjectManager.resolve_episode_from_script_or_none(script, script_filename)
-            )
+            voice_characters = await _resolve_voice_characters(ctx, content_mode)
             prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
             # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
             # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
@@ -896,7 +900,8 @@ def generate_video_all_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if is_reference_script(script):
+            route = _resolve_reference_route(ctx, script)
+            if route == "episode":
                 return await _run_reference_episode(
                     ctx=ctx,
                     script=script,
@@ -905,7 +910,7 @@ def generate_video_all_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx, script):
+            if route == "ad":
                 return await _run_ad_reference_episode(
                     ctx=ctx,
                     script_filename=script_filename,
@@ -920,9 +925,7 @@ def generate_video_all_tool(ctx: ToolContext):
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
 
-            voice_characters = await _resolve_voice_characters(
-                ctx, content_mode, ProjectManager.resolve_episode_from_script_or_none(script, script_filename)
-            )
+            voice_characters = await _resolve_voice_characters(ctx, content_mode)
             specs, _order_map = _build_video_specs(
                 items=pending,
                 id_field=id_field,
@@ -989,7 +992,8 @@ def generate_video_selected_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if is_reference_script(script):
+            route = _resolve_reference_route(ctx, script)
+            if route == "episode":
                 log.append(
                     f"⚠️  reference_video 模式暂不支持多 unit 精确选择；scene_ids={','.join(scene_ids)} 被忽略，转整集生成。"
                 )
@@ -1001,7 +1005,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx, script):
+            if route == "ad":
                 log.append(
                     f"⚠️  reference_video 模式暂不支持多 unit 精确选择；scene_ids={','.join(scene_ids)} 被忽略，转整集生成。"
                 )
@@ -1058,9 +1062,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(selected, id_field, completed, videos_dir)
-            voice_characters = await _resolve_voice_characters(
-                ctx, content_mode, ProjectManager.resolve_episode_from_script_or_none(script, script_filename)
-            )
+            voice_characters = await _resolve_voice_characters(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=selected,
                 id_field=id_field,

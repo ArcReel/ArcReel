@@ -55,6 +55,7 @@ MESSAGES = {
     "prompt_text_empty": "prompt must not be empty",
     "storyboard_task_submitted": "Storyboard generation task for '{segment_id}' submitted",
     "generate_storyboard_first": "Please generate storyboard scene_{segment_id}.png first",
+    "video_route_is_reference_video": "This project uses the reference-video route, which has no storyboard-to-video step; generate by video unit in the reference video editor",
     "invalid_storyboard_image_path": "Segment '{segment_id}' has an invalid storyboard image reference; please regenerate the storyboard",
     "video_prompt_must_be_string_or_action_object": "prompt must be a string or an object containing action/camera_motion",
     "video_prompt_action_empty": "prompt.action cannot be empty",
@@ -101,6 +102,10 @@ MESSAGES = {
     "script_review_no_step1": "No Step 1 structured draft to confirm yet; please finish preprocessing first",
     "script_review_quarantined": (
         "This episode has a rejected Step 1 draft awaiting repair; let the agent fix and promote it before confirming"
+    ),
+    "script_review_conflict": (
+        "The Step 1 draft was modified by another editor while you were editing; your save was not applied. "
+        "Refresh to see the latest content, merge your changes, then save again"
     ),
     "script_review_invalid_content": "Step 1 draft structure validation failed: {details}",
     "script_review_quarantine_unreadable": (
@@ -177,7 +182,8 @@ MESSAGES = {
     "unknown_style_template": "Unknown style template: {template_id}",
     "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",
     "ad_no_default_duration": "Ad/short-video projects do not support a default duration; shot lengths are planned against the target duration",
-    "ad_grid_not_supported": "Ad/short-video projects do not support grid video generation",
+    "ad_grid_not_supported": "Ad/short-video projects do not support Grid Storyboard to Video",
+    "grid_storyboard_not_enabled": "Grid Storyboard is not enabled for this project",
     "ad_target_duration_required": "Ad/short-video projects require a target duration (positive integer seconds)",
     "project_id_not_editable": "content_mode cannot be modified after project creation",
     "source_kind_not_editable": "source_kind cannot be modified after project creation",
@@ -269,6 +275,11 @@ MESSAGES = {
     "ref_warn_silent_model": (
         "The current video model '{model}' generates no audio; dialogue is used only as prompt context"
     ),
+    "ref_warn_silent_episode": (
+        "Reference audio is disabled for this episode: no reference audio is uploaded and voice "
+        "consistency does not apply; dialogue is used only as prompt context. Whether the rendered "
+        "video actually has sound depends on the selected model"
+    ),
     # Episode meta
     "episode_not_found": "Episode {episode} not found or has no script file yet",
     "episode_title_empty": "Episode title cannot be empty",
@@ -313,6 +324,7 @@ MESSAGES = {
     "video_reference_audio_slots_insufficient": "Model {model} attaches each reference audio clip to a reference asset, but only {slots} reference assets are available for {count} clips; add reference images for those characters, or reduce the number of characters with reference audio",
     "video_reference_audio_unreadable": "Model {model} has reference audio that is missing or unreadable; generation aborted: {names}; check the reference audio paths",
     "video_reference_audio_format_unsupported": "Reference audio {name} has an unsupported format (only {supported}); use a different audio file",
+    "video_prompt_too_long": "{provider}/{model} accepts prompts of at most {limit} characters but received {count}; the provider would silently truncate the excess, so generation was aborted. Shorten the prompt",
     # Agent credentials
     "agent_preset_unknown": "Unknown preset provider: {preset_id}",
     "agent_base_url_required_custom": "base_url is required for custom configuration",

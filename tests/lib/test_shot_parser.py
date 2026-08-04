@@ -1,3 +1,5 @@
+import unicodedata
+
 import pytest
 
 from lib.reference_video.shot_parser import (
@@ -186,6 +188,31 @@ def test_resolve_references_empty_input():
     refs, missing = resolve_references([], _proj())
     assert refs == []
     assert missing == []
+
+
+#: 带组合附加符的资产名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
+_NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
+_NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
+
+
+@pytest.mark.parametrize("registered", [_NAME_NFC, _NAME_NFD], ids=["登记NFC", "登记NFD"])
+@pytest.mark.parametrize("written", [_NAME_NFC, _NAME_NFD], ids=["出场NFC", "出场NFD"])
+def test_resolve_references_matches_across_encoding_forms(registered: str, written: str):
+    """组合字符资产名的四种 NFC/NFD 配对都判为已登记，且派生名一律是归一形式。
+
+    ``ReferenceResource.name`` 要被下游拿去回查资产表与在正文里替换成主体记号，产出两种
+    形式会让「这里判已登记、下游查不到」。
+    """
+    refs, missing = resolve_references([written], _proj(characters={registered: {}}))
+    assert [(r.type, r.name) for r in refs] == [("character", _NAME_NFC)]
+    assert missing == []
+
+
+@pytest.mark.parametrize("registered", [_NAME_NFC, _NAME_NFD], ids=["登记NFC", "登记NFD"])
+@pytest.mark.parametrize("written", [_NAME_NFC, _NAME_NFD], ids=["出场NFC", "出场NFD"])
+def test_render_mentions_as_subjects_matches_across_encoding_forms(registered: str, written: str):
+    """两侧编码形式不同也要替换成主体记号：漏替换时 ``@[名称]`` 会原样进供应商请求。"""
+    assert render_mentions_as_subjects(f"@[{written}] 推门而入", [registered]) == f"<{_NAME_NFC}> 推门而入"
 
 
 def test_parse_multi_shot_preserves_pre_header_text():

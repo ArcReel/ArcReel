@@ -128,6 +128,19 @@ describe("mergeReferences", () => {
   it("returns empty list when prompt has no valid mentions", () => {
     expect(mergeReferences("镜头1：plain", [], project)).toEqual([]);
   });
+
+  it("resolves a registered name across NFC/NFD encoding mismatch", () => {
+    const nameNfc = "Hiếu".normalize("NFC");
+    const nameNfd = "Hiếu".normalize("NFD");
+    expect(nameNfc).not.toBe(nameNfd);
+    const projectWithCombining = {
+      characters: { [nameNfd]: { description: "" } },
+      scenes: {},
+      props: {},
+    };
+    const merged = mergeReferences(`镜头1：@[${nameNfc}] 登场`, [], projectWithCombining);
+    expect(merged).toEqual([{ type: "character", name: nameNfc }]);
+  });
 });
 
 describe("MENTION_RE prefix boundary", () => {
