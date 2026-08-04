@@ -88,16 +88,18 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     dirtyRef.current = dirty;
   }, [dirty]);
 
-  // 在途拉取的 controller，供 adopt 接管时作废。
+  // 在途拉取的 controller，供保存 / 确认发起时捕获。
   const loadControllerRef = useRef<AbortController | null>(null);
 
   // 采用服务端内容为新草稿（深克隆，避免与服务端态共享引用）。用户主动动作（保存 / 确认）后调用，
   // 总是覆盖本地草稿；setDraft 传值而非更新器，保持纯净、不在更新器内读写 ref。
+  // `staleLoad` 是该动作发起**时刻**就已在途的拉取，须一并作废：它早于本次变更发出，回来时 dirtyRef
+  // 已因采纳而为 false，会按变更前的旧内容回写 draft 与 baseFingerprint——草稿回退，且下次保存拿旧
+  // 指纹撞 OCC。动作发起之后才起的拉取（外部事件触发）携带的是更新的服务端态，不能顺带误杀——
+  // 触发它的那次 revision 已被消费，作废后不会再有请求补上。
   const adopt = useCallback(
-    (next: ScriptReviewState) => {
-      // 先作废在途拉取：它可能早于本次保存 / 确认发出，回来时 dirtyRef 已因采纳而为 false，
-      // 会按保存前的旧内容回写 draft 与 baseFingerprint——草稿回退，且下次保存拿旧指纹撞 OCC。
-      loadControllerRef.current?.abort();
+    (next: ScriptReviewState, staleLoad: AbortController | null) => {
+      staleLoad?.abort();
       setState(next);
       setDraft(clone(selectContent(next)));
       setBaseFingerprint(next.fingerprint);
@@ -152,9 +154,10 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
 
   const save = useCallback(async () => {
     if (!draft) return;
+    const staleLoad = loadControllerRef.current;
     setSaving(true);
     try {
-      adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
+      adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint), staleLoad);
       pushToast(t("dashboard:review_saved"), "success");
     } catch (err) {
       pushToast(scriptReviewErrorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
@@ -164,12 +167,13 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
   }, [draft, baseFingerprint, projectName, episode, adopt, pushToast, t]);
 
   const confirm = useCallback(async () => {
+    const staleLoad = loadControllerRef.current;
     setConfirming(true);
     try {
       if (dirty && draft) {
-        adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
+        adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint), staleLoad);
       }
-      adopt(await API.confirmScriptReview(projectName, episode));
+      adopt(await API.confirmScriptReview(projectName, episode), staleLoad);
       onConfirmed();
     } catch (err) {
       pushToast(scriptReviewErrorMessage(err) || t("dashboard:review_confirm_failed"), "error");

@@ -167,4 +167,55 @@ describe("useScriptReviewDraft", () => {
     });
     expect(save.mock.calls[1][3]).toBe("fp2");
   });
+
+  it("keeps a refresh that started after the save was issued", async () => {
+    const agentEdited = reviewState({ fingerprint: "fp3" });
+    (agentEdited.content as DramaNormalizedScript).scenes[0].utterances[0].text = "agent 改写的台词";
+    let resolveRefresh: (state: ScriptReviewState) => void = noop;
+    const refresh = new Promise<ScriptReviewState>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const get = vi
+      .spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(reviewState())
+      .mockReturnValueOnce(refresh);
+    let resolveSave: (state: ScriptReviewState) => void = noop;
+    const savePromise = new Promise<ScriptReviewState>((resolve) => {
+      resolveSave = resolve;
+    });
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockReturnValueOnce(savePromise);
+
+    const { result } = renderDraft();
+    await waitFor(() => expect(result.current.draft).not.toBeNull());
+
+    act(() => {
+      result.current.setDraft((prev) => (prev ? editFirstUtterance(prev, "我的本地编辑") : prev));
+    });
+    // 保存发出后仍在途时，agent 改了 step1 触发外部刷新——这个 GET 晚于保存，携带更新的服务端态
+    let saving: Promise<void>;
+    act(() => {
+      saving = result.current.save();
+    });
+    act(() => {
+      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+    });
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      resolveSave(reviewState({ fingerprint: "fp2" }));
+      await saving;
+    });
+    await act(async () => {
+      resolveRefresh(agentEdited);
+      await refresh;
+    });
+
+    // 晚于保存发出的刷新不得被误杀：触发它的 revision 已被消费，作废后不会再有请求补上
+    expect(result.current.draft?.scenes[0].utterances[0].text).toBe("agent 改写的台词");
+    save.mockResolvedValue(agentEdited);
+    await act(async () => {
+      await result.current.save();
+    });
+    expect(save.mock.calls[1][3]).toBe("fp3");
+  });
 });
