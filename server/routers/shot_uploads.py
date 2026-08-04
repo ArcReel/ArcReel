@@ -1,10 +1,10 @@
 """镜头级分镜图/视频自主上传路由。
 
-与通用资产上传（files.py）分离，不是 UPLOAD_SPECS 的表项：表项按 name 定位、单文件覆写，
-其 subdir + naming 路径模型与 MetadataSetter 签名不覆盖本路由这条管线——按 script_file +
-shot_id 定位剧本条目、纳入版本管理（VersionManager）、经 finalize_shot_* 回写剧本元数据，
-并返回 asset_fingerprints 供上传方即时 cache-bust（SSE 兜底其他客户端）。扩展名与大小校验
-共用 upload_finalize.validate_upload。
+与通用资产上传（files.py）分离，不是 UPLOAD_SPECS 的表项：本路由按 script_file + shot_id
+定位剧本条目、纳入版本管理（VersionManager）、经 finalize_shot_* 回写剧本元数据，并返回
+asset_fingerprints 供上传方即时 cache-bust（SSE 兜底其他客户端）——UploadSpec 的
+subdir + naming 路径模型与 MetadataSetter 签名不覆盖这条管线。扩展名与大小校验共用
+upload_finalize.validate_upload。
 
 宫格模式无独立端点：拆分后的单元格图 canonical 路径与图生视频模式相同
 （storyboards/scene_{id}.png），按镜头上传即覆盖该单元格，宫格记录不动。
