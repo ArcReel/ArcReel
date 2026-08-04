@@ -237,7 +237,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         denied_last_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_LAST_FRAME_SUBSTRINGS)
         # _create_task 对任何 model 都会把 reference_images 序列化成 role="reference_image"，
         # 参考生视频在 1.5 pro 上是既有可用路径；此处不声明容量会让 gate_video_request 把编排层
-        # 按 registry 正常派好参考图的请求整批拒掉。未上表的型号仍保守判 0。
+        # 正常派好参考图的请求整批拒掉——编排层的派图上限同样读这里。未上表的型号仍保守判 0。
         return VideoCapabilities(
             first_frame=not no_first_frame,
             last_frame=allowed_last_frame and not denied_last_frame,

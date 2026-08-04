@@ -30,7 +30,8 @@ class ModelInfo:
     # 输入模式（t2v / i2v / r2v）与参考图上限一概不在此声明——它们的真相源是各 backend 的
     # VideoCapabilities 与请求期 gate，与请求构造同源。视频模型在此只声明与输入模式无关的
     # 特性 token（generate_audio 是音轨开关的真相源，见下方注；其余为文档性声明）。
-    # 补一份视频输入模式或参考图上限声明即引入第二份手写来源：两份无人比对，漂了也没有守卫能发现。
+    # 补一份视频输入模式或参考图上限声明即引入第二份手写来源，由
+    # tests/test_video_backend_capabilities.py::TestVideoCapabilitySingleSourceOfTruth 拦下。
     capabilities: list[str]
     default: bool = False
     supported_durations: list[int] = field(default_factory=list)

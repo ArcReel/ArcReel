@@ -65,8 +65,9 @@ _R2V_MAX_REFERENCE_IMAGES = 4
 class _KlingVideoModelCaps:
     """单个可灵视频模型的能力位（官方一手核实）。"""
 
+    # 文生视频闸：为假的 model 不接受无首帧的请求（_build_payload 处拒）。图生视频没有对应位
+    # ——各档首帧恒可用，video_capabilities_for_model 直接声明 first_frame=True。
     text_to_video: bool
-    image_to_video: bool
     last_frame: bool
     # last_frame=True 但仅 pro 档可用（官方一手：kling-v2-5-turbo、kling-v2-6 首尾帧均标"仅 pro"，
     # 出处 docs/research/arcreel-vendor-integration-research.md）；std 档提交 image_tail 请求体虽会
@@ -87,7 +88,6 @@ class _KlingVideoModelCaps:
 # turbo / 未登记 model（bearer 透传原生 model_name）兜底：文/图生视频、首尾帧，无音频/参考。
 _DEFAULT_VIDEO_CAPS = _KlingVideoModelCaps(
     text_to_video=True,
-    image_to_video=True,
     last_frame=True,
     last_frame_requires_pro=True,
     reference_images=False,
@@ -100,7 +100,6 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
     "kling-v2-5-turbo": _DEFAULT_VIDEO_CAPS,
     "kling-v3": _KlingVideoModelCaps(
         text_to_video=True,
-        image_to_video=True,
         last_frame=True,
         last_frame_requires_pro=False,
         reference_images=False,
@@ -110,7 +109,6 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
     ),
     "kling-v3-omni": _KlingVideoModelCaps(
         text_to_video=True,
-        image_to_video=True,
         last_frame=True,
         last_frame_requires_pro=False,
         reference_images=True,
@@ -120,7 +118,6 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
     ),
     "kling-v2-6": _KlingVideoModelCaps(
         text_to_video=True,
-        image_to_video=True,
         last_frame=True,
         last_frame_requires_pro=True,
         reference_images=False,
@@ -130,7 +127,6 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
     ),
     "kling-video-o1": _KlingVideoModelCaps(
         text_to_video=False,
-        image_to_video=True,
         last_frame=True,
         last_frame_requires_pro=False,
         reference_images=True,

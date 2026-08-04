@@ -10,7 +10,7 @@
 
 内置视频两个维度取 backend 而非 registry ``ModelInfo``：backend 的能力声明与请求构造同源
 （例如 ``vidu`` 按端点白名单算 caps，白名单外的 model 提交首帧会在构造请求时报错），registry
-不再声明这两维。桶承诺的是「选中的组合执行得了」，故以执行期同源的那一份为准。视频两维的判定式本身由
+不声明这两维。桶承诺的是「选中的组合执行得了」，故以执行期同源的那一份为准。视频两维的判定式本身由
 ``lib.config.resolver.video_capability_satisfied`` 提供，与解析层的能力闸共用同一份，两处不会漂。
 
 判定不出（endpoint 已下线、backend 未声明能力函数）时返回空集而非全集：候选列表宁缺勿滥，

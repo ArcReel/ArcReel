@@ -51,7 +51,8 @@ class GrokVideoBackend:
         """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
 
         当前全系模型能力一致，不按 model_id 分支；instance property 委托至此，
-        保持 backend 为单一真相源。
+        保持 backend 为单一真相源。参考图上限取自第三方来源，官方文档未明确列出，
+        不硬编当既成事实。
         """
         return VideoCapabilities(max_reference_images=7)
 
