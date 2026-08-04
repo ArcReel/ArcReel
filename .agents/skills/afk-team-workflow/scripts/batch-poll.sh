@@ -243,12 +243,12 @@ jq -n \
   '
   def pick_pr($arr):
     if ($arr | length) == 0 then null
-    # an OPEN PR is the active one; fall back to MERGED/CLOSED history only when none is
-    # open, so a stale MERGED PR on a reused issue/<N> ref cannot shadow a reopened PR
+    # an OPEN PR is the active one; otherwise the newest PR speaks for the ref — an older
+    # MERGED must not shadow a newer CLOSED attempt (stage_hint reads the pick, and its
+    # issue-state guards keep done/shelved honest for reused issue/<N> refs)
     else ([$arr[] | select(.state == "OPEN")]) as $open
       | if ($open | length) > 0 then ($open | sort_by(.number) | last)
-        else ([$arr[] | select(.state == "MERGED")]) as $m
-          | (if ($m | length) > 0 then $m else $arr end | sort_by(.number) | last)
+        else ($arr | sort_by(.number) | last)
         end
     end;
 
