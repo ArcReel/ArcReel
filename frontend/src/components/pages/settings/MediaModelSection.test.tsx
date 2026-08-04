@@ -81,14 +81,14 @@ describe("MediaModelSection", () => {
   });
 
   it("shows an explicit error notice with a retry entry when the candidate fetch fails, even with no saved overrides", async () => {
-    // 候选失败但全局层未配置过任何细分项时，旧行为是整块折叠区消失——用户拿不到失败信号
+    // 全局层未配置过任何细分项时折叠区本会整块消失，失败态须把它留下，用户才拿得到失败信号
     vi.spyOn(API, "getModelCandidates").mockRejectedValue(new Error("boom"));
     render(<MediaModelSection />);
     await screen.findByRole("combobox", { name: "默认视频模型" });
     const alerts = await screen.findAllByRole("alert");
     expect(alerts.length).toBeGreaterThanOrEqual(2); // video + image 两处折叠区
     for (const alert of alerts) {
-      expect(alert).toHaveTextContent(/候选/);
+      expect(alert).toHaveTextContent(/可选模型列表加载失败/);
     }
     expect(screen.getAllByRole("button", { name: "重试" }).length).toBeGreaterThanOrEqual(2);
   });

@@ -1,11 +1,10 @@
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { API } from "@/api";
 import type {
-  ModelCandidatesResponse,
   SystemConfigSettings,
   SystemConfigOptions,
   SystemConfigPatch,
@@ -26,6 +25,7 @@ import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { catalogDurations } from "@/hooks/useModelCapabilities";
+import { useModelCandidates } from "@/hooks/useModelCandidates";
 import { errMsg } from "@/utils/async";
 import {
   getCustomProviderModels,
@@ -70,9 +70,12 @@ export function MediaModelSection() {
 
   const [settings, setSettings] = useState<SystemConfigSettings | null>(null);
   const [options, setOptions] = useState<SystemConfigOptions | null>(null);
-  const [candidates, setCandidates] = useState<ModelCandidatesResponse | null>(null);
-  const [candidatesError, setCandidatesError] = useState(false);
-  const candidatesAbortRef = useRef<AbortController | null>(null);
+  const {
+    candidates,
+    error: candidatesError,
+    retrying: candidatesRetrying,
+    reload: reloadCandidates,
+  } = useModelCandidates();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [draft, setDraft] = useState<SystemConfigPatch>({});
@@ -93,39 +96,21 @@ export function MediaModelSection() {
   );
   const bucketLabels = useCapabilityBucketLabels();
 
-  // 候选拉取独立于其余配置：写错误态、失败时不动其它已加载的表单状态，供挂载与重试共用。
-  // 接管方轮换 controller——重试可能在上一轮请求尚未回来时触发，旧响应回来时已经过期。
-  const loadCandidates = useCallback(async () => {
-    candidatesAbortRef.current?.abort();
-    const controller = new AbortController();
-    candidatesAbortRef.current = controller;
-    try {
-      const cand = await API.getModelCandidates({ signal: controller.signal });
-      if (controller.signal.aborted) return;
-      setCandidates(cand);
-      setCandidatesError(false);
-    } catch {
-      if (controller.signal.aborted) return;
-      setCandidates(null);
-      setCandidatesError(true);
-    }
-  }, []);
-
-  useEffect(() => () => candidatesAbortRef.current?.abort(), []);
-
+  // 候选与其余配置分开拉：它自带失败态，失败时只影响细分区、不牵动已加载的表单状态，
+  // 也让重试不必重取整页配置（会连带清空未保存的 draft）。
   const fetchConfig = useCallback(async () => {
     const [res, catalog, custom] = await Promise.all([
       API.getSystemConfig(),
       getProviderModels().catch(() => [] as ProviderInfo[]),
       getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
-      loadCandidates(),
+      reloadCandidates(),
     ]);
     setSettings(res.settings);
     setOptions(res.options);
     setProviders(catalog);
     setCustomProviders(custom);
     setDraft({});
-  }, [loadCandidates]);
+  }, [reloadCandidates]);
 
   useEffect(() => {
     // mount/依赖变更时异步拉取配置，回调内 setSettings 等（异步 fetch 后回写）
@@ -245,7 +230,9 @@ export function MediaModelSection() {
     complex: draft.text_backend_complex ?? settings.text_backend_complex ?? "",
   };
 
-  const candidatesSubFieldsError = candidatesError ? { onRetry: () => void loadCandidates() } : undefined;
+  const candidatesSubFieldsError = candidatesError
+    ? { onRetry: () => void reloadCandidates(), retrying: candidatesRetrying }
+    : undefined;
 
   const emptyHint = (msg: string) => (
     <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-3 py-2.5 text-[12px] text-text-3">

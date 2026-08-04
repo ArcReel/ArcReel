@@ -159,14 +159,13 @@ describe("ModelConfigSection", () => {
   });
 
   it("shows an explicit error notice with a retry entry when candidatesError is set, even with no saved overrides", async () => {
-    // 候选拉取失败态与"仍在加载中"（candidates=null 但未标记失败）不同：前者要给出可感知的错误信号
+    // 候选拉取失败态与「仍在加载中」（candidates=null 但未标记失败）不同：前者要给出可感知的错误信号
     const user = userEvent.setup();
     const onRetry = vi.fn();
     render(
       <ModelConfigSection
         candidates={null}
-        candidatesError
-        onRetryCandidates={onRetry}
+        candidatesError={{ onRetry }}
         value={EMPTY_VALUE}
         onChange={() => {}}
         providers={PROVIDERS}
@@ -177,7 +176,7 @@ describe("ModelConfigSection", () => {
     const alerts = screen.getAllByRole("alert");
     expect(alerts).toHaveLength(2); // video + image；文本档位不取用候选数据，不参与
     for (const alert of alerts) {
-      expect(alert).toHaveTextContent(/候选/);
+      expect(alert).toHaveTextContent(/可选模型列表加载失败/);
     }
     const retryButtons = screen.getAllByRole("button", { name: "重试" });
     expect(retryButtons).toHaveLength(2);

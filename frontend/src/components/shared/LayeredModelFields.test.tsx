@@ -117,7 +117,7 @@ describe("LayeredModelFields", () => {
     // 无任何细分项本应让整块折叠区消失，但错误态下仍需展示，用户才能感知失败并重试
     expect(container.querySelector("details")).not.toBeNull();
     expect(container.querySelector("details")?.open).toBe(true);
-    expect(screen.getByRole("alert")).toHaveTextContent(/候选/);
+    expect(screen.getByRole("alert")).toHaveTextContent(/可选模型列表加载失败/);
     expect(screen.queryByText("留空的用途沿用上方默认模型。")).not.toBeInTheDocument();
   });
 
@@ -131,6 +131,11 @@ describe("LayeredModelFields", () => {
     expect(screen.getByRole("combobox", { name: "图生视频" })).toHaveTextContent("veo-3");
     await user.click(screen.getByRole("button", { name: "重试" }));
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables the retry button while a retry is in flight", () => {
+    renderFields({ subFields: [], subFieldsError: { onRetry: () => {}, retrying: true } });
+    expect(screen.getByRole("button", { name: "重试" })).toBeDisabled();
   });
 
   it("lets the user collapse the disclosure again after the forced-open error state", async () => {

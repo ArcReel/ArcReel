@@ -111,11 +111,17 @@ export interface LayeredModelFieldsProps {
   /** 细分项；省略或空数组即不渲染折叠区（创建向导只暴露默认层）。 */
   subFields?: LayeredSubField[];
   /**
-   * 候选拉取失败态：非空即在折叠区内渲染统一的错误文案与重试入口（替换 subFields 为空时
-   * 折叠区整块消失的降级路径），文案由本组件维护、调用方只传重试回调。成功但候选为空是
-   * 另一种状态，不落入此分支——折叠区照常渲染（细分项按 degradeSubFieldsToSaved 降级）。
+   * 细分项候选拉取失败态：非空即渲染折叠区（哪怕一个细分项都没有）并在其中给出错误文案与
+   * 重试入口，文案由本组件维护、调用方只传重试回调，两处调用点因而措辞一致。
+   *
+   * 只对应「拉取失败」；候选仍在加载、或成功但为空都不传此项——那两种情况下折叠区按
+   * `subFields` 自身的有无渲染，不出现错误叙事。
    */
-  subFieldsError?: { onRetry: () => void };
+  subFieldsError?: {
+    onRetry: () => void;
+    /** 重试在途；置位时按钮灰化，避免慢响应下点击毫无反馈。 */
+    retrying?: boolean;
+  };
   /** 折叠区之后常驻的补充说明（如文本档位的智能体边界）。 */
   footnote?: React.ReactNode;
 }
@@ -197,7 +203,11 @@ export function LayeredModelFields({
             {subFieldsError ? (
               <InlineWarning
                 message={t("model_bucket_candidates_error")}
-                action={{ label: t("common:retry"), onClick: subFieldsError.onRetry }}
+                action={{
+                  label: t("common:retry"),
+                  onClick: subFieldsError.onRetry,
+                  disabled: subFieldsError.retrying,
+                }}
               />
             ) : (
               <p className="text-[11px] leading-[1.5] text-text-4">{t("model_bucket_section_hint")}</p>
