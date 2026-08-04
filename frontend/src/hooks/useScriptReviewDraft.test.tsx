@@ -124,4 +124,47 @@ describe("useScriptReviewDraft", () => {
     expect(save).toHaveBeenCalledTimes(2);
     expect(save.mock.calls[1][3]).toBe("fp2");
   });
+
+  it("keeps the adopted content when a pull issued before the save resolves afterwards", async () => {
+    let resolvePending: (state: ScriptReviewState) => void = noop;
+    const pending = new Promise<ScriptReviewState>((resolve) => {
+      resolvePending = resolve;
+    });
+    const get = vi
+      .spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(reviewState())
+      .mockReturnValueOnce(pending);
+    const saved = reviewState({ fingerprint: "fp2" });
+    (saved.content as DramaNormalizedScript).scenes[0].utterances[0].text = "我的本地编辑";
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(saved);
+
+    const { result } = renderDraft();
+    await waitFor(() => expect(result.current.draft).not.toBeNull());
+
+    // 外部刷新发出 GET，但它在用户保存完成前都不 resolve
+    act(() => {
+      useAppStore.getState().invalidateEntities(["draft:episode_1_step1"]);
+    });
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+
+    act(() => {
+      result.current.setDraft((prev) => (prev ? editFirstUtterance(prev, "我的本地编辑") : prev));
+    });
+    await act(async () => {
+      await result.current.save();
+    });
+
+    // 保存前发出的 GET 此刻才回来，携带保存前的旧内容与旧指纹
+    await act(async () => {
+      resolvePending(reviewState());
+      await pending;
+    });
+
+    // 旧响应不得回写：草稿保持刚采纳的内容，基线指纹保持 fp2（否则下次保存拿 fp1 撞 OCC）
+    expect(result.current.draft?.scenes[0].utterances[0].text).toBe("我的本地编辑");
+    await act(async () => {
+      await result.current.save();
+    });
+    expect(save.mock.calls[1][3]).toBe("fp2");
+  });
 });

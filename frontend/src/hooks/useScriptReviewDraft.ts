@@ -88,10 +88,16 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     dirtyRef.current = dirty;
   }, [dirty]);
 
+  // 在途拉取的 controller，供 adopt 接管时作废。
+  const loadControllerRef = useRef<AbortController | null>(null);
+
   // 采用服务端内容为新草稿（深克隆，避免与服务端态共享引用）。用户主动动作（保存 / 确认）后调用，
   // 总是覆盖本地草稿；setDraft 传值而非更新器，保持纯净、不在更新器内读写 ref。
   const adopt = useCallback(
     (next: ScriptReviewState) => {
+      // 先作废在途拉取：它可能早于本次保存 / 确认发出，回来时 dirtyRef 已因采纳而为 false，
+      // 会按保存前的旧内容回写 draft 与 baseFingerprint——草稿回退，且下次保存拿旧指纹撞 OCC。
+      loadControllerRef.current?.abort();
       setState(next);
       setDraft(clone(selectContent(next)));
       setBaseFingerprint(next.fingerprint);
@@ -108,6 +114,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
+    loadControllerRef.current = controller;
     // 已拿到过任一响应（空态或内容态）后，revision 触发的重新拉取静默刷新、不闪加载态；
     const hadResponse = state != null;
     // 屏上有真实内容可保留时，刷新失败静默保留、不破坏用户视图；无内容（首屏，或空态）时失败才进错误态。
