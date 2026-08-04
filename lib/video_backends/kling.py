@@ -56,8 +56,8 @@ _IMAGE2VIDEO = "image2video"
 _MULTI_IMAGE2VIDEO = "multi-image2video"
 _RESUMABLE_SUBPATHS = frozenset({_TEXT2VIDEO, _IMAGE2VIDEO, _MULTI_IMAGE2VIDEO})
 
-# 多图主体（R2V）参考图上限保守值；同时声明于 registry ModelInfo（编排层裁剪读它）与
-# backend caps（生成时防御）。待 app.klingai.com 控制台核对，不硬编当既成事实。
+# 多图主体（R2V）参考图上限，由 backend caps 单独声明（编排层裁剪与生成时防御同读）。
+# 取保守值：官方文档未明确列出该上限。
 _R2V_MAX_REFERENCE_IMAGES = 4
 
 
@@ -65,8 +65,9 @@ _R2V_MAX_REFERENCE_IMAGES = 4
 class _KlingVideoModelCaps:
     """单个可灵视频模型的能力位（官方一手核实）。"""
 
+    # 文生视频闸：为假的 model 不接受无首帧的请求（_build_payload 处拒）。图生视频没有对应位
+    # ——各档首帧恒可用，video_capabilities_for_model 直接声明 first_frame=True。
     text_to_video: bool
-    image_to_video: bool
     last_frame: bool
     # last_frame=True 但仅 pro 档可用（官方一手：kling-v2-5-turbo、kling-v2-6 首尾帧均标"仅 pro"，
     # 出处 docs/research/arcreel-vendor-integration-research.md）；std 档提交 image_tail 请求体虽会
@@ -87,7 +88,6 @@ class _KlingVideoModelCaps:
 # turbo / 未登记 model（bearer 透传原生 model_name）兜底：文/图生视频、首尾帧，无音频/参考。
 _DEFAULT_VIDEO_CAPS = _KlingVideoModelCaps(
     text_to_video=True,
-    image_to_video=True,
     last_frame=True,
     last_frame_requires_pro=True,
     reference_images=False,
@@ -100,7 +100,6 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
     "kling-v2-5-turbo": _DEFAULT_VIDEO_CAPS,
     "kling-v3": _KlingVideoModelCaps(
         text_to_video=True,
-        image_to_video=True,
         last_frame=True,
         last_frame_requires_pro=False,
         reference_images=False,
@@ -110,7 +109,6 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
     ),
     "kling-v3-omni": _KlingVideoModelCaps(
         text_to_video=True,
-        image_to_video=True,
         last_frame=True,
         last_frame_requires_pro=False,
         reference_images=True,
@@ -120,7 +118,6 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
     ),
     "kling-v2-6": _KlingVideoModelCaps(
         text_to_video=True,
-        image_to_video=True,
         last_frame=True,
         last_frame_requires_pro=True,
         reference_images=False,
@@ -130,7 +127,6 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
     ),
     "kling-video-o1": _KlingVideoModelCaps(
         text_to_video=False,
-        image_to_video=True,
         last_frame=True,
         last_frame_requires_pro=False,
         reference_images=True,
@@ -223,8 +219,8 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         # first_frame 恒真（各档均支持 i2v 首帧）；last_frame / reference_images / 上限按 model 从
         # _KLING_VIDEO_CAPS 读（_lookup_video_caps 归一化前缀/大小写后精确命中，未登记回落保守默认）。
-        # max_reference_images 以此处为准（编排层裁剪与生成时防御同读它；registry ModelInfo 另有一份
-        # 并行声明，不参与解析），取保守值、未经 app.klingai.com 控制台核对。纯函数（不构造 client /
+        # max_reference_images 只在此处声明（编排层裁剪与生成时防御同读它），取保守值——
+        # 官方文档未明确列出该上限。纯函数（不构造 client /
         # 不需 api_key），供 custom endpoint resolver 按 model_id 读上限复用。
         #
         # last_frame_requires_pro 为真的 model（kling-v2-5-turbo、kling-v2-6）：该位不按 service_tier

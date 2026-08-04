@@ -37,7 +37,7 @@ _SEEDANCE_2_MAX_REFERENCE_AUDIO = 3
 # ModelInfo 至今没有任何 reference_audio 维度；请求期硬拒绝的判定一律读 VideoCapabilities。
 _SEEDANCE_2_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 15.0
 
-# Seedance 1.5 pro 的参考图上限，与 lib/config/registry.py 的同名 ModelInfo 字段同值。
+# Seedance 1.5 pro 的参考图上限，唯一声明处（编排层裁剪与请求期校验同读 VideoCapabilities）。
 _SEEDANCE_1_5_MAX_REFERENCE_IMAGES = 9
 
 # 参考音频的 data URI MIME：官方接受 wav / mp3 两种格式，要求 `data:audio/<格式>;base64,<内容>`
@@ -164,11 +164,8 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     # 被误判为继承已验证型号的尾帧能力，绕过本模块新增的硬拒绝。
     _KNOWN_MODEL_SUFFIX_RE = re.compile(r"^(-\d+)?$")
 
-    # 非 2.0 系列里支持参考生视频的型号：1.5 pro 的参考图上限与 registry ModelInfo 声明
-    # （doubao-seedance-1-5-pro-251215 / doubao-seedance-1.5-pro 均为 9）一致。两处必须同值——
-    # 编排层按 registry 决定给一个 unit 派几张参考图，请求期按本声明校验，声明低于 registry
-    # 会让编排层正常派图的请求在 gate 上被拒。守卫见 tests/test_video_backend_ark.py 的
-    # registry 一致性用例。
+    # 非 2.0 系列里支持参考生视频的型号：1.5 pro 的参考图上限由本模块的 VideoCapabilities
+    # 单独声明，编排层裁剪与请求期校验同读该声明。
     _REFERENCE_IMAGE_ALLOW_SUBSTRINGS = ("seedance-1-5-pro", "seedance-1.5-pro")
 
     # Seedance 2.0 系列已验证支持首尾帧的三个变体（lib/config/registry.py 内建型号：
@@ -237,7 +234,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         denied_last_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_LAST_FRAME_SUBSTRINGS)
         # _create_task 对任何 model 都会把 reference_images 序列化成 role="reference_image"，
         # 参考生视频在 1.5 pro 上是既有可用路径；此处不声明容量会让 gate_video_request 把编排层
-        # 按 registry 正常派好参考图的请求整批拒掉。未上表的型号仍保守判 0。
+        # 正常派好参考图的请求整批拒掉——编排层的派图上限同样读这里。未上表的型号仍保守判 0。
         return VideoCapabilities(
             first_frame=not no_first_frame,
             last_frame=allowed_last_frame and not denied_last_frame,

@@ -16,7 +16,7 @@ status: accepted
 
 ## Consequences
 
-- 能力真相源维持既有声明、不新增副本：两桶都取 backend `VideoCapabilities`——i2v 看 `first_frame`（分镜路线由首帧驱动，宫格装配不改变这一点），r2v 看 `max_reference_images > 0`；自定义供应商 = endpoint 系统判定 ⊕ 模型级 `capability_overrides` 合成。registry `ModelInfo.capabilities` 的 `image_to_video` 不区分这两条路径（`happyhorse-1.0-r2v` 声明该位、backend `first_frame=False`），不作桶候选的过滤依据。桶下拉据此预过滤候选；默认层下拉不过滤——默认层不承诺任何能力。
+- 能力真相源维持既有声明、不新增副本：两桶都取 backend `VideoCapabilities`——i2v 看 `first_frame`（分镜路线由首帧驱动，宫格装配不改变这一点），r2v 看 `max_reference_images > 0`；自定义供应商 = endpoint 系统判定 ⊕ 模型级 `capability_overrides` 合成。内置视频模型的这两维只在 backend 声明，registry `ModelInfo` 不带视频能力位与参考图上限——单一 token 无从区分图生与参考生两条路径（如 `happyhorse-1.0-r2v` 只接受参考图、不接受首帧）。桶下拉据此预过滤候选；默认层下拉不过滤——默认层不承诺任何能力。
 - 全部读侧（`video_capabilities` 查询与 agent 工具、费用估算、时长 / 分辨率约束收窄）与执行侧同口径：按上述口径定桶后走同一解析函数。能力查询与费用估算都按项目路线一次定轴、不需要剧集与剧本上下文，三种 content_mode 不分支；WebUI 的逐条视频生成端点同口径：入队预检与 `generation_tasks.execute_video_task` 都按项目路线定桶，参考路线项目在该入口直接被拒并指引改走参考生视频流程（见 `docs/adr/0055`）。路线创建即定不可变，能力查询结果因此在项目生命周期内不会换桶。
 - 图片侧空桶语义是「回退默认层」，不存在「空 = 跟随自动推断」的读法；存量配置的键组合在迁移中穷举处置。
 - 前端呈现与 per-model 存储按**执行模型**取键：凡按模型查能力或按模型存配置的界面元素（能力面板、`model_settings` 下的分辨率等），一律取当前配置真正会执行的模型——细分桶生效时是桶内模型，否则是默认层穿透演算的结果；视频侧先按项目路线定桶再求值，与后端按路线定桶的口径同源，项目内全集一致。图片侧一类例外：`executingImageModel` 只取 T2I 层的执行模型，图片分辨率据此存取键，I2I 走独立的执行模型——两者配置不同模型时，I2I 执行期按自己的模型查 `model_settings` 查不到该键，回落供应商默认分辨率档位。默认层模型不作查询或存储的键，除非它就是执行模型。

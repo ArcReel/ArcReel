@@ -1119,8 +1119,8 @@ class ConfigResolver:
         """能力闸：校验解析出的模型具备该桶所需能力，不满足直接报错、不静默换模型。
 
         判定经 ``video_capability_satisfied`` 与桶候选下拉（``lib.capability_buckets``）共用一份
-        口径：内置模型两维都取 backend ``VideoCapabilities``（与请求构造同源），不读 registry
-        ``ModelInfo`` 的并行声明。悬空引用（模型被删 /
+        口径：内置模型两维都取 backend ``VideoCapabilities``（与请求构造同源，也是这两维唯一的
+        声明处；registry ``ModelInfo`` 不声明视频能力位）。悬空引用（模型被删 /
         能力被事后修改 / 供应商被删 / endpoint 变更）在此统一报错兜底，写入侧不拦截、不级联清理
         （``docs/adr/0054``）。
         """
@@ -1336,8 +1336,8 @@ class ConfigResolver:
             if model_info is None:
                 raise ValueError(f"model not found in registry: {provider_id}/{model_id}")
             supported_durations = list(model_info.supported_durations or [])
-            # 能力位一律读 backend 声明，不读 ModelInfo 的并行声明：backend 是执行期真正构造
-            # 请求的一方，也是能力闸（`_ensure_video_bucket_capability`）与桶候选下拉
+            # 视频能力位与参考图上限只在 backend 声明：backend 是执行期真正构造请求的一方，
+            # 也是能力闸（`_ensure_video_bucket_capability`）与桶候选下拉
             # （`lib.capability_buckets`）的口径，展示层与执行层因此严格同源。
             try:
                 spec = get_provider_spec(provider_id, "video")

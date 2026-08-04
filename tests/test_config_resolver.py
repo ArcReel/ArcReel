@@ -697,8 +697,8 @@ class TestVideoCapabilities:
         assert caps["max_reference_images"] == 7
 
     @pytest.mark.unit
-    async def test_max_reference_images_reads_model_info_for_openai_sora(self):
-        """openai sora 的 max_reference_images 来自 registry ModelInfo（=1），不再依赖 provider 级 fallback。"""
+    async def test_max_reference_images_reads_backend_caps_for_openai_sora(self):
+        """openai sora 的 max_reference_images 来自 backend 声明（=1），不依赖 provider 级 fallback。"""
         factory, engine = await _make_session()
         try:
             resolver = ConfigResolver(factory)

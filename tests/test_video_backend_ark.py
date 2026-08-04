@@ -437,25 +437,6 @@ class TestArkModelCapabilities:
         assert ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-5-pro-future").max_reference_images == 0
 
     @pytest.mark.unit
-    def test_backend_reference_capacity_matches_registry(self):
-        """registry 与 backend 的参考图上限必须同值。
-
-        编排层按 registry.ModelInfo.max_reference_images 决定给一个 unit 派几张参考图，
-        gate_video_request 按 backend 声明校验；backend 声明低于 registry 时，编排层正常派好
-        图的请求会在 gate 上被拒——两侧漂移没有别的守卫能发现。
-        """
-        from lib.config.registry import PROVIDER_REGISTRY
-
-        for provider_id in ("ark", "ark-agent-plan"):
-            for model_id, info in PROVIDER_REGISTRY[provider_id].models.items():
-                if info.media_type != "video":
-                    continue
-                declared = ArkVideoBackend.video_capabilities_for_model(model_id).max_reference_images
-                assert declared == info.max_reference_images, (
-                    f"{provider_id}/{model_id}: registry={info.max_reference_images} backend={declared}"
-                )
-
-    @pytest.mark.unit
     def test_seedance_1_0_lite_t2v_no_last_frame(self):
         """纯文生视频型号，能力表「图生视频-首帧」「图生视频-首尾帧」均标 "-"，不接受任何图片输入。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0-lite-t2v-250428")

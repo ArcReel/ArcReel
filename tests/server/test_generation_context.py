@@ -17,6 +17,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from lib.audio_backends.base import VoiceOption
+from lib.backend_assembly.specs import get_provider_spec
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver, ProviderModel, get_provider_fallback
 from lib.custom_provider import make_provider_id
@@ -24,6 +25,8 @@ from lib.db.base import Base
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.media_generator import MediaGenerator
 from lib.project_manager import ProjectManager
+from lib.video_backends.base import VideoCapabilities
+from lib.video_backends.registry import video_capabilities_for_model
 from server.services import generation_context
 from server.services.generation_context import (
     AudioLaneRequest,
@@ -41,6 +44,12 @@ def _registry_video_model(provider_id: str) -> str:
     """从 registry 取该 provider 的任一视频 model id，避免硬编码供应商数据。"""
     meta = PROVIDER_REGISTRY[provider_id]
     return next(mid for mid, mi in meta.models.items() if mi.media_type == "video")
+
+
+def _backend_video_caps(provider_id: str, model_id: str) -> VideoCapabilities:
+    """视频能力位与参考图上限的唯一声明处是 backend，registry ModelInfo 不带这些字段。"""
+    spec = get_provider_spec(provider_id, "video")
+    return video_capabilities_for_model(spec.registry_backend, model_id)
 
 
 @dataclass
@@ -209,7 +218,7 @@ class TestVideoLane:
 
         assert ctx.video.supported_durations == tuple(expected.supported_durations or [])
         assert ctx.video.max_duration == max(expected.supported_durations or [0])
-        assert ctx.video.max_reference_images == expected.max_reference_images
+        assert ctx.video.max_reference_images == _backend_video_caps("ark", video_model).max_reference_images
         assert ctx.video.resolution is None
         assert ctx.video.resolution_or_fallback == get_provider_fallback("ark")
 
