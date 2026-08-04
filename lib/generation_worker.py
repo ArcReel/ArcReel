@@ -367,9 +367,11 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``capability="t2i"`` 取一个
     **代表性** provider——worker 认领时拿不到真实 capability（见 ``docs/adr/0001``），这点近似不影响
     生成正确性（执行层会独立精确再解析一次）；``image_edit`` 是唯一例外（必然 i2i、入队即知），
-    按 i2i 槽精确解析。视频定桶经 ``video_bucket_for_queued_task`` 与入队派生、执行侧同口径
-    （参考生视频按 unit 声明的参考集分流，无参考图退化镜头 → i2v）。解析失败（未配置供应商）
-    时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
+    按 i2i 槽精确解析。视频定桶经 ``video_bucket_for_queued_task`` 与入队派生共用：
+    参考生视频按 unit **声明**的参考集近似分流（无引用退化镜头 → i2v），投影只服务 claim
+    过滤与限流路由；执行侧按解析后的**实际**参考图精确定桶，ad 声明了参考但资产缺图时
+    两者允许分裂（执行前经 ``persist_execution_provider_id`` 把实际值写回投影列）。
+    解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
     payload = task.get("payload") or {}
