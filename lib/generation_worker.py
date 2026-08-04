@@ -747,6 +747,8 @@ class GenerationWorker:
         ``video_provider`` 字段，让 ``ConfigResolver`` 按持久化 provider 而非当前
         项目配置解析 backend。否则任务提交后到重启前若项目 provider 配置切换，
         会拿旧 ``provider_job_id`` 去新 provider 轮询，导致可恢复任务被误判失败。
+        model 侧由入队时钉进 payload 能力桶键的执行身份负责（``lib.generation_queue``），
+        解析优先级高于此处注入；这里的注入是无桶键存量任务的兜底。
         """
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")

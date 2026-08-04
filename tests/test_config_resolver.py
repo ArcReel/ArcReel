@@ -2040,3 +2040,90 @@ class TestResolveRawSupportedDurations:
     @pytest.mark.unit
     def test_none_when_no_resolvable_model(self):
         assert resolve_raw_supported_durations({}) is None
+
+
+@pytest.mark.unit
+class TestPayloadPinnedVideoModel:
+    """入队钉进 payload 能力桶键的执行身份：优先级最高，且不承诺桶的调用方（resume）也读得到。"""
+
+    async def test_pinned_bucket_key_wins_over_project_and_legacy_payload(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_provider_i2v": "vidu/viduq3-pro", "video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider_i2v": "ark/seedance-1-0-pro", "video_provider": "grok"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
+
+    async def test_pinned_bucket_key_hit_without_capability(self):
+        """resume 口径（capability=None）：入队只写一个桶键，按固定桶序取到即命中。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider_r2v": "ark/seedance-1-0-pro"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload)
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
+
+    async def test_pin_of_other_bucket_ignored_when_capability_given(self):
+        """capability 明确时只认该桶的键，另一个桶的钉不越桶生效。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider_r2v": "ark/seedance-1-0-pro"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
+        assert (resolved.provider_id, resolved.model_id) == ("grok", "grok-imagine-video")
+
+    async def test_untrusted_pin_falls_through_to_legacy_payload_keys(self):
+        """脏 / legacy provider 的桶键不予信任，回退 payload 旧键（历史任务排空语义不变）。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider_i2v": "seedance/legacy", "video_provider": "ark", "video_model": "seedance"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance")
+
+    async def test_malformed_pin_falls_through_to_config(self):
+        """非复合形态（缺 model）的桶键按未钉住处理，回退配置层。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, {"video_provider_i2v": "ark"})
+        assert (resolved.provider_id, resolved.model_id) == ("grok", "grok-imagine-video")
+
+    @pytest.mark.integration
+    async def test_custom_provider_pin_survives_resume_resolution(self):
+        """自定义供应商的视频任务中断续跑：沿用入队钉住的 model，不回落项目配置换模型。"""
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                provider = CustomProvider(
+                    display_name="Custom Pinned",
+                    discovery_format="openai",
+                    base_url="https://example.com",
+                    api_key="xxx",
+                )
+                session.add(provider)
+                await session.flush()
+                session.add(
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="pinned-model",
+                        display_name="Pinned",
+                        endpoint="openai-video",
+                        is_enabled=True,
+                        is_default=True,
+                    )
+                )
+                await session.commit()
+                provider_id = f"custom-{provider.id}"
+
+                resolver = ConfigResolver(factory)
+                resolved = await resolver.resolve_video_backend(
+                    {"video_backend": "grok/grok-imagine-video"},
+                    {"video_provider_i2v": f"{provider_id}/pinned-model"},
+                )
+        finally:
+            await engine.dispose()
+
+        assert (resolved.provider_id, resolved.model_id) == (provider_id, "pinned-model")

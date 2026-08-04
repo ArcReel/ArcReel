@@ -21,18 +21,19 @@ from lib.task_terminal_events import emit_task_terminal_events
 logger = logging.getLogger(__name__)
 
 
-async def _derive_provider_id_for_enqueue(
+async def _derive_execution_model_for_enqueue(
     *,
     project_name: str | None,
     payload: dict[str, Any] | None,
     task_type: str,
     media_type: str,
-) -> str | None:
-    """入队时按 project + payload 派生 provider_id，供 claim SQL 池过滤使用。
+) -> tuple[str, str] | None:
+    """入队时按 project + payload 派生本次任务的执行身份 ``(provider_id, model_id)``。
 
-    与 worker ``_extract_provider`` 同套解析逻辑，但失败时返回 ``None``（不强行
-    回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL`` 兜底分支，由 worker
-    claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
+    provider_id 落 task 行供 claim SQL 池过滤使用；视频任务的完整身份另钉进 payload
+    （见 ``_pin_video_execution_model``）。与 worker ``_extract_provider`` 同套解析逻辑，
+    但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
+    兜底分支，由 worker claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
     """
     is_video = media_type == "video" or task_type in ("video", "reference_video")
     is_audio = media_type == "audio" or task_type == "tts"
@@ -57,9 +58,37 @@ async def _derive_provider_id_for_enqueue(
             capability = "i2i" if task_type == "image_edit" else "t2i"
             resolved = await resolver.resolve_image_backend(project, payload or {}, capability=capability)
     except Exception:
-        logger.debug("入队时派生 provider_id 失败，留 NULL 由 worker 兜底", exc_info=True)
+        logger.debug("入队时派生执行身份失败，留 NULL 由 worker 兜底", exc_info=True)
         return None
-    return resolved.provider_id or None
+    if not resolved.provider_id:
+        return None
+    return resolved.provider_id, resolved.model_id
+
+
+def _pin_video_execution_model(
+    payload: dict[str, Any] | None,
+    *,
+    task_type: str,
+    provider_id: str,
+    model_id: str,
+) -> dict[str, Any] | None:
+    """把入队解析出的执行身份钉进视频任务 payload 的能力桶键，返回新 payload（不改调用方的 dict）。
+
+    钉的是「本次任务真正会执行的 model」：task 行只存 provider_id，中断续跑
+    （``GenerationWorker._process_resume_task``）据此只锁得住供应商，model 会按彼时的项目 / 全局
+    配置重解析；自定义供应商更是补不出 registry 默认 model，整个 payload 分支落空而换供应商续跑，
+    违反 ``docs/adr/0054``「不静默换模型」。桶键形态与解析侧读取口径同源（``lib.config.resolver``
+    的 payload 层），也是 payload 视频桶键的写入方。
+
+    非视频任务、无对应桶的 task_type、以及解析不出 model 时原样返回。
+    """
+    # 局部导入：与 ``_derive_execution_model_for_enqueue`` 同因——入队路径不在模块级引入 lib.config。
+    from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE
+
+    capability = VIDEO_BUCKET_BY_TASK_TYPE.get(task_type)
+    if capability is None or not model_id:
+        return payload
+    return {**(payload or {}), f"video_provider_{capability}": f"{provider_id}/{model_id}"}
 
 
 ACTIVE_TASK_STATUSES = ("queued", "running", "cancelling")
@@ -127,13 +156,22 @@ class GenerationQueue:
     ) -> dict[str, Any]:
         # caller 没传 provider_id → 入队时主动派生一次，让 claim 走 SQL 池过滤快路径；
         # 派生失败留 NULL，走 IS NULL 兜底，由 worker claim 后 _extract_provider 二次校验。
+        # 派生成功时视频任务同时把执行 model 钉进 payload，中断续跑据此沿用同一 model。
         if provider_id is None:
-            provider_id = await _derive_provider_id_for_enqueue(
+            derived = await _derive_execution_model_for_enqueue(
                 project_name=project_name,
                 payload=payload,
                 task_type=task_type,
                 media_type=media_type,
             )
+            if derived is not None:
+                provider_id, derived_model_id = derived
+                payload = _pin_video_execution_model(
+                    payload,
+                    task_type=task_type,
+                    provider_id=provider_id,
+                    model_id=derived_model_id,
+                )
 
         async with self._task_repo() as repo:
             result = await repo.enqueue(

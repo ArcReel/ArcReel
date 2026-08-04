@@ -244,6 +244,21 @@ def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoCapabi
     return VIDEO_BUCKET_BY_GENERATION_MODE.get(generation_mode, _DEFAULT_VIDEO_BUCKET)
 
 
+def _payload_video_pinned_pair(payload: dict, capability: VideoCapability | None) -> tuple[str, str] | None:
+    """读 payload 里入队时钉住的视频执行身份（能力桶键 ``video_provider_<cap>`` 的复合值）。
+
+    入队只为任务所属的那一个桶写键（``lib.generation_queue``），故 ``capability`` 未声明（resume
+    等不承诺桶的调用方）时按固定桶序取第一个命中的键——至多命中一个。provider 须可信（见
+    ``_trusted_payload_provider``），否则视为未钉住、回退 payload 旧键与配置层。
+    """
+    caps: tuple[str, ...] = (capability,) if capability is not None else tuple(_VIDEO_LAYERED_KEYS)
+    for cap in caps:
+        pair = _split_pair(payload.get(f"video_provider_{cap}"))
+        if pair is not None and _trusted_payload_provider(pair[0]) is not None:
+            return pair
+    return None
+
+
 def caps_generation_mode(project: dict | None) -> str | None:
     """能力查询口径的 generation_mode：直读项目字段，无项目上下文时为 None。
 
@@ -720,8 +735,8 @@ class ConfigResolver:
     ) -> ProviderModel:
         """解析视频任务应使用的 ProviderModel。
 
-        payload（历史任务携带的 ``video_provider``）恒为最高优先级。其后按 ``capability``
-        分两条路径（``docs/adr/0054``）：
+        payload 恒为最高优先级：入队时钉进能力桶键 ``video_provider_<cap>`` 的执行身份优先，
+        其次是历史任务携带的 ``video_provider``。其后按 ``capability`` 分两条路径（``docs/adr/0054``）：
 
         - ``capability`` 给定（``"i2v"`` / ``"r2v"``）：走四级骨架 项目桶（``video_provider_<cap>``）
           > 项目默认（``video_backend``）> 全局桶（``default_video_backend_<cap>``）> 全局默认
@@ -1085,12 +1100,16 @@ class ConfigResolver:
     ) -> ProviderModel:
         """payload 优先解析视频 ProviderModel；无 payload 时按 ``capability`` 走桶骨架或旧三级。
 
-        payload 层服务于历史任务（携带 ``video_provider`` + ``video_model`` /
-        ``video_provider_settings.model``）的排空，不过能力闸、仍做有效身份收敛。payload
+        payload 层接受两种形态，均不过能力闸、仍做有效身份收敛：入队时钉住的能力桶键
+        （``video_provider_<cap>`` 复合值，见 ``_payload_video_pinned_pair``）优先；其后是历史任务
+        携带的 ``video_provider`` + ``video_model`` / ``video_provider_settings.model``。payload
         provider 须是已知 provider（见 ``_trusted_payload_provider``），否则不予信任、回退
         配置层。各层语义见 ``resolve_video_backend`` docstring。
         """
         if payload:
+            pinned = _payload_video_pinned_pair(payload, capability)
+            if pinned is not None:
+                return await self._resolve_effective_video_provider_model(session, ProviderModel(*pinned))
             provider_id = _trusted_payload_provider(payload.get("video_provider"))
             if provider_id is not None:
                 settings = payload.get("video_provider_settings")
