@@ -1879,6 +1879,7 @@ class TestTextBackendTierResolution:
         result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.SCRIPT, None)
         assert result == ("g-def", "m")
 
+    @pytest.mark.unit
     async def test_project_bare_provider_pins_its_default_model(self):
         """项目档位写裸 provider（写边界放行的合法值）→ pin 住该 provider 补默认 model，
         不静默回退到全局默认的另一供应商。与图片 / 视频的项目层同构。"""
