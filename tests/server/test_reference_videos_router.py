@@ -394,6 +394,38 @@ def test_generate_unit_bucket_capability_error_returns_400(client: TestClient, m
 
 
 @pytest.mark.unit
+def test_generate_unit_degenerate_precheck_uses_i2v_bucket(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """无参考图退化 unit 的入队预检按降级后的 i2v 桶过解析闸，与执行侧分流同口径。"""
+    script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"] = [
+        {"unit_id": "E1U1", "shots": [{"text": "空镜头"}], "references": [], "duration_seconds": 3}
+    ]
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.routers import reference_videos as router_mod
+
+    class _FakeQueue:
+        async def enqueue_task(self, **kwargs):
+            return {"task_id": "task-xyz", "deduped": False}
+
+    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: _FakeQueue())
+
+    checked: list[str] = []
+
+    async def _record(project, capability):
+        checked.append(capability)
+
+    monkeypatch.setattr(router_mod, "require_video_bucket_capability", _record)
+
+    resp = client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate")
+    assert resp.status_code == 202, resp.text
+    assert checked == ["i2v"]
+
+
+@pytest.mark.unit
 def test_generate_unit_rejects_blank_prompt(client: TestClient, tmp_path: Path):
     """shots 文本全空白的 unit 在入队时被守卫点拒绝（400），不再漏到执行层失败。"""
     script_path = tmp_path / "projects" / "demo" / "scripts" / "episode_1.json"

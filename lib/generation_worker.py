@@ -34,6 +34,7 @@ from lib.generation_queue import (
     TASK_WORKER_LEASE_TTL_SEC,
     GenerationQueue,
     get_generation_queue,
+    video_bucket_for_queued_task,
 )
 from lib.image_backends.base import ImageCapabilityError
 from lib.reference_compression import ReferencePayloadFloorError
@@ -366,7 +367,11 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``capability="t2i"`` 取一个
     **代表性** provider——worker 认领时拿不到真实 capability（见 ``docs/adr/0001``），这点近似不影响
     生成正确性（执行层会独立精确再解析一次）；``image_edit`` 是唯一例外（必然 i2i、入队即知），
-    按 i2i 槽精确解析。解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
+    按 i2i 槽精确解析。视频定桶经 ``video_bucket_for_queued_task`` 与入队派生共用：
+    参考生视频按 unit **声明**的参考集近似分流（无引用退化镜头 → i2v），投影只服务 claim
+    过滤与限流路由；执行侧按解析后的**实际**参考图精确定桶，ad 声明了参考但资产缺图时
+    两者允许分裂（执行前经 ``persist_execution_identity`` 把实际身份写回投影列与钉住键）。
+    解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
     payload = task.get("payload") or {}
@@ -374,7 +379,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     is_video = task.get("media_type") == "video" or task.get("task_type") in ("video", "reference_video")
     is_audio = task.get("media_type") == "audio" or task.get("task_type") == "tts"
 
-    # 整体兜底：含项目加载（队列里可能有指向已删除/不可读项目的历史任务，load_project 会抛
+    # 整体兜底：含项目加载（队列里可能残留指向已删除/不可读项目的任务，load_project 会抛
     # FileNotFoundError）在内的任何失败都回退 DEFAULT_PROVIDER，绝不冒泡阻断认领循环（见 docstring）。
     try:
         project: dict | None = None
@@ -383,14 +388,19 @@ async def _extract_provider(task: dict[str, Any]) -> str:
 
             project = await asyncio.to_thread(get_project_manager().load_project, project_name)
 
-        from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE, ConfigResolver
+        from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
 
         resolver = ConfigResolver(async_session_factory)
         if is_video:
-            resolved = await resolver.resolve_video_backend(
-                project, payload, capability=VIDEO_BUCKET_BY_TASK_TYPE.get(task.get("task_type", ""))
+            capability = await video_bucket_for_queued_task(
+                project=project,
+                project_name=project_name,
+                task_type=task.get("task_type", ""),
+                payload=payload,
+                resource_id=task.get("resource_id"),
             )
+            resolved = await resolver.resolve_video_backend(project, payload, capability=capability)
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload)
         else:
@@ -605,6 +615,17 @@ class GenerationWorker:
                         media_type,
                         task["task_id"],
                     )
+                    # 回队前把重派生的 provider 刷回投影列：走到这里说明存量投影与现值
+                    # 分裂（NULL 兜底，或入队后剧本参考集 / 供应商配置被改），不刷新的话
+                    # 存量值躲过 pool_full 的 SQL 过滤，之后每个 cycle 都重复
+                    # claim → requeue → break，满池期间同 lane 其他可跑任务被持续排头阻塞。
+                    # best-effort：刷新失败只损失过滤精度，回队重试本身不受影响。
+                    try:
+                        await self.queue.persist_execution_provider_id(task["task_id"], provider_id)
+                    except Exception:
+                        logger.warning(
+                            "回队前投影刷新失败 task_id=%s provider=%s", task["task_id"], provider_id, exc_info=True
+                        )
                     await self._requeue_single_task(task["task_id"])
                     # break 当前 media_type 循环：下一轮 SQL 会按重算的 pool_full
                     # 过滤掉这个 provider，避免反复 claim 同一 task

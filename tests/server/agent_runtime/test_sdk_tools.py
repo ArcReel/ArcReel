@@ -1186,7 +1186,7 @@ async def test_generate_video_episode_reference_duration_needs_confirmation(fake
         enqueued.extend(specs)
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1233,7 +1233,7 @@ async def test_generate_video_episode_reference_duration_confirm_enqueues(fake_c
                 )
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1267,7 +1267,7 @@ async def test_generate_video_episode_reference_duration_repeat_without_confirm_
         enqueued.extend(specs)
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1314,7 +1314,7 @@ async def test_generate_video_episode_reference_duration_exact_enqueues_directly
                 )
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1370,7 +1370,7 @@ async def test_generate_video_episode_reference_duration_skips_unit_without_shot
                 )
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1390,11 +1390,10 @@ async def test_generate_video_episode_reference_duration_skips_unit_without_shot
 async def test_generate_video_episode_reference_duration_resolves_project_context_once(
     fake_ctx: ToolContext, monkeypatch
 ) -> None:
-    """批量预检 N 个 unit 时项目视频能力/分辨率只解析一次，逐 unit 取档改走纯函数 precheck_unit。
+    """批量预检时项目视频能力/分辨率按能力桶至多各解析一次，逐 unit 取档走纯函数 precheck_unit。
 
-    重构前 ``_pending_duration_confirmations`` 对每个待确认 unit 各自触发一轮 DB 往返
-    （``resolve_project_supported_durations``）；重构后项目级 IO 收口到批次开始时的
-    一次 ``resolve_project_duration_context`` 调用，逐 unit 只做纯计算。
+    unit 按声明的参考集分桶：有参考图 → r2v，无参考图退化镜头 → i2v，与执行侧同口径。
+    同桶多 unit 复用同一次解析，不逐 unit 触发 DB 往返。
     """
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
     from server.services.reference_video_tasks import ProjectDurationContext
@@ -1408,13 +1407,21 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
             "duration_seconds": 5,
         }
     )
+    script["video_units"].append(
+        {
+            "unit_id": "E1U3",
+            "shots": [{"text": "空镜转场"}],
+            "references": [],
+            "duration_seconds": 5,
+        }
+    )
     _use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = script  # type: ignore[attr-defined]
 
-    context_calls: list[dict[str, Any]] = []
+    context_calls: list[Any] = []
 
-    async def fake_duration_context(project, _episode=None):
-        context_calls.append(project)
+    async def fake_duration_context(project, _episode=None, *, capability=None):
+        context_calls.append(capability)
         return ProjectDurationContext(supported_durations=(4, 8, 12), resolution=None, provider_id="", model_name=None)
 
     enqueued: list[Any] = []
@@ -1429,9 +1436,10 @@ async def test_generate_video_episode_reference_duration_resolves_project_contex
     tool_obj = generate_video_episode_tool(fake_ctx)
     out = await _call(tool_obj, {"script": "episode_1.json"})
 
-    # 两个 unit 均 5 秒、档位无 5 → 都需确认，本批不入队；解析只发生一次。
+    # 三个 unit 均 5 秒、档位无 5 → 都需确认，本批不入队；两个带参考图 unit 共用一次
+    # r2v 解析，无参考图 unit 单独触发一次 i2v 解析——既验证分桶传递，也验证按桶缓存。
     assert out.get("is_error") is not True, out
-    assert len(context_calls) == 1
+    assert context_calls == ["r2v", "i2v"]
     assert enqueued == []
 
 
@@ -1451,7 +1459,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_noth
 
     context_calls: list[dict[str, Any]] = []
 
-    async def fake_duration_context(project, _episode=None):
+    async def fake_duration_context(project, _episode=None, *, capability=None):
         context_calls.append(project)
         raise AssertionError("无可预检 unit 时不应解析项目视频能力")
 
@@ -1483,7 +1491,7 @@ async def test_generate_video_episode_reference_skips_duration_context_when_prom
 
     context_calls: list[dict[str, Any]] = []
 
-    async def fake_duration_context(project, _episode=None):
+    async def fake_duration_context(project, _episode=None, *, capability=None):
         context_calls.append(project)
         raise AssertionError("整批提示词均空白时不应解析项目视频能力")
 
@@ -1520,7 +1528,7 @@ async def test_generate_video_episode_ad_reference_duration_needs_confirmation(
         enqueued.extend(specs)
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -1579,7 +1587,7 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
                 )
         return [], []
 
-    async def fake_duration_context(_project, _episode=None):
+    async def fake_duration_context(_project, _episode=None, *, capability=None):
         return None
 
     monkeypatch.setattr(mod, "resolve_project_duration_context", fake_duration_context)
@@ -2131,6 +2139,7 @@ async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolContext,
 @pytest.mark.unit
 async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: ToolContext, monkeypatch) -> None:
     """参考路径项目另返回两套逐 unit 生效档位，供手工改 step1 时与生成侧对同一份数字。"""
+    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def fake_resolve(_project):
@@ -2145,6 +2154,11 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(fake_ctx: T
         "gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}
     }
     monkeypatch.setattr(mod, "_resolve_video_capabilities", fake_resolve)
+
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable in this test")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
     out = await _call(get_video_capabilities_tool(fake_ctx), {})
     assert out.get("is_error") is not True, out
     payload = json.loads(out["content"][0]["text"])
@@ -3272,12 +3286,18 @@ def _rv_caps(default=4, durations=(4, 6, 8), reference_durations=None, max_durat
 @pytest.mark.unit
 async def test_fetch_reference_caps_with_fallback_returns_declared_slots(monkeypatch) -> None:
     """unit 时长就是发给供应商的那个值，档位原样取自模型声明（不与任何静态区间求交）。"""
+    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def _fake_caps(_project, _episode=None):
         return {"supported_durations": [1, 8, 16, 18], "max_duration": 18, "default_duration": 16}
 
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable in this test")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
 
     caps = await mod._fetch_reference_caps_with_fallback({}, 1)
 
@@ -3295,6 +3315,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monk
 
     不收窄的话 step1 会按 10 秒拆出 unit，step2 的枚举 schema 再把它判非法。
     """
+    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def _fake_caps(_project, _episode=None):
@@ -3308,6 +3329,11 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monk
 
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable in this test")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
+
     project = {"model_settings": {"minimax/MiniMax-Hailuo-2.3": {"resolution": "1080p"}}}
     caps = await mod._fetch_reference_caps_with_fallback(project, 1)
     assert caps.durations == [6]
@@ -3317,6 +3343,7 @@ async def test_fetch_reference_caps_with_fallback_narrows_unit_duration_cap(monk
 @pytest.mark.unit
 async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution(monkeypatch) -> None:
     """分辨率联动约束同样收窄 unit 档位：Veo 1080p 下只接受 8 秒。"""
+    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def _fake_caps(_project, _episode=None):
@@ -3330,6 +3357,11 @@ async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution(mo
 
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
 
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable in this test")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
+
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "1080p"}}}
     caps = await mod._fetch_reference_caps_with_fallback(project, 1)
     assert caps.durations == [8]
@@ -3337,15 +3369,16 @@ async def test_fetch_reference_caps_with_fallback_narrows_slots_by_resolution(mo
 
 
 @pytest.mark.unit
-def test_reference_unit_duration_tiers_does_not_assume_containment(monkeypatch) -> None:
+async def test_reference_unit_duration_tiers_does_not_assume_containment(monkeypatch) -> None:
     """两套档位之间无包含关系可假定：两条约束自相矛盾时带图那套反而更宽。
 
     ``constrain_durations`` 在交集为空时回退到未收窄候选，故型号同时声明「带图仅 8s」与
     「1080p 仅 6s」时，带图集回退成全集、不带图集收成 [6]。调用方须显式取并集当枚举。
+    i2v 桶解析按不可解析处理——退回两桶同模型口径，联动矛盾在单模型内就能成立。
     """
     from lib.config import resolver as resolver_mod
     from lib.config.registry import ModelInfo
-    from server.agent_runtime.sdk_tools._context import reference_unit_duration_tiers
+    from server.agent_runtime.sdk_tools import _context
 
     contradictory = ModelInfo(
         display_name="contradictory",
@@ -3357,12 +3390,39 @@ def test_reference_unit_duration_tiers_does_not_assume_containment(monkeypatch) 
     )
     monkeypatch.setattr(resolver_mod, "model_info_for", lambda *_args: contradictory)
 
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
+
     project = {"model_settings": {"p/m": {"resolution": "1080p"}}}
-    with_refs, without_refs = reference_unit_duration_tiers(project, {"provider_id": "p", "model": "m"}, [4, 6, 8])
+    with_refs, without_refs = await _context.reference_unit_duration_tiers(
+        project, {"provider_id": "p", "model": "m"}, [4, 6, 8]
+    )
 
     assert with_refs == [4, 6, 8]
     assert without_refs == [6]
     assert not set(with_refs) <= set(without_refs)
+
+
+@pytest.mark.unit
+async def test_reference_unit_duration_tiers_without_refs_follow_i2v_bucket(monkeypatch) -> None:
+    """不带图档位按 i2v 桶模型求值：无引用 unit 执行期降级到 i2v 桶执行，创作侧放行的秒数
+    须与该桶模型的声明一致，否则会放行 r2v 独有档位、漏掉 i2v 独有档位。"""
+    from server.agent_runtime.sdk_tools import _context
+
+    async def _i2v_caps(_project, *, capability=None):
+        assert capability == "i2v"
+        return {"provider_id": "ark", "model": "doubao-seedance-1-5-pro-251215", "supported_durations": [5, 10]}
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _i2v_caps)
+
+    with_refs, without_refs = await _context.reference_unit_duration_tiers(
+        {}, {"provider_id": "minimax", "model": "S2V-01"}, [6, 10]
+    )
+
+    assert with_refs == [6, 10]
+    assert without_refs == [5, 10]
 
 
 @pytest.mark.unit
@@ -3371,6 +3431,7 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
 
     枚举与 prompt 候选取并集——一律按带图收窄会把无引用 unit 本可申请的短档也收掉。
     """
+    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def _fake_caps(_project, _episode=None):
@@ -3383,6 +3444,11 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
         }
 
     monkeypatch.setattr(mod, "resolve_video_caps", _fake_caps)
+
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable in this test")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
 
     project = {"model_settings": {"gemini-aistudio/veo-3.1-generate-preview": {"resolution": "720p"}}}
     caps = await mod._fetch_reference_caps_with_fallback(project, 1)
@@ -3398,12 +3464,18 @@ async def test_fetch_reference_caps_with_fallback_splits_tiers_by_reference_stat
 async def test_fetch_reference_caps_with_fallback_uses_write_layer_default(monkeypatch) -> None:
     """rv 路径的软回退与 _fetch_caps_with_fallback 同口径，取 duration_presets.DEFAULT_FALLBACK。"""
     from lib.custom_provider.duration_presets import DEFAULT_FALLBACK
+    from server.agent_runtime.sdk_tools import _context
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     async def _raising_caps(_project, _episode=None):
         raise ValueError("no provider configured")
 
     monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
+
+    async def _no_i2v(_project, *, capability=None):
+        raise ValueError("i2v bucket unresolvable in this test")
+
+    monkeypatch.setattr(_context, "resolve_video_caps", _no_i2v)
     caps = await mod._fetch_reference_caps_with_fallback({}, 1)
     assert caps.default_duration is None
     assert caps.durations == DEFAULT_FALLBACK

@@ -13,6 +13,7 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.config.resolver import VideoCapability
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
@@ -33,6 +34,7 @@ from lib.reference_video.ad_units import (
     resolve_ad_unit_shots,
     sync_ad_reference_units,
 )
+from lib.reference_video.units import reference_unit_video_bucket
 from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
@@ -93,8 +95,9 @@ async def _pending_duration_confirmations(
 ) -> list[dict[str, Any]]:
     """收集本批将入队的 unit 中，申请时长与剧本编排不一致的清单。
 
-    项目视频能力（档位 + 分辨率）至多解析一次（:func:`resolve_project_duration_context`），
-    批内逐 unit 取档改用纯函数 :func:`precheck_unit`——避免整批 N 个 unit 各自触发一轮
+    项目视频能力（档位 + 分辨率）按能力桶至多各解析一次（:func:`resolve_project_duration_context`；
+    unit 按声明的参考集分桶——无参考图退化镜头按 i2v 桶模型取档，与执行侧同口径），批内
+    逐 unit 取档改用纯函数 :func:`precheck_unit`——避免整批 N 个 unit 各自触发一轮
     DB 往返。解析推迟到第一个真正需要取档的 unit：整批都已完成或都被跳过时不触发任何 IO。
 
     悬空索引 / 结构异常 / 空提示词的 unit 在此复用与 ``build_specs`` 同一份 spec 构造
@@ -102,7 +105,7 @@ async def _pending_duration_confirmations(
     ``build_specs`` 阶段本就会拒绝，若仍纳入确认清单或触发 ctx 解析，会让批次卡在一个
     注定不会入队的 unit 上，且申请时长的转述本身就是失实的（该 unit 根本不会被生成）。
     """
-    ctx: ProjectDurationContext | None = None
+    ctxs: dict[VideoCapability, ProjectDurationContext] = {}
     items: list[dict[str, Any]] = []
     for unit in units:
         unit_id = str(unit.get("unit_id") or "")
@@ -116,10 +119,11 @@ async def _pending_duration_confirmations(
             ad_shots = ad_shots_for(unit) if ad_shots_for else None
         except ValueError:
             continue
-        if ctx is None:
-            ctx = await resolve_project_duration_context(project)
+        bucket = reference_unit_video_bucket(unit)
+        if bucket not in ctxs:
+            ctxs[bucket] = await resolve_project_duration_context(project, capability=bucket)
         try:
-            slot = precheck_unit(ctx, unit, ad_shots)
+            slot = precheck_unit(ctxs[bucket], unit, ad_shots)
         except ValueError:
             continue
         if slot.needs_confirmation:

@@ -158,9 +158,10 @@ class ImageLaneRequest:
 class VideoLaneRequest:
     """声明本次任务需要 video lane。
 
-    ``capability`` 决定 i2v / r2v 能力桶（``docs/adr/0054``）：图生视频 / 宫格 → i2v，
-    参考生视频（含无参考图退化镜头）→ r2v。None = 不定桶，走旧三级解析且不过能力闸——
-    供 resume 等按 payload 排空、不承诺能力的路径使用。
+    ``capability`` 决定 i2v / r2v 能力桶（``docs/adr/0054``）：图生视频 / 宫格 → i2v；
+    参考生视频按镜头解析后的实际参考图分流——有参考图 → r2v，无参考图的退化镜头降级
+    → i2v（由 executor 判定后声明，见 ``lib.reference_video.units``）。None = 不定桶，
+    走旧三级解析且不过能力闸——供 resume 等按 payload 排空、不承诺能力的路径使用。
     """
 
     capability: VideoCapability | None = None
@@ -305,8 +306,10 @@ async def resolve_generation_context(
     的解析或构造失败即原样上抛、整次调用失败——无部分结果、无跨 provider 兜底；仅能力
     查询失败降级空值放行。``project`` 是调用方已加载的项目快照，本函数不读盘。
 
-    video lane 的能力按项目生成路线解析（见 ``lib.config.resolver.caps_generation_mode``）：
-    路线创建即定、整个项目按同一条路径生成，声音一致性等二维派生值因此不需要集号。
+    video lane 的定桶随 ``VideoLaneRequest.capability``：None 时按项目生成路线解析（见
+    ``lib.config.resolver.caps_generation_mode``）——路线创建即定、整个项目按同一条路径生成，
+    声音一致性等二维派生值因此不需要集号；显式给定时按指定桶解析（参考路线内按镜头分流的
+    调用方自带判定结果）。
     """
     from lib.db import async_session_factory
 

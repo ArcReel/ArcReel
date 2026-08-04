@@ -825,7 +825,7 @@ class TestCostEstimationService:
         from server.services import cost_estimation as cost_estimation_module
         from server.services.reference_video_tasks import ProjectDurationContext
 
-        async def _fake_ctx(project):
+        async def _fake_ctx(project, *, capability=None):
             return ProjectDurationContext(
                 supported_durations=(8,), resolution=None, provider_id="veo", model_name="veo-3.1"
             )
@@ -960,7 +960,7 @@ class TestCostEstimationService:
         from server.services.reference_video_tasks import ProjectDurationContext
 
         def _patch_ctx(durations: tuple[int, ...]):
-            async def _fake_ctx(project):
+            async def _fake_ctx(project, *, capability=None):
                 return ProjectDurationContext(
                     supported_durations=durations, resolution=None, provider_id="veo", model_name="veo-3.1"
                 )
@@ -1008,7 +1008,7 @@ class TestCostEstimationService:
         from server.services import cost_estimation as cost_estimation_module
         from server.services.reference_video_tasks import ProjectDurationContext
 
-        async def _fake_ctx(project):
+        async def _fake_ctx(project, *, capability=None):
             return ProjectDurationContext(
                 supported_durations=(8,),
                 resolution=None,
@@ -1118,7 +1118,7 @@ class TestCostEstimationService:
         from server.services.reference_video_tasks import ProjectDurationContext
 
         def _patch_ctx(durations: tuple[int, ...]):
-            async def _fake_ctx(project):
+            async def _fake_ctx(project, *, capability=None):
                 return ProjectDurationContext(
                     supported_durations=durations, resolution=None, provider_id="veo", model_name="veo-3.1"
                 )
@@ -1618,7 +1618,7 @@ class TestCostEstimationService:
 
     @pytest.mark.integration
     async def test_unit_duration_slots_come_from_the_r2v_bucket_model(self, db_factory, monkeypatch):
-        """unit 取档与算价读同一个模型：两者都落参考路线的 r2v 桶。
+        """有参考图 unit 的取档与算价读同一个模型：两者都落 r2v 桶。
 
         若取档误用 i2v 桶，5 秒的 unit 会按 kling 的 [5, 10] 停在 5 秒，再按 r2v 桶 Veo 的单价
         算钱；而执行期按 Veo 的档位（未配分辨率走 1080p 兜底，只接受 8 秒）申请 8 秒——估算量
@@ -1636,8 +1636,47 @@ class TestCostEstimationService:
 
         # 取档解析走全局 session factory（真实部署的库），测试库换成 db_factory 后照常做真实
         # 桶解析——被观察的是它拿到哪个模型的档位，不是它怎么连库。
-        async def _caps_from_test_db(project, *, degraded_to, episode=None):
-            return await ConfigResolver(db_factory).video_capabilities_for_project(project)
+        async def _caps_from_test_db(project, *, degraded_to, capability=None, episode=None):
+            return await ConfigResolver(db_factory).video_capabilities_for_project(project, capability=capability)
+
+        monkeypatch.setattr(reference_video_tasks, "project_video_caps", _caps_from_test_db)
+
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        project_data = {
+            "title": "Narration",
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "target_duration": 30,
+            "video_provider_i2v": "kling/kling-v3",
+            "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
+            "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
+        scripts["ep1.json"]["video_units"][0]["references"] = [{"type": "character", "name": "A"}]
+
+        await service.compute(project_data, scripts, project_name="r2v-duration-slots")
+
+        assert priced == [("veo-3.1-generate-preview", 8)]
+
+    @pytest.mark.integration
+    async def test_degenerate_unit_prices_by_i2v_bucket_model(self, db_factory, monkeypatch):
+        """无参考图退化 unit 降级到 i2v 桶：取档与算价都读 i2v 桶模型。
+
+        执行侧对空参考镜头按 i2v 桶解析模型（不送入拒空参考的 r2v 模型），估算若仍按 r2v 桶
+        Veo 的档位（只接受 8 秒）与单价出数，会与实际扣费的 kling 5 秒对不上。
+        """
+        priced: list[tuple[str | None, int | None]] = []
+        original = cost_calculator.calculate_cost
+
+        def _spy(provider, params, **kwargs):
+            if params.call_type == "video":
+                priced.append((params.model, params.duration_seconds))
+            return original(provider, params, **kwargs)
+
+        monkeypatch.setattr(cost_calculator, "calculate_cost", _spy)
+
+        async def _caps_from_test_db(project, *, degraded_to, capability=None, episode=None):
+            return await ConfigResolver(db_factory).video_capabilities_for_project(project, capability=capability)
 
         monkeypatch.setattr(reference_video_tasks, "project_video_caps", _caps_from_test_db)
 
@@ -1653,9 +1692,9 @@ class TestCostEstimationService:
         }
         scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
 
-        await service.compute(project_data, scripts, project_name="r2v-duration-slots")
+        await service.compute(project_data, scripts, project_name="i2v-degenerate-unit")
 
-        assert priced == [("veo-3.1-generate-preview", 8)]
+        assert priced == [("kling-v3", 5)]
 
     @pytest.mark.integration
     async def test_all_episodes_priced_by_the_project_route_bucket(self, db_factory, monkeypatch):
@@ -1700,10 +1739,17 @@ class TestCostEstimationService:
         assert result["models"]["video"] == {"provider": "kling", "model": "kling-v3"}
 
     @pytest.mark.integration
-    async def test_ad_reference_route_prices_by_r2v_bucket(self, db_factory, monkeypatch):
-        """ad 参考路线项目按 r2v 桶模型算价。
+    @pytest.mark.parametrize(
+        ("shot_extra", "expected_model"),
+        [({"characters_in_shot": ["A"]}, "kling-v3-omni"), ({}, "kling-v3")],
+    )
+    async def test_ad_reference_route_prices_by_unit_reference_bucket(
+        self, db_factory, monkeypatch, shot_extra, expected_model
+    ):
+        """ad 参考路线按 unit 声明的参考集分桶算价：有参考图 → r2v，无参考图退化 → i2v。
 
-        生成路径以项目路线为真相源；参考路线的集实际入队参考视频任务，算价须跟着落 r2v 桶。
+        参考路线的集实际入队参考视频任务；执行侧对空参考镜头按 i2v 桶降级解析模型，
+        算价须跟着同一口径分桶。
         """
         priced_models: list[str | None] = []
         original = cost_calculator.calculate_cost
@@ -1730,13 +1776,13 @@ class TestCostEstimationService:
                 "episode": 1,
                 "title": "Episode 1",
                 "content_mode": "ad",
-                "shots": [{"shot_id": "E1S001", "duration_seconds": 6, "visual": "v", "voiceover": ""}],
+                "shots": [{"shot_id": "E1S001", "duration_seconds": 6, "visual": "v", "voiceover": "", **shot_extra}],
             }
         }
 
         await service.compute(project_data, scripts, project_name="ad-reference-route-bucket")
 
-        assert priced_models == ["kling-v3-omni"]
+        assert priced_models == [expected_model]
 
     @pytest.mark.unit
     async def test_custom_provider_estimates_use_db_prices(self, db_factory):

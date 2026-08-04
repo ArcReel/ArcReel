@@ -53,6 +53,11 @@ from lib.reference_video.shot_parser import (
     resolve_references,
     strip_shot_header,
 )
+from lib.reference_video.units import (
+    find_reference_unit,
+    reference_unit_video_bucket,
+    reference_video_bucket,
+)
 from lib.reference_video.writing_syntax import MAX_SHOTS_PER_UNIT, WRITING_SYNTAX_SPEC
 
 __all__ = [
@@ -77,6 +82,7 @@ __all__ = [
     "derive_utterances",
     "derive_voice_bindings",
     "dialogue_speakers",
+    "find_reference_unit",
     "merge_ad_reference_units",
     "match_dialogue_line",
     "match_voiceover_line",
@@ -85,6 +91,8 @@ __all__ = [
     "normative_lines",
     "parse_prompt",
     "rederive_unit_references",
+    "reference_unit_video_bucket",
+    "reference_video_bucket",
     "render_ad_unit_prompt",
     "render_mentions_as_subjects",
     "render_shots_text",
