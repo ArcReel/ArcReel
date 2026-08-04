@@ -43,13 +43,11 @@
 
 ## Gemini Code Assist
 
-**现状**:Gemini Code Assist 消费者版已停止服务,PR 上会出现官方 CAUTION 通知(「The consumer version of Gemini Code Assist on GitHub has been sunset.」)。命中该通知即按 SKILL.md 能力证伪自裁决处理,无需另行查证;通知出现前已收集的 actionable 评论仍按目标状态处置。以下规则在其服务可用时适用。
-
 **触发**(按 `pr_created_at` 与 `gemini.reviews` 判别,均受触发去重约束):
 
 - `gemini.reviews` 完全为空,`pr_created_at` 距今**不足 5 分钟** → cold-start 窗口内,等待——此时抢跑触发既耗 quota,也容易引入第一次未提及的边缘建议
 - `gemini.reviews` 完全为空,`pr_created_at` 距今**已超 5 分钟** → cold-start fallback:自动 review 未在窗口内出现(可能失败或被跳过),发送 `/gemini review`。**此行不受 fix-up 顺延限制**——否则 Gemini 永远不会审本 PR。阈值宽松不必精确——误发代价只是一次受去重约束的额外触发
-- `gemini.reviews` 非空但无 `is_new == true` 条目 → 先用 `query.sh gemini-latest-body` 核对最新 review 正文,含停服通知则按上方「现状」段处理;否则发送 `/gemini review`(受 fix-up 顺延限制)——停服通知可能包裹在带 pass marker 的历史 review 里,索引不暴露正文
+- `gemini.reviews` 非空但无 `is_new == true` 条目 → 发送 `/gemini review`(受 fix-up 顺延限制)
 
 **已审当前 HEAD**:`gemini.reviews` 至少一条 `is_new == true`。
 
@@ -72,8 +70,8 @@
 - `codex.has_started == true`,或已有 review / `+1` / inline → 等待
 - 从无上述信号,`pr_created_at` 距今不足 5 分钟 → cold-start 窗口内等待
 - 从无上述信号,已超过 5 分钟,且本轮尚无 `@codex review` → 发送一次 `@codex review`
-- 已有 `@codex review` 但尚无结果 → 评论上的 Codex `👀` 会令 `codex.has_started == true`;未出现时同样等待,25 分钟后按故障处理
-- Codex 已参审,新 push 后尚无已审当前 HEAD 信号 → 等待;距 `last_push_at` 超过 25 分钟仍无 review / 顶层通过评论 / `+1` / inline → 按故障处理
+- 已有 `@codex review` 但尚无结果 → 评论上的 Codex `👀` 会令 `codex.has_started == true`;未出现时同样等待,30 分钟后按故障处理
+- Codex 已参审,新 push 后尚无已审当前 HEAD 信号 → 等待;距 `last_push_at` 超过 30 分钟仍无 review / 顶层通过评论 / `+1` / inline → 按故障处理
 
 `codex.has_started` 汇总三种已接单信号:Codex 在 PR 上的 `eyes` reaction、历史顶层 clean-pass 评论,或 `own_trigger_comments` 中 `@codex review` 的 `has_codex_eyes == true`;reaction 均按 `chatgpt-codex-connector[bot]` 身份精确核验,不把其他人的 👀 算作 Codex。
 
@@ -107,7 +105,7 @@ PR reaction 是当前审查状态:新 push 启动审查时,Codex 会把上一轮
 
 **退出门槛**(代替"通过",在准备宣布循环结束时核对):
 
-1. **分析完成且成功**:`codeql_checks.all_ok == true`(要求 total > 0 且无 pending、无 failing;失败态集合定义见 poll.sh header `checks_failing` 条,同名重跑已由 poll.sh 归一为每名最新一条)。`total == 0` 只说明分析未注册(继续等待)或仓库未接入(见下),不是通过;`failing` 非空时 alerts 数据停留在上次成功分析,直接核对门槛 2 会漏报新告警——归入故障类暂停。分析超过 25 分钟未完成同样归入故障类暂停
+1. **分析完成且成功**:`codeql_checks.all_ok == true`(要求 total > 0 且无 pending、无 failing;失败态集合定义见 poll.sh header `checks_failing` 条,同名重跑已由 poll.sh 归一为每名最新一条)。`total == 0` 只说明分析未注册(继续等待)或仓库未接入(见下),不是通过;`failing` 非空时 alerts 数据停留在上次成功分析,直接核对门槛 2 会漏报新告警——归入故障类暂停。分析超过 30 分钟未完成同样归入故障类暂停
 2. **security 无遗留**:`security_alerts.open_introduced` 为空(poll.sh 已做 base 分支差集,排除存量告警)。**勿采信 CodeQL check-run 标题里的 "N new alerts" 计数**——该数字按 merge-ref 全量统计,存量场景会把 main 上的旧告警一并计入,`N` 虚高会误导判定;口径一律以 `open_introduced`(已做 base 差集)为准。`available == false` 时降级:把 `unavailable_hint` 贴给用户,说明无法核对 alerts API(权限或 merge ref 原因),请人工确认后再退出
 3. **quality 无遗留**:终核时跑 `query.sh quality-all` 取 `github-code-quality[bot]` 的**全量** inline 评论(不限本轮)逐条核对——对应代码已修改,或已有 pushback 记录(PR 评论说明)。quality 没有可查的告警列表 API(实测 404),全量评论 + 代码现状就是完整事实,以本次查询结果为准而非对话记忆(压缩后无法重建)。常规 PR 该量级是个位数;若全量达数十条,向用户说明数量并商定抽查口径
 

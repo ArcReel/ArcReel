@@ -43,9 +43,13 @@
 # }
 #
 # stage_hint LADDER (first match wins; purely remote-mechanical, no liveness guess)
-#   1. PR MERGED                              -> done
+#   1. PR MERGED and issue not open           -> done      (a reopened issue falls through)
 #   2. PR OPEN and not draft                  -> review-loop
-#   3. PR is draft, or PR CLOSED unmerged     -> shelved   (this workflow shelves by drafting the PR)
+#   3. PR OPEN as draft, or PR CLOSED unmerged
+#      with its branch alive at the PR head   -> shelved   (this workflow shelves by drafting the PR;
+#                                                           branch deleted = restart cleanup, branch
+#                                                           moved = new lifecycle; both fall through.
+#                                                           a CLOSED draft follows the CLOSED arm)
 #   4. no PR but remote branch issue/<N>      -> local-review (branch pushed, PR not opened yet)
 #   5. no PR, no branch, issue closed/done    -> done       (closed-completed without a PR of its own)
 #   6. no PR, no branch, issue closed/other   -> shelved
@@ -224,11 +228,13 @@ for N in $(jq -r '.[].number' "$TMPDIR/batch_raw.json"); do
 done
 
 # ---- list remote issue/* branches in one call (no local git remote dependency) ----
-if ! gh api "repos/${OWNER_REPO}/git/matching-refs/heads/issue/" --paginate --jq '.[].ref' \
+if ! gh api "repos/${OWNER_REPO}/git/matching-refs/heads/issue/" --paginate --jq '.[] | "\(.ref) \(.object.sha)"' \
       > "$TMPDIR/branches.txt" 2>"$TMPDIR/refs.err"; then
-  echo "BATCH_POLL_WARN: matching-refs fetch failed (remote_branch will read false)" >&2
+  # Branch facts feed every issue's stage_hint; a silent empty list would read
+  # as "no branch anywhere" and mis-converge stages. Fail loud instead.
+  echo "BATCH_POLL_ERROR: matching-refs fetch failed" >&2
   cat "$TMPDIR/refs.err" >&2
-  : > "$TMPDIR/branches.txt"
+  exit 6
 fi
 
 # ---- combine into the final schema ----
@@ -243,12 +249,12 @@ jq -n \
   '
   def pick_pr($arr):
     if ($arr | length) == 0 then null
-    # an OPEN PR is the active one; fall back to MERGED/CLOSED history only when none is
-    # open, so a stale MERGED PR on a reused issue/<N> ref cannot shadow a reopened PR
+    # an OPEN PR is the active one; otherwise the newest PR speaks for the ref — an older
+    # MERGED must not shadow a newer CLOSED attempt (stage_hint reads the pick, and its
+    # issue-state guards keep done/shelved honest for reused issue/<N> refs)
     else ([$arr[] | select(.state == "OPEN")]) as $open
       | if ($open | length) > 0 then ($open | sort_by(.number) | last)
-        else ([$arr[] | select(.state == "MERGED")]) as $m
-          | (if ($m | length) > 0 then $m else $arr end | sort_by(.number) | last)
+        else ($arr | sort_by(.number) | last)
         end
     end;
 
@@ -274,10 +280,16 @@ jq -n \
         )
       | {name: ($e.name // $e.context), status: ($e.status // $e.state)} ];
 
-  def stage_hint($pr; $hasBranch; $istate; $ireason):
-    if   ($pr != null and $pr.state == "MERGED")                          then "done"
+  def stage_hint($pr; $hasBranch; $branchTip; $istate; $ireason):
+    # a MERGED PR marks done only while the issue stays closed; a reopened issue must
+    # fall through to the branch rungs so it polls as startable again
+    if   ($pr != null and $pr.state == "MERGED" and $istate != "open")    then "done"
     elif ($pr != null and $pr.state == "OPEN" and ($pr.isDraft | not))    then "review-loop"
-    elif ($pr != null and ($pr.isDraft == true or $pr.state == "CLOSED")) then "shelved"
+    # a CLOSED PR marks shelved only while its branch survives at the PR head; a branch
+    # deleted by restart cleanup or recreated for a new lifecycle must fall through
+    elif ($pr != null and (($pr.state == "OPEN" and $pr.isDraft == true)
+                           or ($pr.state == "CLOSED" and $hasBranch
+                               and $branchTip == $pr.headRefOid)))        then "shelved"
     elif $hasBranch                                                       then "local-review"
     elif ($istate == "closed" and $ireason == "completed")               then "done"
     elif ($istate == "closed")                                           then "shelved"
@@ -292,7 +304,7 @@ jq -n \
 
   ($batch_w[0]) as $issues
   | ($blocked_w[0]) as $blocked
-  | ($branches | split("\n") | map(select(length > 0))) as $branchrefs
+  | ($branches | split("\n") | map(select(length > 0) | split(" "))) as $branchpairs
   | ($prs | INDEX(.issue | tostring)) as $prByIssue
   | ($blocked | INDEX(.number | tostring)) as $blkByIssue
   | (($issues | map({number, state, state_reason})) + $blockerstates | INDEX(.number | tostring)) as $stateByNum
@@ -302,7 +314,9 @@ jq -n \
         | ($prByIssue[$n | tostring].prs // []) as $prarr
         | pick_pr($prarr) as $prraw
         | ($blkByIssue[$n | tostring].blocked_by // []) as $bb
-        | (($branchrefs | index("refs/heads/issue/\($n)")) != null) as $hasBranch
+        | ($branchpairs | map(select(.[0] == "refs/heads/issue/\($n)")) | first) as $bref
+        | ($bref != null) as $hasBranch
+        | (if $bref != null then $bref[1] else null end) as $branchTip
         | {
             number:          $n,
             title:           $iss.title,
@@ -323,7 +337,7 @@ jq -n \
                    checks_failing:   failing($prraw),
                    checks_pending:   pending($prraw)
                  } end),
-            stage_hint: stage_hint($prraw; $hasBranch; $iss.state; $iss.state_reason)
+            stage_hint: stage_hint($prraw; $hasBranch; $branchTip; $iss.state; $iss.state_reason)
           }
       ] ) as $rows
   | {
