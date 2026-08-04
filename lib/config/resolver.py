@@ -296,6 +296,21 @@ _TEXT_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
 }
 
 
+# 文本档位（docs/adr/0051）键位。档位即桶，项目级与全局同名同构，故桶层两侧同键；默认层
+# 两侧同用 default_text_backend。
+_TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
+    tier: _LayeredBackendKeys(
+        media_type="text",
+        parse_fallback=_DEFAULT_TEXT_BACKEND,
+        project_bucket_key=tier_key,
+        project_default_key="default_text_backend",
+        global_bucket_key=tier_key,
+        global_default_key="default_text_backend",
+    )
+    for tier, tier_key in _TEXT_TIER_SETTING_KEYS.items()
+}
+
+
 # 当 resolve_resolution 返回 None 时下游的保底分辨率。Grok 即便 registry 声明 1080p
 # 也可能被 xai_sdk 拒收，故按 provider 区分。
 PROVIDER_FALLBACK_RESOLUTION: dict[str, str] = {
@@ -1476,30 +1491,9 @@ class ConfigResolver:
         task_type: TextTaskType,
         project_name: str | None,
     ) -> tuple[str, str]:
-        tier_key = _TEXT_TIER_SETTING_KEYS[TEXT_TASK_TIERS[task_type]]
-        resolved: tuple[str, str] | None = None
-
-        # 1/2. 项目档位 > 项目默认模型（「项目默认」读作「本项目整体用它」，遮蔽全局配置）
-        if project_name:
-            project = get_project_manager().load_project(project_name)
-            for key in (tier_key, "default_text_backend"):
-                project_val = project.get(key)
-                if project_val and "/" in str(project_val):
-                    resolved = ConfigService._parse_backend(str(project_val), _DEFAULT_TEXT_BACKEND)
-                    break
-
-        # 3/4. 全局档位 > 全局默认模型
-        if resolved is None:
-            for key in (tier_key, "default_text_backend"):
-                global_val = await svc.get_setting(key, "")
-                if global_val and "/" in global_val:
-                    resolved = ConfigService._parse_backend(global_val, _DEFAULT_TEXT_BACKEND)
-                    break
-
-        # 5. 自动推断
-        if resolved is None:
-            resolved = await self._auto_resolve_backend(svc, session, "text")
-
+        project = get_project_manager().load_project(project_name) if project_name else None
+        keys = _TEXT_LAYERED_KEYS[TEXT_TASK_TIERS[task_type]]
+        resolved = await self._resolve_layered_backend(svc, session, project, keys)
         if task_type in VISION_REQUIRED_TASKS:
             _ensure_text_model_vision_capable(task_type, *resolved)
         return resolved
