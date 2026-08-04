@@ -56,8 +56,8 @@ _IMAGE2VIDEO = "image2video"
 _MULTI_IMAGE2VIDEO = "multi-image2video"
 _RESUMABLE_SUBPATHS = frozenset({_TEXT2VIDEO, _IMAGE2VIDEO, _MULTI_IMAGE2VIDEO})
 
-# 多图主体（R2V）参考图上限保守值；同时声明于 registry ModelInfo（编排层裁剪读它）与
-# backend caps（生成时防御）。待 app.klingai.com 控制台核对，不硬编当既成事实。
+# 多图主体（R2V）参考图上限保守值，由 backend caps 单独声明（编排层裁剪与生成时防御同读）。
+# 待 app.klingai.com 控制台核对，不硬编当既成事实。
 _R2V_MAX_REFERENCE_IMAGES = 4
 
 

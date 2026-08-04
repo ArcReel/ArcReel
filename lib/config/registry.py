@@ -1240,8 +1240,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=["generate_audio"],
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p", "4k"],
-                # 多图主体（R2V）参考上限保守值；编排层裁剪读此处，与 backend caps 同值，
-                # 待 app.klingai.com 控制台核对，不硬编当既成事实。
                 pricing=_kling_video_pricing("kling-v3-omni"),
             ),
             "kling-v2-6": ModelInfo(
@@ -1258,8 +1256,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 capabilities=[],
                 supported_durations=[5, 10],
                 resolutions=["720p", "1080p"],
-                # 多图主体（R2V）参考上限保守值；编排层裁剪读此处，与 backend caps 同值，
-                # 待 app.klingai.com 控制台核对，不硬编当既成事实。
                 pricing=_kling_video_pricing("kling-video-o1"),
             ),
         },
