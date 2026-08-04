@@ -1,3 +1,6 @@
+import type enTemplates from "@/i18n/en/templates";
+import type { DeepStringify } from "@/i18n/types";
+
 export default {
   category: {
     custom: "自定义",
@@ -124,4 +127,4 @@ export default {
   wizard_step_style: "风格",
   next_step: "下一步",
   prev_step: "上一步",
-} as const;
+} satisfies DeepStringify<typeof enTemplates>;
