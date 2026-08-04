@@ -1391,9 +1391,9 @@ class TestResolveVideoBackend:
     async def test_project_video_backend_when_no_payload(self):
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
-        project = {"video_backend": "ark/seedance-1-0-pro"}
+        project = {"video_backend": "ark/doubao-seedance-2-0-260128"}
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, {})
-        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-2-0-260128")
 
     @pytest.mark.integration
     async def test_disabled_custom_model_resolves_to_runtime_default(self):
@@ -1463,10 +1463,10 @@ class TestResolveVideoBackend:
         """in-flight 历史任务 payload 携带 legacy video_provider（如 seedance）→ 不予信任，回退已迁移的 project。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
-        project = {"video_backend": "ark/seedance-1-0-pro"}  # 启动期已迁移为规范名
+        project = {"video_backend": "ark/doubao-seedance-2-0-260128"}  # 启动期已迁移为规范名
         payload = {"video_provider": "seedance", "video_model": "legacy"}  # legacy，不可识别
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload)
-        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance-1-0-pro")
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-2-0-260128")
 
     @pytest.mark.unit
     async def test_payload_non_dict_video_provider_settings_does_not_crash(self):
@@ -2040,3 +2040,185 @@ class TestResolveRawSupportedDurations:
     @pytest.mark.unit
     def test_none_when_no_resolvable_model(self):
         assert resolve_raw_supported_durations({}) is None
+
+
+class TestPayloadPinnedVideoModel:
+    """入队钉进 payload 能力桶键的执行身份：优先级最高，且不承诺桶的调用方（resume）也读得到。"""
+
+    @pytest.mark.unit
+    async def test_pinned_bucket_key_wins_over_project_and_legacy_payload(self):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_provider_i2v": "vidu/viduq3-pro", "video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider_i2v": "ark/doubao-seedance-2-0-260128", "video_provider": "grok"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-2-0-260128")
+
+    @pytest.mark.unit
+    async def test_pinned_bucket_key_skips_capability_gate(self):
+        """钉住身份只过身份可用性、不过能力闸：已入队任务按 payload 照常执行，不回头补校验。
+
+        钉的是 i2v-only 的 viduq3-pro 而按 r2v 解析——过能力闸就会报错。
+        """
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        payload = {"video_provider_r2v": "vidu/viduq3-pro"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, payload, "r2v")
+        assert (resolved.provider_id, resolved.model_id) == ("vidu", "viduq3-pro")
+
+    @pytest.mark.unit
+    async def test_pinned_bucket_key_hit_without_capability(self):
+        """resume 口径（capability=None）：入队只写一个桶键，按固定桶序取到即命中。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider_r2v": "ark/doubao-seedance-2-0-260128"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload)
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-2-0-260128")
+
+    @pytest.mark.unit
+    async def test_pin_of_other_bucket_ignored_when_capability_given(self):
+        """capability 明确时只认该桶的键，另一个桶的钉不越桶生效。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider_r2v": "ark/doubao-seedance-2-0-260128"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
+        assert (resolved.provider_id, resolved.model_id) == ("grok", "grok-imagine-video")
+
+    @pytest.mark.unit
+    async def test_pin_of_unavailable_provider_raises_instead_of_falling_back(self):
+        """钉住的供应商已下线：报错，不回退 payload 旧键或配置层。
+
+        回退等于换供应商执行，续跑更会拿另一个 backend 去轮原供应商的 provider_job_id。
+        """
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider_i2v": "seedance/legacy", "video_provider": "ark", "video_model": "seedance"}
+        with pytest.raises(VideoBucketCapabilityError) as excinfo:
+            await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
+        assert excinfo.value.provider_id == "seedance"
+
+    @pytest.mark.unit
+    async def test_pin_of_deleted_builtin_model_raises(self):
+        """钉住的内置 model 被注册表升级删除：报错，不带着悬空身份继续执行。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider_i2v": "ark/retired-model"}
+        with pytest.raises(VideoBucketCapabilityError) as excinfo:
+            await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
+        assert excinfo.value.model_id == "retired-model"
+
+    @pytest.mark.unit
+    async def test_pin_of_non_video_builtin_model_raises(self):
+        """钉住的内置 model 不是视频模型：同样报错，不静默改用配置层的视频模型。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        payload = {"video_provider_i2v": "ark/doubao-seedream-4-0-250828"}
+        with pytest.raises(VideoBucketCapabilityError):
+            await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
+
+    @pytest.mark.unit
+    async def test_malformed_pin_falls_through_to_config(self):
+        """非复合形态（缺 model）的桶键按未钉住处理，回退配置层。"""
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        project = {"video_backend": "grok/grok-imagine-video"}
+        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, {"video_provider_i2v": "ark"})
+        assert (resolved.provider_id, resolved.model_id) == ("grok", "grok-imagine-video")
+
+    @pytest.mark.integration
+    async def test_custom_provider_pin_survives_resume_resolution(self):
+        """自定义供应商的视频任务中断续跑：沿用入队钉住的 model，不回落项目配置换模型。"""
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                provider = CustomProvider(
+                    display_name="Custom Pinned",
+                    discovery_format="openai",
+                    base_url="https://example.com",
+                    api_key="xxx",
+                )
+                session.add(provider)
+                await session.flush()
+                session.add(
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="pinned-model",
+                        display_name="Pinned",
+                        endpoint="openai-video",
+                        is_enabled=True,
+                        is_default=True,
+                    )
+                )
+                await session.commit()
+                provider_id = f"custom-{provider.id}"
+
+                resolver = ConfigResolver(factory)
+                resolved = await resolver.resolve_video_backend(
+                    {"video_backend": "grok/grok-imagine-video"},
+                    {"video_provider_i2v": f"{provider_id}/pinned-model"},
+                )
+        finally:
+            await engine.dispose()
+
+        assert (resolved.provider_id, resolved.model_id) == (provider_id, "pinned-model")
+
+    @pytest.mark.integration
+    async def test_disabled_pinned_custom_model_raises_instead_of_switching(self):
+        """钉住的自定义 model 入队后被禁用：报错，不收敛到该供应商的默认 model。
+
+        换 model 执行等于静默换模型，续跑更会拿另一个 backend 去轮原 model 的 provider_job_id。
+        """
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                provider = CustomProvider(
+                    display_name="Custom Pinned",
+                    discovery_format="openai",
+                    base_url="https://example.com",
+                    api_key="xxx",
+                )
+                session.add(provider)
+                await session.flush()
+                session.add_all(
+                    [
+                        CustomProviderModel(
+                            provider_id=provider.id,
+                            model_id="pinned-model",
+                            display_name="Pinned",
+                            endpoint="openai-video",
+                            is_enabled=False,
+                            is_default=False,
+                        ),
+                        CustomProviderModel(
+                            provider_id=provider.id,
+                            model_id="other-model",
+                            display_name="Other",
+                            endpoint="openai-video",
+                            is_enabled=True,
+                            is_default=True,
+                        ),
+                    ]
+                )
+                await session.commit()
+                provider_id = f"custom-{provider.id}"
+
+                resolver = ConfigResolver(factory)
+                with pytest.raises(VideoBucketCapabilityError) as excinfo:
+                    await resolver.resolve_video_backend(
+                        {"video_backend": "grok/grok-imagine-video"},
+                        {"video_provider_i2v": f"{provider_id}/pinned-model"},
+                    )
+        finally:
+            await engine.dispose()
+
+        assert excinfo.value.model_id == "pinned-model"
+        assert excinfo.value.capability == "i2v"

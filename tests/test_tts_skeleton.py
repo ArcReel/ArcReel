@@ -350,7 +350,7 @@ class TestOrphanAudioRestartLost:
         assert q.cancelled == []
 
 
-class TestDeriveProviderIdForEnqueueAudio:
+class TestDeriveExecutionModelForEnqueueAudio:
     async def test_tts_routes_to_audio_resolver(self, monkeypatch):
         from lib import generation_queue as gq
         from lib.config.resolver import ProviderModel
@@ -363,7 +363,7 @@ class TestDeriveProviderIdForEnqueueAudio:
                 return ProviderModel("dashscope", "qwen3-tts-flash")
 
         monkeypatch.setattr("lib.config.resolver.ConfigResolver", _FakeResolver)
-        pid = await gq._derive_provider_id_for_enqueue(
+        derived = await gq._derive_execution_model_for_enqueue(
             project_name=None, payload={}, task_type="tts", media_type="audio"
         )
-        assert pid == "dashscope"
+        assert derived == ProviderModel("dashscope", "qwen3-tts-flash")
