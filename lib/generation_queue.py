@@ -159,8 +159,8 @@ class GenerationQueue:
         # caller 没传 provider_id → 入队时主动派生一次，让 claim 走 SQL 池过滤快路径；
         # 派生失败留 NULL，走 IS NULL 兜底，由 worker claim 后 _extract_provider 二次校验。
         # 派生成功时视频任务同时把执行 model 钉进 payload，中断续跑据此沿用同一 model。
-        # 钉住只发生在这条派生分支上：caller 显式传 provider_id 时没有配套的 model 可钉（当前
-        # 只有音频与 i2i 图片任务这么传，都不落视频桶），新增显式传参的视频入队点须一并传 model。
+        # 钉住只发生在这条派生分支上：显式传 provider_id 的调用没有配套的 model 可钉，
+        # 需要钉住视频执行 model 的入队点走派生路径。
         if provider_id is None:
             derived = await _derive_execution_model_for_enqueue(
                 project_name=project_name,

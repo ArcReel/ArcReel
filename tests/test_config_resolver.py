@@ -2131,3 +2131,57 @@ class TestPayloadPinnedVideoModel:
             await engine.dispose()
 
         assert (resolved.provider_id, resolved.model_id) == (provider_id, "pinned-model")
+
+    @pytest.mark.integration
+    async def test_disabled_pinned_custom_model_raises_instead_of_switching(self):
+        """钉住的自定义 model 入队后被禁用：报错，不收敛到该供应商的默认 model。
+
+        换 model 执行等于静默换模型，续跑更会拿另一个 backend 去轮原 model 的 provider_job_id。
+        """
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        factory, engine = await _make_session()
+        try:
+            async with factory() as session:
+                provider = CustomProvider(
+                    display_name="Custom Pinned",
+                    discovery_format="openai",
+                    base_url="https://example.com",
+                    api_key="xxx",
+                )
+                session.add(provider)
+                await session.flush()
+                session.add_all(
+                    [
+                        CustomProviderModel(
+                            provider_id=provider.id,
+                            model_id="pinned-model",
+                            display_name="Pinned",
+                            endpoint="openai-video",
+                            is_enabled=False,
+                            is_default=False,
+                        ),
+                        CustomProviderModel(
+                            provider_id=provider.id,
+                            model_id="other-model",
+                            display_name="Other",
+                            endpoint="openai-video",
+                            is_enabled=True,
+                            is_default=True,
+                        ),
+                    ]
+                )
+                await session.commit()
+                provider_id = f"custom-{provider.id}"
+
+                resolver = ConfigResolver(factory)
+                with pytest.raises(VideoBucketCapabilityError) as excinfo:
+                    await resolver.resolve_video_backend(
+                        {"video_backend": "grok/grok-imagine-video"},
+                        {"video_provider_i2v": f"{provider_id}/pinned-model"},
+                    )
+        finally:
+            await engine.dispose()
+
+        assert excinfo.value.model_id == "pinned-model"
+        assert excinfo.value.capability == "i2v"

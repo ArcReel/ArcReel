@@ -11,7 +11,7 @@ import logging
 import math
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, get_args
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -265,14 +265,20 @@ def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoCapabi
     return VIDEO_BUCKET_BY_GENERATION_MODE.get(generation_mode, _DEFAULT_VIDEO_BUCKET)
 
 
-def _payload_video_pinned_pair(payload: dict, capability: VideoCapability | None) -> tuple[str, str] | None:
-    """读 payload 里入队时钉住的视频执行身份（见 ``_payload_pinned_pair``）。
+def _payload_video_pinned_pair(
+    payload: dict, capability: VideoCapability | None
+) -> tuple[VideoCapability, tuple[str, str]] | None:
+    """读 payload 里入队时钉住的视频执行身份，连同命中的桶一并返回（见 ``_payload_pinned_pair``）。
 
     入队只为任务所属的那一个桶写键（``lib.generation_queue``），故 ``capability`` 未声明（resume
     等不承诺桶的调用方）时按固定桶序扫两个桶键——至多命中一个，桶序不产生歧义。
     """
-    caps: tuple[str, ...] = (capability,) if capability is not None else tuple(_VIDEO_LAYERED_KEYS)
-    return _payload_pinned_pair(payload, tuple(f"video_provider_{cap}" for cap in caps))
+    caps: tuple[VideoCapability, ...] = (capability,) if capability is not None else get_args(VideoCapability)
+    for cap in caps:
+        pinned = _payload_pinned_pair(payload, (f"video_provider_{cap}",))
+        if pinned is not None:
+            return cap, pinned
+    return None
 
 
 def caps_generation_mode(project: dict | None) -> str | None:
@@ -759,7 +765,7 @@ class ConfigResolver:
           （``default_video_backend``）> 自动推断，空桶回退默认层。解析结果过能力闸：模型缺该桶
           所需能力、或配置引用已不可用（模型被删 / 能力被改 / 供应商被删）时抛
           ``VideoBucketCapabilityError``，不静默换模型。payload 命中时跳过能力闸——已入队任务
-          按 payload 照常执行，不回头补校验。
+          按 payload 照常执行，不回头补校验；但入队钉住的身份仍校验是否可用，不可用同样抛该异常。
         - ``capability`` 为 None：project（``video_backend``）> 全局默认 的旧三级路径，无能力闸；
           自定义 provider 的 model 不存在、已禁用或 endpoint 的 media_type 不是 video 时，收敛到
           该 provider 默认启用的 video model（**运行时有效身份**），无可用默认则抛 ``ValueError``。
@@ -1115,16 +1121,20 @@ class ConfigResolver:
     ) -> ProviderModel:
         """payload 优先解析视频 ProviderModel；无 payload 时按 ``capability`` 走桶骨架或旧三级。
 
-        payload 层接受两种形态，均不过能力闸、仍做有效身份收敛：入队时钉住的能力桶键
-        （``video_provider_<cap>`` 复合值，见 ``_payload_video_pinned_pair``）优先；其后是历史任务
-        携带的 ``video_provider`` + ``video_model`` / ``video_provider_settings.model``。payload
+        payload 层接受两种形态，均不过能力闸：入队时钉住的能力桶键（``video_provider_<cap>``
+        复合值，见 ``_payload_video_pinned_pair``）优先，钉住的身份不可用即报错；其后是历史任务
+        携带的 ``video_provider`` + ``video_model`` / ``video_provider_settings.model``，按运行时
+        有效身份收敛。payload
         provider 须是已知 provider（见 ``_trusted_payload_provider``），否则不予信任、回退
         配置层。各层语义见 ``resolve_video_backend`` docstring。
         """
         if payload:
             pinned = _payload_video_pinned_pair(payload, capability)
             if pinned is not None:
-                return await self._resolve_effective_video_provider_model(session, ProviderModel(*pinned))
+                pinned_capability, pair = pinned
+                return await self._resolve_effective_video_provider_model(
+                    session, ProviderModel(*pair), pinned_capability=pinned_capability
+                )
             provider_id = _trusted_payload_provider(payload.get("video_provider"))
             if provider_id is not None:
                 settings = payload.get("video_provider_settings")
@@ -1210,11 +1220,18 @@ class ConfigResolver:
         self,
         session: AsyncSession,
         selected: ProviderModel,
+        *,
+        pinned_capability: VideoCapability | None = None,
     ) -> ProviderModel:
         """把选择身份收敛为 backend 构造时会实际使用的视频身份。
 
         内置 provider 的 registry 身份已是有效身份；自定义 provider 需与 loader 共用同一规则：
         model 不存在、禁用或 endpoint 已改成其它 media_type 时，回退到默认启用 video model。
+
+        ``pinned_capability`` 给定时 ``selected`` 是入队钉住的执行身份（``video_provider_<cap>``
+        桶键），此时不做上述回退：钉住的 model 已不可用即抛 ``VideoBucketCapabilityError``，
+        换成另一个 model 执行等于静默换模型（``docs/adr/0054``），续跑更会拿别的 backend 去轮
+        原 model 的 ``provider_job_id``。
         """
         if not is_custom_provider(selected.provider_id):
             return selected
@@ -1232,6 +1249,9 @@ class ConfigResolver:
         model = await repo.get_model_by_ids(db_pid, selected.model_id)
         if model is not None and model.is_enabled and endpoint_to_media_type(model.endpoint) == "video":
             return selected
+
+        if pinned_capability is not None:
+            raise _video_bucket_reference_unavailable(pinned_capability, selected.provider_id, selected.model_id)
 
         logger.warning(
             "自定义模型 %s/%s 已不存在 / 已禁用 / 媒体类型不符（期望 video），身份解析回退到默认模型",
