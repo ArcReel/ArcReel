@@ -11,12 +11,15 @@ import logging
 import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskRepository
 from lib.task_terminal_events import emit_task_terminal_events
+
+if TYPE_CHECKING:
+    from lib.config.resolver import ProviderModel
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +30,10 @@ async def _derive_execution_model_for_enqueue(
     payload: dict[str, Any] | None,
     task_type: str,
     media_type: str,
-) -> tuple[str, str] | None:
-    """入队时按 project + payload 派生本次任务的执行身份 ``(provider_id, model_id)``。
+) -> ProviderModel | None:
+    """入队时按 project + payload 派生本次任务的执行身份。
 
-    provider_id 落 task 行供 claim SQL 池过滤使用；视频任务的完整身份另钉进 payload
+    ``provider_id`` 落 task 行供 claim SQL 池过滤使用；视频任务的完整身份另钉进 payload
     （见 ``_pin_video_execution_model``）。与 worker ``_extract_provider`` 同套解析逻辑，
     但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
     兜底分支，由 worker claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
@@ -38,6 +41,8 @@ async def _derive_execution_model_for_enqueue(
     is_video = media_type == "video" or task_type in ("video", "reference_video")
     is_audio = media_type == "audio" or task_type == "tts"
     try:
+        # 局部导入：lib.config 的解析链会拉进 backend 与自定义供应商装配层，入队路径不为此
+        # 付模块级导入代价。
         from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE, ConfigResolver, get_project_manager
         from lib.db import async_session_factory
 
@@ -62,33 +67,30 @@ async def _derive_execution_model_for_enqueue(
         return None
     if not resolved.provider_id:
         return None
-    return resolved.provider_id, resolved.model_id
+    return resolved
 
 
 def _pin_video_execution_model(
     payload: dict[str, Any] | None,
     *,
     task_type: str,
-    provider_id: str,
-    model_id: str,
+    execution_model: ProviderModel,
 ) -> dict[str, Any] | None:
     """把入队解析出的执行身份钉进视频任务 payload 的能力桶键，返回新 payload（不改调用方的 dict）。
 
-    钉的是「本次任务真正会执行的 model」：task 行只存 provider_id，中断续跑
-    （``GenerationWorker._process_resume_task``）据此只锁得住供应商，model 会按彼时的项目 / 全局
-    配置重解析；自定义供应商更是补不出 registry 默认 model，整个 payload 分支落空而换供应商续跑，
-    违反 ``docs/adr/0054``「不静默换模型」。桶键形态与解析侧读取口径同源（``lib.config.resolver``
-    的 payload 层），也是 payload 视频桶键的写入方。
+    钉住的是「本次任务真正会执行的 model」，执行与中断续跑据此走同一身份：task 行只存
+    provider_id，锁不住 model（``docs/adr/0054``「不静默换模型」）。桶键与复合值形态和解析侧
+    payload 层同源（``lib.config.resolver``），此处是该组键的唯一写入方。
 
     非视频任务、无对应桶的 task_type、以及解析不出 model 时原样返回。
     """
-    # 局部导入：与 ``_derive_execution_model_for_enqueue`` 同因——入队路径不在模块级引入 lib.config。
+    # 局部导入：理由同 ``_derive_execution_model_for_enqueue`` 内的解析链导入。
     from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE
 
     capability = VIDEO_BUCKET_BY_TASK_TYPE.get(task_type)
-    if capability is None or not model_id:
+    if capability is None or not execution_model.model_id:
         return payload
-    return {**(payload or {}), f"video_provider_{capability}": f"{provider_id}/{model_id}"}
+    return {**(payload or {}), f"video_provider_{capability}": execution_model.pair_key}
 
 
 ACTIVE_TASK_STATUSES = ("queued", "running", "cancelling")
@@ -157,6 +159,8 @@ class GenerationQueue:
         # caller 没传 provider_id → 入队时主动派生一次，让 claim 走 SQL 池过滤快路径；
         # 派生失败留 NULL，走 IS NULL 兜底，由 worker claim 后 _extract_provider 二次校验。
         # 派生成功时视频任务同时把执行 model 钉进 payload，中断续跑据此沿用同一 model。
+        # 钉住只发生在这条派生分支上：caller 显式传 provider_id 时没有配套的 model 可钉（当前
+        # 只有音频与 i2i 图片任务这么传，都不落视频桶），新增显式传参的视频入队点须一并传 model。
         if provider_id is None:
             derived = await _derive_execution_model_for_enqueue(
                 project_name=project_name,
@@ -165,13 +169,8 @@ class GenerationQueue:
                 media_type=media_type,
             )
             if derived is not None:
-                provider_id, derived_model_id = derived
-                payload = _pin_video_execution_model(
-                    payload,
-                    task_type=task_type,
-                    provider_id=provider_id,
-                    model_id=derived_model_id,
-                )
+                provider_id = derived.provider_id
+                payload = _pin_video_execution_model(payload, task_type=task_type, execution_model=derived)
 
         async with self._task_repo() as repo:
             result = await repo.enqueue(

@@ -64,6 +64,15 @@ class ProviderModel:
     provider_id: str
     model_id: str
 
+    @property
+    def pair_key(self) -> str:
+        """复合键形态 ``"<provider>/<model>"``，与 ``_split_pair`` 互逆。
+
+        配置层与 payload 层的 provider 字段、按执行模型取键的 per-model 存储都用这一形态；
+        写入方一律经此属性成形，格式只此一处定义。
+        """
+        return f"{self.provider_id}/{self.model_id}"
+
 
 def _parse_bool(raw: str) -> bool:
     """将配置字符串解析为布尔值。"""
@@ -147,6 +156,18 @@ def _payload_model_or_default(raw_model: object, provider_id: str, media_type: s
     if isinstance(raw_model, str) and raw_model.strip():
         return raw_model.strip()
     return default_model_for_provider(provider_id, media_type)
+
+
+def _payload_pinned_pair(payload: dict, cap_keys: tuple[str, ...]) -> tuple[str, str] | None:
+    """读 payload 里能力桶键（``<media>_provider_<cap>``）钉住的执行身份，按给定键序取第一个命中。
+
+    值是 ``ProviderModel.pair_key`` 形态的复合值；provider 须可信（见 ``_trusted_payload_provider``），
+    否则视为未钉住，由调用方回退 payload 旧键与配置层。"""
+    for key in cap_keys:
+        pair = _split_pair(payload.get(key))
+        if pair is not None and _trusted_payload_provider(pair[0]) is not None:
+            return pair
+    return None
 
 
 @dataclass(frozen=True)
@@ -245,18 +266,13 @@ def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoCapabi
 
 
 def _payload_video_pinned_pair(payload: dict, capability: VideoCapability | None) -> tuple[str, str] | None:
-    """读 payload 里入队时钉住的视频执行身份（能力桶键 ``video_provider_<cap>`` 的复合值）。
+    """读 payload 里入队时钉住的视频执行身份（见 ``_payload_pinned_pair``）。
 
     入队只为任务所属的那一个桶写键（``lib.generation_queue``），故 ``capability`` 未声明（resume
-    等不承诺桶的调用方）时按固定桶序取第一个命中的键——至多命中一个。provider 须可信（见
-    ``_trusted_payload_provider``），否则视为未钉住、回退 payload 旧键与配置层。
+    等不承诺桶的调用方）时按固定桶序扫两个桶键——至多命中一个，桶序不产生歧义。
     """
     caps: tuple[str, ...] = (capability,) if capability is not None else tuple(_VIDEO_LAYERED_KEYS)
-    for cap in caps:
-        pair = _split_pair(payload.get(f"video_provider_{cap}"))
-        if pair is not None and _trusted_payload_provider(pair[0]) is not None:
-            return pair
-    return None
+    return _payload_pinned_pair(payload, tuple(f"video_provider_{cap}" for cap in caps))
 
 
 def caps_generation_mode(project: dict | None) -> str | None:
@@ -1075,11 +1091,10 @@ class ConfigResolver:
         payload provider 须是已知 provider（见 ``_trusted_payload_provider``），否则不予信任、
         回退骨架（``_resolve_layered_backend``，键位见 ``_IMAGE_LAYERED_KEYS``）。
         """
-        cap_key = f"image_provider_{capability}"
         if payload:
-            pair = _split_pair(payload.get(cap_key))
-            if pair is not None and _trusted_payload_provider(pair[0]) is not None:
-                return ProviderModel(*pair)
+            pinned = _payload_pinned_pair(payload, (f"image_provider_{capability}",))
+            if pinned is not None:
+                return ProviderModel(*pinned)
             provider_id = _trusted_payload_provider(payload.get("image_provider"))
             if provider_id is not None:
                 model = _payload_model_or_default(payload.get("image_model"), provider_id, "image")
