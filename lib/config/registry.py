@@ -27,9 +27,10 @@ class ModelInfo:
     display_name: str
     media_type: str
     # 能力 token。图片模型的 text_to_image / image_to_image 是能力桶判定的真相源；视频模型的
-    # 图生（i2v）与参考生（r2v）两维不在此声明——它们的真相源是各 backend 的 VideoCapabilities
-    # （first_frame 与 max_reference_images），与请求构造同源。此处不得再补一份视频 i2v/r2v 或
-    # 参考图上限声明：两份手写来源无人比对，漂了也没有守卫能发现。
+    # 输入模式（t2v / i2v / r2v）与参考图上限一概不在此声明——它们的真相源是各 backend 的
+    # VideoCapabilities 与请求期 gate，与请求构造同源。视频模型在此只声明与输入模式无关的
+    # 特性 token（generate_audio 是音轨开关的真相源，见下方注；其余为文档性声明）。
+    # 补一份视频输入模式或参考图上限声明即引入第二份手写来源：两份无人比对，漂了也没有守卫能发现。
     capabilities: list[str]
     default: bool = False
     supported_durations: list[int] = field(default_factory=list)
@@ -410,7 +411,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "veo-3.1-generate-preview": ModelInfo(
                 display_name="Veo 3.1",
                 media_type="video",
-                capabilities=["text_to_video", "negative_prompt", "video_extend"],
+                capabilities=["negative_prompt", "video_extend"],
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8], "4k": [8]},
                 reference_image_durations=[8],
@@ -420,7 +421,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "veo-3.1-fast-generate-preview": ModelInfo(
                 display_name="Veo 3.1 Fast",
                 media_type="video",
-                capabilities=["text_to_video", "negative_prompt", "video_extend"],
+                capabilities=["negative_prompt", "video_extend"],
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8], "4k": [8]},
                 reference_image_durations=[8],
@@ -430,7 +431,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "veo-3.1-lite-generate-preview": ModelInfo(
                 display_name="Veo 3.1 Lite",
                 media_type="video",
-                capabilities=["text_to_video", "negative_prompt", "video_extend"],
+                capabilities=["negative_prompt", "video_extend"],
                 default=True,
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8]},
@@ -496,7 +497,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "veo-3.1-generate-001": ModelInfo(
                 display_name="Veo 3.1",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "negative_prompt", "video_extend"],
+                capabilities=["generate_audio", "negative_prompt", "video_extend"],
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8], "4k": [8]},
                 reference_image_durations=[8],
@@ -506,7 +507,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "veo-3.1-fast-generate-001": ModelInfo(
                 display_name="Veo 3.1 Fast",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "negative_prompt", "video_extend"],
+                capabilities=["generate_audio", "negative_prompt", "video_extend"],
                 default=True,
                 supported_durations=[4, 6, 8],
                 duration_resolution_constraints={"1080p": [8]},
@@ -579,7 +580,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "doubao-seedance-1-5-pro-251215": ModelInfo(
                 display_name="Seedance 1.5 Pro",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "seed_control", "flex_tier"],
+                capabilities=["generate_audio", "seed_control", "flex_tier"],
                 supported_durations=list(range(4, 13)),
                 resolutions=["480p", "720p", "1080p"],
                 pricing=_ark_video_pricing(
@@ -595,7 +596,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "doubao-seedance-2-0-260128": ModelInfo(
                 display_name="Seedance 2.0",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "seed_control", "video_extend"],
+                capabilities=["generate_audio", "seed_control", "video_extend"],
                 supported_durations=list(range(4, 16)),
                 resolutions=["480p", "720p", "1080p"],
                 pricing=_ark_video_pricing(
@@ -606,7 +607,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "doubao-seedance-2-0-fast-260128": ModelInfo(
                 display_name="Seedance 2.0 Fast",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "seed_control", "video_extend"],
+                capabilities=["generate_audio", "seed_control", "video_extend"],
                 supported_durations=list(range(4, 16)),
                 resolutions=["480p", "720p"],
                 pricing=_ark_video_pricing(
@@ -617,7 +618,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "doubao-seedance-2-0-mini-260615": ModelInfo(
                 display_name="Seedance 2.0 Mini",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "seed_control", "video_extend"],
+                capabilities=["generate_audio", "seed_control", "video_extend"],
                 default=True,
                 supported_durations=list(range(4, 16)),
                 resolutions=["480p", "720p"],
@@ -695,28 +696,28 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "doubao-seedance-1.5-pro": ModelInfo(
                 display_name="Seedance 1.5 Pro",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "seed_control", "flex_tier"],
+                capabilities=["generate_audio", "seed_control", "flex_tier"],
                 supported_durations=list(range(4, 13)),
                 resolutions=["480p", "720p", "1080p"],
             ),
             "doubao-seedance-2.0": ModelInfo(
                 display_name="Seedance 2.0",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "seed_control", "video_extend"],
+                capabilities=["generate_audio", "seed_control", "video_extend"],
                 supported_durations=list(range(4, 16)),
                 resolutions=["480p", "720p", "1080p"],
             ),
             "doubao-seedance-2.0-fast": ModelInfo(
                 display_name="Seedance 2.0 Fast",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "seed_control", "video_extend"],
+                capabilities=["generate_audio", "seed_control", "video_extend"],
                 supported_durations=list(range(4, 16)),
                 resolutions=["480p", "720p"],
             ),
             "doubao-seedance-2.0-mini": ModelInfo(
                 display_name="Seedance 2.0 Mini",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "seed_control", "video_extend"],
+                capabilities=["generate_audio", "seed_control", "video_extend"],
                 default=True,
                 supported_durations=list(range(4, 16)),
                 resolutions=["480p", "720p"],
@@ -777,7 +778,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "grok-imagine-video": ModelInfo(
                 display_name="Grok Imagine Video",
                 media_type="video",
-                capabilities=["text_to_video"],
+                capabilities=[],
                 default=True,
                 supported_durations=list(range(1, 16)),
                 resolutions=["480p", "720p"],
@@ -859,7 +860,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "sora-2": ModelInfo(
                 display_name="Sora 2",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio"],
+                capabilities=["generate_audio"],
                 default=True,
                 supported_durations=[4, 8, 12],
                 resolutions=["720p"],
@@ -868,7 +869,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "sora-2-pro": ModelInfo(
                 display_name="Sora 2 Pro",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio"],
+                capabilities=["generate_audio"],
                 supported_durations=[4, 8, 12],
                 resolutions=["720p", "1080p"],
                 pricing=_sora_video_pricing("sora-2-pro", {"720p": 0.30, "1024p": 0.50, "1080p": 0.70}),
@@ -903,7 +904,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "viduq3-turbo": ModelInfo(
                 display_name="Vidu Q3 Turbo",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "seed_control"],
+                capabilities=["generate_audio", "seed_control"],
                 default=True,
                 supported_durations=list(range(1, 17)),
                 # 参考生视频端点的时长下限是 3 秒（文/图生视频仍为 1 起），不收窄会让 r2v 项目的
@@ -915,7 +916,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "viduq3-pro": ModelInfo(
                 display_name="Vidu Q3 Pro",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "seed_control"],
+                capabilities=["generate_audio", "seed_control"],
                 supported_durations=list(range(1, 17)),
                 resolutions=["540p", "720p", "1080p"],
                 pricing=ViduDelegate(),
@@ -1051,7 +1052,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "happyhorse-1.0-t2v": ModelInfo(
                 display_name="HappyHorse 1.0 文生视频",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "seed_control"],
+                capabilities=["generate_audio", "seed_control"],
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("happyhorse-1.0-t2v", {"720p": 0.9, "1080p": 1.6}),
@@ -1076,7 +1077,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "wan2.7-t2v": ModelInfo(
                 display_name="万相 2.7 文生视频",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio", "seed_control"],
+                capabilities=["generate_audio", "seed_control"],
                 supported_durations=list(range(2, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("wan2.7-t2v", {"720p": 0.6, "1080p": 1.0}),
@@ -1139,7 +1140,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "MiniMax-Hailuo-2.3": ModelInfo(
                 display_name="MiniMax Hailuo 2.3",
                 media_type="video",
-                capabilities=["text_to_video"],
+                capabilities=[],
                 default=True,
                 supported_durations=[6, 10],
                 resolutions=["768p", "1080p"],
@@ -1198,7 +1199,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "kling-v2-5-turbo": ModelInfo(
                 display_name="可灵 2.5 Turbo",
                 media_type="video",
-                capabilities=["text_to_video"],
+                capabilities=[],
                 default=True,
                 supported_durations=[5, 10],
                 resolutions=["720p", "1080p"],
@@ -1227,7 +1228,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "kling-v3": ModelInfo(
                 display_name="可灵 v3",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio"],
+                capabilities=["generate_audio"],
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p", "4k"],
                 pricing=_kling_video_pricing("kling-v3"),
@@ -1235,7 +1236,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "kling-v3-omni": ModelInfo(
                 display_name="可灵 v3 Omni",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio"],
+                capabilities=["generate_audio"],
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p", "4k"],
                 # 多图主体（R2V）参考上限保守值；编排层裁剪读此处，与 backend caps 同值，
@@ -1245,7 +1246,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "kling-v2-6": ModelInfo(
                 display_name="可灵 v2.6",
                 media_type="video",
-                capabilities=["text_to_video", "generate_audio"],
+                capabilities=["generate_audio"],
                 supported_durations=[5, 10],
                 resolutions=["720p", "1080p"],
                 pricing=_kling_video_pricing("kling-v2-6"),
@@ -1300,7 +1301,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "agnes-video-v2.0": ModelInfo(
                 display_name="Agnes Video 2.0",
                 media_type="video",
-                capabilities=["text_to_video"],
+                capabilities=[],
                 default=True,
                 supported_durations=list(range(1, 19)),
                 resolutions=["480p", "720p", "1080p"],

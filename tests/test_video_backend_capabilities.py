@@ -144,19 +144,19 @@ class TestVideoCapabilitiesForModel:
 
 
 class TestVideoCapabilitySingleSourceOfTruth:
-    """全注册表扫描：内置视频模型的 i2v / r2v 能力与参考图上限只有 backend 一处手写声明。
+    """全注册表扫描：内置视频模型的输入模式与参考图上限只有 backend 一处手写声明。
 
-    registry 侧曾并行声明 `image_to_video` token 与 `max_reference_images`，两份无人比对、
-    在若干 model 上实际漂移（backend 不接首帧而 token 声称支持、参考图上限两侧不同值），
-    还两次误导审查者按已失效的那份提意见。这两个用例守住收敛后的形状。
+    registry 侧曾并行声明 `text_to_video` / `image_to_video` token 与 `max_reference_images`，
+    两份无人比对、在若干 model 上实际漂移（backend 不接首帧而 token 声称支持、参考图上限两侧
+    不同值），还两次误导审查者按已失效的那份提意见。这三个用例守住收敛后的形状。
     """
 
     @pytest.mark.unit
     def test_registry_declares_no_video_capability_bits(self):
-        """视频模型的 capabilities 不得含图生 / 参考生能力位——它们的真相源是 VideoCapabilities。"""
+        """视频模型的 capabilities 不得含输入模式 token——它们的真相源是 VideoCapabilities。"""
         from lib.config.registry import PROVIDER_REGISTRY
 
-        banned = {"image_to_video", "reference_to_video", "max_reference_images"}
+        banned = {"text_to_video", "image_to_video", "reference_to_video", "max_reference_images"}
         offenders = [
             f"{provider_id}/{model_id}: {sorted(banned & set(info.capabilities))}"
             for provider_id, meta in PROVIDER_REGISTRY.items()

@@ -29,7 +29,8 @@ def test_provider_meta_fields():
     assert "image" in meta.media_types
     assert "api_key" in meta.required_keys
     assert "api_key" in meta.secret_keys
-    assert "text_to_video" in meta.capabilities
+    # 视频模型只声明与输入模式无关的特性 token（输入模式的真相源是 backend VideoCapabilities）。
+    assert "video_extend" in meta.capabilities
 
 
 @pytest.mark.unit

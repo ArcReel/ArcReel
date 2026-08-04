@@ -180,13 +180,13 @@ class TestVideoRegistry:
         models = PROVIDER_REGISTRY[PROVIDER_MINIMAX].models
         hailuo = models["MiniMax-Hailuo-2.3"]
         assert hailuo.media_type == "video"
-        assert "text_to_video" in hailuo.capabilities
         assert hailuo.supported_durations == [6, 10]
         assert hailuo.duration_resolution_constraints == {"1080p": [6]}
 
-        fast = models["MiniMax-Hailuo-2.3-Fast"]
-        # 纯图生型号：registry 不声明视频能力位，故 capabilities 为空——i2v 判定读 backend。
-        assert fast.capabilities == []
+        # registry 不声明视频输入模式，minimax 两个型号均无其他特性 token，故 capabilities 为空
+        # ——t2v / i2v 判定读 backend。
+        assert hailuo.capabilities == []
+        assert models["MiniMax-Hailuo-2.3-Fast"].capabilities == []
 
     def test_s2v01_registered_with_single_reference_cap(self):
         from lib.config.registry import PROVIDER_REGISTRY
