@@ -582,7 +582,8 @@ function AdUnitCard({
         {dangling && (
           <span className="text-[11px] text-amber-300">{t("ad_ref_dangling")}</span>
         )}
-        {unit.stale && (
+        {/* 悬空时生成入口已禁用，「建议重新生成」是执行不了的建议：由悬空提示独占 */}
+        {unit.stale && !dangling && (
           <span className="inline-flex items-center gap-1 rounded border border-amber-300/25 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-300">
             <TriangleAlert className="h-3 w-3" aria-hidden="true" />
             {t("ad_ref_unit_stale")}

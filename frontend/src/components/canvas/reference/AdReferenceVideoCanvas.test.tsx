@@ -419,6 +419,24 @@ describe("AdReferenceVideoCanvas", () => {
     expect(screen.queryByText(/剧本已变更，建议重新生成/)).not.toBeInTheDocument();
   });
 
+  it("索引悬空的 stale 分组只提示重新派生", async () => {
+    // 悬空禁用生成入口，此时「建议重新生成」无从执行，只留悬空提示
+    mockedAPI.listAdReferenceUnits.mockResolvedValue({
+      units: [
+        makeUnit({
+          shot_ids: ["E1S1", "E1S9"],
+          stale: true,
+          generated_assets: { video_clip: "reference_videos/E1U1.mp4", status: "completed" },
+        }),
+      ],
+    });
+
+    renderCanvas();
+
+    expect(await screen.findByText(/需重新派生/)).toBeInTheDocument();
+    expect(screen.queryByText(/剧本已变更，建议重新生成/)).not.toBeInTheDocument();
+  });
+
   it("加载失败展示错误而非空态提示", async () => {
     mockedAPI.listAdReferenceUnits.mockRejectedValue(new Error("加载炸了"));
 
