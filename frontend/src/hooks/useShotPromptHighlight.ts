@@ -18,6 +18,12 @@ import {
  * - _MENTION_RE:     shared via reference-mentions.MENTION_RE
  *
  * Output tokens are non-overlapping and concatenate back to the original text.
+ *
+ * 匹配跑在原始文本上——token 要逐字拼回原文覆盖在 textarea 上，源文本不能归一——只有
+ * `mentionNameFromMatch` 取出的 `name` 是规范形。据此留一处残留：BOM 落在裸提及内部
+ * （`@张<U+FEFF>三`）时 `MENTION_RE` 的裸名字符类不含 U+FEFF，高亮只认到 BOM 之前那截、
+ * 判它未登记。参考图派生走 `extractMentions`（行已归一）不受影响，两者只在编辑器着色上
+ * 不一致；包裹形 `@[名<U+FEFF>称]` 无此残留——BOM 在方括号内，名字整取后再归一。
  */
 
 /**
