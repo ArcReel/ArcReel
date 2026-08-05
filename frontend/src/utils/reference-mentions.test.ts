@@ -56,6 +56,61 @@ describe("extractMentions", () => {
   });
 });
 
+describe("parser output is normalized", () => {
+  // 解析器承诺输出规范形（NFC + 去 BOM），与后端 shot_parser._normalize_source 同口径：
+  // 调用方拿到的名字可直接与已归一的资产表 key 判等，不再各自补归一。
+  const nameNfc = "Hiếu".normalize("NFC");
+  const nameNfd = "Hiếu".normalize("NFD");
+  const BOM = "\uFEFF";
+
+  it("has distinct NFC / NFD byte forms in the fixtures", () => {
+    expect(nameNfc).not.toBe(nameNfd);
+  });
+
+  it("emits NFC mention names regardless of the encoding written in the text", () => {
+    expect(extractMentions(`镜头1：@[${nameNfd}] 登场`)).toEqual([nameNfc]);
+  });
+
+  it("dedupes mentions across NFC / NFD spellings of the same asset", () => {
+    expect(extractMentions(`@[${nameNfc}] 与 @[${nameNfd}]`)).toEqual([nameNfc]);
+  });
+
+  it("strips BOM from inside a mention name", () => {
+    // `@[名<BOM>称]` 类粘贴产物：后端解析入口去 BOM，前端不去就会判未登记，预览与生成结果不一致
+    expect(extractMentions(`镜头1：@[张${BOM}三] 抬眼`)).toEqual(["张三"]);
+    expect(extractMentions(`${BOM}@[张三] 抬眼`)).toEqual(["张三"]);
+  });
+
+  it("reads a line as a normative dialogue line despite BOM and NFD", () => {
+    expect(matchDialogueLine(`${BOM}@[张${BOM}三]：{我${BOM}来了}`)).toEqual({
+      speaker: "张三",
+      text: "我来了",
+    });
+    expect(matchDialogueLine(`@[${nameNfd}]：{我来了}`)).toEqual({ speaker: nameNfc, text: "我来了" });
+  });
+
+  it("reads a bare braces line as voiceover despite BOM", () => {
+    expect(matchVoiceoverLine(`${BOM}{那年冬天}`)).toBe("那年冬天");
+  });
+
+  it("keeps a BOM-laced speaker slot out of mention extraction", () => {
+    // BOM 让前端判规范行、后端判描述行时，说话人是否进参考图两侧结论相反
+    expect(extractMentions(`@[张${BOM}三]：{我来了}`)).toEqual([]);
+  });
+
+  it("emits normalized script lines", () => {
+    expect(splitScriptLines(`${BOM}镜头1：中景\n@[${nameNfd}]：{我来了}`)).toEqual([
+      "镜头1：中景",
+      `@[${nameNfc}]：{我来了}`,
+    ]);
+  });
+
+  it("resolves a BOM-laced mention against the registered bucket", () => {
+    const merged = mergeReferences(`镜头1：@[张${BOM}三] 抬眼`, [], mkProject());
+    expect(merged).toEqual([{ type: "character", name: "张三" }]);
+  });
+});
+
 describe("resolveMentionType", () => {
   const project = mkProject();
 
