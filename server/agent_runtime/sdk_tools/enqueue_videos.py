@@ -496,8 +496,8 @@ async def _generate_reference_units(
     算出，narration/drama 不传。
 
     ``reuse_existing`` 决定磁盘上已存在的 ``{unit_id}.mp4`` 能否当作该 unit 的
-    现行产物复用（None 表示仅凭文件存在即复用）。ad 派生索引在成员/参考集变化
-    时会重置 unit 的 generated_assets，同名旧文件已不可信，须由该判定排除。
+    现行产物复用（None 表示仅凭文件存在即复用）。ad 按 generated_assets 是否仍
+    指向成片判定：指针为空的孤儿同名文件不可信，须由该判定排除。
 
     ``confirm_duration`` 为 false 时，若待入队 unit 中有申请时长与剧本编排不一致的
     （见 :func:`server.services.reference_video_tasks.resolve_duration_slot`），本次
@@ -619,8 +619,9 @@ async def _run_ad_reference_episode(
 ) -> dict[str, Any]:
     """ad + reference_video：先（重新）派生分组索引并持久化，再按 unit 批量直出。
 
-    分组是纯函数派生（shots + 供应商时长上限 → 可复现分组）；成员与参考集未变
-    的 unit 保留 generated_assets，已有产物经磁盘扫描跳过重复入队。
+    分组是纯函数派生（shots + 供应商时长上限 → 可复现分组）；generated_assets
+    按 unit_id 沿用，已有产物经磁盘扫描跳过重复入队；成员/参考集偏离产物的
+    unit 携带 stale 位并透出清单，不自动重生成。
     """
     project = ctx.pm.load_project(ctx.project_name)
     max_unit_duration = await resolve_max_unit_duration(project)
@@ -635,6 +636,11 @@ async def _run_ad_reference_episode(
     if not units:
         raise ValueError(f"剧本没有可分组的镜头：{script_filename}")
     log.append(f"已派生 {len(units)} 个 video_unit（连续镜头分组，索引已写入剧本）")
+    # stale 清单透出给调用方：这些 unit 的成片仍有效并按现有产物复用（本次不重生成），
+    # 是否重生成由用户/智能体决定（单元级重生成入口会在成功后清除 stale）。
+    stale_ids = [str(u.get("unit_id")) for u in units if u.get("stale")]
+    if stale_ids:
+        log.append(f"⚠️  以下 unit 的剧本已变更但保留既有成片（stale），如需更新请重新生成：{', '.join(stale_ids)}")
 
     style = project.get("style")
     result = await _generate_reference_units(
@@ -656,8 +662,9 @@ async def _run_ad_reference_episode(
         ),
         project=project,
         confirm_duration=confirm_duration,
-        # sync 把成员/参考集变化的 unit 重置为待生成；旧同名产物不可复用，
-        # 仅 generated_assets 仍指向产物的 unit 才按磁盘文件跳过
+        # 剧本编辑不作废产物：有成片指针的 unit（含 stale）一律按现有产物复用，
+        # 不自动重生成——stale 清单已透出，是否重生成由用户/智能体决定。
+        # 指针为空的孤儿同名文件不可信，不复用。
         reuse_existing=lambda u: bool(get_generated_assets(u).get("video_clip")),
         ad_shots_for=lambda u: resolve_ad_unit_shots(script, u),
     )

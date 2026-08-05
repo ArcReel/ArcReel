@@ -112,12 +112,34 @@ def derive_ad_reference_units(
     ]
 
 
+def _reference_signature(entries: object) -> list[tuple[str, str]]:
+    """references 的比较坐标系：(type, NFC 归一名) 有序列表。
+
+    落盘条目保留镜头里的原始编码形式（见 ``_unit_references``），同一资产可能以
+    NFC/NFD 两种等价形式出现——参考集是否变化必须按归一名判定，裸字节比较会把
+    编码形式差异误判为语义变化。脏条目（非 dict、非字符串字段）确定性跳过/降级，
+    与派生侧对脏数据的稳健口径一致。
+    """
+    if not isinstance(entries, list):
+        return []
+    signature: list[tuple[str, str]] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        signature.append((str(entry.get("type")), normalize_asset_name(name) if isinstance(name, str) else str(name)))
+    return signature
+
+
 def merge_ad_reference_units(existing: object, derived: list[dict]) -> list[dict]:
     """把新派生的分组与剧本中已持久化的索引合并（纯函数，不改入参）。
 
-    unit 的身份是「位置 + 成员 + 参考集」：``unit_id``、``shot_ids``、``references``
-    全部一致时沿用旧条目的 ``generated_assets``（产物文件按 unit_id 命名，三者
-    任一变化都意味着旧产物指针不再可信，重置为全新待生成状态）。
+    剧本编辑只改剧本：合并按 ``unit_id`` 沿用旧条目的 ``generated_assets``，
+    从不清空产物指针——产物内容与指针只由成功的生成覆盖（finalize 单一写点）。
+    成员（``shot_ids``）或参考集（``references``，按 NFC 归一比较）与旧条目
+    不一致、且该 unit 已有成片时，条目携带 ``stale`` 位：产物仍可用，但已
+    偏离当前剧本编排，建议重新生成。stale 位粘性传递（一旦打上，后续合并不再
+    因内容回改而摘除），仅由生成成功清除（``apply_unit_video_assets``）。
     """
     existing_by_id: dict[str, dict] = {}
     if isinstance(existing, list):
@@ -128,15 +150,17 @@ def merge_ad_reference_units(existing: object, derived: list[dict]) -> list[dict
     merged: list[dict] = []
     for unit in derived:
         prev = existing_by_id.get(unit["unit_id"])
-        assets = None
-        if (
-            isinstance(prev, dict)
-            and prev.get("shot_ids") == unit["shot_ids"]
-            and prev.get("references") == unit["references"]
-        ):
-            # 损坏值经 get_generated_assets 归一化为空 dict，与下面的 `assets or 模板` 汇合到同一结果。
-            assets = dict(get_generated_assets(prev))
-        merged.append({**unit, "generated_assets": assets or GeneratedAssets().model_dump()})
+        # 损坏值经 get_generated_assets 归一化为空 dict，与下面的 `assets or 模板` 汇合到同一结果。
+        assets = dict(get_generated_assets(prev)) if isinstance(prev, dict) else {}
+        entry = {**unit, "generated_assets": assets or GeneratedAssets().model_dump()}
+        # 无成片的 unit 谈不上产物过期，不打 stale——待生成态本身就会按当前编排生成。
+        if assets.get("video_clip") and isinstance(prev, dict):
+            changed = prev.get("shot_ids") != unit["shot_ids"] or _reference_signature(
+                prev.get("references")
+            ) != _reference_signature(unit["references"])
+            if changed or prev.get("stale"):
+                entry["stale"] = True
+        merged.append(entry)
     return merged
 
 
@@ -148,8 +172,9 @@ def sync_ad_reference_units(
 ) -> list[dict]:
     """从 shots 重新派生分组并写回 ``script["reference_units"]``，返回合并后的索引。
 
-    shots 是内容唯一真相：索引始终由本函数从 shots 重算，成员与参考集未变的
-    unit 保留既有 ``generated_assets``（见 ``merge_ad_reference_units``）。
+    shots 是内容唯一真相：索引始终由本函数从 shots 重算，``generated_assets``
+    按 unit_id 沿用、从不清空；成员或参考集偏离时仅打 stale 位
+    （见 ``merge_ad_reference_units``）。
     """
     derived = derive_ad_reference_units(script.get("shots"), episode=episode, max_unit_duration=max_unit_duration)
     merged = merge_ad_reference_units(script.get("reference_units"), derived)

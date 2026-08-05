@@ -3151,14 +3151,14 @@ async def test_generate_video_episode_ad_reference_derives_and_enqueues(
 
 
 @pytest.mark.unit
-async def test_generate_video_episode_ad_reference_regenerates_reset_unit(
+async def test_generate_video_episode_ad_reference_keeps_stale_unit_and_reports(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """成员/参考集变化导致 sync 重置 unit 后，磁盘残留的同名旧产物不得当作已完成跳过。"""
+    """成员/参考集偏离产物的 unit 保留成片指针并按现有产物跳过，stale 清单透出到工具输出。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     pm = ad_reference_ctx.pm
-    # 旧索引：E1U1 仅含 E1S1 且已完成；当前 shots 派生出的 E1U1 含 E1S1+E1S2 → sync 重置
+    # 旧索引：E1U1 仅含 E1S1 且已完成；当前 shots 派生出的 E1U1 含 E1S1+E1S2 → 打 stale 位
     pm.script_payload["reference_units"] = [  # type: ignore[attr-defined]
         {
             "unit_id": "E1U1",
@@ -3167,26 +3167,14 @@ async def test_generate_video_episode_ad_reference_regenerates_reset_unit(
             "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
         }
     ]
-    stale = ad_reference_ctx.project_path / "reference_videos" / "E1U1.mp4"
-    stale.parent.mkdir(parents=True, exist_ok=True)
-    stale.write_bytes(b"\x00")
+    existing = ad_reference_ctx.project_path / "reference_videos" / "E1U1.mp4"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_bytes(b"\x00")
 
     enqueued: list[Any] = []
 
     async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None):
-        from lib.generation_queue_client import BatchTaskResult
-
-        for spec in specs:
-            enqueued.append(spec)
-            if on_success:
-                on_success(
-                    BatchTaskResult(
-                        resource_id=spec.resource_id,
-                        task_id="t1",
-                        status="succeeded",
-                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
-                    )
-                )
+        enqueued.extend(specs)
         return [], []
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
@@ -3195,8 +3183,14 @@ async def test_generate_video_episode_ad_reference_regenerates_reset_unit(
     out = await _call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
-    # 重置后的 unit 必须重新入队，而不是凭旧文件跳过
-    assert [s.resource_id for s in enqueued] == ["E1U1"]
+    # 剧本变更不作废产物：既有成片按现行产物复用，不自动重生成
+    assert enqueued == []
+    script = pm.script_payload  # type: ignore[attr-defined]
+    assert script["reference_units"][0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
+    assert script["reference_units"][0]["stale"] is True
+    text = out["content"][0]["text"]
+    assert "stale" in text
+    assert "E1U1" in text
 
 
 @pytest.mark.unit

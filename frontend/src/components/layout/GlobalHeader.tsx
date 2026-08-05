@@ -137,6 +137,27 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
 
     setJianyingExporting(true);
     try {
+      // ad + 参考直出：剧本变更不作废成片（仅打 stale 标记），导出不拦截，
+      // 但含 stale 单元时提示一句——导出走浏览器下载导航，响应体无法承载提示，
+      // 故在触发下载前按当前索引预检。预检失败不阻断导出。
+      if (
+        currentProjectData?.content_mode === "ad" &&
+        currentProjectData?.generation_mode === "reference_video"
+      ) {
+        try {
+          const { units } = await API.listAdReferenceUnits(currentProjectName, episode);
+          const staleCount = units.filter((u) => u.stale).length;
+          if (staleCount > 0) {
+            // 用 pushNotification 留痕：随后的「导出已开始」toast 会顶掉单一 toast 槽位，
+            // 提示须能在通知中心回看
+            useAppStore
+              .getState()
+              .pushNotification(t("dashboard:jianying_stale_units_hint", { count: staleCount }), "warning");
+          }
+        } catch {
+          // 预检只是提示性质，失败静默跳过，不影响导出
+        }
+      }
       const { download_token } = await API.requestExportToken(currentProjectName, "current");
       const url = API.getJianyingDraftDownloadUrl(
         currentProjectName,

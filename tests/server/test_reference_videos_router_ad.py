@@ -143,6 +143,24 @@ class TestDeriveUnits:
         assert units[0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
 
     @pytest.mark.unit
+    def test_rederive_after_shot_change_keeps_assets_and_reports_stale(self, ad_client: TestClient):
+        ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
+        script = _read_script(ad_client)
+        script["reference_units"][0]["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
+        # 新增镜头改变 E1U1 的成员集合：产物指针保留，条目携带 stale 位
+        script["shots"].append(_shot("E1S3", 4))
+        path: Path = ad_client.proj_dir / "scripts" / "episode_1.json"  # type: ignore[attr-defined]
+        path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+        resp = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
+
+        units = resp.json()["units"]
+        assert units[0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
+        assert units[0]["stale"] is True
+        # 持久化与响应同口径，list 端点透传即可让前端拿到 stale
+        assert _read_script(ad_client)["reference_units"][0]["stale"] is True
+
+    @pytest.mark.unit
     def test_derive_rejected_for_non_ad_project(self, ad_client: TestClient):
         proj_dir: Path = ad_client.proj_dir  # type: ignore[attr-defined]
         project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))

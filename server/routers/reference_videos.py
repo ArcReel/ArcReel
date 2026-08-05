@@ -248,8 +248,9 @@ async def derive_units(
 ) -> dict[str, Any]:
     """（重新）派生 ad 项目的 video_unit 分组索引并持久化（仅 ad 开放）。
 
-    分组器是纯函数：shots 与供应商时长上限不变则分组可复现；成员与参考集
-    未变的 unit 保留 generated_assets（重生成单个 unit 时分组不漂移）。
+    分组器是纯函数：shots 与供应商时长上限不变则分组可复现；generated_assets
+    按 unit_id 沿用、从不清空，成员/参考集偏离产物的 unit 携带 stale 位
+    （见 ``merge_ad_reference_units``）。
     """
     project, _script, _sf = _load_episode_script(project_name, episode, _t)
     _require_ad_project(project, True, _t)
