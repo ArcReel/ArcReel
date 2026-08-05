@@ -23,6 +23,7 @@ from lib.reference_video.quarantine import (
     quarantine_path,
     write_quarantine,
 )
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.enqueue_assets import (
@@ -3266,7 +3267,7 @@ async def test_generate_video_all_ad_reference_falls_through_to_episode(
 # ---------------------------------------------------------------------------
 
 
-def _rv_caps(default=4, durations=(4, 6, 8), reference_durations=None, max_duration=12, max_refs=3, caps=None):
+def _rv_caps(default=4, durations=(4, 6, 8), reference_durations=None, max_duration=12, max_refs=3, voice=None):
     from server.agent_runtime.sdk_tools.text_generation import ReferenceSplitCaps
 
     async def fake_caps(_p, _episode=None):
@@ -3277,7 +3278,7 @@ def _rv_caps(default=4, durations=(4, 6, 8), reference_durations=None, max_durat
             text_durations=list(durations),
             max_duration=max_duration,
             max_refs=max_refs,
-            raw=dict(caps or {}),
+            voice=voice or VoiceRenderSettings(),
         )
 
     return fake_caps
@@ -3504,7 +3505,7 @@ async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_fai
     monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
     monkeypatch.setattr(ConfigResolver, "video_generate_audio_for_project", _fake_project_audio)
     caps = await mod._fetch_reference_caps_with_fallback({"video_generate_audio": False}, 1)
-    assert caps.raw.get("requested_generate_audio") is False
+    assert caps.voice.requested_generate_audio is False
 
 
 @pytest.mark.unit
@@ -3526,7 +3527,7 @@ async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_fail
     monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
     monkeypatch.setattr(ConfigResolver, "video_generate_audio_for_project", _raising_project_audio)
     caps = await mod._fetch_reference_caps_with_fallback({"video_generate_audio": False}, 1)
-    assert caps.raw.get("requested_generate_audio") is False
+    assert caps.voice.requested_generate_audio is False
 
 
 def _rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = None):
@@ -4530,7 +4531,7 @@ async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
         fake_ctx,
         monkeypatch,
         [_rv_unit("镜头1：@[张三] 起身\n@[张三]：{我来了。}")],
-        caps={"voice_consistency": "native", "max_reference_audio_count": 2, "model": "m"},
+        voice=VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, model_id="m"),
     )
 
     assert out.get("is_error") is not True, out
@@ -4558,12 +4559,9 @@ async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_bac
         fake_ctx,
         monkeypatch,
         [_rv_unit("镜头1：@[张三] 起身\n@[张三]：{我来了。}\n@[李四]：{你终于来了。}")],
-        caps={
-            "voice_consistency": "native",
-            "max_reference_audio_count": 1,
-            "model": "m",
-            "reference_audio_per_image": True,
-        },
+        voice=VoiceRenderSettings(
+            voice_consistency="native", max_reference_audio=1, model_id="m", requires_reference_image=True
+        ),
     )
 
     assert out.get("is_error") is not True, out

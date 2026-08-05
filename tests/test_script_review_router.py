@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from lib.json_io import atomic_write_json
 from lib.project_manager import ProjectManager
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import script_review as router_mod
@@ -211,7 +212,7 @@ class TestReferenceVideoRouter:
                 text_durations=[4, 6, 8],
                 max_duration=8,
                 max_refs=3,
-                raw={},
+                voice=VoiceRenderSettings(),
             )
 
         monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _fake_caps)
@@ -262,7 +263,7 @@ class TestReferenceVideoRouter:
                 text_durations=[4, 6, 8],
                 max_duration=8,
                 max_refs=3,
-                raw={},
+                voice=VoiceRenderSettings(),
             )
 
         monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _fake_caps)

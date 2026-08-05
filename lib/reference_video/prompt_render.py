@@ -104,7 +104,7 @@ def render_unit_prompt(
     text: str,
     project: dict,
     references: list[ReferenceResource],
-    settings: VoiceRenderSettings | None = None,
+    settings: VoiceRenderSettings,
     *,
     style: str | None = None,
 ) -> RenderedUnitPrompt:
@@ -116,7 +116,9 @@ def render_unit_prompt(
     由上游持久化，本函数只消费不重算。
 
     ``settings`` 是本次渲染的声音输入档（见 :class:`~lib.reference_video.voice_settings
-    .VoiceRenderSettings`）。``requires_reference_image`` 为 True 时（backend 要求音频逐段挂在
+    .VoiceRenderSettings`），必填无兜底：这一档决定这一集听不听得到声音，缺省成任何一个方向都是
+    替调用方猜——猜有声会给无声项目注入声音特征，漏传时报错才让新调用方在接线阶段就发现。
+    ``requires_reference_image`` 为 True 时（backend 要求音频逐段挂在
     具体参考素材项上），纯画外 speaker 不绑定音频（降级 + warning）——绑定后 ``@音频N`` 编号会
     写进 prompt 文本，若随后才在 backend 层过滤会让文本承诺的绑定与实际发出的
     ``reference_audio_files`` 分叉，必须在编号生成前就排除。
@@ -127,7 +129,6 @@ def render_unit_prompt(
 
     warning 与解析预览面板同一批 ``{key, params}`` 条目，由调用方并入任务 ``result.warnings``。
     """
-    settings = settings or VoiceRenderSettings()
     shots, mentions = parse_prompt(text)
     utterances, warnings = derive_utterances(shots)
 
@@ -334,7 +335,7 @@ def render_ad_backend_prompt(
     shots: list[dict],
     entries: list[dict],
     project: dict,
-    settings: VoiceRenderSettings | None = None,
+    settings: VoiceRenderSettings,
     *,
     style: str | None = None,
 ) -> RenderedUnitPrompt:
@@ -352,14 +353,14 @@ def render_ad_backend_prompt(
     只接管第一、三段与音频接线，故调用 ``render_ad_unit_prompt`` 时传 ``style=None``。
 
     ``entries`` 是本次实际随请求发出的参考条目（已按能力上限裁剪），其顺序即 ``图片N``
-    编号——与调用方组装的 ``reference_images`` 严格等长同序。
+    编号——与调用方组装的 ``reference_images`` 严格等长同序。``settings`` 同 :func:`render_unit_prompt`
+    必填无兜底。
 
     Raises:
         ValueError: 成员镜头全无画面内容（第二段渲染为空）——同
             :func:`lib.reference_video.ad_units.render_ad_unit_prompt` 的口径，防止机器生成的
             第一/三段把空提示词撑成非空文本绕过 backend 的空值保护。
     """
-    settings = settings or VoiceRenderSettings()
     body = render_ad_unit_prompt(shots, style=None)
     if not body.strip():
         raise ValueError("reference video unit prompt is empty: all member shots have no visual content")
