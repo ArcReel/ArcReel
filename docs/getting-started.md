@@ -139,8 +139,10 @@ http://localhost:1241
 
 长期运行、多人使用或正式服务建议使用 PostgreSQL：
 
+以下命令从 ArcReel 仓库根目录执行：
+
 ```bash
-cd production
+cd deploy/production
 cp .env.example .env
 ```
 
