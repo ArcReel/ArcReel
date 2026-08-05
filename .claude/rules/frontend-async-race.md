@@ -17,7 +17,7 @@ paths:
 - 被 abort 方的收尾（如 loading 复位）让位给接管方：`finally` 中先查 `signal.aborted`，已作废则不修改共享状态，否则会干扰接管方正在进行的加载
 - 作废由一次性事件触发的在途请求后必须补拉：事件已被消费，那份数据不会自行再来，作废方（或接管方）在 abort 后自行发起一轮拉取补上缺口，否则界面停留在旧数据——「取消」与「补偿」成对出现
 
-参考实现：`frontend/src/hooks/useAssistantSession.ts`（init 自动选择 + `loadSession` 加载链）。
+参考实现：`frontend/src/hooks/useAssistantSession.ts`（init 自动选择 + `loadSession` 加载链）、`frontend/src/hooks/useScriptReviewDraft.ts`（采纳写入时作废在途拉取并补拉）。
 
 `cancelled` closure flag 是历史写法：只拦截所在函数自身的 await 断点，不传播到被调函数，不再新增；改动涉及处一并迁移到 AbortSignal。
 
