@@ -1642,6 +1642,40 @@ class TestGenerationWorker:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
+    async def test_process_resume_task_endpoint_changed(self, monkeypatch):
+        """ResumeEndpointChangedError → mark_failed [resume_endpoint_changed]，错误可归因。"""
+        from lib.video_backends.base import ResumeEndpointChangedError
+
+        queue = _FakeQueue()
+        worker = GenerationWorker(queue=queue)
+
+        async def _changed(_task, *, job_id):
+            raise ResumeEndpointChangedError(
+                job_id=job_id,
+                provider="custom-7",
+                submitted_endpoint="openai-video",
+                current_endpoint="minimax-video",
+            )
+
+        monkeypatch.setattr("server.services.resume_executor.execute_resume_video_task", _changed)
+        task = {
+            "task_id": "ep",
+            "task_type": "video",
+            "media_type": "video",
+            "provider_id": "custom-7",
+            "provider_job_id": "x",
+            "payload": {},
+            "project_name": "demo",
+        }
+        await worker._process_resume_task(task)
+        assert queue.failed and queue.failed[0][0] == "ep"
+        assert "[resume_endpoint_changed_detail]" in queue.failed[0][1]
+        # 两侧 endpoint 都进错误详情，用户能归因到「接口被换过」而非泛化失败
+        assert "openai-video" in queue.failed[0][1]
+        assert "minimax-video" in queue.failed[0][1]
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
     async def test_process_resume_task_resume_unsupported(self, monkeypatch):
         """NotImplementedError → mark_failed [resume_unsupported]。"""
         queue = _FakeQueue()

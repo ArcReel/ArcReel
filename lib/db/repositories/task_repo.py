@@ -87,6 +87,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "cancelled_by": row.cancelled_by,
         "provider_id": row.provider_id,
         "provider_job_id": row.provider_job_id,
+        "provider_endpoint": row.provider_endpoint,
         "queued_at": dt_to_iso(row.queued_at),
         "started_at": dt_to_iso(row.started_at),
         "finished_at": dt_to_iso(row.finished_at),
@@ -646,16 +647,21 @@ class TaskRepository(BaseRepository):
                 skipped_terminal=skipped_terminal,
             )
 
-    async def persist_provider_job_id(self, task_id: str, job_id: str) -> None:
+    async def persist_provider_job_id(self, task_id: str, job_id: str, *, endpoint: str | None = None) -> None:
         """单独事务持久化 provider_job_id；不带 WHERE 状态守卫（worker 内调用，确定是 running）。
+
+        ``endpoint`` 是自定义供应商提交本 job 时模型行的 endpoint（内置供应商传 None）。与
+        job_id 同一次 UPDATE 落地：两者必须同时可见，否则续跑会拿到 job_id 却判不出协议是否
+        已被换掉。None 时不写该列——保留既有值比清空更安全（清空等于放弃比对）。
 
         失败抛异常，由 worker finally 兜底 mark_failed（ADR 0007 fail-fast：未持久化的
         submit 视为整笔失败，避免「幽灵任务」继续在 provider 端跑而 DB 已忘）。
         """
         now = utc_now()
-        await self.session.execute(
-            update(Task).where(Task.task_id == task_id).values(provider_job_id=job_id, updated_at=now)
-        )
+        values: dict[str, Any] = {"provider_job_id": job_id, "updated_at": now}
+        if endpoint is not None:
+            values["provider_endpoint"] = endpoint
+        await self.session.execute(update(Task).where(Task.task_id == task_id).values(**values))
         await self.session.commit()
 
     async def _merge_payload_field(self, task_id: str, key: str, value: Any, *, raise_if_missing: bool = True) -> None:

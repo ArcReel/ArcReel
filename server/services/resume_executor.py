@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from lib.project_change_hints import project_change_source
+from lib.video_backends.base import ResumeEndpointChangedError
 from server.services.generation_context import VideoLaneRequest, resolve_generation_context
 from server.services.generation_tasks import (
     DEFAULT_USER_ID,
@@ -23,6 +24,28 @@ from server.services.generation_tasks import (
 from server.services.reference_video_tasks import _finalize_reference_video_unit
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_endpoint_unchanged(task: dict[str, Any], current_endpoint: str | None, *, job_id: str) -> None:
+    """提交本 job 的 endpoint 与模型行当下的 endpoint 不同即显式失败，不接续轮询。
+
+    身份闸（``lib.config.resolver._ensure_video_identity_resolvable``）只校验媒体类型仍是
+    video，同媒体类型内的 endpoint 切换（如 openai-video → minimax-video）会直接放行，于是
+    新协议 backend 拿到旧协议下创建的 job id：轻则报错指向新协议、用户无法归因，重则轮询
+    响应被误读、任务被标失败而远端 job 仍在跑仍在计费。
+
+    两侧任一为空即跳过：内置供应商无 endpoint 维度，本列未持久化的存量任务同样无从比对，
+    行为与现状一致。
+    """
+    submitted_endpoint = task.get("provider_endpoint")
+    if not submitted_endpoint or not current_endpoint or submitted_endpoint == current_endpoint:
+        return
+    raise ResumeEndpointChangedError(
+        job_id=job_id,
+        provider=str(task.get("provider_id") or "unknown"),
+        submitted_endpoint=str(submitted_endpoint),
+        current_endpoint=current_endpoint,
+    )
 
 
 async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dict[str, Any]:
@@ -63,6 +86,7 @@ async def execute_resume_video_task(task: dict[str, Any], *, job_id: str) -> dic
         video=VideoLaneRequest(),
     )
     generator = ctx.generator
+    _ensure_endpoint_unchanged(task, ctx.video.endpoint, job_id=job_id)
 
     aspect_ratio = get_aspect_ratio(project, "videos") if task_type == "video" else project.get("aspect_ratio", "9:16")
     # 浮点数字符串（如 "8.0"）直接 int() 会抛 ValueError；先 float 再 int 兜底脏数据

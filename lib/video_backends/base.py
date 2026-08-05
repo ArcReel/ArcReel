@@ -40,20 +40,21 @@ _PERSIST_BACKOFF_SECONDS: tuple[int, ...] = (1, 2, 4)
     backoff_seconds=_PERSIST_BACKOFF_SECONDS,
     retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS),
 )
-async def _persist_with_retry(task_id: str, job_id: str) -> None:
+async def _persist_with_retry(task_id: str, job_id: str, endpoint: str | None) -> None:
     from lib.generation_queue import get_generation_queue
 
-    await get_generation_queue().persist_provider_job_id(task_id, job_id)
+    await get_generation_queue().persist_provider_job_id(task_id, job_id, endpoint=endpoint)
 
 
-async def persist_provider_job_id(task_id: str, job_id: str, *, provider: str) -> None:
+async def persist_provider_job_id(task_id: str, job_id: str, *, provider: str, endpoint: str | None = None) -> None:
     """Submit 之后立即调：把 job_id 持久化到 DB 让重启可接续。
 
-    Caller 显式传 task_id；DB 瞬态错误最多重试 3 次，业务异常立即抛。
-    重试用尽抛异常，由 worker finally 兜底 mark_failed（fail-fast）。
+    Caller 显式传 task_id；``endpoint`` 仅自定义供应商有值（内置供应商无 endpoint 维度），
+    与 job_id 同一次写入落地，供续跑判定协议是否已被换掉。DB 瞬态错误最多重试 3 次，业务
+    异常立即抛。重试用尽抛异常，由 worker finally 兜底 mark_failed（fail-fast）。
     """
     try:
-        await _persist_with_retry(task_id, job_id)
+        await _persist_with_retry(task_id, job_id, endpoint)
         logger.info("provider_job_id 已持久化 task_id=%s provider=%s job_id=%s", task_id, provider, job_id)
     except Exception as exc:
         logger.error(
@@ -82,12 +83,13 @@ class ProviderJobIdPersistenceMixin:
     async def _persist_provider_job_id(self, request: VideoGenerationRequest, job_id: str, *, provider: str) -> None:
         """submit 成功后立即调：worker 路径写回 job_id，非 worker 路径（task_id=None）跳过。
 
-        持久化失败抛出（DB 瞬态错误已在 ``persist_provider_job_id`` 内重试 3 次），由 worker
-        finally 兜底 mark_failed —— 保持现有 fail-fast 语义（ADR 0007）。
+        同时写回 ``request.execution_endpoint``——自定义供应商的包装层在转发前注入本次执行所用
+        的 endpoint，内置供应商恒 None。持久化失败抛出（DB 瞬态错误已在 ``persist_provider_job_id``
+        内重试 3 次），由 worker finally 兜底 mark_failed —— 保持现有 fail-fast 语义（ADR 0007）。
         """
         if request.task_id is None:
             return
-        await persist_provider_job_id(request.task_id, job_id, provider=provider)
+        await persist_provider_job_id(request.task_id, job_id, provider=provider, endpoint=request.execution_endpoint)
 
 
 @with_retry_async(
@@ -136,6 +138,26 @@ class ResumeExpiredError(RuntimeError):
         self.job_id = job_id
         self.provider = provider
         super().__init__(message or f"resume job {job_id} expired or not found on provider {provider}")
+
+
+class ResumeEndpointChangedError(RuntimeError):
+    """提交本 job 时的 endpoint 与模型行当下的 endpoint 不同——续跑必须显式失败。
+
+    endpoint 决定协议，换 endpoint 等于换 backend；拿新协议 backend 轮旧协议下创建的 job
+    会误读响应，把仍在跑仍在计费的远端 job 标成失败。ADR 0054「换身份续跑必须显式报错」在
+    endpoint 维度的落点：只拦已提交、持有 job_id 的续跑，排队未提交的任务照常按新 endpoint
+    提交。仅自定义供应商有该维度。
+    """
+
+    def __init__(self, *, job_id: str, provider: str, submitted_endpoint: str, current_endpoint: str) -> None:
+        self.job_id = job_id
+        self.provider = provider
+        self.submitted_endpoint = submitted_endpoint
+        self.current_endpoint = current_endpoint
+        super().__init__(
+            f"resume job {job_id} was submitted via endpoint {submitted_endpoint} on provider {provider}, "
+            f"but the model row now points to {current_endpoint}"
+        )
 
 
 # 图片后缀 → MIME 类型映射（多个后端共用）
@@ -466,6 +488,10 @@ class VideoGenerationRequest:
     # `ProviderJobIdPersistenceMixin._persist_provider_job_id` 持久化 job_id。
     # 非 worker 路径（grid / 直生 / 测试）保持 None，统一点据此跳过持久化。
     task_id: str | None = None
+
+    # 自定义供应商包装层（`CustomVideoBackend`）在转发给协议 backend 前注入的 endpoint，
+    # 与 job_id 一并持久化供续跑比对。内置供应商无 endpoint 维度，保持 None。
+    execution_endpoint: str | None = None
 
     # Seedance 特有
     service_tier: str = "default"

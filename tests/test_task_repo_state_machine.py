@@ -209,6 +209,43 @@ class TestRepoStateMachineGuards:
         await repo.persist_provider_job_id(t["task_id"], "provider-job-42")
         refreshed = await repo.get(t["task_id"])
         assert refreshed["provider_job_id"] == "provider-job-42"
+        # 内置供应商无 endpoint 维度，该列保持 NULL
+        assert refreshed["provider_endpoint"] is None
+
+    async def test_persist_provider_job_id_writes_endpoint_alongside(self, db_session):
+        """自定义供应商的 endpoint 与 job_id 同一次写入落地——两者必须同时可见，
+        否则续跑拿得到 job_id 却判不出协议是否已被换掉。"""
+        repo = TaskRepository(db_session)
+        t = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="r-ep",
+            payload={},
+            script_file="ep1.json",
+        )
+        await repo.claim_next("video")
+        await repo.persist_provider_job_id(t["task_id"], "provider-job-43", endpoint="openai-video")
+        refreshed = await repo.get(t["task_id"])
+        assert refreshed["provider_job_id"] == "provider-job-43"
+        assert refreshed["provider_endpoint"] == "openai-video"
+
+    async def test_persist_provider_job_id_without_endpoint_keeps_existing(self, db_session):
+        """endpoint 传 None 不清空已有值——清空等于放弃比对，比保留旧值更危险。"""
+        repo = TaskRepository(db_session)
+        t = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="r-keep",
+            payload={},
+            script_file="ep1.json",
+        )
+        await repo.claim_next("video")
+        await repo.persist_provider_job_id(t["task_id"], "job-a", endpoint="openai-video")
+        await repo.persist_provider_job_id(t["task_id"], "job-b")
+        refreshed = await repo.get(t["task_id"])
+        assert refreshed["provider_endpoint"] == "openai-video"
 
     async def test_list_orphan_returns_running_and_cancelling(self, db_session):
         repo = TaskRepository(db_session)

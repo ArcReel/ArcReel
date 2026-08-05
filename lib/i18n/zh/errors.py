@@ -48,6 +48,7 @@ MESSAGES = {
     "task_fail_resume_unsupported_capacity_zero": "供应商 {provider_id} 的视频容量为 0，无法接续任务，请手动重试",
     "task_fail_resume_unsupported_detail": "任务无法接续：{detail}",
     "task_fail_resume_expired_detail": "任务接续凭据已过期：{detail}",
+    "task_fail_resume_endpoint_changed_detail": "该模型的接口已更换，无法接续提交前发起的生成：{detail}",
     "task_fail_cascade_blocked_dependency": "因依赖任务 {dependency_task_id} 失败而被阻塞：{reason}",
     "prompt_must_be_string_or_scene_object": "prompt 必须是字符串或包含 scene/composition 的对象",
     "prompt_scene_empty": "prompt.scene 不能为空",

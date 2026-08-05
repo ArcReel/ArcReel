@@ -33,6 +33,9 @@ class Task(UserOwnedMixin, Base):
     cancelled_by: Mapped[str | None] = mapped_column(String)
     provider_id: Mapped[str | None] = mapped_column(String)
     provider_job_id: Mapped[str | None] = mapped_column(String)
+    # 自定义供应商提交该 job 时模型行的 endpoint（内置供应商无 endpoint 维度，恒 NULL）。
+    # 与 provider_job_id 同一次写入落地：续跑据此判定协议是否已被换掉。
+    provider_endpoint: Mapped[str | None] = mapped_column(String)
     queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -806,7 +806,7 @@ class GenerationWorker:
             job_id,
         )
 
-        from lib.video_backends.base import ResumeExpiredError
+        from lib.video_backends.base import ResumeEndpointChangedError, ResumeExpiredError
         from server.services.resume_executor import execute_resume_video_task
 
         try:
@@ -818,6 +818,14 @@ class GenerationWorker:
             logger.warning("resume 不支持 task %s: %s", task_id, exc)
             rows = await asyncio.shield(
                 self.queue.mark_task_failed(task_id, encode_failure("resume_unsupported_detail", detail=str(exc)))
+            )
+            if rows == 0:
+                await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
+            return
+        except ResumeEndpointChangedError as exc:
+            logger.warning("resume endpoint 已变更 task %s: %s", task_id, exc)
+            rows = await asyncio.shield(
+                self.queue.mark_task_failed(task_id, encode_failure("resume_endpoint_changed_detail", detail=str(exc)))
             )
             if rows == 0:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
