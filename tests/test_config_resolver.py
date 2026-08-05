@@ -1161,15 +1161,14 @@ class TestResolveImageBackend:
     """resolve_image_backend：payload > 项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。"""
 
     @pytest.mark.unit
-    async def test_payload_capability_slot_wins(self):
+    async def test_payload_capability_slot_is_not_a_payload_layer_key(self):
+        """图片任务不钉住执行身份：``image_provider_<cap>`` 只是项目层键，payload 里同名键不参与解析。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
-        project = {"image_provider_t2i": "ark/proj-t2i", "image_provider_i2i": "ark/proj-i2i"}
-        payload = {"image_provider_t2i": "openai/pay-t2i", "image_provider_i2i": "openai/pay-i2i"}
-        t2i = await resolver._resolve_image_provider_model(fake_svc, None, project, payload, "t2i")
-        i2i = await resolver._resolve_image_provider_model(fake_svc, None, project, payload, "i2i")
-        assert (t2i.provider_id, t2i.model_id) == ("openai", "pay-t2i")
-        assert (i2i.provider_id, i2i.model_id) == ("openai", "pay-i2i")
+        project = {"image_provider_t2i": "ark/proj-t2i"}
+        payload = {"image_provider_t2i": "openai/pay-t2i"}
+        resolved = await resolver._resolve_image_provider_model(fake_svc, None, project, payload, "t2i")
+        assert (resolved.provider_id, resolved.model_id) == ("ark", "proj-t2i")
 
     @pytest.mark.unit
     async def test_payload_legacy_fields_for_historical_tasks(self):
@@ -1376,16 +1375,7 @@ class TestLayeredBackendSkeleton:
 
 
 class TestResolveVideoBackend:
-    """resolve_video_backend：payload > project > 全局默认。"""
-
-    @pytest.mark.unit
-    async def test_payload_historical_provider_wins(self):
-        resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={})
-        project = {"video_backend": "grok/grok-imagine-video"}
-        payload = {"video_provider": "ark", "video_provider_settings": {"model": "seedance"}}
-        resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload)
-        assert (resolved.provider_id, resolved.model_id) == ("ark", "seedance")
+    """resolve_video_backend：payload 钉住键 > project > 全局默认。"""
 
     @pytest.mark.unit
     async def test_project_video_backend_when_no_payload(self):
@@ -1459,24 +1449,14 @@ class TestResolveVideoBackend:
         assert resolved.model_id == "doubao-seedance-2-0-mini-260615"  # registry 中 ark 的默认 video model
 
     @pytest.mark.unit
-    async def test_payload_legacy_provider_not_trusted_falls_through_to_project(self):
-        """in-flight 历史任务 payload 携带 legacy video_provider（如 seedance）→ 不予信任，回退已迁移的 project。"""
+    async def test_payload_without_pinned_bucket_key_falls_through_to_project(self):
+        """payload 层只认钉住的能力桶键：非桶键的 provider 字段不参与解析，一律回退配置层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
-        project = {"video_backend": "ark/doubao-seedance-2-0-260128"}  # 启动期已迁移为规范名
-        payload = {"video_provider": "seedance", "video_model": "legacy"}  # legacy，不可识别
+        project = {"video_backend": "ark/doubao-seedance-2-0-260128"}
+        payload = {"video_provider": "grok", "video_provider_settings": {"model": "grok-imagine-video"}}
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload)
         assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-2-0-260128")
-
-    @pytest.mark.unit
-    async def test_payload_non_dict_video_provider_settings_does_not_crash(self):
-        """脏 payload：video_provider_settings 非 dict → 不抛异常，按缺 model 补该 provider 默认。"""
-        resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={"default_video_backend": "grok/grok-imagine-video"})
-        payload = {"video_provider": "ark", "video_provider_settings": "not-a-dict"}
-        resolved = await resolver._resolve_video_provider_model(fake_svc, None, {}, payload)
-        assert resolved.provider_id == "ark"
-        assert resolved.model_id == "doubao-seedance-2-0-mini-260615"  # 补 ark 默认 video model
 
 
 @pytest.mark.unit
@@ -1529,14 +1509,6 @@ class TestResolveVideoBackendBuckets:
         fake_svc = _FakeConfigService(settings={})
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, None, "i2v")
         assert resolved.provider_id == "gemini-aistudio"
-
-    async def test_payload_wins_and_skips_capability_gate(self):
-        """已入队任务按 payload 照常执行：payload 命中不过能力闸，r2v 桶下仍放行仅 i2v 的模型。"""
-        resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={})
-        payload = {"video_provider": "vidu", "video_model": "viduq3-pro"}
-        resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, payload, "r2v")
-        assert (resolved.provider_id, resolved.model_id) == ("vidu", "viduq3-pro")
 
     async def test_missing_i2v_capability_raises_structured_error(self):
         from lib.config.resolver import VideoBucketCapabilityError
@@ -2046,11 +2018,11 @@ class TestPayloadPinnedVideoModel:
     """入队钉进 payload 能力桶键的执行身份：优先级最高，且不承诺桶的调用方（resume）也读得到。"""
 
     @pytest.mark.unit
-    async def test_pinned_bucket_key_wins_over_project_and_legacy_payload(self):
+    async def test_pinned_bucket_key_wins_over_project(self):
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_provider_i2v": "vidu/viduq3-pro", "video_backend": "grok/grok-imagine-video"}
-        payload = {"video_provider_i2v": "ark/doubao-seedance-2-0-260128", "video_provider": "grok"}
+        payload = {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"}
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
         assert (resolved.provider_id, resolved.model_id) == ("ark", "doubao-seedance-2-0-260128")
 
@@ -2088,14 +2060,14 @@ class TestPayloadPinnedVideoModel:
 
     @pytest.mark.unit
     async def test_pin_of_unavailable_provider_raises_instead_of_falling_back(self):
-        """钉住的供应商已下线：报错，不回退 payload 旧键或配置层。
+        """钉住的供应商已下线：报错，不回退配置层。
 
         回退等于换供应商执行，续跑更会拿另一个 backend 去轮原供应商的 provider_job_id。
         """
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
-        payload = {"video_provider_i2v": "seedance/legacy", "video_provider": "ark", "video_model": "seedance"}
+        payload = {"video_provider_i2v": "seedance/legacy"}
         with pytest.raises(VideoBucketCapabilityError) as excinfo:
             await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
         assert excinfo.value.provider_id == "seedance"

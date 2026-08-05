@@ -764,12 +764,14 @@ class GenerationWorker:
     async def _process_resume_task(self, task: dict[str, Any]) -> None:
         """重启自愈入口：直接调 backend.resume_video，绕过 normal executor 流水线。
 
-        provider 锁定：把持久化的 ``task["provider_id"]`` 注入 payload 的
-        ``video_provider`` 字段，让 ``ConfigResolver`` 按持久化 provider 而非当前
-        项目配置解析 backend。否则任务提交后到重启前若项目 provider 配置切换，
-        会拿旧 ``provider_job_id`` 去新 provider 轮询，导致可恢复任务被误判失败。
-        model 侧由入队时钉进 payload 能力桶键的执行身份负责（``lib.generation_queue``），
-        解析优先级高于此处注入；这里的注入是无桶键存量任务的兜底。
+        身份锁定：视频任务的 provider 与 model 由入队时钉进 payload 能力桶键的执行身份负责
+        （``lib.generation_queue``），``ConfigResolver`` 据此按提交时的身份而非当前项目配置解析
+        backend——否则任务提交后到重启前若项目 provider 配置切换，会拿旧 ``provider_job_id``
+        去新 provider 轮询，导致可恢复任务被误判失败。
+
+        非视频媒体退到把持久化的 ``task["provider_id"]`` 注入 payload 的 ``image_provider``
+        字段（只锁 provider、锁不住 model）。孤儿扫描只把 video 交到这里，image / audio 孤儿
+        在扫描期即落 ``[restart_lost]``，该分支因而只在 media_type 为脏数据时可达。
         """
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
@@ -784,18 +786,16 @@ class GenerationWorker:
                 await asyncio.shield(self.queue.mark_task_cancelled(task_id, cancelled_by="user"))
             return
 
-        # 锁定持久化 provider 到 payload（resolver 优先级：payload > project > 默认）。
+        # 非视频媒体：锁定持久化 provider 到 payload（resolver 优先级：payload > project > 默认）。
+        # 视频任务的身份走入队钉住的能力桶键，不在此注入——注入只覆盖 provider、盖不住 model。
         persisted_provider_id = task.get("provider_id")
-        if persisted_provider_id:
+        is_video = task.get("media_type") == "video" or task_type in ("video", "reference_video")
+        if persisted_provider_id and not is_video:
             payload = task.get("payload")
             if payload is None:
                 payload = {}
                 task["payload"] = payload
-            is_video = task.get("media_type") == "video" or task_type in ("video", "reference_video")
-            if is_video:
-                payload["video_provider"] = persisted_provider_id
-            else:
-                payload["image_provider"] = persisted_provider_id
+            payload["image_provider"] = persisted_provider_id
 
         provider_id = await _extract_provider(task)
         logger.info(

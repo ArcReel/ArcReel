@@ -160,24 +160,6 @@ def _payload_model_or_default(raw_model: object, provider_id: str, media_type: s
     return default_model_for_provider(provider_id, media_type)
 
 
-def _payload_pinned_pair(
-    payload: dict, cap_keys: tuple[str, ...], *, drop_unknown_provider: bool = True
-) -> tuple[str, str] | None:
-    """读 payload 里能力桶键（``<media>_provider_<cap>``）钉住的执行身份，按给定键序取第一个命中。
-
-    值是 ``ProviderModel.pair_key`` 形态的复合值。``drop_unknown_provider`` 为真时，provider
-    不可信（见 ``_trusted_payload_provider``）即视为未钉住，由调用方回退 payload 旧键与配置层；
-    调用方自带身份可用性收口（视频侧 ``_ensure_video_identity_resolvable``）时传假，让供应商已下线的
-    钉住身份走报错而非静默回退——回退等于换供应商执行。"""
-    for key in cap_keys:
-        pair = _split_pair(payload.get(key))
-        if pair is None:
-            continue
-        if not drop_unknown_provider or _trusted_payload_provider(pair[0]) is not None:
-            return pair
-    return None
-
-
 @dataclass(frozen=True)
 class _LayeredBackendKeys:
     """「默认 + 能力桶」四级解析骨架的键位声明，媒体类型无关（见 ``docs/adr/0054``）。
@@ -225,6 +207,16 @@ _VIDEO_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
     )
     for cap in ("i2v", "r2v")
 }
+
+
+# 不定桶视频键位：与 ``_VIDEO_LAYERED_KEYS`` 同源同层，只去掉桶层（None 由骨架跳过）。供不承诺
+# 能力桶的调用方（费用估算、限流路由兜底、配置展示）解析，不施加桶键覆盖也不过能力闸。
+_VIDEO_DEFAULT_LAYERED_KEYS = _LayeredBackendKeys(
+    media_type="video",
+    parse_fallback=_DEFAULT_VIDEO_BACKEND,
+    project_default_key="video_backend",
+    global_default_key="default_video_backend",
+)
 
 
 # 音频键位。音频无能力桶，桶层留空（None）由骨架直接跳过：项目默认层用 project.json 的
@@ -278,16 +270,20 @@ def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoCapabi
 def _payload_video_pinned_pair(
     payload: dict, capability: VideoCapability | None
 ) -> tuple[VideoCapability, tuple[str, str]] | None:
-    """读 payload 里入队时钉住的视频执行身份，连同命中的桶一并返回（见 ``_payload_pinned_pair``）。
+    """读 payload 里入队时钉住的视频执行身份（桶键 ``video_provider_<cap>``），连同命中的桶一并返回。
 
-    入队只为任务所属的那一个桶写键（``lib.generation_queue``），故 ``capability`` 未声明（resume
-    等不承诺桶的调用方）时按固定桶序扫两个桶键——至多命中一个，桶序不产生歧义。
+    值是 ``ProviderModel.pair_key`` 形态的复合值，写入方是 ``lib.generation_queue``。入队只为任务
+    所属的那一个桶写键，故 ``capability`` 未声明（resume 等不承诺桶的调用方）时按固定桶序扫两个
+    桶键——至多命中一个，桶序不产生歧义。
+
+    provider 不可信（见 ``_trusted_payload_provider``）不在此丢弃：视频侧身份可用性由
+    ``_ensure_video_identity_resolvable`` 收口，供应商已下线时该报错，回退等于换供应商执行。
     """
     caps: tuple[VideoCapability, ...] = (capability,) if capability is not None else get_args(VideoCapability)
     for cap in caps:
-        pinned = _payload_pinned_pair(payload, (f"video_provider_{cap}",), drop_unknown_provider=False)
-        if pinned is not None:
-            return cap, pinned
+        pair = _split_pair(payload.get(f"video_provider_{cap}"))
+        if pair is not None:
+            return cap, pair
     return None
 
 
@@ -767,8 +763,8 @@ class ConfigResolver:
     ) -> ProviderModel:
         """解析视频任务应使用的 ProviderModel。
 
-        payload 恒为最高优先级：入队时钉进能力桶键 ``video_provider_<cap>`` 的执行身份优先，
-        其次是历史任务携带的 ``video_provider``。其后按 ``capability`` 分两条路径（``docs/adr/0054``）：
+        payload 恒为最高优先级：入队时钉进能力桶键 ``video_provider_<cap>`` 的执行身份优先。
+        其后按 ``capability`` 分两条路径（``docs/adr/0054``）：
 
         - ``capability`` 给定（``"i2v"`` / ``"r2v"``）：走四级骨架 项目桶（``video_provider_<cap>``）
           > 项目默认（``video_backend``）> 全局桶（``default_video_backend_<cap>``）> 全局默认
@@ -776,10 +772,11 @@ class ConfigResolver:
           所需能力、或配置引用已不可用（模型被删 / 能力被改 / 供应商被删）时抛
           ``VideoBucketCapabilityError``，不静默换模型。payload 命中时跳过能力闸——已入队任务
           按 payload 照常执行，不回头补校验；但入队钉住的身份仍过身份可用性校验，悬空同样抛该异常。
-        - ``capability`` 为 None：project（``video_backend``）> 全局默认 的旧三级路径，无能力闸；
-          自定义 provider 的 model 不存在、已禁用或 endpoint 的 media_type 不是 video 时，收敛到
-          该 provider 默认启用的 video model（**运行时有效身份**），无可用默认则抛 ``ValueError``。
-          供不承诺能力的调用方（费用估算、限流路由兜底）使用。
+        - ``capability`` 为 None：同一骨架去掉桶层，项目默认（``video_backend``）> 全局默认
+          （``default_video_backend``）> 自动推断，无能力闸；自定义 provider 的 model 不存在、
+          已禁用或 endpoint 的 media_type 不是 video 时，收敛到该 provider 默认启用的 video
+          model（**运行时有效身份**），无可用默认则抛 ``ValueError``。供不承诺能力的调用方
+          （费用估算、限流路由兜底）使用。
 
         provider id 不做归一化。只要字面配置结果（不经收敛）请改用 ``video_backend()``。
         """
@@ -1038,10 +1035,11 @@ class ConfigResolver:
         return value
 
     async def _resolve_default_video_backend(self, svc: ConfigService, session: AsyncSession) -> tuple[str, str]:
-        raw = await svc.get_setting("default_video_backend", "")
-        if raw and "/" in raw:
-            return ConfigService._parse_backend(raw, _DEFAULT_VIDEO_BACKEND)
-        return await self._auto_resolve_backend(svc, session, "video")
+        """仅全局层解析视频默认 backend：全局默认键 > 自动推断。
+
+        走四级骨架但不带项目（project=None 跳过项目层），键位不含桶层（``_VIDEO_DEFAULT_LAYERED_KEYS``）。
+        """
+        return await self._resolve_layered_backend(svc, session, None, _VIDEO_DEFAULT_LAYERED_KEYS)
 
     async def _resolve_video_backend(
         self,
@@ -1049,24 +1047,12 @@ class ConfigResolver:
         session: AsyncSession,
         project_name: str | None,
     ) -> tuple[str, str]:
-        """三级解析当前项目应使用的 video backend。
+        """三级解析当前项目应使用的 video backend：项目默认 > 全局默认 > 自动推断。
 
-        模式对齐 `_resolve_text_backend`：项目级 > 系统设置 > 系统默认 / auto。
+        走四级骨架的不定桶键位（``_VIDEO_DEFAULT_LAYERED_KEYS``），桶层缺席由骨架跳过。
         """
         project = get_project_manager().load_project(project_name) if project_name else None
-        return await self._resolve_video_backend_from_project(svc, session, project)
-
-    async def _resolve_video_backend_from_project(
-        self,
-        svc: ConfigService,
-        session: AsyncSession,
-        project: dict | None,
-    ) -> tuple[str, str]:
-        if project is not None:
-            parsed = _parse_project_provider(project.get("video_backend"), "video")
-            if parsed is not None:
-                return parsed
-        return await self._resolve_default_video_backend(svc, session)
+        return await self._resolve_layered_backend(svc, session, project, _VIDEO_DEFAULT_LAYERED_KEYS)
 
     async def _resolve_layered_backend(
         self,
@@ -1110,15 +1096,14 @@ class ConfigResolver:
     ) -> ProviderModel:
         """payload 优先解析图片 ProviderModel，无 payload 时走四级骨架。
 
-        payload 层保留 ``payload>project>global`` 的规范骨架，接受 ``image_provider_<cap>``
-        与旧的 ``image_provider`` / ``image_model`` 键——队列里按旧格式序列化的任务据此解析。
-        payload provider 须是已知 provider（见 ``_trusted_payload_provider``），否则不予信任、
-        回退骨架（``_resolve_layered_backend``，键位见 ``_IMAGE_LAYERED_KEYS``）。
+        payload 层保留 ``payload>project>global`` 的规范骨架，接受 ``image_provider`` /
+        ``image_model`` 键——按该格式序列化的任务据此解析。图片任务不钉住执行身份（任务周期
+        短，排队期间配置漂移的窗口小），故 payload 层无能力桶键。payload provider 须是已知
+        provider（见
+        ``_trusted_payload_provider``），否则不予信任、回退骨架（``_resolve_layered_backend``，
+        键位见 ``_IMAGE_LAYERED_KEYS``）。
         """
         if payload:
-            pinned = _payload_pinned_pair(payload, (f"image_provider_{capability}",))
-            if pinned is not None:
-                return ProviderModel(*pinned)
             provider_id = _trusted_payload_provider(payload.get("image_provider"))
             if provider_id is not None:
                 model = _payload_model_or_default(payload.get("image_model"), provider_id, "image")
@@ -1137,15 +1122,12 @@ class ConfigResolver:
         payload: dict | None,
         capability: VideoCapability | None = None,
     ) -> ProviderModel:
-        """payload 优先解析视频 ProviderModel；无 payload 时按 ``capability`` 走桶骨架或旧三级。
+        """payload 优先解析视频 ProviderModel；无 payload 时按 ``capability`` 走桶骨架或不定桶骨架。
 
-        payload 层接受两种形态，均不过能力闸：入队时钉住的能力桶键（``video_provider_<cap>``
-        复合值，见 ``_payload_video_pinned_pair``）优先，原样返回、只过身份可用性
-        （``_ensure_video_identity_resolvable``），悬空即报错；其后是历史任务携带的
-        ``video_provider`` + ``video_model`` / ``video_provider_settings.model``，按运行时
-        有效身份收敛。历史形态的 payload provider 须是已知 provider（见
-        ``_trusted_payload_provider``），否则不予信任、回退配置层；钉住形态不做这层丢弃——供应商
-        已下线时回退等于换供应商执行。各层语义见 ``resolve_video_backend`` docstring。
+        payload 层只认入队时钉住的能力桶键（``video_provider_<cap>`` 复合值，见
+        ``_payload_video_pinned_pair``）：原样返回、不过能力闸，只过身份可用性
+        （``_ensure_video_identity_resolvable``），悬空即报错。钉住形态不丢弃不可信 provider——
+        供应商已下线时回退等于换供应商执行。各层语义见 ``resolve_video_backend`` docstring。
         """
         if payload:
             pinned = _payload_video_pinned_pair(payload, capability)
@@ -1154,17 +1136,10 @@ class ConfigResolver:
                 selected = ProviderModel(*pair)
                 await self._ensure_video_identity_resolvable(session, selected, pinned_capability)
                 return selected
-            provider_id = _trusted_payload_provider(payload.get("video_provider"))
-            if provider_id is not None:
-                settings = payload.get("video_provider_settings")
-                settings_model = settings.get("model") if isinstance(settings, dict) else None
-                model = _payload_model_or_default(payload.get("video_model") or settings_model, provider_id, "video")
-                if model is not None:
-                    return await self._resolve_effective_video_provider_model(
-                        session, ProviderModel(provider_id, model)
-                    )
         if capability is None:
-            provider_id, model_id = await self._resolve_video_backend_from_project(svc, session, project)
+            provider_id, model_id = await self._resolve_layered_backend(
+                svc, session, project, _VIDEO_DEFAULT_LAYERED_KEYS
+            )
             return await self._resolve_effective_video_provider_model(session, ProviderModel(provider_id, model_id))
         provider_id, model_id = await self._resolve_layered_backend(
             svc, session, project, _VIDEO_LAYERED_KEYS[capability]
