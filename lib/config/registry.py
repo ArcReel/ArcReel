@@ -64,11 +64,12 @@ class ModelInfo:
     api_model_name: str | None = None
 
 
-#: `generate_audio` token 语义是「音轨开关可控」，不是「有无音轨」——AI Studio 的 Veo 与
-#: Grok Imagine 恒有声但请求参数无法关闭该开关，故 registry 不为其声明该 token（声明了会
-#: 误导调用方以为开关生效）。`model_has_audio_track` 据此在 token 判定之外单列这两家例外，
-#: 供 voice_consistency 派生与前端能力线渲染共用，防止两处各自维护一份漂移的判断。
-_ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS = frozenset({"gemini-aistudio", "grok"})
+#: `generate_audio` token 语义是「音轨开关可控」，不是「有无音轨」——AI Studio 的 Veo、
+#: Grok Imagine 与 DashScope 视频全家族恒有声但请求参数无法关闭该开关，故 registry 不为其
+#: 声明该 token（声明了会误导调用方以为开关生效）。`model_has_audio_track` 据此在 token 判定
+#: 之外单列这几家例外，供 voice_consistency 派生与前端能力线渲染共用，防止两处各自维护一份
+#: 漂移的判断。
+_ALWAYS_AUDIBLE_WITHOUT_TOKEN_PROVIDERS = frozenset({"gemini-aistudio", "grok", "dashscope"})
 
 
 def model_has_audio_track(provider_id: str, model_info: ModelInfo) -> bool:
@@ -1057,7 +1058,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "happyhorse-1.0-i2v": ModelInfo(
                 display_name="HappyHorse 1.0 图生视频",
                 media_type="video",
-                capabilities=["generate_audio"],
+                capabilities=[],
                 default=True,
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p"],
@@ -1066,7 +1067,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "happyhorse-1.0-t2v": ModelInfo(
                 display_name="HappyHorse 1.0 文生视频",
                 media_type="video",
-                capabilities=["generate_audio"],
+                capabilities=[],
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("happyhorse-1.0-t2v", {"720p": 0.9, "1080p": 1.6}),
@@ -1074,7 +1075,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "happyhorse-1.0-r2v": ModelInfo(
                 display_name="HappyHorse 1.0 参考生视频",
                 media_type="video",
-                capabilities=["generate_audio"],
+                capabilities=[],
                 supported_durations=list(range(3, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("happyhorse-1.0-r2v", {"720p": 0.9, "1080p": 1.6}),
@@ -1083,7 +1084,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "wan2.7-i2v": ModelInfo(
                 display_name="万相 2.7 图生视频",
                 media_type="video",
-                capabilities=["generate_audio"],
+                capabilities=[],
                 supported_durations=list(range(2, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("wan2.7-i2v", {"720p": 0.6, "1080p": 1.0}),
@@ -1091,7 +1092,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "wan2.7-t2v": ModelInfo(
                 display_name="万相 2.7 文生视频",
                 media_type="video",
-                capabilities=["generate_audio"],
+                capabilities=[],
                 supported_durations=list(range(2, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("wan2.7-t2v", {"720p": 0.6, "1080p": 1.0}),
@@ -1099,7 +1100,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
             "wan2.7-r2v": ModelInfo(
                 display_name="万相 2.7 参考生视频",
                 media_type="video",
-                capabilities=["generate_audio"],
+                capabilities=[],
                 supported_durations=list(range(2, 16)),
                 resolutions=["720p", "1080p"],
                 pricing=_dashscope_video_pricing("wan2.7-r2v", {"720p": 0.6, "1080p": 1.0}),

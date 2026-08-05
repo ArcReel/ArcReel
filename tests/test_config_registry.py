@@ -290,6 +290,27 @@ class TestModelHasAudioTrack:
         assert "generate_audio" not in model.capabilities
         assert model_has_audio_track("grok", model) is True
 
+    def test_dashscope_video_always_audible_without_token(self):
+        """DashScope 视频全家族恒有声：_build_payload 不下传音频开关，故不声明 token，
+        由恒有声例外表判定有音轨。"""
+        for model_id in (
+            "happyhorse-1.0-i2v",
+            "happyhorse-1.0-t2v",
+            "happyhorse-1.0-r2v",
+            "wan2.7-i2v",
+            "wan2.7-t2v",
+            "wan2.7-r2v",
+        ):
+            model = self._model("dashscope", model_id)
+            assert "generate_audio" not in model.capabilities
+            assert model_has_audio_track("dashscope", model) is True
+
+    def test_dashscope_image_model_not_audible(self):
+        """恒有声例外表是 provider 级，但图像 model 仍恒 False——不因同 provider 被误判。"""
+        model = self._model("dashscope", "wan2.7-image")
+        assert model.media_type != "video"
+        assert model_has_audio_track("dashscope", model) is False
+
     def test_sora_2_declares_token(self):
         """Sora 2 声明修正随本票落地：目录已补 generate_audio（官方原生含对话音轨）。"""
         model = self._model("openai", "sora-2")
