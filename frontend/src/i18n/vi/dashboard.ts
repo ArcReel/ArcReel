@@ -1574,7 +1574,7 @@ export default {
   'ad_ref_generate_unit': 'Tạo video',
   'ad_ref_generating': 'Đang tạo…',
   'ad_ref_view_video': 'Xem video',
-  'ad_ref_stale': 'Cảnh quay đã thay đổi, cần suy ra lại',
+  'ad_ref_dangling': 'Cảnh quay đã thay đổi, cần suy ra lại',
   'ad_ref_unit_stale': 'Kịch bản đã thay đổi — nên tạo lại',
   'ad_ref_empty_hint': 'Video tham chiếu sẽ tự động nhóm các cảnh quay liên tiếp thành đơn vị video (tối đa 4 cảnh mỗi đơn vị) và tạo video trực tiếp từ ảnh tham chiếu sản phẩm và ảnh thiết kế. Hãy suy ra nhóm trước.',
   'ad_ref_member_shots': 'Cảnh quay thành viên',

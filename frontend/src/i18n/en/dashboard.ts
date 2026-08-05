@@ -1523,7 +1523,7 @@ export default {
   'ad_ref_generate_unit': 'Generate video',
   'ad_ref_generating': 'Generating…',
   'ad_ref_view_video': 'View video',
-  'ad_ref_stale': 'Shots changed, re-derive needed',
+  'ad_ref_dangling': 'Shots changed, re-derive needed',
   'ad_ref_unit_stale': 'Script changed — regenerate recommended',
   'ad_ref_empty_hint': 'Reference-to-video groups consecutive shots into video units (up to 4 shots each) and generates videos directly from product references and asset sheets. Derive the groups first.',
   'ad_ref_member_shots': 'Member shots',

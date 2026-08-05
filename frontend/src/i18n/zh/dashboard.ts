@@ -1522,7 +1522,7 @@ export default {
   'ad_ref_generate_unit': '生成视频',
   'ad_ref_generating': '生成中…',
   'ad_ref_view_video': '查看视频',
-  'ad_ref_stale': '镜头已变化，需重新派生',
+  'ad_ref_dangling': '镜头已变化，需重新派生',
   'ad_ref_unit_stale': '剧本已变更，建议重新生成',
   'ad_ref_empty_hint': '参考直出会把连续镜头自动分组为视频单元（每单元最多 4 个镜头），按产品参考与资产图直接生成视频。先派生分组。',
   'ad_ref_member_shots': '成员镜头',

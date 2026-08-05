@@ -22,7 +22,8 @@ import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnostics
 import { rememberAssetLibraryReturnTo } from "@/components/pages/AssetLibraryPage";
 import { costEntries, formatCostOrZero, formatCurrencyAmount } from "@/utils/cost-format";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
-import type { ExportDiagnostics, WorkspaceNotification } from "@/types";
+import i18n from "@/i18n";
+import type { ExportDiagnostics, ProjectData, WorkspaceNotification } from "@/types";
 
 /** 通过隐藏 <a> 触发浏览器下载，避免 window.open 产生空白标签页 */
 function triggerBrowserDownload(url: string) {
@@ -32,6 +33,33 @@ function triggerBrowserDownload(url: string) {
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+
+/**
+ * 剪映草稿导出前的 stale 预检：ad + 参考直出下剧本变更不作废成片（仅打 stale 标记），
+ * 导出不拦截，但含 stale 单元时提示一句。
+ *
+ * 导出走浏览器下载导航，响应体无法承载提示，故只能在触发下载前按当前索引预检；
+ * 提示走 pushNotification 而非 toast——随后的「导出已开始」toast 会顶掉单一 toast
+ * 槽位，提示须能在通知中心回看。预检纯提示性质，失败静默跳过，不阻断导出。
+ */
+async function warnStaleAdReferenceUnits(
+  projectName: string,
+  episode: number,
+  project: ProjectData | null,
+): Promise<void> {
+  if (project?.content_mode !== "ad" || project?.generation_mode !== "reference_video") return;
+  try {
+    const { units } = await API.listAdReferenceUnits(projectName, episode);
+    const staleCount = units.filter((u) => u.stale).length;
+    if (staleCount > 0) {
+      useAppStore
+        .getState()
+        .pushNotification(i18n.t("dashboard:jianying_stale_units_hint", { count: staleCount }), "warning");
+    }
+  } catch {
+    return;
+  }
 }
 
 interface GlobalHeaderProps {
@@ -137,27 +165,7 @@ export function GlobalHeader({ onNavigateBack }: GlobalHeaderProps) {
 
     setJianyingExporting(true);
     try {
-      // ad + 参考直出：剧本变更不作废成片（仅打 stale 标记），导出不拦截，
-      // 但含 stale 单元时提示一句——导出走浏览器下载导航，响应体无法承载提示，
-      // 故在触发下载前按当前索引预检。预检失败不阻断导出。
-      if (
-        currentProjectData?.content_mode === "ad" &&
-        currentProjectData?.generation_mode === "reference_video"
-      ) {
-        try {
-          const { units } = await API.listAdReferenceUnits(currentProjectName, episode);
-          const staleCount = units.filter((u) => u.stale).length;
-          if (staleCount > 0) {
-            // 用 pushNotification 留痕：随后的「导出已开始」toast 会顶掉单一 toast 槽位，
-            // 提示须能在通知中心回看
-            useAppStore
-              .getState()
-              .pushNotification(t("dashboard:jianying_stale_units_hint", { count: staleCount }), "warning");
-          }
-        } catch {
-          // 预检只是提示性质，失败静默跳过，不影响导出
-        }
-      }
+      await warnStaleAdReferenceUnits(currentProjectName, episode, currentProjectData);
       const { download_token } = await API.requestExportToken(currentProjectName, "current");
       const url = API.getJianyingDraftDownloadUrl(
         currentProjectName,

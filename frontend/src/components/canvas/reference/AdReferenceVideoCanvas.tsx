@@ -580,7 +580,7 @@ function AdUnitCard({
         </span>
         <span className="flex-1" />
         {dangling && (
-          <span className="text-[11px] text-amber-300">{t("ad_ref_stale")}</span>
+          <span className="text-[11px] text-amber-300">{t("ad_ref_dangling")}</span>
         )}
         {unit.stale && (
           <span className="inline-flex items-center gap-1 rounded border border-amber-300/25 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-300">

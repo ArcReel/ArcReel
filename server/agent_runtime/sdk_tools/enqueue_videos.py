@@ -636,7 +636,7 @@ async def _run_ad_reference_episode(
     if not units:
         raise ValueError(f"剧本没有可分组的镜头：{script_filename}")
     log.append(f"已派生 {len(units)} 个 video_unit（连续镜头分组，索引已写入剧本）")
-    # stale 清单透出给调用方：这些 unit 的成片仍有效并按现有产物复用（本次不重生成），
+    # stale 清单透出给调用方：这些 unit 的成片仍有效并按现有产物复用，不自动重生成；
     # 是否重生成由用户/智能体决定（单元级重生成入口会在成功后清除 stale）。
     stale_ids = [str(u.get("unit_id")) for u in units if u.get("stale")]
     if stale_ids:
