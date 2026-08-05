@@ -8,10 +8,12 @@ from lib.video_backends.base import VideoCapabilityError
 from server.services.generation_tasks import _SKELETON_DRIVEN_TASK_ACTIONS, _TASK_EXECUTORS
 
 
+@pytest.mark.unit
 def test_task_executors_registered_for_reference_video():
     assert "reference_video" in _TASK_EXECUTORS
 
 
+@pytest.mark.unit
 def test_task_change_action_registered_for_reference_video():
     # entity_type 不再是静态 spec：按剧本骨架种类动态解析（见
     # test_generation_tasks_service.py 里对 emit_generation_success_batch 的骨架覆盖用例），
@@ -20,6 +22,7 @@ def test_task_change_action_registered_for_reference_video():
     assert _SKELETON_DRIVEN_TASK_ACTIONS.get("reference_video") == "reference_video_ready"
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_generation_task_rejects_unknown_type():
     from server.services.generation_tasks import execute_generation_task
@@ -73,6 +76,7 @@ async def test_execute_generation_task_propagates_capability_errors_unrendered(m
     assert exc_info.value.code == error.code
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_generation_task_propagates_other_exceptions(monkeypatch):
     """非能力类异常同样原样冒泡"""

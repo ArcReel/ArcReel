@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from lib.db.base import Base
 from lib.db.repositories.custom_provider_repo import CustomProviderPrice, CustomProviderRepository
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def session():

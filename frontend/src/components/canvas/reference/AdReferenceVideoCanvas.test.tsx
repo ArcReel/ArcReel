@@ -4,8 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdReferenceVideoCanvas, type AdReferenceVideoCanvasProps } from "./AdReferenceVideoCanvas";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@/stores/tasks-store";
-import type { AdReferenceUnit, AdShot } from "@/types";
+import type { AdReferenceUnit, AdShot, ProjectData } from "@/types";
 
 vi.mock("@/api", () => ({
   API: {
@@ -13,6 +14,7 @@ vi.mock("@/api", () => ({
     deriveAdReferenceUnits: vi.fn(),
     generateReferenceVideoUnit: vi.fn(),
     precheckReferenceVideoDuration: vi.fn(),
+    updateCharacter: vi.fn(),
     getFileUrl: vi.fn(() => "http://file/E1U1.mp4"),
   },
 }));
@@ -65,6 +67,16 @@ function makeUnit(overrides: Partial<AdReferenceUnit> = {}): AdReferenceUnit {
 
 const SHOTS = [makeShot("E1S1", 3), makeShot("E1S2", 2)];
 
+const STUB_PROJECT: ProjectData = {
+  title: "p",
+  content_mode: "ad",
+  style: "",
+  episodes: [],
+  characters: {},
+  scenes: {},
+  props: {},
+};
+
 function renderCanvas(
   props: {
     shots?: AdShot[];
@@ -96,6 +108,7 @@ beforeEach(() => {
     optimisticActiveScriptFile: new Set(),
   });
   useAppStore.setState(useAppStore.getInitialState(), true);
+  useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: STUB_PROJECT });
   // 时长取档预检默认「与剧本编排一致」：生成入口无确认步骤，与改动前的路径等价
   mockedAPI.precheckReferenceVideoDuration.mockResolvedValue({
     needs_confirmation: false,
@@ -954,6 +967,59 @@ describe("AdReferenceVideoCanvas", () => {
 
     await waitFor(() => {
       expect(mockedAPI.listAdReferenceUnits).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("存量声音过渡横幅", () => {
+    // ad + reference_video 的完成态 unit 经同一个 apply_unit_video_assets 落盘点戳
+    // video_generated_at，与 narration/drama 画布（ReferenceVideoCanvas）共用同一套
+    // 判定逻辑（computeVoiceLegacyNotice），横幅不应只挂在其中一个画布上。
+    const VOICE_UPDATED_AT = "2026-06-01T00:00:00+00:00";
+
+    function staleUnit(): AdReferenceUnit {
+      return makeUnit({
+        references: [{ type: "character", name: "王" }],
+        generated_assets: { video_clip: "videos/E1U1.mp4", status: "completed", video_generated_at: null },
+      });
+    }
+
+    function mountWithStaleClip() {
+      useProjectsStore.setState({
+        currentProjectName: "demo",
+        currentProjectData: {
+          ...STUB_PROJECT,
+          characters: { 王: { description: "", voice_updated_at: VOICE_UPDATED_AT } },
+        },
+      });
+      mockedAPI.listAdReferenceUnits.mockResolvedValue({ units: [staleUnit()] });
+      renderCanvas();
+    }
+
+    it("展示存量过渡横幅", async () => {
+      mountWithStaleClip();
+      expect(await screen.findByRole("button", { name: /Got it|知道了/ })).toBeInTheDocument();
+    });
+
+    it("关闭时写回角色自己的 voice_updated_at，而不是本机当前时间", async () => {
+      const patch = vi.mocked(API.updateCharacter).mockResolvedValue({} as never);
+      mountWithStaleClip();
+
+      const dismiss = await screen.findByRole("button", { name: /Got it|知道了/ });
+      await userEvent.click(dismiss);
+
+      await waitFor(() =>
+        expect(patch).toHaveBeenCalledWith("demo", "王", { voice_notice_dismissed_at: VOICE_UPDATED_AT }),
+      );
+    });
+
+    it("关闭请求失败时提示用户，不静默留下未关闭的横幅", async () => {
+      vi.mocked(API.updateCharacter).mockRejectedValue(new Error("boom"));
+      mountWithStaleClip();
+
+      const dismiss = await screen.findByRole("button", { name: /Got it|知道了/ });
+      await userEvent.click(dismiss);
+
+      await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("error"));
     });
   });
 });

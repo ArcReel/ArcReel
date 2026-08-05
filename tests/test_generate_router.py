@@ -8,6 +8,7 @@ from lib.i18n import _ as i18n_message
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 class _FakeQueue:
@@ -114,21 +115,29 @@ def _prepare_files(tmp_path: Path) -> Path:
     return project_path
 
 
+async def _noop_bucket_precheck(project, capability):
+    return None
+
+
 def _client(monkeypatch, fake_pm, fake_queue):
     monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr("lib.generation_queue.get_generation_queue", lambda: fake_queue)
     monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
+    # 视频桶预检需要 DB（system_settings）；router 单测无 DB，能力闸行为由
+    # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
+    monkeypatch.setattr(generate, "require_video_bucket_capability", _noop_bucket_precheck)
 
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(generate.router, prefix="/api/v1")
+    app.include_router(generate.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     # raise_server_exceptions=False：500 由 app 级 Exception handler 生成响应后
     # Starlette 会 re-raise，默认配置会把它抛进测试而非返回响应
     return TestClient(app, raise_server_exceptions=False)
 
 
 class TestGenerateRouter:
+    @pytest.mark.unit
     def test_storyboard_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -160,6 +169,7 @@ class TestGenerateRouter:
             assert call["resource_id"] == "E1S02"
             assert call["source"] == "webui"
 
+    @pytest.mark.unit
     def test_video_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -190,6 +200,34 @@ class TestGenerateRouter:
             assert call["media_type"] == "video"
             assert call["payload"]["duration_seconds"] == 5
 
+    @pytest.mark.unit
+    def test_video_enqueue_bucket_capability_error_returns_400(self, tmp_path, monkeypatch):
+        """i2v 桶预检失败（如默认模型缺首帧能力）→ 提交入口 400 + 修复指引，不入队。"""
+        from lib.api_errors import BadRequestError
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        async def _reject(project, capability):
+            assert capability == "i2v"
+            raise BadRequestError("video_capability_missing_i2v", provider="dashscope", model="happyhorse-1.0-r2v")
+
+        monkeypatch.setattr(generate, "require_video_bucket_capability", _reject)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+        assert res.status_code == 400
+        assert res.json()["detail"] == i18n_message(
+            "video_capability_missing_i2v", provider="dashscope", model="happyhorse-1.0-r2v"
+        )
+        assert fake_queue.calls == []
+
+    @pytest.mark.unit
     def test_video_enqueue_grid_mode_uses_first_frame(self, tmp_path, monkeypatch):
         """宫格模式：storyboard 写入 _first.png 并记录于 generated_assets，路由应识别该路径。"""
         project_path = _prepare_files(tmp_path)
@@ -286,6 +324,7 @@ class TestGenerateRouter:
             assert video.json()["detail"] == i18n_message("invalid_storyboard_image_path", segment_id="E1S01")
             assert fake_queue.calls == []
 
+    @pytest.mark.unit
     def test_video_dirty_script_fail_fast_400(self, tmp_path, monkeypatch):
         """脏脚本(分镜数组键损坏)时,/generate/video 应在路由层 4xx 失败,
         而不是 silently 走 default storyboard 路径继续 enqueue —— 后者会让用户
@@ -326,6 +365,7 @@ class TestGenerateRouter:
             # 任务未入队
             assert fake_queue.calls == []
 
+    @pytest.mark.unit
     def test_video_missing_script_fail_fast_404(self, tmp_path, monkeypatch):
         """剧本文件缺失（FileNotFoundError）时,/generate/video 应 404 fail-fast,
         而不是 silently 走 default storyboard 路径继续 enqueue —— 后者会让用户
@@ -359,6 +399,7 @@ class TestGenerateRouter:
             # 任务未入队
             assert fake_queue.calls == []
 
+    @pytest.mark.unit
     def test_video_missing_segment_404(self, tmp_path, monkeypatch):
         """segment_id 在脚本中根本不存在时,/generate/video 应 404,而不是
         悄悄走 default storyboard 路径——即使 default 文件恰好存在(如与旧
@@ -384,6 +425,7 @@ class TestGenerateRouter:
             # 任务未入队
             assert fake_queue.calls == []
 
+    @pytest.mark.unit
     def test_character_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -405,6 +447,30 @@ class TestGenerateRouter:
             assert call["media_type"] == "image"
             assert call["resource_id"] == "Alice"
 
+    @pytest.mark.unit
+    def test_character_enqueue_resolves_nfd_registered_key(self, tmp_path, monkeypatch):
+        """路径参数与桶 key 形态可以不同：登记闸口落 NFC 后，仍须能按 NFD 原文发起生成，
+        且入队的 resource_id 用真实落盘 key，不新造一种编码形式。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"] = {name_nfd: {"description": "存量 NFD 角色"}}
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                f"/api/v1/projects/demo/generate/character/{name_nfc}",
+                json={"prompt": "女主，冷静"},
+            )
+            assert resp.status_code == 200, resp.text
+            assert fake_queue.calls[0]["resource_id"] == name_nfd
+
+    @pytest.mark.unit
     def test_scene_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -426,6 +492,7 @@ class TestGenerateRouter:
             assert call["media_type"] == "image"
             assert call["resource_id"] == "祠堂"
 
+    @pytest.mark.unit
     def test_prop_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -447,6 +514,7 @@ class TestGenerateRouter:
             assert call["media_type"] == "image"
             assert call["resource_id"] == "玉佩"
 
+    @pytest.mark.unit
     def test_product_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -467,6 +535,7 @@ class TestGenerateRouter:
             assert call["media_type"] == "image"
             assert call["resource_id"] == "保温杯"
 
+    @pytest.mark.unit
     def test_product_enqueue_unknown_product_404(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -481,6 +550,7 @@ class TestGenerateRouter:
             assert resp.status_code == 404
             assert fake_queue.calls == []
 
+    @pytest.mark.unit
     def test_error_paths(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -575,9 +645,10 @@ class TestUnexpectedErrorMapsTo500:
         app = FastAPI()
         register_error_handlers(app)
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(generate.router, prefix="/api/v1")
+        app.include_router(generate.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         return TestClient(app, raise_server_exceptions=False)
 
+    @pytest.mark.unit
     def test_storyboard_unexpected_error_maps_to_500(self, monkeypatch):
         client = self._client_with_leak(monkeypatch, "LEAK_storyboard")
         with client:
@@ -588,6 +659,7 @@ class TestUnexpectedErrorMapsTo500:
             assert resp.status_code == 500
             assert "LEAK_storyboard" not in resp.text
 
+    @pytest.mark.unit
     def test_video_unexpected_error_maps_to_500(self, monkeypatch):
         client = self._client_with_leak(monkeypatch, "LEAK_video")
         with client:
@@ -598,6 +670,7 @@ class TestUnexpectedErrorMapsTo500:
             assert resp.status_code == 500
             assert "LEAK_video" not in resp.text
 
+    @pytest.mark.unit
     def test_tts_segment_unexpected_error_maps_to_500(self, monkeypatch):
         client = self._client_with_leak(monkeypatch, "LEAK_tts_segment")
         with client:
@@ -608,6 +681,7 @@ class TestUnexpectedErrorMapsTo500:
             assert resp.status_code == 500
             assert "LEAK_tts_segment" not in resp.text
 
+    @pytest.mark.unit
     def test_tts_batch_unexpected_error_maps_to_500(self, monkeypatch):
         client = self._client_with_leak(monkeypatch, "LEAK_tts_batch")
         with client:
@@ -618,6 +692,7 @@ class TestUnexpectedErrorMapsTo500:
             assert resp.status_code == 500
             assert "LEAK_tts_batch" not in resp.text
 
+    @pytest.mark.unit
     def test_character_unexpected_error_maps_to_500(self, monkeypatch):
         client = self._client_with_leak(monkeypatch, "LEAK_character")
         with client:
@@ -628,6 +703,7 @@ class TestUnexpectedErrorMapsTo500:
             assert resp.status_code == 500
             assert "LEAK_character" not in resp.text
 
+    @pytest.mark.unit
     def test_scene_unexpected_error_maps_to_500(self, monkeypatch):
         client = self._client_with_leak(monkeypatch, "LEAK_scene")
         with client:
@@ -638,6 +714,7 @@ class TestUnexpectedErrorMapsTo500:
             assert resp.status_code == 500
             assert "LEAK_scene" not in resp.text
 
+    @pytest.mark.unit
     def test_prop_unexpected_error_maps_to_500(self, monkeypatch):
         client = self._client_with_leak(monkeypatch, "LEAK_prop")
         with client:
@@ -648,6 +725,7 @@ class TestUnexpectedErrorMapsTo500:
             assert resp.status_code == 500
             assert "LEAK_prop" not in resp.text
 
+    @pytest.mark.unit
     def test_product_unexpected_error_maps_to_500(self, monkeypatch):
         client = self._client_with_leak(monkeypatch, "LEAK_product")
         with client:
@@ -657,6 +735,85 @@ class TestUnexpectedErrorMapsTo500:
             )
             assert resp.status_code == 500
             assert "LEAK_product" not in resp.text
+
+
+class TestVideoRouteGate:
+    """逐条视频生成端点按项目生成路线定轴：参考路线在提交入口即拒绝。"""
+
+    def _reference_pm(self, project_path: Path, *, storyboard_script: bool = False) -> _FakePM:
+        """参考路线项目。
+
+        ``storyboard_script`` 为真时保留 ``_FakePM`` 的分镜族默认剧本，模拟换路线前
+        留下的存量剧本与分镜图产物。
+        """
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["generation_mode"] = "reference_video"
+        if not storyboard_script:
+            fake_pm.script = {
+                "content_mode": "narration",
+                "video_units": [{"unit_id": "E1U01", "prompt": "镜头1：奔跑"}],
+            }
+        return fake_pm
+
+    @pytest.mark.integration
+    def test_reference_route_rejected_with_route_guidance(self, tmp_path, monkeypatch):
+        """参考路线：拒绝并指引走参考生视频流程，而非「先生成分镜图」。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = self._reference_pm(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/video/E1U01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == i18n_message("video_route_is_reference_video")
+        assert fake_queue.calls == []
+
+    @pytest.mark.integration
+    def test_reference_route_rejected_even_with_leftover_storyboard(self, tmp_path, monkeypatch):
+        """残留分镜图不改变判定：路线以 project.json 为唯一真相源，不按磁盘产物换路径。"""
+        project_path = _prepare_files(tmp_path)
+        # 分镜图产物 scene_E1S01.png 由 _prepare_files 写入
+        fake_pm = self._reference_pm(project_path, storyboard_script=True)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+        assert resp.status_code == 409
+        assert resp.json()["detail"] == i18n_message("video_route_is_reference_video")
+        assert fake_queue.calls == []
+
+    @pytest.mark.integration
+    def test_storyboard_route_enqueues_with_i2v_bucket(self, tmp_path, monkeypatch):
+        """分镜路线：行为不变，桶预检仍按 i2v。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["generation_mode"] = "storyboard"
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        seen: list[str] = []
+
+        async def _record(project, capability):
+            seen.append(capability)
+
+        monkeypatch.setattr(generate, "require_video_bucket_capability", _record)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/video/E1S01",
+                json={"script_file": "episode_1.json", "prompt": "x"},
+            )
+        assert resp.status_code == 200
+        assert seen == ["i2v"]
+        assert fake_queue.calls[0]["task_type"] == "video"
 
 
 class TestAdStoryboardRegeneration:
@@ -683,6 +840,7 @@ class TestAdStoryboardRegeneration:
         }
         return fake_pm
 
+    @pytest.mark.unit
     def test_ad_shot_storyboard_enqueue_success(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = self._ad_pm(project_path)
@@ -700,6 +858,7 @@ class TestAdStoryboardRegeneration:
             assert call["task_type"] == "storyboard"
             assert call["resource_id"] == "E1S01"
 
+    @pytest.mark.unit
     def test_ad_shot_not_found_is_404(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = self._ad_pm(project_path)
@@ -739,6 +898,7 @@ class TestNoServerPathLeak:
         fake_pm.load_project = _raise  # type: ignore[method-assign]
         return _client(monkeypatch, fake_pm, _FakeQueue())
 
+    @pytest.mark.unit
     def test_file_not_found_404_hides_path_for_all_endpoints(self, tmp_path, monkeypatch):
         client = self._client_project_missing(tmp_path, monkeypatch)
         requests = [
@@ -758,6 +918,7 @@ class TestNoServerPathLeak:
                 assert "/Users" not in resp.text, f"{url} 泄露路径: {resp.text}"
                 self._assert_no_path(resp)
 
+    @pytest.mark.unit
     def test_script_file_not_found_404_hides_path(self, tmp_path, monkeypatch):
         """load_script 的 FileNotFoundError 是原始泄漏源（消息含绝对路径）。"""
         project_path = _prepare_files(tmp_path)
@@ -777,6 +938,7 @@ class TestNoServerPathLeak:
             assert resp.status_code == 404, resp.text
             self._assert_no_path(resp)
 
+    @pytest.mark.unit
     def test_bad_prompt_400_shape(self, tmp_path, monkeypatch):
         """TaskSpecValidationError → app 级 handler 翻译为 400，无路径片段。"""
         project_path = _prepare_files(tmp_path)
@@ -790,6 +952,7 @@ class TestNoServerPathLeak:
             assert resp.status_code == 400, resp.text
             self._assert_no_path(resp)
 
+    @pytest.mark.unit
     def test_unexpected_error_500_hides_path(self, tmp_path, monkeypatch):
         """未预期异常消息含路径时，500 响应仍为通用文案。"""
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
@@ -821,6 +984,7 @@ class _FakeDedupeHitQueue(_FakeQueue):
 class TestDedupedPassthrough:
     """入队响应透出队列层的 deduped 事实，供前端识别「本次未新建任务」。"""
 
+    @pytest.mark.unit
     def test_fresh_enqueue_reports_deduped_false(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         client = _client(monkeypatch, _FakePM(project_path), _FakeQueue())
@@ -836,6 +1000,7 @@ class TestDedupedPassthrough:
             assert resp.status_code == 200, resp.text
             assert resp.json()["deduped"] is False
 
+    @pytest.mark.unit
     def test_dedupe_hit_reports_deduped_true_with_existing_task_id(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         client = _client(monkeypatch, _FakePM(project_path), _FakeDedupeHitQueue())
@@ -853,6 +1018,7 @@ class TestDedupedPassthrough:
             assert body["deduped"] is True
             assert body["task_id"] == "task-existing"
 
+    @pytest.mark.unit
     def test_asset_generation_exposes_deduped(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         client = _client(monkeypatch, _FakePM(project_path), _FakeDedupeHitQueue())

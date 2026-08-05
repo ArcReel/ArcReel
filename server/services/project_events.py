@@ -25,7 +25,7 @@ from lib.project_change_hints import (
     register_project_change_batch_listener,
     register_project_change_listener,
 )
-from lib.project_manager import ProjectManager, effective_mode
+from lib.project_manager import ProjectManager
 from lib.script_models import get_generated_assets
 from lib.script_skeleton import (
     SKELETON_ANCHOR_TYPES,
@@ -644,6 +644,9 @@ class ProjectEventService:
                 "voice_style": str(data.get("voice_style") or ""),
                 "character_sheet": str(data.get("character_sheet") or ""),
                 "reference_image": str(data.get("reference_image") or ""),
+                "reference_audio": str(data.get("reference_audio") or ""),
+                "voice_updated_at": str(data.get("voice_updated_at") or ""),
+                "voice_notice_dismissed_at": str(data.get("voice_notice_dismissed_at") or ""),
             }
             for name, data in sorted(project.get("characters", {}).items())
             if isinstance(data, dict)
@@ -693,14 +696,10 @@ class ProjectEventService:
             )
         }
 
-        # 集级 generation_mode 解析（episode → project → 默认 storyboard，见 ``effective_mode``）：
-        # ad+参考路径的成片挂在派生索引 ``reference_units`` 而非内容骨架 ``shots``，快照需按项目
-        # 声明的生成路径分派才能读到该产物——与 ``StatusCalculator`` / 剪映导出同口径，不嗅探数据形状。
-        episodes_by_file = {
-            ep["script_file"]: ep
-            for ep in project.get("episodes") or []
-            if isinstance(ep, dict) and isinstance(ep.get("script_file"), str)
-        }
+        # 生成路线取项目字段：ad+参考路径的成片挂在派生索引 ``reference_units`` 而非内容骨架
+        # ``shots``，快照需按项目声明的生成路径分派才能读到该产物——与 ``StatusCalculator`` /
+        # 剪映导出同口径，不嗅探数据形状。
+        generation_mode = project.get("generation_mode")
 
         scripts: dict[str, Any] = {}
         if scripts_dir.exists():
@@ -710,8 +709,6 @@ class ProjectEventService:
                 except Exception:
                     logger.warning("跳过无法解析的剧本快照 project=%s file=%s", project_name, script_path.name)
                     continue
-                episode = episodes_by_file.get(f"scripts/{script_path.name}", {})
-                generation_mode = effective_mode(project=project, episode=episode)
                 scripts[script_path.name] = self._normalize_script_snapshot(script, generation_mode=generation_mode)
 
         return {
@@ -843,18 +840,13 @@ class ProjectEventService:
 
     @staticmethod
     def _item_member_shots(shots: Any) -> list[dict[str, Any]]:
-        """video_units 成员镜头的内容体（``text`` / ``duration``），供 ``updated`` 差分捕获镜头
-        文本或时长编辑——这些内容不落在 ``characters`` / ``duration_seconds`` 上，不纳入则单元
-        内容改动无事件。storyboard 骨架（segments/scenes/shots）条目无成员镜头子列表，返回空列表。
+        """video_units 成员镜头的内容体（``text``），供 ``updated`` 差分捕获镜头文本编辑——
+        这些内容不落在 ``characters`` / ``duration_seconds`` 上，不纳入则单元内容改动无事件。
+        storyboard 骨架（segments/scenes/shots）条目无成员镜头子列表，返回空列表。
         """
         if not isinstance(shots, list):
             return []
-        normalized: list[dict[str, Any]] = []
-        for shot in shots:
-            if not isinstance(shot, dict):
-                continue
-            normalized.append({"text": str(shot.get("text") or ""), "duration": shot.get("duration")})
-        return normalized
+        return [{"text": str(shot.get("text") or "")} for shot in shots if isinstance(shot, dict)]
 
     def _diff_snapshots(
         self,

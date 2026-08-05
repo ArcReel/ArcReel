@@ -27,6 +27,8 @@ from lib.minimax_shared import (
     safe_body_for_log,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestBaseUrlDerivation:
     def test_default_is_domestic(self):

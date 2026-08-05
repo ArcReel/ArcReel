@@ -7,16 +7,18 @@ from lib.config.resolver import ProviderModel
 from lib.prompt_builders import append_image_negative_tail
 from lib.prompt_utils import image_prompt_to_yaml
 from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
-from lib.video_frame_slots import plan_frame_slots
+from lib.video_frame_slots import gate_video_request
 from server.services import generation_tasks
 from server.services.generation_context import GenerationContext, ImageLaneResult, VideoLaneResult
 from server.services.generation_tasks import assert_duration_supported
 
 
 class TestAssertDurationSupported:
+    @pytest.mark.unit
     def test_supported_duration_passes(self):
         assert_duration_supported(8, [4, 6, 8])  # no raise
 
+    @pytest.mark.unit
     def test_unsupported_duration_rejected(self):
         # 抛带稳定 code 的能力错误（与 ImageCapabilityError 对称），细节在 params。
         with pytest.raises(VideoCapabilityError) as exc:
@@ -24,15 +26,18 @@ class TestAssertDurationSupported:
         assert exc.value.code == "video_duration_not_supported"
         assert exc.value.params["duration"] == 5
 
+    @pytest.mark.unit
     def test_empty_supported_list_passes(self):
         # 能力不可解析时不更坏：空列表放行，保持既有行为不被本次改动弄坏。
         assert_duration_supported(99, [])  # no raise
 
+    @pytest.mark.unit
     def test_integer_like_string_and_float_accepted(self):
         # 外部配置可能给字符串 / 浮点，可解析为整数秒的归一化后通过，不抛裸异常。
         assert_duration_supported("6", [4, 6, 8])  # no raise
         assert_duration_supported(6.0, [4, 6, 8])  # no raise
 
+    @pytest.mark.unit
     def test_fractional_duration_rejected_not_truncated(self):
         # 非整数秒一律拒绝，绝不截断成「碰巧合法」的 4。
         with pytest.raises(VideoCapabilityError) as exc:
@@ -41,6 +46,7 @@ class TestAssertDurationSupported:
         with pytest.raises(VideoCapabilityError):
             assert_duration_supported("4.5", [4, 6, 8])
 
+    @pytest.mark.unit
     def test_non_numeric_duration_rejected(self):
         with pytest.raises(VideoCapabilityError) as exc:
             assert_duration_supported("abc", [4, 6, 8])
@@ -48,6 +54,7 @@ class TestAssertDurationSupported:
 
 
 class TestCollectSheetReferences:
+    @pytest.mark.unit
     def test_max_count_truncates_refs_from_single_item(self, tmp_path):
         # 单个 item 内的角色数就超过 max_count 时，_group 内层三段循环不会在
         # item 中途触发外层 break，需要在返回前再做一次显式切片。
@@ -94,6 +101,8 @@ def _fake_resolve_ctx(
     video_provider=("ark", "seedance"),
     video_resolution="720p",
     supported_durations=(4, 6, 8),
+    voice_consistency="soft",
+    requested_generate_audio=True,
     seen_lane_requests=None,
 ):
     """lane 感知的假 resolve_generation_context：按调用方声明的 lane 拼装 frozen dataclass 产物。
@@ -102,7 +111,9 @@ def _fake_resolve_ctx(
     自己用到的 lane。
     """
 
-    async def _resolve(project_name, payload, *, project, user_id="default", image=None, video=None, audio=None):
+    async def _resolve(
+        project_name, payload, *, project, user_id="default", episode=None, image=None, video=None, audio=None
+    ):
         if seen_lane_requests is not None:
             seen_lane_requests.append({"image": image, "video": video, "audio": audio})
         image_lane = None
@@ -126,6 +137,8 @@ def _fake_resolve_ctx(
                 supported_durations=tuple(supported_durations),
                 max_duration=None,
                 max_reference_images=None,
+                voice_consistency=voice_consistency,
+                requested_generate_audio=requested_generate_audio,
             )
         return GenerationContext(generator=generator, image_lane=image_lane, video_lane=video_lane)
 
@@ -281,6 +294,7 @@ def _prepare_files(tmp_path: Path):
 
 
 class TestGenerationTasks:
+    @pytest.mark.unit
     def test_helper_functions(self, tmp_path):
         from lib.storyboard_sequence import get_storyboard_items
 
@@ -326,6 +340,7 @@ class TestGenerationTasks:
         with pytest.raises(ValueError):
             generation_tasks._normalize_video_prompt("   ")
 
+    @pytest.mark.unit
     async def test_execute_task_dispatch(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -432,6 +447,7 @@ class TestGenerationTasks:
                 {"task_type": "unknown", "project_name": "demo", "resource_id": "x", "payload": {}}
             )
 
+    @pytest.mark.unit
     async def test_execute_product_task_injects_reference_images(self, tmp_path, monkeypatch):
         """product sheet 生成把用户上传原图作为参考注入（标准化整理的输入），缺失文件跳过；
         完成后回写 product_sheet。"""
@@ -456,6 +472,7 @@ class TestGenerationTasks:
         assert call["reference_images"] == [project_path / "products" / "refs" / "保温杯_1.jpg"]
         assert "保温杯" in call["prompt"]
 
+    @pytest.mark.unit
     async def test_execute_product_task_without_refs_is_t2i(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -468,6 +485,7 @@ class TestGenerationTasks:
         await generation_tasks.execute_product_task("demo", "保温杯", {"prompt": "保温杯"})
         assert fake_generator.image_calls[0]["reference_images"] is None
 
+    @pytest.mark.unit
     def test_collect_product_reference_images_rejects_path_escape(self, tmp_path):
         """reference_images 中的绝对路径与 `..` 穿越值不得越出项目目录读取宿主机文件；目录路径同样跳过。"""
         project_path = _prepare_files(tmp_path)
@@ -491,6 +509,7 @@ class TestGenerationTasks:
 
         assert result == [project_path / "products" / "refs" / "保温杯_1.jpg"]
 
+    @pytest.mark.unit
     def test_product_fingerprints(self, monkeypatch, tmp_path):
         project_path = _prepare_files(tmp_path)
         (project_path / "products" / "保温杯.png").write_bytes(b"png")
@@ -500,6 +519,7 @@ class TestGenerationTasks:
         fps = generation_tasks.compute_affected_fingerprints("demo", "product", "保温杯")
         assert "products/保温杯.png" in fps
 
+    @pytest.mark.unit
     async def test_execute_video_task_generates_thumbnail(self, monkeypatch, tmp_path):
         """视频生成后应自动提取首帧缩略图"""
         project_path = _prepare_files(tmp_path)
@@ -530,6 +550,35 @@ class TestGenerationTasks:
         assert "video_thumbnail" in asset_types
         assert thumbnail_path.exists()
 
+    @pytest.mark.integration
+    async def test_execute_video_task_lane_bucket_follows_project_route(self, monkeypatch, tmp_path):
+        """lane 归桶按项目路线求值，不再无条件 i2v——与提交入口口径同源。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        seen_lanes: list[dict] = []
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, seen_lane_requests=seen_lanes),
+        )
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        payload = {
+            "script_file": "episode_1.json",
+            "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+        }
+        fake_pm.project["generation_mode"] = "storyboard"
+        await generation_tasks.execute_video_task("demo", "E1S01", payload)
+        assert seen_lanes[-1]["video"].capability == "i2v"
+
+        fake_pm.project["generation_mode"] = "reference_video"
+        await generation_tasks.execute_video_task("demo", "E1S01", payload)
+        assert seen_lanes[-1]["video"].capability == "r2v"
+
+    @pytest.mark.unit
     async def test_execute_video_task_rejects_unsupported_duration(self, monkeypatch, tmp_path):
         """执行层在解析出 ProviderModel 后，对越界 duration 以明确错误拒绝。"""
         project_path = _prepare_files(tmp_path)
@@ -553,6 +602,7 @@ class TestGenerationTasks:
         # 越界 duration 在起跑时被拒，绝不应调用后端生成。
         assert fake_generator.video_calls == []
 
+    @pytest.mark.unit
     async def test_execute_video_task_supported_duration_passes(self, monkeypatch, tmp_path):
         """合法 duration 通过守卫，正常进入后端生成。"""
         project_path = _prepare_files(tmp_path)
@@ -1003,7 +1053,7 @@ class TestGenerationTasks:
     async def test_execute_video_task_end_frame_capability_unsupported_propagates(self, monkeypatch, tmp_path):
         """后端不支持尾帧能力时硬失败，不降级为参考图、不静默丢帧。
 
-        替身只替换 provider 调用，能力判定交给生产代码 plan_frame_slots 跑真值（caps
+        替身只替换 provider 调用，能力判定交给生产代码 gate_video_request 跑真值（caps
         last_frame=False）——否则替身按自己的条件抛异常，验的是替身而非接线是否真能触达
         gating。能力组合的各分支另见 tests/test_video_frame_slots.py。"""
         project_path = _prepare_files(tmp_path)
@@ -1017,14 +1067,13 @@ class TestGenerationTasks:
 
         async def _plan_with_real_gating(**kwargs):
             fake_generator.video_calls.append(kwargs)
-            plan_frame_slots(
+            gate_video_request(
                 caps=VideoCapabilities(first_frame=True, last_frame=False),
                 provider="ark",
                 model="seedance",
-                start_image=kwargs.get("start_image"),
                 end_image=kwargs.get("end_image"),
             )
-            raise AssertionError("plan_frame_slots 应在 end_image 非空且 caps.last_frame 为假时硬失败")
+            raise AssertionError("gate_video_request 应在 end_image 非空且 caps.last_frame 为假时硬失败")
 
         fake_generator.generate_video_async = _plan_with_real_gating
 
@@ -1073,6 +1122,7 @@ class TestGenerationTasks:
         for call in fake_generator.video_calls:
             assert call["end_image"] == end_frame_dir / "scene_E1S01.png"
 
+    @pytest.mark.unit
     async def test_execute_video_task_drama_dialogue_from_utterances(self, monkeypatch, tmp_path):
         """drama 口型台词从场景级 dialogue-kind utterances 取（覆盖 payload 已不带的
         video_prompt.dialogue）；voiceover-kind 不进视频 YAML。"""
@@ -1123,6 +1173,296 @@ class TestGenerationTasks:
         assert "王" in prompt_yaml
         assert "那是命运的开端。" not in prompt_yaml
 
+    def _drama_script(self):
+        return {
+            "content_mode": "drama",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 8,
+                    "segment_break": False,
+                    "characters_in_scene": ["王"],
+                    "scenes": [],
+                    "props": [],
+                    "image_prompt": "首镜头",
+                    "video_prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                    "utterances": [
+                        {"kind": "dialogue", "speaker": "王", "text": "你来了。"},
+                    ],
+                }
+            ],
+        }
+
+    def _legacy_drama_script(self):
+        """utterances 迁移前的存量 drama 剧本：scene 无 utterances，台词仍留在 video_prompt.dialogue。"""
+        script = self._drama_script()
+        del script["scenes"][0]["utterances"]
+        return script
+
+    @pytest.mark.unit
+    async def test_execute_video_task_injects_voice_profiles_for_audible_model(self, monkeypatch, tmp_path):
+        """有音轨模型（voice_consistency != none）：dialogue speaker 命中的角色资产
+        非空 voice_style 机械派生进 Voice_Profiles 顶部声明段。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
+        fake_generator = _FakeGenerator()
+        fake_pm.script = self._drama_script()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator, voice_consistency="soft")
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                "duration_seconds": 8,
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" in prompt_yaml
+        assert "低沉沙哑" in prompt_yaml
+        # 顶部集中声明段须先于 Action 出现
+        assert prompt_yaml.index("Voice_Profiles") < prompt_yaml.index("Action")
+
+    @pytest.mark.unit
+    async def test_execute_video_task_skips_voice_profiles_for_silent_model(self, monkeypatch, tmp_path):
+        """C 类（真无声，voice_consistency == none）模型不注入 Voice_Profiles。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
+        fake_generator = _FakeGenerator()
+        fake_pm.script = self._drama_script()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator, voice_consistency="none")
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                "duration_seconds": 8,
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" not in prompt_yaml
+        assert "低沉沙哑" not in prompt_yaml
+        # 台词不随声音风格一并省略：无声成片里台词文本照常下发，供应商可用作口型参考
+        assert "你来了。" in prompt_yaml
+
+    @pytest.mark.unit
+    async def test_execute_video_task_skips_voice_profiles_when_episode_audio_disabled(self, monkeypatch, tmp_path):
+        """本集关闭音频（requested_generate_audio=False）：即便模型有音轨也不注入 Voice_Profiles，
+        与 C 类真无声模型同口径。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
+        fake_generator = _FakeGenerator()
+        fake_pm.script = self._drama_script()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, voice_consistency="soft", requested_generate_audio=False),
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                "duration_seconds": 8,
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" not in prompt_yaml
+        assert "低沉沙哑" not in prompt_yaml
+        # 台词逐字不变，与 C 类真无声路径同口径
+        assert "你来了。" in prompt_yaml
+
+    @pytest.mark.unit
+    async def test_execute_video_task_strips_caller_supplied_voice_profiles_for_non_drama(self, monkeypatch, tmp_path):
+        """narration/ad（item 无 utterances 字段）请求体自带 voice_profiles 时一律剥离：
+        该声明段唯一来源是 build_drama_video_prompt 的机械派生，调用方不得越权注入、绕过
+        C 类（真无声）门控。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {
+                    "action": "起身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                    "voice_profiles": [{"Speaker": "赝品", "Voice_Style": "越权"}],
+                },
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" not in prompt_yaml
+        assert "越权" not in prompt_yaml
+
+    @pytest.mark.unit
+    async def test_execute_video_task_injects_voice_profiles_from_legacy_dialogue(self, monkeypatch, tmp_path):
+        """utterances 迁移前的存量 drama 剧本（scene 无 utterances 字段，台词仍在
+        video_prompt.dialogue）：load_script 按原始 JSON 读盘不过 pydantic 迁移，改走 legacy
+        出口派生 Voice_Profiles，不因缺 utterances 静默丢失。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
+        fake_generator = _FakeGenerator()
+        fake_pm.script = self._legacy_drama_script()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator, voice_consistency="soft")
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {
+                    "action": "起身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                    "dialogue": [{"speaker": "王", "line": "你来了。"}],
+                },
+                "duration_seconds": 8,
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" in prompt_yaml
+        assert "低沉沙哑" in prompt_yaml
+        assert "你来了。" in prompt_yaml
+
+    @pytest.mark.unit
+    async def test_execute_video_task_skips_voice_profiles_from_legacy_dialogue_when_silent(
+        self, monkeypatch, tmp_path
+    ):
+        """legacy dialogue 出口同过无声门控：本集关闭音频时不注入 Voice_Profiles，台词照常下发。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
+        fake_generator = _FakeGenerator()
+        fake_pm.script = self._legacy_drama_script()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks,
+            "resolve_generation_context",
+            _fake_resolve_ctx(fake_generator, voice_consistency="soft", requested_generate_audio=False),
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {
+                    "action": "起身",
+                    "camera_motion": "Static",
+                    "ambiance_audio": "风声",
+                    "dialogue": [{"speaker": "王", "line": "你来了。"}],
+                },
+                "duration_seconds": 8,
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" not in prompt_yaml
+        assert "低沉沙哑" not in prompt_yaml
+        assert "你来了。" in prompt_yaml
+
+    @pytest.mark.unit
+    async def test_execute_video_task_content_mode_falls_back_to_project_when_episode_omits_it(
+        self, monkeypatch, tmp_path
+    ):
+        """存量 episode 剧本省略顶层 content_mode 时回退到 project.json 的 content_mode
+        （与 lib.data_validator 已校验通过的既定口径一致），不因回退缺失而被误判为
+        narration、静默跳过 dialogue 重建与 Voice_Profiles 注入。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["content_mode"] = "drama"
+        fake_pm.project["characters"]["王"] = {"voice_style": "低沉沙哑"}
+        fake_generator = _FakeGenerator()
+        fake_pm.script = {
+            # 顶层无 content_mode：存量 episode 省略该字段，真相源退到 project.json。
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 8,
+                    "segment_break": False,
+                    "characters_in_scene": ["王"],
+                    "scenes": [],
+                    "props": [],
+                    "image_prompt": "首镜头",
+                    "video_prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                    "utterances": [
+                        {"kind": "dialogue", "speaker": "王", "text": "你来了。"},
+                    ],
+                }
+            ],
+        }
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(
+            generation_tasks, "resolve_generation_context", _fake_resolve_ctx(fake_generator, voice_consistency="soft")
+        )
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", _async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "起身", "camera_motion": "Static", "ambiance_audio": "风声"},
+                "duration_seconds": 8,
+            },
+        )
+
+        prompt_yaml = fake_generator.video_calls[0]["prompt"]
+        assert "Voice_Profiles" in prompt_yaml
+        assert "低沉沙哑" in prompt_yaml
+        assert "你来了。" in prompt_yaml
+
+    @pytest.mark.unit
     async def test_execute_video_task_default_duration_from_caps(self, monkeypatch, tmp_path):
         """无显式 duration 时，默认值由 caps 收口（取 supported_durations[0]），且必然合法。"""
         project_path = _prepare_files(tmp_path)
@@ -1148,6 +1488,7 @@ class TestGenerationTasks:
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 6
 
+    @pytest.mark.unit
     async def test_execute_video_task_default_duration_respects_resolution_constraint(self, monkeypatch, tmp_path):
         """Auto（无显式 duration）在受约束分辨率下取约束内的时长，而非 supported_durations 首项。
 
@@ -1179,6 +1520,7 @@ class TestGenerationTasks:
         )
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
 
+    @pytest.mark.unit
     async def test_empty_supported_durations_guard_permissive(self, monkeypatch, tmp_path):
         """能力不可解析时 lane 交付空 supported_durations：守卫放行（不更坏），
         resolution 仍取自 lane 已解析出的值，不因能力缺失被改写。"""
@@ -1208,6 +1550,7 @@ class TestGenerationTasks:
         assert fake_generator.video_calls[0]["duration_seconds"] == 9
         assert fake_generator.video_calls[0]["resolution"] == "720p"
 
+    @pytest.mark.unit
     async def test_video_resolve_failure_fails_task_without_fallback(self, monkeypatch, tmp_path):
         """视频解析失败即任务失败：异常原样上抛留痕，无硬编码 provider/model 兜底，后端不被调用。"""
         project_path = _prepare_files(tmp_path)
@@ -1231,6 +1574,7 @@ class TestGenerationTasks:
             )
         assert fake_generator.video_calls == []
 
+    @pytest.mark.unit
     async def test_tasks_declare_only_needed_lanes(self, monkeypatch, tmp_path):
         """任务只声明自己用到的 lane：图片类任务不声明 video/audio（只配置图片供应商的项目
         不因视频供应商缺配置失败，未声明 lane 不解析见 tests/server/test_generation_context.py），
@@ -1276,6 +1620,7 @@ class TestGenerationTasks:
         assert seen[0]["image"] is None
         assert seen[0]["audio"] is None
 
+    @pytest.mark.unit
     def test_emit_success_batch_includes_fingerprints(self, monkeypatch, tmp_path):
         """生成成功事件应携带 asset_fingerprints"""
         captured = []
@@ -1307,6 +1652,7 @@ class TestGenerationTasks:
         assert "storyboards/scene_E1S01.png" in change["asset_fingerprints"]
         assert isinstance(change["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         ("script", "expected_entity_type", "expected_label"),
         [
@@ -1362,6 +1708,7 @@ class TestGenerationTasks:
             assert change["action"] == action
             assert change["label"] == expected_label
 
+    @pytest.mark.unit
     def test_emit_success_batch_reference_video_entity_type_aligns_with_frontend(self, monkeypatch, tmp_path):
         """参考生视频任务完成通知的 entity_type 需为前端联合类型认识的 "reference_unit"
         （而非仅本侧认识的 "reference_video_unit"），分组标题才能落「视频单元」而非「内容」
@@ -1392,6 +1739,7 @@ class TestGenerationTasks:
         assert change["action"] == "reference_video_ready"
         assert change["label"] == "参考视频「U01」"
 
+    @pytest.mark.unit
     def test_emit_success_batch_reference_video_ad_entity_type_not_shot(self, monkeypatch, tmp_path):
         """ad 剧本骨架恒为 shots[]，reference_video 路径派生的 video_unit 索引与 shots
         同存于一份剧本 JSON——resolve_script_kind 的数据形状判别会因 shots 键仍在而落回
@@ -1427,6 +1775,7 @@ class TestGenerationTasks:
         assert change["action"] == "reference_video_ready"
         assert change["label"] == "参考视频「U01」"
 
+    @pytest.mark.unit
     def test_emit_success_batch_falls_back_to_segments_when_script_load_fails(self, monkeypatch, tmp_path):
         """骨架判定拿不到剧本（脚本缺失/损坏）时兜底 segments/「分镜」，不让通知发送中断。"""
         captured = []
@@ -1458,6 +1807,7 @@ class TestGenerationTasks:
         assert change["entity_type"] == "segment"
         assert change["label"] == "分镜「E1S01」"
 
+    @pytest.mark.unit
     def test_emit_success_batch_falls_back_to_segments_when_script_not_a_dict(self, monkeypatch, tmp_path):
         """剧本文件内容损坏成非 dict（如顶层数组）时兜底 segments/「分镜」，不让
         resolve_script_kind 内部的 .get() 调用抛 AttributeError 中断通知发送。"""
@@ -1486,6 +1836,7 @@ class TestGenerationTasks:
         assert change["entity_type"] == "segment"
         assert change["label"] == "分镜「E1S01」"
 
+    @pytest.mark.unit
     def test_emit_success_batch_attaches_script_file_and_episode(self, monkeypatch, tmp_path):
         """骨架驱动的完成事件须挂 script_file 与 episode（供 episode 作用域消费方使用）——
         锁死这条挂载，防将来改动 emit 时静默丢字段。"""
@@ -1515,6 +1866,7 @@ class TestGenerationTasks:
             assert change["script_file"] == "ep03.json"
             assert change["episode"] == 3
 
+    @pytest.mark.unit
     def test_grid_fingerprints_include_split_cells(self, monkeypatch, tmp_path):
         """宫格指纹应包含切割覆写的 canonical 分镜图（cache-bust），但拒绝越出项目目录的路径"""
         from lib.grid.models import FrameCell, GridGeneration
@@ -1578,6 +1930,7 @@ class TestGenerationTasks:
         assert all("outside" not in key for key in fps)
         assert all(not key.startswith("/") for key in fps)
 
+    @pytest.mark.unit
     async def test_execute_task_validation_errors(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -1605,24 +1958,29 @@ class TestGenerationTasks:
 
 
 class TestGetAspectRatio:
+    @pytest.mark.unit
     def test_reads_top_level_aspect_ratio(self):
         project = {"aspect_ratio": "16:9", "content_mode": "narration"}
         assert generation_tasks.get_aspect_ratio(project, "videos") == "16:9"
         assert generation_tasks.get_aspect_ratio(project, "storyboards") == "16:9"
 
+    @pytest.mark.unit
     def test_fallback_to_content_mode_narration(self):
         project = {"content_mode": "narration"}
         assert generation_tasks.get_aspect_ratio(project, "videos") == "9:16"
 
+    @pytest.mark.unit
     def test_fallback_to_content_mode_drama(self):
         project = {"content_mode": "drama"}
         assert generation_tasks.get_aspect_ratio(project, "videos") == "16:9"
 
+    @pytest.mark.unit
     def test_characters_always_16_9(self):
-        # 角色采用四视图横版（issue #353）
+        # 角色资产统一采用四视图横版，与项目整体画幅无关
         project = {"aspect_ratio": "9:16"}
         assert generation_tasks.get_aspect_ratio(project, "characters") == "16:9"
 
+    @pytest.mark.unit
     def test_scenes_and_props_always_16_9(self):
         project = {"aspect_ratio": "9:16"}
         assert generation_tasks.get_aspect_ratio(project, "scenes") == "16:9"
@@ -1676,6 +2034,7 @@ class TestAdProductFidelityStoryboard:
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
         monkeypatch.setattr(generation_tasks, "resolve_generation_context", _fake_resolve_ctx(generator))
 
+    @pytest.mark.unit
     async def test_product_shot_injects_sheet_then_originals_before_other_sheets(self, tmp_path, monkeypatch):
         """有确认 sheet 的产品镜头：注入集为「sheet 多角度 + 原图压阵」，排序绝对优先于角色/场景 sheet。"""
         project_path = _prepare_files(tmp_path)
@@ -1705,6 +2064,7 @@ class TestAdProductFidelityStoryboard:
         assert prompt.startswith("产品特写")
         assert "「保温杯」" in prompt
 
+    @pytest.mark.unit
     async def test_product_shot_without_sheet_injects_originals_directly(self, tmp_path, monkeypatch):
         """无 sheet 的产品镜头：原图直注、仍排首位；声明但缺失的原图跳过。"""
         project_path = _prepare_files(tmp_path)
@@ -1722,6 +2082,7 @@ class TestAdProductFidelityStoryboard:
         assert all("missing" not in str(p) for p in paths)
         assert "「保温杯」" in generator.image_calls[0]["prompt"]
 
+    @pytest.mark.unit
     async def test_fidelity_instruction_only_names_products_with_injected_references(self, tmp_path, monkeypatch):
         """指令点名的产品与实际注入参考的产品一致：图全缺的产品不被指令点名（避免指向不存在的参考）。"""
         project_path = _prepare_files(tmp_path)
@@ -1745,6 +2106,7 @@ class TestAdProductFidelityStoryboard:
         assert "「保温杯」" in prompt
         assert "「杯刷」" not in prompt
 
+    @pytest.mark.unit
     async def test_atmosphere_shot_zero_product_images(self, tmp_path, monkeypatch):
         """氛围镜头（products_in_shot 为空）：零产品图，场景/角色 sheet 照常注入，prompt 无保真指令。"""
         project_path = _prepare_files(tmp_path)
@@ -1767,6 +2129,7 @@ class TestAdProductFidelityStoryboard:
         assert prompt.startswith("氛围开场")
         assert "产品高保真还原" not in prompt
 
+    @pytest.mark.unit
     def test_collect_shot_product_references_skips_non_list_products_in_shot(self, tmp_path):
         """products_in_shot 为 str/dict 等非列表脏数据：跳过不抛，零产品参考（str 不得被逐字符迭代）。"""
         project_path = _prepare_files(tmp_path)
@@ -1781,6 +2144,38 @@ class TestAdProductFidelityStoryboard:
             item = {"shot_id": "E1S01", "products_in_shot": empty}
             assert generation_tasks._collect_shot_product_references(project, project_path, item) == []
         assert generation_tasks._collect_shot_product_references(project, project_path, {"shot_id": "E1S01"}) == []
+
+    @pytest.mark.integration
+    def test_collect_product_references_resolves_nfd_registered_name_by_nfc_query(self, tmp_path):
+        """产品以 NFD key 登记、镜头 products_in_shot 传入 NFC 名字：
+        collect_product_references_for_names 须按归一形式查找 bucket 命中，不能因编码
+        形式不同静默跳过。"""
+        import unicodedata
+
+        project_path = _prepare_files(tmp_path)
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+        project = {"products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+
+        refs = generation_tasks.collect_product_references_for_names(project, project_path, [name_nfc])
+        assert [r["image"] for r in refs] == [project_path / "products" / "refs" / "保温杯_1.jpg"]
+
+    @pytest.mark.integration
+    def test_collect_product_references_dedupes_nfc_nfd_pair(self, tmp_path):
+        """同一产品的 NFC/NFD 两种编码形式同时出现在 products_in_shot：归一后是同一产品，
+        只应注入一份参考图，不能各自命中同一 bucket 条目各注入一份，否则会重复消耗参考位、
+        挤掉真正的角色/场景参考。"""
+        import unicodedata
+
+        project_path = _prepare_files(tmp_path)
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+        project = {"products": {name_nfd: {"reference_images": ["products/refs/保温杯_1.jpg"]}}}
+
+        refs = generation_tasks.collect_product_references_for_names(project, project_path, [name_nfc, name_nfd])
+        assert [r["image"] for r in refs] == [project_path / "products" / "refs" / "保温杯_1.jpg"]
 
 
 def _patch_video_path(monkeypatch, pm, generator):

@@ -13,21 +13,30 @@ from typing import Any
 
 from claude_agent_sdk import tool
 
+from lib.config.resolver import VideoCapability
 from lib.generation_queue_client import (
     BatchTaskResult,
     TaskSpec,
     batch_enqueue_and_wait,
     enqueue_and_wait,
 )
-from lib.project_manager import ProjectManager, is_reference_video_episode
-from lib.prompt_utils import is_structured_video_prompt, utterances_to_dialogue, video_prompt_to_yaml
+from lib.project_manager import ProjectManager, is_reference_video_project
+from lib.prompt_utils import (
+    build_drama_video_prompt,
+    build_drama_video_prompt_from_legacy_dialogue,
+    is_structured_video_prompt,
+    strip_voice_profiles,
+    video_prompt_to_yaml,
+)
 from lib.reference_video import assemble_shots_text
 from lib.reference_video.ad_units import (
     render_ad_unit_prompt,
     resolve_ad_unit_shots,
     sync_ad_reference_units,
 )
-from lib.script_models import get_generated_assets, is_reference_script
+from lib.reference_video.units import reference_unit_video_bucket
+from lib.script_models import get_generated_assets, resolve_content_mode
+from lib.script_skeleton import ensure_route_skeleton
 from lib.storyboard_sequence import get_storyboard_items, resolve_storyboard_image_ref
 from server.agent_runtime.sdk_tools._context import (
     ToolContext,
@@ -40,6 +49,7 @@ from server.services.reference_video_tasks import (
     resolve_max_unit_duration,
     resolve_project_duration_context,
 )
+from server.services.video_caps import resolve_project_is_silent
 
 _CONFIRM_DURATION_SCHEMA_PROPERTY = {
     "type": "boolean",
@@ -77,6 +87,7 @@ def _duration_confirmation_response(pending: DurationConfirmationPending, log: l
 async def _pending_duration_confirmations(
     *,
     project: dict[str, Any],
+    episode: int | None,
     units: list[dict[str, Any]],
     skip_ids: set[str],
     spec_for: Callable[[dict[str, Any]], TaskSpec],
@@ -84,8 +95,9 @@ async def _pending_duration_confirmations(
 ) -> list[dict[str, Any]]:
     """收集本批将入队的 unit 中，申请时长与剧本编排不一致的清单。
 
-    项目视频能力（档位 + 分辨率）至多解析一次（:func:`resolve_project_duration_context`），
-    批内逐 unit 取档改用纯函数 :func:`precheck_unit`——避免整批 N 个 unit 各自触发一轮
+    项目视频能力（档位 + 分辨率）按能力桶至多各解析一次（:func:`resolve_project_duration_context`；
+    unit 按声明的参考集分桶——无参考图退化镜头按 i2v 桶模型取档，与执行侧同口径），批内
+    逐 unit 取档改用纯函数 :func:`precheck_unit`——避免整批 N 个 unit 各自触发一轮
     DB 往返。解析推迟到第一个真正需要取档的 unit：整批都已完成或都被跳过时不触发任何 IO。
 
     悬空索引 / 结构异常 / 空提示词的 unit 在此复用与 ``build_specs`` 同一份 spec 构造
@@ -93,7 +105,7 @@ async def _pending_duration_confirmations(
     ``build_specs`` 阶段本就会拒绝，若仍纳入确认清单或触发 ctx 解析，会让批次卡在一个
     注定不会入队的 unit 上，且申请时长的转述本身就是失实的（该 unit 根本不会被生成）。
     """
-    ctx: ProjectDurationContext | None = None
+    ctxs: dict[VideoCapability, ProjectDurationContext] = {}
     items: list[dict[str, Any]] = []
     for unit in units:
         unit_id = str(unit.get("unit_id") or "")
@@ -107,10 +119,11 @@ async def _pending_duration_confirmations(
             ad_shots = ad_shots_for(unit) if ad_shots_for else None
         except ValueError:
             continue
-        if ctx is None:
-            ctx = await resolve_project_duration_context(project)
+        bucket = reference_unit_video_bucket(unit)
+        if bucket not in ctxs:
+            ctxs[bucket] = await resolve_project_duration_context(project, capability=bucket)
         try:
-            slot = precheck_unit(ctx, unit, ad_shots)
+            slot = precheck_unit(ctxs[bucket], unit, ad_shots)
         except ValueError:
             continue
         if slot.needs_confirmation:
@@ -125,16 +138,27 @@ async def _pending_duration_confirmations(
     return items
 
 
-def _get_video_prompt(item: dict[str, Any]) -> str:
+def _get_video_prompt(
+    item: dict[str, Any], *, content_mode: str, voice_characters: dict[str, Any] | None = None
+) -> str:
     prompt = item.get("video_prompt")
     if not prompt:
         item_id = item.get("segment_id") or item.get("scene_id")
         raise ValueError(f"片段/场景缺少 video_prompt 字段: {item_id}")
     if is_structured_video_prompt(prompt):
-        # drama 口型台词单一真相源在场景级有序 utterances：取 dialogue-kind 注入 video YAML 的
-        # dialogue 出口（drama video_prompt 已不带 dialogue）。narration / ad 无 utterances 字段、原样渲染。
-        if "utterances" in item:
-            prompt = {**prompt, "dialogue": utterances_to_dialogue(item.get("utterances"))}
+        # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 系的机械派生：剧本 JSON
+        # 里残留的 voice_profiles 一律先剥离，不因门控不触发（narration/ad、或 drama 无
+        # utterances 的条目）而绕过 C 类（真无声）门控直达 YAML。
+        prompt = strip_voice_profiles(prompt)
+        if content_mode == "drama":
+            # drama 口型台词单一真相源在场景级有序 utterances：取 dialogue-kind 注入 video YAML 的
+            # dialogue 出口（drama video_prompt 已不带 dialogue）。utterances 迁移前的存量剧本
+            # （load_script 按原始 JSON 读盘不过 pydantic，不会被 DramaScene._migrate_legacy
+            # 自动补齐）台词仍留在 video_prompt.dialogue，改走 legacy 出口。
+            if "utterances" in item:
+                prompt = build_drama_video_prompt(prompt, item.get("utterances"), characters=voice_characters)
+            else:
+                prompt = build_drama_video_prompt_from_legacy_dialogue(prompt, characters=voice_characters)
         return video_prompt_to_yaml(prompt)
     if isinstance(prompt, dict):
         item_id = item.get("segment_id") or item.get("scene_id")
@@ -145,13 +169,36 @@ def _get_video_prompt(item: dict[str, Any]) -> str:
     return prompt
 
 
-def _is_ad_reference(ctx: ToolContext, script: dict[str, Any]) -> bool:
-    """ad + reference_video 判定：ad 剧本骨架唯一、不打 generation_mode 戳，
-    生成路径以 project.json（项目级/集级 generation_mode）为真相源。"""
+async def _resolve_voice_characters(ctx: ToolContext, content_mode: str) -> dict[str, Any] | None:
+    """供 Voice_Profiles 注入的角色资产；``None`` 表示不注入。
+
+    非 drama 直接返回 None（无需为 narration/ad 项目多付一次视频能力解析），drama 再按无声
+    判据排除：C 类模型不产音、或本集关闭了音频，两条路径同口径。台词不受影响、照常下发。
+    """
+    if content_mode != "drama":
+        return None
     project = ctx.pm.load_project(ctx.project_name)
-    if project.get("content_mode") != "ad":
-        return False
-    return is_reference_video_episode(project, script.get("episode"))
+    if await resolve_project_is_silent(project):
+        return None
+    return project.get("characters") or {}
+
+
+def _resolve_reference_route(ctx: ToolContext, script: dict[str, Any]) -> str | None:
+    """定生成路线并把守骨架闸门。
+
+    项目走参考生视频路线时返回子分支（``"ad"`` / ``"episode"``，两者展示与派生颗粒度不同），
+    分镜路线返回 ``None``。路线以 project.json 的 ``generation_mode`` 为唯一真相源——剧本不
+    携带路线信息，同一项目逐集不变。
+
+    Raises:
+        SkeletonRouteMismatchError: 剧本骨架与项目路线失配，生成被拒。
+    """
+    project = ctx.pm.load_project(ctx.project_name)
+    content_mode = resolve_content_mode(script, project)
+    ensure_route_skeleton(script, content_mode, project.get("generation_mode"))
+    if not is_reference_video_project(project):
+        return None
+    return "ad" if content_mode == "ad" else "episode"
 
 
 # Checkpoint helpers
@@ -199,6 +246,7 @@ def _build_video_specs(
     project_dir: Path,
     skip_ids: list[str] | None,
     log: list[str],
+    voice_characters: dict[str, Any] | None = None,
 ) -> tuple[list[TaskSpec], dict[str, int]]:
     item_type = "片段" if content_mode == "narration" else "场景"
     skip_set = set(skip_ids or [])
@@ -227,7 +275,7 @@ def _build_video_specs(
             continue
 
         try:
-            prompt = _get_video_prompt(item)
+            prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
         except Exception as exc:  # noqa: BLE001
             log.append(f"⚠️  {item_type} {item_id} 的 video_prompt 无效，跳过: {exc}")
             continue
@@ -486,6 +534,7 @@ async def _generate_reference_units(
     if not confirm_duration:
         pending = await _pending_duration_confirmations(
             project=project,
+            episode=episode,
             units=units,
             skip_ids=set(already_done),
             spec_for=spec_for,
@@ -529,11 +578,15 @@ async def _run_reference_episode(
     """Run reference_video-mode generation and format the tool response.
 
     All 4 video handlers fall through to whole-episode reference generation
-    when ``is_reference_script`` returns True; this captures the shared tail
-    (resolve episode → generate units → header + log).
+    when ``_resolve_reference_route`` reports the episode branch; this captures
+    the shared tail (resolve episode → generate units → header + log).
     """
     episode = ProjectManager.resolve_episode_from_script(script, script_filename)
-    units = script.get("video_units") or []
+    units = script.get("video_units")
+    if "video_units" in script and not isinstance(units, list):
+        # 路线闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
+        # 产生的 dict、字符串）会一路下传到 unit 迭代，报出无从定位的 TypeError。
+        raise ValueError(f"第 {episode} 集 video_units 必须是数组，当前为 {type(units).__name__}：{script_filename}")
     if not units:
         raise ValueError(f"第 {episode} 集 video_units 为空：{script_filename}")
     project = ctx.pm.load_project(ctx.project_name)
@@ -642,7 +695,8 @@ def generate_video_episode_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if is_reference_script(script):
+            route = _resolve_reference_route(ctx, script)
+            if route == "episode":
                 return await _run_reference_episode(
                     ctx=ctx,
                     script=script,
@@ -651,7 +705,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx, script):
+            if route == "ad":
                 return await _run_ad_reference_episode(
                     ctx=ctx,
                     script_filename=script_filename,
@@ -662,7 +716,7 @@ def generate_video_episode_tool(ctx: ToolContext):
 
             episode = ProjectManager.resolve_episode_from_script(script, script_filename)
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            content_mode = script.get("content_mode", "narration")
+            content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
             if not items:
                 raise ValueError(f"第 {episode} 集剧本为空：{script_filename}")
 
@@ -678,6 +732,7 @@ def generate_video_episode_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(items, id_field, completed, videos_dir)
+            voice_characters = await _resolve_voice_characters(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=items,
                 id_field=id_field,
@@ -686,6 +741,7 @@ def generate_video_episode_tool(ctx: ToolContext):
                 project_dir=project_dir,
                 skip_ids=already_done,
                 log=log,
+                voice_characters=voice_characters,
             )
 
             if not specs and not any(ordered_paths):
@@ -742,7 +798,8 @@ def generate_video_scene_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if is_reference_script(script):
+            route = _resolve_reference_route(ctx, script)
+            if route == "episode":
                 log: list[str] = [
                     f"⚠️  reference_video 模式暂不支持单 unit 精确选择；scene_id={scene_id} 被忽略，转整集生成。"
                 ]
@@ -754,7 +811,7 @@ def generate_video_scene_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx, script):
+            if route == "ad":
                 ad_log: list[str] = [
                     f"⚠️  reference_video 模式暂不支持单 unit 精确选择；scene_id={scene_id} 被忽略，转整集生成。"
                 ]
@@ -785,7 +842,9 @@ def generate_video_scene_tool(ctx: ToolContext):
             if not storyboard_path.is_file():
                 raise FileNotFoundError(f"分镜图不存在: {storyboard_path}")
 
-            prompt = _get_video_prompt(item)
+            content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
+            voice_characters = await _resolve_voice_characters(ctx, content_mode)
+            prompt = _get_video_prompt(item, content_mode=content_mode, voice_characters=voice_characters)
             # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
             # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
             # 本应被执行层拒绝的非法值静默修正）。缺省由执行层按 caps 收口默认。
@@ -845,7 +904,8 @@ def generate_video_all_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if is_reference_script(script):
+            route = _resolve_reference_route(ctx, script)
+            if route == "episode":
                 return await _run_reference_episode(
                     ctx=ctx,
                     script=script,
@@ -854,7 +914,7 @@ def generate_video_all_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx, script):
+            if route == "ad":
                 return await _run_ad_reference_episode(
                     ctx=ctx,
                     script_filename=script_filename,
@@ -864,11 +924,12 @@ def generate_video_all_tool(ctx: ToolContext):
                 )
 
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            content_mode = script.get("content_mode", "narration")
+            content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
             pending = [it for it in items if not get_generated_assets(it).get("video_clip")]
             if not pending:
                 return {"content": [{"type": "text", "text": "✨ 所有场景/片段的视频都已生成"}]}
 
+            voice_characters = await _resolve_voice_characters(ctx, content_mode)
             specs, _order_map = _build_video_specs(
                 items=pending,
                 id_field=id_field,
@@ -877,6 +938,7 @@ def generate_video_all_tool(ctx: ToolContext):
                 project_dir=project_dir,
                 skip_ids=None,
                 log=log,
+                voice_characters=voice_characters,
             )
             if not specs:
                 return {"content": [{"type": "text", "text": "\n".join([*log, "⚠️  没有任何可生成的视频任务"])}]}
@@ -934,7 +996,8 @@ def generate_video_selected_tool(ctx: ToolContext):
             project_dir = ctx.project_path
             script = ctx.pm.load_script(ctx.project_name, script_filename)
 
-            if is_reference_script(script):
+            route = _resolve_reference_route(ctx, script)
+            if route == "episode":
                 log.append(
                     f"⚠️  reference_video 模式暂不支持多 unit 精确选择；scene_ids={','.join(scene_ids)} 被忽略，转整集生成。"
                 )
@@ -946,7 +1009,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                     confirm_duration=confirm_duration,
                     log=log,
                 )
-            if _is_ad_reference(ctx, script):
+            if route == "ad":
                 log.append(
                     f"⚠️  reference_video 模式暂不支持多 unit 精确选择；scene_ids={','.join(scene_ids)} 被忽略，转整集生成。"
                 )
@@ -959,7 +1022,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                 )
 
             items, id_field, _chars, _scenes, _props = get_storyboard_items(script)
-            content_mode = script.get("content_mode", "narration")
+            content_mode = resolve_content_mode(script, ctx.pm.load_project(ctx.project_name))
 
             items_by_id: dict[str, dict[str, Any]] = {}
             for item in items:
@@ -1003,6 +1066,7 @@ def generate_video_selected_tool(ctx: ToolContext):
             videos_dir = project_dir / "videos"
             videos_dir.mkdir(parents=True, exist_ok=True)
             ordered_paths, already_done, completed = _scan_completed_items(selected, id_field, completed, videos_dir)
+            voice_characters = await _resolve_voice_characters(ctx, content_mode)
             specs, order_map = _build_video_specs(
                 items=selected,
                 id_field=id_field,
@@ -1011,6 +1075,7 @@ def generate_video_selected_tool(ctx: ToolContext):
                 project_dir=project_dir,
                 skip_ids=already_done,
                 log=log,
+                voice_characters=voice_characters,
             )
 
             # ``_build_video_specs`` 可能把所有 selected 都过滤掉（缺分镜图 /

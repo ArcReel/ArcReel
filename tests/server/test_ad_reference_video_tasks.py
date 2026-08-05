@@ -106,6 +106,9 @@ def _wire_executor(
     max_refs: int | None = None,
     max_duration: int | None = None,
     supported_durations: tuple[int, ...] = (),
+    voice_consistency: str = "soft",
+    max_reference_audio_count: int = 0,
+    reference_audio_per_image: bool = False,
 ) -> MagicMock:
     """挂上 fake pm + fake generator，locked_script 写回磁盘以便断言 finalize 结果。
 
@@ -162,6 +165,9 @@ def _wire_executor(
         supported_durations=supported_durations,
         max_duration=max_duration,
         max_reference_images=max_refs,
+        voice_consistency=voice_consistency,
+        max_reference_audio_count=max_reference_audio_count,
+        reference_audio_per_image=reference_audio_per_image,
     )
     ctx = GenerationContext(generator=fake_generator, video_lane=lane)
 
@@ -177,6 +183,7 @@ def _wire_executor(
     return fake_generator
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ad_unit_generates_video_with_inherited_references(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from server.services import reference_video_tasks as rvt
@@ -218,6 +225,49 @@ async def test_ad_unit_generates_video_with_inherited_references(tmp_path: Path,
 
 
 @pytest.mark.asyncio
+@pytest.mark.integration
+async def test_ad_dialogue_speaker_binds_reference_audio_for_native_tier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A 类 tracer bullet 对齐剧集路径：dialogue speaker 挂参考音频时请求携带音频，
+    顺序契约（音频编号=speaker 首现顺序=reference_audio_files 字段顺序）与剧集路径一致。
+    """
+    from server.services import reference_video_tasks as rvt
+
+    proj_dir = _write_ad_project(tmp_path)
+    project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    project["characters"]["小美"]["voice_style"] = "清亮少女音"
+    project["characters"]["小美"]["reference_audio"] = "characters/refs_audio/小美.wav"
+    (proj_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    refs_audio = proj_dir / "characters" / "refs_audio"
+    refs_audio.mkdir(parents=True)
+    (refs_audio / "小美.wav").write_bytes(b"RIFF")
+
+    script = json.loads((proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+    script["shots"][1]["video_prompt"]["dialogue"] = [{"speaker": "小美", "line": "颈椎终于舒服了"}]
+    (proj_dir / "scripts" / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    fake_generator = _wire_executor(proj_dir, monkeypatch, voice_consistency="native", max_reference_audio_count=2)
+
+    await rvt.execute_reference_video_task(
+        "ad-demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+    )
+
+    kwargs = fake_generator.generate_video_async.call_args.kwargs
+    prompt = kwargs["prompt"]
+    assert "<小美>说 {颈椎终于舒服了}" in prompt
+    assert "<小美>的台词音色参考 @音频1，声音特征：清亮少女音。" in prompt
+    assert [p.name for p in kwargs["reference_audio_files"]] == ["小美.wav"]
+    # 三段论 prompt 不含 [图N] 对照表与统一负面尾词
+    assert "[图" not in prompt
+    assert "禁止出现：BGM、文字字幕、水印。" not in prompt
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_ad_missing_asset_sheet_skipped_with_warning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """ad 参考集由分组器自动继承，缺图软跳过 + warning，不像 narration/drama 那样硬失败。"""
     from server.services import reference_video_tasks as rvt
@@ -239,6 +289,7 @@ async def test_ad_missing_asset_sheet_skipped_with_warning(tmp_path: Path, monke
     assert any(w["key"] == "ref_ad_reference_skipped" and w["params"]["name"] == "小美" for w in result["warnings"])
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ad_product_without_sheet_injects_originals_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from server.services import reference_video_tasks as rvt
@@ -261,9 +312,10 @@ async def test_ad_product_without_sheet_injects_originals_only(tmp_path: Path, m
     assert ref_names == ["按摩仪_原图.jpg", "小美.png"]
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ad_reference_clamp_keeps_product_sheets_alive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """超后端参考上限时产品 sheet 跨产品稳定前置存活，[图N] 对照表与实收列表对齐。"""
+    """超后端参考上限时产品 sheet 跨产品稳定前置存活，主体绑定行与实收列表对齐。"""
     from server.services import reference_video_tasks as rvt
 
     proj_dir = _write_ad_project(tmp_path)
@@ -298,14 +350,15 @@ async def test_ad_reference_clamp_keeps_product_sheets_alive(tmp_path: Path, mon
     ref_names = [p.name for p in kwargs["reference_images"]]
     # 两个产品的 sheet 优先存活，原图与角色 sheet 被裁
     assert ref_names == ["按摩仪.png", "精华液.png", "按摩仪_原图.jpg"]
-    # [图N] 对照表与裁剪后的实收列表对齐
+    # 主体绑定行按位置与裁剪后的实收列表对齐
     prompt = kwargs["prompt"]
-    assert "[图1] 产品「按摩仪」标准多角度参考图" in prompt
-    assert "[图3] 产品「按摩仪」实拍原图（保真锚点）" in prompt
-    assert "[图4]" not in prompt
+    assert "<产品「按摩仪」标准多角度参考图>@图片1" in prompt
+    assert "<产品「按摩仪」实拍原图（保真锚点）>@图片3" in prompt
+    assert "@图片4" not in prompt
     assert any(w["key"] == "ref_too_many_images" for w in result["warnings"])
 
 
+@pytest.mark.unit
 def test_clamp_zero_max_refs_drops_all_entries():
     """max_refs == 0（模型不支持参考图）裁到空集 + warning，不得当作「无上限」放行。"""
     from server.services.reference_video_tasks import _clamp_ad_reference_entries
@@ -317,6 +370,7 @@ def test_clamp_zero_max_refs_drops_all_entries():
     assert [w["key"] for w in warnings] == ["ref_too_many_images"]
 
 
+@pytest.mark.unit
 def test_clamp_none_max_refs_keeps_all_entries():
     """max_refs is None（能力未解析）不裁剪，交由 backend 自行报错。"""
     from server.services.reference_video_tasks import _clamp_ad_reference_entries
@@ -328,6 +382,7 @@ def test_clamp_none_max_refs_keeps_all_entries():
     assert warnings == []
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ad_dirty_asset_bucket_skips_with_warning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """project.json 资产 bucket 形状损坏（非 dict）时软跳过该参考 + warning，不抛 AttributeError。"""
@@ -352,6 +407,7 @@ async def test_ad_dirty_asset_bucket_skips_with_warning(tmp_path: Path, monkeypa
     assert any(w["key"] == "ref_ad_reference_skipped" and w["params"]["name"] == "小美" for w in result["warnings"])
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_ad_stale_index_fails_loud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """镜头被删后索引悬空 → fail-loud 提示重新派生，不静默生成残缺视频。"""

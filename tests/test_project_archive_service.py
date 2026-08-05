@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import stat
 import zipfile
@@ -6,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.i18n import _
 from lib.project_manager import ProjectManager
 from server.services import project_archive as project_archive_module
 from server.services.project_archive import (
@@ -124,10 +126,9 @@ def _create_project(
 def _add_agent_runtime_symlinks(project_dir: Path) -> None:
     """Simulate legacy production layout: create agent_runtime_profile and symlinks.
 
-    PR fix/agent-profile-sync-manifest 起，``create_project`` 会把 ``.claude`` /
-    ``CLAUDE.md`` 物化为真目录/真文件 + 写 manifest，与本 helper 要测的"旧 symlink
-    部署遗留"场景冲突。这里先清理 dest 再 symlink 模拟老版本 docker volume 持久化
-    下来的旧项目目录形态。
+    ``create_project`` 会把 ``.claude`` / ``CLAUDE.md`` 物化为真目录/真文件 + 写
+    manifest，与本 helper 要测的"旧 symlink 部署遗留"场景冲突。这里先清理 dest 再
+    symlink 模拟老版本 docker volume 持久化下来的旧项目目录形态。
     """
     import shutil
 
@@ -167,7 +168,73 @@ def _make_manual_zip(project_dir: Path, zip_path: Path) -> None:
                 archive.write(item, arcname=relative.as_posix())
 
 
+def _stage_legacy_narration_archive(pm: ProjectManager, project_dir: Path, archive_path: Path) -> None:
+    """把 demo 项目改写成需要自动修复的旧格式，并打包成归档（原目录随之移除）。"""
+
+    project = pm.load_project("demo")
+    project["characters"] = {}
+    pm.save_project("demo", project)
+
+    source_dir = project_dir / "source"
+    (source_dir / "chapter.txt").unlink()
+    _write_text(source_dir / "1-7-0227.txt", "source")
+
+    _write_json(
+        project_dir / "versions" / "versions.json",
+        {
+            "videos": {
+                "E1S01_1": {
+                    "current_version": 1,
+                    "versions": [
+                        {
+                            "version": 1,
+                            "file": "versions/videos/E1S01_1_v1.mp4",
+                            "prompt": "vp1",
+                            "created_at": "2024-01-01",
+                        }
+                    ],
+                }
+            }
+        },
+    )
+    _write_bytes(project_dir / "versions" / "videos" / "E1S01_1_v1.mp4", b"mp4-v1")
+
+    _write_json(
+        project_dir / "scripts" / "episode_1.json",
+        {
+            "episode": 1,
+            "title": "第一集",
+            "content_mode": "narration",
+            "novel": {
+                "title": "Demo",
+                "chapter": "第一章",
+                "source_file": "source/1-7-0227.txt",
+            },
+            "segments": [
+                {
+                    "segment_id": "E1S01_1",
+                    "duration_seconds": 4,
+                    "novel_text": "原文",
+                    "characters_in_segment": ["Ghost"],
+                    "image_prompt": "img",
+                    "video_prompt": "vid",
+                    "generated_assets": {
+                        "storyboard_image": "storyboards/scene_E1S01.png",
+                        "video_clip": "versions/videos/E1S01_1_v9.mp4",
+                        "video_uri": None,
+                        "status": "completed",
+                    },
+                }
+            ],
+        },
+    )
+
+    _make_manual_zip(project_dir, archive_path)
+    shutil.rmtree(project_dir)
+
+
 class TestProjectArchiveService:
+    @pytest.mark.unit
     def test_export_includes_full_snapshot_and_empty_dirs(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
@@ -211,6 +278,7 @@ class TestProjectArchiveService:
         with zipfile.ZipFile(archive_path) as archive:
             assert "demo/end_frames/scene_E1S01.png" in set(archive.namelist())
 
+    @pytest.mark.unit
     def test_export_excludes_agent_runtime_symlinks(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
@@ -229,6 +297,7 @@ class TestProjectArchiveService:
             assert "demo/project.json" in names
             assert "demo/source/chapter.txt" in names
 
+    @pytest.mark.unit
     def test_export_excludes_agent_runtime_real_files(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
@@ -242,6 +311,7 @@ class TestProjectArchiveService:
             assert not any("CLAUDE.md" in n for n in names)
             assert "demo/project.json" in names
 
+    @pytest.mark.unit
     def test_export_excludes_broken_agent_runtime_symlinks(self, tmp_path):
         import shutil as _shutil
 
@@ -266,6 +336,7 @@ class TestProjectArchiveService:
             assert not any(".claude" in n for n in names)
             assert not any("CLAUDE.md" in n for n in names)
 
+    @pytest.mark.unit
     def test_import_official_export_round_trip(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
@@ -284,6 +355,7 @@ class TestProjectArchiveService:
         assert (pm.get_project_path("demo") / "videos" / "scene_E1S01.mp4").exists()
         assert (pm.get_project_path("demo") / "drafts" / "episode_2").is_dir()
 
+    @pytest.mark.unit
     def test_import_manual_zip_without_manifest(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
@@ -302,6 +374,7 @@ class TestProjectArchiveService:
         assert result.project_name != "demo"
         assert (pm.get_project_path(result.project_name) / "project.json").exists()
 
+    @pytest.mark.unit
     def test_import_legacy_v1_archive_runs_migration(self, tmp_path):
         """启动后导入的旧归档（schema_version=1 + legacy image_backend）在导入入口走完整迁移链。"""
         import json as _json
@@ -333,6 +406,7 @@ class TestProjectArchiveService:
         assert installed["image_provider_i2i"] == "gemini-vertex/imagen-3"  # image_backend 拆分到两槽
         assert "image_backend" not in installed
 
+    @pytest.mark.unit
     def test_import_rejects_missing_project_json(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         service = ProjectArchiveService(pm)
@@ -344,9 +418,10 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="broken.zip")
 
-        assert exc_info.value.detail == "导入包校验失败"
-        assert any("project.json" in error for error in exc_info.value.errors)
+        assert exc_info.value.detail.render() == "导入包校验失败"
+        assert any("project.json" in error for error in exc_info.value.render_errors())
 
+    @pytest.mark.unit
     def test_import_rejects_missing_script_reference_for_malformed_entry(self, tmp_path):
         """集号无法解析的畸形条目不是合法账本条目：剧本缺失仍阻断导入。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -364,8 +439,9 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="broken.zip")
 
-        assert any("episodes[0].script_file" in error for error in exc_info.value.errors)
+        assert any("episodes[0].script_file" in error for error in exc_info.value.render_errors())
 
+    @pytest.mark.unit
     def test_import_allows_missing_script_for_ledgered_entry(self, tmp_path):
         """账本条目（带 ledger_status）的剧本可以尚未生成：导入放行并落 warning。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -381,8 +457,9 @@ class TestProjectArchiveService:
         _make_manual_zip(project_dir, archive_path)
 
         result = service.import_project_archive(archive_path, uploaded_filename="ledgered.zip")
-        assert any("episodes[0].script_file" in w for w in result.warnings)
+        assert any("episodes[0].script_file" in w for w in (m.render() for m in result.warnings))
 
+    @pytest.mark.unit
     def test_import_allows_missing_script_for_entry_without_ledger_status(self, tmp_path):
         """v2→v3 迁移不再回填 ledger_status，老项目升级后的条目可能永远没有该字段：
         形状合法（集号可解析）即视为正常账本条目，导入放行并落 warning。"""
@@ -396,8 +473,9 @@ class TestProjectArchiveService:
         _make_manual_zip(project_dir, archive_path)
 
         result = service.import_project_archive(archive_path, uploaded_filename="unledgered.zip")
-        assert any("episodes[0].script_file" in w for w in result.warnings)
+        assert any("episodes[0].script_file" in w for w in (m.render() for m in result.warnings))
 
+    @pytest.mark.unit
     def test_import_rejects_missing_script_reference_for_non_positive_episode_num(self, tmp_path):
         """0/负数集号能被 parse_episode_num 解析，但不是合法集号：剧本缺失仍阻断导入。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -415,8 +493,9 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="broken.zip")
 
-        assert any("episodes[0].script_file" in error for error in exc_info.value.errors)
+        assert any("episodes[0].script_file" in error for error in exc_info.value.render_errors())
 
+    @pytest.mark.unit
     def test_migrated_project_archive_roundtrip_with_unscripted_episode(self, tmp_path):
         """自愈登记的孤儿集条目（无位置记录、剧本未生成）不破坏导出→再导入往返。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -444,6 +523,7 @@ class TestProjectArchiveService:
         # 孤儿条目不写入位置记录：导出/导入往返不应凭空补出 source_range
         assert "source_range" not in imported["episodes"][1]
 
+    @pytest.mark.unit
     def test_import_surfaces_unconvertible_source_encoding_as_warning(self, tmp_path, monkeypatch):
         """源文件编码无法识别时导入不中止（局部损坏不阻断整体），failed 文件浮到导入 warnings。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -464,8 +544,9 @@ class TestProjectArchiveService:
         )
 
         result = service.import_project_archive(archive_path, uploaded_filename="bad.zip")
-        assert any("novel.txt" in w and "编码" in w for w in result.warnings)
+        assert any("novel.txt" in w and "编码" in w for w in (m.render() for m in result.warnings))
 
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         ("field_name", "target_path"),
         [
@@ -501,8 +582,9 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="broken.zip")
 
-        assert any(field_name in error for error in exc_info.value.errors)
+        assert any(field_name in error for error in exc_info.value.render_errors())
 
+    @pytest.mark.unit
     def test_import_allows_external_video_uri(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm, video_uri="gs://bucket/video-ref")
@@ -519,6 +601,7 @@ class TestProjectArchiveService:
 
         assert result.project["episodes"][0]["script_file"] == "scripts/episode_1.json"
 
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         "archive_builder",
         ["absolute", "traversal", "symlink", "encrypted"],
@@ -547,6 +630,7 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError):
             service.import_project_archive(archive_path, uploaded_filename="unsafe.zip")
 
+    @pytest.mark.unit
     def test_import_rename_conflict_generates_new_project_id(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
@@ -565,6 +649,7 @@ class TestProjectArchiveService:
         assert pm.get_project_path("demo").exists()
         assert pm.get_project_path(result.project_name).exists()
 
+    @pytest.mark.unit
     def test_import_prompt_conflict_requires_user_confirmation(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)
@@ -579,9 +664,10 @@ class TestProjectArchiveService:
             )
 
         assert exc_info.value.status_code == 409
-        assert exc_info.value.detail == "检测到项目编号冲突"
+        assert exc_info.value.detail.render() == "检测到项目编号冲突"
         assert exc_info.value.extra["conflict_project_name"] == "demo"
 
+    @pytest.mark.unit
     def test_import_overwrite_replaces_existing_project(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm, style="Fresh")
@@ -604,6 +690,7 @@ class TestProjectArchiveService:
         assert pm.load_project("demo")["style"] == "Fresh"
         assert (pm.get_project_path("demo") / "source" / "chapter.txt").read_text(encoding="utf-8") == "source"
 
+    @pytest.mark.unit
     def test_import_materializes_claude_with_manifest(self, tmp_path, monkeypatch):
         """导入项目应物化 .claude 为真目录 + 写 manifest（非 symlink）。
 
@@ -639,6 +726,7 @@ class TestProjectArchiveService:
         # profile 内容真实落盘
         assert (claude_dir / "skills" / "demo" / "SKILL.md").read_text() == "demo"
 
+    @pytest.mark.unit
     def test_import_overwrite_rolls_back_on_install_failure(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm, style="Fresh")
@@ -666,6 +754,7 @@ class TestProjectArchiveService:
         monkeypatch.setattr(project_archive_module.shutil, "move", original_move)
         assert pm.load_project("demo")["style"] == "Stale"
 
+    @pytest.mark.unit
     def test_import_overwrite_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
         """sync_agent_profile 失败时必须回滚（删 target_dir + 恢复 backup_dir）。
         否则 overwrite 分支已删旧备份，用户会丢数据。
@@ -697,6 +786,7 @@ class TestProjectArchiveService:
         assert pm.load_project("demo")["style"] == "Stale"
         assert not any(p.name.startswith(".import-backup-") for p in (tmp_path / "projects").iterdir())
 
+    @pytest.mark.unit
     def test_create_project_rolls_back_on_profile_sync_failure(self, tmp_path, monkeypatch):
         """create_project 内 sync_agent_profile 失败必须 rmtree 残缺 project_dir，
         否则同名重试撞 FileExistsError。
@@ -717,71 +807,13 @@ class TestProjectArchiveService:
         pm.create_project("ghost")  # 不撞 FileExistsError
         assert (tmp_path / "projects" / "ghost").is_dir()
 
+    @pytest.mark.unit
     def test_import_repairs_legacy_narration_payload(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
-
-        project = pm.load_project("demo")
-        project["characters"] = {}
-        pm.save_project("demo", project)
-
-        source_dir = project_dir / "source"
-        (source_dir / "chapter.txt").unlink()
-        _write_text(source_dir / "1-7-0227.txt", "source")
-
-        _write_json(
-            project_dir / "versions" / "versions.json",
-            {
-                "videos": {
-                    "E1S01_1": {
-                        "current_version": 1,
-                        "versions": [
-                            {
-                                "version": 1,
-                                "file": "versions/videos/E1S01_1_v1.mp4",
-                                "prompt": "vp1",
-                                "created_at": "2024-01-01",
-                            }
-                        ],
-                    }
-                }
-            },
-        )
-        _write_bytes(project_dir / "versions" / "videos" / "E1S01_1_v1.mp4", b"mp4-v1")
-
-        _write_json(
-            project_dir / "scripts" / "episode_1.json",
-            {
-                "episode": 1,
-                "title": "第一集",
-                "content_mode": "narration",
-                "novel": {
-                    "title": "Demo",
-                    "chapter": "第一章",
-                },
-                "segments": [
-                    {
-                        "segment_id": "E1S01_1",
-                        "duration_seconds": 4,
-                        "novel_text": "原文",
-                        "characters_in_segment": ["Ghost"],
-                        "image_prompt": "img",
-                        "video_prompt": "vid",
-                        "generated_assets": {
-                            "storyboard_image": "storyboards/scene_E1S01.png",
-                            "video_clip": "versions/videos/E1S01_1_v9.mp4",
-                            "video_uri": None,
-                            "status": "completed",
-                        },
-                    }
-                ],
-            },
-        )
-
         archive_path = tmp_path / "legacy.zip"
-        _make_manual_zip(project_dir, archive_path)
-        shutil.rmtree(project_dir)
+        _stage_legacy_narration_archive(pm, project_dir, archive_path)
 
         result = service.import_project_archive(
             archive_path,
@@ -801,6 +833,7 @@ class TestProjectArchiveService:
         assert imported_script["segments"][0]["generated_assets"]["video_clip"] == "videos/scene_E1S01_1.mp4"
         assert result.diagnostics["auto_fixed"]
 
+    @pytest.mark.unit
     def test_export_repairs_narration_audio_from_version_history(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
@@ -860,6 +893,7 @@ class TestProjectArchiveService:
 
         assert exported_script["segments"][0]["generated_assets"]["narration_audio"] == "audio/segment_E1S01.wav"
 
+    @pytest.mark.unit
     def test_import_blocks_missing_scene_definition(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
@@ -896,9 +930,62 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="missing-scene.zip")
 
-        assert any("不存在于 project.json 的场景" in error for error in exc_info.value.errors)
-        assert exc_info.value.extra["diagnostics"]["blocking"]
+        assert any("不存在于 project.json 的场景" in error for error in exc_info.value.render_errors())
+        assert exc_info.value.diagnostics_payload()["blocking"]
 
+    @pytest.mark.unit
+    def test_import_resolves_nfd_script_refs_against_nfc_registered_assets(self, tmp_path):
+        """剧本与 project.json 可以各自是 NFC/NFD：修复期的成员判定按坐标系解析，
+        否则已登记的角色会被补出一份重复占位定义（后写入胜出会盖掉真实元数据），
+        已登记的场景/道具会被误报 blocking 缺失。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+
+        project = pm.load_project("demo")
+        project["characters"][name_nfc] = {"description": "已登记角色"}
+        project["scenes"] = {name_nfc: {"description": "已登记场景"}}
+        project["props"][name_nfc] = {"description": "已登记道具"}
+        pm.save_project("demo", project)
+
+        _write_json(
+            project_dir / "scripts" / "episode_1.json",
+            {
+                "episode": 1,
+                "title": "第一集",
+                "content_mode": "narration",
+                "novel": {"title": "Demo", "chapter": "第一章"},
+                "segments": [
+                    {
+                        "segment_id": "E1S01",
+                        "duration_seconds": 4,
+                        "novel_text": "原文",
+                        "characters_in_segment": [name_nfd],
+                        "scenes": [name_nfd],
+                        "props": [name_nfd],
+                        "image_prompt": "img",
+                        "video_prompt": "vid",
+                    }
+                ],
+            },
+        )
+
+        archive_path = tmp_path / "nfc-nfd.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="nfc-nfd.zip")
+
+        imported = pm.load_project(result.project_name)
+        assert name_nfd not in imported["characters"]  # 不补重复占位角色
+        assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
+
+    @pytest.mark.unit
     def test_import_blocks_missing_prop_definition(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
@@ -935,9 +1022,10 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="missing-prop.zip")
 
-        assert any("不存在于 project.json 的道具" in error for error in exc_info.value.errors)
-        assert exc_info.value.extra["diagnostics"]["blocking"]
+        assert any("不存在于 project.json 的道具" in error for error in exc_info.value.render_errors())
+        assert exc_info.value.diagnostics_payload()["blocking"]
 
+    @pytest.mark.unit
     def test_export_dirty_project_emits_diagnostics_and_repairs_snapshot(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
@@ -1007,6 +1095,43 @@ class TestProjectArchiveService:
         assert "clues_in_segment" not in exported_script["segments"][0]
         assert exported_script["segments"][0]["generated_assets"]["video_clip"] == "videos/scene_E1S01.mp4"
 
+    @pytest.mark.unit
+    def test_export_includes_reference_audio_file_both_scopes(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["characters"]["Hero"]["reference_audio"] = "characters/refs_audio/Hero.wav"
+        pm.save_project("demo", project)
+        _write_bytes(project_dir / "characters" / "refs_audio" / "Hero.wav", b"wav-bytes")
+
+        service = ProjectArchiveService(pm)
+        for scope in ("full", "current"):
+            archive_path, _ = service.export_project("demo", scope=scope)
+            with zipfile.ZipFile(archive_path) as archive:
+                names = set(archive.namelist())
+            assert "demo/characters/refs_audio/Hero.wav" in names
+
+    @pytest.mark.unit
+    def test_export_repairs_reference_audio_canonical_path(self, tmp_path):
+        """reference_audio 不像 reference_image 强制统一扩展名，规范化路径按字段自身的
+        扩展名推导——指针错位（如手工恢复留下的旧路径）但文件已在规范位置时应改写字段。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["characters"]["Hero"]["reference_audio"] = "characters/stray/Hero_old.wav"
+        pm.save_project("demo", project)
+        _write_bytes(project_dir / "characters" / "refs_audio" / "Hero.wav", b"wav-bytes")
+
+        service = ProjectArchiveService(pm)
+        archive_path, _ = service.export_project("demo", scope="full")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+            exported_project = json.loads(archive.read("demo/project.json"))
+
+        assert exported_project["characters"]["Hero"]["reference_audio"] == "characters/refs_audio/Hero.wav"
+        assert manifest["export_diagnostics"]["auto_fixed"]
+
 
 class TestExportScope:
     def _create_project_with_versions(self, pm: ProjectManager) -> Path:
@@ -1046,6 +1171,7 @@ class TestExportScope:
         _write_json(project_dir / "versions" / "versions.json", versions_data)
         return project_dir
 
+    @pytest.mark.unit
     def test_export_scope_full_includes_version_history(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         self._create_project_with_versions(pm)
@@ -1062,6 +1188,7 @@ class TestExportScope:
             assert "demo/versions/scenes/Temple_v1.png" in names
             assert "demo/versions/props/Key_v1.png" in names
 
+    @pytest.mark.unit
     def test_export_scope_current_skips_version_history_files(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         self._create_project_with_versions(pm)
@@ -1084,6 +1211,7 @@ class TestExportScope:
             # versions.json 应保留（裁剪后）
             assert "demo/versions/versions.json" in names
 
+    @pytest.mark.unit
     def test_export_scope_current_trims_versions_json(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         self._create_project_with_versions(pm)
@@ -1103,6 +1231,7 @@ class TestExportScope:
             assert len(vid_versions) == 1
             assert vid_versions[0]["version"] == 2
 
+    @pytest.mark.unit
     def test_export_scope_current_manifest_scope_field(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         self._create_project_with_versions(pm)
@@ -1114,6 +1243,7 @@ class TestExportScope:
             manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
             assert manifest["scope"] == "current"
 
+    @pytest.mark.unit
     def test_export_scope_full_manifest_scope_field(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         self._create_project_with_versions(pm)
@@ -1124,3 +1254,45 @@ class TestExportScope:
         with zipfile.ZipFile(archive_path) as archive:
             manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
             assert manifest["scope"] == "full"
+
+
+@pytest.mark.integration
+class TestArchiveDiagnosticsLocalization:
+    """结构化诊断在传入 translator 时按目标语言成文（成功导入路径含 auto_fixed 家族）。"""
+
+    @staticmethod
+    def _en(key: str, **kwargs: object) -> str:
+        return _(key, locale="en", **kwargs)
+
+    def test_import_success_diagnostics_render_in_target_language(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+        archive_path = tmp_path / "legacy.zip"
+        _stage_legacy_narration_archive(pm, project_dir, archive_path)
+
+        result = service.import_project_archive(
+            archive_path,
+            uploaded_filename="legacy.zip",
+            translate=self._en,
+        )
+
+        assert result.diagnostics["auto_fixed"]
+        rendered = json.dumps(result.diagnostics, ensure_ascii=False) + json.dumps(
+            [warning.render(self._en) for warning in result.warnings], ensure_ascii=False
+        )
+        assert not re.search(r"[一-鿿]", rendered)
+
+    def test_export_diagnostics_snapshot_in_archive_stays_default_language(self, tmp_path):
+        """随包分发的诊断快照与导出方的请求语言无关——导入方语言未必相同。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        _write_text(project_dir / "notes.txt", "scratch")
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo")
+
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+        messages = [item["message"] for item in manifest["export_diagnostics"]["warnings"]]
+        assert any("notes.txt" in message and re.search(r"[一-鿿]", message) for message in messages)

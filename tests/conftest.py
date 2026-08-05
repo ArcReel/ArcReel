@@ -17,6 +17,8 @@ def make_translator(locale: str = "zh") -> Callable[..., str]:
 
 import os
 import subprocess
+import wave
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -30,6 +32,17 @@ from server.agent_runtime.session_store import SessionMetaStore
 # ---------------------------------------------------------------------------
 # General utilities
 # ---------------------------------------------------------------------------
+
+
+def _wav_bytes(duration_seconds: float, sample_rate: int = 8000) -> bytes:
+    """纯 stdlib 生成 wav 字节（不依赖 ffmpeg），供不要求真实音频编解码的用例使用。"""
+    buf = BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(b"\x00\x00" * int(duration_seconds * sample_rate))
+    return buf.getvalue()
 
 
 def make_test_video(path: Path, *, duration_sec: float = 1.0, fps: int = 30) -> None:
@@ -174,7 +187,7 @@ async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> Sessi
 # ---------------------------------------------------------------------------
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Auto-mark dialect-sensitive tests with `uses_db`.
 
     Mark a test only when it consumes a fixture defined in a canonical
@@ -206,6 +219,41 @@ def pytest_collection_modifyitems(config, items):
             if getattr(active.func, "__module__", "") in canonical_modules:
                 item.add_marker(uses_db)
                 break
+
+    _enforce_classification_markers(items)
+
+
+def _enforce_classification_markers(items: list[pytest.Item]) -> None:
+    """收集期强制：每个用例恰好带一个 unit/integration/e2e 分类 marker。
+
+    漏标不影响用例本身通过，只能靠人工 review 发现；这里把它变成收集期失败，
+    使其无法进入 CI。多标同样拦截——三类语义互斥，同时命中会让 `-m` 选集失去意义
+    （marker 可来自用例、类、模块三层，叠加时容易出现自相矛盾的组合）。
+    """
+    classify_marks = {"unit", "integration", "e2e"}
+    missing = []
+    conflicting = []
+    for item in items:
+        marks = {m.name for m in item.iter_markers()} & classify_marks
+        if not marks:
+            missing.append(item.nodeid)
+        elif len(marks) > 1:
+            conflicting.append(f"{item.nodeid}（{'/'.join(sorted(marks))}）")
+    problems = []
+    if missing:
+        listing = "\n".join(f"  - {nodeid}" for nodeid in missing)
+        problems.append(
+            f"{len(missing)} 个测试用例缺少分类 marker（unit/integration/e2e 三选一）：\n{listing}\n"
+            "在用例或所在模块补 @pytest.mark.unit / integration / e2e。"
+        )
+    if conflicting:
+        listing = "\n".join(f"  - {entry}" for entry in conflicting)
+        problems.append(
+            f"{len(conflicting)} 个测试用例带多个分类 marker（三者互斥）：\n{listing}\n"
+            "去掉用例/类/模块三层中多余的那个分类 marker。"
+        )
+    if problems:
+        raise pytest.UsageError("\n".join(problems))
 
 
 @pytest.fixture()

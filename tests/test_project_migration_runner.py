@@ -13,6 +13,8 @@ from lib.project_migrations.runner import (
     run_project_migrations,
 )
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def tmp_projects(tmp_path: Path) -> Path:

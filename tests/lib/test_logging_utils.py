@@ -1,8 +1,11 @@
 import json
 
+import pytest
 from pydantic import BaseModel
 
 from lib.logging_utils import format_kwargs_for_log, sanitize_diagnostic_payload
+
+pytestmark = pytest.mark.unit
 
 
 def test_diagnostic_payload_preserves_unknown_fields_without_truncation():

@@ -10,7 +10,7 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 
 ## 工作流步骤
 
-1. **确认项目状态**：Read `project.json`，确认 `title`、`content_mode`（固定 `ad`）、`target_duration`（目标总时长，秒）、`brief`（创作诉求，可为空）、`generation_mode`（`storyboard` / `reference_video`，`grid` 不开放）、`products`（产品资产）
+1. **确认项目状态**：Read `project.json`，确认 `title`、`content_mode`（固定 `ad`）、`target_duration`（目标总时长，秒）、`brief`（创作诉求，可为空）、`generation_mode`（`storyboard` / `reference_video`，创建后不可更改；宫格装配 `grid_storyboard` 对 ad 不开放）、`products`（产品资产）。用户要求更改生成模式时明确告知路线创建后不可更改，agent 无对应写入权限，也无绕过方式
 2. **创作输入**：带货项目而产品未登记或缺原图（`reference_images` 为空）时，引导用户在 WebUI 初始化页或产品资产页上传产品图——原图是产品保真的验收锚点，agent 不能代传图片；产品描述/品牌可经 `mcp__arcreel__patch_project` 代写。`brief` 为空时引导用户补充创作诉求（产品/主题、目标人群、期望风格——卖点留给下一步起草，不在此重复索要），同样经 `patch_project` 写入
 3. **起草卖点（selling_points）**：产品已登记但 `selling_points` 为空时，先从 `brief`、产品描述与产品原图（`reference_images`）中起草卖点列表，与用户确认后经 `mcp__arcreel__patch_project` 写入 products 表——剧本生成会把卖点注入带货框架的 selling_point/demo 段
 4. **资产定义与设计图**：角色/场景/道具定义写入 `project.json` 后 dispatch `generate-assets` subagent 生成设计图；产品 sheet 在产品资产页生成
@@ -28,9 +28,9 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 
 `products` 为空即通用短片，剧本生成自动分流通用 prompt。带货还是通用看**用户诉求**：用户要推某个产品而产品未登记时走步骤 2 的上传引导（剧本生成前给齐产品），诉求不涉及具体产品才按通用短片引导。引导差异：跳过产品相关环节——步骤 2 的产品上传引导、步骤 3 卖点起草、步骤 6 sheet 过目，不向用户索要产品信息；`brief` 是唯一创作输入，引导用户写充实（主题、情绪基调、画面风格、叙事节奏）再生成剧本；角色/场景/道具资产照常可用。
 
-## 路径中途切换
+## 镜头时长约束
 
-用户把 `generation_mode` 在 storyboard ↔ reference_video 之间切换后，先检查既有镜头时长是否符合新路径约束（storyboard 须取视频模型 `supported_durations` 成员，可经 `mcp__arcreel__get_video_capabilities` 自查；reference 须为 1-15 秒整数）。不符合时**主动**列出越界镜头并建议调整值，经 `patch_episode_script` 修正后再生成——不要直接入队让执行层报错。
+镜头时长须符合项目路线的约束：storyboard 路径取视频模型 `supported_durations` 成员（可经 `mcp__arcreel__get_video_capabilities` 自查），reference_video 路径为 1-15 秒整数。发现越界镜头时**主动**列出并建议调整值，经 `patch_episode_script` 修正后再生成——不要直接入队让执行层报错。
 
 ## 边界
 

@@ -11,6 +11,8 @@ from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.factories import make_session_meta
 
+pytestmark = pytest.mark.unit
+
 
 class _FakePM:
     def __init__(self, valid_project="demo"):

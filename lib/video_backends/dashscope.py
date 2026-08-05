@@ -10,6 +10,7 @@ GET /tasks/{id} 至 SUCCEEDED → 下载 video_url。覆盖 happyhorse-1.0 与 w
 
 from __future__ import annotations
 
+import base64
 import logging
 from pathlib import Path
 
@@ -40,9 +41,9 @@ from lib.retry import (
 )
 from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
+    ReferenceAudioMode,
     ResumeExpiredError,
     VideoCapabilities,
-    VideoCapability,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -68,6 +69,23 @@ def _read_image_or_none(path: Path) -> str | None:
         return None
 
 
+# wan2.7 的 reference_voice 接受 wav / mp3（官方《万相2.7-参考生视频》reference_voice 章节），
+# URL 形态与 media.url 同为 http / oss / base64 data URI。
+_REFERENCE_AUDIO_MIME_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg"}
+
+
+def _read_reference_audio_or_none(path: Path) -> str | None:
+    """参考音频 → base64 data URI；文件缺失或 IO 失败返回 None（格式另由调用方先行拒绝）。"""
+    mime = _REFERENCE_AUDIO_MIME_TYPES[path.suffix.lower()]
+    if not path.is_file():
+        return None
+    try:
+        return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+    except OSError as exc:
+        logger.warning("DashScope 参考音频读取失败: %s (%s)", path, exc)
+        return None
+
+
 DEFAULT_MODEL = "happyhorse-1.0-i2v"
 
 _VIDEO_ENDPOINT = "/services/aigc/video-generation/video-synthesis"
@@ -75,44 +93,46 @@ _VIDEO_ENDPOINT = "/services/aigc/video-generation/video-synthesis"
 _MIN_POLL_TIMEOUT_SECONDS = 900.0
 _POLL_TIMEOUT_PER_SECOND = 60.0
 
-_TV = VideoCapability.TEXT_TO_VIDEO
-_IV = VideoCapability.IMAGE_TO_VIDEO
-_AUDIO = VideoCapability.GENERATE_AUDIO
-_SEED = VideoCapability.SEED_CONTROL
+# wan2.7-r2v 的 reference_voice 逐段挂在参考素材项上，故音频段数上限等同参考素材总数上限
+# （官方：参考图像 + 参考视频 ≤ 5）。
+_WAN27_R2V_MAX_REFERENCE = 5
 
-# 按 model id 派发：(VideoCapability 集合, VideoCapabilities)。
-# happyhorse-r2v 仅 reference_image（无 first_frame）；wan2.7-r2v 额外支持首帧。
-# 音频恒开（无开关参数），统一声明 GENERATE_AUDIO。
-_MODEL_PROFILES: dict[str, tuple[set[VideoCapability], VideoCapabilities]] = {
-    "happyhorse-1.0-t2v": ({_TV, _AUDIO, _SEED}, VideoCapabilities(first_frame=False)),
-    "happyhorse-1.0-i2v": ({_IV, _AUDIO, _SEED}, VideoCapabilities(first_frame=True)),
-    "happyhorse-1.0-r2v": (
-        {_IV, _AUDIO, _SEED},
-        VideoCapabilities(first_frame=False, reference_images=True, max_reference_images=9),
-    ),
-    "wan2.7-t2v": ({_TV, _AUDIO, _SEED}, VideoCapabilities(first_frame=False)),
-    "wan2.7-i2v": ({_IV, _AUDIO, _SEED}, VideoCapabilities(first_frame=True)),
-    "wan2.7-r2v": (
-        {_IV, _AUDIO, _SEED},
-        # 带首帧的参考生视频是 wan2.7-r2v 的官方形态（_build_media 同请求组装
-        # first_frame + reference_image）。
-        VideoCapabilities(first_frame=True, reference_images=True, max_reference_images=5),
+# wan2.7 全家族 prompt 上限 5000 字符（官方参数表原文「超过部分会自动截断」，错误码表无对应
+# 条目——超限不报错、直接静默截断并照常计费，故由 gate_video_request 在付费前拒绝）。
+_WAN27_MAX_PROMPT_CHARS = 5000
+
+# 按 model id 派发能力声明。happyhorse-r2v 仅 reference_image（无 first_frame）；
+# wan2.7-r2v 额外支持首帧与参考音色。
+_MODEL_PROFILES: dict[str, VideoCapabilities] = {
+    "happyhorse-1.0-t2v": VideoCapabilities(first_frame=False),
+    "happyhorse-1.0-i2v": VideoCapabilities(first_frame=True),
+    "happyhorse-1.0-r2v": VideoCapabilities(first_frame=False, max_reference_images=9),
+    "wan2.7-t2v": VideoCapabilities(first_frame=False, max_prompt_chars=_WAN27_MAX_PROMPT_CHARS),
+    "wan2.7-i2v": VideoCapabilities(first_frame=True, max_prompt_chars=_WAN27_MAX_PROMPT_CHARS),
+    # 带首帧的参考生视频是 wan2.7-r2v 的官方形态（_build_media 同请求组装
+    # first_frame + reference_image）。
+    "wan2.7-r2v": VideoCapabilities(
+        first_frame=True,
+        max_reference_images=_WAN27_R2V_MAX_REFERENCE,
+        reference_audio_mode=ReferenceAudioMode.DIRECT,
+        max_reference_audio_count=_WAN27_R2V_MAX_REFERENCE,
+        # 音色挂在具体参考素材项上（_attach_reference_voices），不是独立的音色输入通道，
+        # 编排层必须显式给出「谁的声音配哪张图」的映射，不能假设与 reference_audio_files 同序。
+        reference_audio_per_image=True,
+        max_prompt_chars=_WAN27_MAX_PROMPT_CHARS,
     ),
 }
 
 # 未知 model（如代理中转自定义命名）按通用 i2v/t2v 处理，VideoCapabilities() 默认支持首帧。
-_DEFAULT_PROFILE: tuple[set[VideoCapability], VideoCapabilities] = (
-    {_TV, _IV, _AUDIO, _SEED},
-    VideoCapabilities(),
-)
+_DEFAULT_PROFILE = VideoCapabilities()
 
 
-def _profile_for_model(model: str | None) -> tuple[set[VideoCapability], VideoCapabilities]:
+def _profile_for_model(model: str | None) -> VideoCapabilities:
     """按 model_id 解析能力档：先精确命中，再容忍代理中转的前后缀装饰。
 
     infer_endpoint 用子串（"happyhorse" / "wan2."）路由到 dashscope-async-video，故此处也须
     子串容忍，否则 "proxy/happyhorse-1.0-r2v" / "wan2.7-r2v-0715" 这类装饰名会退回 _DEFAULT_PROFILE、
-    丢掉 r2v 的 reference_images/max_reference_images，_build_media 据此构造出错误 payload。
+    丢掉 r2v 的 max_reference_images，_build_media 据此构造出错误 payload。
     仅带系列名而无变体后缀（如裸 "happyhorse"）无法判别 t2v/i2v/r2v，按设计回落通用默认。
     __init__ 与 video_capabilities_for_model 共用本函数，保持单一真相源。
     """
@@ -143,7 +163,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         self._base_url = dashscope_native_base_url(base_url)
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
-        self._capabilities, self._video_capabilities = _profile_for_model(self._model)
+        self._video_capabilities = _profile_for_model(self._model)
 
     @property
     def name(self) -> str:
@@ -153,10 +173,6 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
     def model(self) -> str:
         return self._model
 
-    @property
-    def capabilities(self) -> set[VideoCapability]:
-        return self._capabilities
-
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         """按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
@@ -164,7 +180,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
         保持 backend 为单一真相源。
         """
-        return _profile_for_model(model)[1]
+        return _profile_for_model(model)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
@@ -229,7 +245,8 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             if uri is None:
                 raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=p.name)
             media.append({"type": "first_frame", "url": uri})
-        if caps.reference_images:
+        reference_items: list[dict] = []
+        if caps.max_reference_images > 0:
             # r2v 必须有参考图。fail-loud：未提供 → required；任一声明的参考图缺失/不可读（is_file 不过
             # 或 read_bytes 抛 OSError）→ 报错列出文件名中止。不静默退化为无参考/子集生成（会产出错误
             # 结果且照常计费），让用户感知到有图未被使用。
@@ -258,8 +275,83 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
                     limit,
                 )
                 data_uris = data_uris[:limit]
-            media.extend({"type": "reference_image", "url": uri} for uri in data_uris)
+            reference_items = [{"type": "reference_image", "url": uri} for uri in data_uris]
+        # 音频挂载在参考素材循环之外：无参考素材可挂时也要走一遍判定，否则 wan2.7-i2v 这类
+        # 无参考图能力的 model 收到音频会静默丢弃、照常扣费——正是本 issue 第 4 条要堵的路径。
+        # 自定义供应商可把 endpoint 级的 reference_audio_mode 覆盖成 direct，而 delegate 的
+        # model profile 仍是真相源，故这条路径实际可达。
+        self._attach_reference_voices(reference_items, request)
+        media.extend(reference_items)
         return media
+
+    def _attach_reference_voices(self, reference_items: list[dict], request: VideoGenerationRequest) -> None:
+        """把参考音频逐段挂到参考素材项的 ``reference_voice`` 字段上（就地修改）。
+
+        对齐优先用 ``request.reference_audio_targets``（第 i 段音频对应 ``reference_items``
+        的哪个下标）——参考音频的顺序是台词 speaker 首现顺序，参考图的顺序是 mention 首现
+        顺序，两者独立派生，编排层（``reference_video`` 渲染管线）已算出「谁的声音配哪张图」
+        的映射，此处不得自行按位置重新猜测。``reference_audio_targets`` 为 ``None`` 时回退
+        按位置对齐（第 N 段音频挂第 N 个参考素材）——两侧同序本身不是契约，回退仅服务未经
+        编排层填充的调用方（如手写测试）。
+
+        音频段数多于可挂载的参考素材时硬失败而非丢弃多余段：丢弃会让某个角色的音色声明无声
+        失效，用户直到成片才发现该角色声音仍是随机的，且已照常扣费。``reference_audio_targets``
+        携带越界下标同样按此硬失败——那意味着编排层算出的映射与实际随请求发出的参考图对不上，
+        必须暴露而非静默吞掉。
+        """
+        audio_files = list(request.reference_audio_files or [])
+        if not audio_files:
+            return
+        if self._video_capabilities.reference_audio_mode == ReferenceAudioMode.NONE:
+            raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
+
+        targets = request.reference_audio_targets
+        if targets is not None:
+            # 重复下标与越界下标同类错配：两段音频指向同一个参考素材项时，逐条赋值会静默
+            # 覆盖前一条绑定，某个角色的音色声明无声丢失——必须硬失败，不能让它悄悄发生。
+            valid = (
+                len(targets) == len(audio_files)
+                and len(set(targets)) == len(targets)
+                and all(0 <= t < len(reference_items) for t in targets)
+            )
+        else:
+            valid = len(audio_files) <= len(reference_items)
+        if not valid:
+            # 与 gate 的 video_reference_audio_exceeded 分成两个 code：那条的 limit 是模型的
+            # 能力上限（减角色数就能过），这条的上限是本次请求实际有几个可挂载的参考素材
+            # （加参考图也能过）。共用一个 code 会让文案给出与实际卡点不符的处置建议。
+            raise VideoCapabilityError(
+                "video_reference_audio_slots_insufficient",
+                provider=self.name,
+                model=self._model,
+                slots=len(reference_items),
+                count=len(audio_files),
+            )
+        unreadable: list[str] = []
+        uris: list[str] = []
+        for audio in audio_files:
+            path = Path(audio)
+            if path.suffix.lower() not in _REFERENCE_AUDIO_MIME_TYPES:
+                raise VideoCapabilityError(
+                    "video_reference_audio_format_unsupported",
+                    name=path.name,
+                    supported=", ".join(sorted(_REFERENCE_AUDIO_MIME_TYPES)),
+                )
+            uri = _read_reference_audio_or_none(path)
+            if uri is None:
+                unreadable.append(path.name)
+            else:
+                uris.append(uri)
+        if unreadable:
+            raise VideoCapabilityError(
+                "video_reference_audio_unreadable", model=self._model, names=", ".join(unreadable)
+            )
+        if targets is not None:
+            for idx, uri in zip(targets, uris, strict=True):
+                reference_items[idx]["reference_voice"] = uri
+        else:
+            for item, uri in zip(reference_items, uris, strict=False):
+                item["reference_voice"] = uri
 
     # ── HTTP submit / poll / download ───────────────────────────────────
 

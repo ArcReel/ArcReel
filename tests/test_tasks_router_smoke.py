@@ -1,10 +1,14 @@
 """Smoke tests for task router endpoints against a real generation queue."""
 
+import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from server.auth import CurrentUserInfo, get_current_user, get_current_user_flexible
 from server.routers import tasks as tasks_router
+from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 def _build_app():
@@ -13,7 +17,7 @@ def _build_app():
     app.dependency_overrides[get_current_user_flexible] = lambda: CurrentUserInfo(
         id="default", sub="testuser", role="admin"
     )
-    app.include_router(tasks_router.router, prefix="/api/v1")
+    app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app
 
 

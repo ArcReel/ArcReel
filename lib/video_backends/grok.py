@@ -16,7 +16,6 @@ from lib.retry import with_retry_async
 from lib.video_backends.base import (
     IMAGE_MIME_TYPES,
     VideoCapabilities,
-    VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
@@ -38,10 +37,6 @@ class GrokVideoBackend:
     ):
         self._client = create_grok_client(api_key=api_key)
         self._model = model or self.DEFAULT_MODEL
-        self._capabilities: set[VideoCapability] = {
-            VideoCapability.TEXT_TO_VIDEO,
-            VideoCapability.IMAGE_TO_VIDEO,
-        }
 
     @property
     def name(self) -> str:
@@ -51,18 +46,15 @@ class GrokVideoBackend:
     def model(self) -> str:
         return self._model
 
-    @property
-    def capabilities(self) -> set[VideoCapability]:
-        return self._capabilities
-
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
 
         当前全系模型能力一致，不按 model_id 分支；instance property 委托至此，
-        保持 backend 为单一真相源。
+        保持 backend 为单一真相源。参考图上限取自第三方来源，官方文档未明确列出，
+        不硬编当既成事实。
         """
-        return VideoCapabilities(reference_images=True, max_reference_images=7)
+        return VideoCapabilities(max_reference_images=7)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

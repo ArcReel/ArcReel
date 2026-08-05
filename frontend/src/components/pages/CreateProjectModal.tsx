@@ -16,6 +16,8 @@ import { WizardStep1Basics, type WizardStep1Value } from "./create-project/Wizar
 import { WizardStep2Models, type WizardStep2Data } from "./create-project/WizardStep2Models";
 import { WizardStep3Style, type WizardStep3Value } from "./create-project/WizardStep3Style";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
+import { catalogDurations } from "@/hooks/useModelCapabilities";
+import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
 
 // 新建项目对话框 · "Open Reel"
 // 仪式感来自项目大厅的 Darkroom 美学：editorial 衬线 + mono 标尺线 + sprocket 胶片孔。
@@ -149,12 +151,16 @@ export function CreateProjectModal() {
     contentMode: "narration",
     sourceKind: "novel",
     aspectRatio: "9:16",
-    generationMode: "storyboard",
+    generationRoute: null,
+    gridStoryboard: false,
     targetDuration: 60,
   });
 
   const [models, setModels] = useState<ModelConfigValue>({
     videoBackend: "",
+    videoProviderI2V: "",
+    videoProviderR2V: "",
+    imageBackendDefault: "",
     imageBackendT2I: "",
     imageBackendI2I: "",
     textBackendDefault: "",
@@ -201,14 +207,11 @@ export function CreateProjectModal() {
           customProviders: customRes.providers,
           globalDefaults: {
             video: sysConfig.settings.default_video_backend ?? "",
-            imageT2I:
-              sysConfig.settings.default_image_backend_t2i ??
-              sysConfig.settings.default_image_backend ??
-              "",
-            imageI2I:
-              sysConfig.settings.default_image_backend_i2i ??
-              sysConfig.settings.default_image_backend ??
-              "",
+            videoI2V: sysConfig.settings.default_video_backend_i2v ?? "",
+            videoR2V: sysConfig.settings.default_video_backend_r2v ?? "",
+            image: sysConfig.settings.default_image_backend ?? "",
+            imageT2I: sysConfig.settings.default_image_backend_t2i ?? "",
+            imageI2I: sysConfig.settings.default_image_backend_i2i ?? "",
             textDefault: sysConfig.settings.default_text_backend ?? "",
             textSimple: sysConfig.settings.text_backend_simple ?? "",
             textComplex: sysConfig.settings.text_backend_complex ?? "",
@@ -253,19 +256,46 @@ export function CreateProjectModal() {
   const dialogRef = useRef<HTMLDivElement>(null);
   useFocusTrap(dialogRef, true);
 
+  // 第二步选好时长与分辨率后还能退回第一步改路线。分辨率只由执行模型决定，模型没换就不动；
+  // 时长还受参考图路径影响——同一个模型走参考图时可选时长可能被收窄，故换路线一律重算。
+  const handleBasicsChange = (next: WizardStep1Value) => {
+    setBasics(next);
+    if (next.generationRoute === basics.generationRoute) return;
+    const globals = step2Data?.globalDefaults ?? { video: "", videoI2V: "", videoR2V: "" };
+    const usesReferenceImages = next.generationRoute === "reference_video";
+    const before = executingVideoModel(models, globals, basics.generationRoute === "reference_video");
+    const after = executingVideoModel(models, globals, usesReferenceImages);
+    const modelChanged = before !== after;
+    const nextDurations = catalogDurations(step2Data?.providers ?? [], step2Data?.customProviders ?? [], after, {
+      videoResolution: modelChanged ? null : models.videoResolution,
+      usesReferenceImages,
+    });
+    setModels((prev) => ({
+      ...prev,
+      videoResolution: modelChanged ? null : prev.videoResolution,
+      defaultDuration:
+        prev.defaultDuration !== null && nextDurations?.includes(prev.defaultDuration)
+          ? prev.defaultDuration
+          : null,
+    }));
+  };
+
   const handleCreate = async () => {
+    // 路线必选（Step1 已拦一道）：缺失时后端返回 422，此处不构造无路线的创建请求
+    if (!basics.generationRoute) return;
     setCreating(true);
     try {
-      // resolution 的 model_settings key 用 effective backend（项目覆盖 ‖ 全局默认），
-      // 否则用户在"跟随全局默认"路径下选的分辨率会丢失。
-      const effectiveVideo = models.videoBackend || step2Data?.globalDefaults.video || "";
-      const effectiveImageT2I = models.imageBackendT2I || step2Data?.globalDefaults.imageT2I || "";
+      // resolution 的 model_settings key 用执行模型：后端按执行模型查这张表，向导只暴露默认层，
+      // 但全局细分层若指向别的模型，执行的就不是默认层那个——键位对不上分辨率会被静默忽略。
+      const globals = step2Data?.globalDefaults ?? { video: "", videoI2V: "", videoR2V: "", image: "", imageT2I: "" };
+      const executingVideo = executingVideoModel(models, globals, basics.generationRoute === "reference_video");
+      const executingImage = executingImageModel(models, globals);
       const modelSettings: Record<string, { resolution: string }> = {};
-      if (effectiveVideo && models.videoResolution) {
-        modelSettings[effectiveVideo] = { resolution: models.videoResolution };
+      if (executingVideo && models.videoResolution) {
+        modelSettings[executingVideo] = { resolution: models.videoResolution };
       }
-      if (effectiveImageT2I && models.imageResolution) {
-        modelSettings[effectiveImageT2I] = { resolution: models.imageResolution };
+      if (executingImage && models.imageResolution) {
+        modelSettings[executingImage] = { resolution: models.imageResolution };
       }
 
       const isAd = basics.contentMode === "ad";
@@ -275,15 +305,15 @@ export function CreateProjectModal() {
         // source_kind 仅 drama 暴露与生效；其余模式由服务端缺省 novel
         ...(basics.contentMode === "drama" ? { source_kind: basics.sourceKind } : {}),
         aspect_ratio: basics.aspectRatio,
-        generation_mode: basics.generationMode,
+        generation_mode: basics.generationRoute,
+        grid_storyboard: basics.gridStoryboard,
         // ad 不暴露 default_duration（按目标总时长逐镜头规划），改传 target_duration
         ...(isAd
           ? { target_duration: basics.targetDuration }
           : { default_duration: models.defaultDuration }),
         style_template_id: style.mode === "template" ? style.templateId : null,
         video_backend: models.videoBackend || null,
-        image_provider_t2i: models.imageBackendT2I || null,
-        image_provider_i2i: models.imageBackendI2I || null,
+        default_image_backend: models.imageBackendDefault || null,
         default_text_backend: models.textBackendDefault || null,
         text_backend_simple: models.textBackendSimple || null,
         text_backend_complex: models.textBackendComplex || null,
@@ -401,7 +431,7 @@ export function CreateProjectModal() {
           {step === 1 && (
             <WizardStep1Basics
               value={basics}
-              onChange={setBasics}
+              onChange={handleBasicsChange}
               onNext={() => setStep(2)}
               onCancel={handleClose}
             />
@@ -416,7 +446,7 @@ export function CreateProjectModal() {
               data={step2Data}
               error={step2Error}
               hideDuration={basics.contentMode === "ad"}
-              usesReferenceImages={basics.generationMode === "reference_video"}
+              usesReferenceImages={basics.generationRoute === "reference_video"}
             />
           )}
           {step === 3 && (

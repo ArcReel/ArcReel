@@ -4,6 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
 from lib.db.base import Base
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def session():

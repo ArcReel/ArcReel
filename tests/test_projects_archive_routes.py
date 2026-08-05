@@ -1,15 +1,20 @@
 import json
 import os
+import re
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, create_download_token, create_token, get_current_user
 from server.routers import projects
+from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -80,7 +85,8 @@ def _client(monkeypatch, pm: ProjectManager) -> TestClient:
     monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(projects.router, prefix="/api/v1")
+    app.include_router(projects.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    app.include_router(projects.self_auth_router, prefix="/api/v1")
     return TestClient(app)
 
 
@@ -247,3 +253,75 @@ class TestProjectArchiveRoutes:
                 )
 
         assert response.status_code == 422
+
+
+def _has_cjk(payload: object) -> bool:
+    """响应体里是否残留中日韩表意文字——en/vi 请求下的诊断文案不应命中。"""
+    return bool(re.search(r"[一-鿿]", json.dumps(payload, ensure_ascii=False)))
+
+
+class TestProjectArchiveDiagnosticsLocalization:
+    """归档导入/导出诊断按 Accept-Language 渲染（结构化消息在 router 边界成文）。"""
+
+    def test_import_failure_payload_uses_request_locale(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        client = _client(monkeypatch, pm)
+        archive_path = tmp_path / "broken.zip"
+
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("demo/source/chapter.txt", "source")
+
+        with client:
+            response = client.post(
+                "/api/v1/projects/import",
+                data={"conflict_policy": "rename"},
+                files={"file": ("broken.zip", archive_path.read_bytes(), "application/zip")},
+                headers={"Accept-Language": "en-US,en;q=0.9"},
+            )
+
+        assert response.status_code == 400
+        payload = response.json()
+        assert payload["detail"] == "Import package validation failed"
+        assert payload["errors"] == ["No project.json found in the ZIP"]
+        assert not _has_cjk(payload)
+
+    def test_import_conflict_detail_uses_request_locale(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_demo_project(pm)
+        client = _client(monkeypatch, pm)
+
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            token = create_download_token("testuser", "demo")
+            with client:
+                export_response = client.get(f"/api/v1/projects/demo/export?download_token={token}")
+                response = client.post(
+                    "/api/v1/projects/import",
+                    files={"file": ("demo.zip", export_response.content, "application/zip")},
+                    headers={"Accept-Language": "vi"},
+                )
+
+        assert response.status_code == 409
+        payload = response.json()
+        assert payload["detail"] == "Phát hiện trùng mã dự án"
+        assert not _has_cjk(payload)
+
+    def test_export_diagnostics_use_request_locale(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_demo_project(pm)
+        _write_text(pm.get_project_path("demo") / "notes.txt", "scratch")
+        client = _client(monkeypatch, pm)
+
+        with patch.dict(os.environ, {"AUTH_TOKEN_SECRET": "test-secret-key-that-is-at-least-32-bytes"}):
+            jwt_token = create_token("admin")
+            with client:
+                response = client.post(
+                    "/api/v1/projects/demo/export/token",
+                    headers={"Authorization": f"Bearer {jwt_token}", "Accept-Language": "en"},
+                )
+
+        assert response.status_code == 200
+        diagnostics = response.json()["diagnostics"]
+        assert [item["message"] for item in diagnostics["warnings"]] == [
+            "Non-standard top-level directory/file 'notes.txt' was excluded from the export"
+        ]
+        assert not _has_cjk(diagnostics)

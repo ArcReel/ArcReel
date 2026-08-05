@@ -1,25 +1,42 @@
-"""帧槽位规划纯函数的直接单测：能力 gating × 槽位组装各组合分支。"""
+"""请求期能力校验（gate_video_request）与帧槽位组装（plan_frame_slots）的直接单测。"""
 
 from pathlib import Path
 
 import pytest
 
 from lib.reference_compression import RefRole
-from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
-from lib.video_frame_slots import plan_frame_slots, resolve_video_capabilities
+from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities, VideoCapabilityError
+from lib.video_frame_slots import gate_video_request, plan_frame_slots, resolve_video_capabilities
 
 pytestmark = pytest.mark.unit
 
-CAPS_WITH_LAST_FRAME = VideoCapabilities(
-    first_frame=True, last_frame=True, reference_images=True, max_reference_images=4
+CAPS_WITH_LAST_FRAME = VideoCapabilities(first_frame=True, last_frame=True, max_reference_images=4)
+CAPS_NO_LAST_FRAME = VideoCapabilities(first_frame=True, last_frame=False, max_reference_images=4)
+CAPS_WITH_AUDIO = VideoCapabilities(
+    first_frame=True,
+    max_reference_images=4,
+    reference_audio_mode=ReferenceAudioMode.DIRECT,
+    max_reference_audio_count=3,
 )
-CAPS_NO_LAST_FRAME = VideoCapabilities(
-    first_frame=True, last_frame=False, reference_images=True, max_reference_images=4
+CAPS_WITH_AUDIO_DURATION_LIMIT = VideoCapabilities(
+    first_frame=True,
+    max_reference_images=4,
+    reference_audio_mode=ReferenceAudioMode.DIRECT,
+    max_reference_audio_count=3,
+    max_reference_audio_total_seconds=15.0,
 )
+CAPS_WITH_PROMPT_LIMIT = VideoCapabilities(first_frame=True, max_prompt_chars=100)
+
+
+def _gate(caps: VideoCapabilities | None, **kwargs):
+    gate_video_request(caps=caps, provider="acme", model="acme-v1", **kwargs)
 
 
 def _plan(caps: VideoCapabilities | None, **kwargs):
-    return plan_frame_slots(caps=caps, provider="acme", model="acme-v1", **kwargs)
+    """沿用「先校验再组装」的生产调用序：组装是纯函数，不再自行判定能力。"""
+    gate_kwargs = {k: v for k, v in kwargs.items() if k != "start_image"}
+    _gate(caps, **gate_kwargs)
+    return plan_frame_slots(**kwargs)
 
 
 class TestLastFrameGating:
@@ -64,10 +81,8 @@ class TestLastFrameGating:
         assert plan.end_index == 0
 
     def test_uncharted_caps_without_end_image_passes(self):
-        """caps=None（调用方未查询能力）× 不携带尾帧：能力不影响任何槽位，正常放行。"""
-        plan = _plan(None, start_image=Path("start.png"), reference_images=[Path("r1.png")])
-
-        assert (plan.start_index, plan.end_index, plan.reference_start_index) == (0, None, 1)
+        """caps=None（调用方未查询能力）× 三条路径都不走：无需能力声明即可放行。"""
+        _gate(None)
 
     def test_uncharted_caps_with_end_image_raises(self):
         """caps=None × 携带尾帧：未经能力核实的尾帧一律拒绝，不按"支持"放行。"""
@@ -142,3 +157,147 @@ class TestResolveVideoCapabilities:
             video_capabilities = CAPS_NO_LAST_FRAME
 
         assert resolve_video_capabilities(PlainBackend()).last_frame is False
+
+
+class TestReferenceImageGating:
+    def test_reference_images_beyond_limit_raise(self):
+        """超出上限硬失败：静默截断会让用户以为所有参考图都生效了。"""
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(CAPS_WITH_LAST_FRAME, reference_images=[Path(f"r{i}.png") for i in range(5)])
+
+        assert exc.value.code == "video_reference_images_exceeded"
+        assert exc.value.params == {"provider": "acme", "model": "acme-v1", "limit": 4, "count": 5}
+
+    def test_reference_images_at_limit_pass(self):
+        _gate(CAPS_WITH_LAST_FRAME, reference_images=[Path(f"r{i}.png") for i in range(4)])
+
+    def test_reference_images_on_zero_capacity_model_raise(self):
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(VideoCapabilities(), reference_images=[Path("r.png")])
+
+        assert exc.value.code == "video_reference_images_unsupported"
+
+    def test_uncharted_caps_with_reference_images_raise(self):
+        """caps=None × 携带参考图：与尾帧同理，未经能力核实不放行。"""
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(None, reference_images=[Path("r.png")])
+
+        assert exc.value.code == "video_reference_images_unsupported"
+
+
+class TestReferenceAudioGating:
+    def test_audio_on_model_without_capability_raises(self):
+        """无音色输入能力的模型收到音频：硬失败，不静默丢弃后照常扣费生成随机音色。"""
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(CAPS_WITH_LAST_FRAME, reference_audio_files=[Path("a.mp3")])
+
+        assert exc.value.code == "video_reference_audio_unsupported"
+        assert exc.value.params == {"provider": "acme", "model": "acme-v1"}
+
+    def test_audio_within_limit_passes(self):
+        _gate(CAPS_WITH_AUDIO, reference_audio_files=[Path("a.mp3"), Path("b.wav")])
+
+    def test_audio_at_limit_passes(self):
+        _gate(CAPS_WITH_AUDIO, reference_audio_files=[Path(f"a{i}.mp3") for i in range(3)])
+
+    def test_audio_beyond_limit_raises(self):
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(CAPS_WITH_AUDIO, reference_audio_files=[Path(f"a{i}.mp3") for i in range(4)])
+
+        assert exc.value.code == "video_reference_audio_exceeded"
+        assert exc.value.params == {"provider": "acme", "model": "acme-v1", "limit": 3, "count": 4}
+
+    def test_uncharted_caps_with_audio_raises(self):
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(None, reference_audio_files=[Path("a.mp3")])
+
+        assert exc.value.code == "video_reference_audio_unsupported"
+
+    def test_empty_audio_list_passes_on_incapable_model(self):
+        """空列表与 None 同义：没有音频诉求就不该被音频能力挡住。"""
+        _gate(CAPS_WITH_LAST_FRAME, reference_audio_files=[])
+
+
+class TestReferenceAudioDurationGating:
+    def test_total_within_limit_passes(self):
+        _gate(
+            CAPS_WITH_AUDIO_DURATION_LIMIT,
+            reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+            reference_audio_total_seconds=14.9,
+        )
+
+    def test_total_at_limit_passes(self):
+        _gate(
+            CAPS_WITH_AUDIO_DURATION_LIMIT,
+            reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+            reference_audio_total_seconds=15.0,
+        )
+
+    def test_total_beyond_limit_raises(self):
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(
+                CAPS_WITH_AUDIO_DURATION_LIMIT,
+                reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+                reference_audio_total_seconds=15.1,
+            )
+
+        assert exc.value.code == "video_reference_audio_duration_exceeded"
+        assert exc.value.params == {"provider": "acme", "model": "acme-v1", "limit": 15.0, "total": 15.1}
+
+    def test_unknown_total_skips_check_even_when_limit_declared(self):
+        """探测失败（total=None）按仓库既有降级口径跳过校验，不当作超限拒绝。"""
+        _gate(
+            CAPS_WITH_AUDIO_DURATION_LIMIT,
+            reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+            reference_audio_total_seconds=None,
+        )
+
+    def test_no_declared_limit_skips_check_regardless_of_total(self):
+        """caps 未声明总时长约束（None）：即便传了很大的 total 也不拦——该维度对这个后端不适用。"""
+        _gate(
+            CAPS_WITH_AUDIO,
+            reference_audio_files=[Path("a.mp3"), Path("b.wav")],
+            reference_audio_total_seconds=1000.0,
+        )
+
+
+class TestPromptLengthGating:
+    def test_prompt_within_limit_passes(self):
+        _gate(CAPS_WITH_PROMPT_LIMIT, prompt="x" * 99)
+
+    def test_prompt_at_limit_passes(self):
+        _gate(CAPS_WITH_PROMPT_LIMIT, prompt="x" * 100)
+
+    def test_prompt_beyond_limit_raises(self):
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(CAPS_WITH_PROMPT_LIMIT, prompt="x" * 101)
+
+        assert exc.value.code == "video_prompt_too_long"
+        assert exc.value.params == {"provider": "acme", "model": "acme-v1", "limit": 100, "count": 101}
+
+    def test_limit_counts_characters_not_bytes(self):
+        """计量口径是字符数，中英文同权——按字节算会把中文 prompt 误拒。"""
+        _gate(CAPS_WITH_PROMPT_LIMIT, prompt="中" * 100)
+
+    def test_no_declared_limit_skips_check(self):
+        """caps 未声明上限：任意长度都放行，未声明不等于上限为 0。"""
+        _gate(CAPS_WITH_LAST_FRAME, prompt="x" * 100_000)
+
+    def test_none_caps_skips_check(self):
+        """能力未查询（caps=None）时不拦 prompt——无从得知上限，拒绝反成误伤。"""
+        _gate(None, prompt="x" * 100_000)
+
+    def test_prompt_checked_before_optional_paths(self):
+        """prompt 违约先于尾帧等可选路径报出，用户一次只看到最先命中的那条。"""
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(CAPS_WITH_PROMPT_LIMIT, prompt="x" * 101, end_image=Path("end.png"))
+
+        assert exc.value.code == "video_prompt_too_long"
+
+
+class TestGateAndAssemblySeparation:
+    def test_plan_frame_slots_does_not_gate(self):
+        """组装是纯函数：即便尾帧不被支持也照常铺槽位，拒绝的责任全在 gate。"""
+        plan = plan_frame_slots(start_image=Path("start.png"), end_image=Path("end.png"))
+
+        assert (plan.start_index, plan.end_index) == (0, 1)

@@ -41,6 +41,13 @@ REFERENCE_VIDEO_STEP1_FILENAME = "step1_reference_units.json"
 #: 写盘与生成侧不认——仅存在旧 ``.md`` 时生成侧给出重跑拆分的明确提示。
 REFERENCE_VIDEO_STEP1_LEGACY_FILENAME = "step1_reference_units.md"
 
+#: 违约的 step1 / step2 产出落到的隔离草稿文件名。与正式文件同目录、不同名：正式文件因此
+#: 永远只装校验通过的内容，而违约产物不被丢弃——agent 就地改隔离草稿再调晋升工具重判。
+#: 审核 gate 与生成侧都要认这两个名字（隔离草稿在场时阻塞确认与 step2），故与正式文件名
+#: 收敛在同一处，避免任一侧漏认让隔离态被静默绕过。
+REFERENCE_VIDEO_STEP1_QUARANTINE_FILENAME = "step1_reference_units.invalid.json"
+REFERENCE_VIDEO_STEP2_QUARANTINE_FILENAME = "step2_reference_script.invalid.json"
+
 
 def step1_filename(content_mode: str) -> str | None:
     """该 content_mode 的结构化 step1 文件名；不走结构化 step1（如 ad）时返回 None。"""

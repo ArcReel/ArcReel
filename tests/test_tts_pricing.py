@@ -9,6 +9,8 @@ from lib.pricing.lookup import lookup_pricing
 from lib.pricing.strategies import PricingParams, calculate_pricing
 from lib.pricing.types import PerCharacter
 
+pytestmark = pytest.mark.unit
+
 
 class TestPerCharacterStrategy:
     pricing = PerCharacter(rates={"qwen3-tts-flash": 0.8}, default_model="qwen3-tts-flash", currency="CNY")

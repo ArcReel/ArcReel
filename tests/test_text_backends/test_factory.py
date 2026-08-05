@@ -8,8 +8,12 @@ provider/model，构造经统一缝下沉到 ProviderSpec 表。这些测试 moc
 import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from lib.text_backends.base import TextTaskType
 from lib.text_backends.factory import create_text_backend_for_task
+
+pytestmark = pytest.mark.unit
 
 
 def _make_mock_resolver(**async_methods):

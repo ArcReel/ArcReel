@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from lib.asset_types import ASSET_SPECS
+from lib.asset_types import ASSET_SPECS, resolve_asset_key
 from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists
 from lib.resource_paths import resource_relative_path
@@ -67,7 +67,9 @@ def resolve_current_image_rel(
 
     spec = ASSET_SPECS[resource_type]
     bucket = project.get(spec.bucket_key)
-    entry = bucket.get(resource_id) if isinstance(bucket, dict) else None
+    # 请求里的资产名与桶 key 可能是 NFC/NFD 中的任一形态，按坐标系解析真实落盘 key
+    key = resolve_asset_key(bucket, resource_id)
+    entry = bucket.get(key) if isinstance(bucket, dict) and key is not None else None
     if not isinstance(entry, dict):
         raise KeyError(f"{resource_type} not found: {resource_id}")
     sheet = entry.get(spec.sheet_field)
@@ -111,12 +113,17 @@ async def execute_image_edit_task(
         _project = pm.load_project(project_name)
         _project_path = pm.get_project_path(project_name)
         _script = pm.load_script(project_name, str(script_file)) if resource_type == "storyboard" else None
-        _current_rel = resolve_current_image_rel(_project, resource_type, resource_id, _script)
+        # 资产名可能以 NFC/NFD 任一形态传入：先解析出真实落盘 key，之后的版本登记与
+        # canonical 图路径统一按它写，避免同一资产落出两种编码形式的文件与版本记录。
+        _key = resource_id
+        if resource_type != "storyboard":
+            _key = resolve_asset_key(_project.get(ASSET_SPECS[resource_type].bucket_key), resource_id) or resource_id
+        _current_rel = resolve_current_image_rel(_project, resource_type, _key, _script)
         if not (_current_rel and safe_exists(_project_path, _current_rel)):
             raise ValueError(f"no current image to edit: {resource_type}/{resource_id}")
-        return _project, _project_path / _current_rel
+        return _project, _project_path / _current_rel, _key
 
-    project, current_image = await asyncio.to_thread(_prepare)
+    project, current_image, resource_key = await asyncio.to_thread(_prepare)
 
     # 编辑必然 i2i：单次解析拿到 generator 与 image lane 产物（provider / backend / resolution）。
     ctx = await resolve_generation_context(
@@ -134,7 +141,7 @@ async def execute_image_edit_task(
     await asyncio.to_thread(
         generator.versions.ensure_current_tracked,
         version_resource_type,
-        resource_id,
+        resource_key,
         current_image,
         "",
     )
@@ -147,14 +154,14 @@ async def execute_image_edit_task(
     _, version = await generator.generate_image_async(
         prompt=instruction,
         resource_type=version_resource_type,
-        resource_id=resource_id,
+        resource_id=resource_key,
         reference_images=[current_image],
         aspect_ratio=aspect_ratio,
         image_size=image_size,
         source=IMAGE_EDIT_VERSION_SOURCE,
     )
 
-    canonical_rel = resource_relative_path(version_resource_type, resource_id)
+    canonical_rel = resource_relative_path(version_resource_type, resource_key)
 
     def _finalize():
         pm = get_project_manager()
@@ -162,13 +169,13 @@ async def execute_image_edit_task(
             pm.update_scene_asset(
                 project_name=project_name,
                 script_filename=str(script_file),
-                scene_id=resource_id,
+                scene_id=resource_key,
                 asset_type="storyboard_image",
                 asset_path=canonical_rel,
             )
         else:
-            pm._update_asset_sheet(resource_type, project_name, resource_id, canonical_rel)
-        return generator.versions.get_versions(version_resource_type, resource_id)["versions"][-1]["created_at"]
+            pm._update_asset_sheet(resource_type, project_name, resource_key, canonical_rel)
+        return generator.versions.get_versions(version_resource_type, resource_key)["versions"][-1]["created_at"]
 
     created_at = await asyncio.to_thread(_finalize)
 
@@ -177,5 +184,5 @@ async def execute_image_edit_task(
         "file_path": canonical_rel,
         "created_at": created_at,
         "resource_type": version_resource_type,
-        "resource_id": resource_id,
+        "resource_id": resource_key,
     }

@@ -7,6 +7,8 @@ import pytest
 from lib.image_backends.base import ImageGenerationRequest
 from lib.image_backends.gemini import GeminiImageBackend
 
+pytestmark = pytest.mark.unit
+
 
 def _make_backend():
     backend = GeminiImageBackend.__new__(GeminiImageBackend)

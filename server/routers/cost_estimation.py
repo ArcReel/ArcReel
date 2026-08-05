@@ -12,7 +12,6 @@ from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.i18n import Translator
 from lib.project_manager import get_project_manager
-from server.auth import CurrentUser
 from server.services.cost_estimation import CostEstimationService
 
 router = APIRouter()
@@ -20,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/projects/{project_name}/cost-estimate")
-async def get_cost_estimate(project_name: str, _user: CurrentUser, _t: Translator):
+async def get_cost_estimate(project_name: str, _t: Translator):
     """获取项目费用估算（预估 + 实际）。"""
 
     def _sync():

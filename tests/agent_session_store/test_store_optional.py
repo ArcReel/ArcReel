@@ -8,6 +8,8 @@ from sqlalchemy import select
 from lib.agent_session_store import AgentSessionEntry, AgentSessionSummary
 from lib.agent_session_store.store import DbSessionStore
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.mark.asyncio
 async def test_list_sessions_returns_unique_session_ids_with_mtime(session_factory):

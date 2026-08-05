@@ -2,6 +2,8 @@ import pytest
 
 from lib.source_loader.epub import EpubExtractor
 
+pytestmark = pytest.mark.unit
+
 
 def test_epub_injects_chapter_markers_and_counts(epub_factory):
     src = epub_factory(

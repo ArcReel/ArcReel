@@ -8,6 +8,8 @@ from lib.storyboard_sequence import (
     resolve_previous_storyboard_path,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestStoryboardSequence:
     def test_resolve_previous_storyboard_path_respects_first_item_and_segment_break(self, tmp_path: Path):
@@ -102,12 +104,12 @@ class TestAdStoryboardItems:
         assert items[0]["shot_id"] == "E1S01"
 
 
-# 骨架种类 → 触发该骨架的最小剧本（取证解析 / reference 短路各覆盖）。
+# 骨架种类 → 触发该骨架的最小剧本（取证解析逐种覆盖，含 video_units 短路）。
 _SCRIPT_BY_KIND = {
     "segments": {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]},
     "scenes": {"content_mode": "drama", "scenes": [{"scene_id": "E1S01"}]},
     "shots": {"content_mode": "ad", "shots": [{"shot_id": "E1S01"}]},
-    "video_units": {"generation_mode": "reference_video", "video_units": [{"unit_id": "E1U01"}]},
+    "video_units": {"video_units": [{"unit_id": "E1U01"}]},
 }
 
 
@@ -130,3 +132,24 @@ class TestStoryboardSkeletonExhaustiveness:
         assert char_field == SKELETONS[kind].chars_field
         # scenes / props 资产键为项目级常量，不随骨架变。
         assert (scenes_field, props_field) == ("scenes", "props")
+
+
+class TestMismatchedScriptStaysEditable:
+    """存量失配剧本（分镜路线项目下的 video_units 骨架）：生成被拒，编辑/查看仍可用。"""
+
+    def test_storyboard_items_are_empty_without_raising(self):
+        from lib.storyboard_sequence import get_storyboard_items
+
+        script = {"content_mode": "narration", "video_units": [{"unit_id": "E1U01"}]}
+        items, id_field, char_field, _scenes, _props = get_storyboard_items(script)
+        assert items == []
+        assert (id_field, char_field) == ("unit_id", None)
+
+    def test_edit_core_still_reaches_the_units(self):
+        from lib.script_editor import resolve_items
+
+        script = {"content_mode": "narration", "video_units": [{"unit_id": "E1U01"}]}
+        items, id_field, kind = resolve_items(script)
+        assert kind == "video_units"
+        assert id_field == "unit_id"
+        assert [item["unit_id"] for item in items] == ["E1U01"]

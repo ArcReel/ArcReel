@@ -4,6 +4,7 @@ MESSAGES = {
     "overview_ai_response_invalid": "Không thể phân tích phản hồi của AI thành tổng quan dự án, vui lòng thử lại hoặc đổi mô hình/nhà cung cấp",
     "overview_generation_failed": "Tạo tổng quan thất bại, vui lòng thử lại sau hoặc đổi mô hình/nhà cung cấp",
     "video_capabilities_unresolved": "Không xác định được khả năng mô hình video cho dự án '{name}'; vui lòng kiểm tra cấu hình nhà cung cấp",
+    "video_backend_malformed": "Định danh mô hình video '{value}' không hợp lệ; cần dạng \"nhà cung cấp/mô hình\"",
     "scope_invalid": "scope phải là full hoặc current",
     "download_expired": "Liên kết tải xuống đã hết hạn, vui lòng xuất lại",
     "download_token_mismatch": "Token tải xuống không khớp với dự án mục tiêu",
@@ -54,6 +55,7 @@ MESSAGES = {
     "prompt_text_empty": "prompt không được để trống",
     "storyboard_task_submitted": "Đã gửi tác vụ tạo phân cảnh cho '{segment_id}'",
     "generate_storyboard_first": "Vui lòng tạo phân cảnh scene_{segment_id}.png trước",
+    "video_route_is_reference_video": "Dự án này dùng lộ trình video tham chiếu, không có bước tạo video từ phân cảnh; hãy tạo theo đơn vị video trong trình chỉnh sửa video tham chiếu",
     "invalid_storyboard_image_path": "Đoạn '{segment_id}' có tham chiếu ảnh phân cảnh không hợp lệ, vui lòng tạo lại phân cảnh",
     "video_prompt_must_be_string_or_action_object": "prompt phải là chuỗi hoặc đối tượng chứa action/camera_motion",
     "video_prompt_action_empty": "prompt.action không được để trống",
@@ -69,6 +71,11 @@ MESSAGES = {
     "narration_speed_must_be_positive": "Tốc độ thuyết minh phải là số dương",
     "character_not_found": "Nhân vật '{name}' không tồn tại",
     "character_task_submitted": "Đã gửi tác vụ tạo thiết kế nhân vật cho '{name}'",
+    "voice_sample_voice_required": "Vui lòng chọn giọng đọc trước",
+    "voice_sample_text_too_long": "Văn bản mẫu không được vượt quá {max_length} ký tự",
+    "voice_sample_task_submitted": "Đã gửi tác vụ tạo mẫu giọng đọc thử cho nhân vật '{name}'",
+    "voice_sample_not_ready": "Mẫu giọng đọc thử chưa tạo thành công, chưa thể xác nhận",
+    "voice_sample_file_missing": "Tệp mẫu giọng đọc thử không còn tồn tại, vui lòng tạo lại",
     "scene_task_submitted": "Đã gửi tác vụ tạo thiết kế cảnh cho '{name}'",
     "prop_task_submitted": "Đã gửi tác vụ tạo thiết kế đạo cụ cho '{name}'",
     "product_task_submitted": "Đã gửi tác vụ tạo ảnh tham chiếu chuẩn cho sản phẩm '{name}'",
@@ -79,8 +86,11 @@ MESSAGES = {
     "missing_filename": "Tệp tải lên thiếu tên tệp",
     "unsupported_image_type": "Định dạng tệp không hỗ trợ {ext}. Các loại cho phép: {allowed}",
     "unsupported_video_type": "Định dạng video không hỗ trợ {ext}. Các loại cho phép: {allowed}",
+    "unsupported_audio_type": "Định dạng âm thanh không hỗ trợ {ext}. Các loại cho phép: {allowed}",
     "upload_too_large": "Tệp tải lên vượt quá giới hạn dung lượng ({max_mb} MB)",
     "invalid_image_file": "Tệp ảnh không hợp lệ, không thể phân tích",
+    "invalid_audio_file": "Tệp âm thanh không hợp lệ, không thể phân tích",
+    "audio_duration_out_of_range": "Thời lượng âm thanh phải từ {min_seconds} đến {max_seconds} giây",
     "vision_model_required": "Mô hình văn bản {provider}/{model} không hỗ trợ đầu vào hình ảnh (vision) nên không thể thực hiện tác vụ {task}; vui lòng chọn mô hình văn bản hỗ trợ vision cho cấp đơn giản hoặc mô hình mặc định trong cài đặt",
     "internal_server_error": "Lỗi máy chủ nội bộ, vui lòng thử lại sau",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
@@ -90,7 +100,17 @@ MESSAGES = {
     "draft_invalid_json": "Bản nháp Step 1 phải là một đối tượng JSON hợp lệ với mảng scenes không rỗng, trong đó mỗi scene là một đối tượng có scene_id không rỗng",
     "script_review_not_applicable": "Tập này không áp dụng xác nhận Step 1 (chế độ này không có bản trung gian Step 1 có cấu trúc)",
     "script_review_no_step1": "Chưa có bản nháp có cấu trúc Step 1 để xác nhận; vui lòng hoàn tất tiền xử lý trước",
+    "script_review_quarantined": (
+        "Tập này có bản nháp Step 1 vi phạm đang chờ xử lý; hãy để tác nhân sửa và thăng cấp trước khi xác nhận"
+    ),
+    "script_review_conflict": (
+        "Bản nháp Step 1 đã bị người chỉnh sửa khác thay đổi trong lúc bạn đang chỉnh sửa; lần lưu này chưa được áp dụng. "
+        "Hãy tải lại để xem nội dung mới nhất, hợp nhất thay đổi của bạn rồi lưu lại"
+    ),
     "script_review_invalid_content": "Xác thực cấu trúc bản nháp Step 1 thất bại: {details}",
+    "script_review_quarantine_unreadable": (
+        "Tệp bản nháp bị cách ly đã hỏng hoặc sai định dạng, không thể đọc được; hãy để tác nhân chia lại tập này"
+    ),
     "draft_event_label": "Tập {episode} {label_prefix}",
     "normalized_script": "Kịch bản đã chuẩn hóa",
     "segment_splitting": "Chia đoạn",
@@ -146,6 +166,14 @@ MESSAGES = {
     "capability_override_invalid_value": (
         "Năng lực {capability} của mô hình {model_id} có kiểu giá trị không hợp lệ; cần {expected}"
     ),
+    "capability_override_reference_audio_unsupported": (
+        "Endpoint {endpoint} của mô hình {model_id} không gửi âm thanh tham chiếu; "
+        "không thể ghi đè reference_audio_mode thành direct"
+    ),
+    "capability_override_audio_pair_incoherent": (
+        "Mô hình {model_id} phải có max_reference_audio_count lớn hơn 0 khi hỗ trợ âm thanh tham chiếu; "
+        "hãy ghi đè reference_audio_mode thành none để tắt tham chiếu giọng nói"
+    ),
     "capability_override_last_frame_unsupported": (
         "Endpoint {endpoint} của mô hình {model_id} không hỗ trợ tạo khung hình cuối; "
         "không thể ghi đè last_frame thành true"
@@ -154,7 +182,8 @@ MESSAGES = {
     "unknown_style_template": "Mẫu phong cách không xác định: {template_id}",
     "ad_only_field": "{field} chỉ khả dụng cho dự án quảng cáo/video ngắn (content_mode=ad)",
     "ad_no_default_duration": "Dự án quảng cáo/video ngắn không hỗ trợ thời lượng mặc định; thời lượng cảnh quay được lên kế hoạch theo tổng thời lượng mục tiêu",
-    "ad_grid_not_supported": "Dự án quảng cáo/video ngắn không hỗ trợ chế độ tạo video dạng lưới",
+    "ad_grid_not_supported": "Dự án quảng cáo/video ngắn không hỗ trợ tạo video từ bảng phân cảnh dạng lưới",
+    "grid_storyboard_not_enabled": "Dự án chưa bật bảng phân cảnh dạng lưới",
     "ad_target_duration_required": "Dự án quảng cáo/video ngắn bắt buộc phải có tổng thời lượng mục tiêu (số giây nguyên dương)",
     "project_id_not_editable": "content_mode không thể chỉnh sửa sau khi tạo dự án",
     "source_kind_not_editable": "source_kind không thể chỉnh sửa sau khi tạo dự án",
@@ -214,6 +243,45 @@ MESSAGES = {
     "ref_derive_ad_only": "Chỉ dự án quảng cáo/video ngắn mới hỗ trợ suy ra nhóm đơn vị video",
     "ref_ad_stale_index": "Chỉ mục nhóm không còn khớp với các cảnh quay, vui lòng suy ra lại nhóm",
     "ref_ad_reference_skipped": "'{name}' ({type}) không có ảnh tham chiếu khả dụng, đã bỏ qua tham chiếu này trong lần tạo này",
+    # Xem trước phân tích kịch bản phân cảnh: hiển thị các trường hợp giảm cấp
+    "ref_warn_unregistered_mention": (
+        "@[{name}] chưa được đăng ký trong nhân vật/bối cảnh/đạo cụ: sẽ không kèm ảnh tham chiếu, "
+        "hãy kiểm tra tên hoặc tạo tài sản trước"
+    ),
+    "ref_warn_unclosed_brace": (
+        "Cảnh {shot}: dấu ngoặc nhọn của lời thoại chưa đóng nên không được nhận là lời thoại, "
+        "dòng này sẽ được gửi nguyên văn: {excerpt}…"
+    ),
+    "ref_warn_dialogue_inline": (
+        "Cảnh {shot}: lời thoại và mô tả nằm cùng một dòng nên không được nhận là lời thoại; "
+        "nếu cần tham chiếu giọng nói, hãy để lời thoại thành dòng riêng (@[nhân vật]: {{lời thoại}})"
+    ),
+    "ref_warn_unregistered_speaker": (
+        "@[{name}] chưa được đăng ký trong nhân vật: không xác định được người nói, dòng này sẽ được gửi nguyên văn"
+    ),
+    "ref_warn_speaker_without_audio": (
+        "Nhân vật '{name}' chưa đặt âm thanh tham chiếu: giọng của lời thoại sẽ do mô hình tự quyết định"
+    ),
+    "ref_warn_speaker_audio_unavailable": (
+        "Nhân vật '{name}' đã đặt âm thanh tham chiếu nhưng hiện không dùng được: "
+        "giọng của lời thoại sẽ do mô hình tự quyết định"
+    ),
+    "ref_warn_reference_audio_overflow": (
+        "Tối đa {limit} đoạn âm thanh tham chiếu: giọng lời thoại của nhân vật '{name}' sẽ do mô hình tự quyết định"
+    ),
+    "ref_warn_speaker_audio_needs_image": (
+        "Nhân vật '{name}' không có ảnh tham chiếu (chỉ xuất hiện ngoài hình): mô hình video hiện tại yêu cầu "
+        "âm thanh tham chiếu phải gắn theo từng ảnh tham chiếu, giọng lời thoại của nhân vật này sẽ do mô hình "
+        "tự quyết định"
+    ),
+    "ref_warn_silent_model": (
+        "Mô hình video hiện tại '{model}' không tạo âm thanh, lời thoại chỉ dùng làm gợi ý cho prompt"
+    ),
+    "ref_warn_silent_episode": (
+        "Tập này đã tắt âm thanh tham chiếu: không tải lên âm thanh tham chiếu, tính nhất quán giọng nói "
+        "không có hiệu lực, lời thoại chỉ dùng làm gợi ý cho prompt; video hoàn chỉnh có tiếng hay không "
+        "tùy thuộc vào mô hình đã chọn"
+    ),
     # Episode meta
     "episode_not_found": "Không tìm thấy tập {episode} hoặc tập chưa có tệp kịch bản",
     "episode_title_empty": "Tiêu đề tập không được để trống",
@@ -237,6 +305,9 @@ MESSAGES = {
     "video_duration_invalid": "Thời lượng video {duration} không phải là số giây nguyên hợp lệ",
     "video_duration_not_supported": "Thời lượng video {duration}s không nằm trong các thời lượng mà mô hình này hỗ trợ ({supported})",
     "video_capability_missing_t2v": "{provider}/{model} không hỗ trợ text-to-video; hãy cung cấp ảnh khung hình đầu hoặc chuyển sang mô hình có hỗ trợ text-to-video",
+    "video_capability_missing_i2v": "{provider}/{model} không hỗ trợ tạo video từ ảnh; hãy chỉ định mô hình hỗ trợ tính năng này cho mục tạo video từ ảnh trong Cài đặt, hoặc đổi mô hình video mặc định",
+    "video_capability_missing_r2v": "{provider}/{model} không hỗ trợ tạo video theo tham chiếu; hãy chỉ định mô hình hỗ trợ tính năng này cho mục tạo video theo tham chiếu trong Cài đặt, hoặc đổi mô hình video mặc định",
+    "video_capability_reference_unavailable": "Mô hình video đã cấu hình {provider}/{model} không còn khả dụng (mô hình bị xóa, năng lực đã thay đổi hoặc nhà cung cấp bị gỡ bỏ); hãy chọn lại mô hình video trong Cài đặt",
     "video_resolution_duration_unsupported": "Mô hình {model} không hỗ trợ {duration}s ở độ phân giải {resolution} (chỉ {supported}); hãy điều chỉnh độ phân giải hoặc thời lượng",
     "video_reference_images_duration_unsupported": "Mô hình {model} không hỗ trợ {duration}s khi dùng ảnh tham chiếu (chỉ {supported}); hãy đổi thời lượng sang {supported} hoặc bỏ ảnh tham chiếu",
     "video_reference_images_required": "Mô hình {model} cần ít nhất một ảnh tham chiếu; hãy cung cấp ảnh tham chiếu",
@@ -249,6 +320,13 @@ MESSAGES = {
     "video_end_image_requires_start_image": "Mô hình {model} không hỗ trợ khung hình cuối độc lập; hãy cung cấp thêm khung hình đầu (chế độ khung đầu+cuối) hoặc bỏ khung hình cuối",
     "video_last_frame_requires_pro": "{provider}/{model} chỉ hỗ trợ khung đầu+cuối ở gói pro; hãy chuyển sang gói pro hoặc bỏ khung hình cuối",
     "video_last_frame_unsupported": "{provider}/{model} không hỗ trợ khung hình cuối với cấu hình hiện tại; đã hủy tạo. Hãy bỏ khung hình cuối của cảnh quay này, hoặc chuyển sang mô hình hoặc gói có hỗ trợ",
+    "video_reference_audio_unsupported": "{provider}/{model} không hỗ trợ âm thanh tham chiếu; đã hủy tạo. Hãy bỏ âm thanh tham chiếu của nhân vật, hoặc chuyển sang mô hình có hỗ trợ tham chiếu giọng nói",
+    "video_reference_audio_exceeded": "Mô hình {model} hỗ trợ tối đa {limit} đoạn âm thanh tham chiếu nhưng nhận được {count}; hãy giảm số nhân vật có âm thanh tham chiếu",
+    "video_reference_audio_duration_exceeded": "Mô hình {model} hỗ trợ tổng thời lượng âm thanh tham chiếu tối đa {limit:g} giây nhưng nhận được {total:.1f} giây; hãy giảm số đoạn âm thanh tham chiếu hoặc dùng đoạn ngắn hơn",
+    "video_reference_audio_slots_insufficient": "Mô hình {model} gắn mỗi đoạn âm thanh tham chiếu vào một tư liệu tham chiếu, nhưng chỉ có {slots} tư liệu cho {count} đoạn; hãy bổ sung ảnh tham chiếu cho các nhân vật đó, hoặc giảm số nhân vật có âm thanh tham chiếu",
+    "video_reference_audio_unreadable": "Mô hình {model} có âm thanh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn âm thanh tham chiếu",
+    "video_reference_audio_format_unsupported": "Âm thanh tham chiếu {name} có định dạng không được hỗ trợ (chỉ {supported}); hãy dùng tệp âm thanh khác",
+    "video_prompt_too_long": "{provider}/{model} chỉ chấp nhận câu lệnh tối đa {limit} ký tự nhưng nhận được {count}; phần vượt quá sẽ bị nhà cung cấp cắt bỏ âm thầm nên đã hủy tạo. Hãy rút ngắn câu lệnh",
     # Agent credentials
     "agent_preset_unknown": "Nhà cung cấp đặt sẵn không xác định: {preset_id}",
     "agent_base_url_required_custom": "Cấu hình tuỳ chỉnh yêu cầu base_url",

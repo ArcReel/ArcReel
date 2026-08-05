@@ -22,6 +22,7 @@ function caps(lastFrame: boolean): VideoCapabilities {
     first_frame: true,
     last_frame: lastFrame,
     source: "registry",
+    voice_consistency: "soft",
   };
 }
 

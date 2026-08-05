@@ -29,12 +29,22 @@ const FAKE_CONFIG_WITH_DEFAULTS = {
   settings: {
     default_video_backend: "gemini/veo-3",
     default_image_backend: "gemini/nano-banana",
-    default_image_backend_t2i: "gemini/nano-banana",
-    default_image_backend_i2i: "gemini/nano-banana",
     default_text_backend: "gemini/g25",
     text_backend_simple: "gemini/g25",
     text_backend_complex: "gemini/g25",
   },
+};
+
+const FAKE_CANDIDATES = {
+  image: {
+    default: ["gemini/nano-banana"],
+    buckets: { t2i: ["gemini/nano-banana"], i2i: ["gemini/nano-banana"] },
+  },
+  video: {
+    default: ["gemini/veo-3"],
+    buckets: { i2v: ["gemini/veo-3"], r2v: [] },
+  },
+  provider_names: {},
 };
 
 function renderAt(path: string) {
@@ -51,6 +61,9 @@ describe("ProjectSettingsPage – style picker", () => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     vi.restoreAllMocks();
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(FAKE_CONFIG as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
+    vi.spyOn(API, "getModelCandidates").mockResolvedValue(
+      FAKE_CANDIDATES as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>,
+    );
     vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
   });
@@ -205,8 +218,10 @@ describe("ProjectSettingsPage – style picker", () => {
 
     renderAt("/app/projects/demo/settings");
 
-    // 项目无 image override + 全局默认双能力 → 单下拉模式（label = 图片模型 / Image Model）
-    const imageTrigger = await screen.findByRole("combobox", { name: /^(图片模型|Image Model)$/ });
+    // 项目未覆盖 → 默认主下拉显示全局默认作为生效值
+    const imageTrigger = await screen.findByRole("combobox", {
+      name: /^(默认图片模型|Default image model)$/,
+    });
     expect(imageTrigger).toHaveTextContent(/跟随全局默认|Use global default/);
     expect(imageTrigger).toHaveTextContent(/nano-banana/);
   });
@@ -242,10 +257,64 @@ describe("ProjectSettingsPage – style picker", () => {
     });
   });
 
-  it("switches generation_mode to reference_video and marks the save button enabled", async () => {
+  it("shows the generation route read-only, with no control to change it", async () => {
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {
         title: "Demo",
+        generation_mode: "reference_video",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+
+    renderAt("/app/projects/demo/settings");
+
+    expect(await screen.findByText(/跳过分镜图，直接用角色、场景、道具图作为参考生成视频/)).toBeInTheDocument();
+    expect(screen.getByText(/生成方式创建后不可更改/)).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /参考生视频|分镜图生视频/ })).not.toBeInTheDocument();
+    // 参考路线下不呈现宫格开关
+    expect(screen.queryByRole("switch", { name: /分镜板（宫格）生视频/ })).not.toBeInTheDocument();
+  });
+
+  it("saves the grid assembly toggle on the storyboard route", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        generation_mode: "storyboard",
+        grid_storyboard: false,
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    const toggle = await screen.findByRole("switch", { name: /分镜板（宫格）生视频/ });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith("demo", expect.objectContaining({ grid_storyboard: true }));
+    });
+    // 路线不在 PATCH 面上
+    expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("generation_mode");
+  });
+
+  it("hides the grid toggle for ad projects", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        content_mode: "ad",
         generation_mode: "storyboard",
         episodes: [],
         characters: {},
@@ -253,25 +322,11 @@ describe("ProjectSettingsPage – style picker", () => {
       },
       scripts: {},
     } as unknown as Awaited<ReturnType<typeof API.getProject>>);
-    vi.spyOn(API, "updateProject").mockResolvedValue({
-      success: true,
-      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
-    });
 
     renderAt("/app/projects/demo/settings");
 
-    // Wait for the generation mode selector to appear (3 radios total)
-    const referenceVideoRadio = await screen.findByRole("radio", { name: /参考生视频|Reference-to-Video/i });
-    expect(referenceVideoRadio).not.toBeChecked();
-
-    fireEvent.click(referenceVideoRadio);
-
-    // After switching to reference_video the radio should be checked (dirty state)
-    expect(referenceVideoRadio).toBeChecked();
-
-    // The main save button should be enabled (it is never disabled except while saving)
-    const saveBtn = screen.getByRole("button", { name: /^(保存|Save)$/i });
-    expect(saveBtn).not.toBeDisabled();
+    expect(await screen.findByText(/先为每个场景生成分镜图/)).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /分镜板（宫格）生视频/ })).not.toBeInTheDocument();
   });
 });
 
@@ -279,6 +334,9 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     vi.restoreAllMocks();
+    vi.spyOn(API, "getModelCandidates").mockResolvedValue(
+      FAKE_CANDIDATES as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>,
+    );
     vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
   });
@@ -307,6 +365,8 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
             supported_durations: [5, 8],
             duration_resolution_constraints: {},
             resolutions: ["720p", "1080p"],
+            has_audio_track: true,
+            voice_consistency: "soft",
           },
           "nano-banana": {
             display_name: "Nano Banana",
@@ -316,6 +376,8 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
             supported_durations: [],
             duration_resolution_constraints: {},
             resolutions: ["720p", "1080p"],
+            has_audio_track: false,
+            voice_consistency: "none",
           },
         },
       },
@@ -352,6 +414,50 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
       const values = resSelects.map((el) => (el as HTMLSelectElement).value);
       expect(values).toContain("1080p");
       expect(values).toContain("720p");
+    });
+  });
+
+  it("reads and writes the image resolution under the executing text-to-image model", async () => {
+    // 项目默认层与文生图槽指向不同模型：后端按执行模型查 model_settings，故读写都挂在
+    // 文生图槽那个模型上——挂错 key 时用户选的分辨率会被静默忽略，且重载读回旧值。
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...FAKE_CONFIG_WITH_DEFAULTS,
+    } as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>);
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        video_backend: "gemini/veo-3",
+        default_image_backend: "gemini/nano-banana",
+        image_provider_t2i: "openai/gpt-image",
+        model_settings: {
+          "gemini/nano-banana": { resolution: "1080p" },
+          "openai/gpt-image": { resolution: "720p" },
+        },
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+    await screen.findByRole("radio", { name: /竖屏 9:16/ });
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        "demo",
+        expect.objectContaining({
+          model_settings: expect.objectContaining({
+            // 读到的是文生图执行模型的 720p，写回的也是同一个 key
+            "openai/gpt-image": expect.objectContaining({ resolution: "720p" }),
+          }),
+        }),
+      );
     });
   });
 
@@ -397,6 +503,60 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
             "gemini/veo-3": expect.objectContaining({ resolution: "1080p" }),
             "gemini/nano-banana": expect.objectContaining({ resolution: "720p" }),
           }),
+        }),
+      );
+    });
+  });
+});
+
+describe("ProjectSettingsPage – 按用途指定模型", () => {
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    vi.restoreAllMocks();
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue(
+      FAKE_CONFIG_WITH_DEFAULTS as unknown as Awaited<ReturnType<typeof API.getSystemConfig>>,
+    );
+    vi.spyOn(API, "getModelCandidates").mockResolvedValue(
+      FAKE_CANDIDATES as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>,
+    );
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
+    vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);
+  });
+
+  it("loads project sub-field overrides and writes each back to its own key", async () => {
+    vi.spyOn(API, "getProject").mockResolvedValue({
+      project: {
+        title: "Demo",
+        video_provider_i2v: "gemini/veo-3",
+        episodes: [],
+        characters: {},
+        clues: {},
+      },
+      scripts: {},
+    } as unknown as Awaited<ReturnType<typeof API.getProject>>);
+    const updateSpy = vi.spyOn(API, "updateProject").mockResolvedValue({
+      success: true,
+      project: { title: "Demo" } as unknown as Awaited<ReturnType<typeof API.updateProject>>["project"],
+    });
+
+    renderAt("/app/projects/demo/settings");
+
+    // 已配置的细分项让所在通道初始展开，值可见
+    const i2v = await screen.findByRole("combobox", { name: /^(图生视频|Image to video)$/ });
+    expect(i2v).toHaveTextContent(/veo-3/);
+
+    fireEvent.click(screen.getByRole("radio", { name: /横屏 16:9|16:9/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^(保存|Save)$/i }));
+
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        "demo",
+        expect.objectContaining({
+          video_provider_i2v: "gemini/veo-3",
+          video_provider_r2v: null,
+          default_image_backend: null,
+          image_provider_t2i: null,
+          image_provider_i2i: null,
         }),
       );
     });

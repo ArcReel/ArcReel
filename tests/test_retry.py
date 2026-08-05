@@ -16,6 +16,8 @@ from lib.retry import (
     with_retry_async,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestShouldRetry:
     """_should_retry 判断逻辑测试。"""

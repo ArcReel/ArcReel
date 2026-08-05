@@ -17,6 +17,9 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import reference_videos, shot_uploads
 from server.services import generation_tasks, reference_video_tasks, upload_finalize
+from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 def _img_bytes(fmt="JPEG", size=(8, 8)):
@@ -68,7 +71,7 @@ def _client(monkeypatch, tmp_path):
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(shot_uploads.router, prefix="/api/v1")
+    app.include_router(shot_uploads.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app), pm
 
 
@@ -340,7 +343,7 @@ def _seed_reference_project(tmp_path) -> ProjectManager:
             "video_units": [
                 {
                     "unit_id": "E1U1",
-                    "shots": [{"duration": 4, "text": "t"}],
+                    "shots": [{"text": "t"}],
                     "references": [],
                     "duration_seconds": 4,
                     "generated_assets": {
@@ -373,7 +376,7 @@ def _ref_client(monkeypatch, tmp_path):
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(reference_videos.router, prefix="/api/v1")
+    app.include_router(reference_videos.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app), pm
 
 

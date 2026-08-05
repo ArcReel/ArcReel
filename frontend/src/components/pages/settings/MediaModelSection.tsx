@@ -4,18 +4,37 @@ import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
 import { API } from "@/api";
-import type { SystemConfigSettings, SystemConfigOptions, SystemConfigPatch } from "@/types/system";
+import type {
+  SystemConfigSettings,
+  SystemConfigOptions,
+  SystemConfigPatch,
+} from "@/types/system";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
-import { ImageModelDualSelect } from "@/components/shared/ImageModelDualSelect";
+import {
+  LayeredModelFields,
+  degradeSubFieldsToSaved,
+  useCapabilityBucketLabels,
+  type LayeredSubField,
+} from "@/components/shared/LayeredModelFields";
 import { TextTierFields } from "@/components/shared/TextTierFields";
+import { VideoModelSpecBar, videoOptionMetaRenderer } from "@/components/shared/VideoModelSpecBar";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
+import { catalogDurations } from "@/hooks/useModelCapabilities";
+import { useModelCandidates } from "@/hooks/useModelCandidates";
 import { errMsg } from "@/utils/async";
-import { getCustomProviderModels } from "@/utils/provider-models";
+import {
+  getCustomProviderModels,
+  getProviderModels,
+  lookupCatalogVideoAudio,
+  lookupResolutions,
+} from "@/utils/provider-models";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, CARD_STYLE } from "@/components/ui/darkroom-tokens";
+import type { ProviderInfo } from "@/types/provider";
 
 interface CardProps {
   kicker: string;
@@ -51,6 +70,13 @@ export function MediaModelSection() {
 
   const [settings, setSettings] = useState<SystemConfigSettings | null>(null);
   const [options, setOptions] = useState<SystemConfigOptions | null>(null);
+  const {
+    candidates,
+    error: candidatesError,
+    retrying: candidatesRetrying,
+    reload: reloadCandidates,
+  } = useModelCandidates();
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
   const [draft, setDraft] = useState<SystemConfigPatch>({});
   const [saving, setSaving] = useState(false);
@@ -58,21 +84,34 @@ export function MediaModelSection() {
   const isDirty = Object.keys(draft).length > 0;
   useWarnUnsaved(isDirty);
 
+  const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
+  const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
+  useEffect(() => {
+    if (customProviders.length > 0) void fetchEndpointCatalog();
+  }, [customProviders.length, fetchEndpointCatalog]);
+
   const allProviderNames = useMemo(
     () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
     [options],
   );
+  const bucketLabels = useCapabilityBucketLabels();
 
+  // 候选与其余配置分开拉：它自带失败态，失败时只影响细分区、不牵动已加载的表单状态，
+  // 也让重试不必重取整页配置（会连带清空未保存的 draft）。启动后不等它落地——候选接口
+  // 慢或悬挂时，整页 spinner 和保存流程都会跟着卡住，而细分区本就有自己的加载叙事。
   const fetchConfig = useCallback(async () => {
-    const [res, custom] = await Promise.all([
+    void reloadCandidates();
+    const [res, catalog, custom] = await Promise.all([
       API.getSystemConfig(),
+      getProviderModels().catch(() => [] as ProviderInfo[]),
       getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
     ]);
     setSettings(res.settings);
     setOptions(res.options);
+    setProviders(catalog);
     setCustomProviders(custom);
     setDraft({});
-  }, []);
+  }, [reloadCandidates]);
 
   useEffect(() => {
     // mount/依赖变更时异步拉取配置，回调内 setSettings 等（异步 fetch 后回写）
@@ -115,28 +154,86 @@ export function MediaModelSection() {
   const audioBackends: string[] = options.audio_backends ?? [];
 
   const currentVideo = draft.default_video_backend ?? settings.default_video_backend ?? "";
-  const currentImageT2I =
-    draft.default_image_backend_t2i ??
-    settings.default_image_backend_t2i ??
-    settings.default_image_backend ??
-    "";
-  const currentImageI2I =
-    draft.default_image_backend_i2i ??
-    settings.default_image_backend_i2i ??
-    settings.default_image_backend ??
-    "";
+  const currentVideoI2V = draft.default_video_backend_i2v ?? settings.default_video_backend_i2v ?? "";
+  const currentVideoR2V = draft.default_video_backend_r2v ?? settings.default_video_backend_r2v ?? "";
+  const currentImage = draft.default_image_backend ?? settings.default_image_backend ?? "";
+  const currentImageT2I = draft.default_image_backend_t2i ?? settings.default_image_backend_t2i ?? "";
+  const currentImageI2I = draft.default_image_backend_i2i ?? settings.default_image_backend_i2i ?? "";
   const currentAudio = draft.video_generate_audio ?? settings.video_generate_audio ?? false;
+
+  // 全局层是解析链的基准，细分项留空即回退全局默认模型；默认模型也留空时是自动推断，
+  // 前端算不出具体模型，故不显示生效值（下拉里显示「自动选择」）。
+  const videoSubFields: LayeredSubField[] = degradeSubFieldsToSaved(
+    [
+        {
+          key: "i2v",
+          ...bucketLabels.i2v,
+          value: currentVideoI2V,
+          options: candidates?.video.buckets.i2v ?? [],
+          effective: currentVideo || undefined,
+          onChange: (v) => setDraft((prev) => ({ ...prev, default_video_backend_i2v: v })),
+        },
+        {
+          key: "r2v",
+          ...bucketLabels.r2v,
+          value: currentVideoR2V,
+          options: candidates?.video.buckets.r2v ?? [],
+          effective: currentVideo || undefined,
+          onChange: (v) => setDraft((prev) => ({ ...prev, default_video_backend_r2v: v })),
+        },
+    ],
+    !!candidates,
+  );
+
+  const imageSubFields: LayeredSubField[] = degradeSubFieldsToSaved(
+    [
+        {
+          key: "t2i",
+          ...bucketLabels.t2i,
+          value: currentImageT2I,
+          options: candidates?.image.buckets.t2i ?? [],
+          effective: currentImage || undefined,
+          onChange: (v) => setDraft((prev) => ({ ...prev, default_image_backend_t2i: v })),
+        },
+        {
+          key: "i2i",
+          ...bucketLabels.i2i,
+          value: currentImageI2I,
+          options: candidates?.image.buckets.i2i ?? [],
+          effective: currentImage || undefined,
+          onChange: (v) => setDraft((prev) => ({ ...prev, default_image_backend_i2i: v })),
+        },
+    ],
+    !!candidates,
+  );
+
+  // 全局设置页无项目上下文，档位读目录端点的服务端派生值（generation_mode 未知，native 恒降格），
+  // 不打 /video-capabilities——该端点按项目解析。
+  const videoSpecTier = currentVideo
+    ? (lookupCatalogVideoAudio(providers, currentVideo)?.voiceConsistency ?? null)
+    : null;
+  const videoSpecDurations = currentVideo ? catalogDurations(providers, customProviders, currentVideo) : null;
+  const videoSpecResolutions = currentVideo
+    ? lookupResolutions(providers, currentVideo, customProviders, endpointToMediaType).options
+    : [];
+
+  const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
   const currentAudioBackend = draft.default_audio_backend ?? settings.default_audio_backend ?? "";
   const currentNarrationVoice = draft.narration_voice ?? settings.narration_voice ?? "";
   const currentNarrationSpeed =
     "narration_speed" in draft ? draft.narration_speed : settings.narration_speed;
 
-  // 全局文本档位（docs/adr/0051）：全局是解析链基准，各档留空即自动推断（无继承来源）。
+  // 全局文本档位（docs/adr/0051）：全局是解析链基准，默认模型也留空即自动推断（无继承来源）。
+  const currentTextDefault = draft.default_text_backend ?? settings.default_text_backend ?? "";
   const textTierValue = {
-    default: draft.default_text_backend ?? settings.default_text_backend ?? "",
+    default: currentTextDefault,
     simple: draft.text_backend_simple ?? settings.text_backend_simple ?? "",
     complex: draft.text_backend_complex ?? settings.text_backend_complex ?? "",
   };
+
+  const candidatesSubFieldsError = candidatesError
+    ? { onRetry: () => void reloadCandidates(), retrying: candidatesRetrying }
+    : undefined;
 
   const emptyHint = (msg: string) => (
     <div className="rounded-[8px] border border-hairline-soft bg-bg-grad-a/45 px-3 py-2.5 text-[12px] text-text-3">
@@ -171,15 +268,26 @@ export function MediaModelSection() {
       {/* Video */}
       <SectionCard kicker="Video Channel" title={t("default_video_model")}>
         {videoBackends.length > 0 ? (
-          <ProviderModelSelect
-            value={currentVideo}
-            options={videoBackends}
+          <LayeredModelFields
+            defaultLabel={t("default_video_model")}
+            defaultValue={currentVideo}
+            defaultOptions={videoBackends}
+            onDefaultChange={(v) => setDraft((prev) => ({ ...prev, default_video_backend: v }))}
+            emptyLabel={t("auto_select")}
+            emptyHint={t("auto")}
             providerNames={allProviderNames}
-            onChange={(v) => setDraft((prev) => ({ ...prev, default_video_backend: v }))}
-            allowDefault
-            defaultLabel={t("auto_select")}
-            defaultHint={t("auto")}
-          />
+            renderOptionMeta={renderVideoOptionMeta}
+            subFields={videoSubFields}
+            subFieldsError={candidatesSubFieldsError}
+          >
+            {currentVideo && (
+              <VideoModelSpecBar
+                durations={videoSpecDurations}
+                resolutions={videoSpecResolutions}
+                tier={videoSpecTier}
+              />
+            )}
+          </LayeredModelFields>
         ) : (
           emptyHint(t("no_video_providers_hint"))
         )}
@@ -204,25 +312,16 @@ export function MediaModelSection() {
       {/* Image */}
       <SectionCard kicker="Image Channel" title={t("default_image_model")}>
         {imageBackends.length > 0 ? (
-          <ImageModelDualSelect
-            valueT2I={currentImageT2I}
-            valueI2I={currentImageI2I}
-            options={imageBackends}
+          <LayeredModelFields
+            defaultLabel={t("default_image_model")}
+            defaultValue={currentImage}
+            defaultOptions={imageBackends}
+            onDefaultChange={(v) => setDraft((prev) => ({ ...prev, default_image_backend: v }))}
+            emptyLabel={t("auto_select")}
+            emptyHint={t("auto")}
             providerNames={allProviderNames}
-            customProviders={customProviders}
-            onChange={({ t2i, i2i }) =>
-              setDraft((prev) => ({
-                ...prev,
-                default_image_backend_t2i: t2i,
-                default_image_backend_i2i: i2i,
-              }))
-            }
-            labelPrimary={t("default_image_model")}
-            labelT2I={t("image_model_t2i")}
-            labelI2I={t("image_model_i2i")}
-            defaultLabel={t("auto_select")}
-            defaultHint={t("auto")}
-            showCapabilityHint={false}
+            subFields={imageSubFields}
+            subFieldsError={candidatesSubFieldsError}
           />
         ) : (
           emptyHint(t("no_image_providers_hint"))
@@ -245,7 +344,12 @@ export function MediaModelSection() {
             options={textBackends}
             providerNames={allProviderNames}
             defaultLabel={t("auto_select")}
-            hints={{ default: t("auto"), simple: t("auto"), complex: t("auto") }}
+            defaultHint={t("auto")}
+            fallbacks={{
+              // 全局层是解析链基准：各档留空即回退全局默认模型；默认模型也空时是自动推断。
+              simple: currentTextDefault || undefined,
+              complex: currentTextDefault || undefined,
+            }}
           />
         ) : (
           emptyHint(t("no_text_providers_hint"))

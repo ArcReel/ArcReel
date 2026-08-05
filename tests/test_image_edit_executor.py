@@ -24,6 +24,8 @@ from server.services.image_edit_tasks import (
     resolve_current_image_rel,
 )
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def session_factory(monkeypatch):
@@ -133,6 +135,18 @@ class TestResolveCurrentImageRel:
         assert resolve_current_image_rel(project, "character", "Bob") is None
         with pytest.raises(KeyError):
             resolve_current_image_rel(project, "character", "不存在")
+
+    def test_asset_sheet_matches_across_nfc_nfd_forms(self):
+        """请求里的资产名与桶 key 形态可以不同（登记闸口落 NFC，存量 key 可能是 NFD）。"""
+        import unicodedata
+
+        name_nfc = unicodedata.normalize("NFC", "Hiếu")
+        name_nfd = unicodedata.normalize("NFD", "Hiếu")
+        assert name_nfc != name_nfd
+
+        project = {"characters": {name_nfd: {"character_sheet": "characters/legacy.png"}}}
+        assert resolve_current_image_rel(project, "character", name_nfc) == "characters/legacy.png"
+        assert resolve_current_image_rel(project, "character", name_nfd) == "characters/legacy.png"
 
     def test_storyboard_pointer_and_canonical_fallback(self):
         script = {

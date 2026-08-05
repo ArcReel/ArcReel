@@ -12,6 +12,8 @@ import pytest
 
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 
+pytestmark = pytest.mark.unit
+
 
 def _make_policy(tmp_path: Path, **overrides: object) -> AgentAccessPolicy:
     """以 tmp 根路径纯构造 policy：repo 布局与旧 SessionManager fixture 一致。"""
@@ -128,6 +130,44 @@ def test_write_protected_project_json_denied(policy: AgentAccessPolicy, tool: st
     allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
     assert not allowed, f"{tool} {relative} 应被拒"
     assert reason and "patch_episode_script" in reason or "patch_project" in (reason or "")
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "drafts/episode_1/step1_reference_units.json",
+        "drafts/episode_12/step1_reference_units.json",
+        "drafts/episode_1/STEP1_REFERENCE_UNITS.JSON",
+    ],
+)
+def test_write_reference_step1_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """参考生视频正式 step1 不可用 Write/Edit 直改：它另有三条持同一把 per-path 锁的写入路径
+    （迁移 / Web 端保存 / 重拆分晋升），沙箱内的 Write/Edit 取不到锁，直改即丢失更新窗口。
+    报错要指向取回草稿的工具，否则 agent 只知被拒、不知改道哪里。"""
+    cwd = _cwd(policy)
+    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
+    assert not allowed, f"{tool} {relative} 应被拒"
+    assert reason and "open_reference_step1_for_edit" in reason
+    assert "validate_and_promote_reference_draft" in reason
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "drafts/episode_1/step1_reference_units.invalid.json",
+        "drafts/episode_1/step1_narration_segments.json",
+        "drafts/step1_reference_units.json",
+        "drafts/episode_1/sub/step1_reference_units.json",
+    ],
+)
+def test_write_near_reference_step1_allowed(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """写禁只覆盖那一个正式文件，不外溢到同目录邻居：隔离草稿 (.invalid.json) 正是给 agent 用
+    文件工具改的编辑工位，连它一起拦会把「取回草稿 → 改 → 晋升」这条替代路径也堵死。"""
+    cwd = _cwd(policy)
+    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd)
+    assert allowed, f"{tool} {relative} 应允许，却被拒：{reason}"
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
@@ -392,12 +432,23 @@ def test_build_sandbox_settings_in_docker_enables_weaker_nested(tmp_path: Path) 
 
 
 def test_build_sandbox_settings_denies_write_to_project_json(policy: AgentAccessPolicy) -> None:
-    """sandbox 启用时 denyWrite 覆盖 scripts/ 与 project.json（Bash 子进程内核级封堵）。"""
+    """sandbox 启用时 denyWrite 覆盖 scripts/、project.json 与 drafts/（Bash 子进程内核级封堵）。"""
     cwd = _cwd(policy)
     settings = policy.build_sandbox_settings(cwd)
     deny_write = settings["filesystem"]["denyWrite"]
     assert str(cwd / "scripts") in deny_write
     assert str(cwd / "project.json") in deny_write
+    assert str(cwd / "drafts") in deny_write
+
+
+def test_build_sandbox_settings_denies_drafts_dir_not_per_episode_files(policy: AgentAccessPolicy) -> None:
+    """``drafts/`` 按整目录 deny，不逐文件枚举——清单在会话装配期一次性构造，而集是运行时
+    增删的：「同集会话内先拆分出第 N 集、再改它」这条主流程上，逐文件枚举必然落空。
+    与 hook 层刻意不对称（hook 只拒正式 step1，隔离草稿留给内置 Edit）。"""
+    cwd = _cwd(policy)
+    deny_write = policy.build_sandbox_settings(cwd)["filesystem"]["denyWrite"]
+    assert str(cwd / "drafts") in deny_write
+    assert not any("episode_" in p for p in deny_write)
 
 
 def test_build_sandbox_settings_deny_write_includes_resolved_paths(policy: AgentAccessPolicy, tmp_path: Path) -> None:
@@ -417,8 +468,10 @@ def test_build_sandbox_settings_deny_write_includes_resolved_paths(policy: Agent
     # raw 与 resolved 两种形式都注册
     assert str(link_cwd / "scripts") in deny_write
     assert str(link_cwd / "project.json") in deny_write
+    assert str(link_cwd / "drafts") in deny_write
     assert str(resolved_cwd / "scripts") in deny_write
     assert str(resolved_cwd / "project.json") in deny_write
+    assert str(resolved_cwd / "drafts") in deny_write
     # raw == resolved 的常规路径不重复注册
     assert len(deny_write) == len(set(deny_write))
 
@@ -593,3 +646,42 @@ def test_logs_dir_outside_repo_is_sensitive(tmp_path: Path) -> None:
     assert policy.is_sensitive_path(external_logs.resolve())
     # repo/logs 在此场景下不应被默认 deny（避免误覆盖）
     assert not policy.is_sensitive_path((repo / "logs" / "anything.txt").resolve())
+
+
+# ============================================================
+# 受保护写路径规则表：hook 与 sandbox denyWrite 同表投影
+# ============================================================
+
+
+def test_protected_write_rules_project_new_rule_in_both_layers(
+    policy: AgentAccessPolicy, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """新增一类受保护路径只需在 PROTECTED_WRITE_RULES 加一行：hook 拒绝与 sandbox denyWrite
+    都从同一张表投影、随之同步生效——分散声明时漏掉任一处都会留出单层旁路。"""
+    from server.agent_runtime.agent_access_policy import ProtectedWriteRule
+
+    def _matches_meta_lock(target: Path, bases: list[Path]) -> bool:
+        return any(str(target) == str(base / "meta.lock") for base in bases)
+
+    synthetic = ProtectedWriteRule(
+        name="meta_lock",
+        matches=_matches_meta_lock,
+        deny_message="访问被拒绝：meta.lock 不可直改（合成规则）",
+        sandbox_subpaths=("meta.lock",),
+    )
+    monkeypatch.setattr(
+        AgentAccessPolicy, "PROTECTED_WRITE_RULES", (*AgentAccessPolicy.PROTECTED_WRITE_RULES, synthetic)
+    )
+
+    cwd = _cwd(policy)
+    # hook 层：新规则立即生效
+    allowed, reason = policy.check_path_access(str(cwd / "meta.lock"), "Write", cwd)
+    assert not allowed
+    assert reason == synthetic.deny_message
+    # sandbox 层：denyWrite 投影同表同步
+    deny_write = policy.build_sandbox_settings(cwd)["filesystem"]["denyWrite"]
+    assert str(cwd / "meta.lock") in deny_write
+    # 既有规则不受影响
+    assert str(cwd / "project.json") in deny_write
+    assert str(cwd / "scripts") in deny_write
+    assert str(cwd / "drafts") in deny_write

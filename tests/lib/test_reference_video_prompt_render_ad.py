@@ -1,0 +1,376 @@
+"""ad 参考直出路径的三段论渲染（``render_ad_backend_prompt``）：与剧集路径共用第一段声音声明
+与第三段约束包，差异只在输入形态——结构化镜头字段 + 参考条目 label，不经 ``parse_prompt``。
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+import pytest
+
+from lib.reference_video.prompt_render import render_ad_backend_prompt
+from lib.reference_video.script_preview import (
+    WARN_REFERENCE_AUDIO_OVERFLOW,
+    WARN_SILENT_MODEL,
+    WARN_SPEAKER_AUDIO_NEEDS_IMAGE,
+    WARN_SPEAKER_WITHOUT_AUDIO,
+    WARN_UNREGISTERED_SPEAKER,
+)
+from lib.reference_video.voice_settings import VoiceRenderSettings
+
+pytestmark = pytest.mark.unit
+
+
+def _project(**overrides):
+    project = {
+        "characters": {
+            "小美": {"voice_style": "清亮少女音", "reference_audio": "characters/refs_audio/小美.wav"},
+            "小明": {"voice_style": "沉稳男声"},
+        },
+        "scenes": {"客厅": {}},
+        "props": {},
+    }
+    project.update(overrides)
+    return project
+
+
+def _shot(shot_id: str, duration: int = 3, dialogue: list[dict] | None = None, **overrides) -> dict:
+    base = {
+        "shot_id": shot_id,
+        "duration_seconds": duration,
+        "voiceover_text": "口播文案",
+        "image_prompt": {"scene": f"{shot_id} 画面"},
+        "video_prompt": {
+            "action": f"{shot_id} 动作",
+            "camera_motion": "Static",
+            "ambiance_audio": "环境音",
+            "dialogue": dialogue or [],
+        },
+    }
+    base.update(overrides)
+    return base
+
+
+def _entry(name: str, label: str, kind: str = "asset", asset_type: str = "character") -> dict:
+    entry = {"image": f"assets/{name}.png", "label": label, "name": name, "kind": kind}
+    if kind == "asset":
+        entry["asset_type"] = asset_type
+    return entry
+
+
+def test_subject_binding_uses_entry_labels_positionally():
+    shots = [_shot("E1S1")]
+    entries = [
+        _entry("按摩仪", "产品「按摩仪」标准多角度参考图", kind="sheet"),
+        _entry("小美", "角色「小美」设计图"),
+    ]
+
+    rendered = render_ad_backend_prompt(shots, entries, _project())
+
+    assert "<产品「按摩仪」标准多角度参考图>@图片1" in rendered.prompt
+    assert "<角色「小美」设计图>@图片2" in rendered.prompt
+
+
+def test_dialogue_renders_as_subject_speaks_and_binds_audio_when_native():
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "太好用了"}])]
+    entries = [_entry("小美", "角色「小美」设计图")]
+
+    rendered = render_ad_backend_prompt(
+        shots,
+        entries,
+        _project(),
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, audio_ready={"小美"}),
+    )
+
+    assert "<小美>说 {太好用了}" in rendered.prompt
+    assert "<小美>的台词音色参考 @音频1" in rendered.prompt
+    assert rendered.audio_speakers == ["小美"]
+    assert rendered.audio_speaker_reference_index == [0]
+
+
+def test_silent_episode_drops_audio_binding_but_keeps_dialogue():
+    """ad 路径与剧集路径同口径：无声视频不带参考音频，台词照发作口型参考。"""
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "太好用了"}])]
+    entries = [_entry("小美", "角色「小美」设计图")]
+
+    rendered = render_ad_backend_prompt(
+        shots,
+        entries,
+        _project(),
+        VoiceRenderSettings(
+            voice_consistency="native", requested_generate_audio=False, max_reference_audio=2, audio_ready={"小美"}
+        ),
+    )
+
+    assert rendered.audio_speakers == []
+    assert rendered.audio_speaker_reference_index == []
+    assert "@音频" not in rendered.prompt
+    assert "<小美>说 {太好用了}" in rendered.prompt
+    assert [w["key"] for w in rendered.warnings] == ["ref_warn_silent_episode"]
+
+
+def test_silent_episode_injects_no_voice_style_same_as_silent_model():
+    """ad 路径同样对两条无声路径同口径：本集关闭音频与模型不产音都不注入「声音特征：…」。"""
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "太好用了"}])]
+    entries = [_entry("小美", "角色「小美」设计图")]
+
+    silent_episode = render_ad_backend_prompt(
+        shots,
+        entries,
+        _project(),
+        VoiceRenderSettings(voice_consistency="native", requested_generate_audio=False, max_reference_audio=2),
+    )
+    silent_model = render_ad_backend_prompt(shots, entries, _project(), VoiceRenderSettings(voice_consistency="none"))
+
+    assert "声音特征" not in silent_episode.prompt
+    assert "声音特征" not in silent_model.prompt
+    assert silent_episode.prompt.split("\n\n")[0] == silent_model.prompt.split("\n\n")[0]
+
+
+@pytest.mark.parametrize(
+    "silencing",
+    [
+        pytest.param({"requested_generate_audio": False}, id="silent_episode"),
+        pytest.param({"voice_consistency": "none"}, id="silent_model"),
+    ],
+)
+def test_silent_paths_keep_shot_segment_identical_to_audible_path(silencing: dict):
+    """ad 的第二段同样与有声路径逐字同形：无声只摘掉第一段的音色参考与声音特征行。"""
+    shots = [
+        _shot("E1S1", dialogue=[{"speaker": "小美", "line": "太好用了"}]),
+        _shot("E1S2", dialogue=[{"speaker": "阿强", "line": "我也来一台"}]),
+    ]
+    entries = [_entry("小美", "角色「小美」设计图"), _entry("阿强", "角色「阿强」设计图")]
+    project = _project(
+        characters={
+            "小美": {"voice_style": "清亮少女音", "reference_audio": "characters/refs_audio/小美.wav"},
+            "阿强": {"voice_style": "沉稳男声", "reference_audio": "characters/refs_audio/阿强.wav"},
+        }
+    )
+    settings = VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, audio_ready={"小美", "阿强"})
+
+    audible = render_ad_backend_prompt(shots, entries, project, settings)
+    silent = render_ad_backend_prompt(shots, entries, project, replace(settings, **silencing))
+
+    def _shot_segment(prompt: str) -> str:
+        return next(seg for seg in prompt.split("\n\n") if seg.startswith("Shot 1"))
+
+    # 有声侧确实绑了两段音频，比对才有区分度
+    assert audible.audio_speakers == ["小美", "阿强"]
+    assert _shot_segment(silent.prompt) == _shot_segment(audible.prompt)
+
+
+def test_voiceover_text_excluded_ambiance_kept_as_prose():
+    shots = [_shot("E1S1")]
+
+    rendered = render_ad_backend_prompt(shots, [], _project())
+
+    assert "口播文案" not in rendered.prompt
+    assert "环境音：环境音" in rendered.prompt
+
+
+def test_speakerless_dialogue_warns_on_silent_model():
+    # 无 speaker 的裸台词渲染为「画外音说」，无声模型下仍需知会——与剧集路径的
+    # voiceover utterance 同一口径（derive_voice_bindings 只要有台词即知会）。
+    shots = [_shot("E1S1", dialogue=[{"line": "颈椎终于舒服了"}])]
+
+    rendered = render_ad_backend_prompt(shots, [], _project(), VoiceRenderSettings(voice_consistency="none"))
+
+    assert "画外音说 {颈椎终于舒服了}" in rendered.prompt
+    assert any(w["key"] == WARN_SILENT_MODEL for w in rendered.warnings)
+
+
+def test_non_string_dialogue_line_produces_no_utterance():
+    # 脏数据（line 非字符串）在画面 prompt 里按空处理（_shot_prompt_text 的字符串专一口径），
+    # utterance 派生须与其一致，否则台词行为空但仍占用音频编号、绑走参考音频。
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": 123}])]
+    entries = [_entry("小美", "角色「小美」设计图")]
+
+    rendered = render_ad_backend_prompt(
+        shots,
+        entries,
+        _project(),
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, audio_ready={"小美"}),
+    )
+
+    assert rendered.audio_speakers == []
+    assert "<小美>说" not in rendered.prompt
+
+
+def test_malformed_character_record_does_not_crash_voice_declaration():
+    # 外部编辑写坏的 project.json 可能把角色记录写成非 dict；ad 参考解析对同一形态的脏数据
+    # 已软跳过，声音声明须同一降级口径，不因 .get("voice_style") 崩溃。
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "颈椎终于舒服了"}])]
+    project = _project(characters={"小美": "bad"})
+
+    rendered = render_ad_backend_prompt(shots, [], project, VoiceRenderSettings(voice_consistency="soft"))
+
+    assert "<小美>说 {颈椎终于舒服了}" in rendered.prompt
+    assert "声音特征" not in rendered.prompt
+
+
+def test_non_dict_characters_bucket_does_not_crash_voice_binding():
+    # 角色表整字段被写成非 dict（如 int）时，`speaker in characters` 在 dict 上是键存在性
+    # 判断，在非 dict 值上可能直接抛 TypeError；渲染层按空表处理，不崩溃。
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "颈椎终于舒服了"}])]
+    project = _project(characters=1)
+
+    rendered = render_ad_backend_prompt(shots, [], project, VoiceRenderSettings(voice_consistency="soft"))
+
+    assert "<小美>说 {颈椎终于舒服了}" in rendered.prompt
+    assert any(w["key"] == WARN_UNREGISTERED_SPEAKER for w in rendered.warnings)
+
+
+def test_legend_and_negative_tail_are_gone():
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "买它"}])]
+    entries = [_entry("按摩仪", "产品「按摩仪」标准多角度参考图", kind="sheet")]
+
+    rendered = render_ad_backend_prompt(shots, entries, _project())
+
+    assert "[图" not in rendered.prompt
+    assert "参考图对照" not in rendered.prompt
+    assert "禁止出现：BGM、文字字幕、水印。" not in rendered.prompt
+
+
+def test_third_segment_anchors_style_and_constraint_pack():
+    shots = [_shot("E1S1")]
+
+    rendered = render_ad_backend_prompt(shots, [], _project(), style="明亮写实")
+
+    assert "整体视觉风格：明亮写实。" in rendered.prompt
+    assert "保持无字幕" in rendered.prompt
+    assert "不要生成水印" in rendered.prompt
+    assert "禁止出现背景音乐。" in rendered.prompt
+
+
+def test_twin_guard_only_when_two_or_more_character_images():
+    shots = [_shot("E1S1")]
+    single = render_ad_backend_prompt(shots, [_entry("小美", "角色「小美」设计图")], _project())
+    assert "双胞胎" not in single.prompt
+
+    both = render_ad_backend_prompt(
+        shots,
+        [_entry("小美", "角色「小美」设计图"), _entry("小明", "角色「小明」设计图")],
+        _project(),
+    )
+    assert "双胞胎" in both.prompt
+
+
+def test_speaker_without_reference_audio_downgrades_and_warns():
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小明", "line": "确实好用"}])]
+    entries = [_entry("小明", "角色「小明」设计图")]
+
+    rendered = render_ad_backend_prompt(
+        shots,
+        entries,
+        _project(),
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, audio_ready=set()),
+    )
+
+    assert rendered.audio_speakers == []
+    assert any(w["key"] == WARN_SPEAKER_WITHOUT_AUDIO for w in rendered.warnings)
+    # 无音频绑定不影响台词行本身的渲染
+    assert "<小明>说 {确实好用}" in rendered.prompt
+
+
+def test_unregistered_speaker_still_renders_with_warning():
+    shots = [_shot("E1S1", dialogue=[{"speaker": "路人甲", "line": "哇好厉害"}])]
+
+    rendered = render_ad_backend_prompt(shots, [], _project())
+
+    assert "<路人甲>说 {哇好厉害}" in rendered.prompt
+    assert any(w["key"] == WARN_UNREGISTERED_SPEAKER and w["params"]["name"] == "路人甲" for w in rendered.warnings)
+
+
+def test_reference_audio_overflow_truncates_and_warns():
+    shots = [
+        _shot("E1S1", dialogue=[{"speaker": "小美", "line": "第一句"}]),
+        _shot("E1S2", dialogue=[{"speaker": "小明", "line": "第二句"}]),
+    ]
+    entries = [_entry("小美", "角色「小美」设计图"), _entry("小明", "角色「小明」设计图")]
+
+    rendered = render_ad_backend_prompt(
+        shots,
+        entries,
+        _project(),
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=1, audio_ready={"小美", "小明"}),
+    )
+
+    assert rendered.audio_speakers == ["小美"]
+    assert any(w["key"] == WARN_REFERENCE_AUDIO_OVERFLOW for w in rendered.warnings)
+
+
+def test_requires_reference_image_downgrades_offscreen_speaker():
+    # "小明" 有台词与可用音频，但本次没有随请求发出的参考图（entries 不含它）——
+    # backend 要求音频逐段挂图时，纯画外角色即便有音频也不绑定。
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小明", "line": "旁白式吆喝"}])]
+
+    rendered = render_ad_backend_prompt(
+        shots,
+        [],
+        _project(),
+        VoiceRenderSettings(
+            voice_consistency="native", max_reference_audio=2, audio_ready={"小明"}, requires_reference_image=True
+        ),
+    )
+
+    assert rendered.audio_speakers == []
+    assert any(w["key"] == WARN_SPEAKER_AUDIO_NEEDS_IMAGE for w in rendered.warnings)
+
+
+def test_audio_speaker_image_slot_ignores_same_named_scene_or_prop():
+    # "客厅" 同名注册为场景（project fixture），资产条目里若混入同名场景条目，不应被误判为
+    # 角色有参考图（与剧集路径 character_image_no 的同款过滤同一理由）。
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "在客厅里"}])]
+    entries = [
+        _entry("客厅", "场景「客厅」设计图", asset_type="scene"),
+        _entry("小美", "角色「小美」设计图"),
+    ]
+
+    rendered = render_ad_backend_prompt(
+        shots,
+        entries,
+        _project(),
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, audio_ready={"小美"}),
+    )
+
+    assert rendered.audio_speaker_reference_index == [1]
+
+
+def test_audio_speaker_image_slot_ignores_scene_sharing_a_character_name():
+    # 三类资产允许重名：同名的场景设计图不得占用角色的图号，否则 reference_audio_targets
+    # 会把音频挂到场景图上。
+    project = _project(scenes={"小美": {}})
+    shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "太好用了"}])]
+    entries = [
+        _entry("小美", "场景「小美」设计图", asset_type="scene"),
+        _entry("小美", "角色「小美」设计图"),
+    ]
+
+    rendered = render_ad_backend_prompt(
+        shots,
+        entries,
+        project,
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, audio_ready={"小美"}),
+    )
+
+    assert rendered.audio_speaker_reference_index == [1]
+
+
+def test_twin_guard_ignores_non_character_reference_images():
+    shots = [_shot("E1S1")]
+    entries = [
+        _entry("小美", "角色「小美」设计图"),
+        _entry("客厅", "场景「客厅」设计图", asset_type="scene"),
+    ]
+
+    rendered = render_ad_backend_prompt(shots, entries, _project())
+
+    assert "双胞胎" not in rendered.prompt
+
+
+def test_all_blank_shots_raise_value_error():
+    shots = [_shot("E1S1", image_prompt={"scene": ""}, video_prompt={"action": ""})]
+
+    with pytest.raises(ValueError, match="no visual content"):
+        render_ad_backend_prompt(shots, [], _project())

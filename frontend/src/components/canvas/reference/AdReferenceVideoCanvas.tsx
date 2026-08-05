@@ -16,6 +16,7 @@ import { enqueueReferenceVideoUnit } from "@/actions/generation";
 import { EpisodeHeader } from "./EpisodeHeader";
 import { StatusBadge, deriveUnitStatus } from "./unit-status";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
+import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import {
   isResourceBusy,
@@ -144,6 +145,36 @@ export function AdReferenceVideoCanvas({
   }, [projectName, episode, hasScript, unitsRevision, setUnits]);
 
   const shotById = useMemo(() => new Map(shots.map((s) => [s.shot_id, s])), [shots]);
+
+  const project = useProjectsStore((s) => s.currentProjectData);
+  const voiceLegacyNotice = useMemo(
+    () => computeVoiceLegacyNotice(units ?? [], project?.characters ?? {}),
+    [units, project],
+  );
+  // 关闭 = 「已确认到该角色当前这一版声音」，故写回该角色自己的 voice_updated_at 而非
+  // 本机当前时间：两侧都由后端戳出，比较不受客户端时钟偏差影响，也不受 ISO 格式差异影响。
+  // 逻辑与 ReferenceVideoCanvas 的同名 handler 一致——两个画布共用同一套 unit 完成态
+  // 时间戳（apply_unit_video_assets 单一写点），横幅判定与关闭语义不因画布不同而分叉。
+  const handleDismissVoiceLegacyNotice = useCallback(async () => {
+    // 提交时刻新鲜读：横幅渲染后声音可能又被更新，须确认到最新那一版。
+    const characters = useProjectsStore.getState().currentProjectData?.characters ?? {};
+    try {
+      await Promise.all(
+        voiceLegacyNotice.characterNames.map((name) => {
+          const acknowledgedAt = characters[name]?.voice_updated_at;
+          if (!acknowledgedAt) return Promise.resolve();
+          return API.updateCharacter(projectName, name, { voice_notice_dismissed_at: acknowledgedAt });
+        }),
+      );
+      await useProjectsStore.getState().refreshProject(projectName, {
+        onError: (err) =>
+          useAppStore.getState().pushToast(t("voice_legacy_banner_dismiss_failed", { error: errMsg(err) }), "error"),
+      });
+    } catch (err) {
+      // 静默失败会让横幅原样留在页面上而用户以为已关闭，必须可见。
+      useAppStore.getState().pushToast(t("voice_legacy_banner_dismiss_failed", { error: errMsg(err) }), "error");
+    }
+  }, [projectName, t, voiceLegacyNotice.characterNames]);
 
   // 活跃 + 最新行胜出下沉到 store selector：重试的新行不被同 unit 的旧失败行盖住。
   const busyUnitIds = useActiveResourceIds("reference_video", projectName);
@@ -386,6 +417,14 @@ export function AdReferenceVideoCanvas({
           </button>
         )}
       </div>
+
+      {voiceLegacyNotice.count > 0 && (
+        <VoiceLegacyBanner
+          message={t("voice_legacy_banner_message", { count: voiceLegacyNotice.count })}
+          dismissLabel={t("voice_legacy_banner_dismiss")}
+          onDismiss={() => void handleDismissVoiceLegacyNotice()}
+        />
+      )}
 
       {error && (
         <p

@@ -10,6 +10,8 @@ from lib.text_backends.registry import (
     register_backend,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class FakeTextBackend:
     def __init__(self, *, api_key=None, model=None):

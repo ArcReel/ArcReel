@@ -5,18 +5,22 @@ import { useTranslation } from "react-i18next";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { PROVIDER_NAMES } from "@/components/ui/ProviderIcon";
 import { getProviderModels, getCustomProviderModels } from "@/utils/provider-models";
 import { ModelConfigSection } from "@/components/shared/ModelConfigSection";
+import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
 import { DEFAULT_TEMPLATE_ID, STYLE_TEMPLATES } from "@/data/style-templates";
 import type { CustomProviderInfo, ProviderInfo } from "@/types";
-import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
+import { useModelCandidates } from "@/hooks/useModelCandidates";
+import { ROUTE_META, RouteLockBadge } from "@/components/shared/GenerationRouteCards";
+import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, GHOST_BTN_LG_CLS, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useWarnUnsaved } from "@/hooks/useWarnUnsaved";
-import { normalizeMode, type GenerationMode } from "@/utils/generation-mode";
+import { normalizeRoute, type GenerationRoute } from "@/utils/generation-mode";
 import { getProjectDisplayName } from "@/utils/project-display";
 
 function deriveStyleValue(project: Record<string, unknown>, projectName: string): StylePickerValue {
@@ -99,15 +103,28 @@ export function ProjectSettingsPage() {
     audio_backends: string[];
     provider_names?: Record<string, string>;
   } | null>(null);
+  const {
+    candidates,
+    error: candidatesError,
+    retrying: candidatesRetrying,
+    reload: reloadCandidates,
+  } = useModelCandidates();
   const [globalDefaults, setGlobalDefaults] = useState<{
     video: string;
+    videoI2V: string;
+    videoR2V: string;
+    image: string;
     imageT2I: string;
     imageI2I: string;
     textDefault: string;
     textSimple: string;
     textComplex: string;
     audio: string;
-  }>({ video: "", imageT2I: "", imageI2I: "", textDefault: "", textSimple: "", textComplex: "", audio: "" });
+  }>({
+    video: "", videoI2V: "", videoR2V: "",
+    image: "", imageT2I: "", imageI2I: "",
+    textDefault: "", textSimple: "", textComplex: "", audio: "",
+  });
 
   const allProviderNames = useMemo(
     () => ({ ...PROVIDER_NAMES, ...(options?.provider_names ?? {}) }),
@@ -117,6 +134,9 @@ export function ProjectSettingsPage() {
   // Project-level overrides (from project.json)
   // "" means "follow global default"
   const [videoBackend, setVideoBackend] = useState<string>("");
+  const [videoProviderI2V, setVideoProviderI2V] = useState<string>("");
+  const [videoProviderR2V, setVideoProviderR2V] = useState<string>("");
+  const [imageBackendDefault, setImageBackendDefault] = useState<string>("");
   const [imageBackendT2I, setImageBackendT2I] = useState<string>("");
   const [imageBackendI2I, setImageBackendI2I] = useState<string>("");
   const [audioOverride, setAudioOverride] = useState<boolean | null>(null);
@@ -128,7 +148,9 @@ export function ProjectSettingsPage() {
   const [textSimple, setTextSimple] = useState<string>("");
   const [textComplex, setTextComplex] = useState<string>("");
   const [aspectRatio, setAspectRatio] = useState<string>("");
-  const [generationMode, setGenerationMode] = useState<GenerationMode>("storyboard");
+  // 路线创建时锁定，此页只读展示；宫格装配开关随时可切
+  const [generationRoute, setGenerationRoute] = useState<GenerationRoute>("storyboard");
+  const [gridStoryboard, setGridStoryboard] = useState(false);
   const [defaultDuration, setDefaultDuration] = useState<number | null>(null);
   const [videoResolution, setVideoResolution] = useState<string | null>(null);
   const [imageResolution, setImageResolution] = useState<string | null>(null);
@@ -143,16 +165,24 @@ export function ProjectSettingsPage() {
   const [styleValue, setStyleValue] = useState<StylePickerValue | null>(null);
   const [savingStyle, setSavingStyle] = useState(false);
   const initialRef = useRef({
-    videoBackend: "", imageBackendT2I: "", imageBackendI2I: "", audioOverride: null as boolean | null,
+    videoBackend: "", videoProviderI2V: "", videoProviderR2V: "",
+    imageBackendDefault: "", imageBackendT2I: "", imageBackendI2I: "",
+    audioOverride: null as boolean | null,
     audioBackend: "", narrationVoice: "", narrationSpeed: null as number | null,
     textDefault: "", textSimple: "", textComplex: "",
-    aspectRatio: "", generationMode: "storyboard",
+    aspectRatio: "", gridStoryboard: false,
     defaultDuration: null as number | null,
     videoResolution: null as string | null,
     imageResolution: null as string | null,
   });
   // 风格区独立保存，但"未保存就离开"也需被 isDirty 拦截。
   const initialStyleRef = useRef<StylePickerValue | null>(null);
+
+  // 候选是全局配置、与项目无关，故只在挂载时取一次，不跟随下面按 projectName 重取的效果；
+  // 拉取失败也只影响细分区，其余表单状态照常。
+  useEffect(() => {
+    void reloadCandidates();
+  }, [reloadCandidates]);
 
   useEffect(() => {
     let disposed = false;
@@ -172,27 +202,28 @@ export function ProjectSettingsPage() {
         audio_backends: configRes.options?.audio_backends ?? [],
         provider_names: configRes.options?.provider_names,
       });
-      setGlobalDefaults({
+      // 各层原样带入，不在此折叠回退——穿透演算由 ModelConfigSection 按解析链推导。
+      const nextGlobals = {
         video: configRes.settings?.default_video_backend ?? "",
-        imageT2I:
-          configRes.settings?.default_image_backend_t2i ??
-          configRes.settings?.default_image_backend ??
-          "",
-        imageI2I:
-          configRes.settings?.default_image_backend_i2i ??
-          configRes.settings?.default_image_backend ??
-          "",
+        videoI2V: configRes.settings?.default_video_backend_i2v ?? "",
+        videoR2V: configRes.settings?.default_video_backend_r2v ?? "",
+        image: configRes.settings?.default_image_backend ?? "",
+        imageT2I: configRes.settings?.default_image_backend_t2i ?? "",
+        imageI2I: configRes.settings?.default_image_backend_i2i ?? "",
         textDefault: configRes.settings?.default_text_backend ?? "",
         textSimple: configRes.settings?.text_backend_simple ?? "",
         textComplex: configRes.settings?.text_backend_complex ?? "",
         audio: configRes.settings?.default_audio_backend ?? "",
-      });
+      };
+      setGlobalDefaults(nextGlobals);
       setProviders(providerList);
       setCustomProviders(customProviderList);
 
       const project = projectRes.project as unknown as Record<string, unknown>;
       const vb = (project.video_backend as string | undefined) ?? "";
-      // Read T2I/I2I split fields; lazy-upgrade in project_manager populates both from legacy image_backend
+      const vpi2v = (project.video_provider_i2v as string | undefined) ?? "";
+      const vpr2v = (project.video_provider_r2v as string | undefined) ?? "";
+      const ibDefault = (project.default_image_backend as string | undefined) ?? "";
       const ibt2i = (project.image_provider_t2i as string | undefined) ?? "";
       const ibi2i = (project.image_provider_i2i as string | undefined) ?? "";
       const rawAudio = project.video_generate_audio;
@@ -209,10 +240,14 @@ export function ProjectSettingsPage() {
       // Backend's get_aspect_ratio() falls back to "9:16" when unset (generation_tasks.py).
       // Mirror that here so the UI reflects the actually-effective ratio.
       const ar = rawAr || "9:16";
-      const gm = normalizeMode(project.generation_mode);
+      const route = normalizeRoute(project.generation_mode);
+      const grid = project.grid_storyboard === true;
       const dd = project.default_duration != null ? (project.default_duration as number) : null;
 
       setVideoBackend(vb);
+      setVideoProviderI2V(vpi2v);
+      setVideoProviderR2V(vpr2v);
+      setImageBackendDefault(ibDefault);
       setImageBackendT2I(ibt2i);
       setImageBackendI2I(ibi2i);
       setAudioOverride(ao);
@@ -223,28 +258,29 @@ export function ProjectSettingsPage() {
       setTextSimple(tsi);
       setTextComplex(tcx);
       setAspectRatio(ar);
-      setGenerationMode(gm);
+      setGenerationRoute(route);
+      setGridStoryboard(grid);
       setDefaultDuration(dd);
       setProjectTitle(typeof project.title === "string" ? project.title : "");
       setContentMode(typeof project.content_mode === "string" ? project.content_mode : "narration");
 
-      // model_settings 的 key 以 effective backend（override ‖ global default）读写，
-      // 与 handleSave 保持一致；legacy video_model_settings 作为旧项目兼容回退。
-      const defaultVideo = configRes.settings?.default_video_backend ?? "";
-      const defaultImageT2I =
-        configRes.settings?.default_image_backend_t2i ||
-        configRes.settings?.default_image_backend ||
-        "";
-      const effectiveVb = vb || defaultVideo;
-      const effectiveIb = ibt2i || defaultImageT2I; // T2I treated as canonical for resolution
+      // model_settings 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与
+      // handleSave 一字不差——后端 resolve_resolution 就是按执行模型查这张表，键位对不上
+      // 用户选的分辨率会被静默忽略。读侧另有一条兼容回退：视频回落 legacy video_model_settings。
+      const executingVb = executingVideoModel(
+        { videoBackend: vb, videoProviderI2V: vpi2v, videoProviderR2V: vpr2v },
+        nextGlobals,
+        route === "reference_video",
+      );
+      const executingIb = executingImageModel({ imageBackendDefault: ibDefault, imageBackendT2I: ibt2i }, nextGlobals);
       const ms = (project.model_settings ?? {}) as Record<string, { resolution: string | null }>;
       const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
-      const vModelId = effectiveVb && effectiveVb.includes("/") ? effectiveVb.split("/")[1] : effectiveVb;
+      const vModelId = executingVb && executingVb.includes("/") ? executingVb.split("/")[1] : executingVb;
       const vRes: string | null =
-        (effectiveVb ? (ms[effectiveVb]?.resolution ?? null) : null) ||
+        (executingVb ? (ms[executingVb]?.resolution ?? null) : null) ||
         (vModelId ? (legacyVideo[vModelId]?.resolution ?? null) : null) ||
         null;
-      const iRes = effectiveIb ? (ms[effectiveIb]?.resolution ?? null) : null;
+      const iRes: string | null = executingIb ? (ms[executingIb]?.resolution ?? null) : null;
       setVideoResolution(vRes);
       setImageResolution(iRes);
       setModelSettings(ms);
@@ -253,10 +289,12 @@ export function ProjectSettingsPage() {
       setStyleValue(derivedStyle);
       initialStyleRef.current = derivedStyle;
       initialRef.current = {
-        videoBackend: vb, imageBackendT2I: ibt2i, imageBackendI2I: ibi2i, audioOverride: ao,
+        videoBackend: vb, videoProviderI2V: vpi2v, videoProviderR2V: vpr2v,
+        imageBackendDefault: ibDefault, imageBackendT2I: ibt2i, imageBackendI2I: ibi2i,
+        audioOverride: ao,
         audioBackend: ab, narrationVoice: nv, narrationSpeed: ns,
         textDefault: td, textSimple: tsi, textComplex: tcx,
-        aspectRatio: ar, generationMode: gm, defaultDuration: dd,
+        aspectRatio: ar, gridStoryboard: grid, defaultDuration: dd,
         videoResolution: vRes, imageResolution: iRes,
       };
     }));
@@ -297,6 +335,9 @@ export function ProjectSettingsPage() {
 
   const isDirty =
     videoBackend !== initialRef.current.videoBackend ||
+    videoProviderI2V !== initialRef.current.videoProviderI2V ||
+    videoProviderR2V !== initialRef.current.videoProviderR2V ||
+    imageBackendDefault !== initialRef.current.imageBackendDefault ||
     imageBackendT2I !== initialRef.current.imageBackendT2I ||
     imageBackendI2I !== initialRef.current.imageBackendI2I ||
     audioOverride !== initialRef.current.audioOverride ||
@@ -307,7 +348,7 @@ export function ProjectSettingsPage() {
     textSimple !== initialRef.current.textSimple ||
     textComplex !== initialRef.current.textComplex ||
     aspectRatio !== initialRef.current.aspectRatio ||
-    generationMode !== initialRef.current.generationMode ||
+    gridStoryboard !== initialRef.current.gridStoryboard ||
     defaultDuration !== initialRef.current.defaultDuration ||
     videoResolution !== initialRef.current.videoResolution ||
     imageResolution !== initialRef.current.imageResolution ||
@@ -382,25 +423,35 @@ export function ProjectSettingsPage() {
     });
   }, [styleValue]);
 
+  // 宫格是分镜路线内的装配选项；参考路线与不支持宫格的 ad 项目下既不呈现也不参与保存
+  const gridToggleVisible = generationRoute === "storyboard" && contentMode !== "ad";
+
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      // resolution 的 key 用 effective backend（override ‖ global default），
-      // 否则"跟随全局默认"路径下用户选的分辨率不会被写入。
+      // resolution 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与读侧一致；
+      // 后端按执行模型查这张表，键位对不上分辨率会被静默忽略。
       // 音色与后端 .strip() 对齐：保存时去首尾空白，避免本地基线带空格而磁盘值不带导致 isDirty 误报
       const trimmedVoice = narrationVoice.trim();
-      const effectiveVideo = videoBackend || globalDefaults.video || "";
-      const effectiveImageT2I = imageBackendT2I || globalDefaults.imageT2I || "";
+      const executingVideo = executingVideoModel(
+        { videoBackend, videoProviderI2V, videoProviderR2V },
+        globalDefaults,
+        generationRoute === "reference_video",
+      );
+      const executingImage = executingImageModel({ imageBackendDefault, imageBackendT2I }, globalDefaults);
       const newModelSettings: Record<string, { resolution: string | null }> = { ...modelSettings };
-      if (effectiveVideo) {
-        newModelSettings[effectiveVideo] = { resolution: videoResolution };
+      if (executingVideo) {
+        newModelSettings[executingVideo] = { resolution: videoResolution };
       }
-      if (effectiveImageT2I) {
-        newModelSettings[effectiveImageT2I] = { resolution: imageResolution };
+      if (executingImage) {
+        newModelSettings[executingImage] = { resolution: imageResolution };
       }
 
       await API.updateProject(projectName, {
         video_backend: videoBackend || null,
+        video_provider_i2v: videoProviderI2V || null,
+        video_provider_r2v: videoProviderR2V || null,
+        default_image_backend: imageBackendDefault || null,
         image_provider_t2i: imageBackendT2I || null,
         image_provider_i2i: imageBackendI2I || null,
         video_generate_audio: audioOverride,
@@ -411,7 +462,9 @@ export function ProjectSettingsPage() {
         text_backend_simple: textSimple || null,
         text_backend_complex: textComplex || null,
         aspect_ratio: aspectRatio || undefined,
-        generation_mode: generationMode,
+        // 路线不在 PATCH 面上（创建后不可更改）；宫格装配开关随时可写，
+        // 但只在开关可见时写——参考路线与 ad 项目下该键与项目无关，ad 更会对 true 返回 400
+        ...(gridToggleVisible ? { grid_storyboard: gridStoryboard } : {}),
         // ad 项目禁写 default_duration（后端对字段出现本身返回 400），省略该键
         ...(contentMode === "ad" ? {} : { default_duration: defaultDuration }),
         model_settings: newModelSettings,
@@ -419,19 +472,23 @@ export function ProjectSettingsPage() {
       setModelSettings(newModelSettings);
       setNarrationVoice(trimmedVoice);
       initialRef.current = {
-        videoBackend, imageBackendT2I, imageBackendI2I, audioOverride,
+        videoBackend, videoProviderI2V, videoProviderR2V,
+        imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride,
         audioBackend, narrationVoice: trimmedVoice, narrationSpeed,
         textDefault, textSimple, textComplex,
-        aspectRatio, generationMode, defaultDuration,
+        aspectRatio, gridStoryboard, defaultDuration,
         videoResolution, imageResolution,
       };
+      // grid_storyboard / video_backend 落盘后，/video-capabilities 按已存值解析——查询 key 未变
+      // 不会自动重取，需显式失效（同 MediaModelSection 保存流程）。
+      useCapabilitiesStore.getState().invalidate();
       useAppStore.getState().pushToast(t("saved"), "success");
     } catch (e: unknown) {
       useAppStore.getState().pushToast(t("save_failed", { message: errMsg(e) }), "error");
     } finally {
       setSaving(false);
     }
-  }, [modelSettings, videoBackend, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textDefault, textSimple, textComplex, aspectRatio, generationMode, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults.video, globalDefaults.imageT2I]);
+  }, [modelSettings, videoBackend, videoProviderI2V, videoProviderR2V, imageBackendDefault, imageBackendT2I, imageBackendI2I, audioOverride, audioBackend, narrationVoice, narrationSpeed, textDefault, textSimple, textComplex, aspectRatio, generationRoute, gridStoryboard, gridToggleVisible, defaultDuration, contentMode, videoResolution, imageResolution, projectName, t, globalDefaults]);
 
   return (
     <div
@@ -550,6 +607,9 @@ export function ProjectSettingsPage() {
                   projectName={projectName}
                   value={{
                     videoBackend,
+                    videoProviderI2V,
+                    videoProviderR2V,
+                    imageBackendDefault,
                     imageBackendT2I,
                     imageBackendI2I,
                     textBackendDefault: textDefault,
@@ -561,6 +621,9 @@ export function ProjectSettingsPage() {
                   }}
                   onChange={(next) => {
                     setVideoBackend(next.videoBackend);
+                    setVideoProviderI2V(next.videoProviderI2V);
+                    setVideoProviderR2V(next.videoProviderR2V);
+                    setImageBackendDefault(next.imageBackendDefault);
                     setImageBackendT2I(next.imageBackendT2I);
                     setImageBackendI2I(next.imageBackendI2I);
                     setTextDefault(next.textBackendDefault);
@@ -578,17 +641,26 @@ export function ProjectSettingsPage() {
                     textBackends: options.text_backends,
                     providerNames: allProviderNames,
                   }}
+                  candidates={candidates}
+                  candidatesError={
+                    candidatesError
+                      ? { onRetry: () => void reloadCandidates(), retrying: candidatesRetrying }
+                      : undefined
+                  }
                   globalDefaults={{
                     video: globalDefaults.video,
-                    imageT2I: globalDefaults.imageT2I ?? "",
-                    imageI2I: globalDefaults.imageI2I ?? "",
-                    textDefault: globalDefaults.textDefault ?? "",
-                    textSimple: globalDefaults.textSimple ?? "",
-                    textComplex: globalDefaults.textComplex ?? "",
+                    videoI2V: globalDefaults.videoI2V,
+                    videoR2V: globalDefaults.videoR2V,
+                    image: globalDefaults.image,
+                    imageT2I: globalDefaults.imageT2I,
+                    imageI2I: globalDefaults.imageI2I,
+                    textDefault: globalDefaults.textDefault,
+                    textSimple: globalDefaults.textSimple,
+                    textComplex: globalDefaults.textComplex,
                   }}
                   videoGenerateAudio={audioOverride}
                   onVideoGenerateAudioChange={setAudioOverride}
-                  usesReferenceImages={generationMode === "reference_video"}
+                  usesReferenceImages={generationRoute === "reference_video"}
                   enable={contentMode === "ad" ? { duration: false } : undefined}
                 />
               </SectionCard>
@@ -637,18 +709,32 @@ export function ProjectSettingsPage() {
                 </fieldset>
               </SectionCard>
 
-              {/* Generation mode */}
+              {/* Generation route — 创建时锁定，此处只读；宫格装配开关随时可切 */}
               <SectionCard kicker="Pipeline Mode">
-                <fieldset>
-                  <legend className="mb-2 block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
-                    {t("generation_mode")}
-                  </legend>
-                  <GenerationModeSelector
-                    value={generationMode}
-                    onChange={setGenerationMode}
-                    disabledModes={contentMode === "ad" ? ["grid"] : undefined}
-                  />
-                </fieldset>
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-text-3">
+                      {t("generation_route")}
+                    </span>
+                    <RouteLockBadge />
+                  </div>
+                  <div className="rounded-[9px] border border-hairline-soft bg-bg-grad-a/50 px-3.5 py-2.5">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[13px] font-semibold text-text">
+                        {t(ROUTE_META[generationRoute].nameKey)}
+                      </span>
+                      <span className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-text-4">
+                        {ROUTE_META[generationRoute].tag}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[11.5px] leading-[1.5] text-text-3">
+                      {t(ROUTE_META[generationRoute].descKey)}
+                    </p>
+                  </div>
+                  {gridToggleVisible ? (
+                    <GridStoryboardBar checked={gridStoryboard} onToggle={setGridStoryboard} />
+                  ) : null}
+                </div>
               </SectionCard>
 
               {/* 旁白配音（TTS）：仅 narration 模式消费——TTS 绑定 segment.novel_text，drama/ad 无该字段，

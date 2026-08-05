@@ -5,6 +5,8 @@ import pytest
 from lib.source_loader.errors import SourceDecodeError
 from lib.source_loader.txt import TxtExtractor, decode_txt
 
+pytestmark = pytest.mark.unit
+
 
 def test_decode_utf8_bom():
     raw = b"\xef\xbb\xbf\xe4\xbd\xa0\xe5\xa5\xbd"  # "你好"

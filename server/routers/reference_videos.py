@@ -16,28 +16,33 @@ from fastapi import APIRouter, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from lib.api_errors import ApiError, NotFoundError
-from lib.asset_types import BUCKET_KEY
+from lib.asset_types import BUCKET_KEY, normalize_asset_bucket, normalize_asset_name
 from lib.generation_queue import get_generation_queue
 from lib.generation_queue_client import TaskSpec, TaskSpecValidationError
 from lib.i18n import Translator
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import project_change_source
-from lib.project_manager import EpisodeScriptReboundError, effective_mode, get_project_manager
+from lib.project_manager import EpisodeScriptReboundError, get_project_manager, is_reference_video_project
 from lib.reference_video import assemble_shots_text, parse_prompt
 from lib.reference_video.ad_units import (
     render_ad_unit_prompt,
     resolve_ad_unit_shots,
     sync_ad_reference_units,
 )
+from lib.reference_video.script_preview import build_script_preview
+from lib.reference_video.units import reference_unit_video_bucket, reference_video_bucket
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
 from server.auth import CurrentUser
 from server.error_handlers import script_edit_detail
 from server.routers._reorder import full_permutation_error
+from server.routers._validators import require_video_bucket_capability
 from server.services.generation_tasks import emit_generation_success_batch
 from server.services.reference_video_tasks import (
     _finalize_reference_video_unit,
+    default_unit_duration,
     precheck_unit,
     resolve_max_unit_duration,
     resolve_project_duration_context,
@@ -48,6 +53,7 @@ from server.services.upload_finalize import (
     save_uploaded_video_stream,
     validate_upload,
 )
+from server.services.video_caps import project_video_caps
 
 logger = logging.getLogger(__name__)
 
@@ -64,10 +70,14 @@ class ReferenceDto(BaseModel):
     name: str
 
 
+class ScriptPreviewRequest(BaseModel):
+    prompt: str = ""
+
+
 class AddUnitRequest(BaseModel):
     prompt: str
     references: list[ReferenceDto] = Field(default_factory=list)
-    duration_seconds: int | None = None
+    duration_seconds: int | None = Field(default=None, ge=1)
     transition_to_next: str = Field(default="cut", pattern=r"^(cut|fade|dissolve)$")
     note: str | None = None
 
@@ -90,7 +100,7 @@ def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tup
         script = get_project_manager().load_script(project_name, script_file)
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=script_file) from exc
-    if effective_mode(project=project, episode=meta) != "reference_video":
+    if not is_reference_video_project(project):
         raise HTTPException(status_code=409, detail=_t("ref_not_reference_video_mode"))
     return project, script, script_file
 
@@ -120,7 +130,7 @@ def _episode_script_resolver(
         meta = next((e for e in episodes if e.get("episode") == episode), None)
         if meta is None or not meta.get("script_file"):
             raise HTTPException(status_code=404, detail=_t("ref_episode_not_found", episode=episode))
-        if effective_mode(project=project, episode=meta) != "reference_video":
+        if not is_reference_video_project(project):
             raise HTTPException(status_code=409, detail=_t("ref_not_reference_video_mode"))
         if refs is not None:
             _validate_references_exist(project, refs, _t)
@@ -173,8 +183,8 @@ def _validate_references_exist(project: dict, refs: list[dict], _t: Translator) 
     """确保 references 都在 project.json 对应 bucket 中。"""
     missing: list[str] = []
     for r in refs:
-        bucket = project.get(BUCKET_KEY.get(r["type"], "")) or {}
-        if r["name"] not in bucket:
+        bucket = normalize_asset_bucket(project.get(BUCKET_KEY.get(r["type"], "")))
+        if normalize_asset_name(r["name"]) not in bucket:
             missing.append(f"{r['type']}:{r['name']}")
     if missing:
         raise HTTPException(status_code=400, detail=_t("ref_not_registered", missing=", ".join(missing)))
@@ -193,20 +203,16 @@ def _build_unit_dict(
     unit_id: str,
     prompt: str,
     references: list[dict],
-    duration_override: int | None,
+    duration_seconds: int,
     transition: str,
     note: str | None,
 ) -> dict:
-    shots, _names, override = parse_prompt(prompt)
-    if override and duration_override is not None:
-        shots[0].duration = max(1, int(duration_override))
-    duration_total = sum(s.duration for s in shots)
+    shots, _names = parse_prompt(prompt)
     return {
         "unit_id": unit_id,
         "shots": [s.model_dump() for s in shots],
         "references": references,
-        "duration_seconds": duration_total,
-        "duration_override": override,
+        "duration_seconds": duration_seconds,
         "transition_to_next": transition,
         "note": note,
         "generated_assets": {
@@ -225,7 +231,7 @@ def _build_unit_dict(
 
 
 @router.get("/episodes/{episode}/units")
-async def list_units(project_name: str, episode: int, _user: CurrentUser, _t: Translator) -> dict[str, Any]:
+async def list_units(project_name: str, episode: int, _t: Translator) -> dict[str, Any]:
     project, script, _sf = _load_episode_script(project_name, episode, _t)
     # ad 的 unit 是 shots 的派生索引（reference_units），未派生时为空列表；
     # 前端用 shot_ids 对照本地剧本水合展示，索引不复制镜头内容
@@ -238,7 +244,6 @@ async def list_units(project_name: str, episode: int, _user: CurrentUser, _t: Tr
 async def derive_units(
     project_name: str,
     episode: int,
-    _user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     """（重新）派生 ad 项目的 video_unit 分组索引并持久化（仅 ad 开放）。
@@ -256,15 +261,35 @@ async def derive_units(
     return {"units": units}
 
 
+def _normalized_refs(references: list[Any]) -> list[dict]:
+    """把请求里的 reference 条目转成落盘 dict，资产名统一归一到 NFC。
+
+    请求可能携带 NFD 形态的资产名（macOS 输入法/拖放），持久化前归一，与镜头正文
+    （parse_prompt 内 NFC）及前端 mergeReferences 的写回口径一致。
+    """
+    return [{**r.model_dump(), "name": normalize_asset_name(r.name)} for r in references]
+
+
 @router.post("/episodes/{episode}/units", status_code=status.HTTP_201_CREATED)
 async def add_unit(
     project_name: str,
     episode: int,
     req: AddUnitRequest,
-    _user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
-    refs = [r.model_dump() for r in req.references]
+    refs = _normalized_refs(req.references)
+
+    # 时长是 unit 级单一真相：请求未给出时按项目能力解析默认档位（异步 IO 不进项目锁临界区）
+    duration_seconds = req.duration_seconds
+    if duration_seconds is None:
+        project, _script, _sf = _load_episode_script(project_name, episode, _t)
+        duration_seconds = default_unit_duration(
+            await resolve_project_duration_context(
+                project, capability=reference_video_bucket(with_references=bool(refs))
+            ),
+            project,
+            with_references=bool(refs),
+        )
 
     with _locked_episode_script(
         project_name, _episode_script_resolver(episode, _t, refs, require_ad=False), _t
@@ -274,7 +299,7 @@ async def add_unit(
             unit_id=_next_unit_id(script, episode),
             prompt=req.prompt,
             references=refs,
-            duration_override=req.duration_seconds,
+            duration_seconds=int(duration_seconds),
             transition=req.transition_to_next,
             note=req.note,
         )
@@ -288,7 +313,7 @@ async def add_unit(
 class PatchUnitRequest(BaseModel):
     prompt: str | None = None
     references: list[ReferenceDto] | None = None
-    duration_seconds: int | None = None
+    duration_seconds: int | None = Field(default=None, ge=1)
     transition_to_next: str | None = Field(default=None, pattern=r"^(cut|fade|dissolve)$")
     note: str | None = None
 
@@ -320,11 +345,10 @@ async def patch_unit(
     episode: int,
     unit_id: str,
     req: PatchUnitRequest,
-    _user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     # references 存在性校验在解析器内、项目锁内进行，失败 raise 400
-    refs: list[dict] | None = [r.model_dump() for r in req.references] if req.references is not None else None
+    refs: list[dict] | None = _normalized_refs(req.references) if req.references is not None else None
 
     with _locked_episode_script(
         project_name, _episode_script_resolver(episode, _t, refs, require_ad=False), _t
@@ -335,16 +359,11 @@ async def patch_unit(
             unit["references"] = refs
 
         if req.prompt is not None:
-            shots, _mentions, override = parse_prompt(req.prompt)
-            if override and req.duration_seconds is not None:
-                shots[0].duration = max(1, int(req.duration_seconds))
+            shots, _mentions = parse_prompt(req.prompt)
             unit["shots"] = [s.model_dump() for s in shots]
-            unit["duration_seconds"] = sum(s.duration for s in shots)
-            unit["duration_override"] = override
-        elif req.duration_seconds is not None and unit.get("duration_override"):
-            unit["duration_seconds"] = max(1, int(req.duration_seconds))
-            if unit.get("shots"):
-                unit["shots"][0]["duration"] = unit["duration_seconds"]
+        # 时长与正文互不牵连：镜头不承载时长，改文案不改时长、改时长不动镜头
+        if req.duration_seconds is not None:
+            unit["duration_seconds"] = req.duration_seconds
 
         if req.transition_to_next is not None:
             unit["transition_to_next"] = req.transition_to_next
@@ -359,7 +378,6 @@ async def delete_unit(
     project_name: str,
     episode: int,
     unit_id: str,
-    _user: CurrentUser,
     _t: Translator,
 ) -> Response:
     with _locked_episode_script(project_name, _episode_script_resolver(episode, _t, require_ad=False), _t) as script:
@@ -381,7 +399,6 @@ async def reorder_units(
     project_name: str,
     episode: int,
     req: ReorderRequest,
-    _user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     with _locked_episode_script(project_name, _episode_script_resolver(episode, _t, require_ad=False), _t) as script:
@@ -409,7 +426,6 @@ async def precheck_unit_duration(
     project_name: str,
     episode: int,
     unit_id: str,
-    _user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     """入队前的时长取档预检：申请秒数与剧本编排不一致时前端需先向用户确认。
@@ -429,12 +445,52 @@ async def precheck_unit_duration(
         unit = _find_unit(script, unit_id, _t)
         ad_shots = None
 
-    slot = precheck_unit(await resolve_project_duration_context(project), unit, ad_shots)
+    # ctx 按 unit 定桶解析（无参考图退化镜头 → i2v），与执行期实际取档的模型同桶
+    slot = precheck_unit(
+        await resolve_project_duration_context(project, capability=reference_unit_video_bucket(unit)), unit, ad_shots
+    )
     return {
         "needs_confirmation": slot.needs_confirmation,
         "script_duration": slot.total_seconds,
         "request_duration": slot.seconds,
         "adjustment": slot.adjustment,
+    }
+
+
+@router.post("/episodes/{episode}/script-preview")
+async def preview_script(
+    project_name: str,
+    episode: int,
+    req: ScriptPreviewRequest,
+    _t: Translator,
+) -> dict[str, Any]:
+    """分镜文稿的读时派生预览：shots / references / utterances + 降级可见性 warning。
+
+    只读、不落盘——文稿是唯一真相，utterances 与 references 都是机械派生物。声音相关的
+    warning 依赖该集视频后端的能力（``voice_consistency`` 与参考音频段数上限）与本集的无声
+    开关，与执行层同一份解析出口；能力解析失败时按 ``soft`` 降级，只是少发这几条提示。
+    """
+    project, _script, _sf = _load_episode_script(project_name, episode, _t)
+    caps = await project_video_caps(project, degraded_to="解析预览不发声音相关提示")
+    preview = build_script_preview(
+        req.prompt,
+        project,
+        VoiceRenderSettings.from_caps(caps),
+        max_reference_images=caps.get("max_reference_images"),
+    )
+    return {
+        "shots": [{"index": i, "text": s.text} for i, s in enumerate(preview.shots, start=1)],
+        "references": [r.model_dump() for r in preview.references],
+        "utterances": [
+            {
+                "shot_index": u.shot_index,
+                "kind": u.utterance.kind,
+                "speaker": u.utterance.speaker,
+                "text": u.utterance.text,
+            }
+            for u in preview.utterances
+        ],
+        "warnings": [{"key": w["key"], "message": _t(w["key"], **w["params"])} for w in preview.warnings],
     }
 
 
@@ -446,7 +502,7 @@ async def generate_unit(
     project_name: str,
     episode: int,
     unit_id: str,
-    _user: CurrentUser,
+    user: CurrentUser,
     _t: Translator,
 ) -> dict[str, Any]:
     project, script, script_file = _load_episode_script(project_name, episode, _t)
@@ -478,6 +534,11 @@ async def generate_unit(
     except TaskSpecValidationError as exc:
         raise HTTPException(status_code=400, detail=_t(exc.code, **exc.params)) from exc
 
+    # 参考生视频按镜头是否携带参考图分流定桶（docs/adr/0054）：有参考图 → r2v，无参考图
+    # 退化镜头降级 → i2v。预检按 unit 声明的 references 近似（执行层按解析后的实际图独立
+    # 判定），解析闸让能力缺失 / 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
+    await require_video_bucket_capability(project, reference_unit_video_bucket(unit))
+
     queue = get_generation_queue()
     result = await queue.enqueue_task(
         project_name=project_name,
@@ -487,7 +548,7 @@ async def generate_unit(
         payload=spec.payload,
         script_file=spec.script_file,
         source="webui",
-        user_id=_user.id,
+        user_id=user.id,
     )
     return {"task_id": result["task_id"], "deduped": result.get("deduped", False)}
 
@@ -497,7 +558,6 @@ async def upload_unit_video(
     project_name: str,
     episode: int,
     unit_id: str,
-    _user: CurrentUser,
     _t: Translator,
     file: UploadFile = File(...),
 ) -> dict[str, Any]:

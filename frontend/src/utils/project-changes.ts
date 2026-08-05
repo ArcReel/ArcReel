@@ -9,6 +9,7 @@ export const GENERATION_ACTIONS: ReadonlySet<ProjectChange["action"]> = new Set(
   "grid_ready",
   "reference_video_ready",
   "tts_ready",
+  "voice_sample_ready",
 ]);
 
 // 完成事件（action 本身即通知类别，与 entity_type 无关）——优先级查表、导航行为、通知文案均不按
@@ -82,6 +83,9 @@ function getEntityLabel(group: GroupedProjectChange): string {
   if (group.action === "tts_ready") {
     return "旁白";
   }
+  if (group.action === "voice_sample_ready") {
+    return "试听样本";
+  }
   return ENTITY_LABELS[group.entityType] ?? "内容";
 }
 
@@ -116,7 +120,8 @@ function formatSingleNotificationText(change: ProjectChange): string {
   if (
     change.action === "grid_ready" ||
     change.action === "reference_video_ready" ||
-    change.action === "tts_ready"
+    change.action === "tts_ready" ||
+    change.action === "voice_sample_ready"
   ) {
     return `${change.label}已生成`;
   }
@@ -139,7 +144,8 @@ function formatSingleDeferredText(change: ProjectChange): string {
   if (
     change.action === "grid_ready" ||
     change.action === "reference_video_ready" ||
-    change.action === "tts_ready"
+    change.action === "tts_ready" ||
+    change.action === "voice_sample_ready"
   ) {
     return `${change.label} 已生成`;
   }

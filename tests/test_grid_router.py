@@ -1,6 +1,11 @@
 """基本路由存在性测试：验证 grids router 注册了预期路径。"""
 
+import pytest
+
 from server.routers.grids import router
+from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 class TestGridRouterExists:
@@ -44,7 +49,7 @@ class TestAdProjectRejected:
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(grids.router, prefix="/api/v1")
+        app.include_router(grids.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post(
@@ -70,7 +75,7 @@ class TestAdProjectRejected:
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(grids.router, prefix="/api/v1")
+        app.include_router(grids.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/grids/g-1/regenerate")

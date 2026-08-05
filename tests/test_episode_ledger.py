@@ -40,6 +40,7 @@ def _write_script(project_dir: Path, rel_path: str) -> None:
 
 
 class TestNormalizeSourceText:
+    @pytest.mark.unit
     def test_nfc_and_newlines(self):
         nfd_cafe = unicodedata.normalize("NFD", "café")
         assert normalize_source_text(nfd_cafe) == "café"

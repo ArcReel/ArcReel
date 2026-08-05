@@ -2,6 +2,8 @@ import pytest
 
 from lib.image_backends.registry import create_backend, get_registered_backends, register_backend
 
+pytestmark = pytest.mark.unit
+
 
 class _DummyBackend:
     def __init__(self, **kwargs):

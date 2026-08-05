@@ -13,6 +13,9 @@ from fastapi.testclient import TestClient
 
 import server.auth as auth_module
 from server.routers import auth as auth_router
+from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 @pytest.fixture()
@@ -29,7 +32,8 @@ def client():
         },
     ):
         app = FastAPI()
-        app.include_router(auth_router.router, prefix="/api/v1")
+        app.include_router(auth_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        app.include_router(auth_router.public_router, prefix="/api/v1")
         with TestClient(app) as c:
             yield c
 

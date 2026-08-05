@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.config.service import ProviderStatus
 from lib.db.base import Base
+
+pytestmark = pytest.mark.unit
 
 
 def _ready(name: str, media_types: list[str]) -> ProviderStatus:
@@ -30,6 +33,9 @@ class _FakeSvc:
 
     async def get_setting(self, key: str, default: str = "") -> str:
         return self._settings.get(key, default)
+
+    async def get_all_settings(self) -> dict[str, str]:
+        return dict(self._settings)
 
     async def get_all_providers_status(self) -> list[ProviderStatus]:
         if self._ready is not None:

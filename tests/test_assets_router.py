@@ -13,6 +13,7 @@ from lib.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import assets
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 @pytest.fixture
@@ -33,13 +34,14 @@ async def _assets_env(tmp_path, monkeypatch):
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(assets.router, prefix="/api/v1")
+    app.include_router(assets.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 
     yield {"client": TestClient(app), "pm": pm}
     await engine.dispose()
 
 
 class TestAssetsCRUD:
+    @pytest.mark.unit
     def test_create_and_list(self, _assets_env):
         client = _assets_env["client"]
         r = client.post(
@@ -55,6 +57,7 @@ class TestAssetsCRUD:
         assert len(r2.json()["items"]) == 1
         assert r2.json()["items"][0]["id"] == asset_id
 
+    @pytest.mark.unit
     def test_duplicate_type_name_returns_409(self, _assets_env):
         client = _assets_env["client"]
         r1 = client.post("/api/v1/assets", data={"type": "prop", "name": "玉佩"})
@@ -62,6 +65,7 @@ class TestAssetsCRUD:
         r = client.post("/api/v1/assets", data={"type": "prop", "name": "玉佩"})
         assert r.status_code == 409
 
+    @pytest.mark.unit
     def test_patch_and_delete(self, _assets_env):
         client = _assets_env["client"]
         r = client.post("/api/v1/assets", data={"type": "scene", "name": "A"})
@@ -78,11 +82,13 @@ class TestAssetsCRUD:
         r4 = client.get(f"/api/v1/assets/{aid}")
         assert r4.status_code == 404
 
+    @pytest.mark.unit
     def test_invalid_type_returns_400(self, _assets_env):
         client = _assets_env["client"]
         r = client.post("/api/v1/assets", data={"type": "invalid", "name": "X"})
         assert r.status_code == 400
 
+    @pytest.mark.unit
     def test_product_type_excluded_from_global_library(self, _assets_env):
         """product 是多图列表型资产，单图列模型的全局库不收：create 与 from-project 均 400。"""
         client = _assets_env["client"]
@@ -99,6 +105,7 @@ class TestAssetsCRUD:
         )
         assert r2.status_code == 400
 
+    @pytest.mark.unit
     def test_list_filters_by_q(self, _assets_env):
         client = _assets_env["client"]
         client.post("/api/v1/assets", data={"type": "character", "name": "王小明"})
@@ -107,6 +114,7 @@ class TestAssetsCRUD:
         assert r.status_code == 200
         assert len(r.json()["items"]) == 1
 
+    @pytest.mark.unit
     def test_create_conflict_does_not_leave_orphan_file(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
@@ -133,6 +141,7 @@ class TestAssetsCRUD:
         files_after_dup = list(global_dir.iterdir())
         assert len(files_after_dup) == len(files_after_first), "duplicate upload must not leave orphan files"
 
+    @pytest.mark.unit
     def test_replace_image(self, _assets_env):
         client = _assets_env["client"]
         r = client.post("/api/v1/assets", data={"type": "scene", "name": "A"})
@@ -146,6 +155,7 @@ class TestAssetsCRUD:
         assert r2.status_code == 200
         assert r2.json()["asset"]["image_path"] is not None
 
+    @pytest.mark.unit
     def test_replace_image_invalid_format_preserves_old_image(self, _assets_env):
         """If new upload fails validation, old image must NOT be deleted."""
         client = _assets_env["client"]
@@ -176,6 +186,7 @@ class TestAssetsCRUD:
 
 
 class TestFromProject:
+    @pytest.mark.unit
     def test_from_project_copies_image(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
@@ -206,6 +217,7 @@ class TestFromProject:
         # 落盘文件与源文件相同字节
         assert (pm.projects_root / ip).read_bytes() == b"img"
 
+    @pytest.mark.unit
     def test_from_project_conflict_409_and_overwrite(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
@@ -244,6 +256,7 @@ class TestFromProject:
         )
         assert r3.status_code == 200
 
+    @pytest.mark.unit
     def test_from_project_invalid_type_returns_400(self, _assets_env):
         client = _assets_env["client"]
         r = client.post(
@@ -256,6 +269,7 @@ class TestFromProject:
         )
         assert r.status_code == 400
 
+    @pytest.mark.unit
     def test_from_project_missing_project_returns_404(self, _assets_env):
         client = _assets_env["client"]
         r = client.post(
@@ -268,6 +282,7 @@ class TestFromProject:
         )
         assert r.status_code == 404
 
+    @pytest.mark.unit
     def test_from_project_missing_resource_returns_404(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
@@ -318,6 +333,141 @@ class TestFromProject:
         )
         assert "nhân vật" in vi.json()["detail"] and "character" not in vi.json()["detail"]
 
+    @pytest.mark.unit
+    def test_from_project_copies_audio(self, _assets_env):
+        """character 的 reference_audio 随 character_sheet 一起复制到全局资产库。"""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "王", "d", "")
+        audio_rel = "characters/refs_audio/王.wav"
+        (pm.projects_root / "demo" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
+        (pm.projects_root / "demo" / audio_rel).write_bytes(b"audio-bytes")
+        pm.update_character_reference_audio("demo", "王", audio_rel)
+
+        r = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+            },
+        )
+        assert r.status_code == 200, r.text
+        ap = r.json()["asset"]["audio_path"]
+        assert ap and ap.startswith("_global_assets/character/")
+        assert (pm.projects_root / ap).read_bytes() == b"audio-bytes"
+
+    @pytest.mark.integration
+    def test_from_project_audio_copy_failure_cleans_up_image(self, _assets_env, monkeypatch):
+        """图片拷贝成功后音频拷贝失败：不留孤儿图片文件，异常正常传播。"""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "王", "d", "")
+        sheet_rel = "characters/王.png"
+        (pm.projects_root / "demo" / "characters").mkdir(parents=True, exist_ok=True)
+        (pm.projects_root / "demo" / sheet_rel).write_bytes(b"img")
+        audio_rel = "characters/refs_audio/王.wav"
+        (pm.projects_root / "demo" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
+        (pm.projects_root / "demo" / audio_rel).write_bytes(b"audio-bytes")
+
+        def _set_fields(project):
+            project["characters"]["王"]["character_sheet"] = sheet_rel
+            project["characters"]["王"]["reference_audio"] = audio_rel
+
+        pm.update_project("demo", _set_fields)
+
+        real_copyfile = assets.shutil.copyfile
+        calls = {"n": 0}
+
+        def flaky_copyfile(src, dst):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise OSError("disk full")
+            return real_copyfile(src, dst)
+
+        monkeypatch.setattr(assets.shutil, "copyfile", flaky_copyfile)
+
+        with pytest.raises(OSError):
+            client.post(
+                "/api/v1/assets/from-project",
+                json={"project_name": "demo", "resource_type": "character", "resource_id": "王"},
+            )
+
+        global_character_assets = pm.get_global_assets_root() / "character"
+        leftover = list(global_character_assets.glob("*")) if global_character_assets.exists() else []
+        assert leftover == []
+
+    @pytest.mark.integration
+    def test_from_project_ignores_reference_audio_outside_refs_audio_dir(self, _assets_env):
+        """reference_audio 可经通用角色 PATCH 被写成项目内任意字符串；仅路径不越界
+        不足以防止把 project.json 等其它项目文件当作音频复制进全局库，须额外确认
+        父目录命中 characters/refs_audio（与 files.py::_resolve_audio_ref_path 同口径）。"""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "王", "d", "")
+
+        def _set_fields(project):
+            # 项目内真实存在、但不在 characters/refs_audio 下的文件——模拟经通用 PATCH
+            # 写入的越权路径。
+            project["characters"]["王"]["reference_audio"] = "project.json"
+
+        pm.update_project("demo", _set_fields)
+
+        r = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "demo", "resource_type": "character", "resource_id": "王"},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["asset"]["audio_path"] is None
+
+    @pytest.mark.unit
+    def test_from_project_without_audio_has_null_audio_path(self, _assets_env):
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "王", "d", "")
+        # No reference_audio set
+
+        r = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()["asset"]["audio_path"] is None
+
+    @pytest.mark.unit
+    def test_from_project_missing_audio_file_degrades_quietly(self, _assets_env):
+        """reference_audio 字段指向不存在的文件时静默降级为无音频，不中断入库。"""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "王", "d", "")
+        pm.update_character_reference_audio("demo", "王", "characters/refs_audio/ghost.wav")
+
+        r = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "王",
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["asset"]["audio_path"] is None
+
+    @pytest.mark.unit
     def test_from_project_without_sheet_has_null_image_path(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
@@ -339,6 +489,7 @@ class TestFromProject:
 
 
 class TestApplyToProject:
+    @pytest.mark.unit
     def test_apply_with_skip_policy(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
@@ -377,6 +528,7 @@ class TestApplyToProject:
         assert len(body2["succeeded"]) == 0
         assert len(body2["skipped"]) == 2
 
+    @pytest.mark.unit
     def test_rename_policy_adds_numeric_suffix(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
@@ -409,6 +561,7 @@ class TestApplyToProject:
         data = pm.load_project("target")
         assert "玉佩" in data["props"] and "玉佩 (2)" in data["props"]
 
+    @pytest.mark.unit
     def test_overwrite_policy_replaces_existing(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
@@ -437,6 +590,7 @@ class TestApplyToProject:
         data = pm.load_project("target")
         assert data["characters"]["王"]["description"] == "library desc"
 
+    @pytest.mark.unit
     def test_invalid_policy_returns_400(self, _assets_env):
         client = _assets_env["client"]
         r = client.post(
@@ -449,6 +603,7 @@ class TestApplyToProject:
         )
         assert r.status_code == 400
 
+    @pytest.mark.unit
     def test_missing_project_returns_404(self, _assets_env):
         client = _assets_env["client"]
         r = client.post(
@@ -461,6 +616,7 @@ class TestApplyToProject:
         )
         assert r.status_code == 404
 
+    @pytest.mark.unit
     def test_unknown_asset_id_listed_in_failed(self, _assets_env):
         client = _assets_env["client"]
         pm = _assets_env["pm"]
@@ -479,6 +635,7 @@ class TestApplyToProject:
         assert len(r.json()["failed"]) == 1
         assert r.json()["failed"][0]["reason"] == "not_found"
 
+    @pytest.mark.unit
     def test_image_missing_adds_to_failed(self, _assets_env):
         """If asset.image_path is set but the file on disk is gone, record as failed."""
         client = _assets_env["client"]
@@ -516,6 +673,88 @@ class TestApplyToProject:
         data = pm.load_project("target")
         assert "A" not in (data.get("scenes") or {})
 
+    @pytest.mark.unit
+    def test_audio_missing_adds_to_failed(self, _assets_env):
+        """asset.audio_path 有值但磁盘文件缺失时记 failed，不中断整批（与 image_path 同口径）。"""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("source")
+        pm.create_project_metadata("source", "Source")
+        pm.add_project_character("source", "王", "d", "")
+        audio_rel = "characters/refs_audio/王.wav"
+        (pm.projects_root / "source" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
+        (pm.projects_root / "source" / audio_rel).write_bytes(b"audio-bytes")
+        pm.update_character_reference_audio("source", "王", audio_rel)
+
+        r0 = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        )
+        aid = r0.json()["asset"]["id"]
+        ap = r0.json()["asset"]["audio_path"]
+
+        # Simulate external deletion of the global audio file
+        (pm.projects_root / ap).unlink()
+
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+
+        r = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [aid],
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body["failed"]) == 1
+        assert body["failed"][0]["id"] == aid
+        assert body["failed"][0]["reason"] == "audio_missing"
+        data = pm.load_project("target")
+        assert "王" not in (data.get("characters") or {})
+
+    @pytest.mark.unit
+    def test_audio_copied_to_target_project(self, _assets_env):
+        """端到端：from-project → 资产库 → apply-to-project 把音频也随图一起复制回项目。"""
+        client = _assets_env["client"]
+        pm = _assets_env["pm"]
+        pm.create_project("source")
+        pm.create_project_metadata("source", "Source")
+        pm.add_project_character("source", "王", "d", "")
+        audio_rel = "characters/refs_audio/王.wav"
+        (pm.projects_root / "source" / "characters" / "refs_audio").mkdir(parents=True, exist_ok=True)
+        (pm.projects_root / "source" / audio_rel).write_bytes(b"audio-bytes")
+        pm.update_character_reference_audio("source", "王", audio_rel)
+
+        r0 = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+        )
+        aid = r0.json()["asset"]["id"]
+
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+
+        r = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [aid],
+                "target_project": "target",
+                "conflict_policy": "skip",
+            },
+        )
+        assert r.status_code == 200, r.text
+        target_audio = pm.projects_root / "target" / "characters" / "refs_audio" / "王.wav"
+        assert target_audio.exists()
+        assert target_audio.read_bytes() == b"audio-bytes"
+        data = pm.load_project("target")
+        assert data["characters"]["王"]["reference_audio"] == "characters/refs_audio/王.wav"
+        # 「资产即开关」：导入即视为该项目新设置了这个声音，存量过渡横幅计数须能感知到
+        assert data["characters"]["王"]["voice_updated_at"]
+
+    @pytest.mark.unit
     def test_image_copied_to_target_project(self, _assets_env):
         """End-to-end: from-project → asset library → apply-to-project copies the image too."""
         client = _assets_env["client"]

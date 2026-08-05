@@ -10,7 +10,9 @@ import logging
 import shutil
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +20,16 @@ from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from lib.api_errors import NotFoundError
-from lib.asset_types import GLOBAL_LIBRARY_ASSET_TYPES
+from lib.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
+from lib.audio_utils import (
+    AUDIO_REFERENCE_MAX_BYTES,
+    AUDIO_REFERENCE_MAX_SECONDS,
+    AUDIO_REFERENCE_MIN_SECONDS,
+    discard_stale_reference_audio,
+    probe_audio_duration_seconds,
+    resolve_audio_ref_path,
+    resolve_stale_reference_audio,
+)
 from lib.config.resolver import VisionCapabilityError
 from lib.episode_paths import (
     REFERENCE_VIDEO_STEP1_FILENAME,
@@ -31,7 +42,7 @@ from lib.i18n import Translator
 from lib.image_utils import normalize_uploaded_image, validate_image_bytes
 from lib.path_safety import PathTraversalError, safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
-from lib.project_manager import effective_mode, get_project_manager
+from lib.project_manager import ProjectManager, get_project_manager
 from lib.source_loader import (
     ConflictError,
     CorruptFileError,
@@ -42,9 +53,14 @@ from lib.source_loader import (
     SourceLoader,
     UnsupportedFormatError,
 )
-from server.auth import CurrentUser
+from server.routers._script_review_errors import raise_review_error
+from server.services.script_review import ScriptReviewError, ScriptReviewService
 
 router = APIRouter()
+
+# 公开端点：前端经 <img src> / <video src> 加载，浏览器直发请求带不了 Authorization header。
+# 两者都有 safe_join 路径穿越防护，但内容本身对未认证请求可读。
+public_router = APIRouter()
 
 
 def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:
@@ -53,19 +69,128 @@ def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:
     return file.filename
 
 
-# 允许的文件类型
-ALLOWED_EXTENSIONS = {
-    "source": [".txt", ".md", ".docx", ".epub", ".pdf"],
-    "character": [".png", ".jpg", ".jpeg", ".webp"],
-    "character_ref": [".png", ".jpg", ".jpeg", ".webp"],
-    "scene": [".png", ".jpg", ".jpeg", ".webp"],
-    "prop": [".png", ".jpg", ".jpeg", ".webp"],
-    "product": [".png", ".jpg", ".jpeg", ".webp"],
-    "product_ref": [".png", ".jpg", ".jpeg", ".webp"],
+_IMAGE_EXTS: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".webp")
+
+# 落盘文件名策略
+#   stable_png — 稳定单图名 `{name}.png`（实际后缀由图片归一化结果决定）
+#   keep_ext   — 稳定单图名，保留上传的原扩展名（音频不转码）
+#   sequenced  — 多图累积，按序号取唯一名
+#   delegated  — 主流程不参与命名，由该类型的专用分支决定
+Naming = Literal["stable_png", "keep_ext", "sequenced", "delegated"]
+
+# 落盘前的内容处理
+#   normalize_image — 校验并按阈值压缩，可能改写扩展名
+#   validate_image  — 仅校验可解码，保留原件字节
+#   audio           — 校验时长，不转码（体积由 max_bytes 独立把关）
+#   delegated       — 主流程不处理内容，由该类型的专用分支决定
+ContentCheck = Literal["normalize_image", "validate_image", "audio", "delegated"]
+
+MetadataSetter = Callable[[ProjectManager, str, str, str], object]
+
+
+@dataclass(frozen=True)
+class UploadSpec:
+    """单个 upload_type 的落盘规则：目标目录、扩展名白名单、体积上限、后处理与元数据回写。
+
+    新增上传类型只在 ``UPLOAD_SPECS`` 登记表项，不复制分支逻辑。``source`` 是唯一例外：
+    它由 ``_handle_source_upload`` 全权接管，表项只提供类型校验与扩展名白名单。
+
+    按剧本条目定位（script_file + shot_id）、需回写剧本元数据的上传不入本表，走各自的
+    镜头级路由，校验与落盘共用 ``server.services.upload_finalize`` 的 helper。
+    """
+
+    allowed_exts: tuple[str, ...]
+    subdir: tuple[str, ...]
+    naming: Naming
+    content_check: ContentCheck
+    unsupported_ext_key: str = "unsupported_image_type"
+    # 请求体上限，None 表示不限；对所有类型生效，与 content_check 无关
+    max_bytes: int | None = None
+    metadata_setter: MetadataSetter | None = None
+    # 非空表示文件挂在宿主资产的字段下、该字段是文件的唯一指针：宿主不存在就拒收
+    # （含并发删除的窗口期），避免落下界面上不可见的孤儿文件。单图类型路径确定、
+    # 可容忍资产后建，不设此约束。
+    host_bucket: str | None = None
+    host_not_found_key: str = ""
+    # 替换参考音频时先解析旧文件路径，等新文件与字段写入成功后再删除
+    tracks_stale_audio: bool = False
+
+    def __post_init__(self) -> None:
+        # 宿主约束与其 404 文案必须成对登记，否则拒收路径会拿空 key 去取翻译
+        if (self.host_bucket is None) != (not self.host_not_found_key):
+            raise ValueError("host_bucket 与 host_not_found_key 必须成对登记")
+
+
+UPLOAD_SPECS: dict[str, UploadSpec] = {
+    "source": UploadSpec(
+        allowed_exts=(".txt", ".md", ".docx", ".epub", ".pdf"),
+        subdir=("source",),
+        naming="delegated",
+        content_check="delegated",
+    ),
+    "character": UploadSpec(
+        allowed_exts=_IMAGE_EXTS,
+        subdir=(ASSET_SPECS["character"].subdir,),
+        naming="stable_png",
+        content_check="normalize_image",
+        metadata_setter=ProjectManager.update_project_character_sheet,
+    ),
+    "character_ref": UploadSpec(
+        allowed_exts=_IMAGE_EXTS,
+        subdir=(ASSET_SPECS["character"].subdir, "refs"),
+        naming="stable_png",
+        content_check="normalize_image",
+        metadata_setter=ProjectManager.update_character_reference_image,
+    ),
+    "character_audio_ref": UploadSpec(
+        allowed_exts=(".wav", ".mp3"),
+        subdir=(ASSET_SPECS["character"].subdir, "refs_audio"),
+        naming="keep_ext",
+        content_check="audio",
+        unsupported_ext_key="unsupported_audio_type",
+        max_bytes=AUDIO_REFERENCE_MAX_BYTES,
+        metadata_setter=ProjectManager.update_character_reference_audio,
+        tracks_stale_audio=True,
+    ),
+    "scene": UploadSpec(
+        allowed_exts=_IMAGE_EXTS,
+        subdir=(ASSET_SPECS["scene"].subdir,),
+        naming="stable_png",
+        content_check="normalize_image",
+        metadata_setter=ProjectManager.update_scene_sheet,
+    ),
+    "prop": UploadSpec(
+        allowed_exts=_IMAGE_EXTS,
+        subdir=(ASSET_SPECS["prop"].subdir,),
+        naming="stable_png",
+        content_check="normalize_image",
+        metadata_setter=ProjectManager.update_prop_sheet,
+    ),
+    "product": UploadSpec(
+        allowed_exts=_IMAGE_EXTS,
+        subdir=(ASSET_SPECS["product"].subdir,),
+        naming="stable_png",
+        content_check="normalize_image",
+        metadata_setter=ProjectManager.update_product_sheet,
+    ),
+    "product_ref": UploadSpec(
+        allowed_exts=_IMAGE_EXTS,
+        subdir=(ASSET_SPECS["product"].subdir, "refs"),
+        naming="sequenced",
+        # 产品原图是保真验收锚点（ADR 0034）：仅校验可解码，保留原件字节与扩展名，
+        # 不做阈值压缩/重编码。请求体上限由生成发送前的参考压缩环节独立保障。
+        content_check="validate_image",
+        metadata_setter=ProjectManager.add_product_reference_image,
+        host_bucket=ASSET_SPECS["product"].bucket_key,
+        host_not_found_key="product_not_found",
+    ),
 }
 
+# 允许的文件类型（前端 frontend/src/utils/source-files.ts 镜像了 source 一项）
+ALLOWED_EXTENSIONS = {upload_type: list(spec.allowed_exts) for upload_type, spec in UPLOAD_SPECS.items()}
 
-@router.get("/files/{project_name}/{path:path}")
+
+@public_router.get("/files/{project_name}/{path:path}")
 async def serve_project_file(project_name: str, path: str, request: Request, _t: Translator):
     """服务项目内的静态文件（图片/视频）"""
     try:
@@ -97,7 +222,7 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
         raise NotFoundError("project_not_found", name=project_name) from exc
 
 
-@router.get("/global-assets/{asset_type}/{filename}")
+@public_router.get("/global-assets/{asset_type}/{filename}")
 async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
     """服务 _global_assets 下的全局资产图片（仅全局库类型：character/scene/prop）"""
     if asset_type not in GLOBAL_LIBRARY_ASSET_TYPES:
@@ -123,7 +248,6 @@ async def serve_global_asset(asset_type: str, filename: str, _t: Translator):
 async def upload_file(
     project_name: str,
     upload_type: str,
-    _user: CurrentUser,
     _t: Translator,
     file: UploadFile = File(...),
     name: str | None = None,
@@ -134,24 +258,33 @@ async def upload_file(
 
     Args:
         project_name: 项目名称
-        upload_type: 上传类型 (source/character/character_ref/scene/prop/product/product_ref)
+        upload_type: 上传类型 (source/character/character_ref/character_audio_ref/scene/prop/product/product_ref)
         file: 上传的文件
         name: 可选，用于角色/场景/道具/产品名称（自动更新元数据）；product_ref 必填；
             分镜/视频上传走 shot_uploads 路由
         on_conflict: source 类型独有 — fail / replace / rename
     """
-    if upload_type not in ALLOWED_EXTENSIONS:
+    spec = UPLOAD_SPECS.get(upload_type)
+    if spec is None:
         raise HTTPException(status_code=400, detail=_t("invalid_upload_type", upload_type=upload_type))
 
     original_filename = _require_filename(file, _t)
 
     # 检查文件扩展名
     ext = Path(original_filename).suffix.lower()
-    if ext not in ALLOWED_EXTENSIONS[upload_type]:
+    if ext not in spec.allowed_exts:
         raise HTTPException(
             status_code=400,
-            detail=_t("unsupported_image_type", ext=ext, allowed=", ".join(ALLOWED_EXTENSIONS[upload_type])),
+            detail=_t(spec.unsupported_ext_key, ext=ext, allowed=", ".join(spec.allowed_exts)),
         )
+
+    # name 会被拼进落盘路径，路径不安全的名字（分隔符 / .. / 控制字符）在边界即拒绝；
+    # 未提供时按原文件名 stem 回落，不做校验。
+    if name:
+        try:
+            name = validate_asset_name(name)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=name))
 
     # Source 分支早返 — 走 SourceLoader 规范化
     if upload_type == "source":
@@ -165,81 +298,64 @@ async def upload_file(
     try:
         content = await file.read()
 
+        if spec.max_bytes is not None and len(content) > spec.max_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail=_t("upload_too_large", max_mb=spec.max_bytes // (1024 * 1024)),
+            )
+
+        if spec.content_check == "audio":
+            try:
+                duration = await probe_audio_duration_seconds(content, ext)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=_t("invalid_audio_file"))
+            if duration is not None and not (AUDIO_REFERENCE_MIN_SECONDS <= duration <= AUDIO_REFERENCE_MAX_SECONDS):
+                raise HTTPException(
+                    status_code=400,
+                    detail=_t(
+                        "audio_duration_out_of_range",
+                        min_seconds=int(AUDIO_REFERENCE_MIN_SECONDS),
+                        max_seconds=int(AUDIO_REFERENCE_MAX_SECONDS),
+                    ),
+                )
+
         def _sync():
-            project_dir = get_project_manager().get_project_path(project_name)
+            manager = get_project_manager()
+            project_dir = manager.get_project_path(project_name)
 
-            # 产品原图列表是这些文件的唯一指针：产品不存在就拒收，避免落下不可见的孤儿文件
-            # （character_ref 等单图类型路径确定、可容忍资产后建，不受此约束）。
-            if upload_type == "product_ref":
-                products = get_project_manager().load_project(project_name).get("products") or {}
-                if not name or name not in products:
-                    raise HTTPException(status_code=404, detail=_t("product_not_found", name=name or ""))
+            if spec.host_bucket is not None:
+                hosts = manager.load_project(project_name).get(spec.host_bucket) or {}
+                # name 已经过 validate_asset_name 落到 NFC，存量宿主 key 可能是 NFD，按坐标系解析存在性
+                if not name or resolve_asset_key(hosts, name) is None:
+                    raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name or ""))
 
-            # 确定目标目录
-            if upload_type == "source":
-                target_dir = project_dir / "source"
-                filename = original_filename
-            elif upload_type == "character":
-                target_dir = project_dir / "characters"
-                # 统一保存为 PNG，且使用稳定文件名（避免 jpg/png 不一致导致版本还原/引用异常）
-                if name:
-                    filename = f"{name}.png"
-                else:
-                    filename = f"{Path(original_filename).stem}.png"
-            elif upload_type == "character_ref":
-                target_dir = project_dir / "characters" / "refs"
-                if name:
-                    filename = f"{name}.png"
-                else:
-                    filename = f"{Path(original_filename).stem}.png"
-            elif upload_type == "scene":
-                target_dir = project_dir / "scenes"
-                if name:
-                    filename = f"{name}.png"
-                else:
-                    filename = f"{Path(original_filename).stem}.png"
-            elif upload_type == "prop":
-                target_dir = project_dir / "props"
-                if name:
-                    filename = f"{name}.png"
-                else:
-                    filename = f"{Path(original_filename).stem}.png"
-            elif upload_type == "product":
-                target_dir = project_dir / "products"
-                if name:
-                    filename = f"{name}.png"
-                else:
-                    filename = f"{Path(original_filename).stem}.png"
-            elif upload_type == "product_ref":
-                target_dir = project_dir / "products" / "refs"
-                filename = ""  # 多图累积，唯一文件名在目录就绪后按序号计算
-            else:
-                target_dir = project_dir / upload_type
-                filename = original_filename
+            target_dir = project_dir.joinpath(*spec.subdir)
+            # 稳定文件名（避免 jpg/png 不一致导致版本还原/引用异常）；未指定 name 时用原文件名主干
+            stem = name or Path(original_filename).stem
+            filename = f"{stem}.png" if spec.naming == "stable_png" else f"{stem}{ext}"
 
             target_dir.mkdir(parents=True, exist_ok=True)
 
             # 保存文件（大于 2MB 时压缩为 JPEG，否则校验后原样保存）
             nonlocal content
-            if upload_type in ("character", "character_ref", "scene", "prop", "product"):
+            if spec.content_check == "normalize_image":
                 try:
-                    content, ext = normalize_uploaded_image(content, Path(original_filename).suffix.lower())
+                    content, normalized_ext = normalize_uploaded_image(content, ext)
                 except ValueError:
                     raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
-                filename = Path(filename).with_suffix(ext).name
-            elif upload_type == "product_ref":
-                # 产品原图是保真验收锚点（ADR 0034）：仅校验可解码，保留原件字节与扩展名，
-                # 不做阈值压缩/重编码。请求体上限由生成发送前的参考压缩环节独立保障。
+                filename = Path(filename).with_suffix(normalized_ext).name
+            elif spec.content_check == "validate_image":
                 try:
                     validate_image_bytes(content)
                 except ValueError:
                     raise HTTPException(status_code=400, detail=_t("invalid_image_file"))
-                ref_ext = Path(original_filename).suffix.lower() or ".png"
-                # 按序号取唯一文件名，用原子独占创建占位：并发上传同一产品时
+
+            if spec.naming == "sequenced":
+                # 按序号取唯一文件名，用原子独占创建占位：并发上传同一宿主资产时
                 # 两个请求各拿到不同序号，避免静默互相覆盖。
                 seq = 1
                 while True:
-                    candidate = target_dir / f"{name}_{seq}{ref_ext}"
+                    candidate = target_dir / f"{stem}_{seq}{ext or '.png'}"
                     try:
                         candidate.touch(exist_ok=False)
                         break
@@ -247,92 +363,37 @@ async def upload_file(
                         seq += 1
                 filename = candidate.name
 
+            stale_audio_path: Path | None = None
+            if spec.tracks_stale_audio and name:
+                # 实际删除推迟到新文件与字段写入成功之后（见 discard_stale_reference_audio）。
+                characters = manager.load_project(project_name).get("characters", {})
+                char_key = resolve_asset_key(characters, name)
+                old_audio = (characters.get(char_key, {}) if char_key else {}).get("reference_audio")
+                stale_audio_path = resolve_stale_reference_audio(
+                    project_dir, target_dir, old_audio, target_dir / filename
+                )
+
             target_path = target_dir / filename
             with open(target_path, "wb") as f:
                 f.write(content)
 
+            relative_path = "/".join((*spec.subdir, filename))
+
             # 更新元数据
-            if upload_type == "source":
-                relative_path = f"source/{filename}"
-            elif upload_type == "character":
-                relative_path = f"characters/{filename}"
-            elif upload_type == "character_ref":
-                relative_path = f"characters/refs/{filename}"
-            elif upload_type == "scene":
-                relative_path = f"scenes/{filename}"
-            elif upload_type == "prop":
-                relative_path = f"props/{filename}"
-            elif upload_type == "product":
-                relative_path = f"products/{filename}"
-            elif upload_type == "product_ref":
-                relative_path = f"products/refs/{filename}"
-            else:
-                relative_path = f"{upload_type}/{filename}"
-
-            if upload_type == "character" and name:
+            if spec.metadata_setter is not None and name:
                 try:
                     with project_change_source("webui"):
-                        get_project_manager().update_project_character_sheet(
-                            project_name, name, f"characters/{filename}"
-                        )
+                        spec.metadata_setter(manager, project_name, name, relative_path)
                 except KeyError:
-                    pass  # 角色不存在，忽略
-
-            if upload_type == "character_ref" and name:
-                try:
-                    with project_change_source("webui"):
-                        get_project_manager().update_character_reference_image(
-                            project_name, name, f"characters/refs/{filename}"
-                        )
-                except KeyError:
-                    pass  # 角色不存在，忽略
-
-            if upload_type == "scene" and name:
-                try:
-                    with project_change_source("webui"):
-                        get_project_manager().update_scene_sheet(
-                            project_name,
-                            name,
-                            f"scenes/{filename}",
-                        )
-                except KeyError:
-                    pass  # 场景不存在，忽略
-
-            if upload_type == "prop" and name:
-                try:
-                    with project_change_source("webui"):
-                        get_project_manager().update_prop_sheet(
-                            project_name,
-                            name,
-                            f"props/{filename}",
-                        )
-                except KeyError:
-                    pass  # 道具不存在，忽略
-
-            if upload_type == "product" and name:
-                try:
-                    with project_change_source("webui"):
-                        get_project_manager().update_product_sheet(
-                            project_name,
-                            name,
-                            f"products/{filename}",
-                        )
-                except KeyError:
-                    pass  # 产品不存在，忽略
-
-            if upload_type == "product_ref" and name:
-                try:
-                    with project_change_source("webui"):
-                        get_project_manager().add_product_reference_image(
-                            project_name,
-                            name,
-                            f"products/refs/{filename}",
-                        )
-                except KeyError:
-                    # 入口已校验产品存在；并发删除导致的窗口期竞态按 404 处理，
-                    # 已落盘的文件一并清理避免孤儿
-                    target_path.unlink(missing_ok=True)
-                    raise HTTPException(status_code=404, detail=_t("product_not_found", name=name))
+                    if spec.host_bucket is not None:
+                        # 入口已校验宿主存在；并发删除导致的窗口期竞态按 404 处理，
+                        # 已落盘的文件一并清理避免孤儿
+                        target_path.unlink(missing_ok=True)
+                        raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name))
+                    # 单图类型：资产不存在时忽略，文件路径确定，资产后建仍可引用
+                else:
+                    if spec.tracks_stale_audio:
+                        discard_stale_reference_audio(stale_audio_path)
 
             return {
                 "success": True,
@@ -340,6 +401,49 @@ async def upload_file(
                 "path": relative_path,
                 "url": f"/api/v1/files/{project_name}/{relative_path}",
             }
+
+        return await asyncio.to_thread(_sync)
+
+    except FileNotFoundError as exc:
+        raise NotFoundError("project_not_found", name=project_name) from exc
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error"))
+
+
+@router.delete("/projects/{project_name}/characters/{name}/reference-audio")
+async def delete_character_reference_audio(project_name: str, name: str, _t: Translator):
+    """删除角色的参考音频样本：清空 project.json 字段并移除文件。"""
+    try:
+
+        def _sync():
+            manager = get_project_manager()
+            project_dir = manager.get_project_path(project_name)
+            project = manager.load_project(project_name)
+            characters = project.get("characters") or {}
+            char_key = resolve_asset_key(characters, name)
+            character = characters.get(char_key) if char_key else None
+            if character is None:
+                raise HTTPException(status_code=404, detail=_t("character_not_found", name=name))
+
+            old_audio = character.get("reference_audio")
+            # 字段值来自 project.json，可被 PATCH 写成任意字符串；经 resolve_audio_ref_path
+            # 确认落在 refs_audio 目录内才允许删除，否则只清字段不碰文件系统
+            audio_refs_dir = project_dir / "characters" / "refs_audio"
+            stale_path = (
+                resolve_audio_ref_path(project_dir, audio_refs_dir, old_audio) if isinstance(old_audio, str) else None
+            )
+            # 先删文件、后清字段：权限/IO 错误（含 Windows 文件被占用的共享冲突）导致
+            # unlink 失败时,字段仍指向该文件,可重试删除;顺序反过来会在物理删除失败时
+            # 留下「字段已清空但文件仍在」的孤儿,且没有指针可供重试发现它。
+            if stale_path is not None:
+                stale_path.unlink(missing_ok=True)
+            with project_change_source("webui"):
+                manager.update_character_reference_audio(project_name, name, "")
+
+            return {"success": True}
 
         return await asyncio.to_thread(_sync)
 
@@ -456,7 +560,7 @@ async def _handle_source_upload(
 
 
 @router.get("/projects/{project_name}/files")
-async def list_project_files(project_name: str, _user: CurrentUser, _t: Translator):
+async def list_project_files(project_name: str, _t: Translator):
     """列出项目中的所有文件"""
     try:
 
@@ -512,7 +616,7 @@ async def list_project_files(project_name: str, _user: CurrentUser, _t: Translat
 
 
 @router.get("/projects/{project_name}/source/{filename}")
-async def get_source_file(project_name: str, filename: str, _user: CurrentUser, _t: Translator):
+async def get_source_file(project_name: str, filename: str, _t: Translator):
     """获取 source 文件的文本内容"""
     try:
 
@@ -548,7 +652,6 @@ async def get_source_file(project_name: str, filename: str, _user: CurrentUser, 
 async def update_source_file(
     project_name: str,
     filename: str,
-    _user: CurrentUser,
     _t: Translator,
     content: str = Body(..., media_type="text/plain"),
 ):
@@ -581,7 +684,7 @@ async def update_source_file(
 
 
 @router.delete("/projects/{project_name}/source/{filename}")
-async def delete_source_file(project_name: str, filename: str, _user: CurrentUser, _t: Translator):
+async def delete_source_file(project_name: str, filename: str, _t: Translator):
     """删除 source 文件"""
     try:
 
@@ -646,7 +749,7 @@ _STEP1_FAMILY: dict[str, list[str]] = {
 }
 _STEP1_FAMILY[REFERENCE_VIDEO_STEP1_FILENAME] = [REFERENCE_VIDEO_STEP1_FILENAME, REFERENCE_VIDEO_STEP1_LEGACY_FILENAME]
 
-# step1 实际文件候选 —— 主文件不存在时用于 fallback 探测，兼容 episode 级 generation_mode 覆盖。
+# step1 实际文件候选 —— 主文件不存在时用于 fallback 探测。
 # 结构化 .json 与旧 .md 候选均由单一真相源派生；各自保留旧 .md 以便存量在制品仍可浏览。
 # 跨模式遗留回落的探测优先级固定为 reference_video → narration → drama（保持历史 tie-break，
 # 避免收敛后跨模式选到的遗留文件与旧实现不一致）；未登记于此序列的未来 content_mode 附加在后。
@@ -656,23 +759,17 @@ _STEP1_CANDIDATES = list(
 )
 
 
-def _load_project_modes(project_name: str, episode: int) -> tuple[str, str | None]:
-    """走 ProjectManager.load_project，派生 (content_mode, generation_mode)。
+def _load_project_modes(project_name: str) -> tuple[str, str | None]:
+    """走 ProjectManager.load_project，读出 (content_mode, generation_mode) 两轴。
 
-    复用 load_project 以获得文件锁和 _migrate_legacy_style 迁移；generation_mode 的
-    episode→project→默认回退复用 lib.project_manager.effective_mode。
-    项目不存在时返回 ("drama", None)，由调用方走 content_mode-only 分支。
+    复用 load_project 以获得文件锁和 _migrate_legacy_style 迁移；两轴都是项目级字段，
+    草稿文件名不随集号变化。项目不存在时返回 ("drama", None)，由调用方走 content_mode-only 分支。
     """
     try:
         data = get_project_manager().load_project(project_name)
     except FileNotFoundError:
         return "drama", None
-    content_mode = data.get("content_mode", "drama")
-    ep_dict = next(
-        (ep for ep in (data.get("episodes") or []) if ep.get("episode") == episode),
-        {},
-    )
-    return content_mode, effective_mode(project=data, episode=ep_dict)
+    return data.get("content_mode", "drama"), data.get("generation_mode")
 
 
 def _resolve_step1_path(drafts_dir: Path, step_num: int, primary: Path) -> Path:
@@ -691,13 +788,13 @@ def _resolve_step1_path(drafts_dir: Path, step_num: int, primary: Path) -> Path:
 
 
 @router.get("/projects/{project_name}/drafts/{episode}/step{step_num}")
-async def get_draft_content(project_name: str, episode: int, step_num: int, _user: CurrentUser, _t: Translator):
+async def get_draft_content(project_name: str, episode: int, step_num: int, _t: Translator):
     """获取特定步骤的草稿内容"""
     try:
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            content_mode, generation_mode = _load_project_modes(project_name, episode)
+            content_mode, generation_mode = _load_project_modes(project_name)
             step_files = _get_step_files(content_mode, generation_mode)
 
             if step_num not in step_files:
@@ -723,89 +820,115 @@ async def update_draft_content(
     project_name: str,
     episode: int,
     step_num: int,
-    _user: CurrentUser,
     _t: Translator,
     content: str = Body(..., media_type="text/plain"),
 ):
     """更新草稿内容"""
     try:
 
-        def _sync():
+        def _resolve_target() -> tuple[Path, str, Path]:
             project_dir = get_project_manager().get_project_path(project_name)
-            content_mode, generation_mode = _load_project_modes(project_name, episode)
+            content_mode, generation_mode = _load_project_modes(project_name)
             step_files = _get_step_files(content_mode, generation_mode)
 
             if step_num not in step_files:
                 raise HTTPException(status_code=400, detail=_t("invalid_step_num", step_num=step_num))
 
-            drafts_dir = episode_drafts_dir(project_dir, episode)
-            drafts_dir.mkdir(parents=True, exist_ok=True)
-
             # 写入始终落到当前模式的目标文件；fallback 仅用于读取/删除（兼容跨模式切换的旧 step1）。
             # 若写入 fallback 到老文件，切模式后后续 subagent 读 step_files[step_num] 仍为空，
             # 导致"前端保存成功但生成报缺少 step1"。
-            draft_path = drafts_dir / step_files[step_num]
+            return project_dir, content_mode, episode_drafts_dir(project_dir, episode) / step_files[step_num]
 
-            # drama step1 落结构化 .json：写入前与 _load_drama_step1_content 的读取契约同口径校验
-            # ——合法 JSON、顶层对象、scenes 为非空且每项为带非空 scene_id 的对象，避免任意文本 / 空剧本 /
-            # 非对象场景项 / 缺失或空 scene_id 写进结构化草稿、拖到生成阶段才解析失败（前端保存成功但生成必然
-            # 失败）。按目标文件名而非 content_mode 触发：_get_step_files 对未知模式回落到 drama 的
-            # 结构化文件名，仅凭 content_mode 判定会让脏值绕过校验把任意文本写成 drama JSON。narration /
-            # reference 的 step1 落各自文件名，不匹配此校验。
-            if draft_path.name == STEP1_FILENAMES["drama"]:
-                try:
-                    parsed = json.loads(content)
-                except json.JSONDecodeError:
-                    raise HTTPException(status_code=400, detail=_t("draft_invalid_json"))
-                scenes = parsed.get("scenes") if isinstance(parsed, dict) else None
-                if (
-                    not isinstance(parsed, dict)
-                    or not isinstance(scenes, list)
-                    or not scenes
-                    or any(not isinstance(scene, dict) for scene in scenes)
-                    or any(not isinstance(scene.get("scene_id"), str) or not scene.get("scene_id") for scene in scenes)
-                ):
-                    raise HTTPException(status_code=400, detail=_t("draft_invalid_json"))
+        project_dir, content_mode, draft_path = await asyncio.to_thread(_resolve_target)
 
-            is_new = not draft_path.exists()
-            draft_path.write_text(content, encoding="utf-8")
-
-            # 发射 draft 事件通知前端
-            action = "created" if is_new else "updated"
-            label_prefix = _t("segment_splitting") if content_mode == "narration" else _t("normalized_script")
-            change = {
-                "entity_type": "draft",
-                "action": action,
-                "entity_id": f"episode_{episode}_step{step_num}",
-                "label": _t("draft_event_label", episode=episode, label_prefix=label_prefix),
-                "episode": episode,
-                "focus": {
-                    "pane": "episode",
-                    "episode": episode,
-                },
-                "important": is_new,
-            }
+        if draft_path.name == REFERENCE_VIDEO_STEP1_FILENAME:
+            # 参考生视频正式 step1 不走本端点的裸文本直写：它的写盘统一收敛在
+            # ScriptReviewService.save_content 的单一出口（结构校验、references 重派生、
+            # per-path 锁与 step2 隔离草稿清理），裸写会成为一条未经校验、绕开写盘语义的旁路。
+            # 本端点无基线指纹可传，不做并发基线比对（同其余无基线的直连调用）。
             try:
-                emit_project_change_batch(project_name, [change], source="worker")
-            except Exception:
-                logger.warning("发送 draft 事件失败 project=%s episode=%s", project_name, episode, exc_info=True)
+                parsed = json.loads(content)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=400, detail=_t("script_review_invalid_content", details=str(exc)))
+            # 存在性探测同其余同步文件 I/O 卸到线程：本函数由请求协程直接 await，
+            # 裸 exists() 会跑在事件循环上阻塞并发请求。
+            is_new = not await asyncio.to_thread(draft_path.exists)
+            try:
+                await ScriptReviewService(get_project_manager()).save_content(project_name, episode, parsed)
+            except ScriptReviewError as exc:
+                raise_review_error(exc, episode, _t)
+        else:
+            is_new = await asyncio.to_thread(_write_plain_draft, draft_path, content, _t)
 
-            return {"success": True, "path": draft_path.relative_to(project_dir).as_posix()}
+        # 发射 draft 事件通知前端
+        action = "created" if is_new else "updated"
+        label_prefix = _t("segment_splitting") if content_mode == "narration" else _t("normalized_script")
+        change = {
+            "entity_type": "draft",
+            "action": action,
+            "entity_id": f"episode_{episode}_step{step_num}",
+            "label": _t("draft_event_label", episode=episode, label_prefix=label_prefix),
+            "episode": episode,
+            "focus": {
+                "pane": "episode",
+                "episode": episode,
+            },
+            "important": is_new,
+        }
+        try:
+            emit_project_change_batch(project_name, [change], source="worker")
+        except Exception:
+            logger.warning("发送 draft 事件失败 project=%s episode=%s", project_name, episode, exc_info=True)
 
-        return await asyncio.to_thread(_sync)
+        return {"success": True, "path": draft_path.relative_to(project_dir).as_posix()}
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
 
 
+def _write_plain_draft(draft_path: Path, content: str, _t: Translator) -> bool:
+    """非参考生视频 step1 的草稿落盘（同步主体），返回是否为新建文件。
+
+    drama step1 落结构化 .json：写入前与 _load_drama_step1_content 的读取契约同口径校验
+    ——合法 JSON、顶层对象、scenes 为非空且每项为带非空 scene_id 的对象，避免任意文本 / 空剧本 /
+    非对象场景项 / 缺失或空 scene_id 写进结构化草稿、拖到生成阶段才解析失败（前端保存成功但生成必然
+    失败）。按目标文件名而非 content_mode 触发：_get_step_files 对未知模式回落到 drama 的
+    结构化文件名，仅凭 content_mode 判定会让脏值绕过校验把任意文本写成 drama JSON。narration
+    的 step1 落自己的文件名，不匹配此校验。
+    """
+    draft_path.parent.mkdir(parents=True, exist_ok=True)
+    if draft_path.name == STEP1_FILENAMES["drama"]:
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail=_t("draft_invalid_json"))
+        scenes = parsed.get("scenes") if isinstance(parsed, dict) else None
+        if (
+            not isinstance(parsed, dict)
+            or not isinstance(scenes, list)
+            or not scenes
+            or any(not isinstance(scene, dict) for scene in scenes)
+            or any(not isinstance(scene.get("scene_id"), str) or not scene.get("scene_id") for scene in scenes)
+        ):
+            raise HTTPException(status_code=400, detail=_t("draft_invalid_json"))
+
+    # 与 ScriptGenerator / ScriptReviewService 共享同一把 per-path 锁：
+    # 草稿文件的迁移读改写与 Web 端保存相互串行化。
+    pm = get_project_manager()
+    with pm.file_lock(draft_path):
+        is_new = not draft_path.exists()
+        draft_path.write_text(content, encoding="utf-8")
+    return is_new
+
+
 @router.delete("/projects/{project_name}/drafts/{episode}/step{step_num}")
-async def delete_draft(project_name: str, episode: int, step_num: int, _user: CurrentUser, _t: Translator):
+async def delete_draft(project_name: str, episode: int, step_num: int, _t: Translator):
     """删除草稿文件"""
     try:
 
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
-            content_mode, generation_mode = _load_project_modes(project_name, episode)
+            content_mode, generation_mode = _load_project_modes(project_name)
             step_files = _get_step_files(content_mode, generation_mode)
 
             if step_num not in step_files:
@@ -830,7 +953,7 @@ async def delete_draft(project_name: str, episode: int, step_num: int, _user: Cu
 
 
 @router.post("/projects/{project_name}/style-image")
-async def upload_style_image(project_name: str, _user: CurrentUser, _t: Translator, file: UploadFile = File(...)):
+async def upload_style_image(project_name: str, _t: Translator, file: UploadFile = File(...)):
     """
     上传风格参考图并分析风格
 

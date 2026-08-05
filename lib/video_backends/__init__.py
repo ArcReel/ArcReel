@@ -9,8 +9,8 @@ from lib.providers import (
     PROVIDER_OPENAI,
 )
 from lib.video_backends.base import (
+    ReferenceAudioMode,
     VideoBackend,
-    VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -22,8 +22,8 @@ __all__ = [
     "PROVIDER_GROK",
     "PROVIDER_NEWAPI",
     "PROVIDER_OPENAI",
+    "ReferenceAudioMode",
     "VideoBackend",
-    "VideoCapability",
     "VideoGenerationRequest",
     "VideoGenerationResult",
     "create_backend",

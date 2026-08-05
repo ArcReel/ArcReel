@@ -23,6 +23,8 @@ from lib.kling_shared import (
     resolve_kling_jwt_credentials,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class _Clock:
     """可推进的注入时钟。"""

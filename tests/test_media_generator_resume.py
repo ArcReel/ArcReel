@@ -20,6 +20,8 @@ import pytest
 from lib.media_generator import MediaGenerator
 from lib.video_backends.base import ResumeExpiredError
 
+pytestmark = pytest.mark.unit
+
 
 class _FakeVideoResult:
     def __init__(self) -> None:

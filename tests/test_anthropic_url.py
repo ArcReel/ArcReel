@@ -4,6 +4,8 @@ import pytest
 
 from lib.config.anthropic_url import AnthropicEndpoints, derive_anthropic_endpoints
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.mark.parametrize(
     ("user_url", "expected"),

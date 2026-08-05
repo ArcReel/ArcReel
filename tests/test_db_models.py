@@ -10,6 +10,8 @@ import lib.db.models  # noqa: F401 — ensure all models registered for Base.met
 from lib.db.base import Base, TimestampMixin, UserOwnedMixin
 from lib.db.models import AgentSession, Task, User
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def engine():

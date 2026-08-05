@@ -15,6 +15,8 @@ from alembic.config import Config
 
 from alembic import command
 
+pytestmark = pytest.mark.unit
+
 #: 建表迁移 b942e8c5d545 使用的 FK 约束名，downgrade 重建时必须一致。
 _FK_NAME = "fk_task_events_task_id"
 

@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from lib.db.base import Base
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def db_session():
@@ -110,12 +112,11 @@ async def test_endpoint_field_stores_gemini_image(db_session: AsyncSession):
 
 @pytest.mark.asyncio
 async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSession):
-    """配 endpoint=openai-chat 但被当作 video_backend 使用，且该 provider 没有任何默认启用的
-    video model 可回退 → ValueError。与 loader.load_custom_backend 同一条回退规则：media_type
-    不符视为该 model 失效，先尝试回退默认 video model，回退也找不到才报错——不是原样报
-    「media_type 不符」（那会让展示层与仍能静默回退成功的执行层不一致，见 resolver.py 中
-    is_enabled/media_type 回退分支的注释）。"""
-    from lib.config.resolver import ConfigResolver
+    """配 endpoint=openai-chat 但被当作 video_backend 使用 → 能力桶解析闸判悬空引用并报错。
+
+    与执行路径同一条口径：media_type 不符的引用已不可兑现，报错让用户重选，不静默换成该供应商
+    的其它 model（``docs/adr/0054``）。"""
+    from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 
     provider = CustomProvider(
         display_name="MismatchProv",
@@ -151,28 +152,30 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
     svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
-    with pytest.raises(ValueError, match="custom model not found"):
+    with pytest.raises(VideoBucketCapabilityError) as excinfo:
         await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
+    assert excinfo.value.code == "video_capability_reference_unavailable"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "endpoint, model_id, expected_max_refs",
+    "endpoint, model_id, expected_max_refs, generation_mode",
     [
         # 显式 int：直接用 endpoint cap（行为零变化）
-        ("openai-video", "vid-model", 1),
-        ("newapi-video", "vid-model", 0),
+        ("openai-video", "vid-model", 1, "storyboard"),
+        ("newapi-video", "vid-model", 0, "storyboard"),
         # 未声明（None）：按 model_id 调 backend 纯 caps 函数读上限，不构造 backend
-        ("ark-seedance", "doubao-seedance-2-0", 9),
-        ("ark-seedance", "doubao-seedance-1-0", 0),  # 非 seedance-2 → 0，证明纯函数仍按 model 分支
-        ("vidu-video", "viduq3-turbo", 7),
-        # minimax-video：S2V-01 单脸参考 → 1；海螺系列走首帧无参考 → 0
-        ("minimax-video", "S2V-01", 1),
-        ("minimax-video", "MiniMax-Hailuo-2.3", 0),
+        ("ark-seedance", "doubao-seedance-2-0", 9, "storyboard"),
+        ("ark-seedance", "doubao-seedance-1-0", 0, "storyboard"),  # 非 seedance-2 → 0，证明纯函数仍按 model 分支
+        ("vidu-video", "viduq3-turbo", 7, "storyboard"),
+        # minimax-video：S2V-01 单脸参考 → 1；海螺系列走首帧无参考 → 0。S2V-01 无首帧能力，
+        # 只能落 r2v 桶，项目须是参考生视频模式才解析得到它
+        ("minimax-video", "S2V-01", 1, "reference_video"),
+        ("minimax-video", "MiniMax-Hailuo-2.3", 0, "storyboard"),
     ],
 )
 async def test_custom_video_max_reference_images_from_endpoint(
-    db_session: AsyncSession, endpoint: str, model_id: str, expected_max_refs: int
+    db_session: AsyncSession, endpoint: str, model_id: str, expected_max_refs: int, generation_mode: str
 ):
     """custom 视频 model 的 max_reference_images 经 ENDPOINT_REGISTRY 派生：endpoint cap
     为显式 int 时直接用；为 None 时按 model_id 调 backend 纯 caps 函数读上限，均不静默落默认值。
@@ -208,7 +211,7 @@ async def test_custom_video_max_reference_images_from_endpoint(
     await db_session.flush()
 
     provider_id_str = make_provider_id(provider.id)
-    project = {"video_backend": f"{provider_id_str}/{model_id}"}
+    project = {"video_backend": f"{provider_id_str}/{model_id}", "generation_mode": generation_mode}
 
     factory = async_sessionmaker(bind=db_session.get_bind(), class_=AsyncSession, expire_on_commit=False)  # type: ignore[call-overload]
     svc = ConfigService(db_session)
@@ -265,13 +268,13 @@ async def test_custom_video_caps_resolved_without_api_key(db_session: AsyncSessi
 
 @pytest.mark.asyncio
 async def test_custom_video_max_refs_missing_caps_fn_raises(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch):
-    """endpoint cap=None 且 video_caps_for_model 也缺失（misconfig）→ resolver raise ValueError。
+    """endpoint cap=None 且 video_caps_for_model 也缺失（misconfig）→ 能力桶解析闸报悬空引用。
 
     EndpointSpec 是 frozen dataclass，用 dataclasses.replace 造 misconfig spec 再 setitem 临时替换
     （module-load 不变式仅 import 期生效，不拦运行时 monkeypatch）。"""
     import dataclasses
 
-    from lib.config.resolver import ConfigResolver
+    from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
     from lib.config.service import ConfigService
     from lib.custom_provider import make_provider_id
     from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
@@ -309,8 +312,11 @@ async def test_custom_video_max_refs_missing_caps_fn_raises(db_session: AsyncSes
     svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
-    with pytest.raises(ValueError, match="declares neither video_max_reference_images"):
+    with pytest.raises(VideoBucketCapabilityError) as excinfo:
         await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
+    assert excinfo.value.code == "video_capability_reference_unavailable"
+    # 具体成因留在异常链上供日志定位，不进面向用户的报错文案
+    assert "declares neither video_max_reference_images" in str(excinfo.value.__cause__)
 
 
 @pytest.mark.asyncio
@@ -318,7 +324,7 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
     """endpoint cap=None，caps 函数返回负数 → raise ValueError（不静默下传坏值）。"""
     import dataclasses
 
-    from lib.config.resolver import ConfigResolver
+    from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
     from lib.config.service import ConfigService
     from lib.custom_provider import make_provider_id
     from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
@@ -358,5 +364,7 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
     svc = ConfigService(db_session)
     resolver = ConfigResolver(factory, _bound_session=db_session)
 
-    with pytest.raises(ValueError, match="invalid backend max_reference_images"):
+    with pytest.raises(VideoBucketCapabilityError) as excinfo:
         await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
+    assert excinfo.value.code == "video_capability_reference_unavailable"
+    assert "invalid backend max_reference_images" in str(excinfo.value.__cause__)

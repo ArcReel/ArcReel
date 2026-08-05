@@ -25,7 +25,6 @@ from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapabilities,
-    VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
     download_video,
@@ -77,10 +76,6 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
         self._base_url = base_url.rstrip("/")
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
-        self._capabilities: set[VideoCapability] = {
-            VideoCapability.TEXT_TO_VIDEO,
-            VideoCapability.IMAGE_TO_VIDEO,
-        }
 
     @property
     def name(self) -> str:
@@ -90,10 +85,6 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
     def model(self) -> str:
         return self._model
 
-    @property
-    def capabilities(self) -> set[VideoCapability]:
-        return self._capabilities
-
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
@@ -101,7 +92,7 @@ class NewAPIVideoBackend(ProviderJobIdPersistenceMixin):
         中转端点不接受参考图；当前全系模型能力一致，不按 model_id 分支。
         instance property 委托至此，保持 backend 为单一真相源。
         """
-        return VideoCapabilities(reference_images=False, max_reference_images=0)
+        return VideoCapabilities(max_reference_images=0)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

@@ -50,7 +50,7 @@ _SUBTITLE_TEXT_FIELDS: dict[str, str] = {
 _SPAN_SUBTITLE_MODES: frozenset[str] = frozenset({"drama"})
 
 from lib.path_safety import PathTraversalError, safe_join, safe_resolve
-from lib.project_manager import ProjectManager, effective_mode
+from lib.project_manager import ProjectManager
 from lib.reference_video.ad_units import ad_shots_by_id
 from lib.script_models import ad_shot_duration_seconds, get_generated_assets
 from lib.script_skeleton import SKELETONS, resolve_declared_kind
@@ -476,13 +476,12 @@ class JianyingDraftService:
 
         # 2. 收集已完成视频（生成路径按 project.json 解析：ad 参考直出收集 unit 级片段）
         content_mode = _script_content_mode(script_data)
-        ep_entry = next((e for e in project.get("episodes", []) if e.get("episode") == episode), None)
         # drama 字幕语速按项目源语言取（source_language 是唯一真相源，缺失 / 脏值时回退默认语速）
         source_language = project.get("source_language")
         clips = self._collect_video_clips(
             script_data,
             project_dir,
-            generation_mode=effective_mode(project=project, episode=ep_entry or {}),
+            generation_mode=project.get("generation_mode"),
             language=source_language if isinstance(source_language, str) else None,
         )
         if not clips:

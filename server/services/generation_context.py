@@ -23,8 +23,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+from lib.audio_backends.base import VoiceOption
 from lib.backend_assembly import assemble_backend
-from lib.config.resolver import ConfigResolver, get_provider_fallback
+from lib.config.resolver import ConfigResolver, VideoCapability, VoiceConsistency, get_provider_fallback
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import get_shared_rate_limiter
 from lib.media_generator import MediaGenerator
@@ -155,7 +156,15 @@ class ImageLaneRequest:
 
 @dataclass(frozen=True)
 class VideoLaneRequest:
-    """声明本次任务需要 video lane。"""
+    """声明本次任务需要 video lane。
+
+    ``capability`` 决定 i2v / r2v 能力桶（``docs/adr/0054``）：图生视频 / 宫格 → i2v；
+    参考生视频按镜头解析后的实际参考图分流——有参考图 → r2v，无参考图的退化镜头降级
+    → i2v（由 executor 判定后声明，见 ``lib.reference_video.units``）。None = 不定桶，
+    走旧三级解析且不过能力闸——供 resume 等按 payload 排空、不承诺能力的路径使用。
+    """
+
+    capability: VideoCapability | None = None
 
 
 @dataclass(frozen=True)
@@ -197,17 +206,50 @@ class VideoLaneResult:
     supported_durations: tuple[int, ...]
     max_duration: int | None
     max_reference_images: int | None
+    # 能力查询失败时降级为 "soft"（有信号才判定为真无声，与既有「无信号不落 none」口径一致，
+    # 见 lib.config.resolver.derive_voice_consistency）。
+    voice_consistency: VoiceConsistency = "soft"
+    # 每请求可携带的参考音频段数上限。降级为 0 = 不绑定任何参考音频：绑定数超上限会被
+    # gate_video_request 当场拒绝，能力不明时宁可退到 B 类软约束也不赌一个上限值。
+    max_reference_audio_count: int = 0
+    # 本集的无声开关（用户意图口径：全局设置 ← project.json 覆盖），与 MediaGenerator 结算时读的
+    # video_generate_audio 同源，**不是** caps["generate_audio"] 那个叠加了恒含音出账与默认执行档
+    # 判定的计价参数。为 False 时编排层不组装参考音频（台词文本照发）。与其余能力字段不同口径：
+    # 它不依赖 provider 能力接口，独立解析（见 resolve_generation_context 内的调用），能力查询
+    # 失败不会连带把它冲回默认值——冲回会静默重新允许参考音频上传，违背用户已关闭的意图。
+    requested_generate_audio: bool = True
+    # 音频是否须逐段挂在具体参考素材项上（如 wan2.7-r2v 的 reference_voice 字段）。为 True
+    # 时渲染层派生的音频顺序（台词 speaker 首现顺序）不能假设与参考图顺序（mention 首现顺序）
+    # 天然对齐，调用方须显式算出「谁的声音配哪张图」再随请求下发。能力查询失败降级为 False——
+    # 与其余能力字段同口径，不明时不额外收紧。
+    reference_audio_per_image: bool = False
+
+    @property
+    def is_silent(self) -> bool:
+        """这一集是否听不到声音——模型不产音（C 类）或本集关闭了音频，两条路径同口径。
+
+        声音特征描述随该判据一并不注入：它虽是提示词文本而非音频负载，但描述的是听得到的
+        音色，无声成片里注入只会让模型把配额花在用不上的约束上。台词不看这一位——无声视频
+        里台词文本照常下发，供应商可用作口型参考。参考路线的同名判据见
+        ``lib.reference_video.voice_settings.VoiceRenderSettings.is_silent``。
+        """
+        return self.voice_consistency == "none" or not self.requested_generate_audio
 
 
 @dataclass(frozen=True)
 class AudioLaneResult:
-    """audio lane 解析产物。narration voice/speed 与 backend 解析在同一 session 内交付。"""
+    """audio lane 解析产物。narration voice/speed、音色目录与 backend 解析在同一 session 内交付。
+
+    ``voices`` 是该 backend 的音色枚举快照（值，非 backend 实例）：音色列表端点据此应答，
+    合成任务据此校验请求音色，二者不必再触达 backend 对象。
+    """
 
     provider_model: ProviderModel
     backend_name: str
     backend_model: str
     narration_voice: str
     narration_speed: float | None
+    voices: tuple[VoiceOption, ...]
 
 
 def _lane_not_declared(lane: str, request_hint: str) -> RuntimeError:
@@ -263,6 +305,11 @@ async def resolve_generation_context(
     lane 传即声明、None 跳过，任务只为用到的 lane 付出配置要求与构造成本。任一声明 lane
     的解析或构造失败即原样上抛、整次调用失败——无部分结果、无跨 provider 兜底；仅能力
     查询失败降级空值放行。``project`` 是调用方已加载的项目快照，本函数不读盘。
+
+    video lane 的定桶随 ``VideoLaneRequest.capability``：None 时按项目生成路线解析（见
+    ``lib.config.resolver.caps_generation_mode``）——路线创建即定、整个项目按同一条路径生成，
+    声音一致性等二维派生值因此不需要集号；显式给定时按指定桶解析（参考路线内按镜头分流的
+    调用方自带判定结果）。
     """
     from lib.db import async_session_factory
 
@@ -293,7 +340,7 @@ async def resolve_generation_context(
             )
 
         if video is not None:
-            resolved = await r.resolve_video_backend(project, payload)
+            resolved = await r.resolve_video_backend(project, payload, capability=video.capability)
             video_backend = await _get_or_create_video_backend(
                 resolved.provider_id,
                 {},
@@ -305,11 +352,20 @@ async def resolve_generation_context(
             supported_durations: tuple[int, ...] = ()
             max_duration: int | None = None
             max_reference_images: int | None = None
+            voice_consistency: VoiceConsistency = "soft"
+            max_reference_audio_count = 0
+            reference_audio_per_image = False
+            # 独立于能力解析：这是用户在 project.json / 全局设置里的无声意图，不来自 provider
+            # 能力接口，能力解析失败不得连带把它冲回默认值 True（会静默重新允许参考音频上传）。
+            requested_generate_audio = await r.video_generate_audio_for_project(project)
             try:
                 caps = await r.video_capabilities_for_model(resolved.provider_id, actual_model, project)
                 supported_durations = tuple(int(d) for d in caps.get("supported_durations") or [])
                 max_duration = caps.get("max_duration")
                 max_reference_images = caps.get("max_reference_images")
+                voice_consistency = caps.get("voice_consistency") or "soft"
+                max_reference_audio_count = int(caps.get("max_reference_audio_count") or 0)
+                reference_audio_per_image = bool(caps.get("reference_audio_per_image") or False)
             except Exception as exc:
                 logger.info(
                     "无法解析 video capabilities（%s/%s），能力值降级为空：%s",
@@ -326,6 +382,10 @@ async def resolve_generation_context(
                 supported_durations=supported_durations,
                 max_duration=max_duration,
                 max_reference_images=max_reference_images,
+                voice_consistency=voice_consistency,
+                requested_generate_audio=requested_generate_audio,
+                max_reference_audio_count=max_reference_audio_count,
+                reference_audio_per_image=reference_audio_per_image,
             )
 
         if audio is not None:
@@ -342,6 +402,7 @@ async def resolve_generation_context(
                 backend_model=audio_backend.model,
                 narration_voice=await r.resolve_narration_voice(project),
                 narration_speed=await r.resolve_narration_speed(project),
+                voices=tuple(audio_backend.list_voices()),
             )
 
     generator = MediaGenerator(

@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.config.service import ConfigService
 from lib.db import get_async_session
-from server.auth import CurrentUser
 from server.dependencies import get_config_service
 
 router = APIRouter()
@@ -36,7 +35,6 @@ async def _read_seen(svc: ConfigService) -> bool:
 
 @router.get("/onboarding/status", response_model=OnboardingStatusResponse)
 async def get_onboarding_status(
-    _user: CurrentUser,
     svc: Annotated[ConfigService, Depends(get_config_service)],
 ) -> OnboardingStatusResponse:
     """引导是否已看过。未设置视为未看过 —— 前端据此决定是否自动弹出。"""
@@ -45,7 +43,6 @@ async def get_onboarding_status(
 
 @router.post("/onboarding/seen", response_model=OnboardingStatusResponse)
 async def mark_onboarding_seen(
-    _user: CurrentUser,
     svc: Annotated[ConfigService, Depends(get_config_service)],
     session: AsyncSession = Depends(get_async_session),
 ) -> OnboardingStatusResponse:

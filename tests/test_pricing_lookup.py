@@ -20,6 +20,8 @@ from lib.pricing.types import (
     ViduDelegate,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestRegistryHit:
     def test_gemini_image_flash(self):

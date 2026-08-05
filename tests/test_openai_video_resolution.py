@@ -10,6 +10,8 @@ import pytest
 from lib.video_backends.base import VideoGenerationRequest
 from lib.video_backends.openai import _SORA_LEGAL_SIZES, OpenAIVideoBackend
 
+pytestmark = pytest.mark.unit
+
 
 def _make_backend(model: str = "sora-2"):
     backend = OpenAIVideoBackend.__new__(OpenAIVideoBackend)

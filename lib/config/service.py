@@ -207,20 +207,6 @@ class ConfigService:
         raw = await self._setting_repo.get("default_video_backend", _DEFAULT_VIDEO_BACKEND)
         return self._parse_backend(raw, _DEFAULT_VIDEO_BACKEND)
 
-    async def get_default_image_backend(self) -> tuple[str, str]:
-        """图像默认 backend 的真实解析路径在 ConfigResolver.default_image_backend_t2i / _i2i；
-        此方法保留为公共 API，仅作为 T2I 兜底（外部调用方极少；Resolver 不调用此方法）。
-
-        与 resolver._resolve_default_image_backend 语义一致：新 key 存在但为空 = 显式清空，
-        不再回退 legacy；新 key 不存在才尝试 legacy。
-        """
-        settings = await self._setting_repo.get_all()
-        if "default_image_backend_t2i" in settings:
-            raw = settings["default_image_backend_t2i"]
-        else:
-            raw = settings.get("default_image_backend", _DEFAULT_IMAGE_BACKEND)
-        return self._parse_backend(raw or _DEFAULT_IMAGE_BACKEND, _DEFAULT_IMAGE_BACKEND)
-
     async def get_default_text_backend(self) -> tuple[str, str]:
         raw = await self._setting_repo.get("default_text_backend", _DEFAULT_TEXT_BACKEND)
         return self._parse_backend(raw, _DEFAULT_TEXT_BACKEND)

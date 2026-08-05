@@ -47,21 +47,31 @@ export interface CustomProviderModelInfo {
   currency: string | null;
   supported_durations: number[] | null;
   resolution: string | null;
-  /** 系统判定的视频能力（四字段全量）；非视频模型为 null。 */
+  /** 系统判定的视频能力（全字段）；非视频模型为 null。 */
   system_capabilities: VideoCapabilityFlags | null;
   /** 用户覆盖（稀疏），与 system_capabilities 合并即为生效值；无覆盖为 null。 */
   capability_overrides: CapabilityOverrides | null;
+  /** 正在引用该模型的全局 system_settings 键名（如 default_video_backend_i2v）；未被引用为 null。 */
+  global_bucket_refs: string[] | null;
 }
 
-/** 与后端 VideoCapabilities 字段对齐。 */
+/** 后端接受参考音频的运输形态；none 表示该模型没有音色输入通道。 */
+export type ReferenceAudioMode = "none" | "direct";
+
+/** 后端 VideoCapabilities 中界面用得到的子集（后端另有 reference_audio_per_image、
+ *  max_reference_audio_total_seconds、max_prompt_chars 等纯执行期维度，不在此声明）。
+ *  参考图路径以 max_reference_images > 0 表达，
+ *  不另设布尔位——两份声明会漂移出「称支持但上限为 0」这类自相矛盾的状态。 */
 export interface VideoCapabilityFlags {
   first_frame: boolean;
   last_frame: boolean;
-  reference_images: boolean;
   max_reference_images: number;
+  reference_audio_mode: ReferenceAudioMode;
+  max_reference_audio_count: number;
 }
 
-/** 稀疏覆盖字典：键缺席 = 跟随系统判定。当前后端只开放 last_frame。 */
+/** 稀疏覆盖字典：键缺席 = 跟随系统判定。
+ *  当前后端开放 last_frame / reference_audio_mode / max_reference_audio_count。 */
 export type CapabilityOverrides = Partial<VideoCapabilityFlags>;
 
 export interface DiscoveredModel {

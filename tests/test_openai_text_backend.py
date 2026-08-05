@@ -6,6 +6,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import pytest
 from openai import BadRequestError
 from pydantic import BaseModel
 
@@ -15,6 +16,8 @@ from lib.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
 )
+
+pytestmark = pytest.mark.unit
 
 
 def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):

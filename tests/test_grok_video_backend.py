@@ -8,10 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from lib.providers import PROVIDER_GROK
-from lib.video_backends.base import (
-    VideoCapability,
-    VideoGenerationRequest,
-)
+from lib.video_backends.base import VideoGenerationRequest
+
+pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
@@ -33,11 +32,7 @@ class TestGrokVideoBackend:
         from lib.video_backends.grok import GrokVideoBackend
 
         backend = GrokVideoBackend(api_key="test-key")
-        assert VideoCapability.TEXT_TO_VIDEO in backend.capabilities
-        assert VideoCapability.IMAGE_TO_VIDEO in backend.capabilities
-        assert VideoCapability.GENERATE_AUDIO not in backend.capabilities
-        assert VideoCapability.NEGATIVE_PROMPT not in backend.capabilities
-        assert VideoCapability.SEED_CONTROL not in backend.capabilities
+        assert backend.video_capabilities.max_reference_images == 7
 
     @patch("lib.video_backends.grok.create_grok_client")
     def test_custom_model(self, mock_create):

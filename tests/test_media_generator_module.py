@@ -197,6 +197,7 @@ class TestSegmentIdFor:
 
 
 class TestMediaGenerator:
+    @pytest.mark.unit
     def test_get_output_path_and_invalid_type(self, tmp_path):
         gen = _build_generator(tmp_path)
         assert gen._get_output_path("storyboards", "E1S01").name == "scene_E1S01.png"
@@ -206,6 +207,7 @@ class TestMediaGenerator:
         with pytest.raises(ValueError):
             gen._get_output_path("bad", "x")
 
+    @pytest.mark.unit
     def test_generate_image_success_and_failure(self, tmp_path):
         gen = _build_generator(tmp_path)
         output_path, version = gen.generate_image(
@@ -231,6 +233,7 @@ class TestMediaGenerator:
 
         assert any(o["status"] == "failed" for o in gen.ledger.outcomes)
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_generate_video_sync_and_async(self, tmp_path):
         gen = _build_generator(tmp_path)
@@ -273,6 +276,7 @@ class TestMediaGenerator:
         await gen.generate_video_async(prompt="p", resource_type="grids", resource_id="E1G1")
         assert gen.ledger.started[-1]["segment_id"] is None
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_video_billed_duration_passed_to_finish_call(self, tmp_path):
         """backend 返回与请求不同的实际计费时长时，视频路径透传给 finish_call。"""
@@ -289,6 +293,7 @@ class TestMediaGenerator:
         # billed_duration_seconds 由真 Ledger union 分发从结果对象提取；此处确认递交了 duration=15 的结果
         assert gen.ledger.outcomes[-1]["result"].duration_seconds == 15
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_video_billed_duration_lands_in_ledger(self, tmp_path):
         """端到端：真 Ledger 落库，backend 返回与请求不同的实际计费时长，ApiCall 账本记录 backend 值。"""
@@ -322,6 +327,7 @@ class TestMediaGenerator:
         finally:
             await engine.dispose()
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_video_generate_audio_from_config_resolver(self, tmp_path):
         """验证 generate_video_async 通过 ConfigResolver 获取 audio 设置。"""
@@ -336,6 +342,7 @@ class TestMediaGenerator:
         # VideoBackend 路径尊重 ConfigResolver 返回的值
         assert gen.ledger.started[-1]["generate_audio"] is False
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_video_generate_audio_respects_config_true(self, tmp_path):
         """验证 video_backend 尊重 ConfigResolver 返回的 True。"""
@@ -349,6 +356,7 @@ class TestMediaGenerator:
         )
         assert gen.ledger.started[-1]["generate_audio"] is True
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_video_generate_audio_defaults_true_when_config_none(self, tmp_path):
         """当 self._config is None 时，fallback 默认 True，
@@ -529,24 +537,29 @@ class _ConfigurableImageBackend:
 
 
 class TestIs413:
+    @pytest.mark.unit
     def test_httpx_413(self):
         assert _is_413(_http_413_error()) is True
 
+    @pytest.mark.unit
     def test_phrase_match(self):
         assert _is_413(RuntimeError("Request Entity Too Large")) is True
         assert _is_413(RuntimeError("oops: PAYLOAD TOO LARGE")) is True
 
+    @pytest.mark.unit
     def test_byte_count_not_misread(self):
         # 修正④：不用裸 "413" 子串，避免字节数 / 请求 ID 误命中
         assert _is_413(RuntimeError("only 41300 bytes uploaded")) is False
         assert _is_413(RuntimeError("error code 413xyz")) is False
 
+    @pytest.mark.unit
     def test_non_413_status(self):
         req = httpx.Request("POST", "https://example.test")
         resp = httpx.Response(status_code=400, request=req)
         err = httpx.HTTPStatusError("bad request", request=req, response=resp)
         assert _is_413(err) is False
 
+    @pytest.mark.unit
     def test_sdk_status_code_attr(self):
         # OpenAI/xai 风格 SDK 异常：直接带 .status_code
         class _SdkErr(Exception):
@@ -554,6 +567,7 @@ class TestIs413:
 
         assert _is_413(_SdkErr("too big")) is True
 
+    @pytest.mark.unit
     def test_sdk_code_attr(self):
         # google-genai 风格 APIError：带 .code
         class _ApiErr(Exception):
@@ -561,12 +575,14 @@ class TestIs413:
 
         assert _is_413(_ApiErr("Request payload size exceeds the limit")) is True
 
+    @pytest.mark.unit
     def test_sdk_non_413_code_not_matched(self):
         class _ApiErr(Exception):
             code = 400
 
         assert _is_413(_ApiErr("bad request")) is False
 
+    @pytest.mark.unit
     def test_string_status_code_413(self):
         # 个别 SDK / mock 把状态码给成字符串 "413"，需防御性 int 转换
         class _StrErr(Exception):
@@ -574,6 +590,7 @@ class TestIs413:
 
         assert _is_413(_StrErr("too big")) is True
 
+    @pytest.mark.unit
     def test_non_numeric_status_code_falls_back_to_phrase(self):
         # 非数字状态码不应抛 ValueError，落回短语匹配
         class _WeirdErr(Exception):
@@ -584,6 +601,7 @@ class TestIs413:
 
 
 class TestReferenceCompressionSeam:
+    @pytest.mark.unit
     async def test_backend_receives_compressed_copy_source_untouched(self, tmp_path):
         gen = _build_generator(tmp_path)
         backend = _ConfigurableImageBackend()
@@ -608,6 +626,7 @@ class TestReferenceCompressionSeam:
         # 临时副本退出后清理
         assert not received[0].exists()
 
+    @pytest.mark.unit
     async def test_413_retry_then_success_single_finish_call(self, tmp_path):
         gen = _build_generator(tmp_path)
         backend = _ConfigurableImageBackend(fail_413_times=1)
@@ -627,6 +646,7 @@ class TestReferenceCompressionSeam:
         assert len(gen.ledger.outcomes) == 1
         assert gen.ledger.outcomes[0]["status"] == "success"
 
+    @pytest.mark.unit
     async def test_413_exhausted_raises_floor_records_failed(self, tmp_path):
         gen = _build_generator(tmp_path)
         backend = _ConfigurableImageBackend(fail_413_times=99)
@@ -647,6 +667,7 @@ class TestReferenceCompressionSeam:
         assert len(gen.ledger.outcomes) == 1
         assert gen.ledger.outcomes[0]["status"] == "failed"
 
+    @pytest.mark.unit
     async def test_t2i_no_refs_413_not_converted_to_floor(self, tmp_path):
         # 无参考图（T2I）的 413 与参考图无关，不应被误转成 floor、也不降档
         gen = _build_generator(tmp_path)
@@ -662,12 +683,18 @@ class TestReferenceCompressionSeam:
         # 单次调用，无降档重试
         assert len(backend.calls) == 1
 
+    @pytest.mark.unit
     async def test_video_frame_not_resized_array_laddered(self, tmp_path):
         gen = _build_generator(tmp_path)
+
+        from lib.video_backends.base import VideoCapabilities
 
         class _CapturingVideoBackend:
             name = "fake-video"
             model = "video-model"
+            # 带参考图的请求会先过 gate_video_request，替身须声明足够的参考图容量，
+            # 否则请求在触达 generate 之前就被能力校验拒掉。
+            video_capabilities = VideoCapabilities(max_reference_images=9)
 
             def __init__(self):
                 self.start_dims = None
@@ -700,3 +727,243 @@ class TestReferenceCompressionSeam:
 
         assert backend.start_dims == (3000, 2000)  # FRAME 尺寸保持
         assert max(backend.ref_dims[0]) == 2048  # ARRAY 缩到长边 2048
+
+    @pytest.mark.unit
+    async def test_reference_audio_reaches_backend_unreordered(self, tmp_path):
+        """参考音频原样透传到请求：gate 放行后若不下传，音频会在校验之后被静默丢弃。
+
+        音频不进压缩器（specs 只收图片），故也不能跟着压缩结果重排——顺序即 prompt 里
+        「音频N」的指认顺序，重排会把 A 角色的音色安到 B 角色头上。
+        """
+        gen = _build_generator(tmp_path)
+
+        from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
+
+        class _AudioCapturingVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(
+                max_reference_images=9,
+                reference_audio_mode=ReferenceAudioMode.DIRECT,
+                max_reference_audio_count=3,
+            )
+
+            def __init__(self):
+                self.received_audio: list[Path] | None = None
+
+            async def generate(self, request):
+                self.received_audio = request.reference_audio_files
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"v")
+                return _FakeVideoResult()
+
+        backend = _AudioCapturingVideoBackend()
+        gen._video_backend = backend
+
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
+        first = tmp_path / "alice.wav"
+        second = tmp_path / "bob.wav"
+        first.write_bytes(b"a")
+        second.write_bytes(b"b")
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            reference_images=[ref],
+            reference_audio_files=[first, second],
+        )
+
+        assert backend.received_audio == [first, second]
+
+    @pytest.mark.integration
+    async def test_reference_audio_total_duration_exceeded_raises_before_backend_call(self, tmp_path):
+        """caps 声明了总时长上限时，超限须在调 backend.generate（即付费请求）之前被拦截。"""
+        import shutil
+
+        if shutil.which("ffprobe") is None:
+            pytest.skip("ffprobe not available")
+
+        from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities, VideoCapabilityError
+        from tests.conftest import _wav_bytes
+
+        gen = _build_generator(tmp_path)
+
+        class _AudioDurationLimitedVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(
+                max_reference_images=9,
+                reference_audio_mode=ReferenceAudioMode.DIRECT,
+                max_reference_audio_count=3,
+                max_reference_audio_total_seconds=15.0,
+            )
+
+            def __init__(self):
+                self.called = False
+
+            async def generate(self, request):
+                self.called = True
+                raise AssertionError("超限请求不应到达 backend.generate")
+
+        backend = _AudioDurationLimitedVideoBackend()
+        gen._video_backend = backend
+
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
+        first = tmp_path / "alice.wav"
+        second = tmp_path / "bob.wav"
+        first.write_bytes(_wav_bytes(10))
+        second.write_bytes(_wav_bytes(10))
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="videos",
+                resource_id="E1S01",
+                reference_images=[ref],
+                reference_audio_files=[first, second],
+            )
+
+        assert exc.value.code == "video_reference_audio_duration_exceeded"
+        assert backend.called is False
+        assert gen.ledger.outcomes == []
+
+    @pytest.mark.unit
+    async def test_total_duration_exceeded_check_skipped_when_probe_fails(self, tmp_path, monkeypatch):
+        """caps 声明了总时长上限，但探测失败（ffprobe 不可用等）返回 None 时，按既有降级口径放行而非阻断。"""
+        from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+
+        class _AudioDurationLimitedVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(
+                max_reference_images=9,
+                reference_audio_mode=ReferenceAudioMode.DIRECT,
+                max_reference_audio_count=3,
+                max_reference_audio_total_seconds=15.0,
+            )
+
+            async def generate(self, request):
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"v")
+                return _FakeVideoResult()
+
+        gen._video_backend = _AudioDurationLimitedVideoBackend()
+
+        async def _failing_probe(paths):
+            return None
+
+        monkeypatch.setattr("lib.media_generator.probe_reference_audio_total_seconds", _failing_probe)
+
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
+        audio = tmp_path / "alice.wav"
+        audio.write_bytes(b"a")
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            reference_images=[ref],
+            reference_audio_files=[audio],
+        )
+
+        assert gen.ledger.outcomes, "探测失败时应放行请求，不阻断到 backend"
+
+    @pytest.mark.unit
+    async def test_total_duration_not_probed_when_backend_declares_no_limit(self, tmp_path, monkeypatch):
+        """未声明总时长约束的后端不该为每个请求多付一轮 ffprobe——探测按能力声明惰性触发。"""
+        from lib.video_backends.base import ReferenceAudioMode, VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+
+        class _NoDurationLimitVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(
+                max_reference_images=9,
+                reference_audio_mode=ReferenceAudioMode.DIRECT,
+                max_reference_audio_count=3,
+            )
+
+            async def generate(self, request):
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"v")
+                return _FakeVideoResult()
+
+        gen._video_backend = _NoDurationLimitVideoBackend()
+
+        probe_calls: list[list[Path]] = []
+
+        async def _recording_probe(paths):
+            probe_calls.append(list(paths))
+            return 0.0
+
+        monkeypatch.setattr("lib.media_generator.probe_reference_audio_total_seconds", _recording_probe)
+
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
+        audio = tmp_path / "alice.wav"
+        audio.write_bytes(b"a")
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            reference_images=[ref],
+            reference_audio_files=[audio],
+        )
+
+        assert probe_calls == []
+
+    @pytest.mark.unit
+    async def test_prompt_over_limit_raises_before_backend_call(self, tmp_path):
+        """超长 prompt 在调 backend.generate（即付费请求）之前被拦截，不留记账行。"""
+        from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
+
+        gen = _build_generator(tmp_path)
+
+        class _PromptLimitedVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(max_prompt_chars=10)
+
+            def __init__(self):
+                self.called = False
+
+            async def generate(self, request):
+                self.called = True
+                raise AssertionError("超限请求不应到达 backend.generate")
+
+        backend = _PromptLimitedVideoBackend()
+        gen._video_backend = backend
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await gen.generate_video_async(prompt="x" * 11, resource_type="videos", resource_id="E1S01")
+
+        assert exc.value.code == "video_prompt_too_long"
+        assert backend.called is False
+        assert gen.ledger.outcomes == []
+
+    @pytest.mark.unit
+    async def test_prompt_gating_applies_without_optional_paths(self, tmp_path):
+        """prompt 长度对每个请求都适用：纯文生/首帧路径（无尾帧、参考图、参考音频）同样查能力。"""
+        from lib.video_backends.base import VideoCapabilities
+
+        gen = _build_generator(tmp_path)
+
+        class _PromptLimitedVideoBackend:
+            name = "fake-video"
+            model = "video-model"
+            video_capabilities = VideoCapabilities(max_prompt_chars=10)
+
+            async def generate(self, request):
+                request.output_path.parent.mkdir(parents=True, exist_ok=True)
+                request.output_path.write_bytes(b"v")
+                return _FakeVideoResult()
+
+        gen._video_backend = _PromptLimitedVideoBackend()
+
+        await gen.generate_video_async(prompt="x" * 10, resource_type="videos", resource_id="E1S01")
+
+        assert gen.ledger.outcomes

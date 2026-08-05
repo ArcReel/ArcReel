@@ -5,10 +5,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from lib.video_backends.base import (
-    VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
+
+pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
@@ -42,15 +43,12 @@ class TestGeminiVideoBackendProperties:
     def test_name(self, backend):
         assert backend.name == "gemini-aistudio"
 
-    def test_capabilities_aistudio(self, backend):
-        caps = backend.capabilities
-        assert VideoCapability.TEXT_TO_VIDEO in caps
-        assert VideoCapability.IMAGE_TO_VIDEO in caps
-        assert VideoCapability.NEGATIVE_PROMPT in caps
-        assert VideoCapability.VIDEO_EXTEND in caps
-        assert VideoCapability.GENERATE_AUDIO not in caps
+    def test_video_capabilities_aistudio(self, backend):
+        caps = backend.video_capabilities
+        assert caps.last_frame is True
+        assert caps.max_reference_images == 3
 
-    def test_capabilities_vertex(self, mock_rate_limiter, tmp_path):
+    def test_vertex_backend_constructs_from_credentials_file(self, mock_rate_limiter, tmp_path):
         # 准备 mock vertex 凭证文件
         creds_file = tmp_path / "vertex_credentials.json"
         creds_file.write_text('{"project_id": "test-project"}')
@@ -70,7 +68,7 @@ class TestGeminiVideoBackendProperties:
                 backend_type="vertex",
                 rate_limiter=mock_rate_limiter,
             )
-            assert VideoCapability.GENERATE_AUDIO in b.capabilities
+            assert b.name == "gemini-vertex"
 
 
 # ── 生成测试 ──────────────────────────────────────────────

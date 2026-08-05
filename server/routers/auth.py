@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# 公开端点：拿到 token 之前必须可达，注册时不挂 Bearer 依赖。
+public_router = APIRouter()
+
 
 # ==================== 响应模型 ====================
 
@@ -44,7 +47,7 @@ class AuthStatusResponse(BaseModel):
 # ==================== 路由 ====================
 
 
-@router.get("/auth/status", response_model=AuthStatusResponse)
+@public_router.get("/auth/status", response_model=AuthStatusResponse)
 async def auth_status():
     """暴露 ``AUTH_ENABLED`` 状态供前端 bootstrap 判断是否需要登录拦截。
 
@@ -56,7 +59,7 @@ async def auth_status():
     return AuthStatusResponse(enabled=is_auth_enabled())
 
 
-@router.post("/auth/token", response_model=TokenResponse)
+@public_router.post("/auth/token", response_model=TokenResponse)
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     _t: Translator,

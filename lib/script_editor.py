@@ -173,8 +173,9 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
     ``end_frame_image``(身份变化,旧资产无归属,退回 pending 待重生)。agent 想微调原分镜内容请用 ``patch_episode_script`` 改字段,
     用 split 时锚点资产被保留是为了避免误用一次 split 把已生成的图/视频全部失效。
 
-    reference 模式下各 unit 的 ``duration_seconds`` 须与其 ``shots`` 总时长一致——由写盘
-    统一入口的 ReferenceVideoUnit 校验兜住,本函数不代算。
+    reference 模式下拆的是顶层 ``video_units``（``item_id`` 即 unit_id），每个 part 是一个完整
+    新 unit（各带自己的 ``shots``），不是把原 unit 内的 ``shots`` 拆细。``duration_seconds`` 是
+    unit 独立字段、不由 ``shots`` 派生，故各新 part 须自行给出，本函数不代算。
     """
     if not isinstance(parts, list) or len(parts) < 2:
         raise ScriptEditError("split 至少需要 2 个部分")

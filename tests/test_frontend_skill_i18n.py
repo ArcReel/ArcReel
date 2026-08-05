@@ -20,6 +20,8 @@ import pytest
 
 from lib.profile_manifest import VALID_CONTENT_MODES
 
+pytestmark = pytest.mark.unit
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_ROOT = REPO_ROOT / "agent_runtime_profile" / ".claude" / "skills"
 DASHBOARD_TS = "frontend/src/i18n/{locale}/dashboard.ts"

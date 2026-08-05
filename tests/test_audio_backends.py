@@ -19,6 +19,8 @@ from lib.audio_backends import (
 from lib.dashscope_shared import extract_audio_url
 from lib.providers import PROVIDER_DASHSCOPE
 
+pytestmark = pytest.mark.unit
+
 
 class TestRegistry:
     def test_dashscope_auto_registered(self):
@@ -97,6 +99,18 @@ class TestDashScopeAudioBackend:
 
         b = DashScopeAudioBackend(api_key="sk")
         assert b.model == "qwen3-tts-flash"
+
+    def test_list_voices_returns_nonempty_catalog_with_unique_ids(self):
+        from lib.audio_backends.dashscope import DashScopeAudioBackend
+
+        b = DashScopeAudioBackend(api_key="sk")
+        voices = b.list_voices()
+        assert voices
+        ids = [v.id for v in voices]
+        assert len(ids) == len(set(ids))
+        assert all(v.label for v in voices)
+        # 调用方（voices 端点）依赖每次返回独立列表，不能是同一份可变共享对象
+        assert voices is not b.list_voices()
 
     async def test_synthesize_request_and_download(self, tmp_path: Path):
         client = _mock_client(_synth_response(), _download_response(b"RIFFwavbytes"))
@@ -306,6 +320,47 @@ class TestOpenAIAudioBackend:
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1", provider_name="custom-7")
             assert b.name == "custom-7"
+
+    def test_list_voices_returns_official_catalog(self):
+        with patch("lib.openai_shared.AsyncOpenAI"):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", model="gpt-4o-mini-tts")
+            voices = b.list_voices()
+            ids = {v.id for v in voices}
+            assert {"alloy", "marin", "cedar"} <= ids
+            assert len(ids) == len(voices)
+
+    def test_list_voices_excludes_unsupported_ids_for_legacy_models(self):
+        with patch("lib.openai_shared.AsyncOpenAI"):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            for legacy_model in ("tts-1", "tts-1-hd"):
+                b = OpenAIAudioBackend(api_key="sk", model=legacy_model)
+                ids = {v.id for v in b.list_voices()}
+                assert ids.isdisjoint({"ballad", "verse", "marin", "cedar"})
+                assert "alloy" in ids
+
+    def test_list_voices_returns_full_catalog_for_custom_openai_tts_endpoint(self):
+        """自定义 openai-tts endpoint 未落入官方 legacy 集合时不额外收窄，保持既有兼容口径。"""
+        with patch("lib.openai_shared.AsyncOpenAI"):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", model="fish-audio-v1", provider_name="custom-7")
+            ids = {v.id for v in b.list_voices()}
+            assert {"ballad", "verse", "marin", "cedar"} <= ids
+
+    def test_list_voices_legacy_narrowing_only_applies_to_official_openai(self):
+        """自定义供应商即使模型名恰好也叫 tts-1/tts-1-hd，也无法确定其继承官方同名模型的
+        音色限制——legacy 收窄只对 provider_name 为官方 openai 时生效，避免对无法验证的
+        第三方 endpoint 误收窄。"""
+        with patch("lib.openai_shared.AsyncOpenAI"):
+            from lib.audio_backends.openai import OpenAIAudioBackend
+
+            for legacy_model in ("tts-1", "tts-1-hd"):
+                b = OpenAIAudioBackend(api_key="sk", model=legacy_model, provider_name="custom-7")
+                ids = {v.id for v in b.list_voices()}
+                assert {"ballad", "verse", "marin", "cedar"} <= ids
 
     async def test_speed_passthrough_and_omitted_when_none(self, tmp_path: Path):
         mock_client = _mock_speech_client()

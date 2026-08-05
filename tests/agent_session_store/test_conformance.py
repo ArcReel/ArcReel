@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.agent_session_store.store import DbSessionStore
 from lib.db.base import Base
 
+pytestmark = pytest.mark.unit
+
 
 def _pg_url_from_env() -> str | None:
     url = os.environ.get("DATABASE_URL")

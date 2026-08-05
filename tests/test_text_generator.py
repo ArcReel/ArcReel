@@ -12,6 +12,8 @@ from lib.ledger import Ledger
 from lib.text_backends.base import TextGenerationRequest, TextGenerationResult
 from lib.text_generator import TextGenerator
 
+pytestmark = pytest.mark.unit
+
 
 @dataclass
 class _Wired:

@@ -1,3 +1,5 @@
+import pytest
+
 from lib.prompt_builders_ad import build_ad_prompt
 from lib.prompt_builders_script import (
     _format_names,
@@ -10,6 +12,8 @@ from lib.prompt_builders_script import (
 )
 from lib.prompt_rules.episode_pacing import DRAMA_PACING_RULES, NARRATION_PACING_RULES
 from lib.speech_rate import speech_rate_units_per_second
+
+pytestmark = pytest.mark.unit
 
 
 class TestPromptBuildersScript:
@@ -237,7 +241,7 @@ class TestScreenplaySourceKind:
         assert "source_text" in prompt
 
     def test_normalize_novel_releases_voiceover_by_context(self):
-        # AC5：novel 源画外音克制放开——由语境判断产出，不再一律禁用、不预设规则白名单、不作兜底
+        # novel 源画外音克制放开——由语境判断产出，不一律禁用、不预设规则白名单、不作兜底
         prompt = self._normalize_prompt("novel")
         assert "画外音" in prompt
         assert "语境" in prompt

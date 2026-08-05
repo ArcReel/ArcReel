@@ -663,9 +663,10 @@ class TaskRepository(BaseRepository):
 
         Task.payload_json 是 TEXT 列存 JSON 字符串（非 native JSONB），故用 read-modify-write
         模式更新。并发安全前提：写 payload 的路径在同一 task 的执行协程内串行——
-        ``persist_effective_duration`` 在向 provider 提交前写一次，``persist_api_call_id`` 由
-        media_generator 在其后拿到 call_id 时写一次，两者不并发。如果未来引入真正并发写
-        payload 的路径，需要外层加 ``SELECT ... FOR UPDATE`` 或单事务串行化。
+        ``persist_effective_duration`` 与 ``persist_execution_identity`` 在向 provider 提交前
+        各写一次，``persist_api_call_id`` 由 media_generator 在其后拿到 call_id 时写一次，
+        互不并发。如果未来引入真正并发写 payload 的路径，需要外层加
+        ``SELECT ... FOR UPDATE`` 或单事务串行化。
         """
         # 用 .first() 而非 scalar_one_or_none()：Task.payload_json 允许 NULL（迁移历史/
         # 旧任务存在 payload_json IS NULL 行），scalar_one_or_none 会把"行存在但
@@ -706,6 +707,45 @@ class TaskRepository(BaseRepository):
         阻断执行）。
         """
         await self._merge_payload_field(task_id, "duration_seconds", duration_seconds, raise_if_missing=False)
+
+    async def persist_execution_provider_id(self, task_id: str, provider_id: str) -> None:
+        """把执行期实际解析出的 provider 写回 ``task.provider_id``。
+
+        ``provider_id`` 列在入队/认领时按 unit 声明的参考集近似投影；参考路线的退化镜头
+        执行期按解析后的实际参考图分桶，两者可能不同（ad 声明了参考但资产全缺图时投影
+        r2v、执行 i2v）。resume 路径（``_process_resume_task``）按该列锁定 backend 轮询
+        ``provider_job_id``，不写回会拿实际执行 backend 的 job_id 去投影 backend 轮询，
+        已提交任务的恢复因此丢失。不带 WHERE 状态守卫，与 ``persist_provider_job_id`` 同理。
+        """
+        now = utc_now()
+        await self.session.execute(
+            update(Task).where(Task.task_id == task_id).values(provider_id=provider_id, updated_at=now)
+        )
+        await self.session.commit()
+
+    async def persist_execution_identity(self, task_id: str, provider_id: str, payload_patch: dict[str, Any]) -> None:
+        """把执行期实际解析出的身份写回 ``task.provider_id`` 列并按 ``payload_patch`` 改写 payload。
+
+        ``payload_patch`` 值为 ``None`` 表示删除该键，其余键覆盖写入；列与 payload 在同一次
+        提交内落地。task 不存在时 UPDATE 命中 0 行、静默返回，与
+        ``persist_execution_provider_id`` 同口径。写 payload 的串行前提见
+        ``_merge_payload_field`` docstring。
+        """
+        result = await self.session.execute(select(Task.payload_json).where(Task.task_id == task_id))
+        row = result.first()
+        values: dict[str, Any] = {"provider_id": provider_id, "updated_at": utc_now()}
+        if row is not None:
+            data = _json_loads(row[0], {})
+            if not isinstance(data, dict):
+                data = {}
+            for key, value in payload_patch.items():
+                if value is None:
+                    data.pop(key, None)
+                else:
+                    data[key] = value
+            values["payload_json"] = _json_dumps(data)
+        await self.session.execute(update(Task).where(Task.task_id == task_id).values(**values))
+        await self.session.commit()
 
     async def list_orphan_tasks_on_start(self) -> list[dict[str, Any]]:
         """返回 running + cancelling 状态任务用于重启自愈（ADR 0007）。"""

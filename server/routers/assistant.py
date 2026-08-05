@@ -19,9 +19,13 @@ from server.agent_runtime.failure_observation import build_startup_failure_obser
 from server.agent_runtime.models import SessionMeta
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_manager import AgentStartupError, SessionBusyError, SessionCapacityError
-from server.auth import CurrentUser, CurrentUserFlexible
+from server.auth import CurrentUserFlexible
 
 router = APIRouter()
+
+# 自带认证端点：EventSource 是浏览器直发请求，带不了 Authorization header，
+# 端点内声明 CurrentUserFlexible 收 ?token=，注册时不挂 Bearer 依赖。
+self_auth_router = APIRouter()
 
 assistant_service = AssistantService(project_root=PROJECT_ROOT)
 
@@ -92,7 +96,6 @@ async def send_message(
     project_name: str,
     req: SendRequest,
     request: Request,
-    _user: CurrentUser,
     _t: Translator,
 ):
     try:
@@ -137,7 +140,6 @@ async def send_message(
 @router.get("/sessions")
 async def list_sessions(
     project_name: str,
-    _user: CurrentUser,
     _t: Translator,
     status: Literal["idle", "running", "completed", "error", "interrupted"] | None = None,
     limit: int = Query(default=50, ge=1, le=200),
@@ -156,7 +158,7 @@ async def list_sessions(
 
 
 @router.get("/sessions/{session_id}")
-async def get_session(project_name: str, session_id: str, _user: CurrentUser, _t: Translator):
+async def get_session(project_name: str, session_id: str, _t: Translator):
     try:
         service = get_assistant_service()
         session = await _validate_session_ownership(service, session_id, project_name, _t)
@@ -169,7 +171,7 @@ async def get_session(project_name: str, session_id: str, _user: CurrentUser, _t
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(project_name: str, session_id: str, _user: CurrentUser, _t: Translator):
+async def delete_session(project_name: str, session_id: str, _t: Translator):
     try:
         service = get_assistant_service()
         await _validate_session_ownership(service, session_id, project_name, _t)
@@ -185,7 +187,7 @@ async def delete_session(project_name: str, session_id: str, _user: CurrentUser,
 
 
 @router.get("/sessions/{session_id}/messages")
-async def list_messages(project_name: str, session_id: str, _user: CurrentUser, _t: Translator):
+async def list_messages(project_name: str, session_id: str, _t: Translator):
     raise HTTPException(
         status_code=410,
         detail=_t("interface_offline"),
@@ -193,7 +195,7 @@ async def list_messages(project_name: str, session_id: str, _user: CurrentUser, 
 
 
 @router.get("/sessions/{session_id}/snapshot")
-async def get_snapshot(project_name: str, session_id: str, _user: CurrentUser, _t: Translator):
+async def get_snapshot(project_name: str, session_id: str, _t: Translator):
     raise HTTPException(
         status_code=410,
         detail=_t("interface_offline"),
@@ -204,7 +206,6 @@ async def get_snapshot(project_name: str, session_id: str, _user: CurrentUser, _
 async def list_entries(
     project_name: str,
     session_id: str,
-    _user: CurrentUser,
     _t: Translator,
     after: int = Query(default=-1, ge=-1),
 ):
@@ -222,7 +223,7 @@ async def list_entries(
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
-@router.get("/sessions/{session_id}/entries/stream", response_class=EventSourceResponse)
+@self_auth_router.get("/sessions/{session_id}/entries/stream", response_class=EventSourceResponse)
 async def stream_entries(
     project_name: str,
     session_id: str,
@@ -265,7 +266,7 @@ async def stream_entries(
 
 
 @router.post("/sessions/{session_id}/interrupt")
-async def interrupt_session(project_name: str, session_id: str, _user: CurrentUser, _t: Translator):
+async def interrupt_session(project_name: str, session_id: str, _t: Translator):
     try:
         service = get_assistant_service()
         meta = await _validate_session_ownership(service, session_id, project_name, _t)
@@ -289,7 +290,6 @@ async def answer_question(
     session_id: str,
     question_id: str,
     req: AnswerQuestionRequest,
-    _user: CurrentUser,
     _t: Translator,
 ):
     if not req.answers:
@@ -317,7 +317,7 @@ async def answer_question(
         raise HTTPException(status_code=500, detail=_t("internal_server_error"))
 
 
-@router.get("/sessions/{session_id}/stream")
+@self_auth_router.get("/sessions/{session_id}/stream")
 async def stream_events(project_name: str, session_id: str, _user: CurrentUserFlexible, _t: Translator):
     raise HTTPException(
         status_code=410,
@@ -326,7 +326,7 @@ async def stream_events(project_name: str, session_id: str, _user: CurrentUserFl
 
 
 @router.get("/skills")
-async def list_skills(project_name: str, _user: CurrentUser, _t: Translator):
+async def list_skills(project_name: str, _t: Translator):
     try:
         skills = get_assistant_service().list_available_skills(project_name=project_name)
         return {"skills": skills}

@@ -38,7 +38,6 @@ from lib.video_backends.base import (
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
     VideoCapabilities,
-    VideoCapability,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -67,8 +66,8 @@ _MAX_NUM_FRAMES = 441
 _MIN_DURATION_SECONDS = 1
 _MAX_DURATION_SECONDS = 18
 
-# 参考图（多图主体）上限——保守值，与 registry ModelInfo.max_reference_images 同值（编排层裁剪读
-# registry、backend 生成时防御读此处）。待 Agnes console / 实测核对，不硬编当既成事实。
+# 参考图（多图主体）上限——保守值，编排层裁剪与 backend 生成时防御同读此处（唯一声明处）。
+# 取值未经 Agnes console 核对，不硬编当既成事实。
 _MAX_REFERENCE_IMAGES = 4
 
 # 尺寸约束：长宽被 8 整除、长边收口 1920（保守值，覆盖上游 480p/720p/1080p 三档标准化）。
@@ -204,10 +203,6 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         self._base_url = agnes_base_url(base_url)
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
-        self._capabilities: set[VideoCapability] = {
-            VideoCapability.TEXT_TO_VIDEO,
-            VideoCapability.IMAGE_TO_VIDEO,
-        }
 
     @property
     def name(self) -> str:
@@ -216,10 +211,6 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
     @property
     def model(self) -> str:
         return self._model
-
-    @property
-    def capabilities(self) -> set[VideoCapability]:
-        return self._capabilities
 
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
@@ -232,7 +223,6 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         return VideoCapabilities(
             first_frame=True,
             last_frame=True,
-            reference_images=True,
             max_reference_images=_MAX_REFERENCE_IMAGES,
         )
 

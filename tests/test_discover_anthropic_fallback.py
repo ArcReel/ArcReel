@@ -12,6 +12,9 @@ from lib.db import get_async_session
 from lib.db.base import Base
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import agent_config, custom_providers
+from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 def _make_app(session_factory) -> FastAPI:
@@ -24,8 +27,8 @@ def _make_app(session_factory) -> FastAPI:
 
     app.dependency_overrides[get_async_session] = override_session
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(agent_config.router, prefix="/api/v1")
-    app.include_router(custom_providers.router, prefix="/api/v1")
+    app.include_router(agent_config.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    app.include_router(custom_providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app
 
 

@@ -39,12 +39,19 @@ CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
         "video_end_image_unreadable",
         "video_last_frame_requires_pro",
         "video_last_frame_unsupported",
+        "video_prompt_too_long",
         "video_reference_images_duration_unsupported",
         "video_reference_images_exceeded",
         "video_reference_images_required",
         "video_reference_images_unreadable",
         "video_reference_images_unsupported",
         "video_reference_images_with_frames_unsupported",
+        "video_reference_audio_duration_exceeded",
+        "video_reference_audio_exceeded",
+        "video_reference_audio_format_unsupported",
+        "video_reference_audio_slots_insufficient",
+        "video_reference_audio_unreadable",
+        "video_reference_audio_unsupported",
         "video_resolution_duration_unsupported",
         "video_start_image_unreadable",
     }
@@ -54,6 +61,11 @@ CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
 # in the DB; the key resolves to zh/en/vi templates rendered at read time.
 FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in CAPABILITY_FAILURE_CODES},
+    # 视频解析闸（``VideoBucketCapabilityError``，lib/config/resolver.py）：code 即 errors
+    # 目录 key，与后端能力异常同为身份映射，但抛点在解析层而非 backend，不在上面的 AST 扫描集内。
+    "video_capability_missing_i2v": "video_capability_missing_i2v",
+    "video_capability_missing_r2v": "video_capability_missing_r2v",
+    "video_capability_reference_unavailable": "video_capability_reference_unavailable",
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
     "restart_lost_image": "task_fail_restart_lost_image",
     "restart_lost_audio": "task_fail_restart_lost_audio",

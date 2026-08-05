@@ -8,7 +8,7 @@ import {
   lookupSupportedDurations,
   type DurationConstraints,
 } from "@/utils/provider-models";
-import type { CustomProviderInfo, ProviderInfo, VideoCapabilities } from "@/types";
+import type { CustomProviderInfo, ProviderInfo, VideoCapabilities, VoiceConsistencyTier } from "@/types";
 
 // ---------------------------------------------------------------------------
 // 视频模型能力：前端唯一的能力消费入口。
@@ -18,6 +18,8 @@ import type { CustomProviderInfo, ProviderInfo, VideoCapabilities } from "@/type
 //
 //   firstFrame / lastFrame  → 服务端生效值。这两维带用户覆盖语义（覆盖存在供应商配置上、
 //                             不落项目字段），只有服务端能给出「系统判定 ⊕ 用户覆盖」的结果。
+//   voiceConsistency        → 服务端派生值。二维派生（模型能力 × 项目生成路线）只在
+//                             服务端一处，前端不复制公式；无项目上下文时读目录端点的同名字段。
 //   durations               → 静态目录的 supported_durations，再经分辨率 / 参考图两条联动
 //                             约束收窄。约束只声明在目录里、服务端不返回，故以目录为准；
 //                             目录解析不出候选模型时（后端留空 → 服务端 auto 解析，或存值已不
@@ -45,19 +47,22 @@ export interface ModelCapabilitiesInput extends DurationContext {
   /**
    * 视频后端 "provider/model"；空表示跟随全局默认，由服务端解析。
    *
-   * 目录侧按它查表，故任意候选模型都问得动。服务端侧只拿它当缓存 key：端点不收该参数、
-   * 一律按已落盘的 project.json 解析，因此 `firstFrame` / `lastFrame` 描述的是**项目当前
-   * 保存的**后端。传入编辑中的未保存值（设置页）时这两维不作数，调用方不得消费。
+   * 目录侧按它查表，服务端侧也会收到它（作为 `video_backend` 查询参数），故 `firstFrame` /
+   * `lastFrame` / `voiceConsistency` 描述的都是这个候选模型，编辑中的未保存值同样对得上。
    */
   videoBackend?: string | null;
   /**
    * `videoBackend` 是表单里编辑中的未保存候选值时置 true。
    *
-   * 服务端一律按已落盘的 project.json 解析，其结果描述的是项目**当前保存的**后端，对候选值
-   * 不作数：时长不采用服务端回退（否则目录查不到候选模型时会把已保存模型的时长摆成新候选的
-   * 选项，用户能存下新模型不支持的值），`firstFrame` / `lastFrame` 同样不得消费。
+   * 只影响时长：目录查不到该候选模型时不回退到服务端解析结果，否则会把服务端解析出的另一个
+   * 模型的时长摆成本候选的选项，用户能存下新模型不支持的值。
    */
   unsavedBackend?: boolean;
+  /**
+   * 当前查看的集号；生成模式可被单集覆盖，传了服务端才按该集生效模式解析
+   * `voiceConsistency` / `firstFrame` 等二维派生值。设置页等无集号上下文的调用不传。
+   */
+  episode?: number | null;
   providers?: ProviderInfo[];
   customProviders?: CustomProviderInfo[];
   /** 置 false 时既不查服务端也不查目录（演示态等）。 */
@@ -81,6 +86,12 @@ export interface ModelCapabilities {
   /** 首帧 / 尾帧生效值（含用户覆盖）；尚未查到或查询失败时为 null（未知），不谎报不支持。 */
   firstFrame: boolean | null;
   lastFrame: boolean | null;
+  /**
+   * 声音一致性三级标识（服务端二维派生：模型能力 × 项目生成路线），与 firstFrame 同源
+   * 同口径——尚未查到或查询失败时为 null（未知）。查询带上 videoBackend，故编辑中的未保存候选
+   * 模型也会得到它自己的档位。无项目上下文（全局设置页）时改读目录端点的同名字段。
+   */
+  voiceConsistency: VoiceConsistencyTier | null;
   /** 服务端能力查询在途。目录侧不受影响，时长仍即时可用。 */
   loading: boolean;
 }
@@ -148,9 +159,10 @@ export function durationOutOfRangeReason(
 /**
  * 服务端能力查询。
  *
- * 请求 key 只含「决定结果是否仍可用」的上下文：项目与后端。项目 / 后端一变必须立刻丢弃旧
- * 能力，避免按过期值门控；revision 则单独驱动重取而不进 key——能力覆盖改的是供应商配置，
- * 旧值在新值到达前仍是当前最优估计，进 key 会让每次覆盖变更都闪一次加载态、短暂灰掉控件。
+ * 请求 key 只含「决定结果是否仍可用」的上下文：项目、后端与集号。这几项一变
+ * 必须立刻丢弃旧能力，避免按过期值门控；revision 则单独驱动重取而不进 key——能力覆盖改的是
+ * 供应商配置，旧值在新值到达前仍是当前最优估计，进 key 会让每次覆盖变更都闪一次加载态、
+ * 短暂灰掉控件。
  *
  * 加载态由「已落地结果的 key 是否等于当前 key」派生，而非 effect 内同步 setState：
  * 后者会触发级联渲染（react-hooks/set-state-in-effect）。
@@ -158,6 +170,7 @@ export function durationOutOfRangeReason(
 function useResolvedCapabilities(
   projectName: string | undefined | null,
   videoBackend: string | undefined | null,
+  episode: number | undefined | null,
   enabled: boolean,
 ): { caps: VideoCapabilities | null; loading: boolean } {
   const revision = useCapabilitiesStore((s) => s.revision);
@@ -170,7 +183,9 @@ function useResolvedCapabilities(
   const active = enabled && !!projectName && !isDemoProject(projectName);
   // 元组编码而非拼接：拼接的分隔符可能出现在字段内，("a b", "c") 与 ("a", "b c") 会撞成同一 key，
   // 切换时把前一组的结果当作本组已落地。
-  const key = active ? JSON.stringify([projectName, videoBackend ?? ""]) : null;
+  const key = active
+    ? JSON.stringify([projectName, videoBackend ?? "", episode ?? null])
+    : null;
 
   useEffect(() => {
     // 接管方轮换 controller：新一轮先作废前任，避免慢响应回写覆盖新值。
@@ -182,7 +197,13 @@ function useResolvedCapabilities(
     const controller = new AbortController();
     abortRef.current = controller;
     const { signal } = controller;
-    API.getVideoCapabilities(projectName, { signal })
+    // 带上 videoBackend：表单里编辑中的候选模型也要拿到它自己的能力，否则服务端按已落盘
+    // 配置解析，档位等二维派生值会停留在上一次保存的模型上。
+    API.getVideoCapabilities(projectName, {
+      signal,
+      videoBackend: videoBackend || undefined,
+      episode: episode ?? undefined,
+    })
       .then((next) => {
         // 网络 await 之后的写 state 断点：abort 可能发生在响应已 resolve 之后。
         if (signal.aborted) return;
@@ -196,7 +217,8 @@ function useResolvedCapabilities(
     return () => {
       controller.abort();
     };
-  }, [key, projectName, revision]);
+    // videoBackend / episode 已编码进 key，列出只为满足 exhaustive-deps，不引入额外请求。
+  }, [key, projectName, videoBackend, episode, revision]);
 
   const settled = key !== null && result?.key === key;
   return { caps: settled ? result.caps : null, loading: key !== null && !settled };
@@ -206,13 +228,14 @@ export function useModelCapabilities({
   projectName,
   videoBackend,
   unsavedBackend = false,
+  episode,
   providers = EMPTY_PROVIDERS,
   customProviders = EMPTY_CUSTOM_PROVIDERS,
   videoResolution,
   usesReferenceImages,
   enabled = true,
 }: ModelCapabilitiesInput): ModelCapabilities {
-  const { caps, loading } = useResolvedCapabilities(projectName, videoBackend, enabled);
+  const { caps, loading } = useResolvedCapabilities(projectName, videoBackend, episode, enabled);
 
   // 时长连同它出自哪个模型一起解析：联动约束要按同一个模型查，否则走服务端回退时会拿传入的
   // 后端（留空，或已不在目录中的存值）去查约束，得到空约束、把未收窄的时长当作可选项。
@@ -250,6 +273,7 @@ export function useModelCapabilities({
     resolvedVideoBackend: durationSource?.backend ?? null,
     firstFrame: caps ? caps.first_frame : null,
     lastFrame: caps ? caps.last_frame : null,
+    voiceConsistency: caps ? caps.voice_consistency : null,
     loading,
   };
 }

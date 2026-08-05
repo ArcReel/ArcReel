@@ -7,7 +7,10 @@ import pytest
 
 from lib.data_validator import DataValidator
 from lib.project_migrations import v2_to_v3_episode_ledger
+from lib.project_migrations.runner import migrate_project_dir
 from lib.project_migrations.v2_to_v3_episode_ledger import migrate_v2_to_v3
+
+pytestmark = pytest.mark.unit
 
 NOVEL = "第一集的正文内容。第二集还没拆出来的余文。"
 EP1 = "第一集的正文内容。"
@@ -60,7 +63,9 @@ def test_upgraded_project_passes_consumer_side_validation(tmp_path: Path):
             "episodes": [{"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json"}],
         },
     )
-    migrate_v2_to_v3(d)
+    # 校验器按最新 schema 形态断言（如 generation_mode 必填），消费链路入口前项目
+    # 必然已走完整迁移链，这里同口径跑到当前版本再校验
+    migrate_project_dir(d)
     result = DataValidator(projects_root=str(tmp_path)).validate_project_payload(_load(d))
     assert result.errors == []
 

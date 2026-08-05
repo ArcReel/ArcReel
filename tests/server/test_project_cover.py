@@ -8,6 +8,8 @@ import pytest
 
 from server.services.project_cover import resolve_project_cover
 
+pytestmark = pytest.mark.unit
+
 
 def _mk_manager(scripts_by_file: dict[str, dict]) -> MagicMock:
     """构造 fake ProjectManager，load_script 按文件名查表返回；缺失则抛 FileNotFoundError。"""

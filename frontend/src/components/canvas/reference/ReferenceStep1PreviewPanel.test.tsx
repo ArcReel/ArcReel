@@ -1,0 +1,465 @@
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
+import { useAssistantStore } from "@/stores/assistant-store";
+import { useProjectsStore } from "@/stores/projects-store";
+import { ReferenceStep1PreviewPanel } from "./ReferenceStep1PreviewPanel";
+import type { MentionLookup } from "@/hooks/useShotPromptHighlight";
+import type { ReferenceStep1Draft, ScriptReviewState } from "@/types";
+
+const LOOKUP: MentionLookup = { 阿离: "character", 长街: "scene" };
+
+function pendingState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
+  return {
+    episode: 1,
+    content_mode: "narration",
+    status: "pending_review",
+    fingerprint: "fp1",
+    confirmed_at: null,
+    quarantine: null,
+    supported_durations: [4, 8],
+    duration_tiers: null,
+    content: {
+      units: [
+        {
+          unit_id: "E1U01",
+          shots: [{ text: "@[阿离] 撑伞走过 @[长街]" }],
+          duration_seconds: 8,
+          references: [
+            { type: "character", name: "阿离" },
+            { type: "scene", name: "长街" },
+          ],
+          source_text: "阿离撑伞走过长街。",
+        },
+      ],
+    },
+    ...overrides,
+  };
+}
+
+function quarantinedState(): ScriptReviewState {
+  return {
+    episode: 1,
+    content_mode: "narration",
+    status: "pending_review",
+    fingerprint: null,
+    confirmed_at: null,
+    supported_durations: [4, 8],
+    duration_tiers: null,
+    content: null,
+    quarantine: {
+      content: {
+        units: [
+          {
+            duration_seconds: 8,
+            source_text: "阿离撑伞走过长街。",
+            text: "镜头1：门开了\n@[阿离]：｛我来了。｝",
+          },
+        ],
+      },
+      violations: [
+        { code: "fullwidth_braces", label: "unit E1U01", message: "unit E1U01 使用了全角花括号", line: 1 },
+        { code: "dialogue_overload", label: "unit E1U01", message: "unit E1U01 的台词念不完", line: null },
+      ],
+    },
+  };
+}
+
+describe("ReferenceStep1PreviewPanel", () => {
+  beforeEach(() => {
+    useAppStore.setState(useAppStore.getInitialState(), true);
+    useAssistantStore.setState(useAssistantStore.getInitialState(), true);
+    // 确认后的全局副作用（toast + 预填）只在「用户仍在看这个项目」时才生效，测试渲染面板时
+    // 用的 projectName="p"，需要同步告诉 store 当前正在看的就是它。
+    useProjectsStore.setState({ currentProjectName: "p" });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("renders the clean pending state with highlighted script and reference pills", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
+    expect(screen.getByText("阿离撑伞走过长街。")).toBeInTheDocument();
+    expect(screen.getAllByText("阿离").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("长街").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).not.toBeDisabled();
+  });
+
+  it("confirms, then prefills a continue message into the assistant input without sending", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    const confirm = vi
+      .spyOn(API, "confirmScriptReview")
+      .mockResolvedValue(pendingState({ status: "confirmed", quarantine: null }));
+
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /确认拆分，继续生成/ }));
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1));
+    await waitFor(() => expect(useAssistantStore.getState().input).toContain("第 1 集"));
+    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+  });
+
+  it("suppresses the confirm toast/prefill if the user has switched to a different project mid-request", async () => {
+    useAppStore.setState({ assistantPanelOpen: false });
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    let resolveConfirm: (value: ScriptReviewState) => void = () => {};
+    vi.spyOn(API, "confirmScriptReview").mockReturnValue(
+      new Promise((resolve) => {
+        resolveConfirm = resolve;
+      }),
+    );
+
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    fireEvent.click(await screen.findByRole("button", { name: /确认拆分，继续生成/ }));
+
+    // 确认请求在途时用户切到了另一个项目（本组件所在的 tab 可能因此被卸载，但即使还挂载着
+    // 也不该再写全局副作用）。
+    useProjectsStore.setState({ currentProjectName: "other-project" });
+    resolveConfirm(pendingState({ status: "confirmed", quarantine: null }));
+
+    // adopt() 运行在守卫之前，确认本身已生效——用按钮态的变化确认异步流程真的跑完了，
+    // 而不是靠一个从始至终都为空的断言碰巧「通过」。
+    await waitFor(() => expect(screen.getByRole("button", { name: "已确认" })).toBeDisabled());
+    expect(useAssistantStore.getState().input).toBe("");
+    expect(useAppStore.getState().toast).toBeNull();
+    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
+  });
+
+  it("still shows the confirm toast/prefill after switching tabs within the same project", async () => {
+    // 同项目内切 tab（本组件会被卸载，但 useProjectsStore.currentProjectName 不变）不该被
+    // 当成「切走了」而抑制全局副作用——预填文案本身带着具体集号，写进全局输入框依然准确。
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    let resolveConfirm: (value: ScriptReviewState) => void = () => {};
+    vi.spyOn(API, "confirmScriptReview").mockReturnValue(
+      new Promise((resolve) => {
+        resolveConfirm = resolve;
+      }),
+    );
+
+    const { unmount } = render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    fireEvent.click(await screen.findByRole("button", { name: /确认拆分，继续生成/ }));
+
+    unmount();
+    resolveConfirm(pendingState({ status: "confirmed", quarantine: null }));
+
+    await waitFor(() => expect(useAssistantStore.getState().input).toContain("第 1 集"));
+    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+  });
+
+  it("quarantined state anchors a line-level violation inline and aggregates the unit-level one, blocking confirm", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(quarantinedState());
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
+    expect(screen.getByText("unit E1U01 使用了全角花括号")).toBeInTheDocument();
+    expect(screen.getByText("unit E1U01 的台词念不完")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "让助手修复" })).toBeInTheDocument();
+  });
+
+  it("prefills a structured fix-request report on 'ask the assistant to fix it', without sending", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(quarantinedState());
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "让助手修复" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "让助手修复" }));
+
+    const input = useAssistantStore.getState().input;
+    expect(input).toContain("第 1 集");
+    expect(input).toContain("1. unit E1U01 使用了全角花括号");
+    expect(input).toContain("2. unit E1U01 的台词念不完");
+    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+  });
+
+  it("shows an empty state when there is no step1 content", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      episode: 1,
+      content_mode: "narration",
+      status: "no_step1",
+      fingerprint: null,
+      confirmed_at: null,
+      content: null,
+      quarantine: null,
+      supported_durations: null,
+      duration_tiers: null,
+    });
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    await waitFor(() => expect(screen.getByText("暂无预处理内容")).toBeInTheDocument());
+  });
+
+  it("edits a shot in the non-quarantined state and persists the units draft", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(pendingState());
+
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
+    const textarea = await screen.findByDisplayValue("@[阿离] 撑伞走过 @[长街]");
+    fireEvent.change(textarea, { target: { value: "@[阿离] 缓步走过 @[长街]" } });
+
+    const saveBtn = await screen.findByText("保存");
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    const [, , savedContent, baseFingerprint] = save.mock.calls[0];
+    expect(savedContent).toMatchObject({
+      units: [{ unit_id: "E1U01", shots: [{ text: "@[阿离] 缓步走过 @[长街]" }] }],
+    });
+    // 保存携带 GET 时拿到的内容指纹，供服务端做并发编辑冲突比对
+    expect(baseFingerprint).toBe("fp1");
+  });
+
+  it("renders shot / spoken-line counts in the unit header", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(quarantinedState());
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    // 草稿正文一个镜头行 + 一行全角花括号「台词」：统计与正文高亮同一套切分口径，全角花括号
+    // 不被解析器认作台词（这正是该草稿的 fullwidth_braces 违约），故台词数为 0。
+    await waitFor(() => expect(screen.getByText("1 镜头 · 0 台词")).toBeInTheDocument());
+  });
+
+  it("counts a well-formed dialogue line as a spoken line", async () => {
+    const withDialogue = pendingState();
+    (withDialogue.content as ReferenceStep1Draft).units[0].shots = [
+      { text: "@[阿离] 撑伞走过 @[长街]" },
+      { text: "@[阿离]：{我来了。}" },
+    ];
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(withDialogue);
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("2 镜头 · 1 台词")).toBeInTheDocument());
+  });
+
+  it("picks a duration from the supported tiers and saves it on the unit", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(pendingState());
+
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    const select = await screen.findByRole("combobox", { name: "E1U01 时长" });
+    fireEvent.change(select, { target: { value: "4" } });
+
+    fireEvent.click(await screen.findByText("保存"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][2]).toMatchObject({ units: [{ duration_seconds: 4 }] });
+  });
+
+  it("falls back to a read-only duration when no tier list is available", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ supported_durations: null }));
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("8 秒")).toBeInTheDocument());
+    expect(screen.queryByRole("combobox", { name: "E1U01 时长" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the duration select on a stored value that is no longer a supported tier, sorted into place", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ supported_durations: [4, 6] }));
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+    expect(select.value).toBe("8");
+    // 越档兜底项插入 options 时按数值排序，不是简单地把当前值塞到最前面（那样 8/4/6 的
+    // 显示顺序会乱）。
+    expect([...select.options].map((o) => o.value)).toEqual(["4", "6", "8"]);
+  });
+
+  it("surfaces unit-less violations and the raw draft when the quarantined content has no usable units", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      ...quarantinedState(),
+      quarantine: {
+        // schema 违约：后端原样回传 agent 手改的内容，`units` 根本不是数组。
+        content: { units: "被改坏了" } as never,
+        violations: [{ code: "schema_invalid", label: "", message: "隔离草稿的 content.units 必须是非空数组", line: null }],
+      },
+    });
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("无法锚定的违约")).toBeInTheDocument());
+    expect(screen.getByText("隔离草稿的 content.units 必须是非空数组")).toBeInTheDocument();
+    expect(screen.getByText(/被改坏了/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
+  });
+
+  it("excludes a dialogue-only speaker from the quarantined preview's reference pills", async () => {
+    // 阿离只出现在规范台词行（`@[阿离]：{...}`）里——同后端 extract_mentions，说话人不产参考图；
+    // 长街出现在镜头描述行里，正常产出参考图 pill。
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      ...quarantinedState(),
+      quarantine: {
+        content: {
+          units: [
+            {
+              duration_seconds: 8,
+              source_text: "阿离撑伞走过长街。",
+              text: "镜头1：门开了\n@[阿离]：{我来了。}\n镜头2：@[长街] 空无一人。",
+            },
+          ],
+        },
+        violations: [],
+      },
+    });
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
+    const referencesRow = screen.getByText("参考图").closest("div") as HTMLElement;
+    expect(within(referencesRow).getByText("长街")).toBeInTheDocument();
+    expect(within(referencesRow).queryByText("阿离")).not.toBeInTheDocument();
+  });
+
+  it("dedupes a reference pill when the same asset is mentioned once in NFC and once in NFD", async () => {
+    // extractMentions 按裸字符串去重，同一资产以两种编码各出现一次会各产一条；deriveDisplayReferences
+    // 须在归一后再去重，否则预览会重复渲染同一资产的 pill / 图号，与后端落盘的单条引用不一致。
+    const nameNfc = "Hiếu".normalize("NFC");
+    const nameNfd = "Hiếu".normalize("NFD");
+    expect(nameNfc).not.toBe(nameNfd);
+    const lookup: MentionLookup = { [nameNfc]: "character" };
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      ...quarantinedState(),
+      quarantine: {
+        content: {
+          units: [
+            {
+              duration_seconds: 8,
+              source_text: "x",
+              text: `镜头1：@[${nameNfc}] 登场\n镜头2：@[${nameNfd}] 转身`,
+            },
+          ],
+        },
+        violations: [],
+      },
+    });
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={lookup} />);
+
+    await waitFor(() => expect(screen.getByText("E1U01")).toBeInTheDocument());
+    const referencesRow = screen.getByText("参考图").closest("div") as HTMLElement;
+    expect(within(referencesRow).getAllByText(nameNfc)).toHaveLength(1);
+  });
+
+  it("disables the duration select and shot textarea while a save is in flight", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    let resolveSave: (value: ScriptReviewState) => void = () => {};
+    vi.spyOn(API, "saveScriptReviewContent").mockReturnValue(
+      new Promise((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
+    const textarea = await screen.findByDisplayValue("@[阿离] 撑伞走过 @[长街]");
+    fireEvent.change(textarea, { target: { value: "@[阿离] 缓步走过 @[长街]" } });
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+
+    fireEvent.click(await screen.findByText("保存"));
+
+    await waitFor(() => expect(textarea).toBeDisabled());
+    expect(select).toBeDisabled();
+
+    resolveSave(pendingState());
+    await waitFor(() => expect(textarea).not.toBeDisabled());
+  });
+
+  it("picks the with-references duration tier for a unit that carries references", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      pendingState({
+        supported_durations: [4, 6, 8],
+        duration_tiers: { with_references: [8], without_references: [4, 6, 8] },
+      }),
+    );
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    // unit 带 @[阿离]/@[长街] 引用：按 with_references 档位收窄，4/6 秒不再可选。
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+    expect([...select.options].map((o) => o.value)).toEqual(["8"]);
+  });
+
+  it("blocks confirmation and flags a unit whose stored duration has fallen out of the effective tier", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      pendingState({
+        supported_durations: [4, 6, 8],
+        // unit 带引用，生效档位收窄到 4/6 秒——已存盘的 8 秒不再合法，但仍要照旧展示（不静默跳档）。
+        duration_tiers: { with_references: [4, 6], without_references: [4, 6, 8] },
+      }),
+    );
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+    expect(select.value).toBe("8");
+    expect(screen.getByText("档位已失效")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
+  });
+
+  it("recomputes the tier choice from live-edited text rather than the stale saved references", async () => {
+    const withoutReferences = pendingState({
+      supported_durations: [4, 6, 8],
+      // 8 秒是两套档位共有的值，保证初始展示不触发「越档补首值」分支，让第二次断言干净地
+      // 反映档位切换本身，而不是与该兜底行为的展示叠在一起。
+      duration_tiers: { with_references: [8], without_references: [4, 6, 8] },
+    });
+    (withoutReferences.content as ReferenceStep1Draft).units[0].shots = [{ text: "门开了" }];
+    (withoutReferences.content as ReferenceStep1Draft).units[0].references = [];
+    (withoutReferences.content as ReferenceStep1Draft).units[0].duration_seconds = 8;
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(withoutReferences);
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    // 初始无引用：按 without_references 档位，4/6/8 全可选。
+    let select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+    expect([...select.options].map((o) => o.value).sort()).toEqual(["4", "6", "8"]);
+
+    // 编辑正文新增 @[阿离] 引用（尚未保存，unit.references 仍是旧的空数组）：档位应立即按
+    // with_references 收窄到仅 8 秒，而不是继续沿用编辑前的 references 判定。
+    fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
+    const textarea = await screen.findByDisplayValue("门开了");
+    fireEvent.change(textarea, { target: { value: "@[阿离] 推门而入。" } });
+
+    select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "E1U01 时长" });
+    expect([...select.options].map((o) => o.value)).toEqual(["8"]);
+  });
+
+  it("asks the assistant to promote instead of reporting violations when the quarantine has none", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      ...quarantinedState(),
+      quarantine: { content: quarantinedState().quarantine!.content, violations: [] },
+    });
+    render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "让助手修复" }));
+
+    const input = useAssistantStore.getState().input;
+    expect(input).toContain("validate_and_promote_reference_draft");
+    expect(input).not.toContain("1. ");
+    // 禁用判据是隔离草稿文件是否在场，不是重算后的违约数量——违约为空但仍隔离时确认依旧禁用。
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
+  });
+
+  it("separates multiple violating-unit locator links in the status bar", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue({
+      ...quarantinedState(),
+      quarantine: {
+        content: {
+          units: [
+            { duration_seconds: 8, source_text: "阿离撑伞走过长街。", text: "镜头1：门开了\n@[阿离]：｛我来了。｝" },
+            { duration_seconds: 4, source_text: "长街空无一人。", text: "镜头1：门开了\n@[长街]：｛静悄悄。｝" },
+          ],
+        },
+        violations: [
+          { code: "fullwidth_braces", label: "unit E1U01", message: "unit E1U01 使用了全角花括号", line: 1 },
+          { code: "fullwidth_braces", label: "unit E1U02", message: "unit E1U02 使用了全角花括号", line: 1 },
+        ],
+      },
+    });
+    const { container } = render(<ReferenceStep1PreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    await screen.findByRole("button", { name: "E1U01 · 1" });
+
+    // 两个按钮之间的可见文本要有分隔符，不能粘连成 "E1U01 · 1E1U02 · 1"——按钮各自的可访问名
+    // 本身不受这个 bug 影响（那是每个元素独立算的），只有渲染出的原始文本会粘连，所以这里
+    // 直接断言状态条的 textContent。
+    const statusBar = container.querySelector("span.text-\\[11px\\].text-text-4");
+    expect(statusBar?.textContent).toMatch(/E1U01 · 1.+E1U02 · 1/);
+    expect(statusBar?.textContent).not.toContain("1E1U02");
+  });
+});

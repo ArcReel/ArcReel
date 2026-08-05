@@ -5,6 +5,8 @@ import pytest
 
 from lib.script_models import AdEpisodeScript
 
+pytestmark = pytest.mark.unit
+
 
 def _shot_dict(shot_id: str) -> dict:
     return {

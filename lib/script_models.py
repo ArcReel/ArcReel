@@ -7,7 +7,7 @@ script_models.py - 剧本数据模型
 """
 
 import logging
-from typing import Annotated, ClassVar, Literal, get_args
+from typing import Annotated, Any, ClassVar, Literal, get_args
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, create_model, model_validator
 from pydantic.json_schema import SkipJsonSchema
@@ -75,7 +75,7 @@ def _canon_enum_key(value: str) -> str:
 
 # schema 的 enum 只有在供应商执行约束解码时才是硬约束；代理网关/OpenAI 兼容通道丢弃
 # wire 级结构化参数时，模型会把枚举写成大写/小写蛇形（MEDIUM_SHOT / medium_shot）
-# 甚至词表外值（wide_shot / dolly_in，均为线上实测值）。机械归一（大小写/
+# 甚至词表外值（如 wide_shot / dolly_in）。机械归一（大小写/
 # 分隔符）把风格漂移拉回词表；词表外值不做语义近义映射（语义映射永远穷举不全），
 # 一律降级为中性默认值并 warn——这两个字段下游只作生成 prompt 的文本插值，
 # 单镜头词汇漂移不值得让整集剧本生成失败。
@@ -187,6 +187,10 @@ class GeneratedAssets(BaseModel):
     # 显式声明使其通过 extra="forbid" + 「不更坏」守卫；仅说书 segment 写入，drama/refvideo 恒 None。
     narration_audio: str | None = Field(default=None, description="旁白音频路径")
     status: Literal["pending", "storyboard_ready", "completed"] = Field(default="pending", description="生成状态")
+    # video_clip 写回时（apply_unit_video_assets 单一写点）机械戳生成时间；用于跟角色
+    # `voice_updated_at` 比较，判定该片段是否生成于当前参考音频设置之前。
+    # 缺省视为早于任何设置，落在「生成于设置之前」语义内。对 LLM 隐藏。
+    video_generated_at: SkipJsonSchema[str | None] = Field(default=None, description="视频生成完成时间（ISO8601 UTC）")
 
 
 def get_generated_assets(item: dict) -> dict:
@@ -274,9 +278,11 @@ class NarrationEpisodeScript(BaseModel):
     由 `ScriptGenerator._add_metadata` 写入。不让 AI 生成该字段，避免幻觉写错集号
     进而污染 project.json（曾导致 episode_10.json 内部 episode=1 覆盖第 1 集条目）。
 
-    顶层**不**走 ``extra="forbid"``:``episode`` / ``metadata`` / ``generation_mode`` 等
-    字段由运行时注入(``_add_metadata`` / ``_write_script_unlocked``)而非 schema 内字段,
-    顶层 forbid 会让现有写盘流程崩。typo 防护靠子模型(VideoPrompt / ImagePrompt /
+    顶层**不**走 ``extra="forbid"``:``episode`` / ``metadata`` 等字段由运行时注入
+    (``_add_metadata`` / ``_write_script_unlocked``)而非 schema 内字段,顶层 forbid
+    会让现有写盘流程崩;``generation_mode`` 不在其列——路线的真相源是 project.json,剧本
+    不留戳,生成写盘前由 ``ScriptGenerator._add_metadata`` 剥离,存量在制品里的残留字段按
+    未知字段忽略。typo 防护靠子模型(VideoPrompt / ImagePrompt /
     NarrationSegment 等)的 ``extra="forbid"`` 在嵌套字段路径上挡。
     """
 
@@ -413,7 +419,7 @@ class DramaScene(BaseModel):
     # 已废弃但存量 JSON 里可能残留的字段:在 extra="forbid" 拒绝之前显式 pop 掉,
     # 与「未知字段(typo / hallucination)一律拒」并存——前者是已知 deprecated,
     # 后者才是 forbid 想挡的真问题。新增 deprecate 字段时把名字加到这个集合。
-    # - scene_type:main #644 删的场景类型字段
+    # - scene_type:已删除的场景类型字段
     # - clues_in_scene:v0→v1 migration 删的线索字段(同 NarrationSegment.clues_in_segment)
     LEGACY_DROPPED_FIELDS: ClassVar[frozenset[str]] = frozenset({"scene_type", "clues_in_scene"})
 
@@ -749,11 +755,20 @@ class AdEpisodeScript(BaseModel):
 
 # ============ 参考生视频模式（Reference Video） ============
 
-#: 参考生视频路径下单镜头时长的合法区间（秒）。短切节奏赖此成立：
-#: 不按供应商 supported_durations 枚举，而是 1-15 自由整数。
-#: ``Shot.duration``、ad + reference 路径的 ``AdShot.duration_seconds`` 与
-#: ``DataValidator`` 共用此真相源。
+#: ad + 参考生视频路径下单镜头时长的合法区间（秒）。ad 骨架的短切节奏赖此成立：
+#: 不按供应商 supported_durations 枚举，而是 1-15 自由整数（ad unit 时长由成员镜头
+#: 求和派生，见 ADR 0033）。``AdShot.duration_seconds`` 与 ``DataValidator`` 共用此真相源。
+#: narration/drama 参考路径的镜头不承载时长——时长是 unit 级单一真相。
 REFERENCE_SHOT_DURATION_RANGE: tuple[int, int] = (1, 15)
+
+#: 参考生视频 unit 时长（``ReferenceVideoUnit.duration_seconds``）的结构合理性区间（秒）。
+#: unit 时长的**取值集**是模型能力声明的档位枚举，随模型而变、不进静态模型；本区间只做
+#: 与模型无关的脏数据兜底：拦住非正整数与量级明显失真的值，合法性判定整体交给档位——取值
+#: 是否合法由 ``resolve_duration_slot`` 取档（偏移记 warning）与动态枚举 schema 承担。
+#: 上界因此取一个宽于任何可预见档位声明的量级，而非由镜头数推导：镜头不承载时长，按
+#: 「4 镜头 × 单镜头上限」推导会把支持更长档位的模型判非法。存量迁移的结构 clamp 与
+#: ``DataValidator`` 的结构校验共用此真相源。
+REFERENCE_UNIT_DURATION_RANGE: tuple[int, int] = (1, 300)
 
 #: ad 剧本总时长 vs 项目 target_duration 的偏差观察阈值（比例）。供应商时长枚举
 #: （如 [4,6,8]）的量化误差让总和难精确命中目标，阈值放宽只捕明显跑偏；超阈值
@@ -824,15 +839,14 @@ def script_duration_total(kind: str, items: object) -> int:
 
 
 class Shot(BaseModel):
-    """参考视频单元内的一个镜头。"""
+    """参考视频单元内的一个镜头。
+
+    镜头不承载时长：时长是 unit 级的单一真相（见 ``ReferenceVideoUnit.duration_seconds``），
+    unit 是一次生成调用的单元，shot 只是同一段 clip 内的时间编排。
+    """
 
     model_config = _STRICT_CONFIG
 
-    duration: int = Field(
-        ge=REFERENCE_SHOT_DURATION_RANGE[0],
-        le=REFERENCE_SHOT_DURATION_RANGE[1],
-        description="该镜头时长（秒）",
-    )
     text: str = Field(description="镜头描述，可包含 @[角色]/@[场景]/@[道具] 引用")
 
 
@@ -846,7 +860,12 @@ class ReferenceResource(BaseModel):
 
 
 class ReferenceVideoUnit(BaseModel):
-    """参考视频单元——一个视频文件的最小生成粒度。"""
+    """参考视频单元——一个视频文件的最小生成粒度。
+
+    unit 是一次生成调用的单元，一个 unit 一个时长：``duration_seconds`` 是时长的唯一真相，
+    直接对应发给供应商的申请秒数，取值来自模型能力声明的档位枚举。成员 shot 只承载画面
+    编排文本、不承载时长，故不存在由 shots 求和的派生与一致性校验。
+    """
 
     model_config = _STRICT_CONFIG
 
@@ -856,25 +875,17 @@ class ReferenceVideoUnit(BaseModel):
         default_factory=list,
         description="按顺序决定 [图N] 编号",
     )
-    duration_seconds: int = Field(description="派生字段：所有 shot 时长之和")
-    # duration_override / transition_to_next / note / generated_assets 均为 UI / runtime / 人工字段，对 LLM 隐藏。
-    duration_override: SkipJsonSchema[bool] = Field(default=False, description="true 时停止自动派生")
+    duration_seconds: int = Field(
+        ge=REFERENCE_UNIT_DURATION_RANGE[0],
+        le=REFERENCE_UNIT_DURATION_RANGE[1],
+        description="该单元时长（秒）",
+    )
+    # transition_to_next / note / generated_assets 均为 UI / runtime / 人工字段，对 LLM 隐藏。
     transition_to_next: SkipJsonSchema[TransitionType] = Field(default="cut", description="转场类型")
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注")
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
-
-    @model_validator(mode="after")
-    def _check_duration_consistency(self) -> "ReferenceVideoUnit":
-        if not self.duration_override:
-            expected = sum(s.duration for s in self.shots)
-            if self.duration_seconds != expected:
-                raise ValueError(
-                    f"duration_seconds ({self.duration_seconds}) 与 shots 总时长 ({expected}) 不符；"
-                    "如需手动指定请置 duration_override=True"
-                )
-        return self
 
 
 class ReferenceVideoScript(BaseModel):
@@ -883,18 +894,15 @@ class ReferenceVideoScript(BaseModel):
     注意：`episode` 字段不在 schema 中，集号由 CLI 真相源通过 `_add_metadata` 写入。
     详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
 
-    ``content_mode`` 仅承担"内容类型"维度（narration/drama），"视频来源"维度由
-    ``generation_mode = "reference_video"`` 表达。两字段都对 LLM 隐藏，由
-    ``ScriptGenerator._add_metadata`` 按项目级配置注入。
+    ``content_mode`` 仅承担"内容类型"维度（narration/drama）；"视频来源"维度是项目级事实
+    （``project.json`` 的 ``generation_mode``），剧本不携带——路线创建时锁定，剧本骨架种类
+    本身即路线的体现。
     """
 
     title: str = Field(description="剧集标题")
-    # 对 LLM 隐藏：参考视频模式下这两个字段都由 _add_metadata 注入。
+    # 对 LLM 隐藏：由 _add_metadata 注入。
     content_mode: SkipJsonSchema[Literal["narration", "drama"]] = Field(
         default="narration", description="内容类型（narration/drama），参考视频模式实际不区分"
-    )
-    generation_mode: SkipJsonSchema[Literal["reference_video"]] = Field(
-        default="reference_video", description="生成模式，固定 reference_video"
     )
     # 见 NarrationEpisodeScript.duration_seconds 说明。
     duration_seconds: SkipJsonSchema[int] = Field(default=0, description="总时长（秒）")
@@ -906,13 +914,12 @@ class ReferenceVideoScript(BaseModel):
     video_units: list[ReferenceVideoUnit] = Field(description="视频单元列表")
 
 
-def is_reference_script(script: dict) -> bool:
-    """判定剧本自身的 ``generation_mode`` 戳是否为 ``reference_video``。
-
-    仅适用于 narration/drama：剧本自身携带 generation_mode 戳。ad 骨架不打此戳，
-    真相源是项目/集级配置（``effective_mode``），不适用本谓词。
+def resolve_content_mode(script: dict[str, Any], project: dict[str, Any]) -> str:
+    """剧本级 ``content_mode`` 缺失（存量 episode 未打戳）时回退到项目级配置，与
+    ``lib.data_validator._validate_episode_payload`` 已校验通过的既定口径一致——存量
+    episode 允许省略该字段、由项目值兜底，读侧（生成任务）不能另起一份更严格的判定。
     """
-    return script.get("generation_mode") == "reference_video"
+    return script.get("content_mode", project.get("content_mode", "narration"))
 
 
 # ============ 参考生视频 step1 结构化中间态 ============
@@ -927,18 +934,27 @@ class ReferenceStep1Unit(BaseModel):
 
     ``references`` 由拆分工具从各 shot 文本的 ``@[名称]`` 引用机械派生（并集、首现顺序，
     顺序决定 [图N] 编号），不经 LLM 输出——对 LLM 隐藏（SkipJsonSchema），从工程上杜绝
-    references 与正文引用不一致；读取校验照常生效。unit 总时长上限与 references 上限
-    依赖运行时视频能力值，由拆分工具后校验，不进本模型。
+    references 与正文引用不一致；读取校验照常生效。``duration_seconds`` 的档位枚举依赖
+    运行时视频能力值，由 ``build_reference_units_step1_model`` 动态收紧；references 上限
+    同样依赖运行时能力值，由拆分工具后校验，不进本模型。
     """
 
     model_config = _STRICT_CONFIG
 
     unit_id: str = Field(min_length=1, description="格式 E{集}U{序号}")
     shots: list[Shot] = Field(min_length=1, max_length=4, description="1-4 个 shot，text 用 @[名称] 引用已注册资产")
+    duration_seconds: int = Field(
+        ge=REFERENCE_UNIT_DURATION_RANGE[0],
+        le=REFERENCE_UNIT_DURATION_RANGE[1],
+        description="该单元时长（秒）",
+    )
     references: SkipJsonSchema[list[ReferenceResource]] = Field(
         default_factory=list,
         description="参考图引用，从 shots 文本的 @ 引用派生（首现顺序，决定 [图N] 编号）",
     )
+    # 逐字原文锚：拆分工具校验其为源文子串后原样落盘，供 gate 对照与失真定位。
+    # 默认空串：不带该字段的存量草稿照常通过校验。
+    source_text: SkipJsonSchema[str] = Field(default="", description="该 unit 所依据的逐字原文摘录（追溯锚）")
 
 
 class ReferenceStep1Draft(BaseModel):
@@ -950,6 +966,60 @@ class ReferenceStep1Draft(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     units: list[ReferenceStep1Unit] = Field(description="video_unit 列表")
+
+
+# ---------------------------------------------------------------------------
+# 书写层扁平文本：两级 LLM 产出的形状
+# ---------------------------------------------------------------------------
+#
+# step1 / step2 的 LLM 产出与人在编辑器里写的是同一种格式（见 lib/reference_video/
+# writing_syntax.py），故 schema 退化为一层扁平：正文是一段文本，unit_id / shots /
+# references / utterances / 音频编号一律机器派生，不让 LLM 写。schema 只承担「枚举与
+# 外层结构」这一层约束（backend 的约束解码重试也只保得住这一层），文本内的语法交
+# parser 后校验（lib/reference_video/draft_validation.py）。
+
+
+class ReferenceStep1FlatUnit(BaseModel):
+    """step1 的 LLM 产出单元：时长 + 原文锚 + 书写层正文。"""
+
+    model_config = _STRICT_CONFIG
+
+    duration_seconds: int = Field(
+        ge=REFERENCE_UNIT_DURATION_RANGE[0],
+        le=REFERENCE_UNIT_DURATION_RANGE[1],
+        description="该单元时长（秒）",
+    )
+    source_text: str = Field(min_length=1, description="该单元所依据的小说原文逐字摘录（不转述、不翻译）")
+    text: str = Field(min_length=1, description="该单元的书写层正文：镜头行 / 台词行 / 画外音行")
+
+
+class ReferenceStep1FlatDraft(BaseModel):
+    """step1 的 LLM 产出顶层形状。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    units: list[ReferenceStep1FlatUnit] = Field(min_length=1, description="按叙事顺序排列的 unit 列表")
+
+
+class ReferenceStep2FlatUnit(BaseModel):
+    """step2 的 LLM 产出单元：只有展开后的书写层正文。
+
+    时长与 unit 顺序是 step1 已定稿、用户已在审阅 gate 上确认的内容契约，不进 step2 输出——
+    不给 LLM 写的字段就没有漂移可校验。
+    """
+
+    model_config = _STRICT_CONFIG
+
+    text: str = Field(min_length=1, description="视觉展开后的书写层正文：镜头行 / 台词行 / 画外音行")
+
+
+class ReferenceStep2FlatScript(BaseModel):
+    """step2 的 LLM 产出顶层形状：标题 + 与 step1 等长、同序的 unit 正文列表。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(description="剧集标题")
+    units: list[ReferenceStep2FlatUnit] = Field(min_length=1, description="与 step1 units 一一对应、顺序不变")
 
 
 # ============ duration 枚举硬约束（按视频模型能力动态构造剧本 schema） ============
@@ -1073,53 +1143,23 @@ def build_ad_reference_episode_script_model() -> type[BaseModel]:
 
 
 def build_reference_units_step1_model(supported_durations: list[int]) -> type[BaseModel]:
-    """构造单 shot 时长被 ``supported_durations`` 枚举硬约束的参考生视频 step1 模型。
+    """构造 unit 时长被 ``supported_durations`` 枚举硬约束的参考生视频 step1 模型（扁平形状）。
 
-    拆分阶段单 shot 时长即取自 ``supported_durations``（response_schema 渲染为 enum / const，
-    LLM 生成层被卡死），与 step2 「unit 总时长 ∈ supported_durations」的约束衔接：step2 在
-    成员时长的 shot 上重编排即可凑出合法 unit 总时长。unit 总时长上限（≤ max_duration）与
-    references 上限依赖运行时能力值、不进 schema，由拆分工具后校验。静态 ``Shot.duration``
-    的 1-15 区间仍作读取侧兜底。
-    """
-    shot = create_model(
-        "Shot",
-        __base__=Shot,
-        duration=(
-            _duration_literal(supported_durations),
-            Field(description="镜头时长（秒），必须取 supported_durations 中的值"),
-        ),
-    )
-    unit = create_model(
-        "ReferenceStep1Unit",
-        __base__=ReferenceStep1Unit,
-        shots=(
-            list[shot],
-            Field(min_length=1, max_length=4, description="1-4 个 shot，text 用 @[名称] 引用已注册资产"),
-        ),
-    )
-    return create_model(
-        "ReferenceStep1Draft",
-        __base__=ReferenceStep1Draft,
-        units=(list[unit], Field(description="video_unit 列表")),
-    )
+    unit 是一次生成调用的单元，拆分阶段决定的就是发给供应商的那个秒数，故枚举约束加在
+    ``ReferenceStep1FlatUnit.duration_seconds`` 上（response_schema 渲染为 enum / const，LLM
+    生成层即被卡死），与 step2 同口径衔接：step2 沿用 step1 的 unit 时长，只做视觉展开。
+    references 上限与文本内语法依赖运行时能力值 / 项目登记表，不进 schema，由拆分工具后校验。
 
-
-def build_reference_video_script_model(supported_durations: list[int]) -> type[BaseModel]:
-    """构造 unit 总时长被 ``supported_durations`` 枚举硬约束的参考视频剧集模型。
-
-    参考视频模式发给供应商 API 的是 ``unit.duration_seconds``（各 shot 时长之和），而非单个 shot——
-    单 shot 只是同一段 clip 内的时间编排。故约束加在 ``ReferenceVideoUnit.duration_seconds`` 这个
-    派生字段上：``Literal[*supported_durations]`` 在 response_schema 里渲染为 ``enum``（单值时为 ``const``，LLM 可见），
-    叠加 ``ReferenceVideoUnit`` 既有的 ``duration_seconds == sum(shots)`` 一致性校验器，等价于强制
-    「各 shot 之和 ∈ supported_durations」。``Shot.duration`` 仍保留 1-15 的合理性上限、不要求单 shot 成员。
+    step2 无对应工厂：它不产出时长，没有需要按能力收窄的枚举字段，直接用静态
+    ``ReferenceStep2FlatScript``。
     """
     unit = _constrained_duration_item(
-        ReferenceVideoUnit,
+        ReferenceStep1FlatUnit,
         _duration_literal(supported_durations),
-        "所有 shot 时长之和，必须取 supported_durations 中的值",
+        "该单元时长（秒），必须取 supported_durations 中的值",
     )
     return create_model(
-        "ReferenceVideoScript",
-        __base__=ReferenceVideoScript,
-        video_units=(list[unit], Field(description="视频单元列表")),
+        "ReferenceStep1FlatDraft",
+        __base__=ReferenceStep1FlatDraft,
+        units=(list[unit], Field(min_length=1, description="按叙事顺序排列的 unit 列表")),
     )

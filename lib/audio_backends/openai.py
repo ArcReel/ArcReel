@@ -15,6 +15,7 @@ from lib.audio_backends.base import (
     AudioCapability,
     AudioSynthesisRequest,
     AudioSynthesisResult,
+    VoiceOption,
 )
 from lib.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.providers import PROVIDER_OPENAI
@@ -25,6 +26,36 @@ logger = logging.getLogger(__name__)
 # /v1/audio/speech 支持的输出格式（官方 schema），用于按落盘扩展名选 response_format。
 _SUPPORTED_RESPONSE_FORMATS = frozenset({"mp3", "opus", "aac", "flac", "wav", "pcm"})
 _FALLBACK_RESPONSE_FORMAT = "wav"
+
+# 官方内置音色（gpt-4o-mini-tts，含 tts-1/tts-1-hd legacy 子集），出处见
+# docs/openai-docs/文本转语音-TTS.md（2026-07-31 核实快照，来源：
+# https://developers.openai.com/api/docs/guides/text-to-speech）。
+# 官方文档未给出性别/描述信息，故 label 仅取 id 本身——不编造。
+# 经自定义供应商 openai-tts endpoint 接入的第三方兼容服务音色集合可能与本目录不同，
+# 边界说明见上述文档。
+_VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
+    VoiceOption(id=voice_id, label=voice_id)
+    for voice_id in (
+        "alloy",
+        "ash",
+        "ballad",
+        "coral",
+        "echo",
+        "fable",
+        "nova",
+        "onyx",
+        "sage",
+        "shimmer",
+        "verse",
+        "marin",
+        "cedar",
+    )
+)
+
+# legacy 模型（tts-1 / tts-1-hd）不支持的音色子集，出处同上文档：这四个音色仅
+# gpt-4o-mini-tts 支持。legacy 模型下若仍暴露它们，用户选中即会在合成阶段确定性失败。
+_LEGACY_MODELS = frozenset({"tts-1", "tts-1-hd"})
+_LEGACY_UNSUPPORTED_VOICE_IDS = frozenset({"ballad", "verse", "marin", "cedar"})
 
 
 def _response_format_for(output_path: Path) -> str:
@@ -61,6 +92,14 @@ class OpenAIAudioBackend:
     @property
     def capabilities(self) -> set[AudioCapability]:
         return {AudioCapability.TEXT_TO_SPEECH}
+
+    def list_voices(self) -> list[VoiceOption]:
+        # legacy 收窄只对官方 OpenAI 生效：自定义 openai-tts 供应商（provider_name 被覆盖）即使
+        # 模型名恰好也叫 tts-1/tts-1-hd，也无法确定其是否真的继承官方同名模型的音色限制——
+        # 维持全量目录是既有、已声明的兼容策略（见文件顶部注释与 _build_openai_tts 调用点）。
+        if self._provider_name == PROVIDER_OPENAI and self._model in _LEGACY_MODELS:
+            return [v for v in _VOICE_CATALOG if v.id not in _LEGACY_UNSUPPORTED_VOICE_IDS]
+        return list(_VOICE_CATALOG)
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
         # language_type 是 DashScope 特有字段，/v1/audio/speech 无对应参数（语种随输入文本），不发送。

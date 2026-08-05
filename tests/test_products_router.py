@@ -1,10 +1,14 @@
 """products 资产路由（spec 工厂自动生成）：CRUD 全通 + 列表字段读写。"""
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
 from server.routers import products
+from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 class _FakePM:
@@ -52,7 +56,7 @@ def _client(monkeypatch, fake_pm):
     monkeypatch.setattr(products, "get_project_manager", lambda: fake_pm)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(products.router, prefix="/api/v1")
+    app.include_router(products.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app)
 
 
@@ -107,6 +111,29 @@ class TestProductsRouter:
                 assert resp.status_code == 422, bad
             # entry 未被污染
             assert fake_pm.projects["demo"]["products"]["保温杯"]["selling_points"] == []
+
+    def test_create_rejects_invalid_string_field(self, monkeypatch):
+        fake_pm = _FakePM()
+        with _client(monkeypatch, fake_pm) as client:
+            for bad in (123, ["not", "a", "string"], {"a": 1}):
+                resp = client.post(
+                    "/api/v1/projects/demo/products",
+                    json={"name": "无线音箱", "description": "", "brand": bad},
+                )
+                assert resp.status_code == 422, bad
+            # 未被污染：整个非法请求应当被拒绝，不产生 partial 落地
+            assert "无线音箱" not in fake_pm.projects["demo"]["products"]
+
+    def test_create_normalizes_null_string_field_to_empty(self, monkeypatch):
+        fake_pm = _FakePM()
+        with _client(monkeypatch, fake_pm) as client:
+            resp = client.post(
+                "/api/v1/projects/demo/products",
+                json={"name": "无线音箱", "description": "", "brand": None},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["product"]["brand"] == ""
+            assert fake_pm.projects["demo"]["products"]["无线音箱"]["brand"] == ""
 
     def test_error_mapping(self, monkeypatch):
         fake_pm = _FakePM()

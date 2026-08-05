@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from lib.db.base import Base
 from server.agent_runtime.session_store import SessionMetaStore
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def store():

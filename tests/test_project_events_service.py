@@ -58,6 +58,7 @@ async def _next_event(stream, *, timeout: float) -> tuple[str, dict]:
 
 
 class TestProjectEventService:
+    @pytest.mark.unit
     def test_diff_snapshots_reports_character_and_storyboard_changes(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -124,6 +125,38 @@ class TestProjectEventService:
         # narration 分镜走时间线画布：锚点类型恒为 segment（回归守卫，不得漂移）。
         assert all(c["focus"]["anchor_type"] == "segment" for c in segment_updated)
 
+    @pytest.mark.unit
+    def test_diff_snapshots_reports_reference_audio_change(self, tmp_path):
+        """挂载/更换参考音频要推项目事件，否则其他会话的角色卡停留在旧样本。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+
+        project = pm.load_project("demo")
+        project["characters"]["Hero"] = {
+            "description": "主角",
+            "voice_style": "冷静",
+            "character_sheet": "",
+            "reference_image": "",
+            "reference_audio": "",
+        }
+        with project_change_source("filesystem"):
+            pm.save_project("demo", project)
+
+        service = ProjectEventService(tmp_path)
+        previous = service._build_snapshot("demo")
+
+        project = pm.load_project("demo")
+        project["characters"]["Hero"]["reference_audio"] = "characters/refs_audio/Hero.wav"
+        with project_change_source("filesystem"):
+            pm.save_project("demo", project)
+
+        current = service._build_snapshot("demo")
+        changes = service._diff_snapshots(previous, current)
+
+        assert any(change["entity_type"] == "character" and change["action"] == "updated" for change in changes)
+
+    @pytest.mark.unit
     def test_build_snapshot_survives_null_episodes(self, tmp_path):
         # project.json 的 episodes 显式为 null 时快照构建不崩:load_project 直接回读磁盘
         # JSON、不规范化 episodes,读侧按 fail-soft 用 ``or []`` 兜底而非 ``get(..., [])``。
@@ -141,6 +174,7 @@ class TestProjectEventService:
 
         assert snapshot["project"]["episodes"] == {}
 
+    @pytest.mark.unit
     def test_diff_snapshots_reports_project_metadata_and_new_segments(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -216,6 +250,7 @@ class TestProjectEventService:
             for change in changes
         )
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_poll_detects_direct_script_write_and_syncs_episode_index(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
@@ -256,6 +291,7 @@ class TestProjectEventService:
 
         await service.shutdown()
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_emitted_batch_is_broadcast_without_waiting_for_snapshot_diff(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
@@ -767,6 +803,7 @@ class TestProjectEventService:
         finally:
             await service.shutdown()
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_subscribe_cancellation_cleans_up_subscriber(self, tmp_path, monkeypatch):
         """客户端在首次扫描期间断开 → _subscribe 被取消 → 订阅者与 watch task 不泄漏。"""
@@ -799,6 +836,7 @@ class TestProjectEventService:
 
         await service.shutdown()
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_new_subscriber_entering_during_stop_watch_stays_registered(self, tmp_path, monkeypatch):
         """末订阅者收尾挂起在 watch task 收尾等待点时，并发进入的新订阅者归属注册表现行通道，
@@ -877,6 +915,7 @@ class TestProjectEventService:
                 await asyncio.gather(stop_task, return_exceptions=True)
             await service.shutdown()
 
+    @pytest.mark.unit
     def test_projects_root_kwarg_overrides_default_subdir(self, tmp_path):
         """显式传 projects_root 时，service.pm 走该目录而非 project_root/'projects'。
 
@@ -892,6 +931,7 @@ class TestProjectEventService:
         assert service.pm.projects_root == custom_projects.resolve()
         assert service.pm.get_project_path("demo") == (custom_projects / "demo").resolve()
 
+    @pytest.mark.unit
     def test_diff_snapshots_reports_ad_shot_lifecycle_events(self, tmp_path):
         """ad(shots) 项目的分镜级事件：created / storyboard_ready / video_ready / updated。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -963,6 +1003,7 @@ class TestProjectEventService:
         video_changes = service._diff_snapshots(mid, final)
         assert any(c["action"] == "video_ready" and c["entity_id"] == "E1S01" for c in video_changes)
 
+    @pytest.mark.unit
     def test_diff_snapshots_reports_drama_scene_lifecycle_events(self, tmp_path):
         """drama(scenes) 项目的分镜级事件：created / storyboard_ready / video_ready。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -1026,6 +1067,7 @@ class TestProjectEventService:
         # drama 场景走时间线画布：可导航事件的锚点类型为 segment。
         assert all(c["focus"]["anchor_type"] == "segment" for c in scene_changes if c["focus"] is not None)
 
+    @pytest.mark.unit
     def test_diff_snapshots_reports_reference_video_unit_lifecycle_events(self, tmp_path):
         """reference_video(video_units) 项目的分镜级事件全周期，且 characters 从 references 派生。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -1044,7 +1086,7 @@ class TestProjectEventService:
                         {
                             "unit_id": "E1U01",
                             "duration_seconds": 8,
-                            "shots": [{"duration": 4, "text": "@[Hero] 登场"}],
+                            "shots": [{"text": "@[Hero] 登场"}],
                             "references": [
                                 {"type": "character", "name": "Hero"},
                                 {"type": "scene", "name": "街道"},
@@ -1071,7 +1113,7 @@ class TestProjectEventService:
             {
                 "unit_id": "E1U02",
                 "duration_seconds": 6,
-                "shots": [{"duration": 6, "text": "空镜"}],
+                "shots": [{"text": "空镜"}],
                 "references": [],
                 "generated_assets": _pending_assets(),
             }
@@ -1101,6 +1143,7 @@ class TestProjectEventService:
         video_changes = service._diff_snapshots(mid, final)
         assert any(c["action"] == "video_ready" and c["entity_id"] == "E1U01" for c in video_changes)
 
+    @pytest.mark.unit
     def test_diff_snapshots_reports_reference_video_content_edits(self, tmp_path):
         """reference_video 单元的内容体编辑（成员镜头文本 / 场景引用）触发 updated 事件——
 
@@ -1123,7 +1166,7 @@ class TestProjectEventService:
                         {
                             "unit_id": "E1U01",
                             "duration_seconds": 8,
-                            "shots": [{"duration": 4, "text": "@[Hero] 登场"}],
+                            "shots": [{"text": "@[Hero] 登场"}],
                             "references": [{"type": "character", "name": "Hero"}],
                             "generated_assets": _pending_assets(),
                         }
@@ -1142,9 +1185,7 @@ class TestProjectEventService:
         with project_change_source("filesystem"):
             pm.save_script("ref-edit", script, "episode_1.json", validate=False)
         after_text = service._build_snapshot("ref-edit")
-        assert after_text["scripts"]["episode_1.json"]["items"]["E1U01"]["shots"] == [
-            {"text": "@[Hero] 转身离去", "duration": 4}
-        ]
+        assert after_text["scripts"]["episode_1.json"]["items"]["E1U01"]["shots"] == [{"text": "@[Hero] 转身离去"}]
         text_changes = service._diff_snapshots(previous, after_text)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in text_changes)
 
@@ -1160,6 +1201,7 @@ class TestProjectEventService:
         scene_changes = service._diff_snapshots(after_text, after_scene)
         assert any(c["action"] == "updated" and c["entity_id"] == "E1U01" for c in scene_changes)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("kind", sorted(SKELETONS))
     def test_normalize_snapshot_covers_every_skeleton_kind(self, tmp_path, kind):
         """每个骨架种类都被 _normalize_script_snapshot 正确抽取条目——
@@ -1189,15 +1231,18 @@ class TestProjectEventService:
         label = service._build_script_item_label("X1", normalized)
         assert label.endswith("「X1」") and not label.startswith("「")
 
+    @pytest.mark.unit
     def test_every_skeleton_kind_has_label_noun(self):
         """标签名词表覆盖全部骨架种类——第五种骨架出现时此处失败，逼出名词补全。"""
         assert set(SKELETON_ITEM_NOUNS) == set(SKELETONS)
 
+    @pytest.mark.unit
     def test_every_skeleton_kind_has_entity_and_anchor_type(self):
         """实体/锚点类型表覆盖全部骨架种类——第五种骨架出现时此处失败，逼出补全。"""
         assert set(SKELETON_ENTITY_TYPES) == set(SKELETONS)
         assert set(SKELETON_ANCHOR_TYPES) == set(SKELETONS)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         ("kind", "content_mode", "generation_mode", "entity_type", "anchor_type"),
         [
@@ -1236,11 +1281,12 @@ class TestProjectEventService:
         assert change["focus"]["anchor_type"] == anchor_type
         assert change["focus"]["anchor_id"] == "X1"
 
+    @pytest.mark.unit
     def test_diff_snapshots_reports_ad_reference_unit_video_ready(self, tmp_path):
         """ad + reference_video：unit 的 video_clip 空→非空发一条 video_ready（实体类型 reference_unit）。
 
         成片写在派生索引 reference_units 各 unit 的 generated_assets，内容骨架 shots 不承载
-        该路径产物；组合按项目声明的 generation_mode 分派（effective_mode），不嗅探剧本形状。
+        该路径产物；组合按项目声明的生成路线分派，不嗅探剧本形状。
         """
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("ad-ref")
@@ -1303,6 +1349,7 @@ class TestProjectEventService:
         # shots 不承载该路径产物：不发 shot 级 video_ready。
         assert not any(c["entity_type"] == "shot" and c["action"] == "video_ready" for c in changes)
 
+    @pytest.mark.unit
     def test_ad_reference_unit_redrive_does_not_emit_unit_events(self, tmp_path):
         """ad + reference_video：unit 增删/成员变化是 shots 编辑的派生回声，不产生 unit 级事件。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -1367,6 +1414,7 @@ class TestProjectEventService:
         # unit 增删/成员变化不发 unit 级事件（内容变更由 shots 差分承载）。
         assert not any(c["entity_type"] == "reference_unit" for c in changes)
 
+    @pytest.mark.unit
     def test_ad_storyboard_path_ignores_residual_reference_units(self, tmp_path):
         """generation_mode 非 reference_video 的 ad 项目：残留 reference_units 不发 unit 级事件，
 
@@ -1374,7 +1422,7 @@ class TestProjectEventService:
         """
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("ad-sb")
-        # 不设 generation_mode → effective_mode 回退默认 storyboard。
+        # 不设 generation_mode：非参考路线，unit 级组合不激活。
         pm.create_project_metadata("ad-sb", "AdSb", "Anime", "ad")
 
         with project_change_source("filesystem"):
@@ -1431,6 +1479,7 @@ class TestProjectEventService:
             c["entity_type"] == "shot" and c["action"] == "video_ready" and c["entity_id"] == "E1S01" for c in changes
         )
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_watch_terminates_stream_when_project_directory_deleted(self, tmp_path, caplog):
         """订阅存续期间删除项目目录：一个轮询周期内扫描终止——广播终止事件、
@@ -1466,6 +1515,7 @@ class TestProjectEventService:
 
         await service.shutdown()
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_watch_keeps_error_logging_when_only_project_json_missing(self, tmp_path, caplog):
         """项目目录仍存在、仅 project.json 缺失——不属于本次修复范围：维持现状，
@@ -1489,6 +1539,7 @@ class TestProjectEventService:
 
         await service.shutdown()
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_hint_rebuild_terminates_channel_without_error_when_project_deleted(self, tmp_path, caplog):
         """hint 触发的显式重建路径对已删除项目同样走终止处理，不产生 ERROR 日志。"""
@@ -1531,6 +1582,7 @@ class TestProjectEventService:
 
         await service.shutdown()
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_new_subscriber_after_project_recreated_gets_fresh_channel(self, tmp_path):
         """项目删除后原通道终止；同名项目重建后新订阅走全新通道，行为与现在一致。"""

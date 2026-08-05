@@ -10,6 +10,7 @@ ad 剧本骨架唯一（shots 是内容唯一真相，见 docs/adr/0033）；ref
 
 from __future__ import annotations
 
+from lib.asset_types import normalize_asset_name
 from lib.script_models import GeneratedAssets, ad_shot_duration_seconds, get_generated_assets
 
 #: 单个 video_unit 最多容纳的镜头数，与 ``ReferenceVideoUnit.shots`` 的
@@ -29,7 +30,13 @@ _REFERENCE_FIELDS: tuple[tuple[str, str], ...] = (
 
 
 def _unit_references(shots: list[dict]) -> list[dict]:
-    """unit 参考集：成员镜头参考的并集，产品在前，类型内按首次出现顺序去重。"""
+    """unit 参考集：成员镜头参考的并集，产品在前，类型内按首次出现顺序去重。
+
+    去重按归一名（:func:`lib.asset_types.normalize_asset_name`）而非裸字符串：同一资产在不同
+    镜头里可能以 NFC/NFD 两种等价编码写入，裸比对判不相等会让它派生出两条 reference——画布
+    上重复显示同一资产，并各占一个参考图槽位挤掉真正不同的参考。条目本身保留镜头里的原始
+    形式，判等交给读取侧的归一（与 ``_resolve_unit_references`` 的去重同构）。
+    """
     references: list[dict] = []
     for field, ref_type in _REFERENCE_FIELDS:
         seen: set[str] = set()
@@ -38,9 +45,12 @@ def _unit_references(shots: list[dict]) -> list[dict]:
             if not isinstance(names, list):
                 continue
             for name in names:
-                if not isinstance(name, str) or not name or name in seen:
+                if not isinstance(name, str) or not name:
                     continue
-                seen.add(name)
+                canonical = normalize_asset_name(name)
+                if canonical in seen:
+                    continue
+                seen.add(canonical)
                 references.append({"type": ref_type, "name": name})
     return references
 
@@ -213,31 +223,26 @@ def _shot_prompt_text(shot: dict) -> str:
             if not isinstance(entry, dict):
                 continue
             speaker = _text(entry.get("speaker"))
+            # 归一到与 derive_voice_bindings 相同的坐标系（NFC）：该函数对说话人名归一后
+            # 产出音色绑定声明 `<X>的台词音色参考 @音频N`，这里的台词句式若仍用未归一的
+            # 原始字节形式，两处的 `<X>` 会字节不同，供应商侧无法把参考音色与这句台词对上。
+            speaker = normalize_asset_name(speaker) if speaker else speaker
             line = _text(entry.get("line"))
             if line:
-                parts.append(f"台词 {speaker}：「{line}」" if speaker else f"台词：「{line}」")
+                # 台词句式与 narration/drama 参考路径的第二段统一（<X>说 {台词}），无 speaker
+                # 的裸台词行归入画外音句式，见
+                # lib.reference_video.prompt_render.render_ad_backend_prompt。
+                parts.append(f"<{speaker}>说 {{{line}}}" if speaker else f"画外音说 {{{line}}}")
     return "；".join(parts)
-
-
-def render_reference_legend(labels: list[str]) -> str:
-    """把最终注入的参考图标签渲染成 ``[图N]`` 对照表（N 与 backend 实收顺序严格对齐）。
-
-    ad 派生 unit 的 prompt 不写 @mention，参考与画面的绑定靠此对照表传达；
-    必须在参考裁剪**之后**调用，否则 [图N] 会指向不存在的图。
-    """
-    if not labels:
-        return ""
-    lines = ["参考图对照："]
-    lines.extend(f"[图{n}] {label}" for n, label in enumerate(labels, start=1))
-    return "\n".join(lines)
 
 
 def render_ad_unit_prompt(shots: list[dict], *, style: str | None = None) -> str:
     """把 unit 的成员镜头渲染为多镜头视频生成 prompt。
 
-    每个镜头一行 ``Shot {n} ({duration}s): {画面描述}``，显式传达切镜节奏与
-    单镜头时长（与 narration/drama 参考路径 step1 的书写格式同形）；项目风格
-    以 ``Style:`` 头行注入。所有镜头都无画面内容时返回空串，让入队守卫
+    每个镜头一行 ``Shot {n} ({duration}s): {画面描述}``，显式传达切镜节奏与单镜头
+    时长——ad 骨架的时长仍挂在 shot 上（unit 是派生分组，时长取成员求和），与
+    narration/drama 参考路径的 unit 级单时长不同源；项目风格以 ``Style:`` 头行注入。
+    所有镜头都无画面内容时返回空串，让入队守卫
     （``TaskSpec.from_request``）当场拒绝，而非把纯结构头发给供应商。
     """
     from lib.prompt_utils import normalize_style

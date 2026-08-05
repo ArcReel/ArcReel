@@ -12,6 +12,9 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
     status: "pending_review",
     fingerprint: "fp1",
     confirmed_at: null,
+    quarantine: null,
+    supported_durations: null,
+    duration_tiers: null,
     content: {
       title: "第一集",
       scenes: [
@@ -42,6 +45,9 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
     status: "pending_review",
     fingerprint: "fp1",
     confirmed_at: null,
+    quarantine: null,
+    supported_durations: null,
+    duration_tiers: null,
     content: {
       segments: [
         {
@@ -52,32 +58,6 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
           characters_in_segment: ["裴与"],
           scenes: [],
           props: [],
-        },
-      ],
-    },
-    ...overrides,
-  };
-}
-
-function referenceState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
-  return {
-    episode: 1,
-    content_mode: "narration",
-    status: "pending_review",
-    fingerprint: "fp1",
-    confirmed_at: null,
-    content: {
-      units: [
-        {
-          unit_id: "E1U1",
-          shots: [
-            { duration: 3, text: "阿离撑伞走过长街 @[阿离]" },
-            { duration: 2, text: "镜头拉近雨中石板路 @[长街]" },
-          ],
-          references: [
-            { type: "character", name: "阿离" },
-            { type: "scene", name: "长街" },
-          ],
         },
       ],
     },
@@ -129,10 +109,12 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(saveBtn);
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
-    const [, , savedContent] = save.mock.calls[0];
+    const [, , savedContent, baseFingerprint] = save.mock.calls[0];
     expect(savedContent).toMatchObject({
       scenes: [{ utterances: [{ text: "三年后。" }, { text: "你怎么才回来。" }] }],
     });
+    // 保存携带 GET 时拿到的内容指纹，供服务端做并发编辑冲突比对
+    expect(baseFingerprint).toBe("fp1");
   });
 
   it("renders narration novel_text as editable", async () => {
@@ -141,40 +123,6 @@ describe("ScriptReviewGate", () => {
 
     await waitFor(() => expect(screen.getByDisplayValue("裴与出征后的第二年。")).toBeInTheDocument());
     expect(screen.getByText("E1S01")).toBeInTheDocument();
-  });
-
-  it("renders reference_video units with editable shots and read-only reference pills", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(referenceState());
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="reference_video" />);
-
-    await waitFor(() => expect(screen.getByDisplayValue("阿离撑伞走过长街 @[阿离]")).toBeInTheDocument());
-    // 第二个 shot 同样可编辑
-    expect(screen.getByDisplayValue("镜头拉近雨中石板路 @[长街]")).toBeInTheDocument();
-    expect(screen.getByText("E1U1")).toBeInTheDocument();
-    // references 只读 pill（首现顺序 → [图N]），不进可编辑控件
-    expect(screen.getByText("阿离")).toBeInTheDocument();
-    expect(screen.getByText("长街")).toBeInTheDocument();
-    expect(screen.getByText("待审核")).toBeInTheDocument();
-  });
-
-  it("edits a reference_video shot and persists the units draft", async () => {
-    vi.spyOn(API, "getScriptReview").mockResolvedValue(referenceState());
-    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(referenceState());
-
-    render(<ScriptReviewGate projectName="p" episode={1} contentMode="reference_video" />);
-    await waitFor(() => expect(screen.getByDisplayValue("阿离撑伞走过长街 @[阿离]")).toBeInTheDocument());
-
-    fireEvent.change(screen.getByDisplayValue("阿离撑伞走过长街 @[阿离]"), {
-      target: { value: "阿离缓步走过长街 @[阿离]" },
-    });
-    const saveBtn = await screen.findByText("保存");
-    fireEvent.click(saveBtn);
-
-    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
-    const [, , savedContent] = save.mock.calls[0];
-    expect(savedContent).toMatchObject({
-      units: [{ unit_id: "E1U1", shots: [{ text: "阿离缓步走过长街 @[阿离]" }, { text: "镜头拉近雨中石板路 @[长街]" }] }],
-    });
   });
 
   it("adopts externally edited (agent) content on refetch when the user has no edits", async () => {

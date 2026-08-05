@@ -17,6 +17,8 @@ from lib.generation_queue_client import (
     wait_for_task,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestTaskSpecFromRequest:
     def test_video_string_prompt_builds_spec(self):

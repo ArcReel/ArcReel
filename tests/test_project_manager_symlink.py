@@ -26,6 +26,8 @@ from lib.profile_manifest import (
 )
 from lib.project_manager import ProjectManager
 
+pytestmark = pytest.mark.unit
+
 # ---------- 公共 fixtures ----------
 
 

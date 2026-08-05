@@ -10,7 +10,6 @@ from lib.video_backends.base import (
     AmbiguousSubmitError,
     ProviderJobIdPersistenceMixin,
     ResumeExpiredError,
-    VideoCapability,
     VideoGenerationRequest,
     VideoGenerationResult,
     is_retryable_http_status,
@@ -23,26 +22,14 @@ from lib.video_backends.base import (
     submit_post,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def _http_status_error(status_code: int, *, text: str = "boom") -> httpx.HTTPStatusError:
     """构造真实 httpx.HTTPStatusError；URL 故意含 "503" 子串以验证不再走字符串误判。"""
     request = httpx.Request("GET", "https://relay.example/v2/video/generations?generation_id=task-503")
     response = httpx.Response(status_code, request=request, text=text)
     return httpx.HTTPStatusError(f"error '{status_code}'", request=request, response=response)
-
-
-class TestVideoCapability:
-    def test_enum_values(self):
-        assert VideoCapability.TEXT_TO_VIDEO == "text_to_video"
-        assert VideoCapability.IMAGE_TO_VIDEO == "image_to_video"
-        assert VideoCapability.GENERATE_AUDIO == "generate_audio"
-        assert VideoCapability.NEGATIVE_PROMPT == "negative_prompt"
-        assert VideoCapability.VIDEO_EXTEND == "video_extend"
-        assert VideoCapability.SEED_CONTROL == "seed_control"
-        assert VideoCapability.FLEX_TIER == "flex_tier"
-
-    def test_enum_is_str(self):
-        assert isinstance(VideoCapability.TEXT_TO_VIDEO, str)
 
 
 class TestVideoGenerationRequest:
@@ -53,6 +40,7 @@ class TestVideoGenerationRequest:
         assert req.resolution is None
         assert req.start_image is None
         assert req.generate_audio is True
+        assert req.reference_audio_files is None
         assert req.service_tier == "default"
         assert req.seed is None
 

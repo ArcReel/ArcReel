@@ -6,7 +6,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lib.script_structure_validator import validate_script_structure
+
+pytestmark = pytest.mark.unit
 
 
 def _segment(segment_id: str = "E1S01", duration: int = 4) -> dict:
@@ -55,12 +59,12 @@ def _drama(scenes: list[dict] | None = None) -> dict:
 
 
 def _unit(unit_id: str = "E1U1", shots: list[dict] | None = None, duration: int | None = None, **extra) -> dict:
-    shots = shots if shots is not None else [{"duration": 3, "text": "镜头1"}, {"duration": 4, "text": "镜头2"}]
+    shots = shots if shots is not None else [{"text": "镜头1"}, {"text": "镜头2"}]
     unit = {
         "unit_id": unit_id,
         "shots": shots,
         "references": [],
-        "duration_seconds": duration if duration is not None else sum(s["duration"] for s in shots),
+        "duration_seconds": duration if duration is not None else 8,
     }
     unit.update(extra)
     return unit
@@ -182,24 +186,22 @@ class TestInvalidNarration:
 
 
 class TestInvalidReferenceVideo:
-    def test_shots_duration_mismatch(self):
-        # shots 总和 7，duration_seconds 标 99，且未置 duration_override → 跨字段一致性失败
-        unit = _unit(duration=99)
-        result = validate_script_structure(_reference([unit]))
+    def test_duration_out_of_structural_range_rejected(self):
+        # unit 时长是唯一真相、与镜头无关，只受结构合理性区间约束
+        result = validate_script_structure(_reference([_unit(duration=9999)]))
         assert not result.valid
         assert any("duration" in e.lower() for e in result.errors)
 
-    def test_shots_mismatch_allowed_with_override(self):
-        unit = _unit(duration=99, duration_override=True)
-        assert validate_script_structure(_reference([unit])).valid
+    def test_duration_independent_of_shot_count(self):
+        assert validate_script_structure(_reference([_unit(duration=12)])).valid
 
     def test_empty_shots_rejected(self):
-        unit = _unit(shots=[], duration=0)
+        unit = _unit(shots=[], duration=8)
         result = validate_script_structure(_reference([unit]))
         assert not result.valid
 
     def test_too_many_shots_rejected(self):
-        shots = [{"duration": 1, "text": f"镜头{i}"} for i in range(5)]
+        shots = [{"text": f"镜头{i}"} for i in range(5)]
         unit = _unit(shots=shots, duration=5)
         result = validate_script_structure(_reference([unit]))
         assert not result.valid

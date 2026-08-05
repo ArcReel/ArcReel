@@ -23,9 +23,7 @@ export const BUCKET_FIELD: Record<AssetKind, "characters" | "scenes" | "props"> 
 };
 
 export interface Shot {
-  /** 1-15s per shot */
-  duration: number;
-  /** Raw prompt text including @mentions */
+  /** Raw prompt text including @mentions — shots carry no duration; the unit does. */
   text: string;
 }
 
@@ -59,6 +57,8 @@ export interface UnitGeneratedAssets {
   video_uri: string | null;
   /** Raw backend status — use `UnitStatus` for UI display. */
   status: UnitPersistedStatus;
+  /** ISO8601 completion time; null is treated as "before any voice setting". */
+  video_generated_at: string | null;
 }
 
 export interface ReferenceVideoUnit {
@@ -67,10 +67,8 @@ export interface ReferenceVideoUnit {
   shots: Shot[];
   /** Ordered — position defines [图N] index in the final prompt */
   references: ReferenceResource[];
-  /** Sum of shots[].duration; server-derived */
+  /** Unit duration in seconds — the single source of truth, sent to the provider as-is. */
   duration_seconds: number;
-  /** True when prompt has no Shot markers and user set duration manually */
-  duration_override: boolean;
   transition_to_next: TransitionType;
   note: string | null;
   generated_assets: UnitGeneratedAssets;
@@ -88,6 +86,30 @@ export interface ReferenceDurationPrecheck {
   /** 将向模型申请的档位秒数 */
   request_duration: number;
   adjustment: "exact" | "up" | "down" | "unconstrained";
+}
+
+/**
+ * 分镜文稿的读时派生结果——编辑器解析预览面板的内容源。
+ *
+ * 文稿是唯一真相：shots / references / utterances 都是机械派生物，不落盘。
+ * `warnings` 已按请求语言渲染成文本（`key` 保留供测试与埋点定位）。
+ */
+/** 1-based 镜头序号；台词归属镜头级，时序对位由归属给出。 */
+export type ScriptPreviewUtterance =
+  | { shot_index: number; kind: "dialogue"; speaker: string; text: string }
+  | { shot_index: number; kind: "voiceover"; speaker: null; text: string };
+
+export interface ScriptPreviewWarning {
+  key: string;
+  message: string;
+}
+
+export interface ScriptPreview {
+  shots: { index: number; text: string }[];
+  /** 顺序即参考图编号；规范台词行的 speaker 位不计入 */
+  references: ReferenceResource[];
+  utterances: ScriptPreviewUtterance[];
+  warnings: ScriptPreviewWarning[];
 }
 
 /** ad 派生分组的参考条目：比 ReferenceResource 多 product 类型（产品绝对优先）。 */
@@ -113,7 +135,7 @@ export interface AdReferenceUnit {
 /**
  * reference_video step1 结构化中间态（审核 gate 的可审 / 可改对象）。映射后端
  * lib/script_models.py 的 ReferenceStep1Unit / ReferenceStep1Draft：step1 定内容层
- * （unit 边界 + 各 shot 叙事文本与时长 + 派生 references），step2 视觉编排由用户确认后才触发。
+ * （unit 边界 + unit 时长 + 各 shot 叙事文本 + 派生 references），step2 视觉编排由用户确认后才触发。
  * references 为服务端从 shot 文本 @ 引用机械派生（首现顺序决定 [图N] 编号），编辑正文保存时重派生，
  * 故审阅界面只读展示。
  */
@@ -121,10 +143,53 @@ export interface ReferenceStep1Unit {
   unit_id: string;
   shots: Shot[];
   references: ReferenceResource[];
+  /** Unit duration in seconds — one generation call, one duration. */
+  duration_seconds: number;
+  /** 逐字原文摘录（追溯锚）；存量草稿可能为空串。 */
+  source_text: string;
 }
 
 export interface ReferenceStep1Draft {
   units: ReferenceStep1Unit[];
+}
+
+/**
+ * step1 的书写层扁平形状（隔离草稿装的是这个，不是落盘的 `ReferenceStep1Draft`）：
+ * `unit_id` / `shots` / `references` 一律机器派生，落盘前才有——隔离期间只有时长 + 原文锚 +
+ * 一段书写层正文。Mirrors lib/script_models.py ReferenceStep1FlatUnit / ReferenceStep1FlatDraft。
+ */
+export interface ReferenceStep1FlatUnit {
+  duration_seconds: number;
+  source_text: string;
+  text: string;
+}
+
+export interface ReferenceStep1FlatDraft {
+  units: ReferenceStep1FlatUnit[];
+}
+
+/**
+ * 隔离草稿违约条目。Mirrors lib/reference_video/quarantine.py::violation_entries。
+ * `label` 形如 `"unit E1U02"`——数组下标 = 派生 unit 序号 - 1，可据此定位到 `content.units[i]`。
+ * `line` 是该 unit 正文内 0-based 原始行号（与 `useShotPromptHighlight.ts` 的 `sourceLine` 同
+ * 坐标系），仅语法类违约才有；unit 级违约（无自然行归属）为 null，呈现层落卡内聚合区。
+ */
+export interface ScriptReviewViolation {
+  code: string;
+  label: string;
+  message: string;
+  line: number | null;
+}
+
+/**
+ * step1 隔离草稿信息（`ScriptReviewState.quarantine`）：reference_video 变体、隔离草稿在场时
+ * 才非 null。`content` 是读时按同一校验器重算后的扁平产出（校验通过部分已收编，未通过部分原样
+ * 呈现 agent 手改的文本）；`violations` 同样是读时重算的结果，不是草稿里上一轮的报告快照。
+ */
+export interface ScriptReviewQuarantine {
+  /** null 仅在隔离草稿文件已损坏、无法解析信封形状时出现——`violations` 会带一条说明。 */
+  content: ReferenceStep1FlatDraft | null;
+  violations: ScriptReviewViolation[];
 }
 
 export interface ReferenceVideoScript {
@@ -132,11 +197,9 @@ export interface ReferenceVideoScript {
   title: string;
   /**
    * 内容类型——参考视频集继承项目级 narration/drama，决定画面比例等次级配置；
-   * "视频来源"维度由 generation_mode 表达。
+   * "视频来源"维度由项目的生成路线表达，不落在剧本上。
    */
   content_mode?: "narration" | "drama";
-  /** 参考视频集固定 "reference_video"；由后端 ScriptGenerator 注入。 */
-  generation_mode?: "reference_video";
   duration_seconds: number;
   schema_version?: number;
   novel: { title: string; chapter: string };

@@ -7,6 +7,9 @@
  * - server/routers/projects.py (ProjectSummary list response)
  */
 
+import type { VoiceConsistencyTier } from "@/types/provider";
+import type { GenerationRoute } from "@/utils/generation-mode";
+
 export interface ProjectOverview {
   synopsis: string;
   genre: string;
@@ -20,6 +23,12 @@ export interface Character {
   character_sheet?: string;
   voice_style?: string;
   reference_image?: string;
+  reference_audio?: string;
+  /** reference_audio 当前生效版本的设置/更新时间（ISO8601），由后端在写入时机械戳。 */
+  voice_updated_at?: string;
+  /** 已确认到的声音版本（ISO8601，取关闭时的 voice_updated_at 原值）；
+   *  voice_updated_at 晚于此值即视为新版本。 */
+  voice_notice_dismissed_at?: string;
 }
 
 export interface Scene {
@@ -106,13 +115,8 @@ export interface EpisodeMeta {
   storyboards?: ProgressCategory;
   /** Injected by StatusCalculator at read time */
   videos?: ProgressCategory;
-  /** Injected by StatusCalculator at read time (reference_video mode only) */
+  /** Injected by StatusCalculator at read time (reference_video route only) */
   units_count?: number;
-  /**
-   * Optional episode-level override; falls back to project.generation_mode.
-   * Never "single" — legacy value only exists at project level.
-   */
-  generation_mode?: "storyboard" | "grid" | "reference_video";
 }
 
 export interface ModelSettingEntry {
@@ -130,7 +134,7 @@ export interface ProjectData {
   style_description?: string;
   overview?: ProjectOverview;
   aspect_ratio?: string | AspectRatio;  // 新项目为 string，旧项目可能为 dict
-  default_duration?: number | null;     // 新增
+  default_duration?: number | null;     // 新分镜的默认视频时长（秒），空值即由 AI 按内容决定；ad 项目不持有
   /** 仅 ad：目标总时长（秒）。 */
   target_duration?: number;
   /** 仅 ad：创作诉求短文本（可空）。 */
@@ -145,11 +149,18 @@ export interface ProjectData {
   /** Injected by StatusCalculator.enrich_project at read time */
   status?: ProjectStatus;
   video_backend?: string | null;
+  /** 视频能力桶（docs/adr/0054）项目级覆盖；空值 = 回退 video_backend 与全局层 */
+  video_provider_i2v?: string | null;
+  video_provider_r2v?: string | null;
   image_backend?: string | null;
+  /** 项目默认图片模型；图片能力桶留空时回退到它，再回退全局层 */
+  default_image_backend?: string | null;
   image_provider_t2i?: string | null;
   image_provider_i2i?: string | null;
-  /** Canonical values: storyboard | grid | reference_video. "single" is legacy-only. */
-  generation_mode?: "storyboard" | "grid" | "reference_video" | "single";
+  /** 生成路线，创建时锁定、之后不可更改。 */
+  generation_mode?: GenerationRoute;
+  /** 分镜板（宫格）装配开关；仅分镜路线有意义，随时可切。 */
+  grid_storyboard?: boolean;
   video_generate_audio?: boolean | null;
   /** 旁白配音（TTS）项目级覆盖：音频后端 / 音色 / 语速，留空即跟随全局默认 */
   audio_backend?: string | null;
@@ -234,4 +245,6 @@ export interface VideoCapabilities {
   default_duration?: number | null;
   content_mode?: string | null;
   generation_mode?: string | null;
+  /** 声音一致性三级标识（模型能力 × generation_mode 二维派生），服务端唯一派生点。 */
+  voice_consistency: VoiceConsistencyTier;
 }

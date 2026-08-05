@@ -1,34 +1,42 @@
-"""参考生视频 executor。
-
-Spec: docs/superpowers/specs/2026-04-15-reference-to-video-mode-design.md §5.2
-"""
+"""参考生视频 executor。"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY
-from lib.config.resolver import ConfigResolver, constrain_durations, get_provider_fallback
+from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY, normalize_asset_bucket, normalize_asset_name
+from lib.config.resolver import (
+    ConfigResolver,
+    ProviderModel,
+    VideoCapability,
+    constrain_durations,
+    get_provider_fallback,
+)
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import get_generation_queue
 from lib.path_safety import safe_exists
-from lib.prompt_builders import append_product_fidelity_tail, append_video_negative_tail
-from lib.reference_video import assemble_shots_text, render_prompt_for_backend
-from lib.reference_video.ad_units import (
-    render_ad_unit_prompt,
-    render_reference_legend,
-    resolve_ad_unit_shots,
-)
+from lib.prompt_builders import append_product_fidelity_tail
+from lib.reference_video import assemble_shots_text, assemble_shots_text_for_render
+from lib.reference_video.ad_units import resolve_ad_unit_shots
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.errors import MissingReferenceError
+from lib.reference_video.prompt_render import (
+    RenderedUnitPrompt,
+    render_ad_backend_prompt,
+    render_unit_prompt,
+    resolve_reference_audio_paths,
+)
+from lib.reference_video.units import reference_video_bucket
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_editor import ScriptEditError
 from lib.script_models import ReferenceResource, ad_script_total_duration
 from lib.thumbnail import extract_video_thumbnail
@@ -38,6 +46,7 @@ from server.services.generation_tasks import (
     collect_product_references_for_names,
     get_project_manager,
 )
+from server.services.video_caps import project_video_caps
 
 logger = logging.getLogger(__name__)
 
@@ -54,26 +63,60 @@ async def _persist_effective_duration(task_id: str, duration_seconds: int) -> No
         logger.warning("effective_duration 写回 payload 失败 task_id=%s", task_id, exc_info=True)
 
 
+async def _persist_execution_identity(
+    task_id: str, execution_model: ProviderModel, capability: VideoCapability
+) -> None:
+    """把执行期实际解析出的身份写回 ``task.provider_id`` 列与 payload 钉住键（见调用点注释）。
+
+    fail-fast：写回失败上抛、任务在向 provider 提交前失败。吞掉异常继续提交会留下
+    「身份停留在入队投影、job_id 却已持久化」的任务——重启恢复拿错 backend
+    轮询，与 ``persist_provider_job_id`` 防「幽灵任务」是同一语义（ADR 0007）；此处
+    失败发生在提交前，没有已计费的 provider 端 job 可丢。
+    """
+    await get_generation_queue().persist_execution_identity(
+        task_id, execution_model=execution_model, capability=capability
+    )
+
+
+def _dedupe_typed_references(references: list[dict]) -> list[dict]:
+    """按 (type, 归一名) 去重 reference 字典，保留首次出现顺序。
+
+    PATCH 接口只校验每条 reference 已登记，不校验数组内互相去重：同一资产可能以 NFC/NFD
+    两条等价记录同时留在 unit.references 里。参考图解析（``_resolve_unit_references``）与
+    prompt 渲染前的裁剪必须共用同一份去重结果——否则图片列表与逻辑引用列表长度不一致，
+    ``@图片N`` 的编号会与实际图片错位、按图号绑定的参考音频也会挂到错的图上。
+    """
+    seen: set[tuple[str, str]] = set()
+    deduped: list[dict] = []
+    for ref in references:
+        key = (str(ref.get("type")), normalize_asset_name(str(ref.get("name"))))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(ref)
+    return deduped
+
+
 def _resolve_unit_references(
     project: dict,
     project_path: Path,
     references: list[dict],
 ) -> list[Path]:
-    """把 unit.references 转成绝对路径列表（按 references 顺序）。
+    """把 unit.references 转成绝对路径列表（按 references 顺序，按类型+归一名去重）。
 
     Raises:
         MissingReferenceError: 任一 reference 在 project.json 对应 bucket 缺失或 sheet 不存在。
     """
     missing: list[tuple[str, str | None]] = []
     resolved: list[Path] = []
-    for ref in references:
+    for ref in _dedupe_typed_references(references):
         rtype = ref.get("type")
         rname = ref.get("name")
         if rtype not in BUCKET_KEY:
             missing.append((str(rtype), str(rname)))
             continue
-        bucket = project.get(BUCKET_KEY[rtype]) or {}
-        item = bucket.get(rname)
+        bucket = normalize_asset_bucket(project.get(BUCKET_KEY[rtype]))
+        item = bucket.get(normalize_asset_name(str(rname)))
         sheet_rel = item.get(SHEET_KEY[rtype]) if isinstance(item, dict) else None
         if not sheet_rel:
             missing.append((rtype, rname))
@@ -89,21 +132,40 @@ def _resolve_unit_references(
     return resolved
 
 
-def _render_unit_prompt(unit: dict) -> str:
-    """从 unit.shots[*].text 拼接 prompt，用 shot_parser 把 @X 替成 [图N]，再追加反向尾词。
+def _render_unit_prompt(
+    unit: dict,
+    project: dict,
+    settings: VoiceRenderSettings,
+) -> RenderedUnitPrompt:
+    """把 unit 的书写文稿渲染成三段论 backend prompt（见 ``lib.reference_video.prompt_render``）。
+
+    画质/字幕/水印约束由渲染的第三段承担，本路径不追加反向尾词（``append_video_negative_tail``
+    只服务图生视频路径；ad 参考直出路径同走三段论渲染，见 ``render_ad_backend_prompt``）。
 
     空提示词的*结构校验*已上移到入队守卫点（``TaskSpec.from_request``），两条入队路径
     （WebUI / SDK）在入队时即拒绝空提示词。此处保留一道防御性空检查，因为参考生视频的
     提示词源是*可变*的 script 文件且执行期从新读取（队列 dedup 不看 payload，无法靠入队
     快照兜底）：若提示词在入队后被改空、或在途遗留任务漏过守卫，这道检查避免空提示词被
-    尾词追加成非空文本绕过 backend 的空值保护、白白消耗付费配额。
+    机器生成的第一/三段撑成非空文本绕过 backend 的空值保护、白白消耗付费配额。检查落在
+    *书写层文本*而非渲染结果上——三段论渲染恒产出非空第三段，渲染后已无从判别。
+
+    空检查用 ``assemble_shots_text``（不注入 header，空 shots 拼接结果仍为空）；渲染用
+    ``assemble_shots_text_for_render``（按数组位置重新注入规范 header），因为
+    ``parse_prompt`` 只认文本里的 header 切分镜头，而经解析预览面板编辑回写的 unit，
+    其 ``shots[*].text`` 普遍已不带 header——两个以上镜头裸拼接后会被重新解析成一个镜头，
+    丢失第二段的分镜结构。
     """
-    raw = assemble_shots_text(unit.get("shots") or [])
-    references = [ReferenceResource(type=r["type"], name=r["name"]) for r in (unit.get("references") or [])]
-    rendered = render_prompt_for_backend(raw, references)
-    if not rendered.strip():
+    shots = unit.get("shots") or []
+    if not assemble_shots_text(shots).strip():
         raise ValueError("reference video unit prompt is empty: all shots[*].text are blank")
-    return append_video_negative_tail(rendered)
+    references = [ReferenceResource(type=r["type"], name=r["name"]) for r in (unit.get("references") or [])]
+    return render_unit_prompt(
+        assemble_shots_text_for_render(shots),
+        project,
+        references,
+        settings,
+        style=project.get("style"),
+    )
 
 
 def _apply_provider_constraints(
@@ -123,7 +185,7 @@ def _apply_provider_constraints(
     （model 粒度，单一真相源）；`max_refs` 为 None 表示不裁参考图，`supported_durations`
     为空表示能力不可解析、时长原样透传。
 
-    档位全集先按本次调用的条件收窄再取档（见 :func:`effective_reference_durations`）：参考图
+    档位全集先按该请求的条件收窄再取档（见 :func:`effective_reference_durations`）：参考图
     约束只在裁剪后**确实带图**时施加——通用单元允许空 references、ad 缺图会退化为纯文本，
     而 backend 同样只在 ``reference_images`` 非空时施加该约束。收窄用的是规范 registry
     provider id 而非 ``provider``（后者是 backend 族名，如 ark-agent-plan 族用 Ark backend，
@@ -171,15 +233,16 @@ def _apply_provider_constraints(
     return new_refs, new_duration, warnings
 
 
-def unit_script_duration(unit: dict, ad_shots: list[dict] | None) -> int:
-    """unit 的剧本编排时长（秒）。ad 取成员镜头求和，narration/drama 取 unit 字段。
+#: unit 时长缺值时的兜底秒数。执行层取档、入队前预检与新建 unit 的默认时长共用此口径，
+#: 避免用户确认的秒数与实际申请的秒数因各处各自兜底而不一致。
+FALLBACK_UNIT_DURATION = 8
 
-    执行层取档与入队前预检共用此口径（含缺值兜底 8 秒），避免用户确认的秒数与实际
-    申请的秒数因两处各自兜底而不一致。
-    """
+
+def unit_script_duration(unit: dict, ad_shots: list[dict] | None) -> int:
+    """unit 的剧本编排时长（秒）。ad 取成员镜头求和，narration/drama 取 unit 字段。"""
     if ad_shots is not None:
-        return ad_script_total_duration(ad_shots) or 8
-    return int(unit.get("duration_seconds") or 8)
+        return ad_script_total_duration(ad_shots) or FALLBACK_UNIT_DURATION
+    return int(unit.get("duration_seconds") or FALLBACK_UNIT_DURATION)
 
 
 def effective_reference_durations(
@@ -190,7 +253,7 @@ def effective_reference_durations(
     *,
     with_reference_images: bool,
 ) -> list[int]:
-    """参考视频路径实际可申请的时长档位：全集与本次调用条件的约束求交。
+    """参考视频路径实际可申请的时长档位：全集与该请求条件的约束求交。
 
     型号可能对「带参考图」与「按某分辨率下发」各自声明更窄的时长档位。按全集取档会选中
     执行期必然被拒的秒数（如 Veo 3.1 带参考图只接受 8 秒，5 秒剧本按全集取档得 6 秒），
@@ -224,14 +287,21 @@ class ProjectDurationContext:
     max_duration: int | None = None
 
 
-async def resolve_project_duration_context(project: dict) -> ProjectDurationContext:
-    """一次性解析项目视频能力（档位全集 + 单次生成时长上限 + 分辨率 + provider/model 身份）。
+async def resolve_project_duration_context(
+    project: dict,
+    *,
+    capability: VideoCapability | None = None,
+) -> ProjectDurationContext:
+    """一次性解析视频能力（档位全集 + 单次生成时长上限 + 分辨率 + provider/model 身份）。
+
+    ``capability`` 未给定时按项目路线定桶；给定时按指定桶解析——参考路线内按镜头分流的
+    调用方（费用估算、逐 unit 预检）以此对无参考图退化镜头按 i2v 桶模型取档。
 
     解析失败按空档位处理（沿用现状放行，不弹确认）；分辨率仅在档位非空时才解析，
     空档位下分辨率约束无意义。``max_duration`` 与 :func:`resolve_max_unit_duration`
     取自同一份能力解析结果，供需要现推分组的调用方复用而不再触发一次 IO。
     """
-    caps = await _project_video_caps(project, degraded_to="时长取档不施加档位约束")
+    caps = await project_video_caps(project, degraded_to="时长取档不施加档位约束", capability=capability)
     durations = tuple(int(d) for d in caps.get("supported_durations") or [])
     provider_id = str(caps.get("provider_id") or "")
     model = caps.get("model")
@@ -272,17 +342,29 @@ def precheck_unit(ctx: ProjectDurationContext, unit: dict, ad_shots: list[dict] 
     return resolve_duration_slot(unit_script_duration(unit, ad_shots), durations)
 
 
-async def _project_video_caps(project: dict, *, degraded_to: str) -> dict:
-    """项目视频后端的 model 粒度能力；解析失败返回空 dict，由调用方各自降级。
+def default_unit_duration(ctx: ProjectDurationContext, project: dict, *, with_references: bool = False) -> int:
+    """新建 unit 的默认时长（秒）：项目偏好 > 收窄后的最短档位 > 兜底。
 
-    ``degraded_to`` 只用于日志，说明这次解析失败会让调用方退化成什么行为。
+    档位按执行层同一套约束收窄（``effective_reference_durations``），使新建单元拿到的秒数
+    落在它真正被生成时能申请到的档位内。``with_references`` 须与 ``precheck_unit`` 对同一
+    unit 的判据同源（是否带参考图）。项目偏好不是当前模型的档位成员时（换模型后配置漂移）
+    不采信，退到收窄后档位里的最短值（自定义供应商声明的档位可能不按升序排列）；档位不可
+    解析时无从校验偏好是否可申请，直接退到 ``FALLBACK_UNIT_DURATION``，与执行层读不到
+    unit 时长时的兜底值同源。
     """
-    try:
-        resolver = ConfigResolver(async_session_factory)
-        return await resolver.video_capabilities_for_project(project)
-    except (ValueError, SQLAlchemyError) as exc:
-        logger.info("无法解析 video_capabilities，%s：%s", degraded_to, exc)
-        return {}
+    durations = effective_reference_durations(
+        ctx.provider_id,
+        ctx.model_name,
+        list(ctx.supported_durations),
+        ctx.resolution,
+        with_reference_images=with_references,
+    )
+    if not durations:
+        return FALLBACK_UNIT_DURATION
+    preferred = project.get("default_duration")
+    if isinstance(preferred, int) and not isinstance(preferred, bool) and preferred in durations:
+        return preferred
+    return min(durations)
 
 
 async def _project_video_resolution(project: dict, provider_id: str, model_id: str | None) -> str | None:
@@ -310,7 +392,7 @@ async def resolve_max_unit_duration(project: dict) -> int | None:
     model 粒度 ``max_duration``）；解析失败返回 None——分组退化为仅按镜头数
     切分，超长 unit 交由执行层取档 + warning 兜底，不阻塞派生。
     """
-    caps = await _project_video_caps(project, degraded_to="派生分组不施加时长上限")
+    caps = await project_video_caps(project, degraded_to="派生分组不施加时长上限")
     max_duration = caps.get("max_duration")
     return int(max_duration) if max_duration else None
 
@@ -330,11 +412,17 @@ def _resolve_ad_unit_reference_entries(
     产品沿用注入二元规则：经 ``collect_product_references_for_names`` 全量装配
     （sheet 在前、原图压阵）且排在所有其它参考之前；character/scene/prop 注入
     各自 sheet。条目形如 ``{"image": Path, "label": str, "name": str, "kind":
-    "sheet"|"original"|"asset"}``，label 供 [图N] 对照表渲染。
+    "sheet"|"original"|"asset"}``，label 供三段论第一段 ``<label>@图片N`` 主体绑定渲染
+    （见 ``lib.reference_video.prompt_render.render_ad_backend_prompt``）；
+    ``kind == "asset"`` 的条目另带 ``"asset_type": "character"|"scene"|"prop"``——
+    三类资产允许重名，只有类型能把「角色的设计图」与同名场景/道具的设计图分开，
+    参考音频的图号对齐依赖该区分（见 ``render_ad_backend_prompt``）。
     """
     warnings: list[dict] = []
     product_names: list[str] = []
-    asset_refs: list[tuple[str, str]] = []
+    asset_refs: list[tuple[str, str, str]] = []
+    seen_products: set[str] = set()
+    seen_assets: set[tuple[str, str]] = set()
     for ref in references:
         if not isinstance(ref, dict):
             continue
@@ -342,30 +430,44 @@ def _resolve_ad_unit_reference_entries(
         rname = ref.get("name")
         if not isinstance(rname, str) or not rname:
             continue
+        # 同一 unit 内两个镜头可能以不同编码形式（NFC/NFD）引用同一资产：按归一形式去重，
+        # 否则下面的归一化查找会把两者解析到同一张图，参考图槽位被同一张图占两份。
+        canonical = normalize_asset_name(rname)
         if rtype == "product":
-            if rname not in product_names:
+            if canonical not in seen_products:
+                seen_products.add(canonical)
                 product_names.append(rname)
         elif rtype in BUCKET_KEY:
-            asset_refs.append((str(rtype), rname))
+            key = (str(rtype), canonical)
+            if key not in seen_assets:
+                seen_assets.add(key)
+                asset_refs.append((str(rtype), rname, canonical))
 
     entries = collect_product_references_for_names(project, project_path, product_names)
+    # entries 的 "name" 字段已被 collect_product_references_for_names 归一为 canonical，
+    # product_names 仍保留原始编码形式（供 warning params 回显用户输入），比较前须归一。
     injected_products = {e["name"] for e in entries}
     for name in product_names:
-        if name not in injected_products:
+        if normalize_asset_name(name) not in injected_products:
             warnings.append({"key": "ref_ad_reference_skipped", "params": {"type": "product", "name": name}})
 
-    for rtype, rname in asset_refs:
-        raw_bucket = project.get(BUCKET_KEY[rtype])
-        bucket = raw_bucket if isinstance(raw_bucket, dict) else {}
-        item = bucket.get(rname)
+    # 条目的名字写归一形式，与产品条目同口径（``collect_product_references_for_names``
+    # 产出的 "name" 已归一），让 entries 内部不因来源不同而混用两种编码形式。
+    # 这是加固而非替换：按名字判等的消费点（``prompt_render`` 的第一段主体绑定与参考音频
+    # 图号对齐）在读取处各自归一，那道归一仍是它们正确性的依据，不因这里归一而可省。
+    # warning 的 params 仍回显用户输入的原始形式。
+    for rtype, rname, canonical in asset_refs:
+        bucket = normalize_asset_bucket(project.get(BUCKET_KEY[rtype]))
+        item = bucket.get(canonical)
         sheet_rel = item.get(SHEET_KEY[rtype]) if isinstance(item, dict) else None
         if sheet_rel and safe_exists(project_path, sheet_rel):
             entries.append(
                 {
                     "image": project_path / sheet_rel,
-                    "label": f"{ASSET_SPECS[rtype].label_zh}「{rname}」设计图",
-                    "name": rname,
+                    "label": f"{ASSET_SPECS[rtype].label_zh}「{canonical}」设计图",
+                    "name": canonical,
                     "kind": "asset",
+                    "asset_type": rtype,
                 }
             )
         else:
@@ -399,21 +501,55 @@ def _clamp_ad_reference_entries(
     return clamped, [warning]
 
 
-def _render_ad_unit_prompt_for_backend(shots: list[dict], entries: list[dict], *, style: object) -> str:
-    """ad 派生 unit 的最终 backend prompt：镜头文本 + [图N] 对照表 + 保真/反向尾词。
+def _render_ad_unit_prompt_for_backend(
+    shots: list[dict],
+    entries: list[dict],
+    project: dict,
+    settings: VoiceRenderSettings,
+    *,
+    style: object,
+) -> RenderedUnitPrompt:
+    """ad 派生 unit 的最终 backend prompt：三段论渲染（与 narration/drama 共用管线，见
+    ``lib.reference_video.prompt_render.render_ad_backend_prompt``）+ 产品高保真尾注。
 
-    对照表必须基于裁剪后的 ``entries`` 渲染（[图N] 与 backend 实收顺序对齐）；
-    高保真指令只点名实际注入了参考的产品。空提示词防御口径同
-    ``_render_unit_prompt``（提示词源是可变 script，执行期从新读取）。
+    反向约束全部由渲染的第三段承担，本路径不追加统一反向尾词；高保真指令是独立于三段论的
+    产品机制，只点名实际注入了参考的产品。空提示词防御口径同 ``_render_unit_prompt``
+    （提示词源是可变 script，执行期从新读取），由 ``render_ad_backend_prompt`` 内部承担。
     """
-    body = render_ad_unit_prompt(shots, style=style if isinstance(style, str) else None)
-    if not body.strip():
-        raise ValueError("reference video unit prompt is empty: all member shots have no visual content")
-    legend = render_reference_legend([str(e.get("label") or "") for e in entries])
-    prompt = f"{body}\n\n{legend}" if legend else body
+    rendered = render_ad_backend_prompt(
+        shots,
+        entries,
+        project,
+        settings,
+        style=style if isinstance(style, str) else None,
+    )
     product_names = list(dict.fromkeys(e["name"] for e in entries if e.get("kind") in ("sheet", "original")))
-    prompt = append_product_fidelity_tail(prompt, product_names)
-    return append_video_negative_tail(prompt)
+    return replace(rendered, prompt=append_product_fidelity_tail(rendered.prompt, product_names))
+
+
+def _build_reference_audio_wiring(
+    rendered: RenderedUnitPrompt,
+    audio_paths: dict[str, Path],
+    *,
+    reference_audio_per_image: bool,
+) -> tuple[list[Path], list[int] | None]:
+    """把渲染产物的 ``audio_speakers``（+ 图号对齐下标）组装成请求字段，narration/drama 与 ad
+    共用同一份组装口径。
+
+    ``reference_audio_per_image`` 为 True 时（backend 要求音频逐段挂在具体参考素材项上），
+    渲染层已按 ``VoiceRenderSettings.requires_reference_image`` 门控排除无参考图的 speaker，
+    ``audio_speaker_reference_index`` 此时不应再有 None——仍按下标同时过滤两个列表而非直接
+    zip 全量，是为了在渲染层与本处口径将来漂移时，两个列表始终等长同序，不会因为其中一个
+    多出未过滤的 None 项而导致音频与参考图下标错位、静默绑错角色。
+    """
+    if reference_audio_per_image:
+        paired = [
+            (audio_paths[name], idx)
+            for name, idx in zip(rendered.audio_speakers, rendered.audio_speaker_reference_index, strict=True)
+            if idx is not None
+        ]
+        return [path for path, _ in paired], [idx for _, idx in paired]
+    return [audio_paths[name] for name in rendered.audio_speakers], None
 
 
 async def execute_reference_video_task(
@@ -466,9 +602,17 @@ async def execute_reference_video_task(
     # 3. 单次解析生成上下文（声明 video lane）：构造 generator 并按实际 backend 身份
     #    查能力上限与 resolution。provider 身份解析收口于 GenerationContext
     #    （docs/adr/0049）——executor 不再触碰 MediaGenerator 私有属性、不再手工重建
-    #    registry provider_id。
+    #    registry provider_id。桶按本 unit 解析后的实际参考图分流（docs/adr/0054）：
+    #    有参考图 → r2v；无参考图的退化镜头降级 → i2v，不送入拒空参考的 r2v 桶模型。
+    #    判据取解析结果而非声明——ad 的资产缺图按软口径跳过后 source_refs 可为空，
+    #    与 backend「只在 reference_images 非空时施加参考图约束」的口径同源。
+    execution_capability = reference_video_bucket(with_references=bool(source_refs))
     ctx = await resolve_generation_context(
-        project_name, payload, project=project, user_id=user_id, video=VideoLaneRequest()
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        video=VideoLaneRequest(capability=execution_capability),
     )
     generator = ctx.generator
     video = ctx.video
@@ -528,35 +672,69 @@ async def execute_reference_video_task(
     # 不写回时回退到的是 project 默认时长，而非该 unit 自己的时长——二者不相等是常态，
     # 不能仅在「取档偏移了剧本编排（adjustment != exact）」时才写回，未取档但仍偏离项目
     # 默认值的 unit 同样需要。持久化失败只降级为 resume 元数据不够精确（回退到项目默认
-    # 时长，与本次改动前行为一致），不影响本次生成结果，不 fail-fast。
+    # 时长，即回退路径本身的行为），不影响当前生成结果，不 fail-fast。
     if task_id is not None:
         await _persist_effective_duration(task_id, effective_duration)
+        # task.provider_id 列与 payload 钉住键都是入队时按 unit 声明近似的投影，执行按
+        # 解析后实际参考图分桶后两者可能与实际分裂（ad 声明了参考但资产全缺图：投影
+        # r2v、执行降级 i2v）。resume 解析里钉住键优先于列注入——提交前把实际执行身份
+        # 写回列与钉住键，否则重启后会按陈旧身份去轮实际 backend 的 provider_job_id，
+        # 已提交任务的恢复丢失。
+        await _persist_execution_identity(task_id, video.provider_model, execution_capability)
 
-    # 6. 渲染 prompt。ad：镜头文本 + 裁剪后参考的 [图N] 对照表 + 保真/反向尾词。
-    #    narration/drama：@→[图N] 替换——必须按 `constrained_refs` 的长度裁
-    #    `unit.references` 再渲染，保证 [图N] 的 1-based 索引与 backend 实际收到的
-    #    reference_images 长度严格对齐；否则裁剪后的 `@clipped_name` 会被替成
-    #    `[图N]` 指向不存在的图。
+    # 6. 渲染 prompt：ad 与 narration/drama 共用三段论渲染管线（`<X>@图片N` 绑定 + 声音声明 +
+    #    分镜段 + 约束包），差异只在输入形态（见 `lib.reference_video.prompt_render` 模块
+    #    docstring）。narration/drama 必须先按 `_dedupe_typed_references` 与 `source_refs`
+    #    同口径去重、再按 `constrained_refs` 的长度裁 `unit.references` 后渲染，保证
+    #    `图片N` 的 1-based 索引与 backend 实际收到的 reference_images 一一对应；跳过去重会
+    #    让逻辑引用列表比图片列表长，编号错位到错误的资产上、按图号绑定的参考音频也会挂错。
+    #    ad 的 `ad_entries` 已在上一步按同一裁剪口径（产品 sheet 优先存活）收窄，无需再裁。
     #    prompt 始终从执行期新读取的剧本重组（脚本可变 + 队列 dedup 不看 payload，
     #    用入队快照会丢失入队后对镜头文本的编辑）；入队 payload 里的 prompt 仅作守卫点的
     #    校验记录，执行期不使用。
+    #    参考音频路径先解析再渲染：渲染层按「确实可用」判定绑定，`@音频N` 的编号与随请求
+    #    发出的段数因此严格等长（字段指向已删文件时不会留下指向不存在段的编号）。
+    audio_paths = await asyncio.to_thread(resolve_reference_audio_paths, project, project_path)
+    voice_settings = VoiceRenderSettings(
+        voice_consistency=video.voice_consistency,
+        requested_generate_audio=video.requested_generate_audio,
+        max_reference_audio=video.max_reference_audio_count,
+        model_id=model_name,
+        audio_ready=audio_paths,
+        requires_reference_image=video.reference_audio_per_image,
+    )
     if is_ad:
-        rendered_prompt = _render_ad_unit_prompt_for_backend(ad_shots or [], ad_entries, style=project.get("style"))
+        rendered = _render_ad_unit_prompt_for_backend(
+            ad_shots or [],
+            ad_entries,
+            project,
+            voice_settings,
+            style=project.get("style"),
+        )
     else:
         unit_for_prompt = unit
-        unit_refs = unit.get("references") or []
-        if len(constrained_refs) < len(unit_refs):
-            unit_for_prompt = {**unit, "references": unit_refs[: len(constrained_refs)]}
-        rendered_prompt = _render_unit_prompt(unit_for_prompt)
+        raw_unit_refs = unit.get("references") or []
+        prompt_refs = _dedupe_typed_references(raw_unit_refs)[: len(constrained_refs)]
+        if len(prompt_refs) < len(raw_unit_refs):
+            unit_for_prompt = {**unit, "references": prompt_refs}
+        rendered = _render_unit_prompt(unit_for_prompt, project, voice_settings)
+    rendered_prompt = rendered.prompt
+    reference_audio_files, reference_audio_targets = _build_reference_audio_wiring(
+        rendered, audio_paths, reference_audio_per_image=voice_settings.requires_reference_image
+    )
+    # 解析派生的降级提示与生成结果同屏可见：与解析预览面板同一批 {key, params} 条目。
+    warnings = [*warnings, *rendered.warnings]
 
     # 7. 直接把源路径交给咽喉层 generate_video_async —— 参考上传副本的压缩、降档梯子与 413 兜底
     #    统一由 MediaGenerator 负责（发完即删的临时字节），此处不再预压缩、不再管理临时文件，
-    #    避免双压。数量裁剪 + [图N] 索引对齐已在上游完成，咽喉层压缩 1:1 保序保数，职责不重叠。
+    #    避免双压。数量裁剪 + 参考图索引对齐已在上游完成，咽喉层压缩 1:1 保序保数，职责不重叠。
     output_path, version, _, video_uri = await generator.generate_video_async(
         prompt=rendered_prompt,
         resource_type="reference_videos",
         resource_id=resource_id,
         reference_images=constrained_refs,
+        reference_audio_files=reference_audio_files or None,
+        reference_audio_targets=reference_audio_targets,
         aspect_ratio=project.get("aspect_ratio", "9:16"),
         duration_seconds=effective_duration,
         resolution=resolution,
@@ -576,7 +754,14 @@ async def execute_reference_video_task(
     )
 
 
-def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | None, thumb_rel: str | None) -> None:
+def apply_unit_video_assets(
+    script: dict,
+    resource_id: str,
+    *,
+    video_uri: str | None,
+    thumb_rel: str | None,
+    generated_at: str | None = None,
+) -> None:
     """在剧本 dict 上写回 unit.generated_assets（video_clip / video_uri / video_thumbnail / status）。
 
     生成 finalize 与版本还原共用，保证两条路径写出的字段口径一致。unit 在
@@ -586,6 +771,9 @@ def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | 
     已删除文件。写回失败必须让调用方可见、finalize 不能在剧本未更新时静默成功，
     且两种失败要可区分：unit 不存在抛 KeyError（还原侧跨集同步把它当正常跳过），
     unit 列表结构损坏抛 ScriptEditError（还原侧按脏脚本 warning 降级）。
+
+    ``generated_at`` 缺省戳当前时间（生成 finalize）；版本还原传入被还原版本的入库时间，
+    使「片段是否早于当前参考音频设置」按还原回来的旧内容成立，而不是被还原动作洗成最新。
     """
     unit_lists = [script.get(key) for key in ("video_units", "reference_units")]
     candidates = [units for units in unit_lists if isinstance(units, list)]
@@ -599,6 +787,7 @@ def apply_unit_video_assets(script: dict, resource_id: str, *, video_uri: str | 
             if not isinstance(ga, dict):
                 raise ScriptEditError("generated_assets 必须是 dict", key="script_edit_generated_assets_invalid")
             ga["video_clip"] = f"reference_videos/{resource_id}.mp4"
+            ga["video_generated_at"] = generated_at or datetime.now(UTC).isoformat()
             if video_uri:
                 ga["video_uri"] = video_uri
             else:

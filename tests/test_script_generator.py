@@ -1,8 +1,10 @@
 import json
+import logging
 from pathlib import Path
 
 import pytest
 
+from lib.config.resolver import ConfigResolver
 from lib.script_generator import ScriptGenerator, _units_use_references
 from lib.script_structure_validator import ScriptStructureValidationError
 
@@ -61,7 +63,6 @@ def _write_drama_ledger_project(project_path: Path, episodes: list[dict], charac
             "characters": characters or {},
             "style": "古风",
             "style_description": "cinematic",
-            "_supported_durations": [4, 6, 8],
             "episodes": episodes,
         },
     )
@@ -72,7 +73,6 @@ def _drama_project_with_backend(
     *,
     backend: str,
     resolution: str,
-    supported_durations: list[int] | None = None,
 ):
     """造一个指定视频后端 + 分辨率的最小 drama 项目，返回项目路径。
 
@@ -86,8 +86,6 @@ def _drama_project_with_backend(
     project = json.loads((project_path / "project.json").read_text(encoding="utf-8"))
     project["video_backend"] = backend
     project["model_settings"] = {backend: {"resolution": resolution}}
-    if supported_durations is not None:
-        project["_supported_durations"] = supported_durations
     _write_json(project_path / "project.json", project)
     return project_path
 
@@ -164,6 +162,7 @@ class _FakeTextGenerator:
 
 
 class TestScriptGenerator:
+    @pytest.mark.unit
     async def test_build_prompt_uses_step1_content(self, tmp_path):
         """build_prompt 无需 client 即可使用（dry-run 模式）：narration 渲染结构化 step1。"""
         project_path = tmp_path / "demo"
@@ -177,18 +176,19 @@ class TestScriptGenerator:
                 "clues": {"玉佩": {}},
                 "style": "古风",
                 "style_description": "cinematic",
-                "_supported_durations": [4, 6, 8],
             },
         )
         _write_step1_json(project_path, 1, [_step1_seg("E1S01", "第一段原文，逐字保留。", duration=4)])
 
         generator = ScriptGenerator(project_path)  # 无 client
+        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         assert "E1S01" in prompt
         assert "第一段原文，逐字保留。" in prompt  # novel_text 作只读上下文渲染
         assert "姜月茴" in prompt
 
+    @pytest.mark.unit
     async def test_narration_step2_build_prompt_uses_project_source_language(self, tmp_path):
         """narration step2（视觉层）prompt 的输出语言须取项目 source_language（与 drama 同口径），非中文项目不得回落中文。"""
         project_path = tmp_path / "demo"
@@ -202,18 +202,19 @@ class TestScriptGenerator:
                 "style": "古风",
                 "style_description": "cinematic",
                 "source_language": "English",
-                "_supported_durations": [4, 6, 8],
             },
         )
         _write_step1_json(project_path, 1, [_step1_seg("E1S01", "verbatim source line.", duration=4)])
 
         generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         # 输出语言锁定为项目 source_language，不回落默认中文
         assert "所有字符串值必须使用 English" in prompt
         assert "所有字符串值必须使用 中文" not in prompt
 
+    @pytest.mark.unit
     async def test_load_step1_drama_missing_raises_without_fallback(self, tmp_path):
         """drama 集缺 step1_normalized_script.json 时显式报错；不得降级改读 narration 的拆分表。"""
         project_path = tmp_path / "demo"
@@ -233,6 +234,7 @@ class TestScriptGenerator:
         with pytest.raises(FileNotFoundError, match="step1_normalized_script.json"):
             generator._load_step1(1)
 
+    @pytest.mark.unit
     async def test_load_drama_step1_content_rejects_non_dict_top_level(self, tmp_path):
         """drama step1 顶层非对象（如 JSON 数组）→ ValueError，不静默当空剧本。"""
         project_path = tmp_path / "demo"
@@ -245,6 +247,7 @@ class TestScriptGenerator:
         with pytest.raises(ValueError, match="顶层应为对象"):
             generator._load_drama_step1_content(1)
 
+    @pytest.mark.unit
     async def test_load_drama_step1_content_rejects_non_list_scenes(self, tmp_path):
         """drama step1 scenes 非列表（如对象）→ ValueError fail-fast，不被当成空剧本继续。"""
         project_path = tmp_path / "demo"
@@ -260,6 +263,7 @@ class TestScriptGenerator:
         with pytest.raises(ValueError, match="scenes 必须是非空"):
             generator._load_drama_step1_content(1)
 
+    @pytest.mark.unit
     async def test_load_drama_step1_content_rejects_empty_scenes(self, tmp_path):
         """drama step1 scenes 为空列表 → ValueError fail-fast（空剧本不是合法 step1 产物，避免落盘 scenes=[]）。"""
         project_path = tmp_path / "demo"
@@ -275,6 +279,7 @@ class TestScriptGenerator:
         with pytest.raises(ValueError, match="scenes 必须是非空"):
             generator._load_drama_step1_content(1)
 
+    @pytest.mark.unit
     async def test_load_drama_step1_content_rejects_non_dict_scene_item(self, tmp_path):
         """drama step1 scenes 列表含非对象项（数字 / 字符串）→ ValueError，不拖到 render/merge 阶段才炸。"""
         project_path = tmp_path / "demo"
@@ -290,6 +295,7 @@ class TestScriptGenerator:
         with pytest.raises(ValueError, match="必须是场景对象"):
             generator._load_drama_step1_content(1)
 
+    @pytest.mark.unit
     async def test_load_drama_step1_content_rejects_empty_scene_id(self, tmp_path):
         """drama step1 场景 scene_id 为空串 / 缺失 → ValueError fail-fast（空 scene_id 拖到合并阶段才暴露）。"""
         project_path = tmp_path / "demo"
@@ -305,6 +311,7 @@ class TestScriptGenerator:
         with pytest.raises(ValueError, match="scene_id 必须是非空字符串"):
             generator._load_drama_step1_content(1)
 
+    @pytest.mark.unit
     async def test_load_drama_step1_content_rejects_rewritten_scene_id_collision(self, tmp_path):
         """原始 scene_id 互异但改写 episode 前缀后相撞（E1S02_1 与 E2S02_1 在 ep2 都成 E2S02_1）→ fail-loud，
         避免下游产物文件名 / 资产键撞车（与 _load_narration_step1 同口径）。"""
@@ -336,7 +343,7 @@ class TestScriptGenerator:
         content["scenes"][0]["duration_seconds"] = 4
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="step1 已定场景时长非法"):
-            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+            await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
     @pytest.mark.parametrize(
@@ -357,7 +364,7 @@ class TestScriptGenerator:
         content["scenes"][0]["duration_seconds"] = raw
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="step1 已定场景时长非法"):
-            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+            await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
     async def test_drama_step2_checks_declared_default_when_duration_absent(self, tmp_path):
@@ -365,15 +372,13 @@ class TestScriptGenerator:
 
         海螺 1080p 只接受 6 秒，而 DramaSceneContent 的默认是 8 秒，故该场景须被拦下。
         """
-        project_path = _drama_project_with_backend(
-            tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p", supported_durations=[6, 10]
-        )
+        project_path = _drama_project_with_backend(tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p")
 
         content = _drama_step1_content()
         del content["scenes"][0]["duration_seconds"]
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="step1 已定场景时长非法"):
-            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+            await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
     async def test_drama_step2_checks_declared_default_when_duration_null(self, tmp_path):
@@ -382,15 +387,13 @@ class TestScriptGenerator:
         `dict.get` 的默认值只在缺键时生效，显式 null 会取到 None；不特判的话该场景跳过校验，
         要等 step2 跑完、落盘时才被 Pydantic 拒，白耗一次完整的剧本生成调用。
         """
-        project_path = _drama_project_with_backend(
-            tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p", supported_durations=[6, 10]
-        )
+        project_path = _drama_project_with_backend(tmp_path, backend="minimax/MiniMax-Hailuo-2.3", resolution="1080p")
 
         content = _drama_step1_content()
         content["scenes"][0]["duration_seconds"] = None
         generator = ScriptGenerator(project_path)
         with pytest.raises(ValueError, match="step1 已定场景时长非法"):
-            await generator._assert_drama_step1_durations(content["scenes"], gen_mode="storyboard")
+            await generator._assert_drama_step1_durations(content["scenes"], episode=1, gen_mode="storyboard")
 
     @pytest.mark.integration
     async def test_drama_step2_accepts_step1_duration_within_constrained_set(self, tmp_path):
@@ -400,8 +403,11 @@ class TestScriptGenerator:
         )
 
         generator = ScriptGenerator(project_path)
-        await generator._assert_drama_step1_durations(_drama_step1_content()["scenes"], gen_mode="storyboard")
+        await generator._assert_drama_step1_durations(
+            _drama_step1_content()["scenes"], episode=1, gen_mode="storyboard"
+        )
 
+    @pytest.mark.unit
     async def test_drama_step2_build_prompt_renders_step1_content(self, tmp_path):
         """drama step2（视觉层）build_prompt 须把 step1 已定稿内容渲染入 prompt，仅求视觉字段。"""
         project_path = tmp_path / "demo"
@@ -419,6 +425,7 @@ class TestScriptGenerator:
         assert "E1S01" in prompt
         assert "姜月茴立于庭院" in prompt
 
+    @pytest.mark.unit
     async def test_drama_step2_build_prompt_omits_outline(self, tmp_path):
         """分集大纲随内容抽取前移到 step1（normalize）；step2 视觉层 prompt 不再渲染大纲段。"""
         project_path = tmp_path / "demo"
@@ -444,6 +451,7 @@ class TestScriptGenerator:
         # 大纲 / 钩子内容不在 step2 prompt（它们驱动 step1 内容生成，不影响 step2 视觉）
         assert "少年坠崖生死未卜" not in prompt
 
+    @pytest.mark.unit
     async def test_drama_step2_build_prompt_uses_project_source_language(self, tmp_path):
         """step2 视觉层 prompt 的输出语言须取项目 source_language（与 step1 同源），非中文项目不得回落中文。"""
         project_path = tmp_path / "demo"
@@ -466,6 +474,7 @@ class TestScriptGenerator:
         assert "所有字符串值必须使用 English" in prompt
         assert "所有字符串值必须使用 中文" not in prompt
 
+    @pytest.mark.unit
     async def test_parse_response_invalid_json_raises(self, tmp_path):
         project_path = tmp_path / "demo"
         _write_json(project_path / "project.json", {"title": "项目"})
@@ -474,6 +483,7 @@ class TestScriptGenerator:
         with pytest.raises(ValueError):
             generator._parse_response("not-json", 1)
 
+    @pytest.mark.unit
     async def test_parse_response_validation_error_returns_raw_data(self, tmp_path):
         project_path = tmp_path / "demo"
         _write_json(project_path / "project.json", {"title": "项目"})
@@ -483,6 +493,7 @@ class TestScriptGenerator:
         # 校验失败降级返回原始数据；title 兜底在校验前注入，故降级结果也携带
         assert parsed == {"foo": "bar", "title": "第1集"}
 
+    @pytest.mark.unit
     async def test_generate_writes_script_and_metadata(self, tmp_path):
         project_path = tmp_path / "demo"
         _write_json(
@@ -495,7 +506,6 @@ class TestScriptGenerator:
                 "clues": {"玉佩": {}},
                 "style": "古风",
                 "style_description": "cinematic",
-                "_supported_durations": [4, 6, 8],
             },
         )
         _write_step1_json(
@@ -521,6 +531,7 @@ class TestScriptGenerator:
         assert payload["metadata"]["generator"] == "fake-model"
         assert "created_at" in payload["metadata"]
 
+    @pytest.mark.unit
     async def test_generate_injects_hook_and_teaser_from_ledger(self, tmp_path):
         """剧本 JSON 的集级 hook / next_episode_teaser 元数据来自分集账本（经写盘严格校验）。"""
         project_path = tmp_path / "demo"
@@ -546,6 +557,7 @@ class TestScriptGenerator:
         # drama 两段式：step2 LLM 只出视觉层，后端按 scene_id 合并回 step1 内容
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
         output = await generator.generate(1)
 
         payload = json.loads(output.read_text(encoding="utf-8"))
@@ -557,6 +569,7 @@ class TestScriptGenerator:
         assert scene["utterances"][0]["text"] == "你来了。"
         assert scene["image_prompt"]["scene"] == "场景"
 
+    @pytest.mark.unit
     async def test_generate_without_ledger_hook_leaves_fields_null(self, tmp_path):
         """旧式条目（账本无钩子/预告）：字段为 null，写盘校验仍通过。"""
         project_path = tmp_path / "demo"
@@ -569,7 +582,6 @@ class TestScriptGenerator:
                 "characters": {"姜月茴": {}},
                 "style": "古风",
                 "style_description": "cinematic",
-                "_supported_durations": [4, 6, 8],
                 "episodes": [
                     {"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"},
                 ],
@@ -586,6 +598,7 @@ class TestScriptGenerator:
         assert payload["hook"] is None
         assert payload["next_episode_teaser"] is None
 
+    @pytest.mark.unit
     async def test_generate_narration_stamps_cli_episode_and_rewrites_prefix(self, tmp_path):
         """narration 两段式：CLI 集号是唯一真相（视觉 schema 无 episode 字段），且 _add_metadata
         兜底改写 segment_id 前缀——step1 误写 E1S01、生成第 10 集时应改为 E10S01。
@@ -601,7 +614,6 @@ class TestScriptGenerator:
                 "clues": {"玉佩": {}},
                 "style": "古风",
                 "style_description": "cinematic",
-                "_supported_durations": [4, 6, 8],
             },
         )
         # step1 误写集号前缀 E1（应为 E10）
@@ -618,6 +630,7 @@ class TestScriptGenerator:
         assert payload["episode"] == 10
         assert payload["segments"][0]["segment_id"] == "E10S01"
 
+    @pytest.mark.unit
     async def test_generate_drama_step2_passes_visual_schema(self, tmp_path):
         """drama step2 LLM 输出 schema 是 DramaVisualScript（仅 scene_id + 视觉字段，无非视觉字段）。"""
         from lib.script_models import DramaVisualScript
@@ -632,6 +645,7 @@ class TestScriptGenerator:
 
         fake = _FakeTextGenerator(json.dumps(_drama_visual_response(), ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
         await generator.generate(1)
 
         schema = fake.backend.last_request.response_schema
@@ -642,6 +656,7 @@ class TestScriptGenerator:
         assert "source_text" not in props
         assert "duration_seconds" not in props
 
+    @pytest.mark.unit
     async def test_generate_sets_script_max_output_tokens(self, tmp_path):
         """drama step2 generate 应在 TextGenerationRequest 上设置共享输出上限（DEFAULT_MAX_OUTPUT_TOKENS）。"""
         from lib.script_models import DramaVisualMergeError
@@ -658,12 +673,14 @@ class TestScriptGenerator:
         # 空视觉响应 → 合并时 step1 场景缺视觉，fail-loud；但模型调用已发生，仍可断言请求参数
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
+        generator._fetch_video_capabilities = _fixed_caps_468
         with pytest.raises(DramaVisualMergeError):
             await generator.generate(1)
 
         assert fake.backend.last_request.max_output_tokens == DEFAULT_MAX_OUTPUT_TOKENS
         assert DEFAULT_MAX_OUTPUT_TOKENS >= 16000
 
+    @pytest.mark.unit
     async def test_generate_without_backend_raises(self, tmp_path):
         """未注入 backend 时调用 generate() 应抛 RuntimeError。"""
         project_path = tmp_path / "demo"
@@ -674,6 +691,7 @@ class TestScriptGenerator:
         with pytest.raises(RuntimeError, match="TextGenerator 未初始化"):
             await generator.generate(1)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         "bad_filename",
         [
@@ -699,7 +717,7 @@ class TestScriptGenerator:
 
 
 class TestAddMetadataRewritesEpisodePrefix:
-    """_add_metadata 兜底改写 segment/scene/unit ID 的 E\\d+ 前缀（#574）。"""
+    """_add_metadata 兜底改写 segment/scene/unit ID 的 E\\d+ 前缀。"""
 
     @staticmethod
     def _make_generator(tmp_path: Path, content_mode: str = "narration") -> ScriptGenerator:
@@ -709,11 +727,11 @@ class TestAddMetadataRewritesEpisodePrefix:
             {
                 "title": "项目",
                 "content_mode": content_mode,
-                "_supported_durations": [4, 6, 8],
             },
         )
         return ScriptGenerator(project_path)
 
+    @pytest.mark.unit
     def test_drama_rewrites_scene_ids(self, tmp_path: Path) -> None:
         sg = self._make_generator(tmp_path, content_mode="drama")
         data = {
@@ -727,6 +745,7 @@ class TestAddMetadataRewritesEpisodePrefix:
         assert out["scenes"][1]["scene_id"] == "E2S04_2"
         assert out["scenes"][0]["other"] == "keep"
 
+    @pytest.mark.unit
     def test_narration_rewrites_segment_ids(self, tmp_path: Path) -> None:
         sg = self._make_generator(tmp_path, content_mode="narration")
         data = {
@@ -739,6 +758,7 @@ class TestAddMetadataRewritesEpisodePrefix:
         assert out["segments"][0]["segment_id"] == "E3S01"
         assert out["segments"][1]["segment_id"] == "E3S02_1"
 
+    @pytest.mark.unit
     def test_reference_video_rewrites_unit_ids(self, tmp_path: Path) -> None:
         project_path = tmp_path / "demo"
         _write_json(
@@ -747,7 +767,6 @@ class TestAddMetadataRewritesEpisodePrefix:
                 "title": "项目",
                 "content_mode": "narration",
                 "generation_mode": "reference_video",
-                "_supported_durations": [8],
             },
         )
         sg = ScriptGenerator(project_path)
@@ -761,6 +780,7 @@ class TestAddMetadataRewritesEpisodePrefix:
         assert out["video_units"][0]["unit_id"] == "E2U01"
         assert out["video_units"][1]["unit_id"] == "E2U02_1"
 
+    @pytest.mark.unit
     def test_idempotent_when_prefix_already_correct(self, tmp_path: Path) -> None:
         """ID 前缀已经匹配 episode 时，rewrite 不应改动（不破坏正确数据）。"""
         sg = self._make_generator(tmp_path, content_mode="narration")
@@ -769,6 +789,7 @@ class TestAddMetadataRewritesEpisodePrefix:
         assert out["segments"][0]["segment_id"] == "E2S01"
         assert out["segments"][1]["segment_id"] == "E2S02_3"
 
+    @pytest.mark.unit
     def test_unknown_id_format_unchanged(self, tmp_path: Path) -> None:
         """ID 不带 `E\\d+[SU]` 前缀时不应被改写（避免误伤）。"""
         sg = self._make_generator(tmp_path, content_mode="narration")
@@ -793,11 +814,11 @@ class TestAddMetadataInjectsHiddenFields:
             {
                 "title": "项目标题",
                 "content_mode": content_mode,
-                "_supported_durations": [4, 6, 8],
             },
         )
         return ScriptGenerator(project_path)
 
+    @pytest.mark.unit
     def test_drama_injects_content_mode_and_novel_when_llm_omits(self, tmp_path: Path) -> None:
         sg = self._make_generator(tmp_path, content_mode="drama")
         data = {"title": "第一集", "scenes": [{"scene_id": "E1S01"}]}
@@ -805,6 +826,7 @@ class TestAddMetadataInjectsHiddenFields:
         assert out["content_mode"] == "drama"
         assert out["novel"] == {"title": "项目标题", "chapter": "第1集"}
 
+    @pytest.mark.unit
     def test_narration_injects_content_mode_and_novel_when_llm_omits(self, tmp_path: Path) -> None:
         sg = self._make_generator(tmp_path, content_mode="narration")
         data = {"title": "第一集", "segments": [{"segment_id": "E1S01"}]}
@@ -812,6 +834,16 @@ class TestAddMetadataInjectsHiddenFields:
         assert out["content_mode"] == "narration"
         assert out["novel"]["chapter"] == "第1集"
 
+    @pytest.mark.unit
+    def test_strips_legacy_generation_mode_stamp(self, tmp_path: Path) -> None:
+        """路线真相源是 project.json，剧本不留戳：存量剧本重生成、或校验失败降级保存的
+        原始后端 dict 里带的 generation_mode，必须在写盘前剥离。"""
+        sg = self._make_generator(tmp_path, content_mode="drama")
+        data = {"title": "第一集", "generation_mode": "reference_video", "scenes": [{"scene_id": "E1S01"}]}
+        out = sg._add_metadata(data, episode=1)
+        assert "generation_mode" not in out
+
+    @pytest.mark.unit
     def test_setdefault_does_not_overwrite_existing_values(self, tmp_path: Path) -> None:
         """LLM 若主动填了 content_mode / novel(理论上不会,但兜底要稳),setdefault 不应覆盖。"""
         sg = self._make_generator(tmp_path, content_mode="drama")
@@ -825,6 +857,7 @@ class TestAddMetadataInjectsHiddenFields:
         assert out["content_mode"] == "drama"
         assert out["novel"] == {"title": "用户的小说", "chapter": "卷一·风起"}
 
+    @pytest.mark.unit
     def test_drama_overrides_empty_novel_after_model_dump(self, tmp_path: Path) -> None:
         """e2e: model_validate → model_dump 后 novel 永远存在但为空字典,_add_metadata
         必须按"内容是否为空"判断而非"key 是否存在",否则 compose-video 输出文件名将退化为
@@ -855,6 +888,7 @@ class TestAddMetadataInjectsHiddenFields:
         out = sg._add_metadata(dumped, episode=1)
         assert out["novel"] == {"title": "项目标题", "chapter": "第1集"}
 
+    @pytest.mark.unit
     def test_narration_overrides_empty_novel_after_model_dump(self, tmp_path: Path) -> None:
         from lib.script_models import NarrationEpisodeScript
 
@@ -881,6 +915,7 @@ class TestAddMetadataInjectsHiddenFields:
         out = sg._add_metadata(dumped, episode=2)
         assert out["novel"] == {"title": "项目标题", "chapter": "第2集"}
 
+    @pytest.mark.unit
     def test_partial_novel_only_title_is_also_reinjected(self, tmp_path: Path) -> None:
         """半填 novel(只有 title 或只有 chapter)也应触发重注入,避免 compose-video 文件名残缺。"""
         sg = self._make_generator(tmp_path, content_mode="drama")
@@ -894,6 +929,7 @@ class TestAddMetadataInjectsHiddenFields:
         assert out["novel"]["title"] == "项目标题"
 
 
+@pytest.mark.unit
 def test_resolve_supported_durations_raises_when_unset(tmp_path):
     """caps、project.json、registry 三处都查不到时应抛 ValueError，不再 silent fallback。"""
     project_dir = tmp_path / "p"
@@ -907,6 +943,72 @@ def test_resolve_supported_durations_raises_when_unset(tmp_path):
 
     with pytest.raises(ValueError, match="supported_durations"):
         sg._resolve_supported_durations(None, gen_mode="storyboard")
+
+
+class TestFetchVideoCapabilitiesErrorHandling:
+    """能力桶解析闸的报错不被 fallback 吞掉——写剧本与执行读同一个模型的档位。"""
+
+    def _sg(self, tmp_path) -> ScriptGenerator:
+        sg = ScriptGenerator.__new__(ScriptGenerator)
+        sg.project_path = tmp_path
+        sg.project_json = {"video_backend": "kling/kling-v3", "generation_mode": "reference_video"}
+        return sg
+
+    @pytest.mark.unit
+    async def test_bucket_capability_error_propagates(self, tmp_path, monkeypatch):
+        """桶模型缺能力 / 引用失效时上抛：退到 project.json 会拿项目默认模型的时长与参考图
+        上限写剧本，写出来的镜头执行期照样被同一道闸拒掉。"""
+        from lib.config.resolver import VideoBucketCapabilityError
+
+        async def _raise(_self, _project, _episode=None):
+            raise VideoBucketCapabilityError(
+                code="video_capability_missing_r2v",
+                capability="r2v",
+                provider_id="kling",
+                model_id="kling-v3",
+                message="video model kling/kling-v3 lacks the capability required by the r2v bucket",
+            )
+
+        monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _raise)
+        with pytest.raises(VideoBucketCapabilityError) as excinfo:
+            await self._sg(tmp_path)._fetch_video_capabilities()
+        assert excinfo.value.code == "video_capability_missing_r2v"
+
+    @pytest.mark.unit
+    async def test_other_resolution_failures_still_fall_back(self, tmp_path, monkeypatch):
+        """DB 未 migration / 缺能力元数据等环境故障仍走 fallback，裸环境下 generate() 照常跑通。"""
+
+        async def _raise(_self, _project, _episode=None):
+            raise ValueError("no video provider configured")
+
+        monkeypatch.setattr(ConfigResolver, "video_capabilities_for_project", _raise)
+        assert await self._sg(tmp_path)._fetch_video_capabilities() is None
+
+
+class TestDegradedResolutionKeepsBucket:
+    """caps 解析失败后的降级路径仍按 generation_mode 定桶读 project.json，只丢 DB 那一层。"""
+
+    _PROJECT = {
+        "video_backend": "kling/kling-v3",
+        "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
+        "generation_mode": "reference_video",
+    }
+
+    @pytest.mark.unit
+    def test_backend_ids_fall_back_to_bucket_key(self, tmp_path):
+        sg = _sg_with_project(tmp_path, dict(self._PROJECT))
+        assert sg._resolve_backend_ids(None) == ("gemini-aistudio", "veo-3.1-generate-preview")
+
+    @pytest.mark.unit
+    def test_max_refs_falls_back_to_bucket_model(self, tmp_path):
+        """参考视频项目降级后仍按 r2v 桶模型报上限；取项目默认层会拿到不接受参考图的 kling-v3。"""
+        sg = _sg_with_project(tmp_path, dict(self._PROJECT))
+        assert sg._resolve_max_refs(None) == 3
+
+    @pytest.mark.unit
+    def test_supported_durations_fall_back_to_bucket_model(self, tmp_path):
+        sg = _sg_with_project(tmp_path, dict(self._PROJECT))
+        assert sg._resolve_raw_supported_durations(None) == [4, 6, 8]
 
 
 def _sg_with_project(tmp_path, project: dict) -> ScriptGenerator:
@@ -1058,14 +1160,20 @@ def test_resolve_max_duration_tracks_narrowed_set(tmp_path):
 
 
 def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> ScriptGenerator:
-    """构造跳过 backend 初始化的 narration ScriptGenerator（用于直接测内部方法）。"""
+    """构造跳过 backend 初始化的 narration ScriptGenerator（用于直接测内部方法）。
+
+    project.json 落到磁盘（不只是内存字段）：_load_reference_step1 的确认指纹搬移经
+    ProjectManager.update_project 无条件加锁读写该文件（不再靠内存快照短路），缺文件会
+    在那一步 FileNotFoundError。
+    """
     project_dir = tmp_path / "demo"
     project_dir.mkdir(exist_ok=True)
     sg = ScriptGenerator.__new__(ScriptGenerator)
     sg.generator = None
     sg.project_path = project_dir
-    sg.project_json = {"content_mode": "narration", **(project_extra or {})}
+    sg.project_json = {"content_mode": "narration", "episodes": [], **(project_extra or {})}
     sg.content_mode = sg.project_json.get("content_mode", "narration")
+    (project_dir / "project.json").write_text(json.dumps(sg.project_json, ensure_ascii=False), encoding="utf-8")
     return sg
 
 
@@ -1084,18 +1192,21 @@ class TestScriptGeneratorSkeletonExhaustiveness:
     第五种骨架加入 SKELETONS（+ 规范解析映射）时，未登记的本地映射与未处置的分派逐个报红。
     """
 
+    @pytest.mark.unit
     def test_parse_schema_covers_every_skeleton_kind(self):
         from lib.script_generator import _KIND_PARSE_SCHEMA
         from lib.script_skeleton import SKELETONS
 
         assert set(_KIND_PARSE_SCHEMA) == set(SKELETONS)
 
+    @pytest.mark.unit
     def test_metadata_count_key_covers_every_skeleton_kind(self):
         from lib.script_generator import _METADATA_COUNT_KEY
         from lib.script_skeleton import SKELETONS
 
         assert set(_METADATA_COUNT_KEY) == set(SKELETONS)
 
+    @pytest.mark.unit
     def test_item_fallback_duration_covers_every_skeleton_kind(self):
         # 时长兜底表单点化到 script_models，四骨架全登记（含 shots/video_units→0）；
         # 第五种骨架加入 SKELETONS 而未登记即在 item_duration 查表 KeyError 报红。
@@ -1104,6 +1215,7 @@ class TestScriptGeneratorSkeletonExhaustiveness:
 
         assert set(_ITEM_FALLBACK_DURATIONS) == set(SKELETONS)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("kind", list(_KIND_TO_MODES))
     def test_add_metadata_handles_every_skeleton_kind(self, kind: str, tmp_path: Path):
         from lib.script_generator import _METADATA_COUNT_KEY
@@ -1126,6 +1238,7 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         # 计数键随 kind 显式落位
         assert out["metadata"][_METADATA_COUNT_KEY[kind]] == 1
 
+    @pytest.mark.unit
     def test_add_metadata_survives_dirty_degraded_items(self, tmp_path: Path):
         # 校验失败降级保存的原始 dict 里 segments 可能含非 dict / duration_seconds 非数字的脏条目；
         # 前缀改写与时长求和都不得崩溃，时长按稳健口径逐条兜底。
@@ -1154,6 +1267,7 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         # 时长：5(有效) + 0(非 dict) + 4(缺失→兜底) + 4(None→兜底) + 4(非正数→兜底) = 17
         assert out["duration_seconds"] == 17
 
+    @pytest.mark.unit
     def test_add_metadata_survives_non_list_array(self, tmp_path: Path):
         # 数组键为真值标量（LLM 误写）时 `... or []` 挡不住，isinstance 守卫避免迭代/求和崩溃。
         sg = _bare_generator(tmp_path, {"content_mode": "narration"})
@@ -1163,6 +1277,7 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         assert out["metadata"]["total_segments"] == 0
         assert out["duration_seconds"] == 0
 
+    @pytest.mark.unit
     def test_quality_probe_survives_non_list_array(self, tmp_path: Path, caplog):
         # 数组键为真值标量时,_quality_probe 应被 isinstance 守卫收敛为空;外层 try/except 虽会
         # 吞异常,但不得走 “quality probe skipped” 兜底(那意味着守卫失效、整段探针被误跳过)。
@@ -1217,13 +1332,14 @@ def _narration_visual_response(segment_ids: list[str], *, title: str = "第一�
     return {"title": title, "segments": [_visual_seg(sid) for sid in segment_ids]}
 
 
-async def _fixed_caps_468() -> dict:
+async def _fixed_caps_468(_episode=None) -> dict:
     return {"supported_durations": [4, 6, 8]}
 
 
 class TestMergeNarrationVisual:
     """step2 视觉层按 segment_id 合并回 step1 结构：novel_text 逐字透传、不经 LLM 重出。"""
 
+    @pytest.mark.unit
     def test_novel_text_passthrough_verbatim(self, tmp_path):
         sg = _bare_generator(tmp_path)
         step1 = [_step1_seg("E1S01", "原文甲。", duration=6, brk=True), _step1_seg("E1S02", "原文乙！")]
@@ -1242,6 +1358,7 @@ class TestMergeNarrationVisual:
         assert merged["segments"][0]["image_prompt"]["scene"] == "画面"
         assert merged["segments"][0]["video_prompt"]["action"] == "动作"
 
+    @pytest.mark.unit
     def test_merge_aligns_by_id_not_order(self, tmp_path):
         """LLM 视觉层乱序也按 segment_id 对齐，合并顺序随 step1。"""
         sg = _bare_generator(tmp_path)
@@ -1257,6 +1374,7 @@ class TestMergeNarrationVisual:
         assert merged["segments"][0]["image_prompt"]["scene"] == "甲画面"
         assert merged["segments"][1]["image_prompt"]["scene"] == "乙画面"
 
+    @pytest.mark.unit
     def test_missing_visual_segment_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         step1 = [_step1_seg("E1S01", "甲"), _step1_seg("E1S02", "乙")]
@@ -1264,6 +1382,7 @@ class TestMergeNarrationVisual:
         with pytest.raises(ValueError, match="E1S02"):
             sg._merge_narration_visual(step1, visual, episode=1)
 
+    @pytest.mark.unit
     def test_extra_visual_segment_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         step1 = [_step1_seg("E1S01", "甲")]
@@ -1271,6 +1390,7 @@ class TestMergeNarrationVisual:
         with pytest.raises(ValueError, match="E1S09"):
             sg._merge_narration_visual(step1, visual, episode=1)
 
+    @pytest.mark.unit
     def test_duplicate_visual_segment_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         step1 = [_step1_seg("E1S01", "甲")]
@@ -1278,6 +1398,7 @@ class TestMergeNarrationVisual:
         with pytest.raises(ValueError, match="E1S01"):
             sg._merge_narration_visual(step1, visual, episode=1)
 
+    @pytest.mark.unit
     def test_title_fallback_when_missing(self, tmp_path):
         sg = _bare_generator(tmp_path)
         step1 = [_step1_seg("E1S01", "甲")]
@@ -1298,6 +1419,7 @@ class TestLoadNarrationStep1:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
+    @pytest.mark.unit
     def test_loads_structured_segments_verbatim(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(
@@ -1317,11 +1439,13 @@ class TestLoadNarrationStep1:
         assert segments[0]["duration_seconds"] == 6
         assert segments[0]["segment_break"] is True
 
+    @pytest.mark.unit
     def test_missing_json_without_legacy_md_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         with pytest.raises(FileNotFoundError, match="step1_segments.json"):
             sg._load_narration_step1(1, [4, 6, 8])
 
+    @pytest.mark.unit
     def test_legacy_md_only_raises_rerun_hint(self, tmp_path):
         """仅有结构化前的旧 step1_segments.md：明确要求重跑拆分，不读旧 md。"""
         sg = _bare_generator(tmp_path)
@@ -1331,6 +1455,7 @@ class TestLoadNarrationStep1:
         with pytest.raises(FileNotFoundError, match="split-narration-segments|重跑"):
             sg._load_narration_step1(1, [4, 6, 8])
 
+    @pytest.mark.unit
     def test_malformed_json_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         path = self._step1_path(sg, 1)
@@ -1339,18 +1464,21 @@ class TestLoadNarrationStep1:
         with pytest.raises(ValueError):
             sg._load_narration_step1(1, [4, 6, 8])
 
+    @pytest.mark.unit
     def test_invalid_structure_missing_novel_text_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"segments": [{"segment_id": "E1S01", "duration_seconds": 4}]})
         with pytest.raises(ValueError):
             sg._load_narration_step1(1, [4, 6, 8])
 
+    @pytest.mark.unit
     def test_duplicate_segment_id_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"segments": [_step1_seg("E1S01", "甲"), _step1_seg("E1S01", "乙")]})
         with pytest.raises(ValueError, match="重复|E1S01"):
             sg._load_narration_step1(1, [4, 6, 8])
 
+    @pytest.mark.unit
     def test_post_rewrite_collision_raises(self, tmp_path):
         """原始 id 互异但改写 episode 前缀后相撞（E1S02_1 与 E2S02_1 在 ep2 都成 E2S02_1）→ fail-loud。"""
         sg = _bare_generator(tmp_path)
@@ -1358,18 +1486,21 @@ class TestLoadNarrationStep1:
         with pytest.raises(ValueError, match="改写|E2S02_1"):
             sg._load_narration_step1(2, [4, 6, 8])
 
+    @pytest.mark.unit
     def test_duration_outside_supported_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"segments": [_step1_seg("E1S01", "甲", duration=5)]})  # 5 ∉ [4,6,8]
         with pytest.raises(ValueError, match="duration"):
             sg._load_narration_step1(1, [4, 6, 8])
 
+    @pytest.mark.unit
     def test_empty_segments_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"segments": []})
         with pytest.raises(ValueError):
             sg._load_narration_step1(1, [4, 6, 8])
 
+    @pytest.mark.unit
     def test_missing_asset_arrays_raises(self, tmp_path):
         """step1 资产字段必填：漏写 characters_in_segment/scenes/props → fail-loud（不静默补 []）。"""
         sg = _bare_generator(tmp_path)
@@ -1377,6 +1508,7 @@ class TestLoadNarrationStep1:
         with pytest.raises(ValueError):
             sg._load_narration_step1(1, [4, 6, 8])
 
+    @pytest.mark.unit
     def test_explicit_empty_asset_arrays_pass(self, tmp_path):
         """无资产时显式写 [] 合法，通过校验。"""
         sg = _bare_generator(tmp_path)
@@ -1399,20 +1531,23 @@ class TestLoadReferenceStep1:
 
     @staticmethod
     def _unit(unit_id: str, *, duration: int = 6) -> dict:
-        return {"unit_id": unit_id, "shots": [{"text": "甲走进屋子", "duration": duration}]}
+        return {"unit_id": unit_id, "shots": [{"text": "甲走进屋子"}], "duration_seconds": duration}
 
+    @pytest.mark.unit
     def test_loads_structured_units_verbatim(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U02", duration=8)]})
         units = sg._load_reference_step1(1, [4, 6, 8])
         assert [u["unit_id"] for u in units] == ["E1U01", "E1U02"]
 
+    @pytest.mark.unit
     def test_duplicate_unit_id_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"units": [self._unit("E1U01"), self._unit("E1U01")]})
         with pytest.raises(ValueError, match="重复|E1U01"):
             sg._load_reference_step1(1, [4, 6, 8])
 
+    @pytest.mark.unit
     def test_post_rewrite_collision_raises(self, tmp_path):
         """原始 unit_id 互异但改写 episode 前缀后相撞（E1U01 与 E2U01 在 ep2 都成 E2U01）→ fail-loud。
 
@@ -1425,12 +1560,96 @@ class TestLoadReferenceStep1:
         with pytest.raises(ValueError, match="改写|E2U01"):
             sg._load_reference_step1(2, [4, 6, 8])
 
+    @pytest.mark.unit
     def test_duration_outside_supported_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"units": [self._unit("E1U01", duration=5)]})  # 5 ∉ [4,6,8]
-        with pytest.raises(ValueError, match="duration"):
+        with pytest.raises(ValueError, match="时长非法"):
             sg._load_reference_step1(1, [4, 6, 8])
 
+    @pytest.mark.integration
+    def test_migrates_legacy_per_shot_durations_and_persists(self, tmp_path):
+        """存量草稿的 per-shot 时长求和收编为 unit 时长，就地回写；二次加载不再触发。"""
+        sg = _bare_generator(tmp_path)
+        self._write(
+            sg,
+            1,
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "shots": [{"duration": 2, "text": "甲起身"}, {"duration": 2, "text": "甲出门"}],
+                    }
+                ]
+            },
+        )
+        units = sg._load_reference_step1(1, [4, 6, 8])
+        assert units[0]["duration_seconds"] == 4
+        assert units[0]["shots"] == [{"text": "甲起身"}, {"text": "甲出门"}]
+
+        on_disk = json.loads(self._step1_path(sg, 1).read_text(encoding="utf-8"))
+        assert on_disk["units"][0]["duration_seconds"] == 4
+        assert "duration" not in on_disk["units"][0]["shots"][0]
+
+        # 幂等：二次加载不再改写落盘内容。
+        before_second_load = self._step1_path(sg, 1).read_bytes()
+        sg._load_reference_step1(1, [4, 6, 8])
+        assert self._step1_path(sg, 1).read_bytes() == before_second_load
+
+    @pytest.mark.integration
+    def test_migration_clamps_sum_to_supported_slot(self, tmp_path, caplog):
+        """求和落在档位之外 → 按容量语义取档后落盘（此处 4+3=7 → 8），并落盘 + 记 warning。"""
+        sg = _bare_generator(tmp_path)
+        self._write(
+            sg,
+            1,
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "shots": [{"duration": 4, "text": "甲起身"}, {"duration": 3, "text": "甲出门"}],
+                    }
+                ]
+            },
+        )
+        with caplog.at_level(logging.WARNING):
+            units = sg._load_reference_step1(1, [4, 6, 8])
+        assert units[0]["duration_seconds"] == 8
+        assert any("时长收编迁移" in r.message for r in caplog.records)
+
+        on_disk = json.loads(self._step1_path(sg, 1).read_text(encoding="utf-8"))
+        assert on_disk["units"][0]["duration_seconds"] == 8
+        assert "duration" not in on_disk["units"][0]["shots"][0]
+        assert "duration" not in on_disk["units"][0]["shots"][1]
+
+    @pytest.mark.integration
+    def test_clamping_migration_aborts_generation_that_gate_already_let_through(self, tmp_path):
+        """靠 grandfather 判据（step2 已存在、无确认指纹）放行的存量集：迁移 clamp 改写秒数
+        即令放行依据失效，生成须中止。gate 判的是迁移前状态、改写发生在放行之后——不在此
+        拦下，付费的 step2 就会按用户从未过目的秒数生成，落盘后才在下次加载被拦。
+        """
+        sg = _bare_generator(
+            tmp_path,
+            {"generation_mode": "reference_video", "episodes": [{"episode": 1}]},
+        )
+        (sg.project_path / "scripts").mkdir(parents=True, exist_ok=True)
+        (sg.project_path / "scripts" / "episode_1.json").write_text("{}", encoding="utf-8")
+        self._write(
+            sg,
+            1,
+            {
+                "units": [
+                    {
+                        "unit_id": "E1U01",
+                        "shots": [{"duration": 4, "text": "甲起身"}, {"duration": 3, "text": "甲出门"}],
+                    }
+                ]
+            },
+        )
+        with pytest.raises(ValueError, match="尚未经审阅确认"):
+            sg._load_reference_step1(1, [4, 6, 8])
+
+    @pytest.mark.unit
     def test_empty_units_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
         self._write(sg, 1, {"units": []})
@@ -1455,7 +1674,6 @@ def _write_ad_project(project_path: Path, *, generation_mode: str = "storyboard"
         "style": "实拍",
         "style_description": "真实质感",
         "aspect_ratio": "9:16",
-        "_supported_durations": [4, 6, 8],
         "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
     }
     _write_json(project_path / "project.json", payload)
@@ -1485,17 +1703,20 @@ def _ad_shot(shot_id: str, *, duration: int = 4, section: str = "hook", voiceove
 
 
 class TestAdScriptGeneration:
+    @pytest.mark.unit
     async def test_build_prompt_without_step1_uses_brief_and_products(self, tmp_path):
         """ad 一键生成不走 step1 中间文件：prompt 直接来自 brief + 产品信息 + 配比表。"""
         project_path = tmp_path / "demo"
         _write_ad_project(project_path)
 
         generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         assert "突出速干卖点" in prompt
         assert "速干杯" in prompt
 
+    @pytest.mark.unit
     async def test_build_prompt_reference_path_uses_free_duration(self, tmp_path):
         """ad + reference_video：仍是 ad prompt（shots 骨架），时长约束为 1-15 自由整数。"""
         project_path = tmp_path / "demo"
@@ -1508,6 +1729,7 @@ class TestAdScriptGeneration:
         assert "速干杯" in prompt
         assert "video_units" not in prompt
 
+    @pytest.mark.unit
     async def test_build_prompt_uses_project_source_language(self, tmp_path):
         """ad prompt 的口播语速折算与输出语言须取项目 source_language（与 drama/narration 同口径），非中文项目不得回落中文/zh 语速。"""
         project_path = tmp_path / "demo"
@@ -1518,12 +1740,14 @@ class TestAdScriptGeneration:
         _write_json(project_json_path, payload)
 
         generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         # 输出语言规则锁定为项目 source_language，不回落默认中文
         assert "所有字符串值必须使用 en" in prompt
         assert "所有字符串值必须使用 中文" not in prompt
 
+    @pytest.mark.unit
     async def test_build_prompt_tolerates_null_project_fields(self, tmp_path):
         """project.json 手工编辑后字段显式为 null：prompt 构建按空值归一化，不抛 AttributeError。"""
         project_path = tmp_path / "demo"
@@ -1543,16 +1767,17 @@ class TestAdScriptGeneration:
                 "style": None,
                 "style_description": None,
                 "aspect_ratio": "9:16",
-                "_supported_durations": [4, 6, 8],
                 "episodes": [{"episode": 1, "title": "", "script_file": "scripts/episode_1.json"}],
             },
         )
 
         generator = ScriptGenerator(project_path)
+        generator._fetch_video_capabilities = _fixed_caps_468
         prompt = await generator.build_prompt(1)
 
         assert isinstance(prompt, str) and prompt
 
+    @pytest.mark.unit
     async def test_generate_writes_ad_script_with_metadata(self, tmp_path):
         """generate 写盘 ad 剧本：shots 骨架、content_mode=ad、total_shots 与总时长统计。"""
         project_path = tmp_path / "demo"
@@ -1568,7 +1793,7 @@ class TestAdScriptGeneration:
         fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        async def _fixed_caps():
+        async def _fixed_caps(_episode=None):
             return {"supported_durations": [4, 6, 8]}
 
         generator._fetch_video_capabilities = _fixed_caps
@@ -1583,6 +1808,7 @@ class TestAdScriptGeneration:
         assert saved["metadata"]["total_shots"] == 2
         assert saved["duration_seconds"] == 10
 
+    @pytest.mark.unit
     async def test_generate_ad_storyboard_passes_enum_schema(self, tmp_path):
         """ad + storyboard：response_schema 是 AdEpisodeScript 的 duration 枚举子类。"""
         from lib.script_models import AdEpisodeScript
@@ -1592,7 +1818,7 @@ class TestAdScriptGeneration:
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        async def _fixed_caps():
+        async def _fixed_caps(_episode=None):
             return {"supported_durations": [4, 6, 8]}
 
         generator._fetch_video_capabilities = _fixed_caps
@@ -1609,6 +1835,7 @@ class TestAdScriptGeneration:
         ]
         assert [4, 6, 8] in duration_enums
 
+    @pytest.mark.unit
     async def test_generate_ad_reference_passes_free_range_schema(self, tmp_path):
         """ad + reference_video：response_schema 收紧为 1-15 区间而非枚举。"""
         from lib.script_models import AdEpisodeScript
@@ -1630,6 +1857,7 @@ class TestAdScriptGeneration:
         ]
         assert any(fs.get("minimum") == 1 and fs.get("maximum") == 15 and "enum" not in fs for fs in field_schemas)
 
+    @pytest.mark.unit
     async def test_generate_rewrites_wrong_episode_prefix_on_shot_ids(self, tmp_path):
         """LLM 写错集号前缀时兜底改写为 E1（ad 恒单集）。"""
         project_path = tmp_path / "demo"
@@ -1641,7 +1869,7 @@ class TestAdScriptGeneration:
         fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        async def _fixed_caps():
+        async def _fixed_caps(_episode=None):
             return {"supported_durations": [4, 6, 8]}
 
         generator._fetch_video_capabilities = _fixed_caps
@@ -1678,6 +1906,7 @@ class TestAdParseResponseDriftRecovery:
             },
         }
 
+    @pytest.mark.unit
     def test_parse_response_recovers_drifted_payload_without_title(self, tmp_path):
         project_path = tmp_path / "demo"
         _write_ad_project(project_path)
@@ -1703,6 +1932,7 @@ class TestAdParseResponseDriftRecovery:
         assert second["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
         assert second["video_prompt"]["camera_motion"] == "Static"
 
+    @pytest.mark.unit
     def test_parse_response_keeps_model_title_when_present(self, tmp_path):
         project_path = tmp_path / "demo"
         _write_ad_project(project_path)
@@ -1736,18 +1966,21 @@ class TestAdQualityProbe:
     def _script(self, durations: list[int]) -> dict:
         return {"shots": [_ad_shot(f"E1S{i:02d}", duration=d) for i, d in enumerate(durations, start=1)]}
 
+    @pytest.mark.unit
     def test_drift_above_threshold_warns(self, tmp_path, caplog):
         sg = self._sg(tmp_path, target_duration=30)
         with caplog.at_level("WARNING", logger="lib.script_generator"):
             sg._quality_probe(self._script([4, 4]), episode=1)  # 8 秒 vs 30 秒
         assert any("target_duration drift" in r.message for r in caplog.records)
 
+    @pytest.mark.unit
     def test_drift_within_threshold_silent(self, tmp_path, caplog):
         sg = self._sg(tmp_path, target_duration=30)
         with caplog.at_level("WARNING", logger="lib.script_generator"):
             sg._quality_probe(self._script([4, 6, 6, 6, 4, 6]), episode=1)  # 32 秒 vs 30 秒
         assert not any("target_duration drift" in r.message for r in caplog.records)
 
+    @pytest.mark.unit
     def test_short_prompt_probe_covers_shots(self, tmp_path, caplog):
         sg = self._sg(tmp_path)
         script = self._script([4])
@@ -1756,6 +1989,7 @@ class TestAdQualityProbe:
             sg._quality_probe(script, episode=1)
         assert any("quality probe" in r.message and "E1S01" in r.message for r in caplog.records)
 
+    @pytest.mark.unit
     async def test_save_not_blocked_by_drift(self, tmp_path, caplog):
         """偏差超阈值时保存照常成功（探针仅 WARN，不抛、不拒）。"""
         project_path = tmp_path / "demo"
@@ -1764,7 +1998,7 @@ class TestAdQualityProbe:
         fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
 
-        async def _fixed_caps():
+        async def _fixed_caps(_episode=None):
             return {"supported_durations": [4, 6, 8]}
 
         generator._fetch_video_capabilities = _fixed_caps
@@ -1777,6 +2011,7 @@ class TestAdQualityProbe:
 
 
 class TestAdAspectRatioFallback:
+    @pytest.mark.unit
     def test_ad_without_aspect_ratio_falls_back_to_portrait(self, tmp_path):
         """ad 项目缺 aspect_ratio 时回退 9:16 竖屏（与创建向导默认一致）。"""
         sg = ScriptGenerator.__new__(ScriptGenerator)
@@ -1790,6 +2025,7 @@ class TestAdAspectRatioFallback:
 class TestAdReferenceSkeletonUnity:
     """ad + reference_video 生成的剧本不携带 generation_mode 戳（骨架唯一）。"""
 
+    @pytest.mark.unit
     async def test_generate_ad_reference_script_carries_no_generation_mode(self, tmp_path):
         project_path = tmp_path / "demo"
         _write_ad_project(project_path, generation_mode="reference_video")

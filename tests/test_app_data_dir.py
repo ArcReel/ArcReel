@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 
 def _import_fresh():
     """Re-import the module fresh — `@functools.cache` traps env values."""

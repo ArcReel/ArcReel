@@ -1,6 +1,10 @@
 """Tests for lib/grid/prompt_builder.py"""
 
+import pytest
+
 from lib.grid.prompt_builder import _compute_panel_aspect, _extract_action, _extract_image_desc, build_grid_prompt
+
+pytestmark = pytest.mark.unit
 
 
 class TestExtractImageDesc:

@@ -37,6 +37,11 @@ gh api repos/{owner}/{repo}/issues/<父编号>/sub_issues -F sub_issue_id=$sub_i
 
 `to-tickets` 拆分 Spec 时，每个 issue 创建后都要补这两步（标题尾缀在创建时直接写入标题）。
 
+## 认领
+
+- 开始处理某个 issue 时，先将它 assign 给自己：`gh issue edit <n> --add-assignee @me`。triage 标签保持不变
+- 检索可认领的 issue 时排除已被认领的：`gh issue list --label ready-for-agent --state open --search "no:assignee"`
+
 ## When a skill says "publish to the issue tracker"
 
 Create a GitHub issue.

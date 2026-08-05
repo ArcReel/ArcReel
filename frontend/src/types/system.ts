@@ -1,5 +1,7 @@
 export interface SystemConfigSettings {
   default_video_backend: string;
+  default_video_backend_i2v?: string;
+  default_video_backend_r2v?: string;
   default_image_backend: string;
   default_image_backend_t2i?: string;
   default_image_backend_i2i?: string;
@@ -34,6 +36,22 @@ export interface GetSystemConfigResponse {
   options: SystemConfigOptions;
 }
 
+/** 能力桶键（docs/adr/0054）。代码内部术语，界面文案不直接呈现。 */
+export type CapabilityBucket = "t2i" | "i2i" | "i2v" | "r2v";
+
+/** 单一 media_type 的候选：默认层全量 + 各能力桶按能力过滤后的子集。 */
+export interface MediaCandidates {
+  default: string[];
+  buckets: Partial<Record<CapabilityBucket, string[]>>;
+}
+
+export interface ModelCandidatesResponse {
+  image: MediaCandidates;
+  video: MediaCandidates;
+  /** 仅含自定义供应商的显示名；内置供应商名由前端按 provider_id 本地化。 */
+  provider_names: Record<string, string>;
+}
+
 export interface SystemVersionReleaseInfo {
   version: string;
   tag_name: string;
@@ -58,6 +76,8 @@ export interface OnboardingStatus {
 
 export interface SystemConfigPatch {
   default_video_backend?: string;
+  default_video_backend_i2v?: string;
+  default_video_backend_r2v?: string;
   default_image_backend?: string;
   default_image_backend_t2i?: string;
   default_image_backend_i2i?: string;

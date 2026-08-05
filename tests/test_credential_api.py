@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -12,6 +13,9 @@ from lib.db import get_async_session
 from lib.db.models.credential import ProviderCredential
 from lib.db.repositories.credential_repository import CredentialRepository
 from server.routers import providers
+from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
+
+pytestmark = pytest.mark.unit
 
 
 def _make_app() -> tuple[FastAPI, MagicMock]:
@@ -23,7 +27,8 @@ def _make_app() -> tuple[FastAPI, MagicMock]:
         yield mock_session
 
     app.dependency_overrides[get_async_session] = _override
-    app.include_router(providers.router, prefix="/api/v1")
+    override_auth(app)
+    app.include_router(providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app, mock_session
 
 

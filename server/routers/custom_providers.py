@@ -21,9 +21,14 @@ from lib.api_errors import BadRequestError
 from lib.config.repository import mask_secret
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.capabilities import (
+    AUDIO_OVERRIDE_KEYS,
     CAPABILITY_OVERRIDE_FIELDS,
+    audio_capability_pair_is_coherent,
+    capability_type_name,
     capability_value_matches,
     filter_valid_overrides,
+    resolve_audio_pair,
+    strip_incoherent_audio_overrides,
     system_video_capabilities,
 )
 from lib.custom_provider.endpoints import (
@@ -38,7 +43,7 @@ from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import Translator
 from lib.image_backends.base import ImageCapability
-from server.auth import CurrentUser
+from lib.video_backends.base import ReferenceAudioMode
 
 
 def _validate_endpoint(value: str) -> str:
@@ -58,7 +63,7 @@ MaxWorkers = Annotated[int | None, Field(default=None, ge=1)]
 
 # 开放给用户覆盖的能力维度。DB 列与合成函数对 VideoCapabilities 全字段通用，写入侧在此收窄：
 # 未列入的维度即便是合法字段名也不落库，扩容只需往这里加键名，无需 DB 迁移或改合成语义。
-CAPABILITY_OVERRIDE_ALLOWLIST = frozenset({"last_frame"})
+CAPABILITY_OVERRIDE_ALLOWLIST = frozenset({"last_frame", "reference_audio_mode", "max_reference_audio_count"})
 
 # 白名单必须是 VideoCapabilities 字段名的子集：值类型校验直接按字段名取期望类型，键名写错
 # 要在导入期炸掉，而不是等到一次真实写入才 KeyError 成 500。
@@ -93,15 +98,29 @@ _BACKEND_SETTING_KEYS = (
 )
 
 # project.json 中的项目级覆盖键（与全局键名不同：resolver 按媒体读 video_backend /
-# audio_backend / image_provider_*，文本档位键与项目默认模型键与全局同名），清理项目悬空引用时用此集合
+# audio_backend / image_provider_*，文本档位键与项目默认模型键与全局同名），清理项目悬空引用时用此集合。
+# 刻意不含视频桶键（video_provider_i2v / video_provider_r2v）：视频桶的悬空引用由解析闸
+# _ensure_video_bucket_capability 报错兜底，写入侧不级联清理（docs/adr/0054）；图片桶无对应能力闸，
+# 故仍在此清理
 _PROJECT_BACKEND_KEYS = (
     "video_backend",
     "audio_backend",
     "image_provider_t2i",
     "image_provider_i2i",
+    "default_image_backend",
     "text_backend_simple",
     "text_backend_complex",
     "default_text_backend",
+)
+
+# 全局 DB settings 中可能引用自定义模型的全部键，供能力编辑界面只读提示影响面用（`docs/adr/0054`：
+# 提示不拦截保存）。与 _BACKEND_SETTING_KEYS 分开维护：后者界定删除时的级联清理范围，视频桶键按
+# ADR 0054 不在清理之列，但仍需提示。每个键须在 frontend/src/i18n/*/dashboard.ts 有
+# global_bucket_label_<key> 文案，由 test_global_bucket_keys_have_i18n_labels 守住。
+_GLOBAL_BUCKET_REFERENCE_KEYS = (
+    *_BACKEND_SETTING_KEYS,
+    "default_video_backend_i2v",
+    "default_video_backend_r2v",
 )
 
 # ---------------------------------------------------------------------------
@@ -223,6 +242,9 @@ class ModelResponse(BaseModel):
     system_capabilities: dict[str, object] | None = None
     # 用户覆盖（稀疏字典），与 system_capabilities 平凡合并即为生效值。
     capability_overrides: dict[str, object] | None = None
+    # 正在引用该模型的全局 system_settings 键名（如 default_video_backend_i2v）；未被引用为
+    # None。只查 DB 全局配置，不扫描项目文件（`docs/adr/0054`）；前端据此渲染非阻塞提示。
+    global_bucket_refs: list[str] | None = None
 
 
 class ProviderResponse(BaseModel):
@@ -309,12 +331,35 @@ def _effective_overrides_for_response(
     再经 :func:`_narrow_to_allowlist` 收窄：DB 遗留的白名单外键（同样只能来自手工改库）若原样
     回显，与写入落库的键集合不一致，调用方需要额外知道"回显可能含脏键但写回会被剔除"。收窄与
     写入侧走同一个函数，两处集合同源。
+
+    音频两维另经 :func:`strip_incoherent_audio_overrides`：单维合法而合起来无意义的组合
+    （direct ⊕ 上限 0）过得了 :func:`filter_valid_overrides`，执行层却会把它降到 ``none``，
+    回显原值同样落进本函数要消灭的"界面显示已生效、执行其实忽略"。
     """
     filtered = _narrow_to_allowlist(filter_valid_overrides(endpoint=endpoint, model_id=model_id, overrides=overrides))
+    filtered = strip_incoherent_audio_overrides(filtered, endpoint=endpoint, model_id=model_id)
     return filtered or None
 
 
-def _model_to_response(m) -> ModelResponse:
+def _extract_global_bucket_refs(all_settings: dict[str, str], provider_id: int) -> dict[str, list[str]]:
+    """从一次性拉取的全局 settings 中挑出引用该 provider 模型的键，按 model_id 分组。"""
+    prefix = f"{make_provider_id(provider_id)}/"
+    refs: dict[str, list[str]] = {}
+    for key in _GLOBAL_BUCKET_REFERENCE_KEYS:
+        val = all_settings.get(key, "")
+        if val and val.startswith(prefix):
+            refs.setdefault(val[len(prefix) :], []).append(key)
+    return refs
+
+
+async def _global_bucket_refs_for_provider(session: AsyncSession, provider_id: int) -> dict[str, list[str]]:
+    from lib.config.service import ConfigService
+
+    all_settings = await ConfigService(session).get_all_settings()
+    return _extract_global_bucket_refs(all_settings, provider_id)
+
+
+def _model_to_response(m, global_bucket_refs: list[str] | None = None) -> ModelResponse:
     durations = json.loads(m.supported_durations) if m.supported_durations else None
     return ModelResponse(
         system_capabilities=_system_capabilities_for(m.endpoint, m.model_id),
@@ -331,17 +376,19 @@ def _model_to_response(m) -> ModelResponse:
         currency=m.currency,
         supported_durations=durations,
         resolution=m.resolution,
+        global_bucket_refs=global_bucket_refs or None,
     )
 
 
-def _provider_to_response(provider, models) -> ProviderResponse:
+def _provider_to_response(provider, models, global_bucket_refs: dict[str, list[str]] | None = None) -> ProviderResponse:
+    refs = global_bucket_refs or {}
     return ProviderResponse(
         id=provider.id,
         display_name=provider.display_name,
         discovery_format=provider.discovery_format,
         base_url=provider.base_url,
         api_key_masked=mask_secret(provider.api_key),
-        models=[_model_to_response(m) for m in models],
+        models=[_model_to_response(m, refs.get(m.model_id)) for m in models],
         created_at=dt_to_iso(provider.created_at),
         image_max_workers=provider.image_max_workers,
         video_max_workers=provider.video_max_workers,
@@ -413,7 +460,7 @@ def _check_capability_overrides(
                     "capability_override_invalid_value",
                     model_id=model_id,
                     capability=key,
-                    expected=expected.__name__,
+                    expected=capability_type_name(expected),
                 ),
             )
         # last_frame 覆盖为 True 时，endpoint 的 delegate.generate() 必须真的会读取
@@ -426,6 +473,31 @@ def _check_capability_overrides(
                     model_id=model_id,
                     endpoint=endpoint,
                 ),
+            )
+        # 同构：把音色模式覆盖成 direct 要求 endpoint 真的会下传 reference_audio_files。
+        if (
+            key == "reference_audio_mode"
+            and value == ReferenceAudioMode.DIRECT.value
+            and not get_endpoint_spec(endpoint).reference_audio_capable
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=_t(
+                    "capability_override_reference_audio_unsupported",
+                    model_id=model_id,
+                    endpoint=endpoint,
+                ),
+            )
+
+    # 合并后不变式：两维各自合法、合起来无意义的组合（支持音色输入却限 0 段）在这里拒，
+    # 而不是留给执行期静默降级——降级后用户会拿到「最多支持 0 段」这种无从遵循的提示。
+    # 稀疏覆盖只写其中一维也能凑出该组合，故按系统判定补齐未覆盖的那一维再判。
+    if any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
+        mode, count = resolve_audio_pair(overrides, endpoint=endpoint, model_id=model_id)
+        if not audio_capability_pair_is_coherent(mode=mode, count=count):
+            raise HTTPException(
+                status_code=422,
+                detail=_t("capability_override_audio_pair_incoherent", model_id=model_id),
             )
 
 
@@ -504,18 +576,24 @@ async def _invalidate_caches(request: Request) -> None:
 
 @router.get("")
 async def list_providers(
-    _user: CurrentUser,
     session: AsyncSession = Depends(get_async_session),
 ):
     """列出所有自定义供应商（含模型列表）。"""
     repo = CustomProviderRepository(session)
     pairs = await repo.list_providers_with_models()
-    return {"providers": [_provider_to_response(p, models) for p, models in pairs]}
+    from lib.config.service import ConfigService
+
+    all_settings = await ConfigService(session).get_all_settings()
+    return {
+        "providers": [
+            _provider_to_response(p, models, _extract_global_bucket_refs(all_settings, p.id)) for p, models in pairs
+        ]
+    }
 
 
 # /endpoints 必须先于 /{provider_id} 注册，否则 FastAPI 会把字符串 "endpoints" 当作 provider_id。
 @router.get("/endpoints", response_model=EndpointCatalogResponse)
-async def list_endpoint_catalog(_user: CurrentUser) -> EndpointCatalogResponse:
+async def list_endpoint_catalog() -> EndpointCatalogResponse:
     """暴露 ENDPOINT_REGISTRY 作为前端单一真相源：渲染下拉、显示路径与分组都派生自此返回值。"""
     return EndpointCatalogResponse(
         endpoints=[EndpointDescriptor(**endpoint_spec_to_dict(spec)) for spec in ENDPOINT_REGISTRY.values()],
@@ -526,7 +604,6 @@ async def list_endpoint_catalog(_user: CurrentUser) -> EndpointCatalogResponse:
 async def create_provider(
     body: CreateProviderRequest,
     request: Request,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -551,13 +628,12 @@ async def create_provider(
     await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider.id)
-    return _provider_to_response(provider, models)
+    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider.id))
 
 
 @router.get("/{provider_id}")
 async def get_provider(
     provider_id: int,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -567,13 +643,12 @@ async def get_provider(
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     models = await repo.list_models(provider_id)
-    return _provider_to_response(provider, models)
+    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider_id))
 
 
 @router.get("/{provider_id}/credentials", response_model=CredentialsResponse)
 async def get_provider_credentials(
     provider_id: int,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -597,7 +672,6 @@ async def update_provider(
     provider_id: int,
     body: UpdateProviderRequest,
     request: Request,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -622,7 +696,7 @@ async def update_provider(
     await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider_id)
-    return _provider_to_response(provider, models)
+    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider_id))
 
 
 @router.put("/{provider_id}")
@@ -630,7 +704,6 @@ async def full_update_provider(
     provider_id: int,
     body: FullUpdateProviderRequest,
     request: Request,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -658,14 +731,13 @@ async def full_update_provider(
     await _invalidate_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider_id)
-    return _provider_to_response(provider, models)
+    return _provider_to_response(provider, models, await _global_bucket_refs_for_provider(session, provider_id))
 
 
 @router.delete("/{provider_id}", status_code=204)
 async def delete_provider(
     provider_id: int,
     request: Request,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -700,7 +772,6 @@ async def replace_models(
     provider_id: int,
     body: ReplaceModelsRequest,
     request: Request,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -735,7 +806,8 @@ async def replace_models(
 
     await session.commit()
     await _invalidate_caches(request)
-    return [_model_to_response(m) for m in new_models]
+    refs = await _global_bucket_refs_for_provider(session, provider_id)
+    return [_model_to_response(m, refs.get(m.model_id)) for m in new_models]
 
 
 # ---------------------------------------------------------------------------
@@ -746,7 +818,6 @@ async def replace_models(
 @router.post("/discover")
 async def discover_models_endpoint(
     body: ProviderConnectionRequest,
-    _user: CurrentUser,
     _t: Translator,
 ):
     """模型发现：根据 discovery_format + base_url + api_key 查询可用模型。"""
@@ -756,7 +827,6 @@ async def discover_models_endpoint(
 @router.post("/discover-anthropic", response_model=DiscoverResponse)
 async def discover_anthropic_models_endpoint(
     body: DiscoverAnthropicRequest,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -786,7 +856,6 @@ async def discover_anthropic_models_endpoint(
 @router.post("/{provider_id}/discover")
 async def discover_models_by_id(
     provider_id: int,
-    _user: CurrentUser,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
@@ -801,7 +870,6 @@ async def discover_models_by_id(
 @router.post("/test")
 async def test_connection(
     body: ProviderConnectionRequest,
-    _user: CurrentUser,
     _t: Translator,
 ):
     """连接测试：验证 discovery_format + base_url + api_key 的连通性。"""
@@ -809,9 +877,7 @@ async def test_connection(
 
 
 @router.post("/{provider_id}/test")
-async def test_connection_by_id(
-    provider_id: int, _user: CurrentUser, _t: Translator, session: AsyncSession = Depends(get_async_session)
-):
+async def test_connection_by_id(provider_id: int, _t: Translator, session: AsyncSession = Depends(get_async_session)):
     """使用已存储凭证测试指定供应商的连通性。"""
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)

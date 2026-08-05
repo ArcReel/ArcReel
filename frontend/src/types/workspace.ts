@@ -38,6 +38,7 @@ export interface ProjectChange {
     | "grid_ready"
     | "reference_video_ready"
     | "tts_ready"
+    | "voice_sample_ready"
     | "task_succeeded"
     | "task_failed"
     | "task_cancelled";

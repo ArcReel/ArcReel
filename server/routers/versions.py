@@ -20,7 +20,6 @@ from lib.project_manager import get_project_manager
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
-from server.auth import CurrentUser
 from server.services.reference_video_tasks import apply_unit_video_assets
 
 router = APIRouter()
@@ -130,18 +129,22 @@ def _sync_reference_video_metadata(
     project_name: str,
     resource_id: str,
     project_path: Path,
+    generated_at: str | None = None,
 ) -> None:
     """还原参考视频单元后同步 unit.generated_assets（写回口径与生成 finalize 共用）。
 
     还原的是历史本地文件，旧 provider URI / 缩略图与之不再对应，一并清空；
     缩略图文件本身由 restore 端点删除（同步路径无法内联 async ffmpeg 重新抽帧）。
+
+    ``generated_at`` 传被还原版本的入库时间：还原回来的是旧内容，其 video_generated_at
+    应当是那一版的生成时间，否则「早于当前参考音频设置」的存量片段会被还原动作洗成最新。
     """
 
     def _apply(script_name: str) -> None:
         # 资产回写热路径：只动 unit.generated_assets，豁免结构校验（与 update_scene_asset 对齐）。
         # 该集脚本不含此 unit 时 apply_unit_video_assets 抛 KeyError，锁内冒出即跳过写回。
         with get_project_manager().locked_script(project_name, script_name, validate=False) as script:
-            apply_unit_video_assets(script, resource_id, video_uri=None, thumb_rel=None)
+            apply_unit_video_assets(script, resource_id, video_uri=None, thumb_rel=None, generated_at=generated_at)
 
     _sync_scripts_best_effort(project_path, _apply)
 
@@ -161,8 +164,12 @@ def _sync_metadata(
     resource_id: str,
     file_path: str,
     project_path: Path,
+    restored_created_at: str | None = None,
 ) -> None:
-    """还原后同步元数据，确保引用指向统一文件路径。"""
+    """还原后同步元数据，确保引用指向统一文件路径。
+
+    ``restored_created_at`` 为被还原版本的入库时间，仅参考视频写回时间戳时需要。
+    """
     asset_type = _RESOURCE_TO_ASSET_TYPE.get(resource_type)
     if asset_type is not None:
         try:
@@ -175,7 +182,7 @@ def _sync_metadata(
     elif resource_type == "videos":
         _sync_video_metadata(project_name, resource_id, file_path, project_path)
     elif resource_type == "reference_videos":
-        _sync_reference_video_metadata(project_name, resource_id, project_path)
+        _sync_reference_video_metadata(project_name, resource_id, project_path, restored_created_at)
 
 
 # ==================== 版本查询 ====================
@@ -186,7 +193,6 @@ async def get_versions(
     project_name: str,
     resource_type: str,
     resource_id: str,
-    _user: CurrentUser,
 ):
     """
     获取资源的所有版本列表
@@ -220,7 +226,6 @@ async def restore_version(
     resource_type: str,
     resource_id: str,
     version: int,
-    _user: CurrentUser,
 ):
     """
     切换到指定版本
@@ -247,7 +252,13 @@ async def restore_version(
                 current_file=current_file,
             )
 
-            _sync_metadata(resource_type, project_name, resource_id, file_path, project_path)
+            # 还原参考视频时把该版本的原始入库时间一并写回，避免存量声音判定被还原动作洗新
+            restored_created_at = (
+                vm.get_version_created_at(resource_type, resource_id, version)
+                if resource_type == "reference_videos"
+                else None
+            )
+            _sync_metadata(resource_type, project_name, resource_id, file_path, project_path, restored_created_at)
 
             # 计算还原后文件的 fingerprint；视频还原时同步删除缩略图（内容已失效）
             asset_fingerprints: dict[str, int] = {}

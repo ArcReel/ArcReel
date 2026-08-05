@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -9,6 +10,9 @@ from lib.config.resolver import ConfigResolver, ProviderModel
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
+from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 class _FakeQueue:
@@ -74,7 +78,7 @@ def _client(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True):
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(generate.router, prefix="/api/v1")
+    app.include_router(generate.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app, raise_server_exceptions=False)
 
 

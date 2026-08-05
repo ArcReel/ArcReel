@@ -25,14 +25,100 @@ export function mentionNameFromMatch(match: RegExpMatchArray): string {
   return match[1] ?? match[2] ?? "";
 }
 
+/**
+ * Normative dialogue line — `@[角色]：{台词}` alone on a line (either colon).
+ * Mirrors `lib/reference_video/shot_parser.py:match_dialogue_line`; keep in sync.
+ */
+const DIALOGUE_LINE_RE = /^\s*@(?:\[([^\]\r\n]+)\]|([\w一-鿿]+))\s*[:：]\s*\{([^{}]*)\}\s*$/;
+
+/** 空台词（`{}` / `{   }`）不算规范行——同后端：utterance 的 text 必须非空。 */
+function hasSpokenText(text: string): boolean {
+  return text.trim().length > 0;
+}
+
+/**
+ * Python `str.splitlines()` 的换行集合——后端 `shot_parser` / `script_preview` 都用它切行。
+ * 只按 `\n` 切会把 U+2028 之后的规范台词行与上一行粘在一起（粘贴、agent 产出的文本里会出现），
+ * 前端据此把说话人算进参考图、后端不算，两条派生路径当场分叉。
+ * 带捕获组：`split` 时分隔符原样留在结果里，token 仍可拼回原文。
+ *
+ * The control characters in the class are deliberate: Python counts the file and
+ * group separators as line breaks too, and dropping one reintroduces exactly the
+ * front/back divergence this constant exists to remove.
+ */
+// eslint-disable-next-line no-control-regex
+export const LINE_BREAK_RE = /(\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029])/;
+
+/**
+ * 按后端同一套换行边界切行（不保留分隔符）。
+ *
+ * 末尾换行不产生空行、空串切出空数组——都与 `splitlines()` 一致；行中间的空行照常保留。
+ */
+export function splitScriptLines(text: string): string[] {
+  if (text.length === 0) return [];
+  const lines = text.split(LINE_BREAK_RE).filter((_, i) => i % 2 === 0);
+  if (lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+
+/**
+ * Leading `镜头N：` header. Stripped before the normative-line test so a dialogue
+ * written on the header line is judged the way the backend judges it — `parse_prompt`
+ * drops the header when it splits shots, so such a line is a normative line in the
+ * shot text and must not leave a reference-image entry behind.
+ * Mirrors `shot_parser.py:_strip_shot_header`（其 `line.strip()` 对应此处的前导 `\s*`）。
+ *
+ * 序号用 `\p{Nd}` 而非 `\d`：Python 的 `\d` 是 Unicode-aware，`镜头１：`（全角数字）后端
+ * 照样剥 header 并按台词派生；JS 的 `\d` 只认 ASCII，用它会让这行在前端留下说话人的参考图。
+ */
+export const SHOT_HEADER_PREFIX_RE = /^\s*镜头\s*\p{Nd}+\s*[:：]\s*/u;
+
+/** 同上，但不吃行首空白——高亮分词按原样切 token，缩进须留在 text token 里才能拼回原文。 */
+export const SHOT_HEADER_RE = /^镜头\s*\p{Nd}+\s*[:：]\s*/u;
+
+/**
+ * 结构化 `shots[]` 拼回可显示脚本时的 header 写法（`shotIndex` 1-based）。与上面两个 RE
+ * 同处，免得 header 语法在识别侧与生成侧各写一份而漂移。这是文稿语法而非界面文案，不 i18n。
+ */
+export function formatShotHeader(shotIndex: number): string {
+  return `镜头${shotIndex}：`;
+}
+
+/** Bare `{台词}` line = voiceover. Mirrors `shot_parser.py:match_voiceover_line`. */
+const VOICEOVER_LINE_RE = /^\s*\{([^{}]*)\}\s*$/;
+
+export function matchDialogueLine(line: string): { speaker: string; text: string } | null {
+  const m = DIALOGUE_LINE_RE.exec(line);
+  if (!m) return null;
+  const speaker = m[1] ?? m[2] ?? "";
+  // speaker 位全为空白不算规范行（同 shot_parser.py：dialogue utterance 必须带非空 speaker）。
+  if (!speaker.trim() || !hasSpokenText(m[3])) return null;
+  return { speaker, text: m[3] };
+}
+
+export function matchVoiceoverLine(line: string): string | null {
+  const m = VOICEOVER_LINE_RE.exec(line);
+  if (!m || !hasSpokenText(m[1])) return null;
+  return m[1];
+}
+
+/**
+ * Mention names in first-appearance order, deduplicated — the reference-image
+ * derivation. Mirrors `shot_parser.py:extract_mentions`, including its rule that
+ * **normative dialogue lines are skipped entirely**: attaching a reference image to
+ * a speaker would coax the model into drawing a character who only speaks off-screen.
+ */
 export function extractMentions(text: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const m of text.matchAll(MENTION_RE)) {
-    const name = mentionNameFromMatch(m);
-    if (!seen.has(name)) {
-      seen.add(name);
-      out.push(name);
+  for (const line of splitScriptLines(text)) {
+    if (matchDialogueLine(line.replace(SHOT_HEADER_PREFIX_RE, ""))) continue;
+    for (const m of line.matchAll(MENTION_RE)) {
+      const name = mentionNameFromMatch(m);
+      if (!seen.has(name)) {
+        seen.add(name);
+        out.push(name);
+      }
     }
   }
   return out;
@@ -40,14 +126,33 @@ export function extractMentions(text: string): string[] {
 
 type ProjectBuckets = Pick<ProjectData, "characters" | "scenes" | "props">;
 
+/**
+ * 把资产名归一到比对坐标系（Unicode NFC）。镜像后端
+ * `lib.asset_types.normalize_asset_name`——两侧必须同一坐标系，否则「后端判已登记、
+ * 前端判未登记」（反之亦然），组合字符名（如越南语）在这两侧各自输入法/来源下
+ * 尤其容易产出不同编码形式。
+ */
+export function normalizeAssetName(name: string): string {
+  return name.normalize("NFC");
+}
+
+function bucketHasName(bucket: Record<string, unknown> | undefined, target: string): boolean {
+  if (!bucket) return false;
+  // Object.keys 而非 `in`：`toString` / `constructor` / `__proto__` 都是合法资产名
+  // （`validate_asset_name` 只挡路径分隔符与 Windows 保留字符），`in` 会命中原型链上的
+  // 同名属性，把未登记的名字判成已登记；Object.keys 只返回自有可枚举属性，同样安全。
+  return Object.keys(bucket).some((key) => normalizeAssetName(key) === target);
+}
+
 export function resolveMentionType(
   project: ProjectBuckets | null | undefined,
   name: string,
 ): AssetKind | undefined {
   if (!project) return undefined;
-  if (project.characters && name in project.characters) return "character";
-  if (project.scenes && name in project.scenes) return "scene";
-  if (project.props && name in project.props) return "prop";
+  const target = normalizeAssetName(name);
+  if (bucketHasName(project.characters, target)) return "character";
+  if (bucketHasName(project.scenes, target)) return "scene";
+  if (bucketHasName(project.props, target)) return "prop";
   return undefined;
 }
 
@@ -66,13 +171,17 @@ export function mergeReferences(
   existing: ReferenceResource[],
   project: ProjectBuckets | null | undefined,
 ): ReferenceResource[] {
-  const mentioned = new Set(extractMentions(prompt));
+  // mention 与既有 references 的名字都归一到比对坐标系再判等/去重——两侧字节形式可能不同
+  // （既有 references 出自后端已归一的落盘值，mention 出自 prompt 文本解析，来源不同）；
+  // 输出的 name 同样落成归一形式，与后端 `resolve_references` 的产出口径一致。
+  const mentioned = new Set(extractMentions(prompt).map(normalizeAssetName));
   const kept: ReferenceResource[] = [];
   const keptNames = new Set<string>();
   for (const ref of existing) {
-    if (mentioned.has(ref.name) && !keptNames.has(ref.name)) {
-      kept.push(ref);
-      keptNames.add(ref.name);
+    const name = normalizeAssetName(ref.name);
+    if (mentioned.has(name) && !keptNames.has(name)) {
+      kept.push({ ...ref, name });
+      keptNames.add(name);
     }
   }
   for (const name of mentioned) {

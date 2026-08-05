@@ -6,6 +6,8 @@ from lib.prompt_builders_ad import _shot_duration_constraint, build_ad_prompt, n
 from lib.script_models import REFERENCE_SHOT_DURATION_RANGE
 from lib.speech_rate import speech_rate_units_per_second
 
+pytestmark = pytest.mark.unit
+
 
 def _build(**overrides):
     kwargs = dict(

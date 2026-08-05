@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from lib.image_backends.base import ImageBackend
     from lib.reference_compression import CompressedRef, PayloadLimits, ReferenceSpec
 
+from lib.audio_utils import probe_reference_audio_total_seconds
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import RateLimiter
 from lib.ledger import Ledger
@@ -485,6 +486,8 @@ class MediaGenerator:
         start_image: str | Path | Image.Image | None = None,
         end_image: Path | None = None,
         reference_images: list[Path] | None = None,
+        reference_audio_files: list[Path] | None = None,
+        reference_audio_targets: list[int] | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str | int = "8",
         resolution: str | None = None,
@@ -500,6 +503,10 @@ class MediaGenerator:
             start_image: 起始帧图片（image-to-video 模式）
             end_image: 结束帧图片（first_last 模式）
             reference_images: 参考图片列表（multi-reference 模式）
+            reference_audio_files: 参考音频列表（音色复刻），顺序即 prompt 中「音频N」的指认顺序
+            reference_audio_targets: 与 reference_audio_files 等长同序，第 i 项是该段音频对应
+                reference_images 的下标（0-based）；仅 backend 声明 reference_audio_per_image
+                时读取，见 VideoGenerationRequest.reference_audio_targets
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认不传（由 backend/SDK 决定）
@@ -516,6 +523,8 @@ class MediaGenerator:
                 start_image=start_image,
                 end_image=end_image,
                 reference_images=reference_images,
+                reference_audio_files=reference_audio_files,
+                reference_audio_targets=reference_audio_targets,
                 aspect_ratio=aspect_ratio,
                 duration_seconds=duration_seconds,
                 resolution=resolution,
@@ -531,6 +540,8 @@ class MediaGenerator:
         start_image: str | Path | Image.Image | None = None,
         end_image: Path | None = None,
         reference_images: list[Path] | None = None,
+        reference_audio_files: list[Path] | None = None,
+        reference_audio_targets: list[int] | None = None,
         aspect_ratio: str = "9:16",
         duration_seconds: str | int = "8",
         resolution: str | None = None,
@@ -547,6 +558,10 @@ class MediaGenerator:
             start_image: 起始帧图片（image-to-video 模式）
             end_image: 结束帧图片（first_last 模式）
             reference_images: 参考图片列表（multi-reference 模式）
+            reference_audio_files: 参考音频列表（音色复刻），顺序即 prompt 中「音频N」的指认顺序
+            reference_audio_targets: 与 reference_audio_files 等长同序，第 i 项是该段音频对应
+                reference_images 的下标（0-based）；仅 backend 声明 reference_audio_per_image
+                时读取，见 VideoGenerationRequest.reference_audio_targets
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认不传（由 backend/SDK 决定）
@@ -591,25 +606,39 @@ class MediaGenerator:
 
         model_name = self._video_backend.model
 
-        # 能力 gating 与槽位组装先于记账括号：尾帧不被支持时硬失败要"不扣费"，
-        # 在括号内抛虽也不结算，却会留一条 failed ApiCall 行；纯函数无副作用，前置最干净。
-        from lib.video_frame_slots import plan_frame_slots, resolve_video_capabilities
+        # 能力校验与槽位组装先于记账括号：能力不被支持时硬失败要"不扣费"，
+        # 在括号内抛虽也不结算，却会留一条 failed ApiCall 行；两者均无副作用，前置最干净。
+        from lib.video_frame_slots import gate_video_request, plan_frame_slots, resolve_video_capabilities
 
-        # 能力查询保持惰性：不带尾帧的请求不触发 gating，无谓查询只会给无尾帧路径
-        # 新增一层后端属性依赖；未查询即传 None，不伪造一份占位能力声明。
-        video_caps = (
-            resolve_video_capabilities(
-                self._video_backend,
-                service_tier=version_metadata.get("service_tier", "default"),
-                resolution=resolution,
-            )
-            if end_image is not None
+        # prompt 长度校验对每个请求都适用（不像尾帧/参考图/参考音频那样可选），故能力查询不再
+        # 按可选路径惰性触发。查询是纯读后端声明的同步调用，没有 I/O 开销。
+        video_caps = resolve_video_capabilities(
+            self._video_backend,
+            service_tier=version_metadata.get("service_tier", "default"),
+            resolution=resolution,
+        )
+        # 总时长校验需要读音频元数据，只能在这层（拿得到文件路径）探测好再传给纯函数的
+        # gate_video_request；探测失败（ffprobe 不可用等）按 None 传入，由其按既有降级口径跳过
+        # 该项校验，不阻断请求。仅当 caps 声明了总时长约束才探测——未声明该约束的后端
+        # （如 wan2.7）不必为每个请求多付一轮 ffprobe 子进程开销。
+        reference_audio_total_seconds = (
+            await probe_reference_audio_total_seconds(reference_audio_files)
+            if reference_audio_files
+            and video_caps is not None
+            and video_caps.max_reference_audio_total_seconds is not None
             else None
         )
-        slot_plan = plan_frame_slots(
+        gate_video_request(
             caps=video_caps,
             provider=self._video_backend.name,
             model=model_name,
+            prompt=prompt,
+            end_image=end_image,
+            reference_images=reference_images,
+            reference_audio_files=reference_audio_files,
+            reference_audio_total_seconds=reference_audio_total_seconds,
+        )
+        slot_plan = plan_frame_slots(
             start_image=start_image,
             end_image=end_image,
             reference_images=reference_images,
@@ -680,6 +709,12 @@ class MediaGenerator:
                         start_image=start_arg,
                         end_image=end_arg,
                         reference_images=ref_arg,
+                        # 音频不进压缩器（specs 只收图片），故直接透传原列表：顺序即 prompt
+                        # 「音频N」的指认顺序，任何重排都会把 A 角色的音色安到 B 角色头上。
+                        reference_audio_files=reference_audio_files,
+                        # 数组参考图压缩保序（不改数量、不重排），故调用方按未压缩的
+                        # reference_images 下标算出的 targets 对压缩后的 ref_arg 同样有效。
+                        reference_audio_targets=reference_audio_targets,
                         generate_audio=effective_generate_audio,
                         project_name=self.project_name,
                         task_id=task_id,

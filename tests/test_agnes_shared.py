@@ -11,6 +11,8 @@ from lib.agnes_shared import (
     resolve_agnes_api_key,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestBaseUrlDerivation:
     def test_default_base(self):

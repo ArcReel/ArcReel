@@ -1,210 +1,279 @@
-"""reference_video prompt builder 单元测试。
+"""reference_video prompt builder 单元测试。"""
 
-Spec §7.3、§4.2/4.3。
-"""
+import pytest
 
-from lib.prompt_builders_reference import build_reference_video_prompt
+from lib.prompt_builders_reference import (
+    build_reference_units_split_prompt,
+    build_reference_video_prompt,
+    render_reference_units_for_step2,
+)
+from lib.reference_video.writing_syntax import WRITING_SYNTAX_SPEC
+
+pytestmark = pytest.mark.unit
+
+
+def _step2_prompt(**overrides) -> str:
+    kwargs = dict(
+        project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
+        style="s",
+        style_description="d",
+        characters={"A": {"description": "d"}},
+        scenes={},
+        props={},
+        step1_units=[],
+        max_refs=9,
+        episode=1,
+    )
+    kwargs.update(overrides)
+    return build_reference_video_prompt(**kwargs)
+
+
+def _split_prompt(**overrides) -> str:
+    kwargs = dict(
+        novel_text="text",
+        project_overview={},
+        characters={},
+        scenes={},
+        props={},
+        supported_durations=[8],
+        max_duration=8,
+        max_reference_images=None,
+        default_duration=None,
+        episode=1,
+    )
+    kwargs.update(overrides)
+    return build_reference_units_split_prompt(**kwargs)
 
 
 def test_build_reference_video_prompt_contains_required_sections():
-    project_overview = {
-        "synopsis": "少年入江湖",
-        "genre": "武侠",
-        "theme": "成长",
-        "world_setting": "北宋江湖",
-    }
-    characters = {"主角": {"description": "少年剑客"}, "张三": {"description": "酒客"}}
-    scenes = {"酒馆": {"description": "黑木桌椅的江湖酒馆"}}
-    props = {"长剑": {"description": "祖传青锋"}}
     step1_units = [
         {
-            "unit_id": "E1U1",
+            "unit_id": "E1U01",
             "shots": [
-                {"duration": 5, "text": "@[主角] 推门走进 @[酒馆]"},
-                {"duration": 5, "text": "@[主角] 按住 @[长剑]"},
+                {"text": "@[主角] 推门走进 @[酒馆]"},
+                {"text": "@[主角] 按住 @[长剑]"},
             ],
-            "references": [
-                {"type": "character", "name": "主角"},
-                {"type": "scene", "name": "酒馆"},
-                {"type": "prop", "name": "长剑"},
-            ],
+            "references": [{"type": "character", "name": "主角"}],
+            "duration_seconds": 8,
         }
     ]
-
-    prompt = build_reference_video_prompt(
-        project_overview=project_overview,
+    prompt = _step2_prompt(
+        project_overview={"synopsis": "少年入江湖", "genre": "武侠", "theme": "成长", "world_setting": "北宋江湖"},
         style="国漫",
         style_description="水墨渲染风格",
-        characters=characters,
-        scenes=scenes,
-        props=props,
+        characters={"主角": {"description": "少年剑客"}, "张三": {"description": "酒客"}},
+        scenes={"酒馆": {"description": "黑木桌椅的江湖酒馆"}},
+        props={"长剑": {"description": "祖传青锋"}},
         step1_units=step1_units,
-        supported_durations=[13, 17, 19],
-        max_refs=37,
-        aspect_ratio="9:16",
-        episode=1,
     )
 
-    # 必备上下文
     assert "北宋江湖" in prompt
     assert "水墨渲染风格" in prompt
     # 三类资产名称都必须出现（MentionPicker 候选源）
     assert "主角" in prompt and "张三" in prompt
     assert "酒馆" in prompt
     assert "长剑" in prompt
-    # 结构化 step1 须经机械渲染透传（unit_id / shot 文本 / references）
-    assert "E1U1" in prompt
-    assert "@[主角] 推门走进 @[酒馆]" in prompt
-    assert "character:主角" in prompt
-    assert "13" in prompt
-    assert "17" in prompt
-    assert "19" in prompt
-    assert "37" in prompt
+    # step1 正文经机械渲染透传，带 镜头N： header
+    assert "镜头1：@[主角] 推门走进 @[酒馆]" in prompt
+    assert "镜头2：@[主角] 按住 @[长剑]" in prompt
+    assert "（时长 8s）" in prompt
+    # 断言完整约束句：单看 "9" 会被默认 aspect_ratio "9:16" 满足，max_refs 未注入也能通过
+    assert "不超过 9 个（模型上限）" in prompt
 
 
-def test_build_reference_video_prompt_max_duration_changes_output():
-    kwargs = dict(
-        project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
-        style="s",
-        style_description="d",
-        characters={},
-        scenes={},
-        props={},
-        step1_units=[],
-        supported_durations=[4, 8],
-        max_refs=7,
-        episode=1,
-    )
-    without_max = build_reference_video_prompt(**kwargs)
-    with_max = build_reference_video_prompt(**kwargs, max_duration=17)
-    assert with_max != without_max
-    assert "17" in with_max
-    assert "17" not in without_max
+def test_build_reference_video_prompt_emphasizes_no_appearance_description():
+    assert "外貌" in _step2_prompt()
 
 
-def test_build_reference_video_prompt_constrains_unit_total_to_supported():
-    """unit 总时长（各 shot 之和）∈ supported 的硬约束由动态 schema 枚举承担；
-
-    prompt 只保留编排策略：给出支持集合，引导各 shot 时长相加正好落在集合内。
-    """
-    prompt = build_reference_video_prompt(
-        project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
-        style="s",
-        style_description="d",
-        characters={"甲": {"description": "d"}},
-        scenes={},
-        props={},
-        step1_units=[],
-        supported_durations=[4, 8, 12],
-        max_refs=9,
-        max_duration=12,
-        episode=1,
-    )
-    for duration in (4, 8, 12):
-        assert str(duration) in prompt
+def test_build_reference_video_prompt_structures_shot_text_by_four_elements():
+    """镜头描述指导按景别 / 构图 / 运镜 / 画面内容四要素组织（对抗生成过短的镜头描述）。"""
+    prompt = _step2_prompt()
+    for element in ("景别", "构图", "运镜", "画面内容"):
+        assert element in prompt
 
 
-def test_build_reference_video_prompt_injects_episode_constraints():
-    """reference_video prompt 必须告知 LLM 当前 episode，避免 unit_id 跨集污染。"""
-    prompt = build_reference_video_prompt(
-        project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
-        style="s",
-        style_description="d",
-        characters={},
-        scenes={},
-        props={},
-        step1_units=[],
-        supported_durations=[8],
-        max_refs=9,
-        episode=37,
-    )
-    assert "E37U" in prompt
+def test_build_reference_video_prompt_states_structure_preserving_contract():
+    """step2 的职责是视觉展开：unit 数、台词行、镜头数三项保结构要求必须写进 prompt。"""
+    prompt = _step2_prompt()
+    assert "等长、同序" in prompt
+    assert "逐字保留" in prompt
+    assert "镜头行数不增减" in prompt
+
+
+def test_build_reference_video_prompt_omits_duration_from_output_contract():
+    """时长是 step1 定稿、机械沿用的字段，step2 不写——prompt 不得要求模型产出它。"""
+    prompt = _step2_prompt(step1_units=[{"unit_id": "E1U01", "shots": [{"text": "x"}], "duration_seconds": 8}])
+    assert "duration_seconds" not in prompt
+
+
+def test_build_reference_video_prompt_max_refs_none_skips_rule():
+    assert "模型上限" not in _step2_prompt(max_refs=None)
 
 
 def test_build_reference_units_split_prompt_contains_constraints_and_candidates():
-    from lib.prompt_builders_reference import build_reference_units_split_prompt
-
-    prompt = build_reference_units_split_prompt(
+    prompt = _split_prompt(
         novel_text="李明推门走进酒馆",
         project_overview={"synopsis": "s", "genre": "g", "theme": "t", "world_setting": "w"},
         characters={"李明": {"description": "少年"}},
         scenes={"酒馆": {"description": "江湖酒馆"}},
-        props={},
         supported_durations=[4, 6, 8],
-        max_duration=13,
-        max_reference_images=7,
+        max_duration=12,
+        max_reference_images=3,
         default_duration=4,
         episode=2,
         target_language="中文",
     )
     assert "李明推门走进酒馆" in prompt
     assert "李明" in prompt and "酒馆" in prompt
-    # episode 注入 unit_id 前缀
-    assert "E2U" in prompt
-    assert "E1U" not in prompt
-    # 能力参数透传
+    assert "第 2 集" in prompt
+    # 能力约束：档位集合、总时长上限、references 上限、默认偏好
     assert "4, 6, 8" in prompt
-    assert "13" in prompt
-    assert "7" in prompt
+    assert "12 秒" in prompt
+    assert "不超过 3 个" in prompt
+    assert "默认取 4 秒" in prompt
+    # 关键写作纪律
+    assert "@[名称]" in prompt
+    assert "外貌" in prompt
+    # step1 的内容契约三件：原文锚、台词落位、语速下界
+    assert "source_text" in prompt
+    assert "口播语速约" in prompt
 
 
-def test_build_reference_units_split_prompt_max_refs_changes_output():
-    from lib.prompt_builders_reference import build_reference_units_split_prompt
-
-    kwargs = dict(
-        novel_text="text",
-        project_overview={},
-        characters={},
-        scenes={},
-        props={},
-        supported_durations=[8],
-        max_duration=8,
-        default_duration=None,
-        episode=1,
+def test_build_reference_units_split_prompt_injects_episode_outline():
+    """分集大纲注入（借 drama step1）：给出本集内容边界与下集接续点。"""
+    prompt = _split_prompt(
+        episode_outline={"title": "初入江湖", "story_beats": ["少年离家", "酒馆遇袭"], "hook": "剑断人亡"},
+        next_episode_outline={"story_beats": ["追查线索"]},
     )
-    assert build_reference_units_split_prompt(
-        **kwargs, max_reference_images=None
-    ) != build_reference_units_split_prompt(**kwargs, max_reference_images=2)
+    assert "<episode_outline>" in prompt
+    assert "少年离家" in prompt
+    assert "<next_episode_outline>" in prompt
+    assert "追查线索" in prompt
+
+
+def test_build_reference_units_split_prompt_without_outline_leaves_no_empty_block():
+    prompt = _split_prompt()
+    assert "<episode_outline>" not in prompt
+    assert "<next_episode_outline>" not in prompt
+
+
+def test_both_prompt_levels_share_one_syntax_template():
+    """语法规范唯一真相源：两级 prompt 注入同一份常量，仓库里没有第二份语法全文。"""
+    split = _split_prompt()
+    step2 = _step2_prompt()
+    assert WRITING_SYNTAX_SPEC in split
+    assert WRITING_SYNTAX_SPEC in step2
+
+
+def test_build_reference_units_split_prompt_max_refs_none_skips_rule():
+    assert "references 上限" not in _split_prompt(max_reference_images=None)
 
 
 def test_build_reference_units_split_prompt_rejects_bad_inputs():
-    import pytest as _pytest
+    with pytest.raises(ValueError, match="supported_durations"):
+        _split_prompt(supported_durations=[])
+    with pytest.raises(ValueError, match="default_duration"):
+        _split_prompt(supported_durations=[4, 8], default_duration=5)
+    with pytest.raises(ValueError, match="reference_supported_durations"):
+        _split_prompt(supported_durations=[4, 8], reference_supported_durations=[6])
+    with pytest.raises(ValueError, match="text_supported_durations"):
+        _split_prompt(supported_durations=[4, 8], text_supported_durations=[6])
 
-    from lib.prompt_builders_reference import build_reference_units_split_prompt
 
-    common = dict(
-        novel_text="text",
-        project_overview={},
-        characters={},
-        scenes={},
-        props={},
-        max_duration=8,
-        max_reference_images=None,
-        episode=1,
+def test_build_reference_units_split_prompt_writes_reference_duration_linkage():
+    """两套档位不同时，prompt 写明各自的档位与两条出路（换档位 / 去引用）。"""
+    prompt = _split_prompt(
+        supported_durations=[4, 6, 8],
+        reference_supported_durations=[8],
+        text_supported_durations=[4, 6, 8],
+        default_duration=None,
     )
-    with _pytest.raises(ValueError, match="supported_durations"):
-        build_reference_units_split_prompt(supported_durations=[], default_duration=None, **common)
-    with _pytest.raises(ValueError, match="default_duration"):
-        build_reference_units_split_prompt(supported_durations=[4, 8], default_duration=5, **common)
+    assert "带 `@` 引用取（8）" in prompt
+    assert "不带取（4, 6, 8）" in prompt
+    assert "不用 `@` 引用" in prompt
+
+
+def test_build_reference_units_split_prompt_states_both_tiers_without_containment():
+    """带图档位反而更宽时，被收窄的是无引用 unit——prompt 必须照样写全，不能只讲带图那套。
+
+    `constrain_durations` 在交集为空时回退到未收窄候选，故两套档位之间不假定包含关系
+    （与 `_context.reference_unit_duration_tiers` 同一判据）。只讲带图会让无引用 unit
+    照并集取到自己申请不到的档位。
+    """
+    prompt = _split_prompt(
+        supported_durations=[4, 6, 8],
+        reference_supported_durations=[4, 6, 8],
+        text_supported_durations=[6],
+        default_duration=None,
+    )
+    assert "带 `@` 引用取（4, 6, 8）" in prompt
+    assert "不带取（6）" in prompt
+
+
+def test_build_reference_units_split_prompt_excludes_dialogue_speaker_from_reference_rule():
+    """联动约束按镜头描述行判定，台词行 `@[角色]：{台词}` 的说话人不计入。
+
+    ``extract_mentions`` 派生 references 时整行剔除规范台词行的说话人（画外说话不生成参考图，
+    见 shot_parser 同函数 docstring）；prompt 若只说「正文里有没有 `@`」，模型会把只在台词行
+    出现说话人的 unit 误判为「带引用」、选进更窄的档位——落盘派生时 references 却是空，
+    与模型的选择依据不一致。
+    """
+    prompt = _split_prompt(
+        supported_durations=[4, 6, 8],
+        reference_supported_durations=[8],
+        text_supported_durations=[4, 6, 8],
+        default_duration=None,
+    )
+    assert "台词行 `@[角色]：{台词}` 的说话人不计入" in prompt
+
+
+def test_build_reference_units_split_prompt_scopes_default_to_its_tier():
+    """默认值只对一种引用状态合法时点明适用范围，免得模型把它套到另一种状态的 unit 上。"""
+    prompt = _split_prompt(
+        supported_durations=[4, 6, 8],
+        reference_supported_durations=[8],
+        text_supported_durations=[4, 6, 8],
+        default_duration=4,
+    )
+    assert "unit 默认取 4 秒（该默认值只落在不带 `@` 引用的 unit 的档位内" in prompt
+    # 两套档位都含该默认值时不加这段限定，避免无效措辞。
+    plain = _split_prompt(supported_durations=[4, 6, 8], default_duration=4)
+    assert "该默认值只落在" not in plain
+
+
+def test_build_reference_units_split_prompt_omits_linkage_when_tiers_equal():
+    """多数型号未声明「参考图↔时长」约束：两套档位相同时不写这条，避免无效约束占注意力。"""
+    for reference_durations, text_durations in (
+        ([4, 6, 8], [4, 6, 8]),
+        (None, None),
+        ([4, 6, 8], None),
+        (None, [4, 6, 8]),
+    ):
+        prompt = _split_prompt(
+            supported_durations=[4, 6, 8],
+            reference_supported_durations=reference_durations,
+            text_supported_durations=text_durations,
+        )
+        assert "按该 unit **镜头描述行里有没有 `@` 资产引用**取用" not in prompt
 
 
 def test_render_reference_units_for_step2_mechanical():
-    """渲染是机械变换：unit_id / 总时长 / references / 各 shot 时长与文本逐项出现；畸形项跳过。"""
-    from lib.prompt_builders_reference import render_reference_units_for_step2
-
+    """渲染是机械变换：序号 + unit 时长 + 带 header 的正文逐项出现；unit_id 不进渲染。"""
     text = render_reference_units_for_step2(
         [
             {
                 "unit_id": "E1U01",
-                "shots": [{"duration": 4, "text": "@[甲] 起身"}, {"duration": 6, "text": "@[甲] 出门"}],
+                "shots": [{"text": "@[甲] 起身\n@[甲]：{走了。}"}, {"text": "@[甲] 出门"}],
                 "references": [{"type": "character", "name": "甲"}],
+                "duration_seconds": 10,
             },
-            {"unit_id": "E1U02", "shots": [{"duration": 8, "text": "@[甲] 回头"}], "references": []},
+            {"unit_id": "E1U02", "shots": [{"text": "@[甲] 回头"}], "references": [], "duration_seconds": 8},
         ]
     )
-    assert "#### E1U01（预估总时长 10s）" in text
-    assert "references: character:甲" in text
-    assert "Shot 1 (4s): @[甲] 起身" in text
-    assert "Shot 2 (6s): @[甲] 出门" in text
-    assert "#### E1U02（预估总时长 8s）" in text
-    assert "references: （无）" in text
+    assert "#### unit 1（时长 10s）" in text
+    assert "镜头1：@[甲] 起身" in text
+    assert "@[甲]：{走了。}" in text
+    assert "镜头2：@[甲] 出门" in text
+    assert "#### unit 2（时长 8s）" in text
+    # unit_id 由序号机械派生，不下发给 step2
+    assert "E1U01" not in text

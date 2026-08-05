@@ -9,6 +9,8 @@ import pytest
 
 import lib.thumbnail as thumbnail_module
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture(autouse=True)
 def _reset_ffmpeg_cache():

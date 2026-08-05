@@ -4,6 +4,7 @@ MESSAGES = {
     "overview_ai_response_invalid": "The AI response could not be parsed into a project overview. Please retry or switch to a different model/provider",
     "overview_generation_failed": "Overview generation failed. Please retry later or switch to a different model/provider",
     "video_capabilities_unresolved": "Cannot resolve video model capabilities for project '{name}'; please check the provider configuration",
+    "video_backend_malformed": "Video model identifier '{value}' is malformed; expected \"provider/model\"",
     "scope_invalid": "scope must be full or current",
     "download_expired": "Download link expired, please re-export",
     "download_token_mismatch": "Download token does not match the target project",
@@ -54,6 +55,7 @@ MESSAGES = {
     "prompt_text_empty": "prompt must not be empty",
     "storyboard_task_submitted": "Storyboard generation task for '{segment_id}' submitted",
     "generate_storyboard_first": "Please generate storyboard scene_{segment_id}.png first",
+    "video_route_is_reference_video": "This project uses the reference-video route, which has no storyboard-to-video step; generate by video unit in the reference video editor",
     "invalid_storyboard_image_path": "Segment '{segment_id}' has an invalid storyboard image reference; please regenerate the storyboard",
     "video_prompt_must_be_string_or_action_object": "prompt must be a string or an object containing action/camera_motion",
     "video_prompt_action_empty": "prompt.action cannot be empty",
@@ -69,6 +71,11 @@ MESSAGES = {
     "narration_speed_must_be_positive": "Narration speed must be a positive number",
     "character_not_found": "Character '{name}' does not exist",
     "character_task_submitted": "Character design generation task for '{name}' submitted",
+    "voice_sample_voice_required": "Please select a voice first",
+    "voice_sample_text_too_long": "Sample text cannot exceed {max_length} characters",
+    "voice_sample_task_submitted": "Voice sample generation task for character '{name}' submitted",
+    "voice_sample_not_ready": "The voice sample has not finished generating successfully; cannot confirm yet",
+    "voice_sample_file_missing": "The voice sample file no longer exists; please regenerate it",
     "scene_task_submitted": "Scene design generation task for '{name}' submitted",
     "prop_task_submitted": "Prop design generation task for '{name}' submitted",
     "product_task_submitted": "Product reference sheet generation task for '{name}' submitted",
@@ -79,8 +86,11 @@ MESSAGES = {
     "missing_filename": "Uploaded file is missing a filename",
     "unsupported_image_type": "Unsupported file type {ext}. Allowed types: {allowed}",
     "unsupported_video_type": "Unsupported video type {ext}. Allowed types: {allowed}",
+    "unsupported_audio_type": "Unsupported audio type {ext}. Allowed types: {allowed}",
     "upload_too_large": "Uploaded file exceeds the size limit ({max_mb} MB)",
     "invalid_image_file": "Invalid image file, could not be parsed",
+    "invalid_audio_file": "Invalid audio file, could not be parsed",
+    "audio_duration_out_of_range": "Audio duration must be between {min_seconds} and {max_seconds} seconds",
     "vision_model_required": "Text model {provider}/{model} does not support image input (vision) and cannot perform the {task} task; please select a vision-capable text model for the simple tier or default model in settings",
     "internal_server_error": "Internal server error, please try again later",
     "invalid_asset_type": "asset type must be character / scene / prop",
@@ -90,7 +100,17 @@ MESSAGES = {
     "draft_invalid_json": "Step 1 draft must be a valid JSON object with a non-empty scenes array, where each scene is an object with a non-empty scene_id",
     "script_review_not_applicable": "Step 1 review does not apply to this episode (this mode has no structured Step 1 intermediate)",
     "script_review_no_step1": "No Step 1 structured draft to confirm yet; please finish preprocessing first",
+    "script_review_quarantined": (
+        "This episode has a rejected Step 1 draft awaiting repair; let the agent fix and promote it before confirming"
+    ),
+    "script_review_conflict": (
+        "The Step 1 draft was modified by another editor while you were editing; your save was not applied. "
+        "Refresh to see the latest content, merge your changes, then save again"
+    ),
     "script_review_invalid_content": "Step 1 draft structure validation failed: {details}",
+    "script_review_quarantine_unreadable": (
+        "The quarantined draft file is corrupted or malformed and can't be read; ask the agent to re-split this episode"
+    ),
     "draft_event_label": "Episode {episode} {label_prefix}",
     "normalized_script": "Normalized Script",
     "segment_splitting": "Segment Splitting",
@@ -150,11 +170,20 @@ MESSAGES = {
         "Endpoint {endpoint} of model {model_id} does not support last-frame generation; "
         "last_frame cannot be overridden to true"
     ),
+    "capability_override_reference_audio_unsupported": (
+        "Endpoint {endpoint} of model {model_id} does not send reference audio; "
+        "reference_audio_mode cannot be overridden to direct"
+    ),
+    "capability_override_audio_pair_incoherent": (
+        "Model {model_id} must have max_reference_audio_count greater than 0 when reference audio is supported; "
+        "override reference_audio_mode to none to turn voice reference off"
+    ),
     # Projects
     "unknown_style_template": "Unknown style template: {template_id}",
     "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",
     "ad_no_default_duration": "Ad/short-video projects do not support a default duration; shot lengths are planned against the target duration",
-    "ad_grid_not_supported": "Ad/short-video projects do not support grid video generation",
+    "ad_grid_not_supported": "Ad/short-video projects do not support Grid Storyboard to Video",
+    "grid_storyboard_not_enabled": "Grid Storyboard is not enabled for this project",
     "ad_target_duration_required": "Ad/short-video projects require a target duration (positive integer seconds)",
     "project_id_not_editable": "content_mode cannot be modified after project creation",
     "source_kind_not_editable": "source_kind cannot be modified after project creation",
@@ -214,6 +243,43 @@ MESSAGES = {
     "ref_derive_ad_only": "Deriving video unit groups is only available for ad/short-video projects",
     "ref_ad_stale_index": "The unit grouping index no longer matches the shots, please re-derive the grouping",
     "ref_ad_reference_skipped": "'{name}' ({type}) has no usable reference image and was skipped for this generation",
+    # Shot-script parse preview: degradation visibility
+    "ref_warn_unregistered_mention": (
+        "@[{name}] is not registered as a character, scene, or prop: no reference image will be "
+        "attached. Check the name or create the asset first"
+    ),
+    "ref_warn_unclosed_brace": (
+        "Shot {shot}: unclosed dialogue braces, not recognized as dialogue. The line is sent verbatim: {excerpt}…"
+    ),
+    "ref_warn_dialogue_inline": (
+        "Shot {shot}: dialogue and description are on the same line, so it is not recognized as "
+        "dialogue. For voice reference, put the dialogue on its own line (@[character]: {{dialogue}})"
+    ),
+    "ref_warn_unregistered_speaker": (
+        "@[{name}] is not registered as a character: the speaker cannot be confirmed, so the line is sent verbatim"
+    ),
+    "ref_warn_speaker_without_audio": (
+        "Character '{name}' has no reference audio: the model decides the dialogue voice"
+    ),
+    "ref_warn_speaker_audio_unavailable": (
+        "Character '{name}' has reference audio set, but it is currently unavailable: "
+        "the model decides the dialogue voice"
+    ),
+    "ref_warn_reference_audio_overflow": (
+        "At most {limit} reference audio clips: the model decides the dialogue voice for character '{name}'"
+    ),
+    "ref_warn_speaker_audio_needs_image": (
+        "Character '{name}' has no reference image (off-screen only): the current video model requires "
+        "reference audio to be attached per reference image, so the model decides this character's dialogue voice"
+    ),
+    "ref_warn_silent_model": (
+        "The current video model '{model}' generates no audio; dialogue is used only as prompt context"
+    ),
+    "ref_warn_silent_episode": (
+        "Reference audio is disabled for this episode: no reference audio is uploaded and voice "
+        "consistency does not apply; dialogue is used only as prompt context. Whether the rendered "
+        "video actually has sound depends on the selected model"
+    ),
     # Episode meta
     "episode_not_found": "Episode {episode} not found or has no script file yet",
     "episode_title_empty": "Episode title cannot be empty",
@@ -237,6 +303,9 @@ MESSAGES = {
     "video_duration_invalid": "Video duration {duration} is not a valid integer number of seconds",
     "video_duration_not_supported": "Video duration {duration}s is not within the durations supported by this model ({supported})",
     "video_capability_missing_t2v": "{provider}/{model} does not support text-to-video; provide a first-frame image or switch to a model that supports text-to-video",
+    "video_capability_missing_i2v": "{provider}/{model} does not support image-to-video generation; assign a model that supports it for image-to-video in Settings, or change the default video model",
+    "video_capability_missing_r2v": "{provider}/{model} does not support reference-to-video generation; assign a model that supports it for reference-to-video in Settings, or change the default video model",
+    "video_capability_reference_unavailable": "The configured video model {provider}/{model} is no longer available (model deleted, capabilities changed, or provider removed); re-select a video model in Settings",
     "video_resolution_duration_unsupported": "Model {model} does not support {duration}s at {resolution} resolution (only {supported}); adjust the resolution or duration",
     "video_reference_images_duration_unsupported": "Model {model} does not support {duration}s with reference images (only {supported}); change the duration to {supported} or remove the reference images",
     "video_reference_images_required": "Model {model} requires at least one reference image; please provide reference images",
@@ -249,6 +318,13 @@ MESSAGES = {
     "video_end_image_requires_start_image": "Model {model} does not support a standalone last frame; also provide a first frame (first+last keyframes) or remove the last frame",
     "video_last_frame_requires_pro": "{provider}/{model} only supports first+last frame at the pro tier; switch to the pro tier or remove the last frame",
     "video_last_frame_unsupported": "{provider}/{model} does not support a last frame under the current configuration; generation aborted. Remove the shot's last frame, or switch to a model or tier that supports it",
+    "video_reference_audio_unsupported": "{provider}/{model} does not support reference audio; generation aborted. Remove the character's reference audio, or switch to a model that supports voice reference",
+    "video_reference_audio_exceeded": "Model {model} supports at most {limit} reference audio clips but received {count}; reduce the number of characters with reference audio",
+    "video_reference_audio_duration_exceeded": "Model {model} supports at most {limit:g} seconds of combined reference audio but received {total:.1f} seconds; use fewer reference audio clips or shorter clips",
+    "video_reference_audio_slots_insufficient": "Model {model} attaches each reference audio clip to a reference asset, but only {slots} reference assets are available for {count} clips; add reference images for those characters, or reduce the number of characters with reference audio",
+    "video_reference_audio_unreadable": "Model {model} has reference audio that is missing or unreadable; generation aborted: {names}; check the reference audio paths",
+    "video_reference_audio_format_unsupported": "Reference audio {name} has an unsupported format (only {supported}); use a different audio file",
+    "video_prompt_too_long": "{provider}/{model} accepts prompts of at most {limit} characters but received {count}; the provider would silently truncate the excess, so generation was aborted. Shorten the prompt",
     # Agent credentials
     "agent_preset_unknown": "Unknown preset provider: {preset_id}",
     "agent_base_url_required_custom": "base_url is required for custom configuration",

@@ -1,11 +1,14 @@
 from io import BytesIO
 
+import pytest
 from PIL import Image
 
 import server.routers.versions as versions_router
 from lib.image_utils import convert_image_bytes_to_png
 from lib.project_manager import ProjectManager
 from lib.version_manager import VersionManager
+
+pytestmark = pytest.mark.unit
 
 
 class TestUploadRestorePng:
@@ -43,9 +46,7 @@ class TestUploadRestorePng:
         monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
 
         # Switch back to v1 without creating a synthetic new version.
-        result = await versions_router.restore_version(
-            project_name, "characters", char_name, 1, _user={"sub": "testuser"}
-        )
+        result = await versions_router.restore_version(project_name, "characters", char_name, 1)
 
         assert result["success"]
         assert result["restored_version"] == 1

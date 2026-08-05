@@ -14,6 +14,7 @@ from lib.i18n import MESSAGES
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import tasks as tasks_router
+from tests.auth_deps import AUTH_DEPENDENCIES
 
 # ---------------------------------------------------------------------------
 # Fake queue helpers
@@ -70,7 +71,7 @@ def _make_app() -> FastAPI:
     """构建用于测试的最小 FastAPI 应用，注入假用户。"""
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(tasks_router.router, prefix="/api/v1")
+    app.include_router(tasks_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(app)
     return app
 
@@ -81,6 +82,7 @@ def _make_app() -> FastAPI:
 
 
 class TestCancelPreview:
+    @pytest.mark.unit
     def test_returns_preview_for_queued_task(self, monkeypatch):
         preview = {
             "task": {"task_id": "t1", "task_type": "image", "resource_id": "scene-1"},
@@ -98,6 +100,7 @@ class TestCancelPreview:
         assert body["task"]["task_id"] == "t1"
         assert body["cascaded"] == []
 
+    @pytest.mark.unit
     def test_running_task_preview_returns_status(self, monkeypatch):
         """ADR 0006 放宽：preview 不再因 running 而拒绝，返回 task.status 让前端判断。"""
         preview = {
@@ -114,6 +117,7 @@ class TestCancelPreview:
         assert resp.status_code == 200
         assert resp.json()["task"]["status"] == "running"
 
+    @pytest.mark.unit
     def test_returns_400_for_nonexistent_task(self, monkeypatch):
         fake = _FakeQueue(cancel_preview_error="任务 'missing' 不存在")
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
@@ -132,6 +136,7 @@ class TestCancelPreview:
 
 
 class TestCancelTask:
+    @pytest.mark.unit
     def test_cancels_queued_task(self, monkeypatch):
         result = {
             "cancelled": [{"task_id": "t1", "status": "cancelled"}],
@@ -152,6 +157,7 @@ class TestCancelTask:
         assert body["cancelling"] == []
         assert body["skipped_terminal"] == []
 
+    @pytest.mark.unit
     def test_cancels_running_task_returns_cancelling(self, monkeypatch):
         result = {
             "cancelled": [],
@@ -170,6 +176,7 @@ class TestCancelTask:
         assert body["cancelling"] == ["running-task"]
         assert body["cancelled"] == []
 
+    @pytest.mark.unit
     def test_returns_400_for_nonexistent_task(self, monkeypatch):
         fake = _FakeQueue(cancel_task_error="任务 'ghost' 不存在")
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
@@ -181,6 +188,7 @@ class TestCancelTask:
         assert resp.status_code == 400
         assert "不存在" in resp.json()["detail"]
 
+    @pytest.mark.unit
     def test_cancels_terminal_task_returns_skipped_terminal(self, monkeypatch):
         result = {
             "cancelled": [],
@@ -225,6 +233,7 @@ class TestCancelTask:
 
 
 class TestCancelAllPreview:
+    @pytest.mark.unit
     def test_returns_queued_count(self, monkeypatch):
         fake = _FakeQueue(cancel_all_preview_count=5)
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
@@ -236,6 +245,7 @@ class TestCancelAllPreview:
         assert resp.status_code == 200
         assert resp.json() == {"queued_count": 5}
 
+    @pytest.mark.unit
     def test_returns_zero_when_no_queued_tasks(self, monkeypatch):
         fake = _FakeQueue(cancel_all_preview_count=0)
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: fake)
@@ -254,6 +264,7 @@ class TestCancelAllPreview:
 
 
 class TestCancelAllQueued:
+    @pytest.mark.unit
     def test_cancels_all_queued_tasks(self, monkeypatch):
         result = {
             "cancelled_count": 3,
@@ -271,6 +282,7 @@ class TestCancelAllQueued:
         assert body["cancelled_count"] == 3
         assert body["skipped_running_count"] == 0
 
+    @pytest.mark.unit
     def test_returns_zero_when_nothing_to_cancel(self, monkeypatch):
         result = {"cancelled_count": 0, "skipped_running_count": 0}
         fake = _FakeQueue(cancel_all_result=result)

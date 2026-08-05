@@ -1,6 +1,10 @@
+import unicodedata
+
+import pytest
 import yaml
 
 from lib.prompt_utils import (
+    build_drama_video_prompt,
     image_prompt_to_yaml,
     is_structured_image_prompt,
     is_structured_video_prompt,
@@ -10,6 +14,8 @@ from lib.prompt_utils import (
     validate_shot_type,
     video_prompt_to_yaml,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class TestNormalizeStyle:
@@ -77,6 +83,101 @@ class TestPromptUtils:
         assert not is_structured_image_prompt("text")
         assert is_structured_video_prompt({"action": "x"})
         assert not is_structured_video_prompt([])
+
+    def test_video_prompt_to_yaml_voice_profiles_leads_and_is_conditional(self):
+        # Voice_Profiles 是顶部集中声明段：须先于 Action 出现；无声明时不出现该字段
+        with_profiles = {
+            "action": "抬头观察",
+            "camera_motion": "Static",
+            "ambiance_audio": "雨声",
+            "dialogue": [{"speaker": "姜月茴", "line": "有人吗"}],
+            "voice_profiles": [{"Speaker": "姜月茴", "Voice_Style": "清冷"}],
+        }
+        text = video_prompt_to_yaml(with_profiles)
+        parsed = yaml.safe_load(text)
+        assert parsed["Voice_Profiles"] == [{"Speaker": "姜月茴", "Voice_Style": "清冷"}]
+        assert text.index("Voice_Profiles") < text.index("Action")
+
+        without_profiles = {"action": "快步前进", "camera_motion": "Pan Left", "ambiance_audio": "脚步声"}
+        assert "Voice_Profiles" not in yaml.safe_load(video_prompt_to_yaml(without_profiles))
+
+
+def _utterance(speaker: str | None, text: str) -> dict[str, object]:
+    return {"kind": "dialogue", "speaker": speaker, "text": text}
+
+
+_BASE_PROMPT = {"action": "抬头观察", "camera_motion": "Static", "ambiance_audio": "雨声"}
+
+_NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
+_NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
+
+
+class TestBuildDramaVideoPrompt:
+    """两注入点共用的 drama dialogue + Voice_Profiles 出口。"""
+
+    def test_one_entry_per_speaker_deduped_in_order(self):
+        utterances = [_utterance("姜月茴", "有人吗"), _utterance("王", "嗯"), _utterance("姜月茴", "走吧")]
+        characters = {"姜月茴": {"voice_style": "清冷"}, "王": {"voice_style": "低沉"}}
+        prompt = build_drama_video_prompt(_BASE_PROMPT, utterances, characters=characters)
+        assert prompt["voice_profiles"] == [
+            {"Speaker": "姜月茴", "Voice_Style": "清冷"},
+            {"Speaker": "王", "Voice_Style": "低沉"},
+        ]
+        # dialogue 逐条保序，不因 Voice_Profiles 去重而合并
+        assert [d["speaker"] for d in prompt["dialogue"]] == ["姜月茴", "王", "姜月茴"]
+
+    def test_characters_none_means_no_injection(self):
+        utterances = [_utterance("姜月茴", "有人吗")]
+        prompt = build_drama_video_prompt(_BASE_PROMPT, utterances, characters={"姜月茴": {"voice_style": "清冷"}})
+        assert "voice_profiles" in prompt
+        gated = build_drama_video_prompt(_BASE_PROMPT, utterances, characters=None)
+        assert "voice_profiles" not in gated
+
+    def test_script_carried_voice_profiles_never_survive(self):
+        # 声明段唯一来源是编排层：剧本残留值一律剥离，否则会绕过 C 类（characters=None）门控
+        carried = {**_BASE_PROMPT, "voice_profiles": [{"Speaker": "赝品", "Voice_Style": "越权"}]}
+        assert "voice_profiles" not in build_drama_video_prompt(carried, [], characters=None)
+        prompt = build_drama_video_prompt(carried, [_utterance("王", "嗯")], characters={"王": {"voice_style": "低沉"}})
+        assert prompt["voice_profiles"] == [{"Speaker": "王", "Voice_Style": "低沉"}]
+
+    def test_nfd_speaker_hits_nfc_registered_character(self):
+        # speaker 与角色表 key 可能各是 NFC/NFD 中的任一形态（存量数据无需迁移），
+        # 归一后索引须双向命中；Speaker 展示值保留 dialogue 原文
+        for speaker, registered in ((_NAME_NFD, _NAME_NFC), (_NAME_NFC, _NAME_NFD)):
+            prompt = build_drama_video_prompt(
+                _BASE_PROMPT, [_utterance(speaker, "xin chào")], characters={registered: {"voice_style": "trầm"}}
+            )
+            assert prompt["voice_profiles"] == [{"Speaker": speaker, "Voice_Style": "trầm"}]
+
+    def test_nfc_nfd_same_speaker_deduped_to_one_profile(self):
+        utterances = [_utterance(_NAME_NFC, "một"), _utterance(_NAME_NFD, "hai")]
+        prompt = build_drama_video_prompt(_BASE_PROMPT, utterances, characters={_NAME_NFC: {"voice_style": "trầm"}})
+        assert prompt["voice_profiles"] == [{"Speaker": _NAME_NFC, "Voice_Style": "trầm"}]
+
+    def test_speaker_without_matching_character_skipped_silently(self):
+        prompt = build_drama_video_prompt(_BASE_PROMPT, [_utterance("路人甲", "喂")], characters={})
+        assert "voice_profiles" not in prompt
+
+    def test_character_with_empty_voice_style_skipped(self):
+        prompt = build_drama_video_prompt(
+            _BASE_PROMPT, [_utterance("王", "嗯")], characters={"王": {"voice_style": ""}}
+        )
+        assert "voice_profiles" not in prompt
+
+    def test_robust_to_dirty_data(self):
+        for utterances, characters in (
+            ([], {}),
+            ([_utterance(None, "x")], {}),
+            ([_utterance("王", "x")], {"王": "not-a-dict"}),
+            ([_utterance("王", "x")], "not-a-dict"),
+        ):
+            prompt = build_drama_video_prompt(_BASE_PROMPT, utterances, characters=characters)  # type: ignore[arg-type]
+            assert "voice_profiles" not in prompt
+
+    def test_does_not_mutate_caller_prompt(self):
+        source = {**_BASE_PROMPT}
+        build_drama_video_prompt(source, [_utterance("王", "嗯")], characters={"王": {"voice_style": "低沉"}})
+        assert source == _BASE_PROMPT
 
 
 class TestUtterancesToDialogue:

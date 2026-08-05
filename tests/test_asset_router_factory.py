@@ -4,17 +4,24 @@ scenes/props 的 CRUD 行为由 test_scenes_router / test_props_router 覆盖；
 factory 引入的新能力（character extras + extra='allow' 创建语义）。
 """
 
+import unicodedata
+
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import characters
+from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.conftest import make_translator
 
 # 兜底 500 的默认 locale 文案：测试未覆盖 get_translator，端点回落到 DEFAULT_LOCALE("zh")，
 # 与 make_translator() 默认 locale 一致。
 _INTERNAL_ERROR_DETAIL = make_translator()("internal_server_error")
+
+_NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
+_NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
 
 class _FakePM:
@@ -50,11 +57,12 @@ def _client(monkeypatch):
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(characters.router, prefix="/api/v1")
+    app.include_router(characters.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app), fake_pm
 
 
 class TestAssetRouterFactory:
+    @pytest.mark.unit
     def test_character_post_passes_extra_voice_style(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         with client:
@@ -69,6 +77,47 @@ class TestAssetRouterFactory:
             # reference_image 是 character 的 extra 字段，create 时未传则默认 ""
             assert entry["reference_image"] == ""
 
+    @pytest.mark.unit
+    def test_character_post_with_reference_audio_stamps_voice_updated_at(self, monkeypatch):
+        """创建即携带 reference_audio 时同样须机械戳 voice_updated_at，与 PATCH/上传/
+        入库导入等其它写点同一口径，否则该角色的存量片段横幅永远感知不到这次设置。"""
+        client, fake_pm = _client(monkeypatch)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/characters",
+                json={"name": "Bob", "description": "hero", "reference_audio": "characters/refs_audio/Bob.wav"},
+            )
+            assert resp.status_code == 200
+            entry = fake_pm.projects["demo"]["characters"]["Bob"]
+            assert entry["reference_audio"] == "characters/refs_audio/Bob.wav"
+            assert isinstance(entry.get("voice_updated_at"), str) and entry["voice_updated_at"]
+
+    @pytest.mark.unit
+    def test_character_post_without_reference_audio_does_not_stamp(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/characters",
+                json={"name": "Bob", "description": "hero"},
+            )
+            assert resp.status_code == 200
+            entry = fake_pm.projects["demo"]["characters"]["Bob"]
+            assert "voice_updated_at" not in entry
+
+    @pytest.mark.unit
+    def test_character_post_rejects_dismissed_at(self, monkeypatch):
+        """新建角色尚无 voice_updated_at，PATCH 侧的等值校验在创建时恒不成立；创建
+        端点直接拒绝携带该字段，防止绕过 PATCH 校验写入远未来时间戳。"""
+        client, fake_pm = _client(monkeypatch)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/characters",
+                json={"name": "Bob", "description": "hero", "voice_notice_dismissed_at": "9999-12-31T00:00:00+00:00"},
+            )
+            assert resp.status_code == 422
+            assert "Bob" not in fake_pm.projects["demo"]["characters"]
+
+    @pytest.mark.unit
     def test_character_post_400_on_path_unsafe_name(self, monkeypatch):
         """名字含路径分隔符须在 HTTP 边界拒绝：这类名字会让生成（嵌套文件路径）
         与后续单段路由（PATCH/DELETE/{name}）全部失效。"""
@@ -82,6 +131,7 @@ class TestAssetRouterFactory:
                 assert resp.status_code == 400, bad_name
                 assert bad_name not in fake_pm.projects["demo"]["characters"]
 
+    @pytest.mark.unit
     def test_character_post_409_on_duplicate(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         fake_pm.projects["demo"]["characters"]["Alice"] = {
@@ -97,6 +147,7 @@ class TestAssetRouterFactory:
             )
             assert resp.status_code == 409
 
+    @pytest.mark.unit
     def test_character_patch_accepts_extra_fields(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         fake_pm.projects["demo"]["characters"]["Alice"] = {
@@ -120,6 +171,7 @@ class TestAssetRouterFactory:
             assert entry["voice_style"] == "strong"
             assert entry["reference_image"] == "characters/refs/Alice.png"
 
+    @pytest.mark.unit
     def test_character_patch_rejects_non_string_value(self, monkeypatch):
         client, fake_pm = _client(monkeypatch)
         fake_pm.projects["demo"]["characters"]["Alice"] = {
@@ -137,6 +189,91 @@ class TestAssetRouterFactory:
             # entry 未被污染
             assert fake_pm.projects["demo"]["characters"]["Alice"]["reference_image"] == ""
 
+    @pytest.mark.unit
+    def test_character_patch_reference_audio_stamps_voice_updated_at(self, monkeypatch):
+        """reference_audio 本应只经 update_character_reference_audio 写入，但该字段仍在通用
+        PATCH 可写集合内；经这条路径改声音时也须补戳 voice_updated_at，否则存量过渡横幅
+        感知不到变化。"""
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Alice"] = {
+            "description": "old",
+            "character_sheet": "",
+            "voice_style": "",
+            "reference_image": "",
+            "reference_audio": "",
+        }
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/demo/characters/Alice",
+                json={"reference_audio": "characters/refs_audio/Alice.wav"},
+            )
+            assert resp.status_code == 200
+            entry = fake_pm.projects["demo"]["characters"]["Alice"]
+            assert entry["reference_audio"] == "characters/refs_audio/Alice.wav"
+            assert isinstance(entry.get("voice_updated_at"), str) and entry["voice_updated_at"]
+
+    @pytest.mark.unit
+    def test_character_patch_reference_audio_unchanged_does_not_stamp(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Alice"] = {
+            "description": "old",
+            "character_sheet": "",
+            "voice_style": "",
+            "reference_image": "",
+            "reference_audio": "characters/refs_audio/Alice.wav",
+        }
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/demo/characters/Alice",
+                json={"reference_audio": "characters/refs_audio/Alice.wav", "description": "new"},
+            )
+            assert resp.status_code == 200
+            entry = fake_pm.projects["demo"]["characters"]["Alice"]
+            assert "voice_updated_at" not in entry
+
+    @pytest.mark.unit
+    def test_character_patch_accepts_dismissed_at_matching_current_voice_updated_at(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Alice"] = {
+            "description": "old",
+            "character_sheet": "",
+            "voice_style": "",
+            "reference_image": "",
+            "reference_audio": "characters/refs_audio/Alice.wav",
+            "voice_updated_at": "2026-01-01T00:00:00+00:00",
+        }
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/demo/characters/Alice",
+                json={"voice_notice_dismissed_at": "2026-01-01T00:00:00+00:00"},
+            )
+            assert resp.status_code == 200
+            entry = fake_pm.projects["demo"]["characters"]["Alice"]
+            assert entry["voice_notice_dismissed_at"] == "2026-01-01T00:00:00+00:00"
+
+    @pytest.mark.unit
+    def test_character_patch_rejects_dismissed_at_not_matching_voice_updated_at(self, monkeypatch):
+        """voice_notice_dismissed_at 只能确认到角色当前实际的 voice_updated_at，不接受任意
+        字符串——否则客户端可写入远未来时间戳，永久压制存量过渡横幅。"""
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"]["Alice"] = {
+            "description": "old",
+            "character_sheet": "",
+            "voice_style": "",
+            "reference_image": "",
+            "reference_audio": "characters/refs_audio/Alice.wav",
+            "voice_updated_at": "2026-01-01T00:00:00+00:00",
+        }
+        with client:
+            resp = client.patch(
+                "/api/v1/projects/demo/characters/Alice",
+                json={"voice_notice_dismissed_at": "9999-12-31T00:00:00+00:00"},
+            )
+            assert resp.status_code == 422
+            # entry 未被污染
+            assert "voice_notice_dismissed_at" not in fake_pm.projects["demo"]["characters"]["Alice"]
+
+    @pytest.mark.unit
     def test_unknown_asset_type_raises(self):
         from server.routers._asset_router_factory import build_asset_router
 
@@ -156,6 +293,7 @@ class TestAssetRouterNoLeak:
     分支落到末端 except Exception，断言 500、detail 为通用 i18n 文案且哨兵串不出现在响应体。
     """
 
+    @pytest.mark.unit
     def test_add_unexpected_error_no_leak(self, monkeypatch):
         monkeypatch.setattr(
             characters,
@@ -164,13 +302,14 @@ class TestAssetRouterNoLeak:
         )
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(characters.router, prefix="/api/v1")
+        app.include_router(characters.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/characters", json={"name": "Bob", "description": "x"})
             assert resp.status_code == 500
             assert resp.json()["detail"] == _INTERNAL_ERROR_DETAIL
             assert "LEAK_add" not in resp.text
 
+    @pytest.mark.unit
     def test_update_unexpected_error_no_leak(self, monkeypatch):
         monkeypatch.setattr(
             characters,
@@ -179,13 +318,14 @@ class TestAssetRouterNoLeak:
         )
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(characters.router, prefix="/api/v1")
+        app.include_router(characters.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         with TestClient(app) as client:
             resp = client.patch("/api/v1/projects/demo/characters/Alice", json={"description": "new"})
             assert resp.status_code == 500
             assert resp.json()["detail"] == _INTERNAL_ERROR_DETAIL
             assert "LEAK_update" not in resp.text
 
+    @pytest.mark.unit
     def test_delete_unexpected_error_no_leak(self, monkeypatch):
         monkeypatch.setattr(
             characters,
@@ -194,9 +334,35 @@ class TestAssetRouterNoLeak:
         )
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        app.include_router(characters.router, prefix="/api/v1")
+        app.include_router(characters.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         with TestClient(app) as client:
             resp = client.delete("/api/v1/projects/demo/characters/Alice")
             assert resp.status_code == 500
             assert resp.json()["detail"] == _INTERNAL_ERROR_DETAIL
             assert "LEAK_delete" not in resp.text
+
+
+class TestNfcConvergence:
+    """PATCH/DELETE 的路径参数与桶 key 形态可以不同：登记闸口落 NFC，存量 key 未迁移。"""
+
+    @pytest.mark.unit
+    def test_patch_resolves_across_normalization_forms(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"][_NAME_NFD] = {"name": _NAME_NFD, "description": "legacy"}
+
+        resp = client.patch(f"/api/v1/projects/demo/characters/{_NAME_NFC}", json={"description": "new"})
+
+        assert resp.status_code == 200
+        chars = fake_pm.projects["demo"]["characters"]
+        assert list(chars) == [_NAME_NFD]
+        assert chars[_NAME_NFD]["description"] == "new"
+
+    @pytest.mark.unit
+    def test_delete_resolves_across_normalization_forms(self, monkeypatch):
+        client, fake_pm = _client(monkeypatch)
+        fake_pm.projects["demo"]["characters"][_NAME_NFC] = {"name": _NAME_NFC, "description": "d"}
+
+        resp = client.delete(f"/api/v1/projects/demo/characters/{_NAME_NFD}")
+
+        assert resp.status_code == 200
+        assert fake_pm.projects["demo"]["characters"] == {}

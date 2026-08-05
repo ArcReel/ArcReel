@@ -96,7 +96,7 @@ cd frontend && pnpm lint:fix      # 自动修可修的部分
 
 ### Pytest markers 纪律
 
-新增测试必须按类型打标，默认 CI 跑 `-m "not e2e"`：
+每个测试用例必须恰好带一个类型标记，默认 CI 跑 `-m "not e2e"`：
 
 | Marker | 含义 | 禁止 |
 |--------|------|------|
@@ -104,7 +104,14 @@ cd frontend && pnpm lint:fix      # 自动修可修的部分
 | `integration` | 跨模块协作，使用真实依赖（in-memory DB、tmp 文件系统等） | **禁止 mock 被测 module 的公共入口**（例如测 `MediaGenerator` 的集成测试不能 mock `MediaGenerator.generate`，否则是在测 mock 本身） |
 | `e2e` | 端到端，依赖真实外部资源（远程 API、大模型调用、真实 ffmpeg 重活） | CI 默认跳过，本地按需运行 |
 
-现存测试不强制回溯打标；只对新增测试落实。
+标记可打在用例、类或模块（`pytestmark`）任一层，三层叠加后仍须恰好命中一个分类。
+
+打标由 pytest 收集期强制，不依赖人工 review：
+
+- 漏标或多标的用例让收集直接失败（`tests/conftest.py::_enforce_classification_markers`），报错列出具体 nodeid
+- `--strict-markers` 使未在 `pyproject.toml` 注册的 marker 同样在收集期失败
+
+`unit`/`integration` 的现存分类由批量默认档得出（真实调用 ffmpeg 生成测试用音视频资源、`uses_db` 命中的归 `integration`，其余归 `unit`），不保证逐条语义精确；新增测试按上表语义自行选择——用真实 ffmpeg 生成用例夹具与 `e2e` 定义的"真实 ffmpeg 重活"不是同一回事：前者是调用 ffmpeg 产出测试输入，后者指端到端场景里的重量级 ffmpeg 处理链路。
 
 ## 工作流程
 
@@ -190,7 +197,9 @@ feat(grid): 支持 grid_12 布局
 将宫格系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
-**破坏性变更**有两种等价写法：
+**本仓库不使用破坏性变更标记。** 前后端同仓一体发布，后端 API 不做版本化对外承诺——自带前端随版本同步演进，外部集成（OpenClaw 等）经 `/skill.md` 运行时拉取最新契约、不依赖版本号，删改 `public/skill.md.template` 引用的端点时同步更新该模板。接口删改按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer。误标合并后的纠正方式：编辑该 PR 正文追加 `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` 块，release-please 按 override 重算 changelog 与版本号（需 squash 合并，本仓库满足）；workflow 仅在 main push 时运行，编辑后需等下一次 main push 或手动重跑 release-please workflow 才生效。0.x 阶段的 `bump-minor-pre-major` 仅把误标的版本跃迁限制为 minor，不修正 changelog。
+
+以下语法说明仅用于识别误标。**破坏性变更**有两种等价写法：
 
 ```
 # 写法 1：type 后加 !

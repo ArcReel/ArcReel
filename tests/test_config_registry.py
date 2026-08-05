@@ -1,8 +1,9 @@
 import pytest
 
-from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta
+from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta, model_has_audio_track
 
 
+@pytest.mark.unit
 def test_all_providers_registered():
     assert set(PROVIDER_REGISTRY.keys()) == {
         "gemini-aistudio",
@@ -19,6 +20,7 @@ def test_all_providers_registered():
     }
 
 
+@pytest.mark.unit
 def test_provider_meta_fields():
     meta = PROVIDER_REGISTRY["gemini-aistudio"]
     assert isinstance(meta, ProviderMeta)
@@ -27,15 +29,18 @@ def test_provider_meta_fields():
     assert "image" in meta.media_types
     assert "api_key" in meta.required_keys
     assert "api_key" in meta.secret_keys
-    assert "text_to_video" in meta.capabilities
+    # 视频模型只声明与输入模式无关的特性 token（输入模式的真相源是 backend VideoCapabilities）。
+    assert "video_extend" in meta.capabilities
 
 
+@pytest.mark.unit
 def test_ark_supports_video_and_image():
     meta = PROVIDER_REGISTRY["ark"]
     assert "video" in meta.media_types
     assert "image" in meta.media_types
 
 
+@pytest.mark.unit
 def test_required_keys_are_subset_of_all_keys():
     for name, meta in PROVIDER_REGISTRY.items():
         all_keys = set(meta.required_keys) | set(meta.optional_keys)
@@ -43,6 +48,7 @@ def test_required_keys_are_subset_of_all_keys():
             assert rk in all_keys, f"{name}: required key {rk} not in all keys"
 
 
+@pytest.mark.unit
 def test_secret_keys_are_subset_of_required_or_optional():
     for name, meta in PROVIDER_REGISTRY.items():
         all_keys = set(meta.required_keys) | set(meta.optional_keys)
@@ -58,6 +64,7 @@ _LANE_WORKER_KEY = {
 }
 
 
+@pytest.mark.unit
 def test_optional_keys_cover_every_supported_lane_worker():
     """每个 provider 支持的每条媒体 lane 都须在 optional_keys 声明对应 *_max_workers。"""
     for name, meta in PROVIDER_REGISTRY.items():
@@ -69,6 +76,7 @@ def test_optional_keys_cover_every_supported_lane_worker():
             assert worker_key in optional, f"{name}: 支持 {media_type} lane 但 optional_keys 未声明 {worker_key}"
 
 
+@pytest.mark.unit
 def test_optional_keys_have_no_worker_for_unsupported_lane():
     """provider 不支持的 lane 不应声明其 *_max_workers，避免设置页渲染无效字段。"""
     for name, meta in PROVIDER_REGISTRY.items():
@@ -79,6 +87,7 @@ def test_optional_keys_have_no_worker_for_unsupported_lane():
 
 
 class TestModelInfoDurations:
+    @pytest.mark.unit
     def test_video_models_have_supported_durations(self):
         """所有预置视频模型必须声明 supported_durations。"""
         for provider_id, meta in PROVIDER_REGISTRY.items():
@@ -88,6 +97,7 @@ class TestModelInfoDurations:
                         f"{provider_id}/{model_id} 是视频模型但未声明 supported_durations"
                     )
 
+    @pytest.mark.unit
     def test_non_video_models_have_empty_durations(self):
         """非视频模型的 supported_durations 应为空列表。"""
         for provider_id, meta in PROVIDER_REGISTRY.items():
@@ -97,6 +107,7 @@ class TestModelInfoDurations:
                         f"{provider_id}/{model_id} 不是视频模型但有 supported_durations"
                     )
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
     def test_veo_declares_high_resolution_constraints(self, provider_id):
         """两侧 Veo 模型每个可选高分辨率档都声明「仅 8s」，UI 才能据此收窄时长选项。"""
@@ -110,6 +121,7 @@ class TestModelInfoDurations:
                         f"{provider_id}/{model_id} 的 {resolution} 未声明仅 8s"
                     )
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
     def test_veo_declares_reference_image_durations(self, provider_id):
         """Veo 带参考图时只接受 8s，两侧全系声明，与 backend 的执行期拒绝对齐。"""
@@ -118,6 +130,7 @@ class TestModelInfoDurations:
             if model_info.media_type == "video":
                 assert model_info.reference_image_durations == [8], f"{provider_id}/{model_id} 参考图时长约束缺失"
 
+    @pytest.mark.unit
     def test_veo_4k_only_where_officially_supported(self):
         """4k 仅 Veo 3.1 Standard 两侧 + AI Studio 的 Fast 支持；Lite 与 Vertex Fast 不支持。"""
         expected_4k = {
@@ -131,6 +144,7 @@ class TestModelInfoDurations:
             resolutions = PROVIDER_REGISTRY[provider_id].models[model_id].resolutions
             assert ("4k" in resolutions) is supported, f"{provider_id}/{model_id} 的 4k 支持性与官方文档不符"
 
+    @pytest.mark.unit
     def test_model_info_default_values(self):
         """ModelInfo 新字段的默认值。"""
         mi = ModelInfo(display_name="test", media_type="text", capabilities=[])
@@ -142,10 +156,12 @@ class TestModelInfoDurations:
 class TestCredentialGroups:
     """凭证「二选一」分组声明的 fail-fast 校验。"""
 
+    @pytest.mark.unit
     def test_default_empty(self):
         meta = ProviderMeta(display_name="t", description="t", required_keys=["api_key"], secret_keys=["api_key"])
         assert meta.credential_groups == []
 
+    @pytest.mark.unit
     def test_group_keys_must_be_subset_of_required_and_secret(self):
         with pytest.raises(ValueError, match="credential_groups"):
             ProviderMeta(
@@ -156,6 +172,7 @@ class TestCredentialGroups:
                 credential_groups=[["api_key"], ["access_key"]],
             )
 
+    @pytest.mark.unit
     def test_valid_groups_accepted(self):
         meta = ProviderMeta(
             display_name="t",
@@ -166,6 +183,7 @@ class TestCredentialGroups:
         )
         assert meta.credential_groups == [["api_key"], ["access_key", "secret_key"]]
 
+    @pytest.mark.unit
     def test_empty_group_rejected(self):
         with pytest.raises(ValueError, match="空分组"):
             ProviderMeta(
@@ -176,6 +194,7 @@ class TestCredentialGroups:
                 credential_groups=[["api_key"], []],
             )
 
+    @pytest.mark.unit
     def test_uncovered_key_rejected(self):
         with pytest.raises(ValueError, match="未覆盖"):
             ProviderMeta(
@@ -199,25 +218,30 @@ class TestFullyCoveredCredentialGroups:
             credential_groups=[["api_key"], ["access_key", "secret_key"]],
         )
 
+    @pytest.mark.unit
     def test_no_groups_declared_always_empty(self):
         meta = ProviderMeta(display_name="t", description="t", required_keys=["api_key"], secret_keys=["api_key"])
         assert meta.fully_covered_credential_groups({"api_key": "k"}) == []
 
+    @pytest.mark.unit
     def test_single_group_fully_submitted(self):
         meta = self._kling_meta()
         assert meta.fully_covered_credential_groups({"api_key": "k"}) == [["api_key"]]
 
+    @pytest.mark.unit
     def test_dual_key_group_fully_submitted(self):
         meta = self._kling_meta()
         assert meta.fully_covered_credential_groups({"access_key": "ak", "secret_key": "sk"}) == [
             ["access_key", "secret_key"]
         ]
 
+    @pytest.mark.unit
     def test_dual_key_group_partially_submitted_not_matched(self):
         """只提交组内一个 key（如仅轮换 secret_key）不算完整覆盖该组。"""
         meta = self._kling_meta()
         assert meta.fully_covered_credential_groups({"secret_key": "sk"}) == []
 
+    @pytest.mark.unit
     def test_both_groups_fully_submitted(self):
         meta = self._kling_meta()
         assert meta.fully_covered_credential_groups({"api_key": "k", "access_key": "ak", "secret_key": "sk"}) == [
@@ -225,15 +249,80 @@ class TestFullyCoveredCredentialGroups:
             ["access_key", "secret_key"],
         ]
 
+    @pytest.mark.unit
     def test_empty_string_not_counted_as_covering(self):
         """空字符串视同未提交，不满足组覆盖。"""
         meta = self._kling_meta()
         assert meta.fully_covered_credential_groups({"api_key": ""}) == []
 
+    @pytest.mark.unit
     def test_none_not_counted_as_covering(self):
         meta = self._kling_meta()
         assert meta.fully_covered_credential_groups({"api_key": None}) == []
 
+    @pytest.mark.unit
     def test_nothing_submitted(self):
         meta = self._kling_meta()
         assert meta.fully_covered_credential_groups({}) == []
+
+
+@pytest.mark.unit
+class TestModelHasAudioTrack:
+    """model_has_audio_track —— voice_consistency 派生所依据的音轨判定。"""
+
+    def _model(self, provider_id: str, model_id: str) -> ModelInfo:
+        return PROVIDER_REGISTRY[provider_id].models[model_id]
+
+    def test_ark_seedance_declares_token(self):
+        """声明了 generate_audio token 的模型直接判定有音轨。"""
+        assert model_has_audio_track("ark", self._model("ark", "doubao-seedance-2-0-260128")) is True
+
+    def test_aistudio_veo_always_audible_without_token(self):
+        """AI Studio Veo 恒有声但请求参数不可控，未声明 token 也须判定有音轨（不得直推无声）。"""
+        model = self._model("gemini-aistudio", "veo-3.1-generate-preview")
+        assert "generate_audio" not in model.capabilities
+        assert model_has_audio_track("gemini-aistudio", model) is True
+
+    def test_grok_imagine_always_audible_without_token(self):
+        """Grok Imagine 同 AI Studio Veo：恒有声、开关不可控、不补 token，仍判定有音轨。"""
+        model = self._model("grok", "grok-imagine-video")
+        assert "generate_audio" not in model.capabilities
+        assert model_has_audio_track("grok", model) is True
+
+    def test_sora_2_declares_token(self):
+        """Sora 2 声明修正随本票落地：目录已补 generate_audio（官方原生含对话音轨）。"""
+        model = self._model("openai", "sora-2")
+        assert "generate_audio" in model.capabilities
+        assert model_has_audio_track("openai", model) is True
+
+    def test_kling_audio_capable_models_declare_token(self):
+        """可灵支持音画同出的三档均声明 token；能力地图的「声音控制（人声）」列是指定音色通道，
+        不是音频能力本身，不据此判定音轨。"""
+        for model_id in ("kling-v2-6", "kling-v3", "kling-v3-omni"):
+            model = self._model("kling", model_id)
+            assert "generate_audio" in model.capabilities
+            assert model_has_audio_track("kling", model) is True
+
+    def test_kling_silent_models_omit_token(self):
+        """kling-v2-5-turbo 无音频开关、kling-video-o1 只能保留参考视频原声（ArcReel 不下发参考
+        视频）——两档均不声明 token。"""
+        for model_id in ("kling-v2-5-turbo", "kling-video-o1"):
+            model = self._model("kling", model_id)
+            assert "generate_audio" not in model.capabilities
+            assert model_has_audio_track("kling", model) is False
+
+    def test_minimax_true_silent(self):
+        """MiniMax 未声明 token 且不在恒有声例外表内——真无声模型。"""
+        model = self._model("minimax", "MiniMax-Hailuo-2.3")
+        assert model_has_audio_track("minimax", model) is False
+
+    def test_agnes_true_silent(self):
+        """Agnes 同 MiniMax：真无声模型。"""
+        model = self._model("agnes", "agnes-video-v2.0")
+        assert model_has_audio_track("agnes", model) is False
+
+    def test_non_video_model_always_false(self):
+        """非视频 model（如文本模型）音轨判定无意义，恒 False，即便所属 provider 在恒有声例外表内。"""
+        model = self._model("gemini-aistudio", "gemini-3-flash-preview")
+        assert model.media_type != "video"
+        assert model_has_audio_track("gemini-aistudio", model) is False

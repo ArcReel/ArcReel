@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from server.agent_runtime.entry_pipeline import DraftAccumulator, SessionEntryPipeline
+
+pytestmark = pytest.mark.unit
 
 
 class _RecordingStore:

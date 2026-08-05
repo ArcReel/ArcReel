@@ -9,6 +9,8 @@ import pytest
 from lib.config.resolver import ProviderModel
 from server.services.generation_context import GenerationContext, ImageLaneResult
 
+pytestmark = pytest.mark.unit
+
 
 def _image_ctx(generator, *, provider="openai", model="gpt-image-2", resolution="2K", backend_model=None):
     """把 image lane 解析产物拼成假 GenerationContext，替换 resolve_generation_context 单点。
@@ -44,7 +46,8 @@ def project_with_script(tmp_path):
                 "title": "Test",
                 "content_mode": "narration",
                 "style": "realistic",
-                "generation_mode": "grid",
+                "generation_mode": "storyboard",
+                "grid_storyboard": True,
                 "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
                 "characters": {},
                 "clues": {},

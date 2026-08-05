@@ -26,6 +26,8 @@ from lib.profile_manifest import (
     sha256_file,
 )
 
+pytestmark = pytest.mark.unit
+
 # ---------- sha256 ----------
 
 

@@ -1,10 +1,11 @@
 import { useId, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { GenerationModeSelector } from "@/components/shared/GenerationModeSelector";
+import { GenerationRouteCards } from "@/components/shared/GenerationRouteCards";
+import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
 import { ACCENT_BTN_CLS, ACCENT_BUTTON_STYLE, radioCardClass } from "@/components/ui/darkroom-tokens";
 import { FieldLabel } from "@/components/ui/FieldLabel";
-import type { GenerationMode } from "@/utils/generation-mode";
+import type { GenerationRoute } from "@/utils/generation-mode";
 
 export interface WizardStep1Value {
   title: string;
@@ -12,7 +13,10 @@ export interface WizardStep1Value {
   /** 源文件性质：novel（默认）/ screenplay。仅 drama 暴露，创建即定、不可变。 */
   sourceKind: "novel" | "screenplay";
   aspectRatio: "9:16" | "16:9";
-  generationMode: GenerationMode;
+  /** 生成路线，创建时锁定。null = 未选：必选，未选不放行。 */
+  generationRoute: GenerationRoute | null;
+  /** 分镜板（宫格）装配开关，随创建写入；仅分镜路线有意义，ad 不支持。 */
+  gridStoryboard: boolean;
   /** 仅 ad：目标总时长（秒）。UI 四档 15/30/60/90，默认 60。 */
   targetDuration: number;
 }
@@ -49,6 +53,8 @@ export function WizardStep1Basics({
       setTitleError(t("dashboard:project_title_required"));
       return;
     }
+    // 路线必选：无预选、未选不放行
+    if (!value.generationRoute) return;
     onNext();
   };
 
@@ -119,12 +125,8 @@ export function WizardStep1Basics({
               value="ad"
               checked={value.contentMode === "ad"}
               onChange={() =>
-                onChange({
-                  ...value,
-                  contentMode: "ad",
-                  // ad 不开放宫格生视频：残留 grid 选择回落到默认 storyboard
-                  generationMode: value.generationMode === "grid" ? "storyboard" : value.generationMode,
-                })
+                // ad 不支持分镜板（宫格）：切到 ad 时清掉已勾选的装配开关
+                onChange({ ...value, contentMode: "ad", gridStoryboard: false })
               }
               className="sr-only"
             />
@@ -264,15 +266,27 @@ export function WizardStep1Basics({
         </div>
       </div>
 
-      {/* Generation Mode */}
-      <div>
-        <FieldLabel>{t("dashboard:generation_mode")}</FieldLabel>
-        <GenerationModeSelector
-          value={value.generationMode}
-          onChange={(next) => onChange({ ...value, generationMode: next })}
-          disabledModes={value.contentMode === "ad" ? ["grid"] : undefined}
-        />
-      </div>
+      {/* Generation route — 二选一，创建后不可更改 */}
+      <GenerationRouteCards
+        value={value.generationRoute}
+        onChange={(next) =>
+          onChange({
+            ...value,
+            generationRoute: next,
+            // 宫格是分镜路线内的装配选项：切到参考路线即清空
+            gridStoryboard: next === "storyboard" ? value.gridStoryboard : false,
+          })
+        }
+      >
+        {/* ad 不支持宫格，其装配条不呈现 */}
+        {value.generationRoute === "storyboard" && value.contentMode !== "ad" ? (
+          <GridStoryboardBar
+            checked={value.gridStoryboard}
+            onToggle={(next) => onChange({ ...value, gridStoryboard: next })}
+            animated
+          />
+        ) : null}
+      </GenerationRouteCards>
 
       {/* Footer */}
       <div className="mt-7 flex items-center justify-between border-t border-hairline-soft pt-5">
@@ -286,7 +300,7 @@ export function WizardStep1Basics({
         <button
           type="button"
           onClick={handleNext}
-          disabled={!value.title.trim()}
+          disabled={!value.title.trim() || !value.generationRoute}
           className={ACCENT_BTN_CLS}
           style={ACCENT_BUTTON_STYLE}
         >

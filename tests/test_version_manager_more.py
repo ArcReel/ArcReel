@@ -3,6 +3,8 @@ import pytest
 from lib.api_errors import BadRequestError, NotFoundError
 from lib.version_manager import VersionManager, _get_versions_file_lock
 
+pytestmark = pytest.mark.unit
+
 
 class TestVersionManagerMore:
     def test_lock_is_reused_for_same_file(self, tmp_path):
@@ -22,6 +24,7 @@ class TestVersionManagerMore:
         assert vm.get_current_version("characters", "Alice") == 0
         assert vm.get_version_file_url("characters", "Alice", 1) is None
         assert vm.get_version_prompt("characters", "Alice", 1) is None
+        assert vm.get_version_created_at("characters", "Alice", 1) is None
         assert vm.has_versions("characters", "Alice") is False
 
     def test_add_backup_restore_paths(self, tmp_path):
@@ -44,6 +47,9 @@ class TestVersionManagerMore:
         assert len(info["versions"]) == 2
         assert vm.get_version_file_url("characters", "Alice", 2)
         assert vm.get_version_prompt("characters", "Alice", 2) == "p2"
+        # 还原参考视频时要拿被还原版本的原始入库时间回填 video_generated_at
+        assert vm.get_version_created_at("characters", "Alice", 1)
+        assert vm.get_version_created_at("characters", "Alice", 99) is None
         assert vm.has_versions("characters", "Alice")
 
         restored = vm.restore_version("characters", "Alice", 1, current)

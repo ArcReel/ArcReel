@@ -75,12 +75,12 @@ def _drama_script() -> dict[str, Any]:
 
 
 def _unit(unit_id: str) -> dict[str, Any]:
-    shots = [{"duration": 3, "text": "镜头1"}, {"duration": 4, "text": "镜头2"}]
+    shots = [{"text": "镜头1"}, {"text": "镜头2"}]
     return {
         "unit_id": unit_id,
         "shots": shots,
         "references": [],
-        "duration_seconds": sum(s["duration"] for s in shots),
+        "duration_seconds": 8,
     }
 
 
@@ -170,6 +170,7 @@ def _text(out: dict[str, Any]) -> str:
 
 
 class TestPatchEpisodeScript:
+    @pytest.mark.unit
     async def test_batch_multi_segment_multi_field(self, ctx: ToolContext) -> None:
         """一次调用改多分镜 × 多字段，全部落盘。"""
         out = await _call(
@@ -188,6 +189,7 @@ class TestPatchEpisodeScript:
         assert saved[0]["duration_seconds"] == 6
         assert saved[1]["video_prompt"]["action"] == "抬头"
 
+    @pytest.mark.unit
     async def test_single_edit_is_length_one_map(self, ctx: ToolContext) -> None:
         """单条编辑 = 长度 1 的 map（不再有 id/field/value 单条形态）。"""
         out = await _call(
@@ -197,6 +199,7 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is not True
         assert _load(ctx)["segments"][1]["image_prompt"]["scene"] == "新场景"
 
+    @pytest.mark.unit
     async def test_unknown_id_rolls_back_whole_batch(self, ctx: ToolContext) -> None:
         """一批里含未命中 id → 整批零落盘（同批的合法编辑也回滚），错误定位到该 id。"""
         out = await _call(
@@ -215,6 +218,7 @@ class TestPatchEpisodeScript:
         # 同批的合法编辑未落盘（all-or-nothing）
         assert _load(ctx)["segments"][0]["image_prompt"]["scene"] == "场景描述"
 
+    @pytest.mark.unit
     async def test_invalid_value_rolls_back_whole_batch(self, ctx: ToolContext) -> None:
         """某条把合法剧本改非法（duration 越界）→ 写盘统一入口挡下，整批不落盘。"""
         out = await _call(
@@ -232,6 +236,7 @@ class TestPatchEpisodeScript:
         assert saved[0]["duration_seconds"] == 4  # 未落盘
         assert saved[1]["image_prompt"]["scene"] == "场景描述"  # 同批回滚
 
+    @pytest.mark.unit
     async def test_error_localizes_scene_id_and_field(self, ctx: ToolContext) -> None:
         """字段路径不存在 → 错误精确指出触发的 scene_id + field。"""
         out = await _call(
@@ -243,11 +248,13 @@ class TestPatchEpisodeScript:
         assert "E1S01" in text
         assert "image_prompt.nope.deep" in text
 
+    @pytest.mark.unit
     async def test_empty_edits_rejected(self, ctx: ToolContext) -> None:
         """空 edits map 被拒（对齐 patch_project 的非空映射校验）。"""
         out = await _call(patch_episode_script_tool(ctx), {"script": "episode_1.json", "edits": {}})
         assert out.get("is_error") is True
 
+    @pytest.mark.unit
     async def test_empty_field_map_rejected(self, ctx: ToolContext) -> None:
         """某分镜的子映射为空 → 拒（禁止零信号成功）。"""
         out = await _call(
@@ -257,6 +264,7 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is True
         assert _load(ctx)["segments"][0]["image_prompt"]["scene"] == "场景描述"
 
+    @pytest.mark.unit
     async def test_reject_generated_assets(self, ctx: ToolContext) -> None:
         """禁改 generated_assets（逐字继承单编辑约束），整批不落盘。"""
         out = await _call(
@@ -265,6 +273,7 @@ class TestPatchEpisodeScript:
         )
         assert out.get("is_error") is True
 
+    @pytest.mark.unit
     async def test_reject_id_field(self, ctx: ToolContext) -> None:
         """禁改分镜 id 字段（逐字继承单编辑约束）。"""
         out = await _call(
@@ -274,6 +283,7 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is True
         assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S01", "E1S02"]
 
+    @pytest.mark.unit
     async def test_create_missing_optional_leaf(self, ctx: ToolContext) -> None:
         """叶子字段不存在可创建（补 LLM 漏写的 optional 字段 video_prompt.dialogue）。"""
         out = await _call(
@@ -286,6 +296,7 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is not True
         assert _load(ctx)["segments"][0]["video_prompt"]["dialogue"] == [{"speaker": "甲", "line": "台词"}]
 
+    @pytest.mark.unit
     async def test_rejects_path_in_script_arg(self, ctx: ToolContext) -> None:
         out = await _call(
             patch_episode_script_tool(ctx),
@@ -293,6 +304,7 @@ class TestPatchEpisodeScript:
         )
         assert out.get("is_error") is True
 
+    @pytest.mark.unit
     async def test_hallucinated_leaf_blocked_by_funnel(self, ctx: ToolContext) -> None:
         """中间路径存在、叶子被凭空创建的 hallucinated 字段（video_prompt.hallucinated_key）
         经写盘统一入口 extra='forbid' 结构校验拒写，不静默落盘。"""
@@ -303,6 +315,7 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is True
         assert "hallucinated_key" not in _load(ctx)["segments"][0]["video_prompt"]
 
+    @pytest.mark.unit
     async def test_middle_path_typo_fail_loud(self, ctx: ToolContext) -> None:
         """中间路径拼错（image_prompt.scen 应为 .scene）→ fail-loud，错误定位到 id/field。"""
         out = await _call(
@@ -313,6 +326,7 @@ class TestPatchEpisodeScript:
         text = _text(out)
         assert "E1S01" in text and "image_prompt.scen.x" in text
 
+    @pytest.mark.unit
     async def test_prompt_change_includes_regen_hint(self, ctx: ToolContext) -> None:
         """改了 image_prompt / video_prompt 后，返回文本聚合『须重新生成』提示。"""
         out = await _call(
@@ -322,6 +336,7 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is not True
         assert "重新生成" in _text(out)
 
+    @pytest.mark.unit
     async def test_non_prompt_change_omits_regen_hint(self, ctx: ToolContext) -> None:
         """只改非 prompt 字段（duration_seconds）时不追加重生提示。"""
         out = await _call(
@@ -331,6 +346,7 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is not True
         assert "重新生成" not in _text(out)
 
+    @pytest.mark.unit
     async def test_drama_mode_by_scene_id(self, drama_ctx: ToolContext) -> None:
         """drama 模式：按 scene_id 定位，批量改字段落盘。"""
         out = await _call(
@@ -340,6 +356,7 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is not True
         assert _load(drama_ctx)["scenes"][1]["image_prompt"]["scene"] == "剧集新场景"
 
+    @pytest.mark.unit
     async def test_reference_mode_by_unit_id(self, ref_ctx: ToolContext) -> None:
         """reference 模式：按 unit_id 定位，批量改字段落盘。"""
         out = await _call(
@@ -349,6 +366,7 @@ class TestPatchEpisodeScript:
         assert out.get("is_error") is not True
         assert _load(ref_ctx)["video_units"][0]["note"] == "单元备注"
 
+    @pytest.mark.unit
     async def test_ad_mode_by_shot_id(self, ad_ctx: ToolContext) -> None:
         """ad 模式：按 shot_id 定位，批量改字段落盘。"""
         out = await _call(
@@ -360,6 +378,7 @@ class TestPatchEpisodeScript:
 
 
 class TestInsertRemoveSplit:
+    @pytest.mark.unit
     async def test_insert_adds_at_position(self, ctx: ToolContext) -> None:
         out = await _call(
             insert_segment_tool(ctx),
@@ -369,11 +388,13 @@ class TestInsertRemoveSplit:
         ids = [s["segment_id"] for s in _load(ctx)["segments"]]
         assert ids == ["E1S01", "E1S01_1", "E1S02"]
 
+    @pytest.mark.unit
     async def test_remove_by_id(self, ctx: ToolContext) -> None:
         out = await _call(remove_segment_tool(ctx), {"script": "episode_1.json", "id": "E1S01"})
         assert out.get("is_error") is not True
         assert [s["segment_id"] for s in _load(ctx)["segments"]] == ["E1S02"]
 
+    @pytest.mark.unit
     async def test_split_keeps_first_id_clears_assets(self, ctx: ToolContext) -> None:
         # part 自带已生成资产，验证 split 改变分镜身份后会清空它（旧资产无合理归属）
         part_a = _segment("a")
@@ -389,6 +410,7 @@ class TestInsertRemoveSplit:
         assert not saved[0].get("generated_assets")
         assert not saved[1].get("generated_assets")
 
+    @pytest.mark.unit
     async def test_split_too_few_parts_errors(self, ctx: ToolContext) -> None:
         out = await _call(
             split_segment_tool(ctx),
@@ -400,6 +422,7 @@ class TestInsertRemoveSplit:
 class TestPatchEpisodeMeta:
     """patch_episode_meta：编辑剧本顶层 title，白名单兜底，写盘自动镜像到 project.json。"""
 
+    @pytest.mark.unit
     async def test_set_title(self, ctx: ToolContext) -> None:
         out = await _call(
             patch_episode_meta_tool(ctx),
@@ -412,6 +435,7 @@ class TestPatchEpisodeMeta:
         entry = next(e for e in episodes if e["episode"] == 1)
         assert entry["title"] == "新标题"
 
+    @pytest.mark.unit
     async def test_title_trimmed(self, ctx: ToolContext) -> None:
         out = await _call(
             patch_episode_meta_tool(ctx),
@@ -420,6 +444,7 @@ class TestPatchEpisodeMeta:
         assert out.get("is_error") is not True
         assert _load(ctx)["title"] == "去空白"
 
+    @pytest.mark.unit
     async def test_empty_title_rejected(self, ctx: ToolContext) -> None:
         for blank in ("", "   ", "\t\n"):
             out = await _call(
@@ -429,6 +454,7 @@ class TestPatchEpisodeMeta:
             assert out.get("is_error") is True
         assert _load(ctx)["title"] == "标题"  # 原值未改
 
+    @pytest.mark.unit
     async def test_non_whitelist_field_rejected(self, ctx: ToolContext) -> None:
         out = await _call(
             patch_episode_meta_tool(ctx),
@@ -437,6 +463,7 @@ class TestPatchEpisodeMeta:
         assert out.get("is_error") is True
         assert _load(ctx)["episode"] == 1  # 未被改写
 
+    @pytest.mark.unit
     async def test_non_string_value_rejected(self, ctx: ToolContext) -> None:
         out = await _call(
             patch_episode_meta_tool(ctx),
@@ -445,6 +472,7 @@ class TestPatchEpisodeMeta:
         assert out.get("is_error") is True
         assert _load(ctx)["title"] == "标题"
 
+    @pytest.mark.unit
     async def test_rejects_path_in_script_arg(self, ctx: ToolContext) -> None:
         out = await _call(
             patch_episode_meta_tool(ctx),
@@ -454,6 +482,7 @@ class TestPatchEpisodeMeta:
 
 
 class TestPatchProject:
+    @pytest.mark.unit
     async def test_add_new_character(self, ctx: ToolContext) -> None:
         out = await _call(
             patch_project_tool(ctx),
@@ -464,6 +493,7 @@ class TestPatchProject:
         assert chars["李白"]["description"] == "白衣剑客"
         assert chars["李白"]["voice_style"] == "豪放"
 
+    @pytest.mark.unit
     async def test_modify_existing_character_merges_fields(self, ctx: ToolContext) -> None:
         await _call(patch_project_tool(ctx), {"table": "characters", "entries": {"李白": {"description": "剑客"}}})
         out = await _call(
@@ -473,6 +503,7 @@ class TestPatchProject:
         assert out.get("is_error") is not True
         assert ctx.pm.load_project("demo")["characters"]["李白"]["description"] == "改后描述"
 
+    @pytest.mark.unit
     async def test_invalid_entry_blocked_and_not_written(self, ctx: ToolContext) -> None:
         """缺 description 的资产结构非法 → 校验失败、不落盘。"""
         out = await _call(
@@ -482,10 +513,12 @@ class TestPatchProject:
         assert out.get("is_error") is True
         assert "空场景" not in ctx.pm.load_project("demo").get("scenes", {})
 
+    @pytest.mark.unit
     async def test_unknown_table_errors(self, ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ctx), {"table": "weapons", "entries": {"剑": {"description": "x"}}})
         assert out.get("is_error") is True
 
+    @pytest.mark.unit
     async def test_invalid_entry_rejected_even_when_project_already_invalid(self, ctx: ToolContext) -> None:
         """「不更坏」error set diff 语义：项目本就脏（无关字段非法）时，本次 upsert 引入的
         新错误（如新 entry 缺 description）仍应被拒——单纯 `before_valid AND after.valid` 判定
@@ -501,6 +534,7 @@ class TestPatchProject:
         # 不落盘：空场景没写入
         assert "空场景" not in ctx.pm.load_project("demo").get("scenes", {})
 
+    @pytest.mark.unit
     async def test_upsert_allowed_when_project_already_invalid(self, ctx: ToolContext) -> None:
         """「不更坏」：项目本就含与资产无关的历史非法（空 style）时，patch_project 仍应成功——
         否则带历史脏数据的项目会整条编辑路径不可用。"""
@@ -512,6 +546,7 @@ class TestPatchProject:
         assert out.get("is_error") is not True
         assert "李白" in ctx.pm.load_project("demo").get("characters", {})
 
+    @pytest.mark.unit
     async def test_entry_name_whitespace_normalized(self, ctx: ToolContext) -> None:
         """agent 传带前后空格的 name → strip 规范化后存储（避免按 name 查找因空格差异 mismatch）。"""
         out = await _call(
@@ -523,6 +558,7 @@ class TestPatchProject:
         assert "李白" in chars  # 规范化后存储
         assert "  李白  " not in chars
 
+    @pytest.mark.unit
     async def test_blank_entry_name_rejected(self, ctx: ToolContext) -> None:
         """全空白或空 name fail-loud：避免把 \"\" / \"   \" 写成合法 entry key。"""
         for blank_name in ("", "   ", "\t\n"):
@@ -532,6 +568,7 @@ class TestPatchProject:
             )
             assert out.get("is_error") is True
 
+    @pytest.mark.unit
     async def test_non_string_extra_field_rejected(self, ctx: ToolContext) -> None:
         """voice_style 等 extra_string_fields 须为字符串：agent 传 int / dict / list 会被守卫点拦下，
         否则下游把 reference_image 当路径拼接时会运行时崩。"""
@@ -542,6 +579,7 @@ class TestPatchProject:
         assert out.get("is_error") is True
         assert "李白" not in ctx.pm.load_project("demo").get("characters", {})
 
+    @pytest.mark.unit
     async def test_upsert_strips_sheet_and_unknown_fields(self, ctx: ToolContext) -> None:
         """least-privilege：agent 仅能改 description + spec.extra_string_fields。
         sheet 字段（系统生成的资产图路径）+ spec-undeclared key 均被静默丢弃，不让 agent
@@ -577,6 +615,40 @@ class TestPatchProject:
         assert char["character_sheet"] == "characters/li_bai.png"  # 系统字段未被 agent 覆写
         assert "random_extra_field" not in char  # spec 外字段不入库
 
+    @pytest.mark.unit
+    async def test_upsert_strips_reference_audio(self, ctx: ToolContext) -> None:
+        """reference_audio 与 reference_image 同性质（用户上传路径），不进
+        agent_editable_extra_fields，agent 尝试写入应被静默丢弃。"""
+        ctx.pm.update_project(
+            "demo",
+            lambda p: p["characters"].update(
+                {
+                    "李白": {
+                        "description": "白衣剑客",
+                        "voice_style": "豪放",
+                        "reference_audio": "characters/refs_audio/李白.wav",
+                    }
+                }
+            ),
+        )
+
+        out = await _call(
+            patch_project_tool(ctx),
+            {
+                "table": "characters",
+                "entries": {
+                    "李白": {
+                        "description": "改后描述",
+                        "reference_audio": "fake/agent_overwrite.wav",  # 应被丢弃
+                    }
+                },
+            },
+        )
+        assert out.get("is_error") is not True
+        char = ctx.pm.load_project("demo")["characters"]["李白"]
+        assert char["reference_audio"] == "characters/refs_audio/李白.wav"  # 未被 agent 覆写
+
+    @pytest.mark.unit
     async def test_non_string_description_rejected(self, ctx: ToolContext) -> None:
         """description 必须是非空字符串：agent 误传数字（如 LLM 把"1"输出成 int）
         会让原 truthy 校验放行、错误数据作为合法资产落盘——守卫点须 fail-loud。"""
@@ -587,6 +659,7 @@ class TestPatchProject:
         assert out.get("is_error") is True
         assert "阿青" not in ctx.pm.load_project("demo").get("characters", {})
 
+    @pytest.mark.unit
     async def test_upsert_fails_loud_when_bucket_not_dict(self, ctx: ToolContext) -> None:
         """bucket_key 已存在却非 dict（历史脏数据，如 list）→ fail-loud，
         而非在 bucket.get 处抛含糊的 AttributeError。"""
@@ -597,6 +670,7 @@ class TestPatchProject:
         )
         assert out.get("is_error") is True
 
+    @pytest.mark.unit
     async def test_normalized_name_collision_fails_loud(self, ctx: ToolContext) -> None:
         """两个 raw key strip 后等价（如 "李白" 与 "  李白  "）→ fail-loud，避免后者
         silent overwrite 前者的 attrs；agent 应明确感知 collision 并去重。"""
@@ -614,6 +688,7 @@ class TestPatchProject:
         # 任何一个版本都不应入库（mutation 在校验阶段就 raise，不落盘）
         assert "李白" not in ctx.pm.load_project("demo").get("characters", {})
 
+    @pytest.mark.unit
     async def test_upsert_strips_reference_image_field(self, ctx: ToolContext) -> None:
         """reference_image 是用户上传或系统生成的文件路径（与 sheet_field 同性质），
         agent_editable_extra_fields 不包含它——patch_project 应静默丢弃，不让 agent
@@ -649,6 +724,7 @@ class TestPatchProject:
         # 用户上传的 reference_image 不被 agent 覆写
         assert char["reference_image"] == "characters/refs/li_bai.jpg"
 
+    @pytest.mark.unit
     async def test_product_upsert_selling_points_editable(self, ctx: ToolContext) -> None:
         """products 表对 agent 开放；selling_points 在可编辑白名单内（agent 起草、用户可改），
         新 entry 的列表字段按 spec 初始化。"""
@@ -667,6 +743,7 @@ class TestPatchProject:
         assert product["product_sheet"] == ""
         assert product["brand"] == ""
 
+    @pytest.mark.unit
     async def test_product_upsert_strips_reference_images(self, ctx: ToolContext) -> None:
         """reference_images 是用户上传的原图路径列表（保真验收锚点），不在 agent 白名单——
         upsert 应静默丢弃且不覆写既有值，更新走专用上传 API。"""
@@ -695,6 +772,7 @@ class TestPatchProject:
         assert product["selling_points"] == ["双层真空"]
         assert product["reference_images"] == ["products/refs/保温杯_1.jpg"]
 
+    @pytest.mark.unit
     async def test_product_upsert_invalid_selling_points_blocked(self, ctx: ToolContext) -> None:
         """selling_points 须为字符串列表：非法类型被结构校验拦截，不落盘。"""
         out = await _call(
@@ -704,6 +782,7 @@ class TestPatchProject:
         assert out.get("is_error") is True
         assert "保温杯" not in ctx.pm.load_project("demo").get("products", {})
 
+    @pytest.mark.unit
     async def test_response_distinguishes_added_and_merged(self, ctx: ToolContext) -> None:
         """工具返回文本应区分『新增 N 个 / 合并改字段 N 个』,让 agent 验证是否符合预期策略
         (如 analyze-assets subagent 应预期合并数=0,出现合并数说明遗漏了已存在过滤)。"""
@@ -723,6 +802,7 @@ class TestPatchProject:
         assert "合并改字段" in text2 and "李白" in text2
         assert "新增" not in text2
 
+    @pytest.mark.unit
     async def test_response_lists_dropped_non_allowed_fields(self, ctx: ToolContext) -> None:
         """工具返回文本应显式列出被白名单丢弃的字段(reference_image / sheet_field 等),
         让 LLM 知道为何这些字段没生效,不再重复尝试。"""
@@ -744,6 +824,7 @@ class TestPatchProject:
         assert "character_sheet" in text
         assert "agent 可编辑范围" in text or "已忽略" in text
 
+    @pytest.mark.unit
     async def test_existing_entry_with_only_dropped_fields_reports_noop(self, ctx: ToolContext) -> None:
         """已存在的 entry,agent 提交的全部字段都被白名单/legacy strip 丢空时,
         cleaned[name]={} → bucket.update({}) 是 no-op。工具应明确报『无可写字段已跳过』,
@@ -769,6 +850,7 @@ class TestPatchProject:
         # 描述未被改写,仍为原值
         assert ctx.pm.load_project("demo")["characters"]["李白"]["description"] == "白衣剑客"
 
+    @pytest.mark.unit
     async def test_response_lists_dropped_legacy_fields(self, ctx: ToolContext) -> None:
         """工具返回文本应显式列出被剔除的历史字段(type / importance),让 agent 不再发它们。"""
         out = await _call(
@@ -793,12 +875,14 @@ class TestPatchProject:
 class TestPatchProjectSettings:
     """patch_project 顶层 settings 分支:首期支持 episode_target_units 写入/清除/校验."""
 
+    @pytest.mark.unit
     async def test_set_episode_target_units(self, ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": 1000}})
         assert out.get("is_error") is not True
         assert ctx.pm.load_project("demo")["episode_target_units"] == 1000
         assert "已更新" in _text(out)
 
+    @pytest.mark.unit
     async def test_clear_episode_target_units(self, ctx: ToolContext) -> None:
         await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": 1000}})
         out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": None}})
@@ -806,17 +890,29 @@ class TestPatchProjectSettings:
         assert "episode_target_units" not in ctx.pm.load_project("demo")
         assert "已清除" in _text(out)
 
+    @pytest.mark.unit
     async def test_noop_when_same_value(self, ctx: ToolContext) -> None:
         await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": 800}})
         out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": 800}})
         assert out.get("is_error") is not True
         assert "无变更" in _text(out)
 
+    @pytest.mark.unit
     async def test_non_whitelist_field_rejected(self, ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"arbitrary_field": 1}})
         assert out.get("is_error") is True
         assert "arbitrary_field" not in ctx.pm.load_project("demo")
 
+    @pytest.mark.integration
+    @pytest.mark.parametrize("field,value", [("generation_mode", "reference_video"), ("grid_storyboard", True)])
+    async def test_route_fields_not_patchable_via_settings(self, ctx: ToolContext, field: str, value: Any) -> None:
+        """generation_mode 创建后不可变、grid_storyboard 只能在设置页操作：两者均不入 settings 白名单。"""
+        before = ctx.pm.load_project("demo").get(field)
+        out = await _call(patch_project_tool(ctx), {"settings": {field: value}})
+        assert out.get("is_error") is True
+        assert ctx.pm.load_project("demo").get(field) == before
+
+    @pytest.mark.unit
     @pytest.mark.parametrize("lang", ["zh", "en", "vi"])
     async def test_set_source_language_allowed_values(self, ctx: ToolContext, lang: str) -> None:
         """source_language 作为 user-confirmed 恢复通道(overview 失败/跳过时),enum 校验."""
@@ -824,24 +920,28 @@ class TestPatchProjectSettings:
         assert out.get("is_error") is not True
         assert ctx.pm.load_project("demo")["source_language"] == lang
 
+    @pytest.mark.unit
     async def test_clear_source_language(self, ctx: ToolContext) -> None:
         await _call(patch_project_tool(ctx), {"settings": {"source_language": "en"}})
         out = await _call(patch_project_tool(ctx), {"settings": {"source_language": None}})
         assert out.get("is_error") is not True
         assert "source_language" not in ctx.pm.load_project("demo")
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("bad", ["english", "ja", "ZH", "", 1, True, ["en"]])
     async def test_invalid_source_language_rejected(self, ctx: ToolContext, bad: Any) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"source_language": bad}})
         assert out.get("is_error") is True
         assert "source_language" not in ctx.pm.load_project("demo")
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("bad_value", [0, -5, 1.5, True, "10.5", "10.0", "abc", ""])
     async def test_invalid_value_rejected(self, ctx: ToolContext, bad_value: Any) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"episode_target_units": bad_value}})
         assert out.get("is_error") is True
         assert "episode_target_units" not in ctx.pm.load_project("demo")
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("key", ["episode_target_units", "planning_window_chars", "planning_max_episodes"])
     async def test_positive_int_setting_accepts_digit_string(self, ctx: ToolContext, key: str) -> None:
         """MCP object 入参无逐字段类型声明，模型常把数字加引号传入；数字字符串按落盘用 int 容忍。"""
@@ -849,6 +949,7 @@ class TestPatchProjectSettings:
         assert out.get("is_error") is not True
         assert ctx.pm.load_project("demo")[key] == 10
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("key", ["planning_window_chars", "planning_max_episodes"])
     async def test_set_and_clear_planning_overrides(self, ctx: ToolContext, key: str) -> None:
         """分集规划的窗口字数 / 每批集数覆盖项：正整数写入，null 清除回内部默认。"""
@@ -859,6 +960,7 @@ class TestPatchProjectSettings:
         assert out.get("is_error") is not True
         assert key not in ctx.pm.load_project("demo")
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("key", ["planning_window_chars", "planning_max_episodes"])
     @pytest.mark.parametrize("bad_value", [0, -1, 2.5, True, "10.5", "10.0", "abc", ""])
     async def test_invalid_planning_override_rejected(self, ctx: ToolContext, key: str, bad_value: Any) -> None:
@@ -866,6 +968,7 @@ class TestPatchProjectSettings:
         assert out.get("is_error") is True
         assert key not in ctx.pm.load_project("demo")
 
+    @pytest.mark.unit
     async def test_table_and_settings_together_rejected(self, ctx: ToolContext) -> None:
         out = await _call(
             patch_project_tool(ctx),
@@ -873,14 +976,17 @@ class TestPatchProjectSettings:
         )
         assert out.get("is_error") is True
 
+    @pytest.mark.unit
     async def test_neither_table_nor_settings_rejected(self, ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ctx), {})
         assert out.get("is_error") is True
 
+    @pytest.mark.unit
     async def test_empty_settings_rejected(self, ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {}})
         assert out.get("is_error") is True
 
+    @pytest.mark.unit
     async def test_legacy_upsert_path_still_works(self, ctx: ToolContext) -> None:
         """老 schema 回归:只传 table/entries 仍走 upsert 分支(向后兼容 8 处既有调用)."""
         out = await _call(
@@ -894,18 +1000,21 @@ class TestPatchProjectSettings:
 class TestPatchProjectNarrationSettings:
     """narration_voice / narration_speed 经 settings 白名单写入/清除/校验（项目级旁白覆盖）。"""
 
+    @pytest.mark.unit
     async def test_set_narration_voice(self, ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"narration_voice": "Ethan"}})
         assert out.get("is_error") is not True
         assert ctx.pm.load_project("demo")["narration_voice"] == "Ethan"
         assert "已更新" in _text(out)
 
+    @pytest.mark.unit
     async def test_modify_narration_voice(self, ctx: ToolContext) -> None:
         await _call(patch_project_tool(ctx), {"settings": {"narration_voice": "Ethan"}})
         out = await _call(patch_project_tool(ctx), {"settings": {"narration_voice": "Cherry"}})
         assert out.get("is_error") is not True
         assert ctx.pm.load_project("demo")["narration_voice"] == "Cherry"
 
+    @pytest.mark.unit
     async def test_clear_narration_voice(self, ctx: ToolContext) -> None:
         await _call(patch_project_tool(ctx), {"settings": {"narration_voice": "Ethan"}})
         out = await _call(patch_project_tool(ctx), {"settings": {"narration_voice": None}})
@@ -913,24 +1022,28 @@ class TestPatchProjectNarrationSettings:
         assert "narration_voice" not in ctx.pm.load_project("demo")
         assert "已清除" in _text(out)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("bad", ["", "   ", "\t\n", 1, 1.5, True, ["Ethan"], {"id": "Ethan"}])
     async def test_invalid_narration_voice_rejected(self, ctx: ToolContext, bad: Any) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"narration_voice": bad}})
         assert out.get("is_error") is True
         assert "narration_voice" not in ctx.pm.load_project("demo")
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("speed", [1.2, 0.5, 2, 1])
     async def test_set_narration_speed(self, ctx: ToolContext, speed: Any) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"narration_speed": speed}})
         assert out.get("is_error") is not True
         assert ctx.pm.load_project("demo")["narration_speed"] == speed
 
+    @pytest.mark.unit
     async def test_narration_speed_accepts_numeric_string(self, ctx: ToolContext) -> None:
         """MCP object 入参无逐字段类型声明，模型常把数字加引号传入；有限数值字符串按落盘用 float 容忍。"""
         out = await _call(patch_project_tool(ctx), {"settings": {"narration_speed": "1.5"}})
         assert out.get("is_error") is not True
         assert ctx.pm.load_project("demo")["narration_speed"] == 1.5
 
+    @pytest.mark.unit
     async def test_clear_narration_speed(self, ctx: ToolContext) -> None:
         await _call(patch_project_tool(ctx), {"settings": {"narration_speed": 1.2}})
         out = await _call(patch_project_tool(ctx), {"settings": {"narration_speed": None}})
@@ -938,6 +1051,7 @@ class TestPatchProjectNarrationSettings:
         assert "narration_speed" not in ctx.pm.load_project("demo")
         assert "已清除" in _text(out)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("bad", [0, -1.5, float("inf"), float("nan"), True, False, "fast", "", [1.2], 10**400])
     async def test_invalid_narration_speed_rejected(self, ctx: ToolContext, bad: Any) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"narration_speed": bad}})
@@ -946,6 +1060,7 @@ class TestPatchProjectNarrationSettings:
         assert "narration_speed 必须是正的有限数值" in _text(out)
         assert "narration_speed" not in ctx.pm.load_project("demo")
 
+    @pytest.mark.unit
     async def test_one_invalid_field_rejects_whole_batch(self, ctx: ToolContext) -> None:
         out = await _call(
             patch_project_tool(ctx),
@@ -956,6 +1071,7 @@ class TestPatchProjectNarrationSettings:
         assert "narration_voice" not in project
         assert "narration_speed" not in project
 
+    @pytest.mark.unit
     async def test_resolver_uses_values_written_by_tool(self, ctx: ToolContext) -> None:
         """工具写入与生成端解析读的是同一份顶层字段:写入后 resolver 实际解析出覆盖值。"""
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -984,6 +1100,7 @@ class TestPatchProjectNarrationSettings:
 class TestPatchProjectOverview:
     """patch_project overview 分支：四字段白名单 merge 编辑，概述不存在时创建，三选一互斥。"""
 
+    @pytest.mark.unit
     async def test_set_overview_fields(self, ctx: ToolContext) -> None:
         out = await _call(
             patch_project_tool(ctx),
@@ -997,6 +1114,7 @@ class TestPatchProjectOverview:
         assert ov["world_setting"] == "近未来"
         assert "已更新" in _text(out)
 
+    @pytest.mark.unit
     async def test_merge_preserves_untouched_fields(self, ctx: ToolContext) -> None:
         await _call(patch_project_tool(ctx), {"overview": {"synopsis": "原始梗概", "genre": "原题材"}})
         out = await _call(patch_project_tool(ctx), {"overview": {"genre": "悬疑"}})
@@ -1005,32 +1123,38 @@ class TestPatchProjectOverview:
         assert ov["genre"] == "悬疑"
         assert ov["synopsis"] == "原始梗概"  # 未传字段保留
 
+    @pytest.mark.unit
     async def test_creates_overview_when_absent(self, ctx: ToolContext) -> None:
         assert "overview" not in ctx.pm.load_project("demo")
         out = await _call(patch_project_tool(ctx), {"overview": {"synopsis": "新建概述"}})
         assert out.get("is_error") is not True
         assert ctx.pm.load_project("demo")["overview"]["synopsis"] == "新建概述"
 
+    @pytest.mark.unit
     async def test_non_whitelist_key_rejected(self, ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ctx), {"overview": {"title": "x"}})
         assert out.get("is_error") is True
         assert "title" not in ctx.pm.load_project("demo").get("overview", {})
 
+    @pytest.mark.unit
     async def test_non_string_value_rejected(self, ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ctx), {"overview": {"synopsis": 1}})
         assert out.get("is_error") is True
         assert "overview" not in ctx.pm.load_project("demo")
 
+    @pytest.mark.unit
     async def test_empty_overview_rejected(self, ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ctx), {"overview": {}})
         assert out.get("is_error") is True
 
+    @pytest.mark.unit
     async def test_noop_when_same_value(self, ctx: ToolContext) -> None:
         await _call(patch_project_tool(ctx), {"overview": {"synopsis": "同值"}})
         out = await _call(patch_project_tool(ctx), {"overview": {"synopsis": "同值"}})
         assert out.get("is_error") is not True
         assert "无变更" in _text(out)
 
+    @pytest.mark.unit
     async def test_overview_with_settings_rejected(self, ctx: ToolContext) -> None:
         out = await _call(
             patch_project_tool(ctx),
@@ -1038,6 +1162,7 @@ class TestPatchProjectOverview:
         )
         assert out.get("is_error") is True
 
+    @pytest.mark.unit
     async def test_overview_with_table_rejected(self, ctx: ToolContext) -> None:
         out = await _call(
             patch_project_tool(ctx),
@@ -1056,22 +1181,26 @@ class TestPatchProjectBriefSetting:
         pm.create_project_metadata("ad-demo", "Ad Demo", "Realistic", "ad", target_duration=60)
         return ToolContext(project_name="ad-demo", projects_root=tmp_path, pm=pm)
 
+    @pytest.mark.unit
     async def test_set_brief_on_ad_project(self, ad_ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ad_ctx), {"settings": {"brief": "突出 3 秒速干卖点"}})
         assert out.get("is_error") is not True
         assert ad_ctx.pm.load_project("ad-demo")["brief"] == "突出 3 秒速干卖点"
 
+    @pytest.mark.unit
     async def test_clear_brief_on_ad_project(self, ad_ctx: ToolContext) -> None:
         await _call(patch_project_tool(ad_ctx), {"settings": {"brief": "x"}})
         out = await _call(patch_project_tool(ad_ctx), {"settings": {"brief": None}})
         assert out.get("is_error") is not True
         assert "brief" not in ad_ctx.pm.load_project("ad-demo")
 
+    @pytest.mark.unit
     async def test_brief_rejected_on_non_ad_project(self, ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ctx), {"settings": {"brief": "x"}})
         assert out.get("is_error") is True
         assert "brief" not in ctx.pm.load_project("demo")
 
+    @pytest.mark.unit
     async def test_non_string_brief_rejected(self, ad_ctx: ToolContext) -> None:
         out = await _call(patch_project_tool(ad_ctx), {"settings": {"brief": 42}})
         assert out.get("is_error") is True

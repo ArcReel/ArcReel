@@ -1,4 +1,7 @@
-"""Ensure StatusCalculator computes episode stats for reference_video scripts."""
+"""Ensure StatusCalculator computes episode stats for reference_video projects.
+
+路线是项目级事实，剧本不携带戳——各用例把项目路线显式传给计分/注入入口。
+"""
 
 from __future__ import annotations
 
@@ -8,6 +11,8 @@ import pytest
 
 from lib.project_manager import ProjectManager
 from lib.status_calculator import StatusCalculator
+
+pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
@@ -22,10 +27,9 @@ def _mk_reference_script(units_total: int, units_done: int) -> dict:
         units.append(
             {
                 "unit_id": f"E1U{i + 1}",
-                "shots": [{"duration": 3, "text": f"Shot 1 (3s): u{i}"}],
+                "shots": [{"text": f"u{i}"}],
                 "references": [],
                 "duration_seconds": 3,
-                "duration_override": False,
                 "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {
@@ -43,7 +47,6 @@ def _mk_reference_script(units_total: int, units_done: int) -> dict:
         "episode": 1,
         "title": "E1",
         "content_mode": "narration",
-        "generation_mode": "reference_video",
         "duration_seconds": 0,
         "summary": "",
         "novel": {"title": "t", "chapter": "c"},
@@ -53,7 +56,9 @@ def _mk_reference_script(units_total: int, units_done: int) -> dict:
 
 def test_calculate_episode_stats_reference_video_all_ready(pm: ProjectManager) -> None:
     calc = StatusCalculator(pm)
-    stats = calc.calculate_episode_stats("proj", _mk_reference_script(units_total=3, units_done=3))
+    stats = calc.calculate_episode_stats(
+        "proj", _mk_reference_script(units_total=3, units_done=3), generation_mode="reference_video"
+    )
     assert stats["status"] == "completed"
     assert stats["units_count"] == 3
     assert stats["videos"] == {"total": 3, "completed": 3}
@@ -64,14 +69,18 @@ def test_calculate_episode_stats_reference_video_all_ready(pm: ProjectManager) -
 
 def test_calculate_episode_stats_reference_video_partial(pm: ProjectManager) -> None:
     calc = StatusCalculator(pm)
-    stats = calc.calculate_episode_stats("proj", _mk_reference_script(units_total=3, units_done=1))
+    stats = calc.calculate_episode_stats(
+        "proj", _mk_reference_script(units_total=3, units_done=1), generation_mode="reference_video"
+    )
     assert stats["status"] == "in_production"
     assert stats["videos"] == {"total": 3, "completed": 1}
 
 
 def test_calculate_episode_stats_reference_video_empty_draft(pm: ProjectManager) -> None:
     calc = StatusCalculator(pm)
-    stats = calc.calculate_episode_stats("proj", _mk_reference_script(units_total=0, units_done=0))
+    stats = calc.calculate_episode_stats(
+        "proj", _mk_reference_script(units_total=0, units_done=0), generation_mode="reference_video"
+    )
     assert stats["status"] == "draft"
     assert stats["units_count"] == 0
     assert stats["duration_seconds"] == 0
@@ -84,7 +93,7 @@ def test_calculate_episode_stats_reference_video_tolerates_corrupt_generated_ass
     calc = StatusCalculator(pm)
     script = _mk_reference_script(units_total=2, units_done=1)
     script["video_units"][0]["generated_assets"] = "corrupt"
-    stats = calc.calculate_episode_stats("proj", script)
+    stats = calc.calculate_episode_stats("proj", script, generation_mode="reference_video")
     assert stats["status"] == "draft"
     assert stats["videos"] == {"total": 2, "completed": 0}
 
@@ -96,20 +105,18 @@ def test_enrich_script_reference_video_aggregates_references(pm: ProjectManager)
         "episode": 1,
         "title": "E1",
         "content_mode": "narration",
-        "generation_mode": "reference_video",
         "duration_seconds": 0,
         "summary": "",
         "novel": {"title": "t", "chapter": "c"},
         "video_units": [
             {
                 "unit_id": "E1U1",
-                "shots": [{"duration": 3, "text": "Shot 1 (3s): x"}],
+                "shots": [{"text": "x"}],
                 "references": [
                     {"type": "character", "name": "张三"},
                     {"type": "scene", "name": "酒馆"},
                 ],
                 "duration_seconds": 3,
-                "duration_override": False,
                 "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {
@@ -124,13 +131,12 @@ def test_enrich_script_reference_video_aggregates_references(pm: ProjectManager)
             },
             {
                 "unit_id": "E1U2",
-                "shots": [{"duration": 5, "text": "Shot 1 (5s): y"}],
+                "shots": [{"text": "y"}],
                 "references": [
                     {"type": "character", "name": "张三"},  # duplicate — should dedupe
                     {"type": "prop", "name": "长剑"},
                 ],
                 "duration_seconds": 5,
-                "duration_override": False,
                 "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {
@@ -145,7 +151,7 @@ def test_enrich_script_reference_video_aggregates_references(pm: ProjectManager)
             },
         ],
     }
-    enriched = calc.enrich_script(script)
+    enriched = calc.enrich_script(script, generation_mode="reference_video")
     assert enriched["characters_in_episode"] == ["张三"]
     assert enriched["scenes_in_episode"] == ["酒馆"]
     assert enriched["props_in_episode"] == ["长剑"]

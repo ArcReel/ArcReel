@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from lib.data_validator import DataValidator
+from lib.script_models import REFERENCE_UNIT_DURATION_RANGE
 
 
 def _write(dir: Path, path: str, data: dict) -> Path:
@@ -26,15 +27,14 @@ def _valid_reference_script(episode: int = 1) -> dict:
             {
                 "unit_id": f"E{episode}U1",
                 "shots": [
-                    {"duration": 3, "text": "Shot 1 (3s): @张三 推门"},
-                    {"duration": 5, "text": "Shot 2 (5s): @酒馆 全景"},
+                    {"text": "Shot 1 (3s): @张三 推门"},
+                    {"text": "Shot 2 (5s): @酒馆 全景"},
                 ],
                 "references": [
                     {"type": "character", "name": "张三"},
                     {"type": "scene", "name": "酒馆"},
                 ],
                 "duration_seconds": 8,
-                "duration_override": False,
                 "transition_to_next": "cut",
                 "note": None,
                 "generated_assets": {
@@ -68,6 +68,7 @@ def _reference_project(*, with_assets: bool = True) -> dict:
     return project
 
 
+@pytest.mark.unit
 def test_validator_accepts_reference_video_generation_mode(tmp_path: Path):
     _write(tmp_path, "project.json", _reference_project())
     _write(tmp_path, "scripts/episode_1.json", _valid_reference_script())
@@ -77,6 +78,29 @@ def test_validator_accepts_reference_video_generation_mode(tmp_path: Path):
     assert result.valid, result.errors
 
 
+@pytest.mark.integration
+def test_validator_accepts_nfc_reference_for_nfd_registered_character(tmp_path: Path):
+    import unicodedata
+
+    name_nfd = unicodedata.normalize("NFD", "Hiếu")
+    name_nfc = unicodedata.normalize("NFC", "Hiếu")
+    assert name_nfd != name_nfc
+
+    project = _reference_project(with_assets=False)
+    project["characters"][name_nfd] = {"description": "x"}
+    script = _valid_reference_script()
+    script["video_units"][0]["shots"] = [{"text": f"Shot 1 (3s): @{name_nfc} 推门"}]
+    script["video_units"][0]["references"] = [{"type": "character", "name": name_nfc}]
+
+    _write(tmp_path, "project.json", project)
+    _write(tmp_path, "scripts/episode_1.json", script)
+
+    v = DataValidator()
+    result = v.validate_project_tree(tmp_path)
+    assert result.valid, result.errors
+
+
+@pytest.mark.unit
 def test_validator_rejects_unknown_mention(tmp_path: Path):
     _write(tmp_path, "project.json", _reference_project(with_assets=False))
     _write(tmp_path, "scripts/episode_1.json", _valid_reference_script())
@@ -88,6 +112,7 @@ def test_validator_rejects_unknown_mention(tmp_path: Path):
     assert any("酒馆" in e for e in result.errors)
 
 
+@pytest.mark.unit
 def test_validator_allows_reference_videos_dir(tmp_path: Path):
     project = _reference_project(with_assets=False)
     project["episodes"] = []
@@ -100,6 +125,7 @@ def test_validator_allows_reference_videos_dir(tmp_path: Path):
     assert result.valid, result.errors
 
 
+@pytest.mark.unit
 def test_validator_rejects_non_string_reference_name(tmp_path: Path):
     project = _reference_project(with_assets=False)
     script = _valid_reference_script()
@@ -113,17 +139,19 @@ def test_validator_rejects_non_string_reference_name(tmp_path: Path):
     assert any("reference.name 必须是非空字符串" in e for e in result.errors)
 
 
-def test_validator_rejects_invalid_shot_duration(tmp_path: Path):
+@pytest.mark.unit
+def test_validator_rejects_invalid_unit_duration(tmp_path: Path):
     project = _reference_project()
     script = _valid_reference_script()
-    script["video_units"][0]["shots"][0]["duration"] = 99  # 超出 [1,15]
+    script["video_units"][0]["duration_seconds"] = 9999  # 超出结构合理性区间
     _write(tmp_path, "project.json", project)
     _write(tmp_path, "scripts/episode_1.json", script)
 
     v = DataValidator()
     result = v.validate_project_tree(tmp_path)
     assert not result.valid
-    assert any("duration 必须是 1-15" in e for e in result.errors)
+    low, high = REFERENCE_UNIT_DURATION_RANGE
+    assert any(f"duration_seconds 必须是 {low}-{high}" in e for e in result.errors)
 
 
 @pytest.mark.integration
@@ -171,6 +199,7 @@ def test_validator_rejects_duplicate_ad_reference_unit_ids(tmp_path: Path):
     assert any("unit_id 重复 'E1U1'" in error for error in result.errors)
 
 
+@pytest.mark.unit
 def test_validator_rejects_reference_video_in_content_mode(tmp_path: Path):
     """content_mode 严格只允许 narration / drama；reference_video 属于 generation_mode
     维度。UI 不可达该值，无需兼容迁移，直接拒绝即可。

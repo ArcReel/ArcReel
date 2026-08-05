@@ -10,6 +10,8 @@ from sqlalchemy import select
 from lib.agent_session_store import AgentSessionSummary
 from lib.agent_session_store.store import DbSessionStore
 
+pytestmark = pytest.mark.integration
+
 KEY = {"project_key": "proj", "session_id": "sess"}
 
 

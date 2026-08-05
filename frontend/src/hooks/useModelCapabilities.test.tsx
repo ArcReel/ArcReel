@@ -8,6 +8,7 @@ import {
   useModelCapabilities,
 } from "@/hooks/useModelCapabilities";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import type { ProviderInfo, VideoCapabilities } from "@/types";
 
 const PROJECT = "demo-project";
@@ -33,6 +34,8 @@ function provider(overrides: Partial<ProviderInfo["models"][string]> = {}): Prov
           supported_durations: [4, 6, 8],
           duration_resolution_constraints: {},
           resolutions: ["720p", "1080p"],
+          has_audio_track: true,
+          voice_consistency: "soft",
           ...overrides,
         },
       },
@@ -50,12 +53,14 @@ function caps(overrides: Partial<VideoCapabilities> = {}): VideoCapabilities {
     first_frame: true,
     last_frame: true,
     source: "registry",
+    voice_consistency: "soft",
     ...overrides,
   };
 }
 
 beforeEach(() => {
   useCapabilitiesStore.setState({ revision: 0 });
+  useProjectsStore.setState({ currentProjectName: null, currentProjectData: null });
 });
 
 afterEach(() => {
@@ -256,6 +261,42 @@ describe("useModelCapabilities 首尾帧维度", () => {
   });
 });
 
+describe("useModelCapabilities voiceConsistency 维度", () => {
+  it("取服务端二维派生值", async () => {
+    vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps({ voice_consistency: "native" }));
+    const { result } = renderHook(() =>
+      useModelCapabilities({ projectName: PROJECT, videoBackend: BACKEND }),
+    );
+    await waitFor(() => expect(result.current.voiceConsistency).toBe("native"));
+  });
+
+  it("查询未落地时为未知（null）", () => {
+    vi.spyOn(API, "getVideoCapabilities").mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() =>
+      useModelCapabilities({ projectName: PROJECT, videoBackend: BACKEND }),
+    );
+    expect(result.current.voiceConsistency).toBeNull();
+  });
+});
+
+describe("能力查询带上候选模型", () => {
+  it("把编辑中的 videoBackend 作为 video_backend 传给服务端，档位不停留在已保存模型上", async () => {
+    const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps({}));
+    renderHook(() =>
+      useModelCapabilities({ projectName: PROJECT, videoBackend: "openai/sora-2", unsavedBackend: true }),
+    );
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0]?.[1]).toMatchObject({ videoBackend: "openai/sora-2" });
+  });
+
+  it("videoBackend 为空时不传该参数，服务端按已落盘配置解析", async () => {
+    const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps({}));
+    renderHook(() => useModelCapabilities({ projectName: PROJECT, videoBackend: "" }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0]?.[1]?.videoBackend).toBeUndefined();
+  });
+});
+
 describe("useModelCapabilities 失效时机", () => {
   it("能力覆盖变更（store 失效）后自动重取，无需重新挂载或任何交互", async () => {
     const spy = vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps({ last_frame: true }));
@@ -299,7 +340,7 @@ describe("catalogDurations", () => {
 describe("narrowDurations", () => {
   const CONSTRAINTS = { byResolution: { "1080p": [8] }, withReferenceImages: [8] };
 
-  // 上下文按集变化（generation_mode 可被单集覆盖），而能力查询只在组件顶层做一次；
+  // 收窄上下文按集变化（分辨率、参考图状态），而能力查询只在组件顶层做一次；
   // 收窄规则仍留在本模块，调用点不重新拼查表链路。
   it("用已取到的能力对另一份上下文再算一次收窄", () => {
     const capsIn = { rawDurations: [4, 6, 8], durationConstraints: CONSTRAINTS };

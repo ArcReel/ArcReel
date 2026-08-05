@@ -1,4 +1,4 @@
-"""参考生视频完整端到端集成测试（PR7 M6）。
+"""参考生视频完整端到端集成测试。
 
 覆盖：
   1. 路由 POST /reference-videos/episodes/{ep}/units → unit 创建
@@ -21,6 +21,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.auth import CurrentUserInfo, get_current_user
+from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 _TINY_PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
@@ -89,9 +92,12 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
     monkeypatch.setattr(gt_mod, "get_project_manager", lambda: custom_pm)
     monkeypatch.setattr(rvt_mod, "get_project_manager", lambda: custom_pm)
+    # 视频桶预检需要 DB（system_settings）；本用例无 DB，能力闸行为由
+    # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
+    monkeypatch.setattr(router_mod, "require_video_bucket_capability", AsyncMock(return_value=None))
 
     app = FastAPI()
-    app.include_router(router_mod.router, prefix="/api/v1")
+    app.include_router(router_mod.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="test", role="admin")
     return TestClient(app), proj_dir, monkeypatch
 
@@ -101,11 +107,12 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
     client, proj_dir, monkeypatch = three_bucket_client
 
     # 1) 新建 unit：混合 3 bucket mention + 多 shot
-    prompt = "Shot 1 (3s): @张三 推门进 @酒馆\nShot 2 (4s): 近景 @张三 握紧 @长剑\n"
+    prompt = "镜头1：@张三 推门进 @酒馆\n镜头2：近景 @张三 握紧 @长剑\n"
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
         json={
             "prompt": prompt,
+            "duration_seconds": 7,
             "references": [
                 {"type": "character", "name": "张三"},
                 {"type": "scene", "name": "酒馆"},
@@ -119,8 +126,6 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
 
     # shot_parser 落地 shots[]
     assert len(unit["shots"]) == 2
-    assert unit["shots"][0]["duration"] == 3
-    assert unit["shots"][1]["duration"] == 4
     assert unit["duration_seconds"] == 7
     ref_names = {r["name"] for r in unit["references"]}
     assert ref_names == {"张三", "酒馆", "长剑"}
@@ -200,14 +205,14 @@ async def test_e2e_three_bucket_mentions_with_multi_shot(three_bucket_client):
         }
     )
 
-    # 5) 断言 prompt 渲染：@张三 → [图1]、@酒馆 → [图2]、@长剑 → [图3]
+    # 5) 断言三段论渲染：第一段按 references 顺序绑定，正文 @mention 全部替成 <X>
     rendered = captured_backend_kwargs["prompt"]
-    assert "[图1]" in rendered  # 张三
-    assert "[图2]" in rendered  # 酒馆
-    assert "[图3]" in rendered  # 长剑
+    assert rendered.startswith("<张三>@图片1、<酒馆>@图片2、<长剑>@图片3。")
     assert "@张三" not in rendered  # 所有 @ 已替换
     assert "@酒馆" not in rendered
     assert "@长剑" not in rendered
+    assert "[图" not in rendered  # 对照表编号已废除
+    assert "保持无字幕" in rendered  # 第三段约束包
 
     # 6) 断言 reference_images 传了 3 个临时文件
     ref_images = captured_backend_kwargs["reference_images"]

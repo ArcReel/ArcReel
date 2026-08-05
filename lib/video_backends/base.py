@@ -376,34 +376,63 @@ class VideoCapabilityError(RuntimeError):
         super().__init__(code)
 
 
+class ReferenceAudioMode(StrEnum):
+    """后端接受参考音频的运输形态。
+
+    ``DIRECT`` 表示随生成请求直传音频文件，模型据其复刻音色（Seedance 2.0 的
+    ``role: reference_audio`` content 条目、Wan2.7 r2v 挂在参考素材项上的
+    ``reference_voice``）。``NONE`` 表示该后端没有音色输入通道——带音频的请求在
+    ``gate_video_request`` 处硬失败，不静默丢弃。
+    """
+
+    NONE = "none"
+    DIRECT = "direct"
+
+
 @dataclass
 class VideoCapabilities:
     """Declares what a video backend supports.
 
     ``first_frame`` / ``last_frame`` 描述图生视频路径的首帧与尾帧槽位。
-    ``reference_images`` / ``max_reference_images`` 描述参考生视频路径：后端接受
-    ``reference_images`` 请求字段及其数量上限。两条路径是否可叠加（同一请求同时带
-    首帧与参考图）因后端而异，不是统一契约：部分后端拒绝叠加（如 Agnes 抛
-    ``VideoCapabilityError``），部分静默叠加（如 v2 中转、Grok、Sora 首帧与参考共享
-    单槽）。调用方不应假设某种统一行为，需按具体后端核实。
+    ``max_reference_images`` 描述参考生视频路径：后端接受 ``reference_images`` 请求字段
+    的数量上限，``> 0`` 即该路径可用（不另设布尔位——两份声明会漂移出「称支持但上限为 0」
+    这类自相矛盾的状态）。两条路径是否可叠加（同一请求同时带首帧与参考图）因后端而异，
+    不是统一契约：部分后端拒绝叠加（如 Agnes 抛 ``VideoCapabilityError``），部分静默叠加
+    （如 v2 中转、Grok、Sora 首帧与参考共享单槽）。调用方不应假设某种统一行为，需按具体
+    后端核实。
+
+    ``reference_audio_mode`` / ``max_reference_audio_count`` 描述参考音频路径，与参考图
+    同构：模式非 ``NONE`` 时后端接受 ``reference_audio_files`` 请求字段，段数受上限约束。
+    上限按 backend 各自的供应商约束声明，不取各家交集。
+
+    ``reference_audio_per_image``：音频是否必须逐段挂在某个具体的参考素材项上（如 wan2.7-r2v
+    的 ``reference_voice`` 字段），而非作为独立的音色输入通道（如 Seedance 2.0 的
+    ``role: reference_audio`` content 条目）。为 True 时调用方须随 ``reference_audio_files``
+    一并提供 ``VideoGenerationRequest.reference_audio_targets``，显式声明每段音频对应哪个
+    参考素材项，不能假设两个列表天然同序——参考音频的编排顺序是台词 speaker 首现顺序，
+    参考图的编排顺序是 mention 首现顺序，两者独立派生，位置对齐纯属巧合。
+
+    ``max_reference_audio_total_seconds``：多段参考音频叠加的总时长上限（None = 该后端未声明
+    聚合约束，仅按 ``max_reference_audio_count`` 卡段数）。段数上限推不出总时长——两段各处于
+    单段合法区间的音频，合计仍可能超出供应商总时长上限，故需独立声明。判定需要读音频元数据，
+    调用方在 :func:`lib.video_frame_slots.gate_video_request` 前置探测好总时长再传入。
+
+    ``max_prompt_chars``：提示词字符数上限（None = 该后端未声明约束）。声明的是**该 model 无论
+    走哪条端点都成立**的上限——部分供应商按端点各设更窄的值（如 Vidu 的参考生视频端点），那层
+    收窄留在 backend 组装期按实际端点 fail-loud，不塞进这个无端点上下文的静态声明里。计量口径
+    为字符数（中英文同权），与各家文档一致。超限的典型失败模式是静默截断而非报错：供应商照常
+    扣费、成片与意图不符、用户无从知情，正是 :func:`lib.video_frame_slots.gate_video_request`
+    要在付费前堵住的降级。
     """
 
     first_frame: bool = True
     last_frame: bool = False
-    reference_images: bool = False
     max_reference_images: int = 0
-
-
-class VideoCapability(StrEnum):
-    """视频后端支持的能力枚举。"""
-
-    TEXT_TO_VIDEO = "text_to_video"
-    IMAGE_TO_VIDEO = "image_to_video"
-    GENERATE_AUDIO = "generate_audio"
-    NEGATIVE_PROMPT = "negative_prompt"
-    VIDEO_EXTEND = "video_extend"
-    SEED_CONTROL = "seed_control"
-    FLEX_TIER = "flex_tier"
+    reference_audio_mode: ReferenceAudioMode = ReferenceAudioMode.NONE
+    max_reference_audio_count: int = 0
+    max_reference_audio_total_seconds: float | None = None
+    reference_audio_per_image: bool = False
+    max_prompt_chars: int | None = None
 
 
 @dataclass
@@ -418,6 +447,16 @@ class VideoGenerationRequest:
     start_image: Path | None = None
     end_image: Path | None = None  # For first_last mode
     reference_images: list[Path] | None = None  # For multi-reference mode
+    # 参考音频（音色复刻）。列表顺序即 prompt 中「音频N」的指认契约：编排层按该顺序拼指认
+    # 文本，后端按同一顺序下发，故任何一侧都不得重排或跳过。哪个角色对应哪段音频不进请求
+    # ——绑定由 prompt 文本表达，供应商 API 均无结构化的「角色-音频」字段。
+    reference_audio_files: list[Path] | None = None
+    # 仅 ``VideoCapabilities.reference_audio_per_image`` 为 True 的 backend（如 wan2.7-r2v）
+    # 读取：与 ``reference_audio_files`` 等长同序，第 i 项是该段音频对应的
+    # ``reference_images`` 下标（0-based）。为 None 时这类 backend 按位置回退对齐，仅用于
+    # 未经编排层填充的调用方（如手写测试）——参考音频与参考图各自独立派生顺序，位置对齐
+    # 不构成契约，编排层（reference_video 渲染管线）必须显式提供。
+    reference_audio_targets: list[int] | None = None
     generate_audio: bool = True
 
     # 项目上下文（用于构建文件服务 URL 等）
@@ -457,9 +496,6 @@ class VideoBackend(Protocol):
 
     @property
     def model(self) -> str: ...
-
-    @property
-    def capabilities(self) -> set[VideoCapability]: ...
 
     @property
     def video_capabilities(self) -> VideoCapabilities: ...

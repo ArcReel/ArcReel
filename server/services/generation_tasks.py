@@ -10,9 +10,21 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from lib.asset_types import ASSET_SPECS
+from lib.asset_types import (
+    ASSET_SPECS,
+    normalize_asset_bucket,
+    normalize_asset_name,
+    resolve_asset_key,
+    validate_asset_name,
+)
+from lib.audio_utils import (
+    AUDIO_REFERENCE_MAX_BYTES,
+    AUDIO_REFERENCE_MAX_SECONDS,
+    AUDIO_REFERENCE_MIN_SECONDS,
+    probe_audio_duration_seconds,
+)
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import constrain_durations
+from lib.config.resolver import constrain_durations, video_bucket_for_generation_mode
 from lib.db.base import DEFAULT_USER_ID
 from lib.path_safety import safe_exists, safe_join, try_safe_join
 from lib.project_change_hints import emit_project_change_batch, project_change_source
@@ -25,14 +37,16 @@ from lib.prompt_builders import (
     build_scene_prompt,
 )
 from lib.prompt_utils import (
+    build_drama_video_prompt,
+    build_drama_video_prompt_from_legacy_dialogue,
     image_prompt_to_yaml,
     is_structured_image_prompt,
     is_structured_video_prompt,
-    utterances_to_dialogue,
+    strip_voice_profiles,
     video_prompt_to_yaml,
 )
 from lib.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
-from lib.script_models import get_generated_assets
+from lib.script_models import get_generated_assets, resolve_content_mode
 from lib.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_NOUNS, resolve_script_kind
 from lib.storyboard_sequence import (
     build_previous_storyboard_reference,
@@ -142,6 +156,7 @@ def _normalize_video_prompt(prompt: str | dict) -> str:
         "camera_motion": str(prompt.get("camera_motion", "") or "") or "Static",
         "ambiance_audio": str(prompt.get("ambiance_audio", "") or ""),
         "dialogue": normalized_dialogue,
+        "voice_profiles": prompt.get("voice_profiles") or [],
     }
     return append_video_negative_tail(video_prompt_to_yaml(normalized_prompt))
 
@@ -162,7 +177,7 @@ def assert_duration_supported(duration: int | float | str, supported_durations: 
 
     这是 `duration ↔ supported_durations` 唯一的权威校验家——provider 在执行时才解析
     （见 ADR-0001），故能力校验只能坐在 provider 解析之后。``supported_durations`` 为空时
-    放行（能力不可解析，不更坏：保持既有行为不被本次改动弄坏）。
+    放行（能力不可解析，不更坏：不拒绝一个校验层判断不了的 duration）。
 
     duration 可能来自外部配置（payload / project.json），故安全解析字符串 / 浮点：
     可解析为整数秒（如 ``"6"`` / ``6.0``）的归一化后比较；非整数秒（如 ``4.5``）一律
@@ -203,8 +218,11 @@ def _collect_sheet_references(
     Returns (list of ``{"image": Path, "label": 资产名}`` dicts, set of relative
     sheet strings for dedup). If *max_count* > 0 collection stops after that many images.
 
-    label 取 project.json 中的资产名，与 prompt 里的专名严格一致——供支持内联标签的
+    label 取剧本条目里的资产名，与 prompt 里的专名严格一致——供支持内联标签的
     后端（如 Gemini）把参考图与 prompt 专名显式绑定，不再依赖文件名推断。
+
+    剧本里的资产名与资产桶 key 可能是 NFC/NFD 中的任一形态（登记闸口落 NFC，存量剧本
+    与桶均无需迁移），索引前按 ``lib.asset_types`` 的比对坐标系归一，label 保留剧本原文。
 
     ``char_field`` 为 ``None`` 表示该骨架无逐条角色名单字段（video_units：角色以
     references 条目形态存在），``item.get(None) or []`` 天然跳过角色 sheet 收集。
@@ -212,18 +230,15 @@ def _collect_sheet_references(
     seen: set[str] = set()
     refs: list[dict] = []
 
-    characters = project.get("characters")
-    characters = characters if isinstance(characters, dict) else {}
-    project_scenes = project.get("scenes")
-    project_scenes = project_scenes if isinstance(project_scenes, dict) else {}
-    project_props = project.get("props")
-    project_props = project_props if isinstance(project_props, dict) else {}
+    characters = normalize_asset_bucket(project.get("characters"))
+    project_scenes = normalize_asset_bucket(project.get("scenes"))
+    project_props = normalize_asset_bucket(project.get("props"))
 
     for item in items:
         for char_name in item.get(char_field) or []:
             if not isinstance(char_name, str):
                 continue
-            char_data = characters.get(char_name)
+            char_data = characters.get(normalize_asset_name(char_name))
             sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
@@ -233,7 +248,7 @@ def _collect_sheet_references(
         for scene_name in item.get(scene_field) or []:
             if not isinstance(scene_name, str):
                 continue
-            scene_data = project_scenes.get(scene_name)
+            scene_data = project_scenes.get(normalize_asset_name(scene_name))
             sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
@@ -243,7 +258,7 @@ def _collect_sheet_references(
         for prop_name in item.get(prop_field) or []:
             if not isinstance(prop_name, str):
                 continue
-            prop_data = project_props.get(prop_name)
+            prop_data = project_props.get(normalize_asset_name(prop_name))
             sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 path = project_path / sheet
@@ -317,15 +332,18 @@ def collect_product_references_for_names(
     按 unit 注入共用此函数，保证两条路径的「sheet 在前、原图压阵」口径一致。
     """
     spec = ASSET_SPECS["product"]
-    products = project.get(spec.bucket_key)
-    if not isinstance(products, dict):
-        products = {}
+    products = normalize_asset_bucket(project.get(spec.bucket_key))
     references: list[dict] = []
+    seen: set[str] = set()
     for name in names:
         if not isinstance(name, str):
             logger.warning("products_in_shot 含非字符串条目 %r，产品参考跳过", name)
             continue
-        entry = products.get(name)
+        canonical = normalize_asset_name(name)
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        entry = products.get(canonical)
         if not isinstance(entry, dict):
             logger.warning("镜头引用的产品 '%s' 不在 project.json products 中，产品参考跳过", name)
             continue
@@ -335,14 +353,19 @@ def collect_product_references_for_names(
             references.append(
                 {
                     "image": project_path / sheet,
-                    "label": f"产品「{name}」标准多角度参考图",
-                    "name": name,
+                    "label": f"产品「{canonical}」标准多角度参考图",
+                    "name": canonical,
                     "kind": "sheet",
                 }
             )
-        for original in _collect_product_reference_images(project, project_path, name) or []:
+        for original in _collect_product_reference_images(project, project_path, canonical) or []:
             references.append(
-                {"image": original, "label": f"产品「{name}」实拍原图（保真锚点）", "name": name, "kind": "original"}
+                {
+                    "image": original,
+                    "label": f"产品「{canonical}」实拍原图（保真锚点）",
+                    "name": canonical,
+                    "kind": "original",
+                }
             )
         if len(references) == before:
             logger.warning("产品镜头引用的产品 '%s' 无任何可用参考图（sheet 与原图均缺失），保真注入退化为纯文本", name)
@@ -484,6 +507,7 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
     "tts": ("segment", "tts_ready", "旁白「{}」", True),
     "grid": ("grid", "grid_ready", "宫格「{}」", True),
+    "voice_sample": ("character", "voice_sample_ready", "「{}」试听样本", False),
     **{atype: (atype, "updated", f"{spec.label_zh}「{{}}」设计图", False) for atype, spec in ASSET_SPECS.items()},
 }
 
@@ -752,6 +776,116 @@ async def execute_tts_task(
     }
 
 
+# character_name 经 validate_asset_name 校验合法字符，但不限长度；task_id 固定是 uuid4().hex
+# （32 字节 ASCII）。若不裁剪，超长角色名 + 前缀/分隔符/task_id 拼出的 resource_id，
+# 再叠加 VersionManager.add_version 的 "_v{n}_{timestamp}{ext}" 版本文件名后缀，
+# 可能在 255 字节 NAME_MAX 的文件系统上让落盘/建版本失败。留出足够余量后裁剪角色名部分——
+# resource_id 本身不需要人工从文件名反解角色名（仅内部拼接，无解析方），裁剪不影响正确性，
+# 唯一性完全靠 task_id 保证。
+_SAMPLE_ID_NAME_MAX_BYTES = 80
+
+
+def _truncate_name_bytes(name: str, max_bytes: int) -> str:
+    """按 UTF-8 字节数裁剪，裁剪点落在多字节字符中间时丢弃残缺字符而非产生非法编码。"""
+    encoded = name.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return name
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
+
+
+def voice_sample_resource_id(character_name: str, task_id: str) -> str:
+    """角色 TTS 试听样本在 ``audio/`` 下的资源 id（区别于旁白 segment id 命名空间）。
+
+    生成产物只是待确认的预览件，落盘位置与旁白共用 ``audio/`` 目录但用固定前缀隔离，
+    不会与说书模式的 segment id 冲突；只有 confirm 步骤才把音频提升为角色 reference_audio。
+
+    带 ``task_id`` 而非只用角色名：同一角色前一次成功样本尚未确认时发起重新生成会产生
+    新任务，若资源 id 只按角色名固定，新任务落盘会原地覆盖前一个已成功任务引用的文件——
+    旧任务的 ``result.file_path`` 字段不变，但物理内容已变成新任务的（甚至是校验失败前
+    写入的）字节；若前一个任务的 task_id 仍被别处持有（如另一浏览器标签页）并调用 confirm，
+    会把错误内容误落为角色参考音频。每次生成用任务专属文件名，杜绝跨任务覆盖。
+    """
+    safe_name = _truncate_name_bytes(character_name, _SAMPLE_ID_NAME_MAX_BYTES)
+    return f"voice_sample__{safe_name}__{task_id}"
+
+
+async def execute_character_voice_sample_task(
+    project_name: str,
+    resource_id: str,
+    payload: dict[str, Any],
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    task_id: str | None = None,
+) -> dict[str, Any]:
+    """为角色参考音频候选生成一段 TTS 试听样本（预览用，不写入角色资产）。
+
+    ``resource_id`` 是角色名；文本与音色显式来自 payload（``prompt`` = 待合成文本，
+    ``voice`` = 用户选定的音色 id），不回落任何全局旁白配置。生成产物须满足与
+    参考音频上传同口径的校验（格式经落盘扩展名固定为 wav、时长 2-10 秒、≤15MB）；
+    校验失败直接抛错让任务落 failed，不静默放行不合规样本。
+    """
+    character_name = validate_asset_name(resource_id)
+    text = payload.get("prompt")
+    voice = payload.get("voice")
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("voice sample 任务需要非空 payload.prompt（待合成文本）")
+    if not isinstance(voice, str) or not voice.strip():
+        raise ValueError("voice sample 任务需要 payload.voice（音色 id）")
+    if not task_id:
+        # 恒由 worker 经 execute_generation_task 传入队列任务自身 id；缺失说明调用方绕过了
+        # 常规队列执行路径（如误从别处直接调用），而 sample_id 的跨任务隔离依赖它，fail-fast。
+        raise ValueError("voice sample 任务需要 task_id")
+
+    project = await asyncio.to_thread(get_project_manager().load_project, project_name)
+    if resolve_asset_key(project.get("characters"), character_name) is None:
+        # 与 execute_character_task 等其它执行器同口径：入队后、worker 取到任务前角色可能
+        # 已被删除，执行前重新核实存在，避免花钱合成一段没有归属的孤儿预览。
+        raise ValueError(f"character not found: {character_name}")
+    ctx = await resolve_generation_context(
+        project_name,
+        payload,
+        project=project,
+        user_id=user_id,
+        audio=AudioLaneRequest(),
+    )
+    generator = ctx.generator
+
+    sample_id = voice_sample_resource_id(character_name, task_id)
+    _, version = await generator.generate_audio_async(
+        text=text.strip(),
+        resource_id=sample_id,
+        voice=voice.strip(),
+        speed=None,
+    )
+
+    audio_rel = resource_relative_path("audio", sample_id)
+    audio_abs = get_project_manager().get_project_path(project_name) / audio_rel
+
+    def _read_bytes() -> bytes:
+        return audio_abs.read_bytes()
+
+    content = await asyncio.to_thread(_read_bytes)
+    if len(content) > AUDIO_REFERENCE_MAX_BYTES:
+        raise ValueError(f"生成的语音样本超过 {AUDIO_REFERENCE_MAX_BYTES // (1024 * 1024)}MB 限制")
+
+    duration = await probe_audio_duration_seconds(content, audio_abs.suffix)
+    if duration is not None and not (AUDIO_REFERENCE_MIN_SECONDS <= duration <= AUDIO_REFERENCE_MAX_SECONDS):
+        raise ValueError(
+            f"生成的语音样本时长 {duration:.1f}s 超出 "
+            f"{AUDIO_REFERENCE_MIN_SECONDS:.0f}-{AUDIO_REFERENCE_MAX_SECONDS:.0f} 秒范围"
+        )
+
+    return {
+        "version": version,
+        "file_path": audio_rel,
+        "resource_type": "audio",
+        "resource_id": sample_id,
+        "character_name": character_name,
+        "voice": voice.strip(),
+        "duration_seconds": duration,
+    }
+
+
 async def execute_video_task(
     project_name: str,
     resource_id: str,
@@ -776,15 +910,22 @@ async def execute_video_task(
         _items, _id_field, _, _, _ = get_storyboard_items(_script)
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
         _item = _resolved[0] if _resolved else {}
-        return _project, _project_path, _item
+        return (
+            _project,
+            _project_path,
+            _item,
+            resolve_content_mode(_script, _project),
+        )
 
-    project, project_path, item = await asyncio.to_thread(_load)
+    project, project_path, item, content_mode = await asyncio.to_thread(_load)
+    # lane 归桶按项目路线求值，与提交入口（``generate_video``）同源：入口挡掉参考路线后
+    # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免路线口径分叉。
     ctx = await resolve_generation_context(
         project_name,
         payload,
         project=project,
         user_id=user_id,
-        video=VideoLaneRequest(),
+        video=VideoLaneRequest(capability=video_bucket_for_generation_mode(project.get("generation_mode"))),
     )
     generator = ctx.generator
 
@@ -799,11 +940,26 @@ async def execute_video_task(
     if not storyboard_file.is_file():
         raise ValueError(f"storyboard not found: {storyboard_file.name}")
 
+    # Voice_Profiles 声明段唯一来源是下方 build_drama_video_prompt 的机械派生：调用方（WebUI
+    # 请求体 / 剧本 JSON 残留）自带的 voice_profiles 一律先剥离，不因 utterances 门控不触发
+    # （narration/ad、或 drama 无 utterances 的条目）而绕过 C 类（真无声）门控直达 YAML。
+    if isinstance(prompt, dict):
+        prompt = strip_voice_profiles(prompt)
+
     # drama 口型台词单一真相源在场景级有序 utterances：从 dialogue-kind 条目取台词注入 video YAML
     # 的 dialogue 出口（覆盖 payload 里 drama 已不再携带的 video_prompt.dialogue）。narration / ad
     # 的 item 无 utterances 字段，payload.dialogue 原样透传；SDK 路径 prompt 已是渲染好的字符串、跳过。
-    if isinstance(item, dict) and "utterances" in item and isinstance(prompt, dict):
-        prompt = {**prompt, "dialogue": utterances_to_dialogue(item.get("utterances"))}
+    if isinstance(item, dict) and isinstance(prompt, dict) and content_mode == "drama":
+        # 无声（C 类模型不产音、或本集关闭音频）传 characters=None 即不注入 Voice_Profiles；
+        # 有音轨模型（含恒有声、开关不可控的 gemini-aistudio/grok）机械派生角色声音风格。
+        # 两条无声路径同口径，判据落在 VideoLaneResult.is_silent。台词不受影响、照常下发。
+        voice_characters = None if ctx.video.is_silent else (project.get("characters") or {})
+        if "utterances" in item:
+            prompt = build_drama_video_prompt(prompt, item.get("utterances"), characters=voice_characters)
+        else:
+            # utterances 迁移前的存量剧本：load_script 按原始 JSON 读盘不过 pydantic，不会
+            # 被 DramaScene._migrate_legacy 自动补齐，台词仍留在 video_prompt.dialogue。
+            prompt = build_drama_video_prompt_from_legacy_dialogue(prompt, characters=voice_characters)
 
     prompt_text = _normalize_video_prompt(prompt)
     aspect_ratio = get_aspect_ratio(project, "videos")
@@ -982,9 +1138,10 @@ async def execute_character_task(
     def _prepare_char():
         _project = get_project_manager().load_project(project_name)
         _project_path = get_project_manager().get_project_path(project_name)
-        if resource_id not in _project.get("characters", {}):
+        _char_key = resolve_asset_key(_project.get("characters"), resource_id)
+        if _char_key is None:
             raise ValueError(f"character not found: {resource_id}")
-        _char_data = _project["characters"][resource_id]
+        _char_data = _project["characters"][_char_key]
         _style = _project.get("style", "")
         _style_desc = _project.get("style_description", "")
         _full_prompt = build_character_prompt(resource_id, prompt, _style, _style_desc)
@@ -1023,7 +1180,10 @@ async def execute_character_task(
 
     def _finalize_char():
         def _set_character_sheet(p: dict) -> None:
-            p["characters"][resource_id]["character_sheet"] = sheet_path
+            key = resolve_asset_key(p.get("characters"), resource_id)
+            if key is None:
+                raise KeyError(f"角色 '{resource_id}' 不存在")
+            p["characters"][key]["character_sheet"] = sheet_path
 
         get_project_manager().update_project(project_name, _set_character_sheet)
         return generator.versions.get_versions("characters", resource_id)["versions"][-1]["created_at"]
@@ -1050,7 +1210,7 @@ _DESIGN_PROMPT_BUILDERS: dict[str, Any] = {
 
 def _collect_product_reference_images(project: dict, project_path: Path, resource_id: str) -> list[Path] | None:
     """产品原图（保真验收锚点）作为 sheet 标准化整理的参考输入；缺失文件跳过。"""
-    entry = (project.get("products") or {}).get(resource_id) or {}
+    entry = normalize_asset_bucket(project.get("products")).get(normalize_asset_name(resource_id)) or {}
     refs = entry.get("reference_images")
     if not isinstance(refs, list):
         return None
@@ -1216,12 +1376,9 @@ def _collect_grid_reference_images(
     scene_id_set = set(scene_ids)
     matched_items = [item for item in items if str(item.get(id_field, "")) in scene_id_set]
 
-    characters = project.get("characters")
-    characters = characters if isinstance(characters, dict) else {}
-    project_scenes = project.get("scenes")
-    project_scenes = project_scenes if isinstance(project_scenes, dict) else {}
-    project_props = project.get("props")
-    project_props = project_props if isinstance(project_props, dict) else {}
+    characters = normalize_asset_bucket(project.get("characters"))
+    project_scenes = normalize_asset_bucket(project.get("scenes"))
+    project_props = normalize_asset_bucket(project.get("props"))
 
     seen: set[str] = set()
     paths: list[Path] = []
@@ -1232,7 +1389,7 @@ def _collect_grid_reference_images(
         for char_name in item.get(char_field) or []:
             if not isinstance(char_name, str):
                 continue
-            char_data = characters.get(char_name)
+            char_data = characters.get(normalize_asset_name(char_name))
             sheet = char_data.get("character_sheet") if isinstance(char_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet
@@ -1243,7 +1400,7 @@ def _collect_grid_reference_images(
         for scene_name in item.get(scene_field) or []:
             if not isinstance(scene_name, str):
                 continue
-            scene_data = project_scenes.get(scene_name)
+            scene_data = project_scenes.get(normalize_asset_name(scene_name))
             sheet = scene_data.get("scene_sheet") if isinstance(scene_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet
@@ -1254,7 +1411,7 @@ def _collect_grid_reference_images(
         for prop_name in item.get(prop_field) or []:
             if not isinstance(prop_name, str):
                 continue
-            prop_data = project_props.get(prop_name)
+            prop_data = project_props.get(normalize_asset_name(prop_name))
             sheet = prop_data.get("prop_sheet") if isinstance(prop_data, dict) else None
             if isinstance(sheet, str) and sheet and sheet not in seen:
                 p = project_path / sheet
@@ -1485,6 +1642,7 @@ _TASK_EXECUTORS = {
     "storyboard": execute_storyboard_task,
     "video": execute_video_task,
     "tts": execute_tts_task,
+    "voice_sample": execute_character_voice_sample_task,
     "character": execute_character_task,
     "scene": execute_scene_task,
     "prop": execute_prop_task,

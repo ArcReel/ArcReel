@@ -4,7 +4,11 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
+
 from lib.project_manager import ProjectManager
+
+pytestmark = pytest.mark.unit
 
 
 def _make_project(tmp_path: Path, characters: dict) -> str:

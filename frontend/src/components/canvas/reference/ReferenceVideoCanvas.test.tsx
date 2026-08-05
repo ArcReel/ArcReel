@@ -5,6 +5,7 @@ import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/referen
 import { useProjectsStore } from "@/stores/projects-store";
 import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
+import { useCostStore } from "@/stores/cost-store";
 import { API } from "@/api";
 import type { ReferenceVideoUnit } from "@/types";
 import type { ProjectData } from "@/types";
@@ -31,10 +32,9 @@ vi.mock("@/stores/tasks-store", async () => {
 function mkUnit(id: string, shotText = "x"): ReferenceVideoUnit {
   return {
     unit_id: id,
-    shots: [{ duration: 3, text: shotText }],
+    shots: [{ text: shotText }],
     references: [],
     duration_seconds: 3,
-    duration_override: false,
     transition_to_next: "cut",
     note: null,
     generated_assets: {
@@ -45,6 +45,7 @@ function mkUnit(id: string, shotText = "x"): ReferenceVideoUnit {
       video_clip: null,
       video_uri: null,
       status: "pending",
+      video_generated_at: null,
     },
   };
 }
@@ -113,13 +114,304 @@ describe("ReferenceVideoCanvas", () => {
     });
   });
 
+  // 解析预览与文稿共用编辑器列：切到解析视图时 textarea 让位给只读派生视图
+  it("switches the editor column between the script and its parse preview", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "镜头1：中景。")],
+    });
+    const previewSpy = vi.spyOn(API, "previewReferenceScript").mockResolvedValue({
+      shots: [{ index: 1, text: "中景。" }],
+      references: [],
+      utterances: [],
+      warnings: [{ key: "ref_warn_unregistered_mention", message: "@[王五] 未在角色/场景/道具中登记" }],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    await screen.findByRole("combobox");
+    fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
+
+    expect(screen.queryByRole("combobox")).toBeNull();
+    await waitFor(() => expect(previewSpy).toHaveBeenCalledWith("proj", 1, "镜头1：中景。", expect.anything()));
+    expect(await screen.findByText("@[王五] 未在角色/场景/道具中登记")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /^(Script|文稿)$/ }));
+    expect(await screen.findByRole("combobox")).toBeInTheDocument();
+  });
+
+  // 两个 tabpanel 同时刻只挂载一个，共用静态 id 会让未选中 tab 的 aria-controls
+  // 指向当前激活面板——而该面板的 aria-labelledby 归属对方 tab，读屏播报错位。
+  it("points each editor-view tab at its own panel", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "镜头1：中景。")],
+    });
+    vi.spyOn(API, "previewReferenceScript").mockResolvedValue({
+      shots: [{ index: 1, text: "中景。" }],
+      references: [],
+      utterances: [],
+      warnings: [],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    const scriptTab = await screen.findByRole("tab", { name: /^(Script|文稿)$/ });
+    const parseTab = screen.getByRole("tab", { name: /Parse preview|解析预览/ });
+    const scriptControls = scriptTab.getAttribute("aria-controls");
+    const parseControls = parseTab.getAttribute("aria-controls");
+    expect(scriptControls).not.toBe(parseControls);
+
+    // 每个 tab 指向的面板，其 aria-labelledby 必须指回该 tab 自身
+    const scriptPanel = screen.getByRole("tabpanel");
+    expect(scriptPanel.id).toBe(scriptControls);
+    expect(scriptPanel.getAttribute("aria-labelledby")).toBe(scriptTab.id);
+
+    fireEvent.click(parseTab);
+    const parsePanel = await screen.findByRole("tabpanel");
+    expect(parsePanel.id).toBe(parseControls);
+    expect(parsePanel.getAttribute("aria-labelledby")).toBe(parseTab.id);
+    // 解析预览只读、无可聚焦后代：面板自身须能接焦点，否则键盘用户翻不到折线以下的内容
+    expect(parsePanel).toHaveAttribute("tabindex", "0");
+  });
+
+  // 同名同时落在 characters 与 props 时，后端 resolve_references 判 character；
+  // 预览着色若反着来，规范台词行的说话人会被标成未登记角色。
+  it("resolves a name shared by two asset buckets the way the backend does", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...STUB_PROJECT,
+        characters: { 张三: { description: "" } },
+        props: { 张三: { description: "" } },
+      } as ProjectData,
+    });
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "@[张三]：{我来了}")],
+    });
+    vi.spyOn(API, "previewReferenceScript").mockResolvedValue({
+      shots: [{ index: 1, text: "@[张三]：{我来了}" }],
+      references: [],
+      utterances: [{ shot_index: 1, kind: "dialogue", speaker: "张三", text: "我来了" }],
+      warnings: [],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    await screen.findByRole("combobox");
+    fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
+
+    const speaker = (await screen.findAllByText("张三"))[0];
+    // character = sky；被 props 覆盖会渲染成 amber，被判未登记会渲染成 red
+    expect(speaker.className).toContain("sky");
+  });
+
+  // `out["__proto__"] = kind` 在普通对象上走继承的 setter、不落自有属性，
+  // 登记过的 `__proto__` 角色会在高亮里显示成未登记（后端照常解析）
+  it("resolves an asset named __proto__ in the highlight lookup", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...STUB_PROJECT,
+        // 计算键：字面量里的 `__proto__:` 是设原型的特例，不会建自有属性
+        characters: { ["__proto__"]: { description: "" } },
+      } as ProjectData,
+    });
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1", "镜头1：@[__proto__] 出场。")],
+    });
+    vi.spyOn(API, "previewReferenceScript").mockResolvedValue({
+      shots: [{ index: 1, text: "@[__proto__] 出场。" }],
+      references: [{ type: "character", name: "__proto__" }],
+      utterances: [],
+      warnings: [],
+    });
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+    await screen.findByRole("combobox");
+    fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
+
+    // 只看解析预览面板内的高亮，避开单元列表卡片里的同名文本
+    const panel = await screen.findByRole("tabpanel");
+    const mention = (await within(panel).findAllByText(/__proto__/)).find((el) =>
+      el.className.includes("sky"),
+    );
+    expect(mention).toBeDefined();
+  });
+
   it("renders the ReferenceVideoCard textarea once auto-selected", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1")],
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     const ta = await screen.findByRole("combobox");
-    expect((ta as HTMLTextAreaElement).value).toContain("Shot 1 (3s): x");
+    expect((ta as HTMLTextAreaElement).value).toContain("x");
+  });
+
+  // chip 操作（拖拽/移除/新增）与未保存文本编辑交错时，原子 flush 按新草稿重新派生
+  // references：仅作说话人的角色被剔除，其余条目沿用 chip 操作请求的顺序而非按
+  // 文本中的提及顺序重排。
+  it("re-derives references from the pending draft on a chip flush, keeping the chip-requested order", async () => {
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...STUB_PROJECT,
+        characters: { 张三: { description: "" }, 李四: { description: "" }, 王五: { description: "" } },
+      } as ProjectData,
+    });
+    const unit: ReferenceVideoUnit = {
+      ...mkUnit("E1U1", "@[张三] 和 @[李四] 和 @[王五] 出现。"),
+      // 保存时的 chip 顺序刻意与文本中的提及顺序（张三→李四→王五）相反，
+      // 用来区分「保留 chip 顺序」与「按提及顺序重排」两种可能实现。
+      references: [
+        { type: "character", name: "王五" },
+        { type: "character", name: "李四" },
+        { type: "character", name: "张三" },
+      ],
+    };
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValue({ unit: { ...unit, references: [] } });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    const ta = await screen.findByRole("combobox");
+
+    // 未保存的文本编辑：张三改为仅作说话人（规范台词行），派生规则下不应再进 references。
+    fireEvent.change(ta, {
+      target: { value: "@[李四] 和 @[王五] 在场。\n@[张三]：{你好}" },
+    });
+
+    // 交错的 chip 操作：移除与说话人变更无关的王五 chip。移除请求本身不涉及张三——
+    // 不按新草稿重新派生的话，张三会残留在落盘 references 里；
+    // 重新派生后张三应被剔除，王五因仍被文本提及而补回，且顺序沿用 chip 侧剩余顺序
+    // （李四、王五），而非文本中的提及顺序（王五、李四）。
+    fireEvent.click(
+      screen.getByRole("button", { name: /Remove reference @王五|移除引用 @王五/ }),
+    );
+
+    await waitFor(() => expect(patchSpy).toHaveBeenCalled());
+    expect(patchSpy).toHaveBeenCalledWith("proj", 1, "E1U1", {
+      prompt: "@[李四] 和 @[王五] 在场。\n@[张三]：{你好}",
+      references: [
+        { type: "character", name: "李四" },
+        { type: "character", name: "王五" },
+      ],
+    });
+  });
+
+  it("removes both NFC and NFD forms of the same asset when its chip is removed", async () => {
+    // 存量 references 可能同时含同一资产的 NFC/NFD 两条等价记录；删除按归一后比对，
+    // 一次移除即清干净，不留一条肉眼相同、按字节不同的残余 chip。
+    const nameNfc = "Hiếu".normalize("NFC");
+    const nameNfd = "Hiếu".normalize("NFD");
+    expect(nameNfc).not.toBe(nameNfd);
+    useProjectsStore.setState({
+      currentProjectName: "proj",
+      currentProjectData: {
+        ...STUB_PROJECT,
+        characters: { [nameNfd]: { description: "" } },
+      } as ProjectData,
+    });
+    const unit: ReferenceVideoUnit = {
+      ...mkUnit("E1U1", "推门。"),
+      references: [
+        { type: "character", name: nameNfc },
+        { type: "character", name: nameNfd },
+      ],
+    };
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValue({ unit: { ...unit, references: [] } });
+
+    render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    const removeButtons = await screen.findAllByRole("button", {
+      name: /Remove reference|移除引用/,
+    });
+    expect(removeButtons).toHaveLength(2);
+    fireEvent.click(removeButtons[0]);
+
+    await waitFor(() => expect(patchSpy).toHaveBeenCalled());
+    expect(patchSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { references: [] });
+  });
+
+  // 时长是 unit 级单一真相：下拉档位来自模型能力声明，选中即单独 PATCH（不牵连正文草稿）
+  it("renders the unit duration dropdown from the model's declared slots and patches on change", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    const patchSpy = vi
+      .spyOn(API, "patchReferenceVideoUnit")
+      .mockResolvedValue({ unit: { ...mkUnit("E1U1"), duration_seconds: 8 } });
+    render(
+      <ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[3, 8]} durationOptionsNoReference={[3, 8]} />,
+    );
+    const select = (await screen.findByRole("combobox", {
+      name: /Duration|时长/,
+    })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "8"]);
+    fireEvent.change(select, { target: { value: "8" } });
+    await waitFor(() =>
+      expect(patchSpy).toHaveBeenCalledWith("proj", 1, "E1U1", { duration_seconds: 8 }),
+    );
+  });
+
+  // 参考视频按申请秒数计价：改档位即改估价，而落盘广播的 reference_unit:updated 不在
+  // SSE 的生成动作白名单内，费用面板只能靠这里主动重拉，否则一直显示旧价。
+  it("refreshes cost estimates after a duration patch succeeds", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    vi.spyOn(API, "patchReferenceVideoUnit").mockResolvedValue({
+      unit: { ...mkUnit("E1U1"), duration_seconds: 8 },
+    });
+    const fetchSpy = vi.spyOn(useCostStore.getState(), "debouncedFetch").mockImplementation(() => {});
+    render(
+      <ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[3, 8]} durationOptionsNoReference={[3, 8]} />,
+    );
+    const select = await screen.findByRole("combobox", { name: /Duration|时长/ });
+    fireEvent.change(select, { target: { value: "8" } });
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith("proj"));
+  });
+
+  // 换模型后档位收窄，已保存的越界秒数仍要留在选项里，否则下拉会把它静默改写
+  it("keeps an out-of-slot saved duration as an option", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")] });
+    render(
+      <ReferenceVideoCanvas projectName="proj" episode={1} durationOptions={[4, 8]} durationOptionsNoReference={[4, 8]} />,
+    );
+    const select = (await screen.findByRole("combobox", {
+      name: /Duration|时长/,
+    })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "4", "8"]);
+    expect(select.value).toBe("3");
+  });
+
+  // 参考图约束按 unit 生效：不带 references 的 unit 不应因同集内其它带图 unit 而被收窄。
+  it("offers the no-reference tier set for a unit without references", async () => {
+    const unit = mkUnit("E1U1");
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    render(
+      <ReferenceVideoCanvas
+        projectName="proj"
+        episode={1}
+        durationOptions={[8]}
+        durationOptionsNoReference={[4, 8]}
+      />,
+    );
+    const select = (await screen.findByRole("combobox", {
+      name: /Duration|时长/,
+    })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "4", "8"]);
+  });
+
+  it("offers the reference-narrowed tier set for a unit with references", async () => {
+    const unit = { ...mkUnit("E1U1"), references: [{ type: "character" as const, name: "王" }] };
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit] });
+    render(
+      <ReferenceVideoCanvas
+        projectName="proj"
+        episode={1}
+        durationOptions={[8]}
+        durationOptionsNoReference={[4, 8]}
+      />,
+    );
+    const select = (await screen.findByRole("combobox", {
+      name: /Duration|时长/,
+    })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(["3", "8"]);
   });
 
   it("remounts the card so textarea shows the new unit's prompt when selection changes", async () => {
@@ -190,8 +482,8 @@ describe("ReferenceVideoCanvas", () => {
   });
 
   // preproc 入口从二级页面跳转改为主 tab 切换；切到拆分预处理 tab 后 UnitList 被隐藏，
-  // step1 审核 gate（ScriptReviewGate，contentMode=reference_video）inline 渲染。
-  it("inline-renders the step1 review gate via the main tab", async () => {
+  // step1 按集预览面板（ReferenceStep1PreviewPanel）inline 渲染。
+  it("inline-renders the step1 preview panel via the main tab", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
       units: [mkUnit("E1U1"), mkUnit("E1U2")],
     });
@@ -201,20 +493,23 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
-      content: { units: [{ unit_id: "E1U1", shots: [{ duration: 3, text: "shot text" }], references: [] }] },
+      quarantine: null,
+      supported_durations: null,
+      duration_tiers: null,
+      content: { units: [{ unit_id: "E1U1", shots: [{ text: "shot text" }], references: [], duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
     await waitFor(() => expect(screen.getByTestId("unit-row-E1U1")).toBeInTheDocument());
     const preprocTab = screen.getByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
     fireEvent.click(preprocTab);
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
-    // UnitList 被隐藏，改由 gate 渲染 step1 结构化中间态（shot 文本进入可编辑 textarea）
+    // UnitList 被隐藏，改由预览面板渲染 step1 结构化中间态（只读高亮文稿）
     expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByDisplayValue("shot text")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("shot text")).toBeInTheDocument());
   });
 
   // step2 剧本未生成时（仅 segmented）units 端点无脚本可拆、会 404：默认落 preproc tab
-  // 且不发起 units 请求，避免用户先看到一个报错的 Unit 面板（回归 Codex P2）。
+  // 且不发起 units 请求，避免用户先看到一个报错的 Unit 面板。
   it("defaults to preproc tab and skips loadUnits when hasScript is false", async () => {
     const listSpy = vi.spyOn(API, "listReferenceVideoUnits");
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
@@ -223,12 +518,15 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
-      content: { units: [{ unit_id: "E1U1", shots: [{ duration: 3, text: "shot text" }], references: [] }] },
+      quarantine: null,
+      supported_durations: null,
+      duration_tiers: null,
+      content: { units: [{ unit_id: "E1U1", shots: [{ text: "shot text" }], references: [], duration_seconds: 5, source_text: "" }] },
     });
     render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
     const preprocTab = await screen.findByRole("tab", { name: /Splitting preprocess|拆分预处理/ });
     expect(preprocTab).toHaveAttribute("aria-selected", "true");
-    await waitFor(() => expect(screen.getByDisplayValue("shot text")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("shot text")).toBeInTheDocument());
     expect(listSpy).not.toHaveBeenCalled();
   });
 
@@ -240,6 +538,9 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
+      quarantine: null,
+      supported_durations: null,
+      duration_tiers: null,
       content: { units: [] },
     });
     const { rerender } = render(<ReferenceVideoCanvas projectName="proj" episode={1} hasScript={false} />);
@@ -313,7 +614,7 @@ describe("ReferenceVideoCanvas", () => {
       expect(screen.getByRole("button", { name: /Generating|生成中/ })).toBeDisabled();
     });
     // 旧任务行仍是 failed，statusMap 未变；预览区不能同时叠出「生成中」占位与
-    // 旧失败覆盖层——inFlight 应压过 failed 的展示（回归 Codex P2）。
+    // 失败覆盖层——inFlight 展示应覆盖 failed 状态。
     expect(screen.queryByText(/Generation failed|生成失败/)).not.toBeInTheDocument();
     resolveGen({ task_id: "t2", deduped: false });
 
@@ -874,5 +1175,80 @@ describe("ReferenceVideoCanvas", () => {
     });
 
     await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
+  });
+
+  describe("存量声音过渡横幅", () => {
+    const VOICE_UPDATED_AT = "2026-06-01T00:00:00+00:00";
+
+    /** 一个已完成、且生成于当前声音设置之前的片段 */
+    function staleUnit(): ReferenceVideoUnit {
+      const u = mkUnit("E1U1");
+      u.references = [{ type: "character", name: "王" }];
+      u.generated_assets = { ...u.generated_assets, status: "completed", video_generated_at: null };
+      return u;
+    }
+
+    function mountWithStaleClip() {
+      useProjectsStore.setState({
+        currentProjectName: "proj",
+        currentProjectData: {
+          ...STUB_PROJECT,
+          characters: { 王: { description: "", voice_updated_at: VOICE_UPDATED_AT } },
+        },
+        refreshProject: vi.fn().mockResolvedValue({ status: "ok" }),
+      } as never);
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [staleUnit()] });
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+    }
+
+    it("关闭时写回角色自己的 voice_updated_at，而不是本机当前时间", async () => {
+      // 客户端时钟可能落后于服务端；写本机时间会让「关闭后不再出现」在偏差下永久失效。
+      const patch = vi.spyOn(API, "updateCharacter").mockResolvedValue({} as never);
+      mountWithStaleClip();
+
+      const dismiss = await screen.findByRole("button", { name: /Got it|知道了/ });
+      fireEvent.click(dismiss);
+
+      await waitFor(() =>
+        expect(patch).toHaveBeenCalledWith("proj", "王", { voice_notice_dismissed_at: VOICE_UPDATED_AT }),
+      );
+    });
+
+    it("关闭请求失败时提示用户，不静默留下未关闭的横幅", async () => {
+      vi.spyOn(API, "updateCharacter").mockRejectedValue(new Error("boom"));
+      mountWithStaleClip();
+
+      const dismiss = await screen.findByRole("button", { name: /Got it|知道了/ });
+      fireEvent.click(dismiss);
+
+      await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("error"));
+    });
+
+    it("PATCH 成功但 refreshProject 失败时仍提示用户，不静默吞掉", async () => {
+      // refreshProject 失败时 resolve "failed" 而非 reject——只 await 不检查结果/传
+      // onError 会让这次失败在 UI 上完全无感知。
+      vi.spyOn(API, "updateCharacter").mockResolvedValue({} as never);
+      const refreshProject = vi.fn(
+        (_name: string, options?: { onError?: (err: unknown) => void }): Promise<string> => {
+          options?.onError?.(new Error("network down"));
+          return Promise.resolve("failed");
+        },
+      );
+      useProjectsStore.setState({
+        currentProjectName: "proj",
+        currentProjectData: {
+          ...STUB_PROJECT,
+          characters: { 王: { description: "", voice_updated_at: VOICE_UPDATED_AT } },
+        },
+        refreshProject,
+      } as never);
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [staleUnit()] });
+      render(<ReferenceVideoCanvas projectName="proj" episode={1} />);
+
+      const dismiss = await screen.findByRole("button", { name: /Got it|知道了/ });
+      fireEvent.click(dismiss);
+
+      await waitFor(() => expect(useAppStore.getState().toast?.tone).toBe("error"));
+    });
   });
 });

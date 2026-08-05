@@ -72,12 +72,12 @@ def _drama(scenes: list[dict] | None = None) -> dict:
 
 
 def _unit(unit_id: str = "E1U1", shots: list[dict] | None = None) -> dict:
-    shots = shots if shots is not None else [{"duration": 3, "text": "镜头1"}, {"duration": 4, "text": "镜头2"}]
+    shots = shots if shots is not None else [{"text": "镜头1"}, {"text": "镜头2"}]
     return {
         "unit_id": unit_id,
         "shots": shots,
         "references": [],
-        "duration_seconds": sum(s["duration"] for s in shots),
+        "duration_seconds": 8,
         "transition_to_next": "cut",  # 对齐 Pydantic 默认；剧本经 model_dump 后该字段总会出现
         "generated_assets": {"video_clip": "scripts/z.mp4"},
     }
@@ -96,29 +96,34 @@ def _reference(units: list[dict] | None = None) -> dict:
 
 
 class TestResolveItems:
+    @pytest.mark.unit
     def test_narration(self):
         items, id_field, kind = resolve_items(_narration())
         assert id_field == "segment_id"
         assert kind == "segments"
         assert len(items) == 2
 
+    @pytest.mark.unit
     def test_returned_list_is_live_reference(self):
         script = _narration()
         items, _id, _kind = resolve_items(script)
         items.append(_segment("E1S03"))
         assert len(script["segments"]) == 3
 
+    @pytest.mark.unit
     def test_missing_key_is_empty_list(self):
         # 内容数组键缺失 → 空列表（合法的「空草稿」），不报错
         items, _id, kind = resolve_items({"content_mode": "narration"})
         assert kind == "segments"
         assert items == []
 
+    @pytest.mark.unit
     def test_non_list_items_fail_loud(self):
         # 键存在但类型非 list（数据损坏）→ fail-loud，而非静默降级为 []
         with pytest.raises(ScriptEditError):
             resolve_items({"content_mode": "narration", "segments": "oops"})
 
+    @pytest.mark.unit
     def test_present_but_null_fails_loud(self):
         # 键存在但值为 null（损坏数据）→ fail-loud，不与「键缺失」混为空草稿
         with pytest.raises(ScriptEditError):
@@ -126,22 +131,27 @@ class TestResolveItems:
 
 
 class TestPatchField:
+    @pytest.mark.unit
     def test_patch_top_level_field(self):
         script = patch_field(_narration(), "E1S02", "duration_seconds", 9)
         assert script["segments"][1]["duration_seconds"] == 9
 
+    @pytest.mark.unit
     def test_patch_nested_field(self):
         script = patch_field(_narration(), "E1S01", "image_prompt.scene", "新场景")
         assert script["segments"][0]["image_prompt"]["scene"] == "新场景"
 
+    @pytest.mark.unit
     def test_patch_drama_by_scene_id(self):
         script = patch_field(_drama(), "E1S02", "scene_type", "空镜")
         assert script["scenes"][1]["scene_type"] == "空镜"
 
+    @pytest.mark.unit
     def test_patch_reference_unit_field(self):
         script = patch_field(_reference(), "E1U2", "transition_to_next", "fade")
         assert script["video_units"][1]["transition_to_next"] == "fade"
 
+    @pytest.mark.unit
     def test_patch_unknown_leaf_field_succeeds_at_set_nested_layer(self):
         # _set_nested 单元层面允许叶子写入——dict 操作不查 schema。
         # 但这里写的是 video_prompt.note(VideoPrompt 实际无 note 字段),
@@ -151,6 +161,7 @@ class TestPatchField:
         script = patch_field(_narration(), "E1S01", "video_prompt.note", "新增备注")
         assert script["segments"][0]["video_prompt"]["note"] == "新增备注"
 
+    @pytest.mark.unit
     def test_patch_optional_leaf_present_in_schema_succeeds(self):
         # 合法的「补 LLM 漏写的 optional 字段」:NarrationSegment.note 是 schema 内的
         # SkipJsonSchema[str | None] 字段,允许通过 patch 补;此路径既在 _set_nested
@@ -164,14 +175,17 @@ class TestPatchField:
         script = patch_field(script, "E1S01", "note", "补全的备注")
         assert script["segments"][0]["note"] == "补全的备注"
 
+    @pytest.mark.unit
     def test_patch_unknown_id_raises(self):
         with pytest.raises(ScriptEditError):
             patch_field(_narration(), "E9S99", "duration_seconds", 9)
 
+    @pytest.mark.unit
     def test_patch_generated_assets_rejected(self):
         with pytest.raises(ScriptEditError):
             patch_field(_narration(), "E1S01", "generated_assets.status", "completed")
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("id_field", ["segment_id", "scene_id", "unit_id"])
     def test_patch_id_field_rejected(self, id_field):
         # 三类 id 字段（segment/scene/unit）均不可直改：id 由 insert/split 派生，agent 改 id
@@ -186,21 +200,25 @@ class TestPatchField:
         with pytest.raises(ScriptEditError, match="不可改 end_frame_image"):
             patch_field(_narration(), "E1S01", "end_frame_image", "../../../etc/passwd")
 
+    @pytest.mark.unit
     def test_patch_does_not_touch_generated_assets(self):
         script = patch_field(_narration(), "E1S01", "duration_seconds", 7)
         assert script["segments"][0]["generated_assets"]["status"] == "completed"
 
+    @pytest.mark.unit
     def test_patch_missing_parent_path_raises(self):
         with pytest.raises(ScriptEditError):
             patch_field(_narration(), "E1S01", "no_such.deep", 1)
 
 
 class TestInsertSegment:
+    @pytest.mark.unit
     def test_insert_after_assigns_unique_suffixed_id_at_right_position(self):
         script = insert_segment(_narration(), "E1S01", _segment("IGNORED"))
         ids = [s["segment_id"] for s in script["segments"]]
         assert ids == ["E1S01", "E1S01_1", "E1S02"]
 
+    @pytest.mark.unit
     def test_insert_clears_generated_assets(self):
         script = insert_segment(_narration(), "E1S01", _segment("X"))
         assert script["segments"][1]["generated_assets"] == {}
@@ -212,12 +230,14 @@ class TestInsertSegment:
         script = insert_segment(_narration(), "E1S01", new_item)
         assert script["segments"][1].get("end_frame_image") is None
 
+    @pytest.mark.unit
     def test_insert_id_avoids_collision(self):
         seg = _segment("E1S01_1")
         script = insert_segment(_narration([_segment("E1S01"), seg]), "E1S01", _segment("X"))
         ids = [s["segment_id"] for s in script["segments"]]
         assert ids == ["E1S01", "E1S01_2", "E1S01_1"]
 
+    @pytest.mark.unit
     def test_insert_anchor_already_suffixed_flattens_subindex(self):
         # 锚点本身已含子序号（E1S01_1）→ 新 id 取 stem `E1S01` + 下一个空闲子序号，
         # 不产生 `E1S01_1_1` 这种多层后缀（违反 data_validator.ID_PATTERN）。
@@ -226,10 +246,12 @@ class TestInsertSegment:
         # 跳过已占用的 E1S01_1，得到 E1S01_2，仍是合法单层后缀
         assert ids == ["E1S01", "E1S01_1", "E1S01_2"]
 
+    @pytest.mark.unit
     def test_insert_unknown_anchor_raises(self):
         with pytest.raises(ScriptEditError):
             insert_segment(_narration(), "E9S99", _segment("X"))
 
+    @pytest.mark.unit
     def test_insert_reference_unit(self):
         script = insert_segment(_reference(), "E1U1", _unit("X"))
         ids = [u["unit_id"] for u in script["video_units"]]
@@ -237,26 +259,31 @@ class TestInsertSegment:
 
 
 class TestRemoveSegment:
+    @pytest.mark.unit
     def test_remove_by_id(self):
         script = remove_segment(_narration(), "E1S01")
         assert [s["segment_id"] for s in script["segments"]] == ["E1S02"]
 
+    @pytest.mark.unit
     def test_remove_does_not_renumber_others(self):
         script = remove_segment(_narration([_segment("E1S01"), _segment("E1S02"), _segment("E1S03")]), "E1S02")
         assert [s["segment_id"] for s in script["segments"]] == ["E1S01", "E1S03"]
 
+    @pytest.mark.unit
     def test_remove_unknown_id_raises(self):
         with pytest.raises(ScriptEditError):
             remove_segment(_narration(), "E9S99")
 
 
 class TestSplitSegment:
+    @pytest.mark.unit
     def test_split_keeps_first_id_and_suffixes_rest(self):
         parts = [_segment("a"), _segment("b"), _segment("c")]
         script = split_segment(_narration(), "E1S01", parts)
         ids = [s["segment_id"] for s in script["segments"]]
         assert ids == ["E1S01", "E1S01_1", "E1S01_2", "E1S02"]
 
+    @pytest.mark.unit
     def test_split_keeps_anchor_assets_clears_new_parts(self):
         # 锚点(parts[0],保留原 id)的 generated_assets 不动,与 insert_segment 的「锚点资产
         # 不动」语义对齐;其余 parts(新派生 id)清空 generated_assets 退回 pending 待重生。
@@ -284,14 +311,17 @@ class TestSplitSegment:
         script = split_segment(_narration(), "E1S01", parts)
         assert script["segments"][0].get("end_frame_image") is None
 
+    @pytest.mark.unit
     def test_split_requires_at_least_two_parts(self):
         with pytest.raises(ScriptEditError):
             split_segment(_narration(), "E1S01", [_segment("a")])
 
+    @pytest.mark.unit
     def test_split_unknown_id_raises(self):
         with pytest.raises(ScriptEditError):
             split_segment(_narration(), "E9S99", [_segment("a"), _segment("b")])
 
+    @pytest.mark.unit
     def test_split_reference_units_act_on_video_units(self):
         anchor_assets = _reference()["video_units"][0]["generated_assets"]
         script = split_segment(_reference(), "E1U1", [_unit("a"), _unit("b")])
@@ -301,6 +331,7 @@ class TestSplitSegment:
         assert script["video_units"][0]["generated_assets"] == anchor_assets
         assert script["video_units"][1]["generated_assets"] == {}
 
+    @pytest.mark.unit
     def test_split_warns_when_anchor_assets_dirty_non_dict(self, caplog):
         """锚点 generated_assets 形态异常(非 dict 的脏数据)时退化为空 dict,
         但必须 warning——符合 ADR-0003 增补「禁止零信号成功」原则。anchor_assets is None
@@ -317,6 +348,7 @@ class TestSplitSegment:
         warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any("E1S01" in m and "list" in m for m in warnings), warnings
 
+    @pytest.mark.unit
     def test_split_no_warn_when_anchor_assets_none(self, caplog):
         """anchor generated_assets is None / 缺失是合法初始态(未生成),不应 warning。"""
         import logging

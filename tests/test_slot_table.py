@@ -6,7 +6,11 @@ occupied_providers / find_by_task。用 ``loop.create_future()`` 造 dummy 执�
 
 import asyncio
 
+import pytest
+
 from lib.generation_worker import SlotTable
+
+pytestmark = pytest.mark.unit
 
 
 def _pending_future() -> asyncio.Future:

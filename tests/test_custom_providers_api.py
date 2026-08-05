@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Generator
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,6 +22,9 @@ from lib.db.base import Base
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import custom_providers
+from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -53,7 +57,7 @@ def app(session_factory) -> FastAPI:
 
     _app.dependency_overrides[get_async_session] = _override_session
     _app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="test", sub="test", role="admin")
-    _app.include_router(custom_providers.router, prefix="/api/v1")
+    _app.include_router(custom_providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(_app)
     return _app
 
@@ -879,6 +883,70 @@ class TestReplaceModelsCleansStaleRefs:
 
         # gpt-4o 被删除，引用它的全局配置应被清空
         assert await svc.get_setting("default_text_backend", "") == ""
+
+
+class TestGlobalBucketRefsHint:
+    """回归: 能力编辑响应应非阻塞地提示模型正被哪些全局桶键引用。"""
+
+    async def test_referenced_model_lists_global_keys(self, client: TestClient, session: AsyncSession):
+        resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+        pid = resp.json()["id"]
+
+        svc = ConfigService(session)
+        await svc.set_setting("default_text_backend", f"custom-{pid}/gpt-4o")
+        await svc.set_setting("default_video_backend_i2v", f"custom-{pid}/gpt-4o")
+        await session.commit()
+
+        get_resp = client.get(f"/api/v1/custom-providers/{pid}")
+        assert get_resp.status_code == 200
+        models = {m["model_id"]: m for m in get_resp.json()["models"]}
+        assert set(models["gpt-4o"]["global_bucket_refs"]) == {"default_text_backend", "default_video_backend_i2v"}
+        # 未被引用的模型不带提示
+        assert models["dall-e-3"]["global_bucket_refs"] is None
+
+    async def test_unreferenced_models_have_no_hint(self, client: TestClient):
+        resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+        pid = resp.json()["id"]
+
+        get_resp = client.get(f"/api/v1/custom-providers/{pid}")
+        for m in get_resp.json()["models"]:
+            assert m["global_bucket_refs"] is None
+
+    async def test_save_not_blocked_when_referenced(self, client: TestClient, session: AsyncSession):
+        """提示不阻塞保存：被全局桶引用的模型仍可正常被替换/删除。"""
+        resp = client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+        pid = resp.json()["id"]
+
+        svc = ConfigService(session)
+        await svc.set_setting("default_video_backend_i2v", f"custom-{pid}/gpt-4o")
+        await session.commit()
+
+        with patch("server.routers.custom_providers._invalidate_caches", new_callable=AsyncMock):
+            replace_resp = client.put(
+                f"/api/v1/custom-providers/{pid}/models",
+                json={
+                    "models": [
+                        {
+                            "model_id": "gpt-4o",
+                            "display_name": "GPT-4o",
+                            "endpoint": "openai-chat",
+                            "is_default": True,
+                            "is_enabled": True,
+                        },
+                    ]
+                },
+            )
+        assert replace_resp.status_code == 200
+        assert replace_resp.json()[0]["global_bucket_refs"] == ["default_video_backend_i2v"]
+
+    def test_global_bucket_keys_have_i18n_labels(self):
+        """每个提示键都须有三语文案：前端按 `global_bucket_label_<key>` 动态取词，缺文案会把
+        原始 key 渲染给用户，而 zh/en/vi 三语一致性检查只比对彼此、看不见后端新增的键。"""
+        i18n_dir = Path(__file__).resolve().parents[1] / "frontend" / "src" / "i18n"
+        for locale in ("zh", "en", "vi"):
+            content = (i18n_dir / locale / "dashboard.ts").read_text(encoding="utf-8")
+            for key in custom_providers._GLOBAL_BUCKET_REFERENCE_KEYS:
+                assert f"'global_bucket_label_{key}'" in content, f"{locale} 缺 global_bucket_label_{key} 文案"
 
 
 class TestEmptyModelIdRejected:

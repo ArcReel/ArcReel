@@ -26,6 +26,7 @@ import type {
   ProjectDeletedPayload,
   GetSystemConfigResponse,
   GetSystemVersionResponse,
+  ModelCandidatesResponse,
   OnboardingStatus,
   SystemConfigPatch,
   ApiKeyInfo,
@@ -52,13 +53,14 @@ import type {
   AdShot,
   AdReferenceUnit,
   ReferenceDurationPrecheck,
+  ScriptPreview,
   ScriptReviewState,
   DramaNormalizedScript,
   NarrationStep1Draft,
   ReferenceStep1Draft,
   VideoCapabilities,
 } from "@/types";
-import type { GenerationMode } from "@/utils/generation-mode";
+import type { GenerationRoute } from "@/utils/generation-mode";
 import type { GridGeneration } from "@/types/grid";
 import type { Asset, AssetType, AssetCreatePayload, AssetUpdatePayload } from "@/types/asset";
 import type {
@@ -217,7 +219,10 @@ export interface CreateProjectPayload {
   /** 源文件性质：novel（默认）/ screenplay。仅 drama 暴露，创建即定、不可变。 */
   source_kind?: "novel" | "screenplay";
   aspect_ratio?: "9:16" | "16:9";
-  generation_mode?: GenerationMode;
+  /** 生成路线，创建时必填二选一、无默认值（后端缺失即 422）。 */
+  generation_mode: GenerationRoute;
+  /** 分镜板（宫格）装配开关，可随创建写入；仅分镜路线有意义。 */
+  grid_storyboard?: boolean;
   default_duration?: number | null;
   /** 仅 ad：目标总时长（秒），UI 四档 15/30/60/90。 */
   target_duration?: number;
@@ -226,8 +231,8 @@ export interface CreateProjectPayload {
   style_template_id?: string | null;
   video_backend?: string | null;
   image_backend?: string | null;
-  image_provider_t2i?: string | null;
-  image_provider_i2i?: string | null;
+  /** 项目默认图片模型。创建向导只暴露默认层（docs/adr/0054），能力桶留给项目设置页。 */
+  default_image_backend?: string | null;
   text_backend_simple?: string | null;
   text_backend_complex?: string | null;
   default_text_backend?: string | null;
@@ -437,6 +442,16 @@ class API {
     return this.request("/system/config");
   }
 
+  /**
+   * 能力桶下拉的候选数据源（docs/adr/0054）：默认层全量 + 每个桶按能力过滤后的模型列表。
+   * 与 getSystemConfig 的 options 同口径（同样剔除 hidden 模型），过滤只加在桶层。
+   */
+  static async getModelCandidates(
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ModelCandidatesResponse> {
+    return this.request("/system/config/model-candidates", { signal: options.signal });
+  }
+
   static async getSystemVersion(): Promise<GetSystemVersionResponse> {
     return this.request("/system/version");
   }
@@ -521,12 +536,24 @@ class API {
     });
   }
 
-  /** 三级解析（项目 > 系统设置 > 系统默认）后的视频模型能力。 */
+  /**
+   * 三级解析（项目 > 系统设置 > 系统默认）后的视频模型能力。
+   *
+   * `videoBackend`（"provider/model"）用于设置表单里尚未保存的候选模型：不传按已落盘配置
+   * 解析，传了则按该候选模型 × 本项目生效 generation_mode 解析。
+   *
+   * `episode` 用于按集查看的界面：生成模式可被单集覆盖，传集号则能力按该集生效模式解析，
+   * 与执行层同口径；不传只解析到项目级（设置页等无集号上下文的调用）。
+   */
   static async getVideoCapabilities(
     name: string,
-    options: { signal?: AbortSignal } = {}
+    options: { signal?: AbortSignal; videoBackend?: string; episode?: number } = {}
   ): Promise<VideoCapabilities> {
-    return this.request(`/projects/${encodeURIComponent(name)}/video-capabilities`, {
+    const params = new URLSearchParams();
+    if (options.videoBackend) params.set("video_backend", options.videoBackend);
+    if (options.episode !== undefined) params.set("episode", String(options.episode));
+    const qs = params.size > 0 ? `?${params.toString()}` : "";
+    return this.request(`/projects/${encodeURIComponent(name)}/video-capabilities${qs}`, {
       signal: options.signal,
     });
   }
@@ -844,21 +871,30 @@ class API {
   /** 读取该集 step1 结构化中间态 + 审核状态（供 web 渲染与编辑）。 */
   static async getScriptReview(
     projectName: string,
-    episode: number
+    episode: number,
+    options: { signal?: AbortSignal } = {}
   ): Promise<ScriptReviewState> {
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review`
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review`,
+      { signal: options.signal }
     );
   }
 
-  /** 保存手动 / agent 编辑后的结构化中间态，返回最新状态（重新待审）。 */
+  /** 保存手动 / agent 编辑后的结构化中间态，返回最新状态（重新待审）。
+   *
+   * `baseFingerprint` 传 GET 时拿到的内容指纹：编辑期间 step1 被另一写入方（如 agent 晋升）
+   * 改过时服务端 409 冲突、不落盘，避免静默覆盖对方的修改；不传则不比对。 */
   static async saveScriptReviewContent(
     projectName: string,
     episode: number,
-    content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft
+    content: DramaNormalizedScript | NarrationStep1Draft | ReferenceStep1Draft,
+    baseFingerprint?: string | null
   ): Promise<ScriptReviewState> {
+    const query = baseFingerprint
+      ? `?base_fingerprint=${encodeURIComponent(baseFingerprint)}`
+      : "";
     return this.request(
-      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/content`,
+      `/projects/${encodeURIComponent(projectName)}/episodes/${episode}/script-review/content${query}`,
       {
         method: "PUT",
         body: JSON.stringify(content),
@@ -1173,6 +1209,19 @@ class API {
     return response.json() as Promise<SuccessResponse>;
   }
 
+  /**
+   * 删除角色参考音频样本（清空字段并移除文件）
+   */
+  static async deleteCharacterReferenceAudio(
+    projectName: string,
+    characterName: string
+  ): Promise<SuccessResponse> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/characters/${encodeURIComponent(characterName)}/reference-audio`,
+      { method: "DELETE" }
+    );
+  }
+
   // ==================== 草稿文件管理 ====================
 
   /**
@@ -1346,6 +1395,67 @@ class API {
       {
         method: "POST",
         body: JSON.stringify({ script_file: scriptFile }),
+      }
+    );
+  }
+
+  /**
+   * 读取当前项目实际生效的 audio backend 音色枚举，供 TTS 试听弹窗选择音色。
+   * configured=false 表示未配置任何 audio 供应商，前端据此禁用生成入口。
+   * @param projectName - 项目名称
+   */
+  static async getAudioBackendVoices(
+    projectName: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<{
+    configured: boolean;
+    provider_id: string | null;
+    model: string | null;
+    voices: { id: string; label: string }[];
+  }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/audio-backend/voices`, {
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * 提交角色 TTS 试听样本生成任务（预览用，需再调用 confirmCharacterVoiceSample 才落资产）
+   * @param projectName - 项目名称
+   * @param charName - 角色名称
+   * @param text - 待合成文本
+   * @param voice - 音色 id
+   */
+  static async generateCharacterVoiceSample(
+    projectName: string,
+    charName: string,
+    text: string,
+    voice: string
+  ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/characters/${encodeURIComponent(charName)}/voice-sample`,
+      {
+        method: "POST",
+        body: JSON.stringify({ text, voice }),
+      }
+    );
+  }
+
+  /**
+   * 把已生成、已试听的 TTS 样本提升为角色 reference_audio
+   * @param projectName - 项目名称
+   * @param charName - 角色名称
+   * @param taskId - generateCharacterVoiceSample 返回的 task_id
+   */
+  static async confirmCharacterVoiceSample(
+    projectName: string,
+    charName: string,
+    taskId: string
+  ): Promise<{ success: boolean; path: string; url: string }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/characters/${encodeURIComponent(charName)}/voice-sample/confirm`,
+      {
+        method: "POST",
+        body: JSON.stringify({ task_id: taskId }),
       }
     );
   }
@@ -2352,6 +2462,24 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/duration-precheck`,
       { signal: options?.signal },
+    );
+  }
+
+  /**
+   * 分镜文稿的读时派生预览：shots / references / utterances + 降级可见性提示。
+   *
+   * 只读、不落盘——文稿是唯一真相。提示文本由后端按请求语言渲染（含依赖项目当前
+   * 视频模型能力的声音相关几条），前端不再二次翻译。
+   */
+  static async previewReferenceScript(
+    projectName: string,
+    episode: number,
+    prompt: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ScriptPreview> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/script-preview`,
+      { method: "POST", body: JSON.stringify({ prompt }), signal: options?.signal },
     );
   }
 
