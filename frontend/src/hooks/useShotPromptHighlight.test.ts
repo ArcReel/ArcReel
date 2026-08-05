@@ -134,8 +134,8 @@ describe("tokenizePrompt", () => {
 
   it("resolves a mention typed in NFD against a lookup already normalized to NFC by the caller", () => {
     // MentionLookup 的契约：caller 构建时先归一 key（见类型上方注释）。这里模拟 prompt 里的
-    // mention 文本本身是 NFD（输入法产出）——lookup 侧已是 NFC，两侧不同源，查询侧须归一
-    // 后再查，否则命中不了。
+    // mention 文本本身是 NFD（输入法产出）——lookup 侧已是 NFC，两侧不同源，靠解析器输出
+    // 规范形落到同一坐标系才命中。
     const nameNfc = "Hiếu".normalize("NFC");
     const nameNfd = "Hiếu".normalize("NFD");
     expect(nameNfc).not.toBe(nameNfd);
@@ -164,14 +164,22 @@ describe("toScriptLines shot attribution", () => {
     expect(lines.map((l) => l.shotIndex)).toEqual([1]);
   });
 
-  it("resolves a dialogue speaker typed in NFD against a lookup already normalized to NFC by the caller", () => {
+  it("emits a dialogue speaker typed in NFD as NFC and resolves it against the lookup", () => {
     const nameNfc = "Hiếu".normalize("NFC");
     const nameNfd = "Hiếu".normalize("NFD");
     expect(nameNfc).not.toBe(nameNfd);
     const lookup: MentionLookup = { [nameNfc]: "character" };
     const lines = toScriptLines(`@[${nameNfd}]：{我来了}`, lookup);
     expect(lines).toEqual([
-      { kind: "dialogue", shotIndex: 1, sourceLine: 0, speaker: nameNfd, speakerKind: "character", text: "我来了" },
+      { kind: "dialogue", shotIndex: 1, sourceLine: 0, speaker: nameNfc, speakerKind: "character", text: "我来了" },
+    ]);
+  });
+
+  it("resolves a BOM-laced speaker and renders the name without it", () => {
+    // 与后端 shot_parser 同口径：BOM 在解析入口去掉，说话人名与 lookup key 同坐标系
+    const lines = toScriptLines(`@[张${"\uFEFF"}三]：{我来了}`, LOOKUP);
+    expect(lines).toEqual([
+      { kind: "dialogue", shotIndex: 1, sourceLine: 0, speaker: "张三", speakerKind: "character", text: "我来了" },
     ]);
   });
 });

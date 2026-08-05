@@ -21,8 +21,35 @@ import type { AssetKind, ReferenceResource } from "@/types/reference-video";
  */
 export const MENTION_RE = /(?<!\w)@(?:\[([^\]\r\n]+)\]|([\w\u4e00-\u9fff]+))/g;
 
+/**
+ * BOM / ZWNBSP。镜像后端 `shot_parser._BOM`：正文里它没有语义，却让按字节走的判定分叉
+ * ——JS 的 `\s` 认它、Python 的 `str.strip()` 不认，带 BOM 的行在前端算规范台词行、在
+ * 后端算描述行，说话人是否进参考图两侧结论相反。
+ */
+const BOM_RE = /\uFEFF/gu;
+
+/**
+ * 书写层文本的入口归一：去掉全部 U+FEFF，并把编码形式收敛到 Unicode NFC。镜像后端
+ * `lib/reference_video/shot_parser.py::_normalize_source`——两条派生路径同口径。
+ *
+ * 两者同一性质：屏幕上看不见的字节差异，却让按字节走的判定分叉，故合并在一个入口处理。
+ * BOM 不止出现在文档开头，粘贴拼接会把它带到任意行首，而分叉是按行发生的；NFC 则是资产名
+ * 比对的坐标系（见 {@link normalizeAssetName}），正文以 NFD 书写、资产表以 NFC 登记时肉眼
+ * 同字却判不相等。
+ *
+ * 归一落在解析入口而非提取结果上：BOM 落在名字内部（`@[名<U+FEFF>称]`）时，逐名补归一修不了——
+ * 匹配已经按含 BOM 的字节做完了。
+ */
+function normalizeSource(text: string): string {
+  return text.replace(BOM_RE, "").normalize("NFC");
+}
+
+/**
+ * 从 mention 匹配取名字。归一在此完成而非交给调用方：高亮分词器（`tokenizePrompt`）要
+ * 逐字拼回原文、不能归一源文本，只有名字这一路出得来规范形。
+ */
 export function mentionNameFromMatch(match: RegExpMatchArray): string {
-  return match[1] ?? match[2] ?? "";
+  return normalizeSource(match[1] ?? match[2] ?? "");
 }
 
 /**
@@ -50,13 +77,14 @@ function hasSpokenText(text: string): boolean {
 export const LINE_BREAK_RE = /(\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029])/;
 
 /**
- * 按后端同一套换行边界切行（不保留分隔符）。
+ * 按后端同一套换行边界切行（不保留分隔符），行内容已是规范形（见 `normalizeSource`）。
  *
  * 末尾换行不产生空行、空串切出空数组——都与 `splitlines()` 一致；行中间的空行照常保留。
+ * 归一不增删换行，行数与下标（`toScriptLines` 的 `sourceLine`）与原文逐行对应。
  */
 export function splitScriptLines(text: string): string[] {
   if (text.length === 0) return [];
-  const lines = text.split(LINE_BREAK_RE).filter((_, i) => i % 2 === 0);
+  const lines = normalizeSource(text).split(LINE_BREAK_RE).filter((_, i) => i % 2 === 0);
   if (lines[lines.length - 1] === "") lines.pop();
   return lines;
 }
@@ -88,7 +116,7 @@ export function formatShotHeader(shotIndex: number): string {
 const VOICEOVER_LINE_RE = /^\s*\{([^{}]*)\}\s*$/;
 
 export function matchDialogueLine(line: string): { speaker: string; text: string } | null {
-  const m = DIALOGUE_LINE_RE.exec(line);
+  const m = DIALOGUE_LINE_RE.exec(normalizeSource(line));
   if (!m) return null;
   const speaker = m[1] ?? m[2] ?? "";
   // speaker 位全为空白不算规范行（同 shot_parser.py：dialogue utterance 必须带非空 speaker）。
@@ -97,7 +125,7 @@ export function matchDialogueLine(line: string): { speaker: string; text: string
 }
 
 export function matchVoiceoverLine(line: string): string | null {
-  const m = VOICEOVER_LINE_RE.exec(line);
+  const m = VOICEOVER_LINE_RE.exec(normalizeSource(line));
   if (!m || !hasSpokenText(m[1])) return null;
   return m[1];
 }
@@ -107,6 +135,8 @@ export function matchVoiceoverLine(line: string): string | null {
  * derivation. Mirrors `shot_parser.py:extract_mentions`, including its rule that
  * **normative dialogue lines are skipped entirely**: attaching a reference image to
  * a speaker would coax the model into drawing a character who only speaks off-screen.
+ *
+ * 名字一律是规范形，去重也按规范形——调用方直接拿去与已归一的资产表 key 判等，不再补归一。
  */
 export function extractMentions(text: string): string[] {
   const seen = new Set<string>();
@@ -171,10 +201,9 @@ export function mergeReferences(
   existing: ReferenceResource[],
   project: ProjectBuckets | null | undefined,
 ): ReferenceResource[] {
-  // mention 与既有 references 的名字都归一到比对坐标系再判等/去重——两侧字节形式可能不同
-  // （既有 references 出自后端已归一的落盘值，mention 出自 prompt 文本解析，来源不同）；
-  // 输出的 name 同样落成归一形式，与后端 `resolve_references` 的产出口径一致。
-  const mentioned = new Set(extractMentions(prompt).map(normalizeAssetName));
+  // mention 名出自解析器、已是规范形；既有 references 出自后端落盘值，来源不同故仍需归一后
+  // 再判等/去重。输出的 name 一律是规范形，与后端 `resolve_references` 的产出口径一致。
+  const mentioned = new Set(extractMentions(prompt));
   const kept: ReferenceResource[] = [];
   const keptNames = new Set<string>();
   for (const ref of existing) {
