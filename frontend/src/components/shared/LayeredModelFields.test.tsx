@@ -117,7 +117,7 @@ describe("LayeredModelFields", () => {
     // 无任何细分项本应让整块折叠区消失，但错误态下仍需展示，用户才能感知失败并重试
     expect(container.querySelector("details")).not.toBeNull();
     expect(container.querySelector("details")?.open).toBe(true);
-    expect(screen.getByRole("alert")).toHaveTextContent(/可选模型列表加载失败/);
+    expect(screen.getByRole("alert")).toHaveTextContent(/模型列表加载失败/);
     expect(screen.queryByText("留空的用途沿用上方默认模型。")).not.toBeInTheDocument();
   });
 

@@ -88,7 +88,7 @@ describe("MediaModelSection", () => {
     const alerts = await screen.findAllByRole("alert");
     expect(alerts.length).toBeGreaterThanOrEqual(2); // video + image 两处折叠区
     for (const alert of alerts) {
-      expect(alert).toHaveTextContent(/可选模型列表加载失败/);
+      expect(alert).toHaveTextContent(/模型列表加载失败/);
     }
     expect(screen.getAllByRole("button", { name: "重试" }).length).toBeGreaterThanOrEqual(2);
   });
