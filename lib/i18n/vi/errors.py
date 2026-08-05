@@ -48,6 +48,9 @@ MESSAGES = {
     "task_fail_resume_unsupported_capacity_zero": "Nhà cung cấp {provider_id} có dung lượng video bằng 0 và không thể tiếp tục tác vụ; vui lòng thử lại thủ công",
     "task_fail_resume_unsupported_detail": "Không thể tiếp tục tác vụ: {detail}",
     "task_fail_resume_expired_detail": "Thông tin tiếp tục tác vụ đã hết hạn: {detail}",
+    "task_fail_resume_endpoint_changed_detail": (
+        "Endpoint của mô hình này đã thay đổi nên không thể tiếp tục tác vụ đã gửi trước đó: {detail}"
+    ),
     "task_fail_cascade_blocked_dependency": "Bị chặn do tác vụ phụ thuộc {dependency_task_id} thất bại: {reason}",
     "prompt_must_be_string_or_scene_object": "prompt phải là chuỗi hoặc đối tượng chứa scene/composition",
     "prompt_scene_empty": "prompt.scene không được để trống",

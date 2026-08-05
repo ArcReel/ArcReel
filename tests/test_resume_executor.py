@@ -81,14 +81,38 @@ def video_task() -> dict[str, Any]:
     }
 
 
-def _fake_video_context(fake_generator: _FakeGenerator):
-    """把 fake generator 包成 GenerationContext——resume 只取 ctx.generator，不读 video lane。"""
-    from server.services.generation_context import GenerationContext
+def _fake_video_context(fake_generator: _FakeGenerator, *, endpoint: str | None = None):
+    """把 fake generator 包成 GenerationContext。
 
-    return GenerationContext(generator=fake_generator)  # type: ignore[arg-type]
+    video lane 必须声明：resume 除 generator 外还读 ``ctx.video.endpoint`` 做 endpoint 比对，
+    与生产路径（``video=VideoLaneRequest()``）一致。
+    """
+    from lib.config.resolver import ProviderModel
+    from server.services.generation_context import GenerationContext, VideoLaneResult
+
+    return GenerationContext(
+        generator=fake_generator,  # type: ignore[arg-type]
+        video_lane=VideoLaneResult(
+            provider_model=ProviderModel("openai", "sora-2"),
+            backend_name="openai",
+            backend_model="sora-2",
+            resolution="720p",
+            resolution_or_fallback="720p",
+            supported_durations=(8,),
+            max_duration=8,
+            max_reference_images=None,
+            endpoint=endpoint,
+        ),
+    )
 
 
-def _patch_resume_executor_deps(monkeypatch, fake_pm: _FakeProjectManager, fake_generator: _FakeGenerator) -> None:
+def _patch_resume_executor_deps(
+    monkeypatch,
+    fake_pm: _FakeProjectManager,
+    fake_generator: _FakeGenerator,
+    *,
+    endpoint: str | None = None,
+) -> None:
     """同时 patch resume_executor 的 pm/generator 来源——它从 generation_tasks 顶层 re-import。"""
     from server.services import resume_executor
 
@@ -96,7 +120,7 @@ def _patch_resume_executor_deps(monkeypatch, fake_pm: _FakeProjectManager, fake_
     monkeypatch.setattr(
         resume_executor,
         "resolve_generation_context",
-        AsyncMock(return_value=_fake_video_context(fake_generator)),
+        AsyncMock(return_value=_fake_video_context(fake_generator, endpoint=endpoint)),
     )
     # finalize helpers 内部也通过 generation_tasks/reference_video_tasks 的 get_project_manager
     monkeypatch.setattr("server.services.generation_tasks.get_project_manager", lambda: fake_pm)
@@ -299,3 +323,70 @@ async def test_execute_resume_rejects_image_task(monkeypatch, fake_pm):
     }
     with pytest.raises(NotImplementedError):
         await execute_resume_video_task(image_task, job_id="x")
+
+
+# ── endpoint 比对闸（issue #1649）────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_resume_fails_when_endpoint_changed(monkeypatch, fake_pm, video_task):
+    """提交时的 endpoint 与模型行当下的 endpoint 不同 → 显式失败，绝不接续轮询。
+
+    换 endpoint 等于换协议：拿新协议 backend 轮旧协议下创建的 job 会误读响应，把仍在跑
+    仍在计费的远端 job 标成失败（docs/adr/0054）。
+    """
+    from lib.video_backends.base import ResumeEndpointChangedError
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="minimax-video")
+
+    task = {**video_task, "provider_id": "custom-7", "provider_endpoint": "openai-video"}
+    with pytest.raises(ResumeEndpointChangedError) as exc_info:
+        await execute_resume_video_task(task, job_id="custom-job-1")
+
+    assert exc_info.value.submitted_endpoint == "openai-video"
+    assert exc_info.value.current_endpoint == "minimax-video"
+    # 核心回归点：没有拿新协议 backend 去轮旧 job
+    assert fake_gen.resume_calls == []
+
+
+@pytest.mark.asyncio
+async def test_resume_proceeds_when_endpoint_unchanged(monkeypatch, fake_pm, video_task):
+    """endpoint 未变更 → 续跑行为与现状一致。"""
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="openai-video")
+
+    task = {**video_task, "provider_id": "custom-7", "provider_endpoint": "openai-video"}
+    await execute_resume_video_task(task, job_id="custom-job-1")
+
+    assert len(fake_gen.resume_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_resume_proceeds_when_endpoint_not_persisted(monkeypatch, fake_pm, video_task):
+    """存量任务未持久化 endpoint（列为 NULL）→ 无从比对，照常接续，不因新增列而回归。"""
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint="minimax-video")
+
+    task = {**video_task, "provider_id": "custom-7", "provider_endpoint": None}
+    await execute_resume_video_task(task, job_id="custom-job-1")
+
+    assert len(fake_gen.resume_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_resume_proceeds_for_builtin_provider_without_endpoint(monkeypatch, fake_pm, video_task):
+    """内置供应商无 endpoint 维度（两侧皆空）→ 闸不介入。"""
+    from server.services.resume_executor import execute_resume_video_task
+
+    fake_gen = _FakeGenerator()
+    _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen, endpoint=None)
+
+    await execute_resume_video_task(video_task, job_id="openai-job-1")
+
+    assert len(fake_gen.resume_calls) == 1

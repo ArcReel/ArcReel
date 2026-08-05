@@ -315,3 +315,27 @@ class TestErrors:
         provider = _make_provider(base_url="")
         with pytest.raises(ValueError, match="需要 base_url"):
             create_custom_backend(provider=provider, model_id="some-model", endpoint="v2-video-generations")
+
+
+class TestVideoEndpointRecorded:
+    """工厂把构造 endpoint 记进 video 包装层，续跑据此比对协议（issue #1649 / ADR 0054）。"""
+
+    @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
+    def test_video_backend_records_endpoint(self, _mock_cls):
+        provider = _make_provider()
+        result = create_custom_backend(provider=provider, model_id="sora-2", endpoint="openai-video")
+        assert isinstance(result, CustomVideoBackend)
+        assert result.endpoint == "openai-video"
+
+    @patch("lib.custom_provider.endpoints.MiniMaxVideoBackend")
+    def test_endpoint_survives_capability_injection(self, _mock_cls):
+        """能力注入返回新实例，endpoint 不能在链式构造中丢失。"""
+        provider = _make_provider()
+        result = create_custom_backend(
+            provider=provider,
+            model_id="MiniMax-Hailuo-02",
+            endpoint="minimax-video",
+            capability_overrides={"last_frame": True},
+        )
+        assert isinstance(result, CustomVideoBackend)
+        assert result.endpoint == "minimax-video"

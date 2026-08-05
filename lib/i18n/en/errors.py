@@ -48,6 +48,9 @@ MESSAGES = {
     "task_fail_resume_unsupported_capacity_zero": "Provider {provider_id} has zero video capacity and cannot resume the task; please retry manually",
     "task_fail_resume_unsupported_detail": "Task cannot be resumed: {detail}",
     "task_fail_resume_expired_detail": "Task resume handle has expired: {detail}",
+    "task_fail_resume_endpoint_changed_detail": (
+        "This model's endpoint has changed, so the generation started earlier cannot be resumed: {detail}"
+    ),
     "task_fail_cascade_blocked_dependency": "Blocked by failed dependency task {dependency_task_id}: {reason}",
     "prompt_must_be_string_or_scene_object": "prompt must be a string or an object containing scene/composition",
     "prompt_scene_empty": "prompt.scene cannot be empty",

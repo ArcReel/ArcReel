@@ -44,5 +44,7 @@ def create_custom_backend(
         merged, applied = synthesize_video_capabilities_with_overrides(
             endpoint=endpoint, model_id=model_id, overrides=capability_overrides
         )
-        return backend.with_video_capabilities(merged, overrides=applied)
+        # 一并记住 endpoint：它是 backend 构造的真正输入粒度，已提交任务的续跑据此比对协议
+        # 是否已被换掉（docs/adr/0054）。
+        return backend.with_endpoint(endpoint).with_video_capabilities(merged, overrides=applied)
     return backend

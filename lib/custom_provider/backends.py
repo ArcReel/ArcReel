@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from lib.audio_backends.base import (
     AudioBackend,
     AudioCapability,
@@ -113,12 +115,24 @@ class CustomVideoBackend:
         model: str,
         video_capabilities: VideoCapabilities | None = None,
         capability_overrides: dict[str, object] | None = None,
+        endpoint: str | None = None,
     ) -> None:
         self._provider_id = provider_id
         self._delegate = delegate
         self._model = model
         self._video_capabilities = video_capabilities
         self._capability_overrides = capability_overrides or {}
+        self._endpoint = endpoint
+
+    @property
+    def endpoint(self) -> str | None:
+        """构造本 backend 所用的 endpoint（ENDPOINT_REGISTRY 键），由工厂注入。
+
+        endpoint 决定协议，是 backend 构造的真正输入粒度；模型行的 endpoint 可在同媒体类型内
+        被改写，故已提交任务的续跑须比对它而非只比对 provider/model（``docs/adr/0054``）。
+        绕过工厂直接构造时为 None，此时续跑不比对、行为与未持久化 endpoint 的存量任务一致。
+        """
+        return self._endpoint
 
     def with_video_capabilities(
         self, capabilities: VideoCapabilities, *, overrides: dict[str, object] | None = None
@@ -136,6 +150,18 @@ class CustomVideoBackend:
             model=self._model,
             video_capabilities=capabilities,
             capability_overrides=overrides,
+            endpoint=self._endpoint,
+        )
+
+    def with_endpoint(self, endpoint: str) -> CustomVideoBackend:
+        """返回记住构造 endpoint 的新实例（不就地改写，包装器保持构造后不可变）。"""
+        return CustomVideoBackend(
+            provider_id=self._provider_id,
+            delegate=self._delegate,
+            model=self._model,
+            video_capabilities=self._video_capabilities,
+            capability_overrides=self._capability_overrides,
+            endpoint=endpoint,
         )
 
     @property
@@ -181,6 +207,11 @@ class CustomVideoBackend:
         return base
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        # 注入本次执行的 endpoint，让下游协议 backend 在 submit 后与 job_id 一并持久化——
+        # 续跑据此判定协议是否已被换掉。replace 而非就地改写：request 由调用方持有，
+        # 包装层不该留下副作用。
+        if self._endpoint is not None:
+            request = replace(request, execution_endpoint=self._endpoint)
         return await self._delegate.generate(request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:

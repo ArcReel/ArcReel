@@ -195,6 +195,26 @@ class TestCustomVideoBackend:
         assert call_args[0] is request
 
     @pytest.mark.unit
+    async def test_generate_injects_execution_endpoint(self, tmp_path: Path):
+        """记住 endpoint 的实例在转发前注入 request，让下游 backend 与 job_id 一并持久化。
+
+        注入走 replace 而非就地改写：request 由调用方持有，包装层不留副作用。
+        """
+        output_path = tmp_path / "vid.mp4"
+        delegate = AsyncMock()
+        delegate.generate = AsyncMock(
+            return_value=VideoGenerationResult(video_path=output_path, provider="x", model="y", duration_seconds=5)
+        )
+
+        backend = CustomVideoBackend(provider_id="p", delegate=delegate, model="m", endpoint="openai-video")
+        request = VideoGenerationRequest(prompt="test", output_path=output_path, task_id="T-1")
+        await backend.generate(request)
+
+        forwarded = delegate.generate.call_args[0][0]
+        assert forwarded.execution_endpoint == "openai-video"
+        assert request.execution_endpoint is None
+
+    @pytest.mark.unit
     def test_video_capabilities_for_tier_delegates_when_delegate_supports_it(self):
         """delegate 实现 tier-aware 查询（如 Kling）时，按请求档位透传其结果，而不是回落
         context-free 的 video_capabilities——否则 media_generator 的 getattr 探测会命中一个

@@ -223,6 +223,9 @@ class VideoLaneResult:
     # 天然对齐，调用方须显式算出「谁的声音配哪张图」再随请求下发。能力查询失败降级为 False——
     # 与其余能力字段同口径，不明时不额外收紧。
     reference_audio_per_image: bool = False
+    # 自定义供应商解析出的 endpoint（ENDPOINT_REGISTRY 键）；内置供应商无该维度，为 None。
+    # 续跑据此与提交时持久化的 endpoint 比对，见 server.services.resume_executor。
+    endpoint: str | None = None
 
     @property
     def is_silent(self) -> bool:
@@ -386,6 +389,7 @@ async def resolve_generation_context(
                 requested_generate_audio=requested_generate_audio,
                 max_reference_audio_count=max_reference_audio_count,
                 reference_audio_per_image=reference_audio_per_image,
+                endpoint=getattr(video_backend, "endpoint", None),
             )
 
         if audio is not None:
