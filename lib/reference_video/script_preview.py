@@ -211,14 +211,14 @@ def derive_voice_bindings(
 def build_script_preview(
     text: str,
     project: dict,
-    settings: VoiceRenderSettings | None = None,
+    settings: VoiceRenderSettings,
     *,
     max_reference_images: int | None = None,
 ) -> ScriptPreview:
     """把书写文稿派生成 shots / references / utterances + 降级可见性 warning。
 
-    ``settings`` 须与执行层（``render_unit_prompt``）拿到的同一份声音输入档同步，否则预览会
-    显示音频已绑定、实际请求却不带音频段。其中 ``requires_reference_image``（目标 backend 是否
+    ``settings`` 必填无兜底（同 ``render_unit_prompt``），须与执行层拿到的同一份声音输入档同步，
+    否则预览会显示音频已绑定、实际请求却不带音频段。其中 ``requires_reference_image``（目标 backend 是否
     要求音频逐段挂图）不涉及 IO，预览虽不碰文件系统也须一并同步，遗漏会让预览显示已绑定、
     执行时才降级，用户直到生成后才发现声音没生效。``settings.audio_ready`` 在预览侧留 None：
     预览不解析文件，按角色资产的 ``reference_audio`` 字段非空判定。
@@ -246,7 +246,7 @@ def build_script_preview(
     bindings = derive_voice_bindings(
         utterances,
         project.get(BUCKET_KEY["character"]) or {},
-        settings or VoiceRenderSettings(),
+        settings,
         speakers_with_reference_image=character_image_names,
     )
     warnings.extend(bindings.warnings)

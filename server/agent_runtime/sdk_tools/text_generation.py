@@ -560,17 +560,19 @@ def normalize_drama_script_tool(ctx: ToolContext):
 
 
 class ReferenceSplitCaps(NamedTuple):
-    """rv 拆分用的视频能力：两套逐 unit 档位 + 派生上限 + 用户偏好 + 原始能力 dict。
+    """rv 拆分用的视频能力：两套逐 unit 档位 + 派生上限 + 用户偏好 + 声音输入档。
 
     ``reference_durations`` / ``text_durations`` 是带 / 不带 ``@`` 引用的 unit 各自的生效档位，
     ``durations`` 是二者的并集——schema 枚举与 prompt 候选集合取并集，因为落在任一套内的时长都
     可能合法；归属哪一套要等正文派生出 references 才知道。三者相等即该型号在当前分辨率下未声明
     生效的「参考图↔时长」联动约束，多数型号如此。
 
-    ``raw`` 是解析到的原始能力 dict（故障回退时为空 dict），供声音相关的容忍 warning 取
-    ``voice_consistency`` / ``max_reference_audio_count`` / ``requested_generate_audio`` /
-    ``model``——它们与时长档位同源于这一次解析，分两次查会让同一份产物的档位与声音提示描述
-    不同时刻的配置。
+    ``voice`` 是同一次能力解析派生出的声音输入档，供声音相关的容忍 warning 消费——与时长档位同源
+    于这一次解析，分两次查会让同一份产物的档位与声音提示描述不同时刻的配置。能力解析故障回退时
+    档位相关的几位落到 ``VoiceRenderSettings`` 的字段默认，唯 ``requested_generate_audio`` 仍带着
+    本集的无声意图（该位不依赖能力接口，回退分支独立解析后写回，见
+    ``_fetch_reference_caps_with_fallback``）。携带值对象而非原始能力 dict：下游只需要声音那几位，
+    穿一整个 dict 过接口会把能力 key 名耦合扩散到消费侧。
     """
 
     default_duration: int | None
@@ -579,7 +581,7 @@ class ReferenceSplitCaps(NamedTuple):
     text_durations: list[int]
     max_duration: int
     max_refs: int | None
-    raw: dict[str, Any]
+    voice: VoiceRenderSettings
 
     def tiers_for(self, *, has_references: bool) -> list[int]:
         """该引用状态下的生效档位。"""
@@ -637,7 +639,7 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
         text_durations=sorted(set(without_refs)),
         max_duration=max_duration,
         max_refs=max_refs,
-        raw=caps,
+        voice=VoiceRenderSettings.from_caps(caps),
     )
 
 
@@ -750,7 +752,9 @@ _TOLERATED_VOICE_WARNINGS = (
 )
 
 
-def _reference_voice_warning_lines(unit_texts: list[str], project: dict[str, Any], caps: dict[str, Any]) -> list[str]:
+def _reference_voice_warning_lines(
+    unit_texts: list[str], project: dict[str, Any], voice: VoiceRenderSettings
+) -> list[str]:
     """逐 unit 派生声音绑定，取容忍类 warning 的渲染文本（跨 unit 去重、保持首现顺序）。
 
     逐 unit 而非把全集正文拼起来判：unit 就是一次生成调用，参考音频段数上限按调用计——拼起来
@@ -763,7 +767,7 @@ def _reference_voice_warning_lines(unit_texts: list[str], project: dict[str, Any
     段数上限」这些该让 agent 看见的提示反被吞掉。
     """
     characters = project.get(BUCKET_KEY["character"]) or {}
-    settings = replace(VoiceRenderSettings.from_caps(caps), requires_reference_image=False)
+    settings = replace(voice, requires_reference_image=False)
     seen: set[tuple[str, str]] = set()
     lines: list[str] = []
     for text in unit_texts:
@@ -941,7 +945,7 @@ async def _promote_reference_step1(ctx: ToolContext, episode: int, draft: Quaran
             "content": [{"type": "text", "text": _render_step1_conflict_report(episode, draft, conflict)}],
             "is_error": True,
         }
-    warning_lines = _reference_voice_warning_lines([f["text"] for f in flat_units], project, split_caps.raw)
+    warning_lines = _reference_voice_warning_lines([f["text"] for f in flat_units], project, split_caps.voice)
     return {
         "content": [{"type": "text", "text": _reference_result_text(step1_path, units, warning_lines, action="晋升")}]
     }
@@ -1289,7 +1293,7 @@ def split_reference_video_units_tool(ctx: ToolContext):
             with script_review.step1_write_lock(project_path, episode) as step1_path:
                 script_review.write_step1_locked(project_path, episode, {"units": raw_units})
                 clear_quarantine(project_path, episode, QUARANTINE_KIND_STEP1)
-            warning_lines = _reference_voice_warning_lines([f["text"] for f in flat_units], project, split_caps.raw)
+            warning_lines = _reference_voice_warning_lines([f["text"] for f in flat_units], project, split_caps.voice)
             return {
                 "content": [
                     {

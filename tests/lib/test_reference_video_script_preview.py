@@ -44,6 +44,10 @@ PROJECT = {
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
+#: 与声音无关的用例用的声音档：``soft`` 有声、无参考音频。预览入口的 ``settings`` 必填，
+#: 这些用例照样要给一档，取字段默认即可。
+_SOFT = VoiceRenderSettings()
+
 
 def keys(preview) -> list[str]:
     return [w["key"] for w in preview.warnings]
@@ -79,7 +83,7 @@ def test_dialogue_line_rejects_non_normative(line: str):
 
 def test_blank_speaker_degrades_to_warning_instead_of_raising():
     """speaker 位空白不得构造非法 Utterance——只读派生要出 warning，不能抛校验错。"""
-    preview = build_script_preview("镜头1：中景。\n@[ ]：{我来了}", PROJECT)
+    preview = build_script_preview("镜头1：中景。\n@[ ]：{我来了}", PROJECT, _SOFT)
     assert preview.utterances == []
     # 非规范行 → 台词混写 warning；空白名同时作为未登记 mention 被点名。
     assert keys(preview) == [WARN_UNREGISTERED_MENTION, WARN_DIALOGUE_INLINE]
@@ -97,7 +101,7 @@ def test_blank_braces_are_not_utterances(line: str):
 
 
 def test_blank_braces_degrade_to_warning():
-    preview = build_script_preview("镜头1：中景。\n@[张三]：{}\n{   }", PROJECT)
+    preview = build_script_preview("镜头1：中景。\n@[张三]：{}\n{   }", PROJECT, _SOFT)
     assert preview.utterances == []
     assert keys(preview) == [WARN_DIALOGUE_INLINE, WARN_DIALOGUE_INLINE]
 
@@ -107,7 +111,7 @@ def test_blank_braces_degrade_to_warning():
 
 def test_normative_lines_derive_dialogue_and_voiceover():
     text = "镜头1：@[张三] 推门进来。\n@[张三]：{我来了}\n{那年冬天格外冷}\n镜头2：@[李四] 抬眼。\n@[李四]：{你迟到了}"
-    preview = build_script_preview(text, PROJECT)
+    preview = build_script_preview(text, PROJECT, _SOFT)
     assert [(u.shot_index, u.utterance.kind, u.utterance.speaker, u.utterance.text) for u in preview.utterances] == [
         (1, "dialogue", "张三", "我来了"),
         (1, "voiceover", None, "那年冬天格外冷"),
@@ -116,14 +120,14 @@ def test_normative_lines_derive_dialogue_and_voiceover():
 
 
 def test_inline_dialogue_is_not_derived_and_warns():
-    preview = build_script_preview("镜头1：中景，@[张三] 笑着说 {我来了}。", PROJECT)
+    preview = build_script_preview("镜头1：中景，@[张三] 笑着说 {我来了}。", PROJECT, _SOFT)
     assert preview.utterances == []
     assert WARN_DIALOGUE_INLINE in keys(preview)
 
 
 def test_script_without_dialogue_symbols_derives_nothing():
     """存量文稿零迁移：没有台词符号 → utterances 自然为空、无 warning。"""
-    preview = build_script_preview("镜头1：中景，@[张三] 推门进 @[酒馆]。", PROJECT)
+    preview = build_script_preview("镜头1：中景，@[张三] 推门进 @[酒馆]。", PROJECT, _SOFT)
     assert preview.utterances == []
     assert preview.warnings == []
     assert [r.name for r in preview.references] == ["张三", "酒馆"]
@@ -134,7 +138,7 @@ def test_script_without_dialogue_symbols_derives_nothing():
 
 def test_speaker_position_is_excluded_from_references():
     text = "镜头1：@[酒馆] 内景，人声嘈杂。\n@[张三]：{我来了}"
-    preview = build_script_preview(text, PROJECT)
+    preview = build_script_preview(text, PROJECT, _SOFT)
     assert [r.name for r in preview.references] == ["酒馆"]
     # 纯画外角色没有参考图，但 utterance 照常
     assert [u.utterance.speaker for u in preview.utterances] == ["张三"]
@@ -150,7 +154,7 @@ def test_extract_mentions_skips_speaker_position():
 def test_dialogue_on_shot_header_line_derives_utterance_without_reference():
     """写在 header 同一行的台词：切分后即规范行，参考图与 utterance 两侧口径须一致。"""
     text = "镜头1：@[张三]：{我来了}"
-    preview = build_script_preview(text, PROJECT)
+    preview = build_script_preview(text, PROJECT, _SOFT)
     assert preview.references == []
     assert [(u.utterance.kind, u.utterance.speaker) for u in preview.utterances] == [("dialogue", "张三")]
     assert extract_mentions(text) == []
@@ -160,24 +164,24 @@ def test_dialogue_on_shot_header_line_derives_utterance_without_reference():
 
 
 def test_warn_unregistered_mention():
-    preview = build_script_preview("镜头1：@[王五] 推门。", PROJECT)
+    preview = build_script_preview("镜头1：@[王五] 推门。", PROJECT, _SOFT)
     assert keys(preview) == [WARN_UNREGISTERED_MENTION]
     assert preview.warnings[0]["params"] == {"name": "王五"}
 
 
 def test_warn_unclosed_brace():
-    preview = build_script_preview("镜头1：他说 {我来了。", PROJECT)
+    preview = build_script_preview("镜头1：他说 {我来了。", PROJECT, _SOFT)
     assert keys(preview) == [WARN_UNCLOSED_BRACE]
     assert preview.warnings[0]["params"]["shot"] == 1
 
 
 def test_warn_dialogue_inline():
-    preview = build_script_preview("镜头1：@[张三] 说 {我来了}。", PROJECT)
+    preview = build_script_preview("镜头1：@[张三] 说 {我来了}。", PROJECT, _SOFT)
     assert keys(preview) == [WARN_DIALOGUE_INLINE]
 
 
 def test_warn_unregistered_speaker():
-    preview = build_script_preview("镜头1：开场。\n@[王五]：{我来了}", PROJECT)
+    preview = build_script_preview("镜头1：开场。\n@[王五]：{我来了}", PROJECT, _SOFT)
     assert keys(preview) == [WARN_UNREGISTERED_SPEAKER]
     assert preview.warnings[0]["params"] == {"name": "王五"}
 
