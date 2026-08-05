@@ -283,12 +283,12 @@ class TestVideoLane:
 
     @pytest.mark.unit
     async def test_payload_overrides_project(self, session_factory, project_env, fake_assemble):
-        """payload > project：历史任务携带的 video_provider 决定实际解析身份。"""
+        """payload > project：入队钉住的桶键决定实际解析身份。"""
         ark_model = _registry_video_model("ark")
         grok_model = _registry_video_model("grok")
         ctx = await resolve_generation_context(
             "demo",
-            {"video_provider": "grok", "video_model": grok_model},
+            {"video_provider_i2v": f"grok/{grok_model}"},
             project={"video_backend": f"ark/{ark_model}"},
             video=VideoLaneRequest(),
         )

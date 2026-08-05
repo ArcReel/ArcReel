@@ -122,9 +122,9 @@ class TestExtractProvider:
     """_extract_provider 是解析链的薄投影：按 task_type 派发，取 .provider_id。"""
 
     @pytest.mark.unit
-    async def test_video_payload_provider(self):
-        """payload 携带 video_provider → 投影直接取到（payload 层短路，无需 DB）。"""
-        task = {"payload": {"video_provider": "ark"}, "task_type": "video"}
+    async def test_video_payload_pinned_bucket_provider(self):
+        """payload 携带入队钉住的桶键 → 投影直接取到（payload 层短路，无需 DB）。"""
+        task = {"payload": {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"}, "task_type": "video"}
         assert await _extract_provider(task) == "ark"
 
     @pytest.mark.unit
@@ -242,9 +242,13 @@ class TestExtractProvider:
 
     @pytest.mark.unit
     async def test_payload_provider_takes_precedence_over_project(self, monkeypatch):
-        """payload provider 优先于项目级。"""
+        """payload 钉住的 provider 优先于项目级。"""
         _patch_pm(monkeypatch, {"video_backend": "grok/grok-imagine-video"})
-        task = {"payload": {"video_provider": "ark"}, "project_name": "demo", "task_type": "video"}
+        task = {
+            "payload": {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"},
+            "project_name": "demo",
+            "task_type": "video",
+        }
         assert await _extract_provider(task) == "ark"
 
     @pytest.mark.unit
@@ -1091,7 +1095,7 @@ class TestGenerationWorker:
                         "task_id": "vid1",
                         "task_type": "gen_video",
                         "media_type": "video",
-                        "payload": {"video_provider": "ark"},
+                        "payload": {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"},
                     },
                 ]
 
@@ -1325,7 +1329,7 @@ class TestGenerationWorker:
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_uses_persisted_provider_id(self, monkeypatch):
-        """task.provider_id 优先于 _extract_provider 的当前项目解析（CR round-2 N2 回归）。
+        """task.provider_id 优先于 _extract_provider 的当前项目解析。
 
         如果 task 持久化的 provider_id 是 Grok（不支持 resume），即便当前项目配置
         已切换成 Ark（支持 resume），孤儿仍应被识别为 non_resumable → [resume_unsupported]，
@@ -1342,8 +1346,8 @@ class TestGenerationWorker:
                 "provider_job_id": "stale-job",
                 "media_type": "video",
                 "task_type": "video",
-                # payload 显式写 video_provider=ark，模拟"项目已切换" → _extract_provider 会解析成 ark
-                "payload": {"video_provider": "ark"},
+                # payload 钉住桶键写 ark，模拟"项目已切换" → _extract_provider 会解析成 ark
+                "payload": {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"},
                 "project_name": "demo",
             }
         ]
@@ -1583,8 +1587,11 @@ class TestGenerationWorker:
     # ------------------------------------------------------------------
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_process_resume_task_locks_persisted_provider_to_payload(self, monkeypatch):
-        """C2 回归：persisted provider_id 应注入 payload.video_provider。"""
+    async def test_process_resume_task_keeps_pinned_video_identity(self, monkeypatch):
+        """视频任务的续跑身份由入队钉住的桶键决定，persisted provider_id 不注入 payload。
+
+        注入只覆盖 provider、盖不住 model，两者分裂即静默换模型续跑。
+        """
         queue = _FakeQueue()
         worker = GenerationWorker(queue=queue)
         captured_task: dict | None = None
@@ -1604,13 +1611,13 @@ class TestGenerationWorker:
             "media_type": "video",
             "provider_id": "openai",
             "provider_job_id": "openai-job",
-            "payload": {"video_provider": "gemini-aistudio"},  # payload 原本指向另一个 provider
+            "payload": {"video_provider_i2v": "gemini-aistudio/veo-3.1-fast-generate-preview"},
             "project_name": "demo",
         }
         await worker._process_resume_task(task)
         assert captured_task is not None
-        # _process_resume_task 应覆写为持久化 provider_id (openai)
-        assert captured_task["payload"]["video_provider"] == "openai"
+        # 钉住键原样交给 resume，persisted provider_id 不写进 payload
+        assert captured_task["payload"] == {"video_provider_i2v": "gemini-aistudio/veo-3.1-fast-generate-preview"}
         assert captured_job_id == "openai-job"
         assert queue.succeeded == [("resume-locked", {"ok": True})]
 
