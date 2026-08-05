@@ -143,7 +143,7 @@ curl http://localhost:1241/health
 ### 生产部署：PostgreSQL
 
 ```bash
-cd ArcReel/deploy/production
+cd "$(git rev-parse --show-toplevel)/deploy/production"
 
 cp .env.example .env
 # 编辑 .env，并设置 POSTGRES_PASSWORD、AUTH_PASSWORD、AUTH_TOKEN_SECRET

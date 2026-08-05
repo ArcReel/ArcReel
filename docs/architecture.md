@@ -41,7 +41,7 @@ flowchart TB
     QUEUE --> TEXT["TextBackend"]
     QUEUE --> IMAGE["ImageBackend"]
     QUEUE --> VIDEO["VideoBackend"]
-    QUEUE --> TTS["TTS Backend"]
+    QUEUE --> TTS["AudioBackend"]
 
     PROJECTS --> FILES["Project Files & Generated Assets"]
     SERVICES --> ORM["SQLAlchemy 2.0"]
@@ -164,6 +164,7 @@ ArcReel 使用：
 - `TextBackend`
 - `ImageBackend`
 - `VideoBackend`
+- `AudioBackend`
 
 统一不同供应商的调用方式。
 

@@ -73,7 +73,7 @@ curl http://localhost:1241/health
 ### 2.1 启动
 
 ```bash
-cd ArcReel/deploy/production
+cd "$(git rev-parse --show-toplevel)/deploy/production"
 cp .env.example .env
 ```
 
@@ -306,13 +306,19 @@ docker compose start arcreel
 docker compose stop arcreel
 ```
 
-恢复数据库前，应确认目标数据库状态。对于完整覆盖恢复，可先在隔离环境演练，再在生产执行。
+以下流程会删除目标 `arcreel` 数据库中的现有数据。先确认数据库备份和配套文件备份完整，并在隔离环境演练恢复流程。
 
-典型导入命令：
+重建空数据库后再导入，避免与已有表结构或数据冲突：
 
 ```bash
+docker compose exec -T postgres \
+  dropdb -U arcreel --maintenance-db=postgres --if-exists --force arcreel
+
+docker compose exec -T postgres \
+  createdb -U arcreel --maintenance-db=postgres -O arcreel arcreel
+
 cat backups/arcreel-db-YYYYMMDD-HHMMSS.sql | \
-  docker compose exec -T postgres psql -U arcreel -d arcreel
+  docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U arcreel -d arcreel
 ```
 
 然后恢复对应的 `projects/` 等文件目录，重新启动：
@@ -340,6 +346,9 @@ Nginx 示例：
 server {
     listen 443 ssl http2;
     server_name arcreel.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/arcreel.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/arcreel.example.com/privkey.pem;
 
     client_max_body_size 2g;
 

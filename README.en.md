@@ -143,7 +143,7 @@ After signing in:
 ### Production deployment: PostgreSQL
 
 ```bash
-cd ArcReel/deploy/production
+cd "$(git rev-parse --show-toplevel)/deploy/production"
 
 cp .env.example .env
 # Edit .env and set POSTGRES_PASSWORD, AUTH_PASSWORD, and AUTH_TOKEN_SECRET

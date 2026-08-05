@@ -140,7 +140,7 @@ http://localhost:1241
 长期运行、多人使用或正式服务建议使用 PostgreSQL：
 
 ```bash
-cd deploy/production
+cd "$(git rev-parse --show-toplevel)/deploy/production"
 cp .env.example .env
 ```
 
@@ -254,7 +254,7 @@ ArcReel 会按照作者提供的内容建立角色和镜头，不应把成品剧
 
 - 主要角色；
 - 重要场景；
-- 关键场景和道具；
+- 关键道具；
 - 剧情冲突；
 - 适合的分集边界。
 
