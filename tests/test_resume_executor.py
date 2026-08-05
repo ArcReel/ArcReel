@@ -325,7 +325,7 @@ async def test_execute_resume_rejects_image_task(monkeypatch, fake_pm):
         await execute_resume_video_task(image_task, job_id="x")
 
 
-# ── endpoint 比对闸（issue #1649）────────────────────────────────
+# ── endpoint 比对闸 ──────────────────────────────────────────────
 
 
 @pytest.mark.asyncio

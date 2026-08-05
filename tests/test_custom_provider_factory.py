@@ -318,7 +318,7 @@ class TestErrors:
 
 
 class TestVideoEndpointRecorded:
-    """工厂把构造 endpoint 记进 video 包装层，续跑据此比对协议（issue #1649 / ADR 0054）。"""
+    """工厂把构造 endpoint 记进 video 包装层，续跑据此比对协议（`docs/adr/0054`）。"""
 
     @patch("lib.custom_provider.endpoints.OpenAIVideoBackend")
     def test_video_backend_records_endpoint(self, _mock_cls):

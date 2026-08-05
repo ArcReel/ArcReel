@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from lib.audio_backends.base import VoiceOption
 from lib.backend_assembly import assemble_backend
 from lib.config.resolver import ConfigResolver, VideoCapability, VoiceConsistency, get_provider_fallback
+from lib.custom_provider.backends import CustomVideoBackend
 from lib.db.base import DEFAULT_USER_ID
 from lib.gemini_shared import get_shared_rate_limiter
 from lib.media_generator import MediaGenerator
@@ -389,7 +390,9 @@ async def resolve_generation_context(
                 requested_generate_audio=requested_generate_audio,
                 max_reference_audio_count=max_reference_audio_count,
                 reference_audio_per_image=reference_audio_per_image,
-                endpoint=getattr(video_backend, "endpoint", None),
+                # 显式按类型分流而非 getattr 探测：endpoint 为 None 恰好是「跳过续跑比对」
+                # 这条最宽松分支，属性一旦改名，探测式取值会静默失效且无任何信号。
+                endpoint=video_backend.endpoint if isinstance(video_backend, CustomVideoBackend) else None,
             )
 
         if audio is not None:
