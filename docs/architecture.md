@@ -41,7 +41,7 @@ flowchart TB
     QUEUE --> TEXT["TextBackend"]
     QUEUE --> IMAGE["ImageBackend"]
     QUEUE --> VIDEO["VideoBackend"]
-    QUEUE --> TTS["AudioBackend"]
+    QUEUE --> TTS["AudioBackend (TTS)"]
 
     PROJECTS --> FILES["Project Files & Generated Assets"]
     SERVICES --> ORM["SQLAlchemy 2.0"]

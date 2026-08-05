@@ -280,7 +280,7 @@ docker compose start arcreel
 先停止 ArcReel 应用，保留 PostgreSQL 运行，避免备份数据库和项目文件期间继续产生写入：
 
 ```bash
-cd deploy/production
+cd "$(git rev-parse --show-toplevel)/deploy/production"
 mkdir -p backups
 docker compose stop arcreel
 
@@ -303,6 +303,7 @@ docker compose start arcreel
 恢复前停止 ArcReel，保留 PostgreSQL：
 
 ```bash
+cd "$(git rev-parse --show-toplevel)/deploy/production"
 docker compose stop arcreel
 ```
 
