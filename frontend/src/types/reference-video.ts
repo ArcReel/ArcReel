@@ -130,6 +130,8 @@ export interface AdReferenceUnit {
   /** 继承的参考集，产品在前 */
   references: AdUnitReference[];
   generated_assets?: Partial<UnitGeneratedAssets> & { video_thumbnail?: string | null };
+  /** 成片已偏离当前剧本编排（剧本编辑不作废产物，仅打此标记；生成成功后清除） */
+  stale?: boolean;
 }
 
 /**

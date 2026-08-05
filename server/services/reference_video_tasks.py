@@ -764,7 +764,8 @@ def apply_unit_video_assets(
 ) -> None:
     """在剧本 dict 上写回 unit.generated_assets（video_clip / video_uri / video_thumbnail / status）。
 
-    生成 finalize 与版本还原共用，保证两条路径写出的字段口径一致。unit 在
+    生成 finalize 与版本还原共用，保证两条路径写出的字段口径一致；两条路径都会
+    一并清除 ad unit 的 stale 位——产物指针只由本函数改变，改变即基准更新。unit 在
     narration/drama 剧本中位于 ``video_units``、在 ad 剧本中位于 ``reference_units``
     派生索引——两处都查（同剧本不会同时有两类合法 unit 列表，shots 才是 ad 的
     内容真相）。新结果不含 video_uri / 缩略图时清空旧值，避免指向过期 URI /
@@ -797,6 +798,9 @@ def apply_unit_video_assets(
             else:
                 ga.pop("video_thumbnail", None)
             ga["status"] = "completed"
+            # ad 派生索引的 stale 位（成员/参考集偏离产物）随产物更新一并清除：
+            # 产物指针只由本函数改变，写入即代表 unit 当前编排已被新产物覆盖。
+            u.pop("stale", None)
             return
     raise KeyError(resource_id)
 

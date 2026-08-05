@@ -729,6 +729,9 @@ class AdReferenceUnit(BaseModel):
     shot_ids: list[str] = Field(min_length=1, max_length=4, description="成员镜头 ID（连续、1-4 个）")
     references: list[AdUnitReference] = Field(default_factory=list, description="继承的参考集，产品在前")
     generated_assets: GeneratedAssets = Field(default_factory=GeneratedAssets, description="生成资源状态")
+    # 运行时状态、对 LLM 隐藏：成员/参考集偏离产物生成时的编排（剧本编辑不作废产物，
+    # 只降级为此标记），由派生分组器写入、生成 finalize 清除。
+    stale: SkipJsonSchema[bool] = Field(default=False, description="成片已偏离当前剧本编排，建议重新生成")
 
 
 class AdEpisodeScript(BaseModel):
