@@ -38,7 +38,7 @@ flowchart TB
     SERVICES --> PROJECTS["Project Manager"]
     SERVICES --> USAGE["Usage & Cost Tracker"]
 
-    QUEUE --> TEXT["TextBackend"]
+    SERVICES --> TEXT["TextBackend"]
     QUEUE --> IMAGE["ImageBackend"]
     QUEUE --> VIDEO["VideoBackend"]
     QUEUE --> TTS["AudioBackend (TTS)"]
