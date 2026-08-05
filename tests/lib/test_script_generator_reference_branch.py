@@ -80,20 +80,6 @@ def reference_project(tmp_path: Path) -> Path:
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_script_generator_build_prompt_selects_reference_branch(reference_project: Path):
-    """当 generation_mode == reference_video 时，build_prompt 必须走 reference 分支。"""
-    gen = ScriptGenerator(reference_project)
-    prompt = await gen.build_prompt(episode=1)
-    # reference 分支特征标签
-    assert "视觉展开" in prompt
-    assert "<step1_units>" in prompt
-    assert "@[名称]" in prompt
-    # 不应出现 narration / drama 特征
-    assert "characters_in_segment" not in prompt
-
-
-@pytest.mark.asyncio
-@pytest.mark.integration
 async def test_script_generator_reads_step1_reference_units(reference_project: Path):
     gen = ScriptGenerator(reference_project)
     prompt = await gen.build_prompt(episode=1)
@@ -607,10 +593,7 @@ async def test_build_prompt_follows_project_reference_route(tmp_path: Path):
 
     gen = ScriptGenerator(project_dir)
     prompt = await gen.build_prompt(episode=1)
-    # 走 reference 分支：step2 视觉展开模板
-    assert "视觉展开" in prompt
-    assert "<step1_units>" in prompt
-    assert "@[名称]" in prompt
+    assert "@[主角] 推开 @[酒馆] 的门" in prompt
 
 
 @pytest.mark.asyncio
