@@ -140,7 +140,7 @@ http://localhost:1241
 长期运行、多人使用或正式服务建议使用 PostgreSQL：
 
 ```bash
-cd "$(git rev-parse --show-toplevel)/deploy/production"
+cd production
 cp .env.example .env
 ```
 

@@ -298,6 +298,8 @@ docker compose start arcreel
 
 数据库备份和文件备份使用同一时间标签，必须配套保存和恢复。
 
+如果 `tar` 报 `Permission denied`，说明挂载目录中存在由容器内 root 用户创建、宿主机当前用户不可读的文件。可用 `sudo` 重新执行对应的 `tar` 命令，并在完成后限制备份文件的读取权限。
+
 ### 6.3 PostgreSQL 恢复
 
 恢复前停止 ArcReel，保留 PostgreSQL：
