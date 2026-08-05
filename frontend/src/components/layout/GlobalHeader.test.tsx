@@ -246,6 +246,86 @@ describe("GlobalHeader", () => {
     ).toBe(true);
   });
 
+  it("ad 参考直出项目 stale 预检失败仍照常导出", async () => {
+    vi.spyOn(API, "getUsageStats").mockResolvedValue({
+      total_cost: 0,
+      image_count: 0,
+      video_count: 0,
+      failed_count: 0,
+      total_count: 0,
+    });
+    vi.spyOn(API, "requestExportToken").mockResolvedValue({
+      download_token: "test-download-token",
+      expires_in: 300,
+      diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
+    });
+    vi.spyOn(API, "listAdReferenceUnits").mockRejectedValue(new Error("boom"));
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    useProjectsStore.setState({
+      currentProjectName: "ad-demo",
+      currentProjectData: {
+        title: "带货短片",
+        content_mode: "ad",
+        generation_mode: "reference_video",
+        style: "明亮写实",
+        episodes: [],
+        characters: {},
+        scenes: {},
+        props: {},
+      },
+    });
+
+    renderHeader();
+    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+    (await screen.findByTestId("scope-jianying")).click();
+
+    await waitFor(() => {
+      expect(API.requestExportToken).toHaveBeenCalledWith("ad-demo", "current");
+    });
+    expect(anchorClick).toHaveBeenCalled();
+  });
+
+  it("ad 分镜路线项目导出剪映草稿不做 stale 预检", async () => {
+    vi.spyOn(API, "getUsageStats").mockResolvedValue({
+      total_cost: 0,
+      image_count: 0,
+      video_count: 0,
+      failed_count: 0,
+      total_count: 0,
+    });
+    vi.spyOn(API, "requestExportToken").mockResolvedValue({
+      download_token: "test-download-token",
+      expires_in: 300,
+      diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
+    });
+    const listUnits = vi.spyOn(API, "listAdReferenceUnits");
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    useProjectsStore.setState({
+      currentProjectName: "ad-demo",
+      currentProjectData: {
+        title: "带货短片",
+        content_mode: "ad",
+        generation_mode: "storyboard",
+        style: "明亮写实",
+        episodes: [],
+        characters: {},
+        scenes: {},
+        props: {},
+      },
+    });
+
+    renderHeader();
+    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+    (await screen.findByTestId("scope-jianying")).click();
+
+    await waitFor(() => {
+      expect(anchorClick).toHaveBeenCalled();
+    });
+    expect(listUnits).not.toHaveBeenCalled();
+  });
+
   it("非 ad 项目导出剪映草稿不做 stale 预检", async () => {
     vi.spyOn(API, "getUsageStats").mockResolvedValue({
       total_cost: 0,
