@@ -153,15 +153,13 @@ class TestProviderRegistry:
         assert "doubao-seedance-2-0-260128" in video_models
         assert "doubao-seedance-2-0-fast-260128" in video_models
         assert "doubao-seedance-2-0-mini-260615" in video_models
-        # 2.0 系列应声明 video_extend 但不声明 flex_tier
+        # 2.0 系列音轨开关可控
         for mid in (
             "doubao-seedance-2-0-260128",
             "doubao-seedance-2-0-fast-260128",
             "doubao-seedance-2-0-mini-260615",
         ):
-            caps = video_models[mid].capabilities
-            assert "video_extend" in caps
-            assert "flex_tier" not in caps
+            assert "generate_audio" in video_models[mid].capabilities
         # fast 与 mini 都只支持 480p/720p，不含 1080p/4k
         assert video_models["doubao-seedance-2-0-fast-260128"].resolutions == ["480p", "720p"]
         assert video_models["doubao-seedance-2-0-mini-260615"].resolutions == ["480p", "720p"]

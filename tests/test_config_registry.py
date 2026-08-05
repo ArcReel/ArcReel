@@ -29,8 +29,9 @@ def test_provider_meta_fields():
     assert "image" in meta.media_types
     assert "api_key" in meta.required_keys
     assert "api_key" in meta.secret_keys
-    # 视频模型只声明与输入模式无关的特性 token（输入模式的真相源是 backend VideoCapabilities）。
-    assert "video_extend" in meta.capabilities
+    # 视频模型只声明与输入模式无关的特性 token（输入模式的真相源是 backend VideoCapabilities）；
+    # AI Studio 的 Veo 恒有声但开关不可控，不声明 generate_audio（见 registry 的 token 语义注）。
+    assert "generate_audio" not in meta.capabilities
 
 
 @pytest.mark.unit
