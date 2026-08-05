@@ -65,7 +65,7 @@ bash .agents/skills/pr-ai-review-loop/scripts/query.sh <PR_NUMBER> <子命令>
 
 GitHub code scanning 两家(quality / security)的评论并入同一批,处置口径(全部 actionable、修复与 pushback 落点)见 reviewers.md「GitHub code scanning bots」节。
 
-**修复形状**:下面两条与 `receiving-code-review` 逐条实施的要求冲突时以本节为准——逐条实施会把一批意见变成一批分散的小改动,累积下来持续降低代码的可修改性(ETC)。
+**修复形状**:下面两条与 `receiving-code-review` 逐条实施的要求冲突时以本节为准——逐条实施会把一批意见变成一批分散的小补丁,累积下来持续降低代码的可修改性(ETC);修复取「回到合理形态」的最小改动,不在现状上叠补丁。
 
 - **YAGNI**:对防御性意见(新增检查、兜底、try-except、默认值、空值分支),先确认它要防的失败路径是否真实存在,即能否指出一个具体的调用方或输入触发它。能指出就实施;不能指出就回复评论说明理由,不修改代码。两种处置都要用一句话记录这条路径:驳回的写在回复评论里,实施的写在 commit 说明里。`receiving-code-review` 的 `YAGNI Check` 一节检查的是静态未被调用的代码,这里检查的是运行时不可达的分支
 - **Duplicated Code**:先确认这批意见中有几条指向同一处逻辑或同一个根因。有两条以上时,在已有抽象内合并为一处改动
