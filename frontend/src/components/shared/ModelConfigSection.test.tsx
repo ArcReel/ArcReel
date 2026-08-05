@@ -176,7 +176,7 @@ describe("ModelConfigSection", () => {
     const alerts = screen.getAllByRole("alert");
     expect(alerts).toHaveLength(2); // video + image；文本档位不取用候选数据，不参与
     for (const alert of alerts) {
-      expect(alert).toHaveTextContent(/可选模型列表加载失败/);
+      expect(alert).toHaveTextContent(/模型列表加载失败/);
     }
     const retryButtons = screen.getAllByRole("button", { name: "重试" });
     expect(retryButtons).toHaveLength(2);
