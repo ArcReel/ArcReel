@@ -567,10 +567,12 @@ class ReferenceSplitCaps(NamedTuple):
     可能合法；归属哪一套要等正文派生出 references 才知道。三者相等即该型号在当前分辨率下未声明
     生效的「参考图↔时长」联动约束，多数型号如此。
 
-    ``voice`` 是同一次能力解析派生出的声音输入档（故障回退时按 ``VoiceRenderSettings.from_caps``
-    的空 dict 口径），供声音相关的容忍 warning 消费——与时长档位同源于这一次解析，分两次查会让
-    同一份产物的档位与声音提示描述不同时刻的配置。携带值对象而非原始能力 dict：下游只需要声音那
-    几位，穿一整个 dict 过接口会把能力 key 名耦合扩散到消费侧。
+    ``voice`` 是同一次能力解析派生出的声音输入档，供声音相关的容忍 warning 消费——与时长档位同源
+    于这一次解析，分两次查会让同一份产物的档位与声音提示描述不同时刻的配置。能力解析故障回退时
+    档位相关的几位落到 ``VoiceRenderSettings`` 的字段默认，唯 ``requested_generate_audio`` 仍带着
+    本集的无声意图（该位不依赖能力接口，回退分支独立解析后写回，见
+    ``_fetch_reference_caps_with_fallback``）。携带值对象而非原始能力 dict：下游只需要声音那几位，
+    穿一整个 dict 过接口会把能力 key 名耦合扩散到消费侧。
     """
 
     default_duration: int | None
