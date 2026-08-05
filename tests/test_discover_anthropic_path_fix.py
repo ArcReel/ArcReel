@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.mark.asyncio
 async def test_discover_strips_anthropic_suffix() -> None:

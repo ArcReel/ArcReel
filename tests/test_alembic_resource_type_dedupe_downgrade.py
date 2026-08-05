@@ -14,6 +14,8 @@ from alembic.config import Config
 
 from alembic import command
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def alembic_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Config:

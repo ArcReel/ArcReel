@@ -17,6 +17,8 @@ from server.agent_runtime.session_manager import (
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import FakeSDKClient
 
+pytestmark = pytest.mark.unit
+
 
 def _make_manager(tmp_path: Path) -> SessionManager:
     """Create a SessionManager with a real MetaStore for testing."""

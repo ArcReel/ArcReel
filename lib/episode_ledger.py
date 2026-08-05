@@ -48,16 +48,24 @@ SOURCE_TEXT_SUFFIXES = {".txt", ".md"}
 SOURCE_FINGERPRINTS_KEY = "source_fingerprints"
 
 
+# 字段校验失败的原因以翻译键携带：Pydantic 只能把原因传成字符串，DataValidator 在
+# 汇总报错时据此还原为可翻译片段，用户按请求语言看到失败原因（见
+# ``lib.data_validator._pydantic_error_summary``）。
+LEDGER_SOURCE_FILE_NOT_RELATIVE_KEY = "val_ledger_source_file_not_relative"
+LEDGER_SOURCE_FILE_ESCAPES_KEY = "val_ledger_source_file_escapes"
+LEDGER_START_AFTER_END_KEY = "val_ledger_start_after_end"
+
+
 def _validate_rel_posix_path(value: str) -> str:
     """``source_file`` 的路径语义：项目根相对 POSIX 路径，拒绝绝对路径 / ``..`` / 反斜杠。
 
     形状校验放行这些值会让按路径读源文的消费方越出项目目录。
     """
     if not value or "\\" in value:
-        raise ValueError("source_file 必须是项目内相对 POSIX 路径")
+        raise ValueError(LEDGER_SOURCE_FILE_NOT_RELATIVE_KEY)
     parts = PurePosixPath(value).parts
     if PurePosixPath(value).is_absolute() or ".." in parts:
-        raise ValueError("source_file 不能是绝对路径或包含 ..")
+        raise ValueError(LEDGER_SOURCE_FILE_ESCAPES_KEY)
     return value
 
 
@@ -82,7 +90,7 @@ class SourceRange(BaseModel):
     @model_validator(mode="after")
     def _check_order(self) -> SourceRange:
         if self.start > self.end:
-            raise ValueError("start 不能大于 end")
+            raise ValueError(LEDGER_START_AFTER_END_KEY)
         return self
 
 

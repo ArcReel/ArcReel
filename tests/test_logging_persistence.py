@@ -12,6 +12,8 @@ import pytest
 from lib import app_data_dir as app_data_dir_mod
 from lib import logging_config
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture(autouse=True)
 def _reset_root_logger():

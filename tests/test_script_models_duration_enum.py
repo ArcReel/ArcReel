@@ -12,6 +12,8 @@ from lib.script_models import (
     build_episode_script_model,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def _duration_enum(model: type[BaseModel]) -> list[int] | None:
     """从模型 JSON schema 的 $defs 里取出 duration_seconds 的 enum（无则 None）。"""

@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from lib.system_config import SystemConfigManager
+
+pytestmark = pytest.mark.unit
 
 
 class TestSystemConfigMigration:

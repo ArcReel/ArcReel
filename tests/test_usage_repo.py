@@ -26,6 +26,7 @@ async def db_session(engine):
 
 
 class TestUsageRepository:
+    @pytest.mark.unit
     async def test_start_and_finish_call(self, db_session):
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(
@@ -48,6 +49,7 @@ class TestUsageRepository:
         assert calls["total"] == 1
         assert calls["items"][0]["status"] == "success"
 
+    @pytest.mark.unit
     async def test_get_stats(self, db_session):
         repo = UsageRepository(db_session)
         call1 = await repo.start_call(
@@ -71,6 +73,7 @@ class TestUsageRepository:
         assert stats["failed_count"] == 1
         assert stats["total_count"] == 2
 
+    @pytest.mark.unit
     async def test_get_projects_list(self, db_session):
         repo = UsageRepository(db_session)
         await repo.start_call(project_name="project_a", call_type="image", model="m")
@@ -79,6 +82,7 @@ class TestUsageRepository:
         projects = await repo.get_projects_list()
         assert set(projects) == {"project_a", "project_b"}
 
+    @pytest.mark.unit
     async def test_pagination(self, db_session):
         repo = UsageRepository(db_session)
         for i in range(5):
@@ -93,6 +97,7 @@ class TestUsageRepository:
 
 
 class TestClassifyAssetOutputPath:
+    @pytest.mark.unit
     def test_products_bucketed_separately_from_props(self):
         from lib.db.repositories.usage_repo import _classify_asset_output_path
 
@@ -106,6 +111,7 @@ class TestClassifyAssetOutputPath:
 class TestFinalizePendingByCallId:
     """Resume 路径专用：按 call_id 精准翻 pending → success/failed。"""
 
+    @pytest.mark.unit
     async def test_flips_pending_to_success(self, db_session):
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
@@ -118,6 +124,7 @@ class TestFinalizePendingByCallId:
         assert calls["items"][0]["status"] == "success"
         assert calls["items"][0]["cost_amount"] == 0.0
 
+    @pytest.mark.unit
     async def test_auto_calculates_cost_when_amount_omitted(self, db_session):
         """cost_amount=None + status='success' → 按 ApiCall 行字段调 cost_calculator 算实际 cost。"""
         repo = UsageRepository(db_session)
@@ -140,6 +147,7 @@ class TestFinalizePendingByCallId:
         assert calls["items"][0]["status"] == "success"
         assert calls["items"][0]["cost_amount"] > 0.0, "auto-calc 应算出真实 cost，不应是 0"
 
+    @pytest.mark.unit
     async def test_service_tier_passed_to_cost_calculator(self, db_session, monkeypatch):
         """service_tier 应从 caller 透传到 cost_calculator.calculate_cost，非 default 档位才算对。"""
         from lib import cost_calculator as cc_module
@@ -167,6 +175,7 @@ class TestFinalizePendingByCallId:
         assert affected == 1
         assert captured["service_tier"] == "priority", "service_tier 必须从 caller 透传到 cost_calculator"
 
+    @pytest.mark.unit
     async def test_usage_tokens_passed_to_cost_calculator(self, db_session, monkeypatch):
         """Ark video 按 usage_tokens 计费，repo 必须把 caller 传入的 usage_tokens 透传到 cost_calculator，
         否则按 token 计费的视频走 usage_tokens or 0 路径 → cost 永远为 0 CNY。"""
@@ -222,6 +231,7 @@ class TestFinalizePendingByCallId:
         calls = await repo.get_calls(project_name="demo")
         assert calls["items"][0]["cost_amount"] == 0.0, "usage_tokens 缺失时实付结算不得伪造近似金额"
 
+    @pytest.mark.unit
     async def test_billed_duration_passed_to_cost_calculator_and_ledger(self, db_session, monkeypatch):
         """provider 回报的实际计费时长必须透传到 cost_calculator 并回写 ApiCall.duration_seconds，
         与 finish_call 的 billed_duration_seconds 覆盖语义一致（resume 路径不分叉）。"""
@@ -253,6 +263,7 @@ class TestFinalizePendingByCallId:
         calls = await repo.get_calls(project_name="demo")
         assert calls["items"][0]["duration_seconds"] == 15, "实际计费时长必须 UPDATE 写回 ApiCall 行"
 
+    @pytest.mark.unit
     async def test_billed_duration_non_positive_falls_back_to_request_duration(self, db_session, monkeypatch):
         """非正的实际计费时长视同未提供：cost_calculator 入参与账本均回落 start_call 的请求时长。"""
         from lib import cost_calculator as cc_module
@@ -283,6 +294,7 @@ class TestFinalizePendingByCallId:
         calls = await repo.get_calls(project_name="demo")
         assert calls["items"][0]["duration_seconds"] == 6, "非正计费时长不得写回账本，应保留请求时长"
 
+    @pytest.mark.unit
     async def test_billed_duration_over_limit_falls_back_to_request_duration(self, db_session, monkeypatch):
         """超出合理上限（24h）的计费时长视同未提供：repo 写入层是全部 backend 的最后防线，
         防超大数值写入 DB Integer 列溢出。"""
@@ -315,6 +327,7 @@ class TestFinalizePendingByCallId:
         calls = await repo.get_calls(project_name="demo")
         assert calls["items"][0]["duration_seconds"] == 6, "超限计费时长不得写回账本，应保留请求时长"
 
+    @pytest.mark.unit
     async def test_does_not_touch_other_pending_call(self, db_session):
         repo = UsageRepository(db_session)
         cid_a = await repo.start_call(project_name="demo", call_type="video", model="m", segment_id="E1S01")
@@ -329,6 +342,7 @@ class TestFinalizePendingByCallId:
         assert by_id[cid_a]["status"] == "success"
         assert by_id[cid_b]["status"] == "pending", "另一条 pending 不应被 touch"
 
+    @pytest.mark.unit
     async def test_idempotent_when_already_success(self, db_session):
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
@@ -342,6 +356,7 @@ class TestFinalizePendingByCallId:
         calls = await repo.get_calls(project_name="demo")
         assert calls["items"][0]["cost_amount"] == 5.0, "cost 未被覆写"
 
+    @pytest.mark.unit
     async def test_finalize_failed_status(self, db_session):
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
@@ -355,11 +370,13 @@ class TestFinalizePendingByCallId:
         assert calls["items"][0]["status"] == "failed"
         assert calls["items"][0]["cost_amount"] == 0.0
 
+    @pytest.mark.unit
     async def test_unknown_call_id_returns_zero(self, db_session):
         repo = UsageRepository(db_session)
         affected = await repo.finalize_pending_by_call_id(call_id=99999, settlement=SettlementInput())
         assert affected == 0
 
+    @pytest.mark.unit
     async def test_writes_duration_ms(self, db_session):
         """resume 完成的调用必须回写 duration_ms，否则 get_stats_grouped_by_provider 的
         provider 级时长统计会因 NULL 系统性压低。"""
@@ -375,6 +392,7 @@ class TestFinalizePendingByCallId:
         assert item["duration_ms"] is not None
         assert item["duration_ms"] >= 0
 
+    @pytest.mark.unit
     async def test_generate_audio_override_passed_to_cost_calculator(self, db_session, monkeypatch):
         """provider 在 submit 后可能降级/关闭音频；finalize 接受 caller 透传的 generate_audio
         覆盖 ApiCall 行上 start_call 时的请求值（与 finish_call 同语义），cost_calculator 也应收到
@@ -413,6 +431,7 @@ class TestFinalizePendingByCallId:
 
 
 class TestMultiProviderUsage:
+    @pytest.mark.unit
     async def test_ark_call_records_provider_and_tokens(self, db_session):
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(
@@ -439,6 +458,7 @@ class TestMultiProviderUsage:
         assert item["usage_tokens"] == 246840
         assert item["cost_amount"] == pytest.approx(3.9494, rel=1e-3)
 
+    @pytest.mark.unit
     async def test_gemini_call_defaults_to_usd(self, db_session):
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(
@@ -457,6 +477,7 @@ class TestMultiProviderUsage:
         assert item["currency"] == "USD"
         assert item["cost_amount"] == pytest.approx(3.2)
 
+    @pytest.mark.unit
     async def test_get_stats_groups_by_currency(self, db_session):
         repo = UsageRepository(db_session)
 
@@ -492,6 +513,7 @@ class TestMultiProviderUsage:
         assert stats["cost_by_currency"]["CNY"] == pytest.approx(3.9494, rel=1e-3)
         assert stats["total_cost"] == pytest.approx(3.2)
 
+    @pytest.mark.unit
     async def test_get_stats_cost_by_currency_excludes_failed_billed_calls(self, db_session):
         """金额维度与项目成本口径一致：只统计 success 且已扣费调用。"""
         repo = UsageRepository(db_session)
@@ -545,6 +567,7 @@ class TestMultiProviderUsage:
             "CNY": pytest.approx(0.25),
         }
 
+    @pytest.mark.unit
     async def test_get_stats_grouped_by_provider_includes_cost_by_currency(self, db_session):
         repo = UsageRepository(db_session)
 
@@ -609,6 +632,7 @@ class TestMultiProviderUsage:
         assert by_group[("vidu", "image")]["total_calls"] == 2
         assert by_group[("vidu", "image")]["success_calls"] == 1
 
+    @pytest.mark.unit
     async def test_text_call_gemini_cost(self, db_session):
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(
@@ -634,6 +658,7 @@ class TestMultiProviderUsage:
         # cost = (1000 * 0.50 + 500 * 3.00) / 1_000_000 = 0.002
         assert item["cost_amount"] == pytest.approx((1000 * 0.50 + 500 * 3.00) / 1_000_000)
 
+    @pytest.mark.unit
     async def test_text_call_ark_cost(self, db_session):
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(
@@ -656,6 +681,7 @@ class TestMultiProviderUsage:
         # cost = (2000 * 0.60 + 1000 * 3.60) / 1_000_000 = 0.0048
         assert item["cost_amount"] == pytest.approx((2000 * 0.60 + 1000 * 3.60) / 1_000_000)
 
+    @pytest.mark.unit
     async def test_text_call_failed_zero_cost(self, db_session):
         repo = UsageRepository(db_session)
         call_id = await repo.start_call(
@@ -676,6 +702,7 @@ class TestMultiProviderUsage:
         item = calls["items"][0]
         assert item["cost_amount"] == 0.0
 
+    @pytest.mark.unit
     async def test_get_stats_includes_text_count(self, db_session):
         repo = UsageRepository(db_session)
         c1 = await repo.start_call(project_name="demo", call_type="image", model="m")

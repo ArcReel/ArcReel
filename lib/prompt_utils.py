@@ -10,6 +10,7 @@ from typing import Any, get_args
 
 import yaml
 
+from lib.asset_types import normalize_asset_bucket, normalize_asset_name
 from lib.script_models import CameraMotion, ShotType
 
 logger = logging.getLogger(__name__)
@@ -170,19 +171,24 @@ def _build_voice_profiles(dialogue: list[dict[str, str]], characters: dict[str, 
     出现的顺序去重）；speaker 未命中角色资产或资产 ``voice_style`` 为空，静默跳过
     （不建面向用户的提示通道，调用方按需记 logger）。
 
+    speaker 与角色表 key 可能是 NFC/NFD 中的任一形态（存量剧本/桶无需迁移），按
+    ``lib.asset_types`` 的比对坐标系归一后索引与去重，``Speaker`` 展示值保留 dialogue 原文。
+
     ``characters`` 来自明文 project.json，用户手编或外部脚本可能写成非 dict，逐层做类型
     收窄而非直接下标（同 ``lib.config.resolver._safe_dict`` 的取向）。
     """
-    if not isinstance(characters, dict):
-        return []
+    characters = normalize_asset_bucket(characters)
     seen: set[str] = set()
     profiles: list[dict[str, str]] = []
     for entry in dialogue:
         speaker = entry.get("speaker") if isinstance(entry, dict) else None
-        if not isinstance(speaker, str) or not speaker or speaker in seen:
+        if not isinstance(speaker, str) or not speaker:
             continue
-        seen.add(speaker)
-        character = characters.get(speaker)
+        speaker_key = normalize_asset_name(speaker)
+        if speaker_key in seen:
+            continue
+        seen.add(speaker_key)
+        character = characters.get(speaker_key)
         if not isinstance(character, dict):
             logger.debug("Voice_Profiles 跳过：speaker %r 未命中角色资产", speaker)
             continue

@@ -11,6 +11,8 @@ from lib.providers import PROVIDER_MINIMAX
 from lib.video_backends.base import VideoCapabilityError, VideoGenerationRequest
 from lib.video_backends.minimax import MiniMaxVideoBackend
 
+pytestmark = pytest.mark.unit
+
 
 def _resp(json_body: dict, status_code: int = 200) -> MagicMock:
     resp = MagicMock()

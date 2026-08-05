@@ -19,6 +19,8 @@ from lib.audio_backends import (
 from lib.dashscope_shared import extract_audio_url
 from lib.providers import PROVIDER_DASHSCOPE
 
+pytestmark = pytest.mark.unit
+
 
 class TestRegistry:
     def test_dashscope_auto_registered(self):

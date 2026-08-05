@@ -16,6 +16,8 @@ from server.agent_runtime.session_actor import (
 )
 from tests.fakes import FakeSDKClient
 
+pytestmark = pytest.mark.unit
+
 
 def test_session_command_default_fields():
     cmd = SessionCommand(type="query", prompt="hello")

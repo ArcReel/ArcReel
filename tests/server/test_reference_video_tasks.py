@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from lib.reference_video.errors import MissingReferenceError
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from server.services.reference_video_tasks import (
     FALLBACK_UNIT_DURATION,
     ProjectDurationContext,
@@ -109,7 +110,7 @@ def _wire_context(
 ) -> None:
     """把 fake generator + video lane 值包成 GenerationContext，替换 resolve_generation_context 单点。
 
-    executor 迁移后不再触碰 MediaGenerator 私有属性、不再手工重建 provider 身份——所有
+    executor 不触碰 MediaGenerator 私有属性、不手工重建 provider 身份——所有
     provider/backend 身份、能力上限、resolution 均由 GenerationContext 的 video lane 提供。
     能力上限与 resolution 的解析逻辑本身在 tests/server/test_generation_context.py 覆盖，此处
     只需喂入 lane 值验证 executor 的下游 clamp / 守卫 / 透传行为。
@@ -157,6 +158,7 @@ def _wire_locked_script(fake_pm: MagicMock) -> None:
     fake_pm.locked_script.side_effect = _locked
 
 
+@pytest.mark.unit
 def test_resolve_unit_references_maps_sheets(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
     project, unit = _load_project_and_unit(proj_dir, "E1U1")
@@ -164,6 +166,7 @@ def test_resolve_unit_references_maps_sheets(tmp_path: Path):
     assert [p.name for p in resolved] == ["张三.png", "酒馆.png"]
 
 
+@pytest.mark.unit
 def test_resolve_unit_references_missing_sheet_raises(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
     project, unit = _load_project_and_unit(proj_dir, "E1U1")
@@ -174,6 +177,7 @@ def test_resolve_unit_references_missing_sheet_raises(tmp_path: Path):
     assert ("character", "张三") in excinfo.value.missing
 
 
+@pytest.mark.unit
 def test_resolve_unit_references_unknown_name_raises(tmp_path: Path):
     proj_dir = _write_project(tmp_path)
     project, _ = _load_project_and_unit(proj_dir, "E1U1")
@@ -295,6 +299,7 @@ def test_resolve_ad_unit_reference_entries_no_false_positive_warning_for_nfd_pro
     assert warnings == []
 
 
+@pytest.mark.unit
 def test_render_unit_prompt_rejects_empty_shots():
     """执行层保留一道防御性空检查：提示词源是可变 script、执行期重读，结构校验上移到
     入队守卫点后仍需挡住「入队后被改空 / 在途遗留任务」漏过的空提示词，避免尾词追加后
@@ -310,14 +315,11 @@ def test_render_unit_prompt_rejects_empty_shots():
         _render_unit_prompt(
             unit,
             {},
-            voice_consistency="soft",
-            requested_generate_audio=True,
-            max_reference_audio=0,
-            model_id="m",
-            audio_ready=set(),
+            VoiceRenderSettings(model_id="m", audio_ready=set()),
         )
 
 
+@pytest.mark.unit
 def test_render_unit_prompt_binds_subjects_in_reference_order():
     unit = {
         "shots": [
@@ -333,11 +335,7 @@ def test_render_unit_prompt_binds_subjects_in_reference_order():
     rendered = _render_unit_prompt(
         unit,
         project,
-        voice_consistency="soft",
-        requested_generate_audio=True,
-        max_reference_audio=0,
-        model_id="m",
-        audio_ready=set(),
+        VoiceRenderSettings(model_id="m", audio_ready=set()),
     )
     assert "<张三>@图片1、<酒馆>@图片2。" in rendered.prompt
     assert "@张三" not in rendered.prompt
@@ -345,6 +343,7 @@ def test_render_unit_prompt_binds_subjects_in_reference_order():
     assert "[图1]" not in rendered.prompt
 
 
+@pytest.mark.unit
 def test_render_unit_prompt_preserves_shot_boundaries_when_shots_lack_headers():
     """经解析预览面板编辑回写的 unit，``shots[*].text`` 不带 ``镜头N：`` header——
     渲染仍须按数组结构切成对应数量的镜头，不能因裸拼接后找不到 header 被折叠成一镜头。"""
@@ -360,11 +359,7 @@ def test_render_unit_prompt_preserves_shot_boundaries_when_shots_lack_headers():
     rendered = _render_unit_prompt(
         unit,
         project,
-        voice_consistency="soft",
-        requested_generate_audio=True,
-        max_reference_audio=0,
-        model_id="m",
-        audio_ready=set(),
+        VoiceRenderSettings(model_id="m", audio_ready=set()),
     )
     assert "镜头1：\n<张三> 推门而入。" in rendered.prompt
     assert "镜头2：\n他环顾四周。" in rendered.prompt
@@ -448,7 +443,7 @@ async def test_resolve_project_duration_context_resolves_caps_and_resolution_onc
     caps_calls = 0
     resolution_calls = 0
 
-    async def fake_caps(_project, *, degraded_to, episode=None):
+    async def fake_caps(_project, *, degraded_to, capability=None, episode=None):
         nonlocal caps_calls
         caps_calls += 1
         return {"provider_id": "gemini-aistudio", "model": "veo-3.1-generate-preview", "supported_durations": [4, 6, 8]}
@@ -480,7 +475,7 @@ async def test_resolve_project_duration_context_skips_resolution_when_no_duratio
 
     resolution_calls = 0
 
-    async def fake_caps(_project, *, degraded_to, episode=None):
+    async def fake_caps(_project, *, degraded_to, capability=None, episode=None):
         return {}
 
     async def fake_resolution(*_a, **_kw):
@@ -612,6 +607,7 @@ def test_apply_provider_constraints_narrows_by_call_conditions():
     assert without_images == 6
 
 
+@pytest.mark.unit
 def test_apply_provider_constraints_sora_single_ref():
     refs = [Path(f"/tmp/ref{i}.png") for i in range(3)]
     new_refs, _, warnings = _apply_provider_constraints(
@@ -626,6 +622,7 @@ def test_apply_provider_constraints_sora_single_ref():
     assert any("ref_sora_single_ref" in w["key"] for w in warnings)
 
 
+@pytest.mark.unit
 def test_apply_provider_constraints_ark_keeps_nine():
     refs = [Path(f"/tmp/ref{i}.png") for i in range(9)]
     new_refs, new_duration, warnings = _apply_provider_constraints(
@@ -641,6 +638,7 @@ def test_apply_provider_constraints_ark_keeps_nine():
     assert warnings == []
 
 
+@pytest.mark.unit
 def test_apply_provider_constraints_none_caps_skip_clamp():
     """当 ConfigResolver 解析失败（例如无 DB 的 CI 环境），调用方传 None / 空档位集 →
     不裁剪任何维度、时长原样透传，把决策推到 backend 自己去报错。"""
@@ -658,6 +656,7 @@ def test_apply_provider_constraints_none_caps_skip_clamp():
     assert warnings == []
 
 
+@pytest.mark.unit
 def test_apply_provider_constraints_custom_provider_model_granular():
     """Custom provider 场景：档位集由自定义 model.supported_durations 决定，
     无需 PROVIDER_MAX_DURATION 常量查表。传入 duration=18 超过最大档位 → 按 10 申请。"""
@@ -676,6 +675,7 @@ def test_apply_provider_constraints_custom_provider_model_granular():
     assert not any(w["key"] == "ref_too_many_images" for w in warnings)
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     proj_dir = _write_project(tmp_path)
@@ -724,6 +724,150 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
     assert result["file_path"].endswith("E1U1.mp4")
 
 
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("strip_references", "expected_capability"), [(False, "r2v"), (True, "i2v")])
+async def test_execute_reference_video_task_bucket_follows_resolved_references(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, strip_references: bool, expected_capability: str
+):
+    """执行侧按解析后的实际参考图分流定桶：有参考图 → r2v，无参考图退化镜头 → i2v。
+
+    降级让 r2v 桶配置为拒空参考模型（DashScope R2V / MiniMax S2V）的项目也能生成
+    退化镜头——若恒声明 r2v，这类镜头执行期必以 video_reference_images_required 失败。
+    """
+    proj_dir = _write_project(tmp_path)
+    if strip_references:
+        script_path = proj_dir / "scripts" / "episode_1.json"
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        script["video_units"][0]["references"] = []
+        script["video_units"][0]["shots"] = [{"text": "空镜头，推门而入"}]
+        script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+
+    def fake_load_script(_project_name, _filename):
+        return json.loads((proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
+
+    fake_pm.load_script.side_effect = fake_load_script
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**kwargs):
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
+
+    captured: dict = {}
+    inner = rvt.resolve_generation_context
+
+    async def _capture(*args, **kwargs):
+        captured["video"] = kwargs.get("video")
+        return await inner(*args, **kwargs)
+
+    monkeypatch.setattr(rvt, "resolve_generation_context", _capture)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
+
+    assert captured["video"].capability == expected_capability
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_execute_reference_video_task_ad_bucket_follows_resolved_not_declared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """ad 声明了参考但资产全缺图 → 软跳过后实际参考为空，按 i2v 定桶。
+
+    与清空声明的用例互补：这里 ``unit["references"]`` 非空，只有按**解析结果**定桶才会
+    得到 i2v——若实现回退成按声明判定（``bool(unit["references"])``），该 unit 会被送进
+    拒空参考的 r2v 桶模型，正是分流要消除的失败。
+    """
+    proj_dir = _write_project(tmp_path)
+
+    project_path = proj_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project["content_mode"] = "ad"
+    # 声明保留、盘上无图：软口径跳过后 source_refs 为空
+    project["scenes"]["酒馆"]["scene_sheet"] = "scenes/不存在.png"
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    script_path = proj_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["content_mode"] = "ad"
+    script["shots"] = [
+        {
+            "shot_id": "S1",
+            "duration_seconds": 3,
+            "image_prompt": {"scene": "产品置于木桌上"},
+            "video_prompt": {"action": "镜头缓推"},
+        }
+    ]
+    script["reference_units"] = [
+        {
+            "unit_id": "E1U1",
+            "shot_ids": ["S1"],
+            "references": [{"type": "scene", "name": "酒馆"}],
+        }
+    ]
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads(project_path.read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(script_path.read_text(encoding="utf-8"))
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**kwargs):
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
+    _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
+
+    captured: dict = {}
+    inner = rvt.resolve_generation_context
+
+    async def _capture(*args, **kwargs):
+        captured["video"] = kwargs.get("video")
+        return await inner(*args, **kwargs)
+
+    monkeypatch.setattr(rvt, "resolve_generation_context", _capture)
+
+    async def _fake_extract(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
+
+    await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
+
+    assert captured["video"].capability == "i2v"
+    call_kwargs = fake_generator.generate_video_async.await_args.kwargs
+    assert call_kwargs.get("reference_images") in (None, [])
+
+
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_sends_reference_audio_in_prompt_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -876,6 +1020,7 @@ async def test_execute_reference_video_task_omits_reference_audio_when_episode_i
     assert {"key": "ref_warn_silent_episode", "params": {}} in result["warnings"]
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_aligns_reference_audio_targets_for_per_image_backend(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -957,6 +1102,7 @@ async def test_execute_reference_video_task_aligns_reference_audio_targets_for_p
     assert captured["reference_audio_targets"] == [1]
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_omits_audio_field_for_soft_tier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1019,6 +1165,7 @@ async def test_execute_reference_video_task_omits_audio_field_for_soft_tier(
     assert "@音频" not in captured["prompt"]
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_surfaces_render_warnings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """渲染期降级 warning 与既有 result.warnings 通道贯通（超上限截断降级）。"""
@@ -1081,6 +1228,7 @@ async def test_execute_reference_video_task_surfaces_render_warnings(tmp_path: P
     assert {"key": "ref_warn_reference_audio_overflow", "params": {"limit": 1, "name": "李四"}} in result["warnings"]
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail(
     tmp_path: Path,
@@ -1147,6 +1295,7 @@ async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail
     assert ga_after["status"] == "completed"
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_grok_uses_provider_default_resolution(
     tmp_path: Path,
@@ -1273,6 +1422,7 @@ async def test_execute_reference_video_task_narrows_durations_by_registry_provid
     assert captured.get("duration_seconds") == 8
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_missing_reference_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     proj_dir = _write_project(tmp_path)
@@ -1298,6 +1448,7 @@ async def test_execute_reference_video_task_missing_reference_fails(tmp_path: Pa
         )
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """executor 必须走真实 MediaGenerator._get_output_path。
@@ -1415,6 +1566,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     assert any(p.suffix == ".mp4" for p in version_dir.iterdir())
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """executor 把**源 sheet 路径**直接交给 generate_video_async（单次调用），压缩下沉
@@ -1472,6 +1624,7 @@ async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, m
     ]
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_clamps_via_lane_caps(
     tmp_path: Path,
@@ -1541,6 +1694,7 @@ async def test_execute_reference_video_task_clamps_via_lane_caps(
     assert len(captured["reference_images"]) == 1
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     tmp_path: Path,
@@ -1778,6 +1932,7 @@ async def test_execute_reference_video_task_rounds_up_non_member_duration(
     assert warnings[0]["params"] == {"total": 5, "duration": 8, "model": "sora-2"}
 
 
+@pytest.mark.unit
 async def test_execute_reference_video_task_persists_effective_duration_when_rounded(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1822,6 +1977,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
 
     fake_queue = MagicMock()
     fake_queue.persist_effective_duration = AsyncMock()
+    fake_queue.persist_execution_identity = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     await rvt.execute_reference_video_task(
@@ -1835,6 +1991,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     fake_queue.persist_effective_duration.assert_awaited_once_with("task-1", 8)
 
 
+@pytest.mark.unit
 async def test_execute_reference_video_task_persists_duration_when_unchanged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1875,6 +2032,7 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
 
     fake_queue = MagicMock()
     fake_queue.persist_effective_duration = AsyncMock()
+    fake_queue.persist_execution_identity = AsyncMock()
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
 
     await rvt.execute_reference_video_task(
@@ -1888,6 +2046,69 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
     fake_queue.persist_effective_duration.assert_awaited_once_with("task-1", 3)
 
 
+@pytest.mark.unit
+async def test_execute_reference_video_task_persists_execution_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """执行期解析出的身份（registry provider + model + 实际桶）须写回投影列与 payload 钉住键：
+    入队投影与钉住按 unit 声明近似，退化镜头降级 i2v 后与实际可能分裂，resume 解析里
+    钉住键优先于列注入，写回须覆盖两处。"""
+    proj_dir = _write_project(tmp_path)
+
+    from lib.config.resolver import ProviderModel
+    from server.services import reference_video_tasks as rvt
+
+    fake_pm = MagicMock()
+    fake_pm.load_project.return_value = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
+    fake_pm.get_project_path.return_value = proj_dir
+    fake_pm.load_script.side_effect = lambda *_a: json.loads(
+        (proj_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+    )
+    _wire_locked_script(fake_pm)
+    monkeypatch.setattr(rvt, "get_project_manager", lambda: fake_pm)
+
+    async def _fake_generate_video_async(**kwargs):
+        out = proj_dir / "reference_videos" / "E1U1.mp4"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"\x00")
+        return out, 1, None, None
+
+    fake_generator = MagicMock()
+    fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
+    # 族别名场景：registry provider_id 与 backend_name 不同，写回的必须是 registry 身份
+    # （provider_id 列的既有口径，claim 池过滤与 resume 锁定都按它查）。
+    _wire_context(
+        monkeypatch,
+        rvt,
+        fake_generator,
+        backend_name="ark",
+        backend_model="doubao-seedance-1-5-pro-251215",
+        registry_provider_id="ark-agent-plan",
+        supported_durations=(3, 8, 12),
+    )
+
+    fake_queue = MagicMock()
+    fake_queue.persist_effective_duration = AsyncMock()
+    fake_queue.persist_execution_identity = AsyncMock()
+    monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
+
+    await rvt.execute_reference_video_task(
+        "demo",
+        "E1U1",
+        {"script_file": "scripts/episode_1.json"},
+        user_id="u1",
+        task_id="task-1",
+    )
+
+    fake_queue.persist_execution_identity.assert_awaited_once_with(
+        "task-1",
+        execution_model=ProviderModel("ark-agent-plan", "doubao-seedance-1-5-pro-251215"),
+        capability="r2v",
+    )
+
+
+@pytest.mark.unit
 def test_apply_unit_video_assets_distinguishes_failures():
     """结构损坏与 unit 不存在抛不同异常：还原侧据此区分「脏脚本告警」与「正常跳过」。
 
@@ -1923,6 +2144,7 @@ def test_apply_unit_video_assets_distinguishes_failures():
     assert ga["status"] == "completed"
 
 
+@pytest.mark.unit
 def test_apply_unit_video_assets_stamps_video_generated_at():
     """每次写回 video_clip 都机械戳 video_generated_at（存量过渡横幅的计数依据）。"""
     from server.services.reference_video_tasks import apply_unit_video_assets
@@ -1938,6 +2160,7 @@ def test_apply_unit_video_assets_stamps_video_generated_at():
     assert isinstance(second_stamp, str) and second_stamp
 
 
+@pytest.mark.unit
 def test_apply_unit_video_assets_honors_explicit_generated_at():
     """版本还原传入被还原版本的原始入库时间，不把旧内容洗成「刚生成」。"""
     from server.services.reference_video_tasks import apply_unit_video_assets

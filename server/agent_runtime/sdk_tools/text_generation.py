@@ -12,6 +12,7 @@ import json
 import logging
 import re
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -66,6 +67,7 @@ from lib.reference_video.script_preview import (
     derive_voice_bindings,
 )
 from lib.reference_video.shot_parser import parse_prompt, render_shots_text
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_generator import ScriptGenerator
 from lib.script_models import (
     NarrationStep1Draft,
@@ -164,7 +166,7 @@ async def _resolve_video_capabilities(project_name: str) -> dict[str, Any]:
     return await resolver.video_capabilities(project_name)
 
 
-def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, Any]) -> None:
+async def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, Any]) -> None:
     """就地补上参考视频路径逐 unit 的两套生效档位（非该路径的项目不补）。
 
     ``supported_durations`` 是型号声明的全集，不含「分辨率↔时长」「参考图↔时长」两条联动约束。
@@ -179,7 +181,7 @@ def _annotate_reference_unit_tiers(payload: dict[str, Any], project: dict[str, A
     durations = [int(d) for d in payload.get("supported_durations") or []]
     if not durations:
         return
-    with_refs, without_refs = reference_unit_duration_tiers(project, payload, durations)
+    with_refs, without_refs = await reference_unit_duration_tiers(project, payload, durations)
     payload["reference_unit_durations"] = {
         "with_references": with_refs,
         "without_references": without_refs,
@@ -197,7 +199,7 @@ def get_video_capabilities_tool(ctx: ToolContext):
     async def _handler(_args: dict[str, Any]) -> dict[str, Any]:
         try:
             payload = await _resolve_video_capabilities(ctx.project_name)
-            _annotate_reference_unit_tiers(payload, ctx.pm.load_project(ctx.project_name))
+            await _annotate_reference_unit_tiers(payload, ctx.pm.load_project(ctx.project_name))
             return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, indent=2)}]}
         except FileNotFoundError as exc:
             return {
@@ -619,7 +621,7 @@ async def _fetch_reference_caps_with_fallback(project: dict[str, Any], episode: 
     durations = [int(d) for d in caps.get("supported_durations") or []]
     if not durations:
         durations = list(DEFAULT_FALLBACK)
-    with_refs, without_refs = reference_unit_duration_tiers(project, caps, durations)
+    with_refs, without_refs = await reference_unit_duration_tiers(project, caps, durations)
     unit_durations = sorted(set(with_refs) | set(without_refs))
     max_duration = max(unit_durations)
     raw_refs = caps.get("max_reference_images")
@@ -754,25 +756,20 @@ def _reference_voice_warning_lines(unit_texts: list[str], project: dict[str, Any
     逐 unit 而非把全集正文拼起来判：unit 就是一次生成调用，参考音频段数上限按调用计——拼起来
     判会把「每个 unit 各两个说话人」误报成超限。与编辑器预览、执行期渲染共用
     ``derive_voice_bindings``，三处对同一份文稿给出的声音结论因此不会分叉。
+
+    ``requires_reference_image`` 在本处一律关掉：该位的判定要配 ``speakers_with_reference_image``
+    才有意义，而拆分阶段的 unit 尚未确定随请求发出的参考图。开着而不给图集合，等于把每个说话人
+    都判成「无画面可挂」，那条 warning 又不在容忍列表内会被丢弃——结果是「未设参考音频」「超出
+    段数上限」这些该让 agent 看见的提示反被吞掉。
     """
     characters = project.get(BUCKET_KEY["character"]) or {}
-    voice_consistency = str(caps.get("voice_consistency") or "soft")
-    max_reference_audio = int(caps.get("max_reference_audio_count") or 0)
-    requested_generate_audio = bool(caps.get("requested_generate_audio", True))
-    model_id = str(caps.get("model") or "")
+    settings = replace(VoiceRenderSettings.from_caps(caps), requires_reference_image=False)
     seen: set[tuple[str, str]] = set()
     lines: list[str] = []
     for text in unit_texts:
         shots, _mentions = parse_prompt(text)
         utterances, _syntax_warnings = derive_utterances(shots)
-        bindings = derive_voice_bindings(
-            utterances,
-            characters,
-            voice_consistency=voice_consistency,
-            requested_generate_audio=requested_generate_audio,
-            max_reference_audio=max_reference_audio,
-            model_id=model_id,
-        )
+        bindings = derive_voice_bindings(utterances, characters, settings)
         for warning in bindings.warnings:
             key = str(warning["key"])
             if key not in _TOLERATED_VOICE_WARNINGS:

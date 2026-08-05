@@ -446,8 +446,10 @@ class API {
    * 能力桶下拉的候选数据源（docs/adr/0054）：默认层全量 + 每个桶按能力过滤后的模型列表。
    * 与 getSystemConfig 的 options 同口径（同样剔除 hidden 模型），过滤只加在桶层。
    */
-  static async getModelCandidates(): Promise<ModelCandidatesResponse> {
-    return this.request("/system/config/model-candidates");
+  static async getModelCandidates(
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ModelCandidatesResponse> {
+    return this.request("/system/config/model-candidates", { signal: options.signal });
   }
 
   static async getSystemVersion(): Promise<GetSystemVersionResponse> {

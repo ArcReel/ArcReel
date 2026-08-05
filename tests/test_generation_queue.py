@@ -9,6 +9,8 @@ from lib.db.base import Base
 from lib.generation_queue import GenerationQueue
 from lib.task_failure import encode_failure
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def queue():
@@ -419,3 +421,149 @@ class TestGenerationQueue:
         )
         preview = await queue.get_cancel_preview(enqueued["task_id"])
         assert preview["task"]["task_id"] == enqueued["task_id"]
+
+
+@pytest.fixture
+def stub_enqueue_resolution(monkeypatch):
+    """把入队解析链（视频 / 图片 / 音频三条）换成固定身份，返回一个可改写解析结果的 holder。"""
+    from lib.config.resolver import ProviderModel
+
+    holder = {"resolved": ProviderModel("custom-7", "pinned-video-model")}
+
+    class _FakeResolver:
+        def __init__(self, factory):
+            pass
+
+        async def resolve_video_backend(self, project, payload, *, capability=None):
+            return holder["resolved"]
+
+        async def resolve_image_backend(self, project, payload, *, capability):
+            return holder["resolved"]
+
+        async def resolve_audio_backend(self, project, payload):
+            return holder["resolved"]
+
+    class _FakeProjectManager:
+        def load_project(self, project_name):
+            return {}
+
+    monkeypatch.setattr("lib.config.resolver.ConfigResolver", _FakeResolver)
+    monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: _FakeProjectManager())
+    return holder
+
+
+class TestPinExecutionModelOnEnqueue:
+    """入队把解析出的执行 model 钉进视频任务 payload 的能力桶键。"""
+
+    async def test_video_task_pins_bucket_key(self, queue, stub_enqueue_resolution):
+        enqueued = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="r1",
+            payload={"prompt": "p"},
+            script_file="ep1.json",
+        )
+        task = await queue.get_task(enqueued["task_id"])
+        assert task["payload"]["video_provider_i2v"] == "custom-7/pinned-video-model"
+        assert task["provider_id"] == "custom-7"
+
+    async def test_reference_video_task_pins_r2v_bucket_key(self, queue, stub_enqueue_resolution):
+        enqueued = await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="r1",
+            payload={"prompt": "p"},
+            script_file="ep1.json",
+        )
+        task = await queue.get_task(enqueued["task_id"])
+        assert task["payload"]["video_provider_r2v"] == "custom-7/pinned-video-model"
+
+    async def test_persist_execution_identity_rewrites_pinned_bucket_key(self, queue, stub_enqueue_resolution):
+        """入队钉住与执行定桶分裂时，写回把陈旧桶键换成实际执行身份——resume 解析里钉住键
+        优先于 provider_id 列注入，只刷新列锁不住轮询 backend。"""
+        from lib.config.resolver import ProviderModel
+
+        enqueued = await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="r1",
+            payload={"prompt": "p"},
+            script_file="ep1.json",
+        )
+        task = await queue.get_task(enqueued["task_id"])
+        assert task["payload"]["video_provider_r2v"] == "custom-7/pinned-video-model"
+
+        await queue.persist_execution_identity(
+            enqueued["task_id"],
+            execution_model=ProviderModel("ark", "doubao-seedance-1-5-pro-251215"),
+            capability="i2v",
+        )
+        task = await queue.get_task(enqueued["task_id"])
+        assert task["payload"]["video_provider_i2v"] == "ark/doubao-seedance-1-5-pro-251215"
+        assert "video_provider_r2v" not in task["payload"]
+        assert task["payload"]["prompt"] == "p"
+        assert task["provider_id"] == "ark"
+
+    async def test_non_video_task_pins_nothing(self, queue, stub_enqueue_resolution):
+        """图片任务的 capability 执行时才定，入队不钉——只落 provider_id。"""
+        enqueued = await queue.enqueue_task(
+            project_name="demo",
+            task_type="storyboard",
+            media_type="image",
+            resource_id="r1",
+            payload={"prompt": "p"},
+            script_file="ep1.json",
+        )
+        task = await queue.get_task(enqueued["task_id"])
+        assert task["payload"] == {"prompt": "p"}
+        assert task["provider_id"] == "custom-7"
+
+    async def test_unresolvable_model_leaves_payload_untouched(self, queue, stub_enqueue_resolution):
+        """解析补不出 model → 不钉半截身份，payload 与 provider_id 均按原有兜底。"""
+        from lib.config.resolver import ProviderModel
+
+        stub_enqueue_resolution["resolved"] = ProviderModel("", "")
+        enqueued = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="r1",
+            payload={"prompt": "p"},
+            script_file="ep1.json",
+        )
+        task = await queue.get_task(enqueued["task_id"])
+        assert task["payload"] == {"prompt": "p"}
+        assert task["provider_id"] is None
+
+    async def test_provider_without_model_pins_nothing(self, queue, stub_enqueue_resolution):
+        """解析出 provider 但补不出 model → 只落 provider_id，不钉半截桶键。"""
+        from lib.config.resolver import ProviderModel
+
+        stub_enqueue_resolution["resolved"] = ProviderModel("custom-7", "")
+        enqueued = await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="r1",
+            payload={"prompt": "p"},
+            script_file="ep1.json",
+        )
+        task = await queue.get_task(enqueued["task_id"])
+        assert task["payload"] == {"prompt": "p"}
+        assert task["provider_id"] == "custom-7"
+
+    async def test_caller_payload_not_mutated(self, queue, stub_enqueue_resolution):
+        """钉入走新 dict：调用方常复用同一份 payload 批量入队。"""
+        payload = {"prompt": "p"}
+        await queue.enqueue_task(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="r1",
+            payload=payload,
+            script_file="ep1.json",
+        )
+        assert payload == {"prompt": "p"}

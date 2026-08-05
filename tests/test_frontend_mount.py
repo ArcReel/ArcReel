@@ -11,6 +11,8 @@ from httpx import ASGITransport, AsyncClient
 import lib
 from server import app as app_module
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def reload_app_cleanup(monkeypatch: pytest.MonkeyPatch):

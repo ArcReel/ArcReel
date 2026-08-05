@@ -2,7 +2,11 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from server.agent_runtime.service import AssistantService
+
+pytestmark = pytest.mark.unit
 
 
 class TestListAvailableSkills:

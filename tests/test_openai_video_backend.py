@@ -11,6 +11,8 @@ from openai import InternalServerError
 from lib.providers import PROVIDER_OPENAI
 from lib.video_backends.base import VideoGenerationRequest
 
+pytestmark = pytest.mark.unit
+
 
 def _make_mock_video(status="completed", seconds="8", video_id="vid_123"):
     """构造 mock Video 响应。"""

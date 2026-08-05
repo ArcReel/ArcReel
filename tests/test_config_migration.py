@@ -8,6 +8,8 @@ from lib.config.migration import migrate_json_to_db
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
 from lib.db.base import Base
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 async def session():

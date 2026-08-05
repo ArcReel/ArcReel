@@ -19,6 +19,8 @@ from server.routers import reference_videos, shot_uploads
 from server.services import generation_tasks, reference_video_tasks, upload_finalize
 from tests.auth_deps import AUTH_DEPENDENCIES
 
+pytestmark = pytest.mark.unit
+
 
 def _img_bytes(fmt="JPEG", size=(8, 8)):
     image = Image.new("RGB", size, (255, 0, 0))

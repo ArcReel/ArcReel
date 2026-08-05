@@ -17,6 +17,8 @@ from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
 from lib.db.base import Base
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture()
 async def session_factory():

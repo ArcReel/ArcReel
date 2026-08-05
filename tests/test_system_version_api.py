@@ -15,6 +15,8 @@ from server.routers.system_config import _parse_version
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.conftest import make_translator
 
+pytestmark = pytest.mark.unit
+
 _FIXED_FETCHED_AT = datetime(2026, 4, 21, 8, 5, 0, tzinfo=UTC)
 
 

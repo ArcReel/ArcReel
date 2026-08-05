@@ -8,6 +8,8 @@ from lib.storyboard_sequence import (
     resolve_previous_storyboard_path,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestStoryboardSequence:
     def test_resolve_previous_storyboard_path_respects_first_item_and_segment_break(self, tmp_path: Path):

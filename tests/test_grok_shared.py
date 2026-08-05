@@ -11,6 +11,8 @@ import pytest
 from lib.grok_shared import grok_should_retry
 from lib.retry import with_retry_async
 
+pytestmark = pytest.mark.unit
+
 
 def _make_aio_rpc_error(code: grpc.StatusCode, details: str = "") -> grpc.aio.AioRpcError:
     """构造一个 AioRpcError 用于测试。"""

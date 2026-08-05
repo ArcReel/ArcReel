@@ -1,3 +1,6 @@
+import unicodedata
+
+import pytest
 import yaml
 
 from lib.prompt_utils import (
@@ -11,6 +14,8 @@ from lib.prompt_utils import (
     validate_shot_type,
     video_prompt_to_yaml,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class TestNormalizeStyle:
@@ -103,6 +108,9 @@ def _utterance(speaker: str | None, text: str) -> dict[str, object]:
 
 _BASE_PROMPT = {"action": "抬头观察", "camera_motion": "Static", "ambiance_audio": "雨声"}
 
+_NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
+_NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
+
 
 class TestBuildDramaVideoPrompt:
     """两注入点共用的 drama dialogue + Voice_Profiles 出口。"""
@@ -131,6 +139,20 @@ class TestBuildDramaVideoPrompt:
         assert "voice_profiles" not in build_drama_video_prompt(carried, [], characters=None)
         prompt = build_drama_video_prompt(carried, [_utterance("王", "嗯")], characters={"王": {"voice_style": "低沉"}})
         assert prompt["voice_profiles"] == [{"Speaker": "王", "Voice_Style": "低沉"}]
+
+    def test_nfd_speaker_hits_nfc_registered_character(self):
+        # speaker 与角色表 key 可能各是 NFC/NFD 中的任一形态（存量数据无需迁移），
+        # 归一后索引须双向命中；Speaker 展示值保留 dialogue 原文
+        for speaker, registered in ((_NAME_NFD, _NAME_NFC), (_NAME_NFC, _NAME_NFD)):
+            prompt = build_drama_video_prompt(
+                _BASE_PROMPT, [_utterance(speaker, "xin chào")], characters={registered: {"voice_style": "trầm"}}
+            )
+            assert prompt["voice_profiles"] == [{"Speaker": speaker, "Voice_Style": "trầm"}]
+
+    def test_nfc_nfd_same_speaker_deduped_to_one_profile(self):
+        utterances = [_utterance(_NAME_NFC, "một"), _utterance(_NAME_NFD, "hai")]
+        prompt = build_drama_video_prompt(_BASE_PROMPT, utterances, characters={_NAME_NFC: {"voice_style": "trầm"}})
+        assert prompt["voice_profiles"] == [{"Speaker": _NAME_NFC, "Voice_Style": "trầm"}]
 
     def test_speaker_without_matching_character_skipped_silently(self):
         prompt = build_drama_video_prompt(_BASE_PROMPT, [_utterance("路人甲", "喂")], characters={})

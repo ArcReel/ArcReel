@@ -1,7 +1,11 @@
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from server.app import _migrate_source_encoding_on_startup  # 即将新增的内部函数
+
+pytestmark = pytest.mark.unit
 
 
 def test_startup_migration_creates_marker_after_run(tmp_path: Path):

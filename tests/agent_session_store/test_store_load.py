@@ -6,6 +6,8 @@ import pytest
 
 from lib.agent_session_store.store import DbSessionStore
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.mark.asyncio
 async def test_load_returns_None_for_unknown_key(session_factory):

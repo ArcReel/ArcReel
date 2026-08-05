@@ -11,6 +11,8 @@ from lib.video_backends.base import (
 )
 from scripts.verify_reference_video_sdks import Provider, RunResult, parse_args, render_report, run_once
 
+pytestmark = pytest.mark.unit
+
 
 def test_parse_args_provider_required():
     with pytest.raises(SystemExit):

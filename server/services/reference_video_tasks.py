@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,7 +13,13 @@ from typing import Any
 from sqlalchemy.exc import SQLAlchemyError
 
 from lib.asset_types import ASSET_SPECS, BUCKET_KEY, SHEET_KEY, normalize_asset_bucket, normalize_asset_name
-from lib.config.resolver import ConfigResolver, constrain_durations, get_provider_fallback
+from lib.config.resolver import (
+    ConfigResolver,
+    ProviderModel,
+    VideoCapability,
+    constrain_durations,
+    get_provider_fallback,
+)
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation_queue import get_generation_queue
@@ -29,6 +35,8 @@ from lib.reference_video.prompt_render import (
     render_unit_prompt,
     resolve_reference_audio_paths,
 )
+from lib.reference_video.units import reference_video_bucket
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.script_editor import ScriptEditError
 from lib.script_models import ReferenceResource, ad_script_total_duration
 from lib.thumbnail import extract_video_thumbnail
@@ -53,6 +61,21 @@ async def _persist_effective_duration(task_id: str, duration_seconds: int) -> No
         await get_generation_queue().persist_effective_duration(task_id, duration_seconds)
     except Exception:
         logger.warning("effective_duration 写回 payload 失败 task_id=%s", task_id, exc_info=True)
+
+
+async def _persist_execution_identity(
+    task_id: str, execution_model: ProviderModel, capability: VideoCapability
+) -> None:
+    """把执行期实际解析出的身份写回 ``task.provider_id`` 列与 payload 钉住键（见调用点注释）。
+
+    fail-fast：写回失败上抛、任务在向 provider 提交前失败。吞掉异常继续提交会留下
+    「身份停留在入队投影、job_id 却已持久化」的任务——重启恢复拿错 backend
+    轮询，与 ``persist_provider_job_id`` 防「幽灵任务」是同一语义（ADR 0007）；此处
+    失败发生在提交前，没有已计费的 provider 端 job 可丢。
+    """
+    await get_generation_queue().persist_execution_identity(
+        task_id, execution_model=execution_model, capability=capability
+    )
 
 
 def _dedupe_typed_references(references: list[dict]) -> list[dict]:
@@ -112,13 +135,7 @@ def _resolve_unit_references(
 def _render_unit_prompt(
     unit: dict,
     project: dict,
-    *,
-    voice_consistency: str,
-    requested_generate_audio: bool,
-    max_reference_audio: int,
-    model_id: str,
-    audio_ready: Collection[str],
-    audio_requires_reference_image: bool = False,
+    settings: VoiceRenderSettings,
 ) -> RenderedUnitPrompt:
     """把 unit 的书写文稿渲染成三段论 backend prompt（见 ``lib.reference_video.prompt_render``）。
 
@@ -146,13 +163,8 @@ def _render_unit_prompt(
         assemble_shots_text_for_render(shots),
         project,
         references,
-        voice_consistency=voice_consistency,
-        requested_generate_audio=requested_generate_audio,
-        max_reference_audio=max_reference_audio,
-        model_id=model_id,
+        settings,
         style=project.get("style"),
-        audio_ready=audio_ready,
-        audio_requires_reference_image=audio_requires_reference_image,
     )
 
 
@@ -275,14 +287,21 @@ class ProjectDurationContext:
     max_duration: int | None = None
 
 
-async def resolve_project_duration_context(project: dict) -> ProjectDurationContext:
+async def resolve_project_duration_context(
+    project: dict,
+    *,
+    capability: VideoCapability | None = None,
+) -> ProjectDurationContext:
     """一次性解析视频能力（档位全集 + 单次生成时长上限 + 分辨率 + provider/model 身份）。
+
+    ``capability`` 未给定时按项目路线定桶；给定时按指定桶解析——参考路线内按镜头分流的
+    调用方（费用估算、逐 unit 预检）以此对无参考图退化镜头按 i2v 桶模型取档。
 
     解析失败按空档位处理（沿用现状放行，不弹确认）；分辨率仅在档位非空时才解析，
     空档位下分辨率约束无意义。``max_duration`` 与 :func:`resolve_max_unit_duration`
     取自同一份能力解析结果，供需要现推分组的调用方复用而不再触发一次 IO。
     """
-    caps = await project_video_caps(project, degraded_to="时长取档不施加档位约束")
+    caps = await project_video_caps(project, degraded_to="时长取档不施加档位约束", capability=capability)
     durations = tuple(int(d) for d in caps.get("supported_durations") or [])
     provider_id = str(caps.get("provider_id") or "")
     model = caps.get("model")
@@ -486,13 +505,8 @@ def _render_ad_unit_prompt_for_backend(
     shots: list[dict],
     entries: list[dict],
     project: dict,
+    settings: VoiceRenderSettings,
     *,
-    voice_consistency: str,
-    requested_generate_audio: bool,
-    max_reference_audio: int,
-    model_id: str,
-    audio_ready: Collection[str],
-    audio_requires_reference_image: bool,
     style: object,
 ) -> RenderedUnitPrompt:
     """ad 派生 unit 的最终 backend prompt：三段论渲染（与 narration/drama 共用管线，见
@@ -506,13 +520,8 @@ def _render_ad_unit_prompt_for_backend(
         shots,
         entries,
         project,
-        voice_consistency=voice_consistency,
-        requested_generate_audio=requested_generate_audio,
-        max_reference_audio=max_reference_audio,
-        model_id=model_id,
+        settings,
         style=style if isinstance(style, str) else None,
-        audio_ready=audio_ready,
-        audio_requires_reference_image=audio_requires_reference_image,
     )
     product_names = list(dict.fromkeys(e["name"] for e in entries if e.get("kind") in ("sheet", "original")))
     return replace(rendered, prompt=append_product_fidelity_tail(rendered.prompt, product_names))
@@ -528,7 +537,7 @@ def _build_reference_audio_wiring(
     共用同一份组装口径。
 
     ``reference_audio_per_image`` 为 True 时（backend 要求音频逐段挂在具体参考素材项上），
-    渲染层已按 ``audio_requires_reference_image`` 门控排除无参考图的 speaker，
+    渲染层已按 ``VoiceRenderSettings.requires_reference_image`` 门控排除无参考图的 speaker，
     ``audio_speaker_reference_index`` 此时不应再有 None——仍按下标同时过滤两个列表而非直接
     zip 全量，是为了在渲染层与本处口径将来漂移时，两个列表始终等长同序，不会因为其中一个
     多出未过滤的 None 项而导致音频与参考图下标错位、静默绑错角色。
@@ -593,13 +602,17 @@ async def execute_reference_video_task(
     # 3. 单次解析生成上下文（声明 video lane）：构造 generator 并按实际 backend 身份
     #    查能力上限与 resolution。provider 身份解析收口于 GenerationContext
     #    （docs/adr/0049）——executor 不再触碰 MediaGenerator 私有属性、不再手工重建
-    #    registry provider_id。
+    #    registry provider_id。桶按本 unit 解析后的实际参考图分流（docs/adr/0054）：
+    #    有参考图 → r2v；无参考图的退化镜头降级 → i2v，不送入拒空参考的 r2v 桶模型。
+    #    判据取解析结果而非声明——ad 的资产缺图按软口径跳过后 source_refs 可为空，
+    #    与 backend「只在 reference_images 非空时施加参考图约束」的口径同源。
+    execution_capability = reference_video_bucket(with_references=bool(source_refs))
     ctx = await resolve_generation_context(
         project_name,
         payload,
         project=project,
         user_id=user_id,
-        video=VideoLaneRequest(capability="r2v"),
+        video=VideoLaneRequest(capability=execution_capability),
     )
     generator = ctx.generator
     video = ctx.video
@@ -662,6 +675,12 @@ async def execute_reference_video_task(
     # 时长，即回退路径本身的行为），不影响当前生成结果，不 fail-fast。
     if task_id is not None:
         await _persist_effective_duration(task_id, effective_duration)
+        # task.provider_id 列与 payload 钉住键都是入队时按 unit 声明近似的投影，执行按
+        # 解析后实际参考图分桶后两者可能与实际分裂（ad 声明了参考但资产全缺图：投影
+        # r2v、执行降级 i2v）。resume 解析里钉住键优先于列注入——提交前把实际执行身份
+        # 写回列与钉住键，否则重启后会按陈旧身份去轮实际 backend 的 provider_job_id，
+        # 已提交任务的恢复丢失。
+        await _persist_execution_identity(task_id, video.provider_model, execution_capability)
 
     # 6. 渲染 prompt：ad 与 narration/drama 共用三段论渲染管线（`<X>@图片N` 绑定 + 声音声明 +
     #    分镜段 + 约束包），差异只在输入形态（见 `lib.reference_video.prompt_render` 模块
@@ -676,17 +695,20 @@ async def execute_reference_video_task(
     #    参考音频路径先解析再渲染：渲染层按「确实可用」判定绑定，`@音频N` 的编号与随请求
     #    发出的段数因此严格等长（字段指向已删文件时不会留下指向不存在段的编号）。
     audio_paths = await asyncio.to_thread(resolve_reference_audio_paths, project, project_path)
+    voice_settings = VoiceRenderSettings(
+        voice_consistency=video.voice_consistency,
+        requested_generate_audio=video.requested_generate_audio,
+        max_reference_audio=video.max_reference_audio_count,
+        model_id=model_name,
+        audio_ready=audio_paths,
+        requires_reference_image=video.reference_audio_per_image,
+    )
     if is_ad:
         rendered = _render_ad_unit_prompt_for_backend(
             ad_shots or [],
             ad_entries,
             project,
-            voice_consistency=video.voice_consistency,
-            requested_generate_audio=video.requested_generate_audio,
-            max_reference_audio=video.max_reference_audio_count,
-            model_id=model_name,
-            audio_ready=audio_paths,
-            audio_requires_reference_image=video.reference_audio_per_image,
+            voice_settings,
             style=project.get("style"),
         )
     else:
@@ -695,19 +717,10 @@ async def execute_reference_video_task(
         prompt_refs = _dedupe_typed_references(raw_unit_refs)[: len(constrained_refs)]
         if len(prompt_refs) < len(raw_unit_refs):
             unit_for_prompt = {**unit, "references": prompt_refs}
-        rendered = _render_unit_prompt(
-            unit_for_prompt,
-            project,
-            voice_consistency=video.voice_consistency,
-            requested_generate_audio=video.requested_generate_audio,
-            max_reference_audio=video.max_reference_audio_count,
-            model_id=model_name,
-            audio_ready=audio_paths,
-            audio_requires_reference_image=video.reference_audio_per_image,
-        )
+        rendered = _render_unit_prompt(unit_for_prompt, project, voice_settings)
     rendered_prompt = rendered.prompt
     reference_audio_files, reference_audio_targets = _build_reference_audio_wiring(
-        rendered, audio_paths, reference_audio_per_image=video.reference_audio_per_image
+        rendered, audio_paths, reference_audio_per_image=voice_settings.requires_reference_image
     )
     # 解析派生的降级提示与生成结果同屏可见：与解析预览面板同一批 {key, params} 条目。
     warnings = [*warnings, *rendered.warnings]

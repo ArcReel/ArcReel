@@ -16,6 +16,8 @@ from lib.image_backends.base import (
 )
 from lib.providers import PROVIDER_OPENAI
 
+pytestmark = pytest.mark.unit
+
 
 def _make_mock_image_response(
     b64_data: str | None = "aW1hZ2VfZGF0YQ==",

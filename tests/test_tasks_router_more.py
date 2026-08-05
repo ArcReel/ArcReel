@@ -1,3 +1,4 @@
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -5,6 +6,8 @@ from server.auth import CurrentUserInfo, get_current_user, get_current_user_flex
 from server.error_handlers import register_error_handlers
 from server.routers import tasks as tasks_router
 from tests.auth_deps import AUTH_DEPENDENCIES
+
+pytestmark = pytest.mark.unit
 
 
 class _FakeQueue:

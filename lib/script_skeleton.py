@@ -25,6 +25,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from lib.validation_messages import MessageRef, ValidationMessage
+
 
 @dataclass(frozen=True)
 class Skeleton:
@@ -183,22 +185,31 @@ class SkeletonRouteMismatchError(ValueError):
     def __init__(self, *, expected: str, actual: str | None, generation_mode: str | None) -> None:
         self.expected = expected
         self.actual = actual
-        route = (
-            "参考生视频（reference_video）" if generation_mode == "reference_video" else "分镜图生视频（storyboard）"
+        guidance = "reference" if expected == _REFERENCE_ROUTE_SKELETON else "storyboard"
+        params: dict[str, Any] = {
+            "route": MessageRef(
+                "val_route_reference_video" if generation_mode == "reference_video" else "val_route_storyboard"
+            ),
+            "expected": expected,
+            "expected_noun": MessageRef(f"val_skeleton_noun_{expected}"),
+        }
+        if actual is not None:
+            params["actual"] = actual
+            params["actual_noun"] = MessageRef(f"val_skeleton_noun_{actual}")
+        self._message = ValidationMessage(
+            f"val_skeleton_mismatch_{guidance}_{'known' if actual is not None else 'none'}",
+            params,
         )
-        if expected == _REFERENCE_ROUTE_SKELETON:
-            guidance = "请重跑 split-reference-video-units 重新拆分该集，再重新生成剧本"
-        else:
-            guidance = "请重跑分集拆分（step1）重新拆分该集，再重新生成剧本"
-        current = (
-            f"当前剧本是 {actual}（{SKELETON_ITEM_NOUNS[actual]}）骨架"
-            if actual is not None
-            else "当前剧本没有任何骨架数组"
-        )
-        super().__init__(
-            f"剧本骨架与项目生成路线不符：项目路线是{route}，要求 {expected}"
-            f"（{SKELETON_ITEM_NOUNS[expected]}）骨架，{current}。{guidance}。该剧本仍可查看、编辑与导出。"
-        )
+        super().__init__()
+
+    def __str__(self) -> str:
+        # 渲染推迟到取文本时：本模块是零依赖叶子，构造期渲染会把 ``lib.i18n``（及其
+        # fastapi 依赖）拉进不需要它的轻量入口。
+        return self._message.render()
+
+    def to_validation_message(self) -> ValidationMessage:
+        """结构化形态，供校验器把失配事实按请求语言报告给用户。"""
+        return self._message
 
 
 def ensure_route_skeleton(script: dict[str, Any], content_mode: str | None, generation_mode: str | None) -> str:

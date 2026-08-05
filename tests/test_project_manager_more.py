@@ -54,6 +54,7 @@ class _FakeTextBackend:
 
 
 class TestProjectManagerMore:
+    @pytest.mark.unit
     def test_project_and_status_lifecycle(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = pm.create_project("demo")
@@ -86,6 +87,7 @@ class TestProjectManagerMore:
         pm.save_project("demo", loaded)
         assert pm.load_project("demo")["style"] == "Noir"
 
+    @pytest.mark.unit
     def test_create_project_metadata_rejects_legacy_image_backend(self, tmp_path):
         """数据层守卫：extras 含退役的 image_backend → 直接 ValueError，绝不写回 legacy 形态。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -95,6 +97,7 @@ class TestProjectManagerMore:
                 "demo", "Demo", "Anime", "narration", extras={"image_backend": "openai/gpt-image-1"}
             )
 
+    @pytest.mark.unit
     def test_create_project_metadata_accepts_new_image_provider_fields(self, tmp_path):
         """新字段 image_provider_t2i/i2i 正常写入（不受守卫影响）。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -104,6 +107,7 @@ class TestProjectManagerMore:
         )
         assert project["image_provider_t2i"] == "openai/gpt-image-1"
 
+    @pytest.mark.unit
     def test_create_project_metadata_is_latest_schema_with_planning_cursor(self, tmp_path):
         """新项目即最新 schema 形态：版本对齐迁移目标版本，planning_cursor 以 null 初始。"""
         from lib.project_migrations import CURRENT_SCHEMA_VERSION
@@ -114,6 +118,7 @@ class TestProjectManagerMore:
         assert project["schema_version"] == CURRENT_SCHEMA_VERSION
         assert project["planning_cursor"] is None
 
+    @pytest.mark.unit
     def test_project_identifier_validation_and_empty_title(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
 
@@ -128,6 +133,7 @@ class TestProjectManagerMore:
         # 空 title 直接保留为空字符串,由前端 i18n 兜底,不再 fallback 为 project_name(slug)
         assert project["title"] == ""
 
+    @pytest.mark.unit
     def test_create_project_metadata_preserves_cjk_title(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_name = pm.generate_project_name("第1集")
@@ -135,6 +141,7 @@ class TestProjectManagerMore:
         project = pm.create_project_metadata(project_name, "第1集")
         assert project["title"] == "第1集"
 
+    @pytest.mark.unit
     def test_generate_project_name_is_unique_and_safe(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
 
@@ -151,6 +158,7 @@ class TestProjectManagerMore:
         assert pm.normalize_project_name(second) == second
         assert pm.normalize_project_name(third) == third
 
+    @pytest.mark.unit
     def test_generate_project_name_truncates_before_letter_check(self, tmp_path):
         # 长 ASCII 标题前 24 字符全是数字/连字符、字母被截掉时,应塌成 proj-,
         # 而不是返回 "1234567890-1234567890-12" 这种纯数字 slug。
@@ -158,6 +166,7 @@ class TestProjectManagerMore:
         candidate = pm.generate_project_name("1234567890-1234567890-1234-letters")
         assert candidate.startswith("proj-")
 
+    @pytest.mark.unit
     def test_script_operations_and_scene_updates(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -219,6 +228,7 @@ class TestProjectManagerMore:
         with pytest.raises(KeyError):
             pm.update_scene_asset("demo", "episode_1.json", "NOT_FOUND", "video_clip", "x.mp4")
 
+    @pytest.mark.unit
     def test_locked_script_helpers_drama_paths(self, tmp_path):
         """覆盖经 locked_script 迁移的 helper 在 drama/scenes 分支与默认资产填充。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -245,6 +255,7 @@ class TestProjectManagerMore:
         loaded = pm.load_script("demo", "episode_1.json")
         assert loaded["scenes"][0]["generated_assets"]["storyboard_image"] == "sb/001.png"
 
+    @pytest.mark.unit
     def test_batch_update_scene_assets_persists_all(self, tmp_path):
         """batch_update_scene_assets 单次锁内写多个场景，命中全部 id 时持久化所有更新。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -297,6 +308,7 @@ class TestProjectManagerMore:
         seg = pm.load_script("demo", "episode_2.json")["segments"][0]
         assert seg["generated_assets"]["storyboard_image"] == "sb/E2S01.png"
 
+    @pytest.mark.unit
     def test_batch_update_scene_assets_fails_loud_on_missing_ids(self, tmp_path):
         """batch_update 遇到不存在的 scene_id 抛 KeyError 列出所有缺失 id,with 体整体回滚不写回。
 
@@ -334,6 +346,7 @@ class TestProjectManagerMore:
         loaded = pm.load_script("demo", "episode_1.json")
         assert loaded["scenes"][0]["generated_assets"] == {}
 
+    @pytest.mark.unit
     def test_update_character_sheet_success_and_missing(self, tmp_path):
         """update_character_sheet 写入 sheet 路径；角色缺失时锁内 raise 且跳过写回。"""
         pm = ProjectManager(tmp_path / "projects")
@@ -359,6 +372,7 @@ class TestProjectManagerMore:
         with pytest.raises(KeyError):
             pm.update_character_sheet("demo", "episode_1.json", "李四", "sheets/lisi.png")
 
+    @pytest.mark.unit
     def test_save_script_rejects_mismatch_before_write(self, tmp_path):
         """save_script 在 filename/内部 episode 不一致时必须写盘前 fail-fast。
 
@@ -385,6 +399,7 @@ class TestProjectManagerMore:
         scripts_dir = pm.get_project_path("demo") / "scripts"
         assert not (scripts_dir / "episode_10.json").exists()
 
+    @pytest.mark.unit
     def test_sync_episode_rejects_filename_episode_mismatch(self, tmp_path):
         """文件名隐含集号与脚本内 episode 字段不一致时必须拒绝同步。
 
@@ -423,6 +438,7 @@ class TestProjectManagerMore:
         assert ep1_entry["title"] == "第一集原标题"
         assert ep1_entry["script_file"] == "scripts/episode_1.json"
 
+    @pytest.mark.unit
     def test_load_script_strips_scripts_prefix(self, tmp_path):
         """load_script / save_script / update_scene_asset 应兼容带 scripts/ 前缀的文件名"""
         pm = ProjectManager(tmp_path / "projects")
@@ -458,6 +474,7 @@ class TestProjectManagerMore:
         updated = pm.load_script("demo", "episode_1.json")
         assert updated["segments"][0]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S01.png"
 
+    @pytest.mark.unit
     def test_normalize_and_templates(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -493,6 +510,7 @@ class TestProjectManagerMore:
 
         assert normalized["generated_assets"]["status"] == "pending"
 
+    @pytest.mark.unit
     def test_entity_and_batch_management_and_paths(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -578,6 +596,7 @@ class TestProjectManagerMore:
         with pytest.raises(KeyError):
             pm.update_prop_sheet("demo", "none", "x")
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_reference_read_source_and_generate_overview(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
@@ -631,6 +650,7 @@ class TestProjectManagerMore:
         with pytest.raises(ValueError):
             await pm_empty.generate_overview("demo")
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("lang", ["zh", "en", "vi"])
     @pytest.mark.asyncio
     async def test_generate_overview_source_language_synced(self, tmp_path, monkeypatch, lang):
@@ -647,6 +667,7 @@ class TestProjectManagerMore:
         assert overview["language"] == lang
         assert pm.load_project("demo")["source_language"] == lang
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_generate_overview_invalid_language_raises(self, tmp_path, monkeypatch):
         """schema 违反 → ValidationError 干净抛出,source_language 不被写入."""
@@ -665,6 +686,7 @@ class TestProjectManagerMore:
             await pm.generate_overview("demo")
         assert "source_language" not in pm.load_project("demo")
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("source_kind", [None, "novel", "screenplay"])
     @pytest.mark.asyncio
     async def test_generate_overview_routes_prompt_by_source_kind(self, tmp_path, monkeypatch, source_kind):
@@ -690,6 +712,7 @@ class TestProjectManagerMore:
         assert backend.last_request is not None
         assert backend.last_request.prompt == build_overview_prompt(source_content, source_kind=expected_kind)
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("dirty_source_language", [123, ["zh"], {}, "", "   "])
     @pytest.mark.asyncio
     async def test_generate_overview_dirty_source_language_falls_back_to_default(
@@ -719,6 +742,7 @@ class TestProjectManagerMore:
             source_content, source_kind="novel", target_language="中文"
         )
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_generate_overview_legacy_project_without_source_kind_falls_back_to_novel(
         self, tmp_path, monkeypatch
@@ -750,6 +774,7 @@ class TestProjectManagerMore:
 class TestFromCwd:
     """Tests for ProjectManager.from_cwd() classmethod."""
 
+    @pytest.mark.unit
     def test_from_cwd_infers_project(self, tmp_path, monkeypatch):
         projects_root = tmp_path / "projects"
         project_dir = projects_root / "my-proj"
@@ -761,6 +786,7 @@ class TestFromCwd:
         assert name == "my-proj"
         assert pm.projects_root == projects_root
 
+    @pytest.mark.unit
     def test_from_cwd_raises_when_no_project_json(self, tmp_path, monkeypatch):
         project_dir = tmp_path / "projects" / "empty"
         project_dir.mkdir(parents=True)
@@ -773,6 +799,7 @@ class TestFromCwd:
 class TestPathTraversalProtection:
     """路径遍历防护测试"""
 
+    @pytest.mark.unit
     def test_get_project_path_rejects_traversal(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -782,6 +809,7 @@ class TestPathTraversalProtection:
         with pytest.raises(ValueError):
             pm.get_project_path("demo/../../etc")
 
+    @pytest.mark.unit
     def test_normalize_project_name_rejects_special_chars(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         with pytest.raises(ValueError):
@@ -791,6 +819,7 @@ class TestPathTraversalProtection:
         with pytest.raises(ValueError):
             pm.normalize_project_name("")
 
+    @pytest.mark.unit
     def test_load_script_rejects_traversal_filename(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -798,6 +827,7 @@ class TestPathTraversalProtection:
         with pytest.raises(ValueError, match="非法文件名"):
             pm.load_script("demo", "../../etc/passwd")
 
+    @pytest.mark.unit
     def test_save_script_rejects_traversal_filename(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -806,6 +836,7 @@ class TestPathTraversalProtection:
         with pytest.raises(ValueError, match="非法文件名"):
             pm.save_script("demo", script, filename="../../evil.json")
 
+    @pytest.mark.unit
     def test_safe_subpath_allows_normal_filenames(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -818,29 +849,36 @@ class TestPathTraversalProtection:
 
 
 class TestResolveEpisodeFromScript:
+    @pytest.mark.unit
     def test_prefers_script_top_level_episode(self):
         ep = ProjectManager.resolve_episode_from_script({"episode": 7, "scenes": []}, "whatever.json")
         assert ep == 7
 
+    @pytest.mark.unit
     def test_falls_back_to_filename_regex(self):
         ep = ProjectManager.resolve_episode_from_script({"scenes": []}, "episode_3.json")
         assert ep == 3
 
+    @pytest.mark.unit
     def test_filename_regex_case_insensitive_and_spaced(self):
         assert ProjectManager.resolve_episode_from_script({}, "Episode 12.json") == 12
 
+    @pytest.mark.unit
     def test_filename_regex_supports_hyphen(self):
         assert ProjectManager.resolve_episode_from_script({}, "episode-5.json") == 5
 
+    @pytest.mark.unit
     def test_ignores_non_int_episode_field(self):
         """非整数的 episode 字段（如 '1'）应回退到文件名。"""
         ep = ProjectManager.resolve_episode_from_script({"episode": "1"}, "episode_9.json")
         assert ep == 9
 
+    @pytest.mark.unit
     def test_ignores_bool_episode_field(self):
         """bool 是 int 子类：episode: true 当作字段缺失走文件名，不静默算成第 1 集。"""
         assert ProjectManager.resolve_episode_from_script({"episode": True}, "episode_9.json") == 9
 
+    @pytest.mark.unit
     def test_raises_when_unresolvable(self):
         with pytest.raises(ValueError, match="无法确定集号"):
             ProjectManager.resolve_episode_from_script({}, "random_name.json")
@@ -849,6 +887,7 @@ class TestResolveEpisodeFromScript:
 class TestScenePropLifecycle:
     """scene / prop 生命周期测试（Task 9）"""
 
+    @pytest.mark.unit
     def test_add_scene_creates_entry(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -862,6 +901,7 @@ class TestScenePropLifecycle:
         assert project["scenes"]["客厅"]["description"] == "宽敞的客厅"
         assert project["scenes"]["客厅"]["scene_sheet"] == ""
 
+    @pytest.mark.unit
     def test_add_prop_creates_entry(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -875,6 +915,7 @@ class TestScenePropLifecycle:
         assert project["props"]["玉佩"]["description"] == "一块古玉"
         assert project["props"]["玉佩"]["prop_sheet"] == ""
 
+    @pytest.mark.unit
     def test_get_pending_scenes_lists_without_sheet(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -900,6 +941,7 @@ class TestScenePropLifecycle:
         assert len(pending3) == 1
         assert pending3[0]["name"] == "书房"
 
+    @pytest.mark.unit
     def test_get_pending_props_lists_without_sheet(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -920,6 +962,7 @@ class TestScenePropLifecycle:
         assert len(pending2) == 1
         assert pending2[0]["name"] == "宝剑"
 
+    @pytest.mark.unit
     def test_add_scenes_batch_skips_existing(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -935,6 +978,7 @@ class TestScenePropLifecycle:
         # 新的被添加
         assert "书房" in project["scenes"]
 
+    @pytest.mark.unit
     def test_add_props_batch_skips_existing(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -949,6 +993,7 @@ class TestScenePropLifecycle:
         assert "宝剑" in project["props"]
 
 
+@pytest.mark.unit
 def test_read_source_files_raises_on_non_utf8(tmp_path):
     import random
 

@@ -10,6 +10,8 @@ from PIL import Image as PILImage
 
 from lib.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

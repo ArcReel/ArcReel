@@ -9,6 +9,8 @@ from lib.custom_provider.duration_presets import (
     infer_supported_durations,
 )
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.mark.parametrize(
     "model_id, expected",

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lib.cost_calculator import CostCalculator
 from lib.pricing.strategies import PricingParams
+
+pytestmark = pytest.mark.unit
 
 
 class TestCustomTextCost:

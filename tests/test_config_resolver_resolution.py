@@ -66,17 +66,20 @@ async def _add_custom_video_model(db_session: AsyncSession, model_id: str, resol
 # --- 纯项目字典优先级（非自定义 provider，DB 默认恒 None） ---
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_returns_none_when_nothing_configured(resolver: ConfigResolver):
     assert await resolver.resolve_resolution({}, "gemini-aistudio", "veo-3.1-lite-generate-preview") is None
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_legacy_only(resolver: ConfigResolver):
     project = {"video_model_settings": {"veo-3.1": {"resolution": "1080p"}}}
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "veo-3.1") == "1080p"
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_model_settings_overrides_legacy(resolver: ConfigResolver):
     project = {
@@ -86,18 +89,21 @@ async def test_model_settings_overrides_legacy(resolver: ConfigResolver):
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "veo-3.1") == "720p"
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_empty_string_override_treated_as_unset(resolver: ConfigResolver):
     project = {"model_settings": {"gemini-aistudio/m": {"resolution": ""}}}
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_composite_key_format_uses_slash(resolver: ConfigResolver):
     project = {"model_settings": {"gemini-aistudio/b": {"resolution": "4K"}}}
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "b") == "4K"
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_tolerates_null_entries(resolver: ConfigResolver):
     # project.json 可能被手编为 null 值；既不应崩也不应当作已配置。
@@ -109,6 +115,7 @@ async def test_tolerates_null_entries(resolver: ConfigResolver):
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_tolerates_top_level_field_as_string(resolver: ConfigResolver):
     # 手编脏数据：model_settings / video_model_settings 顶层本身被写成字符串。
@@ -116,6 +123,7 @@ async def test_tolerates_top_level_field_as_string(resolver: ConfigResolver):
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_tolerates_top_level_field_as_list(resolver: ConfigResolver):
     # 手编脏数据：model_settings / video_model_settings 顶层本身被写成列表。
@@ -123,6 +131,7 @@ async def test_tolerates_top_level_field_as_list(resolver: ConfigResolver):
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_tolerates_composite_key_entry_as_string(resolver: ConfigResolver):
     # 手编脏数据：model_settings 里具体某个复合 key 的 entry 被写成字符串而非 dict。
@@ -130,6 +139,7 @@ async def test_tolerates_composite_key_entry_as_string(resolver: ConfigResolver)
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_tolerates_legacy_model_entry_as_list(resolver: ConfigResolver):
     # 手编脏数据：legacy video_model_settings 里具体某个 model 的 entry 被写成列表。
@@ -137,6 +147,7 @@ async def test_tolerates_legacy_model_entry_as_list(resolver: ConfigResolver):
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_dirty_model_settings_falls_through_to_legacy(resolver: ConfigResolver):
     # model_settings 顶层脏数据不应连坐拖垮 legacy 兜底路径的正常解析。
@@ -150,24 +161,28 @@ async def test_dirty_model_settings_falls_through_to_legacy(resolver: ConfigReso
 # --- 自定义供应商默认（真实 DB） ---
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_returns_custom_default_when_only_custom(resolver: ConfigResolver, db_session: AsyncSession):
     provider_id = await _add_custom_video_model(db_session, "my-model", "720p")
     assert await resolver.resolve_resolution({}, provider_id, "my-model") == "720p"
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_custom_default_none_when_model_has_no_resolution(resolver: ConfigResolver, db_session: AsyncSession):
     provider_id = await _add_custom_video_model(db_session, "my-model", None)
     assert await resolver.resolve_resolution({}, provider_id, "my-model") is None
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_custom_default_none_when_model_missing(resolver: ConfigResolver, db_session: AsyncSession):
     provider_id = await _add_custom_video_model(db_session, "my-model", "720p")
     assert await resolver.resolve_resolution({}, provider_id, "other-model") is None
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_project_override_wins_over_custom_default(resolver: ConfigResolver, db_session: AsyncSession):
     provider_id = await _add_custom_video_model(db_session, "m", "1K")
@@ -175,6 +190,7 @@ async def test_project_override_wins_over_custom_default(resolver: ConfigResolve
     assert await resolver.resolve_resolution(project, provider_id, "m") == "2K"
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_legacy_wins_over_custom_default(resolver: ConfigResolver, db_session: AsyncSession):
     provider_id = await _add_custom_video_model(db_session, "m", "720p")
@@ -182,6 +198,7 @@ async def test_legacy_wins_over_custom_default(resolver: ConfigResolver, db_sess
     assert await resolver.resolve_resolution(project, provider_id, "m") == "1080p"
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_falls_through_to_custom_when_project_empty_string(resolver: ConfigResolver, db_session: AsyncSession):
     provider_id = await _add_custom_video_model(db_session, "m", "1K")
@@ -192,6 +209,7 @@ async def test_falls_through_to_custom_when_project_empty_string(resolver: Confi
 # --- get_provider_fallback（纯查表，不触 DB） ---
 
 
+@pytest.mark.unit
 @pytest.mark.parametrize(
     "provider_id, expected",
     [
@@ -210,6 +228,7 @@ def test_get_provider_fallback(provider_id: str | None, expected: str):
     assert get_provider_fallback(provider_id) == expected
 
 
+@pytest.mark.unit
 def test_get_provider_fallback_custom_default():
     assert get_provider_fallback("unknown", default="720p") == "720p"
 

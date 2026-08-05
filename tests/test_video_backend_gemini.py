@@ -9,6 +9,8 @@ from lib.video_backends.base import (
     VideoGenerationResult,
 )
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def mock_rate_limiter():

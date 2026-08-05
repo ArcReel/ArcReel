@@ -117,6 +117,7 @@ def _read_script(client: TestClient) -> dict:
 
 
 class TestDeriveUnits:
+    @pytest.mark.unit
     def test_derive_persists_index_into_script(self, ad_client: TestClient):
         resp = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
 
@@ -128,6 +129,7 @@ class TestDeriveUnits:
         script = _read_script(ad_client)
         assert script["reference_units"] == units
 
+    @pytest.mark.unit
     def test_rederive_is_reproducible_and_keeps_assets(self, ad_client: TestClient):
         ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
         script = _read_script(ad_client)
@@ -140,6 +142,7 @@ class TestDeriveUnits:
         units = resp.json()["units"]
         assert units[0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
 
+    @pytest.mark.unit
     def test_derive_rejected_for_non_ad_project(self, ad_client: TestClient):
         proj_dir: Path = ad_client.proj_dir  # type: ignore[attr-defined]
         project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
@@ -158,6 +161,7 @@ class TestDeriveUnits:
 
 
 class TestAdUnitListing:
+    @pytest.mark.unit
     def test_list_returns_persisted_index(self, ad_client: TestClient):
         ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
 
@@ -168,6 +172,7 @@ class TestAdUnitListing:
         assert [u["unit_id"] for u in units] == ["E1U1"]
         assert units[0]["shot_ids"] == ["E1S1", "E1S2"]
 
+    @pytest.mark.unit
     def test_list_empty_before_derive(self, ad_client: TestClient):
         resp = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units")
         assert resp.status_code == 200
@@ -175,6 +180,7 @@ class TestAdUnitListing:
 
 
 class TestAdMutationsRejected:
+    @pytest.mark.unit
     def test_add_unit_rejected(self, ad_client: TestClient):
         resp = ad_client.post(
             "/api/v1/projects/ad-demo/reference-videos/episodes/1/units",
@@ -182,6 +188,7 @@ class TestAdMutationsRejected:
         )
         assert resp.status_code == 409
 
+    @pytest.mark.unit
     def test_patch_unit_rejected(self, ad_client: TestClient):
         ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
         resp = ad_client.patch(
@@ -190,11 +197,13 @@ class TestAdMutationsRejected:
         )
         assert resp.status_code == 409
 
+    @pytest.mark.unit
     def test_delete_unit_rejected(self, ad_client: TestClient):
         ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
         resp = ad_client.delete("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1")
         assert resp.status_code == 409
 
+    @pytest.mark.unit
     def test_reorder_rejected(self, ad_client: TestClient):
         ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
         resp = ad_client.post(
@@ -205,6 +214,7 @@ class TestAdMutationsRejected:
 
 
 class TestAdGenerate:
+    @pytest.mark.unit
     def test_generate_enqueues_reference_video_task(self, ad_client: TestClient):
         ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
 
@@ -216,11 +226,13 @@ class TestAdGenerate:
         assert kwargs["task_type"] == "reference_video"
         assert kwargs["resource_id"] == "E1U1"
 
+    @pytest.mark.unit
     def test_generate_unknown_unit_404(self, ad_client: TestClient):
         ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
         resp = ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U9/generate")
         assert resp.status_code == 404
 
+    @pytest.mark.unit
     def test_generate_with_blank_shot_prompts_rejected(self, ad_client: TestClient):
         ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
         proj_dir: Path = ad_client.proj_dir  # type: ignore[attr-defined]
@@ -265,6 +277,7 @@ class TestAdGenerate:
 
         assert resp.status_code == 409
 
+    @pytest.mark.unit
     def test_generate_with_stale_index_409(self, ad_client: TestClient):
         ad_client.post("/api/v1/projects/ad-demo/reference-videos/episodes/1/derive-units")
         proj_dir: Path = ad_client.proj_dir  # type: ignore[attr-defined]

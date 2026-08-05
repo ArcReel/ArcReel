@@ -13,6 +13,8 @@ from lib.reference_video.ad_units import (
     sync_ad_reference_units,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def _shot(shot_id: str, duration: int = 3, **overrides) -> dict:
     base = {
@@ -296,7 +298,6 @@ class TestRenderUnitPrompt:
         assert "Zoom In" in prompt
         assert "太好用了" in prompt
 
-    @pytest.mark.unit
     def test_dialogue_speaker_normalized_to_nfc(self):
         # derive_voice_bindings（script_preview 复用于 ad 路径）把说话人名归一到 NFC 再产出
         # 音色绑定声明；画面 prompt 的台词句式须用同一坐标系，否则两处 `<X>` 字节不同，
@@ -329,7 +330,6 @@ class TestRenderUnitPrompt:
 
         assert render_ad_unit_prompt(shots, style="水彩插画") == ""
 
-    @pytest.mark.unit
     def test_dialogue_without_speaker_renders_as_voiceover(self):
         shots = [
             _shot(

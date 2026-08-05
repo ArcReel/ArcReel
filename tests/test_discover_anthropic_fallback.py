@@ -14,6 +14,8 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.routers import agent_config, custom_providers
 from tests.auth_deps import AUTH_DEPENDENCIES
 
+pytestmark = pytest.mark.unit
+
 
 def _make_app(session_factory) -> FastAPI:
     app = FastAPI()

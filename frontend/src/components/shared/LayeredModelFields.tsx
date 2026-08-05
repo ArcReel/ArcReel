@@ -10,10 +10,11 @@
  * 界面文案统一用「按用途指定模型」，不出现「能力」「桶」字样（见 CONTEXT.md 能力桶词条）。
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronRight } from "lucide-react";
 import { ProviderModelSelect } from "@/components/ui/ProviderModelSelect";
+import { InlineWarning } from "@/components/ui/InlineWarning";
 import type { CapabilityBucket } from "@/types/system";
 
 /**
@@ -109,6 +110,18 @@ export interface LayeredModelFieldsProps {
   children?: React.ReactNode;
   /** 细分项；省略或空数组即不渲染折叠区（创建向导只暴露默认层）。 */
   subFields?: LayeredSubField[];
+  /**
+   * 细分项候选拉取失败态：非空即渲染折叠区（哪怕一个细分项都没有）并在其中给出错误文案与
+   * 重试入口，文案由本组件维护、调用方只传重试回调，两处调用点因而措辞一致。
+   *
+   * 只对应「拉取失败」；候选仍在加载、或成功但为空都不传此项——那两种情况下折叠区按
+   * `subFields` 自身的有无渲染，不出现错误叙事。
+   */
+  subFieldsError?: {
+    onRetry: () => void;
+    /** 重试在途；置位时按钮灰化，避免慢响应下点击毫无反馈。 */
+    retrying?: boolean;
+  };
   /** 折叠区之后常驻的补充说明（如文本档位的智能体边界）。 */
   footnote?: React.ReactNode;
 }
@@ -127,15 +140,25 @@ export function LayeredModelFields({
   renderOptionMeta,
   children,
   subFields,
+  subFieldsError,
   footnote,
 }: LayeredModelFieldsProps) {
-  const { t } = useTranslation("templates");
+  const { t } = useTranslation(["templates", "common"]);
   const fields = subFields ?? [];
   const configuredCount = fields.filter((f) => !!f.value).length;
+  const hasError = !!subFieldsError;
 
   // 默认收起；但已指定过细分项时初始展开——收起会让已生效的覆盖完全不可见，
   // 用户改默认模型时会误以为改动即刻生效。挂载后由用户自行开合。
-  const [open, setOpen] = useState(() => fields.some((f) => !!f.value));
+  const [open, setOpen] = useState(() => fields.some((f) => !!f.value) || hasError);
+
+  // 候选拉取失败通常发生在挂载之后（异步请求才回来），初始 state 已算过的 open 赶不上；
+  // 错误从无到有时强制展开一次，确保用户不必先展开折叠区才能看到失败提示。之后允许用户
+  // 手动收起——不在 hasError 保持 true 期间反复重开，重试按钮已给出下一步。
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 错误从无到有时强制展开一次，是有意的 UI 状态重置
+    if (hasError) setOpen(true);
+  }, [hasError]);
 
   return (
     <div className="space-y-3">
@@ -157,7 +180,7 @@ export function LayeredModelFields({
 
       {children}
 
-      {fields.length > 0 && (
+      {(fields.length > 0 || hasError) && (
         <details
           className="group border-t border-hairline-soft pt-3"
           open={open}
@@ -177,7 +200,18 @@ export function LayeredModelFields({
           </summary>
 
           <div className="mt-3 space-y-3.5 border-l border-hairline-soft pl-3">
-            <p className="text-[11px] leading-[1.5] text-text-4">{t("model_bucket_section_hint")}</p>
+            {subFieldsError ? (
+              <InlineWarning
+                message={t("model_bucket_candidates_error")}
+                action={{
+                  label: t("common:retry"),
+                  onClick: subFieldsError.onRetry,
+                  disabled: subFieldsError.retrying,
+                }}
+              />
+            ) : (
+              <p className="text-[11px] leading-[1.5] text-text-4">{t("model_bucket_section_hint")}</p>
+            )}
             {fields.map((field) => (
               <div key={field.key}>
                 <div className={SUB_LABEL_CLS}>{field.label}</div>

@@ -18,6 +18,8 @@ from server.agent_runtime.options_assembler import (
     load_provider_env_overrides,
 )
 
+pytestmark = pytest.mark.unit
+
 _ALLOWED_TOOLS = ["Skill", "Task", "Bash", "BashOutput", "KillBash", "Read", "Write", "Edit"]
 _SETTING_SOURCES = ["project"]
 

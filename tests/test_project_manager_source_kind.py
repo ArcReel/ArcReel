@@ -11,6 +11,8 @@ import pytest
 
 from lib.project_manager import ProjectManager, resolve_source_kind
 
+pytestmark = pytest.mark.unit
+
 
 def _pm(tmp_path: Path) -> ProjectManager:
     return ProjectManager(tmp_path / "projects")

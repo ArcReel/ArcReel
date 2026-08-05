@@ -12,6 +12,8 @@ from fastapi.testclient import TestClient
 
 import server.auth as auth_module
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture(autouse=True)
 def _auth_env():

@@ -1,12 +1,5 @@
 import type enTemplates from "@/i18n/en/templates";
-
-type DeepStringify<T> = {
-  [K in keyof T]: T[K] extends string
-    ? string
-    : T[K] extends object
-      ? DeepStringify<T[K]>
-      : T[K];
-};
+import type { DeepStringify } from "@/i18n/types";
 
 export default {
   category: {
@@ -100,6 +93,7 @@ export default {
   model_text: "Mô hình văn bản",
   model_bucket_section: "Chỉ định mô hình theo mục đích",
   model_bucket_section_hint: "Mục đích để trống sẽ dùng mô hình mặc định ở trên.",
+  model_bucket_candidates_error: "Không tải được danh sách mô hình khả dụng. Các mô hình đã chỉ định theo mục đích vẫn có thể chỉnh sửa.",
   model_bucket_configured_count: "Đã chỉ định {{n}}",
   follow_model_default: "Theo mặc định",
   bucket_t2i_label: "Văn bản sang ảnh",

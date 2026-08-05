@@ -17,6 +17,8 @@ from lib.image_backends.base import (
 )
 from lib.providers import PROVIDER_AGNES
 
+pytestmark = pytest.mark.unit
+
 
 def _img_response(url: str = "https://x/out.png") -> MagicMock:
     resp = MagicMock()

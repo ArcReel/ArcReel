@@ -385,6 +385,8 @@ class TestResolveCanvasSize:
 
 from tests.conftest import make_test_audio, make_test_video
 
+pytestmark = pytest.mark.integration
+
 
 class TestGenerateDraft:
     """测试 pyjianyingdraft 草稿生成"""

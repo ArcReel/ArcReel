@@ -13,6 +13,8 @@ from server.error_handlers import register_error_handlers
 from server.routers import versions
 from tests.auth_deps import AUTH_DEPENDENCIES
 
+pytestmark = pytest.mark.unit
+
 
 class _FakePM:
     def __init__(self):

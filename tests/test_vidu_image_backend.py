@@ -22,6 +22,8 @@ from lib.image_backends.vidu import (
 )
 from lib.providers import PROVIDER_VIDU
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def output_path(tmp_path: Path) -> Path:

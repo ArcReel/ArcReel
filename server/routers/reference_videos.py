@@ -30,6 +30,8 @@ from lib.reference_video.ad_units import (
     sync_ad_reference_units,
 )
 from lib.reference_video.script_preview import build_script_preview
+from lib.reference_video.units import reference_unit_video_bucket, reference_video_bucket
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from lib.resource_paths import resource_relative_path
 from lib.script_editor import ScriptEditError
 from lib.version_manager import VersionManager
@@ -259,6 +261,15 @@ async def derive_units(
     return {"units": units}
 
 
+def _normalized_refs(references: list[Any]) -> list[dict]:
+    """把请求里的 reference 条目转成落盘 dict，资产名统一归一到 NFC。
+
+    请求可能携带 NFD 形态的资产名（macOS 输入法/拖放），持久化前归一，与镜头正文
+    （parse_prompt 内 NFC）及前端 mergeReferences 的写回口径一致。
+    """
+    return [{**r.model_dump(), "name": normalize_asset_name(r.name)} for r in references]
+
+
 @router.post("/episodes/{episode}/units", status_code=status.HTTP_201_CREATED)
 async def add_unit(
     project_name: str,
@@ -266,14 +277,18 @@ async def add_unit(
     req: AddUnitRequest,
     _t: Translator,
 ) -> dict[str, Any]:
-    refs = [r.model_dump() for r in req.references]
+    refs = _normalized_refs(req.references)
 
     # 时长是 unit 级单一真相：请求未给出时按项目能力解析默认档位（异步 IO 不进项目锁临界区）
     duration_seconds = req.duration_seconds
     if duration_seconds is None:
         project, _script, _sf = _load_episode_script(project_name, episode, _t)
         duration_seconds = default_unit_duration(
-            await resolve_project_duration_context(project), project, with_references=bool(refs)
+            await resolve_project_duration_context(
+                project, capability=reference_video_bucket(with_references=bool(refs))
+            ),
+            project,
+            with_references=bool(refs),
         )
 
     with _locked_episode_script(
@@ -333,7 +348,7 @@ async def patch_unit(
     _t: Translator,
 ) -> dict[str, Any]:
     # references 存在性校验在解析器内、项目锁内进行，失败 raise 400
-    refs: list[dict] | None = [r.model_dump() for r in req.references] if req.references is not None else None
+    refs: list[dict] | None = _normalized_refs(req.references) if req.references is not None else None
 
     with _locked_episode_script(
         project_name, _episode_script_resolver(episode, _t, refs, require_ad=False), _t
@@ -430,7 +445,10 @@ async def precheck_unit_duration(
         unit = _find_unit(script, unit_id, _t)
         ad_shots = None
 
-    slot = precheck_unit(await resolve_project_duration_context(project), unit, ad_shots)
+    # ctx 按 unit 定桶解析（无参考图退化镜头 → i2v），与执行期实际取档的模型同桶
+    slot = precheck_unit(
+        await resolve_project_duration_context(project, capability=reference_unit_video_bucket(unit)), unit, ad_shots
+    )
     return {
         "needs_confirmation": slot.needs_confirmation,
         "script_duration": slot.total_seconds,
@@ -457,11 +475,7 @@ async def preview_script(
     preview = build_script_preview(
         req.prompt,
         project,
-        voice_consistency=str(caps.get("voice_consistency") or "soft"),
-        requested_generate_audio=bool(caps.get("requested_generate_audio", True)),
-        max_reference_audio=int(caps.get("max_reference_audio_count") or 0),
-        model_id=str(caps.get("model") or ""),
-        audio_requires_reference_image=bool(caps.get("reference_audio_per_image") or False),
+        VoiceRenderSettings.from_caps(caps),
         max_reference_images=caps.get("max_reference_images"),
     )
     return {
@@ -520,9 +534,10 @@ async def generate_unit(
     except TaskSpecValidationError as exc:
         raise HTTPException(status_code=400, detail=_t(exc.code, **exc.params)) from exc
 
-    # 参考生视频路径全部镜头（含无参考图退化镜头）归 r2v 桶（docs/adr/0054）：解析闸预检
-    # 让能力缺失 / 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
-    await require_video_bucket_capability(project, "r2v")
+    # 参考生视频按镜头是否携带参考图分流定桶（docs/adr/0054）：有参考图 → r2v，无参考图
+    # 退化镜头降级 → i2v。预检按 unit 声明的 references 近似（执行层按解析后的实际图独立
+    # 判定），解析闸让能力缺失 / 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
+    await require_video_bucket_capability(project, reference_unit_video_bucket(unit))
 
     queue = get_generation_queue()
     result = await queue.enqueue_task(

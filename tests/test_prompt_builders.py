@@ -12,6 +12,7 @@ from lib.prompt_builders import (
 
 
 class TestCharacterPrompt:
+    @pytest.mark.unit
     def test_includes_name_description_and_quad_layout(self):
         prompt = build_character_prompt(
             "姜月茴",
@@ -32,6 +33,7 @@ class TestCharacterPrompt:
         # 反向提示尾部
         assert "画面避免" in prompt
 
+    @pytest.mark.unit
     def test_no_negative_prompt_field_returned(self):
         # build_character_prompt 仅返回字符串；反向提示已 inline 到末尾
         prompt = build_character_prompt("张三", "短发青年")
@@ -41,6 +43,7 @@ class TestCharacterPrompt:
 
 
 class TestScenePromptAndPropPrompt:
+    @pytest.mark.unit
     def test_prop_three_views(self):
         prompt = build_prop_prompt("玉佩", "古朴温润")
         assert "玉佩" in prompt
@@ -48,6 +51,7 @@ class TestScenePromptAndPropPrompt:
         assert "三视图" in prompt or "三个视图" in prompt
         assert "画面避免" in prompt
 
+    @pytest.mark.unit
     def test_scene_main_detail_layout(self):
         prompt = build_scene_prompt("祠堂", "昏暗古朴")
         assert "祠堂" in prompt
@@ -75,20 +79,24 @@ class TestFigureExclusion:
 
 
 class TestVideoNegativeTail:
+    @pytest.mark.unit
     def test_appends_when_missing(self):
         result = append_video_negative_tail("林清缓缓抬头")
         assert "林清缓缓抬头" in result
         assert "BGM" in result
 
+    @pytest.mark.unit
     def test_idempotent(self):
         once = append_video_negative_tail("林清缓缓抬头")
         twice = append_video_negative_tail(once)
         assert once == twice
 
+    @pytest.mark.unit
     def test_handles_empty_input(self):
         result = append_video_negative_tail("")
         assert "BGM" in result
 
+    @pytest.mark.unit
     def test_handles_whitespace_only_input(self):
         # 纯空白等同空：避免拼出前导空行 + 尾词的怪异输出
         for blank in ("   ", "\n\n", "\t \n"):
@@ -97,16 +105,19 @@ class TestVideoNegativeTail:
 
 
 class TestImageNegativeTail:
+    @pytest.mark.unit
     def test_appends_when_missing(self):
         result = append_image_negative_tail("林清坐在窗边木桌前")
         assert result.startswith("林清坐在窗边木桌前")
         assert "画面避免" in result
 
+    @pytest.mark.unit
     def test_idempotent(self):
         once = append_image_negative_tail("林清坐在窗边木桌前")
         twice = append_image_negative_tail(once)
         assert once == twice
 
+    @pytest.mark.unit
     def test_handles_empty_and_whitespace_input(self):
         for blank in ("", "   ", "\n\n", "\t \n"):
             result = append_image_negative_tail(blank)
@@ -114,27 +125,32 @@ class TestImageNegativeTail:
 
 
 class TestProductFidelityTail:
+    @pytest.mark.unit
     def test_appends_instruction_with_product_names(self):
         result = append_product_fidelity_tail("手持保温杯特写", ["保温杯"])
         assert result.startswith("手持保温杯特写")
         assert "「保温杯」" in result
         assert "参考图" in result
 
+    @pytest.mark.unit
     def test_idempotent(self):
         once = append_product_fidelity_tail("手持保温杯特写", ["保温杯"])
         twice = append_product_fidelity_tail(once, ["保温杯"])
         assert once == twice
 
+    @pytest.mark.unit
     def test_no_products_returns_prompt_unchanged(self):
         assert append_product_fidelity_tail("氛围镜头", []) == "氛围镜头"
         # None 等同为空：早退返回原 prompt，不抛 TypeError
         assert append_product_fidelity_tail("氛围镜头", None) == "氛围镜头"
 
+    @pytest.mark.unit
     def test_multiple_products_all_named(self):
         result = append_product_fidelity_tail("双产品同框", ["保温杯", "杯刷"])
         assert "「保温杯」" in result
         assert "「杯刷」" in result
 
+    @pytest.mark.unit
     def test_single_string_treated_as_single_product(self):
         """误传单字符串按单产品名处理，而非逐字符迭代拼出畸形指令。"""
         result = append_product_fidelity_tail("产品特写", "保温杯")

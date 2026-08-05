@@ -775,8 +775,8 @@ class ScriptGenerator:
         caps 解析失败（DB/migration 故障等）时退到 project.json 按 generation_mode 定桶取的身份
         （``project_video_backend_ids``）直查 backend 声明——与 _resolve_supported_durations
         同构，避免丢失上限导致后端按多张参考图发出而被上游拒。
-        取 backend 而非 registry ModelInfo 的并行声明：两者在若干 model 上已漂移，而 backend 是
-        执行期构造请求的一方。注册表身份仍要查——backend 的 caps 函数不都校验 model 存在性与
+        上限的唯一声明处是 backend（执行期构造请求的一方），registry ModelInfo 不声明该值。
+        注册表身份仍要查——backend 的 caps 函数不都校验 model 存在性与
         media_type，对任意 id 返回静态能力。0 在这条降级路径上按未声明处理（下传 0 会把降级前
         本可申请的参考图整批裁掉，而执行期仍有 backend 校验兜底）。
         """
@@ -894,7 +894,7 @@ class ScriptGenerator:
             if gate_blocks_step2(self.project_path, migrated_project, episode):
                 raise ValueError(
                     f"第 {episode} 集 step1 时长已按当前模型档位收编改写（"
-                    + "；".join(migration_warnings)
+                    + "；".join(warning.render() for warning in migration_warnings)
                     + "），改写后的内容尚未经审阅确认，step2 生成已中止；"
                     "请在 Web 端审阅确认本集 step1 后重新生成"
                 )

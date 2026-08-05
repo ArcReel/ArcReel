@@ -13,6 +13,8 @@ from claude_agent_sdk import (
 from lib.agent_session_store import make_project_key
 from lib.agent_session_store.store import DbSessionStore
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.mark.asyncio
 async def test_append_then_list_then_load_via_sdk_helpers(session_factory, tmp_path: Path):

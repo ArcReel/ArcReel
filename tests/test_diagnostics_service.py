@@ -9,6 +9,8 @@ import pytest
 import server.services.diagnostics as diag_mod
 from lib.app_data_dir import _reset_for_tests
 
+pytestmark = pytest.mark.unit
+
 
 def test_collect_returns_text(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))

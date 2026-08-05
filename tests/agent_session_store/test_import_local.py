@@ -10,6 +10,8 @@ from claude_agent_sdk import project_key_for_directory
 
 from lib.agent_session_store.store import DbSessionStore
 
+pytestmark = pytest.mark.integration
+
 
 def _write_fake_local_transcript(project_cwd: Path, session_id: str, sdk_root: Path):
     """Mimic the SDK on-disk layout: <CLAUDE_CONFIG_DIR>/projects/<sanitized>/<session_id>.jsonl."""

@@ -10,6 +10,8 @@ from lib.pricing.lookup import lookup_pricing
 from lib.pricing.strategies import PricingParams, calculate_pricing
 from lib.providers import PROVIDER_MINIMAX, PROVIDER_OPENAI
 
+pytestmark = pytest.mark.unit
+
 
 def _text_response(content: str = "ok", in_tok: int = 10, out_tok: int = 5) -> MagicMock:
     usage = MagicMock()
@@ -41,12 +43,11 @@ class TestRegistry:
         assert "vision" in meta.models["MiniMax-M3"].capabilities
         assert "MiniMax-M2.7" in meta.models
         assert meta.models["MiniMax-M2.7"].default is False
-        # image-01：默认图像模型，T2I + I2I，单脸参考
+        # image-01：默认图像模型，T2I + I2I
         image = meta.models["image-01"]
         assert image.media_type == "image"
         assert image.default is True
         assert image.capabilities == ["text_to_image", "image_to_image"]
-        assert image.max_reference_images == 1
 
     def test_env_keys_registered(self):
         from lib.config.env_keys import OTHER_PROVIDER_ENV_KEYS, PROVIDER_SECRET_KEYS
@@ -179,23 +180,24 @@ class TestVideoRegistry:
         models = PROVIDER_REGISTRY[PROVIDER_MINIMAX].models
         hailuo = models["MiniMax-Hailuo-2.3"]
         assert hailuo.media_type == "video"
-        assert "text_to_video" in hailuo.capabilities
-        assert "image_to_video" in hailuo.capabilities
         assert hailuo.supported_durations == [6, 10]
         assert hailuo.duration_resolution_constraints == {"1080p": [6]}
 
-        fast = models["MiniMax-Hailuo-2.3-Fast"]
-        assert fast.capabilities == ["image_to_video"]
+        # registry 不声明视频输入模式，minimax 两个型号均无其他特性 token，故 capabilities 为空
+        # ——t2v / i2v 判定读 backend。
+        assert hailuo.capabilities == []
+        assert models["MiniMax-Hailuo-2.3-Fast"].capabilities == []
 
     def test_s2v01_registered_with_single_reference_cap(self):
         from lib.config.registry import PROVIDER_REGISTRY
+        from lib.video_backends.minimax import MiniMaxVideoBackend
 
         s2v = PROVIDER_REGISTRY[PROVIDER_MINIMAX].models["S2V-01"]
         assert s2v.media_type == "video"
-        # 单脸参考生视频：编排层据 registry max_reference_images 只取 1 张。
-        assert s2v.max_reference_images == 1
         # 固定 6s 输出。
         assert s2v.supported_durations == [6]
+        # 单脸参考生视频：编排层据 backend 声明只取 1 张（参考图上限的唯一声明处）。
+        assert MiniMaxVideoBackend.video_capabilities_for_model("S2V-01").max_reference_images == 1
 
     def test_video_backend_registered(self):
         from lib.video_backends import get_registered_backends

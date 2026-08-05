@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 # ---------------------------------------------------------------------------
 # infer_endpoint smoke check（主体已在 test_custom_provider_endpoints.py 覆盖）
 # ---------------------------------------------------------------------------

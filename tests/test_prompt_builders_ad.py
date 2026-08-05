@@ -8,6 +8,8 @@ import pytest
 from lib.prompt_builders_ad import build_ad_prompt
 from lib.speech_rate import speech_rate_units_per_second
 
+pytestmark = pytest.mark.unit
+
 
 def _build(**overrides):
     kwargs = dict(

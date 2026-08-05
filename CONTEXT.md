@@ -112,15 +112,15 @@ _Avoid_: 用 `backend.name` 作 provider 查询轴；假设 `provider_model.mode
 _Avoid_: 为单个调用点开专属模型设置项（档位即配置粒度的上限）；把 Agent 对话模型当作某个档位；把「默认模型」理解为第三档——它不绑定任何任务，只是回退。
 
 **capability（t2i / i2i / i2v / r2v）**：
-媒体任务按请求形态的能力分类。图片两种：t2i 文生图（无参考图）、i2i 图生图（带参考图）——一个镜头属于哪种，取决于"开画那一刻"是否拼出了参考图，**只有执行时才能确定**（见 `docs/adr/0001`）；入队与调度（worker claim）这两个执行前环节都无法获知。图片编辑任务是唯一例外——它必然 i2i，入队即知（见「图片编辑」）。视频两种：i2v 图生视频（首帧驱动——分镜路线的全部镜头，逐张与宫格装配同归此桶）、r2v 参考生视频（参考图槽位驱动——参考路线的全部镜头，**含无参考图的退化镜头**）——与图片不同，视频镜头属于哪种在执行前即知：一律按项目生成路线定桶，三种 content_mode 同一口径（见 `docs/adr/0054`）。
-_Avoid_: t2v 作为 capability 维度——参考模式无图镜头归 r2v，不另立形态。
+媒体任务按请求形态的能力分类。图片两种：t2i 文生图（无参考图）、i2i 图生图（带参考图）——一个镜头属于哪种，取决于"开画那一刻"是否拼出了参考图，**只有执行时才能确定**（见 `docs/adr/0001`）；入队与调度（worker claim）这两个执行前环节都无法获知。图片编辑任务是唯一例外——它必然 i2i，入队即知（见「图片编辑」）。视频两种：i2v 图生视频（首帧驱动——分镜路线的全部镜头，逐张与宫格装配同归此桶；另承接参考路线无参考图退化镜头的降级执行）、r2v 参考生视频（参考图槽位驱动——参考路线的有参考图镜头）——视频先按项目生成路线定轴，参考路线内再按镜头是否携带参考图分流（执行层按解析后的实际参考图判定，入队预检 / 限流投影 / 费用估算按 unit 声明的 references 近似，判据在 `lib/reference_video/units.py`），三种 content_mode 同一口径（见 `docs/adr/0054`）。
+_Avoid_: t2v 作为 capability 维度——参考模式无图镜头降级归 i2v，不另立形态。
 
 **能力桶（capability bucket）**：
 按 capability 细分的**可选**模型配置槽位（图片 t2i / i2i，视频 i2v / r2v），是「默认模型」之上的细化覆盖：未配置的桶回退同层默认模型。解析顺序与文本任务档位同构、项目优先：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。桶与调用点的映射固定在代码里、用户只配桶内容；桶候选按能力预过滤，解析时能力不满足直接报错，不静默换模型（见 `docs/adr/0054`）。「能力桶」是代码与文档内部术语，界面呈现用「按用途指定模型」，不直接暴露给用户。
 _Avoid_: 把桶当强制配置（默认模型才是唯一兜底层）；按生成路线逐路设桶（桶的维度是能力不是路径）；把「默认模型」理解为又一个桶——它不承诺任何能力，只是回退；在用户可见文案里写「能力桶 / capability bucket」。
 
 **执行模型（effective model）**：
-给定调用点的 capability（或文本档位）与当前配置，分层解析最终选中的模型：细分桶 / 档位生效时是其中的模型，否则是默认层逐层穿透的结果，全层皆空时来自自动推断。与「默认层模型」相对——默认层只是解析的一层输入，执行模型才是真正会执行的那一个。凡按模型查能力或按模型存配置的界面元素与存储键（per-model 设置，如分辨率），一律取执行模型；视频侧先按项目生成路线定桶再求值，项目内全集同一结果——例外是 WebUI 逐条生成端点：它不读路线、恒按 i2v 归桶，参考路线项目若两桶配了不同模型，该入口实际执行的模型与此处求得的不是同一个，存到路线模型键下的分辨率在该入口也不生效（见 `docs/adr/0054`）。全层皆空的自动推断依赖供应商就绪状态与 registry 顺序，前端算不出：此时按模型查能力的界面元素显示「自动选择」、`model_settings` 省略该项，不伪造一个执行模型；后端侧无此限制，自动推断结果本身就是执行模型。裸 provider（未带 `/model`）覆盖时，后端 `_parse_project_provider` 会展开为该 provider 的默认 model 再求执行模型，前端 `effectiveModel()` 不做此展开、原样返回裸字符串——两侧对同一层的执行模型取值可能不同，UI 存取键与后端查询键因此不一致，属已知例外。
+给定调用点的 capability（或文本档位）与当前配置，分层解析最终选中的模型：细分桶 / 档位生效时是其中的模型，否则是默认层逐层穿透的结果，全层皆空时来自自动推断。与「默认层模型」相对——默认层只是解析的一层输入，执行模型才是真正会执行的那一个。凡按模型查能力或按模型存配置的界面元素与存储键（per-model 设置，如分辨率），一律取执行模型；视频侧先按项目生成路线定桶再求值，项目内全集同一结果——参考路线的无参考图退化镜头实际由 i2v 桶模型降级执行，两桶配了不同模型时该镜头的执行模型与此处求得的不是同一个（见 `docs/adr/0054`）。全层皆空的自动推断依赖供应商就绪状态与 registry 顺序，前端算不出：此时按模型查能力的界面元素显示「自动选择」、`model_settings` 省略该项，不伪造一个执行模型；后端侧无此限制，自动推断结果本身就是执行模型。裸 provider（未带 `/model`）覆盖时，后端 `_parse_project_provider` 会展开为该 provider 的默认 model 再求执行模型，前端 `effectiveModel()` 不做此展开、原样返回裸字符串——两侧对同一层的执行模型取值可能不同，UI 存取键与后端查询键因此不一致，属已知例外。
 _Avoid_: 用默认层模型作能力查询或 per-model 存储的键（细分覆盖生效时两者不同）；把执行模型当作可配置项——它是解析结果，不是配置槽位；把执行模型等同于生成期 lane 结果的 backend 实际身份——后者是构造后的查询键（见「lane 结果的两组身份」），两者仅在自定义供应商 loader 未回退时保证一致。
 
 **图片编辑（image edit）**：
@@ -209,7 +209,7 @@ _Avoid_: 与「旁白配音」混为一谈——旁白是成片素材，试听�
 _Avoid_: 用 `generate_audio` 的真假直接代指有无音轨。
 
 **声音描述声明段（Voice_Profiles）**：
-drama 视频提示词 YAML 顶部的集中声明段，形如 `Voice_Profiles: [{Speaker, Voice_Style}]`，由编排层从角色资产的 `voice_style` 机械派生——收录集合为「本场景 dialogue 的 speaker」∩「角色资产 `voice_style` 非空」，只出场不开口的角色不收录。剧本 JSON 与 step2 LLM 零承载：编排层是它唯一的来源（`lib/prompt_utils.py::build_drama_video_prompt`），故角色 `voice_style` 改动下次生成即生效。档位为 `none` 时不注入。
+drama 视频提示词 YAML 顶部的集中声明段，形如 `Voice_Profiles: [{Speaker, Voice_Style}]`，由编排层从角色资产的 `voice_style` 机械派生——收录集合为「本场景 dialogue 的 speaker」∩「角色资产 `voice_style` 非空」，只出场不开口的角色不收录。剧本 JSON 与 step2 LLM 零承载：编排层是它唯一的来源（`lib/prompt_utils.py::build_drama_video_prompt`），故角色 `voice_style` 改动下次生成即生效。无声时不注入——`none`（模型不产音）与本集关闭音频（`requested_generate_audio` 为假）同口径，入队前判据收在 `server/services/video_caps.py::resolve_project_is_silent`、执行期收在 `VideoLaneResult.is_silent`；台词不看这一位，无声成片里照常下发供口型参考。
 _Avoid_: 与既有 `Dialogue` 条目混为一谈——前者声明音色、每 speaker 一条，后者是台词、按时序逐条。
 
 **"audio" 的三种含义（歧义警示）**：
@@ -223,6 +223,10 @@ _Avoid_: 与既有 `Dialogue` 条目混为一谈——前者声明音色、每 s
 **设计图（sheet）**：
 AI 生成的角色/场景/道具定型图（`character_sheet` / `scene_sheet` / `prop_sheet`），是资产生成阶段的**产出**，随后作为 reference image 输入下游分镜/宫格/参考生视频以锚定一致性。
 _Avoid_: 与「参考图（reference image，生成的条件输入）」混为一谈——方向相反：sheet 是产出后再被引用，参考图是输入；也不要与 character 的用户上传 `reference_image` 字段混淆（那是用户上传的参考文件，非 AI 定型图）。
+
+**资产名坐标系（asset name normalization）**：
+资产名的比对总是「文本里的名字 × 资产表的 key」，两侧须在同一坐标系（Unicode NFC）里才判得准，函数集中在 `lib/asset_types`。登记闸口 `validate_asset_name`（strip + NFC）覆盖全部新写入路径，NFD 输入（macOS 输入法与文件名拖放天然产生）因此不再落成视觉同名的第二条资产；存量 key 保持原形态、**不迁移**，由读取侧承担：整桶比对用 `normalize_asset_bucket`，按 key 就地更新/删除/判冲突用 `resolve_asset_key` 解析出真实落盘 key 再操作。同名多形态的存量 key 之间一律**后写入胜出**，后端两函数与前端 `sheetOf` / `VoiceLegacyBanner` 同向。展示值（`Voice_Profiles` 的 Speaker、参考图 label）保留原文，只有索引与去重走归一。
+_Avoid_: 拿归一后的名字直接下标存量桶——会对同一个视觉名字新建第二条资产或漏判冲突；在比对点逐处补归一而不走上述函数；把全局资产库 DB 侧的按名唯一性算进来——`assets` 表仍是字节精确比对，不在这个坐标系内。
 
 **全局资产库（global asset library）**：
 跨项目复用 character/scene/prop 三类资产的全局单一仓库（DB 持久化 + `_global_assets/` 图片目录），与项目以**快照复制**而非引用关联。
@@ -247,7 +251,7 @@ _Avoid_: 在新代码/文档里用 clue/线索 指代场景或道具——规范
 _Avoid_: 把骨架当第四个 content_mode 或 content_mode 的同义词（三值轴推不出四种骨架）；把规范性与取证性两问混同（存量失配集的骨架与项目路线不符时，编辑要跟数据走、生成要跟路线走）；对未知模式做「非 narration 即 drama」式二值兜底（`docs/adr/0033` 禁令）。
 
 **生成路线（generation route / generation_mode）**：
-项目级二值必填字段，决定喂给视频模型的**输入契约**：`storyboard`（分镜路线，输入是单张分镜图，走 i2v）/ `reference_video`（参考路线，输入是资产参考图集合、跳过分镜图步骤，走 r2v）。创建项目时二选一、**创建后不可更改**——不可变性由结构保证：项目 PATCH 模型、集级 PATCH 模型、agent 项目设置白名单中都不存在该字段。路线是全项目唯一定轴：剧本骨架、视频能力归桶、声音一致性档位、时长约束、费用估算、生成入队一律读它，不需要剧集与剧本上下文，剧本自身也不承载路线信息；时长联动约束里的参考图档位是例外——路线只决定这条约束适不适用，具体收窄按该单元实际是否带参考图判定（`uses_reference_images`），不由路线一刀切（见 `docs/adr/0055`）。骨架与项目路线跨族的存量剧本经智能体入队生成时被路线闸门显式拒绝，仍可查看、编辑、归档导出；WebUI 的逐条生成端点不经闸门，也不读项目路线——恒按 i2v 归桶，参考路线项目从该入口生成时执行与估算就此分歧。
+项目级二值必填字段，决定喂给视频模型的**输入契约**：`storyboard`（分镜路线，输入是单张分镜图，走 i2v）/ `reference_video`（参考路线，输入是资产参考图集合、跳过分镜图步骤，主桶 r2v，无参考图的退化 unit 降级 i2v）。创建项目时二选一、**创建后不可更改**——不可变性由结构保证：项目 PATCH 模型、集级 PATCH 模型、agent 项目设置白名单中都不存在该字段。路线是定轴的第一层：剧本骨架、声音一致性档位、无 unit 上下文的项目级能力查询一律按它定轴，不需要剧集与剧本上下文，剧本自身也不承载路线信息；参考路线内的镜头级读侧（费用估算、生成入队定桶、限流投影、时长联动约束的参考图档位）再按该 unit 是否携带参考图分流 i2v / r2v——入队预检 / 投影按 unit 声明近似，执行按解析后的实际参考图精确判定（见 `docs/adr/0054`），时长联动约束的收窄同按 `uses_reference_images` 判定、不由路线一刀切（见 `docs/adr/0055`）。骨架与项目路线跨族的存量剧本经智能体入队生成时被路线闸门显式拒绝，仍可查看、编辑、归档导出；WebUI 的逐条生成端点只把守路线（参考路线项目在提交入口即被拒绝并指引改走参考生视频流程），分镜路线下按剧本实际骨架定位条目、不经骨架闸门。
 _Avoid_: 把它当可切换的「生成模式」——路线是立项决策，改路线的出路是另建项目；给某集单独指定路线（集级覆盖不存在）；把宫格当作第三个平级取值（见「宫格」）；与 content_mode（内容类型）或 source_kind（源文件性质）混为一轴——三者正交。
 
 **宫格（grid）**：
@@ -272,7 +276,7 @@ _Avoid_: 让 ad 落入「非 narration 即 drama」的二值兜底——所有�
 _Avoid_: 把 shot 与 segment（说书片段）/ DramaScene（剧集场景）混为一谈；「scene」在参考模式下三义须分辨——场景资产（scene_sheet）、剧本分镜场景（DramaScene）、镜头（shot）；手工增删改 ad 的 reference_units——它是派生物，shots 才是内容唯一真相。
 
 **三段论渲染（参考生视频路径）**：
-narration/drama 与 ad 共用同一套渲染管线，发给视频模型前的机器渲染形态，三段各有归属：第一段是参考来源声明区——主体绑定 + 声音声明（`<X>的台词音色参考 @音频N，声音特征：…`）；第二段是镜头分镜段，台词行渲染 `<X>说 {台词}` / `画外音说 {台词}`；第三段是风格锚定与画质/稳定/字幕/水印约束包。第一、三段由渲染期机械生成，不依赖 LLM 自觉；渲染是纯函数、结果不落盘。narration/drama 的整段文本不含绝对秒数（时长走请求字段）；ad 的第二段例外——`Shot N (Xs)` 逐镜头秒数保留在文本里，剪映导出与字幕对齐依赖它，不随对齐折叠进请求字段。两条路径第一、三段实现共用（`lib/reference_video/prompt_render.py` 的 `_render_voice_declarations` / `_render_segment_three`），第二段各自成文：narration/drama 的输入是书写层自由文本（`render_unit_prompt`，书写层只写 `镜头N：` 分镜段，主体绑定 `<X>@图片N` 简式记号——编号即随请求发出的参考图顺序，经 `parse_prompt` / `@[X]` mention 解析派生），ad 的输入是结构化镜头字段（`render_ad_backend_prompt`，无书写层、不引入 mention 语法，主体记号直接取参考条目的展示 label——产品区分 sheet/原图两态、资产统一「设计图」态；`Shot N (Xs): ...` 镜头段与 per-shot duration 不动，dialogue 取 `video_prompt.dialogue` 结构化列表而非文本行解析）。声音注入按 `voice_consistency` 分档：`native` 才绑参考音频，`native`/`soft` 均注入 `voice_style` 声音特征，`none` 不注入声音声明但保留台词渲染（供口型与表演）。音频编号 = dialogue speaker 首现顺序、受 `max_reference_audio_count` 截断，**该顺序即 `reference_audio_files` 请求字段顺序**——这是 prompt 文本与请求字段之间唯一的绑定契约，哪个角色对应哪段音频不进请求。要求音频逐段挂在具体参考素材项上的 backend（`VideoCapabilities.reference_audio_per_image`，如 wan2.7-r2v）例外：这类 backend 额外需要 `VideoGenerationRequest.reference_audio_targets`——每段音频对应的 `reference_images` 下标，由渲染层 `audio_speaker_reference_index` 派生，纯画外角色（无参考图）不落入该字段。
+narration/drama 与 ad 共用同一套渲染管线，发给视频模型前的机器渲染形态，三段各有归属：第一段是参考来源声明区——主体绑定 + 声音声明（`<X>的台词音色参考 @音频N，声音特征：…`）；第二段是镜头分镜段，台词行渲染 `<X>说 {台词}` / `画外音说 {台词}`；第三段是风格锚定与画质/稳定/字幕/水印约束包。第一、三段由渲染期机械生成，不依赖 LLM 自觉；渲染是纯函数、结果不落盘。narration/drama 的整段文本不含绝对秒数（时长走请求字段）；ad 的第二段例外——`Shot N (Xs)` 逐镜头秒数保留在文本里，剪映导出与字幕对齐依赖它，不随对齐折叠进请求字段。两条路径第一、三段实现共用（`lib/reference_video/prompt_render.py` 的 `_render_voice_declarations` / `_render_segment_three`），第二段各自成文：narration/drama 的输入是书写层自由文本（`render_unit_prompt`，书写层只写 `镜头N：` 分镜段，主体绑定 `<X>@图片N` 简式记号——编号即随请求发出的参考图顺序，经 `parse_prompt` / `@[X]` mention 解析派生），ad 的输入是结构化镜头字段（`render_ad_backend_prompt`，无书写层、不引入 mention 语法，主体记号直接取参考条目的展示 label——产品区分 sheet/原图两态、资产统一「设计图」态；`Shot N (Xs): ...` 镜头段与 per-shot duration 不动，dialogue 取 `video_prompt.dialogue` 结构化列表而非文本行解析）。声音注入按 `voice_consistency` 分档：`native` 才绑参考音频，`native`/`soft` 均注入 `voice_style` 声音特征。无声路径不注入声音声明但保留台词渲染（供口型与表演）——`none`（模型不产音）与本集关闭音频（`requested_generate_audio` 为假）同口径，判据收在 `VoiceRenderSettings.is_silent`；渲染层的整组声音入参同样以该值对象为单一载体。音频编号 = dialogue speaker 首现顺序、受 `max_reference_audio_count` 截断，**该顺序即 `reference_audio_files` 请求字段顺序**——这是 prompt 文本与请求字段之间唯一的绑定契约，哪个角色对应哪段音频不进请求。要求音频逐段挂在具体参考素材项上的 backend（`VideoCapabilities.reference_audio_per_image`，如 wan2.7-r2v）例外：这类 backend 额外需要 `VideoGenerationRequest.reference_audio_targets`——每段音频对应的 `reference_images` 下标，由渲染层 `audio_speaker_reference_index` 派生，纯画外角色（无参考图）不落入该字段。
 _Avoid_: 让 LLM 书写第一段或第三段——narration/drama 书写层只写第二段，其余机器补；给 ad 镜头字段引入 mention 语法——ad 已结构化枚举画面主体，无需从自由文本解析；把角色与音频的对应关系塞进请求字段——绑定只由第一段文本表达，请求侧只有顺序（`reference_audio_per_image` backend 的下标对齐字段除外，见上）；解析预览与生成各自重算声音绑定——两者共用 `derive_voice_bindings`，否则面板承诺的绑定与实际发出的绑定会分叉。
 
 **书写层文稿（参考生视频）**：

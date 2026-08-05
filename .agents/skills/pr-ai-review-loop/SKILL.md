@@ -50,7 +50,7 @@ bash .agents/skills/pr-ai-review-loop/scripts/query.sh <PR_NUMBER> <子命令>
 | `checks_failing` 非空(CI 红) | 就地修复并 push——CI 红会阻塞 reviewer 触发;修不动(重试仍红 / 根因在 main)才暂停询问 |
 | 某家参审 reviewer 未审当前 HEAD | 按 reviewers.md 该家「触发」规则决定等待或发触发命令 |
 | 至少一家有本轮新 actionable 评论(判定见 reviewers.md) | 进入步骤 3 |
-| `security_alerts.open_introduced` 非空但无对应新评论 | 上一轮没修干净(bot 不重复提醒)——把 alert 数据(rule / path / url)直接带入步骤 3,按数据修而非按评论修。前提:CodeQL 分析完成且成功(门槛 1 口径)——分析未完成时差集基于过期数据,归入下行等待 |
+| `security_alerts.open_introduced` 与已认定误报在案清单(核对方式见 reviewers.md「已知误报」)的差集非空,且该差集无对应新评论 | 上一轮没修干净(bot 不重复提醒)——只把差集里的 alert 数据(number / rule / path / url)带入步骤 3,按数据修而非按评论修;已在案的部分不重复处理。前提:CodeQL 分析完成且成功(门槛 1 口径)——分析未完成时差集基于过期数据,归入下行等待 |
 | CodeQL 分析未完成(`codeql_checks.all_ok == false` 且 `failing` 为空) | 等待(不阻塞其它缺口的处理,但阻塞终核——分析完成前不得宣布"缺口均消失") |
 | 以上缺口均消失 | 做目标状态**终核**(含 CodeQL 门槛与 `unacked` 兜底逐条);全过则按「收敛兜底」#4 正常退出;发现遗留则按对应缺口处理 |
 | 未全部达成且无可执行动作(reviewer 响应中) | 按「轮询节奏」表等待下一轮 |
@@ -78,17 +78,15 @@ GitHub code scanning 两家(quality / security)的评论并入同一批,处置�
 
 | 场景 | 延迟 | 备注 |
 |---|---|---|
-| 新 HEAD 后首次 poll | 180s | reviewer cold-start |
-| 发送 `/gemini review` 或首次 cold-start fallback `@codex review` 之后 | 120s | |
-| 常规等待(reviewer 响应中) | 60s | |
-| 仅剩 CodeQL 分析未完成 | 120s | 等 check 完成做终核 |
-| 超过 25 分钟无响应 | 暂停并询问用户,不再 ScheduleWakeup | 见「故障处理」 |
+| 新 HEAD 后首次 poll | 360s | reviewer cold-start |
+| 其余等待(触发命令后、reviewer 响应中、仅剩 CodeQL 分析未完成) | 180s | |
+| 超过 30 分钟无响应 | 暂停并询问用户,不再 ScheduleWakeup | 见「故障处理」 |
 
 ## 收敛兜底
 
 下列任一条件触发退出:
 
-1. `round_estimate` ≥ 5 → 暂停询问"已 5 轮,merge / 继续 / 放弃?"
+1. `round_estimate` ≥ 3 → 暂停询问"已 3 轮,merge / 继续 / 放弃?"
 2. 连续 2 轮 push 都没有产生实质收益 → 暂停询问"边际收益已降低,是否结束?"。实质收益有两种,占一种即算:**用户可感知的行为改善**(修掉一条真实可达的崩溃或错误路径算,哪怕形式上是一处防御),或**后续改动成本的下降**(消除重复、拆掉错误抽象、去掉不可达的防御分支)。按改动实际做了什么判断,不按它的标签——架构与 DRY 上的改善是要争取的收益,不因为用户看不见就算没收益。真正不算的是往复:风格与命名的口味调整、reviewer 之间的偏好差异、已驳回又换个说法重提的意见。证据跑 `classify_commits.sh` 看最近两批;它只给 commit 说明与文件行数统计,说明笼统或同一文件里内部逻辑与用户路径混在一起时,按输出的 `sha` 跑 `git show` 看改动本身。本条判断的是收益,fix-up 顺延的五类形状判断的是重审风险,两处口径不通用
 3. 同一主题(reviewer + 关键词,例如 "Pydantic `extra=ignore` vs `forbid`")被同一家 reviewer 在 ≥ 3 个 HEAD 上反复提出,且无 ADR / memory 兜底 → 暂停询问是否升级 ADR。新评论似曾相识时跑 `query.sh <PR> history` 通读评论历史,按语义归并主题,数同一主题出现在几个 HEAD 上
 4. 目标状态全部达成 → 正常退出,按 [references/retrospective.md](references/retrospective.md) 产出复盘随汇报交出(何种出口产复盘以该文件开篇为准)
@@ -99,7 +97,7 @@ GitHub code scanning 两家(quality / security)的评论并入同一批,处置�
 
 **能力证伪自裁决**(唯一不暂停的故障):reviewer 的回复或官方通知确证其无法参审——App 未接入、要求创建/连接账号、服务已停止——该家本 PR 按不参审处理、不再触发,记入退出汇报;沉默或一般报错不算证伪,仍按下列条目暂停询问。
 
-- **某家 reviewer(含 CodeQL 分析)超过 25 分钟未响应**:bot 可能服务异常或配额已满,暂停说明现状。Gemini fix-up 顺延导致的"未审"不算无响应——那是设计内跳过
+- **某家 reviewer(含 CodeQL 分析)超过 30 分钟未响应**:bot 可能服务异常或配额已满,暂停说明现状。Gemini fix-up 顺延导致的"未审"不算无响应——那是设计内跳过
 - **bot 报错**(如 "Internal error"、"Token limit exceeded"):贴出错误内容,按 reviewers.md 该家的触发约束询问是否重跑
 - **`quota_alerts` 非空**:alert 之后该家已有成功审查(更晚的 review 或 walkthrough 更新)的视为已恢复,忽略残留 banner;真实受阻时,reviewers.md 该家有专项配额处置段的(如 CodeRabbit)按其规则自行处置,不暂停;其余家贴出 `body_head`,询问停用该家继续其他家,还是等 quota 恢复后再 push
 - **`codeql_checks.failing` 非空**(失败态集合见 poll.sh header `checks_failing` 条):分析失败,alerts 数据停留在上次成功分析,不能做终核;询问是否重跑失败的 workflow

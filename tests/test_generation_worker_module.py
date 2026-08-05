@@ -44,6 +44,10 @@ class _FakeQueue:
         self._succeeded_rows = succeeded_rows
         self._failed_rows = failed_rows
         self._orphans: list[dict] = []
+        self.persisted_providers: list[tuple[str, str]] = []
+
+    async def persist_execution_provider_id(self, task_id, provider_id):
+        self.persisted_providers.append((task_id, provider_id))
 
     async def acquire_or_renew_worker_lease(self, name, owner_id, ttl_seconds):
         self._lease_calls += 1
@@ -75,14 +79,17 @@ class _FakeQueue:
 
 
 class TestReadIntEnv:
+    @pytest.mark.unit
     def test_default_when_unset(self, monkeypatch):
         monkeypatch.delenv("ARCREEL_INT", raising=False)
         assert _read_int_env("ARCREEL_INT", 3, minimum=1) == 3
 
+    @pytest.mark.unit
     def test_default_when_bad(self, monkeypatch):
         monkeypatch.setenv("ARCREEL_INT", "bad")
         assert _read_int_env("ARCREEL_INT", 3, minimum=1) == 3
 
+    @pytest.mark.unit
     def test_minimum_enforced(self, monkeypatch):
         monkeypatch.setenv("ARCREEL_INT", "0")
         assert _read_int_env("ARCREEL_INT", 3, minimum=2) == 2
@@ -114,16 +121,19 @@ async def _patch_empty_db(monkeypatch):
 class TestExtractProvider:
     """_extract_provider 是解析链的薄投影：按 task_type 派发，取 .provider_id。"""
 
+    @pytest.mark.unit
     async def test_video_payload_provider(self):
-        """payload 携带历史 video_provider → 投影直接取到（payload 层短路，无需 DB）。"""
+        """payload 携带 video_provider → 投影直接取到（payload 层短路，无需 DB）。"""
         task = {"payload": {"video_provider": "ark"}, "task_type": "video"}
         assert await _extract_provider(task) == "ark"
 
+    @pytest.mark.unit
     async def test_image_payload_provider(self):
         """payload 携带历史 image_provider → 投影取到。"""
         task = {"payload": {"image_provider": "gemini-vertex"}, "task_type": "storyboard"}
         assert await _extract_provider(task) == "gemini-vertex"
 
+    @pytest.mark.unit
     async def test_default_when_unresolvable(self, _patch_empty_db):
         """无 project、无 payload、全局未配供应商 → 回退 DEFAULT_PROVIDER（仅供限流）。
 
@@ -133,24 +143,27 @@ class TestExtractProvider:
         task = {"payload": {}}
         assert await _extract_provider(task) == DEFAULT_PROVIDER
 
+    @pytest.mark.unit
     async def test_project_level_video_backend(self, monkeypatch):
         """项目级 video_backend 优先于全局默认。"""
         _patch_pm(monkeypatch, {"video_backend": "ark/doubao-seedance-1-5-pro-251215"})
         task = {"payload": {}, "project_name": "demo", "task_type": "video"}
         assert await _extract_provider(task) == "ark"
 
+    @pytest.mark.unit
     async def test_project_level_image_t2i(self, monkeypatch):
         """image 投影按代表性 capability=t2i 取项目级 image_provider_t2i。"""
         _patch_pm(monkeypatch, {"image_provider_t2i": "gemini-vertex/imagen-3"})
         task = {"payload": {}, "project_name": "demo", "task_type": "storyboard"}
         assert await _extract_provider(task) == "gemini-vertex"
 
+    @pytest.mark.unit
     async def test_reference_video_routes_to_video_lane(self, monkeypatch):
         """reference_video task_type 必须按 video lane 解析 video_backend，而非 image 槽。
 
         项目同时配置了不同 provider 的 video_backend（ark）与 image_provider_t2i
         （gemini-vertex）。reference_video 属于 video lane，认领期 provider 投影须取 ark；
-        若误判为 image lane（历史上 task_type != "video" 即读 image 槽），会取到纯图片
+        若误判为 image lane（按 task_type != "video" 去读 image 槽），会取到纯图片
         供应商，导致 worker 在 video 通道以 video_max==0 直接把任务标记
         「供应商不支持 video 生成」。"""
         _patch_pm(
@@ -165,7 +178,7 @@ class TestExtractProvider:
 
     @pytest.mark.unit
     async def test_reference_video_prefers_r2v_bucket_provider(self, monkeypatch):
-        """配置 r2v 桶后，reference_video 的认领期投影随桶内 provider，与执行层定桶解析同源。"""
+        """payload 无 script_file、镜头级参考集无从判定时，reference_video 投影回退代表桶 r2v。"""
         _patch_pm(
             monkeypatch,
             {
@@ -176,14 +189,67 @@ class TestExtractProvider:
         task = {"payload": {}, "project_name": "demo", "task_type": "reference_video"}
         assert await _extract_provider(task) == "minimax"
 
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("references", "expected_provider"),
+        [([{"type": "character", "name": "A"}], "minimax"), ([], "ark")],
+    )
+    async def test_reference_video_routes_by_unit_reference_bucket(self, monkeypatch, references, expected_provider):
+        """reference_video 投影按 unit 声明的参考集分桶：有参考图 → r2v 桶 provider，
+        无参考图退化镜头 → i2v 桶 provider，与执行层降级定桶同口径。"""
+        project = {
+            "video_provider_i2v": "ark/doubao-seedance-1-5-pro-251215",
+            "video_provider_r2v": "minimax/S2V-01",
+        }
+        script = {"video_units": [{"unit_id": "E1U1", "references": references, "shots": [{"text": "t"}]}]}
+        pm_cls = type(
+            "PM",
+            (),
+            {
+                "load_project": lambda self, name: project,
+                "load_script": lambda self, name, filename: script,
+            },
+        )
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", pm_cls)
+        task = {
+            "payload": {"script_file": "ep1.json"},
+            "project_name": "demo",
+            "task_type": "reference_video",
+            "resource_id": "E1U1",
+        }
+        assert await _extract_provider(task) == expected_provider
+
+    @pytest.mark.unit
+    async def test_reference_video_script_read_failure_falls_back_to_r2v(self, monkeypatch):
+        """剧本读取失败时投影回退 r2v 代表桶，不冒泡阻断认领。"""
+
+        def _load_script(self, name, filename):
+            raise ScriptEditError("broken")
+
+        project = {
+            "video_provider_i2v": "ark/doubao-seedance-1-5-pro-251215",
+            "video_provider_r2v": "minimax/S2V-01",
+        }
+        pm_cls = type("PM", (), {"load_project": lambda self, name: project, "load_script": _load_script})
+        monkeypatch.setattr("lib.config.resolver.get_project_manager", pm_cls)
+        task = {
+            "payload": {"script_file": "ep1.json"},
+            "project_name": "demo",
+            "task_type": "reference_video",
+            "resource_id": "E1U1",
+        }
+        assert await _extract_provider(task) == "minimax"
+
+    @pytest.mark.unit
     async def test_payload_provider_takes_precedence_over_project(self, monkeypatch):
-        """payload 历史 provider 优先于项目级。"""
+        """payload provider 优先于项目级。"""
         _patch_pm(monkeypatch, {"video_backend": "grok/grok-imagine-video"})
         task = {"payload": {"video_provider": "ark"}, "project_name": "demo", "task_type": "video"}
         assert await _extract_provider(task) == "ark"
 
+    @pytest.mark.unit
     async def test_deleted_project_load_failure_falls_back_not_raises(self, monkeypatch):
-        """指向已删除/不可读项目的历史任务：load_project 抛错也须回退 DEFAULT_PROVIDER，
+        """指向已删除/不可读项目的残留任务：load_project 抛错也须回退 DEFAULT_PROVIDER，
         绝不冒泡阻断认领循环（否则一个坏任务会拖垮整个 worker）。"""
 
         def _raising_pm():
@@ -200,6 +266,7 @@ class TestExtractProvider:
 class TestExtractProviderAlignsWithExecution:
     """M5 投影对齐：worker 取到的 provider_id 与执行层解析在同一 project/payload 下一致。"""
 
+    @pytest.mark.unit
     async def test_image_alignment(self, monkeypatch):
         from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
@@ -212,6 +279,7 @@ class TestExtractProviderAlignsWithExecution:
         resolved = await ConfigResolver(async_session_factory).resolve_image_backend(project, {}, capability="t2i")
         assert worker_provider == resolved.provider_id == "openai"
 
+    @pytest.mark.unit
     async def test_video_alignment(self, monkeypatch):
         from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
@@ -228,6 +296,7 @@ class TestExtractProviderAlignsWithExecution:
 class TestCapacityTable:
     """容量表：provider × media_type → 上限，三态 get + reload 只换数字。"""
 
+    @pytest.mark.unit
     def test_get_three_states(self):
         table = CapacityTable(
             _limits={"known": {"image": 4, "video": 0}},
@@ -243,6 +312,7 @@ class TestCapacityTable:
         assert table.get("unknown", "video") == 3
         assert "unknown" not in table._limits
 
+    @pytest.mark.unit
     def test_replace_only_swaps_numbers(self):
         table = CapacityTable(_limits={"p": {"image": 3, "video": 3}}, _defaults={"image": 5, "video": 3})
         table.replace({"p": {"image": 9, "video": 1}})
@@ -251,6 +321,7 @@ class TestCapacityTable:
         # 默认不受 replace 影响
         assert table.get("unknown", "image") == 5
 
+    @pytest.mark.unit
     def test_from_env_derives_support_and_defaults(self, monkeypatch):
         from lib.config.registry import PROVIDER_REGISTRY
 
@@ -270,6 +341,7 @@ class TestCapacityTable:
                     # 反推，否则对任何声明值都恒真，等于不设防。
                     assert table.get(pid, lane) == global_default
 
+    @pytest.mark.unit
     def test_from_env_reads_env(self, monkeypatch):
         monkeypatch.setenv("IMAGE_MAX_WORKERS", "7")
         monkeypatch.setenv("VIDEO_MAX_WORKERS", "2")
@@ -278,6 +350,7 @@ class TestCapacityTable:
         assert table.get("unknown", "image") == 7
         assert table.get("unknown", "video") == 2
 
+    @pytest.mark.unit
     async def test_from_db_known_providers_and_unsupported_lanes_zero(self):
         """from_db：所有 registry provider 已知，不支持的 lane 强制 0。
 
@@ -337,6 +410,7 @@ class TestCapacityTable:
         models = [SimpleNamespace(endpoint=ep, is_enabled=True) for ep in endpoints]
         return provider, models
 
+    @pytest.mark.unit
     async def test_from_db_custom_provider_columns_used(self, monkeypatch):
         """自定义供应商：列有值 → 取列值（投影到其支持的 lane）。"""
         self._stub_from_db_sources(
@@ -359,6 +433,7 @@ class TestCapacityTable:
         # 不支持的 lane（无 audio 模型）投影为 0
         assert table.get("custom-1", "audio") == 0
 
+    @pytest.mark.unit
     async def test_from_db_custom_provider_null_falls_back_to_global_default(self, monkeypatch):
         """自定义供应商：列为 None → 回退全局默认（两层回退，无声明默认层）。"""
         self._stub_from_db_sources(
@@ -380,6 +455,7 @@ class TestCapacityTable:
         assert table.get("custom-9", "image") == 5
         assert table.get("custom-9", "video") == 3
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("dirty", ["", "3.7", "abc"])
     async def test_from_db_dirty_value_falls_back_per_key(self, monkeypatch, caplog, dirty):
         """单个 key 的存量脏值只回退该 key 默认值并告警，不拖垮整表加载。"""
@@ -403,6 +479,7 @@ class TestCapacityTable:
         assert table.get("ark", "video") == 2
         assert table.get("gemini-aistudio", "image") == 7
 
+    @pytest.mark.unit
     async def test_from_db_negative_value_clamps_to_zero(self, monkeypatch, caplog):
         """可解析的负数沿用 clamp 语义（→0），不视为脏值回退默认，但留告警可观测。"""
         import logging
@@ -461,6 +538,7 @@ class TestCapacityTable:
         }
         monkeypatch.setattr("lib.config.registry.PROVIDER_REGISTRY", registry)
 
+    @pytest.mark.unit
     def test_from_env_uses_registry_declared_default(self, monkeypatch):
         self._registry_with_declared_defaults(monkeypatch)
         monkeypatch.delenv("IMAGE_MAX_WORKERS", raising=False)
@@ -480,6 +558,7 @@ class TestCapacityTable:
         # 声明了 image 默认但该 provider 不支持 image → 投影为 0（_lane_limits 不回归）
         assert table.get("declared-unsupported", "image") == 0
 
+    @pytest.mark.unit
     async def test_from_db_declared_default_when_user_unconfigured(self, monkeypatch):
         """用户未配 → 取注册表声明默认（而非全局默认）；未声明 provider 仍走全局默认。"""
         self._registry_with_declared_defaults(monkeypatch)
@@ -493,6 +572,7 @@ class TestCapacityTable:
         assert table.get("plain-video", "video") == 3
         assert table.get("declared-unsupported", "image") == 0
 
+    @pytest.mark.unit
     async def test_from_db_user_value_overrides_declared_default(self, monkeypatch):
         """用户配了值 → 覆盖注册表声明默认。"""
         self._registry_with_declared_defaults(monkeypatch)
@@ -502,6 +582,7 @@ class TestCapacityTable:
 
         assert table.get("declared-video", "video") == 4
 
+    @pytest.mark.unit
     async def test_from_db_and_from_env_consistent_fallback(self, monkeypatch):
         """两条装载路径对同一回退语义（用户未配）逐 lane 结果一致。"""
         self._registry_with_declared_defaults(monkeypatch)
@@ -514,6 +595,7 @@ class TestCapacityTable:
             for lane in ("image", "video", "audio"):
                 assert db_table.get(pid, lane) == env_table.get(pid, lane)
 
+    @pytest.mark.unit
     def test_agnes_video_default_one_outranks_active_global_env(self, monkeypatch):
         """真实注册表：Agnes 视频 lane 出厂钉死 1，即便部署把全局 VIDEO_MAX_WORKERS 调高也不解除。
 
@@ -533,6 +615,7 @@ class TestCapacityTable:
 
 
 class TestGenerationWorker:
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_task_success_and_failure(self, monkeypatch):
         queue = _FakeQueue()
@@ -626,6 +709,7 @@ class TestGenerationWorker:
         await worker._process_task({"task_id": "t_circular"})
         assert queue.failed and queue.failed[0] == ("t_circular", "[script_edit_error]")
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_task_cancelled_error_marks_cancelled(self, monkeypatch):
         """ADR 0006: asyncio.CancelledError 走 finally → mark_cancelled。"""
@@ -640,6 +724,7 @@ class TestGenerationWorker:
             await worker._process_task({"task_id": "tc"})
         assert queue.cancelled and queue.cancelled[0][0] == "tc"
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_task_zero_rows_succeeded_falls_through_to_cancelled(self, monkeypatch):
         """ADR 0006 0-rows-cancelled 协议：mark_succeeded 返回 0 时 finally 调 mark_cancelled。"""
@@ -655,6 +740,7 @@ class TestGenerationWorker:
         assert queue.succeeded == [("t0rows", {"result": "ok"})]
         assert queue.cancelled and queue.cancelled[0][0] == "t0rows"
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_request_cancel_signals_inflight_task(self):
         queue = _FakeQueue()
@@ -674,6 +760,7 @@ class TestGenerationWorker:
         # 不在 inflight → False
         assert worker.request_cancel("ghost") is False
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_drain_finished_tasks_absorbs_cancelled_error(self):
         """取消的 inflight task 被 drain：不抛、从台账移除，并 drain 端兜底 mark_cancelled。"""
@@ -695,6 +782,7 @@ class TestGenerationWorker:
         # 子任务来不及自落终态时，drain 端兜底 mark_cancelled。
         assert queue.cancelled and queue.cancelled[0][0] == "tid"
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_drain_finished_tasks_drains_success_and_failure(self):
         """非取消路径：成功 task 走 .result() 无异常，失败 task 走 except 分支，均不触发兜底取消。"""
@@ -719,6 +807,7 @@ class TestGenerationWorker:
         # 非取消任务不应触发 drain 兜底 mark_cancelled
         assert queue.cancelled == []
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_drain_fallback_mark_cancelled_failure_does_not_propagate(self):
         """drain 端兜底 mark_cancelled 自身抛错时只 warning，不冒泡（不挂掉主循环）。"""
@@ -743,6 +832,7 @@ class TestGenerationWorker:
         await worker._drain_finished_tasks()
         assert worker._slots.occupied("test", "video") == 0
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_drain_marks_cancelled_when_cancel_hits_before_process_task_try(self, monkeypatch):
         """取消落在 _process_task 进 try 之前（_extract_provider await）：drain 端兜底落终态。"""
@@ -783,6 +873,7 @@ class TestGenerationWorker:
 
         await asyncio.wait_for(worker.stop(), timeout=2.0)
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_run_loop_survives_inflight_task_cancellation(self, monkeypatch):
         """用户取消运行中的任务：任务 mark_cancelled，但 worker 主循环不退出。"""
@@ -819,6 +910,7 @@ class TestGenerationWorker:
         await asyncio.wait_for(worker.stop(), timeout=2.0)
         assert queue.released
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_run_loop_survives_consecutive_cancellations_and_keeps_claiming(self, monkeypatch):
         """连续取消多个 inflight 任务后，主循环仍存活并能继续 claim 新任务。"""
@@ -886,6 +978,7 @@ class TestGenerationWorker:
         await asyncio.wait_for(worker.stop(), timeout=2.0)
         assert queue.released
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_stop_event_exits_loop_even_with_cancellations(self, monkeypatch):
         """语义对比：单任务取消不退出，但显式 stop（set stop event）必须让 worker 退出。"""
@@ -921,6 +1014,7 @@ class TestGenerationWorker:
         assert worker._main_task is None
         assert queue.released
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_cancelling_marks_cancelled(self, monkeypatch):
         """ADR 0007：orphan cancelling 状态 → mark_cancelled。"""
@@ -941,6 +1035,7 @@ class TestGenerationWorker:
         await worker._handle_orphan_tasks_on_start()
         assert queue.cancelled and queue.cancelled[0][0] == "orphan-cancelling"
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_running_no_job_id_marks_restart_lost(self, monkeypatch):
         """ADR 0007：running 但无 provider_job_id → [restart_lost]。"""
@@ -962,6 +1057,7 @@ class TestGenerationWorker:
         assert queue.failed and queue.failed[0][0] == "orphan-lost"
         assert "[restart_lost_no_job_id]" in queue.failed[0][1]
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_start_stop_run_loop_releases_lease(self):
         queue = _FakeQueue()
@@ -976,6 +1072,7 @@ class TestGenerationWorker:
         assert queue.released
         assert worker._main_task is None
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_claim_tasks_dispatches_to_correct_pool(self, monkeypatch):
         """Tasks are dispatched to the correct provider slot."""
@@ -1028,9 +1125,62 @@ class TestGenerationWorker:
         # Wait for tasks to complete
         await asyncio.gather(*worker._slots.all_active_tasks(), return_exceptions=True)
 
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_claim_requeue_on_full_pool_refreshes_provider_projection(self, monkeypatch):
+        """池满回队前把重派生的 provider 刷回投影列。
+
+        走到二次校验池满这条路，说明存量投影与现值分裂（NULL 兜底，或入队后剧本参考集 /
+        供应商配置被改）；不刷新的话存量值躲过 pool_full 的 SQL 过滤，满池期间每个 cycle
+        都重复 claim → requeue → break，同 lane 其他可跑任务被持续排头阻塞。
+        """
+
+        class _StaleProjectionQueue(_FakeQueue):
+            def __init__(self):
+                super().__init__()
+                self._tasks = [
+                    {
+                        "task_id": "vid-stale",
+                        "task_type": "reference_video",
+                        "media_type": "video",
+                        "provider_id": "ark",  # 入队时的投影，与现值分裂
+                        "payload": {},
+                    }
+                ]
+
+            async def claim_next_task(self, media_type, **_kwargs):  # type: ignore[override]
+                if media_type == "video" and self._tasks:
+                    return self._tasks.pop()
+                return None
+
+        queue = _StaleProjectionQueue()
+        worker = GenerationWorker(queue=queue, capacity=_cap({"minimax": {"video": 1}}))
+
+        async def _current_provider(_task):
+            return "minimax"
+
+        monkeypatch.setattr("lib.generation_worker._extract_provider", _current_provider)
+
+        occupier = asyncio.create_task(asyncio.sleep(30))
+        worker._slots.register("minimax", "video", "vid-running", occupier)
+        requeued: list[str] = []
+
+        async def _capture_requeue(self, task_id):
+            requeued.append(task_id)
+
+        monkeypatch.setattr(GenerationWorker, "_requeue_single_task", _capture_requeue)
+        try:
+            await worker._claim_tasks()
+        finally:
+            occupier.cancel()
+
+        assert requeued == ["vid-stale"]
+        assert queue.persisted_providers == [("vid-stale", "minimax")]
+
     # ------------------------------------------------------------------
     # _pool_full_providers
     # ------------------------------------------------------------------
+    @pytest.mark.unit
     def test_pool_full_providers_sources_from_occupancy_with_cap_guard(self):
         """池满黑名单源 = 有占用的 provider；cap==0 守卫短路降级 lane 的在跑占用。
 
@@ -1073,6 +1223,7 @@ class TestGenerationWorker:
     # ------------------------------------------------------------------
     # _handle_orphan_tasks_on_start：分流补全
     # ------------------------------------------------------------------
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_image_running_marks_restart_lost(self, monkeypatch):
         """image 孤儿无 resume 入口 → [restart_lost]，绝不主动 requeue（避免重复扣费）。"""
@@ -1101,6 +1252,7 @@ class TestGenerationWorker:
         assert queue.failed and queue.failed[0][0] == "img-orphan"
         assert "[restart_lost_image]" in queue.failed[0][1]
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_non_resumable_video_marks_resume_unsupported(self, monkeypatch):
         """Grok/Vidu video 孤儿 → [resume_unsupported]（backend 无 resume，绝不重跑）。"""
@@ -1132,6 +1284,7 @@ class TestGenerationWorker:
         assert "[resume_unsupported_provider]" in queue.failed[0][1]
         assert PROVIDER_GROK in queue.failed[0][1]
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_discard_paths_fallback_to_cancelled_on_zero_rows(self, monkeypatch):
         """非 resumable 路径 mark_failed 返 0 rows（race：被外部 cancel）→ 兜底 mark_cancelled。
@@ -1169,6 +1322,7 @@ class TestGenerationWorker:
         cancelled_ids = {tid for tid, _by in queue.cancelled}
         assert cancelled_ids == {"img-raced", "grok-raced"}
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_uses_persisted_provider_id(self, monkeypatch):
         """task.provider_id 优先于 _extract_provider 的当前项目解析（CR round-2 N2 回归）。
@@ -1212,6 +1366,7 @@ class TestGenerationWorker:
         assert queue.failed and queue.failed[0][0] == "ghost-orphan"
         assert "[resume_unsupported_provider]" in queue.failed[0][1]
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_resumable_dispatches_process_resume_task(self, monkeypatch):
         """video resumable provider + 有 job_id → 后台 dispatcher 派发 _process_resume_task。
@@ -1260,6 +1415,7 @@ class TestGenerationWorker:
         assert len(dispatched) == 1
         assert dispatched[0]["task_id"] == "ark-orphan"
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_fast_path_returns_immediately(self, monkeypatch):
         """fix #647 #1：fast path 不阻塞——5 个可 resume orphan + video_max=2，
@@ -1302,6 +1458,7 @@ class TestGenerationWorker:
                 t.cancel()
         await asyncio.sleep(0)
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_dispatcher_respects_pool_capacity(self, monkeypatch):
         """fix #647 #1：后台 dispatcher 受 video 容量约束分批 promote 进 INFLIGHT，
@@ -1373,6 +1530,7 @@ class TestGenerationWorker:
                     t.cancel()
         await asyncio.sleep(0)
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_dispatcher_exits_on_stop_event(self, monkeypatch):
         """fix #647 #1：`_stop_event` 触发时 dispatcher 干净退出，不再 dispatch 剩余 orphan。"""
@@ -1423,6 +1581,7 @@ class TestGenerationWorker:
     # ------------------------------------------------------------------
     # _process_resume_task：分流 + provider 锁定
     # ------------------------------------------------------------------
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_resume_task_locks_persisted_provider_to_payload(self, monkeypatch):
         """C2 回归：persisted provider_id 应注入 payload.video_provider。"""
@@ -1455,6 +1614,7 @@ class TestGenerationWorker:
         assert captured_job_id == "openai-job"
         assert queue.succeeded == [("resume-locked", {"ok": True})]
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_resume_task_resume_expired(self, monkeypatch):
         """ResumeExpiredError → mark_failed [resume_expired]。"""
@@ -1480,6 +1640,7 @@ class TestGenerationWorker:
         assert queue.failed and queue.failed[0][0] == "exp"
         assert "[resume_expired_detail]" in queue.failed[0][1]
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_resume_task_resume_unsupported(self, monkeypatch):
         """NotImplementedError → mark_failed [resume_unsupported]。"""
@@ -1503,6 +1664,7 @@ class TestGenerationWorker:
         assert queue.failed and queue.failed[0][0] == "uns"
         assert "[resume_unsupported_detail]" in queue.failed[0][1]
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_resume_task_generic_exception(self, monkeypatch):
         """通用 Exception → mark_failed（无前缀，与运行期 backend 失败同款）。"""
@@ -1555,6 +1717,7 @@ class TestGenerationWorker:
             "[script_edit_generated_assets_invalid]",
         )
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_resume_task_cancelled_error(self, monkeypatch):
         """CancelledError → mark_cancelled + 重新抛出。"""
@@ -1578,6 +1741,7 @@ class TestGenerationWorker:
             await worker._process_resume_task(task)
         assert queue.cancelled and queue.cancelled[0][0] == "rc"
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_process_resume_task_no_job_id_fails_fast(self):
         """无 provider_job_id 的 task 被派发到 _process_resume_task 时直接 mark_failed。"""
@@ -1599,6 +1763,7 @@ class TestGenerationWorker:
 class TestDispatcherFailFastAndPendingTracking:
     """dispatcher fail-fast + pending/inflight 分集合精确容量与 cancel 跟踪。"""
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_dispatch_provider_bucket_fail_fast_when_video_max_zero(self, monkeypatch):
         """video 容量=0 → 直接 mark_failed[resume_unsupported]，不进 Semaphore(0) 死锁。"""
@@ -1616,6 +1781,7 @@ class TestDispatcherFailFastAndPendingTracking:
         assert {tid for tid, _ in queue.failed} == {"orphan-0", "orphan-1", "orphan-2"}
         assert all("[resume_unsupported_capacity_zero]" in msg for _, msg in queue.failed)
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_sub_task_registered_in_pending_before_sem_acquire(self, monkeypatch):
         """sem=1 + 2 task：第 2 个 sub-task sem 排队期间应以 PENDING 登记在台账。"""
@@ -1646,6 +1812,7 @@ class TestDispatcherFailFastAndPendingTracking:
         gate.set()
         await dispatcher
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_request_cancel_finds_sem_queued_task_in_pending(self, monkeypatch):
         """cancel sem 排队中的 task → request_cancel 命中并触发 cancel。"""
@@ -1674,6 +1841,7 @@ class TestDispatcherFailFastAndPendingTracking:
         gate.set()
         await dispatcher
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_sem_queued_cancel_marks_task_cancelled(self, monkeypatch):
         """sem 排队期被 cancel：_run_one 应显式 mark_task_cancelled，DB 不留 cancelling。"""
@@ -1710,6 +1878,7 @@ class TestDispatcherFailFastAndPendingTracking:
         cancelled_ids = {tid for tid, _ in queue.cancelled}
         assert "orphan-1" in cancelled_ids
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_acquired_pre_process_cancel_marks_task_cancelled(self, monkeypatch):
         """acquire 后、_process_resume_task 入 try 之前 cancel：_run_one 应兜底 mark cancelled。
@@ -1749,6 +1918,7 @@ class TestDispatcherFailFastAndPendingTracking:
         # 必须落 cancelled 终态，不能停在 cancelling
         assert "orphan-pre-try" in {tid for tid, _ in queue.cancelled}
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_dispatcher_handle_set_after_handle_orphan(self, monkeypatch):
         """_handle_orphan_tasks_on_start 后 self._orphan_dispatcher_task 应被设置。"""
@@ -1785,6 +1955,7 @@ class TestDispatcherFailFastAndPendingTracking:
 class TestOrphanScanSelfPreemption:
     """lease flap > 3×TTL 重夺时，本进程仍 inflight 的 task 不应被当孤儿处理。"""
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_image_inflight_not_marked_restart_lost(self, monkeypatch):
         """本进程 image_inflight 含 task → 孤儿扫描应跳过，不标 [restart_lost]。"""
@@ -1813,6 +1984,7 @@ class TestOrphanScanSelfPreemption:
         # 清理
         fut.set_result(None)
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_video_inflight_not_dispatched_to_resume(self, monkeypatch):
         """本进程 video_inflight 含 task → 孤儿扫描应跳过，不启动重复 resume 流。"""
@@ -1850,6 +2022,7 @@ class TestOrphanScanSelfPreemption:
         assert "vid-active" not in {tid for tid, _ in queue.failed}
         fut.set_result(None)
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_video_pending_also_skipped(self):
         """本进程 video_pending（sem 排队中）含 task → 孤儿扫描应跳过。"""
@@ -1883,6 +2056,7 @@ class TestOrphanDispatcherNonBlockingOverride:
     """lease 重夺时旧 dispatcher 仍在跑：本轮直接覆盖句柄，不 await（liveness）也不 cancel
     （避免错误中断 in-flight resume）。"""
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_old_dispatcher_not_awaited_on_re_scan(self, monkeypatch):
         """旧 dispatcher 跑 5s 时，再次进 _handle_orphan_tasks_on_start 应秒级返回（不阻塞）。"""
@@ -1948,6 +2122,7 @@ class TestOrphanOnceAndLeaseFlap:
         worker._handle_orphan_tasks_on_start = _spy_scan  # type: ignore[assignment]
         return worker, queue, scan_count
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_orphan_scanned_once_on_first_lease_acquire(self):
         worker, _, scan_count = self._build_worker()
@@ -1962,6 +2137,7 @@ class TestOrphanOnceAndLeaseFlap:
         assert len(scan_count) == 1
         assert worker._orphan_handled_once is True
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_orphan_not_rescanned_in_steady_state(self):
         """稳定持 lease 多拍主循环：扫描仅 1 次。"""
@@ -1975,6 +2151,7 @@ class TestOrphanOnceAndLeaseFlap:
 
         assert len(scan_count) == 1
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_orphan_does_not_rescan_on_short_lease_flap(self):
         """lease flap < lease_ttl：不重扫。"""
@@ -2002,6 +2179,7 @@ class TestOrphanOnceAndLeaseFlap:
             await worker._handle_orphan_tasks_on_start()
         assert len(scan_count) == 1, "短 flap 不应重扫"
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_orphan_does_not_rescan_below_3x_ttl(self):
         """lease_ttl < lost < 3×lease_ttl：仍不重扫（边界）。"""
@@ -2026,6 +2204,7 @@ class TestOrphanOnceAndLeaseFlap:
             await worker._handle_orphan_tasks_on_start()
         assert len(scan_count) == 1, "15s 仍 < 3×ttl=30s，不应重扫"
 
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_orphan_rescans_after_real_lease_handoff(self):
         """lost > 3×lease_ttl：清零开关，下次重扫。"""

@@ -7,6 +7,8 @@ from lib.video_backends.registry import (
     register_backend,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class _FakeBackend:
     name = "fake"

@@ -14,6 +14,8 @@ from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def session_manager(tmp_path: Path) -> SessionManager:

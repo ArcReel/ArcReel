@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from server.routers.providers import _test_openai
 from tests.conftest import make_translator
+
+pytestmark = pytest.mark.unit
 
 _t = make_translator()
 

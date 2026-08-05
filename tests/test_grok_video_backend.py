@@ -10,6 +10,8 @@ import pytest
 from lib.providers import PROVIDER_GROK
 from lib.video_backends.base import VideoGenerationRequest
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def output_path(tmp_path: Path) -> Path:

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lib.config.env_keys import (
     ANTHROPIC_ENV_KEYS,
     OTHER_PROVIDER_ENV_KEYS,
     PROVIDER_SECRET_KEYS,
 )
+
+pytestmark = pytest.mark.unit
 
 
 def test_provider_secret_keys_is_subset_of_all_provider_keys():

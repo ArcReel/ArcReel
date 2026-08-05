@@ -12,22 +12,30 @@ import logging
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from lib.config.resolver import ConfigResolver, VoiceConsistency
+from lib.config.resolver import ConfigResolver, VideoCapability
 from lib.db import async_session_factory
+from lib.reference_video.voice_settings import VoiceRenderSettings
 
 logger = logging.getLogger(__name__)
 
 
-async def project_video_caps(project: dict, *, degraded_to: str) -> dict:
+async def project_video_caps(
+    project: dict,
+    *,
+    degraded_to: str,
+    capability: VideoCapability | None = None,
+) -> dict:
     """项目视频后端的 model 粒度能力；解析失败返回部分 dict（可能仅含 ``requested_generate_audio``），
     由调用方各自降级。
 
     ``degraded_to`` 只用于日志，说明这次解析失败会让调用方退化成什么行为。
+    ``capability`` 未给定时按项目路线定桶；给定时按指定桶解析（参考路线内无参考图退化镜头
+    按 i2v 桶取档 / 计价的读侧）。
     ``requested_generate_audio`` 独立于能力接口解析（见下方实现注释），双重失败时该键为 ``False``。
     """
     resolver = ConfigResolver(async_session_factory)
     try:
-        return await resolver.video_capabilities_for_project(project)
+        return await resolver.video_capabilities_for_project(project, capability=capability)
     except (ValueError, SQLAlchemyError) as exc:
         logger.info("无法解析 video_capabilities，%s：%s", degraded_to, exc)
         caps: dict = {}
@@ -41,11 +49,16 @@ async def project_video_caps(project: dict, *, degraded_to: str) -> dict:
         return caps
 
 
-async def resolve_project_voice_consistency(project: dict) -> VoiceConsistency:
-    """项目视频后端的声音一致性档位，供 drama Voice_Profiles 注入前的 C 类（真无声）判定。
+async def resolve_project_is_silent(project: dict) -> bool:
+    """这一集是否听不到声音，供 drama Voice_Profiles 注入前的判定。
 
-    解析失败按既有「无信号不判定为真无声」口径退化为 ``soft``（同 ``derive_voice_consistency``
-    对自定义供应商缺失 ``generate_audio`` 声明时的处理）。
+    两条无声路径（模型不产音的 C 类档位、本集关闭音频）在产品口径上同形，判据取自
+    ``VoiceRenderSettings.is_silent``，与参考路线渲染层、执行层
+    ``server.services.generation_context.VideoLaneResult.is_silent`` 同源。
+
+    能力解析失败时档位按「无信号不判定为真无声」退化为 ``soft``，而无声开关由
+    ``project_video_caps`` 独立解析（双重失败才落 ``False``）——即解析全线失败时按无声处理，
+    宁可少注入声音风格也不把用户已关闭的音频当成有声。
     """
-    caps = await project_video_caps(project, degraded_to="Voice_Profiles 按 soft 兜底注入")
-    return caps.get("voice_consistency") or "soft"
+    caps = await project_video_caps(project, degraded_to="Voice_Profiles 按无声兜底不注入")
+    return VoiceRenderSettings.from_caps(caps).is_silent

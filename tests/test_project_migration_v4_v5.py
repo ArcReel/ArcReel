@@ -7,6 +7,8 @@ import pytest
 
 from lib.project_migrations.v4_to_v5_generation_route import migrate_project_dict, migrate_v4_to_v5
 
+pytestmark = pytest.mark.unit
+
 
 def _write(tmp_path: Path, data: dict) -> Path:
     d = tmp_path / "demo"

@@ -1,3 +1,6 @@
+import type enTemplates from "@/i18n/en/templates";
+import type { DeepStringify } from "@/i18n/types";
+
 export default {
   category: {
     custom: "自定义",
@@ -90,6 +93,7 @@ export default {
   model_text: "文本模型",
   model_bucket_section: "按用途指定模型",
   model_bucket_section_hint: "留空的用途沿用上方默认模型。",
+  model_bucket_candidates_error: "可选模型列表加载失败，已保存的用途指定仍可编辑。",
   model_bucket_configured_count: "已指定 {{n}} 项",
   follow_model_default: "跟随默认",
   bucket_t2i_label: "文生图",
@@ -123,4 +127,4 @@ export default {
   wizard_step_style: "风格",
   next_step: "下一步",
   prev_step: "上一步",
-} as const;
+} satisfies DeepStringify<typeof enTemplates>;

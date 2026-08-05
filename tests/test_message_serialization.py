@@ -7,6 +7,7 @@ constructing a SessionManager instance.
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+import pytest
 from pydantic import BaseModel
 
 from server.agent_runtime.message_serialization import (
@@ -19,6 +20,8 @@ from server.agent_runtime.message_serialization import (
     message_to_dict,
     serialize_value,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class TextBlock(BaseModel):

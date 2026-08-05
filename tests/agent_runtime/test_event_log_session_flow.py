@@ -15,6 +15,8 @@ from server.agent_runtime.session_manager import AgentStartupError, SessionManag
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import FakeSDKClient
 
+pytestmark = pytest.mark.unit
+
 SDK_ID = "sdk-e2e-1"
 
 

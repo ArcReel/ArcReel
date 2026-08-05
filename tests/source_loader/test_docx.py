@@ -1,4 +1,8 @@
+import pytest
+
 from lib.source_loader.docx import DocxExtractor
+
+pytestmark = pytest.mark.unit
 
 
 def test_docx_extracts_paragraphs(docx_factory):

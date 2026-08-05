@@ -6,6 +6,8 @@ import pytest
 
 from lib import vidu_shared
 
+pytestmark = pytest.mark.unit
+
 
 class TestResolveViduApiKey:
     def test_explicit_key_wins(self, monkeypatch: pytest.MonkeyPatch):

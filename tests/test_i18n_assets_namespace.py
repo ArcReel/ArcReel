@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lib.i18n import MESSAGES, _
+
+pytestmark = pytest.mark.unit
 
 
 def test_asset_not_found_key_present_both_locales():

@@ -8,11 +8,9 @@ disable-model-invocation: true
 
 你是 team-lead：组建团队，把一批 issue 无人值守推进到全部合并或明确搁置。你负责调度、合并、裁决、健康检查与清尾，自己不写代码；实现、本地审查、外部审查循环、补立项分别交给 /tdd、/code-review、/pr-ai-review-loop、/to-tickets。
 
-## 触发前先检查未完成批次
-
-开工前检查 `.afk/` 是否存在**末条事件不是 `closed`** 的账本：`for f in .afk/*.jsonl; do [ -f "$f" ] || continue; tail -n1 "$f" | jq -e '.kind == "closed"' >/dev/null 2>&1 || echo "$f"; done`。若有，则上一会话的 team-lead 可能中途终止——读 [references/recovery.md](references/recovery.md) 按接管流程处理，不要当作全新批次直接覆盖。
-
 ## 第一步：确定批次成员
+
+用户显式要求接管或恢复既有批次时，按 [references/recovery.md](references/recovery.md) 处理，不按新批次开工。Spec 批次开工前先检查 `.afk/spec-<N>.jsonl`：该文件已存在且末条事件不是 `closed`，说明此 Spec 尚有未收尾的批次——向用户报告并请其裁决，接管则转入 recovery.md，重开则执行其重开清理后继续本流程。slug 批次的 batch-id 由你命名，建账本时避开既有文件名即可。
 
 先跑 batch-poll 取批次的机械底图：展开 Spec 子 issue、解析依赖图、给出每个 issue 的远端落点（标签、`blocked_by`、分支/PR 状态、`stage_hint`）：
 
@@ -25,7 +23,7 @@ batch-poll 只产出 gh/git 事实与机械汇总，不做语义判断。取得�
 
 ## 第二步：制定计划，主动请求一次前置授权
 
-1. 依赖顺序按 batch-poll 的 `blocked_by` / `ready_to_start` 排；并发槽位优先给改动域互不相交的 issue，同域或足迹重叠者靠依赖序或补位串行——冲突事前避而非事后解；`stage_hint` 已起的 issue（恢复场景）按 [references/recovery.md](references/recovery.md) 处置
+1. 依赖顺序按 batch-poll 的 `blocked_by` / `ready_to_start` 排；并发槽位优先给改动域互不相交的 issue，同域或足迹重叠者靠依赖序或补位串行——冲突事前避而非事后解；`stage_hint` 已起的 issue 在计划中标明现状与接力起点（按第三步阶段表的交付物反推），随计划一并交用户确认
 2. 分流：`ready-for-agent` 进批次；`ready-for-human` 跳过——它与下游被阻塞链都不启动；已被他人 assign 的 issue 视为已认领，同样跳过（batch-poll 不含 assignee，用 `gh issue view <N> --json assignees` 核对）；无标签的读正文判断归类（batch-poll 的 `ready_to_start` 只算依赖与未起，triage 由你定）
 3. 向用户展示批次计划：成员清单、依赖顺序、每个 issue 的实现路线与模型（**各附一句选择理由**，见第三步「实现路线与模型」）、跳过项及连带不启动的下游、并发上限（默认 3，用户可覆盖）
 4. **主动请求一次性前置授权**：向用户明确提出两项预批——本批所有 PR 的合并（含清尾轮立项的 PR）；清尾立项权限（对满足收尾节判据的缺陷类 follow-up，team-lead 可自行 /to-tickets 立项并在清尾轮跑到合并，被拒则清尾降级为收尾转呈）。连同流程将自动执行的动作边界（修改 triage 标签、PR 转 draft、在 Spec 发 QA 验收 comment；清尾授权之外不创建新 issue，gap 立项仍须用户中途指令）。这是本流程唯一的同步确认点；前置授权在此落入 team-lead 的 transcript，后续不再逐笔请示
@@ -67,9 +65,9 @@ spawn 时按 [references/spawn-prompts.md](references/spawn-prompts.md) 的模�
 
    分拣结果 append 账本 `decision`；`--issues` 批次扩员后补一条带 scope 的行。轮中新增的候选转呈
 2. **在 Spec issue 发人工 QA 验收清单 comment，不关闭 Spec 本体**。清单按已合并子 issue（含清尾轮）组织：每项给 PR 链接与面向用户可感知行为的验收步骤（实际操作路径，不复读技术验收标准）；末尾列 needs-human 搁置项、跳过与未启动项、发现的缺口。纯 issue 列表批次没有共同 Spec 时，清单并入收尾汇报
-3. 解散团队，移除已合并 issue 的 assignee（避免 reopen 后仍显示为处理中），删除全部 worktree 与本地分支（远端分支合并后自动删除）
+3. 解散团队，移除已合并 issue 的 assignee（避免 reopen 后仍显示为处理中），删除本批次的全部 worktree 与本地分支——其他会话或批次的 worktree 不在删除之列（worktree 有未提交残留时用 `git worktree remove --force`；远端分支合并后自动删除）
 4. 向用户汇报三份清单：已合并（issue 与 PR 对照）、needs-human 搁置（含争点）、跳过与未启动（含原因）；另附转呈事项：缺口立项建议、故障裁决记录、清尾分拣中转呈的候选，以及**聚合复盘**——从账本 `retrospective` 行与 handoff 目录聚合四类复盘候选（ADR / CONTEXT.md / CLAUDE.md / follow-up），一次性呈用户裁决。多数批次干净收敛，四类候选常为空；空是预期结果，照实呈报，无需为"没有候选"补叙
-5. 账本 append 一条 `closed` 收尾行（`bash .agents/skills/afk-team-workflow/scripts/ledger.sh <batch-id> closed`）——账本不删除，留作复盘源与审计，并供下次触发时的恢复探测器据此判定本批次已终态。批准后的复盘落地方式（写 ADR / 改 CONTEXT.md / 补 CLAUDE.md / 立 follow-up issue）不在此指定，由用户与后续会话决定
+5. 删除该批次的 handoff 目录（残留会混入同 batch-id 的下一批交接），再 append 一条 `closed` 收尾行（`bash .agents/skills/afk-team-workflow/scripts/ledger.sh <batch-id> closed`）——`closed` 须为收尾最后一笔：中断时账本仍非终态，可循接管路径补完。账本不删除，留作复盘源与审计，并供第一步的同批次检查据此判定本批次已终态。批准后的复盘落地方式（写 ADR / 改 CONTEXT.md / 补 CLAUDE.md / 立 follow-up issue）不在此指定，由用户与后续会话决定
 
 ## 合并纪律
 
@@ -83,7 +81,7 @@ teammate 的一切暂停请示先到你这里。分四类处置：
 
 1. **故障类**（bot 报错、quota 耗尽、长时间无响应）：自行裁决，不升级用户。按 /pr-ai-review-loop 故障节的建议重试一次；仍失败则本 PR 停用该 reviewer 并记录，收尾前可做一次补审尝试。即时 append 账本 `fault`（崩溃恢复需据此 replay），并纳入收尾汇报
 2. **已答复又被重复提出的意见**：同一主题已有 pushback 在案、又被同一 reviewer 重复提出——不算真冲突、不搁置：裁决维持 pushback，令 looper 回评引用在案结论后继续循环；浮现出值得升级 ADR 的原则则记入收尾转呈，不当场写 ADR
-3. **收敛类**（`round_estimate` ≥ 5 且每轮都是新出现的小意见、没有单一争点；或 looper 报连续 2 轮无实质收益）：先判断成因再选处置——①收益递减：剩余意见确无实质收益时，令 looper 逐条驳回留痕后走终核，超范围项记入 handoff 的 follow-up 候选；仍有实质意见则令其继续；②注意力漂移：令 looper 把本轮修复交由子代理在干净上下文中执行，自己继续负责轮询；③防御堆积：令 looper 从严执行可达性门槛——指不出触发路径的防御类意见一律驳回，指得出的照常修复；驳回项按 follow-up 候选记入 handoff，交清尾轮分拣；④issue 拆分过粗：按第 4 类的搁置流程处置并转呈。裁决 append 账本 `decision`
+3. **收敛类**（looper 报 `round_estimate` ≥ 3 或连续 2 轮无实质收益的暂停）：先判断成因再选处置——①收益递减：剩余意见确无实质收益时，令 looper 逐条驳回留痕后走终核，超范围项记入 handoff 的 follow-up 候选；仍有实质意见则令其继续；②注意力漂移：令该 looper 退役，确认其已停止后按 spawn-prompts.md 的替补接管附言重 spawn 接管该 PR；③防御堆积：令 looper 从严执行可达性门槛——指不出触发路径的防御类意见一律驳回，指得出的照常修复；驳回项按 follow-up 候选记入 handoff，交清尾轮分拣。裁决 append 账本 `decision`
 4. **reviewer 真实冲突 / 业务取舍**：不选边，按 needs-human 搁置：PR 转 draft（draft 下 CodeRabbit 不审，冻结循环消除重审噪音）、issue 改 `ready-for-human` 并移除 assignee、PR 评论写明争点与双方立场、teammate 退役并清理 worktree（分支与 PR 留在远端待人工接手）、append 账本 `shelve`（含争点）并归入收尾清单
 
 ## 健康检查与替补
@@ -107,7 +105,7 @@ bash .agents/skills/afk-team-workflow/scripts/ledger.sh <batch-id> <kind> [--iss
 - **batch-id**：Spec 批次用 `spec-<N>`；显式 issue 批次用一个 slug（如 `batch-<日期>`）
 - **scope（首条必填）**：首条记录批次成员，Spec 批次用 `--scope-spec <N>`，slug 批次用 `--scope-issues "1,2,3"`（slug 的 batch-id 不含成员信息，恢复靠 scope 行重建）
 - **全程 append，按 kind 落账**：`decision`（计划与清尾分拣裁决）、`authorization`（用户口头授权；仅作恢复 replay 的信息参考，不作执行凭证）、`fault`（吸收的故障 / 停用的 reviewer）、`gap`（已浮现的 Spec 缺口）、`shelve`（搁置为 needs-human 的 issue 及争点）、`merge`（已执行的合并）、`retrospective`（review-looper 交来的 per-PR 复盘）、`closed`（收尾终态行）
-- **生命周期**：第二步用户确认时写首条（create）→ 全程 append → 收尾写 `closed`，**不删除**。`.afk/` 已 gitignored，账本是本地运维状态，永不提交
+- **生命周期**：第二步用户确认时写首条（create）→ 全程 append → 收尾写 `closed`，**不删除**。`closed` 后同一 batch-id 再开批续写同一文件；恢复 replay 与清尾、复盘的聚合均只取最后一条 `closed` 之后的段，整文件仅作审计。`.afk/` 已 gitignored，账本是本地运维状态，永不提交
 
 ## 发现 Spec 落点缺口时
 

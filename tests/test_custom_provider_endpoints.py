@@ -13,6 +13,8 @@ from lib.custom_provider.endpoints import (
     list_endpoints_by_media_type,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestRegistry:
     def test_endpoint_count(self):

@@ -11,33 +11,75 @@ import logging
 import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskRepository
 from lib.task_terminal_events import emit_task_terminal_events
 
+if TYPE_CHECKING:
+    from lib.config.resolver import ProviderModel, VideoCapability
+
 logger = logging.getLogger(__name__)
 
 
-async def _derive_provider_id_for_enqueue(
+async def video_bucket_for_queued_task(
+    *,
+    project: dict | None,
+    project_name: str | None,
+    task_type: str,
+    payload: dict[str, Any] | None,
+    resource_id: str | None,
+) -> VideoCapability | None:
+    """视频任务的定桶口径，入队派生与 worker 限流投影共用、与执行侧同步（docs/adr/0054）。
+
+    图生视频 / 宫格 → i2v；参考生视频按 unit 声明的参考集分流——无参考图的退化镜头降级
+    → i2v，其余 → r2v。剧本 / unit 读不到时回退代表桶 r2v：这只影响 claim 池过滤与限流槽
+    路由的精度，执行层会按解析后的实际参考图独立精确定桶。表外任务类型返回 None（不定桶）。
+    """
+    from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE, get_project_manager
+    from lib.reference_video.units import find_reference_unit, reference_unit_video_bucket
+
+    if task_type != "reference_video":
+        return VIDEO_BUCKET_BY_TASK_TYPE.get(task_type)
+    fallback = VIDEO_BUCKET_BY_TASK_TYPE["reference_video"]
+    script_file = (payload or {}).get("script_file")
+    if not project_name or not script_file or not resource_id:
+        return fallback
+    try:
+        script = await asyncio.to_thread(get_project_manager().load_script, project_name, str(script_file))
+    except Exception:
+        logger.debug("reference_video 定桶读取剧本失败，回退 %s 桶", fallback, exc_info=True)
+        return fallback
+    unit = find_reference_unit(script, str(resource_id), is_ad=(project or {}).get("content_mode") == "ad")
+    if unit is None:
+        return fallback
+    return reference_unit_video_bucket(unit)
+
+
+async def _derive_execution_model_for_enqueue(
     *,
     project_name: str | None,
     payload: dict[str, Any] | None,
     task_type: str,
     media_type: str,
-) -> str | None:
-    """入队时按 project + payload 派生 provider_id，供 claim SQL 池过滤使用。
+    resource_id: str | None,
+) -> tuple[ProviderModel, VideoCapability | None] | None:
+    """入队时按 project + payload 派生本次任务的执行身份，视频任务连同定桶结果一并返回。
 
-    与 worker ``_extract_provider`` 同套解析逻辑，但失败时返回 ``None``（不强行
-    回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL`` 兜底分支，由 worker
-    claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
+    ``provider_id`` 落 task 行供 claim SQL 池过滤使用；视频任务的完整身份另钉进 payload
+    （见 ``_pin_video_execution_model``）。与 worker ``_extract_provider`` 同套解析逻辑，
+    但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
+    兜底分支，由 worker claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
     """
     is_video = media_type == "video" or task_type in ("video", "reference_video")
     is_audio = media_type == "audio" or task_type == "tts"
+    video_capability: VideoCapability | None = None
     try:
-        from lib.config.resolver import VIDEO_BUCKET_BY_TASK_TYPE, ConfigResolver, get_project_manager
+        # 局部导入：lib.config 的解析链会拉进 backend 与自定义供应商装配层，入队路径不为此
+        # 付模块级导入代价。
+        from lib.config.resolver import ConfigResolver, get_project_manager
         from lib.db import async_session_factory
 
         project: dict | None = None
@@ -46,9 +88,14 @@ async def _derive_provider_id_for_enqueue(
 
         resolver = ConfigResolver(async_session_factory)
         if is_video:
-            resolved = await resolver.resolve_video_backend(
-                project, payload or {}, capability=VIDEO_BUCKET_BY_TASK_TYPE.get(task_type)
+            video_capability = await video_bucket_for_queued_task(
+                project=project,
+                project_name=project_name,
+                task_type=task_type,
+                payload=payload,
+                resource_id=resource_id,
             )
+            resolved = await resolver.resolve_video_backend(project, payload or {}, capability=video_capability)
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload or {})
         else:
@@ -57,9 +104,32 @@ async def _derive_provider_id_for_enqueue(
             capability = "i2i" if task_type == "image_edit" else "t2i"
             resolved = await resolver.resolve_image_backend(project, payload or {}, capability=capability)
     except Exception:
-        logger.debug("入队时派生 provider_id 失败，留 NULL 由 worker 兜底", exc_info=True)
+        logger.debug("入队时派生执行身份失败，留 NULL 由 worker 兜底", exc_info=True)
         return None
-    return resolved.provider_id or None
+    if not resolved.provider_id:
+        return None
+    return resolved, video_capability
+
+
+def _pin_video_execution_model(
+    payload: dict[str, Any] | None,
+    *,
+    capability: VideoCapability | None,
+    execution_model: ProviderModel,
+) -> dict[str, Any] | None:
+    """把入队解析出的执行身份钉进视频任务 payload 的能力桶键，返回新 payload（不改调用方的 dict）。
+
+    钉住的是「本次任务真正会执行的 model」，执行与中断续跑据此走同一身份：task 行只存
+    provider_id，锁不住 model（``docs/adr/0054``「不静默换模型」）。桶键与复合值形态和解析侧
+    payload 层同源（``lib.config.resolver``），此处是该组键的唯一写入方。``capability`` 取
+    入队派生的定桶结果（参考路线内逐镜头分流后的桶），钉住键因此与解析用的桶一致——resolver
+    的 payload 层只认「任务所属那一个桶」的键。
+
+    非视频任务与不定桶的任务（``capability`` 为 None）、以及解析不出 model 时原样返回。
+    """
+    if capability is None or not execution_model.model_id:
+        return payload
+    return {**(payload or {}), f"video_provider_{capability}": execution_model.pair_key}
 
 
 ACTIVE_TASK_STATUSES = ("queued", "running", "cancelling")
@@ -127,13 +197,23 @@ class GenerationQueue:
     ) -> dict[str, Any]:
         # caller 没传 provider_id → 入队时主动派生一次，让 claim 走 SQL 池过滤快路径；
         # 派生失败留 NULL，走 IS NULL 兜底，由 worker claim 后 _extract_provider 二次校验。
+        # 派生成功时视频任务同时把执行 model 钉进 payload，中断续跑据此沿用同一 model。
+        # 钉住只发生在这条派生分支上：显式传 provider_id 的调用没有配套的 model 可钉，
+        # 需要钉住视频执行 model 的入队点走派生路径。
         if provider_id is None:
-            provider_id = await _derive_provider_id_for_enqueue(
+            derived = await _derive_execution_model_for_enqueue(
                 project_name=project_name,
                 payload=payload,
                 task_type=task_type,
                 media_type=media_type,
+                resource_id=resource_id,
             )
+            if derived is not None:
+                execution_model, video_capability = derived
+                provider_id = execution_model.provider_id
+                payload = _pin_video_execution_model(
+                    payload, capability=video_capability, execution_model=execution_model
+                )
 
         async with self._task_repo() as repo:
             result = await repo.enqueue(
@@ -191,6 +271,32 @@ class GenerationQueue:
     async def persist_effective_duration(self, task_id: str, duration_seconds: int) -> None:
         async with self._task_repo() as repo:
             await repo.persist_effective_duration(task_id, duration_seconds)
+
+    async def persist_execution_provider_id(self, task_id: str, provider_id: str) -> None:
+        async with self._task_repo() as repo:
+            await repo.persist_execution_provider_id(task_id, provider_id)
+
+    async def persist_execution_identity(
+        self, task_id: str, *, execution_model: ProviderModel, capability: VideoCapability
+    ) -> None:
+        """执行前把实际执行身份写回投影列与 payload 钉住键。
+
+        入队按 unit 声明近似定桶钉住身份（``_pin_video_execution_model``），执行按解析后的
+        实际参考图定桶，二者分裂时（ad 声明了参考但资产全缺图：钉住 r2v、执行 i2v）陈旧
+        桶键在 resume 解析里优先于 ``provider_id`` 列注入，只刷新列锁不住轮询 backend——
+        故连同钉住键一起改写：清掉其它桶的键、把实际执行身份写进实际桶的键。非分裂场景
+        等值改写，幂等。
+        """
+        from typing import get_args
+
+        from lib.config.resolver import VideoCapability as _VideoCapabilityAlias
+
+        payload_patch: dict[str, Any] = {
+            f"video_provider_{cap}": None for cap in get_args(_VideoCapabilityAlias) if cap != capability
+        }
+        payload_patch[f"video_provider_{capability}"] = execution_model.pair_key
+        async with self._task_repo() as repo:
+            await repo.persist_execution_identity(task_id, execution_model.provider_id, payload_patch)
 
     async def mark_task_succeeded(self, task_id: str, result: dict[str, Any] | None) -> int:
         """Returns rows_affected (0 = 已被外部翻成非 running 终/中间态，worker 走 0-rows-cancelled 协议)."""

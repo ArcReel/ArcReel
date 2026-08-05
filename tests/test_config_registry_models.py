@@ -4,6 +4,8 @@ import pytest
 
 from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta
 
+pytestmark = pytest.mark.unit
+
 
 class TestModelInfo:
     def test_basic(self):

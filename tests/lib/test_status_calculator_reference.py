@@ -12,6 +12,8 @@ import pytest
 from lib.project_manager import ProjectManager
 from lib.status_calculator import StatusCalculator
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def pm(tmp_path: Path) -> ProjectManager:

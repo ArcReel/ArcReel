@@ -80,6 +80,37 @@ describe("MediaModelSection", () => {
     expect(screen.queryByRole("combobox", { name: "参考生视频" })).not.toBeInTheDocument();
   });
 
+  it("shows an explicit error notice with a retry entry when the candidate fetch fails, even with no saved overrides", async () => {
+    // 全局层未配置过任何细分项时折叠区本会整块消失，失败态须把它留下，用户才拿得到失败信号
+    vi.spyOn(API, "getModelCandidates").mockRejectedValue(new Error("boom"));
+    render(<MediaModelSection />);
+    await screen.findByRole("combobox", { name: "默认视频模型" });
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts.length).toBeGreaterThanOrEqual(2); // video + image 两处折叠区
+    for (const alert of alerts) {
+      expect(alert).toHaveTextContent(/可选模型列表加载失败/);
+    }
+    expect(screen.getAllByRole("button", { name: "重试" }).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("recovers normal rendering after a retry succeeds", async () => {
+    const user = userEvent.setup();
+    const getCandidates = vi
+      .spyOn(API, "getModelCandidates")
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce(CANDIDATES as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>);
+    render(<MediaModelSection />);
+    await screen.findByRole("combobox", { name: "默认视频模型" });
+    const retryButtons = await screen.findAllByRole("button", { name: "重试" });
+    await user.click(retryButtons[0]);
+
+    await waitFor(() => expect(getCandidates).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryAllByRole("alert")).toHaveLength(0));
+    // 失败态强制展开过折叠区，重试成功后仍展开，无需再次点开
+    await user.click(screen.getByRole("combobox", { name: "参考生视频" }));
+    expect(screen.getByRole("option", { name: /seedance/ })).toBeInTheDocument();
+  });
+
   it("filters sub-field candidates by purpose while the default dropdown stays unfiltered", async () => {
     const user = userEvent.setup();
     render(<MediaModelSection />);
@@ -121,6 +152,31 @@ describe("MediaModelSection", () => {
 
     await waitFor(() =>
       expect(patch).toHaveBeenCalledWith({ default_video_backend_r2v: "ark/seedance" }),
+    );
+  });
+
+  it("renders the form and completes a save while the candidate request never settles", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "getModelCandidates").mockReturnValue(
+      new Promise(() => {}) as ReturnType<typeof API.getModelCandidates>,
+    );
+    const patch = vi
+      .spyOn(API, "updateSystemConfig")
+      .mockResolvedValue(CONFIG as unknown as Awaited<ReturnType<typeof API.updateSystemConfig>>);
+    render(<MediaModelSection />);
+
+    await screen.findByRole("combobox", { name: "默认视频模型" });
+    await user.click(screen.getByRole("combobox", { name: "默认视频模型" }));
+    await user.click(screen.getByRole("option", { name: /seedance/ }));
+    await user.click(screen.getByRole("button", { name: /保存|Save/ }));
+
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith({ default_video_backend: "ark/seedance" }),
+    );
+    // 保存结束的可观测证据：成功 toast 已推出——PATCH 已返回但流程仍卡在候选请求上时，
+    // finally 里的 setSaving(false) 与这条 toast 都不会发生。
+    await waitFor(() =>
+      expect(useAppStore.getState().toast?.text).toBe("媒体模型配置已保存"),
     );
   });
 

@@ -59,11 +59,13 @@ def _mock_httpx_stream(data: bytes = b"fake-mp4-data"):
 
 
 class TestArkProperties:
+    @pytest.mark.unit
     def test_name(self, backend):
         assert backend.name == "ark"
 
 
 class TestArkGenerate:
+    @pytest.mark.unit
     async def test_text_to_video(self, backend, tmp_path):
         """文生视频：无 start_image。"""
         output = tmp_path / "out.mp4"
@@ -99,6 +101,7 @@ class TestArkGenerate:
         assert result.usage_tokens == 246840
         assert result.task_id == "cgt-20250101-test"
 
+    @pytest.mark.unit
     async def test_image_to_video(self, backend, tmp_path):
         """图生视频：有 start_image，必须带 role=first_frame。"""
         output = tmp_path / "out.mp4"
@@ -139,6 +142,7 @@ class TestArkGenerate:
         assert content_arg[1]["image_url"]["url"].startswith("data:image/")
         assert content_arg[1]["role"] == "first_frame"
 
+    @pytest.mark.unit
     async def test_first_last_frame_role_fields(self, backend, tmp_path):
         """首尾帧：start_image/end_image 必须分别带 role=first_frame / role=last_frame，
         且 image_url 对象不再使用 position（由 role 表达位置）。"""
@@ -181,6 +185,7 @@ class TestArkGenerate:
         # role 表达位置后，不应再塞 position 到 image_url
         assert "position" not in image_items[1]["image_url"]
 
+    @pytest.mark.unit
     async def test_reference_images_role(self, backend, tmp_path):
         """参考图：每张 reference_images 必须带 role=reference_image（Ark 多图触发条件）。"""
         output = tmp_path / "out.mp4"
@@ -218,6 +223,7 @@ class TestArkGenerate:
         assert len(image_items) == 2
         assert all(item["role"] == "reference_image" for item in image_items)
 
+    @pytest.mark.unit
     async def test_failed_task_raises(self, backend, tmp_path):
         output = tmp_path / "out.mp4"
 
@@ -234,6 +240,7 @@ class TestArkGenerate:
         with pytest.raises(RuntimeError, match="Ark 视频生成失败"):
             await backend.generate(request)
 
+    @pytest.mark.unit
     async def test_with_seed_and_flex(self, backend, tmp_path):
         output = tmp_path / "out.mp4"
 
@@ -267,6 +274,7 @@ class TestArkGenerate:
         assert call_kwargs.kwargs.get("seed") == 42 or call_kwargs[1].get("seed") == 42
         assert call_kwargs.kwargs.get("service_tier") == "flex" or call_kwargs[1].get("service_tier") == "flex"
 
+    @pytest.mark.unit
     def test_missing_api_key_raises(self):
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ValueError, match="Ark API Key"):
@@ -276,6 +284,7 @@ class TestArkGenerate:
 class TestArkRetryBehavior:
     """测试任务创建与轮询的重试分离行为。"""
 
+    @pytest.mark.unit
     async def test_poll_transient_error_retries_without_recreating_task(self, backend, tmp_path):
         """轮询阶段瞬态错误应重试轮询，而不是重新创建任务。"""
         output = tmp_path / "out.mp4"
@@ -310,6 +319,7 @@ class TestArkRetryBehavior:
         # 轮询调用了两次（一次失败 + 一次成功）
         assert backend._client.content_generation.tasks.get.call_count == 2
 
+    @pytest.mark.unit
     async def test_create_retries_on_transient_error(self, backend, tmp_path):
         """任务创建阶段的瞬态错误应由 @with_retry_async 重试。"""
         output = tmp_path / "out.mp4"
@@ -344,6 +354,7 @@ class TestArkRetryBehavior:
         # 创建调用了两次（一次失败 + 一次成功）
         assert backend._client.content_generation.tasks.create.call_count == 2
 
+    @pytest.mark.unit
     async def test_poll_non_retryable_error_propagates(self, backend, tmp_path):
         """轮询阶段不可重试的错误应直接抛出。"""
         output = tmp_path / "out.mp4"
@@ -426,25 +437,6 @@ class TestArkModelCapabilities:
         assert ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-5-pro-future").max_reference_images == 0
 
     @pytest.mark.unit
-    def test_backend_reference_capacity_matches_registry(self):
-        """registry 与 backend 的参考图上限必须同值。
-
-        编排层按 registry.ModelInfo.max_reference_images 决定给一个 unit 派几张参考图，
-        gate_video_request 按 backend 声明校验；backend 声明低于 registry 时，编排层正常派好
-        图的请求会在 gate 上被拒——两侧漂移没有别的守卫能发现。
-        """
-        from lib.config.registry import PROVIDER_REGISTRY
-
-        for provider_id in ("ark", "ark-agent-plan"):
-            for model_id, info in PROVIDER_REGISTRY[provider_id].models.items():
-                if info.media_type != "video":
-                    continue
-                declared = ArkVideoBackend.video_capabilities_for_model(model_id).max_reference_images
-                assert declared == info.max_reference_images, (
-                    f"{provider_id}/{model_id}: registry={info.max_reference_images} backend={declared}"
-                )
-
-    @pytest.mark.unit
     def test_seedance_1_0_lite_t2v_no_last_frame(self):
         """纯文生视频型号，能力表「图生视频-首帧」「图生视频-首尾帧」均标 "-"，不接受任何图片输入。"""
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-0-lite-t2v-250428")
@@ -485,6 +477,7 @@ class TestArkModelCapabilities:
 class TestArkServiceTierParam:
     """service_tier 只对支持该参数的模型传入，否则 API 会报错。"""
 
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         "model",
         [
@@ -531,6 +524,7 @@ class TestArkServiceTierParam:
         create_kwargs = backend._client.content_generation.tasks.create.call_args.kwargs
         assert "service_tier" not in create_kwargs
 
+    @pytest.mark.unit
     async def test_seedance_1_5_sends_service_tier(self, backend, tmp_path):
         output = tmp_path / "out.mp4"
 
@@ -559,6 +553,7 @@ class TestArkServiceTierParam:
 
 
 class TestArkVideoBackendBaseUrl:
+    @pytest.mark.unit
     def test_custom_base_url_passed_through(self):
         with patch("lib.video_backends.ark.create_ark_client") as mock_create:
             ArkVideoBackend(api_key="k", base_url="https://ark.cn-beijing.volces.com/api/plan/v3")
@@ -567,6 +562,7 @@ class TestArkVideoBackendBaseUrl:
                 base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
             )
 
+    @pytest.mark.unit
     def test_default_base_url_is_none(self):
         with patch("lib.video_backends.ark.create_ark_client") as mock_create:
             ArkVideoBackend(api_key="k")
@@ -577,22 +573,26 @@ class TestIsArkNotFound:
     """fix #647 #6：用 task_not_found / tasknotfound 精确匹配，剔除宽泛 "not found" 兜底；
     保留 "expired" 字串识别（_poll_until_done 把 status=expired 转 RuntimeError）。"""
 
+    @pytest.mark.unit
     def test_excludes_business_not_found(self):
         from lib.video_backends.ark import _is_ark_not_found
 
         exc = RuntimeError("reference image not found in storage")
         assert _is_ark_not_found(exc) is False
 
+    @pytest.mark.unit
     def test_recognizes_task_not_found(self):
         from lib.video_backends.ark import _is_ark_not_found
 
         assert _is_ark_not_found(RuntimeError("task_not_found: invalid id")) is True
 
+    @pytest.mark.unit
     def test_recognizes_expired_status(self):
         from lib.video_backends.ark import _is_ark_not_found
 
         assert _is_ark_not_found(RuntimeError("Ark 任务失败 ... status=expired")) is True
 
+    @pytest.mark.unit
     def test_recognizes_404(self):
         from lib.video_backends.ark import _is_ark_not_found
 
@@ -657,6 +657,7 @@ class TestArkReferenceAudio:
         caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-1-5-pro-251215")
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
 
+    @pytest.mark.unit
     async def test_reference_audio_sent_as_audio_url_entries(self, tmp_path):
         """每段音频发一条 type=audio_url + role=reference_audio，且顺序与请求字段一致。"""
         backend = self._seedance_2_backend()
@@ -686,6 +687,7 @@ class TestArkReferenceAudio:
         assert audio_items[0]["audio_url"]["url"].startswith("data:audio/mp3;base64,")
         assert audio_items[1]["audio_url"]["url"].startswith("data:audio/wav;base64,")
 
+    @pytest.mark.unit
     async def test_no_audio_entries_when_request_has_none(self, tmp_path):
         backend = self._seedance_2_backend()
         ref = tmp_path / "r.png"
@@ -700,6 +702,7 @@ class TestArkReferenceAudio:
         content = backend._client.content_generation.tasks.create.call_args.kwargs["content"]
         assert not [c for c in content if c["type"] == "audio_url"]
 
+    @pytest.mark.unit
     async def test_unsupported_audio_format_raises(self, tmp_path):
         """格式不受支持时抛错而非跳过：跳过会让其后所有音频编号整体前移、错绑角色音色。"""
         backend = self._seedance_2_backend()
@@ -713,6 +716,7 @@ class TestArkReferenceAudio:
 
         assert exc.value.code == "video_reference_audio_format_unsupported"
 
+    @pytest.mark.unit
     async def test_missing_audio_file_raises(self, tmp_path):
         backend = self._seedance_2_backend()
 

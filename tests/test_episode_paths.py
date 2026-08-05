@@ -8,9 +8,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from lib import episode_paths, script_review, status_calculator
 from server.agent_runtime.sdk_tools import text_generation
 from server.routers import files
+
+pytestmark = pytest.mark.unit
 
 
 def test_step1_filename_by_content_mode():

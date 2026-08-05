@@ -1,8 +1,11 @@
 """Tests for lib/grid/splitter.py."""
 
+import pytest
 from PIL import Image
 
 from lib.grid.splitter import center_crop_to_ratio, is_placeholder_cell, split_grid_image
+
+pytestmark = pytest.mark.unit
 
 
 class TestCenterCropToRatio:

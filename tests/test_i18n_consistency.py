@@ -1,5 +1,7 @@
 """Verify that i18n translation dictionaries are consistent across locales."""
 
+import pytest
+
 from lib.i18n import MESSAGES, SUPPORTED_LOCALES
 from lib.i18n.en import emails as en_emails
 from lib.i18n.en import errors as en_errors
@@ -14,6 +16,8 @@ from lib.i18n.zh import errors as zh_errors
 from lib.i18n.zh import system as zh_system
 from lib.i18n.zh import templates as zh_templates
 from lib.style_templates import STYLE_TEMPLATES
+
+pytestmark = pytest.mark.unit
 
 
 def test_all_locales_have_same_keys():
@@ -115,15 +119,13 @@ def test_supported_locales_all_present():
 
 def test_format_placeholders_consistent():
     """Both locales must use the same format placeholders for each key."""
-    import re
+    import string
 
-    placeholder_re = re.compile(r"\{(\w+)\}")
-    # `str.format` 的转义花括号 `{{…}}` 是字面文本（如语法示例 `@[角色]：{台词}`），
-    # 不是占位符：先剔除，否则各语言的示例用词会被误判为占位符不一致。
-    escaped_re = re.compile(r"\{\{.*?\}\}")
-
-    def placeholders(msg: str) -> set[str]:
-        return set(placeholder_re.findall(escaped_re.sub("", msg)))
+    def placeholders(msg: str) -> set[tuple[str, str]]:
+        # 用 `str.format` 自己的解析器：转义花括号 `{{…}}`（如语法示例 `@[角色]：{台词}`）
+        # 被识别为字面文本而非占位符，带格式说明的 `{delta:.0%}` 也能正确取到字段名。
+        # 连同 format_spec 一起比较：某语言漏写 `.0%` / `.1f` 会让该语言渲染出原始数值。
+        return {(name, spec or "") for _, name, spec, _ in string.Formatter().parse(msg) if name}
 
     base_locale = SUPPORTED_LOCALES[0]
 

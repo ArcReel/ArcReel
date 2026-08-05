@@ -81,23 +81,27 @@ class TestListProviders:
         )
         return svc
 
+    @pytest.mark.unit
     def test_returns_200(self):
         with _make_client(self._mock_svc()) as client:
             resp = client.get("/api/v1/providers")
         assert resp.status_code == 200
 
+    @pytest.mark.unit
     def test_contains_providers_key(self):
         with _make_client(self._mock_svc()) as client:
             resp = client.get("/api/v1/providers")
         body = resp.json()
         assert "providers" in body
 
+    @pytest.mark.unit
     def test_provider_count(self):
         with _make_client(self._mock_svc()) as client:
             resp = client.get("/api/v1/providers")
         body = resp.json()
         assert len(body["providers"]) == 2
 
+    @pytest.mark.unit
     def test_provider_structure(self):
         with _make_client(self._mock_svc()) as client:
             resp = client.get("/api/v1/providers")
@@ -108,6 +112,7 @@ class TestListProviders:
         assert "video" in first["media_types"]
         assert first["missing_keys"] == []
 
+    @pytest.mark.unit
     def test_unconfigured_provider(self):
         with _make_client(self._mock_svc()) as client:
             resp = client.get("/api/v1/providers")
@@ -155,6 +160,7 @@ class TestListProviders:
         )
         return svc
 
+    @pytest.mark.unit
     def test_models_expose_resolutions_field(self):
         """ModelInfoResponse 必须包含 resolutions 字段（即便为空列表）。"""
         with _make_client(self._mock_svc_with_models()) as client:
@@ -168,6 +174,7 @@ class TestListProviders:
             assert "resolutions" in minfo
             assert isinstance(minfo["resolutions"], list)
 
+    @pytest.mark.unit
     def test_models_resolutions_values_passthrough(self):
         """resolutions 的具体值应按原样透传到 response。"""
         with _make_client(self._mock_svc_with_models()) as client:
@@ -288,6 +295,7 @@ class TestGetProviderConfig:
         repo.has_active_credential = AsyncMock(return_value=False)
         return repo
 
+    @pytest.mark.unit
     def test_returns_200_for_known_provider(self):
         app, _ = _make_session_app()
         with (
@@ -298,6 +306,7 @@ class TestGetProviderConfig:
                 resp = client.get("/api/v1/providers/gemini-aistudio/config")
         assert resp.status_code == 200
 
+    @pytest.mark.unit
     def test_returns_404_for_unknown_provider(self):
         app, _ = _make_session_app()
         with (
@@ -308,6 +317,7 @@ class TestGetProviderConfig:
                 resp = client.get("/api/v1/providers/nonexistent/config")
         assert resp.status_code == 404
 
+    @pytest.mark.unit
     def test_response_structure(self):
         app, _ = _make_session_app()
         with (
@@ -322,6 +332,7 @@ class TestGetProviderConfig:
         assert body["status"] == "ready"
         assert isinstance(body["fields"], list)
 
+    @pytest.mark.unit
     def test_credential_fields_not_in_response(self):
         """api_key / base_url / credentials_path 不应出现在 fields 中。"""
         app, _ = _make_session_app()
@@ -336,6 +347,7 @@ class TestGetProviderConfig:
         assert "base_url" not in field_keys
         assert "credentials_path" not in field_keys
 
+    @pytest.mark.unit
     def test_optional_non_credential_field_present(self):
         """非凭证 optional key（如 image_rpm）应出现在 fields 中。"""
         app, _ = _make_session_app()
@@ -349,6 +361,7 @@ class TestGetProviderConfig:
         assert "image_rpm" in fields
         assert fields["image_rpm"]["required"] is False
 
+    @pytest.mark.unit
     def test_ready_status_when_active_credential(self):
         app, _ = _make_session_app()
         with (
@@ -359,6 +372,7 @@ class TestGetProviderConfig:
                 resp = client.get("/api/v1/providers/gemini-aistudio/config")
         assert resp.json()["status"] == "ready"
 
+    @pytest.mark.unit
     def test_unconfigured_status_when_no_active_credential(self):
         app, _ = _make_session_app()
         with (
@@ -369,6 +383,7 @@ class TestGetProviderConfig:
                 resp = client.get("/api/v1/providers/gemini-aistudio/config")
         assert resp.json()["status"] == "unconfigured"
 
+    @pytest.mark.unit
     @pytest.mark.parametrize(
         ("provider_id", "expected"),
         [
@@ -393,6 +408,7 @@ class TestGetProviderConfig:
         assert resp.status_code == 200
         assert resp.json()["supports_base_url"] is expected
 
+    @pytest.mark.unit
     def test_secret_fields_single_secret_provider(self):
         """单 secret provider（如 gemini-aistudio）→ secret_fields = [api_key]。"""
         app, _ = _make_session_app()
@@ -405,6 +421,7 @@ class TestGetProviderConfig:
         assert resp.status_code == 200
         assert [f["key"] for f in resp.json()["secret_fields"]] == ["api_key"]
 
+    @pytest.mark.unit
     def test_secret_fields_kling_three_ordered_secrets(self):
         """可灵 → secret_fields = [api_key, access_key, secret_key]（保留 required_keys 顺序）。"""
         app, _ = _make_session_app()
@@ -424,6 +441,7 @@ class TestGetProviderConfig:
         assert "access_key" not in field_keys
         assert "secret_key" not in field_keys
 
+    @pytest.mark.unit
     def test_secret_field_groups_kling_api_key_or_dual_secret(self):
         """可灵 secret_field_groups 二选一分组：[api_key] 或 [access_key, secret_key]。"""
         app, _ = _make_session_app()
@@ -436,6 +454,7 @@ class TestGetProviderConfig:
         assert resp.status_code == 200
         assert resp.json()["secret_field_groups"] == [["api_key"], ["access_key", "secret_key"]]
 
+    @pytest.mark.unit
     def test_secret_field_groups_single_secret_provider_falls_back_to_one_group(self):
         """未声明 credential_groups 的 provider → secret_field_groups 回退为 [全部 secret_fields] 单组。"""
         app, _ = _make_session_app()
@@ -448,6 +467,7 @@ class TestGetProviderConfig:
         assert resp.status_code == 200
         assert resp.json()["secret_field_groups"] == [["api_key"]]
 
+    @pytest.mark.unit
     def test_secret_fields_vertex_empty(self):
         """gemini-vertex 凭证是文件路径（非 secret）→ secret_fields 为空，前端走文件上传。
 
@@ -497,6 +517,7 @@ def _make_mock_svc() -> ConfigService:
 
 
 class TestPatchProviderConfig:
+    @pytest.mark.unit
     def test_returns_204(self):
         mock_svc = _make_mock_svc()
         with patch("server.routers.providers.ConfigService", return_value=mock_svc):
@@ -518,6 +539,7 @@ class TestPatchProviderConfig:
                 )
         assert resp.status_code == 204
 
+    @pytest.mark.unit
     def test_returns_404_for_unknown_provider(self):
         app = FastAPI()
         mock_session = AsyncMock()
@@ -537,6 +559,7 @@ class TestPatchProviderConfig:
             )
         assert resp.status_code == 404
 
+    @pytest.mark.unit
     def test_null_value_calls_delete(self):
         mock_svc = _make_mock_svc()
         with patch("server.routers.providers.ConfigService", return_value=mock_svc):
@@ -560,6 +583,7 @@ class TestPatchProviderConfig:
         assert resp.status_code == 204
         mock_svc.delete_provider_config.assert_awaited_once_with("gemini-aistudio", "base_url", flush=False)
 
+    @pytest.mark.unit
     def test_non_null_value_calls_set(self):
         mock_svc = _make_mock_svc()
         with patch("server.routers.providers.ConfigService", return_value=mock_svc):
@@ -624,6 +648,7 @@ class TestPatchProviderConfigMaxWorkersValidation:
         app.include_router(providers.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         return app
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("bad_value", ["", "3.7", "abc", "-1", "0"])
     @pytest.mark.parametrize("key", ["image_max_workers", "video_max_workers", "audio_max_workers"])
     def test_invalid_value_returns_422(self, key: str, bad_value: str):
@@ -635,6 +660,7 @@ class TestPatchProviderConfigMaxWorkersValidation:
         assert detail != "max_workers_must_be_positive_integer"
         assert providers._FIELD_META[key]["label"] in detail
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
     def test_error_message_renders_in_all_locales(self, locale: str):
         with TestClient(self._make_db_app(locale)) as client:
@@ -645,6 +671,7 @@ class TestPatchProviderConfigMaxWorkersValidation:
         assert providers._FIELD_META["video_max_workers"]["label"] in detail
         assert "abc" in detail
 
+    @pytest.mark.unit
     @pytest.mark.parametrize("good_value", ["1", "5"])
     def test_valid_value_returns_204(self, good_value: str):
         with TestClient(self._make_db_app()) as client:
@@ -690,6 +717,7 @@ class TestTestProviderConnection:
             message="连接成功",
         )
 
+    @pytest.mark.unit
     def test_returns_200(self):
         app, _ = _make_session_app()
         with (
@@ -701,6 +729,7 @@ class TestTestProviderConnection:
                 resp = client.post("/api/v1/providers/gemini-aistudio/test")
         assert resp.status_code == 200
 
+    @pytest.mark.unit
     def test_returns_404_for_unknown_provider(self):
         app, _ = _make_session_app()
         with (
@@ -711,6 +740,7 @@ class TestTestProviderConnection:
                 resp = client.post("/api/v1/providers/nonexistent/test")
         assert resp.status_code == 404
 
+    @pytest.mark.unit
     def test_success_true_when_configured(self):
         app, _ = _make_session_app()
         with (
@@ -725,6 +755,7 @@ class TestTestProviderConnection:
         assert body["available_models"] == ["model-a"]
         assert body["message"] == "连接成功"
 
+    @pytest.mark.unit
     def test_success_false_when_no_credential(self):
         app, _ = _make_session_app()
         with (
@@ -737,6 +768,7 @@ class TestTestProviderConnection:
         assert body["success"] is False
         assert "凭证" in body["message"]
 
+    @pytest.mark.unit
     def test_response_has_required_fields(self):
         app, _ = _make_session_app()
         with (
@@ -751,6 +783,7 @@ class TestTestProviderConnection:
         assert "available_models" in body
         assert "message" in body
 
+    @pytest.mark.unit
     def test_connection_failure_returns_error(self):
         def _failing_fn(config: dict, _t=None) -> providers.ConnectionTestResponse:
             raise RuntimeError("API key invalid")
@@ -767,11 +800,13 @@ class TestTestProviderConnection:
         assert body["success"] is False
         assert "API key invalid" in body["message"]
 
+    @pytest.mark.unit
     def test_dashscope_registered_in_dispatch(self):
         # dashscope 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
         # 否则点"测试连接"会落到 unsupported_test 分支（即便 API Key 有效）
         assert "dashscope" in providers._TEST_DISPATCH
 
+    @pytest.mark.unit
     def test_dashscope_test_fn_uses_compatible_mode_and_filters_models(self):
         from types import SimpleNamespace
 
@@ -803,11 +838,13 @@ class TestTestProviderConnection:
         assert resp.available_models == ["qwen-plus", "wan2.7-image"]
         assert resp.success is True
 
+    @pytest.mark.unit
     def test_minimax_registered_in_dispatch(self):
         # minimax 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
         # 否则点"测试连接"会落到 unsupported_test 分支（即便 API Key 有效）
         assert "minimax" in providers._TEST_DISPATCH
 
+    @pytest.mark.unit
     def test_minimax_test_fn_uses_v1_base_and_filters_models(self):
         from types import SimpleNamespace
 
@@ -837,6 +874,7 @@ class TestTestProviderConnection:
         assert resp.available_models == ["MiniMax-M2.7", "abab6.5s-chat"]
         assert resp.success is True
 
+    @pytest.mark.unit
     def test_kling_registered_in_dispatch(self):
         # kling 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
         # 否则点"测试连接"会落到 unsupported_test 分支（即便凭证有效）
@@ -853,6 +891,7 @@ class TestTestProviderConnection:
         def json(self) -> dict:
             return self._payload
 
+    @pytest.mark.unit
     def test_kling_test_fn_uses_bearer_when_api_key_set(self):
         """填了 api_key → bearer 静态头，不走 JWT（与 _build_kling 的优先级一致）。"""
         captured: dict = {}
@@ -870,6 +909,7 @@ class TestTestProviderConnection:
         assert "start_time" in captured["params"]
         assert "end_time" in captured["params"]
 
+    @pytest.mark.unit
     def test_kling_test_fn_uses_jwt_when_only_dual_secret_set(self):
         """只填 access_key + secret_key（无 api_key）→ JWT Bearer token（三段式）。"""
         captured: dict = {}
@@ -885,6 +925,7 @@ class TestTestProviderConnection:
         assert auth.startswith("Bearer ")
         assert auth.removeprefix("Bearer ").count(".") == 2  # JWT: header.payload.signature
 
+    @pytest.mark.unit
     def test_kling_test_fn_api_key_takes_priority_when_both_set(self):
         """两者都填时 api_key 优先，与 _build_kling 分派顺序一致。"""
         captured: dict = {}
@@ -899,6 +940,7 @@ class TestTestProviderConnection:
             )
         assert captured["headers"]["Authorization"] == "Bearer sk-kling"
 
+    @pytest.mark.unit
     def test_kling_test_fn_strips_v1_suffix_for_account_costs_root_path(self):
         """自定义 base_url 带 /v1 后缀 → account/costs 请求剥离该后缀，落到域名根路径。"""
         captured: dict = {}
@@ -913,11 +955,13 @@ class TestTestProviderConnection:
             )
         assert captured["url"] == "https://relay.example.com/account/costs"
 
+    @pytest.mark.unit
     def test_kling_test_fn_raises_clear_error_when_no_credentials(self):
         """两种凭证形态都未填 → 明确报错（不静默发出无鉴权请求）。"""
         with pytest.raises(ValueError, match="Access Key"):
             providers._test_kling({}, lambda k, **kw: k)
 
+    @pytest.mark.unit
     def test_kling_test_fn_raises_on_code_error(self):
         """响应 code != 0 → RuntimeError 携带官方错误信息，经上层转 connection_failed 文案。"""
 
@@ -928,6 +972,7 @@ class TestTestProviderConnection:
             with pytest.raises(RuntimeError, match="auth failed"):
                 providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
 
+    @pytest.mark.unit
     def test_kling_test_fn_prefers_json_body_error_over_raise_for_status(self):
         """HTTP 状态非 2xx 但响应体带 JSON 业务错误 → 优先暴露具体原因，而非泛化的 HTTP 状态文案。"""
 
@@ -942,6 +987,7 @@ class TestTestProviderConnection:
             with pytest.raises(RuntimeError, match="access key not found"):
                 providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
 
+    @pytest.mark.unit
     def test_kling_test_fn_raises_http_status_error_when_body_not_json(self):
         """非 JSON 响应体（如网关错误页）跳过业务错误解析，走 raise_for_status 兜底暴露 HTTP 状态。"""
 
@@ -956,6 +1002,7 @@ class TestTestProviderConnection:
             with pytest.raises(httpx.HTTPStatusError, match="502 Bad Gateway"):
                 providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
 
+    @pytest.mark.unit
     def test_kling_test_fn_falls_back_to_raise_for_status_on_malformed_json(self):
         """content-type 声称 JSON 但响应体非法/空（如异常网关截断）→ 解析失败不崩溃，走 raise_for_status 兜底。"""
 
@@ -973,6 +1020,7 @@ class TestTestProviderConnection:
             with pytest.raises(httpx.HTTPStatusError, match="504 Gateway Timeout"):
                 providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
 
+    @pytest.mark.unit
     def test_kling_test_fn_raises_on_inner_data_code_error(self):
         """顶层 code=0 但 data 内嵌业务级 code != 0（如资源包查询失败）→ 同样 RuntimeError。"""
 
@@ -985,6 +1033,7 @@ class TestTestProviderConnection:
             with pytest.raises(RuntimeError, match="resource pack not found"):
                 providers._test_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
 
+    @pytest.mark.unit
     def test_kling_connection_test_via_router_with_api_key_only(self):
         """端到端：只填 api_key 的可灵凭证通过 /test 端点即可测通（验收标准之一）。
 
@@ -1007,6 +1056,7 @@ class TestTestProviderConnection:
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
+    @pytest.mark.unit
     def test_specific_credential_id(self):
         """使用 credential_id 参数测试特定凭证。"""
         repo = MagicMock(spec=CredentialRepository)
@@ -1047,10 +1097,12 @@ class TestArkAgentPlanConnectionTest:
         svc.get_provider_config = AsyncMock(return_value={"api_key": "ark-fake"})
         return svc
 
+    @pytest.mark.unit
     def test_ark_agent_plan_is_dispatched(self):
         assert "ark-agent-plan" in providers._TEST_DISPATCH
         assert providers._TEST_DISPATCH["ark-agent-plan"] is providers._test_ark
 
+    @pytest.mark.unit
     def test_default_base_url_injected_when_user_did_not_set(self):
         captured: dict = {}
 
@@ -1069,6 +1121,7 @@ class TestArkAgentPlanConnectionTest:
         assert resp.status_code == 200
         assert captured["base_url"] == "https://ark.cn-beijing.volces.com/api/plan/v3"
 
+    @pytest.mark.unit
     def test_user_base_url_overrides_default(self):
         captured: dict = {}
 

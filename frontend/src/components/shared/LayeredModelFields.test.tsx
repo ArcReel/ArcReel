@@ -110,4 +110,60 @@ describe("LayeredModelFields", () => {
     expect(onChange).toHaveBeenCalledWith("gemini/veo-3");
     expect(onDefaultChange).not.toHaveBeenCalled();
   });
+
+  it("force-opens the disclosure and shows an error notice with retry when subFieldsError is set, even with no sub-fields", () => {
+    const onRetry = vi.fn();
+    const { container } = renderFields({ subFields: [], subFieldsError: { onRetry } });
+    // 无任何细分项本应让整块折叠区消失，但错误态下仍需展示，用户才能感知失败并重试
+    expect(container.querySelector("details")).not.toBeNull();
+    expect(container.querySelector("details")?.open).toBe(true);
+    expect(screen.getByRole("alert")).toHaveTextContent(/可选模型列表加载失败/);
+    expect(screen.queryByText("留空的用途沿用上方默认模型。")).not.toBeInTheDocument();
+  });
+
+  it("still renders degraded sub-fields alongside the error notice when some carry a saved value", async () => {
+    const user = userEvent.setup();
+    const onRetry = vi.fn();
+    renderFields({
+      subFields: [subField({ value: "gemini/veo-3" })],
+      subFieldsError: { onRetry },
+    });
+    expect(screen.getByRole("combobox", { name: "图生视频" })).toHaveTextContent("veo-3");
+    await user.click(screen.getByRole("button", { name: "重试" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables the retry button while a retry is in flight", () => {
+    renderFields({ subFields: [], subFieldsError: { onRetry: () => {}, retrying: true } });
+    expect(screen.getByRole("button", { name: "重试" })).toBeDisabled();
+  });
+
+  it("expands the collapsed disclosure when the error appears after mount", () => {
+    // 候选请求失败通常晚于挂载，初始 open 已经算过；只在初始渲染就带错误的用例下，
+    // useState 初值即为 true，删掉挂载后的强制展开也照样通过。
+    const { container, rerender } = renderFields();
+    expect(container.querySelector("details")?.open).toBe(false);
+
+    rerender(
+      <LayeredModelFields
+        defaultLabel="默认视频模型"
+        defaultValue=""
+        defaultOptions={OPTIONS}
+        onDefaultChange={() => {}}
+        emptyLabel="自动选择"
+        providerNames={PROVIDER_NAMES}
+        subFields={[subField()]}
+        subFieldsError={{ onRetry: () => {} }}
+      />,
+    );
+    expect(container.querySelector("details")?.open).toBe(true);
+  });
+
+  it("lets the user collapse the disclosure again after the forced-open error state", async () => {
+    const user = userEvent.setup();
+    const { container } = renderFields({ subFields: [], subFieldsError: { onRetry: () => {} } });
+    expect(container.querySelector("details")?.open).toBe(true);
+    await user.click(screen.getByText("按用途指定模型"));
+    expect(container.querySelector("details")?.open).toBe(false);
+  });
 });

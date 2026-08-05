@@ -5,10 +5,14 @@
 
 from pathlib import Path
 
+import pytest
+
 from lib.prompt_rules.episode_pacing import (
     DRAMA_PACING_RULES,
     NARRATION_PACING_RULES,
 )
+
+pytestmark = pytest.mark.unit
 
 REPO = Path(__file__).resolve().parents[2]
 

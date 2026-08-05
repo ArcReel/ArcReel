@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
-from lib.config.resolver import ConfigResolver, constrain_durations_for_project
+from sqlalchemy.exc import SQLAlchemyError
+
+from lib.config.resolver import ConfigResolver, VideoCapability, constrain_durations_for_project
 from lib.db import async_session_factory
 from lib.project_manager import ProjectManager
+
+logger = logging.getLogger(__name__)
 
 
 class ToolContext:
@@ -36,7 +41,7 @@ def tool_error(name: str, exc: BaseException, log: list[str] | None = None) -> d
     return {"content": [{"type": "text", "text": text}], "is_error": True}
 
 
-async def resolve_video_caps(project: dict[str, Any]) -> dict[str, Any]:
+async def resolve_video_caps(project: dict[str, Any], *, capability: VideoCapability | None = None) -> dict[str, Any]:
     """Resolve the full video capability dict for an MCP tool call.
 
     Single source of truth for video model capability lookup across SDK MCP
@@ -45,9 +50,10 @@ async def resolve_video_caps(project: dict[str, Any]) -> dict[str, Any]:
     duration linkage constraints declared on it.
 
     能力按项目生成路线解析——路线创建即定、全项目同一条，智能体拿到的与执行层同口径。
+    ``capability`` 给定时按指定桶解析（参考路线内无参考图退化镜头的 i2v 读侧）。
     """
     resolver = ConfigResolver(async_session_factory)
-    return await resolver.video_capabilities_for_project(project)
+    return await resolver.video_capabilities_for_project(project, capability=capability)
 
 
 def constrained_caps_durations(
@@ -76,7 +82,7 @@ def constrained_caps_durations(
     )
 
 
-def reference_unit_duration_tiers(
+async def reference_unit_duration_tiers(
     project: dict[str, Any],
     caps: dict[str, Any],
     durations: list[int],
@@ -88,6 +94,12 @@ def reference_unit_duration_tiers(
     整集按其中一套一刀切都有代价：一律按带图算会收掉无引用 unit 本可申请的短档，一律按不带图
     算则会让带引用的 unit 拆出执行期申请不到的时长。
 
+    不带图集按 **i2v 桶模型**求值：无引用 unit 执行期降级到 i2v 桶执行，档位跟着执行模型走，
+    否则两桶模型不同时创作侧会放行只有 r2v 桶才有的秒数、漏掉 i2v 桶独有的秒数。``caps`` /
+    ``durations`` 是调用方按路线主桶（r2v）解析并做过软回退的结果，只用于带图集；i2v 桶解析
+    失败或无档位声明时，不带图集回退按同一份 r2v 输入求值（退回「两桶同模型」的既有行为，
+    档位标注不挡主流程）。
+
     两套集合之间**不假定包含关系**：``constrain_durations`` 在交集为空时回退到未收窄的候选，
     带图集因而可能反过来比不带图集宽（型号同时声明「带图仅 8s」与「1080p 仅 6s」即是）。
     需要「任一状态下合法」的并集时由调用方对两个返回值取并，不要拿其中一个当上界。
@@ -95,8 +107,16 @@ def reference_unit_duration_tiers(
     with_references = constrained_caps_durations(
         project, caps, durations, generation_mode="reference_video", uses_reference_images=True
     )
+    i2v_caps, i2v_durations = caps, durations
+    try:
+        resolved = await resolve_video_caps(project, capability="i2v")
+        resolved_durations = [int(d) for d in resolved.get("supported_durations") or []]
+        if resolved_durations:
+            i2v_caps, i2v_durations = resolved, resolved_durations
+    except (ValueError, SQLAlchemyError) as exc:
+        logger.info("i2v 桶能力不可解析，不带图档位回退按 r2v 桶求值：%s", exc)
     without_references = constrained_caps_durations(
-        project, caps, durations, generation_mode="reference_video", uses_reference_images=False
+        project, i2v_caps, i2v_durations, generation_mode="reference_video", uses_reference_images=False
     )
     return with_references, without_references
 

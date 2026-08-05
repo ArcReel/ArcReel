@@ -18,6 +18,8 @@ import pytest
 
 from lib.project_manager import EpisodeScriptReboundError, ProjectManager
 
+pytestmark = pytest.mark.unit
+
 
 def _seed(pm: ProjectManager, name: str) -> None:
     """创建项目 + 一个 reference_video 模式的 episode_1 剧本。"""

@@ -24,6 +24,8 @@ from server.agent_runtime.session_manager import (
 )
 from server.agent_runtime.session_store import SessionMetaStore
 
+pytestmark = pytest.mark.unit
+
 
 def test_agent_startup_error_str_includes_stderr() -> None:
     exc = AgentStartupError(

@@ -19,6 +19,8 @@ from lib.backend_assembly.specs import (
 )
 from lib.config.registry import PROVIDER_REGISTRY
 
+pytestmark = pytest.mark.unit
+
 
 def _loaded(*, credentials: dict, provider_id: str) -> LoadedConfig:
     return LoadedConfig(

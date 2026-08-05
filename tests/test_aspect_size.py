@@ -15,6 +15,8 @@ from lib.aspect_size import (
     resolution_to_short_edge,
 )
 
+pytestmark = pytest.mark.unit
+
 ALL_ASPECTS = ["9:16", "16:9", "1:1", "3:4", "4:3", "2:3", "3:2", "21:9"]
 
 

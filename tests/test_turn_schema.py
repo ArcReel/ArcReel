@@ -1,11 +1,15 @@
 """Unit tests for turn_schema shared normalization."""
 
+import pytest
+
 from server.agent_runtime.turn_schema import (
     _stringify_content,
     infer_block_type,
     normalize_block,
     normalize_content,
 )
+
+pytestmark = pytest.mark.unit
 
 
 class TestInferBlockType:

@@ -17,7 +17,6 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 from pydantic_core import ErrorDetails
 
-from lib.data_validator import ValidationResult
 from lib.script_models import (
     AdEpisodeScript,
     DramaEpisodeScript,
@@ -25,6 +24,7 @@ from lib.script_models import (
     ReferenceVideoScript,
 )
 from lib.script_skeleton import resolve_script_kind
+from lib.validation_messages import ValidationMessage, ValidationResult
 
 
 class ScriptStructureValidationError(ValueError):
@@ -72,5 +72,9 @@ def validate_script_structure(script: dict[str, Any]) -> ValidationResult:
     try:
         model.model_validate(script)
     except ValidationError as exc:
-        return ValidationResult(valid=False, errors=[_format_error(e) for e in exc.errors()])
+        # Pydantic 报错已是成品文本（无可翻译结构），经 literal 通道并入同一消息载体。
+        return ValidationResult(
+            valid=False,
+            error_messages=[ValidationMessage.literal(_format_error(e)) for e in exc.errors()],
+        )
     return ValidationResult(valid=True)

@@ -1,7 +1,11 @@
 """create_openai_client 客户端工厂行为。"""
 
+import pytest
+
 from lib.config.url_utils import OFFICIAL_OPENAI_BASE_URL
 from lib.openai_shared import create_openai_client
+
+pytestmark = pytest.mark.unit
 
 
 class TestCreateOpenAIClientBaseURL:

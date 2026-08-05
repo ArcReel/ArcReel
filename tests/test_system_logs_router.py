@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def auth_disabled(monkeypatch: pytest.MonkeyPatch) -> None:

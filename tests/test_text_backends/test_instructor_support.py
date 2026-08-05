@@ -15,6 +15,8 @@ from lib.text_backends.instructor_support import (
     instructor_fallback_sync,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class SampleModel(BaseModel):
     name: str

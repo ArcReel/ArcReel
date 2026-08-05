@@ -8,6 +8,8 @@ from server.agent_runtime.message_serialization import is_duplicate_user_echo, m
 from server.agent_runtime.session_manager import SDK_AVAILABLE
 from tests.fakes import build_managed_with_actor
 
+pytestmark = pytest.mark.unit
+
 
 async def _seed(session_manager, meta_store, *, messages=None, status="idle", block_forever=False):
     """Create a session meta + pre-connected managed session with actor + FakeSDKClient."""

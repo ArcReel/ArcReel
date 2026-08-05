@@ -16,7 +16,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from lib.api_errors import BadRequestError, ConflictError, NotFoundError
-from lib.asset_types import ASSET_SPECS, validate_asset_name
+from lib.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
 from lib.audio_utils import discard_stale_reference_audio, resolve_stale_reference_audio
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation_queue import get_generation_queue
@@ -466,7 +466,8 @@ async def generate_character_voice_sample(
             char_name = validate_asset_name(name)
         except ValueError:
             raise BadRequestError("asset_invalid_name", name=name)
-        if char_name not in (project.get("characters") or {}):
+        # 存量角色 key 可能是 NFD，按坐标系解析存在性
+        if resolve_asset_key(project.get("characters"), char_name) is None:
             raise NotFoundError("character_not_found", name=char_name)
         return project, char_name
 
@@ -538,7 +539,8 @@ async def confirm_character_voice_sample(
     def _sync() -> dict:
         pm_local = get_project_manager()
         project = pm_local.load_project(project_name)
-        if char_name not in (project.get("characters") or {}):
+        char_key = resolve_asset_key(project.get("characters"), char_name)
+        if char_key is None:
             raise NotFoundError("character_not_found", name=char_name)
 
         project_dir = pm_local.get_project_path(project_name)
@@ -552,7 +554,7 @@ async def confirm_character_voice_sample(
         filename = f"{char_name}.wav"
         target_path = refs_audio_dir / filename
 
-        old_audio = ((project.get("characters") or {}).get(char_name) or {}).get("reference_audio")
+        old_audio = ((project.get("characters") or {}).get(char_key) or {}).get("reference_audio")
         stale_audio_path = resolve_stale_reference_audio(project_dir, refs_audio_dir, old_audio, target_path)
 
         target_path.write_bytes(content)
@@ -629,19 +631,21 @@ async def _enqueue_asset_generation(
     spec = ASSET_SPECS[asset_type]
     keys = _ASSET_GENERATE_I18N[asset_type]
 
-    def _sync():
+    def _sync() -> str:
         project = get_project_manager().load_project(project_name)
-        # load_project 读时不校验 bucket 结构：project.json 存在显式 null 时
-        # get(key, {}) 仍返回 None，`not in None` 会抛 TypeError → 500，故用 `or {}` 兜底
-        if resource_name not in (project.get(spec.bucket_key) or {}):
+        # 存量 key 可能是 NFD，按坐标系解析存在性并取真实落盘 key；
+        # 非 dict / 显式 null 的畸形桶由 resolve_asset_key 按空桶处理
+        resolved = resolve_asset_key(project.get(spec.bucket_key), resource_name)
+        if resolved is None:
             raise NotFoundError(keys["not_found"], name=resource_name)
+        return resolved
 
-    await asyncio.to_thread(_sync)
+    resource_key = await asyncio.to_thread(_sync)
 
     task_spec = TaskSpec.from_request(
         task_type=asset_type,
         media_type="image",
-        resource_id=resource_name,
+        resource_id=resource_key,
         prompt=prompt,
     )
 

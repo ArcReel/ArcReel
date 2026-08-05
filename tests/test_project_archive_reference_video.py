@@ -124,10 +124,12 @@ def _create_reference_video_project(
 
 
 class TestProjectArchiveReferenceVideo:
+    @pytest.mark.unit
     def test_canonical_resource_path_reference_videos(self):
         # 验收项：reference_videos 走 unit_id 无前缀分支（路径形状由 lib.resource_paths 独家拥有）
         assert resource_relative_path("reference_videos", "E1U1") == "reference_videos/E1U1.mp4"
 
+    @pytest.mark.unit
     def test_round_trip_preserves_video_units(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         _create_reference_video_project(pm)
@@ -234,6 +236,7 @@ class TestProjectArchiveReferenceVideo:
         veo_tiers = PROVIDER_REGISTRY["gemini-aistudio"].models["veo-3.1-generate-preview"].supported_durations
         assert imported["video_units"][0]["duration_seconds"] in veo_tiers
 
+    @pytest.mark.unit
     def test_import_restores_video_clip_from_version(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         # video_clip 指向失效的版本路径，靠 versions.json 回溯物化当前文件
@@ -283,6 +286,7 @@ class TestProjectArchiveReferenceVideo:
         assert (pm.get_project_path(result.project_name) / "reference_videos" / "E1U1.mp4").exists()
         assert result.diagnostics["auto_fixed"]
 
+    @pytest.mark.unit
     def test_import_backfills_missing_generated_assets(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         unit = _build_unit(video_clip=None, generated_assets=None)
@@ -303,6 +307,7 @@ class TestProjectArchiveReferenceVideo:
         assert "video_thumbnail" in assets
         assert assets["status"] == "pending"
 
+    @pytest.mark.unit
     def test_import_resets_invalid_generated_assets(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         unit = _build_unit(video_clip=None, generated_assets="corrupted-value")
@@ -323,6 +328,7 @@ class TestProjectArchiveReferenceVideo:
         assert assets["status"] == "pending"
         assert any(item["code"] == "invalid_generated_assets" for item in result.diagnostics["auto_fixed"])
 
+    @pytest.mark.unit
     def test_export_resets_invalid_generated_assets(self, tmp_path):
         # 导出与导入共用 _repair_project_tree，但导出修的是快照副本：包内是干净结构，
         # 源项目磁盘上的脏值保持原样（导出不改用户数据）。
@@ -348,6 +354,7 @@ class TestProjectArchiveReferenceVideo:
         on_disk = json.loads((project_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         assert on_disk["video_units"][0]["generated_assets"] == "corrupted-value"
 
+    @pytest.mark.unit
     def test_import_adds_placeholder_for_missing_character_reference(self, tmp_path):
         # 与 narration/drama 对齐：references 引用了 project.json 缺失的角色 → 自动补占位定义
         pm = ProjectManager(tmp_path / "projects")
@@ -400,6 +407,7 @@ class TestProjectArchiveReferenceVideo:
         assert imported_project["characters"].keys() == {name_nfd}
         assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
 
+    @pytest.mark.unit
     def test_import_blocks_missing_scene_reference(self, tmp_path):
         # 与 narration/drama 对齐：references 引用了缺失的场景 → 阻断导入
         pm = ProjectManager(tmp_path / "projects")
@@ -416,8 +424,9 @@ class TestProjectArchiveReferenceVideo:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="missing-scene.zip")
 
-        assert exc_info.value.extra["diagnostics"]["blocking"]
+        assert exc_info.value.diagnostics_payload()["blocking"]
 
+    @pytest.mark.unit
     def test_import_blocks_missing_prop_reference(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         unit = _build_unit(
@@ -433,4 +442,4 @@ class TestProjectArchiveReferenceVideo:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="missing-prop.zip")
 
-        assert exc_info.value.extra["diagnostics"]["blocking"]
+        assert exc_info.value.diagnostics_payload()["blocking"]
