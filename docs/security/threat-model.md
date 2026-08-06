@@ -211,7 +211,7 @@ Built-in provider, custom-provider, and Agent credentials are nevertheless store
 - `safe_join` and `try_safe_join` provide root-containment checks.
 - Project writes use locks, staged writes, atomic replacement, or rollback in important flows.
 - Project schemas and imported data are validated and migrated.
-- Upload paths enforce supported extensions and byte limits for defined image, audio, and video flows.
+- Upload paths enforce supported extensions. Dedicated storyboard, shot-video, end-frame, and character reference-audio flows also enforce byte limits; general asset-image upload flows currently read the complete request without an explicit byte ceiling.
 
 Path containment prevents escape from a root. It does not authorize anonymous access to every file inside that root.
 
