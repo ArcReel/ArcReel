@@ -1,20 +1,25 @@
+> [!IMPORTANT]
+> 后续实施 Agent 先获取参考分支 `codex/agent-runtime-refactor-spec`。固定起点提交为 `11c9d8ae`；该分支同时保存最终 Spec、领域决策和 ChatGPT Pro 原始交付包。最终 Spec 与 ADR 优先于原始代码契约中的冲突内容。
+
 ## Problem Statement
 
-ArcReel 当前的项目智能体会根据项目文件是否存在，自行推断工作流阶段、缺失内容和下一动作。这让工作流事实散落在 Agent 文档、服务端状态计算、MCP 工具与 WebUI 中：会话重启或上下文压缩后可能得到不同判断；合法的空资产集合会被误判为尚未分析；文件存在被等同于完成，无法提示内容已经与其直接上游发生差异；批量生成的部分失败也容易被“已入队”或旧文件存在掩盖。
+ArcReel 的智能体 Harness 已积累出明显的信息架构问题：三种内容模式重复维护大段系统 prompt 和 workflow skill；步骤、领域参考、供应商细节与异常分支混在同一层；多个 Skill/Subagent 重复表达同一规则；泛化的 subagent 名称与模糊完成标准又让执行路径和完成判定产生方差。这些重复、sprawl 和缓存式说明持续消耗上下文，并让 profile 容易与真正的 MCP、CLI 和服务端能力漂移。
 
-ChatGPT Pro 给出的 Agent Runtime 重构 profile 已把文档改写为“服务端提供事实、Agent 执行动作”，但该 profile 依赖当前尚不存在的工作流状态、产物 provenance、事务式 step1 编辑和完整的同步迁移能力。直接替换 profile 会让端到端工作流调用不存在的工具，因此必须把代码契约、profile、迁移、REST 与 WebUI 作为同一个目标态交付。
+更深层的问题是 Agent 文档被迫拥有本应由 Harness 代码提供的事实。当前项目智能体会根据文件存在性自行推断工作流阶段、缺失内容和下一动作；批量操作也缺少逐 ID、可机检的完成契约。结果是会话重启或上下文压缩后可能得到不同判断，合法空资产集合会循环分析，“已入队”可能被表述成“已生成”，Agent、REST 与 WebUI 还可能各自维护不同状态。
 
-同时，原始代码契约把 stale 当成需要自动补齐的未完成状态，并把模型、分辨率、声音参数和 prompt builder 等生成配置纳入全链路 provenance。这既可能因为追加原文或修改全局配置而让大量既有内容失效，也会诱发非预期重生成费用。ArcReel 需要更局部、更尊重用户已有产物的产物时效模型。
+ChatGPT Pro 按 `writing-for-agents` 原则给出的优化包同时触及 Agent Profile 信息层级、Skill/Subagent 边界、运行时工具契约、profile 物化和行为 eval。它不是一份可单独覆盖的 prompt 改写：优化后的文档依赖当前尚不存在的服务端工作流事实、事务式 step1 编辑、批量完成契约和产物时效能力。代码与 profile 必须作为同一个 Harness 目标态演进。
+
+原始代码契约中的少数设计又超出 ArcReel 当前需要：它把 stale 当成自动补齐的未完成状态，并把生成配置纳入全链 provenance，可能引发大面积陈旧传播和非预期费用。本 Spec 保留 Harness 优化方向，同时用已确认的领域决策收窄这些实现。
 
 ## Solution
 
-建立服务端权威的工作流状态服务，由它统一计算项目阶段、目标集、资产清单完成事实、阻塞项、审核门、产物时效和唯一下一动作。Agent、MCP、REST 与 WebUI 消费同一份版本化输出，不再各自根据文件存在性重建状态机。
+从三个同等重要的方向系统性优化 ArcReel 智能体 Harness：
 
-为每个派生产物记录局部的内容 provenance：只跟踪该产物直接消费的正式内容及直接上游产物，不构造全项目依赖图，不跟踪 provider、model、分辨率、音色、语速、prompt builder 或其他生产设置。Stale 仅提示现有产物与当前直接内容依赖存在差异；它仍是可用产物，不等于 missing，不阻断 `EXPORT_READY`，也不授权 Agent 自动重生。
+1. **Agent Profile 信息架构**：合并公共系统 prompt 与 workflow skill，把内容模式差异投影为按需 reference；按分支拆分生成路由、完成契约、图片修改、草稿修复与时长确认；删除环境和服务端已经拥有的缓存式说明，使每个 Skill/Subagent 保持清晰步骤、局部参考和可机检完成标准。
+2. **运行时执行契约**：由服务端统一提供工作流事实和稳定下一动作；正式结构化数据通过事务式工具写入；批量操作逐 ID 报告本次结果；局部内容 provenance 只提示直接依赖差异，stale 继续可用且不授权自动重生。
+3. **质量与演进闭环**：统一 YAML frontmatter 解析，增加 profile lint、三模式物化校验与行为 eval；沿用安全的 profile 三方合并并提供显式重置；让 MCP、REST 与 WebUI 投影同一状态 schema 和友好恢复入口。
 
-引入事务式 MCP 工具写入正式 step1；reference-video 继续沿用隔离草稿晋升。批量工具分别报告本次任务结果与产物状态。现有项目通过既有 project schema 迁移链一次性建立 provenance，安全可读的既有产物直接认定为 current，不引入永久 legacy 分支。
-
-最后统一启用重构后的 Agent Runtime Profile，并在 WebUI 中展示 current、stale、missing、blocked，提供显式重生、受控修复和 profile 重置入口。整个目标态一次发布，不保留新旧双写、feature flag 或长期兼容状态机。
+现有项目通过既有 project schema 迁移链一次性进入目标态，安全可读的既有产物直接认定为 current，不引入永久 legacy 分支。代码、迁移、MCP/REST、Profile、eval 与必要 UI 一次发布，不保留新旧双写、feature flag 或长期兼容状态机。
 
 ## User Stories
 
@@ -86,6 +91,8 @@ ChatGPT Pro 给出的 Agent Runtime 重构 profile 已把文档改写为“服�
 
 ## Implementation Decisions
 
+实施包含三个并列工作流：Agent Profile 信息架构与 Skill/Subagent 重写、Harness 运行时能力补齐、静态与行为质量闭环。任何一条都不是其余工作的附属项；只有三条共同完成，新 profile 才可启用。
+
 - Introduce one authoritative workflow-state domain service. It reuses the project manager, status calculation, episode ledger and planning cursor, existing script-review logic, generation-route skeleton rules, asset-inventory completion and artifact provenance. MCP and REST expose the same versioned response model; WebUI consumes that response.
 - Keep the existing content-mode and generation-route meanings. Narration and drama choose target episodes from the episode ledger rather than filenames. Ad remains a single-episode content mode and skips the step1 workflow.
 - Return the first unmet workflow condition as the state and a single stable domain action as `next_action`. Code returns action identifiers and arguments, not profile paths or subagent names. Blockers take precedence over ordinary actions.
@@ -156,6 +163,7 @@ ChatGPT Pro 给出的 Agent Runtime 重构 profile 已把文档改写为“服�
 
 ## Further Notes
 
+- Implementation reference branch: `codex/agent-runtime-refactor-spec`, starting at commit `11c9d8ae`. It contains the synthesized Spec, glossary/ADR decisions and the original ChatGPT Pro delivery package for side-by-side comparison.
 - The supplied refactor package is based on the current runtime code baseline; the repository has only an unrelated skills-sync commit beyond that baseline.
 - The supplied profile is a target-state replacement, not a standalone drop-in. It must not be enabled before workflow status, asset-inventory completion, transactional step1 editing and local provenance are available.
 - The project glossary and ADRs record the agreed vocabulary and deliberate deviations from the supplied code contract: migration backfills existing artifacts directly as current; product sheets share the normal artifact lifecycle; provenance tracks local formal content only; stale remains usable; and task results are independent from artifact currency.
