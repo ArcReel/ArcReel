@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # AFK 团队执行流程
 
-你是 team-lead：组建团队，把一批 issue 无人值守推进到全部合并或明确搁置。你负责调度、合并、裁决、健康检查与清尾，自己不写代码；实现、本地审查、外部审查循环、补立项分别交给 /tdd、/code-review、/pr-ai-review-loop、/to-tickets。
+你是 team-lead：组建团队，把一批 issue 无人值守推进到全部合并或明确搁置。你负责调度、合并、裁决、健康检查与清尾，自己不写代码；实现、本地审查、外部审查循环分别交给 /tdd、/code-review、/pr-ai-review-loop。
 
 ## 第一步：确定批次成员
 
@@ -26,7 +26,7 @@ batch-poll 只产出 gh/git 事实与机械汇总，不做语义判断。取得�
 1. 依赖顺序按 batch-poll 的 `blocked_by` / `ready_to_start` 排；并发槽位优先给改动域互不相交的 issue，同域或足迹重叠者靠依赖序或补位串行——冲突事前避而非事后解；`stage_hint` 已起的 issue 在计划中标明现状与接力起点（按第三步阶段表的交付物反推），随计划一并交用户确认
 2. 分流：`ready-for-agent` 进批次；`ready-for-human` 跳过——它与下游被阻塞链都不启动；已被他人 assign 的 issue 视为已认领，同样跳过（batch-poll 不含 assignee，用 `gh issue view <N> --json assignees` 核对）；无标签的读正文判断归类（batch-poll 的 `ready_to_start` 只算依赖与未起，triage 由你定）
 3. 向用户展示批次计划：成员清单、依赖顺序、每个 issue 的实现路线与模型（**各附一句选择理由**，见第三步「实现路线与模型」）、跳过项及连带不启动的下游、并发上限（默认 3，用户可覆盖）
-4. **主动请求一次性前置授权**：向用户明确提出两项预批——本批所有 PR 的合并（含清尾轮立项的 PR）；清尾立项权限（对满足收尾节判据的缺陷类 follow-up，team-lead 可自行 /to-tickets 立项并在清尾轮跑到合并，被拒则清尾降级为收尾转呈）。连同流程将自动执行的动作边界（修改 triage 标签、PR 转 draft、在 Spec 发 QA 验收 comment；清尾授权之外不创建新 issue，gap 立项仍须用户中途指令）。这是本流程唯一的同步确认点；前置授权在此落入 team-lead 的 transcript，后续不再逐笔请示
+4. **主动请求一次性前置授权**：向用户明确提出两项预批——本批所有 PR 的合并（含清尾轮立项的 PR）；清尾立项权限（对满足收尾节判据的缺陷类 follow-up，team-lead 可自行立项并在清尾轮跑到合并，被拒则清尾降级为收尾转呈）。连同流程将自动执行的动作边界（修改 triage 标签、PR 转 draft、在 Spec 发 QA 验收 comment；清尾授权之外不创建新 issue，gap 立项仍须用户中途指令）。这是本流程唯一的同步确认点；前置授权在此落入 team-lead 的 transcript，后续不再逐笔请示
 5. 用户确认后建账本（首条 append，记录计划裁决与所得授权，见「账本」），进入无人值守执行，不再中途请示
 
 ## 第三步：组建团队，按依赖调度
@@ -61,7 +61,7 @@ spawn 时按 [references/spawn-prompts.md](references/spawn-prompts.md) 的模�
 1. **清尾轮（单轮）**：聚合账本与 handoff 目录的 follow-up 候选，逐条经过分拣、验证、立项，终态为应收或转呈：
    - **分拣**：应收须同时满足三条：真缺陷、在 Spec 范围内、不涉及需用户决策的业务取舍。否则转呈
    - **验证**：在 origin/main 上确认缺陷存在；不存在的项撤下，记入转呈说明
-   - **立项**：验证通过的项用 /to-tickets 立项并跑到终态，其「与用户确认拆分」一步由清尾授权代替，接力与合并纪律与批内 issue 一致。未获清尾授权则不立项，全部转呈
+   - **立项**：验证通过的项按 issue-tracker 约定直接建 issue，并跑到终态，接力与合并纪律与批内 issue 一致。未获清尾授权则不立项，全部转呈
 
    分拣结果 append 账本 `decision`；`--issues` 批次扩员后补一条带 scope 的行。轮中新增的候选转呈
 2. **在 Spec issue 发人工 QA 验收清单 comment，不关闭 Spec 本体**。清单按已合并子 issue（含清尾轮）组织：每项给 PR 链接与面向用户可感知行为的验收步骤（实际操作路径，不复读技术验收标准）；末尾列 needs-human 搁置项、跳过与未启动项、发现的缺口。纯 issue 列表批次没有共同 Spec 时，清单并入收尾汇报
@@ -109,4 +109,4 @@ bash .agents/skills/afk-team-workflow/scripts/ledger.sh <batch-id> <kind> [--iss
 
 ## 发现 Spec 落点缺口时
 
-gap 专指功能性缺口：Spec 有要求但任何子 issue 均未覆盖——"未覆盖"可能是用户拆解时的有意裁剪，故必须人工确认，不入清尾授权；批内发现的缺陷类 follow-up 不走本节，按收尾的清尾轮处置。发现 gap 时：SendUserMessage（proactive）实时提醒用户，说明缺口描述、建议与对本批次的影响，不阻塞批次继续。用户中途授权则用 /to-tickets 立项并按依赖加入批次；未获回复则相关 issue 按字面验收标准收口。append 账本 `gap`，并记入收尾转呈与 QA comment。
+gap 专指功能性缺口：Spec 有要求但任何子 issue 均未覆盖——"未覆盖"可能是用户拆解时的有意裁剪，故必须人工确认，不入清尾授权；批内发现的缺陷类 follow-up 不走本节，按收尾的清尾轮处置。发现 gap 时：SendUserMessage（proactive）实时提醒用户，说明缺口描述、建议与对本批次的影响，不阻塞批次继续。用户中途授权则直接立项并按依赖加入批次；未获回复则相关 issue 按字面验收标准收口。append 账本 `gap`，并记入收尾转呈与 QA comment。
