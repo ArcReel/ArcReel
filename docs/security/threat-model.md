@@ -109,7 +109,7 @@ An unauthenticated caller can reach public endpoints, submit login attempts, ins
 
 ### 6.2 Attacker with a stolen JWT or API key
 
-A stolen login JWT normally provides complete administrator access, including API-key management. A stolen `arc-` API key authorizes most project, provider, generation, task, agent, and system APIs, but the API-key management router explicitly requires a subject that does not begin with `apikey:`. API keys otherwise have no scopes or RBAC boundaries that materially reduce their impact.
+A stolen login JWT normally provides complete administrator access, including API-key management. A stolen `arc-` API key authorizes most project, provider, generation, task, agent, and system APIs, but the API-key management router explicitly requires a subject that does not begin with `apikey:`. The same API key can enumerate custom providers and retrieve each stored custom-provider `api_key` verbatim from `GET /api/v1/custom-providers/{provider_id}/credentials`, creating a credential-escalation path. API keys otherwise have no scopes or RBAC boundaries that materially reduce their impact.
 
 ### 6.3 Malicious content author or project supplier
 
@@ -199,12 +199,12 @@ Public routes include authentication bootstrap/login, project/global file delive
 
 ### 9.2 Secret handling
 
-- API responses generally mask stored secrets.
+- API responses generally mask stored secrets. The custom-provider credentials endpoint is a material exception: it returns the stored `api_key` in plaintext to any caller accepted by the generic authentication dependency, including an `arc-` API key.
 - The server fails fast when provider secrets are present in the parent process environment, reducing automatic inheritance by sandboxed child processes.
 - Agent policy denies sensitive-file reads and scrubs secret-like environment variables from sandboxed Bash execution.
 - Vertex credential files are written with restrictive permissions where supported.
 
-Built-in provider, custom-provider, and Agent credentials are nevertheless stored in plaintext database columns. API masking does not protect a copied database, backup, snapshot, or compromised database account.
+Built-in provider, custom-provider, and Agent credentials are nevertheless stored in plaintext database columns. API masking does not protect a copied database, backup, snapshot, or compromised database account, and it does not protect custom-provider credentials from the authenticated plaintext-read endpoint described above.
 
 ### 9.3 Path and project controls
 
@@ -263,7 +263,7 @@ Application request logging records URL paths rather than complete query strings
 ### 10.1 Authentication and bearer tokens
 
 - Automated login attempts may be sent without built-in rate limiting.
-- A stolen login JWT normally provides full administrative access; a stolen API key provides broad access except to API-key management. A login username beginning with `apikey:` collides with the current subject-prefix check and is also denied by API-key management routes.
+- A stolen login JWT normally provides full administrative access; a stolen API key provides broad access except to API-key management. A login username beginning with `apikey:` collides with the current subject-prefix check and is also denied by API-key management routes. A stolen API key can read custom-provider API keys in plaintext and use them independently of ArcReel.
 - A leaked download token can be replayed and used as a broad administrator bearer credential during its five-minute validity; if minted through an API key, its inherited `apikey:` subject remains excluded from API-key management.
 - Seven-day JWT lifetime increases the useful period of a stolen token.
 - Event-stream routes may accept a full JWT or API key in a query parameter.
