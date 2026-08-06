@@ -26,7 +26,7 @@ from lib.generation_queue import get_generation_queue
 from lib.path_safety import safe_exists
 from lib.prompt_builders import append_product_fidelity_tail
 from lib.reference_video import assemble_shots_text, assemble_shots_text_for_render
-from lib.reference_video.ad_units import resolve_ad_unit_shots
+from lib.reference_video.ad_units import ad_unit_source_signature, resolve_ad_unit_shots
 from lib.reference_video.duration_slots import DurationSlot, resolve_duration_slot
 from lib.reference_video.errors import MissingReferenceError
 from lib.reference_video.prompt_render import (
@@ -583,9 +583,12 @@ async def execute_reference_video_task(
             raise ValueError(f"unit not found: {resource_id}")
         # 索引悬空（镜头被删/改 ID 后未重新派生）在此 fail-loud，提示重新派生
         ad_shots = resolve_ad_unit_shots(script, unit) if is_ad else None
-        return project, project_path, unit, ad_shots
+        # 来源签名按执行期剧本快照计算：prompt 从这份快照重组，产物真正依据的编排即此刻
+        # 编排；finalize 时剧本可能已被编辑，彼时现算会把偏离的产物误认成与新编排一致。
+        signature = ad_unit_source_signature(script, unit) if is_ad else None
+        return project, project_path, unit, ad_shots, signature
 
-    project, project_path, unit, ad_shots = await asyncio.to_thread(_load)
+    project, project_path, unit, ad_shots, source_signature = await asyncio.to_thread(_load)
     is_ad = ad_shots is not None
 
     # 2. 解析 references（narration/drama 缺图直接失败；ad 软口径跳过 + warning）
@@ -751,7 +754,15 @@ async def execute_reference_video_task(
         video_uri=video_uri,
         versions=generator.versions,
         warnings=warnings,
+        source_signature=source_signature if is_ad else _COMPUTE_SOURCE_SIGNATURE,
     )
+
+
+class _ComputeSourceSignature:
+    """``apply_unit_video_assets`` 的 ``source_signature`` 缺省哨兵：按剧本现算。"""
+
+
+_COMPUTE_SOURCE_SIGNATURE = _ComputeSourceSignature()
 
 
 def apply_unit_video_assets(
@@ -761,11 +772,11 @@ def apply_unit_video_assets(
     video_uri: str | None,
     thumb_rel: str | None,
     generated_at: str | None = None,
-) -> None:
+    source_signature: str | None | _ComputeSourceSignature = _COMPUTE_SOURCE_SIGNATURE,
+) -> str | None:
     """在剧本 dict 上写回 unit.generated_assets（video_clip / video_uri / video_thumbnail / status）。
 
-    生成 finalize 与版本还原共用，保证两条路径写出的字段口径一致；两条路径都会
-    一并清除 ad unit 的 stale 位——产物指针只由本函数改变，改变即基准更新。unit 在
+    生成 finalize 与版本还原共用，保证两条路径写出的字段口径一致。unit 在
     narration/drama 剧本中位于 ``video_units``、在 ad 剧本中位于 ``reference_units``
     派生索引——两处都查（同剧本不会同时有两类合法 unit 列表，shots 才是 ad 的
     内容真相）。新结果不含 video_uri / 缩略图时清空旧值，避免指向过期 URI /
@@ -775,12 +786,21 @@ def apply_unit_video_assets(
 
     ``generated_at`` 缺省戳当前时间（生成 finalize）；版本还原传入被还原版本的入库时间，
     使「片段是否早于当前参考音频设置」按还原回来的旧内容成立，而不是被还原动作洗成最新。
+
+    ``source_signature`` 仅作用于 ad 派生索引（``reference_units``）条目：产物来源
+    签名是读时 stale 判定的比较基准。缺省按本剧本现算（finalize 兜底口径——上传与
+    resume 拿不到生成时的编排快照，按写回时刻的编排认定；剧本恰在这期间被编辑时，
+    偏离的产物会被盖上新编排的签名而判为非 stale，是已知漏报面、不会误报）；生成 finalize 传入执行期
+    快照的签名（产物真正依据的编排，剧本可能在生成期间被编辑）；版本还原传入被还原
+    版本档案里的签名，无档案传 None 清除（来源不可考，按存量产物口径视为非 stale）。
+    历史剧本残留的 stale 键随写回顺带剥除。返回写入的签名（narration/drama
+    的 ``video_units`` 条目不承载签名，返回 None）。
     """
-    unit_lists = [script.get(key) for key in ("video_units", "reference_units")]
-    candidates = [units for units in unit_lists if isinstance(units, list)]
+    unit_lists = [(key, script.get(key)) for key in ("video_units", "reference_units")]
+    candidates = [(key, units) for key, units in unit_lists if isinstance(units, list)]
     if not candidates:
         raise ScriptEditError("video_units / reference_units 必须是 list", key="script_edit_unit_lists_invalid")
-    for units in candidates:
+    for key, units in candidates:
         for u in units:
             if not isinstance(u, dict) or u.get("unit_id") != resource_id:
                 continue
@@ -798,10 +818,19 @@ def apply_unit_video_assets(
             else:
                 ga.pop("video_thumbnail", None)
             ga["status"] = "completed"
-            # ad 派生索引的 stale 位（成员/参考集偏离产物）随产物更新一并清除：
-            # 产物指针只由本函数改变，写入即代表 unit 当前编排已被新产物覆盖。
             u.pop("stale", None)
-            return
+            if key != "reference_units":
+                return None
+            resolved_signature = (
+                ad_unit_source_signature(script, u)
+                if isinstance(source_signature, _ComputeSourceSignature)
+                else source_signature
+            )
+            if resolved_signature:
+                ga["source_signature"] = resolved_signature
+            else:
+                ga.pop("source_signature", None)
+            return resolved_signature
     raise KeyError(resource_id)
 
 
@@ -816,8 +845,14 @@ async def _finalize_reference_video_unit(
     video_uri: str | None,
     versions: VersionManager,
     warnings: list[dict[str, Any]] | None = None,
+    source_signature: str | None | _ComputeSourceSignature = _COMPUTE_SOURCE_SIGNATURE,
 ) -> dict[str, Any]:
-    """Normal + resume 共用：抽缩略图、写 unit.generated_assets、返回 result dict。"""
+    """Normal + resume + 上传共用：抽缩略图、写 unit.generated_assets、返回 result dict。
+
+    ``source_signature``：正常生成传执行期快照的签名，resume / 上传按缺省口径写回时现算
+    （见 ``apply_unit_video_assets``）。写入的签名同步补进本次版本记录，供版本还原取回
+    该版产物的来源基准。
+    """
     warnings = warnings if warnings is not None else []
 
     thumb_dir = project_path / "reference_videos" / "thumbnails"
@@ -829,13 +864,25 @@ async def _finalize_reference_video_unit(
         thumb_path.unlink(missing_ok=True)
         thumb_rel = None
 
-    def _update_unit_assets():
+    def _update_unit_assets() -> str | None:
         pm = get_project_manager()
         # 资产回写热路径：只动 unit.generated_assets，结构不可能因此变坏，豁免结构校验。
         with pm.locked_script(project_name, script_file, validate=False) as script:
-            apply_unit_video_assets(script, resource_id, video_uri=video_uri, thumb_rel=thumb_rel)
+            return apply_unit_video_assets(
+                script, resource_id, video_uri=video_uri, thumb_rel=thumb_rel, source_signature=source_signature
+            )
 
-    await asyncio.to_thread(_update_unit_assets)
+    written_signature = await asyncio.to_thread(_update_unit_assets)
+    if written_signature:
+        # 版本记录是签名的还原档案：补写失败只影响将来还原时的基准精度（按无档案
+        # 口径清除签名），不动摇本次 finalize 的结果，不 fail-fast。
+        await asyncio.to_thread(
+            versions.update_version_metadata,
+            "reference_videos",
+            resource_id,
+            version,
+            source_signature=written_signature,
+        )
 
     def _latest_created_at() -> str | None:
         history = versions.get_versions("reference_videos", resource_id) or {}

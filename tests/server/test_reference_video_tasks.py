@@ -2161,24 +2161,59 @@ def test_apply_unit_video_assets_stamps_video_generated_at():
 
 
 @pytest.mark.unit
-def test_apply_unit_video_assets_clears_stale_marker():
-    """生成成功写回产物即清除 ad unit 的 stale 位：产物指针改变即口径基准更新。"""
+def test_apply_unit_video_assets_writes_source_signature_for_ad_units():
+    """写回 ad unit 产物时缺省按剧本现算来源签名，并剥除历史剧本残留的 stale 键。"""
+    from lib.reference_video.ad_units import ad_unit_source_signature
     from server.services.reference_video_tasks import apply_unit_video_assets
 
     script = {
+        "shots": [{"shot_id": "E1S1", "products_in_shot": ["按摩仪"]}],
         "reference_units": [
             {
                 "unit_id": "E1U1",
                 "shot_ids": ["E1S1"],
-                "references": [],
+                "references": [{"type": "product", "name": "按摩仪"}],
                 "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
                 "stale": True,
             }
-        ]
+        ],
     }
-    apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
-    assert "stale" not in script["reference_units"][0]
-    assert script["reference_units"][0]["generated_assets"]["status"] == "completed"
+    written = apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
+    unit = script["reference_units"][0]
+    assert "stale" not in unit
+    assert unit["generated_assets"]["status"] == "completed"
+    assert written == ad_unit_source_signature(script, unit)
+    assert unit["generated_assets"]["source_signature"] == written
+
+
+@pytest.mark.unit
+def test_apply_unit_video_assets_explicit_signature_and_clear():
+    """签名显式传入即原样落盘（生成 finalize 的执行期快照）；传 None 清除（版本还原无档案）。"""
+    from server.services.reference_video_tasks import apply_unit_video_assets
+
+    script = {
+        "shots": [{"shot_id": "E1S1"}],
+        "reference_units": [{"unit_id": "E1U1", "shot_ids": ["E1S1"], "references": [], "generated_assets": {}}],
+    }
+    written = apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None, source_signature="abc123")
+    ga = script["reference_units"][0]["generated_assets"]
+    assert written == "abc123"
+    assert ga["source_signature"] == "abc123"
+
+    cleared = apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None, source_signature=None)
+    assert cleared is None
+    assert "source_signature" not in ga
+
+
+@pytest.mark.unit
+def test_apply_unit_video_assets_video_units_carry_no_signature():
+    """narration/drama 的 video_units 条目不承载来源签名。"""
+    from server.services.reference_video_tasks import apply_unit_video_assets
+
+    script = {"video_units": [{"unit_id": "E1U1", "generated_assets": {}}]}
+    written = apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
+    assert written is None
+    assert "source_signature" not in script["video_units"][0]["generated_assets"]
 
 
 @pytest.mark.unit

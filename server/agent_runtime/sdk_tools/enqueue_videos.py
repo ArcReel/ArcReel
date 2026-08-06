@@ -30,6 +30,7 @@ from lib.prompt_utils import (
 )
 from lib.reference_video import assemble_shots_text
 from lib.reference_video.ad_units import (
+    is_ad_unit_stale,
     render_ad_unit_prompt,
     resolve_ad_unit_shots,
     sync_ad_reference_units,
@@ -620,8 +621,8 @@ async def _run_ad_reference_episode(
     """ad + reference_video：先（重新）派生分组索引并持久化，再按 unit 批量直出。
 
     分组是纯函数派生（shots + 供应商时长上限 → 可复现分组）；generated_assets
-    按 unit_id 沿用，已有产物经磁盘扫描跳过重复入队；成员/参考集偏离产物的
-    unit 携带 stale 位并透出清单，不自动重生成。
+    按 unit_id 沿用，已有产物经磁盘扫描跳过重复入队；成片偏离当前编排的 unit
+    按读时签名比较派生 stale 并透出清单，不自动重生成。
     """
     project = ctx.pm.load_project(ctx.project_name)
     max_unit_duration = await resolve_max_unit_duration(project)
@@ -637,8 +638,8 @@ async def _run_ad_reference_episode(
         raise ValueError(f"剧本没有可分组的镜头：{script_filename}")
     log.append(f"已派生 {len(units)} 个 video_unit（连续镜头分组，索引已写入剧本）")
     # stale 清单透出给调用方：这些 unit 的成片仍有效并按现有产物复用，不自动重生成；
-    # 是否重生成由用户/智能体决定（单元级重生成入口会在成功后清除 stale）。
-    stale_ids = [str(u.get("unit_id")) for u in units if u.get("stale")]
+    # 是否重生成由用户/智能体决定（重生成 finalize 落新签名后自然回归非 stale）。
+    stale_ids = [str(u.get("unit_id")) for u in units if is_ad_unit_stale(script, u)]
     if stale_ids:
         log.append(f"⚠️  以下 unit 的剧本已变更但保留既有成片（stale），如需更新请重新生成：{', '.join(stale_ids)}")
 

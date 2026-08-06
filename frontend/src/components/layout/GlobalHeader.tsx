@@ -36,8 +36,8 @@ function triggerBrowserDownload(url: string) {
 }
 
 /**
- * 剪映草稿导出前的 stale 预检：ad + 参考直出下剧本变更不作废成片（仅打 stale 标记），
- * 导出不拦截，但含 stale 单元时提示一句。
+ * 剪映草稿导出前的 stale 预检：ad + 参考直出下剧本变更不作废成片（stale 由后端
+ * 读时派生注入），导出不拦截，但含 stale 单元时提示一句。
  *
  * 导出走浏览器下载导航，响应体无法承载提示，故只能在触发下载前按当前索引预检；
  * 提示走 pushNotification 而非 toast——随后的「导出已开始」toast 会顶掉单一 toast

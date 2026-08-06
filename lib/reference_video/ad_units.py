@@ -10,6 +10,9 @@ ad 剧本骨架唯一（shots 是内容唯一真相，见 docs/adr/0033）；ref
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 from lib.asset_types import normalize_asset_name
 from lib.script_models import GeneratedAssets, ad_shot_duration_seconds, get_generated_assets
 
@@ -136,10 +139,9 @@ def merge_ad_reference_units(existing: object, derived: list[dict]) -> list[dict
 
     剧本编辑只改剧本：合并按 ``unit_id`` 沿用旧条目的 ``generated_assets``，
     从不清空产物指针——产物内容与指针只由成功的生成覆盖（finalize 单一写点）。
-    成员（``shot_ids``）或参考集（``references``，按 NFC 归一比较）与旧条目
-    不一致、且该 unit 已有成片时，条目携带 ``stale`` 位：产物仍可用，但已
-    偏离当前剧本编排，建议重新生成。stale 位粘性传递（一旦打上，后续合并不再
-    因内容回改而摘除），仅由生成成功清除（``apply_unit_video_assets``）。
+    合并不判定产物是否过期：stale 是读时派生属性（``is_ad_unit_stale``，比较
+    当前编排签名与产物落盘签名），不落盘；旧条目上残留的历史标记位随条目重建
+    自然丢弃。
     """
     existing_by_id: dict[str, dict] = {}
     if isinstance(existing, list):
@@ -152,16 +154,62 @@ def merge_ad_reference_units(existing: object, derived: list[dict]) -> list[dict
         prev = existing_by_id.get(unit["unit_id"])
         # 损坏值经 get_generated_assets 归一化为空 dict，与下面的 `assets or 模板` 汇合到同一结果。
         assets = dict(get_generated_assets(prev)) if isinstance(prev, dict) else {}
-        entry = {**unit, "generated_assets": assets or GeneratedAssets().model_dump()}
-        # 无成片的 unit 谈不上产物过期，不打 stale——待生成态本身就会按当前编排生成。
-        if assets.get("video_clip") and isinstance(prev, dict):
-            changed = prev.get("shot_ids") != unit["shot_ids"] or _reference_signature(
-                prev.get("references")
-            ) != _reference_signature(unit["references"])
-            if changed or prev.get("stale"):
-                entry["stale"] = True
-        merged.append(entry)
+        merged.append({**unit, "generated_assets": assets or GeneratedAssets().model_dump()})
     return merged
+
+
+def ad_unit_source_signature(script: dict, unit: dict) -> str:
+    """unit 的编排 + 参考集签名：规范化 JSON 的 sha256（十六进制）。
+
+    比较坐标系与合并派生同源：只含成员镜头 ID 序列与从 shots（内容唯一真相）
+    现算的参考集（NFC 归一），镜头正文与时长不进签名——纯文案编辑不作废产物。
+    成员镜头缺失（索引悬空）时按现存成员计算：与生成时全员在场的签名必然不同，
+    读时自然判为偏离。
+    """
+    by_id = ad_shots_by_id(script)
+    member_ids = [sid for sid in unit.get("shot_ids") or [] if isinstance(sid, str) and sid in by_id]
+    payload = {
+        "shot_ids": member_ids,
+        "references": _reference_signature(_unit_references([by_id[sid] for sid in member_ids])),
+    }
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def is_ad_unit_stale(script: dict, unit: dict) -> bool:
+    """读时派生 stale：产物落盘签名与当前编排签名不一致即偏离。
+
+    无成片谈不上产物过期；无签名的存量产物视为非 stale（签名机制引入前生成，
+    无从比较），随下一次生成补齐签名。
+    """
+    assets = get_generated_assets(unit)
+    if not assets.get("video_clip"):
+        return False
+    recorded = assets.get("source_signature")
+    if not isinstance(recorded, str) or not recorded:
+        return False
+    return recorded != ad_unit_source_signature(script, unit)
+
+
+def annotate_ad_unit_staleness(script: dict, units: object) -> list:
+    """给对外透出的 unit 列表注入读时派生的 ``stale``（返回浅拷贝，不落盘）。
+
+    剧本中的条目不承载 stale——历史剧本残留的 stale 键在此剥除，偏离的 unit
+    仅在返回副本上携带 ``stale: True``（与旧口径一致：非 stale 不带该键）。
+    脏条目（非 dict）原样透传，交由消费方的既有降级分支处理。
+    """
+    if not isinstance(units, list):
+        return []
+    annotated: list = []
+    for unit in units:
+        if not isinstance(unit, dict):
+            annotated.append(unit)
+            continue
+        entry = {k: v for k, v in unit.items() if k != "stale"}
+        if is_ad_unit_stale(script, unit):
+            entry["stale"] = True
+        annotated.append(entry)
+    return annotated
 
 
 def sync_ad_reference_units(
@@ -173,8 +221,8 @@ def sync_ad_reference_units(
     """从 shots 重新派生分组并写回 ``script["reference_units"]``，返回合并后的索引。
 
     shots 是内容唯一真相：索引始终由本函数从 shots 重算，``generated_assets``
-    按 unit_id 沿用、从不清空；成员或参考集偏离时仅打 stale 位
-    （见 ``merge_ad_reference_units``）。
+    按 unit_id 沿用、从不清空；产物是否偏离编排由读取侧派生
+    （见 ``is_ad_unit_stale``），本函数不打标。
     """
     derived = derive_ad_reference_units(script.get("shots"), episode=episode, max_unit_duration=max_unit_duration)
     merged = merge_ad_reference_units(script.get("reference_units"), derived)

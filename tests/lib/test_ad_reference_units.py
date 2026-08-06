@@ -7,7 +7,10 @@
 import pytest
 
 from lib.reference_video.ad_units import (
+    ad_unit_source_signature,
+    annotate_ad_unit_staleness,
     derive_ad_reference_units,
+    is_ad_unit_stale,
     render_ad_unit_prompt,
     resolve_ad_unit_shots,
     sync_ad_reference_units,
@@ -39,6 +42,15 @@ def _shot(shot_id: str, duration: int = 3, **overrides) -> dict:
     }
     base.update(overrides)
     return base
+
+
+def _mark_generated(script: dict, index: int = 0) -> dict:
+    """模拟 finalize：给第 index 个 unit 写成片指针与按当前编排现算的来源签名。"""
+    unit = script["reference_units"][index]
+    unit["generated_assets"]["video_clip"] = f"reference_videos/{unit['unit_id']}.mp4"
+    unit["generated_assets"]["status"] = "completed"
+    unit["generated_assets"]["source_signature"] = ad_unit_source_signature(script, unit)
+    return unit
 
 
 class TestDeriveGrouping:
@@ -216,30 +228,28 @@ class TestSyncPersistence:
         assert units[0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
         assert units[0]["generated_assets"]["status"] == "completed"
 
-    def test_resync_after_shot_change_keeps_assets_and_marks_stale(self):
+    def test_resync_never_marks_stale_on_entries(self):
+        # 合并不打标：stale 是读时派生属性，剧本条目不承载
         script = {"episode": 1, "shots": [_shot("E1S1"), _shot("E1S2")]}
         sync_ad_reference_units(script, episode=1)
-        script["reference_units"][0]["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
-        # 新增镜头改变了 E1U1 的成员集合 → 产物指针保留，仅降级为 stale 标记
+        _mark_generated(script)
         script["shots"].append(_shot("E1S3"))
 
         units = sync_ad_reference_units(script, episode=1)
 
         assert units[0]["shot_ids"] == ["E1S1", "E1S2", "E1S3"]
         assert units[0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
-        assert units[0]["stale"] is True
+        assert all("stale" not in u for u in units)
 
-    def test_resync_after_reference_change_keeps_assets_and_marks_stale(self):
+    def test_resync_drops_legacy_stale_marker(self):
+        # 历史剧本残留的 stale 键随条目重建丢弃：剧本条目不承载 stale
         script = {"episode": 1, "shots": [_shot("E1S1")]}
         sync_ad_reference_units(script, episode=1)
-        script["reference_units"][0]["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
-        script["shots"][0]["products_in_shot"] = ["按摩仪"]
+        script["reference_units"][0]["stale"] = True
 
         units = sync_ad_reference_units(script, episode=1)
 
-        assert units[0]["references"] == [{"type": "product", "name": "按摩仪"}]
-        assert units[0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
-        assert units[0]["stale"] is True
+        assert "stale" not in units[0]
 
     def test_resync_grouping_shift_from_prepended_shot_keeps_all_assets(self):
         # 前部插入镜头使下游全部单元分组平移：产物指针一律沿用，不再级联清空
@@ -252,59 +262,122 @@ class TestSyncPersistence:
         units = sync_ad_reference_units(script, episode=1)
 
         assert all(u["generated_assets"]["video_clip"] == f"reference_videos/{u['unit_id']}.mp4" for u in units)
-        assert all(u["stale"] is True for u in units)
 
-    def test_resync_with_encoding_variant_references_not_marked_stale(self):
-        # 同一资产仅 NFC/NFD 编码形式不同：参考集比较按归一名判定，不算语义变化
+
+class TestReadTimeStaleness:
+    """stale 的读时派生：当前编排签名 vs 产物落盘签名（is_ad_unit_stale / annotate）。"""
+
+    def test_fresh_product_is_not_stale(self):
+        script = {"episode": 1, "shots": [_shot("E1S1")]}
+        sync_ad_reference_units(script, episode=1)
+        unit = _mark_generated(script)
+
+        assert is_ad_unit_stale(script, unit) is False
+
+    def test_reference_change_is_stale_without_rederive(self):
+        # 剧本保存后立即读取即反映偏离，无需先重新派生分组
+        script = {"episode": 1, "shots": [_shot("E1S1")]}
+        sync_ad_reference_units(script, episode=1)
+        unit = _mark_generated(script)
+        script["shots"][0]["products_in_shot"] = ["按摩仪"]
+
+        assert is_ad_unit_stale(script, unit) is True
+
+    def test_reverted_edit_clears_staleness(self):
+        # 内容回改到产物生成时的编排：签名重新一致，stale 自动回清
+        script = {"episode": 1, "shots": [_shot("E1S1")]}
+        sync_ad_reference_units(script, episode=1)
+        unit = _mark_generated(script)
+        script["shots"][0]["products_in_shot"] = ["按摩仪"]
+        assert is_ad_unit_stale(script, unit) is True
+        script["shots"][0]["products_in_shot"] = []
+
+        assert is_ad_unit_stale(script, unit) is False
+
+    def test_member_change_after_rederive_is_stale(self):
+        script = {"episode": 1, "shots": [_shot("E1S1"), _shot("E1S2")]}
+        sync_ad_reference_units(script, episode=1)
+        _mark_generated(script)
+        script["shots"].append(_shot("E1S3"))
+        units = sync_ad_reference_units(script, episode=1)
+
+        assert is_ad_unit_stale(script, units[0]) is True
+
+    def test_pure_text_edit_is_not_stale(self):
+        script = {"episode": 1, "shots": [_shot("E1S1")]}
+        sync_ad_reference_units(script, episode=1)
+        unit = _mark_generated(script)
+        script["shots"][0]["voiceover_text"] = "改了口播文案"
+
+        assert is_ad_unit_stale(script, unit) is False
+
+    def test_encoding_variant_reference_is_not_stale(self):
+        # 同一资产仅 NFC/NFD 编码形式不同：签名按归一名计算，不算语义变化
         import unicodedata
 
         name_nfc = unicodedata.normalize("NFC", "Hiếu")
         name_nfd = unicodedata.normalize("NFD", "Hiếu")
         script = {"episode": 1, "shots": [_shot("E1S1", characters_in_shot=[name_nfc])]}
         sync_ad_reference_units(script, episode=1)
-        script["reference_units"][0]["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
+        unit = _mark_generated(script)
         script["shots"][0]["characters_in_shot"] = [name_nfd]
 
-        units = sync_ad_reference_units(script, episode=1)
+        assert is_ad_unit_stale(script, unit) is False
 
-        assert units[0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
-        assert "stale" not in units[0]
-
-    def test_pure_text_edit_does_not_mark_stale(self):
-        script = {"episode": 1, "shots": [_shot("E1S1")]}
+    def test_deleted_member_shot_is_stale(self):
+        # 成员镜头被删（索引悬空）：签名按现存成员计算，与生成时必然不同
+        script = {"episode": 1, "shots": [_shot("E1S1"), _shot("E1S2")]}
         sync_ad_reference_units(script, episode=1)
-        script["reference_units"][0]["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
-        script["shots"][0]["voiceover_text"] = "改了口播文案"
+        unit = _mark_generated(script)
+        del script["shots"][1]
 
-        units = sync_ad_reference_units(script, episode=1)
+        assert is_ad_unit_stale(script, unit) is True
 
-        assert units[0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
-        assert "stale" not in units[0]
-
-    def test_stale_is_sticky_across_resyncs_until_regeneration(self):
-        # stale 一旦打上即粘性传递：内容回改也不摘除（产物到底按哪一版生成无从判定），
-        # 仅由生成成功清除
+    def test_unit_without_clip_is_not_stale(self):
         script = {"episode": 1, "shots": [_shot("E1S1")]}
-        sync_ad_reference_units(script, episode=1)
-        script["reference_units"][0]["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
+        units = sync_ad_reference_units(script, episode=1)
         script["shots"][0]["products_in_shot"] = ["按摩仪"]
-        sync_ad_reference_units(script, episode=1)
-        script["shots"][0]["products_in_shot"] = []
 
+        assert is_ad_unit_stale(script, units[0]) is False
+
+    def test_legacy_product_without_signature_is_not_stale(self):
+        # 存量产物无签名：视为非 stale，随下一次生成补齐
+        script = {"episode": 1, "shots": [_shot("E1S1")]}
         units = sync_ad_reference_units(script, episode=1)
+        units[0]["generated_assets"]["video_clip"] = "reference_videos/E1U1.mp4"
+        script["shots"][0]["products_in_shot"] = ["按摩仪"]
 
-        assert units[0]["stale"] is True
-        assert units[0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
+        assert is_ad_unit_stale(script, units[0]) is False
 
-    def test_unit_without_clip_never_marked_stale(self):
-        # 待生成的 unit 谈不上产物过期：成员变化只更新索引，不打 stale
+    def test_annotate_injects_stale_only_on_diverged_units(self):
+        script = {"episode": 1, "shots": [_shot(f"E1S{n}") for n in range(1, 6)]}
+        sync_ad_reference_units(script, episode=1)
+        _mark_generated(script, 0)
+        _mark_generated(script, 1)
+        script["shots"][0]["products_in_shot"] = ["按摩仪"]  # 只偏离第一个 unit（E1S1-E1S4）
+
+        annotated = annotate_ad_unit_staleness(script, script["reference_units"])
+
+        assert annotated[0]["stale"] is True
+        assert "stale" not in annotated[1]
+        # 注入只发生在返回副本上，剧本条目不落盘
+        assert all("stale" not in u for u in script["reference_units"])
+
+    def test_annotate_strips_legacy_stale_marker(self):
         script = {"episode": 1, "shots": [_shot("E1S1")]}
         sync_ad_reference_units(script, episode=1)
-        script["shots"].append(_shot("E1S2"))
+        unit = _mark_generated(script)
+        unit["stale"] = True  # 历史剧本残留的 stale 键
 
-        units = sync_ad_reference_units(script, episode=1)
+        annotated = annotate_ad_unit_staleness(script, script["reference_units"])
 
-        assert "stale" not in units[0]
+        assert "stale" not in annotated[0]
+
+    def test_annotate_passes_through_dirty_entries(self):
+        script = {"episode": 1, "shots": [_shot("E1S1")]}
+
+        assert annotate_ad_unit_staleness(script, ["oops", None]) == ["oops", None]
+        assert annotate_ad_unit_staleness(script, "not-a-list") == []
 
 
 class TestResolveUnitShots:
