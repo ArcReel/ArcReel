@@ -150,7 +150,8 @@ A compromised Python package, Node package, container image, SDK, ffmpeg build, 
 | FastAPI → project filesystem | Names, paths, archives, generated files, agent writes | Name normalization, `safe_join`, project locks, atomic writes, schema validation | Traversal, cross-project access, overwrite, persistent malicious content |
 | FastAPI → external providers | Credentials, prompts, media, base URLs, job IDs | Authentication, provider registry, configured endpoints, path-specific HTTP timeouts | SSRF, secret forwarding, malformed responses, unexpected cost |
 | Provider → ArcReel download/parser pipeline | URLs, response headers, media bytes | Path-specific HTTP timeouts, artifact-path handling, downstream format checks; Vertex Gemini URI downloads currently lack an explicit deadline | SSRF, memory/disk exhaustion, parser compromise |
-| Application → Claude SDK sandbox | LLM-selected tools, commands, paths, environment | `AgentAccessPolicy`, permission callbacks, deny rules, network policy | Sensitive-file access, cross-project access, command execution |
+| Application → SDK built-in file tools | LLM-selected `Read`, `Write`, `Edit`, `Glob`, and `Grep` paths | Main-process `PreToolUse` hooks backed by `AgentAccessPolicy` | Sensitive-file access, cross-project access, protected-file modification |
+| Application → sandboxed Bash | Commands, paths, environment, and network destinations | Kernel sandbox profile, `AgentAccessPolicy`, command policy, environment scrubbing | Sensitive-file access, cross-project access, command execution, network abuse |
 | Application → in-process MCP tools | LLM-selected structured arguments | Closure-bound project context, strict validation, protected workflows | Sandbox bypass through main-process capability |
 | Application → ffmpeg/ffprobe | Uploaded or provider-supplied media | Extension checks, argument-list subprocess invocation, selected lifecycle cleanup | Native-parser exploitation, CPU/I/O starvation, stuck workers |
 | Container → host/private network | Bind mounts, capabilities, network identity | Mount scope, host permissions, Agent sandbox, application access policy | Expanded blast radius after process or sandbox compromise |
@@ -229,7 +230,7 @@ Extraction occurs in a temporary staging directory. Imported project data is rep
 
 ### 9.5 Agent controls
 
-On supported Linux and macOS deployments, ArcReel verifies sandbox tooling at startup rather than silently running without it. `AgentAccessPolicy` centralizes:
+On supported Linux and macOS deployments, ArcReel verifies sandbox tooling at startup rather than silently running without it. `AgentAccessPolicy` centralizes rules that are projected into both application-level SDK hooks and the kernel sandbox:
 
 - Current-project read and write boundaries.
 - Cross-project read denial.
@@ -241,7 +242,7 @@ On supported Linux and macOS deployments, ArcReel verifies sandbox tooling at st
 - Windows command-whitelist fallback behavior.
 - Prevention of unsandboxed command fallback.
 
-In-process MCP tools intentionally run outside the OS sandbox. Their project binding and validation are security-critical.
+SDK built-in `Read`, `Write`, `Edit`, `Glob`, and `Grep` tools execute in the main process and are constrained by `PreToolUse` hooks, not by the kernel sandbox. Bash and its descendants are constrained by the kernel sandbox on supported platforms. In-process MCP tools also run outside the OS sandbox and require independent project binding and argument validation.
 
 ### 9.6 Frontend and browser controls
 
@@ -415,7 +416,7 @@ Use Low for conditions such as:
 7. **Treat active formats as browser code.** Review MIME inference, `Content-Disposition`, `nosniff`, CSP, HTML/SVG/XML handling, and browser-readable token storage.
 8. **Review the full outbound-fetch surface.** Include schemes, DNS resolution, IPv4/IPv6 special ranges, loopback, link-local, metadata addresses, redirects, allowlists, timeouts, `Content-Length`, actual byte ceilings, and streaming behavior.
 9. **Review resource limits independently of traversal.** Archive entry count, compressed size, total expanded size, compression ratio, JSON size, path depth, subprocess deadline, concurrency, and cleanup are distinct controls.
-10. **Review both agent boundaries.** Sandbox policy protects SDK tools and Bash; in-process MCP tools execute in the main process and require independent validation.
+10. **Review all three agent boundaries.** Inspect the main-process `PreToolUse` hooks for SDK file tools, the kernel sandbox and command policy for Bash descendants, and the independent project binding and validation of in-process MCP tools.
 11. **Consider authorized capability abuse.** Prompt injection can be security-relevant without RCE when allowed tools can alter project state, incur cost, create active content, or mislead the operator.
 12. **Avoid duplicate or inflated findings.** Prefer the most specific root cause and describe its consequences rather than reporting architectural context as multiple vulnerabilities.
 13. **Require concrete bypasses for generic checklist claims.** CORS, CSRF, SQL injection, and masking reports require an actual exploit path in ArcReel.
