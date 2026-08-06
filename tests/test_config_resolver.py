@@ -77,7 +77,7 @@ class TestVideoGenerateAudio:
 
     @pytest.mark.unit
     async def test_default_is_true_when_db_empty(self, tmp_path):
-        """DB 无值时应返回 True（PR7 §11 决策：与 Seedance/Grok 默认开启一致）。"""
+        """DB 无值时应返回 True（与 Seedance/Grok 默认开启一致）。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={})
         result = await resolver._resolve_video_generate_audio(fake_svc, project_name=None)

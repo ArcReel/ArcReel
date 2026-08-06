@@ -1422,7 +1422,7 @@ class TestGenerationWorker:
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_fast_path_returns_immediately(self, monkeypatch):
-        """fix #647 #1：fast path 不阻塞——5 个可 resume orphan + video_max=2，
+        """fast path 不阻塞——5 个可 resume orphan + video_max=2，
         `_handle_orphan_tasks_on_start` 应几乎立刻返回（< 100ms），
         实际 dispatch 由后台 dispatcher 处理。"""
         import time
@@ -1465,7 +1465,7 @@ class TestGenerationWorker:
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_dispatcher_respects_pool_capacity(self, monkeypatch):
-        """fix #647 #1：后台 dispatcher 受 video 容量约束分批 promote 进 INFLIGHT，
+        """后台 dispatcher 受 video 容量约束分批 promote 进 INFLIGHT，
         任一时刻 inflight 占用 ≤ cap（pending 不消耗 sem，不计入此上限）。"""
         queue = _FakeQueue()
         queue._orphans = [
@@ -1537,7 +1537,7 @@ class TestGenerationWorker:
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_handle_orphan_dispatcher_exits_on_stop_event(self, monkeypatch):
-        """fix #647 #1：`_stop_event` 触发时 dispatcher 干净退出，不再 dispatch 剩余 orphan。"""
+        """`_stop_event` 触发时 dispatcher 干净退出，不再 dispatch 剩余 orphan。"""
         queue = _FakeQueue()
         queue._orphans = [
             {

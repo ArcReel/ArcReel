@@ -889,7 +889,7 @@ class GenerationWorker:
         - video running，可 resume backend (ark/gemini/openai/newapi)：
           - 无 provider_job_id → [restart_lost]
           - 有 job_id → 收集到 `resumable_by_provider` 桶，后台 dispatcher 受
-            video 容量约束分批 dispatch（fix #647 第 1 项）
+            video 容量约束分批 dispatch
 
         启动期 fast path（本函数）**只做终结类处理**，立刻返回；可 resume 的视频孤儿
         派发给后台 dispatcher 处理，避免 N 个 Sora orphan × 每个 5min poll 把启动期
