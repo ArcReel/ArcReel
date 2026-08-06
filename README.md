@@ -138,7 +138,7 @@ curl http://localhost:1241/health
 3. 配置完整创作流程所需的文本、图像和视频生成能力。
 4. 创建项目并从少量内容开始验证工作流。
 
-> 默认部署适合个人体验和轻量使用。正式、多用户或长期运行环境建议采用 [PostgreSQL 生产部署](docs/deployment.md#2-生产部署postgresql)。
+> 默认部署适合个人体验和轻量使用。正式、并发或长期运行环境建议采用 [PostgreSQL 生产部署](docs/deployment.md#2-生产部署postgresql)。PostgreSQL 不提供用户隔离；ArcReel 目前不支持互不信任的用户共享同一实例。
 
 ### 生产部署：PostgreSQL
 
@@ -150,7 +150,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-部署、升级、备份、反向代理和安全注意事项见 [部署与运维](docs/deployment.md)。
+部署、升级、备份和反向代理见 [部署与运维](docs/deployment.md)；支持边界和漏洞报告方式见 [安全政策](SECURITY.md)。
 
 ## 核心能力
 
@@ -242,6 +242,8 @@ flowchart TB
 | [创作流程与模式](docs/workflows.md) | 小说、剧本、广告模式以及三种视频制作方式 |
 | [供应商与模型配置](docs/providers.md) | Agent、文本、图像、视频、TTS 供应商的选择和配置 |
 | [部署与运维](docs/deployment.md) | SQLite、PostgreSQL、升级、备份、反向代理 |
+| [安全政策](SECURITY.md) | 支持版本、部署边界、私密漏洞报告和协调披露 |
+| [安全威胁模型](docs/security/threat-model.md) | 安全资产、信任边界、攻击面和重评触发条件 |
 | [剪映草稿导出](docs/jianying-export-guide.md) | 将 ArcReel 生成结果交给剪映继续编辑 |
 | [架构说明](docs/architecture.md) | Agent Runtime、任务队列、供应商抽象和数据层 |
 | [常见问题](docs/FAQ.md) | 部署、费用、模型、数据和许可证问题 |

@@ -19,16 +19,19 @@
 ## 运维路径
 
 1. [部署与运维](deployment.md)
-2. [供应商与模型配置](providers.md)
-3. [架构说明](architecture.md)
-4. [常见问题](FAQ.md)
+2. [安全政策](../SECURITY.md)
+3. [安全威胁模型](security/threat-model.md)
+4. [供应商与模型配置](providers.md)
+5. [架构说明](architecture.md)
+6. [常见问题](FAQ.md)
 
 ## 开发者路径
 
 1. [架构说明](architecture.md)
-2. [贡献指南](../CONTRIBUTING.md)
-3. [项目 ADR](adr/)
-4. [更新记录](../CHANGELOG.md)
+2. [安全威胁模型](security/threat-model.md)
+3. [贡献指南](../CONTRIBUTING.md)
+4. [项目 ADR](adr/)
+5. [更新记录](../CHANGELOG.md)
 
 ## 文档职责
 
@@ -39,6 +42,8 @@
 | `workflows.md` | 内容模式、视频制作方式、审核节点、选择建议 | 供应商密钥和运维命令 |
 | `providers.md` | 供应商类型、覆盖能力、选择原则、配置层级 | 容易过期的价格承诺 |
 | `deployment.md` | 部署、升级、备份、恢复、监控和安全 | 产品营销文案 |
+| `SECURITY.md` | 支持版本、支持的部署边界、私密漏洞报告和协调披露政策 | 未修复漏洞细节和动态风险登记 |
+| `security/threat-model.md` | 安全资产、信任边界、攻击面、现有控制和重评触发条件 | 可直接利用的未修复漏洞与补丁历史 |
 | `architecture.md` | 稳定的架构边界、数据流和扩展点 | 临时实现计划和未完成设计 |
 | `FAQ.md` | 高频问题和短答案 | 长篇教程 |
 
@@ -81,5 +86,7 @@ README 的目标是让第一次访问仓库的人在较短时间内回答四个�
 - [项目首页](../README.md)
 - [英文 README](../README.en.md)
 - [贡献指南](../CONTRIBUTING.md)
+- [安全政策](../SECURITY.md)
+- [安全威胁模型](security/threat-model.md)
 - [许可证](../LICENSE)
 - [附加条款](../NOTICE)

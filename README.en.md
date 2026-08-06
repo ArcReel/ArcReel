@@ -138,7 +138,7 @@ After signing in:
 3. Configure the text, image, and video capabilities required by the full workflow.
 4. Start with a small project to validate the workflow.
 
-> The SQLite deployment is suitable for evaluation and light personal use. For long-running or multi-user environments, use the [PostgreSQL production deployment](docs/deployment.md#2-生产部署postgresql).
+> The SQLite deployment is suitable for evaluation and light personal use. For long-running or concurrent environments, use the [PostgreSQL production deployment](docs/deployment.md#2-生产部署postgresql). PostgreSQL does not add user isolation; ArcReel does not currently support sharing one instance between mutually untrusted users.
 
 ### Production deployment: PostgreSQL
 
@@ -150,7 +150,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-See [Deployment and Operations](docs/deployment.md) for upgrades, backups, reverse proxies, and security guidance.
+See [Deployment and Operations](docs/deployment.md) for upgrades, backups, and reverse proxies. See the [Security Policy](SECURITY.md) for supported deployments and vulnerability reporting.
 
 ## Core capabilities
 
@@ -244,6 +244,8 @@ Detailed documentation is currently maintained in Chinese; English documentation
 | [Workflows and Modes](docs/workflows.md) | Novel, screenplay, narration, drama, ad, and video-making workflows |
 | [Provider Configuration](docs/providers.md) | Agent, text, image, video, and TTS provider choices |
 | [Deployment and Operations](docs/deployment.md) | SQLite, PostgreSQL, upgrades, backups, and reverse proxies |
+| [Security Policy](SECURITY.md) | Supported versions, deployment boundaries, private reporting, and coordinated disclosure |
+| [Security Threat Model](docs/security/threat-model.md) | Security assets, trust boundaries, attack surfaces, and reassessment triggers |
 | [CapCut Draft Export](docs/jianying-export-guide.md) | Continue editing ArcReel output in CapCut |
 | [Architecture](docs/architecture.md) | Agent runtime, queue, provider abstraction, and data layer |
 | [FAQ](docs/FAQ.md) | Deployment, cost, data, model, and licensing questions |
