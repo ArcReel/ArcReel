@@ -119,7 +119,7 @@ def _pin_video_execution_model(
 ) -> dict[str, Any] | None:
     """把入队解析出的执行身份锁进视频任务 payload 的能力桶键，返回新 payload（不改调用方的 dict）。
 
-    锁定的是「本次任务真正会执行的 model」，执行与中断续跑据此走同一身份：task 行只存
+    锁定的是「任务真正会执行的 model」，执行与中断续跑据此走同一身份：task 行只存
     provider_id，锁不住 model（``docs/adr/0054``「不静默换模型」）。桶键与复合值形态和解析侧
     payload 层同源（``lib.config.resolver``），此处是该组键的唯一写入方。``capability`` 取
     入队派生的定桶结果（参考路线内逐镜头分流后的桶），锁定键因此与解析用的桶一致——resolver
