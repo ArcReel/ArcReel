@@ -13,7 +13,7 @@ Current vulnerabilities, control gaps, validation tasks, and remediation accepta
 ArcReel is currently a **single-operator administrative application**, not a multi-tenant SaaS platform. Authentication separates the trusted operator from unauthenticated callers. It does not provide meaningful role-based access control, tenant isolation, or least-privilege API scopes:
 
 - `CurrentUserInfo.role` is always `admin`.
-- A login JWT authorizes the complete administrative application surface, including API-key management.
+- A login JWT normally authorizes the complete administrative application surface, including API-key management. A configured login username beginning with `apikey:` is currently misclassified as an API key and denied by API-key management routes.
 - An `arc-` API key is a broad automation credential. It authorizes most business and configuration APIs but cannot create, list, or revoke API keys.
 - Repositories generally operate on the default user.
 - A stolen JWT is therefore treated as complete administrator compromise. A stolen API key is a high-impact compromise of the broad surface that key can access.
@@ -98,7 +98,7 @@ ArcReel should preserve the following properties.
 7. **Controlled outbound access:** Provider-controlled and operator-configured destinations must not silently provide access to loopback, cloud metadata, private networks, or other sensitive services unless the operator has explicitly enabled and accepted that behavior.
 8. **Bounded untrusted processing:** Archives, uploads, provider responses, model output, and media parsing must have explicit limits for bytes, entries, memory, disk, CPU, concurrency, and execution time.
 9. **Secret minimization:** Secrets must not be returned unmasked, written to public project files, inherited by unnecessary subprocesses, exposed to the agent, or included in routine logs.
-10. **Bearer-token impact:** A stolen JWT is treated as complete administrator compromise. This currently includes a download JWT during its five-minute validity because the general JWT authentication path accepts it as an administrator bearer credential. A stolen API key is treated as a high-impact compromise of most business and configuration APIs, excluding API-key management.
+10. **Bearer-token impact:** A stolen JWT is treated as complete administrator compromise. This currently includes a download JWT during its five-minute validity because the general JWT authentication path accepts it as an administrator bearer credential. The subject-prefix collision described in section 9.1 can deny API-key management without materially reducing that compromise. A stolen API key is treated as a high-impact compromise of most business and configuration APIs, excluding API-key management.
 11. **Authentication-disabled isolation:** `AUTH_ENABLED=false` is safe only when network reachability is independently constrained to a trusted local environment.
 
 ## 6. Threat actors and capabilities
@@ -109,7 +109,7 @@ An unauthenticated caller can reach public endpoints, submit login attempts, ins
 
 ### 6.2 Attacker with a stolen JWT or API key
 
-A stolen JWT provides complete administrator access, including API-key management. A stolen `arc-` API key authorizes most project, provider, generation, task, agent, and system APIs, but the API-key management router explicitly requires JWT authentication. API keys otherwise have no scopes or RBAC boundaries that materially reduce their impact.
+A stolen login JWT normally provides complete administrator access, including API-key management. A stolen `arc-` API key authorizes most project, provider, generation, task, agent, and system APIs, but the API-key management router explicitly requires a subject that does not begin with `apikey:`. API keys otherwise have no scopes or RBAC boundaries that materially reduce their impact.
 
 ### 6.3 Malicious content author or project supplier
 
@@ -184,7 +184,7 @@ A compromised Python package, Node package, container image, SDK, ffmpeg build, 
 - Random `arc-` API keys stored as SHA-256 hashes.
 - API-key expiration checks and bounded cache behavior.
 
-There is no account-level RBAC, scoped API key, MFA, JWT revocation list, centralized session inventory, or built-in login throttling. JWTs authorize the complete administrative surface. API keys authorize most business and configuration APIs but are rejected by API-key management endpoints.
+There is no account-level RBAC, scoped API key, MFA, JWT revocation list, centralized session inventory, or built-in login throttling. JWTs normally authorize the complete administrative surface. API keys authorize most business and configuration APIs but are rejected by API-key management endpoints. That distinction currently relies on `CurrentUserInfo.sub.startswith("apikey:")`, not on an explicit credential-type claim: because login JWT subjects copy `AUTH_USERNAME`, a configured username beginning with `apikey:` is also rejected by those endpoints.
 
 **Route authorization is defined centrally in `server/app.py`.** A security review must combine:
 
@@ -263,7 +263,7 @@ Application request logging records URL paths rather than complete query strings
 ### 10.1 Authentication and bearer tokens
 
 - Automated login attempts may be sent without built-in rate limiting.
-- A stolen JWT provides full administrative access; a stolen API key provides broad access except to API-key management.
+- A stolen login JWT normally provides full administrative access; a stolen API key provides broad access except to API-key management. A login username beginning with `apikey:` collides with the current subject-prefix check and is also denied by API-key management routes.
 - A leaked download token can be replayed and used as a general administrator bearer credential during its five-minute validity.
 - Seven-day JWT lifetime increases the useful period of a stolen token.
 - Event-stream routes may accept a full JWT or API key in a query parameter.
