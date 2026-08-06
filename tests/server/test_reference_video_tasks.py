@@ -2161,6 +2161,27 @@ def test_apply_unit_video_assets_stamps_video_generated_at():
 
 
 @pytest.mark.unit
+def test_apply_unit_video_assets_clears_stale_marker():
+    """生成成功写回产物即清除 ad unit 的 stale 位：产物指针改变即口径基准更新。"""
+    from server.services.reference_video_tasks import apply_unit_video_assets
+
+    script = {
+        "reference_units": [
+            {
+                "unit_id": "E1U1",
+                "shot_ids": ["E1S1"],
+                "references": [],
+                "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
+                "stale": True,
+            }
+        ]
+    }
+    apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
+    assert "stale" not in script["reference_units"][0]
+    assert script["reference_units"][0]["generated_assets"]["status"] == "completed"
+
+
+@pytest.mark.unit
 def test_apply_unit_video_assets_honors_explicit_generated_at():
     """版本还原传入被还原版本的原始入库时间，不把旧内容洗成「刚生成」。"""
     from server.services.reference_video_tasks import apply_unit_video_assets

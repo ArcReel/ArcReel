@@ -28,6 +28,7 @@ vi.mock("./ExportScopeDialog", () => ({
   ExportScopeDialog: ({
     open,
     onSelect,
+    onJianyingExport,
   }: {
     open: boolean;
     onClose: () => void;
@@ -45,6 +46,14 @@ vi.mock("./ExportScopeDialog", () => ({
         <button data-testid="scope-full" onClick={() => onSelect("full")}>
           全部数据
         </button>
+        {onJianyingExport && (
+          <button
+            data-testid="scope-jianying"
+            onClick={() => onJianyingExport(1, "/drafts", "6")}
+          >
+            剪映草稿
+          </button>
+        )}
       </div>
     ) : null,
 }));
@@ -173,6 +182,187 @@ describe("GlobalHeader", () => {
     });
     expect(anchorClick).toHaveBeenCalled();
     expect(useAppStore.getState().toast?.text).toContain("包含 1 条诊断");
+  });
+
+  it("ad 参考直出项目导出剪映草稿前提示 stale 单元且不拦截导出", async () => {
+    vi.spyOn(API, "getUsageStats").mockResolvedValue({
+      total_cost: 0,
+      image_count: 0,
+      video_count: 0,
+      failed_count: 0,
+      total_count: 0,
+    });
+    vi.spyOn(API, "requestExportToken").mockResolvedValue({
+      download_token: "test-download-token",
+      expires_in: 300,
+      diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
+    });
+    const listUnits = vi.spyOn(API, "listAdReferenceUnits").mockResolvedValue({
+      units: [
+        {
+          unit_id: "E1U1",
+          shot_ids: ["E1S1"],
+          references: [],
+          generated_assets: { video_clip: "reference_videos/E1U1.mp4", status: "completed" },
+          stale: true,
+        },
+        {
+          unit_id: "E1U2",
+          shot_ids: ["E1S2"],
+          references: [],
+          generated_assets: { video_clip: "reference_videos/E1U2.mp4", status: "completed" },
+        },
+      ],
+    });
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    useProjectsStore.setState({
+      currentProjectName: "ad-demo",
+      currentProjectData: {
+        title: "带货短片",
+        content_mode: "ad",
+        generation_mode: "reference_video",
+        style: "明亮写实",
+        episodes: [],
+        characters: {},
+        scenes: {},
+        props: {},
+      },
+    });
+
+    renderHeader();
+    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+    (await screen.findByTestId("scope-jianying")).click();
+
+    await waitFor(() => {
+      expect(anchorClick).toHaveBeenCalled();
+    });
+    expect(listUnits).toHaveBeenCalledWith("ad-demo", 1);
+    // stale 提示进通知中心留痕（单一 toast 槽位随后被「导出已开始」顶掉）
+    expect(
+      useAppStore
+        .getState()
+        .workspaceNotifications.some((n) => n.text.includes("剧本已变更")),
+    ).toBe(true);
+  });
+
+  it("ad 参考直出项目 stale 预检失败仍照常导出", async () => {
+    vi.spyOn(API, "getUsageStats").mockResolvedValue({
+      total_cost: 0,
+      image_count: 0,
+      video_count: 0,
+      failed_count: 0,
+      total_count: 0,
+    });
+    vi.spyOn(API, "requestExportToken").mockResolvedValue({
+      download_token: "test-download-token",
+      expires_in: 300,
+      diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
+    });
+    vi.spyOn(API, "listAdReferenceUnits").mockRejectedValue(new Error("boom"));
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    useProjectsStore.setState({
+      currentProjectName: "ad-demo",
+      currentProjectData: {
+        title: "带货短片",
+        content_mode: "ad",
+        generation_mode: "reference_video",
+        style: "明亮写实",
+        episodes: [],
+        characters: {},
+        scenes: {},
+        props: {},
+      },
+    });
+
+    renderHeader();
+    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+    (await screen.findByTestId("scope-jianying")).click();
+
+    await waitFor(() => {
+      expect(API.requestExportToken).toHaveBeenCalledWith("ad-demo", "current");
+    });
+    expect(anchorClick).toHaveBeenCalled();
+  });
+
+  it("ad 分镜路线项目导出剪映草稿不做 stale 预检", async () => {
+    vi.spyOn(API, "getUsageStats").mockResolvedValue({
+      total_cost: 0,
+      image_count: 0,
+      video_count: 0,
+      failed_count: 0,
+      total_count: 0,
+    });
+    vi.spyOn(API, "requestExportToken").mockResolvedValue({
+      download_token: "test-download-token",
+      expires_in: 300,
+      diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
+    });
+    const listUnits = vi.spyOn(API, "listAdReferenceUnits");
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    useProjectsStore.setState({
+      currentProjectName: "ad-demo",
+      currentProjectData: {
+        title: "带货短片",
+        content_mode: "ad",
+        generation_mode: "storyboard",
+        style: "明亮写实",
+        episodes: [],
+        characters: {},
+        scenes: {},
+        props: {},
+      },
+    });
+
+    renderHeader();
+    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+    (await screen.findByTestId("scope-jianying")).click();
+
+    await waitFor(() => {
+      expect(anchorClick).toHaveBeenCalled();
+    });
+    expect(listUnits).not.toHaveBeenCalled();
+  });
+
+  it("非 ad 项目导出剪映草稿不做 stale 预检", async () => {
+    vi.spyOn(API, "getUsageStats").mockResolvedValue({
+      total_cost: 0,
+      image_count: 0,
+      video_count: 0,
+      failed_count: 0,
+      total_count: 0,
+    });
+    vi.spyOn(API, "requestExportToken").mockResolvedValue({
+      download_token: "test-download-token",
+      expires_in: 300,
+      diagnostics: { blocking: [], auto_fixed: [], warnings: [] },
+    });
+    const listUnits = vi.spyOn(API, "listAdReferenceUnits");
+    const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    useProjectsStore.setState({
+      currentProjectName: "demo",
+      currentProjectData: {
+        title: "说书项目",
+        content_mode: "narration",
+        style: "Anime",
+        episodes: [],
+        characters: {},
+        scenes: {},
+        props: {},
+      },
+    });
+
+    renderHeader();
+    screen.getByRole("button", { name: "导出当前项目 ZIP" }).click();
+    (await screen.findByTestId("scope-jianying")).click();
+
+    await waitFor(() => {
+      expect(anchorClick).toHaveBeenCalled();
+    });
+    expect(listUnits).not.toHaveBeenCalled();
   });
 
   it("closes an already-open export dialog when the workbench switches to the demo project", async () => {

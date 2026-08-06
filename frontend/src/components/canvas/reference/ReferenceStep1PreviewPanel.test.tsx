@@ -311,8 +311,8 @@ describe("ReferenceStep1PreviewPanel", () => {
   });
 
   it("dedupes a reference pill when the same asset is mentioned once in NFC and once in NFD", async () => {
-    // extractMentions 按裸字符串去重，同一资产以两种编码各出现一次会各产一条；deriveDisplayReferences
-    // 须在归一后再去重，否则预览会重复渲染同一资产的 pill / 图号，与后端落盘的单条引用不一致。
+    // extractMentions 输出规范形并按规范形去重，同一资产的两种编码收敛成一条；否则预览会重复
+    // 渲染同一资产的 pill / 图号，与后端落盘的单条引用不一致。
     const nameNfc = "Hiếu".normalize("NFC");
     const nameNfd = "Hiếu".normalize("NFD");
     expect(nameNfc).not.toBe(nameNfd);

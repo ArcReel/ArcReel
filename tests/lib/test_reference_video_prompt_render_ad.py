@@ -20,6 +20,10 @@ from lib.reference_video.voice_settings import VoiceRenderSettings
 
 pytestmark = pytest.mark.unit
 
+#: 与声音无关的用例用的声音档：``soft`` 有声、无参考音频。渲染入口的 ``settings`` 必填，
+#: 这些用例照样要给一档，取字段默认即可。
+_SOFT = VoiceRenderSettings()
+
 
 def _project(**overrides):
     project = {
@@ -65,7 +69,7 @@ def test_subject_binding_uses_entry_labels_positionally():
         _entry("小美", "角色「小美」设计图"),
     ]
 
-    rendered = render_ad_backend_prompt(shots, entries, _project())
+    rendered = render_ad_backend_prompt(shots, entries, _project(), _SOFT)
 
     assert "<产品「按摩仪」标准多角度参考图>@图片1" in rendered.prompt
     assert "<角色「小美」设计图>@图片2" in rendered.prompt
@@ -163,7 +167,7 @@ def test_silent_paths_keep_shot_segment_identical_to_audible_path(silencing: dic
 def test_voiceover_text_excluded_ambiance_kept_as_prose():
     shots = [_shot("E1S1")]
 
-    rendered = render_ad_backend_prompt(shots, [], _project())
+    rendered = render_ad_backend_prompt(shots, [], _project(), _SOFT)
 
     assert "口播文案" not in rendered.prompt
     assert "环境音：环境音" in rendered.prompt
@@ -225,7 +229,7 @@ def test_legend_and_negative_tail_are_gone():
     shots = [_shot("E1S1", dialogue=[{"speaker": "小美", "line": "买它"}])]
     entries = [_entry("按摩仪", "产品「按摩仪」标准多角度参考图", kind="sheet")]
 
-    rendered = render_ad_backend_prompt(shots, entries, _project())
+    rendered = render_ad_backend_prompt(shots, entries, _project(), _SOFT)
 
     assert "[图" not in rendered.prompt
     assert "参考图对照" not in rendered.prompt
@@ -235,7 +239,7 @@ def test_legend_and_negative_tail_are_gone():
 def test_third_segment_anchors_style_and_constraint_pack():
     shots = [_shot("E1S1")]
 
-    rendered = render_ad_backend_prompt(shots, [], _project(), style="明亮写实")
+    rendered = render_ad_backend_prompt(shots, [], _project(), _SOFT, style="明亮写实")
 
     assert "整体视觉风格：明亮写实。" in rendered.prompt
     assert "保持无字幕" in rendered.prompt
@@ -245,13 +249,14 @@ def test_third_segment_anchors_style_and_constraint_pack():
 
 def test_twin_guard_only_when_two_or_more_character_images():
     shots = [_shot("E1S1")]
-    single = render_ad_backend_prompt(shots, [_entry("小美", "角色「小美」设计图")], _project())
+    single = render_ad_backend_prompt(shots, [_entry("小美", "角色「小美」设计图")], _project(), _SOFT)
     assert "双胞胎" not in single.prompt
 
     both = render_ad_backend_prompt(
         shots,
         [_entry("小美", "角色「小美」设计图"), _entry("小明", "角色「小明」设计图")],
         _project(),
+        _SOFT,
     )
     assert "双胞胎" in both.prompt
 
@@ -276,7 +281,7 @@ def test_speaker_without_reference_audio_downgrades_and_warns():
 def test_unregistered_speaker_still_renders_with_warning():
     shots = [_shot("E1S1", dialogue=[{"speaker": "路人甲", "line": "哇好厉害"}])]
 
-    rendered = render_ad_backend_prompt(shots, [], _project())
+    rendered = render_ad_backend_prompt(shots, [], _project(), _SOFT)
 
     assert "<路人甲>说 {哇好厉害}" in rendered.prompt
     assert any(w["key"] == WARN_UNREGISTERED_SPEAKER and w["params"]["name"] == "路人甲" for w in rendered.warnings)
@@ -364,7 +369,7 @@ def test_twin_guard_ignores_non_character_reference_images():
         _entry("客厅", "场景「客厅」设计图", asset_type="scene"),
     ]
 
-    rendered = render_ad_backend_prompt(shots, entries, _project())
+    rendered = render_ad_backend_prompt(shots, entries, _project(), _SOFT)
 
     assert "双胞胎" not in rendered.prompt
 
@@ -373,4 +378,4 @@ def test_all_blank_shots_raise_value_error():
     shots = [_shot("E1S1", image_prompt={"scene": ""}, video_prompt={"action": ""})]
 
     with pytest.raises(ValueError, match="no visual content"):
-        render_ad_backend_prompt(shots, [], _project())
+        render_ad_backend_prompt(shots, [], _project(), _SOFT)

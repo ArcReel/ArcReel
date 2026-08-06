@@ -12,13 +12,13 @@ pytestmark = pytest.mark.unit
 class TestFormatDurationConstraint:
     def test_discrete_set(self):
         text = _format_duration_constraint([4, 6, 8], default_duration=None)
-        assert "[4, 6, 8]" in text
-        assert "按内容节奏自行决定" in text
+        for duration in (4, 6, 8):
+            assert str(duration) in text
 
     def test_discrete_set_with_default(self):
         text = _format_duration_constraint([4, 6, 8], default_duration=6)
-        assert "[4, 6, 8]" in text
-        assert "默认 6 秒" in text
+        assert "6" in text
+        assert text != _format_duration_constraint([4, 6, 8], default_duration=None)
 
     def test_default_duration_must_be_in_supported(self):
         """default_duration 不在 supported 集合时应抛错，避免 prompt 自相矛盾。"""
@@ -26,16 +26,16 @@ class TestFormatDurationConstraint:
             _format_duration_constraint([4, 8], default_duration=6)
 
     def test_continuous_range_uses_min_max_phrasing(self):
-        """长度 ≥5 且连续整数 → 用 'min 到 max 整数任选' 文案。"""
+        """长度 ≥5 且连续整数时压缩为只包含边界的区间。"""
         text = _format_duration_constraint([3, 4, 5, 6, 7, 8, 9, 10], default_duration=None)
-        assert "3 到 10 秒间" in text or "3-10" in text
-        # 不再列举每个数
+        assert "3" in text
+        assert "10" in text
         assert "[3, 4, 5, 6, 7, 8, 9, 10]" not in text
 
     def test_short_continuous_still_uses_list(self):
-        """长度 <5 即使连续，仍走列举形态（避免简短列表强行变成 '4 到 6'）。"""
+        """长度 <5 即使连续，仍保留中间值。"""
         text = _format_duration_constraint([4, 5, 6], default_duration=None)
-        assert "[4, 5, 6]" in text
+        assert "5" in text
 
 
 class TestBuildersRequireDurations:

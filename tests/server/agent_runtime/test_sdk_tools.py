@@ -23,6 +23,7 @@ from lib.reference_video.quarantine import (
     quarantine_path,
     write_quarantine,
 )
+from lib.reference_video.voice_settings import VoiceRenderSettings
 from server.agent_runtime.sdk_tools import build_arcreel_mcp_server
 from server.agent_runtime.sdk_tools._context import ToolContext
 from server.agent_runtime.sdk_tools.enqueue_assets import (
@@ -48,6 +49,7 @@ from server.agent_runtime.sdk_tools.text_generation import (
     split_reference_video_units_tool,
     validate_and_promote_reference_draft_tool,
 )
+from tests.fakes import fake_reference_caps_fetcher
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -3149,14 +3151,14 @@ async def test_generate_video_episode_ad_reference_derives_and_enqueues(
 
 
 @pytest.mark.unit
-async def test_generate_video_episode_ad_reference_regenerates_reset_unit(
+async def test_generate_video_episode_ad_reference_keeps_stale_unit_and_reports(
     ad_reference_ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """成员/参考集变化导致 sync 重置 unit 后，磁盘残留的同名旧产物不得当作已完成跳过。"""
+    """成员/参考集偏离产物的 unit 保留成片指针并按现有产物跳过，stale 清单透出到工具输出。"""
     from server.agent_runtime.sdk_tools import enqueue_videos as mod
 
     pm = ad_reference_ctx.pm
-    # 旧索引：E1U1 仅含 E1S1 且已完成；当前 shots 派生出的 E1U1 含 E1S1+E1S2 → sync 重置
+    # 旧索引：E1U1 仅含 E1S1 且已完成；当前 shots 派生出的 E1U1 含 E1S1+E1S2 → 打 stale 位
     pm.script_payload["reference_units"] = [  # type: ignore[attr-defined]
         {
             "unit_id": "E1U1",
@@ -3165,26 +3167,14 @@ async def test_generate_video_episode_ad_reference_regenerates_reset_unit(
             "generated_assets": {"video_clip": "reference_videos/E1U1.mp4", "status": "completed"},
         }
     ]
-    stale = ad_reference_ctx.project_path / "reference_videos" / "E1U1.mp4"
-    stale.parent.mkdir(parents=True, exist_ok=True)
-    stale.write_bytes(b"\x00")
+    existing = ad_reference_ctx.project_path / "reference_videos" / "E1U1.mp4"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_bytes(b"\x00")
 
     enqueued: list[Any] = []
 
     async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None):
-        from lib.generation_queue_client import BatchTaskResult
-
-        for spec in specs:
-            enqueued.append(spec)
-            if on_success:
-                on_success(
-                    BatchTaskResult(
-                        resource_id=spec.resource_id,
-                        task_id="t1",
-                        status="succeeded",
-                        result={"file_path": f"reference_videos/{spec.resource_id}.mp4"},
-                    )
-                )
+        enqueued.extend(specs)
         return [], []
 
     monkeypatch.setattr(mod, "batch_enqueue_and_wait", fake_batch)
@@ -3193,8 +3183,14 @@ async def test_generate_video_episode_ad_reference_regenerates_reset_unit(
     out = await _call(tool_obj, {"script": "episode_1.json"})
 
     assert out.get("is_error") is not True, out
-    # 重置后的 unit 必须重新入队，而不是凭旧文件跳过
-    assert [s.resource_id for s in enqueued] == ["E1U1"]
+    # 剧本变更不作废产物：既有成片按现行产物复用，不自动重生成
+    assert enqueued == []
+    script = pm.script_payload  # type: ignore[attr-defined]
+    assert script["reference_units"][0]["generated_assets"]["video_clip"] == "reference_videos/E1U1.mp4"
+    assert script["reference_units"][0]["stale"] is True
+    text = out["content"][0]["text"]
+    assert "stale" in text
+    assert "E1U1" in text
 
 
 @pytest.mark.unit
@@ -3264,23 +3260,6 @@ async def test_generate_video_all_ad_reference_falls_through_to_episode(
 # ---------------------------------------------------------------------------
 # split_reference_video_units
 # ---------------------------------------------------------------------------
-
-
-def _rv_caps(default=4, durations=(4, 6, 8), reference_durations=None, max_duration=12, max_refs=3, caps=None):
-    from server.agent_runtime.sdk_tools.text_generation import ReferenceSplitCaps
-
-    async def fake_caps(_p, _episode=None):
-        return ReferenceSplitCaps(
-            default_duration=default,
-            durations=list(durations),
-            reference_durations=list(durations if reference_durations is None else reference_durations),
-            text_durations=list(durations),
-            max_duration=max_duration,
-            max_refs=max_refs,
-            raw=dict(caps or {}),
-        )
-
-    return fake_caps
 
 
 @pytest.mark.unit
@@ -3504,7 +3483,7 @@ async def test_fetch_reference_caps_with_fallback_preserves_silent_intent_on_fai
     monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
     monkeypatch.setattr(ConfigResolver, "video_generate_audio_for_project", _fake_project_audio)
     caps = await mod._fetch_reference_caps_with_fallback({"video_generate_audio": False}, 1)
-    assert caps.raw.get("requested_generate_audio") is False
+    assert caps.voice.requested_generate_audio is False
 
 
 @pytest.mark.unit
@@ -3526,7 +3505,7 @@ async def test_fetch_reference_caps_with_fallback_degrades_silent_on_double_fail
     monkeypatch.setattr(mod, "resolve_video_caps", _raising_caps)
     monkeypatch.setattr(ConfigResolver, "video_generate_audio_for_project", _raising_project_audio)
     caps = await mod._fetch_reference_caps_with_fallback({"video_generate_audio": False}, 1)
-    assert caps.raw.get("requested_generate_audio") is False
+    assert caps.voice.requested_generate_audio is False
 
 
 def _rv_generator_returning(units: list[dict], captured: dict[str, Any] | None = None):
@@ -3586,7 +3565,7 @@ def _rv_step1_path(fake_ctx: ToolContext):
 async def _run_rv_split(fake_ctx: ToolContext, monkeypatch, units: list[dict], **caps_kwargs) -> dict:
     from server.agent_runtime.sdk_tools import text_generation as mod
 
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps(**caps_kwargs))
+    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher(**caps_kwargs))
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units))
     return await _call(split_reference_video_units_tool(fake_ctx), {"episode": 1})
 
@@ -3596,7 +3575,7 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolContext, monkey
     from server.agent_runtime.sdk_tools import text_generation as mod
 
     _rv_source(fake_ctx)
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps())
+    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher())
 
     tool_obj = split_reference_video_units_tool(fake_ctx)
     out = await _call(tool_obj, {"episode": 1, "dry_run": True})
@@ -3618,7 +3597,7 @@ async def test_split_reference_video_units_happy_derives_structure(fake_ctx: Too
     _rv_source(fake_ctx)
     captured: dict[str, Any] = {}
     units = [_rv_unit("镜头1：@[张三] 走向 @[村口]\n镜头2：@[张三] 停下脚步")]
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps())
+    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher())
     monkeypatch.setattr(mod.TextGenerator, "create", _rv_generator_returning(units, captured))
 
     out = await _call(split_reference_video_units_tool(fake_ctx), {"episode": 1})
@@ -3827,7 +3806,7 @@ async def _promote(fake_ctx: ToolContext, monkeypatch, **caps_kwargs) -> dict:
 
     if not (fake_ctx.project_path / "project.json").exists():
         _rv_project(fake_ctx)
-    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", _rv_caps(**caps_kwargs))
+    monkeypatch.setattr(mod, "_fetch_reference_caps_with_fallback", fake_reference_caps_fetcher(**caps_kwargs))
     return await _call(validate_and_promote_reference_draft_tool(fake_ctx), {"episode": 1})
 
 
@@ -4530,7 +4509,7 @@ async def test_split_reference_video_units_surfaces_tolerated_voice_warnings(
         fake_ctx,
         monkeypatch,
         [_rv_unit("镜头1：@[张三] 起身\n@[张三]：{我来了。}")],
-        caps={"voice_consistency": "native", "max_reference_audio_count": 2, "model": "m"},
+        voice=VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, model_id="m"),
     )
 
     assert out.get("is_error") is not True, out
@@ -4558,12 +4537,9 @@ async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_bac
         fake_ctx,
         monkeypatch,
         [_rv_unit("镜头1：@[张三] 起身\n@[张三]：{我来了。}\n@[李四]：{你终于来了。}")],
-        caps={
-            "voice_consistency": "native",
-            "max_reference_audio_count": 1,
-            "model": "m",
-            "reference_audio_per_image": True,
-        },
+        voice=VoiceRenderSettings(
+            voice_consistency="native", max_reference_audio=1, model_id="m", requires_reference_image=True
+        ),
     )
 
     assert out.get("is_error") is not True, out

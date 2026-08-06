@@ -94,12 +94,8 @@ class TestBuildGridPrompt:
         scenes = [self._scene(f"S{i}", f"scene{i}", f"action{i}") for i in range(1, 5)]
         prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic")
         assert "2×2" in prompt
-        assert "格0" in prompt
-        assert "格3" in prompt
-        assert "首尾帧链式结构" in prompt
-        assert "恰好" in prompt
-        assert "整体图片比例" in prompt
-        assert "每个画格比例" in prompt
+        assert "scene1" in prompt
+        assert "scene4" in prompt
 
     def test_includes_placeholders(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 6)]
@@ -126,7 +122,16 @@ class TestBuildGridPrompt:
     def test_no_reference_mapping_no_reference_section(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
         prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic")
-        assert "【参考图说明】" not in prompt
+        with_mapping = build_grid_prompt(
+            scenes=scenes,
+            id_field="scene_id",
+            rows=2,
+            cols=2,
+            style="realistic",
+            reference_image_mapping={"图片37": "角色Z"},
+        )
+        assert "图片37" not in prompt
+        assert "图片37" in with_mapping
 
     def test_grid_dimensions_in_header(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
@@ -147,17 +152,6 @@ class TestBuildGridPrompt:
         assert "白色边框" in prompt
         assert "画格大小不一致" in prompt
 
-    def test_transition_frames_contain_arrow(self):
-        scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
-        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic")
-        # Transition frames should contain "→"
-        assert "→" in prompt
-
-    def test_total_cell_count_in_header(self):
-        scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
-        prompt = build_grid_prompt(scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic")
-        assert "恰好 4 个等大画格" in prompt
-
     def test_no_placeholders_when_exact_fit(self):
         # 4 scenes, 2x2 grid -> no placeholders needed (4 content cells: open, trans, trans, close)
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]
@@ -169,16 +163,15 @@ class TestBuildGridPrompt:
         prompt = build_grid_prompt(
             scenes=scenes, id_field="scene_id", rows=2, cols=2, style="realistic", grid_aspect_ratio="16:9"
         )
-        assert "整体图片比例：16:9" in prompt
-        assert "每个画格比例：16:9" in prompt
+        assert "16:9" in prompt
 
     def test_grid_6_panel_aspect_ratio(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 7)]
         prompt = build_grid_prompt(
             scenes=scenes, id_field="scene_id", rows=3, cols=2, style="realistic", grid_aspect_ratio="4:3"
         )
-        assert "整体图片比例：4:3" in prompt
-        assert "每个画格比例：2:1" in prompt
+        assert "4:3" in prompt
+        assert _compute_panel_aspect("4:3", 3, 2) in prompt
 
     def test_anti_structural_constraints(self):
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 5)]

@@ -51,6 +51,11 @@ def _refs(*pairs):
     return [ReferenceResource(type=t, name=n) for t, n in pairs]
 
 
+#: 与声音无关的用例用的声音档：``soft`` 有声、无参考音频。渲染入口的 ``settings`` 必填，
+#: 这些用例照样要给一档，取字段默认即可。
+_SOFT = VoiceRenderSettings()
+
+
 _TEXT = "\n".join(
     [
         "镜头1：夜色下的 @[酒馆]，@[张三] 推门而入，手按 @[长剑]。",
@@ -223,12 +228,12 @@ def test_speaker_without_reference_audio_warns_and_keeps_voice_style():
 
 
 def test_voiceover_line_renders_as_offscreen_speech():
-    rendered = render_unit_prompt("镜头1：空镜。\n{多年以后他仍记得这句话。}", _project(), [])
+    rendered = render_unit_prompt("镜头1：空镜。\n{多年以后他仍记得这句话。}", _project(), [], _SOFT)
     assert "画外音说 {多年以后他仍记得这句话。}" in rendered.prompt
 
 
 def test_unregistered_speaker_line_is_sent_verbatim_with_warning():
-    rendered = render_unit_prompt("镜头1：黑场。\n@[路人]：{你好。}", _project(), [])
+    rendered = render_unit_prompt("镜头1：黑场。\n@[路人]：{你好。}", _project(), [], _SOFT)
     assert "@[路人]：{你好。}" in rendered.prompt
     assert "说 {你好。}" not in rendered.prompt
     assert {"key": WARN_UNREGISTERED_SPEAKER, "params": {"name": "路人"}} in rendered.warnings
@@ -236,7 +241,7 @@ def test_unregistered_speaker_line_is_sent_verbatim_with_warning():
 
 def test_clipped_reference_still_renders_as_subject():
     """被能力上限裁掉参考图的已登记名字仍是画面主体：渲染 <X>，不把编辑器语法发给模型。"""
-    rendered = render_unit_prompt(_TEXT, _project(), _refs(("scene", "酒馆")))
+    rendered = render_unit_prompt(_TEXT, _project(), _refs(("scene", "酒馆")), _SOFT)
     assert "@[张三]" not in rendered.prompt
     assert "@[长剑]" not in rendered.prompt
     assert "<张三> 推门而入，手按 <长剑>。" in rendered.prompt
@@ -246,19 +251,21 @@ def test_clipped_reference_still_renders_as_subject():
 
 
 def test_unregistered_mention_kept_verbatim_with_warning():
-    rendered = render_unit_prompt("镜头1：@[未知资产] 出现。", _project(), [])
+    rendered = render_unit_prompt("镜头1：@[未知资产] 出现。", _project(), [], _SOFT)
     assert "@[未知资产]" in rendered.prompt
     assert {"key": WARN_UNREGISTERED_MENTION, "params": {"name": "未知资产"}} in rendered.warnings
 
 
 def test_unclosed_brace_line_sent_verbatim_with_warning():
-    rendered = render_unit_prompt("镜头1：@[张三] 开口。\n@[张三]：{没有闭合", _project(), _refs(("character", "张三")))
+    rendered = render_unit_prompt(
+        "镜头1：@[张三] 开口。\n@[张三]：{没有闭合", _project(), _refs(("character", "张三")), _SOFT
+    )
     assert "{没有闭合" in rendered.prompt
     assert any(w["key"] == WARN_UNCLOSED_BRACE for w in rendered.warnings)
 
 
 def test_legend_and_absolute_seconds_are_gone():
-    rendered = render_unit_prompt(_TEXT, _project(), _refs(("character", "张三")), style="写实电影感")
+    rendered = render_unit_prompt(_TEXT, _project(), _refs(("character", "张三")), _SOFT, style="写实电影感")
     assert "[图" not in rendered.prompt
     assert "参考图对照" not in rendered.prompt
     assert "禁止出现：BGM、文字字幕、水印。" not in rendered.prompt
@@ -266,7 +273,7 @@ def test_legend_and_absolute_seconds_are_gone():
 
 
 def test_third_segment_anchors_style_and_constraint_packs():
-    rendered = render_unit_prompt("镜头1：空镜。", _project(), [], style="写实电影感")
+    rendered = render_unit_prompt("镜头1：空镜。", _project(), [], _SOFT, style="写实电影感")
     assert "整体视觉风格：写实电影感。" in rendered.prompt
     assert "保持无字幕" in rendered.prompt
     assert "不要生成水印" in rendered.prompt
@@ -274,12 +281,13 @@ def test_third_segment_anchors_style_and_constraint_packs():
 
 
 def test_twin_guard_only_when_two_or_more_character_images():
-    single = render_unit_prompt("镜头1：@[张三] 独行。", _project(), _refs(("character", "张三")))
+    single = render_unit_prompt("镜头1：@[张三] 独行。", _project(), _refs(("character", "张三")), _SOFT)
     assert "双胞胎" not in single.prompt
     both = render_unit_prompt(
         "镜头1：@[张三] 与 @[李四] 对峙。",
         _project(),
         _refs(("character", "张三"), ("character", "李四")),
+        _SOFT,
     )
     assert "双胞胎" in both.prompt
 

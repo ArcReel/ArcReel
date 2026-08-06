@@ -7,7 +7,6 @@ import {
   matchDialogueLine,
   matchVoiceoverLine,
   mentionNameFromMatch,
-  normalizeAssetName,
   splitScriptLines,
 } from "@/utils/reference-mentions";
 
@@ -19,12 +18,18 @@ import {
  * - _MENTION_RE:     shared via reference-mentions.MENTION_RE
  *
  * Output tokens are non-overlapping and concatenate back to the original text.
+ *
+ * 匹配跑在原始文本上——token 要逐字拼回原文覆盖在 textarea 上，源文本不能归一——只有
+ * `mentionNameFromMatch` 取出的 `name` 是规范形。据此留一处残留：BOM 落在裸提及内部
+ * （`@张<U+FEFF>三`）时 `MENTION_RE` 的裸名字符类不含 U+FEFF，高亮只认到 BOM 之前那截、
+ * 判它未登记。参考图派生走 `extractMentions`（行已归一）不受影响，两者只在编辑器着色上
+ * 不一致；包裹形 `@[名<U+FEFF>称]` 无此残留——BOM 在方括号内，名字整取后再归一。
  */
 
 /**
- * key 一律是归一后的资产名（callers 构建时须先 `normalizeAssetName`），查询侧
- * （`pushMentionTokens` / `toScriptLines`）同样归一后再查——mention/说话人取自 prompt
- * 原始文本，与登记侧字节形式可能不同，两侧不同源同一坐标系才能稳定命中。
+ * key 一律是归一后的资产名（callers 构建时须先 `normalizeAssetName`）。查询侧不再补归一：
+ * mention 名与说话人都出自 `reference-mentions` 的解析原语，已承诺是规范形——两侧不同源，
+ * 同一坐标系才能稳定命中。
  */
 export type MentionLookup = Record<string, "character" | "scene" | "prop">;
 
@@ -76,7 +81,7 @@ function pushMentionTokens(out: Token[], text: string, lookup: MentionLookup): v
     if (idx > lastIdx) {
       out.push({ kind: "text", text: text.slice(lastIdx, idx) });
     }
-    const name = normalizeAssetName(mentionNameFromMatch(m));
+    const name = mentionNameFromMatch(m);
     // hasOwn 而非直接下标：`toString` 等原型链属性是合法资产名，未登记时下标会取到
     // Object.prototype 上的函数并被当成已解析的类型。
     const resolved = Object.hasOwn(lookup, name) ? lookup[name] : undefined;
@@ -167,7 +172,7 @@ export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[]
         speaker: dialogue.speaker,
         // Only a registered character can be a speaker — a scene or prop name in the
         // speaker slot reads as unresolved here, matching the backend's warning.
-        speakerKind: lookup[normalizeAssetName(dialogue.speaker)] === "character" ? "character" : "unknown",
+        speakerKind: lookup[dialogue.speaker] === "character" ? "character" : "unknown",
         text: dialogue.text,
       });
       continue;

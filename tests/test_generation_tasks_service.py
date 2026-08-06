@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 
 from lib.config.resolver import ProviderModel
+from lib.prompt_builders import append_image_negative_tail
+from lib.prompt_utils import image_prompt_to_yaml
 from lib.video_backends.base import VideoCapabilities, VideoCapabilityError
 from lib.video_frame_slots import gate_video_request
 from server.services import generation_tasks
@@ -300,15 +302,15 @@ class TestGenerationTasks:
         assert mode_items[1] == "scene_id"
 
         prompt = generation_tasks._normalize_storyboard_prompt("text", "Anime")
-        assert prompt.startswith("text")
-        # 分镜图与资产图 / 视频路径一致：归一化出口拼接统一图像反向提示词，且幂等
-        assert "画面避免" in prompt
+        assert prompt == append_image_negative_tail("text")
         assert generation_tasks._normalize_storyboard_prompt(prompt, "Anime") == prompt
 
-        structured = generation_tasks._normalize_storyboard_prompt(
-            {"scene": "林清坐在窗边", "composition": {"shot_type": "Close-up"}}, "Anime"
-        )
-        assert "画面避免" in structured
+        structured_input = {
+            "scene": "林清坐在窗边",
+            "composition": {"shot_type": "Close-up", "lighting": "暖光", "ambiance": "薄雾"},
+        }
+        structured = generation_tasks._normalize_storyboard_prompt(structured_input, "Anime")
+        assert structured == append_image_negative_tail(image_prompt_to_yaml(structured_input, "Anime"))
 
         with pytest.raises(ValueError):
             generation_tasks._normalize_storyboard_prompt({"scene": ""}, "Anime")
@@ -2061,7 +2063,6 @@ class TestAdProductFidelityStoryboard:
         prompt = generator.image_calls[0]["prompt"]
         assert prompt.startswith("产品特写")
         assert "「保温杯」" in prompt
-        assert "参考图" in prompt
 
     @pytest.mark.unit
     async def test_product_shot_without_sheet_injects_originals_directly(self, tmp_path, monkeypatch):

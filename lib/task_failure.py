@@ -75,6 +75,7 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "resume_unsupported_capacity_zero": "task_fail_resume_unsupported_capacity_zero",
     "resume_unsupported_detail": "task_fail_resume_unsupported_detail",
     "resume_expired_detail": "task_fail_resume_expired_detail",
+    "resume_endpoint_changed_detail": "task_fail_resume_endpoint_changed_detail",
     # ScriptEditError.key 本身就是 errors.py 的 key（见 lib/script_editor.py），无需前缀间接层。
     "script_edit_error": "script_edit_error",
     "script_edit_items_not_list": "script_edit_items_not_list",
