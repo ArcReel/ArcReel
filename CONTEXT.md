@@ -397,7 +397,7 @@ _Avoid_: 把所有 bearer token 都叫 API Key；把 `apikey:` subject 前缀当
 _Avoid_: 与会话 JWT 完全等同；scoped token（当前没有 scope）；把“不能管理 API Key”误读为普通有限权限凭证。
 
 **下载 token（download token）**：
-为项目导出签发的短时效（约 5 分钟）、绑定项目名且在有效期内可重复使用的 JWT（`purpose=download`），作为导出端点的 query param 唯一认证方式——端点自校验、不读 Authorization header，让浏览器原生下载的 URL 里不出现长效凭证。导出端点会校验用途与项目，但当前通用 JWT 认证路径不会拒绝它，因此它在有效期内也具有完整管理员权限。
+为项目导出签发的短时效（约 5 分钟）、绑定项目名且在有效期内可重复使用的 JWT（`purpose=download`），作为导出端点的 query param 唯一认证方式——端点自校验、不读 Authorization header，让浏览器原生下载的 URL 里不出现长效凭证。导出端点会校验用途与项目，但当前通用 JWT 认证路径不会拒绝它，因此它在有效期内也具有广泛管理员权限。其 `sub` 继承签发调用者：会话 JWT 签发的下载 token 通常连 API Key 管理也可访问；API Key 签发的下载 token 保留 `apikey:` 前缀，仍会被 API Key 管理路由拒绝。
 _Avoid_: 把它称为一次性或低权限凭证；把登录 JWT 放进下载 URL。
 
 **浏览器直发请求（browser-initiated request）**：

@@ -16,7 +16,7 @@ ArcReel is currently a **single-operator administrative application**, not a mul
 - A login JWT normally authorizes the complete administrative application surface, including API-key management. A configured login username beginning with `apikey:` is currently misclassified as an API key and denied by API-key management routes.
 - An `arc-` API key is a broad automation credential. It authorizes most business and configuration APIs but cannot create, list, or revoke API keys.
 - Repositories generally operate on the default user.
-- A stolen JWT is therefore treated as complete administrator compromise. A stolen API key is a high-impact compromise of the broad surface that key can access.
+- A stolen login JWT is therefore treated as complete administrator compromise. A stolen API key or download JWT is a high-impact compromise of the broad surface that credential can access.
 
 ## 2. System overview
 
@@ -98,7 +98,7 @@ ArcReel should preserve the following properties.
 7. **Controlled outbound access:** Provider-controlled and operator-configured destinations must not silently provide access to loopback, cloud metadata, private networks, or other sensitive services unless the operator has explicitly enabled and accepted that behavior.
 8. **Bounded untrusted processing:** Archives, uploads, provider responses, model output, and media parsing must have explicit limits for bytes, entries, memory, disk, CPU, concurrency, and execution time.
 9. **Secret minimization:** Secrets must not be returned unmasked, written to public project files, inherited by unnecessary subprocesses, exposed to the agent, or included in routine logs.
-10. **Bearer-token impact:** A stolen JWT is treated as complete administrator compromise. This currently includes a download JWT during its five-minute validity because the general JWT authentication path accepts it as an administrator bearer credential. The subject-prefix collision described in section 9.1 can deny API-key management without materially reducing that compromise. A stolen API key is treated as a high-impact compromise of most business and configuration APIs, excluding API-key management.
+10. **Bearer-token impact:** A stolen login JWT is treated as complete administrator compromise. A download JWT is accepted by the general JWT authentication path as an administrator bearer credential during its five-minute validity, but it inherits the issuer's subject: one minted through an API key retains the `apikey:` prefix and is denied by API-key management routes. That restriction does not materially reduce the compromise. A stolen API key is treated as a high-impact compromise of most business and configuration APIs, excluding API-key management.
 11. **Authentication-disabled isolation:** `AUTH_ENABLED=false` is safe only when network reachability is independently constrained to a trusted local environment.
 
 ## 6. Threat actors and capabilities
@@ -180,7 +180,7 @@ A compromised Python package, Node package, container image, SDK, ffmpeg build, 
 - Fail-closed handling for a blank `AUTH_ENABLED` value.
 - Generated administrative passwords when none is configured.
 - Seven-day HS256 JWTs.
-- Five-minute project-bound download tokens. Export routes enforce their purpose and project binding, but general JWT authentication currently accepts them as administrator bearer credentials during their validity.
+- Five-minute project-bound download tokens. Export routes enforce their purpose and project binding, but general JWT authentication currently accepts them as administrator bearer credentials during their validity. Their subjects are copied from the caller, so tokens minted through API keys retain the `apikey:` prefix and remain excluded from API-key management.
 - Random `arc-` API keys stored as SHA-256 hashes.
 - API-key expiration checks and bounded cache behavior.
 
@@ -264,7 +264,7 @@ Application request logging records URL paths rather than complete query strings
 
 - Automated login attempts may be sent without built-in rate limiting.
 - A stolen login JWT normally provides full administrative access; a stolen API key provides broad access except to API-key management. A login username beginning with `apikey:` collides with the current subject-prefix check and is also denied by API-key management routes.
-- A leaked download token can be replayed and used as a general administrator bearer credential during its five-minute validity.
+- A leaked download token can be replayed and used as a broad administrator bearer credential during its five-minute validity; if minted through an API key, its inherited `apikey:` subject remains excluded from API-key management.
 - Seven-day JWT lifetime increases the useful period of a stolen token.
 - Event-stream routes may accept a full JWT or API key in a query parameter.
 - `AUTH_ENABLED=false` causes authentication dependencies to return an anonymous administrator identity.
